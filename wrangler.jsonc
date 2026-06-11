@@ -1,0 +1,6 @@
+{
+  "$schema": "https://json.schemastore.org/wrangler",
+  "name": "haksan-web",
+  "compatibility_date": "2026-06-11",
+  "main": "apps/web/src/main.tsx"
+}
