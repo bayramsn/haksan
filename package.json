@@ -1,0 +1,27 @@
+{
+  "name": "haksan",
+  "private": true,
+  "version": "0.1.0",
+  "description": "CNC ERP/CRM monorepo — backend (NestJS) + frontend (React/Vite) + shared types",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:web": "npm --workspace @haksan/web run dev",
+    "dev:api": "npm --workspace @haksan/api run dev",
+    "build:web": "npm --workspace @haksan/web run build",
+    "build:api": "npm --workspace @haksan/api run build",
+    "build:shared": "npm --workspace @haksan/shared run build",
+    "db:generate": "npm --workspace @haksan/api run db:generate",
+    "db:migrate": "npm --workspace @haksan/api run db:migrate",
+    "db:seed": "npm --workspace @haksan/api run db:seed",
+    "test": "npm --workspace @haksan/api run test",
+    "docker:up": "docker compose up -d",
+    "docker:down": "docker compose down",
+    "docker:logs": "docker compose logs -f"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

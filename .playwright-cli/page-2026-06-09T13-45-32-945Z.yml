@@ -1,0 +1,475 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - generic [ref=e99]:
+      - complementary [ref=e100]:
+        - generic [ref=e101]:
+          - img [ref=e103]
+          - generic [ref=e105]:
+            - generic [ref=e106]: Haksan Makina
+            - generic [ref=e107]: CRM · Operasyon · Servis
+        - navigation [ref=e111]:
+          - generic [ref=e112]:
+            - generic [ref=e113]: Genel
+            - button "Gösterge Paneli" [ref=e115]:
+              - img [ref=e117]
+              - generic [ref=e122]: Gösterge Paneli
+          - generic [ref=e123]:
+            - generic [ref=e124]: Satış
+            - generic [ref=e125]:
+              - button "Firmalar" [ref=e126]:
+                - img [ref=e127]
+                - generic [ref=e131]: Firmalar
+              - button "Kontaklar" [ref=e132]:
+                - img [ref=e133]
+                - generic [ref=e137]: Kontaklar
+              - button "Satış Kartları" [ref=e138]:
+                - img [ref=e139]
+                - generic [ref=e142]: Satış Kartları
+              - button "Satış Kanban" [ref=e143]:
+                - img [ref=e144]
+                - generic [ref=e146]: Satış Kanban
+              - button "Teklifler" [ref=e147]:
+                - img [ref=e148]
+                - generic [ref=e151]: Teklifler
+              - button "Dokümanlar" [ref=e152]:
+                - img [ref=e153]
+                - generic [ref=e155]: Dokümanlar
+              - button "Ödemeler & Cari" [ref=e156]:
+                - img [ref=e157]
+                - generic [ref=e159]: Ödemeler & Cari
+              - button "Satış Fiyat Listesi" [ref=e160]:
+                - img [ref=e161]
+                - generic [ref=e164]: Satış Fiyat Listesi
+          - generic [ref=e165]:
+            - generic [ref=e166]: Operasyon
+            - generic [ref=e167]:
+              - button "Ürünler" [ref=e168]:
+                - img [ref=e169]
+                - generic [ref=e172]: Ürünler
+              - button "Stok" [ref=e173]:
+                - img [ref=e174]
+                - generic [ref=e184]: Stok
+              - button "Satın Alma" [ref=e185]:
+                - img [ref=e186]
+                - generic [ref=e190]: Satın Alma
+              - button "Sevkiyat" [ref=e191]:
+                - img [ref=e192]
+                - generic [ref=e197]: Sevkiyat
+              - button "Teslimat" [ref=e198]:
+                - img [ref=e199]
+                - generic [ref=e204]: Teslimat
+          - generic [ref=e205]:
+            - generic [ref=e206]: Servis
+            - generic [ref=e207]:
+              - button "Makineler" [ref=e208]:
+                - img [ref=e209]
+                - generic [ref=e212]: Makineler
+              - button "Kurulum" [ref=e213]:
+                - img [ref=e214]
+                - generic [ref=e216]: Kurulum
+              - button "Servis Talepleri 3" [ref=e217]:
+                - img [ref=e218]
+                - generic [ref=e225]: Servis Talepleri
+                - generic [ref=e226]: "3"
+              - button "Servis Kanban Yeni" [ref=e227]:
+                - img [ref=e228]
+                - generic [ref=e230]: Servis Kanban
+                - generic [ref=e231]: Yeni
+              - button "Servis Fiyat Listesi" [ref=e232]:
+                - img [ref=e233]
+                - generic [ref=e236]: Servis Fiyat Listesi
+          - generic [ref=e237]:
+            - generic [ref=e238]: Analiz
+            - button "Raporlar" [ref=e240]:
+              - img [ref=e241]
+              - generic [ref=e243]: Raporlar
+          - generic [ref=e244]:
+            - generic [ref=e245]: Yönetim
+            - generic [ref=e246]:
+              - button "Kullanıcılar" [ref=e247]:
+                - img [ref=e248]
+                - generic [ref=e253]: Kullanıcılar
+              - button "Roller & Yetkiler" [ref=e254]:
+                - img [ref=e255]
+                - generic [ref=e258]: Roller & Yetkiler
+              - button "Departmanlar" [ref=e259]:
+                - img [ref=e260]
+                - generic [ref=e264]: Departmanlar
+              - button "Ayarlar" [ref=e265]:
+                - img [ref=e266]
+                - generic [ref=e269]: Ayarlar
+        - generic [ref=e271]:
+          - generic [ref=e273]: AD
+          - generic [ref=e274]:
+            - generic [ref=e275]: Ayşe Demir
+            - generic [ref=e276]: SuperAdmin · Yönetim
+          - button [ref=e277]:
+            - img
+      - generic [ref=e278]:
+        - banner [ref=e279]:
+          - generic [ref=e280]:
+            - img [ref=e281]
+            - 'textbox "Firma ara: ad, şehir, e-posta, VKN..." [ref=e284]'
+            - generic [ref=e285]: ⌘K
+          - button "Hızlı Oluştur" [ref=e286]:
+            - img
+            - text: Hızlı Oluştur
+          - button [ref=e287]:
+            - img
+          - button [ref=e288]:
+            - img
+          - button "SY Sistem Yöneticisi Admin" [ref=e291]:
+            - generic [ref=e293]: SY
+            - generic [ref=e294]:
+              - generic [ref=e295]: Sistem Yöneticisi
+              - generic [ref=e296]: Admin
+            - img
+        - generic [ref=e298]:
+          - navigation [ref=e299]:
+            - generic [ref=e300]: Haksan
+            - img [ref=e301]
+            - generic [ref=e303]: Dashboard
+          - heading "Dashboard" [level=1] [ref=e304]
+          - paragraph [ref=e305]: Genel performans ve KPI özeti
+        - main [ref=e306]:
+          - generic [ref=e307]:
+            - generic [ref=e308]:
+              - generic [ref=e309]:
+                - img [ref=e311]
+                - generic [ref=e313]:
+                  - generic [ref=e314]: Hoş geldin Ayşe 👋
+                  - generic [ref=e315]: Bugün 3 teklif onayı, 2 sevkiyat ve 1 servis ziyareti planlı.
+              - generic [ref=e316]:
+                - button "Bugün" [ref=e317]:
+                  - img
+                  - text: Bugün
+                - button "Görevlerim" [ref=e318]:
+                  - text: Görevlerim
+                  - img
+            - generic [ref=e319]:
+              - generic [ref=e321]:
+                - generic [ref=e322]:
+                  - img [ref=e324]
+                  - generic [ref=e329]:
+                    - img [ref=e330]
+                    - text: 12%
+                - generic [ref=e333]: Aktif Müşteri
+                - generic [ref=e334]:
+                  - generic [ref=e335]: "3"
+                  - generic [ref=e336]: bu ay
+                - img [ref=e340]
+              - generic [ref=e344]:
+                - generic [ref=e345]:
+                  - img [ref=e347]
+                  - generic [ref=e350]:
+                    - img [ref=e351]
+                    - text: 5%
+                - generic [ref=e354]: Açık Kart
+                - generic [ref=e355]:
+                  - generic [ref=e356]: "12"
+                  - generic [ref=e357]: yeni
+                - img [ref=e361]
+              - generic [ref=e365]:
+                - generic [ref=e366]:
+                  - img [ref=e368]
+                  - generic [ref=e371]:
+                    - img [ref=e372]
+                    - text: 8%
+                - generic [ref=e375]: Pipeline
+                - generic [ref=e376]:
+                  - generic [ref=e377]: €1727K
+                  - generic [ref=e378]: aylık
+                - img [ref=e382]
+              - generic [ref=e386]:
+                - generic [ref=e387]:
+                  - img [ref=e389]
+                  - generic [ref=e393]:
+                    - img [ref=e394]
+                    - text: 2%
+                - generic [ref=e397]: Hazır Stok
+                - generic [ref=e398]:
+                  - generic [ref=e399]: "2"
+                  - generic [ref=e400]: adet
+                - img [ref=e404]
+              - generic [ref=e408]:
+                - generic [ref=e409]:
+                  - img [ref=e411]
+                  - generic [ref=e413]:
+                    - img [ref=e414]
+                    - text: 1%
+                - generic [ref=e417]: Aktif Makine
+                - generic [ref=e418]:
+                  - generic [ref=e419]: "0"
+                  - generic [ref=e420]: garantili
+                - img [ref=e424]
+              - generic [ref=e428]:
+                - generic [ref=e429]:
+                  - img [ref=e431]
+                  - generic [ref=e433]:
+                    - img [ref=e434]
+                    - text: "0"
+                - generic [ref=e437]: Gecikmiş
+                - generic [ref=e438]:
+                  - generic [ref=e439]: €0.0K
+                  - generic [ref=e440]: kayıt
+                - img [ref=e444]
+            - generic [ref=e447]:
+              - generic [ref=e448]:
+                - generic [ref=e449]:
+                  - generic [ref=e450]:
+                    - heading "Aylık Satış Performansı" [level=4] [ref=e451]
+                    - paragraph [ref=e452]: Son 6 ay · teklif vs kazanılan
+                  - generic [ref=e453]:
+                    - button "1A" [ref=e454]
+                    - button "3A" [ref=e455]
+                    - button "6A" [ref=e456]
+                    - button "1Y" [ref=e457]
+                - generic [ref=e460]:
+                  - img [ref=e461]:
+                    - generic [ref=e465]:
+                      - generic [ref=e467]: Ara
+                      - generic [ref=e469]: Oca
+                      - generic [ref=e471]: Şub
+                      - generic [ref=e473]: Mar
+                      - generic [ref=e475]: Nis
+                      - generic [ref=e477]: May
+                    - generic [ref=e479]:
+                      - generic [ref=e481]: "0"
+                      - generic [ref=e483]: "7"
+                      - generic [ref=e485]: "14"
+                      - generic [ref=e487]: "21"
+                      - generic [ref=e489]: "28"
+                  - list [ref=e499]:
+                    - listitem [ref=e500]:
+                      - img [ref=e501]
+                      - text: Teklif
+                    - listitem [ref=e503]:
+                      - img [ref=e504]
+                      - text: Kazanan
+              - generic [ref=e506]:
+                - generic [ref=e507]:
+                  - heading "Pipeline Dağılımı" [level=4] [ref=e508]
+                  - paragraph [ref=e509]: Aşamalara göre kart sayısı
+                - generic [ref=e512]:
+                  - img [ref=e513]:
+                    - generic [ref=e514]:
+                      - img [ref=e516]
+                      - img [ref=e518]
+                      - img [ref=e520]
+                      - img [ref=e522]
+                      - img [ref=e524]
+                      - img [ref=e526]
+                      - img [ref=e528]
+                      - img [ref=e530]
+                  - list [ref=e532]:
+                    - listitem [ref=e533]:
+                      - img [ref=e534]
+                      - text: Lead
+                    - listitem [ref=e536]:
+                      - img [ref=e537]
+                      - text: Satış
+                    - listitem [ref=e539]:
+                      - img [ref=e540]
+                      - text: Arama
+                    - listitem [ref=e542]:
+                      - img [ref=e543]
+                      - text: Ziyaret
+                    - listitem [ref=e545]:
+                      - img [ref=e546]
+                      - text: İptal
+                    - listitem [ref=e548]:
+                      - img [ref=e549]
+                      - text: Teklif
+                    - listitem [ref=e551]:
+                      - img [ref=e552]
+                      - text: Sözleşme
+                    - listitem [ref=e554]:
+                      - img [ref=e555]
+                      - text: Teslim Edildi
+            - generic [ref=e557]:
+              - generic [ref=e558]:
+                - generic [ref=e559]:
+                  - heading "Satış Hunisi" [level=4] [ref=e560]
+                  - paragraph [ref=e561]: Lead → Kurulum dönüşümü
+                - img [ref=e565]:
+                  - generic [ref=e569]:
+                    - generic [ref=e571]: "0"
+                    - generic [ref=e573]: "30"
+                    - generic [ref=e575]: "60"
+                    - generic [ref=e577]: "90"
+                    - generic [ref=e579]: "120"
+                  - generic [ref=e581]:
+                    - generic [ref=e583]: Lead
+                    - generic [ref=e585]: Teklif
+                    - generic [ref=e587]: Onay
+                    - generic [ref=e589]: Sözleşme
+                    - generic [ref=e591]: Kurulum
+              - generic [ref=e604]:
+                - generic [ref=e605]:
+                  - heading "Departman Performansı" [level=4] [ref=e606]
+                  - paragraph [ref=e607]: KPI · 0–100 endeks
+                - img [ref=e611]:
+                  - generic [ref=e625]:
+                    - generic [ref=e627]: Satış
+                    - generic [ref=e630]: Teklif
+                    - generic [ref=e633]: Tahsilat
+                    - generic [ref=e635]: Servis
+                    - generic [ref=e638]: Stok
+                    - generic [ref=e641]: Memnuniyet
+                  - generic [ref=e644]:
+                    - generic [ref=e646]: "0"
+                    - generic [ref=e648]: "25"
+                    - generic [ref=e650]: "50"
+                    - generic [ref=e652]: "75"
+                    - generic [ref=e654]: "100"
+              - generic [ref=e658]:
+                - generic [ref=e659]:
+                  - heading "Aylık Ciro" [level=4] [ref=e660]
+                  - paragraph [ref=e661]: Bin Euro
+                - img [ref=e665]:
+                  - generic [ref=e669]:
+                    - generic [ref=e671]: Ara
+                    - generic [ref=e673]: Oca
+                    - generic [ref=e675]: Şub
+                    - generic [ref=e677]: Mar
+                    - generic [ref=e679]: Nis
+                    - generic [ref=e681]: May
+                  - generic [ref=e683]:
+                    - generic [ref=e685]: "0"
+                    - generic [ref=e687]: "150"
+                    - generic [ref=e689]: "300"
+                    - generic [ref=e691]: "450"
+                    - generic [ref=e693]: "600"
+            - generic [ref=e703]:
+              - generic [ref=e704]:
+                - generic [ref=e705]:
+                  - heading "Kazanan vs Kaybedilen" [level=4] [ref=e706]
+                  - paragraph [ref=e707]: Aylık karşılaştırma
+                - generic [ref=e710]:
+                  - img [ref=e711]:
+                    - generic [ref=e715]:
+                      - generic [ref=e717]: Ara
+                      - generic [ref=e719]: Oca
+                      - generic [ref=e721]: Şub
+                      - generic [ref=e723]: Mar
+                      - generic [ref=e725]: Nis
+                      - generic [ref=e727]: May
+                    - generic [ref=e729]:
+                      - generic [ref=e731]: "0"
+                      - generic [ref=e733]: "4"
+                      - generic [ref=e735]: "8"
+                      - generic [ref=e737]: "12"
+                      - generic [ref=e739]: "16"
+                  - list [ref=e769]:
+                    - listitem [ref=e770]:
+                      - img [ref=e771]
+                      - text: Kazanan
+                    - listitem [ref=e773]:
+                      - img [ref=e774]
+                      - text: Kaybedilen
+              - generic [ref=e776]:
+                - generic [ref=e777]:
+                  - heading "Hedef Gerçekleşme" [level=4] [ref=e778]
+                  - paragraph [ref=e779]: Mayıs 2026
+                - generic [ref=e780]:
+                  - generic [ref=e781]:
+                    - generic [ref=e782]:
+                      - generic [ref=e783]:
+                        - img [ref=e784]
+                        - generic [ref=e787]: Aylık Satış
+                      - generic [ref=e788]: 62%
+                    - progressbar [ref=e789]
+                    - generic [ref=e791]: €260k / €420k
+                  - generic [ref=e792]:
+                    - generic [ref=e793]:
+                      - generic [ref=e794]:
+                        - img [ref=e795]
+                        - generic [ref=e798]: Yeni Müşteri
+                      - generic [ref=e799]: 78%
+                    - progressbar [ref=e800]
+                    - generic [ref=e802]: 11 / 14
+                  - generic [ref=e803]:
+                    - generic [ref=e804]:
+                      - generic [ref=e805]:
+                        - img [ref=e806]
+                        - generic [ref=e809]: Servis Memnuniyeti
+                      - generic [ref=e810]: 91%
+                    - progressbar [ref=e811]
+                    - generic [ref=e813]: 4.55 / 5.0
+                  - generic [ref=e814]:
+                    - generic [ref=e815]:
+                      - generic [ref=e816]:
+                        - img [ref=e817]
+                        - generic [ref=e819]: Stok Devir Hızı
+                      - generic [ref=e820]: 45%
+                    - progressbar [ref=e821]
+                    - generic [ref=e823]: Hedef altı
+            - generic [ref=e824]:
+              - generic [ref=e825]:
+                - generic [ref=e826]:
+                  - generic [ref=e827]:
+                    - heading "Açık Satış Kartları" [level=4] [ref=e828]
+                    - paragraph [ref=e829]: Takip edilmesi gerekenler
+                  - button "Tümü" [ref=e830]:
+                    - text: Tümü
+                    - img
+                - generic [ref=e832]:
+                  - generic [ref=e833] [cursor=pointer]:
+                    - generic [ref=e834]: AM
+                    - generic [ref=e835]:
+                      - generic [ref=e836]: ALİŞLER MAKİNA
+                      - generic [ref=e837]: ALİŞLER — ECOCA MT-208/500 CNC Torna · ALİŞLER — ECOCA MT-208/500 CNC Torna · Ersin
+                    - generic [ref=e838]: 64.885 USD
+                    - generic [ref=e839]: Ziyaret
+                  - generic [ref=e840] [cursor=pointer]:
+                    - generic [ref=e841]: KK
+                    - generic [ref=e842]:
+                      - generic [ref=e843]: KİLİTSAN KALIP İMALAT SAN. TİC. LTD. ŞTİ.
+                      - generic [ref=e844]: KİLİTSAN — MANFORD DL-2112 İşleme Merkezi · KİLİTSAN — MANFORD DL-2112 İşleme Merkezi · Ersin
+                    - generic [ref=e845]: 144.500 USD
+                    - generic [ref=e846]:
+                      - img [ref=e847]
+                      - text: Sözleşme
+                  - generic [ref=e850] [cursor=pointer]:
+                    - generic [ref=e851]: CM
+                    - generic [ref=e852]:
+                      - generic [ref=e853]: Contra Makine San. ve Tic. Ltd. Şti.
+                      - generic [ref=e854]: Contra Makine — LK MV-1050 Dik İşleme Merkezi · Contra Makine — LK MV-1050 Dik İşleme Merkezi · Ersin
+                    - generic [ref=e855]: 64.800 USD
+                    - generic [ref=e856]: Arama
+                  - generic [ref=e857] [cursor=pointer]:
+                    - generic [ref=e858]: AM
+                    - generic [ref=e859]:
+                      - generic [ref=e860]: ALİŞLER MAKİNA
+                      - generic [ref=e861]: Test opp 2 · Test opp 2 · Sistem
+                    - generic [ref=e862]: 0 USD
+                    - generic [ref=e863]: Lead
+                  - generic [ref=e864] [cursor=pointer]:
+                    - generic [ref=e865]: KK
+                    - generic [ref=e866]:
+                      - generic [ref=e867]: KİLİTSAN KALIP İMALAT SAN. TİC. LTD. ŞTİ.
+                      - generic [ref=e868]: KİLİTSAN — MANFORD DL-2112 İşleme Merkezi · KİLİTSAN — MANFORD DL-2112 İşleme Merkezi · Ersin
+                    - generic [ref=e869]: 170.000 USD
+                    - generic [ref=e870]:
+                      - img [ref=e871]
+                      - text: Sözleşme
+                  - generic [ref=e874] [cursor=pointer]:
+                    - generic [ref=e875]: KK
+                    - generic [ref=e876]:
+                      - generic [ref=e877]: KİLİTSAN KALIP İMALAT SAN. TİC. LTD. ŞTİ.
+                      - generic [ref=e878]: KİLİTSAN — MANFORD DL-2112 İşleme Merkezi · KİLİTSAN — MANFORD DL-2112 İşleme Merkezi · Ersin
+                    - generic [ref=e879]: 144.500 USD
+                    - generic [ref=e880]: Teklif
+              - generic [ref=e881]:
+                - generic [ref=e882]:
+                  - generic [ref=e883]:
+                    - heading "Açık Servis Talepleri" [level=4] [ref=e884]
+                    - paragraph [ref=e885]: Aktif 0 kayıt
+                  - button [ref=e886]:
+                    - img
+                - generic [ref=e889]:
+                  - img [ref=e891]
+                  - generic [ref=e894]: Açık servis talebi yok
+                  - paragraph [ref=e895]: Yeni talep geldiğinde bu alanda takip edilecek.
+    - region "Notifications alt+T"
+  - generic [ref=e896]: "4"

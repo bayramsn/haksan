@@ -1,0 +1,104 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1779985373112,
+      "tag": "0000_funny_frightful_four",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1780011600000,
+      "tag": "0001_orders_purchase_flow",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1780617600000,
+      "tag": "0002_contact_personal_details",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1780618800000,
+      "tag": "0003_company_form_lookups",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1780620000000,
+      "tag": "0004_product_edit_lookups",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1780621200000,
+      "tag": "0005_purchase_order_kind_invoice",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1780622400000,
+      "tag": "0006_quote_notes_templates",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1780623600000,
+      "tag": "0007_equipment_price",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1780624800000,
+      "tag": "0008_product_muadil",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1780626000000,
+      "tag": "0009_purchase_order_supplier_optional",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1780627200000,
+      "tag": "0010_quote_item_compatibility",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1780628400000,
+      "tag": "0011_opportunity_won_reason",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1781015642180,
+      "tag": "0012_happy_mockingbird",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1781015857396,
+      "tag": "0013_equal_maginty",
+      "breakpoints": true
+    }
+  ]
+}

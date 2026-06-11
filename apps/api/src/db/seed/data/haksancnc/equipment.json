@@ -1,0 +1,58 @@
+{
+  "haksan-cnc-c20-5u-5a": {
+    "standard": [
+      "MODEL Spindle Cooling Unit",
+      "3 Axes Roller Type Guideway with Self-lube Device Automatic Central Lubrication System with Alarm",
+      "Z Axis Brake Motor Without Counter-balance Block Arm Type 30 Tools ATC with Quick Tool Change Device",
+      "Spindle Nose Coolant Jet Flushing Spindle Side Air Blow & Coolant Nozzle & All-time Air Curtain",
+      "Air Gun & Coolant Spray Gun Machine Window with Safety Glass",
+      "Chip Conveyor (2 Sides Screw Drive + Front Side Screw Drive)",
+      "Rigid Tapping Auto Power Off",
+      "3 Colors Warning Lamp Tools & Tool Box Fluorescent Work Lamp (2 sets)",
+      "Ethernet Port A Axis with Heidenhain Angle Encoder EC/EMC Conformity Machine",
+      "3 Axes Internally Cooled Ballscrew Front Side Chain/ Scraper Type Chip Conveyor Chip Cart",
+      "Arm Type 48/60 Tool ATC with Quick Tool Change Device Tool Length Measurement System",
+      "Absolute Type 0.1u Resolution 3 Axes Optical Scale with Air-blow Protection",
+      "High Pressure Coolant Thru Spindle 22bar/50bar Extra Coolant Flushing Injection Around Spindle",
+      "2 Side Chip Flush System Coolant Cooling System Oil-mist Coolant System",
+      "Oil-mist Filtering & Recycle System Transformer to Suit Local Power",
+      "Voltage Regulator Workpiece Measurement System C Axis Heidenhain Angle Encoder",
+      "15000rpm Direct Drive Spindle HSK-63A Spindle Tapper Spindle"
+    ],
+    "optional": [],
+    "kind": "maximart"
+  },
+  "haksan-cnc-c30-5u-5a": {
+    "standard": [
+      "MODEL Spindle Cooling Unit",
+      "3 Axes Roller Type Guideway with Self-lube Device Automatic Central Lubrication System with Alarm",
+      "Z Axis Brake Motor Without Counter-balance Block Arm Type 30 Tools ATC with Quick Tool Change Device",
+      "Spindle Nose Coolant Jet Flushing Spindle Side Air Blow & Coolant Nozzle & All-time Air Curtain",
+      "Air Gun & Coolant Spray Gun Machine Window with Safety Glass",
+      "Chip Conveyor (2 Sides Screw Drive + Front Side Screw Drive)",
+      "Rigid Tapping Auto Power Off",
+      "3 Colors Warning Lamp Tools & Tool Box Fluorescent Work Lamp (2 sets)",
+      "Ethernet Port A Axis with Heidenhain Angle Encoder EC/EMC Conformity Machine",
+      "3 Axes Internally Cooled Ballscrew Front Side Chain/ Scraper Type Chip Conveyor Chip Cart",
+      "Arm Type 48/60 Tool ATC with Quick Tool Change Device Tool Length Measurement System",
+      "Absolute Type 0.1u Resolution 3 Axes Optical Scale with Air-blow Protection",
+      "High Pressure Coolant Thru Spindle 22bar/50bar Extra Coolant Flushing Injection Around Spindle",
+      "2 Side Chip Flush System Coolant Cooling System Oil-mist Coolant System",
+      "Oil-mist Filtering & Recycle System Transformer to Suit Local Power",
+      "Voltage Regulator Workpiece Measurement System C Axis Heidenhain Angle Encoder",
+      "15000rpm Direct Drive Spindle HSK-63A Spindle Tapper Spindle"
+    ],
+    "optional": [],
+    "kind": "maximart"
+  },
+  "haksan-cnc-d-600": {
+    "standard": [],
+    "optional": [],
+    "kind": "maximart"
+  },
+  "haksan-cnc-d-800t": {
+    "standard": [],
+    "optional": [],
+    "kind": "maximart"
+  }
+}

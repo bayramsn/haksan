@@ -1,0 +1,511 @@
+- generic:
+  - generic:
+    - generic:
+      - complementary:
+        - generic:
+          - generic:
+            - img
+          - generic:
+            - generic: Haksan Makina
+            - generic: CRM · Operasyon · Servis
+        - generic:
+          - generic:
+            - generic:
+              - navigation:
+                - generic:
+                  - generic: Genel
+                  - generic:
+                    - button:
+                      - img
+                      - generic: Gösterge Paneli
+                - generic:
+                  - generic: Satış
+                  - generic:
+                    - button:
+                      - img
+                      - generic: Firmalar
+                    - button:
+                      - img
+                      - generic: Kontaklar
+                    - button:
+                      - img
+                      - generic: Satış Kartları
+                    - button:
+                      - img
+                      - generic: Satış Kanban
+                    - button:
+                      - img
+                      - generic: Teklifler
+                    - button:
+                      - img
+                      - generic: Dokümanlar
+                    - button:
+                      - img
+                      - generic: Ödemeler & Cari
+                - generic:
+                  - generic: Operasyon
+                  - generic:
+                    - button:
+                      - img
+                      - generic: Ürünler
+                    - button:
+                      - img
+                      - generic: Stok
+                    - button:
+                      - img
+                      - generic: Satın Alma
+                    - button:
+                      - img
+                      - generic: Sevkiyat
+                    - button:
+                      - img
+                      - generic: Teslimat
+                - generic:
+                  - generic: Servis
+                  - generic:
+                    - button:
+                      - img
+                      - generic: Makineler
+                    - button:
+                      - img
+                      - generic: Kurulum
+                    - button:
+                      - img
+                      - generic: Servis Talepleri
+                      - generic: "3"
+                    - button:
+                      - img
+                      - generic: Servis Kanban
+                      - generic: Yeni
+                - generic:
+                  - generic: Analiz
+                  - generic:
+                    - button:
+                      - img
+                      - generic: Raporlar
+                - generic:
+                  - generic: Yönetim
+                  - generic:
+                    - button:
+                      - img
+                      - generic: Kullanıcılar
+                    - button:
+                      - img
+                      - generic: Roller & Yetkiler
+                    - button:
+                      - img
+                      - generic: Departmanlar
+                    - button:
+                      - img
+                      - generic: Ayarlar
+        - generic:
+          - generic:
+            - generic:
+              - generic: AD
+            - generic:
+              - generic: Ayşe Demir
+              - generic: SuperAdmin · Yönetim
+            - button:
+              - img
+      - generic:
+        - banner:
+          - generic:
+            - img
+            - textbox:
+              - /placeholder: "Firma ara: ad, şehir, e-posta, VKN..."
+            - generic: ⌘K
+          - button:
+            - img
+            - text: Hızlı Oluştur
+          - button:
+            - img
+          - button:
+            - img
+          - button:
+            - generic:
+              - generic: AD
+            - generic:
+              - generic: Ayşe Demir
+              - generic: SuperAdmin
+            - img
+        - generic:
+          - generic:
+            - navigation:
+              - generic: Haksan
+              - img
+              - generic: Ürünler
+            - heading [level=1]: Ürünler
+            - paragraph: Makine modeline göre ürün kataloğu
+        - main:
+          - generic:
+            - generic:
+              - generic:
+                - generic:
+                  - generic:
+                    - img
+                  - generic: Ürün Sayısı
+                  - generic:
+                    - generic: "3"
+              - generic:
+                - generic:
+                  - generic:
+                    - img
+                  - generic: Toplam Cihaz
+                  - generic:
+                    - generic: "6"
+              - generic:
+                - generic:
+                  - generic:
+                    - img
+                  - generic: Stokta Hazır
+                  - generic:
+                    - generic: "3"
+              - generic:
+                - generic:
+                  - generic:
+                    - img
+                  - generic: Sahada Kurulu
+                  - generic:
+                    - generic: "3"
+            - generic:
+              - generic:
+                - heading [level=4]: Model Bazlı Envanter
+                - paragraph: Stok / rezerve / satılan / sahada dağılımı
+              - generic:
+                - generic:
+                  - generic:
+                    - img:
+                      - generic:
+                        - generic:
+                          - generic:
+                            - generic: MT-208/500
+                          - generic:
+                            - generic: MV-1050
+                          - generic:
+                            - generic: DL-2112
+                      - generic:
+                        - generic:
+                          - generic:
+                            - generic: "0"
+                          - generic:
+                            - generic: "1"
+                          - generic:
+                            - generic: "2"
+                          - generic:
+                            - generic: "3"
+                          - generic:
+                            - generic: "4"
+            - generic:
+              - generic:
+                - generic:
+                  - generic: Ürün Kataloğu · 3 ürün
+                  - generic:
+                    - generic:
+                      - tablist:
+                        - tab [selected]: Tümü
+                        - tab: Tezgah
+                    - generic:
+                      - img
+                      - textbox:
+                        - /placeholder: Model / marka...
+                    - button:
+                      - img
+                      - text: İçe Aktar
+                    - button [expanded]:
+                      - img
+                      - text: Yeni Ürün
+                - generic:
+                  - button:
+                    - generic:
+                      - generic:
+                        - img
+                    - generic:
+                      - generic:
+                        - generic:
+                          - generic: ECOCA MT-208/500
+                          - generic: CNC Torna Tezgahı · Torna
+                        - generic: Tezgah
+                      - generic: ECOCA MT-208/500 CNC Torna Tezgahı
+                      - generic:
+                        - generic:
+                          - generic: "0"
+                          - generic: Cihaz
+                        - generic:
+                          - generic: "0"
+                          - generic: Stokta
+                        - generic:
+                          - generic: "0"
+                          - generic: Sahada
+                  - button:
+                    - generic:
+                      - generic:
+                        - img
+                    - generic:
+                      - generic:
+                        - generic:
+                          - generic: LK MV-1050
+                          - generic: CNC Dik İşleme Merkezi · İşleme Merkezi
+                        - generic: Tezgah
+                      - generic: LK MV-1050 CNC Dik İşleme Merkezi
+                      - generic:
+                        - generic:
+                          - generic: "0"
+                          - generic: Cihaz
+                        - generic:
+                          - generic: "0"
+                          - generic: Stokta
+                        - generic:
+                          - generic: "0"
+                          - generic: Sahada
+                  - button:
+                    - generic:
+                      - generic:
+                        - img
+                    - generic:
+                      - generic:
+                        - generic:
+                          - generic: MANFORD DL-2112
+                          - generic: CNC Köprü Tipi İşleme Merkezi · İşleme Merkezi
+                        - generic: Tezgah
+                      - generic: MANFORD DL-2112 Köprü Tipi CNC Dik İşleme Merkezi
+                      - generic:
+                        - generic:
+                          - generic: "0"
+                          - generic: Cihaz
+                        - generic:
+                          - generic: "0"
+                          - generic: Stokta
+                        - generic:
+                          - generic: "0"
+                          - generic: Sahada
+              - generic:
+                - generic:
+                  - generic:
+                    - generic:
+                      - heading [level=4]: ECOCA MT-208/500
+                      - paragraph: CNC Torna Tezgahı · Torna
+                    - button:
+                      - img
+                      - text: Düzenle
+                - generic:
+                  - generic:
+                    - generic: Aktif
+                    - generic:
+                      - img
+                      - text: 74.588 USD
+                  - generic:
+                    - generic:
+                      - generic: Grup
+                      - generic: CNC
+                    - generic:
+                      - generic: Kategori
+                      - generic: Tezgah
+                    - generic:
+                      - generic: Alt Kategori
+                      - generic: Torna
+                    - generic:
+                      - generic: Stok Kodu
+                      - generic: MT-208/500
+                    - generic:
+                      - generic: Peşin
+                      - generic: 68.300 USD
+                    - generic:
+                      - generic: KDV
+                      - generic: 8%
+                    - generic:
+                      - generic: Menşei
+                      - generic: —
+                    - generic:
+                      - generic: GTIP
+                      - generic: —
+                  - generic:
+                    - generic:
+                      - img
+                      - text: Teknik Özellikler
+                    - generic:
+                      - generic:
+                        - generic: Maksimum İşleme Çapı
+                        - generic: 500 mm
+                      - generic:
+                        - generic: Punta Arası Mesafe
+                        - generic: 500 mm
+                      - generic:
+                        - generic: Takım Yuvası Sayısı
+                        - generic: 8 Adet
+                      - generic:
+                        - generic: Fener Mili Devri
+                        - generic: 4.000 dv/dk
+                      - generic:
+                        - generic: Hidrolik Karşı Punta
+                        - generic: Standart
+                  - generic:
+                    - generic:
+                      - img
+                      - text: Standart Donanım
+                    - generic: Henüz girilmedi.
+                  - generic:
+                    - generic:
+                      - img
+                      - text: Opsiyonel Donanım
+                    - generic: Henüz girilmedi.
+                  - generic:
+                    - generic:
+                      - generic: "0"
+                      - generic: Cihaz
+                    - generic:
+                      - generic: "0"
+                      - generic: Stokta
+                    - generic:
+                      - generic: "0"
+                      - generic: Sahada
+    - region "Notifications alt+T"
+  - generic: "1"
+  - dialog "Yeni Ürün" [ref=e1088]:
+    - generic [ref=e1089]:
+      - heading "Yeni Ürün" [level=2] [ref=e1090]
+      - paragraph [ref=e1091]: Ürün sınıflandırması, fiyat, stok kodu, fotoğraf ve teknik bilgileri tek ekranda yönetin.
+    - generic [ref=e1092]:
+      - generic [ref=e1093]:
+        - generic [ref=e1094]:
+          - generic [ref=e1095]: Ürün Markası
+          - generic [ref=e1097]:
+            - combobox "Marka adı" [active] [ref=e1098]
+            - generic [ref=e1099]:
+              - button "LK" [ref=e1100]
+              - button "ECOCA" [ref=e1101]
+              - button "MANFORD" [ref=e1102]
+              - button "MAXİMART" [ref=e1103]
+        - generic [ref=e1104]:
+          - generic [ref=e1105]: Ürün Grubu
+          - generic [ref=e1107]:
+            - button "CNC" [ref=e1108]
+            - button "Üniversal" [ref=e1109]
+            - button "Sac İşleme" [ref=e1110]
+        - generic [ref=e1111]:
+          - generic [ref=e1112]: Ürün Kategorisi
+          - generic [ref=e1114]:
+            - button "Tezgah" [ref=e1115]
+            - button "Yedek Parça" [ref=e1116]
+            - button "Opsiyonel Donanım" [ref=e1117]
+            - button "İşçilik" [ref=e1118]
+            - button "Aksesuar" [ref=e1119]
+        - generic [ref=e1120]:
+          - generic [ref=e1121]: Ürün Alt Kategori Tezgah
+          - generic [ref=e1123]:
+            - button "İşleme Merkezi" [ref=e1124]
+            - button "Torna" [ref=e1125]
+        - generic [ref=e1126]:
+          - generic [ref=e1127]: Ürün Tipi
+          - generic [ref=e1129]:
+            - generic [ref=e1130]:
+              - generic [ref=e1131]: Ürün tipi işleme merkezi için liste
+              - generic [ref=e1132]:
+                - button "CNC Dik İşleme Merkezi" [ref=e1133]
+                - button "CNC Yatay İşleme Merkezi" [ref=e1134]
+                - button "CNC Köprü Tipi İşleme Merkezi" [ref=e1135]
+                - button "CNC 5 Eksen İşleme Merkezi" [ref=e1136]
+            - generic [ref=e1137]:
+              - generic [ref=e1138]: Ürün tipi torna
+              - generic [ref=e1139]:
+                - button "CNC Yatay Torna Tezgahı" [ref=e1140]
+                - button "CNC Dik Torna Tezgahı" [ref=e1141]
+            - generic [ref=e1142]:
+              - generic [ref=e1143]: Ürün tipi yedek parça
+              - generic [ref=e1144]:
+                - button "Elektronik" [ref=e1145]
+                - button "Elektrik" [ref=e1146]
+                - button "Mekanik" [ref=e1147]
+            - generic [ref=e1148]:
+              - generic [ref=e1149]: Ürün tipi opsiyonel donanım
+              - generic [ref=e1150]:
+                - button "Kontrol Ünitesi" [ref=e1151]
+                - button "Spindle" [ref=e1152]
+            - generic [ref=e1153]:
+              - generic [ref=e1154]: Ürün tipi işçilik
+              - button "İşçilik" [ref=e1156]
+            - generic [ref=e1157]:
+              - generic [ref=e1158]: Ürün tipi aksesuar
+              - generic [ref=e1159]:
+                - button "Yağ Sıyırıcı" [ref=e1160]
+                - button "Tutucu & Takımlar" [ref=e1161]
+                - button "Divizör" [ref=e1162]
+                - button "Regülatör" [ref=e1163]
+        - generic [ref=e1164]:
+          - generic [ref=e1165]: Ürün Adı
+          - textbox "Ürün adı" [ref=e1167]
+        - generic [ref=e1168]:
+          - generic [ref=e1169]: Ürün Para Birimi
+          - generic [ref=e1171]:
+            - button "USD" [ref=e1172]
+            - button "TL" [ref=e1173]
+            - button "EUR" [ref=e1174]
+        - generic [ref=e1175]:
+          - generic [ref=e1176]: Liste Fiyatı
+          - textbox "0" [ref=e1178]
+        - generic [ref=e1179]:
+          - generic [ref=e1180]: Peşin Fiyatı
+          - textbox "0" [ref=e1182]
+        - generic [ref=e1183]:
+          - generic [ref=e1184]: Menşei
+          - textbox "Ülke" [ref=e1186]
+        - generic [ref=e1187]:
+          - generic [ref=e1188]: GTIP Kodu
+          - textbox [ref=e1190]
+        - generic [ref=e1191]:
+          - generic [ref=e1192]: Ürün KDV
+          - generic [ref=e1194]:
+            - button "1%" [ref=e1195]
+            - button "10%" [ref=e1196]
+            - button "20%" [ref=e1197]
+        - generic [ref=e1198]:
+          - generic [ref=e1199]: Ürün Stok Kodu
+          - textbox [ref=e1201]
+        - generic [ref=e1202]:
+          - generic [ref=e1203]: Ürün Fotoğrafı
+          - generic [ref=e1205]:
+            - textbox "https://..." [ref=e1206]
+            - generic [ref=e1208]: Fotoğraf yok
+        - generic [ref=e1209]:
+          - generic [ref=e1210]: Durum
+          - generic [ref=e1211]:
+            - combobox [ref=e1212]:
+              - generic: Aktif
+              - img
+            - combobox [ref=e1213]
+        - generic [ref=e1214]:
+          - generic [ref=e1215]: Teknik Bilgiler
+          - generic [ref=e1217]:
+            - generic [ref=e1218]:
+              - generic [ref=e1219]: Ürün tipine göre değişiklik gösterecek teknik satırlar.
+              - button "Özellik Ekle" [ref=e1220]:
+                - img
+                - text: Özellik Ekle
+            - generic [ref=e1222]:
+              - 'textbox "Örn: Tabla ölçüsü" [ref=e1223]'
+              - 'textbox "Örn: 1200 x 600 mm" [ref=e1224]'
+              - button [ref=e1225]:
+                - img
+        - generic [ref=e1226]:
+          - generic [ref=e1227]: Notlar
+          - textbox [ref=e1229]
+      - generic [ref=e1230]:
+        - generic [ref=e1231]:
+          - generic [ref=e1232]: Standart Donanımlar
+          - generic [ref=e1233]:
+            - textbox "Donanım ekleyip Enter'a basın" [ref=e1234]
+            - button [ref=e1235]:
+              - img
+          - generic [ref=e1237]: Henüz eklenmedi
+        - generic [ref=e1238]:
+          - generic [ref=e1239]: Opsiyonel Donanımlar
+          - generic [ref=e1240]:
+            - textbox "Opsiyonel donanım ekleyin" [ref=e1241]
+            - button [ref=e1242]:
+              - img
+          - generic [ref=e1244]: Henüz eklenmedi
+      - generic [ref=e1245]:
+        - button "İptal" [ref=e1246]
+        - button "Oluştur" [ref=e1247]
+    - button "Close" [ref=e1248]:
+      - img
+      - generic [ref=e1249]: Close

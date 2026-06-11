@@ -1,0 +1,822 @@
+- generic [ref=e1]:
+  - generic [ref=e2]:
+    - generic [ref=e99]:
+      - complementary [ref=e100]:
+        - generic [ref=e101]:
+          - img [ref=e103]
+          - generic [ref=e105]:
+            - generic [ref=e106]: Haksan Makina
+            - generic [ref=e107]: CRM · Operasyon · Servis
+        - navigation [ref=e111]:
+          - generic [ref=e112]:
+            - generic [ref=e113]: Genel
+            - button "Gösterge Paneli" [ref=e115]:
+              - img [ref=e117]
+              - generic [ref=e122]: Gösterge Paneli
+          - generic [ref=e123]:
+            - generic [ref=e124]: Satış
+            - generic [ref=e125]:
+              - button "Firmalar" [ref=e126]:
+                - img [ref=e127]
+                - generic [ref=e131]: Firmalar
+              - button "Kontaklar" [ref=e132]:
+                - img [ref=e133]
+                - generic [ref=e137]: Kontaklar
+              - button "Satış Kartları" [ref=e138]:
+                - img [ref=e139]
+                - generic [ref=e142]: Satış Kartları
+              - button "Teklifler" [ref=e143]:
+                - img [ref=e144]
+                - generic [ref=e147]: Teklifler
+              - button "Dokümanlar" [ref=e148]:
+                - img [ref=e149]
+                - generic [ref=e151]: Dokümanlar
+              - button "Ödemeler & Cari" [ref=e152]:
+                - img [ref=e153]
+                - generic [ref=e155]: Ödemeler & Cari
+              - button "Satış Fiyat Listesi" [ref=e156]:
+                - img [ref=e157]
+                - generic [ref=e160]: Satış Fiyat Listesi
+          - generic [ref=e161]:
+            - generic [ref=e162]: Operasyon
+            - generic [ref=e163]:
+              - button "Ürünler" [ref=e164]:
+                - img [ref=e165]
+                - generic [ref=e168]: Ürünler
+              - button "Stok" [ref=e169]:
+                - img [ref=e170]
+                - generic [ref=e180]: Stok
+              - button "Satın Alma" [ref=e181]:
+                - img [ref=e182]
+                - generic [ref=e186]: Satın Alma
+              - button "Sevkiyat" [ref=e187]:
+                - img [ref=e188]
+                - generic [ref=e193]: Sevkiyat
+              - button "Teslimat" [ref=e194]:
+                - img [ref=e195]
+                - generic [ref=e200]: Teslimat
+          - generic [ref=e201]:
+            - generic [ref=e202]: Servis
+            - generic [ref=e203]:
+              - button "Makineler" [ref=e204]:
+                - img [ref=e205]
+                - generic [ref=e208]: Makineler
+              - button "Kurulum" [ref=e209]:
+                - img [ref=e210]
+                - generic [ref=e212]: Kurulum
+              - button "Servis Talepleri 3" [ref=e213]:
+                - img [ref=e214]
+                - generic [ref=e221]: Servis Talepleri
+                - generic [ref=e222]: "3"
+              - button "Servis Kanban Yeni" [ref=e223]:
+                - img [ref=e224]
+                - generic [ref=e226]: Servis Kanban
+                - generic [ref=e227]: Yeni
+              - button "Servis Fiyat Listesi" [ref=e228]:
+                - img [ref=e229]
+                - generic [ref=e232]: Servis Fiyat Listesi
+          - generic [ref=e233]:
+            - generic [ref=e234]: Analiz
+            - button "Raporlar" [ref=e236]:
+              - img [ref=e237]
+              - generic [ref=e239]: Raporlar
+          - generic [ref=e240]:
+            - generic [ref=e241]: Yönetim
+            - generic [ref=e242]:
+              - button "Kullanıcılar" [ref=e243]:
+                - img [ref=e244]
+                - generic [ref=e249]: Kullanıcılar
+              - button "Roller & Yetkiler" [ref=e250]:
+                - img [ref=e251]
+                - generic [ref=e254]: Roller & Yetkiler
+              - button "Departmanlar" [ref=e255]:
+                - img [ref=e256]
+                - generic [ref=e260]: Departmanlar
+              - button "Ayarlar" [ref=e261]:
+                - img [ref=e262]
+                - generic [ref=e265]: Ayarlar
+        - generic [ref=e267]:
+          - generic [ref=e269]: AD
+          - generic [ref=e270]:
+            - generic [ref=e271]: Ayşe Demir
+            - generic [ref=e272]: SuperAdmin · Yönetim
+          - button [ref=e273]:
+            - img
+      - generic [ref=e274]:
+        - banner [ref=e275]:
+          - generic [ref=e276]:
+            - img [ref=e277]
+            - 'textbox "Firma ara: ad, şehir, e-posta, VKN..." [ref=e280]'
+            - generic [ref=e281]: ⌘K
+          - button "Hızlı Oluştur" [ref=e282]:
+            - img
+            - text: Hızlı Oluştur
+          - button [ref=e283]:
+            - img
+          - button [ref=e284]:
+            - img
+          - button "SY Sistem Yöneticisi Admin" [ref=e287]:
+            - generic [ref=e289]: SY
+            - generic [ref=e290]:
+              - generic [ref=e291]: Sistem Yöneticisi
+              - generic [ref=e292]: Admin
+            - img
+        - generic [ref=e293]:
+          - generic [ref=e294]:
+            - navigation [ref=e295]:
+              - generic [ref=e296]: Haksan
+              - img [ref=e297]
+              - generic [ref=e299]: Satış Kartları
+            - heading "Satış Kartları" [level=1] [ref=e894]
+            - paragraph [ref=e301]: Tüm satış fırsatları
+          - button "Yeni Satış Kartı" [ref=e896]:
+            - img
+            - text: Yeni Satış Kartı
+        - main [ref=e302]:
+          - generic [ref=e897]:
+            - tablist [ref=e898]:
+              - tab "Liste" [ref=e899]
+              - tab "Kanban" [active] [selected] [ref=e900]
+            - tabpanel "Kanban" [ref=e1279]:
+              - generic [ref=e1280]:
+                - generic [ref=e1281]:
+                  - button "Sola kaydır" [ref=e1282]:
+                    - img
+                  - button "Sağa kaydır" [ref=e1283]:
+                    - img
+                - generic [ref=e1285]:
+                  - generic [ref=e1286]:
+                    - generic [ref=e1287]:
+                      - generic [ref=e1288]:
+                        - generic [ref=e1290]: Lead
+                        - generic [ref=e1291]: "1"
+                      - button [ref=e1293]:
+                        - img
+                    - generic [ref=e1295]:
+                      - generic [ref=e1296]: Toplam
+                      - generic [ref=e1297]: € 0
+                    - generic [ref=e1300]:
+                      - generic [ref=e1301]:
+                        - img [ref=e1303]
+                        - generic [ref=e1307]:
+                          - generic [ref=e1308]: ALİŞLER MAKİNA
+                          - generic [ref=e1309]: Test opp 2
+                        - button "Aşamaya gönder" [ref=e1310]:
+                          - img
+                      - generic [ref=e1311]:
+                        - generic [ref=e1312]: Test opp 2
+                        - generic [ref=e1313]: ×1
+                      - generic [ref=e1314]:
+                        - generic [ref=e1315]: 0 USD
+                        - generic [ref=e1316]:
+                          - generic [ref=e1317]:
+                            - img [ref=e1318]
+                            - text: 06-09
+                          - generic [ref=e1321]: SY
+                  - generic [ref=e1322]:
+                    - generic [ref=e1323]:
+                      - generic [ref=e1324]:
+                        - generic [ref=e1326]: Satış
+                        - generic [ref=e1327]: "1"
+                      - button [ref=e1329]:
+                        - img
+                    - generic [ref=e1331]:
+                      - generic [ref=e1332]: Toplam
+                      - generic [ref=e1333]: € 64.800
+                    - generic [ref=e1336]:
+                      - generic [ref=e1337]:
+                        - img [ref=e1339]
+                        - generic [ref=e1343]:
+                          - generic [ref=e1344]: Contra Makine San. ve Tic. Ltd. Şti.
+                          - generic [ref=e1345]: Contra Makine — LK MV-1050 Dik İşleme Merkezi
+                        - button "Aşamaya gönder" [ref=e1346]:
+                          - img
+                      - generic [ref=e1347]:
+                        - generic [ref=e1348]: Contra Makine — LK MV-1050 Dik İşleme Merkezi
+                        - generic [ref=e1349]: ×1
+                      - generic [ref=e1350]:
+                        - generic [ref=e1351]: 64.800 USD
+                        - generic [ref=e1352]:
+                          - generic [ref=e1353]:
+                            - img [ref=e1354]
+                            - text: 06-19
+                          - generic [ref=e1357]: EÇ
+                  - generic [ref=e1358]:
+                    - generic [ref=e1359]:
+                      - generic [ref=e1360]:
+                        - generic [ref=e1362]: Arama
+                        - generic [ref=e1363]: "1"
+                      - button [ref=e1365]:
+                        - img
+                    - generic [ref=e1367]:
+                      - generic [ref=e1368]: Toplam
+                      - generic [ref=e1369]: € 64.800
+                    - generic [ref=e1372]:
+                      - generic [ref=e1373]:
+                        - img [ref=e1375]
+                        - generic [ref=e1379]:
+                          - generic [ref=e1380]: Contra Makine San. ve Tic. Ltd. Şti.
+                          - generic [ref=e1381]: Contra Makine — LK MV-1050 Dik İşleme Merkezi
+                        - button "Aşamaya gönder" [ref=e1382]:
+                          - img
+                      - generic [ref=e1383]:
+                        - generic [ref=e1384]: Contra Makine — LK MV-1050 Dik İşleme Merkezi
+                        - generic [ref=e1385]: ×1
+                      - generic [ref=e1386]:
+                        - generic [ref=e1387]: 64.800 USD
+                        - generic [ref=e1388]:
+                          - generic [ref=e1389]:
+                            - img [ref=e1390]
+                            - text: 06-13
+                          - generic [ref=e1393]: EÇ
+                  - generic [ref=e1394]:
+                    - generic [ref=e1395]:
+                      - generic [ref=e1396]:
+                        - generic [ref=e1398]: Ziyaret
+                        - generic [ref=e1399]: "3"
+                      - button [ref=e1401]:
+                        - img
+                    - generic [ref=e1403]:
+                      - generic [ref=e1404]: Toplam
+                      - generic [ref=e1405]: € 204.900
+                    - generic [ref=e1406]:
+                      - generic [ref=e1408]:
+                        - generic [ref=e1409]:
+                          - img [ref=e1411]
+                          - generic [ref=e1415]:
+                            - generic [ref=e1416]: ALİŞLER MAKİNA
+                            - generic [ref=e1417]: ALİŞLER — ECOCA MT-208/500 CNC Torna
+                          - button "Aşamaya gönder" [ref=e1418]:
+                            - img
+                        - generic [ref=e1419]:
+                          - generic [ref=e1420]: ALİŞLER — ECOCA MT-208/500 CNC Torna
+                          - generic [ref=e1421]: ×1
+                        - generic [ref=e1422]:
+                          - generic [ref=e1423]: 64.885 USD
+                          - generic [ref=e1424]:
+                            - generic [ref=e1425]:
+                              - img [ref=e1426]
+                              - text: 11-14
+                            - generic [ref=e1429]: EÇ
+                      - generic [ref=e1431]:
+                        - generic [ref=e1432]:
+                          - img [ref=e1434]
+                          - generic [ref=e1438]:
+                            - generic [ref=e1439]: ALİŞLER MAKİNA
+                            - generic [ref=e1440]: ALİŞLER — ECOCA MT-208/500 CNC Torna
+                          - button "Aşamaya gönder" [ref=e1441]:
+                            - img
+                        - generic [ref=e1442]:
+                          - generic [ref=e1443]: ALİŞLER — ECOCA MT-208/500 CNC Torna
+                          - generic [ref=e1444]: ×1
+                        - generic [ref=e1445]:
+                          - generic [ref=e1446]: 64.885 USD
+                          - generic [ref=e1447]:
+                            - generic [ref=e1448]:
+                              - img [ref=e1449]
+                              - text: 11-20
+                            - generic [ref=e1452]: EÇ
+                      - generic [ref=e1454]:
+                        - generic [ref=e1455]:
+                          - img [ref=e1457]
+                          - generic [ref=e1461]:
+                            - generic [ref=e1462]: ALİŞLER MAKİNA
+                            - generic [ref=e1463]: ALİŞLER — ECOCA MT-208/500 CNC Torna
+                          - button "Aşamaya gönder" [ref=e1464]:
+                            - img
+                        - generic [ref=e1465]:
+                          - generic [ref=e1466]: ALİŞLER — ECOCA MT-208/500 CNC Torna
+                          - generic [ref=e1467]: ×1
+                        - generic [ref=e1468]:
+                          - generic [ref=e1469]: 75.130 USD
+                          - generic [ref=e1470]:
+                            - generic [ref=e1471]:
+                              - img [ref=e1472]
+                              - text: 02-11
+                            - generic [ref=e1475]: EÇ
+                  - generic [ref=e1476]:
+                    - generic [ref=e1477]:
+                      - generic [ref=e1478]:
+                        - generic [ref=e1480]: İptal
+                        - generic [ref=e1481]: "10"
+                      - button [ref=e1483]:
+                        - img
+                    - generic [ref=e1485]:
+                      - generic [ref=e1486]: Toplam
+                      - generic [ref=e1487]: € 1.026.445
+                    - generic [ref=e1488]:
+                      - generic [ref=e1490]:
+                        - generic [ref=e1491]:
+                          - img [ref=e1493]
+                          - generic [ref=e1497]:
+                            - generic [ref=e1498]: KİLİTSAN KALIP İMALAT SAN. TİC. LTD. ŞTİ.
+                            - generic [ref=e1499]: KİLİTSAN — MANFORD DL-2112 İşleme Merkezi
+                          - button "Aşamaya gönder" [ref=e1500]:
+                            - img
+                        - generic [ref=e1501]:
+                          - generic [ref=e1502]: KİLİTSAN — MANFORD DL-2112 İşleme Merkezi
+                          - generic [ref=e1503]: ×1
+                        - generic [ref=e1504]:
+                          - generic [ref=e1505]: 170.000 USD
+                          - generic [ref=e1506]:
+                            - generic [ref=e1507]:
+                              - img [ref=e1508]
+                              - text: 10-09
+                            - generic [ref=e1511]: EÇ
+                      - generic [ref=e1513]:
+                        - generic [ref=e1514]:
+                          - img [ref=e1516]
+                          - generic [ref=e1520]:
+                            - generic [ref=e1521]: ALİŞLER MAKİNA
+                            - generic [ref=e1522]: ALİŞLER — ECOCA MT-208/500 CNC Torna
+                          - button "Aşamaya gönder" [ref=e1523]:
+                            - img
+                        - generic [ref=e1524]:
+                          - generic [ref=e1525]: ALİŞLER — ECOCA MT-208/500 CNC Torna
+                          - generic [ref=e1526]: ×1
+                        - generic [ref=e1527]:
+                          - generic [ref=e1528]: 75.130 USD
+                          - generic [ref=e1529]:
+                            - generic [ref=e1530]:
+                              - img [ref=e1531]
+                              - text: 08-11
+                            - generic [ref=e1534]: EÇ
+                      - generic [ref=e1536]:
+                        - generic [ref=e1537]:
+                          - img [ref=e1539]
+                          - generic [ref=e1543]:
+                            - generic [ref=e1544]: ALİŞLER MAKİNA
+                            - generic [ref=e1545]: Test opp
+                          - button "Aşamaya gönder" [ref=e1546]:
+                            - img
+                        - generic [ref=e1547]:
+                          - generic [ref=e1548]: Test opp
+                          - generic [ref=e1549]: ×1
+                          - generic [ref=e1550]: Teklif
+                        - generic [ref=e1551]:
+                          - generic [ref=e1552]: 100.000 USD
+                          - generic [ref=e1553]:
+                            - generic [ref=e1554]:
+                              - img [ref=e1555]
+                              - text: 06-09
+                            - generic [ref=e1558]: SY
+                      - generic [ref=e1560]:
+                        - generic [ref=e1561]:
+                          - img [ref=e1563]
+                          - generic [ref=e1567]:
+                            - generic [ref=e1568]: ALİŞLER MAKİNA
+                            - generic [ref=e1569]: ALİŞLER — ECOCA MT-208/500 CNC Torna
+                          - button "Aşamaya gönder" [ref=e1570]:
+                            - img
+                        - generic [ref=e1571]:
+                          - generic [ref=e1572]: ALİŞLER — ECOCA MT-208/500 CNC Torna
+                          - generic [ref=e1573]: ×1
+                        - generic [ref=e1574]:
+                          - generic [ref=e1575]: 64.885 USD
+                          - generic [ref=e1576]:
+                            - generic [ref=e1577]:
+                              - img [ref=e1578]
+                              - text: 05-08
+                            - generic [ref=e1581]: EÇ
+                      - generic [ref=e1583]:
+                        - generic [ref=e1584]:
+                          - img [ref=e1586]
+                          - generic [ref=e1590]:
+                            - generic [ref=e1591]: Contra Makine San. ve Tic. Ltd. Şti.
+                            - generic [ref=e1592]: Contra Makine — LK MV-1050 Dik İşleme Merkezi
+                          - button "Aşamaya gönder" [ref=e1593]:
+                            - img
+                        - generic [ref=e1594]:
+                          - generic [ref=e1595]: Contra Makine — LK MV-1050 Dik İşleme Merkezi
+                          - generic [ref=e1596]: ×1
+                        - generic [ref=e1597]:
+                          - generic [ref=e1598]: 75.600 USD
+                          - generic [ref=e1599]:
+                            - generic [ref=e1600]:
+                              - img [ref=e1601]
+                              - text: 03-10
+                            - generic [ref=e1604]: EÇ
+                      - generic [ref=e1606]:
+                        - generic [ref=e1607]:
+                          - img [ref=e1609]
+                          - generic [ref=e1613]:
+                            - generic [ref=e1614]: ALİŞLER MAKİNA
+                            - generic [ref=e1615]: ALİŞLER — ECOCA MT-208/500 CNC Torna
+                          - button "Aşamaya gönder" [ref=e1616]:
+                            - img
+                        - generic [ref=e1617]:
+                          - generic [ref=e1618]: ALİŞLER — ECOCA MT-208/500 CNC Torna
+                          - generic [ref=e1619]: ×1
+                        - generic [ref=e1620]:
+                          - generic [ref=e1621]: 75.130 USD
+                          - generic [ref=e1622]:
+                            - generic [ref=e1623]:
+                              - img [ref=e1624]
+                              - text: 08-17
+                            - generic [ref=e1627]: EÇ
+                      - generic [ref=e1629]:
+                        - generic [ref=e1630]:
+                          - img [ref=e1632]
+                          - generic [ref=e1636]:
+                            - generic [ref=e1637]: Contra Makine San. ve Tic. Ltd. Şti.
+                            - generic [ref=e1638]: Contra Makine — LK MV-1050 Dik İşleme Merkezi
+                          - button "Aşamaya gönder" [ref=e1639]:
+                            - img
+                        - generic [ref=e1640]:
+                          - generic [ref=e1641]: Contra Makine — LK MV-1050 Dik İşleme Merkezi
+                          - generic [ref=e1642]: ×1
+                        - generic [ref=e1643]:
+                          - generic [ref=e1644]: 75.600 USD
+                          - generic [ref=e1645]:
+                            - generic [ref=e1646]:
+                              - img [ref=e1647]
+                              - text: 03-16
+                            - generic [ref=e1650]: EÇ
+                      - generic [ref=e1652]:
+                        - generic [ref=e1653]:
+                          - img [ref=e1655]
+                          - generic [ref=e1659]:
+                            - generic [ref=e1660]: KİLİTSAN KALIP İMALAT SAN. TİC. LTD. ŞTİ.
+                            - generic [ref=e1661]: KİLİTSAN — MANFORD DL-2112 İşleme Merkezi
+                          - button "Aşamaya gönder" [ref=e1662]:
+                            - img
+                        - generic [ref=e1663]:
+                          - generic [ref=e1664]: KİLİTSAN — MANFORD DL-2112 İşleme Merkezi
+                          - generic [ref=e1665]: ×1
+                        - generic [ref=e1666]:
+                          - generic [ref=e1667]: 144.500 USD
+                          - generic [ref=e1668]:
+                            - generic [ref=e1669]:
+                              - img [ref=e1670]
+                              - text: 01-18
+                            - generic [ref=e1673]: EÇ
+                      - generic [ref=e1675]:
+                        - generic [ref=e1676]:
+                          - img [ref=e1678]
+                          - generic [ref=e1682]:
+                            - generic [ref=e1683]: Contra Makine San. ve Tic. Ltd. Şti.
+                            - generic [ref=e1684]: Contra Makine — LK MV-1050 Dik İşleme Merkezi
+                          - button "Aşamaya gönder" [ref=e1685]:
+                            - img
+                        - generic [ref=e1686]:
+                          - generic [ref=e1687]: Contra Makine — LK MV-1050 Dik İşleme Merkezi
+                          - generic [ref=e1688]: ×1
+                        - generic [ref=e1689]:
+                          - generic [ref=e1690]: 75.600 USD
+                          - generic [ref=e1691]:
+                            - generic [ref=e1692]:
+                              - img [ref=e1693]
+                              - text: 09-10
+                            - generic [ref=e1696]: EÇ
+                      - generic [ref=e1698]:
+                        - generic [ref=e1699]:
+                          - img [ref=e1701]
+                          - generic [ref=e1705]:
+                            - generic [ref=e1706]: KİLİTSAN KALIP İMALAT SAN. TİC. LTD. ŞTİ.
+                            - generic [ref=e1707]: KİLİTSAN — MANFORD DL-2112 İşleme Merkezi
+                          - button "Aşamaya gönder" [ref=e1708]:
+                            - img
+                        - generic [ref=e1709]:
+                          - generic [ref=e1710]: KİLİTSAN — MANFORD DL-2112 İşleme Merkezi
+                          - generic [ref=e1711]: ×1
+                        - generic [ref=e1712]:
+                          - generic [ref=e1713]: 170.000 USD
+                          - generic [ref=e1714]:
+                            - generic [ref=e1715]:
+                              - img [ref=e1716]
+                              - text: 04-09
+                            - generic [ref=e1719]: EÇ
+                  - generic [ref=e1720]:
+                    - generic [ref=e1721]:
+                      - generic [ref=e1722]:
+                        - generic [ref=e1724]: Teklif
+                        - generic [ref=e1725]: "1"
+                      - button [ref=e1727]:
+                        - img
+                    - generic [ref=e1729]:
+                      - generic [ref=e1730]: Toplam
+                      - generic [ref=e1731]: € 144.500
+                    - generic [ref=e1734]:
+                      - generic [ref=e1735]:
+                        - img [ref=e1737]
+                        - generic [ref=e1741]:
+                          - generic [ref=e1742]: KİLİTSAN KALIP İMALAT SAN. TİC. LTD. ŞTİ.
+                          - generic [ref=e1743]: KİLİTSAN — MANFORD DL-2112 İşleme Merkezi
+                        - button "Aşamaya gönder" [ref=e1744]:
+                          - img
+                      - generic [ref=e1745]:
+                        - generic [ref=e1746]: KİLİTSAN — MANFORD DL-2112 İşleme Merkezi
+                        - generic [ref=e1747]: ×1
+                      - generic [ref=e1748]:
+                        - generic [ref=e1749]: 144.500 USD
+                        - generic [ref=e1750]:
+                          - generic [ref=e1751]:
+                            - img [ref=e1752]
+                            - text: 01-12
+                          - generic [ref=e1755]: EÇ
+                  - generic [ref=e1756]:
+                    - generic [ref=e1757]:
+                      - generic [ref=e1758]:
+                        - generic [ref=e1760]: Proforma
+                        - generic [ref=e1761]: "0"
+                      - button [ref=e1763]:
+                        - img
+                    - generic [ref=e1765]:
+                      - generic [ref=e1766]: Toplam
+                      - generic [ref=e1767]: € 0
+                    - generic [ref=e1769]: Kart yok
+                  - generic [ref=e1770]:
+                    - generic [ref=e1771]:
+                      - generic [ref=e1772]:
+                        - generic [ref=e1774]: Sözleşme
+                        - generic [ref=e1775]: "5"
+                      - button [ref=e1777]:
+                        - img
+                    - generic [ref=e1779]:
+                      - generic [ref=e1780]: Toplam
+                      - generic [ref=e1781]: € 773.500
+                    - generic [ref=e1782]:
+                      - generic [ref=e1784]:
+                        - generic [ref=e1785]:
+                          - img [ref=e1787]
+                          - generic [ref=e1791]:
+                            - generic [ref=e1792]: KİLİTSAN KALIP İMALAT SAN. TİC. LTD. ŞTİ.
+                            - generic [ref=e1793]: KİLİTSAN — MANFORD DL-2112 İşleme Merkezi
+                          - button "Aşamaya gönder" [ref=e1794]:
+                            - img
+                        - generic [ref=e1795]:
+                          - generic [ref=e1796]: KİLİTSAN — MANFORD DL-2112 İşleme Merkezi
+                          - generic [ref=e1797]: ×1
+                        - generic [ref=e1798]:
+                          - generic [ref=e1799]: 144.500 USD
+                          - generic [ref=e1800]:
+                            - generic [ref=e1801]:
+                              - img [ref=e1802]
+                              - text: 07-06
+                            - generic [ref=e1805]: EÇ
+                      - generic [ref=e1807]:
+                        - generic [ref=e1808]:
+                          - img [ref=e1810]
+                          - generic [ref=e1814]:
+                            - generic [ref=e1815]: KİLİTSAN KALIP İMALAT SAN. TİC. LTD. ŞTİ.
+                            - generic [ref=e1816]: KİLİTSAN — MANFORD DL-2112 İşleme Merkezi
+                          - button "Aşamaya gönder" [ref=e1817]:
+                            - img
+                        - generic [ref=e1818]:
+                          - generic [ref=e1819]: KİLİTSAN — MANFORD DL-2112 İşleme Merkezi
+                          - generic [ref=e1820]: ×1
+                        - generic [ref=e1821]:
+                          - generic [ref=e1822]: 170.000 USD
+                          - generic [ref=e1823]:
+                            - generic [ref=e1824]:
+                              - img [ref=e1825]
+                              - text: 04-21
+                            - generic [ref=e1828]: EÇ
+                      - generic [ref=e1830]:
+                        - generic [ref=e1831]:
+                          - img [ref=e1833]
+                          - generic [ref=e1837]:
+                            - generic [ref=e1838]: KİLİTSAN KALIP İMALAT SAN. TİC. LTD. ŞTİ.
+                            - generic [ref=e1839]: KİLİTSAN — MANFORD DL-2112 İşleme Merkezi
+                          - button "Aşamaya gönder" [ref=e1840]:
+                            - img
+                        - generic [ref=e1841]:
+                          - generic [ref=e1842]: KİLİTSAN — MANFORD DL-2112 İşleme Merkezi
+                          - generic [ref=e1843]: ×1
+                        - generic [ref=e1844]:
+                          - generic [ref=e1845]: 170.000 USD
+                          - generic [ref=e1846]:
+                            - generic [ref=e1847]:
+                              - img [ref=e1848]
+                              - text: 10-15
+                            - generic [ref=e1851]: EÇ
+                      - generic [ref=e1853]:
+                        - generic [ref=e1854]:
+                          - img [ref=e1856]
+                          - generic [ref=e1860]:
+                            - generic [ref=e1861]: KİLİTSAN KALIP İMALAT SAN. TİC. LTD. ŞTİ.
+                            - generic [ref=e1862]: KİLİTSAN — MANFORD DL-2112 İşleme Merkezi
+                          - button "Aşamaya gönder" [ref=e1863]:
+                            - img
+                        - generic [ref=e1864]:
+                          - generic [ref=e1865]: KİLİTSAN — MANFORD DL-2112 İşleme Merkezi
+                          - generic [ref=e1866]: ×1
+                        - generic [ref=e1867]:
+                          - generic [ref=e1868]: 144.500 USD
+                          - generic [ref=e1869]:
+                            - generic [ref=e1870]:
+                              - img [ref=e1871]
+                              - text: 07-12
+                            - generic [ref=e1874]: EÇ
+                      - generic [ref=e1876]:
+                        - generic [ref=e1877]:
+                          - img [ref=e1879]
+                          - generic [ref=e1883]:
+                            - generic [ref=e1884]: KİLİTSAN KALIP İMALAT SAN. TİC. LTD. ŞTİ.
+                            - generic [ref=e1885]: KİLİTSAN — MANFORD DL-2112 İşleme Merkezi
+                          - button "Aşamaya gönder" [ref=e1886]:
+                            - img
+                        - generic [ref=e1887]:
+                          - generic [ref=e1888]: KİLİTSAN — MANFORD DL-2112 İşleme Merkezi
+                          - generic [ref=e1889]: ×1
+                        - generic [ref=e1890]:
+                          - generic [ref=e1891]: 144.500 USD
+                          - generic [ref=e1892]:
+                            - generic [ref=e1893]:
+                              - img [ref=e1894]
+                              - text: 01-06
+                            - generic [ref=e1897]: EÇ
+                  - generic [ref=e1898]:
+                    - generic [ref=e1899]:
+                      - generic [ref=e1900]:
+                        - generic [ref=e1902]: Ticari Fatura
+                        - generic [ref=e1903]: "0"
+                      - button [ref=e1905]:
+                        - img
+                    - generic [ref=e1907]:
+                      - generic [ref=e1908]: Toplam
+                      - generic [ref=e1909]: € 0
+                    - generic [ref=e1911]: Kart yok
+                  - generic [ref=e1912]:
+                    - generic [ref=e1913]:
+                      - generic [ref=e1914]:
+                        - generic [ref=e1916]: Gümrük Onayı
+                        - generic [ref=e1917]: "0"
+                      - button [ref=e1919]:
+                        - img
+                    - generic [ref=e1921]:
+                      - generic [ref=e1922]: Toplam
+                      - generic [ref=e1923]: € 0
+                    - generic [ref=e1925]: Kart yok
+                  - generic [ref=e1926]:
+                    - generic [ref=e1927]:
+                      - generic [ref=e1928]:
+                        - generic [ref=e1930]: Stok Seçimi
+                        - generic [ref=e1931]: "0"
+                      - button [ref=e1933]:
+                        - img
+                    - generic [ref=e1935]:
+                      - generic [ref=e1936]: Toplam
+                      - generic [ref=e1937]: € 0
+                    - generic [ref=e1939]: Kart yok
+                  - generic [ref=e1940]:
+                    - generic [ref=e1941]:
+                      - generic [ref=e1942]:
+                        - generic [ref=e1944]: Sevkiyat
+                        - generic [ref=e1945]: "0"
+                      - button [ref=e1947]:
+                        - img
+                    - generic [ref=e1949]:
+                      - generic [ref=e1950]: Toplam
+                      - generic [ref=e1951]: € 0
+                    - generic [ref=e1953]: Kart yok
+                  - generic [ref=e1954]:
+                    - generic [ref=e1955]:
+                      - generic [ref=e1956]:
+                        - generic [ref=e1958]: Kurulum
+                        - generic [ref=e1959]: "0"
+                      - button [ref=e1961]:
+                        - img
+                    - generic [ref=e1963]:
+                      - generic [ref=e1964]: Toplam
+                      - generic [ref=e1965]: € 0
+                    - generic [ref=e1967]: Kart yok
+                  - generic [ref=e1968]:
+                    - generic [ref=e1969]:
+                      - generic [ref=e1970]:
+                        - generic [ref=e1972]: Teslim Edildi
+                        - generic [ref=e1973]: "7"
+                      - button [ref=e1975]:
+                        - img
+                    - generic [ref=e1977]:
+                      - generic [ref=e1978]: Toplam
+                      - generic [ref=e1979]: € 474.900
+                    - generic [ref=e1980]:
+                      - generic [ref=e1982]:
+                        - generic [ref=e1983]:
+                          - img [ref=e1985]
+                          - generic [ref=e1989]:
+                            - generic [ref=e1990]: Contra Makine San. ve Tic. Ltd. Şti.
+                            - generic [ref=e1991]: Contra Makine — LK MV-1050 Dik İşleme Merkezi
+                          - button "Aşamaya gönder" [ref=e1992]:
+                            - img
+                        - generic [ref=e1993]:
+                          - generic [ref=e1994]: Contra Makine — LK MV-1050 Dik İşleme Merkezi
+                          - generic [ref=e1995]: ×1
+                        - generic [ref=e1996]:
+                          - generic [ref=e1997]: 64.800 USD
+                          - generic [ref=e1998]:
+                            - generic [ref=e1999]:
+                              - img [ref=e2000]
+                              - text: 12-07
+                            - generic [ref=e2003]: EÇ
+                      - generic [ref=e2005]:
+                        - generic [ref=e2006]:
+                          - img [ref=e2008]
+                          - generic [ref=e2012]:
+                            - generic [ref=e2013]: Contra Makine San. ve Tic. Ltd. Şti.
+                            - generic [ref=e2014]: Contra Makine — LK MV-1050 Dik İşleme Merkezi
+                          - button "Aşamaya gönder" [ref=e2015]:
+                            - img
+                        - generic [ref=e2016]:
+                          - generic [ref=e2017]: Contra Makine — LK MV-1050 Dik İşleme Merkezi
+                          - generic [ref=e2018]: ×1
+                        - generic [ref=e2019]:
+                          - generic [ref=e2020]: 75.600 USD
+                          - generic [ref=e2021]:
+                            - generic [ref=e2022]:
+                              - img [ref=e2023]
+                              - text: 09-22
+                            - generic [ref=e2026]: EÇ
+                      - generic [ref=e2028]:
+                        - generic [ref=e2029]:
+                          - img [ref=e2031]
+                          - generic [ref=e2035]:
+                            - generic [ref=e2036]: ALİŞLER MAKİNA
+                            - generic [ref=e2037]: ALİŞLER — ECOCA MT-208/500 CNC Torna
+                          - button "Aşamaya gönder" [ref=e2038]:
+                            - img
+                        - generic [ref=e2039]:
+                          - generic [ref=e2040]: ALİŞLER — ECOCA MT-208/500 CNC Torna
+                          - generic [ref=e2041]: ×1
+                        - generic [ref=e2042]:
+                          - generic [ref=e2043]: 75.130 USD
+                          - generic [ref=e2044]:
+                            - generic [ref=e2045]:
+                              - img [ref=e2046]
+                              - text: 02-23
+                            - generic [ref=e2049]: EÇ
+                      - generic [ref=e2051]:
+                        - generic [ref=e2052]:
+                          - img [ref=e2054]
+                          - generic [ref=e2058]:
+                            - generic [ref=e2059]: Contra Makine San. ve Tic. Ltd. Şti.
+                            - generic [ref=e2060]: Contra Makine — LK MV-1050 Dik İşleme Merkezi
+                          - button "Aşamaya gönder" [ref=e2061]:
+                            - img
+                        - generic [ref=e2062]:
+                          - generic [ref=e2063]: Contra Makine — LK MV-1050 Dik İşleme Merkezi
+                          - generic [ref=e2064]: ×1
+                        - generic [ref=e2065]:
+                          - generic [ref=e2066]: 64.800 USD
+                          - generic [ref=e2067]:
+                            - generic [ref=e2068]:
+                              - img [ref=e2069]
+                              - text: 12-13
+                            - generic [ref=e2072]: EÇ
+                      - generic [ref=e2074]:
+                        - generic [ref=e2075]:
+                          - img [ref=e2077]
+                          - generic [ref=e2081]:
+                            - generic [ref=e2082]: ALİŞLER MAKİNA
+                            - generic [ref=e2083]: ALİŞLER — ECOCA MT-208/500 CNC Torna
+                          - button "Aşamaya gönder" [ref=e2084]:
+                            - img
+                        - generic [ref=e2085]:
+                          - generic [ref=e2086]: ALİŞLER — ECOCA MT-208/500 CNC Torna
+                          - generic [ref=e2087]: ×1
+                        - generic [ref=e2088]:
+                          - generic [ref=e2089]: 64.885 USD
+                          - generic [ref=e2090]:
+                            - generic [ref=e2091]:
+                              - img [ref=e2092]
+                              - text: 05-14
+                            - generic [ref=e2095]: EÇ
+                      - generic [ref=e2097]:
+                        - generic [ref=e2098]:
+                          - img [ref=e2100]
+                          - generic [ref=e2104]:
+                            - generic [ref=e2105]: ALİŞLER MAKİNA
+                            - generic [ref=e2106]: ALİŞLER — ECOCA MT-208/500 CNC Torna
+                          - button "Aşamaya gönder" [ref=e2107]:
+                            - img
+                        - generic [ref=e2108]:
+                          - generic [ref=e2109]: ALİŞLER — ECOCA MT-208/500 CNC Torna
+                          - generic [ref=e2110]: ×1
+                        - generic [ref=e2111]:
+                          - generic [ref=e2112]: 64.885 USD
+                          - generic [ref=e2113]:
+                            - generic [ref=e2114]:
+                              - img [ref=e2115]
+                              - text: 11-08
+                            - generic [ref=e2118]: EÇ
+                      - generic [ref=e2120]:
+                        - generic [ref=e2121]:
+                          - img [ref=e2123]
+                          - generic [ref=e2127]:
+                            - generic [ref=e2128]: Contra Makine San. ve Tic. Ltd. Şti.
+                            - generic [ref=e2129]: Contra Makine — LK MV-1050 Dik İşleme Merkezi
+                          - button "Aşamaya gönder" [ref=e2130]:
+                            - img
+                        - generic [ref=e2131]:
+                          - generic [ref=e2132]: Contra Makine — LK MV-1050 Dik İşleme Merkezi
+                          - generic [ref=e2133]: ×1
+                        - generic [ref=e2134]:
+                          - generic [ref=e2135]: 64.800 USD
+                          - generic [ref=e2136]:
+                            - generic [ref=e2137]:
+                              - img [ref=e2138]
+                              - text: 06-07
+                            - generic [ref=e2141]: EÇ
+    - region "Notifications alt+T"
+  - generic [ref=e892]: "4"

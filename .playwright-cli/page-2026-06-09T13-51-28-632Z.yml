@@ -1,0 +1,457 @@
+- generic [ref=e1]:
+  - generic [ref=e2]:
+    - generic [ref=e99]:
+      - complementary [ref=e100]:
+        - generic [ref=e101]:
+          - img [ref=e103]
+          - generic [ref=e105]:
+            - generic [ref=e106]: Haksan Makina
+            - generic [ref=e107]: CRM · Operasyon · Servis
+        - navigation [ref=e111]:
+          - generic [ref=e112]:
+            - generic [ref=e113]: Genel
+            - button "Gösterge Paneli" [ref=e115]:
+              - img [ref=e117]
+              - generic [ref=e122]: Gösterge Paneli
+          - generic [ref=e123]:
+            - generic [ref=e124]: Satış
+            - generic [ref=e125]:
+              - button "Firmalar" [ref=e126]:
+                - img [ref=e127]
+                - generic [ref=e131]: Firmalar
+              - button "Kontaklar" [ref=e132]:
+                - img [ref=e133]
+                - generic [ref=e137]: Kontaklar
+              - button "Satış Kartları" [active] [ref=e138]:
+                - img [ref=e139]
+                - generic [ref=e142]: Satış Kartları
+              - button "Teklifler" [ref=e143]:
+                - img [ref=e144]
+                - generic [ref=e147]: Teklifler
+              - button "Dokümanlar" [ref=e148]:
+                - img [ref=e149]
+                - generic [ref=e151]: Dokümanlar
+              - button "Ödemeler & Cari" [ref=e152]:
+                - img [ref=e153]
+                - generic [ref=e155]: Ödemeler & Cari
+              - button "Satış Fiyat Listesi" [ref=e156]:
+                - img [ref=e157]
+                - generic [ref=e160]: Satış Fiyat Listesi
+          - generic [ref=e161]:
+            - generic [ref=e162]: Operasyon
+            - generic [ref=e163]:
+              - button "Ürünler" [ref=e164]:
+                - img [ref=e165]
+                - generic [ref=e168]: Ürünler
+              - button "Stok" [ref=e169]:
+                - img [ref=e170]
+                - generic [ref=e180]: Stok
+              - button "Satın Alma" [ref=e181]:
+                - img [ref=e182]
+                - generic [ref=e186]: Satın Alma
+              - button "Sevkiyat" [ref=e187]:
+                - img [ref=e188]
+                - generic [ref=e193]: Sevkiyat
+              - button "Teslimat" [ref=e194]:
+                - img [ref=e195]
+                - generic [ref=e200]: Teslimat
+          - generic [ref=e201]:
+            - generic [ref=e202]: Servis
+            - generic [ref=e203]:
+              - button "Makineler" [ref=e204]:
+                - img [ref=e205]
+                - generic [ref=e208]: Makineler
+              - button "Kurulum" [ref=e209]:
+                - img [ref=e210]
+                - generic [ref=e212]: Kurulum
+              - button "Servis Talepleri 3" [ref=e213]:
+                - img [ref=e214]
+                - generic [ref=e221]: Servis Talepleri
+                - generic [ref=e222]: "3"
+              - button "Servis Kanban Yeni" [ref=e223]:
+                - img [ref=e224]
+                - generic [ref=e226]: Servis Kanban
+                - generic [ref=e227]: Yeni
+              - button "Servis Fiyat Listesi" [ref=e228]:
+                - img [ref=e229]
+                - generic [ref=e232]: Servis Fiyat Listesi
+          - generic [ref=e233]:
+            - generic [ref=e234]: Analiz
+            - button "Raporlar" [ref=e236]:
+              - img [ref=e237]
+              - generic [ref=e239]: Raporlar
+          - generic [ref=e240]:
+            - generic [ref=e241]: Yönetim
+            - generic [ref=e242]:
+              - button "Kullanıcılar" [ref=e243]:
+                - img [ref=e244]
+                - generic [ref=e249]: Kullanıcılar
+              - button "Roller & Yetkiler" [ref=e250]:
+                - img [ref=e251]
+                - generic [ref=e254]: Roller & Yetkiler
+              - button "Departmanlar" [ref=e255]:
+                - img [ref=e256]
+                - generic [ref=e260]: Departmanlar
+              - button "Ayarlar" [ref=e261]:
+                - img [ref=e262]
+                - generic [ref=e265]: Ayarlar
+        - generic [ref=e267]:
+          - generic [ref=e269]: AD
+          - generic [ref=e270]:
+            - generic [ref=e271]: Ayşe Demir
+            - generic [ref=e272]: SuperAdmin · Yönetim
+          - button [ref=e273]:
+            - img
+      - generic [ref=e274]:
+        - banner [ref=e275]:
+          - generic [ref=e276]:
+            - img [ref=e277]
+            - 'textbox "Firma ara: ad, şehir, e-posta, VKN..." [ref=e280]'
+            - generic [ref=e281]: ⌘K
+          - button "Hızlı Oluştur" [ref=e282]:
+            - img
+            - text: Hızlı Oluştur
+          - button [ref=e283]:
+            - img
+          - button [ref=e284]:
+            - img
+          - button "SY Sistem Yöneticisi Admin" [ref=e287]:
+            - generic [ref=e289]: SY
+            - generic [ref=e290]:
+              - generic [ref=e291]: Sistem Yöneticisi
+              - generic [ref=e292]: Admin
+            - img
+        - generic [ref=e293]:
+          - generic [ref=e294]:
+            - navigation [ref=e295]:
+              - generic [ref=e296]: Haksan
+              - img [ref=e297]
+              - generic [ref=e299]: Satış Kartları
+            - heading "Satış Kartları" [level=1] [ref=e894]
+            - paragraph [ref=e301]: Tüm satış fırsatları
+          - button "Yeni Satış Kartı" [ref=e896]:
+            - img
+            - text: Yeni Satış Kartı
+        - main [ref=e302]:
+          - generic [ref=e897]:
+            - tablist [ref=e898]:
+              - tab "Liste" [selected] [ref=e899]
+              - tab "Kanban" [ref=e900]
+            - tabpanel "Liste" [ref=e901]:
+              - generic [ref=e902]:
+                - generic [ref=e903]:
+                  - generic [ref=e904]:
+                    - img [ref=e905]
+                    - textbox "Müşteri / ürün ara..." [ref=e908]
+                  - button "Filtre" [ref=e909]:
+                    - img
+                    - text: Filtre
+                - button "Excel" [ref=e910]:
+                  - img
+                  - text: Excel
+              - generic [ref=e911]:
+                - table [ref=e914]:
+                  - rowgroup [ref=e915]:
+                    - row "Müşteri Ürün / Model Adet Tutar Aşama Atanan Açılış" [ref=e916]:
+                      - columnheader "Müşteri" [ref=e917]:
+                        - button "Müşteri" [ref=e918]:
+                          - text: Müşteri
+                          - img [ref=e919]
+                      - columnheader "Ürün / Model" [ref=e922]
+                      - columnheader "Adet" [ref=e923]
+                      - columnheader "Tutar" [ref=e924]
+                      - columnheader "Aşama" [ref=e925]
+                      - columnheader "Atanan" [ref=e926]
+                      - columnheader "Açılış" [ref=e927]
+                      - columnheader [ref=e928]
+                  - rowgroup [ref=e929]:
+                    - 'row "Contra Makine San. ve Tic. Ltd. Şti. #781F582F-58FB-47AC-94F6-F8E6873B0DCB · Contra Makine — LK MV-1050 Dik İşleme Merkezi Contra Makine — LK MV-1050 Dik İşleme Merkezi 1 64.800 USD Teslim Edildi EÇ Ersin 2026-12-07" [ref=e930] [cursor=pointer]':
+                      - 'cell "Contra Makine San. ve Tic. Ltd. Şti. #781F582F-58FB-47AC-94F6-F8E6873B0DCB ·" [ref=e931]':
+                        - generic [ref=e932]:
+                          - img [ref=e934]
+                          - generic [ref=e938]:
+                            - generic [ref=e939]: Contra Makine San. ve Tic. Ltd. Şti.
+                            - generic [ref=e940]: "#781F582F-58FB-47AC-94F6-F8E6873B0DCB ·"
+                      - cell "Contra Makine — LK MV-1050 Dik İşleme Merkezi Contra Makine — LK MV-1050 Dik İşleme Merkezi" [ref=e941]:
+                        - generic [ref=e942]: Contra Makine — LK MV-1050 Dik İşleme Merkezi
+                        - generic [ref=e943]: Contra Makine — LK MV-1050 Dik İşleme Merkezi
+                      - cell "1" [ref=e944]
+                      - cell "64.800 USD" [ref=e945]
+                      - cell "Teslim Edildi" [ref=e946]:
+                        - generic [ref=e947]:
+                          - img [ref=e948]
+                          - text: Teslim Edildi
+                      - cell "EÇ Ersin" [ref=e951]:
+                        - generic [ref=e952]:
+                          - generic [ref=e954]: EÇ
+                          - generic [ref=e955]: Ersin
+                      - cell "2026-12-07" [ref=e956]
+                      - cell [ref=e957]:
+                        - button "Detay" [ref=e958]:
+                          - img
+                    - 'row "ALİŞLER MAKİNA #FEB4F865-AD8E-4122-9CB0-BF5085633712 · ALİŞLER — ECOCA MT-208/500 CNC Torna ALİŞLER — ECOCA MT-208/500 CNC Torna 1 64.885 USD Ziyaret EÇ Ersin 2026-11-14" [ref=e959] [cursor=pointer]':
+                      - 'cell "ALİŞLER MAKİNA #FEB4F865-AD8E-4122-9CB0-BF5085633712 ·" [ref=e960]':
+                        - generic [ref=e961]:
+                          - img [ref=e963]
+                          - generic [ref=e967]:
+                            - generic [ref=e968]: ALİŞLER MAKİNA
+                            - generic [ref=e969]: "#FEB4F865-AD8E-4122-9CB0-BF5085633712 ·"
+                      - cell "ALİŞLER — ECOCA MT-208/500 CNC Torna ALİŞLER — ECOCA MT-208/500 CNC Torna" [ref=e970]:
+                        - generic [ref=e971]: ALİŞLER — ECOCA MT-208/500 CNC Torna
+                        - generic [ref=e972]: ALİŞLER — ECOCA MT-208/500 CNC Torna
+                      - cell "1" [ref=e973]
+                      - cell "64.885 USD" [ref=e974]
+                      - cell "Ziyaret" [ref=e975]:
+                        - generic [ref=e976]: Ziyaret
+                      - cell "EÇ Ersin" [ref=e977]:
+                        - generic [ref=e978]:
+                          - generic [ref=e980]: EÇ
+                          - generic [ref=e981]: Ersin
+                      - cell "2026-11-14" [ref=e982]
+                      - cell [ref=e983]:
+                        - button "Detay" [ref=e984]:
+                          - img
+                    - 'row "KİLİTSAN KALIP İMALAT SAN. TİC. LTD. ŞTİ. #F863783D-380D-485E-A96A-C89B5F5E7A16 · KİLİTSAN — MANFORD DL-2112 İşleme Merkezi KİLİTSAN — MANFORD DL-2112 İşleme Merkezi 1 170.000 USD İptal EÇ Ersin 2026-10-09" [ref=e985] [cursor=pointer]':
+                      - 'cell "KİLİTSAN KALIP İMALAT SAN. TİC. LTD. ŞTİ. #F863783D-380D-485E-A96A-C89B5F5E7A16 ·" [ref=e986]':
+                        - generic [ref=e987]:
+                          - img [ref=e989]
+                          - generic [ref=e993]:
+                            - generic [ref=e994]: KİLİTSAN KALIP İMALAT SAN. TİC. LTD. ŞTİ.
+                            - generic [ref=e995]: "#F863783D-380D-485E-A96A-C89B5F5E7A16 ·"
+                      - cell "KİLİTSAN — MANFORD DL-2112 İşleme Merkezi KİLİTSAN — MANFORD DL-2112 İşleme Merkezi" [ref=e996]:
+                        - generic [ref=e997]: KİLİTSAN — MANFORD DL-2112 İşleme Merkezi
+                        - generic [ref=e998]: KİLİTSAN — MANFORD DL-2112 İşleme Merkezi
+                      - cell "1" [ref=e999]
+                      - cell "170.000 USD" [ref=e1000]
+                      - cell "İptal" [ref=e1001]:
+                        - generic [ref=e1002]:
+                          - img [ref=e1003]
+                          - text: İptal
+                      - cell "EÇ Ersin" [ref=e1007]:
+                        - generic [ref=e1008]:
+                          - generic [ref=e1010]: EÇ
+                          - generic [ref=e1011]: Ersin
+                      - cell "2026-10-09" [ref=e1012]
+                      - cell [ref=e1013]:
+                        - button "Detay" [ref=e1014]:
+                          - img
+                    - 'row "Contra Makine San. ve Tic. Ltd. Şti. #AA9F0EF1-03B6-4CE1-9C6B-F127E231CF08 · Contra Makine — LK MV-1050 Dik İşleme Merkezi Contra Makine — LK MV-1050 Dik İşleme Merkezi 1 75.600 USD Teslim Edildi EÇ Ersin 2026-09-22" [ref=e1015] [cursor=pointer]':
+                      - 'cell "Contra Makine San. ve Tic. Ltd. Şti. #AA9F0EF1-03B6-4CE1-9C6B-F127E231CF08 ·" [ref=e1016]':
+                        - generic [ref=e1017]:
+                          - img [ref=e1019]
+                          - generic [ref=e1023]:
+                            - generic [ref=e1024]: Contra Makine San. ve Tic. Ltd. Şti.
+                            - generic [ref=e1025]: "#AA9F0EF1-03B6-4CE1-9C6B-F127E231CF08 ·"
+                      - cell "Contra Makine — LK MV-1050 Dik İşleme Merkezi Contra Makine — LK MV-1050 Dik İşleme Merkezi" [ref=e1026]:
+                        - generic [ref=e1027]: Contra Makine — LK MV-1050 Dik İşleme Merkezi
+                        - generic [ref=e1028]: Contra Makine — LK MV-1050 Dik İşleme Merkezi
+                      - cell "1" [ref=e1029]
+                      - cell "75.600 USD" [ref=e1030]
+                      - cell "Teslim Edildi" [ref=e1031]:
+                        - generic [ref=e1032]:
+                          - img [ref=e1033]
+                          - text: Teslim Edildi
+                      - cell "EÇ Ersin" [ref=e1036]:
+                        - generic [ref=e1037]:
+                          - generic [ref=e1039]: EÇ
+                          - generic [ref=e1040]: Ersin
+                      - cell "2026-09-22" [ref=e1041]
+                      - cell [ref=e1042]:
+                        - button "Detay" [ref=e1043]:
+                          - img
+                    - 'row "ALİŞLER MAKİNA #CF32E5B1-2E8E-42E3-B6E1-772849C81CF9 · ALİŞLER — ECOCA MT-208/500 CNC Torna ALİŞLER — ECOCA MT-208/500 CNC Torna 1 75.130 USD İptal EÇ Ersin 2026-08-11" [ref=e1044] [cursor=pointer]':
+                      - 'cell "ALİŞLER MAKİNA #CF32E5B1-2E8E-42E3-B6E1-772849C81CF9 ·" [ref=e1045]':
+                        - generic [ref=e1046]:
+                          - img [ref=e1048]
+                          - generic [ref=e1052]:
+                            - generic [ref=e1053]: ALİŞLER MAKİNA
+                            - generic [ref=e1054]: "#CF32E5B1-2E8E-42E3-B6E1-772849C81CF9 ·"
+                      - cell "ALİŞLER — ECOCA MT-208/500 CNC Torna ALİŞLER — ECOCA MT-208/500 CNC Torna" [ref=e1055]:
+                        - generic [ref=e1056]: ALİŞLER — ECOCA MT-208/500 CNC Torna
+                        - generic [ref=e1057]: ALİŞLER — ECOCA MT-208/500 CNC Torna
+                      - cell "1" [ref=e1058]
+                      - cell "75.130 USD" [ref=e1059]
+                      - cell "İptal" [ref=e1060]:
+                        - generic [ref=e1061]:
+                          - img [ref=e1062]
+                          - text: İptal
+                      - cell "EÇ Ersin" [ref=e1066]:
+                        - generic [ref=e1067]:
+                          - generic [ref=e1069]: EÇ
+                          - generic [ref=e1070]: Ersin
+                      - cell "2026-08-11" [ref=e1071]
+                      - cell [ref=e1072]:
+                        - button "Detay" [ref=e1073]:
+                          - img
+                    - 'row "KİLİTSAN KALIP İMALAT SAN. TİC. LTD. ŞTİ. #1BC40DA5-3E8D-4E8D-A470-AC2B5D598FFF · KİLİTSAN — MANFORD DL-2112 İşleme Merkezi KİLİTSAN — MANFORD DL-2112 İşleme Merkezi 1 144.500 USD Sözleşme EÇ Ersin 2026-07-06" [ref=e1074] [cursor=pointer]':
+                      - 'cell "KİLİTSAN KALIP İMALAT SAN. TİC. LTD. ŞTİ. #1BC40DA5-3E8D-4E8D-A470-AC2B5D598FFF ·" [ref=e1075]':
+                        - generic [ref=e1076]:
+                          - img [ref=e1078]
+                          - generic [ref=e1082]:
+                            - generic [ref=e1083]: KİLİTSAN KALIP İMALAT SAN. TİC. LTD. ŞTİ.
+                            - generic [ref=e1084]: "#1BC40DA5-3E8D-4E8D-A470-AC2B5D598FFF ·"
+                      - cell "KİLİTSAN — MANFORD DL-2112 İşleme Merkezi KİLİTSAN — MANFORD DL-2112 İşleme Merkezi" [ref=e1085]:
+                        - generic [ref=e1086]: KİLİTSAN — MANFORD DL-2112 İşleme Merkezi
+                        - generic [ref=e1087]: KİLİTSAN — MANFORD DL-2112 İşleme Merkezi
+                      - cell "1" [ref=e1088]
+                      - cell "144.500 USD" [ref=e1089]
+                      - cell "Sözleşme" [ref=e1090]:
+                        - generic [ref=e1091]:
+                          - img [ref=e1092]
+                          - text: Sözleşme
+                      - cell "EÇ Ersin" [ref=e1095]:
+                        - generic [ref=e1096]:
+                          - generic [ref=e1098]: EÇ
+                          - generic [ref=e1099]: Ersin
+                      - cell "2026-07-06" [ref=e1100]
+                      - cell [ref=e1101]:
+                        - button "Detay" [ref=e1102]:
+                          - img
+                    - 'row "Contra Makine San. ve Tic. Ltd. Şti. #0E77B31E-0287-4C16-A114-6DF91CDFC98C · Contra Makine — LK MV-1050 Dik İşleme Merkezi Contra Makine — LK MV-1050 Dik İşleme Merkezi 1 64.800 USD Arama EÇ Ersin 2026-06-13" [ref=e1103] [cursor=pointer]':
+                      - 'cell "Contra Makine San. ve Tic. Ltd. Şti. #0E77B31E-0287-4C16-A114-6DF91CDFC98C ·" [ref=e1104]':
+                        - generic [ref=e1105]:
+                          - img [ref=e1107]
+                          - generic [ref=e1111]:
+                            - generic [ref=e1112]: Contra Makine San. ve Tic. Ltd. Şti.
+                            - generic [ref=e1113]: "#0E77B31E-0287-4C16-A114-6DF91CDFC98C ·"
+                      - cell "Contra Makine — LK MV-1050 Dik İşleme Merkezi Contra Makine — LK MV-1050 Dik İşleme Merkezi" [ref=e1114]:
+                        - generic [ref=e1115]: Contra Makine — LK MV-1050 Dik İşleme Merkezi
+                        - generic [ref=e1116]: Contra Makine — LK MV-1050 Dik İşleme Merkezi
+                      - cell "1" [ref=e1117]
+                      - cell "64.800 USD" [ref=e1118]
+                      - cell "Arama" [ref=e1119]:
+                        - generic [ref=e1120]: Arama
+                      - cell "EÇ Ersin" [ref=e1121]:
+                        - generic [ref=e1122]:
+                          - generic [ref=e1124]: EÇ
+                          - generic [ref=e1125]: Ersin
+                      - cell "2026-06-13" [ref=e1126]
+                      - cell [ref=e1127]:
+                        - button "Detay" [ref=e1128]:
+                          - img
+                    - 'row "ALİŞLER MAKİNA #659A2C6E-622A-49C3-9CB2-79B023673025 · Test opp 2 Test opp 2 1 0 USD Lead SY Sistem 2026-06-09" [ref=e1129] [cursor=pointer]':
+                      - 'cell "ALİŞLER MAKİNA #659A2C6E-622A-49C3-9CB2-79B023673025 ·" [ref=e1130]':
+                        - generic [ref=e1131]:
+                          - img [ref=e1133]
+                          - generic [ref=e1137]:
+                            - generic [ref=e1138]: ALİŞLER MAKİNA
+                            - generic [ref=e1139]: "#659A2C6E-622A-49C3-9CB2-79B023673025 ·"
+                      - cell "Test opp 2 Test opp 2" [ref=e1140]:
+                        - generic [ref=e1141]: Test opp 2
+                        - generic [ref=e1142]: Test opp 2
+                      - cell "1" [ref=e1143]
+                      - cell "0 USD" [ref=e1144]
+                      - cell "Lead" [ref=e1145]:
+                        - generic [ref=e1146]: Lead
+                      - cell "SY Sistem" [ref=e1147]:
+                        - generic [ref=e1148]:
+                          - generic [ref=e1150]: SY
+                          - generic [ref=e1151]: Sistem
+                      - cell "2026-06-09" [ref=e1152]
+                      - cell [ref=e1153]:
+                        - button "Detay" [ref=e1154]:
+                          - img
+                    - 'row "ALİŞLER MAKİNA #5F5CD85C-B4EA-4562-BC74-0415E8471BBF · Test opp Test opp 1 100.000 USD İptal SY Sistem 2026-06-09" [ref=e1155] [cursor=pointer]':
+                      - 'cell "ALİŞLER MAKİNA #5F5CD85C-B4EA-4562-BC74-0415E8471BBF ·" [ref=e1156]':
+                        - generic [ref=e1157]:
+                          - img [ref=e1159]
+                          - generic [ref=e1163]:
+                            - generic [ref=e1164]: ALİŞLER MAKİNA
+                            - generic [ref=e1165]: "#5F5CD85C-B4EA-4562-BC74-0415E8471BBF ·"
+                      - cell "Test opp Test opp" [ref=e1166]:
+                        - generic [ref=e1167]: Test opp
+                        - generic [ref=e1168]: Test opp
+                      - cell "1" [ref=e1169]
+                      - cell "100.000 USD" [ref=e1170]
+                      - cell "İptal" [ref=e1171]:
+                        - generic [ref=e1172]:
+                          - img [ref=e1173]
+                          - text: İptal
+                      - cell "SY Sistem" [ref=e1177]:
+                        - generic [ref=e1178]:
+                          - generic [ref=e1180]: SY
+                          - generic [ref=e1181]: Sistem
+                      - cell "2026-06-09" [ref=e1182]
+                      - cell [ref=e1183]:
+                        - button "Detay" [ref=e1184]:
+                          - img
+                    - 'row "ALİŞLER MAKİNA #C3440AF3-217A-436B-B3D3-18A0F1376D11 · ALİŞLER — ECOCA MT-208/500 CNC Torna ALİŞLER — ECOCA MT-208/500 CNC Torna 1 64.885 USD İptal EÇ Ersin 2026-05-08" [ref=e1185] [cursor=pointer]':
+                      - 'cell "ALİŞLER MAKİNA #C3440AF3-217A-436B-B3D3-18A0F1376D11 ·" [ref=e1186]':
+                        - generic [ref=e1187]:
+                          - img [ref=e1189]
+                          - generic [ref=e1193]:
+                            - generic [ref=e1194]: ALİŞLER MAKİNA
+                            - generic [ref=e1195]: "#C3440AF3-217A-436B-B3D3-18A0F1376D11 ·"
+                      - cell "ALİŞLER — ECOCA MT-208/500 CNC Torna ALİŞLER — ECOCA MT-208/500 CNC Torna" [ref=e1196]:
+                        - generic [ref=e1197]: ALİŞLER — ECOCA MT-208/500 CNC Torna
+                        - generic [ref=e1198]: ALİŞLER — ECOCA MT-208/500 CNC Torna
+                      - cell "1" [ref=e1199]
+                      - cell "64.885 USD" [ref=e1200]
+                      - cell "İptal" [ref=e1201]:
+                        - generic [ref=e1202]:
+                          - img [ref=e1203]
+                          - text: İptal
+                      - cell "EÇ Ersin" [ref=e1207]:
+                        - generic [ref=e1208]:
+                          - generic [ref=e1210]: EÇ
+                          - generic [ref=e1211]: Ersin
+                      - cell "2026-05-08" [ref=e1212]
+                      - cell [ref=e1213]:
+                        - button "Detay" [ref=e1214]:
+                          - img
+                    - 'row "KİLİTSAN KALIP İMALAT SAN. TİC. LTD. ŞTİ. #27B6B2A8-B239-404F-A98C-DD7DB6E1FED6 · KİLİTSAN — MANFORD DL-2112 İşleme Merkezi KİLİTSAN — MANFORD DL-2112 İşleme Merkezi 1 170.000 USD Sözleşme EÇ Ersin 2026-04-21" [ref=e1215] [cursor=pointer]':
+                      - 'cell "KİLİTSAN KALIP İMALAT SAN. TİC. LTD. ŞTİ. #27B6B2A8-B239-404F-A98C-DD7DB6E1FED6 ·" [ref=e1216]':
+                        - generic [ref=e1217]:
+                          - img [ref=e1219]
+                          - generic [ref=e1223]:
+                            - generic [ref=e1224]: KİLİTSAN KALIP İMALAT SAN. TİC. LTD. ŞTİ.
+                            - generic [ref=e1225]: "#27B6B2A8-B239-404F-A98C-DD7DB6E1FED6 ·"
+                      - cell "KİLİTSAN — MANFORD DL-2112 İşleme Merkezi KİLİTSAN — MANFORD DL-2112 İşleme Merkezi" [ref=e1226]:
+                        - generic [ref=e1227]: KİLİTSAN — MANFORD DL-2112 İşleme Merkezi
+                        - generic [ref=e1228]: KİLİTSAN — MANFORD DL-2112 İşleme Merkezi
+                      - cell "1" [ref=e1229]
+                      - cell "170.000 USD" [ref=e1230]
+                      - cell "Sözleşme" [ref=e1231]:
+                        - generic [ref=e1232]:
+                          - img [ref=e1233]
+                          - text: Sözleşme
+                      - cell "EÇ Ersin" [ref=e1236]:
+                        - generic [ref=e1237]:
+                          - generic [ref=e1239]: EÇ
+                          - generic [ref=e1240]: Ersin
+                      - cell "2026-04-21" [ref=e1241]
+                      - cell [ref=e1242]:
+                        - button "Detay" [ref=e1243]:
+                          - img
+                    - 'row "Contra Makine San. ve Tic. Ltd. Şti. #0933C620-C384-4A57-A362-637DBDCB5793 · Contra Makine — LK MV-1050 Dik İşleme Merkezi Contra Makine — LK MV-1050 Dik İşleme Merkezi 1 75.600 USD İptal EÇ Ersin 2026-03-10" [ref=e1244] [cursor=pointer]':
+                      - 'cell "Contra Makine San. ve Tic. Ltd. Şti. #0933C620-C384-4A57-A362-637DBDCB5793 ·" [ref=e1245]':
+                        - generic [ref=e1246]:
+                          - img [ref=e1248]
+                          - generic [ref=e1252]:
+                            - generic [ref=e1253]: Contra Makine San. ve Tic. Ltd. Şti.
+                            - generic [ref=e1254]: "#0933C620-C384-4A57-A362-637DBDCB5793 ·"
+                      - cell "Contra Makine — LK MV-1050 Dik İşleme Merkezi Contra Makine — LK MV-1050 Dik İşleme Merkezi" [ref=e1255]:
+                        - generic [ref=e1256]: Contra Makine — LK MV-1050 Dik İşleme Merkezi
+                        - generic [ref=e1257]: Contra Makine — LK MV-1050 Dik İşleme Merkezi
+                      - cell "1" [ref=e1258]
+                      - cell "75.600 USD" [ref=e1259]
+                      - cell "İptal" [ref=e1260]:
+                        - generic [ref=e1261]:
+                          - img [ref=e1262]
+                          - text: İptal
+                      - cell "EÇ Ersin" [ref=e1266]:
+                        - generic [ref=e1267]:
+                          - generic [ref=e1269]: EÇ
+                          - generic [ref=e1270]: Ersin
+                      - cell "2026-03-10" [ref=e1271]
+                      - cell [ref=e1272]:
+                        - button "Detay" [ref=e1273]:
+                          - img
+                - generic [ref=e1274]:
+                  - generic [ref=e1275]: Toplam 29 satış kartı
+                  - generic [ref=e1276]:
+                    - button "Önceki" [disabled]
+                    - generic [ref=e1277]: 1 / 3
+                    - button "Sonraki" [ref=e1278]
+    - region "Notifications alt+T"
+  - generic [ref=e892]: "4"

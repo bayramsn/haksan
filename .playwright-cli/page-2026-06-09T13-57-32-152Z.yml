@@ -1,0 +1,738 @@
+- generic:
+  - generic:
+    - generic:
+      - complementary:
+        - generic:
+          - generic:
+            - img
+          - generic:
+            - generic: Haksan Makina
+            - generic: CRM · Operasyon · Servis
+        - generic:
+          - generic:
+            - generic:
+              - navigation:
+                - generic:
+                  - generic: Genel
+                  - generic:
+                    - button:
+                      - img
+                      - generic: Gösterge Paneli
+                - generic:
+                  - generic: Satış
+                  - generic:
+                    - button:
+                      - img
+                      - generic: Firmalar
+                    - button:
+                      - img
+                      - generic: Kontaklar
+                    - button:
+                      - img
+                      - generic: Satış Kartları
+                    - button:
+                      - img
+                      - generic: Teklifler
+                    - button:
+                      - img
+                      - generic: Dokümanlar
+                    - button:
+                      - img
+                      - generic: Ödemeler & Cari
+                    - button:
+                      - img
+                      - generic: Satış Fiyat Listesi
+                - generic:
+                  - generic: Operasyon
+                  - generic:
+                    - button:
+                      - img
+                      - generic: Ürünler
+                    - button:
+                      - img
+                      - generic: Stok
+                    - button:
+                      - img
+                      - generic: Satın Alma
+                    - button:
+                      - img
+                      - generic: Sevkiyat
+                    - button:
+                      - img
+                      - generic: Teslimat
+                - generic:
+                  - generic: Servis
+                  - generic:
+                    - button:
+                      - img
+                      - generic: Makineler
+                    - button:
+                      - img
+                      - generic: Kurulum
+                    - button:
+                      - img
+                      - generic: Servis Talepleri
+                      - generic: "3"
+                    - button:
+                      - img
+                      - generic: Servis Kanban
+                      - generic: Yeni
+                    - button:
+                      - img
+                      - generic: Servis Fiyat Listesi
+                - generic:
+                  - generic: Analiz
+                  - generic:
+                    - button:
+                      - img
+                      - generic: Raporlar
+                - generic:
+                  - generic: Yönetim
+                  - generic:
+                    - button:
+                      - img
+                      - generic: Kullanıcılar
+                    - button:
+                      - img
+                      - generic: Roller & Yetkiler
+                    - button:
+                      - img
+                      - generic: Departmanlar
+                    - button:
+                      - img
+                      - generic: Ayarlar
+        - generic:
+          - generic:
+            - generic:
+              - generic: AD
+            - generic:
+              - generic: Ayşe Demir
+              - generic: SuperAdmin · Yönetim
+            - button:
+              - img
+      - generic:
+        - banner:
+          - generic:
+            - img
+            - textbox:
+              - /placeholder: "Firma ara: ad, şehir, e-posta, VKN..."
+            - generic: ⌘K
+          - button:
+            - img
+            - text: Hızlı Oluştur
+          - button:
+            - img
+          - button:
+            - img
+          - button:
+            - generic:
+              - generic: SY
+            - generic:
+              - generic: Sistem Yöneticisi
+              - generic: Admin
+            - img
+        - generic:
+          - generic:
+            - navigation:
+              - generic: Haksan
+              - img
+              - generic: Teklifler
+            - heading [level=1]: Teklifler
+            - paragraph: Hazırlanmış ve gönderilmiş teklifler
+        - main:
+          - generic:
+            - generic:
+              - generic:
+                - generic:
+                  - generic:
+                    - generic:
+                      - img
+                    - generic:
+                      - img
+                      - text: "%11"
+                  - generic: Toplam Teklif
+                  - generic:
+                    - generic: "16"
+                    - generic: bu çeyrek
+              - generic:
+                - generic:
+                  - generic:
+                    - generic:
+                      - img
+                    - generic:
+                      - img
+                      - text: "%8"
+                  - generic: Onaylanan
+                  - generic:
+                    - generic: "3"
+                    - generic: € 313K
+              - generic:
+                - generic:
+                  - generic:
+                    - generic:
+                      - img
+                    - generic:
+                      - img
+                      - text: "%4"
+                  - generic: Gönderilen
+                  - generic:
+                    - generic: "3"
+                    - generic: cevap bekleniyor
+              - generic:
+                - generic:
+                  - generic:
+                    - generic:
+                      - img
+                    - generic:
+                      - img
+                      - text: "%3"
+                  - generic: Kazanma Oranı
+                  - generic:
+                    - generic: "%19"
+                    - generic: hedef %50
+            - generic:
+              - generic:
+                - generic:
+                  - heading [level=4]: Teklif Trendi
+                  - paragraph: Gönderilen vs onaylanan · son 6 ay
+                - generic:
+                  - generic:
+                    - generic:
+                      - img:
+                        - generic:
+                          - generic:
+                            - generic:
+                              - generic: Ara
+                            - generic:
+                              - generic: Oca
+                            - generic:
+                              - generic: Şub
+                            - generic:
+                              - generic: Mar
+                            - generic:
+                              - generic: Nis
+                            - generic:
+                              - generic: May
+                        - generic:
+                          - generic:
+                            - generic:
+                              - generic: "0"
+                            - generic:
+                              - generic: "7"
+                            - generic:
+                              - generic: "14"
+                            - generic:
+                              - generic: "21"
+                            - generic:
+                              - generic: "28"
+                      - generic:
+                        - list:
+                          - listitem:
+                            - img
+                            - text: Gönderilen
+                          - listitem:
+                            - img
+                            - text: Onaylanan
+              - generic:
+                - generic:
+                  - heading [level=4]: Durum Dağılımı
+                  - paragraph: Toplam € 1704K
+                - generic:
+                  - generic:
+                    - generic:
+                      - generic:
+                        - generic: Draft
+                      - generic: 6 · 38%
+                  - generic:
+                    - generic:
+                      - generic:
+                        - generic: Sent
+                      - generic: 3 · 19%
+                  - generic:
+                    - generic:
+                      - generic:
+                        - generic: Approved
+                      - generic: 3 · 19%
+                  - generic:
+                    - generic:
+                      - generic:
+                        - generic: Rejected
+                      - generic: 4 · 25%
+            - generic:
+              - generic:
+                - generic:
+                  - heading [level=4]: Tüm Teklifler
+                  - generic:
+                    - tablist:
+                      - tab [selected]: Tümü
+                      - tab: Taslak
+                      - tab: Gönderilen
+                      - tab: Onaylı
+                      - tab: Reddedilen
+                - generic:
+                  - generic:
+                    - img
+                    - textbox:
+                      - /placeholder: Teklif no / müşteri...
+                  - button:
+                    - img
+                    - text: Excel
+                  - button:
+                    - img
+                    - text: Yeni Teklif
+              - generic:
+                - generic:
+                  - table:
+                    - rowgroup:
+                      - row:
+                        - columnheader: Teklif
+                        - columnheader: Müşteri
+                        - columnheader: Rev.
+                        - columnheader: Tarih
+                        - columnheader: Tutar
+                        - columnheader: Durum
+                        - columnheader: Not
+                        - columnheader
+                    - rowgroup:
+                      - row:
+                        - cell:
+                          - generic:
+                            - generic:
+                              - img
+                            - generic:
+                              - generic: RPT-2026-03
+                              - generic: "#—"
+                        - cell: —
+                        - cell:
+                          - generic: R1
+                        - cell: 2026-10-12
+                        - cell: 79.977,456 USD
+                        - cell:
+                          - generic: Taslak
+                        - cell
+                        - cell:
+                          - generic:
+                            - button:
+                              - img
+                      - row:
+                        - cell:
+                          - generic:
+                            - generic:
+                              - img
+                            - generic:
+                              - generic: RPT-2026-02
+                              - generic: "#—"
+                        - cell: —
+                        - cell:
+                          - generic: R1
+                        - cell: 2026-07-12
+                        - cell: 179.540 USD
+                        - cell:
+                          - generic:
+                            - img
+                            - text: Reddedildi
+                        - cell
+                        - cell:
+                          - generic:
+                            - button:
+                              - img
+                      - row:
+                        - cell:
+                          - generic:
+                            - generic:
+                              - img
+                            - generic:
+                              - generic: 2026/008
+                              - generic: "#5F5CD85C"
+                        - cell: ALİŞLER MAKİNA
+                        - cell:
+                          - generic: R1
+                        - cell: 2026-06-09
+                        - cell: 114.000 USD
+                        - cell:
+                          - generic:
+                            - img
+                            - text: Reddedildi
+                        - cell
+                        - cell:
+                          - generic:
+                            - button:
+                              - img
+                              - text: Satışa Al
+                            - button:
+                              - img
+                      - row:
+                        - cell:
+                          - generic:
+                            - generic:
+                              - img
+                            - generic:
+                              - generic: 2026/16
+                              - generic: "#—"
+                        - cell: —
+                        - cell:
+                          - generic: R1
+                        - cell: 2026-05-28
+                        - cell: 170.000 USD
+                        - cell:
+                          - generic: Taslak
+                        - cell
+                        - cell:
+                          - generic:
+                            - button:
+                              - img
+                      - row:
+                        - cell:
+                          - generic:
+                            - generic:
+                              - img
+                            - generic:
+                              - generic: 2026/040
+                              - generic: "#—"
+                        - cell: —
+                        - cell:
+                          - generic: R1
+                        - cell: 2026-05-28
+                        - cell: 72.000 USD
+                        - cell:
+                          - generic: Taslak
+                        - cell
+                        - cell:
+                          - generic:
+                            - button:
+                              - img
+                      - row:
+                        - cell:
+                          - generic:
+                            - generic:
+                              - img
+                            - generic:
+                              - generic: RPT-2026-01
+                              - generic: "#—"
+                        - cell: —
+                        - cell:
+                          - generic: R1
+                        - cell: 2026-04-12
+                        - cell: 67.308,211 USD
+                        - cell:
+                          - generic:
+                            - img
+                            - text: Onaylı
+                        - cell
+                        - cell:
+                          - generic:
+                            - button:
+                              - img
+                      - row:
+                        - cell:
+                          - generic:
+                            - generic:
+                              - img
+                            - generic:
+                              - generic: RPT-2026-04
+                              - generic: "#—"
+                        - cell: —
+                        - cell:
+                          - generic: R1
+                        - cell: 2026-01-12
+                        - cell: 64.503,702 USD
+                        - cell:
+                          - generic: Gönderildi
+                        - cell
+                        - cell:
+                          - generic:
+                            - button:
+                              - img
+                      - row:
+                        - cell:
+                          - generic:
+                            - generic:
+                              - img
+                            - generic:
+                              - generic: RPT-2025-03
+                              - generic: "#—"
+                        - cell: —
+                        - cell:
+                          - generic: R1
+                        - cell: 2025-10-12
+                        - cell: 186.721,6 USD
+                        - cell:
+                          - generic: Taslak
+                        - cell
+                        - cell:
+                          - generic:
+                            - button:
+                              - img
+                      - row:
+                        - cell:
+                          - generic:
+                            - generic:
+                              - img
+                            - generic:
+                              - generic: RPT-2025-02
+                              - generic: "#—"
+                        - cell: —
+                        - cell:
+                          - generic: R1
+                        - cell: 2025-07-12
+                        - cell: 70.112,72 USD
+                        - cell:
+                          - generic:
+                            - img
+                            - text: Reddedildi
+                        - cell
+                        - cell:
+                          - generic:
+                            - button:
+                              - img
+                      - row:
+                        - cell:
+                          - generic:
+                            - generic:
+                              - img
+                            - generic:
+                              - generic: RPT-2025-01
+                              - generic: "#—"
+                        - cell: —
+                        - cell:
+                          - generic: R1
+                        - cell: 2025-04-12
+                        - cell: 73.825,344 USD
+                        - cell:
+                          - generic:
+                            - img
+                            - text: Onaylı
+                        - cell
+                        - cell:
+                          - generic:
+                            - button:
+                              - img
+                      - row:
+                        - cell:
+                          - generic:
+                            - generic:
+                              - img
+                            - generic:
+                              - generic: RPT-2025-04
+                              - generic: "#—"
+                        - cell: —
+                        - cell:
+                          - generic: R1
+                        - cell: 2025-01-12
+                        - cell: 70.749,288 USD
+                        - cell:
+                          - generic: Gönderildi
+                        - cell
+                        - cell:
+                          - generic:
+                            - button:
+                              - img
+                      - row:
+                        - cell:
+                          - generic:
+                            - generic:
+                              - img
+                            - generic:
+                              - generic: RPT-2024-03
+                              - generic: "#—"
+                        - cell: —
+                        - cell:
+                          - generic: R1
+                        - cell: 2024-10-12
+                        - cell: 72.917,229 USD
+                        - cell:
+                          - generic: Taslak
+                        - cell
+                        - cell:
+                          - generic:
+                            - button:
+                              - img
+                      - row:
+                        - cell:
+                          - generic:
+                            - generic:
+                              - img
+                            - generic:
+                              - generic: RPT-2024-02
+                              - generic: "#—"
+                        - cell: —
+                        - cell:
+                          - generic: R1
+                        - cell: 2024-07-12
+                        - cell: 76.901,4 USD
+                        - cell:
+                          - generic:
+                            - img
+                            - text: Reddedildi
+                        - cell
+                        - cell:
+                          - generic:
+                            - button:
+                              - img
+                      - row:
+                        - cell:
+                          - generic:
+                            - generic:
+                              - img
+                            - generic:
+                              - generic: RPT-2024-01
+                              - generic: "#—"
+                        - cell: —
+                        - cell:
+                          - generic: R1
+                        - cell: 2024-04-12
+                        - cell: 172.358,4 USD
+                        - cell:
+                          - generic:
+                            - img
+                            - text: Onaylı
+                        - cell
+                        - cell:
+                          - generic:
+                            - button:
+                              - img
+                      - row:
+                        - cell:
+                          - generic:
+                            - generic:
+                              - img
+                            - generic:
+                              - generic: RPT-2024-04
+                              - generic: "#—"
+                        - cell: —
+                        - cell:
+                          - generic: R1
+                        - cell: 2024-01-12
+                        - cell: 165.176,8 USD
+                        - cell:
+                          - generic: Gönderildi
+                        - cell
+                        - cell:
+                          - generic:
+                            - button:
+                              - img
+                      - row:
+                        - cell:
+                          - generic:
+                            - generic:
+                              - img
+                            - generic:
+                              - generic: 2023/089
+                              - generic: "#—"
+                        - cell: —
+                        - cell:
+                          - generic: R1
+                        - cell: 2023-05-12
+                        - cell: 68.300 USD
+                        - cell:
+                          - generic: Taslak
+                        - cell
+                        - cell:
+                          - generic:
+                            - button:
+                              - img
+            - generic:
+              - generic:
+                - generic:
+                  - heading [level=4]: Satış Siparişleri
+                  - paragraph: Onaylanan tekliften stok rezervasyonuna giden sipariş kayıtları
+                - generic: 0 kayıt
+              - generic:
+                - generic:
+                  - table:
+                    - rowgroup:
+                      - row:
+                        - columnheader: Sipariş
+                        - columnheader: Müşteri
+                        - columnheader: Tarih
+                        - columnheader: Tutar
+                        - columnheader: Durum
+                    - rowgroup:
+                      - row:
+                        - cell: Henüz satış siparişi yok.
+    - region "Notifications alt+T"
+  - generic: "4"
+  - dialog "RPT-2026-03" [ref=e1484]:
+    - generic [ref=e1486]:
+      - img [ref=e1488]
+      - generic [ref=e1491]:
+        - heading "RPT-2026-03" [level=2] [ref=e1492]
+        - paragraph [ref=e1493]:
+          - generic [ref=e1494]: Taslak
+          - generic [ref=e1495]: R1
+          - generic [ref=e1496]: ·
+          - generic [ref=e1497]: 2026-10-12
+    - generic [ref=e1498]:
+      - generic [ref=e1499]:
+        - generic [ref=e1500]:
+          - img [ref=e1502]
+          - text: Tutar
+        - generic [ref=e1505]: $79.977
+      - generic [ref=e1506]:
+        - generic [ref=e1507]:
+          - img [ref=e1509]
+          - text: Revizyon
+        - generic [ref=e1512]: R1
+      - generic [ref=e1513]:
+        - generic [ref=e1514]:
+          - img [ref=e1516]
+          - text: Tarih
+        - generic [ref=e1518]: 12.10.2026
+      - generic [ref=e1519]:
+        - generic [ref=e1520]:
+          - img [ref=e1522]
+          - text: Sipariş
+        - generic [ref=e1526]: Yok
+    - generic [ref=e1527]:
+      - generic [ref=e1528]:
+        - generic [ref=e1529]: Müşteri
+        - generic [ref=e1530]:
+          - img [ref=e1532]
+          - generic [ref=e1536]:
+            - generic [ref=e1537]: Contra Makine San. ve Tic. Ltd. Şti.
+            - generic [ref=e1538]: info@contramakine.com
+      - generic [ref=e1539]:
+        - generic [ref=e1540]: Satış kartı
+        - generic [ref=e1541]:
+          - generic [ref=e1542]:
+            - generic [ref=e1543]: Kart No
+            - generic [ref=e1544]: —
+          - generic [ref=e1545]:
+            - generic [ref=e1546]: Ürün / Model
+            - generic [ref=e1547]: Satış kartı bağlantısı yok
+          - generic [ref=e1548]:
+            - generic [ref=e1549]: Aşama
+            - generic [ref=e1550]: —
+          - generic [ref=e1551]:
+            - generic [ref=e1552]: Atanan
+            - generic [ref=e1553]: Atanmadı
+          - generic [ref=e1554]:
+            - generic [ref=e1555]: Adet
+            - generic [ref=e1556]: —
+    - generic [ref=e1558]:
+      - generic [ref=e1559]: Teklif notu
+      - paragraph [ref=e1560]: Not girilmemiş.
+    - generic [ref=e1561]:
+      - generic [ref=e1562]:
+        - generic [ref=e1563]: Revizyon geçmişi
+        - generic [ref=e1564]: 1 kayıt
+      - table [ref=e1567]:
+        - rowgroup [ref=e1568]:
+          - row "Teklif Rev. Tarih Tutar Durum" [ref=e1569]:
+            - columnheader "Teklif" [ref=e1570]
+            - columnheader "Rev." [ref=e1571]
+            - columnheader "Tarih" [ref=e1572]
+            - columnheader "Tutar" [ref=e1573]
+            - columnheader "Durum" [ref=e1574]
+        - rowgroup [ref=e1575]:
+          - row "RPT-2026-03 R1 2026-10-12 $79.977 Taslak" [ref=e1576]:
+            - cell "RPT-2026-03" [ref=e1577]
+            - cell "R1" [ref=e1578]
+            - cell "2026-10-12" [ref=e1579]
+            - cell "$79.977" [ref=e1580]
+            - cell "Taslak" [ref=e1581]:
+              - generic [ref=e1582]: Taslak
+    - button "Kapat" [active] [ref=e1584]
+    - button "Close" [ref=e1585]:
+      - img
+      - generic [ref=e1586]: Close

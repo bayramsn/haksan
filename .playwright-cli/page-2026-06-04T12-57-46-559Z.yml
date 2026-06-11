@@ -1,0 +1,79 @@
+- generic [ref=e2]:
+  - generic [ref=e3]:
+    - generic [ref=e4]:
+      - generic [ref=e7]:
+        - img [ref=e9]
+        - generic [ref=e11]:
+          - generic [ref=e12]: Haksan Makina
+          - generic [ref=e13]: CRM · Operasyon · Servis
+      - generic [ref=e14]:
+        - heading "Tek bir platformda satış, operasyon ve servis." [level=2] [ref=e15]
+        - paragraph [ref=e16]: Haksan Makina ekipleri için müşteri yönetimi, kanban satış akışı, teklif & sözleşme, stok takibi ve saha servis süreçlerini bütünleşik şekilde yönetin.
+        - generic [ref=e17]:
+          - generic [ref=e18]:
+            - img [ref=e20]
+            - generic [ref=e22]:
+              - generic [ref=e23]: Pipeline & Raporlar
+              - generic [ref=e24]: Anlık görünürlük
+          - generic [ref=e25]:
+            - img [ref=e27]
+            - generic [ref=e29]:
+              - generic [ref=e30]: Servis Yönetimi
+              - generic [ref=e31]: Saha + Garanti
+          - generic [ref=e32]:
+            - img [ref=e34]
+            - generic [ref=e38]:
+              - generic [ref=e39]: Çok Şubeli
+              - generic [ref=e40]: Şehirler arası erişim
+          - generic [ref=e41]:
+            - img [ref=e43]
+            - generic [ref=e46]:
+              - generic [ref=e47]: Yetki & Rol
+              - generic [ref=e48]: Kurumsal güvenlik
+      - generic [ref=e49]:
+        - generic [ref=e50]: © 2026 Haksan Makina A.Ş.
+        - generic [ref=e51]:
+          - link "Gizlilik" [ref=e52] [cursor=pointer]:
+            - /url: "#"
+          - link "Şartlar" [ref=e53] [cursor=pointer]:
+            - /url: "#"
+          - link "Yardım" [ref=e54] [cursor=pointer]:
+            - /url: "#"
+    - generic [ref=e56]:
+      - generic [ref=e57]:
+        - generic [ref=e58]: Hoş Geldiniz
+        - heading "Hesabınıza giriş yapın" [level=1] [ref=e59]
+        - paragraph [ref=e60]: Henüz hesabınız yok mu? Sistem yöneticinizle iletişime geçin
+      - generic [ref=e63]:
+        - generic [ref=e64]:
+          - generic [ref=e65]: E-posta
+          - textbox [ref=e66]: admin@haksan.local
+        - generic [ref=e67]:
+          - generic [ref=e68]:
+            - generic [ref=e69]: Şifre
+            - link "Şifremi unuttum" [ref=e70] [cursor=pointer]:
+              - /url: "#"
+          - generic [ref=e71]:
+            - textbox [ref=e72]: admin12345
+            - button [ref=e73]:
+              - img [ref=e74]
+        - generic [ref=e77] [cursor=pointer]:
+          - checkbox "Beni hatırla" [ref=e78]
+          - generic [ref=e79]: Beni hatırla
+        - button "Giriş Yap" [ref=e80]:
+          - text: Giriş Yap
+          - img
+        - generic [ref=e85]: veya
+        - button "SSO ile devam et" [ref=e86]:
+          - img
+          - text: SSO ile devam et
+      - generic [ref=e87]:
+        - generic [ref=e88]:
+          - img [ref=e89]
+          - text: "Demo kullanıcılar:"
+        - list [ref=e92]:
+          - listitem [ref=e93]: admin@haksan.local / admin12345
+          - listitem [ref=e94]: sales@haksan.local / sales12345
+          - listitem [ref=e95]: service@haksan.local / service12345
+          - listitem [ref=e96]: finance@haksan.local / finance12345
+  - region "Notifications alt+T"

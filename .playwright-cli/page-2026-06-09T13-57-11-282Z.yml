@@ -1,0 +1,574 @@
+- generic [ref=e1]:
+  - generic [ref=e2]:
+    - generic [ref=e99]:
+      - complementary [ref=e100]:
+        - generic [ref=e101]:
+          - img [ref=e103]
+          - generic [ref=e105]:
+            - generic [ref=e106]: Haksan Makina
+            - generic [ref=e107]: CRM · Operasyon · Servis
+        - navigation [ref=e111]:
+          - generic [ref=e112]:
+            - generic [ref=e113]: Genel
+            - button "Gösterge Paneli" [ref=e115]:
+              - img [ref=e117]
+              - generic [ref=e122]: Gösterge Paneli
+          - generic [ref=e123]:
+            - generic [ref=e124]: Satış
+            - generic [ref=e125]:
+              - button "Firmalar" [ref=e126]:
+                - img [ref=e127]
+                - generic [ref=e131]: Firmalar
+              - button "Kontaklar" [ref=e132]:
+                - img [ref=e133]
+                - generic [ref=e137]: Kontaklar
+              - button "Satış Kartları" [ref=e138]:
+                - img [ref=e139]
+                - generic [ref=e142]: Satış Kartları
+              - button "Teklifler" [active] [ref=e143]:
+                - img [ref=e144]
+                - generic [ref=e147]: Teklifler
+              - button "Dokümanlar" [ref=e148]:
+                - img [ref=e149]
+                - generic [ref=e151]: Dokümanlar
+              - button "Ödemeler & Cari" [ref=e152]:
+                - img [ref=e153]
+                - generic [ref=e155]: Ödemeler & Cari
+              - button "Satış Fiyat Listesi" [ref=e156]:
+                - img [ref=e157]
+                - generic [ref=e160]: Satış Fiyat Listesi
+          - generic [ref=e161]:
+            - generic [ref=e162]: Operasyon
+            - generic [ref=e163]:
+              - button "Ürünler" [ref=e164]:
+                - img [ref=e165]
+                - generic [ref=e168]: Ürünler
+              - button "Stok" [ref=e169]:
+                - img [ref=e170]
+                - generic [ref=e180]: Stok
+              - button "Satın Alma" [ref=e181]:
+                - img [ref=e182]
+                - generic [ref=e186]: Satın Alma
+              - button "Sevkiyat" [ref=e187]:
+                - img [ref=e188]
+                - generic [ref=e193]: Sevkiyat
+              - button "Teslimat" [ref=e194]:
+                - img [ref=e195]
+                - generic [ref=e200]: Teslimat
+          - generic [ref=e201]:
+            - generic [ref=e202]: Servis
+            - generic [ref=e203]:
+              - button "Makineler" [ref=e204]:
+                - img [ref=e205]
+                - generic [ref=e208]: Makineler
+              - button "Kurulum" [ref=e209]:
+                - img [ref=e210]
+                - generic [ref=e212]: Kurulum
+              - button "Servis Talepleri 3" [ref=e213]:
+                - img [ref=e214]
+                - generic [ref=e221]: Servis Talepleri
+                - generic [ref=e222]: "3"
+              - button "Servis Kanban Yeni" [ref=e223]:
+                - img [ref=e224]
+                - generic [ref=e226]: Servis Kanban
+                - generic [ref=e227]: Yeni
+              - button "Servis Fiyat Listesi" [ref=e228]:
+                - img [ref=e229]
+                - generic [ref=e232]: Servis Fiyat Listesi
+          - generic [ref=e233]:
+            - generic [ref=e234]: Analiz
+            - button "Raporlar" [ref=e236]:
+              - img [ref=e237]
+              - generic [ref=e239]: Raporlar
+          - generic [ref=e240]:
+            - generic [ref=e241]: Yönetim
+            - generic [ref=e242]:
+              - button "Kullanıcılar" [ref=e243]:
+                - img [ref=e244]
+                - generic [ref=e249]: Kullanıcılar
+              - button "Roller & Yetkiler" [ref=e250]:
+                - img [ref=e251]
+                - generic [ref=e254]: Roller & Yetkiler
+              - button "Departmanlar" [ref=e255]:
+                - img [ref=e256]
+                - generic [ref=e260]: Departmanlar
+              - button "Ayarlar" [ref=e261]:
+                - img [ref=e262]
+                - generic [ref=e265]: Ayarlar
+        - generic [ref=e267]:
+          - generic [ref=e269]: AD
+          - generic [ref=e270]:
+            - generic [ref=e271]: Ayşe Demir
+            - generic [ref=e272]: SuperAdmin · Yönetim
+          - button [ref=e273]:
+            - img
+      - generic [ref=e274]:
+        - banner [ref=e275]:
+          - generic [ref=e276]:
+            - img [ref=e277]
+            - 'textbox "Firma ara: ad, şehir, e-posta, VKN..." [ref=e280]'
+            - generic [ref=e281]: ⌘K
+          - button "Hızlı Oluştur" [ref=e282]:
+            - img
+            - text: Hızlı Oluştur
+          - button [ref=e283]:
+            - img
+          - button [ref=e284]:
+            - img
+          - button "SY Sistem Yöneticisi Admin" [ref=e287]:
+            - generic [ref=e289]: SY
+            - generic [ref=e290]:
+              - generic [ref=e291]: Sistem Yöneticisi
+              - generic [ref=e292]: Admin
+            - img
+        - generic [ref=e294]:
+          - navigation [ref=e295]:
+            - generic [ref=e296]: Haksan
+            - img [ref=e297]
+            - generic [ref=e299]: Teklifler
+          - heading "Teklifler" [level=1] [ref=e894]
+          - paragraph [ref=e301]: Hazırlanmış ve gönderilmiş teklifler
+        - main [ref=e302]:
+          - generic [ref=e895]:
+            - generic [ref=e896]:
+              - generic [ref=e898]:
+                - generic [ref=e899]:
+                  - img [ref=e901]
+                  - generic [ref=e904]:
+                    - img [ref=e905]
+                    - text: "%11"
+                - generic [ref=e908]: Toplam Teklif
+                - generic [ref=e909]:
+                  - generic [ref=e910]: "16"
+                  - generic [ref=e911]: bu çeyrek
+              - generic [ref=e913]:
+                - generic [ref=e914]:
+                  - img [ref=e916]
+                  - generic [ref=e919]:
+                    - img [ref=e920]
+                    - text: "%8"
+                - generic [ref=e923]: Onaylanan
+                - generic [ref=e924]:
+                  - generic [ref=e925]: "3"
+                  - generic [ref=e926]: € 313K
+              - generic [ref=e928]:
+                - generic [ref=e929]:
+                  - img [ref=e931]
+                  - generic [ref=e934]:
+                    - img [ref=e935]
+                    - text: "%4"
+                - generic [ref=e938]: Gönderilen
+                - generic [ref=e939]:
+                  - generic [ref=e940]: "3"
+                  - generic [ref=e941]: cevap bekleniyor
+              - generic [ref=e943]:
+                - generic [ref=e944]:
+                  - img [ref=e946]
+                  - generic [ref=e949]:
+                    - img [ref=e950]
+                    - text: "%3"
+                - generic [ref=e953]: Kazanma Oranı
+                - generic [ref=e954]:
+                  - generic [ref=e955]: "%19"
+                  - generic [ref=e956]: hedef %50
+            - generic [ref=e959]:
+              - generic [ref=e960]:
+                - generic [ref=e961]:
+                  - heading "Teklif Trendi" [level=4] [ref=e962]
+                  - paragraph [ref=e963]: Gönderilen vs onaylanan · son 6 ay
+                - generic [ref=e966]:
+                  - img [ref=e967]:
+                    - generic [ref=e971]:
+                      - generic [ref=e973]: Ara
+                      - generic [ref=e975]: Oca
+                      - generic [ref=e977]: Şub
+                      - generic [ref=e979]: Mar
+                      - generic [ref=e981]: Nis
+                      - generic [ref=e983]: May
+                    - generic [ref=e985]:
+                      - generic [ref=e987]: "0"
+                      - generic [ref=e989]: "7"
+                      - generic [ref=e991]: "14"
+                      - generic [ref=e993]: "21"
+                      - generic [ref=e995]: "28"
+                  - list [ref=e1025]:
+                    - listitem [ref=e1026]:
+                      - img [ref=e1027]
+                      - text: Gönderilen
+                    - listitem [ref=e1029]:
+                      - img [ref=e1030]
+                      - text: Onaylanan
+              - generic [ref=e1032]:
+                - generic [ref=e1033]:
+                  - heading "Durum Dağılımı" [level=4] [ref=e1034]
+                  - paragraph [ref=e1035]: Toplam € 1704K
+                - generic [ref=e1036]:
+                  - generic [ref=e1038]:
+                    - generic [ref=e1041]: Draft
+                    - generic [ref=e1042]: 6 · 38%
+                  - generic [ref=e1046]:
+                    - generic [ref=e1049]: Sent
+                    - generic [ref=e1050]: 3 · 19%
+                  - generic [ref=e1054]:
+                    - generic [ref=e1057]: Approved
+                    - generic [ref=e1058]: 3 · 19%
+                  - generic [ref=e1062]:
+                    - generic [ref=e1065]: Rejected
+                    - generic [ref=e1066]: 4 · 25%
+            - generic [ref=e1069]:
+              - generic [ref=e1070]:
+                - generic [ref=e1071]:
+                  - heading "Tüm Teklifler" [level=4] [ref=e1072]
+                  - tablist [ref=e1074]:
+                    - tab "Tümü" [selected] [ref=e1075]
+                    - tab "Taslak" [ref=e1076]
+                    - tab "Gönderilen" [ref=e1077]
+                    - tab "Onaylı" [ref=e1078]
+                    - tab "Reddedilen" [ref=e1079]
+                - generic [ref=e1080]:
+                  - generic [ref=e1081]:
+                    - img [ref=e1082]
+                    - textbox "Teklif no / müşteri..." [ref=e1085]
+                  - button "Excel" [ref=e1086]:
+                    - img
+                    - text: Excel
+                  - button "Yeni Teklif" [ref=e1087]:
+                    - img
+                    - text: Yeni Teklif
+              - table [ref=e1090]:
+                - rowgroup [ref=e1091]:
+                  - row "Teklif Müşteri Rev. Tarih Tutar Durum Not" [ref=e1092]:
+                    - columnheader "Teklif" [ref=e1093]
+                    - columnheader "Müşteri" [ref=e1094]
+                    - columnheader "Rev." [ref=e1095]
+                    - columnheader "Tarih" [ref=e1096]
+                    - columnheader "Tutar" [ref=e1097]
+                    - columnheader "Durum" [ref=e1098]
+                    - columnheader "Not" [ref=e1099]
+                    - columnheader [ref=e1100]
+                - rowgroup [ref=e1101]:
+                  - 'row "RPT-2026-03 #— — R1 2026-10-12 79.977,456 USD Taslak" [ref=e1102] [cursor=pointer]':
+                    - 'cell "RPT-2026-03 #—" [ref=e1103]':
+                      - generic [ref=e1104]:
+                        - img [ref=e1106]
+                        - generic [ref=e1109]:
+                          - generic [ref=e1110]: RPT-2026-03
+                          - generic [ref=e1111]: "#—"
+                    - cell "—" [ref=e1112]
+                    - cell "R1" [ref=e1113]:
+                      - generic [ref=e1114]: R1
+                    - cell "2026-10-12" [ref=e1115]
+                    - cell "79.977,456 USD" [ref=e1116]
+                    - cell "Taslak" [ref=e1117]:
+                      - generic [ref=e1118]: Taslak
+                    - cell [ref=e1119]
+                    - cell [ref=e1120]:
+                      - button "Teklif detayı" [ref=e1122]:
+                        - img
+                  - 'row "RPT-2026-02 #— — R1 2026-07-12 179.540 USD Reddedildi" [ref=e1123] [cursor=pointer]':
+                    - 'cell "RPT-2026-02 #—" [ref=e1124]':
+                      - generic [ref=e1125]:
+                        - img [ref=e1127]
+                        - generic [ref=e1130]:
+                          - generic [ref=e1131]: RPT-2026-02
+                          - generic [ref=e1132]: "#—"
+                    - cell "—" [ref=e1133]
+                    - cell "R1" [ref=e1134]:
+                      - generic [ref=e1135]: R1
+                    - cell "2026-07-12" [ref=e1136]
+                    - cell "179.540 USD" [ref=e1137]
+                    - cell "Reddedildi" [ref=e1138]:
+                      - generic [ref=e1139]:
+                        - img [ref=e1140]
+                        - text: Reddedildi
+                    - cell [ref=e1144]
+                    - cell [ref=e1145]:
+                      - button "Teklif detayı" [ref=e1147]:
+                        - img
+                  - 'row "2026/008 #5F5CD85C ALİŞLER MAKİNA R1 2026-06-09 114.000 USD Reddedildi Satışa Al" [ref=e1148] [cursor=pointer]':
+                    - 'cell "2026/008 #5F5CD85C" [ref=e1149]':
+                      - generic [ref=e1150]:
+                        - img [ref=e1152]
+                        - generic [ref=e1155]:
+                          - generic [ref=e1156]: 2026/008
+                          - generic [ref=e1157]: "#5F5CD85C"
+                    - cell "ALİŞLER MAKİNA" [ref=e1158]
+                    - cell "R1" [ref=e1159]:
+                      - generic [ref=e1160]: R1
+                    - cell "2026-06-09" [ref=e1161]
+                    - cell "114.000 USD" [ref=e1162]
+                    - cell "Reddedildi" [ref=e1163]:
+                      - generic [ref=e1164]:
+                        - img [ref=e1165]
+                        - text: Reddedildi
+                    - cell [ref=e1169]
+                    - cell "Satışa Al" [ref=e1170]:
+                      - generic [ref=e1171]:
+                        - button "Satışa Al" [ref=e1172]:
+                          - img
+                          - text: Satışa Al
+                        - button "Teklif detayı" [ref=e1173]:
+                          - img
+                  - 'row "2026/16 #— — R1 2026-05-28 170.000 USD Taslak" [ref=e1174] [cursor=pointer]':
+                    - 'cell "2026/16 #—" [ref=e1175]':
+                      - generic [ref=e1176]:
+                        - img [ref=e1178]
+                        - generic [ref=e1181]:
+                          - generic [ref=e1182]: 2026/16
+                          - generic [ref=e1183]: "#—"
+                    - cell "—" [ref=e1184]
+                    - cell "R1" [ref=e1185]:
+                      - generic [ref=e1186]: R1
+                    - cell "2026-05-28" [ref=e1187]
+                    - cell "170.000 USD" [ref=e1188]
+                    - cell "Taslak" [ref=e1189]:
+                      - generic [ref=e1190]: Taslak
+                    - cell [ref=e1191]
+                    - cell [ref=e1192]:
+                      - button "Teklif detayı" [ref=e1194]:
+                        - img
+                  - 'row "2026/040 #— — R1 2026-05-28 72.000 USD Taslak" [ref=e1195] [cursor=pointer]':
+                    - 'cell "2026/040 #—" [ref=e1196]':
+                      - generic [ref=e1197]:
+                        - img [ref=e1199]
+                        - generic [ref=e1202]:
+                          - generic [ref=e1203]: 2026/040
+                          - generic [ref=e1204]: "#—"
+                    - cell "—" [ref=e1205]
+                    - cell "R1" [ref=e1206]:
+                      - generic [ref=e1207]: R1
+                    - cell "2026-05-28" [ref=e1208]
+                    - cell "72.000 USD" [ref=e1209]
+                    - cell "Taslak" [ref=e1210]:
+                      - generic [ref=e1211]: Taslak
+                    - cell [ref=e1212]
+                    - cell [ref=e1213]:
+                      - button "Teklif detayı" [ref=e1215]:
+                        - img
+                  - 'row "RPT-2026-01 #— — R1 2026-04-12 67.308,211 USD Onaylı" [ref=e1216] [cursor=pointer]':
+                    - 'cell "RPT-2026-01 #—" [ref=e1217]':
+                      - generic [ref=e1218]:
+                        - img [ref=e1220]
+                        - generic [ref=e1223]:
+                          - generic [ref=e1224]: RPT-2026-01
+                          - generic [ref=e1225]: "#—"
+                    - cell "—" [ref=e1226]
+                    - cell "R1" [ref=e1227]:
+                      - generic [ref=e1228]: R1
+                    - cell "2026-04-12" [ref=e1229]
+                    - cell "67.308,211 USD" [ref=e1230]
+                    - cell "Onaylı" [ref=e1231]:
+                      - generic [ref=e1232]:
+                        - img [ref=e1233]
+                        - text: Onaylı
+                    - cell [ref=e1236]
+                    - cell [ref=e1237]:
+                      - button "Teklif detayı" [ref=e1239]:
+                        - img
+                  - 'row "RPT-2026-04 #— — R1 2026-01-12 64.503,702 USD Gönderildi" [ref=e1240] [cursor=pointer]':
+                    - 'cell "RPT-2026-04 #—" [ref=e1241]':
+                      - generic [ref=e1242]:
+                        - img [ref=e1244]
+                        - generic [ref=e1247]:
+                          - generic [ref=e1248]: RPT-2026-04
+                          - generic [ref=e1249]: "#—"
+                    - cell "—" [ref=e1250]
+                    - cell "R1" [ref=e1251]:
+                      - generic [ref=e1252]: R1
+                    - cell "2026-01-12" [ref=e1253]
+                    - cell "64.503,702 USD" [ref=e1254]
+                    - cell "Gönderildi" [ref=e1255]:
+                      - generic [ref=e1256]: Gönderildi
+                    - cell [ref=e1257]
+                    - cell [ref=e1258]:
+                      - button "Teklif detayı" [ref=e1260]:
+                        - img
+                  - 'row "RPT-2025-03 #— — R1 2025-10-12 186.721,6 USD Taslak" [ref=e1261] [cursor=pointer]':
+                    - 'cell "RPT-2025-03 #—" [ref=e1262]':
+                      - generic [ref=e1263]:
+                        - img [ref=e1265]
+                        - generic [ref=e1268]:
+                          - generic [ref=e1269]: RPT-2025-03
+                          - generic [ref=e1270]: "#—"
+                    - cell "—" [ref=e1271]
+                    - cell "R1" [ref=e1272]:
+                      - generic [ref=e1273]: R1
+                    - cell "2025-10-12" [ref=e1274]
+                    - cell "186.721,6 USD" [ref=e1275]
+                    - cell "Taslak" [ref=e1276]:
+                      - generic [ref=e1277]: Taslak
+                    - cell [ref=e1278]
+                    - cell [ref=e1279]:
+                      - button "Teklif detayı" [ref=e1281]:
+                        - img
+                  - 'row "RPT-2025-02 #— — R1 2025-07-12 70.112,72 USD Reddedildi" [ref=e1282] [cursor=pointer]':
+                    - 'cell "RPT-2025-02 #—" [ref=e1283]':
+                      - generic [ref=e1284]:
+                        - img [ref=e1286]
+                        - generic [ref=e1289]:
+                          - generic [ref=e1290]: RPT-2025-02
+                          - generic [ref=e1291]: "#—"
+                    - cell "—" [ref=e1292]
+                    - cell "R1" [ref=e1293]:
+                      - generic [ref=e1294]: R1
+                    - cell "2025-07-12" [ref=e1295]
+                    - cell "70.112,72 USD" [ref=e1296]
+                    - cell "Reddedildi" [ref=e1297]:
+                      - generic [ref=e1298]:
+                        - img [ref=e1299]
+                        - text: Reddedildi
+                    - cell [ref=e1303]
+                    - cell [ref=e1304]:
+                      - button "Teklif detayı" [ref=e1306]:
+                        - img
+                  - 'row "RPT-2025-01 #— — R1 2025-04-12 73.825,344 USD Onaylı" [ref=e1307] [cursor=pointer]':
+                    - 'cell "RPT-2025-01 #—" [ref=e1308]':
+                      - generic [ref=e1309]:
+                        - img [ref=e1311]
+                        - generic [ref=e1314]:
+                          - generic [ref=e1315]: RPT-2025-01
+                          - generic [ref=e1316]: "#—"
+                    - cell "—" [ref=e1317]
+                    - cell "R1" [ref=e1318]:
+                      - generic [ref=e1319]: R1
+                    - cell "2025-04-12" [ref=e1320]
+                    - cell "73.825,344 USD" [ref=e1321]
+                    - cell "Onaylı" [ref=e1322]:
+                      - generic [ref=e1323]:
+                        - img [ref=e1324]
+                        - text: Onaylı
+                    - cell [ref=e1327]
+                    - cell [ref=e1328]:
+                      - button "Teklif detayı" [ref=e1330]:
+                        - img
+                  - 'row "RPT-2025-04 #— — R1 2025-01-12 70.749,288 USD Gönderildi" [ref=e1331] [cursor=pointer]':
+                    - 'cell "RPT-2025-04 #—" [ref=e1332]':
+                      - generic [ref=e1333]:
+                        - img [ref=e1335]
+                        - generic [ref=e1338]:
+                          - generic [ref=e1339]: RPT-2025-04
+                          - generic [ref=e1340]: "#—"
+                    - cell "—" [ref=e1341]
+                    - cell "R1" [ref=e1342]:
+                      - generic [ref=e1343]: R1
+                    - cell "2025-01-12" [ref=e1344]
+                    - cell "70.749,288 USD" [ref=e1345]
+                    - cell "Gönderildi" [ref=e1346]:
+                      - generic [ref=e1347]: Gönderildi
+                    - cell [ref=e1348]
+                    - cell [ref=e1349]:
+                      - button "Teklif detayı" [ref=e1351]:
+                        - img
+                  - 'row "RPT-2024-03 #— — R1 2024-10-12 72.917,229 USD Taslak" [ref=e1352] [cursor=pointer]':
+                    - 'cell "RPT-2024-03 #—" [ref=e1353]':
+                      - generic [ref=e1354]:
+                        - img [ref=e1356]
+                        - generic [ref=e1359]:
+                          - generic [ref=e1360]: RPT-2024-03
+                          - generic [ref=e1361]: "#—"
+                    - cell "—" [ref=e1362]
+                    - cell "R1" [ref=e1363]:
+                      - generic [ref=e1364]: R1
+                    - cell "2024-10-12" [ref=e1365]
+                    - cell "72.917,229 USD" [ref=e1366]
+                    - cell "Taslak" [ref=e1367]:
+                      - generic [ref=e1368]: Taslak
+                    - cell [ref=e1369]
+                    - cell [ref=e1370]:
+                      - button "Teklif detayı" [ref=e1372]:
+                        - img
+                  - 'row "RPT-2024-02 #— — R1 2024-07-12 76.901,4 USD Reddedildi" [ref=e1373] [cursor=pointer]':
+                    - 'cell "RPT-2024-02 #—" [ref=e1374]':
+                      - generic [ref=e1375]:
+                        - img [ref=e1377]
+                        - generic [ref=e1380]:
+                          - generic [ref=e1381]: RPT-2024-02
+                          - generic [ref=e1382]: "#—"
+                    - cell "—" [ref=e1383]
+                    - cell "R1" [ref=e1384]:
+                      - generic [ref=e1385]: R1
+                    - cell "2024-07-12" [ref=e1386]
+                    - cell "76.901,4 USD" [ref=e1387]
+                    - cell "Reddedildi" [ref=e1388]:
+                      - generic [ref=e1389]:
+                        - img [ref=e1390]
+                        - text: Reddedildi
+                    - cell [ref=e1394]
+                    - cell [ref=e1395]:
+                      - button "Teklif detayı" [ref=e1397]:
+                        - img
+                  - 'row "RPT-2024-01 #— — R1 2024-04-12 172.358,4 USD Onaylı" [ref=e1398] [cursor=pointer]':
+                    - 'cell "RPT-2024-01 #—" [ref=e1399]':
+                      - generic [ref=e1400]:
+                        - img [ref=e1402]
+                        - generic [ref=e1405]:
+                          - generic [ref=e1406]: RPT-2024-01
+                          - generic [ref=e1407]: "#—"
+                    - cell "—" [ref=e1408]
+                    - cell "R1" [ref=e1409]:
+                      - generic [ref=e1410]: R1
+                    - cell "2024-04-12" [ref=e1411]
+                    - cell "172.358,4 USD" [ref=e1412]
+                    - cell "Onaylı" [ref=e1413]:
+                      - generic [ref=e1414]:
+                        - img [ref=e1415]
+                        - text: Onaylı
+                    - cell [ref=e1418]
+                    - cell [ref=e1419]:
+                      - button "Teklif detayı" [ref=e1421]:
+                        - img
+                  - 'row "RPT-2024-04 #— — R1 2024-01-12 165.176,8 USD Gönderildi" [ref=e1422] [cursor=pointer]':
+                    - 'cell "RPT-2024-04 #—" [ref=e1423]':
+                      - generic [ref=e1424]:
+                        - img [ref=e1426]
+                        - generic [ref=e1429]:
+                          - generic [ref=e1430]: RPT-2024-04
+                          - generic [ref=e1431]: "#—"
+                    - cell "—" [ref=e1432]
+                    - cell "R1" [ref=e1433]:
+                      - generic [ref=e1434]: R1
+                    - cell "2024-01-12" [ref=e1435]
+                    - cell "165.176,8 USD" [ref=e1436]
+                    - cell "Gönderildi" [ref=e1437]:
+                      - generic [ref=e1438]: Gönderildi
+                    - cell [ref=e1439]
+                    - cell [ref=e1440]:
+                      - button "Teklif detayı" [ref=e1442]:
+                        - img
+                  - 'row "2023/089 #— — R1 2023-05-12 68.300 USD Taslak" [ref=e1443] [cursor=pointer]':
+                    - 'cell "2023/089 #—" [ref=e1444]':
+                      - generic [ref=e1445]:
+                        - img [ref=e1447]
+                        - generic [ref=e1450]:
+                          - generic [ref=e1451]: 2023/089
+                          - generic [ref=e1452]: "#—"
+                    - cell "—" [ref=e1453]
+                    - cell "R1" [ref=e1454]:
+                      - generic [ref=e1455]: R1
+                    - cell "2023-05-12" [ref=e1456]
+                    - cell "68.300 USD" [ref=e1457]
+                    - cell "Taslak" [ref=e1458]:
+                      - generic [ref=e1459]: Taslak
+                    - cell [ref=e1460]
+                    - cell [ref=e1461]:
+                      - button "Teklif detayı" [ref=e1463]:
+                        - img
+            - generic [ref=e1464]:
+              - generic [ref=e1465]:
+                - generic [ref=e1466]:
+                  - heading "Satış Siparişleri" [level=4] [ref=e1467]
+                  - paragraph [ref=e1468]: Onaylanan tekliften stok rezervasyonuna giden sipariş kayıtları
+                - generic [ref=e1469]: 0 kayıt
+              - table [ref=e1472]:
+                - rowgroup [ref=e1473]:
+                  - row "Sipariş Müşteri Tarih Tutar Durum" [ref=e1474]:
+                    - columnheader "Sipariş" [ref=e1475]
+                    - columnheader "Müşteri" [ref=e1476]
+                    - columnheader "Tarih" [ref=e1477]
+                    - columnheader "Tutar" [ref=e1478]
+                    - columnheader "Durum" [ref=e1479]
+                - rowgroup [ref=e1480]:
+                  - row "Henüz satış siparişi yok." [ref=e1481]:
+                    - cell "Henüz satış siparişi yok." [ref=e1482]
+    - region "Notifications alt+T"
+  - generic [ref=e892]: "4"

@@ -1,0 +1,2868 @@
+[
+  {
+    "id": "haksan-cnc-c20-5u-5a",
+    "brand": "Maximart",
+    "productGroup": "CNC",
+    "productGroupCode": "CNC",
+    "model": "C20-5U/5A",
+    "modelName": "C20-5U/5A CNC 5 Eksen İşleme Merkezi",
+    "type": "CNC 5 Eksen İşleme Merkezi",
+    "productTypeCode": "CNC_5_EKSEN_ISLEME_MERKEZI",
+    "controlPanel": "",
+    "category": "CNC 5 Eksen İşleme Merkezleri",
+    "categoryCode": "TEZGAH",
+    "subcategory": "İşleme Merkezi",
+    "subcategoryCode": "ISLEME_MERKEZI",
+    "imageUrl": "/product-blobs/haksancnc/haksan-cnc-c20-5u-5a.jpg",
+    "shortDescription": "Karmaşık işlemleri 5 yönden aynı anda ele alın | Maximart C20-5U/5A CNC 5 Eksen İşleme Merkezi",
+    "description": "Karmaşık işlemleri 5 yönden aynı anda ele alın | Maximart C20-5U/5A CNC 5 Eksen İşleme Merkezi Kaynak: https://www.haksancnc.com.tr/urun-detay-c20-5u-5acnc5eksenislememerkezi-1636",
+    "listPrice": 0,
+    "cashPrice": 0,
+    "currency": "USD",
+    "vatRate": 20,
+    "originCountry": "",
+    "hsCode": "",
+    "stockCode": "HAKSAN-C20-5U-5A",
+    "specs": [
+      {
+        "key": "Döner Tabla Ölçüsü",
+        "value": "ٔ Ø 210 mm"
+      },
+      {
+        "key": "T Slot Ölçü ve Sayısı",
+        "value": "12 H7 x 4"
+      },
+      {
+        "key": "Tabla Yükleme Kapasitesi",
+        "value": "75 kg"
+      },
+      {
+        "key": "Tabla ~ Fener Mili Ucu Arası Mesafe",
+        "value": "30 ~ 480 mm"
+      },
+      {
+        "key": "X,Y ve Z Eksen Hareketi",
+        "value": "500x420x450 mm"
+      },
+      {
+        "key": "A Eksen Hareketi",
+        "value": "+30˚ / -120˚"
+      },
+      {
+        "key": "C Eksen Hareketi",
+        "value": "360˚"
+      },
+      {
+        "key": "X, Y ve Z Eksen Boşta İlerleme Hızı",
+        "value": "32 m/dk"
+      },
+      {
+        "key": "X, Y, Z Eksen Kesme Hızı",
+        "value": "12 m/dk"
+      },
+      {
+        "key": "Fener Mili Standardı",
+        "value": "BT-40"
+      },
+      {
+        "key": "Fener Mili Devri",
+        "value": "12.000 / 15.000* dv/dk"
+      },
+      {
+        "key": "Fener Mili Aktarması",
+        "value": "Direkt"
+      },
+      {
+        "key": "Soğutma Sistemi Motor Gücü",
+        "value": "0,65 kW / 0,96 kW"
+      },
+      {
+        "key": "Takım Değiştirici Tipi",
+        "value": "Kol Tipi"
+      },
+      {
+        "key": "Takım Kapasitesi",
+        "value": "30 Adet"
+      },
+      {
+        "key": "Maks. Takım Ağırlığı",
+        "value": "7 kg"
+      },
+      {
+        "key": "Maks. Takım Uzunluğu",
+        "value": "250 mm"
+      },
+      {
+        "key": "Maks. Takım Çapı",
+        "value": "Ø 150 mm"
+      },
+      {
+        "key": "Tezgah Hava Gereksinimi",
+        "value": "6 kg/cm&sup2;"
+      },
+      {
+        "key": "Toplam Güç Gereksinimi",
+        "value": "25 kVA"
+      },
+      {
+        "key": "Tezgah Ağırlığı",
+        "value": "5.500 kg"
+      }
+    ],
+    "standardEquipment": [],
+    "optionalEquipment": [],
+    "muadilProductId": null,
+    "status": "active",
+    "pdfUrl": "/product-blobs/haksancnc/pdfs/haksan-cnc-c20-5u-5a.pdf"
+  },
+  {
+    "id": "haksan-cnc-c30-5u-5a",
+    "brand": "Maximart",
+    "productGroup": "CNC",
+    "productGroupCode": "CNC",
+    "model": "C30-5U/5A",
+    "modelName": "C30-5U/5A CNC 5 Eksen İşleme Merkezi",
+    "type": "CNC 5 Eksen İşleme Merkezi",
+    "productTypeCode": "CNC_5_EKSEN_ISLEME_MERKEZI",
+    "controlPanel": "",
+    "category": "CNC 5 Eksen İşleme Merkezleri",
+    "categoryCode": "TEZGAH",
+    "subcategory": "İşleme Merkezi",
+    "subcategoryCode": "ISLEME_MERKEZI",
+    "imageUrl": "/product-blobs/haksancnc/haksan-cnc-c30-5u-5a.jpg",
+    "shortDescription": "Karmaşık işlemleri 5 yönden aynı anda ele alın | Maximart C30-5U/5A CNC 5 Eksen İşleme Merkezi",
+    "description": "Karmaşık işlemleri 5 yönden aynı anda ele alın | Maximart C30-5U/5A CNC 5 Eksen İşleme Merkezi Kaynak: https://www.haksancnc.com.tr/urun-detay-c30-5u-5acnc5eksenislememerkezi-1637",
+    "listPrice": 0,
+    "cashPrice": 0,
+    "currency": "USD",
+    "vatRate": 20,
+    "originCountry": "",
+    "hsCode": "",
+    "stockCode": "HAKSAN-C30-5U-5A",
+    "specs": [
+      {
+        "key": "Döner Tabla Ölçüsü",
+        "value": "Ø 320 mm"
+      },
+      {
+        "key": "T Slot Ölçü ve Sayısı",
+        "value": "12 H7 x 4"
+      },
+      {
+        "key": "Tabla Yükleme Kapasitesi",
+        "value": "100 kg"
+      },
+      {
+        "key": "Tabla ~ Fener Mili Ucu Arası Mesafe",
+        "value": "20 ~ 530 mm"
+      },
+      {
+        "key": "X,Y ve Z Eksen Hareketi",
+        "value": "610x610x510 mm"
+      },
+      {
+        "key": "A Eksen Hareketi",
+        "value": "+30˚ / -120˚"
+      },
+      {
+        "key": "C Eksen Hareketi",
+        "value": "360˚"
+      },
+      {
+        "key": "X, Y ve Z Eksen Boşta İlerleme Hızı",
+        "value": "32 m/dk"
+      },
+      {
+        "key": "X, Y, Z Eksen Kesme Hızı",
+        "value": "12 m/dk"
+      },
+      {
+        "key": "Fener Mili Standardı",
+        "value": "BT-40"
+      },
+      {
+        "key": "Fener Mili Devri",
+        "value": "12.000 / 15.000* dv/dk"
+      },
+      {
+        "key": "Fener Mili Aktarması",
+        "value": "Direkt"
+      },
+      {
+        "key": "Soğutma Sistemi Motor Gücü",
+        "value": "0,65 kW / 0,96 kW"
+      },
+      {
+        "key": "Takım Değiştirici Tipi",
+        "value": "Kol Tipi"
+      },
+      {
+        "key": "Takım Kapasitesi",
+        "value": "30 / 48* / 60* Adet"
+      },
+      {
+        "key": "Maks. Takım Ağırlığı",
+        "value": "7 kg"
+      },
+      {
+        "key": "Maks. Takım Uzunluğu",
+        "value": "300 mm"
+      },
+      {
+        "key": "Maks. Takım Çapı",
+        "value": "Ø 150 mm"
+      },
+      {
+        "key": "Tezgah Hava Gereksinimi",
+        "value": "6 kg/cm&sup2;"
+      },
+      {
+        "key": "Toplam Güç Gereksinimi",
+        "value": "30 kVA"
+      },
+      {
+        "key": "Tezgah Ağırlığı",
+        "value": "8.200 kg"
+      }
+    ],
+    "standardEquipment": [],
+    "optionalEquipment": [],
+    "muadilProductId": null,
+    "status": "active",
+    "pdfUrl": "/product-blobs/haksancnc/pdfs/haksan-cnc-c30-5u-5a.pdf"
+  },
+  {
+    "id": "haksan-cnc-c40-5u-5a",
+    "brand": "Maximart",
+    "productGroup": "CNC",
+    "productGroupCode": "CNC",
+    "model": "C40-5U/5A",
+    "modelName": "C40-5U/5A CNC 5 Eksen İşleme Merkezi",
+    "type": "CNC 5 Eksen İşleme Merkezi",
+    "productTypeCode": "CNC_5_EKSEN_ISLEME_MERKEZI",
+    "controlPanel": "",
+    "category": "CNC 5 Eksen İşleme Merkezleri",
+    "categoryCode": "TEZGAH",
+    "subcategory": "İşleme Merkezi",
+    "subcategoryCode": "ISLEME_MERKEZI",
+    "imageUrl": "/product-blobs/haksancnc/haksan-cnc-c40-5u-5a.jpg",
+    "shortDescription": "Karmaşık işlemleri 5 yönden aynı anda ele alın | Maximart C40-5U/5A CNC 5 Eksen İşleme Merkezi",
+    "description": "Karmaşık işlemleri 5 yönden aynı anda ele alın | Maximart C40-5U/5A CNC 5 Eksen İşleme Merkezi Kaynak: https://www.haksancnc.com.tr/urun-detay-c40-5u-5acnc5eksenislememerkezi-1638",
+    "listPrice": 0,
+    "cashPrice": 0,
+    "currency": "USD",
+    "vatRate": 20,
+    "originCountry": "",
+    "hsCode": "",
+    "stockCode": "HAKSAN-C40-5U-5A",
+    "specs": [
+      {
+        "key": "Döner Tabla Ölçüsü",
+        "value": "Ø 410 mm"
+      },
+      {
+        "key": "T Slot Ölçü ve Sayısı",
+        "value": "14 H7 x 8"
+      },
+      {
+        "key": "Tabla Yükleme Kapasitesi",
+        "value": "200 kg"
+      },
+      {
+        "key": "Tabla ~ Fener Mili Ucu Arası Mesafe",
+        "value": "30 ~ 640 mm"
+      },
+      {
+        "key": "X,Y ve Z Eksen Hareketi",
+        "value": "760x700x610 mm"
+      },
+      {
+        "key": "A Eksen Hareketi",
+        "value": "+30˚ / -120˚"
+      },
+      {
+        "key": "C Eksen Hareketi",
+        "value": "360˚"
+      },
+      {
+        "key": "X, Y ve Z Eksen Boşta İlerleme Hızı",
+        "value": "32 m/dk"
+      },
+      {
+        "key": "X, Y, Z Eksen Kesme Hızı",
+        "value": "12 m/dk"
+      },
+      {
+        "key": "Fener Mili Standardı",
+        "value": "BT-40"
+      },
+      {
+        "key": "Fener Mili Devri",
+        "value": "12.000 / 15.000* dv/dk"
+      },
+      {
+        "key": "Fener Mili Aktarması",
+        "value": "Direkt"
+      },
+      {
+        "key": "Soğutma Sistemi Motor Gücü",
+        "value": "0,65 kW / 0,96 kW"
+      },
+      {
+        "key": "Takım Değiştirici Tipi",
+        "value": "Kol Tipi"
+      },
+      {
+        "key": "Takım Kapasitesi",
+        "value": "30 / 48* / 60* Adet"
+      },
+      {
+        "key": "Maks. Takım Ağırlığı",
+        "value": "7 kg"
+      },
+      {
+        "key": "Maks. Takım Uzunluğu",
+        "value": "300 mm"
+      },
+      {
+        "key": "Maks. Takım Çapı",
+        "value": "Ø 150 mm"
+      },
+      {
+        "key": "Tezgah Hava Gereksinimi",
+        "value": "6 kg/cm&sup2;"
+      },
+      {
+        "key": "Toplam Güç Gereksinimi",
+        "value": "35 kVA"
+      },
+      {
+        "key": "Tezgah Ağırlığı",
+        "value": "8.800 kg"
+      }
+    ],
+    "standardEquipment": [],
+    "optionalEquipment": [],
+    "muadilProductId": null,
+    "status": "active",
+    "pdfUrl": "/product-blobs/haksancnc/pdfs/haksan-cnc-c40-5u-5a.pdf"
+  },
+  {
+    "id": "haksan-cnc-c50-5u-5a",
+    "brand": "Maximart",
+    "productGroup": "CNC",
+    "productGroupCode": "CNC",
+    "model": "C50-5U/5A",
+    "modelName": "C50-5U/5A CNC 5 Eksen İşleme Merkezi",
+    "type": "CNC 5 Eksen İşleme Merkezi",
+    "productTypeCode": "CNC_5_EKSEN_ISLEME_MERKEZI",
+    "controlPanel": "",
+    "category": "CNC 5 Eksen İşleme Merkezleri",
+    "categoryCode": "TEZGAH",
+    "subcategory": "İşleme Merkezi",
+    "subcategoryCode": "ISLEME_MERKEZI",
+    "imageUrl": "/product-blobs/haksancnc/haksan-cnc-c50-5u-5a.jpg",
+    "shortDescription": "Karmaşık işlemleri 5 yönden aynı anda ele alın | Maximart C20-5U/5A CNC 5 Eksen İşleme Merkezi",
+    "description": "Karmaşık işlemleri 5 yönden aynı anda ele alın | Maximart C20-5U/5A CNC 5 Eksen İşleme Merkezi Kaynak: https://www.haksancnc.com.tr/urun-detay-c50-5u-5acnc5eksenislememerkezi-1639",
+    "listPrice": 0,
+    "cashPrice": 0,
+    "currency": "USD",
+    "vatRate": 20,
+    "originCountry": "",
+    "hsCode": "",
+    "stockCode": "HAKSAN-C50-5U-5A",
+    "specs": [
+      {
+        "key": "Döner Tabla Ölçüsü",
+        "value": "Ø 500 mm"
+      },
+      {
+        "key": "T Slot Ölçü ve Sayısı",
+        "value": "14 H7 x 8"
+      },
+      {
+        "key": "Tabla Yükleme Kapasitesi",
+        "value": "300 kg"
+      },
+      {
+        "key": "Tabla ~ Fener Mili Ucu Arası Mesafe",
+        "value": "-20 ~ 640 mm"
+      },
+      {
+        "key": "X,Y ve Z Eksen Hareketi",
+        "value": "810x700x610 mm"
+      },
+      {
+        "key": "A Eksen Hareketi",
+        "value": "+30˚ / -120˚"
+      },
+      {
+        "key": "C Eksen Hareketi",
+        "value": "360˚"
+      },
+      {
+        "key": "X, Y ve Z Eksen Boşta İlerleme Hızı",
+        "value": "32 m/dk"
+      },
+      {
+        "key": "X, Y, Z Eksen Kesme Hızı",
+        "value": "12 m/dk"
+      },
+      {
+        "key": "Fener Mili Standardı",
+        "value": "BT-40"
+      },
+      {
+        "key": "Fener Mili Devri",
+        "value": "12.000 / 15.000* dv/dk"
+      },
+      {
+        "key": "Fener Mili Aktarması",
+        "value": "Direkt"
+      },
+      {
+        "key": "Soğutma Sistemi Motor Gücü",
+        "value": "0,65 kW / 0,96 kW"
+      },
+      {
+        "key": "Takım Değiştirici Tipi",
+        "value": "Kol Tipi"
+      },
+      {
+        "key": "Takım Kapasitesi",
+        "value": "30 / 48* / 60* Adet"
+      },
+      {
+        "key": "Maks. Takım Ağırlığı",
+        "value": "7 kg"
+      },
+      {
+        "key": "Maks. Takım Uzunluğu",
+        "value": "300 mm"
+      },
+      {
+        "key": "Maks. Takım Çapı",
+        "value": "Ø 150 mm"
+      },
+      {
+        "key": "Tezgah Hava Gereksinimi",
+        "value": "6 kg/cm&sup2;"
+      },
+      {
+        "key": "Toplam Güç Gereksinimi",
+        "value": "40 kVA"
+      },
+      {
+        "key": "Tezgah Ağırlığı",
+        "value": "9.200 kg"
+      }
+    ],
+    "standardEquipment": [],
+    "optionalEquipment": [],
+    "muadilProductId": null,
+    "status": "active",
+    "pdfUrl": "/product-blobs/haksancnc/pdfs/haksan-cnc-c50-5u-5a.pdf"
+  },
+  {
+    "id": "haksan-cnc-d-600",
+    "brand": "Maximart",
+    "productGroup": "CNC",
+    "productGroupCode": "CNC",
+    "model": "D-600",
+    "modelName": "D-600 CNC 5 Eksen İşleme Merkezi",
+    "type": "CNC 5 Eksen İşleme Merkezi",
+    "productTypeCode": "CNC_5_EKSEN_ISLEME_MERKEZI",
+    "controlPanel": "",
+    "category": "CNC 5 Eksen İşleme Merkezleri",
+    "categoryCode": "TEZGAH",
+    "subcategory": "İşleme Merkezi",
+    "subcategoryCode": "ISLEME_MERKEZI",
+    "imageUrl": "/product-blobs/haksancnc/haksan-cnc-d-600.jpg",
+    "shortDescription": "Maximart D-600 CNC 5 Eksen İşleme Merkezi ile karmaşık işlere basit çözüm.",
+    "description": "Maximart D-600 CNC 5 Eksen İşleme Merkezi ile karmaşık işlere basit çözüm. Kaynak: https://www.haksancnc.com.tr/urun-detay-d-600cnc5eksenislememerkezi-1632",
+    "listPrice": 0,
+    "cashPrice": 0,
+    "currency": "USD",
+    "vatRate": 20,
+    "originCountry": "",
+    "hsCode": "",
+    "stockCode": "HAKSAN-D-600",
+    "specs": [
+      {
+        "key": "Tabla Ölçüsü",
+        "value": "ٔ Ø 600 mm"
+      },
+      {
+        "key": "T Slot Ölçü ve Sayısı",
+        "value": "14 H11 x 7"
+      },
+      {
+        "key": "Tabla Yükleme Kapasitesi",
+        "value": "500 kg"
+      },
+      {
+        "key": "Tabla ~ Fener Mili Ucu Arası Mesafe",
+        "value": "200 ~ 650 mm"
+      },
+      {
+        "key": "X,Y ve Z Eksen Hareketi",
+        "value": "600x835x450 mm"
+      },
+      {
+        "key": "A Eksen Dönüş Açısı",
+        "value": "&plusmn; 120°"
+      },
+      {
+        "key": "C Eksen Dönüş Açısı",
+        "value": "360°"
+      },
+      {
+        "key": "X, Y ve Z Eksen Boşta İlerleme Hızı",
+        "value": "32 m/dk"
+      },
+      {
+        "key": "X, Y, Z Eksen Kesme Hızı",
+        "value": "16 m/dk"
+      },
+      {
+        "key": "X, Y, Z Eksen Pozisyonlama Hassasiyeti",
+        "value": "0.010 mm"
+      },
+      {
+        "key": "X, Y, Z Eksen Tekrarlama Hassasiyeti",
+        "value": "0.006 mm"
+      },
+      {
+        "key": "Fener Mili Standardı",
+        "value": "BT-40"
+      },
+      {
+        "key": "Fener Mili Devri",
+        "value": "20.000 dv/dk"
+      },
+      {
+        "key": "Fener Mili Aktarması",
+        "value": "Built-In"
+      },
+      {
+        "key": "Fener Mili Motor Gücü",
+        "value": "25/35 kW"
+      },
+      {
+        "key": "Fener Mili Motor Tipi",
+        "value": "AC Servo"
+      },
+      {
+        "key": "Soğutma Sistemi Motor Gücü",
+        "value": "1,08 kW / 1,62 kW"
+      },
+      {
+        "key": "Takım Değiştirici Tipi",
+        "value": "Tambur Tipi"
+      },
+      {
+        "key": "Takım Kapasitesi",
+        "value": "64 / 96 / 120 Adet"
+      },
+      {
+        "key": "Maks. Takım Ağırlığı",
+        "value": "7 kg"
+      },
+      {
+        "key": "Maks. Takım Uzunluğu",
+        "value": "300 mm"
+      },
+      {
+        "key": "Maks. Takım Çapı",
+        "value": "Ø 100 mm"
+      },
+      {
+        "key": "Tezgah Ölçüleri (Döner Kontrol Paneliyle Birlikte)",
+        "value": "4.963 x 2.240 x 3.395 mm (64 T)"
+      },
+      {
+        "key": "Tezgah Ağırlığı",
+        "value": "13.500 kg"
+      },
+      {
+        "key": "Güç Tüketimi",
+        "value": "40 kVA"
+      }
+    ],
+    "standardEquipment": [],
+    "optionalEquipment": [],
+    "muadilProductId": null,
+    "status": "active",
+    "pdfUrl": "/product-blobs/haksancnc/pdfs/haksan-cnc-d-600.pdf"
+  },
+  {
+    "id": "haksan-cnc-d-700",
+    "brand": "Maximart",
+    "productGroup": "CNC",
+    "productGroupCode": "CNC",
+    "model": "D-700",
+    "modelName": "D-700 CNC 5 Eksen İşleme Merkezi",
+    "type": "CNC 5 Eksen İşleme Merkezi",
+    "productTypeCode": "CNC_5_EKSEN_ISLEME_MERKEZI",
+    "controlPanel": "",
+    "category": "CNC 5 Eksen İşleme Merkezleri",
+    "categoryCode": "TEZGAH",
+    "subcategory": "İşleme Merkezi",
+    "subcategoryCode": "ISLEME_MERKEZI",
+    "imageUrl": "/product-blobs/haksancnc/haksan-cnc-d-700.jpg",
+    "shortDescription": "Maximart D-700 CNC 5 Eksen İşleme Merkezi ile karmaşık işlere basit çözüm.",
+    "description": "Maximart D-700 CNC 5 Eksen İşleme Merkezi ile karmaşık işlere basit çözüm. Kaynak: https://www.haksancnc.com.tr/urun-detay-d-700cnc5eksenislememerkezi-1633",
+    "listPrice": 0,
+    "cashPrice": 0,
+    "currency": "USD",
+    "vatRate": 20,
+    "originCountry": "",
+    "hsCode": "",
+    "stockCode": "HAKSAN-D-700",
+    "specs": [
+      {
+        "key": "Tabla Ölçüsü",
+        "value": "ٔ Ø 700 mm"
+      },
+      {
+        "key": "T Slot Ölçü ve Sayısı",
+        "value": "14 H11 x 7"
+      },
+      {
+        "key": "Tabla Yükleme Kapasitesi",
+        "value": "850 kg"
+      },
+      {
+        "key": "Tabla ~ Fener Mili Ucu Arası Mesafe",
+        "value": "150 ~ 650 mm"
+      },
+      {
+        "key": "X,Y ve Z Eksen Hareketi",
+        "value": "650x835x500 mm"
+      },
+      {
+        "key": "A Eksen Dönüş Açısı",
+        "value": "&plusmn; 120°"
+      },
+      {
+        "key": "C Eksen Dönüş Açısı",
+        "value": "360°"
+      },
+      {
+        "key": "X, Z ve Z Eksen Boşta İlerleme Hızı",
+        "value": "32 m/dk"
+      },
+      {
+        "key": "X, Y, Z Eksen Kesme Hızı",
+        "value": "16 m/dk"
+      },
+      {
+        "key": "X, Y, Z Eksen Pozisyonlama Hassasiyeti",
+        "value": "0.010 mm"
+      },
+      {
+        "key": "X, Y, Z Eksen Tekrarlama Hassasiyeti",
+        "value": "0.006 mm"
+      },
+      {
+        "key": "Fener Mili Standardı",
+        "value": "BT-40"
+      },
+      {
+        "key": "Fener Mili Devri",
+        "value": "20.000 dv/dk"
+      },
+      {
+        "key": "Fener Mili Aktarması",
+        "value": "Built-In"
+      },
+      {
+        "key": "Fener Mili Motor Gücü",
+        "value": "25/35 kW"
+      },
+      {
+        "key": "Fener Mili Motor Tipi",
+        "value": "AC Servo"
+      },
+      {
+        "key": "Soğutma Sistemi Motor Gücü",
+        "value": "1,08 kW / 1,62 kW"
+      },
+      {
+        "key": "Takım Değiştirici Tipi",
+        "value": "Tambur Tipi"
+      },
+      {
+        "key": "Takım Kapasitesi",
+        "value": "64 / 96 / 120 Adet"
+      },
+      {
+        "key": "Maks. Takım Ağırlığı",
+        "value": "7 kg"
+      },
+      {
+        "key": "Maks. Takım Uzunluğu",
+        "value": "300 mm"
+      },
+      {
+        "key": "Maks. Takım Çapı",
+        "value": "Ø 100 mm"
+      },
+      {
+        "key": "Tezgah Ölçüleri (Döner Kontrol Paneliyle Birlikte)",
+        "value": "4.963 x 2.240 x 3.395 mm (64 T)"
+      },
+      {
+        "key": "Tezgah Ağırlığı",
+        "value": "14.000 kg"
+      },
+      {
+        "key": "Güç Tüketimi",
+        "value": "45 kVA"
+      }
+    ],
+    "standardEquipment": [],
+    "optionalEquipment": [],
+    "muadilProductId": null,
+    "status": "active",
+    "pdfUrl": "/product-blobs/haksancnc/pdfs/haksan-cnc-d-700.pdf"
+  },
+  {
+    "id": "haksan-cnc-d-800",
+    "brand": "Maximart",
+    "productGroup": "CNC",
+    "productGroupCode": "CNC",
+    "model": "D-800",
+    "modelName": "D-800 CNC 5 Eksen İşleme Merkezi",
+    "type": "CNC 5 Eksen İşleme Merkezi",
+    "productTypeCode": "CNC_5_EKSEN_ISLEME_MERKEZI",
+    "controlPanel": "",
+    "category": "CNC 5 Eksen İşleme Merkezleri",
+    "categoryCode": "TEZGAH",
+    "subcategory": "İşleme Merkezi",
+    "subcategoryCode": "ISLEME_MERKEZI",
+    "imageUrl": "/product-blobs/haksancnc/haksan-cnc-d-800.jpg",
+    "shortDescription": "Maximart D-800 CNC 5 Eksen İşleme Merkezi ile karmaşık işlere basit çözüm.",
+    "description": "Maximart D-800 CNC 5 Eksen İşleme Merkezi ile karmaşık işlere basit çözüm. Kaynak: https://www.haksancnc.com.tr/urun-detay-d-800cnc5eksenislememerkezi-1634",
+    "listPrice": 0,
+    "cashPrice": 0,
+    "currency": "USD",
+    "vatRate": 20,
+    "originCountry": "",
+    "hsCode": "",
+    "stockCode": "HAKSAN-D-800",
+    "specs": [
+      {
+        "key": "Tabla Ölçüsü",
+        "value": "ٔ Ø 800 mm"
+      },
+      {
+        "key": "T Slot Ölçü ve Sayısı",
+        "value": "14 H11 x 7"
+      },
+      {
+        "key": "Tabla Yükleme Kapasitesi",
+        "value": "1300 kg"
+      },
+      {
+        "key": "Tabla ~ Fener Mili Ucu Arası Mesafe",
+        "value": "150 ~ 800 mm"
+      },
+      {
+        "key": "X,Y ve Z Eksen Hareketi",
+        "value": "800x1010x650 mm"
+      },
+      {
+        "key": "A Eksen Dönüş Açısı",
+        "value": "&plusmn; 120°"
+      },
+      {
+        "key": "C Eksen Dönüş Açısı",
+        "value": "360°"
+      },
+      {
+        "key": "X, Z ve Z Eksen Boşta İlerleme Hızı",
+        "value": "48 m/dk"
+      },
+      {
+        "key": "X, Y, Z Eksen Kesme Hızı",
+        "value": "20 m/dk"
+      },
+      {
+        "key": "X, Y, Z Eksen Pozisyonlama Hassasiyeti",
+        "value": "0.010 mm"
+      },
+      {
+        "key": "X, Y, Z Eksen Tekrarlama Hassasiyeti",
+        "value": "0.006 mm"
+      },
+      {
+        "key": "Fener Mili Standardı",
+        "value": "BT-40"
+      },
+      {
+        "key": "Fener Mili Devri",
+        "value": "20.000 dv/dk"
+      },
+      {
+        "key": "Fener Mili Aktarması",
+        "value": "Built-In"
+      },
+      {
+        "key": "Fener Mili Motor Gücü",
+        "value": "25/35 kW"
+      },
+      {
+        "key": "Fener Mili Motor Tipi",
+        "value": "AC Servo"
+      },
+      {
+        "key": "Soğutma Sistemi Motor Gücü",
+        "value": "1,08 kW / 1,62 kW"
+      },
+      {
+        "key": "Takım Değiştirici Tipi",
+        "value": "Tambur Tipi"
+      },
+      {
+        "key": "Takım Kapasitesi",
+        "value": "64 / 96 / 120 Adet"
+      },
+      {
+        "key": "Maks. Takım Ağırlığı",
+        "value": "7 kg"
+      },
+      {
+        "key": "Maks. Takım Uzunluğu",
+        "value": "300 mm"
+      },
+      {
+        "key": "Maks. Takım Çapı",
+        "value": "Ø 100 mm"
+      },
+      {
+        "key": "Tezgah Ölçüleri (Döner Kontrol Paneliyle Birlikte)",
+        "value": "5.060 x 2.405 x 3.850 mm (64 T)"
+      },
+      {
+        "key": "Tezgah Ağırlığı",
+        "value": "19.200 kg"
+      },
+      {
+        "key": "Güç Tüketimi",
+        "value": "55 kVA"
+      }
+    ],
+    "standardEquipment": [],
+    "optionalEquipment": [],
+    "muadilProductId": null,
+    "status": "active",
+    "pdfUrl": "/product-blobs/haksancnc/pdfs/haksan-cnc-d-800.pdf"
+  },
+  {
+    "id": "haksan-cnc-d-800t",
+    "brand": "Maximart",
+    "productGroup": "CNC",
+    "productGroupCode": "CNC",
+    "model": "D-800T",
+    "modelName": "D-800T CNC 5 Eksen İşleme Merkezi",
+    "type": "CNC 5 Eksen İşleme Merkezi",
+    "productTypeCode": "CNC_5_EKSEN_ISLEME_MERKEZI",
+    "controlPanel": "",
+    "category": "CNC 5 Eksen İşleme Merkezleri",
+    "categoryCode": "TEZGAH",
+    "subcategory": "İşleme Merkezi",
+    "subcategoryCode": "ISLEME_MERKEZI",
+    "imageUrl": "/product-blobs/haksancnc/haksan-cnc-d-800t.jpg",
+    "shortDescription": "Maximart D-800T CNC 5 Eksen İşleme Merkezi ile karmaşık işlere basit çözüm.",
+    "description": "Maximart D-800T CNC 5 Eksen İşleme Merkezi ile karmaşık işlere basit çözüm. Kaynak: https://www.haksancnc.com.tr/urun-detay-d-800tcnc5eksenislememerkezi-1635",
+    "listPrice": 0,
+    "cashPrice": 0,
+    "currency": "USD",
+    "vatRate": 20,
+    "originCountry": "",
+    "hsCode": "",
+    "stockCode": "HAKSAN-D-800T",
+    "specs": [
+      {
+        "key": "Tabla Ölçüsü",
+        "value": "ٔ Ø 800 mm"
+      },
+      {
+        "key": "T Slot Ölçü ve Sayısı",
+        "value": "14 H8 x 6"
+      },
+      {
+        "key": "Tabla Yükleme Kapasitesi",
+        "value": "1200 kg (İşleme) / 850 kg (Tornalama)"
+      },
+      {
+        "key": "Tabla ~ Fener Mili Ucu Arası Mesafe",
+        "value": "250 ~ 1000 mm"
+      },
+      {
+        "key": "X,Y ve Z Eksen Hareketi",
+        "value": "800x1010x750 mm"
+      },
+      {
+        "key": "A Eksen Dönüş Açısı",
+        "value": "&plusmn; 120°"
+      },
+      {
+        "key": "C Eksen Dönüş Açısı",
+        "value": "360°"
+      },
+      {
+        "key": "X, Z ve Z Eksen Boşta İlerleme Hızı",
+        "value": "48 m/dk"
+      },
+      {
+        "key": "X, Y, Z Eksen Kesme Hızı",
+        "value": "20 m/dk"
+      },
+      {
+        "key": "X, Y, Z Eksen Pozisyonlama Hassasiyeti",
+        "value": "0.010 mm"
+      },
+      {
+        "key": "X, Y, Z Eksen Tekrarlama Hassasiyeti",
+        "value": "0.006 mm"
+      },
+      {
+        "key": "Fener Mili Standardı",
+        "value": "HSK T100"
+      },
+      {
+        "key": "Fener Mili Devri",
+        "value": "15.000 dv/dk"
+      },
+      {
+        "key": "Fener Mili Aktarması",
+        "value": "Built-In"
+      },
+      {
+        "key": "Fener Mili Motor Gücü",
+        "value": "48/70 kW"
+      },
+      {
+        "key": "Fener Mili Motor Tipi",
+        "value": "AC Servo"
+      },
+      {
+        "key": "Soğutma Sistemi Motor Gücü",
+        "value": "1,08 kW / 1,62 kW"
+      },
+      {
+        "key": "Takım Değiştirici Tipi",
+        "value": "Kol Tipi"
+      },
+      {
+        "key": "Takım Kapasitesi",
+        "value": "88 / 176 Adet"
+      },
+      {
+        "key": "Maks. Takım Ağırlığı",
+        "value": "25 kg"
+      },
+      {
+        "key": "Maks. Takım Uzunluğu",
+        "value": "500 mm"
+      },
+      {
+        "key": "Maks. Takım Çapı",
+        "value": "Ø 125 mm"
+      },
+      {
+        "key": "Tezgah Ölçüleri (Döner Kontrol Paneliyle Birlikte)",
+        "value": "5.551 x 2.450 x 4.125 mm (88 T)"
+      },
+      {
+        "key": "Tezgah Ağırlığı",
+        "value": "20.000 kg"
+      },
+      {
+        "key": "Güç Tüketimi",
+        "value": "75 kVA"
+      }
+    ],
+    "standardEquipment": [],
+    "optionalEquipment": [],
+    "muadilProductId": null,
+    "status": "active",
+    "pdfUrl": "/product-blobs/haksancnc/pdfs/haksan-cnc-d-800t.pdf"
+  },
+  {
+    "id": "haksan-cnc-mv-1050",
+    "brand": "LK Machinery",
+    "productGroup": "CNC",
+    "productGroupCode": "CNC",
+    "model": "MV-1050",
+    "modelName": "MV-1050 CNC Dik İşleme Merkezi",
+    "type": "CNC Dik İşleme Merkezi",
+    "productTypeCode": "CNC_DIK_ISLEME_MERKEZ",
+    "controlPanel": "",
+    "category": "CNC Dik İşleme Merkezleri",
+    "categoryCode": "TEZGAH",
+    "subcategory": "İşleme Merkezi",
+    "subcategoryCode": "ISLEME_MERKEZI",
+    "imageUrl": "/product-blobs/haksancnc/haksan-cnc-mv-1050.jpg",
+    "shortDescription": "MV-1050, yüksek hızda hassas işleme ve dayanıklı yapısı ile metal işleme endüstrisinde üretim süreçlerinizi güçlendirir.",
+    "description": "MV-1050, yüksek hızda hassas işleme ve dayanıklı yapısı ile metal işleme endüstrisinde üretim süreçlerinizi güçlendirir. Kaynak: https://www.haksancnc.com.tr/urun-detay-mv-1050cncdikislememerkezi-1585",
+    "listPrice": 0,
+    "cashPrice": 0,
+    "currency": "USD",
+    "vatRate": 20,
+    "originCountry": "",
+    "hsCode": "",
+    "stockCode": "HAKSAN-MV-1050",
+    "specs": [
+      {
+        "key": "X, Y, Z Eksen Hareketi",
+        "value": "1.050 x 600 x 610 mm"
+      },
+      {
+        "key": "Takım Tutucu Standardı",
+        "value": "BT-40"
+      },
+      {
+        "key": "Fener Mili Devri",
+        "value": "12.000 dv./dk."
+      },
+      {
+        "key": "X, Y, Z Eksen Boşta İlerleme Oranı",
+        "value": "48/48/36 m/dk."
+      },
+      {
+        "key": "X, Y, Z Eksen Kesme Hızı",
+        "value": "20 m/dk."
+      },
+      {
+        "key": "Takım Değiştirici",
+        "value": "Kol Tipi - 24 Takım Kapasiteli"
+      }
+    ],
+    "standardEquipment": [],
+    "optionalEquipment": [],
+    "muadilProductId": null,
+    "status": "active",
+    "pdfUrl": "/product-blobs/haksancnc/pdfs/haksan-cnc-mv-1050.pdf"
+  },
+  {
+    "id": "haksan-cnc-mv-850",
+    "brand": "LK Machinery",
+    "productGroup": "CNC",
+    "productGroupCode": "CNC",
+    "model": "MV-850",
+    "modelName": "MV-850 CNC Dik İşleme Merkezi",
+    "type": "CNC Dik İşleme Merkezi",
+    "productTypeCode": "CNC_DIK_ISLEME_MERKEZ",
+    "controlPanel": "",
+    "category": "CNC Dik İşleme Merkezleri",
+    "categoryCode": "TEZGAH",
+    "subcategory": "İşleme Merkezi",
+    "subcategoryCode": "ISLEME_MERKEZI",
+    "imageUrl": "/product-blobs/haksancnc/haksan-cnc-mv-850.jpg",
+    "shortDescription": "MV-850, büyük parçaların işlenmesinde yüksek hassasiyet sunarak endüstriyel üretim kapasitenizi artırır. Güvenilir ve verimli üretim için idealdir.",
+    "description": "MV-850, büyük parçaların işlenmesinde yüksek hassasiyet sunarak endüstriyel üretim kapasitenizi artırır. Güvenilir ve verimli üretim için idealdir. Kaynak: https://www.haksancnc.com.tr/urun-detay-mv-850cncdikislememerkezi-1584",
+    "listPrice": 0,
+    "cashPrice": 0,
+    "currency": "USD",
+    "vatRate": 20,
+    "originCountry": "",
+    "hsCode": "",
+    "stockCode": "HAKSAN-MV-850",
+    "specs": [
+      {
+        "key": "X, Y, Z Eksen Hareketi",
+        "value": "850 x 600 x 610 mm"
+      },
+      {
+        "key": "Takım Tutucu Standardı",
+        "value": "BT-40 / Direkt Aktarma"
+      },
+      {
+        "key": "Fener Mili Devri",
+        "value": "12.000 dv./dk."
+      },
+      {
+        "key": "X, Y, Z Eksen Boşta İlerleme Oranı",
+        "value": "48/48/36 m/dk."
+      },
+      {
+        "key": "X, Y, Z Eksen Kesme Hızı",
+        "value": "20 m/dk."
+      },
+      {
+        "key": "Takım Değiştirici",
+        "value": "Kol Tipi - 24 Takım Kapasiteli"
+      }
+    ],
+    "standardEquipment": [],
+    "optionalEquipment": [],
+    "muadilProductId": null,
+    "status": "active",
+    "pdfUrl": "/product-blobs/haksancnc/pdfs/haksan-cnc-mv-850.pdf"
+  },
+  {
+    "id": "haksan-cnc-vc-1000-ez",
+    "brand": "LK Machinery",
+    "productGroup": "CNC",
+    "productGroupCode": "CNC",
+    "model": "VC-1000 EZ",
+    "modelName": "VC-1000 EZ CNC Dik İşleme Merkezi",
+    "type": "CNC Dik İşleme Merkezi",
+    "productTypeCode": "CNC_DIK_ISLEME_MERKEZ",
+    "controlPanel": "",
+    "category": "CNC Dik İşleme Merkezleri",
+    "categoryCode": "TEZGAH",
+    "subcategory": "İşleme Merkezi",
+    "subcategoryCode": "ISLEME_MERKEZI",
+    "imageUrl": "/product-blobs/haksancnc/haksan-cnc-vc-1000-ez.jpg",
+    "shortDescription": "VC-1000, yüksek kapasite ve hassasiyetli işleme yetenekleriyle üretim süreçlerinizi optimize eder. Endüstriyel metal işleme projeleri için ideal bir çözümdür.",
+    "description": "VC-1000, yüksek kapasite ve hassasiyetli işleme yetenekleriyle üretim süreçlerinizi optimize eder. Endüstriyel metal işleme projeleri için ideal bir çözümdür. Kaynak: https://www.haksancnc.com.tr/urun-detay-vc-1000ezcncdikislememerkezi-1578",
+    "listPrice": 0,
+    "cashPrice": 0,
+    "currency": "USD",
+    "vatRate": 20,
+    "originCountry": "",
+    "hsCode": "",
+    "stockCode": "HAKSAN-VC-1000-EZ",
+    "specs": [
+      {
+        "key": "X, Y, Z Eksen Hareketi",
+        "value": "1.000 x 540 x 510 mm"
+      },
+      {
+        "key": "Takım Tutucu Standardı",
+        "value": "BT-40"
+      },
+      {
+        "key": "Fener Mili Devri",
+        "value": "12.000 dv./dk."
+      },
+      {
+        "key": "X, Y, Z Eksen Boşta İlerleme Oranı",
+        "value": "48/48/36 m/dk."
+      },
+      {
+        "key": "X, Y, Z Eksen Kesme Hızı",
+        "value": "20 m/dk."
+      },
+      {
+        "key": "Takım Değiştirici",
+        "value": "Kol Tipi - 20 Takım Kapasiteli"
+      }
+    ],
+    "standardEquipment": [],
+    "optionalEquipment": [],
+    "muadilProductId": null,
+    "status": "active",
+    "pdfUrl": "/product-blobs/haksancnc/pdfs/haksan-cnc-vc-1000-ez.pdf"
+  },
+  {
+    "id": "haksan-cnc-vc-1200-ez",
+    "brand": "LK Machinery",
+    "productGroup": "CNC",
+    "productGroupCode": "CNC",
+    "model": "VC-1200 EZ",
+    "modelName": "VC-1200 EZ CNC Dik İşleme Merkezi",
+    "type": "CNC Dik İşleme Merkezi",
+    "productTypeCode": "CNC_DIK_ISLEME_MERKEZ",
+    "controlPanel": "",
+    "category": "CNC Dik İşleme Merkezleri",
+    "categoryCode": "TEZGAH",
+    "subcategory": "İşleme Merkezi",
+    "subcategoryCode": "ISLEME_MERKEZI",
+    "imageUrl": "/product-blobs/haksancnc/haksan-cnc-vc-1200-ez.jpg",
+    "shortDescription": "VC-1200 CNC Dik İşleme Merkezi, geniş işleme alanı ve yüksek hassasiyetiyle metal işleme projelerinde üstün performans sunar. Güçlü yapısıyla endüstriyel ihtiyaçlara çözüm sunar.",
+    "description": "VC-1200 CNC Dik İşleme Merkezi, geniş işleme alanı ve yüksek hassasiyetiyle metal işleme projelerinde üstün performans sunar. Güçlü yapısıyla endüstriyel ihtiyaçlara çözüm sunar. Kaynak: https://www.haksancnc.com.tr/urun-detay-vc-1200ezcncdikislememerkezi-1579",
+    "listPrice": 0,
+    "cashPrice": 0,
+    "currency": "USD",
+    "vatRate": 20,
+    "originCountry": "",
+    "hsCode": "",
+    "stockCode": "HAKSAN-VC-1200-EZ",
+    "specs": [
+      {
+        "key": "X, Y, Z Eksen Hareketi",
+        "value": "1.200 x 620 x 510 mm"
+      },
+      {
+        "key": "Takım Tutucu Standardı",
+        "value": "BT-40"
+      },
+      {
+        "key": "Fener Mili Devri",
+        "value": "12.000 dv./dk."
+      },
+      {
+        "key": "X, Y, Z Eksen Boşta İlerleme Oranı",
+        "value": "48/48/36 m/dk."
+      },
+      {
+        "key": "X, Y, Z Eksen Kesme Hızı",
+        "value": "20 m/dk."
+      },
+      {
+        "key": "Takım Değiştirici",
+        "value": "Kol Tipi - 20 Takım Kapasiteli"
+      }
+    ],
+    "standardEquipment": [],
+    "optionalEquipment": [],
+    "muadilProductId": null,
+    "status": "active",
+    "pdfUrl": "/product-blobs/haksancnc/pdfs/haksan-cnc-vc-1200-ez.pdf"
+  },
+  {
+    "id": "haksan-cnc-vc-760-ez",
+    "brand": "LK Machinery",
+    "productGroup": "CNC",
+    "productGroupCode": "CNC",
+    "model": "VC-760 EZ",
+    "modelName": "VC-760 EZ CNC Dik İşleme Merkezi",
+    "type": "CNC Dik İşleme Merkezi",
+    "productTypeCode": "CNC_DIK_ISLEME_MERKEZ",
+    "controlPanel": "",
+    "category": "CNC Dik İşleme Merkezleri",
+    "categoryCode": "TEZGAH",
+    "subcategory": "İşleme Merkezi",
+    "subcategoryCode": "ISLEME_MERKEZI",
+    "imageUrl": "/product-blobs/haksancnc/haksan-cnc-vc-760-ez.jpg",
+    "shortDescription": "VC-760 CNC Dik İşleme Merkezi, kompakt tasarımı ve hassas işleme kapasitesi ile üretimde yüksek performans sunar. Orta ve küçük ölçekli işlemler için uygundur.",
+    "description": "VC-760 CNC Dik İşleme Merkezi, kompakt tasarımı ve hassas işleme kapasitesi ile üretimde yüksek performans sunar. Orta ve küçük ölçekli işlemler için uygundur. Kaynak: https://www.haksancnc.com.tr/urun-detay-vc-760ezcncdikislememerkezi-1577",
+    "listPrice": 0,
+    "cashPrice": 0,
+    "currency": "USD",
+    "vatRate": 20,
+    "originCountry": "",
+    "hsCode": "",
+    "stockCode": "HAKSAN-VC-760-EZ",
+    "specs": [
+      {
+        "key": "X, Y, Z Eksen Hareketi",
+        "value": "760 x 420 x 510 mm"
+      },
+      {
+        "key": "Takım Tutucu Standardı",
+        "value": "BT-40"
+      },
+      {
+        "key": "Fener Mili Devri",
+        "value": "12.000 dv./dk."
+      },
+      {
+        "key": "X, Y, Z Eksen Boşta İlerleme Oranı",
+        "value": "48/48/36 m/dk."
+      },
+      {
+        "key": "X, Y, Z Eksen Kesme Hızı",
+        "value": "20 m/dk."
+      },
+      {
+        "key": "Takım Değiştirici",
+        "value": "Kol Tipi - 20 Takım Kapasiteli"
+      }
+    ],
+    "standardEquipment": [],
+    "optionalEquipment": [],
+    "muadilProductId": null,
+    "status": "active",
+    "pdfUrl": "/product-blobs/haksancnc/pdfs/haksan-cnc-vc-760-ez.pdf"
+  },
+  {
+    "id": "haksan-cnc-vm-2",
+    "brand": "LK Machinery",
+    "productGroup": "CNC",
+    "productGroupCode": "CNC",
+    "model": "VM-2",
+    "modelName": "VM-2 CNC Dik İşleme Merkezi",
+    "type": "CNC Dik İşleme Merkezi",
+    "productTypeCode": "CNC_DIK_ISLEME_MERKEZ",
+    "controlPanel": "",
+    "category": "CNC Dik İşleme Merkezleri",
+    "categoryCode": "TEZGAH",
+    "subcategory": "İşleme Merkezi",
+    "subcategoryCode": "ISLEME_MERKEZI",
+    "imageUrl": "/product-blobs/haksancnc/haksan-cnc-vm-2.jpg",
+    "shortDescription": "VM-2 CNC Dik İşleme Merkezi, yüksek hassasiyetli işleme kabiliyetiyle üretim süreçlerinizi optimize eder. Hızlı ve güvenilir operasyonlar için idealdir.",
+    "description": "VM-2 CNC Dik İşleme Merkezi, yüksek hassasiyetli işleme kabiliyetiyle üretim süreçlerinizi optimize eder. Hızlı ve güvenilir operasyonlar için idealdir. Kaynak: https://www.haksancnc.com.tr/urun-detay-vm-2cncdikislememerkezi-1580",
+    "listPrice": 0,
+    "cashPrice": 0,
+    "currency": "USD",
+    "vatRate": 20,
+    "originCountry": "",
+    "hsCode": "",
+    "stockCode": "HAKSAN-VM-2",
+    "specs": [
+      {
+        "key": "X, Y, Z Eksen Hareketi",
+        "value": "800 x 500 x 610 mm"
+      },
+      {
+        "key": "Takım Tutucu Standardı",
+        "value": "BT-40"
+      },
+      {
+        "key": "Fener Mili Devri",
+        "value": "10.000 dv./dk."
+      },
+      {
+        "key": "X, Y, Z Eksen Boşta İlerleme Oranı",
+        "value": "48/48/36 m/dk."
+      },
+      {
+        "key": "X, Y, Z Eksen Kesme Hızı",
+        "value": "20 m/dk."
+      },
+      {
+        "key": "Takım Değiştirici",
+        "value": "Kol Tipi - 24 Takım Kapasiteli"
+      }
+    ],
+    "standardEquipment": [],
+    "optionalEquipment": [],
+    "muadilProductId": null,
+    "status": "active"
+  },
+  {
+    "id": "haksan-cnc-vm-5",
+    "brand": "LK Machinery",
+    "productGroup": "CNC",
+    "productGroupCode": "CNC",
+    "model": "VM-5",
+    "modelName": "VM-5 CNC Dik İşleme Merkezi",
+    "type": "CNC Dik İşleme Merkezi",
+    "productTypeCode": "CNC_DIK_ISLEME_MERKEZ",
+    "controlPanel": "",
+    "category": "CNC Dik İşleme Merkezleri",
+    "categoryCode": "TEZGAH",
+    "subcategory": "İşleme Merkezi",
+    "subcategoryCode": "ISLEME_MERKEZI",
+    "imageUrl": "/product-blobs/haksancnc/haksan-cnc-vm-5.jpg",
+    "shortDescription": "VM-5 CNC Dik İşleme Merkezi, yenilikçi işleme kapasitesiyle yüksek kalite ve performans sunar. İşletmenizin üretkenliğini artırır.",
+    "description": "VM-5 CNC Dik İşleme Merkezi, yenilikçi işleme kapasitesiyle yüksek kalite ve performans sunar. İşletmenizin üretkenliğini artırır. Kaynak: https://www.haksancnc.com.tr/urun-detay-vm-5cncdikislememerkezi-1581",
+    "listPrice": 0,
+    "cashPrice": 0,
+    "currency": "USD",
+    "vatRate": 20,
+    "originCountry": "",
+    "hsCode": "",
+    "stockCode": "HAKSAN-VM-5",
+    "specs": [
+      {
+        "key": "X, Y, Z Eksen Hareketi",
+        "value": "1.350 x 650 x 610 mm"
+      },
+      {
+        "key": "Takım Tutucu Standardı",
+        "value": "BT-40"
+      },
+      {
+        "key": "Fener Mili Devri",
+        "value": "12.000 dv./dk."
+      },
+      {
+        "key": "X, Y, Z Eksen Boşta İlerleme Oranı",
+        "value": "48/48/36 m/dk."
+      },
+      {
+        "key": "X, Y, Z Eksen Kesme Hızı",
+        "value": "20 m/dk."
+      },
+      {
+        "key": "Takım Değiştirici",
+        "value": "Kol Tipi - 30 Takım Kapasiteli"
+      }
+    ],
+    "standardEquipment": [],
+    "optionalEquipment": [],
+    "muadilProductId": null,
+    "status": "active",
+    "pdfUrl": "/product-blobs/haksancnc/pdfs/haksan-cnc-vm-5.pdf"
+  },
+  {
+    "id": "haksan-cnc-vm-6",
+    "brand": "LK Machinery",
+    "productGroup": "CNC",
+    "productGroupCode": "CNC",
+    "model": "VM-6",
+    "modelName": "VM-6 CNC Dik İşleme Merkezi",
+    "type": "CNC Dik İşleme Merkezi",
+    "productTypeCode": "CNC_DIK_ISLEME_MERKEZ",
+    "controlPanel": "",
+    "category": "CNC Dik İşleme Merkezleri",
+    "categoryCode": "TEZGAH",
+    "subcategory": "İşleme Merkezi",
+    "subcategoryCode": "ISLEME_MERKEZI",
+    "imageUrl": "/product-blobs/haksancnc/haksan-cnc-vm-6.jpg",
+    "shortDescription": "VM-6 CNC Dik İşleme Merkezi, yüksek hızlı işleme ve geniş kapasitesiyle endüstriyel üretimde üstün performans sunar. Metal işleme süreçleriniz için mükemmel bir tercihtir.",
+    "description": "VM-6 CNC Dik İşleme Merkezi, yüksek hızlı işleme ve geniş kapasitesiyle endüstriyel üretimde üstün performans sunar. Metal işleme süreçleriniz için mükemmel bir tercihtir. Kaynak: https://www.haksancnc.com.tr/urun-detay-vm-6cncdikislememerkezi-1582",
+    "listPrice": 0,
+    "cashPrice": 0,
+    "currency": "USD",
+    "vatRate": 20,
+    "originCountry": "",
+    "hsCode": "",
+    "stockCode": "HAKSAN-VM-6",
+    "specs": [
+      {
+        "key": "X, Y, Z Eksen Hareketi",
+        "value": "1.600 x 700 x 710 mm"
+      },
+      {
+        "key": "Takım Tutucu Standardı",
+        "value": "BT-40"
+      },
+      {
+        "key": "Fener Mili Devri",
+        "value": "12.000 dv./dk."
+      },
+      {
+        "key": "X, Y, Z Eksen Boşta İlerleme Oranı",
+        "value": "36/36/36 m/dk."
+      },
+      {
+        "key": "X, Y, Z Eksen Kesme Hızı",
+        "value": "20 m/dk."
+      },
+      {
+        "key": "Takım Değiştirici",
+        "value": "Kol Tipi - 30 Takım Kapasiteli"
+      }
+    ],
+    "standardEquipment": [],
+    "optionalEquipment": [],
+    "muadilProductId": null,
+    "status": "active",
+    "pdfUrl": "/product-blobs/haksancnc/pdfs/haksan-cnc-vm-6.pdf"
+  },
+  {
+    "id": "haksan-cnc-dl-2112",
+    "brand": "Manford",
+    "productGroup": "CNC",
+    "productGroupCode": "CNC",
+    "model": "DL-2112",
+    "modelName": "DL-2112 CNC Köprü Tipi Dik İşleme Merkezi",
+    "type": "CNC Köprü Tipi İşleme Merkezi",
+    "productTypeCode": "CNC_KOPRU_TIPI_ISLEME_MERKEZI",
+    "controlPanel": "",
+    "category": "CNC Köprü Tipi İşleme Merkezleri",
+    "categoryCode": "TEZGAH",
+    "subcategory": "İşleme Merkezi",
+    "subcategoryCode": "ISLEME_MERKEZI",
+    "imageUrl": "/product-blobs/haksancnc/haksan-cnc-dl-2112.jpg",
+    "shortDescription": "Büyük boyutlu işler için en iyi çözüm!",
+    "description": "Büyük boyutlu işler için en iyi çözüm! Kaynak: https://www.haksancnc.com.tr/urun-detay-dl-2112cnckoprutipidikislememerkezi-1630",
+    "listPrice": 0,
+    "cashPrice": 0,
+    "currency": "USD",
+    "vatRate": 20,
+    "originCountry": "",
+    "hsCode": "",
+    "stockCode": "HAKSAN-DL-2112",
+    "specs": [
+      {
+        "key": "X, Y, Z Eksen Hareketi",
+        "value": "2.100 x 1.220 x 800 mm"
+      },
+      {
+        "key": "Takım Tutucu Standardı",
+        "value": "BT-40"
+      },
+      {
+        "key": "Fener Mili Devri",
+        "value": "10.000 dv./dk."
+      },
+      {
+        "key": "X, Y, Z Eksen Boşta İlerleme Oranı",
+        "value": "12/15/15 m/dk."
+      },
+      {
+        "key": "X, Y, Z Eksen Kesme Hızı",
+        "value": "10 m/dk."
+      },
+      {
+        "key": "Takım Değiştirici",
+        "value": "Kol Tipi - 24 Takım Kapasiteli"
+      }
+    ],
+    "standardEquipment": [],
+    "optionalEquipment": [],
+    "muadilProductId": null,
+    "status": "active"
+  },
+  {
+    "id": "haksan-cnc-dl-3116",
+    "brand": "Manford",
+    "productGroup": "CNC",
+    "productGroupCode": "CNC",
+    "model": "DL-3116",
+    "modelName": "DL-3116 CNC Köprü Tipi Dik İşleme Merkezi",
+    "type": "CNC Köprü Tipi İşleme Merkezi",
+    "productTypeCode": "CNC_KOPRU_TIPI_ISLEME_MERKEZI",
+    "controlPanel": "",
+    "category": "CNC Köprü Tipi İşleme Merkezleri",
+    "categoryCode": "TEZGAH",
+    "subcategory": "İşleme Merkezi",
+    "subcategoryCode": "ISLEME_MERKEZI",
+    "imageUrl": "/product-blobs/haksancnc/haksan-cnc-dl-3116.jpg",
+    "shortDescription": "Büyük boyutlu işler için en iyi çözüm!",
+    "description": "Büyük boyutlu işler için en iyi çözüm! Kaynak: https://www.haksancnc.com.tr/urun-detay-dl-3116cnckoprutipidikislememerkezi-1631",
+    "listPrice": 0,
+    "cashPrice": 0,
+    "currency": "USD",
+    "vatRate": 20,
+    "originCountry": "",
+    "hsCode": "",
+    "stockCode": "HAKSAN-DL-3116",
+    "specs": [
+      {
+        "key": "X, Y, Z Eksen Hareketi",
+        "value": "3.100 x 1.620 x 800 mm"
+      },
+      {
+        "key": "Takım Tutucu Standardı",
+        "value": "BT-50"
+      },
+      {
+        "key": "Fener Mili Devri",
+        "value": "6.000 dv./dk."
+      },
+      {
+        "key": "X, Y, Z Eksen Boşta İlerleme Oranı",
+        "value": "12/15/12 m/dk."
+      },
+      {
+        "key": "X, Y, Z Eksen Kesme Hızı",
+        "value": "10 m/dk."
+      },
+      {
+        "key": "Takım Değiştirici",
+        "value": "Zincir Tipi - 32 Takım Kapasiteli"
+      }
+    ],
+    "standardEquipment": [],
+    "optionalEquipment": [],
+    "muadilProductId": null,
+    "status": "active"
+  },
+  {
+    "id": "haksan-cnc-tc-1000",
+    "brand": "LK Machinery",
+    "productGroup": "CNC",
+    "productGroupCode": "CNC",
+    "model": "TC-1000",
+    "modelName": "TC-1000 CNC Tapping Center",
+    "type": "CNC Tapping Center",
+    "productTypeCode": "CNC_TAPPING_CENTER",
+    "controlPanel": "",
+    "category": "CNC Tapping Center",
+    "categoryCode": "TEZGAH",
+    "subcategory": "İşleme Merkezi",
+    "subcategoryCode": "ISLEME_MERKEZI",
+    "imageUrl": "/product-blobs/haksancnc/haksan-cnc-tc-1000.jpg",
+    "shortDescription": "TC-1000, büyük ölçekli işleme ve yüksek hassasiyet gerektiren delik işleme projeleri için ideal bir CNC tapping center'dır. Güçlü ve verimli çalışma sunar.",
+    "description": "TC-1000, büyük ölçekli işleme ve yüksek hassasiyet gerektiren delik işleme projeleri için ideal bir CNC tapping center'dır. Güçlü ve verimli çalışma sunar. Kaynak: https://www.haksancnc.com.tr/urun-detay-tc-1000cnctappingcenter-1576",
+    "listPrice": 0,
+    "cashPrice": 0,
+    "currency": "USD",
+    "vatRate": 20,
+    "originCountry": "",
+    "hsCode": "",
+    "stockCode": "HAKSAN-TC-1000",
+    "specs": [
+      {
+        "key": "X, Y, Z Eksen Hareketi",
+        "value": "1.000 x 540 x 350 mm"
+      },
+      {
+        "key": "Takım Tutucu Standardı",
+        "value": "BT-30"
+      },
+      {
+        "key": "Fener Mili Devri",
+        "value": "12.000 dv./dk."
+      },
+      {
+        "key": "X, Y, Z Eksen Boşta İlerleme Oranı",
+        "value": "48/48/36 m/dk."
+      },
+      {
+        "key": "X, Y, Z Eksen Kesme Hızı",
+        "value": "20 m/dk."
+      },
+      {
+        "key": "Takım Değiştirici",
+        "value": "Kol Tipi - 16 Takım Kapasiteli"
+      }
+    ],
+    "standardEquipment": [],
+    "optionalEquipment": [],
+    "muadilProductId": null,
+    "status": "active",
+    "pdfUrl": "/product-blobs/haksancnc/pdfs/haksan-cnc-tc-1000.pdf"
+  },
+  {
+    "id": "haksan-cnc-tc-510",
+    "brand": "LK Machinery",
+    "productGroup": "CNC",
+    "productGroupCode": "CNC",
+    "model": "TC-510",
+    "modelName": "TC-510 CNC Tapping Center",
+    "type": "CNC Tapping Center",
+    "productTypeCode": "CNC_TAPPING_CENTER",
+    "controlPanel": "",
+    "category": "CNC Tapping Center",
+    "categoryCode": "TEZGAH",
+    "subcategory": "İşleme Merkezi",
+    "subcategoryCode": "ISLEME_MERKEZI",
+    "imageUrl": "/product-blobs/haksancnc/haksan-cnc-tc-510.jpg",
+    "shortDescription": "TC-510, CNC tapping center olarak, hassas delik işleme ve vidalama işlemleri için tasarlanmıştır. Yüksek verimlilik ve hassasiyet sağlar.",
+    "description": "TC-510, CNC tapping center olarak, hassas delik işleme ve vidalama işlemleri için tasarlanmıştır. Yüksek verimlilik ve hassasiyet sağlar. Kaynak: https://www.haksancnc.com.tr/urun-detay-tc-510cnctappingcenter-1569",
+    "listPrice": 0,
+    "cashPrice": 0,
+    "currency": "USD",
+    "vatRate": 20,
+    "originCountry": "",
+    "hsCode": "",
+    "stockCode": "HAKSAN-TC-510",
+    "specs": [
+      {
+        "key": "X, Y, Z Eksen Hareketi",
+        "value": "510 x 420 x 350 mm"
+      },
+      {
+        "key": "Takım Tutucu Standardı",
+        "value": "BT-30"
+      },
+      {
+        "key": "Fener Mili Devri",
+        "value": "12.000 dv./dk."
+      },
+      {
+        "key": "X, Y, Z Eksen Boşta İlerleme Oranı",
+        "value": "48/48/36 m/dk."
+      },
+      {
+        "key": "X, Y, Z Eksen Kesme Hızı",
+        "value": "20 m/dk."
+      },
+      {
+        "key": "Takım Değiştirici",
+        "value": "Kol Tipi - 16 Takım Kapasiteli"
+      }
+    ],
+    "standardEquipment": [],
+    "optionalEquipment": [],
+    "muadilProductId": null,
+    "status": "active",
+    "pdfUrl": "/product-blobs/haksancnc/pdfs/haksan-cnc-tc-510.pdf"
+  },
+  {
+    "id": "haksan-cnc-tc-710",
+    "brand": "LK Machinery",
+    "productGroup": "CNC",
+    "productGroupCode": "CNC",
+    "model": "TC-710",
+    "modelName": "TC-710 CNC Tapping Center",
+    "type": "CNC Tapping Center",
+    "productTypeCode": "CNC_TAPPING_CENTER",
+    "controlPanel": "",
+    "category": "CNC Tapping Center",
+    "categoryCode": "TEZGAH",
+    "subcategory": "İşleme Merkezi",
+    "subcategoryCode": "ISLEME_MERKEZI",
+    "imageUrl": "/product-blobs/haksancnc/haksan-cnc-tc-710.jpg",
+    "shortDescription": "TC-710, yüksek performanslı bir CNC tapping center olarak, hassas delik işleme ve vidalama işlemlerinde mükemmel sonuçlar sağlar. Endüstriyel projeler için verimli ve güvenilir bir çözümdür.",
+    "description": "TC-710, yüksek performanslı bir CNC tapping center olarak, hassas delik işleme ve vidalama işlemlerinde mükemmel sonuçlar sağlar. Endüstriyel projeler için verimli ve güvenilir bir çözümdür. Kaynak: https://www.haksancnc.com.tr/urun-detay-tc-710cnctappingcenter-1575",
+    "listPrice": 0,
+    "cashPrice": 0,
+    "currency": "USD",
+    "vatRate": 20,
+    "originCountry": "",
+    "hsCode": "",
+    "stockCode": "HAKSAN-TC-710",
+    "specs": [
+      {
+        "key": "X, Y, Z Eksen Hareketi",
+        "value": "710 x 420 x 350 mm"
+      },
+      {
+        "key": "Takım Tutucu Standardı",
+        "value": "BT-30"
+      },
+      {
+        "key": "Fener Mili Devri",
+        "value": "12.000 dv./dk."
+      },
+      {
+        "key": "X, Y, Z Eksen Boşta İlerleme Oranı",
+        "value": "48/48/36 m/dk."
+      },
+      {
+        "key": "X, Y, Z Eksen Kesme Hızı",
+        "value": "20 m/dk."
+      },
+      {
+        "key": "Takım Değiştirici",
+        "value": "Kol Tipi - 16 Takım Kapasiteli"
+      }
+    ],
+    "standardEquipment": [],
+    "optionalEquipment": [],
+    "muadilProductId": null,
+    "status": "active",
+    "pdfUrl": "/product-blobs/haksancnc/pdfs/haksan-cnc-tc-710.pdf"
+  },
+  {
+    "id": "haksan-cnc-mt-208-1000",
+    "brand": "ECOCA",
+    "productGroup": "CNC",
+    "productGroupCode": "CNC",
+    "model": "MT-208/1000",
+    "modelName": "MT-208/1000 CNC Torna",
+    "type": "CNC Torna Tezgahı",
+    "productTypeCode": "CNC_YATAY_TORNA_TEZGAHI",
+    "controlPanel": "",
+    "category": "CNC Torna Tezgahları",
+    "categoryCode": "TEZGAH",
+    "subcategory": "Torna",
+    "subcategoryCode": "TORNA",
+    "imageUrl": "/product-blobs/haksancnc/haksan-cnc-mt-208-1000.jpg",
+    "shortDescription": "MT-208, hassasiyet ve sağlamlık gerektiren endüstriyel projelerde verimli performans sunar. Çok yönlü yapısı ile üretim ihtiyaçlarınızı karşılar.",
+    "description": "MT-208, hassasiyet ve sağlamlık gerektiren endüstriyel projelerde verimli performans sunar. Çok yönlü yapısı ile üretim ihtiyaçlarınızı karşılar. Kaynak: https://www.haksancnc.com.tr/urun-detay-mt-208-1000cnctorna-1601",
+    "listPrice": 0,
+    "cashPrice": 0,
+    "currency": "USD",
+    "vatRate": 20,
+    "originCountry": "",
+    "hsCode": "",
+    "stockCode": "HAKSAN-MT-208-1000",
+    "specs": [
+      {
+        "key": "Ayna Ölçüsü",
+        "value": "8\""
+      },
+      {
+        "key": "Azami Çevirme Kapasitesi",
+        "value": "Ø 545 mm"
+      },
+      {
+        "key": "Azami Tornalama Çapı",
+        "value": "Ø 380 mm"
+      }
+    ],
+    "standardEquipment": [],
+    "optionalEquipment": [],
+    "muadilProductId": null,
+    "status": "active",
+    "pdfUrl": "/product-blobs/haksancnc/pdfs/haksan-cnc-mt-208-1000.pdf"
+  },
+  {
+    "id": "haksan-cnc-mt-208-500",
+    "brand": "ECOCA",
+    "productGroup": "CNC",
+    "productGroupCode": "CNC",
+    "model": "MT-208/500",
+    "modelName": "MT-208/500 CNC Torna",
+    "type": "CNC Torna Tezgahı",
+    "productTypeCode": "CNC_YATAY_TORNA_TEZGAHI",
+    "controlPanel": "",
+    "category": "CNC Torna Tezgahları",
+    "categoryCode": "TEZGAH",
+    "subcategory": "Torna",
+    "subcategoryCode": "TORNA",
+    "imageUrl": "/product-blobs/haksancnc/haksan-cnc-mt-208-500.jpg",
+    "shortDescription": "MT-208, hassasiyet ve sağlamlık gerektiren endüstriyel projelerde verimli performans sunar. Çok yönlü yapısı ile üretim ihtiyaçlarınızı karşılar.",
+    "description": "MT-208, hassasiyet ve sağlamlık gerektiren endüstriyel projelerde verimli performans sunar. Çok yönlü yapısı ile üretim ihtiyaçlarınızı karşılar. Kaynak: https://www.haksancnc.com.tr/urun-detay-mt-208-500cnctorna-1599",
+    "listPrice": 0,
+    "cashPrice": 0,
+    "currency": "USD",
+    "vatRate": 20,
+    "originCountry": "",
+    "hsCode": "",
+    "stockCode": "HAKSAN-MT-208-500",
+    "specs": [
+      {
+        "key": "Ayna Ölçüsü",
+        "value": "8\""
+      },
+      {
+        "key": "Azami Çevirme Kapasitesi",
+        "value": "Ø 545 mm"
+      },
+      {
+        "key": "Azami Tornalama Çapı",
+        "value": "Ø 380 mm"
+      }
+    ],
+    "standardEquipment": [],
+    "optionalEquipment": [],
+    "muadilProductId": null,
+    "status": "active",
+    "pdfUrl": "/product-blobs/haksancnc/pdfs/haksan-cnc-mt-208-500.pdf"
+  },
+  {
+    "id": "haksan-cnc-mt-208-750",
+    "brand": "ECOCA",
+    "productGroup": "CNC",
+    "productGroupCode": "CNC",
+    "model": "MT-208/750",
+    "modelName": "MT-208/750 CNC Torna",
+    "type": "CNC Torna Tezgahı",
+    "productTypeCode": "CNC_YATAY_TORNA_TEZGAHI",
+    "controlPanel": "",
+    "category": "CNC Torna Tezgahları",
+    "categoryCode": "TEZGAH",
+    "subcategory": "Torna",
+    "subcategoryCode": "TORNA",
+    "imageUrl": "/product-blobs/haksancnc/haksan-cnc-mt-208-750.jpg",
+    "shortDescription": "MT-208, hassasiyet ve sağlamlık gerektiren endüstriyel projelerde verimli performans sunar. Çok yönlü yapısı ile üretim ihtiyaçlarınızı karşılar.",
+    "description": "MT-208, hassasiyet ve sağlamlık gerektiren endüstriyel projelerde verimli performans sunar. Çok yönlü yapısı ile üretim ihtiyaçlarınızı karşılar. Kaynak: https://www.haksancnc.com.tr/urun-detay-mt-208-750cnctorna-1600",
+    "listPrice": 0,
+    "cashPrice": 0,
+    "currency": "USD",
+    "vatRate": 20,
+    "originCountry": "",
+    "hsCode": "",
+    "stockCode": "HAKSAN-MT-208-750",
+    "specs": [
+      {
+        "key": "Ayna Ölçüsü",
+        "value": "8\""
+      },
+      {
+        "key": "Azami Çevirme Kapasitesi",
+        "value": "Ø 545 mm"
+      },
+      {
+        "key": "Azami Tornalama Çapı",
+        "value": "Ø 380 mm"
+      }
+    ],
+    "standardEquipment": [],
+    "optionalEquipment": [],
+    "muadilProductId": null,
+    "status": "active",
+    "pdfUrl": "/product-blobs/haksancnc/pdfs/haksan-cnc-mt-208-750.pdf"
+  },
+  {
+    "id": "haksan-cnc-mt-210-1000",
+    "brand": "ECOCA",
+    "productGroup": "CNC",
+    "productGroupCode": "CNC",
+    "model": "MT-210/1000",
+    "modelName": "MT-210/1000 CNC Torna",
+    "type": "CNC Torna Tezgahı",
+    "productTypeCode": "CNC_YATAY_TORNA_TEZGAHI",
+    "controlPanel": "",
+    "category": "CNC Torna Tezgahları",
+    "categoryCode": "TEZGAH",
+    "subcategory": "Torna",
+    "subcategoryCode": "TORNA",
+    "imageUrl": "/product-blobs/haksancnc/haksan-cnc-mt-210-1000.jpg",
+    "shortDescription": "MT-210, geniş işleme kapasitesi ve yüksek hassasiyeti ile metal işleme projelerinde güvenilir bir performans sağlar.",
+    "description": "MT-210, geniş işleme kapasitesi ve yüksek hassasiyeti ile metal işleme projelerinde güvenilir bir performans sağlar. Kaynak: https://www.haksancnc.com.tr/urun-detay-mt-210-1000cnctorna-1604",
+    "listPrice": 0,
+    "cashPrice": 0,
+    "currency": "USD",
+    "vatRate": 20,
+    "originCountry": "",
+    "hsCode": "",
+    "stockCode": "HAKSAN-MT-210-1000",
+    "specs": [
+      {
+        "key": "Ayna Ölçüsü",
+        "value": "10\""
+      },
+      {
+        "key": "Azami Çevirme Kapasitesi",
+        "value": "Ø 545 mm"
+      },
+      {
+        "key": "Azami Tornalama Çapı",
+        "value": "Ø 380 mm"
+      }
+    ],
+    "standardEquipment": [],
+    "optionalEquipment": [],
+    "muadilProductId": null,
+    "status": "active",
+    "pdfUrl": "/product-blobs/haksancnc/pdfs/haksan-cnc-mt-210-1000.pdf"
+  },
+  {
+    "id": "haksan-cnc-mt-210-500",
+    "brand": "ECOCA",
+    "productGroup": "CNC",
+    "productGroupCode": "CNC",
+    "model": "MT-210/500",
+    "modelName": "MT-210/500 CNC Torna",
+    "type": "CNC Torna Tezgahı",
+    "productTypeCode": "CNC_YATAY_TORNA_TEZGAHI",
+    "controlPanel": "",
+    "category": "CNC Torna Tezgahları",
+    "categoryCode": "TEZGAH",
+    "subcategory": "Torna",
+    "subcategoryCode": "TORNA",
+    "imageUrl": "/product-blobs/haksancnc/haksan-cnc-mt-210-500.jpg",
+    "shortDescription": "MT-210, geniş işleme kapasitesi ve yüksek hassasiyeti ile metal işleme projelerinde güvenilir bir performans sağlar.",
+    "description": "MT-210, geniş işleme kapasitesi ve yüksek hassasiyeti ile metal işleme projelerinde güvenilir bir performans sağlar. Kaynak: https://www.haksancnc.com.tr/urun-detay-mt-210-500cnctorna-1602",
+    "listPrice": 0,
+    "cashPrice": 0,
+    "currency": "USD",
+    "vatRate": 20,
+    "originCountry": "",
+    "hsCode": "",
+    "stockCode": "HAKSAN-MT-210-500",
+    "specs": [
+      {
+        "key": "Ayna Ölçüsü",
+        "value": "10\""
+      },
+      {
+        "key": "Azami Çevirme Kapasitesi",
+        "value": "Ø 545 mm"
+      },
+      {
+        "key": "Azami Tornalama Çapı",
+        "value": "Ø 380 mm"
+      }
+    ],
+    "standardEquipment": [],
+    "optionalEquipment": [],
+    "muadilProductId": null,
+    "status": "active",
+    "pdfUrl": "/product-blobs/haksancnc/pdfs/haksan-cnc-mt-210-500.pdf"
+  },
+  {
+    "id": "haksan-cnc-mt-210-750",
+    "brand": "ECOCA",
+    "productGroup": "CNC",
+    "productGroupCode": "CNC",
+    "model": "MT-210/750",
+    "modelName": "MT-210/750 CNC Torna",
+    "type": "CNC Torna Tezgahı",
+    "productTypeCode": "CNC_YATAY_TORNA_TEZGAHI",
+    "controlPanel": "",
+    "category": "CNC Torna Tezgahları",
+    "categoryCode": "TEZGAH",
+    "subcategory": "Torna",
+    "subcategoryCode": "TORNA",
+    "imageUrl": "/product-blobs/haksancnc/haksan-cnc-mt-210-750.jpg",
+    "shortDescription": "MT-210, geniş işleme kapasitesi ve yüksek hassasiyeti ile metal işleme projelerinde güvenilir bir performans sağlar.",
+    "description": "MT-210, geniş işleme kapasitesi ve yüksek hassasiyeti ile metal işleme projelerinde güvenilir bir performans sağlar. Kaynak: https://www.haksancnc.com.tr/urun-detay-mt-210-750cnctorna-1603",
+    "listPrice": 0,
+    "cashPrice": 0,
+    "currency": "USD",
+    "vatRate": 20,
+    "originCountry": "",
+    "hsCode": "",
+    "stockCode": "HAKSAN-MT-210-750",
+    "specs": [
+      {
+        "key": "Ayna Ölçüsü",
+        "value": "10\""
+      },
+      {
+        "key": "Azami Çevirme Kapasitesi",
+        "value": "Ø 545 mm"
+      },
+      {
+        "key": "Azami Tornalama Çapı",
+        "value": "Ø 380 mm"
+      }
+    ],
+    "standardEquipment": [],
+    "optionalEquipment": [],
+    "muadilProductId": null,
+    "status": "active",
+    "pdfUrl": "/product-blobs/haksancnc/pdfs/haksan-cnc-mt-210-750.pdf"
+  },
+  {
+    "id": "haksan-cnc-mt-310-1000",
+    "brand": "ECOCA",
+    "productGroup": "CNC",
+    "productGroupCode": "CNC",
+    "model": "MT-310/1000",
+    "modelName": "MT-310/1000 CNC Torna",
+    "type": "CNC Torna Tezgahı",
+    "productTypeCode": "CNC_YATAY_TORNA_TEZGAHI",
+    "controlPanel": "",
+    "category": "CNC Torna Tezgahları",
+    "categoryCode": "TEZGAH",
+    "subcategory": "Torna",
+    "subcategoryCode": "TORNA",
+    "imageUrl": "/product-blobs/haksancnc/haksan-cnc-mt-310-1000.jpg",
+    "shortDescription": "MT-310, endüstriyel tornalama işlemlerinde yüksek performans sunar. Geniş işleme kapasitesi ile güçlü ve esnek bir çözüm sunar.",
+    "description": "MT-310, endüstriyel tornalama işlemlerinde yüksek performans sunar. Geniş işleme kapasitesi ile güçlü ve esnek bir çözüm sunar. Kaynak: https://www.haksancnc.com.tr/urun-detay-mt-310-1000cnctorna-1607",
+    "listPrice": 0,
+    "cashPrice": 0,
+    "currency": "USD",
+    "vatRate": 20,
+    "originCountry": "",
+    "hsCode": "",
+    "stockCode": "HAKSAN-MT-310-1000",
+    "specs": [
+      {
+        "key": "Ayna Ölçüsü",
+        "value": "10\""
+      },
+      {
+        "key": "Azami Çevirme Kapasitesi",
+        "value": "Ø 600 mm"
+      },
+      {
+        "key": "Azami Tornalama Çapı",
+        "value": "Ø 450 mm"
+      }
+    ],
+    "standardEquipment": [],
+    "optionalEquipment": [],
+    "muadilProductId": null,
+    "status": "active",
+    "pdfUrl": "/product-blobs/haksancnc/pdfs/haksan-cnc-mt-310-1000.pdf"
+  },
+  {
+    "id": "haksan-cnc-mt-310-500",
+    "brand": "ECOCA",
+    "productGroup": "CNC",
+    "productGroupCode": "CNC",
+    "model": "MT-310/500",
+    "modelName": "MT-310/500 CNC Torna",
+    "type": "CNC Torna Tezgahı",
+    "productTypeCode": "CNC_YATAY_TORNA_TEZGAHI",
+    "controlPanel": "",
+    "category": "CNC Torna Tezgahları",
+    "categoryCode": "TEZGAH",
+    "subcategory": "Torna",
+    "subcategoryCode": "TORNA",
+    "imageUrl": "/product-blobs/haksancnc/haksan-cnc-mt-310-500.jpg",
+    "shortDescription": "MT-310, endüstriyel tornalama işlemlerinde yüksek performans sunar. Geniş işleme kapasitesi ile güçlü ve esnek bir çözüm sunar.",
+    "description": "MT-310, endüstriyel tornalama işlemlerinde yüksek performans sunar. Geniş işleme kapasitesi ile güçlü ve esnek bir çözüm sunar. Kaynak: https://www.haksancnc.com.tr/urun-detay-mt-310-500cnctorna-1605",
+    "listPrice": 0,
+    "cashPrice": 0,
+    "currency": "USD",
+    "vatRate": 20,
+    "originCountry": "",
+    "hsCode": "",
+    "stockCode": "HAKSAN-MT-310-500",
+    "specs": [
+      {
+        "key": "Ayna Ölçüsü",
+        "value": "10\""
+      },
+      {
+        "key": "Azami Çevirme Kapasitesi",
+        "value": "Ø 600 mm"
+      },
+      {
+        "key": "Azami Tornalama Çapı",
+        "value": "Ø 450 mm"
+      }
+    ],
+    "standardEquipment": [],
+    "optionalEquipment": [],
+    "muadilProductId": null,
+    "status": "active",
+    "pdfUrl": "/product-blobs/haksancnc/pdfs/haksan-cnc-mt-310-500.pdf"
+  },
+  {
+    "id": "haksan-cnc-mt-310-750",
+    "brand": "ECOCA",
+    "productGroup": "CNC",
+    "productGroupCode": "CNC",
+    "model": "MT-310/750",
+    "modelName": "MT-310/750 CNC Torna",
+    "type": "CNC Torna Tezgahı",
+    "productTypeCode": "CNC_YATAY_TORNA_TEZGAHI",
+    "controlPanel": "",
+    "category": "CNC Torna Tezgahları",
+    "categoryCode": "TEZGAH",
+    "subcategory": "Torna",
+    "subcategoryCode": "TORNA",
+    "imageUrl": "/product-blobs/haksancnc/haksan-cnc-mt-310-750.jpg",
+    "shortDescription": "MT-310, endüstriyel tornalama işlemlerinde yüksek performans sunar. Geniş işleme kapasitesi ile güçlü ve esnek bir çözüm sunar.",
+    "description": "MT-310, endüstriyel tornalama işlemlerinde yüksek performans sunar. Geniş işleme kapasitesi ile güçlü ve esnek bir çözüm sunar. Kaynak: https://www.haksancnc.com.tr/urun-detay-mt-310-750cnctorna-1606",
+    "listPrice": 0,
+    "cashPrice": 0,
+    "currency": "USD",
+    "vatRate": 20,
+    "originCountry": "",
+    "hsCode": "",
+    "stockCode": "HAKSAN-MT-310-750",
+    "specs": [
+      {
+        "key": "Ayna Ölçüsü",
+        "value": "10\""
+      },
+      {
+        "key": "Azami Çevirme Kapasitesi",
+        "value": "Ø 600 mm"
+      },
+      {
+        "key": "Azami Tornalama Çapı",
+        "value": "Ø 450 mm"
+      }
+    ],
+    "standardEquipment": [],
+    "optionalEquipment": [],
+    "muadilProductId": null,
+    "status": "active",
+    "pdfUrl": "/product-blobs/haksancnc/pdfs/haksan-cnc-mt-310-750.pdf"
+  },
+  {
+    "id": "haksan-cnc-mt-312-1000",
+    "brand": "ECOCA",
+    "productGroup": "CNC",
+    "productGroupCode": "CNC",
+    "model": "MT-312/1000",
+    "modelName": "MT-312/1000 CNC Torna",
+    "type": "CNC Torna Tezgahı",
+    "productTypeCode": "CNC_YATAY_TORNA_TEZGAHI",
+    "controlPanel": "",
+    "category": "CNC Torna Tezgahları",
+    "categoryCode": "TEZGAH",
+    "subcategory": "Torna",
+    "subcategoryCode": "TORNA",
+    "imageUrl": "/product-blobs/haksancnc/haksan-cnc-mt-312-1000.jpg",
+    "shortDescription": "MT-312, güçlü performansı ve hassas işleme kabiliyetiyle yüksek verimlilik sunar. Endüstriyel projelerinizde uzun süreli güvenilir bir çözüm sağlar.",
+    "description": "MT-312, güçlü performansı ve hassas işleme kabiliyetiyle yüksek verimlilik sunar. Endüstriyel projelerinizde uzun süreli güvenilir bir çözüm sağlar. Kaynak: https://www.haksancnc.com.tr/urun-detay-mt-312-1000cnctorna-1610",
+    "listPrice": 0,
+    "cashPrice": 0,
+    "currency": "USD",
+    "vatRate": 20,
+    "originCountry": "",
+    "hsCode": "",
+    "stockCode": "HAKSAN-MT-312-1000",
+    "specs": [
+      {
+        "key": "Ayna Ölçüsü",
+        "value": "12\""
+      },
+      {
+        "key": "Azami Çevirme Kapasitesi",
+        "value": "Ø 600 mm"
+      },
+      {
+        "key": "Azami Tornalama Çapı",
+        "value": "Ø 450 mm"
+      }
+    ],
+    "standardEquipment": [],
+    "optionalEquipment": [],
+    "muadilProductId": null,
+    "status": "active",
+    "pdfUrl": "/product-blobs/haksancnc/pdfs/haksan-cnc-mt-312-1000.pdf"
+  },
+  {
+    "id": "haksan-cnc-mt-312-500",
+    "brand": "ECOCA",
+    "productGroup": "CNC",
+    "productGroupCode": "CNC",
+    "model": "MT-312/500",
+    "modelName": "MT-312/500 CNC Torna",
+    "type": "CNC Torna Tezgahı",
+    "productTypeCode": "CNC_YATAY_TORNA_TEZGAHI",
+    "controlPanel": "",
+    "category": "CNC Torna Tezgahları",
+    "categoryCode": "TEZGAH",
+    "subcategory": "Torna",
+    "subcategoryCode": "TORNA",
+    "imageUrl": "/product-blobs/haksancnc/haksan-cnc-mt-312-500.jpg",
+    "shortDescription": "MT-312, güçlü performansı ve hassas işleme kabiliyetiyle yüksek verimlilik sunar. Endüstriyel projelerinizde uzun süreli güvenilir bir çözüm sağlar.",
+    "description": "MT-312, güçlü performansı ve hassas işleme kabiliyetiyle yüksek verimlilik sunar. Endüstriyel projelerinizde uzun süreli güvenilir bir çözüm sağlar. Kaynak: https://www.haksancnc.com.tr/urun-detay-mt-312-500cnctorna-1608",
+    "listPrice": 0,
+    "cashPrice": 0,
+    "currency": "USD",
+    "vatRate": 20,
+    "originCountry": "",
+    "hsCode": "",
+    "stockCode": "HAKSAN-MT-312-500",
+    "specs": [
+      {
+        "key": "Ayna Ölçüsü",
+        "value": "12\""
+      },
+      {
+        "key": "Azami Çevirme Kapasitesi",
+        "value": "Ø 600 mm"
+      },
+      {
+        "key": "Azami Tornalama Çapı",
+        "value": "Ø 450 mm"
+      }
+    ],
+    "standardEquipment": [],
+    "optionalEquipment": [],
+    "muadilProductId": null,
+    "status": "active",
+    "pdfUrl": "/product-blobs/haksancnc/pdfs/haksan-cnc-mt-312-500.pdf"
+  },
+  {
+    "id": "haksan-cnc-mt-312-750",
+    "brand": "ECOCA",
+    "productGroup": "CNC",
+    "productGroupCode": "CNC",
+    "model": "MT-312/750",
+    "modelName": "MT-312/750 CNC Torna",
+    "type": "CNC Torna Tezgahı",
+    "productTypeCode": "CNC_YATAY_TORNA_TEZGAHI",
+    "controlPanel": "",
+    "category": "CNC Torna Tezgahları",
+    "categoryCode": "TEZGAH",
+    "subcategory": "Torna",
+    "subcategoryCode": "TORNA",
+    "imageUrl": "/product-blobs/haksancnc/haksan-cnc-mt-312-750.jpg",
+    "shortDescription": "MT-312, güçlü performansı ve hassas işleme kabiliyetiyle yüksek verimlilik sunar. Endüstriyel projelerinizde uzun süreli güvenilir bir çözüm sağlar.",
+    "description": "MT-312, güçlü performansı ve hassas işleme kabiliyetiyle yüksek verimlilik sunar. Endüstriyel projelerinizde uzun süreli güvenilir bir çözüm sağlar. Kaynak: https://www.haksancnc.com.tr/urun-detay-mt-312-750cnctorna-1609",
+    "listPrice": 0,
+    "cashPrice": 0,
+    "currency": "USD",
+    "vatRate": 20,
+    "originCountry": "",
+    "hsCode": "",
+    "stockCode": "HAKSAN-MT-312-750",
+    "specs": [
+      {
+        "key": "Ayna Ölçüsü",
+        "value": "12\""
+      },
+      {
+        "key": "Azami Çevirme Kapasitesi",
+        "value": "Ø 600 mm"
+      },
+      {
+        "key": "Azami Tornalama Çapı",
+        "value": "Ø 450 mm"
+      }
+    ],
+    "standardEquipment": [],
+    "optionalEquipment": [],
+    "muadilProductId": null,
+    "status": "active",
+    "pdfUrl": "/product-blobs/haksancnc/pdfs/haksan-cnc-mt-312-750.pdf"
+  },
+  {
+    "id": "haksan-cnc-mt-412-1000",
+    "brand": "ECOCA",
+    "productGroup": "CNC",
+    "productGroupCode": "CNC",
+    "model": "MT-412/1000",
+    "modelName": "MT-412/1000 CNC Torna",
+    "type": "CNC Torna Tezgahı",
+    "productTypeCode": "CNC_YATAY_TORNA_TEZGAHI",
+    "controlPanel": "",
+    "category": "CNC Torna Tezgahları",
+    "categoryCode": "TEZGAH",
+    "subcategory": "Torna",
+    "subcategoryCode": "TORNA",
+    "imageUrl": "/product-blobs/haksancnc/haksan-cnc-mt-412-1000.jpg",
+    "shortDescription": "MT-412, dayanıklı yapısı ve hassas işleme kapasitesi ile endüstriyel torna projelerinizde mükemmel performans gösterir.",
+    "description": "MT-412, dayanıklı yapısı ve hassas işleme kapasitesi ile endüstriyel torna projelerinizde mükemmel performans gösterir. Kaynak: https://www.haksancnc.com.tr/urun-detay-mt-412-1000cnctorna-1613",
+    "listPrice": 0,
+    "cashPrice": 0,
+    "currency": "USD",
+    "vatRate": 20,
+    "originCountry": "",
+    "hsCode": "",
+    "stockCode": "HAKSAN-MT-412-1000",
+    "specs": [
+      {
+        "key": "Ayna Ölçüsü",
+        "value": "12\""
+      },
+      {
+        "key": "Azami Çevirme Kapasitesi",
+        "value": "Ø 690 mm"
+      },
+      {
+        "key": "Azami Tornalama Çapı",
+        "value": "Ø 510 mm"
+      }
+    ],
+    "standardEquipment": [],
+    "optionalEquipment": [],
+    "muadilProductId": null,
+    "status": "active",
+    "pdfUrl": "/product-blobs/haksancnc/pdfs/haksan-cnc-mt-412-1000.pdf"
+  },
+  {
+    "id": "haksan-cnc-mt-412-750",
+    "brand": "ECOCA",
+    "productGroup": "CNC",
+    "productGroupCode": "CNC",
+    "model": "MT-412/750",
+    "modelName": "MT-412/750 CNC Torna",
+    "type": "CNC Torna Tezgahı",
+    "productTypeCode": "CNC_YATAY_TORNA_TEZGAHI",
+    "controlPanel": "",
+    "category": "CNC Torna Tezgahları",
+    "categoryCode": "TEZGAH",
+    "subcategory": "Torna",
+    "subcategoryCode": "TORNA",
+    "imageUrl": "/product-blobs/haksancnc/haksan-cnc-mt-412-750.jpg",
+    "shortDescription": "MT-412, dayanıklı yapısı ve hassas işleme kapasitesi ile endüstriyel torna projelerinizde mükemmel performans gösterir.",
+    "description": "MT-412, dayanıklı yapısı ve hassas işleme kapasitesi ile endüstriyel torna projelerinizde mükemmel performans gösterir. Kaynak: https://www.haksancnc.com.tr/urun-detay-mt-412-750cnctorna-1614",
+    "listPrice": 0,
+    "cashPrice": 0,
+    "currency": "USD",
+    "vatRate": 20,
+    "originCountry": "",
+    "hsCode": "",
+    "stockCode": "HAKSAN-MT-412-750",
+    "specs": [
+      {
+        "key": "Ayna Ölçüsü",
+        "value": "12\""
+      },
+      {
+        "key": "Azami Çevirme Kapasitesi",
+        "value": "Ø 690 mm"
+      },
+      {
+        "key": "Azami Tornalama Çapı",
+        "value": "Ø 510 mm"
+      }
+    ],
+    "standardEquipment": [],
+    "optionalEquipment": [],
+    "muadilProductId": null,
+    "status": "active",
+    "pdfUrl": "/product-blobs/haksancnc/pdfs/haksan-cnc-mt-412-750.pdf"
+  },
+  {
+    "id": "haksan-cnc-mt-415-1000",
+    "brand": "ECOCA",
+    "productGroup": "CNC",
+    "productGroupCode": "CNC",
+    "model": "MT-415/1000",
+    "modelName": "MT-415/1000 CNC Torna",
+    "type": "CNC Torna Tezgahı",
+    "productTypeCode": "CNC_YATAY_TORNA_TEZGAHI",
+    "controlPanel": "",
+    "category": "CNC Torna Tezgahları",
+    "categoryCode": "TEZGAH",
+    "subcategory": "Torna",
+    "subcategoryCode": "TORNA",
+    "imageUrl": "/product-blobs/haksancnc/haksan-cnc-mt-415-1000.jpg",
+    "shortDescription": "MT-415, metal işleme ihtiyaçlarınıza güçlü ve esnek çözümler sunarak yüksek performans sağlar. Endüstriyel tornalama işlemleri için idealdir.",
+    "description": "MT-415, metal işleme ihtiyaçlarınıza güçlü ve esnek çözümler sunarak yüksek performans sağlar. Endüstriyel tornalama işlemleri için idealdir. Kaynak: https://www.haksancnc.com.tr/urun-detay-mt-415-1000cnctorna-1611",
+    "listPrice": 0,
+    "cashPrice": 0,
+    "currency": "USD",
+    "vatRate": 20,
+    "originCountry": "",
+    "hsCode": "",
+    "stockCode": "HAKSAN-MT-415-1000",
+    "specs": [
+      {
+        "key": "Ayna Ölçüsü",
+        "value": "15\""
+      },
+      {
+        "key": "Azami Çevirme Kapasitesi",
+        "value": "Ø 690 mm"
+      },
+      {
+        "key": "Azami Tornalama Çapı",
+        "value": "Ø 510 mm"
+      }
+    ],
+    "standardEquipment": [],
+    "optionalEquipment": [],
+    "muadilProductId": null,
+    "status": "active",
+    "pdfUrl": "/product-blobs/haksancnc/pdfs/haksan-cnc-mt-415-1000.pdf"
+  },
+  {
+    "id": "haksan-cnc-mt-415-750",
+    "brand": "ECOCA",
+    "productGroup": "CNC",
+    "productGroupCode": "CNC",
+    "model": "MT-415/750",
+    "modelName": "MT-415/750 CNC Torna",
+    "type": "CNC Torna Tezgahı",
+    "productTypeCode": "CNC_YATAY_TORNA_TEZGAHI",
+    "controlPanel": "",
+    "category": "CNC Torna Tezgahları",
+    "categoryCode": "TEZGAH",
+    "subcategory": "Torna",
+    "subcategoryCode": "TORNA",
+    "imageUrl": "/product-blobs/haksancnc/haksan-cnc-mt-415-750.jpg",
+    "shortDescription": "MT-415, metal işleme ihtiyaçlarınıza güçlü ve esnek çözümler sunarak yüksek performans sağlar. Endüstriyel tornalama işlemleri için idealdir.",
+    "description": "MT-415, metal işleme ihtiyaçlarınıza güçlü ve esnek çözümler sunarak yüksek performans sağlar. Endüstriyel tornalama işlemleri için idealdir. Kaynak: https://www.haksancnc.com.tr/urun-detay-mt-415-750cnctorna-1612",
+    "listPrice": 0,
+    "cashPrice": 0,
+    "currency": "USD",
+    "vatRate": 20,
+    "originCountry": "",
+    "hsCode": "",
+    "stockCode": "HAKSAN-MT-415-750",
+    "specs": [
+      {
+        "key": "Ayna Ölçüsü",
+        "value": "15\""
+      },
+      {
+        "key": "Azami Çevirme Kapasitesi",
+        "value": "Ø 690 mm"
+      },
+      {
+        "key": "Azami Tornalama Çapı",
+        "value": "Ø 510 mm"
+      }
+    ],
+    "standardEquipment": [],
+    "optionalEquipment": [],
+    "muadilProductId": null,
+    "status": "active",
+    "pdfUrl": "/product-blobs/haksancnc/pdfs/haksan-cnc-mt-415-750.pdf"
+  },
+  {
+    "id": "haksan-cnc-mt-520-1000",
+    "brand": "ECOCA",
+    "productGroup": "CNC",
+    "productGroupCode": "CNC",
+    "model": "MT-520/1000",
+    "modelName": "MT-520/1000 CNC Torna",
+    "type": "CNC Torna Tezgahı",
+    "productTypeCode": "CNC_YATAY_TORNA_TEZGAHI",
+    "controlPanel": "",
+    "category": "CNC Torna Tezgahları",
+    "categoryCode": "TEZGAH",
+    "subcategory": "Torna",
+    "subcategoryCode": "TORNA",
+    "imageUrl": "/product-blobs/haksancnc/haksan-cnc-mt-520-1000.jpg",
+    "shortDescription": "MT-520, yüksek hassasiyet ve güçlü performansı ile endüstriyel torna işlemlerinde güvenilirlik sunar. Yüksek kaliteli işleme çözümleri için tercih edilir.",
+    "description": "MT-520, yüksek hassasiyet ve güçlü performansı ile endüstriyel torna işlemlerinde güvenilirlik sunar. Yüksek kaliteli işleme çözümleri için tercih edilir. Kaynak: https://www.haksancnc.com.tr/urun-detay-mt-520-1000cnctorna-1615",
+    "listPrice": 0,
+    "cashPrice": 0,
+    "currency": "USD",
+    "vatRate": 20,
+    "originCountry": "",
+    "hsCode": "",
+    "stockCode": "HAKSAN-MT-520-1000",
+    "specs": [
+      {
+        "key": "Ayna Ölçüsü",
+        "value": "21\""
+      },
+      {
+        "key": "Azami Çevirme Kapasitesi",
+        "value": "Ø 1.000 mm"
+      },
+      {
+        "key": "Azami Tornalama Çapı",
+        "value": "Ø 900 mm"
+      }
+    ],
+    "standardEquipment": [],
+    "optionalEquipment": [],
+    "muadilProductId": null,
+    "status": "active",
+    "pdfUrl": "/product-blobs/haksancnc/pdfs/haksan-cnc-mt-520-1000.pdf"
+  },
+  {
+    "id": "haksan-cnc-mt-520-2000",
+    "brand": "ECOCA",
+    "productGroup": "CNC",
+    "productGroupCode": "CNC",
+    "model": "MT-520/2000",
+    "modelName": "MT-520/2000 CNC Torna",
+    "type": "CNC Torna Tezgahı",
+    "productTypeCode": "CNC_YATAY_TORNA_TEZGAHI",
+    "controlPanel": "",
+    "category": "CNC Torna Tezgahları",
+    "categoryCode": "TEZGAH",
+    "subcategory": "Torna",
+    "subcategoryCode": "TORNA",
+    "imageUrl": "/product-blobs/haksancnc/haksan-cnc-mt-520-2000.jpg",
+    "shortDescription": "MT-520, yüksek hassasiyet ve güçlü performansı ile endüstriyel torna işlemlerinde güvenilirlik sunar. Yüksek kaliteli işleme çözümleri için tercih edilir.",
+    "description": "MT-520, yüksek hassasiyet ve güçlü performansı ile endüstriyel torna işlemlerinde güvenilirlik sunar. Yüksek kaliteli işleme çözümleri için tercih edilir. Kaynak: https://www.haksancnc.com.tr/urun-detay-mt-520-2000cnctorna-1616",
+    "listPrice": 0,
+    "cashPrice": 0,
+    "currency": "USD",
+    "vatRate": 20,
+    "originCountry": "",
+    "hsCode": "",
+    "stockCode": "HAKSAN-MT-520-2000",
+    "specs": [
+      {
+        "key": "Ayna Ölçüsü",
+        "value": "21\""
+      },
+      {
+        "key": "Azami Çevirme Kapasitesi",
+        "value": "Ø 1.000 mm"
+      },
+      {
+        "key": "Azami Tornalama Çapı",
+        "value": "Ø 900 mm"
+      }
+    ],
+    "standardEquipment": [],
+    "optionalEquipment": [],
+    "muadilProductId": null,
+    "status": "active",
+    "pdfUrl": "/product-blobs/haksancnc/pdfs/haksan-cnc-mt-520-2000.pdf"
+  },
+  {
+    "id": "haksan-cnc-sj-20",
+    "brand": "ECOCA",
+    "productGroup": "CNC",
+    "productGroupCode": "CNC",
+    "model": "SJ-20",
+    "modelName": "SJ-20 CNC Torna",
+    "type": "CNC Torna Tezgahı",
+    "productTypeCode": "CNC_YATAY_TORNA_TEZGAHI",
+    "controlPanel": "",
+    "category": "CNC Torna Tezgahları",
+    "categoryCode": "TEZGAH",
+    "subcategory": "Torna",
+    "subcategoryCode": "TORNA",
+    "imageUrl": "/product-blobs/haksancnc/haksan-cnc-sj-20.jpg",
+    "shortDescription": "SJ-20, küçük ve orta ölçekli torna projelerinde yüksek hassasiyet ve dayanıklılık sunar. Metal işleme ve tornalama işlemleri için mükemmel bir tercihtir.",
+    "description": "SJ-20, küçük ve orta ölçekli torna projelerinde yüksek hassasiyet ve dayanıklılık sunar. Metal işleme ve tornalama işlemleri için mükemmel bir tercihtir. Kaynak: https://www.haksancnc.com.tr/urun-detay-sj-20cnctorna-1597",
+    "listPrice": 0,
+    "cashPrice": 0,
+    "currency": "USD",
+    "vatRate": 20,
+    "originCountry": "",
+    "hsCode": "",
+    "stockCode": "HAKSAN-SJ-20",
+    "specs": [
+      {
+        "key": "Ayna Ölçüsü",
+        "value": "6\""
+      },
+      {
+        "key": "Azami Çevirme Kapasitesi",
+        "value": "Ø 360 mm"
+      },
+      {
+        "key": "Azami Tornalama Çapı",
+        "value": "Ø 225 mm"
+      }
+    ],
+    "standardEquipment": [],
+    "optionalEquipment": [],
+    "muadilProductId": null,
+    "status": "active",
+    "pdfUrl": "/product-blobs/haksancnc/pdfs/haksan-cnc-sj-20.pdf"
+  },
+  {
+    "id": "haksan-cnc-sl-8",
+    "brand": "ECOCA",
+    "productGroup": "CNC",
+    "productGroupCode": "CNC",
+    "model": "SL-8",
+    "modelName": "SL-8 CNC Torna",
+    "type": "CNC Torna Tezgahı",
+    "productTypeCode": "CNC_YATAY_TORNA_TEZGAHI",
+    "controlPanel": "",
+    "category": "CNC Torna Tezgahları",
+    "categoryCode": "TEZGAH",
+    "subcategory": "Torna",
+    "subcategoryCode": "TORNA",
+    "imageUrl": "/product-blobs/haksancnc/haksan-cnc-sl-8.jpg",
+    "shortDescription": "SL-8, dayanıklı yapısı ve yüksek hassasiyetli torna kabiliyeti ile metal işleme endüstrisinde geniş bir kullanım alanına sahiptir.",
+    "description": "SL-8, dayanıklı yapısı ve yüksek hassasiyetli torna kabiliyeti ile metal işleme endüstrisinde geniş bir kullanım alanına sahiptir. Kaynak: https://www.haksancnc.com.tr/urun-detay-sl-8cnctorna-1598",
+    "listPrice": 0,
+    "cashPrice": 0,
+    "currency": "USD",
+    "vatRate": 20,
+    "originCountry": "",
+    "hsCode": "",
+    "stockCode": "HAKSAN-SL-8",
+    "specs": [
+      {
+        "key": "Ayna Ölçüsü",
+        "value": "8\""
+      },
+      {
+        "key": "Azami Çevirme Kapasitesi",
+        "value": "Ø 420 mm"
+      },
+      {
+        "key": "Azami Tornalama Çapı",
+        "value": "Ø 320 mm"
+      }
+    ],
+    "standardEquipment": [],
+    "optionalEquipment": [],
+    "muadilProductId": null,
+    "status": "active",
+    "pdfUrl": "/product-blobs/haksancnc/pdfs/haksan-cnc-sl-8.pdf"
+  },
+  {
+    "id": "haksan-cnc-ht-500",
+    "brand": "LK Machinery",
+    "productGroup": "CNC",
+    "productGroupCode": "CNC",
+    "model": "HT-500",
+    "modelName": "HT-500 CNC Yatay İşleme Merkezi",
+    "type": "CNC Yatay İşleme Merkezi",
+    "productTypeCode": "CNC_YATAY_ISLEME_MERKEZI",
+    "controlPanel": "",
+    "category": "CNC Yatay İşleme Merkezleri",
+    "categoryCode": "TEZGAH",
+    "subcategory": "İşleme Merkezi",
+    "subcategoryCode": "ISLEME_MERKEZI",
+    "imageUrl": "/product-blobs/haksancnc/haksan-cnc-ht-500.jpg",
+    "shortDescription": "HT-500, CNC yatay işleme merkezi olarak büyük parça işleme ve yüksek performans gerektiren projeler için tasarlanmıştır.",
+    "description": "HT-500, CNC yatay işleme merkezi olarak büyük parça işleme ve yüksek performans gerektiren projeler için tasarlanmıştır. Kaynak: https://www.haksancnc.com.tr/urun-detay-ht-500cncyatayislememerkezi-1590",
+    "listPrice": 0,
+    "cashPrice": 0,
+    "currency": "USD",
+    "vatRate": 20,
+    "originCountry": "",
+    "hsCode": "",
+    "stockCode": "HAKSAN-HT-500",
+    "specs": [
+      {
+        "key": "X, Y, Z Eksen Hareketi",
+        "value": "820 x 720 x 635 mm"
+      },
+      {
+        "key": "Tabla Ölçüsü",
+        "value": "500 x 500 mm"
+      },
+      {
+        "key": "Fener Mili",
+        "value": "BT-40 / Direkt Aktarma"
+      },
+      {
+        "key": "Fener Mili Devri",
+        "value": "10.000 dv./dk."
+      },
+      {
+        "key": "Fener Mili Motor Gücü",
+        "value": "18,5 kW"
+      },
+      {
+        "key": "X, Y, Z Eksen Boşta İlerleme Oranı",
+        "value": "48/48/36 m/dk."
+      },
+      {
+        "key": "X, Y, Z Eksen Kesme Hızı",
+        "value": "20 m/dk."
+      },
+      {
+        "key": "Takım Değiştirici",
+        "value": "Çember Tipi - 60 Takım Kapasiteli"
+      },
+      {
+        "key": "Tezgah Ağırlığı",
+        "value": "19.200 kg"
+      }
+    ],
+    "standardEquipment": [],
+    "optionalEquipment": [],
+    "muadilProductId": null,
+    "status": "active"
+  },
+  {
+    "id": "haksan-cnc-ht-630",
+    "brand": "LK Machinery",
+    "productGroup": "CNC",
+    "productGroupCode": "CNC",
+    "model": "HT-630",
+    "modelName": "HT-630 CNC Yatay İşleme Merkezi",
+    "type": "CNC Yatay İşleme Merkezi",
+    "productTypeCode": "CNC_YATAY_ISLEME_MERKEZI",
+    "controlPanel": "",
+    "category": "CNC Yatay İşleme Merkezleri",
+    "categoryCode": "TEZGAH",
+    "subcategory": "İşleme Merkezi",
+    "subcategoryCode": "ISLEME_MERKEZI",
+    "imageUrl": "/product-blobs/haksancnc/haksan-cnc-ht-630.jpg",
+    "shortDescription": "HT-630, CNC yatay işleme merkezi olarak büyük parça işleme kapasitesi ve üstün hassasiyet sunar. Endüstriyel projelerde yüksek performans sağlar.",
+    "description": "HT-630, CNC yatay işleme merkezi olarak büyük parça işleme kapasitesi ve üstün hassasiyet sunar. Endüstriyel projelerde yüksek performans sağlar. Kaynak: https://www.haksancnc.com.tr/urun-detay-ht-630cncyatayislememerkezi-1591",
+    "listPrice": 0,
+    "cashPrice": 0,
+    "currency": "USD",
+    "vatRate": 20,
+    "originCountry": "",
+    "hsCode": "",
+    "stockCode": "HAKSAN-HT-630",
+    "specs": [
+      {
+        "key": "X, Y, Z Eksen Hareketi",
+        "value": "1.050 x 900 x 1.000 mm"
+      },
+      {
+        "key": "Tabla Ölçüsü",
+        "value": "630 x 630 mm"
+      },
+      {
+        "key": "Fener Mili",
+        "value": "BT-50 / Direkt Aktarma"
+      },
+      {
+        "key": "Fener Mili Devri",
+        "value": "7.000 dv./dk."
+      },
+      {
+        "key": "Fener Mili Motor Gücü",
+        "value": "26,0 kW"
+      },
+      {
+        "key": "X, Y, Z Eksen Boşta İlerleme Oranı",
+        "value": "48/48/36 m/dk."
+      },
+      {
+        "key": "X, Y, Z Eksen Kesme Hızı",
+        "value": "20 m/dk."
+      },
+      {
+        "key": "Takım Değiştirici",
+        "value": "Çember Tipi - 60 Takım Kapasiteli"
+      },
+      {
+        "key": "Tezgah Ağırlığı",
+        "value": "26.000 kg"
+      }
+    ],
+    "standardEquipment": [],
+    "optionalEquipment": [],
+    "muadilProductId": null,
+    "status": "active"
+  },
+  {
+    "id": "haksan-cnc-ht-800",
+    "brand": "LK Machinery",
+    "productGroup": "CNC",
+    "productGroupCode": "CNC",
+    "model": "HT-800",
+    "modelName": "HT-800 CNC Yatay İşleme Merkezi",
+    "type": "CNC Yatay İşleme Merkezi",
+    "productTypeCode": "CNC_YATAY_ISLEME_MERKEZI",
+    "controlPanel": "",
+    "category": "CNC Yatay İşleme Merkezleri",
+    "categoryCode": "TEZGAH",
+    "subcategory": "İşleme Merkezi",
+    "subcategoryCode": "ISLEME_MERKEZI",
+    "imageUrl": "/product-blobs/haksancnc/haksan-cnc-ht-800.jpg",
+    "shortDescription": "HT-800, geniş işleme alanı ve yüksek verimliliği ile büyük ve karmaşık projelerde mükemmel sonuçlar sunar. Yüksek kapasiteli işleme için idealdir.",
+    "description": "HT-800, geniş işleme alanı ve yüksek verimliliği ile büyük ve karmaşık projelerde mükemmel sonuçlar sunar. Yüksek kapasiteli işleme için idealdir. Kaynak: https://www.haksancnc.com.tr/urun-detay-ht-800cncyatayislememerkezi-1592",
+    "listPrice": 0,
+    "cashPrice": 0,
+    "currency": "USD",
+    "vatRate": 20,
+    "originCountry": "",
+    "hsCode": "",
+    "stockCode": "HAKSAN-HT-800",
+    "specs": [
+      {
+        "key": "X, Y, Z Eksen Hareketi",
+        "value": "1.400 x 1.100 x 1.000 mm"
+      },
+      {
+        "key": "Tabla Ölçüsü",
+        "value": "800 x 800 mm"
+      },
+      {
+        "key": "Fener Mili",
+        "value": "BT-50 / Direkt Aktarma"
+      },
+      {
+        "key": "Fener Mili Devri",
+        "value": "7.000 dv./dk."
+      },
+      {
+        "key": "Fener Mili Motor Gücü",
+        "value": "26,0 kW"
+      },
+      {
+        "key": "X, Y, Z Eksen Boşta İlerleme Oranı",
+        "value": "48/48/36 m/dk."
+      },
+      {
+        "key": "X, Y, Z Eksen Kesme Hızı",
+        "value": "20 m/dk."
+      },
+      {
+        "key": "Takım Değiştirici",
+        "value": "Çember Tipi - 60 Takım Kapasiteli"
+      },
+      {
+        "key": "Tezgah Ağırlığı",
+        "value": "28.000 kg"
+      }
+    ],
+    "standardEquipment": [],
+    "optionalEquipment": [],
+    "muadilProductId": null,
+    "status": "active",
+    "pdfUrl": "/product-blobs/haksancnc/pdfs/haksan-cnc-ht-800.pdf"
+  },
+  {
+    "id": "haksan-cnc-lh-500",
+    "brand": "LK Machinery",
+    "productGroup": "CNC",
+    "productGroupCode": "CNC",
+    "model": "LH-500",
+    "modelName": "LH-500 CNC Yatay İşleme Merkezi",
+    "type": "CNC Yatay İşleme Merkezi",
+    "productTypeCode": "CNC_YATAY_ISLEME_MERKEZI",
+    "controlPanel": "",
+    "category": "CNC Yatay İşleme Merkezleri",
+    "categoryCode": "TEZGAH",
+    "subcategory": "İşleme Merkezi",
+    "subcategoryCode": "ISLEME_MERKEZI",
+    "imageUrl": "/product-blobs/haksancnc/haksan-cnc-lh-500.jpg",
+    "shortDescription": "LH-500, CNC yatay işleme merkezi olarak büyük ölçekli üretim ve yüksek hassasiyet gerektiren işler için uygundur.",
+    "description": "LH-500, CNC yatay işleme merkezi olarak büyük ölçekli üretim ve yüksek hassasiyet gerektiren işler için uygundur. Kaynak: https://www.haksancnc.com.tr/urun-detay-lh-500cncyatayislememerkezi-1596",
+    "listPrice": 0,
+    "cashPrice": 0,
+    "currency": "USD",
+    "vatRate": 20,
+    "originCountry": "",
+    "hsCode": "",
+    "stockCode": "HAKSAN-LH-500",
+    "specs": [
+      {
+        "key": "X, Y, Z Eksen Hareketi",
+        "value": "730 x 730 x 880 mm"
+      },
+      {
+        "key": "Tabla Ölçüsü",
+        "value": "500 x 500 mm"
+      },
+      {
+        "key": "Fener Mili",
+        "value": "BT-40 / Direkt Aktarma"
+      },
+      {
+        "key": "Fener Mili Devri",
+        "value": "12.000 dv./dk."
+      },
+      {
+        "key": "Fener Mili Motor Gücü",
+        "value": "26,0 kW"
+      },
+      {
+        "key": "X, Y, Z Eksen Boşta İlerleme Oranı",
+        "value": "60/60/60 m/dk."
+      },
+      {
+        "key": "X, Y, Z Eksen Kesme Hızı",
+        "value": "60 m/dk."
+      },
+      {
+        "key": "Takım Değiştirici",
+        "value": "Kol Tipi - 40 Takım Kapasiteli"
+      },
+      {
+        "key": "Tezgah Ağırlığı",
+        "value": "11.000 kg"
+      }
+    ],
+    "standardEquipment": [],
+    "optionalEquipment": [],
+    "muadilProductId": null,
+    "status": "active"
+  }
+]

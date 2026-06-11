@@ -1,0 +1,346 @@
+- generic:
+  - generic:
+    - generic:
+      - complementary:
+        - generic:
+          - generic:
+            - img
+          - generic:
+            - generic: Haksan Makina
+            - generic: CRM · Operasyon · Servis
+        - generic:
+          - generic:
+            - generic:
+              - navigation:
+                - generic:
+                  - generic: Genel
+                  - generic:
+                    - button:
+                      - img
+                      - generic: Gösterge Paneli
+                - generic:
+                  - generic: Satış
+                  - generic:
+                    - button:
+                      - img
+                      - generic: Firmalar
+                    - button:
+                      - img
+                      - generic: Kontaklar
+                    - button:
+                      - img
+                      - generic: Satış Kartları
+                    - button:
+                      - img
+                      - generic: Satış Kanban
+                    - button:
+                      - img
+                      - generic: Teklifler
+                    - button:
+                      - img
+                      - generic: Dokümanlar
+                    - button:
+                      - img
+                      - generic: Ödemeler & Cari
+                - generic:
+                  - generic: Operasyon
+                  - generic:
+                    - button:
+                      - img
+                      - generic: Ürünler
+                    - button:
+                      - img
+                      - generic: Stok
+                    - button:
+                      - img
+                      - generic: Satın Alma
+                    - button:
+                      - img
+                      - generic: Sevkiyat
+                    - button:
+                      - img
+                      - generic: Teslimat
+                - generic:
+                  - generic: Servis
+                  - generic:
+                    - button:
+                      - img
+                      - generic: Makineler
+                    - button:
+                      - img
+                      - generic: Kurulum
+                    - button:
+                      - img
+                      - generic: Servis Talepleri
+                      - generic: "3"
+                    - button:
+                      - img
+                      - generic: Servis Kanban
+                      - generic: Yeni
+                - generic:
+                  - generic: Analiz
+                  - generic:
+                    - button:
+                      - img
+                      - generic: Raporlar
+                - generic:
+                  - generic: Yönetim
+                  - generic:
+                    - button:
+                      - img
+                      - generic: Kullanıcılar
+                    - button:
+                      - img
+                      - generic: Roller & Yetkiler
+                    - button:
+                      - img
+                      - generic: Departmanlar
+                    - button:
+                      - img
+                      - generic: Ayarlar
+        - generic:
+          - generic:
+            - generic:
+              - generic: AD
+            - generic:
+              - generic: Ayşe Demir
+              - generic: SuperAdmin · Yönetim
+            - button:
+              - img
+      - generic:
+        - banner:
+          - generic:
+            - img
+            - textbox:
+              - /placeholder: "Firma ara: ad, şehir, e-posta, VKN..."
+            - generic: ⌘K
+          - button:
+            - img
+            - text: Hızlı Oluştur
+          - button:
+            - img
+          - button:
+            - img
+          - button:
+            - generic:
+              - generic: AD
+            - generic:
+              - generic: Ayşe Demir
+              - generic: SuperAdmin
+            - img
+        - generic:
+          - generic:
+            - navigation:
+              - generic: Haksan
+              - img
+              - generic: Satın Alma
+            - heading [level=1]: Satın Alma
+            - paragraph: Tedarikçi siparişleri
+        - main:
+          - generic:
+            - generic:
+              - generic:
+                - generic:
+                  - generic:
+                    - generic:
+                      - img
+                    - generic:
+                      - img
+                      - text: "%6"
+                  - generic: Toplam Sipariş
+                  - generic:
+                    - generic: "0"
+                    - generic: $0
+              - generic:
+                - generic:
+                  - generic:
+                    - generic:
+                      - img
+                    - generic:
+                      - img
+                      - text: "%3"
+                  - generic: Ticari
+                  - generic:
+                    - generic: "0"
+                    - generic: mal/hizmet alımı
+              - generic:
+                - generic:
+                  - generic:
+                    - generic:
+                      - img
+                    - generic:
+                      - img
+                      - text: "%2"
+                  - generic: İdari
+                  - generic:
+                    - generic: "0"
+                    - generic: genel gider
+              - generic:
+                - generic:
+                  - generic:
+                    - generic:
+                      - img
+                    - generic:
+                      - img
+                      - text: "%1"
+                  - generic: Bekleyen
+                  - generic:
+                    - generic: "0"
+                    - generic: onay bekliyor
+            - generic:
+              - generic:
+                - heading [level=4]: Tedarikçi Yüküne Göre
+                - paragraph: Açık siparişlerdeki adet
+              - generic:
+                - generic:
+                  - generic:
+                    - img
+            - generic:
+              - generic:
+                - heading [level=4]: Satın Alma Siparişleri
+                - generic:
+                  - generic:
+                    - img
+                    - textbox:
+                      - /placeholder: PO / tedarikçi...
+                  - button:
+                    - img
+                    - text: Excel
+                  - button [expanded]:
+                    - img
+                    - text: Yeni Sipariş
+              - generic:
+                - generic:
+                  - table:
+                    - rowgroup:
+                      - row:
+                        - columnheader: Tedarikçi
+                        - columnheader: Tip
+                        - columnheader: Sipariş
+                        - columnheader: Fatura No
+                        - columnheader: Tarih
+                        - columnheader: ETA
+                        - columnheader: KDV
+                        - columnheader: Tutar
+                        - columnheader: Durum
+                    - rowgroup:
+                      - row:
+                        - cell: Satın alma siparişi bulunamadı.
+    - region "Notifications alt+T"
+  - generic: "4"
+  - dialog:
+    - generic:
+      - heading [level=2]: Satın Alma Siparişi Oluştur
+      - paragraph: Ticari veya idari satın alma için firma, fatura ve kalem bilgilerini girin.
+    - generic:
+      - generic:
+        - generic:
+          - generic: Satın Alma Tipi
+          - generic:
+            - button: Ticari
+            - button: İdari
+        - generic:
+          - generic:
+            - generic: Firma / Müşteri Listesi
+            - generic:
+              - combobox [expanded]:
+                - generic: Firma seçin
+                - img
+              - combobox
+          - generic:
+            - generic: Fatura Numarası
+            - generic:
+              - textbox:
+                - /placeholder: FTR-...
+          - generic:
+            - generic: Sipariş No
+            - generic:
+              - textbox:
+                - /placeholder: Boşsa otomatik
+          - generic:
+            - generic: Para Birimi
+            - generic:
+              - combobox:
+                - generic: USD
+                - img
+              - combobox
+          - generic:
+            - generic: Sipariş Tarihi
+            - generic:
+              - textbox: 2026-06-04
+          - generic:
+            - generic: Beklenen Tarih
+            - generic:
+              - textbox
+          - generic:
+            - generic: Incoterm
+            - generic:
+              - textbox:
+                - /placeholder: EXW / FOB / CIF
+          - generic:
+            - generic: Referans
+            - generic:
+              - textbox:
+                - /placeholder: İrsaliye / talep no
+      - generic:
+        - generic:
+          - generic: Ürün
+          - generic: Açıklama
+          - generic: Adet
+          - generic: Birim Fiyat
+          - generic: İndirim
+          - generic: KDV
+          - generic: Son Tutar
+        - generic:
+          - generic:
+            - combobox:
+              - generic: Ürün seçmeden
+              - img
+            - combobox
+            - textbox:
+              - /placeholder: Kalem açıklaması
+            - textbox: "1"
+            - textbox:
+              - /placeholder: "0"
+            - textbox: "0"
+            - combobox:
+              - generic: 20%
+              - img
+            - combobox
+            - generic: $0
+            - button:
+              - img
+      - generic:
+        - button:
+          - img
+          - text: Kalem Ekle
+        - generic:
+          - generic:
+            - generic: Ara Toplam
+            - generic: $0
+          - generic:
+            - generic: İndirim
+            - generic: $0
+          - generic:
+            - generic: KDV
+            - generic: $0
+          - generic:
+            - generic: Son Tutar
+            - generic: $0
+      - generic:
+        - generic: Notlar
+        - generic:
+          - textbox
+      - generic:
+        - button: İptal
+        - button: Sipariş Oluştur
+    - button:
+      - img
+      - generic: Close
+  - listbox [ref=e1044]:
+    - option "ALİŞLER" [active] [ref=e1045]:
+      - generic [ref=e1047]: ALİŞLER
+    - option "Contra Makine" [ref=e1048]:
+      - generic [ref=e1050]: Contra Makine
+    - option "KİLİTSAN" [ref=e1051]:
+      - generic [ref=e1053]: KİLİTSAN

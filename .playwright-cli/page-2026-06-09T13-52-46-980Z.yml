@@ -1,0 +1,990 @@
+- generic:
+  - generic:
+    - generic:
+      - complementary:
+        - generic:
+          - generic:
+            - img
+          - generic:
+            - generic: Haksan Makina
+            - generic: CRM · Operasyon · Servis
+        - generic:
+          - generic:
+            - generic:
+              - navigation:
+                - generic:
+                  - generic: Genel
+                  - generic:
+                    - button:
+                      - img
+                      - generic: Gösterge Paneli
+                - generic:
+                  - generic: Satış
+                  - generic:
+                    - button:
+                      - img
+                      - generic: Firmalar
+                    - button:
+                      - img
+                      - generic: Kontaklar
+                    - button:
+                      - img
+                      - generic: Satış Kartları
+                    - button:
+                      - img
+                      - generic: Teklifler
+                    - button:
+                      - img
+                      - generic: Dokümanlar
+                    - button:
+                      - img
+                      - generic: Ödemeler & Cari
+                    - button:
+                      - img
+                      - generic: Satış Fiyat Listesi
+                - generic:
+                  - generic: Operasyon
+                  - generic:
+                    - button:
+                      - img
+                      - generic: Ürünler
+                    - button:
+                      - img
+                      - generic: Stok
+                    - button:
+                      - img
+                      - generic: Satın Alma
+                    - button:
+                      - img
+                      - generic: Sevkiyat
+                    - button:
+                      - img
+                      - generic: Teslimat
+                - generic:
+                  - generic: Servis
+                  - generic:
+                    - button:
+                      - img
+                      - generic: Makineler
+                    - button:
+                      - img
+                      - generic: Kurulum
+                    - button:
+                      - img
+                      - generic: Servis Talepleri
+                      - generic: "3"
+                    - button:
+                      - img
+                      - generic: Servis Kanban
+                      - generic: Yeni
+                    - button:
+                      - img
+                      - generic: Servis Fiyat Listesi
+                - generic:
+                  - generic: Analiz
+                  - generic:
+                    - button:
+                      - img
+                      - generic: Raporlar
+                - generic:
+                  - generic: Yönetim
+                  - generic:
+                    - button:
+                      - img
+                      - generic: Kullanıcılar
+                    - button:
+                      - img
+                      - generic: Roller & Yetkiler
+                    - button:
+                      - img
+                      - generic: Departmanlar
+                    - button:
+                      - img
+                      - generic: Ayarlar
+        - generic:
+          - generic:
+            - generic:
+              - generic: AD
+            - generic:
+              - generic: Ayşe Demir
+              - generic: SuperAdmin · Yönetim
+            - button:
+              - img
+      - generic:
+        - banner:
+          - generic:
+            - img
+            - textbox:
+              - /placeholder: "Firma ara: ad, şehir, e-posta, VKN..."
+            - generic: ⌘K
+          - button:
+            - img
+            - text: Hızlı Oluştur
+          - button:
+            - img
+          - button:
+            - img
+          - button:
+            - generic:
+              - generic: SY
+            - generic:
+              - generic: Sistem Yöneticisi
+              - generic: Admin
+            - img
+        - generic:
+          - generic:
+            - navigation:
+              - generic: Haksan
+              - img
+              - generic: Satış Kartları
+            - heading [level=1]: Satış Kartları
+            - paragraph: Tüm satış fırsatları
+          - generic:
+            - button:
+              - img
+              - text: Yeni Satış Kartı
+        - main:
+          - generic:
+            - tablist:
+              - tab: Liste
+              - tab [selected]: Kanban
+            - tabpanel:
+              - generic:
+                - generic:
+                  - button:
+                    - img
+                  - button:
+                    - img
+                - generic:
+                  - generic:
+                    - generic:
+                      - generic:
+                        - generic:
+                          - generic: Lead
+                          - generic: "1"
+                        - generic:
+                          - button:
+                            - img
+                      - generic:
+                        - generic:
+                          - generic: Toplam
+                          - generic: € 0
+                      - generic:
+                        - generic:
+                          - generic:
+                            - generic:
+                              - generic:
+                                - img
+                              - generic:
+                                - generic: ALİŞLER MAKİNA
+                                - generic: Test opp 2
+                              - button [expanded]:
+                                - img
+                            - generic:
+                              - generic: Test opp 2
+                              - generic: ×1
+                            - generic:
+                              - generic: 0 USD
+                              - generic:
+                                - generic:
+                                  - img
+                                  - text: 06-09
+                                - generic:
+                                  - generic: SY
+                    - generic:
+                      - generic:
+                        - generic:
+                          - generic: Satış
+                          - generic: "1"
+                        - generic:
+                          - button:
+                            - img
+                      - generic:
+                        - generic:
+                          - generic: Toplam
+                          - generic: € 64.800
+                      - generic:
+                        - generic:
+                          - generic:
+                            - generic:
+                              - generic:
+                                - img
+                              - generic:
+                                - generic: Contra Makine San. ve Tic. Ltd. Şti.
+                                - generic: Contra Makine — LK MV-1050 Dik İşleme Merkezi
+                              - button:
+                                - img
+                            - generic:
+                              - generic: Contra Makine — LK MV-1050 Dik İşleme Merkezi
+                              - generic: ×1
+                            - generic:
+                              - generic: 64.800 USD
+                              - generic:
+                                - generic:
+                                  - img
+                                  - text: 06-19
+                                - generic:
+                                  - generic: EÇ
+                    - generic:
+                      - generic:
+                        - generic:
+                          - generic: Arama
+                          - generic: "1"
+                        - generic:
+                          - button:
+                            - img
+                      - generic:
+                        - generic:
+                          - generic: Toplam
+                          - generic: € 64.800
+                      - generic:
+                        - generic:
+                          - generic:
+                            - generic:
+                              - generic:
+                                - img
+                              - generic:
+                                - generic: Contra Makine San. ve Tic. Ltd. Şti.
+                                - generic: Contra Makine — LK MV-1050 Dik İşleme Merkezi
+                              - button:
+                                - img
+                            - generic:
+                              - generic: Contra Makine — LK MV-1050 Dik İşleme Merkezi
+                              - generic: ×1
+                            - generic:
+                              - generic: 64.800 USD
+                              - generic:
+                                - generic:
+                                  - img
+                                  - text: 06-13
+                                - generic:
+                                  - generic: EÇ
+                    - generic:
+                      - generic:
+                        - generic:
+                          - generic: Ziyaret
+                          - generic: "3"
+                        - generic:
+                          - button:
+                            - img
+                      - generic:
+                        - generic:
+                          - generic: Toplam
+                          - generic: € 204.900
+                      - generic:
+                        - generic:
+                          - generic:
+                            - generic:
+                              - generic:
+                                - img
+                              - generic:
+                                - generic: ALİŞLER MAKİNA
+                                - generic: ALİŞLER — ECOCA MT-208/500 CNC Torna
+                              - button:
+                                - img
+                            - generic:
+                              - generic: ALİŞLER — ECOCA MT-208/500 CNC Torna
+                              - generic: ×1
+                            - generic:
+                              - generic: 64.885 USD
+                              - generic:
+                                - generic:
+                                  - img
+                                  - text: 11-14
+                                - generic:
+                                  - generic: EÇ
+                        - generic:
+                          - generic:
+                            - generic:
+                              - generic:
+                                - img
+                              - generic:
+                                - generic: ALİŞLER MAKİNA
+                                - generic: ALİŞLER — ECOCA MT-208/500 CNC Torna
+                              - button:
+                                - img
+                            - generic:
+                              - generic: ALİŞLER — ECOCA MT-208/500 CNC Torna
+                              - generic: ×1
+                            - generic:
+                              - generic: 64.885 USD
+                              - generic:
+                                - generic:
+                                  - img
+                                  - text: 11-20
+                                - generic:
+                                  - generic: EÇ
+                        - generic:
+                          - generic:
+                            - generic:
+                              - generic:
+                                - img
+                              - generic:
+                                - generic: ALİŞLER MAKİNA
+                                - generic: ALİŞLER — ECOCA MT-208/500 CNC Torna
+                              - button:
+                                - img
+                            - generic:
+                              - generic: ALİŞLER — ECOCA MT-208/500 CNC Torna
+                              - generic: ×1
+                            - generic:
+                              - generic: 75.130 USD
+                              - generic:
+                                - generic:
+                                  - img
+                                  - text: 02-11
+                                - generic:
+                                  - generic: EÇ
+                    - generic:
+                      - generic:
+                        - generic:
+                          - generic: İptal
+                          - generic: "10"
+                        - generic:
+                          - button:
+                            - img
+                      - generic:
+                        - generic:
+                          - generic: Toplam
+                          - generic: € 1.026.445
+                      - generic:
+                        - generic:
+                          - generic:
+                            - generic:
+                              - generic:
+                                - img
+                              - generic:
+                                - generic: KİLİTSAN KALIP İMALAT SAN. TİC. LTD. ŞTİ.
+                                - generic: KİLİTSAN — MANFORD DL-2112 İşleme Merkezi
+                              - button:
+                                - img
+                            - generic:
+                              - generic: KİLİTSAN — MANFORD DL-2112 İşleme Merkezi
+                              - generic: ×1
+                            - generic:
+                              - generic: 170.000 USD
+                              - generic:
+                                - generic:
+                                  - img
+                                  - text: 10-09
+                                - generic:
+                                  - generic: EÇ
+                        - generic:
+                          - generic:
+                            - generic:
+                              - generic:
+                                - img
+                              - generic:
+                                - generic: ALİŞLER MAKİNA
+                                - generic: ALİŞLER — ECOCA MT-208/500 CNC Torna
+                              - button:
+                                - img
+                            - generic:
+                              - generic: ALİŞLER — ECOCA MT-208/500 CNC Torna
+                              - generic: ×1
+                            - generic:
+                              - generic: 75.130 USD
+                              - generic:
+                                - generic:
+                                  - img
+                                  - text: 08-11
+                                - generic:
+                                  - generic: EÇ
+                        - generic:
+                          - generic:
+                            - generic:
+                              - generic:
+                                - img
+                              - generic:
+                                - generic: ALİŞLER MAKİNA
+                                - generic: Test opp
+                              - button:
+                                - img
+                            - generic:
+                              - generic: Test opp
+                              - generic: ×1
+                              - generic: Teklif
+                            - generic:
+                              - generic: 100.000 USD
+                              - generic:
+                                - generic:
+                                  - img
+                                  - text: 06-09
+                                - generic:
+                                  - generic: SY
+                        - generic:
+                          - generic:
+                            - generic:
+                              - generic:
+                                - img
+                              - generic:
+                                - generic: ALİŞLER MAKİNA
+                                - generic: ALİŞLER — ECOCA MT-208/500 CNC Torna
+                              - button:
+                                - img
+                            - generic:
+                              - generic: ALİŞLER — ECOCA MT-208/500 CNC Torna
+                              - generic: ×1
+                            - generic:
+                              - generic: 64.885 USD
+                              - generic:
+                                - generic:
+                                  - img
+                                  - text: 05-08
+                                - generic:
+                                  - generic: EÇ
+                        - generic:
+                          - generic:
+                            - generic:
+                              - generic:
+                                - img
+                              - generic:
+                                - generic: Contra Makine San. ve Tic. Ltd. Şti.
+                                - generic: Contra Makine — LK MV-1050 Dik İşleme Merkezi
+                              - button:
+                                - img
+                            - generic:
+                              - generic: Contra Makine — LK MV-1050 Dik İşleme Merkezi
+                              - generic: ×1
+                            - generic:
+                              - generic: 75.600 USD
+                              - generic:
+                                - generic:
+                                  - img
+                                  - text: 03-10
+                                - generic:
+                                  - generic: EÇ
+                        - generic:
+                          - generic:
+                            - generic:
+                              - generic:
+                                - img
+                              - generic:
+                                - generic: ALİŞLER MAKİNA
+                                - generic: ALİŞLER — ECOCA MT-208/500 CNC Torna
+                              - button:
+                                - img
+                            - generic:
+                              - generic: ALİŞLER — ECOCA MT-208/500 CNC Torna
+                              - generic: ×1
+                            - generic:
+                              - generic: 75.130 USD
+                              - generic:
+                                - generic:
+                                  - img
+                                  - text: 08-17
+                                - generic:
+                                  - generic: EÇ
+                        - generic:
+                          - generic:
+                            - generic:
+                              - generic:
+                                - img
+                              - generic:
+                                - generic: Contra Makine San. ve Tic. Ltd. Şti.
+                                - generic: Contra Makine — LK MV-1050 Dik İşleme Merkezi
+                              - button:
+                                - img
+                            - generic:
+                              - generic: Contra Makine — LK MV-1050 Dik İşleme Merkezi
+                              - generic: ×1
+                            - generic:
+                              - generic: 75.600 USD
+                              - generic:
+                                - generic:
+                                  - img
+                                  - text: 03-16
+                                - generic:
+                                  - generic: EÇ
+                        - generic:
+                          - generic:
+                            - generic:
+                              - generic:
+                                - img
+                              - generic:
+                                - generic: KİLİTSAN KALIP İMALAT SAN. TİC. LTD. ŞTİ.
+                                - generic: KİLİTSAN — MANFORD DL-2112 İşleme Merkezi
+                              - button:
+                                - img
+                            - generic:
+                              - generic: KİLİTSAN — MANFORD DL-2112 İşleme Merkezi
+                              - generic: ×1
+                            - generic:
+                              - generic: 144.500 USD
+                              - generic:
+                                - generic:
+                                  - img
+                                  - text: 01-18
+                                - generic:
+                                  - generic: EÇ
+                        - generic:
+                          - generic:
+                            - generic:
+                              - generic:
+                                - img
+                              - generic:
+                                - generic: Contra Makine San. ve Tic. Ltd. Şti.
+                                - generic: Contra Makine — LK MV-1050 Dik İşleme Merkezi
+                              - button:
+                                - img
+                            - generic:
+                              - generic: Contra Makine — LK MV-1050 Dik İşleme Merkezi
+                              - generic: ×1
+                            - generic:
+                              - generic: 75.600 USD
+                              - generic:
+                                - generic:
+                                  - img
+                                  - text: 09-10
+                                - generic:
+                                  - generic: EÇ
+                        - generic:
+                          - generic:
+                            - generic:
+                              - generic:
+                                - img
+                              - generic:
+                                - generic: KİLİTSAN KALIP İMALAT SAN. TİC. LTD. ŞTİ.
+                                - generic: KİLİTSAN — MANFORD DL-2112 İşleme Merkezi
+                              - button:
+                                - img
+                            - generic:
+                              - generic: KİLİTSAN — MANFORD DL-2112 İşleme Merkezi
+                              - generic: ×1
+                            - generic:
+                              - generic: 170.000 USD
+                              - generic:
+                                - generic:
+                                  - img
+                                  - text: 04-09
+                                - generic:
+                                  - generic: EÇ
+                    - generic:
+                      - generic:
+                        - generic:
+                          - generic: Teklif
+                          - generic: "1"
+                        - generic:
+                          - button:
+                            - img
+                      - generic:
+                        - generic:
+                          - generic: Toplam
+                          - generic: € 144.500
+                      - generic:
+                        - generic:
+                          - generic:
+                            - generic:
+                              - generic:
+                                - img
+                              - generic:
+                                - generic: KİLİTSAN KALIP İMALAT SAN. TİC. LTD. ŞTİ.
+                                - generic: KİLİTSAN — MANFORD DL-2112 İşleme Merkezi
+                              - button:
+                                - img
+                            - generic:
+                              - generic: KİLİTSAN — MANFORD DL-2112 İşleme Merkezi
+                              - generic: ×1
+                            - generic:
+                              - generic: 144.500 USD
+                              - generic:
+                                - generic:
+                                  - img
+                                  - text: 01-12
+                                - generic:
+                                  - generic: EÇ
+                    - generic:
+                      - generic:
+                        - generic:
+                          - generic: Proforma
+                          - generic: "0"
+                        - generic:
+                          - button:
+                            - img
+                      - generic:
+                        - generic:
+                          - generic: Toplam
+                          - generic: € 0
+                      - generic:
+                        - generic: Kart yok
+                    - generic:
+                      - generic:
+                        - generic:
+                          - generic: Sözleşme
+                          - generic: "5"
+                        - generic:
+                          - button:
+                            - img
+                      - generic:
+                        - generic:
+                          - generic: Toplam
+                          - generic: € 773.500
+                      - generic:
+                        - generic:
+                          - generic:
+                            - generic:
+                              - generic:
+                                - img
+                              - generic:
+                                - generic: KİLİTSAN KALIP İMALAT SAN. TİC. LTD. ŞTİ.
+                                - generic: KİLİTSAN — MANFORD DL-2112 İşleme Merkezi
+                              - button:
+                                - img
+                            - generic:
+                              - generic: KİLİTSAN — MANFORD DL-2112 İşleme Merkezi
+                              - generic: ×1
+                            - generic:
+                              - generic: 144.500 USD
+                              - generic:
+                                - generic:
+                                  - img
+                                  - text: 07-06
+                                - generic:
+                                  - generic: EÇ
+                        - generic:
+                          - generic:
+                            - generic:
+                              - generic:
+                                - img
+                              - generic:
+                                - generic: KİLİTSAN KALIP İMALAT SAN. TİC. LTD. ŞTİ.
+                                - generic: KİLİTSAN — MANFORD DL-2112 İşleme Merkezi
+                              - button:
+                                - img
+                            - generic:
+                              - generic: KİLİTSAN — MANFORD DL-2112 İşleme Merkezi
+                              - generic: ×1
+                            - generic:
+                              - generic: 170.000 USD
+                              - generic:
+                                - generic:
+                                  - img
+                                  - text: 04-21
+                                - generic:
+                                  - generic: EÇ
+                        - generic:
+                          - generic:
+                            - generic:
+                              - generic:
+                                - img
+                              - generic:
+                                - generic: KİLİTSAN KALIP İMALAT SAN. TİC. LTD. ŞTİ.
+                                - generic: KİLİTSAN — MANFORD DL-2112 İşleme Merkezi
+                              - button:
+                                - img
+                            - generic:
+                              - generic: KİLİTSAN — MANFORD DL-2112 İşleme Merkezi
+                              - generic: ×1
+                            - generic:
+                              - generic: 170.000 USD
+                              - generic:
+                                - generic:
+                                  - img
+                                  - text: 10-15
+                                - generic:
+                                  - generic: EÇ
+                        - generic:
+                          - generic:
+                            - generic:
+                              - generic:
+                                - img
+                              - generic:
+                                - generic: KİLİTSAN KALIP İMALAT SAN. TİC. LTD. ŞTİ.
+                                - generic: KİLİTSAN — MANFORD DL-2112 İşleme Merkezi
+                              - button:
+                                - img
+                            - generic:
+                              - generic: KİLİTSAN — MANFORD DL-2112 İşleme Merkezi
+                              - generic: ×1
+                            - generic:
+                              - generic: 144.500 USD
+                              - generic:
+                                - generic:
+                                  - img
+                                  - text: 07-12
+                                - generic:
+                                  - generic: EÇ
+                        - generic:
+                          - generic:
+                            - generic:
+                              - generic:
+                                - img
+                              - generic:
+                                - generic: KİLİTSAN KALIP İMALAT SAN. TİC. LTD. ŞTİ.
+                                - generic: KİLİTSAN — MANFORD DL-2112 İşleme Merkezi
+                              - button:
+                                - img
+                            - generic:
+                              - generic: KİLİTSAN — MANFORD DL-2112 İşleme Merkezi
+                              - generic: ×1
+                            - generic:
+                              - generic: 144.500 USD
+                              - generic:
+                                - generic:
+                                  - img
+                                  - text: 01-06
+                                - generic:
+                                  - generic: EÇ
+                    - generic:
+                      - generic:
+                        - generic:
+                          - generic: Ticari Fatura
+                          - generic: "0"
+                        - generic:
+                          - button:
+                            - img
+                      - generic:
+                        - generic:
+                          - generic: Toplam
+                          - generic: € 0
+                      - generic:
+                        - generic: Kart yok
+                    - generic:
+                      - generic:
+                        - generic:
+                          - generic: Gümrük Onayı
+                          - generic: "0"
+                        - generic:
+                          - button:
+                            - img
+                      - generic:
+                        - generic:
+                          - generic: Toplam
+                          - generic: € 0
+                      - generic:
+                        - generic: Kart yok
+                    - generic:
+                      - generic:
+                        - generic:
+                          - generic: Stok Seçimi
+                          - generic: "0"
+                        - generic:
+                          - button:
+                            - img
+                      - generic:
+                        - generic:
+                          - generic: Toplam
+                          - generic: € 0
+                      - generic:
+                        - generic: Kart yok
+                    - generic:
+                      - generic:
+                        - generic:
+                          - generic: Sevkiyat
+                          - generic: "0"
+                        - generic:
+                          - button:
+                            - img
+                      - generic:
+                        - generic:
+                          - generic: Toplam
+                          - generic: € 0
+                      - generic:
+                        - generic: Kart yok
+                    - generic:
+                      - generic:
+                        - generic:
+                          - generic: Kurulum
+                          - generic: "0"
+                        - generic:
+                          - button:
+                            - img
+                      - generic:
+                        - generic:
+                          - generic: Toplam
+                          - generic: € 0
+                      - generic:
+                        - generic: Kart yok
+                    - generic:
+                      - generic:
+                        - generic:
+                          - generic: Teslim Edildi
+                          - generic: "7"
+                        - generic:
+                          - button:
+                            - img
+                      - generic:
+                        - generic:
+                          - generic: Toplam
+                          - generic: € 474.900
+                      - generic:
+                        - generic:
+                          - generic:
+                            - generic:
+                              - generic:
+                                - img
+                              - generic:
+                                - generic: Contra Makine San. ve Tic. Ltd. Şti.
+                                - generic: Contra Makine — LK MV-1050 Dik İşleme Merkezi
+                              - button:
+                                - img
+                            - generic:
+                              - generic: Contra Makine — LK MV-1050 Dik İşleme Merkezi
+                              - generic: ×1
+                            - generic:
+                              - generic: 64.800 USD
+                              - generic:
+                                - generic:
+                                  - img
+                                  - text: 12-07
+                                - generic:
+                                  - generic: EÇ
+                        - generic:
+                          - generic:
+                            - generic:
+                              - generic:
+                                - img
+                              - generic:
+                                - generic: Contra Makine San. ve Tic. Ltd. Şti.
+                                - generic: Contra Makine — LK MV-1050 Dik İşleme Merkezi
+                              - button:
+                                - img
+                            - generic:
+                              - generic: Contra Makine — LK MV-1050 Dik İşleme Merkezi
+                              - generic: ×1
+                            - generic:
+                              - generic: 75.600 USD
+                              - generic:
+                                - generic:
+                                  - img
+                                  - text: 09-22
+                                - generic:
+                                  - generic: EÇ
+                        - generic:
+                          - generic:
+                            - generic:
+                              - generic:
+                                - img
+                              - generic:
+                                - generic: ALİŞLER MAKİNA
+                                - generic: ALİŞLER — ECOCA MT-208/500 CNC Torna
+                              - button:
+                                - img
+                            - generic:
+                              - generic: ALİŞLER — ECOCA MT-208/500 CNC Torna
+                              - generic: ×1
+                            - generic:
+                              - generic: 75.130 USD
+                              - generic:
+                                - generic:
+                                  - img
+                                  - text: 02-23
+                                - generic:
+                                  - generic: EÇ
+                        - generic:
+                          - generic:
+                            - generic:
+                              - generic:
+                                - img
+                              - generic:
+                                - generic: Contra Makine San. ve Tic. Ltd. Şti.
+                                - generic: Contra Makine — LK MV-1050 Dik İşleme Merkezi
+                              - button:
+                                - img
+                            - generic:
+                              - generic: Contra Makine — LK MV-1050 Dik İşleme Merkezi
+                              - generic: ×1
+                            - generic:
+                              - generic: 64.800 USD
+                              - generic:
+                                - generic:
+                                  - img
+                                  - text: 12-13
+                                - generic:
+                                  - generic: EÇ
+                        - generic:
+                          - generic:
+                            - generic:
+                              - generic:
+                                - img
+                              - generic:
+                                - generic: ALİŞLER MAKİNA
+                                - generic: ALİŞLER — ECOCA MT-208/500 CNC Torna
+                              - button:
+                                - img
+                            - generic:
+                              - generic: ALİŞLER — ECOCA MT-208/500 CNC Torna
+                              - generic: ×1
+                            - generic:
+                              - generic: 64.885 USD
+                              - generic:
+                                - generic:
+                                  - img
+                                  - text: 05-14
+                                - generic:
+                                  - generic: EÇ
+                        - generic:
+                          - generic:
+                            - generic:
+                              - generic:
+                                - img
+                              - generic:
+                                - generic: ALİŞLER MAKİNA
+                                - generic: ALİŞLER — ECOCA MT-208/500 CNC Torna
+                              - button:
+                                - img
+                            - generic:
+                              - generic: ALİŞLER — ECOCA MT-208/500 CNC Torna
+                              - generic: ×1
+                            - generic:
+                              - generic: 64.885 USD
+                              - generic:
+                                - generic:
+                                  - img
+                                  - text: 11-08
+                                - generic:
+                                  - generic: EÇ
+                        - generic:
+                          - generic:
+                            - generic:
+                              - generic:
+                                - img
+                              - generic:
+                                - generic: Contra Makine San. ve Tic. Ltd. Şti.
+                                - generic: Contra Makine — LK MV-1050 Dik İşleme Merkezi
+                              - button:
+                                - img
+                            - generic:
+                              - generic: Contra Makine — LK MV-1050 Dik İşleme Merkezi
+                              - generic: ×1
+                            - generic:
+                              - generic: 64.800 USD
+                              - generic:
+                                - generic:
+                                  - img
+                                  - text: 06-07
+                                - generic:
+                                  - generic: EÇ
+    - region "Notifications alt+T"
+  - generic: "4"
+  - menu [active] [ref=e2142]:
+    - generic [ref=e2143]: Aşamaya gönder
+    - separator [ref=e2144]
+    - menuitem "Lead" [disabled]:
+      - generic: Lead
+    - menuitem "Satış" [ref=e2145]:
+      - generic [ref=e2147]: Satış
+    - menuitem "Arama" [ref=e2148]:
+      - generic [ref=e2150]: Arama
+    - menuitem "Ziyaret" [ref=e2151]:
+      - generic [ref=e2153]: Ziyaret
+    - menuitem "İptal" [ref=e2154]:
+      - generic [ref=e2156]: İptal
+    - menuitem "Teklif" [ref=e2157]:
+      - generic [ref=e2159]: Teklif
+    - menuitem "Proforma" [ref=e2160]:
+      - generic [ref=e2162]: Proforma
+    - menuitem "Sözleşme" [ref=e2163]:
+      - generic [ref=e2165]: Sözleşme
+    - menuitem "Ticari Fatura" [ref=e2166]:
+      - generic [ref=e2168]: Ticari Fatura
+    - menuitem "Gümrük Onayı" [ref=e2169]:
+      - generic [ref=e2171]: Gümrük Onayı
+    - menuitem "Stok Seçimi" [ref=e2172]:
+      - generic [ref=e2174]: Stok Seçimi
+    - menuitem "Sevkiyat" [ref=e2175]:
+      - generic [ref=e2177]: Sevkiyat
+    - menuitem "Kurulum" [ref=e2178]:
+      - generic [ref=e2180]: Kurulum
+    - menuitem "Teslim Edildi" [ref=e2181]:
+      - generic [ref=e2183]: Teslim Edildi

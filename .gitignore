@@ -1,0 +1,33 @@
+node_modules/
+dist/
+build/
+.next/
+out/
+coverage/
+.DS_Store
+
+.env
+.env.local
+.env.*.local
+
+# Drizzle generated migrations are committed, but local SQLite snapshots are not
+*.sqlite
+*.sqlite-journal
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Vite
+.vite/
+
+# Test artifacts
+.nyc_output/
