@@ -49,7 +49,7 @@ import { useStore } from "../../lib/store";
 import { Customer, Offer, SalesCase, ServiceRequest, ServiceStage, User } from "../../lib/mock";
 import { useAuth } from "../../../lib/auth";
 import { toast } from "sonner";
-import { adminService, companyService, productService, purchaseOrderService, salesOrderService, serviceService, reportService, fileService, type YearEndReport } from "../../../lib/services";
+import { adminService, companyService, productService, purchaseOrderService, salesOrderService, serviceService, reportService, fileService, quoteService, type YearEndReport } from "../../../lib/services";
 import { exportToCsv } from "../../../lib/exportCsv";
 import { FilterPopover, usePaged, Pager } from "../ui/list-controls";
 import {
@@ -423,6 +423,31 @@ function OfferDetailDialog({
 }) {
   const { products } = useStore();
   const [noteVariant, setNoteVariant] = useState(QUOTE_NOTE_VARIANTS[2].key);
+  // Bu teklife özel seçilen opsiyonel donanımlar (QuoteDialog'da "↳ Opsiyon:"
+  // önekiyle kaydedilen kalemler). Yazdırmada standart donanım gibi listelenir.
+  const [offerOptionEquip, setOfferOptionEquip] = useState<string[]>([]);
+  useEffect(() => {
+    if (!offer?.id) {
+      setOfferOptionEquip([]);
+      return;
+    }
+    let alive = true;
+    quoteService
+      .get(offer.id)
+      .then((full: any) => {
+        if (!alive) return;
+        const opts = (full?.items ?? [])
+          .map((it: any) => String(it?.description ?? ""))
+          .filter((d: string) => d.trimStart().startsWith("↳ Opsiyon:"))
+          .map((d: string) => d.replace(/^\s*↳\s*Opsiyon:\s*/, "").split(" — ")[0].trim())
+          .filter(Boolean);
+        setOfferOptionEquip([...new Set<string>(opts)]);
+      })
+      .catch(() => alive && setOfferOptionEquip([]));
+    return () => {
+      alive = false;
+    };
+  }, [offer?.id]);
   if (!offer) return null;
 
   const productText = salesCase
@@ -458,7 +483,9 @@ function OfferDetailDialog({
           tip: product?.type ?? salesCase?.requestedProduct,
           imageUrl: product?.imageUrl || undefined,
           specs: product?.specs,
-          standartDonanim: product?.standardEquipment,
+          // Bu teklife özel seçilen opsiyonel donanım, müşteriye standart
+          // donanımmış gibi sunulur: standart listenin sonuna eklenir.
+          standartDonanim: [...(product?.standardEquipment ?? []), ...offerOptionEquip],
           opsiyonelDonanim: product?.optionalEquipment,
           items: [
             {

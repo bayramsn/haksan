@@ -138,7 +138,9 @@ def extract_turkish(pdf_path: Path) -> dict:
     return {"standard": standard, "optional": optional}
 
 
-CONT_RE = re.compile(r"^([a-z(&+/]|with\b|Type\b)", re.IGNORECASE)
+# A wrapped continuation row starts lowercase or with a connector — note: NOT
+# IGNORECASE, otherwise [a-z] would match capitals and merge every line.
+CONT_RE = re.compile(r"^([a-zçğıöşü(&+/]|with\b|Type\b)")
 DROP_RE = re.compile(r"Accessor|Available|^MODEL$|^C\d|^D-?\d|Specifications?$|^Options?$|^Machine$", re.IGNORECASE)
 
 
@@ -165,8 +167,21 @@ def extract_maximart(pdf_path: Path) -> dict:
             for w in rights:
                 top = round(w["top"] / 6) * 6
                 lines.setdefault(top, []).append(w)
-            ordered = [clean_item(" ".join(p["text"] for p in sorted(lines[t], key=lambda w: w["x0"])))
-                       for t in sorted(lines)]
+            # The accessory area is a multi-column ●/○ grid: two accessory names
+            # can share a row. Split a visual line wherever there is a wide
+            # horizontal gap between words — that gap is a column boundary.
+            ordered = []
+            for t in sorted(lines):
+                parts = sorted(lines[t], key=lambda w: w["x0"])
+                seg, prev_x1 = [], None
+                for w in parts:
+                    if prev_x1 is not None and w["x0"] - prev_x1 > 38:
+                        ordered.append(clean_item(" ".join(seg)))
+                        seg = []
+                    seg.append(w["text"])
+                    prev_x1 = w["x1"]
+                if seg:
+                    ordered.append(clean_item(" ".join(seg)))
             merged = []
             for ln in ordered:
                 if merged and ln and CONT_RE.match(ln) and not DROP_RE.search(ln) and len(merged[-1]) < 60:

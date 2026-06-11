@@ -391,8 +391,9 @@ export function CreateContactDialog({
 
 /* ---------- Sales Case ---------- */
 export function CreateCaseDialog({ trigger, defaultCustomerId }: { trigger: React.ReactNode; defaultCustomerId?: string }) {
-  const { customers, addCase, users } = useStore();
+  const { customers, addCase, users, products } = useStore();
   const [open, setOpen] = useState(false);
+  const [selectedProductId, setSelectedProductId] = useState("");
   const [form, setForm] = useState({
     customerId: defaultCustomerId ?? "",
     assignedUserId: users.find((u) => u.role === "Sales" || u.role === "Admin")?.id ?? users[0]?.id ?? "",
@@ -440,8 +441,29 @@ export function CreateCaseDialog({ trigger, defaultCustomerId }: { trigger: Reac
                 </SelectContent>
               </Select>
             </div>
-            <Field label="Talep Edilen Ürün *" value={form.requestedProduct} onChange={(v) => setForm({ ...form, requestedProduct: v })} />
-            <Field label="Model" value={form.requestedModel} onChange={(v) => setForm({ ...form, requestedModel: v })} />
+            <div className="col-span-2">
+              <Label className="text-xs">Talep Edilen Ürün ve Model *</Label>
+              <Select
+                value={selectedProductId}
+                onValueChange={(v) => {
+                  const p = products.find((pr) => pr.id === v);
+                  setSelectedProductId(v);
+                  if (p) {
+                    const line = [p.brand, p.model].filter(Boolean).join(" ").trim();
+                    setForm((f) => ({ ...f, requestedProduct: line, requestedModel: p.model ?? "" }));
+                  }
+                }}
+              >
+                <SelectTrigger className="mt-1.5"><SelectValue placeholder="Ürün ve model seçin..." /></SelectTrigger>
+                <SelectContent>
+                  {products.map((p) => (
+                    <SelectItem key={p.id} value={p.id}>
+                      {[p.brand, p.model].filter(Boolean).join(" ")}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
             <Field label="Adet" type="number" value={String(form.quantity)} onChange={(v) => setForm({ ...form, quantity: Number(v) || 1 })} />
             <Field label="Tahmini Tutar" type="number" value={String(form.estimatedAmount)} onChange={(v) => setForm({ ...form, estimatedAmount: Number(v) || 0 })} />
             <div>

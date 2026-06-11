@@ -241,11 +241,12 @@ export function ProductDetailDialog({
           {standardTitles.length === 0 ? (
             <div className="text-xs text-muted-foreground">Standart donanım girilmemiş.</div>
           ) : (
-            <div className="flex flex-wrap gap-1.5">
+            <div className="rounded-lg border border-border/60 divide-y divide-border/60">
               {standardTitles.map((e, i) => (
-                <span key={`${e}-${i}`} className="inline-flex items-center gap-1 rounded-full bg-emerald-50 text-emerald-700 px-2 py-0.5 text-[11px]">
-                  <CheckCircle2 className="size-3" /> {e}
-                </span>
+                <div key={`${e}-${i}`} className="flex items-start gap-2 px-3 py-1.5 text-xs">
+                  <CheckCircle2 className="size-3.5 text-emerald-600 shrink-0 mt-0.5" />
+                  <span className="leading-snug">{e}</span>
+                </div>
               ))}
             </div>
           )}

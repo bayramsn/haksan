@@ -139,6 +139,19 @@ export async function importHaksanCnc(): Promise<void> {
   const imageFiles = new Set(await readdir(path.join(dataDir, 'images')).catch(() => []));
   const pdfFiles = new Set(await readdir(path.join(dataDir, 'pdfs')).catch(() => []));
 
+  // Equipment lists extracted from the brochures (scripts/extract-haksancnc-equipment.py).
+  type EquipmentEntry = { standard?: string[]; optional?: string[] };
+  const equipmentByStem: Record<string, EquipmentEntry> = await readFile(
+    path.join(dataDir, 'equipment.json'),
+    'utf8'
+  )
+    .then((s) => JSON.parse(s))
+    .catch(() => ({}));
+  const [standartType, opsiyonelType] = await Promise.all([
+    db.query.equipmentTypes.findFirst({ where: eq(schema.equipmentTypes.code, 'standart') }),
+    db.query.equipmentTypes.findFirst({ where: eq(schema.equipmentTypes.code, 'opsiyonel') }),
+  ]);
+
   const brandCache = new Map<string, string>();
   const subcatCache = new Map<string, string | null>();
   const typeCache = new Map<string, string | null>();
@@ -220,6 +233,7 @@ export async function importHaksanCnc(): Promise<void> {
   let images = 0;
   let pdfs = 0;
   let skippedMedia = 0;
+  let equipItems = 0;
 
   for (const p of manifest) {
     const modelCode = p.model || p.modelName;
@@ -339,10 +353,44 @@ export async function importHaksanCnc(): Promise<void> {
         }
       }
     }
+
+    // ── Equipment (from brochures) ──
+    // Insert per type only when the product has none of that type yet, so the
+    // demo products' hand-seeded (priced) optional equipment is never touched.
+    const equip = equipmentByStem[p.id];
+    if (equip) {
+      const insertEquip = async (titles: string[] | undefined, typeId: string | undefined) => {
+        if (!titles?.length || !typeId) return;
+        const existing = await db.query.productEquipmentItems.findFirst({
+          where: and(
+            eq(schema.productEquipmentItems.productModelId, productId),
+            eq(schema.productEquipmentItems.equipmentTypeId, typeId)
+          ),
+        });
+        if (existing) return;
+        const rows = titles
+          .map((t) => t.trim())
+          .filter((t) => t.length >= 3 && t.length <= 255)
+          .map((title, i) => ({
+            tenantId,
+            productModelId: productId,
+            equipmentTypeId: typeId,
+            title,
+            isPromotion: false,
+            sortOrder: i,
+          }));
+        if (rows.length) {
+          await db.insert(schema.productEquipmentItems).values(rows);
+          equipItems += rows.length;
+        }
+      };
+      await insertEquip(equip.standard, standartType?.id);
+      await insertEquip(equip.optional, opsiyonelType?.id);
+    }
   }
 
   console.log(
-    `[haksancnc] tamamlandı — ürün: ${created} yeni / ${updated} mevcut, görsel: ${images}, pdf: ${pdfs}, atlanan medya: ${skippedMedia}`
+    `[haksancnc] tamamlandı — ürün: ${created} yeni / ${updated} mevcut, görsel: ${images}, pdf: ${pdfs}, donanım kalemi: ${equipItems}, atlanan medya: ${skippedMedia}`
   );
 }
 
