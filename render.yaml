@@ -1,0 +1,57 @@
+# Render Blueprint — Haksan ERP API + yönetilen Postgres.
+# Ön yüz (apps/web) Cloudflare Pages'e ayrı deploy edilir.
+# Depolama: Cloudflare R2 (S3 uyumlu) — S3_* değişkenleri dashboard'dan girilir.
+databases:
+  - name: haksan-db
+    databaseName: haksan
+    user: haksan
+    plan: free
+    region: frankfurt
+
+services:
+  - type: web
+    name: haksan-api
+    runtime: node
+    plan: free
+    region: frankfurt
+    rootDir: .
+    branch: main
+    autoDeploy: true
+    healthCheckPath: /health
+    # Monorepo: önce shared paketi, sonra API derlenir.
+    buildCommand: npm ci && npm run build:shared && npm run build:api
+    # Tek instance (free) — boot'ta migration çalıştırıp sunucuyu başlatır.
+    startCommand: npm run db:migrate && node apps/api/dist/main.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DB_PROVIDER
+        value: postgres
+      - key: DATABASE_URL
+        fromDatabase:
+          name: haksan-db
+          property: connectionString
+      - key: JWT_ACCESS_SECRET
+        generateValue: true
+      - key: JWT_REFRESH_SECRET
+        generateValue: true
+      - key: COOKIE_SECURE
+        value: "true"
+      - key: COOKIE_SAMESITE
+        value: none
+      # Ön yüz Pages'e çıkınca buraya pages.dev URL'i yazılır.
+      - key: CORS_ORIGINS
+        sync: false
+      # Cloudflare R2 (S3 uyumlu) depolama kimlik bilgileri.
+      - key: S3_PROVIDER
+        value: r2
+      - key: S3_ENDPOINT
+        sync: false
+      - key: S3_ACCESS_KEY_ID
+        sync: false
+      - key: S3_SECRET_ACCESS_KEY
+        sync: false
+      - key: S3_REGION
+        value: auto
+      - key: S3_FORCE_PATH_STYLE
+        value: "true"

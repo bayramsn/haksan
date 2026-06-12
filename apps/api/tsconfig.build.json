@@ -1,0 +1,5 @@
+{
+  "extends": "./tsconfig.json",
+  "comment": "Production build (nest build). Seed betikleri ESM import.meta kullanır ve yalnızca tsx ile çalışır; CommonJS derlemesinden hariç tutulur.",
+  "exclude": ["node_modules", "dist", "test", "src/db/seed"]
+}
