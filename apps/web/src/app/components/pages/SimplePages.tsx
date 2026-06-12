@@ -4004,13 +4004,107 @@ const saveTargets = (targets: Record<string, UserTarget>) => {
 };
 const hasTargetValue = (t?: UserTarget) => !!t && (!!t.salesAmount || !!t.newCustomers || !!t.offers);
 
+type AssignableRole = {
+  id: string;
+  code: string;
+  name: string;
+  description?: string | null;
+  isSystemRole?: boolean;
+};
+
+type AdminUserRow = User & {
+  roleCodes: string[];
+  roleNames: string[];
+};
+
+const FALLBACK_ROLE_CODES: Record<string, string> = {
+  SuperAdmin: "super_admin",
+  Admin: "admin",
+  Sales: "sales",
+  Service: "service",
+};
+
+const normalizeStoreUser = (user: User): AdminUserRow => ({
+  ...user,
+  roleCodes: [FALLBACK_ROLE_CODES[user.role] ?? user.role],
+  roleNames: [user.role],
+});
+
+const normalizeAdminUser = (user: any, fallback?: User): AdminUserRow => {
+  const roles = Array.isArray(user.roles) ? user.roles : [];
+  const roleCodes = roles.map((role: any) => String(role?.code ?? "")).filter(Boolean);
+  const roleNames = roles.map((role: any) => String(role?.name ?? role?.code ?? "")).filter(Boolean);
+  const fallbackRole = fallback?.role ?? "Admin";
+
+  return {
+    id: user.id,
+    name: user.fullName ?? user.name ?? fallback?.name ?? user.email ?? "—",
+    email: user.email ?? fallback?.email ?? "",
+    role: ((roleNames[0] ?? fallbackRole) as User["role"]) || fallbackRole,
+    department: user.department?.name ?? fallback?.department ?? "",
+    active: user.status ? user.status !== "passive" : fallback?.active ?? true,
+    avatarUrl: user.avatarUrl ?? user.photoUrl ?? fallback?.avatarUrl,
+    purchaseApprovalLimit: user.purchaseApprovalLimit ? Number(user.purchaseApprovalLimit) : fallback?.purchaseApprovalLimit,
+    managerId: user.managerId ?? fallback?.managerId,
+    roleCodes: roleCodes.length ? roleCodes : [FALLBACK_ROLE_CODES[fallbackRole] ?? fallbackRole],
+    roleNames: roleNames.length ? roleNames : [fallbackRole],
+  };
+};
+
 export function UsersPage() {
   const { users } = useStore();
-  const { hasRole } = useAuth();
+  const { hasRole, hasPermission } = useAuth();
   // Hedef oluşturma süper admin (ve admin) yetkisine bağlı.
   const canSetTargets = hasRole("super_admin") || hasRole("admin");
+  const canAssignRoles = hasRole("super_admin") || hasPermission("users.update");
+  const canShowActions = canSetTargets || canAssignRoles;
+  const [adminUsers, setAdminUsers] = useState<AdminUserRow[]>([]);
+  const [availableRoles, setAvailableRoles] = useState<AssignableRole[]>([]);
+  const [adminLoading, setAdminLoading] = useState(true);
+  const [adminError, setAdminError] = useState<string | null>(null);
   const [targets, setTargets] = useState<Record<string, UserTarget>>(() => loadTargets());
   const [targetUser, setTargetUser] = useState<User | null>(null);
+  const [roleUser, setRoleUser] = useState<AdminUserRow | null>(null);
+  const [savingRoles, setSavingRoles] = useState(false);
+
+  const loadAdminUsers = useCallback(async () => {
+    setAdminLoading(true);
+    setAdminError(null);
+    try {
+      const [userRows, roleRows] = await Promise.all([
+        adminService.users(),
+        canAssignRoles ? adminService.roles() : Promise.resolve([]),
+      ]);
+      const fallbackById = new Map(users.map((user) => [user.id, user]));
+      setAdminUsers((Array.isArray(userRows) ? userRows : []).map((user) => normalizeAdminUser(user, fallbackById.get(user.id))));
+      setAvailableRoles(
+        (Array.isArray(roleRows) ? roleRows : [])
+          .map((role: any) => ({
+            id: role.id,
+            code: role.code,
+            name: role.name,
+            description: role.description,
+            isSystemRole: role.isSystemRole,
+          }))
+          .sort((a, b) => {
+            if (!!b.isSystemRole !== !!a.isSystemRole) return Number(!!b.isSystemRole) - Number(!!a.isSystemRole);
+            return a.name.localeCompare(b.name, "tr");
+          })
+      );
+    } catch (err: any) {
+      setAdminError(err?.message ?? "Kullanıcılar yüklenemedi.");
+      setAdminUsers([]);
+      setAvailableRoles([]);
+    } finally {
+      setAdminLoading(false);
+    }
+  }, [canAssignRoles, users]);
+
+  useEffect(() => {
+    loadAdminUsers();
+  }, [loadAdminUsers]);
+
+  const displayUsers = adminUsers.length ? adminUsers : users.map(normalizeStoreUser);
 
   const handleSaveTarget = (userId: string, target: UserTarget) => {
     setTargets((prev) => {
@@ -4028,6 +4122,20 @@ export function UsersPage() {
     setLimitUser(null);
   };
 
+  const handleSaveRoles = async (userId: string, roleCodes: string[]) => {
+    setSavingRoles(true);
+    try {
+      await adminService.updateUser(userId, { roleCodes });
+      toast.success("Roller güncellendi");
+      setRoleUser(null);
+      await loadAdminUsers();
+    } catch (err: any) {
+      toast.error("Roller güncellenemedi", { description: err?.message ?? "Lütfen tekrar deneyin." });
+    } finally {
+      setSavingRoles(false);
+    }
+  };
+
   return (
     <>
       <Card className="border-border/60 shadow-sm overflow-hidden">
@@ -4035,6 +4143,11 @@ export function UsersPage() {
           <CardTitle>Kullanıcılar</CardTitle>
           <Button className="gap-1"><Plus className="size-4" /> Kullanıcı Ekle</Button>
         </CardHeader>
+        {adminError && (
+          <div className="mx-4 mb-3 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive">
+            {adminError}
+          </div>
+        )}
         <div className="overflow-x-auto">
           <Table>
             <TableHeader>
@@ -4047,17 +4160,31 @@ export function UsersPage() {
                 <TableHead>Onay Limiti</TableHead>
                 <TableHead>Yönetici</TableHead>
                 <TableHead>Aktif</TableHead>
-                {canSetTargets && <TableHead className="w-10" />}
+                {canShowActions && <TableHead className="w-10" />}
               </TableRow>
             </TableHeader>
             <TableBody>
-              {users.map((u) => {
+              {adminLoading && displayUsers.length === 0 ? (
+                Array.from({ length: 4 }).map((_, index) => (
+                  <TableRow key={`users-loading-${index}`}>
+                    {Array.from({ length: canShowActions ? 9 : 8 }).map((__, cellIndex) => (
+                      <TableCell key={cellIndex}><Skeleton className="h-5 w-full" /></TableCell>
+                    ))}
+                  </TableRow>
+                ))
+              ) : displayUsers.map((u) => {
                 const t = targets[u.id];
                 return (
                   <TableRow key={u.id}>
                     <TableCell>{u.name}</TableCell>
                     <TableCell className="text-muted-foreground">{u.email}</TableCell>
-                    <TableCell><Badge variant="secondary">{u.role}</Badge></TableCell>
+                    <TableCell>
+                      <div className="flex max-w-[260px] flex-wrap gap-1">
+                        {u.roleNames.map((role) => (
+                          <Badge key={role} variant="secondary">{role}</Badge>
+                        ))}
+                      </div>
+                    </TableCell>
                     <TableCell>{u.department}</TableCell>
                     <TableCell>
                       {hasTargetValue(t) ? (
@@ -4076,17 +4203,26 @@ export function UsersPage() {
                       {u.purchaseApprovalLimit ? `${u.purchaseApprovalLimit.toLocaleString("tr-TR")} ₺` : <span className="text-muted-foreground text-xs">Limitsiz</span>}
                     </TableCell>
                     <TableCell>
-                      {u.managerId ? users.find((x) => x.id === u.managerId)?.name : <span className="text-muted-foreground text-xs">—</span>}
+                      {u.managerId ? displayUsers.find((x) => x.id === u.managerId)?.name : <span className="text-muted-foreground text-xs">—</span>}
                     </TableCell>
                     <TableCell><Switch checked={u.active} /></TableCell>
-                    {canSetTargets && (
+                    {canShowActions && (
                       <TableCell className="text-right whitespace-nowrap">
-                        <Button variant="ghost" size="sm" className="h-7 gap-1 text-xs" onClick={() => setTargetUser(u)}>
-                          <TrendingUp className="size-3.5" /> Hedef
-                        </Button>
-                        <Button variant="ghost" size="sm" className="h-7 gap-1 text-xs" onClick={() => setLimitUser(u)}>
-                          <Settings className="size-3.5" /> Limit
-                        </Button>
+                        {canAssignRoles && (
+                          <Button variant="ghost" size="sm" className="h-7 gap-1 text-xs" onClick={() => setRoleUser(u)}>
+                            <ShieldCheck className="size-3.5" /> Rol Ata
+                          </Button>
+                        )}
+                        {canSetTargets && (
+                          <>
+                            <Button variant="ghost" size="sm" className="h-7 gap-1 text-xs" onClick={() => setTargetUser(u)}>
+                              <TrendingUp className="size-3.5" /> Hedef
+                            </Button>
+                            <Button variant="ghost" size="sm" className="h-7 gap-1 text-xs" onClick={() => setLimitUser(u)}>
+                              <Settings className="size-3.5" /> Limit
+                            </Button>
+                          </>
+                        )}
                       </TableCell>
                     )}
                   </TableRow>
@@ -4105,15 +4241,110 @@ export function UsersPage() {
           onSave={handleSaveTarget}
         />
       )}
+      {canAssignRoles && (
+        <UserRoleDialog
+          user={roleUser}
+          roles={availableRoles}
+          saving={savingRoles}
+          onClose={() => setRoleUser(null)}
+          onSave={handleSaveRoles}
+        />
+      )}
       {canSetTargets && (
         <UserLimitDialog
           user={limitUser}
-          users={users}
+          users={displayUsers}
           onClose={() => setLimitUser(null)}
           onSave={handleSaveLimit}
         />
       )}
     </>
+  );
+}
+
+function UserRoleDialog({ user, roles, saving, onClose, onSave }: {
+  user: AdminUserRow | null;
+  roles: AssignableRole[];
+  saving: boolean;
+  onClose: () => void;
+  onSave: (userId: string, roleCodes: string[]) => Promise<void>;
+}) {
+  const [selectedCodes, setSelectedCodes] = useState<string[]>([]);
+
+  useEffect(() => {
+    if (user) setSelectedCodes(user.roleCodes);
+  }, [user]);
+
+  if (!user) return null;
+
+  const toggleRole = (code: string, checked: boolean) => {
+    setSelectedCodes((current) =>
+      checked ? [...new Set([...current, code])].sort() : current.filter((item) => item !== code)
+    );
+  };
+
+  const submit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    await onSave(user.id, selectedCodes);
+  };
+
+  return (
+    <Dialog open={!!user} onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Rol Ata · {user.name}</DialogTitle>
+          <DialogDescription>Kullanıcının erişim rollerini seçin. Kaydettiğinizde roller mevcut seçimle değiştirilir.</DialogDescription>
+        </DialogHeader>
+        <form onSubmit={submit} className="space-y-4">
+          <div className="rounded-md border border-border/60 bg-muted/20 px-3 py-2 text-sm">
+            <div className="font-medium">{user.email}</div>
+            <div className="mt-1 flex flex-wrap gap-1">
+              {user.roleNames.map((role) => <Badge key={role} variant="outline">{role}</Badge>)}
+            </div>
+          </div>
+          {roles.length === 0 ? (
+            <Alert>
+              <AlertTriangle className="size-4" />
+              <AlertTitle>Rol listesi yüklenemedi</AlertTitle>
+              <AlertDescription>Rol ataması yapabilmek için rol okuma yetkisi veya bağlantı gerekir.</AlertDescription>
+            </Alert>
+          ) : (
+            <div className="grid max-h-[360px] gap-2 overflow-y-auto pr-1">
+              {roles.map((role) => {
+                const checked = selectedCodes.includes(role.code);
+                return (
+                  <label
+                    key={role.id}
+                    htmlFor={`assign-role-${role.id}`}
+                    className="flex cursor-pointer items-start gap-3 rounded-md border border-border/60 p-3 transition-colors hover:bg-muted/40"
+                  >
+                    <Checkbox
+                      id={`assign-role-${role.id}`}
+                      checked={checked}
+                      onCheckedChange={(value) => toggleRole(role.code, value === true)}
+                      disabled={saving}
+                    />
+                    <span className="min-w-0 flex-1">
+                      <span className="flex items-center gap-2">
+                        <span className="font-medium leading-none">{role.name}</span>
+                        {role.isSystemRole && <Badge variant="secondary" className="text-[10px]">Sistem</Badge>}
+                      </span>
+                      <span className="mt-1 block text-xs text-muted-foreground">{role.description || role.code}</span>
+                    </span>
+                  </label>
+                );
+              })}
+            </div>
+          )}
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={onClose} disabled={saving}>İptal</Button>
+            <Button type="submit" disabled={saving || roles.length === 0}>
+              {saving ? "Kaydediliyor..." : "Rolleri Kaydet"}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }
 
