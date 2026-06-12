@@ -21,7 +21,7 @@
 import { readFile, readdir } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+
 import { and, eq, isNull } from 'drizzle-orm';
 import { S3Client, CreateBucketCommand } from '@aws-sdk/client-s3';
 import { ALLOWED_MIME_TYPES, ALLOWED_FILE_EXTENSIONS } from '@haksan/shared';
@@ -35,7 +35,7 @@ const fileType = require('file-type') as {
   fromBuffer(buf: Buffer): Promise<{ ext: string; mime: string } | undefined>;
 };
 
-const dataDir = path.join(path.dirname(fileURLToPath(import.meta.url)), 'data', 'haksancnc');
+const dataDir = path.join(path.dirname(__filename), 'data', 'haksancnc');
 const IMAGE_BUCKET = 'erp-product-images';
 const DOC_BUCKET = 'erp-product-documents';
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
@@ -394,7 +394,7 @@ export async function importHaksanCnc(): Promise<void> {
   );
 }
 
-const isDirectRun = process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1]);
+const isDirectRun = process.argv[1] && __filename === path.resolve(process.argv[1]);
 if (isDirectRun) {
   importHaksanCnc()
     .then(() => closeDb())
