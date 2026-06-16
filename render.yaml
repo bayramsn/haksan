@@ -23,7 +23,7 @@ services:
     healthCheckPath: /health
     buildCommand: NPM_CONFIG_PRODUCTION=false npm ci && npm run build:shared && npm run build:api
     preDeployCommand: npm run db:migrate
-    startCommand: node apps/api/dist/main.js
+    startCommand: npm run db:migrate && node apps/api/dist/main.js
     envVars:
       - key: NODE_ENV
         value: production
