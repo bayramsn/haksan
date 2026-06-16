@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
+import { emailSchema } from "@haksan/shared";
 import { authService } from "../../../lib/services";
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
@@ -31,11 +32,17 @@ export function LoginPage({ onLogin }: { onLogin: (email: string, password: stri
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
+    const trimmedEmail = email.trim();
+    const parsed = emailSchema.safeParse(trimmedEmail);
+    if (!parsed.success) {
+      toast.error("Geçerli bir e-posta adresi girin");
+      return;
+    }
     setBusy(true);
     try {
-      if (remember) localStorage.setItem(REMEMBER_KEY, email);
+      if (remember) localStorage.setItem(REMEMBER_KEY, trimmedEmail);
       else localStorage.removeItem(REMEMBER_KEY);
-      await onLogin(email, password);
+      await onLogin(trimmedEmail, password);
     } catch (err: any) {
       toast.error(err?.message ?? "Giriş başarısız");
     } finally {
@@ -45,10 +52,12 @@ export function LoginPage({ onLogin }: { onLogin: (email: string, password: stri
 
   const submitForgot = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!forgotEmail.trim()) return toast.error("E-posta giriniz");
+    const trimmedEmail = forgotEmail.trim();
+    const parsed = emailSchema.safeParse(trimmedEmail);
+    if (!parsed.success) return toast.error("Geçerli bir e-posta adresi girin");
     setForgotBusy(true);
     try {
-      await authService.forgotPassword(forgotEmail.trim());
+      await authService.forgotPassword(parsed.data);
       toast.success("Şifre sıfırlama bağlantısı gönderildi (varsa)");
       setForgotOpen(false);
     } catch (err: any) {
@@ -148,7 +157,11 @@ export function LoginPage({ onLogin }: { onLogin: (email: string, password: stri
                   <Input
                     id="login-email"
                     name="email"
-                    type="email"
+                    type="text"
+                    inputMode="email"
+                    autoCapitalize="none"
+                    autoCorrect="off"
+                    spellCheck={false}
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     className="mt-1.5 h-10"
@@ -255,7 +268,11 @@ export function LoginPage({ onLogin }: { onLogin: (email: string, password: stri
                   <Input
                     id="forgot-email"
                     name="forgot-email"
-                    type="email"
+                    type="text"
+                    inputMode="email"
+                    autoCapitalize="none"
+                    autoCorrect="off"
+                    spellCheck={false}
                     value={forgotEmail}
                     onChange={(e) => setForgotEmail(e.target.value)}
                     className="mt-1.5"
