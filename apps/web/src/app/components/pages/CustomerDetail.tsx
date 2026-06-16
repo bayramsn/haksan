@@ -7,7 +7,7 @@ import { Customer } from "../../lib/mock";
 import { useStore } from "../../lib/store";
 import { StatusBadge } from "../Layout";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../ui/table";
-import { CreateCaseDialog } from "../dialogs/CreateDialogs";
+import { CreateCaseDialog, LogActivityDialog } from "../dialogs/CreateDialogs";
 import { buildCustomerTimeline, type OperationAction } from "../../lib/operations";
 
 export function CustomerDetailPage({ customer, onBack, onAction }: { customer: Customer; onBack: () => void; onAction?: (action: OperationAction) => void }) {
@@ -147,7 +147,22 @@ export function CustomerDetailPage({ customer, onBack, onAction }: { customer: C
 
             <TabsContent value="activity" className="mt-4">
               <Card>
-                <CardContent className="p-6">
+                <CardHeader className="flex flex-row items-center justify-between gap-3 pb-3">
+                  <CardTitle className="text-base">Aktiviteler</CardTitle>
+                  <div className="flex items-center gap-2">
+                    <LogActivityDialog
+                      customerId={customer.id}
+                      defaultKind="visit"
+                      trigger={<Button size="sm" variant="outline" className="gap-1"><Plus className="size-4" /> Ziyaret</Button>}
+                    />
+                    <LogActivityDialog
+                      customerId={customer.id}
+                      defaultKind="call"
+                      trigger={<Button size="sm" variant="outline" className="gap-1"><Phone className="size-4" /> Arama</Button>}
+                    />
+                  </div>
+                </CardHeader>
+                <CardContent className="p-6 pt-0">
                   <ol className="relative border-l border-border ml-3 space-y-5">
                     {acts.map((a) => (
                       <li key={a.id} className="ml-4">

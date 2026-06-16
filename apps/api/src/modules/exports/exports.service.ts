@@ -40,12 +40,17 @@ import { DB } from '../../shared/database/database.module';
 import type { AuthContext } from '../../shared/security/auth.types';
 import { isoDate, type ExportRow } from '../../shared/utils/excel-export';
 import { lookupIdByCode } from '../../shared/utils/lookup.helper';
+import { FinanceService } from '../finance/finance.service';
+import type { DateRange } from '@haksan/shared';
 
 const EXPORT_LIMIT = 15_000;
 
 @Injectable()
 export class ExportsService {
-  constructor(@Inject(DB) private readonly db: DbClient) {}
+  constructor(
+    @Inject(DB) private readonly db: DbClient,
+    private readonly finance: FinanceService
+  ) {}
 
   async exportCompanies(
     actor: AuthContext,
@@ -264,6 +269,7 @@ export class ExportsService {
           Yön: r.payment.direction === 'in' ? 'Alınan (Giren)' : 'Ödenen (Çıkan)',
           Tutar: r.payment.amount,
           'Para Birimi': r.currency?.code ?? '',
+          'Fatura No': r.payment.invoiceNo ?? '',
           'Ödeme Tarihi': isoDate(r.payment.paymentDate),
           Durum: r.status?.name ?? '',
           Not: r.payment.notes ?? '',
@@ -275,12 +281,47 @@ export class ExportsService {
           Firma: r.company?.legalTitle ?? '',
           Tutar: r.receivable.amount,
           'Para Birimi': r.currency?.code ?? '',
+          'Fatura No': r.receivable.invoiceNo ?? '',
           Vade: isoDate(r.receivable.dueDate),
           Durum: r.status?.name ?? '',
           Not: r.receivable.notes ?? '',
         })),
       },
     ];
+  }
+
+  async exportCustomerStatement(actor: AuthContext, companyId: string, range: DateRange): Promise<ExportRow[]> {
+    const lines = await this.finance.getCompanyStatement(companyId, actor, range);
+    return lines.map((l) => ({
+      Tarih: isoDate(l.date),
+      Tür: l.type,
+      Açıklama: l.description,
+      'Fatura No': l.invoiceNo ?? '',
+      Borç: l.debit,
+      Alacak: l.credit,
+      Bakiye: l.balance,
+      'Para Birimi': l.currencyCode,
+    }));
+  }
+
+  async exportCustomerBalances(actor: AuthContext): Promise<ExportRow[]> {
+    const rows = await this.finance.getCustomerBalances(actor);
+    const showAlacak = this.finance.isFinanceAdmin(actor);
+    return rows.map((r) => {
+      const cur = r.currencies[0];
+      const base: ExportRow = {
+        Firma: r.companyName,
+        Borç: cur?.borc ?? r.borc,
+        'Para Birimi': cur?.currencyCode ?? '',
+        'En Yakın Vade': r.nearestDueDate ? isoDate(r.nearestDueDate) : '',
+        'Vade Tutarı': r.nearestDueAmount ?? '',
+      };
+      if (showAlacak) {
+        base['Alacak (bizim borcumuz)'] = cur?.alacak ?? r.alacak ?? 0;
+        base['Net'] = cur?.net ?? r.netBorc;
+      }
+      return base;
+    });
   }
 
   async exportServiceTickets(actor: AuthContext): Promise<ExportRow[]> {

@@ -6,7 +6,7 @@ import { Input } from "../ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../ui/tabs";
 import {
   Users, Briefcase, FileText, AlertTriangle, TrendingUp, TrendingDown,
-  Package, Wrench, Target, ArrowUpRight, MoreHorizontal, Calendar,
+  Package, Wrench, Target, ArrowUpRight, Calendar,
   CheckCircle2, Clock, Wallet, Truck, BarChart3, LayoutDashboard, ListTodo, LineChart as LineChartIcon,
 } from "lucide-react";
 import {
@@ -14,13 +14,14 @@ import {
   BarChart, Bar, PieChart, Pie, Cell, Legend, LineChart, Line, RadarChart,
   Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis,
 } from "recharts";
-import { SALES_STAGES, salesStageLabel } from "../../lib/mock";
+import { SALES_STAGES, SALES_STAGE_LABELS, salesStageLabel } from "../../lib/mock";
 import { StatusBadge } from "../Layout";
 import { useStore } from "../../lib/store";
 import { useAuth } from "../../../lib/auth";
 import { useFx } from "../../lib/fx";
-import { buildSalesMonthly, buildFunnelFromCases } from "../../lib/chartAggregates";
-import { adminService } from "../../../lib/services";
+import { buildSalesMonthly, buildFunnelFromCases, buildPipelineFunnel, buildPipelineStagePie } from "../../lib/chartAggregates";
+import { computeTargetAchievement } from "../../lib/targetAchievement";
+import { adminService, reportService } from "../../../lib/services";
 import {
   buildManagementInsights,
   buildWorkItems,
@@ -105,7 +106,7 @@ type DashboardSection = "ozet" | "operasyon" | "grafikler" | "hedefler";
 
 export function DashboardPage({ onAction }: { onAction?: (action: OperationAction) => void }) {
   const store = useStore();
-  const { customers, cases: salesCases, service: serviceRequests, machines, users, offers } = store;
+  const { customers, cases: salesCases, service: serviceRequests, machines, users, offers, activities } = store;
   const { user } = useAuth();
   const { convert } = useFx();
   const [targetPeriod, setTargetPeriod] = useState(currentPeriod());
@@ -114,13 +115,36 @@ export function DashboardPage({ onAction }: { onAction?: (action: OperationActio
   const [targetError, setTargetError] = useState("");
   const [section, setSection] = useState<DashboardSection>("ozet");
   const [chartPeriod, setChartPeriod] = useState<"1A" | "3A" | "6A" | "1Y">("6A");
+  const [pipelineRows, setPipelineRows] = useState<Array<{ stageName?: string; count?: number; sortOrder?: number }>>([]);
   const monthCount = { "1A": 1, "3A": 3, "6A": 6, "1Y": 12 }[chartPeriod];
   const monthly = useMemo(
     () => buildSalesMonthly(offers, salesCases, 12, (amount, currency) => convert(amount, currency, "USD")),
     [offers, salesCases, convert],
   );
   const monthlyView = monthly.slice(-monthCount);
-  const funnelData = useMemo(() => buildFunnelFromCases(salesCases, SALES_STAGE_LABELS), [salesCases]);
+  const storeFunnel = useMemo(() => buildFunnelFromCases(salesCases, SALES_STAGE_LABELS), [salesCases]);
+  const funnelData = useMemo(() => {
+    if (pipelineRows.length > 0) {
+      const api = buildPipelineFunnel(pipelineRows);
+      if (api.length > 0) return api;
+    }
+    return storeFunnel;
+  }, [pipelineRows, storeFunnel]);
+  const storeStageData = useMemo(
+    () =>
+      SALES_STAGES.map((s) => ({
+        name: salesStageLabel(s),
+        count: salesCases.filter((sc) => sc.stage === s).length,
+      })).filter((d) => d.count > 0),
+    [salesCases],
+  );
+  const stageData = useMemo(() => {
+    if (pipelineRows.length > 0) {
+      const api = buildPipelineStagePie(pipelineRows);
+      if (api.length > 0) return api;
+    }
+    return storeStageData;
+  }, [pipelineRows, storeStageData]);
   const radarData = useMemo(() => {
     const total = Math.max(customers.length, 1);
     const openSvc = serviceRequests.filter((s) => s.stage !== "Closed").length;
@@ -155,17 +179,42 @@ export function DashboardPage({ onAction }: { onAction?: (action: OperationActio
   const topRisks = management.risks.slice(0, 2);
   const topOpportunities = management.opportunities.slice(0, 2);
 
-  const stageData = SALES_STAGES.map((s) => ({
-    name: salesStageLabel(s),
-    count: salesCases.filter((sc) => sc.stage === s).length,
-  })).filter((d) => d.count > 0);
-
   const totalPipeline = salesCases.filter((s) => !s.isLost).reduce((a, s) => a + s.estimatedAmount, 0);
   const myTargetItems = useMemo(() => {
     const items = Array.isArray(myTarget?.targetItems) ? myTarget!.targetItems! : [];
-    // Detaylı kalem yoksa özet alanlardan türet → atanan hedef yine görünür olur.
     return items.length > 0 ? items : synthesizeTargetItems(myTarget);
   }, [myTarget]);
+
+  const targetAchievements = useMemo(
+    () =>
+      myTargetItems.slice(0, 4).map((item) => ({
+        label: item.activity,
+        ...computeTargetAchievement(item, {
+          period: targetPeriod,
+          offers,
+          customers,
+          activities,
+          service: serviceRequests,
+          convert: (amount, currency) => convert(amount, currency, 'USD'),
+        }),
+      })),
+    [myTargetItems, targetPeriod, offers, customers, activities, serviceRequests, convert],
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    reportService
+      .pipelineSummary()
+      .then((rows) => {
+        if (!cancelled && Array.isArray(rows)) setPipelineRows(rows);
+      })
+      .catch(() => {
+        if (!cancelled) setPipelineRows([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -405,6 +454,7 @@ export function DashboardPage({ onAction }: { onAction?: (action: OperationActio
                   size="sm"
                   variant={chartPeriod === p ? "secondary" : "ghost"}
                   className="h-7 px-2.5 text-xs"
+                  aria-pressed={chartPeriod === p}
                   onClick={() => setChartPeriod(p)}
                 >
                   {p}
@@ -463,10 +513,20 @@ export function DashboardPage({ onAction }: { onAction?: (action: OperationActio
         <Card className="border-border/60 shadow-sm">
           <CardHeader className="pb-2">
             <CardTitle className="tracking-tight">Satış Hunisi</CardTitle>
-            <p className="text-xs text-muted-foreground">Lead → Kurulum dönüşümü</p>
+            <p className="text-xs text-muted-foreground">
+              {pipelineRows.length > 0 ? "API pipeline özeti" : "Lead → Kurulum dönüşümü"}
+            </p>
           </CardHeader>
           <CardContent className="h-72 pl-2">
-            <ResponsiveContainer width="100%" height="100%">
+            {funnelData.length === 0 ? (
+              <div
+                role="status"
+                className="grid h-full place-items-center rounded-lg border border-dashed border-border/70 bg-muted/20 text-center text-sm text-muted-foreground px-4"
+              >
+                Henüz satış kartı aşaması verisi yok.
+              </div>
+            ) : (
+            <ResponsiveContainer width="100%" height="100%" aria-label="Satış hunisi grafiği">
               <BarChart data={funnelData} layout="vertical" margin={{ top: 4, right: 16, left: 6, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#eef0f3" horizontal={false} />
                 <XAxis type="number" stroke="#9ca3af" fontSize={11} tickLine={false} axisLine={false} />
@@ -475,6 +535,7 @@ export function DashboardPage({ onAction }: { onAction?: (action: OperationActio
                 <Bar dataKey="value" barSize={22} fill="#000c69" isAnimationActive={false} />
               </BarChart>
             </ResponsiveContainer>
+            )}
           </CardContent>
         </Card>
 
@@ -553,10 +614,15 @@ export function DashboardPage({ onAction }: { onAction?: (action: OperationActio
               <p className="text-xs text-muted-foreground">Dönem özeti</p>
             </CardHeader>
             <CardContent className="grid gap-4 pt-2 sm:grid-cols-2">
-              <Goal label="Aylık Satış" value={62} hint="$260k / $420k" />
-              <Goal label="Yeni Müşteri" value={78} hint="11 / 14" />
-              <Goal label="Servis Memnuniyeti" value={91} hint="4.55 / 5.0" tone="ok" />
-              <Goal label="Stok Devir Hızı" value={45} hint="Hedef altı" tone="warn" />
+              {targetAchievements.length === 0 ? (
+                <div className="sm:col-span-2 rounded-lg border border-dashed border-border/70 bg-muted/20 px-4 py-8 text-center text-sm text-muted-foreground">
+                  Bu dönem için ölçülebilir hedef kalemi yok.
+                </div>
+              ) : (
+                targetAchievements.map((g) => (
+                  <Goal key={g.label} label={g.label} value={g.pct} hint={g.hint} tone={g.tone} />
+                ))
+              )}
             </CardContent>
           </Card>
         </TabsContent>
@@ -832,7 +898,14 @@ function OpenRecordsPanel({
             <CardTitle className="tracking-tight">Açık Servis Talepleri</CardTitle>
             <p className="mt-1 text-xs text-muted-foreground">Aktif {openService} kayıt</p>
           </div>
-          <Button size="icon" variant="ghost" className="size-7"><MoreHorizontal className="size-4" /></Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-8 text-primary"
+            onClick={() => onAction?.({ kind: "navigate", nav: "service-requests" })}
+          >
+            Tümü <ArrowUpRight className="size-3.5" />
+          </Button>
         </CardHeader>
         <CardContent className="pt-0">
           {openService === 0 ? (

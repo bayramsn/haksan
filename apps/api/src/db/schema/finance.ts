@@ -1,10 +1,71 @@
-import { pgTable, uuid, varchar, text, timestamp, index } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, varchar, text, timestamp, integer, index, uniqueIndex } from 'drizzle-orm/pg-core';
 import { auditColumns, money } from './_helpers';
 import { tenants } from './tenants';
 import { users } from './users';
 import { companies } from './companies';
 import { quotes } from './quotes';
-import { paymentStatuses, currencies } from './lookup';
+import { salesOrders } from './orders';
+import { files } from './files';
+import { paymentStatuses, currencies, invoiceStatuses } from './lookup';
+
+export const accountingInvoices = pgTable(
+  'accounting_invoices',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id')
+      .notNull()
+      .references(() => tenants.id, { onDelete: 'cascade' }),
+    companyId: uuid('company_id')
+      .notNull()
+      .references(() => companies.id, { onDelete: 'restrict' }),
+    type: varchar('type', { length: 16 }).notNull(), // sales | purchase
+    invoiceNo: varchar('invoice_no', { length: 64 }).notNull(),
+    invoiceDate: timestamp('invoice_date', { withTimezone: true }).notNull(),
+    amount: money('amount').notNull(),
+    vatAmount: money('vat_amount').notNull().default('0'),
+    grandTotal: money('grand_total').notNull(),
+    currencyId: uuid('currency_id').references(() => currencies.id),
+    quoteId: uuid('quote_id').references(() => quotes.id, { onDelete: 'set null' }),
+    salesOrderId: uuid('sales_order_id').references(() => salesOrders.id, { onDelete: 'set null' }),
+    firstDueDate: timestamp('first_due_date', { withTimezone: true }),
+    lastDueDate: timestamp('last_due_date', { withTimezone: true }),
+    installmentCount: integer('installment_count').notNull().default(1),
+    statusId: uuid('status_id').references(() => invoiceStatuses.id),
+    fileId: uuid('file_id').references(() => files.id, { onDelete: 'set null' }),
+    notes: text('notes'),
+    createdBy: uuid('created_by').references(() => users.id),
+    ...auditColumns,
+  },
+  (t) => ({
+    tenantIdx: index('accounting_invoices_tenant_idx').on(t.tenantId),
+    companyIdx: index('accounting_invoices_company_idx').on(t.companyId),
+    tenantInvoiceNoUnique: uniqueIndex('accounting_invoices_tenant_invoice_no_unique').on(t.tenantId, t.invoiceNo),
+  })
+);
+
+export const invoiceInstallments = pgTable(
+  'invoice_installments',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id')
+      .notNull()
+      .references(() => tenants.id, { onDelete: 'cascade' }),
+    accountingInvoiceId: uuid('accounting_invoice_id')
+      .notNull()
+      .references(() => accountingInvoices.id, { onDelete: 'cascade' }),
+    installmentNo: integer('installment_no').notNull(),
+    dueDate: timestamp('due_date', { withTimezone: true }).notNull(),
+    amount: money('amount').notNull(),
+    statusId: uuid('status_id').references(() => paymentStatuses.id),
+    receivableId: uuid('receivable_id'),
+    payableId: uuid('payable_id'),
+    ...auditColumns,
+  },
+  (t) => ({
+    invoiceIdx: index('invoice_installments_invoice_idx').on(t.accountingInvoiceId),
+    dueDateIdx: index('invoice_installments_due_date_idx').on(t.dueDate),
+  })
+);
 
 export const receivables = pgTable(
   'receivables',
@@ -17,6 +78,10 @@ export const receivables = pgTable(
       .notNull()
       .references(() => companies.id, { onDelete: 'restrict' }),
     quoteId: uuid('quote_id').references(() => quotes.id, { onDelete: 'set null' }),
+    accountingInvoiceId: uuid('accounting_invoice_id').references(() => accountingInvoices.id, { onDelete: 'set null' }),
+    invoiceNo: varchar('invoice_no', { length: 64 }),
+    movementType: varchar('movement_type', { length: 32 }).notNull().default('manual'),
+    documentRef: varchar('document_ref', { length: 128 }),
     amount: money('amount').notNull(),
     currencyId: uuid('currency_id').references(() => currencies.id),
     dueDate: timestamp('due_date', { withTimezone: true }).notNull(),
@@ -31,6 +96,34 @@ export const receivables = pgTable(
   })
 );
 
+export const payables = pgTable(
+  'payables',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id')
+      .notNull()
+      .references(() => tenants.id, { onDelete: 'cascade' }),
+    companyId: uuid('company_id')
+      .notNull()
+      .references(() => companies.id, { onDelete: 'restrict' }),
+    accountingInvoiceId: uuid('accounting_invoice_id').references(() => accountingInvoices.id, { onDelete: 'set null' }),
+    invoiceNo: varchar('invoice_no', { length: 64 }),
+    movementType: varchar('movement_type', { length: 32 }).notNull().default('manual'),
+    documentRef: varchar('document_ref', { length: 128 }),
+    amount: money('amount').notNull(),
+    currencyId: uuid('currency_id').references(() => currencies.id),
+    dueDate: timestamp('due_date', { withTimezone: true }).notNull(),
+    statusId: uuid('status_id').references(() => paymentStatuses.id),
+    notes: text('notes'),
+    ...auditColumns,
+  },
+  (t) => ({
+    tenantIdx: index('payables_tenant_idx').on(t.tenantId),
+    companyIdx: index('payables_company_idx').on(t.companyId),
+    dueDateIdx: index('payables_due_date_idx').on(t.dueDate),
+  })
+);
+
 export const payments = pgTable(
   'payments',
   {
@@ -39,9 +132,12 @@ export const payments = pgTable(
       .notNull()
       .references(() => tenants.id, { onDelete: 'cascade' }),
     receivableId: uuid('receivable_id').references(() => receivables.id, { onDelete: 'set null' }),
+    payableId: uuid('payable_id').references(() => payables.id, { onDelete: 'set null' }),
+    accountingInvoiceId: uuid('accounting_invoice_id').references(() => accountingInvoices.id, { onDelete: 'set null' }),
     companyId: uuid('company_id')
       .notNull()
       .references(() => companies.id, { onDelete: 'restrict' }),
+    invoiceNo: varchar('invoice_no', { length: 64 }),
     // Kasa yönü: 'in' = giren (müşteriden tahsilat), 'out' = çıkan (tedarikçiye/gidere ödeme).
     direction: varchar('direction', { length: 8 }).notNull().default('in'),
     amount: money('amount').notNull(),

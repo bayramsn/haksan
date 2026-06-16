@@ -1,0 +1,223 @@
+import { useEffect, useState } from "react";
+import { Card, CardContent, CardHeader, CardTitle } from "../../ui/card";
+import { Button } from "../../ui/button";
+import { Input } from "../../ui/input";
+import { Tabs, TabsList, TabsTrigger } from "../../ui/tabs";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../../ui/table";
+import { StatusBadge } from "../../Layout";
+import { CreateStockDialog } from "../../dialogs/CreateDialogs";
+import { MiniKpi } from "../../shared/MiniKpi";
+import { useStore } from "../../../lib/store";
+import { toast } from "sonner";
+import { ExportExcelButton } from "../../ui/ExportExcelButton";
+import type { OperationFocus } from "../../../lib/operations";
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
+} from "../../ui/dropdown-menu";
+import {
+  ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid,
+  PieChart, Pie, Cell, Legend,
+} from "recharts";
+import {
+  Plus, Search, Package, Clock, CheckCircle2, AlertTriangle, MapPin, MoreHorizontal,
+} from "lucide-react";
+
+export function StockPage({ focus, initialQuery }: { focus?: OperationFocus; initialQuery?: string }) {
+  const { stock, updateStockStatus } = useStore();
+  const [q, setQ] = useState("");
+  const [tab, setTab] = useState<"all" | "Available" | "Reserved" | "Sold" | "Inactive">("all");
+
+  useEffect(() => {
+    if (focus === "reserved") setTab("Reserved");
+    if (focus === "available") setTab("Available");
+    if (focus === "low") setTab("all");
+  }, [focus]);
+
+  useEffect(() => {
+    if (initialQuery) setQ(initialQuery);
+  }, [initialQuery]);
+
+  const counts = {
+    Available: stock.filter((s) => s.status === "Available").length,
+    Reserved: stock.filter((s) => s.status === "Reserved").length,
+    Sold: stock.filter((s) => s.status === "Sold").length,
+    Inactive: stock.filter((s) => s.status === "Inactive").length,
+  };
+
+  const warehouses = Array.from(new Set(stock.map((s) => s.warehouse)))
+    .map((w) => ({ name: w, count: stock.filter((s) => s.warehouse === w).length }));
+
+  const brandPie = Array.from(new Set(stock.map((s) => s.brand)))
+    .map((b, i) => ({
+      name: b,
+      value: stock.filter((s) => s.brand === b).length,
+      fill: ["#000c69", "#cf060c", "#3b82f6", "#10b981", "#f59e0b"][i % 5],
+    }));
+
+  const filtered = stock.filter((s) => {
+    if (focus === "low" && s.status !== "Reserved" && s.status !== "Inactive") return false;
+    if (focus !== "low" && tab !== "all" && s.status !== tab) return false;
+    return (
+      s.serialNumber.toLowerCase().includes(q.toLowerCase()) ||
+      s.stockCode.toLowerCase().includes(q.toLowerCase()) ||
+      s.counterModel.toLowerCase().includes(q.toLowerCase())
+    );
+  });
+
+  const stockStatusExportCode: Record<string, string> = {
+    Available: 'available',
+    Reserved: 'reserved',
+    Sold: 'sold',
+    Inactive: 'damaged',
+  };
+  const stockExportParams = {
+    ...(q ? { search: q } : {}),
+    ...(tab !== "all" ? { statusCode: stockStatusExportCode[tab] ?? tab.toLowerCase() } : {}),
+  };
+
+  return (
+    <div className="space-y-5">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <MiniKpi tone="emerald" icon={<Package className="size-[18px]" />} label="Hazır Stok" value={counts.Available} sub="adet" delta={5} />
+        <MiniKpi tone="amber" icon={<Clock className="size-[18px]" />} label="Rezerve" value={counts.Reserved} sub="bekleyen sipariş" delta={2} />
+        <MiniKpi tone="violet" icon={<CheckCircle2 className="size-[18px]" />} label="Satılan" value={counts.Sold} sub="bu çeyrek" delta={9} />
+        <MiniKpi tone="red" icon={<AlertTriangle className="size-[18px]" />} label="Pasif" value={counts.Inactive} sub="kullanım dışı" delta={0} />
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <Card className="lg:col-span-2 border-border/60 shadow-sm">
+          <CardHeader className="pb-2">
+            <CardTitle className="tracking-tight">Depo Bazında Stok</CardTitle>
+            <p className="text-xs text-muted-foreground">Toplam {stock.length} kalem</p>
+          </CardHeader>
+          <CardContent className="h-56 pl-2">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={warehouses} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#eef0f3" vertical={false} />
+                <XAxis dataKey="name" stroke="#9ca3af" fontSize={11} tickLine={false} axisLine={false} />
+                <YAxis stroke="#9ca3af" fontSize={11} tickLine={false} axisLine={false} allowDecimals={false} />
+                <Tooltip contentStyle={{ borderRadius: 8, border: "1px solid #e5e7eb", fontSize: 12 }} />
+                <Bar dataKey="count" name="Kalem" fill="#000c69" barSize={32} isAnimationActive={false} />
+              </BarChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
+
+        <Card className="border-border/60 shadow-sm">
+          <CardHeader className="pb-2">
+            <CardTitle className="tracking-tight">Marka Dağılımı</CardTitle>
+            <p className="text-xs text-muted-foreground">Aktif kalemler</p>
+          </CardHeader>
+          <CardContent className="h-56">
+            <ResponsiveContainer width="100%" height="100%">
+              <PieChart>
+                <Pie data={brandPie} dataKey="value" nameKey="name" outerRadius={70} innerRadius={42} paddingAngle={2} isAnimationActive={false}>
+                  {brandPie.map((d) => (
+                    <Cell key={`br-${d.name}`} fill={d.fill} stroke="#fff" strokeWidth={2} />
+                  ))}
+                </Pie>
+                <Tooltip contentStyle={{ borderRadius: 8, border: "1px solid #e5e7eb", fontSize: 12 }} />
+                <Legend wrapperStyle={{ fontSize: 11 }} iconType="circle" />
+              </PieChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
+      </div>
+
+      <Card className="border-border/60 shadow-sm overflow-hidden">
+        <CardHeader className="flex flex-row items-center justify-between gap-3 flex-wrap pb-3">
+          <div className="flex items-center gap-2 flex-wrap">
+            <CardTitle className="tracking-tight mr-2">Stok Kalemleri</CardTitle>
+            <Tabs value={tab} onValueChange={(v) => setTab(v as any)}>
+              <TabsList className="h-8 bg-muted/60">
+                <TabsTrigger value="all" className="text-xs">Tümü</TabsTrigger>
+                <TabsTrigger value="Available" className="text-xs">Hazır</TabsTrigger>
+                <TabsTrigger value="Reserved" className="text-xs">Rezerve</TabsTrigger>
+                <TabsTrigger value="Sold" className="text-xs">Satılan</TabsTrigger>
+                <TabsTrigger value="Inactive" className="text-xs">Pasif</TabsTrigger>
+              </TabsList>
+            </Tabs>
+          </div>
+          <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
+            <div className="relative w-full sm:w-64">
+              <Search className="size-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+              <Input placeholder="Seri / kod / model..." className="pl-9 h-9 bg-white" value={q} onChange={(e) => setQ(e.target.value)} />
+            </div>
+            <ExportExcelButton path="/exports/inventory" filename="stok.xlsx" params={stockExportParams} className="h-9" />
+            <CreateStockDialog
+              trigger={<Button size="sm" className="h-9 gap-1"><Plus className="size-4" /> Yeni Stok</Button>}
+            />
+          </div>
+        </CardHeader>
+        <div className="overflow-x-auto">
+          <Table>
+            <TableHeader>
+              <TableRow className="bg-muted/30 hover:bg-muted/30">
+                <TableHead>Stok</TableHead>
+                <TableHead>Marka</TableHead>
+                <TableHead>Tip / Model</TableHead>
+                <TableHead>Seri No</TableHead>
+                <TableHead>Kontrol Paneli</TableHead>
+                <TableHead>Depo</TableHead>
+                <TableHead>Durum</TableHead>
+                <TableHead className="w-12"></TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {filtered.map((s) => (
+                <TableRow key={s.id} className="group">
+                  <TableCell>
+                    <div className="flex items-center gap-2.5">
+                      <div className="size-8 rounded-md bg-gradient-to-br from-primary/15 to-primary/5 text-primary grid place-items-center shrink-0">
+                        <Package className="size-4" />
+                      </div>
+                      <div className="text-sm">{s.stockCode}</div>
+                    </div>
+                  </TableCell>
+                  <TableCell className="text-sm">{s.brand}</TableCell>
+                  <TableCell className="text-sm">{s.counterType} · {s.counterModel}</TableCell>
+                  <TableCell className="text-sm tabular-nums">{s.serialNumber}</TableCell>
+                  <TableCell className="text-sm text-muted-foreground">{s.controlPanel}</TableCell>
+                  <TableCell>
+                    <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded bg-muted text-foreground/70">
+                      <MapPin className="size-3" />{s.warehouse}
+                    </span>
+                  </TableCell>
+                  <TableCell><StatusBadge status={s.status} /></TableCell>
+                  <TableCell>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" size="icon" className="size-8 opacity-0 group-hover:opacity-100 sm:opacity-100" aria-label="Durum değiştir">
+                          <MoreHorizontal className="size-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        {(["Available", "Reserved", "Sold", "Inactive"] as const).map((st) => (
+                          <DropdownMenuItem
+                            key={st}
+                            disabled={s.status === st}
+                            onClick={() => {
+                              updateStockStatus(s.id, st);
+                              toast.success("Durum güncellendi", { description: `${s.stockCode} → ${st}` });
+                            }}
+                          >
+                            {st} olarak işaretle
+                          </DropdownMenuItem>
+                        ))}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </TableCell>
+                </TableRow>
+              ))}
+              {filtered.length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={8} className="text-center py-12 text-sm text-muted-foreground">Kayıt bulunamadı.</TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </div>
+      </Card>
+    </div>
+  );
+}

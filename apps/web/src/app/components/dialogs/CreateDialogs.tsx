@@ -12,10 +12,13 @@ import {
 } from "../ui/select";
 import { useStore } from "../../lib/store";
 import { usePersistentState } from "../../lib/persist";
-import { SALES_STAGES, salesStageLabel, SHIPMENT_STATUSES, DELIVERY_STATUSES, type ShipmentStatus, type DeliveryStatus, type Customer, type Contact } from "../../lib/mock";
+import { SALES_STAGES, salesStageLabel, SHIPMENT_STATUSES, DELIVERY_STATUSES, type ShipmentStatus, type DeliveryStatus, type Customer, type Contact, type Product, type ProductSpec } from "../../lib/mock";
 import { toast } from "sonner";
-import { Building2, User as UserIcon, Wallet, Truck, ClipboardCheck, ChevronDown } from "lucide-react";
-import { serviceService, fileService, financeService } from "../../../lib/services";
+import {
+  Building2, User as UserIcon, Wallet, Truck, ClipboardCheck, ChevronDown, Receipt, Upload,
+  ClipboardList, Plus, Trash2, X, Loader2, Package, UserRound, Wrench,
+} from "lucide-react";
+import { serviceService, fileService, financeService, activityService } from "../../../lib/services";
 import {
   computeInstallationFee,
   INSTALLATION_LOCATION_LABELS,
@@ -1200,8 +1203,6 @@ export function QuickCreateDialog({ trigger }: { trigger: React.ReactNode }) {
 }
 
 /* ---------- Product (create / edit) ---------- */
-import type { Product, ProductSpec } from "../../lib/mock";
-import { ClipboardList, Plus, Trash2, X, Upload, Loader2, Package, UserRound, Wrench } from "lucide-react";
 
 type ProductOption = { code: string; label: string };
 type ProductTypeOption = ProductOption & { categoryCode?: string; subcategoryCode?: string };
@@ -2422,6 +2423,19 @@ const PAYMENT_METHOD_LABELS: Record<string, string> = {
   other: "Diğer",
 };
 const PAYMENT_CURRENCIES = ["USD", "EUR", "TRY"] as const;
+const PAYMENT_DOC_EXT_TO_MIME: Record<string, string> = {
+  pdf: "application/pdf",
+  png: "image/png",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  webp: "image/webp",
+  docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+};
+const fmtPaymentDocBytes = (b: number) =>
+  b < 1024 ? `${b} B` : b < 1048576 ? `${(b / 1024).toFixed(1)} KB` : `${(b / 1048576).toFixed(1)} MB`;
+const paymentDocTypeLabel = (t: "AccountingInvoice" | "CommercialInvoice") =>
+  t === "AccountingInvoice" ? "Fiş" : "Fatura";
 
 /**
  * Manuel kasa hareketi oluşturma. Yön ('in' = alınan/giren, 'out' = ödenen/çıkan)
@@ -2438,7 +2452,8 @@ export function CreatePaymentDialog({
   onCreated?: () => void;
   defaultDirection?: "in" | "out";
 }) {
-  const { customers } = useStore();
+  const { customers, addDocument } = useStore();
+  const inputRef = useRef<HTMLInputElement>(null);
   const [open, setOpen] = useState(false);
   const emptyForm = () => ({
     direction: defaultDirection as "in" | "out",
@@ -2450,16 +2465,65 @@ export function CreatePaymentDialog({
     notes: "",
   });
   const [form, setForm] = useState(emptyForm);
-  const reset = () => setForm(emptyForm());
+  const [docType, setDocType] = useState<"AccountingInvoice" | "CommercialInvoice">("CommercialInvoice");
+  const [file, setFile] = useState<File | null>(null);
+  const reset = () => {
+    setForm(emptyForm());
+    setDocType("CommercialInvoice");
+    setFile(null);
+    if (inputRef.current) inputRef.current.value = "";
+  };
   const [saving, setSaving] = useState(false);
+
+  const uploadInvoice = async (paymentId: string, companyId: string) => {
+    if (!file) return;
+    const ext = file.name.split(".").pop()?.toLocaleLowerCase("tr-TR") ?? "";
+    const mime = file.type || PAYMENT_DOC_EXT_TO_MIME[ext];
+    const up = await fileService.signedUpload({
+      bucket: "erp-invoice-documents",
+      entityType: "company",
+      entityId: companyId,
+      filename: file.name,
+      mimeType: mime,
+      extension: ext,
+      sizeBytes: file.size,
+    });
+    const res = await fetch(up.uploadUrl, { method: "PUT", body: file, headers: { "Content-Type": mime } });
+    if (!res.ok) throw new Error(`Depoya yükleme başarısız (${res.status})`);
+    await fileService.link({
+      fileId: up.fileId,
+      entityType: "company",
+      entityId: companyId,
+      documentTypeCode: "commercial_invoice_pdf",
+      description: `Kasa hareketi #${paymentId.toUpperCase()} · ${paymentDocTypeLabel(docType)}`,
+    });
+    await addDocument({
+      id: up.fileId,
+      fileId: up.fileId,
+      salesCaseId: "",
+      companyId,
+      type: docType,
+      fileName: file.name,
+      size: fmtPaymentDocBytes(file.size),
+      mimeType: mime,
+    });
+  };
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!form.companyId) return toast.error("Firma seçiniz");
     const amount = Number(form.amount);
     if (!Number.isFinite(amount) || amount <= 0) return toast.error("Geçerli bir tutar giriniz");
+    if (!file) return toast.error("Fatura veya fiş dosyası seçiniz");
+    if (file.size > 25 * 1024 * 1024) return toast.error("Dosya boyutu 25 MB'ı aşamaz");
+    const ext = file.name.split(".").pop()?.toLocaleLowerCase("tr-TR") ?? "";
+    const mime = file.type || PAYMENT_DOC_EXT_TO_MIME[ext];
+    if (!PAYMENT_DOC_EXT_TO_MIME[ext] || !mime) {
+      return toast.error("Desteklenmeyen dosya tipi", { description: "PDF, PNG, JPG, WEBP, DOCX veya XLSX" });
+    }
     setSaving(true);
     try {
+      let paymentId: string;
       if (form.direction === "in") {
         const receivable = await financeService.createReceivable({
           companyId: form.companyId,
@@ -2468,7 +2532,7 @@ export function CreatePaymentDialog({
           dueDate: form.paymentDate,
           notes: form.notes || undefined,
         });
-        await financeService.createPayment({
+        const payment = await financeService.createPayment({
           direction: form.direction,
           receivableId: receivable.id,
           amount,
@@ -2477,8 +2541,9 @@ export function CreatePaymentDialog({
           paymentMethod: form.paymentMethod,
           notes: form.notes || undefined,
         });
+        paymentId = payment.id;
       } else {
-        await financeService.createPayment({
+        const payment = await financeService.createPayment({
           direction: form.direction,
           companyId: form.companyId,
           amount,
@@ -2487,8 +2552,22 @@ export function CreatePaymentDialog({
           paymentMethod: form.paymentMethod,
           notes: form.notes || undefined,
         });
+        paymentId = payment.id;
       }
-      toast.success(form.direction === "in" ? "Tahsilat (giren) eklendi" : "Ödeme (çıkan) eklendi");
+      try {
+        await uploadInvoice(paymentId, form.companyId);
+      } catch (uploadErr: any) {
+        toast.error("Hareket kaydedildi ancak fatura yüklenemedi", {
+          description: uploadErr?.message ?? "Dosyayı detay ekranından tekrar ekleyebilirsiniz.",
+        });
+        setOpen(false);
+        reset();
+        onCreated?.();
+        return;
+      }
+      toast.success(form.direction === "in" ? "Tahsilat (giren) eklendi" : "Ödeme (çıkan) eklendi", {
+        description: `${paymentDocTypeLabel(docType)}: ${file.name}`,
+      });
       setOpen(false);
       reset();
       onCreated?.();
@@ -2505,7 +2584,7 @@ export function CreatePaymentDialog({
       <DialogContent className="max-w-lg">
         <DialogHeader>
           <DialogTitle>Yeni Kasa Hareketi</DialogTitle>
-          <DialogDescription>Alınan (giren) veya ödenen (çıkan) bir kasa hareketi kaydedin.</DialogDescription>
+          <DialogDescription>Alınan (giren) veya ödenen (çıkan) hareket kaydedin. Fatura veya fiş dosyası zorunludur.</DialogDescription>
         </DialogHeader>
 
         <form onSubmit={submit} className="space-y-4">
@@ -2582,9 +2661,44 @@ export function CreatePaymentDialog({
             <Textarea className="mt-1.5" rows={2} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
           </div>
 
+          <div className="rounded-lg border border-border/60 p-3 space-y-2">
+            <div className="flex items-center gap-2 text-sm font-medium">
+              <Receipt className="size-4 text-primary" />
+              Fiş / Fatura *
+            </div>
+            <div className="flex items-center gap-2">
+              <Select value={docType} onValueChange={(v) => setDocType(v as "AccountingInvoice" | "CommercialInvoice")}>
+                <SelectTrigger className="h-9 w-24 bg-white"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="AccountingInvoice">Fiş</SelectItem>
+                  <SelectItem value="CommercialInvoice">Fatura</SelectItem>
+                </SelectContent>
+              </Select>
+              <button
+                type="button"
+                onClick={() => inputRef.current?.click()}
+                className="flex-1 min-w-0 rounded-md border border-dashed border-border/80 bg-muted/20 px-3 py-2 text-left text-sm hover:bg-muted/40 truncate"
+              >
+                <input
+                  ref={inputRef}
+                  type="file"
+                  accept=".pdf,.png,.jpg,.jpeg,.webp,.docx,.xlsx"
+                  className="hidden"
+                  onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+                />
+                {file ? `${file.name} · ${fmtPaymentDocBytes(file.size)}` : "Dosya seç (PDF, görsel, ...)"}
+              </button>
+            </div>
+            {!file && (
+              <p className="text-[11px] text-muted-foreground flex items-center gap-1">
+                <Upload className="size-3" /> Hareket kaydı için fatura veya fiş yüklemeniz gerekir.
+              </p>
+            )}
+          </div>
+
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => setOpen(false)}>Vazgeç</Button>
-            <Button type="submit" disabled={saving}>{saving ? "Kaydediliyor..." : "Hareketi Kaydet"}</Button>
+            <Button type="submit" disabled={saving || !file}>{saving ? "Kaydediliyor..." : "Hareketi Kaydet"}</Button>
           </DialogFooter>
         </form>
       </DialogContent>
@@ -3032,6 +3146,144 @@ export function CreateMachineDialog({ children }: { children: React.ReactNode })
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => setOpen(false)}>Vazgeç</Button>
             <Button type="submit">Kaydet</Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/** Müşteri ziyareti veya telefon görüşmesi kaydı. */
+export function LogActivityDialog({
+  customerId,
+  trigger,
+  defaultKind = "visit",
+  onLogged,
+}: {
+  customerId: string;
+  trigger: React.ReactNode;
+  defaultKind?: "visit" | "call";
+  onLogged?: () => void;
+}) {
+  const { contacts, refresh } = useStore();
+  const [open, setOpen] = useState(false);
+  const [kind, setKind] = useState<"visit" | "call">(defaultKind);
+  const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [location, setLocation] = useState("");
+  const [purpose, setPurpose] = useState("");
+  const [result, setResult] = useState("");
+  const [nextAction, setNextAction] = useState("");
+  const [contactId, setContactId] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const customerContacts = contacts.filter((c) => c.customerId === customerId);
+
+  const reset = () => {
+    setKind(defaultKind);
+    setDate(new Date().toISOString().slice(0, 10));
+    setLocation("");
+    setPurpose("");
+    setResult("");
+    setNextAction("");
+    setContactId("");
+  };
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSaving(true);
+    try {
+      const base = {
+        companyId: customerId,
+        contactId: contactId || undefined,
+      };
+      if (kind === "visit") {
+        await activityService.createVisit({
+          ...base,
+          visitDate: new Date(date),
+          visitLocation: location.trim() || undefined,
+          visitPurpose: purpose.trim() || undefined,
+          visitResult: result.trim() || undefined,
+          nextAction: nextAction.trim() || undefined,
+        });
+        toast.success("Ziyaret kaydedildi");
+      } else {
+        await activityService.createCall({
+          ...base,
+          callDate: new Date(date),
+          callResult: result.trim() || undefined,
+          nextAction: nextAction.trim() || undefined,
+        });
+        toast.success("Arama kaydedildi");
+      }
+      await refresh();
+      onLogged?.();
+      setOpen(false);
+      reset();
+    } catch (err: any) {
+      toast.error("Aktivite kaydedilemedi", { description: err?.message ?? "API isteği başarısız oldu." });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next);
+        if (!next) reset();
+        else setKind(defaultKind);
+      }}
+    >
+      <DialogTrigger asChild>{trigger}</DialogTrigger>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>{kind === "visit" ? "Ziyaret Kaydı" : "Arama Kaydı"}</DialogTitle>
+          <DialogDescription>Firma ile yapılan görüşmeyi CRM aktivite geçmişine ekleyin.</DialogDescription>
+        </DialogHeader>
+        <form onSubmit={submit} className="space-y-4 py-1">
+          <div>
+            <Label className="text-xs">Tür</Label>
+            <Select value={kind} onValueChange={(v) => setKind(v as "visit" | "call")}>
+              <SelectTrigger className="mt-1.5"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="visit">Ziyaret</SelectItem>
+                <SelectItem value="call">Telefon</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <Field label="Tarih *" type="date" value={date} onChange={setDate} />
+          {customerContacts.length > 0 && (
+            <div>
+              <Label className="text-xs">Kontak</Label>
+              <Select value={contactId || "none"} onValueChange={(v) => setContactId(v === "none" ? "" : v)}>
+                <SelectTrigger className="mt-1.5"><SelectValue placeholder="Opsiyonel" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Seçilmedi</SelectItem>
+                  {customerContacts.map((c) => (
+                    <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+          {kind === "visit" && (
+            <>
+              <Field label="Konum" value={location} onChange={setLocation} />
+              <Field label="Amaç" value={purpose} onChange={setPurpose} />
+            </>
+          )}
+          <div>
+            <Label className="text-xs">Sonuç</Label>
+            <Textarea className="mt-1.5 min-h-[72px]" value={result} onChange={(e) => setResult(e.target.value)} />
+          </div>
+          <div>
+            <Label className="text-xs">Sonraki adım</Label>
+            <Textarea className="mt-1.5 min-h-[56px]" value={nextAction} onChange={(e) => setNextAction(e.target.value)} />
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setOpen(false)}>İptal</Button>
+            <Button type="submit" disabled={saving}>{saving ? "Kaydediliyor…" : "Kaydet"}</Button>
           </DialogFooter>
         </form>
       </DialogContent>

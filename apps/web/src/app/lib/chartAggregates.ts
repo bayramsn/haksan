@@ -88,7 +88,33 @@ export function buildCurrencyPie(payments: Payment[]) {
   }));
 }
 
-/** Satış hunisi — aşama sayıları. */
+/** API pipeline-summary satırlarından huni grafiği. */
+export function buildPipelineFunnel(
+  rows: Array<{ stageName?: string | null; count?: number; sortOrder?: number }>,
+) {
+  return [...rows]
+    .filter((r) => (r.count ?? 0) > 0)
+    .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0))
+    .map((r, i) => {
+      const palette = ['#93c5fd', '#3b82f6', '#000c69', '#0a192f', '#cf060c'];
+      return {
+        name: r.stageName ?? '—',
+        value: r.count ?? 0,
+        fill: palette[i % palette.length],
+      };
+    });
+}
+
+/** API pipeline-summary → pasta grafik verisi. */
+export function buildPipelineStagePie(
+  rows: Array<{ stageName?: string | null; count?: number }>,
+) {
+  return rows
+    .filter((r) => (r.count ?? 0) > 0)
+    .map((r) => ({ name: r.stageName ?? '—', count: r.count ?? 0 }));
+}
+
+/** Satış hunisi — aşama sayıları (store fallback). */
 export function buildFunnelFromCases(cases: SalesCase[], stageLabels: Record<string, string>) {
   const palette = ['#93c5fd', '#3b82f6', '#000c69', '#0a192f', '#cf060c'];
   const stages = [...new Set(cases.map((c) => c.stage))];

@@ -165,9 +165,9 @@ export function Layout({ current, onNavigate, onLogout, pageTitle, pageSubtitle,
   );
 
   const renderSidebarContent = (onItemClick?: () => void, menuSide: "right" | "top" = "right") => (
-    <>
+    <div className="flex h-full min-h-0 flex-col overflow-hidden">
       {/* Logo */}
-      <div className="h-16 flex items-center gap-3 px-5 border-b border-border/60">
+      <div className="h-16 shrink-0 flex items-center gap-3 px-5 border-b border-border/60">
         <img
           src="/brand/haksan-logo.png"
           alt="Haksan Makina"
@@ -179,7 +179,7 @@ export function Layout({ current, onNavigate, onLogout, pageTitle, pageSubtitle,
       </div>
 
       {/* Nav */}
-      <ScrollArea className="flex-1">
+      <ScrollArea className="min-h-0 flex-1 overflow-hidden">
         <nav className="px-3 py-4 space-y-5">
           {NAV.map((group) => {
             const items = group.items.filter(canSee);
@@ -230,7 +230,7 @@ export function Layout({ current, onNavigate, onLogout, pageTitle, pageSubtitle,
       </ScrollArea>
 
       {/* User strip */}
-      <div className="p-3 border-t border-border/60">
+      <div className="shrink-0 p-3 border-t border-border/60">
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <button className="w-full flex items-center gap-2.5 px-2 py-2 rounded-md hover:bg-muted/50 transition-colors text-left outline-none">
@@ -266,7 +266,7 @@ export function Layout({ current, onNavigate, onLogout, pageTitle, pageSubtitle,
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
-    </>
+    </div>
   );
 
   return (
@@ -280,14 +280,14 @@ export function Layout({ current, onNavigate, onLogout, pageTitle, pageSubtitle,
               className="absolute inset-0 bg-black/40"
               onClick={() => setMobileNavOpen(false)}
             />
-            <aside className="relative z-10 h-full w-[min(300px,calc(100vw-2rem))] border-r border-border/60 bg-white flex flex-col shadow-xl">
+            <aside className="relative z-10 flex h-full min-h-0 w-[min(300px,calc(100vw-2rem))] flex-col overflow-hidden border-r border-border/60 bg-white shadow-xl">
               {renderSidebarContent(() => setMobileNavOpen(false), "top")}
             </aside>
           </div>
         )}
 
         {/* SIDEBAR */}
-        <aside className="hidden lg:flex w-[260px] shrink-0 border-r border-border/60 bg-white flex-col">
+        <aside className="hidden lg:flex h-full min-h-0 w-[260px] shrink-0 flex-col overflow-hidden border-r border-border/60 bg-white">
           {renderSidebarContent()}
         </aside>
 

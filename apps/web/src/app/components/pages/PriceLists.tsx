@@ -1,12 +1,14 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { Card } from "../ui/card";
 import { Input } from "../ui/input";
 import { Tabs, TabsList, TabsTrigger } from "../ui/tabs";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../ui/table";
 import { Search, ChevronRight, Lock, Wrench, Package } from "lucide-react";
 import { Product } from "../../lib/mock";
 import { useStore } from "../../lib/store";
 import { ProductDetailDialog, ProductThumb } from "../dialogs/ProductDetailDialog";
+import { productService } from "../../../lib/services";
 
 const CURRENCY_LABEL: Record<string, string> = { USD: "USD", EUR: "EUR", TRY: "TL" };
 const fmtMoney = (n?: number | null, cur = "USD") =>
@@ -46,6 +48,46 @@ export function SalesPriceListPage() {
   const { products } = useStore();
   const [q, setQ] = useState("");
   const [selected, setSelected] = useState<Product | null>(null);
+  const [priceLists, setPriceLists] = useState<Array<{ id: string; name: string; code: string; isActive?: boolean; currency?: { code?: string } }>>([]);
+  const [selectedListId, setSelectedListId] = useState("");
+  const [priceOverrides, setPriceOverrides] = useState<Record<string, { listPrice?: number; cashPrice?: number }>>({});
+
+  useEffect(() => {
+    productService
+      .listPriceLists({ pageSize: 50 })
+      .then((res) => {
+        const rows = res.data ?? [];
+        setPriceLists(rows);
+        const active = rows.find((p) => p.isActive) ?? rows[0];
+        if (active?.id) setSelectedListId(active.id);
+      })
+      .catch(() => setPriceLists([]));
+  }, []);
+
+  useEffect(() => {
+    if (!selectedListId) {
+      setPriceOverrides({});
+      return;
+    }
+    productService
+      .listPriceListItems(selectedListId)
+      .then((rows) => {
+        const map: Record<string, { listPrice?: number; cashPrice?: number }> = {};
+        for (const row of rows ?? []) {
+          const pid = row.product?.id ?? row.item?.productModelId;
+          if (!pid) continue;
+          map[pid] = {
+            listPrice: row.item?.listPrice != null ? Number(row.item.listPrice) : undefined,
+            cashPrice: row.item?.cashPrice != null ? Number(row.item.cashPrice) : undefined,
+          };
+        }
+        setPriceOverrides(map);
+      })
+      .catch(() => setPriceOverrides({}));
+  }, [selectedListId]);
+
+  const selectedList = priceLists.find((p) => p.id === selectedListId);
+  const listCurrency = selectedList?.currency?.code;
 
   const machines = useMemo(() => products.filter((p) => p.categoryCode === "TEZGAH"), [products]);
   const filtered = machines.filter((p) => matches(p, q));
@@ -54,7 +96,21 @@ export function SalesPriceListPage() {
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <ReadOnlyNote text="Fiyat listesi salt-okunur. Tezgaha tıklayarak uyumlu opsiyonel donanımları ve fiyatlarını görebilirsiniz." />
-        <SearchBox q={q} setQ={setQ} placeholder="Tezgah, marka, model ara..." />
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full sm:w-auto">
+          {priceLists.length > 0 && (
+            <Select value={selectedListId || "none"} onValueChange={(v) => setSelectedListId(v === "none" ? "" : v)}>
+              <SelectTrigger className="h-9 w-full sm:w-56 bg-white">
+                <SelectValue placeholder="Fiyat listesi" />
+              </SelectTrigger>
+              <SelectContent>
+                {priceLists.map((pl) => (
+                  <SelectItem key={pl.id} value={pl.id}>{pl.name || pl.code}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+          <SearchBox q={q} setQ={setQ} placeholder="Tezgah, marka, model ara..." />
+        </div>
       </div>
 
       <Card className="border-border/60 shadow-sm overflow-hidden">
@@ -71,7 +127,12 @@ export function SalesPriceListPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filtered.map((p) => (
+              {filtered.map((p) => {
+                const override = priceOverrides[p.id];
+                const cash = override?.cashPrice ?? p.cashPrice;
+                const list = override?.listPrice ?? p.listPrice;
+                const cur = listCurrency ?? p.currency;
+                return (
                 <TableRow key={p.id} className="cursor-pointer group" onClick={() => setSelected(p)}>
                   <TableCell>
                     <div className="flex items-center gap-3 min-w-0">
@@ -84,11 +145,11 @@ export function SalesPriceListPage() {
                   </TableCell>
                   <TableCell className="text-sm">{p.brand}</TableCell>
                   <TableCell className="text-sm text-muted-foreground">{p.type || "—"}</TableCell>
-                  <TableCell className="text-right tabular-nums text-emerald-600">{fmtMoney(p.cashPrice, p.currency)}</TableCell>
-                  <TableCell className="text-right tabular-nums">{fmtMoney(p.listPrice, p.currency)}</TableCell>
+                  <TableCell className="text-right tabular-nums text-emerald-600">{fmtMoney(cash, cur)}</TableCell>
+                  <TableCell className="text-right tabular-nums">{fmtMoney(list, cur)}</TableCell>
                   <TableCell><ChevronRight className="size-4 text-muted-foreground opacity-0 group-hover:opacity-100" /></TableCell>
                 </TableRow>
-              ))}
+              );})}
               {filtered.length === 0 && (
                 <TableRow>
                   <TableCell colSpan={6} className="text-center py-16 text-sm text-muted-foreground">Tezgah bulunamadı.</TableCell>

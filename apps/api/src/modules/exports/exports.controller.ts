@@ -1,4 +1,4 @@
-import { Controller, Get, Query, Res, UseGuards } from '@nestjs/common';
+import { Controller, Get, Param, Query, Res, UseGuards } from '@nestjs/common';
 import type { FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { companyListQuerySchema } from '@haksan/shared';
@@ -93,6 +93,25 @@ export class ExportsController {
   async finance(@CurrentUser() user: AuthContext, @Res({ passthrough: true }) reply: FastifyReply) {
     const sheets = await this.svc.exportFinance(user);
     return sendXlsx(reply, await sheetsToXlsxBuffer(sheets), 'kasa-hareketleri.xlsx');
+  }
+
+  @RequirePermissions('reports.export')
+  @Get('customer-statement/:companyId')
+  async customerStatement(
+    @Param('companyId') companyId: string,
+    @Query(new ZodValidationPipe(z.object({ from: z.coerce.date().optional(), to: z.coerce.date().optional() }))) range: { from?: Date; to?: Date },
+    @CurrentUser() user: AuthContext,
+    @Res({ passthrough: true }) reply: FastifyReply
+  ) {
+    const rows = await this.svc.exportCustomerStatement(user, companyId, range);
+    return sendXlsx(reply, await rowsToXlsxBuffer(rows, 'Cari Ekstre'), `cari-ekstre-${companyId}.xlsx`);
+  }
+
+  @RequirePermissions('reports.export')
+  @Get('customer-balances')
+  async customerBalances(@CurrentUser() user: AuthContext, @Res({ passthrough: true }) reply: FastifyReply) {
+    const rows = await this.svc.exportCustomerBalances(user);
+    return sendXlsx(reply, await rowsToXlsxBuffer(rows, 'Cari Rapor'), 'cari-rapor.xlsx');
   }
 
   @RequirePermissions('reports.export')

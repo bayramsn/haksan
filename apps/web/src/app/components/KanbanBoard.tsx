@@ -2,7 +2,7 @@ import { ReactNode, useRef } from "react";
 import { DndProvider, useDrag, useDrop } from "react-dnd";
 import { HTML5Backend } from "react-dnd-html5-backend";
 import { Button } from "./ui/button";
-import { ChevronLeft, ChevronRight, MoreHorizontal, Plus } from "lucide-react";
+import { ChevronLeft, ChevronRight, Plus } from "lucide-react";
 
 const ITEM_TYPE = "kanban-card";
 
@@ -117,9 +117,6 @@ function Column<T extends { id: string }>({
               <Plus className="size-3.5" />
             </Button>
           )}
-          <Button variant="ghost" size="icon" className="size-6">
-            <MoreHorizontal className="size-3.5" />
-          </Button>
         </div>
       </div>
       {col.footer && (

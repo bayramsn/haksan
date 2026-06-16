@@ -53,6 +53,7 @@ export const PERMISSION_RESOURCES = [
   'proformas',
   'contracts',
   'commercial_invoices',
+  'accounting_invoices',
   'purchase_orders',
   'shipments',
   'installations',

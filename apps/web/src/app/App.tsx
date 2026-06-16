@@ -28,7 +28,7 @@ import { AuthProvider, useAuth } from "../lib/auth";
 import { FxProvider } from "./lib/fx";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { ReadinessBanner } from "./components/ReadinessBanner";
-import { StoreLoadBanner } from "./components/shared/StoreLoadBanner";
+import { PageShell } from "./components/shared/PageShell";
 import { PageLoadingSkeleton } from "./components/shared/PageLoadingSkeleton";
 
 const TITLES: Record<NavKey, { title: string; subtitle?: string }> = {
@@ -213,12 +213,13 @@ function AppShell() {
       actions={actions}
     >
       <ReadinessBanner />
-      <StoreLoadBanner />
+      <PageShell>
       {storeLoading && customers.length === 0 && cases.length === 0 ? (
         <PageLoadingSkeleton />
       ) : (
         <ErrorBoundary>{content}</ErrorBoundary>
       )}
+      </PageShell>
       <SalesCaseDetailDialog sc={selectedCase} onClose={() => setSelectedCaseId(null)} />
     </Layout>
   );
