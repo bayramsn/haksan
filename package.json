@@ -25,5 +25,8 @@
   },
   "engines": {
     "node": "20.x"
+  },
+  "devDependencies": {
+    "typescript": "5.6.3"
   }
 }
