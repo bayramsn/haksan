@@ -21,7 +21,7 @@ services:
     branch: main
     autoDeploy: true
     healthCheckPath: /health
-    buildCommand: npm ci && npm run build:shared && npm run build:api
+    buildCommand: NPM_CONFIG_PRODUCTION=false npm ci && npm run build:shared && npm run build:api
     preDeployCommand: npm run db:migrate
     startCommand: node apps/api/dist/main.js
     envVars:
@@ -77,7 +77,7 @@ services:
     region: frankfurt
     branch: main
     autoDeploy: true
-    buildCommand: npm ci && npm run build:shared && npm run build:web
+    buildCommand: NPM_CONFIG_PRODUCTION=false npm ci && npm run build:shared && npm run build:web
     staticPublishPath: ./apps/web/dist
     routes:
       - type: rewrite
