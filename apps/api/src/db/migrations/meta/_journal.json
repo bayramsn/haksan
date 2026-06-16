@@ -148,6 +148,13 @@
       "when": 1781635200000,
       "tag": "0020_delivery_form_data",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1781721600000,
+      "tag": "0021_shipment_stock_link",
+      "breakpoints": true
     }
   ]
 }

@@ -5301,7 +5301,9 @@ export function UsersPage() {
   const [targets, setTargets] = useState<Record<string, UserTarget>>({});
   const [targetUser, setTargetUser] = useState<User | null>(null);
   const [roleUser, setRoleUser] = useState<AdminUserRow | null>(null);
+  const [limitUser, setLimitUser] = useState<User | null>(null);
   const [savingRoles, setSavingRoles] = useState(false);
+  const [savingLimit, setSavingLimit] = useState(false);
 
   const loadAdminUsers = useCallback(async () => {
     setAdminLoading(true);
@@ -5365,10 +5367,21 @@ export function UsersPage() {
     setTargets((prev) => ({ ...prev, [userId]: targetFromApi(saved) }));
   };
 
-  const [limitUser, setLimitUser] = useState<User | null>(null);
-  const handleSaveLimit = (userId: string, limit: number | undefined, managerId: string | undefined) => {
-    toast.success("Kullanıcı limitleri güncellendi.");
-    setLimitUser(null);
+  const handleSaveLimit = async (userId: string, limit: number | undefined, managerId: string | undefined) => {
+    setSavingLimit(true);
+    try {
+      await adminService.updateUser(userId, {
+        purchaseApprovalLimit: limit ?? 0,
+        managerId: managerId ?? null,
+      });
+      toast.success("Kullanıcı limitleri güncellendi");
+      setLimitUser(null);
+      await loadAdminUsers();
+    } catch (err: any) {
+      toast.error("Limitler güncellenemedi", { description: err?.message ?? "Lütfen tekrar deneyin." });
+    } finally {
+      setSavingLimit(false);
+    }
   };
 
   const handleSaveRoles = async (userId: string, roleCodes: string[]) => {
@@ -5511,6 +5524,7 @@ export function UsersPage() {
         <UserLimitDialog
           user={limitUser}
           users={displayUsers}
+          saving={savingLimit}
           onClose={() => setLimitUser(null)}
           onSave={handleSaveLimit}
         />
@@ -5605,11 +5619,12 @@ function UserRoleDialog({ user, roles, saving, onClose, onSave }: {
   );
 }
 
-function UserLimitDialog({ user, users, onClose, onSave }: {
+function UserLimitDialog({ user, users, saving, onClose, onSave }: {
   user: User | null;
   users: User[];
+  saving: boolean;
   onClose: () => void;
-  onSave: (userId: string, limit: number | undefined, managerId: string | undefined) => void;
+  onSave: (userId: string, limit: number | undefined, managerId: string | undefined) => Promise<void>;
 }) {
   const [limit, setLimit] = useState<string>(user?.purchaseApprovalLimit?.toString() || "");
   const [managerId, setManagerId] = useState<string>(user?.managerId || "none");
@@ -5657,8 +5672,15 @@ function UserLimitDialog({ user, users, onClose, onSave }: {
           </div>
         </div>
         <DialogFooter>
-          <Button variant="outline" onClick={onClose}>İptal</Button>
-          <Button onClick={() => onSave(user.id, limit ? Number(limit) : undefined, managerId === "none" ? undefined : managerId)}>Kaydet</Button>
+          <Button variant="outline" onClick={onClose} disabled={saving}>İptal</Button>
+          <Button
+            disabled={saving}
+            onClick={async () => {
+              await onSave(user.id, limit ? Number(limit) : undefined, managerId === "none" ? undefined : managerId);
+            }}
+          >
+            {saving ? "Kaydediliyor…" : "Kaydet"}
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
