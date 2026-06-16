@@ -38,6 +38,11 @@ async function bootstrap() {
   // Health endpoint (no prefix)
   app.getHttpAdapter().get('/health', (_req: any, res: any) => res.send({ ok: true, ts: new Date().toISOString() }));
 
+  // Root — Render deploy probe ve doğrudan API URL ziyaretleri için
+  const rootPayload = { ok: true, service: 'haksan-api', api: env.API_PREFIX, health: '/health' };
+  app.getHttpAdapter().get('/', (_req: any, res: any) => res.send(rootPayload));
+  app.getHttpAdapter().head('/', (_req: any, res: any) => res.status(200).send());
+
   await app.listen(env.PORT, '0.0.0.0');
   logger.info({ port: env.PORT, prefix: env.API_PREFIX, env: env.NODE_ENV }, '[api] up');
 
