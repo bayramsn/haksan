@@ -1,5 +1,9 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { and, eq } from 'drizzle-orm';
+import { and, desc, eq, isNull } from 'drizzle-orm';
+import { sql } from 'drizzle-orm';
+import type { Pagination } from '@haksan/shared';
+import { buildPaginated, pageOffset } from '../../shared/utils/pagination';
+import { users } from '../../db/schema/users';
 import type { DbClient } from '../../db/client';
 import { files, fileLinks } from '../../db/schema/files';
 import { fileDocumentTypes, storageProviders } from '../../db/schema/lookup';
@@ -118,6 +122,51 @@ export class FilesService {
       })
       .returning();
     return link;
+  }
+
+  async listLinks(actor: AuthContext, query: Pagination & { entityType?: string; entityId?: string }) {
+    const { limit, offset } = pageOffset(query);
+    const filters = [eq(fileLinks.tenantId, actor.tenantId), isNull(files.deletedAt)];
+    if (query.entityType) filters.push(eq(fileLinks.entityType, query.entityType));
+    if (query.entityId) filters.push(eq(fileLinks.entityId, query.entityId));
+    const where = and(...filters);
+    const [{ count }] = await this.db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(fileLinks)
+      .innerJoin(files, eq(fileLinks.fileId, files.id))
+      .where(where);
+    const rows = await this.db
+      .select({
+        link: fileLinks,
+        file: files,
+        docType: { code: fileDocumentTypes.code, name: fileDocumentTypes.name },
+        uploader: { id: users.id, fullName: users.fullName },
+      })
+      .from(fileLinks)
+      .innerJoin(files, eq(fileLinks.fileId, files.id))
+      .leftJoin(fileDocumentTypes, eq(fileLinks.documentTypeId, fileDocumentTypes.id))
+      .leftJoin(users, eq(files.uploadedBy, users.id))
+      .where(where)
+      .orderBy(desc(files.createdAt))
+      .limit(limit)
+      .offset(offset);
+    return buildPaginated(
+      rows.map((r) => ({
+        ...r.link,
+        file: {
+          id: r.file.id,
+          originalFilename: r.file.originalFilename,
+          mimeType: r.file.mimeType,
+          sizeBytes: r.file.sizeBytes,
+          createdAt: r.file.createdAt,
+          uploadedBy: r.uploader?.id ?? r.file.uploadedBy,
+          uploaderName: r.uploader?.fullName ?? null,
+        },
+        documentType: r.docType,
+      })),
+      count,
+      query
+    );
   }
 
   async delete(fileId: string, actor: AuthContext): Promise<void> {

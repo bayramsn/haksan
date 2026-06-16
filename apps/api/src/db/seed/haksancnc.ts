@@ -107,7 +107,7 @@ export async function importHaksanCnc(): Promise<void> {
   await ensureBucket(s3, DOC_BUCKET);
 
   const tenant = await db.query.tenants.findFirst({ where: eq(schema.tenants.slug, 'haksan') });
-  if (!tenant) throw new Error('Tenant (slug=haksan) bulunamadı. Önce db:seed çalıştırın.');
+  if (!tenant) throw new Error('Tenant (slug=haksan) bulunamadı. Önce db:bootstrap veya db:seed:demo çalıştırın.');
   const tenantId = tenant.id;
 
   const adminUser = await db.query.users.findFirst({

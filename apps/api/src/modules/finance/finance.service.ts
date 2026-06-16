@@ -3,6 +3,7 @@ import { and, asc, desc, eq, gte, inArray, isNull, lte, ne, or, sql } from 'driz
 import type { DbClient } from '../../db/client';
 import {
   accountingInvoices,
+  accountingInvoiceLines,
   invoiceInstallments,
   payables,
   payments,
@@ -21,9 +22,14 @@ import type {
 } from '@haksan/shared';
 import { lookupIdByCode } from '../../shared/utils/lookup.helper';
 import { NotFoundError, ValidationError } from '../../shared/utils/errors';
+import { InventoryService } from '../inventory/inventory.service';
 
 export type CurrencyBalance = {
   currencyCode: string;
+  salesTotal: number;
+  collections: number;
+  purchases: number;
+  payouts: number;
   borc: number;
   alacak: number;
   net: number;
@@ -51,7 +57,10 @@ export type StatementLine = {
 
 @Injectable()
 export class FinanceService {
-  constructor(@Inject(DB) private readonly db: DbClient) {}
+  constructor(
+    @Inject(DB) private readonly db: DbClient,
+    private readonly inventory: InventoryService,
+  ) {}
 
   isFinanceAdmin(actor: AuthContext): boolean {
     return actor.roles.includes('super_admin') || actor.roles.includes('admin');
@@ -165,7 +174,16 @@ export class FinanceService {
     const byCurrency: CurrencyBalance[] = [...bucket.entries()].map(([currencyCode, v]) => {
       const borc = Math.max(0, v.sales - v.collections);
       const alacak = showAlacak ? Math.max(0, v.purchases - v.payouts) : 0;
-      return { currencyCode, borc, alacak, net: borc - alacak };
+      return {
+        currencyCode,
+        salesTotal: v.sales,
+        collections: v.collections,
+        purchases: v.purchases,
+        payouts: v.payouts,
+        borc,
+        alacak,
+        net: borc - alacak,
+      };
     });
 
     const openStatuses = [st.pending, st.partial, st.overdue].filter(Boolean) as string[];
@@ -335,9 +353,14 @@ export class FinanceService {
           companyId: c.id,
           companyName: c.shortName || c.name,
           currencies: summary.byCurrency,
+          salesTotal: primary?.salesTotal ?? 0,
+          collections: primary?.collections ?? 0,
           borc: primary?.borc ?? 0,
+          purchases: showAlacak ? (primary?.purchases ?? 0) : null,
+          payouts: showAlacak ? (primary?.payouts ?? 0) : null,
           alacak: showAlacak ? (primary?.alacak ?? 0) : null,
           netBorc: primary?.net ?? 0,
+          primaryCurrency: primary?.currencyCode ?? null,
           nearestDueDate: summary.nearestDueDate,
           nearestDueAmount: summary.nearestDueAmount,
           nearestDueCurrency: summary.nearestDueCurrency,
@@ -346,7 +369,7 @@ export class FinanceService {
       })
     );
 
-    return summaries.filter((s) => s.currencies.some((c) => c.borc > 0 || (showAlacak && c.alacak > 0)));
+    return summaries;
   }
 
   async getDueDates(actor: AuthContext, range: DateRange) {
@@ -549,6 +572,29 @@ export class FinanceService {
           payableId: payable.id,
         });
       }
+    }
+
+    if (body.type === 'sales' && body.lineItems?.length) {
+      for (const line of body.lineItems) {
+        await this.db.insert(accountingInvoiceLines).values({
+          tenantId: actor.tenantId,
+          accountingInvoiceId: invoice.id,
+          productModelId: line.productModelId ?? null,
+          inventoryItemId: line.inventoryItemId ?? null,
+          categoryCode: line.categoryCode ?? (line.saleType === 'tezgah' ? 'TEZGAH' : null),
+          description: line.description ?? null,
+          quantity: (line.quantity ?? 1).toString(),
+        });
+      }
+      await this.inventory.sellFromSalesInvoice(
+        {
+          invoiceId: invoice.id,
+          companyId: body.companyId,
+          invoiceDate: body.invoiceDate,
+          lines: body.lineItems,
+        },
+        actor,
+      );
     }
 
     return invoice;

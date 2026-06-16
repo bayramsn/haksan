@@ -597,6 +597,9 @@ function ServiceDetailDialog({
             {machine && <span>{machine.model} · {machine.serialNumber}</span>}
             {assignee && <span>Atanan: {assignee.name}</span>}
           </DialogDescription>
+          <p className="text-xs text-muted-foreground bg-muted/50 border border-border/60 rounded-md px-3 py-2 mt-2">
+            Sayaç, işlemler ve aktivite geçmişi sunucuya kaydedilir; not ve şikayet kayıtları ayrıca metin alanlarına yazılır.
+          </p>
         </DialogHeader>
 
         <Tabs value={detailTab} onValueChange={setAllowedDetailTab} className="flex min-h-0 flex-col">

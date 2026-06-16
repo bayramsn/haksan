@@ -24,9 +24,11 @@ import {
   documentService,
   financeService,
   noteTemplateService,
+  fileService,
 } from '../../lib/services';
 import { useAuth } from '../../lib/auth';
 import { resolveMediaUrl } from '../../lib/apiClient';
+import { activityTypeCodeFromLabel, STOCK_CATEGORY_LABELS, type StockCategoryCode } from '@haksan/shared';
 import {
   Customer,
   SalesCase,
@@ -336,7 +338,7 @@ function StoreInner({ children }: { children: ReactNode }) {
     };
     try {
       const empty = { data: [] as any[], meta: { total: 0, page: 1, pageSize: 0, totalPages: 0 } };
-      const [companies, contactsR, opps, prods, inv, qts, svcTickets, acts, usersR, devicesR, receivablesR, paymentsR, proformasR, contractsR, invoicesR, noteTemplatesR, shipmentsR, deliveriesR] = await Promise.all([
+      const [companies, contactsR, opps, prods, inv, qts, svcTickets, acts, usersR, devicesR, receivablesR, paymentsR, proformasR, contractsR, invoicesR, noteTemplatesR, shipmentsR, deliveriesR, fileLinksR] = await Promise.all([
         load('Firmalar', () => companyService.list({ pageSize: 200 }), empty),
         load('Kontaklar', () => contactService.list({ pageSize: 200 }), empty),
         load('Satış kartları', () => opportunityService.list({ pageSize: 200 }), empty),
@@ -355,6 +357,7 @@ function StoreInner({ children }: { children: ReactNode }) {
         load('Not şablonları', () => noteTemplateService.list('quote'), [] as any[]),
         load('Sevkiyatlar', () => serviceService.shipments({ pageSize: 200 }), empty),
         load('Teslimatlar', () => serviceService.deliveries({ pageSize: 200 }), empty),
+        load('Dosya bağlantıları', () => fileService.links({ pageSize: 500 }), empty),
       ]);
       setLoadErrors(errors);
       setLoadTruncated(truncated);
@@ -507,24 +510,29 @@ function StoreInner({ children }: { children: ReactNode }) {
       setProducts(apiProducts);
 
       setStock(
-        inv.data.map((s: any) => ({
-          id: s.id,
-          brand: s.brand?.name ?? '',
-          counterType: s.product?.fullName ?? '',
-          counterModel: s.product?.modelCode ?? '',
-          serialNumber: s.serialNumber ?? '',
-          controlPanel: s.controlUnit ?? '',
-          stockCode: s.product?.modelCode ?? '',
-          warehouse: s.warehouse?.name ?? '',
-          status:
-            s.status?.code === 'available'
-              ? 'Available'
-              : s.status?.code === 'reserved'
-                ? 'Reserved'
-                : s.status?.code === 'sold'
-                  ? 'Sold'
-                  : 'Inactive',
-        }))
+        inv.data.map((s: any) => {
+          const categoryCode = (s.category?.code as StockCategoryCode | undefined) ?? 'TEZGAH';
+          return {
+            id: s.id,
+            brand: s.brand?.name ?? '',
+            counterType: s.product?.fullName ?? '',
+            counterModel: s.product?.modelCode ?? '',
+            serialNumber: s.serialNumber ?? '',
+            controlPanel: s.controlUnit ?? '',
+            stockCode: s.product?.modelCode ?? '',
+            warehouse: s.warehouse?.name ?? '',
+            categoryCode,
+            category: s.category?.name ?? STOCK_CATEGORY_LABELS[categoryCode],
+            status:
+              s.status?.code === 'available'
+                ? 'Available'
+                : s.status?.code === 'reserved'
+                  ? 'Reserved'
+                  : s.status?.code === 'sold'
+                    ? 'Sold'
+                    : 'Inactive',
+          };
+        })
       );
 
       setOffers(
@@ -553,49 +561,14 @@ function StoreInner({ children }: { children: ReactNode }) {
       );
 
       setService(
-        (svcTickets.data ?? []).map((t: any) => ({
-          id: t.id,
-          customerId: t.companyId,
-          assignedUserId: t.assignedToUserId ?? '',
-          stage:
-            t.status?.code === 'closed'
-              ? 'Closed'
-              : t.status?.code === 'resolved'
-                ? 'Service Completed'
-                : t.status?.code === 'in_progress'
-                  ? 'Diagnosis'
-                  : 'Request Opened' as ServiceStage,
-          machineId: t.customerDeviceId ?? '',
-          serialNumber: '',
-          issueType: t.subject ?? '',
-          priority: (t.severity as any) ?? 'normal',
-          description: t.description ?? '',
-          diagnosisNote: t.description ?? t.subject ?? '',
-          quoteRequired: false,
-          serviceNote: t.description ?? '',
-          complaints: [
-            {
-              id: `${t.id}-complaint`,
-              text: t.description ?? t.subject ?? 'Servis şikayeti girilmedi.',
-              createdAt: ((t.reportedAt as string)?.slice(0, 16).replace('T', ' ') ?? ''),
-              byUserId: t.assignedToUserId ?? undefined,
-            },
-          ],
-          noteHistory: t.description
-            ? [
-                {
-                  id: `${t.id}-note`,
-                  text: t.description,
-                  createdAt: ((t.reportedAt as string)?.slice(0, 16).replace('T', ' ') ?? ''),
-                  byUserId: t.assignedToUserId ?? undefined,
-                },
-              ]
-            : [],
-          activityHistory: [
+        (svcTickets.data ?? []).map((t: any) => {
+          const meta = (t.metadata ?? {}) as Record<string, any>;
+          const reportedAt = ((t.reportedAt as string)?.slice(0, 16).replace('T', ' ') ?? '');
+          const baseActivity = [
             {
               id: `${t.id}-created`,
               text: 'Servis talebi açıldı.',
-              createdAt: ((t.reportedAt as string)?.slice(0, 16).replace('T', ' ') ?? ''),
+              createdAt: reportedAt,
               byUserId: t.assignedToUserId ?? undefined,
             },
             ...(t.resolvedAt
@@ -606,15 +579,50 @@ function StoreInner({ children }: { children: ReactNode }) {
                   byUserId: t.assignedToUserId ?? undefined,
                 }]
               : []),
-          ],
-          operations: [],
-          timerStatus: 'idle',
-          timerElapsedSeconds: 0,
-          serviceHourlyRate: 120,
-          serviceCurrency: 'USD',
-          createdAt: (t.reportedAt as string)?.slice(0, 10) ?? '',
-          closedAt: undefined,
-        }))
+          ];
+          return {
+            id: t.id,
+            customerId: t.companyId,
+            assignedUserId: t.assignedToUserId ?? '',
+            stage:
+              t.status?.code === 'closed'
+                ? 'Closed'
+                : t.status?.code === 'resolved'
+                  ? 'Service Completed'
+                  : t.status?.code === 'in_progress'
+                    ? 'Diagnosis'
+                    : 'Request Opened' as ServiceStage,
+            machineId: t.customerDeviceId ?? '',
+            serialNumber: '',
+            issueType: t.subject ?? '',
+            priority: (t.severity as any) ?? 'normal',
+            description: t.description ?? '',
+            diagnosisNote: t.description ?? '',
+            quoteRequired: false,
+            serviceNote: t.resolutionNote ?? '',
+            complaints: Array.isArray(meta.complaints) && meta.complaints.length
+              ? meta.complaints
+              : t.description
+                ? [{ id: `${t.id}-complaint`, text: t.description, createdAt: reportedAt, byUserId: t.assignedToUserId ?? undefined }]
+                : [],
+            noteHistory: Array.isArray(meta.noteHistory) && meta.noteHistory.length
+              ? meta.noteHistory
+              : t.resolutionNote
+                ? [{ id: `${t.id}-note`, text: t.resolutionNote, createdAt: reportedAt, byUserId: t.assignedToUserId ?? undefined }]
+                : [],
+            activityHistory: Array.isArray(meta.activityHistory) && meta.activityHistory.length
+              ? meta.activityHistory
+              : baseActivity,
+            operations: Array.isArray(meta.operations) ? meta.operations : [],
+            timerStatus: meta.timerStatus ?? 'idle',
+            timerStartedAt: meta.timerStartedAt ?? undefined,
+            timerElapsedSeconds: Number(meta.timerElapsedSeconds ?? 0),
+            serviceHourlyRate: Number(meta.serviceHourlyRate ?? 120),
+            serviceCurrency: (meta.serviceCurrency as 'USD' | 'EUR' | 'TRY') ?? 'USD',
+            createdAt: (t.reportedAt as string)?.slice(0, 10) ?? '',
+            closedAt: undefined,
+          };
+        })
       );
 
       setActivities(
@@ -656,7 +664,7 @@ function StoreInner({ children }: { children: ReactNode }) {
       );
 
       const mapStatus = (code?: string): Payment['status'] =>
-        code === 'paid' ? 'Paid' : code === 'overdue' ? 'Overdue' : code === 'cancelled' ? 'Cancelled' : 'Pending';
+        code === 'paid' ? 'Paid' : code === 'overdue' ? 'Overdue' : code === 'cancelled' ? 'Cancelled' : code === 'partial' ? 'Pending' : 'Pending';
       const mapCurrency = (code?: string): Payment['currency'] =>
         code === 'EUR' ? 'EUR' : code === 'TRY' ? 'TRY' : 'USD';
       // Alacaklar (receivables) → daima GİREN (alınan / beklenen tahsilat).
@@ -671,6 +679,7 @@ function StoreInner({ children }: { children: ReactNode }) {
         dueDate: (r.dueDate as string)?.slice(0, 10) ?? '',
         status: mapStatus(r.status?.code),
         note: r.notes ?? '',
+        invoiceNo: r.invoiceNo ?? undefined,
         source: 'receivable',
       }));
       // Ödemeler (payments) → kasa yönü backend'deki `direction` alanından gelir
@@ -687,6 +696,7 @@ function StoreInner({ children }: { children: ReactNode }) {
         paidDate: p.status?.code === 'paid' ? (p.paymentDate as string)?.slice(0, 10) ?? '' : undefined,
         status: mapStatus(p.status?.code),
         note: p.notes ?? p.paymentMethod ?? '',
+        invoiceNo: p.invoiceNo ?? undefined,
         source: 'payment',
       }));
       setPayments([...receivablePayments, ...completedPayments]);
@@ -698,6 +708,20 @@ function StoreInner({ children }: { children: ReactNode }) {
       );
       const docCompanyId = (d: any) =>
         d.quote?.companyId ?? d.companyId ?? quoteCompany.get(d.quoteId) ?? '';
+
+      const mapLinkDocType = (code?: string): DocumentItem['type'] => {
+        if (code === 'proforma_pdf') return 'Proforma';
+        if (code === 'contract_pdf') return 'Contract';
+        if (code === 'commercial_invoice_pdf') return 'CommercialInvoice';
+        if (code === 'service_document') return 'DeliveryForm';
+        return 'Other';
+      };
+      const formatDocSize = (bytes?: number) => {
+        if (!bytes) return '—';
+        if (bytes < 1024) return `${bytes} B`;
+        if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+        return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+      };
 
       const docRows: DocumentItem[] = [
         ...(proformasR.data ?? []).map((d: any) => ({
@@ -733,8 +757,27 @@ function StoreInner({ children }: { children: ReactNode }) {
           size: d.fileId ? 'Dosya bağlı' : 'Kayıt',
           fileId: d.fileId ?? undefined,
         })),
+        ...(fileLinksR.data ?? []).map((row: any) => ({
+          id: row.id ?? row.file?.id,
+          salesCaseId: row.entityType === 'opportunity' ? row.entityId : '',
+          companyId: row.entityType === 'company' ? row.entityId : '',
+          type: mapLinkDocType(row.documentType?.code),
+          fileName: row.file?.originalFilename ?? row.description ?? 'Dosya',
+          uploadedBy: row.file?.uploadedBy ?? '',
+          uploadedAt: (row.file?.createdAt as string)?.slice(0, 10) ?? '',
+          size: formatDocSize(row.file?.sizeBytes),
+          fileId: row.file?.id ?? row.fileId,
+          mimeType: row.file?.mimeType,
+        })),
       ];
-      setDocuments(docRows);
+      const seenFileIds = new Set<string>();
+      const dedupedDocs = docRows.filter((d) => {
+        if (!d.fileId) return true;
+        if (seenFileIds.has(d.fileId)) return false;
+        seenFileIds.add(d.fileId);
+        return true;
+      });
+      setDocuments(dedupedDocs);
 
       setShipments(
         (shipmentsR.data ?? []).map((s: any) => ({
@@ -860,6 +903,14 @@ function StoreInner({ children }: { children: ReactNode }) {
       body.relationTypeCode = patch.firmType === 'supplier' ? 'supplier' : patch.firmType === 'supplier_customer' ? 'supplier_customer' : 'customer';
     if (patch.salesStatus !== undefined)
       body.customerStatusCode = patch.salesStatus === 'active_customer' ? 'active' : 'potential';
+    if (patch.city !== undefined || patch.district !== undefined || patch.country !== undefined || patch.address !== undefined) {
+      body.address = {
+        country: patch.country ?? undefined,
+        province: patch.city ?? undefined,
+        district: patch.district ?? undefined,
+        street: patch.address ?? undefined,
+      };
+    }
     await companyService.update(id, body);
     await fetchAll();
   };
@@ -931,10 +982,11 @@ function StoreInner({ children }: { children: ReactNode }) {
   };
 
   const addActivity: Store['addActivity'] = async (a) => {
+    const activityTypeCode = activityTypeCodeFromLabel(a.type) ?? 'note';
     const created = await activityService.create({
       opportunityId: a.salesCaseId || undefined,
       companyId: a.customerId,
-      activityTypeCode: 'note',
+      activityTypeCode,
       subject: a.title,
       description: a.note,
       activityDate: a.date ?? new Date().toISOString().slice(0, 10),
@@ -946,17 +998,25 @@ function StoreInner({ children }: { children: ReactNode }) {
   const addCase: Store['addCase'] = async (c) => {
     const created = await opportunityService.create({
       companyId: c.customerId,
+      ownerUserId: c.assignedUserId || undefined,
       title: c.requestedProduct,
       description: c.requestedModel,
       estimatedValue: c.estimatedAmount,
       currencyCode: c.currency,
       probability: 50,
     });
+    const targetStage = c.stage ?? 'lead';
+    if (targetStage !== 'lead') {
+      const code = CODE_BY_STAGE[targetStage];
+      if (code) {
+        await opportunityService.changeStage(created.id, { toStage: code });
+      }
+    }
     await fetchAll();
     return {
       id: created.id,
       ...c,
-      stage: c.stage ?? 'lead',
+      stage: targetStage,
       isLost: false,
       isOfferPrepared: false,
       createdAt: new Date().toISOString().slice(0, 10),
@@ -1124,12 +1184,21 @@ function StoreInner({ children }: { children: ReactNode }) {
   };
 
   const addStock: Store['addStock'] = async (s) => {
-    const prods = await productService.list({ search: s.counterModel });
-    const product = prods.data[0];
+    let product;
+    if (s.productId) {
+      product = await productService.get(s.productId).catch(() => null);
+    }
+    if (!product) {
+      const prods = await productService.list({
+        search: s.counterModel,
+        categoryCode: s.categoryCode ?? 'TEZGAH',
+      });
+      product = prods.data[0];
+    }
     if (!product) throw new Error('Önce ürün katalogda olmalı');
     const extraNotes = [
       s.optionalHardware ? `Opsiyon Donanım: ${s.optionalHardware}` : '',
-      s.spareParts ? `Yedek Parça: ${s.spareParts}` : ''
+      s.spareParts ? `Yedek Parça: ${s.spareParts}` : '',
     ].filter(Boolean).join('\n');
 
     const created = await inventoryService.create({
@@ -1140,7 +1209,11 @@ function StoreInner({ children }: { children: ReactNode }) {
       notes: extraNotes || undefined,
     });
     await fetchAll();
-    return { id: created.id, ...s } as StockItem;
+    return {
+      id: created.id,
+      ...s,
+      categoryCode: (s.categoryCode ?? product.category?.code ?? 'TEZGAH') as StockCategoryCode,
+    } as StockItem;
   };
 
   const updateStockStatus: Store['updateStockStatus'] = async (id, status) => {
@@ -1150,11 +1223,7 @@ function StoreInner({ children }: { children: ReactNode }) {
       Sold: 'sold',
       Inactive: 'damaged',
     };
-    try {
-      await inventoryService.update(id, { stockStatusCode: codeMap[status] });
-    } catch {
-      /* ignore */
-    }
+    await inventoryService.update(id, { stockStatusCode: codeMap[status] });
     await fetchAll();
   };
 
@@ -1305,11 +1374,37 @@ function StoreInner({ children }: { children: ReactNode }) {
   };
 
   const updateService: Store['updateService'] = async (id, patch) => {
+    const current = service.find((s) => s.id === id);
+    if (!current) return;
+    const merged = { ...current, ...patch };
     const apiPatch: Record<string, unknown> = {};
     if (patch.description !== undefined) apiPatch.description = patch.description;
-    if (patch.diagnosisNote !== undefined) apiPatch.description = patch.diagnosisNote;
-    if (patch.serviceNote !== undefined) apiPatch.resolutionNote = patch.serviceNote;
+    if (patch.diagnosisNote !== undefined) {
+      const prev = current.diagnosisNote?.trim() ?? '';
+      apiPatch.description = prev ? `${prev}\n\n${patch.diagnosisNote}` : patch.diagnosisNote;
+    }
+    if (patch.serviceNote !== undefined) {
+      const prev = current.serviceNote?.trim() ?? '';
+      apiPatch.resolutionNote = prev ? `${prev}\n\n${patch.serviceNote}` : patch.serviceNote;
+    }
     if (patch.priority !== undefined) apiPatch.severity = patch.priority;
+    if (patch.assignedUserId !== undefined) apiPatch.assignedToUserId = patch.assignedUserId;
+
+    const metaKeys = ['timerStatus', 'timerStartedAt', 'timerElapsedSeconds', 'serviceHourlyRate', 'serviceCurrency', 'noteHistory', 'complaints', 'activityHistory', 'operations'] as const;
+    if (metaKeys.some((k) => patch[k] !== undefined)) {
+      apiPatch.metadata = {
+        timerStatus: merged.timerStatus ?? 'idle',
+        timerStartedAt: merged.timerStartedAt ?? null,
+        timerElapsedSeconds: merged.timerElapsedSeconds ?? 0,
+        serviceHourlyRate: merged.serviceHourlyRate ?? 120,
+        serviceCurrency: merged.serviceCurrency ?? 'USD',
+        noteHistory: merged.noteHistory ?? [],
+        complaints: merged.complaints ?? [],
+        activityHistory: merged.activityHistory ?? [],
+        operations: merged.operations ?? [],
+      };
+    }
+
     if (Object.keys(apiPatch).length) {
       await serviceService.update(id, apiPatch);
     }
@@ -1323,6 +1418,7 @@ function StoreInner({ children }: { children: ReactNode }) {
     const baseName = d.fileName.replace(/\.[^/.]+$/, '') || `DOC-${Date.now()}`;
     const today = new Date();
 
+    const needsQuoteRecord = d.type === 'Proforma' || d.type === 'Contract' || d.type === 'CommercialInvoice' || d.type === 'AccountingInvoice';
     if (d.type === 'Proforma') {
       if (!quoteId) throw new Error('Proforma için ilişkili teklif bulunamadı.');
       await documentService.createProforma({ quoteId, documentNo: baseName, issueDate: today, fileId: d.fileId });
@@ -1334,7 +1430,6 @@ function StoreInner({ children }: { children: ReactNode }) {
       await documentService.createCommercialInvoice({ quoteId, invoiceNo: baseName, invoiceDate: today, fileId: d.fileId });
     }
 
-    await fetchAll();
     const row: DocumentItem = {
       id: d.id ?? `doc-${Date.now()}`,
       salesCaseId: d.salesCaseId,
@@ -1347,6 +1442,11 @@ function StoreInner({ children }: { children: ReactNode }) {
       fileId: d.fileId,
       mimeType: d.mimeType,
     };
+    if (needsQuoteRecord) {
+      await fetchAll();
+    } else {
+      setDocuments((prev) => [...prev.filter((x) => x.id !== row.id), row]);
+    }
     return row;
   };
 

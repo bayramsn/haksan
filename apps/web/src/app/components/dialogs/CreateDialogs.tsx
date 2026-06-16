@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useMemo } from "react";
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger,
 } from "../ui/dialog";
@@ -18,12 +18,23 @@ import {
   Building2, User as UserIcon, Wallet, Truck, ClipboardCheck, ChevronDown, Receipt, Upload,
   ClipboardList, Plus, Trash2, X, Loader2, Package, UserRound, Wrench,
 } from "lucide-react";
-import { serviceService, fileService, financeService, activityService } from "../../../lib/services";
+import { serviceService, fileService, financeService, activityService, inventoryService } from "../../../lib/services";
+import { useAuth } from "../../../lib/auth";
 import {
   computeInstallationFee,
   INSTALLATION_LOCATION_LABELS,
   type InstallationLocationType,
+  COMPANY_SECTOR_OPTIONS,
+  COUNTRY_OPTIONS,
+  DISTRICTS_BY_PROVINCE,
+  TAX_OFFICE_OPTIONS,
+  ACTIVITY_TYPE_OPTIONS,
+  STOCK_CATEGORY_CODES,
+  STOCK_CATEGORY_LABELS,
+  type StockCategoryCode,
 } from "@haksan/shared";
+import { PROVINCE_NAMES } from "../../lib/geo";
+import { QuoteDialog } from "./QuoteDialog";
 
 /* ---------- Customer ---------- */
 const COMPANY_GROUP_OPTIONS = [
@@ -31,6 +42,45 @@ const COMPANY_GROUP_OPTIONS = [
   { code: "universal", label: "Üniversal" },
   { code: "sac_isleme", label: "Sac İşleme" },
 ];
+
+const toComboboxOptions = (values: readonly string[]) =>
+  values.map((v) => ({ value: v, label: v }));
+
+function LookupCombobox({
+  label,
+  options,
+  value,
+  onChange,
+  placeholder,
+  allowCustom = true,
+  className = "",
+}: {
+  label: string;
+  options: { value: string; label: string }[];
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+  allowCustom?: boolean;
+  className?: string;
+}) {
+  return (
+    <div className={className}>
+      <Label className="text-xs">{label}</Label>
+      <div className="mt-1.5">
+        <Combobox
+          options={options}
+          value={value}
+          onChange={onChange}
+          placeholder={placeholder ?? "Seçin..."}
+          searchPlaceholder="Ara..."
+          emptyText="Sonuç yok."
+          onCreate={allowCustom ? (v) => onChange(v) : undefined}
+          createLabel={(q) => `"${q}" kullan`}
+        />
+      </div>
+    </div>
+  );
+}
 
 const CONTACT_SOURCE_OPTIONS = [
   { code: "email", label: "Mail" },
@@ -69,6 +119,12 @@ export function CreateCustomerDialog({ trigger, onCreated }: { trigger: React.Re
   const [firmType, setFirmType] = usePersistentState<"customer" | "supplier_customer" | "supplier">("draft.customer.firmType", "customer");
   const [salesStatus, setSalesStatus] = usePersistentState<"potential" | "active_customer">("draft.customer.salesStatus", "potential");
   const [form, setForm] = usePersistentState("draft.customer.form", emptyCompanyForm());
+
+  const provinceOptions = useMemo(() => toComboboxOptions(PROVINCE_NAMES), []);
+  const districtOptions = useMemo(() => {
+    const districts = DISTRICTS_BY_PROVINCE[form.city] ?? [];
+    return toComboboxOptions(districts);
+  }, [form.city]);
 
   const reset = () => {
     setForm(emptyCompanyForm());
@@ -194,7 +250,13 @@ export function CreateCustomerDialog({ trigger, onCreated }: { trigger: React.Re
                 </SelectContent>
               </Select>
             </div>
-            <Field label="Firma Sektörü" value={form.sector} onChange={(v) => setForm({ ...form, sector: v })} />
+            <LookupCombobox
+              label="Firma Sektörü"
+              options={toComboboxOptions(COMPANY_SECTOR_OPTIONS)}
+              value={form.sector}
+              onChange={(v) => setForm({ ...form, sector: v })}
+              placeholder="Sektör seçin..."
+            />
             <Field label={type === "company" ? "Firma Ünvanı *" : "Ad Soyad *"} value={form.name} onChange={(v) => setForm({ ...form, name: v })} />
             <Field label="Telefon-1" value={form.phone} onChange={(v) => setForm({ ...form, phone: v })} placeholder="+90 ..." />
             <Field label="Telefon-2" value={form.phone2} onChange={(v) => setForm({ ...form, phone2: v })} placeholder="+90 ..." />
@@ -203,10 +265,34 @@ export function CreateCustomerDialog({ trigger, onCreated }: { trigger: React.Re
             <Field label="Mail-2" value={form.email2} onChange={(v) => setForm({ ...form, email2: v })} type="email" />
             <Field label="Web Sitesi" value={form.website} onChange={(v) => setForm({ ...form, website: v })} placeholder="https://..." />
             <Field label="Açık Adres" value={form.address} onChange={(v) => setForm({ ...form, address: v })} className="col-span-2" />
-            <Field label="İlçe" value={form.district} onChange={(v) => setForm({ ...form, district: v })} />
-            <Field label="İl" value={form.city} onChange={(v) => setForm({ ...form, city: v })} />
-            <Field label="Ülke" value={form.country} onChange={(v) => setForm({ ...form, country: v })} />
-            <Field label="Vergi Dairesi" value={form.taxOffice} onChange={(v) => setForm({ ...form, taxOffice: v })} />
+            <LookupCombobox
+              label="Ülke"
+              options={toComboboxOptions(COUNTRY_OPTIONS)}
+              value={form.country}
+              onChange={(v) => setForm({ ...form, country: v })}
+              placeholder="Ülke seçin..."
+            />
+            <LookupCombobox
+              label="İl"
+              options={provinceOptions}
+              value={form.city}
+              onChange={(v) => setForm({ ...form, city: v, district: "" })}
+              placeholder="İl seçin..."
+            />
+            <LookupCombobox
+              label="İlçe"
+              options={districtOptions}
+              value={form.district}
+              onChange={(v) => setForm({ ...form, district: v })}
+              placeholder={form.city ? "İlçe seçin..." : "Önce il seçin"}
+            />
+            <LookupCombobox
+              label="Vergi Dairesi"
+              options={toComboboxOptions(TAX_OFFICE_OPTIONS)}
+              value={form.taxOffice}
+              onChange={(v) => setForm({ ...form, taxOffice: v })}
+              placeholder="Vergi dairesi seçin..."
+            />
             <Field label="T.C. / Vergi Kimlik Numarası" value={form.taxNumber} onChange={(v) => setForm({ ...form, taxNumber: v })} />
             <div className="col-span-2">
               <Label className="text-xs">Notlar</Label>
@@ -410,7 +496,16 @@ export function CreateContactDialog({
 export function EditCustomerDialog({ customer, onClose }: { customer: Customer | null; onClose: () => void }) {
   const { updateCustomer } = useStore();
   const [saving, setSaving] = useState(false);
-  const [form, setForm] = useState({ name: "", sector: "", phone: "", email: "", city: "", district: "", taxNumber: "", taxOffice: "", website: "" });
+  const [form, setForm] = useState({
+    name: "", sector: "", phone: "", email: "", city: "", district: "", country: "Türkiye",
+    taxNumber: "", taxOffice: "", website: "",
+  });
+
+  const provinceOptions = useMemo(() => toComboboxOptions(PROVINCE_NAMES), []);
+  const districtOptions = useMemo(() => {
+    const districts = DISTRICTS_BY_PROVINCE[form.city] ?? [];
+    return toComboboxOptions(districts);
+  }, [form.city]);
 
   useEffect(() => {
     if (customer)
@@ -421,6 +516,7 @@ export function EditCustomerDialog({ customer, onClose }: { customer: Customer |
         email: customer.email ?? "",
         city: customer.city ?? "",
         district: customer.district ?? "",
+        country: customer.country ?? "Türkiye",
         taxNumber: customer.taxNumber ?? "",
         taxOffice: customer.taxOffice ?? "",
         website: customer.website ?? "",
@@ -453,14 +549,40 @@ export function EditCustomerDialog({ customer, onClose }: { customer: Customer |
         <form onSubmit={submit} className="space-y-3">
           <Field label="Ünvan *" value={form.name} onChange={(v) => setForm({ ...form, name: v })} />
           <div className="grid grid-cols-2 gap-3">
-            <Field label="Sektör" value={form.sector} onChange={(v) => setForm({ ...form, sector: v })} />
+            <LookupCombobox
+              label="Sektör"
+              options={toComboboxOptions(COMPANY_SECTOR_OPTIONS)}
+              value={form.sector}
+              onChange={(v) => setForm({ ...form, sector: v })}
+            />
             <Field label="Web" value={form.website} onChange={(v) => setForm({ ...form, website: v })} />
             <Field label="Telefon" value={form.phone} onChange={(v) => setForm({ ...form, phone: v })} />
             <Field label="E-posta" value={form.email} onChange={(v) => setForm({ ...form, email: v })} />
-            <Field label="İl" value={form.city} onChange={(v) => setForm({ ...form, city: v })} />
-            <Field label="İlçe" value={form.district} onChange={(v) => setForm({ ...form, district: v })} />
+            <LookupCombobox
+              label="Ülke"
+              options={toComboboxOptions(COUNTRY_OPTIONS)}
+              value={form.country}
+              onChange={(v) => setForm({ ...form, country: v })}
+            />
+            <LookupCombobox
+              label="İl"
+              options={provinceOptions}
+              value={form.city}
+              onChange={(v) => setForm({ ...form, city: v, district: "" })}
+            />
+            <LookupCombobox
+              label="İlçe"
+              options={districtOptions}
+              value={form.district}
+              onChange={(v) => setForm({ ...form, district: v })}
+            />
             <Field label="VKN" value={form.taxNumber} onChange={(v) => setForm({ ...form, taxNumber: v })} />
-            <Field label="Vergi Dairesi" value={form.taxOffice} onChange={(v) => setForm({ ...form, taxOffice: v })} />
+            <LookupCombobox
+              label="Vergi Dairesi"
+              options={toComboboxOptions(TAX_OFFICE_OPTIONS)}
+              value={form.taxOffice}
+              onChange={(v) => setForm({ ...form, taxOffice: v })}
+            />
           </div>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={onClose}>Vazgeç</Button>
@@ -682,108 +804,16 @@ export function CreateCaseDialog({ trigger, defaultCustomerId }: { trigger: Reac
   );
 }
 
-/* ---------- Offer ---------- */
+/* ---------- Offer (legacy alias → full quote wizard) ---------- */
 export function CreateOfferDialog({ trigger, defaultCaseId }: { trigger: React.ReactNode; defaultCaseId?: string }) {
-  const { cases, customers, offers, addOffer } = useStore();
-  const [open, setOpen] = useState(false);
-  const [form, setForm] = useState({
-    salesCaseId: defaultCaseId ?? "",
-    quoteNo: "",
-    amount: 0,
-    currency: "USD" as "USD" | "EUR" | "TRY",
-    status: "Draft" as "Draft" | "Sent" | "Approved" | "Rejected",
-    note: "",
-  });
-
-  const submit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!form.salesCaseId) return toast.error("Satış kartı seçiniz");
-    if (!form.quoteNo.trim()) return toast.error("Teklif numarası giriniz");
-    if (!form.amount || form.amount <= 0) return toast.error("Tutar giriniz");
-    const existing = offers.filter((o) => o.salesCaseId === form.salesCaseId).length;
-    try {
-      const o = await addOffer({ ...form, revision: existing + 1 });
-      toast.success("Teklif oluşturuldu", { description: `${o.quoteNo} · R${o.revision}` });
-      setOpen(false);
-      setForm({ salesCaseId: defaultCaseId ?? "", quoteNo: "", amount: 0, currency: "USD", status: "Draft", note: "" });
-    } catch (err: any) {
-      toast.error("Teklif oluşturulamadı", { description: err?.message ?? "API isteği başarısız oldu." });
-    }
-  };
-
-  const nextQuoteNo = () => {
-    const year = new Date().getFullYear();
-    const seq = String(offers.length + 1).padStart(4, "0");
-    setForm((f) => ({ ...f, quoteNo: `TKL-${year}-${seq}` }));
-  };
-
+  const { cases } = useStore();
+  const sc = cases.find((c) => c.id === defaultCaseId);
   return (
-    <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (v && !form.quoteNo) nextQuoteNo(); }}>
-      <DialogTrigger asChild>{trigger}</DialogTrigger>
-      <DialogContent className="max-w-2xl">
-        <DialogHeader>
-          <DialogTitle>Yeni Teklif</DialogTitle>
-          <DialogDescription>Bir satış kartı için teklif (revizyon) oluşturun.</DialogDescription>
-        </DialogHeader>
-
-        <form onSubmit={submit} className="space-y-4">
-          <div className="grid grid-cols-2 gap-3">
-            <div className="col-span-2">
-              <Label className="text-xs">Satış Kartı *</Label>
-              <Select value={form.salesCaseId} onValueChange={(v) => setForm({ ...form, salesCaseId: v })}>
-                <SelectTrigger className="mt-1.5"><SelectValue placeholder="Satış kartı seçin..." /></SelectTrigger>
-                <SelectContent>
-                  {cases
-                    .filter((s) => s.stage !== "Lost" && s.stage !== "Completed" && s.stage !== "cancelled" && s.stage !== "delivered")
-                    .map((s) => {
-                      const c = customers.find((x) => x.id === s.customerId);
-                      return (
-                        <SelectItem key={s.id} value={s.id}>
-                          #{s.id.toUpperCase()} · {c?.name} — {s.requestedProduct}
-                        </SelectItem>
-                      );
-                    })}
-                </SelectContent>
-              </Select>
-            </div>
-            <Field label="Teklif No *" value={form.quoteNo} onChange={(v) => setForm({ ...form, quoteNo: v })} placeholder="TKL-2026-0001" />
-            <Field label="Tutar *" type="number" value={String(form.amount)} onChange={(v) => setForm({ ...form, amount: Number(v) || 0 })} />
-            <div>
-              <Label className="text-xs">Para Birimi</Label>
-              <Select value={form.currency} onValueChange={(v: any) => setForm({ ...form, currency: v })}>
-                <SelectTrigger className="mt-1.5"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="EUR">EUR</SelectItem>
-                  <SelectItem value="USD">USD</SelectItem>
-                  <SelectItem value="TRY">TRY</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <Label className="text-xs">Durum</Label>
-              <Select value={form.status} onValueChange={(v: any) => setForm({ ...form, status: v })}>
-                <SelectTrigger className="mt-1.5"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="Draft">Taslak</SelectItem>
-                  <SelectItem value="Sent">Gönderildi</SelectItem>
-                  <SelectItem value="Approved">Onaylandı</SelectItem>
-                  <SelectItem value="Rejected">Reddedildi</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="col-span-2">
-              <Label className="text-xs">Not</Label>
-              <Textarea className="mt-1.5" rows={3} value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} placeholder="Ödeme şartları, teslim süresi, kapsam vb." />
-            </div>
-          </div>
-
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => setOpen(false)}>Vazgeç</Button>
-            <Button type="submit">Teklifi Oluştur</Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
+    <QuoteDialog
+      defaultCaseId={defaultCaseId}
+      defaultCustomerId={sc?.customerId}
+      trigger={trigger}
+    />
   );
 }
 
@@ -832,11 +862,22 @@ function AutocompleteInput({ value, onChange, options, placeholder }: { value: s
 }
 
 /* ---------- Stock Item ---------- */
-const WAREHOUSES = ["İstanbul Ana Depo", "Ankara Şube", "İzmir Depo", "Bursa Depo"];
-const BRANDS = ["Acme", "Beta", "Gamma", "Delta"];
-const COUNTER_TYPES = ["Endüstriyel", "Hafif", "Yüksek Kapasite", "Mobil"];
-const CONTROL_PANELS = ["CP-Pro", "CP-Lite", "CP-Max"];
 const STATUSES: Array<"Available" | "Reserved" | "Sold" | "Inactive"> = ["Available", "Reserved", "Sold", "Inactive"];
+
+const emptyStockForm = () => ({
+  brand: "",
+  counterType: "",
+  counterModel: "",
+  serialNumber: "",
+  controlPanel: "",
+  stockCode: "",
+  warehouse: "",
+  status: "Available" as "Available" | "Reserved" | "Sold" | "Inactive",
+  categoryCode: "TEZGAH" as StockCategoryCode,
+  optionalHardware: "",
+  spareParts: "",
+  productId: "",
+});
 
 export function CreateStockDialog({ trigger }: { trigger: React.ReactNode }) {
   const { addStock, stock, products } = useStore();
@@ -846,22 +887,25 @@ export function CreateStockDialog({ trigger }: { trigger: React.ReactNode }) {
   const [productId, setProductId] = useState("");
   const [quantity, setQuantity] = useState("5");
   const [saving, setSaving] = useState(false);
-  const [form, setForm] = useState({
-    brand: "Acme",
-    counterType: "Endüstriyel",
-    counterModel: "",
-    serialNumber: "",
-    controlPanel: "CP-Pro",
-    stockCode: "",
-    warehouse: "İstanbul Ana Depo",
-    status: "Available" as "Available" | "Reserved" | "Sold" | "Inactive",
-    optionalHardware: "",
-    spareParts: "",
-  });
+  const [warehouses, setWarehouses] = useState<string[]>([]);
+  const [form, setForm] = useState(emptyStockForm);
 
-  const allBrands = Array.from(new Set([...BRANDS, ...products.map((p) => p.brand), form.brand].filter(Boolean)));
-  const allTypes = Array.from(new Set([...COUNTER_TYPES, ...products.map((p) => p.type), form.counterType].filter(Boolean)));
-  const allPanels = Array.from(new Set([...CONTROL_PANELS, ...products.map((p) => p.controlPanel), form.controlPanel].filter(Boolean)));
+  useEffect(() => {
+    if (!open) return;
+    inventoryService.listWarehouses()
+      .then((rows) => setWarehouses(rows.map((w: { name?: string }) => w.name).filter(Boolean) as string[]))
+      .catch(() => setWarehouses([]));
+  }, [open]);
+
+  const catalogProducts = useMemo(
+    () => products.filter((p) => (p.categoryCode ?? "TEZGAH") === form.categoryCode),
+    [products, form.categoryCode],
+  );
+
+  const allBrands = Array.from(new Set([...catalogProducts.map((p) => p.brand), ...stock.filter((s) => s.categoryCode === form.categoryCode).map((s) => s.brand), form.brand].filter(Boolean)));
+  const allTypes = Array.from(new Set([...catalogProducts.map((p) => p.type), ...stock.filter((s) => s.categoryCode === form.categoryCode).map((s) => s.counterType), form.counterType].filter(Boolean)));
+  const allPanels = Array.from(new Set([...catalogProducts.map((p) => p.controlPanel), ...stock.filter((s) => s.categoryCode === form.categoryCode).map((s) => s.controlPanel), form.controlPanel].filter(Boolean)));
+  const warehouseOptions = Array.from(new Set([...warehouses, ...stock.map((s) => s.warehouse), form.warehouse].filter(Boolean)));
 
   // Katalogdan seçilen ürünle stok alanlarını otomatik doldur. 
   // Artık tüm alanlar serbest metin (datalist destekli) olduğu için
@@ -874,17 +918,19 @@ export function CreateStockDialog({ trigger }: { trigger: React.ReactNode }) {
     const codeModel = (p.model || "").replace(/[^A-Z0-9]/gi, "").toUpperCase();
     setForm((f) => ({
       ...f,
+      productId: id,
       brand: p.brand || f.brand,
       counterModel: p.model || f.counterModel,
       controlPanel: p.controlPanel || f.controlPanel,
       counterType: p.type || f.counterType,
+      categoryCode: (p.categoryCode as StockCategoryCode) || f.categoryCode,
       stockCode: p.stockCode || `${codePrefix}-${codeModel || "MOD"}`,
     }));
   };
 
   const reset = () => {
     setMode("single"); setProductId(""); setQuantity("5");
-    setForm({ brand: "Acme", counterType: "Endüstriyel", counterModel: "", serialNumber: "", controlPanel: "CP-Pro", stockCode: "", warehouse: "İstanbul Ana Depo", status: "Available", optionalHardware: "", spareParts: "" });
+    setForm(emptyStockForm());
   };
 
   const submit = async (e: React.FormEvent) => {
@@ -944,6 +990,29 @@ export function CreateStockDialog({ trigger }: { trigger: React.ReactNode }) {
         </DialogHeader>
 
         <form onSubmit={submit} className="space-y-4">
+          <div>
+            <Label className="text-xs">Stok Kategorisi</Label>
+            <Select
+              value={form.categoryCode}
+              onValueChange={(v: StockCategoryCode) => {
+                setProductId("");
+                setForm((f) => ({ ...f, categoryCode: v, counterModel: "", counterType: "", brand: "", controlPanel: "" }));
+              }}
+            >
+              <SelectTrigger className="mt-1.5"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {STOCK_CATEGORY_CODES.map((code) => (
+                  <SelectItem key={code} value={code}>{STOCK_CATEGORY_LABELS[code]}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-[11px] text-muted-foreground mt-1">
+              {form.categoryCode === "TEZGAH"
+                ? "Tezgah stoku yalnızca satış süreçlerinde kullanılır."
+                : "Yedek parça stoku hem satış hem servis süreçlerinde kullanılır."}
+            </p>
+          </div>
+
           {/* Katalogdan ürün seç → alanları otomatik doldur */}
           <div className="rounded-lg border border-border/60 bg-muted/30 p-3 space-y-2.5">
             <div className="flex items-center justify-between gap-2">
@@ -958,7 +1027,7 @@ export function CreateStockDialog({ trigger }: { trigger: React.ReactNode }) {
               <SelectTrigger id="stock-product" className="bg-white"><SelectValue placeholder="Ürün seçin (opsiyonel)..." /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="none">Seçilmedi (elle gir)</SelectItem>
-                {products.map((p) => (
+                {catalogProducts.map((p) => (
                   <SelectItem key={p.id} value={p.id}>{[p.brand, p.model].filter(Boolean).join(" ")}{p.type ? ` · ${p.type}` : ""}</SelectItem>
                 ))}
               </SelectContent>
@@ -1018,10 +1087,10 @@ export function CreateStockDialog({ trigger }: { trigger: React.ReactNode }) {
             </div>
             <div>
               <Label className="text-xs">Depo</Label>
-              <Select value={form.warehouse} onValueChange={(v) => setForm({ ...form, warehouse: v })}>
-                <SelectTrigger className="mt-1.5"><SelectValue /></SelectTrigger>
+              <Select value={form.warehouse || undefined} onValueChange={(v) => setForm({ ...form, warehouse: v })}>
+                <SelectTrigger className="mt-1.5"><SelectValue placeholder="Depo seçin" /></SelectTrigger>
                 <SelectContent>
-                  {WAREHOUSES.map((w) => <SelectItem key={w} value={w}>{w}</SelectItem>)}
+                  {warehouseOptions.map((w) => <SelectItem key={w} value={w}>{w}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
@@ -1052,7 +1121,6 @@ export function CreateStockDialog({ trigger }: { trigger: React.ReactNode }) {
 }
 
 /* ---------- Activity ---------- */
-const ACTIVITY_TYPES = ["Çağrı", "Toplantı", "E-posta", "Ziyaret", "Not"];
 
 export function AddActivityDialog({
   trigger, salesCaseId, customerId, open: controlledOpen, onOpenChange,
@@ -1064,22 +1132,24 @@ export function AddActivityDialog({
   onOpenChange?: (o: boolean) => void;
 }) {
   const { addActivity, users } = useStore();
+  const { user } = useAuth();
+  const defaultUserId = user?.id ?? users[0]?.id ?? "";
   const [internalOpen, setInternalOpen] = useState(false);
   const open = controlledOpen ?? internalOpen;
   const setOpen = (o: boolean) => { onOpenChange ? onOpenChange(o) : setInternalOpen(o); };
 
   const [form, setForm] = useState({
-    type: "Çağrı",
+    type: ACTIVITY_TYPE_OPTIONS[0].label,
     title: "",
     note: "",
     date: new Date().toISOString().slice(0, 10),
-    byUserId: users[0]?.id ?? "u1",
+    byUserId: defaultUserId,
   });
 
   const reset = () => setForm({
-    type: "Çağrı", title: "", note: "",
+    type: ACTIVITY_TYPE_OPTIONS[0].label, title: "", note: "",
     date: new Date().toISOString().slice(0, 10),
-    byUserId: users[0]?.id ?? "u1",
+    byUserId: defaultUserId,
   });
 
   const submit = async (e: React.FormEvent) => {
@@ -1117,11 +1187,11 @@ export function AddActivityDialog({
         <form onSubmit={submit} className="space-y-3">
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <Label className="text-xs">Tip</Label>
+              <Label className="text-xs">Aktivite Türü</Label>
               <Select value={form.type} onValueChange={(v) => setForm({ ...form, type: v })}>
                 <SelectTrigger className="mt-1.5"><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  {ACTIVITY_TYPES.map((t) => <SelectItem key={t} value={t}>{t}</SelectItem>)}
+                  {ACTIVITY_TYPE_OPTIONS.map((t) => <SelectItem key={t.code} value={t.label}>{t.label}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
@@ -2462,6 +2532,7 @@ export function CreatePaymentDialog({
     currencyCode: "USD" as (typeof PAYMENT_CURRENCIES)[number],
     paymentDate: new Date().toISOString().slice(0, 10),
     paymentMethod: "bank_transfer",
+    invoiceNo: "",
     notes: "",
   });
   const [form, setForm] = useState(emptyForm);
@@ -2531,6 +2602,7 @@ export function CreatePaymentDialog({
           currencyCode: form.currencyCode,
           dueDate: form.paymentDate,
           notes: form.notes || undefined,
+          invoiceNo: form.invoiceNo || undefined,
         });
         const payment = await financeService.createPayment({
           direction: form.direction,
@@ -2540,6 +2612,7 @@ export function CreatePaymentDialog({
           paymentDate: form.paymentDate,
           paymentMethod: form.paymentMethod,
           notes: form.notes || undefined,
+          invoiceNo: form.invoiceNo || undefined,
         });
         paymentId = payment.id;
       } else {
@@ -2551,6 +2624,7 @@ export function CreatePaymentDialog({
           paymentDate: form.paymentDate,
           paymentMethod: form.paymentMethod,
           notes: form.notes || undefined,
+          invoiceNo: form.invoiceNo || undefined,
         });
         paymentId = payment.id;
       }
@@ -2643,6 +2717,10 @@ export function CreatePaymentDialog({
 
           <div className="grid grid-cols-2 gap-3">
             <Field label="Tarih" type="date" value={form.paymentDate} onChange={(v) => setForm({ ...form, paymentDate: v })} />
+            <Field label="Fatura No" value={form.invoiceNo} placeholder="FTR-2026-001" onChange={(v) => setForm({ ...form, invoiceNo: v })} />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
             <div>
               <Label className="text-xs">Ödeme Yöntemi</Label>
               <Select value={form.paymentMethod} onValueChange={(v) => setForm({ ...form, paymentMethod: v })}>
@@ -3153,7 +3231,7 @@ export function CreateMachineDialog({ children }: { children: React.ReactNode })
   );
 }
 
-/** Müşteri ziyareti veya telefon görüşmesi kaydı. */
+/** Müşteri aktivite kaydı (ziyaret, telefon, mail, toplantı vb.). */
 export function LogActivityDialog({
   customerId,
   trigger,
@@ -3162,12 +3240,12 @@ export function LogActivityDialog({
 }: {
   customerId: string;
   trigger: React.ReactNode;
-  defaultKind?: "visit" | "call";
+  defaultKind?: (typeof ACTIVITY_TYPE_OPTIONS)[number]["code"];
   onLogged?: () => void;
 }) {
   const { contacts, refresh } = useStore();
   const [open, setOpen] = useState(false);
-  const [kind, setKind] = useState<"visit" | "call">(defaultKind);
+  const [kind, setKind] = useState<(typeof ACTIVITY_TYPE_OPTIONS)[number]["code"]>(defaultKind);
   const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [location, setLocation] = useState("");
   const [purpose, setPurpose] = useState("");
@@ -3206,7 +3284,7 @@ export function LogActivityDialog({
           nextAction: nextAction.trim() || undefined,
         });
         toast.success("Ziyaret kaydedildi");
-      } else {
+      } else if (kind === "call") {
         await activityService.createCall({
           ...base,
           callDate: new Date(date),
@@ -3214,6 +3292,16 @@ export function LogActivityDialog({
           nextAction: nextAction.trim() || undefined,
         });
         toast.success("Arama kaydedildi");
+      } else {
+        const label = ACTIVITY_TYPE_OPTIONS.find((o) => o.code === kind)?.label ?? kind;
+        await activityService.create({
+          ...base,
+          activityTypeCode: kind,
+          subject: label,
+          description: [result.trim(), nextAction.trim() ? `Sonraki adım: ${nextAction.trim()}` : ""].filter(Boolean).join("\n"),
+          activityDate: date,
+        });
+        toast.success("Aktivite kaydedildi");
       }
       await refresh();
       onLogged?.();
@@ -3238,17 +3326,20 @@ export function LogActivityDialog({
       <DialogTrigger asChild>{trigger}</DialogTrigger>
       <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle>{kind === "visit" ? "Ziyaret Kaydı" : "Arama Kaydı"}</DialogTitle>
+          <DialogTitle>
+            {ACTIVITY_TYPE_OPTIONS.find((o) => o.code === kind)?.label ?? "Aktivite"} Kaydı
+          </DialogTitle>
           <DialogDescription>Firma ile yapılan görüşmeyi CRM aktivite geçmişine ekleyin.</DialogDescription>
         </DialogHeader>
         <form onSubmit={submit} className="space-y-4 py-1">
           <div>
-            <Label className="text-xs">Tür</Label>
-            <Select value={kind} onValueChange={(v) => setKind(v as "visit" | "call")}>
+            <Label className="text-xs">Aktivite Türü</Label>
+            <Select value={kind} onValueChange={(v) => setKind(v as typeof kind)}>
               <SelectTrigger className="mt-1.5"><SelectValue /></SelectTrigger>
               <SelectContent>
-                <SelectItem value="visit">Ziyaret</SelectItem>
-                <SelectItem value="call">Telefon</SelectItem>
+                {ACTIVITY_TYPE_OPTIONS.map((o) => (
+                  <SelectItem key={o.code} value={o.code}>{o.label}</SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </div>

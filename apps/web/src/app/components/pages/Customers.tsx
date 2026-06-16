@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Card } from "../ui/card";
 import { Tabs, TabsList, TabsTrigger } from "../ui/tabs";
 import { Input } from "../ui/input";
@@ -18,6 +18,7 @@ import { useStore } from "../../lib/store";
 import { useDetailDialogs } from "../dialogs/DetailDialogs";
 import { FilterPopover, usePaged, Pager } from "../ui/list-controls";
 import { ExportExcelButton } from "../ui/ExportExcelButton";
+import { financeService } from "../../../lib/services";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
 } from "../ui/dropdown-menu";
@@ -47,6 +48,19 @@ export function CustomersPage(_props: { onSelect?: (c: Customer) => void } = {})
   const [salesTab, setSalesTab] = useState<"all" | "potential" | "active_customer">("all");
   const [city, setCity] = useState("all");
   const [sector, setSector] = useState("all");
+  const [nameSort, setNameSort] = useState<"asc" | "desc" | null>(null);
+  const [balanceMap, setBalanceMap] = useState<Record<string, number>>({});
+
+  useEffect(() => {
+    financeService
+      .customerBalances()
+      .then((rows) => {
+        const map: Record<string, number> = {};
+        for (const r of rows ?? []) map[r.companyId] = r.borc ?? 0;
+        setBalanceMap(map);
+      })
+      .catch(() => setBalanceMap({}));
+  }, [customers.length]);
 
   const filtered = customers.filter((c) => {
     if (tab !== "all" && c.firmType !== tab) return false;
@@ -68,7 +82,15 @@ export function CustomersPage(_props: { onSelect?: (c: Customer) => void } = {})
     );
   });
 
-  const { page, setPage, totalPages, pageItems } = usePaged(filtered, 12);
+  const sorted = useMemo(() => {
+    if (!nameSort) return filtered;
+    return [...filtered].sort((a, b) => {
+      const cmp = a.name.localeCompare(b.name, "tr");
+      return nameSort === "asc" ? cmp : -cmp;
+    });
+  }, [filtered, nameSort]);
+
+  const { page, setPage, totalPages, pageItems } = usePaged(sorted, 12);
 
   const exportParams = {
     ...(q ? { search: q } : {}),
@@ -160,7 +182,12 @@ export function CustomersPage(_props: { onSelect?: (c: Customer) => void } = {})
             <TableHeader>
               <TableRow className="bg-muted/30 hover:bg-muted/30">
                 <TableHead className="w-[300px]">
-                  <button className="inline-flex items-center gap-1 hover:text-foreground">
+                  <button
+                    type="button"
+                    className="inline-flex items-center gap-1 hover:text-foreground"
+                    onClick={() => setNameSort((s) => (s === "asc" ? "desc" : "asc"))}
+                    aria-label="Firmaya göre sırala"
+                  >
                     Firma <ArrowUpDown className="size-3" />
                   </button>
                 </TableHead>
@@ -169,6 +196,7 @@ export function CustomersPage(_props: { onSelect?: (c: Customer) => void } = {})
                 <TableHead>İletişim</TableHead>
                 <TableHead>Konum</TableHead>
                 <TableHead>Grup / Kaynak</TableHead>
+                <TableHead className="text-right">Borç</TableHead>
                 <TableHead>Oluşturma</TableHead>
                 <TableHead className="text-right w-12"></TableHead>
               </TableRow>
@@ -229,6 +257,13 @@ export function CustomersPage(_props: { onSelect?: (c: Customer) => void } = {})
                     <div className="text-xs leading-tight">{c.companyGroupName || "—"}</div>
                     <div className="text-[11px] text-muted-foreground mt-0.5">{c.source || "Kaynak yok"}</div>
                   </TableCell>
+                  <TableCell className="text-right tabular-nums text-sm">
+                    {(balanceMap[c.id] ?? 0) > 0 ? (
+                      <span className="text-amber-800 font-medium">{balanceMap[c.id].toLocaleString("tr-TR")}</span>
+                    ) : (
+                      <span className="text-muted-foreground">—</span>
+                    )}
+                  </TableCell>
                   <TableCell className="text-xs text-muted-foreground tabular-nums">{c.createdAt}</TableCell>
                   <TableCell className="text-right">
                     <DropdownMenu>
@@ -253,7 +288,7 @@ export function CustomersPage(_props: { onSelect?: (c: Customer) => void } = {})
               ))}
               {filtered.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={8} className="text-center py-16">
+                  <TableCell colSpan={9} className="text-center py-16">
                     <div className="text-sm text-muted-foreground">Bu filtreye uyan firma bulunamadı.</div>
                   </TableCell>
                 </TableRow>

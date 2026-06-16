@@ -49,11 +49,11 @@ jobs:
           npm run build:api
           VITE_API_BASE_URL=https://example.com/api/v1 npm run build:web
 
-      - name: Migrate and seed
+      - name: Migrate and seed (CI demo data)
         run: |
           cd apps/api
           npm run db:migrate
-          npm run db:seed
+          npm run db:seed:demo
 
       - name: Test
         run: npm test

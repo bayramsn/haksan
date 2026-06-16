@@ -48,6 +48,7 @@ const ticketUpdate = z.object({
   resolutionNote: z.string().max(4000).optional(),
   severity: z.enum(['low', 'normal', 'high', 'critical']).optional(),
   assignedToUserId: z.string().uuid().nullable().optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
 });
 
 const installCreate = z.object({
@@ -62,6 +63,10 @@ const installCreate = z.object({
   locationType: z.enum(['istanbul_ici', 'istanbul_disi']).optional(),
   durationMinutes: z.coerce.number().int().min(0).max(100000).optional(),
   notes: z.string().max(2000).optional(),
+});
+const installStatusUpdate = z.object({
+  statusCode: z.enum(['scheduled', 'in_progress', 'completed', 'cancelled']),
+  installationDate: z.coerce.date().optional(),
 });
 
 // Sevkiyat/teslimat doğrulama şemaları @haksan/shared'a taşındı (shipment.ts).
@@ -341,6 +346,7 @@ export class ServiceController {
     if (body.resolutionNote !== undefined) patch.resolutionNote = body.resolutionNote;
     if (body.severity !== undefined) patch.severity = body.severity;
     if (body.assignedToUserId !== undefined) patch.assignedToUserId = body.assignedToUserId;
+    if (body.metadata !== undefined) patch.metadata = body.metadata;
     if (!Object.keys(patch).length) return ticket;
     const [row] = await this.db.update(serviceTickets).set(patch).where(eq(serviceTickets.id, id)).returning();
     return row;

@@ -32,9 +32,15 @@ cp apps/web/.env.example apps/web/.env
 # Altyapıyı ayağa kaldır (Postgres, MinIO, Mailhog)
 docker compose up -d
 
-# Veritabanını oluştur + seed
+# Veritabanı şeması + referans tablolar (iş verisi yok)
 npm run db:migrate
 npm run db:seed
+
+# Canlı / sıfır kurulum: tek admin kullanıcı (kendi e-posta/şifreniz)
+# ADMIN_EMAIL=admin@firma.com ADMIN_PASSWORD='GucluParola1!' npm run db:bootstrap
+
+# Geliştirme için örnek veri (canlıda ÇALIŞTIRMAYIN):
+# npm run db:seed:demo
 
 # Backend (port 3000)
 npm run dev:api
@@ -43,7 +49,9 @@ npm run dev:api
 npm run dev:web
 ```
 
-Sonra `http://localhost:5173` adresini aç. Demo kullanıcılar:
+Sonra `http://localhost:5173` adresini aç.
+
+**Geliştirme** (`npm run db:seed:demo` sonrası) demo kullanıcılar:
 
 | E-posta | Şifre | Rol |
 |---------|-------|-----|
@@ -52,7 +60,7 @@ Sonra `http://localhost:5173` adresini aç. Demo kullanıcılar:
 | service@haksan.local | service12345 | service |
 | finance@haksan.local | finance12345 | finance |
 
-Seed verisi: KİLİTSAN (Manford DL-2112, $170K), Contra Makine (LK MV-1050, $72K), ALİŞLER (ECOCA MT-208/500, $68.3K) müşterileri + teklifleri + 2 seri numaralı stok kalemi.
+**Canlı kurulum** yalnızca `db:seed` + `db:bootstrap` ile başlar; müşteri/teklif/stok sizin girdiğiniz kayıtlardan oluşur.
 
 ---
 

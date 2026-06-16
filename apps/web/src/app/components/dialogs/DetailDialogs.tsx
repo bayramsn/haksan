@@ -11,6 +11,7 @@ import {
 import { Customer, Contact, FirmType, salesStageLabel } from "../../lib/mock";
 import { useStore } from "../../lib/store";
 import { StatusBadge } from "../Layout";
+import { CompanyFinancePanel } from "../shared/CompanyFinancePanel";
 
 // ───────────────────────── helpers ─────────────────────────
 
@@ -163,6 +164,10 @@ export function CompanyDetailDialog({
           <Stat icon={<FileSignature className="size-3.5" />} label="Proforma" value={firmProformas.length} accent="text-brand-blue" />
           <Stat icon={<Cpu className="size-3.5" />} label="Makine" value={firmMachines.length} accent="text-amber-600" />
           <Stat icon={<Wrench className="size-3.5" />} label="Servis" value={firmService.length} accent="text-rose-600" />
+        </div>
+
+        <div className="px-6 pb-2">
+          <CompanyFinancePanel companyId={customer.id} companyName={customer.name} />
         </div>
 
         <div className="px-6 pb-2">
@@ -325,6 +330,7 @@ export function CompanyDetailDialog({
                   <TableHeader>
                     <TableRow className="bg-muted/30 hover:bg-muted/30">
                       <TableHead>Tip</TableHead>
+                      <TableHead>Fatura No</TableHead>
                       <TableHead>Tutar</TableHead>
                       <TableHead>Vade</TableHead>
                       <TableHead>Durum</TableHead>
@@ -333,13 +339,14 @@ export function CompanyDetailDialog({
                   <TableBody>
                     {firmPayments.map((p) => (
                       <TableRow key={p.id}>
-                        <TableCell>{p.paymentType === "received" ? "Tahsilat" : "Beklenen"}</TableCell>
+                        <TableCell>{p.paymentType === "received" ? "Tahsilat" : p.direction === "out" ? "Ödeme" : "Beklenen"}</TableCell>
+                        <TableCell className="text-muted-foreground">{p.invoiceNo || "—"}</TableCell>
                         <TableCell className="tabular-nums">{fmtMoney(p.amount, p.currency)}</TableCell>
                         <TableCell className="text-muted-foreground tabular-nums">{p.dueDate}</TableCell>
                         <TableCell><StatusBadge status={p.status} /></TableCell>
                       </TableRow>
                     ))}
-                    {firmPayments.length === 0 && <EmptyRow cols={4} text="Cari hareket yok." />}
+                    {firmPayments.length === 0 && <EmptyRow cols={5} text="Cari hareket yok." />}
                   </TableBody>
                 </Table>
               </div>

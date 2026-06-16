@@ -9,6 +9,7 @@ import { StatusBadge } from "../Layout";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../ui/table";
 import { CreateCaseDialog, LogActivityDialog } from "../dialogs/CreateDialogs";
 import { buildCustomerTimeline, type OperationAction } from "../../lib/operations";
+import { CompanyFinancePanel } from "../shared/CompanyFinancePanel";
 
 export function CustomerDetailPage({ customer, onBack, onAction }: { customer: Customer; onBack: () => void; onAction?: (action: OperationAction) => void }) {
   const store = useStore();
@@ -53,6 +54,7 @@ export function CustomerDetailPage({ customer, onBack, onAction }: { customer: C
               <div className="text-xs uppercase text-muted-foreground mb-1">İlk Not</div>
               <div className="text-muted-foreground">{customer.initialNote}</div>
             </div>
+            <CompanyFinancePanel companyId={customer.id} companyName={customer.name} />
           </CardContent>
         </Card>
 
@@ -167,8 +169,8 @@ export function CustomerDetailPage({ customer, onBack, onAction }: { customer: C
                     {acts.map((a) => (
                       <li key={a.id} className="ml-4">
                         <span className="absolute -left-1.5 size-3 rounded-full bg-primary" />
-                        <div className="text-xs text-muted-foreground">{a.date}</div>
-                        <div className="text-sm">{a.title}</div>
+                        <div className="text-xs text-muted-foreground">{a.date}{a.type ? ` · ${a.type}` : ""}</div>
+                        <div className="text-sm font-medium">{a.title}</div>
                         <div className="text-sm text-muted-foreground">{a.note}</div>
                       </li>
                     ))}
@@ -184,6 +186,7 @@ export function CustomerDetailPage({ customer, onBack, onAction }: { customer: C
                   <TableHeader>
                     <TableRow>
                       <TableHead>Tip</TableHead>
+                      <TableHead>Fatura No</TableHead>
                       <TableHead>Tutar</TableHead>
                       <TableHead>Vade</TableHead>
                       <TableHead>Durum</TableHead>
@@ -192,7 +195,8 @@ export function CustomerDetailPage({ customer, onBack, onAction }: { customer: C
                   <TableBody>
                     {pays.map((p) => (
                       <TableRow key={p.id}>
-                        <TableCell>{p.paymentType === "received" ? "Tahsilat" : "Beklenen"}</TableCell>
+                        <TableCell>{p.paymentType === "received" ? "Tahsilat" : p.direction === "out" ? "Ödeme" : "Beklenen"}</TableCell>
+                        <TableCell className="text-muted-foreground">{p.invoiceNo || "—"}</TableCell>
                         <TableCell className="tabular-nums">{p.amount.toLocaleString()} {p.currency}</TableCell>
                         <TableCell className="text-muted-foreground">{p.dueDate}</TableCell>
                         <TableCell><StatusBadge status={p.status} /></TableCell>

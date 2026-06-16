@@ -311,12 +311,16 @@ export class ExportsService {
       const cur = r.currencies[0];
       const base: ExportRow = {
         Firma: r.companyName,
+        Satış: cur?.salesTotal ?? r.salesTotal ?? 0,
+        Tahsilat: cur?.collections ?? r.collections ?? 0,
         Borç: cur?.borc ?? r.borc,
-        'Para Birimi': cur?.currencyCode ?? '',
+        'Para Birimi': cur?.currencyCode ?? r.primaryCurrency ?? '',
         'En Yakın Vade': r.nearestDueDate ? isoDate(r.nearestDueDate) : '',
         'Vade Tutarı': r.nearestDueAmount ?? '',
       };
       if (showAlacak) {
+        base['Alış'] = cur?.purchases ?? r.purchases ?? 0;
+        base['Ödeme'] = cur?.payouts ?? r.payouts ?? 0;
         base['Alacak (bizim borcumuz)'] = cur?.alacak ?? r.alacak ?? 0;
         base['Net'] = cur?.net ?? r.netBorc;
       }

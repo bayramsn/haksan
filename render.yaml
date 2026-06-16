@@ -1,8 +1,10 @@
-# Render Blueprint — STAGING / DEMO (production = kendi VDS, bkz. deploy/README.md)
+# Render Blueprint — staging (production = kendi VDS, bkz. deploy/README.md)
 # Depolama: Cloudflare R2 (S3 uyumlu) — S3_* dashboard'dan girilir.
 #
-# İlk deploy sonrası API Shell:
+# İlk deploy sonrası API Shell (sıfır iş verisi — siz doldurursunuz):
+#   npm run db:seed
 #   TENANT_NAME=... TENANT_SLUG=... ADMIN_EMAIL=... ADMIN_PASSWORD=... ADMIN_NAME=... npm run db:bootstrap
+# Demo veri YÜKLEMEYİN (npm run db:seed:demo).
 
 databases:
   - name: haksan-db

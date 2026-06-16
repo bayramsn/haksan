@@ -296,6 +296,15 @@ export const financeService = {
   createPayment: (body: any) => api.post<any>('/payments', body),
   updatePaymentStatus: (id: string, status: string) => api.patch<any>(`/payments/${id}/status`, { status }),
   updateReceivableStatus: (id: string, status: string) => api.patch<any>(`/receivables/${id}/status`, { status }),
+  companySummary: (companyId: string) => api.get<any>(`/companies/${companyId}/finance-summary`),
+  companyStatement: (companyId: string, params?: Record<string, string>) =>
+    api.get<any[]>(`/companies/${companyId}/statement${qs(params)}`),
+  customerBalances: () => api.get<any[]>('/reports/customer-balances'),
+  dueDates: (params?: Record<string, string>) => api.get<any[]>(`/reports/due-dates${qs(params)}`),
+  accountingInvoices: (params?: Record<string, string | number | undefined>) =>
+    api.get<any>(`/accounting-invoices${qs(params)}`),
+  accountingInvoice: (id: string) => api.get<any>(`/accounting-invoices/${id}`),
+  createAccountingInvoice: (body: any) => api.post<any>('/accounting-invoices', body),
 };
 
 // ───── Service / Installation / Shipment ─────
@@ -341,6 +350,7 @@ export const fileService = {
     api.post<{ fileId: string; bucket: string; objectKey: string; uploadUrl: string; expiresInSeconds: number }>('/files/signed-upload-url', body),
   signedDownload: (fileId: string) => api.post<{ downloadUrl: string; filename: string; mimeType: string }>('/files/signed-download-url', { fileId }),
   link: (body: any) => api.post('/files/link', body),
+  links: (params?: Record<string, string | number | undefined>) => api.get<Paginated<any>>(`/files/links${qs(params)}`),
   remove: (id: string) => api.delete(`/files/${id}`),
 };
 

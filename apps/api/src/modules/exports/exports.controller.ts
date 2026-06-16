@@ -8,6 +8,7 @@ import { PermissionsGuard, RequirePermissions } from '../../shared/security/perm
 import { CurrentUser } from '../../shared/security/current-user.decorator';
 import type { AuthContext } from '../../shared/security/auth.types';
 import { rowsToXlsxBuffer, sendXlsx, sheetsToXlsxBuffer } from '../../shared/utils/excel-export';
+import { rowsToPdfBuffer, sendPdf } from '../../shared/utils/pdf-export';
 import { ExportsService } from './exports.service';
 
 const oppQuery = z.object({
@@ -36,6 +37,11 @@ const poQuery = z.object({
 const operationalQuery = z.object({
   year: z.coerce.number().int().min(2000).max(2100).default(new Date().getFullYear()),
   period: z.enum(['monthly', 'yearly']).default('monthly'),
+});
+const statementQuery = z.object({
+  from: z.coerce.date().optional(),
+  to: z.coerce.date().optional(),
+  format: z.enum(['xlsx', 'pdf']).default('xlsx'),
 });
 
 @UseGuards(AuthGuard, PermissionsGuard)
@@ -99,12 +105,17 @@ export class ExportsController {
   @Get('customer-statement/:companyId')
   async customerStatement(
     @Param('companyId') companyId: string,
-    @Query(new ZodValidationPipe(z.object({ from: z.coerce.date().optional(), to: z.coerce.date().optional() }))) range: { from?: Date; to?: Date },
+    @Query(new ZodValidationPipe(statementQuery)) range: z.infer<typeof statementQuery>,
     @CurrentUser() user: AuthContext,
     @Res({ passthrough: true }) reply: FastifyReply
   ) {
     const rows = await this.svc.exportCustomerStatement(user, companyId, range);
-    return sendXlsx(reply, await rowsToXlsxBuffer(rows, 'Cari Ekstre'), `cari-ekstre-${companyId}.xlsx`);
+    const baseName = `cari-ekstre-${companyId}`;
+    if (range.format === 'pdf') {
+      const buffer = await rowsToPdfBuffer({ title: 'Cari Ekstre', rows });
+      return sendPdf(reply, buffer, `${baseName}.pdf`);
+    }
+    return sendXlsx(reply, await rowsToXlsxBuffer(rows, 'Cari Ekstre'), `${baseName}.xlsx`);
   }
 
   @RequirePermissions('reports.export')

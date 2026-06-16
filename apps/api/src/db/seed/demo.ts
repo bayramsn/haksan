@@ -1,11 +1,13 @@
 /**
- * Seed demo tenant + 3 user roles + KILİTSAN/MANFORD/LK/ECOCA test data.
+ * GELİŞTİRME / CI — örnek tenant, kullanıcılar ve iş verisi.
+ * Canlı ortamda ÇALIŞTIRMAYIN. Production: db:seed + db:bootstrap (sıfır iş verisi).
  * Run AFTER seedLookups() because it joins on lookup codes.
  */
 import * as argon2 from 'argon2';
 import { eq, and } from 'drizzle-orm';
 import { getDb, closeDb, schema } from '../client';
 import { allRoles, rolePermissionMatrix } from './_data';
+import { seedLookups } from './lookups';
 
 async function getOrCreate<T extends { id: string }>(
   table: { findFirst?: never },
@@ -1020,8 +1022,10 @@ export async function seedDemo(): Promise<void> {
 }
 
 if (require.main === module) {
-  seedDemo()
+  seedLookups()
+    .then(() => seedDemo())
     .then(() => closeDb())
+    .then(() => console.log('[demo] done (dev/CI only — not for production)'))
     .catch((err) => {
       console.error('[demo] failed:', err);
       process.exit(1);

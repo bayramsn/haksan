@@ -65,6 +65,8 @@ export const serviceTickets = pgTable(
     reportedAt: timestamp('reported_at', { withTimezone: true }).notNull().defaultNow(),
     resolvedAt: timestamp('resolved_at', { withTimezone: true }),
     resolutionNote: text('resolution_note'),
+    /** Timer, operations, activity history — UI session fields persisted as JSON. */
+    metadata: jsonb('metadata').$type<Record<string, unknown>>(),
     ...auditColumns,
   },
   (t) => ({

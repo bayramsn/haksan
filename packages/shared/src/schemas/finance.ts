@@ -73,6 +73,17 @@ export const accountingInvoiceCreateSchema = z.object({
       })
     )
     .optional(),
+  /** Satış faturası stok satırları — tezgah için seri no zorunlu */
+  lineItems: z.array(
+    z.object({
+      productModelId: z.string().optional(),
+      inventoryItemId: z.string().optional(),
+      categoryCode: z.string().max(64).optional(),
+      description: z.string().max(500).optional(),
+      quantity: z.coerce.number().positive().default(1),
+      saleType: z.enum(['tezgah', 'product']).optional(),
+    })
+  ).optional(),
 });
 export type AccountingInvoiceCreateInput = z.infer<typeof accountingInvoiceCreateSchema>;
 

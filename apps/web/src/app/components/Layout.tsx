@@ -6,7 +6,7 @@ import {
   CreditCard, Boxes, ShoppingCart, Truck, Wrench, PackageCheck, Cpu,
   LifeBuoy, BarChart3, ShieldCheck, Building2, Contact as ContactIcon, Settings as SettingsIcon,
   Search, Bell, ChevronDown, LogOut, Plus, HelpCircle, Menu,
-  CheckCircle2, Clock, AlertTriangle, XCircle, ChevronRight, Tag, Receipt, Map as MapIcon, FileSignature, QrCode,
+  CheckCircle2, Clock, AlertTriangle, XCircle, ChevronRight, Tag, Receipt, Map as MapIcon, FileSignature, QrCode, Wallet, Calendar,
 } from "lucide-react";
 import { useAuth } from "../../lib/auth";
 import { toast } from "sonner";
@@ -26,7 +26,7 @@ import { buildAlerts, type OperationAction } from "../lib/operations";
 
 export type NavKey =
   | "dashboard" | "customers" | "contacts" | "sales-cases" | "kanban" | "sales-map" | "offers"
-  | "proformas" | "contracts" | "documents" | "payments" | "sales-price-list" | "products"
+  | "proformas" | "contracts" | "documents" | "payments" | "accounting-invoices" | "customer-balances" | "due-dates" | "sales-price-list" | "products"
   | "stock" | "purchase-orders" | "shipments"
   | "installations" | "deliveries" | "machines" | "lifecycle" | "service-requests" | "service-kanban" | "service-price-list"
   | "reports" | "users" | "roles" | "departments" | "settings";
@@ -66,6 +66,9 @@ const NAV: { group: string; items: NavItem[] }[] = [
       { key: "stock", label: "Stok", icon: Boxes, roles: ["stock"] },
       { key: "purchase-orders", label: "Satın Alma", icon: ShoppingCart, roles: ["stock", "finance"] },
       { key: "payments", label: "Ödemeler & Kasa", icon: CreditCard, roles: ["finance"] },
+      { key: "accounting-invoices", label: "Muhasebe Faturaları", icon: Receipt, roles: ["finance", "sales"] },
+      { key: "customer-balances", label: "Cari Rapor", icon: Wallet, roles: ["finance"] },
+      { key: "due-dates", label: "Vade Takvimi", icon: Calendar, roles: ["finance"] },
       { key: "shipments", label: "Sevkiyat", icon: Truck, roles: ["stock"] },
       { key: "deliveries", label: "Teslimat", icon: PackageCheck, roles: ["stock", "service"] },
     ],

@@ -20,7 +20,7 @@ import { Label } from "../ui/label";
 import { Alert, AlertDescription, AlertTitle } from "../ui/alert";
 import { Skeleton } from "../ui/skeleton";
 import { StatusBadge } from "../Layout";
-import { CreateStockDialog, CreateServiceRequestDialog, CreateInstallationDialog, CreateMachineDialog, CreatePaymentDialog, CreateShipmentDialog, CreateDeliveryDialog, DeliveryFormFields, deliveryFormToPayload, deliveryToFormState, type DeliveryFormState } from "../dialogs/CreateDialogs";
+import { CreateStockDialog, CreateServiceRequestDialog, CreateInstallationDialog, CreatePaymentDialog, CreateShipmentDialog, CreateDeliveryDialog, DeliveryFormFields, deliveryFormToPayload, deliveryToFormState, type DeliveryFormState } from "../dialogs/CreateDialogs";
 import { QuoteDialog } from "../dialogs/QuoteDialog";
 import { DocumentUploadDialog } from "../dialogs/DocumentUploadDialog";
 import { DocumentPreviewDialog } from "../dialogs/DocumentPreviewDialog";
@@ -79,8 +79,13 @@ import { printOrWarn, openInMaps, formatDate, formatCurrency, splitVat } from ".
 export { OffersPage } from "./offers/OffersPage";
 export { DocumentsPage } from "./documents/DocumentsPage";
 export { PaymentsPage } from "./payments/PaymentsPage";
+export { CustomerBalancesPage } from "./finance/CustomerBalancesPage";
+export { DueDatesCalendarPage } from "./finance/DueDatesCalendarPage";
+export { AccountingInvoicesPage } from "./finance/AccountingInvoicesPage";
 export { StockPage } from "./stock/StockPage";
 export { ServiceRequestsPage, ServiceKanbanPage } from "./service/ServicePages";
+export { MachinesPage } from "./machines/MachinesPage";
+export { SettingsPage } from "./settings/SettingsPage";
 
 export function PurchaseOrdersPage() {
   const [orders, setOrders] = useState<any[]>([]);
@@ -1218,72 +1223,6 @@ function DeliveryDetailDialog({
     </Dialog>
   );
 }
-
-export function MachinesPage() {
-  const { machines, service, customers } = useStore();
-  const customerName = (id: string) => customers.find((c) => c.id === id)?.name ?? "—";
-  return (
-    <Card className="border-border/60 shadow-sm overflow-hidden">
-      <CardHeader>
-        <div className="flex items-center justify-between">
-          <CardTitle>Makineler / Varlıklar</CardTitle>
-          <CreateMachineDialog>
-            <Button size="sm">Yeni Makine Ekle</Button>
-          </CreateMachineDialog>
-        </div>
-      </CardHeader>
-      <div className="overflow-x-auto">
-        {machines.length === 0 ? (
-          <div className="flex flex-col items-center justify-center p-12 text-center">
-            <div className="size-12 rounded-full bg-muted grid place-items-center mb-3">
-              <svg className="size-6 text-muted-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 002-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
-              </svg>
-            </div>
-            <h3 className="font-medium">Kayıtlı Makine Yok</h3>
-            <p className="text-sm text-muted-foreground mt-1 max-w-sm">
-              Şu anda sisteme kayıtlı bir makine bulunmuyor. Yeni bir makine/varlık ekleyerek servis süreçlerini başlatabilirsiniz.
-            </p>
-            <CreateMachineDialog>
-              <Button className="mt-4">Yeni Makine Ekle</Button>
-            </CreateMachineDialog>
-          </div>
-        ) : (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Seri No</TableHead>
-                <TableHead>Model</TableHead>
-                <TableHead>Müşteri</TableHead>
-                <TableHead>Kurulum</TableHead>
-                <TableHead>Garanti Bitiş</TableHead>
-                <TableHead>Servis Sayısı</TableHead>
-                <TableHead>Durum</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {machines.map((m) => {
-                const srCount = service.filter((s) => s.machineId === m.id).length;
-                return (
-                  <TableRow key={m.id}>
-                    <TableCell>{m.serialNumber}</TableCell>
-                    <TableCell>{m.model}</TableCell>
-                    <TableCell>{customerName(m.customerId)}</TableCell>
-                    <TableCell className="text-muted-foreground">{m.installationDate}</TableCell>
-                    <TableCell className="text-muted-foreground">{m.warrantyEnd}</TableCell>
-                    <TableCell className="tabular-nums">{srCount}</TableCell>
-                    <TableCell><StatusBadge status={m.status} /></TableCell>
-                  </TableRow>
-                );
-              })}
-            </TableBody>
-          </Table>
-        )}
-      </div>
-    </Card>
-  );
-}
-
 
 const TR_MONTHS = ["Oca", "Şub", "Mar", "Nis", "May", "Haz", "Tem", "Ağu", "Eyl", "Eki", "Kas", "Ara"];
 
@@ -3148,6 +3087,7 @@ const RESOURCE_LABEL: Record<string, string> = {
   proformas: "Proformalar",
   contracts: "Sözleşmeler",
   commercial_invoices: "Ticari Faturalar",
+  accounting_invoices: "Muhasebe Faturaları",
   purchase_orders: "Satın Alma",
   shipments: "Sevkiyat",
   installations: "Kurulumlar",
@@ -3793,129 +3733,5 @@ export function DepartmentsPage() {
         </Table>
       </div>
     </Card>
-  );
-}
-
-export function SettingsPage() {
-  const STORAGE_KEY = "haksan:settings";
-  type SettingsData = {
-    companyName: string;
-    taxId: string;
-    email: string;
-    phone: string;
-    notifyNewCase: boolean;
-    notifyQuoteApproved: boolean;
-    notifyPaymentOverdue: boolean;
-    notifyService: boolean;
-    currency: string;
-    timezone: string;
-  };
-  const defaults: SettingsData = {
-    companyName: "Haksan Makina A.Ş.",
-    taxId: "",
-    email: "info@haksan.local",
-    phone: "",
-    notifyNewCase: true,
-    notifyQuoteApproved: true,
-    notifyPaymentOverdue: true,
-    notifyService: false,
-    currency: "USD",
-    timezone: "Europe/Istanbul",
-  };
-  const [form, setForm] = useState<SettingsData>(() => {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      return raw ? { ...defaults, ...JSON.parse(raw) } : defaults;
-    } catch {
-      return defaults;
-    }
-  });
-  const [saved, setSaved] = useState(false);
-
-  const save = () => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(form));
-    setSaved(true);
-    toast.success("Ayarlar bu cihazda kaydedildi", { description: "Sunucu senkronizasyonu yakında." });
-    setTimeout(() => setSaved(false), 2000);
-  };
-
-  return (
-    <div className="space-y-4 max-w-4xl">
-      <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900">
-        Ayarlar şimdilik tarayıcıda saklanır. Kurumsal senkronizasyon için backend API yakında eklenecek.
-      </div>
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-      <Card className="border-border/60 shadow-sm overflow-hidden">
-        <CardHeader><CardTitle>Şirket Bilgileri</CardTitle></CardHeader>
-        <CardContent className="space-y-3">
-          <SettingsField label="Şirket Adı" value={form.companyName} onChange={(v) => setForm({ ...form, companyName: v })} />
-          <SettingsField label="VKN" value={form.taxId} onChange={(v) => setForm({ ...form, taxId: v })} />
-          <SettingsField label="E-posta" value={form.email} onChange={(v) => setForm({ ...form, email: v })} />
-          <SettingsField label="Telefon" value={form.phone} onChange={(v) => setForm({ ...form, phone: v })} />
-        </CardContent>
-      </Card>
-      <Card className="border-border/60 shadow-sm overflow-hidden">
-        <CardHeader><CardTitle>Bildirimler</CardTitle></CardHeader>
-        <CardContent className="space-y-3">
-          <SettingsToggle label="Yeni satış kartı oluşturulduğunda" checked={form.notifyNewCase} onChange={(v) => setForm({ ...form, notifyNewCase: v })} />
-          <SettingsToggle label="Teklif onaylandığında" checked={form.notifyQuoteApproved} onChange={(v) => setForm({ ...form, notifyQuoteApproved: v })} />
-          <SettingsToggle label="Ödeme gecikmesinde" checked={form.notifyPaymentOverdue} onChange={(v) => setForm({ ...form, notifyPaymentOverdue: v })} />
-          <SettingsToggle label="Yeni servis talebinde" checked={form.notifyService} onChange={(v) => setForm({ ...form, notifyService: v })} />
-        </CardContent>
-      </Card>
-      <Card className="border-border/60 shadow-sm overflow-hidden">
-        <CardHeader><CardTitle>Para Birimi & Bölge</CardTitle></CardHeader>
-        <CardContent className="space-y-3">
-          <SettingsField label="Varsayılan Para Birimi" value={form.currency} onChange={(v) => setForm({ ...form, currency: v })} />
-          <SettingsField label="Saat Dilimi" value={form.timezone} onChange={(v) => setForm({ ...form, timezone: v })} />
-        </CardContent>
-      </Card>
-      <Card className="border-border/60 shadow-sm overflow-hidden">
-        <CardHeader><CardTitle>Depolama</CardTitle></CardHeader>
-        <CardContent className="space-y-3 text-sm text-muted-foreground">
-          <p>Dosya yüklemeleri S3 uyumlu depolamada tutulur. Bucket ve sağlayıcı yapılandırması sunucu tarafından yönetilir.</p>
-        </CardContent>
-      </Card>
-      </div>
-      <Button onClick={save} className="gap-1">
-        <Save className="size-4" /> {saved ? "Kaydedildi" : "Kaydet"}
-      </Button>
-    </div>
-  );
-}
-
-function SettingsField({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
-  return (
-    <div>
-      <Label className="text-xs text-muted-foreground">{label}</Label>
-      <Input value={value} onChange={(e) => onChange(e.target.value)} className="mt-1" />
-    </div>
-  );
-}
-
-function SettingsToggle({ label, checked, onChange }: { label: string; checked: boolean; onChange: (v: boolean) => void }) {
-  return (
-    <div className="flex items-center justify-between">
-      <Label className="font-normal text-sm">{label}</Label>
-      <Switch checked={checked} onCheckedChange={onChange} />
-    </div>
-  );
-}
-
-function Field({ label, defaultValue }: { label: string; defaultValue?: string }) {
-  return (
-    <div>
-      <Label className="text-xs text-muted-foreground">{label}</Label>
-      <Input defaultValue={defaultValue} className="mt-1" />
-    </div>
-  );
-}
-
-function Toggle({ label, defaultChecked }: { label: string; defaultChecked?: boolean }) {
-  return (
-    <div className="flex items-center justify-between">
-      <Label className="font-normal text-sm">{label}</Label>
-      <Switch defaultChecked={defaultChecked} />
-    </div>
   );
 }

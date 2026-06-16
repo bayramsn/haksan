@@ -11,7 +11,7 @@ import { SalesCasesPage } from "./components/pages/SalesCases";
 import { SalesMapPage } from "./components/pages/SalesMap";
 import { SalesCaseDetailDialog } from "./components/pages/SalesCaseDetail";
 import {
-  OffersPage, DocumentsPage, PaymentsPage, StockPage, PurchaseOrdersPage,
+  OffersPage, DocumentsPage, PaymentsPage, AccountingInvoicesPage, CustomerBalancesPage, DueDatesCalendarPage, StockPage, PurchaseOrdersPage,
   ShipmentsPage, InstallationsPage, DeliveriesPage, MachinesPage,
   ServiceRequestsPage, ServiceKanbanPage, ReportsPage, UsersPage, RolesPage, DepartmentsPage,
   SettingsPage,
@@ -43,6 +43,9 @@ const TITLES: Record<NavKey, { title: string; subtitle?: string }> = {
   contracts: { title: "Sözleşmeler", subtitle: "Satış sözleşmeleri ve PDF çıktıları" },
   documents: { title: "Dokümanlar", subtitle: "Proforma, sözleşme, fatura ve kurulum belgeleri" },
   payments: { title: "Ödemeler & Kasa", subtitle: "Kasa giriş/çıkış takibi · alınan ve ödenen" },
+  "accounting-invoices": { title: "Muhasebe Faturaları", subtitle: "Satış/alış fatura ve vade planı" },
+  "customer-balances": { title: "Cari Rapor", subtitle: "Firma borç/alacak özeti ve ekstre" },
+  "due-dates": { title: "Vade Takvimi", subtitle: "Tahsil ve ödeme vadeleri" },
   "sales-price-list": { title: "Satış Fiyat Listesi", subtitle: "Tezgahlar ve uyumlu opsiyonel donanım fiyatları" },
   products: { title: "Ürünler", subtitle: "Makine modeline göre ürün kataloğu" },
   stock: { title: "Stok", subtitle: "Seri numarası bazlı stok yönetimi" },
@@ -164,6 +167,9 @@ function AppShell() {
       case "contracts": content = <DocumentsPage initialType="Contract" initialQuery={focus?.nav === "contracts" ? focus.query : undefined} title="Sözleşmeler" description="Satış sözleşmeleri, yüklenen PDF'ler ve sözleşme çıktıları" />; break;
       case "documents": content = <DocumentsPage initialQuery={focus?.nav === "documents" ? focus.query : undefined} />; break;
       case "payments": content = <PaymentsPage focus={focus?.nav === "payments" ? focus.focus : undefined} />; break;
+      case "accounting-invoices": content = <AccountingInvoicesPage />; break;
+      case "customer-balances": content = <CustomerBalancesPage />; break;
+      case "due-dates": content = <DueDatesCalendarPage />; break;
       case "sales-price-list": content = <SalesPriceListPage />; break;
       case "products": content = <ProductsPage initialQuery={focus?.nav === "products" ? focus.query : undefined} />; break;
       case "stock": content = <StockPage focus={focus?.nav === "stock" ? focus.focus : undefined} initialQuery={focus?.nav === "stock" ? focus.query : undefined} />; break;

@@ -20,6 +20,7 @@ import { Payment } from "../../../lib/mock";
 import { toast } from "sonner";
 import { financeService, fileService } from "../../../../lib/services";
 import { FilterPopover, usePaged, Pager } from "../../ui/list-controls";
+import { CreateAccountingInvoiceDialog } from "../finance/CreateAccountingInvoiceDialog";
 import { ExportExcelButton } from "../../ui/ExportExcelButton";
 import type { OperationFocus } from "../../../lib/operations";
 import {
@@ -34,6 +35,17 @@ import {
 export function PaymentsPage({ focus }: { focus?: OperationFocus }) {
   const { payments, customers, refresh } = useStore();
   const { convert } = useFx();
+  const [upcomingDues, setUpcomingDues] = useState<Array<{ id: string; companyName: string; dueDate: string; amount: number; currencyCode: string; type: string }>>([]);
+
+  useEffect(() => {
+    const from = new Date();
+    const to = new Date();
+    to.setDate(to.getDate() + 60);
+    financeService
+      .dueDates({ from: from.toISOString(), to: to.toISOString() })
+      .then((rows) => setUpcomingDues((rows ?? []).slice(0, 5)))
+      .catch(() => setUpcomingDues([]));
+  }, [payments.length]);
   // Farklı para birimleri toplanamaz → USD bazına çevirip topla (genel/baz birim USD).
   const toUsd = (p: Payment) => convert(p.amount, p.currency, "USD");
   const customerName = (id: string) => customers.find((c) => c.id === id)?.name ?? "—";
@@ -211,6 +223,32 @@ export function PaymentsPage({ focus }: { focus?: OperationFocus }) {
           )}
         </CardContent>
       </Card>
+
+      {upcomingDues.length > 0 && (
+        <Card className="border-border/60 shadow-sm">
+          <CardHeader className="pb-2">
+            <CardTitle className="tracking-tight flex items-center gap-2 text-base">
+              <Clock className="size-4 text-amber-600" /> Yaklaşan Vadeler
+            </CardTitle>
+            <p className="text-xs text-muted-foreground">Önümüzdeki 60 gün · en yakın 5 kayıt</p>
+          </CardHeader>
+          <CardContent className="divide-y divide-border/60">
+            {upcomingDues.map((d) => (
+              <div key={d.id} className="flex items-center justify-between gap-3 py-2.5 text-sm">
+                <div className="min-w-0">
+                  <div className="truncate font-medium">{d.companyName}</div>
+                  <div className="text-xs text-muted-foreground">
+                    {new Date(d.dueDate).toLocaleDateString("tr-TR")} · {d.type === "alacak" ? "Ödenecek" : "Tahsil"}
+                  </div>
+                </div>
+                <div className="tabular-nums shrink-0 font-medium">
+                  {d.amount.toLocaleString("tr-TR")} {d.currencyCode}
+                </div>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
 
       {/* Charts row */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
@@ -441,6 +479,7 @@ export function PaymentsPage({ focus }: { focus?: OperationFocus }) {
               <Input placeholder="Firma ara..." className="pl-9 h-9 bg-white" value={q} onChange={(e) => setQ(e.target.value)} />
             </div>
             <ExportExcelButton path="/exports/finance" filename="kasa-hareketleri.xlsx" className="h-9 justify-center" />
+            <CreateAccountingInvoiceDialog onCreated={refresh} trigger={<Button size="sm" variant="outline" className="h-9 gap-1"><Receipt className="size-4" /> Muhasebe Faturası</Button>} />
             <CreatePaymentDialog
               onCreated={refresh}
               defaultDirection={dirFilter === "out" ? "out" : "in"}
@@ -454,6 +493,7 @@ export function PaymentsPage({ focus }: { focus?: OperationFocus }) {
               <TableRow className="bg-muted/30 hover:bg-muted/30">
                 <TableHead className="w-[280px]">Firma</TableHead>
                 <TableHead>Yön</TableHead>
+                <TableHead>Fatura No</TableHead>
                 <TableHead className="text-right">Tutar</TableHead>
                 <TableHead>Vade</TableHead>
                 <TableHead>Ödeme Tarihi</TableHead>
@@ -497,6 +537,7 @@ export function PaymentsPage({ focus }: { focus?: OperationFocus }) {
                         {p.direction === "in" ? "Alınan" : "Ödenen"}
                       </span>
                     </TableCell>
+                    <TableCell className="text-xs text-muted-foreground">{p.invoiceNo || "—"}</TableCell>
                     <TableCell className="text-right tabular-nums">
                       <span className={`text-sm ${p.direction === "in" ? "text-emerald-700" : "text-red-600"}`}>
                         {p.direction === "in" ? "+" : "−"}{p.amount.toLocaleString()}
@@ -519,7 +560,7 @@ export function PaymentsPage({ focus }: { focus?: OperationFocus }) {
               })}
               {filtered.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={7} className="text-center py-12 text-sm text-muted-foreground">
+                  <TableCell colSpan={8} className="text-center py-12 text-sm text-muted-foreground">
                     Bu filtreye uyan hareket bulunamadı.
                   </TableCell>
                 </TableRow>
@@ -719,6 +760,7 @@ function PaymentDetailDialog({
                 />
                 <DetailRow label="USD karşılığı" value={`≈ $ ${Math.round(convert(payment.amount, payment.currency, "USD")).toLocaleString()}`} />
                 <DetailRow label="Vade" value={payment.dueDate} />
+                <DetailRow label="Fatura No" value={payment.invoiceNo || "—"} />
                 <DetailRow label="Ödeme Tarihi" value={payment.paidDate ?? "—"} />
                 <div className="rounded-lg border border-border/60 bg-white px-3 py-2">
                   <div className="text-[11px] uppercase tracking-wide text-muted-foreground">Durum</div>

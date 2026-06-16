@@ -27,11 +27,46 @@ import { Customer, Offer, SalesCase, User } from "../../../lib/mock";
 import { toast } from "sonner";
 import { salesOrderService, quoteService } from "../../../../lib/services";
 import { ExportExcelButton } from "../../ui/ExportExcelButton";
+import { CreateAccountingInvoiceDialog, type AccountingInvoicePrefill } from "../finance/CreateAccountingInvoiceDialog";
 import type { OperationFocus } from "../../../lib/operations";
 import {
   printAssetBase, trShortDate, quoteDoc, QUOTE_NOTE_VARIANTS,
 } from "../../../lib/print";
 import { printOrWarn, splitVat, formatDate, formatCurrency } from "../../../lib/pageHelpers";
+
+function invoicePrefillFromOffer(offer: Offer, customer: Customer | null, order?: any): AccountingInvoicePrefill {
+  const vat = splitVat(offer.amount, { subtotal: offer.subtotal, vatTotal: offer.vatTotal });
+  return {
+    companyId: offer.companyId ?? customer?.id ?? "",
+    amount: vat.net,
+    vatAmount: vat.kdv,
+    grandTotal: offer.amount,
+    currencyCode: offer.currency,
+    invoiceNo: `MF-${offer.quoteNo}`,
+    quoteId: offer.id,
+    salesOrderId: order?.id,
+    notes: order?.orderNo
+      ? `Satış siparişi ${order.orderNo} / teklif ${offer.quoteNo}`
+      : `Teklif ${offer.quoteNo} kaynaklı`,
+    type: "sales",
+  };
+}
+
+function invoicePrefillFromOrder(order: any): AccountingInvoicePrefill {
+  const grandTotal = Number(order.grandTotal ?? 0);
+  return {
+    companyId: order.companyId ?? order.company?.id ?? "",
+    amount: grandTotal,
+    grandTotal,
+    vatAmount: 0,
+    currencyCode: order.currency?.code ?? "USD",
+    invoiceNo: `MF-${order.orderNo}`,
+    quoteId: order.quoteId ?? order.quote?.id,
+    salesOrderId: order.id,
+    notes: `Satış siparişi ${order.orderNo} kaynaklı`,
+    type: "sales",
+  };
+}
 
 export function OffersPage({ focus }: { focus?: OperationFocus }) {
   const { offers: rawOffers, cases, customers, users, moveCase, refresh } = useStore();
@@ -385,6 +420,7 @@ export function OffersPage({ focus }: { focus?: OperationFocus }) {
                 <TableHead>Tarih</TableHead>
                 <TableHead className="text-right">Tutar</TableHead>
                 <TableHead>Durum</TableHead>
+                <TableHead className="w-28" />
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -407,18 +443,29 @@ export function OffersPage({ focus }: { focus?: OperationFocus }) {
                     {formatCurrency(Number(order.grandTotal ?? 0), order.currency?.code ?? "USD")}
                   </TableCell>
                   <TableCell><StatusBadge status={order.status?.name ?? order.status?.code ?? "Taslak"} /></TableCell>
+                  <TableCell>
+                    <CreateAccountingInvoiceDialog
+                      prefill={invoicePrefillFromOrder(order)}
+                      onCreated={refresh}
+                      trigger={
+                        <Button size="sm" variant="outline" className="h-8 gap-1 text-xs">
+                          <Receipt className="size-3.5" /> Muhasebe Faturası
+                        </Button>
+                      }
+                    />
+                  </TableCell>
                 </TableRow>
               ))}
               {!salesOrdersLoading && salesOrders.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={5} className="text-center py-10 text-sm text-muted-foreground">
+                  <TableCell colSpan={6} className="text-center py-10 text-sm text-muted-foreground">
                     Henüz satış siparişi yok.
                   </TableCell>
                 </TableRow>
               )}
               {salesOrdersLoading && (
                 <TableRow>
-                  <TableCell colSpan={5} className="text-center py-10 text-sm text-muted-foreground">
+                  <TableCell colSpan={6} className="text-center py-10 text-sm text-muted-foreground">
                     Satış siparişleri yükleniyor...
                   </TableCell>
                 </TableRow>
@@ -431,7 +478,7 @@ export function OffersPage({ focus }: { focus?: OperationFocus }) {
   );
 }
 
-function OfferDetailDialog({
+export function OfferDetailDialog({
   offer,
   salesCase,
   customer,
@@ -677,6 +724,17 @@ function OfferDetailDialog({
               <Button className="gap-1 sm:w-auto" onClick={() => onQuoteAction(offer.id, "send")}>
                 <Mail className="size-4" /> Gönder
               </Button>
+            )}
+            {offer.status === "Approved" && (
+              <CreateAccountingInvoiceDialog
+                prefill={invoicePrefillFromOffer(offer, customer, order)}
+                onCreated={onOrderCreated}
+                trigger={
+                  <Button variant="outline" className="gap-1 sm:w-auto">
+                    <Receipt className="size-4" /> Muhasebe Faturası Oluştur
+                  </Button>
+                }
+              />
             )}
             {offer.status === "Approved" && !order && (
               <Button

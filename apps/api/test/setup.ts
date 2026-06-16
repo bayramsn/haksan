@@ -1,6 +1,6 @@
 /**
  * Boots the full Nest app against the live Docker Postgres. Tests assume
- * `npm run db:migrate && npm run db:seed` has been run.
+ * `npm run db:migrate && npm run db:seed:demo` has been run.
  */
 import 'reflect-metadata';
 import { NestFactory } from '@nestjs/core';

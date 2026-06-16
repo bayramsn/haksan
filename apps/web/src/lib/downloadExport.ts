@@ -57,6 +57,11 @@ export const exportService = {
   quotes: (params?: Record<string, string | undefined>) =>
     downloadExport('/exports/quotes', 'teklifler.xlsx', params),
   finance: () => downloadExport('/exports/finance', 'kasa-hareketleri.xlsx'),
+  customerStatement: (companyId: string, filename?: string, params?: Record<string, string | number | undefined | null>) =>
+    downloadExport('/exports/customer-statement/' + companyId, filename ?? `cari-ekstre-${companyId}.xlsx`, params),
+  customerStatementPdf: (companyId: string, filename?: string, params?: Record<string, string | number | undefined | null>) =>
+    downloadExport('/exports/customer-statement/' + companyId, filename ?? `cari-ekstre-${companyId}.pdf`, { format: 'pdf', ...params }),
+  customerBalances: () => downloadExport('/exports/customer-balances', 'cari-rapor.xlsx'),
   serviceTickets: () => downloadExport('/exports/service-tickets', 'servis-talepleri.xlsx'),
   inventory: (params?: Record<string, string | undefined>) =>
     downloadExport('/exports/inventory', 'stok.xlsx', params),

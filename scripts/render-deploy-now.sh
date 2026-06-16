@@ -2,8 +2,10 @@
 # Render staging deploy — haksan-api + haksan-web (latest main commit).
 set -euo pipefail
 
-API_SVC="${API_SVC:-haksan-api}"
-WEB_SVC="${WEB_SVC:-haksan-web}"
+API_ID="${API_ID:-srv-d8lcie0js32c73d7caug}"
+WEB_ID="${WEB_ID:-srv-d8lcj328qa3s73a24760}"
+API_URL="${API_URL:-https://haksan-api.onrender.com}"
+WEB_URL="${WEB_URL:-https://haksan-web.onrender.com}"
 
 if ! command -v render >/dev/null 2>&1; then
   echo "Render CLI yok: brew install render"
@@ -15,16 +17,16 @@ if ! render whoami -o text >/dev/null 2>&1; then
   exit 1
 fi
 
-echo "== Deploy: $API_SVC =="
-render deploys create "$API_SVC" --wait --confirm -o text
+echo "== Deploy: haksan-api ($API_ID) =="
+render deploys create "$API_ID" --wait --confirm -o text
 
 echo ""
-echo "== Deploy: $WEB_SVC =="
-render deploys create "$WEB_SVC" --wait --confirm -o text
+echo "== Deploy: haksan-web ($WEB_ID) =="
+render deploys create "$WEB_ID" --wait --confirm -o text
 
 echo ""
 echo "== Smoke =="
-code=$(curl -sS -o /dev/null -w "%{http_code}" "https://${API_SVC}.onrender.com/api/v1/exports/companies")
+code=$(curl -sS -o /dev/null -w "%{http_code}" "${API_URL}/api/v1/exports/companies")
 echo "GET /exports/companies -> HTTP $code (beklenen: 401)"
-curl -fsS "https://${API_SVC}.onrender.com/health" && echo
-echo "Web: https://${WEB_SVC}.onrender.com"
+curl -fsS "${API_URL}/health" && echo
+echo "Web: ${WEB_URL}"

@@ -1,8 +1,8 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
 import { Button } from "../ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../ui/tabs";
-import { ArrowLeft, Plus, Upload, X, XCircle } from "lucide-react";
+import { ArrowLeft, Plus, Upload, X, XCircle, Eye } from "lucide-react";
 import { SalesCase, SALES_STAGES, salesStageLabel } from "../../lib/mock";
 import { StatusBadge } from "../Layout";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../ui/table";
@@ -12,6 +12,9 @@ import { QuoteDialog } from "../dialogs/QuoteDialog";
 import { LostCaseDialog } from "../dialogs/LostCaseDialog";
 import { Dialog, DialogContent } from "../ui/dialog";
 import { DocumentUploadDialog } from "../dialogs/DocumentUploadDialog";
+import { OfferDetailDialog } from "./offers/OffersPage";
+import { fileService, quoteService, salesOrderService } from "../../../lib/services";
+import { toast } from "sonner";
 
 export function SalesCaseDetailDialog({
   sc,
@@ -38,8 +41,10 @@ export function SalesCaseDetailPage({
   onBack: () => void;
   mode?: "page" | "dialog";
 }) {
-  const { offers, activities, customers, users, documents, payments } = useStore();
+  const { offers, activities, customers, users, documents, payments, refresh } = useStore();
   const [lostOpen, setLostOpen] = useState(false);
+  const [selectedOfferId, setSelectedOfferId] = useState<string | null>(null);
+  const [salesOrders, setSalesOrders] = useState<any[]>([]);
   const canMarkLost = !sc.isLost && sc.stage !== "cancelled" && sc.stage !== "delivered";
   const c = customers.find((x) => x.id === sc.customerId);
   const u = users.find((x) => x.id === sc.assignedUserId);
@@ -47,6 +52,59 @@ export function SalesCaseDetailPage({
   const offs = offers.filter((o) => o.salesCaseId === sc.id);
   const docs = documents.filter((d) => d.salesCaseId === sc.id);
   const pays = payments.filter((p) => p.salesCaseId === sc.id);
+  const selectedOffer = selectedOfferId ? offers.find((o) => o.id === selectedOfferId) ?? null : null;
+  const selectedRevisions = selectedOffer
+    ? offs.filter((o) => o.salesCaseId === sc.id).sort((a, b) => b.revision - a.revision)
+    : [];
+  const selectedOrder = selectedOffer
+    ? salesOrders.find((order) => order.quoteId === selectedOffer.id || order.quote?.id === selectedOffer.id)
+    : null;
+
+  useEffect(() => {
+    if (!selectedOfferId) return;
+    let cancelled = false;
+    salesOrderService
+      .list({ pageSize: 50 })
+      .then((res) => {
+        if (!cancelled) setSalesOrders(res.data ?? []);
+      })
+      .catch(() => {
+        if (!cancelled) setSalesOrders([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedOfferId]);
+
+  const runQuoteAction = async (offerId: string, action: "send" | "approve" | "reject") => {
+    try {
+      if (action === "send") await quoteService.send(offerId);
+      else if (action === "approve") await quoteService.approve(offerId);
+      else await quoteService.reject(offerId);
+      toast.success(action === "send" ? "Teklif gönderildi" : action === "approve" ? "Teklif onaylandı" : "Teklif reddedildi");
+      await refresh();
+    } catch (err: any) {
+      toast.error("İşlem başarısız", { description: err?.message ?? "API isteği başarısız oldu." });
+    }
+  };
+
+  const downloadDocument = async (fileId: string | undefined, fileName: string) => {
+    if (!fileId) {
+      toast.message("Dosya bağlantısı yok", { description: "Bu kayıt yalnızca meta veri içeriyor." });
+      return;
+    }
+    try {
+      const signed = await fileService.signedDownload(fileId);
+      const a = document.createElement("a");
+      a.href = signed.downloadUrl;
+      a.download = signed.filename || fileName;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    } catch (err: any) {
+      toast.error("Doküman indirilemedi", { description: err?.message ?? "İstek başarısız oldu." });
+    }
+  };
   const rootClass = mode === "dialog" ? "flex max-h-[90dvh] min-h-0 flex-col overflow-hidden" : "space-y-4";
   const toolbarClass =
     mode === "dialog"
@@ -165,12 +223,39 @@ export function SalesCaseDetailPage({
                 </TableHeader>
                 <TableBody>
                   {offs.map((o) => (
-                    <TableRow key={o.id}>
+                    <TableRow
+                      key={o.id}
+                      className="cursor-pointer hover:bg-muted/40"
+                      tabIndex={0}
+                      onClick={() => setSelectedOfferId(o.id)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          setSelectedOfferId(o.id);
+                        }
+                      }}
+                    >
                       <TableCell>{o.quoteNo}</TableCell>
                       <TableCell>R{o.revision}</TableCell>
                       <TableCell className="text-muted-foreground">{o.date}</TableCell>
                       <TableCell className="tabular-nums">{o.amount.toLocaleString()} {o.currency}</TableCell>
-                      <TableCell><StatusBadge status={o.status} /></TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-2">
+                          <StatusBadge status={o.status} />
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="size-8"
+                            aria-label="Teklif detayı"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setSelectedOfferId(o.id);
+                            }}
+                          >
+                            <Eye className="size-4" />
+                          </Button>
+                        </div>
+                      </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -201,7 +286,19 @@ export function SalesCaseDetailPage({
                 </TableHeader>
                 <TableBody>
                   {docs.map((d) => (
-                    <TableRow key={d.id}>
+                    <TableRow
+                      key={d.id}
+                      className={d.fileId ? "cursor-pointer hover:bg-muted/40" : undefined}
+                      tabIndex={d.fileId ? 0 : undefined}
+                      onClick={() => d.fileId && downloadDocument(d.fileId, d.fileName)}
+                      onKeyDown={(e) => {
+                        if (!d.fileId) return;
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          downloadDocument(d.fileId, d.fileName);
+                        }
+                      }}
+                    >
                       <TableCell><StatusBadge status={d.type} /></TableCell>
                       <TableCell className="max-w-[320px] truncate">{d.fileName}</TableCell>
                       <TableCell className="text-muted-foreground">{d.size}</TableCell>
@@ -249,6 +346,18 @@ export function SalesCaseDetailPage({
         </TabsContent>
       </Tabs>
       </div>
+
+      <OfferDetailDialog
+        offer={selectedOffer}
+        salesCase={sc}
+        customer={c ?? null}
+        assignee={u ?? null}
+        revisions={selectedRevisions}
+        order={selectedOrder}
+        onClose={() => setSelectedOfferId(null)}
+        onQuoteAction={runQuoteAction}
+        onOrderCreated={refresh}
+      />
     </div>
   );
 }

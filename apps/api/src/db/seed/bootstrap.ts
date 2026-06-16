@@ -8,7 +8,7 @@
  *   - 4 standart departman
  *   - TEK admin kullanıcı (super_admin) — ADMIN_EMAIL / ADMIN_PASSWORD
  *
- * Demo şirket/teklif/kullanıcı OLUŞTURMAZ. `db:seed` (demo) yerine production'da
+ * Demo şirket/teklif/kullanıcı OLUŞTURMAZ. Production'da `db:seed` (lookups) sonrası
  * bunu kullanın:
  *   ADMIN_EMAIL=admin@firma.com ADMIN_PASSWORD='GucluParola1!' npm run db:bootstrap
  */

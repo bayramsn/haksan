@@ -6,7 +6,7 @@ import { Input } from "../ui/input";
 import { Search, Download, ArrowUpDown, Building2, MoreHorizontal } from "lucide-react";
 import { SalesCase, salesStageLabel } from "../../lib/mock";
 import { StatusBadge } from "../Layout";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useStore } from "../../lib/store";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../ui/tabs";
 import { KanbanPage } from "./Kanban";
@@ -30,6 +30,7 @@ export function SalesCasesPage({
   const [q, setQ] = useState("");
   const [stage, setStage] = useState("all");
   const [currency, setCurrency] = useState("all");
+  const [nameSort, setNameSort] = useState<"asc" | "desc" | null>(null);
 
   const focusOpen = focus === "open" || focus === "today";
   const focusWon = focus === "won";
@@ -44,7 +45,18 @@ export function SalesCasesPage({
     return (c?.name ?? "").toLowerCase().includes(q.toLowerCase()) || s.requestedProduct.toLowerCase().includes(q.toLowerCase());
   });
 
-  const { page, setPage, totalPages, pageItems } = usePaged(filtered, 12);
+  const sorted = useMemo(() => {
+    if (!nameSort) return filtered;
+    return [...filtered].sort((a, b) => {
+      const an = (customers.find((x) => x.id === a.customerId)?.name ?? "").localeCompare(
+        customers.find((x) => x.id === b.customerId)?.name ?? "",
+        "tr"
+      );
+      return nameSort === "asc" ? an : -an;
+    });
+  }, [filtered, nameSort, customers]);
+
+  const { page, setPage, totalPages, pageItems } = usePaged(sorted, 12);
 
   const stageOptions = Array.from(new Set(salesCases.map((s) => s.stage))).map((v) => ({ value: v, label: salesStageLabel(v) }));
   const currencyOptions = Array.from(new Set(salesCases.map((s) => s.currency))).map((v) => ({ value: v, label: v }));
@@ -114,7 +126,12 @@ export function SalesCasesPage({
             <TableHeader>
               <TableRow className="bg-muted/30 hover:bg-muted/30">
                 <TableHead className="w-[280px]">
-                  <button className="inline-flex items-center gap-1 hover:text-foreground">
+                  <button
+                    type="button"
+                    className="inline-flex items-center gap-1 hover:text-foreground"
+                    onClick={() => setNameSort((s) => (s === "asc" ? "desc" : "asc"))}
+                    aria-label="Müşteriye göre sırala"
+                  >
                     Müşteri <ArrowUpDown className="size-3" />
                   </button>
                 </TableHead>

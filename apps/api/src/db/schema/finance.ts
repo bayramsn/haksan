@@ -7,6 +7,8 @@ import { quotes } from './quotes';
 import { salesOrders } from './orders';
 import { files } from './files';
 import { paymentStatuses, currencies, invoiceStatuses } from './lookup';
+import { productModels } from './products';
+import { inventoryItems } from './inventory';
 
 export const accountingInvoices = pgTable(
   'accounting_invoices',
@@ -40,6 +42,29 @@ export const accountingInvoices = pgTable(
     tenantIdx: index('accounting_invoices_tenant_idx').on(t.tenantId),
     companyIdx: index('accounting_invoices_company_idx').on(t.companyId),
     tenantInvoiceNoUnique: uniqueIndex('accounting_invoices_tenant_invoice_no_unique').on(t.tenantId, t.invoiceNo),
+  })
+);
+
+export const accountingInvoiceLines = pgTable(
+  'accounting_invoice_lines',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id')
+      .notNull()
+      .references(() => tenants.id, { onDelete: 'cascade' }),
+    accountingInvoiceId: uuid('accounting_invoice_id')
+      .notNull()
+      .references(() => accountingInvoices.id, { onDelete: 'cascade' }),
+    productModelId: uuid('product_model_id').references(() => productModels.id, { onDelete: 'set null' }),
+    inventoryItemId: uuid('inventory_item_id').references(() => inventoryItems.id, { onDelete: 'set null' }),
+    categoryCode: varchar('category_code', { length: 64 }),
+    description: text('description'),
+    quantity: money('quantity').notNull().default('1'),
+    ...auditColumns,
+  },
+  (t) => ({
+    invoiceIdx: index('accounting_invoice_lines_invoice_idx').on(t.accountingInvoiceId),
+    inventoryIdx: index('accounting_invoice_lines_inventory_idx').on(t.inventoryItemId),
   })
 );
 

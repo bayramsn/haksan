@@ -23,7 +23,11 @@ import { CurrentUser } from '../../shared/security/current-user.decorator';
 import type { AuthContext } from '../../shared/security/auth.types';
 import { InventoryService } from './inventory.service';
 
-const listQuery = z.object({ search: z.string().optional(), statusCode: z.string().optional() });
+const listQuery = z.object({
+  search: z.string().optional(),
+  statusCode: z.string().optional(),
+  categoryCode: z.string().optional(),
+});
 const cdQuery = z.object({ companyId: z.string().optional() });
 
 @UseGuards(AuthGuard, PermissionsGuard)

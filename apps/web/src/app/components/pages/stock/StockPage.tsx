@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "../../ui/card";
 import { Button } from "../../ui/button";
 import { Input } from "../../ui/input";
@@ -19,13 +19,24 @@ import {
   PieChart, Pie, Cell, Legend,
 } from "recharts";
 import {
-  Plus, Search, Package, Clock, CheckCircle2, AlertTriangle, MapPin, MoreHorizontal,
+  STOCK_CATEGORY_CODES,
+  STOCK_CATEGORY_LABELS,
+  type StockCategoryCode,
+} from "@haksan/shared";
+import {
+  Plus, Search, Package, Clock, CheckCircle2, AlertTriangle, MapPin, MoreHorizontal, Wrench,
 } from "lucide-react";
 
 export function StockPage({ focus, initialQuery }: { focus?: OperationFocus; initialQuery?: string }) {
   const { stock, updateStockStatus } = useStore();
   const [q, setQ] = useState("");
   const [tab, setTab] = useState<"all" | "Available" | "Reserved" | "Sold" | "Inactive">("all");
+  const [categoryTab, setCategoryTab] = useState<"all" | StockCategoryCode>("all");
+
+  const scopedStock = useMemo(
+    () => stock.filter((s) => categoryTab === "all" || (s.categoryCode ?? "TEZGAH") === categoryTab),
+    [stock, categoryTab],
+  );
 
   useEffect(() => {
     if (focus === "reserved") setTab("Reserved");
@@ -38,23 +49,23 @@ export function StockPage({ focus, initialQuery }: { focus?: OperationFocus; ini
   }, [initialQuery]);
 
   const counts = {
-    Available: stock.filter((s) => s.status === "Available").length,
-    Reserved: stock.filter((s) => s.status === "Reserved").length,
-    Sold: stock.filter((s) => s.status === "Sold").length,
-    Inactive: stock.filter((s) => s.status === "Inactive").length,
+    Available: scopedStock.filter((s) => s.status === "Available").length,
+    Reserved: scopedStock.filter((s) => s.status === "Reserved").length,
+    Sold: scopedStock.filter((s) => s.status === "Sold").length,
+    Inactive: scopedStock.filter((s) => s.status === "Inactive").length,
   };
 
-  const warehouses = Array.from(new Set(stock.map((s) => s.warehouse)))
-    .map((w) => ({ name: w, count: stock.filter((s) => s.warehouse === w).length }));
+  const warehouses = Array.from(new Set(scopedStock.map((s) => s.warehouse)))
+    .map((w) => ({ name: w, count: scopedStock.filter((s) => s.warehouse === w).length }));
 
-  const brandPie = Array.from(new Set(stock.map((s) => s.brand)))
+  const brandPie = Array.from(new Set(scopedStock.map((s) => s.brand)))
     .map((b, i) => ({
       name: b,
-      value: stock.filter((s) => s.brand === b).length,
+      value: scopedStock.filter((s) => s.brand === b).length,
       fill: ["#000c69", "#cf060c", "#3b82f6", "#10b981", "#f59e0b"][i % 5],
     }));
 
-  const filtered = stock.filter((s) => {
+  const filtered = scopedStock.filter((s) => {
     if (focus === "low" && s.status !== "Reserved" && s.status !== "Inactive") return false;
     if (focus !== "low" && tab !== "all" && s.status !== tab) return false;
     return (
@@ -73,10 +84,23 @@ export function StockPage({ focus, initialQuery }: { focus?: OperationFocus; ini
   const stockExportParams = {
     ...(q ? { search: q } : {}),
     ...(tab !== "all" ? { statusCode: stockStatusExportCode[tab] ?? tab.toLowerCase() } : {}),
+    ...(categoryTab !== "all" ? { categoryCode: categoryTab } : {}),
   };
 
   return (
     <div className="space-y-5">
+      <Tabs value={categoryTab} onValueChange={(v) => setCategoryTab(v as typeof categoryTab)}>
+        <TabsList className="h-9 bg-muted/60">
+          <TabsTrigger value="all" className="text-xs">Tüm Stok</TabsTrigger>
+          {STOCK_CATEGORY_CODES.map((code) => (
+            <TabsTrigger key={code} value={code} className="text-xs gap-1">
+              {code === "YEDEK_PARCA" ? <Wrench className="size-3.5" /> : <Package className="size-3.5" />}
+              {STOCK_CATEGORY_LABELS[code]}
+            </TabsTrigger>
+          ))}
+        </TabsList>
+      </Tabs>
+
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <MiniKpi tone="emerald" icon={<Package className="size-[18px]" />} label="Hazır Stok" value={counts.Available} sub="adet" delta={5} />
         <MiniKpi tone="amber" icon={<Clock className="size-[18px]" />} label="Rezerve" value={counts.Reserved} sub="bekleyen sipariş" delta={2} />
@@ -88,7 +112,7 @@ export function StockPage({ focus, initialQuery }: { focus?: OperationFocus; ini
         <Card className="lg:col-span-2 border-border/60 shadow-sm">
           <CardHeader className="pb-2">
             <CardTitle className="tracking-tight">Depo Bazında Stok</CardTitle>
-            <p className="text-xs text-muted-foreground">Toplam {stock.length} kalem</p>
+            <p className="text-xs text-muted-foreground">Toplam {scopedStock.length} kalem</p>
           </CardHeader>
           <CardContent className="h-56 pl-2">
             <ResponsiveContainer width="100%" height="100%">
@@ -153,6 +177,7 @@ export function StockPage({ focus, initialQuery }: { focus?: OperationFocus; ini
           <Table>
             <TableHeader>
               <TableRow className="bg-muted/30 hover:bg-muted/30">
+                <TableHead>Kategori</TableHead>
                 <TableHead>Stok</TableHead>
                 <TableHead>Marka</TableHead>
                 <TableHead>Tip / Model</TableHead>
@@ -166,6 +191,9 @@ export function StockPage({ focus, initialQuery }: { focus?: OperationFocus; ini
             <TableBody>
               {filtered.map((s) => (
                 <TableRow key={s.id} className="group">
+                  <TableCell className="text-xs text-muted-foreground">
+                    {s.category ?? STOCK_CATEGORY_LABELS[(s.categoryCode ?? "TEZGAH") as StockCategoryCode]}
+                  </TableCell>
                   <TableCell>
                     <div className="flex items-center gap-2.5">
                       <div className="size-8 rounded-md bg-gradient-to-br from-primary/15 to-primary/5 text-primary grid place-items-center shrink-0">
@@ -196,9 +224,13 @@ export function StockPage({ focus, initialQuery }: { focus?: OperationFocus; ini
                           <DropdownMenuItem
                             key={st}
                             disabled={s.status === st}
-                            onClick={() => {
-                              updateStockStatus(s.id, st);
-                              toast.success("Durum güncellendi", { description: `${s.stockCode} → ${st}` });
+                            onClick={async () => {
+                              try {
+                                await updateStockStatus(s.id, st);
+                                toast.success("Durum güncellendi", { description: `${s.stockCode} → ${st}` });
+                              } catch (err: any) {
+                                toast.error("Durum güncellenemedi", { description: err?.message ?? "API isteği başarısız oldu." });
+                              }
                             }}
                           >
                             {st} olarak işaretle
@@ -211,7 +243,7 @@ export function StockPage({ focus, initialQuery }: { focus?: OperationFocus; ini
               ))}
               {filtered.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={8} className="text-center py-12 text-sm text-muted-foreground">Kayıt bulunamadı.</TableCell>
+                  <TableCell colSpan={9} className="text-center py-12 text-sm text-muted-foreground">Kayıt bulunamadı.</TableCell>
                 </TableRow>
               )}
             </TableBody>

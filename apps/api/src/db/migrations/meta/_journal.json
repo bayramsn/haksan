@@ -169,6 +169,20 @@
       "when": 1781894400000,
       "tag": "0023_finance_cari",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1781980800000,
+      "tag": "0024_service_metadata",
+      "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1782067200000,
+      "tag": "0025_inventory_reservation_invoice_lines",
+      "breakpoints": true
     }
   ]
 }

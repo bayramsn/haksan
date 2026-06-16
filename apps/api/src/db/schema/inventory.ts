@@ -3,6 +3,7 @@ import { auditColumns } from './_helpers';
 import { tenants } from './tenants';
 import { users } from './users';
 import { companies, contacts } from './companies';
+// reservedCompanyId: tezgah rezervasyonunda hangi firmaya ayrıldığı
 import { productModels } from './products';
 import { inventoryStatuses, stockLocationStatuses, warrantyStatuses } from './lookup';
 
@@ -44,6 +45,8 @@ export const inventoryItems = pgTable(
     locationStatusId: uuid('location_status_id').references(() => stockLocationStatuses.id),
     stockStatusId: uuid('stock_status_id').references(() => inventoryStatuses.id),
     warehouseId: uuid('warehouse_id').references(() => warehouses.id),
+    reservedCompanyId: uuid('reserved_company_id').references(() => companies.id, { onDelete: 'set null' }),
+    reservedAt: timestamp('reserved_at', { withTimezone: true }),
     notes: text('notes'),
     ...auditColumns,
   },

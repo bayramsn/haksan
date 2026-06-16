@@ -19,7 +19,7 @@ const REMEMBER_KEY = "haksan:login-email";
 export function LoginPage({ onLogin }: { onLogin: (email: string, password: string) => Promise<void> | void }) {
   const [show, setShow] = useState(false);
   const [email, setEmail] = useState(() => (typeof localStorage !== "undefined" ? localStorage.getItem(REMEMBER_KEY) ?? "" : ""));
-  const [password, setPassword] = useState(isProd ? "" : "admin12345");
+  const [password, setPassword] = useState("");
   const [remember, setRemember] = useState(() => !!(typeof localStorage !== "undefined" && localStorage.getItem(REMEMBER_KEY)));
   const [busy, setBusy] = useState(false);
   const [forgotOpen, setForgotOpen] = useState(false);

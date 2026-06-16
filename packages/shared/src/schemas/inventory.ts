@@ -28,11 +28,21 @@ export const inventoryItemUpdateSchema = inventoryItemCreateSchema.partial();
 export type InventoryItemUpdateInput = z.infer<typeof inventoryItemUpdateSchema>;
 
 export const inventoryReserveSchema = z.object({
+  companyId: z.string().min(1),
   opportunityId: z.string().optional(),
   quoteId: z.string().optional(),
   notes: z.string().max(1000).optional(),
 });
 export type InventoryReserveInput = z.infer<typeof inventoryReserveSchema>;
+
+export const accountingInvoiceLineSchema = z.object({
+  productModelId: z.string().optional(),
+  inventoryItemId: z.string().optional(),
+  categoryCode: z.string().max(64).optional(),
+  description: z.string().max(500).optional(),
+  quantity: z.coerce.number().positive().default(1),
+});
+export type AccountingInvoiceLineInput = z.infer<typeof accountingInvoiceLineSchema>;
 
 export const inventorySellSchema = z.object({
   opportunityId: z.string().optional(),
