@@ -1,5 +1,5 @@
 import { useMemo, useState, type ReactNode } from "react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "../ui/dialog";
 import { Input } from "../ui/input";
 import { Button } from "../ui/button";
 import { Badge } from "../ui/badge";
@@ -58,11 +58,16 @@ export function CommandPalette({
       <DialogContent className="w-[min(720px,calc(100vw-1rem))] max-w-none overflow-hidden p-0 gap-0">
         <DialogHeader className="border-b border-border/60 px-4 py-3">
           <DialogTitle className="text-base tracking-tight">Global arama</DialogTitle>
+          <DialogDescription className="sr-only">
+            Firma, teklif, stok, servis ve diğer kayıtlarda arama yapın.
+          </DialogDescription>
         </DialogHeader>
         <div className="border-b border-border/60 p-3">
           <div className="relative">
             <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
             <Input
+              id="command-palette-search"
+              name="command-palette-search"
               autoFocus
               value={query}
               onChange={(e) => setQuery(e.target.value)}

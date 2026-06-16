@@ -7,12 +7,23 @@
  *   await c.post('/companies', { legalTitle: '…' }) // POST JSON
  */
 
+import type { ZodType } from 'zod';
+
+/**
+ * Per-request options. `schema`, when provided, validates the parsed JSON
+ * response against a shared zod schema so contract drift surfaces immediately
+ * on the client instead of as a downstream `undefined`.
+ */
+export interface RequestOpts<T = unknown> extends RequestInit {
+  schema?: ZodType<T>;
+}
+
 export interface ApiClient {
-  get<T = any>(path: string, opts?: RequestInit): Promise<T>;
-  post<T = any>(path: string, body?: unknown, opts?: RequestInit): Promise<T>;
-  patch<T = any>(path: string, body?: unknown, opts?: RequestInit): Promise<T>;
-  put<T = any>(path: string, body?: unknown, opts?: RequestInit): Promise<T>;
-  delete<T = any>(path: string, opts?: RequestInit): Promise<T>;
+  get<T = any>(path: string, opts?: RequestOpts<T>): Promise<T>;
+  post<T = any>(path: string, body?: unknown, opts?: RequestOpts<T>): Promise<T>;
+  patch<T = any>(path: string, body?: unknown, opts?: RequestOpts<T>): Promise<T>;
+  put<T = any>(path: string, body?: unknown, opts?: RequestOpts<T>): Promise<T>;
+  delete<T = any>(path: string, opts?: RequestOpts<T>): Promise<T>;
 }
 
 export class ApiError extends Error {
@@ -25,6 +36,9 @@ export class ApiError extends Error {
 const BASE_URL = (import.meta.env.VITE_API_BASE_URL as string) ?? 'http://localhost:3000/api/v1';
 
 export const API_BASE_URL = BASE_URL;
+
+/** API host without `/api/v1` — health checks live at `/health/*` on the root. */
+export const API_ORIGIN = BASE_URL.replace(/\/api\/v\d+\/?$/, '');
 
 /**
  * Resolve a stored media reference into a loadable URL.
@@ -68,14 +82,15 @@ async function tryRefresh(): Promise<string | null> {
   return refreshing;
 }
 
-async function request<T>(method: string, path: string, body?: unknown, opts: RequestInit = {}): Promise<T> {
+async function request<T>(method: string, path: string, body?: unknown, opts: RequestOpts<T> = {}): Promise<T> {
+  const { schema, ...init } = opts;
   const url = path.startsWith('http') ? path : `${BASE_URL}${path}`;
-  const headers: Record<string, string> = { Accept: 'application/json', ...(opts.headers as Record<string, string>) };
+  const headers: Record<string, string> = { Accept: 'application/json', ...(init.headers as Record<string, string>) };
   if (body !== undefined && !(body instanceof FormData)) headers['Content-Type'] = 'application/json';
   if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
 
   let res = await fetch(url, {
-    ...opts,
+    ...init,
     method,
     headers,
     credentials: 'include',
@@ -92,7 +107,7 @@ async function request<T>(method: string, path: string, body?: unknown, opts: Re
     if (newToken) {
       const retryHeaders = { ...headers, Authorization: `Bearer ${newToken}` };
       res = await fetch(url, {
-        ...opts,
+        ...init,
         method,
         headers: retryHeaders,
         credentials: 'include',
@@ -114,7 +129,16 @@ async function request<T>(method: string, path: string, body?: unknown, opts: Re
     throw new ApiError(res.status, `HTTP_${res.status}`, res.statusText || `Hata ${res.status}`);
   }
 
-  if (contentType.includes('application/json')) return (await res.json()) as T;
+  if (contentType.includes('application/json')) {
+    const json = await res.json();
+    if (!schema) return json as T;
+    const parsed = schema.safeParse(json);
+    if (parsed.success) return parsed.data;
+    // Response shape diverged from the shared contract. Surface as an ApiError so
+    // callers handle it uniformly; log details for debugging in dev tools.
+    console.error(`[apiClient] response contract violation for ${method} ${path}`, parsed.error.issues);
+    throw new ApiError(res.status, 'CONTRACT_VIOLATION', 'Sunucu yanıtı beklenen biçimde değil', parsed.error.issues);
+  }
   return (await res.text()) as T;
 }
 

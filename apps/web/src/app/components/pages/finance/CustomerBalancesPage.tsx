@@ -4,7 +4,7 @@ import { Button } from "../../ui/button";
 import { Input } from "../../ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../../ui/table";
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle,
+  Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle,
 } from "../../ui/dialog";
 import { MiniKpi } from "../../shared/MiniKpi";
 import { ExportExcelButton } from "../../ui/ExportExcelButton";
@@ -195,6 +195,9 @@ export function CustomerBalancesPage() {
                 </div>
               )}
             </DialogTitle>
+            <DialogDescription className="sr-only">
+              Seçili firmanın borç, alacak ve bakiye hareketleri
+            </DialogDescription>
           </DialogHeader>
           <Table>
             <TableHeader>

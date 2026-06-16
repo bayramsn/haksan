@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
+import { API_ORIGIN } from "../../lib/apiClient";
 
 type ReadyState = "checking" | "ok" | "degraded";
 
-/** API şema/migration durumu — aynı-origin /health/ready (nginx proxy). */
+/** API şema/migration durumu — VDS'te nginx proxy, Render static'te doğrudan API origin. */
 export function ReadinessBanner() {
   const [state, setState] = useState<ReadyState>("checking");
   const [reason, setReason] = useState<string | null>(null);
@@ -11,7 +12,7 @@ export function ReadinessBanner() {
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch("/health/ready", { credentials: "omit" });
+        const res = await fetch(`${API_ORIGIN}/health/ready`, { credentials: "omit" });
         if (cancelled) return;
         if (res.ok) {
           setState("ok");

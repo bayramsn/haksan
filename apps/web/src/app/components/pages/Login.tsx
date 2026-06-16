@@ -141,8 +141,10 @@ export function LoginPage({ onLogin }: { onLogin: (email: string, password: stri
             <CardContent className="p-6">
               <form onSubmit={submit} className="space-y-4">
                 <div>
-                  <Label className="text-xs text-foreground/80">E-posta</Label>
+                  <Label htmlFor="login-email" className="text-xs text-foreground/80">E-posta</Label>
                   <Input
+                    id="login-email"
+                    name="email"
                     type="email"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
@@ -153,7 +155,7 @@ export function LoginPage({ onLogin }: { onLogin: (email: string, password: stri
                 </div>
                 <div>
                   <div className="flex items-center justify-between mb-1.5">
-                    <Label className="text-xs text-foreground/80">Şifre</Label>
+                    <Label htmlFor="login-password" className="text-xs text-foreground/80">Şifre</Label>
                     <button
                       type="button"
                       className="text-xs text-primary hover:underline"
@@ -164,6 +166,8 @@ export function LoginPage({ onLogin }: { onLogin: (email: string, password: stri
                   </div>
                   <div className="relative">
                     <Input
+                      id="login-password"
+                      name="password"
                       type={show ? "text" : "password"}
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
@@ -182,8 +186,10 @@ export function LoginPage({ onLogin }: { onLogin: (email: string, password: stri
                   </div>
                 </div>
 
-                <label className="flex items-center gap-2 text-sm cursor-pointer select-none">
+                <label htmlFor="login-remember" className="flex items-center gap-2 text-sm cursor-pointer select-none">
                   <input
+                    id="login-remember"
+                    name="remember"
                     type="checkbox"
                     className="size-4 rounded border-border accent-primary"
                     checked={remember}
@@ -238,8 +244,17 @@ export function LoginPage({ onLogin }: { onLogin: (email: string, password: stri
               </DialogHeader>
               <form onSubmit={submitForgot} className="space-y-3">
                 <div>
-                  <Label className="text-xs">E-posta</Label>
-                  <Input type="email" value={forgotEmail} onChange={(e) => setForgotEmail(e.target.value)} className="mt-1.5" required />
+                  <Label htmlFor="forgot-email" className="text-xs">E-posta</Label>
+                  <Input
+                    id="forgot-email"
+                    name="forgot-email"
+                    type="email"
+                    value={forgotEmail}
+                    onChange={(e) => setForgotEmail(e.target.value)}
+                    className="mt-1.5"
+                    autoComplete="email"
+                    required
+                  />
                 </div>
                 <DialogFooter>
                   <Button type="button" variant="outline" onClick={() => setForgotOpen(false)}>İptal</Button>

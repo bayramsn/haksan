@@ -7,10 +7,10 @@ import { SalesCase, SALES_STAGES, salesStageLabel } from "../../lib/mock";
 import { StatusBadge } from "../Layout";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../ui/table";
 import { useStore } from "../../lib/store";
-import { AddActivityDialog } from "../dialogs/CreateDialogs";
+import { AddActivityDialog, CreateReceivableDialog } from "../dialogs/CreateDialogs";
 import { QuoteDialog } from "../dialogs/QuoteDialog";
 import { LostCaseDialog } from "../dialogs/LostCaseDialog";
-import { Dialog, DialogContent } from "../ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "../ui/dialog";
 import { DocumentUploadDialog } from "../dialogs/DocumentUploadDialog";
 import { OfferDetailDialog } from "./offers/OffersPage";
 import { fileService, quoteService, salesOrderService } from "../../../lib/services";
@@ -26,6 +26,10 @@ export function SalesCaseDetailDialog({
   return (
     <Dialog open={!!sc} onOpenChange={(open) => !open && onClose()}>
       <DialogContent className="w-[min(1120px,calc(100vw-2rem))] max-w-none sm:max-w-none max-h-[90dvh] overflow-hidden p-0 gap-0">
+        <DialogHeader className="sr-only">
+          <DialogTitle>{sc?.requestedProduct ?? "Satış kartı detayı"}</DialogTitle>
+          <DialogDescription>Satış kartı, teklifler ve aktiviteler</DialogDescription>
+        </DialogHeader>
         {sc && <SalesCaseDetailPage sc={sc} onBack={onClose} mode="dialog" />}
       </DialogContent>
     </Dialog>
@@ -318,6 +322,15 @@ export function SalesCaseDetailPage({
 
         <TabsContent value="payments" className="mt-4">
           <Card>
+            <CardHeader className="flex flex-row items-center justify-between">
+              <CardTitle>Ödemeler & Tahsilatlar</CardTitle>
+              <CreateReceivableDialog
+                defaultCompanyId={sc.customerId}
+                quoteOptions={offs.map((o) => ({ id: o.id, quoteNo: o.quoteNo, revision: o.revision }))}
+                onCreated={refresh}
+                trigger={<Button size="sm" className="gap-1"><Plus className="size-4" /> Tahsilat ekle</Button>}
+              />
+            </CardHeader>
             <div className="overflow-x-auto">
               <Table className="min-w-[620px]">
                 <TableHeader>

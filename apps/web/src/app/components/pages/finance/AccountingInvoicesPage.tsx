@@ -5,7 +5,7 @@ import { Input } from "../../ui/input";
 import { Badge } from "../../ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../../ui/table";
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle,
+  Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle,
 } from "../../ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../ui/select";
 import { financeService } from "../../../../lib/services";
@@ -145,6 +145,9 @@ export function AccountingInvoicesPage() {
         <DialogContent className="max-w-lg">
           <DialogHeader>
             <DialogTitle>Fatura {detail?.invoiceNo}</DialogTitle>
+            <DialogDescription className="sr-only">
+              Fatura özeti ve taksit planı
+            </DialogDescription>
           </DialogHeader>
           {detail && (
             <div className="space-y-3 text-sm">
