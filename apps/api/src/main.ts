@@ -9,6 +9,7 @@ import { loadEnv } from './config/env';
 import { AllExceptionsFilter } from './shared/filters/all-exceptions.filter';
 import { logger } from './shared/utils/logger';
 import { closeDb } from './db/client';
+import { registerHealthRoutes } from './health.routes';
 
 async function bootstrap() {
   const env = loadEnv();
@@ -35,13 +36,7 @@ async function bootstrap() {
   app.setGlobalPrefix(env.API_PREFIX.replace(/^\//, ''));
   app.useGlobalFilters(new AllExceptionsFilter());
 
-  // Health endpoint (no prefix)
-  app.getHttpAdapter().get('/health', (_req: any, res: any) => res.send({ ok: true, ts: new Date().toISOString() }));
-
-  // Root — Render deploy probe ve doğrudan API URL ziyaretleri için
-  const rootPayload = { ok: true, service: 'haksan-api', api: env.API_PREFIX, health: '/health' };
-  app.getHttpAdapter().get('/', (_req: any, res: any) => res.send(rootPayload));
-  app.getHttpAdapter().head('/', (_req: any, res: any) => res.status(200).send());
+  registerHealthRoutes(app, env.API_PREFIX);
 
   await app.listen(env.PORT, '0.0.0.0');
   logger.info({ port: env.PORT, prefix: env.API_PREFIX, env: env.NODE_ENV }, '[api] up');

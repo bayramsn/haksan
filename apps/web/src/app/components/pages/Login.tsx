@@ -8,22 +8,50 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
+import { authService } from "../../../lib/services";
+import {
+  Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
+} from "../ui/dialog";
+
+const isProd = import.meta.env.PROD;
+const REMEMBER_KEY = "haksan:login-email";
 
 export function LoginPage({ onLogin }: { onLogin: (email: string, password: string) => Promise<void> | void }) {
   const [show, setShow] = useState(false);
-  const [email, setEmail] = useState("admin@haksan.local");
-  const [password, setPassword] = useState("admin12345");
+  const [email, setEmail] = useState(() => (typeof localStorage !== "undefined" ? localStorage.getItem(REMEMBER_KEY) ?? "" : ""));
+  const [password, setPassword] = useState(isProd ? "" : "admin12345");
+  const [remember, setRemember] = useState(() => !!(typeof localStorage !== "undefined" && localStorage.getItem(REMEMBER_KEY)));
   const [busy, setBusy] = useState(false);
+  const [forgotOpen, setForgotOpen] = useState(false);
+  const [forgotEmail, setForgotEmail] = useState("");
+  const [forgotBusy, setForgotBusy] = useState(false);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setBusy(true);
     try {
+      if (remember) localStorage.setItem(REMEMBER_KEY, email);
+      else localStorage.removeItem(REMEMBER_KEY);
       await onLogin(email, password);
     } catch (err: any) {
       toast.error(err?.message ?? "Giriş başarısız");
     } finally {
       setBusy(false);
+    }
+  };
+
+  const submitForgot = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!forgotEmail.trim()) return toast.error("E-posta giriniz");
+    setForgotBusy(true);
+    try {
+      await authService.forgotPassword(forgotEmail.trim());
+      toast.success("Şifre sıfırlama bağlantısı gönderildi (varsa)");
+      setForgotOpen(false);
+    } catch (err: any) {
+      toast.error(err?.message ?? "İstek başarısız");
+    } finally {
+      setForgotBusy(false);
     }
   };
 
@@ -126,7 +154,13 @@ export function LoginPage({ onLogin }: { onLogin: (email: string, password: stri
                 <div>
                   <div className="flex items-center justify-between mb-1.5">
                     <Label className="text-xs text-foreground/80">Şifre</Label>
-                    <span className="text-xs text-primary">Şifremi unuttum</span>
+                    <button
+                      type="button"
+                      className="text-xs text-primary hover:underline"
+                      onClick={() => { setForgotEmail(email); setForgotOpen(true); }}
+                    >
+                      Şifremi unuttum
+                    </button>
                   </div>
                   <div className="relative">
                     <Input
@@ -141,6 +175,7 @@ export function LoginPage({ onLogin }: { onLogin: (email: string, password: stri
                       type="button"
                       onClick={() => setShow((s) => !s)}
                       className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                      aria-label={show ? "Şifreyi gizle" : "Şifreyi göster"}
                     >
                       {show ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
                     </button>
@@ -148,7 +183,12 @@ export function LoginPage({ onLogin }: { onLogin: (email: string, password: stri
                 </div>
 
                 <label className="flex items-center gap-2 text-sm cursor-pointer select-none">
-                  <input type="checkbox" className="size-4 rounded border-border accent-primary" />
+                  <input
+                    type="checkbox"
+                    className="size-4 rounded border-border accent-primary"
+                    checked={remember}
+                    onChange={(e) => setRemember(e.target.checked)}
+                  />
                   <span>Beni hatırla</span>
                 </label>
 
@@ -166,18 +206,19 @@ export function LoginPage({ onLogin }: { onLogin: (email: string, password: stri
                   </div>
                 </div>
 
-                <Button type="button" variant="outline" className="w-full h-10">
+                <Button type="button" variant="outline" className="w-full h-10" disabled title="Kurumsal SSO yakında">
                   <ShieldCheck className="size-4" />
-                  SSO ile devam et
+                  SSO ile devam et (yakında)
                 </Button>
               </form>
             </CardContent>
           </Card>
 
+          {!isProd && (
           <div className="mt-5 rounded-lg border border-border/70 bg-white p-3 text-xs text-muted-foreground shadow-sm">
             <div className="flex items-center gap-2">
               <CheckCircle2 className="size-3.5 text-emerald-600" />
-              Demo kullanıcılar:
+              Demo kullanıcılar (yalnızca geliştirme):
             </div>
             <ul className="mt-2 ml-5 list-disc space-y-0.5">
               <li>superadmin@haksan.local / superadmin12345</li>
@@ -187,6 +228,26 @@ export function LoginPage({ onLogin }: { onLogin: (email: string, password: stri
               <li>finance@haksan.local / finance12345</li>
             </ul>
           </div>
+          )}
+
+          <Dialog open={forgotOpen} onOpenChange={setForgotOpen}>
+            <DialogContent className="max-w-sm">
+              <DialogHeader>
+                <DialogTitle>Şifremi unuttum</DialogTitle>
+                <DialogDescription>Kayıtlı e-posta adresinize sıfırlama bağlantısı gönderilir.</DialogDescription>
+              </DialogHeader>
+              <form onSubmit={submitForgot} className="space-y-3">
+                <div>
+                  <Label className="text-xs">E-posta</Label>
+                  <Input type="email" value={forgotEmail} onChange={(e) => setForgotEmail(e.target.value)} className="mt-1.5" required />
+                </div>
+                <DialogFooter>
+                  <Button type="button" variant="outline" onClick={() => setForgotOpen(false)}>İptal</Button>
+                  <Button type="submit" disabled={forgotBusy}>{forgotBusy ? "Gönderiliyor…" : "Gönder"}</Button>
+                </DialogFooter>
+              </form>
+            </DialogContent>
+          </Dialog>
         </div>
       </div>
     </div>

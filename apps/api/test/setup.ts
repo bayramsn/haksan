@@ -10,6 +10,7 @@ import cors from '@fastify/cors';
 import { AppModule } from '../src/app.module';
 import { AllExceptionsFilter } from '../src/shared/filters/all-exceptions.filter';
 import { loadEnv } from '../src/config/env';
+import { registerHealthRoutes } from '../src/health.routes';
 
 export async function createTestApp(): Promise<NestFastifyApplication> {
   const env = loadEnv();
@@ -22,6 +23,7 @@ export async function createTestApp(): Promise<NestFastifyApplication> {
   await app.register(cors as any, { origin: true, credentials: true });
   app.setGlobalPrefix(env.API_PREFIX.replace(/^\//, ''));
   app.useGlobalFilters(new AllExceptionsFilter());
+  registerHealthRoutes(app, env.API_PREFIX);
   await app.init();
   await app.getHttpAdapter().getInstance().ready();
   return app;

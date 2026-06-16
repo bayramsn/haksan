@@ -21,7 +21,7 @@ export const users = pgTable(
     mfaEnabled: boolean('mfa_enabled').notNull().default(false),
     mfaSecret: varchar('mfa_secret', { length: 128 }),
     purchaseApprovalLimit: integer('purchase_approval_limit').notNull().default(0),
-    managerId: uuid('manager_id'), // self-referencing foreign key will be handled logically or with an alias if needed, wait, let's just add it as a column
+    managerId: uuid('manager_id'),
     ...auditColumns,
   },
   (t) => ({
@@ -70,6 +70,39 @@ export const userTargets = pgTable(
     tenantIdx: index('user_targets_tenant_idx').on(t.tenantId),
     userIdx: index('user_targets_user_idx').on(t.userId),
     tenantUserPeriodUnique: uniqueIndex('user_targets_tenant_user_period_unique').on(t.tenantId, t.userId, t.period),
+  })
+);
+
+export const departmentTargets = pgTable(
+  'department_targets',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id')
+      .notNull()
+      .references(() => tenants.id, { onDelete: 'cascade' }),
+    departmentId: uuid('department_id')
+      .notNull()
+      .references(() => departments.id, { onDelete: 'cascade' }),
+    period: varchar('period', { length: 7 }).notNull(),
+    currency: varchar('currency', { length: 3 }).notNull().default('USD'),
+    salesAmount: money('sales_amount'),
+    salesNewCustomers: integer('sales_new_customers'),
+    serviceAmount: money('service_amount'),
+    serviceCompleted: integer('service_completed'),
+    digitalLeadTarget: integer('digital_lead_target'),
+    digitalConversionTarget: integer('digital_conversion_target'),
+    digitalBudget: money('digital_budget'),
+    visitTarget: integer('visit_target'),
+    callTarget: integer('call_target'),
+    quoteTarget: integer('quote_target'),
+    targetItems: jsonb('target_items').$type<UserTargetItem[]>(),
+    note: text('note'),
+    ...auditColumns,
+  },
+  (t) => ({
+    tenantIdx: index('department_targets_tenant_idx').on(t.tenantId),
+    departmentIdx: index('department_targets_department_idx').on(t.departmentId),
+    tenantDeptPeriodUnique: uniqueIndex('department_targets_tenant_dept_period_unique').on(t.tenantId, t.departmentId, t.period),
   })
 );
 

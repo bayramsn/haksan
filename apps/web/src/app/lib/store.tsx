@@ -224,6 +224,9 @@ type Store = {
   shipments: Shipment[];
   deliveries: Delivery[];
   loading: boolean;
+  loadErrors: string[];
+  loadTruncated: string[];
+  clearLoadErrors: () => void;
   addContact: (c: Omit<Contact, 'id'>) => Promise<Contact>;
   updateContact: (id: string, patch: Partial<Omit<Contact, 'id'>>) => Promise<void>;
   deleteContact: (id: string) => Promise<void>;
@@ -267,6 +270,9 @@ const Ctx = createContext<Store | null>(null);
 function StoreInner({ children }: { children: ReactNode }) {
   const { authed, user } = useAuth();
   const [loading, setLoading] = useState(true);
+  const [loadErrors, setLoadErrors] = useState<string[]>([]);
+  const [loadTruncated, setLoadTruncated] = useState<string[]>([]);
+  const clearLoadErrors = useCallback(() => setLoadErrors([]), []);
 
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [cases, setCases] = useState<SalesCase[]>([]);
@@ -307,31 +313,51 @@ function StoreInner({ children }: { children: ReactNode }) {
   const fetchAll = useCallback(async () => {
     if (!authed) {
       setLoading(false);
+      setLoadErrors([]);
+      setLoadTruncated([]);
       return;
     }
     setLoading(true);
+    const errors: string[] = [];
+    const truncated: string[] = [];
+    const load = async <T,>(label: string, fn: () => Promise<T>, fallback: T): Promise<T> => {
+      try {
+        const result = await fn();
+        const meta = (result as { meta?: { total?: number; pageSize?: number } })?.meta;
+        if (meta && typeof meta.total === 'number' && typeof meta.pageSize === 'number' && meta.total > meta.pageSize) {
+          truncated.push(`${label} (${meta.total})`);
+        }
+        return result;
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : 'yüklenemedi';
+        errors.push(`${label}: ${msg}`);
+        return fallback;
+      }
+    };
     try {
       const empty = { data: [] as any[], meta: { total: 0, page: 1, pageSize: 0, totalPages: 0 } };
       const [companies, contactsR, opps, prods, inv, qts, svcTickets, acts, usersR, devicesR, receivablesR, paymentsR, proformasR, contractsR, invoicesR, noteTemplatesR, shipmentsR, deliveriesR] = await Promise.all([
-        companyService.list({ pageSize: 200 }).catch(() => empty),
-        contactService.list({ pageSize: 200 }).catch(() => empty),
-        opportunityService.list({ pageSize: 200 }).catch(() => empty),
-        productService.list({ pageSize: 200 }).catch(() => empty),
-        inventoryService.list({ pageSize: 200 }).catch(() => empty),
-        quoteService.list({ pageSize: 200 }).catch(() => empty),
-        serviceService.tickets({ pageSize: 200 }).catch(() => empty),
-        activityService.list({ pageSize: 200 }).catch(() => empty),
-        adminService.users().catch(() => [] as any[]),
-        inventoryService.customerDevices({ pageSize: 200 }).catch(() => empty),
-        financeService.receivables({ pageSize: 200 }).catch(() => empty),
-        financeService.payments({ pageSize: 200 }).catch(() => empty),
-        documentService.proformas({ pageSize: 200 }).catch(() => empty),
-        documentService.contracts({ pageSize: 200 }).catch(() => empty),
-        documentService.commercialInvoices({ pageSize: 200 }).catch(() => empty),
-        noteTemplateService.list('quote').catch(() => [] as any[]),
-        serviceService.shipments({ pageSize: 200 }).catch(() => empty),
-        serviceService.deliveries({ pageSize: 200 }).catch(() => empty),
+        load('Firmalar', () => companyService.list({ pageSize: 200 }), empty),
+        load('Kontaklar', () => contactService.list({ pageSize: 200 }), empty),
+        load('Satış kartları', () => opportunityService.list({ pageSize: 200 }), empty),
+        load('Ürünler', () => productService.list({ pageSize: 200 }), empty),
+        load('Stok', () => inventoryService.list({ pageSize: 200 }), empty),
+        load('Teklifler', () => quoteService.list({ pageSize: 200 }), empty),
+        load('Servis', () => serviceService.tickets({ pageSize: 200 }), empty),
+        load('Aktiviteler', () => activityService.list({ pageSize: 200 }), empty),
+        load('Kullanıcılar', () => adminService.users(), [] as any[]),
+        load('Makineler', () => inventoryService.customerDevices({ pageSize: 200 }), empty),
+        load('Alacaklar', () => financeService.receivables({ pageSize: 200 }), empty),
+        load('Ödemeler', () => financeService.payments({ pageSize: 200 }), empty),
+        load('Proformalar', () => documentService.proformas({ pageSize: 200 }), empty),
+        load('Sözleşmeler', () => documentService.contracts({ pageSize: 200 }), empty),
+        load('Faturalar', () => documentService.commercialInvoices({ pageSize: 200 }), empty),
+        load('Not şablonları', () => noteTemplateService.list('quote'), [] as any[]),
+        load('Sevkiyatlar', () => serviceService.shipments({ pageSize: 200 }), empty),
+        load('Teslimatlar', () => serviceService.deliveries({ pageSize: 200 }), empty),
       ]);
+      setLoadErrors(errors);
+      setLoadTruncated(truncated);
 
       setNoteTemplates(
         (Array.isArray(noteTemplatesR) ? noteTemplatesR : []).map((n: any) => ({
@@ -1218,13 +1244,29 @@ function StoreInner({ children }: { children: ReactNode }) {
   };
 
   const addMachine: Store['addMachine'] = async (m) => {
-    const neu: Machine = {
-      ...m,
-      id: 'MCH-' + Date.now(),
+    const created = await inventoryService.createCustomerDevice({
+      companyId: m.customerId,
+      inventoryItemId: m.stockItemId || undefined,
+      opportunityId: m.salesCaseId || undefined,
+      installationDate: m.installationDate || undefined,
+      warrantyStartDate: m.warrantyStart || undefined,
+      warrantyEndDate: m.warrantyEnd || undefined,
+      notes: [m.model, m.serialNumber].filter(Boolean).join(' · ') || undefined,
+    });
+    await fetchAll();
+    const mapped: Machine = {
+      id: created.id,
+      customerId: m.customerId,
+      salesCaseId: m.salesCaseId ?? '',
+      stockItemId: m.stockItemId ?? '',
+      serialNumber: m.serialNumber,
+      model: m.model,
+      installationDate: m.installationDate ?? '',
+      warrantyStart: m.warrantyStart ?? '',
+      warrantyEnd: m.warrantyEnd ?? '',
       status: m.status ?? 'Active',
     };
-    setMachines((prev) => [neu, ...prev]);
-    return neu;
+    return mapped;
   };
 
   const moveService: Store['moveService'] = async (id, to) => {
@@ -1263,10 +1305,36 @@ function StoreInner({ children }: { children: ReactNode }) {
   };
 
   const updateService: Store['updateService'] = async (id, patch) => {
+    const apiPatch: Record<string, unknown> = {};
+    if (patch.description !== undefined) apiPatch.description = patch.description;
+    if (patch.diagnosisNote !== undefined) apiPatch.description = patch.diagnosisNote;
+    if (patch.serviceNote !== undefined) apiPatch.resolutionNote = patch.serviceNote;
+    if (patch.priority !== undefined) apiPatch.severity = patch.priority;
+    if (Object.keys(apiPatch).length) {
+      await serviceService.update(id, apiPatch);
+    }
     setService((prev) => prev.map((s) => (s.id === id ? { ...s, ...patch } : s)));
   };
 
   const addDocument: Store['addDocument'] = async (d) => {
+    const quoteId =
+      offers.find((o) => d.salesCaseId && o.salesCaseId === d.salesCaseId)?.id
+      ?? offers.find((o) => d.companyId && o.companyId === d.companyId)?.id;
+    const baseName = d.fileName.replace(/\.[^/.]+$/, '') || `DOC-${Date.now()}`;
+    const today = new Date();
+
+    if (d.type === 'Proforma') {
+      if (!quoteId) throw new Error('Proforma için ilişkili teklif bulunamadı.');
+      await documentService.createProforma({ quoteId, documentNo: baseName, issueDate: today, fileId: d.fileId });
+    } else if (d.type === 'Contract') {
+      if (!quoteId) throw new Error('Sözleşme için ilişkili teklif bulunamadı.');
+      await documentService.createContract({ quoteId, contractNo: baseName, signedDate: today, fileId: d.fileId });
+    } else if (d.type === 'CommercialInvoice' || d.type === 'AccountingInvoice') {
+      if (!quoteId) throw new Error('Fatura için ilişkili teklif bulunamadı.');
+      await documentService.createCommercialInvoice({ quoteId, invoiceNo: baseName, invoiceDate: today, fileId: d.fileId });
+    }
+
+    await fetchAll();
     const row: DocumentItem = {
       id: d.id ?? `doc-${Date.now()}`,
       salesCaseId: d.salesCaseId,
@@ -1279,7 +1347,6 @@ function StoreInner({ children }: { children: ReactNode }) {
       fileId: d.fileId,
       mimeType: d.mimeType,
     };
-    setDocuments((prev) => [row, ...prev.filter((x) => x.id !== row.id)]);
     return row;
   };
 
@@ -1301,6 +1368,9 @@ function StoreInner({ children }: { children: ReactNode }) {
       shipments,
       deliveries,
       loading,
+      loadErrors,
+      loadTruncated,
+      clearLoadErrors,
       addContact,
       updateContact,
       deleteContact,
@@ -1333,7 +1403,7 @@ function StoreInner({ children }: { children: ReactNode }) {
       refresh: fetchAll,
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [customers, cases, service, offers, noteTemplates, stock, products, activities, contacts, users, machines, payments, documents, shipments, deliveries, loading]
+    [customers, cases, service, offers, noteTemplates, stock, products, activities, contacts, users, machines, payments, documents, shipments, deliveries, loading, loadErrors, loadTruncated, clearLoadErrors]
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

@@ -2460,15 +2460,34 @@ export function CreatePaymentDialog({
     if (!Number.isFinite(amount) || amount <= 0) return toast.error("Geçerli bir tutar giriniz");
     setSaving(true);
     try {
-      await financeService.createPayment({
-        direction: form.direction,
-        companyId: form.companyId,
-        amount,
-        currencyCode: form.currencyCode,
-        paymentDate: form.paymentDate,
-        paymentMethod: form.paymentMethod,
-        notes: form.notes || undefined,
-      });
+      if (form.direction === "in") {
+        const receivable = await financeService.createReceivable({
+          companyId: form.companyId,
+          amount,
+          currencyCode: form.currencyCode,
+          dueDate: form.paymentDate,
+          notes: form.notes || undefined,
+        });
+        await financeService.createPayment({
+          direction: form.direction,
+          receivableId: receivable.id,
+          amount,
+          currencyCode: form.currencyCode,
+          paymentDate: form.paymentDate,
+          paymentMethod: form.paymentMethod,
+          notes: form.notes || undefined,
+        });
+      } else {
+        await financeService.createPayment({
+          direction: form.direction,
+          companyId: form.companyId,
+          amount,
+          currencyCode: form.currencyCode,
+          paymentDate: form.paymentDate,
+          paymentMethod: form.paymentMethod,
+          notes: form.notes || undefined,
+        });
+      }
       toast.success(form.direction === "in" ? "Tahsilat (giren) eklendi" : "Ödeme (çıkan) eklendi");
       setOpen(false);
       reset();

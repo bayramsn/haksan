@@ -3,10 +3,11 @@ import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
 import { Progress } from "../ui/progress";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "../ui/tabs";
 import {
   Users, Briefcase, FileText, AlertTriangle, TrendingUp, TrendingDown,
   Package, Wrench, Target, ArrowUpRight, MoreHorizontal, Calendar,
-  CheckCircle2, Clock, Wallet, Truck, BarChart3,
+  CheckCircle2, Clock, Wallet, Truck, BarChart3, LayoutDashboard, ListTodo, LineChart as LineChartIcon,
 } from "lucide-react";
 import {
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid,
@@ -16,6 +17,9 @@ import {
 import { SALES_STAGES, salesStageLabel } from "../../lib/mock";
 import { StatusBadge } from "../Layout";
 import { useStore } from "../../lib/store";
+import { useAuth } from "../../../lib/auth";
+import { useFx } from "../../lib/fx";
+import { buildSalesMonthly, buildFunnelFromCases } from "../../lib/chartAggregates";
 import { adminService } from "../../../lib/services";
 import {
   buildManagementInsights,
@@ -25,36 +29,6 @@ import {
   type OperationAction,
   type WorkItem,
 } from "../../lib/operations";
-
-const monthly = [
-  { ay: "Ara", teklif: 12, kazanan: 5, kayip: 2, ciro: 180 },
-  { ay: "Oca", teklif: 16, kazanan: 7, kayip: 3, ciro: 240 },
-  { ay: "Şub", teklif: 22, kazanan: 10, kayip: 4, ciro: 320 },
-  { ay: "Mar", teklif: 19, kazanan: 9, kayip: 3, ciro: 295 },
-  { ay: "Nis", teklif: 26, kazanan: 13, kayip: 5, ciro: 410 },
-  { ay: "May", teklif: 18, kazanan: 8, kayip: 2, ciro: 260 },
-];
-
-const funnelData = [
-  { name: "Lead", value: 120, fill: "#93c5fd" },
-  { name: "Teklif", value: 78, fill: "#3b82f6" },
-  { name: "Onay", value: 42, fill: "#000c69" },
-  { name: "Sözleşme", value: 28, fill: "#0a192f" },
-  { name: "Kurulum", value: 19, fill: "#cf060c" },
-];
-
-const radarData = [
-  { konu: "Satış", deger: 85 },
-  { konu: "Teklif", deger: 72 },
-  { konu: "Tahsilat", deger: 64 },
-  { konu: "Servis", deger: 78 },
-  { konu: "Stok", deger: 90 },
-  { konu: "Memnuniyet", deger: 81 },
-];
-
-const sparkData = [
-  { v: 12 }, { v: 18 }, { v: 14 }, { v: 22 }, { v: 19 }, { v: 28 }, { v: 26 },
-];
 
 const COLORS = ["#000c69", "#cf060c", "#3b82f6", "#10b981", "#f59e0b", "#64748b", "#0ea5e9", "#14b8a6", "#ef4444", "#334155", "#fbbf24", "#60a5fa"];
 
@@ -127,16 +101,40 @@ const filledTargetCount = (items: AssignedTargetItem[], type: AssignedTargetItem
 const totalTargetCount = (items: AssignedTargetItem[], type: AssignedTargetItem["targetType"]) =>
   items.filter((item) => item.targetType === type).length;
 
+type DashboardSection = "ozet" | "operasyon" | "grafikler" | "hedefler";
+
 export function DashboardPage({ onAction }: { onAction?: (action: OperationAction) => void }) {
   const store = useStore();
-  const { customers, cases: salesCases, service: serviceRequests, machines, users } = store;
+  const { customers, cases: salesCases, service: serviceRequests, machines, users, offers } = store;
+  const { user } = useAuth();
+  const { convert } = useFx();
   const [targetPeriod, setTargetPeriod] = useState(currentPeriod());
   const [myTarget, setMyTarget] = useState<AssignedTarget | null>(null);
   const [targetLoading, setTargetLoading] = useState(false);
   const [targetError, setTargetError] = useState("");
-  // Satış performansı grafiği için dönem seçimi (son N ay).
+  const [section, setSection] = useState<DashboardSection>("ozet");
   const [chartPeriod, setChartPeriod] = useState<"1A" | "3A" | "6A" | "1Y">("6A");
-  const monthlyView = monthly.slice(-({ "1A": 1, "3A": 3, "6A": 6, "1Y": 12 }[chartPeriod]));
+  const monthCount = { "1A": 1, "3A": 3, "6A": 6, "1Y": 12 }[chartPeriod];
+  const monthly = useMemo(
+    () => buildSalesMonthly(offers, salesCases, 12, (amount, currency) => convert(amount, currency, "USD")),
+    [offers, salesCases, convert],
+  );
+  const monthlyView = monthly.slice(-monthCount);
+  const funnelData = useMemo(() => buildFunnelFromCases(salesCases, SALES_STAGE_LABELS), [salesCases]);
+  const radarData = useMemo(() => {
+    const total = Math.max(customers.length, 1);
+    const openSvc = serviceRequests.filter((s) => s.stage !== "Closed").length;
+    const approved = offers.filter((o) => o.status === "Approved").length;
+    const overdue = store.payments.filter((p) => p.status === "Overdue").length;
+    return [
+      { konu: "Satış", deger: Math.min(100, Math.round((salesCases.filter((s) => !s.isLost).length / total) * 100)) },
+      { konu: "Teklif", deger: Math.min(100, Math.round((offers.length / Math.max(total, 1)) * 20)) },
+      { konu: "Tahsilat", deger: Math.min(100, Math.max(0, 100 - overdue * 15)) },
+      { konu: "Servis", deger: Math.min(100, openSvc * 12) },
+      { konu: "Stok", deger: Math.min(100, store.stock.filter((s) => s.quantity > 0).length * 8) },
+      { konu: "Onay", deger: Math.min(100, approved * 10) },
+    ];
+  }, [customers.length, salesCases, offers, serviceRequests, store.stock, store.payments]);
   const activeCustomers = customers.filter((c) => c.status === "active").length;
   const openService = serviceRequests.filter((s) => s.stage !== "Closed").length;
   const installedMachines = machines.filter((m) => m.status === "Active").length;
@@ -145,6 +143,17 @@ export function DashboardPage({ onAction }: { onAction?: (action: OperationActio
   const drilldown = (id: string) => management.kpis.find((item) => item.id === id);
   const criticalWork = workItems.filter((item) => item.severity === "critical").length;
   const warningWork = workItems.filter((item) => item.severity === "warning").length;
+  const openSalesCount = salesCases.filter((s) => !s.isLost && s.stage !== "Completed" && s.stage !== "delivered").length;
+  const overdueCount = Number(drilldown("kpi:overdue")?.records.length ?? 0);
+  const priorityWork = useMemo(
+    () => [...workItems].sort((a, b) => {
+      const rank = { critical: 0, warning: 1, info: 2, success: 3 };
+      return rank[a.severity] - rank[b.severity];
+    }).slice(0, 5),
+    [workItems],
+  );
+  const topRisks = management.risks.slice(0, 2);
+  const topOpportunities = management.opportunities.slice(0, 2);
 
   const stageData = SALES_STAGES.map((s) => ({
     name: salesStageLabel(s),
@@ -189,7 +198,7 @@ export function DashboardPage({ onAction }: { onAction?: (action: OperationActio
             <img src="/brand/haksan-logo-white.png" alt="Haksan Makina" className="h-12 w-auto max-w-[166px] object-contain" />
           </div>
           <div className="min-w-0">
-            <div className="text-[15px] tracking-tight">Hoş geldin Ayşe 👋</div>
+            <div className="text-[15px] tracking-tight">Hoş geldin {user?.fullName?.split(" ")[0] ?? "ekip"} 👋</div>
             <div className="text-[13px] text-white/75 mt-0.5">
               Bugün <b className="text-white">{workItems.length}</b> takip işi var; <b className="text-white">{criticalWork}</b> kritik, <b className="text-white">{warningWork}</b> yakın takip.
             </div>
@@ -200,7 +209,7 @@ export function DashboardPage({ onAction }: { onAction?: (action: OperationActio
             variant="secondary"
             size="sm"
             className="bg-white/15 hover:bg-white/25 text-white border-0 backdrop-blur"
-            onClick={() => onAction?.({ kind: "navigate", nav: "dashboard", focus: "today" })}
+            onClick={() => setSection("operasyon")}
           >
             <Calendar className="size-4" /> Bugün
           </Button>
@@ -209,38 +218,177 @@ export function DashboardPage({ onAction }: { onAction?: (action: OperationActio
             className="bg-white text-primary hover:bg-white/90"
             onClick={() => onAction?.({ kind: "navigate", nav: "payments", focus: "overdue" })}
           >
-            Görevlerim
+            Gecikenler
             <ArrowUpRight className="size-4" />
           </Button>
         </div>
       </div>
 
-      <ManagementCommandCenter summary={management} onAction={onAction} />
+      <Tabs value={section} onValueChange={(v) => setSection(v as DashboardSection)} className="gap-4">
+        <TabsList className="grid h-auto w-full grid-cols-2 gap-1 bg-muted/60 p-1 sm:inline-flex sm:h-10 sm:w-auto">
+          <TabsTrigger value="ozet" className="gap-1.5 px-3">
+            <LayoutDashboard className="size-4" />
+            Özet
+          </TabsTrigger>
+          <TabsTrigger value="operasyon" className="gap-1.5 px-3">
+            <ListTodo className="size-4" />
+            Operasyon
+            {workItems.length > 0 && (
+              <span className="rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-primary">
+                {workItems.length}
+              </span>
+            )}
+          </TabsTrigger>
+          <TabsTrigger value="grafikler" className="gap-1.5 px-3">
+            <LineChartIcon className="size-4" />
+            Grafikler
+          </TabsTrigger>
+          <TabsTrigger value="hedefler" className="gap-1.5 px-3">
+            <Target className="size-4" />
+            Hedefler
+          </TabsTrigger>
+        </TabsList>
 
-      <TodayWorkPanel items={workItems} onAction={onAction} />
+        <TabsContent value="ozet" className="mt-0 space-y-4">
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+            <Kpi icon={<Users className="size-[18px]" />} tone="violet" label="Aktif Müşteri" value={activeCustomers} sub="bu ay" onClick={() => onAction?.({ kind: "navigate", nav: "customers" })} />
+            <KpiFromDrilldown icon={<Wallet className="size-[18px]" />} tone="emerald" item={drilldown("kpi:revenue")} onAction={onAction} />
+            <Kpi icon={<Briefcase className="size-[18px]" />} tone="blue" label="Pipeline" value={`$${(totalPipeline / 1000).toFixed(0)}K`} sub="açık" onClick={() => onAction?.({ kind: "navigate", nav: "sales-cases", focus: "open" })} />
+            <KpiFromDrilldown icon={<AlertTriangle className="size-[18px]" />} tone="red" item={drilldown("kpi:overdue")} alarm onAction={onAction} />
+            <KpiFromDrilldown icon={<Wrench className="size-[18px]" />} tone="amber" item={drilldown("kpi:service-open")} onAction={onAction} />
+            <Kpi icon={<Wrench className="size-[18px]" />} tone="amber" label="Aktif Makine" value={installedMachines} sub="garantili" onClick={() => onAction?.({ kind: "navigate", nav: "machines" })} />
+          </div>
 
-      {/* KPI cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-8 gap-3">
-        <Kpi icon={<Users className="size-[18px]" />} tone="violet" label="Aktif Müşteri" value={activeCustomers} delta={12} sub="bu ay" onClick={() => onAction?.({ kind: "navigate", nav: "customers" })} />
-        <KpiFromDrilldown icon={<Wallet className="size-[18px]" />} tone="emerald" item={drilldown("kpi:revenue")} delta={8} onAction={onAction} />
-        <KpiFromDrilldown icon={<FileText className="size-[18px]" />} tone="indigo" item={drilldown("kpi:conversion")} delta={3} onAction={onAction} />
-        <KpiFromDrilldown icon={<Wrench className="size-[18px]" />} tone="amber" item={drilldown("kpi:service-open")} delta={openService} onAction={onAction} />
-        <KpiFromDrilldown icon={<AlertTriangle className="size-[18px]" />} tone="red" item={drilldown("kpi:overdue")} delta={Number(drilldown("kpi:overdue")?.records.length ?? 0)} alarm onAction={onAction} />
-        <KpiFromDrilldown icon={<Package className="size-[18px]" />} tone="blue" item={drilldown("kpi:stock-risk")} delta={Number(drilldown("kpi:stock-risk")?.records.length ?? 0)} onAction={onAction} />
-        <KpiFromDrilldown icon={<Truck className="size-[18px]" />} tone="violet" item={drilldown("kpi:shipments")} delta={Number(drilldown("kpi:shipments")?.records.length ?? 0)} onAction={onAction} />
-        <KpiFromDrilldown icon={<BarChart3 className="size-[18px]" />} tone="emerald" item={drilldown("kpi:profit")} delta={4} onAction={onAction} />
-        <Kpi icon={<Briefcase className="size-[18px]" />} tone="blue" label="Pipeline" value={`$${(totalPipeline / 1000).toFixed(0)}K`} delta={8} sub="açık" onClick={() => onAction?.({ kind: "navigate", nav: "sales-cases", focus: "open" })} />
-        <Kpi icon={<Wrench className="size-[18px]" />} tone="amber" label="Aktif Makine" value={installedMachines} delta={1} sub="garantili" onClick={() => onAction?.({ kind: "navigate", nav: "machines" })} />
-      </div>
+          <OverviewPulseBar
+            workItems={workItems.length}
+            criticalWork={criticalWork}
+            warningWork={warningWork}
+            openSales={openSalesCount}
+            openService={openService}
+            overdue={overdueCount}
+          />
 
-      <MyTargetsPanel
-        period={targetPeriod}
-        onPeriodChange={setTargetPeriod}
-        items={myTargetItems}
-        loading={targetLoading}
-        error={targetError}
-        note={myTarget?.note ?? ""}
-      />
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-5">
+            <Card className="border-border/60 shadow-sm lg:col-span-3">
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <div>
+                  <CardTitle className="tracking-tight text-base">Satış Trendi</CardTitle>
+                  <p className="mt-0.5 text-xs text-muted-foreground">Son 6 ay · teklif ve kazanılan</p>
+                </div>
+                <Button size="sm" variant="ghost" className="h-8 text-primary" onClick={() => setSection("grafikler")}>
+                  Detay <ArrowUpRight className="size-3.5" />
+                </Button>
+              </CardHeader>
+              <CardContent className="h-52 pl-1">
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={monthlyView} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+                    <defs>
+                      <linearGradient id="ozet-g1" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#000c69" stopOpacity={0.3} />
+                        <stop offset="95%" stopColor="#000c69" stopOpacity={0} />
+                      </linearGradient>
+                      <linearGradient id="ozet-g2" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#10b981" stopOpacity={0.3} />
+                        <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#eef0f3" vertical={false} />
+                    <XAxis dataKey="ay" stroke="#9ca3af" fontSize={10} tickLine={false} axisLine={false} />
+                    <YAxis stroke="#9ca3af" fontSize={10} tickLine={false} axisLine={false} width={28} />
+                    <Tooltip contentStyle={{ borderRadius: 8, border: "1px solid #e5e7eb", fontSize: 11 }} />
+                    <Area type="monotone" dataKey="teklif" name="Teklif" stroke="#000c69" strokeWidth={2} fill="url(#ozet-g1)" isAnimationActive={false} />
+                    <Area type="monotone" dataKey="kazanan" name="Kazanan" stroke="#10b981" strokeWidth={2} fill="url(#ozet-g2)" isAnimationActive={false} />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </CardContent>
+            </Card>
+
+            <Card className="border-border/60 shadow-sm lg:col-span-2">
+              <CardHeader className="pb-2">
+                <CardTitle className="tracking-tight text-base">Pipeline Dağılımı</CardTitle>
+                <p className="text-xs text-muted-foreground">{openSalesCount} açık kart</p>
+              </CardHeader>
+              <CardContent className="h-52">
+                {stageData.length === 0 ? (
+                  <div className="grid h-full place-items-center rounded-lg border border-dashed border-border/70 bg-muted/20 text-center">
+                    <p className="text-xs text-muted-foreground">Açık satış kartı yok</p>
+                  </div>
+                ) : (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie data={stageData} dataKey="count" nameKey="name" outerRadius={68} innerRadius={42} paddingAngle={2} isAnimationActive={false}>
+                        {stageData.map((d, i) => (
+                          <Cell key={`ozet-pc-${d.name}`} fill={COLORS[i % COLORS.length]} stroke="#fff" strokeWidth={2} />
+                        ))}
+                      </Pie>
+                      <Tooltip contentStyle={{ borderRadius: 8, border: "1px solid #e5e7eb", fontSize: 11 }} />
+                      <Legend wrapperStyle={{ fontSize: 9 }} iconType="circle" />
+                    </PieChart>
+                  </ResponsiveContainer>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <OverviewPriorityPanel items={priorityWork} onAction={onAction} onViewAll={() => setSection("operasyon")} />
+            <OverviewSignalsPanel risks={topRisks} opportunities={topOpportunities} onAction={onAction} onViewAll={() => setSection("operasyon")} />
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-3">
+            <QuickSectionCard
+              title="Operasyon"
+              metric={String(workItems.length)}
+              metricLabel="takip işi"
+              description={`${criticalWork} kritik · ${warningWork} yakın takip`}
+              icon={<ListTodo className="size-5" />}
+              accent="blue"
+              onClick={() => setSection("operasyon")}
+            />
+            <QuickSectionCard
+              title="Grafikler & KPI"
+              metric="6"
+              metricLabel="grafik"
+              description="Performans, huni, ciro ve departman analizi"
+              icon={<LineChartIcon className="size-5" />}
+              accent="emerald"
+              onClick={() => setSection("grafikler")}
+            />
+            <QuickSectionCard
+              title="Hedeflerim"
+              metric={myTargetItems.length > 0 ? String(myTargetItems.length) : "—"}
+              metricLabel="aktif hedef"
+              description={targetLoading ? "Yükleniyor…" : myTargetItems.length > 0 ? `${targetPeriod} dönemi` : "Bu dönem hedefi yok"}
+              icon={<Target className="size-5" />}
+              accent="violet"
+              onClick={() => setSection("hedefler")}
+            />
+          </div>
+        </TabsContent>
+
+        <TabsContent value="operasyon" className="mt-0 space-y-4">
+          <ManagementCommandCenter summary={management} onAction={onAction} />
+          <TodayWorkPanel items={workItems} onAction={onAction} />
+          <OpenRecordsPanel
+            salesCases={salesCases}
+            customers={customers}
+            users={users}
+            serviceRequests={serviceRequests}
+            machines={machines}
+            openService={openService}
+            onAction={onAction}
+          />
+        </TabsContent>
+
+        <TabsContent value="grafikler" className="mt-0 space-y-4">
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-5">
+            <KpiFromDrilldown icon={<FileText className="size-[18px]" />} tone="indigo" item={drilldown("kpi:conversion")} onAction={onAction} />
+            <KpiFromDrilldown icon={<Wrench className="size-[18px]" />} tone="amber" item={drilldown("kpi:service-open")} onAction={onAction} />
+            <KpiFromDrilldown icon={<Package className="size-[18px]" />} tone="blue" item={drilldown("kpi:stock-risk")} onAction={onAction} />
+            <KpiFromDrilldown icon={<Truck className="size-[18px]" />} tone="violet" item={drilldown("kpi:shipments")} onAction={onAction} />
+            <KpiFromDrilldown icon={<BarChart3 className="size-[18px]" />} tone="emerald" item={drilldown("kpi:profit")} onAction={onAction} />
+            <Kpi icon={<Wrench className="size-[18px]" />} tone="amber" label="Aktif Makine" value={installedMachines} sub="garantili" onClick={() => onAction?.({ kind: "navigate", nav: "machines" })} />
+          </div>
 
       {/* Main charts */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
@@ -367,123 +515,358 @@ export function DashboardPage({ onAction }: { onAction?: (action: OperationActio
         </Card>
       </div>
 
-      {/* Bar + Goals */}
-      <div className="grid grid-cols-1 items-start lg:grid-cols-3 gap-4">
-        <Card className="lg:col-span-2 border-border/60 shadow-sm">
-          <CardHeader className="pb-2">
-            <CardTitle className="tracking-tight">Kazanan vs Kaybedilen</CardTitle>
-            <p className="text-xs text-muted-foreground">Aylık karşılaştırma</p>
-          </CardHeader>
-          <CardContent className="h-64 pl-2">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={monthly} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#eef0f3" vertical={false} />
-                <XAxis dataKey="ay" stroke="#9ca3af" fontSize={11} tickLine={false} axisLine={false} />
-                <YAxis stroke="#9ca3af" fontSize={11} tickLine={false} axisLine={false} />
-                <Tooltip contentStyle={{ borderRadius: 8, border: "1px solid #e5e7eb", fontSize: 12 }} />
-                <Legend iconType="circle" wrapperStyle={{ fontSize: 11 }} />
-                <Bar dataKey="kazanan" name="Kazanan" fill="#10b981" barSize={18} isAnimationActive={false} />
-                <Bar dataKey="kayip" name="Kaybedilen" fill="#ef4444" barSize={18} isAnimationActive={false} />
-              </BarChart>
-            </ResponsiveContainer>
-          </CardContent>
-        </Card>
+      {/* Bar chart */}
+      <Card className="border-border/60 shadow-sm">
+        <CardHeader className="pb-2">
+          <CardTitle className="tracking-tight">Kazanan vs Kaybedilen</CardTitle>
+          <p className="text-xs text-muted-foreground">Aylık karşılaştırma</p>
+        </CardHeader>
+        <CardContent className="h-64 pl-2">
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={monthly} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#eef0f3" vertical={false} />
+              <XAxis dataKey="ay" stroke="#9ca3af" fontSize={11} tickLine={false} axisLine={false} />
+              <YAxis stroke="#9ca3af" fontSize={11} tickLine={false} axisLine={false} />
+              <Tooltip contentStyle={{ borderRadius: 8, border: "1px solid #e5e7eb", fontSize: 12 }} />
+              <Legend iconType="circle" wrapperStyle={{ fontSize: 11 }} />
+              <Bar dataKey="kazanan" name="Kazanan" fill="#10b981" barSize={18} isAnimationActive={false} />
+              <Bar dataKey="kayip" name="Kaybedilen" fill="#ef4444" barSize={18} isAnimationActive={false} />
+            </BarChart>
+          </ResponsiveContainer>
+        </CardContent>
+      </Card>
 
-        <Card className="border-border/60 shadow-sm">
-          <CardHeader className="pb-2">
-            <CardTitle className="tracking-tight">Hedef Gerçekleşme</CardTitle>
-            <p className="text-xs text-muted-foreground">Mayıs 2026</p>
-          </CardHeader>
-          <CardContent className="space-y-4 pt-2">
-            <Goal label="Aylık Satış" value={62} hint="$260k / $420k" />
-            <Goal label="Yeni Müşteri" value={78} hint="11 / 14" />
-            <Goal label="Servis Memnuniyeti" value={91} hint="4.55 / 5.0" tone="ok" />
-            <Goal label="Stok Devir Hızı" value={45} hint="Hedef altı" tone="warn" />
-          </CardContent>
-        </Card>
+        </TabsContent>
+
+        <TabsContent value="hedefler" className="mt-0 space-y-4">
+          <MyTargetsPanel
+            period={targetPeriod}
+            onPeriodChange={setTargetPeriod}
+            items={myTargetItems}
+            loading={targetLoading}
+            error={targetError}
+            note={myTarget?.note ?? ""}
+          />
+          <Card className="border-border/60 shadow-sm">
+            <CardHeader className="pb-2">
+              <CardTitle className="tracking-tight">Hedef Gerçekleşme</CardTitle>
+              <p className="text-xs text-muted-foreground">Dönem özeti</p>
+            </CardHeader>
+            <CardContent className="grid gap-4 pt-2 sm:grid-cols-2">
+              <Goal label="Aylık Satış" value={62} hint="$260k / $420k" />
+              <Goal label="Yeni Müşteri" value={78} hint="11 / 14" />
+              <Goal label="Servis Memnuniyeti" value={91} hint="4.55 / 5.0" tone="ok" />
+              <Goal label="Stok Devir Hızı" value={45} hint="Hedef altı" tone="warn" />
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
+    </div>
+  );
+}
+
+function OverviewPulseBar({
+  workItems,
+  criticalWork,
+  warningWork,
+  openSales,
+  openService,
+  overdue,
+}: {
+  workItems: number;
+  criticalWork: number;
+  warningWork: number;
+  openSales: number;
+  openService: number;
+  overdue: number;
+}) {
+  const pills = [
+    { label: "Takip işi", value: workItems, tone: "bg-slate-100 text-slate-700" },
+    { label: "Kritik", value: criticalWork, tone: criticalWork > 0 ? "bg-red-50 text-red-700 ring-1 ring-red-100" : "bg-slate-50 text-slate-500" },
+    { label: "Yakın takip", value: warningWork, tone: warningWork > 0 ? "bg-amber-50 text-amber-700 ring-1 ring-amber-100" : "bg-slate-50 text-slate-500" },
+    { label: "Açık satış", value: openSales, tone: "bg-blue-50 text-blue-700 ring-1 ring-blue-100" },
+    { label: "Açık servis", value: openService, tone: "bg-amber-50/80 text-amber-800 ring-1 ring-amber-100" },
+    { label: "Geciken", value: overdue, tone: overdue > 0 ? "bg-red-50 text-red-700 ring-1 ring-red-100" : "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100" },
+  ];
+
+  return (
+    <Card className="border-border/60 bg-gradient-to-r from-muted/30 via-card to-muted/20 shadow-sm">
+      <CardContent className="flex flex-wrap items-center gap-2 p-3 sm:gap-3 sm:p-4">
+        <span className="mr-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">Canlı durum</span>
+        {pills.map((pill) => (
+          <span key={pill.label} className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs ${pill.tone}`}>
+            <span className="font-semibold tabular-nums">{pill.value}</span>
+            <span className="text-[11px] opacity-80">{pill.label}</span>
+          </span>
+        ))}
+      </CardContent>
+    </Card>
+  );
+}
+
+function OverviewPriorityPanel({
+  items,
+  onAction,
+  onViewAll,
+}: {
+  items: WorkItem[];
+  onAction?: (action: OperationAction) => void;
+  onViewAll: () => void;
+}) {
+  return (
+    <Card className="border-border/60 shadow-sm">
+      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+        <div>
+          <CardTitle className="tracking-tight text-base">Öncelikli İşler</CardTitle>
+          <p className="mt-0.5 text-xs text-muted-foreground">Bugün ilk bakılması gerekenler</p>
+        </div>
+        <Button size="sm" variant="ghost" className="h-8 text-primary" onClick={onViewAll}>
+          Tümü <ArrowUpRight className="size-3.5" />
+        </Button>
+      </CardHeader>
+      <CardContent className="pt-0">
+        {items.length === 0 ? (
+          <div className="grid min-h-36 place-items-center rounded-lg border border-dashed border-border/70 bg-muted/20 px-4 text-center">
+            <div>
+              <CheckCircle2 className="mx-auto size-8 text-emerald-500" />
+              <p className="mt-2 text-sm font-medium">Acil iş yok</p>
+              <p className="mt-1 text-xs text-muted-foreground">Güncel kayıtlar burada listelenir.</p>
+            </div>
+          </div>
+        ) : (
+          <div className="divide-y divide-border/60">
+            {items.map((item) => {
+              const tone = WORK_TONE[item.severity];
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  className="flex w-full items-start gap-3 py-2.5 text-left transition-colors hover:bg-muted/30"
+                  onClick={() => onAction?.(item.action)}
+                >
+                  <span className={`mt-0.5 grid size-8 shrink-0 place-items-center rounded-md border ${tone.cls}`}>
+                    {tone.icon}
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="flex items-center justify-between gap-2">
+                      <span className="truncate text-sm font-medium">{item.title}</span>
+                      <span className="shrink-0 text-[10px] uppercase tracking-wide text-muted-foreground">{tone.label}</span>
+                    </span>
+                    <span className="mt-0.5 line-clamp-1 text-xs text-muted-foreground">{item.subtitle}</span>
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function OverviewSignalsPanel({
+  risks,
+  opportunities,
+  onAction,
+  onViewAll,
+}: {
+  risks: ManagementInsight[];
+  opportunities: ManagementInsight[];
+  onAction?: (action: OperationAction) => void;
+  onViewAll: () => void;
+}) {
+  const signals = [
+    ...risks.map((item) => ({ ...item, kind: "risk" as const })),
+    ...opportunities.map((item) => ({ ...item, kind: "opportunity" as const })),
+  ].slice(0, 4);
+
+  return (
+    <Card className="border-border/60 shadow-sm">
+      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+        <div>
+          <CardTitle className="tracking-tight text-base">Sinyaller</CardTitle>
+          <p className="mt-0.5 text-xs text-muted-foreground">Risk ve fırsat özeti</p>
+        </div>
+        <Button size="sm" variant="ghost" className="h-8 text-primary" onClick={onViewAll}>
+          Merkez <ArrowUpRight className="size-3.5" />
+        </Button>
+      </CardHeader>
+      <CardContent className="pt-0">
+        {signals.length === 0 ? (
+          <div className="grid min-h-36 place-items-center rounded-lg border border-dashed border-border/70 bg-muted/20 px-4 text-center">
+            <p className="text-sm text-muted-foreground">Aktif sinyal yok</p>
+          </div>
+        ) : (
+          <div className="grid gap-2">
+            {signals.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => onAction?.(item.action)}
+                className={`flex items-start gap-2.5 rounded-lg border p-2.5 text-left transition-colors hover:bg-muted/30 ${
+                  item.kind === "risk" ? "border-red-100/80 bg-red-50/40" : "border-emerald-100/80 bg-emerald-50/40"
+                }`}
+              >
+                <span className={`mt-0.5 text-[10px] font-semibold uppercase tracking-wide ${item.kind === "risk" ? "text-red-600" : "text-emerald-600"}`}>
+                  {item.kind === "risk" ? "Risk" : "Fırsat"}
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-sm font-medium">{item.title}</span>
+                  <span className="mt-0.5 line-clamp-2 text-xs leading-relaxed text-muted-foreground">{item.description}</span>
+                </span>
+                <span className="shrink-0 text-xs tabular-nums text-muted-foreground">{item.metric}</span>
+              </button>
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function QuickSectionCard({
+  title,
+  metric,
+  metricLabel,
+  description,
+  icon,
+  accent = "blue",
+  onClick,
+}: {
+  title: string;
+  metric: string;
+  metricLabel: string;
+  description: string;
+  icon: React.ReactNode;
+  accent?: "blue" | "emerald" | "violet";
+  onClick: () => void;
+}) {
+  const accents = {
+    blue: "from-brand-blue/10 to-brand-blue/5 border-brand-blue/20 text-brand-blue",
+    emerald: "from-emerald-500/10 to-emerald-500/5 border-emerald-500/20 text-emerald-600",
+    violet: "from-violet-500/10 to-violet-500/5 border-violet-500/20 text-violet-600",
+  };
+  const accentCls = accents[accent];
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`group flex w-full flex-col rounded-xl border bg-gradient-to-br p-4 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md ${accentCls}`}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <span className="grid size-10 shrink-0 place-items-center rounded-lg bg-white/80 shadow-sm">
+          {icon}
+        </span>
+        <ArrowUpRight className="size-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
       </div>
+      <div className="mt-3 flex items-baseline gap-1.5">
+        <span className="text-2xl font-semibold tabular-nums tracking-tight text-foreground">{metric}</span>
+        <span className="text-xs text-muted-foreground">{metricLabel}</span>
+      </div>
+      <div className="mt-1 text-sm font-medium text-foreground">{title}</div>
+      <div className="mt-1 text-xs leading-relaxed text-muted-foreground">{description}</div>
+    </button>
+  );
+}
 
-      {/* Lists */}
-      <div className="grid grid-cols-1 items-start lg:grid-cols-3 gap-4">
-        <Card className="lg:col-span-2 border-border/60 shadow-sm">
-          <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
-            <div>
-              <CardTitle className="tracking-tight">Açık Satış Kartları</CardTitle>
-              <p className="text-xs text-muted-foreground mt-1">Takip edilmesi gerekenler</p>
-            </div>
-            <Button size="sm" variant="ghost" className="text-primary h-8" onClick={() => onAction?.({ kind: "navigate", nav: "sales-cases", focus: "open" })}>
-              Tümü <ArrowUpRight className="size-3.5" />
-            </Button>
-          </CardHeader>
-          <CardContent className="pt-0">
-            <div className="divide-y divide-border/60">
-              {salesCases.filter((s) => !s.isLost && s.stage !== "Completed" && s.stage !== "delivered").slice(0, 6).map((s) => {
-                const c = customers.find((x) => x.id === s.customerId);
-                const u = users.find((x) => x.id === s.assignedUserId);
-                return (
-                  <div
-                    key={s.id}
-                    className="flex items-center justify-between gap-3 py-3 hover:bg-muted/40 -mx-3 px-3 rounded-md transition-colors cursor-pointer"
-                    onClick={() => onAction?.({ kind: "salesCase", salesCaseId: s.id })}
-                  >
-                    <div className="size-9 rounded-md bg-gradient-to-br from-primary/15 to-primary/5 text-primary grid place-items-center shrink-0 text-xs">
-                      {(c?.name ?? "—").split(" ").slice(0, 2).map((p) => p[0]).join("")}
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="text-sm leading-tight truncate">{c?.name ?? "Firma bulunamadı"}</div>
-                      <div className="text-xs text-muted-foreground truncate mt-0.5">{s.requestedProduct} · {s.requestedModel} · {(u?.name ?? "Atanmadı").split(" ")[0]}</div>
-                    </div>
-                    <div className="text-sm tabular-nums shrink-0">{s.estimatedAmount.toLocaleString()} USD</div>
-                    <StatusBadge status={s.stage} />
+function OpenRecordsPanel({
+  salesCases,
+  customers,
+  users,
+  serviceRequests,
+  machines,
+  openService,
+  onAction,
+}: {
+  salesCases: ReturnType<typeof useStore>["cases"];
+  customers: ReturnType<typeof useStore>["customers"];
+  users: ReturnType<typeof useStore>["users"];
+  serviceRequests: ReturnType<typeof useStore>["service"];
+  machines: ReturnType<typeof useStore>["machines"];
+  openService: number;
+  onAction?: (action: OperationAction) => void;
+}) {
+  return (
+    <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-3">
+      <Card className="border-border/60 shadow-sm lg:col-span-2">
+        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+          <div>
+            <CardTitle className="tracking-tight">Açık Satış Kartları</CardTitle>
+            <p className="mt-1 text-xs text-muted-foreground">Takip edilmesi gerekenler</p>
+          </div>
+          <Button size="sm" variant="ghost" className="h-8 text-primary" onClick={() => onAction?.({ kind: "navigate", nav: "sales-cases", focus: "open" })}>
+            Tümü <ArrowUpRight className="size-3.5" />
+          </Button>
+        </CardHeader>
+        <CardContent className="pt-0">
+          <div className="divide-y divide-border/60">
+            {salesCases.filter((s) => !s.isLost && s.stage !== "Completed" && s.stage !== "delivered").slice(0, 6).map((s) => {
+              const c = customers.find((x) => x.id === s.customerId);
+              const u = users.find((x) => x.id === s.assignedUserId);
+              return (
+                <div
+                  key={s.id}
+                  className="-mx-3 flex cursor-pointer items-center justify-between gap-3 rounded-md px-3 py-3 transition-colors hover:bg-muted/40"
+                  onClick={() => onAction?.({ kind: "salesCase", salesCaseId: s.id })}
+                >
+                  <div className="grid size-9 shrink-0 place-items-center rounded-md bg-gradient-to-br from-primary/15 to-primary/5 text-xs text-primary">
+                    {(c?.name ?? "—").split(" ").slice(0, 2).map((p) => p[0]).join("")}
                   </div>
-                );
-              })}
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="border-border/60 shadow-sm">
-          <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
-            <div>
-              <CardTitle className="tracking-tight">Açık Servis Talepleri</CardTitle>
-              <p className="text-xs text-muted-foreground mt-1">Aktif {openService} kayıt</p>
-            </div>
-            <Button size="icon" variant="ghost" className="size-7"><MoreHorizontal className="size-4" /></Button>
-          </CardHeader>
-          <CardContent className="pt-0">
-            {openService === 0 ? (
-              <div className="grid min-h-[180px] place-items-center rounded-lg border border-dashed border-border/70 bg-muted/20 px-5 py-8 text-center">
-                <div>
-                  <div className="mx-auto grid size-10 place-items-center rounded-lg bg-emerald-50 text-emerald-600">
-                    <CheckCircle2 className="size-5" />
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-sm leading-tight">{c?.name ?? "Firma bulunamadı"}</div>
+                    <div className="mt-0.5 truncate text-xs text-muted-foreground">{s.requestedProduct} · {s.requestedModel} · {(u?.name ?? "Atanmadı").split(" ")[0]}</div>
                   </div>
-                  <div className="mt-3 text-sm font-medium">Açık servis talebi yok</div>
-                  <p className="mt-1 text-xs leading-relaxed text-muted-foreground">Yeni talep geldiğinde bu alanda takip edilecek.</p>
+                  <div className="shrink-0 text-sm tabular-nums">{s.estimatedAmount.toLocaleString()} USD</div>
+                  <StatusBadge status={s.stage} />
                 </div>
+              );
+            })}
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card className="border-border/60 shadow-sm">
+        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+          <div>
+            <CardTitle className="tracking-tight">Açık Servis Talepleri</CardTitle>
+            <p className="mt-1 text-xs text-muted-foreground">Aktif {openService} kayıt</p>
+          </div>
+          <Button size="icon" variant="ghost" className="size-7"><MoreHorizontal className="size-4" /></Button>
+        </CardHeader>
+        <CardContent className="pt-0">
+          {openService === 0 ? (
+            <div className="grid min-h-[180px] place-items-center rounded-lg border border-dashed border-border/70 bg-muted/20 px-5 py-8 text-center">
+              <div>
+                <div className="mx-auto grid size-10 place-items-center rounded-lg bg-emerald-50 text-emerald-600">
+                  <CheckCircle2 className="size-5" />
+                </div>
+                <div className="mt-3 text-sm font-medium">Açık servis talebi yok</div>
+                <p className="mt-1 text-xs leading-relaxed text-muted-foreground">Yeni talep geldiğinde bu alanda takip edilecek.</p>
               </div>
-            ) : (
-              <div className="divide-y divide-border/60">
-                {serviceRequests.filter((s) => s.stage !== "Closed").map((sr) => {
+            </div>
+          ) : (
+            <div className="divide-y divide-border/60">
+              {serviceRequests.filter((s) => s.stage !== "Closed").map((sr) => {
                 const m = machines.find((x) => x.id === sr.machineId);
                 const c = customers.find((x) => x.id === sr.customerId);
                 return (
                   <div key={sr.id} className="flex items-center justify-between gap-2.5 py-3">
-                    <div className="size-8 rounded-md bg-amber-50 text-amber-600 grid place-items-center shrink-0">
+                    <div className="grid size-8 shrink-0 place-items-center rounded-md bg-amber-50 text-amber-600">
                       <Wrench className="size-4" />
                     </div>
                     <div className="min-w-0 flex-1">
-                      <div className="text-sm leading-tight truncate">{c?.name ?? "Firma bulunamadı"}</div>
-                      <div className="text-xs text-muted-foreground truncate mt-0.5">{m ? `${m.model} · ${m.serialNumber}` : "Makine bağlı değil"}</div>
+                      <div className="truncate text-sm leading-tight">{c?.name ?? "Firma bulunamadı"}</div>
+                      <div className="mt-0.5 truncate text-xs text-muted-foreground">{m ? `${m.model} · ${m.serialNumber}` : "Makine bağlı değil"}</div>
                     </div>
                     <StatusBadge status={sr.stage} />
                   </div>
                 );
-                })}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      </div>
+              })}
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }
@@ -506,7 +889,7 @@ function KpiFromDrilldown({
   icon: React.ReactNode;
   item?: KpiDrilldown;
   tone: keyof typeof TONES;
-  delta: number;
+  delta?: number;
   alarm?: boolean;
   onAction?: (action: OperationAction) => void;
 }) {
@@ -786,9 +1169,9 @@ const TONES: Record<string, { bg: string; ic: string; ring: string }> = {
 
 function Kpi({
   icon, label, value, delta, sub, tone = "violet", alarm, onClick,
-}: { icon: React.ReactNode; label: string; value: number | string; delta: number; sub: string; tone?: keyof typeof TONES; alarm?: boolean; onClick?: () => void }) {
+}: { icon: React.ReactNode; label: string; value: number | string; delta?: number; sub: string; tone?: keyof typeof TONES; alarm?: boolean; onClick?: () => void }) {
   const t = TONES[tone];
-  const positive = delta >= 0;
+  const positive = (delta ?? 0) >= 0;
   return (
     <Card
       className={`border-border/60 shadow-sm hover:shadow-md transition-shadow overflow-hidden ${onClick ? "cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35" : ""}`}
@@ -808,6 +1191,7 @@ function Kpi({
           <div className={`size-9 rounded-lg ${t.bg} ${t.ic} grid place-items-center shrink-0 ring-4 ${t.ring}`}>
             {icon}
           </div>
+          {delta !== undefined && (
           <span
             className={`inline-flex items-center gap-0.5 text-[11px] px-1.5 py-0.5 rounded-full ${
               alarm
@@ -816,22 +1200,17 @@ function Kpi({
                 ? "bg-emerald-50 text-emerald-700"
                 : "bg-zinc-100 text-zinc-600"
             }`}
+            aria-hidden
           >
             {positive ? <TrendingUp className="size-3" /> : <TrendingDown className="size-3" />}
-            {Math.abs(delta)}{!alarm && "%"}
+            {alarm ? Math.abs(delta) : `${Math.abs(delta)}%`}
           </span>
+          )}
         </div>
         <div className="mt-3 text-[11px] uppercase tracking-wider text-muted-foreground truncate">{label}</div>
         <div className="mt-1 flex items-baseline gap-1.5">
           <div className="text-[22px] tabular-nums tracking-tight leading-none truncate">{value}</div>
           <div className="text-[11px] text-muted-foreground truncate">{sub}</div>
-        </div>
-        <div className="h-7 -mx-1 mt-2">
-          <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={sparkData}>
-              <Line type="monotone" dataKey="v" stroke={alarm ? "#ef4444" : "#000c69"} strokeWidth={1.8} dot={false} isAnimationActive={false} />
-            </LineChart>
-          </ResponsiveContainer>
         </div>
       </CardContent>
     </Card>

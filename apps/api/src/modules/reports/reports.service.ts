@@ -1,9 +1,10 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { and, between, desc, eq, gte, isNull, lte, sql } from 'drizzle-orm';
+import { and, between, desc, eq, gte, inArray, isNull, lte, sql } from 'drizzle-orm';
 import type { DbClient } from '../../db/client';
 import { visits as visitsTbl, calls as callsTbl } from '../../db/schema/crm';
 import { opportunities, cancellationReasons, competitors } from '../../db/schema/crm';
-import { users } from '../../db/schema/users';
+import { users, userTargets, departmentTargets } from '../../db/schema/users';
+import { departments } from '../../db/schema/tenants';
 import { quotes, quoteItems } from '../../db/schema/quotes';
 import { productModels, brands } from '../../db/schema/products';
 import { receivables, payments } from '../../db/schema/finance';
@@ -286,5 +287,125 @@ export class ReportsService {
         )
       )
       .orderBy(customerDevices.warrantyEndDate);
+  }
+
+  /**
+   * Departman bazlı hedef vs gerçekleşen özet raporu.
+   * Kullanıcı hedefleri departman içinde toplanır; satış gerçekleşmesi fırsat/teklif verisinden gelir.
+   */
+  async departmentPerformance(actor: AuthContext, period: string, departmentId?: string) {
+    const [year, month] = period.split('-').map(Number);
+    const from = new Date(Date.UTC(year, month - 1, 1, 0, 0, 0));
+    const to = new Date(Date.UTC(year, month, 0, 23, 59, 59, 999));
+
+    const deptFilters = [eq(departments.tenantId, actor.tenantId)];
+    if (departmentId) deptFilters.push(eq(departments.id, departmentId));
+    const depts = await this.db.query.departments.findMany({ where: and(...deptFilters) });
+
+    const isWon = sql`${pipelineStages.code} in ('contract','commercial_invoice','customs_approved','stock_picking','shipping','installation','delivered')`;
+    const val = opportunities.estimatedValue;
+
+    const rows = [];
+    for (const dept of depts) {
+      const members = await this.db.query.users.findMany({
+        where: and(eq(users.tenantId, actor.tenantId), eq(users.departmentId, dept.id), isNull(users.deletedAt)),
+      });
+      const memberIds = members.map((m) => m.id);
+
+      const deptTarget = await this.db.query.departmentTargets.findFirst({
+        where: and(
+          eq(departmentTargets.tenantId, actor.tenantId),
+          eq(departmentTargets.departmentId, dept.id),
+          eq(departmentTargets.period, period),
+          isNull(departmentTargets.deletedAt)
+        ),
+      });
+
+      let userTargetSales = 0;
+      let userTargetQuotes = 0;
+      if (memberIds.length) {
+        const utRows = await this.db.query.userTargets.findMany({
+          where: and(
+            eq(userTargets.tenantId, actor.tenantId),
+            eq(userTargets.period, period),
+            isNull(userTargets.deletedAt),
+            inArray(userTargets.userId, memberIds)
+          ),
+        });
+        for (const t of utRows) {
+          userTargetSales += Number(t.salesAmount ?? 0);
+          userTargetQuotes += t.quoteTarget ?? 0;
+        }
+      }
+
+      let wonCount = 0;
+      let wonValue = 0;
+      let quoteCount = 0;
+      let openOpportunities = 0;
+      if (memberIds.length) {
+        const [opp] = await this.db
+          .select({
+            won: sql<number>`count(*) filter (where ${isWon})::int`,
+            wonValue: sql<string>`coalesce(sum(${val}) filter (where ${isWon}), 0)::text`,
+            open: sql<number>`count(*) filter (where ${pipelineStages.code} is null or ${pipelineStages.code} not in ('contract','commercial_invoice','customs_approved','stock_picking','shipping','installation','delivered','cancelled'))::int`,
+          })
+          .from(opportunities)
+          .leftJoin(pipelineStages, eq(opportunities.currentStageId, pipelineStages.id))
+          .where(
+            and(
+              eq(opportunities.tenantId, actor.tenantId),
+              isNull(opportunities.deletedAt),
+              gte(opportunities.createdAt, from),
+              lte(opportunities.createdAt, to),
+              inArray(opportunities.ownerUserId, memberIds)
+            )
+          );
+        wonCount = opp?.won ?? 0;
+        wonValue = Number(opp?.wonValue ?? 0);
+        openOpportunities = opp?.open ?? 0;
+
+        const [qc] = await this.db
+          .select({ count: sql<number>`count(*)::int` })
+          .from(quotes)
+          .where(
+            and(
+              eq(quotes.tenantId, actor.tenantId),
+              isNull(quotes.deletedAt),
+              gte(quotes.quoteDate, from),
+              lte(quotes.quoteDate, to),
+              inArray(quotes.createdBy, memberIds)
+            )
+          );
+        quoteCount = qc?.count ?? 0;
+      }
+
+      const deptSalesTarget = Number(deptTarget?.salesAmount ?? 0);
+      const deptQuoteTarget = deptTarget?.quoteTarget ?? 0;
+
+      rows.push({
+        departmentId: dept.id,
+        departmentCode: dept.code,
+        departmentName: dept.name,
+        memberCount: members.length,
+        targets: {
+          departmentSalesAmount: deptSalesTarget,
+          departmentQuoteTarget: deptQuoteTarget,
+          aggregatedUserSalesAmount: userTargetSales,
+          aggregatedUserQuoteTarget: userTargetQuotes,
+        },
+        actuals: {
+          wonOpportunities: wonCount,
+          wonValue,
+          quotesCreated: quoteCount,
+          openOpportunities,
+        },
+        attainment: {
+          salesPct: deptSalesTarget > 0 ? Math.round((wonValue / deptSalesTarget) * 100) : null,
+          quotePct: deptQuoteTarget > 0 ? Math.round((quoteCount / deptQuoteTarget) * 100) : null,
+        },
+      });
+    }
+
+    return { period, departments: rows };
   }
 }

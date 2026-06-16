@@ -13,6 +13,7 @@
     "build:web": "npm --workspace @haksan/web run build",
     "build:api": "npm --workspace @haksan/api run build",
     "build:shared": "npm --workspace @haksan/shared run build",
+    "build": "npm run build:shared && npm run build:api && npm run build:web",
     "db:generate": "npm --workspace @haksan/api run db:generate",
     "db:migrate": "npm --workspace @haksan/api run db:migrate",
     "db:seed": "npm --workspace @haksan/api run db:seed",

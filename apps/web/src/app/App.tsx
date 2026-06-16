@@ -26,7 +26,10 @@ import { SalesPriceListPage, ServicePriceListPage } from "./components/pages/Pri
 import { LifecyclePage, PublicPassportPage } from "./components/pages/Lifecycle";
 import { AuthProvider, useAuth } from "../lib/auth";
 import { FxProvider } from "./lib/fx";
-import { type OperationAction, type OperationFocus } from "./lib/operations";
+import { ErrorBoundary } from "./components/ErrorBoundary";
+import { ReadinessBanner } from "./components/ReadinessBanner";
+import { StoreLoadBanner } from "./components/shared/StoreLoadBanner";
+import { PageLoadingSkeleton } from "./components/shared/PageLoadingSkeleton";
 
 const TITLES: Record<NavKey, { title: string; subtitle?: string }> = {
   dashboard: { title: "Dashboard", subtitle: "Genel performans ve KPI özeti" },
@@ -61,7 +64,7 @@ const TITLES: Record<NavKey, { title: string; subtitle?: string }> = {
 
 function AppShell() {
   const { authed, loading, login, logout } = useAuth();
-  const { customers, cases } = useStore();
+  const { customers, cases, loading: storeLoading } = useStore();
   // Yenilemede kullanıcının kaldığı yer korunur (sayfa + seçili firma/satış kartı).
   const [nav, setNav] = usePersistentState<NavKey>("nav", "dashboard");
   const [selectedCustomerId, setSelectedCustomerId] = usePersistentState<string | null>("selectedCustomerId", null);
@@ -209,7 +212,13 @@ function AppShell() {
       pageSubtitle={t.subtitle}
       actions={actions}
     >
-      {content}
+      <ReadinessBanner />
+      <StoreLoadBanner />
+      {storeLoading && customers.length === 0 && cases.length === 0 ? (
+        <PageLoadingSkeleton />
+      ) : (
+        <ErrorBoundary>{content}</ErrorBoundary>
+      )}
       <SalesCaseDetailDialog sc={selectedCase} onClose={() => setSelectedCaseId(null)} />
     </Layout>
   );

@@ -43,6 +43,12 @@ const ticketCreate = z.object({
   severity: z.enum(['low', 'normal', 'high', 'critical']).default('normal'),
 });
 const ticketStatus = z.object({ statusCode: z.string() });
+const ticketUpdate = z.object({
+  description: z.string().max(4000).optional(),
+  resolutionNote: z.string().max(4000).optional(),
+  severity: z.enum(['low', 'normal', 'high', 'critical']).optional(),
+  assignedToUserId: z.string().uuid().nullable().optional(),
+});
 
 const installCreate = z.object({
   opportunityId: z.string().optional(),
@@ -320,6 +326,23 @@ export class ServiceController {
         statusId: openStatus?.id ?? null,
       })
       .returning();
+    return row;
+  }
+
+  @RequirePermissions('service_tickets.update')
+  @Patch('service-tickets/:id')
+  async updateTicket(@Param('id') id: string, @Body(new ZodValidationPipe(ticketUpdate)) body: z.infer<typeof ticketUpdate>, @CurrentUser() user: AuthContext) {
+    const ticket = await this.db.query.serviceTickets.findFirst({
+      where: and(eq(serviceTickets.id, id), eq(serviceTickets.tenantId, user.tenantId)),
+    });
+    if (!ticket) throw new NotFoundError('Servis kaydı');
+    const patch: Record<string, unknown> = {};
+    if (body.description !== undefined) patch.description = body.description;
+    if (body.resolutionNote !== undefined) patch.resolutionNote = body.resolutionNote;
+    if (body.severity !== undefined) patch.severity = body.severity;
+    if (body.assignedToUserId !== undefined) patch.assignedToUserId = body.assignedToUserId;
+    if (!Object.keys(patch).length) return ticket;
+    const [row] = await this.db.update(serviceTickets).set(patch).where(eq(serviceTickets.id, id)).returning();
     return row;
   }
 

@@ -1,0 +1,293 @@
+import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  Bar, BarChart, CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis,
+} from "recharts";
+import { RefreshCw } from "lucide-react";
+import { toast } from "sonner";
+import { Button } from "../ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
+import { Input } from "../ui/input";
+import { Label } from "../ui/label";
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from "../ui/select";
+import { Skeleton } from "../ui/skeleton";
+import { adminService, reportService } from "../../../lib/services";
+import { ExportExcelButton } from "../ui/ExportExcelButton";
+import { useAuth } from "../../../lib/auth";
+
+function currentPeriod() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+
+type DeptPerfRow = {
+  departmentId: string;
+  departmentName: string;
+  memberCount: number;
+  targets: { departmentSalesAmount: number; departmentQuoteTarget: number };
+  actuals: { wonValue: number; quotesCreated: number; wonOpportunities: number; openOpportunities: number };
+  attainment: { salesPct: number | null; quotePct: number | null };
+};
+
+export function ReportAnalyticsHub() {
+  const { hasPermission } = useAuth();
+  const canExport = hasPermission("reports.export");
+  const [period, setPeriod] = useState(currentPeriod());
+  const [departmentId, setDepartmentId] = useState<string>("all");
+  const [departments, setDepartments] = useState<{ id: string; name: string }[]>([]);
+  const [deptReport, setDeptReport] = useState<DeptPerfRow[]>([]);
+  const [pipeline, setPipeline] = useState<any[]>([]);
+  const [stock, setStock] = useState<any[]>([]);
+  const [visits, setVisits] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [depts, deptPerf, pipe, st, vis] = await Promise.all([
+        adminService.departments(),
+        reportService.departmentPerformance({
+          period,
+          ...(departmentId !== "all" ? { departmentId } : {}),
+        }),
+        reportService.pipelineSummary(),
+        reportService.stockSummary(),
+        reportService.monthlyVisits({ from: `${period}-01`, to: `${period}-28` }),
+      ]);
+      setDepartments(depts as any[]);
+      setDeptReport((deptPerf as any)?.departments ?? []);
+      setPipeline(Array.isArray(pipe) ? pipe : []);
+      setStock(Array.isArray(st) ? st : []);
+      setVisits(Array.isArray(vis) ? vis : []);
+    } catch (err: any) {
+      toast.error("Analitik veriler yüklenemedi", { description: err?.message });
+    } finally {
+      setLoading(false);
+    }
+  }, [period, departmentId]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const deptChart = useMemo(
+    () =>
+      deptReport.map((d) => ({
+        name: d.departmentName,
+        hedef: d.targets.departmentSalesAmount,
+        gerceklesen: d.actuals.wonValue,
+        teklifHedef: d.targets.departmentQuoteTarget,
+        teklif: d.actuals.quotesCreated,
+      })),
+    [deptReport]
+  );
+
+  const pipelineChart = useMemo(
+    () =>
+      pipeline.map((p) => ({
+        name: p.stageName ?? p.stageCode ?? "—",
+        adet: Number(p.count ?? 0),
+        tutar: Number(p.totalValue ?? 0),
+      })),
+    [pipeline]
+  );
+
+  const stockChart = useMemo(
+    () =>
+      stock.map((s) => ({
+        name: s.statusName ?? s.status ?? "—",
+        adet: Number(s.count ?? 0),
+      })),
+    [stock]
+  );
+
+  const visitChart = useMemo(
+    () =>
+      visits.map((v) => ({
+        name: v.bucket ?? "—",
+        ziyaret: Number(v.count ?? 0),
+      })),
+    [visits]
+  );
+
+  return (
+    <div className="space-y-4">
+      <Card className="border-border/60 shadow-sm">
+        <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <CardTitle>Veri Görselleştirme & Excel Raporları</CardTitle>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Departman hedef/gerçekleşme, pipeline, stok ve ziyaret analitiği — backend verisi.
+            </p>
+          </div>
+          <div className="flex flex-wrap items-end gap-2">
+            <div>
+              <Label className="text-xs">Dönem</Label>
+              <Input type="month" className="mt-1 h-9 w-[150px]" value={period} onChange={(e) => setPeriod(e.target.value || currentPeriod())} />
+            </div>
+            <div>
+              <Label className="text-xs">Departman</Label>
+              <Select value={departmentId} onValueChange={setDepartmentId}>
+                <SelectTrigger className="mt-1 h-9 w-[180px]"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Tümü</SelectItem>
+                  {departments.map((d) => (
+                    <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <Button variant="outline" size="sm" className="gap-1" onClick={load} disabled={loading}>
+              <RefreshCw className="size-4" /> Yenile
+            </Button>
+            {canExport && (
+              <>
+                <ExportExcelButton
+                  path="/reports/export/department-performance"
+                  filename={`departman-raporu-${period}.xlsx`}
+                  params={{ period, ...(departmentId !== "all" ? { departmentId } : {}) }}
+                  label="Departman Excel"
+                />
+                <ExportExcelButton
+                  path="/reports/export/pipeline-summary"
+                  filename="pipeline-summary.xlsx"
+                  label="Pipeline Excel"
+                  variant="secondary"
+                />
+                <ExportExcelButton
+                  path="/reports/export/stock-summary"
+                  filename="stock-summary.xlsx"
+                  label="Stok Excel"
+                  variant="secondary"
+                />
+              </>
+            )}
+          </div>
+        </CardHeader>
+      </Card>
+
+      {loading ? (
+        <div className="grid gap-4 md:grid-cols-2">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <Skeleton key={i} className="h-72 w-full rounded-lg" />
+          ))}
+        </div>
+      ) : (
+        <div className="grid gap-4 lg:grid-cols-2">
+          <ChartCard title="Departman — Satış Hedef vs Gerçekleşen (USD)">
+            <ResponsiveContainer width="100%" height={260}>
+              <BarChart data={deptChart}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="name" tick={{ fontSize: 11 }} />
+                <YAxis tick={{ fontSize: 11 }} />
+                <Tooltip />
+                <Legend />
+                <Bar dataKey="hedef" name="Hedef" fill="#94a3b8" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="gerceklesen" name="Gerçekleşen" fill="#000c69" radius={[4, 4, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </ChartCard>
+
+          <ChartCard title="Departman — Teklif Hedef vs Gerçekleşen">
+            <ResponsiveContainer width="100%" height={260}>
+              <BarChart data={deptChart}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="name" tick={{ fontSize: 11 }} />
+                <YAxis tick={{ fontSize: 11 }} />
+                <Tooltip />
+                <Legend />
+                <Bar dataKey="teklifHedef" name="Teklif Hedefi" fill="#cbd5e1" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="teklif" name="Oluşturulan Teklif" fill="#3b82f6" radius={[4, 4, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </ChartCard>
+
+          <ChartCard title="Satış Pipeline">
+            <ResponsiveContainer width="100%" height={260}>
+              <BarChart data={pipelineChart} layout="vertical" margin={{ left: 8 }}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis type="number" tick={{ fontSize: 11 }} />
+                <YAxis type="category" dataKey="name" width={100} tick={{ fontSize: 10 }} />
+                <Tooltip />
+                <Bar dataKey="adet" name="Fırsat" fill="#10b981" radius={[0, 4, 4, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </ChartCard>
+
+          <ChartCard title="Stok Durumu">
+            <ResponsiveContainer width="100%" height={260}>
+              <BarChart data={stockChart}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="name" tick={{ fontSize: 11 }} />
+                <YAxis tick={{ fontSize: 11 }} />
+                <Tooltip />
+                <Bar dataKey="adet" name="Adet" fill="#f59e0b" radius={[4, 4, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </ChartCard>
+
+          {visitChart.length > 0 && (
+            <ChartCard title="Aylık Ziyaret Trendi" className="lg:col-span-2">
+              <ResponsiveContainer width="100%" height={260}>
+                <LineChart data={visitChart}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="name" tick={{ fontSize: 11 }} />
+                  <YAxis tick={{ fontSize: 11 }} />
+                  <Tooltip />
+                  <Line type="monotone" dataKey="ziyaret" name="Ziyaret" stroke="#000c69" strokeWidth={2} dot />
+                </LineChart>
+              </ResponsiveContainer>
+            </ChartCard>
+          )}
+
+          <Card className="border-border/60 shadow-sm lg:col-span-2">
+            <CardHeader><CardTitle className="text-base">Departman Özet Tablosu</CardTitle></CardHeader>
+            <CardContent className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b text-left text-xs text-muted-foreground">
+                    <th className="py-2 pr-3">Departman</th>
+                    <th className="py-2 pr-3">Üye</th>
+                    <th className="py-2 pr-3">Satış Hedef</th>
+                    <th className="py-2 pr-3">Satış Gerç.</th>
+                    <th className="py-2 pr-3">%</th>
+                    <th className="py-2 pr-3">Teklif Hedef</th>
+                    <th className="py-2 pr-3">Teklif</th>
+                    <th className="py-2">Pipeline Açık</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {deptReport.map((d) => (
+                    <tr key={d.departmentId} className="border-b border-border/40">
+                      <td className="py-2 pr-3 font-medium">{d.departmentName}</td>
+                      <td className="py-2 pr-3">{d.memberCount}</td>
+                      <td className="py-2 pr-3">{d.targets.departmentSalesAmount.toLocaleString("tr-TR")}</td>
+                      <td className="py-2 pr-3">{d.actuals.wonValue.toLocaleString("tr-TR")}</td>
+                      <td className="py-2 pr-3">{d.attainment.salesPct != null ? `%${d.attainment.salesPct}` : "—"}</td>
+                      <td className="py-2 pr-3">{d.targets.departmentQuoteTarget}</td>
+                      <td className="py-2 pr-3">{d.actuals.quotesCreated}</td>
+                      <td className="py-2">{d.actuals.openOpportunities}</td>
+                    </tr>
+                  ))}
+                  {deptReport.length === 0 && (
+                    <tr><td colSpan={8} className="py-6 text-center text-muted-foreground">Bu dönem için departman verisi yok.</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ChartCard({ title, children, className }: { title: string; children: React.ReactNode; className?: string }) {
+  return (
+    <Card className={`border-border/60 shadow-sm ${className ?? ""}`}>
+      <CardHeader className="pb-2"><CardTitle className="text-base">{title}</CardTitle></CardHeader>
+      <CardContent>{children}</CardContent>
+    </Card>
+  );
+}

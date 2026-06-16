@@ -41,3 +41,16 @@ export const inventorySellSchema = z.object({
   notes: z.string().max(1000).optional(),
 });
 export type InventorySellInput = z.infer<typeof inventorySellSchema>;
+
+export const customerDeviceCreateSchema = z.object({
+  companyId: z.string().min(1),
+  inventoryItemId: z.string().optional(),
+  opportunityId: z.string().optional(),
+  quoteId: z.string().optional(),
+  installationDate: z.coerce.date().optional(),
+  warrantyStartDate: z.coerce.date().optional(),
+  warrantyEndDate: z.coerce.date().optional(),
+  deliveryDate: z.coerce.date().optional(),
+  notes: z.string().max(4000).optional(),
+});
+export type CustomerDeviceCreateInput = z.infer<typeof customerDeviceCreateSchema>;

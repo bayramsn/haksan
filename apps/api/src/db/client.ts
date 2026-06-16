@@ -12,6 +12,8 @@ export function getPool(): Pool {
     _pool = new Pool({
       connectionString: env.DATABASE_URL,
       max: env.DATABASE_POOL_MAX,
+      connectionTimeoutMillis: 10_000,
+      idleTimeoutMillis: 30_000,
       // Managed Postgres TLS (env.DATABASE_SSL=true). Self-hosted'da kapalı.
       ssl: env.DATABASE_SSL ? { rejectUnauthorized: false } : undefined,
     });

@@ -1,7 +1,6 @@
 /**
- * Client-side CSV export. Builds a UTF-8 (BOM-prefixed so Excel keeps Turkish
- * characters) CSV from headers + rows and triggers a download. Used by every
- * "Excel" button across the list pages.
+ * Client-side CSV export (yedek / tek satır dışa aktarım).
+ * Ana liste exportları backend .xlsx kullanır — bkz. ExportExcelButton.
  */
 export function exportToCsv(
   filename: string,

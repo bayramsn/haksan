@@ -11,7 +11,7 @@ import { useStore } from "../../lib/store";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../ui/tabs";
 import { KanbanPage } from "./Kanban";
 import { FilterPopover, usePaged, Pager } from "../ui/list-controls";
-import { exportToCsv } from "../../../lib/exportCsv";
+import { ExportExcelButton } from "../ui/ExportExcelButton";
 import { type OperationFocus } from "../../lib/operations";
 
 const initials = (n: string) => (n || "—").split(" ").slice(0, 2).map((p) => p[0]).join("").toUpperCase();
@@ -57,16 +57,10 @@ export function SalesCasesPage({
     if (focusOpen || focusWon || focusLost) setStage("all");
   }, [focusLost, focusOpen, focusWon]);
 
-  const exportExcel = () =>
-    exportToCsv(
-      "satis-kartlari",
-      ["No", "Müşteri", "Ürün", "Model", "Adet", "Tutar", "Para Birimi", "Aşama", "Atanan", "Açılış"],
-      filtered.map((s) => {
-        const c = customers.find((x) => x.id === s.customerId);
-        const u = users.find((x) => x.id === s.assignedUserId);
-        return [s.id.toUpperCase(), c?.name ?? "", s.requestedProduct, s.requestedModel, s.quantity, s.estimatedAmount, s.currency, salesStageLabel(s.stage), u?.name ?? "", s.createdAt];
-      })
-    );
+  const exportParams = {
+    ...(q ? { search: q } : {}),
+    ...(stage !== "all" ? { stageCode: stage } : {}),
+  };
 
   return (
     <Tabs value={view} onValueChange={(v) => setView(v as "list" | "kanban")} className="space-y-4">
@@ -111,7 +105,7 @@ export function SalesCasesPage({
             </span>
           )}
         </div>
-        <Button variant="outline" size="sm" className="h-9" onClick={exportExcel}><Download className="size-4" /> Excel</Button>
+        <ExportExcelButton path="/exports/opportunities" filename="satis-kartlari.xlsx" params={exportParams} className="h-9" />
       </div>
 
       <Card className="border-border/60 shadow-sm overflow-hidden">

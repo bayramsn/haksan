@@ -3,7 +3,7 @@ import { z } from 'zod';
 import * as argon2 from 'argon2';
 import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import type { DbClient } from '../../db/client';
-import { users, roles, permissions, userRoles, rolePermissions, userTargets } from '../../db/schema/users';
+import { users, roles, permissions, userRoles, rolePermissions, userTargets, departmentTargets } from '../../db/schema/users';
 import { departments } from '../../db/schema/tenants';
 import { auditLogs } from '../../db/schema/audit';
 import { DB } from '../../shared/database/database.module';
@@ -32,6 +32,8 @@ const userUpdate = z.object({
   status: z.enum(['active', 'passive']).optional(),
   roleCodes: z.array(z.string()).optional(),
   password: z.string().min(8).max(128).optional(),
+  purchaseApprovalLimit: z.coerce.number().int().min(0).optional(),
+  managerId: z.string().uuid().nullable().optional(),
 });
 
 const roleCreate = z.object({
@@ -45,6 +47,11 @@ const roleUpdate = z.object({
   name: z.string().min(1).max(255).optional(),
   description: z.string().max(2000).nullable().optional(),
   permissionCodes: z.array(z.string()).optional(),
+});
+
+const deptUpdate = z.object({
+  name: z.string().min(1).max(255).optional(),
+  description: z.string().max(2000).nullable().optional(),
 });
 
 const deptCreate = z.object({
@@ -97,6 +104,8 @@ const userTargetUpsert = z.object({
   note: z.string().max(2000).optional(),
 });
 
+const departmentTargetUpsert = userTargetUpsert;
+
 @UseGuards(AuthGuard, PermissionsGuard)
 @Controller()
 export class AdminController {
@@ -114,6 +123,8 @@ export class AdminController {
     const rows = await this.db.query.users.findMany({
       where: and(eq(users.tenantId, user.tenantId), isNull(users.deletedAt)),
     });
+    const deptRows = await this.db.query.departments.findMany({ where: eq(departments.tenantId, user.tenantId) });
+    const deptById = new Map(deptRows.map((d) => [d.id, d]));
     const out = [];
     for (const u of rows) {
       const userRoleRows = await this.db
@@ -121,6 +132,7 @@ export class AdminController {
         .from(userRoles)
         .innerJoin(roles, eq(userRoles.roleId, roles.id))
         .where(eq(userRoles.userId, u.id));
+      const department = u.departmentId ? deptById.get(u.departmentId) : null;
       out.push({
         id: u.id,
         email: u.email,
@@ -128,6 +140,9 @@ export class AdminController {
         phone: u.phone,
         status: u.status,
         departmentId: u.departmentId,
+        department: department ? { id: department.id, code: department.code, name: department.name } : null,
+        purchaseApprovalLimit: u.purchaseApprovalLimit,
+        managerId: u.managerId,
         lastLoginAt: u.lastLoginAt,
         mfaEnabled: u.mfaEnabled,
         roles: userRoleRows,
@@ -174,6 +189,19 @@ export class AdminController {
     const patch: Record<string, unknown> = {};
     for (const k of ['fullName', 'phone', 'departmentId', 'status'] as const) {
       if ((body as any)[k] !== undefined) patch[k] = (body as any)[k];
+    }
+    if (body.purchaseApprovalLimit !== undefined) {
+      patch.purchaseApprovalLimit = body.purchaseApprovalLimit;
+    }
+    if (body.managerId !== undefined) {
+      if (body.managerId === id) throw new ConflictError('Kullanıcı kendi yöneticisi olamaz');
+      if (body.managerId) {
+        const manager = await this.db.query.users.findFirst({
+          where: and(eq(users.id, body.managerId), eq(users.tenantId, user.tenantId), isNull(users.deletedAt)),
+        });
+        if (!manager) throw new NotFoundError('Yönetici');
+      }
+      patch.managerId = body.managerId;
     }
     if (body.password) patch.passwordHash = await argon2.hash(body.password, { type: argon2.argon2id });
     await this.db.update(users).set(patch).where(eq(users.id, id));
@@ -251,6 +279,58 @@ export class AdminController {
       return row;
     }
     const [row] = await this.db.insert(userTargets).values(values).returning();
+    return row;
+  }
+
+  @RequirePermissions('users.read')
+  @Get('department-targets')
+  async listDepartmentTargets(@Query(new ZodValidationPipe(targetQuery)) query: z.infer<typeof targetQuery>, @CurrentUser() user: AuthContext) {
+    const filters = [eq(departmentTargets.tenantId, user.tenantId), isNull(departmentTargets.deletedAt)];
+    if (query.period) filters.push(eq(departmentTargets.period, query.period));
+    return this.db.query.departmentTargets.findMany({
+      where: and(...filters),
+      orderBy: [desc(departmentTargets.period), desc(departmentTargets.updatedAt)],
+    });
+  }
+
+  @RequirePermissions('departments.update')
+  @Post('departments/:id/targets')
+  async upsertDepartmentTarget(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(departmentTargetUpsert)) body: z.infer<typeof departmentTargetUpsert>,
+    @CurrentUser() user: AuthContext
+  ) {
+    const dept = await this.db.query.departments.findFirst({
+      where: and(eq(departments.id, id), eq(departments.tenantId, user.tenantId)),
+    });
+    if (!dept) throw new NotFoundError('Departman');
+
+    const values = {
+      tenantId: user.tenantId,
+      departmentId: id,
+      period: body.period,
+      currency: 'USD' as const,
+      salesAmount: body.salesAmount == null ? null : body.salesAmount.toString(),
+      salesNewCustomers: body.salesNewCustomers,
+      serviceAmount: body.serviceAmount == null ? null : body.serviceAmount.toString(),
+      serviceCompleted: body.serviceCompleted,
+      digitalLeadTarget: body.digitalLeadTarget,
+      digitalConversionTarget: body.digitalConversionTarget,
+      digitalBudget: body.digitalBudget == null ? null : body.digitalBudget.toString(),
+      visitTarget: body.visitTarget,
+      callTarget: body.callTarget,
+      quoteTarget: body.quoteTarget,
+      targetItems: body.targetItems,
+      note: body.note?.trim() || null,
+    };
+    const existing = await this.db.query.departmentTargets.findFirst({
+      where: and(eq(departmentTargets.tenantId, user.tenantId), eq(departmentTargets.departmentId, id), eq(departmentTargets.period, body.period)),
+    });
+    if (existing) {
+      const [row] = await this.db.update(departmentTargets).set(values).where(eq(departmentTargets.id, existing.id)).returning();
+      return row;
+    }
+    const [row] = await this.db.insert(departmentTargets).values(values).returning();
     return row;
   }
 
@@ -342,10 +422,33 @@ export class AdminController {
   @RequirePermissions('departments.create')
   @Post('departments')
   async createDept(@Body(new ZodValidationPipe(deptCreate)) body: z.infer<typeof deptCreate>, @CurrentUser() user: AuthContext) {
+    const code = body.code.trim().toLowerCase();
+    const existing = await this.db.query.departments.findFirst({
+      where: and(eq(departments.tenantId, user.tenantId), eq(departments.code, code)),
+    });
+    if (existing) throw new ConflictError('Bu departman kodu zaten kayıtlı');
     const [row] = await this.db
       .insert(departments)
-      .values({ tenantId: user.tenantId, code: body.code, name: body.name, description: body.description ?? null })
+      .values({ tenantId: user.tenantId, code, name: body.name.trim(), description: body.description?.trim() || null })
       .returning();
+    return row;
+  }
+
+  @RequirePermissions('departments.update')
+  @Patch('departments/:id')
+  async updateDept(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(deptUpdate)) body: z.infer<typeof deptUpdate>,
+    @CurrentUser() user: AuthContext
+  ) {
+    const existing = await this.db.query.departments.findFirst({
+      where: and(eq(departments.id, id), eq(departments.tenantId, user.tenantId)),
+    });
+    if (!existing) throw new NotFoundError('Departman');
+    const patch: Record<string, unknown> = {};
+    if (body.name !== undefined) patch.name = body.name;
+    if (body.description !== undefined) patch.description = body.description;
+    const [row] = await this.db.update(departments).set(patch).where(eq(departments.id, id)).returning();
     return row;
   }
 

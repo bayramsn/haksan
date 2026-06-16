@@ -16,7 +16,7 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "../ui/alert-dialog";
 import { FilterPopover, usePaged, Pager } from "../ui/list-controls";
-import { exportToCsv } from "../../../lib/exportCsv";
+import { ExportExcelButton } from "../ui/ExportExcelButton";
 
 const initials = (n: string) => n.split(" ").slice(0, 2).map((p) => p[0]).join("").toUpperCase();
 const uniqueSorted = (values: (string | undefined)[]) =>
@@ -57,12 +57,10 @@ export function ContactsPage() {
 
   const { page, setPage, totalPages, pageItems } = usePaged(filtered, 12);
 
-  const exportExcel = () =>
-    exportToCsv(
-      "kontaklar",
-      ["Ad Soyad", "Ünvan", "Departman", "Firma", "Telefon", "Cep", "E-posta", "Birincil"],
-      filtered.map((k) => [k.name, k.title, k.department, k.firm?.name ?? "", k.phone, k.mobilePhone ?? "", k.email, k.isPrimary ? "Evet" : "Hayır"])
-    );
+  const exportParams = {
+    ...(q ? { search: q } : {}),
+    ...(firmId !== "all" ? { companyId: firmId } : {}),
+  };
 
   return (
     <div className="space-y-4">
@@ -100,7 +98,7 @@ export function ContactsPage() {
               { label: "Firma", value: firmId, onChange: setFirmId, options: customers.map((c) => ({ value: c.id, label: c.name })) },
             ]}
           />
-          <Button variant="outline" size="sm" className="h-9" onClick={exportExcel}><Download className="size-4" /> Excel</Button>
+          <ExportExcelButton path="/exports/contacts" filename="kontaklar.xlsx" params={exportParams} className="h-9" />
         </div>
       </div>
 

@@ -8,6 +8,7 @@ export type User = {
   roleCodes?: string[];
   roleNames?: string[];
   department: string;
+  departmentId?: string | null;
   active: boolean;
   avatarUrl?: string;
   purchaseApprovalLimit?: number;

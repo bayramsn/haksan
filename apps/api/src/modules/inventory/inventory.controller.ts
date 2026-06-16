@@ -6,12 +6,14 @@ import {
   inventoryReserveSchema,
   inventorySellSchema,
   warehouseCreateSchema,
+  customerDeviceCreateSchema,
   paginationSchema,
   type InventoryItemCreateInput,
   type InventoryItemUpdateInput,
   type InventoryReserveInput,
   type InventorySellInput,
   type WarehouseCreateInput,
+  type CustomerDeviceCreateInput,
   type Pagination,
 } from '@haksan/shared';
 import { ZodValidationPipe } from '../../shared/utils/zod-pipe';
@@ -101,5 +103,14 @@ export class InventoryController {
   ) {
     const { page, pageSize, sortBy, sortDir, ...query } = qp;
     return this.svc.listCustomerDevices(user, query, { page, pageSize, sortBy, sortDir });
+  }
+
+  @RequirePermissions('customer_devices.update')
+  @Post('customer-devices')
+  createCustomerDevice(
+    @Body(new ZodValidationPipe(customerDeviceCreateSchema)) body: CustomerDeviceCreateInput,
+    @CurrentUser() user: AuthContext
+  ) {
+    return this.svc.createCustomerDevice(body, user);
   }
 }

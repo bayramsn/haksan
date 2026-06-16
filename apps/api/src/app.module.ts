@@ -16,6 +16,7 @@ import { FilesModule } from './modules/files/files.module';
 import { ServiceModule } from './modules/service/service.module';
 import { FinanceModule } from './modules/finance/finance.module';
 import { ReportsModule } from './modules/reports/reports.module';
+import { ExportsModule } from './modules/exports/exports.module';
 import { LookupsModule } from './modules/lookups/lookups.module';
 import { AdminModule } from './modules/admin/admin.module';
 import { NoteTemplatesModule } from './modules/note-templates/note-templates.module';
@@ -54,6 +55,7 @@ const env = loadEnv();
     ServiceModule,
     FinanceModule,
     ReportsModule,
+    ExportsModule,
     AdminModule,
     NoteTemplatesModule,
     FxModule,

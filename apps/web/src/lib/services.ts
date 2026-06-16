@@ -3,6 +3,7 @@
  * place in the frontend that talks to backend endpoints.
  */
 import { api, getAccessToken } from './apiClient';
+import { exportService } from './downloadExport';
 
 export interface Paginated<T> {
   data: T[];
@@ -157,6 +158,17 @@ export const inventoryService = {
   sell: (id: string, body: any) => api.patch<any>(`/inventory/${id}/sell`, body),
   customerDevices: (params?: Record<string, string | number | undefined>) =>
     api.get<Paginated<any>>(`/customer-devices${qs(params)}`),
+  createCustomerDevice: (body: {
+    companyId: string;
+    inventoryItemId?: string;
+    opportunityId?: string;
+    quoteId?: string;
+    installationDate?: string;
+    warrantyStartDate?: string;
+    warrantyEndDate?: string;
+    deliveryDate?: string;
+    notes?: string;
+  }) => api.post<any>('/customer-devices', body),
 };
 
 // ───── Quotes ─────
@@ -258,6 +270,10 @@ export const purchaseOrderService = {
   setStatus: (id: string, body: any) => api.patch(`/purchase-orders/${id}/status`, body),
 };
 
+export const authService = {
+  forgotPassword: (email: string) => api.post<{ ok: boolean; token?: string }>('/auth/forgot-password', { email }),
+};
+
 // ───── Commercial documents ─────
 export const documentService = {
   proformas: (params?: Record<string, string | number | undefined>) => api.get<Paginated<any>>(`/proformas${qs(params)}`),
@@ -286,6 +302,7 @@ export const financeService = {
 export const serviceService = {
   tickets: (params?: Record<string, string | number | undefined>) => api.get<Paginated<any>>(`/service-tickets${qs(params)}`),
   createTicket: (body: any) => api.post<any>('/service-tickets', body),
+  update: (id: string, body: any) => api.patch<any>(`/service-tickets/${id}`, body),
   updateTicketStatus: (id: string, statusCode: string) =>
     api.patch<any>(`/service-tickets/${id}/status`, { statusCode }),
   installations: (params?: Record<string, string | number | undefined>) => api.get<Paginated<any>>(`/installations${qs(params)}`),
@@ -356,38 +373,19 @@ export interface YearEndReport {
 }
 
 export const reportService = {
-  weeklyVisits: () => api.get<any[]>('/reports/weekly-visits'),
-  monthlyVisits: () => api.get<any[]>('/reports/monthly-visits'),
-  weeklyQuotes: () => api.get<any[]>('/reports/weekly-quotes-by-product'),
-  monthlyQuotes: () => api.get<any[]>('/reports/monthly-quotes-by-product'),
+  weeklyVisits: (params?: Record<string, string>) => api.get<any[]>(`/reports/weekly-visits${qs(params)}`),
+  monthlyVisits: (params?: Record<string, string>) => api.get<any[]>(`/reports/monthly-visits${qs(params)}`),
+  yearlyVisits: (params?: Record<string, string>) => api.get<any[]>(`/reports/yearly-visits${qs(params)}`),
+  weeklyQuotes: (params?: Record<string, string>) => api.get<any[]>(`/reports/weekly-quotes-by-product${qs(params)}`),
+  monthlyQuotes: (params?: Record<string, string>) => api.get<any[]>(`/reports/monthly-quotes-by-product${qs(params)}`),
   stockSummary: () => api.get<any[]>('/reports/stock-summary'),
   pipelineSummary: () => api.get<any[]>('/reports/pipeline-summary'),
+  departmentPerformance: (params: Record<string, string>) => api.get<any>(`/reports/department-performance${qs(params)}`),
   expectedReceivables: () => api.get<any[]>('/reports/expected-receivables'),
-  completedPayments: () => api.get<any[]>('/reports/completed-payments'),
-  warrantyExpiring: () => api.get<any[]>('/reports/warranty-expiring'),
+  completedPayments: (params?: Record<string, string>) => api.get<any[]>(`/reports/completed-payments${qs(params)}`),
+  warrantyExpiring: (params?: Record<string, string | number>) => api.get<any[]>(`/reports/warranty-expiring${qs(params)}`),
   yearEnd: (year: number) => api.get<YearEndReport>(`/reports/year-end?year=${year}`),
-  /**
-   * Çok sayfalı .xlsx raporunu backend'den indirir. api client JSON/metin
-   * döndürdüğü için burada token'lı ham fetch + blob indirmesi yapılır.
-   */
-  downloadYearEnd: async (year: number): Promise<void> => {
-    const base = (import.meta.env.VITE_API_BASE_URL as string) ?? 'http://localhost:3000/api/v1';
-    const token = getAccessToken();
-    const res = await fetch(`${base}/reports/export/year-end?year=${year}`, {
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
-      credentials: 'include',
-    });
-    if (!res.ok) throw new Error(`Excel indirilemedi (HTTP ${res.status})`);
-    const blob = await res.blob();
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `karlilik-raporu-${year}.xlsx`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  },
+  downloadYearEnd: (year: number) => exportService.yearEnd(year),
 };
 
 // ───── Admin (users, roles, departments) ─────
@@ -398,6 +396,9 @@ export const adminService = {
   userTargets: (params?: Record<string, string | number | undefined>) => api.get<any[]>(`/user-targets${qs(params)}`),
   myTargets: (params?: Record<string, string | number | undefined>) => api.get<any[]>(`/me/targets${qs(params)}`),
   saveUserTarget: (userId: string, body: any) => api.post<any>(`/users/${userId}/targets`, body),
+  departmentTargets: (params?: Record<string, string | number | undefined>) => api.get<any[]>(`/department-targets${qs(params)}`),
+  saveDepartmentTarget: (departmentId: string, body: any) => api.post<any>(`/departments/${departmentId}/targets`, body),
+  updateDept: (id: string, body: any) => api.patch<any>(`/departments/${id}`, body),
   roles: () => api.get<any[]>('/roles'),
   createRole: (body: any) => api.post<any>('/roles', body),
   updateRole: (id: string, body: any) => api.patch<any>(`/roles/${id}`, body),

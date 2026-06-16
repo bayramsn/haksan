@@ -24,6 +24,10 @@ import { CreateStockDialog, CreateServiceRequestDialog, CreateInstallationDialog
 import { QuoteDialog } from "../dialogs/QuoteDialog";
 import { DocumentUploadDialog } from "../dialogs/DocumentUploadDialog";
 import { DocumentPreviewDialog } from "../dialogs/DocumentPreviewDialog";
+import { CreateUserDialog, UserDepartmentDialog } from "../admin/UserAdminDialogs";
+import { EmptyState } from "../shared/EmptyState";
+import { DepartmentTargetButton } from "../admin/DepartmentTargetDialog";
+import { safeLoad } from "../../../lib/safeLoad";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
 } from "../ui/dropdown-menu";
@@ -40,13 +44,14 @@ import {
   TrendingUp, ArrowDownRight, ArrowUpRight, Wallet, Receipt, Filter, Download, Printer, Mail, Phone, Building2,
   FileText, Package, Truck, Wrench, ClipboardCheck, ShoppingCart, MapPin, Calendar,
   ShieldCheck, FileSignature, Image as ImageIcon, MoreHorizontal, Eye, User as UserIcon, Trash2, RotateCcw,
-  Lock, Save, X, Settings, Play, Pause, Square, MessageSquare,
+  Lock, Save, X, Settings, Play, Pause, Square, MessageSquare, XCircle,
 } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "../ui/avatar";
 
 const initials = (n: string) => n.split(" ").slice(0, 2).map((p) => p[0]).join("").toUpperCase();
 import { KanbanBoard, KanbanColumn } from "../KanbanBoard";
 import { useStore } from "../../lib/store";
+import { buildOfferTrend, buildPaymentMonthly, buildCurrencyPie } from "../../lib/chartAggregates";
 import { useFx, FxRateBadge } from "../../lib/fx";
 import { Customer, Delivery, DocumentItem, Offer, Payment, SalesCase, ServiceRequest, ServiceStage, User } from "../../lib/mock";
 import { INSTALLATION_LOCATION_LABELS, formatDuration, type InstallationLocationType } from "@haksan/shared";
@@ -54,6 +59,7 @@ import { useAuth } from "../../../lib/auth";
 import { toast } from "sonner";
 import { adminService, companyService, productService, purchaseOrderService, salesOrderService, serviceService, reportService, fileService, quoteService, type YearEndReport } from "../../../lib/services";
 import { exportToCsv } from "../../../lib/exportCsv";
+import { ExportExcelButton } from "../ui/ExportExcelButton";
 import { FilterPopover, usePaged, Pager } from "../ui/list-controls";
 import {
   buildManagementInsights,
@@ -108,17 +114,8 @@ const splitVat = (
   return { net, kdv: gross - net, oran: defaultRate };
 };
 
-const OFFER_TREND = [
-  { ay: "Ara", gonderilen: 12, onaylanan: 5 },
-  { ay: "Oca", gonderilen: 16, onaylanan: 7 },
-  { ay: "Şub", gonderilen: 22, onaylanan: 10 },
-  { ay: "Mar", gonderilen: 19, onaylanan: 9 },
-  { ay: "Nis", gonderilen: 26, onaylanan: 13 },
-  { ay: "May", gonderilen: 18, onaylanan: 8 },
-];
-
 export function OffersPage({ focus }: { focus?: OperationFocus }) {
-  const { offers: rawOffers, cases, customers, users, moveCase } = useStore();
+  const { offers: rawOffers, cases, customers, users, moveCase, refresh } = useStore();
   const { convert } = useFx();
   const customerName = (id: string) => customers.find((c) => c.id === id)?.name ?? "—";
   const backToSales = async (caseId: string) => {
@@ -189,6 +186,10 @@ export function OffersPage({ focus }: { focus?: OperationFocus }) {
     }
     return true;
   });
+  const offerExportParams = {
+    ...(q ? { search: q } : {}),
+    ...(tab !== "all" ? { statusCode: tab.toLowerCase() } : {}),
+  };
   const selectedOffer = selectedOfferId ? offers.find((o) => o.id === selectedOfferId) ?? null : null;
   const selectedCase = selectedOffer ? cases.find((s) => s.id === selectedOffer.salesCaseId) ?? null : null;
   const selectedCustomer = selectedOffer
@@ -204,13 +205,27 @@ export function OffersPage({ focus }: { focus?: OperationFocus }) {
     ? salesOrders.find((order) => order.quoteId === selectedOffer.id || order.quote?.id === selectedOffer.id)
     : null;
 
+  const offerTrend = useMemo(() => buildOfferTrend(offers, 6), [offers]);
+
+  const runQuoteAction = async (offerId: string, action: "send" | "approve" | "reject") => {
+    try {
+      if (action === "send") await quoteService.send(offerId);
+      else if (action === "approve") await quoteService.approve(offerId);
+      else await quoteService.reject(offerId);
+      toast.success(action === "send" ? "Teklif gönderildi" : action === "approve" ? "Teklif onaylandı" : "Teklif reddedildi");
+      await refresh();
+    } catch (err: any) {
+      toast.error("İşlem başarısız", { description: err?.message ?? "API isteği başarısız oldu." });
+    }
+  };
+
   return (
     <div className="space-y-5">
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <MiniKpi tone="violet" icon={<FileText className="size-[18px]" />} label="Toplam Teklif" value={total} sub="bu çeyrek" delta={11} />
-        <MiniKpi tone="emerald" icon={<CheckCircle2 className="size-[18px]" />} label="Onaylanan" value={approved} sub={`$ ${(approvedAmount / 1000).toFixed(0)}K`} delta={8} />
-        <MiniKpi tone="blue" icon={<Mail className="size-[18px]" />} label="Gönderilen" value={sent} sub="cevap bekleniyor" delta={4} />
-        <MiniKpi tone="amber" icon={<TrendingUp className="size-[18px]" />} label="Kazanma Oranı" value={`%${winRate}`} sub={`hedef %50`} delta={3} progress={winRate} />
+        <MiniKpi tone="violet" icon={<FileText className="size-[18px]" />} label="Toplam Teklif" value={total} sub="bu çeyrek" />
+        <MiniKpi tone="emerald" icon={<CheckCircle2 className="size-[18px]" />} label="Onaylanan" value={approved} sub={`$ ${(approvedAmount / 1000).toFixed(0)}K`} />
+        <MiniKpi tone="blue" icon={<Mail className="size-[18px]" />} label="Gönderilen" value={sent} sub="cevap bekleniyor" />
+        <MiniKpi tone="amber" icon={<TrendingUp className="size-[18px]" />} label="Kazanma Oranı" value={`%${winRate}`} sub={`hedef %50`} progress={winRate} />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
@@ -221,7 +236,7 @@ export function OffersPage({ focus }: { focus?: OperationFocus }) {
           </CardHeader>
           <CardContent className="h-64 pl-2">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={OFFER_TREND} margin={{ top: 5, right: 12, left: 0, bottom: 0 }}>
+              <BarChart data={offerTrend} margin={{ top: 5, right: 12, left: 0, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#eef0f3" vertical={false} />
                 <XAxis dataKey="ay" stroke="#9ca3af" fontSize={11} tickLine={false} axisLine={false} />
                 <YAxis stroke="#9ca3af" fontSize={11} tickLine={false} axisLine={false} />
@@ -287,23 +302,7 @@ export function OffersPage({ focus }: { focus?: OperationFocus }) {
               <Search className="size-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
               <Input placeholder="Teklif no / müşteri..." className="pl-9 h-9 bg-white" value={q} onChange={(e) => setQ(e.target.value)} />
             </div>
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-9"
-              onClick={() =>
-                exportToCsv(
-                  "teklifler",
-                  ["Teklif No", "Müşteri", "Tutar", "Para Birimi", "Durum", "Tarih"],
-                  filtered.map((o) => {
-                    const sc = cases.find((s) => s.id === o.salesCaseId);
-                    return [o.quoteNo, sc ? customerName(sc.customerId) : "", o.amount, o.currency, o.status, o.date];
-                  })
-                )
-              }
-            >
-              <Download className="size-4" /> Excel
-            </Button>
+            <ExportExcelButton path="/exports/quotes" filename="teklifler.xlsx" params={offerExportParams} className="h-9" />
             <QuoteDialog
               trigger={<Button size="sm" className="h-9 gap-1"><Plus className="size-4" /> Yeni Teklif</Button>}
             />
@@ -350,6 +349,45 @@ export function OffersPage({ focus }: { focus?: OperationFocus }) {
                     <TableCell><span className="text-xs text-muted-foreground line-clamp-1 max-w-[220px]">{o.note}</span></TableCell>
                     <TableCell>
                       <div className="flex items-center justify-end gap-1">
+                        {o.status === "Draft" && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-7 gap-1 text-xs"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              void runQuoteAction(o.id, "send");
+                            }}
+                          >
+                            <Mail className="size-3.5" /> Gönder
+                          </Button>
+                        )}
+                        {o.status === "Sent" && (
+                          <>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="h-7 gap-1 text-xs border-emerald-200 text-emerald-700"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                void runQuoteAction(o.id, "approve");
+                              }}
+                            >
+                              <CheckCircle2 className="size-3.5" /> Onayla
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="h-7 gap-1 text-xs border-red-200 text-red-600"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                void runQuoteAction(o.id, "reject");
+                              }}
+                            >
+                              <XCircle className="size-3.5" /> Reddet
+                            </Button>
+                          </>
+                        )}
                         {sc?.isLost && (
                           <Button
                             variant="outline"
@@ -398,6 +436,7 @@ export function OffersPage({ focus }: { focus?: OperationFocus }) {
         revisions={selectedRevisions}
         order={selectedOrder}
         onClose={() => setSelectedOfferId(null)}
+        onQuoteAction={runQuoteAction}
       />
 
       <Card className="border-border/60 shadow-sm overflow-hidden">
@@ -471,6 +510,7 @@ function OfferDetailDialog({
   revisions,
   order,
   onClose,
+  onQuoteAction,
 }: {
   offer: Offer | null;
   salesCase: SalesCase | null;
@@ -479,6 +519,7 @@ function OfferDetailDialog({
   revisions: Offer[];
   order?: any;
   onClose: () => void;
+  onQuoteAction?: (offerId: string, action: "send" | "approve" | "reject") => Promise<void>;
 }) {
   const { products } = useStore();
   const [noteVariant, setNoteVariant] = useState(QUOTE_NOTE_VARIANTS[2].key);
@@ -700,6 +741,21 @@ function OfferDetailDialog({
             >
               <Download className="size-4" /> PDF İndir
             </Button>
+            {offer.status === "Draft" && onQuoteAction && (
+              <Button className="gap-1 sm:w-auto" onClick={() => onQuoteAction(offer.id, "send")}>
+                <Mail className="size-4" /> Gönder
+              </Button>
+            )}
+            {offer.status === "Sent" && onQuoteAction && (
+              <>
+                <Button variant="default" className="gap-1 sm:w-auto bg-emerald-600 hover:bg-emerald-700" onClick={() => onQuoteAction(offer.id, "approve")}>
+                  <CheckCircle2 className="size-4" /> Onayla
+                </Button>
+                <Button variant="outline" className="gap-1 sm:w-auto border-red-200 text-red-600" onClick={() => onQuoteAction(offer.id, "reject")}>
+                  <XCircle className="size-4" /> Reddet
+                </Button>
+              </>
+            )}
           </div>
           <Button variant="outline" onClick={onClose}>Kapat</Button>
         </DialogFooter>
@@ -902,16 +958,6 @@ export function DocumentsPage({
     );
   });
 
-  const exportExcel = () =>
-    exportToCsv(
-      "dokumanlar",
-      ["Dosya", "Tip", "Müşteri", "Boyut", "Yükleyen", "Tarih"],
-      filtered.map((d) => {
-        const sc = cases.find((s) => s.id === d.salesCaseId);
-        return [d.fileName, d.type, customerName(sc?.customerId || d.companyId || ""), d.size, userName(d.uploadedBy), d.uploadedAt];
-      })
-    );
-
   const downloadDocument = async (d: (typeof documents)[number]) => {
     const sc = cases.find((s) => s.id === d.salesCaseId);
     const fallbackCustomer = customerName(sc?.customerId || d.companyId || "");
@@ -936,7 +982,14 @@ export function DocumentsPage({
     <div className="space-y-5">
       <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
         {counts.map((c) => (
-          <Card key={c.type} className="border-border/60 shadow-sm hover:shadow-md transition-shadow cursor-pointer">
+          <Card
+            key={c.type}
+            role="button"
+            tabIndex={0}
+            onClick={() => setDocType(c.type)}
+            onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setDocType(c.type); } }}
+            className={`border-border/60 shadow-sm hover:shadow-md transition-shadow cursor-pointer ${docType === c.type ? "ring-2 ring-primary/30" : ""}`}
+          >
             <CardContent className="p-3 flex items-center gap-2.5">
               <div className="size-8 rounded-md bg-primary/10 text-primary grid place-items-center shrink-0">
                 {DOC_ICONS[c.type]}
@@ -966,7 +1019,7 @@ export function DocumentsPage({
                 filters={[{ label: "Tip", value: docType, onChange: setDocType, options: types.map((t) => ({ value: t, label: DOC_TYPE_LABELS[t as DocumentItem["type"]] ?? t })) }]}
               />
             )}
-            <Button variant="outline" size="sm" className="h-9 justify-center" onClick={exportExcel}><Download className="size-4" /> Excel</Button>
+            <ExportExcelButton path="/exports/documents" filename="dokumanlar.xlsx" className="h-9 justify-center" />
             <DocumentUploadDialog
               defaultType={initialType}
               trigger={<Button size="sm" className="h-9 justify-center gap-1"><Upload className="size-4" /> {initialType ? `${DOC_TYPE_LABELS[initialType]} Yükle` : "Yükle"}</Button>}
@@ -1062,30 +1115,6 @@ export function DocumentsPage({
   );
 }
 
-const PAY_MONTHLY = [
-  { ay: "Ara", tahsilat: 145, beklenen: 90, gecikmis: 22 },
-  { ay: "Oca", tahsilat: 168, beklenen: 110, gecikmis: 28 },
-  { ay: "Şub", tahsilat: 210, beklenen: 130, gecikmis: 18 },
-  { ay: "Mar", tahsilat: 195, beklenen: 145, gecikmis: 35 },
-  { ay: "Nis", tahsilat: 248, beklenen: 160, gecikmis: 24 },
-  { ay: "May", tahsilat: 220, beklenen: 175, gecikmis: 41 },
-];
-
-const CASHFLOW = [
-  { gun: "1", giris: 12, cikis: 8 },
-  { gun: "5", giris: 24, cikis: 14 },
-  { gun: "10", giris: 18, cikis: 22 },
-  { gun: "15", giris: 35, cikis: 18 },
-  { gun: "20", giris: 28, cikis: 26 },
-  { gun: "25", giris: 42, cikis: 20 },
-  { gun: "30", giris: 38, cikis: 30 },
-];
-
-const CURRENCY_PIE = [
-  { name: "USD", value: 86, fill: "#000c69" },
-  { name: "TRY", value: 14, fill: "#06b6d4" },
-];
-
 export function PaymentsPage({ focus }: { focus?: OperationFocus }) {
   const { payments, customers, refresh } = useStore();
   const { convert } = useFx();
@@ -1130,7 +1159,7 @@ export function PaymentsPage({ focus }: { focus?: OperationFocus }) {
   })).filter((x) => x.amt > 0);
 
   // Aging buckets (days past dueDate, Overdue + Pending past due)
-  const today = new Date("2026-05-13");
+  const today = new Date();
   const buckets = [
     { key: "0-30", label: "0–30 gün", color: "#fbbf24", value: 0 },
     { key: "31-60", label: "31–60 gün", color: "#f59e0b", value: 0 },
@@ -1163,21 +1192,24 @@ export function PaymentsPage({ focus }: { focus?: OperationFocus }) {
     return true;
   });
   const { page, setPage, totalPages, pageItems } = usePaged(filtered, 12);
-  const exportExcel = () =>
-    exportToCsv(
-      "kasa-hareketleri",
-      ["Firma", "Yön", "Tutar", "Para Birimi", "Vade", "Ödeme Tarihi", "Durum", "Not"],
-      filtered.map((p) => [
-        customerName(p.customerId),
-        p.direction === "in" ? "Alınan (Giren)" : "Ödenen (Çıkan)",
-        p.amount,
-        p.currency,
-        p.dueDate,
-        p.paidDate ?? "",
-        p.status,
-        p.note,
-      ])
-    );
+
+  const payMonthly = useMemo(() => buildPaymentMonthly(payments, 6, (amount, currency) => convert(amount, currency, "USD")), [payments, convert]);
+  const currencyPie = useMemo(() => {
+    const pie = buildCurrencyPie(payments);
+    return pie.length ? pie : [{ name: "USD", value: 0, fill: "#000c69" }];
+  }, [payments]);
+  const cashflow = useMemo(() => {
+    const now = new Date();
+    const key = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+    const inMonth = payments.filter((p) => String(p.paymentDate ?? "").startsWith(key) && p.status === "Paid");
+    const days = [1, 5, 10, 15, 20, 25, 30];
+    return days.map((gun) => {
+      const dayRows = inMonth.filter((p) => new Date(p.paymentDate).getDate() <= gun);
+      const giris = dayRows.filter((p) => p.direction !== "out").reduce((s, p) => s + convert(p.amount, p.currency, "USD"), 0);
+      const cikis = dayRows.filter((p) => p.direction === "out").reduce((s, p) => s + convert(p.amount, p.currency, "USD"), 0);
+      return { gun: String(gun), giris: Math.round(giris / 1000), cikis: Math.round(cikis / 1000) };
+    });
+  }, [payments, convert]);
 
   return (
     <div className="space-y-5">
@@ -1188,7 +1220,6 @@ export function PaymentsPage({ focus }: { focus?: OperationFocus }) {
           icon={<ArrowDownRight className="size-[18px]" />}
           label="Alınan (Giren)"
           value={`$ ${(totalPaid / 1000).toFixed(1)}K`}
-          delta={12}
           sub={`${inflow.filter((p) => p.status === "Paid").length} tahsilat`}
         />
         <PayKpi
@@ -1196,7 +1227,6 @@ export function PaymentsPage({ focus }: { focus?: OperationFocus }) {
           icon={<ArrowUpRight className="size-[18px]" />}
           label="Ödenen (Çıkan)"
           value={kasa.length ? kasa.map((k) => `${curSymbol(k.cur)}${(k.cik / 1000).toFixed(1)}K`).join(" · ") : "—"}
-          delta={-4}
           sub={`${outPaidCount} ödeme`}
         />
         <PayKpi
@@ -1204,7 +1234,6 @@ export function PaymentsPage({ focus }: { focus?: OperationFocus }) {
           icon={<Wallet className="size-[18px]" />}
           label="Net Kasa"
           value={kasa.length ? kasa.map((k) => `${curSymbol(k.cur)}${(k.net / 1000).toFixed(1)}K`).join(" · ") : "—"}
-          delta={3}
           sub="gerçekleşen"
         />
         <PayKpi
@@ -1212,7 +1241,6 @@ export function PaymentsPage({ focus }: { focus?: OperationFocus }) {
           icon={<Clock className="size-[18px]" />}
           label="Bekleyen Tahsilat"
           value={`$ ${(totalPending / 1000).toFixed(1)}K`}
-          delta={4}
           sub={`${inflow.filter((p) => p.status === "Pending").length} kayıt`}
         />
       </div>
@@ -1284,7 +1312,7 @@ export function PaymentsPage({ focus }: { focus?: OperationFocus }) {
           </CardHeader>
           <CardContent className="h-72 pl-2">
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={PAY_MONTHLY} margin={{ top: 5, right: 12, left: 0, bottom: 0 }}>
+              <AreaChart data={payMonthly} margin={{ top: 5, right: 12, left: 0, bottom: 0 }}>
                 <defs>
                   <linearGradient id="pgT" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%" stopColor="#10b981" stopOpacity={0.4} />
@@ -1320,8 +1348,8 @@ export function PaymentsPage({ focus }: { focus?: OperationFocus }) {
           <CardContent className="h-72">
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
-                <Pie data={CURRENCY_PIE} dataKey="value" nameKey="name" outerRadius={80} innerRadius={50} paddingAngle={3} isAnimationActive={false}>
-                  {CURRENCY_PIE.map((d) => (
+                <Pie data={currencyPie} dataKey="value" nameKey="name" outerRadius={80} innerRadius={50} paddingAngle={3} isAnimationActive={false}>
+                  {currencyPie.map((d) => (
                     <Cell key={`cur-${d.name}`} fill={d.fill} stroke="#fff" strokeWidth={2} />
                   ))}
                 </Pie>
@@ -1370,7 +1398,7 @@ export function PaymentsPage({ focus }: { focus?: OperationFocus }) {
           </CardHeader>
           <CardContent className="h-56 pl-2">
             <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={CASHFLOW} margin={{ top: 5, right: 12, left: 0, bottom: 0 }}>
+              <LineChart data={cashflow} margin={{ top: 5, right: 12, left: 0, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#eef0f3" vertical={false} />
                 <XAxis dataKey="gun" stroke="#9ca3af" fontSize={11} tickLine={false} axisLine={false} />
                 <YAxis stroke="#9ca3af" fontSize={11} tickLine={false} axisLine={false} />
@@ -1464,7 +1492,7 @@ export function PaymentsPage({ focus }: { focus?: OperationFocus }) {
               <Search className="size-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
               <Input placeholder="Firma ara..." className="pl-9 h-9 bg-white" value={q} onChange={(e) => setQ(e.target.value)} />
             </div>
-            <Button variant="outline" size="sm" className="h-9 justify-center" onClick={exportExcel}><Download className="size-4" /> Excel</Button>
+            <ExportExcelButton path="/exports/finance" filename="kasa-hareketleri.xlsx" className="h-9 justify-center" />
             <CreatePaymentDialog
               onCreated={refresh}
               defaultDirection={dirFilter === "out" ? "out" : "in"}
@@ -1880,11 +1908,11 @@ function MiniKpi({
 function PayKpi({
   icon, label, value, delta, sub, tone = "emerald", alarm, progress,
 }: {
-  icon: React.ReactNode; label: string; value: string; delta: number; sub: string;
+  icon: React.ReactNode; label: string; value: string; delta?: number; sub: string;
   tone?: keyof typeof PAY_TONES; alarm?: boolean; progress?: number;
 }) {
   const t = PAY_TONES[tone];
-  const positive = delta >= 0;
+  const positive = (delta ?? 0) >= 0;
   return (
     <Card className="border-border/60 shadow-sm hover:shadow-md transition-shadow overflow-hidden">
       <CardContent className="p-4">
@@ -1892,12 +1920,14 @@ function PayKpi({
           <div className={`size-9 rounded-lg ${t.bg} ${t.ic} grid place-items-center shrink-0 ring-4 ${t.ring}`}>
             {icon}
           </div>
+          {delta !== undefined && (
           <span className={`inline-flex items-center gap-0.5 text-[11px] px-1.5 py-0.5 rounded-full ${
             alarm ? "bg-red-50 text-red-700" : positive ? "bg-emerald-50 text-emerald-700" : "bg-zinc-100 text-zinc-600"
-          }`}>
+          }`} aria-hidden>
             {positive ? <ArrowUpRight className="size-3" /> : <ArrowDownRight className="size-3" />}
             %{Math.abs(delta)}
           </span>
+          )}
         </div>
         <div className="mt-3 text-[11px] uppercase tracking-wider text-muted-foreground truncate">{label}</div>
         <div className="mt-1 flex items-baseline gap-1.5">
@@ -1912,24 +1942,6 @@ function PayKpi({
       </CardContent>
     </Card>
   );
-}
-
-function exportStockCsv(rows: ReturnType<typeof useStore>["stock"]) {
-  const headers = ["Stok Kodu", "Marka", "Tip", "Model", "Seri No", "Kontrol Paneli", "Depo", "Durum"];
-  const escape = (v: string) => `"${String(v ?? "").replace(/"/g, '""')}"`;
-  const lines = [headers.join(",")];
-  for (const r of rows) {
-    lines.push([r.stockCode, r.brand, r.counterType, r.model, r.serialNumber, r.controlPanel, r.warehouse, r.status].map(escape).join(","));
-  }
-  const blob = new Blob(["﻿" + lines.join("\n")], { type: "text/csv;charset=utf-8;" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = `stok-${new Date().toISOString().slice(0, 10)}.csv`;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
 }
 
 export function StockPage({ focus, initialQuery }: { focus?: OperationFocus; initialQuery?: string }) {
@@ -1973,6 +1985,17 @@ export function StockPage({ focus, initialQuery }: { focus?: OperationFocus; ini
       s.counterModel.toLowerCase().includes(q.toLowerCase())
     );
   });
+
+  const stockStatusExportCode: Record<string, string> = {
+    Available: 'available',
+    Reserved: 'reserved',
+    Sold: 'sold',
+    Inactive: 'damaged',
+  };
+  const stockExportParams = {
+    ...(q ? { search: q } : {}),
+    ...(tab !== "all" ? { statusCode: stockStatusExportCode[tab] ?? tab.toLowerCase() } : {}),
+  };
 
   return (
     <div className="space-y-5">
@@ -2042,9 +2065,7 @@ export function StockPage({ focus, initialQuery }: { focus?: OperationFocus; ini
               <Search className="size-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
               <Input placeholder="Seri / kod / model..." className="pl-9 h-9 bg-white" value={q} onChange={(e) => setQ(e.target.value)} />
             </div>
-            <Button variant="outline" size="sm" className="h-9" onClick={() => exportStockCsv(filtered)}>
-              <Download className="size-4" /> Excel
-            </Button>
+            <ExportExcelButton path="/exports/inventory" filename="stok.xlsx" params={stockExportParams} className="h-9" />
             <CreateStockDialog
               trigger={<Button size="sm" className="h-9 gap-1"><Plus className="size-4" /> Yeni Stok</Button>}
             />
@@ -2173,35 +2194,7 @@ export function PurchaseOrdersPage() {
         .reduce((a, p) => a + Number(p.grandTotal ?? 0), 0),
     }));
 
-  const downloadCsv = () => {
-    const headers = ["Tip", "Sipariş", "Fatura No", "Tedarikçi", "Tarih", "ETA", "Ara Toplam", "KDV", "Son Tutar", "Para Birimi", "Durum"];
-    const escape = (v: string | number) => `"${String(v ?? "").replace(/"/g, '""')}"`;
-    const lines = [
-      headers.join(","),
-      ...filtered.map((p) =>
-        [
-          purchaseTypeLabel(p.purchaseType),
-          p.orderNo,
-          p.invoiceNo ?? "",
-          p.supplier?.shortName || p.supplier?.legalTitle || "",
-          formatDate(p.orderDate),
-          formatDate(p.expectedDate),
-          Number(p.subtotal ?? 0).toFixed(2),
-          Number(p.vatAmount ?? 0).toFixed(2),
-          Number(p.grandTotal ?? 0).toFixed(2),
-          p.currency?.code ?? "USD",
-          p.status?.name ?? "",
-        ].map(escape).join(",")
-      ),
-    ];
-    const blob = new Blob(["\uFEFF" + lines.join("\n")], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `satinalma-siparisleri-${new Date().toISOString().slice(0, 10)}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
+  const poExportParams = q ? { search: q } : undefined;
 
   return (
     <div className="space-y-5">
@@ -2238,7 +2231,7 @@ export function PurchaseOrdersPage() {
               <Search className="size-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
               <Input placeholder="PO / tedarikçi..." className="pl-9 h-9 bg-white" value={q} onChange={(e) => setQ(e.target.value)} />
             </div>
-            <Button variant="outline" size="sm" className="h-9" onClick={downloadCsv}><Download className="size-4" /> Excel</Button>
+            <ExportExcelButton path="/exports/purchase-orders" filename="satinalma-siparisleri.xlsx" params={poExportParams} className="h-9" />
             <CreatePurchaseOrderDialog onCreated={() => loadOrders()} />
           </div>
         </CardHeader>
@@ -2292,9 +2285,15 @@ export function PurchaseOrdersPage() {
                           size="sm" 
                           variant="outline" 
                           className="h-6 px-2 text-[10px] uppercase tracking-wider font-semibold border-amber-200 text-amber-700 hover:bg-amber-50"
-                          onClick={() => {
-                            toast.success("Yönetici onayı verildi!");
-                            // purchaseOrderService.setStatus(p.id, { statusCode: "approved" }).then(() => loadOrders());
+                          onClick={async () => {
+                            try {
+                              await purchaseOrderService.approve(p.id);
+                              toast.success("Yönetici onayı verildi");
+                              loadOrders();
+                            } catch (err: unknown) {
+                              const msg = err instanceof Error ? err.message : "API isteği başarısız oldu.";
+                              toast.error("Onay başarısız", { description: msg });
+                            }
                           }}
                         >
                           Onayla
@@ -2761,10 +2760,7 @@ export function ShipmentsPage({ focus }: { focus?: OperationFocus }) {
           <CardHeader className="flex flex-row items-center justify-between pb-3">
             <CardTitle className="tracking-tight">Sevkiyat Takibi</CardTitle>
             <div className="flex items-center gap-2">
-              <Button variant="outline" size="sm" className="h-9"
-                onClick={() => exportToCsv("sevkiyatlar", ["Takip No", "Taşıyıcı", "Çıkış", "Varış", "Durum", "ETA"], visibleShipments.map((s) => [s.trackingNo, s.carrier, s.origin, s.destination, s.status, s.eta]))}>
-                <Download className="size-4" /> Excel
-              </Button>
+              <ExportExcelButton path="/exports/shipments" filename="sevkiyatlar.xlsx" className="h-9" />
               <CreateShipmentDialog trigger={<Button size="sm" className="h-9 gap-1"><Plus className="size-4" /> Yeni Sevkiyat</Button>} />
             </div>
           </CardHeader>
@@ -2835,6 +2831,18 @@ export function ShipmentsPage({ focus }: { focus?: OperationFocus }) {
                     </TableRow>
                   );
                 })}
+                {visibleShipments.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={7}>
+                      <EmptyState
+                        icon={<Truck className="size-5" />}
+                        title="Henüz sevkiyat kaydı yok"
+                        description="Yeni sevkiyat ekleyerek lojistik takibine başlayın."
+                        action={<CreateShipmentDialog trigger={<Button size="sm" className="gap-1"><Plus className="size-4" /> Yeni Sevkiyat</Button>} />}
+                      />
+                    </TableCell>
+                  </TableRow>
+                )}
               </TableBody>
             </Table>
           </div>
@@ -3093,10 +3101,7 @@ export function DeliveriesPage() {
         <CardHeader className="flex flex-row items-center justify-between pb-3">
           <CardTitle className="tracking-tight">Teslimat Kayıtları</CardTitle>
           <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" className="h-9"
-              onClick={() => exportToCsv("teslimatlar", ["Müşteri", "Tarih", "Teslim Alan", "Durum"], deliveries.map((d) => [liveCustomerName(d.customerId), d.date, d.signedBy, d.status]))}>
-              <Download className="size-4" /> Excel
-            </Button>
+            <ExportExcelButton path="/exports/deliveries" filename="teslimatlar.xlsx" className="h-9" />
             <CreateDeliveryDialog trigger={<Button size="sm" className="h-9 gap-1"><Plus className="size-4" /> Yeni Teslimat</Button>} />
           </div>
         </CardHeader>
@@ -3147,6 +3152,18 @@ export function DeliveriesPage() {
                   </TableCell>
                 </TableRow>
               ))}
+              {deliveries.length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={5}>
+                    <EmptyState
+                      icon={<ClipboardCheck className="size-5" />}
+                      title="Henüz teslimat kaydı yok"
+                      description="Müşteri teslim formu oluşturarak imza sürecini başlatın."
+                      action={<CreateDeliveryDialog trigger={<Button size="sm" className="gap-1"><Plus className="size-4" /> Yeni Teslimat</Button>} />}
+                    />
+                  </TableCell>
+                </TableRow>
+              )}
             </TableBody>
           </Table>
         </div>
@@ -3459,9 +3476,12 @@ export function ServiceRequestsPage({ initialView = "list", focus }: { initialVi
         <Card className="border-border/60 shadow-sm overflow-hidden">
           <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle>Servis Talepleri</CardTitle>
-            <CreateServiceRequestDialog
-              trigger={<Button className="gap-1"><Plus className="size-4" /> Yeni Talep</Button>}
-            />
+            <div className="flex items-center gap-2">
+              <ExportExcelButton path="/exports/service-tickets" filename="servis-talepleri.xlsx" />
+              <CreateServiceRequestDialog
+                trigger={<Button className="gap-1"><Plus className="size-4" /> Yeni Talep</Button>}
+              />
+            </div>
           </CardHeader>
           <div className="overflow-x-auto">
           <Table>
@@ -4157,7 +4177,7 @@ const TR_MONTHS = ["Oca", "Şub", "Mar", "Nis", "May", "Haz", "Tem", "Ağu", "Ey
 export function ReportsPage({ onAction }: { onAction?: (action: OperationAction) => void }) {
   const store = useStore();
   const { cases, offers, service } = store;
-  const [mode, setMode] = useState<"operasyonel" | "karlilik">("operasyonel");
+  const [mode, setMode] = useState<"operasyonel" | "karlilik" | "analitik">("operasyonel");
   const [period, setPeriod] = useState<"monthly" | "yearly">("monthly");
   const management = useMemo(() => buildManagementInsights(store), [store]);
   const [sourceId, setSourceId] = useState<string | null>(null);
@@ -4270,16 +4290,26 @@ export function ReportsPage({ onAction }: { onAction?: (action: OperationAction)
         >
           Karlılık (Yıl Sonu)
         </button>
+        <button
+          onClick={() => setMode("analitik")}
+          className={`px-3 py-1.5 text-sm rounded ${mode === "analitik" ? "bg-primary text-primary-foreground" : "text-foreground/70 hover:bg-muted"}`}
+        >
+          Analitik & Excel
+        </button>
       </div>
 
+      {mode !== "analitik" && (
       <ReportExecutiveSummary
         summary={management}
         sourceId={sourceId}
         onSourceChange={setSourceId}
         onAction={onAction}
       />
+      )}
 
       {mode === "karlilik" && <YearEndReportView />}
+
+      {mode === "analitik" && <ReportAnalyticsHub />}
 
       {mode === "operasyonel" && (
       <>
@@ -4315,14 +4345,11 @@ export function ReportsPage({ onAction }: { onAction?: (action: OperationAction)
         )}
 
         <div className="flex-1" />
-        <Button variant="outline" size="sm"
-          onClick={() => {
-            if (!chartData.length) return;
-            const keys = Object.keys(chartData[0]);
-            exportToCsv(period === "monthly" ? `rapor-${year}` : "rapor-yillik", keys, chartData.map((r) => keys.map((k) => (r as any)[k])));
-          }}>
-          <Download className="size-4" /> Excel İndir
-        </Button>
+        <ExportExcelButton
+          path="/exports/operational"
+          filename={period === "monthly" ? `rapor-${year}.xlsx` : "rapor-yillik.xlsx"}
+          params={{ year, period }}
+        />
       </div>
 
       {/* KPI strip */}
@@ -4589,7 +4616,6 @@ function YearEndReportView() {
   const [data, setData] = useState<YearEndReport | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [downloading, setDownloading] = useState(false);
 
   useEffect(() => {
     let alive = true;
@@ -4622,19 +4648,7 @@ function YearEndReportView() {
     return { name, kazanilan: row?.won ?? 0, kaybedilen: row?.lost ?? 0 };
   });
 
-  // Gerçek (çok sayfalı) .xlsx indirme — backend export ucundan.
-  const handleExcel = async () => {
-    try {
-      setDownloading(true);
-      await reportService.downloadYearEnd(year);
-    } catch (e: any) {
-      toast.error("Excel indirilemedi", { description: e?.message ?? "Bilinmeyen hata" });
-    } finally {
-      setDownloading(false);
-    }
-  };
-
-  // Yazdırılabilir / PDF çıktısı — biçimlendirilmiş raporu blob URL ile yeni
+  // Yazdırılabilir / PDF çıktısı
   // pencerede açıp otomatik yazdırır (document.write kullanılmaz).
   const handlePrint = () => {
     if (!data || !s) return;
@@ -4716,9 +4730,12 @@ function YearEndReportView() {
         <Button variant="outline" size="sm" onClick={handlePrint} disabled={!data}>
           <Printer className="size-4" /> Yazdır / PDF
         </Button>
-        <Button variant="outline" size="sm" onClick={handleExcel} disabled={!data || downloading}>
-          <Download className="size-4" /> {downloading ? "İndiriliyor…" : "Excel İndir"}
-        </Button>
+        <ExportExcelButton
+          path="/reports/export/year-end"
+          filename={`karlilik-raporu-${year}.xlsx`}
+          params={{ year }}
+          disabled={!data}
+        />
       </div>
 
       {loading && <div className="text-sm text-muted-foreground py-8 text-center">Rapor yükleniyor…</div>}
@@ -5250,6 +5267,7 @@ type AssignableRole = {
 type AdminUserRow = User & {
   roleCodes: string[];
   roleNames: string[];
+  departmentId?: string | null;
 };
 
 const FALLBACK_ROLE_CODES: Record<string, string> = {
@@ -5277,6 +5295,7 @@ const normalizeAdminUser = (user: any, fallback?: User): AdminUserRow => {
     email: user.email ?? fallback?.email ?? "",
     role: ((roleNames[0] ?? fallbackRole) as User["role"]) || fallbackRole,
     department: user.department?.name ?? fallback?.department ?? "",
+    departmentId: user.departmentId ?? user.department?.id ?? fallback?.departmentId ?? null,
     active: user.status ? user.status !== "passive" : fallback?.active ?? true,
     avatarUrl: user.avatarUrl ?? user.photoUrl ?? fallback?.avatarUrl,
     purchaseApprovalLimit: user.purchaseApprovalLimit ? Number(user.purchaseApprovalLimit) : fallback?.purchaseApprovalLimit,
@@ -5292,8 +5311,11 @@ export function UsersPage() {
   // Hedef oluşturma süper admin (ve admin) yetkisine bağlı.
   const canSetTargets = hasRole("super_admin") || hasRole("admin");
   const canAssignRoles = hasRole("super_admin") || hasPermission("users.update");
-  const canShowActions = canSetTargets || canAssignRoles;
+  const canCreateUser = hasRole("super_admin") || hasPermission("users.create");
+  const canUpdateUser = hasRole("super_admin") || hasPermission("users.update");
+  const canShowActions = canSetTargets || canAssignRoles || canUpdateUser;
   const [adminUsers, setAdminUsers] = useState<AdminUserRow[]>([]);
+  const [departments, setDepartments] = useState<{ id: string; name: string; code?: string }[]>([]);
   const [availableRoles, setAvailableRoles] = useState<AssignableRole[]>([]);
   const [adminLoading, setAdminLoading] = useState(true);
   const [adminError, setAdminError] = useState<string | null>(null);
@@ -5302,19 +5324,24 @@ export function UsersPage() {
   const [targetUser, setTargetUser] = useState<User | null>(null);
   const [roleUser, setRoleUser] = useState<AdminUserRow | null>(null);
   const [limitUser, setLimitUser] = useState<User | null>(null);
+  const [deptUser, setDeptUser] = useState<AdminUserRow | null>(null);
+  const [createUserOpen, setCreateUserOpen] = useState(false);
   const [savingRoles, setSavingRoles] = useState(false);
   const [savingLimit, setSavingLimit] = useState(false);
+  const [savingDept, setSavingDept] = useState(false);
 
   const loadAdminUsers = useCallback(async () => {
     setAdminLoading(true);
     setAdminError(null);
     try {
-      const [userRows, roleRows] = await Promise.all([
+      const [userRows, roleRows, deptRows] = await Promise.all([
         adminService.users(),
-        canAssignRoles ? adminService.roles() : Promise.resolve([]),
+        canAssignRoles || canCreateUser ? adminService.roles() : Promise.resolve([]),
+        adminService.departments().catch(() => []),
       ]);
       const fallbackById = new Map(users.map((user) => [user.id, user]));
       setAdminUsers((Array.isArray(userRows) ? userRows : []).map((user) => normalizeAdminUser(user, fallbackById.get(user.id))));
+      setDepartments((Array.isArray(deptRows) ? deptRows : []).map((d: any) => ({ id: d.id, name: d.name, code: d.code })));
       setAvailableRoles(
         (Array.isArray(roleRows) ? roleRows : [])
           .map((role: any) => ({
@@ -5336,7 +5363,7 @@ export function UsersPage() {
     } finally {
       setAdminLoading(false);
     }
-  }, [canAssignRoles, users]);
+  }, [canAssignRoles, canCreateUser, users]);
 
   useEffect(() => {
     loadAdminUsers();
@@ -5398,6 +5425,20 @@ export function UsersPage() {
     }
   };
 
+  const handleSaveDepartment = async (userId: string, departmentId: string | null, active: boolean) => {
+    setSavingDept(true);
+    try {
+      await adminService.updateUser(userId, { departmentId, status: active ? "active" : "passive" });
+      toast.success("Kullanıcı güncellendi");
+      setDeptUser(null);
+      await loadAdminUsers();
+    } catch (err: any) {
+      toast.error("Güncellenemedi", { description: err?.message ?? "Lütfen tekrar deneyin." });
+    } finally {
+      setSavingDept(false);
+    }
+  };
+
   return (
     <>
       <Card className="border-border/60 shadow-sm overflow-hidden">
@@ -5412,7 +5453,9 @@ export function UsersPage() {
                 onChange={(e) => setTargetPeriod(e.target.value || currentPeriod())}
               />
             )}
-            <Button className="gap-1"><Plus className="size-4" /> Kullanıcı Ekle</Button>
+            {canCreateUser && (
+              <Button className="gap-1" onClick={() => setCreateUserOpen(true)}><Plus className="size-4" /> Kullanıcı Ekle</Button>
+            )}
           </div>
         </CardHeader>
         {adminError && (
@@ -5457,7 +5500,15 @@ export function UsersPage() {
                         ))}
                       </div>
                     </TableCell>
-                    <TableCell>{u.department}</TableCell>
+                    <TableCell>
+                      {canUpdateUser ? (
+                        <Button variant="link" className="h-auto p-0 text-sm" onClick={() => setDeptUser(u)}>
+                          {u.department || "— Atanmadı —"}
+                        </Button>
+                      ) : (
+                        u.department || "—"
+                      )}
+                    </TableCell>
                     <TableCell>
                       {hasTargetValue(t) ? (
                         <div className="flex flex-wrap gap-1">
@@ -5474,9 +5525,20 @@ export function UsersPage() {
                     <TableCell>
                       {u.managerId ? displayUsers.find((x) => x.id === u.managerId)?.name : <span className="text-muted-foreground text-xs">—</span>}
                     </TableCell>
-                    <TableCell><Switch checked={u.active} /></TableCell>
+                    <TableCell>
+                      <Switch
+                        checked={u.active}
+                        disabled={!canUpdateUser}
+                        onCheckedChange={canUpdateUser ? (checked) => void handleSaveDepartment(u.id, u.departmentId ?? null, checked) : undefined}
+                      />
+                    </TableCell>
                     {canShowActions && (
                       <TableCell className="text-right whitespace-nowrap">
+                        {canUpdateUser && (
+                          <Button variant="ghost" size="sm" className="h-7 gap-1 text-xs" onClick={() => setDeptUser(u)}>
+                            <Building2 className="size-3.5" /> Departman
+                          </Button>
+                        )}
                         {canAssignRoles && (
                           <Button variant="ghost" size="sm" className="h-7 gap-1 text-xs" onClick={() => setRoleUser(u)}>
                             <ShieldCheck className="size-3.5" /> Rol Ata
@@ -5527,6 +5589,24 @@ export function UsersPage() {
           saving={savingLimit}
           onClose={() => setLimitUser(null)}
           onSave={handleSaveLimit}
+        />
+      )}
+      {canUpdateUser && (
+        <UserDepartmentDialog
+          user={deptUser}
+          departments={departments}
+          saving={savingDept}
+          onClose={() => setDeptUser(null)}
+          onSave={handleSaveDepartment}
+        />
+      )}
+      {canCreateUser && (
+        <CreateUserDialog
+          open={createUserOpen}
+          onOpenChange={setCreateUserOpen}
+          departments={departments}
+          roles={availableRoles}
+          onCreated={loadAdminUsers}
         />
       )}
     </>
@@ -6451,24 +6531,49 @@ export function RolesPage() {
 type DeptItem = { id: string; code?: string; name: string; description?: string };
 
 export function DepartmentsPage() {
-  const { hasRole } = useAuth();
-  const canManage = hasRole("super_admin");
+  const { hasRole, hasPermission } = useAuth();
+  const canManage = hasRole("super_admin") || hasRole("admin") || hasPermission("departments.create");
+  const canSetTargets = hasRole("super_admin") || hasRole("admin");
   const [rows, setRows] = useState<DeptItem[]>([]);
+  const [deptTargets, setDeptTargets] = useState<Record<string, boolean>>({});
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [targetPeriod, setTargetPeriod] = useState(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+  });
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({ name: "", code: "", description: "" });
 
+  const loadTargets = useCallback(async (depts: DeptItem[]) => {
+    if (!canSetTargets) return;
+    const targets = await safeLoad("department-targets", () =>
+      adminService.departmentTargets({ period: targetPeriod })
+    );
+    if (targets) {
+      const map: Record<string, boolean> = {};
+      (targets as any[]).forEach((t) => {
+        map[t.departmentId] = !!(t.salesAmount || t.quoteTarget || t.visitTarget);
+      });
+      setDeptTargets(map);
+    } else {
+      setDeptTargets(Object.fromEntries(depts.map((d) => [d.id, false])));
+    }
+  }, [canSetTargets, targetPeriod]);
+
   const load = useCallback(async () => {
     setLoading(true);
-    try {
-      setRows((await adminService.departments()) as DeptItem[]);
-    } catch {
-      setRows([]);
-    } finally {
-      setLoading(false);
+    setLoadError(null);
+    const depts = await safeLoad("departments", () => adminService.departments() as Promise<DeptItem[]>);
+    if (depts) {
+      setRows(depts);
+      await loadTargets(depts);
+    } else {
+      setLoadError("Departmanlar yüklenemedi.");
     }
-  }, []);
+    setLoading(false);
+  }, [loadTargets]);
   useEffect(() => { load(); }, [load]);
 
   const submit = async (e: React.FormEvent) => {
@@ -6476,10 +6581,18 @@ export function DepartmentsPage() {
     if (!form.name.trim() || !form.code.trim()) return toast.error("Ad ve kod zorunlu");
     setSaving(true);
     try {
-      await adminService.createDept({ name: form.name.trim(), code: form.code.trim(), description: form.description.trim() || undefined });
+      const created = await adminService.createDept({
+        name: form.name.trim(),
+        code: form.code.trim().toLowerCase().replace(/\s+/g, "_"),
+        description: form.description.trim() || undefined,
+      });
       toast.success("Departman eklendi");
       setOpen(false);
       setForm({ name: "", code: "", description: "" });
+      setRows((prev) => {
+        const next = [...prev.filter((d) => d.id !== created.id), created as DeptItem];
+        return next.sort((a, b) => a.name.localeCompare(b.name, "tr"));
+      });
       await load();
     } catch (err: any) {
       toast.error("Departman eklenemedi", { description: err?.message ?? "API isteği başarısız oldu." });
@@ -6490,9 +6603,13 @@ export function DepartmentsPage() {
 
   return (
     <Card className="border-border/60 shadow-sm overflow-hidden">
-      <CardHeader className="flex flex-row items-center justify-between">
+      <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <CardTitle>Departmanlar</CardTitle>
-        {canManage && (
+        <div className="flex flex-wrap items-center gap-2">
+          {canSetTargets && (
+            <Input type="month" className="h-9 w-[150px]" value={targetPeriod} onChange={(e) => setTargetPeriod(e.target.value)} />
+          )}
+          {canManage && (
           <Dialog open={open} onOpenChange={setOpen}>
             <DialogTrigger asChild>
               <Button className="gap-1"><Plus className="size-4" /> Departman</Button>
@@ -6523,7 +6640,13 @@ export function DepartmentsPage() {
             </DialogContent>
           </Dialog>
         )}
+        </div>
       </CardHeader>
+      {loadError && (
+        <div className="mx-4 mb-3 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive">
+          {loadError}
+        </div>
+      )}
       <div className="overflow-x-auto">
         <Table>
           <TableHeader>
@@ -6531,6 +6654,7 @@ export function DepartmentsPage() {
               <TableHead>Departman</TableHead>
               <TableHead>Kod</TableHead>
               <TableHead>Açıklama</TableHead>
+              {canSetTargets && <TableHead className="w-28">Hedef</TableHead>}
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -6539,13 +6663,18 @@ export function DepartmentsPage() {
                 <TableCell>{d.name}</TableCell>
                 <TableCell className="text-muted-foreground">{d.code ?? "—"}</TableCell>
                 <TableCell className="text-muted-foreground">{d.description ?? "—"}</TableCell>
+                {canSetTargets && (
+                  <TableCell>
+                    <DepartmentTargetButton department={d} period={targetPeriod} hasTarget={!!deptTargets[d.id]} onSaved={load} />
+                  </TableCell>
+                )}
               </TableRow>
             ))}
             {!loading && rows.length === 0 && (
-              <TableRow><TableCell colSpan={3} className="text-center py-8 text-sm text-muted-foreground">Henüz departman yok.</TableCell></TableRow>
+              <TableRow><TableCell colSpan={canSetTargets ? 4 : 3} className="text-center py-8 text-sm text-muted-foreground">Henüz departman yok.</TableCell></TableRow>
             )}
             {loading && (
-              <TableRow><TableCell colSpan={3} className="text-center py-8 text-sm text-muted-foreground">Yükleniyor...</TableCell></TableRow>
+              <TableRow><TableCell colSpan={canSetTargets ? 4 : 3} className="text-center py-8 text-sm text-muted-foreground">Yükleniyor...</TableCell></TableRow>
             )}
           </TableBody>
         </Table>
@@ -6555,40 +6684,107 @@ export function DepartmentsPage() {
 }
 
 export function SettingsPage() {
+  const STORAGE_KEY = "haksan:settings";
+  type SettingsData = {
+    companyName: string;
+    taxId: string;
+    email: string;
+    phone: string;
+    notifyNewCase: boolean;
+    notifyQuoteApproved: boolean;
+    notifyPaymentOverdue: boolean;
+    notifyService: boolean;
+    currency: string;
+    timezone: string;
+  };
+  const defaults: SettingsData = {
+    companyName: "Haksan Makina A.Ş.",
+    taxId: "",
+    email: "info@haksan.local",
+    phone: "",
+    notifyNewCase: true,
+    notifyQuoteApproved: true,
+    notifyPaymentOverdue: true,
+    notifyService: false,
+    currency: "USD",
+    timezone: "Europe/Istanbul",
+  };
+  const [form, setForm] = useState<SettingsData>(() => {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      return raw ? { ...defaults, ...JSON.parse(raw) } : defaults;
+    } catch {
+      return defaults;
+    }
+  });
+  const [saved, setSaved] = useState(false);
+
+  const save = () => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(form));
+    setSaved(true);
+    toast.success("Ayarlar bu cihazda kaydedildi", { description: "Sunucu senkronizasyonu yakında." });
+    setTimeout(() => setSaved(false), 2000);
+  };
+
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 max-w-4xl">
+    <div className="space-y-4 max-w-4xl">
+      <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900">
+        Ayarlar şimdilik tarayıcıda saklanır. Kurumsal senkronizasyon için backend API yakında eklenecek.
+      </div>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
       <Card className="border-border/60 shadow-sm overflow-hidden">
         <CardHeader><CardTitle>Şirket Bilgileri</CardTitle></CardHeader>
         <CardContent className="space-y-3">
-          <Field label="Şirket Adı" defaultValue="Opera Endüstri A.Ş." />
-          <Field label="VKN" defaultValue="1234567890" />
-          <Field label="E-posta" defaultValue="info@opera.com" />
-          <Field label="Telefon" defaultValue="+90 212 555 0000" />
+          <SettingsField label="Şirket Adı" value={form.companyName} onChange={(v) => setForm({ ...form, companyName: v })} />
+          <SettingsField label="VKN" value={form.taxId} onChange={(v) => setForm({ ...form, taxId: v })} />
+          <SettingsField label="E-posta" value={form.email} onChange={(v) => setForm({ ...form, email: v })} />
+          <SettingsField label="Telefon" value={form.phone} onChange={(v) => setForm({ ...form, phone: v })} />
         </CardContent>
       </Card>
       <Card className="border-border/60 shadow-sm overflow-hidden">
         <CardHeader><CardTitle>Bildirimler</CardTitle></CardHeader>
         <CardContent className="space-y-3">
-          <Toggle label="Yeni satış kartı oluşturulduğunda" defaultChecked />
-          <Toggle label="Teklif onaylandığında" defaultChecked />
-          <Toggle label="Ödeme gecikmesinde" defaultChecked />
-          <Toggle label="Yeni servis talebinde" />
+          <SettingsToggle label="Yeni satış kartı oluşturulduğunda" checked={form.notifyNewCase} onChange={(v) => setForm({ ...form, notifyNewCase: v })} />
+          <SettingsToggle label="Teklif onaylandığında" checked={form.notifyQuoteApproved} onChange={(v) => setForm({ ...form, notifyQuoteApproved: v })} />
+          <SettingsToggle label="Ödeme gecikmesinde" checked={form.notifyPaymentOverdue} onChange={(v) => setForm({ ...form, notifyPaymentOverdue: v })} />
+          <SettingsToggle label="Yeni servis talebinde" checked={form.notifyService} onChange={(v) => setForm({ ...form, notifyService: v })} />
         </CardContent>
       </Card>
       <Card className="border-border/60 shadow-sm overflow-hidden">
         <CardHeader><CardTitle>Para Birimi & Bölge</CardTitle></CardHeader>
         <CardContent className="space-y-3">
-          <Field label="Varsayılan Para Birimi" defaultValue="USD" />
-          <Field label="Saat Dilimi" defaultValue="Europe/Istanbul" />
+          <SettingsField label="Varsayılan Para Birimi" value={form.currency} onChange={(v) => setForm({ ...form, currency: v })} />
+          <SettingsField label="Saat Dilimi" value={form.timezone} onChange={(v) => setForm({ ...form, timezone: v })} />
         </CardContent>
       </Card>
       <Card className="border-border/60 shadow-sm overflow-hidden">
         <CardHeader><CardTitle>Depolama</CardTitle></CardHeader>
-        <CardContent className="space-y-3">
-          <Field label="Sağlayıcı" defaultValue="S3 Compatible" />
-          <Field label="Bucket" defaultValue="opera-crm-prod" />
+        <CardContent className="space-y-3 text-sm text-muted-foreground">
+          <p>Dosya yüklemeleri S3 uyumlu depolamada tutulur. Bucket ve sağlayıcı yapılandırması sunucu tarafından yönetilir.</p>
         </CardContent>
       </Card>
+      </div>
+      <Button onClick={save} className="gap-1">
+        <Save className="size-4" /> {saved ? "Kaydedildi" : "Kaydet"}
+      </Button>
+    </div>
+  );
+}
+
+function SettingsField({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
+  return (
+    <div>
+      <Label className="text-xs text-muted-foreground">{label}</Label>
+      <Input value={value} onChange={(e) => onChange(e.target.value)} className="mt-1" />
+    </div>
+  );
+}
+
+function SettingsToggle({ label, checked, onChange }: { label: string; checked: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <div className="flex items-center justify-between">
+      <Label className="font-normal text-sm">{label}</Label>
+      <Switch checked={checked} onCheckedChange={onChange} />
     </div>
   );
 }

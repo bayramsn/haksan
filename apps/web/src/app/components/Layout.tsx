@@ -76,8 +76,8 @@ const NAV: { group: string; items: NavItem[] }[] = [
       { key: "machines", label: "Makineler", icon: Cpu, roles: ["service", "stock"] },
       { key: "lifecycle", label: "Yaşam Döngüsü", icon: QrCode, roles: ["sales", "service"] },
       { key: "installations", label: "Kurulum", icon: Wrench, roles: ["service"] },
-      { key: "service-requests", label: "Servis Talepleri", icon: LifeBuoy, badge: "3", roles: ["service"] },
-      { key: "service-kanban", label: "Servis Kanban", icon: KanbanSquare, badge: "Yeni", roles: ["service"] },
+      { key: "service-requests", label: "Servis Talepleri", icon: LifeBuoy, roles: ["service"] },
+      { key: "service-kanban", label: "Servis Kanban", icon: KanbanSquare, roles: ["service"] },
       { key: "service-price-list", label: "Servis Fiyat Listesi", icon: Receipt, roles: ["service"] },
     ],
   },
@@ -158,6 +158,7 @@ export function Layout({ current, onNavigate, onLogout, pageTitle, pageSubtitle,
       onSelectCase?.(action.salesCaseId);
     }
   };
+  const openServiceCount = service.filter((s) => s.stage !== "Closed").length;
   const alerts = useMemo(
     () => buildAlerts(store).filter((alert) => canUseAction(alert.action)),
     [store, user?.roles?.join("|")]
@@ -197,6 +198,7 @@ export function Layout({ current, onNavigate, onLogout, pageTitle, pageSubtitle,
                         onNavigate(item.key);
                         onItemClick?.();
                       }}
+                      aria-current={active ? "page" : undefined}
                       className={`group w-full flex items-center gap-2.5 px-3 py-2 rounded-md text-sm transition-all relative ${
                         active
                           ? "bg-primary/10 text-primary"
@@ -212,12 +214,9 @@ export function Layout({ current, onNavigate, onLogout, pageTitle, pageSubtitle,
                         <Badge variant="secondary" className={`h-5 px-1.5 text-[10px] ${active ? "bg-primary text-primary-foreground" : "bg-primary/10 text-primary"}`}>
                           {service.length}
                         </Badge>
-                      ) : item.badge && item.key !== "service-requests" ? (
-                        <Badge
-                          variant="secondary"
-                          className={`h-5 px-1.5 text-[10px] ${active ? "bg-primary text-primary-foreground" : "bg-primary/10 text-primary"}`}
-                        >
-                          {item.badge}
+                      ) : item.key === "service-kanban" && openServiceCount > 0 ? (
+                        <Badge variant="secondary" className={`h-5 px-1.5 text-[10px] ${active ? "bg-primary text-primary-foreground" : "bg-primary/10 text-primary"}`}>
+                          {openServiceCount}
                         </Badge>
                       ) : null}
                     </button>
@@ -249,8 +248,8 @@ export function Layout({ current, onNavigate, onLogout, pageTitle, pageSubtitle,
           </DropdownMenuTrigger>
           <DropdownMenuContent className="w-[236px]" align="end" side={menuSide} sideOffset={12}>
             <DropdownMenuLabel>Hesabım & Analiz</DropdownMenuLabel>
-            <DropdownMenuItem onClick={() => toast.message(user?.fullName ?? "Profil", { description: user?.email ?? "" })}><ContactIcon className="size-4 mr-2 text-muted-foreground" /> Profil</DropdownMenuItem>
-            <DropdownMenuItem onClick={() => toast.message("Klavye Kısayolları", { description: "⌘K ara · ⌘N yeni kayıt · ⌘/ yardım" })}><HelpCircle className="size-4 mr-2 text-muted-foreground" /> Klavye Kısayolları</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => onNavigate("settings")}><ContactIcon className="size-4 mr-2 text-muted-foreground" /> Profil & Ayarlar</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => toast.message("Klavye Kısayolları", { description: "⌘K komut paleti · / arama" })}><HelpCircle className="size-4 mr-2 text-muted-foreground" /> Klavye Kısayolları</DropdownMenuItem>
             {canSeeReports && (
               <DropdownMenuItem onClick={() => { onNavigate("reports"); onItemClick?.(); }}><BarChart3 className="size-4 mr-2 text-muted-foreground" /> Raporlar</DropdownMenuItem>
             )}
@@ -336,7 +335,7 @@ export function Layout({ current, onNavigate, onLogout, pageTitle, pageSubtitle,
               <TooltipTrigger asChild>
                 <Button variant="ghost" size="icon" className="relative size-9"
                   aria-label="Yardım Merkezi"
-                  onClick={() => toast.message("Yardım Merkezi", { description: "Sorularınız için destek@haksan.local ile iletişime geçebilirsiniz." })}>
+                  onClick={() => toast.message("Yardım Merkezi", { description: "destek@haksan.local · SSS yakında" })}>
                   <HelpCircle className="size-[18px] text-muted-foreground" />
                 </Button>
               </TooltipTrigger>
@@ -347,7 +346,9 @@ export function Layout({ current, onNavigate, onLogout, pageTitle, pageSubtitle,
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" size="icon" className="relative size-9" aria-label="Bildirimler">
                   <Bell className="size-[18px] text-muted-foreground" />
-                  <span className="absolute top-1.5 right-1.5 size-2 rounded-full bg-red-500 ring-2 ring-white" />
+                  {alerts.length > 0 && (
+                    <span className="absolute top-1.5 right-1.5 size-2 rounded-full bg-red-500 ring-2 ring-white" aria-hidden />
+                  )}
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-80">
@@ -388,8 +389,8 @@ export function Layout({ current, onNavigate, onLogout, pageTitle, pageSubtitle,
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-56">
                 <DropdownMenuLabel>Hesabım & Analiz</DropdownMenuLabel>
-                <DropdownMenuItem onClick={() => toast.message(user?.fullName ?? "Profil", { description: user?.email ?? "" })}><ContactIcon className="size-4 mr-2 text-muted-foreground" /> Profil</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => toast.message("Klavye Kısayolları", { description: "⌘K ara · ⌘N yeni kayıt · ⌘/ yardım" })}><HelpCircle className="size-4 mr-2 text-muted-foreground" /> Klavye Kısayolları</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => onNavigate("settings")}><ContactIcon className="size-4 mr-2 text-muted-foreground" /> Profil & Ayarlar</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => toast.message("Klavye Kısayolları", { description: "⌘K komut paleti · / arama" })}><HelpCircle className="size-4 mr-2 text-muted-foreground" /> Klavye Kısayolları</DropdownMenuItem>
                 {canSeeReports && (
                   <DropdownMenuItem onClick={() => onNavigate("reports")}><BarChart3 className="size-4 mr-2 text-muted-foreground" /> Raporlar</DropdownMenuItem>
                 )}

@@ -1,4 +1,4 @@
-# Render Blueprint — Haksan ERP API + static web + Postgres.
+# Render Blueprint — STAGING / DEMO (production = kendi VDS, bkz. deploy/README.md)
 # Depolama: Cloudflare R2 (S3 uyumlu) — S3_* dashboard'dan girilir.
 #
 # İlk deploy sonrası API Shell:
@@ -23,7 +23,7 @@ services:
     healthCheckPath: /health
     buildCommand: NPM_CONFIG_PRODUCTION=false npm ci && npm run build:shared && npm run build:api
     preDeployCommand: npm run db:migrate
-    startCommand: npm run db:migrate && node apps/api/dist/main.js
+    startCommand: node apps/api/dist/main.js
     envVars:
       - key: NODE_ENV
         value: production

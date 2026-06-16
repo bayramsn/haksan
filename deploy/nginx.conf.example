@@ -43,6 +43,23 @@ server {
     # Yükleme boyutu: API MAX_UPLOAD_SIZE_MB ile uyumlu olmalı (varsayılan 25MB)
     client_max_body_size 25m;
 
+    # ── Health (UptimeRobot / deploy smoke) ──
+    location = /health {
+        proxy_pass http://127.0.0.1:3000/health;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+    }
+    location = /health/ready {
+        proxy_pass http://127.0.0.1:3000/health/ready;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+    }
+    location = /health/version {
+        proxy_pass http://127.0.0.1:3000/health/version;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+    }
+
     # ── SPA statik dosyaları ──
     root /var/www/haksan/apps/web/dist;
     index index.html;

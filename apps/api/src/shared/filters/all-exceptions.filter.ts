@@ -49,6 +49,18 @@ export class AllExceptionsFilter implements ExceptionFilter {
     } else if (
       typeof exception === 'object' &&
       exception !== null &&
+      (exception as { code?: string }).code === '42P01'
+    ) {
+      status = 503;
+      body = {
+        error: {
+          code: 'SCHEMA_OUT_OF_DATE',
+          message: 'Veritabanı şeması güncel değil. Sistem yöneticisine başvurun.',
+        },
+      };
+    } else if (
+      typeof exception === 'object' &&
+      exception !== null &&
       typeof (exception as any).statusCode === 'number' &&
       (exception as any).statusCode >= 400 &&
       (exception as any).statusCode < 600

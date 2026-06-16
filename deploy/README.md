@@ -1,8 +1,10 @@
 # VDS / VPS Kurulum Kılavuzu
 
-Tek sunucu (Ubuntu 22.04/24.04) üzerinde production kurulumu. Bu klasördeki
-şablonlar: [`nginx.conf.example`](nginx.conf.example),
-[`haksan-api.service`](haksan-api.service), [`.env.production.example`](.env.production.example).
+**Production hedefi:** kendi VDS sunucunuz. Render yalnızca isteğe bağlı staging/demo içindir ([`RENDER.md`](RENDER.md)).
+
+Tek sunucu (Ubuntu 22.04/24.04) üzerinde production kurulumu. Şablonlar:
+[`nginx.conf.example`](nginx.conf.example), [`haksan-api.service`](haksan-api.service),
+[`.env.production.example`](.env.production.example), [`deploy-vds.sh`](deploy-vds.sh), [`backup-db.sh`](backup-db.sh).
 
 ## 0. Önkoşullar
 ```bash
@@ -78,6 +80,66 @@ sudo nginx -t && sudo systemctl reload nginx
 ```
 
 ## 6. Doğrulama
+```bash
+./scripts/smoke-production.sh https://crm.alanadi.com
+curl -s https://crm.alanadi.com/health/ready | jq .
+```
+
+## 7. Güncelleme deploy (runbook)
+
+Her yeni sürüm için (SSH ile sunucuda):
+
+```bash
+cd /var/www/haksan
+export VITE_API_BASE_URL=https://crm.alanadi.com/api/v1   # domain'inize göre
+./deploy/deploy-vds.sh
+```
+
+Script sırası: **pg_dump yedek** → `git pull` → `npm ci` → build → **migrate** → `systemctl restart` → smoke.
+
+İlk kurulum için:
+```bash
+./deploy/deploy-vds.sh --first-run
+```
+
+Ortam değişkenleri: `SKIP_BACKUP=1`, `SKIP_GIT_PULL=1`, `SKIP_SMOKE=1` (acil durum).
+
+## 8. Rollback
+
+1. API'yi durdur: `sudo systemctl stop haksan-api`
+2. Son yedeği geri yükle:
+   ```bash
+   gunzip -c /var/backups/haksan/haksan_YYYYMMDD.sql.gz | psql "$DATABASE_URL"
+   ```
+3. Önceki git commit'e dön: `git checkout <tag-veya-commit>`
+4. Build + migrate (gerekirse) + `systemctl start haksan-api`
+
+## 9. Otomatik yedekleme (cron)
+
+```bash
+sudo apt install -y postgresql-client
+chmod +x /var/www/haksan/deploy/backup-db.sh
+sudo crontab -e
+# Her gece 03:00
+0 3 * * * /var/www/haksan/deploy/backup-db.sh >> /var/log/haksan-backup.log 2>&1
+```
+
+Haftalık off-site kopya için yedeği S3/R2'ye `aws s3 cp` veya `rclone` ile taşıyın.
+
+## 10. Secret rotation checklist
+
+- [ ] `JWT_ACCESS_SECRET` / `JWT_REFRESH_SECRET` — tüm oturumlar düşer
+- [ ] `POSTGRES_PASSWORD` — `DATABASE_URL` güncelle + restart
+- [ ] MinIO `S3_ACCESS_KEY_ID` / `S3_SECRET_ACCESS_KEY`
+- [ ] Admin parolası — uygulama içinden değiştir
+
+## 11. Monitoring
+
+- UptimeRobot / Better Stack: `https://crm.alanadi.com/health` (5 dk)
+- Readiness: `/health/ready` (migration eksikse 503)
+- Log: `journalctl -u haksan-api -f`
+
+## Eski doğrulama (manuel)
 ```bash
 curl -s https://crm.alanadi.com/api/v1/auth/login -X POST \
   -H 'Content-Type: application/json' -d '{"email":"a@b.c","password":"xxxxxxxx"}'

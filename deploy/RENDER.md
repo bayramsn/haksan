@@ -1,5 +1,8 @@
 # Render Deploy Kılavuzu
 
+> **Not:** Production ortamı kendi VDS sunucunuzdur ([`README.md`](README.md)).
+> Render bu repoda yalnızca **staging / demo** veya geçici test içindir.
+
 Monorepo: **NestJS API** + **Vite SPA** + **PostgreSQL**. Blueprint: kökteki [`render.yaml`](../render.yaml).
 
 ## 1. Kodu GitHub'a gönder

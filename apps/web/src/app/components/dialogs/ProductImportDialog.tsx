@@ -2,6 +2,7 @@ import { useMemo, useRef, useState } from "react";
 import { AlertTriangle, CheckCircle2, Download, FileSpreadsheet, RefreshCw, Upload } from "lucide-react";
 import { toast } from "sonner";
 import { productService, type ProductImportPreview, type ProductImportRow } from "../../../lib/services";
+import { exportService } from "../../../lib/downloadExport";
 import { useStore } from "../../lib/store";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
@@ -57,15 +58,19 @@ function csvEscape(value: string) {
   return `"${value.replace(/"/g, '""')}"`;
 }
 
-function downloadTemplate() {
-  const lines = [TEMPLATE_HEADERS, ...TEMPLATE_ROWS].map((row) => row.map(csvEscape).join(","));
-  const blob = new Blob(["\uFEFF" + lines.join("\n")], { type: "text/csv;charset=utf-8;" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = "urun-import-sablonu.csv";
-  a.click();
-  URL.revokeObjectURL(url);
+async function downloadTemplate() {
+  try {
+    await exportService.productImportTemplate();
+  } catch {
+    const lines = [TEMPLATE_HEADERS, ...TEMPLATE_ROWS].map((row) => row.map(csvEscape).join(","));
+    const blob = new Blob(["\uFEFF" + lines.join("\n")], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "urun-import-sablonu.csv";
+    a.click();
+    URL.revokeObjectURL(url);
+  }
 }
 
 function fileToBase64(file: File): Promise<string> {

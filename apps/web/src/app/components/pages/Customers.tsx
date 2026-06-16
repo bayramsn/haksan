@@ -17,7 +17,7 @@ import { Customer, FirmType } from "../../lib/mock";
 import { useStore } from "../../lib/store";
 import { useDetailDialogs } from "../dialogs/DetailDialogs";
 import { FilterPopover, usePaged, Pager } from "../ui/list-controls";
-import { exportToCsv } from "../../../lib/exportCsv";
+import { ExportExcelButton } from "../ui/ExportExcelButton";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
 } from "../ui/dropdown-menu";
@@ -70,23 +70,12 @@ export function CustomersPage(_props: { onSelect?: (c: Customer) => void } = {})
 
   const { page, setPage, totalPages, pageItems } = usePaged(filtered, 12);
 
-  const exportExcel = () =>
-    exportToCsv(
-      "firmalar",
-      ["Firma", "Tip", "Müşteri Statüsü", "İletişim Kişisi", "Telefon", "E-posta", "Şehir", "VKN", "Sektör", "Oluşturma"],
-      filtered.map((c) => [
-        c.name,
-        FIRM_TYPE_LABEL[c.firmType],
-        c.firmType === "supplier" ? "—" : c.salesStatus === "active_customer" ? "Cari Satış" : "Potansiyel",
-        c.contactPerson,
-        c.phone,
-        c.email,
-        c.city,
-        c.taxNumber,
-        c.sector ?? "",
-        c.createdAt,
-      ])
-    );
+  const exportParams = {
+    ...(q ? { search: q } : {}),
+    ...(tab !== "all" ? { relationTypeCode: tab } : {}),
+    ...(salesTab === "active_customer" ? { customerStatusCode: "active" } : {}),
+    ...(salesTab === "potential" ? { customerStatusCode: "potential" } : {}),
+  };
 
   const countBy = (ft: FirmType) => customers.filter((c) => c.firmType === ft).length;
 
@@ -138,7 +127,7 @@ export function CustomersPage(_props: { onSelect?: (c: Customer) => void } = {})
               { label: "Sektör", value: sector, onChange: setSector, options: uniqueSorted(customers.map((c) => c.sector)).map((v) => ({ value: v, label: v })) },
             ]}
           />
-          <Button variant="outline" size="sm" className="h-9" onClick={exportExcel}><Download className="size-4" /> Excel</Button>
+          <ExportExcelButton path="/exports/companies" filename="firmalar.xlsx" params={exportParams} className="h-9" />
         </div>
       </div>
 

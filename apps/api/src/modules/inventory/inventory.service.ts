@@ -2,6 +2,8 @@ import { Inject, Injectable } from '@nestjs/common';
 import { and, desc, eq, ilike, isNull, sql } from 'drizzle-orm';
 import type { DbClient } from '../../db/client';
 import { inventoryItems, inventoryMovements, warehouses, customerDevices } from '../../db/schema/inventory';
+import { warrantyStatuses } from '../../db/schema/lookup';
+import type { CustomerDeviceCreateInput } from '@haksan/shared';
 import { productModels, brands } from '../../db/schema/products';
 import { inventoryStatuses, productTypes } from '../../db/schema/lookup';
 import { DB } from '../../shared/database/database.module';
@@ -221,5 +223,28 @@ export class InventoryService {
       count,
       page
     );
+  }
+
+  async createCustomerDevice(input: CustomerDeviceCreateInput, actor: AuthContext) {
+    const activeWarranty = await this.db.query.warrantyStatuses.findFirst({
+      where: eq(warrantyStatuses.code, 'active'),
+    });
+    const [device] = await this.db
+      .insert(customerDevices)
+      .values({
+        tenantId: actor.tenantId,
+        companyId: input.companyId,
+        inventoryItemId: input.inventoryItemId ?? null,
+        opportunityId: input.opportunityId ?? null,
+        quoteId: input.quoteId ?? null,
+        installationDate: input.installationDate ?? null,
+        warrantyStartDate: input.warrantyStartDate ?? null,
+        warrantyEndDate: input.warrantyEndDate ?? null,
+        deliveryDate: input.deliveryDate ?? null,
+        statusId: activeWarranty?.id ?? null,
+        notes: input.notes ?? null,
+      })
+      .returning();
+    return device;
   }
 }

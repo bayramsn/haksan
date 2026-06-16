@@ -1,13 +1,13 @@
 import { Controller, Get, Query, Res, UseGuards } from '@nestjs/common';
 import type { FastifyReply } from 'fastify';
 import { z } from 'zod';
-import * as ExcelJS from 'exceljs';
 import { dateRangeSchema, type DateRange } from '@haksan/shared';
 import { ZodValidationPipe } from '../../shared/utils/zod-pipe';
 import { AuthGuard } from '../../shared/security/auth.guard';
 import { PermissionsGuard, RequirePermissions } from '../../shared/security/permissions.guard';
 import { CurrentUser } from '../../shared/security/current-user.decorator';
 import type { AuthContext } from '../../shared/security/auth.types';
+import { rowsToXlsxBuffer, sendXlsx, sheetsToXlsxBuffer } from '../../shared/utils/excel-export';
 import { ReportsService } from './reports.service';
 
 const expiringSchema = z.object({ days: z.coerce.number().int().positive().default(60) });
@@ -15,40 +15,10 @@ const yearSchema = z.object({
   year: z.coerce.number().int().min(2000).max(2100).default(new Date().getFullYear()),
 });
 
-async function rowsToXlsx(rows: any[], reply: FastifyReply, filename: string) {
-  const wb = new ExcelJS.Workbook();
-  const ws = wb.addWorksheet('Report');
-  if (rows.length) {
-    ws.columns = Object.keys(rows[0]).map((k) => ({ header: k, key: k, width: 20 }));
-    ws.addRows(rows);
-  }
-  const buf = await wb.xlsx.writeBuffer();
-  reply
-    .header('Content-Disposition', `attachment; filename="${filename}"`)
-    .header('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-  return Buffer.from(buf);
-}
-
-/** Birden çok bölümü (her biri kendi sayfasında) tek bir xlsx olarak yazar. */
-async function sheetsToXlsx(
-  sheets: Array<{ name: string; rows: any[] }>,
-  reply: FastifyReply,
-  filename: string
-) {
-  const wb = new ExcelJS.Workbook();
-  for (const s of sheets) {
-    const ws = wb.addWorksheet(s.name);
-    if (s.rows.length) {
-      ws.columns = Object.keys(s.rows[0]).map((k) => ({ header: k, key: k, width: 22 }));
-      ws.addRows(s.rows);
-    }
-  }
-  const buf = await wb.xlsx.writeBuffer();
-  reply
-    .header('Content-Disposition', `attachment; filename="${filename}"`)
-    .header('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-  return Buffer.from(buf);
-}
+const periodSchema = z.object({
+  period: z.string().regex(/^\d{4}-\d{2}$/),
+  departmentId: z.string().uuid().optional(),
+});
 
 @UseGuards(AuthGuard, PermissionsGuard)
 @Controller('reports')
@@ -135,8 +105,9 @@ export class ReportsController {
     @Res({ passthrough: true }) reply: FastifyReply
   ) {
     const r = await this.svc.yearEndReport(u, q.year);
-    return sheetsToXlsx(
-      [
+    return sendXlsx(
+      reply,
+      await sheetsToXlsxBuffer([
         { name: 'Özet', rows: [{ year: r.year, ...r.summary }] },
         { name: 'Aylık', rows: r.monthly },
         { name: 'Ret Nedenleri', rows: r.lostReasons },
@@ -144,9 +115,53 @@ export class ReportsController {
         { name: 'Kazanma Nedenleri', rows: r.wonReasons },
         { name: 'Teklif Fiyatları', rows: r.quotesByStatus },
         { name: 'Temsilciler', rows: r.byUser },
-      ],
-      reply,
+      ]),
       `karlilik-raporu-${q.year}.xlsx`
+    );
+  }
+
+  @RequirePermissions('reports.read')
+  @Get('department-performance')
+  departmentPerformance(@Query(new ZodValidationPipe(periodSchema)) q: z.infer<typeof periodSchema>, @CurrentUser() u: AuthContext) {
+    return this.svc.departmentPerformance(u, q.period, q.departmentId);
+  }
+
+  @RequirePermissions('reports.export')
+  @Get('export/department-performance')
+  async exportDepartmentPerformance(
+    @Query(new ZodValidationPipe(periodSchema)) q: z.infer<typeof periodSchema>,
+    @CurrentUser() u: AuthContext,
+    @Res({ passthrough: true }) reply: FastifyReply
+  ) {
+    const report = await this.svc.departmentPerformance(u, q.period, q.departmentId);
+    const flat = report.departments.map((d) => ({
+      period: report.period,
+      department: d.departmentName,
+      members: d.memberCount,
+      salesTarget: d.targets.departmentSalesAmount,
+      salesActual: d.actuals.wonValue,
+      salesAttainmentPct: d.attainment.salesPct,
+      quoteTarget: d.targets.departmentQuoteTarget,
+      quotesActual: d.actuals.quotesCreated,
+      quoteAttainmentPct: d.attainment.quotePct,
+      wonDeals: d.actuals.wonOpportunities,
+      openPipeline: d.actuals.openOpportunities,
+    }));
+    return sendXlsx(
+      reply,
+      await sheetsToXlsxBuffer([
+        { name: 'Özet', rows: flat },
+        {
+          name: 'Detay',
+          rows: report.departments.map((d) => ({
+            ...d.targets,
+            ...d.actuals,
+            department: d.departmentName,
+            members: d.memberCount,
+          })),
+        },
+      ]),
+      `departman-raporu-${q.period}.xlsx`
     );
   }
 
@@ -154,13 +169,13 @@ export class ReportsController {
   @Get('export/pipeline-summary')
   async exportPipeline(@CurrentUser() u: AuthContext, @Res({ passthrough: true }) reply: FastifyReply) {
     const rows = await this.svc.pipelineSummary(u);
-    return rowsToXlsx(rows, reply, 'pipeline-summary.xlsx');
+    return sendXlsx(reply, await rowsToXlsxBuffer(rows, 'Pipeline'), 'pipeline-summary.xlsx');
   }
 
   @RequirePermissions('reports.export')
   @Get('export/stock-summary')
   async exportStock(@CurrentUser() u: AuthContext, @Res({ passthrough: true }) reply: FastifyReply) {
     const rows = await this.svc.stockSummary(u);
-    return rowsToXlsx(rows, reply, 'stock-summary.xlsx');
+    return sendXlsx(reply, await rowsToXlsxBuffer(rows, 'Stok'), 'stock-summary.xlsx');
   }
 }
