@@ -4,10 +4,17 @@ import { Input } from "../ui/input";
 import { Button } from "../ui/button";
 import { Avatar, AvatarFallback } from "../ui/avatar";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../ui/table";
-import { Search, Download, Phone, Mail, Building2, Star } from "lucide-react";
+import { Search, Download, Phone, Mail, Building2, Star, Pencil, Trash2 } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger } from "../ui/tabs";
+import { toast } from "sonner";
+import { type Contact } from "../../lib/mock";
 import { useStore } from "../../lib/store";
 import { useDetailDialogs } from "../dialogs/DetailDialogs";
+import { EditContactDialog } from "../dialogs/CreateDialogs";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "../ui/alert-dialog";
 import { FilterPopover, usePaged, Pager } from "../ui/list-controls";
 import { exportToCsv } from "../../../lib/exportCsv";
 
@@ -16,8 +23,10 @@ const uniqueSorted = (values: (string | undefined)[]) =>
   Array.from(new Set(values.map((v) => (v ?? "").trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b, "tr"));
 
 export function ContactsPage() {
-  const { contacts, customers } = useStore();
+  const { contacts, customers, deleteContact } = useStore();
   const { openContact, dialogs } = useDetailDialogs();
+  const [editing, setEditing] = useState<Contact | null>(null);
+  const [deleting, setDeleting] = useState<Contact | null>(null);
   const [q, setQ] = useState("");
   const [tab, setTab] = useState<"all" | "primary">("all");
   const [dept, setDept] = useState("all");
@@ -75,8 +84,8 @@ export function ContactsPage() {
           </TabsList>
         </Tabs>
 
-        <div className="flex items-center gap-2 ml-auto">
-          <div className="relative w-72">
+        <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:ml-auto">
+          <div className="relative w-full sm:w-72">
             <Search className="size-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
             <Input
               placeholder="Kişi, firma, e-posta ara..."
@@ -156,6 +165,12 @@ export function ContactsPage() {
                         <a href={`mailto:${k.email}`}><Mail className="size-3.5" /></a>
                       </Button>
                     )}
+                      <Button variant="ghost" size="icon" className="size-7" title="Düzenle" onClick={() => setEditing(k)}>
+                        <Pencil className="size-3.5" />
+                      </Button>
+                      <Button variant="ghost" size="icon" className="size-7 text-red-600 hover:text-red-600" title="Sil" onClick={() => setDeleting(k)}>
+                        <Trash2 className="size-3.5" />
+                      </Button>
                     </div>
                   </TableCell>
                 </TableRow>
@@ -180,6 +195,38 @@ export function ContactsPage() {
       </Card>
 
       {dialogs}
+
+      <EditContactDialog contact={editing} onClose={() => setEditing(null)} />
+
+      <AlertDialog open={!!deleting} onOpenChange={(o) => !o && setDeleting(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Kontağı sil?</AlertDialogTitle>
+            <AlertDialogDescription>
+              <b>{deleting?.name}</b> kalıcı olarak silinecek.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Vazgeç</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-red-600 hover:bg-red-700"
+              onClick={async () => {
+                if (!deleting) return;
+                try {
+                  await deleteContact(deleting.id);
+                  toast.success("Kontak silindi");
+                } catch (err: any) {
+                  toast.error("Kontak silinemedi", { description: err?.message ?? "API isteği başarısız oldu." });
+                } finally {
+                  setDeleting(null);
+                }
+              }}
+            >
+              Sil
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

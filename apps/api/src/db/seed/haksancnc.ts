@@ -21,7 +21,6 @@
 import { readFile, readdir } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
-
 import { and, eq, isNull } from 'drizzle-orm';
 import { S3Client, CreateBucketCommand } from '@aws-sdk/client-s3';
 import { ALLOWED_MIME_TYPES, ALLOWED_FILE_EXTENSIONS } from '@haksan/shared';

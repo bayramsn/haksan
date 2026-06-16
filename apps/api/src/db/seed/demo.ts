@@ -174,7 +174,25 @@ export async function seedDemo(): Promise<void> {
   );
 
   // 6. Companies
-  const companyDefs = [
+  type CompanySeedDef = {
+    id?: string;
+    legalTitle: string;
+    shortName: string;
+    relationCode: string;
+    statusCode: string;
+    sector: string;
+    taxNumber: string;
+    address?: string;
+    province?: string;
+    district?: string;
+    locality?: string;
+    street?: string;
+    buildingNumber?: string;
+    phone?: string;
+    email?: string;
+  };
+
+  const companyDefs: CompanySeedDef[] = [
     {
       legalTitle: 'KİLİTSAN KALIP İMALAT SAN. TİC. LTD. ŞTİ.',
       shortName: 'KİLİTSAN',
@@ -208,6 +226,36 @@ export async function seedDemo(): Promise<void> {
       phone: '+90 224 000 00 00',
       email: 'info@aliplermakina.local',
     },
+    {
+      id: '0f8d8632-6b0a-4f3d-9a56-61b70e7a1001',
+      legalTitle: 'BAYRAMPAŞA KOCATEPE CNC TEST LTD. ŞTİ.',
+      shortName: 'BAYPA TEST KOCATEPE',
+      relationCode: 'customer',
+      statusCode: 'potential',
+      sector: 'CNC Talaşlı İmalat',
+      taxNumber: '5550004444',
+      address: 'Kocatepe Mahallesi, Bayrampaşa, İstanbul',
+      province: 'İstanbul',
+      district: 'Bayrampaşa',
+      locality: 'Kocatepe',
+      phone: '+90 212 000 00 04',
+      email: 'kocatepe-test@haksan.local',
+    },
+    {
+      id: '0f8d8632-6b0a-4f3d-9a56-61b70e7a1002',
+      legalTitle: 'BAYRAMPAŞA İSMETPAŞA MAKİNE TEST A.Ş.',
+      shortName: 'BAYPA TEST İSMETPAŞA',
+      relationCode: 'customer',
+      statusCode: 'active',
+      sector: 'Makine Bakım ve Servis',
+      taxNumber: '5550005555',
+      address: 'İsmetpaşa Mahallesi, Bayrampaşa, İstanbul',
+      province: 'İstanbul',
+      district: 'Bayrampaşa',
+      locality: 'İsmetpaşa',
+      phone: '+90 212 000 00 05',
+      email: 'ismetpasa-test@haksan.local',
+    },
   ];
 
   const relTypeMap = new Map<string, string>();
@@ -229,6 +277,7 @@ export async function seedDemo(): Promise<void> {
     const [company] = await db
       .insert(schema.companies)
       .values({
+        ...(c.id ? { id: c.id } : {}),
         tenantId: tenantRow.id,
         companyType: 'company',
         relationTypeId: relTypeMap.get(c.relationCode),
@@ -245,6 +294,11 @@ export async function seedDemo(): Promise<void> {
         companyId: company.id,
         addressType: 'billing',
         country: 'Türkiye',
+        province: c.province ?? null,
+        district: c.district ?? null,
+        locality: c.locality ?? null,
+        street: c.street ?? null,
+        buildingNumber: c.buildingNumber ?? null,
         fullAddress: c.address,
         isDefault: true,
       });

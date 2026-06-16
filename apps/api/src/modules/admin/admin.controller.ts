@@ -3,7 +3,7 @@ import { z } from 'zod';
 import * as argon2 from 'argon2';
 import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import type { DbClient } from '../../db/client';
-import { users, roles, permissions, userRoles, rolePermissions } from '../../db/schema/users';
+import { users, roles, permissions, userRoles, rolePermissions, userTargets } from '../../db/schema/users';
 import { departments } from '../../db/schema/tenants';
 import { auditLogs } from '../../db/schema/audit';
 import { DB } from '../../shared/database/database.module';
@@ -56,6 +56,45 @@ const deptCreate = z.object({
 const auditQuery = z.object({
   resourceType: z.string().max(64).optional(),
   actorUserId: z.string().optional(),
+});
+
+const targetQuery = z.object({
+  period: z.string().regex(/^\d{4}-\d{2}$/).optional(),
+});
+
+const nullableAmount = z.preprocess(
+  (value) => (value === '' || value === undefined ? null : value),
+  z.coerce.number().min(0).nullable()
+);
+const nullableCount = z.preprocess(
+  (value) => (value === '' || value === undefined ? null : value),
+  z.coerce.number().int().min(0).nullable()
+);
+
+const targetItem = z.object({
+  targetType: z.enum(['sales', 'service']),
+  category: z.string().min(1).max(64),
+  activity: z.string().min(1).max(255),
+  description: z.string().max(2000).default(''),
+  unit: z.enum(['count', 'amount']),
+  target: z.string().max(64).default(''),
+});
+
+const userTargetUpsert = z.object({
+  period: z.string().regex(/^\d{4}-\d{2}$/),
+  currency: z.literal('USD').default('USD'),
+  salesAmount: nullableAmount.default(null),
+  salesNewCustomers: nullableCount.default(null),
+  serviceAmount: nullableAmount.default(null),
+  serviceCompleted: nullableCount.default(null),
+  digitalLeadTarget: nullableCount.default(null),
+  digitalConversionTarget: nullableCount.default(null),
+  digitalBudget: nullableAmount.default(null),
+  visitTarget: nullableCount.default(null),
+  callTarget: nullableCount.default(null),
+  quoteTarget: nullableCount.default(null),
+  targetItems: z.array(targetItem).max(80).default([]),
+  note: z.string().max(2000).optional(),
 });
 
 @UseGuards(AuthGuard, PermissionsGuard)
@@ -149,6 +188,70 @@ export class AdminController {
       invalidateRbacCache(id);
     }
     return { ok: true };
+  }
+
+  @RequirePermissions('users.read')
+  @Get('user-targets')
+  async listUserTargets(@Query(new ZodValidationPipe(targetQuery)) query: z.infer<typeof targetQuery>, @CurrentUser() user: AuthContext) {
+    const filters = [eq(userTargets.tenantId, user.tenantId), isNull(userTargets.deletedAt)];
+    if (query.period) filters.push(eq(userTargets.period, query.period));
+    return this.db.query.userTargets.findMany({
+      where: and(...filters),
+      orderBy: [desc(userTargets.period), desc(userTargets.updatedAt)],
+    });
+  }
+
+  @Get('me/targets')
+  async listMyTargets(@Query(new ZodValidationPipe(targetQuery)) query: z.infer<typeof targetQuery>, @CurrentUser() user: AuthContext) {
+    const filters = [eq(userTargets.tenantId, user.tenantId), eq(userTargets.userId, user.userId), isNull(userTargets.deletedAt)];
+    if (query.period) filters.push(eq(userTargets.period, query.period));
+    return this.db.query.userTargets.findMany({
+      where: and(...filters),
+      orderBy: [desc(userTargets.period), desc(userTargets.updatedAt)],
+      limit: query.period ? 1 : 12,
+    });
+  }
+
+  @RequirePermissions('users.update')
+  @Post('users/:id/targets')
+  async upsertUserTarget(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(userTargetUpsert)) body: z.infer<typeof userTargetUpsert>,
+    @CurrentUser() user: AuthContext
+  ) {
+    const targetUser = await this.db.query.users.findFirst({
+      where: and(eq(users.id, id), eq(users.tenantId, user.tenantId), isNull(users.deletedAt)),
+    });
+    if (!targetUser) throw new NotFoundError('Kullanıcı');
+
+    const values = {
+      tenantId: user.tenantId,
+      userId: id,
+      period: body.period,
+      currency: 'USD',
+      salesAmount: body.salesAmount == null ? null : body.salesAmount.toString(),
+      salesNewCustomers: body.salesNewCustomers,
+      serviceAmount: body.serviceAmount == null ? null : body.serviceAmount.toString(),
+      serviceCompleted: body.serviceCompleted,
+      digitalLeadTarget: body.digitalLeadTarget,
+      digitalConversionTarget: body.digitalConversionTarget,
+      digitalBudget: body.digitalBudget == null ? null : body.digitalBudget.toString(),
+      visitTarget: body.visitTarget,
+      callTarget: body.callTarget,
+      quoteTarget: body.quoteTarget,
+      targetItems: body.targetItems,
+      note: body.note?.trim() || null,
+    };
+
+    const existing = await this.db.query.userTargets.findFirst({
+      where: and(eq(userTargets.tenantId, user.tenantId), eq(userTargets.userId, id), eq(userTargets.period, body.period)),
+    });
+    if (existing) {
+      const [row] = await this.db.update(userTargets).set(values).where(eq(userTargets.id, existing.id)).returning();
+      return row;
+    }
+    const [row] = await this.db.insert(userTargets).values(values).returning();
+    return row;
   }
 
   @RequirePermissions('roles.read')

@@ -68,11 +68,13 @@ export function DocumentUploadDialog({
   trigger,
   defaultSalesCaseId,
   defaultCompanyId,
+  defaultType,
   onUploaded,
 }: {
   trigger: React.ReactNode;
   defaultSalesCaseId?: string;
   defaultCompanyId?: string;
+  defaultType?: DocumentTypeValue;
   onUploaded?: (document: DocumentItem) => void;
 }) {
   const { cases, customers, addDocument } = useStore();
@@ -80,7 +82,7 @@ export function DocumentUploadDialog({
   const initialScope = defaultSalesCaseId ? "case" : defaultCompanyId ? "company" : "case";
   const [open, setOpen] = useState(false);
   const [scope, setScope] = useState<"case" | "company">(initialScope);
-  const [type, setType] = useState<DocumentTypeValue>("Other");
+  const [type, setType] = useState<DocumentTypeValue>(defaultType ?? "Other");
   const [selectedCaseId, setSelectedCaseId] = useState(defaultSalesCaseId ?? "");
   const [selectedCompanyId, setSelectedCompanyId] = useState(defaultCompanyId ?? "");
   const [description, setDescription] = useState("");
@@ -90,13 +92,13 @@ export function DocumentUploadDialog({
   useEffect(() => {
     if (!open) return;
     setScope(initialScope);
-    setType("Other");
+    setType(defaultType ?? "Other");
     setSelectedCaseId(defaultSalesCaseId ?? "");
     setSelectedCompanyId(defaultCompanyId ?? "");
     setDescription("");
     setFile(null);
     if (inputRef.current) inputRef.current.value = "";
-  }, [defaultCompanyId, defaultSalesCaseId, initialScope, open]);
+  }, [defaultCompanyId, defaultSalesCaseId, defaultType, initialScope, open]);
 
   const selectedCase = useMemo(
     () => cases.find((item) => item.id === selectedCaseId),

@@ -53,6 +53,22 @@ describe('File upload', () => {
     expect(r.status).toBe(422);
   });
 
+  it('rejects a bucket outside the upload allow-list', async () => {
+    const r = await supertest(app.getHttpServer())
+      .post('/api/v1/files/signed-upload-url')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({
+        bucket: 'private-admin-backups',
+        entityType: 'quote',
+        entityId: '00000000-0000-0000-0000-000000000000',
+        filename: 'teklif.pdf',
+        mimeType: 'application/pdf',
+        extension: 'pdf',
+        sizeBytes: 1024,
+      });
+    expect([400, 422]).toContain(r.status);
+  });
+
   it('accepts a PDF upload intent and returns signed URL', async () => {
     const r = await supertest(app.getHttpServer())
       .post('/api/v1/files/signed-upload-url')

@@ -2,7 +2,8 @@ import { Inject, Injectable } from '@nestjs/common';
 import { and, desc, eq, ilike, isNull, sql } from 'drizzle-orm';
 import type { DbClient } from '../../db/client';
 import { opportunities, opportunityStageHistory, salesActivities, visits, calls } from '../../db/schema/crm';
-import { companies } from '../../db/schema/companies';
+import { companies, contacts } from '../../db/schema/companies';
+import { users } from '../../db/schema/users';
 import { quotes } from '../../db/schema/quotes';
 import { inventoryItems, customerDevices } from '../../db/schema/inventory';
 import { pipelineStages, currencies, opportunityStatuses, contactSources, inventoryStatuses, warrantyStatuses } from '../../db/schema/lookup';
@@ -29,6 +30,31 @@ export class OpportunitiesService {
     const row = await this.db.query.pipelineStages.findFirst({ where: eq(pipelineStages.code, code) });
     if (!row) throw new ValidationError(`Bilinmeyen aşama: ${code}`);
     return row;
+  }
+
+  private async assertCompany(companyId: string, actor: AuthContext) {
+    const company = await this.db.query.companies.findFirst({
+      where: and(eq(companies.id, companyId), eq(companies.tenantId, actor.tenantId), isNull(companies.deletedAt)),
+    });
+    if (!company) throw new NotFoundError('Firma');
+    return company;
+  }
+
+  private async assertContact(contactId: string, actor: AuthContext, companyId: string) {
+    const contact = await this.db.query.contacts.findFirst({
+      where: and(eq(contacts.id, contactId), eq(contacts.tenantId, actor.tenantId), isNull(contacts.deletedAt)),
+    });
+    if (!contact) throw new NotFoundError('Kontak');
+    if (contact.companyId !== companyId) throw new ValidationError('Kontak seçilen firmaya ait değil');
+    return contact;
+  }
+
+  private async assertUser(userId: string, actor: AuthContext) {
+    const user = await this.db.query.users.findFirst({
+      where: and(eq(users.id, userId), eq(users.tenantId, actor.tenantId), isNull(users.deletedAt)),
+    });
+    if (!user) throw new NotFoundError('Kullanıcı');
+    return user;
   }
 
   async list(actor: AuthContext, query: { search?: string; stageCode?: string; companyId?: string }, page: Pagination) {
@@ -93,11 +119,9 @@ export class OpportunitiesService {
   }
 
   async create(input: OpportunityCreateInput, actor: AuthContext) {
-    // Verify company belongs to tenant
-    const company = await this.db.query.companies.findFirst({
-      where: and(eq(companies.id, input.companyId), eq(companies.tenantId, actor.tenantId)),
-    });
-    if (!company) throw new NotFoundError('Firma');
+    await this.assertCompany(input.companyId, actor);
+    if (input.primaryContactId) await this.assertContact(input.primaryContactId, actor, input.companyId);
+    if (input.ownerUserId) await this.assertUser(input.ownerUserId, actor);
 
     const leadStage = await this.stageRowByCode('lead');
     const currencyId = await lookupIdByCode(this.db, currencies, input.currencyCode);
@@ -144,7 +168,15 @@ export class OpportunitiesService {
   }
 
   async update(id: string, input: OpportunityUpdateInput, actor: AuthContext) {
-    await this.get(id, actor);
+    const existing = await this.get(id, actor);
+    const companyId = input.companyId ?? existing.companyId;
+    if (input.companyId !== undefined) await this.assertCompany(input.companyId, actor);
+    if (input.primaryContactId !== undefined) {
+      if (input.primaryContactId) await this.assertContact(input.primaryContactId, actor, companyId);
+    } else if (input.companyId !== undefined && existing.primaryContactId) {
+      await this.assertContact(existing.primaryContactId, actor, companyId);
+    }
+    if (input.ownerUserId) await this.assertUser(input.ownerUserId, actor);
     const patch: Record<string, unknown> = { updatedBy: actor.userId };
     if (input.currencyCode !== undefined) patch.currencyId = await lookupIdByCode(this.db, currencies, input.currencyCode);
     if (input.sourceCode !== undefined) patch.sourceId = await lookupIdByCode(this.db, contactSources, input.sourceCode);

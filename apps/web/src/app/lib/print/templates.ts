@@ -102,7 +102,9 @@ table.pf-addr .b { font-weight: bold; font-size: 9pt; }
 
 export function proformaDoc(d: ProformaPrintData, assetBase: string): PrintDocument {
   const araToplam = d.items.reduce((a, i) => a + i.tutar, 0);
-  const genelToplam = araToplam + d.kdvTutar;
+  // KDV tutarı açıkça verilmediyse ara toplam × oran üzerinden hesapla (tek doğru kaynak).
+  const kdvTutar = d.kdvTutar && d.kdvTutar > 0 ? d.kdvTutar : araToplam * (d.kdvOran / 100);
+  const genelToplam = araToplam + kdvTutar;
   const meta = (i: ProformaItem) => {
     const rows: string[] = [];
     if (i.marka) rows.push(`<tr><td>Markası</td><td>${esc(i.marka)}</td></tr>`);
@@ -110,7 +112,7 @@ export function proformaDoc(d: ProformaPrintData, assetBase: string): PrintDocum
     if (i.gtip) rows.push(`<tr><td>G.T.İ.P.</td><td>${esc(i.gtip)}</td></tr>`);
     return rows.length ? `<table class="meta">${rows.join("")}</table>` : "";
   };
-  const yalniz = tutarYaziyla(araToplam + d.kdvTutar, d.currency);
+  const yalniz = tutarYaziyla(genelToplam, d.currency);
 
   const body = `
 <div class="page">
@@ -166,7 +168,7 @@ export function proformaDoc(d: ProformaPrintData, assetBase: string): PrintDocum
     <table class="pf-tot">
       <tr><td class="tl">ARA TOPLAM</td><td class="tv">${fmtMoney(araToplam, d.currency)}</td></tr>
       <tr class="sp"><td colspan="2"></td></tr>
-      <tr><td class="tl">K.D.V. (%${esc(d.kdvOran)})</td><td class="tv">${fmtMoney(d.kdvTutar, d.currency)}</td></tr>
+      <tr><td class="tl">K.D.V. (%${esc(d.kdvOran)})</td><td class="tv">${fmtMoney(kdvTutar, d.currency)}</td></tr>
       <tr class="sp"><td colspan="2"></td></tr>
       <tr><td class="tl">GENEL TOPLAM</td><td class="tv">${fmtMoney(genelToplam, d.currency)}</td></tr>
     </table>
@@ -362,7 +364,9 @@ export function quoteDoc(d: QuotePrintData, assetBase: string): PrintDocument {
     </tr>`);
   }
   const toplam = items.reduce((a, i) => a + (i.tutar ?? 0), 0) - iskonto;
-  const genel = toplam + d.kdvTutar;
+  // KDV tutarı açıkça verilmediyse toplam × oran üzerinden hesapla.
+  const kdvTutar = d.kdvTutar && d.kdvTutar > 0 ? d.kdvTutar : toplam * (d.kdvOran / 100);
+  const genel = toplam + kdvTutar;
 
   const noteSection = (no: number, baslik: string, list: string[]) => `
     <li><div class="sec">${esc(baslik)}</div>
@@ -379,7 +383,7 @@ export function quoteDoc(d: QuotePrintData, assetBase: string): PrintDocument {
   </table>
   <table class="q-tot">
     <tr><td class="tl">TOPLAM</td><td class="tv">${fmtMoney(toplam, d.currency)}</td></tr>
-    <tr><td class="tl">K.D.V. (%${esc(d.kdvOran)})</td><td class="tv">${fmtMoney(d.kdvTutar, d.currency)}</td></tr>
+    <tr><td class="tl">K.D.V. (%${esc(d.kdvOran)})</td><td class="tv">${fmtMoney(kdvTutar, d.currency)}</td></tr>
     <tr><td class="tl">GENEL TOPLAM</td><td class="tv">${fmtMoney(genel, d.currency)}</td></tr>
   </table>
   <div class="q-notes">
@@ -422,6 +426,8 @@ export interface ServiceQuotePrintData {
 
 export function serviceQuoteDoc(d: ServiceQuotePrintData, assetBase: string): PrintDocument {
   const toplam = d.items.reduce((a, i) => a + (i.tutar ?? 0), 0);
+  // KDV tutarı açıkça verilmediyse toplam × oran üzerinden hesapla.
+  const kdvTutar = d.kdvTutar && d.kdvTutar > 0 ? d.kdvTutar : toplam * (d.kdvOran / 100);
   const rows: string[] = [];
   for (let i = 0; i < Math.max(5, d.items.length); i++) {
     const it = d.items[i];
@@ -458,8 +464,8 @@ export function serviceQuoteDoc(d: ServiceQuotePrintData, assetBase: string): Pr
   </table>
   <table class="q-tot">
     <tr><td class="tl">TOPLAM</td><td class="tv">${fmtMoney(toplam, d.currency)}</td></tr>
-    <tr><td class="tl">K.D.V. (%${esc(d.kdvOran)})</td><td class="tv">${fmtMoney(d.kdvTutar, d.currency)}</td></tr>
-    <tr><td class="tl">GENEL TOPLAM</td><td class="tv">${fmtMoney(toplam + d.kdvTutar, d.currency)}</td></tr>
+    <tr><td class="tl">K.D.V. (%${esc(d.kdvOran)})</td><td class="tv">${fmtMoney(kdvTutar, d.currency)}</td></tr>
+    <tr><td class="tl">GENEL TOPLAM</td><td class="tv">${fmtMoney(toplam + kdvTutar, d.currency)}</td></tr>
   </table>
   <div class="pf-notes" style="margin-top:5mm">
     <div class="nt">NOTLAR:</div>
@@ -987,4 +993,202 @@ export function serviceFormDoc(d: ServiceFormPrintData, assetBase: string): Prin
   ${drmakFooter(assetBase)}
 </div>`;
   return { title: `Servis Formu ${d.formNo}`, css: DRMAK_CSS + FORM_CSS + SERVICE_FORM_CSS, body };
+}
+
+// ── 7) SEVK İRSALİYESİ (HAKSAN antetli) ─────────────────────────────────────
+
+export interface DispatchNoteItem {
+  description: string;
+  brandModel?: string;
+  serialNumber?: string;
+  quantity?: number | string;
+  unit?: string;
+}
+
+export interface DispatchNotePrintData {
+  irsaliyeNo: string;
+  tarih?: string;
+  carrier?: string;
+  trackingNo?: string;
+  origin?: string;
+  destination?: string;
+  incoterm?: string;
+  eta?: string;
+  firma?: string;
+  ilgili?: string;
+  adres?: string;
+  vergiDairesi?: string;
+  vergiNo?: string;
+  items: DispatchNoteItem[];
+  notlar?: string;
+}
+
+const DISPATCH_CSS = `
+.dn-title { text-align:center; font-size:17pt; font-weight:bold; letter-spacing:1px; margin:5mm 0 3mm; }
+.dn-grid { display:flex; gap:6mm; margin-bottom:1mm; }
+.dn-grid > div { flex:1; }
+table.dn { width:100%; }
+table.dn td, table.dn th { border:1pt solid #000; font-size:9.6pt; padding:1.3mm 2mm; vertical-align:top; }
+table.dn th { background:#efefef; font-weight:bold; }
+table.dn.kv td.k { width:32mm; font-weight:bold; background:#f7f7f7; }
+.dn-items th { text-align:center; }
+.dn-items td.c { text-align:center; }
+.dn-sec { font-weight:bold; font-size:10pt; margin:3mm 0 1mm; }
+.dn-foot { display:flex; gap:10mm; margin-top:8mm; }
+.dn-foot > div { flex:1; border-top:1pt solid #000; padding-top:2mm; font-size:9.5pt; font-weight:bold; min-height:20mm; }
+.dn-foot .v { font-weight:normal; font-style:italic; }
+.dn-company { margin-top:auto; border-top:1.5pt solid #c00000; padding-top:1.6mm; font-size:8.2pt; line-height:1.5; color:#222; }
+.dn-company b { color:#000; }
+`;
+
+export function dispatchNoteDoc(d: DispatchNotePrintData, assetBase: string): PrintDocument {
+  const rota = [blank(d.origin), blank(d.destination)].filter(Boolean).join(" → ");
+  const vergi = [blank(d.vergiDairesi), blank(d.vergiNo)].filter(Boolean).join(" / ");
+  const items = d.items.length
+    ? d.items
+        .map(
+          (it, i) => `
+      <tr>
+        <td class="c">${i + 1}</td>
+        <td>${blank(it.description)}</td>
+        <td>${blank(it.brandModel)}</td>
+        <td class="c">${blank(it.serialNumber)}</td>
+        <td class="c">${blank(it.quantity ?? 1)} ${blank(it.unit) || "adet"}</td>
+      </tr>`
+        )
+        .join("")
+    : `<tr><td class="c" colspan="5" style="font-style:italic">Kalem yok</td></tr>`;
+  const body = `
+<div class="page">
+  ${haksanHeader(assetBase)}
+  <div class="dn-title">SEVK İRSALİYESİ</div>
+
+  <div class="dn-grid">
+    <table class="dn kv">
+      <tr><td class="k">İrsaliye No</td><td>${blank(d.irsaliyeNo)}</td></tr>
+      <tr><td class="k">Tarih</td><td>${blank(trLongDate(d.tarih))}</td></tr>
+      <tr><td class="k">Taşıyıcı</td><td>${blank(d.carrier)}</td></tr>
+      <tr><td class="k">Takip No</td><td>${blank(d.trackingNo)}</td></tr>
+    </table>
+    <table class="dn kv">
+      <tr><td class="k">Rota</td><td>${rota}</td></tr>
+      <tr><td class="k">Teslim Şekli</td><td>${blank(d.incoterm)}</td></tr>
+      <tr><td class="k">Tahmini Varış</td><td>${blank(trLongDate(d.eta))}</td></tr>
+      <tr><td class="k">&nbsp;</td><td></td></tr>
+    </table>
+  </div>
+
+  <div class="dn-sec">ALICI / MÜŞTERİ</div>
+  <table class="dn kv">
+    <tr><td class="k">Firma</td><td>${blank(d.firma)}</td></tr>
+    <tr><td class="k">İlgili</td><td>${blank(d.ilgili)}</td></tr>
+    <tr><td class="k">Adres</td><td>${blank(d.adres)}</td></tr>
+    <tr><td class="k">Vergi D. / No</td><td>${vergi}</td></tr>
+  </table>
+
+  <div class="dn-sec">SEVK EDİLEN KALEMLER</div>
+  <table class="dn dn-items">
+    <tr><th style="width:10mm">#</th><th>Açıklama</th><th style="width:40mm">Marka / Model</th><th style="width:38mm">Seri No</th><th style="width:26mm">Miktar</th></tr>
+    ${items}
+  </table>
+
+  ${d.notlar ? `<div class="dn-sec">Notlar</div><div style="font-size:9.5pt">${blank(d.notlar)}</div>` : ""}
+
+  <div class="dn-foot">
+    <div>TESLİM EDEN<div class="v" style="margin-top:9mm">İmza / Kaşe</div></div>
+    <div>TESLİM ALAN<div class="v" style="margin-top:9mm">Ad, Soyad / İmza</div></div>
+  </div>
+
+  <div class="dn-company">
+    <b>${esc(HAKSAN.unvanUzun)}</b><br>
+    ${esc(HAKSAN.adres1)} ${esc(HAKSAN.adres2)} &nbsp;·&nbsp; Tel: ${esc(HAKSAN.tel)} &nbsp; Faks: ${esc(HAKSAN.faks)}<br>
+    Vergi Dairesi: ${esc(HAKSAN.vergiDairesi)} &nbsp; Vergi No: ${esc(HAKSAN.vergiNo)} &nbsp;·&nbsp; ${esc(HAKSAN.eposta)}
+  </div>
+</div>`;
+  return { title: `Sevk İrsaliyesi ${d.irsaliyeNo}`, css: DISPATCH_CSS, body };
+}
+
+// ── 8) TESLİM TUTANAĞI (DR.MAK form stili) ──────────────────────────────────
+
+export interface DeliveryReceiptItem {
+  description: string;
+  brandModel?: string;
+  serialNumber?: string;
+  quantity?: number | string;
+}
+
+export interface DeliveryReceiptPrintData {
+  formNo: string;
+  teslimTarihi?: string;
+  firma?: string;
+  ilgili?: string;
+  adres?: string;
+  telefon?: string;
+  gsm?: string;
+  eposta?: string;
+  items: DeliveryReceiptItem[];
+  teslimEden?: string;
+  teslimAlan?: string;
+  notlar?: string;
+}
+
+export function deliveryReceiptDoc(d: DeliveryReceiptPrintData, assetBase: string): PrintDocument {
+  const rows = d.items.length
+    ? d.items
+        .map(
+          (it, i) => `
+      <tr>
+        <td class="c">${i + 1}</td>
+        <td>${blank(it.description)}</td>
+        <td>${blank(it.brandModel)}</td>
+        <td class="c">${blank(it.serialNumber)}</td>
+        <td class="c">${blank(it.quantity ?? 1)}</td>
+      </tr>`
+        )
+        .join("")
+    : `<tr><td class="c" colspan="5" style="font-style:italic">Teslim edilen cihaz yok</td></tr>`;
+  const body = `
+<div class="page">
+  ${drmakHeader(assetBase, "TESLİM TUTANAĞI")}
+  ${drmakWatermark(assetBase)}
+  <div class="z">
+    <div class="f-boxes">
+      <div class="f-box"><div class="cap">TESLİM TARİHİ</div><div class="bod" style="font-style:italic">${blank(d.teslimTarihi)}</div></div>
+      <div class="f-box"><div class="cap">FORM NO</div><div class="bod red">${blank(d.formNo)}</div></div>
+    </div>
+
+    <div class="f-sec" style="margin-top:5mm">MÜŞTERİ BİLGİLERİ</div>
+    <table class="f">
+      <tr><td class="lbl">Firma</td><td class="val">${blank(d.firma)}</td></tr>
+      <tr><td class="lbl">İlgili</td><td class="val">${blank(d.ilgili)}</td></tr>
+      <tr><td class="lbl">Adres</td><td class="val">${blank(d.adres)}</td></tr>
+      <tr><td class="lbl">Telefon</td><td class="val">${blank(d.telefon)}</td></tr>
+      <tr><td class="lbl">Gsm</td><td class="val">${blank(d.gsm)}</td></tr>
+      <tr><td class="lbl">E-Posta</td><td class="val">${blank(d.eposta)}</td></tr>
+    </table>
+
+    <div class="f-sec" style="margin-top:4mm">TESLİM EDİLEN CİHAZLAR</div>
+    <table class="f f-check">
+      <tr><th style="width:12mm">#</th><th>Açıklama</th><th style="width:44mm">Marka / Model</th><th style="width:40mm">Seri No</th><th style="width:20mm">Adet</th></tr>
+      ${rows}
+    </table>
+
+    ${d.notlar ? `<div class="f-sec" style="margin-top:4mm">NOTLAR</div><div style="font-size:10pt;border:1pt solid #000;min-height:14mm;padding:1.6mm">${blank(d.notlar)}</div>` : ""}
+
+    <div class="f-sign">
+      <div>
+        <div class="cap">TESLİM EDEN</div>
+        <div class="ln"><span>Ad, Soyad</span><span>:</span><span class="v">${blank(d.teslimEden)}</span></div>
+        <div class="ln" style="margin-top:6mm"><span>İmza</span><span>:</span><span class="v"></span></div>
+      </div>
+      <div>
+        <div class="cap">TESLİM ALAN</div>
+        <div class="ln"><span>Ad, Soyad</span><span>:</span><span class="v">${blank(d.teslimAlan)}</span></div>
+        <div class="ln" style="margin-top:6mm"><span>İmza</span><span>:</span><span class="v"></span></div>
+      </div>
+    </div>
+  </div>
+  ${drmakFooter(assetBase)}
+</div>`;
+  return { title: `Teslim Tutanağı ${d.formNo}`, css: DRMAK_CSS + FORM_CSS, body };
 }

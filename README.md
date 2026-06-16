@@ -153,9 +153,10 @@ Bucket'ları her sağlayıcıda manuel oluştur (MinIO'da `minio-init` otomatik 
 ## Güvenlik kontrol listesi (production öncesi)
 
 - [ ] `JWT_ACCESS_SECRET` ve `JWT_REFRESH_SECRET` ≥32 char, rastgele (`openssl rand -hex 32`)
+- [ ] `NODE_ENV=production`
 - [ ] `COOKIE_SECURE=true`, `COOKIE_SAMESITE=strict`
 - [ ] `CORS_ORIGINS` sadece prod domain(ler)
-- [ ] `NODE_ENV=production`
+- [ ] `AUTH_DEV_RESET_TOKEN_RESPONSE=false` veya unset
 - [ ] Supabase service_role_key SADECE backend ortamında, GIT'e sızdırılmadı
 - [ ] `.env` git'te değil, secret manager (Vault/AWS Secrets/Doppler) kullan
 - [ ] DB user'ı runtime için minimum yetkiyle; migration için ayrı user
@@ -191,7 +192,7 @@ Bucket'ları her sağlayıcıda manuel oluştur (MinIO'da `minio-init` otomatik 
 # Backend testleri (Vitest + Supertest + canlı Postgres)
 npm test
 
-# Beklenen sonuç: 26/26 test geçiyor
+# Beklenen sonuç: tüm testler geçiyor
 #   - auth.spec.ts: login, lockout, refresh, me
 #   - tenant-isolation.spec.ts: cross-tenant read/write reddi
 #   - permissions.spec.ts: RBAC sınırları
@@ -224,20 +225,52 @@ Production'da:
 
 ---
 
+## VPS / VDS kurulumu
+
+Bu uygulama VDS/VPS sunucuya kurulabilir. Production için önerilen temel topoloji:
+
+- Ubuntu 22.04/24.04 veya benzeri Linux
+- Node.js 20+ ve npm 10+
+- PostgreSQL 16 (aynı sunucuda Docker ile veya yönetilen DB)
+- S3 uyumlu storage: MinIO, AWS S3, Cloudflare R2 veya Supabase Storage
+- Reverse proxy: Caddy veya nginx üzerinden HTTPS
+- Process manager: systemd veya PM2
+
+Minimum tek sunucu kurulumunda frontend statik build olarak servis edilir, backend `apps/api/dist/main.js` ile çalışır, Postgres ve MinIO Docker Compose ile ayağa kalkabilir. Gerçek production'da Postgres ve object storage için ayrı disk/backup politikası kullanın.
+
+Örnek prod akışı:
+
+```bash
+npm ci
+npm run build:shared
+npm run build:api
+npm run build:web
+npm run db:migrate
+npm run db:seed:lookups
+NODE_ENV=production npm --workspace @haksan/api run start
+```
+
+`apps/web/dist` klasörünü reverse proxy veya statik web sunucusu yayınlar; `VITE_API_BASE_URL` prod API domain'ini göstermelidir.
+
+---
+
 ## Production deployment checklist
 
 1. [ ] Tüm secret'lar secret manager'a girildi
-2. [ ] `DATABASE_URL` production Postgres'i gösteriyor
-3. [ ] Migration uygulandı: `npm run db:migrate`
-4. [ ] Lookup seed yapıldı: `npm run db:seed:lookups`
-5. [ ] İlk tenant + admin user oluşturuldu (script ile veya admin endpoint üzerinden)
-6. [ ] Storage bucket'ları manuel oluşturuldu (S3/Supabase için)
-7. [ ] CORS allowlist sadece prod domain
-8. [ ] Reverse proxy HTTPS + sıkı header'lar (HSTS, CSP, X-Frame-Options, X-Content-Type-Options)
-9. [ ] Health endpoint reverse proxy tarafından izleniyor (`/health`)
-10. [ ] Smoke test: login → bir CRUD → bir signed upload + download
-11. [ ] Backup prosedürü ilk gün denenmiş
-12. [ ] Rollback prosedürü dokümante (önceki dist artifact + DB snapshot)
+2. [ ] `NODE_ENV=production`
+3. [ ] `COOKIE_SECURE=true`
+4. [ ] `AUTH_DEV_RESET_TOKEN_RESPONSE=false` veya unset
+5. [ ] `DATABASE_URL` production Postgres'i gösteriyor
+6. [ ] Migration uygulandı: `npm run db:migrate`
+7. [ ] Lookup seed yapıldı: `npm run db:seed:lookups`
+8. [ ] İlk tenant + admin user oluşturuldu (script ile veya admin endpoint üzerinden)
+9. [ ] Storage bucket'ları manuel oluşturuldu (S3/Supabase için)
+10. [ ] CORS allowlist sadece prod domain
+11. [ ] Reverse proxy HTTPS + sıkı header'lar (HSTS, CSP, X-Frame-Options, X-Content-Type-Options)
+12. [ ] Health endpoint reverse proxy tarafından izleniyor (`/health`)
+13. [ ] Smoke test: login → bir CRUD → bir signed upload + download
+14. [ ] Backup prosedürü ilk gün denenmiş
+15. [ ] Rollback prosedürü dokümante (önceki dist artifact + DB snapshot)
 
 ---
 

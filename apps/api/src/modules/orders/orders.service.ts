@@ -1,12 +1,15 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { and, desc, eq, ilike, isNull, sql } from 'drizzle-orm';
 import type { DbClient } from '../../db/client';
-import { companies } from '../../db/schema/companies';
+import { companies, contacts } from '../../db/schema/companies';
+import { opportunities } from '../../db/schema/crm';
 import { users } from '../../db/schema/users';
 import { inventoryItems, inventoryMovements } from '../../db/schema/inventory';
 import { purchaseOrderItems, purchaseOrders, salesOrderItems, salesOrders } from '../../db/schema/orders';
+import { shipments, shipmentItems } from '../../db/schema/service';
 import { quoteItems, quotes } from '../../db/schema/quotes';
-import { currencies, inventoryStatuses, purchaseOrderStatuses, salesOrderStatuses, units } from '../../db/schema/lookup';
+import { productModels } from '../../db/schema/products';
+import { currencies, inventoryStatuses, purchaseOrderStatuses, salesOrderStatuses, shipmentStatuses, units } from '../../db/schema/lookup';
 import { DB } from '../../shared/database/database.module';
 import { AuditService } from '../../shared/database/audit.service';
 import { ConflictError, NotFoundError, ValidationError } from '../../shared/utils/errors';
@@ -148,7 +151,9 @@ export class OrdersService {
 
   async createSalesOrder(input: SalesOrderCreateInput, actor: AuthContext) {
     await this.assertCompany(input.companyId, actor);
-    if (input.quoteId) await this.assertQuote(input.quoteId, actor);
+    if (input.contactId) await this.assertContact(input.contactId, actor, input.companyId);
+    if (input.opportunityId) await this.assertOpportunity(input.opportunityId, actor, input.companyId);
+    if (input.quoteId) await this.assertQuote(input.quoteId, actor, input.companyId, input.opportunityId);
     const orderNo = input.orderNo?.trim() || (await this.nextSalesOrderNo(actor));
     await this.assertSalesOrderNoAvailable(orderNo, actor);
     const draft = await lookupIdByCode(this.db, salesOrderStatuses, 'draft');
@@ -232,15 +237,28 @@ export class OrdersService {
   }
 
   async updateSalesOrder(id: string, input: SalesOrderUpdateInput, actor: AuthContext) {
-    await this.getSalesOrder(id, actor);
+    const existing = await this.getSalesOrder(id, actor);
     const patch: Record<string, unknown> = {};
+    const companyId = input.companyId ?? existing.companyId;
     if (input.companyId !== undefined) {
       await this.assertCompany(input.companyId, actor);
       patch.companyId = input.companyId;
     }
+    if (input.contactId !== undefined) {
+      if (input.contactId) await this.assertContact(input.contactId, actor, companyId);
+    } else if (input.companyId !== undefined && existing.contactId) {
+      await this.assertContact(existing.contactId, actor, companyId);
+    }
+    if (input.opportunityId !== undefined) {
+      if (input.opportunityId) await this.assertOpportunity(input.opportunityId, actor, companyId);
+    } else if (input.companyId !== undefined && existing.opportunityId) {
+      await this.assertOpportunity(existing.opportunityId, actor, companyId);
+    }
     if (input.quoteId !== undefined) {
-      if (input.quoteId) await this.assertQuote(input.quoteId, actor);
+      if (input.quoteId) await this.assertQuote(input.quoteId, actor, companyId, input.opportunityId ?? existing.opportunityId);
       patch.quoteId = input.quoteId ?? null;
+    } else if (input.companyId !== undefined && existing.quoteId) {
+      await this.assertQuote(existing.quoteId, actor, companyId, input.opportunityId ?? existing.opportunityId);
     }
     if (input.currencyCode !== undefined) patch.currencyId = await lookupIdByCode(this.db, currencies, input.currencyCode);
     for (const k of ['opportunityId', 'contactId', 'orderNo', 'orderDate', 'notes'] as const) {
@@ -258,6 +276,9 @@ export class OrdersService {
 
   async addSalesOrderItem(orderId: string, input: SalesOrderItemCreateInput, actor: AuthContext) {
     await this.getSalesOrder(orderId, actor);
+    if (input.quoteItemId) await this.assertQuoteItem(input.quoteItemId, actor);
+    if (input.productModelId) await this.assertProductModel(input.productModelId, actor);
+    if (input.inventoryItemId) await this.assertInventoryItem(input.inventoryItemId, actor);
     const t = this.calcItem(input.quantity, input.unitPrice, input.discountAmount, input.vatRate);
     const unitId = await lookupIdByCode(this.db, units, input.unitCode);
     const [row] = await this.db
@@ -289,6 +310,9 @@ export class OrdersService {
       where: and(eq(salesOrderItems.id, itemId), eq(salesOrderItems.salesOrderId, orderId), eq(salesOrderItems.tenantId, actor.tenantId), isNull(salesOrderItems.deletedAt)),
     });
     if (!existing) throw new NotFoundError('Satış siparişi kalemi');
+    if (input.quoteItemId) await this.assertQuoteItem(input.quoteItemId, actor);
+    if (input.productModelId) await this.assertProductModel(input.productModelId, actor);
+    if (input.inventoryItemId) await this.assertInventoryItem(input.inventoryItemId, actor);
     const patch: Record<string, unknown> = {};
     for (const k of ['quoteItemId', 'productModelId', 'inventoryItemId', 'description', 'sortOrder'] as const) {
       if ((input as any)[k] !== undefined) patch[k] = (input as any)[k] ?? null;
@@ -338,7 +362,77 @@ export class OrdersService {
       resourceId: id,
       newValues: { statusCode: input.statusCode, notes: input.notes },
     });
+    // Sipariş tamamlandığında, rezerve seri-numaralı kalemlerden bir sevkiyat taslağı
+    // (paketleme listesi) otomatik üret. Stok hareketleri sevkiyat "Yolda" olunca yazılır.
+    if (input.statusCode === 'fulfilled') await this.createShipmentFromOrder(id, actor);
     return { ok: true };
+  }
+
+  /**
+   * "fulfilled" satış siparişinden bir sevkiyat taslağı (`preparing`) + sevkiyat
+   * satır kalemleri üretir. Sipariş kalemlerini, seri numarasını anlık kopyalayarak
+   * `shipment_items`'a taşır. Aynı sipariş için tek sevkiyat (idempotent).
+   */
+  private async createShipmentFromOrder(orderId: string, actor: AuthContext) {
+    const order = await this.db.query.salesOrders.findFirst({
+      where: and(eq(salesOrders.id, orderId), eq(salesOrders.tenantId, actor.tenantId), isNull(salesOrders.deletedAt)),
+    });
+    if (!order) return;
+    const existing = await this.db.query.shipments.findFirst({
+      where: and(eq(shipments.tenantId, actor.tenantId), eq(shipments.salesOrderId, orderId), isNull(shipments.deletedAt)),
+    });
+    if (existing) return existing;
+
+    const items = await this.db
+      .select()
+      .from(salesOrderItems)
+      .where(and(eq(salesOrderItems.salesOrderId, orderId), eq(salesOrderItems.tenantId, actor.tenantId), isNull(salesOrderItems.deletedAt)))
+      .orderBy(salesOrderItems.sortOrder);
+    const preparing = await lookupIdByCode(this.db, shipmentStatuses, 'preparing');
+    const [shipment] = await this.db
+      .insert(shipments)
+      .values({
+        tenantId: actor.tenantId,
+        salesOrderId: order.id,
+        companyId: order.companyId,
+        opportunityId: order.opportunityId ?? null,
+        quoteId: order.quoteId ?? null,
+        shipmentNo: order.orderNo ? `SEV-${order.orderNo}` : null,
+        statusId: preparing,
+      })
+      .returning();
+
+    for (const item of items) {
+      let serialNumber: string | null = null;
+      if (item.inventoryItemId) {
+        const inv = await this.db.query.inventoryItems.findFirst({
+          where: and(eq(inventoryItems.id, item.inventoryItemId), eq(inventoryItems.tenantId, actor.tenantId)),
+        });
+        serialNumber = inv?.serialNumber ?? null;
+      }
+      await this.db.insert(shipmentItems).values({
+        tenantId: actor.tenantId,
+        shipmentId: shipment.id,
+        inventoryItemId: item.inventoryItemId ?? null,
+        salesOrderItemId: item.id,
+        productModelId: item.productModelId ?? null,
+        description: item.description,
+        serialNumber,
+        quantity: item.quantity,
+        unitId: item.unitId ?? null,
+        sortOrder: item.sortOrder,
+      });
+    }
+
+    await this.audit.write({
+      tenantId: actor.tenantId,
+      actorUserId: actor.userId,
+      action: 'shipment.created_from_order',
+      resourceType: 'shipment',
+      resourceId: shipment.id,
+      newValues: { salesOrderId: order.id, itemCount: items.length },
+    });
+    return shipment;
   }
 
   async reserveSalesOrder(id: string, actor: AuthContext) {
@@ -467,7 +561,7 @@ export class OrdersService {
     await this.getPurchaseOrder(id, actor);
     const patch: Record<string, unknown> = {};
     if (input.supplierCompanyId !== undefined) {
-      await this.assertCompany(input.supplierCompanyId, actor);
+      if (input.supplierCompanyId) await this.assertCompany(input.supplierCompanyId, actor);
       patch.supplierCompanyId = input.supplierCompanyId;
     }
     if (input.currencyCode !== undefined) patch.currencyId = await lookupIdByCode(this.db, currencies, input.currencyCode);
@@ -486,6 +580,7 @@ export class OrdersService {
 
   async addPurchaseOrderItem(orderId: string, input: PurchaseOrderItemCreateInput, actor: AuthContext) {
     await this.getPurchaseOrder(orderId, actor);
+    if (input.productModelId) await this.assertProductModel(input.productModelId, actor);
     const t = this.calcItem(input.quantity, input.unitPrice, input.discountAmount, input.vatRate);
     const unitId = await lookupIdByCode(this.db, units, input.unitCode);
     const [row] = await this.db
@@ -516,6 +611,7 @@ export class OrdersService {
       where: and(eq(purchaseOrderItems.id, itemId), eq(purchaseOrderItems.purchaseOrderId, orderId), eq(purchaseOrderItems.tenantId, actor.tenantId), isNull(purchaseOrderItems.deletedAt)),
     });
     if (!existing) throw new NotFoundError('Satın alma siparişi kalemi');
+    if (input.productModelId) await this.assertProductModel(input.productModelId, actor);
     const patch: Record<string, unknown> = {};
     for (const k of ['productModelId', 'description', 'expectedDate', 'sortOrder'] as const) {
       if ((input as any)[k] !== undefined) patch[k] = (input as any)[k] ?? null;
@@ -589,12 +685,58 @@ export class OrdersService {
     return company;
   }
 
-  private async assertQuote(quoteId: string, actor: AuthContext) {
+  private async assertContact(contactId: string, actor: AuthContext, companyId: string) {
+    const contact = await this.db.query.contacts.findFirst({
+      where: and(eq(contacts.id, contactId), eq(contacts.tenantId, actor.tenantId), isNull(contacts.deletedAt)),
+    });
+    if (!contact) throw new NotFoundError('Kontak');
+    if (contact.companyId !== companyId) throw new ValidationError('Kontak seçilen firmaya ait değil');
+    return contact;
+  }
+
+  private async assertOpportunity(opportunityId: string, actor: AuthContext, companyId: string) {
+    const opportunity = await this.db.query.opportunities.findFirst({
+      where: and(eq(opportunities.id, opportunityId), eq(opportunities.tenantId, actor.tenantId), isNull(opportunities.deletedAt)),
+    });
+    if (!opportunity) throw new NotFoundError('Fırsat');
+    if (opportunity.companyId !== companyId) throw new ValidationError('Fırsat seçilen firmaya ait değil');
+    return opportunity;
+  }
+
+  private async assertQuote(quoteId: string, actor: AuthContext, companyId?: string, opportunityId?: string | null) {
     const quote = await this.db.query.quotes.findFirst({
       where: and(eq(quotes.id, quoteId), eq(quotes.tenantId, actor.tenantId), isNull(quotes.deletedAt)),
     });
     if (!quote) throw new NotFoundError('Teklif');
+    if (companyId && quote.companyId !== companyId) throw new ValidationError('Teklif seçilen firmaya ait değil');
+    if (opportunityId && quote.opportunityId !== opportunityId) {
+      throw new ValidationError('Teklif seçilen fırsata ait değil');
+    }
     return quote;
+  }
+
+  private async assertQuoteItem(quoteItemId: string, actor: AuthContext) {
+    const item = await this.db.query.quoteItems.findFirst({
+      where: and(eq(quoteItems.id, quoteItemId), eq(quoteItems.tenantId, actor.tenantId), isNull(quoteItems.deletedAt)),
+    });
+    if (!item) throw new NotFoundError('Teklif kalemi');
+    return item;
+  }
+
+  private async assertProductModel(productModelId: string, actor: AuthContext) {
+    const product = await this.db.query.productModels.findFirst({
+      where: and(eq(productModels.id, productModelId), eq(productModels.tenantId, actor.tenantId), isNull(productModels.deletedAt)),
+    });
+    if (!product) throw new NotFoundError('Ürün');
+    return product;
+  }
+
+  private async assertInventoryItem(inventoryItemId: string, actor: AuthContext) {
+    const item = await this.db.query.inventoryItems.findFirst({
+      where: and(eq(inventoryItems.id, inventoryItemId), eq(inventoryItems.tenantId, actor.tenantId), isNull(inventoryItems.deletedAt)),
+    });
+    if (!item) throw new NotFoundError('Stok kalemi');
+    return item;
   }
 
   private async assertSalesOrderNoAvailable(orderNo: string, actor: AuthContext) {

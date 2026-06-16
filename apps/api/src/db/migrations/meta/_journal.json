@@ -99,6 +99,55 @@
       "when": 1781015857396,
       "tag": "0013_equal_maginty",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1781265749223,
+      "tag": "0014_redundant_electro",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1781273000000,
+      "tag": "0015_deliveries",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1781273800000,
+      "tag": "0016_user_targets",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1781274800000,
+      "tag": "0017_user_target_items",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1781276200000,
+      "tag": "0018_user_targets_usd",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1781548800000,
+      "tag": "0019_machine_lifecycle",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1781635200000,
+      "tag": "0020_delivery_form_data",
+      "breakpoints": true
     }
   ]
 }

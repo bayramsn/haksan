@@ -2,7 +2,11 @@ import { Inject, Injectable } from '@nestjs/common';
 import { and, desc, eq, ilike, isNull, sql } from 'drizzle-orm';
 import type { DbClient } from '../../db/client';
 import { quotes, quoteItems, quoteTerms, proformas, contracts, commercialInvoices } from '../../db/schema/quotes';
-import { companies } from '../../db/schema/companies';
+import { companies, contacts } from '../../db/schema/companies';
+import { opportunities } from '../../db/schema/crm';
+import { inventoryItems } from '../../db/schema/inventory';
+import { productModels } from '../../db/schema/products';
+import { users } from '../../db/schema/users';
 import { currencies, units, quoteStatuses, proformaStatuses, contractStatuses, invoiceStatuses } from '../../db/schema/lookup';
 import { DB } from '../../shared/database/database.module';
 import { ConflictError, NotFoundError, ValidationError } from '../../shared/utils/errors';
@@ -24,6 +28,7 @@ import type {
 import { buildPaginated, pageOffset } from '../../shared/utils/pagination';
 import { lookupIdByCode } from '../../shared/utils/lookup.helper';
 import { AuditService } from '../../shared/database/audit.service';
+import PDFDocument from 'pdfkit';
 
 interface ItemTotals {
   subtotal: number;
@@ -81,6 +86,56 @@ export class QuotesService {
     return `${year}/${String(next).padStart(3, '0')}`;
   }
 
+  private async assertCompany(companyId: string, actor: AuthContext) {
+    const company = await this.db.query.companies.findFirst({
+      where: and(eq(companies.id, companyId), eq(companies.tenantId, actor.tenantId), isNull(companies.deletedAt)),
+    });
+    if (!company) throw new NotFoundError('Firma');
+    return company;
+  }
+
+  private async assertContact(contactId: string, actor: AuthContext, companyId: string) {
+    const contact = await this.db.query.contacts.findFirst({
+      where: and(eq(contacts.id, contactId), eq(contacts.tenantId, actor.tenantId), isNull(contacts.deletedAt)),
+    });
+    if (!contact) throw new NotFoundError('Kontak');
+    if (contact.companyId !== companyId) throw new ValidationError('Kontak seçilen firmaya ait değil');
+    return contact;
+  }
+
+  private async assertOpportunity(opportunityId: string, actor: AuthContext, companyId: string) {
+    const opportunity = await this.db.query.opportunities.findFirst({
+      where: and(eq(opportunities.id, opportunityId), eq(opportunities.tenantId, actor.tenantId), isNull(opportunities.deletedAt)),
+    });
+    if (!opportunity) throw new NotFoundError('Fırsat');
+    if (opportunity.companyId !== companyId) throw new ValidationError('Fırsat seçilen firmaya ait değil');
+    return opportunity;
+  }
+
+  private async assertUser(userId: string, actor: AuthContext) {
+    const user = await this.db.query.users.findFirst({
+      where: and(eq(users.id, userId), eq(users.tenantId, actor.tenantId), isNull(users.deletedAt)),
+    });
+    if (!user) throw new NotFoundError('Kullanıcı');
+    return user;
+  }
+
+  private async assertProductModel(productModelId: string, actor: AuthContext) {
+    const product = await this.db.query.productModels.findFirst({
+      where: and(eq(productModels.id, productModelId), eq(productModels.tenantId, actor.tenantId), isNull(productModels.deletedAt)),
+    });
+    if (!product) throw new NotFoundError('Ürün');
+    return product;
+  }
+
+  private async assertInventoryItem(inventoryItemId: string, actor: AuthContext) {
+    const item = await this.db.query.inventoryItems.findFirst({
+      where: and(eq(inventoryItems.id, inventoryItemId), eq(inventoryItems.tenantId, actor.tenantId), isNull(inventoryItems.deletedAt)),
+    });
+    if (!item) throw new NotFoundError('Stok kalemi');
+    return item;
+  }
+
   async list(actor: AuthContext, query: { search?: string; statusCode?: string; companyId?: string }, page: Pagination) {
     const { limit, offset } = pageOffset(page);
     const filters = [eq(quotes.tenantId, actor.tenantId), isNull(quotes.deletedAt)];
@@ -124,7 +179,119 @@ export class QuotesService {
     return { ...quote, items, terms };
   }
 
+  /**
+   * Teklifi PDF olarak üretir (tenant-scope). Buffer + dosya adı döner; controller
+   * stream eder. Not: PDFKit gömülü Helvetica fontu ç/ö/ü taşır ama ş/ğ/ı/İ
+   * taşımaz; bu glyph'ler tr() ile sadeleştirilir. Tam diakritik için ileride
+   * bir Unicode TTF (örn. DejaVuSans) gömülebilir.
+   */
+  async generatePdf(id: string, actor: AuthContext): Promise<{ buffer: Buffer; filename: string }> {
+    const quote = await this.db.query.quotes.findFirst({
+      where: and(eq(quotes.id, id), eq(quotes.tenantId, actor.tenantId), isNull(quotes.deletedAt)),
+    });
+    if (!quote) throw new NotFoundError('Teklif');
+    const items = await this.db.select().from(quoteItems).where(eq(quoteItems.quoteId, id)).orderBy(quoteItems.sortOrder);
+    const terms = await this.db.query.quoteTerms.findFirst({ where: eq(quoteTerms.quoteId, id) });
+    const company = await this.db.query.companies.findFirst({ where: eq(companies.id, quote.companyId) });
+    const currency = quote.currencyId
+      ? await this.db.query.currencies.findFirst({ where: eq(currencies.id, quote.currencyId) })
+      : null;
+    const cur = currency?.code ?? '';
+
+    const tr = (s: string | null | undefined): string =>
+      (s ?? '')
+        .replace(/ş/g, 's').replace(/Ş/g, 'S')
+        .replace(/ğ/g, 'g').replace(/Ğ/g, 'G')
+        .replace(/ı/g, 'i').replace(/İ/g, 'I');
+    const money = (v: string | number | null | undefined) =>
+      `${Number(v ?? 0).toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${cur}`.trim();
+
+    const doc = new PDFDocument({ size: 'A4', margin: 50 });
+    const chunks: Buffer[] = [];
+    doc.on('data', (c: Buffer) => chunks.push(c));
+    const done = new Promise<Buffer>((resolve, reject) => {
+      doc.on('end', () => resolve(Buffer.concat(chunks)));
+      doc.on('error', reject);
+    });
+
+    // Başlık
+    doc.fontSize(22).font('Helvetica-Bold').text('TEKLIF', { align: 'right' });
+    doc.font('Helvetica').fontSize(10)
+      .text(`No: ${tr(quote.documentNo)}`, { align: 'right' })
+      .text(`Tarih: ${new Date(quote.quoteDate).toLocaleDateString('tr-TR')}`, { align: 'right' })
+      .text(`Gecerlilik: ${quote.validityDays} gun`, { align: 'right' });
+
+    // Müşteri
+    doc.moveDown(1.5);
+    doc.fontSize(11).font('Helvetica-Bold').text('Musteri', 50);
+    doc.font('Helvetica').fontSize(11).text(tr(company?.legalTitle ?? '-'), 50);
+
+    // Kalemler tablosu
+    doc.moveDown(1.5);
+    const top = doc.y;
+    const x = { no: 50, desc: 80, qty: 330, price: 400, total: 480 };
+    doc.fontSize(9).font('Helvetica-Bold');
+    doc.text('#', x.no, top, { lineBreak: false });
+    doc.text('Aciklama', x.desc, top, { lineBreak: false });
+    doc.text('Miktar', x.qty, top, { lineBreak: false });
+    doc.text('B.Fiyat', x.price, top, { lineBreak: false });
+    doc.text('Tutar', x.total, top, { lineBreak: false });
+    doc.moveTo(50, top + 14).lineTo(545, top + 14).stroke();
+
+    doc.font('Helvetica').fontSize(9);
+    let y = top + 20;
+    const rowH = 16;
+    for (let i = 0; i < items.length; i++) {
+      if (y > 770) { doc.addPage(); y = 50; }
+      const it = items[i];
+      const desc = tr(it.description);
+      doc.text(String(i + 1), x.no, y, { lineBreak: false });
+      doc.text(desc.length > 46 ? `${desc.slice(0, 45)}...` : desc, x.desc, y, { width: 240, lineBreak: false });
+      doc.text(Number(it.quantity).toLocaleString('tr-TR'), x.qty, y, { lineBreak: false });
+      doc.text(money(it.unitPrice), x.price, y, { lineBreak: false });
+      doc.text(money(it.lineTotal), x.total, y, { lineBreak: false });
+      y += rowH;
+    }
+    doc.moveTo(50, y).lineTo(545, y).stroke();
+
+    // Toplamlar
+    y += 12;
+    const totalLine = (label: string, val: string, bold = false) => {
+      doc.font(bold ? 'Helvetica-Bold' : 'Helvetica').fontSize(bold ? 11 : 9);
+      doc.text(label, 340, y, { width: 110, align: 'right', lineBreak: false });
+      doc.text(val, 455, y, { width: 90, align: 'right', lineBreak: false });
+      y += bold ? 20 : 15;
+    };
+    totalLine('Ara Toplam', money(quote.subtotal));
+    if (Number(quote.discountTotal) > 0) totalLine('Indirim', `-${money(quote.discountTotal)}`);
+    totalLine('KDV', money(quote.vatAmount));
+    totalLine('GENEL TOPLAM', money(quote.grandTotal), true);
+
+    // Şartlar
+    const termRows = ([
+      ['Odeme', terms?.paymentTermsText ?? quote.paymentTerms],
+      ['Teslim', terms?.deliveryTermsText ?? quote.deliveryTerms],
+      ['Garanti', terms?.warrantyTermsText ?? quote.warrantyTerms],
+    ] as Array<[string, string | null | undefined]>).filter(([, v]) => v);
+    if (termRows.length) {
+      doc.x = 50;
+      doc.y = y + 24;
+      doc.font('Helvetica-Bold').fontSize(10).text('Sartlar', 50);
+      doc.font('Helvetica').fontSize(9);
+      for (const [k, v] of termRows) doc.text(`${k}: ${tr(v)}`, 50, undefined, { width: 495 });
+    }
+
+    doc.end();
+    const buffer = await done;
+    const safeNo = tr(quote.documentNo).replace(/[^a-zA-Z0-9._-]/g, '_');
+    return { buffer, filename: `teklif-${safeNo}.pdf` };
+  }
+
   async create(input: QuoteCreateInput, actor: AuthContext) {
+    await this.assertCompany(input.companyId, actor);
+    if (input.contactId) await this.assertContact(input.contactId, actor, input.companyId);
+    if (input.opportunityId) await this.assertOpportunity(input.opportunityId, actor, input.companyId);
+    if (input.projectOwnerUserId) await this.assertUser(input.projectOwnerUserId, actor);
     const documentNo = input.documentNo?.trim() || (await this.nextDocumentNo(actor));
     const existing = await this.db.query.quotes.findFirst({
       where: and(eq(quotes.tenantId, actor.tenantId), eq(quotes.documentNo, documentNo)),
@@ -164,7 +331,20 @@ export class QuotesService {
   }
 
   async update(id: string, input: QuoteUpdateInput, actor: AuthContext) {
-    await this.get(id, actor);
+    const existingQuote = await this.get(id, actor);
+    const companyId = input.companyId ?? existingQuote.companyId;
+    if (input.companyId !== undefined) await this.assertCompany(input.companyId, actor);
+    if (input.contactId !== undefined) {
+      if (input.contactId) await this.assertContact(input.contactId, actor, companyId);
+    } else if (input.companyId !== undefined && existingQuote.contactId) {
+      await this.assertContact(existingQuote.contactId, actor, companyId);
+    }
+    if (input.opportunityId !== undefined) {
+      if (input.opportunityId) await this.assertOpportunity(input.opportunityId, actor, companyId);
+    } else if (input.companyId !== undefined && existingQuote.opportunityId) {
+      await this.assertOpportunity(existingQuote.opportunityId, actor, companyId);
+    }
+    if (input.projectOwnerUserId) await this.assertUser(input.projectOwnerUserId, actor);
     const patch: Record<string, unknown> = {};
     if (input.currencyCode !== undefined) patch.currencyId = await lookupIdByCode(this.db, currencies, input.currencyCode);
     for (const k of ['opportunityId', 'companyId', 'contactId', 'documentNo', 'quoteDate', 'validityDays', 'projectOwnerUserId', 'paymentTerms', 'deliveryTerms', 'warrantyTerms', 'notes'] as const) {
@@ -183,6 +363,8 @@ export class QuotesService {
   // ────────── ITEMS ──────────
   async addItem(quoteId: string, input: QuoteItemCreateInput, actor: AuthContext) {
     await this.get(quoteId, actor);
+    if (input.productModelId) await this.assertProductModel(input.productModelId, actor);
+    if (input.inventoryItemId) await this.assertInventoryItem(input.inventoryItemId, actor);
     const t = this.calcItem(input.quantity, input.unitPrice, input.discountAmount, input.vatRate);
     const unitId = await lookupIdByCode(this.db, units, input.unitCode);
     const [row] = await this.db
@@ -213,6 +395,8 @@ export class QuotesService {
       where: and(eq(quoteItems.id, itemId), eq(quoteItems.quoteId, quoteId), eq(quoteItems.tenantId, actor.tenantId)),
     });
     if (!existing) throw new NotFoundError('Kalem');
+    if (input.productModelId) await this.assertProductModel(input.productModelId, actor);
+    if (input.inventoryItemId) await this.assertInventoryItem(input.inventoryItemId, actor);
     const patch: Record<string, unknown> = {};
     for (const k of ['productModelId', 'inventoryItemId', 'description', 'sortOrder'] as const) {
       if ((input as any)[k] !== undefined) patch[k] = (input as any)[k] ?? null;

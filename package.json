@@ -16,6 +16,8 @@
     "db:generate": "npm --workspace @haksan/api run db:generate",
     "db:migrate": "npm --workspace @haksan/api run db:migrate",
     "db:seed": "npm --workspace @haksan/api run db:seed",
+    "db:seed:lookups": "npm --workspace @haksan/api run db:seed:lookups",
+    "db:bootstrap": "npm --workspace @haksan/api run db:bootstrap",
     "test": "npm --workspace @haksan/api run test",
     "docker:up": "docker compose up -d",
     "docker:down": "docker compose down",

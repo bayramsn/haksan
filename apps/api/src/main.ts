@@ -8,6 +8,7 @@ import { AppModule } from './app.module';
 import { loadEnv } from './config/env';
 import { AllExceptionsFilter } from './shared/filters/all-exceptions.filter';
 import { logger } from './shared/utils/logger';
+import { closeDb } from './db/client';
 
 async function bootstrap() {
   const env = loadEnv();
@@ -39,6 +40,24 @@ async function bootstrap() {
 
   await app.listen(env.PORT, '0.0.0.0');
   logger.info({ port: env.PORT, prefix: env.API_PREFIX, env: env.NODE_ENV }, '[api] up');
+
+  // Graceful shutdown — systemd/docker restart'larında bağlantıları temiz kapat.
+  let closing = false;
+  const shutdown = async (signal: string) => {
+    if (closing) return;
+    closing = true;
+    logger.info({ signal }, '[api] kapatılıyor');
+    try {
+      await app.close();
+      await closeDb();
+    } catch (err) {
+      logger.error({ err }, '[api] kapanış hatası');
+    } finally {
+      process.exit(0);
+    }
+  };
+  process.on('SIGTERM', () => void shutdown('SIGTERM'));
+  process.on('SIGINT', () => void shutdown('SIGINT'));
 }
 
 bootstrap().catch((err) => {

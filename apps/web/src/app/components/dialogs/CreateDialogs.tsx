@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger,
 } from "../ui/dialog";
@@ -6,14 +6,21 @@ import { Input } from "../ui/input";
 import { Label } from "../ui/label";
 import { Button } from "../ui/button";
 import { Textarea } from "../ui/textarea";
+import { Combobox } from "../ui/combobox";
 import {
   Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue,
 } from "../ui/select";
 import { useStore } from "../../lib/store";
-import { SALES_STAGES, salesStageLabel } from "../../lib/mock";
+import { usePersistentState } from "../../lib/persist";
+import { SALES_STAGES, salesStageLabel, SHIPMENT_STATUSES, DELIVERY_STATUSES, type ShipmentStatus, type DeliveryStatus, type Customer, type Contact } from "../../lib/mock";
 import { toast } from "sonner";
-import { Building2, User as UserIcon } from "lucide-react";
-import { serviceService, fileService } from "../../../lib/services";
+import { Building2, User as UserIcon, Wallet, Truck, ClipboardCheck, ChevronDown } from "lucide-react";
+import { serviceService, fileService, financeService } from "../../../lib/services";
+import {
+  computeInstallationFee,
+  INSTALLATION_LOCATION_LABELS,
+  type InstallationLocationType,
+} from "@haksan/shared";
 
 /* ---------- Customer ---------- */
 const COMPANY_GROUP_OPTIONS = [
@@ -54,12 +61,18 @@ const emptyCompanyForm = () => ({
 export function CreateCustomerDialog({ trigger, onCreated }: { trigger: React.ReactNode; onCreated?: (id: string) => void }) {
   const { addCustomer } = useStore();
   const [open, setOpen] = useState(false);
-  const [type, setType] = useState<"company" | "person">("company");
-  const [firmType, setFirmType] = useState<"customer" | "supplier_customer" | "supplier">("customer");
-  const [salesStatus, setSalesStatus] = useState<"potential" | "active_customer">("potential");
-  const [form, setForm] = useState(emptyCompanyForm());
+  // Taslaklar yenilemede korunur; başarılı kayıtta temizlenir.
+  const [type, setType] = usePersistentState<"company" | "person">("draft.customer.type", "company");
+  const [firmType, setFirmType] = usePersistentState<"customer" | "supplier_customer" | "supplier">("draft.customer.firmType", "customer");
+  const [salesStatus, setSalesStatus] = usePersistentState<"potential" | "active_customer">("draft.customer.salesStatus", "potential");
+  const [form, setForm] = usePersistentState("draft.customer.form", emptyCompanyForm());
 
-  const reset = () => setForm(emptyCompanyForm());
+  const reset = () => {
+    setForm(emptyCompanyForm());
+    setType("company");
+    setFirmType("customer");
+    setSalesStatus("potential");
+  };
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -245,7 +258,8 @@ export function CreateContactDialog({
 }) {
   const { customers, addContact } = useStore();
   const [open, setOpen] = useState(false);
-  const [form, setForm] = useState(emptyContactForm(defaultCustomerId));
+  // Taslak yenilemede korunur; açılışta sıfırlanmaz, yalnızca başarılı kayıtta temizlenir.
+  const [form, setForm] = usePersistentState("draft.contact.form", emptyContactForm(defaultCustomerId));
 
   const reset = () => setForm(emptyContactForm(defaultCustomerId));
 
@@ -290,7 +304,6 @@ export function CreateContactDialog({
 
   const handleOpen = (nextOpen: boolean) => {
     setOpen(nextOpen);
-    if (nextOpen) reset();
   };
 
   return (
@@ -390,21 +403,156 @@ export function CreateContactDialog({
 }
 
 /* ---------- Sales Case ---------- */
+/* ---------- Firma düzenleme (controlled) ---------- */
+export function EditCustomerDialog({ customer, onClose }: { customer: Customer | null; onClose: () => void }) {
+  const { updateCustomer } = useStore();
+  const [saving, setSaving] = useState(false);
+  const [form, setForm] = useState({ name: "", sector: "", phone: "", email: "", city: "", district: "", taxNumber: "", taxOffice: "", website: "" });
+
+  useEffect(() => {
+    if (customer)
+      setForm({
+        name: customer.name ?? "",
+        sector: customer.sector ?? "",
+        phone: customer.phone ?? "",
+        email: customer.email ?? "",
+        city: customer.city ?? "",
+        district: customer.district ?? "",
+        taxNumber: customer.taxNumber ?? "",
+        taxOffice: customer.taxOffice ?? "",
+        website: customer.website ?? "",
+      });
+  }, [customer]);
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!customer) return;
+    if (!form.name.trim()) return toast.error("Firma ünvanı zorunludur");
+    setSaving(true);
+    try {
+      await updateCustomer(customer.id, form);
+      toast.success("Firma güncellendi", { description: form.name });
+      onClose();
+    } catch (err: any) {
+      toast.error("Firma güncellenemedi", { description: err?.message ?? "API isteği başarısız oldu." });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Dialog open={!!customer} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Firma Düzenle</DialogTitle>
+          <DialogDescription>Firma temel bilgilerini güncelleyin.</DialogDescription>
+        </DialogHeader>
+        <form onSubmit={submit} className="space-y-3">
+          <Field label="Ünvan *" value={form.name} onChange={(v) => setForm({ ...form, name: v })} />
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Sektör" value={form.sector} onChange={(v) => setForm({ ...form, sector: v })} />
+            <Field label="Web" value={form.website} onChange={(v) => setForm({ ...form, website: v })} />
+            <Field label="Telefon" value={form.phone} onChange={(v) => setForm({ ...form, phone: v })} />
+            <Field label="E-posta" value={form.email} onChange={(v) => setForm({ ...form, email: v })} />
+            <Field label="İl" value={form.city} onChange={(v) => setForm({ ...form, city: v })} />
+            <Field label="İlçe" value={form.district} onChange={(v) => setForm({ ...form, district: v })} />
+            <Field label="VKN" value={form.taxNumber} onChange={(v) => setForm({ ...form, taxNumber: v })} />
+            <Field label="Vergi Dairesi" value={form.taxOffice} onChange={(v) => setForm({ ...form, taxOffice: v })} />
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={onClose}>Vazgeç</Button>
+            <Button type="submit" disabled={saving}>{saving ? "Kaydediliyor..." : "Kaydet"}</Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/* ---------- Kontak düzenleme (controlled) ---------- */
+export function EditContactDialog({ contact, onClose }: { contact: Contact | null; onClose: () => void }) {
+  const { updateContact } = useStore();
+  const [saving, setSaving] = useState(false);
+  const [form, setForm] = useState({ name: "", title: "", department: "", phone: "", mobilePhone: "", email: "" });
+
+  useEffect(() => {
+    if (contact)
+      setForm({
+        name: contact.name ?? "",
+        title: contact.title ?? "",
+        department: contact.department ?? "",
+        phone: contact.phone ?? "",
+        mobilePhone: contact.mobilePhone ?? "",
+        email: contact.email ?? "",
+      });
+  }, [contact]);
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!contact) return;
+    if (!form.name.trim()) return toast.error("Adı soyadı zorunludur");
+    setSaving(true);
+    try {
+      await updateContact(contact.id, {
+        name: form.name.trim(),
+        title: form.title.trim(),
+        department: form.department.trim(),
+        phone: form.phone.trim(),
+        mobilePhone: form.mobilePhone.trim(),
+        email: form.email.trim(),
+      });
+      toast.success("Kontak güncellendi", { description: form.name });
+      onClose();
+    } catch (err: any) {
+      toast.error("Kontak güncellenemedi", { description: err?.message ?? "API isteği başarısız oldu." });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Dialog open={!!contact} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Kontak Düzenle</DialogTitle>
+          <DialogDescription>Kontak bilgilerini güncelleyin.</DialogDescription>
+        </DialogHeader>
+        <form onSubmit={submit} className="space-y-3">
+          <Field label="Ad Soyad *" value={form.name} onChange={(v) => setForm({ ...form, name: v })} />
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Ünvan" value={form.title} onChange={(v) => setForm({ ...form, title: v })} />
+            <Field label="Departman" value={form.department} onChange={(v) => setForm({ ...form, department: v })} />
+            <Field label="İş Telefonu" value={form.phone} onChange={(v) => setForm({ ...form, phone: v })} />
+            <Field label="Cep Telefonu" value={form.mobilePhone} onChange={(v) => setForm({ ...form, mobilePhone: v })} />
+          </div>
+          <Field label="E-posta" value={form.email} onChange={(v) => setForm({ ...form, email: v })} />
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={onClose}>Vazgeç</Button>
+            <Button type="submit" disabled={saving}>{saving ? "Kaydediliyor..." : "Kaydet"}</Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export function CreateCaseDialog({ trigger, defaultCustomerId }: { trigger: React.ReactNode; defaultCustomerId?: string }) {
-  const { customers, addCase, users, products } = useStore();
+  const { customers, addCase, addCustomer, users, products } = useStore();
   const [open, setOpen] = useState(false);
   const [selectedProductId, setSelectedProductId] = useState("");
-  const [form, setForm] = useState({
+  const makeEmptyCase = () => ({
     customerId: defaultCustomerId ?? "",
     assignedUserId: users.find((u) => u.role === "Sales" || u.role === "Admin")?.id ?? users[0]?.id ?? "",
     requestedProduct: "",
     requestedModel: "",
     quantity: 1,
     estimatedAmount: 0,
-    currency: "EUR" as "EUR" | "USD" | "TRY",
+    currency: "USD" as "USD" | "EUR" | "TRY",
     stage: "lead" as (typeof SALES_STAGES)[number],
     department: "Satış",
   });
+  // Taslak yenilemede korunur; başarılı kayıtta temizlenir.
+  const [form, setForm] = usePersistentState("draft.case.form", makeEmptyCase());
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -413,6 +561,8 @@ export function CreateCaseDialog({ trigger, defaultCustomerId }: { trigger: Reac
     try {
       const sc = await addCase(form as any);
       toast.success("Satış kartı oluşturuldu", { description: `#${sc.id.toUpperCase()}` });
+      setForm(makeEmptyCase());
+      setSelectedProductId("");
       setOpen(false);
     } catch (err: any) {
       toast.error("Satış kartı oluşturulamadı", { description: err?.message ?? "API isteği başarısız oldu." });
@@ -432,37 +582,55 @@ export function CreateCaseDialog({ trigger, defaultCustomerId }: { trigger: Reac
           <div className="grid grid-cols-2 gap-3">
             <div className="col-span-2">
               <Label className="text-xs">Müşteri *</Label>
-              <Select value={form.customerId} onValueChange={(v) => setForm({ ...form, customerId: v })}>
-                <SelectTrigger className="mt-1.5"><SelectValue placeholder="Müşteri seçin..." /></SelectTrigger>
-                <SelectContent>
-                  {customers.map((c) => (
-                    <SelectItem key={c.id} value={c.id}>{c.name} <span className="text-muted-foreground text-xs ml-2">{c.city}</span></SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <div className="mt-1.5">
+                <Combobox
+                  options={customers.map((c) => ({ value: c.id, label: c.name, hint: c.city }))}
+                  value={form.customerId}
+                  onChange={(v) => setForm({ ...form, customerId: v })}
+                  placeholder="Firma seçin veya adını yazın..."
+                  searchPlaceholder="Firma adı / şehir ara..."
+                  emptyText="Firma bulunamadı."
+                  onCreate={async (label) => {
+                    try {
+                      const created = await addCustomer({
+                        type: "company", firmType: "customer", name: label,
+                        contactPerson: "", phone: "", email: "", city: "", address: "",
+                        taxNumber: "", wantedProduct: "", initialNote: "", source: "Satış kartı",
+                      } as any);
+                      setForm((f) => ({ ...f, customerId: created.id }));
+                      toast.success("Firma oluşturuldu", { description: label });
+                    } catch (err: any) {
+                      toast.error("Firma oluşturulamadı", { description: err?.message ?? "İstek başarısız oldu." });
+                    }
+                  }}
+                  createLabel={(q) => `"${q}" adıyla yeni firma oluştur`}
+                />
+              </div>
             </div>
             <div className="col-span-2">
               <Label className="text-xs">Talep Edilen Ürün ve Model *</Label>
-              <Select
-                value={selectedProductId}
-                onValueChange={(v) => {
-                  const p = products.find((pr) => pr.id === v);
-                  setSelectedProductId(v);
-                  if (p) {
-                    const line = [p.brand, p.model].filter(Boolean).join(" ").trim();
-                    setForm((f) => ({ ...f, requestedProduct: line, requestedModel: p.model ?? "" }));
-                  }
-                }}
-              >
-                <SelectTrigger className="mt-1.5"><SelectValue placeholder="Ürün ve model seçin..." /></SelectTrigger>
-                <SelectContent>
-                  {products.map((p) => (
-                    <SelectItem key={p.id} value={p.id}>
-                      {[p.brand, p.model].filter(Boolean).join(" ")}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <div className="mt-1.5">
+                <Combobox
+                  options={products.map((p) => ({ value: p.id, label: [p.brand, p.model].filter(Boolean).join(" "), hint: p.type }))}
+                  value={selectedProductId}
+                  onChange={(v) => {
+                    const p = products.find((pr) => pr.id === v);
+                    setSelectedProductId(v);
+                    if (p) {
+                      const line = [p.brand, p.model].filter(Boolean).join(" ").trim();
+                      setForm((f) => ({ ...f, requestedProduct: line, requestedModel: p.model ?? "" }));
+                    }
+                  }}
+                  placeholder="Ürün ve model seçin veya yazın..."
+                  searchPlaceholder="Marka / model ara..."
+                  emptyText="Ürün bulunamadı."
+                  onCreate={(label) => {
+                    setSelectedProductId("");
+                    setForm((f) => ({ ...f, requestedProduct: label, requestedModel: label }));
+                  }}
+                  createLabel={(q) => `"${q}" serbest ürün olarak ekle`}
+                />
+              </div>
             </div>
             <Field label="Adet" type="number" value={String(form.quantity)} onChange={(v) => setForm({ ...form, quantity: Number(v) || 1 })} />
             <Field label="Tahmini Tutar" type="number" value={String(form.estimatedAmount)} onChange={(v) => setForm({ ...form, estimatedAmount: Number(v) || 0 })} />
@@ -519,7 +687,7 @@ export function CreateOfferDialog({ trigger, defaultCaseId }: { trigger: React.R
     salesCaseId: defaultCaseId ?? "",
     quoteNo: "",
     amount: 0,
-    currency: "EUR" as "EUR" | "USD" | "TRY",
+    currency: "USD" as "USD" | "EUR" | "TRY",
     status: "Draft" as "Draft" | "Sent" | "Approved" | "Rejected",
     note: "",
   });
@@ -534,7 +702,7 @@ export function CreateOfferDialog({ trigger, defaultCaseId }: { trigger: React.R
       const o = await addOffer({ ...form, revision: existing + 1 });
       toast.success("Teklif oluşturuldu", { description: `${o.quoteNo} · R${o.revision}` });
       setOpen(false);
-      setForm({ salesCaseId: defaultCaseId ?? "", quoteNo: "", amount: 0, currency: "EUR", status: "Draft", note: "" });
+      setForm({ salesCaseId: defaultCaseId ?? "", quoteNo: "", amount: 0, currency: "USD", status: "Draft", note: "" });
     } catch (err: any) {
       toast.error("Teklif oluşturulamadı", { description: err?.message ?? "API isteği başarısız oldu." });
     }
@@ -616,6 +784,50 @@ export function CreateOfferDialog({ trigger, defaultCaseId }: { trigger: React.R
   );
 }
 
+function AutocompleteInput({ value, onChange, options, placeholder }: { value: string, onChange: (v: string) => void, options: string[], placeholder?: string }) {
+  const [open, setOpen] = useState(false);
+  const filtered = options.filter(o => o.toLocaleLowerCase("tr-TR").includes(value.toLocaleLowerCase("tr-TR")));
+
+  return (
+    <div className="relative mt-1.5">
+      <Input
+        value={value}
+        onChange={(e) => {
+          onChange(e.target.value);
+          setOpen(true);
+        }}
+        onFocus={() => setOpen(true)}
+        onBlur={() => {
+          setTimeout(() => setOpen(false), 200);
+        }}
+        placeholder={placeholder}
+        className="bg-white h-10 w-full pr-8"
+      />
+      <ChevronDown className="absolute right-3 top-3 h-4 w-4 opacity-50 pointer-events-none" />
+      
+      {open && filtered.length > 0 && (
+        <div className="absolute z-50 w-full mt-1 bg-white border border-border shadow-md rounded-md overflow-hidden animate-in fade-in-0 zoom-in-95">
+          <div className="max-h-60 overflow-y-auto p-1">
+            {filtered.map(o => (
+              <div
+                key={o}
+                className="px-2 py-1.5 text-sm rounded-sm hover:bg-muted cursor-pointer flex items-center text-foreground"
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  onChange(o);
+                  setOpen(false);
+                }}
+              >
+                {o}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ---------- Stock Item ---------- */
 const WAREHOUSES = ["İstanbul Ana Depo", "Ankara Şube", "İzmir Depo", "Bursa Depo"];
 const BRANDS = ["Acme", "Beta", "Gamma", "Delta"];
@@ -624,8 +836,13 @@ const CONTROL_PANELS = ["CP-Pro", "CP-Lite", "CP-Max"];
 const STATUSES: Array<"Available" | "Reserved" | "Sold" | "Inactive"> = ["Available", "Reserved", "Sold", "Inactive"];
 
 export function CreateStockDialog({ trigger }: { trigger: React.ReactNode }) {
-  const { addStock, stock } = useStore();
+  const { addStock, stock, products } = useStore();
   const [open, setOpen] = useState(false);
+  // Mod: "single" = tek seri-no'lu kalem · "bulk" = bir üründen N adet seri-no üret.
+  const [mode, setMode] = useState<"single" | "bulk">("single");
+  const [productId, setProductId] = useState("");
+  const [quantity, setQuantity] = useState("5");
+  const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({
     brand: "Acme",
     counterType: "Endüstriyel",
@@ -635,22 +852,75 @@ export function CreateStockDialog({ trigger }: { trigger: React.ReactNode }) {
     stockCode: "",
     warehouse: "İstanbul Ana Depo",
     status: "Available" as "Available" | "Reserved" | "Sold" | "Inactive",
+    optionalHardware: "",
+    spareParts: "",
   });
+
+  const allBrands = Array.from(new Set([...BRANDS, ...products.map((p) => p.brand), form.brand].filter(Boolean)));
+  const allTypes = Array.from(new Set([...COUNTER_TYPES, ...products.map((p) => p.type), form.counterType].filter(Boolean)));
+  const allPanels = Array.from(new Set([...CONTROL_PANELS, ...products.map((p) => p.controlPanel), form.controlPanel].filter(Boolean)));
+
+  // Katalogdan seçilen ürünle stok alanlarını otomatik doldur. 
+  // Artık tüm alanlar serbest metin (datalist destekli) olduğu için
+  // ürün verileri doğrudan forma aktarılır.
+  const fillFromProduct = (id: string) => {
+    setProductId(id);
+    const p = products.find((x) => x.id === id);
+    if (!p) return;
+    const codePrefix = (p.brand || "").slice(0, 3).toUpperCase();
+    const codeModel = (p.model || "").replace(/[^A-Z0-9]/gi, "").toUpperCase();
+    setForm((f) => ({
+      ...f,
+      brand: p.brand || f.brand,
+      counterModel: p.model || f.counterModel,
+      controlPanel: p.controlPanel || f.controlPanel,
+      counterType: p.type || f.counterType,
+      stockCode: p.stockCode || `${codePrefix}-${codeModel || "MOD"}`,
+    }));
+  };
+
+  const reset = () => {
+    setMode("single"); setProductId(""); setQuantity("5");
+    setForm({ brand: "Acme", counterType: "Endüstriyel", counterModel: "", serialNumber: "", controlPanel: "CP-Pro", stockCode: "", warehouse: "İstanbul Ana Depo", status: "Available", optionalHardware: "", spareParts: "" });
+  };
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!form.counterModel.trim()) return toast.error("Model giriniz");
-    if (!form.serialNumber.trim()) return toast.error("Seri numarası giriniz");
     if (!form.stockCode.trim()) return toast.error("Stok kodu giriniz");
-    if (stock.some((s) => s.serialNumber === form.serialNumber)) return toast.error("Bu seri numarası zaten kayıtlı");
-    if (stock.some((s) => s.stockCode === form.stockCode)) return toast.error("Bu stok kodu zaten kullanılıyor");
+    setSaving(true);
     try {
-      const created = await addStock(form);
-      toast.success("Stok kalemi eklendi", { description: `${created.stockCode} · ${created.serialNumber}` });
+      if (mode === "bulk") {
+        const qty = parseInt(quantity || "0", 10) || 0;
+        if (qty < 1) { setSaving(false); return toast.error("Adet en az 1 olmalı"); }
+        if (qty > 100) { setSaving(false); return toast.error("Tek seferde en fazla 100 kalem"); }
+        const used = new Set(stock.map((s) => s.serialNumber));
+        let seq = 1;
+        let created = 0;
+        for (let i = 0; i < qty; i++) {
+          // Çakışmayan bir seri no bul: {stokKodu}-{sıra}
+          let serial = `${form.stockCode}-${String(seq).padStart(3, "0")}`;
+          while (used.has(serial)) { seq++; serial = `${form.stockCode}-${String(seq).padStart(3, "0")}`; }
+          used.add(serial);
+          seq++;
+          // eslint-disable-next-line no-await-in-loop
+          await addStock({ ...form, serialNumber: serial, stockCode: serial });
+          created++;
+        }
+        toast.success(`${created} adet stok kalemi eklendi`, { description: `${form.counterModel} · ${form.stockCode}` });
+      } else {
+        if (!form.serialNumber.trim()) { setSaving(false); return toast.error("Seri numarası giriniz"); }
+        if (stock.some((s) => s.serialNumber === form.serialNumber)) { setSaving(false); return toast.error("Bu seri numarası zaten kayıtlı"); }
+        if (stock.some((s) => s.stockCode === form.stockCode)) { setSaving(false); return toast.error("Bu stok kodu zaten kullanılıyor"); }
+        const c = await addStock(form);
+        toast.success("Stok kalemi eklendi", { description: `${c.stockCode} · ${c.serialNumber}` });
+      }
       setOpen(false);
-      setForm({ brand: "Acme", counterType: "Endüstriyel", counterModel: "", serialNumber: "", controlPanel: "CP-Pro", stockCode: "", warehouse: "İstanbul Ana Depo", status: "Available" });
+      reset();
     } catch (err: any) {
       toast.error("Stok kalemi eklenemedi", { description: err?.message ?? "API isteği başarısız oldu." });
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -671,35 +941,70 @@ export function CreateStockDialog({ trigger }: { trigger: React.ReactNode }) {
         </DialogHeader>
 
         <form onSubmit={submit} className="space-y-4">
+          {/* Katalogdan ürün seç → alanları otomatik doldur */}
+          <div className="rounded-lg border border-border/60 bg-muted/30 p-3 space-y-2.5">
+            <div className="flex items-center justify-between gap-2">
+              <Label className="text-xs" htmlFor="stock-product">Üründen Doldur (katalog)</Label>
+              {/* Mod: tekli / toplu */}
+              <div className="inline-flex rounded-md border border-border/60 bg-white p-0.5 text-xs">
+                <button type="button" onClick={() => setMode("single")} className={`px-2.5 py-1 rounded ${mode === "single" ? "bg-primary text-white" : "text-muted-foreground"}`}>Tekli</button>
+                <button type="button" onClick={() => setMode("bulk")} className={`px-2.5 py-1 rounded ${mode === "bulk" ? "bg-primary text-white" : "text-muted-foreground"}`}>Toplu</button>
+              </div>
+            </div>
+            <Select value={productId || "none"} onValueChange={(v) => v === "none" ? setProductId("") : fillFromProduct(v)}>
+              <SelectTrigger id="stock-product" className="bg-white"><SelectValue placeholder="Ürün seçin (opsiyonel)..." /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">Seçilmedi (elle gir)</SelectItem>
+                {products.map((p) => (
+                  <SelectItem key={p.id} value={p.id}>{[p.brand, p.model].filter(Boolean).join(" ")}{p.type ? ` · ${p.type}` : ""}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {mode === "bulk" && (
+              <div className="flex items-center gap-2">
+                <Label className="text-xs whitespace-nowrap" htmlFor="stock-qty">Adet</Label>
+                <Input id="stock-qty" name="stock-qty" type="number" min={1} max={100} className="bg-white h-8 w-24" value={quantity} onChange={(e) => setQuantity(e.target.value)} />
+                <span className="text-[11px] text-muted-foreground">Seri no'lar <b>{form.stockCode || "KOD"}-001…</b> şeklinde otomatik üretilir.</span>
+              </div>
+            )}
+          </div>
+
           <div className="grid grid-cols-2 gap-3">
             <div>
               <Label className="text-xs">Marka</Label>
-              <Select value={form.brand} onValueChange={(v) => setForm({ ...form, brand: v })}>
-                <SelectTrigger className="mt-1.5"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {BRANDS.map((b) => <SelectItem key={b} value={b}>{b}</SelectItem>)}
-                </SelectContent>
-              </Select>
+              <AutocompleteInput
+                options={allBrands}
+                value={form.brand}
+                onChange={(v) => setForm({ ...form, brand: v })}
+                placeholder="Marka seç veya yaz..."
+              />
             </div>
             <div>
               <Label className="text-xs">Sayaç Tipi</Label>
-              <Select value={form.counterType} onValueChange={(v) => setForm({ ...form, counterType: v })}>
-                <SelectTrigger className="mt-1.5"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {COUNTER_TYPES.map((t) => <SelectItem key={t} value={t}>{t}</SelectItem>)}
-                </SelectContent>
-              </Select>
+              <AutocompleteInput
+                options={allTypes}
+                value={form.counterType}
+                onChange={(v) => setForm({ ...form, counterType: v })}
+                placeholder="Tip seç veya yaz..."
+              />
             </div>
-            <Field label="Model *" value={form.counterModel} onChange={(v) => setForm({ ...form, counterModel: v })} placeholder="X-200" />
-            <Field label="Seri No *" value={form.serialNumber} onChange={(v) => setForm({ ...form, serialNumber: v })} placeholder="SN-200-0001" />
+            <Field label="Model *" name="stock-model" value={form.counterModel} onChange={(v) => setForm({ ...form, counterModel: v })} placeholder="X-200" />
+            {mode === "single" ? (
+              <Field label="Seri No *" name="stock-serial" value={form.serialNumber} onChange={(v) => setForm({ ...form, serialNumber: v })} placeholder="SN-200-0001" />
+            ) : (
+              <div>
+                <Label className="text-xs">Seri No</Label>
+                <div className="mt-1.5 h-10 rounded-md border border-dashed border-border/60 bg-muted/30 px-3 flex items-center text-sm text-muted-foreground">Otomatik (×{parseInt(quantity || "0", 10) || 0})</div>
+              </div>
+            )}
             <div>
               <Label className="text-xs">Kontrol Paneli</Label>
-              <Select value={form.controlPanel} onValueChange={(v) => setForm({ ...form, controlPanel: v })}>
-                <SelectTrigger className="mt-1.5"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {CONTROL_PANELS.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
-                </SelectContent>
-              </Select>
+              <AutocompleteInput
+                options={allPanels}
+                value={form.controlPanel}
+                onChange={(v) => setForm({ ...form, controlPanel: v })}
+                placeholder="Panel seç veya yaz..."
+              />
             </div>
             <div>
               <Label className="text-xs">Stok Kodu *</Label>
@@ -728,9 +1033,14 @@ export function CreateStockDialog({ trigger }: { trigger: React.ReactNode }) {
             </div>
           </div>
 
+          <div className="grid grid-cols-2 gap-3 mt-1.5">
+            <Field label="Opsiyon Donanım" name="stock-opts" value={form.optionalHardware || ""} onChange={(v) => setForm({ ...form, optionalHardware: v })} placeholder="Opsiyon donanım..." />
+            <Field label="Yedek Parça" name="stock-spares" value={form.spareParts || ""} onChange={(v) => setForm({ ...form, spareParts: v })} placeholder="Yedek parça..." />
+          </div>
+
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => setOpen(false)}>Vazgeç</Button>
-            <Button type="submit">Stoğa Ekle</Button>
+            <Button type="submit" disabled={saving}>{saving ? "Kaydediliyor..." : mode === "bulk" ? `${parseInt(quantity || "0", 10) || 0} Kalem Üret` : "Stoğa Ekle"}</Button>
           </DialogFooter>
         </form>
       </DialogContent>
@@ -1700,14 +2010,566 @@ function ChipField({ label, chips, input, setInput, onAdd, onRemove, placeholder
   );
 }
 
-function Field({ label, value, onChange, type = "text", placeholder, className = "" }: {
-  label: string; value: string; onChange: (v: string) => void; type?: string; placeholder?: string; className?: string;
+function Field({ label, value, onChange, type = "text", placeholder, className = "", name }: {
+  label: string; value: string; onChange: (v: string) => void; type?: string; placeholder?: string; className?: string; name?: string;
 }) {
+  // name verilirse id/name olarak uygulanır → tarayıcı autofill uyarısını giderir.
   return (
     <div className={className}>
-      <Label className="text-xs">{label}</Label>
-      <Input className="mt-1.5" type={type} value={value} placeholder={placeholder} onChange={(e) => onChange(e.target.value)} />
+      <Label className="text-xs" htmlFor={name}>{label}</Label>
+      <Input className="mt-1.5" id={name} name={name} type={type} value={value} placeholder={placeholder} onChange={(e) => onChange(e.target.value)} />
     </div>
+  );
+}
+
+/* ---------- Sevkiyat ---------- */
+const SHIPMENT_CARRIERS = ["DHL", "UPS", "FedEx", "MNG", "Aras", "Yurtiçi", "Sürat", "Diğer"];
+export function CreateShipmentDialog({ trigger, onCreated }: { trigger: React.ReactNode; onCreated?: () => void }) {
+  const { addShipment, cases, customers } = useStore();
+  const customerName = (id: string) => customers.find((c) => c.id === id)?.name ?? "—";
+  const [open, setOpen] = useState(false);
+  const emptyForm = () => ({
+    salesCaseId: cases[0]?.id ?? "",
+    trackingNo: `TRK-${Math.floor(100000 + Math.random() * 900000)}`,
+    carrier: "DHL",
+    origin: "",
+    destination: "",
+    eta: new Date().toISOString().slice(0, 10),
+    status: "Hazırlanıyor" as ShipmentStatus,
+  });
+  const [form, setForm] = useState(emptyForm);
+  const reset = () => setForm(emptyForm());
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!form.trackingNo.trim()) return toast.error("Takip no giriniz");
+    if (!form.destination.trim()) return toast.error("Varış noktası giriniz");
+    try {
+      await addShipment({
+        salesCaseId: form.salesCaseId,
+        trackingNo: form.trackingNo.trim(),
+        carrier: form.carrier,
+        origin: form.origin.trim(),
+        destination: form.destination.trim(),
+        eta: form.eta,
+        status: form.status,
+      });
+      toast.success("Sevkiyat oluşturuldu", { description: `${form.trackingNo} · ${form.carrier}` });
+      setOpen(false);
+      reset();
+      onCreated?.();
+    } catch (err: any) {
+      toast.error("Sevkiyat oluşturulamadı", { description: err?.message ?? "API isteği başarısız oldu." });
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => { setOpen(o); if (o) reset(); }}>
+      <DialogTrigger asChild>{trigger}</DialogTrigger>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2"><Truck className="size-5 text-primary" /> Yeni Sevkiyat</DialogTitle>
+          <DialogDescription>Bir satış kartına bağlı sevkiyat takibi oluşturun.</DialogDescription>
+        </DialogHeader>
+        <form onSubmit={submit} className="space-y-4">
+          <div>
+            <Label className="text-xs" htmlFor="ship-case">Satış Kartı / Müşteri</Label>
+            <Select value={form.salesCaseId} onValueChange={(v) => setForm({ ...form, salesCaseId: v })}>
+              <SelectTrigger id="ship-case" className="mt-1.5"><SelectValue placeholder="Satış kartı seçin..." /></SelectTrigger>
+              <SelectContent>
+                {cases.map((c) => (
+                  <SelectItem key={c.id} value={c.id}>{customerName(c.customerId)} · {c.requestedProduct}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Takip No *" name="ship-tracking" value={form.trackingNo} onChange={(v) => setForm({ ...form, trackingNo: v })} placeholder="TRK-000000" />
+            <div>
+              <Label className="text-xs" htmlFor="ship-carrier">Taşıyıcı</Label>
+              <Select value={form.carrier} onValueChange={(v) => setForm({ ...form, carrier: v })}>
+                <SelectTrigger id="ship-carrier" className="mt-1.5"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {SHIPMENT_CARRIERS.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <Field label="Çıkış" name="ship-origin" value={form.origin} onChange={(v) => setForm({ ...form, origin: v })} placeholder="Hamburg" />
+            <Field label="Varış *" name="ship-dest" value={form.destination} onChange={(v) => setForm({ ...form, destination: v })} placeholder="İstanbul" />
+            <Field label="Tahmini Varış (ETA)" name="ship-eta" type="date" value={form.eta} onChange={(v) => setForm({ ...form, eta: v })} />
+            <div>
+              <Label className="text-xs" htmlFor="ship-status">Durum</Label>
+              <Select value={form.status} onValueChange={(v) => setForm({ ...form, status: v as ShipmentStatus })}>
+                <SelectTrigger id="ship-status" className="mt-1.5"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {SHIPMENT_STATUSES.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setOpen(false)}>Vazgeç</Button>
+            <Button type="submit">Sevkiyatı Kaydet</Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/* ---------- Teslimat (Kurulum Tutanağı) ---------- */
+
+export type DeliveryFormState = {
+  customerId: string;
+  salesCaseId: string;
+  machineId: string;
+  date: string;
+  kurulumTarihi: string;
+  formNo: string;
+  signedBy: string;
+  kurulumuYapan: string;
+  ilgili: string;
+  status: DeliveryStatus;
+  tezgahMarka: string;
+  tezgahTip: string;
+  tezgahModel: string;
+  tezgahSeriNo: string;
+  cncMarka: string;
+  cncModel: string;
+  cncSeriNo: string;
+  cncMainSw: string;
+};
+
+function machineToDeliveryFields(m?: { brand?: string; type?: string; model: string; serialNumber: string; controlUnit?: string; controlUnitSerial?: string }) {
+  if (!m) return {};
+  return {
+    tezgahMarka: m.brand ?? "",
+    tezgahTip: m.type ?? "",
+    tezgahModel: m.model ?? "",
+    tezgahSeriNo: m.serialNumber ?? "",
+    cncMarka: m.controlUnit?.split(" ")[0] ?? "",
+    cncModel: m.controlUnit?.split(" ").slice(1).join(" ") ?? "",
+    cncSeriNo: m.controlUnitSerial ?? "",
+  };
+}
+
+export function deliveryFormToPayload(form: DeliveryFormState) {
+  return {
+    formNo: form.formNo.trim() || undefined,
+    kurulumTarihi: form.kurulumTarihi || undefined,
+    machineId: form.machineId || undefined,
+    ilgili: form.ilgili.trim() || undefined,
+    kurulumuYapan: form.kurulumuYapan.trim() || undefined,
+    tezgah: {
+      marka: form.tezgahMarka.trim() || undefined,
+      tip: form.tezgahTip.trim() || undefined,
+      model: form.tezgahModel.trim() || undefined,
+      seriNo: form.tezgahSeriNo.trim() || undefined,
+    },
+    cnc: {
+      marka: form.cncMarka.trim() || undefined,
+      model: form.cncModel.trim() || undefined,
+      seriNo: form.cncSeriNo.trim() || undefined,
+      mainSw: form.cncMainSw.trim() || undefined,
+    },
+  };
+}
+
+export function deliveryToFormState(d: {
+  customerId: string;
+  salesCaseId: string;
+  date: string;
+  signedBy: string;
+  status: DeliveryStatus;
+  formData?: {
+    formNo?: string;
+    kurulumTarihi?: string;
+    machineId?: string;
+    ilgili?: string;
+    kurulumuYapan?: string;
+    tezgah?: { marka?: string; tip?: string; model?: string; seriNo?: string };
+    cnc?: { marka?: string; model?: string; seriNo?: string; mainSw?: string };
+  };
+}, contactPerson?: string): DeliveryFormState {
+  const fd = d.formData;
+  return {
+    customerId: d.customerId,
+    salesCaseId: d.salesCaseId,
+    machineId: fd?.machineId ?? "",
+    date: d.date,
+    kurulumTarihi: fd?.kurulumTarihi ?? "",
+    formNo: fd?.formNo ?? "",
+    signedBy: d.signedBy === "—" ? "" : d.signedBy,
+    kurulumuYapan: fd?.kurulumuYapan ?? "",
+    ilgili: fd?.ilgili ?? contactPerson ?? "",
+    status: d.status,
+    tezgahMarka: fd?.tezgah?.marka ?? "",
+    tezgahTip: fd?.tezgah?.tip ?? "",
+    tezgahModel: fd?.tezgah?.model ?? "",
+    tezgahSeriNo: fd?.tezgah?.seriNo ?? "",
+    cncMarka: fd?.cnc?.marka ?? "",
+    cncModel: fd?.cnc?.model ?? "",
+    cncSeriNo: fd?.cnc?.seriNo ?? "",
+    cncMainSw: fd?.cnc?.mainSw ?? "",
+  };
+}
+
+export function DeliveryFormFields({
+  form,
+  setForm,
+  customers,
+  casesForCustomer,
+  machinesForCustomer,
+}: {
+  form: DeliveryFormState;
+  setForm: React.Dispatch<React.SetStateAction<DeliveryFormState>>;
+  customers: Customer[];
+  casesForCustomer: { id: string; requestedProduct: string }[];
+  machinesForCustomer: { id: string; brand?: string; model: string; serialNumber: string }[];
+}) {
+  const applyMachine = (machineId: string) => {
+    const m = machinesForCustomer.find((x) => x.id === machineId);
+    setForm((prev) => ({
+      ...prev,
+      machineId,
+      ...machineToDeliveryFields(m as any),
+    }));
+  };
+
+  return (
+    <div className="space-y-4 max-h-[min(62dvh,560px)] overflow-y-auto pr-1">
+      <div className="grid grid-cols-2 gap-3">
+        <div className="col-span-2">
+          <Label className="text-xs" htmlFor="del-customer">Müşteri *</Label>
+          <Select
+            value={form.customerId}
+            onValueChange={(v) => {
+              const cust = customers.find((c) => c.id === v);
+              setForm({
+                ...form,
+                customerId: v,
+                salesCaseId: "",
+                machineId: "",
+                ilgili: cust?.contactPerson ?? "",
+              });
+            }}
+          >
+            <SelectTrigger id="del-customer" className="mt-1.5"><SelectValue placeholder="Müşteri seçin..." /></SelectTrigger>
+            <SelectContent>
+              {customers.map((c) => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </div>
+        <div>
+          <Label className="text-xs">Satış Kartı</Label>
+          <Select value={form.salesCaseId || "none"} onValueChange={(v) => setForm({ ...form, salesCaseId: v === "none" ? "" : v })}>
+            <SelectTrigger className="mt-1.5"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="none">Belirtilmedi</SelectItem>
+              {casesForCustomer.map((c) => <SelectItem key={c.id} value={c.id}>{c.requestedProduct}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </div>
+        <div>
+          <Label className="text-xs">Makine / Tezgah</Label>
+          <Select value={form.machineId || "none"} onValueChange={(v) => (v === "none" ? setForm({ ...form, machineId: "" }) : applyMachine(v))}>
+            <SelectTrigger className="mt-1.5"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="none">Belirtilmedi</SelectItem>
+              {machinesForCustomer.map((m) => (
+                <SelectItem key={m.id} value={m.id}>
+                  {[m.brand, m.model].filter(Boolean).join(" ")} · {m.serialNumber}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+
+      <div className="rounded-lg border border-border/60 bg-muted/20 p-3 space-y-3">
+        <div className="text-xs font-medium text-foreground/80">Tarihler & Form</div>
+        <div className="grid grid-cols-3 gap-3">
+          <Field label="Tezgah Teslim Tarihi" type="date" value={form.date} onChange={(v) => setForm({ ...form, date: v })} />
+          <Field label="Tezgah Kurulum Tarihi" type="date" value={form.kurulumTarihi} onChange={(v) => setForm({ ...form, kurulumTarihi: v })} />
+          <Field label="Form No" value={form.formNo} onChange={(v) => setForm({ ...form, formNo: v })} placeholder="00001" />
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3">
+        <div className="rounded-lg border border-border/60 p-3 space-y-2">
+          <div className="text-xs font-medium text-center">Tezgah Bilgileri</div>
+          <Field label="Tezgah Markası" value={form.tezgahMarka} onChange={(v) => setForm({ ...form, tezgahMarka: v })} />
+          <Field label="Tezgah Tipi" value={form.tezgahTip} onChange={(v) => setForm({ ...form, tezgahTip: v })} />
+          <Field label="Tezgah Modeli" value={form.tezgahModel} onChange={(v) => setForm({ ...form, tezgahModel: v })} />
+          <Field label="Tezgah Seri No" value={form.tezgahSeriNo} onChange={(v) => setForm({ ...form, tezgahSeriNo: v })} />
+        </div>
+        <div className="rounded-lg border border-border/60 p-3 space-y-2">
+          <div className="text-xs font-medium text-center">Kontrol Ünitesi Bilgileri</div>
+          <Field label="Cnc Markası" value={form.cncMarka} onChange={(v) => setForm({ ...form, cncMarka: v })} />
+          <Field label="Cnc Modeli" value={form.cncModel} onChange={(v) => setForm({ ...form, cncModel: v })} />
+          <Field label="Cnc Seri No" value={form.cncSeriNo} onChange={(v) => setForm({ ...form, cncSeriNo: v })} />
+          <Field label="Cnc Main S/W" value={form.cncMainSw} onChange={(v) => setForm({ ...form, cncMainSw: v })} />
+        </div>
+      </div>
+
+      <div className="rounded-lg border border-border/60 p-3 space-y-2">
+        <div className="text-xs font-medium text-center">İmza Bilgileri</div>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="İlgili Kişi" value={form.ilgili} onChange={(v) => setForm({ ...form, ilgili: v })} />
+          <Field label="Kurulumu Yapan" value={form.kurulumuYapan} onChange={(v) => setForm({ ...form, kurulumuYapan: v })} />
+          <Field label="Tezgahı Teslim Alan" value={form.signedBy} onChange={(v) => setForm({ ...form, signedBy: v })} placeholder="Ad Soyad" />
+          <div>
+            <Label className="text-xs">Durum</Label>
+            <Select value={form.status} onValueChange={(v) => setForm({ ...form, status: v as DeliveryStatus })}>
+              <SelectTrigger className="mt-1.5"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {DELIVERY_STATUSES.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export function CreateDeliveryDialog({ trigger, onCreated }: { trigger: React.ReactNode; onCreated?: () => void }) {
+  const { addDelivery, cases, customers, machines } = useStore();
+  const customerName = (id: string) => customers.find((c) => c.id === id)?.name ?? "—";
+  const [open, setOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const emptyForm = (): DeliveryFormState => ({
+    customerId: customers[0]?.id ?? "",
+    salesCaseId: "",
+    machineId: "",
+    date: new Date().toISOString().slice(0, 10),
+    kurulumTarihi: "",
+    formNo: "",
+    signedBy: "",
+    kurulumuYapan: "",
+    ilgili: customers[0]?.contactPerson ?? "",
+    status: "Bekliyor",
+    tezgahMarka: "",
+    tezgahTip: "",
+    tezgahModel: "",
+    tezgahSeriNo: "",
+    cncMarka: "",
+    cncModel: "",
+    cncSeriNo: "",
+    cncMainSw: "",
+  });
+  const [form, setForm] = useState(emptyForm);
+  const reset = () => setForm(emptyForm());
+  const casesForCustomer = cases.filter((c) => c.customerId === form.customerId);
+  const machinesForCustomer = machines.filter((m) => m.customerId === form.customerId);
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!form.customerId) return toast.error("Müşteri seçiniz");
+    setSaving(true);
+    try {
+      await addDelivery({
+        customerId: form.customerId,
+        salesCaseId: form.salesCaseId,
+        date: form.date,
+        signedBy: form.signedBy.trim() || "—",
+        status: form.status,
+        formData: deliveryFormToPayload(form),
+      });
+      toast.success("Teslimat kaydı oluşturuldu", { description: `${customerName(form.customerId)} · ${form.date}` });
+      setOpen(false);
+      reset();
+      onCreated?.();
+    } catch (err: any) {
+      toast.error("Teslimat kaydedilemedi", { description: err?.message ?? "Backend isteği başarısız oldu." });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => { setOpen(o); if (o) reset(); }}>
+      <DialogTrigger asChild>{trigger}</DialogTrigger>
+      <DialogContent className="w-[min(760px,calc(100vw-2rem))] max-w-none sm:max-w-none">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2"><ClipboardCheck className="size-5 text-primary" /> Yeni Teslimat / Kurulum Tutanağı</DialogTitle>
+          <DialogDescription>DR.MAK kurulum tutanağı formatında teslimat bilgilerini girin.</DialogDescription>
+        </DialogHeader>
+        <form onSubmit={submit} className="space-y-4">
+          <DeliveryFormFields
+            form={form}
+            setForm={setForm}
+            customers={customers}
+            casesForCustomer={casesForCustomer}
+            machinesForCustomer={machinesForCustomer}
+          />
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setOpen(false)} disabled={saving}>Vazgeç</Button>
+            <Button type="submit" disabled={saving}>{saving ? "Kaydediliyor..." : "Teslimatı Kaydet"}</Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/* ---------- Kasa Hareketi (Ödeme) ---------- */
+const PAYMENT_METHOD_LABELS: Record<string, string> = {
+  bank_transfer: "Banka Havalesi",
+  cash: "Nakit",
+  credit_card: "Kredi Kartı",
+  check: "Çek",
+  other: "Diğer",
+};
+const PAYMENT_CURRENCIES = ["USD", "EUR", "TRY"] as const;
+
+/**
+ * Manuel kasa hareketi oluşturma. Yön ('in' = alınan/giren, 'out' = ödenen/çıkan)
+ * doğrudan companyId ile backend'e yazılır; alacağa (receivable) bağlanmaz.
+ * Kaydedilen hareket backend tarafında 'paid' statüsüyle oluşur, yani anında
+ * kasa bakiyesine yansır.
+ */
+export function CreatePaymentDialog({
+  trigger,
+  onCreated,
+  defaultDirection = "in",
+}: {
+  trigger: React.ReactNode;
+  onCreated?: () => void;
+  defaultDirection?: "in" | "out";
+}) {
+  const { customers } = useStore();
+  const [open, setOpen] = useState(false);
+  const emptyForm = () => ({
+    direction: defaultDirection as "in" | "out",
+    companyId: customers[0]?.id ?? "",
+    amount: "",
+    currencyCode: "USD" as (typeof PAYMENT_CURRENCIES)[number],
+    paymentDate: new Date().toISOString().slice(0, 10),
+    paymentMethod: "bank_transfer",
+    notes: "",
+  });
+  const [form, setForm] = useState(emptyForm);
+  const reset = () => setForm(emptyForm());
+  const [saving, setSaving] = useState(false);
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!form.companyId) return toast.error("Firma seçiniz");
+    const amount = Number(form.amount);
+    if (!Number.isFinite(amount) || amount <= 0) return toast.error("Geçerli bir tutar giriniz");
+    setSaving(true);
+    try {
+      await financeService.createPayment({
+        direction: form.direction,
+        companyId: form.companyId,
+        amount,
+        currencyCode: form.currencyCode,
+        paymentDate: form.paymentDate,
+        paymentMethod: form.paymentMethod,
+        notes: form.notes || undefined,
+      });
+      toast.success(form.direction === "in" ? "Tahsilat (giren) eklendi" : "Ödeme (çıkan) eklendi");
+      setOpen(false);
+      reset();
+      onCreated?.();
+    } catch (err: any) {
+      toast.error("Kasa hareketi eklenemedi", { description: err?.message ?? "API isteği başarısız oldu." });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => { setOpen(o); if (o) reset(); }}>
+      <DialogTrigger asChild>{trigger}</DialogTrigger>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Yeni Kasa Hareketi</DialogTitle>
+          <DialogDescription>Alınan (giren) veya ödenen (çıkan) bir kasa hareketi kaydedin.</DialogDescription>
+        </DialogHeader>
+
+        <form onSubmit={submit} className="space-y-4">
+          {/* Yön seçimi */}
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={() => setForm({ ...form, direction: "in" })}
+              className={`flex items-center justify-center gap-2 rounded-lg border px-3 py-2.5 text-sm transition-colors ${
+                form.direction === "in"
+                  ? "border-emerald-300 bg-emerald-50 text-emerald-700"
+                  : "border-border/60 text-muted-foreground hover:bg-muted/40"
+              }`}
+            >
+              <Wallet className="size-4" /> Alınan (Giren)
+            </button>
+            <button
+              type="button"
+              onClick={() => setForm({ ...form, direction: "out" })}
+              className={`flex items-center justify-center gap-2 rounded-lg border px-3 py-2.5 text-sm transition-colors ${
+                form.direction === "out"
+                  ? "border-red-300 bg-red-50 text-red-700"
+                  : "border-border/60 text-muted-foreground hover:bg-muted/40"
+              }`}
+            >
+              <Wallet className="size-4" /> Ödenen (Çıkan)
+            </button>
+          </div>
+
+          <div>
+            <Label className="text-xs">Firma *</Label>
+            <Select value={form.companyId} onValueChange={(v) => setForm({ ...form, companyId: v })}>
+              <SelectTrigger className="mt-1.5"><SelectValue placeholder="Firma seçin..." /></SelectTrigger>
+              <SelectContent>
+                {customers.map((c) => (
+                  <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Tutar *" type="number" value={form.amount} placeholder="0" onChange={(v) => setForm({ ...form, amount: v })} />
+            <div>
+              <Label className="text-xs">Para Birimi</Label>
+              <Select value={form.currencyCode} onValueChange={(v) => setForm({ ...form, currencyCode: v as (typeof PAYMENT_CURRENCIES)[number] })}>
+                <SelectTrigger className="mt-1.5"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {PAYMENT_CURRENCIES.map((c) => (
+                    <SelectItem key={c} value={c}>{c}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Tarih" type="date" value={form.paymentDate} onChange={(v) => setForm({ ...form, paymentDate: v })} />
+            <div>
+              <Label className="text-xs">Ödeme Yöntemi</Label>
+              <Select value={form.paymentMethod} onValueChange={(v) => setForm({ ...form, paymentMethod: v })}>
+                <SelectTrigger className="mt-1.5"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {Object.keys(PAYMENT_METHOD_LABELS).map((k) => (
+                    <SelectItem key={k} value={k}>{PAYMENT_METHOD_LABELS[k]}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <div>
+            <Label className="text-xs">Notlar</Label>
+            <Textarea className="mt-1.5" rows={2} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
+          </div>
+
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setOpen(false)}>Vazgeç</Button>
+            <Button type="submit" disabled={saving}>{saving ? "Kaydediliyor..." : "Hareketi Kaydet"}</Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -1909,25 +2771,26 @@ export function CreateInstallationDialog({
 }) {
   const { customers, contacts, users, machines } = useStore();
   const [open, setOpen] = useState(false);
-  const [form, setForm] = useState({
+  const emptyForm = () => ({
     companyId: customers[0]?.id ?? "",
     contactId: "",
     customerDeviceId: "",
     scheduledDate: new Date().toISOString().slice(0, 10),
     assignedToUserId: users.find((u) => u.role === "Service" || u.department === "Servis")?.id ?? users[0]?.id ?? "",
     location: "",
+    locationType: "istanbul_ici" as InstallationLocationType,
+    durationHours: "1",
+    durationMinutes: "0",
     notes: "",
   });
+  const [form, setForm] = useState(emptyForm);
 
-  const reset = () => setForm({
-    companyId: customers[0]?.id ?? "",
-    contactId: "",
-    customerDeviceId: "",
-    scheduledDate: new Date().toISOString().slice(0, 10),
-    assignedToUserId: users.find((u) => u.role === "Service" || u.department === "Servis")?.id ?? users[0]?.id ?? "",
-    location: "",
-    notes: "",
-  });
+  const reset = () => setForm(emptyForm());
+
+  // Süre (saat + dk) → toplam dakika; ücret @haksan/shared ile hesaplanır
+  // (İstanbul içi 70$/saat, dışı 100$/saat; 15/45 dk eşikli yuvarlama).
+  const totalMinutes = (parseInt(form.durationHours || "0", 10) || 0) * 60 + (parseInt(form.durationMinutes || "0", 10) || 0);
+  const fee = computeInstallationFee(totalMinutes, form.locationType);
 
   const selectedContacts = contacts.filter((c) => c.customerId === form.companyId);
   // Kurulum tutanağındaki tezgah/CNC alanları bu makineden doldurulur.
@@ -1945,6 +2808,8 @@ export function CreateInstallationDialog({
         scheduledDate: form.scheduledDate || undefined,
         assignedToUserId: form.assignedToUserId || undefined,
         location: form.location || undefined,
+        locationType: form.locationType,
+        durationMinutes: totalMinutes > 0 ? totalMinutes : undefined,
         notes: form.notes || undefined,
       });
       toast.success("Kurulum oluşturuldu");
@@ -2027,6 +2892,39 @@ export function CreateInstallationDialog({
               </Select>
             </div>
             <Field label="Lokasyon" value={form.location} onChange={(v) => setForm({ ...form, location: v })} />
+
+            {/* ── Saha ücretlendirme ── */}
+            <div className="col-span-2 grid grid-cols-2 gap-3 rounded-lg border border-border/60 bg-muted/30 p-3">
+              <div>
+                <Label className="text-xs">Konum Tipi</Label>
+                <Select value={form.locationType} onValueChange={(v) => setForm({ ...form, locationType: v as InstallationLocationType })}>
+                  <SelectTrigger className="mt-1.5 bg-white"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {(Object.keys(INSTALLATION_LOCATION_LABELS) as InstallationLocationType[]).map((k) => (
+                      <SelectItem key={k} value={k}>{INSTALLATION_LOCATION_LABELS[k]}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label className="text-xs">Süre (saat / dk)</Label>
+                <div className="mt-1.5 flex items-center gap-2">
+                  <Input type="number" min={0} className="bg-white" value={form.durationHours} onChange={(e) => setForm({ ...form, durationHours: e.target.value })} />
+                  <span className="text-muted-foreground text-sm">saat</span>
+                  <Input type="number" min={0} max={59} className="bg-white" value={form.durationMinutes} onChange={(e) => setForm({ ...form, durationMinutes: e.target.value })} />
+                  <span className="text-muted-foreground text-sm">dk</span>
+                </div>
+              </div>
+              <div className="col-span-2 flex items-center justify-between rounded-md bg-white border border-border/60 px-3 py-2">
+                <span className="inline-flex items-center gap-2 text-sm text-muted-foreground">
+                  <Wallet className="size-4 text-emerald-600" />
+                  Hesaplanan ücret
+                  <span className="text-[11px]">· {fee.billedHours} saat × ${fee.hourlyRate}</span>
+                </span>
+                <b className="tabular-nums text-emerald-700">$ {fee.amount.toLocaleString("tr-TR")}</b>
+              </div>
+            </div>
+
             <div className="col-span-2">
               <Label className="text-xs">Notlar</Label>
               <Textarea className="mt-1.5" rows={3} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />

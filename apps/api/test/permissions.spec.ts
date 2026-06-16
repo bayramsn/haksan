@@ -36,6 +36,42 @@ describe('RBAC permissions', () => {
     expect(r.status).toBe(200);
   });
 
+  it('admin can save and list user targets', async () => {
+    const server = app.getHttpServer();
+    const users = await supertest(server).get('/api/v1/users').set('Authorization', `Bearer ${tokens.admin}`);
+    expect(users.status).toBe(200);
+    const targetUser = users.body[0];
+    expect(targetUser?.id).toBeTruthy();
+
+    const period = '2026-06';
+    const saved = await supertest(server)
+      .post(`/api/v1/users/${targetUser.id}/targets`)
+      .set('Authorization', `Bearer ${tokens.admin}`)
+      .send({
+        period,
+        currency: 'USD',
+        salesAmount: 420000,
+        salesNewCustomers: 4,
+        serviceCompleted: 12,
+        digitalLeadTarget: 80,
+        visitTarget: 20,
+        callTarget: 120,
+        quoteTarget: 16,
+      });
+    expect(saved.status).toBe(201);
+    expect(saved.body.userId).toBe(targetUser.id);
+    expect(saved.body.period).toBe(period);
+    expect(saved.body.currency).toBe('USD');
+    expect(Number(saved.body.salesAmount)).toBe(420000);
+    expect(saved.body.visitTarget).toBe(20);
+
+    const listed = await supertest(server)
+      .get(`/api/v1/user-targets?period=${period}`)
+      .set('Authorization', `Bearer ${tokens.admin}`);
+    expect(listed.status).toBe(200);
+    expect(listed.body.some((row: any) => row.userId === targetUser.id && row.period === period)).toBe(true);
+  });
+
   it('super_admin can create and update role permissions', async () => {
     const server = app.getHttpServer();
     const perms = await supertest(server).get('/api/v1/permissions').set('Authorization', `Bearer ${tokens.superAdmin}`);

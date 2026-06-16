@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
@@ -20,15 +20,16 @@ import { Label } from "../ui/label";
 import { Alert, AlertDescription, AlertTitle } from "../ui/alert";
 import { Skeleton } from "../ui/skeleton";
 import { StatusBadge } from "../Layout";
-import { CreateStockDialog, CreateServiceRequestDialog, CreateInstallationDialog, CreateMachineDialog } from "../dialogs/CreateDialogs";
+import { CreateStockDialog, CreateServiceRequestDialog, CreateInstallationDialog, CreateMachineDialog, CreatePaymentDialog, CreateShipmentDialog, CreateDeliveryDialog, DeliveryFormFields, deliveryFormToPayload, deliveryToFormState, type DeliveryFormState } from "../dialogs/CreateDialogs";
 import { QuoteDialog } from "../dialogs/QuoteDialog";
 import { DocumentUploadDialog } from "../dialogs/DocumentUploadDialog";
+import { DocumentPreviewDialog } from "../dialogs/DocumentPreviewDialog";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
 } from "../ui/dropdown-menu";
 import {
-  salesCases, customers, shipments, installations, deliveries,
-  departments, salesStageLabel,
+  salesStageLabel,
+  SHIPMENT_STATUSES, DELIVERY_STATUSES,
 } from "../../lib/mock";
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid,
@@ -46,15 +47,24 @@ import { Avatar, AvatarFallback, AvatarImage } from "../ui/avatar";
 const initials = (n: string) => n.split(" ").slice(0, 2).map((p) => p[0]).join("").toUpperCase();
 import { KanbanBoard, KanbanColumn } from "../KanbanBoard";
 import { useStore } from "../../lib/store";
-import { Customer, Offer, SalesCase, ServiceRequest, ServiceStage, User } from "../../lib/mock";
+import { useFx, FxRateBadge } from "../../lib/fx";
+import { Customer, Delivery, DocumentItem, Offer, Payment, SalesCase, ServiceRequest, ServiceStage, User } from "../../lib/mock";
+import { INSTALLATION_LOCATION_LABELS, formatDuration, type InstallationLocationType } from "@haksan/shared";
 import { useAuth } from "../../../lib/auth";
 import { toast } from "sonner";
 import { adminService, companyService, productService, purchaseOrderService, salesOrderService, serviceService, reportService, fileService, quoteService, type YearEndReport } from "../../../lib/services";
 import { exportToCsv } from "../../../lib/exportCsv";
 import { FilterPopover, usePaged, Pager } from "../ui/list-controls";
 import {
+  buildManagementInsights,
+  type ManagementInsight,
+  type OperationAction,
+  type OperationFocus,
+} from "../../lib/operations";
+import {
   openPrintWindow, printAssetBase, trLongDate, trShortDate, type PrintDocument,
   proformaDoc, contractDoc, installationFormDoc, serviceFormDoc, quoteDoc, serviceQuoteDoc,
+  dispatchNoteDoc,
   QUOTE_NOTE_VARIANTS, SERVICE_NOTE_VARIANTS, PROFORMA_NOTE_VARIANTS, fillNotePlaceholders,
 } from "../../lib/print";
 
@@ -64,10 +74,39 @@ const printOrWarn = (doc: PrintDocument) => {
   }
 };
 
-const customerName = (id: string) => customers.find((c) => c.id === id)?.name ?? "—";
+/** Adres parçalarını birleştirip harita uygulamasında açar (mobilde Maps app'e gider). */
+const openInMaps = (parts: Array<string | undefined | null>) => {
+  const q = parts.filter(Boolean).join(" ").trim();
+  if (!q) {
+    toast.message("Konum bulunamadı", { description: "Bu firma için adres bilgisi girilmemiş." });
+    return;
+  }
+  window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(q)}`, "_blank", "noopener");
+};
+
 const formatDate = (value?: string | null) => value ? new Intl.DateTimeFormat("tr-TR").format(new Date(value)) : "—";
 const formatCurrency = (value: number, currency = "USD") =>
   new Intl.NumberFormat("tr-TR", { style: "currency", currency, maximumFractionDigits: 0 }).format(value);
+
+/**
+ * Bir teklif/tutar için KDV kırılımını döndürür (yazdırma belgeleri için).
+ * - Gerçek kırılım (subtotal/vatTotal) varsa onu kullanır (indirim ve KDV'siz teklifleri doğru yansıtır).
+ * - Yoksa `gross` brüt (KDV dahil) kabul edilir ve `defaultRate` ile içeriden ayrıştırılır.
+ * Her durumda: net + kdv = gross (genel toplam değişmez).
+ */
+const splitVat = (
+  gross: number,
+  opts?: { subtotal?: number; vatTotal?: number; defaultRate?: number }
+): { net: number; kdv: number; oran: number } => {
+  const defaultRate = opts?.defaultRate ?? 20;
+  if (opts?.subtotal && opts.subtotal > 0) {
+    const kdv = opts.vatTotal && opts.vatTotal > 0 ? opts.vatTotal : 0;
+    const oran = Math.round((kdv / opts.subtotal) * 100);
+    return { net: opts.subtotal, kdv, oran };
+  }
+  const net = gross / (1 + defaultRate / 100);
+  return { net, kdv: gross - net, oran: defaultRate };
+};
 
 const OFFER_TREND = [
   { ay: "Ara", gonderilen: 12, onaylanan: 5 },
@@ -78,8 +117,9 @@ const OFFER_TREND = [
   { ay: "May", gonderilen: 18, onaylanan: 8 },
 ];
 
-export function OffersPage() {
+export function OffersPage({ focus }: { focus?: OperationFocus }) {
   const { offers: rawOffers, cases, customers, users, moveCase } = useStore();
+  const { convert } = useFx();
   const customerName = (id: string) => customers.find((c) => c.id === id)?.name ?? "—";
   const backToSales = async (caseId: string) => {
     try {
@@ -94,6 +134,12 @@ export function OffersPage() {
   const [selectedOfferId, setSelectedOfferId] = useState<string | null>(null);
   const [salesOrders, setSalesOrders] = useState<any[]>([]);
   const [salesOrdersLoading, setSalesOrdersLoading] = useState(false);
+  const focusExpired = focus === "expired";
+  const offerExpired = (o: Offer) => {
+    if (o.status !== "Sent") return false;
+    const age = Math.max(0, Math.floor((Date.now() - new Date(o.date).getTime()) / (24 * 60 * 60 * 1000)));
+    return age > (o.validityDays ?? 20);
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -119,14 +165,22 @@ export function OffersPage() {
     return sc?.isLost ? { ...o, status: "Rejected" as const } : o;
   });
 
+  useEffect(() => {
+    if (focus === "open" || focus === "pending" || focus === "expired") setTab("Sent");
+    if (focus === "won") setTab("Approved");
+    if (focus === "lost") setTab("Rejected");
+  }, [focus]);
+
   const total = offers.length;
   const approved = offers.filter((o) => o.status === "Approved").length;
   const sent = offers.filter((o) => o.status === "Sent").length;
-  const totalAmount = offers.reduce((a, o) => a + o.amount, 0);
-  const approvedAmount = offers.filter((o) => o.status === "Approved").reduce((a, o) => a + o.amount, 0);
+  // Farklı para birimleri USD bazına çevrilerek toplanır (baz birim USD).
+  const totalAmount = offers.reduce((a, o) => a + convert(o.amount, o.currency, "USD"), 0);
+  const approvedAmount = offers.filter((o) => o.status === "Approved").reduce((a, o) => a + convert(o.amount, o.currency, "USD"), 0);
   const winRate = total > 0 ? Math.round((approved / total) * 100) : 0;
 
   const filtered = offers.filter((o) => {
+    if (focusExpired && !offerExpired(o)) return false;
     if (tab !== "all" && o.status !== tab) return false;
     if (q) {
       const sc = cases.find((s) => s.id === o.salesCaseId);
@@ -154,7 +208,7 @@ export function OffersPage() {
     <div className="space-y-5">
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <MiniKpi tone="violet" icon={<FileText className="size-[18px]" />} label="Toplam Teklif" value={total} sub="bu çeyrek" delta={11} />
-        <MiniKpi tone="emerald" icon={<CheckCircle2 className="size-[18px]" />} label="Onaylanan" value={approved} sub={`€ ${(approvedAmount / 1000).toFixed(0)}K`} delta={8} />
+        <MiniKpi tone="emerald" icon={<CheckCircle2 className="size-[18px]" />} label="Onaylanan" value={approved} sub={`$ ${(approvedAmount / 1000).toFixed(0)}K`} delta={8} />
         <MiniKpi tone="blue" icon={<Mail className="size-[18px]" />} label="Gönderilen" value={sent} sub="cevap bekleniyor" delta={4} />
         <MiniKpi tone="amber" icon={<TrendingUp className="size-[18px]" />} label="Kazanma Oranı" value={`%${winRate}`} sub={`hedef %50`} delta={3} progress={winRate} />
       </div>
@@ -183,7 +237,7 @@ export function OffersPage() {
         <Card className="border-border/60 shadow-sm">
           <CardHeader className="pb-2">
             <CardTitle className="tracking-tight">Durum Dağılımı</CardTitle>
-            <p className="text-xs text-muted-foreground">Toplam € {(totalAmount / 1000).toFixed(0)}K</p>
+            <p className="text-xs text-muted-foreground">Toplam $ {(totalAmount / 1000).toFixed(0)}K</p>
           </CardHeader>
           <CardContent className="space-y-3 pt-2">
             {(["Draft", "Sent", "Approved", "Rejected"] as const).map((st) => {
@@ -222,9 +276,14 @@ export function OffersPage() {
                 <TabsTrigger value="Rejected" className="text-xs">Reddedilen</TabsTrigger>
               </TabsList>
             </Tabs>
+            {focusExpired && (
+              <span className="inline-flex h-8 items-center rounded-md border border-amber-200 bg-amber-50 px-2.5 text-xs text-amber-700">
+                Süresi geçen
+              </span>
+            )}
           </div>
-          <div className="flex items-center gap-2">
-            <div className="relative w-64">
+          <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
+            <div className="relative w-full sm:w-64">
               <Search className="size-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
               <Input placeholder="Teklif no / müşteri..." className="pl-9 h-9 bg-white" value={q} onChange={(e) => setQ(e.target.value)} />
             </div>
@@ -462,6 +521,8 @@ function OfferDetailDialog({
       (p) => p.model && model && (model.includes(p.model) || p.model.includes(model) || (p.modelName && model.includes(p.modelName)))
     );
     const variant = QUOTE_NOTE_VARIANTS.find((v) => v.key === noteVariant) ?? QUOTE_NOTE_VARIANTS[2];
+    // Brüt teklif tutarını net + KDV olarak ayrıştır (genel toplam = offer.amount kalır).
+    const vat = splitVat(offer.amount, { subtotal: offer.subtotal, vatTotal: offer.vatTotal });
     printOrWarn(
       quoteDoc(
         {
@@ -491,11 +552,11 @@ function OfferDetailDialog({
             {
               urun: productText,
               birim: `${salesCase?.quantity ?? 1} Adet`,
-              tutar: offer.amount,
+              tutar: vat.net,
             },
           ],
-          kdvOran: 20,
-          kdvTutar: 0,
+          kdvOran: vat.oran,
+          kdvTutar: vat.kdv,
           currency: offer.currency,
           notes: variant,
         },
@@ -611,7 +672,33 @@ function OfferDetailDialog({
               </SelectContent>
             </Select>
             <Button variant="outline" className="gap-1 sm:w-auto" onClick={handlePrint}>
-              <Printer className="size-4" /> Yazdır / PDF
+              <Printer className="size-4" /> Yazdır
+            </Button>
+            <Button
+              variant="outline"
+              className="gap-1 sm:w-auto"
+              onClick={async () => {
+                try {
+                  await quoteService.openPdf(offer.id);
+                } catch (err: any) {
+                  toast.error("PDF açılamadı", { description: err?.message ?? "Sunucu hatası." });
+                }
+              }}
+            >
+              <Eye className="size-4" /> PDF Aç
+            </Button>
+            <Button
+              variant="outline"
+              className="gap-1 sm:w-auto"
+              onClick={async () => {
+                try {
+                  await quoteService.downloadPdf(offer.id, offer.quoteNo);
+                } catch (err: any) {
+                  toast.error("PDF indirilemedi", { description: err?.message ?? "Sunucu hatası." });
+                }
+              }}
+            >
+              <Download className="size-4" /> PDF İndir
             </Button>
           </div>
           <Button variant="outline" onClick={onClose}>Kapat</Button>
@@ -662,7 +749,27 @@ const DOC_ICONS: Record<string, React.ReactNode> = {
   Other: <FileText className="size-4" />,
 };
 
-export function DocumentsPage() {
+const DOC_TYPE_LABELS: Record<DocumentItem["type"], string> = {
+  Proforma: "Proforma",
+  Contract: "Sözleşme",
+  CommercialInvoice: "Ticari fatura",
+  AccountingInvoice: "Muhasebe faturası",
+  DeliveryForm: "Teslim formu",
+  InstallationForm: "Kurulum formu",
+  Other: "Diğer",
+};
+
+export function DocumentsPage({
+  initialType,
+  initialQuery,
+  title = "Dokümanlar",
+  description = "Proforma, sözleşme, fatura ve servis/teslim formları",
+}: {
+  initialType?: DocumentItem["type"];
+  initialQuery?: string;
+  title?: string;
+  description?: string;
+}) {
   const { documents, cases, customers, users, offers, payments, products } = useStore();
   const customerName = (id: string) => customers.find((c) => c.id === id)?.name ?? "—";
   const userName = (id: string) => users.find((u) => u.id === id)?.name ?? "—";
@@ -694,6 +801,7 @@ export function DocumentsPage() {
   const printProforma = (d: (typeof documents)[number], variantKey: string) => {
     const variant = PROFORMA_NOTE_VARIANTS.find((v) => v.key === variantKey) ?? PROFORMA_NOTE_VARIANTS[0];
     const ctx = resolveDocContext(d);
+    const vat = splitVat(ctx.amount, { subtotal: ctx.offer?.subtotal, vatTotal: ctx.offer?.vatTotal });
     printOrWarn(
       proformaDoc(
         {
@@ -714,11 +822,11 @@ export function DocumentsPage() {
               mensei: ctx.product?.originCountry,
               gtip: ctx.product?.hsCode,
               birim: `${ctx.sc?.quantity ?? 1} Adet`,
-              tutar: ctx.amount,
+              tutar: vat.net,
             },
           ],
-          kdvOran: 20,
-          kdvTutar: 0,
+          kdvOran: vat.oran,
+          kdvTutar: vat.kdv,
           currency: ctx.currency,
           notlar: fillNotePlaceholders(variant.notlar, { alici: ctx.cust?.name }),
         },
@@ -729,6 +837,8 @@ export function DocumentsPage() {
 
   const printContract = (d: (typeof documents)[number]) => {
     const ctx = resolveDocContext(d);
+    // Sözleşme KDV hariç fiyatlandırılır (madde 3.3) → net tutar kullan.
+    const vat = splitVat(ctx.amount, { subtotal: ctx.offer?.subtotal, vatTotal: ctx.offer?.vatTotal });
     // Ödeme planı: teklife bağlı beklenen tahsilatlar; yoksa tek satır peşin.
     const expected = payments
       .filter((p) => p.paymentType === "expected" && ctx.offer && p.salesCaseId === ctx.offer.id)
@@ -739,7 +849,7 @@ export function DocumentsPage() {
           tutar: p.amount,
           senet: i > 0,
         }))
-      : [{ label: "Peşin", tutar: ctx.amount }];
+      : [{ label: "Peşin", tutar: vat.net }];
     printOrWarn(
       contractDoc(
         {
@@ -757,10 +867,10 @@ export function DocumentsPage() {
           adet: ctx.sc?.quantity ?? 1,
           ozellikler: ctx.product?.specs?.slice(0, 14) ?? [],
           aksesuarlar: ctx.product?.standardEquipment ?? [],
-          fiyat: ctx.amount,
+          fiyat: vat.net,
           currency: ctx.currency,
           teslimSekli: "Millileştirilmiş",
-          kdvOran: 20,
+          kdvOran: vat.oran,
           odemePlani,
         },
         printAssetBase()
@@ -769,8 +879,18 @@ export function DocumentsPage() {
   };
   const [q, setQ] = useState("");
   const [docType, setDocType] = useState("all");
+  const [previewDoc, setPreviewDoc] = useState<(typeof documents)[number] | null>(null);
   const types = ["Proforma", "Contract", "CommercialInvoice", "AccountingInvoice", "DeliveryForm", "InstallationForm", "Other"];
-  const counts = types.map((t) => ({ type: t, count: documents.filter((d) => d.type === t).length }));
+  const visibleTypes = initialType ? [initialType] : types;
+  const counts = visibleTypes.map((t) => ({ type: t, count: documents.filter((d) => d.type === t).length }));
+
+  useEffect(() => {
+    setDocType(initialType ?? "all");
+  }, [initialType]);
+
+  useEffect(() => {
+    if (initialQuery) setQ(initialQuery);
+  }, [initialQuery]);
 
   const filtered = documents.filter((d) => {
     const sc = cases.find((s) => s.id === d.salesCaseId);
@@ -822,7 +942,7 @@ export function DocumentsPage() {
                 {DOC_ICONS[c.type]}
               </div>
               <div className="min-w-0">
-                <div className="text-[10px] uppercase tracking-wider text-muted-foreground truncate">{c.type}</div>
+                <div className="text-[10px] uppercase tracking-wider text-muted-foreground truncate">{DOC_TYPE_LABELS[c.type as DocumentItem["type"]] ?? c.type}</div>
                 <div className="text-[18px] tabular-nums leading-none mt-1">{c.count}</div>
               </div>
             </CardContent>
@@ -832,18 +952,24 @@ export function DocumentsPage() {
 
       <Card className="border-border/60 shadow-sm overflow-hidden">
         <CardHeader className="flex flex-col gap-3 pb-3 lg:flex-row lg:items-center lg:justify-between">
-          <CardTitle className="tracking-tight">Dokümanlar</CardTitle>
+          <div className="min-w-0">
+            <CardTitle className="tracking-tight">{title}</CardTitle>
+            <p className="mt-1 text-xs text-muted-foreground">{description}</p>
+          </div>
           <div className="flex w-full flex-col gap-2 sm:flex-row sm:flex-wrap lg:w-auto lg:justify-end">
             <div className="relative w-full sm:w-64">
               <Search className="size-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
               <Input placeholder="Dosya / müşteri ara..." className="pl-9 h-9 bg-white" value={q} onChange={(e) => setQ(e.target.value)} />
             </div>
-            <FilterPopover
-              filters={[{ label: "Tip", value: docType, onChange: setDocType, options: types.map((t) => ({ value: t, label: t })) }]}
-            />
+            {!initialType && (
+              <FilterPopover
+                filters={[{ label: "Tip", value: docType, onChange: setDocType, options: types.map((t) => ({ value: t, label: DOC_TYPE_LABELS[t as DocumentItem["type"]] ?? t })) }]}
+              />
+            )}
             <Button variant="outline" size="sm" className="h-9 justify-center" onClick={exportExcel}><Download className="size-4" /> Excel</Button>
             <DocumentUploadDialog
-              trigger={<Button size="sm" className="h-9 justify-center gap-1"><Upload className="size-4" /> Yükle</Button>}
+              defaultType={initialType}
+              trigger={<Button size="sm" className="h-9 justify-center gap-1"><Upload className="size-4" /> {initialType ? `${DOC_TYPE_LABELS[initialType]} Yükle` : "Yükle"}</Button>}
             />
           </div>
         </CardHeader>
@@ -907,7 +1033,7 @@ export function DocumentsPage() {
                           </Button>
                         )}
                         <Button variant="ghost" size="icon" className="size-7" title="Önizle"
-                          onClick={() => toast.message(d.fileName, { description: `${d.type} · ${customerName(companyId)} · ${d.uploadedAt}` })}>
+                          onClick={() => setPreviewDoc(d)}>
                           <Eye className="size-4 text-muted-foreground hover:text-primary" />
                         </Button>
                         <Button variant="ghost" size="icon" className="size-7" title="İndir"
@@ -930,6 +1056,8 @@ export function DocumentsPage() {
           </Table>
         </div>
       </Card>
+
+      <DocumentPreviewDialog doc={previewDoc} onClose={() => setPreviewDoc(null)} />
     </div>
   );
 }
@@ -954,22 +1082,52 @@ const CASHFLOW = [
 ];
 
 const CURRENCY_PIE = [
-  { name: "EUR", value: 62, fill: "#000c69" },
-  { name: "USD", value: 24, fill: "#cf060c" },
+  { name: "USD", value: 86, fill: "#000c69" },
   { name: "TRY", value: 14, fill: "#06b6d4" },
 ];
 
-export function PaymentsPage() {
-  const { payments, customers } = useStore();
+export function PaymentsPage({ focus }: { focus?: OperationFocus }) {
+  const { payments, customers, refresh } = useStore();
+  const { convert } = useFx();
+  // Farklı para birimleri toplanamaz → USD bazına çevirip topla (genel/baz birim USD).
+  const toUsd = (p: Payment) => convert(p.amount, p.currency, "USD");
   const customerName = (id: string) => customers.find((c) => c.id === id)?.name ?? "—";
   const [q, setQ] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | "Paid" | "Pending" | "Overdue">("all");
+  // Kasa yönü: tümü / alınan (giren) / ödenen (çıkan)
+  const [dirFilter, setDirFilter] = useState<"all" | "in" | "out">("all");
+  // Tıklanan kasa hareketi → detay + fiş/fatura pop-up'ı
+  const [selectedPayment, setSelectedPayment] = useState<Payment | null>(null);
 
-  const totalPaid = payments.filter((p) => p.status === "Paid").reduce((s, p) => s + p.amount, 0);
-  const totalPending = payments.filter((p) => p.status === "Pending").reduce((s, p) => s + p.amount, 0);
-  const totalOverdue = payments.filter((p) => p.status === "Overdue").reduce((s, p) => s + p.amount, 0);
+  useEffect(() => {
+    if (focus === "overdue") setStatusFilter("Overdue");
+    if (focus === "pending" || focus === "upcoming") setStatusFilter("Pending");
+    if (focus === "paid") setStatusFilter("Paid");
+  }, [focus]);
+
+  // Tahsilat metrikleri yalnızca GİREN (alınan) hareketler üzerinden hesaplanır (USD karşılığı).
+  const inflow = payments.filter((p) => p.direction === "in");
+  const outflow = payments.filter((p) => p.direction === "out");
+  const totalPaid = inflow.filter((p) => p.status === "Paid").reduce((s, p) => s + toUsd(p), 0);
+  const totalPending = inflow.filter((p) => p.status === "Pending").reduce((s, p) => s + toUsd(p), 0);
+  const totalOverdue = inflow.filter((p) => p.status === "Overdue").reduce((s, p) => s + toUsd(p), 0);
   const total = totalPaid + totalPending + totalOverdue;
   const collectionRate = total > 0 ? Math.round((totalPaid / total) * 100) : 0;
+
+  // Kasa bakiyesi: gerçekleşen (Paid) giriş/çıkış, para birimi bazında ayrı.
+  // Farklı para birimleri toplanamaz; her biri kendi satırında gösterilir.
+  const KASA_CURRENCIES: Array<Payment["currency"]> = ["USD", "EUR", "TRY"];
+  const kasa = KASA_CURRENCIES.map((cur) => {
+    const gir = payments.filter((p) => p.direction === "in" && p.status === "Paid" && p.currency === cur).reduce((s, p) => s + p.amount, 0);
+    const cik = payments.filter((p) => p.direction === "out" && p.status === "Paid" && p.currency === cur).reduce((s, p) => s + p.amount, 0);
+    return { cur, gir, cik, net: gir - cik };
+  }).filter((k) => k.gir || k.cik);
+  const curSymbol = (c: Payment["currency"]) => (c === "USD" ? "$" : c === "EUR" ? "€" : "₺");
+  const outPaidCount = outflow.filter((p) => p.status === "Paid").length;
+  const outPendingTotalByCur = KASA_CURRENCIES.map((cur) => ({
+    cur,
+    amt: outflow.filter((p) => p.status !== "Paid" && p.currency === cur).reduce((s, p) => s + p.amount, 0),
+  })).filter((x) => x.amt > 0);
 
   // Aging buckets (days past dueDate, Overdue + Pending past due)
   const today = new Date("2026-05-13");
@@ -982,37 +1140,36 @@ export function PaymentsPage() {
   payments.forEach((p) => {
     if (p.status !== "Overdue") return;
     const d = (today.getTime() - new Date(p.dueDate).getTime()) / (1000 * 60 * 60 * 24);
-    if (d <= 30) buckets[0].value += p.amount;
-    else if (d <= 60) buckets[1].value += p.amount;
-    else if (d <= 90) buckets[2].value += p.amount;
-    else buckets[3].value += p.amount;
+    if (d <= 30) buckets[0].value += toUsd(p);
+    else if (d <= 60) buckets[1].value += toUsd(p);
+    else if (d <= 90) buckets[2].value += toUsd(p);
+    else buckets[3].value += toUsd(p);
   });
 
   // Top debtors
   const debtorMap = new Map<string, number>();
   payments.filter((p) => p.status === "Overdue" || p.status === "Pending").forEach((p) => {
-    debtorMap.set(p.customerId, (debtorMap.get(p.customerId) ?? 0) + p.amount);
+    debtorMap.set(p.customerId, (debtorMap.get(p.customerId) ?? 0) + toUsd(p));
   });
   const topDebtors = [...debtorMap.entries()]
     .sort((a, b) => b[1] - a[1])
     .slice(0, 5)
     .map(([cid, amt]) => ({ cid, name: customerName(cid), amount: amt }));
 
-  const [typeFilter, setTypeFilter] = useState("all");
   const filtered = payments.filter((p) => {
     if (statusFilter !== "all" && p.status !== statusFilter) return false;
-    if (typeFilter !== "all" && p.paymentType !== typeFilter) return false;
+    if (dirFilter !== "all" && p.direction !== dirFilter) return false;
     if (q && !customerName(p.customerId).toLowerCase().includes(q.toLowerCase())) return false;
     return true;
   });
   const { page, setPage, totalPages, pageItems } = usePaged(filtered, 12);
   const exportExcel = () =>
     exportToCsv(
-      "odemeler",
-      ["Müşteri", "Tip", "Tutar", "Para Birimi", "Vade", "Ödeme Tarihi", "Durum", "Not"],
+      "kasa-hareketleri",
+      ["Firma", "Yön", "Tutar", "Para Birimi", "Vade", "Ödeme Tarihi", "Durum", "Not"],
       filtered.map((p) => [
         customerName(p.customerId),
-        p.paymentType === "received" ? "Tahsilat" : "Beklenen",
+        p.direction === "in" ? "Alınan (Giren)" : "Ödenen (Çıkan)",
         p.amount,
         p.currency,
         p.dueDate,
@@ -1024,43 +1181,92 @@ export function PaymentsPage() {
 
   return (
     <div className="space-y-5">
-      {/* KPI strip */}
+      {/* KPI strip — kasa odaklı */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <PayKpi
           tone="emerald"
-          icon={<Wallet className="size-[18px]" />}
-          label="Tahsil Edilen"
-          value={`€ ${(totalPaid / 1000).toFixed(1)}K`}
+          icon={<ArrowDownRight className="size-[18px]" />}
+          label="Alınan (Giren)"
+          value={`$ ${(totalPaid / 1000).toFixed(1)}K`}
           delta={12}
-          sub="bu ay"
+          sub={`${inflow.filter((p) => p.status === "Paid").length} tahsilat`}
+        />
+        <PayKpi
+          tone="red"
+          icon={<ArrowUpRight className="size-[18px]" />}
+          label="Ödenen (Çıkan)"
+          value={kasa.length ? kasa.map((k) => `${curSymbol(k.cur)}${(k.cik / 1000).toFixed(1)}K`).join(" · ") : "—"}
+          delta={-4}
+          sub={`${outPaidCount} ödeme`}
+        />
+        <PayKpi
+          tone="violet"
+          icon={<Wallet className="size-[18px]" />}
+          label="Net Kasa"
+          value={kasa.length ? kasa.map((k) => `${curSymbol(k.cur)}${(k.net / 1000).toFixed(1)}K`).join(" · ") : "—"}
+          delta={3}
+          sub="gerçekleşen"
         />
         <PayKpi
           tone="amber"
           icon={<Clock className="size-[18px]" />}
-          label="Bekleyen"
-          value={`€ ${(totalPending / 1000).toFixed(1)}K`}
+          label="Bekleyen Tahsilat"
+          value={`$ ${(totalPending / 1000).toFixed(1)}K`}
           delta={4}
-          sub={`${payments.filter((p) => p.status === "Pending").length} kayıt`}
-        />
-        <PayKpi
-          tone="red"
-          icon={<AlertTriangle className="size-[18px]" />}
-          label="Gecikmiş"
-          value={`€ ${(totalOverdue / 1000).toFixed(1)}K`}
-          delta={-6}
-          sub={`${payments.filter((p) => p.status === "Overdue").length} kayıt`}
-          alarm
-        />
-        <PayKpi
-          tone="violet"
-          icon={<TrendingUp className="size-[18px]" />}
-          label="Tahsilat Oranı"
-          value={`%${collectionRate}`}
-          delta={3}
-          sub="hedef %85"
-          progress={collectionRate}
+          sub={`${inflow.filter((p) => p.status === "Pending").length} kayıt`}
         />
       </div>
+
+      {/* Kasa bakiyesi — para birimi bazında giren/çıkan/net */}
+      <Card className="border-border/60 shadow-sm">
+        <CardHeader className="pb-2">
+          <div className="flex flex-wrap items-start justify-between gap-2">
+            <div>
+              <CardTitle className="tracking-tight flex items-center gap-2"><Wallet className="size-4 text-emerald-600" /> Kasa Bakiyesi</CardTitle>
+              <p className="text-xs text-muted-foreground">Gerçekleşen (ödenmiş) hareketler · para birimi bazında</p>
+            </div>
+            <FxRateBadge />
+          </div>
+        </CardHeader>
+        <CardContent className="pt-1">
+          {kasa.length === 0 ? (
+            <div className="text-sm text-muted-foreground py-4 text-center">Henüz gerçekleşmiş kasa hareketi yok.</div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              {kasa.map((k) => (
+                <div key={k.cur} className="rounded-lg border border-border/60 bg-muted/20 p-3">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs uppercase tracking-wide text-muted-foreground">{k.cur} Kasa</span>
+                    <span className={`text-sm tabular-nums font-medium ${k.net >= 0 ? "text-emerald-700" : "text-red-600"}`}>
+                      {curSymbol(k.cur)} {k.net.toLocaleString("tr-TR")}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between text-[12px]">
+                    <span className="inline-flex items-center gap-1 text-emerald-700"><ArrowDownRight className="size-3.5" /> Giren</span>
+                    <span className="tabular-nums">{curSymbol(k.cur)} {k.gir.toLocaleString("tr-TR")}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-[12px] mt-1">
+                    <span className="inline-flex items-center gap-1 text-red-600"><ArrowUpRight className="size-3.5" /> Çıkan</span>
+                    <span className="tabular-nums">{curSymbol(k.cur)} {k.cik.toLocaleString("tr-TR")}</span>
+                  </div>
+                  <div className="mt-2 pt-2 border-t border-border/60 flex items-center justify-between text-[12px]">
+                    <span className="text-muted-foreground">Net Bakiye</span>
+                    <span className={`tabular-nums font-medium ${k.net >= 0 ? "text-emerald-700" : "text-red-600"}`}>{curSymbol(k.cur)} {k.net.toLocaleString("tr-TR")}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          {outPendingTotalByCur.length > 0 && (
+            <div className="mt-3 text-[12px] text-muted-foreground flex flex-wrap items-center gap-x-2 gap-y-1">
+              <span>Bekleyen ödeme (çıkış):</span>
+              {outPendingTotalByCur.map((x) => (
+                <span key={x.cur} className="tabular-nums text-amber-700">{curSymbol(x.cur)} {x.amt.toLocaleString("tr-TR")}</span>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Charts row */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
@@ -1068,7 +1274,7 @@ export function PaymentsPage() {
           <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
             <div>
               <CardTitle className="tracking-tight">Tahsilat & Bekleyen Trendi</CardTitle>
-              <p className="text-xs text-muted-foreground mt-1">Son 6 ay · bin Euro</p>
+              <p className="text-xs text-muted-foreground mt-1">Son 6 ay · bin USD</p>
             </div>
             <div className="flex items-center gap-1">
               {["Haftalık", "Aylık", "Yıllık"].map((p, i) => (
@@ -1142,7 +1348,7 @@ export function PaymentsPage() {
                 <div key={b.key}>
                   <div className="flex items-center justify-between text-[12px] mb-1">
                     <span className="text-muted-foreground">{b.label}</span>
-                    <span className="tabular-nums">€ {b.value.toLocaleString()}</span>
+                    <span className="tabular-nums">$ {b.value.toLocaleString()}</span>
                   </div>
                   <div className="h-2 rounded-full bg-muted overflow-hidden">
                     <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, background: b.color }} />
@@ -1152,7 +1358,7 @@ export function PaymentsPage() {
             })}
             <div className="pt-3 mt-2 border-t border-border/60 flex items-center justify-between text-[12px]">
               <span className="text-muted-foreground">Toplam Gecikmiş</span>
-              <span className="tabular-nums text-red-600">€ {totalOverdue.toLocaleString()}</span>
+              <span className="tabular-nums text-red-600">$ {totalOverdue.toLocaleString()}</span>
             </div>
           </CardContent>
         </Card>
@@ -1196,7 +1402,7 @@ export function PaymentsPage() {
                     <div className="text-[13px] leading-tight truncate">{d.name}</div>
                     <div className="text-[11px] text-muted-foreground mt-0.5">açık bakiye</div>
                   </div>
-                  <div className="text-[13px] tabular-nums shrink-0">€ {d.amount.toLocaleString()}</div>
+                  <div className="text-[13px] tabular-nums shrink-0">$ {d.amount.toLocaleString()}</div>
                   <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
                     <Button size="icon" variant="ghost" className="size-7"><Mail className="size-3.5" /></Button>
                     <Button size="icon" variant="ghost" className="size-7"><Phone className="size-3.5" /></Button>
@@ -1213,9 +1419,22 @@ export function PaymentsPage() {
 
       {/* Table */}
       <Card className="border-border/60 shadow-sm overflow-hidden">
-        <CardHeader className="flex flex-row items-center justify-between gap-3 flex-wrap pb-3">
+        <CardHeader className="flex flex-col gap-3 pb-3 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex items-center gap-2 flex-wrap">
-            <CardTitle className="tracking-tight mr-2">Cari Hareketler</CardTitle>
+            <CardTitle className="tracking-tight mr-2">Kasa Hareketleri</CardTitle>
+            <Tabs value={dirFilter} onValueChange={(v) => setDirFilter(v as any)}>
+              <TabsList className="h-8 bg-muted/60">
+                <TabsTrigger value="all" className="text-xs">Tümü</TabsTrigger>
+                <TabsTrigger value="in" className="text-xs gap-1.5">
+                  <ArrowDownRight className="size-3 text-emerald-600" /> Alınan
+                  <span className="inline-flex items-center justify-center min-w-[16px] h-[16px] px-1 text-[10px] rounded-full bg-emerald-100 text-emerald-700">{inflow.length}</span>
+                </TabsTrigger>
+                <TabsTrigger value="out" className="text-xs gap-1.5">
+                  <ArrowUpRight className="size-3 text-red-500" /> Ödenen
+                  <span className="inline-flex items-center justify-center min-w-[16px] h-[16px] px-1 text-[10px] rounded-full bg-red-100 text-red-700">{outflow.length}</span>
+                </TabsTrigger>
+              </TabsList>
+            </Tabs>
             <Tabs value={statusFilter} onValueChange={(v) => setStatusFilter(v as any)}>
               <TabsList className="h-8 bg-muted/60">
                 <TabsTrigger value="all" className="text-xs">Tümü</TabsTrigger>
@@ -1240,24 +1459,25 @@ export function PaymentsPage() {
               </TabsList>
             </Tabs>
           </div>
-          <div className="flex items-center gap-2">
-            <div className="relative w-64">
+          <div className="flex w-full flex-col gap-2 sm:flex-row sm:flex-wrap lg:w-auto lg:justify-end">
+            <div className="relative w-full sm:w-64">
               <Search className="size-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-              <Input placeholder="Müşteri ara..." className="pl-9 h-9 bg-white" value={q} onChange={(e) => setQ(e.target.value)} />
+              <Input placeholder="Firma ara..." className="pl-9 h-9 bg-white" value={q} onChange={(e) => setQ(e.target.value)} />
             </div>
-            <FilterPopover
-              filters={[{ label: "Hareket Tipi", value: typeFilter, onChange: setTypeFilter, options: [{ value: "received", label: "Tahsilat" }, { value: "expected", label: "Beklenen" }] }]}
+            <Button variant="outline" size="sm" className="h-9 justify-center" onClick={exportExcel}><Download className="size-4" /> Excel</Button>
+            <CreatePaymentDialog
+              onCreated={refresh}
+              defaultDirection={dirFilter === "out" ? "out" : "in"}
+              trigger={<Button size="sm" className="h-9 gap-1 justify-center"><Plus className="size-4" /> Yeni Hareket</Button>}
             />
-            <Button variant="outline" size="sm" className="h-9" onClick={exportExcel}><Download className="size-4" /> Excel</Button>
-            <Button size="sm" className="h-9 gap-1"><Plus className="size-4" /> Yeni Hareket</Button>
           </div>
         </CardHeader>
         <div className="overflow-x-auto">
           <Table>
             <TableHeader>
               <TableRow className="bg-muted/30 hover:bg-muted/30">
-                <TableHead className="w-[280px]">Müşteri</TableHead>
-                <TableHead>Tip</TableHead>
+                <TableHead className="w-[280px]">Firma</TableHead>
+                <TableHead>Yön</TableHead>
                 <TableHead className="text-right">Tutar</TableHead>
                 <TableHead>Vade</TableHead>
                 <TableHead>Ödeme Tarihi</TableHead>
@@ -1271,7 +1491,12 @@ export function PaymentsPage() {
                   ? Math.floor((today.getTime() - new Date(p.dueDate).getTime()) / (1000 * 60 * 60 * 24))
                   : null;
                 return (
-                  <TableRow key={p.id} className="group">
+                  <TableRow
+                    key={p.id}
+                    className="group cursor-pointer"
+                    onClick={() => setSelectedPayment(p)}
+                    title="Detay ve fiş/fatura için tıklayın"
+                  >
                     <TableCell>
                       <div className="flex items-center gap-2.5 min-w-0">
                         <div className="size-8 rounded-md bg-gradient-to-br from-primary/15 to-primary/5 text-primary grid place-items-center shrink-0">
@@ -1285,16 +1510,18 @@ export function PaymentsPage() {
                     </TableCell>
                     <TableCell>
                       <span className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded ${
-                        p.paymentType === "received"
+                        p.direction === "in"
                           ? "bg-emerald-50 text-emerald-700"
-                          : "bg-blue-50 text-blue-700"
+                          : "bg-red-50 text-red-700"
                       }`}>
-                        {p.paymentType === "received" ? <ArrowDownRight className="size-3" /> : <ArrowUpRight className="size-3" />}
-                        {p.paymentType === "received" ? "Tahsilat" : "Beklenen"}
+                        {p.direction === "in" ? <ArrowDownRight className="size-3" /> : <ArrowUpRight className="size-3" />}
+                        {p.direction === "in" ? "Alınan" : "Ödenen"}
                       </span>
                     </TableCell>
                     <TableCell className="text-right tabular-nums">
-                      <span className="text-sm">{p.amount.toLocaleString()}</span>{" "}
+                      <span className={`text-sm ${p.direction === "in" ? "text-emerald-700" : "text-red-600"}`}>
+                        {p.direction === "in" ? "+" : "−"}{p.amount.toLocaleString()}
+                      </span>{" "}
                       <span className="text-[11px] text-muted-foreground">{p.currency}</span>
                     </TableCell>
                     <TableCell>
@@ -1323,13 +1550,283 @@ export function PaymentsPage() {
         </div>
         <div className="flex items-center justify-between gap-3 px-4 py-3 border-t border-border/60 bg-muted/20">
           <div className="text-xs text-muted-foreground">
-            <b className="text-foreground">{filtered.length}</b> hareket · toplam{" "}
-            <b className="text-foreground">€ {filtered.reduce((s, p) => s + p.amount, 0).toLocaleString()}</b>
+            <b className="text-foreground">{filtered.length}</b> hareket · toplam ≈{" "}
+            <b className="text-foreground">$ {Math.round(filtered.reduce((s, p) => s + toUsd(p), 0)).toLocaleString()}</b>
+            <span className="ml-1 text-[11px]">(USD karşılığı)</span>
           </div>
           <Pager page={page} totalPages={totalPages} setPage={setPage} />
         </div>
       </Card>
+
+      <PaymentDetailDialog
+        payment={selectedPayment}
+        customerName={customerName}
+        onClose={() => setSelectedPayment(null)}
+      />
     </div>
+  );
+}
+
+const PAYMENT_EXT_TO_MIME: Record<string, string> = {
+  pdf: "application/pdf",
+  png: "image/png",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  webp: "image/webp",
+  docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+};
+const fmtBytes = (b: number) =>
+  b < 1024 ? `${b} B` : b < 1048576 ? `${(b / 1024).toFixed(1)} KB` : `${(b / 1048576).toFixed(1)} MB`;
+const paymentDocLabel = (t: string) =>
+  t === "AccountingInvoice" ? "Fiş" : t === "CommercialInvoice" ? "Fatura" : t;
+const STATUS_LABELS_TR: Record<Payment["status"], string> = {
+  Pending: "Bekliyor",
+  Paid: "Ödendi",
+  Overdue: "Gecikmiş",
+  Cancelled: "İptal",
+};
+
+function DetailRow({ label, value, accent }: { label: string; value: React.ReactNode; accent?: string }) {
+  return (
+    <div className="rounded-lg border border-border/60 bg-white px-3 py-2">
+      <div className="text-[11px] uppercase tracking-wide text-muted-foreground">{label}</div>
+      <div className={`mt-0.5 text-sm tabular-nums ${accent ?? ""}`}>{value}</div>
+    </div>
+  );
+}
+
+/** Kasa hareketi detayı + firmaya bağlı fiş/fatura ekleme & önizleme. */
+function PaymentDetailDialog({
+  payment,
+  customerName,
+  onClose,
+}: {
+  payment: Payment | null;
+  customerName: (id: string) => string;
+  onClose: () => void;
+}) {
+  const { documents, addDocument, refresh } = useStore();
+  const { convert } = useFx();
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [docType, setDocType] = useState<"AccountingInvoice" | "CommercialInvoice">("CommercialInvoice");
+  const [file, setFile] = useState<File | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [status, setStatus] = useState<Payment["status"]>("Pending");
+  const [savingStatus, setSavingStatus] = useState(false);
+
+  useEffect(() => {
+    if (payment) {
+      setFile(null);
+      setDocType("CommercialInvoice");
+      setStatus(payment.status);
+      if (inputRef.current) inputRef.current.value = "";
+    }
+  }, [payment]);
+
+  const STATUS_CODE: Record<Payment["status"], string> = {
+    Pending: "pending",
+    Paid: "paid",
+    Overdue: "overdue",
+    Cancelled: "cancelled",
+  };
+
+  const changeStatus = async (next: Payment["status"]) => {
+    if (!payment || next === status) return;
+    const prev = status;
+    setStatus(next); // iyimser
+    setSavingStatus(true);
+    try {
+      const code = STATUS_CODE[next];
+      if (payment.source === "receivable") await financeService.updateReceivableStatus(payment.id, code);
+      else await financeService.updatePaymentStatus(payment.id, code);
+      toast.success("Durum güncellendi", { description: STATUS_LABELS_TR[next] });
+      refresh();
+    } catch (err: any) {
+      setStatus(prev);
+      toast.error("Durum güncellenemedi", { description: err?.message ?? "İstek başarısız oldu." });
+    } finally {
+      setSavingStatus(false);
+    }
+  };
+
+  const related = payment
+    ? documents.filter(
+        (d) =>
+          ((d.companyId && d.companyId === payment.customerId) ||
+            (d.salesCaseId && payment.salesCaseId && d.salesCaseId === payment.salesCaseId)) &&
+          ["AccountingInvoice", "CommercialInvoice", "Other"].includes(d.type)
+      )
+    : [];
+
+  const preview = async (d: (typeof documents)[number]) => {
+    if (!d.fileId) return toast.message(d.fileName, { description: paymentDocLabel(d.type) });
+    try {
+      const signed = await fileService.signedDownload(d.fileId);
+      window.open(signed.downloadUrl, "_blank", "noopener");
+    } catch (err: any) {
+      toast.error("Önizleme açılamadı", { description: err?.message ?? "İstek başarısız." });
+    }
+  };
+
+  const upload = async () => {
+    if (!payment || !file) return toast.error("Dosya seçin");
+    if (file.size > 25 * 1024 * 1024) return toast.error("Dosya boyutu 25 MB'ı aşamaz");
+    const ext = file.name.split(".").pop()?.toLocaleLowerCase("tr-TR") ?? "";
+    const mime = file.type || PAYMENT_EXT_TO_MIME[ext];
+    if (!PAYMENT_EXT_TO_MIME[ext] || !mime) {
+      return toast.error("Desteklenmeyen dosya tipi", { description: "PDF, PNG, JPG, WEBP, DOCX veya XLSX" });
+    }
+    setUploading(true);
+    try {
+      const up = await fileService.signedUpload({
+        bucket: "erp-invoice-documents",
+        entityType: "company",
+        entityId: payment.customerId,
+        filename: file.name,
+        mimeType: mime,
+        extension: ext,
+        sizeBytes: file.size,
+      });
+      const res = await fetch(up.uploadUrl, { method: "PUT", body: file, headers: { "Content-Type": mime } });
+      if (!res.ok) throw new Error(`Depoya yükleme başarısız (${res.status})`);
+      await fileService.link({
+        fileId: up.fileId,
+        entityType: "company",
+        entityId: payment.customerId,
+        documentTypeCode: "commercial_invoice_pdf",
+        description: `Kasa hareketi #${payment.id.toUpperCase()} · ${paymentDocLabel(docType)}`,
+      });
+      await addDocument({
+        id: up.fileId,
+        fileId: up.fileId,
+        salesCaseId: payment.salesCaseId || "",
+        companyId: payment.customerId,
+        type: docType,
+        fileName: file.name,
+        size: fmtBytes(file.size),
+        mimeType: mime,
+      });
+      toast.success("Fiş/Fatura eklendi", { description: file.name });
+      setFile(null);
+      if (inputRef.current) inputRef.current.value = "";
+    } catch (err: any) {
+      toast.error("Eklenemedi", { description: err?.message ?? "İstek başarısız oldu." });
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  return (
+    <Dialog open={!!payment} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="w-[min(620px,calc(100vw-2rem))] max-w-none sm:max-w-none max-h-[90dvh] overflow-hidden p-0 gap-0">
+        {payment && (
+          <>
+            <DialogHeader className="border-b border-border/60 px-5 pt-5 pb-4 pr-12">
+              <DialogTitle className="flex items-center gap-2">
+                <Wallet className="size-5 text-primary" /> Kasa Hareketi Detayı
+              </DialogTitle>
+              <DialogDescription>#{payment.id.toUpperCase()} · {customerName(payment.customerId)}</DialogDescription>
+            </DialogHeader>
+
+            <div className="max-h-[calc(90dvh-150px)] overflow-y-auto px-5 py-4 space-y-4">
+              <div className="grid grid-cols-2 gap-3">
+                <DetailRow label="Firma" value={customerName(payment.customerId)} />
+                <DetailRow label="Yön" value={payment.direction === "in" ? "Alınan (Giren)" : "Ödenen (Çıkan)"} />
+                <DetailRow
+                  label="Tutar"
+                  value={`${payment.direction === "in" ? "+" : "−"}${payment.amount.toLocaleString("tr-TR")} ${payment.currency}`}
+                  accent={payment.direction === "in" ? "text-emerald-600" : "text-red-600"}
+                />
+                <DetailRow label="USD karşılığı" value={`≈ $ ${Math.round(convert(payment.amount, payment.currency, "USD")).toLocaleString()}`} />
+                <DetailRow label="Vade" value={payment.dueDate} />
+                <DetailRow label="Ödeme Tarihi" value={payment.paidDate ?? "—"} />
+                <div className="rounded-lg border border-border/60 bg-white px-3 py-2">
+                  <div className="text-[11px] uppercase tracking-wide text-muted-foreground">Durum</div>
+                  <Select value={status} onValueChange={(v) => changeStatus(v as Payment["status"])} disabled={savingStatus}>
+                    <SelectTrigger className="mt-1 h-8 text-sm"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {(["Pending", "Paid", "Overdue", "Cancelled"] as const).map((st) => (
+                        <SelectItem key={st} value={st} className="text-sm">{STATUS_LABELS_TR[st]}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <DetailRow label="Kayıt Tipi" value={payment.paymentType === "received" ? "Tahsilat" : "Beklenen"} />
+              </div>
+
+              {payment.note && (
+                <div className="rounded-lg border border-border/60 bg-muted/30 p-3">
+                  <div className="text-[11px] uppercase tracking-wider text-muted-foreground mb-1">Not</div>
+                  <p className="text-sm whitespace-pre-wrap">{payment.note}</p>
+                </div>
+              )}
+
+              <div className="rounded-lg border border-border/60 p-3 space-y-3">
+                <div className="flex items-center gap-2 text-sm font-medium">
+                  <Receipt className="size-4 text-primary" /> Fiş / Fatura
+                  {related.length > 0 && (
+                    <span className="ml-auto text-[11px] text-muted-foreground">{related.length} belge</span>
+                  )}
+                </div>
+
+                {related.length > 0 ? (
+                  <div className="divide-y divide-border/60 rounded-md border border-border/60">
+                    {related.map((d) => (
+                      <div key={d.id} className="flex items-center gap-2 px-3 py-2">
+                        <FileText className="size-4 text-muted-foreground shrink-0" />
+                        <div className="min-w-0 flex-1">
+                          <div className="text-sm truncate">{d.fileName}</div>
+                          <div className="text-[11px] text-muted-foreground">{paymentDocLabel(d.type)} · {d.size}</div>
+                        </div>
+                        <Button size="icon" variant="ghost" className="size-7" title="Önizle" onClick={() => preview(d)}>
+                          <Eye className="size-4" />
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-xs text-muted-foreground">Bu firmaya bağlı fiş/fatura yok. Aşağıdan ekleyebilirsiniz.</div>
+                )}
+
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <Select value={docType} onValueChange={(v) => setDocType(v as "AccountingInvoice" | "CommercialInvoice")}>
+                      <SelectTrigger className="h-9 w-24 bg-white"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="AccountingInvoice">Fiş</SelectItem>
+                        <SelectItem value="CommercialInvoice">Fatura</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <button
+                      type="button"
+                      onClick={() => inputRef.current?.click()}
+                      className="flex-1 min-w-0 rounded-md border border-dashed border-border/80 bg-muted/20 px-3 py-2 text-left text-sm hover:bg-muted/40 truncate"
+                    >
+                      <input
+                        ref={inputRef}
+                        type="file"
+                        accept=".pdf,.png,.jpg,.jpeg,.webp,.docx,.xlsx"
+                        className="hidden"
+                        onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+                      />
+                      {file ? `${file.name} · ${fmtBytes(file.size)}` : "Dosya seç (PDF, görsel, ...)"}
+                    </button>
+                  </div>
+                  <Button className="w-full gap-1" disabled={uploading || !file} onClick={upload}>
+                    <Upload className="size-4" /> {uploading ? "Yükleniyor…" : "Fiş/Fatura Ekle"}
+                  </Button>
+                </div>
+              </div>
+            </div>
+
+            <DialogFooter className="border-t border-border/60 bg-muted/20 px-5 py-4">
+              <Button variant="outline" onClick={onClose}>Kapat</Button>
+            </DialogFooter>
+          </>
+        )}
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -1435,10 +1932,20 @@ function exportStockCsv(rows: ReturnType<typeof useStore>["stock"]) {
   URL.revokeObjectURL(url);
 }
 
-export function StockPage() {
+export function StockPage({ focus, initialQuery }: { focus?: OperationFocus; initialQuery?: string }) {
   const { stock, updateStockStatus } = useStore();
   const [q, setQ] = useState("");
   const [tab, setTab] = useState<"all" | "Available" | "Reserved" | "Sold" | "Inactive">("all");
+
+  useEffect(() => {
+    if (focus === "reserved") setTab("Reserved");
+    if (focus === "available") setTab("Available");
+    if (focus === "low") setTab("all");
+  }, [focus]);
+
+  useEffect(() => {
+    if (initialQuery) setQ(initialQuery);
+  }, [initialQuery]);
 
   const counts = {
     Available: stock.filter((s) => s.status === "Available").length,
@@ -1458,7 +1965,8 @@ export function StockPage() {
     }));
 
   const filtered = stock.filter((s) => {
-    if (tab !== "all" && s.status !== tab) return false;
+    if (focus === "low" && s.status !== "Reserved" && s.status !== "Inactive") return false;
+    if (focus !== "low" && tab !== "all" && s.status !== tab) return false;
     return (
       s.serialNumber.toLowerCase().includes(q.toLowerCase()) ||
       s.stockCode.toLowerCase().includes(q.toLowerCase()) ||
@@ -1529,8 +2037,8 @@ export function StockPage() {
               </TabsList>
             </Tabs>
           </div>
-          <div className="flex items-center gap-2">
-            <div className="relative w-64">
+          <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
+            <div className="relative w-full sm:w-64">
               <Search className="size-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
               <Input placeholder="Seri / kod / model..." className="pl-9 h-9 bg-white" value={q} onChange={(e) => setQ(e.target.value)} />
             </div>
@@ -1723,10 +2231,10 @@ export function PurchaseOrdersPage() {
       </Card>
 
       <Card className="border-border/60 shadow-sm overflow-hidden">
-        <CardHeader className="flex flex-row items-center justify-between gap-3 pb-3">
+        <CardHeader className="flex flex-col gap-3 pb-3 lg:flex-row lg:items-center lg:justify-between">
           <CardTitle className="tracking-tight">Satın Alma Siparişleri</CardTitle>
-          <div className="flex items-center gap-2">
-            <div className="relative w-64">
+          <div className="flex w-full flex-wrap items-center gap-2 lg:w-auto">
+            <div className="relative w-full sm:w-64">
               <Search className="size-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
               <Input placeholder="PO / tedarikçi..." className="pl-9 h-9 bg-white" value={q} onChange={(e) => setQ(e.target.value)} />
             </div>
@@ -2185,10 +2693,18 @@ function SummaryLine({ label, value, strong = false }: { label: string; value: s
   );
 }
 
-export function ShipmentsPage() {
+export function ShipmentsPage({ focus }: { focus?: OperationFocus }) {
+  const { shipments, updateShipmentStatus, cases, customers } = useStore();
+  const liveCustomerName = (id: string) => customers.find((c) => c.id === id)?.name ?? "—";
   const inTransit = shipments.filter((s) => s.status === "Yolda").length;
   const customs = shipments.filter((s) => s.status === "Gümrükte").length;
   const delivered = shipments.filter((s) => s.status === "Teslim Edildi").length;
+  const visibleShipments =
+    focus === "shipments" || focus === "pending"
+      ? shipments.filter((s) => s.status !== "Teslim Edildi")
+      : focus === "delivered"
+      ? shipments.filter((s) => s.status === "Teslim Edildi")
+      : shipments;
 
   const carrierMap = Array.from(new Set(shipments.map((s) => s.carrier)))
     .map((c, i) => ({
@@ -2196,6 +2712,40 @@ export function ShipmentsPage() {
       value: shipments.filter((s) => s.carrier === c).length,
       fill: ["#000c69", "#cf060c", "#3b82f6", "#10b981"][i % 4],
     }));
+
+  /** Sevkiyat detayını (satır kalemleri/seri no dahil) çekip HAKSAN antetli irsaliye basar. */
+  const printDispatchNote = async (s: (typeof shipments)[number]) => {
+    try {
+      const full = await serviceService.shipment(s.id);
+      const cust =
+        customers.find((c) => c.id === full.companyId) ??
+        customers.find((c) => c.id === cases.find((x) => x.id === s.salesCaseId)?.customerId);
+      const adres = cust ? [cust.address, cust.district, cust.city].filter(Boolean).join(" ") : undefined;
+      const doc = dispatchNoteDoc(
+        {
+          irsaliyeNo: full.shipmentNo || full.trackingNo || s.trackingNo || String(full.id).slice(0, 8),
+          tarih: full.shippedAt || full.createdAt,
+          carrier: full.carrier ?? s.carrier,
+          trackingNo: full.trackingNo ?? s.trackingNo,
+          origin: full.origin ?? s.origin,
+          destination: full.destination ?? s.destination,
+          incoterm: full.incoterm ?? undefined,
+          eta: full.eta ?? s.eta,
+          firma: full.company?.legalTitle ?? full.company?.shortName ?? cust?.name,
+          adres,
+          items: (full.items ?? []).map((it: any) => ({
+            description: it.description,
+            serialNumber: it.serialNumber ?? undefined,
+            quantity: Number(it.quantity ?? 1),
+          })),
+        },
+        printAssetBase()
+      );
+      printOrWarn(doc);
+    } catch (err: any) {
+      toast.error("İrsaliye hazırlanamadı", { description: err?.message ?? "Sevkiyat detayı alınamadı." });
+    }
+  };
 
   return (
     <div className="space-y-5">
@@ -2210,10 +2760,13 @@ export function ShipmentsPage() {
         <Card className="lg:col-span-2 border-border/60 shadow-sm overflow-hidden">
           <CardHeader className="flex flex-row items-center justify-between pb-3">
             <CardTitle className="tracking-tight">Sevkiyat Takibi</CardTitle>
-            <Button variant="outline" size="sm" className="h-9"
-              onClick={() => exportToCsv("sevkiyatlar", ["Takip No", "Taşıyıcı", "Çıkış", "Varış", "Durum", "ETA"], shipments.map((s) => [s.trackingNo, s.carrier, s.origin, s.destination, s.status, s.eta]))}>
-              <Download className="size-4" /> Excel
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button variant="outline" size="sm" className="h-9"
+                onClick={() => exportToCsv("sevkiyatlar", ["Takip No", "Taşıyıcı", "Çıkış", "Varış", "Durum", "ETA"], visibleShipments.map((s) => [s.trackingNo, s.carrier, s.origin, s.destination, s.status, s.eta]))}>
+                <Download className="size-4" /> Excel
+              </Button>
+              <CreateShipmentDialog trigger={<Button size="sm" className="h-9 gap-1"><Plus className="size-4" /> Yeni Sevkiyat</Button>} />
+            </div>
           </CardHeader>
           <div className="overflow-x-auto">
             <Table>
@@ -2225,11 +2778,12 @@ export function ShipmentsPage() {
                   <TableHead>Taşıyıcı</TableHead>
                   <TableHead>ETA</TableHead>
                   <TableHead>Durum</TableHead>
+                  <TableHead className="w-12"></TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {shipments.map((s) => {
-                  const sc = salesCases.find((x) => x.id === s.salesCaseId);
+                {visibleShipments.map((s) => {
+                  const sc = cases.find((x) => x.id === s.salesCaseId);
                   return (
                     <TableRow key={s.id} className="group">
                       <TableCell>
@@ -2243,7 +2797,7 @@ export function ShipmentsPage() {
                           </div>
                         </div>
                       </TableCell>
-                      <TableCell className="text-sm">{customerName(sc?.customerId ?? "")}</TableCell>
+                      <TableCell className="text-sm">{liveCustomerName(sc?.customerId ?? "")}</TableCell>
                       <TableCell>
                         <div className="flex items-center gap-1.5 text-xs">
                           <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-muted text-foreground/70">
@@ -2257,7 +2811,27 @@ export function ShipmentsPage() {
                       </TableCell>
                       <TableCell className="text-sm">{s.carrier}</TableCell>
                       <TableCell className="text-sm tabular-nums text-muted-foreground">{s.eta}</TableCell>
-                      <TableCell><StatusBadge status={s.status} /></TableCell>
+                      <TableCell>
+                        <Select value={s.status} onValueChange={async (v) => {
+                          try {
+                            await updateShipmentStatus(s.id, v as any);
+                            toast.success(`Sevkiyat durumu: ${v}`);
+                          } catch (err: any) {
+                            toast.error("Sevkiyat durumu güncellenemedi", { description: err?.message ?? "API isteği başarısız oldu." });
+                          }
+                        }}>
+                          <SelectTrigger className="h-8 w-[140px] text-xs"><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            {SHIPMENT_STATUSES.map((st) => <SelectItem key={st} value={st} className="text-xs">{st}</SelectItem>)}
+                          </SelectContent>
+                        </Select>
+                      </TableCell>
+                      <TableCell>
+                        <Button variant="ghost" size="icon" className="size-8 opacity-0 group-hover:opacity-100" title="Sevk İrsaliyesi yazdır"
+                          onClick={() => printDispatchNote(s)}>
+                          <Printer className="size-4" />
+                        </Button>
+                      </TableCell>
                     </TableRow>
                   );
                 })}
@@ -2322,7 +2896,13 @@ export function InstallationsPage() {
     completedDate: (i.completedAt as string | undefined)?.slice(0, 10) ?? "",
     status: i.status?.name ?? i.status?.code ?? "Planlandı",
     location: i.location ?? "",
+    locationType: (i.locationType as InstallationLocationType | null) ?? null,
+    durationMinutes: i.durationMinutes != null ? Number(i.durationMinutes) : null,
+    feeAmount: i.feeAmount != null ? Number(i.feeAmount) : null,
   }));
+
+  // Toplam kurulum geliri (kaydedilmiş ücretler, USD).
+  const totalFee = installationRows.reduce((s, i) => s + (i.feeAmount ?? 0), 0);
 
   // Kurulum Tutanağı çıktısı — müşteri bilgileri CRM'den, tezgah/CNC bilgileri
   // kuruluma bağlı makineden (yoksa müşterinin makinesinden) gelir; CRM'de
@@ -2372,11 +2952,12 @@ export function InstallationsPage() {
 
   return (
     <div className="space-y-5">
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
         <MiniKpi tone="violet" icon={<Wrench className="size-[18px]" />} label="Toplam Kurulum" value={installationRows.length} sub="tüm zamanlar" delta={6} />
         <MiniKpi tone="amber" icon={<Calendar className="size-[18px]" />} label="Planlı" value={planned} sub="gelecek" delta={2} />
         <MiniKpi tone="emerald" icon={<CheckCircle2 className="size-[18px]" />} label="Tamamlandı" value={completed} sub="bu çeyrek" delta={4} />
         <MiniKpi tone="blue" icon={<TrendingUp className="size-[18px]" />} label="Başarı" value={`%${installationRows.length ? Math.round((completed / installationRows.length) * 100) : 0}`} sub="ilk seferde" delta={1} />
+        <MiniKpi tone="emerald" icon={<Wallet className="size-[18px]" />} label="Kurulum Geliri" value={`$ ${totalFee.toLocaleString("tr-TR")}`} sub="hesaplanan ücret" delta={0} />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
@@ -2395,6 +2976,8 @@ export function InstallationsPage() {
                   <TableHead>Müşteri</TableHead>
                   <TableHead>Teknisyen</TableHead>
                   <TableHead>Planlanan Tarih</TableHead>
+                  <TableHead>Konum / Süre</TableHead>
+                  <TableHead className="text-right">Ücret</TableHead>
                   <TableHead>Durum</TableHead>
                   <TableHead className="w-16 text-right">İşlem</TableHead>
                 </TableRow>
@@ -2415,6 +2998,29 @@ export function InstallationsPage() {
                     </TableCell>
                     <TableCell className="text-sm">{i.technician}</TableCell>
                     <TableCell className="text-sm tabular-nums text-muted-foreground">{i.scheduledDate}</TableCell>
+                    <TableCell>
+                      {i.locationType ? (
+                        <div className="flex flex-col gap-0.5">
+                          <span className={`inline-flex w-fit items-center gap-1 px-1.5 py-0.5 rounded-full border text-[10px] ${
+                            i.locationType === "istanbul_disi"
+                              ? "bg-amber-50 text-amber-700 border-amber-200"
+                              : "bg-blue-50 text-blue-700 border-blue-200"
+                          }`}>
+                            <MapPin className="size-3" />{INSTALLATION_LOCATION_LABELS[i.locationType]}
+                          </span>
+                          <span className="text-[11px] text-muted-foreground tabular-nums">{formatDuration(i.durationMinutes ?? 0)}</span>
+                        </div>
+                      ) : (
+                        <span className="text-[11px] text-muted-foreground">—</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      {i.feeAmount != null ? (
+                        <span className="text-sm text-emerald-700">$ {i.feeAmount.toLocaleString("tr-TR")}</span>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">—</span>
+                      )}
+                    </TableCell>
                     <TableCell><StatusBadge status={i.status} /></TableCell>
                     <TableCell className="text-right">
                       <Button variant="ghost" size="icon" className="size-7" title="Kurulum Tutanağı yazdır / PDF"
@@ -2426,14 +3032,14 @@ export function InstallationsPage() {
                 ))}
                 {!loading && installationRows.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={5} className="text-center py-12 text-sm text-muted-foreground">
+                    <TableCell colSpan={7} className="text-center py-12 text-sm text-muted-foreground">
                       Henüz kurulum kaydı yok.
                     </TableCell>
                   </TableRow>
                 )}
                 {loading && (
                   <TableRow>
-                    <TableCell colSpan={5} className="text-center py-12 text-sm text-muted-foreground">
+                    <TableCell colSpan={7} className="text-center py-12 text-sm text-muted-foreground">
                       Kurulumlar yükleniyor...
                     </TableCell>
                   </TableRow>
@@ -2470,6 +3076,9 @@ export function InstallationsPage() {
 }
 
 export function DeliveriesPage() {
+  const { deliveries, updateDeliveryStatus, customers } = useStore();
+  const liveCustomerName = (id: string) => customers.find((c) => c.id === id)?.name ?? "—";
+  const [selectedDelivery, setSelectedDelivery] = useState<(typeof deliveries)[number] | null>(null);
   const completed = deliveries.filter((d) => d.status === "Tamamlandı").length;
   const pending = deliveries.filter((d) => d.status === "Bekliyor").length;
   return (
@@ -2485,10 +3094,10 @@ export function DeliveriesPage() {
           <CardTitle className="tracking-tight">Teslimat Kayıtları</CardTitle>
           <div className="flex items-center gap-2">
             <Button variant="outline" size="sm" className="h-9"
-              onClick={() => exportToCsv("teslimatlar", ["Müşteri", "Tarih", "Teslim Alan", "Durum"], deliveries.map((d) => [customerName(d.customerId), d.date, d.signedBy, d.status]))}>
+              onClick={() => exportToCsv("teslimatlar", ["Müşteri", "Tarih", "Teslim Alan", "Durum"], deliveries.map((d) => [liveCustomerName(d.customerId), d.date, d.signedBy, d.status]))}>
               <Download className="size-4" /> Excel
             </Button>
-            <Button size="sm" className="h-9 gap-1"><Plus className="size-4" /> Yeni Teslimat</Button>
+            <CreateDeliveryDialog trigger={<Button size="sm" className="h-9 gap-1"><Plus className="size-4" /> Yeni Teslimat</Button>} />
           </div>
         </CardHeader>
         <div className="overflow-x-auto">
@@ -2510,15 +3119,29 @@ export function DeliveriesPage() {
                       <div className="size-8 rounded-md bg-gradient-to-br from-primary/15 to-primary/5 text-primary grid place-items-center shrink-0">
                         <Building2 className="size-4" />
                       </div>
-                      <div className="text-sm">{customerName(d.customerId)}</div>
+                      <div className="text-sm">{liveCustomerName(d.customerId)}</div>
                     </div>
                   </TableCell>
                   <TableCell className="text-sm tabular-nums text-muted-foreground">{d.date}</TableCell>
                   <TableCell className="text-sm">{d.signedBy}</TableCell>
-                  <TableCell><StatusBadge status={d.status} /></TableCell>
                   <TableCell>
-                    <Button variant="ghost" size="icon" className="size-8 opacity-0 group-hover:opacity-100" title="Teslim formu"
-                      onClick={() => toast.message(`${customerName(d.customerId)} — Teslim Formu`, { description: `${d.date} · Teslim alan: ${d.signedBy} · ${d.status}` })}>
+                    <Select
+                      value={d.status}
+                      onValueChange={(v) => {
+                        updateDeliveryStatus(d.id, v as any)
+                          .then(() => toast.success(`Teslimat durumu: ${v}`))
+                          .catch((err: any) => toast.error("Teslimat durumu güncellenemedi", { description: err?.message ?? "Backend isteği başarısız oldu." }));
+                      }}
+                    >
+                      <SelectTrigger className="h-8 w-[130px] text-xs"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        {DELIVERY_STATUSES.map((st) => <SelectItem key={st} value={st} className="text-xs">{st}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </TableCell>
+                  <TableCell>
+                    <Button variant="ghost" size="icon" className="size-8 opacity-0 group-hover:opacity-100" title="Teslim formu / düzenle"
+                      onClick={() => setSelectedDelivery(d)}>
                       <FileSignature className="size-4" />
                     </Button>
                   </TableCell>
@@ -2528,7 +3151,116 @@ export function DeliveriesPage() {
           </Table>
         </div>
       </Card>
+
+      <DeliveryDetailDialog
+        delivery={selectedDelivery}
+        customerName={liveCustomerName}
+        onClose={() => setSelectedDelivery(null)}
+      />
     </div>
+  );
+}
+
+function DeliveryDetailDialog({
+  delivery,
+  customerName,
+  onClose,
+}: {
+  delivery: Delivery | null;
+  customerName: (id: string) => string;
+  onClose: () => void;
+}) {
+  const { customers, cases, machines, updateDelivery } = useStore();
+  const [form, setForm] = useState<DeliveryFormState | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (!delivery) {
+      setForm(null);
+      return;
+    }
+    const cust = customers.find((c) => c.id === delivery.customerId);
+    setForm(deliveryToFormState(delivery, cust?.contactPerson));
+  }, [delivery, customers]);
+
+  const casesForCustomer = cases.filter((c) => c.customerId === form?.customerId);
+  const machinesForCustomer = machines.filter((m) => m.customerId === form?.customerId);
+
+  const save = async () => {
+    if (!delivery || !form) return;
+    setSaving(true);
+    try {
+      await updateDelivery(delivery.id, {
+        customerId: form.customerId,
+        salesCaseId: form.salesCaseId,
+        date: form.date,
+        signedBy: form.signedBy.trim() || "—",
+        status: form.status,
+        formData: deliveryFormToPayload(form),
+      });
+      toast.success("Teslimat güncellendi");
+    } catch (err: any) {
+      toast.error("Kaydedilemedi", { description: err?.message ?? "İstek başarısız oldu." });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  /** DR.MAK Kurulum Tutanağı — PDF şablonu ile aynı düzen. */
+  const printForm = () => {
+    if (!delivery || !form) return;
+    const cust = customers.find((c) => c.id === delivery.customerId);
+    const fd = deliveryFormToPayload(form);
+    const formNo = fd.formNo || String(delivery.id).slice(-5).padStart(5, "0");
+    const doc = installationFormDoc(
+      {
+        teslimTarihi: form.date ? trShortDate(form.date) : "",
+        kurulumTarihi: form.kurulumTarihi ? trShortDate(form.kurulumTarihi) : "",
+        formNo,
+        tezgah: fd.tezgah,
+        cnc: fd.cnc,
+        firma: cust?.name ?? customerName(delivery.customerId),
+        ilgili: form.ilgili || cust?.contactPerson,
+        adres: cust ? [cust.address, cust.district, cust.city].filter(Boolean).join(" ") : undefined,
+        telefon: cust?.phone,
+        faks: cust?.fax,
+        gsm: cust?.phone2,
+        eposta: cust?.email,
+        kurulumuYapan: form.kurulumuYapan || undefined,
+        teslimAlan: form.signedBy && form.signedBy !== "—" ? form.signedBy : undefined,
+      },
+      printAssetBase()
+    );
+    printOrWarn(doc);
+  };
+
+  return (
+    <Dialog open={!!delivery} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="w-[min(760px,calc(100vw-2rem))] max-w-none sm:max-w-none">
+        {delivery && form && (
+          <>
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2"><ClipboardCheck className="size-5 text-primary" /> Kurulum Tutanağı</DialogTitle>
+              <DialogDescription>{customerName(delivery.customerId)}</DialogDescription>
+            </DialogHeader>
+            <DeliveryFormFields
+              form={form}
+              setForm={setForm}
+              customers={customers}
+              casesForCustomer={casesForCustomer}
+              machinesForCustomer={machinesForCustomer}
+            />
+            <DialogFooter className="gap-2 sm:justify-between">
+              <Button variant="outline" className="gap-1" onClick={printForm}><Printer className="size-4" /> Formu Yazdır</Button>
+              <div className="flex gap-2">
+                <Button variant="outline" onClick={onClose}>Kapat</Button>
+                <Button onClick={save} disabled={saving}>{saving ? "Kaydediliyor..." : "Kaydet"}</Button>
+              </div>
+            </DialogFooter>
+          </>
+        )}
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -2605,7 +3337,7 @@ const serviceNoteText = (s: ServiceRequest) =>
 
 const timestamp = () => new Date().toISOString().slice(0, 16).replace("T", " ");
 
-const formatDuration = (seconds: number) => {
+const formatElapsed = (seconds: number) => {
   const total = Math.max(0, Math.floor(seconds));
   const h = Math.floor(total / 3600);
   const m = Math.floor((total % 3600) / 60);
@@ -2624,12 +3356,26 @@ const serviceElapsedSeconds = (s: ServiceRequest, nowMs = Date.now()) => {
 const moneyText = (value: number, currency = "USD") =>
   new Intl.NumberFormat("tr-TR", { style: "currency", currency, maximumFractionDigits: 2 }).format(value || 0);
 
-export function ServiceRequestsPage({ initialView = "list" }: { initialView?: "list" | "board" }) {
+const serviceAgeDays = (s: ServiceRequest) => {
+  const time = new Date(s.createdAt).getTime();
+  if (!Number.isFinite(time)) return 0;
+  return Math.max(0, Math.floor((Date.now() - time) / (24 * 60 * 60 * 1000)));
+};
+
+const matchesServiceFocus = (s: ServiceRequest, focus?: OperationFocus) => {
+  if (focus === "open") return s.stage !== "Closed";
+  if (focus === "sla" || focus === "late") return s.stage !== "Closed" && serviceAgeDays(s) > 7;
+  if (focus === "scheduled") return s.stage === "Scheduled";
+  return true;
+};
+
+export function ServiceRequestsPage({ initialView = "list", focus }: { initialView?: "list" | "board"; focus?: OperationFocus }) {
   const { service, machines, customers } = useStore();
   const [view, setView] = useState<"list" | "board">(initialView);
   const [selectedServiceId, setSelectedServiceId] = useState<string | null>(null);
   const customerName = (id: string) => customers.find((c) => c.id === id)?.name ?? "—";
   const selectedService = selectedServiceId ? service.find((s) => s.id === selectedServiceId) ?? null : null;
+  const visibleService = service.filter((s) => matchesServiceFocus(s, focus));
 
   useEffect(() => {
     setView(initialView);
@@ -2729,14 +3475,14 @@ export function ServiceRequestsPage({ initialView = "list" }: { initialView?: "l
               </TableRow>
             </TableHeader>
             <TableBody>
-              {service.length === 0 ? (
+              {visibleService.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={5} className="h-24 text-center text-muted-foreground">
-                    Henüz açılmış bir servis talebi bulunmuyor.
+                    Bu filtreye uyan servis talebi bulunmuyor.
                   </TableCell>
                 </TableRow>
               ) : (
-              service.map((s, idx) => {
+              visibleService.map((s, idx) => {
                 return (
                   <TableRow key={s.id} className="cursor-pointer group" onClick={() => setSelectedServiceId(s.id)}>
                     <TableCell className="font-medium">{customerName(s.customerId)}</TableCell>
@@ -2746,6 +3492,20 @@ export function ServiceRequestsPage({ initialView = "list" }: { initialView?: "l
                     <TableCell><StatusBadge status={s.stage} /></TableCell>
                     <TableCell className="text-muted-foreground">{s.createdAt}</TableCell>
                     <TableCell className="text-right">
+                      <div className="flex items-center justify-end gap-1">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="size-7"
+                        title="Konumu haritada aç"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          const c = customers.find((x) => x.id === s.customerId);
+                          openInMaps([c?.address, c?.district, c?.city]);
+                        }}
+                      >
+                        <MapPin className="size-4 text-muted-foreground hover:text-primary" />
+                      </Button>
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
                           <Button
@@ -2769,6 +3529,7 @@ export function ServiceRequestsPage({ initialView = "list" }: { initialView?: "l
                           ))}
                         </DropdownMenuContent>
                       </DropdownMenu>
+                      </div>
                     </TableCell>
                   </TableRow>
                 );
@@ -2779,7 +3540,7 @@ export function ServiceRequestsPage({ initialView = "list" }: { initialView?: "l
         </Card>
       </TabsContent>
       <TabsContent value="board" className="mt-4">
-        <ServiceBoard onOpen={(s) => setSelectedServiceId(s.id)} />
+        <ServiceBoard onOpen={(s) => setSelectedServiceId(s.id)} focus={focus} />
       </TabsContent>
     </Tabs>
     <ServiceDetailDialog serviceRequest={selectedService} onClose={() => setSelectedServiceId(null)} />
@@ -2820,15 +3581,16 @@ const isServiceDetailTabEnabled = (stage: ServiceStage, tab: ServiceDetailTab) =
   return true;
 };
 
-export function ServiceKanbanPage() {
-  return <ServiceRequestsPage initialView="board" />;
+export function ServiceKanbanPage({ focus }: { focus?: OperationFocus }) {
+  return <ServiceRequestsPage initialView="board" focus={focus} />;
 }
 
-function ServiceBoard({ onOpen }: { onOpen?: (s: ServiceRequest) => void }) {
+function ServiceBoard({ onOpen, focus }: { onOpen?: (s: ServiceRequest) => void; focus?: OperationFocus }) {
   const { service, moveService, customers } = useStore();
   const customerName = (id: string) => customers.find((c) => c.id === id)?.name ?? "—";
+  const visibleService = service.filter((s) => matchesServiceFocus(s, focus));
   const columns: KanbanColumn<ServiceRequest>[] = SERVICE_COLUMNS.map((col) => {
-    const items = service.filter((s) => STAGE_TO_COLUMN[s.stage] === col.key);
+    const items = visibleService.filter((s) => STAGE_TO_COLUMN[s.stage] === col.key);
     return {
       key: col.key,
       title: col.key,
@@ -3159,7 +3921,7 @@ function ServiceDetailDialog({
                   <CardTitle className="text-base">Saha Süresi</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-3">
-                  <div className="text-3xl tabular-nums tracking-tight">{formatDuration(elapsed)}</div>
+                  <div className="text-3xl tabular-nums tracking-tight">{formatElapsed(elapsed)}</div>
                   <div className="flex flex-wrap items-center gap-2">
                     <Button size="sm" className="gap-1" onClick={startTimer} disabled={serviceRequest.timerStatus === "running"}>
                       <Play className="size-4" /> Başlat
@@ -3295,7 +4057,7 @@ function ServiceDetailDialog({
                 </div>
                 <div>
                   <Label>Geçirilen Süre</Label>
-                  <div className="mt-1 h-10 rounded-md border border-border/60 bg-muted/30 px-3 flex items-center tabular-nums">{formatDuration(elapsed)}</div>
+                  <div className="mt-1 h-10 rounded-md border border-border/60 bg-muted/30 px-3 flex items-center tabular-nums">{formatElapsed(elapsed)}</div>
                 </div>
                 <div>
                   <Label>Servis Ücreti Kalemi</Label>
@@ -3392,10 +4154,13 @@ function ServiceDetailDialog({
 
 const TR_MONTHS = ["Oca", "Şub", "Mar", "Nis", "May", "Haz", "Tem", "Ağu", "Eyl", "Eki", "Kas", "Ara"];
 
-export function ReportsPage() {
-  const { cases, offers, service } = useStore();
+export function ReportsPage({ onAction }: { onAction?: (action: OperationAction) => void }) {
+  const store = useStore();
+  const { cases, offers, service } = store;
   const [mode, setMode] = useState<"operasyonel" | "karlilik">("operasyonel");
   const [period, setPeriod] = useState<"monthly" | "yearly">("monthly");
+  const management = useMemo(() => buildManagementInsights(store), [store]);
+  const [sourceId, setSourceId] = useState<string | null>(null);
 
   const now = new Date();
   const currentYear = now.getFullYear();
@@ -3486,7 +4251,7 @@ export function ReportsPage() {
     },
     {
       title: "Ciro (Tahmini)",
-      keys: [{ dataKey: "ciro", label: "EUR", color: "#000c69" }],
+      keys: [{ dataKey: "ciro", label: "USD", color: "#000c69" }],
     },
   ];
 
@@ -3506,6 +4271,13 @@ export function ReportsPage() {
           Karlılık (Yıl Sonu)
         </button>
       </div>
+
+      <ReportExecutiveSummary
+        summary={management}
+        sourceId={sourceId}
+        onSourceChange={setSourceId}
+        onAction={onAction}
+      />
 
       {mode === "karlilik" && <YearEndReportView />}
 
@@ -3558,7 +4330,7 @@ export function ReportsPage() {
         <KpiCard label="Toplam Teklif" value={totals.teklif.toString()} accent="bg-primary/10 text-primary" />
         <KpiCard label="Onaylanan / Reddedilen" value={`${totals.onaylanan} / ${totals.reddedilen}`} accent="bg-emerald-50 text-emerald-700" />
         <KpiCard label="Dönüşüm Oranı" value={`%${conversion}`} accent="bg-indigo-50 text-indigo-700" />
-        <KpiCard label="Toplam Ciro" value={`€ ${totals.ciro.toLocaleString()}`} accent="bg-amber-50 text-amber-700" />
+        <KpiCard label="Toplam Ciro" value={`$ ${totals.ciro.toLocaleString()}`} accent="bg-amber-50 text-amber-700" />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -3603,7 +4375,7 @@ export function ReportsPage() {
                 <TableHead className="text-right">Kazanılan</TableHead>
                 <TableHead className="text-right">Kaybedilen</TableHead>
                 <TableHead className="text-right">Servis</TableHead>
-                <TableHead className="text-right">Ciro (EUR)</TableHead>
+                <TableHead className="text-right">Ciro (USD)</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -3616,7 +4388,7 @@ export function ReportsPage() {
                   <TableCell className="text-right tabular-nums">{r.kazanilan}</TableCell>
                   <TableCell className="text-right tabular-nums">{r.kaybedilen}</TableCell>
                   <TableCell className="text-right tabular-nums">{r.servis}</TableCell>
-                  <TableCell className="text-right tabular-nums">€ {r.ciro.toLocaleString()}</TableCell>
+                  <TableCell className="text-right tabular-nums">$ {r.ciro.toLocaleString()}</TableCell>
                 </TableRow>
               ))}
               <TableRow className="bg-muted/20">
@@ -3627,7 +4399,7 @@ export function ReportsPage() {
                 <TableCell className="text-right tabular-nums">{totals.kazanilan}</TableCell>
                 <TableCell className="text-right tabular-nums">{totals.kaybedilen}</TableCell>
                 <TableCell className="text-right tabular-nums">{totals.servis}</TableCell>
-                <TableCell className="text-right tabular-nums">€ {totals.ciro.toLocaleString()}</TableCell>
+                <TableCell className="text-right tabular-nums">$ {totals.ciro.toLocaleString()}</TableCell>
               </TableRow>
             </TableBody>
           </Table>
@@ -3635,6 +4407,161 @@ export function ReportsPage() {
       </Card>
       </>
       )}
+    </div>
+  );
+}
+
+const MGMT_TONE: Record<ManagementInsight["severity"], string> = {
+  critical: "border-red-100 bg-red-50 text-red-700",
+  warning: "border-amber-100 bg-amber-50 text-amber-700",
+  info: "border-blue-100 bg-blue-50 text-blue-700",
+  success: "border-emerald-100 bg-emerald-50 text-emerald-700",
+};
+
+function ReportExecutiveSummary({
+  summary,
+  sourceId,
+  onSourceChange,
+  onAction,
+}: {
+  summary: ReturnType<typeof buildManagementInsights>;
+  sourceId: string | null;
+  onSourceChange: (id: string | null) => void;
+  onAction?: (action: OperationAction) => void;
+}) {
+  const selectedSource = summary.kpis.find((item) => item.id === sourceId) ?? summary.kpis[0] ?? null;
+  const sourceRecords = selectedSource?.records ?? [];
+
+  return (
+    <Card className="border-border/60 shadow-sm overflow-hidden">
+      <CardHeader className="flex flex-col gap-3 pb-3 lg:flex-row lg:items-center lg:justify-between">
+        <div>
+          <CardTitle className="tracking-tight">Yönetici Özeti</CardTitle>
+          <p className="mt-1 text-xs text-muted-foreground">Risk, fırsat, aksiyon ve KPI kaynakları mevcut kayıtlardan türetilir</p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Badge variant="secondary" className="h-7 px-2">{summary.risks.length} risk</Badge>
+          <Badge variant="secondary" className="h-7 px-2">{summary.opportunities.length} fırsat</Badge>
+          <Badge variant="secondary" className="h-7 px-2">{summary.actions.length} aksiyon</Badge>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="grid gap-3 lg:grid-cols-4">
+          <ReportInsightList title="Riskler" empty="Aktif risk yok" items={summary.risks.slice(0, 3)} onAction={onAction} />
+          <ReportInsightList title="Fırsatlar" empty="Fırsat sinyali yok" items={summary.opportunities.slice(0, 3)} onAction={onAction} />
+          <ReportInsightList title="Aksiyonlar" empty="Aksiyon bekleyen kayıt yok" items={summary.actions.slice(0, 3)} onAction={onAction} />
+          <ReportInsightList title="Trendler" empty="Trend hesaplanamadı" items={summary.trends.slice(0, 3)} onAction={onAction} />
+        </div>
+
+        <div className="grid gap-3 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
+          <div className="rounded-lg border border-border/60">
+            <div className="flex items-center justify-between border-b border-border/60 px-3 py-2">
+              <div className="text-sm font-medium">KPI Kaynakları</div>
+              <span className="text-[11px] text-muted-foreground">Sayıya giren kayıtlar</span>
+            </div>
+            <div className="grid gap-2 p-3 sm:grid-cols-2 xl:grid-cols-4">
+              {summary.kpis.map((kpi) => (
+                <button
+                  key={kpi.id}
+                  type="button"
+                  className={`rounded-md border px-3 py-2 text-left transition-colors hover:bg-muted/40 ${
+                    selectedSource?.id === kpi.id ? "border-primary/30 bg-primary/5" : "border-border/60 bg-white"
+                  }`}
+                  onClick={() => onSourceChange(kpi.id)}
+                >
+                  <div className="truncate text-[11px] uppercase tracking-wide text-muted-foreground">{kpi.label}</div>
+                  <div className="mt-1 text-base font-medium tabular-nums">{kpi.value}</div>
+                  <div className="mt-1 line-clamp-2 text-xs leading-relaxed text-muted-foreground">{kpi.description}</div>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="rounded-lg border border-border/60">
+            <div className="flex items-center justify-between border-b border-border/60 px-3 py-2">
+              <div className="min-w-0">
+                <div className="truncate text-sm font-medium">{selectedSource?.label ?? "Kaynak"}</div>
+                <div className="truncate text-[11px] text-muted-foreground">{selectedSource?.description ?? "Kayıt seçin"}</div>
+              </div>
+              {selectedSource && (
+                <Button size="sm" variant="outline" className="h-8 shrink-0" onClick={() => onAction?.(selectedSource.action)}>
+                  Listeye Git
+                </Button>
+              )}
+            </div>
+            <div className="max-h-72 overflow-y-auto p-2">
+              {sourceRecords.length === 0 ? (
+                <div className="grid min-h-32 place-items-center rounded-md border border-dashed border-border/70 bg-muted/20 px-4 text-center text-sm text-muted-foreground">
+                  Kaynak kayıt yok.
+                </div>
+              ) : (
+                <div className="space-y-1">
+                  {sourceRecords.map((record) => (
+                    <button
+                      key={record.id}
+                      type="button"
+                      className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left hover:bg-muted"
+                      onClick={() => onAction?.(record.action)}
+                    >
+                      <span className="grid size-8 shrink-0 place-items-center rounded-md bg-primary/10 text-primary">
+                        <FileText className="size-4" />
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-sm font-medium">{record.title}</span>
+                        <span className="block truncate text-xs text-muted-foreground">{record.subtitle}</span>
+                      </span>
+                      <Badge variant="secondary" className="h-5 px-1.5 text-[10px]">{record.type}</Badge>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function ReportInsightList({
+  title,
+  empty,
+  items,
+  onAction,
+}: {
+  title: string;
+  empty: string;
+  items: ManagementInsight[];
+  onAction?: (action: OperationAction) => void;
+}) {
+  return (
+    <div className="min-w-0 rounded-lg border border-border/60 bg-muted/15">
+      <div className="flex items-center justify-between border-b border-border/60 px-3 py-2">
+        <div className="text-sm font-medium">{title}</div>
+        <span className="rounded-full bg-white px-2 py-0.5 text-[11px] text-muted-foreground">{items.length}</span>
+      </div>
+      <div className="divide-y divide-border/60">
+        {items.length === 0 ? (
+          <div className="px-3 py-6 text-center text-xs text-muted-foreground">{empty}</div>
+        ) : (
+          items.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              className="flex w-full items-start gap-2 px-3 py-2.5 text-left hover:bg-white/70"
+              onClick={() => onAction?.(item.action)}
+            >
+              <span className={`mt-0.5 inline-flex min-w-10 justify-center rounded-md border px-2 py-1 text-[11px] tabular-nums ${MGMT_TONE[item.severity]}`}>
+                {item.metric}
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-sm font-medium">{item.title}</span>
+                <span className="mt-0.5 line-clamp-2 block text-xs leading-relaxed text-muted-foreground">{item.description}</span>
+              </span>
+            </button>
+          ))
+        )}
+      </div>
     </div>
   );
 }
@@ -3973,36 +4900,344 @@ function ReasonTable({ title, rows, empty }: { title: string; empty: string; row
   );
 }
 
+type UserTargetType = "sales" | "service";
+type UserTargetUnit = "count" | "amount";
+
+export type UserTargetItem = {
+  targetType: UserTargetType;
+  category: string;
+  activity: string;
+  description: string;
+  unit: UserTargetUnit;
+  defaultTarget: string;
+  target: string;
+};
+
+type TargetTemplateItem = Omit<UserTargetItem, "target">;
+
 export type UserTarget = {
   period: string;
   salesAmount: string;
-  currency: "USD" | "EUR" | "TRY";
-  newCustomers: string;
-  offers: string;
+  currency: "USD";
+  salesNewCustomers: string;
+  serviceAmount: string;
+  serviceCompleted: string;
+  digitalLeadTarget: string;
+  digitalConversionTarget: string;
+  digitalBudget: string;
+  visitTarget: string;
+  callTarget: string;
+  quoteTarget: string;
+  targetItems: UserTargetItem[];
   note: string;
 };
 
-const TARGETS_STORAGE_KEY = "haksan:user-targets";
 const currentPeriod = () => new Date().toISOString().slice(0, 7);
+const sharedVisitTargets: Omit<TargetTemplateItem, "targetType">[] = [
+  {
+    category: "ZİYARET",
+    activity: "MÜŞTERİ ZİYARETİ",
+    description: "Halihazırdaki cari hesaplarda bulunan müşterimize yapılan ziyaret",
+    unit: "count",
+    defaultTarget: "20",
+  },
+  {
+    category: "ZİYARET",
+    activity: "TEKLİF TAKİP ZİYARETİ",
+    description: "Verilen teklifler ile ilgili müşterilerle değerlendirme toplantısı yapılacak.",
+    unit: "count",
+    defaultTarget: "30",
+  },
+  {
+    category: "ZİYARET",
+    activity: "YENİ MÜŞTERİ ZİYARETİ",
+    description: "Sistemimizde kayıtlı olmayan, daha önce teklif verilmemiş ve ziyaret edilmemiş potansiyel müşteri ziyareti",
+    unit: "count",
+    defaultTarget: "30",
+  },
+  {
+    category: "ZİYARET",
+    activity: "FUAR ZİYARETİ",
+    description: "Sektörel ve ilgili potansiyel sektör fuarları ziyaret edilecek, müşterilerimizin standları ziyaret edilip, potansiyel firmalar ile görüşmeler sağlanacak.",
+    unit: "count",
+    defaultTarget: "2",
+  },
+];
+const sharedDigitalTargets: Omit<TargetTemplateItem, "targetType">[] = [
+  {
+    category: "DİJİTAL PAZARLAMA",
+    activity: "ÇEVRİMİÇİ TOPLANTI",
+    description: "Potansiyel müşterilerle ilk tanışma toplantısı ve şirket sunumu için Zoom veya Windows Teams üzerinden toplantı yapılacak",
+    unit: "count",
+    defaultTarget: "8",
+  },
+  {
+    category: "DİJİTAL PAZARLAMA",
+    activity: "LINKEDIN PAYLAŞIMI",
+    description: "Kurumsal sosyal medya hesaplarının gönderilerinin yeniden paylaşılması, web sitesi ürünlerinin link ile paylaşılması, üretici firmaların gönderilerinin yeniden paylaşılması",
+    unit: "count",
+    defaultTarget: "10",
+  },
+  {
+    category: "DİJİTAL PAZARLAMA",
+    activity: "INSTAGRAM PAYLAŞIMI",
+    description: "Şirket ve ürünler ile ilgili hikaye paylaşımı",
+    unit: "count",
+    defaultTarget: "4",
+  },
+  {
+    category: "DİJİTAL PAZARLAMA",
+    activity: "YOUTUBE PAYLAŞIMI",
+    description: "Haksan Makina Youtube hesabındaki videoların linkedin ve instagram hesaplarında paylaşılması",
+    unit: "count",
+    defaultTarget: "4",
+  },
+  {
+    category: "DİJİTAL PAZARLAMA",
+    activity: "WHATSAPP DURUM",
+    description: "Şahsi ve şirket hatlarında Haksan Makina paylaşımı",
+    unit: "count",
+    defaultTarget: "10",
+  },
+];
+const sharedQuoteTargets: Omit<TargetTemplateItem, "targetType">[] = [
+  {
+    category: "TEKLİF",
+    activity: "YENİ TEKLİF",
+    description: "Yeni tekliflerde firma baz alınacak",
+    unit: "count",
+    defaultTarget: "30",
+  },
+  {
+    category: "TEKLİF",
+    activity: "TEKLİF DURUM GÜNCELLEMESİ",
+    description: "Sistemde açık olan tekliflerin durumlarının müşteri ile iletişim kurularak güncellenmesi, iptal veya kayıp olan tekliflerin teklif sahipleri ile iletişim kurularak güncellenmesi",
+    unit: "count",
+    defaultTarget: "30",
+  },
+];
+const withTargetType = (targetType: UserTargetType, rows: Omit<TargetTemplateItem, "targetType">[]): TargetTemplateItem[] =>
+  rows.map((row) => ({ targetType, ...row }));
+const TARGET_TEMPLATES: Record<UserTargetType, TargetTemplateItem[]> = {
+  sales: withTargetType("sales", [
+    {
+      category: "SATIŞ",
+      activity: "SATIŞ HEDEFİ",
+      description: "Tezgah teslimi yapıldığında hedef gerçekleşmiş olur.",
+      unit: "count",
+      defaultTarget: "3",
+    },
+    {
+      category: "SATIŞ",
+      activity: "TAHSİLAT HEDEFİ",
+      description: "Satılan tezgahların bedellerinin tahsil edilmesi, sıralı ödemelerin takip edilmesi, açık kalan bakiyenin aylık ciro içindeki payı maksimum %5 olmalı.",
+      unit: "amount",
+      defaultTarget: "",
+    },
+    ...sharedVisitTargets,
+    {
+      category: "ARAMA",
+      activity: "MÜŞTERİ MEMNUNİYET ARAMASI",
+      description: "Halihazırdaki cari hesaplarda bulunan müşterimize yapılan telefon araması",
+      unit: "count",
+      defaultTarget: "60",
+    },
+    {
+      category: "ARAMA",
+      activity: "TEKLİF TAKİP ARAMASI",
+      description: "Özellikle şehir dışı müşterilerin teklif durumları ile ilgili aramalar",
+      unit: "count",
+      defaultTarget: "40",
+    },
+    {
+      category: "ARAMA",
+      activity: "YENİ MÜŞTERİ ARAMASI",
+      description: "Sistemimizde kayıtlı olmayan, daha önce teklif verilmemiş ve aranmamış potansiyel müşteri araması",
+      unit: "count",
+      defaultTarget: "40",
+    },
+    ...sharedDigitalTargets,
+    ...sharedQuoteTargets,
+  ]),
+  service: withTargetType("service", [
+    {
+      category: "SATIŞ",
+      activity: "DIŞ SERVİS",
+      description: "Satışını bizim yapmadığımız, tezgahımızı kullanmayan firmalara servis hizmet verme",
+      unit: "amount",
+      defaultTarget: "50000",
+    },
+    {
+      category: "SATIŞ",
+      activity: "PERİYODİK BAKIM",
+      description: "Periyodik bakım hizmet satışı",
+      unit: "count",
+      defaultTarget: "3",
+    },
+    {
+      category: "SATIŞ",
+      activity: "YEDEK PARÇA & AKSESUAR SATIŞI",
+      description: "Yedek parça ve tezgah aksesuarlarının satışı",
+      unit: "amount",
+      defaultTarget: "25000",
+    },
+    ...sharedVisitTargets,
+    {
+      category: "ARAMA",
+      activity: "HİZMET MEMNUNİYET ARAMASI",
+      description: "Servis hizmeti verdiğimiz müşterilerin servis hizmet sonrası aranması, tezgahın bakım/onarım sonrası durumu hakkında bilgi alınması ve hizmet kalitemiz için müşterinin aranması",
+      unit: "count",
+      defaultTarget: "40",
+    },
+    {
+      category: "ARAMA",
+      activity: "TEKLİF TAKİP ARAMASI",
+      description: "Teklif verdiğimiz müşterinin teklifin durumu hakkında aranması",
+      unit: "count",
+      defaultTarget: "40",
+    },
+    {
+      category: "ARAMA",
+      activity: "YENİ MÜŞTERİ ARAMASI",
+      description: "Servis hizmeti verebileceğimiz yeni müşteri tarama araması",
+      unit: "count",
+      defaultTarget: "25",
+    },
+    ...sharedDigitalTargets,
+    ...sharedQuoteTargets,
+    {
+      category: "TEKNİK",
+      activity: "DEMO PARÇA ÜRETİMİ",
+      description: "Tezgahlarımızın teknik kabiliyet ve kapasitesini gösteren demo parça işlenmesi, video çekimi",
+      unit: "count",
+      defaultTarget: "30",
+    },
+    {
+      category: "TEKNİK",
+      activity: "MÜŞTERİ BİLGİ PAYLAŞIMI",
+      description: "Tezgahların kullanım kolaylığı sağlayan fonksiyonlarını, gizli özelliklerini, bakım ipuçları v.s. gibi müşterilere mail yoluyla bilgi paylaşımı, Youtube kanalımıza kısa video hazırlanması",
+      unit: "count",
+      defaultTarget: "30",
+    },
+    {
+      category: "TEKNİK",
+      activity: "TEZGAH ARGE ÇALIŞMASI",
+      description: "Tezgahların teknik olarak eksik kalan, yetersiz kalan ve geliştirilmesi gerek konuların raporlanması",
+      unit: "count",
+      defaultTarget: "1",
+    },
+  ]),
+};
+const allTargetTemplates = () => [...TARGET_TEMPLATES.sales, ...TARGET_TEMPLATES.service];
+const targetItemKey = (item: Pick<UserTargetItem, "targetType" | "category" | "activity">) => `${item.targetType}:${item.category}:${item.activity}`;
+const defaultTargetItems = (): UserTargetItem[] => allTargetTemplates().map((item) => ({ ...item, target: item.defaultTarget }));
 const emptyTarget = (): UserTarget => ({
-  period: currentPeriod(), salesAmount: "", currency: "EUR", newCustomers: "", offers: "", note: "",
+  period: currentPeriod(),
+  salesAmount: "",
+  currency: "USD",
+  salesNewCustomers: "",
+  serviceAmount: "",
+  serviceCompleted: "",
+  digitalLeadTarget: "",
+  digitalConversionTarget: "",
+  digitalBudget: "",
+  visitTarget: "",
+  callTarget: "",
+  quoteTarget: "",
+  targetItems: defaultTargetItems(),
+  note: "",
 });
-const loadTargets = (): Record<string, UserTarget> => {
-  try {
-    const raw = localStorage.getItem(TARGETS_STORAGE_KEY);
-    return raw ? (JSON.parse(raw) as Record<string, UserTarget>) : {};
-  } catch {
-    return {};
-  }
+const targetValue = (value: unknown) => (value === null || value === undefined ? "" : String(value));
+const mergeTargetItems = (items: unknown): UserTargetItem[] => {
+  const incoming = Array.isArray(items) ? items : [];
+  const byKey = new Map<string, any>();
+  incoming.forEach((item) => {
+    if (!item || typeof item !== "object") return;
+    const maybe = item as Partial<UserTargetItem>;
+    if (!maybe.targetType || !maybe.category || !maybe.activity) return;
+    byKey.set(targetItemKey(maybe as UserTargetItem), maybe);
+  });
+  return allTargetTemplates().map((template) => {
+    const existing = byKey.get(targetItemKey(template as UserTargetItem));
+    return {
+      ...template,
+      target: targetValue(existing?.target ?? template.defaultTarget),
+    };
+  });
 };
-const saveTargets = (targets: Record<string, UserTarget>) => {
-  try {
-    localStorage.setItem(TARGETS_STORAGE_KEY, JSON.stringify(targets));
-  } catch {
-    /* storage kapalı olabilir; sessiz geç */
-  }
+const targetNumberOrNull = (value: string) => {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const numeric = Number(trimmed.replace(",", "."));
+  return Number.isFinite(numeric) ? numeric : null;
 };
-const hasTargetValue = (t?: UserTarget) => !!t && (!!t.salesAmount || !!t.newCustomers || !!t.offers);
+const targetFromApi = (row: any): UserTarget => ({
+  period: row.period ?? currentPeriod(),
+  currency: "USD",
+  salesAmount: targetValue(row.salesAmount),
+  salesNewCustomers: targetValue(row.salesNewCustomers),
+  serviceAmount: targetValue(row.serviceAmount),
+  serviceCompleted: targetValue(row.serviceCompleted),
+  digitalLeadTarget: targetValue(row.digitalLeadTarget),
+  digitalConversionTarget: targetValue(row.digitalConversionTarget),
+  digitalBudget: targetValue(row.digitalBudget),
+  visitTarget: targetValue(row.visitTarget),
+  callTarget: targetValue(row.callTarget),
+  quoteTarget: targetValue(row.quoteTarget),
+  targetItems: mergeTargetItems(row.targetItems),
+  note: row.note ?? "",
+});
+const targetToApi = (target: UserTarget) => ({
+  period: target.period,
+  currency: "USD",
+  salesAmount: targetNumberOrNull(target.salesAmount),
+  salesNewCustomers: targetNumberOrNull(target.salesNewCustomers),
+  serviceAmount: targetNumberOrNull(target.serviceAmount),
+  serviceCompleted: targetNumberOrNull(target.serviceCompleted),
+  digitalLeadTarget: targetNumberOrNull(target.digitalLeadTarget),
+  digitalConversionTarget: targetNumberOrNull(target.digitalConversionTarget),
+  digitalBudget: targetNumberOrNull(target.digitalBudget),
+  visitTarget: targetNumberOrNull(target.visitTarget),
+  callTarget: targetNumberOrNull(target.callTarget),
+  quoteTarget: targetNumberOrNull(target.quoteTarget),
+  targetItems: target.targetItems.map(({ targetType, category, activity, description, unit, target }) => ({
+    targetType,
+    category,
+    activity,
+    description,
+    unit,
+    target: target.trim(),
+  })),
+  note: target.note.trim() || undefined,
+});
+const hasTargetValue = (t?: UserTarget) =>
+  !!t &&
+  ([
+    t.salesAmount,
+    t.salesNewCustomers,
+    t.serviceAmount,
+    t.serviceCompleted,
+    t.digitalLeadTarget,
+    t.digitalConversionTarget,
+    t.digitalBudget,
+    t.visitTarget,
+    t.callTarget,
+    t.quoteTarget,
+  ].some((value) => !!value?.trim()) ||
+    t.targetItems.some((item) => !!item.target.trim()));
+const targetFilledCount = (target: UserTarget, targetType: UserTargetType) =>
+  target.targetItems.filter((item) => item.targetType === targetType && !!item.target.trim()).length;
+const targetTotalCount = (targetType: UserTargetType) => TARGET_TEMPLATES[targetType].length;
+
+function TargetPill({ label, value }: { label: string; value: string }) {
+  return (
+    <span className="inline-flex items-center gap-1 rounded-full bg-brand-blue-soft px-2 py-0.5 text-[11px] text-brand-blue">
+      <TrendingUp className="size-3" />
+      <span>{label}</span>
+      <span className="text-blue-500">{value}</span>
+    </span>
+  );
+}
 
 type AssignableRole = {
   id: string;
@@ -4062,7 +5297,8 @@ export function UsersPage() {
   const [availableRoles, setAvailableRoles] = useState<AssignableRole[]>([]);
   const [adminLoading, setAdminLoading] = useState(true);
   const [adminError, setAdminError] = useState<string | null>(null);
-  const [targets, setTargets] = useState<Record<string, UserTarget>>(() => loadTargets());
+  const [targetPeriod, setTargetPeriod] = useState(currentPeriod());
+  const [targets, setTargets] = useState<Record<string, UserTarget>>({});
   const [targetUser, setTargetUser] = useState<User | null>(null);
   const [roleUser, setRoleUser] = useState<AdminUserRow | null>(null);
   const [savingRoles, setSavingRoles] = useState(false);
@@ -4106,18 +5342,31 @@ export function UsersPage() {
 
   const displayUsers = adminUsers.length ? adminUsers : users.map(normalizeStoreUser);
 
-  const handleSaveTarget = (userId: string, target: UserTarget) => {
-    setTargets((prev) => {
-      const next = { ...prev, [userId]: target };
-      saveTargets(next);
-      return next;
-    });
+  const fetchTargets = useCallback(async () => {
+    if (!canSetTargets) return;
+    try {
+      const rows = await adminService.userTargets({ period: targetPeriod });
+      const next: Record<string, UserTarget> = {};
+      rows.forEach((row: any) => {
+        next[row.userId] = targetFromApi(row);
+      });
+      setTargets(next);
+    } catch (err: any) {
+      toast.error("Hedefler yüklenemedi", { description: err?.message ?? "Backend isteği başarısız oldu." });
+    }
+  }, [canSetTargets, targetPeriod]);
+
+  useEffect(() => {
+    fetchTargets();
+  }, [fetchTargets]);
+
+  const handleSaveTarget = async (userId: string, target: UserTarget) => {
+    const saved = await adminService.saveUserTarget(userId, targetToApi({ ...target, period: targetPeriod }));
+    setTargets((prev) => ({ ...prev, [userId]: targetFromApi(saved) }));
   };
 
   const [limitUser, setLimitUser] = useState<User | null>(null);
   const handleSaveLimit = (userId: string, limit: number | undefined, managerId: string | undefined) => {
-    // In a real app this would call an API, for mock we just update the store
-    // users.find(u => u.id === userId).purchaseApprovalLimit = limit
     toast.success("Kullanıcı limitleri güncellendi.");
     setLimitUser(null);
   };
@@ -4139,9 +5388,19 @@ export function UsersPage() {
   return (
     <>
       <Card className="border-border/60 shadow-sm overflow-hidden">
-        <CardHeader className="flex flex-row items-center justify-between">
+        <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <CardTitle>Kullanıcılar</CardTitle>
-          <Button className="gap-1"><Plus className="size-4" /> Kullanıcı Ekle</Button>
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            {canSetTargets && (
+              <Input
+                type="month"
+                className="h-9 w-full sm:w-[150px]"
+                value={targetPeriod}
+                onChange={(e) => setTargetPeriod(e.target.value || currentPeriod())}
+              />
+            )}
+            <Button className="gap-1"><Plus className="size-4" /> Kullanıcı Ekle</Button>
+          </div>
         </CardHeader>
         {adminError && (
           <div className="mx-4 mb-3 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive">
@@ -4188,13 +5447,10 @@ export function UsersPage() {
                     <TableCell>{u.department}</TableCell>
                     <TableCell>
                       {hasTargetValue(t) ? (
-                        <span className="inline-flex items-center gap-1 rounded-full bg-brand-blue-soft px-2 py-0.5 text-[11px] text-brand-blue">
-                          <TrendingUp className="size-3" />
-                          {t.salesAmount
-                            ? `${Number(t.salesAmount).toLocaleString("tr-TR")} ${t.currency}`
-                            : `${t.newCustomers || t.offers} adet`}
-                          <span className="text-blue-400">· {t.period}</span>
-                        </span>
+                        <div className="flex flex-wrap gap-1">
+                          <TargetPill label="Satış" value={`${targetFilledCount(t, "sales")}/${targetTotalCount("sales")}`} />
+                          <TargetPill label="Servis" value={`${targetFilledCount(t, "service")}/${targetTotalCount("service")}`} />
+                        </div>
                       ) : (
                         <span className="text-[11px] text-muted-foreground">—</span>
                       )}
@@ -4237,6 +5493,7 @@ export function UsersPage() {
         <UserTargetDialog
           user={targetUser}
           target={targetUser ? targets[targetUser.id] : undefined}
+          period={targetPeriod}
           onClose={() => setTargetUser(null)}
           onSave={handleSaveTarget}
         />
@@ -4408,77 +5665,220 @@ function UserLimitDialog({ user, users, onClose, onSave }: {
   );
 }
 
-function UserTargetDialog({ user, target, onClose, onSave }: {
+function UserTargetDialog({ user, target, period, onClose, onSave }: {
   user: User | null;
   target?: UserTarget;
+  period: string;
   onClose: () => void;
-  onSave: (userId: string, target: UserTarget) => void;
+  onSave: (userId: string, target: UserTarget) => Promise<void>;
 }) {
   const [form, setForm] = useState<UserTarget>(emptyTarget());
+  const [activeTargetType, setActiveTargetType] = useState<UserTargetType>("sales");
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    if (user) setForm(target ? { ...emptyTarget(), ...target } : emptyTarget());
-  }, [user, target]);
+    if (!user) return;
+    setForm(target ? { ...emptyTarget(), ...target, period, targetItems: mergeTargetItems(target.targetItems) } : { ...emptyTarget(), period });
+    setActiveTargetType("sales");
+  }, [user, target, period]);
 
   if (!user) return null;
 
-  const submit = (e: React.FormEvent) => {
+  const updateField = (key: keyof UserTarget, value: string) => setForm((prev) => ({ ...prev, [key]: value }));
+  const updateItemTarget = (key: string, value: string) => {
+    setForm((prev) => ({
+      ...prev,
+      targetItems: prev.targetItems.map((item) => (targetItemKey(item) === key ? { ...item, target: value } : item)),
+    }));
+  };
+  const resetActiveDefaults = () => {
+    setForm((prev) => ({
+      ...prev,
+      targetItems: prev.targetItems.map((item) => (item.targetType === activeTargetType ? { ...item, target: item.defaultTarget } : item)),
+    }));
+  };
+
+  const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    onSave(user.id, {
-      ...form,
-      salesAmount: form.salesAmount.trim(),
-      newCustomers: form.newCustomers.trim(),
-      offers: form.offers.trim(),
-      note: form.note.trim(),
-    });
-    toast.success("Hedef kaydedildi", { description: `${user.name} · ${form.period}` });
-    onClose();
+    setSaving(true);
+    try {
+      await onSave(user.id, {
+        ...form,
+        period,
+        salesAmount: form.salesAmount.trim(),
+        salesNewCustomers: form.salesNewCustomers.trim(),
+        serviceAmount: form.serviceAmount.trim(),
+        serviceCompleted: form.serviceCompleted.trim(),
+        digitalLeadTarget: form.digitalLeadTarget.trim(),
+        digitalConversionTarget: form.digitalConversionTarget.trim(),
+        digitalBudget: form.digitalBudget.trim(),
+        visitTarget: form.visitTarget.trim(),
+        callTarget: form.callTarget.trim(),
+        quoteTarget: form.quoteTarget.trim(),
+        targetItems: form.targetItems.map((item) => ({ ...item, target: item.target.trim() })),
+        note: form.note.trim(),
+      });
+      toast.success("Hedef kaydedildi", { description: `${user.name} · ${period}` });
+      onClose();
+    } catch (err: any) {
+      toast.error("Hedef kaydedilemedi", { description: err?.message ?? "Backend isteği başarısız oldu." });
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
     <Dialog open={!!user} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-lg">
-        <DialogHeader>
-          <DialogTitle>Hedef Belirle · {user.name}</DialogTitle>
-          <DialogDescription>{user.role} · {user.department} — dönem bazlı satış hedeflerini girin.</DialogDescription>
-        </DialogHeader>
-        <form onSubmit={submit} className="space-y-3">
-          <div className="grid grid-cols-2 gap-3">
-            <FormField label="Dönem">
-              <Input type="month" className="h-9" value={form.period} onChange={(e) => setForm({ ...form, period: e.target.value })} />
-            </FormField>
-            <FormField label="Para Birimi">
-              <Select value={form.currency} onValueChange={(currency: "USD" | "EUR" | "TRY") => setForm({ ...form, currency })}>
-                <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="USD">USD</SelectItem>
-                  <SelectItem value="EUR">EUR</SelectItem>
-                  <SelectItem value="TRY">TL</SelectItem>
-                </SelectContent>
-              </Select>
-            </FormField>
+      <DialogContent className="w-[calc(100vw-1rem)] max-w-none gap-0 overflow-hidden p-0 sm:w-[min(1180px,calc(100vw-2rem))] sm:max-w-none max-h-[92dvh]">
+        <form onSubmit={submit} className="flex max-h-[92dvh] flex-col">
+          <DialogHeader className="border-b border-border/60 px-4 py-4 pr-11 sm:px-5">
+            <DialogTitle className="leading-snug">Hedef Belirle · {user.name}</DialogTitle>
+            <DialogDescription>{user.role} · {user.department} — {period} dönemi aylık hedefleri.</DialogDescription>
+          </DialogHeader>
+          <div className="flex-1 space-y-4 overflow-y-auto px-4 py-4 sm:px-5">
+            <div className="grid gap-3 sm:grid-cols-[160px_120px_1fr]">
+              <FormField label="Dönem">
+                <Input type="month" className="h-9" value={period} disabled />
+              </FormField>
+              <FormField label="Para Birimi">
+                <Input className="h-9 bg-muted/50 font-medium" value="USD" disabled />
+              </FormField>
+              <FormField label="Not">
+                <Textarea className="min-h-[36px] resize-none" value={form.note} onChange={(e) => updateField("note", e.target.value)} />
+              </FormField>
+            </div>
+
+            <Tabs value={activeTargetType} onValueChange={(value) => setActiveTargetType(value as UserTargetType)}>
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <TabsList className="grid h-9 w-full grid-cols-2 bg-muted/60 sm:w-auto">
+                  <TabsTrigger value="sales" className="gap-1.5 whitespace-nowrap">
+                    <TrendingUp className="size-3.5" /> Satış Hedefleri
+                  </TabsTrigger>
+                  <TabsTrigger value="service" className="gap-1.5 whitespace-nowrap">
+                    <Wrench className="size-3.5" /> Servis Hedefleri
+                  </TabsTrigger>
+                </TabsList>
+                <Button type="button" variant="outline" size="sm" className="h-8 w-full gap-1.5 sm:w-auto" onClick={resetActiveDefaults}>
+                  <RotateCcw className="size-3.5" /> Şablondan Doldur
+                </Button>
+              </div>
+              <TabsContent value="sales" className="mt-3">
+                <TargetTemplateTable
+                  items={form.targetItems.filter((item) => item.targetType === "sales")}
+                  onTargetChange={updateItemTarget}
+                />
+              </TabsContent>
+              <TabsContent value="service" className="mt-3">
+                <TargetTemplateTable
+                  items={form.targetItems.filter((item) => item.targetType === "service")}
+                  onTargetChange={updateItemTarget}
+                />
+              </TabsContent>
+            </Tabs>
           </div>
-          <FormField label="Aylık Satış Hedefi">
-            <Input className="h-9" inputMode="decimal" value={form.salesAmount} onChange={(e) => setForm({ ...form, salesAmount: e.target.value })} placeholder="Örn: 420000" />
-          </FormField>
-          <div className="grid grid-cols-2 gap-3">
-            <FormField label="Yeni Müşteri Hedefi">
-              <Input className="h-9" inputMode="numeric" value={form.newCustomers} onChange={(e) => setForm({ ...form, newCustomers: e.target.value })} placeholder="adet" />
-            </FormField>
-            <FormField label="Teklif Hedefi">
-              <Input className="h-9" inputMode="numeric" value={form.offers} onChange={(e) => setForm({ ...form, offers: e.target.value })} placeholder="adet" />
-            </FormField>
-          </div>
-          <FormField label="Not">
-            <Textarea className="min-h-[60px]" value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} />
-          </FormField>
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={onClose}>İptal</Button>
-            <Button type="submit">Kaydet</Button>
+          <DialogFooter className="border-t border-border/60 px-4 py-3 sm:px-5 sm:py-4">
+            <Button type="button" variant="outline" onClick={onClose} disabled={saving}>İptal</Button>
+            <Button type="submit" disabled={saving}>{saving ? "Kaydediliyor..." : "Kaydet"}</Button>
           </DialogFooter>
         </form>
       </DialogContent>
     </Dialog>
+  );
+}
+
+const targetCurrencyLabel = () => "USD";
+
+function groupTargetItems(items: UserTargetItem[]) {
+  const groups: { category: string; items: UserTargetItem[] }[] = [];
+  items.forEach((item) => {
+    const last = groups[groups.length - 1];
+    if (last?.category === item.category) {
+      last.items.push(item);
+    } else {
+      groups.push({ category: item.category, items: [item] });
+    }
+  });
+  return groups;
+}
+
+function TargetTemplateTable({ items, onTargetChange }: {
+  items: UserTargetItem[];
+  onTargetChange: (key: string, value: string) => void;
+}) {
+  const groups = groupTargetItems(items);
+  return (
+    <div className="space-y-3">
+      <div className="md:hidden space-y-3">
+        {groups.map((group) => (
+          <div key={group.category} className="space-y-2">
+            <div className="sticky top-0 z-10 rounded-md bg-background/95 py-1 text-[11px] font-semibold tracking-wide text-muted-foreground">
+              {group.category}
+            </div>
+            {group.items.map((item) => (
+              <div key={targetItemKey(item)} className="rounded-md border border-border/60 bg-background p-3 shadow-sm">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium leading-snug">{item.activity}</div>
+                    <div className="mt-1 text-xs leading-relaxed text-muted-foreground">{item.description}</div>
+                  </div>
+                  <div className="shrink-0">
+                    {item.unit === "amount" && <div className="mb-1 text-right text-[11px] text-muted-foreground">{targetCurrencyLabel()}</div>}
+                    <Input
+                      className="h-8 w-24 text-right tabular-nums"
+                      inputMode={item.unit === "amount" ? "decimal" : "numeric"}
+                      value={item.target}
+                      onChange={(e) => onTargetChange(targetItemKey(item), e.target.value)}
+                      placeholder={item.unit === "amount" ? "tutar" : "adet"}
+                    />
+                    {item.unit === "count" && <div className="mt-1 text-right text-[11px] text-muted-foreground">adet</div>}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        ))}
+      </div>
+      <div className="hidden overflow-hidden rounded-md border border-border/60 md:block">
+      <div className="max-h-[54vh] overflow-auto">
+        <Table className="min-w-[900px] table-fixed">
+          <TableHeader className="sticky top-0 z-10 bg-background">
+            <TableRow>
+              <TableHead className="w-[130px]">Kategori</TableHead>
+              <TableHead className="w-[250px]">Aktivite</TableHead>
+              <TableHead>Aktivite Açıklaması</TableHead>
+              <TableHead className="w-[180px] text-right">Aylık Hedef</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {groups.map((group) =>
+              group.items.map((item, index) => (
+                <TableRow key={targetItemKey(item)} className={index === 0 ? "border-t border-border/70" : undefined}>
+                  <TableCell className="align-top text-xs font-semibold text-muted-foreground">
+                    {index === 0 ? group.category : ""}
+                  </TableCell>
+                  <TableCell className="align-top text-sm font-medium whitespace-normal break-words">{item.activity}</TableCell>
+                  <TableCell className="align-top text-xs leading-relaxed text-muted-foreground whitespace-normal break-words">{item.description}</TableCell>
+                  <TableCell className="align-top">
+                    <div className="flex items-center justify-end gap-1.5">
+                      {item.unit === "amount" && <span className="min-w-8 text-right text-xs text-muted-foreground">{targetCurrencyLabel()}</span>}
+                      <Input
+                        className="h-8 w-24 text-right tabular-nums"
+                        inputMode={item.unit === "amount" ? "decimal" : "numeric"}
+                        value={item.target}
+                        onChange={(e) => onTargetChange(targetItemKey(item), e.target.value)}
+                        placeholder={item.unit === "amount" ? "tutar" : "adet"}
+                      />
+                      {item.unit === "count" && <span className="w-8 text-xs text-muted-foreground">adet</span>}
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ))
+            )}
+          </TableBody>
+        </Table>
+      </div>
+      </div>
+    </div>
   );
 }
 
@@ -5026,35 +6426,107 @@ export function RolesPage() {
   );
 }
 
+type DeptItem = { id: string; code?: string; name: string; description?: string };
+
 export function DepartmentsPage() {
   const { hasRole } = useAuth();
   const canManage = hasRole("super_admin");
+  const [rows, setRows] = useState<DeptItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [open, setOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [form, setForm] = useState({ name: "", code: "", description: "" });
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      setRows((await adminService.departments()) as DeptItem[]);
+    } catch {
+      setRows([]);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+  useEffect(() => { load(); }, [load]);
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!form.name.trim() || !form.code.trim()) return toast.error("Ad ve kod zorunlu");
+    setSaving(true);
+    try {
+      await adminService.createDept({ name: form.name.trim(), code: form.code.trim(), description: form.description.trim() || undefined });
+      toast.success("Departman eklendi");
+      setOpen(false);
+      setForm({ name: "", code: "", description: "" });
+      await load();
+    } catch (err: any) {
+      toast.error("Departman eklenemedi", { description: err?.message ?? "API isteği başarısız oldu." });
+    } finally {
+      setSaving(false);
+    }
+  };
 
   return (
     <Card className="border-border/60 shadow-sm overflow-hidden">
       <CardHeader className="flex flex-row items-center justify-between">
         <CardTitle>Departmanlar</CardTitle>
-        {canManage && <Button className="gap-1"><Plus className="size-4" /> Departman</Button>}
+        {canManage && (
+          <Dialog open={open} onOpenChange={setOpen}>
+            <DialogTrigger asChild>
+              <Button className="gap-1"><Plus className="size-4" /> Departman</Button>
+            </DialogTrigger>
+            <DialogContent className="max-w-md">
+              <DialogHeader>
+                <DialogTitle>Yeni Departman</DialogTitle>
+                <DialogDescription>Bu tenant'a yeni bir departman ekleyin.</DialogDescription>
+              </DialogHeader>
+              <form onSubmit={submit} className="space-y-3">
+                <div>
+                  <Label className="text-xs">Ad *</Label>
+                  <Input className="mt-1.5" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Satış" />
+                </div>
+                <div>
+                  <Label className="text-xs">Kod *</Label>
+                  <Input className="mt-1.5" value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value })} placeholder="sales" />
+                </div>
+                <div>
+                  <Label className="text-xs">Açıklama</Label>
+                  <Textarea className="mt-1.5" rows={2} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
+                </div>
+                <DialogFooter>
+                  <Button type="button" variant="outline" onClick={() => setOpen(false)}>Vazgeç</Button>
+                  <Button type="submit" disabled={saving}>{saving ? "Kaydediliyor..." : "Kaydet"}</Button>
+                </DialogFooter>
+              </form>
+            </DialogContent>
+          </Dialog>
+        )}
       </CardHeader>
       <div className="overflow-x-auto">
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>Departman</TableHead>
-            <TableHead>Yönetici</TableHead>
-            <TableHead>Kullanıcı Sayısı</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {departments.map((d) => (
-            <TableRow key={d.id}>
-              <TableCell>{d.name}</TableCell>
-              <TableCell>{d.manager}</TableCell>
-              <TableCell className="tabular-nums">{d.userCount}</TableCell>
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Departman</TableHead>
+              <TableHead>Kod</TableHead>
+              <TableHead>Açıklama</TableHead>
             </TableRow>
-          ))}
-        </TableBody>
-      </Table>
+          </TableHeader>
+          <TableBody>
+            {!loading && rows.map((d) => (
+              <TableRow key={d.id}>
+                <TableCell>{d.name}</TableCell>
+                <TableCell className="text-muted-foreground">{d.code ?? "—"}</TableCell>
+                <TableCell className="text-muted-foreground">{d.description ?? "—"}</TableCell>
+              </TableRow>
+            ))}
+            {!loading && rows.length === 0 && (
+              <TableRow><TableCell colSpan={3} className="text-center py-8 text-sm text-muted-foreground">Henüz departman yok.</TableCell></TableRow>
+            )}
+            {loading && (
+              <TableRow><TableCell colSpan={3} className="text-center py-8 text-sm text-muted-foreground">Yükleniyor...</TableCell></TableRow>
+            )}
+          </TableBody>
+        </Table>
       </div>
     </Card>
   );
@@ -5084,7 +6556,7 @@ export function SettingsPage() {
       <Card className="border-border/60 shadow-sm overflow-hidden">
         <CardHeader><CardTitle>Para Birimi & Bölge</CardTitle></CardHeader>
         <CardContent className="space-y-3">
-          <Field label="Varsayılan Para Birimi" defaultValue="EUR" />
+          <Field label="Varsayılan Para Birimi" defaultValue="USD" />
           <Field label="Saat Dilimi" defaultValue="Europe/Istanbul" />
         </CardContent>
       </Card>

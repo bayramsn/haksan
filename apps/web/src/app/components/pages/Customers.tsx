@@ -5,8 +5,14 @@ import { Input } from "../ui/input";
 import { Button } from "../ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../ui/table";
 import {
-  Search, Download, MoreHorizontal, Eye, Pencil, Phone, Mail, MapPin, Building2, User as UserIcon, ArrowUpDown,
+  Search, Download, MoreHorizontal, Eye, Pencil, Phone, Mail, MapPin, Building2, User as UserIcon, ArrowUpDown, Trash2,
 } from "lucide-react";
+import { toast } from "sonner";
+import { EditCustomerDialog } from "../dialogs/CreateDialogs";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "../ui/alert-dialog";
 import { Customer, FirmType } from "../../lib/mock";
 import { useStore } from "../../lib/store";
 import { useDetailDialogs } from "../dialogs/DetailDialogs";
@@ -32,8 +38,10 @@ const FIRM_TYPE_COLOR: Record<FirmType, string> = {
 };
 
 export function CustomersPage(_props: { onSelect?: (c: Customer) => void } = {}) {
-  const { customers } = useStore();
+  const { customers, deleteCustomer } = useStore();
   const { openCompany, dialogs } = useDetailDialogs();
+  const [editing, setEditing] = useState<Customer | null>(null);
+  const [deleting, setDeleting] = useState<Customer | null>(null);
   const [q, setQ] = useState("");
   const [tab, setTab] = useState<"all" | FirmType>("all");
   const [salesTab, setSalesTab] = useState<"all" | "potential" | "active_customer">("all");
@@ -114,8 +122,8 @@ export function CustomersPage(_props: { onSelect?: (c: Customer) => void } = {})
           </TabsList>
         </Tabs>
 
-        <div className="flex items-center gap-2 ml-auto">
-          <div className="relative w-72">
+        <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:ml-auto">
+          <div className="relative w-full sm:w-72">
             <Search className="size-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
             <Input
               placeholder="Firma, şehir, e-posta ara..."
@@ -242,9 +250,12 @@ export function CustomersPage(_props: { onSelect?: (c: Customer) => void } = {})
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
                         <DropdownMenuItem onClick={() => openCompany(c)}><Eye className="size-4 mr-2" /> Görüntüle</DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => openCompany(c)}><Pencil className="size-4 mr-2" /> Düzenle</DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => setEditing(c)}><Pencil className="size-4 mr-2" /> Düzenle</DropdownMenuItem>
                         <DropdownMenuItem disabled={!c.email} onClick={() => c.email && (window.location.href = `mailto:${c.email}`)}>
                           <Mail className="size-4 mr-2" /> E-posta gönder
+                        </DropdownMenuItem>
+                        <DropdownMenuItem className="text-red-600 focus:text-red-600" onClick={() => setDeleting(c)}>
+                          <Trash2 className="size-4 mr-2" /> Sil
                         </DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
@@ -271,6 +282,38 @@ export function CustomersPage(_props: { onSelect?: (c: Customer) => void } = {})
       </Card>
 
       {dialogs}
+
+      <EditCustomerDialog customer={editing} onClose={() => setEditing(null)} />
+
+      <AlertDialog open={!!deleting} onOpenChange={(o) => !o && setDeleting(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Firmayı sil?</AlertDialogTitle>
+            <AlertDialogDescription>
+              <b>{deleting?.name}</b> silinecek. Bağlı kayıtlar varsa işlem reddedilebilir.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Vazgeç</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-red-600 hover:bg-red-700"
+              onClick={async () => {
+                if (!deleting) return;
+                try {
+                  await deleteCustomer(deleting.id);
+                  toast.success("Firma silindi");
+                } catch (err: any) {
+                  toast.error("Firma silinemedi", { description: err?.message ?? "Bağlı kayıtlar olabilir." });
+                } finally {
+                  setDeleting(null);
+                }
+              }}
+            >
+              Sil
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

@@ -8,7 +8,7 @@ import { getDb, schema } from '../src/db/client';
 
 let app: NestFastifyApplication;
 let tenantA = { accessToken: '', companyId: '' };
-let tenantB = { accessToken: '', userId: '', companyId: '' };
+let tenantB = { accessToken: '', userId: '', companyId: '', contactId: '', opportunityId: '', quoteId: '' };
 
 beforeAll(async () => {
   app = await createTestApp();
@@ -49,6 +49,17 @@ beforeAll(async () => {
   }
   tenantB.companyId = cb.id;
 
+  let contactB = await db.query.contacts.findFirst({
+    where: and(eq(schema.contacts.tenantId, tb.id), eq(schema.contacts.fullName, 'Tenant B Contact')),
+  });
+  if (!contactB) {
+    [contactB] = await db
+      .insert(schema.contacts)
+      .values({ tenantId: tb.id, companyId: cb.id, fullName: 'Tenant B Contact' })
+      .returning();
+  }
+  tenantB.contactId = contactB.id;
+
   // login as tenant B
   const tbLogin = await supertest(app.getHttpServer())
     .post('/api/v1/auth/login')
@@ -63,6 +74,32 @@ beforeAll(async () => {
   // pick one of tenant A's companies
   const listA = await supertest(app.getHttpServer()).get('/api/v1/companies').set('Authorization', `Bearer ${tenantA.accessToken}`);
   tenantA.companyId = listA.body.data[0].id;
+
+  const oppB = await supertest(app.getHttpServer())
+    .post('/api/v1/opportunities')
+    .set('Authorization', `Bearer ${tenantB.accessToken}`)
+    .send({
+      companyId: tenantB.companyId,
+      primaryContactId: tenantB.contactId,
+      title: `Tenant B opportunity ${Date.now()}`,
+      currencyCode: 'USD',
+    });
+  expect(oppB.status).toBe(201);
+  tenantB.opportunityId = oppB.body.id;
+
+  const quoteB = await supertest(app.getHttpServer())
+    .post('/api/v1/quotes')
+    .set('Authorization', `Bearer ${tenantB.accessToken}`)
+    .send({
+      companyId: tenantB.companyId,
+      contactId: tenantB.contactId,
+      opportunityId: tenantB.opportunityId,
+      quoteDate: new Date().toISOString(),
+      validityDays: 30,
+      currencyCode: 'USD',
+    });
+  expect(quoteB.status).toBe(201);
+  tenantB.quoteId = quoteB.body.id;
 });
 
 afterAll(async () => {
@@ -100,5 +137,147 @@ describe('Tenant isolation', () => {
     for (const c of r.body.data) {
       expect(c.id).not.toBe(tenantA.companyId);
     }
+  });
+
+  it('Tenant A cannot create a quote against Tenant B company/contact/opportunity', async () => {
+    const companyRef = await supertest(app.getHttpServer())
+      .post('/api/v1/quotes')
+      .set('Authorization', `Bearer ${tenantA.accessToken}`)
+      .send({
+        companyId: tenantB.companyId,
+        quoteDate: new Date().toISOString(),
+        validityDays: 30,
+        currencyCode: 'USD',
+      });
+    expect([404, 422]).toContain(companyRef.status);
+
+    const contactRef = await supertest(app.getHttpServer())
+      .post('/api/v1/quotes')
+      .set('Authorization', `Bearer ${tenantA.accessToken}`)
+      .send({
+        companyId: tenantA.companyId,
+        contactId: tenantB.contactId,
+        quoteDate: new Date().toISOString(),
+        validityDays: 30,
+        currencyCode: 'USD',
+      });
+    expect([404, 422]).toContain(contactRef.status);
+
+    const opportunityRef = await supertest(app.getHttpServer())
+      .post('/api/v1/quotes')
+      .set('Authorization', `Bearer ${tenantA.accessToken}`)
+      .send({
+        companyId: tenantA.companyId,
+        opportunityId: tenantB.opportunityId,
+        quoteDate: new Date().toISOString(),
+        validityDays: 30,
+        currencyCode: 'USD',
+      });
+    expect([404, 422]).toContain(opportunityRef.status);
+  });
+
+  it('Tenant A cannot create a sales order against Tenant B references', async () => {
+    const companyRef = await supertest(app.getHttpServer())
+      .post('/api/v1/sales-orders')
+      .set('Authorization', `Bearer ${tenantA.accessToken}`)
+      .send({
+        companyId: tenantB.companyId,
+        orderDate: new Date().toISOString(),
+        currencyCode: 'USD',
+      });
+    expect([404, 422]).toContain(companyRef.status);
+
+    const contactRef = await supertest(app.getHttpServer())
+      .post('/api/v1/sales-orders')
+      .set('Authorization', `Bearer ${tenantA.accessToken}`)
+      .send({
+        companyId: tenantA.companyId,
+        contactId: tenantB.contactId,
+        orderDate: new Date().toISOString(),
+        currencyCode: 'USD',
+      });
+    expect([404, 422]).toContain(contactRef.status);
+
+    const quoteRef = await supertest(app.getHttpServer())
+      .post('/api/v1/sales-orders')
+      .set('Authorization', `Bearer ${tenantA.accessToken}`)
+      .send({
+        companyId: tenantA.companyId,
+        quoteId: tenantB.quoteId,
+        orderDate: new Date().toISOString(),
+        currencyCode: 'USD',
+      });
+    expect([404, 422]).toContain(quoteRef.status);
+  });
+
+  it('Tenant B can create and update a delivery for its own company', async () => {
+    const delivery = await supertest(app.getHttpServer())
+      .post('/api/v1/deliveries')
+      .set('Authorization', `Bearer ${tenantB.accessToken}`)
+      .send({
+        companyId: tenantB.companyId,
+        opportunityId: tenantB.opportunityId,
+        deliveryDate: new Date().toISOString(),
+        signedBy: 'Tenant B Receiver',
+      });
+    expect(delivery.status).toBe(201);
+    expect(delivery.body.companyId).toBe(tenantB.companyId);
+    expect(delivery.body.opportunityId).toBe(tenantB.opportunityId);
+    expect(delivery.body.status).toBe('pending');
+
+    const status = await supertest(app.getHttpServer())
+      .patch(`/api/v1/deliveries/${delivery.body.id}/status`)
+      .set('Authorization', `Bearer ${tenantB.accessToken}`)
+      .send({ status: 'completed' });
+    expect(status.status).toBe(200);
+    expect(status.body.ok).toBe(true);
+  });
+
+  it('Tenant A cannot create service records against Tenant B references', async () => {
+    const ticket = await supertest(app.getHttpServer())
+      .post('/api/v1/service-tickets')
+      .set('Authorization', `Bearer ${tenantA.accessToken}`)
+      .send({
+        companyId: tenantB.companyId,
+        subject: 'Cross tenant ticket',
+      });
+    expect([404, 422]).toContain(ticket.status);
+
+    const installation = await supertest(app.getHttpServer())
+      .post('/api/v1/installations')
+      .set('Authorization', `Bearer ${tenantA.accessToken}`)
+      .send({
+        companyId: tenantA.companyId,
+        contactId: tenantB.contactId,
+      });
+    expect([404, 422]).toContain(installation.status);
+
+    const shipment = await supertest(app.getHttpServer())
+      .post('/api/v1/shipments')
+      .set('Authorization', `Bearer ${tenantA.accessToken}`)
+      .send({
+        opportunityId: tenantB.opportunityId,
+        trackingNo: 'X-TENANT-B',
+      });
+    expect([404, 422]).toContain(shipment.status);
+
+    const deliveryCompany = await supertest(app.getHttpServer())
+      .post('/api/v1/deliveries')
+      .set('Authorization', `Bearer ${tenantA.accessToken}`)
+      .send({
+        companyId: tenantB.companyId,
+        deliveryDate: new Date().toISOString(),
+      });
+    expect([404, 422]).toContain(deliveryCompany.status);
+
+    const deliveryOpportunity = await supertest(app.getHttpServer())
+      .post('/api/v1/deliveries')
+      .set('Authorization', `Bearer ${tenantA.accessToken}`)
+      .send({
+        companyId: tenantA.companyId,
+        opportunityId: tenantB.opportunityId,
+        deliveryDate: new Date().toISOString(),
+      });
+    expect([404, 422]).toContain(deliveryOpportunity.status);
   });
 });

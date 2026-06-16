@@ -1,10 +1,12 @@
+import { useEffect, useMemo, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
 import { Progress } from "../ui/progress";
 import { Button } from "../ui/button";
+import { Input } from "../ui/input";
 import {
   Users, Briefcase, FileText, AlertTriangle, TrendingUp, TrendingDown,
   Package, Wrench, Target, ArrowUpRight, MoreHorizontal, Calendar,
-  CheckCircle2, Clock,
+  CheckCircle2, Clock, Wallet, Truck, BarChart3,
 } from "lucide-react";
 import {
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid,
@@ -14,6 +16,15 @@ import {
 import { SALES_STAGES, salesStageLabel } from "../../lib/mock";
 import { StatusBadge } from "../Layout";
 import { useStore } from "../../lib/store";
+import { adminService } from "../../../lib/services";
+import {
+  buildManagementInsights,
+  buildWorkItems,
+  type KpiDrilldown,
+  type ManagementInsight,
+  type OperationAction,
+  type WorkItem,
+} from "../../lib/operations";
 
 const monthly = [
   { ay: "Ara", teklif: 12, kazanan: 5, kayip: 2, ciro: 180 },
@@ -47,15 +58,93 @@ const sparkData = [
 
 const COLORS = ["#000c69", "#cf060c", "#3b82f6", "#10b981", "#f59e0b", "#64748b", "#0ea5e9", "#14b8a6", "#ef4444", "#334155", "#fbbf24", "#60a5fa"];
 
-export function DashboardPage() {
-  const { customers, cases: salesCases, payments, service: serviceRequests, stock: stockItems, machines, users } = useStore();
+type AssignedTargetItem = {
+  targetType: "sales" | "service";
+  category: string;
+  activity: string;
+  description?: string;
+  unit: "count" | "amount";
+  target: string;
+};
+type AssignedTarget = {
+  period: string;
+  targetItems?: AssignedTargetItem[];
+  note?: string | null;
+  // Özet sayısal alanlar (detaylı targetItems yoksa bunlardan hedef türetilir).
+  salesAmount?: string | number | null;
+  salesNewCustomers?: string | number | null;
+  serviceAmount?: string | number | null;
+  serviceCompleted?: string | number | null;
+  visitTarget?: string | number | null;
+  callTarget?: string | number | null;
+  quoteTarget?: string | number | null;
+  digitalLeadTarget?: string | number | null;
+  digitalConversionTarget?: string | number | null;
+  digitalBudget?: string | number | null;
+};
+
+/** Özet alanlardan hedef kalemleri türetir (targetItems boşken görünürlük için). */
+const synthesizeTargetItems = (t: AssignedTarget | null): AssignedTargetItem[] => {
+  if (!t) return [];
+  const out: AssignedTargetItem[] = [];
+  const num = (v: AssignedTarget["salesAmount"]) => (v == null || v === "" ? null : Number(v));
+  const add = (
+    targetType: AssignedTargetItem["targetType"],
+    activity: string,
+    unit: AssignedTargetItem["unit"],
+    v: AssignedTarget["salesAmount"]
+  ) => {
+    const n = num(v);
+    if (n && n > 0) out.push({ targetType, category: targetType === "sales" ? "Satış" : "Servis", activity, unit, target: String(n) });
+  };
+  add("sales", "Satış Tutarı", "amount", t.salesAmount);
+  add("sales", "Yeni Müşteri", "count", t.salesNewCustomers);
+  add("sales", "Ziyaret", "count", t.visitTarget);
+  add("sales", "Arama", "count", t.callTarget);
+  add("sales", "Teklif", "count", t.quoteTarget);
+  add("sales", "Dijital Lead", "count", t.digitalLeadTarget);
+  add("sales", "Dijital Dönüşüm", "count", t.digitalConversionTarget);
+  add("sales", "Dijital Bütçe", "amount", t.digitalBudget);
+  add("service", "Servis Cirosu", "amount", t.serviceAmount);
+  add("service", "Tamamlanan Servis", "count", t.serviceCompleted);
+  return out;
+};
+
+const currentPeriod = () => new Date().toISOString().slice(0, 7);
+const targetTypeLabel = (type: AssignedTargetItem["targetType"]) => (type === "sales" ? "Satış" : "Servis");
+const formatTargetValue = (item: AssignedTargetItem) => {
+  const value = item.target?.trim();
+  if (!value) return "Belirlenmedi";
+  if (item.unit === "amount") {
+    const number = Number(value.replace(",", "."));
+    const shown = Number.isFinite(number) ? number.toLocaleString("tr-TR") : value;
+    return `${shown} USD`;
+  }
+  return `${value} adet`;
+};
+const filledTargetCount = (items: AssignedTargetItem[], type: AssignedTargetItem["targetType"]) =>
+  items.filter((item) => item.targetType === type && !!item.target?.trim()).length;
+const totalTargetCount = (items: AssignedTargetItem[], type: AssignedTargetItem["targetType"]) =>
+  items.filter((item) => item.targetType === type).length;
+
+export function DashboardPage({ onAction }: { onAction?: (action: OperationAction) => void }) {
+  const store = useStore();
+  const { customers, cases: salesCases, service: serviceRequests, machines, users } = store;
+  const [targetPeriod, setTargetPeriod] = useState(currentPeriod());
+  const [myTarget, setMyTarget] = useState<AssignedTarget | null>(null);
+  const [targetLoading, setTargetLoading] = useState(false);
+  const [targetError, setTargetError] = useState("");
+  // Satış performansı grafiği için dönem seçimi (son N ay).
+  const [chartPeriod, setChartPeriod] = useState<"1A" | "3A" | "6A" | "1Y">("6A");
+  const monthlyView = monthly.slice(-({ "1A": 1, "3A": 3, "6A": 6, "1Y": 12 }[chartPeriod]));
   const activeCustomers = customers.filter((c) => c.status === "active").length;
-  const openCases = salesCases.filter((s) => !s.isLost && s.stage !== "Completed" && s.stage !== "delivered").length;
-  const overdue = payments.filter((p) => p.status === "Overdue").length;
-  const overdueAmount = payments.filter((p) => p.status === "Overdue").reduce((a, p) => a + p.amount, 0);
   const openService = serviceRequests.filter((s) => s.stage !== "Closed").length;
-  const availableStock = stockItems.filter((s) => s.status === "Available").length;
   const installedMachines = machines.filter((m) => m.status === "Active").length;
+  const workItems = useMemo(() => buildWorkItems(store), [store]);
+  const management = useMemo(() => buildManagementInsights(store), [store]);
+  const drilldown = (id: string) => management.kpis.find((item) => item.id === id);
+  const criticalWork = workItems.filter((item) => item.severity === "critical").length;
+  const warningWork = workItems.filter((item) => item.severity === "warning").length;
 
   const stageData = SALES_STAGES.map((s) => ({
     name: salesStageLabel(s),
@@ -63,6 +152,33 @@ export function DashboardPage() {
   })).filter((d) => d.count > 0);
 
   const totalPipeline = salesCases.filter((s) => !s.isLost).reduce((a, s) => a + s.estimatedAmount, 0);
+  const myTargetItems = useMemo(() => {
+    const items = Array.isArray(myTarget?.targetItems) ? myTarget!.targetItems! : [];
+    // Detaylı kalem yoksa özet alanlardan türet → atanan hedef yine görünür olur.
+    return items.length > 0 ? items : synthesizeTargetItems(myTarget);
+  }, [myTarget]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setTargetLoading(true);
+    setTargetError("");
+    adminService.myTargets({ period: targetPeriod })
+      .then((rows) => {
+        if (!cancelled) setMyTarget(rows[0] ?? null);
+      })
+      .catch((err: any) => {
+        if (!cancelled) {
+          setMyTarget(null);
+          setTargetError(err?.message ?? "Hedefler yüklenemedi.");
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setTargetLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [targetPeriod]);
 
   return (
     <div className="space-y-5">
@@ -75,30 +191,56 @@ export function DashboardPage() {
           <div className="min-w-0">
             <div className="text-[15px] tracking-tight">Hoş geldin Ayşe 👋</div>
             <div className="text-[13px] text-white/75 mt-0.5">
-              Bugün <b className="text-white">3</b> teklif onayı, <b className="text-white">2</b> sevkiyat ve <b className="text-white">1</b> servis ziyareti planlı.
+              Bugün <b className="text-white">{workItems.length}</b> takip işi var; <b className="text-white">{criticalWork}</b> kritik, <b className="text-white">{warningWork}</b> yakın takip.
             </div>
           </div>
         </div>
         <div className="flex items-center gap-2 shrink-0">
-          <Button variant="secondary" size="sm" className="bg-white/15 hover:bg-white/25 text-white border-0 backdrop-blur">
+          <Button
+            variant="secondary"
+            size="sm"
+            className="bg-white/15 hover:bg-white/25 text-white border-0 backdrop-blur"
+            onClick={() => onAction?.({ kind: "navigate", nav: "dashboard", focus: "today" })}
+          >
             <Calendar className="size-4" /> Bugün
           </Button>
-          <Button size="sm" className="bg-white text-primary hover:bg-white/90">
+          <Button
+            size="sm"
+            className="bg-white text-primary hover:bg-white/90"
+            onClick={() => onAction?.({ kind: "navigate", nav: "payments", focus: "overdue" })}
+          >
             Görevlerim
             <ArrowUpRight className="size-4" />
           </Button>
         </div>
       </div>
 
+      <ManagementCommandCenter summary={management} onAction={onAction} />
+
+      <TodayWorkPanel items={workItems} onAction={onAction} />
+
       {/* KPI cards */}
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-        <Kpi icon={<Users className="size-[18px]" />} tone="violet" label="Aktif Müşteri" value={activeCustomers} delta={12} sub="bu ay" />
-        <Kpi icon={<Briefcase className="size-[18px]" />} tone="blue" label="Açık Kart" value={openCases} delta={5} sub="yeni" />
-        <Kpi icon={<FileText className="size-[18px]" />} tone="indigo" label="Pipeline" value={`€${(totalPipeline / 1000).toFixed(0)}K`} delta={8} sub="aylık" />
-        <Kpi icon={<Package className="size-[18px]" />} tone="emerald" label="Hazır Stok" value={availableStock} delta={-2} sub="adet" />
-        <Kpi icon={<Wrench className="size-[18px]" />} tone="amber" label="Aktif Makine" value={installedMachines} delta={1} sub="garantili" />
-        <Kpi icon={<AlertTriangle className="size-[18px]" />} tone="red" label="Gecikmiş" value={`€${(overdueAmount / 1000).toFixed(1)}K`} delta={overdue} sub="kayıt" alarm />
+      <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-8 gap-3">
+        <Kpi icon={<Users className="size-[18px]" />} tone="violet" label="Aktif Müşteri" value={activeCustomers} delta={12} sub="bu ay" onClick={() => onAction?.({ kind: "navigate", nav: "customers" })} />
+        <KpiFromDrilldown icon={<Wallet className="size-[18px]" />} tone="emerald" item={drilldown("kpi:revenue")} delta={8} onAction={onAction} />
+        <KpiFromDrilldown icon={<FileText className="size-[18px]" />} tone="indigo" item={drilldown("kpi:conversion")} delta={3} onAction={onAction} />
+        <KpiFromDrilldown icon={<Wrench className="size-[18px]" />} tone="amber" item={drilldown("kpi:service-open")} delta={openService} onAction={onAction} />
+        <KpiFromDrilldown icon={<AlertTriangle className="size-[18px]" />} tone="red" item={drilldown("kpi:overdue")} delta={Number(drilldown("kpi:overdue")?.records.length ?? 0)} alarm onAction={onAction} />
+        <KpiFromDrilldown icon={<Package className="size-[18px]" />} tone="blue" item={drilldown("kpi:stock-risk")} delta={Number(drilldown("kpi:stock-risk")?.records.length ?? 0)} onAction={onAction} />
+        <KpiFromDrilldown icon={<Truck className="size-[18px]" />} tone="violet" item={drilldown("kpi:shipments")} delta={Number(drilldown("kpi:shipments")?.records.length ?? 0)} onAction={onAction} />
+        <KpiFromDrilldown icon={<BarChart3 className="size-[18px]" />} tone="emerald" item={drilldown("kpi:profit")} delta={4} onAction={onAction} />
+        <Kpi icon={<Briefcase className="size-[18px]" />} tone="blue" label="Pipeline" value={`$${(totalPipeline / 1000).toFixed(0)}K`} delta={8} sub="açık" onClick={() => onAction?.({ kind: "navigate", nav: "sales-cases", focus: "open" })} />
+        <Kpi icon={<Wrench className="size-[18px]" />} tone="amber" label="Aktif Makine" value={installedMachines} delta={1} sub="garantili" onClick={() => onAction?.({ kind: "navigate", nav: "machines" })} />
       </div>
+
+      <MyTargetsPanel
+        period={targetPeriod}
+        onPeriodChange={setTargetPeriod}
+        items={myTargetItems}
+        loading={targetLoading}
+        error={targetError}
+        note={myTarget?.note ?? ""}
+      />
 
       {/* Main charts */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
@@ -109,14 +251,22 @@ export function DashboardPage() {
               <p className="text-xs text-muted-foreground mt-1">Son 6 ay · teklif vs kazanılan</p>
             </div>
             <div className="flex items-center gap-1">
-              {["1A", "3A", "6A", "1Y"].map((p, i) => (
-                <Button key={p} size="sm" variant={i === 2 ? "secondary" : "ghost"} className="h-7 px-2.5 text-xs">{p}</Button>
+              {(["1A", "3A", "6A", "1Y"] as const).map((p) => (
+                <Button
+                  key={p}
+                  size="sm"
+                  variant={chartPeriod === p ? "secondary" : "ghost"}
+                  className="h-7 px-2.5 text-xs"
+                  onClick={() => setChartPeriod(p)}
+                >
+                  {p}
+                </Button>
               ))}
             </div>
           </CardHeader>
           <CardContent className="h-72 pl-2">
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={monthly} margin={{ top: 5, right: 12, left: 0, bottom: 0 }}>
+              <AreaChart data={monthlyView} margin={{ top: 5, right: 12, left: 0, bottom: 0 }}>
                 <defs>
                   <linearGradient id="g1" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%" stopColor="#000c69" stopOpacity={0.35} />
@@ -201,7 +351,7 @@ export function DashboardPage() {
         <Card className="border-border/60 shadow-sm">
           <CardHeader className="pb-2">
             <CardTitle className="tracking-tight">Aylık Ciro</CardTitle>
-            <p className="text-xs text-muted-foreground">Bin Euro</p>
+            <p className="text-xs text-muted-foreground">Bin USD</p>
           </CardHeader>
           <CardContent className="h-72 pl-2">
             <ResponsiveContainer width="100%" height="100%">
@@ -245,7 +395,7 @@ export function DashboardPage() {
             <p className="text-xs text-muted-foreground">Mayıs 2026</p>
           </CardHeader>
           <CardContent className="space-y-4 pt-2">
-            <Goal label="Aylık Satış" value={62} hint="€260k / €420k" />
+            <Goal label="Aylık Satış" value={62} hint="$260k / $420k" />
             <Goal label="Yeni Müşteri" value={78} hint="11 / 14" />
             <Goal label="Servis Memnuniyeti" value={91} hint="4.55 / 5.0" tone="ok" />
             <Goal label="Stok Devir Hızı" value={45} hint="Hedef altı" tone="warn" />
@@ -261,7 +411,7 @@ export function DashboardPage() {
               <CardTitle className="tracking-tight">Açık Satış Kartları</CardTitle>
               <p className="text-xs text-muted-foreground mt-1">Takip edilmesi gerekenler</p>
             </div>
-            <Button size="sm" variant="ghost" className="text-primary h-8">
+            <Button size="sm" variant="ghost" className="text-primary h-8" onClick={() => onAction?.({ kind: "navigate", nav: "sales-cases", focus: "open" })}>
               Tümü <ArrowUpRight className="size-3.5" />
             </Button>
           </CardHeader>
@@ -271,7 +421,11 @@ export function DashboardPage() {
                 const c = customers.find((x) => x.id === s.customerId);
                 const u = users.find((x) => x.id === s.assignedUserId);
                 return (
-                  <div key={s.id} className="flex items-center justify-between gap-3 py-3 hover:bg-muted/40 -mx-3 px-3 rounded-md transition-colors cursor-pointer">
+                  <div
+                    key={s.id}
+                    className="flex items-center justify-between gap-3 py-3 hover:bg-muted/40 -mx-3 px-3 rounded-md transition-colors cursor-pointer"
+                    onClick={() => onAction?.({ kind: "salesCase", salesCaseId: s.id })}
+                  >
                     <div className="size-9 rounded-md bg-gradient-to-br from-primary/15 to-primary/5 text-primary grid place-items-center shrink-0 text-xs">
                       {(c?.name ?? "—").split(" ").slice(0, 2).map((p) => p[0]).join("")}
                     </div>
@@ -279,7 +433,7 @@ export function DashboardPage() {
                       <div className="text-sm leading-tight truncate">{c?.name ?? "Firma bulunamadı"}</div>
                       <div className="text-xs text-muted-foreground truncate mt-0.5">{s.requestedProduct} · {s.requestedModel} · {(u?.name ?? "Atanmadı").split(" ")[0]}</div>
                     </div>
-                    <div className="text-sm tabular-nums shrink-0">{s.estimatedAmount.toLocaleString()} {s.currency}</div>
+                    <div className="text-sm tabular-nums shrink-0">{s.estimatedAmount.toLocaleString()} USD</div>
                     <StatusBadge status={s.stage} />
                   </div>
                 );
@@ -334,6 +488,293 @@ export function DashboardPage() {
   );
 }
 
+const WORK_TONE: Record<WorkItem["severity"], { cls: string; icon: React.ReactNode; label: string }> = {
+  critical: { cls: "bg-red-50 text-red-700 border-red-100", icon: <AlertTriangle className="size-4" />, label: "Kritik" },
+  warning: { cls: "bg-amber-50 text-amber-700 border-amber-100", icon: <Clock className="size-4" />, label: "Takip" },
+  info: { cls: "bg-blue-50 text-blue-700 border-blue-100", icon: <Calendar className="size-4" />, label: "Bilgi" },
+  success: { cls: "bg-emerald-50 text-emerald-700 border-emerald-100", icon: <CheckCircle2 className="size-4" />, label: "Tamam" },
+};
+
+function KpiFromDrilldown({
+  icon,
+  item,
+  tone,
+  delta,
+  alarm,
+  onAction,
+}: {
+  icon: React.ReactNode;
+  item?: KpiDrilldown;
+  tone: keyof typeof TONES;
+  delta: number;
+  alarm?: boolean;
+  onAction?: (action: OperationAction) => void;
+}) {
+  if (!item) return null;
+  return (
+    <Kpi
+      icon={icon}
+      tone={tone}
+      label={item.label}
+      value={item.value}
+      delta={delta}
+      sub={`${item.records.length} kayıt`}
+      alarm={alarm || item.severity === "critical"}
+      onClick={() => onAction?.(item.action)}
+    />
+  );
+}
+
+function ManagementCommandCenter({
+  summary,
+  onAction,
+}: {
+  summary: { risks: ManagementInsight[]; opportunities: ManagementInsight[]; actions: ManagementInsight[]; trends: ManagementInsight[] };
+  onAction?: (action: OperationAction) => void;
+}) {
+  return (
+    <Card className="border-border/60 shadow-sm overflow-hidden">
+      <CardHeader className="flex flex-col gap-3 pb-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <CardTitle className="tracking-tight">Yönetim Merkezi</CardTitle>
+          <p className="mt-1 text-xs text-muted-foreground">Riskler, fırsatlar ve bugünkü aksiyonlar mevcut kayıtlardan otomatik hesaplanır</p>
+        </div>
+        <Button size="sm" variant="outline" className="h-8" onClick={() => onAction?.({ kind: "navigate", nav: "reports" })}>
+          Rapor Detayı <ArrowUpRight className="size-3.5" />
+        </Button>
+      </CardHeader>
+      <CardContent className="grid gap-3 lg:grid-cols-4">
+        <InsightColumn title="Riskler" empty="Aktif yönetim riski yok" items={summary.risks.slice(0, 3)} onAction={onAction} />
+        <InsightColumn title="Fırsatlar" empty="Yeni fırsat sinyali yok" items={summary.opportunities.slice(0, 3)} onAction={onAction} />
+        <InsightColumn title="Aksiyon" empty="Acil aksiyon yok" items={summary.actions.slice(0, 3)} onAction={onAction} />
+        <InsightColumn title="Trend" empty="Trend verisi yok" items={summary.trends.slice(0, 3)} onAction={onAction} />
+      </CardContent>
+    </Card>
+  );
+}
+
+function InsightColumn({
+  title,
+  empty,
+  items,
+  onAction,
+}: {
+  title: string;
+  empty: string;
+  items: ManagementInsight[];
+  onAction?: (action: OperationAction) => void;
+}) {
+  return (
+    <div className="min-w-0 rounded-lg border border-border/60 bg-muted/15">
+      <div className="flex items-center justify-between border-b border-border/60 px-3 py-2">
+        <div className="text-sm font-medium">{title}</div>
+        <span className="rounded-full bg-white px-2 py-0.5 text-[11px] text-muted-foreground">{items.length}</span>
+      </div>
+      <div className="divide-y divide-border/60">
+        {items.length === 0 ? (
+          <div className="px-3 py-6 text-center text-xs text-muted-foreground">{empty}</div>
+        ) : (
+          items.map((item) => {
+            const tone = WORK_TONE[item.severity];
+            return (
+              <button
+                key={item.id}
+                type="button"
+                className="flex w-full items-start gap-2 px-3 py-2.5 text-left hover:bg-white/70"
+                onClick={() => onAction?.(item.action)}
+              >
+                <span className={`mt-0.5 inline-flex size-7 shrink-0 items-center justify-center rounded-md border ${tone.cls}`}>
+                  {tone.icon}
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="flex items-center justify-between gap-2">
+                    <span className="truncate text-sm font-medium">{item.title}</span>
+                    <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">{item.metric}</span>
+                  </span>
+                  <span className="mt-0.5 line-clamp-2 text-xs leading-relaxed text-muted-foreground">{item.description}</span>
+                </span>
+              </button>
+            );
+          })
+        )}
+      </div>
+    </div>
+  );
+}
+
+function TodayWorkPanel({ items, onAction }: { items: WorkItem[]; onAction?: (action: OperationAction) => void }) {
+  const shown = items.slice(0, 8);
+
+  return (
+    <Card className="border-border/60 shadow-sm overflow-hidden">
+      <CardHeader className="flex flex-row items-center justify-between gap-3 pb-3">
+        <div>
+          <CardTitle className="tracking-tight">Bugün Yapılacaklar</CardTitle>
+          <p className="mt-1 text-xs text-muted-foreground">Ödeme, satış, servis, sevkiyat ve stoktan otomatik türetilen operasyon listesi</p>
+        </div>
+        <Button size="sm" variant="outline" className="h-8" onClick={() => onAction?.({ kind: "navigate", nav: "payments", focus: "overdue" })}>
+          Gecikenler <ArrowUpRight className="size-3.5" />
+        </Button>
+      </CardHeader>
+      <CardContent className="pt-0">
+        {shown.length === 0 ? (
+          <div className="grid min-h-28 place-items-center rounded-lg border border-dashed border-border/70 bg-muted/20 px-5 text-center">
+            <div>
+              <div className="mx-auto grid size-9 place-items-center rounded-md bg-emerald-50 text-emerald-600">
+                <CheckCircle2 className="size-5" />
+              </div>
+              <div className="mt-2 text-sm font-medium">Acil takip işi yok</div>
+              <p className="mt-1 text-xs text-muted-foreground">Yeni kayıtlar veya yaklaşan vadeler oluştuğunda burada görünecek.</p>
+            </div>
+          </div>
+        ) : (
+          <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-4">
+            {shown.map((item) => {
+              const tone = WORK_TONE[item.severity];
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  className="min-w-0 rounded-lg border border-border/60 bg-white p-3 text-left transition-colors hover:border-primary/30 hover:bg-muted/30"
+                  onClick={() => onAction?.(item.action)}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <span className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] ${tone.cls}`}>
+                      {tone.icon}
+                      {tone.label}
+                    </span>
+                    <span className="shrink-0 text-[11px] text-muted-foreground">{item.owner}</span>
+                  </div>
+                  <div className="mt-2 truncate text-sm font-medium">{item.title}</div>
+                  <div className="mt-1 line-clamp-2 min-h-8 text-xs leading-relaxed text-muted-foreground">{item.subtitle}</div>
+                  <div className="mt-2 flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
+                    <span className="truncate">{item.meta}</span>
+                    <ArrowUpRight className="size-3.5 shrink-0" />
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function MyTargetsPanel({
+  period,
+  onPeriodChange,
+  items,
+  loading,
+  error,
+  note,
+}: {
+  period: string;
+  onPeriodChange: (period: string) => void;
+  items: AssignedTargetItem[];
+  loading: boolean;
+  error: string;
+  note?: string | null;
+}) {
+  const salesItems = items.filter((item) => item.targetType === "sales");
+  const serviceItems = items.filter((item) => item.targetType === "service");
+  const hasItems = items.length > 0;
+
+  return (
+    <Card className="border-border/60 shadow-sm overflow-hidden">
+      <CardHeader className="flex flex-col gap-3 pb-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
+          <CardTitle className="flex items-center gap-2 tracking-tight">
+            <span className="grid size-8 place-items-center rounded-md bg-brand-blue-soft text-brand-blue">
+              <Target className="size-4" />
+            </span>
+            Hedeflerim
+          </CardTitle>
+          <p className="mt-1 text-xs text-muted-foreground">Size atanmış aylık satış ve servis hedefleri · USD sabit</p>
+        </div>
+        <Input
+          type="month"
+          className="h-9 w-full sm:w-[150px]"
+          value={period}
+          onChange={(e) => onPeriodChange(e.target.value || currentPeriod())}
+        />
+      </CardHeader>
+      <CardContent className="space-y-4 pt-0">
+        {loading ? (
+          <div className="grid min-h-32 place-items-center rounded-lg border border-dashed border-border/70 bg-muted/20 text-sm text-muted-foreground">
+            Hedefler yükleniyor…
+          </div>
+        ) : error ? (
+          <div className="rounded-lg border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
+        ) : !hasItems ? (
+          <div className="grid min-h-32 place-items-center rounded-lg border border-dashed border-border/70 bg-muted/20 px-5 py-8 text-center">
+            <div>
+              <div className="mx-auto grid size-10 place-items-center rounded-lg bg-slate-100 text-slate-500">
+                <Target className="size-5" />
+              </div>
+              <div className="mt-3 text-sm font-medium">Bu dönem için hedef atanmadı</div>
+              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">Yöneticiniz hedef atadığında bu alanda görüntülenecek.</p>
+            </div>
+          </div>
+        ) : (
+          <>
+            <div className="grid gap-2 sm:grid-cols-3">
+              <TargetSummary label="Satış" value={`${filledTargetCount(items, "sales")}/${totalTargetCount(items, "sales")}`} />
+              <TargetSummary label="Servis" value={`${filledTargetCount(items, "service")}/${totalTargetCount(items, "service")}`} />
+              <TargetSummary label="Para Birimi" value="USD" />
+            </div>
+            <div className="grid gap-3 lg:grid-cols-2">
+              <TargetList title="Satış Hedefleri" items={salesItems} />
+              <TargetList title="Servis Hedefleri" items={serviceItems} />
+            </div>
+            {note && <div className="rounded-md bg-muted/35 px-3 py-2 text-xs leading-relaxed text-muted-foreground">{note}</div>}
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function TargetSummary({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-center justify-between rounded-md border border-border/60 bg-muted/20 px-3 py-2">
+      <span className="text-xs text-muted-foreground">{label}</span>
+      <span className="text-sm font-medium tabular-nums">{value}</span>
+    </div>
+  );
+}
+
+function TargetList({ title, items }: { title: string; items: AssignedTargetItem[] }) {
+  return (
+    <div className="overflow-hidden rounded-md border border-border/60">
+      <div className="flex items-center justify-between border-b border-border/60 bg-muted/25 px-3 py-2">
+        <div className="text-sm font-medium">{title}</div>
+        <div className="text-[11px] text-muted-foreground">{items.filter((item) => item.target?.trim()).length} aktif</div>
+      </div>
+      <div className="max-h-[340px] divide-y divide-border/60 overflow-y-auto">
+        {items.length === 0 ? (
+          <div className="px-3 py-6 text-center text-sm text-muted-foreground">Hedef yok.</div>
+        ) : (
+          items.map((item) => (
+            <div key={`${item.targetType}:${item.category}:${item.activity}`} className="px-3 py-2.5">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="text-[11px] font-semibold tracking-wide text-muted-foreground">{item.category} · {targetTypeLabel(item.targetType)}</div>
+                  <div className="mt-0.5 text-sm font-medium leading-snug">{item.activity}</div>
+                  {item.description && <div className="mt-1 text-xs leading-relaxed text-muted-foreground">{item.description}</div>}
+                </div>
+                <div className="shrink-0 rounded-md bg-brand-blue-soft px-2 py-1 text-right text-xs font-medium tabular-nums text-brand-blue">
+                  {formatTargetValue(item)}
+                </div>
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
 const TONES: Record<string, { bg: string; ic: string; ring: string }> = {
   violet: { bg: "bg-brand-blue-soft", ic: "text-brand-blue", ring: "ring-blue-100" },
   blue: { bg: "bg-blue-50", ic: "text-blue-600", ring: "ring-blue-100" },
@@ -344,12 +785,24 @@ const TONES: Record<string, { bg: string; ic: string; ring: string }> = {
 };
 
 function Kpi({
-  icon, label, value, delta, sub, tone = "violet", alarm,
-}: { icon: React.ReactNode; label: string; value: number | string; delta: number; sub: string; tone?: keyof typeof TONES; alarm?: boolean }) {
+  icon, label, value, delta, sub, tone = "violet", alarm, onClick,
+}: { icon: React.ReactNode; label: string; value: number | string; delta: number; sub: string; tone?: keyof typeof TONES; alarm?: boolean; onClick?: () => void }) {
   const t = TONES[tone];
   const positive = delta >= 0;
   return (
-    <Card className="border-border/60 shadow-sm hover:shadow-md transition-shadow overflow-hidden">
+    <Card
+      className={`border-border/60 shadow-sm hover:shadow-md transition-shadow overflow-hidden ${onClick ? "cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35" : ""}`}
+      role={onClick ? "button" : undefined}
+      tabIndex={onClick ? 0 : undefined}
+      onClick={onClick}
+      onKeyDown={(event) => {
+        if (!onClick) return;
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onClick();
+        }
+      }}
+    >
       <CardContent className="p-4">
         <div className="flex items-start justify-between gap-2">
           <div className={`size-9 rounded-lg ${t.bg} ${t.ic} grid place-items-center shrink-0 ring-4 ${t.ring}`}>

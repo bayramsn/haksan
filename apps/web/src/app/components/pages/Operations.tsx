@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
 import { Input } from "../ui/input";
 import { Button } from "../ui/button";
@@ -7,7 +7,7 @@ import { Tabs, TabsList, TabsTrigger } from "../ui/tabs";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "../ui/table";
-import { stockItems, machines, customers, type Product } from "../../lib/mock";
+import { type Machine, type Product, type StockItem } from "../../lib/mock";
 import { useStore } from "../../lib/store";
 import { ProductDialog } from "../dialogs/CreateDialogs";
 import { ProductImportDialog } from "../dialogs/ProductImportDialog";
@@ -43,7 +43,7 @@ const STAGE_TONE: Record<Stage, { bg: string; text: string; icon: any }> = {
   "Hizmet Dışı": { bg: "bg-zinc-100", text: "text-zinc-600", icon: AlertTriangle },
 };
 
-function buildDevices(): Device[] {
+function buildDevices(stockItems: StockItem[], machines: Machine[]): Device[] {
   const fromStock: Device[] = stockItems.map((s) => ({
     serial: s.serialNumber,
     model: s.counterModel,
@@ -81,11 +81,15 @@ const fmtMoney = (n?: number | null, cur = "USD") =>
 /* =========================================================================
    ÜRÜNLER (Products) — flat list like the company list, click → detail popup
    ========================================================================= */
-export function ProductsPage() {
+export function ProductsPage({ initialQuery }: { initialQuery?: string }) {
   const { products } = useStore();
   const [q, setQ] = useState("");
   const [cat, setCat] = useState<string>("all");
   const [selected, setSelected] = useState<Product | null>(null);
+
+  useEffect(() => {
+    if (initialQuery) setQ(initialQuery);
+  }, [initialQuery]);
 
   const categoryLabel = (p: Product) => p.category || p.productGroup || "Genel";
   const productSubtitle = (p: Product) => [p.type, p.subcategory].filter(Boolean).join(" · ");
@@ -119,8 +123,8 @@ export function ProductsPage() {
           </TabsList>
         </Tabs>
 
-        <div className="flex items-center gap-2 ml-auto">
-          <div className="relative w-64">
+        <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:ml-auto">
+          <div className="relative w-full sm:w-64">
             <Search className="size-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
             <Input
               placeholder="Marka, model, ürün ara..."
@@ -214,9 +218,10 @@ function CountBadge({ n }: { n: number }) {
 const STAGES: Stage[] = ["Stokta", "Rezerve", "Sevkiyatta", "Kuruldu", "Servis", "Hizmet Dışı"];
 
 export function DeviceTrackingPage() {
+  const { stock, machines, customers } = useStore();
   const [q, setQ] = useState("");
   const [tab, setTab] = useState<Stage | "all">("all");
-  const devices = useMemo(buildDevices, []);
+  const devices = useMemo(() => buildDevices(stock, machines), [stock, machines]);
 
   const counts = STAGES.reduce((acc, s) => {
     acc[s] = devices.filter((d) => d.stage === s).length;
@@ -266,7 +271,7 @@ export function DeviceTrackingPage() {
               </TabsList>
             </Tabs>
           </div>
-          <div className="relative w-64">
+          <div className="relative w-full sm:w-64">
             <Search className="size-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
             <Input placeholder="Seri no / model / müşteri..." className="pl-9 h-9 bg-white" value={q} onChange={(e) => setQ(e.target.value)} />
           </div>

@@ -1,4 +1,5 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Put, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Put, Query, Res, UseGuards } from '@nestjs/common';
+import type { FastifyReply } from 'fastify';
 import { z } from 'zod';
 import {
   quoteCreateSchema,
@@ -124,8 +125,11 @@ export class QuotesController {
 
   @RequirePermissions('quotes.read')
   @Post(':id/generate-pdf')
-  generatePdf(@Param('id') id: string) {
-    // PDF generation will be a Phase 2 task (puppeteer / pdfkit). Returns 501 for now.
-    return { status: 'not_implemented', message: 'PDF teklif üretimi sonraki fazda eklenecek', quoteId: id };
+  async generatePdf(@Param('id') id: string, @CurrentUser() user: AuthContext, @Res() res: FastifyReply) {
+    const { buffer, filename } = await this.svc.generatePdf(id, user);
+    res
+      .header('Content-Type', 'application/pdf')
+      .header('Content-Disposition', `attachment; filename="${filename}"`)
+      .send(buffer);
   }
 }

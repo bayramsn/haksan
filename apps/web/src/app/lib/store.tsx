@@ -44,6 +44,8 @@ import {
   Machine,
   Payment,
   User,
+  Shipment,
+  Delivery,
 } from './mock';
 
 // pipeline stage code → UI stage key. Legacy names are still accepted for old mock rows.
@@ -219,6 +221,8 @@ type Store = {
   machines: Machine[];
   payments: Payment[];
   documents: DocumentItem[];
+  shipments: Shipment[];
+  deliveries: Delivery[];
   loading: boolean;
   addContact: (c: Omit<Contact, 'id'>) => Promise<Contact>;
   updateContact: (id: string, patch: Partial<Omit<Contact, 'id'>>) => Promise<void>;
@@ -228,6 +232,8 @@ type Store = {
   updateProduct: (id: string, patch: Partial<Omit<Product, 'id'>>) => Promise<void>;
   deleteProduct: (id: string) => Promise<void>;
   addCustomer: (c: Omit<Customer, 'id' | 'createdAt' | 'status'> & { status?: 'active' | 'passive' }) => Promise<Customer>;
+  updateCustomer: (id: string, patch: Partial<Omit<Customer, 'id' | 'createdAt'>>) => Promise<void>;
+  deleteCustomer: (id: string) => Promise<void>;
   addCase: (c: Omit<SalesCase, 'id' | 'createdAt' | 'stage' | 'isLost' | 'isOfferPrepared'> & { stage?: SalesStage }) => Promise<SalesCase>;
   addOffer: (o: Omit<Offer, 'id' | 'date' | 'revision'> & { revision?: number }) => Promise<Offer>;
   createQuoteFull: (payload: CreateQuotePayload) => Promise<{ quoteId: string; documentNo: string; opportunityId: string }>;
@@ -235,6 +241,11 @@ type Store = {
   deleteNoteTemplate: (id: string) => Promise<void>;
   addStock: (s: Omit<StockItem, 'id'>) => Promise<StockItem>;
   updateStockStatus: (id: string, status: StockItem['status']) => Promise<void>;
+  addShipment: (s: Omit<Shipment, 'id'>) => Promise<Shipment>;
+  updateShipmentStatus: (id: string, status: Shipment['status']) => Promise<void>;
+  addDelivery: (d: Omit<Delivery, 'id'>) => Promise<Delivery>;
+  updateDelivery: (id: string, d: Partial<Omit<Delivery, 'id'>>) => Promise<void>;
+  updateDeliveryStatus: (id: string, status: Delivery['status']) => Promise<void>;
   moveCase: (id: string, to: SalesStage) => Promise<void>;
   markCaseLost: (
     id: string,
@@ -269,7 +280,29 @@ function StoreInner({ children }: { children: ReactNode }) {
   const [users, setUsers] = useState<User[]>([]);
   const [machines, setMachines] = useState<Machine[]>([]);
   const [payments, setPayments] = useState<Payment[]>([]);
+  const [shipments, setShipments] = useState<Shipment[]>([]);
+  const [deliveries, setDeliveries] = useState<Delivery[]>([]);
   const [documents, setDocuments] = useState<DocumentItem[]>([]);
+
+  const shipmentStatusFromCode = (code?: string | null): Shipment['status'] => {
+    if (code === 'delivered') return 'Teslim Edildi';
+    if (code === 'at_customs' || code === 'cleared') return 'Gümrükte';
+    if (code === 'in_transit') return 'Yolda';
+    return 'Hazırlanıyor';
+  };
+
+  const shipmentStatusToCode = (status: Shipment['status']) => {
+    if (status === 'Teslim Edildi') return 'delivered';
+    if (status === 'Gümrükte') return 'at_customs';
+    if (status === 'Yolda') return 'in_transit';
+    return 'preparing';
+  };
+
+  const deliveryStatusFromCode = (status?: string | null): Delivery['status'] =>
+    status === 'completed' ? 'Tamamlandı' : 'Bekliyor';
+
+  const deliveryStatusToCode = (status: Delivery['status']): 'pending' | 'completed' =>
+    status === 'Tamamlandı' ? 'completed' : 'pending';
 
   const fetchAll = useCallback(async () => {
     if (!authed) {
@@ -279,7 +312,7 @@ function StoreInner({ children }: { children: ReactNode }) {
     setLoading(true);
     try {
       const empty = { data: [] as any[], meta: { total: 0, page: 1, pageSize: 0, totalPages: 0 } };
-      const [companies, contactsR, opps, prods, inv, qts, svcTickets, acts, usersR, devicesR, receivablesR, paymentsR, proformasR, contractsR, invoicesR, noteTemplatesR] = await Promise.all([
+      const [companies, contactsR, opps, prods, inv, qts, svcTickets, acts, usersR, devicesR, receivablesR, paymentsR, proformasR, contractsR, invoicesR, noteTemplatesR, shipmentsR, deliveriesR] = await Promise.all([
         companyService.list({ pageSize: 200 }).catch(() => empty),
         contactService.list({ pageSize: 200 }).catch(() => empty),
         opportunityService.list({ pageSize: 200 }).catch(() => empty),
@@ -296,6 +329,8 @@ function StoreInner({ children }: { children: ReactNode }) {
         documentService.contracts({ pageSize: 200 }).catch(() => empty),
         documentService.commercialInvoices({ pageSize: 200 }).catch(() => empty),
         noteTemplateService.list('quote').catch(() => [] as any[]),
+        serviceService.shipments({ pageSize: 200 }).catch(() => empty),
+        serviceService.deliveries({ pageSize: 200 }).catch(() => empty),
       ]);
 
       setNoteTemplates(
@@ -314,6 +349,8 @@ function StoreInner({ children }: { children: ReactNode }) {
           name: u.fullName ?? u.name ?? u.email ?? '—',
           email: u.email ?? '',
           role: ((u.roles?.[0]?.name ?? u.roles?.[0]?.code ?? 'Admin') as User['role']) || 'Admin',
+          roleCodes: (u.roles ?? []).map((role: any) => role.code).filter(Boolean),
+          roleNames: (u.roles ?? []).map((role: any) => role.name ?? role.code).filter(Boolean),
           department: u.department?.name ?? '',
           active: u.status !== 'passive',
           avatarUrl: u.avatarUrl ?? u.photoUrl ?? undefined,
@@ -474,6 +511,8 @@ function StoreInner({ children }: { children: ReactNode }) {
           date: (q.quoteDate as string)?.slice(0, 10) ?? '',
           validityDays: q.validityDays === null || q.validityDays === undefined ? undefined : Number(q.validityDays),
           amount: Number(q.grandTotal ?? 0),
+          subtotal: q.subtotal === null || q.subtotal === undefined ? undefined : Number(q.subtotal),
+          vatTotal: q.vatAmount === null || q.vatAmount === undefined ? undefined : Number(q.vatAmount),
           currency: (q.currency?.code as 'USD' | 'EUR' | 'TRY') ?? 'USD',
           status:
             q.status?.code === 'approved'
@@ -590,35 +629,39 @@ function StoreInner({ children }: { children: ReactNode }) {
         }))
       );
 
+      const mapStatus = (code?: string): Payment['status'] =>
+        code === 'paid' ? 'Paid' : code === 'overdue' ? 'Overdue' : code === 'cancelled' ? 'Cancelled' : 'Pending';
+      const mapCurrency = (code?: string): Payment['currency'] =>
+        code === 'EUR' ? 'EUR' : code === 'TRY' ? 'TRY' : 'USD';
+      // Alacaklar (receivables) → daima GİREN (alınan / beklenen tahsilat).
       const receivablePayments: Payment[] = (receivablesR.data ?? []).map((r: any) => ({
         id: r.id,
         salesCaseId: r.quoteId ?? '',
         customerId: r.companyId ?? '',
         paymentType: 'expected',
+        direction: 'in',
         amount: Number(r.amount ?? 0),
-        currency: (r.currency?.code as 'USD' | 'EUR' | 'TRY') ?? 'USD',
+        currency: mapCurrency(r.currency?.code),
         dueDate: (r.dueDate as string)?.slice(0, 10) ?? '',
-        status:
-          r.status?.code === 'paid'
-            ? 'Paid'
-            : r.status?.code === 'overdue'
-              ? 'Overdue'
-              : r.status?.code === 'cancelled'
-                ? 'Cancelled'
-                : 'Pending',
+        status: mapStatus(r.status?.code),
         note: r.notes ?? '',
+        source: 'receivable',
       }));
+      // Ödemeler (payments) → kasa yönü backend'deki `direction` alanından gelir
+      // ('in' = tahsilat, 'out' = tedarikçi/gider ödemesi).
       const completedPayments: Payment[] = (paymentsR.data ?? []).map((p: any) => ({
         id: p.id,
         salesCaseId: p.receivableId ?? '',
         customerId: p.companyId ?? '',
-        paymentType: 'received',
+        paymentType: p.direction === 'out' ? 'expected' : 'received',
+        direction: p.direction === 'out' ? 'out' : 'in',
         amount: Number(p.amount ?? 0),
-        currency: 'USD',
+        currency: mapCurrency(p.currency?.code),
         dueDate: (p.paymentDate as string)?.slice(0, 10) ?? '',
-        paidDate: (p.paymentDate as string)?.slice(0, 10) ?? '',
-        status: 'Paid',
+        paidDate: p.status?.code === 'paid' ? (p.paymentDate as string)?.slice(0, 10) ?? '' : undefined,
+        status: mapStatus(p.status?.code),
         note: p.notes ?? p.paymentMethod ?? '',
+        source: 'payment',
       }));
       setPayments([...receivablePayments, ...completedPayments]);
 
@@ -666,6 +709,42 @@ function StoreInner({ children }: { children: ReactNode }) {
         })),
       ];
       setDocuments(docRows);
+
+      setShipments(
+        (shipmentsR.data ?? []).map((s: any) => ({
+          id: s.id,
+          salesCaseId: s.opportunityId ?? '',
+          trackingNo: s.trackingNo ?? s.shipmentNo ?? s.id?.slice(0, 8) ?? '—',
+          carrier: s.carrier ?? '—',
+          origin: s.origin ?? '',
+          destination: s.destination ?? '',
+          status: shipmentStatusFromCode(s.status?.code),
+          eta: (s.eta as string | undefined)?.slice(0, 10) ?? (s.arrivedAt as string | undefined)?.slice(0, 10) ?? '',
+        }))
+      );
+
+      setDeliveries(
+        (deliveriesR.data ?? []).map((d: any) => ({
+          id: d.id,
+          salesCaseId: d.opportunityId ?? '',
+          customerId: d.companyId ?? '',
+          shipmentId: d.shipmentId ?? undefined,
+          date: (d.deliveryDate as string)?.slice(0, 10) ?? '',
+          signedBy: d.signedBy ?? '—',
+          status: deliveryStatusFromCode(d.status),
+          formData: d.formData
+            ? {
+                formNo: d.formData.formNo,
+                kurulumTarihi: d.formData.kurulumTarihi ? String(d.formData.kurulumTarihi).slice(0, 10) : undefined,
+                machineId: d.formData.machineId,
+                tezgah: d.formData.tezgah,
+                cnc: d.formData.cnc,
+                ilgili: d.formData.ilgili,
+                kurulumuYapan: d.formData.kurulumuYapan,
+              }
+            : undefined,
+        }))
+      );
     } finally {
       setLoading(false);
     }
@@ -735,6 +814,33 @@ function StoreInner({ children }: { children: ReactNode }) {
       status: 'active',
       createdAt: new Date().toISOString().slice(0, 10),
     };
+  };
+
+  const updateCustomer: Store['updateCustomer'] = async (id, patch) => {
+    const rawWebsite = patch.website?.trim();
+    const website = rawWebsite ? (/^https?:\/\//i.test(rawWebsite) ? rawWebsite : `https://${rawWebsite}`) : undefined;
+    const body: Record<string, unknown> = {};
+    if (patch.name !== undefined) body.legalTitle = patch.name;
+    if (patch.sector !== undefined) body.sector = patch.sector || undefined;
+    if (patch.taxOffice !== undefined) body.taxOffice = patch.taxOffice || undefined;
+    if (patch.taxNumber !== undefined) body.taxNumber = patch.taxNumber || undefined;
+    if (patch.website !== undefined) body.website = website;
+    if (patch.phone !== undefined) body.primaryPhone = patch.phone || undefined;
+    if (patch.phone2 !== undefined) body.secondaryPhone = patch.phone2 || undefined;
+    if (patch.fax !== undefined) body.fax = patch.fax || undefined;
+    if (patch.email !== undefined) body.primaryEmail = patch.email || undefined;
+    if (patch.email2 !== undefined) body.secondaryEmail = patch.email2 || undefined;
+    if (patch.firmType !== undefined)
+      body.relationTypeCode = patch.firmType === 'supplier' ? 'supplier' : patch.firmType === 'supplier_customer' ? 'supplier_customer' : 'customer';
+    if (patch.salesStatus !== undefined)
+      body.customerStatusCode = patch.salesStatus === 'active_customer' ? 'active' : 'potential';
+    await companyService.update(id, body);
+    await fetchAll();
+  };
+
+  const deleteCustomer: Store['deleteCustomer'] = async (id) => {
+    await companyService.remove(id);
+    setCustomers((prev) => prev.filter((c) => c.id !== id));
   };
 
   const addContact: Store['addContact'] = async (k) => {
@@ -995,11 +1101,17 @@ function StoreInner({ children }: { children: ReactNode }) {
     const prods = await productService.list({ search: s.counterModel });
     const product = prods.data[0];
     if (!product) throw new Error('Önce ürün katalogda olmalı');
+    const extraNotes = [
+      s.optionalHardware ? `Opsiyon Donanım: ${s.optionalHardware}` : '',
+      s.spareParts ? `Yedek Parça: ${s.spareParts}` : ''
+    ].filter(Boolean).join('\n');
+
     const created = await inventoryService.create({
       productModelId: product.id,
       serialNumber: s.serialNumber,
       controlUnit: s.controlPanel,
       stockStatusCode: 'available',
+      notes: extraNotes || undefined,
     });
     await fetchAll();
     return { id: created.id, ...s } as StockItem;
@@ -1018,6 +1130,67 @@ function StoreInner({ children }: { children: ReactNode }) {
       /* ignore */
     }
     await fetchAll();
+  };
+
+  // ── Sevkiyat / teslimat ──
+  const addShipment: Store['addShipment'] = async (s) => {
+    const created = await serviceService.createShipment({
+      opportunityId: s.salesCaseId || undefined,
+      trackingNo: s.trackingNo,
+      carrier: s.carrier,
+      origin: s.origin || undefined,
+      destination: s.destination || undefined,
+      eta: s.eta || undefined,
+      statusCode: shipmentStatusToCode(s.status),
+    });
+    await fetchAll();
+    return { id: created.id, ...s };
+  };
+  const updateShipmentStatus: Store['updateShipmentStatus'] = async (id, status) => {
+    await serviceService.updateShipmentStatus(id, shipmentStatusToCode(status));
+    setShipments((prev) => prev.map((s) => (s.id === id ? { ...s, status } : s)));
+  };
+  const addDelivery: Store['addDelivery'] = async (d) => {
+    const created = await serviceService.createDelivery({
+      companyId: d.customerId,
+      opportunityId: d.salesCaseId || undefined,
+      shipmentId: d.shipmentId || undefined,
+      deliveryDate: d.date,
+      signedBy: d.signedBy === '—' ? undefined : d.signedBy,
+      status: deliveryStatusToCode(d.status),
+      formData: d.formData
+        ? {
+            ...d.formData,
+            kurulumTarihi: d.formData.kurulumTarihi || undefined,
+          }
+        : undefined,
+    });
+    await fetchAll();
+    return {
+      id: created.id,
+      ...d,
+    };
+  };
+  const updateDelivery: Store['updateDelivery'] = async (id, d) => {
+    await serviceService.updateDelivery(id, {
+      companyId: d.customerId,
+      opportunityId: d.salesCaseId,
+      shipmentId: d.shipmentId,
+      deliveryDate: d.date,
+      signedBy: d.signedBy === '—' ? undefined : d.signedBy,
+      status: d.status ? deliveryStatusToCode(d.status) : undefined,
+      formData: d.formData
+        ? {
+            ...d.formData,
+            kurulumTarihi: d.formData.kurulumTarihi || undefined,
+          }
+        : undefined,
+    });
+    await fetchAll();
+  };
+  const updateDeliveryStatus: Store['updateDeliveryStatus'] = async (id, status) => {
+    await serviceService.updateDeliveryStatus(id, deliveryStatusToCode(status));
+    setDeliveries((prev) => prev.map((d) => (d.id === id ? { ...d, status } : d)));
   };
 
   const addService: Store['addService'] = async (s) => {
@@ -1125,6 +1298,8 @@ function StoreInner({ children }: { children: ReactNode }) {
       machines,
       payments,
       documents,
+      shipments,
+      deliveries,
       loading,
       addContact,
       updateContact,
@@ -1134,6 +1309,8 @@ function StoreInner({ children }: { children: ReactNode }) {
       updateProduct,
       deleteProduct,
       addCustomer,
+      updateCustomer,
+      deleteCustomer,
       addCase,
       addOffer,
       createQuoteFull,
@@ -1141,6 +1318,11 @@ function StoreInner({ children }: { children: ReactNode }) {
       deleteNoteTemplate,
       addStock,
       updateStockStatus,
+      addShipment,
+      updateShipmentStatus,
+      addDelivery,
+      updateDelivery,
+      updateDeliveryStatus,
       moveCase,
       markCaseLost,
       moveService,
@@ -1151,7 +1333,7 @@ function StoreInner({ children }: { children: ReactNode }) {
       refresh: fetchAll,
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [customers, cases, service, offers, noteTemplates, stock, products, activities, contacts, users, machines, payments, documents, loading]
+    [customers, cases, service, offers, noteTemplates, stock, products, activities, contacts, users, machines, payments, documents, shipments, deliveries, loading]
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

@@ -1,4 +1,4 @@
-import { ReactNode, useMemo, useState, useRef, useEffect } from "react";
+import { ReactNode, useMemo, useState, useEffect } from "react";
 import { useStore } from "../lib/store";
 import { SALES_STAGE_LABELS, type Customer } from "../lib/mock";
 import {
@@ -6,12 +6,11 @@ import {
   CreditCard, Boxes, ShoppingCart, Truck, Wrench, PackageCheck, Cpu,
   LifeBuoy, BarChart3, ShieldCheck, Building2, Contact as ContactIcon, Settings as SettingsIcon,
   Search, Bell, ChevronDown, LogOut, Plus, HelpCircle, Menu,
-  CheckCircle2, Clock, AlertTriangle, XCircle, ChevronRight, Tag, Receipt,
+  CheckCircle2, Clock, AlertTriangle, XCircle, ChevronRight, Tag, Receipt, Map as MapIcon, FileSignature, QrCode,
 } from "lucide-react";
 import { useAuth } from "../../lib/auth";
 import { toast } from "sonner";
 import { Button } from "./ui/button";
-import { Input } from "./ui/input";
 import { Avatar, AvatarFallback } from "./ui/avatar";
 import { Badge } from "./ui/badge";
 import {
@@ -21,12 +20,15 @@ import {
 import { ScrollArea } from "./ui/scroll-area";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "./ui/tooltip";
 import { QuickCreateDialog } from "./dialogs/CreateDialogs";
+import { CommandPalette } from "./operations/CommandPalette";
+import { AssistantPanel } from "./operations/AssistantPanel";
+import { buildAlerts, type OperationAction } from "../lib/operations";
 
 export type NavKey =
-  | "dashboard" | "customers" | "contacts" | "sales-cases" | "kanban" | "offers"
-  | "documents" | "payments" | "sales-price-list" | "products"
+  | "dashboard" | "customers" | "contacts" | "sales-cases" | "kanban" | "sales-map" | "offers"
+  | "proformas" | "contracts" | "documents" | "payments" | "sales-price-list" | "products"
   | "stock" | "purchase-orders" | "shipments"
-  | "installations" | "deliveries" | "machines" | "service-requests" | "service-kanban" | "service-price-list"
+  | "installations" | "deliveries" | "machines" | "lifecycle" | "service-requests" | "service-kanban" | "service-price-list"
   | "reports" | "users" | "roles" | "departments" | "settings";
 
 type NavItem = { key: NavKey; label: string; icon: any; badge?: string; roles?: string[] };
@@ -49,9 +51,11 @@ const NAV: { group: string; items: NavItem[] }[] = [
       { key: "customers", label: "Firmalar", icon: Building2, roles: ["sales", "service", "finance"] },
       { key: "contacts", label: "Kontaklar", icon: ContactIcon, roles: ["sales", "service"] },
       { key: "sales-cases", label: "Satış Kartları", icon: Briefcase, roles: ["sales"] },
+      { key: "sales-map", label: "Firma Haritası", icon: MapIcon, roles: ["sales", "service"] },
       { key: "offers", label: "Teklifler", icon: FileText, roles: ["sales", "finance"] },
+      { key: "proformas", label: "Proformalar", icon: FileText, roles: ["sales", "finance"] },
+      { key: "contracts", label: "Sözleşmeler", icon: FileSignature, roles: ["sales", "finance"] },
       { key: "documents", label: "Dokümanlar", icon: FolderOpen, roles: ["sales", "finance"] },
-      { key: "payments", label: "Ödemeler & Cari", icon: CreditCard, roles: ["finance"] },
       { key: "sales-price-list", label: "Satış Fiyat Listesi", icon: Tag, roles: ["sales"] },
     ],
   },
@@ -61,6 +65,7 @@ const NAV: { group: string; items: NavItem[] }[] = [
       { key: "products", label: "Ürünler", icon: Cpu, roles: ["sales", "service", "stock"] },
       { key: "stock", label: "Stok", icon: Boxes, roles: ["stock"] },
       { key: "purchase-orders", label: "Satın Alma", icon: ShoppingCart, roles: ["stock", "finance"] },
+      { key: "payments", label: "Ödemeler & Kasa", icon: CreditCard, roles: ["finance"] },
       { key: "shipments", label: "Sevkiyat", icon: Truck, roles: ["stock"] },
       { key: "deliveries", label: "Teslimat", icon: PackageCheck, roles: ["stock", "service"] },
     ],
@@ -69,16 +74,11 @@ const NAV: { group: string; items: NavItem[] }[] = [
     group: "Servis",
     items: [
       { key: "machines", label: "Makineler", icon: Cpu, roles: ["service", "stock"] },
+      { key: "lifecycle", label: "Yaşam Döngüsü", icon: QrCode, roles: ["sales", "service"] },
       { key: "installations", label: "Kurulum", icon: Wrench, roles: ["service"] },
       { key: "service-requests", label: "Servis Talepleri", icon: LifeBuoy, badge: "3", roles: ["service"] },
       { key: "service-kanban", label: "Servis Kanban", icon: KanbanSquare, badge: "Yeni", roles: ["service"] },
       { key: "service-price-list", label: "Servis Fiyat Listesi", icon: Receipt, roles: ["service"] },
-    ],
-  },
-  {
-    group: "Analiz",
-    items: [
-      { key: "reports", label: "Raporlar", icon: BarChart3, roles: ["sales", "finance"] },
     ],
   },
 ];
@@ -92,16 +92,13 @@ type Props = {
   actions?: ReactNode;
   children: ReactNode;
   onSelectFirm?: (c: Customer) => void;
+  onSelectCase?: (id: string) => void;
+  onOperationAction?: (action: OperationAction) => void;
 };
 
-const FIRM_TYPE_LABEL_TR: Record<string, string> = {
-  customer: "Müşteri",
-  supplier_customer: "Tedarikçi + Müşteri",
-  supplier: "Tedarikçi",
-};
-
-export function Layout({ current, onNavigate, onLogout, pageTitle, pageSubtitle, actions, children, onSelectFirm }: Props) {
-  const { customers, service } = useStore();
+export function Layout({ current, onNavigate, onLogout, pageTitle, pageSubtitle, actions, children, onSelectFirm, onSelectCase, onOperationAction }: Props) {
+  const store = useStore();
+  const { customers, service } = store;
   const { hasRole, user } = useAuth();
   const roleLabel = user?.roles?.[0] ? user.roles[0].replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()) : "Kullanıcı";
   const userInitials = (user?.fullName ?? "?").split(" ").slice(0, 2).map((p) => p[0]).join("").toUpperCase();
@@ -117,33 +114,54 @@ export function Layout({ current, onNavigate, onLogout, pageTitle, pageSubtitle,
     if (!item.roles) return true;
     return item.roles.some((r) => hasRole(r));
   };
-  const [search, setSearch] = useState("");
-  const [searchOpen, setSearchOpen] = useState(false);
-  const searchRef = useRef<HTMLDivElement>(null);
-  const [mgmtOpen, setMgmtOpen] = useState(MGMT_KEYS.has(current));
+  const canSeeReports = hasRole("admin") || hasRole("super_admin") || hasRole("readonly") || hasRole("sales") || hasRole("finance");
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [commandOpen, setCommandOpen] = useState(false);
 
   useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (searchRef.current && !searchRef.current.contains(e.target as Node)) setSearchOpen(false);
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setCommandOpen(true);
+      }
+      if ((e.metaKey || e.ctrlKey) && e.key === "/") {
+        e.preventDefault();
+        setCommandOpen(true);
+      }
     };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
   }, []);
 
-  const results = useMemo(() => {
-    const t = search.trim().toLowerCase();
-    if (!t) return [];
-    return customers
-      .filter(
-        (c) =>
-          c.name.toLowerCase().includes(t) ||
-          c.city.toLowerCase().includes(t) ||
-          c.email.toLowerCase().includes(t) ||
-          c.taxNumber.toLowerCase().includes(t),
-      )
-      .slice(0, 8);
-  }, [customers, search]);
+  const navItems = useMemo(() => NAV.flatMap((group) => group.items), []);
+  const canSeeNav = (key: string) => {
+    const item = navItems.find((x) => x.key === key);
+    return item ? canSee(item) : true;
+  };
+  const canUseAction = (action: OperationAction) => action.kind !== "navigate" || canSeeNav(action.nav);
+  const executeOperationAction = (action: OperationAction) => {
+    if (!canUseAction(action)) {
+      toast.error("Bu alan için yetkiniz yok.");
+      return;
+    }
+    if (onOperationAction) {
+      onOperationAction(action);
+      return;
+    }
+    if (action.kind === "navigate") onNavigate(action.nav as NavKey);
+    if (action.kind === "customer") {
+      const customer = customers.find((c) => c.id === action.customerId);
+      if (customer) onSelectFirm?.(customer);
+    }
+    if (action.kind === "salesCase") {
+      onNavigate("sales-cases");
+      onSelectCase?.(action.salesCaseId);
+    }
+  };
+  const alerts = useMemo(
+    () => buildAlerts(store).filter((alert) => canUseAction(alert.action)),
+    [store, user?.roles?.join("|")]
+  );
 
   const renderSidebarContent = (onItemClick?: () => void, menuSide: "right" | "top" = "right") => (
     <>
@@ -230,6 +248,13 @@ export function Layout({ current, onNavigate, onLogout, pageTitle, pageSubtitle,
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent className="w-[236px]" align="end" side={menuSide} sideOffset={12}>
+            <DropdownMenuLabel>Hesabım & Analiz</DropdownMenuLabel>
+            <DropdownMenuItem onClick={() => toast.message(user?.fullName ?? "Profil", { description: user?.email ?? "" })}><ContactIcon className="size-4 mr-2 text-muted-foreground" /> Profil</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => toast.message("Klavye Kısayolları", { description: "⌘K ara · ⌘N yeni kayıt · ⌘/ yardım" })}><HelpCircle className="size-4 mr-2 text-muted-foreground" /> Klavye Kısayolları</DropdownMenuItem>
+            {canSeeReports && (
+              <DropdownMenuItem onClick={() => { onNavigate("reports"); onItemClick?.(); }}><BarChart3 className="size-4 mr-2 text-muted-foreground" /> Raporlar</DropdownMenuItem>
+            )}
+            <DropdownMenuSeparator />
             <DropdownMenuLabel>Yönetim</DropdownMenuLabel>
             <DropdownMenuItem onClick={() => { onNavigate("users"); onItemClick?.(); }}><Users className="size-4 mr-2 text-muted-foreground" /> Kullanıcılar</DropdownMenuItem>
             <DropdownMenuItem onClick={() => { onNavigate("roles"); onItemClick?.(); }}><ShieldCheck className="size-4 mr-2 text-muted-foreground" /> Roller & Yetkiler</DropdownMenuItem>
@@ -247,7 +272,7 @@ export function Layout({ current, onNavigate, onLogout, pageTitle, pageSubtitle,
 
   return (
     <TooltipProvider delayDuration={150}>
-      <div className="flex h-dvh overflow-hidden bg-[#f7f7f8] text-foreground">
+      <div className="flex h-full min-h-0 w-full overflow-hidden bg-[#f7f7f8] text-foreground">
         {mobileNavOpen && (
           <div className="fixed inset-0 z-50 lg:hidden">
             <button
@@ -279,62 +304,21 @@ export function Layout({ current, onNavigate, onLogout, pageTitle, pageSubtitle,
               alt="Haksan Makina"
               className="lg:hidden h-8 w-auto max-w-[120px] object-contain"
             />
-            <div className="relative hidden md:block w-[420px] max-w-[40%]" ref={searchRef}>
-              <Search className="size-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                placeholder="Firma ara: ad, şehir, e-posta, VKN..."
-                className="pl-9 pr-16 h-9 bg-muted/40 border-transparent focus-visible:bg-white focus-visible:border-border"
-                value={search}
-                onChange={(e) => { setSearch(e.target.value); setSearchOpen(true); }}
-                onFocus={() => setSearchOpen(true)}
-              />
+            <Button variant="ghost" size="icon" className="md:hidden size-9" aria-label="Global arama" onClick={() => setCommandOpen(true)}>
+              <Search className="size-[18px] text-muted-foreground" />
+            </Button>
+            <div className="relative hidden md:block w-[420px] max-w-[40%]">
+              <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+              <button
+                type="button"
+                className="h-9 w-full rounded-md border border-transparent bg-muted/40 pl-9 pr-16 text-left text-sm text-muted-foreground transition-colors hover:bg-muted/70 focus-visible:border-border focus-visible:bg-white focus-visible:outline-none"
+                onClick={() => setCommandOpen(true)}
+              >
+                Firma, teklif, stok, servis ara...
+              </button>
               <kbd className="absolute right-2.5 top-1/2 -translate-y-1/2 hidden md:flex items-center gap-1 px-1.5 h-5 rounded text-[10px] text-muted-foreground bg-white border">
                 ⌘K
               </kbd>
-
-              {searchOpen && search.trim() && (
-                <div className="absolute left-0 right-0 top-[calc(100%+6px)] z-50 rounded-lg border border-border/60 bg-white shadow-lg overflow-hidden">
-                  <div className="px-3 py-2 border-b border-border/60 flex items-center justify-between bg-muted/30">
-                    <span className="text-[11px] uppercase tracking-wider text-muted-foreground">Firmalar</span>
-                    <span className="text-[11px] text-muted-foreground">{results.length} sonuç</span>
-                  </div>
-                  {results.length === 0 ? (
-                    <div className="px-3 py-6 text-sm text-muted-foreground text-center">Sonuç bulunamadı.</div>
-                  ) : (
-                    <div className="max-h-[360px] overflow-auto">
-                      {results.map((c) => (
-                        <button
-                          key={c.id}
-                          onMouseDown={(e) => e.preventDefault()}
-                          onClick={() => {
-                            onSelectFirm?.(c);
-                            setSearch("");
-                            setSearchOpen(false);
-                          }}
-                          className="w-full text-left px-3 py-2 hover:bg-muted/60 flex items-center gap-3 group"
-                        >
-                          <div className="size-8 rounded-md bg-gradient-to-br from-primary/15 to-primary/5 text-primary grid place-items-center shrink-0">
-                            <Building2 className="size-4" />
-                          </div>
-                          <div className="min-w-0 flex-1">
-                            <div className="text-sm leading-tight truncate group-hover:text-primary">{c.name}</div>
-                            <div className="text-[11px] text-muted-foreground truncate mt-0.5">
-                              {FIRM_TYPE_LABEL_TR[c.firmType] ?? c.firmType} · {c.city} · VKN {c.taxNumber}
-                            </div>
-                          </div>
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                  <div className="px-3 py-2 border-t border-border/60 bg-muted/20 text-[11px] text-muted-foreground">
-                    Tüm firmalara git: <button
-                      className="text-primary hover:underline"
-                      onMouseDown={(e) => e.preventDefault()}
-                      onClick={() => { onNavigate("customers"); setSearchOpen(false); setSearch(""); }}
-                    >Firmalar sayfası</button>
-                  </div>
-                </div>
-              )}
             </div>
 
             <div className="flex-1" />
@@ -351,6 +335,7 @@ export function Layout({ current, onNavigate, onLogout, pageTitle, pageSubtitle,
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button variant="ghost" size="icon" className="relative size-9"
+                  aria-label="Yardım Merkezi"
                   onClick={() => toast.message("Yardım Merkezi", { description: "Sorularınız için destek@haksan.local ile iletişime geçebilirsiniz." })}>
                   <HelpCircle className="size-[18px] text-muted-foreground" />
                 </Button>
@@ -360,7 +345,7 @@ export function Layout({ current, onNavigate, onLogout, pageTitle, pageSubtitle,
 
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="icon" className="relative size-9">
+                <Button variant="ghost" size="icon" className="relative size-9" aria-label="Bildirimler">
                   <Bell className="size-[18px] text-muted-foreground" />
                   <span className="absolute top-1.5 right-1.5 size-2 rounded-full bg-red-500 ring-2 ring-white" />
                 </Button>
@@ -368,33 +353,21 @@ export function Layout({ current, onNavigate, onLogout, pageTitle, pageSubtitle,
               <DropdownMenuContent align="end" className="w-80">
                 <DropdownMenuLabel className="flex items-center justify-between">
                   <span>Bildirimler</span>
-                  <Badge variant="secondary" className="text-[10px]">4 yeni</Badge>
+                  <Badge variant="secondary" className="text-[10px]">{alerts.length} yeni</Badge>
                 </DropdownMenuLabel>
                 <DropdownMenuSeparator />
-                <NotifItem
-                  icon={<CheckCircle2 className="size-4 text-emerald-600" />}
-                  title="Q-2026-0061 onaylandı"
-                  desc="Marmara Lojistik · 32.000 €"
-                  time="10 dk önce"
-                />
-                <NotifItem
-                  icon={<AlertTriangle className="size-4 text-red-600" />}
-                  title="Ödeme gecikmesi"
-                  desc="Çukurova İnşaat · 9.000 USD"
-                  time="1 saat önce"
-                />
-                <NotifItem
-                  icon={<Wrench className="size-4 text-amber-600" />}
-                  title="Yeni servis talebi"
-                  desc="Karadeniz Gıda · SN-300-0003"
-                  time="2 saat önce"
-                />
-                <NotifItem
-                  icon={<Clock className="size-4 text-blue-600" />}
-                  title="Sevkiyat yola çıktı"
-                  desc="TRK-009122 · Hamburg → İstanbul"
-                  time="dün"
-                />
+                {alerts.length === 0 ? (
+                  <div className="px-3 py-8 text-center text-sm text-muted-foreground">Aktif uyarı yok.</div>
+                ) : alerts.map((alert) => (
+                  <NotifItem
+                    key={alert.id}
+                    icon={alert.severity === "critical" ? <AlertTriangle className="size-4 text-red-600" /> : alert.severity === "warning" ? <Clock className="size-4 text-amber-600" /> : <CheckCircle2 className="size-4 text-blue-600" />}
+                    title={alert.title}
+                    desc={alert.description}
+                    time={alert.severity === "critical" ? "kritik" : "takip"}
+                    onClick={() => executeOperationAction(alert.action)}
+                  />
+                ))}
               </DropdownMenuContent>
             </DropdownMenu>
 
@@ -414,9 +387,12 @@ export function Layout({ current, onNavigate, onLogout, pageTitle, pageSubtitle,
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-56">
-                <DropdownMenuLabel>Hesabım & Yönetim</DropdownMenuLabel>
+                <DropdownMenuLabel>Hesabım & Analiz</DropdownMenuLabel>
                 <DropdownMenuItem onClick={() => toast.message(user?.fullName ?? "Profil", { description: user?.email ?? "" })}><ContactIcon className="size-4 mr-2 text-muted-foreground" /> Profil</DropdownMenuItem>
                 <DropdownMenuItem onClick={() => toast.message("Klavye Kısayolları", { description: "⌘K ara · ⌘N yeni kayıt · ⌘/ yardım" })}><HelpCircle className="size-4 mr-2 text-muted-foreground" /> Klavye Kısayolları</DropdownMenuItem>
+                {canSeeReports && (
+                  <DropdownMenuItem onClick={() => onNavigate("reports")}><BarChart3 className="size-4 mr-2 text-muted-foreground" /> Raporlar</DropdownMenuItem>
+                )}
                 <DropdownMenuSeparator />
                 <DropdownMenuLabel>Yönetim</DropdownMenuLabel>
                 <DropdownMenuItem onClick={() => onNavigate("users")}><Users className="size-4 mr-2 text-muted-foreground" /> Kullanıcılar</DropdownMenuItem>
@@ -450,21 +426,28 @@ export function Layout({ current, onNavigate, onLogout, pageTitle, pageSubtitle,
           {/* Content */}
           <main className="app-main flex-1 min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain p-4 md:p-6 min-w-0 bg-[#f7f7f8]">{children}</main>
         </div>
+        <CommandPalette
+          open={commandOpen}
+          onOpenChange={setCommandOpen}
+          onAction={executeOperationAction}
+          canUseAction={canUseAction}
+        />
+        <AssistantPanel onAction={executeOperationAction} canUseAction={canUseAction} />
       </div>
     </TooltipProvider>
   );
 }
 
-function NotifItem({ icon, title, desc, time }: { icon: ReactNode; title: string; desc: string; time: string }) {
+function NotifItem({ icon, title, desc, time, onClick }: { icon: ReactNode; title: string; desc: string; time: string; onClick?: () => void }) {
   return (
-    <div className="flex gap-3 px-3 py-2.5 hover:bg-muted/60 cursor-pointer">
+    <button type="button" onClick={onClick} className="flex w-full gap-3 px-3 py-2.5 text-left hover:bg-muted/60">
       <div className="size-8 rounded-full bg-muted grid place-items-center shrink-0">{icon}</div>
       <div className="min-w-0 flex-1">
         <div className="text-sm leading-tight truncate">{title}</div>
         <div className="text-xs text-muted-foreground truncate">{desc}</div>
       </div>
       <div className="text-[10px] text-muted-foreground shrink-0">{time}</div>
-    </div>
+    </button>
   );
 }
 

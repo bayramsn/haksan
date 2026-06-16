@@ -1,5 +1,5 @@
-import { pgTable, uuid, varchar, text, boolean, timestamp, integer, index, uniqueIndex, primaryKey } from 'drizzle-orm/pg-core';
-import { auditColumns } from './_helpers';
+import { pgTable, uuid, varchar, text, boolean, timestamp, integer, jsonb, index, uniqueIndex, primaryKey } from 'drizzle-orm/pg-core';
+import { auditColumns, money } from './_helpers';
 import { tenants, departments } from './tenants';
 
 export const users = pgTable(
@@ -28,6 +28,48 @@ export const users = pgTable(
     tenantEmailUnique: uniqueIndex('users_tenant_email_unique').on(t.tenantId, t.email),
     tenantIdx: index('users_tenant_idx').on(t.tenantId),
     emailLowerIdx: index('users_email_idx').on(t.email),
+  })
+);
+
+export type UserTargetItem = {
+  targetType: 'sales' | 'service';
+  category: string;
+  activity: string;
+  description: string;
+  unit: 'count' | 'amount';
+  target: string;
+};
+
+export const userTargets = pgTable(
+  'user_targets',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id')
+      .notNull()
+      .references(() => tenants.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    period: varchar('period', { length: 7 }).notNull(),
+    currency: varchar('currency', { length: 3 }).notNull().default('USD'),
+    salesAmount: money('sales_amount'),
+    salesNewCustomers: integer('sales_new_customers'),
+    serviceAmount: money('service_amount'),
+    serviceCompleted: integer('service_completed'),
+    digitalLeadTarget: integer('digital_lead_target'),
+    digitalConversionTarget: integer('digital_conversion_target'),
+    digitalBudget: money('digital_budget'),
+    visitTarget: integer('visit_target'),
+    callTarget: integer('call_target'),
+    quoteTarget: integer('quote_target'),
+    targetItems: jsonb('target_items').$type<UserTargetItem[]>(),
+    note: text('note'),
+    ...auditColumns,
+  },
+  (t) => ({
+    tenantIdx: index('user_targets_tenant_idx').on(t.tenantId),
+    userIdx: index('user_targets_user_idx').on(t.userId),
+    tenantUserPeriodUnique: uniqueIndex('user_targets_tenant_user_period_unique').on(t.tenantId, t.userId, t.period),
   })
 );
 

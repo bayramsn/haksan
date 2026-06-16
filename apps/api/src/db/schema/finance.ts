@@ -42,6 +42,8 @@ export const payments = pgTable(
     companyId: uuid('company_id')
       .notNull()
       .references(() => companies.id, { onDelete: 'restrict' }),
+    // Kasa yönü: 'in' = giren (müşteriden tahsilat), 'out' = çıkan (tedarikçiye/gidere ödeme).
+    direction: varchar('direction', { length: 8 }).notNull().default('in'),
     amount: money('amount').notNull(),
     currencyId: uuid('currency_id').references(() => currencies.id),
     paymentDate: timestamp('payment_date', { withTimezone: true }).notNull(),

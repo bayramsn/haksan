@@ -12,4 +12,5 @@ export * from './notes';
 export * from './orders';
 export * from './finance';
 export * from './service';
+export * from './lifecycle';
 export * from './audit';

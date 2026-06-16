@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
-import { ThrottlerModule } from '@nestjs/throttler';
+import { APP_GUARD } from '@nestjs/core';
+import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { DatabaseModule } from './shared/database/database.module';
 import { StorageModule } from './shared/storage/storage.module';
 import { AuthModule } from './modules/auth/auth.module';
@@ -18,16 +19,25 @@ import { ReportsModule } from './modules/reports/reports.module';
 import { LookupsModule } from './modules/lookups/lookups.module';
 import { AdminModule } from './modules/admin/admin.module';
 import { NoteTemplatesModule } from './modules/note-templates/note-templates.module';
+import { FxModule } from './modules/fx/fx.module';
+import { LifecycleModule } from './modules/lifecycle/lifecycle.module';
 import { loadEnv } from './config/env';
 
 const env = loadEnv();
 
 @Module({
   imports: [
-    ThrottlerModule.forRoot([
-      { name: 'global', limit: env.RATE_LIMIT_GLOBAL, ttl: 60_000 },
-      { name: 'login', limit: env.RATE_LIMIT_LOGIN, ttl: 60_000 },
-    ]),
+    // Tek global throttler. NestJS throttler v6'da forRoot içindeki TÜM isimli
+    // throttler'lar her route'a uygulanır; bu yüzden ayrı bir 'login' throttler
+    // tanımlamak yerine login route'ları @Throttle({ default: ... }) ile daha
+    // sıkı limite override eder (bkz. auth.controller). Aksi halde login limiti
+    // tüm API'ye sızar.
+    ThrottlerModule.forRoot({
+      throttlers: [{ name: 'default', limit: env.RATE_LIMIT_GLOBAL, ttl: 60_000 }],
+      // Test paketi tek IP'den yüzlerce istek atar; throttle'ı test ortamında
+      // devre dışı bırak ki sahte 429'lar testleri kırmasın. Prod/dev'de aktif.
+      skipIf: () => env.NODE_ENV === 'test',
+    }),
     DatabaseModule,
     StorageModule,
     AuthModule,
@@ -46,6 +56,13 @@ const env = loadEnv();
     ReportsModule,
     AdminModule,
     NoteTemplatesModule,
+    FxModule,
+    LifecycleModule,
+  ],
+  providers: [
+    // Rate limiting'i tüm route'lara uygular. Bu guard global bağlanmadan
+    // @Throttle dekoratörleri (login brute-force koruması dâhil) ETKİSİZDİR.
+    { provide: APP_GUARD, useClass: ThrottlerGuard },
   ],
 })
 export class AppModule {}

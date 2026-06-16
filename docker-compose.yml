@@ -8,7 +8,10 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-haksan}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-haksan_dev_pwd}
     ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+      # Güvenlik: portlar varsayılan olarak yalnızca loopback'e (127.0.0.1) açılır.
+      # VDS/public IP'li sunucularda DB'yi internete açmaz. Dış erişim gerekiyorsa
+      # BIND_HOST=0.0.0.0 ile override et (önerilmez; bunun yerine reverse proxy kullan).
+      - "${BIND_HOST:-127.0.0.1}:${POSTGRES_PORT:-5432}:5432"
     volumes:
       - haksan_postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -26,8 +29,10 @@ services:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
     ports:
-      - "${MINIO_PORT:-9000}:9000"
-      - "${MINIO_CONSOLE_PORT:-9001}:9001"
+      # Bkz. postgres notu — varsayılan loopback. MinIO'yu prod'da reverse proxy
+      # (örn. https://storage.alanadi.com) arkasından yayınla, konsolu (9001) açma.
+      - "${BIND_HOST:-127.0.0.1}:${MINIO_PORT:-9000}:9000"
+      - "${BIND_HOST:-127.0.0.1}:${MINIO_CONSOLE_PORT:-9001}:9001"
     volumes:
       - haksan_minio_data:/data
     healthcheck:
@@ -57,13 +62,16 @@ services:
       exit 0;
       "
 
+  # DİKKAT: Mailhog yalnızca geliştirme içindir (mailleri yakalar, GÖNDERMEZ).
+  # Production'da bu servisi kaldır ve gerçek bir SMTP sağlayıcısı kullan
+  # (SMTP_HOST/SMTP_PORT/SMTP_FROM env'leri). UI portu (8025) public'e AÇILMAMALI.
   mailhog:
     image: mailhog/mailhog:latest
     container_name: haksan-mailhog
     restart: unless-stopped
     ports:
-      - "${MAILHOG_SMTP_PORT:-1025}:1025"
-      - "${MAILHOG_UI_PORT:-8025}:8025"
+      - "${BIND_HOST:-127.0.0.1}:${MAILHOG_SMTP_PORT:-1025}:1025"
+      - "${BIND_HOST:-127.0.0.1}:${MAILHOG_UI_PORT:-8025}:8025"
 
 volumes:
   haksan_postgres_data:

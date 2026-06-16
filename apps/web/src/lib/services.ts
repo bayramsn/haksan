@@ -173,6 +173,56 @@ export const quoteService = {
   approve: (id: string) => api.post(`/quotes/${id}/approve`),
   reject: (id: string) => api.post(`/quotes/${id}/reject`),
   send: (id: string) => api.post(`/quotes/${id}/send`),
+  /**
+   * Teklif PDF'ini backend'den (PDFKit) indirir. Endpoint binary döndürdüğü için
+   * api client yerine token'lı ham fetch + blob indirmesi kullanılır.
+   */
+  downloadPdf: async (id: string, documentNo?: string): Promise<void> => {
+    const base = (import.meta.env.VITE_API_BASE_URL as string) ?? 'http://localhost:3000/api/v1';
+    const token = getAccessToken();
+    const res = await fetch(`${base}/quotes/${id}/generate-pdf`, {
+      method: 'POST',
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      credentials: 'include',
+    });
+    if (!res.ok) throw new Error(`PDF indirilemedi (HTTP ${res.status})`);
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `teklif-${documentNo ?? id}.pdf`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  },
+  /**
+   * Teklif PDF'ini yeni sekmede açar (tarayıcı PDF görüntüleyicisi). Blob URL
+   * hemen iptal edilmez; sekme açıldıktan sonra GC ile temizlenir.
+   */
+  openPdf: async (id: string): Promise<void> => {
+    const base = (import.meta.env.VITE_API_BASE_URL as string) ?? 'http://localhost:3000/api/v1';
+    const token = getAccessToken();
+    const res = await fetch(`${base}/quotes/${id}/generate-pdf`, {
+      method: 'POST',
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      credentials: 'include',
+    });
+    if (!res.ok) throw new Error(`PDF oluşturulamadı (HTTP ${res.status})`);
+    const blob = await res.blob();
+    const url = URL.createObjectURL(new Blob([blob], { type: 'application/pdf' }));
+    const win = window.open(url, '_blank', 'noopener');
+    if (!win) {
+      // Pop-up engellendi → indirmeye düş
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `teklif-${id}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    }
+    setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  },
 };
 
 // ───── Note templates (reusable quote notes) ─────
@@ -228,6 +278,8 @@ export const financeService = {
   createReceivable: (body: any) => api.post<any>('/receivables', body),
   payments: (params?: Record<string, string | number | undefined>) => api.get<Paginated<any>>(`/payments${qs(params)}`),
   createPayment: (body: any) => api.post<any>('/payments', body),
+  updatePaymentStatus: (id: string, status: string) => api.patch<any>(`/payments/${id}/status`, { status }),
+  updateReceivableStatus: (id: string, status: string) => api.patch<any>(`/receivables/${id}/status`, { status }),
 };
 
 // ───── Service / Installation / Shipment ─────
@@ -239,7 +291,31 @@ export const serviceService = {
   installations: (params?: Record<string, string | number | undefined>) => api.get<Paginated<any>>(`/installations${qs(params)}`),
   createInstallation: (body: any) => api.post<any>('/installations', body),
   shipments: (params?: Record<string, string | number | undefined>) => api.get<Paginated<any>>(`/shipments${qs(params)}`),
+  shipment: (id: string) => api.get<any>(`/shipments/${id}`),
   createShipment: (body: any) => api.post<any>('/shipments', body),
+  updateShipmentStatus: (id: string, statusCode: string) =>
+    api.patch<any>(`/shipments/${id}/status`, { statusCode }),
+  deliveries: (params?: Record<string, string | number | undefined>) => api.get<Paginated<any>>(`/deliveries${qs(params)}`),
+  createDelivery: (body: any) => api.post<any>('/deliveries', body),
+  updateDelivery: (id: string, body: any) => api.patch<any>(`/deliveries/${id}`, body),
+  updateDeliveryStatus: (id: string, status: 'pending' | 'completed') =>
+    api.patch<any>(`/deliveries/${id}/status`, { status }),
+};
+
+// ───── Machine lifecycle: passports, CPQ, service radar ─────
+export const lifecycleService = {
+  passports: () => api.get<any[]>('/lifecycle/passports'),
+  publishPassport: (deviceId: string, body: { publicTitle?: string; publicNotes?: string }) =>
+    api.post<any>(`/lifecycle/passports/${deviceId}/publish`, body),
+  rotatePassport: (passportId: string) => api.post<any>(`/lifecycle/passports/${passportId}/rotate-token`),
+  revokePassport: (passportId: string) => api.patch<any>(`/lifecycle/passports/${passportId}/revoke`, {}),
+  cpqPreview: (body: any) => api.post<any>('/lifecycle/cpq/preview', body),
+  cpqCreateQuote: (body: any) => api.post<any>('/lifecycle/cpq/create-quote', body),
+  serviceRadar: () => api.get<any>('/lifecycle/service-radar'),
+  publicPassport: (slug: string, token: string) =>
+    api.get<any>(`/public/passports/${encodeURIComponent(slug)}/${encodeURIComponent(token)}`),
+  publicServiceTicket: (slug: string, token: string, body: { subject: string; description?: string; severity?: string }) =>
+    api.post<any>(`/public/passports/${encodeURIComponent(slug)}/${encodeURIComponent(token)}/service-tickets`, body),
 };
 
 // ───── Files ─────
@@ -319,6 +395,9 @@ export const adminService = {
   users: () => api.get<any[]>('/users'),
   createUser: (body: any) => api.post<any>('/users', body),
   updateUser: (id: string, body: any) => api.patch<any>(`/users/${id}`, body),
+  userTargets: (params?: Record<string, string | number | undefined>) => api.get<any[]>(`/user-targets${qs(params)}`),
+  myTargets: (params?: Record<string, string | number | undefined>) => api.get<any[]>(`/me/targets${qs(params)}`),
+  saveUserTarget: (userId: string, body: any) => api.post<any>(`/users/${userId}/targets`, body),
   roles: () => api.get<any[]>('/roles'),
   createRole: (body: any) => api.post<any>('/roles', body),
   updateRole: (id: string, body: any) => api.patch<any>(`/roles/${id}`, body),

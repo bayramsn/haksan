@@ -11,6 +11,7 @@ import {
 } from "../ui/select";
 import { MultiSelect } from "../ui/multi-select";
 import { useStore } from "../../lib/store";
+import { useFx, FxRateBadge } from "../../lib/fx";
 import { useAuth } from "../../../lib/auth";
 import { toast } from "sonner";
 import { Plus, Trash2, Save, BookmarkPlus, Bold } from "lucide-react";
@@ -101,6 +102,7 @@ export function QuoteDialog({
   defaultCaseId?: string;
 }) {
   const { customers, contacts, products, users, cases, offers, noteTemplates, createQuoteFull, addNoteTemplate } = useStore();
+  const { convert } = useFx();
   const { user } = useAuth();
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -583,6 +585,14 @@ export function QuoteDialog({
               <div className="flex justify-between"><span className="text-muted-foreground">İndirim</span><span className="tabular-nums">-{money(totals.discount, currency)}</span></div>
               <div className="flex justify-between"><span className="text-muted-foreground">KDV</span><span className="tabular-nums">{money(totals.vat, currency)}</span></div>
               <div className="flex justify-between border-t border-border/60 pt-1 font-medium"><span>Genel Toplam</span><span className="tabular-nums">{money(totals.grand, currency)}</span></div>
+              <div className="flex justify-between items-center gap-2 pt-1.5 mt-1 border-t border-dashed border-border/60 flex-wrap">
+                <FxRateBadge />
+                <span className="tabular-nums text-xs text-muted-foreground">
+                  {currency === "TRY"
+                    ? `≈ ${money(convert(totals.grand, "TRY", "USD"), "USD")}`
+                    : `≈ ${money(convert(totals.grand, currency, "TRY"), "TRY")} · ${money(convert(totals.grand, currency, "USD"), "USD")}`}
+                </span>
+              </div>
             </div>
           </div>
 

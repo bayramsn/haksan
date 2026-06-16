@@ -12,15 +12,18 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "../ui/tabs";
 import { KanbanPage } from "./Kanban";
 import { FilterPopover, usePaged, Pager } from "../ui/list-controls";
 import { exportToCsv } from "../../../lib/exportCsv";
+import { type OperationFocus } from "../../lib/operations";
 
 const initials = (n: string) => (n || "—").split(" ").slice(0, 2).map((p) => p[0]).join("").toUpperCase();
 
 export function SalesCasesPage({
   onSelect,
   initialView = "list",
+  focus,
 }: {
   onSelect: (s: SalesCase) => void;
   initialView?: "list" | "kanban";
+  focus?: OperationFocus;
 }) {
   const { cases: salesCases, customers, users } = useStore();
   const [view, setView] = useState<"list" | "kanban">(initialView);
@@ -28,7 +31,13 @@ export function SalesCasesPage({
   const [stage, setStage] = useState("all");
   const [currency, setCurrency] = useState("all");
 
+  const focusOpen = focus === "open" || focus === "today";
+  const focusWon = focus === "won";
+  const focusLost = focus === "lost";
   const filtered = salesCases.filter((s) => {
+    if (focusOpen && (s.isLost || ["Completed", "Lost", "delivered"].includes(String(s.stage)))) return false;
+    if (focusWon && !["Completed", "delivered"].includes(String(s.stage))) return false;
+    if (focusLost && !(s.isLost || String(s.stage) === "Lost")) return false;
     if (stage !== "all" && s.stage !== stage) return false;
     if (currency !== "all" && s.currency !== currency) return false;
     const c = customers.find((x) => x.id === s.customerId);
@@ -43,6 +52,10 @@ export function SalesCasesPage({
   useEffect(() => {
     setView(initialView);
   }, [initialView]);
+
+  useEffect(() => {
+    if (focusOpen || focusWon || focusLost) setStage("all");
+  }, [focusLost, focusOpen, focusWon]);
 
   const exportExcel = () =>
     exportToCsv(
@@ -66,8 +79,8 @@ export function SalesCasesPage({
       </TabsContent>
       <TabsContent value="list" className="mt-0 space-y-4">
       <div className="flex items-center justify-between gap-3 flex-wrap">
-        <div className="flex items-center gap-2">
-          <div className="relative w-72">
+        <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
+          <div className="relative w-full sm:w-72">
             <Search className="size-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
             <Input
               placeholder="Müşteri / ürün ara..."
@@ -82,6 +95,21 @@ export function SalesCasesPage({
               { label: "Para Birimi", value: currency, onChange: setCurrency, options: currencyOptions },
             ]}
           />
+          {focusOpen && (
+            <span className="inline-flex h-8 items-center rounded-md border border-primary/20 bg-primary/10 px-2.5 text-xs text-primary">
+              Açık kartlar
+            </span>
+          )}
+          {focusWon && (
+            <span className="inline-flex h-8 items-center rounded-md border border-emerald-200 bg-emerald-50 px-2.5 text-xs text-emerald-700">
+              Kazanılanlar
+            </span>
+          )}
+          {focusLost && (
+            <span className="inline-flex h-8 items-center rounded-md border border-red-200 bg-red-50 px-2.5 text-xs text-red-700">
+              Kaybedilenler
+            </span>
+          )}
         </div>
         <Button variant="outline" size="sm" className="h-9" onClick={exportExcel}><Download className="size-4" /> Excel</Button>
       </div>

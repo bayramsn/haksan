@@ -1,0 +1,46 @@
+# ─────────────────────────────────────────────────────────────────────────
+# systemd unit — Haksan NestJS API
+#
+# Kurulum:
+#   sudo cp deploy/haksan-api.service /etc/systemd/system/haksan-api.service
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now haksan-api
+#   sudo systemctl status haksan-api
+#   journalctl -u haksan-api -f      # canlı log
+#
+# Not: WorkingDirectory apps/api OLMALI — uygulama .env'i çalışma dizininden
+# (dotenv/config) yükler.
+# ─────────────────────────────────────────────────────────────────────────
+[Unit]
+Description=Haksan CRM API (NestJS)
+After=network.target
+# Postgres aynı sunucuda Docker ile çalışıyorsa:
+# After=network.target docker.service
+# Requires=docker.service
+
+[Service]
+Type=simple
+User=haksan
+Group=haksan
+WorkingDirectory=/var/www/haksan/apps/api
+EnvironmentFile=/var/www/haksan/apps/api/.env
+ExecStart=/usr/bin/node dist/main.js
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=haksan-api
+
+# ── Güvenlik sıkılaştırma ──
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+# Uygulamanın yazabileceği dizin(ler) (varsa log/geçici); aksi halde FS salt-okunur.
+ReadWritePaths=/var/www/haksan/apps/api
+
+[Install]
+WantedBy=multi-user.target

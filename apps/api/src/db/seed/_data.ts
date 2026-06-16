@@ -315,6 +315,7 @@ export const rolePermissionMatrix: Record<string, Record<string, string[] | '*'>
     customer_devices: '*',
     installations: '*',
     service_tickets: '*',
+    shipments: '*',
     files: ['read', 'create'],
     products: ['read'],
     inventory: ['read'],

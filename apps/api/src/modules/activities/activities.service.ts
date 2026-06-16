@@ -1,10 +1,11 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { and, desc, eq, sql } from 'drizzle-orm';
+import { and, desc, eq, isNull, sql } from 'drizzle-orm';
 import type { DbClient } from '../../db/client';
-import { salesActivities, visits, calls } from '../../db/schema/crm';
+import { salesActivities, visits, calls, opportunities } from '../../db/schema/crm';
+import { companies, contacts } from '../../db/schema/companies';
 import { activityTypes } from '../../db/schema/lookup';
 import { DB } from '../../shared/database/database.module';
-import { ValidationError } from '../../shared/utils/errors';
+import { NotFoundError, ValidationError } from '../../shared/utils/errors';
 import type { AuthContext } from '../../shared/security/auth.types';
 import type { ActivityCreateInput, VisitCreateInput, CallCreateInput, Pagination } from '@haksan/shared';
 import { buildPaginated, pageOffset } from '../../shared/utils/pagination';
@@ -13,6 +14,38 @@ import { lookupIdByCode } from '../../shared/utils/lookup.helper';
 @Injectable()
 export class ActivitiesService {
   constructor(@Inject(DB) private readonly db: DbClient) {}
+
+  private async assertCompany(companyId: string, actor: AuthContext) {
+    const company = await this.db.query.companies.findFirst({
+      where: and(eq(companies.id, companyId), eq(companies.tenantId, actor.tenantId), isNull(companies.deletedAt)),
+    });
+    if (!company) throw new NotFoundError('Firma');
+    return company;
+  }
+
+  private async assertContact(contactId: string, actor: AuthContext, companyId: string) {
+    const contact = await this.db.query.contacts.findFirst({
+      where: and(eq(contacts.id, contactId), eq(contacts.tenantId, actor.tenantId), isNull(contacts.deletedAt)),
+    });
+    if (!contact) throw new NotFoundError('Kontak');
+    if (contact.companyId !== companyId) throw new ValidationError('Kontak seçilen firmaya ait değil');
+    return contact;
+  }
+
+  private async assertOpportunity(opportunityId: string, actor: AuthContext, companyId: string) {
+    const opportunity = await this.db.query.opportunities.findFirst({
+      where: and(eq(opportunities.id, opportunityId), eq(opportunities.tenantId, actor.tenantId), isNull(opportunities.deletedAt)),
+    });
+    if (!opportunity) throw new NotFoundError('Fırsat');
+    if (opportunity.companyId !== companyId) throw new ValidationError('Fırsat seçilen firmaya ait değil');
+    return opportunity;
+  }
+
+  private async assertReferences(input: { companyId: string; contactId?: string; opportunityId?: string }, actor: AuthContext) {
+    await this.assertCompany(input.companyId, actor);
+    if (input.contactId) await this.assertContact(input.contactId, actor, input.companyId);
+    if (input.opportunityId) await this.assertOpportunity(input.opportunityId, actor, input.companyId);
+  }
 
   async list(actor: AuthContext, query: { opportunityId?: string; companyId?: string }, page: Pagination) {
     const { limit, offset } = pageOffset(page);
@@ -43,6 +76,7 @@ export class ActivitiesService {
   }
 
   async createActivity(input: ActivityCreateInput, actor: AuthContext) {
+    await this.assertReferences(input, actor);
     const typeId = await lookupIdByCode(this.db, activityTypes, input.activityTypeCode);
     if (!typeId) throw new ValidationError(`Bilinmeyen aktivite türü: ${input.activityTypeCode}`);
     const [row] = await this.db
@@ -65,6 +99,7 @@ export class ActivitiesService {
   }
 
   async createVisit(input: VisitCreateInput, actor: AuthContext) {
+    await this.assertReferences(input, actor);
     const [row] = await this.db
       .insert(visits)
       .values({
@@ -84,6 +119,7 @@ export class ActivitiesService {
   }
 
   async createCall(input: CallCreateInput, actor: AuthContext) {
+    await this.assertReferences(input, actor);
     const [row] = await this.db
       .insert(calls)
       .values({

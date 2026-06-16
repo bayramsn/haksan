@@ -113,7 +113,7 @@ export function CompanyDetailDialog({
 
   return (
     <Dialog open={!!customer} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-3xl max-h-[88vh] overflow-y-auto p-0 gap-0">
+      <DialogContent className="sm:max-w-3xl max-h-[88vh] overflow-y-auto p-0 gap-0">
         {/* header */}
         <DialogHeader className="px-6 pt-6 pb-4 border-b border-border/60">
           <div className="flex items-start gap-3">
@@ -411,7 +411,7 @@ export function ContactDetailDialog({
 
   return (
     <Dialog open={!!contact} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-2xl max-h-[88vh] overflow-y-auto p-0 gap-0">
+      <DialogContent className="sm:max-w-2xl max-h-[88vh] overflow-y-auto p-0 gap-0">
         {/* header */}
         <DialogHeader className="px-6 pt-6 pb-4 border-b border-border/60">
           <div className="flex items-start gap-3">

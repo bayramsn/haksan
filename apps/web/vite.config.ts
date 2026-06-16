@@ -28,6 +28,9 @@ export default defineConfig({
     alias: {
       // Alias @ to the src directory
       '@': path.resolve(__dirname, './src'),
+      // Paylaşılan paketi kaynak kodundan çöz: backend (dist) ile aynı
+      // mantığı (örn. kurulum ücreti hesabı) tek yerden paylaşır, HMR çalışır.
+      '@haksan/shared': path.resolve(__dirname, '../../packages/shared/src/index.ts'),
     },
   },
 

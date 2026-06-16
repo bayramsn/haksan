@@ -10,6 +10,9 @@ import { loadEnv } from '../../config/env';
 import { Throttle } from '@nestjs/throttler';
 
 const REFRESH_COOKIE = 'haksan_rt';
+// Login & şifre-sıfırlama için sıkı IP-bazlı limit (global 'default' throttler'ı
+// bu route'larda override eder). Brute-force / credential-stuffing koruması.
+const LOGIN_THROTTLE = { default: { limit: loadEnv().RATE_LIMIT_LOGIN, ttl: 60_000 } };
 
 function setRefreshCookie(res: FastifyReply, token: string, expiresAt: Date): void {
   const env = loadEnv();
@@ -42,7 +45,7 @@ export class AuthController {
   constructor(private readonly auth: AuthService) {}
 
   @Public()
-  @Throttle({ login: { limit: 5, ttl: 60_000 } })
+  @Throttle(LOGIN_THROTTLE)
   @Post('login')
   async login(
     @Body(new ZodValidationPipe(loginSchema)) body: LoginInput,
@@ -86,12 +89,14 @@ export class AuthController {
   }
 
   @Public()
-  @Throttle({ login: { limit: 5, ttl: 60_000 } })
+  @Throttle(LOGIN_THROTTLE)
   @Post('forgot-password')
   async forgot(@Body(new ZodValidationPipe(forgotPasswordSchema)) body: ForgotPasswordInput) {
     const token = await this.auth.forgotPassword(body.email);
-    // In dev we surface the token to make testing easy. In production, send via email + remove this field.
-    return loadEnv().NODE_ENV === 'production' ? { ok: true } : { ok: true, devToken: token };
+    const env = loadEnv();
+    // Test/dev token echo is opt-in so accidental non-production NODE_ENV on a live server
+    // does not expose reset tokens by default.
+    return env.NODE_ENV !== 'production' && env.AUTH_DEV_RESET_TOKEN_RESPONSE ? { ok: true, devToken: token } : { ok: true };
   }
 
   @Public()

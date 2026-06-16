@@ -1,16 +1,23 @@
+import { type ReactNode, useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
 import { Button } from "../ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../ui/tabs";
-import { ArrowLeft, Phone, Mail, MapPin, Building2, Plus } from "lucide-react";
-import { Customer, salesCases, activities, payments, machines } from "../../lib/mock";
+import { ArrowLeft, Phone, Mail, MapPin, Building2, Plus, ArrowUpRight, Clock } from "lucide-react";
+import { Customer } from "../../lib/mock";
+import { useStore } from "../../lib/store";
 import { StatusBadge } from "../Layout";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../ui/table";
+import { CreateCaseDialog } from "../dialogs/CreateDialogs";
+import { buildCustomerTimeline, type OperationAction } from "../../lib/operations";
 
-export function CustomerDetailPage({ customer, onBack }: { customer: Customer; onBack: () => void }) {
-  const cases = salesCases.filter((s) => s.customerId === customer.id);
-  const acts = activities.filter((a) => a.customerId === customer.id);
-  const pays = payments.filter((p) => p.customerId === customer.id);
-  const mcs = machines.filter((m) => m.customerId === customer.id);
+export function CustomerDetailPage({ customer, onBack, onAction }: { customer: Customer; onBack: () => void; onAction?: (action: OperationAction) => void }) {
+  const store = useStore();
+  const { cases: allCases, activities: allActivities, payments: allPayments, machines: allMachines } = store;
+  const cases = allCases.filter((s) => s.customerId === customer.id);
+  const acts = allActivities.filter((a) => a.customerId === customer.id);
+  const pays = allPayments.filter((p) => p.customerId === customer.id);
+  const mcs = allMachines.filter((m) => m.customerId === customer.id);
+  const timeline = useMemo(() => buildCustomerTimeline(customer.id, store), [customer.id, store]);
 
   return (
     <div className="space-y-4">
@@ -50,19 +57,68 @@ export function CustomerDetailPage({ customer, onBack }: { customer: Customer; o
         </Card>
 
         <div className="lg:col-span-2">
-          <Tabs defaultValue="cases">
-            <TabsList>
+          <Tabs defaultValue="timeline">
+            <TabsList className="h-auto flex-wrap justify-start">
+              <TabsTrigger value="timeline">Geçmiş ({timeline.length})</TabsTrigger>
               <TabsTrigger value="cases">Satış Kartları ({cases.length})</TabsTrigger>
               <TabsTrigger value="activity">Aktivite ({acts.length})</TabsTrigger>
               <TabsTrigger value="payments">Cari ({pays.length})</TabsTrigger>
               <TabsTrigger value="machines">Makineler ({mcs.length})</TabsTrigger>
             </TabsList>
 
+            <TabsContent value="timeline" className="mt-4">
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Clock className="size-4 text-primary" />
+                    Kayıt Geçmişi
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {timeline.length === 0 ? (
+                    <div className="grid min-h-40 place-items-center rounded-lg border border-dashed border-border/70 bg-muted/20 px-5 text-center text-sm text-muted-foreground">
+                      Bu firma için geçmiş kaydı yok.
+                    </div>
+                  ) : (
+                    <ol className="relative ml-3 max-h-[560px] space-y-4 overflow-y-auto border-l border-border pr-2">
+                      {timeline.map((item) => (
+                        <li key={item.id} className="ml-4">
+                          <span className="absolute -left-1.5 mt-1.5 size-3 rounded-full border-2 border-white bg-primary shadow-sm" />
+                          <button
+                            type="button"
+                            disabled={!item.action}
+                            onClick={() => item.action && onAction?.(item.action)}
+                            className="w-full rounded-md border border-border/60 bg-white px-3 py-2.5 text-left transition-colors enabled:hover:border-primary/30 enabled:hover:bg-muted/30 disabled:cursor-default"
+                          >
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="min-w-0">
+                                <div className="flex items-center gap-2">
+                                  <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">{item.type}</span>
+                                  <span className="truncate text-xs text-muted-foreground">{item.date}</span>
+                                </div>
+                                <div className="mt-1.5 text-sm font-medium leading-tight">{item.title}</div>
+                                <div className="mt-1 text-sm leading-relaxed text-muted-foreground">{item.description}</div>
+                                {item.meta && <div className="mt-1 text-xs text-muted-foreground">{item.meta}</div>}
+                              </div>
+                              {item.action && <ArrowUpRight className="mt-1 size-4 shrink-0 text-muted-foreground" />}
+                            </div>
+                          </button>
+                        </li>
+                      ))}
+                    </ol>
+                  )}
+                </CardContent>
+              </Card>
+            </TabsContent>
+
             <TabsContent value="cases" className="mt-4">
               <Card>
                 <CardHeader className="flex flex-row items-center justify-between">
                   <CardTitle>Satış Kartları</CardTitle>
-                  <Button size="sm" className="gap-1"><Plus className="size-4" /> Yeni Kart</Button>
+                  <CreateCaseDialog
+                    defaultCustomerId={customer.id}
+                    trigger={<Button size="sm" className="gap-1"><Plus className="size-4" /> Yeni Kart</Button>}
+                  />
                 </CardHeader>
                 <CardContent>
                   <Table>
@@ -165,13 +221,13 @@ export function CustomerDetailPage({ customer, onBack }: { customer: Customer; o
   );
 }
 
-function Row({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
+function Row({ icon, label, value }: { icon: ReactNode; label: string; value?: string }) {
   return (
     <div className="flex items-start gap-2.5">
       <div className="text-muted-foreground mt-0.5">{icon}</div>
       <div className="flex-1">
         <div className="text-xs uppercase text-muted-foreground">{label}</div>
-        <div>{value}</div>
+        <div>{value || "—"}</div>
       </div>
     </div>
   );

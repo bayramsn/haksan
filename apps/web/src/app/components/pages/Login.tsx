@@ -28,9 +28,9 @@ export function LoginPage({ onLogin }: { onLogin: (email: string, password: stri
   };
 
   return (
-    <div className="min-h-screen grid grid-cols-1 lg:grid-cols-[1.08fr_1fr] bg-[#f4f6f9] text-foreground">
+    <div className="grid h-full min-h-0 w-full grid-cols-1 overflow-hidden bg-[#f4f6f9] text-foreground lg:grid-cols-[1.08fr_1fr]">
       {/* Left brand panel */}
-      <div className="hidden lg:flex flex-col justify-between p-10 xl:p-12 bg-[linear-gradient(135deg,#0a192f_0%,#000c69_54%,#0a1440_100%)] text-white relative overflow-hidden">
+      <div className="relative hidden min-h-0 flex-col justify-between overflow-hidden bg-[linear-gradient(135deg,#0a192f_0%,#000c69_54%,#0a1440_100%)] p-10 text-white lg:flex xl:p-12">
         <div className="absolute inset-x-0 top-0 h-1 bg-brand-red" />
         <div className="absolute right-0 top-0 h-full w-px bg-white/10" />
         <div className="absolute inset-0 opacity-[0.08] [background-image:linear-gradient(to_right,#fff_1px,transparent_1px),linear-gradient(to_bottom,#fff_1px,transparent_1px)] [background-size:44px_44px]" />
@@ -82,7 +82,7 @@ export function LoginPage({ onLogin }: { onLogin: (email: string, password: stri
       </div>
 
       {/* Right form panel */}
-      <div className="flex items-center justify-center p-6 lg:p-10">
+      <div className="flex min-h-0 items-center justify-center overflow-y-auto p-6 lg:p-10">
         <div className="w-full max-w-[440px]">
           <div className="mb-8 flex items-center gap-3 lg:hidden">
             <img

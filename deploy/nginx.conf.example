@@ -1,0 +1,100 @@
+# ─────────────────────────────────────────────────────────────────────────
+# Haksan CRM — nginx reverse proxy (tek sunucu / VDS örneği)
+#
+# Topoloji (önerilen "aynı-origin"):
+#   https://crm.alanadi.com/         → SPA statik dosyaları (apps/web/dist)
+#   https://crm.alanadi.com/api/...  → NestJS API (127.0.0.1:3000)
+#   https://storage.alanadi.com/...  → MinIO (127.0.0.1:9000)  [ayrı subdomain]
+#
+# Kurulum:
+#   1) Bu dosyayı /etc/nginx/sites-available/haksan.conf olarak kopyala,
+#      alanadi.com'ları kendi domain'inle değiştir.
+#   2) ln -s /etc/nginx/sites-available/haksan.conf /etc/nginx/sites-enabled/
+#   3) TLS sertifikası: certbot --nginx -d crm.alanadi.com -d storage.alanadi.com
+#   4) nginx -t && systemctl reload nginx
+# ─────────────────────────────────────────────────────────────────────────
+
+# HTTP → HTTPS yönlendirme
+server {
+    listen 80;
+    listen [::]:80;
+    server_name crm.alanadi.com storage.alanadi.com;
+    return 301 https://$host$request_uri;
+}
+
+# ─── Ana uygulama (SPA + API) ───
+server {
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
+    server_name crm.alanadi.com;
+
+    # TLS (certbot doldurur)
+    ssl_certificate     /etc/letsencrypt/live/crm.alanadi.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/crm.alanadi.com/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_prefer_server_ciphers on;
+
+    # Güvenlik başlıkları (helmet API tarafında; bunlar statik/SPA için)
+    add_header Strict-Transport-Security "max-age=63072000; includeSubDomains; preload" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-Frame-Options "DENY" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+
+    # Yükleme boyutu: API MAX_UPLOAD_SIZE_MB ile uyumlu olmalı (varsayılan 25MB)
+    client_max_body_size 25m;
+
+    # ── SPA statik dosyaları ──
+    root /var/www/haksan/apps/web/dist;
+    index index.html;
+
+    # ── API (global prefix /api/v1 olduğu gibi korunur) ──
+    location /api/ {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        # trustProxy=true olduğu için API gerçek istemci IP'sini buradan okur
+        # (rate-limit / hesap kilitleme doğru IP üzerinden çalışsın diye kritik).
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 60s;
+    }
+
+    # ── SPA fallback (client-side routing) ──
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+
+    # Statik varlık cache (index.html hariç)
+    location ~* \.(?:js|css|woff2?|png|jpg|jpeg|webp|svg)$ {
+        expires 30d;
+        add_header Cache-Control "public, immutable";
+    }
+}
+
+# ─── Object storage (MinIO) — ayrı subdomain ───
+# S3_ENDPOINT bu URL'e eşit OLMALI (örn. S3_ENDPOINT=https://storage.alanadi.com)
+# çünkü presigned URL'ler tarayıcıya bu host ile döner. Host header'ı MUTLAKA
+# korunmalı (SigV4 imzası Host üzerinden doğrulanır) — aşağıdaki proxy_set_header.
+server {
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
+    server_name storage.alanadi.com;
+
+    ssl_certificate     /etc/letsencrypt/live/crm.alanadi.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/crm.alanadi.com/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+
+    client_max_body_size 25m;
+
+    location / {
+        proxy_pass http://127.0.0.1:9000;
+        proxy_http_version 1.1;
+        # Host'u DEĞİŞTİRME — presigned imza doğrulaması buna bağlı.
+        proxy_set_header Host            $host;
+        proxy_set_header X-Real-IP       $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_connect_timeout 300;
+        chunked_transfer_encoding off;
+    }
+}

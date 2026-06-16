@@ -59,11 +59,7 @@ export class ContactsService {
   }
 
   async create(input: ContactCreateInput, actor: AuthContext) {
-    // verify company belongs to tenant
-    const company = await this.db.query.companies.findFirst({
-      where: and(eq(companies.id, input.companyId), eq(companies.tenantId, actor.tenantId)),
-    });
-    if (!company) throw new NotFoundError('Firma');
+    await this.assertCompany(input.companyId, actor);
     const decisionId = await lookupIdByCode(this.db, decisionRoles, input.decisionRoleCode);
     const [created] = await this.db
       .insert(contacts)
@@ -109,6 +105,7 @@ export class ContactsService {
   async update(id: string, input: ContactUpdateInput, actor: AuthContext) {
     const existing = await this.get(id, actor);
     const patch: Record<string, unknown> = { updatedBy: actor.userId };
+    if (input.companyId !== undefined) await this.assertCompany(input.companyId, actor);
     if (input.decisionRoleCode !== undefined) {
       patch.decisionRoleId = await lookupIdByCode(this.db, decisionRoles, input.decisionRoleCode);
     }
@@ -148,6 +145,14 @@ export class ContactsService {
       newValues: patch,
     });
     return this.get(id, actor);
+  }
+
+  private async assertCompany(companyId: string, actor: AuthContext) {
+    const company = await this.db.query.companies.findFirst({
+      where: and(eq(companies.id, companyId), eq(companies.tenantId, actor.tenantId), isNull(companies.deletedAt)),
+    });
+    if (!company) throw new NotFoundError('Firma');
+    return company;
   }
 
   async delete(id: string, actor: AuthContext) {

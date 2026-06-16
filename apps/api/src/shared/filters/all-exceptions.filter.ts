@@ -46,6 +46,24 @@ export class AllExceptionsFilter implements ExceptionFilter {
                 : exception.message,
         },
       };
+    } else if (
+      typeof exception === 'object' &&
+      exception !== null &&
+      typeof (exception as any).statusCode === 'number' &&
+      (exception as any).statusCode >= 400 &&
+      (exception as any).statusCode < 600
+    ) {
+      // Fastify-kaynaklı hatalar (örn. boş JSON gövdesi → FST_ERR_CTP_EMPTY_JSON_BODY).
+      // Bunlar AppError/HttpException değil ama doğru HTTP status'u taşır; 500'e
+      // düşürmek yerine o status'la döndür.
+      const fe = exception as { statusCode: number; code?: string; message?: string };
+      status = fe.statusCode;
+      body = {
+        error: {
+          code: typeof fe.code === 'string' ? fe.code : 'HTTP_ERROR',
+          message: fe.message ?? 'İstek işlenemedi.',
+        },
+      };
     }
 
     if (status >= 500) {

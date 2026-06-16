@@ -5,6 +5,8 @@ export type User = {
   name: string;
   email: string;
   role: Role;
+  roleCodes?: string[];
+  roleNames?: string[];
   department: string;
   active: boolean;
   avatarUrl?: string;
@@ -189,6 +191,10 @@ export type Offer = {
   date: string;
   validityDays?: number;
   amount: number;
+  /** KDV hariç net ara toplam (indirim sonrası). Boşsa amount brüt kabul edilir. */
+  subtotal?: number;
+  /** Hesaplanan KDV tutarı. */
+  vatTotal?: number;
   currency: "USD" | "EUR" | "TRY";
   status: "Draft" | "Sent" | "Approved" | "Rejected";
   note: string;
@@ -219,12 +225,16 @@ export type Payment = {
   salesCaseId: string;
   customerId: string;
   paymentType: "received" | "expected";
+  /** Kasa yönü: "in" = giren (tahsilat), "out" = çıkan (tedarikçi/gider ödemesi). */
+  direction: "in" | "out";
   amount: number;
   currency: "USD" | "EUR" | "TRY";
   dueDate: string;
   paidDate?: string;
   status: "Pending" | "Paid" | "Overdue" | "Cancelled";
   note: string;
+  /** Durum güncellemesinin hangi backend tablosuna gideceğini belirler. */
+  source?: "receivable" | "payment";
 };
 
 export type StockItem = {
@@ -237,6 +247,8 @@ export type StockItem = {
   stockCode: string;
   warehouse: string;
   status: "Available" | "Reserved" | "Sold" | "Inactive";
+  optionalHardware?: string;
+  spareParts?: string;
 };
 
 export type ProductSpec = { key: string; value: string };
@@ -674,12 +686,18 @@ export const documentsList: DocumentItem[] = [
 ];
 
 export const payments: Payment[] = [
-  { id: "p1", salesCaseId: "s4", customerId: "c5", paymentType: "expected", amount: 16000, currency: "EUR", dueDate: "2026-05-20", status: "Pending", note: "Avans" },
-  { id: "p2", salesCaseId: "s4", customerId: "c5", paymentType: "expected", amount: 16000, currency: "EUR", dueDate: "2026-06-15", status: "Pending", note: "Bakiye" },
-  { id: "p3", salesCaseId: "s10", customerId: "c3", paymentType: "received", amount: 22000, currency: "EUR", dueDate: "2026-04-01", paidDate: "2026-04-02", status: "Paid", note: "Tamamlandı" },
-  { id: "p4", salesCaseId: "s5", customerId: "c6", paymentType: "expected", amount: 9000, currency: "USD", dueDate: "2026-05-01", status: "Overdue", note: "Avans gecikti" },
-  { id: "p5", salesCaseId: "s8", customerId: "c5", paymentType: "received", amount: 22500, currency: "EUR", dueDate: "2026-04-15", paidDate: "2026-04-15", status: "Paid", note: "İlk dilim" },
-  { id: "p6", salesCaseId: "s8", customerId: "c5", paymentType: "expected", amount: 22500, currency: "EUR", dueDate: "2026-05-30", status: "Pending", note: "İkinci dilim" },
+  // ── Giren (alınan / tahsilat) ──
+  { id: "p1", salesCaseId: "s4", customerId: "c5", paymentType: "expected", direction: "in", amount: 16000, currency: "EUR", dueDate: "2026-05-20", status: "Pending", note: "Avans" },
+  { id: "p2", salesCaseId: "s4", customerId: "c5", paymentType: "expected", direction: "in", amount: 16000, currency: "EUR", dueDate: "2026-06-15", status: "Pending", note: "Bakiye" },
+  { id: "p3", salesCaseId: "s10", customerId: "c3", paymentType: "received", direction: "in", amount: 22000, currency: "EUR", dueDate: "2026-04-01", paidDate: "2026-04-02", status: "Paid", note: "Tamamlandı" },
+  { id: "p4", salesCaseId: "s5", customerId: "c6", paymentType: "expected", direction: "in", amount: 9000, currency: "USD", dueDate: "2026-05-01", status: "Overdue", note: "Avans gecikti" },
+  { id: "p5", salesCaseId: "s8", customerId: "c5", paymentType: "received", direction: "in", amount: 22500, currency: "EUR", dueDate: "2026-04-15", paidDate: "2026-04-15", status: "Paid", note: "İlk dilim" },
+  { id: "p6", salesCaseId: "s8", customerId: "c5", paymentType: "expected", direction: "in", amount: 22500, currency: "EUR", dueDate: "2026-05-30", status: "Pending", note: "İkinci dilim" },
+  // ── Çıkan (ödenen / tedarikçi & gider) ──
+  { id: "p7", salesCaseId: "", customerId: "c7", paymentType: "expected", direction: "out", amount: 38000, currency: "USD", dueDate: "2026-04-10", paidDate: "2026-04-10", status: "Paid", note: "Acme — CNC tezgah alımı" },
+  { id: "p8", salesCaseId: "", customerId: "c8", paymentType: "expected", direction: "out", amount: 6400, currency: "USD", dueDate: "2026-05-05", paidDate: "2026-05-05", status: "Paid", note: "Beta — yedek parça partisi" },
+  { id: "p9", salesCaseId: "", customerId: "c9", paymentType: "expected", direction: "out", amount: 12500, currency: "EUR", dueDate: "2026-05-28", status: "Pending", note: "İzmir Endüstri — otomasyon modülü" },
+  { id: "p10", salesCaseId: "", customerId: "c7", paymentType: "expected", direction: "out", amount: 5200, currency: "USD", dueDate: "2026-04-22", status: "Overdue", note: "Acme — nakliye + sigorta" },
 ];
 
 export const stockItems: StockItem[] = [
@@ -782,7 +800,20 @@ export const purchaseOrders = [
   { id: "po3", supplier: "Acme Üretim", model: "X-300", quantity: 2, expectedDate: "2026-05-15", status: "Sevk Edildi" },
 ];
 
-export const shipments = [
+export type ShipmentStatus = "Hazırlanıyor" | "Yolda" | "Gümrükte" | "Teslim Edildi";
+export const SHIPMENT_STATUSES: ShipmentStatus[] = ["Hazırlanıyor", "Yolda", "Gümrükte", "Teslim Edildi"];
+export type Shipment = {
+  id: string;
+  salesCaseId: string;
+  trackingNo: string;
+  carrier: string;
+  origin: string;
+  destination: string;
+  status: ShipmentStatus;
+  eta: string;
+};
+
+export const shipments: Shipment[] = [
   { id: "sh1", salesCaseId: "s8", trackingNo: "TRK-009122", carrier: "DHL", origin: "Hamburg", destination: "İstanbul", status: "Yolda", eta: "2026-05-18" },
   { id: "sh2", salesCaseId: "s5", trackingNo: "TRK-009203", carrier: "UPS", origin: "Rotterdam", destination: "Adana", status: "Gümrükte", eta: "2026-05-22" },
   { id: "sh3", salesCaseId: "s10", trackingNo: "TRK-008940", carrier: "MNG", origin: "İstanbul", destination: "Trabzon", status: "Teslim Edildi", eta: "2026-04-24" },
@@ -794,7 +825,31 @@ export const installations = [
   { id: "in3", salesCaseId: "s5", customerId: "c6", technician: "Selin Arslan", scheduledDate: "2026-05-30", status: "Planlandı" },
 ];
 
-export const deliveries = [
+export type DeliveryStatus = "Bekliyor" | "Tamamlandı";
+export const DELIVERY_STATUSES: DeliveryStatus[] = ["Bekliyor", "Tamamlandı"];
+
+export type DeliveryFormFields = {
+  formNo?: string;
+  kurulumTarihi?: string;
+  machineId?: string;
+  tezgah?: { marka?: string; tip?: string; model?: string; seriNo?: string };
+  cnc?: { marka?: string; model?: string; seriNo?: string; mainSw?: string };
+  ilgili?: string;
+  kurulumuYapan?: string;
+};
+
+export type Delivery = {
+  id: string;
+  salesCaseId: string;
+  customerId: string;
+  shipmentId?: string;
+  date: string;
+  signedBy: string;
+  status: DeliveryStatus;
+  formData?: DeliveryFormFields;
+};
+
+export const deliveries: Delivery[] = [
   { id: "dl1", salesCaseId: "s10", customerId: "c3", date: "2026-04-25", signedBy: "Onur Çelik", status: "Tamamlandı" },
   { id: "dl2", salesCaseId: "s8", customerId: "c5", date: "2026-05-20", signedBy: "—", status: "Bekliyor" },
 ];

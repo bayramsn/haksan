@@ -32,7 +32,7 @@ function ReadOnlyNote({ text }: { text: string }) {
 
 function SearchBox({ q, setQ, placeholder }: { q: string; setQ: (v: string) => void; placeholder: string }) {
   return (
-    <div className="relative w-72 ml-auto">
+    <div className="relative w-full sm:w-72 sm:ml-auto">
       <Search className="size-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
       <Input placeholder={placeholder} className="pl-9 h-9 bg-white" value={q} onChange={(e) => setQ(e.target.value)} />
     </div>
