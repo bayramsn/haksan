@@ -27,6 +27,8 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
+      - key: NODE_VERSION
+        value: "20"
       - key: DB_PROVIDER
         value: postgres
       - key: DATABASE_URL
