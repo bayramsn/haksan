@@ -1,4 +1,4 @@
-CREATE TABLE "purchase_order_statuses" (
+CREATE TABLE IF NOT EXISTS "purchase_order_statuses" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"code" varchar(64) NOT NULL,
 	"name" varchar(255) NOT NULL,
@@ -9,7 +9,7 @@ CREATE TABLE "purchase_order_statuses" (
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
-CREATE TABLE "sales_order_statuses" (
+CREATE TABLE IF NOT EXISTS "sales_order_statuses" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"code" varchar(64) NOT NULL,
 	"name" varchar(255) NOT NULL,
@@ -20,7 +20,7 @@ CREATE TABLE "sales_order_statuses" (
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
-CREATE TABLE "note_templates" (
+CREATE TABLE IF NOT EXISTS "note_templates" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"tenant_id" uuid NOT NULL,
 	"title" varchar(200) NOT NULL,
@@ -33,7 +33,7 @@ CREATE TABLE "note_templates" (
 	"deleted_at" timestamp with time zone
 );
 --> statement-breakpoint
-CREATE TABLE "purchase_order_items" (
+CREATE TABLE IF NOT EXISTS "purchase_order_items" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"tenant_id" uuid NOT NULL,
 	"purchase_order_id" uuid NOT NULL,
@@ -53,7 +53,7 @@ CREATE TABLE "purchase_order_items" (
 	"deleted_at" timestamp with time zone
 );
 --> statement-breakpoint
-CREATE TABLE "purchase_orders" (
+CREATE TABLE IF NOT EXISTS "purchase_orders" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"tenant_id" uuid NOT NULL,
 	"supplier_company_id" uuid,
@@ -82,7 +82,7 @@ CREATE TABLE "purchase_orders" (
 	"deleted_at" timestamp with time zone
 );
 --> statement-breakpoint
-CREATE TABLE "sales_order_items" (
+CREATE TABLE IF NOT EXISTS "sales_order_items" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"tenant_id" uuid NOT NULL,
 	"sales_order_id" uuid NOT NULL,
@@ -103,7 +103,7 @@ CREATE TABLE "sales_order_items" (
 	"deleted_at" timestamp with time zone
 );
 --> statement-breakpoint
-CREATE TABLE "sales_orders" (
+CREATE TABLE IF NOT EXISTS "sales_orders" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"tenant_id" uuid NOT NULL,
 	"quote_id" uuid,
@@ -171,23 +171,23 @@ ALTER TABLE "sales_orders" ADD CONSTRAINT "sales_orders_status_id_sales_order_st
 ALTER TABLE "sales_orders" ADD CONSTRAINT "sales_orders_currency_id_currencies_id_fk" FOREIGN KEY ("currency_id") REFERENCES "public"."currencies"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "sales_orders" ADD CONSTRAINT "sales_orders_created_by_users_id_fk" FOREIGN KEY ("created_by") REFERENCES "public"."users"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "sales_orders" ADD CONSTRAINT "sales_orders_approved_by_users_id_fk" FOREIGN KEY ("approved_by") REFERENCES "public"."users"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
-CREATE UNIQUE INDEX "purchase_order_statuses_code_unique" ON "purchase_order_statuses" USING btree ("code");--> statement-breakpoint
-CREATE UNIQUE INDEX "sales_order_statuses_code_unique" ON "sales_order_statuses" USING btree ("code");--> statement-breakpoint
-CREATE INDEX "note_templates_tenant_idx" ON "note_templates" USING btree ("tenant_id");--> statement-breakpoint
-CREATE INDEX "note_templates_scope_idx" ON "note_templates" USING btree ("scope");--> statement-breakpoint
-CREATE INDEX "purchase_order_items_order_idx" ON "purchase_order_items" USING btree ("purchase_order_id");--> statement-breakpoint
-CREATE INDEX "purchase_order_items_product_idx" ON "purchase_order_items" USING btree ("product_model_id");--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS "purchase_order_statuses_code_unique" ON "purchase_order_statuses" USING btree ("code");--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS "sales_order_statuses_code_unique" ON "sales_order_statuses" USING btree ("code");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "note_templates_tenant_idx" ON "note_templates" USING btree ("tenant_id");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "note_templates_scope_idx" ON "note_templates" USING btree ("scope");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "purchase_order_items_order_idx" ON "purchase_order_items" USING btree ("purchase_order_id");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "purchase_order_items_product_idx" ON "purchase_order_items" USING btree ("product_model_id");--> statement-breakpoint
 CREATE UNIQUE INDEX "purchase_orders_tenant_order_no_unique" ON "purchase_orders" USING btree ("tenant_id","order_no");--> statement-breakpoint
-CREATE INDEX "purchase_orders_tenant_idx" ON "purchase_orders" USING btree ("tenant_id");--> statement-breakpoint
-CREATE INDEX "purchase_orders_supplier_idx" ON "purchase_orders" USING btree ("supplier_company_id");--> statement-breakpoint
-CREATE INDEX "purchase_orders_status_idx" ON "purchase_orders" USING btree ("status_id");--> statement-breakpoint
-CREATE INDEX "purchase_orders_expected_date_idx" ON "purchase_orders" USING btree ("expected_date");--> statement-breakpoint
-CREATE INDEX "sales_order_items_order_idx" ON "sales_order_items" USING btree ("sales_order_id");--> statement-breakpoint
-CREATE INDEX "sales_order_items_inventory_idx" ON "sales_order_items" USING btree ("inventory_item_id");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "purchase_orders_tenant_idx" ON "purchase_orders" USING btree ("tenant_id");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "purchase_orders_supplier_idx" ON "purchase_orders" USING btree ("supplier_company_id");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "purchase_orders_status_idx" ON "purchase_orders" USING btree ("status_id");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "purchase_orders_expected_date_idx" ON "purchase_orders" USING btree ("expected_date");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "sales_order_items_order_idx" ON "sales_order_items" USING btree ("sales_order_id");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "sales_order_items_inventory_idx" ON "sales_order_items" USING btree ("inventory_item_id");--> statement-breakpoint
 CREATE UNIQUE INDEX "sales_orders_tenant_order_no_unique" ON "sales_orders" USING btree ("tenant_id","order_no");--> statement-breakpoint
 CREATE UNIQUE INDEX "sales_orders_tenant_quote_unique" ON "sales_orders" USING btree ("tenant_id","quote_id");--> statement-breakpoint
-CREATE INDEX "sales_orders_tenant_idx" ON "sales_orders" USING btree ("tenant_id");--> statement-breakpoint
-CREATE INDEX "sales_orders_company_idx" ON "sales_orders" USING btree ("company_id");--> statement-breakpoint
-CREATE INDEX "sales_orders_quote_idx" ON "sales_orders" USING btree ("quote_id");--> statement-breakpoint
-CREATE INDEX "sales_orders_status_idx" ON "sales_orders" USING btree ("status_id");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "sales_orders_tenant_idx" ON "sales_orders" USING btree ("tenant_id");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "sales_orders_company_idx" ON "sales_orders" USING btree ("company_id");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "sales_orders_quote_idx" ON "sales_orders" USING btree ("quote_id");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "sales_orders_status_idx" ON "sales_orders" USING btree ("status_id");--> statement-breakpoint
 ALTER TABLE "product_equipment_items" ADD CONSTRAINT "product_equipment_items_currency_id_currencies_id_fk" FOREIGN KEY ("currency_id") REFERENCES "public"."currencies"("id") ON DELETE no action ON UPDATE no action;
