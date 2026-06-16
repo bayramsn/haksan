@@ -2784,6 +2784,142 @@ export function CreatePaymentDialog({
   );
 }
 
+/**
+ * Satış kartına bağlı beklenen tahsilat (receivable) oluşturur. Bir teklife
+ * (quoteId) bağlandığında, alacak ilgili satış kartının "Ödemeler" sekmesinde
+ * görünür. Kasa hareketinden farklı olarak burada dosya zorunlu değildir ve
+ * kayıt "beklenen" (pending) statüsünde açılır.
+ */
+export function CreateReceivableDialog({
+  trigger,
+  onCreated,
+  defaultCompanyId,
+  quoteOptions = [],
+  defaultQuoteId,
+}: {
+  trigger: React.ReactNode;
+  onCreated?: () => void;
+  defaultCompanyId?: string;
+  quoteOptions?: { id: string; quoteNo: string; revision: number }[];
+  defaultQuoteId?: string;
+}) {
+  const { customers } = useStore();
+  const [open, setOpen] = useState(false);
+  const emptyForm = () => ({
+    companyId: defaultCompanyId ?? customers[0]?.id ?? "",
+    quoteId: defaultQuoteId ?? quoteOptions[0]?.id ?? "",
+    amount: "",
+    currencyCode: "USD" as (typeof PAYMENT_CURRENCIES)[number],
+    dueDate: new Date().toISOString().slice(0, 10),
+    invoiceNo: "",
+    notes: "",
+  });
+  const [form, setForm] = useState(emptyForm);
+  const reset = () => setForm(emptyForm());
+  const [saving, setSaving] = useState(false);
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!form.companyId) return toast.error("Firma seçiniz");
+    const amount = Number(form.amount);
+    if (!Number.isFinite(amount) || amount <= 0) return toast.error("Geçerli bir tutar giriniz");
+    if (!form.dueDate) return toast.error("Vade tarihi giriniz");
+    setSaving(true);
+    try {
+      await financeService.createReceivable({
+        companyId: form.companyId,
+        quoteId: form.quoteId || undefined,
+        amount,
+        currencyCode: form.currencyCode,
+        dueDate: form.dueDate,
+        invoiceNo: form.invoiceNo || undefined,
+        notes: form.notes || undefined,
+      });
+      toast.success("Tahsilat (beklenen) eklendi", {
+        description: `${amount.toLocaleString()} ${form.currencyCode} · vade ${form.dueDate}`,
+      });
+      setOpen(false);
+      reset();
+      onCreated?.();
+    } catch (err: any) {
+      toast.error("Tahsilat eklenemedi", { description: err?.message ?? "API isteği başarısız oldu." });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => { setOpen(o); if (o) reset(); }}>
+      <DialogTrigger asChild>{trigger}</DialogTrigger>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Tahsilat Ekle</DialogTitle>
+          <DialogDescription>Satış kartına bağlı beklenen tahsilat (vade ve tutar) kaydedin.</DialogDescription>
+        </DialogHeader>
+
+        <form onSubmit={submit} className="space-y-4">
+          <div>
+            <Label className="text-xs">Firma *</Label>
+            <Select value={form.companyId} onValueChange={(v) => setForm({ ...form, companyId: v })}>
+              <SelectTrigger className="mt-1.5"><SelectValue placeholder="Firma seçin..." /></SelectTrigger>
+              <SelectContent>
+                {customers.map((c) => (
+                  <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {quoteOptions.length > 0 && (
+            <div>
+              <Label className="text-xs">Teklif (opsiyonel)</Label>
+              <Select value={form.quoteId || "none"} onValueChange={(v) => setForm({ ...form, quoteId: v === "none" ? "" : v })}>
+                <SelectTrigger className="mt-1.5"><SelectValue placeholder="Teklif seçin..." /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Bağlama</SelectItem>
+                  {quoteOptions.map((q) => (
+                    <SelectItem key={q.id} value={q.id}>{q.quoteNo} · R{q.revision}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Tutar *" type="number" value={form.amount} placeholder="0" onChange={(v) => setForm({ ...form, amount: v })} />
+            <div>
+              <Label className="text-xs">Para Birimi</Label>
+              <Select value={form.currencyCode} onValueChange={(v) => setForm({ ...form, currencyCode: v as (typeof PAYMENT_CURRENCIES)[number] })}>
+                <SelectTrigger className="mt-1.5"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {PAYMENT_CURRENCIES.map((c) => (
+                    <SelectItem key={c} value={c}>{c}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Vade Tarihi *" type="date" value={form.dueDate} onChange={(v) => setForm({ ...form, dueDate: v })} />
+            <Field label="Fatura No" value={form.invoiceNo} placeholder="FTR-2026-001" onChange={(v) => setForm({ ...form, invoiceNo: v })} />
+          </div>
+
+          <div>
+            <Label className="text-xs">Notlar</Label>
+            <Textarea className="mt-1.5" rows={2} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
+          </div>
+
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setOpen(false)}>Vazgeç</Button>
+            <Button type="submit" disabled={saving}>{saving ? "Kaydediliyor..." : "Tahsilat Ekle"}</Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export function CreateServiceRequestDialog({ trigger, defaultMachineId }: { trigger: React.ReactNode; defaultMachineId?: string }) {
   const { customers, addService, machines: machinesAll, users } = useStore();
   const [open, setOpen] = useState(false);

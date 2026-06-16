@@ -85,10 +85,26 @@ npm run build:api
 log "build web ($VITE_API_BASE_URL)"
 VITE_API_BASE_URL="$VITE_API_BASE_URL" npm run build:web
 
+# ── Offsite backup (R2/S3) — migrate öncesi, dist hazır olduktan sonra ──
+if grep -qE '^DB_BACKUP_ENABLED=true' "$ENV_FILE" 2>/dev/null; then
+  log "db:backup (R2/S3 offsite)"
+  if ! node apps/api/dist/db/backup.js; then
+    if grep -qE '^DB_BACKUP_REQUIRED=true' "$ENV_FILE" 2>/dev/null; then
+      die "Offsite backup başarısız (DB_BACKUP_REQUIRED=true)"
+    fi
+    log "Offsite backup atlandı/başarısız — devam (DB_BACKUP_REQUIRED!=true)"
+  fi
+fi
+
 # ── Migrate (başarısızsa restart yok) ──
 log "db:migrate"
-if ! (cd apps/api && npm run db:migrate); then
+if ! node apps/api/dist/db/migrate.js; then
   die "Migration başarısız — API yeniden başlatılmadı. Rollback için deploy/README.md"
+fi
+
+log "db:data-migrate"
+if ! node apps/api/dist/db/data-migrate.js; then
+  die "Data migration başarısız — API yeniden başlatılmadı"
 fi
 
 # ── İlk kurulum: bootstrap ──

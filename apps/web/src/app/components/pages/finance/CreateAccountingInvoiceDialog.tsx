@@ -12,9 +12,18 @@ import { Textarea } from "../../ui/textarea";
 import { useStore } from "../../../lib/store";
 import { financeService } from "../../../../lib/services";
 import { toast } from "sonner";
-import { Plus, Receipt } from "lucide-react";
+import { Plus, Receipt, Trash2 } from "lucide-react";
 
 type InstallmentRow = { installmentNo: number; dueDate: string; amount: string };
+type InvoiceLineRow = {
+  id: string;
+  saleType: "tezgah" | "product";
+  inventoryItemId?: string;
+  productModelId?: string;
+  categoryCode?: string;
+  description?: string;
+  quantity: number;
+};
 
 export type AccountingInvoicePrefill = {
   companyId: string;
@@ -55,13 +64,24 @@ export function CreateAccountingInvoiceDialog({
   defaultCompanyId?: string;
   prefill?: AccountingInvoicePrefill;
 }) {
-  const { customers, refresh } = useStore();
+  const { customers, stock, products, refresh } = useStore();
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState(defaultForm(defaultCompanyId));
   const [quoteId, setQuoteId] = useState<string | undefined>();
   const [salesOrderId, setSalesOrderId] = useState<string | undefined>();
   const [installments, setInstallments] = useState<InstallmentRow[]>([]);
+  const [lineItems, setLineItems] = useState<InvoiceLineRow[]>([]);
+
+  const availableTezgahStock = useMemo(
+    () => stock.filter((s) => {
+      if ((s.categoryCode ?? "TEZGAH") !== "TEZGAH") return false;
+      if (s.status === "Available") return true;
+      if (s.status === "Reserved" && s.reservedCompanyId === form.companyId) return true;
+      return false;
+    }),
+    [stock, form.companyId],
+  );
 
   useEffect(() => {
     if (!open) return;
@@ -84,6 +104,7 @@ export function CreateAccountingInvoiceDialog({
       setForm(defaultForm(defaultCompanyId));
       setQuoteId(undefined);
       setSalesOrderId(undefined);
+      setLineItems([]);
     }
   }, [open, prefill, defaultCompanyId]);
 
@@ -116,6 +137,9 @@ export function CreateAccountingInvoiceDialog({
     const amount = Number(form.amount);
     const grandTotal = Number(form.grandTotal || form.amount);
     if (!Number.isFinite(grandTotal) || grandTotal <= 0) return toast.error("Geçerli tutar girin");
+    if (form.type === "sales" && lineItems.some((l) => l.saleType === "tezgah" && !l.inventoryItemId)) {
+      return toast.error("Tezgah satışı için seri numarası seçin");
+    }
     setSaving(true);
     try {
       await financeService.createAccountingInvoice({
@@ -138,6 +162,16 @@ export function CreateAccountingInvoiceDialog({
           dueDate: i.dueDate,
           amount: Number(i.amount),
         })),
+        lineItems: form.type === "sales" && lineItems.length
+          ? lineItems.map((l) => ({
+              saleType: l.saleType,
+              inventoryItemId: l.inventoryItemId,
+              productModelId: l.productModelId,
+              categoryCode: l.saleType === "tezgah" ? "TEZGAH" : l.categoryCode,
+              description: l.description,
+              quantity: l.quantity,
+            }))
+          : undefined,
       });
       toast.success(form.type === "sales" ? "Satış faturası oluşturuldu" : "Alış faturası oluşturuldu");
       setOpen(false);
@@ -211,6 +245,118 @@ export function CreateAccountingInvoiceDialog({
               <Input className="mt-1 h-9" type="number" value={form.grandTotal} onChange={(e) => setForm({ ...form, grandTotal: e.target.value })} placeholder={form.amount || "0"} />
             </div>
           </div>
+          {form.type === "sales" && (
+            <div className="rounded-lg border border-border/60 p-3 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="text-sm font-medium">Stok Satırları</div>
+                <div className="flex gap-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="h-8 gap-1"
+                    onClick={() => setLineItems((prev) => [...prev, { id: crypto.randomUUID(), saleType: "tezgah", quantity: 1 }])}
+                  >
+                    <Plus className="size-3.5" /> Tezgah
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="h-8 gap-1"
+                    onClick={() => setLineItems((prev) => [...prev, { id: crypto.randomUUID(), saleType: "product", quantity: 1, categoryCode: "YEDEK_PARCA" }])}
+                  >
+                    <Plus className="size-3.5" /> Ürün
+                  </Button>
+                </div>
+              </div>
+              {lineItems.length === 0 && (
+                <p className="text-xs text-muted-foreground">Tezgah satışında seri no zorunludur; fatura kaydında stok düşülür ve kurulum açılır.</p>
+              )}
+              {lineItems.map((line, idx) => (
+                <div key={line.id} className="grid grid-cols-12 gap-2 items-end border-b border-border/40 pb-3 last:border-0 last:pb-0">
+                  <div className="col-span-12 sm:col-span-3">
+                    <Label className="text-xs">Satış Tipi</Label>
+                    <Select
+                      value={line.saleType}
+                      onValueChange={(v) => setLineItems((prev) => prev.map((l, i) => i === idx ? { ...l, saleType: v as "tezgah" | "product", inventoryItemId: undefined } : l))}
+                    >
+                      <SelectTrigger className="mt-1 h-9"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="tezgah">Tezgah Satışı</SelectItem>
+                        <SelectItem value="product">Ürün / Parça</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  {line.saleType === "tezgah" ? (
+                    <div className="col-span-12 sm:col-span-6">
+                      <Label className="text-xs">Seri No *</Label>
+                      <Select
+                        value={line.inventoryItemId ?? ""}
+                        onValueChange={(v) => {
+                          const item = availableTezgahStock.find((s) => s.id === v);
+                          setLineItems((prev) => prev.map((l, i) => i === idx ? {
+                            ...l,
+                            inventoryItemId: v,
+                            description: item ? `${item.brand} ${item.counterModel} — ${item.serialNumber}` : l.description,
+                          } : l));
+                        }}
+                      >
+                        <SelectTrigger className="mt-1 h-9"><SelectValue placeholder="Stoktan seri seçin" /></SelectTrigger>
+                        <SelectContent>
+                          {availableTezgahStock.map((s) => (
+                            <SelectItem key={s.id} value={s.id}>
+                              {s.serialNumber} · {s.brand} {s.counterModel} ({s.status === "Reserved" ? "rezerve" : "hazır"})
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="col-span-12 sm:col-span-4">
+                        <Label className="text-xs">Ürün</Label>
+                        <Select
+                          value={line.productModelId ?? ""}
+                          onValueChange={(v) => {
+                            const p = products.find((x) => x.id === v);
+                            setLineItems((prev) => prev.map((l, i) => i === idx ? {
+                              ...l,
+                              productModelId: v,
+                              categoryCode: p?.categoryCode ?? "YEDEK_PARCA",
+                              description: p ? `${p.brand} ${p.model}` : l.description,
+                            } : l));
+                          }}
+                        >
+                          <SelectTrigger className="mt-1 h-9"><SelectValue placeholder="Ürün seçin" /></SelectTrigger>
+                          <SelectContent>
+                            {products.filter((p) => p.categoryCode !== "TEZGAH").map((p) => (
+                              <SelectItem key={p.id} value={p.id}>{p.brand} {p.model}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="col-span-6 sm:col-span-2">
+                        <Label className="text-xs">Adet</Label>
+                        <Input
+                          className="mt-1 h-9"
+                          type="number"
+                          min={1}
+                          value={line.quantity}
+                          onChange={(e) => setLineItems((prev) => prev.map((l, i) => i === idx ? { ...l, quantity: Number(e.target.value) || 1 } : l))}
+                        />
+                      </div>
+                    </>
+                  )}
+                  <div className="col-span-12 sm:col-span-1 flex justify-end">
+                    <Button type="button" variant="ghost" size="icon" className="size-9" onClick={() => setLineItems((prev) => prev.filter((_, i) => i !== idx))}>
+                      <Trash2 className="size-4 text-muted-foreground" />
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
           <div className="rounded-lg border border-border/60 p-3 space-y-3">
             <div className="text-sm font-medium">Vade Planı</div>
             <div className="grid grid-cols-3 gap-3">

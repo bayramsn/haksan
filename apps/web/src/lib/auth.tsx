@@ -1,5 +1,6 @@
 import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, useState } from 'react';
-import { api, ApiError, setAccessToken } from './apiClient';
+import { meResponseSchema } from '@haksan/shared';
+import { api, ApiError, getAccessToken, setAccessToken, setSessionExpiredHandler } from './apiClient';
 
 export interface MeUser {
   id: string;
@@ -20,6 +21,8 @@ export interface MeTenant {
 
 interface AuthState {
   loading: boolean;
+  /** Auth bootstrap finished and, when logged in, an access token is available for API calls. */
+  sessionReady: boolean;
   authed: boolean;
   user: MeUser | null;
   tenant: MeTenant | null;
@@ -39,7 +42,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const fetchMe = useCallback(async () => {
     try {
-      const res = await api.get<{ user: MeUser; tenant: MeTenant }>('/auth/me');
+      const res = await api.get('/auth/me', { schema: meResponseSchema });
       setUser(res.user);
       setTenant(res.tenant);
     } catch (err) {
@@ -92,6 +95,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setTenant(null);
   }, []);
 
+  const clearSession = useCallback(() => {
+    setAccessToken(null);
+    setUser(null);
+    setTenant(null);
+  }, []);
+
+  useEffect(() => {
+    setSessionExpiredHandler(clearSession);
+    return () => setSessionExpiredHandler(null);
+  }, [clearSession]);
+
+  useEffect(() => {
+    if (!loading && user && !getAccessToken()) {
+      clearSession();
+    }
+  }, [loading, user, clearSession]);
+
+  const sessionReady = !loading && (!user || !!getAccessToken());
+
   const hasPermission = useCallback(
     (code: string) => {
       if (!user) return false;
@@ -109,8 +131,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 
   const value = useMemo<AuthState>(
-    () => ({ loading, authed: !!user, user, tenant, login, logout, refresh, hasPermission, hasRole }),
-    [loading, user, tenant, login, logout, refresh, hasPermission, hasRole]
+    () => ({ loading, sessionReady, authed: !!user, user, tenant, login, logout, refresh, hasPermission, hasRole }),
+    [loading, sessionReady, user, tenant, login, logout, refresh, hasPermission, hasRole]
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

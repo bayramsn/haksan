@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "../../ui/card";
 import { Button } from "../../ui/button";
 import { Input } from "../../ui/input";
+import { Label } from "../../ui/label";
 import { Tabs, TabsList, TabsTrigger } from "../../ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../../ui/table";
 import { StatusBadge } from "../../Layout";
@@ -12,7 +13,11 @@ import { toast } from "sonner";
 import { ExportExcelButton } from "../../ui/ExportExcelButton";
 import type { OperationFocus } from "../../../lib/operations";
 import {
-  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
+  Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
+} from "../../ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../ui/select";
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger,
 } from "../../ui/dropdown-menu";
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid,
@@ -24,14 +29,24 @@ import {
   type StockCategoryCode,
 } from "@haksan/shared";
 import {
-  Plus, Search, Package, Clock, CheckCircle2, AlertTriangle, MapPin, MoreHorizontal, Wrench,
+  Plus, Search, Package, Clock, CheckCircle2, AlertTriangle, MapPin, MoreHorizontal, Wrench, Bookmark,
 } from "lucide-react";
 
+const CATEGORY_ICONS: Record<StockCategoryCode, typeof Package> = {
+  TEZGAH: Package,
+  AKSESUAR: Bookmark,
+  YEDEK_PARCA: Wrench,
+};
+
 export function StockPage({ focus, initialQuery }: { focus?: OperationFocus; initialQuery?: string }) {
-  const { stock, updateStockStatus } = useStore();
+  const { stock, customers, updateStockStatus, reserveStock } = useStore();
   const [q, setQ] = useState("");
   const [tab, setTab] = useState<"all" | "Available" | "Reserved" | "Sold" | "Inactive">("all");
   const [categoryTab, setCategoryTab] = useState<"all" | StockCategoryCode>("all");
+  const [reserveOpen, setReserveOpen] = useState(false);
+  const [reserveTarget, setReserveTarget] = useState<(typeof stock)[number] | null>(null);
+  const [reserveCompanyId, setReserveCompanyId] = useState("");
+  const [reserving, setReserving] = useState(false);
 
   const scopedStock = useMemo(
     () => stock.filter((s) => categoryTab === "all" || (s.categoryCode ?? "TEZGAH") === categoryTab),
@@ -92,12 +107,15 @@ export function StockPage({ focus, initialQuery }: { focus?: OperationFocus; ini
       <Tabs value={categoryTab} onValueChange={(v) => setCategoryTab(v as typeof categoryTab)}>
         <TabsList className="h-9 bg-muted/60">
           <TabsTrigger value="all" className="text-xs">Tüm Stok</TabsTrigger>
-          {STOCK_CATEGORY_CODES.map((code) => (
+          {STOCK_CATEGORY_CODES.map((code) => {
+            const Icon = CATEGORY_ICONS[code];
+            return (
             <TabsTrigger key={code} value={code} className="text-xs gap-1">
-              {code === "YEDEK_PARCA" ? <Wrench className="size-3.5" /> : <Package className="size-3.5" />}
+              <Icon className="size-3.5" />
               {STOCK_CATEGORY_LABELS[code]}
             </TabsTrigger>
-          ))}
+            );
+          })}
         </TabsList>
       </Tabs>
 
@@ -184,6 +202,7 @@ export function StockPage({ focus, initialQuery }: { focus?: OperationFocus; ini
                 <TableHead>Seri No</TableHead>
                 <TableHead>Kontrol Paneli</TableHead>
                 <TableHead>Depo</TableHead>
+                <TableHead>Rezerve Firma</TableHead>
                 <TableHead>Durum</TableHead>
                 <TableHead className="w-12"></TableHead>
               </TableRow>
@@ -211,6 +230,9 @@ export function StockPage({ focus, initialQuery }: { focus?: OperationFocus; ini
                       <MapPin className="size-3" />{s.warehouse}
                     </span>
                   </TableCell>
+                  <TableCell className="text-xs text-muted-foreground max-w-[140px] truncate">
+                    {s.status === "Reserved" ? (s.reservedCompanyName ?? "—") : "—"}
+                  </TableCell>
                   <TableCell><StatusBadge status={s.status} /></TableCell>
                   <TableCell>
                     <DropdownMenu>
@@ -220,10 +242,35 @@ export function StockPage({ focus, initialQuery }: { focus?: OperationFocus; ini
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
-                        {(["Available", "Reserved", "Sold", "Inactive"] as const).map((st) => (
+                        {s.status === "Available" && (s.categoryCode ?? "TEZGAH") === "TEZGAH" && (
+                          <DropdownMenuItem
+                            onClick={() => {
+                              setReserveTarget(s);
+                              setReserveCompanyId("");
+                              setReserveOpen(true);
+                            }}
+                          >
+                            Firmaya rezerve et
+                          </DropdownMenuItem>
+                        )}
+                        {s.status === "Reserved" && (
+                          <DropdownMenuItem
+                            onClick={async () => {
+                              try {
+                                await updateStockStatus(s.id, "Available");
+                                toast.success("Rezervasyon kaldırıldı");
+                              } catch (err: any) {
+                                toast.error("İşlem başarısız", { description: err?.message });
+                              }
+                            }}
+                          >
+                            Rezervasyonu kaldır
+                          </DropdownMenuItem>
+                        )}
+                        {(["Available", "Inactive"] as const).map((st) => (
                           <DropdownMenuItem
                             key={st}
-                            disabled={s.status === st}
+                            disabled={s.status === st || (st === "Available" && s.status === "Sold")}
                             onClick={async () => {
                               try {
                                 await updateStockStatus(s.id, st);
@@ -233,9 +280,17 @@ export function StockPage({ focus, initialQuery }: { focus?: OperationFocus; ini
                               }
                             }}
                           >
-                            {st} olarak işaretle
+                            {st === "Available" ? "Hazır" : "Pasif"} olarak işaretle
                           </DropdownMenuItem>
                         ))}
+                        {s.status === "Sold" && (
+                          <>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem disabled className="text-muted-foreground text-xs">
+                              Satıldı — yalnızca fatura ile
+                            </DropdownMenuItem>
+                          </>
+                        )}
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </TableCell>
@@ -243,13 +298,56 @@ export function StockPage({ focus, initialQuery }: { focus?: OperationFocus; ini
               ))}
               {filtered.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={9} className="text-center py-12 text-sm text-muted-foreground">Kayıt bulunamadı.</TableCell>
+                  <TableCell colSpan={10} className="text-center py-12 text-sm text-muted-foreground">Kayıt bulunamadı.</TableCell>
                 </TableRow>
               )}
             </TableBody>
           </Table>
         </div>
       </Card>
+
+      <Dialog open={reserveOpen} onOpenChange={setReserveOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Tezgah Rezervasyonu</DialogTitle>
+            <DialogDescription>
+              {reserveTarget ? `${reserveTarget.serialNumber} — hangi firmaya rezerve edilecek?` : "Firma seçin"}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <Label className="text-xs">Firma *</Label>
+              <Select value={reserveCompanyId} onValueChange={setReserveCompanyId}>
+                <SelectTrigger className="mt-1 h-9"><SelectValue placeholder="Firma seçin" /></SelectTrigger>
+                <SelectContent>
+                  {customers.map((c) => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setReserveOpen(false)}>Vazgeç</Button>
+            <Button
+              disabled={!reserveCompanyId || !reserveTarget || reserving}
+              onClick={async () => {
+                if (!reserveTarget || !reserveCompanyId) return;
+                setReserving(true);
+                try {
+                  await reserveStock(reserveTarget.id, reserveCompanyId);
+                  toast.success("Rezerve edildi", { description: reserveTarget.serialNumber });
+                  setReserveOpen(false);
+                } catch (err: any) {
+                  toast.error("Rezervasyon başarısız", { description: err?.message });
+                } finally {
+                  setReserving(false);
+                }
+              }}
+            >
+              {reserving ? "Kaydediliyor…" : "Rezerve Et"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

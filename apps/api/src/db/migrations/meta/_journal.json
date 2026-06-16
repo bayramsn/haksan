@@ -183,6 +183,13 @@
       "when": 1782067200000,
       "tag": "0025_inventory_reservation_invoice_lines",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1782153600000,
+      "tag": "0026_quote_revision",
+      "breakpoints": true
     }
   ]
 }

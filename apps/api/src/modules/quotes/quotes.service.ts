@@ -299,6 +299,16 @@ export class QuotesService {
     if (existing) throw new ConflictError('Bu doküman numarası zaten kullanılıyor');
     const draft = await this.db.query.quoteStatuses.findFirst({ where: eq(quoteStatuses.code, 'draft') });
     const currencyId = await lookupIdByCode(this.db, currencies, input.currencyCode);
+    // Aynı fırsata bağlı tekliflerde revizyon numarası artar (1, 2, 3 …).
+    // Fırsatı olmayan teklifler her zaman 1'dir.
+    let revisionNo = 1;
+    if (input.opportunityId) {
+      const [{ maxRev }] = await this.db
+        .select({ maxRev: sql<number>`coalesce(max(${quotes.revisionNo}), 0)::int` })
+        .from(quotes)
+        .where(and(eq(quotes.tenantId, actor.tenantId), eq(quotes.opportunityId, input.opportunityId)));
+      revisionNo = (maxRev ?? 0) + 1;
+    }
     const [row] = await this.db
       .insert(quotes)
       .values({
@@ -307,6 +317,7 @@ export class QuotesService {
         companyId: input.companyId,
         contactId: input.contactId ?? null,
         documentNo,
+        revisionNo,
         quoteDate: input.quoteDate,
         validityDays: input.validityDays,
         projectOwnerUserId: input.projectOwnerUserId ?? actor.userId,

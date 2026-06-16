@@ -14,6 +14,9 @@ import {
 } from "../ui/dialog";
 
 const isProd = import.meta.env.PROD;
+// Kurumsal SSO henüz uçtan uca bağlı değil; varsayılan olarak gizli.
+// Backend OIDC/SAML hazır olduğunda VITE_SSO_ENABLED=true ile açılır.
+const ssoEnabled = import.meta.env.VITE_SSO_ENABLED === "true";
 const REMEMBER_KEY = "haksan:login-email";
 
 export function LoginPage({ onLogin }: { onLogin: (email: string, password: string) => Promise<void> | void }) {
@@ -203,19 +206,23 @@ export function LoginPage({ onLogin }: { onLogin: (email: string, password: stri
                   {!busy && <ArrowRight className="size-4" />}
                 </Button>
 
-                <div className="relative my-2">
-                  <div className="absolute inset-0 flex items-center">
-                    <span className="w-full border-t border-border/60" />
-                  </div>
-                  <div className="relative flex justify-center text-xs">
-                    <span className="bg-card px-2 text-muted-foreground">veya</span>
-                  </div>
-                </div>
+                {ssoEnabled && (
+                  <>
+                    <div className="relative my-2">
+                      <div className="absolute inset-0 flex items-center">
+                        <span className="w-full border-t border-border/60" />
+                      </div>
+                      <div className="relative flex justify-center text-xs">
+                        <span className="bg-card px-2 text-muted-foreground">veya</span>
+                      </div>
+                    </div>
 
-                <Button type="button" variant="outline" className="w-full h-10" disabled title="Kurumsal SSO yakında">
-                  <ShieldCheck className="size-4" />
-                  SSO ile devam et (yakında)
-                </Button>
+                    <Button type="button" variant="outline" className="w-full h-10">
+                      <ShieldCheck className="size-4" />
+                      SSO ile devam et
+                    </Button>
+                  </>
+                )}
               </form>
             </CardContent>
           </Card>

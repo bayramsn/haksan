@@ -39,3 +39,17 @@ Bu yüzden migration başına manuel snapshot zorunlu.
 - Yeni NOT NULL kolon eklerken önce nullable ekle + backfill + sonra NOT NULL.
 - Index ekleme: `CREATE INDEX CONCURRENTLY` kullan (Postgres).
 - Foreign key ekleme: Önce kolon, sonra backfill, sonra constraint.
+
+## Otomatik kontrol (mekanik enforcement)
+
+Yukarıdaki kuralları el ile takip etmek yerine:
+
+```bash
+npm run db:lint:migrations   # apps/api altından veya workspace ile
+```
+
+- Linter yalnızca **yeni** migration'ları (`idx > BASELINE_IDX`, varsayılan 25) zorlar; uygulanmış migration'lar dokunulmazdır (hash'leri `drizzle.__drizzle_migrations`'ta tutulur).
+- `DROP COLUMN` / `DROP TABLE` high-severity (CI'ı kırar); `CREATE INDEX` (CONCURRENTLY'siz), `ADD COLUMN` (IF NOT EXISTS'siz), `SET NOT NULL`, yeni `UNIQUE` constraint uyarı üretir.
+- Yeni migration eklerken `BASELINE_IDX`'i bir önceki en yüksek index'e güncelle.
+
+Snapshot zinciri ve PR kontrol listesi için `.github/pull_request_template.md` dosyasına bakın.

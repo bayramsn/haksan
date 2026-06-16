@@ -68,3 +68,80 @@ describe('Auth', () => {
     expect([...seen].some((s) => s === 401 || s === 423 || s === 429)).toBe(true);
   });
 });
+
+describe('Auth session lifecycle (refresh / logout)', () => {
+  it('rotates the refresh cookie and issues a new access token on /auth/refresh', async () => {
+    const agent = supertest.agent(app.getHttpServer());
+    const login = await agent
+      .post('/api/v1/auth/login')
+      .send({ email: 'admin@haksan.local', password: 'admin12345' });
+    expect(login.status).toBe(201);
+
+    const refreshed = await agent.post('/api/v1/auth/refresh').send();
+    expect(refreshed.status).toBe(201);
+    expect(refreshed.body.accessToken).toBeTruthy();
+    const setCookie = refreshed.headers['set-cookie'];
+    expect(Array.isArray(setCookie) ? setCookie.join(';') : setCookie).toMatch(/haksan_rt=/);
+  });
+
+  it('returns a null access token when /auth/refresh is called without a cookie', async () => {
+    const r = await supertest(app.getHttpServer()).post('/api/v1/auth/refresh').send();
+    expect(r.status).toBe(201);
+    expect(r.body.accessToken).toBeNull();
+  });
+
+  it('revokes the session on /auth/logout so a subsequent refresh yields no token', async () => {
+    const agent = supertest.agent(app.getHttpServer());
+    await agent.post('/api/v1/auth/login').send({ email: 'admin@haksan.local', password: 'admin12345' });
+
+    const out = await agent.post('/api/v1/auth/logout').send();
+    expect(out.status).toBe(201);
+    expect(out.body.ok).toBe(true);
+
+    // Cookie was cleared by logout, so the agent has nothing to send -> null token.
+    const afterLogout = await agent.post('/api/v1/auth/refresh').send();
+    expect(afterLogout.body.accessToken).toBeNull();
+  });
+});
+
+describe('Auth password reset (forgot -> reset)', () => {
+  it('issues a reset token and accepts it on /auth/reset-password', async () => {
+    // Reset back to the same password so other specs that log in as admin keep working.
+    const forgot = await supertest(app.getHttpServer())
+      .post('/api/v1/auth/forgot-password')
+      .send({ email: 'admin@haksan.local' });
+    expect(forgot.status).toBe(201);
+    expect(forgot.body.ok).toBe(true);
+    expect(typeof forgot.body.devToken).toBe('string');
+
+    const reset = await supertest(app.getHttpServer())
+      .post('/api/v1/auth/reset-password')
+      .send({ token: forgot.body.devToken, newPassword: 'admin12345' });
+    expect(reset.status).toBe(201);
+    expect(reset.body.ok).toBe(true);
+
+    const relogin = await supertest(app.getHttpServer())
+      .post('/api/v1/auth/login')
+      .send({ email: 'admin@haksan.local', password: 'admin12345' });
+    expect(relogin.status).toBe(201);
+    expect(relogin.body.accessToken).toBeTruthy();
+  });
+
+  it('rejects an unknown reset token with 422', async () => {
+    const r = await supertest(app.getHttpServer())
+      .post('/api/v1/auth/reset-password')
+      .send({ token: 'x'.repeat(43), newPassword: 'whatever12345' });
+    expect(r.status).toBe(422);
+    expect(r.body.error.code).toBe('VALIDATION_ERROR');
+  });
+
+  it('does not reveal whether an email exists on /auth/forgot-password', async () => {
+    const r = await supertest(app.getHttpServer())
+      .post('/api/v1/auth/forgot-password')
+      .send({ email: 'definitely-not-a-user@example.com' });
+    expect(r.status).toBe(201);
+    expect(r.body.ok).toBe(true);
+    // No token is minted for a non-existent account.
+    expect(r.body.devToken).toBeUndefined();
+  });
+});

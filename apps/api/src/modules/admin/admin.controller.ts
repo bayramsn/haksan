@@ -1,10 +1,9 @@
 import { Body, Controller, Get, Inject, Patch, Post, Param, Query, UseGuards } from '@nestjs/common';
-import { z } from 'zod';
 import * as argon2 from 'argon2';
 import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import type { DbClient } from '../../db/client';
 import { users, roles, permissions, userRoles, rolePermissions, userTargets, departmentTargets } from '../../db/schema/users';
-import { departments } from '../../db/schema/tenants';
+import { departments, tenants } from '../../db/schema/tenants';
 import { auditLogs } from '../../db/schema/audit';
 import { DB } from '../../shared/database/database.module';
 import { ZodValidationPipe } from '../../shared/utils/zod-pipe';
@@ -14,97 +13,31 @@ import { CurrentUser } from '../../shared/security/current-user.decorator';
 import type { AuthContext } from '../../shared/security/auth.types';
 import { ConflictError, ForbiddenError, NotFoundError } from '../../shared/utils/errors';
 import { invalidateRbacCache } from '../../shared/security/rbac.cache';
-import { paginationSchema, type Pagination } from '@haksan/shared';
+import {
+  paginationSchema,
+  userCreateSchema,
+  userUpdateSchema,
+  roleCreateSchema,
+  roleUpdateSchema,
+  departmentCreateSchema,
+  departmentUpdateSchema,
+  auditLogQuerySchema,
+  targetPeriodQuerySchema,
+  targetUpsertSchema,
+  tenantUpdateSchema,
+  type TenantUpdateInput,
+  type Pagination,
+  type UserCreateInput,
+  type UserUpdateInput,
+  type RoleCreateInput,
+  type RoleUpdateInput,
+  type DepartmentCreateInput,
+  type DepartmentUpdateInput,
+  type AuditLogQuery,
+  type TargetPeriodQuery,
+  type TargetUpsertInput,
+} from '@haksan/shared';
 import { buildPaginated, pageOffset } from '../../shared/utils/pagination';
-
-const userCreate = z.object({
-  fullName: z.string().min(1).max(255),
-  email: z.string().email(),
-  password: z.string().min(8).max(128),
-  phone: z.string().max(32).optional(),
-  departmentId: z.string().optional(),
-  roleCodes: z.array(z.string()).default([]),
-});
-const userUpdate = z.object({
-  fullName: z.string().min(1).max(255).optional(),
-  phone: z.string().max(32).optional(),
-  departmentId: z.string().nullable().optional(),
-  status: z.enum(['active', 'passive']).optional(),
-  roleCodes: z.array(z.string()).optional(),
-  password: z.string().min(8).max(128).optional(),
-  purchaseApprovalLimit: z.coerce.number().int().min(0).optional(),
-  managerId: z.string().uuid().nullable().optional(),
-});
-
-const roleCreate = z.object({
-  code: z.string().min(1).max(64),
-  name: z.string().min(1).max(255),
-  description: z.string().max(2000).optional(),
-  permissionCodes: z.array(z.string()).default([]),
-});
-
-const roleUpdate = z.object({
-  name: z.string().min(1).max(255).optional(),
-  description: z.string().max(2000).nullable().optional(),
-  permissionCodes: z.array(z.string()).optional(),
-});
-
-const deptUpdate = z.object({
-  name: z.string().min(1).max(255).optional(),
-  description: z.string().max(2000).nullable().optional(),
-});
-
-const deptCreate = z.object({
-  code: z.string().min(1).max(64),
-  name: z.string().min(1).max(255),
-  description: z.string().max(2000).optional(),
-});
-
-const auditQuery = z.object({
-  resourceType: z.string().max(64).optional(),
-  actorUserId: z.string().optional(),
-});
-
-const targetQuery = z.object({
-  period: z.string().regex(/^\d{4}-\d{2}$/).optional(),
-});
-
-const nullableAmount = z.preprocess(
-  (value) => (value === '' || value === undefined ? null : value),
-  z.coerce.number().min(0).nullable()
-);
-const nullableCount = z.preprocess(
-  (value) => (value === '' || value === undefined ? null : value),
-  z.coerce.number().int().min(0).nullable()
-);
-
-const targetItem = z.object({
-  targetType: z.enum(['sales', 'service']),
-  category: z.string().min(1).max(64),
-  activity: z.string().min(1).max(255),
-  description: z.string().max(2000).default(''),
-  unit: z.enum(['count', 'amount']),
-  target: z.string().max(64).default(''),
-});
-
-const userTargetUpsert = z.object({
-  period: z.string().regex(/^\d{4}-\d{2}$/),
-  currency: z.literal('USD').default('USD'),
-  salesAmount: nullableAmount.default(null),
-  salesNewCustomers: nullableCount.default(null),
-  serviceAmount: nullableAmount.default(null),
-  serviceCompleted: nullableCount.default(null),
-  digitalLeadTarget: nullableCount.default(null),
-  digitalConversionTarget: nullableCount.default(null),
-  digitalBudget: nullableAmount.default(null),
-  visitTarget: nullableCount.default(null),
-  callTarget: nullableCount.default(null),
-  quoteTarget: nullableCount.default(null),
-  targetItems: z.array(targetItem).max(80).default([]),
-  note: z.string().max(2000).optional(),
-});
-
-const departmentTargetUpsert = userTargetUpsert;
 
 @UseGuards(AuthGuard, PermissionsGuard)
 @Controller()
@@ -153,7 +86,7 @@ export class AdminController {
 
   @RequirePermissions('users.create')
   @Post('users')
-  async createUser(@Body(new ZodValidationPipe(userCreate)) body: z.infer<typeof userCreate>, @CurrentUser() user: AuthContext) {
+  async createUser(@Body(new ZodValidationPipe(userCreateSchema)) body: UserCreateInput, @CurrentUser() user: AuthContext) {
     const existing = await this.db.query.users.findFirst({
       where: and(eq(users.tenantId, user.tenantId), eq(users.email, body.email)),
     });
@@ -181,7 +114,7 @@ export class AdminController {
 
   @RequirePermissions('users.update')
   @Patch('users/:id')
-  async updateUser(@Param('id') id: string, @Body(new ZodValidationPipe(userUpdate)) body: z.infer<typeof userUpdate>, @CurrentUser() user: AuthContext) {
+  async updateUser(@Param('id') id: string, @Body(new ZodValidationPipe(userUpdateSchema)) body: UserUpdateInput, @CurrentUser() user: AuthContext) {
     const existing = await this.db.query.users.findFirst({
       where: and(eq(users.id, id), eq(users.tenantId, user.tenantId), isNull(users.deletedAt)),
     });
@@ -220,7 +153,7 @@ export class AdminController {
 
   @RequirePermissions('users.read')
   @Get('user-targets')
-  async listUserTargets(@Query(new ZodValidationPipe(targetQuery)) query: z.infer<typeof targetQuery>, @CurrentUser() user: AuthContext) {
+  async listUserTargets(@Query(new ZodValidationPipe(targetPeriodQuerySchema)) query: TargetPeriodQuery, @CurrentUser() user: AuthContext) {
     const filters = [eq(userTargets.tenantId, user.tenantId), isNull(userTargets.deletedAt)];
     if (query.period) filters.push(eq(userTargets.period, query.period));
     return this.db.query.userTargets.findMany({
@@ -230,7 +163,7 @@ export class AdminController {
   }
 
   @Get('me/targets')
-  async listMyTargets(@Query(new ZodValidationPipe(targetQuery)) query: z.infer<typeof targetQuery>, @CurrentUser() user: AuthContext) {
+  async listMyTargets(@Query(new ZodValidationPipe(targetPeriodQuerySchema)) query: TargetPeriodQuery, @CurrentUser() user: AuthContext) {
     const filters = [eq(userTargets.tenantId, user.tenantId), eq(userTargets.userId, user.userId), isNull(userTargets.deletedAt)];
     if (query.period) filters.push(eq(userTargets.period, query.period));
     return this.db.query.userTargets.findMany({
@@ -244,7 +177,7 @@ export class AdminController {
   @Post('users/:id/targets')
   async upsertUserTarget(
     @Param('id') id: string,
-    @Body(new ZodValidationPipe(userTargetUpsert)) body: z.infer<typeof userTargetUpsert>,
+    @Body(new ZodValidationPipe(targetUpsertSchema)) body: TargetUpsertInput,
     @CurrentUser() user: AuthContext
   ) {
     const targetUser = await this.db.query.users.findFirst({
@@ -284,7 +217,7 @@ export class AdminController {
 
   @RequirePermissions('users.read')
   @Get('department-targets')
-  async listDepartmentTargets(@Query(new ZodValidationPipe(targetQuery)) query: z.infer<typeof targetQuery>, @CurrentUser() user: AuthContext) {
+  async listDepartmentTargets(@Query(new ZodValidationPipe(targetPeriodQuerySchema)) query: TargetPeriodQuery, @CurrentUser() user: AuthContext) {
     const filters = [eq(departmentTargets.tenantId, user.tenantId), isNull(departmentTargets.deletedAt)];
     if (query.period) filters.push(eq(departmentTargets.period, query.period));
     return this.db.query.departmentTargets.findMany({
@@ -297,7 +230,7 @@ export class AdminController {
   @Post('departments/:id/targets')
   async upsertDepartmentTarget(
     @Param('id') id: string,
-    @Body(new ZodValidationPipe(departmentTargetUpsert)) body: z.infer<typeof departmentTargetUpsert>,
+    @Body(new ZodValidationPipe(targetUpsertSchema)) body: TargetUpsertInput,
     @CurrentUser() user: AuthContext
   ) {
     const dept = await this.db.query.departments.findFirst({
@@ -352,7 +285,7 @@ export class AdminController {
 
   @RequirePermissions('roles.create')
   @Post('roles')
-  async createRole(@Body(new ZodValidationPipe(roleCreate)) body: z.infer<typeof roleCreate>, @CurrentUser() user: AuthContext) {
+  async createRole(@Body(new ZodValidationPipe(roleCreateSchema)) body: RoleCreateInput, @CurrentUser() user: AuthContext) {
     this.requireSuperAdmin(user);
     const existing = await this.db.query.roles.findFirst({
       where: and(eq(roles.tenantId, user.tenantId), eq(roles.code, body.code)),
@@ -373,7 +306,7 @@ export class AdminController {
   @Patch('roles/:id')
   async updateRole(
     @Param('id') id: string,
-    @Body(new ZodValidationPipe(roleUpdate)) body: z.infer<typeof roleUpdate>,
+    @Body(new ZodValidationPipe(roleUpdateSchema)) body: RoleUpdateInput,
     @CurrentUser() user: AuthContext
   ) {
     this.requireSuperAdmin(user);
@@ -421,7 +354,7 @@ export class AdminController {
 
   @RequirePermissions('departments.create')
   @Post('departments')
-  async createDept(@Body(new ZodValidationPipe(deptCreate)) body: z.infer<typeof deptCreate>, @CurrentUser() user: AuthContext) {
+  async createDept(@Body(new ZodValidationPipe(departmentCreateSchema)) body: DepartmentCreateInput, @CurrentUser() user: AuthContext) {
     const code = body.code.trim().toLowerCase();
     const existing = await this.db.query.departments.findFirst({
       where: and(eq(departments.tenantId, user.tenantId), eq(departments.code, code)),
@@ -438,7 +371,7 @@ export class AdminController {
   @Patch('departments/:id')
   async updateDept(
     @Param('id') id: string,
-    @Body(new ZodValidationPipe(deptUpdate)) body: z.infer<typeof deptUpdate>,
+    @Body(new ZodValidationPipe(departmentUpdateSchema)) body: DepartmentUpdateInput,
     @CurrentUser() user: AuthContext
   ) {
     const existing = await this.db.query.departments.findFirst({
@@ -455,7 +388,7 @@ export class AdminController {
   @RequirePermissions('audit.read')
   @Get('audit-logs')
   async listAuditLogs(
-    @Query(new ZodValidationPipe(auditQuery.merge(paginationSchema))) qp: z.infer<typeof auditQuery> & Pagination,
+    @Query(new ZodValidationPipe(auditLogQuerySchema.merge(paginationSchema))) qp: AuditLogQuery & Pagination,
     @CurrentUser() user: AuthContext
   ) {
     const { page, pageSize, sortBy, sortDir, resourceType, actorUserId } = qp;
@@ -477,5 +410,55 @@ export class AdminController {
       .limit(limit)
       .offset(offset);
     return buildPaginated(rows.map((r) => ({ ...r.audit, actor: r.actor })), count, { page, pageSize, sortBy, sortDir });
+  }
+
+  @RequirePermissions('tenants.read')
+  @Get('tenant')
+  async getTenant(@CurrentUser() user: AuthContext) {
+    const tenant = await this.db.query.tenants.findFirst({ where: eq(tenants.id, user.tenantId) });
+    if (!tenant) throw new NotFoundError('Tenant');
+    return {
+      id: tenant.id,
+      name: tenant.name,
+      slug: tenant.slug,
+      taxNumber: tenant.taxNumber,
+      email: tenant.email,
+      phone: tenant.phone,
+    };
+  }
+
+  @RequirePermissions('tenants.update')
+  @Patch('tenant')
+  async updateTenant(
+    @Body(new ZodValidationPipe(tenantUpdateSchema)) body: TenantUpdateInput,
+    @CurrentUser() user: AuthContext
+  ) {
+    const tenant = await this.db.query.tenants.findFirst({ where: eq(tenants.id, user.tenantId) });
+    if (!tenant) throw new NotFoundError('Tenant');
+    const patch: Record<string, unknown> = {};
+    for (const k of ['name', 'taxNumber', 'email', 'phone'] as const) {
+      if (body[k] !== undefined) patch[k] = body[k];
+    }
+    if (Object.keys(patch).length > 0) {
+      await this.db.update(tenants).set(patch).where(eq(tenants.id, user.tenantId));
+      await this.db.insert(auditLogs).values({
+        tenantId: user.tenantId,
+        actorUserId: user.userId,
+        action: 'tenant.updated',
+        resourceType: 'tenant',
+        resourceId: user.tenantId,
+        oldValues: { name: tenant.name, taxNumber: tenant.taxNumber, email: tenant.email, phone: tenant.phone },
+        newValues: patch,
+      });
+    }
+    const updated = await this.db.query.tenants.findFirst({ where: eq(tenants.id, user.tenantId) });
+    return {
+      id: updated!.id,
+      name: updated!.name,
+      slug: updated!.slug,
+      taxNumber: updated!.taxNumber,
+      email: updated!.email,
+      phone: updated!.phone,
+    };
   }
 }

@@ -53,11 +53,37 @@ export function resolveMediaUrl(ref?: string | null): string {
   return ref;
 }
 
-let accessToken: string | null = null;
+const ACCESS_TOKEN_STORAGE_KEY = 'haksan_access_token';
+
+let accessToken: string | null = readStoredAccessToken();
 let refreshing: Promise<string | null> | null = null;
+let onSessionExpired: (() => void) | null = null;
+
+function readStoredAccessToken(): string | null {
+  try {
+    return sessionStorage.getItem(ACCESS_TOKEN_STORAGE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function persistAccessToken(token: string | null): void {
+  try {
+    if (token) sessionStorage.setItem(ACCESS_TOKEN_STORAGE_KEY, token);
+    else sessionStorage.removeItem(ACCESS_TOKEN_STORAGE_KEY);
+  } catch {
+    // private browsing / storage quota — in-memory token still works for this tab
+  }
+}
+
+/** AuthProvider registers a handler so a hard 401 clears stale React session state. */
+export function setSessionExpiredHandler(handler: (() => void) | null): void {
+  onSessionExpired = handler;
+}
 
 export function setAccessToken(token: string | null): void {
   accessToken = token;
+  persistAccessToken(token);
 }
 export function getAccessToken(): string | null {
   return accessToken;
@@ -71,7 +97,9 @@ async function tryRefresh(): Promise<string | null> {
       if (!res.ok) return null;
       const json = (await res.json()) as { accessToken?: string | null };
       const t = json.accessToken ?? null;
-      accessToken = t;
+      // Only adopt a newly minted token — never wipe an in-memory token when refresh
+      // fails (e.g. missing cookie) so authed UI doesn't fire unauthenticated API calls.
+      if (t) setAccessToken(t);
       return t;
     } catch {
       return null;
@@ -113,6 +141,8 @@ async function request<T>(method: string, path: string, body?: unknown, opts: Re
         credentials: 'include',
         body: body === undefined ? undefined : body instanceof FormData ? body : JSON.stringify(body),
       });
+    } else if (!accessToken) {
+      onSessionExpired?.();
     }
   }
 

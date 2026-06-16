@@ -1,6 +1,6 @@
 import { Body, Controller, Get, Inject, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { z } from 'zod';
-import { and, desc, eq, isNull, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import type { DbClient } from '../../db/client';
 import { serviceTickets, installationJobs, shipments, shipmentItems, deliveries } from '../../db/schema/service';
 import { serviceTicketStatuses, installationStatuses, shipmentStatuses, inventoryStatuses, units } from '../../db/schema/lookup';
@@ -164,33 +164,188 @@ export class ServiceController {
     const inTransitId = await lookupIdByCode(this.db, inventoryStatuses, 'in_transit');
     if (!inTransitId) return;
     const soldId = await lookupIdByCode(this.db, inventoryStatuses, 'sold');
+    const availableId = await lookupIdByCode(this.db, inventoryStatuses, 'available');
+    const reservedId = await lookupIdByCode(this.db, inventoryStatuses, 'reserved');
+    const shipment = await this.db.query.shipments.findFirst({
+      where: and(eq(shipments.id, shipmentId), eq(shipments.tenantId, tenantId), isNull(shipments.deletedAt)),
+    });
+    const companyId = shipment?.companyId ?? null;
     const lines = await this.db
       .select()
       .from(shipmentItems)
       .where(and(eq(shipmentItems.shipmentId, shipmentId), eq(shipmentItems.tenantId, tenantId), isNull(shipmentItems.deletedAt)));
     for (const line of lines) {
-      if (!line.inventoryItemId) continue;
-      const item = await this.db.query.inventoryItems.findFirst({
-        where: and(eq(inventoryItems.id, line.inventoryItemId), eq(inventoryItems.tenantId, tenantId), isNull(inventoryItems.deletedAt)),
-      });
-      if (!item || item.stockStatusId === inTransitId || (soldId && item.stockStatusId === soldId)) continue;
-      await this.db.update(inventoryItems).set({ stockStatusId: inTransitId, loadingDate: new Date() }).where(eq(inventoryItems.id, item.id));
-      await this.db.insert(inventoryMovements).values({
+      const itemIds = await this.pickShipmentInventoryItems({
         tenantId,
-        inventoryItemId: item.id,
-        movementType: 'ship',
-        movementDate: new Date(),
-        referenceType: 'shipment',
-        referenceId: shipmentId,
-        notes: 'Sevkiyata çıkış',
-        createdBy: actorUserId,
+        companyId,
+        inventoryItemId: line.inventoryItemId ?? null,
+        productModelId: line.productModelId ?? null,
+        quantity: line.quantity,
+        reservedId,
+        availableId,
       });
+      const needsExpansion = !line.inventoryItemId && !!line.productModelId;
+      const existingInventoryItemIds = new Set<string>();
+      if (needsExpansion && itemIds.length) {
+        const existingMappings = await this.db
+          .select({ inventoryItemId: shipmentItems.inventoryItemId })
+          .from(shipmentItems)
+          .where(
+            and(
+              eq(shipmentItems.shipmentId, shipmentId),
+              eq(shipmentItems.tenantId, tenantId),
+              inArray(shipmentItems.inventoryItemId, itemIds),
+              isNull(shipmentItems.deletedAt),
+            ),
+          );
+        for (const m of existingMappings) {
+          if (m.inventoryItemId) existingInventoryItemIds.add(m.inventoryItemId);
+        }
+      }
+
+      for (const [i, inventoryItemId] of itemIds.entries()) {
+        const item = await this.db.query.inventoryItems.findFirst({
+          where: and(eq(inventoryItems.id, inventoryItemId), eq(inventoryItems.tenantId, tenantId), isNull(inventoryItems.deletedAt)),
+        });
+        if (!item) continue;
+
+        // When the original shipment_items line had no inventoryItemId (productModelId + quantity),
+        // create explicit per-inventoryItem shipment_items rows for later serial-level auditing.
+        if (needsExpansion && !existingInventoryItemIds.has(item.id)) {
+          const unitId = line.unitId ?? null;
+          await this.db.insert(shipmentItems).values({
+            tenantId,
+            shipmentId,
+            inventoryItemId: item.id,
+            salesOrderItemId: line.salesOrderItemId ?? null,
+            productModelId: line.productModelId ?? null,
+            description: line.description,
+            serialNumber: item.serialNumber,
+            quantity: '1',
+            unitId,
+            sortOrder: line.sortOrder + i,
+          });
+          existingInventoryItemIds.add(item.id);
+        }
+
+        if (item.stockStatusId === inTransitId) continue;
+
+        // Satış faturasıyla "sold" olmuş kalemlerde de sevkiyat/tasima bilgilerini yaz.
+        const shouldChangeStatus = !(soldId && item.stockStatusId === soldId);
+        if (shouldChangeStatus) {
+          await this.db.update(inventoryItems).set({ stockStatusId: inTransitId, loadingDate: new Date() }).where(eq(inventoryItems.id, item.id));
+        } else if (!item.loadingDate) {
+          await this.db.update(inventoryItems).set({ loadingDate: new Date() }).where(eq(inventoryItems.id, item.id));
+        }
+
+        const existingMove = await this.db.query.inventoryMovements.findFirst({
+          where: and(
+            eq(inventoryMovements.tenantId, tenantId),
+            eq(inventoryMovements.inventoryItemId, item.id),
+            eq(inventoryMovements.movementType, 'ship'),
+            eq(inventoryMovements.referenceType, 'shipment'),
+            eq(inventoryMovements.referenceId, shipmentId),
+          ),
+        });
+        if (existingMove) continue;
+        await this.db.insert(inventoryMovements).values({
+          tenantId,
+          inventoryItemId: item.id,
+          movementType: 'ship',
+          movementDate: new Date(),
+          referenceType: 'shipment',
+          referenceId: shipmentId,
+          notes: 'Sevkiyata çıkış',
+          createdBy: actorUserId,
+        });
+      }
+
+      // Hide the original quantity summary line once we have explicit per-serial rows.
+      // (Prevents duplicated lines in print dispatch notes / UI.)
+      if (needsExpansion && existingInventoryItemIds.size > 0 && line.inventoryItemId === null) {
+        await this.db.update(shipmentItems).set({ deletedAt: new Date() }).where(eq(shipmentItems.id, line.id));
+      }
     }
   }
 
   /** Sevkiyat satır kalemlerini ekler; seri no verilmemişse stok kaleminden anlık kopyalar. */
-  private async insertShipmentItems(shipmentId: string, tenantId: string, items: ShipmentItemInput[]) {
+  private async insertShipmentItems(shipmentId: string, tenantId: string, companyId: string | null, items: ShipmentItemInput[]) {
+    const availableId = await lookupIdByCode(this.db, inventoryStatuses, 'available');
+    const reservedId = await lookupIdByCode(this.db, inventoryStatuses, 'reserved');
+
     for (const item of items) {
+      // Quantity bazlı kalemleri (yedek parça, aksesuar) gerçek inventory_item'lara bağla.
+      // Böylece satış faturası daha sonra "sold" yapsa bile sevkiyat/teslimat hareketleri item bazında çalışır.
+      if (!item.inventoryItemId && item.productModelId) {
+        const qtyRaw = item.quantity ?? 1;
+        const qty = typeof qtyRaw === 'number' ? qtyRaw : Number(qtyRaw);
+        if (!Number.isFinite(qty) || qty <= 0) throw new ValidationError('Geçersiz adet');
+        const qtyInt = Math.trunc(qty);
+        if (qtyInt !== qty) throw new ValidationError('Adet tam sayı olmalı');
+
+        const reservedItems =
+          reservedId && companyId
+            ? await this.db
+                .select({ id: inventoryItems.id })
+                .from(inventoryItems)
+                .where(
+                  and(
+                    eq(inventoryItems.tenantId, tenantId),
+                    eq(inventoryItems.productModelId, item.productModelId),
+                    isNull(inventoryItems.deletedAt),
+                    eq(inventoryItems.stockStatusId, reservedId),
+                    eq(inventoryItems.reservedCompanyId, companyId),
+                  ),
+                )
+                .orderBy(asc(inventoryItems.createdAt))
+                .limit(qtyInt)
+            : [];
+
+        const remaining = qtyInt - reservedItems.length;
+        const availableItems =
+          remaining > 0 && availableId
+            ? await this.db
+                .select({ id: inventoryItems.id })
+                .from(inventoryItems)
+                .where(
+                  and(
+                    eq(inventoryItems.tenantId, tenantId),
+                    eq(inventoryItems.productModelId, item.productModelId),
+                    isNull(inventoryItems.deletedAt),
+                    eq(inventoryItems.stockStatusId, availableId),
+                  ),
+                )
+                .orderBy(asc(inventoryItems.createdAt))
+                .limit(remaining)
+            : [];
+
+        const itemsToAttach = [...reservedItems, ...availableItems];
+        if (itemsToAttach.length < qtyInt) {
+          throw new ValidationError(`Yetersiz stok: ${item.description} (istenen: ${qtyInt}, hazır: ${itemsToAttach.length})`);
+        }
+
+        // Tek satırı N adet inventoryItemId'li satıra genişlet.
+        for (let i = 0; i < itemsToAttach.length; i++) {
+          const inv = await this.db.query.inventoryItems.findFirst({
+            where: and(eq(inventoryItems.id, itemsToAttach[i]!.id), eq(inventoryItems.tenantId, tenantId), isNull(inventoryItems.deletedAt)),
+          });
+          const unitId = await lookupIdByCode(this.db, units, item.unitCode);
+          await this.db.insert(shipmentItems).values({
+            tenantId,
+            shipmentId,
+            inventoryItemId: inv?.id ?? null,
+            salesOrderItemId: item.salesOrderItemId ?? null,
+            productModelId: item.productModelId ?? null,
+            description: item.description,
+            serialNumber: item.serialNumber ?? inv?.serialNumber ?? null,
+            quantity: '1',
+            unitId,
+            sortOrder: item.sortOrder + i,
+          });
+        }
+        continue;
+      }
+
       let serialNumber = item.serialNumber ?? null;
       if (item.inventoryItemId) {
         const inv = await this.assertInventoryItem(item.inventoryItemId, tenantId);
@@ -228,44 +383,182 @@ export class ServiceController {
   ) {
     const soldStatusId = await lookupIdByCode(this.db, inventoryStatuses, 'sold');
     if (!soldStatusId) return;
+    const shipment = await this.db.query.shipments.findFirst({
+      where: and(eq(shipments.id, shipmentId), eq(shipments.tenantId, tenantId), isNull(shipments.deletedAt)),
+    });
+    const availableId = await lookupIdByCode(this.db, inventoryStatuses, 'available');
+    const reservedId = await lookupIdByCode(this.db, inventoryStatuses, 'reserved');
+    const companyFromShipment = shipment?.companyId ?? null;
     const lines = await this.db
       .select()
       .from(shipmentItems)
       .where(and(eq(shipmentItems.shipmentId, shipmentId), eq(shipmentItems.tenantId, tenantId), isNull(shipmentItems.deletedAt)));
     for (const line of lines) {
-      if (!line.inventoryItemId) continue;
-      const item = await this.db.query.inventoryItems.findFirst({
-        where: and(eq(inventoryItems.id, line.inventoryItemId), eq(inventoryItems.tenantId, tenantId), isNull(inventoryItems.deletedAt)),
-      });
-      if (!item || item.stockStatusId === soldStatusId) continue;
-      await this.db.update(inventoryItems).set({ stockStatusId: soldStatusId, arrivalDate: deliveryDate }).where(eq(inventoryItems.id, item.id));
-      await this.db.insert(inventoryMovements).values({
+      const itemIds = await this.pickShipmentInventoryItems({
         tenantId,
-        inventoryItemId: item.id,
-        movementType: 'deliver',
-        movementDate: deliveryDate,
-        referenceType,
-        referenceId,
-        notes: 'Teslimat tamamlandı',
-        createdBy: actorUserId,
+        companyId: companyId ?? companyFromShipment,
+        inventoryItemId: line.inventoryItemId ?? null,
+        productModelId: line.productModelId ?? null,
+        quantity: line.quantity,
+        reservedId,
+        availableId,
       });
-      if (companyId) {
-        const existingDevice = await this.db.query.customerDevices.findFirst({
-          where: and(eq(customerDevices.inventoryItemId, item.id), eq(customerDevices.tenantId, tenantId), isNull(customerDevices.deletedAt)),
-        });
-        if (existingDevice) {
-          await this.db.update(customerDevices).set({ deliveryDate }).where(eq(customerDevices.id, existingDevice.id));
-        } else {
-          await this.db.insert(customerDevices).values({
-            tenantId,
-            companyId,
-            inventoryItemId: item.id,
-            saleDate: deliveryDate,
-            deliveryDate,
-          });
+      const needsExpansion = !line.inventoryItemId && !!line.productModelId;
+      const existingInventoryItemIds = new Set<string>();
+      if (needsExpansion && itemIds.length) {
+        const existingMappings = await this.db
+          .select({ inventoryItemId: shipmentItems.inventoryItemId })
+          .from(shipmentItems)
+          .where(
+            and(
+              eq(shipmentItems.shipmentId, shipmentId),
+              eq(shipmentItems.tenantId, tenantId),
+              inArray(shipmentItems.inventoryItemId, itemIds),
+              isNull(shipmentItems.deletedAt),
+            ),
+          );
+        for (const m of existingMappings) {
+          if (m.inventoryItemId) existingInventoryItemIds.add(m.inventoryItemId);
         }
       }
+
+      for (const [i, inventoryItemId] of itemIds.entries()) {
+        const item = await this.db.query.inventoryItems.findFirst({
+          where: and(eq(inventoryItems.id, inventoryItemId), eq(inventoryItems.tenantId, tenantId), isNull(inventoryItems.deletedAt)),
+        });
+        if (!item) continue;
+
+        // Persist per-inventory-item shipment_items mapping for quantity lines too.
+        if (needsExpansion && !existingInventoryItemIds.has(item.id)) {
+          const unitId = line.unitId ?? null;
+          await this.db.insert(shipmentItems).values({
+            tenantId,
+            shipmentId,
+            inventoryItemId: item.id,
+            salesOrderItemId: line.salesOrderItemId ?? null,
+            productModelId: line.productModelId ?? null,
+            description: line.description,
+            serialNumber: item.serialNumber,
+            quantity: '1',
+            unitId,
+            sortOrder: line.sortOrder + i,
+          });
+          existingInventoryItemIds.add(item.id);
+        }
+
+        // Satılmış kalemde tekrar "sell" yok; sadece teslimat alanlarını senkronla.
+        if (item.stockStatusId !== soldStatusId) {
+          await this.db
+            .update(inventoryItems)
+            .set({ stockStatusId: soldStatusId, arrivalDate: deliveryDate })
+            .where(eq(inventoryItems.id, item.id));
+        } else if (!item.arrivalDate) {
+          await this.db.update(inventoryItems).set({ arrivalDate: deliveryDate }).where(eq(inventoryItems.id, item.id));
+        }
+
+        const existingMove = await this.db.query.inventoryMovements.findFirst({
+          where: and(
+            eq(inventoryMovements.tenantId, tenantId),
+            eq(inventoryMovements.inventoryItemId, item.id),
+            eq(inventoryMovements.movementType, 'deliver'),
+            eq(inventoryMovements.referenceType, referenceType),
+            eq(inventoryMovements.referenceId, referenceId),
+          ),
+        });
+        if (!existingMove) {
+          await this.db.insert(inventoryMovements).values({
+            tenantId,
+            inventoryItemId: item.id,
+            movementType: 'deliver',
+            movementDate: deliveryDate,
+            referenceType,
+            referenceId,
+            notes: 'Teslimat tamamlandı',
+            createdBy: actorUserId,
+          });
+        }
+
+        const deliveryCompanyId = companyId ?? companyFromShipment;
+        if (deliveryCompanyId) {
+          const existingDevice = await this.db.query.customerDevices.findFirst({
+            where: and(eq(customerDevices.inventoryItemId, item.id), eq(customerDevices.tenantId, tenantId), isNull(customerDevices.deletedAt)),
+          });
+          if (existingDevice) {
+            await this.db.update(customerDevices).set({ deliveryDate }).where(eq(customerDevices.id, existingDevice.id));
+          } else {
+            await this.db.insert(customerDevices).values({
+              tenantId,
+              companyId: deliveryCompanyId,
+              inventoryItemId: item.id,
+              saleDate: deliveryDate,
+              deliveryDate,
+            });
+          }
+        }
+      }
+
+      // Hide the original quantity summary line once we have explicit per-serial rows.
+      if (needsExpansion && existingInventoryItemIds.size > 0 && line.inventoryItemId === null) {
+        await this.db.update(shipmentItems).set({ deletedAt: new Date() }).where(eq(shipmentItems.id, line.id));
+      }
     }
+  }
+
+  private async pickShipmentInventoryItems(params: {
+    tenantId: string;
+    companyId: string | null;
+    inventoryItemId: string | null;
+    productModelId: string | null;
+    quantity: string | null;
+    reservedId: string | null;
+    availableId: string | null;
+  }): Promise<string[]> {
+    if (params.inventoryItemId) return [params.inventoryItemId];
+    if (!params.productModelId) return [];
+
+    const qtyRaw = params.quantity ? Number(params.quantity) : 1;
+    if (!Number.isFinite(qtyRaw) || qtyRaw <= 0) return [];
+    const qty = Math.trunc(qtyRaw);
+    if (qty !== qtyRaw) throw new ValidationError('Adet tam sayı olmalı');
+    if (qty <= 0) return [];
+
+    const reserved =
+      params.reservedId && params.companyId
+        ? await this.db
+            .select({ id: inventoryItems.id })
+            .from(inventoryItems)
+            .where(
+              and(
+                eq(inventoryItems.tenantId, params.tenantId),
+                eq(inventoryItems.productModelId, params.productModelId),
+                isNull(inventoryItems.deletedAt),
+                eq(inventoryItems.stockStatusId, params.reservedId),
+                eq(inventoryItems.reservedCompanyId, params.companyId),
+              ),
+            )
+            .orderBy(asc(inventoryItems.createdAt))
+            .limit(qty)
+        : [];
+
+    const remaining = qty - reserved.length;
+    const available =
+      remaining > 0 && params.availableId
+        ? await this.db
+            .select({ id: inventoryItems.id })
+            .from(inventoryItems)
+            .where(
+              and(
+                eq(inventoryItems.tenantId, params.tenantId),
+                eq(inventoryItems.productModelId, params.productModelId),
+                isNull(inventoryItems.deletedAt),
+                eq(inventoryItems.stockStatusId, params.availableId),
+              ),
+            )
+            .orderBy(asc(inventoryItems.createdAt))
+            .limit(remaining)
+        : [];
+
+    return [...reserved, ...available].map((x) => x.id);
   }
 
   private decodeShipmentNotes(notes: string | null): ShipmentMeta {
@@ -433,6 +726,38 @@ export class ServiceController {
     return row;
   }
 
+  @RequirePermissions('installations.update')
+  @Patch('installations/:id/status')
+  async updateInstallationStatus(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(installStatusUpdate)) body: z.infer<typeof installStatusUpdate>,
+    @CurrentUser() user: AuthContext,
+  ) {
+    const job = await this.db.query.installationJobs.findFirst({
+      where: and(eq(installationJobs.id, id), eq(installationJobs.tenantId, user.tenantId), isNull(installationJobs.deletedAt)),
+    });
+    if (!job) throw new NotFoundError('Kurulum');
+    const statusId = await lookupIdByCode(this.db, installationStatuses, body.statusCode);
+    const patch: Record<string, unknown> = { statusId };
+    if (body.statusCode === 'in_progress' && !job.startedAt) patch.startedAt = new Date();
+    if (body.statusCode === 'completed') {
+      const completedAt = body.installationDate ?? new Date();
+      patch.completedAt = completedAt;
+      if (job.customerDeviceId) {
+        await this.db
+          .update(customerDevices)
+          .set({
+            installationDate: completedAt,
+            warrantyStartDate: completedAt,
+            warrantyEndDate: new Date(completedAt.getTime() + 365 * 24 * 60 * 60 * 1000),
+          })
+          .where(and(eq(customerDevices.id, job.customerDeviceId), eq(customerDevices.tenantId, user.tenantId)));
+      }
+    }
+    const [row] = await this.db.update(installationJobs).set(patch).where(eq(installationJobs.id, id)).returning();
+    return row;
+  }
+
   // ─────── SHIPMENTS ───────
   /** Sevkiyatı durum + firma + satır kalemleri (paketleme listesi) ile zenginleştirir; eski JSON-notes satırlarını da çözer. */
   private async enrichShipment(shipment: typeof shipments.$inferSelect) {
@@ -507,7 +832,7 @@ export class ServiceController {
         notes: body.notes ?? null,
       })
       .returning();
-    if (body.items?.length) await this.insertShipmentItems(row.id, user.tenantId, body.items);
+    if (body.items?.length) await this.insertShipmentItems(row.id, user.tenantId, companyId, body.items);
     return this.enrichShipment(row);
   }
 

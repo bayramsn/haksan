@@ -36,4 +36,18 @@ export default defineConfig({
 
   // File types to support raw imports. Never add .css, .tsx, or .ts files to this.
   assetsInclude: ['**/*.svg', '**/*.csv'],
+
+  build: {
+    rollupOptions: {
+      output: {
+        // Ağır kütüphaneleri ayrı parçalara böl: ana giriş paketini küçültür ve
+        // tarayıcı önbelleğini iyileştirir (bu bağımlılıklar nadiren değişir).
+        manualChunks: {
+          'vendor-charts': ['recharts'],
+          'vendor-maps': ['leaflet', 'react-leaflet'],
+          'vendor-mui': ['@mui/material', '@mui/icons-material', '@emotion/react', '@emotion/styled'],
+        },
+      },
+    },
+  },
 })

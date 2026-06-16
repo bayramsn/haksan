@@ -1,5 +1,15 @@
 {
   "extends": "./tsconfig.json",
-  "comment": "Production build (nest build). Seed betikleri ESM import.meta kullanır ve yalnızca tsx ile çalışır; CommonJS derlemesinden hariç tutulur.",
-  "exclude": ["node_modules", "dist", "test", "src/db/seed", "src/db/migrate.ts"]
+  "comment": "Production build (nest build). Seed ENTRY betikleri (index/demo/bootstrap/lookups/haksancnc) yalnızca tsx ile çalıştırılır; derlemeden hariç. Saf veri olan _data.ts derlenir çünkü data-migration katmanı (prod'da `node dist/...`) rol-izin matrisini buradan tek kaynak olarak kullanır. migrate.ts de prod'da derli çalışır.",
+  "exclude": [
+    "node_modules",
+    "dist",
+    "test",
+    "src/audit-contracts.ts",
+    "src/db/seed/index.ts",
+    "src/db/seed/demo.ts",
+    "src/db/seed/bootstrap.ts",
+    "src/db/seed/lookups.ts",
+    "src/db/seed/haksancnc.ts"
+  ]
 }

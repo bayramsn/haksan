@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { lazy, Suspense, useState } from "react";
 import { Layout, NavKey } from "./components/Layout";
 import { Button } from "./components/ui/button";
 import { Plus } from "lucide-react";
@@ -8,14 +8,29 @@ import { CustomersPage } from "./components/pages/Customers";
 import { ContactsPage } from "./components/pages/Contacts";
 import { CustomerDetailPage } from "./components/pages/CustomerDetail";
 import { SalesCasesPage } from "./components/pages/SalesCases";
-import { SalesMapPage } from "./components/pages/SalesMap";
 import { SalesCaseDetailDialog } from "./components/pages/SalesCaseDetail";
-import {
-  OffersPage, DocumentsPage, PaymentsPage, AccountingInvoicesPage, CustomerBalancesPage, DueDatesCalendarPage, StockPage, PurchaseOrdersPage,
-  ShipmentsPage, InstallationsPage, DeliveriesPage, MachinesPage,
-  ServiceRequestsPage, ServiceKanbanPage, ReportsPage, UsersPage, RolesPage, DepartmentsPage,
-  SettingsPage,
-} from "./components/pages/SimplePages";
+// Harita (leaflet) ve aşağıdaki SimplePages barrel'ı uygulamanın büyük kısmını
+// oluşturur; ilk yükte gerekmediklerinden lazy sınıra taşınır (route-based split).
+const SalesMapPage = lazy(() => import("./components/pages/SalesMap").then((m) => ({ default: m.SalesMapPage })));
+const OffersPage = lazy(() => import("./components/pages/SimplePages").then((m) => ({ default: m.OffersPage })));
+const DocumentsPage = lazy(() => import("./components/pages/SimplePages").then((m) => ({ default: m.DocumentsPage })));
+const PaymentsPage = lazy(() => import("./components/pages/SimplePages").then((m) => ({ default: m.PaymentsPage })));
+const AccountingInvoicesPage = lazy(() => import("./components/pages/SimplePages").then((m) => ({ default: m.AccountingInvoicesPage })));
+const CustomerBalancesPage = lazy(() => import("./components/pages/SimplePages").then((m) => ({ default: m.CustomerBalancesPage })));
+const DueDatesCalendarPage = lazy(() => import("./components/pages/SimplePages").then((m) => ({ default: m.DueDatesCalendarPage })));
+const StockPage = lazy(() => import("./components/pages/SimplePages").then((m) => ({ default: m.StockPage })));
+const PurchaseOrdersPage = lazy(() => import("./components/pages/SimplePages").then((m) => ({ default: m.PurchaseOrdersPage })));
+const ShipmentsPage = lazy(() => import("./components/pages/SimplePages").then((m) => ({ default: m.ShipmentsPage })));
+const InstallationsPage = lazy(() => import("./components/pages/SimplePages").then((m) => ({ default: m.InstallationsPage })));
+const DeliveriesPage = lazy(() => import("./components/pages/SimplePages").then((m) => ({ default: m.DeliveriesPage })));
+const MachinesPage = lazy(() => import("./components/pages/SimplePages").then((m) => ({ default: m.MachinesPage })));
+const ServiceRequestsPage = lazy(() => import("./components/pages/SimplePages").then((m) => ({ default: m.ServiceRequestsPage })));
+const ServiceKanbanPage = lazy(() => import("./components/pages/SimplePages").then((m) => ({ default: m.ServiceKanbanPage })));
+const ReportsPage = lazy(() => import("./components/pages/SimplePages").then((m) => ({ default: m.ReportsPage })));
+const UsersPage = lazy(() => import("./components/pages/SimplePages").then((m) => ({ default: m.UsersPage })));
+const RolesPage = lazy(() => import("./components/pages/SimplePages").then((m) => ({ default: m.RolesPage })));
+const DepartmentsPage = lazy(() => import("./components/pages/SimplePages").then((m) => ({ default: m.DepartmentsPage })));
+const SettingsPage = lazy(() => import("./components/pages/SimplePages").then((m) => ({ default: m.SettingsPage })));
 import { Customer, SalesCase } from "./lib/mock";
 import { StoreProvider, useStore } from "./lib/store";
 import { usePersistentState } from "./lib/persist";
@@ -223,7 +238,9 @@ function AppShell() {
       {storeLoading && customers.length === 0 && cases.length === 0 ? (
         <PageLoadingSkeleton />
       ) : (
-        <ErrorBoundary>{content}</ErrorBoundary>
+        <ErrorBoundary>
+          <Suspense fallback={<PageLoadingSkeleton />}>{content}</Suspense>
+        </ErrorBoundary>
       )}
       </PageShell>
       <SalesCaseDetailDialog sc={selectedCase} onClose={() => setSelectedCaseId(null)} />

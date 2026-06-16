@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { and, asc, desc, eq, gte, inArray, isNull, lte, ne, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, inArray, ilike, isNull, lte, ne, or, sql } from 'drizzle-orm';
 import type { DbClient } from '../../db/client';
 import {
   accountingInvoices,
@@ -9,8 +9,11 @@ import {
   payments,
   receivables,
 } from '../../db/schema/finance';
+import { installationJobs } from '../../db/schema/service';
 import { companies } from '../../db/schema/companies';
 import { currencies, invoiceStatuses, paymentStatuses } from '../../db/schema/lookup';
+import { installationStatuses, warrantyStatuses } from '../../db/schema/lookup';
+import { customerDevices } from '../../db/schema/inventory';
 import { DB } from '../../shared/database/database.module';
 import type { AuthContext } from '../../shared/security/auth.types';
 import type {
@@ -598,6 +601,123 @@ export class FinanceService {
     }
 
     return invoice;
+  }
+
+  /** Satış faturası iptali (minimal) — stok teslim edilmediyse geri al. */
+  async cancelAccountingInvoice(id: string, actor: AuthContext) {
+    const invoice = await this.db.query.accountingInvoices.findFirst({
+      where: and(eq(accountingInvoices.id, id), eq(accountingInvoices.tenantId, actor.tenantId), isNull(accountingInvoices.deletedAt)),
+    });
+    if (!invoice) throw new NotFoundError('Fatura bulunamadı');
+
+    const cancelled = await this.db.query.invoiceStatuses.findFirst({ where: eq(invoiceStatuses.code, 'cancelled') });
+    if (!cancelled) throw new NotFoundError('Fatura durumu bulunamadı (cancelled)');
+
+    if (invoice.statusId === cancelled.id) return { ok: true };
+
+    await this.db.update(accountingInvoices).set({ statusId: cancelled.id }).where(eq(accountingInvoices.id, id));
+    if (invoice.type === 'sales') {
+      await this.inventory.reverseSalesInvoice(id, actor);
+      await this.cancelTezgahSaleDownstreamSideEffects({
+        invoiceId: invoice.id,
+        invoiceDate: invoice.invoiceDate,
+        tenantId: actor.tenantId,
+      });
+    }
+    return { ok: true };
+  }
+
+  /**
+   * Sales invoice "tezgah" lines may have created:
+   * - `customer_devices` (by inventoryItemId)
+   * - `installation_jobs` (notes include invoiceId prefix)
+   *
+   * Rollback rules:
+   * - If `customer_devices.installationDate` is null -> revert: soft-delete device + reset warranty fields.
+   * - Otherwise -> mark cancelled/void without clearing installationDate (safe rollback).
+   *
+   * Idempotent: updates are conditional and soft-deletes won’t re-run for already deleted rows.
+   */
+  private async cancelTezgahSaleDownstreamSideEffects(
+    params: { invoiceId: string; invoiceDate: Date; tenantId: string },
+  ): Promise<void> {
+    const installationCancelledId = await lookupIdByCode(this.db, installationStatuses, 'cancelled');
+    const warrantyVoidId = await lookupIdByCode(this.db, warrantyStatuses, 'void');
+    if (!installationCancelledId || !warrantyVoidId) return;
+
+    const tezgahLines = await this.db
+      .select({ inventoryItemId: accountingInvoiceLines.inventoryItemId })
+      .from(accountingInvoiceLines)
+      .where(
+        and(
+          eq(accountingInvoiceLines.tenantId, params.tenantId),
+          eq(accountingInvoiceLines.accountingInvoiceId, params.invoiceId),
+          eq(accountingInvoiceLines.categoryCode, 'TEZGAH'),
+          isNull(accountingInvoiceLines.deletedAt),
+        ),
+      );
+
+    const inventoryItemIds = Array.from(new Set(tezgahLines.map((l) => l.inventoryItemId).filter((x): x is string => !!x)));
+    if (!inventoryItemIds.length) return;
+
+    const devices = await this.db.query.customerDevices.findMany({
+      where: and(eq(customerDevices.tenantId, params.tenantId), inArray(customerDevices.inventoryItemId, inventoryItemIds), isNull(customerDevices.deletedAt)),
+    });
+
+    const deviceById = new Map(devices.map((d) => [d.id, d]));
+
+    // Installation job notes created by inventory.sellFromSalesInvoice:
+    // `Satış faturası kurulumu (${params.invoiceId.slice(0, 8)})`
+    const invoicePrefix = params.invoiceId.slice(0, 8);
+    const jobNotePattern = `%Satış faturası kurulumu (${invoicePrefix})%`;
+
+    const customerDeviceIds = devices.map((d) => d.id);
+    const jobs = await this.db.query.installationJobs.findMany({
+      where: and(
+        eq(installationJobs.tenantId, params.tenantId),
+        isNull(installationJobs.deletedAt),
+        customerDeviceIds.length ? inArray(installationJobs.customerDeviceId, customerDeviceIds) : sql`true`,
+        ilike(installationJobs.notes, jobNotePattern),
+      ),
+    });
+
+    const impactedDeviceIds = new Set(jobs.map((j) => j.customerDeviceId).filter((x): x is string => !!x));
+
+    const now = new Date();
+
+    // 1) Cancel installation jobs.
+    for (const job of jobs) {
+      const device = job.customerDeviceId ? deviceById.get(job.customerDeviceId) : undefined;
+      const shouldRevert = device != null && device.installationDate == null;
+      await this.db
+        .update(installationJobs)
+        .set({
+          statusId: installationCancelledId,
+          // If installationDate is null, treat as not started and clear completion fields.
+          ...(shouldRevert ? { startedAt: null, completedAt: null } : {}),
+        })
+        .where(and(eq(installationJobs.id, job.id), eq(installationJobs.tenantId, params.tenantId)));
+    }
+
+    // 2) Roll back (or void) customer devices.
+    for (const device of devices) {
+      const shouldRevert = device.installationDate == null && (impactedDeviceIds.has(device.id) || (device.saleDate ? device.saleDate.getTime() === params.invoiceDate.getTime() : false));
+
+      if (shouldRevert) {
+        await this.db
+          .update(customerDevices)
+          .set({
+            deletedAt: now,
+            statusId: warrantyVoidId,
+            installationDate: null,
+            warrantyStartDate: null,
+            warrantyEndDate: null,
+          })
+          .where(and(eq(customerDevices.id, device.id), eq(customerDevices.tenantId, params.tenantId)));
+      } else if (device.installationDate != null) {
+        await this.db.update(customerDevices).set({ statusId: warrantyVoidId }).where(and(eq(customerDevices.id, device.id), eq(customerDevices.tenantId, params.tenantId)));
+      }
+    }
   }
 
   async listAccountingInvoices(actor: AuthContext, query: AccountingInvoiceListQuery) {

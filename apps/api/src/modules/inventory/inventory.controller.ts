@@ -30,6 +30,21 @@ const listQuery = z.object({
 });
 const cdQuery = z.object({ companyId: z.string().optional() });
 
+const servicePartsConsumeSchema = z.object({
+  serviceTicketId: z.string().min(1),
+  companyId: z.string().optional(),
+  usedAt: z.coerce.date().optional(),
+  lines: z
+    .array(
+      z.object({
+        productModelId: z.string().min(1),
+        quantity: z.coerce.number().int().positive(),
+        notes: z.string().max(1000).optional(),
+      }),
+    )
+    .min(1),
+});
+
 @UseGuards(AuthGuard, PermissionsGuard)
 @Controller()
 export class InventoryController {
@@ -116,5 +131,14 @@ export class InventoryController {
     @CurrentUser() user: AuthContext
   ) {
     return this.svc.createCustomerDevice(body, user);
+  }
+
+  @RequirePermissions('inventory.update')
+  @Post('inventory/consume-service-parts')
+  consumeServiceParts(
+    @Body(new ZodValidationPipe(servicePartsConsumeSchema)) body: z.infer<typeof servicePartsConsumeSchema>,
+    @CurrentUser() user: AuthContext
+  ) {
+    return this.svc.consumeServiceParts(body, user);
   }
 }

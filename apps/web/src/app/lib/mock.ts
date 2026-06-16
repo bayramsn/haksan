@@ -253,9 +253,11 @@ export type StockItem = {
   stockCode: string;
   warehouse: string;
   status: "Available" | "Reserved" | "Sold" | "Inactive";
-  /** TEZGAH = satış; YEDEK_PARCA = satış + servis */
-  categoryCode?: "TEZGAH" | "YEDEK_PARCA";
+  /** TEZGAH = satış; YEDEK_PARCA / AKSESUAR = satış + servis */
+  categoryCode?: "TEZGAH" | "AKSESUAR" | "YEDEK_PARCA";
   category?: string;
+  reservedCompanyId?: string;
+  reservedCompanyName?: string;
   optionalHardware?: string;
   spareParts?: string;
   productId?: string;

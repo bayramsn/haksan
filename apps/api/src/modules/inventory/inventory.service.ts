@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { and, desc, eq, ilike, isNull, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, ilike, isNull, sql } from 'drizzle-orm';
 import type { DbClient } from '../../db/client';
 import { inventoryItems, inventoryMovements, warehouses, customerDevices } from '../../db/schema/inventory';
 import { warrantyStatuses } from '../../db/schema/lookup';
@@ -152,7 +152,7 @@ export class InventoryService {
   }
 
   async update(id: string, input: InventoryItemUpdateInput, actor: AuthContext) {
-    const item = await this.get(id, actor);
+    await this.get(id, actor);
     if (input.stockStatusCode === 'sold') {
       throw new ValidationError('Satıldı durumu yalnızca satış faturası ile işaretlenebilir (harici satış kapalı)');
     }
@@ -218,6 +218,8 @@ export class InventoryService {
     actor: AuthContext
   ) {
     const sold = await this.db.query.inventoryStatuses.findFirst({ where: eq(inventoryStatuses.code, 'sold') });
+    const available = await this.db.query.inventoryStatuses.findFirst({ where: eq(inventoryStatuses.code, 'available') });
+    const reserved = await this.db.query.inventoryStatuses.findFirst({ where: eq(inventoryStatuses.code, 'reserved') });
     const scheduled = await this.db.query.installationStatuses.findFirst({ where: eq(installationStatuses.code, 'scheduled') });
     if (!sold) return;
 
@@ -226,11 +228,108 @@ export class InventoryService {
       if (isTezgah && !line.inventoryItemId) {
         throw new ValidationError('Tezgah satışı için seri numarası (stok kalemi) zorunludur');
       }
-      if (!line.inventoryItemId) continue;
+      if (!line.inventoryItemId) {
+        const isQuantityProduct =
+          line.saleType === 'product' ||
+          line.categoryCode === 'YEDEK_PARCA' ||
+          line.categoryCode === 'AKSESUAR';
+
+        if (!isQuantityProduct) continue;
+        if (!line.productModelId) throw new ValidationError('Ürün kalemi için ürün modeli zorunludur');
+
+        const qtyRaw = line.quantity ?? 1;
+        const qty = typeof qtyRaw === 'number' ? qtyRaw : Number(qtyRaw);
+        if (!Number.isFinite(qty) || qty <= 0) throw new ValidationError('Geçersiz adet');
+        const qtyInt = Math.trunc(qty);
+        if (qtyInt !== qty) throw new ValidationError('Adet tam sayı olmalı');
+
+        if (!available) throw new ValidationError('Stok durumu bulunamadı (available)');
+
+        const reservedItems =
+          reserved
+            ? await this.db
+                .select({ id: inventoryItems.id })
+                .from(inventoryItems)
+                .where(
+                  and(
+                    eq(inventoryItems.tenantId, actor.tenantId),
+                    eq(inventoryItems.productModelId, line.productModelId),
+                    isNull(inventoryItems.deletedAt),
+                    eq(inventoryItems.stockStatusId, reserved.id),
+                    eq(inventoryItems.reservedCompanyId, params.companyId),
+                  ),
+                )
+                .orderBy(asc(inventoryItems.createdAt))
+                .limit(qtyInt)
+            : [];
+
+        const remaining = qtyInt - reservedItems.length;
+        const availableItems =
+          remaining > 0
+            ? await this.db
+                .select({ id: inventoryItems.id })
+                .from(inventoryItems)
+                .where(
+                  and(
+                    eq(inventoryItems.tenantId, actor.tenantId),
+                    eq(inventoryItems.productModelId, line.productModelId),
+                    isNull(inventoryItems.deletedAt),
+                    eq(inventoryItems.stockStatusId, available.id),
+                  ),
+                )
+                .orderBy(asc(inventoryItems.createdAt))
+                .limit(remaining)
+            : [];
+
+        const itemsToSell = [...reservedItems, ...availableItems];
+        if (itemsToSell.length < qtyInt) {
+          throw new ValidationError(`Yetersiz stok: ${line.description ?? 'ürün'} (istenen: ${qtyInt}, hazır: ${itemsToSell.length})`);
+        }
+
+        for (const it of itemsToSell) {
+          await this.db
+            .update(inventoryItems)
+            .set({ stockStatusId: sold.id, reservedCompanyId: null, reservedAt: null })
+            .where(eq(inventoryItems.id, it.id));
+          await this.db.insert(inventoryMovements).values({
+            tenantId: actor.tenantId,
+            inventoryItemId: it.id,
+            movementType: 'sell',
+            movementDate: params.invoiceDate,
+            referenceType: 'accounting_invoice',
+            referenceId: params.invoiceId,
+            notes: line.description ?? 'Satış faturası',
+            createdBy: actor.userId,
+          });
+          await this.audit.write({
+            tenantId: actor.tenantId,
+            actorUserId: actor.userId,
+            action: 'inventory.sold',
+            resourceType: 'inventory_item',
+            resourceId: it.id,
+            newValues: { stockStatusCode: 'sold', referenceType: 'accounting_invoice', referenceId: params.invoiceId },
+          });
+        }
+
+        await this.audit.write({
+          tenantId: actor.tenantId,
+          actorUserId: actor.userId,
+          action: 'inventory.sold_from_invoice',
+          resourceType: 'accounting_invoice',
+          resourceId: params.invoiceId,
+          newValues: {
+            companyId: params.companyId,
+            productModelId: line.productModelId,
+            quantity: qtyInt,
+            description: line.description ?? null,
+            saleType: line.saleType ?? null,
+          },
+        });
+
+        continue;
+      }
 
       const item = await this.get(line.inventoryItemId, actor);
-      const available = await this.db.query.inventoryStatuses.findFirst({ where: eq(inventoryStatuses.code, 'available') });
-      const reserved = await this.db.query.inventoryStatuses.findFirst({ where: eq(inventoryStatuses.code, 'reserved') });
       const canSell =
         (available && item.stockStatusId === available.id) ||
         (reserved && item.stockStatusId === reserved.id && item.reservedCompanyId === params.companyId);
@@ -251,6 +350,31 @@ export class InventoryService {
         referenceId: params.invoiceId,
         notes: line.description ?? 'Satış faturası',
         createdBy: actor.userId,
+      });
+      await this.audit.write({
+        tenantId: actor.tenantId,
+        actorUserId: actor.userId,
+        action: 'inventory.sold',
+        resourceType: 'inventory_item',
+        resourceId: item.id,
+        newValues: { stockStatusCode: 'sold', referenceType: 'accounting_invoice', referenceId: params.invoiceId },
+      });
+
+      await this.audit.write({
+        tenantId: actor.tenantId,
+        actorUserId: actor.userId,
+        action: 'inventory.sold_from_invoice',
+        resourceType: 'accounting_invoice',
+        resourceId: params.invoiceId,
+        newValues: {
+          companyId: params.companyId,
+          inventoryItemId: item.id,
+          serialNumber: item.serialNumber,
+          productModelId: line.productModelId ?? item.productModelId,
+          quantity: 1,
+          description: line.description ?? null,
+          saleType: line.saleType ?? null,
+        },
       });
 
       if (isTezgah) {
@@ -295,6 +419,143 @@ export class InventoryService {
             saleDate: params.invoiceDate,
           });
         }
+      }
+    }
+  }
+
+  /**
+   * Satış faturası iptalinde stok geri alma (minimal).
+   * Yalnızca "sell" hareketi olan ve henüz "deliver" hareketi yazılmamış kalemler geri alınır.
+   */
+  async reverseSalesInvoice(invoiceId: string, actor: AuthContext) {
+    const available = await this.db.query.inventoryStatuses.findFirst({ where: eq(inventoryStatuses.code, 'available') });
+    if (!available) return;
+
+    const soldMoves = await this.db
+      .select({ inventoryItemId: inventoryMovements.inventoryItemId })
+      .from(inventoryMovements)
+      .where(
+        and(
+          eq(inventoryMovements.tenantId, actor.tenantId),
+          eq(inventoryMovements.referenceType, 'accounting_invoice'),
+          eq(inventoryMovements.referenceId, invoiceId),
+          eq(inventoryMovements.movementType, 'sell'),
+        ),
+      );
+
+    for (const mv of soldMoves) {
+      const delivered = await this.db.query.inventoryMovements.findFirst({
+        where: and(
+          eq(inventoryMovements.tenantId, actor.tenantId),
+          eq(inventoryMovements.inventoryItemId, mv.inventoryItemId),
+          eq(inventoryMovements.movementType, 'deliver'),
+        ),
+      });
+      if (delivered) continue;
+
+      await this.db
+        .update(inventoryItems)
+        .set({ stockStatusId: available.id, reservedCompanyId: null, reservedAt: null })
+        .where(and(eq(inventoryItems.id, mv.inventoryItemId), eq(inventoryItems.tenantId, actor.tenantId)));
+      await this.db.insert(inventoryMovements).values({
+        tenantId: actor.tenantId,
+        inventoryItemId: mv.inventoryItemId,
+        movementType: 'cancel_sell',
+        movementDate: new Date(),
+        referenceType: 'accounting_invoice',
+        referenceId: invoiceId,
+        notes: 'Satış faturası iptali',
+        createdBy: actor.userId,
+      });
+      await this.audit.write({
+        tenantId: actor.tenantId,
+        actorUserId: actor.userId,
+        action: 'inventory.sale_reversed',
+        resourceType: 'inventory_item',
+        resourceId: mv.inventoryItemId,
+        newValues: { stockStatusCode: 'available', referenceType: 'accounting_invoice', referenceId: invoiceId },
+      });
+    }
+  }
+
+  /** Serviste kullanılan yedek parça/aksesuar stok düşümü (minimal). */
+  async consumeServiceParts(
+    params: { serviceTicketId: string; companyId?: string | null; usedAt?: Date; lines: Array<{ productModelId: string; quantity: number; notes?: string }> },
+    actor: AuthContext
+  ) {
+    const sold = await this.db.query.inventoryStatuses.findFirst({ where: eq(inventoryStatuses.code, 'sold') });
+    const available = await this.db.query.inventoryStatuses.findFirst({ where: eq(inventoryStatuses.code, 'available') });
+    const reserved = await this.db.query.inventoryStatuses.findFirst({ where: eq(inventoryStatuses.code, 'reserved') });
+    if (!sold || !available) return;
+
+    const usedAt = params.usedAt ?? new Date();
+    for (const line of params.lines) {
+      const qty = Math.trunc(line.quantity ?? 0);
+      if (!Number.isFinite(qty) || qty <= 0) continue;
+
+      const reservedItems =
+        reserved && params.companyId
+          ? await this.db
+              .select({ id: inventoryItems.id })
+              .from(inventoryItems)
+              .where(
+                and(
+                  eq(inventoryItems.tenantId, actor.tenantId),
+                  eq(inventoryItems.productModelId, line.productModelId),
+                  isNull(inventoryItems.deletedAt),
+                  eq(inventoryItems.stockStatusId, reserved.id),
+                  eq(inventoryItems.reservedCompanyId, params.companyId),
+                ),
+              )
+              .orderBy(asc(inventoryItems.createdAt))
+              .limit(qty)
+          : [];
+      const remaining = qty - reservedItems.length;
+      const availableItems =
+        remaining > 0
+          ? await this.db
+              .select({ id: inventoryItems.id })
+              .from(inventoryItems)
+              .where(
+                and(
+                  eq(inventoryItems.tenantId, actor.tenantId),
+                  eq(inventoryItems.productModelId, line.productModelId),
+                  isNull(inventoryItems.deletedAt),
+                  eq(inventoryItems.stockStatusId, available.id),
+                ),
+              )
+              .orderBy(asc(inventoryItems.createdAt))
+              .limit(remaining)
+          : [];
+
+      const itemsToConsume = [...reservedItems, ...availableItems];
+      if (itemsToConsume.length < qty) {
+        throw new ValidationError(`Yetersiz stok (servis parçası): istenen ${qty}, hazır ${itemsToConsume.length}`);
+      }
+
+      for (const it of itemsToConsume) {
+        await this.db
+          .update(inventoryItems)
+          .set({ stockStatusId: sold.id, reservedCompanyId: null, reservedAt: null })
+          .where(eq(inventoryItems.id, it.id));
+        await this.db.insert(inventoryMovements).values({
+          tenantId: actor.tenantId,
+          inventoryItemId: it.id,
+          movementType: 'consume',
+          movementDate: usedAt,
+          referenceType: 'service_ticket',
+          referenceId: params.serviceTicketId,
+          notes: line.notes ?? 'Servis parça kullanımı',
+          createdBy: actor.userId,
+        });
+        await this.audit.write({
+          tenantId: actor.tenantId,
+          actorUserId: actor.userId,
+          action: 'inventory.consumed_in_service',
+          resourceType: 'inventory_item',
+          resourceId: it.id,
+          newValues: { stockStatusCode: 'sold', referenceType: 'service_ticket', referenceId: params.serviceTicketId },
+        });
       }
     }
   }

@@ -18,6 +18,7 @@ import { useStore } from "../../../lib/store";
 import { ServiceRequest, ServiceStage } from "../../../lib/mock";
 import { useAuth } from "../../../../lib/auth";
 import { toast } from "sonner";
+import { inventoryService } from "../../../../lib/services";
 import { ExportExcelButton } from "../../ui/ExportExcelButton";
 import type { OperationFocus } from "../../../lib/operations";
 import {
@@ -405,7 +406,7 @@ function ServiceDetailDialog({
   serviceRequest: ServiceRequest | null;
   onClose: () => void;
 }) {
-  const { updateService, customers, machines, users } = useStore();
+  const { updateService, customers, machines, users, products } = useStore();
   const { user: authUser } = useAuth();
   const [nowMs, setNowMs] = useState(Date.now());
   const [note, setNote] = useState("");
@@ -415,6 +416,10 @@ function ServiceDetailDialog({
   const [operationPrice, setOperationPrice] = useState("0");
   const [operationCurrency, setOperationCurrency] = useState<(typeof SERVICE_CURRENCIES)[number]>("USD");
   const [detailTab, setDetailTab] = useState<ServiceDetailTab>("summary");
+  const [partProductId, setPartProductId] = useState<string>("");
+  const [partQty, setPartQty] = useState("1");
+  const [partNote, setPartNote] = useState("");
+  const [consumingParts, setConsumingParts] = useState(false);
 
   useEffect(() => {
     setNote("");
@@ -424,6 +429,9 @@ function ServiceDetailDialog({
     setOperationPrice("0");
     setOperationCurrency(serviceRequest?.serviceCurrency ?? "USD");
     setDetailTab("summary");
+    setPartProductId("");
+    setPartQty("1");
+    setPartNote("");
   }, [serviceRequest?.id, serviceRequest?.serviceCurrency, serviceRequest?.stage]);
 
   useEffect(() => {
@@ -582,6 +590,47 @@ function ServiceDetailDialog({
     setOperationDescription("");
     setOperationQty("1");
     setOperationPrice("0");
+  };
+
+  const spareProducts = products.filter((p) => p.categoryCode === "YEDEK_PARCA" || p.categoryCode === "AKSESUAR");
+
+  const consumeParts = async () => {
+    if (!partProductId) return;
+    const qty = Math.max(1, Number(partQty) || 1);
+    const prod = spareProducts.find((p) => p.id === partProductId);
+    setConsumingParts(true);
+    try {
+      await inventoryService.consumeServiceParts({
+        serviceTicketId: serviceRequest.id,
+        companyId: serviceRequest.customerId,
+        lines: [{ productModelId: partProductId, quantity: qty, notes: partNote.trim() || undefined }],
+      });
+      await updateService(
+        serviceRequest.id,
+        withActivity(`Stoktan parça düşüldü: ${prod?.model ?? partProductId} × ${qty}.`, {
+          operations: [
+            ...operations,
+            {
+              id: `srv-part-${Date.now()}`,
+              description: `Parça kullanımı: ${prod?.model ?? prod?.modelName ?? 'Ürün'}${prod?.stockCode ? ` (${prod.stockCode})` : ''}`,
+              quantity: qty,
+              unitPrice: 0,
+              currency: serviceCurrency,
+              createdAt: timestamp(),
+              byUserId: currentActorId,
+            },
+          ],
+        })
+      );
+      toast.success("Parça stoğu düşüldü");
+      setPartProductId("");
+      setPartQty("1");
+      setPartNote("");
+    } catch (err: any) {
+      toast.error("Parça stoğu düşülemedi", { description: err?.message ?? "İşlem başarısız." });
+    } finally {
+      setConsumingParts(false);
+    }
   };
 
   return (
@@ -857,6 +906,45 @@ function ServiceDetailDialog({
                   <span>Servis ücreti + aynı para birimindeki manuel işlemler</span>
                   <b className="tabular-nums">{moneyText(serviceFee + manualTotal, serviceCurrency)}</b>
                 </div>
+              </CardContent>
+            </Card>
+
+            <Card className="border-border/60">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base">Yedek Parça / Aksesuar Kullanımı</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_110px_minmax(0,1fr)_auto] gap-2 items-end">
+                  <div>
+                    <Label>Ürün</Label>
+                    <Select value={partProductId} onValueChange={setPartProductId}>
+                      <SelectTrigger className="mt-1"><SelectValue placeholder="Parça seçin" /></SelectTrigger>
+                      <SelectContent>
+                        {spareProducts.map((p) => (
+                          <SelectItem key={p.id} value={p.id}>
+                            {p.model}{p.stockCode ? ` · ${p.stockCode}` : ""}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label>Adet</Label>
+                    <Input className="mt-1" type="number" value={partQty} onChange={(e) => setPartQty(e.target.value)} />
+                  </div>
+                  <div>
+                    <Label>Not</Label>
+                    <Input className="mt-1" value={partNote} onChange={(e) => setPartNote(e.target.value)} placeholder="Opsiyonel" />
+                  </div>
+                  <Button className="gap-1 lg:w-auto" onClick={consumeParts} disabled={!partProductId || consumingParts}>
+                    <Plus className="size-4" /> Stoktan düş
+                  </Button>
+                </div>
+                {spareProducts.length === 0 && (
+                  <div className="text-sm text-muted-foreground">
+                    Ürün listesinde YEDEK_PARCA / AKSESUAR kategorisinde kayıt bulunamadı.
+                  </div>
+                )}
               </CardContent>
             </Card>
           </TabsContent>

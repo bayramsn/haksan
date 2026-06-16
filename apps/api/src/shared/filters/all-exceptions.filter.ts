@@ -1,7 +1,9 @@
 import { ExceptionFilter, Catch, ArgumentsHost, HttpException } from '@nestjs/common';
 import type { FastifyReply, FastifyRequest } from 'fastify';
+import * as Sentry from '@sentry/node';
 import { AppError } from '../utils/errors';
 import { logger } from '../utils/logger';
+import { incUnhandledException } from '../observability/metrics';
 
 interface ErrorBody {
   error: {
@@ -78,10 +80,28 @@ export class AllExceptionsFilter implements ExceptionFilter {
       };
     }
 
+    // Correlation + auth context so 4xx/5xx logs can be tied to a single request
+    // and the acting tenant/user/session during incident triage.
+    const context = {
+      reqId: req.requestId,
+      path: req.url,
+      method: req.method,
+      tenantId: req.auth?.tenantId,
+      userId: req.auth?.userId,
+      sessionId: req.auth?.sessionId,
+    };
+
     if (status >= 500) {
-      logger.error({ err: exception, path: req.url, method: req.method }, 'Unhandled exception');
+      incUnhandledException(body.error.code);
+      // No-op unless Sentry is initialized (SENTRY_DSN set). Tags/extras carry
+      // the same correlation context used in logs.
+      Sentry.captureException(exception, {
+        tags: { code: body.error.code, method: req.method },
+        extra: { ...context },
+      });
+      logger.error({ err: exception, ...context }, 'Unhandled exception');
     } else {
-      logger.warn({ status, code: body.error.code, path: req.url, method: req.method }, 'Request error');
+      logger.warn({ status, code: body.error.code, ...context }, 'Request error');
     }
 
     res.status(status).send(body);

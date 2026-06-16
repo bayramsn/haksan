@@ -22,5 +22,10 @@ export const moneySchema = z.coerce.number().nonnegative().multipleOf(0.0001);
 export const percentSchema = z.coerce.number().min(0).max(100).multipleOf(0.01);
 
 export const phoneSchema = z.string().min(5).max(32).regex(/^[+0-9 ()\-]*$/, 'Geçersiz telefon');
-export const emailSchema = z.string().email().max(255);
+/** ASCII-only Zod `.email()` rejects IDN/local parts (örn. ismailsomalı@…); basit unicode-safe kontrol. */
+export const emailSchema = z
+  .string()
+  .trim()
+  .max(255)
+  .refine((v) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/u.test(v), 'Geçersiz e-posta');
 export const urlSchema = z.string().url().max(512);

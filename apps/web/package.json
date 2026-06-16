@@ -6,7 +6,9 @@
   "scripts": {
     "build": "vite build",
     "dev": "vite --host 0.0.0.0 --port 5173 --strictPort",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test:e2e": "playwright install chromium && playwright test",
+    "test:e2e:install": "playwright install --with-deps chromium"
   },
   "dependencies": {
     "@emotion/react": "11.14.0",
@@ -76,8 +78,10 @@
     "zod": "3.23.8"
   },
   "devDependencies": {
+    "@playwright/test": "1.49.1",
     "@tailwindcss/vite": "4.1.12",
     "@types/leaflet": "^1.9.21",
+    "@types/node": "20.19.0",
     "@vitejs/plugin-react": "4.7.0",
     "tailwindcss": "4.1.12",
     "vite": "6.3.5"

@@ -13,6 +13,7 @@ import {
   accountingInvoiceCreateSchema,
   accountingInvoiceListQuerySchema,
   dueDatesQuerySchema,
+  financeStatusUpdateSchema,
   type ReceivableCreateInput,
   type PaymentCreateInput,
   type Pagination,
@@ -21,6 +22,7 @@ import {
   type AccountingInvoiceCreateInput,
   type AccountingInvoiceListQuery,
   type DueDatesQuery,
+  type FinanceStatusUpdate,
 } from '@haksan/shared';
 import { ZodValidationPipe } from '../../shared/utils/zod-pipe';
 import { AuthGuard } from '../../shared/security/auth.guard';
@@ -30,6 +32,7 @@ import type { AuthContext } from '../../shared/security/auth.types';
 import { buildPaginated, pageOffset } from '../../shared/utils/pagination';
 import { NotFoundError } from '../../shared/utils/errors';
 import { FinanceService } from './finance.service';
+import { z } from 'zod';
 
 @UseGuards(AuthGuard, PermissionsGuard)
 @Controller()
@@ -123,7 +126,11 @@ export class FinanceController {
 
   @RequirePermissions('payments.create')
   @Patch('payments/:id/status')
-  async updatePaymentStatus(@Param('id') id: string, @Body() body: { status?: string }, @CurrentUser() user: AuthContext) {
+  async updatePaymentStatus(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(financeStatusUpdateSchema)) body: FinanceStatusUpdate,
+    @CurrentUser() user: AuthContext
+  ) {
     const statusId = await this.finance.resolveStatusId(body?.status);
     const [row] = await this.db
       .update(payments)
@@ -136,7 +143,11 @@ export class FinanceController {
 
   @RequirePermissions('receivables.create')
   @Patch('receivables/:id/status')
-  async updateReceivableStatus(@Param('id') id: string, @Body() body: { status?: string }, @CurrentUser() user: AuthContext) {
+  async updateReceivableStatus(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(financeStatusUpdateSchema)) body: FinanceStatusUpdate,
+    @CurrentUser() user: AuthContext
+  ) {
     const statusId = await this.finance.resolveStatusId(body?.status);
     const [row] = await this.db
       .update(receivables)
@@ -169,6 +180,16 @@ export class FinanceController {
     @CurrentUser() user: AuthContext
   ) {
     return this.finance.createAccountingInvoice(body, user);
+  }
+
+  @RequirePermissions('accounting_invoices.update')
+  @Patch('accounting-invoices/:id/cancel')
+  cancelAccountingInvoice(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(z.object({ reason: z.string().max(500).optional() }))) _body: { reason?: string },
+    @CurrentUser() user: AuthContext
+  ) {
+    return this.finance.cancelAccountingInvoice(id, user);
   }
 
   @RequirePermissions('receivables.read')

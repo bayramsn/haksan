@@ -22,6 +22,7 @@ export const quotes = pgTable(
       .references(() => companies.id, { onDelete: 'restrict' }),
     contactId: uuid('contact_id').references(() => contacts.id, { onDelete: 'set null' }),
     documentNo: varchar('document_no', { length: 64 }).notNull(),
+    revisionNo: integer('revision_no').notNull().default(1),
     quoteDate: timestamp('quote_date', { withTimezone: true }).notNull(),
     validityDays: integer('validity_days').notNull().default(30),
     projectOwnerUserId: uuid('project_owner_user_id').references(() => users.id),

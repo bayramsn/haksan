@@ -38,6 +38,12 @@ export const financeListQuerySchema = z.object({
 });
 export type FinanceListQuery = z.infer<typeof financeListQuerySchema>;
 
+/** Body for payment/receivable status PATCH endpoints. Status resolved to an id server-side. */
+export const financeStatusUpdateSchema = z.object({
+  status: z.string().max(64).optional(),
+});
+export type FinanceStatusUpdate = z.infer<typeof financeStatusUpdateSchema>;
+
 export const statementQuerySchema = dateRangeSchema;
 export type StatementQuery = z.infer<typeof statementQuerySchema>;
 

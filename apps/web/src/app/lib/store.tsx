@@ -246,6 +246,7 @@ type Store = {
   deleteNoteTemplate: (id: string) => Promise<void>;
   addStock: (s: Omit<StockItem, 'id'>) => Promise<StockItem>;
   updateStockStatus: (id: string, status: StockItem['status']) => Promise<void>;
+  reserveStock: (id: string, companyId: string, notes?: string) => Promise<void>;
   addShipment: (s: Omit<Shipment, 'id'>) => Promise<Shipment>;
   updateShipmentStatus: (id: string, status: Shipment['status']) => Promise<void>;
   addDelivery: (d: Omit<Delivery, 'id'>) => Promise<Delivery>;
@@ -270,7 +271,7 @@ type Store = {
 const Ctx = createContext<Store | null>(null);
 
 function StoreInner({ children }: { children: ReactNode }) {
-  const { authed, user } = useAuth();
+  const { authed, sessionReady, user } = useAuth();
   const [loading, setLoading] = useState(true);
   const [loadErrors, setLoadErrors] = useState<string[]>([]);
   const [loadTruncated, setLoadTruncated] = useState<string[]>([]);
@@ -313,7 +314,7 @@ function StoreInner({ children }: { children: ReactNode }) {
     status === 'Tamamlandı' ? 'completed' : 'pending';
 
   const fetchAll = useCallback(async () => {
-    if (!authed) {
+    if (!sessionReady || !authed) {
       setLoading(false);
       setLoadErrors([]);
       setLoadTruncated([]);
@@ -523,6 +524,8 @@ function StoreInner({ children }: { children: ReactNode }) {
             warehouse: s.warehouse?.name ?? '',
             categoryCode,
             category: s.category?.name ?? STOCK_CATEGORY_LABELS[categoryCode],
+            reservedCompanyId: s.reservedCompany?.id ?? s.reservedCompanyId ?? undefined,
+            reservedCompanyName: s.reservedCompany?.shortName ?? s.reservedCompany?.legalTitle ?? undefined,
             status:
               s.status?.code === 'available'
                 ? 'Available'
@@ -541,7 +544,7 @@ function StoreInner({ children }: { children: ReactNode }) {
           salesCaseId: q.opportunityId ?? '',
           companyId: q.companyId ?? '',
           quoteNo: q.documentNo,
-          revision: 1,
+          revision: Number(q.revisionNo ?? 1),
           date: (q.quoteDate as string)?.slice(0, 10) ?? '',
           validityDays: q.validityDays === null || q.validityDays === undefined ? undefined : Number(q.validityDays),
           amount: Number(q.grandTotal ?? 0),
@@ -667,10 +670,16 @@ function StoreInner({ children }: { children: ReactNode }) {
         code === 'paid' ? 'Paid' : code === 'overdue' ? 'Overdue' : code === 'cancelled' ? 'Cancelled' : code === 'partial' ? 'Pending' : 'Pending';
       const mapCurrency = (code?: string): Payment['currency'] =>
         code === 'EUR' ? 'EUR' : code === 'TRY' ? 'TRY' : 'USD';
+      // quote → opportunity (satış kartı) eşlemesi: alacaklar tekliflerine,
+      // teklifler de fırsatlara bağlı olduğu için tahsilatlar doğru satış
+      // kartının "Ödemeler" sekmesinde görünebilsin.
+      const quoteOpportunity = new Map<string, string>(
+        qts.data.map((q: any) => [q.id, q.opportunityId ?? ''])
+      );
       // Alacaklar (receivables) → daima GİREN (alınan / beklenen tahsilat).
       const receivablePayments: Payment[] = (receivablesR.data ?? []).map((r: any) => ({
         id: r.id,
-        salesCaseId: r.quoteId ?? '',
+        salesCaseId: r.quoteId ? quoteOpportunity.get(r.quoteId) ?? '' : '',
         customerId: r.companyId ?? '',
         paymentType: 'expected',
         direction: 'in',
@@ -817,11 +826,11 @@ function StoreInner({ children }: { children: ReactNode }) {
     } finally {
       setLoading(false);
     }
-  }, [authed]);
+  }, [authed, sessionReady]);
 
   useEffect(() => {
     fetchAll();
-  }, [fetchAll, user?.id]);
+  }, [fetchAll, user?.id, sessionReady]);
 
   const addCustomer: Store['addCustomer'] = async (c) => {
     const rawWebsite = c.website?.trim();
@@ -1217,6 +1226,9 @@ function StoreInner({ children }: { children: ReactNode }) {
   };
 
   const updateStockStatus: Store['updateStockStatus'] = async (id, status) => {
+    if (status === 'Sold') {
+      throw new Error('Satıldı durumu yalnızca satış faturası ile işaretlenebilir');
+    }
     const codeMap: Record<StockItem['status'], string> = {
       Available: 'available',
       Reserved: 'reserved',
@@ -1224,6 +1236,11 @@ function StoreInner({ children }: { children: ReactNode }) {
       Inactive: 'damaged',
     };
     await inventoryService.update(id, { stockStatusCode: codeMap[status] });
+    await fetchAll();
+  };
+
+  const reserveStock: Store['reserveStock'] = async (id, companyId, notes) => {
+    await inventoryService.reserve(id, { companyId, notes });
     await fetchAll();
   };
 
@@ -1488,6 +1505,7 @@ function StoreInner({ children }: { children: ReactNode }) {
       deleteNoteTemplate,
       addStock,
       updateStockStatus,
+      reserveStock,
       addShipment,
       updateShipmentStatus,
       addDelivery,

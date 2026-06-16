@@ -5,7 +5,11 @@ import { getPool } from './db/client';
 import { logger } from './shared/utils/logger';
 
 function expectedMigrationCount(): number {
-  const journalPath = join(process.cwd(), 'src/db/migrations/meta/_journal.json');
+  // Resolve relative to this file (__dirname), not process.cwd(), so readiness
+  // works regardless of the working directory the API is started from. The
+  // journal sits next to the migrations under db/migrations/meta and is copied
+  // into dist via nest-cli `assets` for production builds.
+  const journalPath = join(__dirname, 'db/migrations/meta/_journal.json');
   const journal = JSON.parse(readFileSync(journalPath, 'utf8')) as { entries: unknown[] };
   return journal.entries.length;
 }

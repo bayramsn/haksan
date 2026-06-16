@@ -37,7 +37,8 @@ const env = loadEnv();
       throttlers: [{ name: 'default', limit: env.RATE_LIMIT_GLOBAL, ttl: 60_000 }],
       // Test paketi tek IP'den yüzlerce istek atar; throttle'ı test ortamında
       // devre dışı bırak ki sahte 429'lar testleri kırmasın. Prod/dev'de aktif.
-      skipIf: () => env.NODE_ENV === 'test',
+      // process.env kullan — loadEnv() cache'i vitest env'inden önce dolmuş olabilir.
+      skipIf: () => process.env.NODE_ENV === 'test',
     }),
     DatabaseModule,
     StorageModule,

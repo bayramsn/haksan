@@ -1,7 +1,23 @@
 import { Controller, Get, Param, Query, Res, UseGuards } from '@nestjs/common';
 import type { FastifyReply } from 'fastify';
-import { z } from 'zod';
-import { companyListQuerySchema } from '@haksan/shared';
+import {
+  companyListQuerySchema,
+  exportOpportunityQuerySchema,
+  exportQuoteQuerySchema,
+  exportContactQuerySchema,
+  exportInventoryQuerySchema,
+  exportPurchaseOrderQuerySchema,
+  exportOperationalQuerySchema,
+  exportStatementQuerySchema,
+  type CompanyListQuery,
+  type ExportOpportunityQuery,
+  type ExportQuoteQuery,
+  type ExportContactQuery,
+  type ExportInventoryQuery,
+  type ExportPurchaseOrderQuery,
+  type ExportOperationalQuery,
+  type ExportStatementQuery,
+} from '@haksan/shared';
 import { ZodValidationPipe } from '../../shared/utils/zod-pipe';
 import { AuthGuard } from '../../shared/security/auth.guard';
 import { PermissionsGuard, RequirePermissions } from '../../shared/security/permissions.guard';
@@ -10,39 +26,6 @@ import type { AuthContext } from '../../shared/security/auth.types';
 import { rowsToXlsxBuffer, sendXlsx, sheetsToXlsxBuffer } from '../../shared/utils/excel-export';
 import { rowsToPdfBuffer, sendPdf } from '../../shared/utils/pdf-export';
 import { ExportsService } from './exports.service';
-
-const oppQuery = z.object({
-  search: z.string().optional(),
-  stageCode: z.string().optional(),
-  companyId: z.string().uuid().optional(),
-});
-const quoteQuery = z.object({
-  search: z.string().optional(),
-  statusCode: z.string().optional(),
-  companyId: z.string().uuid().optional(),
-});
-const contactQuery = z.object({
-  search: z.string().optional(),
-  companyId: z.string().uuid().optional(),
-});
-const inventoryQuery = z.object({
-  search: z.string().optional(),
-  statusCode: z.string().optional(),
-});
-const poQuery = z.object({
-  search: z.string().optional(),
-  supplierCompanyId: z.string().uuid().optional(),
-  statusCode: z.string().optional(),
-});
-const operationalQuery = z.object({
-  year: z.coerce.number().int().min(2000).max(2100).default(new Date().getFullYear()),
-  period: z.enum(['monthly', 'yearly']).default('monthly'),
-});
-const statementQuery = z.object({
-  from: z.coerce.date().optional(),
-  to: z.coerce.date().optional(),
-  format: z.enum(['xlsx', 'pdf']).default('xlsx'),
-});
 
 @UseGuards(AuthGuard, PermissionsGuard)
 @Controller('exports')
@@ -53,7 +36,7 @@ export class ExportsController {
   @Get('companies')
   async companies(
     @Query(new ZodValidationPipe(companyListQuerySchema.pick({ search: true, relationTypeCode: true, customerStatusCode: true })))
-    q: z.infer<typeof companyListQuerySchema>,
+    q: CompanyListQuery,
     @CurrentUser() user: AuthContext,
     @Res({ passthrough: true }) reply: FastifyReply
   ) {
@@ -64,7 +47,7 @@ export class ExportsController {
   @RequirePermissions('reports.export')
   @Get('contacts')
   async contacts(
-    @Query(new ZodValidationPipe(contactQuery)) q: z.infer<typeof contactQuery>,
+    @Query(new ZodValidationPipe(exportContactQuerySchema)) q: ExportContactQuery,
     @CurrentUser() user: AuthContext,
     @Res({ passthrough: true }) reply: FastifyReply
   ) {
@@ -75,7 +58,7 @@ export class ExportsController {
   @RequirePermissions('reports.export')
   @Get('opportunities')
   async opportunities(
-    @Query(new ZodValidationPipe(oppQuery)) q: z.infer<typeof oppQuery>,
+    @Query(new ZodValidationPipe(exportOpportunityQuerySchema)) q: ExportOpportunityQuery,
     @CurrentUser() user: AuthContext,
     @Res({ passthrough: true }) reply: FastifyReply
   ) {
@@ -86,7 +69,7 @@ export class ExportsController {
   @RequirePermissions('reports.export')
   @Get('quotes')
   async quotes(
-    @Query(new ZodValidationPipe(quoteQuery)) q: z.infer<typeof quoteQuery>,
+    @Query(new ZodValidationPipe(exportQuoteQuerySchema)) q: ExportQuoteQuery,
     @CurrentUser() user: AuthContext,
     @Res({ passthrough: true }) reply: FastifyReply
   ) {
@@ -105,7 +88,7 @@ export class ExportsController {
   @Get('customer-statement/:companyId')
   async customerStatement(
     @Param('companyId') companyId: string,
-    @Query(new ZodValidationPipe(statementQuery)) range: z.infer<typeof statementQuery>,
+    @Query(new ZodValidationPipe(exportStatementQuerySchema)) range: ExportStatementQuery,
     @CurrentUser() user: AuthContext,
     @Res({ passthrough: true }) reply: FastifyReply
   ) {
@@ -135,7 +118,7 @@ export class ExportsController {
   @RequirePermissions('reports.export')
   @Get('inventory')
   async inventory(
-    @Query(new ZodValidationPipe(inventoryQuery)) q: z.infer<typeof inventoryQuery>,
+    @Query(new ZodValidationPipe(exportInventoryQuerySchema)) q: ExportInventoryQuery,
     @CurrentUser() user: AuthContext,
     @Res({ passthrough: true }) reply: FastifyReply
   ) {
@@ -160,7 +143,7 @@ export class ExportsController {
   @RequirePermissions('reports.export')
   @Get('purchase-orders')
   async purchaseOrders(
-    @Query(new ZodValidationPipe(poQuery)) q: z.infer<typeof poQuery>,
+    @Query(new ZodValidationPipe(exportPurchaseOrderQuerySchema)) q: ExportPurchaseOrderQuery,
     @CurrentUser() user: AuthContext,
     @Res({ passthrough: true }) reply: FastifyReply
   ) {
@@ -178,7 +161,7 @@ export class ExportsController {
   @RequirePermissions('reports.export')
   @Get('operational')
   async operational(
-    @Query(new ZodValidationPipe(operationalQuery)) q: z.infer<typeof operationalQuery>,
+    @Query(new ZodValidationPipe(exportOperationalQuerySchema)) q: ExportOperationalQuery,
     @CurrentUser() user: AuthContext,
     @Res({ passthrough: true }) reply: FastifyReply
   ) {

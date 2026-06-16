@@ -14,13 +14,21 @@ const REFRESH_COOKIE = 'haksan_rt';
 // bu route'larda override eder). Brute-force / credential-stuffing koruması.
 const LOGIN_THROTTLE = { default: { limit: loadEnv().RATE_LIMIT_LOGIN, ttl: 60_000 } };
 
+function cookieDomain(env: ReturnType<typeof loadEnv>): string | undefined {
+  // Explicit `Domain=localhost` breaks supertest's cookie jar and some browsers;
+  // omit domain on localhost so the host-only cookie is used.
+  const d = env.COOKIE_DOMAIN?.trim();
+  if (!d || d === 'localhost' || d === '127.0.0.1') return undefined;
+  return d;
+}
+
 function setRefreshCookie(res: FastifyReply, token: string, expiresAt: Date): void {
   const env = loadEnv();
   res.setCookie(REFRESH_COOKIE, token, {
     httpOnly: true,
     secure: env.COOKIE_SECURE,
     sameSite: env.COOKIE_SAMESITE,
-    domain: env.COOKIE_DOMAIN,
+    ...(cookieDomain(env) ? { domain: cookieDomain(env) } : {}),
     path: '/api/v1/auth',
     expires: expiresAt,
   });
@@ -30,7 +38,7 @@ function clearRefreshCookie(res: FastifyReply): void {
   const env = loadEnv();
   res.clearCookie(REFRESH_COOKIE, {
     path: '/api/v1/auth',
-    domain: env.COOKIE_DOMAIN,
+    ...(cookieDomain(env) ? { domain: cookieDomain(env) } : {}),
   });
 }
 
@@ -95,8 +103,12 @@ export class AuthController {
     const token = await this.auth.forgotPassword(body.email);
     const env = loadEnv();
     // Test/dev token echo is opt-in so accidental non-production NODE_ENV on a live server
-    // does not expose reset tokens by default.
-    return env.NODE_ENV !== 'production' && env.AUTH_DEV_RESET_TOKEN_RESPONSE ? { ok: true, devToken: token } : { ok: true };
+    // does not expose reset tokens by default. Omit devToken when no user matched so
+    // callers cannot distinguish "unknown email" from "token minted".
+    if (env.NODE_ENV !== 'production' && env.AUTH_DEV_RESET_TOKEN_RESPONSE && token) {
+      return { ok: true, devToken: token };
+    }
+    return { ok: true };
   }
 
   @Public()

@@ -85,6 +85,20 @@ export type PriceListItemCreateInput = z.infer<typeof priceListItemCreateSchema>
 export const priceListItemUpdateSchema = priceListItemCreateSchema.partial();
 export type PriceListItemUpdateInput = z.infer<typeof priceListItemUpdateSchema>;
 
+export const productOptionSetCreateSchema = z.object({
+  name: z.string().min(1).max(255),
+  sortOrder: z.coerce.number().int().default(0),
+});
+export type ProductOptionSetCreateInput = z.infer<typeof productOptionSetCreateSchema>;
+
+export const productOptionValueCreateSchema = z.object({
+  value: z.string().min(1).max(255),
+  priceDelta: moneySchema.optional(),
+  currencyCode: z.string().max(8).optional(),
+  sortOrder: z.coerce.number().int().default(0),
+});
+export type ProductOptionValueCreateInput = z.infer<typeof productOptionValueCreateSchema>;
+
 export const productImportSpecSchema = z.object({
   specGroupCode: z.string().max(64).optional(),
   specKey: z.string().min(1).max(255),

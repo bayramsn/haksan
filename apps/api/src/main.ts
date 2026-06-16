@@ -1,3 +1,6 @@
+// MUST be first: starts OTel/Sentry before pg/http are required (no-op unless
+// OTEL_EXPORTER_OTLP_ENDPOINT / SENTRY_DSN are set).
+import { shutdownTelemetry } from './shared/observability/telemetry';
 import 'reflect-metadata';
 import { NestFactory } from '@nestjs/core';
 import { FastifyAdapter, NestFastifyApplication } from '@nestjs/platform-fastify';
@@ -10,6 +13,8 @@ import { AllExceptionsFilter } from './shared/filters/all-exceptions.filter';
 import { logger } from './shared/utils/logger';
 import { closeDb } from './db/client';
 import { registerHealthRoutes } from './health.routes';
+import { registerHttpObservability } from './shared/observability/http-logging';
+import { registerMetricsEndpoint } from './shared/observability/metrics';
 
 async function bootstrap() {
   const env = loadEnv();
@@ -36,6 +41,8 @@ async function bootstrap() {
   app.setGlobalPrefix(env.API_PREFIX.replace(/^\//, ''));
   app.useGlobalFilters(new AllExceptionsFilter());
 
+  registerHttpObservability(app);
+  registerMetricsEndpoint(app);
   registerHealthRoutes(app, env.API_PREFIX);
 
   await app.listen(env.PORT, '0.0.0.0');
@@ -50,6 +57,7 @@ async function bootstrap() {
     try {
       await app.close();
       await closeDb();
+      await shutdownTelemetry();
     } catch (err) {
       logger.error({ err }, '[api] kapanış hatası');
     } finally {

@@ -29,6 +29,8 @@ import type {
   Pagination,
   ProductImportCommitRequest,
   ProductImportRowInput,
+  ProductOptionSetCreateInput,
+  ProductOptionValueCreateInput,
 } from '@haksan/shared';
 import { productImportRowSchema } from '@haksan/shared';
 import { buildPaginated, pageOffset } from '../../shared/utils/pagination';
@@ -600,7 +602,7 @@ export class ProductsService {
     }));
   }
 
-  async addOptionSet(productId: string, input: any, actor: AuthContext) {
+  async addOptionSet(productId: string, input: ProductOptionSetCreateInput, actor: AuthContext) {
     await this.get(productId, actor);
     const [row] = await this.db.insert(productOptionSets).values({
       tenantId: actor.tenantId,
@@ -611,7 +613,7 @@ export class ProductsService {
     return row;
   }
 
-  async addOptionValue(optionSetId: string, input: any, actor: AuthContext) {
+  async addOptionValue(optionSetId: string, input: ProductOptionValueCreateInput, actor: AuthContext) {
     const set = await this.db.query.productOptionSets.findFirst({
       where: and(eq(productOptionSets.id, optionSetId), eq(productOptionSets.tenantId, actor.tenantId), isNull(productOptionSets.deletedAt))
     });

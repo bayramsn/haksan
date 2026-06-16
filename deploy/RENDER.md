@@ -39,10 +39,30 @@ API servisi (`haksan-api`) → **Environment**:
 | `S3_ENDPOINT` | Cloudflare R2: `https://<account_id>.r2.cloudflarestorage.com` |
 | `S3_ACCESS_KEY_ID` | R2 API token |
 | `S3_SECRET_ACCESS_KEY` | R2 API token secret |
+| `S3_BACKUP_BUCKET` | R2'de `erp-backups` bucket oluşturun (Blueprint varsayılanı) |
 | `SMTP_HOST` | Örn. `smtp.resend.com` |
 | `SMTP_FROM` | Örn. `noreply@sizin-domain.com` |
+| `SENTRY_DSN` | (Önerilir) Sentry proje DSN — 5xx ve exception yakalama |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | (Opsiyonel) OTLP trace endpoint (Grafana Cloud, Honeycomb, …) |
+| `OTEL_EXPORTER_OTLP_HEADERS` | OTLP auth header (örn. Grafana `Authorization=Basic%20…`) |
+| `METRICS_TOKEN` | (Önerilir) `/metrics` için Bearer token — Prometheus scrape koruması |
 
 JWT secret'ları Blueprint `generateValue` ile üretilir.
+
+### Gözlemlenebilirlik hızlı kurulum
+
+1. **Sentry** — [sentry.io](https://sentry.io) → Node.js projesi → DSN'i `SENTRY_DSN` olarak ekleyin.
+2. **Traces** — Grafana Cloud / Honeycomb OTLP HTTP endpoint'ini `OTEL_EXPORTER_OTLP_ENDPOINT` + `OTEL_EXPORTER_OTLP_HEADERS` ile ekleyin.
+3. **Metrikler** — `openssl rand -hex 32` ile `METRICS_TOKEN` üretin; Grafana Agent veya Prometheus'ta `Authorization: Bearer <token>` ile `/metrics` scrape edin.
+
+```bash
+# Doğrulama (token set ise):
+curl -s -H "Authorization: Bearer $METRICS_TOKEN" https://haksan-api.onrender.com/metrics | head
+```
+
+### DB yedek (R2)
+
+Blueprint `DB_BACKUP_ENABLED=true` ile preDeploy'da `pg_dump → erp-backups` dener. Render Node ortamında `pg_dump` genelde **yoktur** — deploy log'unda `[backup] pg_dump not found` görürseniz yedek atlanır (deploy devam eder). Kalıcı offsite yedek için VDS'te `deploy/backup-db.sh` + `DB_BACKUP_ENABLED=true` kullanın veya Render Postgres paid plan yedeklerine geçin.
 
 ## 4. İlk veritabanı kurulumu
 
@@ -80,3 +100,33 @@ curl -s https://haksan-api.onrender.com/health
 ```
 
 Tarayıcıda https://haksan-web.onrender.com → giriş yapın.
+
+## 8. Deploy sonrası migration doğrulama
+
+`preDeployCommand` zinciri her deploy'da migration'ları uygular
+(`node apps/api/dist/db/migrate.js`). İlk deploy sonrası kısa kontrol listesi:
+
+- [ ] **Deploy log'u**: API servisinin "Deploy" log'unda `[migrate] running pending migrations …` ve `[migrate] done.` satırlarını görün. Hata varsa `/health/ready` 503 döner ve trafik başlamaz.
+- [ ] **Şema kontrolü** (API Shell veya `render psql`):
+
+```sql
+-- 0024_service_metadata
+SELECT column_name FROM information_schema.columns
+WHERE table_name = 'service_tickets' AND column_name = 'metadata';
+
+-- 0026_quote_revision
+SELECT column_name FROM information_schema.columns
+WHERE table_name = 'quotes' AND column_name = 'revision_no';
+```
+
+  İki sorgu da bir satır döndürmelidir.
+
+- [ ] **Uygulanan migration sayısı**: `/health/ready` 200 dönüyorsa journal'daki tüm migration'lar uygulanmış demektir (health check migration sayısına bağlıdır).
+- [ ] **Revizyon backfill**: Aynı fırsata bağlı tekliflerde `revision_no` 1, 2, 3 … şeklinde artmalı:
+
+```sql
+SELECT opportunity_id, document_no, revision_no
+FROM quotes
+WHERE opportunity_id IS NOT NULL
+ORDER BY opportunity_id, revision_no;
+```

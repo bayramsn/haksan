@@ -43,17 +43,49 @@ jobs:
       - name: Install dependencies
         run: NPM_CONFIG_PRODUCTION=false npm ci
 
-      - name: Build
+      # Shared types must be built first so api/web typecheck against fresh output.
+      - name: Build shared
+        run: npm run build:shared
+
+      - name: Typecheck (api)
+        run: npm run typecheck
+
+      - name: Contract audit (@Body/@Query must use ZodValidationPipe)
+        run: npm run audit:contracts
+
+      - name: Migration safety lint
+        run: npm run lint:migrations
+
+      # Schema and committed migrations must be in sync. Any change here — a modified
+      # snapshot/journal OR a brand-new untracked .sql that db:generate emits — means a
+      # developer changed the Drizzle schema without committing the generated migration.
+      - name: DB drift gate
         run: |
-          npm run build:shared
+          npm run db:generate
+          if [ -n "$(git status --porcelain apps/api/src/db/migrations)" ]; then
+            echo "::error::Schema drift detected. Run 'npm run db:generate' and commit the generated migration."
+            git status --porcelain apps/api/src/db/migrations
+            git diff apps/api/src/db/migrations
+            exit 1
+          fi
+
+      - name: Build api & web
+        run: |
           npm run build:api
           VITE_API_BASE_URL=https://example.com/api/v1 npm run build:web
 
-      - name: Migrate and seed (CI demo data)
+      - name: Migrate (first run) and seed (CI demo data)
         run: |
           cd apps/api
           npm run db:migrate
           npm run db:seed:demo
 
-      - name: Test
-        run: npm test
+      # Idempotency: a second migrate must be a clean no-op (no duplicate-object
+      # errors), proving migrations can be safely re-run on redeploy.
+      - name: Migrate idempotency (second run is a no-op)
+        run: |
+          cd apps/api
+          npm run db:migrate
+
+      - name: Test with coverage
+        run: npm run test:coverage

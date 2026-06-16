@@ -1,10 +1,20 @@
 import pino from 'pino';
+import { trace } from '@opentelemetry/api';
 import { loadEnv } from '../../config/env';
 
 const env = loadEnv();
 
 export const logger = pino({
   level: env.NODE_ENV === 'production' ? 'info' : 'debug',
+  // Logs <-> traces correlation: when a request is inside an OTel span, stamp
+  // every log line with its trace/span ids. No active span (dev/test, or tracing
+  // disabled) -> returns nothing.
+  mixin() {
+    const span = trace.getActiveSpan();
+    if (!span) return {};
+    const ctx = span.spanContext();
+    return { traceId: ctx.traceId, spanId: ctx.spanId };
+  },
   redact: {
     paths: [
       'password',

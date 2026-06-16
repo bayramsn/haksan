@@ -22,9 +22,18 @@ services:
     rootDir: .
     branch: main
     autoDeploy: true
-    healthCheckPath: /health
+    # /health/ready gates on DB connectivity AND applied-migration count, so a
+    # deploy with pending/failed migrations will not start receiving traffic.
+    healthCheckPath: /health/ready
     buildCommand: NPM_CONFIG_PRODUCTION=false npm ci && npm run build:shared && npm run build:api
-    preDeployCommand: npm run db:migrate
+    # Pre-deploy chain (compiled, no tsx/devDependency at deploy time):
+    #   1) backup    — pg_dump -> R2 snapshot before any schema change (opt-in via
+    #                  DB_BACKUP_ENABLED; no-op if pg_dump is unavailable unless
+    #                  DB_BACKUP_REQUIRED=true).
+    #   2) migrate   — schema migrations. SQL + journal are copied into dist via
+    #                  nest-cli `assets`; path resolved from __dirname (cwd-safe).
+    #   3) data-migrate — idempotent DML (e.g. new permissions -> existing roles).
+    preDeployCommand: node apps/api/dist/db/backup.js && node apps/api/dist/db/migrate.js && node apps/api/dist/db/data-migrate.js
     startCommand: node apps/api/dist/main.js
     envVars:
       - key: NODE_ENV
@@ -53,6 +62,29 @@ services:
         value: https://haksan-web.onrender.com
       - key: AUTH_DEV_RESET_TOKEN_RESPONSE
         value: "false"
+      # Pre-deploy DB backup to R2 (gzip pg_dump). Render Node runtime'da pg_dump
+      # yoksa no-op olur; DB_BACKUP_REQUIRED=true yapmayın ta ki pg_dump doğrulanana kadar.
+      - key: DB_BACKUP_ENABLED
+        value: "true"
+      - key: DB_BACKUP_REQUIRED
+        value: "false"
+      - key: S3_BACKUP_BUCKET
+        value: erp-backups
+      - key: S3_BUCKET_PREFIX
+        value: erp
+      # Gözlemlenebilirlik — Dashboard'dan secret değerleri girin (sync: false).
+      # Sentry: hata yakalama. OTel: HTTP+pg trace (Grafana Cloud, Honeycomb, vb.).
+      - key: SENTRY_DSN
+        sync: false
+      - key: OTEL_EXPORTER_OTLP_ENDPOINT
+        sync: false
+      - key: OTEL_EXPORTER_OTLP_HEADERS
+        sync: false
+      - key: OTEL_SERVICE_NAME
+        value: haksan-api
+      # Prometheus scrape koruması (opsiyonel). Boş bırakılırsa /metrics herkese açık.
+      - key: METRICS_TOKEN
+        sync: false
       - key: S3_PROVIDER
         value: r2
       - key: S3_ENDPOINT

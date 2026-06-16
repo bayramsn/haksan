@@ -31,3 +31,6 @@ yarn-debug.log*
 
 # Test artifacts
 .nyc_output/
+**/test-results/
+**/playwright-report/
+**/blob-report/

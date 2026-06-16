@@ -4,6 +4,10 @@
   "sourceRoot": "src",
   "compilerOptions": {
     "deleteOutDir": false,
-    "tsConfigPath": "tsconfig.build.json"
+    "tsConfigPath": "tsconfig.build.json",
+    "assets": [
+      { "include": "db/migrations/**/*.sql", "outDir": "dist", "watchAssets": false },
+      { "include": "db/migrations/**/*.json", "outDir": "dist", "watchAssets": false }
+    ]
   }
 }

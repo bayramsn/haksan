@@ -14,6 +14,8 @@ import {
   priceListUpdateSchema,
   productImportCommitRequestSchema,
   productImportPreviewRequestSchema,
+  productOptionSetCreateSchema,
+  productOptionValueCreateSchema,
   paginationSchema,
   type ProductCreateInput,
   type ProductUpdateInput,
@@ -27,6 +29,8 @@ import {
   type PriceListUpdateInput,
   type ProductImportCommitRequest,
   type ProductImportPreviewRequest,
+  type ProductOptionSetCreateInput,
+  type ProductOptionValueCreateInput,
   type Pagination,
 } from '@haksan/shared';
 import { ZodValidationPipe } from '../../shared/utils/zod-pipe';
@@ -209,7 +213,7 @@ export class ProductsController {
   @Post('products/:id/options')
   addOptionSet(
     @Param('id') id: string,
-    @Body() body: any,
+    @Body(new ZodValidationPipe(productOptionSetCreateSchema)) body: ProductOptionSetCreateInput,
     @CurrentUser() user: AuthContext
   ) {
     return this.svc.addOptionSet(id, body, user);
@@ -219,7 +223,7 @@ export class ProductsController {
   @Post('products/options/:setId/values')
   addOptionValue(
     @Param('setId') setId: string,
-    @Body() body: any,
+    @Body(new ZodValidationPipe(productOptionValueCreateSchema)) body: ProductOptionValueCreateInput,
     @CurrentUser() user: AuthContext
   ) {
     return this.svc.addOptionValue(setId, body, user);

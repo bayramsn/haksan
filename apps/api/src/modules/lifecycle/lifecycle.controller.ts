@@ -1,42 +1,20 @@
 import { Body, Controller, Get, Param, Patch, Post, UseGuards } from '@nestjs/common';
-import { z } from 'zod';
+import {
+  passportPublishSchema,
+  cpqPreviewSchema,
+  cpqCreateQuoteSchema,
+  publicTicketSchema,
+  type PassportPublishInput,
+  type CpqPreviewInput,
+  type CpqCreateQuoteInput,
+  type PublicTicketInput,
+} from '@haksan/shared';
 import { ZodValidationPipe } from '../../shared/utils/zod-pipe';
 import { AuthGuard } from '../../shared/security/auth.guard';
 import { PermissionsGuard, RequirePermissions } from '../../shared/security/permissions.guard';
 import { CurrentUser } from '../../shared/security/current-user.decorator';
 import type { AuthContext } from '../../shared/security/auth.types';
 import { LifecycleService } from './lifecycle.service';
-
-const passportPublishSchema = z.object({
-  publicTitle: z.string().max(255).optional(),
-  publicNotes: z.string().max(4000).optional(),
-});
-
-const cpqPreviewSchema = z.object({
-  companyId: z.string().optional(),
-  productModelId: z.string().min(1),
-  inventoryItemId: z.string().optional(),
-  selectedOptionValueIds: z.array(z.string()).default([]),
-  includeInstallation: z.coerce.boolean().default(false),
-  includeLogistics: z.coerce.boolean().default(false),
-  currencyCode: z.string().max(8).optional(),
-});
-
-const cpqCreateQuoteSchema = cpqPreviewSchema.extend({
-  companyId: z.string().min(1),
-  contactId: z.string().optional(),
-  validityDays: z.coerce.number().int().min(1).max(365).optional(),
-  paymentTerms: z.string().max(2000).optional(),
-  deliveryTerms: z.string().max(2000).optional(),
-  warrantyTerms: z.string().max(2000).optional(),
-  notes: z.string().max(4000).optional(),
-});
-
-const publicTicketSchema = z.object({
-  subject: z.string().min(3).max(255),
-  description: z.string().max(4000).optional(),
-  severity: z.enum(['low', 'normal', 'high', 'critical']).default('normal'),
-});
 
 @UseGuards(AuthGuard, PermissionsGuard)
 @Controller('lifecycle')
@@ -53,7 +31,7 @@ export class LifecycleController {
   @Post('passports/:deviceId/publish')
   publishPassport(
     @Param('deviceId') deviceId: string,
-    @Body(new ZodValidationPipe(passportPublishSchema)) body: z.infer<typeof passportPublishSchema>,
+    @Body(new ZodValidationPipe(passportPublishSchema)) body: PassportPublishInput,
     @CurrentUser() user: AuthContext
   ) {
     return this.lifecycle.publishPassport(deviceId, body, user);
@@ -73,14 +51,14 @@ export class LifecycleController {
 
   @RequirePermissions('quotes.create')
   @Post('cpq/preview')
-  cpqPreview(@Body(new ZodValidationPipe(cpqPreviewSchema)) body: z.infer<typeof cpqPreviewSchema>, @CurrentUser() user: AuthContext) {
+  cpqPreview(@Body(new ZodValidationPipe(cpqPreviewSchema)) body: CpqPreviewInput, @CurrentUser() user: AuthContext) {
     return this.lifecycle.cpqPreview(body, user);
   }
 
   @RequirePermissions('quotes.create')
   @Post('cpq/create-quote')
   createQuoteFromCpq(
-    @Body(new ZodValidationPipe(cpqCreateQuoteSchema)) body: z.infer<typeof cpqCreateQuoteSchema>,
+    @Body(new ZodValidationPipe(cpqCreateQuoteSchema)) body: CpqCreateQuoteInput,
     @CurrentUser() user: AuthContext
   ) {
     return this.lifecycle.createQuoteFromCpq(body, user);
@@ -106,7 +84,7 @@ export class PublicPassportController {
   createServiceTicket(
     @Param('slug') slug: string,
     @Param('token') token: string,
-    @Body(new ZodValidationPipe(publicTicketSchema)) body: z.infer<typeof publicTicketSchema>
+    @Body(new ZodValidationPipe(publicTicketSchema)) body: PublicTicketInput
   ) {
     return this.lifecycle.createPublicServiceTicket(slug, token, body);
   }

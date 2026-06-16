@@ -20,6 +20,7 @@ import {
 import { ScrollArea } from "./ui/scroll-area";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "./ui/tooltip";
 import { QuickCreateDialog } from "./dialogs/CreateDialogs";
+import { HelpCenterDialog } from "./HelpCenterDialog";
 import { CommandPalette } from "./operations/CommandPalette";
 import { AssistantPanel } from "./operations/AssistantPanel";
 import { buildAlerts, type OperationAction } from "../lib/operations";
@@ -336,11 +337,13 @@ export function Layout({ current, onNavigate, onLogout, pageTitle, pageSubtitle,
 
             <Tooltip>
               <TooltipTrigger asChild>
-                <Button variant="ghost" size="icon" className="relative size-9"
-                  aria-label="Yardım Merkezi"
-                  onClick={() => toast.message("Yardım Merkezi", { description: "destek@haksan.local · SSS yakında" })}>
-                  <HelpCircle className="size-[18px] text-muted-foreground" />
-                </Button>
+                <HelpCenterDialog
+                  trigger={
+                    <Button variant="ghost" size="icon" className="relative size-9" aria-label="Yardım Merkezi">
+                      <HelpCircle className="size-[18px] text-muted-foreground" />
+                    </Button>
+                  }
+                />
               </TooltipTrigger>
               <TooltipContent>Yardım Merkezi</TooltipContent>
             </Tooltip>
