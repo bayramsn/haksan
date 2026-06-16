@@ -130,21 +130,21 @@ CREATE TABLE IF NOT EXISTS "sales_orders" (
 	"deleted_at" timestamp with time zone
 );
 --> statement-breakpoint
-ALTER TABLE "users" ADD COLUMN "purchase_approval_limit" integer DEFAULT 0 NOT NULL;--> statement-breakpoint
-ALTER TABLE "users" ADD COLUMN "manager_id" uuid;--> statement-breakpoint
-ALTER TABLE "contacts" ADD COLUMN "other_phone" varchar(32);--> statement-breakpoint
-ALTER TABLE "contacts" ADD COLUMN "other_email" varchar(255);--> statement-breakpoint
-ALTER TABLE "contacts" ADD COLUMN "gender" varchar(32);--> statement-breakpoint
-ALTER TABLE "contacts" ADD COLUMN "birth_date" timestamp with time zone;--> statement-breakpoint
-ALTER TABLE "contacts" ADD COLUMN "known_illness" text;--> statement-breakpoint
-ALTER TABLE "contacts" ADD COLUMN "political_view" varchar(128);--> statement-breakpoint
-ALTER TABLE "opportunities" ADD COLUMN "won_reason" varchar(255);--> statement-breakpoint
-ALTER TABLE "product_equipment_items" ADD COLUMN "unit_price" numeric(18, 4);--> statement-breakpoint
-ALTER TABLE "product_equipment_items" ADD COLUMN "currency_id" uuid;--> statement-breakpoint
-ALTER TABLE "product_models" ADD COLUMN "image_url" varchar(512);--> statement-breakpoint
-ALTER TABLE "product_models" ADD COLUMN "muadil_product_id" uuid;--> statement-breakpoint
-ALTER TABLE "quote_items" ADD COLUMN "compatibility" jsonb;--> statement-breakpoint
-ALTER TABLE "quotes" ADD COLUMN "notes" text;--> statement-breakpoint
+ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "purchase_approval_limit" integer DEFAULT 0 NOT NULL;--> statement-breakpoint
+ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "manager_id" uuid;--> statement-breakpoint
+ALTER TABLE "contacts" ADD COLUMN IF NOT EXISTS "other_phone" varchar(32);--> statement-breakpoint
+ALTER TABLE "contacts" ADD COLUMN IF NOT EXISTS "other_email" varchar(255);--> statement-breakpoint
+ALTER TABLE "contacts" ADD COLUMN IF NOT EXISTS "gender" varchar(32);--> statement-breakpoint
+ALTER TABLE "contacts" ADD COLUMN IF NOT EXISTS "birth_date" timestamp with time zone;--> statement-breakpoint
+ALTER TABLE "contacts" ADD COLUMN IF NOT EXISTS "known_illness" text;--> statement-breakpoint
+ALTER TABLE "contacts" ADD COLUMN IF NOT EXISTS "political_view" varchar(128);--> statement-breakpoint
+ALTER TABLE "opportunities" ADD COLUMN IF NOT EXISTS "won_reason" varchar(255);--> statement-breakpoint
+ALTER TABLE "product_equipment_items" ADD COLUMN IF NOT EXISTS "unit_price" numeric(18, 4);--> statement-breakpoint
+ALTER TABLE "product_equipment_items" ADD COLUMN IF NOT EXISTS "currency_id" uuid;--> statement-breakpoint
+ALTER TABLE "product_models" ADD COLUMN IF NOT EXISTS "image_url" varchar(512);--> statement-breakpoint
+ALTER TABLE "product_models" ADD COLUMN IF NOT EXISTS "muadil_product_id" uuid;--> statement-breakpoint
+ALTER TABLE "quote_items" ADD COLUMN IF NOT EXISTS "compatibility" jsonb;--> statement-breakpoint
+ALTER TABLE "quotes" ADD COLUMN IF NOT EXISTS "notes" text;--> statement-breakpoint
 ALTER TABLE "note_templates" ADD CONSTRAINT "note_templates_tenant_id_tenants_id_fk" FOREIGN KEY ("tenant_id") REFERENCES "public"."tenants"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "purchase_order_items" ADD CONSTRAINT "purchase_order_items_tenant_id_tenants_id_fk" FOREIGN KEY ("tenant_id") REFERENCES "public"."tenants"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "purchase_order_items" ADD CONSTRAINT "purchase_order_items_purchase_order_id_purchase_orders_id_fk" FOREIGN KEY ("purchase_order_id") REFERENCES "public"."purchase_orders"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
