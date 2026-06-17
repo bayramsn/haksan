@@ -14,8 +14,10 @@ import { Avatar, AvatarFallback, AvatarImage } from "../../ui/avatar";
 import { StatusBadge } from "../../Layout";
 import { CreateServiceRequestDialog } from "../../dialogs/CreateDialogs";
 import { KanbanBoard, type KanbanColumn } from "../../KanbanBoard";
+import { ServiceCardAttachments } from "../../KanbanCardAttachments";
+import { DocumentPreviewDialog } from "../../dialogs/DocumentPreviewDialog";
 import { useStore } from "../../../lib/store";
-import { ServiceRequest, ServiceStage } from "../../../lib/mock";
+import { ServiceRequest, ServiceStage, type DocumentItem } from "../../../lib/mock";
 import { useAuth } from "../../../../lib/auth";
 import { toast } from "sonner";
 import { inventoryService } from "../../../../lib/services";
@@ -299,7 +301,8 @@ export function ServiceKanbanPage({ focus }: { focus?: OperationFocus }) {
 }
 
 function ServiceBoard({ onOpen, focus }: { onOpen?: (s: ServiceRequest) => void; focus?: OperationFocus }) {
-  const { service, moveService, customers } = useStore();
+  const { service, moveService, customers, documents } = useStore();
+  const [previewDoc, setPreviewDoc] = useState<DocumentItem | null>(null);
   const customerName = (id: string) => customers.find((c) => c.id === id)?.name ?? "—";
   const visibleService = service.filter((s) => matchesServiceFocus(s, focus));
   const columns: KanbanColumn<ServiceRequest>[] = SERVICE_COLUMNS.map((col) => {
@@ -318,6 +321,7 @@ function ServiceBoard({ onOpen, focus }: { onOpen?: (s: ServiceRequest) => void;
     };
   });
   return (
+    <>
     <KanbanBoard<ServiceRequest>
       columns={columns}
       fit={false}
@@ -348,10 +352,18 @@ function ServiceBoard({ onOpen, focus }: { onOpen?: (s: ServiceRequest) => void;
                 <div className="text-[11px] text-muted-foreground line-clamp-3 break-words mt-1.5">{serviceNoteText(s)}</div>
               </div>
             </div>
+            <ServiceCardAttachments
+              serviceRequestId={s.id}
+              docs={documents.filter((d) => d.serviceRequestId === s.id)}
+              onPreview={setPreviewDoc}
+              onOpenDetail={() => onOpen?.(s)}
+            />
           </Card>
         );
       }}
     />
+    <DocumentPreviewDialog doc={previewDoc} onClose={() => setPreviewDoc(null)} />
+    </>
   );
 }
 
