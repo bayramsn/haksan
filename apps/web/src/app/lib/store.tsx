@@ -358,7 +358,7 @@ function StoreInner({ children }: { children: ReactNode }) {
         load('Not şablonları', () => noteTemplateService.list('quote'), [] as any[]),
         load('Sevkiyatlar', () => serviceService.shipments({ pageSize: 200 }), empty),
         load('Teslimatlar', () => serviceService.deliveries({ pageSize: 200 }), empty),
-        load('Dosya bağlantıları', () => fileService.links({ pageSize: 500 }), empty),
+        load('Dosya bağlantıları', () => fileService.links({ pageSize: 200 }), empty),
       ]);
       setLoadErrors(errors);
       setLoadTruncated(truncated);
@@ -736,6 +736,7 @@ function StoreInner({ children }: { children: ReactNode }) {
         ...(proformasR.data ?? []).map((d: any) => ({
           id: d.id,
           salesCaseId: d.quote?.opportunityId ?? '',
+          quoteId: d.quoteId ?? d.quote?.id ?? undefined,
           companyId: docCompanyId(d),
           type: 'Proforma' as const,
           fileName: d.documentNo ?? 'Proforma',

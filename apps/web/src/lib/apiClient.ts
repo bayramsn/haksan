@@ -85,6 +85,10 @@ export function setAccessToken(token: string | null): void {
   accessToken = token;
   persistAccessToken(token);
 }
+/** Cookie tabanlı oturum yenileme — gövdesiz POST (Fastify boş JSON reddeder). */
+export async function refreshSession(): Promise<string | null> {
+  return tryRefresh();
+}
 export function getAccessToken(): string | null {
   return accessToken;
 }

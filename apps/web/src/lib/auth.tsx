@@ -1,6 +1,6 @@
 import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { meResponseSchema } from '@haksan/shared';
-import { api, ApiError, getAccessToken, setAccessToken, setSessionExpiredHandler } from './apiClient';
+import { api, ApiError, getAccessToken, refreshSession, setAccessToken, setSessionExpiredHandler } from './apiClient';
 
 export interface MeUser {
   id: string;
@@ -54,11 +54,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const refresh = useCallback(async () => {
     try {
-      const r = await api.post<{ accessToken: string | null }>('/auth/refresh');
-      if (r.accessToken) {
-        setAccessToken(r.accessToken);
-        await fetchMe();
-      }
+      const token = await refreshSession();
+      if (token) await fetchMe();
     } catch {
       // ignore — caller will redirect to login
     }
