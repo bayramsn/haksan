@@ -1,9 +1,11 @@
 import { useState } from "react";
 import { Card } from "../ui/card";
 import { Avatar, AvatarFallback } from "../ui/avatar";
-import { SALES_STAGES, SalesCase, SalesStage, salesStageLabel } from "../../lib/mock";
+import { SALES_STAGES, SalesCase, SalesStage, salesStageLabel, DocumentItem } from "../../lib/mock";
 import { ArrowRight, Building2, Calendar } from "lucide-react";
 import { KanbanBoard, KanbanColumn } from "../KanbanBoard";
+import { KanbanCardAttachments } from "../KanbanCardAttachments";
+import { DocumentPreviewDialog } from "../dialogs/DocumentPreviewDialog";
 import { useStore } from "../../lib/store";
 import { LostCaseDialog } from "../dialogs/LostCaseDialog";
 import { toast } from "sonner";
@@ -50,8 +52,9 @@ const STAGE_DOT: Record<string, string> = {
 const initials = (n: string) => (n || "—").split(" ").slice(0, 2).map((p) => p[0]).join("").toUpperCase();
 
 export function KanbanPage({ onSelect }: { onSelect: (s: SalesCase) => void }) {
-  const { cases, moveCase, customers, users } = useStore();
+  const { cases, moveCase, customers, users, documents } = useStore();
   const [lostId, setLostId] = useState<string | null>(null);
+  const [previewDoc, setPreviewDoc] = useState<DocumentItem | null>(null);
   const lostCustomer = lostId ? customers.find((x) => x.id === cases.find((s) => s.id === lostId)?.customerId)?.name : undefined;
 
   const moveToStage = async (id: string, from: SalesStage, to: SalesStage) => {
@@ -88,6 +91,7 @@ export function KanbanPage({ onSelect }: { onSelect: (s: SalesCase) => void }) {
   return (
     <>
     <LostCaseDialog open={!!lostId} onOpenChange={(o) => !o && setLostId(null)} caseId={lostId} caseName={lostCustomer} />
+    <DocumentPreviewDialog doc={previewDoc} onClose={() => setPreviewDoc(null)} />
     <KanbanBoard<SalesCase>
       columns={columns}
       fit={false}
@@ -96,6 +100,7 @@ export function KanbanPage({ onSelect }: { onSelect: (s: SalesCase) => void }) {
       renderCard={(s) => {
         const c = customers.find((x) => x.id === s.customerId);
         const u = users.find((x) => x.id === s.assignedUserId);
+        const caseDocs = documents.filter((d) => d.salesCaseId === s.id);
         return (
           <Card
             onClick={() => onSelect(s)}
@@ -147,6 +152,14 @@ export function KanbanPage({ onSelect }: { onSelect: (s: SalesCase) => void }) {
                 <span className="inline-flex px-1.5 py-0.5 rounded text-[10px] bg-emerald-50 text-emerald-700">Teklif</span>
               )}
             </div>
+
+            <KanbanCardAttachments
+              caseId={s.id}
+              companyId={s.customerId}
+              docs={caseDocs}
+              onPreview={setPreviewDoc}
+              onOpenCase={() => onSelect(s)}
+            />
 
             <div className="flex items-center justify-between mt-3 pt-2.5 border-t border-border/60">
               <div className="min-w-0 truncate text-[13px] tabular-nums tracking-tight">

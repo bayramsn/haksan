@@ -208,7 +208,11 @@ export type Offer = {
 export type DocumentItem = {
   id: string;
   salesCaseId: string;
+  /** Proforma / sözleşme / fatura kaydının bağlı olduğu teklif. */
+  quoteId?: string;
   companyId?: string;
+  /** Servis talebine bağlı ek (service kanban kartı). */
+  serviceRequestId?: string;
   type:
     | "Proforma"
     | "Contract"
