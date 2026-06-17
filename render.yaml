@@ -52,8 +52,9 @@ services:
         generateValue: true
       - key: JWT_REFRESH_SECRET
         generateValue: true
+      # Host-only cookie (Domain yok) — çapraz-origin refresh için api alt alanında bırakılır.
       - key: COOKIE_DOMAIN
-        value: haksan-api.onrender.com
+        value: localhost
       - key: COOKIE_SECURE
         value: "true"
       - key: COOKIE_SAMESITE

@@ -15,6 +15,7 @@ import { closeDb } from './db/client';
 import { registerHealthRoutes } from './health.routes';
 import { registerHttpObservability } from './shared/observability/http-logging';
 import { registerMetricsEndpoint } from './shared/observability/metrics';
+import { registerLenientJsonBodyParser } from './shared/http/fastify-json-body';
 
 async function bootstrap() {
   const env = loadEnv();
@@ -44,6 +45,9 @@ async function bootstrap() {
   registerHttpObservability(app);
   registerMetricsEndpoint(app);
   registerHealthRoutes(app, env.API_PREFIX);
+
+  await app.init();
+  registerLenientJsonBodyParser(app);
 
   await app.listen(env.PORT, '0.0.0.0');
   logger.info({ port: env.PORT, prefix: env.API_PREFIX, env: env.NODE_ENV }, '[api] up');

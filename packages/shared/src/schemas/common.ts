@@ -6,7 +6,12 @@ export const idSchema = z.string().min(1).max(64);
 
 export const paginationSchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
-  pageSize: z.coerce.number().int().min(1).max(200).default(25),
+  // Üst sınırı aşan pageSize değerlerini 422 yerine 200'e kırp (eski istemciler).
+  pageSize: z.coerce
+    .number()
+    .int()
+    .transform((n) => Math.min(Math.max(n, 1), 200))
+    .default(25),
   sortBy: z.string().max(64).optional(),
   sortDir: z.enum(['asc', 'desc']).default('desc'),
 });

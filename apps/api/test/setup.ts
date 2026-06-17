@@ -11,6 +11,7 @@ import { AppModule } from '../src/app.module';
 import { AllExceptionsFilter } from '../src/shared/filters/all-exceptions.filter';
 import { loadEnv } from '../src/config/env';
 import { registerHealthRoutes } from '../src/health.routes';
+import { registerLenientJsonBodyParser } from '../src/shared/http/fastify-json-body';
 
 export async function createTestApp(): Promise<NestFastifyApplication> {
   const env = loadEnv();
@@ -25,6 +26,7 @@ export async function createTestApp(): Promise<NestFastifyApplication> {
   app.useGlobalFilters(new AllExceptionsFilter());
   registerHealthRoutes(app, env.API_PREFIX);
   await app.init();
+  registerLenientJsonBodyParser(app);
   await app.getHttpAdapter().getInstance().ready();
   return app;
 }

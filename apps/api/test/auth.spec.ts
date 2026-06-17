@@ -84,6 +84,20 @@ describe('Auth session lifecycle (refresh / logout)', () => {
     expect(Array.isArray(setCookie) ? setCookie.join(';') : setCookie).toMatch(/haksan_rt=/);
   });
 
+  it('accepts /auth/refresh with explicit empty JSON body (api client default)', async () => {
+    const agent = supertest.agent(app.getHttpServer());
+    await agent
+      .post('/api/v1/auth/login')
+      .send({ email: 'admin@haksan.local', password: 'admin12345' });
+
+    const refreshed = await agent
+      .post('/api/v1/auth/refresh')
+      .set('Content-Type', 'application/json')
+      .send();
+    expect(refreshed.status).toBe(201);
+    expect(refreshed.body.accessToken).toBeTruthy();
+  });
+
   it('returns a null access token when /auth/refresh is called without a cookie', async () => {
     const r = await supertest(app.getHttpServer()).post('/api/v1/auth/refresh').send();
     expect(r.status).toBe(201);
