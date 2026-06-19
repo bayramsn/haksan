@@ -264,6 +264,7 @@ export const rolePermissionMatrix: Record<string, Record<string, string[] | '*'>
     users: '*',
     roles: ['read'],
     departments: '*',
+    divisions: '*',
     companies: '*',
     contacts: '*',
     leads: '*',

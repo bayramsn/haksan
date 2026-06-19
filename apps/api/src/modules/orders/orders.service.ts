@@ -29,6 +29,12 @@ import type {
   SalesOrderItemUpdateInput,
   SalesOrderUpdateInput,
 } from '@haksan/shared';
+import {
+  companyPortfolioFilter,
+  divisionFilter,
+  resolveActorDivisionScope,
+  resolveAssignedDivision,
+} from '../../shared/utils/division-scope';
 
 interface ItemTotals {
   subtotal: number;
@@ -116,6 +122,8 @@ export class OrdersService {
       const statusId = await lookupIdByCode(this.db, salesOrderStatuses, query.statusCode);
       if (statusId) filters.push(eq(salesOrders.statusId, statusId));
     }
+    const scoped = divisionFilter(resolveActorDivisionScope(actor), salesOrders.divisionId);
+    if (scoped) filters.push(scoped);
     const where = and(...filters);
     const [{ count }] = await this.db.select({ count: sql<number>`count(*)::int` }).from(salesOrders).where(where);
     const rows = await this.db
@@ -138,7 +146,12 @@ export class OrdersService {
 
   async getSalesOrder(id: string, actor: AuthContext) {
     const order = await this.db.query.salesOrders.findFirst({
-      where: and(eq(salesOrders.id, id), eq(salesOrders.tenantId, actor.tenantId), isNull(salesOrders.deletedAt)),
+      where: and(
+        eq(salesOrders.id, id),
+        eq(salesOrders.tenantId, actor.tenantId),
+        isNull(salesOrders.deletedAt),
+        divisionFilter(resolveActorDivisionScope(actor), salesOrders.divisionId) ?? sql`true`
+      ),
     });
     if (!order) throw new NotFoundError('Satış siparişi');
     const items = await this.db
@@ -158,10 +171,13 @@ export class OrdersService {
     await this.assertSalesOrderNoAvailable(orderNo, actor);
     const draft = await lookupIdByCode(this.db, salesOrderStatuses, 'draft');
     const currencyId = await lookupIdByCode(this.db, currencies, input.currencyCode);
+    const divisionId = resolveAssignedDivision(actor, input.divisionId ?? null);
+    if (!divisionId) throw new ValidationError('Satış siparişi için bölüm ataması zorunludur', { field: 'divisionId' });
     const [row] = await this.db
       .insert(salesOrders)
       .values({
         tenantId: actor.tenantId,
+        divisionId,
         quoteId: input.quoteId ?? null,
         opportunityId: input.opportunityId ?? null,
         companyId: input.companyId,
@@ -393,6 +409,7 @@ export class OrdersService {
       .insert(shipments)
       .values({
         tenantId: actor.tenantId,
+        divisionId: order.divisionId,
         salesOrderId: order.id,
         companyId: order.companyId,
         opportunityId: order.opportunityId ?? null,
@@ -436,7 +453,7 @@ export class OrdersService {
   }
 
   async reserveSalesOrder(id: string, actor: AuthContext) {
-    await this.getSalesOrder(id, actor);
+    const order = await this.getSalesOrder(id, actor);
     const items = await this.db
       .select()
       .from(salesOrderItems)
@@ -457,6 +474,7 @@ export class OrdersService {
       await this.db.update(inventoryItems).set({ stockStatusId: reserved }).where(eq(inventoryItems.id, item.id));
       await this.db.insert(inventoryMovements).values({
         tenantId: actor.tenantId,
+        divisionId: order.divisionId,
         inventoryItemId: item.id,
         movementType: 'reserve',
         movementDate: new Date(),
@@ -488,6 +506,8 @@ export class OrdersService {
       const statusId = await lookupIdByCode(this.db, purchaseOrderStatuses, query.statusCode);
       if (statusId) filters.push(eq(purchaseOrders.statusId, statusId));
     }
+    const scoped = divisionFilter(resolveActorDivisionScope(actor), purchaseOrders.divisionId);
+    if (scoped) filters.push(scoped);
     const where = and(...filters);
     const [{ count }] = await this.db.select({ count: sql<number>`count(*)::int` }).from(purchaseOrders).where(where);
     const rows = await this.db
@@ -510,7 +530,12 @@ export class OrdersService {
 
   async getPurchaseOrder(id: string, actor: AuthContext) {
     const order = await this.db.query.purchaseOrders.findFirst({
-      where: and(eq(purchaseOrders.id, id), eq(purchaseOrders.tenantId, actor.tenantId), isNull(purchaseOrders.deletedAt)),
+      where: and(
+        eq(purchaseOrders.id, id),
+        eq(purchaseOrders.tenantId, actor.tenantId),
+        isNull(purchaseOrders.deletedAt),
+        divisionFilter(resolveActorDivisionScope(actor), purchaseOrders.divisionId) ?? sql`true`
+      ),
     });
     if (!order) throw new NotFoundError('Satın alma siparişi');
     const items = await this.db
@@ -528,10 +553,13 @@ export class OrdersService {
     await this.assertPurchaseOrderNoAvailable(orderNo, actor);
     const draft = await lookupIdByCode(this.db, purchaseOrderStatuses, 'draft');
     const currencyId = await lookupIdByCode(this.db, currencies, input.currencyCode);
+    const divisionId = resolveAssignedDivision(actor, input.divisionId ?? null);
+    if (!divisionId) throw new ValidationError('Satın alma siparişi için bölüm ataması zorunludur', { field: 'divisionId' });
     const [row] = await this.db
       .insert(purchaseOrders)
       .values({
         tenantId: actor.tenantId,
+        divisionId,
         supplierCompanyId: input.supplierCompanyId ?? null,
         purchaseType: input.purchaseType,
         invoiceNo: input.invoiceNo ?? null,
@@ -679,7 +707,12 @@ export class OrdersService {
 
   private async assertCompany(companyId: string, actor: AuthContext) {
     const company = await this.db.query.companies.findFirst({
-      where: and(eq(companies.id, companyId), eq(companies.tenantId, actor.tenantId), isNull(companies.deletedAt)),
+      where: and(
+        eq(companies.id, companyId),
+        eq(companies.tenantId, actor.tenantId),
+        isNull(companies.deletedAt),
+        companyPortfolioFilter(resolveActorDivisionScope(actor), companies.id) ?? sql`true`
+      ),
     });
     if (!company) throw new NotFoundError('Firma');
     return company;
@@ -696,7 +729,12 @@ export class OrdersService {
 
   private async assertOpportunity(opportunityId: string, actor: AuthContext, companyId: string) {
     const opportunity = await this.db.query.opportunities.findFirst({
-      where: and(eq(opportunities.id, opportunityId), eq(opportunities.tenantId, actor.tenantId), isNull(opportunities.deletedAt)),
+      where: and(
+        eq(opportunities.id, opportunityId),
+        eq(opportunities.tenantId, actor.tenantId),
+        isNull(opportunities.deletedAt),
+        divisionFilter(resolveActorDivisionScope(actor), opportunities.divisionId) ?? sql`true`
+      ),
     });
     if (!opportunity) throw new NotFoundError('Fırsat');
     if (opportunity.companyId !== companyId) throw new ValidationError('Fırsat seçilen firmaya ait değil');
@@ -705,7 +743,12 @@ export class OrdersService {
 
   private async assertQuote(quoteId: string, actor: AuthContext, companyId?: string, opportunityId?: string | null) {
     const quote = await this.db.query.quotes.findFirst({
-      where: and(eq(quotes.id, quoteId), eq(quotes.tenantId, actor.tenantId), isNull(quotes.deletedAt)),
+      where: and(
+        eq(quotes.id, quoteId),
+        eq(quotes.tenantId, actor.tenantId),
+        isNull(quotes.deletedAt),
+        divisionFilter(resolveActorDivisionScope(actor), quotes.divisionId) ?? sql`true`
+      ),
     });
     if (!quote) throw new NotFoundError('Teklif');
     if (companyId && quote.companyId !== companyId) throw new ValidationError('Teklif seçilen firmaya ait değil');

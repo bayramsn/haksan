@@ -207,6 +207,8 @@ export type CreateQuotePayload = {
   importCostsExcluded?: boolean;
   items: QuoteLineInput[];
   caseTitle?: string;
+  /** view_all kullanıcının seçtiği bölüm (CNC/Üniversal/Sac). */
+  divisionId?: string;
 };
 
 type Store = {
@@ -239,7 +241,7 @@ type Store = {
   addCustomer: (c: Omit<Customer, 'id' | 'createdAt' | 'status'> & { status?: 'active' | 'passive' }) => Promise<Customer>;
   updateCustomer: (id: string, patch: Partial<Omit<Customer, 'id' | 'createdAt'>>) => Promise<void>;
   deleteCustomer: (id: string) => Promise<void>;
-  addCase: (c: Omit<SalesCase, 'id' | 'createdAt' | 'stage' | 'isLost' | 'isOfferPrepared'> & { stage?: SalesStage }) => Promise<SalesCase>;
+  addCase: (c: Omit<SalesCase, 'id' | 'createdAt' | 'stage' | 'isLost' | 'isOfferPrepared'> & { stage?: SalesStage; divisionId?: string }) => Promise<SalesCase>;
   addOffer: (o: Omit<Offer, 'id' | 'date' | 'revision'> & { revision?: number }) => Promise<Offer>;
   createQuoteFull: (payload: CreateQuotePayload) => Promise<{ quoteId: string; documentNo: string; opportunityId: string }>;
   addNoteTemplate: (t: { title: string; body: string; scope?: string }) => Promise<NoteTemplate>;
@@ -271,7 +273,7 @@ type Store = {
 const Ctx = createContext<Store | null>(null);
 
 function StoreInner({ children }: { children: ReactNode }) {
-  const { authed, sessionReady, user } = useAuth();
+  const { authed, sessionReady, user, activeDivision } = useAuth();
   const [loading, setLoading] = useState(true);
   const [loadErrors, setLoadErrors] = useState<string[]>([]);
   const [loadTruncated, setLoadTruncated] = useState<string[]>([]);
@@ -447,6 +449,8 @@ function StoreInner({ children }: { children: ReactNode }) {
           politicalView: k.politicalView ?? '',
           isPrimary: !!k.isPrimary,
           note: k.notes ?? '',
+          isBlacklisted: !!k.isBlacklisted,
+          blacklistReason: k.blacklistReason ?? '',
         }))
       );
 
@@ -598,10 +602,12 @@ function StoreInner({ children }: { children: ReactNode }) {
             machineId: t.customerDeviceId ?? '',
             serialNumber: '',
             issueType: t.subject ?? '',
+            ticketType: t.ticketType ?? 'complaint',
+            source: t.source ?? 'manual',
             priority: (t.severity as any) ?? 'normal',
             description: t.description ?? '',
             diagnosisNote: t.description ?? '',
-            quoteRequired: false,
+            quoteRequired: Boolean(meta.quoteRequired),
             serviceNote: t.resolutionNote ?? '',
             complaints: Array.isArray(meta.complaints) && meta.complaints.length
               ? meta.complaints
@@ -830,9 +836,11 @@ function StoreInner({ children }: { children: ReactNode }) {
     }
   }, [authed, sessionReady]);
 
+  // Aktif bölüm değişince (CNC/Üniversal/Sac/Tümü) tüm veriyi yeni
+  // `X-Active-Division` başlığıyla yeniden çek.
   useEffect(() => {
     fetchAll();
-  }, [fetchAll, user?.id, sessionReady]);
+  }, [fetchAll, user?.id, sessionReady, activeDivision]);
 
   const addCustomer: Store['addCustomer'] = async (c) => {
     const rawWebsite = c.website?.trim();
@@ -955,6 +963,8 @@ function StoreInner({ children }: { children: ReactNode }) {
       politicalView: k.politicalView,
       isPrimary: k.isPrimary,
       notes: k.note,
+      isBlacklisted: k.isBlacklisted,
+      blacklistReason: k.blacklistReason,
     });
     await fetchAll();
     return { id: created.id, ...k };
@@ -983,6 +993,8 @@ function StoreInner({ children }: { children: ReactNode }) {
       politicalView: patch.politicalView,
       isPrimary: patch.isPrimary,
       notes: patch.note,
+      isBlacklisted: patch.isBlacklisted,
+      blacklistReason: patch.blacklistReason,
     });
     await fetchAll();
   };
@@ -1015,6 +1027,7 @@ function StoreInner({ children }: { children: ReactNode }) {
       estimatedValue: c.estimatedAmount,
       currencyCode: c.currency,
       probability: 50,
+      divisionId: c.divisionId || undefined,
     });
     const targetStage = c.stage ?? 'lead';
     if (targetStage !== 'lead') {
@@ -1097,6 +1110,7 @@ function StoreInner({ children }: { children: ReactNode }) {
         estimatedValue: estimated,
         currencyCode: p.currencyCode,
         probability: 50,
+        divisionId: p.divisionId || undefined,
       });
       opportunityId = opp.id;
       createdNewCase = true;
@@ -1111,6 +1125,7 @@ function StoreInner({ children }: { children: ReactNode }) {
       currencyCode: p.currencyCode,
       projectOwnerUserId: p.projectOwnerUserId || undefined,
       notes: p.notes || undefined,
+      divisionId: p.divisionId || undefined,
     });
 
     for (let i = 0; i < p.items.length; i++) {
@@ -1308,18 +1323,55 @@ function StoreInner({ children }: { children: ReactNode }) {
   };
 
   const addService: Store['addService'] = async (s) => {
+    const machine = machines.find((m) => m.id === s.machineId);
+    const subject =
+      cleanString(s.issueType) ??
+      cleanString([machine?.model, machine?.serialNumber].filter(Boolean).join(' · ')) ??
+      'Servis talebi';
+    const description = [s.diagnosisNote, s.serviceNote].map((value) => value?.trim()).filter(Boolean).join('\n\n') || undefined;
+    const createdAt = s.createdAt ?? new Date().toISOString().slice(0, 10);
     const created = await serviceService.createTicket({
       companyId: s.customerId,
-      subject: s.issueType,
-      description: s.description,
+      customerDeviceId: s.machineId || undefined,
+      subject,
+      description: cleanString(s.description) ?? description ?? subject,
       severity: (s.priority as any) ?? 'normal',
+      ticketType: s.ticketType ?? 'complaint',
+      source: s.source ?? 'manual',
+      assignedToUserId: s.assignedUserId || undefined,
+      metadata: {
+        quoteRequired: s.quoteRequired ?? false,
+        noteHistory: s.serviceNote
+          ? [{ id: `srv-note-${Date.now()}`, text: s.serviceNote, createdAt, byUserId: s.assignedUserId || undefined }]
+          : [],
+        complaints: s.diagnosisNote
+          ? [{ id: `srv-complaint-${Date.now()}`, text: s.diagnosisNote, createdAt, byUserId: s.assignedUserId || undefined }]
+          : [],
+        activityHistory: [
+          {
+            id: `srv-act-${Date.now()}`,
+            text: 'Servis talebi açıldı.',
+            createdAt,
+            byUserId: s.assignedUserId || undefined,
+          },
+        ],
+        operations: [],
+        timerStatus: s.timerStatus ?? 'idle',
+        timerElapsedSeconds: s.timerElapsedSeconds ?? 0,
+        serviceHourlyRate: s.serviceHourlyRate ?? 120,
+        serviceCurrency: s.serviceCurrency ?? 'USD',
+      },
     });
     await fetchAll();
     return {
       id: created.id,
       ...s,
       stage: s.stage ?? 'Request Opened',
-      createdAt: s.createdAt ?? new Date().toISOString().slice(0, 10),
+      issueType: s.issueType ?? subject,
+      ticketType: s.ticketType ?? 'complaint',
+      source: s.source ?? 'manual',
+      description: s.description ?? description ?? subject,
+      createdAt,
       complaints: s.complaints ?? [],
       noteHistory: s.noteHistory ?? [],
       activityHistory: s.activityHistory ?? [],

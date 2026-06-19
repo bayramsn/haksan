@@ -40,6 +40,8 @@ export const meResponseSchema = z.object({
     roles: z.array(z.string()),
     permissions: z.array(z.string()),
     mfaEnabled: z.boolean(),
+    divisions: z.array(z.object({ id: z.string(), code: z.string(), name: z.string(), isPrimary: z.boolean() })).default([]),
+    canViewAllDivisions: z.boolean().default(false),
   }),
   tenant: z.object({
     id: z.string(),

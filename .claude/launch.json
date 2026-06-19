@@ -12,6 +12,12 @@
       "runtimeExecutable": "node",
       "runtimeArgs": ["apps/api/dist/main.js"],
       "port": 3000
+    },
+    {
+      "name": "web-prod-preview",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--workspace", "@haksan/web", "exec", "--", "vite", "preview", "--host", "127.0.0.1", "--port", "4173", "--strictPort"],
+      "port": 4173
     }
   ]
 }

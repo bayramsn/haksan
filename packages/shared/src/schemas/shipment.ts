@@ -24,6 +24,7 @@ export const shipmentItemInputSchema = z.object({
 export type ShipmentItemInput = z.infer<typeof shipmentItemInputSchema>;
 
 export const shipmentCreateSchema = z.object({
+  divisionId: z.string().uuid().optional(),
   opportunityId: z.string().optional(),
   quoteId: z.string().optional(),
   salesOrderId: z.string().optional(),
@@ -90,6 +91,7 @@ export const deliveryFormDataSchema = z.object({
 export type DeliveryFormData = z.infer<typeof deliveryFormDataSchema>;
 
 export const deliveryCreateSchema = z.object({
+  divisionId: z.string().uuid().optional(),
   opportunityId: z.string().optional(),
   companyId: z.string().min(1),
   shipmentId: z.string().optional(),

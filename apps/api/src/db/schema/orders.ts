@@ -1,6 +1,6 @@
 import { pgTable, uuid, varchar, text, integer, timestamp, index, uniqueIndex } from 'drizzle-orm/pg-core';
 import { auditColumns, money, percent } from './_helpers';
-import { tenants } from './tenants';
+import { tenants, divisions } from './tenants';
 import { users } from './users';
 import { companies, contacts } from './companies';
 import { opportunities } from './crm';
@@ -16,6 +16,7 @@ export const salesOrders = pgTable(
     tenantId: uuid('tenant_id')
       .notNull()
       .references(() => tenants.id, { onDelete: 'cascade' }),
+    divisionId: uuid('division_id').references(() => divisions.id, { onDelete: 'set null' }),
     quoteId: uuid('quote_id').references(() => quotes.id, { onDelete: 'set null' }),
     opportunityId: uuid('opportunity_id').references(() => opportunities.id, { onDelete: 'set null' }),
     companyId: uuid('company_id')
@@ -43,6 +44,7 @@ export const salesOrders = pgTable(
     tenantOrderNoUnique: uniqueIndex('sales_orders_tenant_order_no_unique').on(t.tenantId, t.orderNo),
     tenantQuoteUnique: uniqueIndex('sales_orders_tenant_quote_unique').on(t.tenantId, t.quoteId),
     tenantIdx: index('sales_orders_tenant_idx').on(t.tenantId),
+    tenantDivisionIdx: index('sales_orders_tenant_division_idx').on(t.tenantId, t.divisionId),
     companyIdx: index('sales_orders_company_idx').on(t.companyId),
     quoteIdx: index('sales_orders_quote_idx').on(t.quoteId),
     statusIdx: index('sales_orders_status_idx').on(t.statusId),
@@ -86,6 +88,7 @@ export const purchaseOrders = pgTable(
     tenantId: uuid('tenant_id')
       .notNull()
       .references(() => tenants.id, { onDelete: 'cascade' }),
+    divisionId: uuid('division_id').references(() => divisions.id, { onDelete: 'set null' }),
     // İdari satın almalarda firma seçimi opsiyonel olabilir (NOT NULL kaldırıldı).
     supplierCompanyId: uuid('supplier_company_id').references(() => companies.id, { onDelete: 'restrict' }),
     purchaseType: varchar('purchase_type', { length: 32 }).notNull().default('commercial'),
@@ -113,6 +116,7 @@ export const purchaseOrders = pgTable(
   (t) => ({
     tenantOrderNoUnique: uniqueIndex('purchase_orders_tenant_order_no_unique').on(t.tenantId, t.orderNo),
     tenantIdx: index('purchase_orders_tenant_idx').on(t.tenantId),
+    tenantDivisionIdx: index('purchase_orders_tenant_division_idx').on(t.tenantId, t.divisionId),
     supplierIdx: index('purchase_orders_supplier_idx').on(t.supplierCompanyId),
     statusIdx: index('purchase_orders_status_idx').on(t.statusId),
     expectedDateIdx: index('purchase_orders_expected_date_idx').on(t.expectedDate),

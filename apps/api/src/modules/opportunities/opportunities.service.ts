@@ -18,6 +18,12 @@ import { buildPaginated, pageOffset } from '../../shared/utils/pagination';
 import { lookupIdByCode } from '../../shared/utils/lookup.helper';
 import { AuditService } from '../../shared/database/audit.service';
 import { inArray } from 'drizzle-orm';
+import {
+  companyPortfolioFilter,
+  divisionFilter,
+  resolveActorDivisionScope,
+  resolveAssignedDivision,
+} from '../../shared/utils/division-scope';
 
 @Injectable()
 export class OpportunitiesService {
@@ -34,7 +40,12 @@ export class OpportunitiesService {
 
   private async assertCompany(companyId: string, actor: AuthContext) {
     const company = await this.db.query.companies.findFirst({
-      where: and(eq(companies.id, companyId), eq(companies.tenantId, actor.tenantId), isNull(companies.deletedAt)),
+      where: and(
+        eq(companies.id, companyId),
+        eq(companies.tenantId, actor.tenantId),
+        isNull(companies.deletedAt),
+        companyPortfolioFilter(resolveActorDivisionScope(actor), companies.id) ?? sql`true`
+      ),
     });
     if (!company) throw new NotFoundError('Firma');
     return company;
@@ -66,6 +77,8 @@ export class OpportunitiesService {
       const stage = await this.stageRowByCode(query.stageCode);
       filters.push(eq(opportunities.currentStageId, stage.id));
     }
+    const scoped = divisionFilter(resolveActorDivisionScope(actor), opportunities.divisionId);
+    if (scoped) filters.push(scoped);
     const where = and(...filters);
     const [{ count }] = await this.db
       .select({ count: sql<number>`count(*)::int` })
@@ -105,7 +118,14 @@ export class OpportunitiesService {
       .leftJoin(companies, eq(opportunities.companyId, companies.id))
       .leftJoin(pipelineStages, eq(opportunities.currentStageId, pipelineStages.id))
       .leftJoin(currencies, eq(opportunities.currencyId, currencies.id))
-      .where(and(eq(opportunities.id, id), eq(opportunities.tenantId, actor.tenantId), isNull(opportunities.deletedAt)))
+      .where(
+        and(
+          eq(opportunities.id, id),
+          eq(opportunities.tenantId, actor.tenantId),
+          isNull(opportunities.deletedAt),
+          divisionFilter(resolveActorDivisionScope(actor), opportunities.divisionId) ?? sql`true`
+        )
+      )
       .limit(1);
     if (!row.length) throw new NotFoundError('Fırsat');
     const r = row[0];
@@ -127,11 +147,14 @@ export class OpportunitiesService {
     const currencyId = await lookupIdByCode(this.db, currencies, input.currencyCode);
     const sourceId = await lookupIdByCode(this.db, contactSources, input.sourceCode);
     const openStatus = await this.db.query.opportunityStatuses.findFirst({ where: eq(opportunityStatuses.code, 'open') });
+    const divisionId = resolveAssignedDivision(actor, input.divisionId ?? null);
+    if (!divisionId) throw new ValidationError('Fırsat için bölüm ataması zorunludur', { field: 'divisionId' });
 
     const [row] = await this.db
       .insert(opportunities)
       .values({
         tenantId: actor.tenantId,
+        divisionId,
         companyId: input.companyId,
         primaryContactId: input.primaryContactId ?? null,
         ownerUserId: input.ownerUserId ?? actor.userId,
@@ -206,7 +229,12 @@ export class OpportunitiesService {
    */
   async changeStage(id: string, input: OpportunityStageChangeInput, actor: AuthContext) {
     const opp = await this.db.query.opportunities.findFirst({
-      where: and(eq(opportunities.id, id), eq(opportunities.tenantId, actor.tenantId), isNull(opportunities.deletedAt)),
+      where: and(
+        eq(opportunities.id, id),
+        eq(opportunities.tenantId, actor.tenantId),
+        isNull(opportunities.deletedAt),
+        divisionFilter(resolveActorDivisionScope(actor), opportunities.divisionId) ?? sql`true`
+      ),
     });
     if (!opp) throw new NotFoundError('Fırsat');
 
@@ -315,6 +343,7 @@ export class OpportunitiesService {
       for (const item of selected) {
         await this.db.insert(customerDevices).values({
           tenantId: actor.tenantId,
+          divisionId: opp.divisionId,
           companyId: opp.companyId,
           inventoryItemId: item.id,
           opportunityId: id,

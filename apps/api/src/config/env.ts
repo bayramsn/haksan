@@ -51,6 +51,11 @@ const envSchema = z.object({
   RATE_LIMIT_GLOBAL: z.coerce.number().int().positive().default(100),
   RATE_LIMIT_LOGIN: z.coerce.number().int().positive().default(5),
 
+  // Sohbet gerçek-zaman (Socket.IO). Varsayılan KAPALI — Render ücretsiz planda
+  // soketler uyku/yeniden başlatmada kopar; polling fallback çalışır. VDS'te
+  // CHAT_REALTIME_ENABLED=true yapılınca anlık iletim devreye girer.
+  CHAT_REALTIME_ENABLED: envBoolean.default(false),
+
   // Storage
   S3_PROVIDER: z.enum(['minio', 'supabase', 's3', 'r2']).default('minio'),
   S3_ENDPOINT: z.string().optional(),

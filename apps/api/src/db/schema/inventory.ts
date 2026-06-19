@@ -1,6 +1,6 @@
 import { pgTable, uuid, varchar, text, timestamp, index, uniqueIndex } from 'drizzle-orm/pg-core';
 import { auditColumns } from './_helpers';
-import { tenants } from './tenants';
+import { tenants, divisions } from './tenants';
 import { users } from './users';
 import { companies, contacts } from './companies';
 // reservedCompanyId: tezgah rezervasyonunda hangi firmaya ayrıldığı
@@ -34,6 +34,7 @@ export const inventoryItems = pgTable(
     tenantId: uuid('tenant_id')
       .notNull()
       .references(() => tenants.id, { onDelete: 'cascade' }),
+    divisionId: uuid('division_id').references(() => divisions.id, { onDelete: 'set null' }),
     productModelId: uuid('product_model_id')
       .notNull()
       .references(() => productModels.id, { onDelete: 'restrict' }),
@@ -53,6 +54,7 @@ export const inventoryItems = pgTable(
   (t) => ({
     tenantSerialUnique: uniqueIndex('inventory_items_tenant_serial_unique').on(t.tenantId, t.serialNumber),
     tenantIdx: index('inventory_items_tenant_idx').on(t.tenantId),
+    tenantDivisionIdx: index('inventory_items_tenant_division_idx').on(t.tenantId, t.divisionId),
     productIdx: index('inventory_items_product_idx').on(t.productModelId),
     serialIdx: index('inventory_items_serial_idx').on(t.serialNumber),
     statusIdx: index('inventory_items_status_idx').on(t.stockStatusId),
@@ -66,6 +68,7 @@ export const inventoryMovements = pgTable(
     tenantId: uuid('tenant_id')
       .notNull()
       .references(() => tenants.id, { onDelete: 'cascade' }),
+    divisionId: uuid('division_id').references(() => divisions.id, { onDelete: 'set null' }),
     inventoryItemId: uuid('inventory_item_id')
       .notNull()
       .references(() => inventoryItems.id, { onDelete: 'cascade' }),
@@ -81,6 +84,7 @@ export const inventoryMovements = pgTable(
   },
   (t) => ({
     itemIdx: index('inventory_movements_item_idx').on(t.inventoryItemId),
+    tenantDivisionIdx: index('inventory_movements_tenant_division_idx').on(t.tenantId, t.divisionId),
     dateIdx: index('inventory_movements_date_idx').on(t.movementDate),
   })
 );
@@ -92,6 +96,7 @@ export const customerDevices = pgTable(
     tenantId: uuid('tenant_id')
       .notNull()
       .references(() => tenants.id, { onDelete: 'cascade' }),
+    divisionId: uuid('division_id').references(() => divisions.id, { onDelete: 'set null' }),
     companyId: uuid('company_id')
       .notNull()
       .references(() => companies.id, { onDelete: 'restrict' }),
@@ -110,6 +115,7 @@ export const customerDevices = pgTable(
   },
   (t) => ({
     tenantIdx: index('customer_devices_tenant_idx').on(t.tenantId),
+    tenantDivisionIdx: index('customer_devices_tenant_division_idx').on(t.tenantId, t.divisionId),
     companyIdx: index('customer_devices_company_idx').on(t.companyId),
     warrantyEndIdx: index('customer_devices_warranty_end_idx').on(t.warrantyEndDate),
   })

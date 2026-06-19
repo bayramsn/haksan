@@ -6,6 +6,7 @@ import { createTestApp } from './setup';
 let app: NestFastifyApplication;
 let adminToken: string;
 let companyId: string;
+let adminUserId: string;
 const auth = () => `Bearer ${adminToken}`;
 const now = () => new Date().toISOString();
 
@@ -15,6 +16,8 @@ beforeAll(async () => {
     .post('/api/v1/auth/login')
     .send({ email: 'admin@haksan.local', password: 'admin12345' });
   adminToken = login.body.accessToken;
+  const me = await supertest(app.getHttpServer()).get('/api/v1/auth/me').set('Authorization', auth());
+  adminUserId = me.body.user.id;
   const r = await supertest(app.getHttpServer()).get('/api/v1/companies').set('Authorization', auth());
   companyId = r.body.data[0].id;
 });
@@ -24,6 +27,25 @@ afterAll(async () => {
 });
 
 describe('Service — kurulum / sevkiyat / teslimat', () => {
+  it('servis talebi oluşturur ve atama/metadata alanlarını kaydeder', async () => {
+    const r = await supertest(app.getHttpServer())
+      .post('/api/v1/service-tickets')
+      .set('Authorization', auth())
+      .send({
+        companyId,
+        subject: 'Test servis talebi',
+        description: 'Test arıza açıklaması',
+        severity: 'normal',
+        assignedToUserId: adminUserId,
+        metadata: { quoteRequired: true },
+      });
+    expect(r.status).toBe(201);
+    expect(r.body.companyId).toBe(companyId);
+    expect(r.body.subject).toBe('Test servis talebi');
+    expect(r.body.assignedToUserId).toBe(adminUserId);
+    expect(r.body.metadata.quoteRequired).toBe(true);
+  });
+
   it('kurulum oluşturur ve saha ücretini hesaplar (İstanbul içi 90dk → 105$)', async () => {
     const r = await supertest(app.getHttpServer())
       .post('/api/v1/installations')

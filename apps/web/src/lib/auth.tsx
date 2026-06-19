@@ -1,6 +1,25 @@
 import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { meResponseSchema } from '@haksan/shared';
-import { api, ApiError, getAccessToken, refreshSession, setAccessToken, setSessionExpiredHandler } from './apiClient';
+import {
+  api,
+  ApiError,
+  getAccessToken,
+  getActiveDivision,
+  refreshSession,
+  setAccessToken,
+  setActiveDivision as setClientActiveDivision,
+  setSessionExpiredHandler,
+} from './apiClient';
+
+export interface MeDivision {
+  id: string;
+  code: string;
+  name: string;
+  isPrimary: boolean;
+}
+
+/** Bölüm seçimi: bir bölüm id'si veya tüm bölümler ('all'). */
+export type ActiveDivision = string;
 
 export interface MeUser {
   id: string;
@@ -11,6 +30,18 @@ export interface MeUser {
   roles: string[];
   permissions: string[];
   mfaEnabled: boolean;
+  /** view_all kullanıcılarda tüm bölümler; aksi halde kullanıcının bölümleri. */
+  divisions: MeDivision[];
+  canViewAllDivisions: boolean;
+}
+
+/** Kullanıcı için varsayılan aktif bölümü seçer (kalıcı seçim geçerliyse onu korur). */
+function pickActiveDivision(user: MeUser, stored: string | null): ActiveDivision {
+  const storedValid =
+    stored === 'all' ? user.canViewAllDivisions : !!stored && user.divisions.some((d) => d.id === stored);
+  if (storedValid) return stored as string;
+  if (user.canViewAllDivisions) return 'all';
+  return user.divisions.find((d) => d.isPrimary)?.id ?? user.divisions[0]?.id ?? 'all';
 }
 
 export interface MeTenant {
@@ -28,6 +59,9 @@ interface AuthState {
   tenant: MeTenant | null;
   hasPermission: (code: string) => boolean;
   hasRole: (code: string) => boolean;
+  /** Aktif bölüm: bir bölüm id'si veya 'all'. API isteklerine başlık olarak gider. */
+  activeDivision: ActiveDivision;
+  setActiveDivision: (value: ActiveDivision) => void;
   login: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   refresh: () => Promise<void>;
@@ -39,18 +73,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState<MeUser | null>(null);
   const [tenant, setTenant] = useState<MeTenant | null>(null);
+  const [activeDivision, setActiveDivisionState] = useState<ActiveDivision>(() => getActiveDivision() ?? 'all');
+
+  const applyActiveDivision = useCallback((value: ActiveDivision) => {
+    setClientActiveDivision(value);
+    setActiveDivisionState(value);
+  }, []);
 
   const fetchMe = useCallback(async () => {
     try {
       const res = await api.get('/auth/me', { schema: meResponseSchema });
-      setUser(res.user);
+      setUser(res.user as MeUser);
       setTenant(res.tenant);
+      applyActiveDivision(pickActiveDivision(res.user as MeUser, getActiveDivision()));
     } catch (err) {
       setUser(null);
       setTenant(null);
       if (!(err instanceof ApiError && err.status === 401)) throw err;
     }
-  }, []);
+  }, [applyActiveDivision]);
 
   const refresh = useCallback(async () => {
     try {
@@ -90,12 +131,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setAccessToken(null);
     setUser(null);
     setTenant(null);
+    setClientActiveDivision(null);
+    setActiveDivisionState('all');
   }, []);
 
   const clearSession = useCallback(() => {
     setAccessToken(null);
     setUser(null);
     setTenant(null);
+    setClientActiveDivision(null);
+    setActiveDivisionState('all');
   }, []);
 
   useEffect(() => {
@@ -128,8 +173,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 
   const value = useMemo<AuthState>(
-    () => ({ loading, sessionReady, authed: !!user, user, tenant, login, logout, refresh, hasPermission, hasRole }),
-    [loading, sessionReady, user, tenant, login, logout, refresh, hasPermission, hasRole]
+    () => ({
+      loading,
+      sessionReady,
+      authed: !!user,
+      user,
+      tenant,
+      activeDivision,
+      setActiveDivision: applyActiveDivision,
+      login,
+      logout,
+      refresh,
+      hasPermission,
+      hasRole,
+    }),
+    [loading, sessionReady, user, tenant, activeDivision, applyActiveDivision, login, logout, refresh, hasPermission, hasRole]
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

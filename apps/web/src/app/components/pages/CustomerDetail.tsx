@@ -1,8 +1,8 @@
-import { type ReactNode, useMemo } from "react";
+import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
 import { Button } from "../ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../ui/tabs";
-import { ArrowLeft, Phone, Mail, MapPin, Building2, Plus, ArrowUpRight, Clock } from "lucide-react";
+import { ArrowLeft, Phone, Mail, MapPin, Building2, Plus, ArrowUpRight, Clock, AlertTriangle } from "lucide-react";
 import { Customer } from "../../lib/mock";
 import { useStore } from "../../lib/store";
 import { StatusBadge } from "../Layout";
@@ -10,6 +10,46 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from ".
 import { CreateCaseDialog, LogActivityDialog } from "../dialogs/CreateDialogs";
 import { buildCustomerTimeline, type OperationAction } from "../../lib/operations";
 import { CompanyFinancePanel } from "../shared/CompanyFinancePanel";
+import { companyService } from "../../../lib/services";
+
+/**
+ * Ortak firmada başka bölüm(ler)e açık borç varsa kırmızı uyarı gösterir.
+ * Tutar yalnızca süper yönetici/view_all için backend'den döner.
+ */
+function CrossDivisionDebtWarning({ companyId }: { companyId: string }) {
+  const [debt, setDebt] = useState<{
+    hasDebt: boolean;
+    departments: { id: string; name: string; amount?: number }[];
+    amount?: number;
+  } | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    companyService
+      .crossDivisionDebt(companyId)
+      .then((d) => alive && setDebt(d))
+      .catch(() => {
+        /* yetkisiz / hata — uyarı gösterme */
+      });
+    return () => {
+      alive = false;
+    };
+  }, [companyId]);
+
+  if (!debt?.hasDebt) return null;
+  const names = debt.departments.map((d) => d.name).join(", ");
+  return (
+    <div className="flex items-start gap-2.5 rounded-lg border border-red-300 bg-red-50 px-3.5 py-2.5 text-sm text-red-800">
+      <AlertTriangle className="size-4 mt-0.5 shrink-0 text-red-600" />
+      <div>
+        <span className="font-medium">Bu müşterinin {names} birimine borcu bulunmaktadır.</span>
+        {debt.amount != null && (
+          <span className="ml-1 tabular-nums">Toplam açık alacak: {debt.amount.toLocaleString("tr-TR")}</span>
+        )}
+      </div>
+    </div>
+  );
+}
 
 export function CustomerDetailPage({ customer, onBack, onAction }: { customer: Customer; onBack: () => void; onAction?: (action: OperationAction) => void }) {
   const store = useStore();
@@ -25,6 +65,8 @@ export function CustomerDetailPage({ customer, onBack, onAction }: { customer: C
       <Button variant="ghost" size="sm" onClick={onBack} className="gap-1">
         <ArrowLeft className="size-4" /> Müşteri listesine dön
       </Button>
+
+      <CrossDivisionDebtWarning companyId={customer.id} />
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <Card className="lg:col-span-1">

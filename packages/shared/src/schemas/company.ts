@@ -22,6 +22,7 @@ export const companyCreateSchema = z.object({
   taxNumber: optionalText(32),
   website: optionalUrl,
   notes: optionalText(4000),
+  divisionId: optionalText(64),
   // primary address (optional)
   address: z
     .object({
@@ -52,3 +53,19 @@ export const companyListQuerySchema = z.object({
   customerStatusCode: z.enum(['potential', 'active', 'passive', 'blacklist']).optional(),
 });
 export type CompanyListQuery = z.infer<typeof companyListQuerySchema>;
+
+export const companyAccessRequestSchema = z.object({
+  divisionId: z.string().uuid().optional(),
+  note: z.string().max(2000).optional(),
+});
+export type CompanyAccessRequestInput = z.infer<typeof companyAccessRequestSchema>;
+
+export const companyAccessRequestDecisionSchema = z.object({
+  decisionNote: z.string().max(2000).optional(),
+});
+export type CompanyAccessRequestDecisionInput = z.infer<typeof companyAccessRequestDecisionSchema>;
+
+export const accessRequestListQuerySchema = z.object({
+  status: z.enum(['pending', 'approved', 'rejected']).optional(),
+});
+export type AccessRequestListQuery = z.infer<typeof accessRequestListQuerySchema>;

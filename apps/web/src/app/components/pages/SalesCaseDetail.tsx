@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
 import { Button } from "../ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../ui/tabs";
-import { ArrowLeft, Plus, Upload, X, XCircle, Eye } from "lucide-react";
+import { ArrowLeft, Plus, Upload, X, XCircle, Eye, FileText } from "lucide-react";
 import { SalesCase, SALES_STAGES, salesStageLabel } from "../../lib/mock";
 import { StatusBadge } from "../Layout";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../ui/table";
@@ -56,6 +56,9 @@ export function SalesCaseDetailPage({
   const offs = offers.filter((o) => o.salesCaseId === sc.id);
   const docs = documents.filter((d) => d.salesCaseId === sc.id);
   const pays = payments.filter((p) => p.salesCaseId === sc.id);
+  // Kart "Sözleşme" aşamasına ulaştıysa ticari fatura yükleme alanını aç.
+  const reachedContract = SALES_STAGES.indexOf(sc.stage) >= SALES_STAGES.indexOf("contract");
+  const commercialInvoiceDoc = docs.find((d) => d.type === "CommercialInvoice");
   const selectedOffer = selectedOfferId ? offers.find((o) => o.id === selectedOfferId) ?? null : null;
   const selectedRevisions = selectedOffer
     ? offs.filter((o) => o.salesCaseId === sc.id).sort((a, b) => b.revision - a.revision)
@@ -169,6 +172,56 @@ export function SalesCaseDetailPage({
           </div>
         </CardContent>
       </Card>
+
+      {reachedContract && (
+        <Card className="border-amber-300/70 bg-amber-50/50">
+          <CardContent className="p-4 sm:p-5">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex items-start gap-3 min-w-0">
+                <div className="size-10 rounded-lg bg-amber-100 text-amber-700 grid place-items-center shrink-0">
+                  <FileText className="size-5" />
+                </div>
+                <div className="min-w-0">
+                  <div className="text-sm font-medium">Ticari Fatura</div>
+                  {commercialInvoiceDoc ? (
+                    <div className="text-xs text-muted-foreground mt-0.5 break-words">
+                      Yüklendi: <span className="text-foreground">{commercialInvoiceDoc.fileName}</span>
+                      {commercialInvoiceDoc.size ? ` · ${commercialInvoiceDoc.size}` : ""}
+                    </div>
+                  ) : (
+                    <div className="text-xs text-muted-foreground mt-0.5">
+                      Sözleşme aşamasına gelindi. Ticari fatura belgesini yükleyin.
+                    </div>
+                  )}
+                </div>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                {commercialInvoiceDoc?.fileId && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-1"
+                    onClick={() => downloadDocument(commercialInvoiceDoc.fileId, commercialInvoiceDoc.fileName)}
+                  >
+                    <Eye className="size-4" /> Görüntüle
+                  </Button>
+                )}
+                <DocumentUploadDialog
+                  defaultSalesCaseId={sc.id}
+                  defaultCompanyId={sc.customerId}
+                  defaultType="CommercialInvoice"
+                  trigger={
+                    <Button size="sm" className="gap-1">
+                      <Upload className="size-4" />
+                      {commercialInvoiceDoc ? "Yeniden yükle" : "Ticari fatura yükle"}
+                    </Button>
+                  }
+                />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <Tabs defaultValue="timeline">
         <TabsList className="h-auto w-full justify-start overflow-x-auto">

@@ -10,8 +10,9 @@ import {
   passwordResetTokens,
   userRoles,
   roles as rolesTable,
+  userDivisions,
 } from '../../db/schema/users';
-import { tenants } from '../../db/schema/tenants';
+import { divisions, tenants } from '../../db/schema/tenants';
 import { DB } from '../../shared/database/database.module';
 import { JwtTokenService } from '../../shared/security/jwt.service';
 import { ForbiddenError, LockedError, NotFoundError, UnauthorizedError, ValidationError } from '../../shared/utils/errors';
@@ -250,7 +251,18 @@ export class AuthService {
   }
 
   async me(userId: string): Promise<{
-    user: { id: string; email: string; fullName: string; tenantId: string; departmentId: string | null; roles: string[]; permissions: string[]; mfaEnabled: boolean };
+    user: {
+      id: string;
+      email: string;
+      fullName: string;
+      tenantId: string;
+      departmentId: string | null;
+      roles: string[];
+      permissions: string[];
+      mfaEnabled: boolean;
+      divisions: Array<{ id: string; code: string; name: string; isPrimary: boolean }>;
+      canViewAllDivisions: boolean;
+    };
     tenant: { id: string; name: string; slug: string };
   }> {
     const user = await this.db.query.users.findFirst({ where: eq(users.id, userId) });
@@ -265,6 +277,34 @@ export class AuthService {
         .where(eq(userRoles.userId, user.id))
     ).map((r) => r.code);
     const perms = await rolePermissionsCacheKey(this.db, user.id);
+    const assignedDivisions = await this.db
+      .select({
+        id: divisions.id,
+        code: divisions.code,
+        name: divisions.name,
+        isPrimary: userDivisions.isPrimary,
+      })
+      .from(userDivisions)
+      .innerJoin(divisions, eq(userDivisions.divisionId, divisions.id))
+      .where(and(eq(userDivisions.userId, user.id), eq(divisions.tenantId, user.tenantId)));
+    const canViewAllDivisions = perms.has('divisions.view_all');
+    const rawAvailableDivisions = canViewAllDivisions
+      ? (
+          await this.db.query.divisions.findMany({
+            where: and(eq(divisions.tenantId, user.tenantId), eq(divisions.isActive, true)),
+          })
+        ).map((division) => ({
+          id: division.id,
+          code: division.code,
+          name: division.name,
+          isPrimary: assignedDivisions.some((assigned) => assigned.id === division.id && assigned.isPrimary),
+        }))
+      : assignedDivisions;
+    const hasPrimaryDivision = rawAvailableDivisions.some((division) => division.isPrimary);
+    const availableDivisions = rawAvailableDivisions.map((division, index) => ({
+      ...division,
+      isPrimary: division.isPrimary || (!hasPrimaryDivision && index === 0),
+    }));
     return {
       user: {
         id: user.id,
@@ -275,6 +315,8 @@ export class AuthService {
         roles: userRoleCodes,
         permissions: Array.from(perms).sort(),
         mfaEnabled: user.mfaEnabled,
+        divisions: availableDivisions,
+        canViewAllDivisions,
       },
       tenant: { id: tenant.id, name: tenant.name, slug: tenant.slug },
     };

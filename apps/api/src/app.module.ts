@@ -22,6 +22,7 @@ import { AdminModule } from './modules/admin/admin.module';
 import { NoteTemplatesModule } from './modules/note-templates/note-templates.module';
 import { FxModule } from './modules/fx/fx.module';
 import { LifecycleModule } from './modules/lifecycle/lifecycle.module';
+import { ChatModule } from './modules/chat/chat.module';
 import { loadEnv } from './config/env';
 
 const env = loadEnv();
@@ -61,6 +62,7 @@ const env = loadEnv();
     NoteTemplatesModule,
     FxModule,
     LifecycleModule,
+    ChatModule,
   ],
   providers: [
     // Rate limiting'i tüm route'lara uygular. Bu guard global bağlanmadan

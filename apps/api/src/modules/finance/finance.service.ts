@@ -26,6 +26,12 @@ import type {
 import { lookupIdByCode } from '../../shared/utils/lookup.helper';
 import { NotFoundError, ValidationError } from '../../shared/utils/errors';
 import { InventoryService } from '../inventory/inventory.service';
+import {
+  companyPortfolioFilter,
+  divisionFilter,
+  resolveActorDivisionScope,
+  resolveAssignedDivision,
+} from '../../shared/utils/division-scope';
 
 export type CurrencyBalance = {
   currencyCode: string;
@@ -76,6 +82,18 @@ export class FinanceService {
     if (!company) throw new NotFoundError('Firma bulunamadı');
   }
 
+  async assertCompanyVisible(companyId: string, actor: AuthContext): Promise<void> {
+    const company = await this.db.query.companies.findFirst({
+      where: and(
+        eq(companies.id, companyId),
+        eq(companies.tenantId, actor.tenantId),
+        isNull(companies.deletedAt),
+        companyPortfolioFilter(resolveActorDivisionScope(actor), companies.id) ?? sql`true`,
+      ),
+    });
+    if (!company) throw new NotFoundError('Firma bulunamadı');
+  }
+
   private async statusIds() {
     const rows = await this.db.select({ id: paymentStatuses.id, code: paymentStatuses.code }).from(paymentStatuses);
     const map = new Map(rows.map((r) => [r.code, r.id]));
@@ -98,16 +116,19 @@ export class FinanceService {
   }
 
   async getCompanyFinanceSummary(companyId: string, actor: AuthContext): Promise<FinanceSummary> {
-    await this.assertCompanyInTenant(companyId, actor.tenantId);
+    await this.assertCompanyVisible(companyId, actor);
     const st = await this.statusIds();
     const curMap = await this.currencyCodeMap(actor.tenantId);
     const showAlacak = this.isFinanceAdmin(actor);
 
     const cancelledFilter = st.cancelled ? ne(receivables.statusId, st.cancelled) : sql`true`;
+    const recDivision = divisionFilter(resolveActorDivisionScope(actor), receivables.divisionId) ?? sql`true`;
+    const paymentDivision = divisionFilter(resolveActorDivisionScope(actor), payments.divisionId) ?? sql`true`;
+    const payableDivision = divisionFilter(resolveActorDivisionScope(actor), payables.divisionId) ?? sql`true`;
     const recRows = await this.db
       .select({ amount: receivables.amount, currencyId: receivables.currencyId, dueDate: receivables.dueDate, statusId: receivables.statusId })
       .from(receivables)
-      .where(and(eq(receivables.tenantId, actor.tenantId), eq(receivables.companyId, companyId), isNull(receivables.deletedAt), cancelledFilter));
+      .where(and(eq(receivables.tenantId, actor.tenantId), eq(receivables.companyId, companyId), isNull(receivables.deletedAt), cancelledFilter, recDivision));
 
     const payInRows = await this.db
       .select({ amount: payments.amount, currencyId: payments.currencyId })
@@ -118,6 +139,7 @@ export class FinanceService {
           eq(payments.companyId, companyId),
           eq(payments.direction, 'in'),
           isNull(payments.deletedAt),
+          paymentDivision,
           st.paid ? eq(payments.statusId, st.paid) : sql`true`
         )
       );
@@ -132,6 +154,7 @@ export class FinanceService {
               eq(payments.companyId, companyId),
               eq(payments.direction, 'out'),
               isNull(payments.deletedAt),
+              paymentDivision,
               st.paid ? eq(payments.statusId, st.paid) : sql`true`
             )
           )
@@ -146,6 +169,7 @@ export class FinanceService {
               eq(payables.tenantId, actor.tenantId),
               eq(payables.companyId, companyId),
               isNull(payables.deletedAt),
+              payableDivision,
               st.cancelled ? ne(payables.statusId, st.cancelled) : sql`true`
             )
           )
@@ -227,7 +251,7 @@ export class FinanceService {
   }
 
   async getCompanyStatement(companyId: string, actor: AuthContext, range: DateRange): Promise<StatementLine[]> {
-    await this.assertCompanyInTenant(companyId, actor.tenantId);
+    await this.assertCompanyVisible(companyId, actor);
     const showAlacak = this.isFinanceAdmin(actor);
     const curMap = await this.currencyCodeMap(actor.tenantId);
     const st = await this.statusIds();
@@ -236,6 +260,7 @@ export class FinanceService {
       eq(receivables.tenantId, actor.tenantId),
       eq(receivables.companyId, companyId),
       isNull(receivables.deletedAt),
+      divisionFilter(resolveActorDivisionScope(actor), receivables.divisionId) ?? sql`true`,
       st.cancelled ? ne(receivables.statusId, st.cancelled) : sql`true`,
     ];
     if (range.from) recFilters.push(gte(receivables.dueDate, range.from));
@@ -245,6 +270,7 @@ export class FinanceService {
       eq(payments.tenantId, actor.tenantId),
       eq(payments.companyId, companyId),
       isNull(payments.deletedAt),
+      divisionFilter(resolveActorDivisionScope(actor), payments.divisionId) ?? sql`true`,
     ];
     if (range.from) payFilters.push(gte(payments.paymentDate, range.from));
     if (range.to) payFilters.push(lte(payments.paymentDate, range.to));
@@ -261,6 +287,7 @@ export class FinanceService {
               eq(payables.tenantId, actor.tenantId),
               eq(payables.companyId, companyId),
               isNull(payables.deletedAt),
+              divisionFilter(resolveActorDivisionScope(actor), payables.divisionId) ?? sql`true`,
               range.from ? gte(payables.dueDate, range.from) : sql`true`,
               range.to ? lte(payables.dueDate, range.to) : sql`true`
             )
@@ -346,7 +373,13 @@ export class FinanceService {
     const companyRows = await this.db
       .select({ id: companies.id, name: companies.legalTitle, shortName: companies.shortName })
       .from(companies)
-      .where(and(eq(companies.tenantId, actor.tenantId), isNull(companies.deletedAt)));
+      .where(
+        and(
+          eq(companies.tenantId, actor.tenantId),
+          isNull(companies.deletedAt),
+          companyPortfolioFilter(resolveActorDivisionScope(actor), companies.id) ?? sql`true`,
+        ),
+      );
 
     const summaries = await Promise.all(
       companyRows.map(async (c) => {
@@ -382,6 +415,8 @@ export class FinanceService {
     const curMap = await this.currencyCodeMap(actor.tenantId);
 
     const recFilters = [eq(receivables.tenantId, actor.tenantId), isNull(receivables.deletedAt)];
+    const scopedReceivables = divisionFilter(resolveActorDivisionScope(actor), receivables.divisionId);
+    if (scopedReceivables) recFilters.push(scopedReceivables);
     if (range.from) recFilters.push(gte(receivables.dueDate, range.from));
     if (range.to) recFilters.push(lte(receivables.dueDate, range.to));
     if (openStatuses.length) recFilters.push(inArray(receivables.statusId, openStatuses));
@@ -419,6 +454,7 @@ export class FinanceService {
             and(
               eq(payables.tenantId, actor.tenantId),
               isNull(payables.deletedAt),
+              divisionFilter(resolveActorDivisionScope(actor), payables.divisionId) ?? sql`true`,
               range.from ? gte(payables.dueDate, range.from) : sql`true`,
               range.to ? lte(payables.dueDate, range.to) : sql`true`,
               openStatuses.length ? inArray(payables.statusId, openStatuses) : sql`true`
@@ -484,10 +520,12 @@ export class FinanceService {
   }
 
   async createAccountingInvoice(body: AccountingInvoiceCreateInput, actor: AuthContext) {
-    await this.assertCompanyInTenant(body.companyId, actor.tenantId);
+    await this.assertCompanyVisible(body.companyId, actor);
     const currencyId = await lookupIdByCode(this.db, currencies, body.currencyCode);
     const issued = await this.db.query.invoiceStatuses.findFirst({ where: eq(invoiceStatuses.code, 'issued') });
     const st = await this.statusIds();
+    const divisionId = resolveAssignedDivision(actor, body.divisionId ?? null);
+    if (!divisionId) throw new ValidationError('Fatura için bölüm ataması zorunludur', { field: 'divisionId' });
 
     const installments = this.buildInstallments({
       grandTotal: body.grandTotal,
@@ -504,6 +542,7 @@ export class FinanceService {
       .insert(accountingInvoices)
       .values({
         tenantId: actor.tenantId,
+        divisionId,
         companyId: body.companyId,
         type: body.type,
         invoiceNo: body.invoiceNo,
@@ -529,6 +568,7 @@ export class FinanceService {
           .insert(receivables)
           .values({
             tenantId: actor.tenantId,
+            divisionId,
             companyId: body.companyId,
             accountingInvoiceId: invoice.id,
             invoiceNo: body.invoiceNo,
@@ -554,6 +594,7 @@ export class FinanceService {
           .insert(payables)
           .values({
             tenantId: actor.tenantId,
+            divisionId,
             companyId: body.companyId,
             accountingInvoiceId: invoice.id,
             invoiceNo: body.invoiceNo,
@@ -592,6 +633,7 @@ export class FinanceService {
       await this.inventory.sellFromSalesInvoice(
         {
           invoiceId: invoice.id,
+          divisionId,
           companyId: body.companyId,
           invoiceDate: body.invoiceDate,
           lines: body.lineItems,
@@ -606,7 +648,12 @@ export class FinanceService {
   /** Satış faturası iptali (minimal) — stok teslim edilmediyse geri al. */
   async cancelAccountingInvoice(id: string, actor: AuthContext) {
     const invoice = await this.db.query.accountingInvoices.findFirst({
-      where: and(eq(accountingInvoices.id, id), eq(accountingInvoices.tenantId, actor.tenantId), isNull(accountingInvoices.deletedAt)),
+      where: and(
+        eq(accountingInvoices.id, id),
+        eq(accountingInvoices.tenantId, actor.tenantId),
+        isNull(accountingInvoices.deletedAt),
+        divisionFilter(resolveActorDivisionScope(actor), accountingInvoices.divisionId) ?? sql`true`,
+      ),
     });
     if (!invoice) throw new NotFoundError('Fatura bulunamadı');
 
@@ -724,6 +771,8 @@ export class FinanceService {
     const filters = [eq(accountingInvoices.tenantId, actor.tenantId), isNull(accountingInvoices.deletedAt)];
     if (query.companyId) filters.push(eq(accountingInvoices.companyId, query.companyId));
     if (query.type) filters.push(eq(accountingInvoices.type, query.type));
+    const scoped = divisionFilter(resolveActorDivisionScope(actor), accountingInvoices.divisionId);
+    if (scoped) filters.push(scoped);
 
     const offset = (query.page - 1) * query.pageSize;
     const [{ count }] = await this.db
@@ -755,7 +804,12 @@ export class FinanceService {
 
   async getAccountingInvoice(id: string, actor: AuthContext) {
     const row = await this.db.query.accountingInvoices.findFirst({
-      where: and(eq(accountingInvoices.id, id), eq(accountingInvoices.tenantId, actor.tenantId), isNull(accountingInvoices.deletedAt)),
+      where: and(
+        eq(accountingInvoices.id, id),
+        eq(accountingInvoices.tenantId, actor.tenantId),
+        isNull(accountingInvoices.deletedAt),
+        divisionFilter(resolveActorDivisionScope(actor), accountingInvoices.divisionId) ?? sql`true`,
+      ),
     });
     if (!row) throw new NotFoundError('Fatura bulunamadı');
     const installments = await this.db
@@ -768,12 +822,15 @@ export class FinanceService {
 
   async createReceivable(body: ReceivableCreateInput, actor: AuthContext) {
     const currencyId = await lookupIdByCode(this.db, currencies, body.currencyCode);
-    await this.assertCompanyInTenant(body.companyId, actor.tenantId);
+    await this.assertCompanyVisible(body.companyId, actor);
     const pending = await this.db.query.paymentStatuses.findFirst({ where: eq(paymentStatuses.code, 'pending') });
+    const divisionId = resolveAssignedDivision(actor, body.divisionId ?? null);
+    if (!divisionId) throw new ValidationError('Alacak için bölüm ataması zorunludur', { field: 'divisionId' });
     const [row] = await this.db
       .insert(receivables)
       .values({
         tenantId: actor.tenantId,
+        divisionId,
         companyId: body.companyId,
         quoteId: body.quoteId ?? null,
         amount: body.amount.toString(),
@@ -795,26 +852,37 @@ export class FinanceService {
 
     const receivable = body.receivableId
       ? await this.db.query.receivables.findFirst({
-          where: and(eq(receivables.id, body.receivableId), eq(receivables.tenantId, actor.tenantId)),
+          where: and(
+            eq(receivables.id, body.receivableId),
+            eq(receivables.tenantId, actor.tenantId),
+            divisionFilter(resolveActorDivisionScope(actor), receivables.divisionId) ?? sql`true`,
+          ),
         })
       : null;
     if (body.receivableId && !receivable) throw new NotFoundError('Alacak kaydı bulunamadı');
 
     const payable = body.payableId
       ? await this.db.query.payables.findFirst({
-          where: and(eq(payables.id, body.payableId), eq(payables.tenantId, actor.tenantId)),
+          where: and(
+            eq(payables.id, body.payableId),
+            eq(payables.tenantId, actor.tenantId),
+            divisionFilter(resolveActorDivisionScope(actor), payables.divisionId) ?? sql`true`,
+          ),
         })
       : null;
     if (body.payableId && !payable) throw new NotFoundError('Borç kaydı bulunamadı');
 
     const companyId = receivable?.companyId ?? payable?.companyId ?? body.companyId;
     if (!companyId) throw new NotFoundError('Firma bulunamadı');
-    if (!receivable && !payable) await this.assertCompanyInTenant(companyId, actor.tenantId);
+    if (!receivable && !payable) await this.assertCompanyVisible(companyId, actor);
+    const divisionId = receivable?.divisionId ?? payable?.divisionId ?? resolveAssignedDivision(actor, body.divisionId ?? null);
+    if (!divisionId) throw new ValidationError('Ödeme için bölüm ataması zorunludur', { field: 'divisionId' });
 
     const [row] = await this.db
       .insert(payments)
       .values({
         tenantId: actor.tenantId,
+        divisionId,
         direction: body.direction,
         receivableId: body.receivableId ?? null,
         payableId: body.payableId ?? null,

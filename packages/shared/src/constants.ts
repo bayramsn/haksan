@@ -35,6 +35,7 @@ export const PERMISSION_RESOURCES = [
   'users',
   'roles',
   'departments',
+  'divisions',
   'companies',
   'contacts',
   'leads',
@@ -113,10 +114,16 @@ export const ALLOWED_MIME_TYPES = [
   'image/png',
   'image/jpeg',
   'image/webp',
+  // Sesli mesaj / ses ekleri (kurum içi sohbet). MediaRecorder genelde audio/webm üretir.
+  'audio/webm',
+  'audio/mpeg',
+  'audio/ogg',
+  'audio/mp4',
+  'audio/wav',
 ] as const;
 export type AllowedMimeType = (typeof ALLOWED_MIME_TYPES)[number];
 
-export const ALLOWED_FILE_EXTENSIONS = ['pdf', 'docx', 'xlsx', 'png', 'jpg', 'jpeg', 'webp'] as const;
+export const ALLOWED_FILE_EXTENSIONS = ['pdf', 'docx', 'xlsx', 'png', 'jpg', 'jpeg', 'webp', 'webm', 'mp3', 'ogg', 'm4a', 'wav'] as const;
 export type AllowedFileExtension = (typeof ALLOWED_FILE_EXTENSIONS)[number];
 
 // Stage transition rules (bölüm 3 mega prompt'tan)
@@ -150,3 +157,39 @@ export const STAGE_TRANSITIONS: Record<PipelineStageCode, PipelineStageCode[]> =
   installation: ['shipping'],
   delivered: ['installation'],
 };
+
+// Stage carry-over rules — STAGE_TRANSITIONS'ın veri ikizi.
+// STAGE_TRANSITIONS "hangi aşamadan geçilebilir"i (guard) söyler;
+// STAGE_CARRYOVER bir sonraki adıma "hangi alanların otomatik taşınacağını" söyler.
+// UI formları (ör. QuoteDialog) hedef aşamayı, önceki kaydın bu alanlarıyla ön-doldurur.
+// Böylece her departman aynı bağlantı mantığını paylaşır: sonraki adımın girdileri
+// önceki adımın verisinden türetilir.
+export type StageCarryover = {
+  // Bu aşamanın hangi önceki aşamalardan beslendiği (STAGE_TRANSITIONS ile uyumlu olmalı).
+  from: PipelineStageCode[];
+  // Önceki kayıttan bir sonraki forma taşınacak alan adları (kaynak entity'nin anahtarları).
+  carries: readonly string[];
+};
+
+export const STAGE_CARRYOVER: Partial<Record<PipelineStageCode, StageCarryover>> = {
+  // Faz 1 · Satış → Teklif: firma + talep edilen ürün/model/adet + para birimi teklife taşınır.
+  quote: {
+    from: ['lead', 'sales', 'call', 'visit'],
+    carries: ['customerId', 'requestedProduct', 'requestedModel', 'quantity', 'currency'],
+  },
+};
+
+// Bir kayıttan, hedef aşamanın carry-over sözleşmesinde tanımlı alanları seçip döndürür.
+// Tanımsız aşama ya da eksik alanlar için sessizce atlar — guard'ı çağıran taraf yapar.
+export function pickStageCarryover<T extends Record<string, unknown>>(
+  source: T,
+  targetStage: PipelineStageCode,
+): Partial<T> {
+  const spec = STAGE_CARRYOVER[targetStage];
+  if (!spec) return {};
+  const out: Partial<T> = {};
+  for (const field of spec.carries) {
+    if (field in source) out[field as keyof T] = source[field as keyof T];
+  }
+  return out;
+}

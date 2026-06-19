@@ -32,26 +32,35 @@ import type { AuthContext } from '../../shared/security/auth.types';
 import { NotFoundError, ValidationError } from '../../shared/utils/errors';
 import { buildPaginated, pageOffset } from '../../shared/utils/pagination';
 import { lookupIdByCode } from '../../shared/utils/lookup.helper';
+import { divisionFilter, resolveActorDivisionScope, resolveAssignedDivision } from '../../shared/utils/division-scope';
 
 const ticketCreate = z.object({
   ticketNo: z.string().min(1).max(64).optional(),
+  divisionId: z.string().uuid().optional(),
   companyId: z.string().min(1),
   contactId: z.string().optional(),
   customerDeviceId: z.string().optional(),
   subject: z.string().min(1).max(255),
   description: z.string().max(4000).optional(),
   severity: z.enum(['low', 'normal', 'high', 'critical']).default('normal'),
+  ticketType: z.enum(['complaint', 'request', 'warranty_claim', 'question']).default('complaint'),
+  source: z.enum(['manual', 'phone', 'email', 'whatsapp', 'portal', 'passport', 'web']).default('manual'),
+  assignedToUserId: z.string().uuid().nullable().optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
 });
 const ticketStatus = z.object({ statusCode: z.string() });
 const ticketUpdate = z.object({
   description: z.string().max(4000).optional(),
   resolutionNote: z.string().max(4000).optional(),
   severity: z.enum(['low', 'normal', 'high', 'critical']).optional(),
+  // Kaynak (source) değiştirilmez; tip sonradan yeniden sınıflandırılabilir.
+  ticketType: z.enum(['complaint', 'request', 'warranty_claim', 'question']).optional(),
   assignedToUserId: z.string().uuid().nullable().optional(),
   metadata: z.record(z.string(), z.unknown()).optional(),
 });
 
 const installCreate = z.object({
+  divisionId: z.string().uuid().optional(),
   opportunityId: z.string().optional(),
   quoteId: z.string().optional(),
   customerDeviceId: z.string().optional(),
@@ -151,9 +160,11 @@ export class ServiceController {
     return item;
   }
 
-  private async assertShipment(shipmentId: string, tenantId: string) {
+  private async assertShipment(shipmentId: string, tenantId: string, actor?: AuthContext) {
+    const filters = [eq(shipments.id, shipmentId), eq(shipments.tenantId, tenantId), isNull(shipments.deletedAt)];
+    if (actor) filters.push(divisionFilter(resolveActorDivisionScope(actor), shipments.divisionId) ?? sql`true`);
     const shipment = await this.db.query.shipments.findFirst({
-      where: and(eq(shipments.id, shipmentId), eq(shipments.tenantId, tenantId), isNull(shipments.deletedAt)),
+      where: and(...filters),
     });
     if (!shipment) throw new NotFoundError('Sevkiyat');
     return shipment;
@@ -584,7 +595,11 @@ export class ServiceController {
   @Get('service-tickets')
   async listTickets(@Query(new ZodValidationPipe(paginationSchema)) p: Pagination, @CurrentUser() user: AuthContext) {
     const { limit, offset } = pageOffset(p);
-    const where = and(eq(serviceTickets.tenantId, user.tenantId), isNull(serviceTickets.deletedAt));
+    const where = and(
+      eq(serviceTickets.tenantId, user.tenantId),
+      isNull(serviceTickets.deletedAt),
+      divisionFilter(resolveActorDivisionScope(user), serviceTickets.divisionId) ?? sql`true`
+    );
     const [{ count }] = await this.db.select({ count: sql<number>`count(*)::int` }).from(serviceTickets).where(where);
     const rows = await this.db
       .select({ ticket: serviceTickets, status: { id: serviceTicketStatuses.id, code: serviceTicketStatuses.code, name: serviceTicketStatuses.name } })
@@ -603,6 +618,7 @@ export class ServiceController {
     await this.assertCompany(body.companyId, user.tenantId);
     if (body.contactId) await this.assertContact(body.contactId, user.tenantId, body.companyId);
     if (body.customerDeviceId) await this.assertCustomerDevice(body.customerDeviceId, user.tenantId, body.companyId);
+    if (body.assignedToUserId) await this.assertUser(body.assignedToUserId, user.tenantId);
     const openStatus = await this.db.query.serviceTicketStatuses.findFirst({ where: eq(serviceTicketStatuses.code, 'open') });
     let ticketNo = body.ticketNo;
     if (!ticketNo) {
@@ -610,10 +626,13 @@ export class ServiceController {
       const year = new Date().getUTCFullYear();
       ticketNo = `SVC-${year}-${String(c + 1).padStart(4, '0')}`;
     }
+    const divisionId = resolveAssignedDivision(user, body.divisionId ?? null);
+    if (!divisionId) throw new ValidationError('Servis kaydı için bölüm ataması zorunludur', { field: 'divisionId' });
     const [row] = await this.db
       .insert(serviceTickets)
       .values({
         tenantId: user.tenantId,
+        divisionId,
         ticketNo,
         companyId: body.companyId,
         contactId: body.contactId ?? null,
@@ -621,7 +640,11 @@ export class ServiceController {
         subject: body.subject,
         description: body.description ?? null,
         severity: body.severity,
+        ticketType: body.ticketType,
+        source: body.source,
         statusId: openStatus?.id ?? null,
+        assignedToUserId: body.assignedToUserId ?? null,
+        metadata: body.metadata ?? null,
       })
       .returning();
     return row;
@@ -631,13 +654,18 @@ export class ServiceController {
   @Patch('service-tickets/:id')
   async updateTicket(@Param('id') id: string, @Body(new ZodValidationPipe(ticketUpdate)) body: z.infer<typeof ticketUpdate>, @CurrentUser() user: AuthContext) {
     const ticket = await this.db.query.serviceTickets.findFirst({
-      where: and(eq(serviceTickets.id, id), eq(serviceTickets.tenantId, user.tenantId)),
+      where: and(
+        eq(serviceTickets.id, id),
+        eq(serviceTickets.tenantId, user.tenantId),
+        divisionFilter(resolveActorDivisionScope(user), serviceTickets.divisionId) ?? sql`true`
+      ),
     });
     if (!ticket) throw new NotFoundError('Servis kaydı');
     const patch: Record<string, unknown> = {};
     if (body.description !== undefined) patch.description = body.description;
     if (body.resolutionNote !== undefined) patch.resolutionNote = body.resolutionNote;
     if (body.severity !== undefined) patch.severity = body.severity;
+    if (body.ticketType !== undefined) patch.ticketType = body.ticketType;
     if (body.assignedToUserId !== undefined) patch.assignedToUserId = body.assignedToUserId;
     if (body.metadata !== undefined) patch.metadata = body.metadata;
     if (!Object.keys(patch).length) return ticket;
@@ -649,7 +677,11 @@ export class ServiceController {
   @Patch('service-tickets/:id/status')
   async updateTicketStatus(@Param('id') id: string, @Body(new ZodValidationPipe(ticketStatus)) body: z.infer<typeof ticketStatus>, @CurrentUser() user: AuthContext) {
     const ticket = await this.db.query.serviceTickets.findFirst({
-      where: and(eq(serviceTickets.id, id), eq(serviceTickets.tenantId, user.tenantId)),
+      where: and(
+        eq(serviceTickets.id, id),
+        eq(serviceTickets.tenantId, user.tenantId),
+        divisionFilter(resolveActorDivisionScope(user), serviceTickets.divisionId) ?? sql`true`
+      ),
     });
     if (!ticket) throw new NotFoundError('Servis kaydı');
     const statusId = await lookupIdByCode(this.db, serviceTicketStatuses, body.statusCode);
@@ -664,7 +696,11 @@ export class ServiceController {
   @Get('installations')
   async listInstallations(@Query(new ZodValidationPipe(paginationSchema)) p: Pagination, @CurrentUser() user: AuthContext) {
     const { limit, offset } = pageOffset(p);
-    const where = and(eq(installationJobs.tenantId, user.tenantId), isNull(installationJobs.deletedAt));
+    const where = and(
+      eq(installationJobs.tenantId, user.tenantId),
+      isNull(installationJobs.deletedAt),
+      divisionFilter(resolveActorDivisionScope(user), installationJobs.divisionId) ?? sql`true`
+    );
     const [{ count }] = await this.db.select({ count: sql<number>`count(*)::int` }).from(installationJobs).where(where);
     const rows = await this.db
       .select({
@@ -698,6 +734,8 @@ export class ServiceController {
     if (body.customerDeviceId) await this.assertCustomerDevice(body.customerDeviceId, user.tenantId, companyId);
     if (body.assignedToUserId) await this.assertUser(body.assignedToUserId, user.tenantId);
     const scheduled = await this.db.query.installationStatuses.findFirst({ where: eq(installationStatuses.code, 'scheduled') });
+    const divisionId = resolveAssignedDivision(user, body.divisionId ?? opportunity?.divisionId ?? quote?.divisionId ?? null);
+    if (!divisionId) throw new ValidationError('Kurulum için bölüm ataması zorunludur', { field: 'divisionId' });
     // Konum tipi + süre verildiyse saha ücretini @haksan/shared ile hesapla
     // (İstanbul içi 70$/saat, dışı 100$/saat; 15/45 dk eşikli yuvarlama).
     const fee =
@@ -708,6 +746,7 @@ export class ServiceController {
       .insert(installationJobs)
       .values({
         tenantId: user.tenantId,
+        divisionId,
         opportunityId: body.opportunityId ?? null,
         quoteId: body.quoteId ?? null,
         customerDeviceId: body.customerDeviceId ?? null,
@@ -734,7 +773,12 @@ export class ServiceController {
     @CurrentUser() user: AuthContext,
   ) {
     const job = await this.db.query.installationJobs.findFirst({
-      where: and(eq(installationJobs.id, id), eq(installationJobs.tenantId, user.tenantId), isNull(installationJobs.deletedAt)),
+      where: and(
+        eq(installationJobs.id, id),
+        eq(installationJobs.tenantId, user.tenantId),
+        isNull(installationJobs.deletedAt),
+        divisionFilter(resolveActorDivisionScope(user), installationJobs.divisionId) ?? sql`true`
+      ),
     });
     if (!job) throw new NotFoundError('Kurulum');
     const statusId = await lookupIdByCode(this.db, installationStatuses, body.statusCode);
@@ -790,7 +834,11 @@ export class ServiceController {
   @Get('shipments')
   async listShipments(@Query(new ZodValidationPipe(paginationSchema)) p: Pagination, @CurrentUser() user: AuthContext) {
     const { limit, offset } = pageOffset(p);
-    const where = and(eq(shipments.tenantId, user.tenantId), isNull(shipments.deletedAt));
+    const where = and(
+      eq(shipments.tenantId, user.tenantId),
+      isNull(shipments.deletedAt),
+      divisionFilter(resolveActorDivisionScope(user), shipments.divisionId) ?? sql`true`
+    );
     const [{ count }] = await this.db.select({ count: sql<number>`count(*)::int` }).from(shipments).where(where);
     const rows = await this.db.select().from(shipments).where(where).orderBy(desc(shipments.createdAt)).limit(limit).offset(offset);
     const enriched = await Promise.all(rows.map((s) => this.enrichShipment(s)));
@@ -800,7 +848,7 @@ export class ServiceController {
   @RequirePermissions('shipments.read')
   @Get('shipments/:id')
   async getShipment(@Param('id') id: string, @CurrentUser() user: AuthContext) {
-    const shipment = await this.assertShipment(id, user.tenantId);
+    const shipment = await this.assertShipment(id, user.tenantId, user);
     return this.enrichShipment(shipment);
   }
 
@@ -813,10 +861,16 @@ export class ServiceController {
     if (body.quoteId) await this.assertQuote(body.quoteId, user.tenantId, companyId, body.opportunityId);
     if (body.salesOrderId) await this.assertSalesOrder(body.salesOrderId, user.tenantId, companyId);
     const statusId = await lookupIdByCode(this.db, shipmentStatuses, body.statusCode);
+    const divisionId = resolveAssignedDivision(
+      user,
+      body.divisionId ?? opportunity?.divisionId ?? null
+    );
+    if (!divisionId) throw new ValidationError('Sevkiyat için bölüm ataması zorunludur', { field: 'divisionId' });
     const [row] = await this.db
       .insert(shipments)
       .values({
         tenantId: user.tenantId,
+        divisionId,
         opportunityId: body.opportunityId ?? null,
         quoteId: body.quoteId ?? null,
         salesOrderId: body.salesOrderId ?? null,
@@ -839,7 +893,7 @@ export class ServiceController {
   @RequirePermissions('shipments.update')
   @Patch('shipments/:id/status')
   async updateShipmentStatus(@Param('id') id: string, @Body(new ZodValidationPipe(shipmentStatusUpdateSchema)) body: z.infer<typeof shipmentStatusUpdateSchema>, @CurrentUser() user: AuthContext) {
-    const shipment = await this.assertShipment(id, user.tenantId);
+    const shipment = await this.assertShipment(id, user.tenantId, user);
     const statusId = await lookupIdByCode(this.db, shipmentStatuses, body.statusCode);
     const now = new Date();
     const patch: Record<string, unknown> = { statusId };
@@ -862,7 +916,11 @@ export class ServiceController {
   @Get('deliveries')
   async listDeliveries(@Query(new ZodValidationPipe(paginationSchema)) p: Pagination, @CurrentUser() user: AuthContext) {
     const { limit, offset } = pageOffset(p);
-    const where = and(eq(deliveries.tenantId, user.tenantId), isNull(deliveries.deletedAt));
+    const where = and(
+      eq(deliveries.tenantId, user.tenantId),
+      isNull(deliveries.deletedAt),
+      divisionFilter(resolveActorDivisionScope(user), deliveries.divisionId) ?? sql`true`
+    );
     const [{ count }] = await this.db.select({ count: sql<number>`count(*)::int` }).from(deliveries).where(where);
     const rows = await this.db
       .select()
@@ -880,11 +938,14 @@ export class ServiceController {
     await this.assertCompany(body.companyId, user.tenantId);
     if (body.opportunityId) await this.assertOpportunity(body.opportunityId, user.tenantId, body.companyId);
     if (body.salesOrderId) await this.assertSalesOrder(body.salesOrderId, user.tenantId, body.companyId);
-    if (body.shipmentId) await this.assertShipment(body.shipmentId, user.tenantId);
+    if (body.shipmentId) await this.assertShipment(body.shipmentId, user.tenantId, user);
+    const divisionId = resolveAssignedDivision(user, body.divisionId ?? null);
+    if (!divisionId) throw new ValidationError('Teslimat için bölüm ataması zorunludur', { field: 'divisionId' });
     const [row] = await this.db
       .insert(deliveries)
       .values({
         tenantId: user.tenantId,
+        divisionId,
         opportunityId: body.opportunityId ?? null,
         companyId: body.companyId,
         shipmentId: body.shipmentId ?? null,
@@ -910,13 +971,18 @@ export class ServiceController {
     @CurrentUser() user: AuthContext,
   ) {
     const delivery = await this.db.query.deliveries.findFirst({
-      where: and(eq(deliveries.id, id), eq(deliveries.tenantId, user.tenantId), isNull(deliveries.deletedAt)),
+      where: and(
+        eq(deliveries.id, id),
+        eq(deliveries.tenantId, user.tenantId),
+        isNull(deliveries.deletedAt),
+        divisionFilter(resolveActorDivisionScope(user), deliveries.divisionId) ?? sql`true`
+      ),
     });
     if (!delivery) throw new NotFoundError('Teslimat');
     if (body.companyId) await this.assertCompany(body.companyId, user.tenantId);
     if (body.opportunityId) await this.assertOpportunity(body.opportunityId, user.tenantId, body.companyId ?? delivery.companyId);
     if (body.salesOrderId) await this.assertSalesOrder(body.salesOrderId, user.tenantId, body.companyId ?? delivery.companyId);
-    if (body.shipmentId) await this.assertShipment(body.shipmentId, user.tenantId);
+    if (body.shipmentId) await this.assertShipment(body.shipmentId, user.tenantId, user);
 
     const patch: Partial<typeof deliveries.$inferInsert> = {};
     if (body.opportunityId !== undefined) patch.opportunityId = body.opportunityId ?? null;
@@ -940,7 +1006,12 @@ export class ServiceController {
   @Patch('deliveries/:id/status')
   async updateDeliveryStatus(@Param('id') id: string, @Body(new ZodValidationPipe(deliveryStatusUpdateSchema)) body: z.infer<typeof deliveryStatusUpdateSchema>, @CurrentUser() user: AuthContext) {
     const delivery = await this.db.query.deliveries.findFirst({
-      where: and(eq(deliveries.id, id), eq(deliveries.tenantId, user.tenantId), isNull(deliveries.deletedAt)),
+      where: and(
+        eq(deliveries.id, id),
+        eq(deliveries.tenantId, user.tenantId),
+        isNull(deliveries.deletedAt),
+        divisionFilter(resolveActorDivisionScope(user), deliveries.divisionId) ?? sql`true`
+      ),
     });
     if (!delivery) throw new NotFoundError('Teslimat');
     await this.db.update(deliveries).set({ status: body.status }).where(eq(deliveries.id, id));

@@ -6,8 +6,9 @@ import {
   CreditCard, Boxes, ShoppingCart, Truck, Wrench, PackageCheck, Cpu,
   LifeBuoy, BarChart3, ShieldCheck, Building2, Contact as ContactIcon, Settings as SettingsIcon,
   Search, Bell, ChevronDown, LogOut, Plus, HelpCircle, Menu,
-  CheckCircle2, Clock, AlertTriangle, XCircle, ChevronRight, Tag, Receipt, Map as MapIcon, FileSignature, QrCode, Wallet, Calendar,
+  CheckCircle2, Clock, AlertTriangle, XCircle, ChevronRight, Tag, Receipt, Map as MapIcon, FileSignature, QrCode, Wallet, Calendar, MessageCircle,
 } from "lucide-react";
+import { chatService } from "../../lib/services";
 import { useAuth } from "../../lib/auth";
 import { toast } from "sonner";
 import { Button } from "./ui/button";
@@ -21,12 +22,13 @@ import { ScrollArea } from "./ui/scroll-area";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "./ui/tooltip";
 import { QuickCreateDialog } from "./dialogs/CreateDialogs";
 import { HelpCenterDialog } from "./HelpCenterDialog";
+import { ApprovalsDialog } from "./ApprovalsDialog";
 import { CommandPalette } from "./operations/CommandPalette";
 import { AssistantPanel } from "./operations/AssistantPanel";
 import { buildAlerts, type OperationAction } from "../lib/operations";
 
 export type NavKey =
-  | "dashboard" | "customers" | "contacts" | "sales-cases" | "kanban" | "sales-map" | "offers"
+  | "dashboard" | "chat" | "customers" | "contacts" | "sales-cases" | "kanban" | "sales-map" | "offers"
   | "proformas" | "contracts" | "documents" | "payments" | "accounting-invoices" | "customer-balances" | "due-dates" | "sales-price-list" | "products"
   | "stock" | "purchase-orders" | "shipments"
   | "installations" | "deliveries" | "machines" | "lifecycle" | "service-requests" | "service-kanban" | "service-price-list"
@@ -44,6 +46,7 @@ const NAV: { group: string; items: NavItem[] }[] = [
     group: "Genel",
     items: [
       { key: "dashboard", label: "Gösterge Paneli", icon: LayoutDashboard },
+      { key: "chat", label: "Sohbet", icon: MessageCircle },
     ],
   },
   {
@@ -103,7 +106,13 @@ type Props = {
 export function Layout({ current, onNavigate, onLogout, pageTitle, pageSubtitle, actions, children, onSelectFirm, onSelectCase, onOperationAction }: Props) {
   const store = useStore();
   const { customers, service } = store;
-  const { hasRole, user } = useAuth();
+  const { hasRole, hasPermission, user, activeDivision, setActiveDivision } = useAuth();
+  const canApprove = hasPermission("companies.update") || hasRole("super_admin");
+  const divisions = user?.divisions ?? [];
+  const canViewAllDivisions = user?.canViewAllDivisions ?? false;
+  const showDivisionMenu = divisions.length > 1 || canViewAllDivisions;
+  const activeDivisionLabel =
+    activeDivision === "all" ? "Tümü" : divisions.find((d) => d.id === activeDivision)?.name ?? "Bölüm";
   const roleLabel = user?.roles?.[0] ? user.roles[0].replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()) : "Kullanıcı";
   const userInitials = (user?.fullName ?? "?").split(" ").slice(0, 2).map((p) => p[0]).join("").toUpperCase();
   // Departman bazlı menü görünürlüğü:
@@ -121,6 +130,20 @@ export function Layout({ current, onNavigate, onLogout, pageTitle, pageSubtitle,
   const canSeeReports = hasRole("admin") || hasRole("super_admin") || hasRole("readonly") || hasRole("sales") || hasRole("finance");
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [commandOpen, setCommandOpen] = useState(false);
+  // Sohbet okunmamış rozeti — konuşmaları 15 sn'de bir özetleyip toplam okunmamışı gösterir.
+  const [chatUnread, setChatUnread] = useState(0);
+  useEffect(() => {
+    const tick = () => {
+      if (document.hidden) return;
+      chatService
+        .conversations()
+        .then((rows) => setChatUnread(rows.reduce((sum, c) => sum + (c.unreadCount ?? 0), 0)))
+        .catch(() => {});
+    };
+    tick();
+    const h = setInterval(tick, 15000);
+    return () => clearInterval(h);
+  }, []);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -214,7 +237,11 @@ export function Layout({ current, onNavigate, onLogout, pageTitle, pageSubtitle,
                       )}
                       <Icon className={`size-[17px] shrink-0 ${active ? "text-primary" : "text-muted-foreground group-hover:text-foreground"}`} strokeWidth={1.8} />
                       <span className="truncate flex-1 text-left">{item.label}</span>
-                      {(item.key === "service-requests" && service.length > 0) ? (
+                      {(item.key === "chat" && chatUnread > 0) ? (
+                        <Badge variant="secondary" className={`h-5 px-1.5 text-[10px] ${active ? "bg-primary text-primary-foreground" : "bg-primary/10 text-primary"}`}>
+                          {chatUnread}
+                        </Badge>
+                      ) : (item.key === "service-requests" && service.length > 0) ? (
                         <Badge variant="secondary" className={`h-5 px-1.5 text-[10px] ${active ? "bg-primary text-primary-foreground" : "bg-primary/10 text-primary"}`}>
                           {service.length}
                         </Badge>
@@ -325,6 +352,52 @@ export function Layout({ current, onNavigate, onLogout, pageTitle, pageSubtitle,
             </div>
 
             <div className="flex-1" />
+
+            {/* Bölüm seçici (CNC/Üniversal/Sac/Tümü) — yalnızca birden çok bölüm
+                veya 'tümünü gör' yetkisi olanlara. Tek bölümlülerde statik rozet. */}
+            {divisions.length > 0 &&
+              (showDivisionMenu ? (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="outline" size="sm" className="gap-1.5 h-9 px-2 sm:px-3" aria-label="Bölüm seç">
+                      <Building2 className="size-4 text-muted-foreground" />
+                      <span className="hidden sm:inline max-w-[110px] truncate">{activeDivisionLabel}</span>
+                      <ChevronDown className="size-3.5 text-muted-foreground" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-48">
+                    <DropdownMenuLabel>Bölüm</DropdownMenuLabel>
+                    <DropdownMenuSeparator />
+                    {canViewAllDivisions && (
+                      <DropdownMenuItem className="justify-between" onClick={() => setActiveDivision("all")}>
+                        Tümü
+                        {activeDivision === "all" && <CheckCircle2 className="size-4 text-primary" />}
+                      </DropdownMenuItem>
+                    )}
+                    {divisions.map((d) => (
+                      <DropdownMenuItem key={d.id} className="justify-between" onClick={() => setActiveDivision(d.id)}>
+                        {d.name}
+                        {activeDivision === d.id && <CheckCircle2 className="size-4 text-primary" />}
+                      </DropdownMenuItem>
+                    ))}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              ) : (
+                <Badge variant="outline" className="gap-1.5 h-9 px-2.5 font-normal hidden sm:inline-flex">
+                  <Building2 className="size-3.5 text-muted-foreground" />
+                  {divisions[0]?.name}
+                </Badge>
+              ))}
+
+            {canApprove && (
+              <ApprovalsDialog
+                trigger={
+                  <Button variant="ghost" size="icon" className="relative size-9" aria-label="Onay bekleyen firma talepleri">
+                    <ShieldCheck className="size-[18px] text-muted-foreground" />
+                  </Button>
+                }
+              />
+            )}
 
             <QuickCreateDialog
               trigger={

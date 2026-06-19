@@ -77,6 +77,8 @@ export type Contact = {
   politicalView?: string;
   isPrimary: boolean;
   note?: string;
+  isBlacklisted?: boolean;
+  blacklistReason?: string;
 };
 
 export type SalesStage =
@@ -352,6 +354,9 @@ export type ServiceOperation = {
   byUserId?: string;
 };
 
+export type ServiceTicketType = "complaint" | "request" | "warranty_claim" | "question";
+export type ServiceSource = "manual" | "phone" | "email" | "whatsapp" | "portal" | "passport" | "web";
+
 export type ServiceRequest = {
   id: string;
   machineId: string;
@@ -363,6 +368,8 @@ export type ServiceRequest = {
   serviceNote: string;
   createdAt: string;
   issueType?: string;
+  ticketType?: ServiceTicketType;
+  source?: ServiceSource;
   priority?: "low" | "normal" | "high" | "critical";
   description?: string;
   complaints?: ServiceHistoryItem[];

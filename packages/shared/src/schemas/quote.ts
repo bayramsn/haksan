@@ -4,6 +4,7 @@ import { moneySchema, percentSchema } from './common';
 export const quoteCreateSchema = z.object({
   opportunityId: z.string().optional(),
   companyId: z.string().min(1),
+  divisionId: z.string().uuid().optional(),
   contactId: z.string().optional(),
   documentNo: z.string().max(64).optional(),
   quoteDate: z.coerce.date(),

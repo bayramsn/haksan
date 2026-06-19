@@ -3,6 +3,7 @@ import { moneySchema, dateRangeSchema } from './common';
 
 export const receivableCreateSchema = z.object({
   companyId: z.string().min(1),
+  divisionId: z.string().uuid().optional(),
   quoteId: z.string().optional(),
   amount: moneySchema,
   currencyCode: z.string().max(8).default('USD'),
@@ -20,6 +21,7 @@ export const paymentCreateSchema = z
     receivableId: z.string().min(1).optional(),
     payableId: z.string().min(1).optional(),
     companyId: z.string().min(1).optional(),
+    divisionId: z.string().uuid().optional(),
     amount: moneySchema,
     currencyCode: z.string().max(8).default('USD'),
     paymentDate: z.coerce.date(),
@@ -57,6 +59,7 @@ export type InstallmentPreviewInput = z.infer<typeof installmentPreviewSchema>;
 
 export const accountingInvoiceCreateSchema = z.object({
   companyId: z.string().min(1),
+  divisionId: z.string().uuid().optional(),
   type: z.enum(['sales', 'purchase']),
   invoiceNo: z.string().min(1).max(64),
   invoiceDate: z.coerce.date(),

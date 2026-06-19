@@ -7,6 +7,10 @@ import type {
   AccountingInvoiceCreateInput,
   BrandCreateInput,
   CallCreateInput,
+  ChatMemberRole,
+  CreateGroupInput,
+  SendMessageInput,
+  UpdateGroupInput,
   CommercialInvoiceCreateInput,
   CommercialInvoiceUpdateInput,
   CompanyCreateInput,
@@ -73,7 +77,7 @@ import type {
   VisitCreateInput,
   WarehouseCreateInput,
 } from '@haksan/shared';
-import { api, getAccessToken } from './apiClient';
+import { api, getAccessToken, getActiveDivision } from './apiClient';
 import { exportService } from './downloadExport';
 
 export interface Paginated<T> {
@@ -147,12 +151,48 @@ export const companyService = {
   create: (body: CompanyCreateInput) => api.post<CompanyDTO>('/companies', body),
   update: (id: string, body: CompanyUpdateInput) => api.patch<CompanyDTO>(`/companies/${id}`, body),
   remove: (id: string) => api.delete(`/companies/${id}`),
+  /** Başka bölümlerdeki açık alacak (borç) uyarısı. Tutar yalnızca süper yönetici/view_all için döner. */
+  crossDivisionDebt: (id: string) =>
+    api.get<{ hasDebt: boolean; departments: { id: string; name: string; amount?: number }[]; amount?: number }>(
+      `/companies/${id}/cross-department-debt`
+    ),
+  /** Mükerrer firma için başka bölümden erişim talebi oluşturur (onay akışı). */
+  requestAccess: (id: string, note?: string) => {
+    const activeDivision = getActiveDivision();
+    return api.post(`/companies/${id}/access-requests`, {
+      note,
+      divisionId: activeDivision && activeDivision !== 'all' ? activeDivision : undefined,
+    });
+  },
+};
+
+export interface AccessRequestRow {
+  id: string;
+  companyId: string;
+  status: string;
+  note: string | null;
+  createdAt: string;
+  ownerDivisionId: string | null;
+  requestingDivisionId: string;
+  company: { id: string; legalTitle: string; taxNumber: string | null } | null;
+  requestingDivision: { id: string; name: string; code: string } | null;
+}
+
+/** Mükerrer firma erişim talepleri (onay inbox). */
+export const accessRequestService = {
+  list: (params?: { status?: string; page?: number; pageSize?: number }) =>
+    api.get<Paginated<AccessRequestRow>>(`/access-requests${qs(params as Record<string, string | number | undefined>)}`),
+  approve: (id: string, decisionNote?: string) => api.post(`/access-requests/${id}/approve`, { decisionNote }),
+  reject: (id: string, decisionNote?: string) => api.post(`/access-requests/${id}/reject`, { decisionNote }),
 };
 
 // ───── Contacts ─────
 export const contactService = {
   list: (params?: Record<string, string | number | undefined>) => api.get<Paginated<any>>(`/contacts${qs(params)}`),
   get: (id: string) => api.get<any>(`/contacts/${id}`),
+  /** Kontağın bağlı olduğu firmalar (çoklu firma — aynı kişi birden çok firmada). */
+  companies: (id: string) =>
+    api.get<{ id: string; legalTitle: string; shortName: string | null; isPrimary: boolean }[]>(`/contacts/${id}/companies`),
   create: (body: ContactCreateInput) => api.post<any>('/contacts', body),
   update: (id: string, body: ContactUpdateInput) => api.patch<any>(`/contacts/${id}`, body),
   remove: (id: string) => api.delete(`/contacts/${id}`),
@@ -492,6 +532,106 @@ export const adminService = {
 // ───── Lookups ─────
 export const lookupService = {
   byName: (name: string) => api.get<any[]>(`/lookups/${name}`),
+};
+
+// ───── Chat (kurum içi sohbet) ─────
+export interface ChatDirectoryUser {
+  id: string;
+  fullName: string;
+  email: string;
+  departmentId: string | null;
+  status: string;
+}
+export interface ChatAttachment {
+  fileId: string;
+  url: string;
+  filename: string;
+  mimeType: string;
+  sizeBytes: number;
+  isImage: boolean;
+}
+export interface ChatReaction {
+  emoji: string;
+  count: number;
+  mine: boolean;
+}
+export interface ChatReplyPreview {
+  id: string;
+  senderName: string;
+  preview: string;
+}
+export interface ChatRefCard {
+  type: 'quote' | 'company' | 'service_ticket' | 'opportunity';
+  id: string;
+  title: string;
+  subtitle: string | null;
+  missing?: boolean;
+}
+export interface ChatMessageDTO {
+  id: string;
+  body: string | null;
+  senderId: string;
+  senderName: string;
+  createdAt: string;
+  editedAt: string | null;
+  kind: 'text' | 'system' | 'voice' | string;
+  attachments: ChatAttachment[];
+  reactions: ChatReaction[];
+  replyTo: ChatReplyPreview | null;
+  refCard: ChatRefCard | null;
+}
+export interface ChatMemberDTO {
+  userId: string;
+  role: ChatMemberRole;
+  fullName: string;
+  email: string;
+  lastReadAt?: string | null;
+}
+export interface ChatConversationSummary {
+  id: string;
+  type: 'dm' | 'group';
+  title: string | null;
+  avatarFileId: string | null;
+  onlyAdminsCanPost: boolean;
+  myRole: ChatMemberRole;
+  members: ChatMemberDTO[];
+  unreadCount: number;
+  lastMessage: { preview: string; senderId: string; createdAt: string } | null;
+  lastActivityAt: string;
+}
+export interface ChatConversationDetail {
+  id: string;
+  type: 'dm' | 'group';
+  title: string | null;
+  description: string | null;
+  avatarFileId: string | null;
+  onlyAdminsCanPost: boolean;
+  refType: string | null;
+  refId: string | null;
+  createdBy: string | null;
+  members: ChatMemberDTO[];
+  myRole: ChatMemberRole;
+}
+
+export const chatService = {
+  directory: () => api.get<ChatDirectoryUser[]>('/chat/directory'),
+  conversations: () => api.get<ChatConversationSummary[]>('/chat/conversations'),
+  createDm: (userId: string) => api.post<ChatConversationDetail>('/chat/conversations/dm', { userId }),
+  createGroup: (body: CreateGroupInput) => api.post<ChatConversationDetail>('/chat/conversations/group', body),
+  conversation: (id: string) => api.get<ChatConversationDetail>(`/chat/conversations/${id}`),
+  updateGroup: (id: string, body: UpdateGroupInput) => api.patch<ChatConversationDetail>(`/chat/conversations/${id}`, body),
+  addMembers: (id: string, userIds: string[]) => api.post<ChatConversationDetail>(`/chat/conversations/${id}/members`, { userIds }),
+  removeMember: (id: string, userId: string) => api.delete(`/chat/conversations/${id}/members/${userId}`),
+  setMemberRole: (id: string, userId: string, role: ChatMemberRole) =>
+    api.patch(`/chat/conversations/${id}/members/${userId}/role`, { role }),
+  messages: (id: string, params?: { before?: string; limit?: number }) =>
+    api.get<{ messages: ChatMessageDTO[]; hasMore: boolean }>(`/chat/conversations/${id}/messages${qs(params)}`),
+  sendMessage: (id: string, body: SendMessageInput) => api.post<ChatMessageDTO>(`/chat/conversations/${id}/messages`, body),
+  markRead: (id: string) => api.post(`/chat/conversations/${id}/read`),
+  editMessage: (messageId: string, body: string) => api.patch<ChatMessageDTO>(`/chat/messages/${messageId}`, { body }),
+  toggleReaction: (messageId: string, emoji: string) =>
+    api.post<{ messageId: string; reactions: ChatReaction[] }>(`/chat/messages/${messageId}/reactions`, { emoji }),
+  deleteMessage: (id: string) => api.delete(`/chat/messages/${id}`),
 };
 
 // ───── helpers ─────

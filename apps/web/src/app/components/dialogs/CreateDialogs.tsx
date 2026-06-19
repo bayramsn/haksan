@@ -12,13 +12,21 @@ import {
 } from "../ui/select";
 import { useStore } from "../../lib/store";
 import { usePersistentState } from "../../lib/persist";
-import { SALES_STAGES, salesStageLabel, SHIPMENT_STATUSES, DELIVERY_STATUSES, type ShipmentStatus, type DeliveryStatus, type Customer, type Contact, type Product, type ProductSpec } from "../../lib/mock";
+import { SALES_STAGES, salesStageLabel, SHIPMENT_STATUSES, DELIVERY_STATUSES, type ShipmentStatus, type DeliveryStatus, type Customer, type Contact, type Product, type ProductSpec, type ServiceTicketType } from "../../lib/mock";
+
+const SERVICE_TICKET_TYPE_OPTIONS: { value: ServiceTicketType; label: string }[] = [
+  { value: "complaint", label: "Şikayet" },
+  { value: "request", label: "Talep" },
+  { value: "warranty_claim", label: "Garanti" },
+  { value: "question", label: "Soru / Bilgi" },
+];
 import { toast } from "sonner";
 import {
   Building2, User as UserIcon, Wallet, Truck, ClipboardCheck, ChevronDown, Receipt, Upload,
   ClipboardList, Plus, Trash2, X, Loader2, Package, UserRound, Wrench,
 } from "lucide-react";
-import { serviceService, fileService, financeService, activityService, inventoryService } from "../../../lib/services";
+import { serviceService, fileService, financeService, activityService, inventoryService, contactService } from "../../../lib/services";
+import { Badge } from "../ui/badge";
 import { useAuth } from "../../../lib/auth";
 import {
   computeInstallationFee,
@@ -334,6 +342,8 @@ const emptyContactForm = (defaultCustomerId?: string) => ({
   politicalView: "",
   isPrimary: false,
   note: "",
+  isBlacklisted: false,
+  blacklistReason: "",
 });
 
 export function CreateContactDialog({
@@ -381,6 +391,8 @@ export function CreateContactDialog({
         politicalView: form.politicalView.trim(),
         isPrimary: form.isPrimary,
         note: form.note.trim(),
+        isBlacklisted: form.isBlacklisted,
+        blacklistReason: form.isBlacklisted ? form.blacklistReason.trim() : "",
       });
       toast.success("Kontak oluşturuldu", { description: contact.name });
       reset();
@@ -479,6 +491,26 @@ export function CreateContactDialog({
               />
               Birincil kontak
             </label>
+            <label className="col-span-2 flex items-center gap-2 text-sm text-red-700">
+              <input
+                type="checkbox"
+                checked={form.isBlacklisted}
+                onChange={(e) => setForm({ ...form, isBlacklisted: e.target.checked })}
+              />
+              Kara listeye al
+            </label>
+            {form.isBlacklisted && (
+              <div className="col-span-2">
+                <Label className="text-xs">Kara Liste Sebebi</Label>
+                <Textarea
+                  className="mt-1.5"
+                  rows={2}
+                  value={form.blacklistReason}
+                  onChange={(e) => setForm({ ...form, blacklistReason: e.target.value })}
+                  placeholder="Neden kara listeye alındığını yazın"
+                />
+              </div>
+            )}
           </div>
 
           <DialogFooter>
@@ -598,7 +630,23 @@ export function EditCustomerDialog({ customer, onClose }: { customer: Customer |
 export function EditContactDialog({ contact, onClose }: { contact: Contact | null; onClose: () => void }) {
   const { updateContact } = useStore();
   const [saving, setSaving] = useState(false);
-  const [form, setForm] = useState({ name: "", title: "", department: "", phone: "", mobilePhone: "", email: "" });
+  const [form, setForm] = useState({ name: "", title: "", department: "", phone: "", mobilePhone: "", email: "", isBlacklisted: false, blacklistReason: "" });
+  const [linkedCompanies, setLinkedCompanies] = useState<{ id: string; legalTitle: string; shortName: string | null; isPrimary: boolean }[]>([]);
+
+  useEffect(() => {
+    if (!contact) {
+      setLinkedCompanies([]);
+      return;
+    }
+    let alive = true;
+    contactService
+      .companies(contact.id)
+      .then((rows) => alive && setLinkedCompanies(rows))
+      .catch(() => alive && setLinkedCompanies([]));
+    return () => {
+      alive = false;
+    };
+  }, [contact]);
 
   useEffect(() => {
     if (contact)
@@ -609,6 +657,8 @@ export function EditContactDialog({ contact, onClose }: { contact: Contact | nul
         phone: contact.phone ?? "",
         mobilePhone: contact.mobilePhone ?? "",
         email: contact.email ?? "",
+        isBlacklisted: contact.isBlacklisted ?? false,
+        blacklistReason: contact.blacklistReason ?? "",
       });
   }, [contact]);
 
@@ -625,6 +675,8 @@ export function EditContactDialog({ contact, onClose }: { contact: Contact | nul
         phone: form.phone.trim(),
         mobilePhone: form.mobilePhone.trim(),
         email: form.email.trim(),
+        isBlacklisted: form.isBlacklisted,
+        blacklistReason: form.isBlacklisted ? form.blacklistReason.trim() : "",
       });
       toast.success("Kontak güncellendi", { description: form.name });
       onClose();
@@ -651,6 +703,41 @@ export function EditContactDialog({ contact, onClose }: { contact: Contact | nul
             <Field label="Cep Telefonu" value={form.mobilePhone} onChange={(v) => setForm({ ...form, mobilePhone: v })} />
           </div>
           <Field label="E-posta" value={form.email} onChange={(v) => setForm({ ...form, email: v })} />
+          {linkedCompanies.length > 0 && (
+            <div>
+              <Label className="text-xs">Bağlı Firmalar {linkedCompanies.length > 1 && `(${linkedCompanies.length})`}</Label>
+              <div className="mt-1.5 flex flex-wrap gap-1.5">
+                {linkedCompanies.map((c) => (
+                  <Badge key={c.id} variant={c.isPrimary ? "default" : "outline"} className="gap-1 font-normal">
+                    <Building2 className="size-3" />
+                    {c.shortName || c.legalTitle}
+                    {c.isPrimary && <span className="text-[9px] opacity-80">(birincil)</span>}
+                  </Badge>
+                ))}
+              </div>
+              <p className="mt-1 text-[11px] text-muted-foreground">Aynı kişi birden çok firmada yetkili olabilir.</p>
+            </div>
+          )}
+          <label className="flex items-center gap-2 text-sm text-red-700">
+            <input
+              type="checkbox"
+              checked={form.isBlacklisted}
+              onChange={(e) => setForm({ ...form, isBlacklisted: e.target.checked })}
+            />
+            Kara listeye al
+          </label>
+          {form.isBlacklisted && (
+            <div>
+              <Label className="text-xs">Kara Liste Sebebi</Label>
+              <Textarea
+                className="mt-1.5"
+                rows={2}
+                value={form.blacklistReason}
+                onChange={(e) => setForm({ ...form, blacklistReason: e.target.value })}
+                placeholder="Neden kara listeye alındığını yazın"
+              />
+            </div>
+          )}
           <DialogFooter>
             <Button type="button" variant="outline" onClick={onClose}>Vazgeç</Button>
             <Button type="submit" disabled={saving}>{saving ? "Kaydediliyor..." : "Kaydet"}</Button>
@@ -663,6 +750,10 @@ export function EditContactDialog({ contact, onClose }: { contact: Contact | nul
 
 export function CreateCaseDialog({ trigger, defaultCustomerId }: { trigger: React.ReactNode; defaultCustomerId?: string }) {
   const { customers, addCase, addCustomer, users, products } = useStore();
+  const { user, activeDivision } = useAuth();
+  const canPickDivision = user?.canViewAllDivisions ?? false;
+  const divisions = user?.divisions ?? [];
+  const defaultDivisionId = activeDivision && activeDivision !== "all" ? activeDivision : divisions[0]?.id ?? "";
   const [open, setOpen] = useState(false);
   const [selectedProductId, setSelectedProductId] = useState("");
   const makeEmptyCase = () => ({
@@ -675,6 +766,7 @@ export function CreateCaseDialog({ trigger, defaultCustomerId }: { trigger: Reac
     currency: "USD" as "USD" | "EUR" | "TRY",
     stage: "lead" as (typeof SALES_STAGES)[number],
     department: "Satış",
+    divisionId: canPickDivision ? defaultDivisionId : "",
   });
   // Taslak yenilemede korunur; başarılı kayıtta temizlenir.
   const [form, setForm] = usePersistentState("draft.case.form", makeEmptyCase());
@@ -683,6 +775,7 @@ export function CreateCaseDialog({ trigger, defaultCustomerId }: { trigger: Reac
     e.preventDefault();
     if (!form.customerId) return toast.error("Müşteri seçiniz");
     if (!form.requestedProduct) return toast.error("Ürün giriniz");
+    if (canPickDivision && !form.divisionId) return toast.error("Bölüm seçiniz", { description: "Satış kartını CNC / Üniversal / Sac bölümlerinden birine atayın." });
     try {
       const sc = await addCase(form as any);
       toast.success("Satış kartı oluşturuldu", { description: `#${sc.id.toUpperCase()}` });
@@ -781,6 +874,19 @@ export function CreateCaseDialog({ trigger, defaultCustomerId }: { trigger: Reac
                 </SelectContent>
               </Select>
             </div>
+            {canPickDivision && (
+              <div className="col-span-2">
+                <Label className="text-xs">Bölüm *</Label>
+                <Select value={form.divisionId} onValueChange={(v) => setForm({ ...form, divisionId: v })}>
+                  <SelectTrigger className="mt-1.5"><SelectValue placeholder="Bölüm seçin (CNC / Üniversal / Sac)..." /></SelectTrigger>
+                  <SelectContent>
+                    {divisions.map((d) => (
+                      <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
             <div className="col-span-2">
               <Label className="text-xs">Başlangıç Aşaması</Label>
               <Select value={form.stage} onValueChange={(v: any) => setForm({ ...form, stage: v })}>
@@ -2925,9 +3031,17 @@ export function CreateServiceRequestDialog({ trigger, defaultMachineId }: { trig
   const [open, setOpen] = useState(false);
   const serviceUsers = users.filter((u) => u.role === "Service" || u.department === "Servis");
   const firstMachine = machinesAll[0];
-  const [form, setForm] = useState({
+  const [form, setForm] = useState<{
+    machineId: string;
+    assignedUserId: string;
+    ticketType: ServiceTicketType;
+    diagnosisNote: string;
+    quoteRequired: boolean;
+    serviceNote: string;
+  }>({
     machineId: defaultMachineId ?? firstMachine?.id ?? "",
     assignedUserId: (serviceUsers[0] ?? users[0])?.id ?? "",
+    ticketType: "complaint",
     diagnosisNote: "",
     quoteRequired: false,
     serviceNote: "",
@@ -2949,6 +3063,7 @@ export function CreateServiceRequestDialog({ trigger, defaultMachineId }: { trig
         machineId: form.machineId,
         customerId: selectedMachine.customerId,
         assignedUserId: form.assignedUserId,
+        ticketType: form.ticketType,
         diagnosisNote: form.diagnosisNote,
         quoteRequired: form.quoteRequired,
         serviceNote: form.serviceNote,
@@ -2957,6 +3072,7 @@ export function CreateServiceRequestDialog({ trigger, defaultMachineId }: { trig
       setForm({
         machineId: firstMachine?.id ?? "",
         assignedUserId: (serviceUsers[0] ?? users[0])?.id ?? "",
+        ticketType: "complaint",
         diagnosisNote: "",
         quoteRequired: false,
         serviceNote: "",
@@ -3023,6 +3139,20 @@ export function CreateServiceRequestDialog({ trigger, defaultMachineId }: { trig
                     <SelectContent>
                       {(serviceUsers.length > 0 ? serviceUsers : users).map((u) => (
                         <SelectItem key={u.id} value={u.id}>{u.name} · {u.department}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="min-w-0">
+                  <Label className="text-xs">Kayıt Tipi *</Label>
+                  <Select value={form.ticketType} onValueChange={(v) => setForm({ ...form, ticketType: v as ServiceTicketType })}>
+                    <SelectTrigger className="mt-1.5 min-w-0">
+                      <SelectValue placeholder="Kayıt tipi seçin" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {SERVICE_TICKET_TYPE_OPTIONS.map((opt) => (
+                        <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
                       ))}
                     </SelectContent>
                   </Select>

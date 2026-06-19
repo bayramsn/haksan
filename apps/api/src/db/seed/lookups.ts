@@ -68,6 +68,13 @@ export async function seedLookups(): Promise<void> {
       });
     }
   }
+  // Çapraz kesen özel yetki: tüm bölümleri (CNC/Üniversal/Sac) görme + bölüm seçme.
+  permRows.push({
+    code: 'divisions.view_all',
+    name: 'Bölümler — tümünü gör',
+    resource: 'divisions',
+    action: 'view_all',
+  });
   if (permRows.length) {
     await db.insert(schema.permissions).values(permRows).onConflictDoNothing({ target: schema.permissions.code });
     console.log(`[lookups] seeded ${permRows.length} permissions`);

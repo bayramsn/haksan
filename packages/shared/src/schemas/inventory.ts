@@ -11,6 +11,7 @@ export const warehouseCreateSchema = z.object({
 export type WarehouseCreateInput = z.infer<typeof warehouseCreateSchema>;
 
 export const inventoryItemCreateSchema = z.object({
+  divisionId: z.string().uuid().optional(),
   productModelId: z.string().min(1),
   serialNumber: z.string().min(1).max(128),
   controlUnit: z.string().max(128).optional(),
@@ -29,6 +30,7 @@ export type InventoryItemUpdateInput = z.infer<typeof inventoryItemUpdateSchema>
 
 export const inventoryReserveSchema = z.object({
   companyId: z.string().min(1),
+  divisionId: z.string().uuid().optional(),
   opportunityId: z.string().optional(),
   quoteId: z.string().optional(),
   notes: z.string().max(1000).optional(),
@@ -54,6 +56,7 @@ export type InventorySellInput = z.infer<typeof inventorySellSchema>;
 
 export const customerDeviceCreateSchema = z.object({
   companyId: z.string().min(1),
+  divisionId: z.string().uuid().optional(),
   inventoryItemId: z.string().optional(),
   opportunityId: z.string().optional(),
   quoteId: z.string().optional(),

@@ -6,6 +6,7 @@ export const pipelineStageEnum = z.enum(PIPELINE_STAGES);
 
 export const opportunityCreateSchema = z.object({
   companyId: z.string().min(1),
+  divisionId: z.string().uuid().optional(),
   primaryContactId: z.string().min(1).optional(),
   ownerUserId: z.string().min(1).optional(),
   title: z.string().min(1).max(255),

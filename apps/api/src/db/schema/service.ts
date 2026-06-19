@@ -1,7 +1,7 @@
 import { pgTable, uuid, varchar, text, timestamp, integer, index, uniqueIndex, jsonb } from 'drizzle-orm/pg-core';
 import type { DeliveryFormData } from '@haksan/shared';
 import { auditColumns, money } from './_helpers';
-import { tenants } from './tenants';
+import { tenants, divisions } from './tenants';
 import { users } from './users';
 import { companies, contacts } from './companies';
 import { customerDevices, inventoryItems } from './inventory';
@@ -18,6 +18,7 @@ export const installationJobs = pgTable(
     tenantId: uuid('tenant_id')
       .notNull()
       .references(() => tenants.id, { onDelete: 'cascade' }),
+    divisionId: uuid('division_id').references(() => divisions.id, { onDelete: 'set null' }),
     opportunityId: uuid('opportunity_id').references(() => opportunities.id, { onDelete: 'set null' }),
     quoteId: uuid('quote_id').references(() => quotes.id, { onDelete: 'set null' }),
     customerDeviceId: uuid('customer_device_id').references(() => customerDevices.id, { onDelete: 'set null' }),
@@ -40,6 +41,7 @@ export const installationJobs = pgTable(
   },
   (t) => ({
     tenantIdx: index('installation_jobs_tenant_idx').on(t.tenantId),
+    tenantDivisionIdx: index('installation_jobs_tenant_division_idx').on(t.tenantId, t.divisionId),
     statusIdx: index('installation_jobs_status_idx').on(t.statusId),
   })
 );
@@ -52,6 +54,7 @@ export const serviceTickets = pgTable(
       .notNull()
       .references(() => tenants.id, { onDelete: 'cascade' }),
     ticketNo: varchar('ticket_no', { length: 64 }).notNull(),
+    divisionId: uuid('division_id').references(() => divisions.id, { onDelete: 'set null' }),
     companyId: uuid('company_id')
       .notNull()
       .references(() => companies.id, { onDelete: 'restrict' }),
@@ -60,6 +63,10 @@ export const serviceTickets = pgTable(
     subject: varchar('subject', { length: 255 }).notNull(),
     description: text('description'),
     severity: varchar('severity', { length: 32 }).notNull().default('normal'),
+    // Kayıt tipi: complaint (şikayet) | request (talep) | warranty_claim (garanti) | question (soru).
+    ticketType: varchar('ticket_type', { length: 32 }).notNull().default('complaint'),
+    // Geliş kanalı: manual (elle) | phone | email | whatsapp | portal | passport (makine pasaportu/QR) | web.
+    source: varchar('source', { length: 32 }).notNull().default('manual'),
     statusId: uuid('status_id').references(() => serviceTicketStatuses.id),
     assignedToUserId: uuid('assigned_to_user_id').references(() => users.id),
     reportedAt: timestamp('reported_at', { withTimezone: true }).notNull().defaultNow(),
@@ -72,6 +79,7 @@ export const serviceTickets = pgTable(
   (t) => ({
     tenantTicketNoUnique: uniqueIndex('service_tickets_tenant_ticket_no_unique').on(t.tenantId, t.ticketNo),
     tenantIdx: index('service_tickets_tenant_idx').on(t.tenantId),
+    tenantDivisionIdx: index('service_tickets_tenant_division_idx').on(t.tenantId, t.divisionId),
     statusIdx: index('service_tickets_status_idx').on(t.statusId),
   })
 );
@@ -83,6 +91,7 @@ export const shipments = pgTable(
     tenantId: uuid('tenant_id')
       .notNull()
       .references(() => tenants.id, { onDelete: 'cascade' }),
+    divisionId: uuid('division_id').references(() => divisions.id, { onDelete: 'set null' }),
     opportunityId: uuid('opportunity_id').references(() => opportunities.id, { onDelete: 'set null' }),
     quoteId: uuid('quote_id').references(() => quotes.id, { onDelete: 'set null' }),
     // Sevkiyatı satış siparişine ve müşteriye bağlar; "fulfilled" sipariş bu kolonlardan sevkiyat doğurur.
@@ -105,6 +114,7 @@ export const shipments = pgTable(
   },
   (t) => ({
     tenantIdx: index('shipments_tenant_idx').on(t.tenantId),
+    tenantDivisionIdx: index('shipments_tenant_division_idx').on(t.tenantId, t.divisionId),
     statusIdx: index('shipments_status_idx').on(t.statusId),
     salesOrderIdx: index('shipments_sales_order_idx').on(t.salesOrderId),
     companyIdx: index('shipments_company_idx').on(t.companyId),
@@ -149,6 +159,7 @@ export const deliveries = pgTable(
     tenantId: uuid('tenant_id')
       .notNull()
       .references(() => tenants.id, { onDelete: 'cascade' }),
+    divisionId: uuid('division_id').references(() => divisions.id, { onDelete: 'set null' }),
     opportunityId: uuid('opportunity_id').references(() => opportunities.id, { onDelete: 'set null' }),
     companyId: uuid('company_id')
       .notNull()
@@ -166,6 +177,7 @@ export const deliveries = pgTable(
   },
   (t) => ({
     tenantIdx: index('deliveries_tenant_idx').on(t.tenantId),
+    tenantDivisionIdx: index('deliveries_tenant_division_idx').on(t.tenantId, t.divisionId),
     companyIdx: index('deliveries_company_idx').on(t.companyId),
     opportunityIdx: index('deliveries_opportunity_idx').on(t.opportunityId),
     shipmentIdx: index('deliveries_shipment_idx').on(t.shipmentId),

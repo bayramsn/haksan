@@ -29,6 +29,12 @@ import { buildPaginated, pageOffset } from '../../shared/utils/pagination';
 import { lookupIdByCode } from '../../shared/utils/lookup.helper';
 import { AuditService } from '../../shared/database/audit.service';
 import PDFDocument from 'pdfkit';
+import {
+  companyPortfolioFilter,
+  divisionFilter,
+  resolveActorDivisionScope,
+  resolveAssignedDivision,
+} from '../../shared/utils/division-scope';
 
 interface ItemTotals {
   subtotal: number;
@@ -88,7 +94,12 @@ export class QuotesService {
 
   private async assertCompany(companyId: string, actor: AuthContext) {
     const company = await this.db.query.companies.findFirst({
-      where: and(eq(companies.id, companyId), eq(companies.tenantId, actor.tenantId), isNull(companies.deletedAt)),
+      where: and(
+        eq(companies.id, companyId),
+        eq(companies.tenantId, actor.tenantId),
+        isNull(companies.deletedAt),
+        companyPortfolioFilter(resolveActorDivisionScope(actor), companies.id) ?? sql`true`
+      ),
     });
     if (!company) throw new NotFoundError('Firma');
     return company;
@@ -145,6 +156,8 @@ export class QuotesService {
       const sid = await lookupIdByCode(this.db, quoteStatuses, query.statusCode);
       if (sid) filters.push(eq(quotes.statusId, sid));
     }
+    const scoped = divisionFilter(resolveActorDivisionScope(actor), quotes.divisionId);
+    if (scoped) filters.push(scoped);
     const where = and(...filters);
     const [{ count }] = await this.db.select({ count: sql<number>`count(*)::int` }).from(quotes).where(where);
     const rows = await this.db
@@ -171,7 +184,12 @@ export class QuotesService {
 
   async get(id: string, actor: AuthContext) {
     const quote = await this.db.query.quotes.findFirst({
-      where: and(eq(quotes.id, id), eq(quotes.tenantId, actor.tenantId), isNull(quotes.deletedAt)),
+      where: and(
+        eq(quotes.id, id),
+        eq(quotes.tenantId, actor.tenantId),
+        isNull(quotes.deletedAt),
+        divisionFilter(resolveActorDivisionScope(actor), quotes.divisionId) ?? sql`true`
+      ),
     });
     if (!quote) throw new NotFoundError('Teklif');
     const items = await this.db.select().from(quoteItems).where(eq(quoteItems.quoteId, id));
@@ -187,7 +205,12 @@ export class QuotesService {
    */
   async generatePdf(id: string, actor: AuthContext): Promise<{ buffer: Buffer; filename: string }> {
     const quote = await this.db.query.quotes.findFirst({
-      where: and(eq(quotes.id, id), eq(quotes.tenantId, actor.tenantId), isNull(quotes.deletedAt)),
+      where: and(
+        eq(quotes.id, id),
+        eq(quotes.tenantId, actor.tenantId),
+        isNull(quotes.deletedAt),
+        divisionFilter(resolveActorDivisionScope(actor), quotes.divisionId) ?? sql`true`
+      ),
     });
     if (!quote) throw new NotFoundError('Teklif');
     const items = await this.db.select().from(quoteItems).where(eq(quoteItems.quoteId, id)).orderBy(quoteItems.sortOrder);
@@ -299,6 +322,8 @@ export class QuotesService {
     if (existing) throw new ConflictError('Bu doküman numarası zaten kullanılıyor');
     const draft = await this.db.query.quoteStatuses.findFirst({ where: eq(quoteStatuses.code, 'draft') });
     const currencyId = await lookupIdByCode(this.db, currencies, input.currencyCode);
+    const divisionId = resolveAssignedDivision(actor, input.divisionId ?? null);
+    if (!divisionId) throw new ValidationError('Teklif için bölüm ataması zorunludur', { field: 'divisionId' });
     // Aynı fırsata bağlı tekliflerde revizyon numarası artar (1, 2, 3 …).
     // Fırsatı olmayan teklifler her zaman 1'dir.
     let revisionNo = 1;
@@ -313,6 +338,7 @@ export class QuotesService {
       .insert(quotes)
       .values({
         tenantId: actor.tenantId,
+        divisionId,
         opportunityId: input.opportunityId ?? null,
         companyId: input.companyId,
         contactId: input.contactId ?? null,
@@ -373,7 +399,7 @@ export class QuotesService {
 
   // ────────── ITEMS ──────────
   async addItem(quoteId: string, input: QuoteItemCreateInput, actor: AuthContext) {
-    await this.get(quoteId, actor);
+    const quote = await this.get(quoteId, actor);
     if (input.productModelId) await this.assertProductModel(input.productModelId, actor);
     if (input.inventoryItemId) await this.assertInventoryItem(input.inventoryItemId, actor);
     const t = this.calcItem(input.quantity, input.unitPrice, input.discountAmount, input.vatRate);
@@ -382,6 +408,7 @@ export class QuotesService {
       .insert(quoteItems)
       .values({
         tenantId: actor.tenantId,
+        divisionId: quote.divisionId,
         quoteId,
         productModelId: input.productModelId ?? null,
         inventoryItemId: input.inventoryItemId ?? null,
@@ -512,7 +539,11 @@ export class QuotesService {
   // ────────── PROFORMA / CONTRACT / COMMERCIAL INVOICE ──────────
   async listProformas(actor: AuthContext, page: Pagination) {
     const { limit, offset } = pageOffset(page);
-    const where = and(eq(proformas.tenantId, actor.tenantId), isNull(proformas.deletedAt));
+    const where = and(
+      eq(proformas.tenantId, actor.tenantId),
+      isNull(proformas.deletedAt),
+      divisionFilter(resolveActorDivisionScope(actor), proformas.divisionId) ?? sql`true`
+    );
     const [{ count }] = await this.db.select({ count: sql<number>`count(*)::int` }).from(proformas).where(where);
     const rows = await this.db
       .select({
@@ -531,12 +562,13 @@ export class QuotesService {
   }
 
   async createProforma(input: ProformaCreateInput, actor: AuthContext) {
-    await this.get(input.quoteId, actor);
+    const quote = await this.get(input.quoteId, actor);
     const statusId = await lookupIdByCode(this.db, proformaStatuses, input.statusCode);
     const [row] = await this.db
       .insert(proformas)
       .values({
         tenantId: actor.tenantId,
+        divisionId: quote.divisionId,
         quoteId: input.quoteId,
         documentNo: input.documentNo,
         issueDate: input.issueDate,
@@ -582,7 +614,11 @@ export class QuotesService {
 
   async listContracts(actor: AuthContext, page: Pagination) {
     const { limit, offset } = pageOffset(page);
-    const where = and(eq(contracts.tenantId, actor.tenantId), isNull(contracts.deletedAt));
+    const where = and(
+      eq(contracts.tenantId, actor.tenantId),
+      isNull(contracts.deletedAt),
+      divisionFilter(resolveActorDivisionScope(actor), contracts.divisionId) ?? sql`true`
+    );
     const [{ count }] = await this.db.select({ count: sql<number>`count(*)::int` }).from(contracts).where(where);
     const rows = await this.db
       .select({
@@ -601,12 +637,13 @@ export class QuotesService {
   }
 
   async createContract(input: ContractCreateInput, actor: AuthContext) {
-    await this.get(input.quoteId, actor);
+    const quote = await this.get(input.quoteId, actor);
     const statusId = await lookupIdByCode(this.db, contractStatuses, input.statusCode);
     const [row] = await this.db
       .insert(contracts)
       .values({
         tenantId: actor.tenantId,
+        divisionId: quote.divisionId,
         quoteId: input.quoteId,
         contractNo: input.contractNo,
         signedDate: input.signedDate ?? null,
@@ -652,7 +689,11 @@ export class QuotesService {
 
   async listCommercialInvoices(actor: AuthContext, page: Pagination) {
     const { limit, offset } = pageOffset(page);
-    const where = and(eq(commercialInvoices.tenantId, actor.tenantId), isNull(commercialInvoices.deletedAt));
+    const where = and(
+      eq(commercialInvoices.tenantId, actor.tenantId),
+      isNull(commercialInvoices.deletedAt),
+      divisionFilter(resolveActorDivisionScope(actor), commercialInvoices.divisionId) ?? sql`true`
+    );
     const [{ count }] = await this.db.select({ count: sql<number>`count(*)::int` }).from(commercialInvoices).where(where);
     const rows = await this.db
       .select({
@@ -671,12 +712,13 @@ export class QuotesService {
   }
 
   async createCommercialInvoice(input: CommercialInvoiceCreateInput, actor: AuthContext) {
-    await this.get(input.quoteId, actor);
+    const quote = await this.get(input.quoteId, actor);
     const statusId = await lookupIdByCode(this.db, invoiceStatuses, input.statusCode);
     const [row] = await this.db
       .insert(commercialInvoices)
       .values({
         tenantId: actor.tenantId,
+        divisionId: quote.divisionId,
         quoteId: input.quoteId,
         invoiceNo: input.invoiceNo,
         invoiceDate: input.invoiceDate,
@@ -722,7 +764,12 @@ export class QuotesService {
 
   private async getProforma(id: string, actor: AuthContext) {
     const row = await this.db.query.proformas.findFirst({
-      where: and(eq(proformas.id, id), eq(proformas.tenantId, actor.tenantId), isNull(proformas.deletedAt)),
+      where: and(
+        eq(proformas.id, id),
+        eq(proformas.tenantId, actor.tenantId),
+        isNull(proformas.deletedAt),
+        divisionFilter(resolveActorDivisionScope(actor), proformas.divisionId) ?? sql`true`
+      ),
     });
     if (!row) throw new NotFoundError('Proforma');
     return row;
@@ -730,7 +777,12 @@ export class QuotesService {
 
   private async getContract(id: string, actor: AuthContext) {
     const row = await this.db.query.contracts.findFirst({
-      where: and(eq(contracts.id, id), eq(contracts.tenantId, actor.tenantId), isNull(contracts.deletedAt)),
+      where: and(
+        eq(contracts.id, id),
+        eq(contracts.tenantId, actor.tenantId),
+        isNull(contracts.deletedAt),
+        divisionFilter(resolveActorDivisionScope(actor), contracts.divisionId) ?? sql`true`
+      ),
     });
     if (!row) throw new NotFoundError('Sözleşme');
     return row;
@@ -738,7 +790,12 @@ export class QuotesService {
 
   private async getCommercialInvoice(id: string, actor: AuthContext) {
     const row = await this.db.query.commercialInvoices.findFirst({
-      where: and(eq(commercialInvoices.id, id), eq(commercialInvoices.tenantId, actor.tenantId), isNull(commercialInvoices.deletedAt)),
+      where: and(
+        eq(commercialInvoices.id, id),
+        eq(commercialInvoices.tenantId, actor.tenantId),
+        isNull(commercialInvoices.deletedAt),
+        divisionFilter(resolveActorDivisionScope(actor), commercialInvoices.divisionId) ?? sql`true`
+      ),
     });
     if (!row) throw new NotFoundError('Ticari fatura');
     return row;

@@ -3,7 +3,7 @@ import { and, between, desc, eq, gte, inArray, isNull, lte, sql } from 'drizzle-
 import type { DbClient } from '../../db/client';
 import { visits as visitsTbl, calls as callsTbl } from '../../db/schema/crm';
 import { opportunities, cancellationReasons, competitors } from '../../db/schema/crm';
-import { users, userTargets, departmentTargets } from '../../db/schema/users';
+import { users, userDivisions, userTargets, departmentTargets } from '../../db/schema/users';
 import { departments } from '../../db/schema/tenants';
 import { quotes, quoteItems } from '../../db/schema/quotes';
 import { productModels, brands } from '../../db/schema/products';
@@ -13,12 +13,17 @@ import { pipelineStages, inventoryStatuses, paymentStatuses, warrantyStatuses, q
 import { companies } from '../../db/schema/companies';
 import { DB } from '../../shared/database/database.module';
 import type { AuthContext } from '../../shared/security/auth.types';
+import { divisionFilter, resolveActorDivisionScope } from '../../shared/utils/division-scope';
 
 export type Granularity = 'weekly' | 'monthly' | 'yearly';
 
 @Injectable()
 export class ReportsService {
   constructor(@Inject(DB) private readonly db: DbClient) {}
+
+  private activeDivisionFilter(actor: AuthContext, column: any) {
+    return divisionFilter(resolveActorDivisionScope(actor), column) ?? sql`true`;
+  }
 
   private bucket(granularity: Granularity, col: any) {
     switch (granularity) {
@@ -33,7 +38,11 @@ export class ReportsService {
 
   async visitsReport(actor: AuthContext, granularity: Granularity, range: { from?: Date; to?: Date }) {
     const bucket = this.bucket(granularity, visitsTbl.visitDate);
-    const filters = [eq(visitsTbl.tenantId, actor.tenantId), isNull(visitsTbl.deletedAt)];
+    const filters = [
+      eq(visitsTbl.tenantId, actor.tenantId),
+      isNull(visitsTbl.deletedAt),
+      this.activeDivisionFilter(actor, visitsTbl.divisionId),
+    ];
     if (range.from) filters.push(gte(visitsTbl.visitDate, range.from));
     if (range.to) filters.push(lte(visitsTbl.visitDate, range.to));
     return this.db
@@ -46,7 +55,7 @@ export class ReportsService {
 
   async quotesByProduct(actor: AuthContext, granularity: Granularity, range: { from?: Date; to?: Date }) {
     const bucket = this.bucket(granularity, quotes.quoteDate);
-    const filters = [eq(quotes.tenantId, actor.tenantId), isNull(quotes.deletedAt)];
+    const filters = [eq(quotes.tenantId, actor.tenantId), isNull(quotes.deletedAt), this.activeDivisionFilter(actor, quotes.divisionId)];
     if (range.from) filters.push(gte(quotes.quoteDate, range.from));
     if (range.to) filters.push(lte(quotes.quoteDate, range.to));
     return this.db
@@ -76,12 +85,19 @@ export class ReportsService {
       })
       .from(receivables)
       .leftJoin(companies, eq(receivables.companyId, companies.id))
-      .where(and(eq(receivables.tenantId, actor.tenantId), isNull(receivables.deletedAt), pending ? eq(receivables.statusId, pending.id) : sql`true`));
+      .where(
+        and(
+          eq(receivables.tenantId, actor.tenantId),
+          isNull(receivables.deletedAt),
+          this.activeDivisionFilter(actor, receivables.divisionId),
+          pending ? eq(receivables.statusId, pending.id) : sql`true`
+        )
+      );
     return rows;
   }
 
   async completedPayments(actor: AuthContext, range: { from?: Date; to?: Date }) {
-    const filters = [eq(payments.tenantId, actor.tenantId), isNull(payments.deletedAt)];
+    const filters = [eq(payments.tenantId, actor.tenantId), isNull(payments.deletedAt), this.activeDivisionFilter(actor, payments.divisionId)];
     if (range.from) filters.push(gte(payments.paymentDate, range.from));
     if (range.to) filters.push(lte(payments.paymentDate, range.to));
     return this.db.select().from(payments).where(and(...filters)).orderBy(desc(payments.paymentDate));
@@ -96,7 +112,13 @@ export class ReportsService {
       })
       .from(inventoryItems)
       .leftJoin(inventoryStatuses, eq(inventoryItems.stockStatusId, inventoryStatuses.id))
-      .where(and(eq(inventoryItems.tenantId, actor.tenantId), isNull(inventoryItems.deletedAt)))
+      .where(
+        and(
+          eq(inventoryItems.tenantId, actor.tenantId),
+          isNull(inventoryItems.deletedAt),
+          this.activeDivisionFilter(actor, inventoryItems.divisionId)
+        )
+      )
       .groupBy(inventoryStatuses.code, inventoryStatuses.name);
   }
 
@@ -112,7 +134,12 @@ export class ReportsService {
       .from(pipelineStages)
       .leftJoin(
         opportunities,
-        and(eq(opportunities.currentStageId, pipelineStages.id), eq(opportunities.tenantId, actor.tenantId), isNull(opportunities.deletedAt))
+        and(
+          eq(opportunities.currentStageId, pipelineStages.id),
+          eq(opportunities.tenantId, actor.tenantId),
+          isNull(opportunities.deletedAt),
+          this.activeDivisionFilter(actor, opportunities.divisionId)
+        )
       )
       .groupBy(pipelineStages.code, pipelineStages.name, pipelineStages.sortOrder)
       .orderBy(pipelineStages.sortOrder);
@@ -127,7 +154,13 @@ export class ReportsService {
     const from = new Date(Date.UTC(year, 0, 1, 0, 0, 0));
     const to = new Date(Date.UTC(year, 11, 31, 23, 59, 59));
     const tenant = eq(opportunities.tenantId, actor.tenantId);
-    const inYear = and(tenant, isNull(opportunities.deletedAt), gte(opportunities.createdAt, from), lte(opportunities.createdAt, to));
+    const inYear = and(
+      tenant,
+      isNull(opportunities.deletedAt),
+      gte(opportunities.createdAt, from),
+      lte(opportunities.createdAt, to),
+      this.activeDivisionFilter(actor, opportunities.divisionId)
+    );
 
     // Kazanılan = sözleşme ve sonrası aşamalar; Kaybedilen = cancelled.
     const isWon = sql`${pipelineStages.code} in ('contract','commercial_invoice','customs_approved','stock_picking','shipping','installation','delivered')`;
@@ -227,7 +260,15 @@ export class ReportsService {
       })
       .from(quotes)
       .leftJoin(quoteItems, eq(quoteItems.quoteId, quotes.id))
-      .where(and(eq(quotes.tenantId, actor.tenantId), isNull(quotes.deletedAt), gte(quotes.quoteDate, from), lte(quotes.quoteDate, to)));
+      .where(
+        and(
+          eq(quotes.tenantId, actor.tenantId),
+          isNull(quotes.deletedAt),
+          gte(quotes.quoteDate, from),
+          lte(quotes.quoteDate, to),
+          this.activeDivisionFilter(actor, quotes.divisionId)
+        )
+      );
 
     // Fiyat ortalamaları: teklif durumuna (onaylanan/reddedilen/...) göre adet,
     // toplam ve ORTALAMA teklif tutarı. Karlılık için "yıl içinde reddedilen"
@@ -242,7 +283,15 @@ export class ReportsService {
       })
       .from(quotes)
       .leftJoin(quoteStatuses, eq(quotes.statusId, quoteStatuses.id))
-      .where(and(eq(quotes.tenantId, actor.tenantId), isNull(quotes.deletedAt), gte(quotes.quoteDate, from), lte(quotes.quoteDate, to)))
+      .where(
+        and(
+          eq(quotes.tenantId, actor.tenantId),
+          isNull(quotes.deletedAt),
+          gte(quotes.quoteDate, from),
+          lte(quotes.quoteDate, to),
+          this.activeDivisionFilter(actor, quotes.divisionId)
+        )
+      )
       .groupBy(quoteStatuses.code, quoteStatuses.name)
       .orderBy(desc(sql`count(*)`));
 
@@ -283,6 +332,7 @@ export class ReportsService {
         and(
           eq(customerDevices.tenantId, actor.tenantId),
           isNull(customerDevices.deletedAt),
+          this.activeDivisionFilter(actor, customerDevices.divisionId),
           lte(customerDevices.warrantyEndDate, cutoff)
         )
       )
@@ -304,13 +354,29 @@ export class ReportsService {
 
     const isWon = sql`${pipelineStages.code} in ('contract','commercial_invoice','customs_approved','stock_picking','shipping','installation','delivered')`;
     const val = opportunities.estimatedValue;
+    const scope = resolveActorDivisionScope(actor);
 
     const rows = [];
     for (const dept of depts) {
       const members = await this.db.query.users.findMany({
         where: and(eq(users.tenantId, actor.tenantId), eq(users.departmentId, dept.id), isNull(users.deletedAt)),
       });
-      const memberIds = members.map((m) => m.id);
+      let scopedMembers = members;
+      let memberIds = scopedMembers.map((m) => m.id);
+      if (scope.mode === 'list') {
+        if (memberIds.length === 0 || scope.divisionIds.length === 0) {
+          scopedMembers = [];
+          memberIds = [];
+        } else {
+          const assignments = await this.db
+            .select({ userId: userDivisions.userId })
+            .from(userDivisions)
+            .where(and(inArray(userDivisions.userId, memberIds), inArray(userDivisions.divisionId, scope.divisionIds)));
+          const allowedUserIds = new Set(assignments.map((row) => row.userId));
+          scopedMembers = scopedMembers.filter((member) => allowedUserIds.has(member.id));
+          memberIds = scopedMembers.map((m) => m.id);
+        }
+      }
 
       const deptTarget = await this.db.query.departmentTargets.findFirst({
         where: and(
@@ -357,7 +423,8 @@ export class ReportsService {
               isNull(opportunities.deletedAt),
               gte(opportunities.createdAt, from),
               lte(opportunities.createdAt, to),
-              inArray(opportunities.ownerUserId, memberIds)
+              inArray(opportunities.ownerUserId, memberIds),
+              this.activeDivisionFilter(actor, opportunities.divisionId)
             )
           );
         wonCount = opp?.won ?? 0;
@@ -373,7 +440,8 @@ export class ReportsService {
               isNull(quotes.deletedAt),
               gte(quotes.quoteDate, from),
               lte(quotes.quoteDate, to),
-              inArray(quotes.createdBy, memberIds)
+              inArray(quotes.createdBy, memberIds),
+              this.activeDivisionFilter(actor, quotes.divisionId)
             )
           );
         quoteCount = qc?.count ?? 0;
@@ -386,7 +454,7 @@ export class ReportsService {
         departmentId: dept.id,
         departmentCode: dept.code,
         departmentName: dept.name,
-        memberCount: members.length,
+        memberCount: scopedMembers.length,
         targets: {
           departmentSalesAmount: deptSalesTarget,
           departmentQuoteTarget: deptQuoteTarget,

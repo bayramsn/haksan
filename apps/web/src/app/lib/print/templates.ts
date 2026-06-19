@@ -4,7 +4,7 @@
 // görsellerdir.
 
 import {
-  PrintDocument, CurrencyCode, esc, blank, fmtMoney, tutarYaziyla, trLongDate,
+  PrintDocument, CurrencyCode, esc, blank, fmtMoney, tutarYaziyla, tutarYaziylaProforma, trLongDate,
   haksanHeader, drmakHeader, drmakFooter, drmakWatermark, DRMAK_CSS,
 } from "./core";
 import { QuoteNoteVariant } from "./notes";
@@ -102,8 +102,8 @@ table.pf-addr .b { font-weight: bold; font-size: 9pt; }
 
 export function proformaDoc(d: ProformaPrintData, assetBase: string): PrintDocument {
   const araToplam = d.items.reduce((a, i) => a + i.tutar, 0);
-  // KDV tutarı açıkça verilmediyse ara toplam × oran üzerinden hesapla (tek doğru kaynak).
-  const kdvTutar = d.kdvTutar && d.kdvTutar > 0 ? d.kdvTutar : araToplam * (d.kdvOran / 100);
+  // Proformada KDV satırı genelde 0 gösterilir (fiyat KDV hariç); null ise oran üzerinden hesapla.
+  const kdvTutar = d.kdvTutar != null ? d.kdvTutar : araToplam * (d.kdvOran / 100);
   const genelToplam = araToplam + kdvTutar;
   const meta = (i: ProformaItem) => {
     const rows: string[] = [];
@@ -112,7 +112,7 @@ export function proformaDoc(d: ProformaPrintData, assetBase: string): PrintDocum
     if (i.gtip) rows.push(`<tr><td>G.T.İ.P.</td><td>${esc(i.gtip)}</td></tr>`);
     return rows.length ? `<table class="meta">${rows.join("")}</table>` : "";
   };
-  const yalniz = tutarYaziyla(genelToplam, d.currency);
+  const yalniz = tutarYaziylaProforma(genelToplam, d.currency);
 
   const body = `
 <div class="page">

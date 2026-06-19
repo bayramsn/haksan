@@ -14,3 +14,4 @@ export * from './finance';
 export * from './service';
 export * from './lifecycle';
 export * from './audit';
+export * from './chat';

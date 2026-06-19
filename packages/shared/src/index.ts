@@ -17,3 +17,4 @@ export * from './schemas/finance';
 export * from './schemas/admin';
 export * from './schemas/lifecycle';
 export * from './schemas/report';
+export * from './schemas/chat';

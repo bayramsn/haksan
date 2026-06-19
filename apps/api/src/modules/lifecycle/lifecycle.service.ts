@@ -434,6 +434,8 @@ export class LifecycleService {
         subject: input.subject.trim(),
         description: input.description?.trim() || null,
         severity: input.severity ?? 'normal',
+        // Müşteri, makine pasaportu (QR) üzerinden açtı → kanal kaydı.
+        source: 'passport',
         statusId: openStatusId,
       })
       .returning();

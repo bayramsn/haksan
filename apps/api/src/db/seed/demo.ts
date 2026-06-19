@@ -4,7 +4,7 @@
  * Run AFTER seedLookups() because it joins on lookup codes.
  */
 import * as argon2 from 'argon2';
-import { eq, and } from 'drizzle-orm';
+import { eq, and, isNull } from 'drizzle-orm';
 import { getDb, closeDb, schema } from '../client';
 import { allRoles, rolePermissionMatrix } from './_data';
 import { seedLookups } from './lookups';
@@ -110,31 +110,63 @@ export async function seedDemo(): Promise<void> {
   const salesDept = await db.query.departments.findFirst({
     where: and(eq(schema.departments.tenantId, tenantRow.id), eq(schema.departments.code, 'sales')),
   });
+  const departmentsByCode = new Map(
+    (await db.query.departments.findMany({ where: eq(schema.departments.tenantId, tenantRow.id) })).map((d) => [d.code, d])
+  );
+
+  // 3b. Divisions / commercial areas (CNC, Universal, Sac Isleme)
+  const divisionDefs = [
+    { code: 'cnc', name: 'CNC', description: 'CNC tezgah ve otomasyon satışları', sortOrder: 10 },
+    { code: 'universal', name: 'Üniversal', description: 'Üniversal torna, freze ve yardımcı ekipman', sortOrder: 20 },
+    { code: 'sac_isleme', name: 'Sac İşleme', description: 'Abkant, giyotin ve sac işleme hatları', sortOrder: 30 },
+  ];
+  for (const d of divisionDefs) {
+    const existing = await db.query.divisions.findFirst({
+      where: and(eq(schema.divisions.tenantId, tenantRow.id), eq(schema.divisions.code, d.code)),
+    });
+    if (!existing) {
+      await db.insert(schema.divisions).values({ tenantId: tenantRow.id, ...d });
+      console.log(`[demo] division: ${d.name}`);
+    }
+  }
+  const divisionsByCode = new Map(
+    (await db.query.divisions.findMany({ where: eq(schema.divisions.tenantId, tenantRow.id) })).map((d) => [d.code, d])
+  );
+  const defaultDivision = divisionsByCode.get('cnc') ?? divisionsByCode.values().next().value;
+  const allDivisionCodes = divisionDefs.map((d) => d.code);
 
   // 4. Users
   const userDefs = [
-    { email: 'superadmin@haksan.local', fullName: 'Süper Yönetici', password: 'superadmin12345', roles: ['super_admin'] },
-    { email: 'admin@haksan.local', fullName: 'Sistem Yöneticisi', password: 'admin12345', roles: ['admin'] },
-    { email: 'sales@haksan.local', fullName: 'Ersin Çetinbilek', password: 'sales12345', roles: ['sales'] },
-    { email: 'service@haksan.local', fullName: 'Servis Sorumlusu', password: 'service12345', roles: ['service'] },
-    { email: 'finance@haksan.local', fullName: 'Finans Sorumlusu', password: 'finance12345', roles: ['finance'] },
+    { email: 'superadmin@haksan.local', fullName: 'Süper Yönetici', password: 'superadmin12345', roles: ['super_admin'], departmentCode: 'sales', divisionCodes: allDivisionCodes },
+    { email: 'admin@haksan.local', fullName: 'Sistem Yöneticisi', password: 'admin12345', roles: ['admin'], departmentCode: 'sales', divisionCodes: allDivisionCodes },
+    { email: 'sales@haksan.local', fullName: 'Ersin Çetinbilek', password: 'sales12345', roles: ['sales'], departmentCode: 'sales', divisionCodes: allDivisionCodes },
+    { email: 'service@haksan.local', fullName: 'Servis Sorumlusu', password: 'service12345', roles: ['service'], departmentCode: 'service', divisionCodes: allDivisionCodes },
+    { email: 'finance@haksan.local', fullName: 'Finans Sorumlusu', password: 'finance12345', roles: ['finance'], departmentCode: 'finance', divisionCodes: allDivisionCodes },
+    { email: 'stock@haksan.local', fullName: 'Stok Sorumlusu', password: 'stock12345', roles: ['stock'], departmentCode: 'stock', divisionCodes: allDivisionCodes },
+    { email: 'readonly@haksan.local', fullName: 'Salt Okunur Kullanıcı', password: 'readonly12345', roles: ['readonly'], departmentCode: 'sales', divisionCodes: allDivisionCodes },
   ];
   for (const u of userDefs) {
     const existing = await db.query.users.findFirst({
       where: and(eq(schema.users.tenantId, tenantRow.id), eq(schema.users.email, u.email)),
     });
-    if (existing) continue;
-    const hash = await argon2.hash(u.password, { type: argon2.argon2id });
-    const [user] = await db
-      .insert(schema.users)
-      .values({
-        tenantId: tenantRow.id,
-        departmentId: salesDept?.id ?? null,
-        fullName: u.fullName,
-        email: u.email,
-        passwordHash: hash,
-      })
-      .returning();
+    const dept = departmentsByCode.get(u.departmentCode) ?? salesDept;
+    const user =
+      existing ??
+      (
+        await db
+          .insert(schema.users)
+          .values({
+            tenantId: tenantRow.id,
+            departmentId: dept?.id ?? null,
+            fullName: u.fullName,
+            email: u.email,
+            passwordHash: await argon2.hash(u.password, { type: argon2.argon2id }),
+          })
+          .returning()
+      )[0];
+    if (existing && dept && existing.departmentId !== dept.id) {
+      await db.update(schema.users).set({ departmentId: dept.id }).where(eq(schema.users.id, existing.id));
+    }
     for (const roleCode of u.roles) {
       const role = rolesByCode.get(roleCode);
       if (role) {
@@ -144,7 +176,21 @@ export async function seedDemo(): Promise<void> {
           .onConflictDoNothing();
       }
     }
-    console.log(`[demo] user: ${u.email} / ${u.password}`);
+    if (dept) {
+      await db
+        .insert(schema.userDepartmentAssignments)
+        .values({ userId: user.id, departmentId: dept.id, isPrimary: true })
+        .onConflictDoNothing();
+    }
+    for (const [index, code] of u.divisionCodes.entries()) {
+      const division = divisionsByCode.get(code);
+      if (!division) continue;
+      await db
+        .insert(schema.userDivisions)
+        .values({ userId: user.id, divisionId: division.id, isPrimary: index === 0 })
+        .onConflictDoNothing();
+    }
+    if (!existing) console.log(`[demo] user: ${u.email} / ${u.password}`);
   }
 
   // Lookup id helpers
@@ -192,6 +238,7 @@ export async function seedDemo(): Promise<void> {
     buildingNumber?: string;
     phone?: string;
     email?: string;
+    divisionCodes?: string[];
   };
 
   const companyDefs: CompanySeedDef[] = [
@@ -205,6 +252,7 @@ export async function seedDemo(): Promise<void> {
       address: 'Yeni Mah. Yavuz Sultan Selim Cad. No:121, Hendek, Sakarya',
       phone: '+90 264 614 76 48',
       email: 'kilitsan@kilitsan.com',
+      divisionCodes: ['cnc'],
     },
     {
       legalTitle: 'Contra Makine San. ve Tic. Ltd. Şti.',
@@ -216,6 +264,7 @@ export async function seedDemo(): Promise<void> {
       address: 'İstanbul',
       phone: '+90 212 000 00 02',
       email: 'info@contramakine.com',
+      divisionCodes: ['cnc'],
     },
     {
       legalTitle: 'ALİŞLER MAKİNA',
@@ -227,6 +276,7 @@ export async function seedDemo(): Promise<void> {
       address: 'Bursa',
       phone: '+90 224 000 00 00',
       email: 'info@aliplermakina.local',
+      divisionCodes: ['cnc'],
     },
     {
       id: '0f8d8632-6b0a-4f3d-9a56-61b70e7a1001',
@@ -242,6 +292,7 @@ export async function seedDemo(): Promise<void> {
       locality: 'Kocatepe',
       phone: '+90 212 000 00 04',
       email: 'kocatepe-test@haksan.local',
+      divisionCodes: ['cnc'],
     },
     {
       id: '0f8d8632-6b0a-4f3d-9a56-61b70e7a1002',
@@ -257,6 +308,47 @@ export async function seedDemo(): Promise<void> {
       locality: 'İsmetpaşa',
       phone: '+90 212 000 00 05',
       email: 'ismetpasa-test@haksan.local',
+      divisionCodes: ['cnc'],
+    },
+    {
+      legalTitle: 'UNIMAK ÜNİVERSAL TEZGAH SAN. A.Ş.',
+      shortName: 'UNIMAK',
+      relationCode: 'customer',
+      statusCode: 'active',
+      sector: 'Üniversal Torna & Freze',
+      taxNumber: '5550006666',
+      address: 'İvedik OSB, Yenimahalle, Ankara',
+      province: 'Ankara',
+      district: 'Yenimahalle',
+      phone: '+90 312 000 00 06',
+      email: 'satinalma@unimak.local',
+      divisionCodes: ['universal'],
+    },
+    {
+      legalTitle: 'SACTECH METAL İŞLEME SAN. LTD. ŞTİ.',
+      shortName: 'SACTECH',
+      relationCode: 'customer',
+      statusCode: 'potential',
+      sector: 'Sac İşleme',
+      taxNumber: '5550007777',
+      address: 'Nilüfer Organize Sanayi Bölgesi, Bursa',
+      province: 'Bursa',
+      district: 'Nilüfer',
+      phone: '+90 224 000 00 07',
+      email: 'info@sactech.local',
+      divisionCodes: ['sac_isleme'],
+    },
+    {
+      legalTitle: 'TAIWAN MACHINE SUPPLY CO. LTD.',
+      shortName: 'Taiwan Machine Supply',
+      relationCode: 'supplier',
+      statusCode: 'active',
+      sector: 'Makine Tedarik',
+      taxNumber: '5550008888',
+      address: 'Taichung Industrial Zone, Taiwan',
+      phone: '+886 4 0000 0008',
+      email: 'orders@tw-machines.local',
+      divisionCodes: allDivisionCodes,
     },
   ];
 
@@ -275,55 +367,68 @@ export async function seedDemo(): Promise<void> {
     const existing = await db.query.companies.findFirst({
       where: and(eq(schema.companies.tenantId, tenantRow.id), eq(schema.companies.legalTitle, c.legalTitle)),
     });
-    if (existing) continue;
-    const [company] = await db
-      .insert(schema.companies)
-      .values({
-        ...(c.id ? { id: c.id } : {}),
-        tenantId: tenantRow.id,
-        companyType: 'company',
-        relationTypeId: relTypeMap.get(c.relationCode),
-        customerStatusId: statusMap.get(c.statusCode),
-        legalTitle: c.legalTitle,
-        shortName: c.shortName,
-        sector: c.sector,
-        taxNumber: c.taxNumber,
-      })
-      .returning();
-    if (c.address) {
-      await db.insert(schema.companyAddresses).values({
-        tenantId: tenantRow.id,
-        companyId: company.id,
-        addressType: 'billing',
-        country: 'Türkiye',
-        province: c.province ?? null,
-        district: c.district ?? null,
-        locality: c.locality ?? null,
-        street: c.street ?? null,
-        buildingNumber: c.buildingNumber ?? null,
-        fullAddress: c.address,
-        isDefault: true,
-      });
+    const company =
+      existing ??
+      (
+        await db
+          .insert(schema.companies)
+          .values({
+            ...(c.id ? { id: c.id } : {}),
+            tenantId: tenantRow.id,
+            companyType: 'company',
+            relationTypeId: relTypeMap.get(c.relationCode),
+            customerStatusId: statusMap.get(c.statusCode),
+            legalTitle: c.legalTitle,
+            shortName: c.shortName,
+            sector: c.sector,
+            taxNumber: c.taxNumber,
+          })
+          .returning()
+      )[0];
+    if (!existing) {
+      if (c.address) {
+        await db.insert(schema.companyAddresses).values({
+          tenantId: tenantRow.id,
+          companyId: company.id,
+          addressType: 'billing',
+          country: 'Türkiye',
+          province: c.province ?? null,
+          district: c.district ?? null,
+          locality: c.locality ?? null,
+          street: c.street ?? null,
+          buildingNumber: c.buildingNumber ?? null,
+          fullAddress: c.address,
+          isDefault: true,
+        });
+      }
+      if (c.phone) {
+        await db.insert(schema.companyPhones).values({
+          tenantId: tenantRow.id,
+          companyId: company.id,
+          phoneType: 'main',
+          phone: c.phone,
+          isDefault: true,
+        });
+      }
+      if (c.email) {
+        await db.insert(schema.companyEmails).values({
+          tenantId: tenantRow.id,
+          companyId: company.id,
+          emailType: 'main',
+          email: c.email,
+          isDefault: true,
+        });
+      }
+      console.log(`[demo] company: ${c.legalTitle}`);
     }
-    if (c.phone) {
-      await db.insert(schema.companyPhones).values({
-        tenantId: tenantRow.id,
-        companyId: company.id,
-        phoneType: 'main',
-        phone: c.phone,
-        isDefault: true,
-      });
+    for (const code of c.divisionCodes ?? ['cnc']) {
+      const division = divisionsByCode.get(code);
+      if (!division) continue;
+      await db
+        .insert(schema.companyDivisions)
+        .values({ tenantId: tenantRow.id, companyId: company.id, divisionId: division.id })
+        .onConflictDoNothing();
     }
-    if (c.email) {
-      await db.insert(schema.companyEmails).values({
-        tenantId: tenantRow.id,
-        companyId: company.id,
-        emailType: 'main',
-        email: c.email,
-        isDefault: true,
-      });
-    }
-    console.log(`[demo] company: ${c.legalTitle}`);
   }
 
   // 7. Contacts
@@ -341,6 +446,15 @@ export async function seedDemo(): Promise<void> {
   });
   const alipler = await db.query.companies.findFirst({
     where: and(eq(schema.companies.tenantId, tenantRow.id), eq(schema.companies.legalTitle, 'ALİŞLER MAKİNA')),
+  });
+  const unimak = await db.query.companies.findFirst({
+    where: and(eq(schema.companies.tenantId, tenantRow.id), eq(schema.companies.legalTitle, 'UNIMAK ÜNİVERSAL TEZGAH SAN. A.Ş.')),
+  });
+  const sactech = await db.query.companies.findFirst({
+    where: and(eq(schema.companies.tenantId, tenantRow.id), eq(schema.companies.legalTitle, 'SACTECH METAL İŞLEME SAN. LTD. ŞTİ.')),
+  });
+  const taiwanSupplier = await db.query.companies.findFirst({
+    where: and(eq(schema.companies.tenantId, tenantRow.id), eq(schema.companies.legalTitle, 'TAIWAN MACHINE SUPPLY CO. LTD.')),
   });
 
   const contactDefs = [
@@ -360,6 +474,24 @@ export async function seedDemo(): Promise<void> {
       companyId: alipler?.id,
       fullName: 'Melih Kuyucu',
       mobilePhone: '+90 532 000 00 03',
+      isPrimary: true,
+    },
+    {
+      companyId: unimak?.id,
+      fullName: 'Ayşe Demir',
+      mobilePhone: '+90 532 000 00 06',
+      isPrimary: true,
+    },
+    {
+      companyId: sactech?.id,
+      fullName: 'Murat Kaya',
+      mobilePhone: '+90 532 000 00 07',
+      isPrimary: true,
+    },
+    {
+      companyId: taiwanSupplier?.id,
+      fullName: 'Lin Wei',
+      mobilePhone: '+886 900 000 008',
       isPrimary: true,
     },
   ];
@@ -388,6 +520,8 @@ export async function seedDemo(): Promise<void> {
   // 8. Products + specs
   const usd = await db.query.currencies.findFirst({ where: eq(schema.currencies.code, 'USD') });
   const cncGroup = await db.query.productGroups.findFirst({ where: eq(schema.productGroups.code, 'CNC') });
+  const universalGroup = await db.query.productGroups.findFirst({ where: eq(schema.productGroups.code, 'UNIVERSAL') });
+  const sacGroup = await db.query.productGroups.findFirst({ where: eq(schema.productGroups.code, 'SAC_ISLEME') });
   const tezgahCat = await db.query.productCategories.findFirst({ where: eq(schema.productCategories.code, 'TEZGAH') });
   const islemeSub = await db.query.productSubcategories.findFirst({
     where: eq(schema.productSubcategories.code, 'ISLEME_MERKEZI'),
@@ -406,6 +540,7 @@ export async function seedDemo(): Promise<void> {
   const productDefs = [
     {
       brand: 'MANFORD',
+      groupId: cncGroup?.id,
       modelCode: 'DL-2112',
       fullName: 'MANFORD DL-2112 Köprü Tipi CNC Dik İşleme Merkezi',
       modelName: 'DL-2112',
@@ -451,6 +586,7 @@ export async function seedDemo(): Promise<void> {
     },
     {
       brand: 'LK',
+      groupId: cncGroup?.id,
       modelCode: 'MV-1050',
       fullName: 'LK MV-1050 CNC Dik İşleme Merkezi',
       modelName: 'MV-1050',
@@ -472,6 +608,7 @@ export async function seedDemo(): Promise<void> {
     },
     {
       brand: 'ECOCA',
+      groupId: cncGroup?.id,
       modelCode: 'MT-208/500',
       fullName: 'ECOCA MT-208/500 CNC Torna Tezgahı',
       modelName: 'MT-208/500',
@@ -489,6 +626,47 @@ export async function seedDemo(): Promise<void> {
         ['KARSI_PUNTA', 'Hidrolik Karşı Punta', 'Standart', ''],
       ],
     },
+    {
+      brand: 'Haksan',
+      groupId: universalGroup?.id,
+      modelCode: 'UF-560',
+      fullName: 'HAKSAN UF-560 Üniversal Freze Tezgahı',
+      modelName: 'UF-560',
+      typeId: null,
+      subId: tornaSub?.id,
+      image: 'https://images.unsplash.com/photo-1581092795360-fd1ca04f0952?w=800',
+      listPrice: '18500.0000',
+      cashPrice: '17200.0000',
+      vatRate: '20',
+      specs: [
+        ['TABLA', 'Tabla Ölçüsü', '1.370 x 320', 'mm'],
+        ['EKSENLER', 'X Eksen Hareketi', '900', 'mm'],
+        ['EKSENLER', 'Y Eksen Hareketi', '380', 'mm'],
+        ['EKSENLER', 'Z Eksen Hareketi', '450', 'mm'],
+        ['FENER_MILI', 'Fener Mili Devri', '60 - 4.200', 'dv/dk'],
+        ['GENEL', 'Ağırlık', '2.100', 'kg'],
+      ],
+    },
+    {
+      brand: 'Haksan',
+      groupId: sacGroup?.id,
+      modelCode: 'HPB-30135',
+      fullName: 'HAKSAN HPB-30135 CNC Abkant Pres',
+      modelName: 'HPB-30135',
+      typeId: null,
+      subId: null,
+      image: 'https://images.unsplash.com/photo-1581092580497-e0d23cbdf1dc?w=800',
+      listPrice: '43800.0000',
+      cashPrice: '40500.0000',
+      vatRate: '20',
+      specs: [
+        ['KAPASITE', 'Büküm Boyu', '3.100', 'mm'],
+        ['KAPASITE', 'Baskı Gücü', '135', 'ton'],
+        ['EKSENLER', 'Y1/Y2 Eksen Kontrolü', 'Standart', ''],
+        ['MOTORLAR', 'Ana Motor Gücü', '11', 'kw'],
+        ['GENEL', 'Ağırlık', '8.200', 'kg'],
+      ],
+    },
   ];
 
   for (const p of productDefs) {
@@ -503,7 +681,7 @@ export async function seedDemo(): Promise<void> {
       .values({
         tenantId: tenantRow.id,
         brandId: brand.id,
-        productGroupId: cncGroup?.id,
+        productGroupId: p.groupId ?? cncGroup?.id,
         categoryId: tezgahCat?.id,
         subcategoryId: p.subId,
         productTypeId: p.typeId,
@@ -644,6 +822,7 @@ export async function seedDemo(): Promise<void> {
     {
       companyId: kilitsan?.id,
       modelCode: 'DL-2112',
+      divisionCode: 'cnc',
       documentNo: '2026/16',
       quoteDate: new Date('2026-05-28'),
       validityDays: 5,
@@ -656,6 +835,7 @@ export async function seedDemo(): Promise<void> {
     {
       companyId: contra?.id,
       modelCode: 'MV-1050',
+      divisionCode: 'cnc',
       documentNo: '2026/040',
       quoteDate: new Date('2026-05-28'),
       validityDays: 5,
@@ -668,6 +848,7 @@ export async function seedDemo(): Promise<void> {
     {
       companyId: alipler?.id,
       modelCode: 'MT-208/500',
+      divisionCode: 'cnc',
       documentNo: '2023/089',
       quoteDate: new Date('2023-05-12'),
       validityDays: 5,
@@ -675,6 +856,32 @@ export async function seedDemo(): Promise<void> {
       unitPrice: '74588.0000',
       discount: '6288.0000',
       vatRate: '8',
+      currency: 'USD',
+    },
+    {
+      companyId: unimak?.id,
+      modelCode: 'UF-560',
+      divisionCode: 'universal',
+      documentNo: '2026/UNI-01',
+      quoteDate: new Date('2026-06-03'),
+      validityDays: 15,
+      qty: '1',
+      unitPrice: '18500.0000',
+      discount: '1300.0000',
+      vatRate: '20',
+      currency: 'USD',
+    },
+    {
+      companyId: sactech?.id,
+      modelCode: 'HPB-30135',
+      divisionCode: 'sac_isleme',
+      documentNo: '2026/SAC-01',
+      quoteDate: new Date('2026-06-08'),
+      validityDays: 20,
+      qty: '1',
+      unitPrice: '43800.0000',
+      discount: '3300.0000',
+      vatRate: '20',
       currency: 'USD',
     },
   ];
@@ -702,6 +909,7 @@ export async function seedDemo(): Promise<void> {
       .insert(schema.quotes)
       .values({
         tenantId: tenantRow.id,
+        divisionId: divisionsByCode.get(q.divisionCode)?.id ?? defaultDivision?.id ?? null,
         companyId: q.companyId,
         documentNo: q.documentNo,
         quoteDate: q.quoteDate,
@@ -719,6 +927,7 @@ export async function seedDemo(): Promise<void> {
       .returning();
     await db.insert(schema.quoteItems).values({
       tenantId: tenantRow.id,
+      divisionId: divisionsByCode.get(q.divisionCode)?.id ?? defaultDivision?.id ?? null,
       quoteId: quote.id,
       productModelId: model.id,
       description: model.fullName,
@@ -792,11 +1001,19 @@ export async function seedDemo(): Promise<void> {
       stageId('sales'),
       stageId('visit'),
     ]);
-    const oppCompanies = [kilitsan, contra, alipler].filter((c): c is NonNullable<typeof c> => !!c);
+    const oppCompanyPlans = [
+      { company: kilitsan, divisionCode: 'cnc' },
+      { company: contra, divisionCode: 'cnc' },
+      { company: alipler, divisionCode: 'cnc' },
+      { company: unimak, divisionCode: 'universal' },
+      { company: sactech, divisionCode: 'sac_isleme' },
+    ].filter((c): c is { company: NonNullable<typeof kilitsan>; divisionCode: string } => !!c.company);
     const machines = [
       { name: 'MANFORD DL-2112 İşleme Merkezi', value: 170000 },
       { name: 'LK MV-1050 Dik İşleme Merkezi', value: 72000 },
       { name: 'ECOCA MT-208/500 CNC Torna', value: 68300 },
+      { name: 'HAKSAN UF-560 Üniversal Freze', value: 17200 },
+      { name: 'HAKSAN HPB-30135 Abkant Pres', value: 40500 },
     ];
     const wonReasonsList = ['Fiyat avantajı', 'Hızlı teslimat', 'Servis ağı ve teknik destek', 'Mevcut müşteri ilişkisi'];
     const lostCodes = ['price', 'competitor', 'timing', 'spec', 'no_budget'];
@@ -812,13 +1029,15 @@ export async function seedDemo(): Promise<void> {
     let seq = 0;
     const pushOpp = (year: number, outcome: 'won' | 'lost' | 'open') => {
       const m = machines[seq % machines.length];
-      const company = oppCompanies[seq % oppCompanies.length];
+      const plan = oppCompanyPlans[seq % oppCompanyPlans.length];
+      const company = plan.company;
       const month = (seq * 5) % 12;
       const value = m.value * (0.85 + (seq % 6) * 0.05);
       const createdAt = new Date(Date.UTC(year, month, 6 + (seq % 18)));
       const row: typeof schema.opportunities.$inferInsert = {
         tenantId: tenantRow.id,
         companyId: company.id,
+        divisionId: divisionsByCode.get(plan.divisionCode)?.id ?? defaultDivision?.id ?? null,
         ownerUserId: sales?.id ?? null,
         title: `${company.shortName ?? 'Müşteri'} — ${m.name}`,
         currentStageId:
@@ -856,11 +1075,13 @@ export async function seedDemo(): Promise<void> {
     statusIdByCode.set(c, (await db.query.quoteStatuses.findFirst({ where: eq(schema.quoteStatuses.code, c) }))?.id);
   }
   const quoteMachines = [
-    { modelCode: 'DL-2112', base: 191000 },
-    { modelCode: 'MV-1050', base: 81810 },
-    { modelCode: 'MT-208/500', base: 74588 },
+    { modelCode: 'DL-2112', base: 191000, divisionCode: 'cnc' },
+    { modelCode: 'MV-1050', base: 81810, divisionCode: 'cnc' },
+    { modelCode: 'MT-208/500', base: 74588, divisionCode: 'cnc' },
+    { modelCode: 'UF-560', base: 18500, divisionCode: 'universal' },
+    { modelCode: 'HPB-30135', base: 43800, divisionCode: 'sac_isleme' },
   ];
-  const quoteCompanies = [kilitsan, contra, alipler].filter((c): c is NonNullable<typeof c> => !!c);
+  const quoteCompanies = [kilitsan, contra, alipler, unimak, sactech].filter((c): c is NonNullable<typeof c> => !!c);
   let qSeq = 0;
   for (const yr of [2024, 2025, 2026]) {
     for (let i = 0; i < 4; i++) {
@@ -885,6 +1106,7 @@ export async function seedDemo(): Promise<void> {
         .insert(schema.quotes)
         .values({
           tenantId: tenantRow.id,
+          divisionId: divisionsByCode.get(m.divisionCode)?.id ?? defaultDivision?.id ?? null,
           companyId: company.id,
           documentNo,
           quoteDate,
@@ -904,6 +1126,7 @@ export async function seedDemo(): Promise<void> {
         .returning();
       await db.insert(schema.quoteItems).values({
         tenantId: tenantRow.id,
+        divisionId: divisionsByCode.get(m.divisionCode)?.id ?? defaultDivision?.id ?? null,
         quoteId: quote.id,
         productModelId: model.id,
         description: model.fullName,
@@ -920,63 +1143,234 @@ export async function seedDemo(): Promise<void> {
   }
   console.log('[demo] report quotes: varied statuses across 2024-2026');
 
+  // 9d. Sales activities, visits and calls (dashboard + activity reports)
+  const demoActivityExists = await db.query.salesActivities.findFirst({
+    where: and(eq(schema.salesActivities.tenantId, tenantRow.id), eq(schema.salesActivities.subject, 'Demo CNC teklif takip araması')),
+  });
+  if (!demoActivityExists) {
+    const activityType = async (code: string) =>
+      (await db.query.activityTypes.findFirst({ where: eq(schema.activityTypes.code, code) }))?.id;
+    const [callTypeId, visitTypeId, demoTypeId] = await Promise.all([
+      activityType('call'),
+      activityType('visit'),
+      activityType('demo'),
+    ]);
+    const activityOpps = await db.query.opportunities.findMany({
+      where: eq(schema.opportunities.tenantId, tenantRow.id),
+      limit: 5,
+    });
+    const activityRows: (typeof schema.salesActivities.$inferInsert)[] = [];
+    const visitRows: (typeof schema.visits.$inferInsert)[] = [];
+    const callRows: (typeof schema.calls.$inferInsert)[] = [];
+    for (const [index, opp] of activityOpps.entries()) {
+      const typeId = index % 3 === 0 ? demoTypeId : index % 2 === 0 ? visitTypeId : callTypeId;
+      if (!typeId) continue;
+      activityRows.push({
+        tenantId: tenantRow.id,
+        divisionId: opp.divisionId ?? defaultDivision?.id ?? null,
+        opportunityId: opp.id,
+        companyId: opp.companyId,
+        activityTypeId: typeId,
+        subject:
+          index === 0
+            ? 'Demo CNC teklif takip araması'
+            : index % 3 === 0
+              ? 'Demo makine sunumu'
+              : index % 2 === 0
+                ? 'Demo saha ziyareti'
+                : 'Demo ihtiyaç analizi görüşmesi',
+        description: 'Demo veri: satış ekibi tarafından oluşturulan takip aktivitesi.',
+        activityDate: new Date(Date.UTC(2026, index + 1, 10 + index)),
+        nextFollowUpAt: new Date(Date.UTC(2026, index + 1, 17 + index)),
+        result: 'Müşteri teknik şartname ve termin bilgisini bekliyor.',
+        createdBy: sales?.id ?? null,
+      });
+      if (index % 2 === 0) {
+        visitRows.push({
+          tenantId: tenantRow.id,
+          divisionId: opp.divisionId ?? defaultDivision?.id ?? null,
+          opportunityId: opp.id,
+          companyId: opp.companyId,
+          visitDate: new Date(Date.UTC(2026, index + 1, 11 + index)),
+          visitLocation: 'Müşteri tesisi',
+          visitPurpose: 'Makine yerleşimi ve elektrik altyapısı kontrolü.',
+          visitResult: 'Yerleşim uygun, teklif revizyonu istenecek.',
+          nextAction: 'Revize teknik teklif gönderilecek.',
+          createdBy: sales?.id ?? null,
+        });
+      } else {
+        callRows.push({
+          tenantId: tenantRow.id,
+          divisionId: opp.divisionId ?? defaultDivision?.id ?? null,
+          opportunityId: opp.id,
+          companyId: opp.companyId,
+          callDate: new Date(Date.UTC(2026, index + 1, 12 + index)),
+          callResult: 'Bütçe onayı bekleniyor.',
+          nextAction: 'Finansman alternatifi paylaşılacak.',
+          createdBy: sales?.id ?? null,
+        });
+      }
+    }
+    if (activityRows.length) await db.insert(schema.salesActivities).values(activityRows);
+    if (visitRows.length) await db.insert(schema.visits).values(visitRows);
+    if (callRows.length) await db.insert(schema.calls).values(callRows);
+    console.log(`[demo] activities: +${activityRows.length}, visits: +${visitRows.length}, calls: +${callRows.length}`);
+  }
+
   // 10. Warehouses + sample inventory items
   const existingWarehouse = await db.query.warehouses.findFirst({
     where: and(eq(schema.warehouses.tenantId, tenantRow.id), eq(schema.warehouses.name, 'Merkez Depo')),
   });
-  if (!existingWarehouse) {
-    const [wh] = await db
-      .insert(schema.warehouses)
-      .values({
-        tenantId: tenantRow.id,
-        name: 'Merkez Depo',
-        type: 'main',
-        country: 'Türkiye',
-        province: 'İstanbul',
-        district: 'Tuzla',
-        address: 'Organize Sanayi Bölgesi, Tuzla, İstanbul',
-      })
-      .returning();
-    const avail = await db.query.inventoryStatuses.findFirst({
-      where: eq(schema.inventoryStatuses.code, 'available'),
+  const warehouse =
+    existingWarehouse ??
+    (
+      await db
+        .insert(schema.warehouses)
+        .values({
+          tenantId: tenantRow.id,
+          name: 'Merkez Depo',
+          type: 'main',
+          country: 'Türkiye',
+          province: 'İstanbul',
+          district: 'Tuzla',
+          address: 'Organize Sanayi Bölgesi, Tuzla, İstanbul',
+        })
+        .returning()
+    )[0];
+  if (!existingWarehouse) console.log('[demo] warehouse: Merkez Depo');
+
+  const inventoryStatusRows = await db.query.inventoryStatuses.findMany();
+  const inventoryStatusByCode = new Map(inventoryStatusRows.map((s) => [s.code, s.id]));
+  const locationStatusRows = await db.query.stockLocationStatuses.findMany();
+  const locationStatusByCode = new Map(locationStatusRows.map((s) => [s.code, s.id]));
+
+  const ensureInventoryItem = async (def: {
+    modelCode: string;
+    serialNumber: string;
+    controlUnit: string;
+    controlUnitSerialNumber: string;
+    statusCode: string;
+    locationCode: string;
+    divisionCode: string;
+    arrivalDate?: Date;
+    loadingDate?: Date;
+    reservedCompanyId?: string | null;
+    notes?: string;
+  }) => {
+    const model = await db.query.productModels.findFirst({
+      where: and(eq(schema.productModels.tenantId, tenantRow.id), eq(schema.productModels.modelCode, def.modelCode)),
     });
-    const atWarehouse = await db.query.stockLocationStatuses.findFirst({
-      where: eq(schema.stockLocationStatuses.code, 'at_warehouse'),
+    if (!model) return undefined;
+    const existing = await db.query.inventoryItems.findFirst({
+      where: and(eq(schema.inventoryItems.tenantId, tenantRow.id), eq(schema.inventoryItems.serialNumber, def.serialNumber)),
     });
-    const dl = await db.query.productModels.findFirst({
-      where: and(eq(schema.productModels.tenantId, tenantRow.id), eq(schema.productModels.modelCode, 'DL-2112')),
-    });
-    const mv = await db.query.productModels.findFirst({
-      where: and(eq(schema.productModels.tenantId, tenantRow.id), eq(schema.productModels.modelCode, 'MV-1050')),
-    });
-    if (dl) {
-      await db.insert(schema.inventoryItems).values({
-        tenantId: tenantRow.id,
-        productModelId: dl.id,
-        serialNumber: 'MFD-DL2112-0001',
-        controlUnit: 'Fanuc 0i-MF Plus',
-        controlUnitSerialNumber: 'FNC-0001',
-        warehouseId: wh.id,
-        locationStatusId: atWarehouse?.id,
-        stockStatusId: avail?.id,
-        arrivalDate: new Date('2026-03-15'),
-      });
+    const values = {
+      tenantId: tenantRow.id,
+      divisionId: divisionsByCode.get(def.divisionCode)?.id ?? defaultDivision?.id ?? null,
+      productModelId: model.id,
+      serialNumber: def.serialNumber,
+      controlUnit: def.controlUnit,
+      controlUnitSerialNumber: def.controlUnitSerialNumber,
+      warehouseId: warehouse.id,
+      locationStatusId: locationStatusByCode.get(def.locationCode) ?? null,
+      stockStatusId: inventoryStatusByCode.get(def.statusCode) ?? null,
+      arrivalDate: def.arrivalDate ?? null,
+      loadingDate: def.loadingDate ?? null,
+      reservedCompanyId: def.reservedCompanyId ?? null,
+      reservedAt: def.reservedCompanyId ? new Date('2026-06-01') : null,
+      notes: def.notes ?? null,
+    };
+    if (existing) {
+      await db.update(schema.inventoryItems).set(values).where(eq(schema.inventoryItems.id, existing.id));
+      return { ...existing, ...values };
     }
-    if (mv) {
-      await db.insert(schema.inventoryItems).values({
-        tenantId: tenantRow.id,
-        productModelId: mv.id,
-        serialNumber: 'LK-MV1050-0007',
-        controlUnit: 'Siemens 828D',
-        controlUnitSerialNumber: 'SIE-0007',
-        warehouseId: wh.id,
-        locationStatusId: atWarehouse?.id,
-        stockStatusId: avail?.id,
-        arrivalDate: new Date('2026-04-10'),
-      });
-    }
-    console.log(`[demo] warehouse + 2 inventory items`);
+    const [created] = await db.insert(schema.inventoryItems).values(values).returning();
+    return created;
+  };
+
+  const inventoryDefs = [
+    { modelCode: 'DL-2112', serialNumber: 'MFD-DL2112-0001', controlUnit: 'Fanuc 0i-MF Plus', controlUnitSerialNumber: 'FNC-0001', statusCode: 'available', locationCode: 'at_warehouse', divisionCode: 'cnc', arrivalDate: new Date('2026-03-15') },
+    { modelCode: 'DL-2112', serialNumber: 'MFD-DL2112-0002', controlUnit: 'Fanuc 0i-MF Plus', controlUnitSerialNumber: 'FNC-0002', statusCode: 'sold', locationCode: 'at_customer', divisionCode: 'cnc', arrivalDate: new Date('2025-10-22') },
+    { modelCode: 'MV-1050', serialNumber: 'LK-MV1050-0007', controlUnit: 'Siemens 828D', controlUnitSerialNumber: 'SIE-0007', statusCode: 'available', locationCode: 'at_warehouse', divisionCode: 'cnc', arrivalDate: new Date('2026-04-10') },
+    { modelCode: 'MV-1050', serialNumber: 'LK-MV1050-0008', controlUnit: 'Siemens 828D', controlUnitSerialNumber: 'SIE-0008', statusCode: 'sold', locationCode: 'at_customer', divisionCode: 'cnc', arrivalDate: new Date('2025-12-12') },
+    { modelCode: 'MT-208/500', serialNumber: 'ECO-MT208-0003', controlUnit: 'Fanuc 0i-TF', controlUnitSerialNumber: 'FNC-T0003', statusCode: 'sold', locationCode: 'at_customer', divisionCode: 'cnc', arrivalDate: new Date('2025-09-18') },
+    { modelCode: 'UF-560', serialNumber: 'UNI-UF560-0001', controlUnit: 'DRO 3 Axis', controlUnitSerialNumber: 'DRO-560-01', statusCode: 'sold', locationCode: 'at_customer', divisionCode: 'universal', arrivalDate: new Date('2025-11-04') },
+    { modelCode: 'UF-560', serialNumber: 'UNI-UF560-0002', controlUnit: 'DRO 3 Axis', controlUnitSerialNumber: 'DRO-560-02', statusCode: 'reserved', locationCode: 'at_warehouse', divisionCode: 'universal', reservedCompanyId: unimak?.id ?? null, arrivalDate: new Date('2026-05-18') },
+    { modelCode: 'HPB-30135', serialNumber: 'SAC-HPB30135-0001', controlUnit: 'Delem DA-66T', controlUnitSerialNumber: 'DLM-30135-01', statusCode: 'sold', locationCode: 'at_customer', divisionCode: 'sac_isleme', arrivalDate: new Date('2025-08-30') },
+    { modelCode: 'HPB-30135', serialNumber: 'SAC-HPB30135-0002', controlUnit: 'Delem DA-66T', controlUnitSerialNumber: 'DLM-30135-02', statusCode: 'available', locationCode: 'at_warehouse', divisionCode: 'sac_isleme', arrivalDate: new Date('2026-05-24') },
+  ];
+  for (const item of inventoryDefs) {
+    await ensureInventoryItem(item);
   }
+  console.log(`[demo] inventory items: ${inventoryDefs.length} serial-numbered machines`);
+
+  // 10b. Customer devices / installed machine assets
+  const warrantyRows = await db.query.warrantyStatuses.findMany();
+  const warrantyByCode = new Map(warrantyRows.map((s) => [s.code, s.id]));
+  const quoteByNo = async (documentNo: string) =>
+    await db.query.quotes.findFirst({
+      where: and(eq(schema.quotes.tenantId, tenantRow.id), eq(schema.quotes.documentNo, documentNo)),
+    });
+  const firstOpportunityForCompany = async (companyId: string) =>
+    await db.query.opportunities.findFirst({
+      where: and(eq(schema.opportunities.tenantId, tenantRow.id), eq(schema.opportunities.companyId, companyId)),
+    });
+  const ensureCustomerDevice = async (def: {
+    companyId?: string;
+    serialNumber: string;
+    quoteNo?: string;
+    warrantyCode: string;
+    saleDate: Date;
+    deliveryDate: Date;
+    installationDate: Date;
+    warrantyStartDate: Date;
+    warrantyEndDate: Date;
+    notes: string;
+  }) => {
+    if (!def.companyId) return undefined;
+    const item = await db.query.inventoryItems.findFirst({
+      where: and(eq(schema.inventoryItems.tenantId, tenantRow.id), eq(schema.inventoryItems.serialNumber, def.serialNumber)),
+    });
+    if (!item) return undefined;
+    const existing = await db.query.customerDevices.findFirst({
+      where: and(eq(schema.customerDevices.tenantId, tenantRow.id), eq(schema.customerDevices.inventoryItemId, item.id)),
+    });
+    const quote = def.quoteNo ? await quoteByNo(def.quoteNo) : undefined;
+    const opportunity = await firstOpportunityForCompany(def.companyId);
+    const values = {
+      tenantId: tenantRow.id,
+      divisionId: item.divisionId ?? defaultDivision?.id ?? null,
+      companyId: def.companyId,
+      inventoryItemId: item.id,
+      opportunityId: opportunity?.id ?? null,
+      quoteId: quote?.id ?? null,
+      saleDate: def.saleDate,
+      deliveryDate: def.deliveryDate,
+      installationDate: def.installationDate,
+      warrantyStartDate: def.warrantyStartDate,
+      warrantyEndDate: def.warrantyEndDate,
+      statusId: warrantyByCode.get(def.warrantyCode) ?? null,
+      notes: def.notes,
+    };
+    if (existing) {
+      await db.update(schema.customerDevices).set(values).where(eq(schema.customerDevices.id, existing.id));
+      return { ...existing, ...values };
+    }
+    const [created] = await db.insert(schema.customerDevices).values(values).returning();
+    return created;
+  };
+
+  const deviceDefs = [
+    { companyId: kilitsan?.id, serialNumber: 'MFD-DL2112-0002', quoteNo: '2026/16', warrantyCode: 'active', saleDate: new Date('2025-10-25'), deliveryDate: new Date('2025-11-02'), installationDate: new Date('2025-11-04'), warrantyStartDate: new Date('2025-11-04'), warrantyEndDate: new Date('2027-11-04'), notes: 'Demo kurulu CNC makine.' },
+    { companyId: contra?.id, serialNumber: 'LK-MV1050-0008', quoteNo: '2026/040', warrantyCode: 'active', saleDate: new Date('2025-12-15'), deliveryDate: new Date('2025-12-21'), installationDate: new Date('2025-12-23'), warrantyStartDate: new Date('2025-12-23'), warrantyEndDate: new Date('2027-12-23'), notes: 'Demo kurulu dik işleme merkezi.' },
+    { companyId: alipler?.id, serialNumber: 'ECO-MT208-0003', quoteNo: '2023/089', warrantyCode: 'expired', saleDate: new Date('2023-05-20'), deliveryDate: new Date('2023-06-02'), installationDate: new Date('2023-06-05'), warrantyStartDate: new Date('2023-06-05'), warrantyEndDate: new Date('2025-06-05'), notes: 'Garanti dışı demo servis varlığı.' },
+    { companyId: unimak?.id, serialNumber: 'UNI-UF560-0001', quoteNo: '2026/UNI-01', warrantyCode: 'active', saleDate: new Date('2025-11-08'), deliveryDate: new Date('2025-11-15'), installationDate: new Date('2025-11-16'), warrantyStartDate: new Date('2025-11-16'), warrantyEndDate: new Date('2027-11-16'), notes: 'Üniversal alanı demo varlığı.' },
+    { companyId: sactech?.id, serialNumber: 'SAC-HPB30135-0001', quoteNo: '2026/SAC-01', warrantyCode: 'active', saleDate: new Date('2025-09-04'), deliveryDate: new Date('2025-09-13'), installationDate: new Date('2025-09-15'), warrantyStartDate: new Date('2025-09-15'), warrantyEndDate: new Date('2027-09-15'), notes: 'Sac işleme alanı demo varlığı.' },
+  ];
+  for (const device of deviceDefs) {
+    await ensureCustomerDevice(device);
+  }
+  console.log(`[demo] customer devices: ${deviceDefs.length} installed machines`);
 
   // 11. Installations (saha kurulum operasyonları)
   const serviceUser = await db.query.users.findFirst({
@@ -990,32 +1384,962 @@ export async function seedDemo(): Promise<void> {
     instStatus('completed'),
   ]);
 
-  const installationDefs = [
-    { companyId: kilitsan?.id, statusId: scheduledId, scheduledDate: new Date('2026-06-20'), location: 'Hendek, Sakarya', notes: 'MANFORD DL-2112 köprü tipi işleme merkezi kurulumu ve devreye alma.' },
-    { companyId: contra?.id, statusId: inProgressId, scheduledDate: new Date('2026-06-05'), startedAt: new Date('2026-06-05'), location: 'İkitelli OSB, İstanbul', notes: 'LK MV-1050 dik işleme merkezi kurulumu — elektrik bağlantısı yapılıyor.' },
-    { companyId: alipler?.id, statusId: completedId, scheduledDate: new Date('2026-04-12'), startedAt: new Date('2026-04-12'), completedAt: new Date('2026-04-15'), location: 'Nilüfer OSB, Bursa', notes: 'ECOCA MT-208/500 CNC torna kurulumu tamamlandı, operatör eğitimi verildi.' },
-    { companyId: kilitsan?.id, statusId: scheduledId, scheduledDate: new Date('2026-07-02'), location: 'Hendek, Sakarya', notes: 'Periyodik bakım ve kalibrasyon ziyareti.' },
+  const installationDefs: Array<{
+    companyId?: string;
+    divisionCode: string;
+    statusId?: string;
+    scheduledDate: Date;
+    startedAt?: Date;
+    completedAt?: Date;
+    location: string;
+    locationType?: 'istanbul_ici' | 'istanbul_disi';
+    durationMinutes?: number;
+    feeAmount?: string;
+    notes: string;
+  }> = [
+    { companyId: kilitsan?.id, divisionCode: 'cnc', statusId: scheduledId, scheduledDate: new Date('2026-06-20'), location: 'Hendek, Sakarya', locationType: 'istanbul_disi', durationMinutes: 480, feeAmount: '800.0000', notes: 'MANFORD DL-2112 köprü tipi işleme merkezi kurulumu ve devreye alma.' },
+    { companyId: contra?.id, divisionCode: 'cnc', statusId: inProgressId, scheduledDate: new Date('2026-06-05'), startedAt: new Date('2026-06-05'), location: 'İkitelli OSB, İstanbul', locationType: 'istanbul_ici', durationMinutes: 300, feeAmount: '350.0000', notes: 'LK MV-1050 dik işleme merkezi kurulumu — elektrik bağlantısı yapılıyor.' },
+    { companyId: alipler?.id, divisionCode: 'cnc', statusId: completedId, scheduledDate: new Date('2026-04-12'), startedAt: new Date('2026-04-12'), completedAt: new Date('2026-04-15'), location: 'Nilüfer OSB, Bursa', locationType: 'istanbul_disi', durationMinutes: 960, feeAmount: '1600.0000', notes: 'ECOCA MT-208/500 CNC torna kurulumu tamamlandı, operatör eğitimi verildi.' },
+    { companyId: unimak?.id, divisionCode: 'universal', statusId: scheduledId, scheduledDate: new Date('2026-06-24'), location: 'İvedik OSB, Ankara', locationType: 'istanbul_disi', durationMinutes: 360, feeAmount: '600.0000', notes: 'HAKSAN UF-560 üniversal freze kurulumu ve hassasiyet kontrolü.' },
+    { companyId: sactech?.id, divisionCode: 'sac_isleme', statusId: completedId, scheduledDate: new Date('2026-05-14'), startedAt: new Date('2026-05-14'), completedAt: new Date('2026-05-15'), location: 'Nilüfer OSB, Bursa', locationType: 'istanbul_disi', durationMinutes: 720, feeAmount: '1200.0000', notes: 'HAKSAN HPB-30135 abkant pres kurulum ve operatör eğitimi.' },
+    { companyId: kilitsan?.id, divisionCode: 'cnc', statusId: scheduledId, scheduledDate: new Date('2026-07-02'), location: 'Hendek, Sakarya', locationType: 'istanbul_disi', durationMinutes: 240, feeAmount: '400.0000', notes: 'Periyodik bakım ve kalibrasyon ziyareti.' },
   ];
 
-  const existingInstall = await db.query.installationJobs.findFirst({
-    where: eq(schema.installationJobs.tenantId, tenantRow.id),
+  let createdInstallations = 0;
+  for (const inst of installationDefs) {
+    if (!inst.companyId) continue;
+    const existing = await db.query.installationJobs.findFirst({
+      where: and(eq(schema.installationJobs.tenantId, tenantRow.id), eq(schema.installationJobs.notes, inst.notes)),
+    });
+    if (existing) continue;
+    await db.insert(schema.installationJobs).values({
+      tenantId: tenantRow.id,
+      divisionId: divisionsByCode.get(inst.divisionCode)?.id ?? defaultDivision?.id ?? null,
+      companyId: inst.companyId,
+      assignedToUserId: serviceUser?.id,
+      statusId: inst.statusId,
+      scheduledDate: inst.scheduledDate,
+      startedAt: inst.startedAt,
+      completedAt: inst.completedAt,
+      location: inst.location,
+      locationType: inst.locationType,
+      durationMinutes: inst.durationMinutes,
+      feeAmount: inst.feeAmount,
+      notes: inst.notes,
+    });
+    createdInstallations++;
+  }
+  if (createdInstallations) console.log(`[demo] installations: +${createdInstallations}`);
+
+  // 12. Sales orders, purchase orders and commercial documents
+  const stockUser = await db.query.users.findFirst({
+    where: and(eq(schema.users.tenantId, tenantRow.id), eq(schema.users.email, 'stock@haksan.local')),
   });
-  if (!existingInstall) {
-    for (const inst of installationDefs) {
-      if (!inst.companyId) continue;
-      await db.insert(schema.installationJobs).values({
+  const financeUser = await db.query.users.findFirst({
+    where: and(eq(schema.users.tenantId, tenantRow.id), eq(schema.users.email, 'finance@haksan.local')),
+  });
+  const rowsByCode = async <T extends { code: string; id: string }>(rows: Promise<T[]>) =>
+    new Map((await rows).map((r) => [r.code, r.id]));
+  const salesOrderStatusByCode = await rowsByCode(db.query.salesOrderStatuses.findMany());
+  const purchaseOrderStatusByCode = await rowsByCode(db.query.purchaseOrderStatuses.findMany());
+  const proformaStatusByCode = await rowsByCode(db.query.proformaStatuses.findMany());
+  const contractStatusByCode = await rowsByCode(db.query.contractStatuses.findMany());
+  const invoiceStatusByCode = await rowsByCode(db.query.invoiceStatuses.findMany());
+
+  const productByCode = async (modelCode: string) =>
+    await db.query.productModels.findFirst({
+      where: and(eq(schema.productModels.tenantId, tenantRow.id), eq(schema.productModels.modelCode, modelCode)),
+    });
+  const inventoryBySerial = async (serialNumber: string) =>
+    await db.query.inventoryItems.findFirst({
+      where: and(eq(schema.inventoryItems.tenantId, tenantRow.id), eq(schema.inventoryItems.serialNumber, serialNumber)),
+    });
+  const salesOrderByNo = async (orderNo: string) =>
+    await db.query.salesOrders.findFirst({
+      where: and(eq(schema.salesOrders.tenantId, tenantRow.id), eq(schema.salesOrders.orderNo, orderNo)),
+    });
+
+  const ensureSalesOrder = async (def: {
+    orderNo: string;
+    companyId?: string;
+    quoteNo?: string;
+    modelCode: string;
+    serialNumber?: string;
+    divisionCode: string;
+    orderDate: Date;
+    statusCode: string;
+    unitPrice: number;
+    discountAmount: number;
+    vatRate: number;
+    notes: string;
+  }) => {
+    if (!def.companyId) return undefined;
+    const existing = await salesOrderByNo(def.orderNo);
+    if (existing) return existing;
+    const quote = def.quoteNo ? await quoteByNo(def.quoteNo) : undefined;
+    const model = await productByCode(def.modelCode);
+    if (!model) return undefined;
+    const inventory = def.serialNumber ? await inventoryBySerial(def.serialNumber) : undefined;
+    const subtotal = def.unitPrice - def.discountAmount;
+    const vatAmount = subtotal * (def.vatRate / 100);
+    const [order] = await db
+      .insert(schema.salesOrders)
+      .values({
         tenantId: tenantRow.id,
-        companyId: inst.companyId,
-        assignedToUserId: serviceUser?.id,
-        statusId: inst.statusId,
-        scheduledDate: inst.scheduledDate,
-        startedAt: inst.startedAt,
-        completedAt: inst.completedAt,
-        location: inst.location,
-        notes: inst.notes,
+        divisionId: divisionsByCode.get(def.divisionCode)?.id ?? defaultDivision?.id ?? null,
+        quoteId: quote?.id ?? null,
+        opportunityId: quote?.opportunityId ?? null,
+        companyId: def.companyId,
+        orderNo: def.orderNo,
+        orderDate: def.orderDate,
+        statusId: salesOrderStatusByCode.get(def.statusCode) ?? null,
+        currencyId: usd?.id,
+        subtotal: subtotal.toFixed(4),
+        discountTotal: def.discountAmount.toFixed(4),
+        vatAmount: vatAmount.toFixed(4),
+        grandTotal: (subtotal + vatAmount).toFixed(4),
+        notes: def.notes,
+        confirmedAt: ['confirmed', 'reserved', 'fulfilled'].includes(def.statusCode) ? def.orderDate : null,
+        reservedAt: ['reserved', 'fulfilled'].includes(def.statusCode) ? new Date(def.orderDate.getTime() + 86400000) : null,
+        fulfilledAt: def.statusCode === 'fulfilled' ? new Date(def.orderDate.getTime() + 2 * 86400000) : null,
+        createdBy: sales?.id ?? null,
+        approvedBy: financeUser?.id ?? null,
+      })
+      .returning();
+    const quoteItem = quote
+      ? await db.query.quoteItems.findFirst({
+          where: and(eq(schema.quoteItems.tenantId, tenantRow.id), eq(schema.quoteItems.quoteId, quote.id)),
+        })
+      : undefined;
+    await db.insert(schema.salesOrderItems).values({
+      tenantId: tenantRow.id,
+      salesOrderId: order.id,
+      quoteItemId: quoteItem?.id ?? null,
+      productModelId: model.id,
+      inventoryItemId: inventory?.id ?? null,
+      description: model.fullName,
+      quantity: '1',
+      unitId: adetUnit?.id,
+      unitPrice: def.unitPrice.toFixed(4),
+      discountAmount: def.discountAmount.toFixed(4),
+      vatRate: def.vatRate.toFixed(2),
+      vatAmount: vatAmount.toFixed(4),
+      lineTotal: subtotal.toFixed(4),
+      sortOrder: 0,
+    });
+    return order;
+  };
+
+  const salesOrderDefs = [
+    { orderNo: 'SO-2026/001', companyId: kilitsan?.id, quoteNo: '2026/16', modelCode: 'DL-2112', serialNumber: 'MFD-DL2112-0002', divisionCode: 'cnc', orderDate: new Date('2026-05-30'), statusCode: 'fulfilled', unitPrice: 170000, discountAmount: 0, vatRate: 0, notes: 'Demo satış siparişi: CNC teslim edilmiş akış.' },
+    { orderNo: 'SO-2026/002', companyId: unimak?.id, quoteNo: '2026/UNI-01', modelCode: 'UF-560', serialNumber: 'UNI-UF560-0002', divisionCode: 'universal', orderDate: new Date('2026-06-04'), statusCode: 'reserved', unitPrice: 17200, discountAmount: 0, vatRate: 20, notes: 'Demo satış siparişi: Üniversal stok rezervasyonu.' },
+    { orderNo: 'SO-2026/003', companyId: sactech?.id, quoteNo: '2026/SAC-01', modelCode: 'HPB-30135', serialNumber: 'SAC-HPB30135-0002', divisionCode: 'sac_isleme', orderDate: new Date('2026-06-09'), statusCode: 'confirmed', unitPrice: 40500, discountAmount: 0, vatRate: 20, notes: 'Demo satış siparişi: Sac işleme sevkiyata hazırlanıyor.' },
+  ];
+  for (const order of salesOrderDefs) {
+    await ensureSalesOrder(order);
+  }
+  console.log(`[demo] sales orders ensured: ${salesOrderDefs.length}`);
+
+  const ensurePurchaseOrder = async (def: {
+    orderNo: string;
+    supplierCompanyId?: string;
+    divisionCode: string;
+    statusCode: string;
+    orderDate: Date;
+    expectedDate: Date;
+    incoterm: string;
+    shipmentReference: string;
+    notes: string;
+    items: Array<{ modelCode: string; description: string; quantity: string; unitPrice: number; vatRate: number }>;
+  }) => {
+    const existing = await db.query.purchaseOrders.findFirst({
+      where: and(eq(schema.purchaseOrders.tenantId, tenantRow.id), eq(schema.purchaseOrders.orderNo, def.orderNo)),
+    });
+    if (existing) return existing;
+    const subtotal = def.items.reduce((sum, item) => sum + Number(item.quantity) * item.unitPrice, 0);
+    const vatAmount = def.items.reduce((sum, item) => sum + Number(item.quantity) * item.unitPrice * (item.vatRate / 100), 0);
+    const [po] = await db
+      .insert(schema.purchaseOrders)
+      .values({
+        tenantId: tenantRow.id,
+        divisionId: divisionsByCode.get(def.divisionCode)?.id ?? defaultDivision?.id ?? null,
+        supplierCompanyId: def.supplierCompanyId ?? null,
+        purchaseType: 'commercial',
+        orderNo: def.orderNo,
+        orderDate: def.orderDate,
+        expectedDate: def.expectedDate,
+        statusId: purchaseOrderStatusByCode.get(def.statusCode) ?? null,
+        currencyId: usd?.id,
+        subtotal: subtotal.toFixed(4),
+        vatAmount: vatAmount.toFixed(4),
+        grandTotal: (subtotal + vatAmount).toFixed(4),
+        incoterm: def.incoterm,
+        shipmentReference: def.shipmentReference,
+        notes: def.notes,
+        sentAt: def.orderDate,
+        approvedAt: ['approved', 'in_transit', 'received'].includes(def.statusCode) ? new Date(def.orderDate.getTime() + 86400000) : null,
+        closedAt: def.statusCode === 'received' ? def.expectedDate : null,
+        createdBy: stockUser?.id ?? null,
+        approvedBy: financeUser?.id ?? null,
+      })
+      .returning();
+    for (const [index, item] of def.items.entries()) {
+      const product = await productByCode(item.modelCode);
+      await db.insert(schema.purchaseOrderItems).values({
+        tenantId: tenantRow.id,
+        purchaseOrderId: po.id,
+        productModelId: product?.id ?? null,
+        description: item.description,
+        quantity: item.quantity,
+        unitId: adetUnit?.id,
+        unitPrice: item.unitPrice.toFixed(4),
+        vatRate: item.vatRate.toFixed(2),
+        vatAmount: (Number(item.quantity) * item.unitPrice * (item.vatRate / 100)).toFixed(4),
+        lineTotal: (Number(item.quantity) * item.unitPrice).toFixed(4),
+        expectedDate: def.expectedDate,
+        sortOrder: index,
       });
     }
-    console.log(`[demo] installations: +${installationDefs.length}`);
+    return po;
+  };
+
+  const purchaseOrderDefs = [
+    {
+      orderNo: 'PO-2026/001',
+      supplierCompanyId: taiwanSupplier?.id,
+      divisionCode: 'cnc',
+      statusCode: 'in_transit',
+      orderDate: new Date('2026-05-18'),
+      expectedDate: new Date('2026-07-05'),
+      incoterm: 'CIF Istanbul',
+      shipmentReference: 'TWN-CNC-2026-07',
+      notes: 'Demo ithalat satın alma siparişi.',
+      items: [
+        { modelCode: 'MV-1050', description: 'LK MV-1050 CNC Dik İşleme Merkezi', quantity: '1', unitPrice: 69000, vatRate: 0 },
+        { modelCode: 'DL-2112', description: 'MANFORD DL-2112 Köprü Tipi İşleme Merkezi', quantity: '1', unitPrice: 158000, vatRate: 0 },
+      ],
+    },
+    {
+      orderNo: 'PO-2026/002',
+      supplierCompanyId: taiwanSupplier?.id,
+      divisionCode: 'sac_isleme',
+      statusCode: 'approved',
+      orderDate: new Date('2026-06-01'),
+      expectedDate: new Date('2026-07-20'),
+      incoterm: 'FOB Taichung',
+      shipmentReference: 'TWN-SAC-2026-02',
+      notes: 'Demo sac işleme ekipmanı satın alma siparişi.',
+      items: [{ modelCode: 'HPB-30135', description: 'HAKSAN HPB-30135 CNC Abkant Pres', quantity: '1', unitPrice: 36000, vatRate: 0 }],
+    },
+  ];
+  for (const order of purchaseOrderDefs) {
+    await ensurePurchaseOrder(order);
+  }
+  console.log(`[demo] purchase orders ensured: ${purchaseOrderDefs.length}`);
+
+  const ensureProforma = async (def: { quoteNo: string; documentNo: string; statusCode: string; issueDate: Date }) => {
+    const existing = await db.query.proformas.findFirst({
+      where: and(eq(schema.proformas.tenantId, tenantRow.id), eq(schema.proformas.documentNo, def.documentNo)),
+    });
+    if (existing) return existing;
+    const quote = await quoteByNo(def.quoteNo);
+    if (!quote) return undefined;
+    const [row] = await db
+      .insert(schema.proformas)
+      .values({
+        tenantId: tenantRow.id,
+        divisionId: quote.divisionId ?? defaultDivision?.id ?? null,
+        quoteId: quote.id,
+        documentNo: def.documentNo,
+        issueDate: def.issueDate,
+        statusId: proformaStatusByCode.get(def.statusCode) ?? null,
+        createdBy: sales?.id ?? null,
+      })
+      .returning();
+    return row;
+  };
+  const ensureContract = async (def: { quoteNo: string; contractNo: string; statusCode: string; signedDate: Date }) => {
+    const existing = await db.query.contracts.findFirst({
+      where: and(eq(schema.contracts.tenantId, tenantRow.id), eq(schema.contracts.contractNo, def.contractNo)),
+    });
+    if (existing) return existing;
+    const quote = await quoteByNo(def.quoteNo);
+    if (!quote) return undefined;
+    const [row] = await db
+      .insert(schema.contracts)
+      .values({
+        tenantId: tenantRow.id,
+        divisionId: quote.divisionId ?? defaultDivision?.id ?? null,
+        quoteId: quote.id,
+        contractNo: def.contractNo,
+        signedDate: def.signedDate,
+        statusId: contractStatusByCode.get(def.statusCode) ?? null,
+        createdBy: sales?.id ?? null,
+      })
+      .returning();
+    return row;
+  };
+  const ensureCommercialInvoice = async (def: { quoteNo: string; invoiceNo: string; statusCode: string; invoiceDate: Date }) => {
+    const existing = await db.query.commercialInvoices.findFirst({
+      where: and(eq(schema.commercialInvoices.tenantId, tenantRow.id), eq(schema.commercialInvoices.invoiceNo, def.invoiceNo)),
+    });
+    if (existing) return existing;
+    const quote = await quoteByNo(def.quoteNo);
+    if (!quote) return undefined;
+    const [row] = await db
+      .insert(schema.commercialInvoices)
+      .values({
+        tenantId: tenantRow.id,
+        divisionId: quote.divisionId ?? defaultDivision?.id ?? null,
+        quoteId: quote.id,
+        invoiceNo: def.invoiceNo,
+        invoiceDate: def.invoiceDate,
+        statusId: invoiceStatusByCode.get(def.statusCode) ?? null,
+        createdBy: financeUser?.id ?? null,
+      })
+      .returning();
+    return row;
+  };
+  await ensureProforma({ quoteNo: '2026/16', documentNo: 'PF-2026-016', statusCode: 'accepted', issueDate: new Date('2026-05-31') });
+  await ensureProforma({ quoteNo: '2026/UNI-01', documentNo: 'PF-2026-UNI-01', statusCode: 'sent', issueDate: new Date('2026-06-05') });
+  await ensureContract({ quoteNo: '2026/16', contractNo: 'CNT-2026-016', statusCode: 'signed', signedDate: new Date('2026-06-01') });
+  await ensureContract({ quoteNo: '2026/SAC-01', contractNo: 'CNT-2026-SAC-01', statusCode: 'draft', signedDate: new Date('2026-06-10') });
+  await ensureCommercialInvoice({ quoteNo: '2026/16', invoiceNo: 'CI-2026-016', statusCode: 'issued', invoiceDate: new Date('2026-06-02') });
+  await ensureCommercialInvoice({ quoteNo: '2026/SAC-01', invoiceNo: 'CI-2026-SAC-01', statusCode: 'draft', invoiceDate: new Date('2026-06-10') });
+  console.log('[demo] commercial documents ensured');
+
+  // 13. Finance: accounting invoices, receivables, payables and payments
+  const paymentStatusByCode = await rowsByCode(db.query.paymentStatuses.findMany());
+  const ensureAccountingInvoice = async (def: {
+    invoiceNo: string;
+    companyId?: string;
+    divisionCode: string;
+    type: 'sales' | 'purchase';
+    invoiceDate: Date;
+    amount: number;
+    vatAmount: number;
+    statusCode: string;
+    quoteNo?: string;
+    salesOrderNo?: string;
+    firstDueDate: Date;
+    lastDueDate: Date;
+    installmentCount: number;
+    notes: string;
+    lines: Array<{ modelCode?: string; serialNumber?: string; categoryCode?: string; description: string; quantity: string }>;
+  }) => {
+    if (!def.companyId) return undefined;
+    const existing = await db.query.accountingInvoices.findFirst({
+      where: and(eq(schema.accountingInvoices.tenantId, tenantRow.id), eq(schema.accountingInvoices.invoiceNo, def.invoiceNo)),
+    });
+    if (existing) return existing;
+    const quote = def.quoteNo ? await quoteByNo(def.quoteNo) : undefined;
+    const salesOrder = def.salesOrderNo ? await salesOrderByNo(def.salesOrderNo) : undefined;
+    const [invoice] = await db
+      .insert(schema.accountingInvoices)
+      .values({
+        tenantId: tenantRow.id,
+        divisionId: divisionsByCode.get(def.divisionCode)?.id ?? defaultDivision?.id ?? null,
+        companyId: def.companyId,
+        type: def.type,
+        invoiceNo: def.invoiceNo,
+        invoiceDate: def.invoiceDate,
+        amount: def.amount.toFixed(4),
+        vatAmount: def.vatAmount.toFixed(4),
+        grandTotal: (def.amount + def.vatAmount).toFixed(4),
+        currencyId: usd?.id,
+        quoteId: quote?.id ?? null,
+        salesOrderId: salesOrder?.id ?? null,
+        firstDueDate: def.firstDueDate,
+        lastDueDate: def.lastDueDate,
+        installmentCount: def.installmentCount,
+        statusId: invoiceStatusByCode.get(def.statusCode) ?? null,
+        notes: def.notes,
+        createdBy: financeUser?.id ?? null,
+      })
+      .returning();
+    for (const line of def.lines) {
+      const product = line.modelCode ? await productByCode(line.modelCode) : undefined;
+      const inventory = line.serialNumber ? await inventoryBySerial(line.serialNumber) : undefined;
+      await db.insert(schema.accountingInvoiceLines).values({
+        tenantId: tenantRow.id,
+        accountingInvoiceId: invoice.id,
+        productModelId: product?.id ?? null,
+        inventoryItemId: inventory?.id ?? null,
+        categoryCode: line.categoryCode ?? null,
+        description: line.description,
+        quantity: line.quantity,
+      });
+    }
+    const installmentAmount = (def.amount + def.vatAmount) / def.installmentCount;
+    for (let i = 0; i < def.installmentCount; i++) {
+      const dueDate =
+        def.installmentCount === 1
+          ? def.firstDueDate
+          : new Date(def.firstDueDate.getTime() + i * 30 * 86400000);
+      await db.insert(schema.invoiceInstallments).values({
+        tenantId: tenantRow.id,
+        accountingInvoiceId: invoice.id,
+        installmentNo: i + 1,
+        dueDate,
+        amount: installmentAmount.toFixed(4),
+        statusId: paymentStatusByCode.get(i === 0 ? 'paid' : 'pending') ?? null,
+      });
+    }
+    return invoice;
+  };
+
+  const salesInvoice = await ensureAccountingInvoice({
+    invoiceNo: 'ACC-S-2026-001',
+    companyId: kilitsan?.id,
+    divisionCode: 'cnc',
+    type: 'sales',
+    invoiceDate: new Date('2026-06-02'),
+    amount: 170000,
+    vatAmount: 0,
+    statusCode: 'issued',
+    quoteNo: '2026/16',
+    salesOrderNo: 'SO-2026/001',
+    firstDueDate: new Date('2026-06-15'),
+    lastDueDate: new Date('2026-08-15'),
+    installmentCount: 3,
+    notes: 'Demo satış muhasebe faturası.',
+    lines: [{ modelCode: 'DL-2112', serialNumber: 'MFD-DL2112-0002', categoryCode: 'TEZGAH', description: 'MANFORD DL-2112', quantity: '1' }],
+  });
+  const purchaseInvoice = await ensureAccountingInvoice({
+    invoiceNo: 'ACC-P-2026-001',
+    companyId: taiwanSupplier?.id,
+    divisionCode: 'cnc',
+    type: 'purchase',
+    invoiceDate: new Date('2026-06-04'),
+    amount: 65000,
+    vatAmount: 0,
+    statusCode: 'issued',
+    firstDueDate: new Date('2026-07-05'),
+    lastDueDate: new Date('2026-07-05'),
+    installmentCount: 1,
+    notes: 'Demo tedarikçi faturası.',
+    lines: [{ modelCode: 'MV-1050', categoryCode: 'TEZGAH', description: 'LK MV-1050 ithalat avansı', quantity: '1' }],
+  });
+
+  const ensureReceivable = async (def: {
+    companyId?: string;
+    divisionCode: string;
+    quoteNo?: string;
+    accountingInvoiceId?: string;
+    invoiceNo: string;
+    amount: number;
+    dueDate: Date;
+    statusCode: string;
+    notes: string;
+  }) => {
+    if (!def.companyId) return undefined;
+    const existing = await db.query.receivables.findFirst({
+      where: and(eq(schema.receivables.tenantId, tenantRow.id), eq(schema.receivables.invoiceNo, def.invoiceNo), eq(schema.receivables.amount, def.amount.toFixed(4))),
+    });
+    if (existing) return existing;
+    const quote = def.quoteNo ? await quoteByNo(def.quoteNo) : undefined;
+    const [row] = await db
+      .insert(schema.receivables)
+      .values({
+        tenantId: tenantRow.id,
+        divisionId: divisionsByCode.get(def.divisionCode)?.id ?? defaultDivision?.id ?? null,
+        companyId: def.companyId,
+        quoteId: quote?.id ?? null,
+        accountingInvoiceId: def.accountingInvoiceId ?? null,
+        invoiceNo: def.invoiceNo,
+        movementType: 'sales_invoice',
+        documentRef: def.invoiceNo,
+        amount: def.amount.toFixed(4),
+        currencyId: usd?.id,
+        dueDate: def.dueDate,
+        statusId: paymentStatusByCode.get(def.statusCode) ?? null,
+        notes: def.notes,
+      })
+      .returning();
+    return row;
+  };
+  const ensurePayable = async (def: {
+    companyId?: string;
+    divisionCode: string;
+    accountingInvoiceId?: string;
+    invoiceNo: string;
+    amount: number;
+    dueDate: Date;
+    statusCode: string;
+    notes: string;
+  }) => {
+    if (!def.companyId) return undefined;
+    const existing = await db.query.payables.findFirst({
+      where: and(eq(schema.payables.tenantId, tenantRow.id), eq(schema.payables.invoiceNo, def.invoiceNo), eq(schema.payables.amount, def.amount.toFixed(4))),
+    });
+    if (existing) return existing;
+    const [row] = await db
+      .insert(schema.payables)
+      .values({
+        tenantId: tenantRow.id,
+        divisionId: divisionsByCode.get(def.divisionCode)?.id ?? defaultDivision?.id ?? null,
+        companyId: def.companyId,
+        accountingInvoiceId: def.accountingInvoiceId ?? null,
+        invoiceNo: def.invoiceNo,
+        movementType: 'purchase_invoice',
+        documentRef: def.invoiceNo,
+        amount: def.amount.toFixed(4),
+        currencyId: usd?.id,
+        dueDate: def.dueDate,
+        statusId: paymentStatusByCode.get(def.statusCode) ?? null,
+        notes: def.notes,
+      })
+      .returning();
+    return row;
+  };
+  const receivablePaid = await ensureReceivable({ companyId: kilitsan?.id, divisionCode: 'cnc', quoteNo: '2026/16', accountingInvoiceId: salesInvoice?.id, invoiceNo: 'ACC-S-2026-001/1', amount: 50000, dueDate: new Date('2026-06-15'), statusCode: 'paid', notes: 'Demo tahsil edilmiş taksit.' });
+  await ensureReceivable({ companyId: kilitsan?.id, divisionCode: 'cnc', quoteNo: '2026/16', accountingInvoiceId: salesInvoice?.id, invoiceNo: 'ACC-S-2026-001/2', amount: 60000, dueDate: new Date('2026-07-15'), statusCode: 'pending', notes: 'Demo bekleyen tahsilat.' });
+  await ensureReceivable({ companyId: kilitsan?.id, divisionCode: 'cnc', quoteNo: '2026/16', accountingInvoiceId: salesInvoice?.id, invoiceNo: 'ACC-S-2026-001/3', amount: 60000, dueDate: new Date('2026-08-15'), statusCode: 'pending', notes: 'Demo ileri vadeli tahsilat.' });
+  const payablePaid = await ensurePayable({ companyId: taiwanSupplier?.id, divisionCode: 'cnc', accountingInvoiceId: purchaseInvoice?.id, invoiceNo: 'ACC-P-2026-001/1', amount: 25000, dueDate: new Date('2026-06-20'), statusCode: 'paid', notes: 'Demo tedarikçi avans ödemesi.' });
+  await ensurePayable({ companyId: taiwanSupplier?.id, divisionCode: 'cnc', accountingInvoiceId: purchaseInvoice?.id, invoiceNo: 'ACC-P-2026-001/2', amount: 40000, dueDate: new Date('2026-07-05'), statusCode: 'pending', notes: 'Demo bekleyen tedarikçi ödemesi.' });
+
+  const ensurePayment = async (def: {
+    companyId?: string;
+    divisionCode: string;
+    receivableId?: string;
+    payableId?: string;
+    accountingInvoiceId?: string;
+    invoiceNo: string;
+    direction: 'in' | 'out';
+    amount: number;
+    paymentDate: Date;
+    paymentMethod: string;
+    notes: string;
+  }) => {
+    if (!def.companyId) return undefined;
+    const existing = await db.query.payments.findFirst({
+      where: and(eq(schema.payments.tenantId, tenantRow.id), eq(schema.payments.invoiceNo, def.invoiceNo), eq(schema.payments.direction, def.direction)),
+    });
+    if (existing) return existing;
+    const [row] = await db
+      .insert(schema.payments)
+      .values({
+        tenantId: tenantRow.id,
+        divisionId: divisionsByCode.get(def.divisionCode)?.id ?? defaultDivision?.id ?? null,
+        receivableId: def.receivableId ?? null,
+        payableId: def.payableId ?? null,
+        accountingInvoiceId: def.accountingInvoiceId ?? null,
+        companyId: def.companyId,
+        invoiceNo: def.invoiceNo,
+        direction: def.direction,
+        amount: def.amount.toFixed(4),
+        currencyId: usd?.id,
+        paymentDate: def.paymentDate,
+        paymentMethod: def.paymentMethod,
+        statusId: paymentStatusByCode.get('paid') ?? null,
+        notes: def.notes,
+        createdBy: financeUser?.id ?? null,
+      })
+      .returning();
+    return row;
+  };
+  await ensurePayment({ companyId: kilitsan?.id, divisionCode: 'cnc', receivableId: receivablePaid?.id, accountingInvoiceId: salesInvoice?.id, invoiceNo: 'ACC-S-2026-001/1', direction: 'in', amount: 50000, paymentDate: new Date('2026-06-16'), paymentMethod: 'bank_transfer', notes: 'Demo banka tahsilatı.' });
+  await ensurePayment({ companyId: taiwanSupplier?.id, divisionCode: 'cnc', payableId: payablePaid?.id, accountingInvoiceId: purchaseInvoice?.id, invoiceNo: 'ACC-P-2026-001/1', direction: 'out', amount: 25000, paymentDate: new Date('2026-06-21'), paymentMethod: 'bank_transfer', notes: 'Demo tedarikçi avans ödemesi.' });
+  console.log('[demo] finance records ensured');
+
+  // 14. Shipments and deliveries
+  const shipmentStatusByCode = await rowsByCode(db.query.shipmentStatuses.findMany());
+  const shipmentByNo = async (shipmentNo: string) =>
+    await db.query.shipments.findFirst({
+      where: and(eq(schema.shipments.tenantId, tenantRow.id), eq(schema.shipments.shipmentNo, shipmentNo)),
+    });
+  const ensureShipment = async (def: {
+    shipmentNo: string;
+    companyId?: string;
+    quoteNo?: string;
+    salesOrderNo?: string;
+    divisionCode: string;
+    statusCode: string;
+    carrier: string;
+    trackingNo: string;
+    origin: string;
+    destination: string;
+    eta: Date;
+    incoterm: string;
+    shippedAt?: Date;
+    arrivedAt?: Date;
+    customsClearedAt?: Date;
+    notes: string;
+    items: Array<{ serialNumber?: string; modelCode: string; description: string; quantity: string }>;
+  }) => {
+    if (!def.companyId) return undefined;
+    const existing = await shipmentByNo(def.shipmentNo);
+    if (existing) return existing;
+    const quote = def.quoteNo ? await quoteByNo(def.quoteNo) : undefined;
+    const salesOrder = def.salesOrderNo ? await salesOrderByNo(def.salesOrderNo) : undefined;
+    const [shipment] = await db
+      .insert(schema.shipments)
+      .values({
+        tenantId: tenantRow.id,
+        divisionId: divisionsByCode.get(def.divisionCode)?.id ?? defaultDivision?.id ?? null,
+        opportunityId: quote?.opportunityId ?? null,
+        quoteId: quote?.id ?? null,
+        salesOrderId: salesOrder?.id ?? null,
+        companyId: def.companyId,
+        shipmentNo: def.shipmentNo,
+        carrier: def.carrier,
+        trackingNo: def.trackingNo,
+        statusId: shipmentStatusByCode.get(def.statusCode) ?? null,
+        origin: def.origin,
+        destination: def.destination,
+        eta: def.eta,
+        incoterm: def.incoterm,
+        shippedAt: def.shippedAt ?? null,
+        arrivedAt: def.arrivedAt ?? null,
+        customsClearedAt: def.customsClearedAt ?? null,
+        notes: def.notes,
+      })
+      .returning();
+    for (const [index, item] of def.items.entries()) {
+      const product = await productByCode(item.modelCode);
+      const inventory = item.serialNumber ? await inventoryBySerial(item.serialNumber) : undefined;
+      const salesOrderItem = salesOrder
+        ? await db.query.salesOrderItems.findFirst({
+            where: and(eq(schema.salesOrderItems.tenantId, tenantRow.id), eq(schema.salesOrderItems.salesOrderId, salesOrder.id)),
+          })
+        : undefined;
+      await db.insert(schema.shipmentItems).values({
+        tenantId: tenantRow.id,
+        shipmentId: shipment.id,
+        inventoryItemId: inventory?.id ?? null,
+        salesOrderItemId: salesOrderItem?.id ?? null,
+        productModelId: product?.id ?? null,
+        description: item.description,
+        serialNumber: item.serialNumber ?? null,
+        quantity: item.quantity,
+        unitId: adetUnit?.id,
+        sortOrder: index,
+      });
+    }
+    return shipment;
+  };
+
+  const deliveredShipment = await ensureShipment({
+    shipmentNo: 'SHP-2026-001',
+    companyId: kilitsan?.id,
+    quoteNo: '2026/16',
+    salesOrderNo: 'SO-2026/001',
+    divisionCode: 'cnc',
+    statusCode: 'delivered',
+    carrier: 'Mars Logistics',
+    trackingNo: 'MRS-TR-2026-001',
+    origin: 'Taichung, Taiwan',
+    destination: 'Hendek, Sakarya',
+    eta: new Date('2026-06-12'),
+    incoterm: 'CIF Istanbul',
+    shippedAt: new Date('2026-06-03'),
+    arrivedAt: new Date('2026-06-11'),
+    customsClearedAt: new Date('2026-06-12'),
+    notes: 'Demo teslim edilmiş sevkiyat.',
+    items: [{ serialNumber: 'MFD-DL2112-0002', modelCode: 'DL-2112', description: 'MANFORD DL-2112', quantity: '1' }],
+  });
+  const inTransitShipment = await ensureShipment({
+    shipmentNo: 'SHP-2026-002',
+    companyId: sactech?.id,
+    quoteNo: '2026/SAC-01',
+    salesOrderNo: 'SO-2026/003',
+    divisionCode: 'sac_isleme',
+    statusCode: 'in_transit',
+    carrier: 'Ekol Logistics',
+    trackingNo: 'EKL-SAC-2026-002',
+    origin: 'Taichung, Taiwan',
+    destination: 'Nilüfer OSB, Bursa',
+    eta: new Date('2026-07-02'),
+    incoterm: 'FOB Taichung',
+    shippedAt: new Date('2026-06-15'),
+    notes: 'Demo yolda sevkiyat.',
+    items: [{ serialNumber: 'SAC-HPB30135-0002', modelCode: 'HPB-30135', description: 'HAKSAN HPB-30135', quantity: '1' }],
+  });
+
+  const ensureDelivery = async (def: {
+    companyId?: string;
+    shipmentId?: string;
+    salesOrderNo?: string;
+    quoteNo?: string;
+    divisionCode: string;
+    deliveryDate: Date;
+    signedBy: string;
+    status: 'pending' | 'completed';
+    notes: string;
+    formData: Record<string, unknown>;
+  }) => {
+    if (!def.companyId) return undefined;
+    const existing = await db.query.deliveries.findFirst({
+      where: and(eq(schema.deliveries.tenantId, tenantRow.id), eq(schema.deliveries.notes, def.notes)),
+    });
+    if (existing) return existing;
+    const quote = def.quoteNo ? await quoteByNo(def.quoteNo) : undefined;
+    const salesOrder = def.salesOrderNo ? await salesOrderByNo(def.salesOrderNo) : undefined;
+    const [delivery] = await db
+      .insert(schema.deliveries)
+      .values({
+        tenantId: tenantRow.id,
+        divisionId: divisionsByCode.get(def.divisionCode)?.id ?? defaultDivision?.id ?? null,
+        opportunityId: quote?.opportunityId ?? null,
+        companyId: def.companyId,
+        shipmentId: def.shipmentId ?? null,
+        salesOrderId: salesOrder?.id ?? null,
+        deliveryDate: def.deliveryDate,
+        signedBy: def.signedBy,
+        status: def.status,
+        notes: def.notes,
+        formData: def.formData,
+      })
+      .returning();
+    return delivery;
+  };
+  await ensureDelivery({
+    companyId: kilitsan?.id,
+    shipmentId: deliveredShipment?.id,
+    salesOrderNo: 'SO-2026/001',
+    quoteNo: '2026/16',
+    divisionCode: 'cnc',
+    deliveryDate: new Date('2026-06-13'),
+    signedBy: 'Metin YILMAZ',
+    status: 'completed',
+    notes: 'Demo CNC teslim ve kurulum tutanağı.',
+    formData: {
+      formNo: 'KRL-2026-001',
+      kurulumTarihi: new Date('2026-06-13'),
+      tezgah: { marka: 'MANFORD', tip: 'Köprü Tipi CNC Dik İşleme Merkezi', model: 'DL-2112', seriNo: 'MFD-DL2112-0002' },
+      cnc: { marka: 'Fanuc', model: '0i-MF Plus', seriNo: 'FNC-0002', mainSw: 'v12.4' },
+      ilgili: 'Metin YILMAZ',
+      kurulumuYapan: 'Servis Sorumlusu',
+    },
+  });
+  await ensureDelivery({
+    companyId: sactech?.id,
+    shipmentId: inTransitShipment?.id,
+    salesOrderNo: 'SO-2026/003',
+    quoteNo: '2026/SAC-01',
+    divisionCode: 'sac_isleme',
+    deliveryDate: new Date('2026-07-03'),
+    signedBy: 'Murat Kaya',
+    status: 'pending',
+    notes: 'Demo sac işleme teslim hazırlığı.',
+    formData: {
+      formNo: 'KRL-2026-002',
+      kurulumTarihi: new Date('2026-07-03'),
+      tezgah: { marka: 'HAKSAN', tip: 'CNC Abkant Pres', model: 'HPB-30135', seriNo: 'SAC-HPB30135-0002' },
+      cnc: { marka: 'Delem', model: 'DA-66T', seriNo: 'DLM-30135-02', mainSw: 'v8.1' },
+      ilgili: 'Murat Kaya',
+      kurulumuYapan: 'Servis Sorumlusu',
+    },
+  });
+  console.log('[demo] shipments and deliveries ensured');
+
+  // 15. Service tickets and chat
+  const serviceStatusByCode = await rowsByCode(db.query.serviceTicketStatuses.findMany());
+  const deviceBySerial = async (serialNumber: string) => {
+    const item = await inventoryBySerial(serialNumber);
+    if (!item) return undefined;
+    return await db.query.customerDevices.findFirst({
+      where: and(eq(schema.customerDevices.tenantId, tenantRow.id), eq(schema.customerDevices.inventoryItemId, item.id)),
+    });
+  };
+  const ensureServiceTicket = async (def: {
+    ticketNo: string;
+    companyId?: string;
+    serialNumber?: string;
+    divisionCode: string;
+    statusCode: string;
+    subject: string;
+    description: string;
+    severity: 'low' | 'normal' | 'high' | 'critical';
+    reportedAt: Date;
+    resolvedAt?: Date;
+    resolutionNote?: string;
+    metadata: Record<string, unknown>;
+  }) => {
+    if (!def.companyId) return undefined;
+    const existing = await db.query.serviceTickets.findFirst({
+      where: and(eq(schema.serviceTickets.tenantId, tenantRow.id), eq(schema.serviceTickets.ticketNo, def.ticketNo)),
+    });
+    if (existing) return existing;
+    const device = def.serialNumber ? await deviceBySerial(def.serialNumber) : undefined;
+    const [ticket] = await db
+      .insert(schema.serviceTickets)
+      .values({
+        tenantId: tenantRow.id,
+        divisionId: divisionsByCode.get(def.divisionCode)?.id ?? defaultDivision?.id ?? null,
+        ticketNo: def.ticketNo,
+        companyId: def.companyId,
+        customerDeviceId: device?.id ?? null,
+        subject: def.subject,
+        description: def.description,
+        severity: def.severity,
+        statusId: serviceStatusByCode.get(def.statusCode) ?? null,
+        assignedToUserId: serviceUser?.id ?? null,
+        reportedAt: def.reportedAt,
+        resolvedAt: def.resolvedAt ?? null,
+        resolutionNote: def.resolutionNote ?? null,
+        metadata: def.metadata,
+      })
+      .returning();
+    return ticket;
+  };
+  const serviceTicket1 = await ensureServiceTicket({
+    ticketNo: 'SRV-2026-001',
+    companyId: kilitsan?.id,
+    serialNumber: 'MFD-DL2112-0002',
+    divisionCode: 'cnc',
+    statusCode: 'open',
+    subject: 'Fener mili ısınma kontrolü',
+    description: 'Operatör, uzun çevrimde fener mili sıcaklığının beklenenden hızlı yükseldiğini bildirdi.',
+    severity: 'high',
+    reportedAt: new Date('2026-06-16T09:30:00Z'),
+    metadata: {
+      timerStatus: 'running',
+      timerElapsedSeconds: 5400,
+      serviceHourlyRate: 120,
+      serviceCurrency: 'USD',
+      operations: [{ id: 'op-demo-1', description: 'Uzaktan teşhis ve parametre kontrolü', quantity: 1, unitPrice: 120, currency: 'USD' }],
+    },
+  });
+  await ensureServiceTicket({
+    ticketNo: 'SRV-2026-002',
+    companyId: alipler?.id,
+    serialNumber: 'ECO-MT208-0003',
+    divisionCode: 'cnc',
+    statusCode: 'resolved',
+    subject: 'Taret referans hatası',
+    description: 'Taret sıfırlama sonrasında referans uyarısı alınıyor.',
+    severity: 'normal',
+    reportedAt: new Date('2026-05-28T08:15:00Z'),
+    resolvedAt: new Date('2026-05-29T14:30:00Z'),
+    resolutionNote: 'Limit switch temizlendi, referans döngüsü test edildi.',
+    metadata: { timerStatus: 'stopped', timerElapsedSeconds: 12600, serviceHourlyRate: 120, serviceCurrency: 'USD' },
+  });
+  await ensureServiceTicket({
+    ticketNo: 'SRV-2026-003',
+    companyId: unimak?.id,
+    serialNumber: 'UNI-UF560-0001',
+    divisionCode: 'universal',
+    statusCode: 'in_progress',
+    subject: 'Tabla boşluk ayarı',
+    description: 'X ekseninde hassas paso sırasında boşluk şüphesi var.',
+    severity: 'normal',
+    reportedAt: new Date('2026-06-12T10:00:00Z'),
+    metadata: { timerStatus: 'paused', timerElapsedSeconds: 3600, serviceHourlyRate: 90, serviceCurrency: 'USD' },
+  });
+  await ensureServiceTicket({
+    ticketNo: 'SRV-2026-004',
+    companyId: sactech?.id,
+    serialNumber: 'SAC-HPB30135-0001',
+    divisionCode: 'sac_isleme',
+    statusCode: 'closed',
+    subject: 'Arka dayama kalibrasyonu',
+    description: 'Büküm ölçülerinde 0,4 mm sapma ölçüldü.',
+    severity: 'low',
+    reportedAt: new Date('2026-04-20T11:20:00Z'),
+    resolvedAt: new Date('2026-04-20T16:45:00Z'),
+    resolutionNote: 'Arka dayama referansı ve takım tablosu kalibre edildi.',
+    metadata: { timerStatus: 'stopped', timerElapsedSeconds: 7200, serviceHourlyRate: 120, serviceCurrency: 'USD' },
+  });
+  console.log('[demo] service tickets ensured');
+
+  const chatUsers = [sales, serviceUser, financeUser, stockUser].filter((u): u is NonNullable<typeof u> => !!u);
+  if (chatUsers.length) {
+    const existingConversation = await db.query.conversations.findFirst({
+      where: and(eq(schema.conversations.tenantId, tenantRow.id), eq(schema.conversations.title, 'Demo Operasyon Takibi')),
+    });
+    const conversation =
+      existingConversation ??
+      (
+        await db
+          .insert(schema.conversations)
+          .values({
+            tenantId: tenantRow.id,
+            type: 'group',
+            title: 'Demo Operasyon Takibi',
+            description: 'Seed demo sohbet grubu.',
+            onlyAdminsCanPost: false,
+            refType: 'service_ticket',
+            refId: serviceTicket1?.id ?? null,
+            createdBy: sales?.id ?? null,
+          })
+          .returning()
+      )[0];
+    for (const [index, user] of chatUsers.entries()) {
+      await db
+        .insert(schema.conversationMembers)
+        .values({
+          conversationId: conversation.id,
+          userId: user.id,
+          role: index === 0 ? 'admin' : 'member',
+          lastReadAt: index === 0 ? new Date('2026-06-18T08:00:00Z') : null,
+        })
+        .onConflictDoNothing();
+    }
+    const existingMessage = await db.query.chatMessages.findFirst({
+      where: and(eq(schema.chatMessages.tenantId, tenantRow.id), eq(schema.chatMessages.conversationId, conversation.id)),
+    });
+    if (!existingMessage) {
+      await db.insert(schema.chatMessages).values([
+        {
+          tenantId: tenantRow.id,
+          conversationId: conversation.id,
+          senderId: sales?.id ?? chatUsers[0].id,
+          body: 'Kilitsan teslimatı tamamlandı, servis fener mili ısınma talebini takip ediyor.',
+          kind: 'text',
+          refType: 'company',
+          refId: kilitsan?.id ?? null,
+          createdAt: new Date('2026-06-18T07:45:00Z'),
+        },
+        {
+          tenantId: tenantRow.id,
+          conversationId: conversation.id,
+          senderId: serviceUser?.id ?? chatUsers[0].id,
+          body: 'Servis kaydını açtım, uzaktan teşhis sonrası saha ziyareti planlayacağım.',
+          kind: 'text',
+          refType: 'service_ticket',
+          refId: serviceTicket1?.id ?? null,
+          createdAt: new Date('2026-06-18T07:50:00Z'),
+        },
+        {
+          tenantId: tenantRow.id,
+          conversationId: conversation.id,
+          senderId: financeUser?.id ?? chatUsers[0].id,
+          body: 'İlk tahsilat işlendi, kalan iki vade takvimde görünüyor.',
+          kind: 'text',
+          refType: 'quote',
+          refId: (await quoteByNo('2026/16'))?.id ?? null,
+          createdAt: new Date('2026-06-18T07:58:00Z'),
+        },
+      ]);
+    }
+    console.log('[demo] chat conversation ensured');
+  }
+
+  // 16. Legacy demo rows created before division isolation: make them visible to scoped users.
+  if (defaultDivision?.id) {
+    await db.update(schema.opportunities).set({ divisionId: defaultDivision.id }).where(and(eq(schema.opportunities.tenantId, tenantRow.id), isNull(schema.opportunities.divisionId)));
+    await db.update(schema.salesActivities).set({ divisionId: defaultDivision.id }).where(and(eq(schema.salesActivities.tenantId, tenantRow.id), isNull(schema.salesActivities.divisionId)));
+    await db.update(schema.visits).set({ divisionId: defaultDivision.id }).where(and(eq(schema.visits.tenantId, tenantRow.id), isNull(schema.visits.divisionId)));
+    await db.update(schema.calls).set({ divisionId: defaultDivision.id }).where(and(eq(schema.calls.tenantId, tenantRow.id), isNull(schema.calls.divisionId)));
+    await db.update(schema.quotes).set({ divisionId: defaultDivision.id }).where(and(eq(schema.quotes.tenantId, tenantRow.id), isNull(schema.quotes.divisionId)));
+    await db.update(schema.quoteItems).set({ divisionId: defaultDivision.id }).where(and(eq(schema.quoteItems.tenantId, tenantRow.id), isNull(schema.quoteItems.divisionId)));
+    await db.update(schema.proformas).set({ divisionId: defaultDivision.id }).where(and(eq(schema.proformas.tenantId, tenantRow.id), isNull(schema.proformas.divisionId)));
+    await db.update(schema.contracts).set({ divisionId: defaultDivision.id }).where(and(eq(schema.contracts.tenantId, tenantRow.id), isNull(schema.contracts.divisionId)));
+    await db.update(schema.commercialInvoices).set({ divisionId: defaultDivision.id }).where(and(eq(schema.commercialInvoices.tenantId, tenantRow.id), isNull(schema.commercialInvoices.divisionId)));
+    await db.update(schema.salesOrders).set({ divisionId: defaultDivision.id }).where(and(eq(schema.salesOrders.tenantId, tenantRow.id), isNull(schema.salesOrders.divisionId)));
+    await db.update(schema.purchaseOrders).set({ divisionId: defaultDivision.id }).where(and(eq(schema.purchaseOrders.tenantId, tenantRow.id), isNull(schema.purchaseOrders.divisionId)));
+    await db.update(schema.inventoryItems).set({ divisionId: defaultDivision.id }).where(and(eq(schema.inventoryItems.tenantId, tenantRow.id), isNull(schema.inventoryItems.divisionId)));
+    await db.update(schema.inventoryMovements).set({ divisionId: defaultDivision.id }).where(and(eq(schema.inventoryMovements.tenantId, tenantRow.id), isNull(schema.inventoryMovements.divisionId)));
+    await db.update(schema.customerDevices).set({ divisionId: defaultDivision.id }).where(and(eq(schema.customerDevices.tenantId, tenantRow.id), isNull(schema.customerDevices.divisionId)));
+    await db.update(schema.installationJobs).set({ divisionId: defaultDivision.id }).where(and(eq(schema.installationJobs.tenantId, tenantRow.id), isNull(schema.installationJobs.divisionId)));
+    await db.update(schema.serviceTickets).set({ divisionId: defaultDivision.id }).where(and(eq(schema.serviceTickets.tenantId, tenantRow.id), isNull(schema.serviceTickets.divisionId)));
+    await db.update(schema.shipments).set({ divisionId: defaultDivision.id }).where(and(eq(schema.shipments.tenantId, tenantRow.id), isNull(schema.shipments.divisionId)));
+    await db.update(schema.deliveries).set({ divisionId: defaultDivision.id }).where(and(eq(schema.deliveries.tenantId, tenantRow.id), isNull(schema.deliveries.divisionId)));
+    await db.update(schema.accountingInvoices).set({ divisionId: defaultDivision.id }).where(and(eq(schema.accountingInvoices.tenantId, tenantRow.id), isNull(schema.accountingInvoices.divisionId)));
+    await db.update(schema.receivables).set({ divisionId: defaultDivision.id }).where(and(eq(schema.receivables.tenantId, tenantRow.id), isNull(schema.receivables.divisionId)));
+    await db.update(schema.payables).set({ divisionId: defaultDivision.id }).where(and(eq(schema.payables.tenantId, tenantRow.id), isNull(schema.payables.divisionId)));
+    await db.update(schema.payments).set({ divisionId: defaultDivision.id }).where(and(eq(schema.payments.tenantId, tenantRow.id), isNull(schema.payments.divisionId)));
   }
 
   console.log('[demo] all seeds applied.');

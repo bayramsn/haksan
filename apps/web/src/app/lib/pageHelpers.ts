@@ -1,10 +1,21 @@
 import { toast } from 'sonner';
 import type { PrintDocument } from './print';
-import { openPrintWindow } from './print';
+import { downloadPrintHtml, openPrintWindow } from './print';
 
 export const printOrWarn = (doc: PrintDocument) => {
   if (!openPrintWindow(doc)) {
     toast.error('Yazdırma penceresi açılamadı', { description: 'Lütfen pop-up engelleyiciyi kapatın.' });
+  }
+};
+
+export const downloadPrintOrWarn = (doc: PrintDocument, filename: string) => {
+  try {
+    downloadPrintHtml(doc, filename);
+    toast.success('Proforma indirildi', {
+      description: 'Dosyayı tarayıcıda açıp Yazdır → PDF olarak kaydet ile PDF oluşturabilirsiniz.',
+    });
+  } catch {
+    toast.error('Proforma indirilemedi', { description: 'İndirme başarısız oldu.' });
   }
 };
 

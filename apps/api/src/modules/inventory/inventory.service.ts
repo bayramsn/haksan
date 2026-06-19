@@ -16,6 +16,12 @@ import type { InventoryItemCreateInput, InventoryItemUpdateInput, InventoryReser
 import { buildPaginated, pageOffset } from '../../shared/utils/pagination';
 import { lookupIdByCode } from '../../shared/utils/lookup.helper';
 import { AuditService } from '../../shared/database/audit.service';
+import {
+  companyPortfolioFilter,
+  divisionFilter,
+  resolveActorDivisionScope,
+  resolveAssignedDivision,
+} from '../../shared/utils/division-scope';
 
 @Injectable()
 export class InventoryService {
@@ -57,6 +63,8 @@ export class InventoryService {
       const sid = await lookupIdByCode(this.db, inventoryStatuses, query.statusCode);
       if (sid) filters.push(eq(inventoryItems.stockStatusId, sid));
     }
+    const scoped = divisionFilter(resolveActorDivisionScope(actor), inventoryItems.divisionId);
+    if (scoped) filters.push(scoped);
     let categoryId: string | null | undefined;
     if (query.categoryCode) {
       categoryId = await lookupIdByCode(this.db, productCategories, query.categoryCode);
@@ -105,7 +113,12 @@ export class InventoryService {
 
   async get(id: string, actor: AuthContext) {
     const row = await this.db.query.inventoryItems.findFirst({
-      where: and(eq(inventoryItems.id, id), eq(inventoryItems.tenantId, actor.tenantId), isNull(inventoryItems.deletedAt)),
+      where: and(
+        eq(inventoryItems.id, id),
+        eq(inventoryItems.tenantId, actor.tenantId),
+        isNull(inventoryItems.deletedAt),
+        divisionFilter(resolveActorDivisionScope(actor), inventoryItems.divisionId) ?? sql`true`,
+      ),
     });
     if (!row) throw new NotFoundError('Stok kalemi');
     return row;
@@ -113,7 +126,11 @@ export class InventoryService {
 
   async findBySerial(serial: string, actor: AuthContext) {
     const row = await this.db.query.inventoryItems.findFirst({
-      where: and(eq(inventoryItems.tenantId, actor.tenantId), eq(inventoryItems.serialNumber, serial)),
+      where: and(
+        eq(inventoryItems.tenantId, actor.tenantId),
+        eq(inventoryItems.serialNumber, serial),
+        divisionFilter(resolveActorDivisionScope(actor), inventoryItems.divisionId) ?? sql`true`,
+      ),
     });
     if (!row) throw new NotFoundError('Seri numarası');
     return row;
@@ -125,10 +142,13 @@ export class InventoryService {
     });
     if (existing) throw new ConflictError('Bu seri numarası zaten kayıtlı');
     const statusId = await lookupIdByCode(this.db, inventoryStatuses, input.stockStatusCode);
+    const divisionId = resolveAssignedDivision(actor, input.divisionId ?? null);
+    if (!divisionId) throw new ValidationError('Stok kalemi için bölüm ataması zorunludur', { field: 'divisionId' });
     const [row] = await this.db
       .insert(inventoryItems)
       .values({
         tenantId: actor.tenantId,
+        divisionId,
         productModelId: input.productModelId,
         serialNumber: input.serialNumber,
         controlUnit: input.controlUnit ?? null,
@@ -179,16 +199,24 @@ export class InventoryService {
       throw new ValidationError('Sadece stokta olan kalemler rezerve edilebilir');
     }
     const company = await this.db.query.companies.findFirst({
-      where: and(eq(companies.id, input.companyId), eq(companies.tenantId, actor.tenantId), isNull(companies.deletedAt)),
+      where: and(
+        eq(companies.id, input.companyId),
+        eq(companies.tenantId, actor.tenantId),
+        isNull(companies.deletedAt),
+        companyPortfolioFilter(resolveActorDivisionScope(actor), companies.id) ?? sql`true`,
+      ),
     });
     if (!company) throw new NotFoundError('Firma');
     const now = new Date();
+    const divisionId = item.divisionId ?? resolveAssignedDivision(actor, input.divisionId ?? null);
+    if (!divisionId) throw new ValidationError('Rezervasyon için bölüm ataması zorunludur', { field: 'divisionId' });
     await this.db
       .update(inventoryItems)
-      .set({ stockStatusId: reserved?.id ?? null, reservedCompanyId: input.companyId, reservedAt: now })
+      .set({ divisionId, stockStatusId: reserved?.id ?? null, reservedCompanyId: input.companyId, reservedAt: now })
       .where(eq(inventoryItems.id, id));
     await this.db.insert(inventoryMovements).values({
       tenantId: actor.tenantId,
+      divisionId,
       inventoryItemId: id,
       movementType: 'reserve',
       movementDate: now,
@@ -204,6 +232,7 @@ export class InventoryService {
   async sellFromSalesInvoice(
     params: {
       invoiceId: string;
+      divisionId?: string | null;
       companyId: string;
       invoiceDate: Date;
       lines: Array<{
@@ -222,6 +251,7 @@ export class InventoryService {
     const reserved = await this.db.query.inventoryStatuses.findFirst({ where: eq(inventoryStatuses.code, 'reserved') });
     const scheduled = await this.db.query.installationStatuses.findFirst({ where: eq(installationStatuses.code, 'scheduled') });
     if (!sold) return;
+    const invoiceDivisionId = params.divisionId ?? resolveAssignedDivision(actor, null);
 
     for (const line of params.lines) {
       const isTezgah = line.saleType === 'tezgah' || line.categoryCode === 'TEZGAH';
@@ -289,10 +319,11 @@ export class InventoryService {
         for (const it of itemsToSell) {
           await this.db
             .update(inventoryItems)
-            .set({ stockStatusId: sold.id, reservedCompanyId: null, reservedAt: null })
+            .set({ divisionId: invoiceDivisionId ?? null, stockStatusId: sold.id, reservedCompanyId: null, reservedAt: null })
             .where(eq(inventoryItems.id, it.id));
           await this.db.insert(inventoryMovements).values({
             tenantId: actor.tenantId,
+            divisionId: invoiceDivisionId ?? null,
             inventoryItemId: it.id,
             movementType: 'sell',
             movementDate: params.invoiceDate,
@@ -339,10 +370,11 @@ export class InventoryService {
 
       await this.db
         .update(inventoryItems)
-        .set({ stockStatusId: sold.id, reservedCompanyId: null, reservedAt: null })
+        .set({ divisionId: invoiceDivisionId ?? item.divisionId, stockStatusId: sold.id, reservedCompanyId: null, reservedAt: null })
         .where(eq(inventoryItems.id, item.id));
       await this.db.insert(inventoryMovements).values({
         tenantId: actor.tenantId,
+        divisionId: invoiceDivisionId ?? item.divisionId,
         inventoryItemId: item.id,
         movementType: 'sell',
         movementDate: params.invoiceDate,
@@ -387,6 +419,7 @@ export class InventoryService {
             .insert(customerDevices)
             .values({
               tenantId: actor.tenantId,
+              divisionId: invoiceDivisionId ?? item.divisionId,
               companyId: params.companyId,
               inventoryItemId: item.id,
               saleDate: params.invoiceDate,
@@ -396,11 +429,12 @@ export class InventoryService {
         } else {
           await this.db
             .update(customerDevices)
-            .set({ saleDate: params.invoiceDate, companyId: params.companyId })
+            .set({ divisionId: invoiceDivisionId ?? item.divisionId, saleDate: params.invoiceDate, companyId: params.companyId })
             .where(eq(customerDevices.id, existingDevice.id));
         }
         await this.db.insert(installationJobs).values({
           tenantId: actor.tenantId,
+          divisionId: invoiceDivisionId ?? item.divisionId,
           companyId: params.companyId,
           customerDeviceId: deviceId ?? null,
           scheduledDate: params.invoiceDate,
@@ -414,6 +448,7 @@ export class InventoryService {
         if (!existingDevice) {
           await this.db.insert(customerDevices).values({
             tenantId: actor.tenantId,
+            divisionId: invoiceDivisionId ?? item.divisionId,
             companyId: params.companyId,
             inventoryItemId: item.id,
             saleDate: params.invoiceDate,
@@ -459,6 +494,7 @@ export class InventoryService {
         .where(and(eq(inventoryItems.id, mv.inventoryItemId), eq(inventoryItems.tenantId, actor.tenantId)));
       await this.db.insert(inventoryMovements).values({
         tenantId: actor.tenantId,
+        divisionId: null,
         inventoryItemId: mv.inventoryItemId,
         movementType: 'cancel_sell',
         movementDate: new Date(),
@@ -534,12 +570,13 @@ export class InventoryService {
       }
 
       for (const it of itemsToConsume) {
-        await this.db
-          .update(inventoryItems)
+          await this.db
+            .update(inventoryItems)
           .set({ stockStatusId: sold.id, reservedCompanyId: null, reservedAt: null })
           .where(eq(inventoryItems.id, it.id));
         await this.db.insert(inventoryMovements).values({
           tenantId: actor.tenantId,
+          divisionId: resolveAssignedDivision(actor, null),
           inventoryItemId: it.id,
           movementType: 'consume',
           movementDate: usedAt,
@@ -569,6 +606,8 @@ export class InventoryService {
     const { limit, offset } = pageOffset(page);
     const filters = [eq(customerDevices.tenantId, actor.tenantId), isNull(customerDevices.deletedAt)];
     if (query.companyId) filters.push(eq(customerDevices.companyId, query.companyId));
+    const deviceScoped = divisionFilter(resolveActorDivisionScope(actor), customerDevices.divisionId);
+    if (deviceScoped) filters.push(deviceScoped);
     const where = and(...filters);
     const [{ count }] = await this.db.select({ count: sql<number>`count(*)::int` }).from(customerDevices).where(where);
     // Envanter + ürün join'i: kurulum tutanağı / servis formu çıktıları
@@ -617,6 +656,7 @@ export class InventoryService {
       .insert(customerDevices)
       .values({
         tenantId: actor.tenantId,
+        divisionId: resolveAssignedDivision(actor, input.divisionId ?? null),
         companyId: input.companyId,
         inventoryItemId: input.inventoryItemId ?? null,
         opportunityId: input.opportunityId ?? null,

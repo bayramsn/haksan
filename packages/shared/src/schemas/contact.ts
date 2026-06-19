@@ -29,6 +29,8 @@ export const contactCreateSchema = z.object({
   graduatedSchool: optionalText(128),
   politicalView: optionalText(128),
   notes: optionalText(4000),
+  isBlacklisted: z.boolean().default(false),
+  blacklistReason: optionalText(2000),
   isPrimary: z.boolean().default(false),
 });
 export type ContactCreateInput = z.infer<typeof contactCreateSchema>;
