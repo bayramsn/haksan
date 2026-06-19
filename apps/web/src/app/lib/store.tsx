@@ -1460,6 +1460,7 @@ function StoreInner({ children }: { children: ReactNode }) {
     }
     if (patch.priority !== undefined) apiPatch.severity = patch.priority;
     if (patch.assignedUserId !== undefined) apiPatch.assignedToUserId = patch.assignedUserId;
+    if (patch.ticketType !== undefined) apiPatch.ticketType = patch.ticketType;
 
     const metaKeys = ['timerStatus', 'timerStartedAt', 'timerElapsedSeconds', 'serviceHourlyRate', 'serviceCurrency', 'noteHistory', 'complaints', 'activityHistory', 'operations'] as const;
     if (metaKeys.some((k) => patch[k] !== undefined)) {

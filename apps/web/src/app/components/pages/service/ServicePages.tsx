@@ -11,13 +11,21 @@ import {
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../../ui/table";
 import { Avatar, AvatarFallback, AvatarImage } from "../../ui/avatar";
+import { Badge } from "../../ui/badge";
+import { FilterPopover } from "../../ui/list-controls";
 import { StatusBadge } from "../../Layout";
 import { CreateServiceRequestDialog } from "../../dialogs/CreateDialogs";
 import { KanbanBoard, type KanbanColumn } from "../../KanbanBoard";
 import { ServiceCardAttachments } from "../../KanbanCardAttachments";
 import { DocumentPreviewDialog } from "../../dialogs/DocumentPreviewDialog";
 import { useStore } from "../../../lib/store";
-import { ServiceRequest, ServiceStage, type DocumentItem } from "../../../lib/mock";
+import {
+  ServiceRequest,
+  ServiceStage,
+  type DocumentItem,
+  type ServiceSource,
+  type ServiceTicketType,
+} from "../../../lib/mock";
 import { useAuth } from "../../../../lib/auth";
 import { toast } from "sonner";
 import { inventoryService } from "../../../../lib/services";
@@ -35,6 +43,57 @@ import {
 } from "lucide-react";
 
 const SERVICE_CURRENCIES = ["USD", "EUR", "TRY"] as const;
+
+const SERVICE_TICKET_TYPE_LABELS: Record<ServiceTicketType, string> = {
+  complaint: "Şikayet",
+  request: "Talep",
+  warranty_claim: "Garanti",
+  question: "Soru",
+};
+
+const SERVICE_SOURCE_LABELS: Record<ServiceSource, string> = {
+  manual: "İç kayıt",
+  phone: "Telefon",
+  email: "E-posta",
+  whatsapp: "WhatsApp",
+  portal: "Portal",
+  passport: "QR Pasaport",
+  web: "Web",
+};
+
+const SERVICE_TICKET_TYPE_OPTIONS = Object.entries(SERVICE_TICKET_TYPE_LABELS).map(([value, label]) => ({
+  value,
+  label,
+})) as { value: ServiceTicketType; label: string }[];
+
+const SERVICE_SOURCE_OPTIONS = Object.entries(SERVICE_SOURCE_LABELS).map(([value, label]) => ({
+  value,
+  label,
+})) as { value: ServiceSource; label: string }[];
+
+const serviceTicketTypeLabel = (value?: ServiceTicketType) =>
+  SERVICE_TICKET_TYPE_LABELS[value ?? "complaint"] ?? "Şikayet";
+
+const serviceSourceLabel = (value?: ServiceSource) =>
+  SERVICE_SOURCE_LABELS[value ?? "manual"] ?? "İç kayıt";
+
+function ServiceIntakeBadges({ serviceRequest }: { serviceRequest: ServiceRequest }) {
+  const source = serviceRequest.source ?? "manual";
+  const type = serviceRequest.ticketType ?? "complaint";
+  return (
+    <div className="flex flex-wrap items-center gap-1.5">
+      <Badge variant="outline" className="bg-white text-[11px]">
+        {serviceTicketTypeLabel(type)}
+      </Badge>
+      <Badge
+        variant="outline"
+        className={source === "passport" ? "border-emerald-200 bg-emerald-50 text-emerald-700 text-[11px]" : "bg-muted/40 text-[11px]"}
+      >
+        {serviceSourceLabel(source)}
+      </Badge>
+    </div>
+  );
+}
 
 const serviceNoteText = (s: ServiceRequest) =>
   s.serviceNote || s.diagnosisNote || s.description || s.issueType || "Not girilmedi";
@@ -77,9 +136,34 @@ export function ServiceRequestsPage({ initialView = "list", focus }: { initialVi
   const { service, machines, customers } = useStore();
   const [view, setView] = useState<"list" | "board">(initialView);
   const [selectedServiceId, setSelectedServiceId] = useState<string | null>(null);
+  const [ticketTypeFilter, setTicketTypeFilter] = useState("all");
+  const [sourceFilter, setSourceFilter] = useState("all");
   const customerName = (id: string) => customers.find((c) => c.id === id)?.name ?? "—";
+  const machineName = (id: string) => {
+    const machine = machines.find((m) => m.id === id);
+    return machine ? [machine.model, machine.serialNumber].filter(Boolean).join(" · ") : "—";
+  };
   const selectedService = selectedServiceId ? service.find((s) => s.id === selectedServiceId) ?? null : null;
-  const visibleService = service.filter((s) => matchesServiceFocus(s, focus));
+  const visibleService = service
+    .filter((s) => matchesServiceFocus(s, focus))
+    .filter((s) => ticketTypeFilter === "all" || (s.ticketType ?? "complaint") === ticketTypeFilter)
+    .filter((s) => sourceFilter === "all" || (s.source ?? "manual") === sourceFilter);
+  const filterControls = [
+    {
+      label: "Kayıt Tipi",
+      value: ticketTypeFilter,
+      onChange: setTicketTypeFilter,
+      options: SERVICE_TICKET_TYPE_OPTIONS,
+      allLabel: "Tüm tipler",
+    },
+    {
+      label: "Kaynak",
+      value: sourceFilter,
+      onChange: setSourceFilter,
+      options: SERVICE_SOURCE_OPTIONS,
+      allLabel: "Tüm kaynaklar",
+    },
+  ];
 
   useEffect(() => {
     setView(initialView);
@@ -155,10 +239,16 @@ export function ServiceRequestsPage({ initialView = "list", focus }: { initialVi
   return (
     <>
     <Tabs value={view} onValueChange={(v) => setView(v as "list" | "board")}>
-      <TabsList>
-        <TabsTrigger value="list">Liste</TabsTrigger>
-        <TabsTrigger value="board">Servis Akışı</TabsTrigger>
-      </TabsList>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <TabsList>
+          <TabsTrigger value="list">Liste</TabsTrigger>
+          <TabsTrigger value="board">Servis Akışı</TabsTrigger>
+        </TabsList>
+        <div className="flex items-center justify-between gap-2 sm:justify-end">
+          <span className="text-sm text-muted-foreground tabular-nums">{visibleService.length} kayıt</span>
+          <FilterPopover filters={filterControls} />
+        </div>
+      </div>
       <TabsContent value="list" className="mt-4">
         <Card className="border-border/60 shadow-sm overflow-hidden">
           <CardHeader className="flex flex-row items-center justify-between">
@@ -175,6 +265,8 @@ export function ServiceRequestsPage({ initialView = "list", focus }: { initialVi
             <TableHeader>
               <TableRow>
                 <TableHead>Firma</TableHead>
+                <TableHead>Makine</TableHead>
+                <TableHead>Kayıt</TableHead>
                 <TableHead>Not</TableHead>
                 <TableHead>Aşama</TableHead>
                 <TableHead>Tarih</TableHead>
@@ -184,7 +276,7 @@ export function ServiceRequestsPage({ initialView = "list", focus }: { initialVi
             <TableBody>
               {visibleService.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={5} className="h-24 text-center text-muted-foreground">
+                  <TableCell colSpan={7} className="h-24 text-center text-muted-foreground">
                     Bu filtreye uyan servis talebi bulunmuyor.
                   </TableCell>
                 </TableRow>
@@ -201,6 +293,8 @@ export function ServiceRequestsPage({ initialView = "list", focus }: { initialVi
                     aria-label={`${customerName(s.customerId)} servis talebi, ${s.stage}`}
                   >
                     <TableCell className="font-medium">{customerName(s.customerId)}</TableCell>
+                    <TableCell className="text-muted-foreground">{machineName(s.machineId)}</TableCell>
+                    <TableCell><ServiceIntakeBadges serviceRequest={s} /></TableCell>
                     <TableCell>
                       <span className="text-sm text-muted-foreground line-clamp-1">{serviceNoteText(s)}</span>
                     </TableCell>
@@ -255,10 +349,14 @@ export function ServiceRequestsPage({ initialView = "list", focus }: { initialVi
         </Card>
       </TabsContent>
       <TabsContent value="board" className="mt-4">
-        <ServiceBoard onOpen={(s) => setSelectedServiceId(s.id)} focus={focus} />
+        <ServiceBoard items={visibleService} onOpen={(s) => setSelectedServiceId(s.id)} />
       </TabsContent>
     </Tabs>
-    <ServiceDetailDialog serviceRequest={selectedService} onClose={() => setSelectedServiceId(null)} />
+    <ServiceDetailDialog
+      serviceRequest={selectedService}
+      onClose={() => setSelectedServiceId(null)}
+      onSelectService={setSelectedServiceId}
+    />
     </>
   );
 }
@@ -285,7 +383,7 @@ const STAGE_TO_COLUMN: Record<ServiceStage, ServiceColumnKey> = SERVICE_COLUMNS.
   return acc;
 }, {} as Record<ServiceStage, ServiceColumnKey>);
 
-type ServiceDetailTab = "summary" | "communication" | "notes" | "activities" | "operations";
+type ServiceDetailTab = "summary" | "machine" | "communication" | "notes" | "activities" | "operations";
 
 const SERVICE_ACTIVITY_ENABLED_STAGES = new Set<ServiceStage>(["Service In Progress", "Service Completed", "Signed Form", "Closed"]);
 const SERVICE_FEE_ENABLED_STAGES = new Set<ServiceStage>(["Service Completed", "Signed Form", "Closed"]);
@@ -300,11 +398,10 @@ export function ServiceKanbanPage({ focus }: { focus?: OperationFocus }) {
   return <ServiceRequestsPage initialView="board" focus={focus} />;
 }
 
-function ServiceBoard({ onOpen, focus }: { onOpen?: (s: ServiceRequest) => void; focus?: OperationFocus }) {
-  const { service, moveService, customers, documents } = useStore();
+function ServiceBoard({ items: visibleService, onOpen }: { items: ServiceRequest[]; onOpen?: (s: ServiceRequest) => void }) {
+  const { moveService, customers, machines, documents } = useStore();
   const [previewDoc, setPreviewDoc] = useState<DocumentItem | null>(null);
   const customerName = (id: string) => customers.find((c) => c.id === id)?.name ?? "—";
-  const visibleService = service.filter((s) => matchesServiceFocus(s, focus));
   const columns: KanbanColumn<ServiceRequest>[] = SERVICE_COLUMNS.map((col) => {
     const items = visibleService.filter((s) => STAGE_TO_COLUMN[s.stage] === col.key);
     return {
@@ -338,6 +435,7 @@ function ServiceBoard({ onOpen, focus }: { onOpen?: (s: ServiceRequest) => void;
       }}
       renderCard={(s) => {
         const c = customers.find((x) => x.id === s.customerId);
+        const machine = machines.find((x) => x.id === s.machineId);
         return (
           <Card
             onClick={() => onOpen?.(s)}
@@ -349,8 +447,16 @@ function ServiceBoard({ onOpen, focus }: { onOpen?: (s: ServiceRequest) => void;
               </div>
               <div className="min-w-0 flex-1">
                 <div className="text-[13px] leading-tight truncate group-hover:text-primary transition-colors">{customerName(s.customerId)}</div>
+                {machine && (
+                  <div className="mt-1 text-[11px] text-muted-foreground truncate">
+                    {machine.model} · {machine.serialNumber}
+                  </div>
+                )}
                 <div className="text-[11px] text-muted-foreground line-clamp-3 break-words mt-1.5">{serviceNoteText(s)}</div>
               </div>
+            </div>
+            <div className="mt-3">
+              <ServiceIntakeBadges serviceRequest={s} />
             </div>
             <ServiceCardAttachments
               serviceRequestId={s.id}
@@ -414,11 +520,13 @@ function ServiceHistoryCard({
 function ServiceDetailDialog({
   serviceRequest,
   onClose,
+  onSelectService,
 }: {
   serviceRequest: ServiceRequest | null;
   onClose: () => void;
+  onSelectService?: (id: string) => void;
 }) {
-  const { updateService, customers, machines, users, products } = useStore();
+  const { updateService, customers, machines, users, products, service: serviceRequests } = useStore();
   const { user: authUser } = useAuth();
   const [nowMs, setNowMs] = useState(Date.now());
   const [note, setNote] = useState("");
@@ -457,6 +565,32 @@ function ServiceDetailDialog({
   const customer = customers.find((c) => c.id === serviceRequest.customerId);
   const machine = machines.find((m) => m.id === serviceRequest.machineId);
   const assignee = users.find((u) => u.id === serviceRequest.assignedUserId);
+  const machineTickets = machine
+    ? serviceRequests
+        .filter((s) => s.machineId === machine.id && s.id !== serviceRequest.id)
+        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+    : [];
+  const openMachineTickets = machineTickets.filter((s) => s.stage !== "Closed").length;
+  const machineInfo: [string, string | undefined][] = [
+    ["Marka", machine?.brand],
+    ["Tip", machine?.type],
+    ["Model", machine?.model],
+    ["Seri No", machine?.serialNumber],
+    ["CNC Kontrol", machine?.controlUnit],
+    ["CNC Seri", machine?.controlUnitSerial],
+    ["Teslim", machine?.deliveryDate],
+    ["Kurulum", machine?.installationDate],
+    ["Garanti Başlangıç", machine?.warrantyStart],
+    ["Garanti Bitiş", machine?.warrantyEnd],
+  ];
+  const customerInfo: [string, string | undefined][] = [
+    ["İlgili", customer?.contactPerson],
+    ["Telefon", customer?.phone],
+    ["GSM", customer?.phone2],
+    ["E-posta", customer?.email],
+    ["Adres", customer ? [customer.address, customer.district, customer.city].filter(Boolean).join(" ") : undefined],
+    ["Vergi", customer ? [customer.taxOffice, customer.taxNumber].filter(Boolean).join(" · ") : undefined],
+  ];
   const resolveActor = (id?: string): ServiceActor | null => {
     const localUser = users.find((u) => u.id === id);
     if (localUser) {
@@ -658,6 +792,7 @@ function ServiceDetailDialog({
             {machine && <span>{machine.model} · {machine.serialNumber}</span>}
             {assignee && <span>Atanan: {assignee.name}</span>}
           </DialogDescription>
+          <ServiceIntakeBadges serviceRequest={serviceRequest} />
           <p className="text-xs text-muted-foreground bg-muted/50 border border-border/60 rounded-md px-3 py-2 mt-2">
             Sayaç, işlemler ve aktivite geçmişi sunucuya kaydedilir; not ve şikayet kayıtları ayrıca metin alanlarına yazılır.
           </p>
@@ -667,6 +802,7 @@ function ServiceDetailDialog({
           <div className="border-b border-border/60 px-5 py-3">
             <TabsList className="h-auto w-full justify-start overflow-x-auto">
               <TabsTrigger value="summary">Özet</TabsTrigger>
+              <TabsTrigger value="machine">Makine Dosyası</TabsTrigger>
               <TabsTrigger value="communication">Müşteri İletişim</TabsTrigger>
               <TabsTrigger value="notes">Not Geçmişi</TabsTrigger>
               <TabsTrigger value="activities" disabled={!activityTabEnabled} title="Servis Devam Ediyor aşamasından sonra açılır">
@@ -716,7 +852,7 @@ function ServiceDetailDialog({
                 </CardContent>
               </Card>
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
               <div className="rounded-lg border border-border/60 bg-white px-3 py-2.5">
                 <div className="text-[11px] uppercase tracking-wide text-muted-foreground">Firma</div>
                 <div className="mt-1 text-sm">{customer?.name ?? "—"}</div>
@@ -726,10 +862,125 @@ function ServiceDetailDialog({
                 <div className="mt-1 text-sm tabular-nums">{serviceRequest.createdAt}</div>
               </div>
               <div className="rounded-lg border border-border/60 bg-white px-3 py-2.5">
+                <div className="text-[11px] uppercase tracking-wide text-muted-foreground">Kayıt Tipi</div>
+                <Select
+                  value={serviceRequest.ticketType ?? "complaint"}
+                  onValueChange={(value) => updateService(serviceRequest.id, { ticketType: value as ServiceTicketType })}
+                >
+                  <SelectTrigger className="mt-1 h-8 bg-white">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {SERVICE_TICKET_TYPE_OPTIONS.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="rounded-lg border border-border/60 bg-white px-3 py-2.5">
+                <div className="text-[11px] uppercase tracking-wide text-muted-foreground">Kaynak</div>
+                <div className="mt-2">
+                  <Badge
+                    variant="outline"
+                    className={(serviceRequest.source ?? "manual") === "passport" ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "bg-muted/40"}
+                  >
+                    {serviceSourceLabel(serviceRequest.source)}
+                  </Badge>
+                </div>
+              </div>
+              <div className="rounded-lg border border-border/60 bg-white px-3 py-2.5">
                 <div className="text-[11px] uppercase tracking-wide text-muted-foreground">Teklif</div>
                 <div className="mt-1 text-sm">{serviceRequest.quoteRequired ? "Gerekli" : "Gerekli değil"}</div>
               </div>
             </div>
+          </TabsContent>
+
+          <TabsContent value="machine" className="m-0 space-y-4">
+            <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1.1fr)_minmax(320px,0.9fr)] gap-4">
+              <Card className="border-border/60">
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base">Makine Kimliği</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {machine ? (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      {machineInfo.map(([label, value]) => (
+                        <div key={label} className="rounded-md border border-border/60 bg-muted/20 px-3 py-2">
+                          <div className="text-[11px] uppercase tracking-wide text-muted-foreground">{label}</div>
+                          <div className="mt-1 text-sm break-words">{value || "—"}</div>
+                        </div>
+                      ))}
+                      <div className="rounded-md border border-border/60 bg-muted/20 px-3 py-2 sm:col-span-2">
+                        <div className="text-[11px] uppercase tracking-wide text-muted-foreground">Durum</div>
+                        <div className="mt-1"><StatusBadge status={machine.status} /></div>
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">Bu servis kaydı henüz bir makineyle eşleşmemiş.</p>
+                  )}
+                </CardContent>
+              </Card>
+
+              <Card className="border-border/60">
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base">Müşteri Bilgisi</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-2">
+                  <div>
+                    <div className="text-[11px] uppercase tracking-wide text-muted-foreground">Firma</div>
+                    <div className="mt-1 text-sm font-medium">{customer?.name ?? "—"}</div>
+                  </div>
+                  <div className="grid grid-cols-1 gap-2">
+                    {customerInfo.map(([label, value]) => (
+                      <div key={label} className="rounded-md border border-border/60 bg-muted/20 px-3 py-2">
+                        <div className="text-[11px] uppercase tracking-wide text-muted-foreground">{label}</div>
+                        <div className="mt-1 text-sm break-words">{value || "—"}</div>
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+
+            <Card className="border-border/60">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base flex items-center justify-between gap-2">
+                  <span>Makine Servis Geçmişi</span>
+                  <span className="text-xs font-normal text-muted-foreground tabular-nums">
+                    {machineTickets.length} geçmiş kayıt · {openMachineTickets} açık
+                  </span>
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                {machineTickets.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">Bu makine için önceki servis kaydı yok.</p>
+                ) : (
+                  machineTickets.map((ticket) => (
+                    <button
+                      key={ticket.id}
+                      type="button"
+                      className="w-full rounded-md border border-border/60 bg-white px-3 py-2 text-left transition-colors hover:bg-muted/40"
+                      onClick={() => {
+                        onSelectService?.(ticket.id);
+                        setDetailTab("summary");
+                      }}
+                    >
+                      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                        <div className="min-w-0">
+                          <div className="text-sm font-medium line-clamp-1">{ticket.issueType || serviceNoteText(ticket)}</div>
+                          <div className="mt-1 text-xs text-muted-foreground line-clamp-2">{serviceNoteText(ticket)}</div>
+                          <div className="mt-2"><ServiceIntakeBadges serviceRequest={ticket} /></div>
+                        </div>
+                        <div className="flex shrink-0 flex-col items-start gap-1 sm:items-end">
+                          <StatusBadge status={ticket.stage} />
+                          <span className="text-xs text-muted-foreground tabular-nums">{ticket.createdAt}</span>
+                        </div>
+                      </div>
+                    </button>
+                  ))
+                )}
+              </CardContent>
+            </Card>
           </TabsContent>
 
           <TabsContent value="communication" className="m-0 space-y-4">
