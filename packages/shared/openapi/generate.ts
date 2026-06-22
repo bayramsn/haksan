@@ -53,9 +53,27 @@ function componentName(exportName: string): string {
   return name;
 }
 
+/** Bir şemanın OpenAPI'ye çevrilebildiğini izole et (örn. z.never() içerenler çevrilemez). */
+function canGenerate(name: string, schema: z.ZodType): boolean {
+  try {
+    const probe = new OpenAPIRegistry();
+    probe.register(name, schema);
+    new OpenApiGeneratorV3(probe.definitions).generateComponents();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+const skipped: string[] = [];
 for (const [exportName, value] of Object.entries(shared)) {
   if (!(value instanceof z.ZodType)) continue;
-  const ref = registry.register(componentName(exportName), value);
+  const name = componentName(exportName);
+  if (!canGenerate(name, value)) {
+    skipped.push(exportName);
+    continue;
+  }
+  const ref = registry.register(name, value);
   componentByExport.set(exportName, ref);
 }
 
@@ -254,3 +272,6 @@ writeFileSync(outPath, JSON.stringify(document, null, 2) + '\n', 'utf8');
 const schemaCount = Object.keys(document.components?.schemas ?? {}).length;
 const pathCount = Object.keys(document.paths ?? {}).length;
 console.log(`✓ openapi.json yazıldı: ${schemaCount} şema, ${pathCount} path → ${outPath}`);
+if (skipped.length) {
+  console.warn(`⚠ OpenAPI'ye çevrilemeyen ${skipped.length} şema atlandı (örn. z.never): ${skipped.join(', ')}`);
+}
