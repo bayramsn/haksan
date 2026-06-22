@@ -62,6 +62,7 @@ const STAGE_BY_CODE: Record<string, SalesStage> = {
   quote: 'quote',
   proforma: 'proforma',
   contract: 'contract',
+  payment_plan: 'payment_plan',
   commercial_invoice: 'commercial_invoice',
   customs_approved: 'customs_approved',
   stock_picking: 'stock_picking',
@@ -79,6 +80,7 @@ const CODE_BY_STAGE: Partial<Record<SalesStage, string>> = {
   quote: 'quote',
   proforma: 'proforma',
   contract: 'contract',
+  payment_plan: 'payment_plan',
   commercial_invoice: 'commercial_invoice',
   customs_approved: 'customs_approved',
   stock_picking: 'stock_picking',
@@ -383,7 +385,12 @@ function StoreInner({ children }: { children: ReactNode }) {
     setLoading(true);
     const errors: string[] = [];
     const truncated: string[] = [];
-    const load = async <T,>(label: string, fn: () => Promise<T>, fallback: T): Promise<T> => {
+    // Kullanıcının okuma yetkisi olmayan kaynakları hiç çağırma; aksi halde 403
+    // hataları "Bazı veriler yüklenemedi" banner'ını gereksiz yere doldurur.
+    const userPerms = new Set(user?.permissions ?? []);
+    const can = (permission?: string) => !permission || userPerms.has(permission);
+    const load = async <T,>(label: string, fn: () => Promise<T>, fallback: T, permission?: string): Promise<T> => {
+      if (!can(permission)) return fallback;
       try {
         const result = await fn();
         const meta = (result as { meta?: { total?: number; pageSize?: number } })?.meta;
@@ -400,25 +407,25 @@ function StoreInner({ children }: { children: ReactNode }) {
     try {
       const empty = { data: [] as any[], meta: { total: 0, page: 1, pageSize: 0, totalPages: 0 } };
       const [companies, contactsR, opps, prods, inv, qts, svcTickets, acts, usersR, devicesR, receivablesR, paymentsR, proformasR, contractsR, invoicesR, noteTemplatesR, shipmentsR, deliveriesR, fileLinksR] = await Promise.all([
-        load('Firmalar', () => companyService.list({ pageSize: 200 }), empty),
-        load('Kontaklar', () => contactService.list({ pageSize: 200 }), empty),
-        load('Satış kartları', () => opportunityService.list({ pageSize: 200 }), empty),
-        load('Ürünler', () => productService.list({ pageSize: 200 }), empty),
-        load('Stok', () => inventoryService.list({ pageSize: 200 }), empty),
-        load('Teklifler', () => quoteService.list({ pageSize: 200 }), empty),
-        load('Servis', () => serviceService.tickets({ pageSize: 200 }), empty),
-        load('Aktiviteler', () => activityService.list({ pageSize: 200 }), empty),
-        load('Kullanıcılar', () => adminService.users(), [] as any[]),
-        load('Makineler', () => inventoryService.customerDevices({ pageSize: 200 }), empty),
-        load('Alacaklar', () => financeService.receivables({ pageSize: 200 }), empty),
-        load('Ödemeler', () => financeService.payments({ pageSize: 200 }), empty),
-        load('Proformalar', () => documentService.proformas({ pageSize: 200 }), empty),
-        load('Sözleşmeler', () => documentService.contracts({ pageSize: 200 }), empty),
-        load('Faturalar', () => documentService.commercialInvoices({ pageSize: 200 }), empty),
+        load('Firmalar', () => companyService.list({ pageSize: 200 }), empty, 'companies.read'),
+        load('Kontaklar', () => contactService.list({ pageSize: 200 }), empty, 'contacts.read'),
+        load('Satış kartları', () => opportunityService.list({ pageSize: 200 }), empty, 'opportunities.read'),
+        load('Ürünler', () => productService.list({ pageSize: 200 }), empty, 'products.read'),
+        load('Stok', () => inventoryService.list({ pageSize: 200 }), empty, 'inventory.read'),
+        load('Teklifler', () => quoteService.list({ pageSize: 200 }), empty, 'quotes.read'),
+        load('Servis', () => serviceService.tickets({ pageSize: 200 }), empty, 'service_tickets.read'),
+        load('Aktiviteler', () => activityService.list({ pageSize: 200 }), empty, 'activities.read'),
+        load('Kullanıcılar', () => adminService.users(), [] as any[], 'users.read'),
+        load('Makineler', () => inventoryService.customerDevices({ pageSize: 200 }), empty, 'customer_devices.read'),
+        load('Alacaklar', () => financeService.receivables({ pageSize: 200 }), empty, 'receivables.read'),
+        load('Ödemeler', () => financeService.payments({ pageSize: 200 }), empty, 'payments.read'),
+        load('Proformalar', () => documentService.proformas({ pageSize: 200 }), empty, 'proformas.read'),
+        load('Sözleşmeler', () => documentService.contracts({ pageSize: 200 }), empty, 'contracts.read'),
+        load('Faturalar', () => documentService.commercialInvoices({ pageSize: 200 }), empty, 'commercial_invoices.read'),
         load('Not şablonları', () => noteTemplateService.list('quote'), [] as any[]),
-        load('Sevkiyatlar', () => serviceService.shipments({ pageSize: 200 }), empty),
-        load('Teslimatlar', () => serviceService.deliveries({ pageSize: 200 }), empty),
-        load('Dosya bağlantıları', () => fileService.links({ pageSize: 200 }), empty),
+        load('Sevkiyatlar', () => serviceService.shipments({ pageSize: 200 }), empty, 'shipments.read'),
+        load('Teslimatlar', () => serviceService.deliveries({ pageSize: 200 }), empty, 'shipments.read'),
+        load('Dosya bağlantıları', () => fileService.links({ pageSize: 200 }), empty, 'files.read'),
       ]);
       setLoadErrors(errors);
       setLoadTruncated(truncated);
@@ -648,6 +655,7 @@ function StoreInner({ children }: { children: ReactNode }) {
           return {
             id: t.id,
             customerId: t.companyId,
+            contactId: t.contactId ?? undefined,
             assignedUserId: t.assignedToUserId ?? '',
             stage:
               t.status?.code === 'closed'
@@ -894,7 +902,7 @@ function StoreInner({ children }: { children: ReactNode }) {
     } finally {
       setLoading(false);
     }
-  }, [authed, sessionReady]);
+  }, [authed, sessionReady, user?.permissions]);
 
   // Aktif bölüm değişince (CNC/Üniversal/Sac/Tümü) tüm veriyi yeni
   // `X-Active-Division` başlığıyla yeniden çek.
@@ -1360,6 +1368,51 @@ function StoreInner({ children }: { children: ReactNode }) {
       ...d,
     };
   };
+  const triggerDeliveryCompletedWorkflow = async (delivery: Delivery) => {
+    if (delivery.salesCaseId) {
+      try {
+        await moveCase(delivery.salesCaseId, 'delivered');
+      } catch (err) {
+        console.error('Failed to move case on delivery completion', err);
+      }
+    }
+    const serial = delivery.formData?.tezgah?.seriNo;
+    if (serial && serial !== '—') {
+      const exists = machines.some(m => m.serialNumber === serial);
+      if (!exists) {
+        try {
+          const brand = delivery.formData?.tezgah?.marka || '';
+          const model = delivery.formData?.tezgah?.model || '—';
+          const type = delivery.formData?.tezgah?.tip || '';
+          const cncMarka = delivery.formData?.cnc?.marka || '';
+          const cncModel = delivery.formData?.cnc?.model || '';
+          const controlUnit = [cncMarka, cncModel].filter(Boolean).join(' ');
+          const controlUnitSerial = delivery.formData?.cnc?.seriNo || '';
+          await addMachine({
+            customerId: delivery.customerId,
+            salesCaseId: delivery.salesCaseId || '',
+            stockItemId: delivery.formData?.machineId || '',
+            serialNumber: serial,
+            model,
+            brand,
+            type,
+            controlUnit,
+            controlUnitSerial,
+            installationDate: delivery.formData?.kurulumTarihi || delivery.date || new Date().toISOString().slice(0, 10),
+            warrantyStart: delivery.formData?.kurulumTarihi || delivery.date || new Date().toISOString().slice(0, 10),
+            warrantyEnd: (() => {
+              const start = new Date(delivery.formData?.kurulumTarihi || delivery.date || new Date().toISOString().slice(0, 10));
+              start.setFullYear(start.getFullYear() + 2); // 2 year default warranty
+              return start.toISOString().slice(0, 10);
+            })()
+          });
+        } catch (err) {
+          console.error('Failed to auto create machine on delivery completion', err);
+        }
+      }
+    }
+  };
+
   const updateDelivery: Store['updateDelivery'] = async (id, d) => {
     await serviceService.updateDelivery(id, {
       companyId: d.customerId,
@@ -1376,10 +1429,29 @@ function StoreInner({ children }: { children: ReactNode }) {
         : undefined,
     });
     await fetchAll();
+
+    if (d.status === 'Tamamlandı') {
+      const delivery = deliveries.find((x) => x.id === id);
+      if (delivery) {
+        await triggerDeliveryCompletedWorkflow({
+          ...delivery,
+          ...d,
+          formData: d.formData ? { ...delivery.formData, ...d.formData } : delivery.formData,
+        } as Delivery);
+      }
+    }
   };
+
   const updateDeliveryStatus: Store['updateDeliveryStatus'] = async (id, status) => {
     await serviceService.updateDeliveryStatus(id, deliveryStatusToCode(status));
     setDeliveries((prev) => prev.map((d) => (d.id === id ? { ...d, status } : d)));
+
+    if (status === 'Tamamlandı') {
+      const delivery = deliveries.find((d) => d.id === id);
+      if (delivery) {
+        await triggerDeliveryCompletedWorkflow({ ...delivery, status });
+      }
+    }
   };
 
   const addService: Store['addService'] = async (s) => {
@@ -1392,6 +1464,7 @@ function StoreInner({ children }: { children: ReactNode }) {
     const createdAt = s.createdAt ?? new Date().toISOString().slice(0, 10);
     const created = await serviceService.createTicket({
       companyId: s.customerId,
+      contactId: s.contactId || undefined,
       customerDeviceId: s.machineId || undefined,
       subject,
       description: cleanString(s.description) ?? description ?? subject,

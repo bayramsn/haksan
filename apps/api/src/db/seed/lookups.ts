@@ -3,6 +3,7 @@
  * Idempotent: uses INSERT … ON CONFLICT (code) DO NOTHING semantics via
  * Drizzle's onConflictDoNothing.
  */
+import { sql } from 'drizzle-orm';
 import { getDb, closeDb, schema } from '../client';
 import { lookupRows } from './_data';
 import { PERMISSION_ACTIONS, PERMISSION_RESOURCES } from '@haksan/shared';
@@ -52,7 +53,13 @@ export async function seedLookups(): Promise<void> {
     }
     if (!rows.length) continue;
     // @ts-expect-error Drizzle's union of insert types is too narrow for our dynamic seeding loop
-    await db.insert(table).values(rows).onConflictDoNothing({ target: table.code });
+    await db.insert(table).values(rows).onConflictDoUpdate({
+      target: table.code,
+      set: {
+        name: sql`EXCLUDED.name`,
+        sortOrder: sql`EXCLUDED.sort_order`,
+      },
+    });
     console.log(`[lookups] seeded ${rows.length} rows into ${tableName}`);
   }
 

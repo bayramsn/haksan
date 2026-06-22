@@ -201,6 +201,30 @@ export function ReportAnalyticsHub() {
                   label="Stok Excel"
                   variant="secondary"
                 />
+                <ExportExcelButton
+                  path="/exports/deliveries"
+                  filename="teslimatlar.xlsx"
+                  label="Teslimat Excel"
+                  variant="secondary"
+                />
+                <ExportExcelButton
+                  path="/exports/shipments"
+                  filename="sevkiyatlar.xlsx"
+                  label="Sevkiyat Excel"
+                  variant="secondary"
+                />
+                <ExportExcelButton
+                  path="/exports/service-tickets"
+                  filename="servis-talepleri.xlsx"
+                  label="Servis Excel"
+                  variant="secondary"
+                />
+                <ExportExcelButton
+                  path="/exports/service-complaints"
+                  filename="sikayet-kutusu.xlsx"
+                  label="Şikayet Excel"
+                  variant="secondary"
+                />
               </>
             )}
           </div>

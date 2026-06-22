@@ -90,6 +90,7 @@ export type SalesStage =
   | "quote"
   | "proforma"
   | "contract"
+  | "payment_plan"
   | "commercial_invoice"
   | "customs_approved"
   | "stock_picking"
@@ -112,13 +113,14 @@ export type SalesStage =
 
 export const SALES_STAGES: SalesStage[] = [
   "lead",
-  "sales",
   "call",
   "visit",
-  "cancelled",
   "quote",
+  "sales",
+  "cancelled",
   "proforma",
   "contract",
+  "payment_plan",
   "commercial_invoice",
   "customs_approved",
   "stock_picking",
@@ -136,6 +138,7 @@ export const SALES_STAGE_LABELS: Record<SalesStage, string> = {
   quote: "Teklif",
   proforma: "Proforma",
   contract: "Sözleşme",
+  payment_plan: "Ödeme Planı",
   commercial_invoice: "Ticari Fatura",
   customs_approved: "Gümrük Onayı",
   stock_picking: "Stok Seçimi",
@@ -470,6 +473,7 @@ export type ServiceRequest = {
   id: string;
   machineId: string;
   customerId: string;
+  contactId?: string;
   assignedUserId: string;
   stage: ServiceStage;
   diagnosisNote: string;

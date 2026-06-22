@@ -115,7 +115,6 @@ export function Layout({ current, onNavigate, onLogout, pageTitle, pageSubtitle,
   const canApprove = hasPermission("companies.update") || hasRole("super_admin");
   const divisions = user?.divisions ?? [];
   const canViewAllDivisions = user?.canViewAllDivisions ?? false;
-  const showDivisionMenu = divisions.length > 1 || canViewAllDivisions;
   const activeDivisionLabel =
     activeDivision === "all" ? "Tümü" : divisions.find((d) => d.id === activeDivision)?.name ?? "Bölüm";
   const roleLabel = user?.roles?.[0] ? user.roles[0].replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()) : "Kullanıcı";
@@ -337,44 +336,6 @@ export function Layout({ current, onNavigate, onLogout, pageTitle, pageSubtitle,
           })}
         </nav>
       </ScrollArea>
-
-      {/* User strip */}
-      <div className="shrink-0 p-3 border-t border-border/60">
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <button className="w-full flex items-center gap-2.5 px-2 py-2 rounded-md hover:bg-muted/50 transition-colors text-left outline-none">
-              <Avatar className="size-8">
-                <AvatarFallback className="bg-primary text-primary-foreground text-xs">
-                  {userInitials || "U"}
-                </AvatarFallback>
-              </Avatar>
-              <div className="min-w-0 flex-1">
-                <div className="text-sm leading-tight truncate">{user?.fullName || "Kullanıcı"}</div>
-                <div className="text-[11px] text-muted-foreground leading-tight truncate">Hesabım & Yönetim</div>
-              </div>
-              <ChevronDown className="size-4 text-muted-foreground" />
-            </button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent className="w-[236px]" align="end" side={menuSide} sideOffset={12}>
-            <DropdownMenuLabel>Hesabım & Analiz</DropdownMenuLabel>
-            <DropdownMenuItem onClick={() => onNavigate("settings")}><ContactIcon className="size-4 mr-2 text-muted-foreground" /> Profil & Ayarlar</DropdownMenuItem>
-            <DropdownMenuItem onClick={() => toast.message("Klavye Kısayolları", { description: "⌘K komut paleti · / arama" })}><HelpCircle className="size-4 mr-2 text-muted-foreground" /> Klavye Kısayolları</DropdownMenuItem>
-            {canSeeReports && (
-              <DropdownMenuItem onClick={() => { onNavigate("reports"); onItemClick?.(); }}><BarChart3 className="size-4 mr-2 text-muted-foreground" /> Raporlar</DropdownMenuItem>
-            )}
-            <DropdownMenuSeparator />
-            <DropdownMenuLabel>Yönetim</DropdownMenuLabel>
-            <DropdownMenuItem onClick={() => { onNavigate("users"); onItemClick?.(); }}><Users className="size-4 mr-2 text-muted-foreground" /> Kullanıcılar</DropdownMenuItem>
-            <DropdownMenuItem onClick={() => { onNavigate("roles"); onItemClick?.(); }}><ShieldCheck className="size-4 mr-2 text-muted-foreground" /> Roller & Yetkiler</DropdownMenuItem>
-            <DropdownMenuItem onClick={() => { onNavigate("departments"); onItemClick?.(); }}><Building2 className="size-4 mr-2 text-muted-foreground" /> Departmanlar</DropdownMenuItem>
-            <DropdownMenuItem onClick={() => { onNavigate("settings"); onItemClick?.(); }}><SettingsIcon className="size-4 mr-2 text-muted-foreground" /> Ayarlar</DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={() => { onItemClick?.(); onLogout(); }} className="text-destructive focus:text-destructive focus:bg-destructive/10">
-              <LogOut className="size-4 mr-2" /> Çıkış Yap
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </div>
     </div>
   );
 
@@ -431,41 +392,35 @@ export function Layout({ current, onNavigate, onLogout, pageTitle, pageSubtitle,
 
             <div className="flex-1" />
 
-            {/* Bölüm seçici (CNC/Üniversal/Sac/Tümü) — yalnızca birden çok bölüm
-                veya 'tümünü gör' yetkisi olanlara. Tek bölümlülerde statik rozet. */}
-            {divisions.length > 0 &&
-              (showDivisionMenu ? (
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button variant="outline" size="sm" className="gap-1.5 h-9 px-2 sm:px-3" aria-label="Bölüm seç">
-                      <Building2 className="size-4 text-muted-foreground" />
-                      <span className="hidden sm:inline max-w-[110px] truncate">{activeDivisionLabel}</span>
-                      <ChevronDown className="size-3.5 text-muted-foreground" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" className="w-48">
-                    <DropdownMenuLabel>Bölüm</DropdownMenuLabel>
-                    <DropdownMenuSeparator />
-                    {canViewAllDivisions && (
-                      <DropdownMenuItem className="justify-between" onClick={() => setActiveDivision("all")}>
-                        Tümü
-                        {activeDivision === "all" && <CheckCircle2 className="size-4 text-primary" />}
-                      </DropdownMenuItem>
-                    )}
-                    {divisions.map((d) => (
-                      <DropdownMenuItem key={d.id} className="justify-between" onClick={() => setActiveDivision(d.id)}>
-                        {d.name}
-                        {activeDivision === d.id && <CheckCircle2 className="size-4 text-primary" />}
-                      </DropdownMenuItem>
-                    ))}
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              ) : (
-                <Badge variant="outline" className="gap-1.5 h-9 px-2.5 font-normal hidden sm:inline-flex">
-                  <Building2 className="size-3.5 text-muted-foreground" />
-                  {divisions[0]?.name}
-                </Badge>
-              ))}
+            {/* Bölüm seçici (CNC/Üniversal/Sac/Tümü) — yalnızca 'tümünü gör'
+                yetkisi olan kullanıcılarda (süper admin / admin) görünür. Diğer
+                kullanıcılar zaten yalnızca kendi bölümlerini görür; başlık backend
+                tarafından yok sayıldığı için seçici de gösterilmez. */}
+            {canViewAllDivisions && divisions.length > 0 && (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" size="sm" className="gap-1.5 h-9 px-2 sm:px-3" aria-label="Bölüm seç">
+                    <Building2 className="size-4 text-muted-foreground" />
+                    <span className="hidden sm:inline max-w-[110px] truncate">{activeDivisionLabel}</span>
+                    <ChevronDown className="size-3.5 text-muted-foreground" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-48">
+                  <DropdownMenuLabel>Bölüm</DropdownMenuLabel>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem className="justify-between" onClick={() => setActiveDivision("all")}>
+                    Tümü
+                    {activeDivision === "all" && <CheckCircle2 className="size-4 text-primary" />}
+                  </DropdownMenuItem>
+                  {divisions.map((d) => (
+                    <DropdownMenuItem key={d.id} className="justify-between" onClick={() => setActiveDivision(d.id)}>
+                      {d.name}
+                      {activeDivision === d.id && <CheckCircle2 className="size-4 text-primary" />}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
 
             {canApprove && (
               <ApprovalsDialog
@@ -775,6 +730,7 @@ const STATUS_META: Record<string, { cls: string; icon?: ReactNode }> = {
   quote: { cls: "bg-indigo-50 text-indigo-700 border-indigo-200" },
   proforma: { cls: "bg-emerald-50 text-emerald-700 border-emerald-200" },
   contract: { cls: "bg-emerald-50 text-emerald-700 border-emerald-200", icon: <CheckCircle2 className="size-3" /> },
+  payment_plan: { cls: "bg-emerald-50 text-emerald-700 border-emerald-200", icon: <CheckCircle2 className="size-3" /> },
   commercial_invoice: { cls: "bg-amber-50 text-amber-700 border-amber-200" },
   customs_approved: { cls: "bg-amber-50 text-amber-700 border-amber-200", icon: <CheckCircle2 className="size-3" /> },
   stock_picking: { cls: "bg-sky-50 text-sky-700 border-sky-200" },
