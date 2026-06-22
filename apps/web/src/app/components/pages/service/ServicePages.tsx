@@ -26,6 +26,7 @@ import {
   ServiceComplaintIntake,
   ServiceComplaintLink,
   Customer,
+  Contact,
   Machine,
   type DocumentItem,
   type ServiceSource,
@@ -45,6 +46,7 @@ import {
   printAssetBase, trShortDate, serviceFormDoc, serviceQuoteDoc, SERVICE_NOTE_VARIANTS,
 } from "../../../lib/print";
 import { printOrWarn, openInMaps } from "../../../lib/pageHelpers";
+import { WarrantyBadge } from "../machines/MachinesPage";
 import {
   Plus, Printer, MapPin, Wrench, Building2, Lock, Play, Pause, Square, MessageSquare,
   ShieldCheck, Send, Check, X, Package, ClipboardCheck, Inbox, Link2, Copy, ExternalLink,
@@ -236,7 +238,7 @@ const matchesServiceFocus = (s: ServiceRequest, focus?: OperationFocus) => {
 };
 
 export function ServiceRequestsPage({ initialView = "list", focus, initialQuery }: { initialView?: "list" | "board"; focus?: OperationFocus; initialQuery?: string }) {
-  const { service, machines, customers, refresh } = useStore();
+  const { service, machines, customers, contacts, refresh } = useStore();
   const [view, setView] = useState<"list" | "board" | "complaints">(initialView);
   const [selectedServiceId, setSelectedServiceId] = useState<string | null>(null);
   const [selectedComplaint, setSelectedComplaint] = useState<ServiceComplaintIntake | null>(null);
@@ -410,7 +412,26 @@ export function ServiceRequestsPage({ initialView = "list", focus, initialQuery 
   const printServiceForm = (s: ServiceRequest, index: number) => {
     const cust = customers.find((c) => c.id === s.customerId);
     const m = machines.find((x) => x.id === s.machineId);
-    const sikayet = (s as any).description || s.diagnosisNote || (s as any).issueType || "";
+    const sikayet = s.description || s.diagnosisNote || s.issueType || "";
+
+    // Servis tamamlandığında form, sahada kaydedilen verilerle otomatik dolar:
+    // işlem kalemleri → parça/işçilik tablosu, aktivite geçmişi → yapılan
+    // işlemler listesi, sayaç süresi × saatlik ücret → servis ücreti.
+    const operations = s.operations ?? [];
+    const parcalar = operations.map((o) => ({
+      ad: o.description,
+      miktar: String(o.quantity),
+      birimFiyat: o.unitPrice,
+      tutar: o.quantity * o.unitPrice,
+    }));
+    const islemler = (s.activityHistory?.length
+      ? s.activityHistory.map((a) => a.text)
+      : operations.map((o) => o.description)
+    ).filter((t) => t && t.trim());
+    const serviceFee = ((s.timerElapsedSeconds ?? 0) / 3600) * (s.serviceHourlyRate ?? 0);
+    const inWarranty =
+      s.warrantyClaim?.coverageSuggestion === "in_warranty" || (m != null && m.status === "Active");
+
     printOrWarn(
       serviceFormDoc(
         {
@@ -435,7 +456,11 @@ export function ServiceRequestsPage({ initialView = "list", focus, initialQuery 
             : undefined,
           sikayet,
           servisTipi: "ariza",
-          yukumluluk: m && m.status === "Active" ? "garanti" : "ucretli",
+          yukumluluk: inWarranty ? "garanti" : "ucretli",
+          islemler,
+          parcalar,
+          servisUcreti: serviceFee > 0 ? Math.round(serviceFee) : undefined,
+          currency: s.serviceCurrency ?? "TRY",
         },
         printAssetBase()
       )
@@ -634,6 +659,7 @@ export function ServiceRequestsPage({ initialView = "list", focus, initialQuery 
       open={createComplaintOpen}
       onOpenChange={setCreateComplaintOpen}
       customers={customers}
+      contacts={contacts}
       machines={machines}
       onCreated={loadComplaints}
     />
@@ -771,6 +797,13 @@ function ComplaintInbox({
           <Button variant="outline" className="gap-1" onClick={onCreateLink}>
             <Link2 className="size-4" /> Public Link
           </Button>
+          <CreateServiceRequestDialog
+            trigger={
+              <Button variant="outline" className="gap-1">
+                <Wrench className="size-4" /> Yeni Talep
+              </Button>
+            }
+          />
           <Button className="gap-1" onClick={onCreateInternal}>
             <Plus className="size-4" /> Yeni İç Kayıt
           </Button>
@@ -900,17 +933,20 @@ function CreateComplaintDialog({
   open,
   onOpenChange,
   customers,
+  contacts,
   machines,
   onCreated,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   customers: Customer[];
+  contacts: Contact[];
   machines: Machine[];
   onCreated: () => void;
 }) {
   const [companyId, setCompanyId] = useState(NONE);
   const [machineId, setMachineId] = useState(NONE);
+  const [contactId, setContactId] = useState(NONE);
   const [source, setSource] = useState<ServiceComplaintIntake["source"]>("manual");
   const [severity, setSeverity] = useState<ServiceComplaintIntake["severity"]>("normal");
   const [ticketType, setTicketType] = useState<ServiceTicketType>("complaint");
@@ -921,11 +957,44 @@ function CreateComplaintDialog({
   const [contactEmail, setContactEmail] = useState("");
   const [saving, setSaving] = useState(false);
   const filteredMachines = companyId === NONE ? machines : machines.filter((m) => m.customerId === companyId);
+  const filteredContacts = companyId === NONE ? [] : contacts.filter((contact) => contact.customerId === companyId);
+
+  const fillContactFields = (contact?: Contact, customer?: Customer) => {
+    setContactName(contact?.name ?? customer?.contactPerson ?? "");
+    setContactPhone(contact?.mobilePhone || contact?.phone || contact?.otherPhone || customer?.phone || customer?.phone2 || "");
+    setContactEmail(contact?.email || contact?.personalEmail || contact?.otherEmail || customer?.email || customer?.email2 || "");
+  };
+
+  const selectCompany = (nextCompanyId: string) => {
+    setCompanyId(nextCompanyId);
+    setMachineId(NONE);
+    const customer = customers.find((item) => item.id === nextCompanyId);
+    const companyContacts = contacts.filter((contact) => contact.customerId === nextCompanyId);
+    const preferredContact = companyContacts.find((contact) => contact.isPrimary) ?? companyContacts[0];
+    setContactId(preferredContact?.id ?? NONE);
+    fillContactFields(preferredContact, customer);
+  };
+
+  const selectMachine = (nextMachineId: string) => {
+    setMachineId(nextMachineId);
+    if (nextMachineId === NONE || companyId !== NONE) return;
+    const machine = machines.find((item) => item.id === nextMachineId);
+    if (machine) selectCompany(machine.customerId);
+    setMachineId(nextMachineId);
+  };
+
+  const selectContact = (nextContactId: string) => {
+    setContactId(nextContactId);
+    const customer = customers.find((item) => item.id === companyId);
+    const contact = contacts.find((item) => item.id === nextContactId);
+    fillContactFields(contact, customer);
+  };
 
   useEffect(() => {
     if (!open) return;
     setCompanyId(NONE);
     setMachineId(NONE);
+    setContactId(NONE);
     setSource("manual");
     setSeverity("normal");
     setTicketType("complaint");
@@ -937,8 +1006,8 @@ function CreateComplaintDialog({
   }, [open]);
 
   const submit = async () => {
-    if (!subject.trim()) {
-      toast.error("Konu girilmeli.");
+    if (subject.trim().length < 3) {
+      toast.error("Konu en az 3 karakter olmalı.");
       return;
     }
     setSaving(true);
@@ -967,7 +1036,7 @@ function CreateComplaintDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="w-[min(720px,calc(100vw-2rem))] max-w-none sm:max-w-none">
+      <DialogContent className="w-[min(720px,calc(100vw-2rem))] max-w-none sm:max-w-none max-h-[90dvh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Yeni İç Şikayet Kaydı</DialogTitle>
           <DialogDescription>Telefon, WhatsApp, e-posta veya iç bildirim olarak gelen şikayeti kutuya alın.</DialogDescription>
@@ -975,7 +1044,7 @@ function CreateComplaintDialog({
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <div>
             <Label>Firma</Label>
-            <Select value={companyId} onValueChange={(v) => { setCompanyId(v); setMachineId(NONE); }}>
+            <Select value={companyId} onValueChange={selectCompany}>
               <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value={NONE}>Eşleşmemiş</SelectItem>
@@ -985,7 +1054,7 @@ function CreateComplaintDialog({
           </div>
           <div>
             <Label>Makine</Label>
-            <Select value={machineId} onValueChange={setMachineId}>
+            <Select value={machineId} onValueChange={selectMachine}>
               <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value={NONE}>Eşleşmemiş</SelectItem>
@@ -1028,15 +1097,33 @@ function CreateComplaintDialog({
           </div>
           <div>
             <Label>İlgili Kişi</Label>
-            <Input className="mt-1" value={contactName} onChange={(e) => setContactName(e.target.value)} />
+            <Select value={contactId} onValueChange={selectContact} disabled={companyId === NONE}>
+              <SelectTrigger className="mt-1"><SelectValue placeholder="İlgili kişi seçin" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value={NONE}>Firma bilgisi / elle giriş</SelectItem>
+                {filteredContacts.map((contact) => (
+                  <SelectItem key={contact.id} value={contact.id}>
+                    {contact.name}{contact.title ? ` · ${contact.title}` : ""}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
           <div>
             <Label>Telefon</Label>
             <Input className="mt-1" value={contactPhone} onChange={(e) => setContactPhone(e.target.value)} />
           </div>
           <div className="md:col-span-2">
-            <Label>E-posta</Label>
-            <Input className="mt-1" value={contactEmail} onChange={(e) => setContactEmail(e.target.value)} />
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+              <div>
+                <Label>İlgili Kişi Adı</Label>
+                <Input className="mt-1" value={contactName} onChange={(e) => setContactName(e.target.value)} />
+              </div>
+              <div>
+                <Label>E-posta</Label>
+                <Input className="mt-1" type="email" value={contactEmail} onChange={(e) => setContactEmail(e.target.value)} />
+              </div>
+            </div>
           </div>
           <div className="md:col-span-2">
             <Label>Açıklama</Label>
@@ -2000,8 +2087,8 @@ function ServiceDetailDialog({
 
   return (
     <Dialog open={!!serviceRequest} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="w-[min(1120px,calc(100vw-2rem))] max-w-none sm:max-w-none max-h-[90dvh] overflow-hidden p-0 gap-0">
-        <DialogHeader className="border-b border-border/60 px-5 pt-5 pb-4 pr-12">
+      <DialogContent className="flex flex-col w-[min(1120px,calc(100vw-2rem))] max-w-none sm:max-w-none max-h-[90dvh] overflow-hidden p-0 gap-0">
+        <DialogHeader className="shrink-0 border-b border-border/60 px-5 pt-5 pb-4 pr-12">
           <DialogTitle className="flex min-w-0 items-center gap-2">
             <Wrench className="size-5 text-primary" />
             <span className="min-w-0 truncate">{customer?.name ?? "Firma bulunamadı"}</span>
@@ -2009,6 +2096,7 @@ function ServiceDetailDialog({
           <DialogDescription className="flex items-center gap-2 flex-wrap">
             <StatusBadge status={serviceRequest.stage} />
             {machine && <span>{machine.model} · {machine.serialNumber}</span>}
+            {machine && <WarrantyBadge end={machine.warrantyEnd} />}
             {assignee && <span>Atanan: {assignee.name}</span>}
           </DialogDescription>
           <ServiceIntakeBadges serviceRequest={serviceRequest} />
@@ -2038,8 +2126,8 @@ function ServiceDetailDialog({
           </p>
         </DialogHeader>
 
-        <Tabs value={detailTab} onValueChange={setAllowedDetailTab} className="flex min-h-0 flex-col">
-          <div className="border-b border-border/60 px-5 py-3">
+        <Tabs value={detailTab} onValueChange={setAllowedDetailTab} className="flex flex-1 min-h-0 flex-col">
+          <div className="shrink-0 border-b border-border/60 px-5 py-3">
             <TabsList className="h-auto w-full justify-start overflow-x-auto">
               <TabsTrigger value="summary">Özet</TabsTrigger>
               <TabsTrigger value="machine">Makine Dosyası</TabsTrigger>
@@ -2060,7 +2148,7 @@ function ServiceDetailDialog({
             </TabsList>
           </div>
 
-          <div className="min-h-0 max-h-[calc(90dvh-146px)] overflow-y-auto px-5 py-4">
+          <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
 
           <TabsContent value="summary" className="m-0 space-y-4">
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">

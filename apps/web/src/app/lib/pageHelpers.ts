@@ -34,6 +34,22 @@ export const formatDate = (value?: string | null) =>
 export const formatCurrency = (value: number, currency = 'USD') =>
   new Intl.NumberFormat('tr-TR', { style: 'currency', currency, maximumFractionDigits: 0 }).format(value);
 
+export type WarrantyState = 'active' | 'expiring' | 'expired' | 'unknown';
+
+/** Garanti bitiş tarihinden durum + kalan gün üretir (Makineler ve Servis
+ *  ekranlarında ortak kullanılır). */
+export const warrantyInfo = (
+  warrantyEnd?: string | null,
+): { state: WarrantyState; label: string; days: number | null } => {
+  if (!warrantyEnd) return { state: 'unknown', label: 'Garanti bilgisi yok', days: null };
+  const end = new Date(warrantyEnd);
+  if (Number.isNaN(end.getTime())) return { state: 'unknown', label: 'Garanti bilgisi yok', days: null };
+  const days = Math.ceil((end.getTime() - Date.now()) / 86_400_000);
+  if (days < 0) return { state: 'expired', label: 'Garanti süresi doldu', days };
+  if (days <= 60) return { state: 'expiring', label: `Garanti bitişine ${days} gün`, days };
+  return { state: 'active', label: `Garanti aktif · ${days} gün kaldı`, days };
+};
+
 export const splitVat = (
   gross: number,
   opts?: { subtotal?: number; vatTotal?: number; defaultRate?: number },

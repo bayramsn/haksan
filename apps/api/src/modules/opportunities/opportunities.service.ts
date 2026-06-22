@@ -9,6 +9,7 @@ import { inventoryItems, customerDevices } from '../../db/schema/inventory';
 import { pipelineStages, currencies, opportunityStatuses, contactSources, inventoryStatuses, warrantyStatuses } from '../../db/schema/lookup';
 import { cancellationReasons } from '../../db/schema/crm';
 import { commercialInvoices, contracts } from '../../db/schema/quotes';
+import { receivables } from '../../db/schema/finance';
 import { DB } from '../../shared/database/database.module';
 import { NotFoundError, ValidationError } from '../../shared/utils/errors';
 import type { AuthContext } from '../../shared/security/auth.types';
@@ -300,6 +301,15 @@ export class OpportunitiesService {
       if (!ccount[0].c) throw new ValidationError('Contract aşamasına geçmek için sözleşme dosyası yüklenmelidir');
     }
     if (input.toStage === 'commercial_invoice') {
+      const rcount = await this.db
+        .select({ c: sql<number>`count(*)::int` })
+        .from(receivables)
+        .innerJoin(quotes, eq(receivables.quoteId, quotes.id))
+        .where(and(eq(quotes.tenantId, actor.tenantId), eq(quotes.opportunityId, id)));
+      if (!rcount[0].c) {
+        throw new ValidationError('Ticari fatura aşamasına geçmek için önce ödeme planı oluşturulmalıdır');
+      }
+
       const icount = await this.db
         .select({ c: sql<number>`count(*)::int` })
         .from(commercialInvoices)
@@ -326,37 +336,15 @@ export class OpportunitiesService {
           .where(eq(inventoryItems.id, item.id));
       }
     }
+    if (input.toStage === 'installation') {
+      // Garanti, tezgâhın kurulumuyla başlar: rezerve stok kalemlerinden
+      // müşteri cihazı / garanti kayıtları oluşturulur (idempotent).
+      await this.ensureWarrantyDevices(opp, actor, input.inventoryItemIds);
+    }
     if (input.toStage === 'delivered') {
-      // Auto-create customer_devices for all reserved inventory items linked to opp
-      const items = await this.db.query.inventoryItems.findMany({
-        where: and(eq(inventoryItems.tenantId, actor.tenantId)),
-      });
-      const reservedStatus = await this.db.query.inventoryStatuses.findFirst({ where: eq(inventoryStatuses.code, 'reserved') });
-      const soldStatus = await this.db.query.inventoryStatuses.findFirst({ where: eq(inventoryStatuses.code, 'sold') });
-      const activeWarranty = await this.db.query.warrantyStatuses.findFirst({ where: eq(warrantyStatuses.code, 'active') });
-      // Filter items that were reserved for this opportunity (simplistic: by reserved status)
-      // In a fuller implementation we'd track which items were reserved for which opp via inventory_movements.reference_id.
-      const inputIds = input.inventoryItemIds ?? [];
-      const selected = inputIds.length
-        ? items.filter((i) => inputIds.includes(i.id))
-        : items.filter((i) => reservedStatus && i.stockStatusId === reservedStatus.id);
-      for (const item of selected) {
-        await this.db.insert(customerDevices).values({
-          tenantId: actor.tenantId,
-          divisionId: opp.divisionId,
-          companyId: opp.companyId,
-          inventoryItemId: item.id,
-          opportunityId: id,
-          saleDate: new Date(),
-          deliveryDate: new Date(),
-          warrantyStartDate: new Date(),
-          warrantyEndDate: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
-          statusId: activeWarranty?.id ?? null,
-        });
-        if (soldStatus) {
-          await this.db.update(inventoryItems).set({ stockStatusId: soldStatus.id }).where(eq(inventoryItems.id, item.id));
-        }
-      }
+      // Cihaz/garanti kayıtları kurulumda oluşturulmuş olabilir; tekrar çağırmak
+      // güvenlidir (idempotent). Kurulum atlandıysa burada oluşturulur.
+      await this.ensureWarrantyDevices(opp, actor, input.inventoryItemIds);
       const won = await this.db.query.opportunityStatuses.findFirst({ where: eq(opportunityStatuses.code, 'won') });
       if (won) patch.statusId = won.id;
     }
@@ -380,5 +368,55 @@ export class OpportunitiesService {
       newValues: { stage: toStage.code, reason: input.changeReason },
     });
     return this.get(id, actor);
+  }
+
+  /**
+   * Rezerve stok kalemlerinden müşteri cihazı (garanti) kaydı üretir.
+   * Garanti kurulum aşamasında başlar; idempotenttir — aynı fırsat+kalem için
+   * zaten cihaz varsa atlanır, böylece teslim aşaması da çağırdığında çift
+   * kayıt oluşmaz.
+   */
+  private async ensureWarrantyDevices(
+    opp: { id: string; companyId: string; divisionId: string | null },
+    actor: AuthContext,
+    inventoryItemIds?: string[],
+  ) {
+    const items = await this.db.query.inventoryItems.findMany({
+      where: and(eq(inventoryItems.tenantId, actor.tenantId)),
+    });
+    const reservedStatus = await this.db.query.inventoryStatuses.findFirst({ where: eq(inventoryStatuses.code, 'reserved') });
+    const soldStatus = await this.db.query.inventoryStatuses.findFirst({ where: eq(inventoryStatuses.code, 'sold') });
+    const activeWarranty = await this.db.query.warrantyStatuses.findFirst({ where: eq(warrantyStatuses.code, 'active') });
+    const ids = inventoryItemIds ?? [];
+    const selected = ids.length
+      ? items.filter((i) => ids.includes(i.id))
+      : items.filter((i) => reservedStatus && i.stockStatusId === reservedStatus.id);
+    for (const item of selected) {
+      const existing = await this.db
+        .select({ id: customerDevices.id })
+        .from(customerDevices)
+        .where(and(
+          eq(customerDevices.tenantId, actor.tenantId),
+          eq(customerDevices.opportunityId, opp.id),
+          eq(customerDevices.inventoryItemId, item.id),
+        ))
+        .limit(1);
+      if (existing.length) continue;
+      await this.db.insert(customerDevices).values({
+        tenantId: actor.tenantId,
+        divisionId: opp.divisionId,
+        companyId: opp.companyId,
+        inventoryItemId: item.id,
+        opportunityId: opp.id,
+        saleDate: new Date(),
+        deliveryDate: new Date(),
+        warrantyStartDate: new Date(),
+        warrantyEndDate: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
+        statusId: activeWarranty?.id ?? null,
+      });
+      if (soldStatus) {
+        await this.db.update(inventoryItems).set({ stockStatusId: soldStatus.id }).where(eq(inventoryItems.id, item.id));
+      }
+    }
   }
 }
