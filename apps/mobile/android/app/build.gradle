@@ -5,6 +5,9 @@ plugins {
 }
 
 react {
+    reactNativeDir = file("../../../../node_modules/react-native")
+    codegenDir = file("../../../../node_modules/@react-native/codegen")
+    cliFile = file("../../../../node_modules/react-native/cli.js")
     autolinkLibrariesWithApp()
 }
 
@@ -32,6 +35,7 @@ android {
 dependencies {
     implementation("com.facebook.react:react-android")
     implementation("androidx.core:core-ktx:1.13.1")
+    implementation("androidx.work:work-runtime-ktx:2.9.1")
     if (hermesEnabled.toBoolean()) {
         implementation("com.facebook.react:hermes-android")
     } else {

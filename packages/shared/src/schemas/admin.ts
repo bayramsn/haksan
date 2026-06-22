@@ -7,6 +7,9 @@ export const userCreateSchema = z.object({
   phone: z.string().max(32).optional(),
   departmentId: z.string().optional(),
   roleCodes: z.array(z.string()).default([]),
+  // Bölüm (CNC / Üniversal / Sac İşleme) üyelikleri — ticari veri izolasyonu ekseni.
+  // İlk eleman birincil (varsayılan aktif) bölüm kabul edilir.
+  divisionIds: z.array(z.string().uuid()).default([]),
 });
 export type UserCreateInput = z.infer<typeof userCreateSchema>;
 
@@ -16,6 +19,8 @@ export const userUpdateSchema = z.object({
   departmentId: z.string().nullable().optional(),
   status: z.enum(['active', 'passive']).optional(),
   roleCodes: z.array(z.string()).optional(),
+  // Verildiğinde kullanıcının bölüm üyelikleri tümüyle bununla değiştirilir.
+  divisionIds: z.array(z.string().uuid()).optional(),
   password: z.string().min(8).max(128).optional(),
   purchaseApprovalLimit: z.coerce.number().int().min(0).optional(),
   managerId: z.string().uuid().nullable().optional(),

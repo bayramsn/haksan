@@ -677,6 +677,7 @@ export const adminService = {
   updateRole: (id: string, body: RoleUpdateInput) => api.patch<any>(`/roles/${id}`, body),
   permissions: () => api.get<any[]>('/permissions'),
   departments: () => api.get<any[]>('/departments'),
+  divisions: () => api.get<any[]>('/divisions'),
   createDept: (body: DepartmentCreateInput) => api.post<any>('/departments', body),
   auditLogs: (params?: Record<string, string | number | undefined>) => api.get<Paginated<any>>(`/audit-logs${qs(params)}`),
   tenant: () => api.get<any>('/tenant'),

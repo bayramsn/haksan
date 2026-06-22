@@ -373,6 +373,8 @@ type AdminUserRow = User & {
   roleCodes: string[];
   roleNames: string[];
   departmentId?: string | null;
+  divisionIds: string[];
+  divisionNames: string[];
 };
 
 const FALLBACK_ROLE_CODES: Record<string, string> = {
@@ -386,12 +388,17 @@ const normalizeStoreUser = (user: User): AdminUserRow => ({
   ...user,
   roleCodes: [FALLBACK_ROLE_CODES[user.role] ?? user.role],
   roleNames: [user.role],
+  divisionIds: [],
+  divisionNames: [],
 });
 
 const normalizeAdminUser = (user: any, fallback?: User): AdminUserRow => {
   const roles = Array.isArray(user.roles) ? user.roles : [];
   const roleCodes = roles.map((role: any) => String(role?.code ?? "")).filter(Boolean);
   const roleNames = roles.map((role: any) => String(role?.name ?? role?.code ?? "")).filter(Boolean);
+  const divisionRows = Array.isArray(user.divisions) ? user.divisions : [];
+  const divisionIds = divisionRows.map((d: any) => String(d?.id ?? "")).filter(Boolean);
+  const divisionNames = divisionRows.map((d: any) => String(d?.name ?? d?.code ?? "")).filter(Boolean);
   const fallbackRole = fallback?.role ?? "Admin";
 
   return {
@@ -407,6 +414,8 @@ const normalizeAdminUser = (user: any, fallback?: User): AdminUserRow => {
     managerId: user.managerId ?? fallback?.managerId,
     roleCodes: roleCodes.length ? roleCodes : [FALLBACK_ROLE_CODES[fallbackRole] ?? fallbackRole],
     roleNames: roleNames.length ? roleNames : [fallbackRole],
+    divisionIds,
+    divisionNames,
   };
 };
 
@@ -421,6 +430,7 @@ export function UsersPage() {
   const canShowActions = canSetTargets || canAssignRoles || canUpdateUser;
   const [adminUsers, setAdminUsers] = useState<AdminUserRow[]>([]);
   const [departments, setDepartments] = useState<{ id: string; name: string; code?: string }[]>([]);
+  const [divisions, setDivisions] = useState<{ id: string; code: string; name: string }[]>([]);
   const [availableRoles, setAvailableRoles] = useState<AssignableRole[]>([]);
   const [adminLoading, setAdminLoading] = useState(true);
   const [adminError, setAdminError] = useState<string | null>(null);
@@ -439,14 +449,16 @@ export function UsersPage() {
     setAdminLoading(true);
     setAdminError(null);
     try {
-      const [userRows, roleRows, deptRows] = await Promise.all([
+      const [userRows, roleRows, deptRows, divisionRows] = await Promise.all([
         adminService.users(),
         canAssignRoles || canCreateUser ? adminService.roles() : Promise.resolve([]),
         adminService.departments().catch(() => []),
+        adminService.divisions().catch(() => []),
       ]);
       const fallbackById = new Map(users.map((user) => [user.id, user]));
       setAdminUsers((Array.isArray(userRows) ? userRows : []).map((user) => normalizeAdminUser(user, fallbackById.get(user.id))));
       setDepartments((Array.isArray(deptRows) ? deptRows : []).map((d: any) => ({ id: d.id, name: d.name, code: d.code })));
+      setDivisions((Array.isArray(divisionRows) ? divisionRows : []).map((d: any) => ({ id: d.id, code: d.code, name: d.name })));
       setAvailableRoles(
         (Array.isArray(roleRows) ? roleRows : [])
           .map((role: any) => ({
@@ -530,10 +542,15 @@ export function UsersPage() {
     }
   };
 
-  const handleSaveDepartment = async (userId: string, departmentId: string | null, active: boolean) => {
+  const handleSaveDepartment = async (userId: string, departmentId: string | null, active: boolean, divisionIds?: string[]) => {
     setSavingDept(true);
     try {
-      await adminService.updateUser(userId, { departmentId, status: active ? "active" : "passive" });
+      await adminService.updateUser(userId, {
+        departmentId,
+        status: active ? "active" : "passive",
+        // Yalnızca dialogdan açıkça düzenlendiğinde gönder — durum anahtarı bölümleri silmesin.
+        ...(divisionIds ? { divisionIds } : {}),
+      });
       toast.success("Kullanıcı güncellendi");
       setDeptUser(null);
       await loadAdminUsers();
@@ -576,6 +593,7 @@ export function UsersPage() {
                 <TableHead>E-posta</TableHead>
                 <TableHead>Rol</TableHead>
                 <TableHead>Departman</TableHead>
+                <TableHead>Bölüm</TableHead>
                 <TableHead>Hedef</TableHead>
                 <TableHead>Onay Limiti</TableHead>
                 <TableHead>Yönetici</TableHead>
@@ -587,7 +605,7 @@ export function UsersPage() {
               {adminLoading && displayUsers.length === 0 ? (
                 Array.from({ length: 4 }).map((_, index) => (
                   <TableRow key={`users-loading-${index}`}>
-                    {Array.from({ length: canShowActions ? 9 : 8 }).map((__, cellIndex) => (
+                    {Array.from({ length: canShowActions ? 10 : 9 }).map((__, cellIndex) => (
                       <TableCell key={cellIndex}><Skeleton className="h-5 w-full" /></TableCell>
                     ))}
                   </TableRow>
@@ -612,6 +630,17 @@ export function UsersPage() {
                         </Button>
                       ) : (
                         u.department || "—"
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      {u.divisionNames.length > 0 ? (
+                        <div className="flex max-w-[200px] flex-wrap gap-1">
+                          {u.divisionNames.map((d, i) => (
+                            <Badge key={d} variant={i === 0 ? "default" : "outline"} className="text-[10px]">{d}</Badge>
+                          ))}
+                        </div>
+                      ) : (
+                        <span className="text-[11px] text-muted-foreground">—</span>
                       )}
                     </TableCell>
                     <TableCell>
@@ -700,6 +729,7 @@ export function UsersPage() {
         <UserDepartmentDialog
           user={deptUser}
           departments={departments}
+          divisions={divisions}
           saving={savingDept}
           onClose={() => setDeptUser(null)}
           onSave={handleSaveDepartment}
@@ -711,6 +741,7 @@ export function UsersPage() {
           onOpenChange={setCreateUserOpen}
           departments={departments}
           roles={availableRoles}
+          divisions={divisions}
           onCreated={loadAdminUsers}
         />
       )}

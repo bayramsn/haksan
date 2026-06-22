@@ -16,18 +16,21 @@ import { adminService } from "../../../lib/services";
 
 export type DeptOption = { id: string; name: string; code?: string };
 export type RoleOption = { id: string; code: string; name: string; description?: string | null; isSystemRole?: boolean };
+export type DivisionOption = { id: string; code: string; name: string };
 
 export function CreateUserDialog({
   open,
   onOpenChange,
   departments,
   roles,
+  divisions,
   onCreated,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   departments: DeptOption[];
   roles: RoleOption[];
+  divisions: DivisionOption[];
   onCreated: () => void;
 }) {
   const [saving, setSaving] = useState(false);
@@ -38,11 +41,12 @@ export function CreateUserDialog({
     phone: "",
     departmentId: "",
     roleCodes: [] as string[],
+    divisionIds: [] as string[],
   });
 
   useEffect(() => {
     if (!open) {
-      setForm({ fullName: "", email: "", password: "", phone: "", departmentId: "", roleCodes: [] });
+      setForm({ fullName: "", email: "", password: "", phone: "", departmentId: "", roleCodes: [], divisionIds: [] });
     }
   }, [open]);
 
@@ -50,6 +54,14 @@ export function CreateUserDialog({
     setForm((f) => ({
       ...f,
       roleCodes: checked ? [...new Set([...f.roleCodes, code])].sort() : f.roleCodes.filter((c) => c !== code),
+    }));
+  };
+
+  const toggleDivision = (id: string, checked: boolean) => {
+    setForm((f) => ({
+      ...f,
+      // Seçim sırasını koru — ilk seçilen birincil (varsayılan aktif) bölüm olur.
+      divisionIds: checked ? [...f.divisionIds.filter((d) => d !== id), id] : f.divisionIds.filter((d) => d !== id),
     }));
   };
 
@@ -68,6 +80,7 @@ export function CreateUserDialog({
         phone: form.phone.trim() || undefined,
         departmentId: form.departmentId || undefined,
         roleCodes: form.roleCodes,
+        divisionIds: form.divisionIds,
       });
       toast.success("Kullanıcı oluşturuldu");
       onOpenChange(false);
@@ -115,6 +128,27 @@ export function CreateUserDialog({
               </SelectContent>
             </Select>
           </div>
+          {divisions.length > 0 && (
+            <div>
+              <Label className="text-xs">Bölüm (CNC / Üniversal / Sac İşleme)</Label>
+              <p className="mt-1 text-[11px] text-muted-foreground">
+                Kullanıcının erişebileceği bölümler. İlk seçilen, varsayılan aktif bölüm olur. Boş bırakılırsa ticari veri görmez.
+              </p>
+              <div className="mt-2 grid gap-2 sm:grid-cols-3">
+                {divisions.map((d) => {
+                  const checked = form.divisionIds.includes(d.id);
+                  const primary = checked && form.divisionIds[0] === d.id;
+                  return (
+                    <label key={d.id} className="flex items-center gap-2 rounded border border-border/60 p-2 text-sm">
+                      <Checkbox checked={checked} onCheckedChange={(v) => toggleDivision(d.id, v === true)} />
+                      <span className="min-w-0 truncate">{d.name}</span>
+                      {primary && <Badge variant="secondary" className="ml-auto text-[10px]">Birincil</Badge>}
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+          )}
           {roles.length > 0 && (
             <div>
               <Label className="text-xs">Roller</Label>
@@ -145,38 +179,48 @@ export function CreateUserDialog({
 export function UserDepartmentDialog({
   user,
   departments,
+  divisions,
   saving,
   onClose,
   onSave,
 }: {
-  user: { id: string; name: string; email: string; departmentId?: string | null; active: boolean } | null;
+  user: { id: string; name: string; email: string; departmentId?: string | null; active: boolean; divisionIds?: string[] } | null;
   departments: DeptOption[];
+  divisions: DivisionOption[];
   saving: boolean;
   onClose: () => void;
-  onSave: (userId: string, departmentId: string | null, active: boolean) => Promise<void>;
+  onSave: (userId: string, departmentId: string | null, active: boolean, divisionIds: string[]) => Promise<void>;
 }) {
   const [departmentId, setDepartmentId] = useState<string>("");
   const [active, setActive] = useState(true);
+  const [divisionIds, setDivisionIds] = useState<string[]>([]);
 
   useEffect(() => {
     if (user) {
       setDepartmentId(user.departmentId ?? "");
       setActive(user.active);
+      setDivisionIds(user.divisionIds ?? []);
     }
   }, [user]);
 
   if (!user) return null;
 
+  const toggleDivision = (id: string, checked: boolean) => {
+    setDivisionIds((current) =>
+      checked ? [...current.filter((d) => d !== id), id] : current.filter((d) => d !== id)
+    );
+  };
+
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    await onSave(user.id, departmentId || null, active);
+    await onSave(user.id, departmentId || null, active, divisionIds);
   };
 
   return (
     <Dialog open={!!user} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle>Departman & Durum · {user.name}</DialogTitle>
+          <DialogTitle>Departman & Bölüm · {user.name}</DialogTitle>
           <DialogDescription>{user.email}</DialogDescription>
         </DialogHeader>
         <form onSubmit={submit} className="space-y-4">
@@ -192,6 +236,27 @@ export function UserDepartmentDialog({
               </SelectContent>
             </Select>
           </div>
+          {divisions.length > 0 && (
+            <div>
+              <Label className="text-xs">Bölüm (CNC / Üniversal / Sac İşleme)</Label>
+              <p className="mt-1 text-[11px] text-muted-foreground">
+                İlk seçilen, varsayılan aktif bölüm olur. Boş bırakılırsa kullanıcı ticari veri görmez.
+              </p>
+              <div className="mt-2 grid gap-2">
+                {divisions.map((d) => {
+                  const checked = divisionIds.includes(d.id);
+                  const primary = checked && divisionIds[0] === d.id;
+                  return (
+                    <label key={d.id} className="flex items-center gap-2 rounded border border-border/60 p-2 text-sm">
+                      <Checkbox checked={checked} onCheckedChange={(v) => toggleDivision(d.id, v === true)} disabled={saving} />
+                      <span className="min-w-0 truncate">{d.name}</span>
+                      {primary && <Badge variant="secondary" className="ml-auto text-[10px]">Birincil</Badge>}
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+          )}
           <div className="flex items-center justify-between rounded-md border border-border/60 px-3 py-2">
             <div>
               <div className="text-sm font-medium">Aktif hesap</div>

@@ -4,6 +4,8 @@
     <uses-permission android:name="android.permission.READ_PHONE_NUMBERS" />
     <uses-permission android:name="android.permission.READ_CALL_LOG" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.READ_CALENDAR" />
+    <uses-permission android:name="android.permission.WRITE_CALENDAR" />
 
     <application
         android:name=".MainApplication"
@@ -36,6 +38,9 @@
 
         <receiver
             android:name=".calls.CallActionReceiver"
+            android:exported="false" />
+        <service
+            android:name=".calendar.CalendarSyncTaskService"
             android:exported="false" />
     </application>
 </manifest>

@@ -4,6 +4,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  AppState,
   PermissionsAndroid,
   Platform,
   RefreshControl,
@@ -19,6 +20,9 @@ import {
 } from 'react-native';
 import { HaksanApi, type CallSuggestion, type HaksanUser } from './api/client';
 import { SuggestionCard } from './components/SuggestionCard';
+import { CalendarScreen } from './components/CalendarScreen';
+import { CalendarSettingsScreen } from './components/CalendarSettingsScreen';
+import { runCalendarSync } from './calendarSync';
 import { CallAssistantNative, type NativeStatus } from './native/CallAssistantNative';
 
 const STORAGE_KEYS = {
@@ -44,6 +48,7 @@ export default function App() {
   const [actionBusy, setActionBusy] = useState<Record<string, CallAssistantAction | null>>({});
   const [manualPhone, setManualPhone] = useState('');
   const [manualBusy, setManualBusy] = useState(false);
+  const [activeTab, setActiveTab] = useState<'assistant' | 'calendar' | 'settings'>('assistant');
 
   const api = useMemo(() => new HaksanApi(apiBaseUrl, accessToken), [apiBaseUrl, accessToken]);
 
@@ -55,6 +60,14 @@ export default function App() {
     if (!accessToken) return;
     void refreshAll();
   }, [accessToken, apiBaseUrl]);
+
+  useEffect(() => {
+    if (!accessToken) return;
+    const sync = () => void runCalendarSync(api).catch(() => {});
+    sync();
+    const subscription = AppState.addEventListener('change', (state) => { if (state === 'active') sync(); });
+    return () => subscription.remove();
+  }, [accessToken, api]);
 
   const bootstrap = async () => {
     try {
@@ -235,6 +248,20 @@ export default function App() {
               </View>
             </View>
 
+            <View style={styles.tabBar}>
+              {([
+                ['assistant', 'Sekreter'],
+                ['calendar', 'Takvim'],
+                ['settings', 'Ayarlar'],
+              ] as const).map(([key, label]) => (
+                <TouchableOpacity key={key} onPress={() => setActiveTab(key)} style={[styles.tab, activeTab === key && styles.tabActive]}>
+                  <Text style={[styles.tabText, activeTab === key && styles.tabTextActive]}>{label}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            {activeTab === 'assistant' && <>
+
             <View style={styles.card}>
               <View style={styles.rowBetween}>
                 <View style={styles.flexOne}>
@@ -297,6 +324,9 @@ export default function App() {
                 ))}
               </View>
             )}
+            </>}
+            {activeTab === 'calendar' && <CalendarScreen api={api} />}
+            {activeTab === 'settings' && <CalendarSettingsScreen api={api} />}
           </>
         )}
       </ScrollView>
@@ -477,6 +507,31 @@ const styles = StyleSheet.create({
   },
   pillWarnText: {
     color: '#991b1b',
+  },
+  tabBar: {
+    flexDirection: 'row',
+    borderRadius: 12,
+    backgroundColor: '#e2e8f0',
+    padding: 4,
+    gap: 4,
+  },
+  tab: {
+    flex: 1,
+    minHeight: 38,
+    borderRadius: 9,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  tabActive: {
+    backgroundColor: '#0f172a',
+  },
+  tabText: {
+    color: '#64748b',
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  tabTextActive: {
+    color: '#ffffff',
   },
   manualRow: {
     flexDirection: 'row',

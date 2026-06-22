@@ -11,6 +11,7 @@ import com.facebook.react.defaults.DefaultReactHost.getDefaultReactHost
 import com.facebook.react.defaults.DefaultReactNativeHost
 import com.facebook.soloader.SoLoader
 import com.haksan.mobile.calls.CallAssistantPackage
+import com.haksan.mobile.calendar.CalendarSyncPackage
 
 class MainApplication : Application(), ReactApplication {
     override val reactNativeHost: ReactNativeHost =
@@ -20,6 +21,7 @@ class MainApplication : Application(), ReactApplication {
             override fun getPackages(): List<ReactPackage> =
                 PackageList(this).packages.apply {
                     add(CallAssistantPackage())
+                    add(CalendarSyncPackage())
                 }
 
             override fun getJSMainModuleName(): String = "index"

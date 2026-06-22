@@ -12,7 +12,7 @@ plugins {
 }
 
 dependencyResolutionManagement {
-    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+    repositoriesMode.set(RepositoriesMode.PREFER_PROJECT)
     repositories {
         google()
         mavenCentral()
@@ -20,7 +20,8 @@ dependencyResolutionManagement {
 }
 
 extensions.configure(com.facebook.react.ReactSettingsExtension) { ex ->
-    ex.autolinkLibrariesFromCommand()
+    def nodeBinary = System.getenv("NODE_BINARY") ?: "/opt/homebrew/opt/node@22/bin/node"
+    ex.autolinkLibrariesFromCommand([nodeBinary, file("../../../node_modules/react-native/cli.js").absolutePath, "config"])
 }
 
 rootProject.name = "HaksanMobile"

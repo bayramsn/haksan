@@ -568,12 +568,13 @@ export class CalendarService {
         })
         .onConflictDoNothing();
     } else {
+      const providerChanged = input.modifiedAt > link.providerModifiedAt;
       await this.db
         .update(calendarDeviceLinks)
         .set({
-          providerModifiedAt: input.modifiedAt,
+          providerModifiedAt: providerChanged ? input.modifiedAt : link.providerModifiedAt,
           lastSyncedAt: sync.observedAt,
-          deletedAt: input.deleted ? input.modifiedAt : null,
+          deletedAt: providerChanged ? (input.deleted ? input.modifiedAt : null) : link.deletedAt,
           updatedAt: new Date(),
         })
         .where(eq(calendarDeviceLinks.id, link.id));

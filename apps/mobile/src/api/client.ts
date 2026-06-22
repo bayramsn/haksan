@@ -50,6 +50,28 @@ export type IngestResult = {
   idempotent?: boolean;
 };
 
+export type MobileCalendarSettings = {
+  primaryDeviceId: string;
+  platform: 'android' | 'ios';
+  autoSync: boolean;
+  selectedCalendars: Array<{ id: string; title: string; color?: string | null; writable: boolean }>;
+  destinationCalendarId: string | null;
+  lastSyncAt: string | null;
+  lastSyncError: string | null;
+};
+
+export type MobileCalendarEvent = {
+  id: string;
+  eventType: 'customer_visit' | 'meeting' | 'call' | 'task' | 'other';
+  title: string;
+  description: string | null;
+  location: string | null;
+  startsAt: string;
+  endsAt: string;
+  allDay: boolean;
+  company: { id: string; legalTitle: string; shortName?: string | null } | null;
+};
+
 export class ApiError extends Error {
   constructor(
     message: string,
@@ -101,6 +123,47 @@ export class HaksanApi {
       method: 'POST',
       body: input,
     });
+  }
+
+  async calendarSettings() {
+    return this.request<MobileCalendarSettings | null>('/calendar/sync-settings');
+  }
+
+  async saveCalendarSettings(input: {
+    deviceId: string;
+    platform: 'android' | 'ios';
+    autoSync: boolean;
+    selectedCalendars: MobileCalendarSettings['selectedCalendars'];
+    destinationCalendarId?: string | null;
+  }) {
+    return this.request<MobileCalendarSettings>('/calendar/sync-settings', { method: 'PUT', body: input });
+  }
+
+  async syncCalendar(input: { deviceId: string; platform: 'android' | 'ios'; observedAt: string; events: unknown[] }) {
+    return this.request<{ upserts: unknown[]; deletions: unknown[]; syncedAt: string; window: { from: string; to: string } }>(
+      '/mobile/calendar/sync',
+      { method: 'POST', body: input }
+    );
+  }
+
+  async calendarEvents(from: string, to: string) {
+    return this.request<MobileCalendarEvent[]>(`/calendar/events?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`);
+  }
+
+  async createCalendarEvent(input: {
+    eventType: MobileCalendarEvent['eventType'];
+    title: string;
+    startsAt: string;
+    endsAt: string;
+    allDay: boolean;
+    timezone: string;
+    companyId?: string | null;
+  }) {
+    return this.request<MobileCalendarEvent>('/calendar/events', { method: 'POST', body: input });
+  }
+
+  async companies() {
+    return this.request<Paginated<{ id: string; legalTitle: string; shortName?: string | null }>>('/companies?pageSize=200');
   }
 
   private async request<T>(path: string, options: RequestOptions = {}): Promise<T> {

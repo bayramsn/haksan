@@ -1,6 +1,6 @@
 # Haksan Mobil Sekreter
 
-Android companion app for the Haksan CRM call assistant.
+Android/iOS companion app for the Haksan CRM call assistant and personal calendar.
 
 ## What It Does
 
@@ -15,6 +15,9 @@ Android companion app for the Haksan CRM call assistant.
   - Yoksay
 - Lists pending call suggestions inside the app.
 - Includes a manual phone-number test form for quick validation.
+- Reads selected device calendars and synchronizes a rolling six-month past/future window with CRM.
+- Writes CRM-created events back to the user's selected writable calendar.
+- Keeps customer-visit calendar entries linked to CRM visit reporting.
 
 ## API URL
 
@@ -49,6 +52,15 @@ npm run dev:mobile
 npm run android:mobile
 ```
 
+iOS requires CocoaPods and Xcode:
+
+```bash
+cd apps/mobile/ios
+pod install
+cd ../../..
+npm --workspace @haksan/mobile run ios
+```
+
 Then open the app, set the API URL, log in, and enable `Otomatik arama yakalama`.
 
 ## Android Permissions
@@ -59,9 +71,11 @@ This app uses:
 - `READ_CALL_LOG`
 - `READ_PHONE_NUMBERS`
 - `POST_NOTIFICATIONS`
+- `READ_CALENDAR`
+- `WRITE_CALENDAR`
 
 For internal APK testing this is fine. Google Play distribution may reject broad Call Log access unless the app qualifies under Play's restricted permission policy. Treat this as an internal companion app unless the policy path is reviewed separately.
 
 ## iPhone
 
-iPhone cannot expose normal GSM incoming call numbers to a third-party app in the same way. iOS support should remain santral webhook + push, not direct phone-call capture.
+iPhone cannot expose normal GSM incoming call numbers to a third-party app in the same way. Call capture remains Android-only. Calendar synchronization is supported on iOS through EventKit full calendar access.
