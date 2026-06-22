@@ -12,6 +12,7 @@ import { StatusBadge } from "../../Layout";
 import { MiniKpi } from "../../shared/MiniKpi";
 import { FormField, SummaryLine } from "../shared/formFields";
 import { purchaseOrderService, companyService, productService } from "../../../../lib/services";
+import { useAuth } from "../../../../lib/auth";
 import { ExportExcelButton } from "../../ui/ExportExcelButton";
 import { formatCurrency, formatDate } from "../../../lib/pageHelpers";
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid } from "recharts";
@@ -19,9 +20,11 @@ import { Plus, Search, ShoppingCart, Package, Receipt, Clock, Trash2 } from "luc
 import { toast } from "sonner";
 
 export function PurchaseOrdersPage() {
+  const { hasRole } = useAuth();
   const [orders, setOrders] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [q, setQ] = useState("");
+  const canApprovePurchaseOrders = hasRole("super_admin");
 
   const loadOrders = (cancelledRef?: { current: boolean }) => {
     setLoading(true);
@@ -52,7 +55,7 @@ export function PurchaseOrdersPage() {
   const total = orders.length;
   const commercial = orders.filter((p) => (p.purchaseType ?? "commercial") === "commercial").length;
   const administrative = orders.filter((p) => p.purchaseType === "administrative").length;
-  const pending = orders.filter((p) => p.status?.code === "draft" || p.status?.code === "sent").length;
+  const pending = orders.filter((p) => ["draft", "sent", "pending_manager_approval"].includes(p.status?.code)).length;
   const totalAmount = orders.reduce((a, p) => a + Number(p.grandTotal ?? 0), 0);
 
   const filtered = orders.filter((p) => {
@@ -115,6 +118,7 @@ export function PurchaseOrdersPage() {
               <TableRow className="bg-muted/30 hover:bg-muted/30">
                 <TableHead>Tedarikçi</TableHead>
                 <TableHead>Tip</TableHead>
+                <TableHead>Ödeme</TableHead>
                 <TableHead>Sipariş</TableHead>
                 <TableHead>Fatura No</TableHead>
                 <TableHead>Tarih</TableHead>
@@ -141,6 +145,7 @@ export function PurchaseOrdersPage() {
                   <TableCell>
                     <Badge variant="secondary" className="h-6 text-[11px]">{purchaseTypeLabel(p.purchaseType)}</Badge>
                   </TableCell>
+                  <TableCell className="text-sm text-muted-foreground">{paymentTypeLabel(p.paymentType)}</TableCell>
                   <TableCell className="text-sm tabular-nums">{p.orderNo}</TableCell>
                   <TableCell className="text-sm tabular-nums text-muted-foreground">{p.invoiceNo || "—"}</TableCell>
                   <TableCell className="text-sm tabular-nums text-muted-foreground">{formatDate(p.orderDate)}</TableCell>
@@ -152,9 +157,10 @@ export function PurchaseOrdersPage() {
                     {formatCurrency(Number(p.grandTotal ?? 0), p.currency?.code ?? "USD")}
                   </TableCell>
                   <TableCell>
-                    <div className="flex items-center gap-2">
-                      <StatusBadge status={p.status?.name ?? p.status?.code ?? "Taslak"} />
-                      {p.status?.code === "pending_manager_approval" && (
+                    <div className="flex flex-col gap-1">
+                      <div className="flex items-center gap-2">
+                        <StatusBadge status={p.status?.name ?? p.status?.code ?? "Taslak"} />
+                        {p.status?.code === "pending_manager_approval" && canApprovePurchaseOrders && (
                         <Button 
                           size="sm" 
                           variant="outline" 
@@ -172,21 +178,23 @@ export function PurchaseOrdersPage() {
                         >
                           Onayla
                         </Button>
-                      )}
+                        )}
+                      </div>
+                      {p.approvalReason && <span className="text-[11px] text-amber-700">{p.approvalReason}</span>}
                     </div>
                   </TableCell>
                 </TableRow>
               ))}
               {!loading && filtered.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={9} className="text-center py-12 text-sm text-muted-foreground">
+                  <TableCell colSpan={10} className="text-center py-12 text-sm text-muted-foreground">
                     Satın alma siparişi bulunamadı.
                   </TableCell>
                 </TableRow>
               )}
               {loading && (
                 <TableRow>
-                  <TableCell colSpan={9} className="text-center py-12 text-sm text-muted-foreground">
+                  <TableCell colSpan={10} className="text-center py-12 text-sm text-muted-foreground">
                     Siparişler yükleniyor...
                   </TableCell>
                 </TableRow>
@@ -204,6 +212,7 @@ type PurchaseLineForm = {
   productModelId: string;
   description: string;
   quantity: string;
+  listPrice: string;
   unitPrice: string;
   discountAmount: string;
   vatRate: string;
@@ -211,11 +220,17 @@ type PurchaseLineForm = {
 };
 
 const purchaseTypeLabel = (value?: string) => value === "administrative" ? "İdari" : "Ticari";
+const paymentTypeLabel = (value?: string) => {
+  if (value === "leasing") return "Leasing";
+  if (value === "term") return "Vadeli";
+  return "Peşin";
+};
 const todayInput = () => new Date().toISOString().slice(0, 10);
 const blankPurchaseLine = (type: PurchaseType): PurchaseLineForm => ({
   productModelId: "",
   description: type === "administrative" ? "İdari satın alma gideri" : "",
   quantity: "1",
+  listPrice: "",
   unitPrice: "",
   discountAmount: "0",
   vatRate: "20",
@@ -240,6 +255,10 @@ function CreatePurchaseOrderDialog({ onCreated }: { onCreated: () => void }) {
   const [submitting, setSubmitting] = useState(false);
   const [form, setForm] = useState({
     purchaseType: "commercial" as PurchaseType,
+    paymentType: "cash" as "cash" | "leasing" | "term",
+    paymentTermDays: "0",
+    previousPaymentTermDays: "",
+    termChangeReason: "",
     supplierCompanyId: "",
     invoiceNo: "",
     orderNo: "",
@@ -335,6 +354,10 @@ function CreatePurchaseOrderDialog({ onCreated }: { onCreated: () => void }) {
       const created = await purchaseOrderService.create({
         supplierCompanyId: form.supplierCompanyId || undefined,
         purchaseType: form.purchaseType,
+        paymentType: form.paymentType,
+        paymentTermDays: form.paymentTermDays === "" ? undefined : Math.max(0, Math.trunc(toDecimal(form.paymentTermDays))),
+        previousPaymentTermDays: form.previousPaymentTermDays === "" ? undefined : Math.max(0, Math.trunc(toDecimal(form.previousPaymentTermDays))),
+        termChangeReason: form.termChangeReason.trim() || undefined,
         invoiceNo: form.invoiceNo.trim() || undefined,
         orderNo: form.orderNo.trim() || undefined,
         orderDate: form.orderDate,
@@ -354,6 +377,8 @@ function CreatePurchaseOrderDialog({ onCreated }: { onCreated: () => void }) {
           quantity: toDecimal(line.quantity),
           unitCode: "adet",
           unitPrice: toDecimal(line.unitPrice),
+          listPrice: line.listPrice === "" ? undefined : toDecimal(line.listPrice),
+          approvedPrice: toDecimal(line.unitPrice),
           discountAmount: toDecimal(line.discountAmount),
           vatRate: toDecimal(line.vatRate),
           expectedDate: line.expectedDate || form.expectedDate || undefined,
@@ -364,6 +389,10 @@ function CreatePurchaseOrderDialog({ onCreated }: { onCreated: () => void }) {
       setOpen(false);
       setForm({
         purchaseType: "commercial",
+        paymentType: "cash",
+        paymentTermDays: "0",
+        previousPaymentTermDays: "",
+        termChangeReason: "",
         supplierCompanyId: "",
         invoiceNo: "",
         orderNo: "",
@@ -427,6 +456,22 @@ function CreatePurchaseOrderDialog({ onCreated }: { onCreated: () => void }) {
                   </SelectContent>
                 </Select>
               </FormField>
+              <FormField label="Ödeme Tipi">
+                <Select
+                  value={form.paymentType}
+                  onValueChange={(paymentType) => {
+                    const nextPaymentType = paymentType as "cash" | "leasing" | "term";
+                    setForm({ ...form, paymentType: nextPaymentType, paymentTermDays: nextPaymentType === "cash" ? "0" : form.paymentTermDays });
+                  }}
+                >
+                  <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="cash">Peşin</SelectItem>
+                    <SelectItem value="leasing">Leasing</SelectItem>
+                    <SelectItem value="term">Vadeli</SelectItem>
+                  </SelectContent>
+                </Select>
+              </FormField>
               <FormField label="Fatura Numarası">
                 <Input className="h-9" value={form.invoiceNo} onChange={(e) => setForm({ ...form, invoiceNo: e.target.value })} placeholder="FTR-..." />
               </FormField>
@@ -449,6 +494,12 @@ function CreatePurchaseOrderDialog({ onCreated }: { onCreated: () => void }) {
               <FormField label="Beklenen Tarih">
                 <Input className="h-9" type="date" value={form.expectedDate} onChange={(e) => setForm({ ...form, expectedDate: e.target.value })} />
               </FormField>
+              <FormField label="Yeni Vade (Gün)">
+                <Input className="h-9" inputMode="numeric" value={form.paymentTermDays} onChange={(e) => setForm({ ...form, paymentTermDays: e.target.value })} placeholder="0" />
+              </FormField>
+              <FormField label="Önceki Vade (Gün)">
+                <Input className="h-9" inputMode="numeric" value={form.previousPaymentTermDays} onChange={(e) => setForm({ ...form, previousPaymentTermDays: e.target.value })} placeholder="Opsiyonel" />
+              </FormField>
               <FormField label={form.purchaseType === "commercial" ? "Incoterm" : "İdari Kategori"}>
                 <Input
                   className="h-9"
@@ -460,15 +511,19 @@ function CreatePurchaseOrderDialog({ onCreated }: { onCreated: () => void }) {
               <FormField label="Referans">
                 <Input className="h-9" value={form.shipmentReference} onChange={(e) => setForm({ ...form, shipmentReference: e.target.value })} placeholder="İrsaliye / talep no" />
               </FormField>
+              <FormField label="Vade Notu">
+                <Input className="h-9" value={form.termChangeReason} onChange={(e) => setForm({ ...form, termChangeReason: e.target.value })} placeholder="Opsiyonel" />
+              </FormField>
             </div>
           </div>
 
           <div className="rounded-lg border border-border/60 overflow-x-auto">
-            <div className="grid min-w-[900px] grid-cols-[1.1fr_1.7fr_90px_120px_110px_90px_120px_40px] gap-2 bg-muted/30 px-3 py-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+            <div className="grid min-w-[1020px] grid-cols-[1.1fr_1.7fr_90px_120px_120px_110px_90px_120px_40px] gap-2 bg-muted/30 px-3 py-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
               <div>{form.purchaseType === "commercial" ? "Ürün" : "Gider Türü"}</div>
               <div>Açıklama</div>
               <div>Adet</div>
-              <div>Birim Fiyat</div>
+              <div>Liste Fiyatı</div>
+              <div>Olur Fiyatı</div>
               <div>İndirim</div>
               <div>KDV</div>
               <div className="text-right">Son Tutar</div>
@@ -478,13 +533,16 @@ function CreatePurchaseOrderDialog({ onCreated }: { onCreated: () => void }) {
               {form.lines.map((line, index) => {
                 const t = lineTotals(line);
                 return (
-                  <div key={index} className="grid min-w-[900px] grid-cols-[1.1fr_1.7fr_90px_120px_110px_90px_120px_40px] gap-2 px-3 py-2 items-center">
+                  <div key={index} className="grid min-w-[1020px] grid-cols-[1.1fr_1.7fr_90px_120px_120px_110px_90px_120px_40px] gap-2 px-3 py-2 items-center">
                     {form.purchaseType === "commercial" ? (
                       <Select value={line.productModelId || "__none"} onValueChange={(value) => {
                         const product = products.find((p) => p.id === value);
+                        const productListPrice = product?.listPrice === null || product?.listPrice === undefined ? "" : String(product.listPrice);
                         updateLine(index, {
                           productModelId: value === "__none" ? "" : value,
                           description: product ? product.fullName ?? product.modelCode ?? line.description : line.description,
+                          listPrice: productListPrice || line.listPrice,
+                          unitPrice: productListPrice || line.unitPrice,
                         });
                       }}>
                         <SelectTrigger className="h-8"><SelectValue placeholder="Ürün seç" /></SelectTrigger>
@@ -502,6 +560,7 @@ function CreatePurchaseOrderDialog({ onCreated }: { onCreated: () => void }) {
                     )}
                     <Input className="h-8" value={line.description} onChange={(e) => updateLine(index, { description: e.target.value })} placeholder="Kalem açıklaması" />
                     <Input className="h-8 text-right" inputMode="decimal" value={line.quantity} onChange={(e) => updateLine(index, { quantity: e.target.value })} />
+                    <Input className="h-8 text-right" inputMode="decimal" value={line.listPrice} onChange={(e) => updateLine(index, { listPrice: e.target.value })} placeholder="0" />
                     <Input className="h-8 text-right" inputMode="decimal" value={line.unitPrice} onChange={(e) => updateLine(index, { unitPrice: e.target.value })} placeholder="0" />
                     <Input className="h-8 text-right" inputMode="decimal" value={line.discountAmount} onChange={(e) => updateLine(index, { discountAmount: e.target.value })} />
                     <Select value={line.vatRate} onValueChange={(vatRate) => updateLine(index, { vatRate })}>

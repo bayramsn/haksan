@@ -30,6 +30,22 @@ type DeptPerfRow = {
   attainment: { salesPct: number | null; quotePct: number | null };
 };
 
+const COMPLAINT_SOURCE_LABELS: Record<string, string> = {
+  qr: "QR",
+  web: "Web",
+  phone: "Telefon",
+  whatsapp: "WhatsApp",
+  email: "E-posta",
+  manual: "İç kayıt",
+};
+
+const COMPLAINT_SEVERITY_LABELS: Record<string, string> = {
+  low: "Düşük",
+  normal: "Normal",
+  high: "Yüksek",
+  critical: "Kritik",
+};
+
 export function ReportAnalyticsHub() {
   const { hasPermission } = useAuth();
   const canExport = hasPermission("reports.export");
@@ -40,12 +56,14 @@ export function ReportAnalyticsHub() {
   const [pipeline, setPipeline] = useState<any[]>([]);
   const [stock, setStock] = useState<any[]>([]);
   const [visits, setVisits] = useState<any[]>([]);
+  const [complaintSummary, setComplaintSummary] = useState<any | null>(null);
+  const [warrantyExpiring, setWarrantyExpiring] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [depts, deptPerf, pipe, st, vis] = await Promise.all([
+      const [depts, deptPerf, pipe, st, vis, complaints, warranty] = await Promise.all([
         adminService.departments(),
         reportService.departmentPerformance({
           period,
@@ -54,12 +72,16 @@ export function ReportAnalyticsHub() {
         reportService.pipelineSummary(),
         reportService.stockSummary(),
         reportService.monthlyVisits({ from: `${period}-01`, to: `${period}-28` }),
+        reportService.serviceComplaintsSummary(),
+        reportService.warrantyExpiring({ days: 60 }),
       ]);
       setDepartments(depts as any[]);
       setDeptReport((deptPerf as any)?.departments ?? []);
       setPipeline(Array.isArray(pipe) ? pipe : []);
       setStock(Array.isArray(st) ? st : []);
       setVisits(Array.isArray(vis) ? vis : []);
+      setComplaintSummary(complaints ?? null);
+      setWarrantyExpiring(Array.isArray(warranty) ? warranty : []);
     } catch (err: any) {
       toast.error("Analitik veriler yüklenemedi", { description: err?.message });
     } finally {
@@ -109,6 +131,24 @@ export function ReportAnalyticsHub() {
         ziyaret: Number(v.count ?? 0),
       })),
     [visits]
+  );
+
+  const complaintSourceChart = useMemo(
+    () =>
+      (complaintSummary?.bySource ?? []).map((row: any) => ({
+        name: COMPLAINT_SOURCE_LABELS[row.source] ?? row.source ?? "—",
+        adet: Number(row.count ?? 0),
+      })),
+    [complaintSummary]
+  );
+
+  const complaintSeverityChart = useMemo(
+    () =>
+      (complaintSummary?.bySeverity ?? []).map((row: any) => ({
+        name: COMPLAINT_SEVERITY_LABELS[row.severity] ?? row.severity ?? "—",
+        adet: Number(row.count ?? 0),
+      })),
+    [complaintSummary]
   );
 
   return (
@@ -175,6 +215,63 @@ export function ReportAnalyticsHub() {
         </div>
       ) : (
         <div className="grid gap-4 lg:grid-cols-2">
+          <ChartCard title="Şikayet Kutusu Özeti" className="lg:col-span-2">
+            <div className="grid gap-3 md:grid-cols-6">
+              {[
+                ["Toplam", complaintSummary?.total ?? 0],
+                ["Yeni", complaintSummary?.new ?? 0],
+                ["İnceleniyor", complaintSummary?.reviewing ?? 0],
+                ["Servise Çevrildi", complaintSummary?.converted ?? 0],
+                ["Reddedildi", complaintSummary?.rejected ?? 0],
+                ["Garanti İşaretli", complaintSummary?.warrantyClaim ?? 0],
+              ].map(([label, value]) => (
+                <div key={label} className="rounded-md border border-border/60 bg-muted/30 p-3">
+                  <div className="text-xs text-muted-foreground">{label}</div>
+                  <div className="mt-1 text-xl font-semibold">{Number(value).toLocaleString("tr-TR")}</div>
+                </div>
+              ))}
+            </div>
+            <div className="mt-4 grid gap-4 lg:grid-cols-2">
+              <ResponsiveContainer width="100%" height={220}>
+                <BarChart data={complaintSourceChart}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="name" tick={{ fontSize: 11 }} />
+                  <YAxis tick={{ fontSize: 11 }} />
+                  <Tooltip />
+                  <Bar dataKey="adet" name="Kaynak" fill="#0ea5e9" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+              <ResponsiveContainer width="100%" height={220}>
+                <BarChart data={complaintSeverityChart}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="name" tick={{ fontSize: 11 }} />
+                  <YAxis tick={{ fontSize: 11 }} />
+                  <Tooltip />
+                  <Bar dataKey="adet" name="Öncelik" fill="#f97316" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </ChartCard>
+
+          <ChartCard title="Garanti Süresi Yaklaşan Makineler">
+            <div className="space-y-2">
+              {warrantyExpiring.slice(0, 6).map((row: any) => (
+                <div key={row.id} className="flex items-center justify-between gap-3 rounded-md border border-border/60 px-3 py-2 text-sm">
+                  <div className="min-w-0">
+                    <div className="truncate font-medium">{row.serialNumber ?? row.id}</div>
+                    <div className="text-xs text-muted-foreground">Firma: {row.companyId ?? "—"}</div>
+                  </div>
+                  <div className="shrink-0 text-xs text-muted-foreground">{row.warrantyEndDate?.slice?.(0, 10) ?? "Tarih yok"}</div>
+                </div>
+              ))}
+              {warrantyExpiring.length === 0 && (
+                <div className="rounded-md border border-dashed border-border/70 p-6 text-center text-sm text-muted-foreground">
+                  Önümüzdeki 60 gün içinde garanti bitişi görünmüyor.
+                </div>
+              )}
+            </div>
+          </ChartCard>
+
           <ChartCard title="Departman — Satış Hedef vs Gerçekleşen (USD)">
             <ResponsiveContainer width="100%" height={260}>
               <BarChart data={deptChart}>

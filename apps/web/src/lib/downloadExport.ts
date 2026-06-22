@@ -63,6 +63,7 @@ export const exportService = {
     downloadExport('/exports/customer-statement/' + companyId, filename ?? `cari-ekstre-${companyId}.pdf`, { format: 'pdf', ...params }),
   customerBalances: () => downloadExport('/exports/customer-balances', 'cari-rapor.xlsx'),
   serviceTickets: () => downloadExport('/exports/service-tickets', 'servis-talepleri.xlsx'),
+  serviceComplaints: () => downloadExport('/exports/service-complaints', 'sikayet-kutusu.xlsx'),
   inventory: (params?: Record<string, string | undefined>) =>
     downloadExport('/exports/inventory', 'stok.xlsx', params),
   shipments: () => downloadExport('/exports/shipments', 'sevkiyatlar.xlsx'),

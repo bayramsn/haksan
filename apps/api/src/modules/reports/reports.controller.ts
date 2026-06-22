@@ -92,6 +92,12 @@ export class ReportsController {
   }
 
   @RequirePermissions('reports.read')
+  @Get('service-complaints-summary')
+  serviceComplaintsSummary(@CurrentUser() u: AuthContext) {
+    return this.svc.serviceComplaintsSummary(u);
+  }
+
+  @RequirePermissions('reports.read')
   @Get('year-end')
   yearEnd(@Query(new ZodValidationPipe(yearSchema)) q: { year: number }, @CurrentUser() u: AuthContext) {
     return this.svc.yearEndReport(u, q.year);

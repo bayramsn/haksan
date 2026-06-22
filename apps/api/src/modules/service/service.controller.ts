@@ -1,8 +1,17 @@
-import { Body, Controller, Get, Inject, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Inject, Param, Patch, Post, Put, Query, UseGuards } from '@nestjs/common';
 import { z } from 'zod';
 import { and, asc, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import type { DbClient } from '../../db/client';
-import { serviceTickets, installationJobs, shipments, shipmentItems, deliveries } from '../../db/schema/service';
+import {
+  serviceTickets,
+  serviceComplaintIntakes,
+  serviceWarrantyClaims,
+  serviceWarrantyParts,
+  installationJobs,
+  shipments,
+  shipmentItems,
+  deliveries,
+} from '../../db/schema/service';
 import { serviceTicketStatuses, installationStatuses, shipmentStatuses, inventoryStatuses, units } from '../../db/schema/lookup';
 import { companies, contacts } from '../../db/schema/companies';
 import { opportunities } from '../../db/schema/crm';
@@ -44,7 +53,7 @@ const ticketCreate = z.object({
   description: z.string().max(4000).optional(),
   severity: z.enum(['low', 'normal', 'high', 'critical']).default('normal'),
   ticketType: z.enum(['complaint', 'request', 'warranty_claim', 'question']).default('complaint'),
-  source: z.enum(['manual', 'phone', 'email', 'whatsapp', 'portal', 'passport', 'web']).default('manual'),
+  source: z.enum(['manual', 'phone', 'email', 'whatsapp', 'portal', 'web', 'qr']).default('manual'),
   assignedToUserId: z.string().uuid().nullable().optional(),
   metadata: z.record(z.string(), z.unknown()).optional(),
 });
@@ -57,6 +66,43 @@ const ticketUpdate = z.object({
   ticketType: z.enum(['complaint', 'request', 'warranty_claim', 'question']).optional(),
   assignedToUserId: z.string().uuid().nullable().optional(),
   metadata: z.record(z.string(), z.unknown()).optional(),
+});
+
+const currencySchema = z.enum(['USD', 'EUR', 'TRY']);
+const warrantyStatusSchema = z.enum(['draft', 'submitted', 'approved', 'rejected', 'rma_in_progress', 'closed']);
+const warrantyUpdate = z.object({
+  failureCategory: z.string().max(128).optional().nullable(),
+  technicianAssessment: z.string().max(4000).optional().nullable(),
+  rmaNo: z.string().max(128).optional().nullable(),
+  supplierName: z.string().max(255).optional().nullable(),
+  supplierRmaStatus: z.string().max(64).optional().nullable(),
+  costAmount: z.coerce.number().min(0).optional().nullable(),
+  costCurrency: currencySchema.optional(),
+  customerChargeAmount: z.coerce.number().min(0).optional().nullable(),
+  customerChargeCurrency: currencySchema.optional(),
+  status: warrantyStatusSchema.optional(),
+});
+const warrantyPartsUpdate = z.object({
+  parts: z.array(z.object({
+    id: z.string().uuid().optional(),
+    productModelId: z.string().uuid().optional().nullable(),
+    inventoryItemId: z.string().uuid().optional().nullable(),
+    description: z.string().min(1).max(1000),
+    quantity: z.coerce.number().int().min(1).max(100000),
+    actionType: z.enum(['replace', 'repair', 'return', 'investigate']).default('replace'),
+    source: z.enum(['stock', 'supplier', 'customer', 'service']).default('stock'),
+    supplierRmaStatus: z.string().max(64).optional().nullable(),
+    chargeToCustomer: z.coerce.boolean().default(false),
+    unitCost: z.coerce.number().min(0).optional().nullable(),
+    currency: currencySchema.default('USD'),
+    notes: z.string().max(2000).optional().nullable(),
+  })).max(100),
+});
+const warrantyDecision = z.object({
+  decisionNote: z.string().max(4000).optional(),
+});
+const warrantySubmit = z.object({
+  note: z.string().max(4000).optional(),
 });
 
 const installCreate = z.object({
@@ -133,6 +179,97 @@ export class ServiceController {
     if (!device) throw new NotFoundError('Müşteri cihazı');
     if (companyId && device.companyId !== companyId) throw new ValidationError('Müşteri cihazı seçilen firmaya ait değil');
     return device;
+  }
+
+  private cleanNullableText(value: string | null | undefined) {
+    const text = value?.trim();
+    return text ? text : null;
+  }
+
+  private moneyValue(value: number | null | undefined) {
+    return value === null || value === undefined ? null : value.toString();
+  }
+
+  private coverageSuggestion(device?: { warrantyStartDate: Date | null; warrantyEndDate: Date | null } | null) {
+    if (!device?.warrantyEndDate) return 'unknown';
+    const now = Date.now();
+    const start = device.warrantyStartDate?.getTime();
+    const end = device.warrantyEndDate.getTime();
+    if (start && start > now) return 'unknown';
+    return end >= now ? 'in_warranty' : 'out_of_warranty';
+  }
+
+  private async getScopedTicket(id: string, user: AuthContext) {
+    const ticket = await this.db.query.serviceTickets.findFirst({
+      where: and(
+        eq(serviceTickets.id, id),
+        eq(serviceTickets.tenantId, user.tenantId),
+        isNull(serviceTickets.deletedAt),
+        divisionFilter(resolveActorDivisionScope(user), serviceTickets.divisionId) ?? sql`true`
+      ),
+    });
+    if (!ticket) throw new NotFoundError('Servis kaydı');
+    return ticket;
+  }
+
+  private async findWarrantyClaim(serviceTicketId: string, tenantId: string) {
+    return this.db.query.serviceWarrantyClaims.findFirst({
+      where: and(
+        eq(serviceWarrantyClaims.serviceTicketId, serviceTicketId),
+        eq(serviceWarrantyClaims.tenantId, tenantId),
+        isNull(serviceWarrantyClaims.deletedAt)
+      ),
+    });
+  }
+
+  private async ensureWarrantyClaim(ticket: typeof serviceTickets.$inferSelect) {
+    const existing = await this.findWarrantyClaim(ticket.id, ticket.tenantId);
+    if (existing) return existing;
+    const device = ticket.customerDeviceId
+      ? await this.db.query.customerDevices.findFirst({
+          where: and(
+            eq(customerDevices.id, ticket.customerDeviceId),
+            eq(customerDevices.tenantId, ticket.tenantId),
+            isNull(customerDevices.deletedAt)
+          ),
+        })
+      : null;
+    const [claim] = await this.db
+      .insert(serviceWarrantyClaims)
+      .values({
+        tenantId: ticket.tenantId,
+        divisionId: ticket.divisionId ?? null,
+        serviceTicketId: ticket.id,
+        companyId: ticket.companyId,
+        customerDeviceId: ticket.customerDeviceId ?? null,
+        warrantyStartSnapshot: device?.warrantyStartDate ?? null,
+        warrantyEndSnapshot: device?.warrantyEndDate ?? null,
+        coverageSuggestion: this.coverageSuggestion(device),
+      })
+      .returning();
+    return claim;
+  }
+
+  private async warrantyResponse(claim: typeof serviceWarrantyClaims.$inferSelect) {
+    const parts = await this.db
+      .select({
+        part: serviceWarrantyParts,
+        product: { id: productModels.id, model: productModels.modelCode, modelName: productModels.modelName },
+        inventory: { id: inventoryItems.id, serialNumber: inventoryItems.serialNumber },
+      })
+      .from(serviceWarrantyParts)
+      .leftJoin(productModels, eq(serviceWarrantyParts.productModelId, productModels.id))
+      .leftJoin(inventoryItems, eq(serviceWarrantyParts.inventoryItemId, inventoryItems.id))
+      .where(and(eq(serviceWarrantyParts.warrantyClaimId, claim.id), eq(serviceWarrantyParts.tenantId, claim.tenantId), isNull(serviceWarrantyParts.deletedAt)))
+      .orderBy(asc(serviceWarrantyParts.createdAt));
+    return {
+      ...claim,
+      parts: parts.map((row) => ({
+        ...row.part,
+        product: row.product?.id ? row.product : null,
+        inventory: row.inventory?.id ? row.inventory : null,
+      })),
+    };
   }
 
   private async assertUser(userId: string, tenantId: string) {
@@ -602,14 +739,45 @@ export class ServiceController {
     );
     const [{ count }] = await this.db.select({ count: sql<number>`count(*)::int` }).from(serviceTickets).where(where);
     const rows = await this.db
-      .select({ ticket: serviceTickets, status: { id: serviceTicketStatuses.id, code: serviceTicketStatuses.code, name: serviceTicketStatuses.name } })
+      .select({
+        ticket: serviceTickets,
+        status: { id: serviceTicketStatuses.id, code: serviceTicketStatuses.code, name: serviceTicketStatuses.name },
+        warrantyClaim: {
+          id: serviceWarrantyClaims.id,
+          status: serviceWarrantyClaims.status,
+          coverageSuggestion: serviceWarrantyClaims.coverageSuggestion,
+          coverageDecision: serviceWarrantyClaims.coverageDecision,
+          rmaNo: serviceWarrantyClaims.rmaNo,
+          supplierRmaStatus: serviceWarrantyClaims.supplierRmaStatus,
+          decidedAt: serviceWarrantyClaims.decidedAt,
+        },
+        sourceComplaint: {
+          id: serviceComplaintIntakes.id,
+          complaintNo: serviceComplaintIntakes.complaintNo,
+          source: serviceComplaintIntakes.source,
+          contactName: serviceComplaintIntakes.contactName,
+          contactPhone: serviceComplaintIntakes.contactPhone,
+          contactEmail: serviceComplaintIntakes.contactEmail,
+        },
+      })
       .from(serviceTickets)
       .leftJoin(serviceTicketStatuses, eq(serviceTickets.statusId, serviceTicketStatuses.id))
+      .leftJoin(serviceWarrantyClaims, and(eq(serviceWarrantyClaims.serviceTicketId, serviceTickets.id), isNull(serviceWarrantyClaims.deletedAt)))
+      .leftJoin(serviceComplaintIntakes, and(eq(serviceComplaintIntakes.serviceTicketId, serviceTickets.id), isNull(serviceComplaintIntakes.deletedAt)))
       .where(where)
       .orderBy(desc(serviceTickets.reportedAt))
       .limit(limit)
       .offset(offset);
-    return buildPaginated(rows.map((r) => ({ ...r.ticket, status: r.status })), count, p);
+    return buildPaginated(
+      rows.map((r) => ({
+        ...r.ticket,
+        status: r.status,
+        warrantyClaim: r.warrantyClaim?.id ? r.warrantyClaim : null,
+        sourceComplaint: r.sourceComplaint?.id ? r.sourceComplaint : null,
+      })),
+      count,
+      p
+    );
   }
 
   @RequirePermissions('service_tickets.create')
@@ -647,6 +815,9 @@ export class ServiceController {
         metadata: body.metadata ?? null,
       })
       .returning();
+    if (row.ticketType === 'warranty_claim') {
+      await this.ensureWarrantyClaim(row);
+    }
     return row;
   }
 
@@ -670,7 +841,172 @@ export class ServiceController {
     if (body.metadata !== undefined) patch.metadata = body.metadata;
     if (!Object.keys(patch).length) return ticket;
     const [row] = await this.db.update(serviceTickets).set(patch).where(eq(serviceTickets.id, id)).returning();
+    if (row.ticketType === 'warranty_claim') {
+      await this.ensureWarrantyClaim(row);
+    }
     return row;
+  }
+
+  @RequirePermissions('service_tickets.read')
+  @Get('service-tickets/:id/warranty')
+  async getWarranty(@Param('id') id: string, @CurrentUser() user: AuthContext) {
+    const ticket = await this.getScopedTicket(id, user);
+    const existing = await this.findWarrantyClaim(ticket.id, user.tenantId);
+    if (!existing && ticket.ticketType !== 'warranty_claim') return null;
+    const claim = existing ?? await this.ensureWarrantyClaim(ticket);
+    return this.warrantyResponse(claim);
+  }
+
+  @RequirePermissions('service_tickets.update')
+  @Put('service-tickets/:id/warranty')
+  async upsertWarranty(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(warrantyUpdate)) body: z.infer<typeof warrantyUpdate>,
+    @CurrentUser() user: AuthContext
+  ) {
+    const ticket = await this.getScopedTicket(id, user);
+    if (ticket.ticketType !== 'warranty_claim') {
+      await this.db.update(serviceTickets).set({ ticketType: 'warranty_claim' }).where(eq(serviceTickets.id, ticket.id));
+      ticket.ticketType = 'warranty_claim';
+    }
+    const claim = await this.ensureWarrantyClaim(ticket);
+    const patch: Partial<typeof serviceWarrantyClaims.$inferInsert> = {};
+    if (body.failureCategory !== undefined) patch.failureCategory = this.cleanNullableText(body.failureCategory);
+    if (body.technicianAssessment !== undefined) patch.technicianAssessment = this.cleanNullableText(body.technicianAssessment);
+    if (body.rmaNo !== undefined) patch.rmaNo = this.cleanNullableText(body.rmaNo);
+    if (body.supplierName !== undefined) patch.supplierName = this.cleanNullableText(body.supplierName);
+    if (body.supplierRmaStatus !== undefined) patch.supplierRmaStatus = this.cleanNullableText(body.supplierRmaStatus);
+    if (body.costAmount !== undefined) patch.costAmount = this.moneyValue(body.costAmount);
+    if (body.costCurrency !== undefined) patch.costCurrency = body.costCurrency;
+    if (body.customerChargeAmount !== undefined) patch.customerChargeAmount = this.moneyValue(body.customerChargeAmount);
+    if (body.customerChargeCurrency !== undefined) patch.customerChargeCurrency = body.customerChargeCurrency;
+    if (body.status !== undefined) patch.status = body.status;
+    if (Object.keys(patch).length) {
+      const [updated] = await this.db
+        .update(serviceWarrantyClaims)
+        .set(patch)
+        .where(eq(serviceWarrantyClaims.id, claim.id))
+        .returning();
+      return this.warrantyResponse(updated);
+    }
+    return this.warrantyResponse(claim);
+  }
+
+  @RequirePermissions('service_tickets.update')
+  @Put('service-tickets/:id/warranty/parts')
+  async replaceWarrantyParts(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(warrantyPartsUpdate)) body: z.infer<typeof warrantyPartsUpdate>,
+    @CurrentUser() user: AuthContext
+  ) {
+    const ticket = await this.getScopedTicket(id, user);
+    if (ticket.ticketType !== 'warranty_claim') {
+      await this.db.update(serviceTickets).set({ ticketType: 'warranty_claim' }).where(eq(serviceTickets.id, ticket.id));
+      ticket.ticketType = 'warranty_claim';
+    }
+    const claim = await this.ensureWarrantyClaim(ticket);
+    for (const part of body.parts) {
+      if (part.productModelId) {
+        const product = await this.db.query.productModels.findFirst({
+          where: and(eq(productModels.id, part.productModelId), eq(productModels.tenantId, user.tenantId), isNull(productModels.deletedAt)),
+        });
+        if (!product) throw new NotFoundError('Ürün');
+      }
+      if (part.inventoryItemId) await this.assertInventoryItem(part.inventoryItemId, user.tenantId);
+    }
+    await this.db
+      .update(serviceWarrantyParts)
+      .set({ deletedAt: new Date() })
+      .where(and(eq(serviceWarrantyParts.warrantyClaimId, claim.id), eq(serviceWarrantyParts.tenantId, user.tenantId), isNull(serviceWarrantyParts.deletedAt)));
+    if (body.parts.length) {
+      await this.db.insert(serviceWarrantyParts).values(
+        body.parts.map((part) => ({
+          tenantId: user.tenantId,
+          warrantyClaimId: claim.id,
+          productModelId: part.productModelId ?? null,
+          inventoryItemId: part.inventoryItemId ?? null,
+          description: part.description.trim(),
+          quantity: part.quantity,
+          actionType: part.actionType,
+          source: part.source,
+          supplierRmaStatus: this.cleanNullableText(part.supplierRmaStatus),
+          chargeToCustomer: part.chargeToCustomer,
+          unitCost: this.moneyValue(part.unitCost),
+          currency: part.currency,
+          notes: this.cleanNullableText(part.notes),
+        }))
+      );
+    }
+    const refreshed = await this.findWarrantyClaim(ticket.id, user.tenantId);
+    return this.warrantyResponse(refreshed ?? claim);
+  }
+
+  @RequirePermissions('service_tickets.update')
+  @Post('service-tickets/:id/warranty/submit')
+  async submitWarranty(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(warrantySubmit)) _body: z.infer<typeof warrantySubmit>,
+    @CurrentUser() user: AuthContext
+  ) {
+    const ticket = await this.getScopedTicket(id, user);
+    if (!ticket.customerDeviceId) throw new ValidationError('Garanti onayına göndermek için servis kaydı bir makineyle eşleşmeli');
+    if (ticket.ticketType !== 'warranty_claim') {
+      await this.db.update(serviceTickets).set({ ticketType: 'warranty_claim' }).where(eq(serviceTickets.id, ticket.id));
+      ticket.ticketType = 'warranty_claim';
+    }
+    const claim = await this.ensureWarrantyClaim(ticket);
+    const [updated] = await this.db
+      .update(serviceWarrantyClaims)
+      .set({ status: 'submitted' })
+      .where(eq(serviceWarrantyClaims.id, claim.id))
+      .returning();
+    return this.warrantyResponse(updated);
+  }
+
+  @RequirePermissions('service_tickets.approve')
+  @Post('service-tickets/:id/warranty/approve')
+  async approveWarranty(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(warrantyDecision)) body: z.infer<typeof warrantyDecision>,
+    @CurrentUser() user: AuthContext
+  ) {
+    const ticket = await this.getScopedTicket(id, user);
+    const claim = await this.ensureWarrantyClaim(ticket);
+    const [updated] = await this.db
+      .update(serviceWarrantyClaims)
+      .set({
+        status: 'approved',
+        coverageDecision: 'approved',
+        managerDecisionNote: this.cleanNullableText(body.decisionNote),
+        decidedByUserId: user.userId,
+        decidedAt: new Date(),
+      })
+      .where(eq(serviceWarrantyClaims.id, claim.id))
+      .returning();
+    return this.warrantyResponse(updated);
+  }
+
+  @RequirePermissions('service_tickets.reject')
+  @Post('service-tickets/:id/warranty/reject')
+  async rejectWarranty(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(warrantyDecision)) body: z.infer<typeof warrantyDecision>,
+    @CurrentUser() user: AuthContext
+  ) {
+    const ticket = await this.getScopedTicket(id, user);
+    const claim = await this.ensureWarrantyClaim(ticket);
+    const [updated] = await this.db
+      .update(serviceWarrantyClaims)
+      .set({
+        status: 'rejected',
+        coverageDecision: 'rejected',
+        managerDecisionNote: this.cleanNullableText(body.decisionNote),
+        decidedByUserId: user.userId,
+        decidedAt: new Date(),
+      })
+      .where(eq(serviceWarrantyClaims.id, claim.id))
+      .returning();
+    return this.warrantyResponse(updated);
   }
 
   @RequirePermissions('service_tickets.update')

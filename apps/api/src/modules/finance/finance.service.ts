@@ -803,21 +803,36 @@ export class FinanceService {
   }
 
   async getAccountingInvoice(id: string, actor: AuthContext) {
-    const row = await this.db.query.accountingInvoices.findFirst({
-      where: and(
-        eq(accountingInvoices.id, id),
-        eq(accountingInvoices.tenantId, actor.tenantId),
-        isNull(accountingInvoices.deletedAt),
-        divisionFilter(resolveActorDivisionScope(actor), accountingInvoices.divisionId) ?? sql`true`,
-      ),
-    });
+    const filters = [
+      eq(accountingInvoices.id, id),
+      eq(accountingInvoices.tenantId, actor.tenantId),
+      isNull(accountingInvoices.deletedAt),
+      divisionFilter(resolveActorDivisionScope(actor), accountingInvoices.divisionId) ?? sql`true`,
+    ];
+    const [row] = await this.db
+      .select({
+        inv: accountingInvoices,
+        company: {
+          id: companies.id,
+          legalTitle: companies.legalTitle,
+          shortName: companies.shortName,
+          taxOffice: companies.taxOffice,
+          taxNumber: companies.taxNumber,
+        },
+        currency: { code: currencies.code },
+      })
+      .from(accountingInvoices)
+      .leftJoin(companies, eq(accountingInvoices.companyId, companies.id))
+      .leftJoin(currencies, eq(accountingInvoices.currencyId, currencies.id))
+      .where(and(...filters))
+      .limit(1);
     if (!row) throw new NotFoundError('Fatura bulunamadı');
     const installments = await this.db
       .select()
       .from(invoiceInstallments)
       .where(and(eq(invoiceInstallments.accountingInvoiceId, id), isNull(invoiceInstallments.deletedAt)))
       .orderBy(asc(invoiceInstallments.installmentNo));
-    return { ...row, installments };
+    return { ...row.inv, company: row.company, currency: row.currency, installments };
   }
 
   async createReceivable(body: ReceivableCreateInput, actor: AuthContext) {

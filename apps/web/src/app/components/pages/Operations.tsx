@@ -213,7 +213,7 @@ function CountBadge({ n }: { n: number }) {
 }
 
 /* =========================================================================
-   CİHAZ TAKİBİ (Device tracking) — per-serial lifecycle
+   CİHAZ TAKİBİ (Device tracking) — per-serial status
    ========================================================================= */
 const STAGES: Stage[] = ["Stokta", "Rezerve", "Sevkiyatta", "Kuruldu", "Servis", "Hizmet Dışı"];
 
@@ -287,7 +287,7 @@ export function DeviceTrackingPage() {
                 <TableHead>Konum / Müşteri</TableHead>
                 <TableHead>Kurulum</TableHead>
                 <TableHead>Garanti Sonu</TableHead>
-                <TableHead>Yaşam Döngüsü</TableHead>
+                <TableHead>Cihaz Durumu</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -334,7 +334,7 @@ export function DeviceTrackingPage() {
                       ) : <span className="text-muted-foreground">—</span>}
                     </TableCell>
                     <TableCell>
-                      <Lifecycle stage={d.stage} />
+                      <DeviceStageProgress stage={d.stage} />
                     </TableCell>
                   </TableRow>
                 );
@@ -392,7 +392,7 @@ function WarrantyBadge({ end }: { end: string }) {
   );
 }
 
-function Lifecycle({ stage }: { stage: Stage }) {
+function DeviceStageProgress({ stage }: { stage: Stage }) {
   const idx = STAGES.indexOf(stage);
   return (
     <div className="flex items-center gap-0.5">

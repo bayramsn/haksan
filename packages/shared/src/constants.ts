@@ -88,7 +88,7 @@ export type QuoteStatusCode = (typeof QUOTE_STATUSES)[number];
 export const SALES_ORDER_STATUSES = ['draft', 'confirmed', 'reserved', 'fulfilled', 'cancelled'] as const;
 export type SalesOrderStatusCode = (typeof SALES_ORDER_STATUSES)[number];
 
-export const PURCHASE_ORDER_STATUSES = ['draft', 'sent', 'approved', 'in_transit', 'received', 'cancelled'] as const;
+export const PURCHASE_ORDER_STATUSES = ['draft', 'pending_manager_approval', 'sent', 'approved', 'in_transit', 'received', 'cancelled'] as const;
 export type PurchaseOrderStatusCode = (typeof PURCHASE_ORDER_STATUSES)[number];
 
 export const PAYMENT_STATUSES = ['pending', 'partial', 'paid', 'overdue', 'cancelled'] as const;
@@ -102,6 +102,7 @@ export const FILE_DOCUMENT_TYPES = [
   'commercial_invoice_pdf',
   'stock_document',
   'service_document',
+  'service_complaint_evidence',
   'customs_document',
   'other',
 ] as const;

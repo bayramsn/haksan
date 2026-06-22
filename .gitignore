@@ -1,6 +1,10 @@
 node_modules/
+.pnpm-store/
+.playwright-mcp/
 dist/
 build/
+.gradle/
+.cxx/
 .next/
 out/
 coverage/

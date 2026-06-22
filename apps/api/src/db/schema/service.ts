@@ -1,4 +1,4 @@
-import { pgTable, uuid, varchar, text, timestamp, integer, index, uniqueIndex, jsonb } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, varchar, text, timestamp, integer, boolean, index, uniqueIndex, jsonb } from 'drizzle-orm/pg-core';
 import type { DeliveryFormData } from '@haksan/shared';
 import { auditColumns, money } from './_helpers';
 import { tenants, divisions } from './tenants';
@@ -65,7 +65,8 @@ export const serviceTickets = pgTable(
     severity: varchar('severity', { length: 32 }).notNull().default('normal'),
     // Kayıt tipi: complaint (şikayet) | request (talep) | warranty_claim (garanti) | question (soru).
     ticketType: varchar('ticket_type', { length: 32 }).notNull().default('complaint'),
-    // Geliş kanalı: manual (elle) | phone | email | whatsapp | portal | passport (makine pasaportu/QR) | web.
+    // Geliş kanalı: manual (elle) | phone | email | whatsapp | portal | web | qr.
+    // `passport` yalnız eski kayıtları okuyabilmek için korunur; yeni public akış şikayet linkidir.
     source: varchar('source', { length: 32 }).notNull().default('manual'),
     statusId: uuid('status_id').references(() => serviceTicketStatuses.id),
     assignedToUserId: uuid('assigned_to_user_id').references(() => users.id),
@@ -81,6 +82,150 @@ export const serviceTickets = pgTable(
     tenantIdx: index('service_tickets_tenant_idx').on(t.tenantId),
     tenantDivisionIdx: index('service_tickets_tenant_division_idx').on(t.tenantId, t.divisionId),
     statusIdx: index('service_tickets_status_idx').on(t.statusId),
+  })
+);
+
+export const serviceComplaintLinks = pgTable(
+  'service_complaint_links',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id')
+      .notNull()
+      .references(() => tenants.id, { onDelete: 'cascade' }),
+    divisionId: uuid('division_id').references(() => divisions.id, { onDelete: 'set null' }),
+    companyId: uuid('company_id').references(() => companies.id, { onDelete: 'set null' }),
+    customerDeviceId: uuid('customer_device_id').references(() => customerDevices.id, { onDelete: 'set null' }),
+    slug: varchar('slug', { length: 160 }).notNull(),
+    accessTokenHash: varchar('access_token_hash', { length: 128 }).notNull(),
+    title: varchar('title', { length: 255 }),
+    notes: text('notes'),
+    isActive: boolean('is_active').notNull().default(true),
+    revokedAt: timestamp('revoked_at', { withTimezone: true }),
+    createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
+    ...auditColumns,
+  },
+  (t) => ({
+    tenantIdx: index('service_complaint_links_tenant_idx').on(t.tenantId),
+    tenantDivisionIdx: index('service_complaint_links_tenant_division_idx').on(t.tenantId, t.divisionId),
+    tenantSlugUnique: uniqueIndex('service_complaint_links_tenant_slug_unique').on(t.tenantId, t.slug),
+    tenantTokenUnique: uniqueIndex('service_complaint_links_tenant_token_unique').on(t.tenantId, t.accessTokenHash),
+    companyIdx: index('service_complaint_links_company_idx').on(t.companyId),
+    deviceIdx: index('service_complaint_links_device_idx').on(t.customerDeviceId),
+  })
+);
+
+export const serviceComplaintIntakes = pgTable(
+  'service_complaint_intakes',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id')
+      .notNull()
+      .references(() => tenants.id, { onDelete: 'cascade' }),
+    complaintNo: varchar('complaint_no', { length: 64 }).notNull(),
+    divisionId: uuid('division_id').references(() => divisions.id, { onDelete: 'set null' }),
+    complaintLinkId: uuid('complaint_link_id').references(() => serviceComplaintLinks.id, { onDelete: 'set null' }),
+    companyId: uuid('company_id').references(() => companies.id, { onDelete: 'set null' }),
+    customerDeviceId: uuid('customer_device_id').references(() => customerDevices.id, { onDelete: 'set null' }),
+    serviceTicketId: uuid('service_ticket_id').references(() => serviceTickets.id, { onDelete: 'set null' }),
+    source: varchar('source', { length: 32 }).notNull().default('manual'),
+    status: varchar('status', { length: 32 }).notNull().default('new'),
+    subject: varchar('subject', { length: 255 }).notNull(),
+    description: text('description'),
+    severity: varchar('severity', { length: 32 }).notNull().default('normal'),
+    ticketType: varchar('ticket_type', { length: 32 }).notNull().default('complaint'),
+    contactName: varchar('contact_name', { length: 255 }),
+    contactPhone: varchar('contact_phone', { length: 64 }),
+    contactEmail: varchar('contact_email', { length: 255 }),
+    rejectionNote: text('rejection_note'),
+    metadata: jsonb('metadata').$type<Record<string, unknown>>(),
+    createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
+    ...auditColumns,
+  },
+  (t) => ({
+    tenantComplaintNoUnique: uniqueIndex('service_complaint_intakes_tenant_complaint_no_unique').on(t.tenantId, t.complaintNo),
+    tenantIdx: index('service_complaint_intakes_tenant_idx').on(t.tenantId),
+    tenantDivisionIdx: index('service_complaint_intakes_tenant_division_idx').on(t.tenantId, t.divisionId),
+    statusIdx: index('service_complaint_intakes_status_idx').on(t.status),
+    sourceIdx: index('service_complaint_intakes_source_idx').on(t.source),
+    companyIdx: index('service_complaint_intakes_company_idx').on(t.companyId),
+    deviceIdx: index('service_complaint_intakes_device_idx').on(t.customerDeviceId),
+    ticketIdx: index('service_complaint_intakes_ticket_idx').on(t.serviceTicketId),
+    linkIdx: index('service_complaint_intakes_link_idx').on(t.complaintLinkId),
+  })
+);
+
+export const serviceWarrantyClaims = pgTable(
+  'service_warranty_claims',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id')
+      .notNull()
+      .references(() => tenants.id, { onDelete: 'cascade' }),
+    divisionId: uuid('division_id').references(() => divisions.id, { onDelete: 'set null' }),
+    serviceTicketId: uuid('service_ticket_id')
+      .notNull()
+      .references(() => serviceTickets.id, { onDelete: 'cascade' }),
+    companyId: uuid('company_id')
+      .notNull()
+      .references(() => companies.id, { onDelete: 'restrict' }),
+    customerDeviceId: uuid('customer_device_id').references(() => customerDevices.id, { onDelete: 'set null' }),
+    warrantyStartSnapshot: timestamp('warranty_start_snapshot', { withTimezone: true }),
+    warrantyEndSnapshot: timestamp('warranty_end_snapshot', { withTimezone: true }),
+    status: varchar('status', { length: 32 }).notNull().default('draft'),
+    coverageSuggestion: varchar('coverage_suggestion', { length: 32 }).notNull().default('unknown'),
+    coverageDecision: varchar('coverage_decision', { length: 32 }).notNull().default('pending'),
+    failureCategory: varchar('failure_category', { length: 128 }),
+    technicianAssessment: text('technician_assessment'),
+    managerDecisionNote: text('manager_decision_note'),
+    decidedByUserId: uuid('decided_by_user_id').references(() => users.id, { onDelete: 'set null' }),
+    decidedAt: timestamp('decided_at', { withTimezone: true }),
+    rmaNo: varchar('rma_no', { length: 128 }),
+    supplierName: varchar('supplier_name', { length: 255 }),
+    supplierRmaStatus: varchar('supplier_rma_status', { length: 64 }),
+    costAmount: money('cost_amount'),
+    costCurrency: varchar('cost_currency', { length: 8 }).notNull().default('USD'),
+    customerChargeAmount: money('customer_charge_amount'),
+    customerChargeCurrency: varchar('customer_charge_currency', { length: 8 }).notNull().default('USD'),
+    ...auditColumns,
+  },
+  (t) => ({
+    tenantIdx: index('service_warranty_claims_tenant_idx').on(t.tenantId),
+    tenantDivisionIdx: index('service_warranty_claims_tenant_division_idx').on(t.tenantId, t.divisionId),
+    serviceTicketUnique: uniqueIndex('service_warranty_claims_service_ticket_unique').on(t.serviceTicketId),
+    companyIdx: index('service_warranty_claims_company_idx').on(t.companyId),
+    deviceIdx: index('service_warranty_claims_device_idx').on(t.customerDeviceId),
+    statusIdx: index('service_warranty_claims_status_idx').on(t.status),
+  })
+);
+
+export const serviceWarrantyParts = pgTable(
+  'service_warranty_parts',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id')
+      .notNull()
+      .references(() => tenants.id, { onDelete: 'cascade' }),
+    warrantyClaimId: uuid('warranty_claim_id')
+      .notNull()
+      .references(() => serviceWarrantyClaims.id, { onDelete: 'cascade' }),
+    productModelId: uuid('product_model_id').references(() => productModels.id, { onDelete: 'set null' }),
+    inventoryItemId: uuid('inventory_item_id').references(() => inventoryItems.id, { onDelete: 'set null' }),
+    description: text('description').notNull(),
+    quantity: integer('quantity').notNull().default(1),
+    actionType: varchar('action_type', { length: 32 }).notNull().default('replace'),
+    source: varchar('source', { length: 32 }).notNull().default('stock'),
+    supplierRmaStatus: varchar('supplier_rma_status', { length: 64 }),
+    chargeToCustomer: boolean('charge_to_customer').notNull().default(false),
+    unitCost: money('unit_cost'),
+    currency: varchar('currency', { length: 8 }).notNull().default('USD'),
+    notes: text('notes'),
+    ...auditColumns,
+  },
+  (t) => ({
+    tenantIdx: index('service_warranty_parts_tenant_idx').on(t.tenantId),
+    claimIdx: index('service_warranty_parts_claim_idx').on(t.warrantyClaimId),
+    productIdx: index('service_warranty_parts_product_idx').on(t.productModelId),
+    inventoryIdx: index('service_warranty_parts_inventory_idx').on(t.inventoryItemId),
   })
 );
 

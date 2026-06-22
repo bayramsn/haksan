@@ -170,7 +170,7 @@ export function KanbanCardAttachments({
   );
 }
 
-/** Servis talebine (entityType=service_request) dosya yükleyen satır içi buton. */
+/** Servis talebine (entityType=service_ticket) dosya yükleyen satır içi buton. */
 function ServiceUploadButton({ serviceRequestId, hasDocs }: { serviceRequestId: string; hasDocs: boolean }) {
   const { addDocument } = useStore();
   const inputRef = useRef<HTMLInputElement>(null);
@@ -196,11 +196,11 @@ function ServiceUploadButton({ serviceRequestId, hasDocs }: { serviceRequestId: 
     try {
       const up = await fileService.signedUpload({
         bucket: "erp-service-documents",
-        entityType: "service_request",
+        entityType: "service_ticket",
         entityId: serviceRequestId,
         filename: file.name,
-        mimeType: mime,
-        extension: ext,
+        mimeType: mime as any,
+        extension: ext as any,
         sizeBytes: file.size,
       });
       const res = await fetch(up.uploadUrl, { method: "PUT", body: file, headers: { "Content-Type": mime } });
@@ -208,7 +208,7 @@ function ServiceUploadButton({ serviceRequestId, hasDocs }: { serviceRequestId: 
 
       await fileService.link({
         fileId: up.fileId,
-        entityType: "service_request",
+        entityType: "service_ticket",
         entityId: serviceRequestId,
         documentTypeCode: "service_document",
       });
@@ -248,7 +248,7 @@ function ServiceUploadButton({ serviceRequestId, hasDocs }: { serviceRequestId: 
 
 /**
  * Servis kanban kartı eki şeridi — yükleme için satır içi dosya seçici kullanır
- * ve dosyayı service_request entity'sine bağlar.
+ * ve dosyayı service_ticket entity'sine bağlar.
  */
 export function ServiceCardAttachments({
   serviceRequestId,

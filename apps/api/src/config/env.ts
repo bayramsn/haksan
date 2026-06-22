@@ -42,6 +42,7 @@ const envSchema = z.object({
   JWT_REFRESH_SECRET: z.string().min(32),
   JWT_ACCESS_TTL: z.string().default('15m'),
   JWT_REFRESH_TTL: z.string().default('30d'),
+  PUBLIC_LINK_SECRET: z.string().min(32).optional(),
 
   // Auth lockout
   AUTH_MAX_FAILED_ATTEMPTS: z.coerce.number().int().positive().default(5),
@@ -55,6 +56,10 @@ const envSchema = z.object({
   // soketler uyku/yeniden başlatmada kopar; polling fallback çalışır. VDS'te
   // CHAT_REALTIME_ENABLED=true yapılınca anlık iletim devreye girer.
   CHAT_REALTIME_ENABLED: envBoolean.default(false),
+
+  // Santral/VoIP çağrı webhook doğrulaması. Production'da zorunlu; dev/test'te
+  // boşsa varsayılan test sırrı `dev-call-secret` kabul edilir.
+  CALL_WEBHOOK_SECRET: z.string().min(8).optional(),
 
   // Storage
   S3_PROVIDER: z.enum(['minio', 'supabase', 's3', 'r2']).default('minio'),
@@ -103,6 +108,13 @@ const envSchema = z.object({
       code: z.ZodIssueCode.custom,
       path: ['CORS_ORIGINS'],
       message: 'Production CORS_ORIGINS must not include localhost origins',
+    });
+  }
+  if (!env.CALL_WEBHOOK_SECRET) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['CALL_WEBHOOK_SECRET'],
+      message: 'CALL_WEBHOOK_SECRET must be set in production',
     });
   }
 });

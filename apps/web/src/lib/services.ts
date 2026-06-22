@@ -22,8 +22,6 @@ import type {
   ContactUpdateInput,
   ContractCreateInput,
   ContractUpdateInput,
-  CpqCreateQuoteInput,
-  CpqPreviewInput,
   CustomerDeviceCreateInput,
   DeliveryCreateInput,
   DeliveryUpdateInput,
@@ -39,7 +37,6 @@ import type {
   OpportunityStageChangeInput,
   OpportunityUpdateInput,
   OrderStatusUpdateInput,
-  PassportPublishInput,
   PaymentCreateInput,
   PriceListCreateInput,
   PriceListItemCreateInput,
@@ -52,7 +49,7 @@ import type {
   ProductUpdateInput,
   ProformaCreateInput,
   ProformaUpdateInput,
-  PublicTicketInput,
+  PublicServiceComplaintInput,
   PurchaseOrderCreateInput,
   PurchaseOrderItemCreateInput,
   PurchaseOrderUpdateInput,
@@ -68,6 +65,11 @@ import type {
   SalesOrderFromQuoteInput,
   SalesOrderItemCreateInput,
   SalesOrderUpdateInput,
+  ServiceComplaintConvertInput,
+  ServiceComplaintCreateInput,
+  ServiceComplaintLinkCreateInput,
+  ServiceComplaintRejectInput,
+  ServiceComplaintUpdateInput,
   ShipmentCreateInput,
   SignedUploadUrlInput,
   TargetUpsertInput,
@@ -76,6 +78,9 @@ import type {
   UserUpdateInput,
   VisitCreateInput,
   WarehouseCreateInput,
+  CallAssistantAction,
+  CallSuggestionActionInput,
+  ManualCallEventInput,
 } from '@haksan/shared';
 import { api, getAccessToken, getActiveDivision } from './apiClient';
 import { exportService } from './downloadExport';
@@ -184,6 +189,68 @@ export const accessRequestService = {
     api.get<Paginated<AccessRequestRow>>(`/access-requests${qs(params as Record<string, string | number | undefined>)}`),
   approve: (id: string, decisionNote?: string) => api.post(`/access-requests/${id}/approve`, { decisionNote }),
   reject: (id: string, decisionNote?: string) => api.post(`/access-requests/${id}/reject`, { decisionNote }),
+};
+
+export interface CallSuggestionDTO {
+  id: string;
+  title: string;
+  body: string | null;
+  status: 'pending' | 'acted' | 'dismissed';
+  companyId: string;
+  contactId: string | null;
+  createdAt: string;
+  event: {
+    id: string;
+    eventType: 'completed' | 'missed';
+    direction: 'inbound' | 'outbound';
+    normalizedPhone: string | null;
+    endedAt: string | null;
+    startedAt: string | null;
+  };
+  company: { id: string; legalTitle: string; shortName?: string | null };
+  contact: { id: string; fullName: string } | null;
+  availableActions: { createQuote: boolean; createServiceTicket: boolean; logCall: boolean };
+}
+
+export interface CallEventIngestResponse {
+  event: {
+    id: string;
+    matchStatus: 'matched' | 'unmatched' | 'ambiguous';
+    companyId: string | null;
+    contactId: string | null;
+    normalizedPhone: string | null;
+  };
+  suggestions: CallSuggestionDTO[];
+  idempotent?: boolean;
+}
+
+export interface NotificationDTO {
+  id: string;
+  type: string;
+  title: string;
+  body?: string | null;
+  entityType?: string | null;
+  entityId?: string | null;
+  readAt?: string | null;
+  createdAt: string;
+}
+
+export const notificationService = {
+  list: (params?: { unread?: boolean; pageSize?: number }) =>
+    api.get<Paginated<NotificationDTO>>(`/notifications${qs({
+      unread: params?.unread === undefined ? undefined : String(params.unread),
+      pageSize: params?.pageSize,
+    })}`),
+  markRead: (id: string) => api.patch<NotificationDTO>(`/notifications/${id}/read`, {}),
+};
+
+export const callAssistantService = {
+  suggestions: (params?: { status?: 'pending' | 'acted' | 'dismissed' }) =>
+    api.get<Paginated<CallSuggestionDTO>>(`/call-assistant/suggestions${qs(params)}`),
+  manualEvent: (body: ManualCallEventInput) =>
+    api.post<CallEventIngestResponse>('/call-assistant/manual-events', body),
+  action: (id: string, action: CallAssistantAction, body: Omit<CallSuggestionActionInput, 'action'> = {}) =>
+    api.post<any>(`/call-assistant/suggestions/${id}/actions`, { action, ...body }),
 };
 
 // ───── Contacts ─────
@@ -421,6 +488,20 @@ export const serviceService = {
   update: (id: string, body: any) => api.patch<any>(`/service-tickets/${id}`, body),
   updateTicketStatus: (id: string, statusCode: string) =>
     api.patch<any>(`/service-tickets/${id}/status`, { statusCode }),
+  complaints: (params?: Record<string, string | number | undefined>) => api.get<Paginated<any>>(`/service-complaints${qs(params)}`),
+  createComplaint: (body: ServiceComplaintCreateInput) => api.post<any>('/service-complaints', body),
+  updateComplaint: (id: string, body: ServiceComplaintUpdateInput) => api.patch<any>(`/service-complaints/${id}`, body),
+  convertComplaint: (id: string, body: ServiceComplaintConvertInput = {}) => api.post<any>(`/service-complaints/${id}/convert`, body),
+  rejectComplaint: (id: string, body: ServiceComplaintRejectInput = {}) => api.post<any>(`/service-complaints/${id}/reject`, body),
+  complaintLinks: (params?: Record<string, string | number | undefined>) => api.get<Paginated<any>>(`/service-complaint-links${qs(params)}`),
+  createComplaintLink: (body: ServiceComplaintLinkCreateInput) => api.post<any>('/service-complaint-links', body),
+  revokeComplaintLink: (id: string) => api.patch<any>(`/service-complaint-links/${id}/revoke`, {}),
+  warranty: (id: string) => api.get<any | null>(`/service-tickets/${id}/warranty`),
+  updateWarranty: (id: string, body: any) => api.put<any>(`/service-tickets/${id}/warranty`, body),
+  updateWarrantyParts: (id: string, parts: any[]) => api.put<any>(`/service-tickets/${id}/warranty/parts`, { parts }),
+  submitWarranty: (id: string, note?: string) => api.post<any>(`/service-tickets/${id}/warranty/submit`, { note }),
+  approveWarranty: (id: string, decisionNote?: string) => api.post<any>(`/service-tickets/${id}/warranty/approve`, { decisionNote }),
+  rejectWarranty: (id: string, decisionNote?: string) => api.post<any>(`/service-tickets/${id}/warranty/reject`, { decisionNote }),
   installations: (params?: Record<string, string | number | undefined>) => api.get<Paginated<any>>(`/installations${qs(params)}`),
   createInstallation: (body: any) => api.post<any>('/installations', body),
   updateInstallationStatus: (id: string, body: { statusCode: string; installationDate?: string }) =>
@@ -437,20 +518,21 @@ export const serviceService = {
     api.patch<any>(`/deliveries/${id}/status`, { status }),
 };
 
-// ───── Machine lifecycle: passports, CPQ, service radar ─────
-export const lifecycleService = {
-  passports: () => api.get<any[]>('/lifecycle/passports'),
-  publishPassport: (deviceId: string, body: PassportPublishInput) =>
-    api.post<any>(`/lifecycle/passports/${deviceId}/publish`, body),
-  rotatePassport: (passportId: string) => api.post<any>(`/lifecycle/passports/${passportId}/rotate-token`),
-  revokePassport: (passportId: string) => api.patch<any>(`/lifecycle/passports/${passportId}/revoke`, {}),
-  cpqPreview: (body: CpqPreviewInput) => api.post<any>('/lifecycle/cpq/preview', body),
-  cpqCreateQuote: (body: CpqCreateQuoteInput) => api.post<any>('/lifecycle/cpq/create-quote', body),
-  serviceRadar: () => api.get<any>('/lifecycle/service-radar'),
-  publicPassport: (slug: string, token: string) =>
-    api.get<any>(`/public/passports/${encodeURIComponent(slug)}/${encodeURIComponent(token)}`),
-  publicServiceTicket: (slug: string, token: string, body: PublicTicketInput) =>
-    api.post<any>(`/public/passports/${encodeURIComponent(slug)}/${encodeURIComponent(token)}/service-tickets`, body),
+// ───── Public complaint intake ─────
+export const publicComplaintService = {
+  form: (slug: string, token: string) =>
+    api.get<any>(`/public/service-complaints/${encodeURIComponent(slug)}/${encodeURIComponent(token)}`),
+  signedUpload: (
+    slug: string,
+    token: string,
+    body: Pick<SignedUploadUrlInput, 'bucket' | 'filename' | 'mimeType' | 'extension' | 'sizeBytes'>
+  ) =>
+    api.post<{ fileId: string; bucket: string; objectKey: string; uploadUrl: string; expiresInSeconds: number }>(
+      `/public/service-complaints/${encodeURIComponent(slug)}/${encodeURIComponent(token)}/files/signed-upload-url`,
+      body
+    ),
+  submit: (slug: string, token: string, body: PublicServiceComplaintInput) =>
+    api.post<any>(`/public/service-complaints/${encodeURIComponent(slug)}/${encodeURIComponent(token)}`, body),
 };
 
 // ───── Files ─────
@@ -503,6 +585,7 @@ export const reportService = {
   expectedReceivables: () => api.get<any[]>('/reports/expected-receivables'),
   completedPayments: (params?: Record<string, string>) => api.get<any[]>(`/reports/completed-payments${qs(params)}`),
   warrantyExpiring: (params?: Record<string, string | number>) => api.get<any[]>(`/reports/warranty-expiring${qs(params)}`),
+  serviceComplaintsSummary: () => api.get<any>('/reports/service-complaints-summary'),
   yearEnd: (year: number) => api.get<YearEndReport>(`/reports/year-end?year=${year}`),
   downloadYearEnd: (year: number) => exportService.yearEnd(year),
 };

@@ -116,6 +116,13 @@ export class ExportsController {
   }
 
   @RequirePermissions('reports.export')
+  @Get('service-complaints')
+  async serviceComplaints(@CurrentUser() user: AuthContext, @Res({ passthrough: true }) reply: FastifyReply) {
+    const rows = await this.svc.exportServiceComplaints(user);
+    return sendXlsx(reply, await rowsToXlsxBuffer(rows, 'Şikayet Kutusu'), 'sikayet-kutusu.xlsx');
+  }
+
+  @RequirePermissions('reports.export')
   @Get('inventory')
   async inventory(
     @Query(new ZodValidationPipe(exportInventoryQuerySchema)) q: ExportInventoryQuery,

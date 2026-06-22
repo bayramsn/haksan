@@ -3,7 +3,6 @@ import { and, desc, eq, ilike, isNull, sql } from 'drizzle-orm';
 import type { DbClient } from '../../db/client';
 import { companies, contacts } from '../../db/schema/companies';
 import { opportunities } from '../../db/schema/crm';
-import { users } from '../../db/schema/users';
 import { inventoryItems, inventoryMovements } from '../../db/schema/inventory';
 import { purchaseOrderItems, purchaseOrders, salesOrderItems, salesOrders } from '../../db/schema/orders';
 import { shipments, shipmentItems } from '../../db/schema/service';
@@ -12,7 +11,7 @@ import { productModels } from '../../db/schema/products';
 import { currencies, inventoryStatuses, purchaseOrderStatuses, salesOrderStatuses, shipmentStatuses, units } from '../../db/schema/lookup';
 import { DB } from '../../shared/database/database.module';
 import { AuditService } from '../../shared/database/audit.service';
-import { ConflictError, NotFoundError, ValidationError } from '../../shared/utils/errors';
+import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from '../../shared/utils/errors';
 import { lookupIdByCode } from '../../shared/utils/lookup.helper';
 import { buildPaginated, pageOffset } from '../../shared/utils/pagination';
 import type { AuthContext } from '../../shared/security/auth.types';
@@ -111,6 +110,73 @@ export class OrdersService {
       vatAmount: vat.toFixed(4),
       grandTotal: (subtotal - discount + vat).toFixed(4),
     };
+  }
+
+  private isSuperAdmin(actor: AuthContext): boolean {
+    return actor.roles.includes('super_admin');
+  }
+
+  private purchaseOrderApprovalReasons(input: {
+    paymentType?: string | null;
+    paymentTermDays?: number | null;
+    previousPaymentTermDays?: number | null;
+    termChangeReason?: string | null;
+  }): string[] {
+    const reasons: string[] = [];
+    if (input.paymentType === 'cash') reasons.push('Peşin ödeme');
+    if (input.paymentType === 'leasing') reasons.push('Leasing ödeme');
+    if (input.paymentType === 'term') reasons.push('Vadeli ödeme');
+
+    const currentTerm = input.paymentTermDays ?? null;
+    const previousTerm = input.previousPaymentTermDays ?? null;
+    if (previousTerm !== null && currentTerm !== null && previousTerm !== currentTerm) {
+      reasons.push(`Vade değişikliği (${previousTerm} -> ${currentTerm} gün)`);
+    } else if (input.termChangeReason?.trim()) {
+      reasons.push('Vade değişikliği');
+    }
+    return reasons;
+  }
+
+  private purchaseItemApprovalReasons(input: { listPrice?: number | null; approvedPrice?: number | null }): string[] {
+    const reasons: string[] = [];
+    const hasListPrice = input.listPrice !== undefined && input.listPrice !== null;
+    const hasApprovedPrice = input.approvedPrice !== undefined && input.approvedPrice !== null;
+    if (hasListPrice || hasApprovedPrice) reasons.push('Liste / olur fiyatı');
+    if (hasListPrice && hasApprovedPrice && Number(input.approvedPrice) < Number(input.listPrice)) {
+      reasons.push('Olur fiyatı liste fiyatının altında');
+    }
+    return reasons;
+  }
+
+  private mergeApprovalReasons(existing: string | null | undefined, next: string[]): string | null {
+    const values = [
+      ...(existing ?? '')
+        .split(',')
+        .map((value) => value.trim())
+        .filter(Boolean),
+      ...next,
+    ];
+    const unique = Array.from(new Set(values));
+    return unique.length ? unique.join(', ') : null;
+  }
+
+  private async markPurchaseOrderPendingApproval(orderId: string, actor: AuthContext, reasons: string[]) {
+    if (!reasons.length || this.isSuperAdmin(actor)) return;
+    const pendingId = await lookupIdByCode(this.db, purchaseOrderStatuses, 'pending_manager_approval');
+    if (!pendingId) throw new ValidationError('Satın alma onay bekleme durumu bulunamadı');
+    const order = await this.db.query.purchaseOrders.findFirst({
+      where: and(eq(purchaseOrders.id, orderId), eq(purchaseOrders.tenantId, actor.tenantId), isNull(purchaseOrders.deletedAt)),
+    });
+    if (!order) throw new NotFoundError('Satın alma siparişi');
+    await this.db
+      .update(purchaseOrders)
+      .set({
+        statusId: pendingId,
+        approvedAt: null,
+        approvedBy: null,
+        approvalReason: this.mergeApprovalReasons(order.approvalReason, reasons),
+      })
+      .where(eq(purchaseOrders.id, orderId));
   }
 
   async listSalesOrders(actor: AuthContext, query: { search?: string; statusCode?: string; companyId?: string }, page: Pagination) {
@@ -551,7 +617,9 @@ export class OrdersService {
     if (input.supplierCompanyId) await this.assertCompany(input.supplierCompanyId, actor);
     const orderNo = input.orderNo?.trim() || (await this.nextPurchaseOrderNo(actor));
     await this.assertPurchaseOrderNoAvailable(orderNo, actor);
-    const draft = await lookupIdByCode(this.db, purchaseOrderStatuses, 'draft');
+    const approvalReasons = this.purchaseOrderApprovalReasons(input);
+    const initialStatusCode = approvalReasons.length && !this.isSuperAdmin(actor) ? 'pending_manager_approval' : 'draft';
+    const initialStatus = await lookupIdByCode(this.db, purchaseOrderStatuses, initialStatusCode);
     const currencyId = await lookupIdByCode(this.db, currencies, input.currencyCode);
     const divisionId = resolveAssignedDivision(actor, input.divisionId ?? null);
     if (!divisionId) throw new ValidationError('Satın alma siparişi için bölüm ataması zorunludur', { field: 'divisionId' });
@@ -562,15 +630,20 @@ export class OrdersService {
         divisionId,
         supplierCompanyId: input.supplierCompanyId ?? null,
         purchaseType: input.purchaseType,
+        paymentType: input.paymentType,
+        paymentTermDays: input.paymentTermDays ?? null,
+        previousPaymentTermDays: input.previousPaymentTermDays ?? null,
+        termChangeReason: input.termChangeReason ?? null,
         invoiceNo: input.invoiceNo ?? null,
         orderNo,
         orderDate: input.orderDate,
         expectedDate: input.expectedDate ?? null,
-        statusId: draft,
+        statusId: initialStatus,
         currencyId,
         incoterm: input.incoterm ?? null,
         shipmentReference: input.shipmentReference ?? null,
         notes: input.notes ?? null,
+        approvalReason: this.mergeApprovalReasons(null, approvalReasons),
         createdBy: actor.userId,
       })
       .returning();
@@ -586,17 +659,32 @@ export class OrdersService {
   }
 
   async updatePurchaseOrder(id: string, input: PurchaseOrderUpdateInput, actor: AuthContext) {
-    await this.getPurchaseOrder(id, actor);
+    const existing = await this.getPurchaseOrder(id, actor);
     const patch: Record<string, unknown> = {};
     if (input.supplierCompanyId !== undefined) {
       if (input.supplierCompanyId) await this.assertCompany(input.supplierCompanyId, actor);
       patch.supplierCompanyId = input.supplierCompanyId;
     }
     if (input.currencyCode !== undefined) patch.currencyId = await lookupIdByCode(this.db, currencies, input.currencyCode);
-    for (const k of ['purchaseType', 'invoiceNo', 'orderNo', 'orderDate', 'expectedDate', 'incoterm', 'shipmentReference', 'notes'] as const) {
+    for (const k of ['purchaseType', 'paymentType', 'paymentTermDays', 'previousPaymentTermDays', 'termChangeReason', 'invoiceNo', 'orderNo', 'orderDate', 'expectedDate', 'incoterm', 'shipmentReference', 'notes'] as const) {
       if ((input as any)[k] !== undefined) patch[k] = (input as any)[k] ?? null;
     }
     await this.db.update(purchaseOrders).set(patch).where(eq(purchaseOrders.id, id));
+    const approvalTouched = ['paymentType', 'paymentTermDays', 'previousPaymentTermDays', 'termChangeReason'].some(
+      (key) => (input as any)[key] !== undefined
+    );
+    if (approvalTouched) {
+      await this.markPurchaseOrderPendingApproval(
+        id,
+        actor,
+        this.purchaseOrderApprovalReasons({
+          paymentType: input.paymentType ?? existing.paymentType,
+          paymentTermDays: input.paymentTermDays ?? existing.paymentTermDays,
+          previousPaymentTermDays: input.previousPaymentTermDays ?? existing.previousPaymentTermDays,
+          termChangeReason: input.termChangeReason ?? existing.termChangeReason,
+        })
+      );
+    }
     return this.getPurchaseOrder(id, actor);
   }
 
@@ -620,6 +708,8 @@ export class OrdersService {
         description: input.description,
         quantity: input.quantity.toString(),
         unitId,
+        listPrice: input.listPrice?.toString() ?? null,
+        approvedPrice: (input.approvedPrice ?? input.unitPrice).toString(),
         unitPrice: input.unitPrice.toString(),
         discountAmount: input.discountAmount.toString(),
         vatRate: input.vatRate.toString(),
@@ -630,6 +720,7 @@ export class OrdersService {
       })
       .returning();
     await this.recalcPurchaseOrderTotals(orderId);
+    await this.markPurchaseOrderPendingApproval(orderId, actor, this.purchaseItemApprovalReasons(input));
     return row;
   }
 
@@ -644,9 +735,10 @@ export class OrdersService {
     for (const k of ['productModelId', 'description', 'expectedDate', 'sortOrder'] as const) {
       if ((input as any)[k] !== undefined) patch[k] = (input as any)[k] ?? null;
     }
-    for (const k of ['quantity', 'unitPrice', 'discountAmount', 'vatRate'] as const) {
+    for (const k of ['quantity', 'unitPrice', 'discountAmount', 'vatRate', 'listPrice', 'approvedPrice'] as const) {
       if ((input as any)[k] !== undefined) patch[k] = ((input as any)[k] as number).toString();
     }
+    if (input.approvedPrice !== undefined && input.unitPrice === undefined) patch.unitPrice = input.approvedPrice.toString();
     if (input.unitCode !== undefined) patch.unitId = await lookupIdByCode(this.db, units, input.unitCode);
     const quantity = Number(patch.quantity ?? existing.quantity);
     const unitPrice = Number(patch.unitPrice ?? existing.unitPrice);
@@ -657,6 +749,7 @@ export class OrdersService {
     patch.lineTotal = t.lineTotal.toFixed(4);
     await this.db.update(purchaseOrderItems).set(patch).where(eq(purchaseOrderItems.id, itemId));
     await this.recalcPurchaseOrderTotals(orderId);
+    await this.markPurchaseOrderPendingApproval(orderId, actor, this.purchaseItemApprovalReasons(input));
     return { ok: true };
   }
 
@@ -668,28 +761,24 @@ export class OrdersService {
   }
 
   async setPurchaseOrderStatus(id: string, input: OrderStatusUpdateInput, actor: AuthContext) {
-    const po = await this.getPurchaseOrder(id, actor);
-
     if (input.statusCode === 'approved') {
-      const user = await this.db.query.users.findFirst({
-        where: eq(users.id, actor.userId),
-      });
-      if (user && user.purchaseApprovalLimit) {
-        if (Number(po.grandTotal) > user.purchaseApprovalLimit) {
-           input.statusCode = 'pending_manager_approval';
-           input.notes = (input.notes ? input.notes + '\n' : '') + 'Sipariş tutarı kullanıcının onay limitini aştığı için yönetici onayına sunuldu.';
-        }
-      }
+      if (!this.isSuperAdmin(actor)) throw new ForbiddenError('Satın alma onayını yalnızca süper yönetici verebilir');
     }
 
+    const existing = await this.getPurchaseOrder(id, actor);
     const statusId = await lookupIdByCode(this.db, purchaseOrderStatuses, input.statusCode);
     if (!statusId) throw new ValidationError('Geçersiz satın alma siparişi durumu');
+    const pendingId = await lookupIdByCode(this.db, purchaseOrderStatuses, 'pending_manager_approval');
+    if (pendingId && existing.statusId === pendingId && !this.isSuperAdmin(actor) && !['approved', 'cancelled'].includes(input.statusCode)) {
+      throw new ForbiddenError('Onay bekleyen satın alma siparişi süper yönetici onayı olmadan ilerletilemez');
+    }
     const now = new Date();
     const patch: Record<string, unknown> = { statusId };
     if (input.statusCode === 'sent') patch.sentAt = now;
     if (input.statusCode === 'approved') {
       patch.approvedAt = now;
       patch.approvedBy = actor.userId;
+      patch.approvalReason = null;
     }
     if (input.statusCode === 'received') patch.closedAt = now;
     if (input.statusCode === 'cancelled') patch.cancelledAt = now;

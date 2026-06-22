@@ -15,6 +15,7 @@ export * from './schemas/shipment';
 export * from './schemas/file';
 export * from './schemas/finance';
 export * from './schemas/admin';
-export * from './schemas/lifecycle';
+export * from './schemas/service';
 export * from './schemas/report';
 export * from './schemas/chat';
+export * from './schemas/callAssistant';

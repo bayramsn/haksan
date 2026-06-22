@@ -10,7 +10,7 @@ import {
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../ui/select";
 import { financeService } from "../../../../lib/services";
 import { CreateAccountingInvoiceDialog } from "./CreateAccountingInvoiceDialog";
-import { Receipt, Search, Plus } from "lucide-react";
+import { Building2, Plus, Receipt, Search } from "lucide-react";
 
 type InvoiceRow = {
   id: string;
@@ -25,12 +25,32 @@ type InvoiceRow = {
   currency?: { code?: string };
 };
 
+type InvoiceDetail = InvoiceRow & {
+  amount?: string;
+  vatAmount?: string;
+  notes?: string | null;
+  company?: InvoiceRow["company"] & {
+    taxOffice?: string | null;
+    taxNumber?: string | null;
+  };
+  installments?: Array<{
+    id: string;
+    installmentNo: number;
+    dueDate: string;
+    amount: string;
+  }>;
+};
+
+function companyName(company?: InvoiceDetail["company"]): string {
+  return company?.shortName || company?.legalTitle || "Firma bilgisi yok";
+}
+
 export function AccountingInvoicesPage() {
   const [rows, setRows] = useState<InvoiceRow[]>([]);
   const [q, setQ] = useState("");
   const [typeFilter, setTypeFilter] = useState<"all" | "sales" | "purchase">("all");
   const [loading, setLoading] = useState(true);
-  const [detail, setDetail] = useState<any | null>(null);
+  const [detail, setDetail] = useState<InvoiceDetail | null>(null);
 
   const load = () => {
     setLoading(true);
@@ -53,12 +73,13 @@ export function AccountingInvoicesPage() {
     );
   });
 
-  const openDetail = async (id: string) => {
+  const openDetail = async (row: InvoiceRow) => {
+    setDetail(row);
     try {
-      const data = await financeService.accountingInvoice(id);
-      setDetail(data);
+      const data = await financeService.accountingInvoice(row.id);
+      setDetail({ ...row, ...data, company: data.company ?? row.company, currency: data.currency ?? row.currency });
     } catch {
-      setDetail(null);
+      setDetail(row);
     }
   };
 
@@ -114,7 +135,7 @@ export function AccountingInvoicesPage() {
                 <TableRow><TableCell colSpan={7} className="text-center py-10 text-muted-foreground">Yükleniyor…</TableCell></TableRow>
               )}
               {!loading && filtered.map((r) => (
-                <TableRow key={r.id} className="cursor-pointer hover:bg-muted/30" onClick={() => openDetail(r.id)}>
+                <TableRow key={r.id} className="cursor-pointer hover:bg-muted/30" onClick={() => openDetail(r)}>
                   <TableCell className="font-medium tabular-nums">{r.invoiceNo}</TableCell>
                   <TableCell>
                     <Badge variant="outline" className={r.type === "sales" ? "text-emerald-700 border-emerald-200" : "text-sky-700 border-sky-200"}>
@@ -146,15 +167,31 @@ export function AccountingInvoicesPage() {
           <DialogHeader>
             <DialogTitle>Fatura {detail?.invoiceNo}</DialogTitle>
             <DialogDescription className="sr-only">
-              Fatura özeti ve taksit planı
+              Fatura özeti, firma bilgisi ve taksit planı
             </DialogDescription>
           </DialogHeader>
           {detail && (
             <div className="space-y-3 text-sm">
+              <div className="rounded-lg border border-border/60 bg-muted/30 p-3">
+                <div className="mb-1 flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  <Building2 className="size-3.5" />
+                  {detail.type === "sales" ? "Müşteri / Firma" : "Tedarikçi / Firma"}
+                </div>
+                <div className="text-base font-semibold leading-snug">{companyName(detail.company)}</div>
+                {detail.company?.legalTitle && detail.company.shortName && detail.company.legalTitle !== detail.company.shortName && (
+                  <div className="mt-0.5 text-xs text-muted-foreground">{detail.company.legalTitle}</div>
+                )}
+                {(detail.company?.taxOffice || detail.company?.taxNumber) && (
+                  <div className="mt-2 text-xs text-muted-foreground">
+                    {detail.company.taxOffice ? `${detail.company.taxOffice} ` : ""}
+                    {detail.company.taxNumber ? `Vergi No: ${detail.company.taxNumber}` : ""}
+                  </div>
+                )}
+              </div>
               <div className="grid grid-cols-2 gap-2">
                 <div><span className="text-muted-foreground">Tür:</span> {detail.type === "sales" ? "Satış" : "Alış"}</div>
                 <div><span className="text-muted-foreground">Tarih:</span> {new Date(detail.invoiceDate).toLocaleDateString("tr-TR")}</div>
-                <div><span className="text-muted-foreground">Toplam:</span> {Number(detail.grandTotal).toLocaleString("tr-TR")}</div>
+                <div><span className="text-muted-foreground">Toplam:</span> {Number(detail.grandTotal).toLocaleString("tr-TR")} {detail.currency?.code ?? ""}</div>
                 <div><span className="text-muted-foreground">Taksit:</span> {detail.installmentCount}</div>
               </div>
               {detail.installments?.length > 0 && (

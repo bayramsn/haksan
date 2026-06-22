@@ -39,6 +39,8 @@ import {
   Offer,
   ServiceRequest,
   ServiceStage,
+  ServiceWarrantyClaim,
+  ServiceWarrantyPart,
   Activity,
   FirmType,
   CustomerSalesStatus,
@@ -107,6 +109,56 @@ const toOptionalNumber = (value: unknown) => {
   if (value === undefined || value === null || value === '') return undefined;
   const number = Number(value);
   return Number.isFinite(number) ? number : undefined;
+};
+
+const toNullableNumber = (value: unknown) => {
+  const number = toOptionalNumber(value);
+  return number === undefined ? null : number;
+};
+
+const normalizeWarrantyPart = (part: any): ServiceWarrantyPart => ({
+  id: part.id,
+  productModelId: part.productModelId ?? null,
+  inventoryItemId: part.inventoryItemId ?? null,
+  description: part.description ?? '',
+  quantity: Number(part.quantity ?? 1),
+  actionType: part.actionType ?? 'replace',
+  source: part.source ?? 'stock',
+  supplierRmaStatus: part.supplierRmaStatus ?? null,
+  chargeToCustomer: Boolean(part.chargeToCustomer),
+  unitCost: toNullableNumber(part.unitCost),
+  currency: (part.currency as 'USD' | 'EUR' | 'TRY') ?? 'USD',
+  notes: part.notes ?? null,
+  product: part.product ?? null,
+  inventory: part.inventory ?? null,
+});
+
+const normalizeWarrantyClaim = (claim: any): ServiceWarrantyClaim | null => {
+  if (!claim?.id) return null;
+  return {
+    id: claim.id,
+    serviceTicketId: claim.serviceTicketId ?? '',
+    companyId: claim.companyId ?? '',
+    customerDeviceId: claim.customerDeviceId ?? null,
+    warrantyStartSnapshot: claim.warrantyStartSnapshot ?? null,
+    warrantyEndSnapshot: claim.warrantyEndSnapshot ?? null,
+    status: claim.status ?? 'draft',
+    coverageSuggestion: claim.coverageSuggestion ?? 'unknown',
+    coverageDecision: claim.coverageDecision ?? 'pending',
+    failureCategory: claim.failureCategory ?? null,
+    technicianAssessment: claim.technicianAssessment ?? null,
+    managerDecisionNote: claim.managerDecisionNote ?? null,
+    decidedByUserId: claim.decidedByUserId ?? null,
+    decidedAt: claim.decidedAt ?? null,
+    rmaNo: claim.rmaNo ?? null,
+    supplierName: claim.supplierName ?? null,
+    supplierRmaStatus: claim.supplierRmaStatus ?? null,
+    costAmount: toNullableNumber(claim.costAmount),
+    costCurrency: (claim.costCurrency as 'USD' | 'EUR' | 'TRY') ?? 'USD',
+    customerChargeAmount: toNullableNumber(claim.customerChargeAmount),
+    customerChargeCurrency: (claim.customerChargeCurrency as 'USD' | 'EUR' | 'TRY') ?? 'USD',
+    parts: Array.isArray(claim.parts) ? claim.parts.map(normalizeWarrantyPart) : [],
+  };
 };
 
 const compactProductCode = (value: string) =>
@@ -261,6 +313,12 @@ type Store = {
   ) => Promise<void>;
   moveService: (id: string, to: ServiceStage) => Promise<void>;
   updateService: (id: string, patch: Partial<ServiceRequest>) => Promise<void>;
+  loadServiceWarranty: (id: string) => Promise<ServiceWarrantyClaim | null>;
+  updateServiceWarranty: (id: string, patch: Partial<ServiceWarrantyClaim>) => Promise<ServiceWarrantyClaim | null>;
+  updateServiceWarrantyParts: (id: string, parts: ServiceWarrantyPart[]) => Promise<ServiceWarrantyClaim | null>;
+  submitServiceWarranty: (id: string, note?: string) => Promise<ServiceWarrantyClaim | null>;
+  approveServiceWarranty: (id: string, decisionNote?: string) => Promise<ServiceWarrantyClaim | null>;
+  rejectServiceWarranty: (id: string, decisionNote?: string) => Promise<ServiceWarrantyClaim | null>;
   addService: (s: Omit<ServiceRequest, 'id' | 'createdAt' | 'stage'> & { stage?: ServiceStage; createdAt?: string }) => Promise<ServiceRequest>;
   addMachine: (m: Omit<Machine, 'id' | 'status'> & { status?: Machine['status'] }) => Promise<Machine>;
   addDocument: (
@@ -628,6 +686,8 @@ function StoreInner({ children }: { children: ReactNode }) {
             timerElapsedSeconds: Number(meta.timerElapsedSeconds ?? 0),
             serviceHourlyRate: Number(meta.serviceHourlyRate ?? 120),
             serviceCurrency: (meta.serviceCurrency as 'USD' | 'EUR' | 'TRY') ?? 'USD',
+            warrantyClaim: normalizeWarrantyClaim(t.warrantyClaim),
+            sourceComplaint: t.sourceComplaint ?? null,
             createdAt: (t.reportedAt as string)?.slice(0, 10) ?? '',
             closedAt: undefined,
           };
@@ -777,7 +837,7 @@ function StoreInner({ children }: { children: ReactNode }) {
           id: row.id ?? row.file?.id,
           salesCaseId: row.entityType === 'opportunity' ? row.entityId : '',
           companyId: row.entityType === 'company' ? row.entityId : '',
-          serviceRequestId: row.entityType === 'service_request' ? row.entityId : undefined,
+          serviceRequestId: row.entityType === 'service_ticket' || row.entityType === 'service_request' ? row.entityId : undefined,
           type: mapLinkDocType(row.documentType?.code),
           fileName: row.file?.originalFilename ?? row.description ?? 'Dosya',
           uploadedBy: row.file?.uploadedBy ?? '',
@@ -1380,6 +1440,8 @@ function StoreInner({ children }: { children: ReactNode }) {
       timerElapsedSeconds: s.timerElapsedSeconds ?? 0,
       serviceHourlyRate: s.serviceHourlyRate ?? 120,
       serviceCurrency: s.serviceCurrency ?? 'USD',
+      warrantyClaim: s.warrantyClaim ?? null,
+      sourceComplaint: s.sourceComplaint ?? null,
     } as ServiceRequest;
   };
 
@@ -1483,6 +1545,82 @@ function StoreInner({ children }: { children: ReactNode }) {
     setService((prev) => prev.map((s) => (s.id === id ? { ...s, ...patch } : s)));
   };
 
+  const setServiceWarranty = (id: string, claim: ServiceWarrantyClaim | null) => {
+    setService((prev) =>
+      prev.map((s) =>
+        s.id === id
+          ? {
+              ...s,
+              ticketType: claim ? 'warranty_claim' : s.ticketType,
+              warrantyClaim: claim,
+            }
+          : s
+      )
+    );
+  };
+
+  const loadServiceWarranty: Store['loadServiceWarranty'] = async (id) => {
+    const saved = normalizeWarrantyClaim(await serviceService.warranty(id));
+    setServiceWarranty(id, saved);
+    return saved;
+  };
+
+  const updateServiceWarranty: Store['updateServiceWarranty'] = async (id, patch) => {
+    const saved = normalizeWarrantyClaim(await serviceService.updateWarranty(id, {
+      failureCategory: patch.failureCategory,
+      technicianAssessment: patch.technicianAssessment,
+      rmaNo: patch.rmaNo,
+      supplierName: patch.supplierName,
+      supplierRmaStatus: patch.supplierRmaStatus,
+      costAmount: patch.costAmount,
+      costCurrency: patch.costCurrency,
+      customerChargeAmount: patch.customerChargeAmount,
+      customerChargeCurrency: patch.customerChargeCurrency,
+      status: patch.status,
+    }));
+    setServiceWarranty(id, saved);
+    return saved;
+  };
+
+  const updateServiceWarrantyParts: Store['updateServiceWarrantyParts'] = async (id, parts) => {
+    const saved = normalizeWarrantyClaim(await serviceService.updateWarrantyParts(
+      id,
+      parts.map((part) => ({
+        productModelId: part.productModelId || undefined,
+        inventoryItemId: part.inventoryItemId || undefined,
+        description: part.description,
+        quantity: part.quantity,
+        actionType: part.actionType,
+        source: part.source,
+        supplierRmaStatus: part.supplierRmaStatus || undefined,
+        chargeToCustomer: part.chargeToCustomer,
+        unitCost: part.unitCost ?? undefined,
+        currency: part.currency,
+        notes: part.notes || undefined,
+      }))
+    ));
+    setServiceWarranty(id, saved);
+    return saved;
+  };
+
+  const submitServiceWarranty: Store['submitServiceWarranty'] = async (id, note) => {
+    const saved = normalizeWarrantyClaim(await serviceService.submitWarranty(id, note));
+    setServiceWarranty(id, saved);
+    return saved;
+  };
+
+  const approveServiceWarranty: Store['approveServiceWarranty'] = async (id, decisionNote) => {
+    const saved = normalizeWarrantyClaim(await serviceService.approveWarranty(id, decisionNote));
+    setServiceWarranty(id, saved);
+    return saved;
+  };
+
+  const rejectServiceWarranty: Store['rejectServiceWarranty'] = async (id, decisionNote) => {
+    const saved = normalizeWarrantyClaim(await serviceService.rejectWarranty(id, decisionNote));
+    setServiceWarranty(id, saved);
+    return saved;
+  };
+
   const addDocument: Store['addDocument'] = async (d) => {
     const quoteId =
       offers.find((o) => d.salesCaseId && o.salesCaseId === d.salesCaseId)?.id
@@ -1571,6 +1709,12 @@ function StoreInner({ children }: { children: ReactNode }) {
       markCaseLost,
       moveService,
       updateService,
+      loadServiceWarranty,
+      updateServiceWarranty,
+      updateServiceWarrantyParts,
+      submitServiceWarranty,
+      approveServiceWarranty,
+      rejectServiceWarranty,
       addService,
       addMachine,
       addDocument,

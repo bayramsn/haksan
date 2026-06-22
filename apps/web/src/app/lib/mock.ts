@@ -355,7 +355,116 @@ export type ServiceOperation = {
 };
 
 export type ServiceTicketType = "complaint" | "request" | "warranty_claim" | "question";
-export type ServiceSource = "manual" | "phone" | "email" | "whatsapp" | "portal" | "passport" | "web";
+export type ServiceSource = "manual" | "phone" | "email" | "whatsapp" | "portal" | "web" | "qr";
+export type ServiceWarrantyStatus = "draft" | "submitted" | "approved" | "rejected" | "rma_in_progress" | "closed";
+export type ServiceWarrantyCoverage = "pending" | "approved" | "rejected";
+export type ServiceWarrantySuggestion = "in_warranty" | "out_of_warranty" | "unknown";
+
+export type ServiceComplaintStatus = "new" | "reviewing" | "converted" | "rejected";
+export type ServiceComplaintSource = "qr" | "web" | "phone" | "whatsapp" | "email" | "manual";
+
+export type ServiceComplaintIntake = {
+  id: string;
+  complaintNo: string;
+  companyId?: string | null;
+  customerDeviceId?: string | null;
+  serviceTicketId?: string | null;
+  source: ServiceComplaintSource;
+  status: ServiceComplaintStatus;
+  subject: string;
+  description?: string | null;
+  severity: "low" | "normal" | "high" | "critical";
+  ticketType: ServiceTicketType;
+  contactName?: string | null;
+  contactPhone?: string | null;
+  contactEmail?: string | null;
+  rejectionNote?: string | null;
+  createdAt?: string;
+  company?: { id: string; legalTitle?: string | null; shortName?: string | null } | null;
+  machine?: {
+    id: string;
+    brand?: string | null;
+    model?: string | null;
+    serialNumber?: string | null;
+    warrantyStartDate?: string | null;
+    warrantyEndDate?: string | null;
+  } | null;
+  warrantyStatusSuggestion?: ServiceWarrantySuggestion;
+  callAssistant?: {
+    callAssistantSuggestionId?: string | null;
+    callEventId?: string | null;
+  } | null;
+  attachments?: Array<{
+    id: string;
+    fileId: string;
+    originalFilename: string;
+    mimeType: string;
+    sizeBytes: number;
+    documentTypeCode?: string | null;
+    documentTypeName?: string | null;
+    description?: string | null;
+    createdAt?: string | null;
+  }>;
+  serviceTicket?: { id: string; ticketNo?: string | null; subject?: string | null } | null;
+};
+
+export type ServiceComplaintLink = {
+  id: string;
+  companyId?: string | null;
+  customerDeviceId?: string | null;
+  slug: string;
+  title?: string | null;
+  notes?: string | null;
+  isActive: boolean;
+  revokedAt?: string | null;
+  publicPath?: string;
+  qrPublicPath?: string;
+  token?: string;
+  company?: { id: string; legalTitle?: string | null; shortName?: string | null } | null;
+  machine?: { id: string; brand?: string | null; model?: string | null; serialNumber?: string | null } | null;
+};
+
+export type ServiceWarrantyPart = {
+  id?: string;
+  productModelId?: string | null;
+  inventoryItemId?: string | null;
+  description: string;
+  quantity: number;
+  actionType: "replace" | "repair" | "return" | "investigate";
+  source: "stock" | "supplier" | "customer" | "service";
+  supplierRmaStatus?: string | null;
+  chargeToCustomer: boolean;
+  unitCost?: number | null;
+  currency: "USD" | "EUR" | "TRY";
+  notes?: string | null;
+  product?: { id: string; model?: string | null; modelName?: string | null } | null;
+  inventory?: { id: string; serialNumber?: string | null } | null;
+};
+
+export type ServiceWarrantyClaim = {
+  id: string;
+  serviceTicketId: string;
+  companyId: string;
+  customerDeviceId?: string | null;
+  warrantyStartSnapshot?: string | null;
+  warrantyEndSnapshot?: string | null;
+  status: ServiceWarrantyStatus;
+  coverageSuggestion: ServiceWarrantySuggestion;
+  coverageDecision: ServiceWarrantyCoverage;
+  failureCategory?: string | null;
+  technicianAssessment?: string | null;
+  managerDecisionNote?: string | null;
+  decidedByUserId?: string | null;
+  decidedAt?: string | null;
+  rmaNo?: string | null;
+  supplierName?: string | null;
+  supplierRmaStatus?: string | null;
+  costAmount?: number | null;
+  costCurrency: "USD" | "EUR" | "TRY";
+  customerChargeAmount?: number | null;
+  customerChargeCurrency: "USD" | "EUR" | "TRY";
+  parts?: ServiceWarrantyPart[];
+};
 
 export type ServiceRequest = {
   id: string;
@@ -381,6 +490,15 @@ export type ServiceRequest = {
   timerElapsedSeconds?: number;
   serviceHourlyRate?: number;
   serviceCurrency?: "USD" | "EUR" | "TRY";
+  warrantyClaim?: ServiceWarrantyClaim | null;
+  sourceComplaint?: {
+    id: string;
+    complaintNo: string;
+    source: ServiceComplaintSource;
+    contactName?: string | null;
+    contactPhone?: string | null;
+    contactEmail?: string | null;
+  } | null;
 };
 
 

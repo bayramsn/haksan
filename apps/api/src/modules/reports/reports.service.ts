@@ -9,6 +9,7 @@ import { quotes, quoteItems } from '../../db/schema/quotes';
 import { productModels, brands } from '../../db/schema/products';
 import { receivables, payments } from '../../db/schema/finance';
 import { inventoryItems, customerDevices } from '../../db/schema/inventory';
+import { serviceComplaintIntakes } from '../../db/schema/service';
 import { pipelineStages, inventoryStatuses, paymentStatuses, warrantyStatuses, quoteStatuses } from '../../db/schema/lookup';
 import { companies } from '../../db/schema/companies';
 import { DB } from '../../shared/database/database.module';
@@ -143,6 +144,48 @@ export class ReportsService {
       )
       .groupBy(pipelineStages.code, pipelineStages.name, pipelineStages.sortOrder)
       .orderBy(pipelineStages.sortOrder);
+  }
+
+  async serviceComplaintsSummary(actor: AuthContext) {
+    const filters = [
+      eq(serviceComplaintIntakes.tenantId, actor.tenantId),
+      isNull(serviceComplaintIntakes.deletedAt),
+      this.activeDivisionFilter(actor, serviceComplaintIntakes.divisionId),
+    ];
+    const where = and(...filters);
+    const [totals] = await this.db
+      .select({
+        total: sql<number>`count(*)::int`,
+        new: sql<number>`count(*) filter (where ${serviceComplaintIntakes.status} = 'new')::int`,
+        reviewing: sql<number>`count(*) filter (where ${serviceComplaintIntakes.status} = 'reviewing')::int`,
+        converted: sql<number>`count(*) filter (where ${serviceComplaintIntakes.status} = 'converted')::int`,
+        rejected: sql<number>`count(*) filter (where ${serviceComplaintIntakes.status} = 'rejected')::int`,
+        warrantyClaim: sql<number>`count(*) filter (where ${serviceComplaintIntakes.ticketType} = 'warranty_claim')::int`,
+      })
+      .from(serviceComplaintIntakes)
+      .where(where);
+    const bySource = await this.db
+      .select({ source: serviceComplaintIntakes.source, count: sql<number>`count(*)::int` })
+      .from(serviceComplaintIntakes)
+      .where(where)
+      .groupBy(serviceComplaintIntakes.source)
+      .orderBy(serviceComplaintIntakes.source);
+    const bySeverity = await this.db
+      .select({ severity: serviceComplaintIntakes.severity, count: sql<number>`count(*)::int` })
+      .from(serviceComplaintIntakes)
+      .where(where)
+      .groupBy(serviceComplaintIntakes.severity)
+      .orderBy(serviceComplaintIntakes.severity);
+    return {
+      total: totals?.total ?? 0,
+      new: totals?.new ?? 0,
+      reviewing: totals?.reviewing ?? 0,
+      converted: totals?.converted ?? 0,
+      rejected: totals?.rejected ?? 0,
+      warrantyClaim: totals?.warrantyClaim ?? 0,
+      bySource,
+      bySeverity,
+    };
   }
 
   /**
