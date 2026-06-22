@@ -17,7 +17,7 @@
   <key>NSCalendarsUsageDescription</key><string>Seçtiğiniz takvim etkinliklerini Haksan CRM ile senkronlamak için erişim gerekir.</string>
   <key>BGTaskSchedulerPermittedIdentifiers</key><array><string>com.haksan.mobile.calendar-refresh</string></array>
   <key>UIBackgroundModes</key><array><string>fetch</string><string>processing</string></array>
-  <key>UILaunchScreen</key><dict/>
+  <key>UILaunchStoryboardName</key><string>LaunchScreen</string>
   <key>UISupportedInterfaceOrientations</key><array><string>UIInterfaceOrientationPortrait</string><string>UIInterfaceOrientationLandscapeLeft</string><string>UIInterfaceOrientationLandscapeRight</string></array>
 </dict>
 </plist>

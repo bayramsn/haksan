@@ -12,6 +12,8 @@
 		A10000000000000000000002 /* main.m in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000002 /* main.m */; };
 		A10000000000000000000003 /* HaksanCalendar.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000003 /* HaksanCalendar.swift */; };
 		A10000000000000000000004 /* HaksanCalendarBridge.m in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000004 /* HaksanCalendarBridge.m */; };
+		A10000000000000000000005 /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000007 /* LaunchScreen.storyboard */; };
+		A10000000000000000000006 /* Images.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000008 /* Images.xcassets */; };
 		AEFC04C2A282B125C05289CB /* libPods-HaksanMobile.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 7E5E228A8F63B6078689830D /* libPods-HaksanMobile.a */; };
 /* End PBXBuildFile section */
 
@@ -26,6 +28,9 @@
 		A20000000000000000000004 /* HaksanCalendarBridge.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = HaksanCalendarBridge.m; sourceTree = "<group>"; };
 		A20000000000000000000005 /* AppDelegate.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = AppDelegate.h; sourceTree = "<group>"; };
 		A20000000000000000000006 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		A20000000000000000000007 /* LaunchScreen.storyboard */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; path = LaunchScreen.storyboard; sourceTree = "<group>"; };
+		A20000000000000000000008 /* Images.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Images.xcassets; sourceTree = "<group>"; };
+		A20000000000000000000009 /* HaksanMobile-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "HaksanMobile-Bridging-Header.h"; sourceTree = "<group>"; };
 		F59D9CA2DBA9A1FC708BF316 /* Pods-HaksanMobile.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-HaksanMobile.debug.xcconfig"; path = "Target Support Files/Pods-HaksanMobile/Pods-HaksanMobile.debug.xcconfig"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -69,7 +74,10 @@
 				A20000000000000000000002 /* main.m */,
 				A20000000000000000000003 /* HaksanCalendar.swift */,
 				A20000000000000000000004 /* HaksanCalendarBridge.m */,
+				A20000000000000000000009 /* HaksanMobile-Bridging-Header.h */,
 				A20000000000000000000006 /* Info.plist */,
+				A20000000000000000000007 /* LaunchScreen.storyboard */,
+				A20000000000000000000008 /* Images.xcassets */,
 				62BCC80227D60C6AA042A95F /* PrivacyInfo.xcprivacy */,
 			);
 			path = HaksanMobile;
@@ -153,6 +161,8 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A10000000000000000000005 /* LaunchScreen.storyboard in Resources */,
+				A10000000000000000000006 /* Images.xcassets in Resources */,
 				1FE158D2A13AFCCE03C6702A /* PrivacyInfo.xcprivacy in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -281,6 +291,8 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = F59D9CA2DBA9A1FC708BF316 /* Pods-HaksanMobile.debug.xcconfig */;
 			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				SWIFT_OBJC_BRIDGING_HEADER = "HaksanMobile/HaksanMobile-Bridging-Header.h";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -301,6 +313,8 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = 33F410D4D2B66E684C7D24D0 /* Pods-HaksanMobile.release.xcconfig */;
 			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				SWIFT_OBJC_BRIDGING_HEADER = "HaksanMobile/HaksanMobile-Bridging-Header.h";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = NO;

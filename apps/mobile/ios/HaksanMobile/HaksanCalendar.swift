@@ -1,7 +1,8 @@
 import BackgroundTasks
 import EventKit
-import React
 import UIKit
+// React headers (RCTEventEmitter, RCTPromise* blocks) are exposed via
+// HaksanMobile-Bridging-Header.h since React Native links as a static library.
 
 @objc(HaksanCalendar)
 final class HaksanCalendar: RCTEventEmitter {

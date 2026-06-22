@@ -9,8 +9,8 @@
     },
     {
       "name": "api",
-      "runtimeExecutable": "node",
-      "runtimeArgs": ["apps/api/dist/main.js"],
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--workspace", "@haksan/api", "run", "start"],
       "port": 3000
     },
     {

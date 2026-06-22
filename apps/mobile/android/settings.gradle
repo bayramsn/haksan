@@ -20,7 +20,7 @@ dependencyResolutionManagement {
 }
 
 extensions.configure(com.facebook.react.ReactSettingsExtension) { ex ->
-    def nodeBinary = System.getenv("NODE_BINARY") ?: "/opt/homebrew/opt/node@22/bin/node"
+    def nodeBinary = System.getenv("NODE_BINARY") ?: "node"
     ex.autolinkLibrariesFromCommand([nodeBinary, file("../../../node_modules/react-native/cli.js").absolutePath, "config"])
 }
 

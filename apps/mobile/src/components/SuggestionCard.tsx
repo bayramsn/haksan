@@ -1,10 +1,10 @@
 import React from 'react';
 import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import type { CallAssistantAction } from '@haksan/shared';
-import type { CallSuggestion } from '../api/client';
+import type { CallSuggestionDTO } from '../api/services';
 
 type Props = {
-  suggestion: CallSuggestion;
+  suggestion: CallSuggestionDTO;
   busyAction?: CallAssistantAction | null;
   onAction: (action: CallAssistantAction) => void;
 };
