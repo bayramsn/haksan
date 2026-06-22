@@ -17,6 +17,7 @@ export const salesOrderCreateSchema = z.object({
   quoteId: z.string().optional(),
   opportunityId: z.string().optional(),
   companyId: z.string().min(1),
+  divisionId: z.string().uuid().optional(),
   contactId: z.string().optional(),
   orderNo: z.string().max(64).optional(),
   orderDate: z.coerce.date(),
@@ -54,7 +55,12 @@ export type OrderStatusUpdateInput = z.infer<typeof orderStatusUpdateSchema>;
 const purchaseOrderBaseSchema = z.object({
   // İdari satın almalarda firma opsiyonel; ticari için aşağıdaki refine zorunlu kılar.
   supplierCompanyId: z.string().min(1).optional(),
+  divisionId: z.string().uuid().optional(),
   purchaseType: z.enum(['commercial', 'administrative']).default('commercial'),
+  paymentType: z.enum(['cash', 'leasing', 'term']).default('cash'),
+  paymentTermDays: z.coerce.number().int().min(0).optional(),
+  previousPaymentTermDays: z.coerce.number().int().min(0).optional(),
+  termChangeReason: z.string().max(1000).optional(),
   invoiceNo: z.string().max(128).optional(),
   orderNo: z.string().max(64).optional(),
   orderDate: z.coerce.date(),
@@ -81,6 +87,8 @@ export type PurchaseOrderUpdateInput = z.infer<typeof purchaseOrderUpdateSchema>
 
 export const purchaseOrderItemCreateSchema = orderItemBaseSchema.extend({
   inventoryItemId: z.never().optional(),
+  listPrice: moneySchema.optional(),
+  approvedPrice: moneySchema.optional(),
   expectedDate: z.coerce.date().optional(),
 });
 export type PurchaseOrderItemCreateInput = z.infer<typeof purchaseOrderItemCreateSchema>;

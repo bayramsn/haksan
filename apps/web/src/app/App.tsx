@@ -1,4 +1,4 @@
-import { lazy, Suspense, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { Layout, NavKey } from "./components/Layout";
 import { Button } from "./components/ui/button";
 import { Plus } from "lucide-react";
@@ -31,6 +31,8 @@ const UsersPage = lazy(() => import("./components/pages/SimplePages").then((m) =
 const RolesPage = lazy(() => import("./components/pages/SimplePages").then((m) => ({ default: m.RolesPage })));
 const DepartmentsPage = lazy(() => import("./components/pages/SimplePages").then((m) => ({ default: m.DepartmentsPage })));
 const SettingsPage = lazy(() => import("./components/pages/SimplePages").then((m) => ({ default: m.SettingsPage })));
+const ChatPage = lazy(() => import("./components/pages/chat/ChatPage").then((m) => ({ default: m.ChatPage })));
+const CalendarPage = lazy(() => import("./components/pages/CalendarPage").then((m) => ({ default: m.CalendarPage })));
 import { Customer, SalesCase } from "./lib/mock";
 import { StoreProvider, useStore } from "./lib/store";
 import { usePersistentState } from "./lib/persist";
@@ -38,16 +40,19 @@ import { Toaster } from "./components/ui/sonner";
 import { CreateCustomerDialog, CreateCaseDialog, CreateContactDialog, CreateServiceRequestDialog } from "./components/dialogs/CreateDialogs";
 import { ProductsPage } from "./components/pages/Operations";
 import { SalesPriceListPage, ServicePriceListPage } from "./components/pages/PriceLists";
-import { LifecyclePage, PublicPassportPage } from "./components/pages/Lifecycle";
+import { PublicServiceComplaintPage } from "./components/pages/PublicServiceComplaint";
 import { AuthProvider, useAuth } from "../lib/auth";
 import { FxProvider } from "./lib/fx";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { ReadinessBanner } from "./components/ReadinessBanner";
 import { PageShell } from "./components/shared/PageShell";
 import { PageLoadingSkeleton } from "./components/shared/PageLoadingSkeleton";
+import type { OperationAction, OperationFocus } from "./lib/operations";
 
 const TITLES: Record<NavKey, { title: string; subtitle?: string }> = {
   dashboard: { title: "Dashboard", subtitle: "Genel performans ve KPI özeti" },
+  chat: { title: "Sohbet", subtitle: "Çalışanlarla özel ve grup mesajlaşma" },
+  calendar: { title: "Takvim", subtitle: "Kişisel planlar, toplantılar ve müşteri ziyaretleri" },
   customers: { title: "Firmalar", subtitle: "Müşteri, tedarikçi+müşteri ve tedarikçi kayıtları" },
   contacts: { title: "Kontaklar", subtitle: "Firmalara bağlı kişiler" },
   "sales-cases": { title: "Satış Kartları", subtitle: "Tüm satış fırsatları" },
@@ -69,7 +74,6 @@ const TITLES: Record<NavKey, { title: string; subtitle?: string }> = {
   installations: { title: "Kurulumlar", subtitle: "Saha kurulum operasyonları" },
   deliveries: { title: "Teslimatlar", subtitle: "Müşteri teslim formları" },
   machines: { title: "Makineler / Varlıklar", subtitle: "Müşteriye kurulu makineler ve garanti" },
-  lifecycle: { title: "Makine Yaşam Döngüsü", subtitle: "Dijital pasaport, CPQ ve servis radarı" },
   "service-requests": { title: "Servis Talepleri", subtitle: "Servis akışı (satıştan ayrı)" },
   "service-kanban": { title: "Servis Kanban", subtitle: "Servis süreç akışı: talep → form" },
   "service-price-list": { title: "Servis Fiyat Listesi", subtitle: "Yedek parça ve işçilik fiyatları" },
@@ -80,6 +84,12 @@ const TITLES: Record<NavKey, { title: string; subtitle?: string }> = {
   settings: { title: "Ayarlar" },
 };
 
+const DEFAULT_NAV: NavKey = "dashboard";
+
+function isNavKey(value: unknown): value is NavKey {
+  return typeof value === "string" && value in TITLES;
+}
+
 function AppShell() {
   const { authed, loading, login, logout } = useAuth();
   const { customers, cases, loading: storeLoading } = useStore();
@@ -88,6 +98,11 @@ function AppShell() {
   const [selectedCustomerId, setSelectedCustomerId] = usePersistentState<string | null>("selectedCustomerId", null);
   const [selectedCaseId, setSelectedCaseId] = usePersistentState<string | null>("selectedCaseId", null);
   const [focus, setFocus] = useState<{ nav: NavKey; focus?: OperationFocus; query?: string } | null>(null);
+  const currentNav = isNavKey(nav) ? nav : DEFAULT_NAV;
+
+  useEffect(() => {
+    if (currentNav !== nav) setNav(currentNav);
+  }, [currentNav, nav, setNav]);
 
   if (loading) {
     return (
@@ -142,8 +157,20 @@ function AppShell() {
     titleOverride = { title: selectedCustomer.name, subtitle: "Müşteri detayı" };
     content = <CustomerDetailPage customer={selectedCustomer} onBack={() => setSelectedCustomerId(null)} onAction={runOperationAction} />;
   } else {
-    switch (nav) {
+    switch (currentNav) {
       case "dashboard": content = <DashboardPage onAction={runOperationAction} />; break;
+      case "chat": content = (
+        <ChatPage
+          onOpenRecord={(card) => {
+            if (card.missing) return;
+            if (card.type === "company") runOperationAction({ kind: "customer", customerId: card.id });
+            else if (card.type === "opportunity") runOperationAction({ kind: "salesCase", salesCaseId: card.id });
+            else if (card.type === "quote") runOperationAction({ kind: "navigate", nav: "offers" });
+            else runOperationAction({ kind: "navigate", nav: "service-requests" });
+          }}
+        />
+      ); break;
+      case "calendar": content = <CalendarPage />; break;
       case "customers":
         actions = (
           <CreateCustomerDialog
@@ -193,14 +220,18 @@ function AppShell() {
       case "installations": content = <InstallationsPage />; break;
       case "deliveries": content = <DeliveriesPage />; break;
       case "machines": content = <MachinesPage />; break;
-      case "lifecycle": content = <LifecyclePage />; break;
       case "service-requests":
         actions = (
           <CreateServiceRequestDialog
             trigger={<Button className="gap-1"><Plus className="size-4" /> Yeni Talep</Button>}
           />
         );
-        content = <ServiceRequestsPage focus={focus?.nav === "service-requests" ? focus.focus : undefined} />;
+        content = (
+          <ServiceRequestsPage
+            focus={focus?.nav === "service-requests" ? focus.focus : undefined}
+            initialQuery={focus?.nav === "service-requests" ? focus.query : undefined}
+          />
+        );
         break;
       case "service-kanban":
         actions = (
@@ -219,11 +250,11 @@ function AppShell() {
     }
   }
 
-  const t = titleOverride ?? TITLES[nav];
+  const t = titleOverride ?? TITLES[currentNav] ?? TITLES[DEFAULT_NAV];
 
   return (
     <Layout
-      current={nav}
+      current={currentNav}
       onNavigate={goto}
       onLogout={() => logout()}
       onSelectFirm={(c) => { setSelectedCaseId(null); setSelectedCustomerId(c.id); }}
@@ -249,11 +280,11 @@ function AppShell() {
 }
 
 export default function App() {
-  const publicMatch = typeof window !== "undefined" ? window.location.pathname.match(/^\/p\/([^/]+)\/([^/?#]+)/) : null;
+  const publicMatch = typeof window !== "undefined" ? window.location.pathname.match(/^\/public\/service-complaints\/([^/]+)\/([^/?#]+)/) : null;
   if (publicMatch) {
     return (
       <>
-        <PublicPassportPage slug={decodeURIComponent(publicMatch[1])} token={decodeURIComponent(publicMatch[2])} />
+        <PublicServiceComplaintPage slug={decodeURIComponent(publicMatch[1])} token={decodeURIComponent(publicMatch[2])} />
         <Toaster richColors position="top-right" />
       </>
     );
@@ -263,7 +294,9 @@ export default function App() {
     <AuthProvider>
       <FxProvider>
         <StoreProvider>
-          <AppShell />
+          <ErrorBoundary>
+            <AppShell />
+          </ErrorBoundary>
           <Toaster richColors position="top-right" />
         </StoreProvider>
       </FxProvider>

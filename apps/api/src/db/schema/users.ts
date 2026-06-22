@@ -1,6 +1,6 @@
 import { pgTable, uuid, varchar, text, boolean, timestamp, integer, jsonb, index, uniqueIndex, primaryKey } from 'drizzle-orm/pg-core';
 import { auditColumns, money } from './_helpers';
-import { tenants, departments } from './tenants';
+import { tenants, departments, divisions } from './tenants';
 
 export const users = pgTable(
   'users',
@@ -193,6 +193,27 @@ export const userDepartmentAssignments = pgTable(
   },
   (t) => ({
     pk: primaryKey({ columns: [t.userId, t.departmentId] }),
+  })
+);
+
+/**
+ * Kullanıcı ↔ Bölüm (CNC/Üniversal/Sac) üyeliği. Bir kullanıcı birden çok
+ * bölümde olabilir; `isPrimary` yeni iş oluştururken otomatik atanan bölümdür.
+ */
+export const userDivisions = pgTable(
+  'user_divisions',
+  {
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    divisionId: uuid('division_id')
+      .notNull()
+      .references(() => divisions.id, { onDelete: 'cascade' }),
+    isPrimary: boolean('is_primary').notNull().default(false),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    pk: primaryKey({ columns: [t.userId, t.divisionId] }),
   })
 );
 

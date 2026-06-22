@@ -6,11 +6,17 @@ import {
   CreditCard, Boxes, ShoppingCart, Truck, Wrench, PackageCheck, Cpu,
   LifeBuoy, BarChart3, ShieldCheck, Building2, Contact as ContactIcon, Settings as SettingsIcon,
   Search, Bell, ChevronDown, LogOut, Plus, HelpCircle, Menu,
-  CheckCircle2, Clock, AlertTriangle, XCircle, ChevronRight, Tag, Receipt, Map as MapIcon, FileSignature, QrCode, Wallet, Calendar,
+  CheckCircle2, Clock, AlertTriangle, XCircle, ChevronRight, Tag, Receipt, Map as MapIcon, FileSignature, Wallet, Calendar, MessageCircle, MessageSquare,
+  PhoneCall,
 } from "lucide-react";
+import { callAssistantService, chatService, notificationService, type CallSuggestionDTO, type NotificationDTO } from "../../lib/services";
 import { useAuth } from "../../lib/auth";
 import { toast } from "sonner";
 import { Button } from "./ui/button";
+import {
+  Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger,
+} from "./ui/dialog";
+import { Input } from "./ui/input";
 import { Avatar, AvatarFallback } from "./ui/avatar";
 import { Badge } from "./ui/badge";
 import {
@@ -21,15 +27,16 @@ import { ScrollArea } from "./ui/scroll-area";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "./ui/tooltip";
 import { QuickCreateDialog } from "./dialogs/CreateDialogs";
 import { HelpCenterDialog } from "./HelpCenterDialog";
+import { ApprovalsDialog } from "./ApprovalsDialog";
 import { CommandPalette } from "./operations/CommandPalette";
 import { AssistantPanel } from "./operations/AssistantPanel";
 import { buildAlerts, type OperationAction } from "../lib/operations";
 
 export type NavKey =
-  | "dashboard" | "customers" | "contacts" | "sales-cases" | "kanban" | "sales-map" | "offers"
+  | "dashboard" | "chat" | "calendar" | "customers" | "contacts" | "sales-cases" | "kanban" | "sales-map" | "offers"
   | "proformas" | "contracts" | "documents" | "payments" | "accounting-invoices" | "customer-balances" | "due-dates" | "sales-price-list" | "products"
   | "stock" | "purchase-orders" | "shipments"
-  | "installations" | "deliveries" | "machines" | "lifecycle" | "service-requests" | "service-kanban" | "service-price-list"
+  | "installations" | "deliveries" | "machines" | "service-requests" | "service-kanban" | "service-price-list"
   | "reports" | "users" | "roles" | "departments" | "settings";
 
 type NavItem = { key: NavKey; label: string; icon: any; badge?: string; roles?: string[] };
@@ -44,6 +51,8 @@ const NAV: { group: string; items: NavItem[] }[] = [
     group: "Genel",
     items: [
       { key: "dashboard", label: "Gösterge Paneli", icon: LayoutDashboard },
+      { key: "chat", label: "Sohbet", icon: MessageCircle },
+      { key: "calendar", label: "Takvim", icon: Calendar },
     ],
   },
   {
@@ -78,7 +87,6 @@ const NAV: { group: string; items: NavItem[] }[] = [
     group: "Servis",
     items: [
       { key: "machines", label: "Makineler", icon: Cpu, roles: ["service", "stock"] },
-      { key: "lifecycle", label: "Yaşam Döngüsü", icon: QrCode, roles: ["sales", "service"] },
       { key: "installations", label: "Kurulum", icon: Wrench, roles: ["service"] },
       { key: "service-requests", label: "Servis Talepleri", icon: LifeBuoy, roles: ["service"] },
       { key: "service-kanban", label: "Servis Kanban", icon: KanbanSquare, roles: ["service"] },
@@ -103,7 +111,12 @@ type Props = {
 export function Layout({ current, onNavigate, onLogout, pageTitle, pageSubtitle, actions, children, onSelectFirm, onSelectCase, onOperationAction }: Props) {
   const store = useStore();
   const { customers, service } = store;
-  const { hasRole, user } = useAuth();
+  const { hasRole, hasPermission, user, activeDivision, setActiveDivision } = useAuth();
+  const canApprove = hasPermission("companies.update") || hasRole("super_admin");
+  const divisions = user?.divisions ?? [];
+  const canViewAllDivisions = user?.canViewAllDivisions ?? false;
+  const activeDivisionLabel =
+    activeDivision === "all" ? "Tümü" : divisions.find((d) => d.id === activeDivision)?.name ?? "Bölüm";
   const roleLabel = user?.roles?.[0] ? user.roles[0].replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()) : "Kullanıcı";
   const userInitials = (user?.fullName ?? "?").split(" ").slice(0, 2).map((p) => p[0]).join("").toUpperCase();
   // Departman bazlı menü görünürlüğü:
@@ -121,6 +134,55 @@ export function Layout({ current, onNavigate, onLogout, pageTitle, pageSubtitle,
   const canSeeReports = hasRole("admin") || hasRole("super_admin") || hasRole("readonly") || hasRole("sales") || hasRole("finance");
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [commandOpen, setCommandOpen] = useState(false);
+  // Sohbet okunmamış rozeti — konuşmaları 15 sn'de bir özetleyip toplam okunmamışı gösterir.
+  const [chatUnread, setChatUnread] = useState(0);
+  const [callSuggestions, setCallSuggestions] = useState<CallSuggestionDTO[]>([]);
+  const [dbNotifications, setDbNotifications] = useState<NotificationDTO[]>([]);
+  useEffect(() => {
+    const tick = () => {
+      if (document.hidden) return;
+      chatService
+        .conversations()
+        .then((rows) => setChatUnread(rows.reduce((sum, c) => sum + (c.unreadCount ?? 0), 0)))
+        .catch(() => {});
+    };
+    tick();
+    const h = setInterval(tick, 15000);
+    return () => clearInterval(h);
+  }, []);
+
+  const refreshCallSuggestions = () => {
+    if (!hasPermission("companies.read")) return;
+    callAssistantService
+      .suggestions({ status: "pending" })
+      .then((res) => setCallSuggestions(res.data ?? []))
+      .catch(() => {});
+  };
+  useEffect(() => {
+    const tick = () => {
+      if (document.hidden) return;
+      refreshCallSuggestions();
+    };
+    tick();
+    const h = setInterval(tick, 15000);
+    return () => clearInterval(h);
+  }, [user?.id, activeDivision, hasPermission]);
+
+  const refreshNotifications = () => {
+    notificationService
+      .list({ unread: true, pageSize: 20 })
+      .then((res) => setDbNotifications(res.data ?? []))
+      .catch(() => {});
+  };
+  useEffect(() => {
+    const tick = () => {
+      if (document.hidden) return;
+      refreshNotifications();
+    };
+    tick();
+    const h = setInterval(tick, 15000);
+    return () => clearInterval(h);
+  }, [user?.id, activeDivision]);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -167,6 +229,44 @@ export function Layout({ current, onNavigate, onLogout, pageTitle, pageSubtitle,
     () => buildAlerts(store).filter((alert) => canUseAction(alert.action)),
     [store, user?.roles?.join("|")]
   );
+  const notificationCount = alerts.length + callSuggestions.length + dbNotifications.length;
+  const openDbNotification = async (notification: NotificationDTO) => {
+    try {
+      await notificationService.markRead(notification.id);
+      setDbNotifications((rows) => rows.filter((row) => row.id !== notification.id));
+    } catch {
+      // Bildirim okunma kaydı başarısız olsa da yönlendirme çalışsın.
+    }
+    if (notification.entityType === "service_complaint_intake" && notification.entityId) {
+      const action: OperationAction = { kind: "navigate", nav: "service-requests", query: `complaint:${notification.entityId}` };
+      if (onOperationAction) onOperationAction(action);
+      else onNavigate("service-requests");
+      return;
+    }
+  };
+  const runCallSuggestionAction = async (
+    suggestion: CallSuggestionDTO,
+    action: "create_quote" | "create_service_ticket" | "log_call" | "dismiss"
+  ) => {
+    try {
+      await callAssistantService.action(suggestion.id, action);
+      setCallSuggestions((rows) => rows.filter((row) => row.id !== suggestion.id));
+      if (action === "create_quote") {
+        toast.success("Teklif taslağı oluşturuldu", { description: suggestion.company.shortName || suggestion.company.legalTitle });
+        onNavigate("offers");
+      } else if (action === "create_service_ticket") {
+        toast.success("Şikayet Kutusu'na aktarıldı", { description: suggestion.company.shortName || suggestion.company.legalTitle });
+        if (onOperationAction) onOperationAction({ kind: "navigate", nav: "service-requests", query: "complaints" });
+        else onNavigate("service-requests");
+      } else if (action === "log_call") {
+        toast.success("Arama kaydı oluşturuldu", { description: suggestion.company.shortName || suggestion.company.legalTitle });
+      } else {
+        toast.message("Arama önerisi kapatıldı");
+      }
+    } catch (err: any) {
+      toast.error("Arama önerisi işlenemedi", { description: err?.message ?? "API isteği başarısız oldu." });
+    }
+  };
 
   const renderSidebarContent = (onItemClick?: () => void, menuSide: "right" | "top" = "right") => (
     <div className="flex h-full min-h-0 flex-col overflow-hidden">
@@ -214,7 +314,11 @@ export function Layout({ current, onNavigate, onLogout, pageTitle, pageSubtitle,
                       )}
                       <Icon className={`size-[17px] shrink-0 ${active ? "text-primary" : "text-muted-foreground group-hover:text-foreground"}`} strokeWidth={1.8} />
                       <span className="truncate flex-1 text-left">{item.label}</span>
-                      {(item.key === "service-requests" && service.length > 0) ? (
+                      {(item.key === "chat" && chatUnread > 0) ? (
+                        <Badge variant="secondary" className={`h-5 px-1.5 text-[10px] ${active ? "bg-primary text-primary-foreground" : "bg-primary/10 text-primary"}`}>
+                          {chatUnread}
+                        </Badge>
+                      ) : (item.key === "service-requests" && service.length > 0) ? (
                         <Badge variant="secondary" className={`h-5 px-1.5 text-[10px] ${active ? "bg-primary text-primary-foreground" : "bg-primary/10 text-primary"}`}>
                           {service.length}
                         </Badge>
@@ -232,44 +336,6 @@ export function Layout({ current, onNavigate, onLogout, pageTitle, pageSubtitle,
           })}
         </nav>
       </ScrollArea>
-
-      {/* User strip */}
-      <div className="shrink-0 p-3 border-t border-border/60">
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <button className="w-full flex items-center gap-2.5 px-2 py-2 rounded-md hover:bg-muted/50 transition-colors text-left outline-none">
-              <Avatar className="size-8">
-                <AvatarFallback className="bg-primary text-primary-foreground text-xs">
-                  {userInitials || "U"}
-                </AvatarFallback>
-              </Avatar>
-              <div className="min-w-0 flex-1">
-                <div className="text-sm leading-tight truncate">{user?.fullName || "Kullanıcı"}</div>
-                <div className="text-[11px] text-muted-foreground leading-tight truncate">Hesabım & Yönetim</div>
-              </div>
-              <ChevronDown className="size-4 text-muted-foreground" />
-            </button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent className="w-[236px]" align="end" side={menuSide} sideOffset={12}>
-            <DropdownMenuLabel>Hesabım & Analiz</DropdownMenuLabel>
-            <DropdownMenuItem onClick={() => onNavigate("settings")}><ContactIcon className="size-4 mr-2 text-muted-foreground" /> Profil & Ayarlar</DropdownMenuItem>
-            <DropdownMenuItem onClick={() => toast.message("Klavye Kısayolları", { description: "⌘K komut paleti · / arama" })}><HelpCircle className="size-4 mr-2 text-muted-foreground" /> Klavye Kısayolları</DropdownMenuItem>
-            {canSeeReports && (
-              <DropdownMenuItem onClick={() => { onNavigate("reports"); onItemClick?.(); }}><BarChart3 className="size-4 mr-2 text-muted-foreground" /> Raporlar</DropdownMenuItem>
-            )}
-            <DropdownMenuSeparator />
-            <DropdownMenuLabel>Yönetim</DropdownMenuLabel>
-            <DropdownMenuItem onClick={() => { onNavigate("users"); onItemClick?.(); }}><Users className="size-4 mr-2 text-muted-foreground" /> Kullanıcılar</DropdownMenuItem>
-            <DropdownMenuItem onClick={() => { onNavigate("roles"); onItemClick?.(); }}><ShieldCheck className="size-4 mr-2 text-muted-foreground" /> Roller & Yetkiler</DropdownMenuItem>
-            <DropdownMenuItem onClick={() => { onNavigate("departments"); onItemClick?.(); }}><Building2 className="size-4 mr-2 text-muted-foreground" /> Departmanlar</DropdownMenuItem>
-            <DropdownMenuItem onClick={() => { onNavigate("settings"); onItemClick?.(); }}><SettingsIcon className="size-4 mr-2 text-muted-foreground" /> Ayarlar</DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={() => { onItemClick?.(); onLogout(); }} className="text-destructive focus:text-destructive focus:bg-destructive/10">
-              <LogOut className="size-4 mr-2" /> Çıkış Yap
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </div>
     </div>
   );
 
@@ -326,6 +392,46 @@ export function Layout({ current, onNavigate, onLogout, pageTitle, pageSubtitle,
 
             <div className="flex-1" />
 
+            {/* Bölüm seçici (CNC/Üniversal/Sac/Tümü) — yalnızca 'tümünü gör'
+                yetkisi olan kullanıcılarda (süper admin / admin) görünür. Diğer
+                kullanıcılar zaten yalnızca kendi bölümlerini görür; başlık backend
+                tarafından yok sayıldığı için seçici de gösterilmez. */}
+            {canViewAllDivisions && divisions.length > 0 && (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" size="sm" className="gap-1.5 h-9 px-2 sm:px-3" aria-label="Bölüm seç">
+                    <Building2 className="size-4 text-muted-foreground" />
+                    <span className="hidden sm:inline max-w-[110px] truncate">{activeDivisionLabel}</span>
+                    <ChevronDown className="size-3.5 text-muted-foreground" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-48">
+                  <DropdownMenuLabel>Bölüm</DropdownMenuLabel>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem className="justify-between" onClick={() => setActiveDivision("all")}>
+                    Tümü
+                    {activeDivision === "all" && <CheckCircle2 className="size-4 text-primary" />}
+                  </DropdownMenuItem>
+                  {divisions.map((d) => (
+                    <DropdownMenuItem key={d.id} className="justify-between" onClick={() => setActiveDivision(d.id)}>
+                      {d.name}
+                      {activeDivision === d.id && <CheckCircle2 className="size-4 text-primary" />}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
+
+            {canApprove && (
+              <ApprovalsDialog
+                trigger={
+                  <Button variant="ghost" size="icon" className="relative size-9" aria-label="Onay bekleyen firma talepleri">
+                    <ShieldCheck className="size-[18px] text-muted-foreground" />
+                  </Button>
+                }
+              />
+            )}
+
             <QuickCreateDialog
               trigger={
                 <Button variant="outline" size="sm" className="gap-1.5 h-9 px-2 sm:px-3">
@@ -334,6 +440,10 @@ export function Layout({ current, onNavigate, onLogout, pageTitle, pageSubtitle,
                 </Button>
               }
             />
+
+            {hasPermission("companies.read") && (
+              <ManualSantralDialog onCreated={refreshCallSuggestions} />
+            )}
 
             <Tooltip>
               <TooltipTrigger asChild>
@@ -352,7 +462,7 @@ export function Layout({ current, onNavigate, onLogout, pageTitle, pageSubtitle,
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" size="icon" className="relative size-9" aria-label="Bildirimler">
                   <Bell className="size-[18px] text-muted-foreground" />
-                  {alerts.length > 0 && (
+                  {notificationCount > 0 && (
                     <span className="absolute top-1.5 right-1.5 size-2 rounded-full bg-red-500 ring-2 ring-white" aria-hidden />
                   )}
                 </Button>
@@ -360,21 +470,43 @@ export function Layout({ current, onNavigate, onLogout, pageTitle, pageSubtitle,
               <DropdownMenuContent align="end" className="w-80">
                 <DropdownMenuLabel className="flex items-center justify-between">
                   <span>Bildirimler</span>
-                  <Badge variant="secondary" className="text-[10px]">{alerts.length} yeni</Badge>
+                  <Badge variant="secondary" className="text-[10px]">{notificationCount} yeni</Badge>
                 </DropdownMenuLabel>
                 <DropdownMenuSeparator />
-                {alerts.length === 0 ? (
+                {notificationCount === 0 ? (
                   <div className="px-3 py-8 text-center text-sm text-muted-foreground">Aktif uyarı yok.</div>
-                ) : alerts.map((alert) => (
-                  <NotifItem
-                    key={alert.id}
-                    icon={alert.severity === "critical" ? <AlertTriangle className="size-4 text-red-600" /> : alert.severity === "warning" ? <Clock className="size-4 text-amber-600" /> : <CheckCircle2 className="size-4 text-blue-600" />}
-                    title={alert.title}
-                    desc={alert.description}
-                    time={alert.severity === "critical" ? "kritik" : "takip"}
-                    onClick={() => executeOperationAction(alert.action)}
-                  />
-                ))}
+                ) : (
+                  <>
+                    {callSuggestions.map((suggestion) => (
+                      <CallSuggestionItem
+                        key={suggestion.id}
+                        suggestion={suggestion}
+                        onAction={(action) => runCallSuggestionAction(suggestion, action)}
+                      />
+                    ))}
+                    {dbNotifications.map((notification) => (
+                      <NotifItem
+                        key={notification.id}
+                        icon={<MessageSquare className="size-4 text-emerald-600" />}
+                        title={notification.title}
+                        desc={notification.body ?? ""}
+                        time="yeni"
+                        onClick={() => openDbNotification(notification)}
+                      />
+                    ))}
+                    {(callSuggestions.length > 0 || dbNotifications.length > 0) && alerts.length > 0 && <DropdownMenuSeparator />}
+                    {alerts.map((alert) => (
+                      <NotifItem
+                        key={alert.id}
+                        icon={alert.severity === "critical" ? <AlertTriangle className="size-4 text-red-600" /> : alert.severity === "warning" ? <Clock className="size-4 text-amber-600" /> : <CheckCircle2 className="size-4 text-blue-600" />}
+                        title={alert.title}
+                        desc={alert.description}
+                        time={alert.severity === "critical" ? "kritik" : "takip"}
+                        onClick={() => executeOperationAction(alert.action)}
+                      />
+                    ))}
+                  </>
+                )}
               </DropdownMenuContent>
             </DropdownMenu>
 
@@ -445,6 +577,137 @@ export function Layout({ current, onNavigate, onLogout, pageTitle, pageSubtitle,
   );
 }
 
+function ManualSantralDialog({ onCreated }: { onCreated: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [phoneNumber, setPhoneNumber] = useState("");
+  const [eventType, setEventType] = useState<"completed" | "missed">("completed");
+  const [submitting, setSubmitting] = useState(false);
+
+  const submit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const phone = phoneNumber.trim();
+    if (!phone) {
+      toast.error("Telefon numarası gerekli.");
+      return;
+    }
+    setSubmitting(true);
+    try {
+      const res = await callAssistantService.manualEvent({
+        phoneNumber: phone,
+        direction: "inbound",
+        eventType,
+      });
+      if (res.suggestions.length > 0) {
+        toast.success("Arama önerisi oluşturuldu");
+        setPhoneNumber("");
+        setOpen(false);
+        onCreated();
+      } else if (res.event.matchStatus === "ambiguous") {
+        toast.warning("Numara birden fazla firmayla eşleşti.");
+      } else {
+        toast.warning("Numara kayıtlı firmayla eşleşmedi.");
+      }
+    } catch (err: any) {
+      toast.error("Manuel arama kaydedilemedi", { description: err?.message ?? "API isteği başarısız oldu." });
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button variant="outline" size="sm" className="gap-1.5 h-9 px-2 sm:px-3">
+          <PhoneCall className="size-4" />
+          <span className="hidden sm:inline">Manuel santral</span>
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="w-[min(420px,calc(100vw-2rem))]">
+        <form onSubmit={submit} className="space-y-4">
+          <DialogHeader>
+            <DialogTitle>Manuel santral</DialogTitle>
+          </DialogHeader>
+          <Input
+            autoFocus
+            inputMode="tel"
+            value={phoneNumber}
+            onChange={(e) => setPhoneNumber(e.target.value)}
+            placeholder="0532 111 22 33"
+          />
+          <div className="grid grid-cols-2 gap-2">
+            <Button
+              type="button"
+              variant={eventType === "completed" ? "default" : "outline"}
+              onClick={() => setEventType("completed")}
+            >
+              Arama bitti
+            </Button>
+            <Button
+              type="button"
+              variant={eventType === "missed" ? "default" : "outline"}
+              onClick={() => setEventType("missed")}
+            >
+              Kaçan arama
+            </Button>
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="ghost" onClick={() => setOpen(false)} disabled={submitting}>
+              Vazgeç
+            </Button>
+            <Button type="submit" disabled={submitting}>
+              Kaydet
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function CallSuggestionItem({
+  suggestion,
+  onAction,
+}: {
+  suggestion: CallSuggestionDTO;
+  onAction: (action: "create_quote" | "create_service_ticket" | "log_call" | "dismiss") => void;
+}) {
+  const name = suggestion.company.shortName || suggestion.company.legalTitle;
+  const eventLabel = suggestion.event.eventType === "missed" ? "Kaçan arama" : "Arama bitti";
+  return (
+    <div className="px-3 py-2.5 border-b last:border-b-0">
+      <div className="flex items-start gap-2.5">
+        <PhoneCall className="mt-0.5 size-4 shrink-0 text-primary" />
+        <div className="min-w-0 flex-1">
+          <div className="text-sm leading-snug truncate">{name}</div>
+          <div className="mt-0.5 text-xs text-muted-foreground">
+            {[eventLabel, suggestion.contact?.fullName, suggestion.event.normalizedPhone].filter(Boolean).join(" · ")}
+          </div>
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {suggestion.availableActions.createQuote && (
+              <Button size="sm" variant="secondary" className="h-7 px-2 text-xs" onClick={() => onAction("create_quote")}>
+                Teklif
+              </Button>
+            )}
+            {suggestion.availableActions.createServiceTicket && (
+              <Button size="sm" variant="secondary" className="h-7 px-2 text-xs" onClick={() => onAction("create_service_ticket")}>
+                Şikayet
+              </Button>
+            )}
+            {suggestion.availableActions.logCall && (
+              <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={() => onAction("log_call")}>
+                Arama kaydı
+              </Button>
+            )}
+            <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={() => onAction("dismiss")}>
+              Yoksay
+            </Button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function NotifItem({ icon, title, desc, time, onClick }: { icon: ReactNode; title: string; desc: string; time: string; onClick?: () => void }) {
   return (
     <button type="button" onClick={onClick} className="flex w-full gap-3 px-3 py-2.5 text-left hover:bg-muted/60">
@@ -467,6 +730,7 @@ const STATUS_META: Record<string, { cls: string; icon?: ReactNode }> = {
   quote: { cls: "bg-indigo-50 text-indigo-700 border-indigo-200" },
   proforma: { cls: "bg-emerald-50 text-emerald-700 border-emerald-200" },
   contract: { cls: "bg-emerald-50 text-emerald-700 border-emerald-200", icon: <CheckCircle2 className="size-3" /> },
+  payment_plan: { cls: "bg-emerald-50 text-emerald-700 border-emerald-200", icon: <CheckCircle2 className="size-3" /> },
   commercial_invoice: { cls: "bg-amber-50 text-amber-700 border-amber-200" },
   customs_approved: { cls: "bg-amber-50 text-amber-700 border-amber-200", icon: <CheckCircle2 className="size-3" /> },
   stock_picking: { cls: "bg-sky-50 text-sky-700 border-sky-200" },

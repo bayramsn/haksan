@@ -54,10 +54,39 @@ export function resolveMediaUrl(ref?: string | null): string {
 }
 
 const ACCESS_TOKEN_STORAGE_KEY = 'haksan_access_token';
+const ACTIVE_DIVISION_STORAGE_KEY = 'haksan_active_division';
 
 let accessToken: string | null = readStoredAccessToken();
+let activeDivision: string | null = readStoredActiveDivision();
 let refreshing: Promise<string | null> | null = null;
 let onSessionExpired: (() => void) | null = null;
+
+function readStoredActiveDivision(): string | null {
+  try {
+    return localStorage.getItem(ACTIVE_DIVISION_STORAGE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Aktif bölüm (CNC/Üniversal/Sac veya 'all'). Her istekte backend'in yeni
+ * ve plan dokümanındaki eski adlarını anlayabilmesi için iki başlıkla gönderilir.
+ * view_all kullanıcılar bu başlıkla tek bölüme daralır; localStorage'da kalıcıdır.
+ */
+export function setActiveDivision(value: string | null): void {
+  activeDivision = value;
+  try {
+    if (value) localStorage.setItem(ACTIVE_DIVISION_STORAGE_KEY, value);
+    else localStorage.removeItem(ACTIVE_DIVISION_STORAGE_KEY);
+  } catch {
+    // storage unavailable — in-memory value still applies for this tab
+  }
+}
+
+export function getActiveDivision(): string | null {
+  return activeDivision;
+}
 
 function readStoredAccessToken(): string | null {
   try {
@@ -120,6 +149,10 @@ async function request<T>(method: string, path: string, body?: unknown, opts: Re
   const headers: Record<string, string> = { Accept: 'application/json', ...(init.headers as Record<string, string>) };
   if (body !== undefined && !(body instanceof FormData)) headers['Content-Type'] = 'application/json';
   if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
+  if (activeDivision) {
+    headers['X-Active-Division'] = activeDivision;
+    headers['X-Active-Department'] = activeDivision;
+  }
 
   let res = await fetch(url, {
     ...init,

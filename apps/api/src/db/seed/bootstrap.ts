@@ -94,7 +94,7 @@ async function main(): Promise<void> {
   );
   console.log(`[bootstrap] ${rolesByCode.size} rol + izinleri hazır`);
 
-  // 3) Departmanlar
+  // 3) Departmanlar (işlevsel birimler)
   const deptDefs = [
     { code: 'sales', name: 'Satış' },
     { code: 'service', name: 'Servis' },
@@ -106,6 +106,19 @@ async function main(): Promise<void> {
       where: and(eq(schema.departments.tenantId, tenant.id), eq(schema.departments.code, d.code)),
     });
     if (!existing) await db.insert(schema.departments).values({ tenantId: tenant.id, ...d });
+  }
+
+  // 3b) Bölümler (satış grupları: CNC / Üniversal / Sac İşleme) — izolasyon ekseni
+  const divisionDefs = [
+    { code: 'cnc', name: 'CNC', sortOrder: 1 },
+    { code: 'universal', name: 'Üniversal', sortOrder: 2 },
+    { code: 'sac_isleme', name: 'Sac İşleme', sortOrder: 3 },
+  ];
+  for (const d of divisionDefs) {
+    const existing = await db.query.divisions.findFirst({
+      where: and(eq(schema.divisions.tenantId, tenant.id), eq(schema.divisions.code, d.code)),
+    });
+    if (!existing) await db.insert(schema.divisions).values({ tenantId: tenant.id, ...d });
   }
 
   // 4) Tek admin kullanıcı (super_admin)

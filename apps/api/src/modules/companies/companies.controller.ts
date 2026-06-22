@@ -1,9 +1,15 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import {
+  accessRequestListQuerySchema,
+  companyAccessRequestDecisionSchema,
+  companyAccessRequestSchema,
   companyCreateSchema,
   companyUpdateSchema,
   companyListQuerySchema,
   paginationSchema,
+  type AccessRequestListQuery,
+  type CompanyAccessRequestDecisionInput,
+  type CompanyAccessRequestInput,
   type CompanyCreateInput,
   type CompanyUpdateInput,
   type CompanyListQuery,
@@ -38,6 +44,22 @@ export class CompaniesController {
     return this.svc.get(id, user);
   }
 
+  @RequirePermissions('companies.read')
+  @Get(':id/cross-department-debt')
+  crossDepartmentDebt(@Param('id') id: string, @CurrentUser() user: AuthContext) {
+    return this.svc.crossDivisionDebt(id, user);
+  }
+
+  @RequirePermissions('companies.create')
+  @Post(':id/access-requests')
+  createAccessRequest(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(companyAccessRequestSchema)) body: CompanyAccessRequestInput,
+    @CurrentUser() user: AuthContext
+  ) {
+    return this.svc.createAccessRequest(id, body, user);
+  }
+
   @RequirePermissions('companies.create')
   @Post()
   create(
@@ -61,5 +83,42 @@ export class CompaniesController {
   @Delete(':id')
   remove(@Param('id') id: string, @CurrentUser() user: AuthContext) {
     return this.svc.delete(id, user);
+  }
+}
+
+@UseGuards(AuthGuard, PermissionsGuard)
+@Controller('access-requests')
+export class AccessRequestsController {
+  constructor(private readonly svc: CompaniesService) {}
+
+  @RequirePermissions('companies.read')
+  @Get()
+  list(
+    @Query(new ZodValidationPipe(accessRequestListQuerySchema.merge(paginationSchema)))
+    qp: AccessRequestListQuery & Pagination,
+    @CurrentUser() user: AuthContext
+  ) {
+    const { page, pageSize, sortBy, sortDir, ...query } = qp;
+    return this.svc.listAccessRequests(user, query, { page, pageSize, sortBy, sortDir });
+  }
+
+  @RequirePermissions('companies.update')
+  @Post(':id/approve')
+  approve(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(companyAccessRequestDecisionSchema)) body: CompanyAccessRequestDecisionInput,
+    @CurrentUser() user: AuthContext
+  ) {
+    return this.svc.decideAccessRequest(id, 'approved', body, user);
+  }
+
+  @RequirePermissions('companies.update')
+  @Post(':id/reject')
+  reject(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(companyAccessRequestDecisionSchema)) body: CompanyAccessRequestDecisionInput,
+    @CurrentUser() user: AuthContext
+  ) {
+    return this.svc.decideAccessRequest(id, 'rejected', body, user);
   }
 }

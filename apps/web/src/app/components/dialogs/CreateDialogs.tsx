@@ -12,13 +12,21 @@ import {
 } from "../ui/select";
 import { useStore } from "../../lib/store";
 import { usePersistentState } from "../../lib/persist";
-import { SALES_STAGES, salesStageLabel, SHIPMENT_STATUSES, DELIVERY_STATUSES, type ShipmentStatus, type DeliveryStatus, type Customer, type Contact, type Product, type ProductSpec } from "../../lib/mock";
+import { SALES_STAGES, salesStageLabel, SHIPMENT_STATUSES, DELIVERY_STATUSES, type ShipmentStatus, type DeliveryStatus, type Customer, type Contact, type Product, type ProductSpec, type ServiceTicketType } from "../../lib/mock";
+
+const SERVICE_TICKET_TYPE_OPTIONS: { value: ServiceTicketType; label: string }[] = [
+  { value: "complaint", label: "Şikayet" },
+  { value: "request", label: "Talep" },
+  { value: "warranty_claim", label: "Garanti" },
+  { value: "question", label: "Soru / Bilgi" },
+];
 import { toast } from "sonner";
 import {
   Building2, User as UserIcon, Wallet, Truck, ClipboardCheck, ChevronDown, Receipt, Upload,
   ClipboardList, Plus, Trash2, X, Loader2, Package, UserRound, Wrench,
 } from "lucide-react";
-import { serviceService, fileService, financeService, activityService, inventoryService } from "../../../lib/services";
+import { serviceService, fileService, financeService, activityService, inventoryService, contactService } from "../../../lib/services";
+import { Badge } from "../ui/badge";
 import { useAuth } from "../../../lib/auth";
 import {
   computeInstallationFee,
@@ -334,6 +342,8 @@ const emptyContactForm = (defaultCustomerId?: string) => ({
   politicalView: "",
   isPrimary: false,
   note: "",
+  isBlacklisted: false,
+  blacklistReason: "",
 });
 
 export function CreateContactDialog({
@@ -381,6 +391,8 @@ export function CreateContactDialog({
         politicalView: form.politicalView.trim(),
         isPrimary: form.isPrimary,
         note: form.note.trim(),
+        isBlacklisted: form.isBlacklisted,
+        blacklistReason: form.isBlacklisted ? form.blacklistReason.trim() : "",
       });
       toast.success("Kontak oluşturuldu", { description: contact.name });
       reset();
@@ -479,6 +491,26 @@ export function CreateContactDialog({
               />
               Birincil kontak
             </label>
+            <label className="col-span-2 flex items-center gap-2 text-sm text-red-700">
+              <input
+                type="checkbox"
+                checked={form.isBlacklisted}
+                onChange={(e) => setForm({ ...form, isBlacklisted: e.target.checked })}
+              />
+              Kara listeye al
+            </label>
+            {form.isBlacklisted && (
+              <div className="col-span-2">
+                <Label className="text-xs">Kara Liste Sebebi</Label>
+                <Textarea
+                  className="mt-1.5"
+                  rows={2}
+                  value={form.blacklistReason}
+                  onChange={(e) => setForm({ ...form, blacklistReason: e.target.value })}
+                  placeholder="Neden kara listeye alındığını yazın"
+                />
+              </div>
+            )}
           </div>
 
           <DialogFooter>
@@ -598,7 +630,23 @@ export function EditCustomerDialog({ customer, onClose }: { customer: Customer |
 export function EditContactDialog({ contact, onClose }: { contact: Contact | null; onClose: () => void }) {
   const { updateContact } = useStore();
   const [saving, setSaving] = useState(false);
-  const [form, setForm] = useState({ name: "", title: "", department: "", phone: "", mobilePhone: "", email: "" });
+  const [form, setForm] = useState({ name: "", title: "", department: "", phone: "", mobilePhone: "", email: "", isBlacklisted: false, blacklistReason: "" });
+  const [linkedCompanies, setLinkedCompanies] = useState<{ id: string; legalTitle: string; shortName: string | null; isPrimary: boolean }[]>([]);
+
+  useEffect(() => {
+    if (!contact) {
+      setLinkedCompanies([]);
+      return;
+    }
+    let alive = true;
+    contactService
+      .companies(contact.id)
+      .then((rows) => alive && setLinkedCompanies(rows))
+      .catch(() => alive && setLinkedCompanies([]));
+    return () => {
+      alive = false;
+    };
+  }, [contact]);
 
   useEffect(() => {
     if (contact)
@@ -609,6 +657,8 @@ export function EditContactDialog({ contact, onClose }: { contact: Contact | nul
         phone: contact.phone ?? "",
         mobilePhone: contact.mobilePhone ?? "",
         email: contact.email ?? "",
+        isBlacklisted: contact.isBlacklisted ?? false,
+        blacklistReason: contact.blacklistReason ?? "",
       });
   }, [contact]);
 
@@ -625,6 +675,8 @@ export function EditContactDialog({ contact, onClose }: { contact: Contact | nul
         phone: form.phone.trim(),
         mobilePhone: form.mobilePhone.trim(),
         email: form.email.trim(),
+        isBlacklisted: form.isBlacklisted,
+        blacklistReason: form.isBlacklisted ? form.blacklistReason.trim() : "",
       });
       toast.success("Kontak güncellendi", { description: form.name });
       onClose();
@@ -651,6 +703,41 @@ export function EditContactDialog({ contact, onClose }: { contact: Contact | nul
             <Field label="Cep Telefonu" value={form.mobilePhone} onChange={(v) => setForm({ ...form, mobilePhone: v })} />
           </div>
           <Field label="E-posta" value={form.email} onChange={(v) => setForm({ ...form, email: v })} />
+          {linkedCompanies.length > 0 && (
+            <div>
+              <Label className="text-xs">Bağlı Firmalar {linkedCompanies.length > 1 && `(${linkedCompanies.length})`}</Label>
+              <div className="mt-1.5 flex flex-wrap gap-1.5">
+                {linkedCompanies.map((c) => (
+                  <Badge key={c.id} variant={c.isPrimary ? "default" : "outline"} className="gap-1 font-normal">
+                    <Building2 className="size-3" />
+                    {c.shortName || c.legalTitle}
+                    {c.isPrimary && <span className="text-[9px] opacity-80">(birincil)</span>}
+                  </Badge>
+                ))}
+              </div>
+              <p className="mt-1 text-[11px] text-muted-foreground">Aynı kişi birden çok firmada yetkili olabilir.</p>
+            </div>
+          )}
+          <label className="flex items-center gap-2 text-sm text-red-700">
+            <input
+              type="checkbox"
+              checked={form.isBlacklisted}
+              onChange={(e) => setForm({ ...form, isBlacklisted: e.target.checked })}
+            />
+            Kara listeye al
+          </label>
+          {form.isBlacklisted && (
+            <div>
+              <Label className="text-xs">Kara Liste Sebebi</Label>
+              <Textarea
+                className="mt-1.5"
+                rows={2}
+                value={form.blacklistReason}
+                onChange={(e) => setForm({ ...form, blacklistReason: e.target.value })}
+                placeholder="Neden kara listeye alındığını yazın"
+              />
+            </div>
+          )}
           <DialogFooter>
             <Button type="button" variant="outline" onClick={onClose}>Vazgeç</Button>
             <Button type="submit" disabled={saving}>{saving ? "Kaydediliyor..." : "Kaydet"}</Button>
@@ -663,6 +750,10 @@ export function EditContactDialog({ contact, onClose }: { contact: Contact | nul
 
 export function CreateCaseDialog({ trigger, defaultCustomerId }: { trigger: React.ReactNode; defaultCustomerId?: string }) {
   const { customers, addCase, addCustomer, users, products } = useStore();
+  const { user, activeDivision } = useAuth();
+  const canPickDivision = user?.canViewAllDivisions ?? false;
+  const divisions = user?.divisions ?? [];
+  const defaultDivisionId = activeDivision && activeDivision !== "all" ? activeDivision : divisions[0]?.id ?? "";
   const [open, setOpen] = useState(false);
   const [selectedProductId, setSelectedProductId] = useState("");
   const makeEmptyCase = () => ({
@@ -675,6 +766,7 @@ export function CreateCaseDialog({ trigger, defaultCustomerId }: { trigger: Reac
     currency: "USD" as "USD" | "EUR" | "TRY",
     stage: "lead" as (typeof SALES_STAGES)[number],
     department: "Satış",
+    divisionId: canPickDivision ? defaultDivisionId : "",
   });
   // Taslak yenilemede korunur; başarılı kayıtta temizlenir.
   const [form, setForm] = usePersistentState("draft.case.form", makeEmptyCase());
@@ -683,6 +775,7 @@ export function CreateCaseDialog({ trigger, defaultCustomerId }: { trigger: Reac
     e.preventDefault();
     if (!form.customerId) return toast.error("Müşteri seçiniz");
     if (!form.requestedProduct) return toast.error("Ürün giriniz");
+    if (canPickDivision && !form.divisionId) return toast.error("Bölüm seçiniz", { description: "Satış kartını CNC / Üniversal / Sac bölümlerinden birine atayın." });
     try {
       const sc = await addCase(form as any);
       toast.success("Satış kartı oluşturuldu", { description: `#${sc.id.toUpperCase()}` });
@@ -781,6 +874,19 @@ export function CreateCaseDialog({ trigger, defaultCustomerId }: { trigger: Reac
                 </SelectContent>
               </Select>
             </div>
+            {canPickDivision && (
+              <div className="col-span-2">
+                <Label className="text-xs">Bölüm *</Label>
+                <Select value={form.divisionId} onValueChange={(v) => setForm({ ...form, divisionId: v })}>
+                  <SelectTrigger className="mt-1.5"><SelectValue placeholder="Bölüm seçin (CNC / Üniversal / Sac)..." /></SelectTrigger>
+                  <SelectContent>
+                    {divisions.map((d) => (
+                      <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
             <div className="col-span-2">
               <Label className="text-xs">Başlangıç Aşaması</Label>
               <Select value={form.stage} onValueChange={(v: any) => setForm({ ...form, stage: v })}>
@@ -2921,49 +3027,96 @@ export function CreateReceivableDialog({
 }
 
 export function CreateServiceRequestDialog({ trigger, defaultMachineId }: { trigger: React.ReactNode; defaultMachineId?: string }) {
-  const { customers, addService, machines: machinesAll, users } = useStore();
+  const { customers, contacts, addService, machines: machinesAll, users } = useStore();
   const [open, setOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
   const serviceUsers = users.filter((u) => u.role === "Service" || u.department === "Servis");
-  const firstMachine = machinesAll[0];
-  const [form, setForm] = useState({
-    machineId: defaultMachineId ?? firstMachine?.id ?? "",
+  const [form, setForm] = useState<{
+    customerId: string;
+    contactId: string;
+    machineId: string;
+    assignedUserId: string;
+    ticketType: ServiceTicketType;
+    diagnosisNote: string;
+    quoteRequired: boolean;
+    serviceNote: string;
+  }>({
+    customerId: "",
+    contactId: "",
+    machineId: defaultMachineId ?? "",
     assignedUserId: (serviceUsers[0] ?? users[0])?.id ?? "",
+    ticketType: "complaint",
     diagnosisNote: "",
     quoteRequired: false,
     serviceNote: "",
   });
 
+  useEffect(() => {
+    if (!open) return;
+    const defaultMachine = machinesAll.find((machine) => machine.id === defaultMachineId);
+    const customerId = defaultMachine?.customerId ?? customers[0]?.id ?? "";
+    const companyContacts = contacts.filter((contact) => contact.customerId === customerId);
+    const preferredContact = companyContacts.find((contact) => contact.isPrimary) ?? companyContacts[0];
+    setForm({
+      customerId,
+      contactId: preferredContact?.id ?? "",
+      machineId: defaultMachine?.id ?? "",
+      assignedUserId: (serviceUsers[0] ?? users[0])?.id ?? "",
+      ticketType: "complaint",
+      diagnosisNote: "",
+      quoteRequired: false,
+      serviceNote: "",
+    });
+  }, [open, defaultMachineId, customers, contacts, machinesAll, users]);
+
+  const selectedCustomer = customers.find((customer) => customer.id === form.customerId);
+  const companyMachines = machinesAll.filter((machine) => machine.customerId === form.customerId);
+  const companyContacts = contacts.filter((contact) => contact.customerId === form.customerId);
   const selectedMachine = machinesAll.find((m) => m.id === form.machineId);
-  const customerForMachine = selectedMachine ? customers.find((c) => c.id === selectedMachine.customerId) : undefined;
+  const selectedContact = contacts.find((contact) => contact.id === form.contactId);
+  const contactPhone = selectedContact?.mobilePhone || selectedContact?.phone || selectedContact?.otherPhone || selectedCustomer?.phone || selectedCustomer?.phone2 || "";
+  const contactEmail = selectedContact?.email || selectedContact?.personalEmail || selectedContact?.otherEmail || selectedCustomer?.email || selectedCustomer?.email2 || "";
   const assignedUser = (serviceUsers.length > 0 ? serviceUsers : users).find((u) => u.id === form.assignedUserId);
+
+  const selectCustomer = (customerId: string) => {
+    const nextContacts = contacts.filter((contact) => contact.customerId === customerId);
+    const preferredContact = nextContacts.find((contact) => contact.isPrimary) ?? nextContacts[0];
+    setForm((current) => ({
+      ...current,
+      customerId,
+      contactId: preferredContact?.id ?? "",
+      machineId: "",
+    }));
+  };
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!form.machineId) {
-      toast.error("Makine seçimi zorunludur");
+    if (!form.customerId) {
+      toast.error("Firma seçimi zorunludur");
       return;
     }
-    if (!selectedMachine) return;
+    if (selectedMachine && selectedMachine.customerId !== form.customerId) {
+      toast.error("Seçilen makine firmaya ait değil");
+      return;
+    }
+    setSaving(true);
     try {
       const created = await addService({
         machineId: form.machineId,
-        customerId: selectedMachine.customerId,
+        customerId: form.customerId,
+        contactId: form.contactId || undefined,
         assignedUserId: form.assignedUserId,
+        ticketType: form.ticketType,
         diagnosisNote: form.diagnosisNote,
         quoteRequired: form.quoteRequired,
         serviceNote: form.serviceNote,
       });
       toast.success("Servis talebi oluşturuldu", { description: `#${created.id.toUpperCase()}` });
-      setForm({
-        machineId: firstMachine?.id ?? "",
-        assignedUserId: (serviceUsers[0] ?? users[0])?.id ?? "",
-        diagnosisNote: "",
-        quoteRequired: false,
-        serviceNote: "",
-      });
       setOpen(false);
     } catch (err: any) {
       toast.error("Servis talebi oluşturulamadı", { description: err?.message ?? "API isteği başarısız oldu." });
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -2979,7 +3132,7 @@ export function CreateServiceRequestDialog({ trigger, defaultMachineId }: { trig
             <div className="min-w-0">
               <DialogTitle>Yeni Servis Talebi</DialogTitle>
               <DialogDescription className="mt-1">
-                Kurulu makine, sorumlu servis personeli ve ilk talep notunu tek kayıtta oluşturun.
+                Firma ve ilgili kişiyi seçin; kurulu makine yoksa talebi makinesiz de açabilirsiniz.
               </DialogDescription>
             </div>
           </div>
@@ -2990,28 +3143,55 @@ export function CreateServiceRequestDialog({ trigger, defaultMachineId }: { trig
             <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_260px]">
               <div className="min-w-0 space-y-4">
                 <div className="min-w-0">
-                  <Label className="text-xs">Makine *</Label>
-                  <Select value={form.machineId} onValueChange={(v) => setForm({ ...form, machineId: v })}>
+                  <Label className="text-xs">Firma *</Label>
+                  <Select value={form.customerId} onValueChange={selectCustomer}>
                     <SelectTrigger className="mt-1.5 min-w-0 [&_[data-slot=select-value]]:min-w-0 [&_[data-slot=select-value]]:truncate">
-                      <SelectValue placeholder="Makine seçin" />
+                      <SelectValue placeholder="Firma seçin" />
                     </SelectTrigger>
                     <SelectContent className="max-w-[min(700px,calc(100vw-2rem))]">
-                      {machinesAll.map((m) => {
-                        const cust = customers.find((c) => c.id === m.customerId);
-                        const itemLabel = `${m.model} · ${m.serialNumber}${cust ? ` — ${cust.name}` : ""}`;
-                        return (
-                          <SelectItem key={m.id} value={m.id}>
-                            <span className="block max-w-[620px] truncate">{itemLabel}</span>
-                          </SelectItem>
-                        );
-                      })}
+                      {customers.map((customer) => (
+                        <SelectItem key={customer.id} value={customer.id}>{customer.name}</SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
-                  {customerForMachine && (
-                    <div className="mt-1.5 truncate text-[11px] text-muted-foreground">
-                      Müşteri: {customerForMachine.name} · {customerForMachine.city}
-                    </div>
-                  )}
+                </div>
+
+                <div className="min-w-0">
+                  <Label className="text-xs">Makine (opsiyonel)</Label>
+                  <Select value={form.machineId || "none"} onValueChange={(v) => setForm({ ...form, machineId: v === "none" ? "" : v })}>
+                    <SelectTrigger className="mt-1.5 min-w-0 [&_[data-slot=select-value]]:min-w-0 [&_[data-slot=select-value]]:truncate">
+                      <SelectValue placeholder="Makine seçin (opsiyonel)" />
+                    </SelectTrigger>
+                    <SelectContent className="max-w-[min(700px,calc(100vw-2rem))]">
+                      <SelectItem value="none">Makine bağlama</SelectItem>
+                      {companyMachines.map((machine) => (
+                        <SelectItem key={machine.id} value={machine.id}>
+                          <span className="block max-w-[620px] truncate">{machine.model} · {machine.serialNumber}</span>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="min-w-0">
+                  <Label className="text-xs">İlgili Kişi</Label>
+                  <Select value={form.contactId || "none"} onValueChange={(v) => setForm({ ...form, contactId: v === "none" ? "" : v })}>
+                    <SelectTrigger className="mt-1.5 min-w-0 [&_[data-slot=select-value]]:min-w-0 [&_[data-slot=select-value]]:truncate">
+                      <SelectValue placeholder="İlgili kişi seçin" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">Firma genel iletişimi</SelectItem>
+                      {companyContacts.map((contact) => (
+                        <SelectItem key={contact.id} value={contact.id}>
+                          {contact.name}{contact.title ? ` · ${contact.title}` : ""}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    <Input value={contactPhone} readOnly placeholder="Telefon bulunamadı" aria-label="İlgili kişi telefonu" />
+                    <Input value={contactEmail} readOnly placeholder="E-posta bulunamadı" aria-label="İlgili kişi e-postası" />
+                  </div>
                 </div>
 
                 <div className="min-w-0">
@@ -3023,6 +3203,20 @@ export function CreateServiceRequestDialog({ trigger, defaultMachineId }: { trig
                     <SelectContent>
                       {(serviceUsers.length > 0 ? serviceUsers : users).map((u) => (
                         <SelectItem key={u.id} value={u.id}>{u.name} · {u.department}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="min-w-0">
+                  <Label className="text-xs">Kayıt Tipi *</Label>
+                  <Select value={form.ticketType} onValueChange={(v) => setForm({ ...form, ticketType: v as ServiceTicketType })}>
+                    <SelectTrigger className="mt-1.5 min-w-0">
+                      <SelectValue placeholder="Kayıt tipi seçin" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {SERVICE_TICKET_TYPE_OPTIONS.map((opt) => (
+                        <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
@@ -3060,8 +3254,13 @@ export function CreateServiceRequestDialog({ trigger, defaultMachineId }: { trig
                   <div className="space-y-3 text-sm">
                     <div className="min-w-0">
                       <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Firma</div>
-                      <div className="mt-0.5 truncate font-medium">{customerForMachine?.name ?? "Makine seçin"}</div>
-                      <div className="truncate text-[11px] text-muted-foreground">{customerForMachine?.city ?? "—"}</div>
+                      <div className="mt-0.5 truncate font-medium">{selectedCustomer?.name ?? "Firma seçin"}</div>
+                      <div className="truncate text-[11px] text-muted-foreground">{selectedCustomer?.city ?? "—"}</div>
+                    </div>
+                    <div className="min-w-0">
+                      <div className="text-[10px] uppercase tracking-wide text-muted-foreground">İlgili Kişi</div>
+                      <div className="mt-0.5 truncate font-medium">{selectedContact?.name ?? selectedCustomer?.contactPerson ?? "Firma genel iletişimi"}</div>
+                      <div className="truncate text-[11px] text-muted-foreground">{contactPhone || contactEmail || "İletişim bilgisi yok"}</div>
                     </div>
                     <div className="min-w-0">
                       <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Makine</div>
@@ -3101,7 +3300,7 @@ export function CreateServiceRequestDialog({ trigger, defaultMachineId }: { trig
 
           <DialogFooter className="border-t border-border/60 bg-muted/20 px-6 py-4">
             <Button type="button" variant="outline" onClick={() => setOpen(false)}>Vazgeç</Button>
-            <Button type="submit">Talebi Oluştur</Button>
+            <Button type="submit" disabled={saving}>{saving ? "Oluşturuluyor..." : "Talebi Oluştur"}</Button>
           </DialogFooter>
         </form>
       </DialogContent>

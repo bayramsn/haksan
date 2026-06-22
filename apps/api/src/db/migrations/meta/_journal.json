@@ -190,6 +190,90 @@
       "when": 1782153600000,
       "tag": "0026_quote_revision",
       "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1782240000000,
+      "tag": "0027_chat_module",
+      "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1782326400000,
+      "tag": "0028_chat_v11",
+      "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1782412800000,
+      "tag": "0029_bright_mephistopheles",
+      "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1782499200000,
+      "tag": "0030_lyrical_hardball",
+      "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1782585600000,
+      "tag": "0031_service_source_type",
+      "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1782672000000,
+      "tag": "0032_service_warranty_rma",
+      "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1782758400000,
+      "tag": "0033_service_complaint_intake_remove_lifecycle",
+      "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1782844800000,
+      "tag": "0034_purchase_approval_fields",
+      "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1782931200000,
+      "tag": "0035_call_assistant",
+      "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1783017600000,
+      "tag": "0036_service_complaint_bindings",
+      "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1783104000000,
+      "tag": "0037_calendar_sync",
+      "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1783190400000,
+      "tag": "0038_calendar_import",
+      "breakpoints": true
     }
   ]
 }

@@ -7,6 +7,10 @@ import type {
   AccountingInvoiceCreateInput,
   BrandCreateInput,
   CallCreateInput,
+  ChatMemberRole,
+  CreateGroupInput,
+  SendMessageInput,
+  UpdateGroupInput,
   CommercialInvoiceCreateInput,
   CommercialInvoiceUpdateInput,
   CompanyCreateInput,
@@ -18,8 +22,6 @@ import type {
   ContactUpdateInput,
   ContractCreateInput,
   ContractUpdateInput,
-  CpqCreateQuoteInput,
-  CpqPreviewInput,
   CustomerDeviceCreateInput,
   DeliveryCreateInput,
   DeliveryUpdateInput,
@@ -35,7 +37,6 @@ import type {
   OpportunityStageChangeInput,
   OpportunityUpdateInput,
   OrderStatusUpdateInput,
-  PassportPublishInput,
   PaymentCreateInput,
   PriceListCreateInput,
   PriceListItemCreateInput,
@@ -48,7 +49,7 @@ import type {
   ProductUpdateInput,
   ProformaCreateInput,
   ProformaUpdateInput,
-  PublicTicketInput,
+  PublicServiceComplaintInput,
   PurchaseOrderCreateInput,
   PurchaseOrderItemCreateInput,
   PurchaseOrderUpdateInput,
@@ -64,6 +65,11 @@ import type {
   SalesOrderFromQuoteInput,
   SalesOrderItemCreateInput,
   SalesOrderUpdateInput,
+  ServiceComplaintConvertInput,
+  ServiceComplaintCreateInput,
+  ServiceComplaintLinkCreateInput,
+  ServiceComplaintRejectInput,
+  ServiceComplaintUpdateInput,
   ShipmentCreateInput,
   SignedUploadUrlInput,
   TargetUpsertInput,
@@ -72,8 +78,11 @@ import type {
   UserUpdateInput,
   VisitCreateInput,
   WarehouseCreateInput,
+  CallAssistantAction,
+  CallSuggestionActionInput,
+  ManualCallEventInput,
 } from '@haksan/shared';
-import { api, getAccessToken } from './apiClient';
+import { api, getAccessToken, getActiveDivision } from './apiClient';
 import { exportService } from './downloadExport';
 
 export interface Paginated<T> {
@@ -147,12 +156,110 @@ export const companyService = {
   create: (body: CompanyCreateInput) => api.post<CompanyDTO>('/companies', body),
   update: (id: string, body: CompanyUpdateInput) => api.patch<CompanyDTO>(`/companies/${id}`, body),
   remove: (id: string) => api.delete(`/companies/${id}`),
+  /** Başka bölümlerdeki açık alacak (borç) uyarısı. Tutar yalnızca süper yönetici/view_all için döner. */
+  crossDivisionDebt: (id: string) =>
+    api.get<{ hasDebt: boolean; departments: { id: string; name: string; amount?: number }[]; amount?: number }>(
+      `/companies/${id}/cross-department-debt`
+    ),
+  /** Mükerrer firma için başka bölümden erişim talebi oluşturur (onay akışı). */
+  requestAccess: (id: string, note?: string) => {
+    const activeDivision = getActiveDivision();
+    return api.post(`/companies/${id}/access-requests`, {
+      note,
+      divisionId: activeDivision && activeDivision !== 'all' ? activeDivision : undefined,
+    });
+  },
+};
+
+export interface AccessRequestRow {
+  id: string;
+  companyId: string;
+  status: string;
+  note: string | null;
+  createdAt: string;
+  ownerDivisionId: string | null;
+  requestingDivisionId: string;
+  company: { id: string; legalTitle: string; taxNumber: string | null } | null;
+  requestingDivision: { id: string; name: string; code: string } | null;
+}
+
+/** Mükerrer firma erişim talepleri (onay inbox). */
+export const accessRequestService = {
+  list: (params?: { status?: string; page?: number; pageSize?: number }) =>
+    api.get<Paginated<AccessRequestRow>>(`/access-requests${qs(params as Record<string, string | number | undefined>)}`),
+  approve: (id: string, decisionNote?: string) => api.post(`/access-requests/${id}/approve`, { decisionNote }),
+  reject: (id: string, decisionNote?: string) => api.post(`/access-requests/${id}/reject`, { decisionNote }),
+};
+
+export interface CallSuggestionDTO {
+  id: string;
+  title: string;
+  body: string | null;
+  status: 'pending' | 'acted' | 'dismissed';
+  companyId: string;
+  contactId: string | null;
+  createdAt: string;
+  event: {
+    id: string;
+    eventType: 'completed' | 'missed';
+    direction: 'inbound' | 'outbound';
+    normalizedPhone: string | null;
+    endedAt: string | null;
+    startedAt: string | null;
+  };
+  company: { id: string; legalTitle: string; shortName?: string | null };
+  contact: { id: string; fullName: string } | null;
+  availableActions: { createQuote: boolean; createServiceTicket: boolean; logCall: boolean };
+}
+
+export interface CallEventIngestResponse {
+  event: {
+    id: string;
+    matchStatus: 'matched' | 'unmatched' | 'ambiguous';
+    companyId: string | null;
+    contactId: string | null;
+    normalizedPhone: string | null;
+  };
+  suggestions: CallSuggestionDTO[];
+  idempotent?: boolean;
+}
+
+export interface NotificationDTO {
+  id: string;
+  type: string;
+  title: string;
+  body?: string | null;
+  entityType?: string | null;
+  entityId?: string | null;
+  readAt?: string | null;
+  createdAt: string;
+}
+
+export const notificationService = {
+  list: (params?: { unread?: boolean; pageSize?: number }) =>
+    api.get<Paginated<NotificationDTO>>(`/notifications${qs({
+      unread: params?.unread === undefined ? undefined : String(params.unread),
+      pageSize: params?.pageSize,
+    })}`),
+  markRead: (id: string) => api.patch<NotificationDTO>(`/notifications/${id}/read`, {}),
+};
+
+export const callAssistantService = {
+  suggestions: (params?: { status?: 'pending' | 'acted' | 'dismissed' }) =>
+    api.get<Paginated<CallSuggestionDTO>>(`/call-assistant/suggestions${qs(params)}`),
+  manualEvent: (body: ManualCallEventInput) =>
+    api.post<CallEventIngestResponse>('/call-assistant/manual-events', body),
+  action: (id: string, action: CallAssistantAction, body: Omit<CallSuggestionActionInput, 'action'> = {}) =>
+    api.post<any>(`/call-assistant/suggestions/${id}/actions`, { action, ...body }),
 };
 
 // ───── Contacts ─────
 export const contactService = {
   list: (params?: Record<string, string | number | undefined>) => api.get<Paginated<any>>(`/contacts${qs(params)}`),
   get: (id: string) => api.get<any>(`/contacts/${id}`),
+  /** Kontağın bağlı olduğu firmalar (çoklu firma — aynı kişi birden çok firmada). */
+  companies: (id: string) =>
+    api.get<{ id: string; legalTitle: string; shortName: string | null; isPrimary: boolean }[]>(`/contacts/${id}/companies`),
   create: (body: ContactCreateInput) => api.post<any>('/contacts', body),
   update: (id: string, body: ContactUpdateInput) => api.patch<any>(`/contacts/${id}`, body),
   remove: (id: string) => api.delete(`/contacts/${id}`),
@@ -174,6 +281,77 @@ export const activityService = {
   create: (body: ActivityCreateInput) => api.post<any>('/activities', body),
   createVisit: (body: VisitCreateInput) => api.post<any>('/visits', body),
   createCall: (body: CallCreateInput) => api.post<any>('/calls', body),
+};
+
+export type CalendarEventType = 'customer_visit' | 'meeting' | 'call' | 'task' | 'other';
+export interface CalendarEventDTO {
+  id: string;
+  ownerUserId: string;
+  eventType: CalendarEventType;
+  source: 'manual' | 'device' | 'import';
+  title: string;
+  description: string | null;
+  location: string | null;
+  startsAt: string;
+  endsAt: string;
+  allDay: boolean;
+  timezone: string;
+  recurrenceRule: string | null;
+  companyId: string | null;
+  contactId: string | null;
+  opportunityId: string | null;
+  visitId: string | null;
+  deletedAt: string | null;
+  owner: { id: string; fullName: string; email: string };
+  company: { id: string; legalTitle: string; shortName: string | null } | null;
+}
+
+export interface CalendarEventInput {
+  eventType: CalendarEventType;
+  title: string;
+  description?: string | null;
+  location?: string | null;
+  startsAt: string;
+  endsAt: string;
+  allDay: boolean;
+  timezone: string;
+  companyId?: string | null;
+}
+
+export type CalendarImportEventType = 'other' | 'meeting' | 'call' | 'task';
+
+export interface CalendarImportEvent {
+  uid: string;
+  title: string;
+  description: string | null;
+  location: string | null;
+  startsAt: string;
+  endsAt: string;
+  allDay: boolean;
+  timezone: string;
+  recurrenceRule: string | null;
+  duplicate: boolean;
+  inWindow: boolean;
+}
+
+export interface CalendarImportPreview {
+  window: { from: string; to: string };
+  summary: { total: number; duplicates: number; inWindow: number };
+  events: CalendarImportEvent[];
+}
+
+export const calendarService = {
+  events: (params: { from: string; to: string; ownerUserId?: string; includeArchived?: boolean }) =>
+    api.get<CalendarEventDTO[]>(`/calendar/events${qs(params)}`),
+  create: (body: CalendarEventInput) => api.post<CalendarEventDTO>('/calendar/events', body),
+  update: (id: string, body: Partial<CalendarEventInput>) => api.patch<CalendarEventDTO>(`/calendar/events/${id}`, body),
+  remove: (id: string) => api.delete<{ deleted: boolean; restoreUntil: string }>(`/calendar/events/${id}`),
+  restore: (id: string) => api.post<CalendarEventDTO>(`/calendar/events/${id}/restore`, {}),
+  owners: () => api.get<Array<{ id: string; fullName: string; email: string }>>('/calendar/owners'),
+  importPreview: (body: { fileName: string; fileBase64: string }) =>
+    api.post<CalendarImportPreview>('/calendar/import/preview', body),
+  importCommit: (body: { defaultEventType: CalendarImportEventType; events: CalendarImportEvent[] }) =>
+    api.post<{ created: number; updated: number }>('/calendar/import/commit', body),
 };
 
 // ───── Products / Brands ─────
@@ -381,6 +559,20 @@ export const serviceService = {
   update: (id: string, body: any) => api.patch<any>(`/service-tickets/${id}`, body),
   updateTicketStatus: (id: string, statusCode: string) =>
     api.patch<any>(`/service-tickets/${id}/status`, { statusCode }),
+  complaints: (params?: Record<string, string | number | undefined>) => api.get<Paginated<any>>(`/service-complaints${qs(params)}`),
+  createComplaint: (body: ServiceComplaintCreateInput) => api.post<any>('/service-complaints', body),
+  updateComplaint: (id: string, body: ServiceComplaintUpdateInput) => api.patch<any>(`/service-complaints/${id}`, body),
+  convertComplaint: (id: string, body: ServiceComplaintConvertInput = {}) => api.post<any>(`/service-complaints/${id}/convert`, body),
+  rejectComplaint: (id: string, body: ServiceComplaintRejectInput = {}) => api.post<any>(`/service-complaints/${id}/reject`, body),
+  complaintLinks: (params?: Record<string, string | number | undefined>) => api.get<Paginated<any>>(`/service-complaint-links${qs(params)}`),
+  createComplaintLink: (body: ServiceComplaintLinkCreateInput) => api.post<any>('/service-complaint-links', body),
+  revokeComplaintLink: (id: string) => api.patch<any>(`/service-complaint-links/${id}/revoke`, {}),
+  warranty: (id: string) => api.get<any | null>(`/service-tickets/${id}/warranty`),
+  updateWarranty: (id: string, body: any) => api.put<any>(`/service-tickets/${id}/warranty`, body),
+  updateWarrantyParts: (id: string, parts: any[]) => api.put<any>(`/service-tickets/${id}/warranty/parts`, { parts }),
+  submitWarranty: (id: string, note?: string) => api.post<any>(`/service-tickets/${id}/warranty/submit`, { note }),
+  approveWarranty: (id: string, decisionNote?: string) => api.post<any>(`/service-tickets/${id}/warranty/approve`, { decisionNote }),
+  rejectWarranty: (id: string, decisionNote?: string) => api.post<any>(`/service-tickets/${id}/warranty/reject`, { decisionNote }),
   installations: (params?: Record<string, string | number | undefined>) => api.get<Paginated<any>>(`/installations${qs(params)}`),
   createInstallation: (body: any) => api.post<any>('/installations', body),
   updateInstallationStatus: (id: string, body: { statusCode: string; installationDate?: string }) =>
@@ -397,20 +589,21 @@ export const serviceService = {
     api.patch<any>(`/deliveries/${id}/status`, { status }),
 };
 
-// ───── Machine lifecycle: passports, CPQ, service radar ─────
-export const lifecycleService = {
-  passports: () => api.get<any[]>('/lifecycle/passports'),
-  publishPassport: (deviceId: string, body: PassportPublishInput) =>
-    api.post<any>(`/lifecycle/passports/${deviceId}/publish`, body),
-  rotatePassport: (passportId: string) => api.post<any>(`/lifecycle/passports/${passportId}/rotate-token`),
-  revokePassport: (passportId: string) => api.patch<any>(`/lifecycle/passports/${passportId}/revoke`, {}),
-  cpqPreview: (body: CpqPreviewInput) => api.post<any>('/lifecycle/cpq/preview', body),
-  cpqCreateQuote: (body: CpqCreateQuoteInput) => api.post<any>('/lifecycle/cpq/create-quote', body),
-  serviceRadar: () => api.get<any>('/lifecycle/service-radar'),
-  publicPassport: (slug: string, token: string) =>
-    api.get<any>(`/public/passports/${encodeURIComponent(slug)}/${encodeURIComponent(token)}`),
-  publicServiceTicket: (slug: string, token: string, body: PublicTicketInput) =>
-    api.post<any>(`/public/passports/${encodeURIComponent(slug)}/${encodeURIComponent(token)}/service-tickets`, body),
+// ───── Public complaint intake ─────
+export const publicComplaintService = {
+  form: (slug: string, token: string) =>
+    api.get<any>(`/public/service-complaints/${encodeURIComponent(slug)}/${encodeURIComponent(token)}`),
+  signedUpload: (
+    slug: string,
+    token: string,
+    body: Pick<SignedUploadUrlInput, 'bucket' | 'filename' | 'mimeType' | 'extension' | 'sizeBytes'>
+  ) =>
+    api.post<{ fileId: string; bucket: string; objectKey: string; uploadUrl: string; expiresInSeconds: number }>(
+      `/public/service-complaints/${encodeURIComponent(slug)}/${encodeURIComponent(token)}/files/signed-upload-url`,
+      body
+    ),
+  submit: (slug: string, token: string, body: PublicServiceComplaintInput) =>
+    api.post<any>(`/public/service-complaints/${encodeURIComponent(slug)}/${encodeURIComponent(token)}`, body),
 };
 
 // ───── Files ─────
@@ -463,6 +656,7 @@ export const reportService = {
   expectedReceivables: () => api.get<any[]>('/reports/expected-receivables'),
   completedPayments: (params?: Record<string, string>) => api.get<any[]>(`/reports/completed-payments${qs(params)}`),
   warrantyExpiring: (params?: Record<string, string | number>) => api.get<any[]>(`/reports/warranty-expiring${qs(params)}`),
+  serviceComplaintsSummary: () => api.get<any>('/reports/service-complaints-summary'),
   yearEnd: (year: number) => api.get<YearEndReport>(`/reports/year-end?year=${year}`),
   downloadYearEnd: (year: number) => exportService.yearEnd(year),
 };
@@ -483,6 +677,7 @@ export const adminService = {
   updateRole: (id: string, body: RoleUpdateInput) => api.patch<any>(`/roles/${id}`, body),
   permissions: () => api.get<any[]>('/permissions'),
   departments: () => api.get<any[]>('/departments'),
+  divisions: () => api.get<any[]>('/divisions'),
   createDept: (body: DepartmentCreateInput) => api.post<any>('/departments', body),
   auditLogs: (params?: Record<string, string | number | undefined>) => api.get<Paginated<any>>(`/audit-logs${qs(params)}`),
   tenant: () => api.get<any>('/tenant'),
@@ -492,6 +687,106 @@ export const adminService = {
 // ───── Lookups ─────
 export const lookupService = {
   byName: (name: string) => api.get<any[]>(`/lookups/${name}`),
+};
+
+// ───── Chat (kurum içi sohbet) ─────
+export interface ChatDirectoryUser {
+  id: string;
+  fullName: string;
+  email: string;
+  departmentId: string | null;
+  status: string;
+}
+export interface ChatAttachment {
+  fileId: string;
+  url: string;
+  filename: string;
+  mimeType: string;
+  sizeBytes: number;
+  isImage: boolean;
+}
+export interface ChatReaction {
+  emoji: string;
+  count: number;
+  mine: boolean;
+}
+export interface ChatReplyPreview {
+  id: string;
+  senderName: string;
+  preview: string;
+}
+export interface ChatRefCard {
+  type: 'quote' | 'company' | 'service_ticket' | 'opportunity';
+  id: string;
+  title: string;
+  subtitle: string | null;
+  missing?: boolean;
+}
+export interface ChatMessageDTO {
+  id: string;
+  body: string | null;
+  senderId: string;
+  senderName: string;
+  createdAt: string;
+  editedAt: string | null;
+  kind: 'text' | 'system' | 'voice' | string;
+  attachments: ChatAttachment[];
+  reactions: ChatReaction[];
+  replyTo: ChatReplyPreview | null;
+  refCard: ChatRefCard | null;
+}
+export interface ChatMemberDTO {
+  userId: string;
+  role: ChatMemberRole;
+  fullName: string;
+  email: string;
+  lastReadAt?: string | null;
+}
+export interface ChatConversationSummary {
+  id: string;
+  type: 'dm' | 'group';
+  title: string | null;
+  avatarFileId: string | null;
+  onlyAdminsCanPost: boolean;
+  myRole: ChatMemberRole;
+  members: ChatMemberDTO[];
+  unreadCount: number;
+  lastMessage: { preview: string; senderId: string; createdAt: string } | null;
+  lastActivityAt: string;
+}
+export interface ChatConversationDetail {
+  id: string;
+  type: 'dm' | 'group';
+  title: string | null;
+  description: string | null;
+  avatarFileId: string | null;
+  onlyAdminsCanPost: boolean;
+  refType: string | null;
+  refId: string | null;
+  createdBy: string | null;
+  members: ChatMemberDTO[];
+  myRole: ChatMemberRole;
+}
+
+export const chatService = {
+  directory: () => api.get<ChatDirectoryUser[]>('/chat/directory'),
+  conversations: () => api.get<ChatConversationSummary[]>('/chat/conversations'),
+  createDm: (userId: string) => api.post<ChatConversationDetail>('/chat/conversations/dm', { userId }),
+  createGroup: (body: CreateGroupInput) => api.post<ChatConversationDetail>('/chat/conversations/group', body),
+  conversation: (id: string) => api.get<ChatConversationDetail>(`/chat/conversations/${id}`),
+  updateGroup: (id: string, body: UpdateGroupInput) => api.patch<ChatConversationDetail>(`/chat/conversations/${id}`, body),
+  addMembers: (id: string, userIds: string[]) => api.post<ChatConversationDetail>(`/chat/conversations/${id}/members`, { userIds }),
+  removeMember: (id: string, userId: string) => api.delete(`/chat/conversations/${id}/members/${userId}`),
+  setMemberRole: (id: string, userId: string, role: ChatMemberRole) =>
+    api.patch(`/chat/conversations/${id}/members/${userId}/role`, { role }),
+  messages: (id: string, params?: { before?: string; limit?: number }) =>
+    api.get<{ messages: ChatMessageDTO[]; hasMore: boolean }>(`/chat/conversations/${id}/messages${qs(params)}`),
+  sendMessage: (id: string, body: SendMessageInput) => api.post<ChatMessageDTO>(`/chat/conversations/${id}/messages`, body),
+  markRead: (id: string) => api.post(`/chat/conversations/${id}/read`),
+  editMessage: (messageId: string, body: string) => api.patch<ChatMessageDTO>(`/chat/messages/${messageId}`, { body }),
+  toggleReaction: (messageId: string, emoji: string) =>
+    api.post<{ messageId: string; reactions: ChatReaction[] }>(`/chat/messages/${messageId}/reactions`, { emoji }),
+  deleteMessage: (id: string) => api.delete(`/chat/messages/${id}`),
 };
 
 // ───── helpers ─────

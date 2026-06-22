@@ -81,6 +81,18 @@ export const tutarYaziyla = (amount: number, code: CurrencyCode): string => {
   return `Yalnız #${words}# ${currencyWord(code)}`;
 };
 
+/** Proforma şablonundaki yazım: #altmışaltıbin…# Amerikan doları */
+export const tutarYaziylaProforma = (amount: number, code: CurrencyCode): string => {
+  const tam = Math.floor(amount);
+  const kurus = Math.round((amount - tam) * 100);
+  let words = sayiYaziyla(tam);
+  if (kurus > 0) words += `virgül${sayiYaziyla(kurus).toLocaleLowerCase("tr-TR")}`;
+  words = words.charAt(0) + words.slice(1).toLocaleLowerCase("tr-TR");
+  const cur = currencyWord(code);
+  const curLabel = cur.charAt(0) + cur.slice(1).toLocaleLowerCase("tr-TR");
+  return `Yalnız #${words}# ${curLabel}`;
+};
+
 const TR_MONTHS = [
   "Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran",
   "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık",
@@ -181,12 +193,35 @@ export const DRMAK_CSS = `
 .z { position: relative; z-index: 1; }
 `;
 
-export const buildPrintHtml = (doc: PrintDocument): string => `<!doctype html>
+export const buildPrintHtml = (doc: PrintDocument, opts?: { autoPrint?: boolean }): string => {
+  const printScript =
+    opts?.autoPrint === false
+      ? ""
+      : `<script>window.onload=function(){setTimeout(function(){window.print();},400);};<\/script>`;
+  return `<!doctype html>
 <html lang="tr"><head><meta charset="utf-8"><title>${esc(doc.title)}</title>
 <style>${BASE_CSS}${doc.css}</style></head>
 <body>${doc.body}
-<script>window.onload=function(){setTimeout(function(){window.print();},400);};<\/script>
+${printScript}
 </body></html>`;
+};
+
+const safeFilename = (name: string): string =>
+  name.replace(/[<>:"/\\|?*\u0000-\u001f]/g, "_").replace(/\s+/g, " ").trim() || "belge";
+
+/** Yazdırılabilir HTML dosyasını indirir (tarayıcıda açılıp PDF olarak kaydedilebilir). */
+export const downloadPrintHtml = (doc: PrintDocument, filename: string): void => {
+  const html = buildPrintHtml(doc, { autoPrint: false });
+  const blob = new Blob([html], { type: "text/html;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `${safeFilename(filename)}.html`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+};
 
 /** Varsayılan logo/asset kökü — public/print Vite tarafından kökten servis edilir. */
 export const printAssetBase = (): string => `${window.location.origin}/print`;

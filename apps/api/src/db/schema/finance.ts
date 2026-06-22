@@ -1,6 +1,6 @@
 import { pgTable, uuid, varchar, text, timestamp, integer, index, uniqueIndex } from 'drizzle-orm/pg-core';
 import { auditColumns, money } from './_helpers';
-import { tenants } from './tenants';
+import { tenants, divisions } from './tenants';
 import { users } from './users';
 import { companies } from './companies';
 import { quotes } from './quotes';
@@ -17,6 +17,7 @@ export const accountingInvoices = pgTable(
     tenantId: uuid('tenant_id')
       .notNull()
       .references(() => tenants.id, { onDelete: 'cascade' }),
+    divisionId: uuid('division_id').references(() => divisions.id, { onDelete: 'set null' }),
     companyId: uuid('company_id')
       .notNull()
       .references(() => companies.id, { onDelete: 'restrict' }),
@@ -40,6 +41,7 @@ export const accountingInvoices = pgTable(
   },
   (t) => ({
     tenantIdx: index('accounting_invoices_tenant_idx').on(t.tenantId),
+    tenantDivisionIdx: index('accounting_invoices_tenant_division_idx').on(t.tenantId, t.divisionId),
     companyIdx: index('accounting_invoices_company_idx').on(t.companyId),
     tenantInvoiceNoUnique: uniqueIndex('accounting_invoices_tenant_invoice_no_unique').on(t.tenantId, t.invoiceNo),
   })
@@ -99,6 +101,7 @@ export const receivables = pgTable(
     tenantId: uuid('tenant_id')
       .notNull()
       .references(() => tenants.id, { onDelete: 'cascade' }),
+    divisionId: uuid('division_id').references(() => divisions.id, { onDelete: 'set null' }),
     companyId: uuid('company_id')
       .notNull()
       .references(() => companies.id, { onDelete: 'restrict' }),
@@ -116,6 +119,7 @@ export const receivables = pgTable(
   },
   (t) => ({
     tenantIdx: index('receivables_tenant_idx').on(t.tenantId),
+    tenantDivisionIdx: index('receivables_tenant_division_idx').on(t.tenantId, t.divisionId),
     companyIdx: index('receivables_company_idx').on(t.companyId),
     dueDateIdx: index('receivables_due_date_idx').on(t.dueDate),
   })
@@ -128,6 +132,7 @@ export const payables = pgTable(
     tenantId: uuid('tenant_id')
       .notNull()
       .references(() => tenants.id, { onDelete: 'cascade' }),
+    divisionId: uuid('division_id').references(() => divisions.id, { onDelete: 'set null' }),
     companyId: uuid('company_id')
       .notNull()
       .references(() => companies.id, { onDelete: 'restrict' }),
@@ -144,6 +149,7 @@ export const payables = pgTable(
   },
   (t) => ({
     tenantIdx: index('payables_tenant_idx').on(t.tenantId),
+    tenantDivisionIdx: index('payables_tenant_division_idx').on(t.tenantId, t.divisionId),
     companyIdx: index('payables_company_idx').on(t.companyId),
     dueDateIdx: index('payables_due_date_idx').on(t.dueDate),
   })
@@ -156,6 +162,7 @@ export const payments = pgTable(
     tenantId: uuid('tenant_id')
       .notNull()
       .references(() => tenants.id, { onDelete: 'cascade' }),
+    divisionId: uuid('division_id').references(() => divisions.id, { onDelete: 'set null' }),
     receivableId: uuid('receivable_id').references(() => receivables.id, { onDelete: 'set null' }),
     payableId: uuid('payable_id').references(() => payables.id, { onDelete: 'set null' }),
     accountingInvoiceId: uuid('accounting_invoice_id').references(() => accountingInvoices.id, { onDelete: 'set null' }),
@@ -176,6 +183,7 @@ export const payments = pgTable(
   },
   (t) => ({
     tenantIdx: index('payments_tenant_idx').on(t.tenantId),
+    tenantDivisionIdx: index('payments_tenant_division_idx').on(t.tenantId, t.divisionId),
     companyIdx: index('payments_company_idx').on(t.companyId),
     paymentDateIdx: index('payments_payment_date_idx').on(t.paymentDate),
   })

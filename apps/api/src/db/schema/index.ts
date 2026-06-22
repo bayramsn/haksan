@@ -12,5 +12,7 @@ export * from './notes';
 export * from './orders';
 export * from './finance';
 export * from './service';
-export * from './lifecycle';
 export * from './audit';
+export * from './chat';
+export * from './call-assistant';
+export * from './calendar';

@@ -126,6 +126,14 @@ export function ContactsPage() {
                         <div className="text-sm leading-tight truncate flex items-center gap-1.5">
                           {k.name}
                           {k.isPrimary && <Star className="size-3 fill-amber-400 text-amber-400" />}
+                          {k.isBlacklisted && (
+                            <span
+                              title={k.blacklistReason || "Kara listede"}
+                              className="shrink-0 rounded-full bg-red-100 px-1.5 py-0.5 text-[10px] font-medium text-red-700"
+                            >
+                              Kara liste
+                            </span>
+                          )}
                         </div>
                         <div className="text-[11px] text-muted-foreground truncate mt-0.5">{k.note ?? "—"}</div>
                       </div>

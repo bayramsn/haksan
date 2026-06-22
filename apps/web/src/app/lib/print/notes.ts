@@ -1,6 +1,6 @@
-// Teklif / proforma alt not setleri. Metinler Haksan'ın resmi şablonlarından
-// birebir alınmıştır; {{ALICI}} ve {{YIL}} yer tutucuları yazdırma sırasında
-// belge verisinden doldurulur.
+// Teklif / proforma alt not setleri. Bunlar sabit şablon metinleridir; örnek PDF
+// (layout referansı) ile aynı yapıda kalır, {{ALICI}} / {{YIL}} ve üst bilgiler
+// her işlemde müşteri, teklif ve ürün verisinden doldurulur.
 
 /** Satış teklifi alt notu: 3 bölümlü (Ödeme / Teslimat / Garanti). */
 export interface QuoteNoteVariant {
@@ -137,8 +137,24 @@ export const SERVICE_NOTE_VARIANTS: FlatNoteVariant[] = [
 
 export const PROFORMA_NOTE_VARIANTS: FlatNoteVariant[] = [
   {
+    key: "cif-antrepo",
+    label: "CİF İstanbul / Antrepo Devir",
+    notlar: [
+      "Proforma fatura peşin/leasing ödemeye göre düzenlenmiştir,",
+      "Proforma fatura toplam bedeline tezgâhın cari orandaki K.D.V.'si dahil edilmemiştir.",
+      "Proforma fatura C.I.F./İstanbul teslim şeklinde düzenlenmiş olup, fiyatımıza tezgâhın ithalatı ile ilgili masraf ve vergiler (Gümrük Vergisi, Liman Masrafları, Ardiye Giderleri, Gümrükleme Ücreti, İlave Gümrük Vergisi) dahil edilmemiştir. Tezgâh Gümrük Yönetmeliği'nin 333. Maddesine istinaden Antrepodan devredilecektir.",
+      "Tezgâhın teslimi kesin siparişten 90 (±15) gün sonra gerçekleştirilecektir,",
+      "Tezgâh HAKSAN MAKİNA/Hadımköy antreposundan teslim edilecek olup, Tezgâhın karayolu taşıma ve sigortası alıcı firma tarafından karşılanacaktır,",
+      "Tezgâh uluslararası CE standartlarına uygundur.",
+      "Tezgâhın üretim yılı {{YIL}} olup, yeni ve kullanılmamıştır,",
+      "Tezgâh ile birlikte çalışması için zorunlu olanlar dışında aksam ve aksesuar bulunmamaktadır,",
+      "Tezgâh tüm üretim hatalarına karşı 1 (bir) yıl üretici firma garantisi kapsamındadır, kontrol ünitesi 2 (iki) yıl Uluslararası üretici firma garantisi kapsamındadır,",
+      "Tezgâh yol şartlarına uygun ambalajlanmış olarak sevk edilecektir.",
+    ],
+  },
+  {
     key: "cif-istanbul",
-    label: "Tezgah CİF İstanbul",
+    label: "Tezgah CİF İstanbul (eski)",
     notlar: [
       "Proforma toplam bedelinin tamamı devir sonrası ithalat öncesi peşin tahsil edilecektir,",
       "Proforma fatura C.I.F./İstanbul teslim şeklinde düzenlenmiş olup, fiyatımıza tezgâhın ithalatı ile ilgili masraf ve vergiler (Gümrük Vergisi, Liman Masrafları, Ardiye Giderleri, Gümrükleme Ücreti, İlave Gümrük Vergisi) dahil edilmemiştir. Tezgâh Antrepodan devredilecektir.",

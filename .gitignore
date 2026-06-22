@@ -1,6 +1,10 @@
 node_modules/
+.pnpm-store/
+.playwright-mcp/
 dist/
 build/
+.gradle/
+.cxx/
 .next/
 out/
 coverage/
@@ -34,3 +38,6 @@ yarn-debug.log*
 **/test-results/
 **/playwright-report/
 **/blob-report/
+
+# openapi-generator-cli drops this config wherever it runs
+openapitools.json

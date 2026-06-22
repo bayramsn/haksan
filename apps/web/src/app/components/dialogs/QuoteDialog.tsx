@@ -16,6 +16,7 @@ import { useAuth } from "../../../lib/auth";
 import { toast } from "sonner";
 import { Plus, Trash2, Save, BookmarkPlus, Bold } from "lucide-react";
 import type { Product } from "../../lib/mock";
+import { quoteDefaultsFromCase } from "../../lib/workflow";
 
 type Currency = "USD" | "EUR" | "TRY";
 
@@ -103,7 +104,12 @@ export function QuoteDialog({
 }) {
   const { customers, contacts, products, users, cases, offers, noteTemplates, createQuoteFull, addNoteTemplate } = useStore();
   const { convert } = useFx();
-  const { user } = useAuth();
+  const { user, activeDivision } = useAuth();
+  // Bölüm seçici yalnızca "Tümü"yü görebilen (view_all) kullanıcılarda görünür;
+  // diğerleri kendi bölümüne otomatik atanır (backend zorlar).
+  const canPickDivision = user?.canViewAllDivisions ?? false;
+  const divisions = user?.divisions ?? [];
+  const defaultDivisionId = activeDivision && activeDivision !== "all" ? activeDivision : divisions[0]?.id ?? "";
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
 
@@ -113,6 +119,7 @@ export function QuoteDialog({
   const [companyId, setCompanyId] = useState(defaultCustomerId ?? "");
   const [contactId, setContactId] = useState("");
   const [caseId, setCaseId] = useState(defaultCaseId ?? "");
+  const [divisionId, setDivisionId] = useState(canPickDivision ? defaultDivisionId : "");
   const [quoteDate, setQuoteDate] = useState(today);
   const [documentNo, setDocumentNo] = useState("");
   const [senderId, setSenderId] = useState("");
@@ -128,13 +135,22 @@ export function QuoteDialog({
     setCompanyId(defaultCustomerId ?? "");
     setContactId("");
     setCaseId(defaultCaseId ?? "");
+    setDivisionId(canPickDivision ? defaultDivisionId : "");
     setQuoteDate(today);
     setDocumentNo("");
     setSenderId(users.find((u) => u.id === user?.id)?.id ?? users[0]?.id ?? "");
-    setCurrency("USD");
     setVatEnabled(true);
     setDeliveryCode("ex_works");
-    setLines([emptyLine()]);
+    // Faz 1 · Satış kartı carry-over: kart üzerinden açıldıysa ilk satırı + para birimini ön-doldur.
+    const seedCase = defaultCaseId ? cases.find((c) => c.id === defaultCaseId) : undefined;
+    if (seedCase) {
+      const def = quoteDefaultsFromCase(seedCase, products);
+      setCurrency(def.currency);
+      setLines([{ ...emptyLine(), ...def.line }]);
+    } else {
+      setCurrency("USD");
+      setLines([emptyLine()]);
+    }
     setNote("");
     setNoteFontSize("14");
     setNoteBold(false);
@@ -152,6 +168,30 @@ export function QuoteDialog({
     setLines((ls) => ls.map((l, idx) => (idx === i ? { ...l, ...patch } : l)));
   const addLine = () => setLines((ls) => [...ls, emptyLine()]);
   const rmLine = (i: number) => setLines((ls) => (ls.length > 1 ? ls.filter((_, idx) => idx !== i) : ls));
+
+  // Faz 1 carry-over: satış kartı seçilince ilk satır el değmemişse kart verisini aktar.
+  const onCaseChange = (value: string) => {
+    const id = value === "auto" ? "" : value;
+    setCaseId(id);
+    const sc = id ? cases.find((c) => c.id === id) : undefined;
+    if (!sc) return;
+    const def = quoteDefaultsFromCase(sc, products);
+    setCurrency(def.currency);
+    setLines((ls) => {
+      const first = ls[0];
+      const untouched = !first || (!first.productId && !first.description.trim() && !first.stockCode.trim());
+      if (!untouched) return ls;
+      const seeded = { ...emptyLine(), ...def.line };
+      return ls.length ? [seeded, ...ls.slice(1)] : [seeded];
+    });
+    if (def.matchedProduct) {
+      toast.success("Satış kartından aktarıldı", {
+        description: `${def.matchedProduct.brand} ${def.matchedProduct.model} · ${sc.quantity} adet`,
+      });
+    } else {
+      toast.message("Satış kartı talebi satıra aktarıldı", { description: def.line.description || undefined });
+    }
+  };
 
   const onPickProduct = (i: number, productId: string) => {
     const p = products.find((x) => x.id === productId);
@@ -247,6 +287,7 @@ export function QuoteDialog({
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!companyId) return toast.error("Firma seçiniz");
+    if (canPickDivision && !divisionId) return toast.error("Bölüm seçiniz", { description: "Teklifi CNC / Üniversal / Sac bölümlerinden birine atayın." });
     const valid = lines.filter((l) => (l.productId || l.description.trim() || l.stockCode.trim()) && num(l.quantity) > 0);
     if (valid.length === 0) return toast.error("En az bir ürün satırı ekleyin");
 
@@ -285,6 +326,7 @@ export function QuoteDialog({
       const res = await createQuoteFull({
         opportunityId: caseId || undefined,
         companyId,
+        divisionId: canPickDivision ? divisionId || undefined : undefined,
         contactId: contactId || undefined,
         quoteDate: new Date(quoteDate).toISOString(),
         documentNo: documentNo.trim() || undefined,
@@ -357,7 +399,7 @@ export function QuoteDialog({
             </div>
             <div>
               <Label className="text-xs">Satış Kartı</Label>
-              <Select value={caseId || "auto"} onValueChange={(v) => setCaseId(v === "auto" ? "" : v)} disabled={!companyId}>
+              <Select value={caseId || "auto"} onValueChange={onCaseChange} disabled={!companyId}>
                 <SelectTrigger className="mt-1.5"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="auto">Otomatik oluştur</SelectItem>
@@ -386,6 +428,17 @@ export function QuoteDialog({
                 </SelectContent>
               </Select>
             </div>
+            {canPickDivision && (
+              <div>
+                <Label className="text-xs">Bölüm *</Label>
+                <Select value={divisionId} onValueChange={setDivisionId}>
+                  <SelectTrigger className="mt-1.5"><SelectValue placeholder="Bölüm seçin (CNC / Üniversal / Sac)..." /></SelectTrigger>
+                  <SelectContent>
+                    {divisions.map((d) => <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
           </div>
 
           {/* PRODUCTS */}

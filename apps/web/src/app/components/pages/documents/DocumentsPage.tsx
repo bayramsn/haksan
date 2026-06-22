@@ -27,10 +27,10 @@ import {
   Search, Upload, Download, Printer, Eye, FileText, FileSignature, Receipt, Wrench, ClipboardCheck,
 } from "lucide-react";
 import {
-  printAssetBase, trLongDate, trShortDate, proformaDoc, contractDoc,
-  PROFORMA_NOTE_VARIANTS, fillNotePlaceholders,
+  printAssetBase, proformaDoc, contractDoc, trLongDate, trShortDate,
+  PROFORMA_NOTE_VARIANTS, loadProformaPrintData,
 } from "../../../lib/print";
-import { printOrWarn, splitVat } from "../../../lib/pageHelpers";
+import { printOrWarn, downloadPrintOrWarn, splitVat } from "../../../lib/pageHelpers";
 
 const DOC_ICONS: Record<string, React.ReactNode> = {
   Proforma: <FileText className="size-4" />,
@@ -91,41 +91,39 @@ export function DocumentsPage({
     };
   };
 
+  const proformaInput = (d: (typeof documents)[number], variantKey: string) => ({
+    doc: d,
+    customers,
+    cases,
+    offers,
+    products,
+    variantKey,
+  });
+
+  const runProforma = async (
+    d: (typeof documents)[number],
+    variantKey: string,
+    mode: "print" | "download",
+  ) => {
+    const loading = toast.loading("Proforma hazırlanıyor…");
+    try {
+      const data = await loadProformaPrintData(proformaInput(d, variantKey));
+      const rendered = proformaDoc(data, printAssetBase());
+      if (mode === "print") printOrWarn(rendered);
+      else downloadPrintOrWarn(rendered, `Proforma-${d.fileName}`);
+    } catch (err: any) {
+      toast.error("Proforma oluşturulamadı", { description: err?.message ?? "Teklif verisi okunamadı." });
+    } finally {
+      toast.dismiss(loading);
+    }
+  };
+
   const printProforma = (d: (typeof documents)[number], variantKey: string) => {
-    const variant = PROFORMA_NOTE_VARIANTS.find((v) => v.key === variantKey) ?? PROFORMA_NOTE_VARIANTS[0];
-    const ctx = resolveDocContext(d);
-    const vat = splitVat(ctx.amount, { subtotal: ctx.offer?.subtotal, vatTotal: ctx.offer?.vatTotal });
-    printOrWarn(
-      proformaDoc(
-        {
-          firma: ctx.cust?.name ?? "",
-          ilgili: ctx.cust?.contactPerson,
-          mobil: ctx.cust?.phone2,
-          adres: ctx.adres,
-          tel: ctx.cust?.phone,
-          faks: ctx.cust?.fax,
-          vergiDairesi: ctx.cust?.taxOffice,
-          vergiNo: ctx.cust?.taxNumber,
-          tarih: trLongDate(d.uploadedAt) || trLongDate(new Date()),
-          belgeNo: d.fileName,
-          items: [
-            {
-              aciklama: ctx.urunAdi,
-              marka: ctx.product?.brand,
-              mensei: ctx.product?.originCountry,
-              gtip: ctx.product?.hsCode,
-              birim: `${ctx.sc?.quantity ?? 1} Adet`,
-              tutar: vat.net,
-            },
-          ],
-          kdvOran: vat.oran,
-          kdvTutar: vat.kdv,
-          currency: ctx.currency,
-          notlar: fillNotePlaceholders(variant.notlar, { alici: ctx.cust?.name }),
-        },
-        printAssetBase()
-      )
-    );
+    void runProforma(d, variantKey, "print");
+  };
+
+  const downloadProforma = (d: (typeof documents)[number], variantKey: string) => {
+    void runProforma(d, variantKey, "download");
   };
 
   const printContract = (d: (typeof documents)[number]) => {
@@ -301,20 +299,41 @@ export function DocumentsPage({
                     <TableCell className="text-right">
                       <div className="flex items-center gap-1 justify-end">
                         {d.type === "Proforma" && (
-                          <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                              <Button variant="ghost" size="icon" className="size-7" title="Proforma yazdır / PDF">
-                                <Printer className="size-4 text-muted-foreground hover:text-primary" />
-                              </Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end">
-                              {PROFORMA_NOTE_VARIANTS.map((v) => (
-                                <DropdownMenuItem key={v.key} onClick={() => printProforma(d, v.key)}>
-                                  {v.label} notları ile yazdır
-                                </DropdownMenuItem>
-                              ))}
-                            </DropdownMenuContent>
-                          </DropdownMenu>
+                          <>
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button variant="ghost" size="icon" className="size-7" title="Proforma yazdır">
+                                  <Printer className="size-4 text-muted-foreground hover:text-primary" />
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end">
+                                {PROFORMA_NOTE_VARIANTS.map((v) => (
+                                  <DropdownMenuItem key={v.key} onClick={() => printProforma(d, v.key)}>
+                                    {v.label} — yazdır
+                                  </DropdownMenuItem>
+                                ))}
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button variant="ghost" size="icon" className="size-7" title="Proforma indir">
+                                  <Download className="size-4 text-muted-foreground hover:text-primary" />
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end">
+                                {PROFORMA_NOTE_VARIANTS.map((v) => (
+                                  <DropdownMenuItem key={v.key} onClick={() => downloadProforma(d, v.key)}>
+                                    {v.label} — indir
+                                  </DropdownMenuItem>
+                                ))}
+                                {d.fileId && (
+                                  <DropdownMenuItem onClick={() => downloadDocument(d)}>
+                                    Yüklenen dosyayı indir
+                                  </DropdownMenuItem>
+                                )}
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          </>
                         )}
                         {d.type === "Contract" && (
                           <Button variant="ghost" size="icon" className="size-7" title="Satış sözleşmesi yazdır / PDF"
@@ -326,10 +345,12 @@ export function DocumentsPage({
                           onClick={() => setPreviewDoc(d)}>
                           <Eye className="size-4 text-muted-foreground hover:text-primary" />
                         </Button>
-                        <Button variant="ghost" size="icon" className="size-7" title="İndir"
-                          onClick={() => downloadDocument(d)}>
-                          <Download className="size-4 text-muted-foreground hover:text-primary" />
-                        </Button>
+                        {d.type !== "Proforma" && (
+                          <Button variant="ghost" size="icon" className="size-7" title="İndir"
+                            onClick={() => downloadDocument(d)}>
+                            <Download className="size-4 text-muted-foreground hover:text-primary" />
+                          </Button>
+                        )}
                       </div>
                     </TableCell>
                   </TableRow>

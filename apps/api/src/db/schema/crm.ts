@@ -1,6 +1,6 @@
 import { pgTable, uuid, varchar, text, integer, timestamp, index, uniqueIndex } from 'drizzle-orm/pg-core';
 import { auditColumns, ownerColumns, money } from './_helpers';
-import { tenants } from './tenants';
+import { tenants, divisions } from './tenants';
 import { users } from './users';
 import { companies, contacts } from './companies';
 import {
@@ -71,6 +71,7 @@ export const leads = pgTable(
     tenantId: uuid('tenant_id')
       .notNull()
       .references(() => tenants.id, { onDelete: 'cascade' }),
+    divisionId: uuid('division_id').references(() => divisions.id, { onDelete: 'set null' }),
     companyId: uuid('company_id').references(() => companies.id, { onDelete: 'set null' }),
     contactId: uuid('contact_id').references(() => contacts.id, { onDelete: 'set null' }),
     ownerUserId: uuid('owner_user_id').references(() => users.id),
@@ -82,6 +83,7 @@ export const leads = pgTable(
   },
   (t) => ({
     tenantIdx: index('leads_tenant_idx').on(t.tenantId),
+    tenantDivisionIdx: index('leads_tenant_division_idx').on(t.tenantId, t.divisionId),
     companyIdx: index('leads_company_idx').on(t.companyId),
   })
 );
@@ -96,6 +98,7 @@ export const opportunities = pgTable(
     companyId: uuid('company_id')
       .notNull()
       .references(() => companies.id, { onDelete: 'restrict' }),
+    divisionId: uuid('division_id').references(() => divisions.id, { onDelete: 'set null' }),
     primaryContactId: uuid('primary_contact_id').references(() => contacts.id, { onDelete: 'set null' }),
     ownerUserId: uuid('owner_user_id').references(() => users.id),
     title: varchar('title', { length: 255 }).notNull(),
@@ -119,6 +122,7 @@ export const opportunities = pgTable(
   },
   (t) => ({
     tenantIdx: index('opportunities_tenant_idx').on(t.tenantId),
+    tenantDivisionIdx: index('opportunities_tenant_division_idx').on(t.tenantId, t.divisionId),
     companyIdx: index('opportunities_company_idx').on(t.companyId),
     stageIdx: index('opportunities_stage_idx').on(t.currentStageId),
     expectedCloseDateIdx: index('opportunities_expected_close_date_idx').on(t.expectedCloseDate),
@@ -156,6 +160,7 @@ export const salesActivities = pgTable(
     tenantId: uuid('tenant_id')
       .notNull()
       .references(() => tenants.id, { onDelete: 'cascade' }),
+    divisionId: uuid('division_id').references(() => divisions.id, { onDelete: 'set null' }),
     opportunityId: uuid('opportunity_id').references(() => opportunities.id, { onDelete: 'set null' }),
     companyId: uuid('company_id').references(() => companies.id, { onDelete: 'set null' }),
     contactId: uuid('contact_id').references(() => contacts.id, { onDelete: 'set null' }),
@@ -172,6 +177,7 @@ export const salesActivities = pgTable(
   },
   (t) => ({
     tenantIdx: index('sales_activities_tenant_idx').on(t.tenantId),
+    tenantDivisionIdx: index('sales_activities_tenant_division_idx').on(t.tenantId, t.divisionId),
     oppIdx: index('sales_activities_opp_idx').on(t.opportunityId),
     dateIdx: index('sales_activities_date_idx').on(t.activityDate),
   })
@@ -184,6 +190,7 @@ export const visits = pgTable(
     tenantId: uuid('tenant_id')
       .notNull()
       .references(() => tenants.id, { onDelete: 'cascade' }),
+    divisionId: uuid('division_id').references(() => divisions.id, { onDelete: 'set null' }),
     opportunityId: uuid('opportunity_id').references(() => opportunities.id, { onDelete: 'set null' }),
     companyId: uuid('company_id').references(() => companies.id, { onDelete: 'set null' }),
     contactId: uuid('contact_id').references(() => contacts.id, { onDelete: 'set null' }),
@@ -197,6 +204,7 @@ export const visits = pgTable(
   },
   (t) => ({
     tenantIdx: index('visits_tenant_idx').on(t.tenantId),
+    tenantDivisionIdx: index('visits_tenant_division_idx').on(t.tenantId, t.divisionId),
     dateIdx: index('visits_date_idx').on(t.visitDate),
   })
 );
@@ -208,6 +216,7 @@ export const calls = pgTable(
     tenantId: uuid('tenant_id')
       .notNull()
       .references(() => tenants.id, { onDelete: 'cascade' }),
+    divisionId: uuid('division_id').references(() => divisions.id, { onDelete: 'set null' }),
     opportunityId: uuid('opportunity_id').references(() => opportunities.id, { onDelete: 'set null' }),
     companyId: uuid('company_id').references(() => companies.id, { onDelete: 'set null' }),
     contactId: uuid('contact_id').references(() => contacts.id, { onDelete: 'set null' }),
@@ -219,6 +228,7 @@ export const calls = pgTable(
   },
   (t) => ({
     tenantIdx: index('calls_tenant_idx').on(t.tenantId),
+    tenantDivisionIdx: index('calls_tenant_division_idx').on(t.tenantId, t.divisionId),
     dateIdx: index('calls_date_idx').on(t.callDate),
   })
 );

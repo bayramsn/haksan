@@ -1,0 +1,7043 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Haksan CRM API",
+    "version": "1.0.0",
+    "description": "Native (iOS/Android) istemciler için zod sözleşmesinden üretilmiş OpenAPI. Kaynak: @haksan/shared."
+  },
+  "servers": [
+    {
+      "url": "/api/v1"
+    }
+  ],
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT"
+      }
+    },
+    "schemas": {
+      "ErrorEnvelope": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              },
+              "details": {
+                "nullable": true
+              }
+            },
+            "required": [
+              "code",
+              "message"
+            ]
+          }
+        },
+        "required": [
+          "error"
+        ]
+      },
+      "DateRange": {
+        "type": "object",
+        "properties": {
+          "from": {
+            "type": "string",
+            "nullable": true
+          },
+          "to": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "Email": {
+        "type": "string",
+        "maxLength": 255
+      },
+      "Id": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 64
+      },
+      "Money": {
+        "type": "number",
+        "nullable": true,
+        "minimum": 0
+      },
+      "Pagination": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "type": "integer",
+            "minimum": 1,
+            "default": 1
+          },
+          "pageSize": {
+            "type": "integer",
+            "nullable": true,
+            "default": 25
+          },
+          "sortBy": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "sortDir": {
+            "type": "string",
+            "enum": [
+              "asc",
+              "desc"
+            ],
+            "default": "desc"
+          }
+        }
+      },
+      "Percent": {
+        "type": "number",
+        "nullable": true,
+        "minimum": 0,
+        "maximum": 100
+      },
+      "Phone": {
+        "type": "string",
+        "minLength": 5,
+        "maxLength": 32,
+        "pattern": "^[+0-9 ()\\-]*$"
+      },
+      "Url": {
+        "type": "string",
+        "maxLength": 512,
+        "format": "uri"
+      },
+      "Uuid": {
+        "type": "string",
+        "format": "uuid"
+      },
+      "ForgotPassword": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string",
+            "maxLength": 255
+          }
+        },
+        "required": [
+          "email"
+        ]
+      },
+      "LoginResponse": {
+        "type": "object",
+        "properties": {
+          "accessToken": {
+            "type": "string",
+            "minLength": 1
+          },
+          "user": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "email": {
+                "type": "string",
+                "maxLength": 255
+              },
+              "fullName": {
+                "type": "string"
+              },
+              "tenantId": {
+                "type": "string"
+              },
+              "roles": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "id",
+              "email",
+              "fullName",
+              "tenantId",
+              "roles"
+            ]
+          }
+        },
+        "required": [
+          "accessToken",
+          "user"
+        ]
+      },
+      "Login": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string",
+            "maxLength": 255
+          },
+          "password": {
+            "type": "string",
+            "minLength": 8,
+            "maxLength": 128
+          }
+        },
+        "required": [
+          "email",
+          "password"
+        ]
+      },
+      "MeResponse": {
+        "type": "object",
+        "properties": {
+          "user": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "email": {
+                "type": "string",
+                "maxLength": 255
+              },
+              "fullName": {
+                "type": "string"
+              },
+              "tenantId": {
+                "type": "string"
+              },
+              "departmentId": {
+                "type": "string",
+                "nullable": true
+              },
+              "roles": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "permissions": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "mfaEnabled": {
+                "type": "boolean"
+              },
+              "divisions": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "isPrimary": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "code",
+                    "name",
+                    "isPrimary"
+                  ]
+                },
+                "default": []
+              },
+              "canViewAllDivisions": {
+                "type": "boolean",
+                "default": false
+              }
+            },
+            "required": [
+              "id",
+              "email",
+              "fullName",
+              "tenantId",
+              "departmentId",
+              "roles",
+              "permissions",
+              "mfaEnabled"
+            ]
+          },
+          "tenant": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "slug": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "name",
+              "slug"
+            ]
+          }
+        },
+        "required": [
+          "user",
+          "tenant"
+        ]
+      },
+      "ResetPassword": {
+        "type": "object",
+        "properties": {
+          "token": {
+            "type": "string",
+            "minLength": 20,
+            "maxLength": 256
+          },
+          "newPassword": {
+            "type": "string",
+            "minLength": 8,
+            "maxLength": 128
+          }
+        },
+        "required": [
+          "token",
+          "newPassword"
+        ]
+      },
+      "AccessRequestListQuery": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "approved",
+              "rejected"
+            ]
+          }
+        }
+      },
+      "CompanyAccessRequestDecision": {
+        "type": "object",
+        "properties": {
+          "decisionNote": {
+            "type": "string",
+            "maxLength": 2000
+          }
+        }
+      },
+      "CompanyAccessRequest": {
+        "type": "object",
+        "properties": {
+          "divisionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 2000
+          }
+        }
+      },
+      "CompanyCreate": {
+        "type": "object",
+        "properties": {
+          "companyType": {
+            "type": "string",
+            "enum": [
+              "person",
+              "company"
+            ],
+            "default": "company"
+          },
+          "relationTypeCode": {
+            "type": "string",
+            "enum": [
+              "customer",
+              "supplier",
+              "supplier_customer"
+            ],
+            "default": "customer"
+          },
+          "customerStatusCode": {
+            "type": "string",
+            "enum": [
+              "potential",
+              "active",
+              "passive",
+              "blacklist"
+            ],
+            "default": "potential"
+          },
+          "companyGroupCode": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "contactSourceCode": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "sector": {
+            "type": "string",
+            "maxLength": 128
+          },
+          "legalTitle": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255
+          },
+          "shortName": {
+            "type": "string",
+            "maxLength": 128
+          },
+          "taxOffice": {
+            "type": "string",
+            "maxLength": 128
+          },
+          "taxNumber": {
+            "type": "string",
+            "maxLength": 32
+          },
+          "website": {
+            "type": "string",
+            "maxLength": 512,
+            "format": "uri"
+          },
+          "notes": {
+            "type": "string",
+            "maxLength": 4000
+          },
+          "divisionId": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "address": {
+            "type": "object",
+            "properties": {
+              "country": {
+                "type": "string",
+                "maxLength": 64,
+                "default": "Türkiye"
+              },
+              "province": {
+                "type": "string",
+                "maxLength": 64
+              },
+              "district": {
+                "type": "string",
+                "maxLength": 64
+              },
+              "locality": {
+                "type": "string",
+                "maxLength": 64
+              },
+              "zipCode": {
+                "type": "string",
+                "maxLength": 16
+              },
+              "street": {
+                "type": "string",
+                "maxLength": 255
+              },
+              "buildingNumber": {
+                "type": "string",
+                "maxLength": 32
+              },
+              "fullAddress": {
+                "type": "string",
+                "maxLength": 1000
+              }
+            }
+          },
+          "primaryPhone": {
+            "type": "string",
+            "minLength": 5,
+            "maxLength": 32,
+            "pattern": "^[+0-9 ()\\-]*$"
+          },
+          "secondaryPhone": {
+            "type": "string",
+            "minLength": 5,
+            "maxLength": 32,
+            "pattern": "^[+0-9 ()\\-]*$"
+          },
+          "fax": {
+            "type": "string",
+            "minLength": 5,
+            "maxLength": 32,
+            "pattern": "^[+0-9 ()\\-]*$"
+          },
+          "primaryEmail": {
+            "type": "string",
+            "maxLength": 255
+          },
+          "secondaryEmail": {
+            "type": "string",
+            "maxLength": 255
+          }
+        },
+        "required": [
+          "legalTitle"
+        ]
+      },
+      "CompanyListQuery": {
+        "type": "object",
+        "properties": {
+          "search": {
+            "type": "string",
+            "maxLength": 128
+          },
+          "relationTypeCode": {
+            "type": "string",
+            "enum": [
+              "customer",
+              "supplier",
+              "supplier_customer"
+            ]
+          },
+          "customerStatusCode": {
+            "type": "string",
+            "enum": [
+              "potential",
+              "active",
+              "passive",
+              "blacklist"
+            ]
+          }
+        }
+      },
+      "CompanyTypeEnum": {
+        "type": "string",
+        "enum": [
+          "person",
+          "company"
+        ]
+      },
+      "CompanyUpdate": {
+        "type": "object",
+        "properties": {
+          "companyType": {
+            "type": "string",
+            "enum": [
+              "person",
+              "company"
+            ],
+            "default": "company"
+          },
+          "relationTypeCode": {
+            "type": "string",
+            "enum": [
+              "customer",
+              "supplier",
+              "supplier_customer"
+            ],
+            "default": "customer"
+          },
+          "customerStatusCode": {
+            "type": "string",
+            "enum": [
+              "potential",
+              "active",
+              "passive",
+              "blacklist"
+            ],
+            "default": "potential"
+          },
+          "companyGroupCode": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "contactSourceCode": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "sector": {
+            "type": "string",
+            "maxLength": 128
+          },
+          "legalTitle": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255
+          },
+          "shortName": {
+            "type": "string",
+            "maxLength": 128
+          },
+          "taxOffice": {
+            "type": "string",
+            "maxLength": 128
+          },
+          "taxNumber": {
+            "type": "string",
+            "maxLength": 32
+          },
+          "website": {
+            "type": "string",
+            "maxLength": 512,
+            "format": "uri"
+          },
+          "notes": {
+            "type": "string",
+            "maxLength": 4000
+          },
+          "divisionId": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "address": {
+            "type": "object",
+            "properties": {
+              "country": {
+                "type": "string",
+                "maxLength": 64,
+                "default": "Türkiye"
+              },
+              "province": {
+                "type": "string",
+                "maxLength": 64
+              },
+              "district": {
+                "type": "string",
+                "maxLength": 64
+              },
+              "locality": {
+                "type": "string",
+                "maxLength": 64
+              },
+              "zipCode": {
+                "type": "string",
+                "maxLength": 16
+              },
+              "street": {
+                "type": "string",
+                "maxLength": 255
+              },
+              "buildingNumber": {
+                "type": "string",
+                "maxLength": 32
+              },
+              "fullAddress": {
+                "type": "string",
+                "maxLength": 1000
+              }
+            }
+          },
+          "primaryPhone": {
+            "type": "string",
+            "minLength": 5,
+            "maxLength": 32,
+            "pattern": "^[+0-9 ()\\-]*$"
+          },
+          "secondaryPhone": {
+            "type": "string",
+            "minLength": 5,
+            "maxLength": 32,
+            "pattern": "^[+0-9 ()\\-]*$"
+          },
+          "fax": {
+            "type": "string",
+            "minLength": 5,
+            "maxLength": 32,
+            "pattern": "^[+0-9 ()\\-]*$"
+          },
+          "primaryEmail": {
+            "type": "string",
+            "maxLength": 255
+          },
+          "secondaryEmail": {
+            "type": "string",
+            "maxLength": 255
+          }
+        }
+      },
+      "ContactCreate": {
+        "type": "object",
+        "properties": {
+          "companyId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "fullName": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255
+          },
+          "title": {
+            "type": "string",
+            "maxLength": 128
+          },
+          "department": {
+            "type": "string",
+            "maxLength": 128
+          },
+          "decisionRoleCode": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "workPhone": {
+            "type": "string",
+            "minLength": 5,
+            "maxLength": 32,
+            "pattern": "^[+0-9 ()\\-]*$"
+          },
+          "phoneExtension": {
+            "type": "string",
+            "maxLength": 16
+          },
+          "mobilePhone": {
+            "type": "string",
+            "minLength": 5,
+            "maxLength": 32,
+            "pattern": "^[+0-9 ()\\-]*$"
+          },
+          "otherPhone": {
+            "type": "string",
+            "minLength": 5,
+            "maxLength": 32,
+            "pattern": "^[+0-9 ()\\-]*$"
+          },
+          "workEmail": {
+            "type": "string",
+            "maxLength": 255
+          },
+          "personalEmail": {
+            "type": "string",
+            "maxLength": 255
+          },
+          "otherEmail": {
+            "type": "string",
+            "maxLength": 255
+          },
+          "gender": {
+            "type": "string",
+            "maxLength": 32
+          },
+          "birthDate": {
+            "type": "string",
+            "nullable": true
+          },
+          "hometown": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "favoriteTeam": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "knownIllness": {
+            "type": "string",
+            "maxLength": 512
+          },
+          "favoriteColor": {
+            "type": "string",
+            "maxLength": 32
+          },
+          "graduatedSchool": {
+            "type": "string",
+            "maxLength": 128
+          },
+          "politicalView": {
+            "type": "string",
+            "maxLength": 128
+          },
+          "notes": {
+            "type": "string",
+            "maxLength": 4000
+          },
+          "isBlacklisted": {
+            "type": "boolean",
+            "default": false
+          },
+          "blacklistReason": {
+            "type": "string",
+            "maxLength": 2000
+          },
+          "isPrimary": {
+            "type": "boolean",
+            "default": false
+          }
+        },
+        "required": [
+          "companyId",
+          "fullName"
+        ]
+      },
+      "ContactUpdate": {
+        "type": "object",
+        "properties": {
+          "companyId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "fullName": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255
+          },
+          "title": {
+            "type": "string",
+            "maxLength": 128
+          },
+          "department": {
+            "type": "string",
+            "maxLength": 128
+          },
+          "decisionRoleCode": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "workPhone": {
+            "type": "string",
+            "minLength": 5,
+            "maxLength": 32,
+            "pattern": "^[+0-9 ()\\-]*$"
+          },
+          "phoneExtension": {
+            "type": "string",
+            "maxLength": 16
+          },
+          "mobilePhone": {
+            "type": "string",
+            "minLength": 5,
+            "maxLength": 32,
+            "pattern": "^[+0-9 ()\\-]*$"
+          },
+          "otherPhone": {
+            "type": "string",
+            "minLength": 5,
+            "maxLength": 32,
+            "pattern": "^[+0-9 ()\\-]*$"
+          },
+          "workEmail": {
+            "type": "string",
+            "maxLength": 255
+          },
+          "personalEmail": {
+            "type": "string",
+            "maxLength": 255
+          },
+          "otherEmail": {
+            "type": "string",
+            "maxLength": 255
+          },
+          "gender": {
+            "type": "string",
+            "maxLength": 32
+          },
+          "birthDate": {
+            "type": "string",
+            "nullable": true
+          },
+          "hometown": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "favoriteTeam": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "knownIllness": {
+            "type": "string",
+            "maxLength": 512
+          },
+          "favoriteColor": {
+            "type": "string",
+            "maxLength": 32
+          },
+          "graduatedSchool": {
+            "type": "string",
+            "maxLength": 128
+          },
+          "politicalView": {
+            "type": "string",
+            "maxLength": 128
+          },
+          "notes": {
+            "type": "string",
+            "maxLength": 4000
+          },
+          "isBlacklisted": {
+            "type": "boolean",
+            "default": false
+          },
+          "blacklistReason": {
+            "type": "string",
+            "maxLength": 2000
+          },
+          "isPrimary": {
+            "type": "boolean",
+            "default": false
+          }
+        }
+      },
+      "ActivityCreate": {
+        "type": "object",
+        "properties": {
+          "opportunityId": {
+            "type": "string"
+          },
+          "companyId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "contactId": {
+            "type": "string"
+          },
+          "activityTypeCode": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "subject": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 4000
+          },
+          "activityDate": {
+            "type": "string",
+            "nullable": true
+          },
+          "nextFollowUpAt": {
+            "type": "string",
+            "nullable": true
+          },
+          "result": {
+            "type": "string",
+            "maxLength": 2000
+          }
+        },
+        "required": [
+          "companyId",
+          "activityTypeCode",
+          "subject",
+          "activityDate"
+        ]
+      },
+      "CallCreate": {
+        "type": "object",
+        "properties": {
+          "opportunityId": {
+            "type": "string"
+          },
+          "companyId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "contactId": {
+            "type": "string"
+          },
+          "callDate": {
+            "type": "string",
+            "nullable": true
+          },
+          "callResult": {
+            "type": "string",
+            "maxLength": 2000
+          },
+          "nextAction": {
+            "type": "string",
+            "maxLength": 1000
+          }
+        },
+        "required": [
+          "companyId",
+          "callDate"
+        ]
+      },
+      "CompetitorCreate": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255
+          },
+          "website": {
+            "type": "string",
+            "maxLength": 512,
+            "format": "uri"
+          },
+          "notes": {
+            "type": "string",
+            "maxLength": 4000
+          }
+        },
+        "required": [
+          "name"
+        ]
+      },
+      "CompetitorProductCreate": {
+        "type": "object",
+        "properties": {
+          "modelCode": {
+            "type": "string",
+            "maxLength": 128
+          },
+          "modelName": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255
+          },
+          "notes": {
+            "type": "string",
+            "maxLength": 4000
+          }
+        },
+        "required": [
+          "modelName"
+        ]
+      },
+      "CompetitorUpdate": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255
+          },
+          "website": {
+            "type": "string",
+            "maxLength": 512,
+            "format": "uri"
+          },
+          "notes": {
+            "type": "string",
+            "maxLength": 4000
+          }
+        }
+      },
+      "OpportunityCreate": {
+        "type": "object",
+        "properties": {
+          "companyId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "divisionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "primaryContactId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "ownerUserId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 4000
+          },
+          "estimatedValue": {
+            "type": "number",
+            "nullable": true,
+            "minimum": 0
+          },
+          "currencyCode": {
+            "type": "string",
+            "maxLength": 8,
+            "default": "USD"
+          },
+          "probability": {
+            "type": "integer",
+            "nullable": true,
+            "minimum": 0,
+            "maximum": 100,
+            "default": 50
+          },
+          "expectedCloseDate": {
+            "type": "string",
+            "nullable": true
+          },
+          "sourceCode": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "wonReason": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 255
+          }
+        },
+        "required": [
+          "companyId",
+          "title"
+        ]
+      },
+      "OpportunityStageChange": {
+        "type": "object",
+        "properties": {
+          "toStage": {
+            "type": "string",
+            "enum": [
+              "lead",
+              "call",
+              "visit",
+              "quote",
+              "sales",
+              "cancelled",
+              "proforma",
+              "contract",
+              "payment_plan",
+              "commercial_invoice",
+              "customs_approved",
+              "stock_picking",
+              "shipping",
+              "installation",
+              "delivered"
+            ]
+          },
+          "changeReason": {
+            "type": "string",
+            "maxLength": 1000
+          },
+          "cancellationReasonCode": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "lostCompetitorId": {
+            "type": "string"
+          },
+          "lostCompetitorProductModel": {
+            "type": "string",
+            "maxLength": 255
+          },
+          "quoteId": {
+            "type": "string"
+          },
+          "inventoryItemIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "toStage"
+        ]
+      },
+      "OpportunityUpdate": {
+        "type": "object",
+        "properties": {
+          "companyId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "divisionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "primaryContactId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "ownerUserId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 4000
+          },
+          "estimatedValue": {
+            "type": "number",
+            "nullable": true,
+            "minimum": 0
+          },
+          "currencyCode": {
+            "type": "string",
+            "maxLength": 8,
+            "default": "USD"
+          },
+          "probability": {
+            "type": "integer",
+            "nullable": true,
+            "minimum": 0,
+            "maximum": 100,
+            "default": 50
+          },
+          "expectedCloseDate": {
+            "type": "string",
+            "nullable": true
+          },
+          "sourceCode": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "wonReason": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 255
+          }
+        }
+      },
+      "PipelineStageEnum": {
+        "type": "string",
+        "enum": [
+          "lead",
+          "call",
+          "visit",
+          "quote",
+          "sales",
+          "cancelled",
+          "proforma",
+          "contract",
+          "payment_plan",
+          "commercial_invoice",
+          "customs_approved",
+          "stock_picking",
+          "shipping",
+          "installation",
+          "delivered"
+        ]
+      },
+      "VisitCreate": {
+        "type": "object",
+        "properties": {
+          "opportunityId": {
+            "type": "string"
+          },
+          "companyId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "contactId": {
+            "type": "string"
+          },
+          "visitDate": {
+            "type": "string",
+            "nullable": true
+          },
+          "visitLocation": {
+            "type": "string",
+            "maxLength": 255
+          },
+          "visitPurpose": {
+            "type": "string",
+            "maxLength": 1000
+          },
+          "visitResult": {
+            "type": "string",
+            "maxLength": 2000
+          },
+          "nextAction": {
+            "type": "string",
+            "maxLength": 1000
+          }
+        },
+        "required": [
+          "companyId",
+          "visitDate"
+        ]
+      },
+      "BrandCreate": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "country": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "website": {
+            "type": "string",
+            "maxLength": 512,
+            "format": "uri"
+          },
+          "notes": {
+            "type": "string",
+            "maxLength": 4000
+          }
+        },
+        "required": [
+          "name"
+        ]
+      },
+      "PriceListCreate": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 4000
+          },
+          "currencyCode": {
+            "type": "string",
+            "maxLength": 8,
+            "default": "USD"
+          },
+          "validFrom": {
+            "type": "string",
+            "nullable": true
+          },
+          "validUntil": {
+            "type": "string",
+            "nullable": true
+          },
+          "isActive": {
+            "type": "boolean",
+            "default": true
+          }
+        },
+        "required": [
+          "code",
+          "name"
+        ]
+      },
+      "PriceListItemCreate": {
+        "type": "object",
+        "properties": {
+          "productModelId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "listPrice": {
+            "type": "number",
+            "nullable": true,
+            "minimum": 0
+          },
+          "cashPrice": {
+            "type": "number",
+            "nullable": true,
+            "minimum": 0
+          },
+          "vatRate": {
+            "type": "number",
+            "nullable": true,
+            "minimum": 0,
+            "maximum": 100
+          },
+          "notes": {
+            "type": "string",
+            "maxLength": 4000
+          }
+        },
+        "required": [
+          "productModelId"
+        ]
+      },
+      "PriceListItemUpdate": {
+        "type": "object",
+        "properties": {
+          "productModelId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "listPrice": {
+            "type": "number",
+            "nullable": true,
+            "minimum": 0
+          },
+          "cashPrice": {
+            "type": "number",
+            "nullable": true,
+            "minimum": 0
+          },
+          "vatRate": {
+            "type": "number",
+            "nullable": true,
+            "minimum": 0,
+            "maximum": 100
+          },
+          "notes": {
+            "type": "string",
+            "maxLength": 4000
+          }
+        }
+      },
+      "PriceListUpdate": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 4000
+          },
+          "currencyCode": {
+            "type": "string",
+            "maxLength": 8,
+            "default": "USD"
+          },
+          "validFrom": {
+            "type": "string",
+            "nullable": true
+          },
+          "validUntil": {
+            "type": "string",
+            "nullable": true
+          },
+          "isActive": {
+            "type": "boolean",
+            "default": true
+          }
+        }
+      },
+      "ProductCreate": {
+        "type": "object",
+        "properties": {
+          "brandId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "productGroupCode": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "categoryCode": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "subcategoryCode": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "productTypeCode": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "modelCode": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "modelName": {
+            "type": "string",
+            "maxLength": 255
+          },
+          "fullName": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512
+          },
+          "currencyCode": {
+            "type": "string",
+            "maxLength": 8,
+            "default": "USD"
+          },
+          "listPrice": {
+            "type": "number",
+            "nullable": true,
+            "minimum": 0
+          },
+          "cashPrice": {
+            "type": "number",
+            "nullable": true,
+            "minimum": 0
+          },
+          "vatRate": {
+            "type": "number",
+            "nullable": true,
+            "minimum": 0,
+            "maximum": 100,
+            "default": 20
+          },
+          "originCountry": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "hsCode": {
+            "type": "string",
+            "maxLength": 32
+          },
+          "stockCode": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "imageUrl": {
+            "type": "string",
+            "maxLength": 512
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 4000
+          },
+          "muadilProductId": {
+            "type": "string",
+            "nullable": true,
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "brandId",
+          "modelCode",
+          "fullName"
+        ]
+      },
+      "ProductDetailsReplace": {
+        "type": "object",
+        "properties": {
+          "specs": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "specGroupCode": {
+                  "type": "string",
+                  "maxLength": 64
+                },
+                "specKey": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 255
+                },
+                "specValue": {
+                  "type": "string",
+                  "maxLength": 2000
+                },
+                "specUnit": {
+                  "type": "string",
+                  "maxLength": 64
+                },
+                "sortOrder": {
+                  "type": "integer",
+                  "nullable": true,
+                  "default": 0
+                }
+              },
+              "required": [
+                "specGroupCode",
+                "specKey",
+                "specValue"
+              ]
+            },
+            "default": []
+          },
+          "equipment": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "equipmentTypeCode": {
+                  "type": "string",
+                  "maxLength": 64
+                },
+                "title": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 255
+                },
+                "description": {
+                  "type": "string",
+                  "maxLength": 2000
+                },
+                "isPromotion": {
+                  "type": "boolean",
+                  "default": false
+                },
+                "sortOrder": {
+                  "type": "integer",
+                  "nullable": true,
+                  "default": 0
+                }
+              },
+              "required": [
+                "equipmentTypeCode",
+                "title"
+              ]
+            },
+            "default": []
+          }
+        }
+      },
+      "ProductEquipmentCreate": {
+        "type": "object",
+        "properties": {
+          "equipmentTypeCode": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 2000
+          },
+          "isPromotion": {
+            "type": "boolean",
+            "default": false
+          },
+          "sortOrder": {
+            "type": "integer",
+            "nullable": true,
+            "default": 0
+          }
+        },
+        "required": [
+          "equipmentTypeCode",
+          "title"
+        ]
+      },
+      "ProductImportCommitRequest": {
+        "type": "object",
+        "properties": {
+          "rows": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "rowNumber": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "exclusiveMinimum": true
+                },
+                "brandName": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128
+                },
+                "modelCode": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 64
+                },
+                "modelName": {
+                  "type": "string",
+                  "maxLength": 255
+                },
+                "fullName": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 512
+                },
+                "productGroupCode": {
+                  "type": "string",
+                  "maxLength": 64
+                },
+                "categoryCode": {
+                  "type": "string",
+                  "maxLength": 64
+                },
+                "subcategoryCode": {
+                  "type": "string",
+                  "maxLength": 64
+                },
+                "productTypeCode": {
+                  "type": "string",
+                  "maxLength": 64
+                },
+                "currencyCode": {
+                  "type": "string",
+                  "maxLength": 8,
+                  "default": "USD"
+                },
+                "listPrice": {
+                  "type": "number",
+                  "nullable": true,
+                  "minimum": 0
+                },
+                "cashPrice": {
+                  "type": "number",
+                  "nullable": true,
+                  "minimum": 0
+                },
+                "vatRate": {
+                  "type": "number",
+                  "nullable": true,
+                  "minimum": 0,
+                  "maximum": 100,
+                  "default": 20
+                },
+                "originCountry": {
+                  "type": "string",
+                  "maxLength": 64
+                },
+                "hsCode": {
+                  "type": "string",
+                  "maxLength": 32
+                },
+                "stockCode": {
+                  "type": "string",
+                  "maxLength": 64
+                },
+                "imageUrl": {
+                  "type": "string",
+                  "maxLength": 512
+                },
+                "description": {
+                  "type": "string",
+                  "maxLength": 4000
+                },
+                "specs": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "specGroupCode": {
+                        "type": "string",
+                        "maxLength": 64
+                      },
+                      "specKey": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 255
+                      },
+                      "specValue": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 2000
+                      },
+                      "specUnit": {
+                        "type": "string",
+                        "maxLength": 64
+                      },
+                      "sortOrder": {
+                        "type": "integer",
+                        "nullable": true,
+                        "default": 0
+                      }
+                    },
+                    "required": [
+                      "specKey",
+                      "specValue"
+                    ]
+                  },
+                  "default": []
+                },
+                "equipment": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "equipmentTypeCode": {
+                        "type": "string",
+                        "maxLength": 64
+                      },
+                      "title": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 255
+                      },
+                      "description": {
+                        "type": "string",
+                        "maxLength": 2000
+                      },
+                      "isPromotion": {
+                        "type": "boolean",
+                        "default": false
+                      },
+                      "sortOrder": {
+                        "type": "integer",
+                        "nullable": true,
+                        "default": 0
+                      }
+                    },
+                    "required": [
+                      "equipmentTypeCode",
+                      "title"
+                    ]
+                  },
+                  "default": []
+                }
+              },
+              "required": [
+                "rowNumber",
+                "brandName",
+                "modelCode",
+                "fullName"
+              ]
+            },
+            "minItems": 1
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "upsert",
+              "create_only"
+            ],
+            "default": "upsert"
+          },
+          "replaceDetails": {
+            "type": "boolean",
+            "default": true
+          }
+        },
+        "required": [
+          "rows"
+        ]
+      },
+      "ProductImportEquipment": {
+        "type": "object",
+        "properties": {
+          "equipmentTypeCode": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 2000
+          },
+          "isPromotion": {
+            "type": "boolean",
+            "default": false
+          },
+          "sortOrder": {
+            "type": "integer",
+            "nullable": true,
+            "default": 0
+          }
+        },
+        "required": [
+          "equipmentTypeCode",
+          "title"
+        ]
+      },
+      "ProductImportPreviewRequest": {
+        "type": "object",
+        "properties": {
+          "fileName": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255
+          },
+          "fileBase64": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "fileName",
+          "fileBase64"
+        ]
+      },
+      "ProductImportRow": {
+        "type": "object",
+        "properties": {
+          "rowNumber": {
+            "type": "integer",
+            "minimum": 0,
+            "exclusiveMinimum": true
+          },
+          "brandName": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "modelCode": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "modelName": {
+            "type": "string",
+            "maxLength": 255
+          },
+          "fullName": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512
+          },
+          "productGroupCode": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "categoryCode": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "subcategoryCode": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "productTypeCode": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "currencyCode": {
+            "type": "string",
+            "maxLength": 8,
+            "default": "USD"
+          },
+          "listPrice": {
+            "type": "number",
+            "nullable": true,
+            "minimum": 0
+          },
+          "cashPrice": {
+            "type": "number",
+            "nullable": true,
+            "minimum": 0
+          },
+          "vatRate": {
+            "type": "number",
+            "nullable": true,
+            "minimum": 0,
+            "maximum": 100,
+            "default": 20
+          },
+          "originCountry": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "hsCode": {
+            "type": "string",
+            "maxLength": 32
+          },
+          "stockCode": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "imageUrl": {
+            "type": "string",
+            "maxLength": 512
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 4000
+          },
+          "specs": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "specGroupCode": {
+                  "type": "string",
+                  "maxLength": 64
+                },
+                "specKey": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 255
+                },
+                "specValue": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 2000
+                },
+                "specUnit": {
+                  "type": "string",
+                  "maxLength": 64
+                },
+                "sortOrder": {
+                  "type": "integer",
+                  "nullable": true,
+                  "default": 0
+                }
+              },
+              "required": [
+                "specKey",
+                "specValue"
+              ]
+            },
+            "default": []
+          },
+          "equipment": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "equipmentTypeCode": {
+                  "type": "string",
+                  "maxLength": 64
+                },
+                "title": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 255
+                },
+                "description": {
+                  "type": "string",
+                  "maxLength": 2000
+                },
+                "isPromotion": {
+                  "type": "boolean",
+                  "default": false
+                },
+                "sortOrder": {
+                  "type": "integer",
+                  "nullable": true,
+                  "default": 0
+                }
+              },
+              "required": [
+                "equipmentTypeCode",
+                "title"
+              ]
+            },
+            "default": []
+          }
+        },
+        "required": [
+          "rowNumber",
+          "brandName",
+          "modelCode",
+          "fullName"
+        ]
+      },
+      "ProductImportSpec": {
+        "type": "object",
+        "properties": {
+          "specGroupCode": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "specKey": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255
+          },
+          "specValue": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000
+          },
+          "specUnit": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "sortOrder": {
+            "type": "integer",
+            "nullable": true,
+            "default": 0
+          }
+        },
+        "required": [
+          "specKey",
+          "specValue"
+        ]
+      },
+      "ProductOptionSetCreate": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255
+          },
+          "sortOrder": {
+            "type": "integer",
+            "nullable": true,
+            "default": 0
+          }
+        },
+        "required": [
+          "name"
+        ]
+      },
+      "ProductOptionValueCreate": {
+        "type": "object",
+        "properties": {
+          "value": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255
+          },
+          "priceDelta": {
+            "type": "number",
+            "nullable": true,
+            "minimum": 0
+          },
+          "currencyCode": {
+            "type": "string",
+            "maxLength": 8
+          },
+          "sortOrder": {
+            "type": "integer",
+            "nullable": true,
+            "default": 0
+          }
+        },
+        "required": [
+          "value"
+        ]
+      },
+      "ProductSpecCreate": {
+        "type": "object",
+        "properties": {
+          "specGroupCode": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "specKey": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255
+          },
+          "specValue": {
+            "type": "string",
+            "maxLength": 2000
+          },
+          "specUnit": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "sortOrder": {
+            "type": "integer",
+            "nullable": true,
+            "default": 0
+          }
+        },
+        "required": [
+          "specGroupCode",
+          "specKey",
+          "specValue"
+        ]
+      },
+      "ProductUpdate": {
+        "type": "object",
+        "properties": {
+          "brandId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "productGroupCode": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "categoryCode": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "subcategoryCode": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "productTypeCode": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "modelCode": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "modelName": {
+            "type": "string",
+            "maxLength": 255
+          },
+          "fullName": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512
+          },
+          "currencyCode": {
+            "type": "string",
+            "maxLength": 8,
+            "default": "USD"
+          },
+          "listPrice": {
+            "type": "number",
+            "nullable": true,
+            "minimum": 0
+          },
+          "cashPrice": {
+            "type": "number",
+            "nullable": true,
+            "minimum": 0
+          },
+          "vatRate": {
+            "type": "number",
+            "nullable": true,
+            "minimum": 0,
+            "maximum": 100,
+            "default": 20
+          },
+          "originCountry": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "hsCode": {
+            "type": "string",
+            "maxLength": 32
+          },
+          "stockCode": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "imageUrl": {
+            "type": "string",
+            "maxLength": 512
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 4000
+          },
+          "muadilProductId": {
+            "type": "string",
+            "nullable": true,
+            "format": "uuid"
+          }
+        }
+      },
+      "AccountingInvoiceLine": {
+        "type": "object",
+        "properties": {
+          "productModelId": {
+            "type": "string"
+          },
+          "inventoryItemId": {
+            "type": "string"
+          },
+          "categoryCode": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 500
+          },
+          "quantity": {
+            "type": "number",
+            "minimum": 0,
+            "exclusiveMinimum": true,
+            "default": 1
+          }
+        }
+      },
+      "CustomerDeviceCreate": {
+        "type": "object",
+        "properties": {
+          "companyId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "divisionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "inventoryItemId": {
+            "type": "string"
+          },
+          "opportunityId": {
+            "type": "string"
+          },
+          "quoteId": {
+            "type": "string"
+          },
+          "installationDate": {
+            "type": "string",
+            "nullable": true
+          },
+          "warrantyStartDate": {
+            "type": "string",
+            "nullable": true
+          },
+          "warrantyEndDate": {
+            "type": "string",
+            "nullable": true
+          },
+          "deliveryDate": {
+            "type": "string",
+            "nullable": true
+          },
+          "notes": {
+            "type": "string",
+            "maxLength": 4000
+          }
+        },
+        "required": [
+          "companyId"
+        ]
+      },
+      "InventoryItemCreate": {
+        "type": "object",
+        "properties": {
+          "divisionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "productModelId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "serialNumber": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "controlUnit": {
+            "type": "string",
+            "maxLength": 128
+          },
+          "controlUnitSerialNumber": {
+            "type": "string",
+            "maxLength": 128
+          },
+          "loadingDate": {
+            "type": "string",
+            "nullable": true
+          },
+          "arrivalDate": {
+            "type": "string",
+            "nullable": true
+          },
+          "locationStatusCode": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "stockStatusCode": {
+            "type": "string",
+            "maxLength": 64,
+            "default": "available"
+          },
+          "warehouseId": {
+            "type": "string"
+          },
+          "notes": {
+            "type": "string",
+            "maxLength": 4000
+          }
+        },
+        "required": [
+          "productModelId",
+          "serialNumber"
+        ]
+      },
+      "InventoryItemUpdate": {
+        "type": "object",
+        "properties": {
+          "divisionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "productModelId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "serialNumber": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "controlUnit": {
+            "type": "string",
+            "maxLength": 128
+          },
+          "controlUnitSerialNumber": {
+            "type": "string",
+            "maxLength": 128
+          },
+          "loadingDate": {
+            "type": "string",
+            "nullable": true
+          },
+          "arrivalDate": {
+            "type": "string",
+            "nullable": true
+          },
+          "locationStatusCode": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "stockStatusCode": {
+            "type": "string",
+            "maxLength": 64,
+            "default": "available"
+          },
+          "warehouseId": {
+            "type": "string"
+          },
+          "notes": {
+            "type": "string",
+            "maxLength": 4000
+          }
+        }
+      },
+      "InventoryReserve": {
+        "type": "object",
+        "properties": {
+          "companyId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "divisionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "opportunityId": {
+            "type": "string"
+          },
+          "quoteId": {
+            "type": "string"
+          },
+          "notes": {
+            "type": "string",
+            "maxLength": 1000
+          }
+        },
+        "required": [
+          "companyId"
+        ]
+      },
+      "InventorySell": {
+        "type": "object",
+        "properties": {
+          "opportunityId": {
+            "type": "string"
+          },
+          "quoteId": {
+            "type": "string"
+          },
+          "companyId": {
+            "type": "string"
+          },
+          "notes": {
+            "type": "string",
+            "maxLength": 1000
+          }
+        }
+      },
+      "WarehouseCreate": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255
+          },
+          "type": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "country": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "province": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "district": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "address": {
+            "type": "string",
+            "maxLength": 1000
+          }
+        },
+        "required": [
+          "name"
+        ]
+      },
+      "CommercialInvoiceCreate": {
+        "type": "object",
+        "properties": {
+          "quoteId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "invoiceNo": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "invoiceDate": {
+            "type": "string",
+            "nullable": true
+          },
+          "statusCode": {
+            "type": "string",
+            "maxLength": 64,
+            "default": "draft"
+          },
+          "fileId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "quoteId",
+          "invoiceNo",
+          "invoiceDate"
+        ]
+      },
+      "CommercialInvoiceUpdate": {
+        "type": "object",
+        "properties": {
+          "quoteId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "invoiceNo": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "invoiceDate": {
+            "type": "string",
+            "nullable": true
+          },
+          "statusCode": {
+            "type": "string",
+            "maxLength": 64,
+            "default": "draft"
+          },
+          "fileId": {
+            "type": "string"
+          }
+        }
+      },
+      "ContractCreate": {
+        "type": "object",
+        "properties": {
+          "quoteId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "contractNo": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "signedDate": {
+            "type": "string",
+            "nullable": true
+          },
+          "statusCode": {
+            "type": "string",
+            "maxLength": 64,
+            "default": "draft"
+          },
+          "fileId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "quoteId",
+          "contractNo"
+        ]
+      },
+      "ContractUpdate": {
+        "type": "object",
+        "properties": {
+          "quoteId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "contractNo": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "signedDate": {
+            "type": "string",
+            "nullable": true
+          },
+          "statusCode": {
+            "type": "string",
+            "maxLength": 64,
+            "default": "draft"
+          },
+          "fileId": {
+            "type": "string"
+          }
+        }
+      },
+      "ProformaCreate": {
+        "type": "object",
+        "properties": {
+          "quoteId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "documentNo": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "issueDate": {
+            "type": "string",
+            "nullable": true
+          },
+          "statusCode": {
+            "type": "string",
+            "maxLength": 64,
+            "default": "draft"
+          },
+          "fileId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "quoteId",
+          "documentNo",
+          "issueDate"
+        ]
+      },
+      "ProformaUpdate": {
+        "type": "object",
+        "properties": {
+          "quoteId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "documentNo": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "issueDate": {
+            "type": "string",
+            "nullable": true
+          },
+          "statusCode": {
+            "type": "string",
+            "maxLength": 64,
+            "default": "draft"
+          },
+          "fileId": {
+            "type": "string"
+          }
+        }
+      },
+      "QuoteCreate": {
+        "type": "object",
+        "properties": {
+          "opportunityId": {
+            "type": "string"
+          },
+          "companyId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "divisionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "contactId": {
+            "type": "string"
+          },
+          "documentNo": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "quoteDate": {
+            "type": "string",
+            "nullable": true
+          },
+          "validityDays": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 365,
+            "default": 30
+          },
+          "projectOwnerUserId": {
+            "type": "string"
+          },
+          "currencyCode": {
+            "type": "string",
+            "maxLength": 8,
+            "default": "USD"
+          },
+          "paymentTerms": {
+            "type": "string",
+            "maxLength": 2000
+          },
+          "deliveryTerms": {
+            "type": "string",
+            "maxLength": 2000
+          },
+          "warrantyTerms": {
+            "type": "string",
+            "maxLength": 2000
+          },
+          "notes": {
+            "type": "string",
+            "maxLength": 4000
+          }
+        },
+        "required": [
+          "companyId",
+          "quoteDate"
+        ]
+      },
+      "QuoteItemCompatibility": {
+        "type": "object",
+        "properties": {
+          "machineIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "default": []
+          },
+          "brands": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "default": []
+          },
+          "controlUnits": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "default": []
+          },
+          "supplierIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "default": []
+          }
+        }
+      },
+      "QuoteItemCreate": {
+        "type": "object",
+        "properties": {
+          "productModelId": {
+            "type": "string"
+          },
+          "inventoryItemId": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000
+          },
+          "quantity": {
+            "type": "number",
+            "minimum": 0,
+            "exclusiveMinimum": true
+          },
+          "unitCode": {
+            "type": "string",
+            "maxLength": 16,
+            "default": "adet"
+          },
+          "unitPrice": {
+            "type": "number",
+            "nullable": true,
+            "minimum": 0
+          },
+          "discountAmount": {
+            "type": "number",
+            "nullable": true,
+            "minimum": 0,
+            "default": 0
+          },
+          "vatRate": {
+            "type": "number",
+            "nullable": true,
+            "minimum": 0,
+            "maximum": 100,
+            "default": 20
+          },
+          "sortOrder": {
+            "type": "integer",
+            "nullable": true,
+            "default": 0
+          },
+          "compatibility": {
+            "type": "object",
+            "nullable": true,
+            "properties": {
+              "machineIds": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "default": []
+              },
+              "brands": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "default": []
+              },
+              "controlUnits": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "default": []
+              },
+              "supplierIds": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "default": []
+              }
+            }
+          }
+        },
+        "required": [
+          "description",
+          "quantity",
+          "unitPrice"
+        ]
+      },
+      "QuoteItemUpdate": {
+        "type": "object",
+        "properties": {
+          "productModelId": {
+            "type": "string"
+          },
+          "inventoryItemId": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000
+          },
+          "quantity": {
+            "type": "number",
+            "minimum": 0,
+            "exclusiveMinimum": true
+          },
+          "unitCode": {
+            "type": "string",
+            "maxLength": 16,
+            "default": "adet"
+          },
+          "unitPrice": {
+            "type": "number",
+            "nullable": true,
+            "minimum": 0
+          },
+          "discountAmount": {
+            "type": "number",
+            "nullable": true,
+            "minimum": 0,
+            "default": 0
+          },
+          "vatRate": {
+            "type": "number",
+            "nullable": true,
+            "minimum": 0,
+            "maximum": 100,
+            "default": 20
+          },
+          "sortOrder": {
+            "type": "integer",
+            "nullable": true,
+            "default": 0
+          },
+          "compatibility": {
+            "type": "object",
+            "nullable": true,
+            "properties": {
+              "machineIds": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "default": []
+              },
+              "brands": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "default": []
+              },
+              "controlUnits": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "default": []
+              },
+              "supplierIds": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "default": []
+              }
+            }
+          }
+        }
+      },
+      "QuoteTermsUpsert": {
+        "type": "object",
+        "properties": {
+          "paymentTermsText": {
+            "type": "string",
+            "maxLength": 4000
+          },
+          "deliveryTermsText": {
+            "type": "string",
+            "maxLength": 4000
+          },
+          "warrantyTermsText": {
+            "type": "string",
+            "maxLength": 4000
+          },
+          "importCostsExcluded": {
+            "type": "boolean",
+            "default": true
+          },
+          "deliveryLocation": {
+            "type": "string",
+            "maxLength": 255
+          },
+          "estimatedDeliveryDaysMin": {
+            "type": "integer",
+            "nullable": true,
+            "minimum": 0
+          },
+          "estimatedDeliveryDaysMax": {
+            "type": "integer",
+            "nullable": true,
+            "minimum": 0
+          }
+        }
+      },
+      "QuoteUpdate": {
+        "type": "object",
+        "properties": {
+          "opportunityId": {
+            "type": "string"
+          },
+          "companyId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "divisionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "contactId": {
+            "type": "string"
+          },
+          "documentNo": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "quoteDate": {
+            "type": "string",
+            "nullable": true
+          },
+          "validityDays": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 365,
+            "default": 30
+          },
+          "projectOwnerUserId": {
+            "type": "string"
+          },
+          "currencyCode": {
+            "type": "string",
+            "maxLength": 8,
+            "default": "USD"
+          },
+          "paymentTerms": {
+            "type": "string",
+            "maxLength": 2000
+          },
+          "deliveryTerms": {
+            "type": "string",
+            "maxLength": 2000
+          },
+          "warrantyTerms": {
+            "type": "string",
+            "maxLength": 2000
+          },
+          "notes": {
+            "type": "string",
+            "maxLength": 4000
+          }
+        }
+      },
+      "NoteTemplateCreate": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "body": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4000
+          },
+          "scope": {
+            "type": "string",
+            "maxLength": 32,
+            "default": "quote"
+          }
+        },
+        "required": [
+          "title",
+          "body"
+        ]
+      },
+      "NoteTemplateListQuery": {
+        "type": "object",
+        "properties": {
+          "scope": {
+            "type": "string",
+            "maxLength": 32
+          }
+        }
+      },
+      "OrderStatusUpdate": {
+        "type": "object",
+        "properties": {
+          "statusCode": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "notes": {
+            "type": "string",
+            "maxLength": 1000
+          }
+        },
+        "required": [
+          "statusCode"
+        ]
+      },
+      "PurchaseOrderCreate": {
+        "type": "object",
+        "properties": {
+          "supplierCompanyId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "divisionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "purchaseType": {
+            "type": "string",
+            "enum": [
+              "commercial",
+              "administrative"
+            ],
+            "default": "commercial"
+          },
+          "paymentType": {
+            "type": "string",
+            "enum": [
+              "cash",
+              "leasing",
+              "term"
+            ],
+            "default": "cash"
+          },
+          "paymentTermDays": {
+            "type": "integer",
+            "nullable": true,
+            "minimum": 0
+          },
+          "previousPaymentTermDays": {
+            "type": "integer",
+            "nullable": true,
+            "minimum": 0
+          },
+          "termChangeReason": {
+            "type": "string",
+            "maxLength": 1000
+          },
+          "invoiceNo": {
+            "type": "string",
+            "maxLength": 128
+          },
+          "orderNo": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "orderDate": {
+            "type": "string",
+            "nullable": true
+          },
+          "expectedDate": {
+            "type": "string",
+            "nullable": true
+          },
+          "currencyCode": {
+            "type": "string",
+            "maxLength": 8,
+            "default": "USD"
+          },
+          "incoterm": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "shipmentReference": {
+            "type": "string",
+            "maxLength": 128
+          },
+          "notes": {
+            "type": "string",
+            "maxLength": 4000
+          }
+        },
+        "required": [
+          "orderDate"
+        ]
+      },
+      "PurchaseOrderUpdate": {
+        "type": "object",
+        "properties": {
+          "supplierCompanyId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "divisionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "purchaseType": {
+            "type": "string",
+            "enum": [
+              "commercial",
+              "administrative"
+            ],
+            "default": "commercial"
+          },
+          "paymentType": {
+            "type": "string",
+            "enum": [
+              "cash",
+              "leasing",
+              "term"
+            ],
+            "default": "cash"
+          },
+          "paymentTermDays": {
+            "type": "integer",
+            "nullable": true,
+            "minimum": 0
+          },
+          "previousPaymentTermDays": {
+            "type": "integer",
+            "nullable": true,
+            "minimum": 0
+          },
+          "termChangeReason": {
+            "type": "string",
+            "maxLength": 1000
+          },
+          "invoiceNo": {
+            "type": "string",
+            "maxLength": 128
+          },
+          "orderNo": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "orderDate": {
+            "type": "string",
+            "nullable": true
+          },
+          "expectedDate": {
+            "type": "string",
+            "nullable": true
+          },
+          "currencyCode": {
+            "type": "string",
+            "maxLength": 8,
+            "default": "USD"
+          },
+          "incoterm": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "shipmentReference": {
+            "type": "string",
+            "maxLength": 128
+          },
+          "notes": {
+            "type": "string",
+            "maxLength": 4000
+          }
+        }
+      },
+      "SalesOrderCreate": {
+        "type": "object",
+        "properties": {
+          "quoteId": {
+            "type": "string"
+          },
+          "opportunityId": {
+            "type": "string"
+          },
+          "companyId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "divisionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "contactId": {
+            "type": "string"
+          },
+          "orderNo": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "orderDate": {
+            "type": "string",
+            "nullable": true
+          },
+          "currencyCode": {
+            "type": "string",
+            "maxLength": 8,
+            "default": "USD"
+          },
+          "notes": {
+            "type": "string",
+            "maxLength": 4000
+          }
+        },
+        "required": [
+          "companyId",
+          "orderDate"
+        ]
+      },
+      "SalesOrderFromQuote": {
+        "type": "object",
+        "properties": {
+          "orderDate": {
+            "type": "string",
+            "nullable": true
+          },
+          "orderNo": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "copyItems": {
+            "type": "boolean",
+            "default": true
+          },
+          "reserveStock": {
+            "type": "boolean",
+            "default": false
+          },
+          "notes": {
+            "type": "string",
+            "maxLength": 4000
+          }
+        }
+      },
+      "SalesOrderItemCreate": {
+        "type": "object",
+        "properties": {
+          "productModelId": {
+            "type": "string"
+          },
+          "inventoryItemId": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000
+          },
+          "quantity": {
+            "type": "number",
+            "minimum": 0,
+            "exclusiveMinimum": true
+          },
+          "unitCode": {
+            "type": "string",
+            "maxLength": 16,
+            "default": "adet"
+          },
+          "unitPrice": {
+            "type": "number",
+            "nullable": true,
+            "minimum": 0
+          },
+          "discountAmount": {
+            "type": "number",
+            "nullable": true,
+            "minimum": 0,
+            "default": 0
+          },
+          "vatRate": {
+            "type": "number",
+            "nullable": true,
+            "minimum": 0,
+            "maximum": 100,
+            "default": 20
+          },
+          "sortOrder": {
+            "type": "integer",
+            "nullable": true,
+            "default": 0
+          },
+          "quoteItemId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "description",
+          "quantity",
+          "unitPrice"
+        ]
+      },
+      "SalesOrderItemUpdate": {
+        "type": "object",
+        "properties": {
+          "productModelId": {
+            "type": "string"
+          },
+          "inventoryItemId": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000
+          },
+          "quantity": {
+            "type": "number",
+            "minimum": 0,
+            "exclusiveMinimum": true
+          },
+          "unitCode": {
+            "type": "string",
+            "maxLength": 16,
+            "default": "adet"
+          },
+          "unitPrice": {
+            "type": "number",
+            "nullable": true,
+            "minimum": 0
+          },
+          "discountAmount": {
+            "type": "number",
+            "nullable": true,
+            "minimum": 0,
+            "default": 0
+          },
+          "vatRate": {
+            "type": "number",
+            "nullable": true,
+            "minimum": 0,
+            "maximum": 100,
+            "default": 20
+          },
+          "sortOrder": {
+            "type": "integer",
+            "nullable": true,
+            "default": 0
+          },
+          "quoteItemId": {
+            "type": "string"
+          }
+        }
+      },
+      "SalesOrderUpdate": {
+        "type": "object",
+        "properties": {
+          "quoteId": {
+            "type": "string"
+          },
+          "opportunityId": {
+            "type": "string"
+          },
+          "companyId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "divisionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "contactId": {
+            "type": "string"
+          },
+          "orderNo": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "orderDate": {
+            "type": "string",
+            "nullable": true
+          },
+          "currencyCode": {
+            "type": "string",
+            "maxLength": 8,
+            "default": "USD"
+          },
+          "notes": {
+            "type": "string",
+            "maxLength": 4000
+          }
+        }
+      },
+      "DeliveryCncInfo": {
+        "type": "object",
+        "properties": {
+          "marka": {
+            "type": "string",
+            "maxLength": 128
+          },
+          "model": {
+            "type": "string",
+            "maxLength": 128
+          },
+          "seriNo": {
+            "type": "string",
+            "maxLength": 128
+          },
+          "mainSw": {
+            "type": "string",
+            "maxLength": 128
+          }
+        }
+      },
+      "DeliveryCreate": {
+        "type": "object",
+        "properties": {
+          "divisionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "opportunityId": {
+            "type": "string"
+          },
+          "companyId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "shipmentId": {
+            "type": "string"
+          },
+          "salesOrderId": {
+            "type": "string"
+          },
+          "deliveryDate": {
+            "type": "string",
+            "nullable": true
+          },
+          "signedBy": {
+            "type": "string",
+            "maxLength": 255
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "completed"
+            ],
+            "default": "pending"
+          },
+          "notes": {
+            "type": "string",
+            "maxLength": 2000
+          },
+          "formData": {
+            "type": "object",
+            "properties": {
+              "formNo": {
+                "type": "string",
+                "maxLength": 64
+              },
+              "kurulumTarihi": {
+                "type": "string",
+                "nullable": true
+              },
+              "machineId": {
+                "type": "string"
+              },
+              "tezgah": {
+                "type": "object",
+                "properties": {
+                  "marka": {
+                    "type": "string",
+                    "maxLength": 128
+                  },
+                  "tip": {
+                    "type": "string",
+                    "maxLength": 128
+                  },
+                  "model": {
+                    "type": "string",
+                    "maxLength": 128
+                  },
+                  "seriNo": {
+                    "type": "string",
+                    "maxLength": 128
+                  }
+                }
+              },
+              "cnc": {
+                "type": "object",
+                "properties": {
+                  "marka": {
+                    "type": "string",
+                    "maxLength": 128
+                  },
+                  "model": {
+                    "type": "string",
+                    "maxLength": 128
+                  },
+                  "seriNo": {
+                    "type": "string",
+                    "maxLength": 128
+                  },
+                  "mainSw": {
+                    "type": "string",
+                    "maxLength": 128
+                  }
+                }
+              },
+              "ilgili": {
+                "type": "string",
+                "maxLength": 255
+              },
+              "kurulumuYapan": {
+                "type": "string",
+                "maxLength": 255
+              }
+            }
+          }
+        },
+        "required": [
+          "companyId",
+          "deliveryDate"
+        ]
+      },
+      "DeliveryFormData": {
+        "type": "object",
+        "properties": {
+          "formNo": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "kurulumTarihi": {
+            "type": "string",
+            "nullable": true
+          },
+          "machineId": {
+            "type": "string"
+          },
+          "tezgah": {
+            "type": "object",
+            "properties": {
+              "marka": {
+                "type": "string",
+                "maxLength": 128
+              },
+              "tip": {
+                "type": "string",
+                "maxLength": 128
+              },
+              "model": {
+                "type": "string",
+                "maxLength": 128
+              },
+              "seriNo": {
+                "type": "string",
+                "maxLength": 128
+              }
+            }
+          },
+          "cnc": {
+            "type": "object",
+            "properties": {
+              "marka": {
+                "type": "string",
+                "maxLength": 128
+              },
+              "model": {
+                "type": "string",
+                "maxLength": 128
+              },
+              "seriNo": {
+                "type": "string",
+                "maxLength": 128
+              },
+              "mainSw": {
+                "type": "string",
+                "maxLength": 128
+              }
+            }
+          },
+          "ilgili": {
+            "type": "string",
+            "maxLength": 255
+          },
+          "kurulumuYapan": {
+            "type": "string",
+            "maxLength": 255
+          }
+        }
+      },
+      "DeliveryMachineInfo": {
+        "type": "object",
+        "properties": {
+          "marka": {
+            "type": "string",
+            "maxLength": 128
+          },
+          "tip": {
+            "type": "string",
+            "maxLength": 128
+          },
+          "model": {
+            "type": "string",
+            "maxLength": 128
+          },
+          "seriNo": {
+            "type": "string",
+            "maxLength": 128
+          }
+        }
+      },
+      "DeliveryStatusUpdate": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "completed"
+            ]
+          }
+        },
+        "required": [
+          "status"
+        ]
+      },
+      "DeliveryUpdate": {
+        "type": "object",
+        "properties": {
+          "divisionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "opportunityId": {
+            "type": "string"
+          },
+          "companyId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "shipmentId": {
+            "type": "string"
+          },
+          "salesOrderId": {
+            "type": "string"
+          },
+          "deliveryDate": {
+            "type": "string",
+            "nullable": true
+          },
+          "signedBy": {
+            "type": "string",
+            "maxLength": 255
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "completed"
+            ],
+            "default": "pending"
+          },
+          "notes": {
+            "type": "string",
+            "maxLength": 2000
+          },
+          "formData": {
+            "type": "object",
+            "properties": {
+              "formNo": {
+                "type": "string",
+                "maxLength": 64
+              },
+              "kurulumTarihi": {
+                "type": "string",
+                "nullable": true
+              },
+              "machineId": {
+                "type": "string"
+              },
+              "tezgah": {
+                "type": "object",
+                "properties": {
+                  "marka": {
+                    "type": "string",
+                    "maxLength": 128
+                  },
+                  "tip": {
+                    "type": "string",
+                    "maxLength": 128
+                  },
+                  "model": {
+                    "type": "string",
+                    "maxLength": 128
+                  },
+                  "seriNo": {
+                    "type": "string",
+                    "maxLength": 128
+                  }
+                }
+              },
+              "cnc": {
+                "type": "object",
+                "properties": {
+                  "marka": {
+                    "type": "string",
+                    "maxLength": 128
+                  },
+                  "model": {
+                    "type": "string",
+                    "maxLength": 128
+                  },
+                  "seriNo": {
+                    "type": "string",
+                    "maxLength": 128
+                  },
+                  "mainSw": {
+                    "type": "string",
+                    "maxLength": 128
+                  }
+                }
+              },
+              "ilgili": {
+                "type": "string",
+                "maxLength": 255
+              },
+              "kurulumuYapan": {
+                "type": "string",
+                "maxLength": 255
+              }
+            }
+          }
+        }
+      },
+      "ShipmentCreate": {
+        "type": "object",
+        "properties": {
+          "divisionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "opportunityId": {
+            "type": "string"
+          },
+          "quoteId": {
+            "type": "string"
+          },
+          "salesOrderId": {
+            "type": "string"
+          },
+          "companyId": {
+            "type": "string"
+          },
+          "shipmentNo": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "carrier": {
+            "type": "string",
+            "maxLength": 255
+          },
+          "trackingNo": {
+            "type": "string",
+            "maxLength": 128
+          },
+          "origin": {
+            "type": "string",
+            "maxLength": 255
+          },
+          "destination": {
+            "type": "string",
+            "maxLength": 255
+          },
+          "eta": {
+            "type": "string",
+            "nullable": true
+          },
+          "incoterm": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "statusCode": {
+            "type": "string",
+            "enum": [
+              "preparing",
+              "in_transit",
+              "at_customs",
+              "cleared",
+              "delivered"
+            ],
+            "default": "preparing"
+          },
+          "notes": {
+            "type": "string",
+            "maxLength": 2000
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "inventoryItemId": {
+                  "type": "string"
+                },
+                "salesOrderItemId": {
+                  "type": "string"
+                },
+                "productModelId": {
+                  "type": "string"
+                },
+                "description": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 2000
+                },
+                "serialNumber": {
+                  "type": "string",
+                  "maxLength": 128
+                },
+                "quantity": {
+                  "type": "number",
+                  "nullable": true,
+                  "minimum": 0,
+                  "default": 1
+                },
+                "unitCode": {
+                  "type": "string",
+                  "maxLength": 16,
+                  "default": "adet"
+                },
+                "sortOrder": {
+                  "type": "integer",
+                  "nullable": true,
+                  "default": 0
+                }
+              },
+              "required": [
+                "description"
+              ]
+            }
+          }
+        }
+      },
+      "ShipmentFromOrder": {
+        "type": "object",
+        "properties": {
+          "carrier": {
+            "type": "string",
+            "maxLength": 255
+          },
+          "trackingNo": {
+            "type": "string",
+            "maxLength": 128
+          },
+          "origin": {
+            "type": "string",
+            "maxLength": 255
+          },
+          "destination": {
+            "type": "string",
+            "maxLength": 255
+          },
+          "eta": {
+            "type": "string",
+            "nullable": true
+          },
+          "incoterm": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "notes": {
+            "type": "string",
+            "maxLength": 2000
+          }
+        }
+      },
+      "ShipmentItemInput": {
+        "type": "object",
+        "properties": {
+          "inventoryItemId": {
+            "type": "string"
+          },
+          "salesOrderItemId": {
+            "type": "string"
+          },
+          "productModelId": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000
+          },
+          "serialNumber": {
+            "type": "string",
+            "maxLength": 128
+          },
+          "quantity": {
+            "type": "number",
+            "nullable": true,
+            "minimum": 0,
+            "default": 1
+          },
+          "unitCode": {
+            "type": "string",
+            "maxLength": 16,
+            "default": "adet"
+          },
+          "sortOrder": {
+            "type": "integer",
+            "nullable": true,
+            "default": 0
+          }
+        },
+        "required": [
+          "description"
+        ]
+      },
+      "ShipmentStatusCode": {
+        "type": "string",
+        "enum": [
+          "preparing",
+          "in_transit",
+          "at_customs",
+          "cleared",
+          "delivered"
+        ]
+      },
+      "ShipmentStatusUpdate": {
+        "type": "object",
+        "properties": {
+          "statusCode": {
+            "type": "string",
+            "enum": [
+              "preparing",
+              "in_transit",
+              "at_customs",
+              "cleared",
+              "delivered"
+            ]
+          }
+        },
+        "required": [
+          "statusCode"
+        ]
+      },
+      "ShipmentUpdate": {
+        "type": "object",
+        "properties": {
+          "divisionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "opportunityId": {
+            "type": "string"
+          },
+          "quoteId": {
+            "type": "string"
+          },
+          "salesOrderId": {
+            "type": "string"
+          },
+          "companyId": {
+            "type": "string"
+          },
+          "shipmentNo": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "carrier": {
+            "type": "string",
+            "maxLength": 255
+          },
+          "trackingNo": {
+            "type": "string",
+            "maxLength": 128
+          },
+          "origin": {
+            "type": "string",
+            "maxLength": 255
+          },
+          "destination": {
+            "type": "string",
+            "maxLength": 255
+          },
+          "eta": {
+            "type": "string",
+            "nullable": true
+          },
+          "incoterm": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "statusCode": {
+            "type": "string",
+            "enum": [
+              "preparing",
+              "in_transit",
+              "at_customs",
+              "cleared",
+              "delivered"
+            ],
+            "default": "preparing"
+          },
+          "notes": {
+            "type": "string",
+            "maxLength": 2000
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "inventoryItemId": {
+                  "type": "string"
+                },
+                "salesOrderItemId": {
+                  "type": "string"
+                },
+                "productModelId": {
+                  "type": "string"
+                },
+                "description": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 2000
+                },
+                "serialNumber": {
+                  "type": "string",
+                  "maxLength": 128
+                },
+                "quantity": {
+                  "type": "number",
+                  "nullable": true,
+                  "minimum": 0,
+                  "default": 1
+                },
+                "unitCode": {
+                  "type": "string",
+                  "maxLength": 16,
+                  "default": "adet"
+                },
+                "sortOrder": {
+                  "type": "integer",
+                  "nullable": true,
+                  "default": 0
+                }
+              },
+              "required": [
+                "description"
+              ]
+            }
+          }
+        }
+      },
+      "FileLink": {
+        "type": "object",
+        "properties": {
+          "fileId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "entityType": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "entityId": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "documentTypeCode": {
+            "type": "string",
+            "enum": [
+              "product_image",
+              "quote_pdf",
+              "proforma_pdf",
+              "contract_pdf",
+              "commercial_invoice_pdf",
+              "stock_document",
+              "service_document",
+              "service_complaint_evidence",
+              "customs_document",
+              "other"
+            ]
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 1000
+          }
+        },
+        "required": [
+          "fileId",
+          "entityType",
+          "entityId",
+          "documentTypeCode"
+        ]
+      },
+      "SignedDownloadUrl": {
+        "type": "object",
+        "properties": {
+          "fileId": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "fileId"
+        ]
+      },
+      "SignedUploadUrl": {
+        "type": "object",
+        "properties": {
+          "bucket": {
+            "type": "string",
+            "enum": [
+              "erp-product-images",
+              "erp-quote-documents",
+              "erp-proforma-documents",
+              "erp-contract-documents",
+              "erp-invoice-documents",
+              "erp-stock-documents",
+              "erp-service-documents",
+              "erp-import-raw"
+            ]
+          },
+          "entityType": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "entityId": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "filename": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255
+          },
+          "mimeType": {
+            "type": "string",
+            "enum": [
+              "application/pdf",
+              "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+              "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+              "image/png",
+              "image/jpeg",
+              "image/webp",
+              "audio/webm",
+              "audio/mpeg",
+              "audio/ogg",
+              "audio/mp4",
+              "audio/wav"
+            ]
+          },
+          "extension": {
+            "type": "string",
+            "enum": [
+              "pdf",
+              "docx",
+              "xlsx",
+              "png",
+              "jpg",
+              "jpeg",
+              "webp",
+              "webm",
+              "mp3",
+              "ogg",
+              "m4a",
+              "wav"
+            ]
+          },
+          "sizeBytes": {
+            "type": "integer",
+            "minimum": 0,
+            "exclusiveMinimum": true
+          }
+        },
+        "required": [
+          "bucket",
+          "entityType",
+          "entityId",
+          "filename",
+          "mimeType",
+          "extension",
+          "sizeBytes"
+        ]
+      },
+      "AccountingInvoiceCreate": {
+        "type": "object",
+        "properties": {
+          "companyId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "divisionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "sales",
+              "purchase"
+            ]
+          },
+          "invoiceNo": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "invoiceDate": {
+            "type": "string",
+            "nullable": true
+          },
+          "amount": {
+            "type": "number",
+            "nullable": true,
+            "minimum": 0
+          },
+          "vatAmount": {
+            "type": "number",
+            "nullable": true,
+            "minimum": 0,
+            "default": 0
+          },
+          "grandTotal": {
+            "type": "number",
+            "nullable": true,
+            "minimum": 0
+          },
+          "currencyCode": {
+            "type": "string",
+            "maxLength": 8,
+            "default": "USD"
+          },
+          "quoteId": {
+            "type": "string"
+          },
+          "salesOrderId": {
+            "type": "string"
+          },
+          "firstDueDate": {
+            "type": "string",
+            "nullable": true
+          },
+          "lastDueDate": {
+            "type": "string",
+            "nullable": true
+          },
+          "installmentCount": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 120,
+            "default": 1
+          },
+          "notes": {
+            "type": "string",
+            "maxLength": 2000
+          },
+          "installments": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "installmentNo": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "dueDate": {
+                  "type": "string",
+                  "nullable": true
+                },
+                "amount": {
+                  "type": "number",
+                  "nullable": true,
+                  "minimum": 0
+                }
+              },
+              "required": [
+                "installmentNo",
+                "dueDate",
+                "amount"
+              ]
+            }
+          },
+          "lineItems": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "productModelId": {
+                  "type": "string"
+                },
+                "inventoryItemId": {
+                  "type": "string"
+                },
+                "categoryCode": {
+                  "type": "string",
+                  "maxLength": 64
+                },
+                "description": {
+                  "type": "string",
+                  "maxLength": 500
+                },
+                "quantity": {
+                  "type": "number",
+                  "minimum": 0,
+                  "exclusiveMinimum": true,
+                  "default": 1
+                },
+                "saleType": {
+                  "type": "string",
+                  "enum": [
+                    "tezgah",
+                    "product"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "required": [
+          "companyId",
+          "type",
+          "invoiceNo",
+          "invoiceDate",
+          "amount",
+          "grandTotal"
+        ]
+      },
+      "AccountingInvoiceListQuery": {
+        "type": "object",
+        "properties": {
+          "companyId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "sales",
+              "purchase"
+            ]
+          },
+          "page": {
+            "type": "integer",
+            "minimum": 1,
+            "default": 1
+          },
+          "pageSize": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200,
+            "default": 25
+          }
+        }
+      },
+      "DueDatesQuery": {
+        "type": "object",
+        "properties": {
+          "from": {
+            "type": "string",
+            "nullable": true
+          },
+          "to": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "FinanceListQuery": {
+        "type": "object",
+        "properties": {
+          "companyId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "FinanceStatusUpdate": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "maxLength": 64
+          }
+        }
+      },
+      "InstallmentPreview": {
+        "type": "object",
+        "properties": {
+          "grandTotal": {
+            "type": "number",
+            "nullable": true,
+            "minimum": 0
+          },
+          "installmentCount": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 120
+          },
+          "firstDueDate": {
+            "type": "string",
+            "nullable": true
+          },
+          "lastDueDate": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "required": [
+          "grandTotal",
+          "installmentCount",
+          "firstDueDate"
+        ]
+      },
+      "PaymentCreate": {
+        "type": "object",
+        "properties": {
+          "direction": {
+            "type": "string",
+            "enum": [
+              "in",
+              "out"
+            ],
+            "default": "in"
+          },
+          "receivableId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "payableId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "companyId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "divisionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "amount": {
+            "type": "number",
+            "nullable": true,
+            "minimum": 0
+          },
+          "currencyCode": {
+            "type": "string",
+            "maxLength": 8,
+            "default": "USD"
+          },
+          "paymentDate": {
+            "type": "string",
+            "nullable": true
+          },
+          "paymentMethod": {
+            "type": "string",
+            "enum": [
+              "bank_transfer",
+              "cash",
+              "credit_card",
+              "check",
+              "other"
+            ],
+            "default": "bank_transfer"
+          },
+          "invoiceNo": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "notes": {
+            "type": "string",
+            "maxLength": 2000
+          }
+        },
+        "required": [
+          "amount",
+          "paymentDate"
+        ]
+      },
+      "ReceivableCreate": {
+        "type": "object",
+        "properties": {
+          "companyId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "divisionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "quoteId": {
+            "type": "string"
+          },
+          "amount": {
+            "type": "number",
+            "nullable": true,
+            "minimum": 0
+          },
+          "currencyCode": {
+            "type": "string",
+            "maxLength": 8,
+            "default": "USD"
+          },
+          "dueDate": {
+            "type": "string",
+            "nullable": true
+          },
+          "invoiceNo": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "movementType": {
+            "type": "string",
+            "enum": [
+              "manual",
+              "sales_invoice",
+              "purchase_invoice"
+            ],
+            "default": "manual"
+          },
+          "documentRef": {
+            "type": "string",
+            "maxLength": 128
+          },
+          "notes": {
+            "type": "string",
+            "maxLength": 2000
+          }
+        },
+        "required": [
+          "companyId",
+          "amount",
+          "dueDate"
+        ]
+      },
+      "StatementQuery": {
+        "type": "object",
+        "properties": {
+          "from": {
+            "type": "string",
+            "nullable": true
+          },
+          "to": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "AuditLogQuery": {
+        "type": "object",
+        "properties": {
+          "resourceType": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "actorUserId": {
+            "type": "string"
+          }
+        }
+      },
+      "DepartmentCreate": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 2000
+          }
+        },
+        "required": [
+          "code",
+          "name"
+        ]
+      },
+      "DepartmentUpdate": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255
+          },
+          "description": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 2000
+          }
+        }
+      },
+      "RoleCreate": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 2000
+          },
+          "permissionCodes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "default": []
+          }
+        },
+        "required": [
+          "code",
+          "name"
+        ]
+      },
+      "RoleUpdate": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255
+          },
+          "description": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 2000
+          },
+          "permissionCodes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "TargetItem": {
+        "type": "object",
+        "properties": {
+          "targetType": {
+            "type": "string",
+            "enum": [
+              "sales",
+              "service"
+            ]
+          },
+          "category": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "activity": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 2000,
+            "default": ""
+          },
+          "unit": {
+            "type": "string",
+            "enum": [
+              "count",
+              "amount"
+            ]
+          },
+          "target": {
+            "type": "string",
+            "maxLength": 64,
+            "default": ""
+          }
+        },
+        "required": [
+          "targetType",
+          "category",
+          "activity",
+          "unit"
+        ]
+      },
+      "TargetPeriodQuery": {
+        "type": "object",
+        "properties": {
+          "period": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}$"
+          }
+        }
+      },
+      "TargetUpsert": {
+        "type": "object",
+        "properties": {
+          "period": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}$"
+          },
+          "currency": {
+            "type": "string",
+            "enum": [
+              "USD"
+            ],
+            "default": "USD"
+          },
+          "salesAmount": {
+            "type": "number",
+            "nullable": true,
+            "minimum": 0
+          },
+          "salesNewCustomers": {
+            "type": "integer",
+            "nullable": true,
+            "minimum": 0
+          },
+          "serviceAmount": {
+            "type": "number",
+            "nullable": true,
+            "minimum": 0
+          },
+          "serviceCompleted": {
+            "type": "integer",
+            "nullable": true,
+            "minimum": 0
+          },
+          "digitalLeadTarget": {
+            "type": "integer",
+            "nullable": true,
+            "minimum": 0
+          },
+          "digitalConversionTarget": {
+            "type": "integer",
+            "nullable": true,
+            "minimum": 0
+          },
+          "digitalBudget": {
+            "type": "number",
+            "nullable": true,
+            "minimum": 0
+          },
+          "visitTarget": {
+            "type": "integer",
+            "nullable": true,
+            "minimum": 0
+          },
+          "callTarget": {
+            "type": "integer",
+            "nullable": true,
+            "minimum": 0
+          },
+          "quoteTarget": {
+            "type": "integer",
+            "nullable": true,
+            "minimum": 0
+          },
+          "targetItems": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "targetType": {
+                  "type": "string",
+                  "enum": [
+                    "sales",
+                    "service"
+                  ]
+                },
+                "category": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 64
+                },
+                "activity": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 255
+                },
+                "description": {
+                  "type": "string",
+                  "maxLength": 2000,
+                  "default": ""
+                },
+                "unit": {
+                  "type": "string",
+                  "enum": [
+                    "count",
+                    "amount"
+                  ]
+                },
+                "target": {
+                  "type": "string",
+                  "maxLength": 64,
+                  "default": ""
+                }
+              },
+              "required": [
+                "targetType",
+                "category",
+                "activity",
+                "unit"
+              ]
+            },
+            "maxItems": 80,
+            "default": []
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 2000
+          }
+        },
+        "required": [
+          "period"
+        ]
+      },
+      "TenantUpdate": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255
+          },
+          "taxNumber": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 32
+          },
+          "email": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 255,
+            "format": "email"
+          },
+          "phone": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 32
+          }
+        }
+      },
+      "UserCreate": {
+        "type": "object",
+        "properties": {
+          "fullName": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255
+          },
+          "email": {
+            "type": "string",
+            "format": "email"
+          },
+          "password": {
+            "type": "string",
+            "minLength": 8,
+            "maxLength": 128
+          },
+          "phone": {
+            "type": "string",
+            "maxLength": 32
+          },
+          "departmentId": {
+            "type": "string"
+          },
+          "roleCodes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "default": []
+          },
+          "divisionIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "default": []
+          }
+        },
+        "required": [
+          "fullName",
+          "email",
+          "password"
+        ]
+      },
+      "UserUpdate": {
+        "type": "object",
+        "properties": {
+          "fullName": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255
+          },
+          "phone": {
+            "type": "string",
+            "maxLength": 32
+          },
+          "departmentId": {
+            "type": "string",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "passive"
+            ]
+          },
+          "roleCodes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "divisionIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          "password": {
+            "type": "string",
+            "minLength": 8,
+            "maxLength": 128
+          },
+          "purchaseApprovalLimit": {
+            "type": "integer",
+            "nullable": true,
+            "minimum": 0
+          },
+          "managerId": {
+            "type": "string",
+            "nullable": true,
+            "format": "uuid"
+          }
+        }
+      },
+      "PublicServiceComplaint": {
+        "type": "object",
+        "properties": {
+          "subject": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 255
+          },
+          "description": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 4000
+          },
+          "severity": {
+            "type": "string",
+            "enum": [
+              "low",
+              "normal",
+              "high",
+              "critical"
+            ],
+            "default": "normal"
+          },
+          "ticketType": {
+            "type": "string",
+            "enum": [
+              "complaint",
+              "request",
+              "warranty_claim",
+              "question"
+            ],
+            "default": "complaint"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "qr",
+              "web"
+            ],
+            "default": "web"
+          },
+          "contactName": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 255
+          },
+          "contactPhone": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 64
+          },
+          "contactEmail": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 255,
+                "format": "email"
+              },
+              {
+                "type": "string",
+                "enum": [
+                  ""
+                ]
+              },
+              {
+                "nullable": true
+              }
+            ]
+          },
+          "attachmentFileIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "maxItems": 10
+          }
+        },
+        "required": [
+          "subject"
+        ]
+      },
+      "ServiceComplaintConvert": {
+        "type": "object",
+        "properties": {
+          "assignedToUserId": {
+            "type": "string",
+            "nullable": true,
+            "format": "uuid"
+          }
+        }
+      },
+      "ServiceComplaintCreate": {
+        "type": "object",
+        "properties": {
+          "divisionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "companyId": {
+            "type": "string",
+            "nullable": true,
+            "format": "uuid"
+          },
+          "customerDeviceId": {
+            "type": "string",
+            "nullable": true,
+            "format": "uuid"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "qr",
+              "web",
+              "phone",
+              "whatsapp",
+              "email",
+              "manual"
+            ],
+            "default": "manual"
+          },
+          "subject": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 255
+          },
+          "description": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 4000
+          },
+          "severity": {
+            "type": "string",
+            "enum": [
+              "low",
+              "normal",
+              "high",
+              "critical"
+            ],
+            "default": "normal"
+          },
+          "ticketType": {
+            "type": "string",
+            "enum": [
+              "complaint",
+              "request",
+              "warranty_claim",
+              "question"
+            ],
+            "default": "complaint"
+          },
+          "contactName": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 255
+          },
+          "contactPhone": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 64
+          },
+          "contactEmail": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 255,
+                "format": "email"
+              },
+              {
+                "type": "string",
+                "enum": [
+                  ""
+                ]
+              },
+              {
+                "nullable": true
+              }
+            ]
+          }
+        },
+        "required": [
+          "subject"
+        ]
+      },
+      "ServiceComplaintLinkCreate": {
+        "type": "object",
+        "properties": {
+          "divisionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "companyId": {
+            "type": "string",
+            "nullable": true,
+            "format": "uuid"
+          },
+          "customerDeviceId": {
+            "type": "string",
+            "nullable": true,
+            "format": "uuid"
+          },
+          "title": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 255
+          },
+          "notes": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 4000
+          }
+        }
+      },
+      "ServiceComplaintReject": {
+        "type": "object",
+        "properties": {
+          "rejectionNote": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 4000
+          }
+        }
+      },
+      "ServiceComplaintSource": {
+        "type": "string",
+        "enum": [
+          "qr",
+          "web",
+          "phone",
+          "whatsapp",
+          "email",
+          "manual"
+        ]
+      },
+      "ServiceComplaintStatus": {
+        "type": "string",
+        "enum": [
+          "new",
+          "reviewing",
+          "converted",
+          "rejected"
+        ]
+      },
+      "ServiceComplaintUpdate": {
+        "type": "object",
+        "properties": {
+          "companyId": {
+            "type": "string",
+            "nullable": true,
+            "format": "uuid"
+          },
+          "customerDeviceId": {
+            "type": "string",
+            "nullable": true,
+            "format": "uuid"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "new",
+              "reviewing",
+              "converted",
+              "rejected"
+            ]
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "qr",
+              "web",
+              "phone",
+              "whatsapp",
+              "email",
+              "manual"
+            ]
+          },
+          "subject": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 255
+          },
+          "description": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 4000
+          },
+          "severity": {
+            "type": "string",
+            "enum": [
+              "low",
+              "normal",
+              "high",
+              "critical"
+            ]
+          },
+          "ticketType": {
+            "type": "string",
+            "enum": [
+              "complaint",
+              "request",
+              "warranty_claim",
+              "question"
+            ]
+          },
+          "contactName": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 255
+          },
+          "contactPhone": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 64
+          },
+          "contactEmail": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 255,
+                "format": "email"
+              },
+              {
+                "type": "string",
+                "enum": [
+                  ""
+                ]
+              },
+              {
+                "nullable": true
+              }
+            ]
+          }
+        }
+      },
+      "ServiceSeverity": {
+        "type": "string",
+        "enum": [
+          "low",
+          "normal",
+          "high",
+          "critical"
+        ]
+      },
+      "ServiceTicketType": {
+        "type": "string",
+        "enum": [
+          "complaint",
+          "request",
+          "warranty_claim",
+          "question"
+        ]
+      },
+      "ExportContactQuery": {
+        "type": "object",
+        "properties": {
+          "search": {
+            "type": "string"
+          },
+          "companyId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "ExportInventoryQuery": {
+        "type": "object",
+        "properties": {
+          "search": {
+            "type": "string"
+          },
+          "statusCode": {
+            "type": "string"
+          }
+        }
+      },
+      "ExportOperationalQuery": {
+        "type": "object",
+        "properties": {
+          "year": {
+            "type": "integer",
+            "minimum": 2000,
+            "maximum": 2100,
+            "default": 2026
+          },
+          "period": {
+            "type": "string",
+            "enum": [
+              "monthly",
+              "yearly"
+            ],
+            "default": "monthly"
+          }
+        }
+      },
+      "ExportOpportunityQuery": {
+        "type": "object",
+        "properties": {
+          "search": {
+            "type": "string"
+          },
+          "stageCode": {
+            "type": "string"
+          },
+          "companyId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "ExportPurchaseOrderQuery": {
+        "type": "object",
+        "properties": {
+          "search": {
+            "type": "string"
+          },
+          "supplierCompanyId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "statusCode": {
+            "type": "string"
+          }
+        }
+      },
+      "ExportQuoteQuery": {
+        "type": "object",
+        "properties": {
+          "search": {
+            "type": "string"
+          },
+          "statusCode": {
+            "type": "string"
+          },
+          "companyId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "ExportStatementQuery": {
+        "type": "object",
+        "properties": {
+          "from": {
+            "type": "string",
+            "nullable": true
+          },
+          "to": {
+            "type": "string",
+            "nullable": true
+          },
+          "format": {
+            "type": "string",
+            "enum": [
+              "xlsx",
+              "pdf"
+            ],
+            "default": "xlsx"
+          }
+        }
+      },
+      "AddMembers": {
+        "type": "object",
+        "properties": {
+          "userIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "minItems": 1
+          }
+        },
+        "required": [
+          "userIds"
+        ]
+      },
+      "ChatMemberRole": {
+        "type": "string",
+        "enum": [
+          "admin",
+          "member"
+        ]
+      },
+      "ChatRefType": {
+        "type": "string",
+        "enum": [
+          "quote",
+          "company",
+          "service_ticket",
+          "opportunity"
+        ]
+      },
+      "ConversationType": {
+        "type": "string",
+        "enum": [
+          "dm",
+          "group"
+        ]
+      },
+      "CreateDm": {
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "userId"
+        ]
+      },
+      "CreateGroup": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 2000
+          },
+          "memberUserIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "default": []
+          },
+          "onlyAdminsCanPost": {
+            "type": "boolean",
+            "default": true
+          },
+          "avatarFileId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "title"
+        ]
+      },
+      "EditMessage": {
+        "type": "object",
+        "properties": {
+          "body": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4000
+          }
+        },
+        "required": [
+          "body"
+        ]
+      },
+      "MessagesQuery": {
+        "type": "object",
+        "properties": {
+          "before": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "default": 30
+          }
+        }
+      },
+      "Reaction": {
+        "type": "object",
+        "properties": {
+          "emoji": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 32
+          }
+        },
+        "required": [
+          "emoji"
+        ]
+      },
+      "SendMessage": {
+        "type": "object",
+        "properties": {
+          "body": {
+            "type": "string",
+            "maxLength": 4000
+          },
+          "attachmentFileIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "maxItems": 10
+          },
+          "replyToId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "refType": {
+            "type": "string",
+            "enum": [
+              "quote",
+              "company",
+              "service_ticket",
+              "opportunity"
+            ]
+          },
+          "refId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "SetMemberRole": {
+        "type": "object",
+        "properties": {
+          "role": {
+            "type": "string",
+            "enum": [
+              "admin",
+              "member"
+            ]
+          }
+        },
+        "required": [
+          "role"
+        ]
+      },
+      "UpdateGroup": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255
+          },
+          "description": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 2000
+          },
+          "onlyAdminsCanPost": {
+            "type": "boolean"
+          },
+          "avatarFileId": {
+            "type": "string",
+            "nullable": true,
+            "format": "uuid"
+          }
+        }
+      },
+      "CallAssistantAction": {
+        "type": "string",
+        "enum": [
+          "create_quote",
+          "create_service_ticket",
+          "log_call",
+          "dismiss"
+        ]
+      },
+      "CallDirection": {
+        "type": "string",
+        "enum": [
+          "inbound",
+          "outbound"
+        ]
+      },
+      "CallEventType": {
+        "type": "string",
+        "enum": [
+          "completed",
+          "missed"
+        ]
+      },
+      "CallSuggestionActionInput": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "create_quote",
+              "create_service_ticket",
+              "log_call",
+              "dismiss"
+            ]
+          },
+          "subject": {
+            "type": "string",
+            "maxLength": 255
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 4000
+          },
+          "notes": {
+            "type": "string",
+            "maxLength": 4000
+          }
+        },
+        "required": [
+          "action"
+        ]
+      },
+      "CallSuggestionListQuery": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "acted",
+              "dismissed"
+            ],
+            "default": "pending"
+          }
+        }
+      },
+      "CallSuggestionStatus": {
+        "type": "string",
+        "enum": [
+          "pending",
+          "acted",
+          "dismissed"
+        ]
+      },
+      "CallWebhookPayload": {
+        "type": "object",
+        "properties": {
+          "tenantId": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "eventId": {
+            "type": "string",
+            "maxLength": 128
+          },
+          "callId": {
+            "type": "string",
+            "maxLength": 128
+          },
+          "id": {
+            "type": "string",
+            "maxLength": 128
+          },
+          "direction": {
+            "type": "string",
+            "enum": [
+              "inbound",
+              "outbound"
+            ],
+            "default": "inbound"
+          },
+          "eventType": {
+            "type": "string",
+            "enum": [
+              "completed",
+              "missed"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "completed",
+              "missed",
+              "answered",
+              "no_answer",
+              "busy",
+              "failed"
+            ]
+          },
+          "callerNumber": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "calleeNumber": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "from": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "to": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "phoneNumber": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "startedAt": {
+            "type": "string",
+            "nullable": true
+          },
+          "endedAt": {
+            "type": "string",
+            "nullable": true
+          },
+          "durationSeconds": {
+            "type": "integer",
+            "nullable": true,
+            "minimum": 0,
+            "maximum": 86400
+          },
+          "userId": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "extension": {
+            "type": "string",
+            "maxLength": 32
+          }
+        }
+      },
+      "ManualCallEvent": {
+        "type": "object",
+        "properties": {
+          "eventId": {
+            "type": "string",
+            "maxLength": 128
+          },
+          "direction": {
+            "type": "string",
+            "enum": [
+              "inbound",
+              "outbound"
+            ],
+            "default": "inbound"
+          },
+          "eventType": {
+            "type": "string",
+            "enum": [
+              "completed",
+              "missed"
+            ],
+            "default": "completed"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "completed",
+              "missed",
+              "answered",
+              "no_answer",
+              "busy",
+              "failed"
+            ]
+          },
+          "phoneNumber": {
+            "type": "string",
+            "minLength": 5,
+            "maxLength": 64
+          },
+          "startedAt": {
+            "type": "string",
+            "nullable": true
+          },
+          "endedAt": {
+            "type": "string",
+            "nullable": true
+          },
+          "durationSeconds": {
+            "type": "integer",
+            "nullable": true,
+            "minimum": 0,
+            "maximum": 86400
+          },
+          "notes": {
+            "type": "string",
+            "maxLength": 1000
+          }
+        },
+        "required": [
+          "phoneNumber"
+        ]
+      },
+      "MobileCallEvent": {
+        "type": "object",
+        "properties": {
+          "eventId": {
+            "type": "string",
+            "maxLength": 128
+          },
+          "direction": {
+            "type": "string",
+            "enum": [
+              "inbound",
+              "outbound"
+            ],
+            "default": "inbound"
+          },
+          "eventType": {
+            "type": "string",
+            "enum": [
+              "completed",
+              "missed"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "completed",
+              "missed",
+              "answered",
+              "no_answer",
+              "busy",
+              "failed"
+            ]
+          },
+          "phoneNumber": {
+            "type": "string",
+            "minLength": 5,
+            "maxLength": 64
+          },
+          "startedAt": {
+            "type": "string",
+            "nullable": true
+          },
+          "endedAt": {
+            "type": "string",
+            "nullable": true
+          },
+          "durationSeconds": {
+            "type": "integer",
+            "nullable": true,
+            "minimum": 0,
+            "maximum": 86400
+          }
+        },
+        "required": [
+          "phoneNumber"
+        ]
+      },
+      "CalendarDeviceEvent": {
+        "type": "object",
+        "properties": {
+          "crmEventId": {
+            "type": "string",
+            "nullable": true,
+            "format": "uuid"
+          },
+          "externalCalendarId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512
+          },
+          "externalEventId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512
+          },
+          "occurrenceId": {
+            "type": "string",
+            "maxLength": 512,
+            "default": ""
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255
+          },
+          "description": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 4000
+          },
+          "location": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 512
+          },
+          "startsAt": {
+            "type": "string",
+            "nullable": true
+          },
+          "endsAt": {
+            "type": "string",
+            "nullable": true
+          },
+          "allDay": {
+            "type": "boolean",
+            "default": false
+          },
+          "timezone": {
+            "type": "string",
+            "maxLength": 64,
+            "default": "Europe/Istanbul"
+          },
+          "recurrenceRule": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 2000
+          },
+          "modifiedAt": {
+            "type": "string",
+            "nullable": true
+          },
+          "deleted": {
+            "type": "boolean",
+            "default": false
+          }
+        },
+        "required": [
+          "externalCalendarId",
+          "externalEventId",
+          "title",
+          "startsAt",
+          "endsAt",
+          "modifiedAt"
+        ]
+      },
+      "CalendarEventCreate": {
+        "type": "object",
+        "properties": {
+          "eventType": {
+            "type": "string",
+            "enum": [
+              "customer_visit",
+              "meeting",
+              "call",
+              "task",
+              "other"
+            ],
+            "default": "other"
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255
+          },
+          "description": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 4000
+          },
+          "location": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 512
+          },
+          "startsAt": {
+            "type": "string",
+            "nullable": true
+          },
+          "endsAt": {
+            "type": "string",
+            "nullable": true
+          },
+          "allDay": {
+            "type": "boolean",
+            "default": false
+          },
+          "timezone": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "default": "Europe/Istanbul"
+          },
+          "recurrenceRule": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 2000
+          },
+          "companyId": {
+            "type": "string",
+            "nullable": true,
+            "format": "uuid"
+          },
+          "contactId": {
+            "type": "string",
+            "nullable": true,
+            "format": "uuid"
+          },
+          "opportunityId": {
+            "type": "string",
+            "nullable": true,
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "title",
+          "startsAt",
+          "endsAt"
+        ]
+      },
+      "CalendarEventSource": {
+        "type": "string",
+        "enum": [
+          "manual",
+          "device",
+          "import"
+        ]
+      },
+      "CalendarEventType": {
+        "type": "string",
+        "enum": [
+          "customer_visit",
+          "meeting",
+          "call",
+          "task",
+          "other"
+        ]
+      },
+      "CalendarEventUpdate": {
+        "type": "object",
+        "properties": {
+          "eventType": {
+            "type": "string",
+            "enum": [
+              "customer_visit",
+              "meeting",
+              "call",
+              "task",
+              "other"
+            ],
+            "default": "other"
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255
+          },
+          "description": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 4000
+          },
+          "location": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 512
+          },
+          "startsAt": {
+            "type": "string",
+            "nullable": true
+          },
+          "endsAt": {
+            "type": "string",
+            "nullable": true
+          },
+          "allDay": {
+            "type": "boolean",
+            "default": false
+          },
+          "timezone": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "default": "Europe/Istanbul"
+          },
+          "recurrenceRule": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 2000
+          },
+          "companyId": {
+            "type": "string",
+            "nullable": true,
+            "format": "uuid"
+          },
+          "contactId": {
+            "type": "string",
+            "nullable": true,
+            "format": "uuid"
+          },
+          "opportunityId": {
+            "type": "string",
+            "nullable": true,
+            "format": "uuid"
+          }
+        }
+      },
+      "CalendarImportCommit": {
+        "type": "object",
+        "properties": {
+          "defaultEventType": {
+            "type": "string",
+            "enum": [
+              "other",
+              "meeting",
+              "call",
+              "task"
+            ],
+            "default": "other"
+          },
+          "events": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "uid": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 512
+                },
+                "title": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 255
+                },
+                "description": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 4000
+                },
+                "location": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 512
+                },
+                "startsAt": {
+                  "type": "string",
+                  "nullable": true
+                },
+                "endsAt": {
+                  "type": "string",
+                  "nullable": true
+                },
+                "allDay": {
+                  "type": "boolean",
+                  "default": false
+                },
+                "timezone": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 64,
+                  "default": "Europe/Istanbul"
+                },
+                "recurrenceRule": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 2000
+                }
+              },
+              "required": [
+                "uid",
+                "title",
+                "startsAt",
+                "endsAt"
+              ]
+            },
+            "minItems": 1,
+            "maxItems": 5000
+          }
+        },
+        "required": [
+          "events"
+        ]
+      },
+      "CalendarImportEvent": {
+        "type": "object",
+        "properties": {
+          "uid": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255
+          },
+          "description": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 4000
+          },
+          "location": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 512
+          },
+          "startsAt": {
+            "type": "string",
+            "nullable": true
+          },
+          "endsAt": {
+            "type": "string",
+            "nullable": true
+          },
+          "allDay": {
+            "type": "boolean",
+            "default": false
+          },
+          "timezone": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "default": "Europe/Istanbul"
+          },
+          "recurrenceRule": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 2000
+          }
+        },
+        "required": [
+          "uid",
+          "title",
+          "startsAt",
+          "endsAt"
+        ]
+      },
+      "CalendarImportPreviewRequest": {
+        "type": "object",
+        "properties": {
+          "fileName": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255
+          },
+          "fileBase64": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "fileName",
+          "fileBase64"
+        ]
+      },
+      "CalendarSync": {
+        "type": "object",
+        "properties": {
+          "deviceId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "platform": {
+            "type": "string",
+            "enum": [
+              "android",
+              "ios"
+            ]
+          },
+          "observedAt": {
+            "type": "string",
+            "nullable": true
+          },
+          "events": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "crmEventId": {
+                  "type": "string",
+                  "nullable": true,
+                  "format": "uuid"
+                },
+                "externalCalendarId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 512
+                },
+                "externalEventId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 512
+                },
+                "occurrenceId": {
+                  "type": "string",
+                  "maxLength": 512,
+                  "default": ""
+                },
+                "title": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 255
+                },
+                "description": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 4000
+                },
+                "location": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 512
+                },
+                "startsAt": {
+                  "type": "string",
+                  "nullable": true
+                },
+                "endsAt": {
+                  "type": "string",
+                  "nullable": true
+                },
+                "allDay": {
+                  "type": "boolean",
+                  "default": false
+                },
+                "timezone": {
+                  "type": "string",
+                  "maxLength": 64,
+                  "default": "Europe/Istanbul"
+                },
+                "recurrenceRule": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 2000
+                },
+                "modifiedAt": {
+                  "type": "string",
+                  "nullable": true
+                },
+                "deleted": {
+                  "type": "boolean",
+                  "default": false
+                }
+              },
+              "required": [
+                "externalCalendarId",
+                "externalEventId",
+                "title",
+                "startsAt",
+                "endsAt",
+                "modifiedAt"
+              ]
+            },
+            "maxItems": 2000
+          }
+        },
+        "required": [
+          "deviceId",
+          "platform",
+          "observedAt",
+          "events"
+        ]
+      },
+      "CalendarSyncSettings": {
+        "type": "object",
+        "properties": {
+          "deviceId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "platform": {
+            "type": "string",
+            "enum": [
+              "android",
+              "ios"
+            ]
+          },
+          "autoSync": {
+            "type": "boolean",
+            "default": false
+          },
+          "selectedCalendars": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 512
+                },
+                "title": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 255
+                },
+                "color": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 32
+                },
+                "writable": {
+                  "type": "boolean",
+                  "default": false
+                }
+              },
+              "required": [
+                "id",
+                "title"
+              ]
+            },
+            "maxItems": 100,
+            "default": []
+          },
+          "destinationCalendarId": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 512
+          }
+        },
+        "required": [
+          "deviceId",
+          "platform"
+        ]
+      },
+      "OpportunityDTO": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "companyId": {
+            "type": "string"
+          },
+          "divisionId": {
+            "type": "string",
+            "nullable": true
+          },
+          "title": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string",
+            "nullable": true
+          },
+          "stage": {
+            "type": "string"
+          },
+          "estimatedValue": {
+            "type": "number",
+            "nullable": true
+          },
+          "currencyCode": {
+            "type": "string"
+          },
+          "probability": {
+            "type": "integer"
+          },
+          "expectedCloseDate": {
+            "type": "string",
+            "nullable": true
+          },
+          "ownerUserId": {
+            "type": "string",
+            "nullable": true
+          },
+          "createdAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "companyId",
+          "divisionId",
+          "title",
+          "description",
+          "stage",
+          "estimatedValue",
+          "currencyCode",
+          "probability",
+          "expectedCloseDate",
+          "ownerUserId",
+          "createdAt"
+        ]
+      }
+    },
+    "parameters": {}
+  },
+  "paths": {
+    "/auth/login": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "E-posta + parola ile giriş; refresh token httpOnly cookie olarak set edilir.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Login"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Başarılı giriş",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoginResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Geçersiz kimlik",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/refresh": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Cookie refresh token ile yeni access token (gövdesiz POST).",
+        "responses": {
+          "200": {
+            "description": "Yeni access token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "accessToken": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "accessToken"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Oturum süresi doldu",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/logout": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Oturumu kapatır; refresh cookie temizlenir.",
+        "responses": {
+          "204": {
+            "description": "Çıkış yapıldı"
+          }
+        }
+      }
+    },
+    "/auth/forgot-password": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ForgotPassword"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Sıfırlama tetiklendi",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "token": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "ok"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/reset-password": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResetPassword"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Parola güncellendi",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "ok"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/me": {
+      "get": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Oturum sahibi kullanıcı + tenant + bölümler/izinler.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Profil",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MeResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Yetkisiz",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/opportunities": {
+      "get": {
+        "tags": [
+          "opportunities"
+        ],
+        "summary": "Satış kartları listesi (sayfalı, kanban için stage bazlı filtrelenebilir).",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "integer",
+              "nullable": true
+            },
+            "required": false,
+            "name": "page",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "nullable": true
+            },
+            "required": false,
+            "name": "pageSize",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "name": "stage",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "name": "companyId",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "name": "ownerUserId",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "name": "q",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Sayfalı liste",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/OpportunityDTO"
+                      }
+                    },
+                    "meta": {
+                      "type": "object",
+                      "properties": {
+                        "page": {
+                          "type": "integer"
+                        },
+                        "pageSize": {
+                          "type": "integer"
+                        },
+                        "total": {
+                          "type": "integer"
+                        },
+                        "totalPages": {
+                          "type": "integer"
+                        }
+                      },
+                      "required": [
+                        "page",
+                        "pageSize",
+                        "total",
+                        "totalPages"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "data",
+                    "meta"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "opportunities"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OpportunityCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Oluşturuldu",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OpportunityDTO"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/opportunities/{id}": {
+      "get": {
+        "tags": [
+          "opportunities"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Satış kartı",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OpportunityDTO"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Bulunamadı",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "opportunities"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OpportunityUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Güncellendi",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OpportunityDTO"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "opportunities"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Silindi"
+          }
+        }
+      }
+    },
+    "/opportunities/{id}/stage": {
+      "patch": {
+        "tags": [
+          "opportunities"
+        ],
+        "summary": "Kanban aşaması değiştir (sürükle-bırak).",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OpportunityStageChange"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Aşama güncellendi",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OpportunityDTO"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

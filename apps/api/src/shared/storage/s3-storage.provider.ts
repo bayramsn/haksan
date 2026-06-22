@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand, HeadObjectCommand } from '@aws-sdk/client-s3';
+import type { GetObjectCommandOutput, HeadObjectCommandOutput } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import type { StorageProvider, SignedUrlOptions, StoredFileMetadata, UploadOptions } from './storage.types';
 import { loadEnv } from '../../config/env';
@@ -45,7 +46,7 @@ export class S3StorageProvider implements StorageProvider {
 
   async getObject(bucket: string, objectKey: string): Promise<Buffer | null> {
     try {
-      const res = await this.client.send(new GetObjectCommand({ Bucket: bucket, Key: objectKey }));
+      const res = await this.client.send(new GetObjectCommand({ Bucket: bucket, Key: objectKey })) as GetObjectCommandOutput;
       const bytes = await res.Body?.transformToByteArray();
       return bytes ? Buffer.from(bytes) : null;
     } catch {
@@ -77,7 +78,7 @@ export class S3StorageProvider implements StorageProvider {
 
   async getFileMetadata(bucket: string, objectKey: string): Promise<StoredFileMetadata | null> {
     try {
-      const head = await this.client.send(new HeadObjectCommand({ Bucket: bucket, Key: objectKey }));
+      const head = await this.client.send(new HeadObjectCommand({ Bucket: bucket, Key: objectKey })) as HeadObjectCommandOutput;
       return {
         bucket,
         objectKey,

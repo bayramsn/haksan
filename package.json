@@ -10,9 +10,12 @@
   "scripts": {
     "dev:web": "npm --workspace @haksan/web run dev",
     "dev:api": "npm --workspace @haksan/api run dev",
+    "dev:mobile": "npm --workspace @haksan/mobile run start",
+    "android:mobile": "npm --workspace @haksan/mobile run android",
     "build:web": "npm --workspace @haksan/web run build",
     "build:api": "npm --workspace @haksan/api run build",
     "build:shared": "npm --workspace @haksan/shared run build",
+    "typecheck:mobile": "npm --workspace @haksan/mobile run typecheck",
     "build": "npm run build:shared && npm run build:api && npm run build:web",
     "typecheck": "npm --workspace @haksan/api run typecheck",
     "audit:contracts": "npm --workspace @haksan/api run audit:contracts",

@@ -42,6 +42,12 @@ export class ContactsController {
     return this.svc.get(id, user);
   }
 
+  @RequirePermissions('contacts.read')
+  @Get(':id/companies')
+  companies(@Param('id') id: string, @CurrentUser() user: AuthContext) {
+    return this.svc.listCompanies(id, user);
+  }
+
   @RequirePermissions('contacts.create')
   @Post()
   create(

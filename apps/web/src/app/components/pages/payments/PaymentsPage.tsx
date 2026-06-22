@@ -33,9 +33,21 @@ import {
 } from "lucide-react";
 
 export function PaymentsPage({ focus }: { focus?: OperationFocus }) {
-  const { payments, customers, refresh } = useStore();
+  const { payments, customers, cases, refresh } = useStore();
   const { convert } = useFx();
   const [upcomingDues, setUpcomingDues] = useState<Array<{ id: string; companyName: string; dueDate: string; amount: number; currencyCode: string; type: string }>>([]);
+
+  const filteredPayments = useMemo(() => {
+    return payments.filter((p) => {
+      if (p.paymentType === "expected" && p.salesCaseId) {
+        const sc = cases.find((c) => c.id === p.salesCaseId);
+        if (sc && sc.stage !== "delivered") {
+          return false;
+        }
+      }
+      return true;
+    });
+  }, [payments, cases]);
 
   useEffect(() => {
     const from = new Date();
@@ -45,7 +57,7 @@ export function PaymentsPage({ focus }: { focus?: OperationFocus }) {
       .dueDates({ from: from.toISOString(), to: to.toISOString() })
       .then((rows) => setUpcomingDues((rows ?? []).slice(0, 5)))
       .catch(() => setUpcomingDues([]));
-  }, [payments.length]);
+  }, [filteredPayments.length]);
   // Farklı para birimleri toplanamaz → USD bazına çevirip topla (genel/baz birim USD).
   const toUsd = (p: Payment) => convert(p.amount, p.currency, "USD");
   const customerName = (id: string) => customers.find((c) => c.id === id)?.name ?? "—";
@@ -63,8 +75,8 @@ export function PaymentsPage({ focus }: { focus?: OperationFocus }) {
   }, [focus]);
 
   // Tahsilat metrikleri yalnızca GİREN (alınan) hareketler üzerinden hesaplanır (USD karşılığı).
-  const inflow = payments.filter((p) => p.direction === "in");
-  const outflow = payments.filter((p) => p.direction === "out");
+  const inflow = filteredPayments.filter((p) => p.direction === "in");
+  const outflow = filteredPayments.filter((p) => p.direction === "out");
   const totalPaid = inflow.filter((p) => p.status === "Paid").reduce((s, p) => s + toUsd(p), 0);
   const totalPending = inflow.filter((p) => p.status === "Pending").reduce((s, p) => s + toUsd(p), 0);
   const totalOverdue = inflow.filter((p) => p.status === "Overdue").reduce((s, p) => s + toUsd(p), 0);
@@ -75,8 +87,8 @@ export function PaymentsPage({ focus }: { focus?: OperationFocus }) {
   // Farklı para birimleri toplanamaz; her biri kendi satırında gösterilir.
   const KASA_CURRENCIES: Array<Payment["currency"]> = ["USD", "EUR", "TRY"];
   const kasa = KASA_CURRENCIES.map((cur) => {
-    const gir = payments.filter((p) => p.direction === "in" && p.status === "Paid" && p.currency === cur).reduce((s, p) => s + p.amount, 0);
-    const cik = payments.filter((p) => p.direction === "out" && p.status === "Paid" && p.currency === cur).reduce((s, p) => s + p.amount, 0);
+    const gir = filteredPayments.filter((p) => p.direction === "in" && p.status === "Paid" && p.currency === cur).reduce((s, p) => s + p.amount, 0);
+    const cik = filteredPayments.filter((p) => p.direction === "out" && p.status === "Paid" && p.currency === cur).reduce((s, p) => s + p.amount, 0);
     return { cur, gir, cik, net: gir - cik };
   }).filter((k) => k.gir || k.cik);
   const curSymbol = (c: Payment["currency"]) => (c === "USD" ? "$" : c === "EUR" ? "€" : "₺");
@@ -94,7 +106,7 @@ export function PaymentsPage({ focus }: { focus?: OperationFocus }) {
     { key: "61-90", label: "61–90 gün", color: "#f97316", value: 0 },
     { key: "90+", label: "90+ gün", color: "#ef4444", value: 0 },
   ];
-  payments.forEach((p) => {
+  filteredPayments.forEach((p) => {
     if (p.status !== "Overdue") return;
     const d = (today.getTime() - new Date(p.dueDate).getTime()) / (1000 * 60 * 60 * 24);
     if (d <= 30) buckets[0].value += toUsd(p);
@@ -105,7 +117,7 @@ export function PaymentsPage({ focus }: { focus?: OperationFocus }) {
 
   // Top debtors
   const debtorMap = new Map<string, number>();
-  payments.filter((p) => p.status === "Overdue" || p.status === "Pending").forEach((p) => {
+  filteredPayments.filter((p) => p.status === "Overdue" || p.status === "Pending").forEach((p) => {
     debtorMap.set(p.customerId, (debtorMap.get(p.customerId) ?? 0) + toUsd(p));
   });
   const topDebtors = [...debtorMap.entries()]
@@ -113,7 +125,7 @@ export function PaymentsPage({ focus }: { focus?: OperationFocus }) {
     .slice(0, 5)
     .map(([cid, amt]) => ({ cid, name: customerName(cid), amount: amt }));
 
-  const filtered = payments.filter((p) => {
+  const filtered = filteredPayments.filter((p) => {
     if (statusFilter !== "all" && p.status !== statusFilter) return false;
     if (dirFilter !== "all" && p.direction !== dirFilter) return false;
     if (q && !customerName(p.customerId).toLowerCase().includes(q.toLowerCase())) return false;
@@ -121,15 +133,15 @@ export function PaymentsPage({ focus }: { focus?: OperationFocus }) {
   });
   const { page, setPage, totalPages, pageItems } = usePaged(filtered, 12);
 
-  const payMonthly = useMemo(() => buildPaymentMonthly(payments, 6, (amount, currency) => convert(amount, currency, "USD")), [payments, convert]);
+  const payMonthly = useMemo(() => buildPaymentMonthly(filteredPayments, 6, (amount, currency) => convert(amount, currency, "USD")), [filteredPayments, convert]);
   const currencyPie = useMemo(() => {
-    const pie = buildCurrencyPie(payments);
+    const pie = buildCurrencyPie(filteredPayments);
     return pie.length ? pie : [{ name: "USD", value: 0, fill: "#000c69" }];
-  }, [payments]);
+  }, [filteredPayments]);
   const cashflow = useMemo(() => {
     const now = new Date();
     const key = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
-    const inMonth = payments.filter((p) => String(p.paymentDate ?? "").startsWith(key) && p.status === "Paid");
+    const inMonth = filteredPayments.filter((p) => String(p.paymentDate ?? "").startsWith(key) && p.status === "Paid");
     const days = [1, 5, 10, 15, 20, 25, 30];
     return days.map((gun) => {
       const dayRows = inMonth.filter((p) => new Date(p.paymentDate).getDate() <= gun);
@@ -137,7 +149,7 @@ export function PaymentsPage({ focus }: { focus?: OperationFocus }) {
       const cikis = dayRows.filter((p) => p.direction === "out").reduce((s, p) => s + convert(p.amount, p.currency, "USD"), 0);
       return { gun: String(gun), giris: Math.round(giris / 1000), cikis: Math.round(cikis / 1000) };
     });
-  }, [payments, convert]);
+  }, [filteredPayments, convert]);
 
   return (
     <div className="space-y-5">
@@ -455,19 +467,19 @@ export function PaymentsPage({ focus }: { focus?: OperationFocus }) {
                 <TabsTrigger value="Paid" className="text-xs gap-1.5">
                   Tahsil
                   <span className="inline-flex items-center justify-center min-w-[16px] h-[16px] px-1 text-[10px] rounded-full bg-emerald-100 text-emerald-700">
-                    {payments.filter((p) => p.status === "Paid").length}
+                    {filteredPayments.filter((p) => p.status === "Paid").length}
                   </span>
                 </TabsTrigger>
                 <TabsTrigger value="Pending" className="text-xs gap-1.5">
                   Bekleyen
                   <span className="inline-flex items-center justify-center min-w-[16px] h-[16px] px-1 text-[10px] rounded-full bg-amber-100 text-amber-700">
-                    {payments.filter((p) => p.status === "Pending").length}
+                    {filteredPayments.filter((p) => p.status === "Pending").length}
                   </span>
                 </TabsTrigger>
                 <TabsTrigger value="Overdue" className="text-xs gap-1.5">
                   Gecikmiş
                   <span className="inline-flex items-center justify-center min-w-[16px] h-[16px] px-1 text-[10px] rounded-full bg-red-100 text-red-700">
-                    {payments.filter((p) => p.status === "Overdue").length}
+                    {filteredPayments.filter((p) => p.status === "Overdue").length}
                   </span>
                 </TabsTrigger>
               </TabsList>

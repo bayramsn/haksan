@@ -5,11 +5,72 @@ import {
   Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle,
 } from "../../ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../../ui/table";
+import { Badge } from "../../ui/badge";
 import { StatusBadge } from "../../Layout";
 import { CreateMachineDialog, CreateServiceRequestDialog } from "../../dialogs/CreateDialogs";
 import { useStore } from "../../../lib/store";
 import type { Machine } from "../../../lib/mock";
-import { Eye, Wrench, Cpu } from "lucide-react";
+import { warrantyInfo, type WarrantyState } from "../../../lib/pageHelpers";
+import { Eye, Wrench, Cpu, ShieldCheck } from "lucide-react";
+
+const WARRANTY_TONE: Record<WarrantyState, string> = {
+  active: "border-emerald-200 bg-emerald-50 text-emerald-700",
+  expiring: "border-amber-200 bg-amber-50 text-amber-700",
+  expired: "border-red-200 bg-red-50 text-red-700",
+  unknown: "bg-muted/40 text-muted-foreground",
+};
+
+/** Garanti durumundan kısa rozet etiketi üretir. */
+function warrantyShortLabel(info: ReturnType<typeof warrantyInfo>) {
+  switch (info.state) {
+    case "active":
+      return "Garanti aktif";
+    case "expiring":
+      return info.days != null ? `${info.days} gün kaldı` : "Yaklaşıyor";
+    case "expired":
+      return "Süresi doldu";
+    default:
+      return "Garanti yok";
+  }
+}
+
+/** Makine garanti durumu rozeti (Aktif / Yaklaşıyor / Süresi doldu). */
+export function WarrantyBadge({ end }: { end?: string | null }) {
+  const info = warrantyInfo(end);
+  return (
+    <Badge
+      variant="outline"
+      className={`gap-1 ${WARRANTY_TONE[info.state]}`}
+      title={info.label}
+    >
+      <ShieldCheck className="size-3" />
+      {warrantyShortLabel(info)}
+    </Badge>
+  );
+}
+
+/** Garanti durumu özet kartı (Makineler sayfası başlığında). */
+function WarrantyKpi({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: number;
+  tone: WarrantyState;
+}) {
+  return (
+    <Card className={`border ${WARRANTY_TONE[tone]} shadow-sm`}>
+      <CardContent className="flex items-center justify-between gap-2 p-3">
+        <div className="min-w-0">
+          <div className="text-xs font-medium opacity-80 truncate">{label}</div>
+          <div className="text-2xl font-semibold tabular-nums">{value}</div>
+        </div>
+        <ShieldCheck className="size-5 shrink-0 opacity-70" />
+      </CardContent>
+    </Card>
+  );
+}
 
 function MachineDetailDialog({
   machine,
@@ -37,7 +98,10 @@ function MachineDetailDialog({
           <div><span className="text-muted-foreground">Marka:</span> {machine.brand || "—"}</div>
           <div><span className="text-muted-foreground">Tip:</span> {machine.type || "—"}</div>
           <div><span className="text-muted-foreground">Kurulum:</span> {machine.installationDate || "—"}</div>
-          <div><span className="text-muted-foreground">Garanti bitiş:</span> {machine.warrantyEnd || "—"}</div>
+          <div className="flex items-center gap-2">
+            <span className="text-muted-foreground">Garanti bitiş:</span> {machine.warrantyEnd || "—"}
+            <WarrantyBadge end={machine.warrantyEnd} />
+          </div>
           <div><span className="text-muted-foreground">CNC:</span> {machine.controlUnit || "—"}</div>
           <div><span className="text-muted-foreground">CNC seri:</span> {machine.controlUnitSerial || "—"}</div>
         </div>
@@ -81,8 +145,24 @@ export function MachinesPage() {
   const [selected, setSelected] = useState<Machine | null>(null);
   const customerName = (id: string) => customers.find((c) => c.id === id)?.name ?? "—";
 
+  const warrantyStats = machines.reduce(
+    (acc, m) => {
+      acc[warrantyInfo(m.warrantyEnd).state] += 1;
+      return acc;
+    },
+    { active: 0, expiring: 0, expired: 0, unknown: 0 } as Record<WarrantyState, number>,
+  );
+
   return (
     <>
+      {machines.length > 0 && (
+        <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <WarrantyKpi label="Garanti aktif" value={warrantyStats.active} tone="active" />
+          <WarrantyKpi label="Yaklaşıyor (≤60g)" value={warrantyStats.expiring} tone="expiring" />
+          <WarrantyKpi label="Süresi doldu" value={warrantyStats.expired} tone="expired" />
+          <WarrantyKpi label="Garanti bilgisi yok" value={warrantyStats.unknown} tone="unknown" />
+        </div>
+      )}
       <Card className="border-border/60 shadow-sm overflow-hidden">
         <CardHeader>
           <div className="flex items-center justify-between">
@@ -140,7 +220,12 @@ export function MachinesPage() {
                       <TableCell>{m.model}</TableCell>
                       <TableCell>{customerName(m.customerId)}</TableCell>
                       <TableCell className="text-muted-foreground">{m.installationDate}</TableCell>
-                      <TableCell className="text-muted-foreground">{m.warrantyEnd}</TableCell>
+                      <TableCell>
+                        <div className="flex flex-col gap-1">
+                          <span className="text-muted-foreground">{m.warrantyEnd || "—"}</span>
+                          <WarrantyBadge end={m.warrantyEnd} />
+                        </div>
+                      </TableCell>
                       <TableCell className="tabular-nums">{srCount}</TableCell>
                       <TableCell><StatusBadge status={m.status} /></TableCell>
                       <TableCell>

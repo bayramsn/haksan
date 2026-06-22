@@ -55,10 +55,13 @@ Sonra `http://localhost:5173` adresini aç.
 
 | E-posta | Şifre | Rol |
 |---------|-------|-----|
+| superadmin@haksan.local | superadmin12345 | super_admin |
 | admin@haksan.local | admin12345 | admin |
 | sales@haksan.local | sales12345 | sales |
 | service@haksan.local | service12345 | service |
 | finance@haksan.local | finance12345 | finance |
+| stock@haksan.local | stock12345 | stock |
+| readonly@haksan.local | readonly12345 | readonly |
 
 **Canlı kurulum** yalnızca `db:seed` + `db:bootstrap` ile başlar; müşteri/teklif/stok sizin girdiğiniz kayıtlardan oluşur.
 

@@ -1,8 +1,17 @@
-import { Body, Controller, Get, Inject, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Inject, Param, Patch, Post, Put, Query, UseGuards } from '@nestjs/common';
 import { z } from 'zod';
 import { and, asc, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import type { DbClient } from '../../db/client';
-import { serviceTickets, installationJobs, shipments, shipmentItems, deliveries } from '../../db/schema/service';
+import {
+  serviceTickets,
+  serviceComplaintIntakes,
+  serviceWarrantyClaims,
+  serviceWarrantyParts,
+  installationJobs,
+  shipments,
+  shipmentItems,
+  deliveries,
+} from '../../db/schema/service';
 import { serviceTicketStatuses, installationStatuses, shipmentStatuses, inventoryStatuses, units } from '../../db/schema/lookup';
 import { companies, contacts } from '../../db/schema/companies';
 import { opportunities } from '../../db/schema/crm';
@@ -32,26 +41,72 @@ import type { AuthContext } from '../../shared/security/auth.types';
 import { NotFoundError, ValidationError } from '../../shared/utils/errors';
 import { buildPaginated, pageOffset } from '../../shared/utils/pagination';
 import { lookupIdByCode } from '../../shared/utils/lookup.helper';
+import { divisionFilter, resolveActorDivisionScope, resolveAssignedDivision } from '../../shared/utils/division-scope';
 
 const ticketCreate = z.object({
   ticketNo: z.string().min(1).max(64).optional(),
+  divisionId: z.string().uuid().optional(),
   companyId: z.string().min(1),
   contactId: z.string().optional(),
   customerDeviceId: z.string().optional(),
   subject: z.string().min(1).max(255),
   description: z.string().max(4000).optional(),
   severity: z.enum(['low', 'normal', 'high', 'critical']).default('normal'),
+  ticketType: z.enum(['complaint', 'request', 'warranty_claim', 'question']).default('complaint'),
+  source: z.enum(['manual', 'phone', 'email', 'whatsapp', 'portal', 'web', 'qr']).default('manual'),
+  assignedToUserId: z.string().uuid().nullable().optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
 });
 const ticketStatus = z.object({ statusCode: z.string() });
 const ticketUpdate = z.object({
   description: z.string().max(4000).optional(),
   resolutionNote: z.string().max(4000).optional(),
   severity: z.enum(['low', 'normal', 'high', 'critical']).optional(),
+  // Kaynak (source) değiştirilmez; tip sonradan yeniden sınıflandırılabilir.
+  ticketType: z.enum(['complaint', 'request', 'warranty_claim', 'question']).optional(),
   assignedToUserId: z.string().uuid().nullable().optional(),
   metadata: z.record(z.string(), z.unknown()).optional(),
 });
 
+const currencySchema = z.enum(['USD', 'EUR', 'TRY']);
+const warrantyStatusSchema = z.enum(['draft', 'submitted', 'approved', 'rejected', 'rma_in_progress', 'closed']);
+const warrantyUpdate = z.object({
+  failureCategory: z.string().max(128).optional().nullable(),
+  technicianAssessment: z.string().max(4000).optional().nullable(),
+  rmaNo: z.string().max(128).optional().nullable(),
+  supplierName: z.string().max(255).optional().nullable(),
+  supplierRmaStatus: z.string().max(64).optional().nullable(),
+  costAmount: z.coerce.number().min(0).optional().nullable(),
+  costCurrency: currencySchema.optional(),
+  customerChargeAmount: z.coerce.number().min(0).optional().nullable(),
+  customerChargeCurrency: currencySchema.optional(),
+  status: warrantyStatusSchema.optional(),
+});
+const warrantyPartsUpdate = z.object({
+  parts: z.array(z.object({
+    id: z.string().uuid().optional(),
+    productModelId: z.string().uuid().optional().nullable(),
+    inventoryItemId: z.string().uuid().optional().nullable(),
+    description: z.string().min(1).max(1000),
+    quantity: z.coerce.number().int().min(1).max(100000),
+    actionType: z.enum(['replace', 'repair', 'return', 'investigate']).default('replace'),
+    source: z.enum(['stock', 'supplier', 'customer', 'service']).default('stock'),
+    supplierRmaStatus: z.string().max(64).optional().nullable(),
+    chargeToCustomer: z.coerce.boolean().default(false),
+    unitCost: z.coerce.number().min(0).optional().nullable(),
+    currency: currencySchema.default('USD'),
+    notes: z.string().max(2000).optional().nullable(),
+  })).max(100),
+});
+const warrantyDecision = z.object({
+  decisionNote: z.string().max(4000).optional(),
+});
+const warrantySubmit = z.object({
+  note: z.string().max(4000).optional(),
+});
+
 const installCreate = z.object({
+  divisionId: z.string().uuid().optional(),
   opportunityId: z.string().optional(),
   quoteId: z.string().optional(),
   customerDeviceId: z.string().optional(),
@@ -126,6 +181,97 @@ export class ServiceController {
     return device;
   }
 
+  private cleanNullableText(value: string | null | undefined) {
+    const text = value?.trim();
+    return text ? text : null;
+  }
+
+  private moneyValue(value: number | null | undefined) {
+    return value === null || value === undefined ? null : value.toString();
+  }
+
+  private coverageSuggestion(device?: { warrantyStartDate: Date | null; warrantyEndDate: Date | null } | null) {
+    if (!device?.warrantyEndDate) return 'unknown';
+    const now = Date.now();
+    const start = device.warrantyStartDate?.getTime();
+    const end = device.warrantyEndDate.getTime();
+    if (start && start > now) return 'unknown';
+    return end >= now ? 'in_warranty' : 'out_of_warranty';
+  }
+
+  private async getScopedTicket(id: string, user: AuthContext) {
+    const ticket = await this.db.query.serviceTickets.findFirst({
+      where: and(
+        eq(serviceTickets.id, id),
+        eq(serviceTickets.tenantId, user.tenantId),
+        isNull(serviceTickets.deletedAt),
+        divisionFilter(resolveActorDivisionScope(user), serviceTickets.divisionId) ?? sql`true`
+      ),
+    });
+    if (!ticket) throw new NotFoundError('Servis kaydı');
+    return ticket;
+  }
+
+  private async findWarrantyClaim(serviceTicketId: string, tenantId: string) {
+    return this.db.query.serviceWarrantyClaims.findFirst({
+      where: and(
+        eq(serviceWarrantyClaims.serviceTicketId, serviceTicketId),
+        eq(serviceWarrantyClaims.tenantId, tenantId),
+        isNull(serviceWarrantyClaims.deletedAt)
+      ),
+    });
+  }
+
+  private async ensureWarrantyClaim(ticket: typeof serviceTickets.$inferSelect) {
+    const existing = await this.findWarrantyClaim(ticket.id, ticket.tenantId);
+    if (existing) return existing;
+    const device = ticket.customerDeviceId
+      ? await this.db.query.customerDevices.findFirst({
+          where: and(
+            eq(customerDevices.id, ticket.customerDeviceId),
+            eq(customerDevices.tenantId, ticket.tenantId),
+            isNull(customerDevices.deletedAt)
+          ),
+        })
+      : null;
+    const [claim] = await this.db
+      .insert(serviceWarrantyClaims)
+      .values({
+        tenantId: ticket.tenantId,
+        divisionId: ticket.divisionId ?? null,
+        serviceTicketId: ticket.id,
+        companyId: ticket.companyId,
+        customerDeviceId: ticket.customerDeviceId ?? null,
+        warrantyStartSnapshot: device?.warrantyStartDate ?? null,
+        warrantyEndSnapshot: device?.warrantyEndDate ?? null,
+        coverageSuggestion: this.coverageSuggestion(device),
+      })
+      .returning();
+    return claim;
+  }
+
+  private async warrantyResponse(claim: typeof serviceWarrantyClaims.$inferSelect) {
+    const parts = await this.db
+      .select({
+        part: serviceWarrantyParts,
+        product: { id: productModels.id, model: productModels.modelCode, modelName: productModels.modelName },
+        inventory: { id: inventoryItems.id, serialNumber: inventoryItems.serialNumber },
+      })
+      .from(serviceWarrantyParts)
+      .leftJoin(productModels, eq(serviceWarrantyParts.productModelId, productModels.id))
+      .leftJoin(inventoryItems, eq(serviceWarrantyParts.inventoryItemId, inventoryItems.id))
+      .where(and(eq(serviceWarrantyParts.warrantyClaimId, claim.id), eq(serviceWarrantyParts.tenantId, claim.tenantId), isNull(serviceWarrantyParts.deletedAt)))
+      .orderBy(asc(serviceWarrantyParts.createdAt));
+    return {
+      ...claim,
+      parts: parts.map((row) => ({
+        ...row.part,
+        product: row.product?.id ? row.product : null,
+        inventory: row.inventory?.id ? row.inventory : null,
+      })),
+    };
+  }
+
   private async assertUser(userId: string, tenantId: string) {
     const user = await this.db.query.users.findFirst({
       where: and(eq(usersTable.id, userId), eq(usersTable.tenantId, tenantId), isNull(usersTable.deletedAt)),
@@ -151,9 +297,11 @@ export class ServiceController {
     return item;
   }
 
-  private async assertShipment(shipmentId: string, tenantId: string) {
+  private async assertShipment(shipmentId: string, tenantId: string, actor?: AuthContext) {
+    const filters = [eq(shipments.id, shipmentId), eq(shipments.tenantId, tenantId), isNull(shipments.deletedAt)];
+    if (actor) filters.push(divisionFilter(resolveActorDivisionScope(actor), shipments.divisionId) ?? sql`true`);
     const shipment = await this.db.query.shipments.findFirst({
-      where: and(eq(shipments.id, shipmentId), eq(shipments.tenantId, tenantId), isNull(shipments.deletedAt)),
+      where: and(...filters),
     });
     if (!shipment) throw new NotFoundError('Sevkiyat');
     return shipment;
@@ -584,17 +732,52 @@ export class ServiceController {
   @Get('service-tickets')
   async listTickets(@Query(new ZodValidationPipe(paginationSchema)) p: Pagination, @CurrentUser() user: AuthContext) {
     const { limit, offset } = pageOffset(p);
-    const where = and(eq(serviceTickets.tenantId, user.tenantId), isNull(serviceTickets.deletedAt));
+    const where = and(
+      eq(serviceTickets.tenantId, user.tenantId),
+      isNull(serviceTickets.deletedAt),
+      divisionFilter(resolveActorDivisionScope(user), serviceTickets.divisionId) ?? sql`true`
+    );
     const [{ count }] = await this.db.select({ count: sql<number>`count(*)::int` }).from(serviceTickets).where(where);
     const rows = await this.db
-      .select({ ticket: serviceTickets, status: { id: serviceTicketStatuses.id, code: serviceTicketStatuses.code, name: serviceTicketStatuses.name } })
+      .select({
+        ticket: serviceTickets,
+        status: { id: serviceTicketStatuses.id, code: serviceTicketStatuses.code, name: serviceTicketStatuses.name },
+        warrantyClaim: {
+          id: serviceWarrantyClaims.id,
+          status: serviceWarrantyClaims.status,
+          coverageSuggestion: serviceWarrantyClaims.coverageSuggestion,
+          coverageDecision: serviceWarrantyClaims.coverageDecision,
+          rmaNo: serviceWarrantyClaims.rmaNo,
+          supplierRmaStatus: serviceWarrantyClaims.supplierRmaStatus,
+          decidedAt: serviceWarrantyClaims.decidedAt,
+        },
+        sourceComplaint: {
+          id: serviceComplaintIntakes.id,
+          complaintNo: serviceComplaintIntakes.complaintNo,
+          source: serviceComplaintIntakes.source,
+          contactName: serviceComplaintIntakes.contactName,
+          contactPhone: serviceComplaintIntakes.contactPhone,
+          contactEmail: serviceComplaintIntakes.contactEmail,
+        },
+      })
       .from(serviceTickets)
       .leftJoin(serviceTicketStatuses, eq(serviceTickets.statusId, serviceTicketStatuses.id))
+      .leftJoin(serviceWarrantyClaims, and(eq(serviceWarrantyClaims.serviceTicketId, serviceTickets.id), isNull(serviceWarrantyClaims.deletedAt)))
+      .leftJoin(serviceComplaintIntakes, and(eq(serviceComplaintIntakes.serviceTicketId, serviceTickets.id), isNull(serviceComplaintIntakes.deletedAt)))
       .where(where)
       .orderBy(desc(serviceTickets.reportedAt))
       .limit(limit)
       .offset(offset);
-    return buildPaginated(rows.map((r) => ({ ...r.ticket, status: r.status })), count, p);
+    return buildPaginated(
+      rows.map((r) => ({
+        ...r.ticket,
+        status: r.status,
+        warrantyClaim: r.warrantyClaim?.id ? r.warrantyClaim : null,
+        sourceComplaint: r.sourceComplaint?.id ? r.sourceComplaint : null,
+      })),
+      count,
+      p
+    );
   }
 
   @RequirePermissions('service_tickets.create')
@@ -603,6 +786,7 @@ export class ServiceController {
     await this.assertCompany(body.companyId, user.tenantId);
     if (body.contactId) await this.assertContact(body.contactId, user.tenantId, body.companyId);
     if (body.customerDeviceId) await this.assertCustomerDevice(body.customerDeviceId, user.tenantId, body.companyId);
+    if (body.assignedToUserId) await this.assertUser(body.assignedToUserId, user.tenantId);
     const openStatus = await this.db.query.serviceTicketStatuses.findFirst({ where: eq(serviceTicketStatuses.code, 'open') });
     let ticketNo = body.ticketNo;
     if (!ticketNo) {
@@ -610,10 +794,13 @@ export class ServiceController {
       const year = new Date().getUTCFullYear();
       ticketNo = `SVC-${year}-${String(c + 1).padStart(4, '0')}`;
     }
+    const divisionId = resolveAssignedDivision(user, body.divisionId ?? null);
+    if (!divisionId) throw new ValidationError('Servis kaydı için bölüm ataması zorunludur', { field: 'divisionId' });
     const [row] = await this.db
       .insert(serviceTickets)
       .values({
         tenantId: user.tenantId,
+        divisionId,
         ticketNo,
         companyId: body.companyId,
         contactId: body.contactId ?? null,
@@ -621,9 +808,16 @@ export class ServiceController {
         subject: body.subject,
         description: body.description ?? null,
         severity: body.severity,
+        ticketType: body.ticketType,
+        source: body.source,
         statusId: openStatus?.id ?? null,
+        assignedToUserId: body.assignedToUserId ?? null,
+        metadata: body.metadata ?? null,
       })
       .returning();
+    if (row.ticketType === 'warranty_claim') {
+      await this.ensureWarrantyClaim(row);
+    }
     return row;
   }
 
@@ -631,25 +825,199 @@ export class ServiceController {
   @Patch('service-tickets/:id')
   async updateTicket(@Param('id') id: string, @Body(new ZodValidationPipe(ticketUpdate)) body: z.infer<typeof ticketUpdate>, @CurrentUser() user: AuthContext) {
     const ticket = await this.db.query.serviceTickets.findFirst({
-      where: and(eq(serviceTickets.id, id), eq(serviceTickets.tenantId, user.tenantId)),
+      where: and(
+        eq(serviceTickets.id, id),
+        eq(serviceTickets.tenantId, user.tenantId),
+        divisionFilter(resolveActorDivisionScope(user), serviceTickets.divisionId) ?? sql`true`
+      ),
     });
     if (!ticket) throw new NotFoundError('Servis kaydı');
     const patch: Record<string, unknown> = {};
     if (body.description !== undefined) patch.description = body.description;
     if (body.resolutionNote !== undefined) patch.resolutionNote = body.resolutionNote;
     if (body.severity !== undefined) patch.severity = body.severity;
+    if (body.ticketType !== undefined) patch.ticketType = body.ticketType;
     if (body.assignedToUserId !== undefined) patch.assignedToUserId = body.assignedToUserId;
     if (body.metadata !== undefined) patch.metadata = body.metadata;
     if (!Object.keys(patch).length) return ticket;
     const [row] = await this.db.update(serviceTickets).set(patch).where(eq(serviceTickets.id, id)).returning();
+    if (row.ticketType === 'warranty_claim') {
+      await this.ensureWarrantyClaim(row);
+    }
     return row;
+  }
+
+  @RequirePermissions('service_tickets.read')
+  @Get('service-tickets/:id/warranty')
+  async getWarranty(@Param('id') id: string, @CurrentUser() user: AuthContext) {
+    const ticket = await this.getScopedTicket(id, user);
+    const existing = await this.findWarrantyClaim(ticket.id, user.tenantId);
+    if (!existing && ticket.ticketType !== 'warranty_claim') return null;
+    const claim = existing ?? await this.ensureWarrantyClaim(ticket);
+    return this.warrantyResponse(claim);
+  }
+
+  @RequirePermissions('service_tickets.update')
+  @Put('service-tickets/:id/warranty')
+  async upsertWarranty(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(warrantyUpdate)) body: z.infer<typeof warrantyUpdate>,
+    @CurrentUser() user: AuthContext
+  ) {
+    const ticket = await this.getScopedTicket(id, user);
+    if (ticket.ticketType !== 'warranty_claim') {
+      await this.db.update(serviceTickets).set({ ticketType: 'warranty_claim' }).where(eq(serviceTickets.id, ticket.id));
+      ticket.ticketType = 'warranty_claim';
+    }
+    const claim = await this.ensureWarrantyClaim(ticket);
+    const patch: Partial<typeof serviceWarrantyClaims.$inferInsert> = {};
+    if (body.failureCategory !== undefined) patch.failureCategory = this.cleanNullableText(body.failureCategory);
+    if (body.technicianAssessment !== undefined) patch.technicianAssessment = this.cleanNullableText(body.technicianAssessment);
+    if (body.rmaNo !== undefined) patch.rmaNo = this.cleanNullableText(body.rmaNo);
+    if (body.supplierName !== undefined) patch.supplierName = this.cleanNullableText(body.supplierName);
+    if (body.supplierRmaStatus !== undefined) patch.supplierRmaStatus = this.cleanNullableText(body.supplierRmaStatus);
+    if (body.costAmount !== undefined) patch.costAmount = this.moneyValue(body.costAmount);
+    if (body.costCurrency !== undefined) patch.costCurrency = body.costCurrency;
+    if (body.customerChargeAmount !== undefined) patch.customerChargeAmount = this.moneyValue(body.customerChargeAmount);
+    if (body.customerChargeCurrency !== undefined) patch.customerChargeCurrency = body.customerChargeCurrency;
+    if (body.status !== undefined) patch.status = body.status;
+    if (Object.keys(patch).length) {
+      const [updated] = await this.db
+        .update(serviceWarrantyClaims)
+        .set(patch)
+        .where(eq(serviceWarrantyClaims.id, claim.id))
+        .returning();
+      return this.warrantyResponse(updated);
+    }
+    return this.warrantyResponse(claim);
+  }
+
+  @RequirePermissions('service_tickets.update')
+  @Put('service-tickets/:id/warranty/parts')
+  async replaceWarrantyParts(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(warrantyPartsUpdate)) body: z.infer<typeof warrantyPartsUpdate>,
+    @CurrentUser() user: AuthContext
+  ) {
+    const ticket = await this.getScopedTicket(id, user);
+    if (ticket.ticketType !== 'warranty_claim') {
+      await this.db.update(serviceTickets).set({ ticketType: 'warranty_claim' }).where(eq(serviceTickets.id, ticket.id));
+      ticket.ticketType = 'warranty_claim';
+    }
+    const claim = await this.ensureWarrantyClaim(ticket);
+    for (const part of body.parts) {
+      if (part.productModelId) {
+        const product = await this.db.query.productModels.findFirst({
+          where: and(eq(productModels.id, part.productModelId), eq(productModels.tenantId, user.tenantId), isNull(productModels.deletedAt)),
+        });
+        if (!product) throw new NotFoundError('Ürün');
+      }
+      if (part.inventoryItemId) await this.assertInventoryItem(part.inventoryItemId, user.tenantId);
+    }
+    await this.db
+      .update(serviceWarrantyParts)
+      .set({ deletedAt: new Date() })
+      .where(and(eq(serviceWarrantyParts.warrantyClaimId, claim.id), eq(serviceWarrantyParts.tenantId, user.tenantId), isNull(serviceWarrantyParts.deletedAt)));
+    if (body.parts.length) {
+      await this.db.insert(serviceWarrantyParts).values(
+        body.parts.map((part) => ({
+          tenantId: user.tenantId,
+          warrantyClaimId: claim.id,
+          productModelId: part.productModelId ?? null,
+          inventoryItemId: part.inventoryItemId ?? null,
+          description: part.description.trim(),
+          quantity: part.quantity,
+          actionType: part.actionType,
+          source: part.source,
+          supplierRmaStatus: this.cleanNullableText(part.supplierRmaStatus),
+          chargeToCustomer: part.chargeToCustomer,
+          unitCost: this.moneyValue(part.unitCost),
+          currency: part.currency,
+          notes: this.cleanNullableText(part.notes),
+        }))
+      );
+    }
+    const refreshed = await this.findWarrantyClaim(ticket.id, user.tenantId);
+    return this.warrantyResponse(refreshed ?? claim);
+  }
+
+  @RequirePermissions('service_tickets.update')
+  @Post('service-tickets/:id/warranty/submit')
+  async submitWarranty(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(warrantySubmit)) _body: z.infer<typeof warrantySubmit>,
+    @CurrentUser() user: AuthContext
+  ) {
+    const ticket = await this.getScopedTicket(id, user);
+    if (!ticket.customerDeviceId) throw new ValidationError('Garanti onayına göndermek için servis kaydı bir makineyle eşleşmeli');
+    if (ticket.ticketType !== 'warranty_claim') {
+      await this.db.update(serviceTickets).set({ ticketType: 'warranty_claim' }).where(eq(serviceTickets.id, ticket.id));
+      ticket.ticketType = 'warranty_claim';
+    }
+    const claim = await this.ensureWarrantyClaim(ticket);
+    const [updated] = await this.db
+      .update(serviceWarrantyClaims)
+      .set({ status: 'submitted' })
+      .where(eq(serviceWarrantyClaims.id, claim.id))
+      .returning();
+    return this.warrantyResponse(updated);
+  }
+
+  @RequirePermissions('service_tickets.approve')
+  @Post('service-tickets/:id/warranty/approve')
+  async approveWarranty(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(warrantyDecision)) body: z.infer<typeof warrantyDecision>,
+    @CurrentUser() user: AuthContext
+  ) {
+    const ticket = await this.getScopedTicket(id, user);
+    const claim = await this.ensureWarrantyClaim(ticket);
+    const [updated] = await this.db
+      .update(serviceWarrantyClaims)
+      .set({
+        status: 'approved',
+        coverageDecision: 'approved',
+        managerDecisionNote: this.cleanNullableText(body.decisionNote),
+        decidedByUserId: user.userId,
+        decidedAt: new Date(),
+      })
+      .where(eq(serviceWarrantyClaims.id, claim.id))
+      .returning();
+    return this.warrantyResponse(updated);
+  }
+
+  @RequirePermissions('service_tickets.reject')
+  @Post('service-tickets/:id/warranty/reject')
+  async rejectWarranty(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(warrantyDecision)) body: z.infer<typeof warrantyDecision>,
+    @CurrentUser() user: AuthContext
+  ) {
+    const ticket = await this.getScopedTicket(id, user);
+    const claim = await this.ensureWarrantyClaim(ticket);
+    const [updated] = await this.db
+      .update(serviceWarrantyClaims)
+      .set({
+        status: 'rejected',
+        coverageDecision: 'rejected',
+        managerDecisionNote: this.cleanNullableText(body.decisionNote),
+        decidedByUserId: user.userId,
+        decidedAt: new Date(),
+      })
+      .where(eq(serviceWarrantyClaims.id, claim.id))
+      .returning();
+    return this.warrantyResponse(updated);
   }
 
   @RequirePermissions('service_tickets.update')
   @Patch('service-tickets/:id/status')
   async updateTicketStatus(@Param('id') id: string, @Body(new ZodValidationPipe(ticketStatus)) body: z.infer<typeof ticketStatus>, @CurrentUser() user: AuthContext) {
     const ticket = await this.db.query.serviceTickets.findFirst({
-      where: and(eq(serviceTickets.id, id), eq(serviceTickets.tenantId, user.tenantId)),
+      where: and(
+        eq(serviceTickets.id, id),
+        eq(serviceTickets.tenantId, user.tenantId),
+        divisionFilter(resolveActorDivisionScope(user), serviceTickets.divisionId) ?? sql`true`
+      ),
     });
     if (!ticket) throw new NotFoundError('Servis kaydı');
     const statusId = await lookupIdByCode(this.db, serviceTicketStatuses, body.statusCode);
@@ -664,7 +1032,11 @@ export class ServiceController {
   @Get('installations')
   async listInstallations(@Query(new ZodValidationPipe(paginationSchema)) p: Pagination, @CurrentUser() user: AuthContext) {
     const { limit, offset } = pageOffset(p);
-    const where = and(eq(installationJobs.tenantId, user.tenantId), isNull(installationJobs.deletedAt));
+    const where = and(
+      eq(installationJobs.tenantId, user.tenantId),
+      isNull(installationJobs.deletedAt),
+      divisionFilter(resolveActorDivisionScope(user), installationJobs.divisionId) ?? sql`true`
+    );
     const [{ count }] = await this.db.select({ count: sql<number>`count(*)::int` }).from(installationJobs).where(where);
     const rows = await this.db
       .select({
@@ -698,6 +1070,8 @@ export class ServiceController {
     if (body.customerDeviceId) await this.assertCustomerDevice(body.customerDeviceId, user.tenantId, companyId);
     if (body.assignedToUserId) await this.assertUser(body.assignedToUserId, user.tenantId);
     const scheduled = await this.db.query.installationStatuses.findFirst({ where: eq(installationStatuses.code, 'scheduled') });
+    const divisionId = resolveAssignedDivision(user, body.divisionId ?? opportunity?.divisionId ?? quote?.divisionId ?? null);
+    if (!divisionId) throw new ValidationError('Kurulum için bölüm ataması zorunludur', { field: 'divisionId' });
     // Konum tipi + süre verildiyse saha ücretini @haksan/shared ile hesapla
     // (İstanbul içi 70$/saat, dışı 100$/saat; 15/45 dk eşikli yuvarlama).
     const fee =
@@ -708,6 +1082,7 @@ export class ServiceController {
       .insert(installationJobs)
       .values({
         tenantId: user.tenantId,
+        divisionId,
         opportunityId: body.opportunityId ?? null,
         quoteId: body.quoteId ?? null,
         customerDeviceId: body.customerDeviceId ?? null,
@@ -734,7 +1109,12 @@ export class ServiceController {
     @CurrentUser() user: AuthContext,
   ) {
     const job = await this.db.query.installationJobs.findFirst({
-      where: and(eq(installationJobs.id, id), eq(installationJobs.tenantId, user.tenantId), isNull(installationJobs.deletedAt)),
+      where: and(
+        eq(installationJobs.id, id),
+        eq(installationJobs.tenantId, user.tenantId),
+        isNull(installationJobs.deletedAt),
+        divisionFilter(resolveActorDivisionScope(user), installationJobs.divisionId) ?? sql`true`
+      ),
     });
     if (!job) throw new NotFoundError('Kurulum');
     const statusId = await lookupIdByCode(this.db, installationStatuses, body.statusCode);
@@ -790,7 +1170,11 @@ export class ServiceController {
   @Get('shipments')
   async listShipments(@Query(new ZodValidationPipe(paginationSchema)) p: Pagination, @CurrentUser() user: AuthContext) {
     const { limit, offset } = pageOffset(p);
-    const where = and(eq(shipments.tenantId, user.tenantId), isNull(shipments.deletedAt));
+    const where = and(
+      eq(shipments.tenantId, user.tenantId),
+      isNull(shipments.deletedAt),
+      divisionFilter(resolveActorDivisionScope(user), shipments.divisionId) ?? sql`true`
+    );
     const [{ count }] = await this.db.select({ count: sql<number>`count(*)::int` }).from(shipments).where(where);
     const rows = await this.db.select().from(shipments).where(where).orderBy(desc(shipments.createdAt)).limit(limit).offset(offset);
     const enriched = await Promise.all(rows.map((s) => this.enrichShipment(s)));
@@ -800,7 +1184,7 @@ export class ServiceController {
   @RequirePermissions('shipments.read')
   @Get('shipments/:id')
   async getShipment(@Param('id') id: string, @CurrentUser() user: AuthContext) {
-    const shipment = await this.assertShipment(id, user.tenantId);
+    const shipment = await this.assertShipment(id, user.tenantId, user);
     return this.enrichShipment(shipment);
   }
 
@@ -813,10 +1197,16 @@ export class ServiceController {
     if (body.quoteId) await this.assertQuote(body.quoteId, user.tenantId, companyId, body.opportunityId);
     if (body.salesOrderId) await this.assertSalesOrder(body.salesOrderId, user.tenantId, companyId);
     const statusId = await lookupIdByCode(this.db, shipmentStatuses, body.statusCode);
+    const divisionId = resolveAssignedDivision(
+      user,
+      body.divisionId ?? opportunity?.divisionId ?? null
+    );
+    if (!divisionId) throw new ValidationError('Sevkiyat için bölüm ataması zorunludur', { field: 'divisionId' });
     const [row] = await this.db
       .insert(shipments)
       .values({
         tenantId: user.tenantId,
+        divisionId,
         opportunityId: body.opportunityId ?? null,
         quoteId: body.quoteId ?? null,
         salesOrderId: body.salesOrderId ?? null,
@@ -839,7 +1229,7 @@ export class ServiceController {
   @RequirePermissions('shipments.update')
   @Patch('shipments/:id/status')
   async updateShipmentStatus(@Param('id') id: string, @Body(new ZodValidationPipe(shipmentStatusUpdateSchema)) body: z.infer<typeof shipmentStatusUpdateSchema>, @CurrentUser() user: AuthContext) {
-    const shipment = await this.assertShipment(id, user.tenantId);
+    const shipment = await this.assertShipment(id, user.tenantId, user);
     const statusId = await lookupIdByCode(this.db, shipmentStatuses, body.statusCode);
     const now = new Date();
     const patch: Record<string, unknown> = { statusId };
@@ -862,7 +1252,11 @@ export class ServiceController {
   @Get('deliveries')
   async listDeliveries(@Query(new ZodValidationPipe(paginationSchema)) p: Pagination, @CurrentUser() user: AuthContext) {
     const { limit, offset } = pageOffset(p);
-    const where = and(eq(deliveries.tenantId, user.tenantId), isNull(deliveries.deletedAt));
+    const where = and(
+      eq(deliveries.tenantId, user.tenantId),
+      isNull(deliveries.deletedAt),
+      divisionFilter(resolveActorDivisionScope(user), deliveries.divisionId) ?? sql`true`
+    );
     const [{ count }] = await this.db.select({ count: sql<number>`count(*)::int` }).from(deliveries).where(where);
     const rows = await this.db
       .select()
@@ -880,11 +1274,14 @@ export class ServiceController {
     await this.assertCompany(body.companyId, user.tenantId);
     if (body.opportunityId) await this.assertOpportunity(body.opportunityId, user.tenantId, body.companyId);
     if (body.salesOrderId) await this.assertSalesOrder(body.salesOrderId, user.tenantId, body.companyId);
-    if (body.shipmentId) await this.assertShipment(body.shipmentId, user.tenantId);
+    if (body.shipmentId) await this.assertShipment(body.shipmentId, user.tenantId, user);
+    const divisionId = resolveAssignedDivision(user, body.divisionId ?? null);
+    if (!divisionId) throw new ValidationError('Teslimat için bölüm ataması zorunludur', { field: 'divisionId' });
     const [row] = await this.db
       .insert(deliveries)
       .values({
         tenantId: user.tenantId,
+        divisionId,
         opportunityId: body.opportunityId ?? null,
         companyId: body.companyId,
         shipmentId: body.shipmentId ?? null,
@@ -910,13 +1307,18 @@ export class ServiceController {
     @CurrentUser() user: AuthContext,
   ) {
     const delivery = await this.db.query.deliveries.findFirst({
-      where: and(eq(deliveries.id, id), eq(deliveries.tenantId, user.tenantId), isNull(deliveries.deletedAt)),
+      where: and(
+        eq(deliveries.id, id),
+        eq(deliveries.tenantId, user.tenantId),
+        isNull(deliveries.deletedAt),
+        divisionFilter(resolveActorDivisionScope(user), deliveries.divisionId) ?? sql`true`
+      ),
     });
     if (!delivery) throw new NotFoundError('Teslimat');
     if (body.companyId) await this.assertCompany(body.companyId, user.tenantId);
     if (body.opportunityId) await this.assertOpportunity(body.opportunityId, user.tenantId, body.companyId ?? delivery.companyId);
     if (body.salesOrderId) await this.assertSalesOrder(body.salesOrderId, user.tenantId, body.companyId ?? delivery.companyId);
-    if (body.shipmentId) await this.assertShipment(body.shipmentId, user.tenantId);
+    if (body.shipmentId) await this.assertShipment(body.shipmentId, user.tenantId, user);
 
     const patch: Partial<typeof deliveries.$inferInsert> = {};
     if (body.opportunityId !== undefined) patch.opportunityId = body.opportunityId ?? null;
@@ -940,7 +1342,12 @@ export class ServiceController {
   @Patch('deliveries/:id/status')
   async updateDeliveryStatus(@Param('id') id: string, @Body(new ZodValidationPipe(deliveryStatusUpdateSchema)) body: z.infer<typeof deliveryStatusUpdateSchema>, @CurrentUser() user: AuthContext) {
     const delivery = await this.db.query.deliveries.findFirst({
-      where: and(eq(deliveries.id, id), eq(deliveries.tenantId, user.tenantId), isNull(deliveries.deletedAt)),
+      where: and(
+        eq(deliveries.id, id),
+        eq(deliveries.tenantId, user.tenantId),
+        isNull(deliveries.deletedAt),
+        divisionFilter(resolveActorDivisionScope(user), deliveries.divisionId) ?? sql`true`
+      ),
     });
     if (!delivery) throw new NotFoundError('Teslimat');
     await this.db.update(deliveries).set({ status: body.status }).where(eq(deliveries.id, id));

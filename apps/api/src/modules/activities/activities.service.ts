@@ -10,6 +10,7 @@ import type { AuthContext } from '../../shared/security/auth.types';
 import type { ActivityCreateInput, VisitCreateInput, CallCreateInput, Pagination } from '@haksan/shared';
 import { buildPaginated, pageOffset } from '../../shared/utils/pagination';
 import { lookupIdByCode } from '../../shared/utils/lookup.helper';
+import { divisionFilter, resolveActorDivisionScope, resolveAssignedDivision } from '../../shared/utils/division-scope';
 
 @Injectable()
 export class ActivitiesService {
@@ -47,11 +48,25 @@ export class ActivitiesService {
     if (input.opportunityId) await this.assertOpportunity(input.opportunityId, actor, input.companyId);
   }
 
+  /** Aktiviteye atanacak bölüm: bağlı fırsattan miras, yoksa kullanıcının birincil bölümü. */
+  private async resolveActivityDivision(input: { opportunityId?: string }, actor: AuthContext): Promise<string | null> {
+    if (input.opportunityId) {
+      const opp = await this.db.query.opportunities.findFirst({
+        where: and(eq(opportunities.id, input.opportunityId), eq(opportunities.tenantId, actor.tenantId)),
+        columns: { divisionId: true },
+      });
+      if (opp?.divisionId) return opp.divisionId;
+    }
+    return resolveAssignedDivision(actor, null);
+  }
+
   async list(actor: AuthContext, query: { opportunityId?: string; companyId?: string }, page: Pagination) {
     const { limit, offset } = pageOffset(page);
     const filters = [eq(salesActivities.tenantId, actor.tenantId)];
     if (query.opportunityId) filters.push(eq(salesActivities.opportunityId, query.opportunityId));
     if (query.companyId) filters.push(eq(salesActivities.companyId, query.companyId));
+    const scoped = divisionFilter(resolveActorDivisionScope(actor), salesActivities.divisionId);
+    if (scoped) filters.push(scoped);
     const where = and(...filters);
     const [{ count }] = await this.db
       .select({ count: sql<number>`count(*)::int` })
@@ -79,10 +94,12 @@ export class ActivitiesService {
     await this.assertReferences(input, actor);
     const typeId = await lookupIdByCode(this.db, activityTypes, input.activityTypeCode);
     if (!typeId) throw new ValidationError(`Bilinmeyen aktivite türü: ${input.activityTypeCode}`);
+    const divisionId = await this.resolveActivityDivision(input, actor);
     const [row] = await this.db
       .insert(salesActivities)
       .values({
         tenantId: actor.tenantId,
+        divisionId,
         opportunityId: input.opportunityId ?? null,
         companyId: input.companyId,
         contactId: input.contactId ?? null,
@@ -100,10 +117,12 @@ export class ActivitiesService {
 
   async createVisit(input: VisitCreateInput, actor: AuthContext) {
     await this.assertReferences(input, actor);
+    const divisionId = await this.resolveActivityDivision(input, actor);
     const [row] = await this.db
       .insert(visits)
       .values({
         tenantId: actor.tenantId,
+        divisionId,
         opportunityId: input.opportunityId ?? null,
         companyId: input.companyId,
         contactId: input.contactId ?? null,
@@ -120,10 +139,12 @@ export class ActivitiesService {
 
   async createCall(input: CallCreateInput, actor: AuthContext) {
     await this.assertReferences(input, actor);
+    const divisionId = await this.resolveActivityDivision(input, actor);
     const [row] = await this.db
       .insert(calls)
       .values({
         tenantId: actor.tenantId,
+        divisionId,
         opportunityId: input.opportunityId ?? null,
         companyId: input.companyId,
         contactId: input.contactId ?? null,

@@ -16,11 +16,11 @@ import { companies, companyAddresses, companyEmails, companyPhones, contacts } f
 import { opportunities } from '../../db/schema/crm';
 import { files, fileLinks } from '../../db/schema/files';
 import { receivables, payments } from '../../db/schema/finance';
-import { inventoryItems } from '../../db/schema/inventory';
+import { customerDevices, inventoryItems } from '../../db/schema/inventory';
 import { purchaseOrders } from '../../db/schema/orders';
 import { productModels, brands } from '../../db/schema/products';
 import { quotes } from '../../db/schema/quotes';
-import { deliveries, serviceTickets, shipments } from '../../db/schema/service';
+import { deliveries, serviceComplaintIntakes, serviceTickets, shipments } from '../../db/schema/service';
 import {
   companyRelationTypes,
   companyStatuses,
@@ -42,6 +42,7 @@ import { isoDate, type ExportRow } from '../../shared/utils/excel-export';
 import { lookupIdByCode } from '../../shared/utils/lookup.helper';
 import { FinanceService } from '../finance/finance.service';
 import type { DateRange } from '@haksan/shared';
+import { divisionFilter, resolveActorDivisionScope } from '../../shared/utils/division-scope';
 
 const EXPORT_LIMIT = 15_000;
 
@@ -353,6 +354,53 @@ export class ExportsService {
     }));
   }
 
+  async exportServiceComplaints(actor: AuthContext): Promise<ExportRow[]> {
+    const rows = await this.db
+      .select({
+        complaint: serviceComplaintIntakes,
+        company: { legalTitle: companies.legalTitle },
+        device: { id: customerDevices.id },
+        inventory: { serialNumber: inventoryItems.serialNumber },
+        product: { modelCode: productModels.modelCode, modelName: productModels.modelName, fullName: productModels.fullName },
+        brand: { name: brands.name },
+        ticket: { ticketNo: serviceTickets.ticketNo },
+      })
+      .from(serviceComplaintIntakes)
+      .leftJoin(companies, eq(serviceComplaintIntakes.companyId, companies.id))
+      .leftJoin(customerDevices, eq(serviceComplaintIntakes.customerDeviceId, customerDevices.id))
+      .leftJoin(inventoryItems, eq(customerDevices.inventoryItemId, inventoryItems.id))
+      .leftJoin(productModels, eq(inventoryItems.productModelId, productModels.id))
+      .leftJoin(brands, eq(productModels.brandId, brands.id))
+      .leftJoin(serviceTickets, eq(serviceComplaintIntakes.serviceTicketId, serviceTickets.id))
+      .where(
+        and(
+          eq(serviceComplaintIntakes.tenantId, actor.tenantId),
+          isNull(serviceComplaintIntakes.deletedAt),
+          divisionFilter(resolveActorDivisionScope(actor), serviceComplaintIntakes.divisionId) ?? sql`true`
+        )
+      )
+      .orderBy(desc(serviceComplaintIntakes.createdAt))
+      .limit(EXPORT_LIMIT);
+
+    return rows.map((r) => ({
+      'Şikayet No': r.complaint.complaintNo,
+      Durum: r.complaint.status,
+      Kaynak: r.complaint.source,
+      Önem: r.complaint.severity,
+      Tip: r.complaint.ticketType,
+      Firma: r.company?.legalTitle ?? '',
+      Makine: [r.brand?.name, r.product?.modelName ?? r.product?.fullName ?? r.product?.modelCode, r.inventory?.serialNumber].filter(Boolean).join(' / '),
+      Konu: r.complaint.subject,
+      Açıklama: r.complaint.description ?? '',
+      'Kontak Adı': r.complaint.contactName ?? '',
+      Telefon: r.complaint.contactPhone ?? '',
+      'E-posta': r.complaint.contactEmail ?? '',
+      'Servis Talebi': r.ticket?.ticketNo ?? '',
+      'Reddetme Notu': r.complaint.rejectionNote ?? '',
+      'Oluşturma': isoDate(r.complaint.createdAt),
+    }));
+  }
+
   async exportInventory(
     actor: AuthContext,
     query: { search?: string; statusCode?: string }
@@ -469,6 +517,9 @@ export class ExportsService {
     return rows.map((r) => ({
       Sipariş: r.order.orderNo ?? '',
       Tedarikçi: r.supplier?.legalTitle ?? '',
+      'Ödeme Tipi': r.order.paymentType ?? '',
+      'Yeni Vade (Gün)': r.order.paymentTermDays ?? '',
+      'Önceki Vade (Gün)': r.order.previousPaymentTermDays ?? '',
       Tarih: isoDate(r.order.orderDate),
       ETA: isoDate(r.order.expectedDate),
       'Ara Toplam': r.order.subtotal ?? '',
@@ -476,6 +527,7 @@ export class ExportsService {
       'Son Tutar': r.order.grandTotal ?? '',
       'Para Birimi': r.currency?.code ?? '',
       Durum: r.status?.name ?? '',
+      'Onay Nedeni': r.order.approvalReason ?? '',
     }));
   }
 

@@ -1,6 +1,6 @@
-import { pgTable, uuid, varchar, text, boolean, timestamp, index, uniqueIndex } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, varchar, text, boolean, timestamp, index, uniqueIndex, primaryKey } from 'drizzle-orm/pg-core';
 import { auditColumns, ownerColumns } from './_helpers';
-import { tenants } from './tenants';
+import { tenants, divisions } from './tenants';
 import { users } from './users';
 import { companyRelationTypes, companyStatuses, companyGroups, contactSources, decisionRoles } from './lookup';
 
@@ -58,6 +58,28 @@ export const companyAddresses = pgTable(
   },
   (t) => ({
     companyIdx: index('company_addresses_company_idx').on(t.companyId),
+  })
+);
+
+export const companyDivisions = pgTable(
+  'company_divisions',
+  {
+    tenantId: uuid('tenant_id')
+      .notNull()
+      .references(() => tenants.id, { onDelete: 'cascade' }),
+    companyId: uuid('company_id')
+      .notNull()
+      .references(() => companies.id, { onDelete: 'cascade' }),
+    divisionId: uuid('division_id')
+      .notNull()
+      .references(() => divisions.id, { onDelete: 'cascade' }),
+    addedByUserId: uuid('added_by_user_id').references(() => users.id, { onDelete: 'set null' }),
+    addedAt: timestamp('added_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    pk: primaryKey({ columns: [t.companyId, t.divisionId] }),
+    tenantIdx: index('company_divisions_tenant_idx').on(t.tenantId),
+    divisionIdx: index('company_divisions_division_idx').on(t.divisionId),
   })
 );
 
@@ -132,6 +154,8 @@ export const contacts = pgTable(
     graduatedSchool: varchar('graduated_school', { length: 128 }),
     politicalView: varchar('political_view', { length: 128 }),
     notes: text('notes'),
+    isBlacklisted: boolean('is_blacklisted').notNull().default(false),
+    blacklistReason: text('blacklist_reason'),
     isPrimary: boolean('is_primary').notNull().default(false),
     ...ownerColumns,
     ...auditColumns,
@@ -140,6 +164,87 @@ export const contacts = pgTable(
     tenantIdx: index('contacts_tenant_idx').on(t.tenantId),
     companyIdx: index('contacts_company_idx').on(t.companyId),
     fullNameIdx: index('contacts_full_name_idx').on(t.fullName),
+  })
+);
+
+export const contactCompanies = pgTable(
+  'contact_companies',
+  {
+    tenantId: uuid('tenant_id')
+      .notNull()
+      .references(() => tenants.id, { onDelete: 'cascade' }),
+    contactId: uuid('contact_id')
+      .notNull()
+      .references(() => contacts.id, { onDelete: 'cascade' }),
+    companyId: uuid('company_id')
+      .notNull()
+      .references(() => companies.id, { onDelete: 'cascade' }),
+    role: varchar('role', { length: 128 }),
+    isPrimary: boolean('is_primary').notNull().default(false),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    pk: primaryKey({ columns: [t.contactId, t.companyId] }),
+    tenantIdx: index('contact_companies_tenant_idx').on(t.tenantId),
+    companyIdx: index('contact_companies_company_idx').on(t.companyId),
+  })
+);
+
+export const companyAccessRequests = pgTable(
+  'company_access_requests',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id')
+      .notNull()
+      .references(() => tenants.id, { onDelete: 'cascade' }),
+    companyId: uuid('company_id')
+      .notNull()
+      .references(() => companies.id, { onDelete: 'cascade' }),
+    requestingUserId: uuid('requesting_user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    requestingDivisionId: uuid('requesting_division_id')
+      .notNull()
+      .references(() => divisions.id, { onDelete: 'cascade' }),
+    ownerDivisionId: uuid('owner_division_id').references(() => divisions.id, { onDelete: 'set null' }),
+    status: varchar('status', { length: 32 }).notNull().default('pending'),
+    note: text('note'),
+    decisionNote: text('decision_note'),
+    decidedByUserId: uuid('decided_by_user_id').references(() => users.id, { onDelete: 'set null' }),
+    decidedAt: timestamp('decided_at', { withTimezone: true }),
+    ...auditColumns,
+  },
+  (t) => ({
+    tenantIdx: index('company_access_requests_tenant_idx').on(t.tenantId),
+    companyIdx: index('company_access_requests_company_idx').on(t.companyId),
+    requestingDivisionIdx: index('company_access_requests_requesting_division_idx').on(t.requestingDivisionId),
+    ownerDivisionIdx: index('company_access_requests_owner_division_idx').on(t.ownerDivisionId),
+    statusIdx: index('company_access_requests_status_idx').on(t.status),
+  })
+);
+
+export const notifications = pgTable(
+  'notifications',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id')
+      .notNull()
+      .references(() => tenants.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id').references(() => users.id, { onDelete: 'cascade' }),
+    divisionId: uuid('division_id').references(() => divisions.id, { onDelete: 'cascade' }),
+    type: varchar('type', { length: 64 }).notNull(),
+    title: varchar('title', { length: 255 }).notNull(),
+    body: text('body'),
+    entityType: varchar('entity_type', { length: 64 }),
+    entityId: uuid('entity_id'),
+    readAt: timestamp('read_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    tenantIdx: index('notifications_tenant_idx').on(t.tenantId),
+    userIdx: index('notifications_user_idx').on(t.userId),
+    divisionIdx: index('notifications_division_idx').on(t.divisionId),
+    readIdx: index('notifications_read_idx').on(t.readAt),
   })
 );
 

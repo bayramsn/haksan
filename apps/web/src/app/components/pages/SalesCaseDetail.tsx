@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
 import { Button } from "../ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../ui/tabs";
-import { ArrowLeft, Plus, Upload, X, XCircle, Eye } from "lucide-react";
+import { ArrowLeft, Plus, Upload, X, XCircle, Eye, FileText, CreditCard, CheckCircle2 } from "lucide-react";
 import { SalesCase, SALES_STAGES, salesStageLabel } from "../../lib/mock";
 import { StatusBadge } from "../Layout";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../ui/table";
@@ -10,10 +10,13 @@ import { useStore } from "../../lib/store";
 import { AddActivityDialog } from "../dialogs/CreateDialogs";
 import { QuoteDialog } from "../dialogs/QuoteDialog";
 import { LostCaseDialog } from "../dialogs/LostCaseDialog";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "../ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "../ui/dialog";
+import { Label } from "../ui/label";
+import { Input } from "../ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
 import { DocumentUploadDialog } from "../dialogs/DocumentUploadDialog";
 import { OfferDetailDialog } from "./offers/OffersPage";
-import { fileService, quoteService, salesOrderService } from "../../../lib/services";
+import { fileService, quoteService, salesOrderService, financeService } from "../../../lib/services";
 import { toast } from "sonner";
 
 export function SalesCaseDetailDialog({
@@ -56,6 +59,10 @@ export function SalesCaseDetailPage({
   const offs = offers.filter((o) => o.salesCaseId === sc.id);
   const docs = documents.filter((d) => d.salesCaseId === sc.id);
   const pays = payments.filter((p) => p.salesCaseId === sc.id);
+  // Kart "Sözleşme" aşamasına ulaştıysa ticari fatura yükleme alanını aç.
+  const reachedContract = SALES_STAGES.indexOf(sc.stage) >= SALES_STAGES.indexOf("contract");
+  const reachedPaymentPlan = SALES_STAGES.indexOf(sc.stage) >= SALES_STAGES.indexOf("payment_plan");
+  const commercialInvoiceDoc = docs.find((d) => d.type === "CommercialInvoice");
   const selectedOffer = selectedOfferId ? offers.find((o) => o.id === selectedOfferId) ?? null : null;
   const selectedRevisions = selectedOffer
     ? offs.filter((o) => o.salesCaseId === sc.id).sort((a, b) => b.revision - a.revision)
@@ -169,6 +176,89 @@ export function SalesCaseDetailPage({
           </div>
         </CardContent>
       </Card>
+
+      {sc.stage === "payment_plan" && pays.length === 0 && (
+        <Card className="border-emerald-300/70 bg-emerald-50/50">
+          <CardContent className="p-4 sm:p-5">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex items-start gap-3 min-w-0">
+                <div className="size-10 rounded-lg bg-emerald-100 text-emerald-700 grid place-items-center shrink-0">
+                  <CreditCard className="size-5" />
+                </div>
+                <div className="min-w-0">
+                  <div className="text-sm font-medium">Ödeme Planı Gerekli</div>
+                  <div className="text-xs text-muted-foreground mt-0.5">
+                    Kart şu anda Ödeme Planı aşamasında. İlerlemek için lütfen ödeme planını oluşturun.
+                  </div>
+                </div>
+              </div>
+              <div>
+                <CreatePaymentPlanDialog
+                  sc={sc}
+                  offs={offs}
+                  c={c ?? null}
+                  onCreated={refresh}
+                  trigger={
+                    <Button size="sm" className="gap-1 bg-emerald-600 hover:bg-emerald-700 text-white">
+                      <Plus className="size-4" /> Ödeme Planı Oluştur
+                    </Button>
+                  }
+                />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {reachedContract && (
+        <Card className="border-amber-300/70 bg-amber-50/50">
+          <CardContent className="p-4 sm:p-5">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex items-start gap-3 min-w-0">
+                <div className="size-10 rounded-lg bg-amber-100 text-amber-700 grid place-items-center shrink-0">
+                  <FileText className="size-5" />
+                </div>
+                <div className="min-w-0">
+                  <div className="text-sm font-medium">Ticari Fatura</div>
+                  {commercialInvoiceDoc ? (
+                    <div className="text-xs text-muted-foreground mt-0.5 break-words">
+                      Yüklendi: <span className="text-foreground">{commercialInvoiceDoc.fileName}</span>
+                      {commercialInvoiceDoc.size ? ` · ${commercialInvoiceDoc.size}` : ""}
+                    </div>
+                  ) : (
+                    <div className="text-xs text-muted-foreground mt-0.5">
+                      Sözleşme aşamasına gelindi. Ticari fatura belgesini yükleyin.
+                    </div>
+                  )}
+                </div>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                {commercialInvoiceDoc?.fileId && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-1"
+                    onClick={() => downloadDocument(commercialInvoiceDoc.fileId, commercialInvoiceDoc.fileName)}
+                  >
+                    <Eye className="size-4" /> Görüntüle
+                  </Button>
+                )}
+                <DocumentUploadDialog
+                  defaultSalesCaseId={sc.id}
+                  defaultCompanyId={sc.customerId}
+                  defaultType="CommercialInvoice"
+                  trigger={
+                    <Button size="sm" className="gap-1">
+                      <Upload className="size-4" />
+                      {commercialInvoiceDoc ? "Yeniden yükle" : "Ticari fatura yükle"}
+                    </Button>
+                  }
+                />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <Tabs defaultValue="timeline">
         <TabsList className="h-auto w-full justify-start overflow-x-auto">
@@ -322,6 +412,22 @@ export function SalesCaseDetailPage({
 
         <TabsContent value="payments" className="mt-4">
           <Card>
+            <CardHeader className="flex flex-row items-center justify-between">
+              <CardTitle>Ödemeler & Tahsilatlar</CardTitle>
+              {reachedPaymentPlan && (
+                <CreatePaymentPlanDialog
+                  sc={sc}
+                  offs={offs}
+                  c={c ?? null}
+                  onCreated={refresh}
+                  trigger={
+                    <Button size="sm" className="gap-1">
+                      <Plus className="size-4" /> Ödeme Planı Oluştur
+                    </Button>
+                  }
+                />
+              )}
+            </CardHeader>
             <div className="overflow-x-auto">
               <Table className="min-w-[620px]">
                 <TableHeader>
@@ -363,5 +469,267 @@ export function SalesCaseDetailPage({
         onOrderCreated={refresh}
       />
     </div>
+  );
+}
+
+export function CreatePaymentPlanDialog({
+  sc,
+  offs,
+  c,
+  onCreated,
+  trigger,
+}: {
+  sc: SalesCase;
+  offs: Offer[];
+  c: any;
+  onCreated?: () => void;
+  trigger: React.ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+  const [selectedQuoteId, setSelectedQuoteId] = useState<string>("");
+  const [amount, setAmount] = useState<number>(0);
+  const [currency, setCurrency] = useState<string>("USD");
+  const [installmentCount, setInstallmentCount] = useState<number>(3);
+  const [installments, setInstallments] = useState<Array<{ amount: number; dueDate: string }>>([]);
+  const [saving, setSaving] = useState(false);
+
+  // Initialize values based on approved quote or latest quote
+  useEffect(() => {
+    if (!open) return;
+    const approvedQuote = offs.find((o) => o.status === "Approved");
+    const latestQuote = offs.slice().sort((a, b) => b.revision - a.revision)[0];
+    const initialQuote = approvedQuote || latestQuote;
+
+    if (initialQuote) {
+      setSelectedQuoteId(initialQuote.id);
+      setAmount(initialQuote.amount);
+      setCurrency(initialQuote.currency);
+    } else {
+      setSelectedQuoteId("");
+      setAmount(sc.estimatedAmount);
+      setCurrency(sc.currency || "USD");
+    }
+  }, [open, offs, sc]);
+
+  // Recalculate installments when amount, count, or quote changes
+  useEffect(() => {
+    if (amount <= 0 || installmentCount <= 0) {
+      setInstallments([]);
+      return;
+    }
+    const val = Number((amount / installmentCount).toFixed(2));
+    const list = [];
+    const today = new Date();
+    for (let i = 0; i < installmentCount; i++) {
+      const date = new Date();
+      date.setDate(today.getDate() + 30 * (i + 1));
+      const dateStr = date.toISOString().slice(0, 10);
+      list.push({
+        amount: i === 0 ? Number((amount - val * (installmentCount - 1)).toFixed(2)) : val,
+        dueDate: dateStr,
+      });
+    }
+    setInstallments(list);
+  }, [amount, installmentCount]);
+
+  const handleEqualize = () => {
+    if (amount <= 0 || installmentCount <= 0) return;
+    const val = Number((amount / installmentCount).toFixed(2));
+    setInstallments(
+      installments.map((inst, i) => ({
+        ...inst,
+        amount: i === 0 ? Number((amount - val * (installmentCount - 1)).toFixed(2)) : val,
+      }))
+    );
+  };
+
+  const handleInstallmentChange = (index: number, field: "amount" | "dueDate", value: any) => {
+    setInstallments(
+      installments.map((inst, i) => {
+        if (i !== index) return inst;
+        return {
+          ...inst,
+          [field]: field === "amount" ? Number(value) : value,
+        };
+      })
+    );
+  };
+
+  const sum = installments.reduce((acc, inst) => acc + Number(inst.amount || 0), 0);
+  const diff = Number((amount - sum).toFixed(2));
+  const isMatch = Math.abs(diff) < 0.01;
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!isMatch) return toast.error("Taksitlerin toplamı, plan toplam tutarı ile eşleşmelidir");
+    if (!selectedQuoteId) return toast.error("Lütfen ödeme planının bağlanacağı bir teklif seçin.");
+    setSaving(true);
+    try {
+      for (let i = 0; i < installments.length; i++) {
+        const inst = installments[i];
+        await financeService.createReceivable({
+          companyId: sc.customerId,
+          quoteId: selectedQuoteId,
+          amount: inst.amount,
+          currencyCode: currency,
+          dueDate: new Date(inst.dueDate),
+          notes: `Taksit ${i + 1}/${installments.length} - ${sc.requestedProduct}`,
+        });
+      }
+      toast.success("Ödeme planı başarıyla oluşturuldu.");
+      setOpen(false);
+      onCreated?.();
+    } catch (err: any) {
+      toast.error("Ödeme planı oluşturulamadı", { description: err?.message ?? "API isteği başarısız oldu." });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>{trigger}</DialogTrigger>
+      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Ödeme Planı Oluştur</DialogTitle>
+          <DialogDescription>
+            {c?.name} firmasına ait bu satış kartı için vadeli alacak ödeme planı oluşturun.
+          </DialogDescription>
+        </DialogHeader>
+
+        {offs.length === 0 ? (
+          <div className="p-4 bg-amber-50 border border-amber-200 rounded text-sm text-amber-700 space-y-2 mt-4">
+            <p className="font-semibold">Teklif Bulunamadı</p>
+            <p>
+              Ödeme planı oluşturabilmek için öncelikle bu satış kartı altında bir teklif oluşturulmuş olmalıdır.
+              Lütfen "Teklifler" sekmesinden yeni bir teklif ekleyin.
+            </p>
+          </div>
+        ) : (
+          <form onSubmit={handleSubmit} className="space-y-4 mt-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <Label htmlFor="quote-select">İlişkili Teklif</Label>
+                <Select value={selectedQuoteId} onValueChange={setSelectedQuoteId}>
+                  <SelectTrigger id="quote-select" className="w-full">
+                    <SelectValue placeholder="Teklif seçin" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {offs.map((o) => (
+                      <SelectItem key={o.id} value={o.id}>
+                        {o.quoteNo} (Rev. {o.revision}) · {o.amount.toLocaleString()} {o.currency} {o.status === "Approved" ? "· Onaylı" : ""}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="inst-count">Taksit Sayısı</Label>
+                <Select value={String(installmentCount)} onValueChange={(v) => setInstallmentCount(Number(v))}>
+                  <SelectTrigger id="inst-count" className="w-full">
+                    <SelectValue placeholder="Taksit sayısı seçin" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {[1, 2, 3, 4, 5, 6, 8, 10, 12].map((num) => (
+                      <SelectItem key={num} value={String(num)}>
+                        {num} Taksit
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="total-amount">Toplam Plan Tutarı</Label>
+                <Input
+                  id="total-amount"
+                  type="number"
+                  step="0.01"
+                  value={amount}
+                  onChange={(e) => setAmount(Number(e.target.value))}
+                  placeholder="Toplam Tutar"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="currency-select">Para Birimi</Label>
+                <Select value={currency} onValueChange={setCurrency}>
+                  <SelectTrigger id="currency-select" className="w-full">
+                    <SelectValue placeholder="Seçin" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="USD">USD ($)</SelectItem>
+                    <SelectItem value="EUR">EUR (€)</SelectItem>
+                    <SelectItem value="TRY">TRY (₺)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div className="border-t pt-4">
+              <div className="flex items-center justify-between mb-3">
+                <h4 className="text-sm font-medium">Taksit Detayları</h4>
+                <div className="flex items-center gap-2">
+                  <Button type="button" variant="outline" size="sm" onClick={handleEqualize} className="text-xs">
+                    Dengele
+                  </Button>
+                  <span
+                    className={`text-xs px-2 py-1 rounded font-medium border ${
+                      isMatch
+                        ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                        : "bg-red-50 text-red-700 border-red-200"
+                    }`}
+                  >
+                    {isMatch ? "Tutar Uyumlu" : `Fark: ${diff.toLocaleString()} ${currency}`}
+                  </span>
+                </div>
+              </div>
+
+              <div className="space-y-2 max-h-[300px] overflow-y-auto pr-1">
+                {installments.map((inst, i) => (
+                  <div key={i} className="flex items-center gap-3 p-2 bg-muted/30 rounded border border-border/40">
+                    <span className="text-xs font-semibold text-muted-foreground w-12 text-center">
+                      Taksit {i + 1}
+                    </span>
+                    <div className="flex-1 grid grid-cols-2 gap-2">
+                      <div className="relative">
+                        <Input
+                          type="number"
+                          step="0.01"
+                          value={inst.amount}
+                          onChange={(e) => handleInstallmentChange(i, "amount", e.target.value)}
+                          className="pr-12 text-sm h-9"
+                          required
+                        />
+                        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-medium text-muted-foreground">
+                          {currency}
+                        </span>
+                      </div>
+                      <Input
+                        type="date"
+                        value={inst.dueDate}
+                        onChange={(e) => handleInstallmentChange(i, "dueDate", e.target.value)}
+                        className="text-sm h-9"
+                        required
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 border-t pt-4">
+              <Button type="button" variant="ghost" onClick={() => setOpen(false)}>
+                Vazgeç
+              </Button>
+              <Button type="submit" disabled={saving || !isMatch || !selectedQuoteId}>
+                {saving ? "Kaydediliyor..." : "Planı Onayla ve Kaydet"}
+              </Button>
+            </div>
+          </form>
+        )}
+      </DialogContent>
+    </Dialog>
   );
 }

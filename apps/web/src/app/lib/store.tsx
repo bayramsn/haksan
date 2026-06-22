@@ -39,6 +39,8 @@ import {
   Offer,
   ServiceRequest,
   ServiceStage,
+  ServiceWarrantyClaim,
+  ServiceWarrantyPart,
   Activity,
   FirmType,
   CustomerSalesStatus,
@@ -60,6 +62,7 @@ const STAGE_BY_CODE: Record<string, SalesStage> = {
   quote: 'quote',
   proforma: 'proforma',
   contract: 'contract',
+  payment_plan: 'payment_plan',
   commercial_invoice: 'commercial_invoice',
   customs_approved: 'customs_approved',
   stock_picking: 'stock_picking',
@@ -77,6 +80,7 @@ const CODE_BY_STAGE: Partial<Record<SalesStage, string>> = {
   quote: 'quote',
   proforma: 'proforma',
   contract: 'contract',
+  payment_plan: 'payment_plan',
   commercial_invoice: 'commercial_invoice',
   customs_approved: 'customs_approved',
   stock_picking: 'stock_picking',
@@ -107,6 +111,56 @@ const toOptionalNumber = (value: unknown) => {
   if (value === undefined || value === null || value === '') return undefined;
   const number = Number(value);
   return Number.isFinite(number) ? number : undefined;
+};
+
+const toNullableNumber = (value: unknown) => {
+  const number = toOptionalNumber(value);
+  return number === undefined ? null : number;
+};
+
+const normalizeWarrantyPart = (part: any): ServiceWarrantyPart => ({
+  id: part.id,
+  productModelId: part.productModelId ?? null,
+  inventoryItemId: part.inventoryItemId ?? null,
+  description: part.description ?? '',
+  quantity: Number(part.quantity ?? 1),
+  actionType: part.actionType ?? 'replace',
+  source: part.source ?? 'stock',
+  supplierRmaStatus: part.supplierRmaStatus ?? null,
+  chargeToCustomer: Boolean(part.chargeToCustomer),
+  unitCost: toNullableNumber(part.unitCost),
+  currency: (part.currency as 'USD' | 'EUR' | 'TRY') ?? 'USD',
+  notes: part.notes ?? null,
+  product: part.product ?? null,
+  inventory: part.inventory ?? null,
+});
+
+const normalizeWarrantyClaim = (claim: any): ServiceWarrantyClaim | null => {
+  if (!claim?.id) return null;
+  return {
+    id: claim.id,
+    serviceTicketId: claim.serviceTicketId ?? '',
+    companyId: claim.companyId ?? '',
+    customerDeviceId: claim.customerDeviceId ?? null,
+    warrantyStartSnapshot: claim.warrantyStartSnapshot ?? null,
+    warrantyEndSnapshot: claim.warrantyEndSnapshot ?? null,
+    status: claim.status ?? 'draft',
+    coverageSuggestion: claim.coverageSuggestion ?? 'unknown',
+    coverageDecision: claim.coverageDecision ?? 'pending',
+    failureCategory: claim.failureCategory ?? null,
+    technicianAssessment: claim.technicianAssessment ?? null,
+    managerDecisionNote: claim.managerDecisionNote ?? null,
+    decidedByUserId: claim.decidedByUserId ?? null,
+    decidedAt: claim.decidedAt ?? null,
+    rmaNo: claim.rmaNo ?? null,
+    supplierName: claim.supplierName ?? null,
+    supplierRmaStatus: claim.supplierRmaStatus ?? null,
+    costAmount: toNullableNumber(claim.costAmount),
+    costCurrency: (claim.costCurrency as 'USD' | 'EUR' | 'TRY') ?? 'USD',
+    customerChargeAmount: toNullableNumber(claim.customerChargeAmount),
+    customerChargeCurrency: (claim.customerChargeCurrency as 'USD' | 'EUR' | 'TRY') ?? 'USD',
+    parts: Array.isArray(claim.parts) ? claim.parts.map(normalizeWarrantyPart) : [],
+  };
 };
 
 const compactProductCode = (value: string) =>
@@ -207,6 +261,8 @@ export type CreateQuotePayload = {
   importCostsExcluded?: boolean;
   items: QuoteLineInput[];
   caseTitle?: string;
+  /** view_all kullanıcının seçtiği bölüm (CNC/Üniversal/Sac). */
+  divisionId?: string;
 };
 
 type Store = {
@@ -239,7 +295,7 @@ type Store = {
   addCustomer: (c: Omit<Customer, 'id' | 'createdAt' | 'status'> & { status?: 'active' | 'passive' }) => Promise<Customer>;
   updateCustomer: (id: string, patch: Partial<Omit<Customer, 'id' | 'createdAt'>>) => Promise<void>;
   deleteCustomer: (id: string) => Promise<void>;
-  addCase: (c: Omit<SalesCase, 'id' | 'createdAt' | 'stage' | 'isLost' | 'isOfferPrepared'> & { stage?: SalesStage }) => Promise<SalesCase>;
+  addCase: (c: Omit<SalesCase, 'id' | 'createdAt' | 'stage' | 'isLost' | 'isOfferPrepared'> & { stage?: SalesStage; divisionId?: string }) => Promise<SalesCase>;
   addOffer: (o: Omit<Offer, 'id' | 'date' | 'revision'> & { revision?: number }) => Promise<Offer>;
   createQuoteFull: (payload: CreateQuotePayload) => Promise<{ quoteId: string; documentNo: string; opportunityId: string }>;
   addNoteTemplate: (t: { title: string; body: string; scope?: string }) => Promise<NoteTemplate>;
@@ -259,6 +315,12 @@ type Store = {
   ) => Promise<void>;
   moveService: (id: string, to: ServiceStage) => Promise<void>;
   updateService: (id: string, patch: Partial<ServiceRequest>) => Promise<void>;
+  loadServiceWarranty: (id: string) => Promise<ServiceWarrantyClaim | null>;
+  updateServiceWarranty: (id: string, patch: Partial<ServiceWarrantyClaim>) => Promise<ServiceWarrantyClaim | null>;
+  updateServiceWarrantyParts: (id: string, parts: ServiceWarrantyPart[]) => Promise<ServiceWarrantyClaim | null>;
+  submitServiceWarranty: (id: string, note?: string) => Promise<ServiceWarrantyClaim | null>;
+  approveServiceWarranty: (id: string, decisionNote?: string) => Promise<ServiceWarrantyClaim | null>;
+  rejectServiceWarranty: (id: string, decisionNote?: string) => Promise<ServiceWarrantyClaim | null>;
   addService: (s: Omit<ServiceRequest, 'id' | 'createdAt' | 'stage'> & { stage?: ServiceStage; createdAt?: string }) => Promise<ServiceRequest>;
   addMachine: (m: Omit<Machine, 'id' | 'status'> & { status?: Machine['status'] }) => Promise<Machine>;
   addDocument: (
@@ -271,7 +333,7 @@ type Store = {
 const Ctx = createContext<Store | null>(null);
 
 function StoreInner({ children }: { children: ReactNode }) {
-  const { authed, sessionReady, user } = useAuth();
+  const { authed, sessionReady, user, activeDivision } = useAuth();
   const [loading, setLoading] = useState(true);
   const [loadErrors, setLoadErrors] = useState<string[]>([]);
   const [loadTruncated, setLoadTruncated] = useState<string[]>([]);
@@ -323,7 +385,12 @@ function StoreInner({ children }: { children: ReactNode }) {
     setLoading(true);
     const errors: string[] = [];
     const truncated: string[] = [];
-    const load = async <T,>(label: string, fn: () => Promise<T>, fallback: T): Promise<T> => {
+    // Kullanıcının okuma yetkisi olmayan kaynakları hiç çağırma; aksi halde 403
+    // hataları "Bazı veriler yüklenemedi" banner'ını gereksiz yere doldurur.
+    const userPerms = new Set(user?.permissions ?? []);
+    const can = (permission?: string) => !permission || userPerms.has(permission);
+    const load = async <T,>(label: string, fn: () => Promise<T>, fallback: T, permission?: string): Promise<T> => {
+      if (!can(permission)) return fallback;
       try {
         const result = await fn();
         const meta = (result as { meta?: { total?: number; pageSize?: number } })?.meta;
@@ -340,25 +407,25 @@ function StoreInner({ children }: { children: ReactNode }) {
     try {
       const empty = { data: [] as any[], meta: { total: 0, page: 1, pageSize: 0, totalPages: 0 } };
       const [companies, contactsR, opps, prods, inv, qts, svcTickets, acts, usersR, devicesR, receivablesR, paymentsR, proformasR, contractsR, invoicesR, noteTemplatesR, shipmentsR, deliveriesR, fileLinksR] = await Promise.all([
-        load('Firmalar', () => companyService.list({ pageSize: 200 }), empty),
-        load('Kontaklar', () => contactService.list({ pageSize: 200 }), empty),
-        load('Satış kartları', () => opportunityService.list({ pageSize: 200 }), empty),
-        load('Ürünler', () => productService.list({ pageSize: 200 }), empty),
-        load('Stok', () => inventoryService.list({ pageSize: 200 }), empty),
-        load('Teklifler', () => quoteService.list({ pageSize: 200 }), empty),
-        load('Servis', () => serviceService.tickets({ pageSize: 200 }), empty),
-        load('Aktiviteler', () => activityService.list({ pageSize: 200 }), empty),
-        load('Kullanıcılar', () => adminService.users(), [] as any[]),
-        load('Makineler', () => inventoryService.customerDevices({ pageSize: 200 }), empty),
-        load('Alacaklar', () => financeService.receivables({ pageSize: 200 }), empty),
-        load('Ödemeler', () => financeService.payments({ pageSize: 200 }), empty),
-        load('Proformalar', () => documentService.proformas({ pageSize: 200 }), empty),
-        load('Sözleşmeler', () => documentService.contracts({ pageSize: 200 }), empty),
-        load('Faturalar', () => documentService.commercialInvoices({ pageSize: 200 }), empty),
+        load('Firmalar', () => companyService.list({ pageSize: 200 }), empty, 'companies.read'),
+        load('Kontaklar', () => contactService.list({ pageSize: 200 }), empty, 'contacts.read'),
+        load('Satış kartları', () => opportunityService.list({ pageSize: 200 }), empty, 'opportunities.read'),
+        load('Ürünler', () => productService.list({ pageSize: 200 }), empty, 'products.read'),
+        load('Stok', () => inventoryService.list({ pageSize: 200 }), empty, 'inventory.read'),
+        load('Teklifler', () => quoteService.list({ pageSize: 200 }), empty, 'quotes.read'),
+        load('Servis', () => serviceService.tickets({ pageSize: 200 }), empty, 'service_tickets.read'),
+        load('Aktiviteler', () => activityService.list({ pageSize: 200 }), empty, 'activities.read'),
+        load('Kullanıcılar', () => adminService.users(), [] as any[], 'users.read'),
+        load('Makineler', () => inventoryService.customerDevices({ pageSize: 200 }), empty, 'customer_devices.read'),
+        load('Alacaklar', () => financeService.receivables({ pageSize: 200 }), empty, 'receivables.read'),
+        load('Ödemeler', () => financeService.payments({ pageSize: 200 }), empty, 'payments.read'),
+        load('Proformalar', () => documentService.proformas({ pageSize: 200 }), empty, 'proformas.read'),
+        load('Sözleşmeler', () => documentService.contracts({ pageSize: 200 }), empty, 'contracts.read'),
+        load('Faturalar', () => documentService.commercialInvoices({ pageSize: 200 }), empty, 'commercial_invoices.read'),
         load('Not şablonları', () => noteTemplateService.list('quote'), [] as any[]),
-        load('Sevkiyatlar', () => serviceService.shipments({ pageSize: 200 }), empty),
-        load('Teslimatlar', () => serviceService.deliveries({ pageSize: 200 }), empty),
-        load('Dosya bağlantıları', () => fileService.links({ pageSize: 200 }), empty),
+        load('Sevkiyatlar', () => serviceService.shipments({ pageSize: 200 }), empty, 'shipments.read'),
+        load('Teslimatlar', () => serviceService.deliveries({ pageSize: 200 }), empty, 'shipments.read'),
+        load('Dosya bağlantıları', () => fileService.links({ pageSize: 200 }), empty, 'files.read'),
       ]);
       setLoadErrors(errors);
       setLoadTruncated(truncated);
@@ -447,6 +514,8 @@ function StoreInner({ children }: { children: ReactNode }) {
           politicalView: k.politicalView ?? '',
           isPrimary: !!k.isPrimary,
           note: k.notes ?? '',
+          isBlacklisted: !!k.isBlacklisted,
+          blacklistReason: k.blacklistReason ?? '',
         }))
       );
 
@@ -586,6 +655,7 @@ function StoreInner({ children }: { children: ReactNode }) {
           return {
             id: t.id,
             customerId: t.companyId,
+            contactId: t.contactId ?? undefined,
             assignedUserId: t.assignedToUserId ?? '',
             stage:
               t.status?.code === 'closed'
@@ -598,10 +668,12 @@ function StoreInner({ children }: { children: ReactNode }) {
             machineId: t.customerDeviceId ?? '',
             serialNumber: '',
             issueType: t.subject ?? '',
+            ticketType: t.ticketType ?? 'complaint',
+            source: t.source ?? 'manual',
             priority: (t.severity as any) ?? 'normal',
             description: t.description ?? '',
             diagnosisNote: t.description ?? '',
-            quoteRequired: false,
+            quoteRequired: Boolean(meta.quoteRequired),
             serviceNote: t.resolutionNote ?? '',
             complaints: Array.isArray(meta.complaints) && meta.complaints.length
               ? meta.complaints
@@ -622,6 +694,8 @@ function StoreInner({ children }: { children: ReactNode }) {
             timerElapsedSeconds: Number(meta.timerElapsedSeconds ?? 0),
             serviceHourlyRate: Number(meta.serviceHourlyRate ?? 120),
             serviceCurrency: (meta.serviceCurrency as 'USD' | 'EUR' | 'TRY') ?? 'USD',
+            warrantyClaim: normalizeWarrantyClaim(t.warrantyClaim),
+            sourceComplaint: t.sourceComplaint ?? null,
             createdAt: (t.reportedAt as string)?.slice(0, 10) ?? '',
             closedAt: undefined,
           };
@@ -771,7 +845,7 @@ function StoreInner({ children }: { children: ReactNode }) {
           id: row.id ?? row.file?.id,
           salesCaseId: row.entityType === 'opportunity' ? row.entityId : '',
           companyId: row.entityType === 'company' ? row.entityId : '',
-          serviceRequestId: row.entityType === 'service_request' ? row.entityId : undefined,
+          serviceRequestId: row.entityType === 'service_ticket' || row.entityType === 'service_request' ? row.entityId : undefined,
           type: mapLinkDocType(row.documentType?.code),
           fileName: row.file?.originalFilename ?? row.description ?? 'Dosya',
           uploadedBy: row.file?.uploadedBy ?? '',
@@ -828,11 +902,13 @@ function StoreInner({ children }: { children: ReactNode }) {
     } finally {
       setLoading(false);
     }
-  }, [authed, sessionReady]);
+  }, [authed, sessionReady, user?.permissions]);
 
+  // Aktif bölüm değişince (CNC/Üniversal/Sac/Tümü) tüm veriyi yeni
+  // `X-Active-Division` başlığıyla yeniden çek.
   useEffect(() => {
     fetchAll();
-  }, [fetchAll, user?.id, sessionReady]);
+  }, [fetchAll, user?.id, sessionReady, activeDivision]);
 
   const addCustomer: Store['addCustomer'] = async (c) => {
     const rawWebsite = c.website?.trim();
@@ -955,6 +1031,8 @@ function StoreInner({ children }: { children: ReactNode }) {
       politicalView: k.politicalView,
       isPrimary: k.isPrimary,
       notes: k.note,
+      isBlacklisted: k.isBlacklisted,
+      blacklistReason: k.blacklistReason,
     });
     await fetchAll();
     return { id: created.id, ...k };
@@ -983,6 +1061,8 @@ function StoreInner({ children }: { children: ReactNode }) {
       politicalView: patch.politicalView,
       isPrimary: patch.isPrimary,
       notes: patch.note,
+      isBlacklisted: patch.isBlacklisted,
+      blacklistReason: patch.blacklistReason,
     });
     await fetchAll();
   };
@@ -1015,6 +1095,7 @@ function StoreInner({ children }: { children: ReactNode }) {
       estimatedValue: c.estimatedAmount,
       currencyCode: c.currency,
       probability: 50,
+      divisionId: c.divisionId || undefined,
     });
     const targetStage = c.stage ?? 'lead';
     if (targetStage !== 'lead') {
@@ -1097,6 +1178,7 @@ function StoreInner({ children }: { children: ReactNode }) {
         estimatedValue: estimated,
         currencyCode: p.currencyCode,
         probability: 50,
+        divisionId: p.divisionId || undefined,
       });
       opportunityId = opp.id;
       createdNewCase = true;
@@ -1111,6 +1193,7 @@ function StoreInner({ children }: { children: ReactNode }) {
       currencyCode: p.currencyCode,
       projectOwnerUserId: p.projectOwnerUserId || undefined,
       notes: p.notes || undefined,
+      divisionId: p.divisionId || undefined,
     });
 
     for (let i = 0; i < p.items.length; i++) {
@@ -1285,6 +1368,51 @@ function StoreInner({ children }: { children: ReactNode }) {
       ...d,
     };
   };
+  const triggerDeliveryCompletedWorkflow = async (delivery: Delivery) => {
+    if (delivery.salesCaseId) {
+      try {
+        await moveCase(delivery.salesCaseId, 'delivered');
+      } catch (err) {
+        console.error('Failed to move case on delivery completion', err);
+      }
+    }
+    const serial = delivery.formData?.tezgah?.seriNo;
+    if (serial && serial !== '—') {
+      const exists = machines.some(m => m.serialNumber === serial);
+      if (!exists) {
+        try {
+          const brand = delivery.formData?.tezgah?.marka || '';
+          const model = delivery.formData?.tezgah?.model || '—';
+          const type = delivery.formData?.tezgah?.tip || '';
+          const cncMarka = delivery.formData?.cnc?.marka || '';
+          const cncModel = delivery.formData?.cnc?.model || '';
+          const controlUnit = [cncMarka, cncModel].filter(Boolean).join(' ');
+          const controlUnitSerial = delivery.formData?.cnc?.seriNo || '';
+          await addMachine({
+            customerId: delivery.customerId,
+            salesCaseId: delivery.salesCaseId || '',
+            stockItemId: delivery.formData?.machineId || '',
+            serialNumber: serial,
+            model,
+            brand,
+            type,
+            controlUnit,
+            controlUnitSerial,
+            installationDate: delivery.formData?.kurulumTarihi || delivery.date || new Date().toISOString().slice(0, 10),
+            warrantyStart: delivery.formData?.kurulumTarihi || delivery.date || new Date().toISOString().slice(0, 10),
+            warrantyEnd: (() => {
+              const start = new Date(delivery.formData?.kurulumTarihi || delivery.date || new Date().toISOString().slice(0, 10));
+              start.setFullYear(start.getFullYear() + 2); // 2 year default warranty
+              return start.toISOString().slice(0, 10);
+            })()
+          });
+        } catch (err) {
+          console.error('Failed to auto create machine on delivery completion', err);
+        }
+      }
+    }
+  };
+
   const updateDelivery: Store['updateDelivery'] = async (id, d) => {
     await serviceService.updateDelivery(id, {
       companyId: d.customerId,
@@ -1301,25 +1429,82 @@ function StoreInner({ children }: { children: ReactNode }) {
         : undefined,
     });
     await fetchAll();
+
+    if (d.status === 'Tamamlandı') {
+      const delivery = deliveries.find((x) => x.id === id);
+      if (delivery) {
+        await triggerDeliveryCompletedWorkflow({
+          ...delivery,
+          ...d,
+          formData: d.formData ? { ...delivery.formData, ...d.formData } : delivery.formData,
+        } as Delivery);
+      }
+    }
   };
+
   const updateDeliveryStatus: Store['updateDeliveryStatus'] = async (id, status) => {
     await serviceService.updateDeliveryStatus(id, deliveryStatusToCode(status));
     setDeliveries((prev) => prev.map((d) => (d.id === id ? { ...d, status } : d)));
+
+    if (status === 'Tamamlandı') {
+      const delivery = deliveries.find((d) => d.id === id);
+      if (delivery) {
+        await triggerDeliveryCompletedWorkflow({ ...delivery, status });
+      }
+    }
   };
 
   const addService: Store['addService'] = async (s) => {
+    const machine = machines.find((m) => m.id === s.machineId);
+    const subject =
+      cleanString(s.issueType) ??
+      cleanString([machine?.model, machine?.serialNumber].filter(Boolean).join(' · ')) ??
+      'Servis talebi';
+    const description = [s.diagnosisNote, s.serviceNote].map((value) => value?.trim()).filter(Boolean).join('\n\n') || undefined;
+    const createdAt = s.createdAt ?? new Date().toISOString().slice(0, 10);
     const created = await serviceService.createTicket({
       companyId: s.customerId,
-      subject: s.issueType,
-      description: s.description,
+      contactId: s.contactId || undefined,
+      customerDeviceId: s.machineId || undefined,
+      subject,
+      description: cleanString(s.description) ?? description ?? subject,
       severity: (s.priority as any) ?? 'normal',
+      ticketType: s.ticketType ?? 'complaint',
+      source: s.source ?? 'manual',
+      assignedToUserId: s.assignedUserId || undefined,
+      metadata: {
+        quoteRequired: s.quoteRequired ?? false,
+        noteHistory: s.serviceNote
+          ? [{ id: `srv-note-${Date.now()}`, text: s.serviceNote, createdAt, byUserId: s.assignedUserId || undefined }]
+          : [],
+        complaints: s.diagnosisNote
+          ? [{ id: `srv-complaint-${Date.now()}`, text: s.diagnosisNote, createdAt, byUserId: s.assignedUserId || undefined }]
+          : [],
+        activityHistory: [
+          {
+            id: `srv-act-${Date.now()}`,
+            text: 'Servis talebi açıldı.',
+            createdAt,
+            byUserId: s.assignedUserId || undefined,
+          },
+        ],
+        operations: [],
+        timerStatus: s.timerStatus ?? 'idle',
+        timerElapsedSeconds: s.timerElapsedSeconds ?? 0,
+        serviceHourlyRate: s.serviceHourlyRate ?? 120,
+        serviceCurrency: s.serviceCurrency ?? 'USD',
+      },
     });
     await fetchAll();
     return {
       id: created.id,
       ...s,
       stage: s.stage ?? 'Request Opened',
-      createdAt: s.createdAt ?? new Date().toISOString().slice(0, 10),
+      issueType: s.issueType ?? subject,
+      ticketType: s.ticketType ?? 'complaint',
+      source: s.source ?? 'manual',
+      description: s.description ?? description ?? subject,
+      createdAt,
       complaints: s.complaints ?? [],
       noteHistory: s.noteHistory ?? [],
       activityHistory: s.activityHistory ?? [],
@@ -1328,6 +1513,8 @@ function StoreInner({ children }: { children: ReactNode }) {
       timerElapsedSeconds: s.timerElapsedSeconds ?? 0,
       serviceHourlyRate: s.serviceHourlyRate ?? 120,
       serviceCurrency: s.serviceCurrency ?? 'USD',
+      warrantyClaim: s.warrantyClaim ?? null,
+      sourceComplaint: s.sourceComplaint ?? null,
     } as ServiceRequest;
   };
 
@@ -1408,6 +1595,7 @@ function StoreInner({ children }: { children: ReactNode }) {
     }
     if (patch.priority !== undefined) apiPatch.severity = patch.priority;
     if (patch.assignedUserId !== undefined) apiPatch.assignedToUserId = patch.assignedUserId;
+    if (patch.ticketType !== undefined) apiPatch.ticketType = patch.ticketType;
 
     const metaKeys = ['timerStatus', 'timerStartedAt', 'timerElapsedSeconds', 'serviceHourlyRate', 'serviceCurrency', 'noteHistory', 'complaints', 'activityHistory', 'operations'] as const;
     if (metaKeys.some((k) => patch[k] !== undefined)) {
@@ -1428,6 +1616,82 @@ function StoreInner({ children }: { children: ReactNode }) {
       await serviceService.update(id, apiPatch);
     }
     setService((prev) => prev.map((s) => (s.id === id ? { ...s, ...patch } : s)));
+  };
+
+  const setServiceWarranty = (id: string, claim: ServiceWarrantyClaim | null) => {
+    setService((prev) =>
+      prev.map((s) =>
+        s.id === id
+          ? {
+              ...s,
+              ticketType: claim ? 'warranty_claim' : s.ticketType,
+              warrantyClaim: claim,
+            }
+          : s
+      )
+    );
+  };
+
+  const loadServiceWarranty: Store['loadServiceWarranty'] = async (id) => {
+    const saved = normalizeWarrantyClaim(await serviceService.warranty(id));
+    setServiceWarranty(id, saved);
+    return saved;
+  };
+
+  const updateServiceWarranty: Store['updateServiceWarranty'] = async (id, patch) => {
+    const saved = normalizeWarrantyClaim(await serviceService.updateWarranty(id, {
+      failureCategory: patch.failureCategory,
+      technicianAssessment: patch.technicianAssessment,
+      rmaNo: patch.rmaNo,
+      supplierName: patch.supplierName,
+      supplierRmaStatus: patch.supplierRmaStatus,
+      costAmount: patch.costAmount,
+      costCurrency: patch.costCurrency,
+      customerChargeAmount: patch.customerChargeAmount,
+      customerChargeCurrency: patch.customerChargeCurrency,
+      status: patch.status,
+    }));
+    setServiceWarranty(id, saved);
+    return saved;
+  };
+
+  const updateServiceWarrantyParts: Store['updateServiceWarrantyParts'] = async (id, parts) => {
+    const saved = normalizeWarrantyClaim(await serviceService.updateWarrantyParts(
+      id,
+      parts.map((part) => ({
+        productModelId: part.productModelId || undefined,
+        inventoryItemId: part.inventoryItemId || undefined,
+        description: part.description,
+        quantity: part.quantity,
+        actionType: part.actionType,
+        source: part.source,
+        supplierRmaStatus: part.supplierRmaStatus || undefined,
+        chargeToCustomer: part.chargeToCustomer,
+        unitCost: part.unitCost ?? undefined,
+        currency: part.currency,
+        notes: part.notes || undefined,
+      }))
+    ));
+    setServiceWarranty(id, saved);
+    return saved;
+  };
+
+  const submitServiceWarranty: Store['submitServiceWarranty'] = async (id, note) => {
+    const saved = normalizeWarrantyClaim(await serviceService.submitWarranty(id, note));
+    setServiceWarranty(id, saved);
+    return saved;
+  };
+
+  const approveServiceWarranty: Store['approveServiceWarranty'] = async (id, decisionNote) => {
+    const saved = normalizeWarrantyClaim(await serviceService.approveWarranty(id, decisionNote));
+    setServiceWarranty(id, saved);
+    return saved;
+  };
+
+  const rejectServiceWarranty: Store['rejectServiceWarranty'] = async (id, decisionNote) => {
+    const saved = normalizeWarrantyClaim(await serviceService.rejectWarranty(id, decisionNote));
+    setServiceWarranty(id, saved);
+    return saved;
   };
 
   const addDocument: Store['addDocument'] = async (d) => {
@@ -1518,6 +1782,12 @@ function StoreInner({ children }: { children: ReactNode }) {
       markCaseLost,
       moveService,
       updateService,
+      loadServiceWarranty,
+      updateServiceWarranty,
+      updateServiceWarrantyParts,
+      submitServiceWarranty,
+      approveServiceWarranty,
+      rejectServiceWarranty,
       addService,
       addMachine,
       addDocument,

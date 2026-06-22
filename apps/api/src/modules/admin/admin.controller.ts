@@ -1,9 +1,9 @@
 import { Body, Controller, Get, Inject, Patch, Post, Param, Query, UseGuards } from '@nestjs/common';
 import * as argon2 from 'argon2';
-import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import type { DbClient } from '../../db/client';
-import { users, roles, permissions, userRoles, rolePermissions, userTargets, departmentTargets } from '../../db/schema/users';
-import { departments, tenants } from '../../db/schema/tenants';
+import { users, roles, permissions, userRoles, rolePermissions, userTargets, departmentTargets, userDivisions } from '../../db/schema/users';
+import { departments, tenants, divisions } from '../../db/schema/tenants';
 import { auditLogs } from '../../db/schema/audit';
 import { DB } from '../../shared/database/database.module';
 import { ZodValidationPipe } from '../../shared/utils/zod-pipe';
@@ -50,6 +50,29 @@ export class AdminController {
     }
   }
 
+  /** Kullanıcının bölüm (CNC/Üniversal/Sac) üyeliklerini verilen listeyle değiştirir.
+   *  Yalnızca kiracıya ait aktif bölümler kabul edilir; sıradaki ilk geçerli bölüm birincil olur. */
+  private async setUserDivisions(userId: string, tenantId: string, divisionIds: string[]) {
+    const unique = [...new Set(divisionIds)];
+    let valid: string[] = [];
+    if (unique.length > 0) {
+      const rows = await this.db
+        .select({ id: divisions.id })
+        .from(divisions)
+        .where(and(eq(divisions.tenantId, tenantId), inArray(divisions.id, unique)));
+      const allowed = new Set(rows.map((r) => r.id));
+      // Kullanıcının gönderdiği sırayı koru (ilk = birincil).
+      valid = unique.filter((id) => allowed.has(id));
+    }
+    await this.db.delete(userDivisions).where(eq(userDivisions.userId, userId));
+    for (const [index, divisionId] of valid.entries()) {
+      await this.db
+        .insert(userDivisions)
+        .values({ userId, divisionId, isPrimary: index === 0 })
+        .onConflictDoNothing();
+    }
+  }
+
   @RequirePermissions('users.read')
   @Get('users')
   async listUsers(@CurrentUser() user: AuthContext) {
@@ -65,6 +88,12 @@ export class AdminController {
         .from(userRoles)
         .innerJoin(roles, eq(userRoles.roleId, roles.id))
         .where(eq(userRoles.userId, u.id));
+      const userDivisionRows = await this.db
+        .select({ id: divisions.id, code: divisions.code, name: divisions.name, isPrimary: userDivisions.isPrimary })
+        .from(userDivisions)
+        .innerJoin(divisions, eq(userDivisions.divisionId, divisions.id))
+        .where(eq(userDivisions.userId, u.id))
+        .orderBy(desc(userDivisions.isPrimary), asc(divisions.sortOrder));
       const department = u.departmentId ? deptById.get(u.departmentId) : null;
       out.push({
         id: u.id,
@@ -79,6 +108,7 @@ export class AdminController {
         lastLoginAt: u.lastLoginAt,
         mfaEnabled: u.mfaEnabled,
         roles: userRoleRows,
+        divisions: userDivisionRows,
       });
     }
     return out;
@@ -109,6 +139,7 @@ export class AdminController {
       });
       if (role) await this.db.insert(userRoles).values({ userId: created.id, roleId: role.id }).onConflictDoNothing();
     }
+    await this.setUserDivisions(created.id, user.tenantId, body.divisionIds);
     return { id: created.id, email: created.email, fullName: created.fullName };
   }
 
@@ -147,6 +178,9 @@ export class AdminController {
         await this.db.insert(userRoles).values({ userId: id, roleId }).onConflictDoNothing();
       }
       invalidateRbacCache(id);
+    }
+    if (body.divisionIds) {
+      await this.setUserDivisions(id, user.tenantId, body.divisionIds);
     }
     return { ok: true };
   }
@@ -350,6 +384,17 @@ export class AdminController {
   @Get('departments')
   async listDepts(@CurrentUser() user: AuthContext) {
     return this.db.query.departments.findMany({ where: eq(departments.tenantId, user.tenantId) });
+  }
+
+  /** Kiracının aktif bölümleri (CNC / Üniversal / Sac İşleme) — kullanıcı formundaki bölüm seçimi için. */
+  @RequirePermissions('users.read')
+  @Get('divisions')
+  async listDivisions(@CurrentUser() user: AuthContext) {
+    return this.db
+      .select({ id: divisions.id, code: divisions.code, name: divisions.name, sortOrder: divisions.sortOrder })
+      .from(divisions)
+      .where(and(eq(divisions.tenantId, user.tenantId), eq(divisions.isActive, true)))
+      .orderBy(asc(divisions.sortOrder), asc(divisions.name));
   }
 
   @RequirePermissions('departments.create')
