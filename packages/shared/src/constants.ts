@@ -41,6 +41,7 @@ export const PERMISSION_RESOURCES = [
   'leads',
   'opportunities',
   'activities',
+  'calendar',
   'competitors',
   'brands',
   'products',

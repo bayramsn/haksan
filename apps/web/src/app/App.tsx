@@ -32,6 +32,7 @@ const RolesPage = lazy(() => import("./components/pages/SimplePages").then((m) =
 const DepartmentsPage = lazy(() => import("./components/pages/SimplePages").then((m) => ({ default: m.DepartmentsPage })));
 const SettingsPage = lazy(() => import("./components/pages/SimplePages").then((m) => ({ default: m.SettingsPage })));
 const ChatPage = lazy(() => import("./components/pages/chat/ChatPage").then((m) => ({ default: m.ChatPage })));
+const CalendarPage = lazy(() => import("./components/pages/CalendarPage").then((m) => ({ default: m.CalendarPage })));
 import { Customer, SalesCase } from "./lib/mock";
 import { StoreProvider, useStore } from "./lib/store";
 import { usePersistentState } from "./lib/persist";
@@ -51,6 +52,7 @@ import type { OperationAction, OperationFocus } from "./lib/operations";
 const TITLES: Record<NavKey, { title: string; subtitle?: string }> = {
   dashboard: { title: "Dashboard", subtitle: "Genel performans ve KPI özeti" },
   chat: { title: "Sohbet", subtitle: "Çalışanlarla özel ve grup mesajlaşma" },
+  calendar: { title: "Takvim", subtitle: "Kişisel planlar, toplantılar ve müşteri ziyaretleri" },
   customers: { title: "Firmalar", subtitle: "Müşteri, tedarikçi+müşteri ve tedarikçi kayıtları" },
   contacts: { title: "Kontaklar", subtitle: "Firmalara bağlı kişiler" },
   "sales-cases": { title: "Satış Kartları", subtitle: "Tüm satış fırsatları" },
@@ -168,6 +170,7 @@ function AppShell() {
           }}
         />
       ); break;
+      case "calendar": content = <CalendarPage />; break;
       case "customers":
         actions = (
           <CreateCustomerDialog

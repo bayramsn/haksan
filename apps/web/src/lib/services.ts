@@ -283,6 +283,77 @@ export const activityService = {
   createCall: (body: CallCreateInput) => api.post<any>('/calls', body),
 };
 
+export type CalendarEventType = 'customer_visit' | 'meeting' | 'call' | 'task' | 'other';
+export interface CalendarEventDTO {
+  id: string;
+  ownerUserId: string;
+  eventType: CalendarEventType;
+  source: 'manual' | 'device' | 'import';
+  title: string;
+  description: string | null;
+  location: string | null;
+  startsAt: string;
+  endsAt: string;
+  allDay: boolean;
+  timezone: string;
+  recurrenceRule: string | null;
+  companyId: string | null;
+  contactId: string | null;
+  opportunityId: string | null;
+  visitId: string | null;
+  deletedAt: string | null;
+  owner: { id: string; fullName: string; email: string };
+  company: { id: string; legalTitle: string; shortName: string | null } | null;
+}
+
+export interface CalendarEventInput {
+  eventType: CalendarEventType;
+  title: string;
+  description?: string | null;
+  location?: string | null;
+  startsAt: string;
+  endsAt: string;
+  allDay: boolean;
+  timezone: string;
+  companyId?: string | null;
+}
+
+export type CalendarImportEventType = 'other' | 'meeting' | 'call' | 'task';
+
+export interface CalendarImportEvent {
+  uid: string;
+  title: string;
+  description: string | null;
+  location: string | null;
+  startsAt: string;
+  endsAt: string;
+  allDay: boolean;
+  timezone: string;
+  recurrenceRule: string | null;
+  duplicate: boolean;
+  inWindow: boolean;
+}
+
+export interface CalendarImportPreview {
+  window: { from: string; to: string };
+  summary: { total: number; duplicates: number; inWindow: number };
+  events: CalendarImportEvent[];
+}
+
+export const calendarService = {
+  events: (params: { from: string; to: string; ownerUserId?: string; includeArchived?: boolean }) =>
+    api.get<CalendarEventDTO[]>(`/calendar/events${qs(params)}`),
+  create: (body: CalendarEventInput) => api.post<CalendarEventDTO>('/calendar/events', body),
+  update: (id: string, body: Partial<CalendarEventInput>) => api.patch<CalendarEventDTO>(`/calendar/events/${id}`, body),
+  remove: (id: string) => api.delete<{ deleted: boolean; restoreUntil: string }>(`/calendar/events/${id}`),
+  restore: (id: string) => api.post<CalendarEventDTO>(`/calendar/events/${id}/restore`, {}),
+  owners: () => api.get<Array<{ id: string; fullName: string; email: string }>>('/calendar/owners'),
+  importPreview: (body: { fileName: string; fileBase64: string }) =>
+    api.post<CalendarImportPreview>('/calendar/import/preview', body),
+  importCommit: (body: { defaultEventType: CalendarImportEventType; events: CalendarImportEvent[] }) =>
+    api.post<{ created: number; updated: number }>('/calendar/import/commit', body),
+};
+
 // ───── Products / Brands ─────
 export const productService = {
   listBrands: () => api.get<any[]>('/brands'),

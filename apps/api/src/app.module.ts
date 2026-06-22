@@ -24,6 +24,7 @@ import { FxModule } from './modules/fx/fx.module';
 import { ChatModule } from './modules/chat/chat.module';
 import { CallAssistantModule } from './modules/call-assistant/call-assistant.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
+import { CalendarModule } from './modules/calendar/calendar.module';
 import { loadEnv } from './config/env';
 
 const env = loadEnv();
@@ -65,6 +66,7 @@ const env = loadEnv();
     ChatModule,
     CallAssistantModule,
     NotificationsModule,
+    CalendarModule,
   ],
   providers: [
     // Rate limiting'i tüm route'lara uygular. Bu guard global bağlanmadan

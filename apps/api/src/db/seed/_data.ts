@@ -270,6 +270,7 @@ export const rolePermissionMatrix: Record<string, Record<string, string[] | '*'>
     leads: '*',
     opportunities: '*',
     activities: '*',
+    calendar: '*',
     competitors: '*',
     brands: '*',
     products: '*',
@@ -295,6 +296,7 @@ export const rolePermissionMatrix: Record<string, Record<string, string[] | '*'>
     audit: ['read'],
   },
   sales: {
+    calendar: '*',
     companies: '*',
     contacts: '*',
     leads: '*',
@@ -313,6 +315,7 @@ export const rolePermissionMatrix: Record<string, Record<string, string[] | '*'>
     inventory: ['read'],
   },
   service: {
+    calendar: '*',
     companies: ['read'],
     contacts: ['read'],
     customer_devices: '*',
@@ -324,6 +327,7 @@ export const rolePermissionMatrix: Record<string, Record<string, string[] | '*'>
     inventory: ['read'],
   },
   finance: {
+    calendar: '*',
     companies: ['read'],
     quotes: ['read', 'approve', 'reject'],
     sales_orders: ['read', 'approve', 'reject'],
@@ -336,6 +340,7 @@ export const rolePermissionMatrix: Record<string, Record<string, string[] | '*'>
     reports: ['read', 'export'],
   },
   stock: {
+    calendar: '*',
     warehouses: '*',
     inventory: '*',
     customer_devices: ['read', 'update'],

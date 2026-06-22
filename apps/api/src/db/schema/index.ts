@@ -15,3 +15,4 @@ export * from './service';
 export * from './audit';
 export * from './chat';
 export * from './call-assistant';
+export * from './calendar';

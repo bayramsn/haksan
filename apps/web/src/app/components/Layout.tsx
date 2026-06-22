@@ -33,7 +33,7 @@ import { AssistantPanel } from "./operations/AssistantPanel";
 import { buildAlerts, type OperationAction } from "../lib/operations";
 
 export type NavKey =
-  | "dashboard" | "chat" | "customers" | "contacts" | "sales-cases" | "kanban" | "sales-map" | "offers"
+  | "dashboard" | "chat" | "calendar" | "customers" | "contacts" | "sales-cases" | "kanban" | "sales-map" | "offers"
   | "proformas" | "contracts" | "documents" | "payments" | "accounting-invoices" | "customer-balances" | "due-dates" | "sales-price-list" | "products"
   | "stock" | "purchase-orders" | "shipments"
   | "installations" | "deliveries" | "machines" | "service-requests" | "service-kanban" | "service-price-list"
@@ -52,6 +52,7 @@ const NAV: { group: string; items: NavItem[] }[] = [
     items: [
       { key: "dashboard", label: "Gösterge Paneli", icon: LayoutDashboard },
       { key: "chat", label: "Sohbet", icon: MessageCircle },
+      { key: "calendar", label: "Takvim", icon: Calendar },
     ],
   },
   {
