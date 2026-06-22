@@ -4,9 +4,11 @@ import { z } from 'zod';
 import {
   callSuggestionActionInputSchema,
   callSuggestionListQuerySchema,
+  callWebhookPayloadSchema,
   manualCallEventSchema,
   mobileCallEventSchema,
   type CallSuggestionActionInput,
+  type CallWebhookPayload,
   type ManualCallEventInput,
   type MobileCallEventInput,
 } from '@haksan/shared';
@@ -17,7 +19,6 @@ import { PermissionsGuard, RequirePermissions } from '../../shared/security/perm
 import { CurrentUser } from '../../shared/security/current-user.decorator';
 import type { AuthContext } from '../../shared/security/auth.types';
 import { ZodValidationPipe } from '../../shared/utils/zod-pipe';
-import { ValidationError } from '../../shared/utils/errors';
 
 @Controller()
 export class CallAssistantController {
@@ -25,10 +26,11 @@ export class CallAssistantController {
 
   @Public()
   @Post('integrations/calls/webhook/:provider')
-  async webhook(@Param('provider') provider: string, @Body() body: unknown, @Req() req: FastifyRequest) {
-    if (!body || typeof body !== 'object' || Array.isArray(body)) {
-      throw new ValidationError('Webhook gövdesi JSON nesnesi olmalı');
-    }
+  async webhook(
+    @Param('provider') provider: string,
+    @Body(new ZodValidationPipe(callWebhookPayloadSchema.passthrough())) body: CallWebhookPayload,
+    @Req() req: FastifyRequest
+  ) {
     const raw = body as Record<string, unknown>;
     const env = loadEnv();
     this.svc.verifyWebhookSecret(req.headers['x-call-webhook-secret'], env.CALL_WEBHOOK_SECRET);
