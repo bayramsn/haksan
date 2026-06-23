@@ -63,6 +63,51 @@ describe('Service — kurulum / sevkiyat / teslimat', () => {
     expect(r.body.metadata.quoteRequired).toBe(true);
   });
 
+  it('servis teklif formu olmadan bakım/onarım aşamasına geçişi reddeder', async () => {
+    const created = await supertest(app.getHttpServer())
+      .post('/api/v1/service-tickets')
+      .set('Authorization', auth())
+      .send({
+        companyId,
+        subject: 'Servis teklif zorunluluğu testi',
+        severity: 'normal',
+        metadata: { quoteRequired: true, serviceStage: 'Quote Sent' },
+      });
+    expect(created.status).toBe(201);
+
+    const denied = await supertest(app.getHttpServer())
+      .patch(`/api/v1/service-tickets/${created.body.id}/status`)
+      .set('Authorization', auth())
+      .send({ statusCode: 'in_progress', serviceStage: 'Scheduled' });
+    expect(denied.status).toBe(422);
+
+    const quote = {
+      quoteNo: 'SRV-2026/TEST',
+      date: '2026-06-23',
+      validity: '5 İş Günü',
+      writerName: 'Test Kullanıcı',
+      company: 'Test Firma',
+      subject: 'Test servis teklifi kapsamı',
+      currency: 'USD',
+      vatRate: 20,
+      vatAmount: 0,
+      noteVariantKey: 'teknik-servis',
+      notes: ['Test notu'],
+      items: [{ id: 'line-1', description: 'ATC Tool Gripper', quantity: 1, unit: 'Ad.', unitPrice: 150 }],
+    };
+    const saved = await supertest(app.getHttpServer())
+      .patch(`/api/v1/service-tickets/${created.body.id}`)
+      .set('Authorization', auth())
+      .send({ metadata: { serviceQuote: quote } });
+    expect(saved.status).toBe(200);
+
+    const moved = await supertest(app.getHttpServer())
+      .patch(`/api/v1/service-tickets/${created.body.id}/status`)
+      .set('Authorization', auth())
+      .send({ statusCode: 'in_progress', serviceStage: 'Scheduled' });
+    expect(moved.status).toBe(200);
+  });
+
   it('garanti servis talebi oluşturunca garanti/RMA dosyası taslağı açar', async () => {
     const created = await supertest(app.getHttpServer())
       .post('/api/v1/service-tickets')

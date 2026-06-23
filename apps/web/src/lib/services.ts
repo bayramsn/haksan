@@ -557,8 +557,8 @@ export const serviceService = {
   tickets: (params?: Record<string, string | number | undefined>) => api.get<Paginated<any>>(`/service-tickets${qs(params)}`),
   createTicket: (body: any) => api.post<any>('/service-tickets', body),
   update: (id: string, body: any) => api.patch<any>(`/service-tickets/${id}`, body),
-  updateTicketStatus: (id: string, statusCode: string) =>
-    api.patch<any>(`/service-tickets/${id}/status`, { statusCode }),
+  updateTicketStatus: (id: string, statusCode: string, serviceStage?: string) =>
+    api.patch<any>(`/service-tickets/${id}/status`, { statusCode, serviceStage }),
   complaints: (params?: Record<string, string | number | undefined>) => api.get<Paginated<any>>(`/service-complaints${qs(params)}`),
   createComplaint: (body: ServiceComplaintCreateInput) => api.post<any>('/service-complaints', body),
   updateComplaint: (id: string, body: ServiceComplaintUpdateInput) => api.patch<any>(`/service-complaints/${id}`, body),

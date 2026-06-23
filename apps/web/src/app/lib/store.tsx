@@ -51,6 +51,23 @@ import {
   Shipment,
   Delivery,
 } from './mock';
+import { isServiceQuoteComplete, serviceQuoteMissingFields } from './serviceQuote';
+
+const SERVICE_STAGES: ServiceStage[] = [
+  'Request Opened',
+  'Diagnosis',
+  'Quote Needed',
+  'Quote Sent',
+  'Approval',
+  'Scheduled',
+  'Service In Progress',
+  'Service Completed',
+  'Signed Form',
+  'Closed',
+];
+
+const persistedServiceStage = (value: unknown): ServiceStage | null =>
+  typeof value === 'string' && SERVICE_STAGES.includes(value as ServiceStage) ? value as ServiceStage : null;
 
 // pipeline stage code → UI stage key. Legacy names are still accepted for old mock rows.
 const STAGE_BY_CODE: Record<string, SalesStage> = {
@@ -657,14 +674,15 @@ function StoreInner({ children }: { children: ReactNode }) {
             customerId: t.companyId,
             contactId: t.contactId ?? undefined,
             assignedUserId: t.assignedToUserId ?? '',
-            stage:
+            stage: persistedServiceStage(meta.serviceStage) ?? (
               t.status?.code === 'closed'
                 ? 'Closed'
                 : t.status?.code === 'resolved'
                   ? 'Service Completed'
                   : t.status?.code === 'in_progress'
                     ? 'Diagnosis'
-                    : 'Request Opened' as ServiceStage,
+                    : 'Request Opened' as ServiceStage
+            ),
             machineId: t.customerDeviceId ?? '',
             serialNumber: '',
             issueType: t.subject ?? '',
@@ -694,6 +712,7 @@ function StoreInner({ children }: { children: ReactNode }) {
             timerElapsedSeconds: Number(meta.timerElapsedSeconds ?? 0),
             serviceHourlyRate: Number(meta.serviceHourlyRate ?? 120),
             serviceCurrency: (meta.serviceCurrency as 'USD' | 'EUR' | 'TRY') ?? 'USD',
+            serviceQuote: meta.serviceQuote && typeof meta.serviceQuote === 'object' ? meta.serviceQuote : null,
             warrantyClaim: normalizeWarrantyClaim(t.warrantyClaim),
             sourceComplaint: t.sourceComplaint ?? null,
             createdAt: (t.reportedAt as string)?.slice(0, 10) ?? '',
@@ -1474,6 +1493,8 @@ function StoreInner({ children }: { children: ReactNode }) {
       assignedToUserId: s.assignedUserId || undefined,
       metadata: {
         quoteRequired: s.quoteRequired ?? false,
+        serviceStage: s.stage ?? 'Request Opened',
+        serviceQuote: s.serviceQuote ?? null,
         noteHistory: s.serviceNote
           ? [{ id: `srv-note-${Date.now()}`, text: s.serviceNote, createdAt, byUserId: s.assignedUserId || undefined }]
           : [],
@@ -1557,7 +1578,12 @@ function StoreInner({ children }: { children: ReactNode }) {
       'Signed Form': 'resolved',
       Closed: 'closed',
     };
-    await serviceService.updateTicketStatus(id, codeMap[to] ?? 'open');
+    const current = service.find((item) => item.id === id);
+    if (to === 'Scheduled' && !isServiceQuoteComplete(current?.serviceQuote)) {
+      const missing = serviceQuoteMissingFields(current?.serviceQuote);
+      throw new Error(`Bakım/Onarım aşamasından önce Servis Teklifi formunu tamamlayın: ${missing.join(', ')}.`);
+    }
+    await serviceService.updateTicketStatus(id, codeMap[to] ?? 'open', to);
     setService((prev) =>
       prev.map((s) =>
         s.id === id
@@ -1597,9 +1623,12 @@ function StoreInner({ children }: { children: ReactNode }) {
     if (patch.assignedUserId !== undefined) apiPatch.assignedToUserId = patch.assignedUserId;
     if (patch.ticketType !== undefined) apiPatch.ticketType = patch.ticketType;
 
-    const metaKeys = ['timerStatus', 'timerStartedAt', 'timerElapsedSeconds', 'serviceHourlyRate', 'serviceCurrency', 'noteHistory', 'complaints', 'activityHistory', 'operations'] as const;
+    const metaKeys = ['quoteRequired', 'serviceQuote', 'timerStatus', 'timerStartedAt', 'timerElapsedSeconds', 'serviceHourlyRate', 'serviceCurrency', 'noteHistory', 'complaints', 'activityHistory', 'operations'] as const;
     if (metaKeys.some((k) => patch[k] !== undefined)) {
       apiPatch.metadata = {
+        quoteRequired: merged.quoteRequired ?? false,
+        serviceStage: merged.stage,
+        serviceQuote: merged.serviceQuote ?? null,
         timerStatus: merged.timerStatus ?? 'idle',
         timerStartedAt: merged.timerStartedAt ?? null,
         timerElapsedSeconds: merged.timerElapsedSeconds ?? 0,

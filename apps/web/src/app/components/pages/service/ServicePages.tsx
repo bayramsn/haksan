@@ -31,9 +31,12 @@ import {
   type DocumentItem,
   type ServiceSource,
   type ServiceTicketType,
+  type ServiceQuoteForm,
+  type ServiceQuoteItem,
   type ServiceWarrantyPart,
 } from "../../../lib/mock";
 import { useAuth } from "../../../../lib/auth";
+import { isServiceQuoteComplete, serviceQuoteMissingFields } from "../../../lib/serviceQuote";
 import { toast } from "sonner";
 import { fileService, inventoryService, serviceService } from "../../../../lib/services";
 import { exportService } from "../../../../lib/downloadExport";
@@ -43,14 +46,14 @@ import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
 } from "../../ui/dropdown-menu";
 import {
-  printAssetBase, trShortDate, serviceFormDoc, serviceQuoteDoc, SERVICE_NOTE_VARIANTS,
+  printAssetBase, trLongDate, trShortDate, serviceFormDoc, serviceQuoteDoc, SERVICE_NOTE_VARIANTS,
 } from "../../../lib/print";
 import { printOrWarn, openInMaps } from "../../../lib/pageHelpers";
 import { WarrantyBadge } from "../machines/MachinesPage";
 import {
   Plus, Printer, MapPin, Wrench, Building2, Lock, Play, Pause, Square, MessageSquare,
   ShieldCheck, Send, Check, X, Package, ClipboardCheck, Inbox, Link2, Copy, ExternalLink,
-  PhoneCall,
+  PhoneCall, Trash2,
 } from "lucide-react";
 
 const SERVICE_CURRENCIES = ["USD", "EUR", "TRY"] as const;
@@ -65,6 +68,47 @@ const COMPLAINT_EXT_TO_MIME: Record<string, string> = {
   jpeg: "image/jpeg",
   webp: "image/webp",
 };
+
+const newServiceQuoteItem = (): ServiceQuoteItem => ({
+  id: `service-quote-item-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+  description: "",
+  quantity: 1,
+  unit: "Ad.",
+  unitPrice: 0,
+});
+
+const printServiceQuoteForm = (quote: ServiceQuoteForm) =>
+  serviceQuoteDoc(
+    {
+      firma: quote.company,
+      ilgili: quote.contact,
+      mobil: quote.mobile,
+      adres: quote.address,
+      tel: quote.phone,
+      email: quote.email,
+      tarih: trLongDate(quote.date),
+      belgeNo: quote.quoteNo,
+      gecerlilik: quote.validity,
+      teklifiYazan: quote.writerName,
+      teklifiYazanUnvan: quote.writerTitle,
+      teklifiYazanEmail: quote.writerEmail,
+      konu: quote.subject,
+      items: quote.items
+        .filter((item) => item.description.trim())
+        .map((item) => ({
+          urun: item.description,
+          miktar: item.quantity,
+          birim: item.unit,
+          fiyat: item.unitPrice,
+          tutar: item.quantity * item.unitPrice,
+        })),
+      kdvOran: quote.vatRate,
+      kdvTutar: quote.vatAmount,
+      currency: quote.currency,
+      notlar: quote.notes.filter((note) => note.trim()),
+    },
+    printAssetBase(),
+  );
 
 const fileSizeText = (bytes?: number) => {
   const value = bytes ?? 0;
@@ -467,34 +511,14 @@ export function ServiceRequestsPage({ initialView = "list", focus, initialQuery 
     );
   };
 
-  // Teknik Servis Teklifi — seçilen not setiyle (teknik servis / periyodik
-  // bakım / söküm-kurulum / eğitim) basılır; kalemler teklif aşamasında girilir.
-  const printServiceQuote = (s: ServiceRequest, variantKey: string) => {
-    const variant = SERVICE_NOTE_VARIANTS.find((v) => v.key === variantKey) ?? SERVICE_NOTE_VARIANTS[0];
-    const cust = customers.find((c) => c.id === s.customerId);
-    const m = machines.find((x) => x.id === s.machineId);
-    printOrWarn(
-      serviceQuoteDoc(
-        {
-          firma: cust?.name ?? "",
-          ilgili: cust?.contactPerson,
-          mobil: cust?.phone2,
-          adres: cust ? [cust.address, cust.district, cust.city].filter(Boolean).join(" ") : "",
-          tel: cust?.phone,
-          email: cust?.email,
-          tarih: trShortDate(new Date()),
-          belgeNo: `SRV-${s.id.slice(0, 6).toUpperCase()}`,
-          konu: m ? `${m.model} · ${m.serialNumber}` : undefined,
-          items: [],
-          kdvOran: 20,
-          kdvTutar: 0,
-          currency: "USD",
-          baslik: variant.label.toLocaleUpperCase("tr-TR"),
-          notlar: variant.notlar,
-        },
-        printAssetBase()
-      )
-    );
+  const printServiceQuote = (s: ServiceRequest) => {
+    if (!isServiceQuoteComplete(s.serviceQuote)) {
+      toast.error("Servis teklifi yazdırılamadı", {
+        description: "Önce servis kaydındaki Servis Teklifi formunu eksiksiz doldurun.",
+      });
+      return;
+    }
+    printOrWarn(printServiceQuoteForm(s.serviceQuote));
   };
 
   return (
@@ -602,11 +626,9 @@ export function ServiceRequestsPage({ initialView = "list", focus, initialQuery 
                           <DropdownMenuItem onClick={() => printServiceForm(s, idx)}>
                             Servis Formu yazdır
                           </DropdownMenuItem>
-                          {SERVICE_NOTE_VARIANTS.map((v) => (
-                            <DropdownMenuItem key={v.key} onClick={() => printServiceQuote(s, v.key)}>
-                              Servis Teklifi · {v.label}
-                            </DropdownMenuItem>
-                          ))}
+                          <DropdownMenuItem onClick={() => printServiceQuote(s)}>
+                            Servis Teklifi yazdır
+                          </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
                       </div>
@@ -696,7 +718,7 @@ const STAGE_TO_COLUMN: Record<ServiceStage, ServiceColumnKey> = SERVICE_COLUMNS.
   return acc;
 }, {} as Record<ServiceStage, ServiceColumnKey>);
 
-type ServiceDetailTab = "summary" | "machine" | "warranty" | "communication" | "notes" | "activities" | "operations";
+type ServiceDetailTab = "summary" | "quote" | "machine" | "warranty" | "communication" | "notes" | "activities" | "operations";
 
 const SERVICE_ACTIVITY_ENABLED_STAGES = new Set<ServiceStage>(["Service In Progress", "Service Completed", "Signed Form", "Closed"]);
 const SERVICE_FEE_ENABLED_STAGES = new Set<ServiceStage>(["Service Completed", "Signed Form", "Closed"]);
@@ -1557,6 +1579,10 @@ function ServiceBoard({ items: visibleService, onOpen }: { items: ServiceRequest
           toast.success("Servis kartı taşındı", { description: `Yeni aşama: ${target.key}` });
         } catch (err: any) {
           toast.error("Servis kartı taşınamadı", { description: err?.message ?? "Aşama geçişi reddedildi." });
+          if (target.primary === "Scheduled") {
+            const serviceRequest = visibleService.find((item) => item.id === id);
+            if (serviceRequest) onOpen?.(serviceRequest);
+          }
         }
       }}
       renderCard={(s) => {
@@ -1641,6 +1667,189 @@ function ServiceHistoryCard({
           </div>
           <div className="mt-1 text-sm leading-relaxed whitespace-pre-wrap break-words">{text}</div>
         </div>
+      </div>
+    </div>
+  );
+}
+
+function ServiceQuoteEditor({
+  serviceRequest,
+  customer,
+  machine,
+  actor,
+  onSave,
+}: {
+  serviceRequest: ServiceRequest;
+  customer?: Customer;
+  machine?: Machine;
+  actor?: ServiceActor | null;
+  onSave: (quote: ServiceQuoteForm) => Promise<void>;
+}) {
+  const defaultVariant = SERVICE_NOTE_VARIANTS[0];
+  const buildDraft = (): ServiceQuoteForm => {
+    if (serviceRequest.serviceQuote) {
+      return {
+        ...serviceRequest.serviceQuote,
+        notes: [...serviceRequest.serviceQuote.notes],
+        items: serviceRequest.serviceQuote.items.map((item) => ({ ...item })),
+      };
+    }
+    const machineName = machine ? [machine.brand, machine.model, machine.type].filter(Boolean).join(" ") : "";
+    const serialPrefix = machine?.serialNumber ? `${machine.serialNumber} Seri Numaralı ` : "";
+    const issue = serviceRequest.issueType?.trim() || serviceRequest.diagnosisNote?.trim();
+    const subjectParts = [`Teklifimiz ${serialPrefix}${machineName}`.trim(), issue].filter(Boolean).join(" ");
+    return {
+      quoteNo: "",
+      date: new Date().toISOString().slice(0, 10),
+      validity: "5 İş Günü",
+      writerName: actor?.name ?? "",
+      writerTitle: actor?.department ?? "",
+      writerEmail: actor?.email ?? "",
+      company: customer?.name ?? "",
+      contact: customer?.contactPerson ?? "",
+      mobile: customer?.phone2 ?? "",
+      phone: customer?.phone ?? "",
+      address: customer ? [customer.address, customer.district, customer.city].filter(Boolean).join(" ") : "",
+      email: customer?.email ?? "",
+      subject: subjectParts ? `${subjectParts} kapsamaktadır.` : "",
+      currency: serviceRequest.serviceCurrency ?? "USD",
+      vatRate: 20,
+      vatAmount: 0,
+      noteVariantKey: defaultVariant.key,
+      notes: [...defaultVariant.notlar],
+      items: [newServiceQuoteItem()],
+    };
+  };
+
+  const [draft, setDraft] = useState<ServiceQuoteForm>(buildDraft);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    setDraft(buildDraft());
+  }, [serviceRequest.id, serviceRequest.serviceQuote]);
+
+  const updateItem = (id: string, patch: Partial<ServiceQuoteItem>) => {
+    setDraft((current) => ({
+      ...current,
+      items: current.items.map((item) => item.id === id ? { ...item, ...patch } : item),
+    }));
+  };
+
+  const save = async (printAfterSave = false) => {
+    const normalized: ServiceQuoteForm = {
+      ...draft,
+      quoteNo: draft.quoteNo.trim(),
+      writerName: draft.writerName.trim(),
+      company: draft.company.trim(),
+      subject: draft.subject.trim(),
+      notes: draft.notes.map((note) => note.trim()).filter(Boolean),
+      items: draft.items
+        .map((item) => ({
+          ...item,
+          description: item.description.trim(),
+          unit: item.unit.trim(),
+          quantity: Number(item.quantity) || 0,
+          unitPrice: Number(item.unitPrice) || 0,
+        }))
+        .filter((item) => item.description),
+      savedAt: new Date().toISOString(),
+    };
+    const missing = serviceQuoteMissingFields(normalized);
+    if (missing.length) {
+      toast.error("Servis teklifi eksik", { description: `Doldurulması gereken alanlar: ${missing.join(", ")}.` });
+      return;
+    }
+    setSaving(true);
+    try {
+      await onSave(normalized);
+      setDraft(normalized);
+      toast.success("Servis teklif formu kaydedildi");
+      if (printAfterSave) printOrWarn(printServiceQuoteForm(normalized));
+    } catch (err: any) {
+      toast.error("Servis teklifi kaydedilemedi", { description: err?.message ?? "İşlem başarısız." });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const subtotal = draft.items.reduce((sum, item) => sum + (Number(item.quantity) || 0) * (Number(item.unitPrice) || 0), 0);
+  const selectedVariant = SERVICE_NOTE_VARIANTS.find((variant) => variant.key === draft.noteVariantKey) ?? defaultVariant;
+
+  return (
+    <div className="space-y-4">
+      <div className="rounded-lg border border-indigo-200 bg-indigo-50 px-4 py-3 text-sm text-indigo-900">
+        Bu form kaydedilmeden kart <b>Bakım/Onarım &amp; Yedek Parça</b> aşamasına geçirilemez. Yazdırılan teklif yalnızca bu alandaki bilgilerle oluşturulur.
+      </div>
+
+      <Card className="border-border/60">
+        <CardHeader className="pb-3"><CardTitle className="text-base">Teklif ve müşteri bilgileri</CardTitle></CardHeader>
+        <CardContent className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-4">
+          <div><Label>Teklif No. *</Label><Input className="mt-1" value={draft.quoteNo} onChange={(e) => setDraft({ ...draft, quoteNo: e.target.value })} placeholder="SRV-2026/010" /></div>
+          <div><Label>Tarih *</Label><Input className="mt-1" type="date" value={draft.date} onChange={(e) => setDraft({ ...draft, date: e.target.value })} /></div>
+          <div><Label>Geçerlilik Süresi *</Label><Input className="mt-1" value={draft.validity} onChange={(e) => setDraft({ ...draft, validity: e.target.value })} /></div>
+          <div><Label>Para Birimi *</Label><Select value={draft.currency} onValueChange={(value) => setDraft({ ...draft, currency: value as ServiceQuoteForm["currency"] })}><SelectTrigger className="mt-1"><SelectValue /></SelectTrigger><SelectContent>{SERVICE_CURRENCIES.map((currency) => <SelectItem key={currency} value={currency}>{currency}</SelectItem>)}</SelectContent></Select></div>
+          <div className="lg:col-span-2"><Label>Firma *</Label><Input className="mt-1" value={draft.company} onChange={(e) => setDraft({ ...draft, company: e.target.value })} /></div>
+          <div><Label>İlgili</Label><Input className="mt-1" value={draft.contact ?? ""} onChange={(e) => setDraft({ ...draft, contact: e.target.value })} /></div>
+          <div><Label>Mobil</Label><Input className="mt-1" value={draft.mobile ?? ""} onChange={(e) => setDraft({ ...draft, mobile: e.target.value })} /></div>
+          <div><Label>Telefon</Label><Input className="mt-1" value={draft.phone ?? ""} onChange={(e) => setDraft({ ...draft, phone: e.target.value })} /></div>
+          <div><Label>E-Posta</Label><Input className="mt-1" type="email" value={draft.email ?? ""} onChange={(e) => setDraft({ ...draft, email: e.target.value })} /></div>
+          <div className="md:col-span-2"><Label>Adres</Label><Input className="mt-1" value={draft.address ?? ""} onChange={(e) => setDraft({ ...draft, address: e.target.value })} /></div>
+          <div className="md:col-span-2 lg:col-span-4"><Label>Teklif Kapsamı *</Label><Textarea className="mt-1 min-h-20" value={draft.subject} onChange={(e) => setDraft({ ...draft, subject: e.target.value })} placeholder="Teklifimiz ... arızasını kapsamaktadır." /></div>
+        </CardContent>
+      </Card>
+
+      <Card className="border-border/60">
+        <CardHeader className="pb-3"><CardTitle className="text-base">Teklifi hazırlayan</CardTitle></CardHeader>
+        <CardContent className="grid grid-cols-1 gap-3 md:grid-cols-3">
+          <div><Label>Teklifi Yazan *</Label><Input className="mt-1" value={draft.writerName} onChange={(e) => setDraft({ ...draft, writerName: e.target.value })} /></div>
+          <div><Label>Unvan</Label><Input className="mt-1" value={draft.writerTitle ?? ""} onChange={(e) => setDraft({ ...draft, writerTitle: e.target.value })} /></div>
+          <div><Label>E-Posta</Label><Input className="mt-1" type="email" value={draft.writerEmail ?? ""} onChange={(e) => setDraft({ ...draft, writerEmail: e.target.value })} /></div>
+        </CardContent>
+      </Card>
+
+      <Card className="border-border/60">
+        <CardHeader className="flex flex-row items-center justify-between pb-3">
+          <CardTitle className="text-base">Ürün / hizmet kalemleri</CardTitle>
+          <Button type="button" size="sm" variant="outline" className="gap-1" onClick={() => setDraft({ ...draft, items: [...draft.items, newServiceQuoteItem()] })}><Plus className="size-4" /> Satır ekle</Button>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="overflow-x-auto rounded-lg border border-border/60">
+            <Table className="min-w-[760px]">
+              <TableHeader><TableRow className="bg-muted/30"><TableHead>Açıklama *</TableHead><TableHead className="w-24">Miktar *</TableHead><TableHead className="w-24">Birim *</TableHead><TableHead className="w-36">Birim Fiyat *</TableHead><TableHead className="w-36 text-right">Tutar</TableHead><TableHead className="w-12" /></TableRow></TableHeader>
+              <TableBody>
+                {draft.items.map((item) => (
+                  <TableRow key={item.id}>
+                    <TableCell><Input value={item.description} onChange={(e) => updateItem(item.id, { description: e.target.value })} placeholder="Ürün veya hizmet açıklaması" /></TableCell>
+                    <TableCell><Input type="number" min="0" step="0.01" value={item.quantity} onChange={(e) => updateItem(item.id, { quantity: Number(e.target.value) })} /></TableCell>
+                    <TableCell><Input value={item.unit} onChange={(e) => updateItem(item.id, { unit: e.target.value })} /></TableCell>
+                    <TableCell><Input type="number" min="0" step="0.01" value={item.unitPrice} onChange={(e) => updateItem(item.id, { unitPrice: Number(e.target.value) })} /></TableCell>
+                    <TableCell className="text-right tabular-nums">{moneyText(item.quantity * item.unitPrice, draft.currency)}</TableCell>
+                    <TableCell><Button type="button" size="icon" variant="ghost" className="size-8" disabled={draft.items.length === 1} onClick={() => setDraft({ ...draft, items: draft.items.filter((row) => row.id !== item.id) })}><Trash2 className="size-4 text-red-600" /></Button></TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+          <div className="ml-auto grid max-w-sm grid-cols-2 gap-x-4 gap-y-2 rounded-lg border border-border/60 bg-muted/20 px-4 py-3 text-sm">
+            <span>Ara Toplam</span><b className="text-right tabular-nums">{moneyText(subtotal, draft.currency)}</b>
+            <span>K.D.V. Oranı (%)</span><Input className="h-8" type="number" min="0" value={draft.vatRate} onChange={(e) => setDraft({ ...draft, vatRate: Number(e.target.value) || 0 })} />
+            <span>K.D.V. Tutarı</span><Input className="h-8" type="number" min="0" value={draft.vatAmount} onChange={(e) => setDraft({ ...draft, vatAmount: Number(e.target.value) || 0 })} />
+            <span>Toplam</span><b className="text-right tabular-nums">{moneyText(subtotal + draft.vatAmount, draft.currency)}</b>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card className="border-border/60">
+        <CardHeader className="pb-3"><CardTitle className="text-base">Teklif notları</CardTitle></CardHeader>
+        <CardContent className="space-y-3">
+          <div className="max-w-sm"><Label>Not taslağı</Label><Select value={draft.noteVariantKey} onValueChange={(key) => { const variant = SERVICE_NOTE_VARIANTS.find((item) => item.key === key) ?? selectedVariant; setDraft({ ...draft, noteVariantKey: key, notes: [...variant.notlar] }); }}><SelectTrigger className="mt-1"><SelectValue /></SelectTrigger><SelectContent>{SERVICE_NOTE_VARIANTS.map((variant) => <SelectItem key={variant.key} value={variant.key}>{variant.label}</SelectItem>)}</SelectContent></Select></div>
+          <div><Label>Notlar (her satır ayrı madde)</Label><Textarea className="mt-1 min-h-36" value={draft.notes.join("\n")} onChange={(e) => setDraft({ ...draft, notes: e.target.value.split("\n") })} /></div>
+        </CardContent>
+      </Card>
+
+      <div className="flex flex-wrap justify-end gap-2">
+        <Button variant="outline" className="gap-1" disabled={saving} onClick={() => save(true)}><Printer className="size-4" /> Kaydet ve yazdır</Button>
+        <Button className="gap-1" disabled={saving} onClick={() => save(false)}><Check className="size-4" /> Servis teklifini kaydet</Button>
       </div>
     </div>
   );
@@ -2130,6 +2339,10 @@ function ServiceDetailDialog({
           <div className="shrink-0 border-b border-border/60 px-5 py-3">
             <TabsList className="h-auto w-full justify-start overflow-x-auto">
               <TabsTrigger value="summary">Özet</TabsTrigger>
+              <TabsTrigger value="quote">
+                <ClipboardCheck className="size-3.5" />
+                Servis Teklifi
+              </TabsTrigger>
               <TabsTrigger value="machine">Makine Dosyası</TabsTrigger>
               <TabsTrigger value="warranty">
                 <ShieldCheck className="size-3.5" />
@@ -2225,6 +2438,22 @@ function ServiceDetailDialog({
                 <div className="mt-1 text-sm">{serviceRequest.quoteRequired ? "Gerekli" : "Gerekli değil"}</div>
               </div>
             </div>
+          </TabsContent>
+
+          <TabsContent value="quote" className="m-0">
+            <ServiceQuoteEditor
+              key={serviceRequest.id}
+              serviceRequest={serviceRequest}
+              customer={customer}
+              machine={machine}
+              actor={currentActor}
+              onSave={(serviceQuote) =>
+                updateService(
+                  serviceRequest.id,
+                  withActivity("Servis teklif formu kaydedildi.", { quoteRequired: true, serviceQuote }),
+                )
+              }
+            />
           </TabsContent>
 
           <TabsContent value="machine" className="m-0 space-y-4">

@@ -494,6 +494,7 @@ export type ServiceRequest = {
   timerElapsedSeconds?: number;
   serviceHourlyRate?: number;
   serviceCurrency?: "USD" | "EUR" | "TRY";
+  serviceQuote?: ServiceQuoteForm | null;
   warrantyClaim?: ServiceWarrantyClaim | null;
   sourceComplaint?: {
     id: string;
@@ -503,6 +504,37 @@ export type ServiceRequest = {
     contactPhone?: string | null;
     contactEmail?: string | null;
   } | null;
+};
+
+export type ServiceQuoteItem = {
+  id: string;
+  description: string;
+  quantity: number;
+  unit: string;
+  unitPrice: number;
+};
+
+export type ServiceQuoteForm = {
+  quoteNo: string;
+  date: string;
+  validity: string;
+  writerName: string;
+  writerTitle?: string;
+  writerEmail?: string;
+  company: string;
+  contact?: string;
+  mobile?: string;
+  phone?: string;
+  address?: string;
+  email?: string;
+  subject: string;
+  currency: "USD" | "EUR" | "TRY";
+  vatRate: number;
+  vatAmount: number;
+  noteVariantKey: string;
+  notes: string[];
+  items: ServiceQuoteItem[];
+  savedAt?: string;
 };
 
 
