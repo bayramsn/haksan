@@ -8,6 +8,7 @@
 import type { DbClient } from '../client';
 import { up as syncRolePermissions } from './001_sync_role_permissions';
 import { up as backfillDivisionIsolation } from './002_backfill_division_isolation';
+import { up as syncLookups } from './003_sync_lookups';
 
 export interface DataMigration {
   id: string;
@@ -17,4 +18,5 @@ export interface DataMigration {
 export const dataMigrations: DataMigration[] = [
   { id: '001_sync_role_permissions', up: syncRolePermissions },
   { id: '002_backfill_division_isolation', up: backfillDivisionIsolation },
+  { id: '003_sync_lookups', up: syncLookups },
 ];

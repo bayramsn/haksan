@@ -8,8 +8,8 @@ import { KanbanCardAttachments } from "../KanbanCardAttachments";
 import { DocumentPreviewDialog } from "../dialogs/DocumentPreviewDialog";
 import { useStore } from "../../lib/store";
 import { LostCaseDialog } from "../dialogs/LostCaseDialog";
-import { loadProformaPrintData, proformaDoc, contractDoc, installationFormDoc, printAssetBase, trShortDate, PROFORMA_NOTE_VARIANTS } from "../../lib/print";
-import { printOrWarn, splitVat } from "../../lib/pageHelpers";
+import { loadContractPrintData, loadProformaPrintData, proformaDoc, contractDoc, installationFormDoc, printAssetBase, trShortDate } from "../../lib/print";
+import { printOrWarn } from "../../lib/pageHelpers";
 import { toast } from "sonner";
 import { Button } from "../ui/button";
 import {
@@ -54,8 +54,9 @@ const STAGE_DOT: Record<string, string> = {
 
 const initials = (n: string) => (n || "—").split(" ").slice(0, 2).map((p) => p[0]).join("").toUpperCase();
 
-export function KanbanPage({ onSelect }: { onSelect: (s: SalesCase) => void }) {
-  const { cases, moveCase, customers, users, documents, offers, products, payments, machines, addDocument } = useStore();
+export function KanbanPage({ onSelect, items }: { onSelect: (s: SalesCase) => void; items?: SalesCase[] }) {
+  const { cases: storeCases, moveCase, customers, contacts, users, documents, offers, products, payments, machines, addDocument } = useStore();
+  const cases = items ?? storeCases;
   const [lostId, setLostId] = useState<string | null>(null);
   const [previewDoc, setPreviewDoc] = useState<DocumentItem | null>(null);
   const lostCustomer = lostId ? customers.find((x) => x.id === cases.find((s) => s.id === lostId)?.customerId)?.name : undefined;
@@ -90,7 +91,7 @@ export function KanbanPage({ onSelect }: { onSelect: (s: SalesCase) => void }) {
         cases,
         offers,
         products,
-        variantKey: PROFORMA_NOTE_VARIANTS[0].key,
+        contacts,
       });
       printOrWarn(proformaDoc(data, printAssetBase()));
 
@@ -120,55 +121,20 @@ export function KanbanPage({ onSelect }: { onSelect: (s: SalesCase) => void }) {
 
   // Satış Sözleşmesi PDF'ini kartın/teklifinin verisinden üretir (Belgeler
   // sayfasındaki printContract ile aynı kurallar).
-  const buildContractDoc = (sc: SalesCase) => {
+  const buildContractDoc = async (sc: SalesCase) => {
     const cust = customers.find((c) => c.id === sc.customerId) ?? null;
     const offer = offers
       .filter((o) => o.salesCaseId === sc.id || (cust && o.companyId === cust.id))
       .sort((a, b) => b.date.localeCompare(a.date))[0];
-    const model = sc.requestedModel ?? "";
-    const product = products.find((p) => p.model && model && (model.includes(p.model) || p.model.includes(model)));
-    const amount = offer?.amount ?? sc.estimatedAmount ?? 0;
-    const currency = (offer?.currency ?? sc.currency ?? "USD") as "USD" | "EUR" | "TRY";
-    const adres = cust ? [cust.address, cust.district, cust.city].filter(Boolean).join(" ") : "";
-    const urunAdi =
-      product?.shortDescription || [sc.requestedProduct, sc.requestedModel].filter(Boolean).join(" ") || "Tezgah";
-    // Sözleşme KDV hariç fiyatlandırılır (madde 3.3) → net tutar kullan.
-    const vat = splitVat(amount, { subtotal: offer?.subtotal, vatTotal: offer?.vatTotal });
-    // Ödeme planı: teklife bağlı beklenen tahsilatlar; yoksa tek satır peşin.
-    const expected = payments
-      .filter((p) => p.paymentType === "expected" && offer && p.salesCaseId === offer.id)
-      .sort((a, b) => a.dueDate.localeCompare(b.dueDate));
-    const odemePlani = expected.length
-      ? expected.map((p, i) => ({
-          label: i === 0 ? "Peşin" : `Vade ${trShortDate(p.dueDate)}`,
-          tutar: p.amount,
-          senet: i > 0,
-        }))
-      : [{ label: "Peşin", tutar: vat.net }];
-    return contractDoc(
-      {
-        alici: {
-          unvan: cust?.name ?? "",
-          yetkili: cust?.contactPerson,
-          adres,
-          vergiDairesi: cust?.taxOffice,
-          vergiNo: cust?.taxNumber,
-          tel: cust?.phone,
-          faks: cust?.fax,
-        },
-        sozlesmeTarihi: new Date().toISOString().slice(0, 10),
-        model: urunAdi,
-        adet: sc.quantity ?? 1,
-        ozellikler: product?.specs?.slice(0, 14) ?? [],
-        aksesuarlar: product?.standardEquipment ?? [],
-        fiyat: vat.net,
-        currency,
-        teslimSekli: "Millileştirilmiş",
-        kdvOran: vat.oran,
-        odemePlani,
-      },
-      printAssetBase()
-    );
+    const data = await loadContractPrintData({
+      customer: cust,
+      salesCase: sc,
+      offer,
+      products,
+      payments,
+      contractDate: new Date().toISOString().slice(0, 10),
+    });
+    return contractDoc(data, printAssetBase());
   };
 
   // Sözleşme aşaması backend'de bir sözleşme kaydı şartı koşar; bu yüzden
@@ -183,7 +149,7 @@ export function KanbanPage({ onSelect }: { onSelect: (s: SalesCase) => void }) {
       const sozlesmeNo = existing?.fileName ?? `${year}/S-${seq}`;
 
       // 1) Satış Sözleşmesi PDF'ini üret ve yeni sekmede aç.
-      printOrWarn(buildContractDoc(sc));
+      printOrWarn(await buildContractDoc(sc));
 
       // 2) Kayıt yoksa oluştur (backend aşama kapısını geçirir).
       if (!existing) {
@@ -218,7 +184,7 @@ export function KanbanPage({ onSelect }: { onSelect: (s: SalesCase) => void }) {
       installationFormDoc(
         {
           teslimTarihi: m?.deliveryDate ? trShortDate(m.deliveryDate) : "",
-          kurulumTarihi: m?.installationDate ? trShortDate(m.installationDate) : trShortDate(new Date()),
+          kurulumTarihi: m?.installationDate ? trShortDate(m.installationDate) : "",
           formNo: sc.id.slice(0, 6).toUpperCase(),
           tezgah: m ? { marka: m.brand, tip: m.type, model: m.model, seriNo: m.serialNumber } : undefined,
           cnc: m?.controlUnit
@@ -247,7 +213,7 @@ export function KanbanPage({ onSelect }: { onSelect: (s: SalesCase) => void }) {
       setLostId(id);
       return;
     }
-    const sc = cases.find((s) => s.id === id);
+    const sc = storeCases.find((s) => s.id === id);
 
     // Sözleşme aşaması belge şartlı: önce üret+kaydet, kapı sağlanmazsa taşıma.
     if (to === "contract" && sc) {
@@ -264,6 +230,12 @@ export function KanbanPage({ onSelect }: { onSelect: (s: SalesCase) => void }) {
       if (to === "installation" && sc) {
         generateInstallationForm(sc);
         toast.success("Kurulum tutanağı hazırlandı", { description: "Garanti, kurulumla otomatik başlatıldı." });
+      }
+      if (to === "payment_plan" && sc) {
+        // Kart Ödeme Planı aşamasına geldiğinde detay/dialog otomatik açılır;
+        // SalesCaseDetail içindeki "Ödeme Planı Gerekli" kartı kullanıcıyı
+        // "Ödeme Planı Oluştur" butonuna yönlendirir.
+        onSelect({ ...sc, stage: to });
       }
     } catch (err: any) {
       toast.error("Kart taşınamadı", { description: err?.message ?? "Aşama gereksinimleri tamamlanmalı." });
@@ -302,6 +274,7 @@ export function KanbanPage({ onSelect }: { onSelect: (s: SalesCase) => void }) {
         const caseDocs = documents.filter((d) => d.salesCaseId === s.id);
         return (
           <Card
+            data-testid={`sales-kanban-card-${s.id}`}
             onClick={() => onSelect(s)}
             className="overflow-hidden p-3 hover:shadow-md hover:border-primary/40 transition-all border-border/60 group bg-white"
           >
