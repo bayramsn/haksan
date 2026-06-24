@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
 import { Button } from "../ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../ui/tabs";
 import { ArrowLeft, Plus, Upload, X, XCircle, Eye, FileText, CreditCard, CheckCircle2 } from "lucide-react";
-import { SalesCase, SALES_STAGES, salesStageLabel } from "../../lib/mock";
+import { SalesCase, SALES_STAGES, salesStageLabel, type Offer } from "../../lib/mock";
 import { StatusBadge } from "../Layout";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../ui/table";
 import { useStore } from "../../lib/store";
@@ -506,7 +506,7 @@ export function CreatePaymentPlanDialog({
       setCurrency(initialQuote.currency);
     } else {
       setSelectedQuoteId("");
-      setAmount(sc.estimatedAmount);
+      setAmount(sc.estimatedAmount || 0);
       setCurrency(sc.currency || "USD");
     }
   }, [open, offs, sc]);
@@ -562,17 +562,18 @@ export function CreatePaymentPlanDialog({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!isMatch) return toast.error("Taksitlerin toplamı, plan toplam tutarı ile eşleşmelidir");
-    if (!selectedQuoteId) return toast.error("Lütfen ödeme planının bağlanacağı bir teklif seçin.");
+    if (amount <= 0 || installments.length === 0) return toast.error("Plan tutarı ve en az bir taksit girin.");
     setSaving(true);
     try {
       for (let i = 0; i < installments.length; i++) {
         const inst = installments[i];
         await financeService.createReceivable({
           companyId: sc.customerId,
-          quoteId: selectedQuoteId,
+          ...(selectedQuoteId ? { quoteId: selectedQuoteId } : {}),
           amount: inst.amount,
           currencyCode: currency,
           dueDate: new Date(inst.dueDate),
+          movementType: "manual",
           notes: `Taksit ${i + 1}/${installments.length} - ${sc.requestedProduct}`,
         });
       }
@@ -597,24 +598,21 @@ export function CreatePaymentPlanDialog({
           </DialogDescription>
         </DialogHeader>
 
-        {offs.length === 0 ? (
-          <div className="p-4 bg-amber-50 border border-amber-200 rounded text-sm text-amber-700 space-y-2 mt-4">
-            <p className="font-semibold">Teklif Bulunamadı</p>
-            <p>
-              Ödeme planı oluşturabilmek için öncelikle bu satış kartı altında bir teklif oluşturulmuş olmalıdır.
-              Lütfen "Teklifler" sekmesinden yeni bir teklif ekleyin.
-            </p>
+        {offs.length === 0 && (
+          <div className="p-3 bg-amber-50 border border-amber-200 rounded text-xs text-amber-800 mt-4">
+            Bu satış kartı altında bir teklif yok. Ödeme planını yine de oluşturabilirsiniz; sonradan teklif eklenirse manuel olarak bağlanabilir.
           </div>
-        ) : (
-          <form onSubmit={handleSubmit} className="space-y-4 mt-4">
+        )}
+        <form onSubmit={handleSubmit} className="space-y-4 mt-4">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-1.5">
-                <Label htmlFor="quote-select">İlişkili Teklif</Label>
-                <Select value={selectedQuoteId} onValueChange={setSelectedQuoteId}>
+                <Label htmlFor="quote-select">İlişkili Teklif {offs.length === 0 ? "(yok)" : "(opsiyonel)"}</Label>
+                <Select value={selectedQuoteId || "__none__"} onValueChange={(v) => setSelectedQuoteId(v === "__none__" ? "" : v)} disabled={offs.length === 0}>
                   <SelectTrigger id="quote-select" className="w-full">
-                    <SelectValue placeholder="Teklif seçin" />
+                    <SelectValue placeholder={offs.length === 0 ? "Teklif bulunamadı" : "Teklif seçin"} />
                   </SelectTrigger>
                   <SelectContent>
+                    <SelectItem value="__none__">Teklif bağlama</SelectItem>
                     {offs.map((o) => (
                       <SelectItem key={o.id} value={o.id}>
                         {o.quoteNo} (Rev. {o.revision}) · {o.amount.toLocaleString()} {o.currency} {o.status === "Approved" ? "· Onaylı" : ""}
@@ -723,12 +721,11 @@ export function CreatePaymentPlanDialog({
               <Button type="button" variant="ghost" onClick={() => setOpen(false)}>
                 Vazgeç
               </Button>
-              <Button type="submit" disabled={saving || !isMatch || !selectedQuoteId}>
+              <Button type="submit" disabled={saving || !isMatch || amount <= 0 || installments.length === 0}>
                 {saving ? "Kaydediliyor..." : "Planı Onayla ve Kaydet"}
               </Button>
             </div>
           </form>
-        )}
       </DialogContent>
     </Dialog>
   );

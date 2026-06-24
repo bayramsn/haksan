@@ -270,11 +270,14 @@ export type CreateQuotePayload = {
   companyId: string;
   contactId?: string;
   quoteDate: string;
+  validityDays: number;
   documentNo?: string;
   currencyCode: string;
   projectOwnerUserId?: string;
   notes?: string;
+  paymentTermsText?: string;
   deliveryTermsText?: string;
+  warrantyTermsText?: string;
   importCostsExcluded?: boolean;
   items: QuoteLineInput[];
   caseTitle?: string;
@@ -645,7 +648,7 @@ function StoreInner({ children }: { children: ReactNode }) {
                 : q.status?.code === 'rejected'
                   ? 'Rejected'
                   : 'Draft',
-          note: q.paymentTerms ?? '',
+          note: q.notes ?? '',
         }))
       );
 
@@ -671,6 +674,7 @@ function StoreInner({ children }: { children: ReactNode }) {
           ];
           return {
             id: t.id,
+            ticketNo: t.ticketNo ?? undefined,
             customerId: t.companyId,
             contactId: t.contactId ?? undefined,
             assignedUserId: t.assignedToUserId ?? '',
@@ -713,10 +717,11 @@ function StoreInner({ children }: { children: ReactNode }) {
             serviceHourlyRate: Number(meta.serviceHourlyRate ?? 120),
             serviceCurrency: (meta.serviceCurrency as 'USD' | 'EUR' | 'TRY') ?? 'USD',
             serviceQuote: meta.serviceQuote && typeof meta.serviceQuote === 'object' ? meta.serviceQuote : null,
+            completionForm: meta.completionForm && typeof meta.completionForm === 'object' ? meta.completionForm : null,
             warrantyClaim: normalizeWarrantyClaim(t.warrantyClaim),
             sourceComplaint: t.sourceComplaint ?? null,
             createdAt: (t.reportedAt as string)?.slice(0, 10) ?? '',
-            closedAt: undefined,
+            closedAt: t.resolvedAt ? (t.resolvedAt as string).slice(0, 10) : undefined,
           };
         })
       );
@@ -1208,10 +1213,14 @@ function StoreInner({ children }: { children: ReactNode }) {
       companyId: p.companyId,
       contactId: p.contactId || undefined,
       quoteDate: p.quoteDate,
+      validityDays: p.validityDays,
       documentNo: p.documentNo || undefined,
       currencyCode: p.currencyCode,
       projectOwnerUserId: p.projectOwnerUserId || undefined,
       notes: p.notes || undefined,
+      paymentTerms: p.paymentTermsText || undefined,
+      deliveryTerms: p.deliveryTermsText || undefined,
+      warrantyTerms: p.warrantyTermsText || undefined,
       divisionId: p.divisionId || undefined,
     });
 
@@ -1229,13 +1238,19 @@ function StoreInner({ children }: { children: ReactNode }) {
       });
     }
 
-    if (p.deliveryTermsText !== undefined || p.importCostsExcluded !== undefined) {
+    if (
+      p.paymentTermsText !== undefined ||
+      p.deliveryTermsText !== undefined ||
+      p.warrantyTermsText !== undefined ||
+      p.importCostsExcluded !== undefined
+    ) {
       await quoteService
         .terms(quote.id, {
+          paymentTermsText: p.paymentTermsText,
           deliveryTermsText: p.deliveryTermsText,
+          warrantyTermsText: p.warrantyTermsText,
           importCostsExcluded: p.importCostsExcluded ?? true,
-        })
-        .catch(() => undefined);
+        });
     }
 
     await activityService
@@ -1623,12 +1638,13 @@ function StoreInner({ children }: { children: ReactNode }) {
     if (patch.assignedUserId !== undefined) apiPatch.assignedToUserId = patch.assignedUserId;
     if (patch.ticketType !== undefined) apiPatch.ticketType = patch.ticketType;
 
-    const metaKeys = ['quoteRequired', 'serviceQuote', 'timerStatus', 'timerStartedAt', 'timerElapsedSeconds', 'serviceHourlyRate', 'serviceCurrency', 'noteHistory', 'complaints', 'activityHistory', 'operations'] as const;
+    const metaKeys = ['quoteRequired', 'serviceQuote', 'completionForm', 'timerStatus', 'timerStartedAt', 'timerElapsedSeconds', 'serviceHourlyRate', 'serviceCurrency', 'noteHistory', 'complaints', 'activityHistory', 'operations'] as const;
     if (metaKeys.some((k) => patch[k] !== undefined)) {
       apiPatch.metadata = {
         quoteRequired: merged.quoteRequired ?? false,
         serviceStage: merged.stage,
         serviceQuote: merged.serviceQuote ?? null,
+        completionForm: merged.completionForm ?? null,
         timerStatus: merged.timerStatus ?? 'idle',
         timerStartedAt: merged.timerStartedAt ?? null,
         timerElapsedSeconds: merged.timerElapsedSeconds ?? 0,

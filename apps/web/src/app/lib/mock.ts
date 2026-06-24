@@ -471,6 +471,7 @@ export type ServiceWarrantyClaim = {
 
 export type ServiceRequest = {
   id: string;
+  ticketNo?: string;
   machineId: string;
   customerId: string;
   contactId?: string;
@@ -495,6 +496,8 @@ export type ServiceRequest = {
   serviceHourlyRate?: number;
   serviceCurrency?: "USD" | "EUR" | "TRY";
   serviceQuote?: ServiceQuoteForm | null;
+  completionForm?: ServiceCompletionForm | null;
+  closedAt?: string;
   warrantyClaim?: ServiceWarrantyClaim | null;
   sourceComplaint?: {
     id: string;
@@ -512,6 +515,52 @@ export type ServiceQuoteItem = {
   quantity: number;
   unit: string;
   unitPrice: number;
+};
+
+export type ServiceCompletionCheckStatus = "done" | "not_done" | "na";
+
+export type ServiceCompletionCheckItem = {
+  id: string;
+  label: string;
+  status: ServiceCompletionCheckStatus;
+  note?: string;
+  custom?: boolean;
+};
+
+export const SERVICE_COMPLETION_DEFAULT_CHECKS: { id: string; label: string }[] = [
+  { id: "tezgah-montaji", label: "Tezgah Montajı" },
+  { id: "tezgah-dengeye-alinmasi", label: "Tezgahın Dengeye Alınması" },
+  { id: "elektrik-baglantisi", label: "Elektrik Bağlantısı" },
+  { id: "yaglama-sistemi", label: "Yağlama Sistemi Kontrolü" },
+  { id: "sogutma-sistemi", label: "Soğutma Sistemi Kontrolü" },
+  { id: "hidrolik-sistemi", label: "Hidrolik Sistemi Kontrolü" },
+  { id: "cnc-parametreleri", label: "Cnc Parametreleri Kontrolü" },
+  { id: "ilk-calistirma", label: "Tezgahın İlk Çalıştırılması" },
+  { id: "parametre-yedek", label: "Parametrelerin Yedeklenmesi" },
+];
+
+export type ServiceCompletionForm = {
+  formNo?: string;
+  teslimTarihi?: string;       // Tezgah Teslim Tarihi
+  kurulumTarihi?: string;      // Tezgah Kurulum / Servis Tarihi
+  tezgah?: { marka?: string; tip?: string; model?: string; seriNo?: string };
+  cnc?: { marka?: string; model?: string; seriNo?: string; mainSw?: string };
+  kullanici?: {
+    firma?: string;
+    ilgili?: string;
+    adres?: string;
+    telefon?: string;
+    faks?: string;
+    gsm?: string;
+    eposta?: string;
+  };
+  checks: ServiceCompletionCheckItem[];
+  yapilanIsler?: string;       // Serbest metin: yapılan işler özet
+  notlar?: string;
+  kurulumuYapan?: string;      // Servisi yapan teknisyen
+  teslimAlan?: string;         // Tezgahı teslim alan / müşteri yetkilisi
+  signedAt?: string;           // İmzalandığı / kapatıldığı an
+  signedByUserId?: string;
 };
 
 export type ServiceQuoteForm = {

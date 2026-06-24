@@ -28,12 +28,17 @@ import {
   Customer,
   Contact,
   Machine,
+  type User,
   type DocumentItem,
   type ServiceSource,
   type ServiceTicketType,
   type ServiceQuoteForm,
   type ServiceQuoteItem,
   type ServiceWarrantyPart,
+  type ServiceCompletionForm,
+  type ServiceCompletionCheckItem,
+  type ServiceCompletionCheckStatus,
+  SERVICE_COMPLETION_DEFAULT_CHECKS,
 } from "../../../lib/mock";
 import { useAuth } from "../../../../lib/auth";
 import { isServiceQuoteComplete, serviceQuoteMissingFields } from "../../../lib/serviceQuote";
@@ -46,14 +51,13 @@ import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
 } from "../../ui/dropdown-menu";
 import {
-  printAssetBase, trLongDate, trShortDate, serviceFormDoc, serviceQuoteDoc, SERVICE_NOTE_VARIANTS,
+  printAssetBase, trLongDate, trShortDate, serviceFormDoc, serviceQuoteDoc, serviceCompletionFormDoc, SERVICE_NOTE_VARIANTS,
 } from "../../../lib/print";
-import { printOrWarn, openInMaps } from "../../../lib/pageHelpers";
-import { WarrantyBadge } from "../machines/MachinesPage";
+import { printOrWarn, openInMaps, warrantyInfo, type WarrantyState } from "../../../lib/pageHelpers";
 import {
   Plus, Printer, MapPin, Wrench, Building2, Lock, Play, Pause, Square, MessageSquare,
   ShieldCheck, Send, Check, X, Package, ClipboardCheck, Inbox, Link2, Copy, ExternalLink,
-  PhoneCall, Trash2,
+  PhoneCall, Trash2, ArrowRight, FileCheck2, History, FileText,
 } from "lucide-react";
 
 const SERVICE_CURRENCIES = ["USD", "EUR", "TRY"] as const;
@@ -76,6 +80,48 @@ const newServiceQuoteItem = (): ServiceQuoteItem => ({
   unit: "Ad.",
   unitPrice: 0,
 });
+
+const printServiceCompletionForm = (
+  s: ServiceRequest,
+  form: ServiceCompletionForm,
+  machine: Machine | null,
+  customer: Customer | null,
+  contact: Contact | null,
+  fallbackAssignee?: string,
+) => {
+  printOrWarn(
+    serviceCompletionFormDoc(
+      {
+        formNo: form.formNo || s.ticketNo || s.id,
+        teslimTarihi: form.teslimTarihi || machine?.deliveryDate || "",
+        kurulumTarihi: form.kurulumTarihi || trShortDate(new Date().toISOString()),
+        tezgah: form.tezgah ?? (machine
+          ? { marka: machine.brand, tip: machine.type, model: machine.model, seriNo: machine.serialNumber }
+          : undefined),
+        cnc: form.cnc ?? (machine?.controlUnit
+          ? {
+              marka: machine.controlUnit.split(" ")[0],
+              model: machine.controlUnit.split(" ").slice(1).join(" "),
+              seriNo: machine.controlUnitSerial ?? "",
+            }
+          : undefined),
+        firma: form.kullanici?.firma || customer?.name || "",
+        ilgili: form.kullanici?.ilgili || contact?.name || customer?.contactPerson || "",
+        adres: form.kullanici?.adres || (customer ? [customer.address, customer.district, customer.city].filter(Boolean).join(" ") : ""),
+        telefon: form.kullanici?.telefon || customer?.phone || "",
+        faks: form.kullanici?.faks || customer?.fax || "",
+        gsm: form.kullanici?.gsm || contact?.mobilePhone || customer?.phone2 || "",
+        eposta: form.kullanici?.eposta || contact?.email || customer?.email || "",
+        checks: (form.checks ?? []).map((c) => ({ label: c.label, status: c.status, note: c.note })),
+        yapilanIsler: form.yapilanIsler ?? "",
+        notlar: form.notlar ?? "",
+        kurulumuYapan: form.kurulumuYapan || fallbackAssignee || "",
+        teslimAlan: form.teslimAlan || contact?.name || customer?.contactPerson || "",
+      },
+      printAssetBase(),
+    ),
+  );
+};
 
 const printServiceQuoteForm = (quote: ServiceQuoteForm) =>
   serviceQuoteDoc(
@@ -244,6 +290,24 @@ function WarrantyClaimBadge({ serviceRequest }: { serviceRequest: ServiceRequest
   );
 }
 
+const MACHINE_WARRANTY_TONE: Record<WarrantyState, string> = {
+  active: "border-emerald-200 bg-emerald-50 text-emerald-700",
+  expiring: "border-amber-200 bg-amber-50 text-amber-700",
+  expired: "border-red-200 bg-red-50 text-red-700",
+  unknown: "bg-muted/40 text-muted-foreground",
+};
+
+/** Servis kartı açıldığında bağlı makinenin garanti durumunu otomatik gösterir. */
+function MachineWarrantyBadge({ warrantyEnd }: { warrantyEnd?: string | null }) {
+  const info = warrantyInfo(warrantyEnd);
+  return (
+    <Badge variant="outline" className={`text-[11px] gap-1 ${MACHINE_WARRANTY_TONE[info.state]}`}>
+      <ShieldCheck className="size-3" />
+      {info.label}
+    </Badge>
+  );
+}
+
 const serviceNoteText = (s: ServiceRequest) =>
   s.serviceNote || s.diagnosisNote || s.description || s.issueType || "Not girilmedi";
 
@@ -282,8 +346,9 @@ const matchesServiceFocus = (s: ServiceRequest, focus?: OperationFocus) => {
 };
 
 export function ServiceRequestsPage({ initialView = "list", focus, initialQuery }: { initialView?: "list" | "board"; focus?: OperationFocus; initialQuery?: string }) {
-  const { service, machines, customers, contacts, refresh } = useStore();
-  const [view, setView] = useState<"list" | "board" | "complaints">(initialView);
+  const { service, machines, customers, contacts, users, refresh } = useStore();
+  const [view, setView] = useState<"list" | "board" | "complaints" | "history">(initialView);
+  const [historyQuery, setHistoryQuery] = useState("");
   const [selectedServiceId, setSelectedServiceId] = useState<string | null>(null);
   const [selectedComplaint, setSelectedComplaint] = useState<ServiceComplaintIntake | null>(null);
   const [complaints, setComplaints] = useState<ServiceComplaintIntake[]>([]);
@@ -451,11 +516,13 @@ export function ServiceRequestsPage({ initialView = "list", focus, initialQuery 
     setSelectedComplaint(complaint);
   };
 
-  // DR.MAK Servis Formu — müşteri ve makine bilgileri CRM'den, işlem/parça
-  // alanları sahada doldurulmak üzere boş basılır.
-  const printServiceForm = (s: ServiceRequest, index: number) => {
+  // DR.MAK Servis Formu — müşteri, kontak, makine, işlem, ücret, garanti
+  // kararı ve notlar kaydedilmiş servis verilerinden doldurulur.
+  const printServiceForm = (s: ServiceRequest, _index: number) => {
     const cust = customers.find((c) => c.id === s.customerId);
     const m = machines.find((x) => x.id === s.machineId);
+    const contact = contacts.find((item) => item.id === s.contactId);
+    const assignedUser = users.find((item) => item.id === s.assignedUserId);
     const sikayet = s.description || s.diagnosisNote || s.issueType || "";
 
     // Servis tamamlandığında form, sahada kaydedilen verilerle otomatik dolar:
@@ -473,22 +540,35 @@ export function ServiceRequestsPage({ initialView = "list", focus, initialQuery 
       : operations.map((o) => o.description)
     ).filter((t) => t && t.trim());
     const serviceFee = ((s.timerElapsedSeconds ?? 0) / 3600) * (s.serviceHourlyRate ?? 0);
-    const inWarranty =
-      s.warrantyClaim?.coverageSuggestion === "in_warranty" || (m != null && m.status === "Active");
+    const warrantyDecision = s.warrantyClaim?.coverageDecision;
+    const serviceTypeText = `${s.issueType ?? ""} ${s.description ?? ""}`.toLocaleLowerCase("tr-TR");
+    const serviceType = serviceTypeText.includes("periyodik") || serviceTypeText.includes("bakım")
+      ? "periyodik"
+      : serviceTypeText.includes("montaj") || serviceTypeText.includes("kurulum")
+        ? "montaj"
+        : s.ticketType === "complaint" || s.ticketType === "warranty_claim"
+          ? "ariza"
+          : undefined;
+    const enteredNotes = [...new Set([
+      s.serviceNote,
+      ...(s.noteHistory ?? []).map((item) => item.text),
+      s.warrantyClaim?.technicianAssessment,
+      s.warrantyClaim?.managerDecisionNote,
+    ].map((value) => value?.trim()).filter((value): value is string => Boolean(value)))];
 
     printOrWarn(
       serviceFormDoc(
         {
           firma: cust?.name,
-          ilgili: cust?.contactPerson,
+          ilgili: contact?.name || cust?.contactPerson,
           adres: cust ? [cust.address, cust.district, cust.city].filter(Boolean).join(" ") : "",
           tel: cust?.phone,
           faks: cust?.fax,
-          gsm: cust?.phone2,
-          eposta: cust?.email,
+          gsm: contact?.mobilePhone || cust?.phone2,
+          eposta: contact?.email || cust?.email,
           vergiDairesi: cust?.taxOffice,
           vergiNo: cust?.taxNumber,
-          formNo: String(index + 1),
+          formNo: s.ticketNo || s.id,
           tarih: trShortDate(s.createdAt),
           tezgah: m ? { marka: m.brand, tip: m.type, model: m.model, seriNo: m.serialNumber } : undefined,
           cnc: m?.controlUnit
@@ -499,12 +579,19 @@ export function ServiceRequestsPage({ initialView = "list", focus, initialQuery 
               }
             : undefined,
           sikayet,
-          servisTipi: "ariza",
-          yukumluluk: inWarranty ? "garanti" : "ucretli",
+          servisTipi: serviceType,
+          yukumluluk: warrantyDecision === "approved"
+            ? "garanti"
+            : warrantyDecision === "rejected"
+              ? "ucretli"
+              : undefined,
           islemler,
           parcalar,
           servisUcreti: serviceFee > 0 ? Math.round(serviceFee) : undefined,
           currency: s.serviceCurrency ?? "TRY",
+          notlar: enteredNotes,
+          servisYetkilisi: assignedUser?.name,
+          firmaYetkilisi: contact?.name || cust?.contactPerson,
         },
         printAssetBase()
       )
@@ -523,7 +610,7 @@ export function ServiceRequestsPage({ initialView = "list", focus, initialQuery 
 
   return (
     <>
-    <Tabs value={view} onValueChange={(v) => setView(v as "list" | "board" | "complaints")}>
+    <Tabs value={view} onValueChange={(v) => setView(v as "list" | "board" | "complaints" | "history")}>
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <TabsList>
           <TabsTrigger value="list">Liste</TabsTrigger>
@@ -531,12 +618,21 @@ export function ServiceRequestsPage({ initialView = "list", focus, initialQuery 
           <TabsTrigger value="complaints">
             <Inbox className="size-4" /> Şikayet Kutusu
           </TabsTrigger>
+          <TabsTrigger value="history">
+            <History className="size-4" /> Servis Geçmişi
+          </TabsTrigger>
         </TabsList>
         <div className="flex items-center justify-between gap-2 sm:justify-end">
           <span className="text-sm text-muted-foreground tabular-nums">
-            {view === "complaints" ? visibleComplaints.length : visibleService.length} kayıt
+            {view === "complaints"
+              ? visibleComplaints.length
+              : view === "history"
+                ? service.filter((s) => s.stage === "Closed").length
+                : visibleService.length} kayıt
           </span>
-          <FilterPopover filters={view === "complaints" ? complaintFilterControls : filterControls} />
+          {view !== "history" && (
+            <FilterPopover filters={view === "complaints" ? complaintFilterControls : filterControls} />
+          )}
         </div>
       </div>
       <TabsContent value="list" className="mt-4">
@@ -661,6 +757,18 @@ export function ServiceRequestsPage({ initialView = "list", focus, initialQuery 
           onReload={loadComplaints}
         />
       </TabsContent>
+      <TabsContent value="history" className="mt-4">
+        <ServiceHistoryView
+          query={historyQuery}
+          onQueryChange={setHistoryQuery}
+          items={service}
+          customers={customers}
+          contacts={contacts}
+          machines={machines}
+          users={users}
+          onOpen={(s) => setSelectedServiceId(s.id)}
+        />
+      </TabsContent>
     </Tabs>
     <ServiceDetailDialog
       serviceRequest={selectedService}
@@ -718,15 +826,77 @@ const STAGE_TO_COLUMN: Record<ServiceStage, ServiceColumnKey> = SERVICE_COLUMNS.
   return acc;
 }, {} as Record<ServiceStage, ServiceColumnKey>);
 
-type ServiceDetailTab = "summary" | "quote" | "machine" | "warranty" | "communication" | "notes" | "activities" | "operations";
+type ServiceDetailTab = "summary" | "quote" | "machine" | "warranty" | "communication" | "notes" | "activities" | "operations" | "completion";
 
 const SERVICE_ACTIVITY_ENABLED_STAGES = new Set<ServiceStage>(["Service In Progress", "Service Completed", "Signed Form", "Closed"]);
 const SERVICE_FEE_ENABLED_STAGES = new Set<ServiceStage>(["Service Completed", "Signed Form", "Closed"]);
+const SERVICE_COMPLETION_ENABLED_STAGES = new Set<ServiceStage>(["Service In Progress", "Service Completed", "Signed Form", "Closed"]);
 
 const isServiceDetailTabEnabled = (stage: ServiceStage, tab: ServiceDetailTab) => {
   if (tab === "activities") return SERVICE_ACTIVITY_ENABLED_STAGES.has(stage);
   if (tab === "operations") return SERVICE_FEE_ENABLED_STAGES.has(stage);
+  if (tab === "completion") return SERVICE_COMPLETION_ENABLED_STAGES.has(stage);
   return true;
+};
+
+const cloneDefaultCompletionChecks = (): ServiceCompletionCheckItem[] =>
+  SERVICE_COMPLETION_DEFAULT_CHECKS.map((c) => ({ id: c.id, label: c.label, status: "done" as ServiceCompletionCheckStatus, note: "" }));
+
+const buildDefaultCompletionForm = (params: {
+  s: ServiceRequest;
+  customer?: Customer | null;
+  contact?: Contact | null;
+  machine?: Machine | null;
+  assignee?: { name?: string } | null;
+}): ServiceCompletionForm => {
+  const { s, customer, contact, machine, assignee } = params;
+  const today = new Date().toISOString().slice(0, 10);
+  return {
+    formNo: s.ticketNo || s.id,
+    teslimTarihi: machine?.deliveryDate ?? "",
+    kurulumTarihi: today,
+    tezgah: machine
+      ? { marka: machine.brand, tip: machine.type, model: machine.model, seriNo: machine.serialNumber }
+      : { marka: "", tip: "", model: "", seriNo: "" },
+    cnc: machine
+      ? {
+          marka: machine.controlUnit?.split(" ")[0] ?? "",
+          model: machine.controlUnit?.split(" ").slice(1).join(" ") ?? "",
+          seriNo: machine.controlUnitSerial ?? "",
+          mainSw: "",
+        }
+      : { marka: "", model: "", seriNo: "", mainSw: "" },
+    kullanici: {
+      firma: customer?.name ?? "",
+      ilgili: contact?.name ?? customer?.contactPerson ?? "",
+      adres: customer ? [customer.address, customer.district, customer.city].filter(Boolean).join(" ") : "",
+      telefon: customer?.phone ?? "",
+      faks: customer?.fax ?? "",
+      gsm: contact?.mobilePhone ?? customer?.phone2 ?? "",
+      eposta: contact?.email ?? customer?.email ?? "",
+    },
+    checks: cloneDefaultCompletionChecks(),
+    yapilanIsler: "",
+    notlar: "",
+    kurulumuYapan: assignee?.name ?? "",
+    teslimAlan: contact?.name ?? customer?.contactPerson ?? "",
+  };
+};
+
+const mergeCompletionForm = (
+  existing: ServiceCompletionForm | null | undefined,
+  fallback: ServiceCompletionForm,
+): ServiceCompletionForm => {
+  if (!existing) return fallback;
+  const checks = existing.checks?.length ? existing.checks : fallback.checks;
+  return {
+    ...fallback,
+    ...existing,
+    tezgah: { ...fallback.tezgah, ...(existing.tezgah ?? {}) },
+    cnc: { ...fallback.cnc, ...(existing.cnc ?? {}) },
+    kullanici: { ...fallback.kullanici, ...(existing.kullanici ?? {}) },
+    checks,
+  };
 };
 
 export function ServiceKanbanPage({ focus }: { focus?: OperationFocus }) {
@@ -1371,8 +1541,7 @@ function ComplaintDetailDialog({
         extension: ext as any,
         sizeBytes: file.size,
       });
-      const res = await fetch(up.uploadUrl, { method: "PUT", body: file, headers: { "Content-Type": mime } });
-      if (!res.ok) throw new Error(`Depoya yükleme başarısız (${res.status})`);
+      await fileService.uploadBinary(up, file, mime);
       await fileService.link({
         fileId: up.fileId,
         entityType: "service_complaint_intake",
@@ -1550,6 +1719,20 @@ function ServiceBoard({ items: visibleService, onOpen }: { items: ServiceRequest
   const { moveService, customers, machines, documents } = useStore();
   const [previewDoc, setPreviewDoc] = useState<DocumentItem | null>(null);
   const customerName = (id: string) => customers.find((c) => c.id === id)?.name ?? "—";
+  const moveToColumn = async (id: string, to: string) => {
+    const target = SERVICE_COLUMNS.find((c) => c.key === to);
+    if (!target) return;
+    try {
+      await moveService(id, target.primary);
+      toast.success("Servis kartı taşındı", { description: `Yeni aşama: ${target.key}` });
+    } catch (err: any) {
+      toast.error("Servis kartı taşınamadı", { description: err?.message ?? "Aşama geçişi reddedildi." });
+      if (target.primary === "Scheduled") {
+        const serviceRequest = visibleService.find((item) => item.id === id);
+        if (serviceRequest) onOpen?.(serviceRequest);
+      }
+    }
+  };
   const columns: KanbanColumn<ServiceRequest>[] = SERVICE_COLUMNS.map((col) => {
     const items = visibleService.filter((s) => STAGE_TO_COLUMN[s.stage] === col.key);
     return {
@@ -1571,25 +1754,13 @@ function ServiceBoard({ items: visibleService, onOpen }: { items: ServiceRequest
       columns={columns}
       fit={false}
       columnWidth={260}
-      onMove={async (id, _from, to) => {
-        const target = SERVICE_COLUMNS.find((c) => c.key === to);
-        if (!target) return;
-        try {
-          await moveService(id, target.primary);
-          toast.success("Servis kartı taşındı", { description: `Yeni aşama: ${target.key}` });
-        } catch (err: any) {
-          toast.error("Servis kartı taşınamadı", { description: err?.message ?? "Aşama geçişi reddedildi." });
-          if (target.primary === "Scheduled") {
-            const serviceRequest = visibleService.find((item) => item.id === id);
-            if (serviceRequest) onOpen?.(serviceRequest);
-          }
-        }
-      }}
+      onMove={(id, _from, to) => moveToColumn(id, to)}
       renderCard={(s) => {
         const c = customers.find((x) => x.id === s.customerId);
         const machine = machines.find((x) => x.id === s.machineId);
         return (
           <Card
+            data-testid={`service-kanban-card-${s.id}`}
             onClick={() => onOpen?.(s)}
             className="p-3 hover:shadow-md hover:border-primary/40 transition-all border-border/60 group bg-white cursor-pointer"
           >
@@ -1606,6 +1777,33 @@ function ServiceBoard({ items: visibleService, onOpen }: { items: ServiceRequest
                 )}
                 <div className="text-[11px] text-muted-foreground line-clamp-3 break-words mt-1.5">{serviceNoteText(s)}</div>
               </div>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="size-7 shrink-0"
+                    title="Aşamaya gönder"
+                    onClick={(event) => event.stopPropagation()}
+                    onMouseDown={(event) => event.stopPropagation()}
+                  >
+                    <ArrowRight className="size-3.5" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-48" onClick={(event) => event.stopPropagation()}>
+                  {SERVICE_COLUMNS.map((column) => (
+                    <DropdownMenuItem
+                      key={column.key}
+                      disabled={STAGE_TO_COLUMN[s.stage] === column.key}
+                      onSelect={() => void moveToColumn(s.id, column.key)}
+                    >
+                      <span className={`size-2 rounded-full shrink-0 ${column.dot}`} />
+                      <span>{column.key}</span>
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
             <div className="mt-3">
               <div className="flex flex-wrap gap-1.5">
@@ -1685,7 +1883,6 @@ function ServiceQuoteEditor({
   actor?: ServiceActor | null;
   onSave: (quote: ServiceQuoteForm) => Promise<void>;
 }) {
-  const defaultVariant = SERVICE_NOTE_VARIANTS[0];
   const buildDraft = (): ServiceQuoteForm => {
     if (serviceRequest.serviceQuote) {
       return {
@@ -1701,7 +1898,7 @@ function ServiceQuoteEditor({
     return {
       quoteNo: "",
       date: new Date().toISOString().slice(0, 10),
-      validity: "5 İş Günü",
+      validity: "",
       writerName: actor?.name ?? "",
       writerTitle: actor?.department ?? "",
       writerEmail: actor?.email ?? "",
@@ -1713,10 +1910,10 @@ function ServiceQuoteEditor({
       email: customer?.email ?? "",
       subject: subjectParts ? `${subjectParts} kapsamaktadır.` : "",
       currency: serviceRequest.serviceCurrency ?? "USD",
-      vatRate: 20,
+      vatRate: 0,
       vatAmount: 0,
-      noteVariantKey: defaultVariant.key,
-      notes: [...defaultVariant.notlar],
+      noteVariantKey: "",
+      notes: [],
       items: [newServiceQuoteItem()],
     };
   };
@@ -1773,8 +1970,6 @@ function ServiceQuoteEditor({
   };
 
   const subtotal = draft.items.reduce((sum, item) => sum + (Number(item.quantity) || 0) * (Number(item.unitPrice) || 0), 0);
-  const selectedVariant = SERVICE_NOTE_VARIANTS.find((variant) => variant.key === draft.noteVariantKey) ?? defaultVariant;
-
   return (
     <div className="space-y-4">
       <div className="rounded-lg border border-indigo-200 bg-indigo-50 px-4 py-3 text-sm text-indigo-900">
@@ -1842,7 +2037,7 @@ function ServiceQuoteEditor({
       <Card className="border-border/60">
         <CardHeader className="pb-3"><CardTitle className="text-base">Teklif notları</CardTitle></CardHeader>
         <CardContent className="space-y-3">
-          <div className="max-w-sm"><Label>Not taslağı</Label><Select value={draft.noteVariantKey} onValueChange={(key) => { const variant = SERVICE_NOTE_VARIANTS.find((item) => item.key === key) ?? selectedVariant; setDraft({ ...draft, noteVariantKey: key, notes: [...variant.notlar] }); }}><SelectTrigger className="mt-1"><SelectValue /></SelectTrigger><SelectContent>{SERVICE_NOTE_VARIANTS.map((variant) => <SelectItem key={variant.key} value={variant.key}>{variant.label}</SelectItem>)}</SelectContent></Select></div>
+          <div className="max-w-sm"><Label>Not taslağı (isteğe bağlı)</Label><Select value={draft.noteVariantKey || undefined} onValueChange={(key) => { const variant = SERVICE_NOTE_VARIANTS.find((item) => item.key === key); if (variant) setDraft({ ...draft, noteVariantKey: key, notes: [...variant.notlar] }); }}><SelectTrigger className="mt-1"><SelectValue placeholder="Hazır not kullanma" /></SelectTrigger><SelectContent>{SERVICE_NOTE_VARIANTS.map((variant) => <SelectItem key={variant.key} value={variant.key}>{variant.label}</SelectItem>)}</SelectContent></Select></div>
           <div><Label>Notlar (her satır ayrı madde)</Label><Textarea className="mt-1 min-h-36" value={draft.notes.join("\n")} onChange={(e) => setDraft({ ...draft, notes: e.target.value.split("\n") })} /></div>
         </CardContent>
       </Card>
@@ -1868,6 +2063,7 @@ function ServiceDetailDialog({
 }) {
   const {
     updateService,
+    moveService,
     loadServiceWarranty,
     updateServiceWarranty,
     updateServiceWarrantyParts,
@@ -1875,6 +2071,7 @@ function ServiceDetailDialog({
     approveServiceWarranty,
     rejectServiceWarranty,
     customers,
+    contacts,
     machines,
     users,
     products,
@@ -1910,6 +2107,7 @@ function ServiceDetailDialog({
   const [warrantyPartSource, setWarrantyPartSource] = useState<ServiceWarrantyPart["source"]>("stock");
   const [warrantyPartCharge, setWarrantyPartCharge] = useState(false);
   const [warrantyPreviewDoc, setWarrantyPreviewDoc] = useState<DocumentItem | null>(null);
+  const [quotePreviewDoc, setQuotePreviewDoc] = useState<DocumentItem | null>(null);
   const [consumingParts, setConsumingParts] = useState(false);
 
   useEffect(() => {
@@ -2035,6 +2233,8 @@ function ServiceDetailDialog({
     .reduce((sum, op) => sum + op.quantity * op.unitPrice, 0);
   const activityTabEnabled = isServiceDetailTabEnabled(serviceRequest.stage, "activities");
   const feeTabEnabled = isServiceDetailTabEnabled(serviceRequest.stage, "operations");
+  const completionTabEnabled = isServiceDetailTabEnabled(serviceRequest.stage, "completion");
+  const contact = contacts.find((item) => item.id === serviceRequest.contactId) ?? null;
   const setAllowedDetailTab = (value: string) => {
     const next = value as ServiceDetailTab;
     if (!isServiceDetailTabEnabled(serviceRequest.stage, next)) return;
@@ -2305,7 +2505,7 @@ function ServiceDetailDialog({
           <DialogDescription className="flex items-center gap-2 flex-wrap">
             <StatusBadge status={serviceRequest.stage} />
             {machine && <span>{machine.model} · {machine.serialNumber}</span>}
-            {machine && <WarrantyBadge end={machine.warrantyEnd} />}
+            {machine && <MachineWarrantyBadge warrantyEnd={machine.warrantyEnd} />}
             {assignee && <span>Atanan: {assignee.name}</span>}
           </DialogDescription>
           <ServiceIntakeBadges serviceRequest={serviceRequest} />
@@ -2357,6 +2557,11 @@ function ServiceDetailDialog({
               <TabsTrigger value="operations" disabled={!feeTabEnabled} title="Servis Tamamlandı alanında aktif olur">
                 {!feeTabEnabled && <Lock className="size-3" />}
                 Ücret
+              </TabsTrigger>
+              <TabsTrigger value="completion" disabled={!completionTabEnabled} title="Servis Devam Ediyor aşamasından sonra açılır">
+                {!completionTabEnabled && <Lock className="size-3" />}
+                <FileCheck2 className="size-3.5" />
+                Tamamlanma Formu
               </TabsTrigger>
             </TabsList>
           </div>
@@ -2440,7 +2645,7 @@ function ServiceDetailDialog({
             </div>
           </TabsContent>
 
-          <TabsContent value="quote" className="m-0">
+          <TabsContent value="quote" className="m-0 space-y-4">
             <ServiceQuoteEditor
               key={serviceRequest.id}
               serviceRequest={serviceRequest}
@@ -2454,6 +2659,19 @@ function ServiceDetailDialog({
                 )
               }
             />
+
+            <Card className="border-border/60">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base">Teklif Ekleri</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <ServiceCardAttachments
+                  serviceRequestId={serviceRequest.id}
+                  docs={warrantyDocs}
+                  onPreview={setQuotePreviewDoc}
+                />
+              </CardContent>
+            </Card>
           </TabsContent>
 
           <TabsContent value="machine" className="m-0 space-y-4">
@@ -3029,10 +3247,491 @@ function ServiceDetailDialog({
               </CardContent>
             </Card>
           </TabsContent>
+
+          <TabsContent value="completion" className="m-0 space-y-4">
+            <ServiceCompletionEditor
+              key={`completion-${serviceRequest.id}`}
+              serviceRequest={serviceRequest}
+              customer={customer}
+              contact={contact}
+              machine={machine}
+              assigneeName={assignee?.name}
+              onSave={async (form, options) => {
+                const isClosing = Boolean(options?.closeAfterSave);
+                await updateService(
+                  serviceRequest.id,
+                  withActivity(isClosing ? "Servis tamamlama formu imzalandı ve servis kapatıldı." : "Servis tamamlama formu güncellendi.", {
+                    completionForm: form,
+                  }),
+                );
+                if (isClosing && serviceRequest.stage !== "Closed") {
+                  try {
+                    await moveService(serviceRequest.id, "Closed");
+                  } catch (err: any) {
+                    toast.error("Servis kapatılamadı", { description: err?.message ?? "Aşama güncellenemedi." });
+                    return;
+                  }
+                }
+                toast.success(isClosing ? "Servis kapatıldı" : "Tamamlama formu kaydedildi");
+              }}
+              onPrint={(form) => printServiceCompletionForm(serviceRequest, form, machine ?? null, customer ?? null, contact ?? null, assignee?.name)}
+            />
+          </TabsContent>
           </div>
         </Tabs>
       </DialogContent>
       <DocumentPreviewDialog doc={warrantyPreviewDoc} onClose={() => setWarrantyPreviewDoc(null)} />
+      <DocumentPreviewDialog doc={quotePreviewDoc} onClose={() => setQuotePreviewDoc(null)} />
     </Dialog>
+  );
+}
+
+function ServiceCompletionEditor({
+  serviceRequest,
+  customer,
+  contact,
+  machine,
+  assigneeName,
+  onSave,
+  onPrint,
+}: {
+  serviceRequest: ServiceRequest;
+  customer?: Customer | null;
+  contact?: Contact | null;
+  machine?: Machine | null;
+  assigneeName?: string;
+  onSave: (form: ServiceCompletionForm, options?: { closeAfterSave?: boolean }) => Promise<void>;
+  onPrint: (form: ServiceCompletionForm) => void;
+}) {
+  const isClosed = serviceRequest.stage === "Closed";
+  const fallback = buildDefaultCompletionForm({ s: serviceRequest, customer, contact, machine, assignee: { name: assigneeName } });
+  const initial = mergeCompletionForm(serviceRequest.completionForm, fallback);
+  const [draft, setDraft] = useState<ServiceCompletionForm>(initial);
+  const [saving, setSaving] = useState(false);
+  const [newCheckLabel, setNewCheckLabel] = useState("");
+
+  useEffect(() => {
+    setDraft(mergeCompletionForm(serviceRequest.completionForm, fallback));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [serviceRequest.id, serviceRequest.completionForm, serviceRequest.machineId, serviceRequest.customerId]);
+
+  const update = <K extends keyof ServiceCompletionForm>(key: K, value: ServiceCompletionForm[K]) => {
+    setDraft((prev) => ({ ...prev, [key]: value }));
+  };
+  const updateGroup = <G extends "tezgah" | "cnc" | "kullanici">(group: G, field: string, value: string) => {
+    setDraft((prev) => ({ ...prev, [group]: { ...(prev[group] ?? {}), [field]: value } }));
+  };
+  const updateCheck = (id: string, patch: Partial<ServiceCompletionCheckItem>) => {
+    setDraft((prev) => ({
+      ...prev,
+      checks: prev.checks.map((c) => (c.id === id ? { ...c, ...patch } : c)),
+    }));
+  };
+  const addCheck = () => {
+    const label = newCheckLabel.trim();
+    if (!label) return;
+    setDraft((prev) => ({
+      ...prev,
+      checks: [
+        ...prev.checks,
+        {
+          id: `custom-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          label,
+          status: "done",
+          note: "",
+          custom: true,
+        },
+      ],
+    }));
+    setNewCheckLabel("");
+  };
+  const removeCheck = (id: string) => {
+    setDraft((prev) => ({ ...prev, checks: prev.checks.filter((c) => c.id !== id) }));
+  };
+
+  const buildPayload = (markSigned: boolean): ServiceCompletionForm => ({
+    ...draft,
+    signedAt: markSigned ? new Date().toISOString() : draft.signedAt,
+  });
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      const payload = buildPayload(false);
+      await onSave(payload);
+      setDraft(payload);
+    } finally {
+      setSaving(false);
+    }
+  };
+  const handleClose = async () => {
+    if (!window.confirm("Servisi kapatmak istediğinize emin misiniz? Form imzalandı olarak işaretlenecek ve servis aşaması Kapandı olacak.")) {
+      return;
+    }
+    setSaving(true);
+    try {
+      const payload = buildPayload(true);
+      await onSave(payload, { closeAfterSave: true });
+      setDraft(payload);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const doneCount = draft.checks.filter((c) => c.status === "done").length;
+
+  return (
+    <div className="space-y-4">
+      <div className="rounded-lg border border-border/60 bg-muted/30 px-3 py-2 text-sm flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <FileCheck2 className="size-4 text-primary" />
+          <span className="font-medium">Servis Tamamlama Tutanağı</span>
+          <Badge variant="outline" className="bg-white">{doneCount}/{draft.checks.length} kontrol tamam</Badge>
+          {draft.signedAt && (
+            <Badge variant="outline" className="border-emerald-200 bg-emerald-50 text-emerald-700">
+              İmzalandı · {draft.signedAt.slice(0, 16).replace("T", " ")}
+            </Badge>
+          )}
+          {isClosed && <Badge variant="outline" className="border-zinc-300 bg-zinc-50 text-zinc-700">Servis kapandı</Badge>}
+        </div>
+        <span className="text-xs text-muted-foreground">PDF: Kurulum Tutanağı şablonu ile yazdırılır.</span>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <div>
+          <Label>Form No</Label>
+          <Input className="mt-1" value={draft.formNo ?? ""} onChange={(e) => update("formNo", e.target.value)} disabled={isClosed} />
+        </div>
+        <div>
+          <Label>Tezgah Teslim Tarihi</Label>
+          <Input className="mt-1" type="date" value={draft.teslimTarihi ?? ""} onChange={(e) => update("teslimTarihi", e.target.value)} disabled={isClosed} />
+        </div>
+        <div>
+          <Label>Servis / Kurulum Tarihi</Label>
+          <Input className="mt-1" type="date" value={draft.kurulumTarihi ?? ""} onChange={(e) => update("kurulumTarihi", e.target.value)} disabled={isClosed} />
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+        <Card className="border-border/60">
+          <CardHeader className="pb-3"><CardTitle className="text-base">Tezgah Bilgileri</CardTitle></CardHeader>
+          <CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div><Label>Tezgah Markası</Label><Input className="mt-1" value={draft.tezgah?.marka ?? ""} onChange={(e) => updateGroup("tezgah", "marka", e.target.value)} disabled={isClosed} /></div>
+            <div><Label>Tezgah Tipi</Label><Input className="mt-1" value={draft.tezgah?.tip ?? ""} onChange={(e) => updateGroup("tezgah", "tip", e.target.value)} disabled={isClosed} /></div>
+            <div><Label>Tezgah Modeli</Label><Input className="mt-1" value={draft.tezgah?.model ?? ""} onChange={(e) => updateGroup("tezgah", "model", e.target.value)} disabled={isClosed} /></div>
+            <div><Label>Tezgah Seri No</Label><Input className="mt-1" value={draft.tezgah?.seriNo ?? ""} onChange={(e) => updateGroup("tezgah", "seriNo", e.target.value)} disabled={isClosed} /></div>
+          </CardContent>
+        </Card>
+        <Card className="border-border/60">
+          <CardHeader className="pb-3"><CardTitle className="text-base">Kontrol Ünitesi Bilgileri</CardTitle></CardHeader>
+          <CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div><Label>Cnc Markası</Label><Input className="mt-1" value={draft.cnc?.marka ?? ""} onChange={(e) => updateGroup("cnc", "marka", e.target.value)} disabled={isClosed} /></div>
+            <div><Label>Cnc Modeli</Label><Input className="mt-1" value={draft.cnc?.model ?? ""} onChange={(e) => updateGroup("cnc", "model", e.target.value)} disabled={isClosed} /></div>
+            <div><Label>Cnc Seri No</Label><Input className="mt-1" value={draft.cnc?.seriNo ?? ""} onChange={(e) => updateGroup("cnc", "seriNo", e.target.value)} disabled={isClosed} /></div>
+            <div><Label>Cnc Main S/W</Label><Input className="mt-1" value={draft.cnc?.mainSw ?? ""} onChange={(e) => updateGroup("cnc", "mainSw", e.target.value)} disabled={isClosed} /></div>
+          </CardContent>
+        </Card>
+      </div>
+
+      <Card className="border-border/60">
+        <CardHeader className="pb-3"><CardTitle className="text-base">Kullanıcı Bilgileri</CardTitle></CardHeader>
+        <CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className="sm:col-span-2"><Label>Firma</Label><Input className="mt-1" value={draft.kullanici?.firma ?? ""} onChange={(e) => updateGroup("kullanici", "firma", e.target.value)} disabled={isClosed} /></div>
+          <div><Label>İlgili</Label><Input className="mt-1" value={draft.kullanici?.ilgili ?? ""} onChange={(e) => updateGroup("kullanici", "ilgili", e.target.value)} disabled={isClosed} /></div>
+          <div><Label>Telefon</Label><Input className="mt-1" value={draft.kullanici?.telefon ?? ""} onChange={(e) => updateGroup("kullanici", "telefon", e.target.value)} disabled={isClosed} /></div>
+          <div className="sm:col-span-2"><Label>Adres</Label><Textarea className="mt-1 min-h-20" value={draft.kullanici?.adres ?? ""} onChange={(e) => updateGroup("kullanici", "adres", e.target.value)} disabled={isClosed} /></div>
+          <div><Label>Faks</Label><Input className="mt-1" value={draft.kullanici?.faks ?? ""} onChange={(e) => updateGroup("kullanici", "faks", e.target.value)} disabled={isClosed} /></div>
+          <div><Label>Gsm</Label><Input className="mt-1" value={draft.kullanici?.gsm ?? ""} onChange={(e) => updateGroup("kullanici", "gsm", e.target.value)} disabled={isClosed} /></div>
+          <div className="sm:col-span-2"><Label>E-Posta</Label><Input className="mt-1" type="email" value={draft.kullanici?.eposta ?? ""} onChange={(e) => updateGroup("kullanici", "eposta", e.target.value)} disabled={isClosed} /></div>
+        </CardContent>
+      </Card>
+
+      <Card className="border-border/60">
+        <CardHeader className="pb-3 flex flex-row items-center justify-between">
+          <CardTitle className="text-base">Servis Kontrol Çizelgesi</CardTitle>
+          <span className="text-xs text-muted-foreground">İhtiyaca göre yeni satır ekleyebilirsiniz.</span>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="rounded-lg border border-border/60 overflow-hidden">
+            <Table className="min-w-[640px]">
+              <TableHeader>
+                <TableRow className="bg-muted/30 hover:bg-muted/30">
+                  <TableHead>Açıklama</TableHead>
+                  <TableHead className="w-44">Durum</TableHead>
+                  <TableHead>Not</TableHead>
+                  <TableHead className="w-10" />
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {draft.checks.map((row) => (
+                  <TableRow key={row.id}>
+                    <TableCell className="align-top">
+                      {row.custom ? (
+                        <Input
+                          value={row.label}
+                          onChange={(e) => updateCheck(row.id, { label: e.target.value })}
+                          disabled={isClosed}
+                        />
+                      ) : (
+                        <span className="font-medium">{row.label}</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="align-top">
+                      <Select
+                        value={row.status}
+                        onValueChange={(v) => updateCheck(row.id, { status: v as ServiceCompletionCheckStatus })}
+                        disabled={isClosed}
+                      >
+                        <SelectTrigger className="h-9 bg-white"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="done">Tamamlandı</SelectItem>
+                          <SelectItem value="not_done">Tamamlanmadı</SelectItem>
+                          <SelectItem value="na">Uygulanmadı</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </TableCell>
+                    <TableCell className="align-top">
+                      <Input
+                        placeholder="İsteğe bağlı"
+                        value={row.note ?? ""}
+                        onChange={(e) => updateCheck(row.id, { note: e.target.value })}
+                        disabled={isClosed}
+                      />
+                    </TableCell>
+                    <TableCell className="align-top text-right">
+                      {row.custom && !isClosed && (
+                        <Button variant="ghost" size="icon" className="size-7" onClick={() => removeCheck(row.id)} title="Satırı sil">
+                          <Trash2 className="size-4" />
+                        </Button>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+          {!isClosed && (
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <Input
+                placeholder="Yeni kontrol kalemi açıklaması"
+                value={newCheckLabel}
+                onChange={(e) => setNewCheckLabel(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addCheck(); } }}
+              />
+              <Button variant="outline" className="gap-1 sm:w-auto" onClick={addCheck}><Plus className="size-4" /> Satır ekle</Button>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card className="border-border/60">
+        <CardHeader className="pb-3"><CardTitle className="text-base">Yapılan İşler ve Notlar</CardTitle></CardHeader>
+        <CardContent className="space-y-3">
+          <div>
+            <Label>Yapılan İşler</Label>
+            <Textarea className="mt-1 min-h-28" value={draft.yapilanIsler ?? ""} onChange={(e) => update("yapilanIsler", e.target.value)} disabled={isClosed} placeholder="Sahada gerçekleştirilen işlemleri özetleyin..." />
+          </div>
+          <div>
+            <Label>Genel Notlar</Label>
+            <Textarea className="mt-1 min-h-20" value={draft.notlar ?? ""} onChange={(e) => update("notlar", e.target.value)} disabled={isClosed} placeholder="Müşteriye iletilecek ek notlar..." />
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card className="border-border/60">
+        <CardHeader className="pb-3"><CardTitle className="text-base">İmza Bilgileri</CardTitle></CardHeader>
+        <CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div><Label>Servisi Yapan (Ad, Soyad)</Label><Input className="mt-1" value={draft.kurulumuYapan ?? ""} onChange={(e) => update("kurulumuYapan", e.target.value)} disabled={isClosed} /></div>
+          <div><Label>Tezgahı Teslim Alan (Ad, Soyad)</Label><Input className="mt-1" value={draft.teslimAlan ?? ""} onChange={(e) => update("teslimAlan", e.target.value)} disabled={isClosed} /></div>
+        </CardContent>
+      </Card>
+
+      <div className="flex flex-wrap justify-end gap-2">
+        <Button variant="outline" className="gap-1" onClick={() => onPrint(draft)}>
+          <Printer className="size-4" /> Önizleme / Yazdır
+        </Button>
+        {!isClosed && (
+          <Button variant="outline" className="gap-1" disabled={saving} onClick={handleSave}>
+            <Check className="size-4" /> Kaydet
+          </Button>
+        )}
+        {!isClosed && (
+          <Button className="gap-1 bg-emerald-600 hover:bg-emerald-700" disabled={saving} onClick={handleClose}>
+            <Lock className="size-4" /> Servisi Kapat
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ServiceHistoryView({
+  query,
+  onQueryChange,
+  items,
+  customers,
+  contacts,
+  machines,
+  users,
+  onOpen,
+}: {
+  query: string;
+  onQueryChange: (value: string) => void;
+  items: ServiceRequest[];
+  customers: Customer[];
+  contacts: Contact[];
+  machines: Machine[];
+  users: User[];
+  onOpen: (s: ServiceRequest) => void;
+}) {
+  const closed = items
+    .filter((s) => s.stage === "Closed")
+    .sort((a, b) => {
+      const aT = new Date(a.closedAt ?? a.createdAt).getTime();
+      const bT = new Date(b.closedAt ?? b.createdAt).getTime();
+      return bT - aT;
+    });
+
+  const q = query.trim().toLocaleLowerCase("tr-TR");
+  const filtered = q
+    ? closed.filter((s) => {
+        const cust = customers.find((c) => c.id === s.customerId);
+        const machine = machines.find((m) => m.id === s.machineId);
+        const hay = [
+          cust?.name,
+          machine?.model,
+          machine?.serialNumber,
+          s.ticketNo,
+          s.description,
+          s.serviceNote,
+          s.completionForm?.formNo,
+          s.completionForm?.yapilanIsler,
+          s.completionForm?.notlar,
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .toLocaleLowerCase("tr-TR");
+        return hay.includes(q);
+      })
+    : closed;
+
+  const handlePrint = (s: ServiceRequest) => {
+    const customer = customers.find((c) => c.id === s.customerId) ?? null;
+    const machine = machines.find((m) => m.id === s.machineId) ?? null;
+    const contact = contacts.find((item) => item.id === s.contactId) ?? null;
+    const assignee = users.find((u) => u.id === s.assignedUserId);
+    const fallback = buildDefaultCompletionForm({ s, customer, contact, machine, assignee: assignee ?? null });
+    const form = mergeCompletionForm(s.completionForm, fallback);
+    printServiceCompletionForm(s, form, machine, customer, contact, assignee?.name);
+  };
+
+  return (
+    <Card className="border-border/60 shadow-sm overflow-hidden">
+      <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <CardTitle className="flex items-center gap-2"><History className="size-5" /> Servis Geçmişi</CardTitle>
+          <div className="mt-1 text-sm text-muted-foreground">
+            Kapatılmış servisler ve imzalanan tamamlama formları.
+          </div>
+        </div>
+        <div className="flex w-full max-w-sm items-center gap-2">
+          <Input
+            placeholder="Firma, makine, form no, not içinde ara..."
+            value={query}
+            onChange={(e) => onQueryChange(e.target.value)}
+          />
+        </div>
+      </CardHeader>
+      <div className="overflow-x-auto">
+        <Table className="min-w-[960px]">
+          <TableHeader>
+            <TableRow>
+              <TableHead>Firma</TableHead>
+              <TableHead>Makine</TableHead>
+              <TableHead>Form</TableHead>
+              <TableHead>Kontroller</TableHead>
+              <TableHead>Servisi Yapan</TableHead>
+              <TableHead>Kapanış</TableHead>
+              <TableHead className="w-28 text-right">İşlem</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {filtered.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={7} className="h-24 text-center text-muted-foreground">
+                  Henüz kapatılmış servis kaydı yok.
+                </TableCell>
+              </TableRow>
+            ) : (
+              filtered.map((s) => {
+                const customer = customers.find((c) => c.id === s.customerId);
+                const machine = machines.find((m) => m.id === s.machineId);
+                const assignee = users.find((u) => u.id === s.assignedUserId);
+                const cf = s.completionForm;
+                const total = cf?.checks?.length ?? 0;
+                const done = cf?.checks?.filter((c) => c.status === "done").length ?? 0;
+                const signed = cf?.signedAt ? cf.signedAt.slice(0, 16).replace("T", " ") : null;
+                return (
+                  <TableRow
+                    key={s.id}
+                    className="cursor-pointer"
+                    onClick={() => onOpen(s)}
+                  >
+                    <TableCell className="font-medium">{customer?.name ?? "—"}</TableCell>
+                    <TableCell className="text-muted-foreground">
+                      {machine ? `${machine.model ?? ""} · ${machine.serialNumber ?? ""}` : "—"}
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex flex-col">
+                        <span className="font-medium">{cf?.formNo || s.ticketNo || s.id}</span>
+                        {signed && <span className="text-xs text-emerald-700">İmzalandı · {signed}</span>}
+                        {!cf && <span className="text-xs text-muted-foreground">Form doldurulmamış</span>}
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      {total > 0 ? (
+                        <Badge variant="outline" className="bg-white">{done}/{total}</Badge>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">—</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-muted-foreground">{cf?.kurulumuYapan || assignee?.name || "—"}</TableCell>
+                    <TableCell className="text-muted-foreground tabular-nums">{s.closedAt ?? s.createdAt}</TableCell>
+                    <TableCell className="text-right">
+                      <div className="flex items-center justify-end gap-1">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="size-7"
+                          title="Tamamlama formunu yazdır"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            handlePrint(s);
+                          }}
+                        >
+                          <FileText className="size-4 text-muted-foreground hover:text-primary" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="size-7"
+                          title="Kaydı aç"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            onOpen(s);
+                          }}
+                        >
+                          <ArrowRight className="size-4 text-muted-foreground hover:text-primary" />
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                );
+              })
+            )}
+          </TableBody>
+        </Table>
+      </div>
+    </Card>
   );
 }
