@@ -8,6 +8,9 @@ import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from "../../ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../../ui/table";
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
+} from "../../ui/dropdown-menu";
 import { StatusBadge } from "../../Layout";
 import { QuoteDialog } from "../../dialogs/QuoteDialog";
 import { CreateProformaDialog } from "../../dialogs/CreateProformaDialog";
@@ -19,7 +22,7 @@ import {
 } from "recharts";
 import {
   Plus, Search, CheckCircle2, TrendingUp, Mail, FileText, FileSignature, ClipboardCheck, Building2,
-  Wallet, Receipt, Calendar, Printer, Download, Eye, RotateCcw, XCircle, Pencil,
+  Wallet, Receipt, Calendar, Printer, Download, Eye, RotateCcw, XCircle, Pencil, ChevronDown,
 } from "lucide-react";
 import { useStore } from "../../../lib/store";
 import { buildOfferTrend } from "../../../lib/chartAggregates";
@@ -534,7 +537,7 @@ export function OfferDetailDialog({
 
   return (
     <Dialog open={!!offer} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="w-[min(900px,calc(100vw-2rem))] max-w-none sm:max-w-none max-h-[88dvh] overflow-hidden p-0 gap-0">
+      <DialogContent className="w-[min(900px,calc(100vw-2rem))] max-w-none sm:max-w-none max-h-[88dvh] grid-rows-[auto_1fr_auto] overflow-hidden p-0 gap-0">
         <DialogHeader className="px-6 pt-6 pb-4 border-b border-border/60">
           <div className="flex items-start gap-3">
             <div className="size-11 rounded-xl bg-gradient-to-br from-primary/15 to-primary/5 text-primary grid place-items-center shrink-0">
@@ -552,7 +555,7 @@ export function OfferDetailDialog({
           </div>
         </DialogHeader>
 
-        <div className="min-h-0 max-h-[calc(88dvh-154px)] overflow-y-auto">
+        <div className="min-h-0 overflow-y-auto">
         <div className="px-6 py-4 grid grid-cols-2 md:grid-cols-4 gap-3">
           <OfferStat icon={<Wallet className="size-4" />} label="Tutar" value={formatCurrency(offer.amount, offer.currency)} accent="text-emerald-600" />
           <OfferStat icon={<Receipt className="size-4" />} label="Revizyon" value={`R${offer.revision}`} accent="text-primary" />
@@ -626,115 +629,119 @@ export function OfferDetailDialog({
         </div>
         </div>
 
-        <DialogFooter className="px-6 py-4 border-t border-border/60 bg-muted/20 gap-2 sm:items-center sm:justify-between">
-          <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
-            <Button variant="outline" className="gap-1 sm:w-auto" onClick={() => setEditOpen(true)}>
-              <Pencil className="size-4" /> Düzenle
-            </Button>
-            <QuoteDialog
-              offerId={offer.id}
-              open={editOpen}
-              onOpenChange={(o) => {
-                setEditOpen(o);
-                if (!o) onOrderCreated?.();
-              }}
-            />
-            <Button variant="outline" className="gap-1 sm:w-auto" onClick={() => void handlePrint()}>
-              <Printer className="size-4" /> Yazdır
-            </Button>
-            <Button
-              variant="outline"
-              className="gap-1 sm:w-auto"
-              onClick={async () => {
-                try {
-                  await quoteService.openPdf(offer.id);
-                } catch (err: any) {
-                  toast.error("PDF açılamadı", { description: err?.message ?? "Sunucu hatası." });
-                }
-              }}
-            >
-              <Eye className="size-4" /> PDF Aç
-            </Button>
-            <Button
-              variant="outline"
-              className="gap-1 sm:w-auto"
-              onClick={async () => {
-                try {
-                  await quoteService.downloadPdf(offer.id, offer.quoteNo);
-                } catch (err: any) {
-                  toast.error("PDF indirilemedi", { description: err?.message ?? "Sunucu hatası." });
-                }
-              }}
-            >
-              <Download className="size-4" /> PDF İndir
-            </Button>
-            <CreateProformaDialog
-              defaultQuoteId={offer.id}
-              onCreated={() => onOrderCreated?.()}
-              trigger={
-                <Button variant="outline" className="gap-1 sm:w-auto">
-                  <FileText className="size-4" /> Proforma Oluştur
-                </Button>
-              }
-            />
-            <CreateContractDialog
-              defaultQuoteId={offer.id}
-              onCreated={() => onOrderCreated?.()}
-              trigger={
-                <Button variant="outline" className="gap-1 sm:w-auto">
-                  <FileSignature className="size-4" /> Sözleşme Oluştur
-                </Button>
-              }
-            />
-            {offer.status === "Draft" && onQuoteAction && (
-              <Button className="gap-1 sm:w-auto" onClick={() => onQuoteAction(offer.id, "send")}>
-                <Mail className="size-4" /> Gönder
+        <DialogFooter className="px-6 py-3 border-t border-border/60 bg-muted/20 flex-row flex-wrap items-center justify-end gap-2">
+          <Button variant="outline" size="sm" className="h-9 gap-1" onClick={() => setEditOpen(true)}>
+            <Pencil className="size-4" /> Düzenle
+          </Button>
+          <QuoteDialog
+            offerId={offer.id}
+            open={editOpen}
+            onOpenChange={(o) => {
+              setEditOpen(o);
+              if (!o) onOrderCreated?.();
+            }}
+          />
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="sm" className="h-9 gap-1">
+                <Printer className="size-4" /> Yazdır / PDF <ChevronDown className="size-3.5 opacity-60" />
               </Button>
-            )}
-            {offer.status === "Approved" && (
-              <CreateAccountingInvoiceDialog
-                prefill={invoicePrefillFromOffer(offer, customer, order)}
-                onCreated={onOrderCreated}
-                trigger={
-                  <Button variant="outline" className="gap-1 sm:w-auto">
-                    <Receipt className="size-4" /> Muhasebe Faturası Oluştur
-                  </Button>
-                }
-              />
-            )}
-            {offer.status === "Approved" && !order && (
-              <Button
-                variant="default"
-                className="gap-1 sm:w-auto"
-                disabled={creatingOrder}
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onClick={() => void handlePrint()}>
+                <Printer className="size-4" /> Yazdır
+              </DropdownMenuItem>
+              <DropdownMenuItem
                 onClick={async () => {
-                  setCreatingOrder(true);
                   try {
-                    await salesOrderService.createFromQuote(offer.id, { copyItems: true, reserveStock: false });
-                    toast.success("Satış siparişi oluşturuldu");
-                    onOrderCreated?.();
+                    await quoteService.openPdf(offer.id);
                   } catch (err: any) {
-                    toast.error("Sipariş oluşturulamadı", { description: err?.message ?? "API isteği başarısız oldu." });
-                  } finally {
-                    setCreatingOrder(false);
+                    toast.error("PDF açılamadı", { description: err?.message ?? "Sunucu hatası." });
                   }
                 }}
               >
-                <ClipboardCheck className="size-4" /> {creatingOrder ? "Oluşturuluyor…" : "Sipariş Oluştur"}
+                <Eye className="size-4" /> PDF Aç
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={async () => {
+                  try {
+                    await quoteService.downloadPdf(offer.id, offer.quoteNo);
+                  } catch (err: any) {
+                    toast.error("PDF indirilemedi", { description: err?.message ?? "Sunucu hatası." });
+                  }
+                }}
+              >
+                <Download className="size-4" /> PDF İndir
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+          <CreateProformaDialog
+            defaultQuoteId={offer.id}
+            onCreated={() => onOrderCreated?.()}
+            trigger={
+              <Button variant="outline" size="sm" className="h-9 gap-1">
+                <FileText className="size-4" /> Proforma
               </Button>
-            )}
-            {offer.status === "Sent" && onQuoteAction && (
-              <>
-                <Button variant="default" className="gap-1 sm:w-auto bg-emerald-600 hover:bg-emerald-700" onClick={() => onQuoteAction(offer.id, "approve")}>
-                  <CheckCircle2 className="size-4" /> Onayla
+            }
+          />
+          <CreateContractDialog
+            defaultQuoteId={offer.id}
+            onCreated={() => onOrderCreated?.()}
+            trigger={
+              <Button variant="outline" size="sm" className="h-9 gap-1">
+                <FileSignature className="size-4" /> Sözleşme
+              </Button>
+            }
+          />
+          {offer.status === "Draft" && onQuoteAction && (
+            <Button size="sm" className="h-9 gap-1" onClick={() => onQuoteAction(offer.id, "send")}>
+              <Mail className="size-4" /> Gönder
+            </Button>
+          )}
+          {offer.status === "Approved" && (
+            <CreateAccountingInvoiceDialog
+              prefill={invoicePrefillFromOffer(offer, customer, order)}
+              onCreated={onOrderCreated}
+              trigger={
+                <Button variant="outline" size="sm" className="h-9 gap-1">
+                  <Receipt className="size-4" /> Muhasebe Faturası
                 </Button>
-                <Button variant="outline" className="gap-1 sm:w-auto border-red-200 text-red-600" onClick={() => onQuoteAction(offer.id, "reject")}>
-                  <XCircle className="size-4" /> Reddet
-                </Button>
-              </>
-            )}
-          </div>
-          <Button variant="outline" onClick={onClose}>Kapat</Button>
+              }
+            />
+          )}
+          {offer.status === "Approved" && !order && (
+            <Button
+              variant="default"
+              size="sm"
+              className="h-9 gap-1"
+              disabled={creatingOrder}
+              onClick={async () => {
+                setCreatingOrder(true);
+                try {
+                  await salesOrderService.createFromQuote(offer.id, { copyItems: true, reserveStock: false });
+                  toast.success("Satış siparişi oluşturuldu");
+                  onOrderCreated?.();
+                } catch (err: any) {
+                  toast.error("Sipariş oluşturulamadı", { description: err?.message ?? "API isteği başarısız oldu." });
+                } finally {
+                  setCreatingOrder(false);
+                }
+              }}
+            >
+              <ClipboardCheck className="size-4" /> {creatingOrder ? "Oluşturuluyor…" : "Sipariş Oluştur"}
+            </Button>
+          )}
+          {offer.status === "Sent" && onQuoteAction && (
+            <>
+              <Button variant="default" size="sm" className="h-9 gap-1 bg-emerald-600 hover:bg-emerald-700" onClick={() => onQuoteAction(offer.id, "approve")}>
+                <CheckCircle2 className="size-4" /> Onayla
+              </Button>
+              <Button variant="outline" size="sm" className="h-9 gap-1 border-red-200 text-red-600" onClick={() => onQuoteAction(offer.id, "reject")}>
+                <XCircle className="size-4" /> Reddet
+              </Button>
+            </>
+          )}
+          <Button variant="outline" size="sm" className="h-9 ml-auto sm:ml-2" onClick={onClose}>Kapat</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
