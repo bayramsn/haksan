@@ -48,6 +48,26 @@ export class ContactsController {
     return this.svc.listCompanies(id, user);
   }
 
+  @RequirePermissions('contacts.update')
+  @Delete(':id/companies/:companyId')
+  unlinkCompany(
+    @Param('id') id: string,
+    @Param('companyId') companyId: string,
+    @CurrentUser() user: AuthContext
+  ) {
+    return this.svc.unlinkCompany(id, companyId, user);
+  }
+
+  @RequirePermissions('contacts.update')
+  @Post(':id/companies/:companyId/primary')
+  setPrimaryCompany(
+    @Param('id') id: string,
+    @Param('companyId') companyId: string,
+    @CurrentUser() user: AuthContext
+  ) {
+    return this.svc.setPrimaryCompany(id, companyId, user);
+  }
+
   @RequirePermissions('contacts.create')
   @Post()
   create(

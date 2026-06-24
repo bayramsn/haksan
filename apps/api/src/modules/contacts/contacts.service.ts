@@ -111,6 +111,60 @@ export class ContactsService {
       .orderBy(desc(contactCompanies.isPrimary));
   }
 
+  /** Kontağı bir firmadan ayırır (contact_companies bağını siler). Kontağın en az
+   *  bir firmaya bağlı kalması gerekir; birincil bağ silinirse kalanlardan biri
+   *  birincil yapılır ve contacts.companyId ona göre güncellenir. */
+  async unlinkCompany(contactId: string, companyId: string, actor: AuthContext) {
+    await this.get(contactId, actor); // görünürlük + varlık kontrolü
+    const links = await this.db
+      .select({ companyId: contactCompanies.companyId, isPrimary: contactCompanies.isPrimary })
+      .from(contactCompanies)
+      .where(and(eq(contactCompanies.contactId, contactId), eq(contactCompanies.tenantId, actor.tenantId)));
+    const target = links.find((l) => l.companyId === companyId);
+    if (!target) throw new NotFoundError('Firma bağlantısı');
+    if (links.length <= 1) throw new ConflictError('Kontağın en az bir firmaya bağlı olması gerekir');
+    await this.db
+      .delete(contactCompanies)
+      .where(and(eq(contactCompanies.contactId, contactId), eq(contactCompanies.companyId, companyId)));
+    if (target.isPrimary) {
+      const next = links.find((l) => l.companyId !== companyId)!;
+      await this.db
+        .update(contactCompanies)
+        .set({ isPrimary: true })
+        .where(and(eq(contactCompanies.contactId, contactId), eq(contactCompanies.companyId, next.companyId)));
+      await this.db.update(contacts).set({ companyId: next.companyId }).where(eq(contacts.id, contactId));
+    }
+    return this.listCompanies(contactId, actor);
+  }
+
+  /** Bir firmayı kontağın birincil firması yapar (diğerlerini ikincilleştirir) ve
+   *  denormalize contacts.companyId alanını eşitler. */
+  async setPrimaryCompany(contactId: string, companyId: string, actor: AuthContext) {
+    await this.get(contactId, actor);
+    const target = await this.db
+      .select({ companyId: contactCompanies.companyId })
+      .from(contactCompanies)
+      .where(
+        and(
+          eq(contactCompanies.contactId, contactId),
+          eq(contactCompanies.companyId, companyId),
+          eq(contactCompanies.tenantId, actor.tenantId)
+        )
+      )
+      .limit(1);
+    if (target.length === 0) throw new NotFoundError('Firma bağlantısı');
+    await this.db
+      .update(contactCompanies)
+      .set({ isPrimary: false })
+      .where(eq(contactCompanies.contactId, contactId));
+    await this.db
+      .update(contactCompanies)
+      .set({ isPrimary: true })
+      .where(and(eq(contactCompanies.contactId, contactId), eq(contactCompanies.companyId, companyId)));
+    await this.db.update(contacts).set({ companyId }).where(eq(contacts.id, contactId));
+    return this.listCompanies(contactId, actor);
+  }
+
   async create(input: ContactCreateInput, actor: AuthContext) {
     await this.assertCompany(input.companyId, actor);
     const duplicate = await this.findDuplicate(input, actor);

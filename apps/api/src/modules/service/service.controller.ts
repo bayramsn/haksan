@@ -57,7 +57,34 @@ const ticketCreate = z.object({
   assignedToUserId: z.string().uuid().nullable().optional(),
   metadata: z.record(z.string(), z.unknown()).optional(),
 });
-const ticketStatus = z.object({ statusCode: z.string() });
+const serviceStageSchema = z.enum([
+  'Request Opened',
+  'Diagnosis',
+  'Quote Needed',
+  'Quote Sent',
+  'Approval',
+  'Scheduled',
+  'Service In Progress',
+  'Service Completed',
+  'Signed Form',
+  'Closed',
+]);
+const serviceQuoteSchema = z.object({
+  quoteNo: z.string().trim().min(1),
+  date: z.string().trim().min(1),
+  validity: z.string().trim().min(1),
+  writerName: z.string().trim().min(1),
+  company: z.string().trim().min(1),
+  subject: z.string().trim().min(1),
+  currency: z.enum(['USD', 'EUR', 'TRY']),
+  items: z.array(z.object({
+    description: z.string().trim().min(1),
+    quantity: z.coerce.number().positive(),
+    unit: z.string().trim().min(1),
+    unitPrice: z.coerce.number().min(0),
+  })).min(1),
+}).passthrough();
+const ticketStatus = z.object({ statusCode: z.string(), serviceStage: serviceStageSchema.optional() });
 const ticketUpdate = z.object({
   description: z.string().max(4000).optional(),
   resolutionNote: z.string().max(4000).optional(),
@@ -838,7 +865,7 @@ export class ServiceController {
     if (body.severity !== undefined) patch.severity = body.severity;
     if (body.ticketType !== undefined) patch.ticketType = body.ticketType;
     if (body.assignedToUserId !== undefined) patch.assignedToUserId = body.assignedToUserId;
-    if (body.metadata !== undefined) patch.metadata = body.metadata;
+    if (body.metadata !== undefined) patch.metadata = { ...(ticket.metadata ?? {}), ...body.metadata };
     if (!Object.keys(patch).length) return ticket;
     const [row] = await this.db.update(serviceTickets).set(patch).where(eq(serviceTickets.id, id)).returning();
     if (row.ticketType === 'warranty_claim') {
@@ -1020,8 +1047,19 @@ export class ServiceController {
       ),
     });
     if (!ticket) throw new NotFoundError('Servis kaydı');
+    if (body.serviceStage === 'Scheduled') {
+      const quote = (ticket.metadata as Record<string, unknown> | null)?.serviceQuote;
+      if (!serviceQuoteSchema.safeParse(quote).success) {
+        throw new ValidationError('Bakım/Onarım aşamasından önce Servis Teklifi formu eksiksiz doldurulmalıdır', {
+          field: 'serviceQuote',
+        });
+      }
+    }
     const statusId = await lookupIdByCode(this.db, serviceTicketStatuses, body.statusCode);
     const patch: Record<string, unknown> = { statusId };
+    if (body.serviceStage) {
+      patch.metadata = { ...(ticket.metadata ?? {}), serviceStage: body.serviceStage };
+    }
     if (body.statusCode === 'resolved' || body.statusCode === 'closed') patch.resolvedAt = new Date();
     await this.db.update(serviceTickets).set(patch).where(eq(serviceTickets.id, id));
     return { ok: true };

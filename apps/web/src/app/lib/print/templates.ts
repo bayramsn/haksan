@@ -415,66 +415,120 @@ export interface ServiceQuotePrintData {
   email?: string;
   tarih: string;
   belgeNo: string;
-  konu?: string;
-  items: QuoteItem[];
+  gecerlilik: string;
+  teklifiYazan: string;
+  teklifiYazanUnvan?: string;
+  teklifiYazanEmail?: string;
+  konu: string;
+  items: Array<QuoteItem & { miktar: number }>;
   kdvOran: number;
   kdvTutar: number;
   currency: CurrencyCode;
-  baslik: string; // ör. "PERİYODİK BAKIM"
   notlar: string[];
 }
 
+const SERVICE_QUOTE_CSS = `
+.sq-page { padding: 7mm 10mm 6mm; font-family: Arial, Helvetica, sans-serif; }
+.sq-header, .sq-footer { width: 100%; display: block; position: relative; z-index: 2; }
+.sq-title { margin-top: 4mm; background: #dbe7f3; text-align: center; font-size: 16pt; font-weight: 800; line-height: 1.2; }
+.sq-top { display: grid; grid-template-columns: minmax(0, 1fr) 58mm; gap: 8mm; margin: 3mm 3mm 0; font-size: 10.5pt; line-height: 1.45; position: relative; z-index: 2; }
+.sq-customer, .sq-meta { display: grid; grid-template-columns: 18mm minmax(0, 1fr); align-content: start; column-gap: 2mm; }
+.sq-meta { grid-template-columns: 25mm minmax(0, 1fr); }
+.sq-customer .wide { grid-column: 2; }
+.sq-customer .contact-row { grid-column: 1 / -1; display: grid; grid-template-columns: 18mm minmax(0, 1fr) 14mm 35mm; column-gap: 2mm; }
+.sq-label { font-weight: 700; }
+.sq-value { min-width: 0; overflow-wrap: anywhere; }
+.sq-subject { margin: 4mm 8mm 2.5mm; text-align: center; font-size: 10.5pt; line-height: 1.35; position: relative; z-index: 2; }
+.sq-watermark { position: absolute; left: 50%; top: 49%; width: 70mm; transform: translate(-50%, -50%); opacity: .12; z-index: 0; }
+table.sq-items { width: 100%; table-layout: fixed; position: relative; z-index: 2; }
+table.sq-items th, table.sq-items td { border-top: .7pt solid #222; border-bottom: .7pt solid #222; padding: .9mm 1.4mm; font-size: 9.5pt; }
+table.sq-items th { font-weight: 800; text-align: center; }
+table.sq-items th:nth-child(1), table.sq-items td:nth-child(1) { width: 8mm; text-align: center; }
+table.sq-items th:nth-child(3), table.sq-items td:nth-child(3) { width: 25mm; text-align: center; }
+table.sq-items th:nth-child(4), table.sq-items td:nth-child(4) { width: 31mm; text-align: right; }
+table.sq-items th:nth-child(5), table.sq-items td:nth-child(5) { width: 31mm; text-align: right; }
+table.sq-items td { height: 6mm; }
+.sq-total-wrap { display: flex; justify-content: flex-end; position: relative; z-index: 2; }
+table.sq-total { width: 53mm; }
+table.sq-total td { border-bottom: .7pt solid #222; padding: .8mm 1.4mm; font-size: 9.5pt; }
+table.sq-total td:first-child { font-weight: 700; }
+table.sq-total td:last-child { text-align: right; font-weight: 700; }
+.sq-notes { margin-top: 4mm; font-size: 9.4pt; line-height: 1.26; position: relative; z-index: 2; }
+.sq-notes-title { font-weight: 800; text-decoration: underline; margin-bottom: 1mm; }
+.sq-notes ol { margin-left: 5mm; }
+.sq-notes li { padding-left: 1.5mm; margin-bottom: .7mm; text-align: left; }
+.sq-signatures { margin: 7mm 13mm 3mm 42mm; display: grid; grid-template-columns: 47mm 1fr; gap: 18mm; min-height: 38mm; position: relative; z-index: 2; }
+.sq-writer { text-align: center; font-size: 9.5pt; line-height: 1.3; }
+.sq-sign-title { font-weight: 800; text-decoration: underline; margin-bottom: 1mm; }
+.sq-signature-img { display: block; height: 17mm; margin: -1mm auto -3mm; }
+.sq-approval { border: .8pt solid #222; text-align: center; font-size: 10pt; min-height: 36mm; padding-top: 2mm; }
+.sq-approval .stamp { color: #c6c6c6; margin-top: 14mm; }
+.sq-footer { margin-top: auto; }
+`;
+
 export function serviceQuoteDoc(d: ServiceQuotePrintData, assetBase: string): PrintDocument {
   const toplam = d.items.reduce((a, i) => a + (i.tutar ?? 0), 0);
-  // KDV tutarı açıkça verilmediyse toplam × oran üzerinden hesapla.
-  const kdvTutar = d.kdvTutar && d.kdvTutar > 0 ? d.kdvTutar : toplam * (d.kdvOran / 100);
+  const kdvTutar = d.kdvTutar;
   const rows: string[] = [];
-  for (let i = 0; i < Math.max(5, d.items.length); i++) {
+  for (let i = 0; i < Math.max(3, d.items.length); i++) {
     const it = d.items[i];
     rows.push(`<tr>
-      <td class="no">${i + 1}</td>
-      <td class="urun">${it ? esc(it.urun) : ""}</td>
-      <td class="c" style="width:18mm">${it?.birim ? esc(it.birim) : ""}</td>
-      <td class="c" style="width:32mm">${it?.fiyat ? fmtMoney(it.fiyat, d.currency) : ""}</td>
-      <td class="r" style="width:36mm">${it?.tutar ? fmtMoney(it.tutar, d.currency) : ""}</td>
+      <td>${i + 1}</td>
+      <td>${it ? esc(it.urun) : ""}</td>
+      <td>${it ? `${esc(new Intl.NumberFormat("tr-TR", { maximumFractionDigits: 2 }).format(it.miktar))} ${blank(it.birim)}` : ""}</td>
+      <td>${it ? fmtMoney(it.fiyat ?? 0, d.currency) : ""}</td>
+      <td>${it ? fmtMoney(it.tutar ?? 0, d.currency) : ""}</td>
     </tr>`);
   }
   const body = `
-<div class="page">
-  ${haksanHeader(assetBase)}
-  <div class="q-title">TEKNİK SERVİS TEKLİFİ</div>
-  <div class="q-top">
-    <div class="q-cust">
-      <div class="b" style="font-style:normal">${blank(d.firma)}</div>
-      <div class="row"><span class="b">${blank(d.ilgili)}</span><span class="b">${blank(d.mobil)}</span></div>
-      <div>${blank(d.adres)}</div>
-      <div>Tel.&nbsp;&nbsp;&nbsp;&nbsp;${blank(d.tel)}</div>
-      <div>E-Posta&nbsp;&nbsp;<span class="link">${blank(d.email)}</span></div>
+<div class="page sq-page">
+  <img class="sq-header" src="${assetBase}/drmak-quote-header.png" alt="Dr.Mak Doktor Makina">
+  <img class="sq-watermark" src="${assetBase}/drmak-technician.jpg" alt="">
+  <div class="sq-title">FİYAT TEKLİFİ</div>
+  <div class="sq-top">
+    <div class="sq-customer">
+      <div class="sq-label">Firma</div><div class="sq-value">${blank(d.firma)}</div>
+      <div class="contact-row"><span class="sq-label">İlgili</span><span>${blank(d.ilgili)}</span><span class="sq-label">Mobil</span><span>${blank(d.mobil)}</span></div>
+      <div class="sq-label">Telefon</div><div class="sq-value">${blank(d.tel)}</div>
+      <div class="sq-label">Adres</div><div class="sq-value">${blank(d.adres)}</div>
+      <div class="sq-label">E-Posta</div><div class="sq-value link">${blank(d.email)}</div>
     </div>
-    <table class="q-meta">
-      <tr><td class="lbl">TARİH</td><td class="val">${blank(d.tarih)}</td></tr>
-      <tr><td class="lbl">BELGE NO</td><td class="val">${blank(d.belgeNo)}</td></tr>
-      <tr><td class="lbl">KONU</td><td class="val">${blank(d.konu ?? d.baslik)}</td></tr>
-    </table>
+    <div class="sq-meta">
+      <div class="sq-label">Teklif No.</div><div class="sq-value">${blank(d.belgeNo)}</div>
+      <div class="sq-label">Tarih</div><div class="sq-value">${blank(d.tarih)}</div>
+      <div class="sq-label">Teklifi Yazan</div><div class="sq-value">${blank(d.teklifiYazan)}</div>
+      <div class="sq-label">Geçerlilik Süresi</div><div class="sq-value">${blank(d.gecerlilik)}</div>
+    </div>
   </div>
-  <div class="q-h1">${esc(d.baslik)}</div>
-  <table class="q-items">
-    <tr><th style="width:7mm"></th><th>AÇIKLAMA</th><th>BİRİM</th><th>FİYAT</th><th>TUTAR</th></tr>
+  <div class="sq-subject">${blank(d.konu)}</div>
+  <table class="sq-items">
+    <tr><th>NO</th><th>ÜRÜN / HİZMET AÇIKLAMASI</th><th>MİKTAR</th><th>BİRİM FİYAT</th><th>TUTAR</th></tr>
     ${rows.join("")}
   </table>
-  <table class="q-tot">
-    <tr><td class="tl">TOPLAM</td><td class="tv">${fmtMoney(toplam, d.currency)}</td></tr>
-    <tr><td class="tl">K.D.V. (%${esc(d.kdvOran)})</td><td class="tv">${fmtMoney(kdvTutar, d.currency)}</td></tr>
-    <tr><td class="tl">GENEL TOPLAM</td><td class="tv">${fmtMoney(toplam + kdvTutar, d.currency)}</td></tr>
-  </table>
-  <div class="pf-notes" style="margin-top:5mm">
-    <div class="nt">NOTLAR:</div>
+  <div class="sq-total-wrap"><table class="sq-total">
+    <tr><td>ARA TOPLAM</td><td>${fmtMoney(toplam, d.currency)}</td></tr>
+    <tr><td>K.D.V. (%${esc(d.kdvOran)})</td><td>${fmtMoney(kdvTutar, d.currency)}</td></tr>
+    <tr><td>TOPLAM</td><td>${fmtMoney(toplam + kdvTutar, d.currency)}</td></tr>
+  </table></div>
+  <div class="sq-notes">
+    <div class="sq-notes-title">NOTLAR:</div>
     <ol>${d.notlar.map((n) => `<li>${esc(n)}</li>`).join("")}</ol>
   </div>
+  <div class="sq-signatures">
+    <div class="sq-writer">
+      <div class="sq-sign-title">İLGİLİ KİŞİ</div>
+      <div>${blank(d.teklifiYazan)}</div>
+      <div>${blank(d.teklifiYazanUnvan)}</div>
+      ${d.teklifiYazan.toLocaleLowerCase("tr-TR") === "raif şentürk" ? `<img class="sq-signature-img" src="${assetBase}/raif-signature.jpg" alt="">` : ""}
+      <div>${blank(d.teklifiYazanEmail)}</div>
+    </div>
+    <div class="sq-approval"><div class="sq-sign-title">MÜŞTERİ ONAYI</div><div class="stamp">KAŞE + İMZA</div></div>
+  </div>
+  <img class="sq-footer" src="${assetBase}/drmak-quote-footer.png" alt="">
 </div>`;
   return {
-    title: `Teknik Servis Teklifi ${d.belgeNo}`,
-    css: QUOTE_CSS + PROFORMA_CSS,
+    title: `Fiyat Teklifi ${d.belgeNo}`,
+    css: SERVICE_QUOTE_CSS,
     body,
   };
 }
