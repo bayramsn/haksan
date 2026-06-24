@@ -1678,7 +1678,7 @@ export function ProductDialog({
     }
     setUploadingImage(true);
     try {
-      const { uploadUrl } = await fileService.signedUpload({
+      const upload = await fileService.signedUpload({
         bucket: "erp-product-images",
         entityType: "product",
         entityId: product?.id ?? "new",
@@ -1687,13 +1687,8 @@ export function ProductDialog({
         extension: ext,
         sizeBytes: file.size,
       });
-      const res = await fetch(uploadUrl, {
-        method: "PUT",
-        body: file,
-        headers: { "Content-Type": file.type },
-      });
-      if (!res.ok) throw new Error(`Depoya yükleme başarısız (${res.status})`);
-      const publicUrl = uploadUrl.split("?")[0];
+      await fileService.uploadBinary(upload, file, file.type);
+      const publicUrl = upload.uploadUrl.split("?")[0];
       setForm((f) => ({ ...f, imageUrl: publicUrl }));
       toast.success("Fotoğraf yüklendi");
     } catch (err: any) {
@@ -2719,8 +2714,7 @@ export function CreatePaymentDialog({
       extension: ext,
       sizeBytes: file.size,
     });
-    const res = await fetch(up.uploadUrl, { method: "PUT", body: file, headers: { "Content-Type": mime } });
-    if (!res.ok) throw new Error(`Depoya yükleme başarısız (${res.status})`);
+    await fileService.uploadBinary(up, file, mime);
     await fileService.link({
       fileId: up.fileId,
       entityType: "company",

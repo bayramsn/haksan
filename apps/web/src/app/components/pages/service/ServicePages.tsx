@@ -1371,8 +1371,7 @@ function ComplaintDetailDialog({
         extension: ext as any,
         sizeBytes: file.size,
       });
-      const res = await fetch(up.uploadUrl, { method: "PUT", body: file, headers: { "Content-Type": mime } });
-      if (!res.ok) throw new Error(`Depoya yükleme başarısız (${res.status})`);
+      await fileService.uploadBinary(up, file, mime);
       await fileService.link({
         fileId: up.fileId,
         entityType: "service_complaint_intake",

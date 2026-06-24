@@ -143,12 +143,7 @@ export function DocumentUploadDialog({
         extension,
         sizeBytes: file.size,
       });
-      const res = await fetch(upload.uploadUrl, {
-        method: "PUT",
-        body: file,
-        headers: { "Content-Type": mimeType },
-      });
-      if (!res.ok) throw new Error(`Depoya yükleme başarısız (${res.status})`);
+      await fileService.uploadBinary(upload, file, mimeType);
 
       await fileService.link({
         fileId: upload.fileId,

@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Post, Put, Query, UseGuards } from '@nestjs/common';
 import { z } from 'zod';
 import { paginationSchema, type Pagination } from '@haksan/shared';
 import { signedUploadUrlSchema, signedDownloadUrlSchema, fileLinkSchema, type SignedUploadUrlInput, type SignedDownloadUrlInput, type FileLinkInput } from '@haksan/shared';
@@ -36,6 +36,12 @@ export class FilesController {
   @Post('link')
   link(@Body(new ZodValidationPipe(fileLinkSchema)) body: FileLinkInput, @CurrentUser() user: AuthContext) {
     return this.svc.linkFile(body, user);
+  }
+
+  @RequirePermissions('files.create')
+  @Put(':id/content')
+  uploadContent(@Param('id') id: string, @Body() body: Buffer, @CurrentUser() user: AuthContext) {
+    return this.svc.uploadContent(id, body, user);
   }
 
   @RequirePermissions('files.read')
