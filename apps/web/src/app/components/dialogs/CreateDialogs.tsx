@@ -632,6 +632,32 @@ export function EditContactDialog({ contact, onClose }: { contact: Contact | nul
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({ name: "", title: "", department: "", phone: "", mobilePhone: "", email: "", isBlacklisted: false, blacklistReason: "" });
   const [linkedCompanies, setLinkedCompanies] = useState<{ id: string; legalTitle: string; shortName: string | null; isPrimary: boolean }[]>([]);
+  const [companyBusy, setCompanyBusy] = useState<string | null>(null);
+
+  const handleSetPrimary = async (companyId: string) => {
+    if (!contact) return;
+    setCompanyBusy(companyId);
+    try {
+      setLinkedCompanies(await contactService.setPrimaryCompany(contact.id, companyId));
+      toast.success("Birincil firma güncellendi");
+    } catch (err: any) {
+      toast.error("Güncellenemedi", { description: err?.message ?? "İşlem başarısız." });
+    } finally {
+      setCompanyBusy(null);
+    }
+  };
+  const handleUnlinkCompany = async (companyId: string) => {
+    if (!contact) return;
+    setCompanyBusy(companyId);
+    try {
+      setLinkedCompanies(await contactService.unlinkCompany(contact.id, companyId));
+      toast.success("Firma bağı kaldırıldı");
+    } catch (err: any) {
+      toast.error("Kaldırılamadı", { description: err?.message ?? "İşlem başarısız." });
+    } finally {
+      setCompanyBusy(null);
+    }
+  };
 
   useEffect(() => {
     if (!contact) {
@@ -706,16 +732,44 @@ export function EditContactDialog({ contact, onClose }: { contact: Contact | nul
           {linkedCompanies.length > 0 && (
             <div>
               <Label className="text-xs">Bağlı Firmalar {linkedCompanies.length > 1 && `(${linkedCompanies.length})`}</Label>
-              <div className="mt-1.5 flex flex-wrap gap-1.5">
-                {linkedCompanies.map((c) => (
-                  <Badge key={c.id} variant={c.isPrimary ? "default" : "outline"} className="gap-1 font-normal">
-                    <Building2 className="size-3" />
-                    {c.shortName || c.legalTitle}
-                    {c.isPrimary && <span className="text-[9px] opacity-80">(birincil)</span>}
-                  </Badge>
-                ))}
+              <div className="mt-1.5 space-y-1">
+                {linkedCompanies.map((c) => {
+                  const busy = companyBusy === c.id;
+                  return (
+                    <div key={c.id} className="flex items-center gap-2 rounded-md border border-border/60 px-2.5 py-1.5 text-sm">
+                      <Building2 className="size-3.5 shrink-0 text-muted-foreground" />
+                      <span className="min-w-0 flex-1 truncate">{c.shortName || c.legalTitle}</span>
+                      {c.isPrimary ? (
+                        <Badge variant="default" className="text-[10px]">Birincil</Badge>
+                      ) : (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 px-2 text-xs"
+                          disabled={busy}
+                          onClick={() => handleSetPrimary(c.id)}
+                        >
+                          {busy ? <Loader2 className="size-3.5 animate-spin" /> : "Birincil yap"}
+                        </Button>
+                      )}
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="size-7 text-muted-foreground hover:text-destructive"
+                        aria-label="Firmadan ayır"
+                        title={linkedCompanies.length <= 1 ? "Kontağın en az bir firmaya bağlı kalması gerekir" : "Firmadan ayır"}
+                        disabled={busy || linkedCompanies.length <= 1}
+                        onClick={() => handleUnlinkCompany(c.id)}
+                      >
+                        {busy ? <Loader2 className="size-3.5 animate-spin" /> : <Trash2 className="size-3.5" />}
+                      </Button>
+                    </div>
+                  );
+                })}
               </div>
-              <p className="mt-1 text-[11px] text-muted-foreground">Aynı kişi birden çok firmada yetkili olabilir.</p>
+              <p className="mt-1 text-[11px] text-muted-foreground">Aynı kişi birden çok firmada yetkili olabilir. "Birincil yap" ile varsayılan firmayı değiştir, çöp kutusuyla bağı kaldır.</p>
             </div>
           )}
           <label className="flex items-center gap-2 text-sm text-red-700">

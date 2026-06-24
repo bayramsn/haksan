@@ -260,6 +260,12 @@ export const contactService = {
   /** Kontağın bağlı olduğu firmalar (çoklu firma — aynı kişi birden çok firmada). */
   companies: (id: string) =>
     api.get<{ id: string; legalTitle: string; shortName: string | null; isPrimary: boolean }[]>(`/contacts/${id}/companies`),
+  /** Kontağı bir firmadan ayırır (en az bir firma kalmalı). Güncel firma listesini döner. */
+  unlinkCompany: (id: string, companyId: string) =>
+    api.delete<{ id: string; legalTitle: string; shortName: string | null; isPrimary: boolean }[]>(`/contacts/${id}/companies/${companyId}`),
+  /** Bir firmayı kontağın birincil firması yapar. Güncel firma listesini döner. */
+  setPrimaryCompany: (id: string, companyId: string) =>
+    api.post<{ id: string; legalTitle: string; shortName: string | null; isPrimary: boolean }[]>(`/contacts/${id}/companies/${companyId}/primary`),
   create: (body: ContactCreateInput) => api.post<any>('/contacts', body),
   update: (id: string, body: ContactUpdateInput) => api.patch<any>(`/contacts/${id}`, body),
   remove: (id: string) => api.delete(`/contacts/${id}`),
