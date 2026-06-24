@@ -1,11 +1,10 @@
-// Proforma yazdırma/indirme: sabit şablon (layout + standart not metinleri) +
-// her işlem için CRM/teklif verisinden doldurulan alanlar.
+// Proforma yazdırma/indirme: sabit sayfa düzeni + ilişkili teklif kaydında
+// gerçekten saklanan müşteri, kalem, vergi, şart ve not alanları.
 
-import type { Customer, DocumentItem, Offer, Product, SalesCase } from "../mock";
+import type { Contact, Customer, DocumentItem, Offer, Product, SalesCase } from "../mock";
 import { quoteService } from "../../../lib/services";
 import { splitVat } from "../pageHelpers";
 import { trLongDate } from "./core";
-import { PROFORMA_NOTE_VARIANTS, fillNotePlaceholders } from "./notes";
 import type { ProformaItem, ProformaPrintData } from "./templates";
 
 export type ProformaBuildInput = {
@@ -14,7 +13,7 @@ export type ProformaBuildInput = {
   cases: SalesCase[];
   offers: Offer[];
   products: Product[];
-  variantKey: string;
+  contacts?: Contact[];
 };
 
 type QuoteDetail = Awaited<ReturnType<typeof quoteService.get>>;
@@ -90,6 +89,7 @@ const itemsFromQuote = (quote: QuoteDetail, products: Product[], sc: SalesCase |
       gtip: product?.hsCode,
       birim: formatBirim(qty, it.unit?.code ?? it.unitCode),
       birimFiyati: unitPrice,
+      iskonto: Number(it.discountAmount ?? 0),
       tutar: lineTotal,
     };
   });
@@ -119,12 +119,12 @@ export function buildProformaPrintData(
   input: ProformaBuildInput,
   quoteDetail?: QuoteDetail | null,
 ): ProformaPrintData {
-  const { doc, customers, cases, offers, products, variantKey } = input;
-  const variant = PROFORMA_NOTE_VARIANTS.find((v) => v.key === variantKey) ?? PROFORMA_NOTE_VARIANTS[0];
+  const { doc, customers, cases, offers, products, contacts = [] } = input;
   const offer = resolveQuote(doc, offers);
   const sc = cases.find((s) => s.id === (doc.salesCaseId || offer?.salesCaseId)) ?? null;
   const cust =
     customers.find((c) => c.id === (doc.companyId || offer?.companyId || sc?.customerId)) ?? null;
+  const contact = contacts.find((item) => item.id === quoteDetail?.contactId);
   const model = sc?.requestedModel ?? "";
   const product = findProduct(products, { modelHint: model, description: sc?.requestedProduct });
   const amount = Number(offer?.amount ?? sc?.estimatedAmount ?? 0);
@@ -141,17 +141,19 @@ export function buildProformaPrintData(
       : fallbackItem({ urunAdi, product, qty, net: vat.net });
 
   const araToplam = items.reduce((a, i) => a + i.tutar, 0);
-  const kdvOran =
-    quoteDetail?.items?.[0]?.vatRate != null
-      ? Math.round(Number(quoteDetail.items[0].vatRate))
-      : vat.oran;
+  const enteredVatRates = (quoteDetail?.items ?? []).map((item: { vatRate?: unknown }) => Number(item.vatRate ?? 0));
+  const kdvOran = enteredVatRates.length > 0
+    ? enteredVatRates.every((rate: number) => rate === enteredVatRates[0])
+      ? Math.round(enteredVatRates[0])
+      : 0
+    : vat.oran;
 
   return {
     firma: cust?.name ?? "",
-    ilgili: cust?.contactPerson,
-    mobil: cust?.phone2,
+    ilgili: contact?.name || cust?.contactPerson,
+    mobil: contact?.mobilePhone || cust?.phone2,
     adres: cust ? [cust.address, cust.district, cust.city].filter(Boolean).join(" ") : "",
-    tel: cust?.phone,
+    tel: contact?.phone || cust?.phone,
     faks: cust?.fax,
     vergiDairesi: cust?.taxOffice,
     vergiNo: cust?.taxNumber,
@@ -159,12 +161,21 @@ export function buildProformaPrintData(
     belgeNo: doc.fileName,
     items,
     kdvOran,
-    kdvTutar: 0,
+    kdvTutar: Number(
+      quoteDetail?.vatAmount ??
+      quoteDetail?.items?.reduce((sum: number, item: { vatAmount?: unknown }) => sum + Number(item.vatAmount ?? 0), 0) ??
+      vat.kdv,
+    ),
     currency: (offer?.currency ?? sc?.currency ?? "USD") as ProformaPrintData["currency"],
-    notlar: fillNotePlaceholders(variant.notlar, {
-      alici: cust?.name,
-      yil: new Date(doc.uploadedAt || offer?.date || Date.now()).getFullYear(),
-    }),
+    notlar: [
+      quoteDetail?.terms?.paymentTermsText ?? quoteDetail?.paymentTerms,
+      quoteDetail?.terms?.deliveryTermsText ?? quoteDetail?.deliveryTerms,
+      quoteDetail?.terms?.warrantyTermsText ?? quoteDetail?.warrantyTerms,
+      quoteDetail?.notes ?? offer?.note,
+    ]
+      .flatMap((value) => String(value ?? "").split(/\r?\n/))
+      .map((value) => value.trim())
+      .filter(Boolean),
   };
 }
 
@@ -172,13 +183,7 @@ export function buildProformaPrintData(
 export async function loadProformaPrintData(input: ProformaBuildInput): Promise<ProformaPrintData> {
   const offer = resolveQuote(input.doc, input.offers);
   const quoteId = input.doc.quoteId ?? offer?.id;
-  let quoteDetail: QuoteDetail | null = null;
-  if (quoteId) {
-    try {
-      quoteDetail = await quoteService.get(quoteId);
-    } catch {
-      quoteDetail = null;
-    }
-  }
+  if (!quoteId) throw new Error("Proforma için ilişkili teklif bulunamadı.");
+  const quoteDetail = await quoteService.get(quoteId);
   return buildProformaPrintData(input, quoteDetail);
 }

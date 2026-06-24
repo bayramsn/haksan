@@ -7,18 +7,19 @@ import { Tabs, TabsList, TabsTrigger } from "../../ui/tabs";
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from "../../ui/dialog";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../../ui/table";
 import { StatusBadge } from "../../Layout";
 import { QuoteDialog } from "../../dialogs/QuoteDialog";
+import { CreateProformaDialog } from "../../dialogs/CreateProformaDialog";
+import { CreateContractDialog } from "../../dialogs/CreateContractDialog";
 import { MiniKpi } from "../../shared/MiniKpi";
 import { salesStageLabel } from "../../../lib/mock";
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, Legend,
 } from "recharts";
 import {
-  Plus, Search, CheckCircle2, TrendingUp, Mail, FileText, ClipboardCheck, Building2,
-  Wallet, Receipt, Calendar, Printer, Download, Eye, RotateCcw, XCircle,
+  Plus, Search, CheckCircle2, TrendingUp, Mail, FileText, FileSignature, ClipboardCheck, Building2,
+  Wallet, Receipt, Calendar, Printer, Download, Eye, RotateCcw, XCircle, Pencil,
 } from "lucide-react";
 import { useStore } from "../../../lib/store";
 import { buildOfferTrend } from "../../../lib/chartAggregates";
@@ -29,9 +30,7 @@ import { salesOrderService, quoteService } from "../../../../lib/services";
 import { ExportExcelButton } from "../../ui/ExportExcelButton";
 import { CreateAccountingInvoiceDialog, type AccountingInvoicePrefill } from "../finance/CreateAccountingInvoiceDialog";
 import type { OperationFocus } from "../../../lib/operations";
-import {
-  printAssetBase, trShortDate, quoteDoc, QUOTE_NOTE_VARIANTS,
-} from "../../../lib/print";
+import { loadQuotePrintData, printAssetBase, quoteDoc } from "../../../lib/print";
 import { printOrWarn, splitVat, formatDate, formatCurrency } from "../../../lib/pageHelpers";
 
 function invoicePrefillFromOffer(offer: Offer, customer: Customer | null, order?: any): AccountingInvoicePrefill {
@@ -130,16 +129,23 @@ export function OffersPage({ focus }: { focus?: OperationFocus }) {
   const approvedAmount = offers.filter((o) => o.status === "Approved").reduce((a, o) => a + convert(o.amount, o.currency, "USD"), 0);
   const winRate = total > 0 ? Math.round((approved / total) * 100) : 0;
 
-  const filtered = offers.filter((o) => {
-    if (focusExpired && !offerExpired(o)) return false;
-    if (tab !== "all" && o.status !== tab) return false;
-    if (q) {
-      const sc = cases.find((s) => s.id === o.salesCaseId);
-      const cName = sc ? customerName(sc.customerId) : "";
-      return o.quoteNo.toLowerCase().includes(q.toLowerCase()) || cName.toLowerCase().includes(q.toLowerCase());
-    }
-    return true;
-  });
+  const filtered = offers
+    .filter((o) => {
+      if (focusExpired && !offerExpired(o)) return false;
+      if (tab !== "all" && o.status !== tab) return false;
+      if (q) {
+        const sc = cases.find((s) => s.id === o.salesCaseId);
+        const cName = sc ? customerName(sc.customerId) : "";
+        return o.quoteNo.toLowerCase().includes(q.toLowerCase()) || cName.toLowerCase().includes(q.toLowerCase());
+      }
+      return true;
+    })
+    // Teklif no'ya göre azalan: yeni teklifler üstte; aynı no için revizyon büyükten küçüğe.
+    .sort((a, b) => {
+      const cmp = b.quoteNo.localeCompare(a.quoteNo, "tr", { numeric: true, sensitivity: "base" });
+      if (cmp !== 0) return cmp;
+      return (b.revision ?? 0) - (a.revision ?? 0);
+    });
   const offerExportParams = {
     ...(q ? { search: q } : {}),
     ...(tab !== "all" ? { statusCode: tab.toLowerCase() } : {}),
@@ -296,7 +302,9 @@ export function OffersPage({ focus }: { focus?: OperationFocus }) {
                         </div>
                         <div className="min-w-0">
                           <div className="text-sm leading-tight truncate">{o.quoteNo}</div>
-                          <div className="text-[11px] text-muted-foreground mt-0.5">#{sc ? sc.id.slice(0,8).toUpperCase() : "—"}</div>
+                          <div className="text-[11px] text-muted-foreground mt-0.5 truncate">
+                            {[sc?.requestedProduct, sc?.requestedModel].filter(Boolean).join(" · ") || (sc ? `#${sc.id.slice(0, 8).toUpperCase()}` : "—")}
+                          </div>
                         </div>
                       </div>
                     </TableCell>
@@ -499,34 +507,9 @@ export function OfferDetailDialog({
   onQuoteAction?: (offerId: string, action: "send" | "approve" | "reject") => Promise<void>;
   onOrderCreated?: () => void;
 }) {
-  const { products } = useStore();
+  const { products, users, contacts } = useStore();
   const [creatingOrder, setCreatingOrder] = useState(false);
-  const [noteVariant, setNoteVariant] = useState(QUOTE_NOTE_VARIANTS[2].key);
-  // Bu teklife özel seçilen opsiyonel donanımlar (QuoteDialog'da "↳ Opsiyon:"
-  // önekiyle kaydedilen kalemler). Yazdırmada standart donanım gibi listelenir.
-  const [offerOptionEquip, setOfferOptionEquip] = useState<string[]>([]);
-  useEffect(() => {
-    if (!offer?.id) {
-      setOfferOptionEquip([]);
-      return;
-    }
-    let alive = true;
-    quoteService
-      .get(offer.id)
-      .then((full: any) => {
-        if (!alive) return;
-        const opts = (full?.items ?? [])
-          .map((it: any) => String(it?.description ?? ""))
-          .filter((d: string) => d.trimStart().startsWith("↳ Opsiyon:"))
-          .map((d: string) => d.replace(/^\s*↳\s*Opsiyon:\s*/, "").split(" — ")[0].trim())
-          .filter(Boolean);
-        setOfferOptionEquip([...new Set<string>(opts)]);
-      })
-      .catch(() => alive && setOfferOptionEquip([]));
-    return () => {
-      alive = false;
-    };
-  }, [offer?.id]);
+  const [editOpen, setEditOpen] = useState(false);
   if (!offer) return null;
 
   const productText = salesCase
@@ -535,54 +518,18 @@ export function OfferDetailDialog({
 
   // Teklif yazdırma: ürün kataloğundan model eşleşirse teknik bilgiler ve
   // donanım sayfaları da basılır; alt notlar seçilen teslim şekline göre gelir.
-  const handlePrint = () => {
-    const model = salesCase?.requestedModel ?? "";
-    const product = products.find(
-      (p) => p.model && model && (model.includes(p.model) || p.model.includes(model) || (p.modelName && model.includes(p.modelName)))
-    );
-    const variant = QUOTE_NOTE_VARIANTS.find((v) => v.key === noteVariant) ?? QUOTE_NOTE_VARIANTS[2];
-    // Brüt teklif tutarını net + KDV olarak ayrıştır (genel toplam = offer.amount kalır).
-    const vat = splitVat(offer.amount, { subtotal: offer.subtotal, vatTotal: offer.vatTotal });
-    printOrWarn(
-      quoteDoc(
-        {
-          firma: customer?.name ?? "",
-          ilgili: customer?.contactPerson,
-          mobil: customer?.phone2 ?? "",
-          adres: [customer?.address, customer?.district, customer?.city].filter(Boolean).join(" "),
-          tel: customer?.phone,
-          faks: customer?.fax,
-          email: customer?.email,
-          tarih: trShortDate(offer.date),
-          belgeNo: offer.quoteNo,
-          gecerlilik: offer.validityDays ? `${offer.validityDays} Gün` : "",
-          projeIlgilisi: assignee?.name,
-          projeIlgilisiUnvan: assignee?.department,
-          projeIlgilisiEmail: assignee?.email,
-          marka: product?.brand,
-          model: product?.model ?? salesCase?.requestedModel,
-          tip: product?.type ?? salesCase?.requestedProduct,
-          imageUrl: product?.imageUrl || undefined,
-          specs: product?.specs,
-          // Bu teklife özel seçilen opsiyonel donanım, müşteriye standart
-          // donanımmış gibi sunulur: standart listenin sonuna eklenir.
-          standartDonanim: [...(product?.standardEquipment ?? []), ...offerOptionEquip],
-          opsiyonelDonanim: product?.optionalEquipment,
-          items: [
-            {
-              urun: productText,
-              birim: `${salesCase?.quantity ?? 1} Adet`,
-              tutar: vat.net,
-            },
-          ],
-          kdvOran: vat.oran,
-          kdvTutar: vat.kdv,
-          currency: offer.currency,
-          notes: variant,
-        },
-        printAssetBase()
-      )
-    );
+  const handlePrint = async () => {
+    const loading = toast.loading("Teklif hazırlanıyor…");
+    try {
+      const data = await loadQuotePrintData({ offer, customer, salesCase, users, contacts, products });
+      printOrWarn(quoteDoc(data, printAssetBase()));
+    } catch (error: unknown) {
+      toast.error("Teklif yazdırılamadı", {
+        description: error instanceof Error ? error.message : "Teklif ayrıntıları alınamadı.",
+      });
+    } finally {
+      toast.dismiss(loading);
+    }
   };
 
   return (
@@ -681,17 +628,18 @@ export function OfferDetailDialog({
 
         <DialogFooter className="px-6 py-4 border-t border-border/60 bg-muted/20 gap-2 sm:items-center sm:justify-between">
           <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
-            <Select value={noteVariant} onValueChange={setNoteVariant}>
-              <SelectTrigger className="h-9 w-full bg-white sm:w-56">
-                <SelectValue placeholder="Alt not seti" />
-              </SelectTrigger>
-              <SelectContent>
-                {QUOTE_NOTE_VARIANTS.map((v) => (
-                  <SelectItem key={v.key} value={v.key}>{v.label}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Button variant="outline" className="gap-1 sm:w-auto" onClick={handlePrint}>
+            <Button variant="outline" className="gap-1 sm:w-auto" onClick={() => setEditOpen(true)}>
+              <Pencil className="size-4" /> Düzenle
+            </Button>
+            <QuoteDialog
+              offerId={offer.id}
+              open={editOpen}
+              onOpenChange={(o) => {
+                setEditOpen(o);
+                if (!o) onOrderCreated?.();
+              }}
+            />
+            <Button variant="outline" className="gap-1 sm:w-auto" onClick={() => void handlePrint()}>
               <Printer className="size-4" /> Yazdır
             </Button>
             <Button
@@ -720,6 +668,24 @@ export function OfferDetailDialog({
             >
               <Download className="size-4" /> PDF İndir
             </Button>
+            <CreateProformaDialog
+              defaultQuoteId={offer.id}
+              onCreated={() => onOrderCreated?.()}
+              trigger={
+                <Button variant="outline" className="gap-1 sm:w-auto">
+                  <FileText className="size-4" /> Proforma Oluştur
+                </Button>
+              }
+            />
+            <CreateContractDialog
+              defaultQuoteId={offer.id}
+              onCreated={() => onOrderCreated?.()}
+              trigger={
+                <Button variant="outline" className="gap-1 sm:w-auto">
+                  <FileSignature className="size-4" /> Sözleşme Oluştur
+                </Button>
+              }
+            />
             {offer.status === "Draft" && onQuoteAction && (
               <Button className="gap-1 sm:w-auto" onClick={() => onQuoteAction(offer.id, "send")}>
                 <Mail className="size-4" /> Gönder

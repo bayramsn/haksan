@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger,
 } from "../ui/dialog";
@@ -13,6 +13,7 @@ import { MultiSelect } from "../ui/multi-select";
 import { useStore } from "../../lib/store";
 import { useFx, FxRateBadge } from "../../lib/fx";
 import { useAuth } from "../../../lib/auth";
+import { quoteService } from "../../../lib/services";
 import { toast } from "sonner";
 import { Plus, Trash2, Save, BookmarkPlus, Bold } from "lucide-react";
 import type { Product } from "../../lib/mock";
@@ -96,13 +97,19 @@ const money = (n: number, c: Currency) =>
   `${n.toLocaleString("tr-TR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${c === "TRY" ? "TL" : c}`;
 
 export function QuoteDialog({
-  trigger, defaultCustomerId, defaultCaseId,
+  trigger, defaultCustomerId, defaultCaseId, offerId,
+  open: controlledOpen, onOpenChange,
 }: {
-  trigger: React.ReactNode;
+  trigger?: React.ReactNode;
   defaultCustomerId?: string;
   defaultCaseId?: string;
+  /** Verilirse dialog düzenleme modunda açılır ve mevcut teklif yüklenir. */
+  offerId?: string;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }) {
-  const { customers, contacts, products, users, cases, offers, noteTemplates, createQuoteFull, addNoteTemplate } = useStore();
+  const { customers, contacts, products, users, cases, offers, noteTemplates, createQuoteFull, addNoteTemplate, refresh } = useStore();
+  const editing = Boolean(offerId);
   const { convert } = useFx();
   const { user, activeDivision } = useAuth();
   // Bölüm seçici yalnızca "Tümü"yü görebilen (view_all) kullanıcılarda görünür;
@@ -110,8 +117,10 @@ export function QuoteDialog({
   const canPickDivision = user?.canViewAllDivisions ?? false;
   const divisions = user?.divisions ?? [];
   const defaultDivisionId = activeDivision && activeDivision !== "all" ? activeDivision : divisions[0]?.id ?? "";
-  const [open, setOpen] = useState(false);
+  const [internalOpen, setInternalOpen] = useState(false);
+  const open = controlledOpen ?? internalOpen;
   const [saving, setSaving] = useState(false);
+  const [loadingEdit, setLoadingEdit] = useState(false);
 
   const today = new Date().toISOString().slice(0, 10);
   const suggestNo = () => `${new Date().getFullYear()}/${String(offers.length + 1).padStart(3, "0")}`;
@@ -121,11 +130,15 @@ export function QuoteDialog({
   const [caseId, setCaseId] = useState(defaultCaseId ?? "");
   const [divisionId, setDivisionId] = useState(canPickDivision ? defaultDivisionId : "");
   const [quoteDate, setQuoteDate] = useState(today);
+  const [validityDays, setValidityDays] = useState("");
   const [documentNo, setDocumentNo] = useState("");
   const [senderId, setSenderId] = useState("");
   const [currency, setCurrency] = useState<Currency>("USD");
   const [vatEnabled, setVatEnabled] = useState(true);
-  const [deliveryCode, setDeliveryCode] = useState<string>("ex_works");
+  const [deliveryCode, setDeliveryCode] = useState<string>("");
+  const [paymentTerms, setPaymentTerms] = useState("");
+  const [deliveryTerms, setDeliveryTerms] = useState("");
+  const [warrantyTerms, setWarrantyTerms] = useState("");
   const [lines, setLines] = useState<LineState[]>([emptyLine()]);
   const [note, setNote] = useState("");
   const [noteFontSize, setNoteFontSize] = useState("14");
@@ -137,10 +150,14 @@ export function QuoteDialog({
     setCaseId(defaultCaseId ?? "");
     setDivisionId(canPickDivision ? defaultDivisionId : "");
     setQuoteDate(today);
+    setValidityDays("");
     setDocumentNo("");
     setSenderId(users.find((u) => u.id === user?.id)?.id ?? users[0]?.id ?? "");
     setVatEnabled(true);
-    setDeliveryCode("ex_works");
+    setDeliveryCode("");
+    setPaymentTerms("");
+    setDeliveryTerms("");
+    setWarrantyTerms("");
     // Faz 1 · Satış kartı carry-over: kart üzerinden açıldıysa ilk satırı + para birimini ön-doldur.
     const seedCase = defaultCaseId ? cases.find((c) => c.id === defaultCaseId) : undefined;
     if (seedCase) {
@@ -156,10 +173,108 @@ export function QuoteDialog({
     setNoteBold(false);
   };
 
+  const setOpen = (next: boolean) => {
+    onOpenChange?.(next);
+    if (controlledOpen === undefined) setInternalOpen(next);
+  };
+
+  // Edit modunda mevcut teklifi yükle; aksi halde yeni teklif için sıfırla.
+  const loadForEdit = async (id: string) => {
+    setLoadingEdit(true);
+    try {
+      const data: any = await quoteService.get(id);
+      setCompanyId(data.companyId ?? "");
+      setContactId(data.contactId ?? "");
+      setCaseId(data.opportunityId ?? "");
+      setQuoteDate((data.quoteDate as string)?.slice(0, 10) ?? today);
+      setValidityDays(data.validityDays ? String(data.validityDays) : "");
+      setDocumentNo(data.documentNo ?? "");
+      setSenderId(data.projectOwnerUserId ?? "");
+      const offer = offers.find((o) => o.id === id);
+      const currencyCode = (offer?.currency ?? "USD") as Currency;
+      setCurrency(currencyCode);
+      setVatEnabled(true);
+      setDeliveryCode("");
+      setPaymentTerms(data.terms?.paymentTermsText ?? data.paymentTerms ?? "");
+      setDeliveryTerms(data.terms?.deliveryTermsText ?? data.deliveryTerms ?? "");
+      setWarrantyTerms(data.terms?.warrantyTermsText ?? data.warrantyTerms ?? "");
+      setNote(data.notes ?? "");
+      setNoteFontSize("14");
+      setNoteBold(false);
+      const items: any[] = Array.isArray(data.items) ? data.items : [];
+      const mainItems = items.filter((it) => !String(it.description ?? "").startsWith("↳ Opsiyon:"));
+      const optionItems = items.filter((it) => String(it.description ?? "").startsWith("↳ Opsiyon:"));
+      const mapped: LineState[] = mainItems.map((it) => {
+        const product = it.productModelId ? products.find((p) => p.id === it.productModelId) : undefined;
+        const desc = String(it.description ?? "");
+        const dashIdx = desc.indexOf(" — ");
+        const stockCode = dashIdx > -1 ? desc.slice(0, dashIdx) : product?.stockCode ?? "";
+        const description = dashIdx > -1 ? desc.slice(dashIdx + 3) : desc;
+        return {
+          categoryCode: product?.categoryCode ?? "",
+          productId: it.productModelId ?? "",
+          stockCode,
+          description,
+          quantity: String(it.quantity ?? "1"),
+          unitPrice: String(it.unitPrice ?? "0"),
+          discount: String(it.discountAmount ?? "0"),
+          vatRate: String(it.vatRate ?? "20"),
+          options: [],
+          compatibility: it.compatibility
+            ? {
+                machineIds: it.compatibility.machineIds ?? [],
+                brands: it.compatibility.brands ?? [],
+                controlUnits: it.compatibility.controlUnits ?? [],
+                supplierIds: it.compatibility.supplierIds ?? [],
+              }
+            : emptyCompatibility(),
+        };
+      });
+      // Opsiyonları ilk Tezgah satırına ata (mümkünse) — basit ama edit/print için yeterli.
+      if (optionItems.length && mapped.length) {
+        const target = mapped.findIndex((l) => l.categoryCode === "TEZGAH");
+        const idx = target >= 0 ? target : 0;
+        mapped[idx] = {
+          ...mapped[idx],
+          options: optionItems.map((it) => ({
+            productId: it.productModelId ?? "",
+            description: String(it.description ?? "").replace(/^↳ Opsiyon:\s*/, ""),
+            quantity: String(it.quantity ?? "1"),
+            unitPrice: String(it.unitPrice ?? "0"),
+            discount: String(it.discountAmount ?? "0"),
+            vatRate: String(it.vatRate ?? "20"),
+          })),
+        };
+      }
+      setLines(mapped.length ? mapped : [emptyLine()]);
+    } catch (err: any) {
+      toast.error("Teklif yüklenemedi", { description: err?.message ?? "İstek başarısız oldu." });
+    } finally {
+      setLoadingEdit(false);
+    }
+  };
+
   const handleOpen = (o: boolean) => {
     setOpen(o);
-    if (o) reset();
+    if (o) {
+      if (editing && offerId) {
+        reset();
+        void loadForEdit(offerId);
+      } else {
+        reset();
+      }
+    }
   };
+
+  // Controlled açılırken (offerId değişimi dahil) yükle.
+  useEffect(() => {
+    if (!open) return;
+    if (editing && offerId) {
+      reset();
+      void loadForEdit(offerId);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, offerId]);
 
   const companyContacts = contacts.filter((c) => c.customerId === companyId);
   const companyCases = cases.filter((c) => c.customerId === companyId);
@@ -287,6 +402,7 @@ export function QuoteDialog({
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!companyId) return toast.error("Firma seçiniz");
+    if (num(validityDays) < 1) return toast.error("Geçerlilik süresini giriniz");
     if (canPickDivision && !divisionId) return toast.error("Bölüm seçiniz", { description: "Teklifi CNC / Üniversal / Sac bölümlerinden birine atayın." });
     const valid = lines.filter((l) => (l.productId || l.description.trim() || l.stockCode.trim()) && num(l.quantity) > 0);
     if (valid.length === 0) return toast.error("En az bir ürün satırı ekleyin");
@@ -323,25 +439,61 @@ export function QuoteDialog({
 
     setSaving(true);
     try {
-      const res = await createQuoteFull({
-        opportunityId: caseId || undefined,
-        companyId,
-        divisionId: canPickDivision ? divisionId || undefined : undefined,
-        contactId: contactId || undefined,
-        quoteDate: new Date(quoteDate).toISOString(),
-        documentNo: documentNo.trim() || undefined,
-        currencyCode: currency,
-        projectOwnerUserId: senderId || undefined,
-        notes: note.trim() || undefined,
-        deliveryTermsText: preset?.label,
-        importCostsExcluded: preset?.importCostsExcluded ?? true,
-        caseTitle: valid[0].description || undefined,
-        items,
-      });
-      toast.success("Teklif kaydedildi", { description: res.documentNo });
+      if (editing && offerId) {
+        await quoteService.update(offerId, {
+          companyId,
+          contactId: contactId || undefined,
+          opportunityId: caseId || undefined,
+          quoteDate: new Date(quoteDate),
+          validityDays: num(validityDays),
+          documentNo: documentNo.trim() || undefined,
+          currencyCode: currency,
+          projectOwnerUserId: senderId || undefined,
+          notes: note.trim() || undefined,
+          paymentTerms: paymentTerms.trim() || undefined,
+          deliveryTerms: deliveryTerms.trim() || undefined,
+          warrantyTerms: warrantyTerms.trim() || undefined,
+        } as any);
+        await quoteService.terms(offerId, {
+          paymentTermsText: paymentTerms.trim() || undefined,
+          deliveryTermsText: deliveryTerms.trim() || undefined,
+          warrantyTermsText: warrantyTerms.trim() || undefined,
+          importCostsExcluded: preset?.importCostsExcluded ?? true,
+        } as any);
+        // Kalemleri tamamen yeniden yaz: önce eskileri sil, sonra yenilerini ekle.
+        const existing: any = await quoteService.get(offerId);
+        for (const it of existing.items ?? []) {
+          await quoteService.deleteItem(offerId, it.id);
+        }
+        for (let i = 0; i < items.length; i++) {
+          await quoteService.addItem(offerId, { ...items[i], sortOrder: i } as any);
+        }
+        toast.success("Teklif güncellendi", { description: documentNo });
+        await refresh();
+      } else {
+        const res = await createQuoteFull({
+          opportunityId: caseId || undefined,
+          companyId,
+          divisionId: canPickDivision ? divisionId || undefined : undefined,
+          contactId: contactId || undefined,
+          quoteDate: new Date(quoteDate).toISOString(),
+          validityDays: num(validityDays),
+          documentNo: documentNo.trim() || undefined,
+          currencyCode: currency,
+          projectOwnerUserId: senderId || undefined,
+          notes: note.trim() || undefined,
+          paymentTermsText: paymentTerms.trim() || undefined,
+          deliveryTermsText: deliveryTerms.trim() || undefined,
+          warrantyTermsText: warrantyTerms.trim() || undefined,
+          importCostsExcluded: preset?.importCostsExcluded ?? true,
+          caseTitle: valid[0].description || undefined,
+          items,
+        });
+        toast.success("Teklif kaydedildi", { description: res.documentNo });
+      }
       setOpen(false);
     } catch (err: any) {
-      toast.error("Teklif kaydedilemedi", { description: err?.message ?? "API isteği başarısız oldu." });
+      toast.error(editing ? "Teklif güncellenemedi" : "Teklif kaydedilemedi", { description: err?.message ?? "API isteği başarısız oldu." });
     } finally {
       setSaving(false);
     }
@@ -368,11 +520,16 @@ export function QuoteDialog({
 
   return (
     <Dialog open={open} onOpenChange={handleOpen}>
-      <DialogTrigger asChild>{trigger}</DialogTrigger>
+      {trigger && <DialogTrigger asChild>{trigger}</DialogTrigger>}
       <DialogContent className="w-[95vw] sm:max-w-[1080px] max-h-[92vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Yeni Teklif</DialogTitle>
-          <DialogDescription>Firma, ürünler, fiyatlandırma, teslim şekli ve notları tek ekranda yönetin.</DialogDescription>
+          <DialogTitle>{editing ? "Teklifi Düzenle" : "Yeni Teklif"}</DialogTitle>
+          <DialogDescription>
+            {editing
+              ? "Mevcut teklifin satırlarını, koşullarını ve notlarını güncelleyin."
+              : "Firma, ürünler, fiyatlandırma, teslim şekli ve notları tek ekranda yönetin."}
+            {loadingEdit && <span className="ml-2 text-xs text-muted-foreground">· yükleniyor…</span>}
+          </DialogDescription>
         </DialogHeader>
 
         <form onSubmit={submit} className="space-y-5">
@@ -418,6 +575,18 @@ export function QuoteDialog({
                 <Input value={documentNo} onChange={(e) => setDocumentNo(e.target.value)} placeholder="Otomatik" />
                 <Button type="button" variant="outline" size="sm" onClick={() => setDocumentNo(suggestNo())}>Öner</Button>
               </div>
+            </div>
+            <div>
+              <Label className="text-xs">Geçerlilik Süresi (Gün) *</Label>
+              <Input
+                type="number"
+                min={1}
+                max={365}
+                className="mt-1.5"
+                value={validityDays}
+                onChange={(event) => setValidityDays(event.target.value)}
+                placeholder="Örn. 15"
+              />
             </div>
             <div>
               <Label className="text-xs">Teklifi Gönderen</Label>
@@ -626,8 +795,14 @@ export function QuoteDialog({
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <div>
               <Label className="text-xs">Teslim Şekli</Label>
-              <Select value={deliveryCode} onValueChange={setDeliveryCode}>
-                <SelectTrigger className="mt-1.5"><SelectValue /></SelectTrigger>
+              <Select
+                value={deliveryCode}
+                onValueChange={(value) => {
+                  setDeliveryCode(value);
+                  setDeliveryTerms(DELIVERY_TERMS.find((item) => item.code === value)?.label ?? "");
+                }}
+              >
+                <SelectTrigger className="mt-1.5"><SelectValue placeholder="Teslim şekli seçin..." /></SelectTrigger>
                 <SelectContent>
                   {DELIVERY_TERMS.map((d) => <SelectItem key={d.code} value={d.code}>{d.label}</SelectItem>)}
                 </SelectContent>
@@ -646,6 +821,36 @@ export function QuoteDialog({
                     : `≈ ${money(convert(totals.grand, currency, "TRY"), "TRY")} · ${money(convert(totals.grand, currency, "USD"), "USD")}`}
                 </span>
               </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <div>
+              <Label className="text-xs">Ödeme Şartları</Label>
+              <Textarea
+                className="mt-1.5 min-h-24"
+                value={paymentTerms}
+                onChange={(event) => setPaymentTerms(event.target.value)}
+                placeholder="Bu teklife ait ödeme şartlarını girin..."
+              />
+            </div>
+            <div>
+              <Label className="text-xs">Teslimat Şartları</Label>
+              <Textarea
+                className="mt-1.5 min-h-24"
+                value={deliveryTerms}
+                onChange={(event) => setDeliveryTerms(event.target.value)}
+                placeholder="Bu teklife ait teslimat şartlarını girin..."
+              />
+            </div>
+            <div>
+              <Label className="text-xs">Garanti Şartları</Label>
+              <Textarea
+                className="mt-1.5 min-h-24"
+                value={warrantyTerms}
+                onChange={(event) => setWarrantyTerms(event.target.value)}
+                placeholder="Bu teklife ait garanti şartlarını girin..."
+              />
             </div>
           </div>
 
@@ -698,8 +903,9 @@ export function QuoteDialog({
 
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => setOpen(false)}>Vazgeç</Button>
-            <Button type="submit" disabled={saving} className="gap-1">
-              <Save className="size-4" /> {saving ? "Kaydediliyor…" : "Teklifi Kaydet"}
+            <Button type="submit" disabled={saving || loadingEdit} className="gap-1">
+              <Save className="size-4" />
+              {saving ? (editing ? "Güncelleniyor…" : "Kaydediliyor…") : editing ? "Teklifi Güncelle" : "Teklifi Kaydet"}
             </Button>
           </DialogFooter>
         </form>

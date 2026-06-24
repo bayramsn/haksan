@@ -355,7 +355,7 @@ export function CreateContactDialog({
   defaultCustomerId?: string;
   onCreated?: (id: string) => void;
 }) {
-  const { customers, addContact } = useStore();
+  const { customers, addContact, addCustomer } = useStore();
   const [open, setOpen] = useState(false);
   // Taslak yenilemede korunur; açılışta sıfırlanmaz, yalnızca başarılı kayıtta temizlenir.
   const [form, setForm] = usePersistentState("draft.contact.form", emptyContactForm(defaultCustomerId));
@@ -420,14 +420,30 @@ export function CreateContactDialog({
           <div className="grid grid-cols-2 gap-3">
             <div className="col-span-2">
               <Label className="text-xs">Firma *</Label>
-              <Select value={form.customerId} onValueChange={(v) => setForm({ ...form, customerId: v })}>
-                <SelectTrigger className="mt-1.5"><SelectValue placeholder="Firma seçin..." /></SelectTrigger>
-                <SelectContent>
-                  {customers.map((c) => (
-                    <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <div className="mt-1.5">
+                <Combobox
+                  options={customers.map((c) => ({ value: c.id, label: c.name, hint: c.city }))}
+                  value={form.customerId}
+                  onChange={(v) => setForm({ ...form, customerId: v })}
+                  placeholder="Firma seçin veya adını yazın..."
+                  searchPlaceholder="Firma adı / şehir ara..."
+                  emptyText="Firma bulunamadı."
+                  onCreate={async (label) => {
+                    try {
+                      const created = await addCustomer({
+                        type: "company", firmType: "customer", name: label,
+                        contactPerson: "", phone: "", email: "", city: "", address: "",
+                        taxNumber: "", wantedProduct: "", initialNote: "", source: "Kontak",
+                      } as any);
+                      setForm((f) => ({ ...f, customerId: created.id }));
+                      toast.success("Firma oluşturuldu", { description: label });
+                    } catch (err: any) {
+                      toast.error("Firma oluşturulamadı", { description: err?.message ?? "İstek başarısız oldu." });
+                    }
+                  }}
+                  createLabel={(q) => `"${q}" adıyla yeni firma oluştur`}
+                />
+              </div>
             </div>
 
             <Field label="Adı Soyadı *" value={form.name} onChange={(v) => setForm({ ...form, name: v })} />
@@ -1678,7 +1694,7 @@ export function ProductDialog({
     }
     setUploadingImage(true);
     try {
-      const { uploadUrl } = await fileService.signedUpload({
+      const upload = await fileService.signedUpload({
         bucket: "erp-product-images",
         entityType: "product",
         entityId: product?.id ?? "new",
@@ -1687,13 +1703,8 @@ export function ProductDialog({
         extension: ext,
         sizeBytes: file.size,
       });
-      const res = await fetch(uploadUrl, {
-        method: "PUT",
-        body: file,
-        headers: { "Content-Type": file.type },
-      });
-      if (!res.ok) throw new Error(`Depoya yükleme başarısız (${res.status})`);
-      const publicUrl = uploadUrl.split("?")[0];
+      await fileService.uploadBinary(upload, file, file.type);
+      const publicUrl = upload.uploadUrl.split("?")[0];
       setForm((f) => ({ ...f, imageUrl: publicUrl }));
       toast.success("Fotoğraf yüklendi");
     } catch (err: any) {
@@ -2719,8 +2730,7 @@ export function CreatePaymentDialog({
       extension: ext,
       sizeBytes: file.size,
     });
-    const res = await fetch(up.uploadUrl, { method: "PUT", body: file, headers: { "Content-Type": mime } });
-    if (!res.ok) throw new Error(`Depoya yükleme başarısız (${res.status})`);
+    await fileService.uploadBinary(up, file, mime);
     await fileService.link({
       fileId: up.fileId,
       entityType: "company",
