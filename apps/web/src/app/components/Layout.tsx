@@ -58,8 +58,8 @@ const NAV: { group: string; items: NavItem[] }[] = [
   {
     group: "Satış",
     items: [
-      { key: "customers", label: "Firmalar", icon: Building2, roles: ["sales", "service", "finance"] },
-      { key: "contacts", label: "Kontaklar", icon: ContactIcon, roles: ["sales", "service"] },
+      { key: "customers", label: "Firmalar", icon: Building2, roles: ["sales", "finance"] },
+      { key: "contacts", label: "Kontaklar", icon: ContactIcon, roles: ["sales"] },
       { key: "sales-cases", label: "Satış Kartları", icon: Briefcase, roles: ["sales"] },
       { key: "sales-map", label: "Firma Haritası", icon: MapIcon, roles: ["sales", "service"] },
       { key: "offers", label: "Teklifler", icon: FileText, roles: ["sales", "finance"] },
@@ -532,12 +532,16 @@ export function Layout({ current, onNavigate, onLogout, pageTitle, pageSubtitle,
                 {canSeeReports && (
                   <DropdownMenuItem onClick={() => onNavigate("reports")}><BarChart3 className="size-4 mr-2 text-muted-foreground" /> Raporlar</DropdownMenuItem>
                 )}
-                <DropdownMenuSeparator />
-                <DropdownMenuLabel>Yönetim</DropdownMenuLabel>
-                <DropdownMenuItem onClick={() => onNavigate("users")}><Users className="size-4 mr-2 text-muted-foreground" /> Kullanıcılar</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => onNavigate("roles")}><ShieldCheck className="size-4 mr-2 text-muted-foreground" /> Roller & Yetkiler</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => onNavigate("departments")}><Building2 className="size-4 mr-2 text-muted-foreground" /> Departmanlar</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => onNavigate("settings")}><SettingsIcon className="size-4 mr-2 text-muted-foreground" /> Ayarlar</DropdownMenuItem>
+                {hasRole("super_admin") && (
+                  <>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuLabel>Yönetim</DropdownMenuLabel>
+                    <DropdownMenuItem onClick={() => onNavigate("users")}><Users className="size-4 mr-2 text-muted-foreground" /> Kullanıcılar</DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => onNavigate("roles")}><ShieldCheck className="size-4 mr-2 text-muted-foreground" /> Roller & Yetkiler</DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => onNavigate("departments")}><Building2 className="size-4 mr-2 text-muted-foreground" /> Departmanlar</DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => onNavigate("settings")}><SettingsIcon className="size-4 mr-2 text-muted-foreground" /> Ayarlar</DropdownMenuItem>
+                  </>
+                )}
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={onLogout} className="text-destructive focus:text-destructive">
                   <LogOut className="size-4 mr-2" /> Çıkış yap

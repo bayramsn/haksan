@@ -80,10 +80,6 @@ export function SalesCasesPage({
         <TabsTrigger value="list">Liste</TabsTrigger>
         <TabsTrigger value="kanban">Kanban</TabsTrigger>
       </TabsList>
-      <TabsContent value="kanban" className="mt-0">
-        <KanbanPage onSelect={onSelect} />
-      </TabsContent>
-      <TabsContent value="list" className="mt-0 space-y-4">
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
           <div className="relative w-full sm:w-72">
@@ -119,6 +115,11 @@ export function SalesCasesPage({
         </div>
         <ExportExcelButton path="/exports/opportunities" filename="satis-kartlari.xlsx" params={exportParams} className="h-9" />
       </div>
+
+      <TabsContent value="kanban" className="mt-0">
+        <KanbanPage onSelect={onSelect} items={sorted} />
+      </TabsContent>
+      <TabsContent value="list" className="mt-0 space-y-4">
 
       <Card className="border-border/60 shadow-sm overflow-hidden">
         <div className="overflow-x-auto">

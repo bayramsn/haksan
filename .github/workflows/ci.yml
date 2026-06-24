@@ -74,6 +74,19 @@ jobs:
           npm run build:api
           VITE_API_BASE_URL=https://example.com/api/v1 npm run build:web
 
+      # Guards the 2026-06-23 incident: a stale build cache left dist/_journal.json
+      # behind the source, so the prod migrator silently skipped 12 migrations. The
+      # built journal must always match the committed source journal entry-for-entry.
+      - name: Assert built migrations journal matches source
+        run: |
+          SRC=$(node -p "require('./apps/api/src/db/migrations/meta/_journal.json').entries.length")
+          DIST=$(node -p "require('./apps/api/dist/db/migrations/meta/_journal.json').entries.length")
+          echo "source journal entries: $SRC, built (dist) journal entries: $DIST"
+          if [ "$SRC" != "$DIST" ]; then
+            echo "::error::Built migrations journal ($DIST) does not match source ($SRC). dist is stale — check nest-cli deleteOutDir/assets."
+            exit 1
+          fi
+
       - name: Migrate (first run) and seed (CI demo data)
         run: |
           cd apps/api

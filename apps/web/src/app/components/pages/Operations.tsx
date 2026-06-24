@@ -9,6 +9,7 @@ import {
 } from "../ui/table";
 import { type Machine, type Product, type StockItem } from "../../lib/mock";
 import { useStore } from "../../lib/store";
+import { useAuth } from "../../../lib/auth";
 import { ProductDialog } from "../dialogs/CreateDialogs";
 import { ProductImportDialog } from "../dialogs/ProductImportDialog";
 import { ProductDetailDialog, ProductThumb } from "../dialogs/ProductDetailDialog";
@@ -83,6 +84,7 @@ const fmtMoney = (n?: number | null, cur = "USD") =>
    ========================================================================= */
 export function ProductsPage({ initialQuery }: { initialQuery?: string }) {
   const { products } = useStore();
+  const { hasRole } = useAuth();
   const [q, setQ] = useState("");
   const [cat, setCat] = useState<string>("all");
   const [selected, setSelected] = useState<Product | null>(null);
@@ -91,14 +93,30 @@ export function ProductsPage({ initialQuery }: { initialQuery?: string }) {
     if (initialQuery) setQ(initialQuery);
   }, [initialQuery]);
 
+  // Servis departmanı katalogda yalnızca yedek parça ve işçilik kalemlerini
+  // görür; tezgah/aksesuar gibi satış kalemleri gizlenir. Yöneticiler hepsini görür.
+  const serviceScope = hasRole("service") && !hasRole("admin") && !hasRole("super_admin");
+  const isServiceItem = (p: Product) => {
+    const code = (p.categoryCode ?? "").toUpperCase();
+    const name = (p.category ?? "").toLocaleLowerCase("tr-TR");
+    return (
+      code === "YEDEK_PARCA" || code === "ISCILIK" ||
+      name.includes("yedek") || name.includes("işçilik") || name.includes("iscilik")
+    );
+  };
+  const visibleProducts = useMemo(
+    () => (serviceScope ? products.filter(isServiceItem) : products),
+    [products, serviceScope]
+  );
+
   const categoryLabel = (p: Product) => p.category || p.productGroup || "Genel";
   const productSubtitle = (p: Product) => [p.type, p.subcategory].filter(Boolean).join(" · ");
   const categories = useMemo(
-    () => Array.from(new Set(products.map(categoryLabel))).filter(Boolean),
-    [products]
+    () => Array.from(new Set(visibleProducts.map(categoryLabel))).filter(Boolean),
+    [visibleProducts]
   );
 
-  const filtered = products.filter((p) => {
+  const filtered = visibleProducts.filter((p) => {
     if (cat !== "all" && categoryLabel(p) !== cat) return false;
     if (!q) return true;
     const s = q.toLowerCase();
@@ -117,7 +135,7 @@ export function ProductsPage({ initialQuery }: { initialQuery?: string }) {
             </TabsTrigger>
             {categories.map((c) => (
               <TabsTrigger key={c} value={c} className="gap-1.5">
-                {c} <CountBadge n={products.filter((p) => categoryLabel(p) === c).length} />
+                {c} <CountBadge n={visibleProducts.filter((p) => categoryLabel(p) === c).length} />
               </TabsTrigger>
             ))}
           </TabsList>

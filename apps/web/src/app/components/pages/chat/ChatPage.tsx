@@ -165,7 +165,7 @@ export function ChatPage({ onOpenRecord }: { onOpenRecord?: (card: ChatRefCard) 
       extension: ext as SignedUploadUrlInput["extension"],
       sizeBytes: file.size,
     });
-    await fetch(up.uploadUrl, { method: "PUT", body: file, headers: { "Content-Type": file.type } });
+    await fileService.uploadBinary(up, file, file.type);
     setPending((p) => [...p, { fileId: up.fileId, filename: file.name, isImage: file.type.startsWith("image/"), isAudio: asAudio || file.type.startsWith("audio/") }]);
   };
 

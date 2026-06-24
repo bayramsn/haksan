@@ -49,6 +49,7 @@ export function InstallationsPage() {
     locationType: (i.locationType as InstallationLocationType | null) ?? null,
     durationMinutes: i.durationMinutes != null ? Number(i.durationMinutes) : null,
     feeAmount: i.feeAmount != null ? Number(i.feeAmount) : null,
+    notes: i.notes ?? "",
   }));
 
   // Toplam kurulum geliri (kaydedilmiş ücretler, USD).
@@ -57,7 +58,7 @@ export function InstallationsPage() {
   // Kurulum Tutanağı çıktısı — müşteri bilgileri CRM'den, tezgah/CNC bilgileri
   // kuruluma bağlı makineden (yoksa müşterinin makinesinden) gelir; CRM'de
   // olmayan alanlar sahada elle doldurulmak üzere boş basılır.
-  const printInstallationForm = (row: (typeof installationRows)[number], index: number) => {
+  const printInstallationForm = (row: (typeof installationRows)[number], _index: number) => {
     const cust = customers.find((c) => c.id === row.customerId);
     const m =
       machines.find((x) => x.id === row.deviceId) ??
@@ -71,7 +72,7 @@ export function InstallationsPage() {
             : row.scheduledDate !== "—"
               ? trShortDate(row.scheduledDate)
               : "",
-          formNo: String(index + 1).padStart(5, "0"),
+          formNo: row.id,
           tezgah: m ? { marka: m.brand, tip: m.type, model: m.model, seriNo: m.serialNumber } : undefined,
           cnc: m?.controlUnit
             ? {
@@ -88,6 +89,11 @@ export function InstallationsPage() {
           gsm: cust?.phone2,
           eposta: cust?.email,
           kurulumuYapan: row.technician !== "—" ? row.technician : "",
+          kurulumYeri: row.location,
+          sure: row.durationMinutes != null ? formatDuration(row.durationMinutes) : undefined,
+          kurulumUcreti: row.feeAmount,
+          currency: "USD",
+          notlar: row.notes,
         },
         printAssetBase()
       )

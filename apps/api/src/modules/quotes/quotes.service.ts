@@ -216,6 +216,9 @@ export class QuotesService {
     const items = await this.db.select().from(quoteItems).where(eq(quoteItems.quoteId, id)).orderBy(quoteItems.sortOrder);
     const terms = await this.db.query.quoteTerms.findFirst({ where: eq(quoteTerms.quoteId, id) });
     const company = await this.db.query.companies.findFirst({ where: eq(companies.id, quote.companyId) });
+    const contact = quote.contactId
+      ? await this.db.query.contacts.findFirst({ where: eq(contacts.id, quote.contactId) })
+      : null;
     const currency = quote.currencyId
       ? await this.db.query.currencies.findFirst({ where: eq(currencies.id, quote.currencyId) })
       : null;
@@ -248,6 +251,14 @@ export class QuotesService {
     doc.moveDown(1.5);
     doc.fontSize(11).font('Helvetica-Bold').text('Musteri', 50);
     doc.font('Helvetica').fontSize(11).text(tr(company?.legalTitle ?? '-'), 50);
+    if (contact?.fullName) doc.text(`Ilgili: ${tr(contact.fullName)}`, 50);
+    if (contact?.workPhone || contact?.mobilePhone) {
+      doc.text(`Tel: ${tr([contact.workPhone, contact.mobilePhone].filter(Boolean).join(' / '))}`, 50);
+    }
+    if (contact?.workEmail) doc.text(`E-posta: ${tr(contact.workEmail)}`, 50);
+    if (company?.taxNumber || company?.taxOffice) {
+      doc.text(`Vergi: ${tr([company.taxOffice, company.taxNumber].filter(Boolean).join(' / '))}`, 50);
+    }
 
     // Kalemler tablosu
     doc.moveDown(1.5);
@@ -295,6 +306,7 @@ export class QuotesService {
       ['Odeme', terms?.paymentTermsText ?? quote.paymentTerms],
       ['Teslim', terms?.deliveryTermsText ?? quote.deliveryTerms],
       ['Garanti', terms?.warrantyTermsText ?? quote.warrantyTerms],
+      ['Notlar', quote.notes],
     ] as Array<[string, string | null | undefined]>).filter(([, v]) => v);
     if (termRows.length) {
       doc.x = 50;

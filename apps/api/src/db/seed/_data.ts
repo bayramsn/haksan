@@ -310,6 +310,12 @@ export const rolePermissionMatrix: Record<string, Record<string, string[] | '*'>
     price_lists: ['read'],
     quotes: ['read', 'create', 'update', 'delete'],
     sales_orders: ['read', 'create', 'update', 'delete'],
+    // Satış hattı proforma → sözleşme → ticari fatura aşamalarından geçer ve her
+    // aşama bu belgenin oluşturulmasını şart koşar; satış rolü bu belgeleri
+    // üretebilmelidir.
+    proformas: ['read', 'create', 'update'],
+    contracts: ['read', 'create', 'update'],
+    commercial_invoices: ['read', 'create'],
     accounting_invoices: ['read', 'create'],
     files: ['read', 'create'],
     reports: ['read', 'export'],
@@ -330,9 +336,13 @@ export const rolePermissionMatrix: Record<string, Record<string, string[] | '*'>
   finance: {
     calendar: '*',
     companies: ['read'],
+    contacts: ['read'],
     quotes: ['read', 'approve', 'reject'],
     sales_orders: ['read', 'approve', 'reject'],
     purchase_orders: ['read'],
+    // Ticari faturayı kestiği belge zincirini (proforma/sözleşme) görebilmeli.
+    proformas: ['read'],
+    contracts: ['read'],
     commercial_invoices: '*',
     accounting_invoices: '*',
     receivables: '*',
@@ -342,6 +352,11 @@ export const rolePermissionMatrix: Record<string, Record<string, string[] | '*'>
   },
   stock: {
     calendar: '*',
+    // Sevkiyat/teslimat için hedef firma ve ilgili kişiyi okuyabilmeli.
+    companies: ['read'],
+    contacts: ['read'],
+    // Stok rezervasyonu/sevkiyatın bağlı olduğu satış fırsatını görebilmeli.
+    opportunities: ['read'],
     warehouses: '*',
     inventory: '*',
     customer_devices: ['read', 'update'],

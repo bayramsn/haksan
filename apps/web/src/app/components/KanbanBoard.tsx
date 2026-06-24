@@ -42,7 +42,7 @@ export function KanbanBoard<T extends { id: string }>({
         </div>
         <div
           ref={scrollerRef}
-          className="min-w-0 overflow-x-auto overflow-y-hidden overscroll-x-contain rounded-xl pb-3 pr-16"
+          className="min-w-0 overflow-x-auto overflow-y-hidden overscroll-x-contain rounded-xl pb-3 pr-16 snap-x snap-mandatory lg:snap-none"
           onDragOver={(e) => {
             // Auto-scroll when dragging near edges
             const el = scrollerRef.current;
@@ -92,14 +92,14 @@ function Column<T extends { id: string }>({
       canDrop: (it) => it.from !== col.key,
       collect: (m) => ({ isOver: m.isOver(), canDrop: m.canDrop() }),
     }),
-    [col.key, col.items.length]
+    [col.key, col.items.length, onMove]
   );
 
   return (
     <div
       ref={dropRef as any}
       style={{ width }}
-      className={`shrink-0 flex flex-col rounded-xl border transition-colors ${
+      className={`shrink-0 snap-center flex flex-col rounded-xl border transition-colors ${
         isOver && canDrop ? "border-primary bg-primary/5" : "border-border/60 bg-muted/30"
       }`}
     >

@@ -158,9 +158,9 @@ function DeliveryDetailDialog({
   /** DR.MAK Kurulum Tutanağı — PDF şablonu ile aynı düzen. */
   const printForm = () => {
     if (!delivery || !form) return;
-    const cust = customers.find((c) => c.id === delivery.customerId);
+    const cust = customers.find((c) => c.id === form.customerId);
     const fd = deliveryFormToPayload(form);
-    const formNo = fd.formNo || String(delivery.id).slice(-5).padStart(5, "0");
+    const formNo = fd.formNo || "";
     const doc = installationFormDoc(
       {
         teslimTarihi: form.date ? trShortDate(form.date) : "",
@@ -168,7 +168,7 @@ function DeliveryDetailDialog({
         formNo,
         tezgah: fd.tezgah,
         cnc: fd.cnc,
-        firma: cust?.name ?? customerName(delivery.customerId),
+        firma: cust?.name ?? customerName(form.customerId),
         ilgili: form.ilgili || cust?.contactPerson,
         adres: cust ? [cust.address, cust.district, cust.city].filter(Boolean).join(" ") : undefined,
         telefon: cust?.phone,

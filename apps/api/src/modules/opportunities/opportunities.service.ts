@@ -6,7 +6,8 @@ import { companies, contacts } from '../../db/schema/companies';
 import { users } from '../../db/schema/users';
 import { quotes } from '../../db/schema/quotes';
 import { inventoryItems, customerDevices } from '../../db/schema/inventory';
-import { pipelineStages, currencies, opportunityStatuses, contactSources, inventoryStatuses, warrantyStatuses } from '../../db/schema/lookup';
+import { installationJobs } from '../../db/schema/service';
+import { pipelineStages, currencies, opportunityStatuses, contactSources, inventoryStatuses, warrantyStatuses, installationStatuses } from '../../db/schema/lookup';
 import { cancellationReasons } from '../../db/schema/crm';
 import { commercialInvoices, contracts } from '../../db/schema/quotes';
 import { receivables } from '../../db/schema/finance';
@@ -340,6 +341,9 @@ export class OpportunitiesService {
       // Garanti, tezgâhın kurulumuyla başlar: rezerve stok kalemlerinden
       // müşteri cihazı / garanti kayıtları oluşturulur (idempotent).
       await this.ensureWarrantyDevices(opp, actor, input.inventoryItemIds);
+      // Satıştan servise devir: servis ekibi Kurulum listesinde görebilsin diye
+      // bir kurulum kaydı oluşturulur (idempotent).
+      await this.ensureInstallationJob(opp, actor);
     }
     if (input.toStage === 'delivered') {
       // Cihaz/garanti kayıtları kurulumda oluşturulmuş olabilir; tekrar çağırmak
@@ -418,5 +422,40 @@ export class OpportunitiesService {
         await this.db.update(inventoryItems).set({ stockStatusId: soldStatus.id }).where(eq(inventoryItems.id, item.id));
       }
     }
+  }
+
+  /**
+   * Satış hattı kurulum aşamasına gelince servis ekibinin Kurulum listesinde
+   * görebilmesi için bir kurulum kaydı oluşturur. Idempotenttir — bu fırsat için
+   * zaten kurulum kaydı varsa yenisini oluşturmaz.
+   */
+  private async ensureInstallationJob(
+    opp: { id: string; companyId: string; divisionId: string | null },
+    actor: AuthContext,
+  ) {
+    const existing = await this.db
+      .select({ id: installationJobs.id })
+      .from(installationJobs)
+      .where(and(eq(installationJobs.tenantId, actor.tenantId), eq(installationJobs.opportunityId, opp.id)))
+      .limit(1);
+    if (existing.length) return;
+    const scheduled = await this.db.query.installationStatuses.findFirst({
+      where: eq(installationStatuses.code, 'scheduled'),
+    });
+    // Kurulumu (varsa) bu fırsat için oluşturulmuş müşteri cihazına bağla.
+    const device = await this.db
+      .select({ id: customerDevices.id })
+      .from(customerDevices)
+      .where(and(eq(customerDevices.tenantId, actor.tenantId), eq(customerDevices.opportunityId, opp.id)))
+      .limit(1);
+    await this.db.insert(installationJobs).values({
+      tenantId: actor.tenantId,
+      divisionId: opp.divisionId,
+      opportunityId: opp.id,
+      companyId: opp.companyId,
+      customerDeviceId: device[0]?.id ?? null,
+      statusId: scheduled?.id ?? null,
+      scheduledDate: new Date(),
+    });
   }
 }

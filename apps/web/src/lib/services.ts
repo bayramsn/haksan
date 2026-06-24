@@ -82,13 +82,15 @@ import type {
   CallSuggestionActionInput,
   ManualCallEventInput,
 } from '@haksan/shared';
-import { api, getAccessToken, getActiveDivision } from './apiClient';
+import { API_BASE_URL, ApiError, api, getAccessToken, getActiveDivision } from './apiClient';
 import { exportService } from './downloadExport';
 
 export interface Paginated<T> {
   data: T[];
   meta: { page: number; pageSize: number; total: number; totalPages: number };
 }
+
+type SignedUploadResponse = { fileId: string; bucket: string; objectKey: string; uploadUrl: string; expiresInSeconds: number };
 
 export type ProductImportStatus = 'create' | 'update' | 'error' | 'skip';
 
@@ -612,10 +614,67 @@ export const publicComplaintService = {
     api.post<any>(`/public/service-complaints/${encodeURIComponent(slug)}/${encodeURIComponent(token)}`, body),
 };
 
+async function uploadViaSignedUrl(upload: SignedUploadResponse, file: Blob, mimeType: string): Promise<void> {
+  const res = await fetch(upload.uploadUrl, { method: 'PUT', body: file, headers: { 'Content-Type': mimeType } });
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    const snippet = body.replace(/\s+/g, ' ').trim().slice(0, 240);
+    const reason = snippet ? `${res.status} ${res.statusText} — ${snippet}` : `${res.status} ${res.statusText}`;
+    throw new Error(`Depoya yükleme başarısız: ${reason}`);
+  }
+}
+
+async function uploadViaApi(fileId: string, file: Blob, mimeType: string): Promise<void> {
+  const headers: Record<string, string> = {
+    Accept: 'application/json',
+    'Content-Type': mimeType || 'application/octet-stream',
+  };
+  const token = getAccessToken();
+  const activeDivision = getActiveDivision();
+  if (token) headers.Authorization = `Bearer ${token}`;
+  if (activeDivision) {
+    headers['X-Active-Division'] = activeDivision;
+    headers['X-Active-Department'] = activeDivision;
+  }
+
+  const res = await fetch(`${API_BASE_URL}/files/${encodeURIComponent(fileId)}/content`, {
+    method: 'PUT',
+    headers,
+    credentials: 'include',
+    body: file,
+  });
+  if (res.ok) return;
+
+  const contentType = res.headers.get('content-type') ?? '';
+  if (contentType.includes('application/json')) {
+    const json = (await res.json().catch(() => null)) as { error?: { code?: string; message?: string; details?: unknown } } | null;
+    throw new ApiError(
+      res.status,
+      json?.error?.code ?? `HTTP_${res.status}`,
+      json?.error?.message ?? `Hata ${res.status}`,
+      json?.error?.details
+    );
+  }
+  throw new ApiError(res.status, `HTTP_${res.status}`, res.statusText || `Hata ${res.status}`);
+}
+
 // ───── Files ─────
 export const fileService = {
   signedUpload: (body: SignedUploadUrlInput) =>
-    api.post<{ fileId: string; bucket: string; objectKey: string; uploadUrl: string; expiresInSeconds: number }>('/files/signed-upload-url', body),
+    api.post<SignedUploadResponse>('/files/signed-upload-url', body),
+  uploadBinary: async (upload: SignedUploadResponse, file: Blob, mimeType: string) => {
+    try {
+      await uploadViaSignedUrl(upload, file, mimeType);
+    } catch (directErr: any) {
+      try {
+        await uploadViaApi(upload.fileId, file, mimeType);
+      } catch (apiErr: any) {
+        const directMessage = directErr?.message ?? 'İmzalı URL yükleme başarısız.';
+        const apiMessage = apiErr?.message ?? 'API üzerinden yükleme başarısız.';
+        throw new Error(`${directMessage} API fallback de başarısız: ${apiMessage}`);
+      }
+    }
+  },
   signedDownload: (fileId: string) => api.post<{ downloadUrl: string; filename: string; mimeType: string }>('/files/signed-download-url', { fileId }),
   link: (body: FileLinkInput) => api.post('/files/link', body),
   links: (params?: Record<string, string | number | undefined>) => api.get<Paginated<any>>(`/files/links${qs(params)}`),

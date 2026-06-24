@@ -56,12 +56,17 @@ export function ShipmentsPage({ focus }: { focus?: OperationFocus }) {
           incoterm: full.incoterm ?? undefined,
           eta: full.eta ?? s.eta,
           firma: full.company?.legalTitle ?? full.company?.shortName ?? cust?.name,
+          ilgili: cust?.contactPerson,
           adres,
+          vergiDairesi: cust?.taxOffice,
+          vergiNo: cust?.taxNumber,
           items: (full.items ?? []).map((it: any) => ({
             description: it.description,
             serialNumber: it.serialNumber ?? undefined,
             quantity: Number(it.quantity ?? 1),
+            unit: it.unit?.code ?? it.unit?.name ?? undefined,
           })),
+          notlar: full.notes ?? undefined,
         },
         printAssetBase()
       );

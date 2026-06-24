@@ -1185,11 +1185,13 @@ export class ServiceController {
     const company = shipment.companyId
       ? await this.db.query.companies.findFirst({ where: eq(companies.id, shipment.companyId) })
       : null;
-    const items = await this.db
-      .select()
+    const itemRows = await this.db
+      .select({ item: shipmentItems, unit: { code: units.code, name: units.name } })
       .from(shipmentItems)
+      .leftJoin(units, eq(shipmentItems.unitId, units.id))
       .where(and(eq(shipmentItems.shipmentId, shipment.id), isNull(shipmentItems.deletedAt)))
       .orderBy(shipmentItems.sortOrder);
+    const items = itemRows.map(({ item, unit }) => ({ ...item, unit }));
     const legacy = this.decodeShipmentNotes(shipment.notes);
     const isLegacyMeta = !shipment.origin && !shipment.destination && !shipment.eta && !!(legacy.origin || legacy.destination || legacy.eta);
     return {

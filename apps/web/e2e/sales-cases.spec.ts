@@ -19,3 +19,16 @@ test("satış kartları listelenir ve detay açılır", async ({ page }) => {
     await expect(dialog).toBeHidden();
   }
 });
+
+test("liste filtresi kanban görünümüne de uygulanır", async ({ page }) => {
+  await login(page);
+  await navigateTo(page, "Satış Kartları");
+
+  const search = page.getByPlaceholder("Müşteri / ürün ara...");
+  await expect(search).toBeVisible();
+  await search.fill("__eslesmeyecek_kanban_filtresi__");
+  await page.getByRole("tab", { name: "Kanban" }).click();
+
+  await expect(search).toBeVisible();
+  await expect(page.locator('[data-testid^="sales-kanban-card-"]')).toHaveCount(0);
+});

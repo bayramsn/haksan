@@ -124,6 +124,42 @@ export class FilesService {
     return link;
   }
 
+  async uploadContent(fileId: string, body: Buffer, actor: AuthContext) {
+    const file = await this.db.query.files.findFirst({
+      where: and(eq(files.id, fileId), eq(files.tenantId, actor.tenantId)),
+    });
+    if (!file || file.deletedAt) throw new NotFoundError('Dosya');
+
+    if (!Buffer.isBuffer(body)) throw new ValidationError('Dosya gövdesi okunamadı.');
+    if (body.byteLength <= 0) throw new ValidationError('Dosya boyutu sıfır olamaz');
+    if (body.byteLength !== file.sizeBytes) {
+      throw new ValidationError(`Dosya boyutu eşleşmiyor. Beklenen ${file.sizeBytes} byte, gelen ${body.byteLength} byte.`);
+    }
+
+    this.storage.validateUploadIntent({
+      filename: file.originalFilename,
+      mimeType: file.mimeType,
+      extension: file.extension,
+      sizeBytes: body.byteLength,
+    });
+    await this.storage.uploadFile({
+      bucket: file.bucket,
+      objectKey: file.objectKey,
+      body,
+      mimeType: file.mimeType,
+      contentLength: body.byteLength,
+    });
+    await this.audit.write({
+      tenantId: actor.tenantId,
+      actorUserId: actor.userId,
+      action: 'file.proxy_upload',
+      resourceType: 'file',
+      resourceId: file.id,
+      newValues: { bucket: file.bucket, objectKey: file.objectKey, sizeBytes: body.byteLength },
+    });
+    return { ok: true, fileId: file.id };
+  }
+
   async listLinks(actor: AuthContext, query: Pagination & { entityType?: string; entityId?: string }) {
     const { limit, offset } = pageOffset(query);
     const filters = [eq(fileLinks.tenantId, actor.tenantId), isNull(files.deletedAt)];
