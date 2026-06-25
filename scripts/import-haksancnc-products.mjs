@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -15,6 +15,22 @@ const stagingDir = path.join(repoRoot, "apps/api/src/db/seed/data/haksancnc");
 const publicDir = path.join(stagingDir, "images");
 const pdfDir = path.join(stagingDir, "pdfs");
 const dataFile = path.join(stagingDir, "products.json");
+
+const preservedEditableFields = [
+  "modelName",
+  "controlPanel",
+  "listPrice",
+  "cashPrice",
+  "vatRate",
+  "originCountry",
+  "hsCode",
+  "stockCode",
+  "imageUrl",
+  "pdfUrl",
+  "standardEquipment",
+  "optionalEquipment",
+  "muadilProductId"
+];
 
 const seriesPages = [
   {
@@ -356,6 +372,7 @@ function toProduct(card, seriesMeta, detail, imageUrl, pdfUrl) {
     brand: card.brand || "Haksan CNC",
     productGroup: "CNC",
     productGroupCode: "CNC",
+    series: seriesMeta.series,
     model,
     modelName: title,
     type: seriesMeta.type,
@@ -390,11 +407,48 @@ function serializeProducts(products) {
   return `${JSON.stringify(products, null, 2)}\n`;
 }
 
+async function readExistingProducts() {
+  try {
+    const rows = JSON.parse(await readFile(dataFile, "utf8"));
+    const byKey = new Map();
+    if (!Array.isArray(rows)) return byKey;
+    for (const row of rows) {
+      if (row?.id) byKey.set(row.id, row);
+      if (row?.model) byKey.set(row.model, row);
+    }
+    return byKey;
+  } catch {
+    return new Map();
+  }
+}
+
+function isMeaningfulLocalValue(value) {
+  if (Array.isArray(value)) return value.length > 0;
+  if (typeof value === "number") return Number.isFinite(value) && value !== 0;
+  if (typeof value === "string") return value.trim().length > 0;
+  return value !== undefined && value !== null;
+}
+
+function mergePreservedFields(scraped, existingByKey) {
+  const existing = existingByKey.get(scraped.id) ?? existingByKey.get(scraped.model);
+  if (!existing) return scraped;
+
+  const merged = { ...scraped };
+  for (const field of preservedEditableFields) {
+    if (isMeaningfulLocalValue(existing[field])) merged[field] = existing[field];
+  }
+  if (Array.isArray(existing.specs) && existing.specs.length > (scraped.specs?.length ?? 0)) {
+    merged.specs = existing.specs;
+  }
+  return merged;
+}
+
 async function main() {
   await mkdir(publicDir, { recursive: true });
   await mkdir(pdfDir, { recursive: true });
 
   const seenDetails = new Set();
+  const existingByKey = await readExistingProducts();
   const products = [];
 
   for (const seriesMeta of seriesPages) {
@@ -417,7 +471,7 @@ async function main() {
       const id = `haksan-cnc-${slugify(card.model || detail.title || card.title)}`;
       const imageUrl = await downloadImage(detailImage || card.imagePath, id);
       const pdfUrl = await downloadPdf(detail.pdf, id);
-      products.push(toProduct(card, seriesMeta, detail, imageUrl, pdfUrl));
+      products.push(mergePreservedFields(toProduct(card, seriesMeta, detail, imageUrl, pdfUrl), existingByKey));
     }
   }
 

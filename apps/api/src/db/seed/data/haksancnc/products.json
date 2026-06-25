@@ -4,6 +4,7 @@
     "brand": "Maximart",
     "productGroup": "CNC",
     "productGroupCode": "CNC",
+    "series": "C Serisi",
     "model": "C20-5U/5A",
     "modelName": "C20-5U/5A CNC 5 Eksen İşleme Merkezi",
     "type": "CNC 5 Eksen İşleme Merkezi",
@@ -13,7 +14,7 @@
     "categoryCode": "TEZGAH",
     "subcategory": "İşleme Merkezi",
     "subcategoryCode": "ISLEME_MERKEZI",
-    "imageUrl": "/product-blobs/haksancnc/haksan-cnc-c20-5u-5a.jpg",
+    "imageUrl": "images/haksan-cnc-c20-5u-5a.jpg",
     "shortDescription": "Karmaşık işlemleri 5 yönden aynı anda ele alın | Maximart C20-5U/5A CNC 5 Eksen İşleme Merkezi",
     "description": "Karmaşık işlemleri 5 yönden aynı anda ele alın | Maximart C20-5U/5A CNC 5 Eksen İşleme Merkezi Kaynak: https://www.haksancnc.com.tr/urun-detay-c20-5u-5acnc5eksenislememerkezi-1636",
     "listPrice": 0,
@@ -113,13 +114,14 @@
     "optionalEquipment": [],
     "muadilProductId": null,
     "status": "active",
-    "pdfUrl": "/product-blobs/haksancnc/pdfs/haksan-cnc-c20-5u-5a.pdf"
+    "pdfUrl": "pdfs/haksan-cnc-c20-5u-5a.pdf"
   },
   {
     "id": "haksan-cnc-c30-5u-5a",
     "brand": "Maximart",
     "productGroup": "CNC",
     "productGroupCode": "CNC",
+    "series": "C Serisi",
     "model": "C30-5U/5A",
     "modelName": "C30-5U/5A CNC 5 Eksen İşleme Merkezi",
     "type": "CNC 5 Eksen İşleme Merkezi",
@@ -129,7 +131,7 @@
     "categoryCode": "TEZGAH",
     "subcategory": "İşleme Merkezi",
     "subcategoryCode": "ISLEME_MERKEZI",
-    "imageUrl": "/product-blobs/haksancnc/haksan-cnc-c30-5u-5a.jpg",
+    "imageUrl": "images/haksan-cnc-c30-5u-5a.jpg",
     "shortDescription": "Karmaşık işlemleri 5 yönden aynı anda ele alın | Maximart C30-5U/5A CNC 5 Eksen İşleme Merkezi",
     "description": "Karmaşık işlemleri 5 yönden aynı anda ele alın | Maximart C30-5U/5A CNC 5 Eksen İşleme Merkezi Kaynak: https://www.haksancnc.com.tr/urun-detay-c30-5u-5acnc5eksenislememerkezi-1637",
     "listPrice": 0,
@@ -229,13 +231,14 @@
     "optionalEquipment": [],
     "muadilProductId": null,
     "status": "active",
-    "pdfUrl": "/product-blobs/haksancnc/pdfs/haksan-cnc-c30-5u-5a.pdf"
+    "pdfUrl": "pdfs/haksan-cnc-c30-5u-5a.pdf"
   },
   {
     "id": "haksan-cnc-c40-5u-5a",
     "brand": "Maximart",
     "productGroup": "CNC",
     "productGroupCode": "CNC",
+    "series": "C Serisi",
     "model": "C40-5U/5A",
     "modelName": "C40-5U/5A CNC 5 Eksen İşleme Merkezi",
     "type": "CNC 5 Eksen İşleme Merkezi",
@@ -245,7 +248,7 @@
     "categoryCode": "TEZGAH",
     "subcategory": "İşleme Merkezi",
     "subcategoryCode": "ISLEME_MERKEZI",
-    "imageUrl": "/product-blobs/haksancnc/haksan-cnc-c40-5u-5a.jpg",
+    "imageUrl": "images/haksan-cnc-c40-5u-5a.jpg",
     "shortDescription": "Karmaşık işlemleri 5 yönden aynı anda ele alın | Maximart C40-5U/5A CNC 5 Eksen İşleme Merkezi",
     "description": "Karmaşık işlemleri 5 yönden aynı anda ele alın | Maximart C40-5U/5A CNC 5 Eksen İşleme Merkezi Kaynak: https://www.haksancnc.com.tr/urun-detay-c40-5u-5acnc5eksenislememerkezi-1638",
     "listPrice": 0,
@@ -345,13 +348,14 @@
     "optionalEquipment": [],
     "muadilProductId": null,
     "status": "active",
-    "pdfUrl": "/product-blobs/haksancnc/pdfs/haksan-cnc-c40-5u-5a.pdf"
+    "pdfUrl": "pdfs/haksan-cnc-c40-5u-5a.pdf"
   },
   {
     "id": "haksan-cnc-c50-5u-5a",
     "brand": "Maximart",
     "productGroup": "CNC",
     "productGroupCode": "CNC",
+    "series": "C Serisi",
     "model": "C50-5U/5A",
     "modelName": "C50-5U/5A CNC 5 Eksen İşleme Merkezi",
     "type": "CNC 5 Eksen İşleme Merkezi",
@@ -361,7 +365,7 @@
     "categoryCode": "TEZGAH",
     "subcategory": "İşleme Merkezi",
     "subcategoryCode": "ISLEME_MERKEZI",
-    "imageUrl": "/product-blobs/haksancnc/haksan-cnc-c50-5u-5a.jpg",
+    "imageUrl": "images/haksan-cnc-c50-5u-5a.jpg",
     "shortDescription": "Karmaşık işlemleri 5 yönden aynı anda ele alın | Maximart C20-5U/5A CNC 5 Eksen İşleme Merkezi",
     "description": "Karmaşık işlemleri 5 yönden aynı anda ele alın | Maximart C20-5U/5A CNC 5 Eksen İşleme Merkezi Kaynak: https://www.haksancnc.com.tr/urun-detay-c50-5u-5acnc5eksenislememerkezi-1639",
     "listPrice": 0,
@@ -461,13 +465,14 @@
     "optionalEquipment": [],
     "muadilProductId": null,
     "status": "active",
-    "pdfUrl": "/product-blobs/haksancnc/pdfs/haksan-cnc-c50-5u-5a.pdf"
+    "pdfUrl": "pdfs/haksan-cnc-c50-5u-5a.pdf"
   },
   {
     "id": "haksan-cnc-d-600",
     "brand": "Maximart",
     "productGroup": "CNC",
     "productGroupCode": "CNC",
+    "series": "D Serisi",
     "model": "D-600",
     "modelName": "D-600 CNC 5 Eksen İşleme Merkezi",
     "type": "CNC 5 Eksen İşleme Merkezi",
@@ -477,7 +482,7 @@
     "categoryCode": "TEZGAH",
     "subcategory": "İşleme Merkezi",
     "subcategoryCode": "ISLEME_MERKEZI",
-    "imageUrl": "/product-blobs/haksancnc/haksan-cnc-d-600.jpg",
+    "imageUrl": "images/haksan-cnc-d-600.jpg",
     "shortDescription": "Maximart D-600 CNC 5 Eksen İşleme Merkezi ile karmaşık işlere basit çözüm.",
     "description": "Maximart D-600 CNC 5 Eksen İşleme Merkezi ile karmaşık işlere basit çözüm. Kaynak: https://www.haksancnc.com.tr/urun-detay-d-600cnc5eksenislememerkezi-1632",
     "listPrice": 0,
@@ -593,13 +598,14 @@
     "optionalEquipment": [],
     "muadilProductId": null,
     "status": "active",
-    "pdfUrl": "/product-blobs/haksancnc/pdfs/haksan-cnc-d-600.pdf"
+    "pdfUrl": "pdfs/haksan-cnc-d-600.pdf"
   },
   {
     "id": "haksan-cnc-d-700",
     "brand": "Maximart",
     "productGroup": "CNC",
     "productGroupCode": "CNC",
+    "series": "D Serisi",
     "model": "D-700",
     "modelName": "D-700 CNC 5 Eksen İşleme Merkezi",
     "type": "CNC 5 Eksen İşleme Merkezi",
@@ -609,7 +615,7 @@
     "categoryCode": "TEZGAH",
     "subcategory": "İşleme Merkezi",
     "subcategoryCode": "ISLEME_MERKEZI",
-    "imageUrl": "/product-blobs/haksancnc/haksan-cnc-d-700.jpg",
+    "imageUrl": "images/haksan-cnc-d-700.jpg",
     "shortDescription": "Maximart D-700 CNC 5 Eksen İşleme Merkezi ile karmaşık işlere basit çözüm.",
     "description": "Maximart D-700 CNC 5 Eksen İşleme Merkezi ile karmaşık işlere basit çözüm. Kaynak: https://www.haksancnc.com.tr/urun-detay-d-700cnc5eksenislememerkezi-1633",
     "listPrice": 0,
@@ -725,13 +731,14 @@
     "optionalEquipment": [],
     "muadilProductId": null,
     "status": "active",
-    "pdfUrl": "/product-blobs/haksancnc/pdfs/haksan-cnc-d-700.pdf"
+    "pdfUrl": "pdfs/haksan-cnc-d-700.pdf"
   },
   {
     "id": "haksan-cnc-d-800",
     "brand": "Maximart",
     "productGroup": "CNC",
     "productGroupCode": "CNC",
+    "series": "D Serisi",
     "model": "D-800",
     "modelName": "D-800 CNC 5 Eksen İşleme Merkezi",
     "type": "CNC 5 Eksen İşleme Merkezi",
@@ -741,7 +748,7 @@
     "categoryCode": "TEZGAH",
     "subcategory": "İşleme Merkezi",
     "subcategoryCode": "ISLEME_MERKEZI",
-    "imageUrl": "/product-blobs/haksancnc/haksan-cnc-d-800.jpg",
+    "imageUrl": "images/haksan-cnc-d-800.jpg",
     "shortDescription": "Maximart D-800 CNC 5 Eksen İşleme Merkezi ile karmaşık işlere basit çözüm.",
     "description": "Maximart D-800 CNC 5 Eksen İşleme Merkezi ile karmaşık işlere basit çözüm. Kaynak: https://www.haksancnc.com.tr/urun-detay-d-800cnc5eksenislememerkezi-1634",
     "listPrice": 0,
@@ -857,13 +864,14 @@
     "optionalEquipment": [],
     "muadilProductId": null,
     "status": "active",
-    "pdfUrl": "/product-blobs/haksancnc/pdfs/haksan-cnc-d-800.pdf"
+    "pdfUrl": "pdfs/haksan-cnc-d-800.pdf"
   },
   {
     "id": "haksan-cnc-d-800t",
     "brand": "Maximart",
     "productGroup": "CNC",
     "productGroupCode": "CNC",
+    "series": "D Serisi",
     "model": "D-800T",
     "modelName": "D-800T CNC 5 Eksen İşleme Merkezi",
     "type": "CNC 5 Eksen İşleme Merkezi",
@@ -873,7 +881,7 @@
     "categoryCode": "TEZGAH",
     "subcategory": "İşleme Merkezi",
     "subcategoryCode": "ISLEME_MERKEZI",
-    "imageUrl": "/product-blobs/haksancnc/haksan-cnc-d-800t.jpg",
+    "imageUrl": "images/haksan-cnc-d-800t.jpg",
     "shortDescription": "Maximart D-800T CNC 5 Eksen İşleme Merkezi ile karmaşık işlere basit çözüm.",
     "description": "Maximart D-800T CNC 5 Eksen İşleme Merkezi ile karmaşık işlere basit çözüm. Kaynak: https://www.haksancnc.com.tr/urun-detay-d-800tcnc5eksenislememerkezi-1635",
     "listPrice": 0,
@@ -989,13 +997,14 @@
     "optionalEquipment": [],
     "muadilProductId": null,
     "status": "active",
-    "pdfUrl": "/product-blobs/haksancnc/pdfs/haksan-cnc-d-800t.pdf"
+    "pdfUrl": "pdfs/haksan-cnc-d-800t.pdf"
   },
   {
     "id": "haksan-cnc-mv-1050",
     "brand": "LK Machinery",
     "productGroup": "CNC",
     "productGroupCode": "CNC",
+    "series": "MV Serisi",
     "model": "MV-1050",
     "modelName": "MV-1050 CNC Dik İşleme Merkezi",
     "type": "CNC Dik İşleme Merkezi",
@@ -1005,7 +1014,7 @@
     "categoryCode": "TEZGAH",
     "subcategory": "İşleme Merkezi",
     "subcategoryCode": "ISLEME_MERKEZI",
-    "imageUrl": "/product-blobs/haksancnc/haksan-cnc-mv-1050.jpg",
+    "imageUrl": "images/haksan-cnc-mv-1050.jpg",
     "shortDescription": "MV-1050, yüksek hızda hassas işleme ve dayanıklı yapısı ile metal işleme endüstrisinde üretim süreçlerinizi güçlendirir.",
     "description": "MV-1050, yüksek hızda hassas işleme ve dayanıklı yapısı ile metal işleme endüstrisinde üretim süreçlerinizi güçlendirir. Kaynak: https://www.haksancnc.com.tr/urun-detay-mv-1050cncdikislememerkezi-1585",
     "listPrice": 0,
@@ -1045,13 +1054,14 @@
     "optionalEquipment": [],
     "muadilProductId": null,
     "status": "active",
-    "pdfUrl": "/product-blobs/haksancnc/pdfs/haksan-cnc-mv-1050.pdf"
+    "pdfUrl": "pdfs/haksan-cnc-mv-1050.pdf"
   },
   {
     "id": "haksan-cnc-mv-850",
     "brand": "LK Machinery",
     "productGroup": "CNC",
     "productGroupCode": "CNC",
+    "series": "MV Serisi",
     "model": "MV-850",
     "modelName": "MV-850 CNC Dik İşleme Merkezi",
     "type": "CNC Dik İşleme Merkezi",
@@ -1061,7 +1071,7 @@
     "categoryCode": "TEZGAH",
     "subcategory": "İşleme Merkezi",
     "subcategoryCode": "ISLEME_MERKEZI",
-    "imageUrl": "/product-blobs/haksancnc/haksan-cnc-mv-850.jpg",
+    "imageUrl": "images/haksan-cnc-mv-850.jpg",
     "shortDescription": "MV-850, büyük parçaların işlenmesinde yüksek hassasiyet sunarak endüstriyel üretim kapasitenizi artırır. Güvenilir ve verimli üretim için idealdir.",
     "description": "MV-850, büyük parçaların işlenmesinde yüksek hassasiyet sunarak endüstriyel üretim kapasitenizi artırır. Güvenilir ve verimli üretim için idealdir. Kaynak: https://www.haksancnc.com.tr/urun-detay-mv-850cncdikislememerkezi-1584",
     "listPrice": 0,
@@ -1101,13 +1111,14 @@
     "optionalEquipment": [],
     "muadilProductId": null,
     "status": "active",
-    "pdfUrl": "/product-blobs/haksancnc/pdfs/haksan-cnc-mv-850.pdf"
+    "pdfUrl": "pdfs/haksan-cnc-mv-850.pdf"
   },
   {
     "id": "haksan-cnc-vc-1000-ez",
     "brand": "LK Machinery",
     "productGroup": "CNC",
     "productGroupCode": "CNC",
+    "series": "VC Serisi",
     "model": "VC-1000 EZ",
     "modelName": "VC-1000 EZ CNC Dik İşleme Merkezi",
     "type": "CNC Dik İşleme Merkezi",
@@ -1117,7 +1128,7 @@
     "categoryCode": "TEZGAH",
     "subcategory": "İşleme Merkezi",
     "subcategoryCode": "ISLEME_MERKEZI",
-    "imageUrl": "/product-blobs/haksancnc/haksan-cnc-vc-1000-ez.jpg",
+    "imageUrl": "images/haksan-cnc-vc-1000-ez.jpg",
     "shortDescription": "VC-1000, yüksek kapasite ve hassasiyetli işleme yetenekleriyle üretim süreçlerinizi optimize eder. Endüstriyel metal işleme projeleri için ideal bir çözümdür.",
     "description": "VC-1000, yüksek kapasite ve hassasiyetli işleme yetenekleriyle üretim süreçlerinizi optimize eder. Endüstriyel metal işleme projeleri için ideal bir çözümdür. Kaynak: https://www.haksancnc.com.tr/urun-detay-vc-1000ezcncdikislememerkezi-1578",
     "listPrice": 0,
@@ -1157,13 +1168,14 @@
     "optionalEquipment": [],
     "muadilProductId": null,
     "status": "active",
-    "pdfUrl": "/product-blobs/haksancnc/pdfs/haksan-cnc-vc-1000-ez.pdf"
+    "pdfUrl": "pdfs/haksan-cnc-vc-1000-ez.pdf"
   },
   {
     "id": "haksan-cnc-vc-1200-ez",
     "brand": "LK Machinery",
     "productGroup": "CNC",
     "productGroupCode": "CNC",
+    "series": "VC Serisi",
     "model": "VC-1200 EZ",
     "modelName": "VC-1200 EZ CNC Dik İşleme Merkezi",
     "type": "CNC Dik İşleme Merkezi",
@@ -1173,7 +1185,7 @@
     "categoryCode": "TEZGAH",
     "subcategory": "İşleme Merkezi",
     "subcategoryCode": "ISLEME_MERKEZI",
-    "imageUrl": "/product-blobs/haksancnc/haksan-cnc-vc-1200-ez.jpg",
+    "imageUrl": "images/haksan-cnc-vc-1200-ez.jpg",
     "shortDescription": "VC-1200 CNC Dik İşleme Merkezi, geniş işleme alanı ve yüksek hassasiyetiyle metal işleme projelerinde üstün performans sunar. Güçlü yapısıyla endüstriyel ihtiyaçlara çözüm sunar.",
     "description": "VC-1200 CNC Dik İşleme Merkezi, geniş işleme alanı ve yüksek hassasiyetiyle metal işleme projelerinde üstün performans sunar. Güçlü yapısıyla endüstriyel ihtiyaçlara çözüm sunar. Kaynak: https://www.haksancnc.com.tr/urun-detay-vc-1200ezcncdikislememerkezi-1579",
     "listPrice": 0,
@@ -1213,13 +1225,14 @@
     "optionalEquipment": [],
     "muadilProductId": null,
     "status": "active",
-    "pdfUrl": "/product-blobs/haksancnc/pdfs/haksan-cnc-vc-1200-ez.pdf"
+    "pdfUrl": "pdfs/haksan-cnc-vc-1200-ez.pdf"
   },
   {
     "id": "haksan-cnc-vc-760-ez",
     "brand": "LK Machinery",
     "productGroup": "CNC",
     "productGroupCode": "CNC",
+    "series": "VC Serisi",
     "model": "VC-760 EZ",
     "modelName": "VC-760 EZ CNC Dik İşleme Merkezi",
     "type": "CNC Dik İşleme Merkezi",
@@ -1229,7 +1242,7 @@
     "categoryCode": "TEZGAH",
     "subcategory": "İşleme Merkezi",
     "subcategoryCode": "ISLEME_MERKEZI",
-    "imageUrl": "/product-blobs/haksancnc/haksan-cnc-vc-760-ez.jpg",
+    "imageUrl": "images/haksan-cnc-vc-760-ez.jpg",
     "shortDescription": "VC-760 CNC Dik İşleme Merkezi, kompakt tasarımı ve hassas işleme kapasitesi ile üretimde yüksek performans sunar. Orta ve küçük ölçekli işlemler için uygundur.",
     "description": "VC-760 CNC Dik İşleme Merkezi, kompakt tasarımı ve hassas işleme kapasitesi ile üretimde yüksek performans sunar. Orta ve küçük ölçekli işlemler için uygundur. Kaynak: https://www.haksancnc.com.tr/urun-detay-vc-760ezcncdikislememerkezi-1577",
     "listPrice": 0,
@@ -1269,13 +1282,14 @@
     "optionalEquipment": [],
     "muadilProductId": null,
     "status": "active",
-    "pdfUrl": "/product-blobs/haksancnc/pdfs/haksan-cnc-vc-760-ez.pdf"
+    "pdfUrl": "pdfs/haksan-cnc-vc-760-ez.pdf"
   },
   {
     "id": "haksan-cnc-vm-2",
     "brand": "LK Machinery",
     "productGroup": "CNC",
     "productGroupCode": "CNC",
+    "series": "VM Serisi",
     "model": "VM-2",
     "modelName": "VM-2 CNC Dik İşleme Merkezi",
     "type": "CNC Dik İşleme Merkezi",
@@ -1285,7 +1299,7 @@
     "categoryCode": "TEZGAH",
     "subcategory": "İşleme Merkezi",
     "subcategoryCode": "ISLEME_MERKEZI",
-    "imageUrl": "/product-blobs/haksancnc/haksan-cnc-vm-2.jpg",
+    "imageUrl": "images/haksan-cnc-vm-2.jpg",
     "shortDescription": "VM-2 CNC Dik İşleme Merkezi, yüksek hassasiyetli işleme kabiliyetiyle üretim süreçlerinizi optimize eder. Hızlı ve güvenilir operasyonlar için idealdir.",
     "description": "VM-2 CNC Dik İşleme Merkezi, yüksek hassasiyetli işleme kabiliyetiyle üretim süreçlerinizi optimize eder. Hızlı ve güvenilir operasyonlar için idealdir. Kaynak: https://www.haksancnc.com.tr/urun-detay-vm-2cncdikislememerkezi-1580",
     "listPrice": 0,
@@ -1331,6 +1345,7 @@
     "brand": "LK Machinery",
     "productGroup": "CNC",
     "productGroupCode": "CNC",
+    "series": "VM Serisi",
     "model": "VM-5",
     "modelName": "VM-5 CNC Dik İşleme Merkezi",
     "type": "CNC Dik İşleme Merkezi",
@@ -1340,7 +1355,7 @@
     "categoryCode": "TEZGAH",
     "subcategory": "İşleme Merkezi",
     "subcategoryCode": "ISLEME_MERKEZI",
-    "imageUrl": "/product-blobs/haksancnc/haksan-cnc-vm-5.jpg",
+    "imageUrl": "images/haksan-cnc-vm-5.jpg",
     "shortDescription": "VM-5 CNC Dik İşleme Merkezi, yenilikçi işleme kapasitesiyle yüksek kalite ve performans sunar. İşletmenizin üretkenliğini artırır.",
     "description": "VM-5 CNC Dik İşleme Merkezi, yenilikçi işleme kapasitesiyle yüksek kalite ve performans sunar. İşletmenizin üretkenliğini artırır. Kaynak: https://www.haksancnc.com.tr/urun-detay-vm-5cncdikislememerkezi-1581",
     "listPrice": 0,
@@ -1380,13 +1395,14 @@
     "optionalEquipment": [],
     "muadilProductId": null,
     "status": "active",
-    "pdfUrl": "/product-blobs/haksancnc/pdfs/haksan-cnc-vm-5.pdf"
+    "pdfUrl": "pdfs/haksan-cnc-vm-5.pdf"
   },
   {
     "id": "haksan-cnc-vm-6",
     "brand": "LK Machinery",
     "productGroup": "CNC",
     "productGroupCode": "CNC",
+    "series": "VM Serisi",
     "model": "VM-6",
     "modelName": "VM-6 CNC Dik İşleme Merkezi",
     "type": "CNC Dik İşleme Merkezi",
@@ -1396,7 +1412,7 @@
     "categoryCode": "TEZGAH",
     "subcategory": "İşleme Merkezi",
     "subcategoryCode": "ISLEME_MERKEZI",
-    "imageUrl": "/product-blobs/haksancnc/haksan-cnc-vm-6.jpg",
+    "imageUrl": "images/haksan-cnc-vm-6.jpg",
     "shortDescription": "VM-6 CNC Dik İşleme Merkezi, yüksek hızlı işleme ve geniş kapasitesiyle endüstriyel üretimde üstün performans sunar. Metal işleme süreçleriniz için mükemmel bir tercihtir.",
     "description": "VM-6 CNC Dik İşleme Merkezi, yüksek hızlı işleme ve geniş kapasitesiyle endüstriyel üretimde üstün performans sunar. Metal işleme süreçleriniz için mükemmel bir tercihtir. Kaynak: https://www.haksancnc.com.tr/urun-detay-vm-6cncdikislememerkezi-1582",
     "listPrice": 0,
@@ -1436,13 +1452,14 @@
     "optionalEquipment": [],
     "muadilProductId": null,
     "status": "active",
-    "pdfUrl": "/product-blobs/haksancnc/pdfs/haksan-cnc-vm-6.pdf"
+    "pdfUrl": "pdfs/haksan-cnc-vm-6.pdf"
   },
   {
     "id": "haksan-cnc-dl-2112",
     "brand": "Manford",
     "productGroup": "CNC",
     "productGroupCode": "CNC",
+    "series": "DL Serisi",
     "model": "DL-2112",
     "modelName": "DL-2112 CNC Köprü Tipi Dik İşleme Merkezi",
     "type": "CNC Köprü Tipi İşleme Merkezi",
@@ -1452,7 +1469,7 @@
     "categoryCode": "TEZGAH",
     "subcategory": "İşleme Merkezi",
     "subcategoryCode": "ISLEME_MERKEZI",
-    "imageUrl": "/product-blobs/haksancnc/haksan-cnc-dl-2112.jpg",
+    "imageUrl": "images/haksan-cnc-dl-2112.jpg",
     "shortDescription": "Büyük boyutlu işler için en iyi çözüm!",
     "description": "Büyük boyutlu işler için en iyi çözüm! Kaynak: https://www.haksancnc.com.tr/urun-detay-dl-2112cnckoprutipidikislememerkezi-1630",
     "listPrice": 0,
@@ -1498,6 +1515,7 @@
     "brand": "Manford",
     "productGroup": "CNC",
     "productGroupCode": "CNC",
+    "series": "DL Serisi",
     "model": "DL-3116",
     "modelName": "DL-3116 CNC Köprü Tipi Dik İşleme Merkezi",
     "type": "CNC Köprü Tipi İşleme Merkezi",
@@ -1507,7 +1525,7 @@
     "categoryCode": "TEZGAH",
     "subcategory": "İşleme Merkezi",
     "subcategoryCode": "ISLEME_MERKEZI",
-    "imageUrl": "/product-blobs/haksancnc/haksan-cnc-dl-3116.jpg",
+    "imageUrl": "images/haksan-cnc-dl-3116.jpg",
     "shortDescription": "Büyük boyutlu işler için en iyi çözüm!",
     "description": "Büyük boyutlu işler için en iyi çözüm! Kaynak: https://www.haksancnc.com.tr/urun-detay-dl-3116cnckoprutipidikislememerkezi-1631",
     "listPrice": 0,
@@ -1553,6 +1571,7 @@
     "brand": "LK Machinery",
     "productGroup": "CNC",
     "productGroupCode": "CNC",
+    "series": "TC Serisi",
     "model": "TC-1000",
     "modelName": "TC-1000 CNC Tapping Center",
     "type": "CNC Tapping Center",
@@ -1562,7 +1581,7 @@
     "categoryCode": "TEZGAH",
     "subcategory": "İşleme Merkezi",
     "subcategoryCode": "ISLEME_MERKEZI",
-    "imageUrl": "/product-blobs/haksancnc/haksan-cnc-tc-1000.jpg",
+    "imageUrl": "images/haksan-cnc-tc-1000.jpg",
     "shortDescription": "TC-1000, büyük ölçekli işleme ve yüksek hassasiyet gerektiren delik işleme projeleri için ideal bir CNC tapping center'dır. Güçlü ve verimli çalışma sunar.",
     "description": "TC-1000, büyük ölçekli işleme ve yüksek hassasiyet gerektiren delik işleme projeleri için ideal bir CNC tapping center'dır. Güçlü ve verimli çalışma sunar. Kaynak: https://www.haksancnc.com.tr/urun-detay-tc-1000cnctappingcenter-1576",
     "listPrice": 0,
@@ -1602,13 +1621,14 @@
     "optionalEquipment": [],
     "muadilProductId": null,
     "status": "active",
-    "pdfUrl": "/product-blobs/haksancnc/pdfs/haksan-cnc-tc-1000.pdf"
+    "pdfUrl": "pdfs/haksan-cnc-tc-1000.pdf"
   },
   {
     "id": "haksan-cnc-tc-510",
     "brand": "LK Machinery",
     "productGroup": "CNC",
     "productGroupCode": "CNC",
+    "series": "TC Serisi",
     "model": "TC-510",
     "modelName": "TC-510 CNC Tapping Center",
     "type": "CNC Tapping Center",
@@ -1618,7 +1638,7 @@
     "categoryCode": "TEZGAH",
     "subcategory": "İşleme Merkezi",
     "subcategoryCode": "ISLEME_MERKEZI",
-    "imageUrl": "/product-blobs/haksancnc/haksan-cnc-tc-510.jpg",
+    "imageUrl": "images/haksan-cnc-tc-510.jpg",
     "shortDescription": "TC-510, CNC tapping center olarak, hassas delik işleme ve vidalama işlemleri için tasarlanmıştır. Yüksek verimlilik ve hassasiyet sağlar.",
     "description": "TC-510, CNC tapping center olarak, hassas delik işleme ve vidalama işlemleri için tasarlanmıştır. Yüksek verimlilik ve hassasiyet sağlar. Kaynak: https://www.haksancnc.com.tr/urun-detay-tc-510cnctappingcenter-1569",
     "listPrice": 0,
@@ -1658,13 +1678,14 @@
     "optionalEquipment": [],
     "muadilProductId": null,
     "status": "active",
-    "pdfUrl": "/product-blobs/haksancnc/pdfs/haksan-cnc-tc-510.pdf"
+    "pdfUrl": "pdfs/haksan-cnc-tc-510.pdf"
   },
   {
     "id": "haksan-cnc-tc-710",
     "brand": "LK Machinery",
     "productGroup": "CNC",
     "productGroupCode": "CNC",
+    "series": "TC Serisi",
     "model": "TC-710",
     "modelName": "TC-710 CNC Tapping Center",
     "type": "CNC Tapping Center",
@@ -1674,7 +1695,7 @@
     "categoryCode": "TEZGAH",
     "subcategory": "İşleme Merkezi",
     "subcategoryCode": "ISLEME_MERKEZI",
-    "imageUrl": "/product-blobs/haksancnc/haksan-cnc-tc-710.jpg",
+    "imageUrl": "images/haksan-cnc-tc-710.jpg",
     "shortDescription": "TC-710, yüksek performanslı bir CNC tapping center olarak, hassas delik işleme ve vidalama işlemlerinde mükemmel sonuçlar sağlar. Endüstriyel projeler için verimli ve güvenilir bir çözümdür.",
     "description": "TC-710, yüksek performanslı bir CNC tapping center olarak, hassas delik işleme ve vidalama işlemlerinde mükemmel sonuçlar sağlar. Endüstriyel projeler için verimli ve güvenilir bir çözümdür. Kaynak: https://www.haksancnc.com.tr/urun-detay-tc-710cnctappingcenter-1575",
     "listPrice": 0,
@@ -1714,13 +1735,14 @@
     "optionalEquipment": [],
     "muadilProductId": null,
     "status": "active",
-    "pdfUrl": "/product-blobs/haksancnc/pdfs/haksan-cnc-tc-710.pdf"
+    "pdfUrl": "pdfs/haksan-cnc-tc-710.pdf"
   },
   {
     "id": "haksan-cnc-mt-208-1000",
     "brand": "ECOCA",
     "productGroup": "CNC",
     "productGroupCode": "CNC",
+    "series": "MT Serisi",
     "model": "MT-208/1000",
     "modelName": "MT-208/1000 CNC Torna",
     "type": "CNC Torna Tezgahı",
@@ -1730,7 +1752,7 @@
     "categoryCode": "TEZGAH",
     "subcategory": "Torna",
     "subcategoryCode": "TORNA",
-    "imageUrl": "/product-blobs/haksancnc/haksan-cnc-mt-208-1000.jpg",
+    "imageUrl": "images/haksan-cnc-mt-208-1000.jpg",
     "shortDescription": "MT-208, hassasiyet ve sağlamlık gerektiren endüstriyel projelerde verimli performans sunar. Çok yönlü yapısı ile üretim ihtiyaçlarınızı karşılar.",
     "description": "MT-208, hassasiyet ve sağlamlık gerektiren endüstriyel projelerde verimli performans sunar. Çok yönlü yapısı ile üretim ihtiyaçlarınızı karşılar. Kaynak: https://www.haksancnc.com.tr/urun-detay-mt-208-1000cnctorna-1601",
     "listPrice": 0,
@@ -1758,13 +1780,14 @@
     "optionalEquipment": [],
     "muadilProductId": null,
     "status": "active",
-    "pdfUrl": "/product-blobs/haksancnc/pdfs/haksan-cnc-mt-208-1000.pdf"
+    "pdfUrl": "pdfs/haksan-cnc-mt-208-1000.pdf"
   },
   {
     "id": "haksan-cnc-mt-208-500",
     "brand": "ECOCA",
     "productGroup": "CNC",
     "productGroupCode": "CNC",
+    "series": "MT Serisi",
     "model": "MT-208/500",
     "modelName": "MT-208/500 CNC Torna",
     "type": "CNC Torna Tezgahı",
@@ -1774,7 +1797,7 @@
     "categoryCode": "TEZGAH",
     "subcategory": "Torna",
     "subcategoryCode": "TORNA",
-    "imageUrl": "/product-blobs/haksancnc/haksan-cnc-mt-208-500.jpg",
+    "imageUrl": "images/haksan-cnc-mt-208-500.jpg",
     "shortDescription": "MT-208, hassasiyet ve sağlamlık gerektiren endüstriyel projelerde verimli performans sunar. Çok yönlü yapısı ile üretim ihtiyaçlarınızı karşılar.",
     "description": "MT-208, hassasiyet ve sağlamlık gerektiren endüstriyel projelerde verimli performans sunar. Çok yönlü yapısı ile üretim ihtiyaçlarınızı karşılar. Kaynak: https://www.haksancnc.com.tr/urun-detay-mt-208-500cnctorna-1599",
     "listPrice": 0,
@@ -1802,13 +1825,14 @@
     "optionalEquipment": [],
     "muadilProductId": null,
     "status": "active",
-    "pdfUrl": "/product-blobs/haksancnc/pdfs/haksan-cnc-mt-208-500.pdf"
+    "pdfUrl": "pdfs/haksan-cnc-mt-208-500.pdf"
   },
   {
     "id": "haksan-cnc-mt-208-750",
     "brand": "ECOCA",
     "productGroup": "CNC",
     "productGroupCode": "CNC",
+    "series": "MT Serisi",
     "model": "MT-208/750",
     "modelName": "MT-208/750 CNC Torna",
     "type": "CNC Torna Tezgahı",
@@ -1818,7 +1842,7 @@
     "categoryCode": "TEZGAH",
     "subcategory": "Torna",
     "subcategoryCode": "TORNA",
-    "imageUrl": "/product-blobs/haksancnc/haksan-cnc-mt-208-750.jpg",
+    "imageUrl": "images/haksan-cnc-mt-208-750.jpg",
     "shortDescription": "MT-208, hassasiyet ve sağlamlık gerektiren endüstriyel projelerde verimli performans sunar. Çok yönlü yapısı ile üretim ihtiyaçlarınızı karşılar.",
     "description": "MT-208, hassasiyet ve sağlamlık gerektiren endüstriyel projelerde verimli performans sunar. Çok yönlü yapısı ile üretim ihtiyaçlarınızı karşılar. Kaynak: https://www.haksancnc.com.tr/urun-detay-mt-208-750cnctorna-1600",
     "listPrice": 0,
@@ -1846,29 +1870,30 @@
     "optionalEquipment": [],
     "muadilProductId": null,
     "status": "active",
-    "pdfUrl": "/product-blobs/haksancnc/pdfs/haksan-cnc-mt-208-750.pdf"
+    "pdfUrl": "pdfs/haksan-cnc-mt-208-750.pdf"
   },
   {
     "id": "haksan-cnc-mt-210-1000",
     "brand": "ECOCA",
     "productGroup": "CNC",
     "productGroupCode": "CNC",
+    "series": "MT Serisi",
     "model": "MT-210/1000",
-    "modelName": "MT-210/1000 CNC Torna",
+    "modelName": "MT-210/1000 CNC Torna Tezgahı",
     "type": "CNC Torna Tezgahı",
     "productTypeCode": "CNC_YATAY_TORNA_TEZGAHI",
-    "controlPanel": "",
+    "controlPanel": "FANUC 0i-TF Plus",
     "category": "CNC Torna Tezgahları",
     "categoryCode": "TEZGAH",
     "subcategory": "Torna",
     "subcategoryCode": "TORNA",
-    "imageUrl": "/product-blobs/haksancnc/haksan-cnc-mt-210-1000.jpg",
+    "imageUrl": "images/haksan-cnc-mt-210-1000.jpg",
     "shortDescription": "MT-210, geniş işleme kapasitesi ve yüksek hassasiyeti ile metal işleme projelerinde güvenilir bir performans sağlar.",
     "description": "MT-210, geniş işleme kapasitesi ve yüksek hassasiyeti ile metal işleme projelerinde güvenilir bir performans sağlar. Kaynak: https://www.haksancnc.com.tr/urun-detay-mt-210-1000cnctorna-1604",
-    "listPrice": 0,
-    "cashPrice": 0,
+    "listPrice": 89235,
+    "cashPrice": 80000,
     "currency": "USD",
-    "vatRate": 20,
+    "vatRate": 10,
     "originCountry": "",
     "hsCode": "",
     "stockCode": "HAKSAN-MT-210-1000",
@@ -1878,25 +1903,219 @@
         "value": "10\""
       },
       {
-        "key": "Azami Çevirme Kapasitesi",
+        "key": "Maks. Çevirme Kapasitesi",
         "value": "Ø 545 mm"
       },
       {
-        "key": "Azami Tornalama Çapı",
+        "key": "Maks. Tornalama Çapı",
         "value": "Ø 380 mm"
+      },
+      {
+        "key": "Maks. Tornalama Boyu",
+        "value": "1.000 mm"
+      },
+      {
+        "key": "Maks. Çubuk İşleme Çapı",
+        "value": "Ø 75 mm"
+      },
+      {
+        "key": "Fener Mili Devri",
+        "value": "4.200 dv/dk"
+      },
+      {
+        "key": "Fener Mili Motor Gücü",
+        "value": "15 kW"
+      },
+      {
+        "key": "Fener Mili Standardı",
+        "value": "A2-08"
+      },
+      {
+        "key": "Fener Mili Delik Çapı",
+        "value": "Ø 92 mm"
+      },
+      {
+        "key": "Fener Mili Ön Rulman Çapı",
+        "value": "Ø 130 mm"
+      },
+      {
+        "key": "Karşı Punta Pinol Çapı",
+        "value": "Ø 90 mm"
+      },
+      {
+        "key": "Karşı Punta Pinol Hareketi",
+        "value": "85 mm"
+      },
+      {
+        "key": "Karşı Punta Pinol Koniği",
+        "value": "MT-5"
+      },
+      {
+        "key": "Karşı Punta Gövde Hareketi",
+        "value": "960 mm"
+      },
+      {
+        "key": "Karşı Ayna Ölçüsü",
+        "value": "-"
+      },
+      {
+        "key": "Karşı Ayna Çubuk İşleme Çapı",
+        "value": "-"
+      },
+      {
+        "key": "Karşı Ayna Devri",
+        "value": "-"
+      },
+      {
+        "key": "Karşı Ayna Motor Gücü",
+        "value": "-"
+      },
+      {
+        "key": "Canlı Takım Devri",
+        "value": "-"
+      },
+      {
+        "key": "Canlı Takım Motor Gücü",
+        "value": "-"
+      },
+      {
+        "key": "Bağlanabilir Canlı Takım Sayısı",
+        "value": "-"
+      },
+      {
+        "key": "Canlı Takım Tutucu Standardı",
+        "value": "-"
+      },
+      {
+        "key": "X Eksen Hareketi",
+        "value": "200 mm"
+      },
+      {
+        "key": "Z Eksen Hareketi",
+        "value": "1.030 mm"
+      },
+      {
+        "key": "Y Eksen Hareketi",
+        "value": "-"
+      },
+      {
+        "key": "Z-2 Eksen Hareketi",
+        "value": "-"
+      },
+      {
+        "key": "X Eksen Boşta İlerleme Oranı",
+        "value": "20.000 mm/dk"
+      },
+      {
+        "key": "Z Eksen Boşta İlerleme Oranı",
+        "value": "20.000 mm/dk"
+      },
+      {
+        "key": "Y Eksen Boşta İlerleme Oranı",
+        "value": "-"
+      },
+      {
+        "key": "Z-2 Eksen Boşta İlerleme Oranı",
+        "value": "-"
+      },
+      {
+        "key": "X Eksen Motor Gücü",
+        "value": "2,5 kW"
+      },
+      {
+        "key": "Z Eksen Motor Gücü",
+        "value": "2,5 kW"
+      },
+      {
+        "key": "Y Eksen Motor Gücü",
+        "value": "-"
+      },
+      {
+        "key": "Z-2 Eksen Motor Gücü",
+        "value": "-"
+      },
+      {
+        "key": "Taret Tipi",
+        "value": "Hidrolik Taret"
+      },
+      {
+        "key": "Taret İstasyon Sayısı",
+        "value": "10 Adet"
+      },
+      {
+        "key": "Maks. Kare Takım Ölçüsü",
+        "value": "25x25 mm"
+      },
+      {
+        "key": "Maks. Yuvarlak Takım Ölçüsü",
+        "value": "Ø 40 mm"
+      },
+      {
+        "key": "Toplam Güç Gereksinimi",
+        "value": "30 kW"
+      },
+      {
+        "key": "Toplam Hava Gereksinimi",
+        "value": "-"
+      },
+      {
+        "key": "Soğutma Sıvısı Tank Kapasitesi",
+        "value": "125 lt"
+      },
+      {
+        "key": "Tezgahın Kapladığı Alan",
+        "value": "4.557 x 1.618 x 2.115 mm"
+      },
+      {
+        "key": "Tezgah Ağırlığı",
+        "value": "5.500 kg"
       }
     ],
-    "standardEquipment": [],
+    "standardEquipment": [
+      "FANUC 0i-TF Plus CNC Kontrol Ünitesi",
+      "10,4” LCD/TFT Renkli Ekran",
+      "Ethernet Bağlantı Birimi",
+      "RS-232 Bağlantı Birimi",
+      "CF Kart Okuma Yuvası, USB Okuma Yuvası",
+      "C-3 Kalitesinde Ön Gerilimi Alınmış Vidalı Miller",
+      "X, Z Eksenler Hidrostatik Sürtünmeli Kutu Kızak",
+      "“MEEHANITE” Mukavemetli ve Monoblok Eğik Bankolu Hassas Döküm Gövde Yapısı",
+      "Hidrolik 10 İstasyon Taret",
+      "RENISHAW Tam Otomatik Takım Ölçme Kolu",
+      "10” (Ø250 mm) 3 Ayaklı Hidrolik Ayna",
+      "Hidrolik Programlanabilir Karşı Punta Pinolü",
+      "Tam Kapalı Kabin, Güvenli Kabin Camları",
+      "Kabin İçi Aydınlatma Sistemi",
+      "3 Renkli Alarm Lambası",
+      "Otomatik (Alarmlı) Üniteden Programlanabilir Merkezi Yağlama Sistemi",
+      "X, Z Eksenlerde Paslanmaz Teleskopik Kızak Koruyucu Sistem",
+      "Bant Tipi Talaş Atma Helezonu & Talaş Arabası",
+      "Otomatik Program Sonu Tezgah Kapama Fonksiyonu",
+      "El Çarkı (Manual Pulse Generator)",
+      "Elektrik Kabini Isı Dengeleme Sistemi",
+      "Yumuşak Ayak Seti (5 Takım)",
+      "Sert Ayak Seti (1 Takım)",
+      "Döner Punta Seti (1 Takım)",
+      "Mors Konik Seti (1 Takım)",
+      "Standart Takım Tutucu Seti (1 Takım)",
+      "Takımlar & Takım Çantası",
+      "Tezgahı Kullanma ve Bakım Kitapları",
+      "FANUC Programlama ve Kullanma Kitapları",
+      "CE Normlarına Uygun Elektrik ve Güvenlik Tertibatı",
+      "1 Yıl Mekanik Tezgah Garantisi",
+      "2 Yıl Uluslararası FANUC Kontrol Ünitesi Garantisi"
+    ],
     "optionalEquipment": [],
     "muadilProductId": null,
     "status": "active",
-    "pdfUrl": "/product-blobs/haksancnc/pdfs/haksan-cnc-mt-210-1000.pdf"
+    "pdfUrl": "pdfs/haksan-cnc-mt-210-1000.pdf"
   },
   {
     "id": "haksan-cnc-mt-210-500",
     "brand": "ECOCA",
     "productGroup": "CNC",
     "productGroupCode": "CNC",
+    "series": "MT Serisi",
     "model": "MT-210/500",
     "modelName": "MT-210/500 CNC Torna",
     "type": "CNC Torna Tezgahı",
@@ -1906,7 +2125,7 @@
     "categoryCode": "TEZGAH",
     "subcategory": "Torna",
     "subcategoryCode": "TORNA",
-    "imageUrl": "/product-blobs/haksancnc/haksan-cnc-mt-210-500.jpg",
+    "imageUrl": "images/haksan-cnc-mt-210-500.jpg",
     "shortDescription": "MT-210, geniş işleme kapasitesi ve yüksek hassasiyeti ile metal işleme projelerinde güvenilir bir performans sağlar.",
     "description": "MT-210, geniş işleme kapasitesi ve yüksek hassasiyeti ile metal işleme projelerinde güvenilir bir performans sağlar. Kaynak: https://www.haksancnc.com.tr/urun-detay-mt-210-500cnctorna-1602",
     "listPrice": 0,
@@ -1934,13 +2153,14 @@
     "optionalEquipment": [],
     "muadilProductId": null,
     "status": "active",
-    "pdfUrl": "/product-blobs/haksancnc/pdfs/haksan-cnc-mt-210-500.pdf"
+    "pdfUrl": "pdfs/haksan-cnc-mt-210-500.pdf"
   },
   {
     "id": "haksan-cnc-mt-210-750",
     "brand": "ECOCA",
     "productGroup": "CNC",
     "productGroupCode": "CNC",
+    "series": "MT Serisi",
     "model": "MT-210/750",
     "modelName": "MT-210/750 CNC Torna",
     "type": "CNC Torna Tezgahı",
@@ -1950,7 +2170,7 @@
     "categoryCode": "TEZGAH",
     "subcategory": "Torna",
     "subcategoryCode": "TORNA",
-    "imageUrl": "/product-blobs/haksancnc/haksan-cnc-mt-210-750.jpg",
+    "imageUrl": "images/haksan-cnc-mt-210-750.jpg",
     "shortDescription": "MT-210, geniş işleme kapasitesi ve yüksek hassasiyeti ile metal işleme projelerinde güvenilir bir performans sağlar.",
     "description": "MT-210, geniş işleme kapasitesi ve yüksek hassasiyeti ile metal işleme projelerinde güvenilir bir performans sağlar. Kaynak: https://www.haksancnc.com.tr/urun-detay-mt-210-750cnctorna-1603",
     "listPrice": 0,
@@ -1978,13 +2198,14 @@
     "optionalEquipment": [],
     "muadilProductId": null,
     "status": "active",
-    "pdfUrl": "/product-blobs/haksancnc/pdfs/haksan-cnc-mt-210-750.pdf"
+    "pdfUrl": "pdfs/haksan-cnc-mt-210-750.pdf"
   },
   {
     "id": "haksan-cnc-mt-310-1000",
     "brand": "ECOCA",
     "productGroup": "CNC",
     "productGroupCode": "CNC",
+    "series": "MT Serisi",
     "model": "MT-310/1000",
     "modelName": "MT-310/1000 CNC Torna",
     "type": "CNC Torna Tezgahı",
@@ -1994,7 +2215,7 @@
     "categoryCode": "TEZGAH",
     "subcategory": "Torna",
     "subcategoryCode": "TORNA",
-    "imageUrl": "/product-blobs/haksancnc/haksan-cnc-mt-310-1000.jpg",
+    "imageUrl": "images/haksan-cnc-mt-310-1000.jpg",
     "shortDescription": "MT-310, endüstriyel tornalama işlemlerinde yüksek performans sunar. Geniş işleme kapasitesi ile güçlü ve esnek bir çözüm sunar.",
     "description": "MT-310, endüstriyel tornalama işlemlerinde yüksek performans sunar. Geniş işleme kapasitesi ile güçlü ve esnek bir çözüm sunar. Kaynak: https://www.haksancnc.com.tr/urun-detay-mt-310-1000cnctorna-1607",
     "listPrice": 0,
@@ -2022,13 +2243,14 @@
     "optionalEquipment": [],
     "muadilProductId": null,
     "status": "active",
-    "pdfUrl": "/product-blobs/haksancnc/pdfs/haksan-cnc-mt-310-1000.pdf"
+    "pdfUrl": "pdfs/haksan-cnc-mt-310-1000.pdf"
   },
   {
     "id": "haksan-cnc-mt-310-500",
     "brand": "ECOCA",
     "productGroup": "CNC",
     "productGroupCode": "CNC",
+    "series": "MT Serisi",
     "model": "MT-310/500",
     "modelName": "MT-310/500 CNC Torna",
     "type": "CNC Torna Tezgahı",
@@ -2038,7 +2260,7 @@
     "categoryCode": "TEZGAH",
     "subcategory": "Torna",
     "subcategoryCode": "TORNA",
-    "imageUrl": "/product-blobs/haksancnc/haksan-cnc-mt-310-500.jpg",
+    "imageUrl": "images/haksan-cnc-mt-310-500.jpg",
     "shortDescription": "MT-310, endüstriyel tornalama işlemlerinde yüksek performans sunar. Geniş işleme kapasitesi ile güçlü ve esnek bir çözüm sunar.",
     "description": "MT-310, endüstriyel tornalama işlemlerinde yüksek performans sunar. Geniş işleme kapasitesi ile güçlü ve esnek bir çözüm sunar. Kaynak: https://www.haksancnc.com.tr/urun-detay-mt-310-500cnctorna-1605",
     "listPrice": 0,
@@ -2066,13 +2288,14 @@
     "optionalEquipment": [],
     "muadilProductId": null,
     "status": "active",
-    "pdfUrl": "/product-blobs/haksancnc/pdfs/haksan-cnc-mt-310-500.pdf"
+    "pdfUrl": "pdfs/haksan-cnc-mt-310-500.pdf"
   },
   {
     "id": "haksan-cnc-mt-310-750",
     "brand": "ECOCA",
     "productGroup": "CNC",
     "productGroupCode": "CNC",
+    "series": "MT Serisi",
     "model": "MT-310/750",
     "modelName": "MT-310/750 CNC Torna",
     "type": "CNC Torna Tezgahı",
@@ -2082,7 +2305,7 @@
     "categoryCode": "TEZGAH",
     "subcategory": "Torna",
     "subcategoryCode": "TORNA",
-    "imageUrl": "/product-blobs/haksancnc/haksan-cnc-mt-310-750.jpg",
+    "imageUrl": "images/haksan-cnc-mt-310-750.jpg",
     "shortDescription": "MT-310, endüstriyel tornalama işlemlerinde yüksek performans sunar. Geniş işleme kapasitesi ile güçlü ve esnek bir çözüm sunar.",
     "description": "MT-310, endüstriyel tornalama işlemlerinde yüksek performans sunar. Geniş işleme kapasitesi ile güçlü ve esnek bir çözüm sunar. Kaynak: https://www.haksancnc.com.tr/urun-detay-mt-310-750cnctorna-1606",
     "listPrice": 0,
@@ -2110,13 +2333,14 @@
     "optionalEquipment": [],
     "muadilProductId": null,
     "status": "active",
-    "pdfUrl": "/product-blobs/haksancnc/pdfs/haksan-cnc-mt-310-750.pdf"
+    "pdfUrl": "pdfs/haksan-cnc-mt-310-750.pdf"
   },
   {
     "id": "haksan-cnc-mt-312-1000",
     "brand": "ECOCA",
     "productGroup": "CNC",
     "productGroupCode": "CNC",
+    "series": "MT Serisi",
     "model": "MT-312/1000",
     "modelName": "MT-312/1000 CNC Torna",
     "type": "CNC Torna Tezgahı",
@@ -2126,7 +2350,7 @@
     "categoryCode": "TEZGAH",
     "subcategory": "Torna",
     "subcategoryCode": "TORNA",
-    "imageUrl": "/product-blobs/haksancnc/haksan-cnc-mt-312-1000.jpg",
+    "imageUrl": "images/haksan-cnc-mt-312-1000.jpg",
     "shortDescription": "MT-312, güçlü performansı ve hassas işleme kabiliyetiyle yüksek verimlilik sunar. Endüstriyel projelerinizde uzun süreli güvenilir bir çözüm sağlar.",
     "description": "MT-312, güçlü performansı ve hassas işleme kabiliyetiyle yüksek verimlilik sunar. Endüstriyel projelerinizde uzun süreli güvenilir bir çözüm sağlar. Kaynak: https://www.haksancnc.com.tr/urun-detay-mt-312-1000cnctorna-1610",
     "listPrice": 0,
@@ -2154,13 +2378,14 @@
     "optionalEquipment": [],
     "muadilProductId": null,
     "status": "active",
-    "pdfUrl": "/product-blobs/haksancnc/pdfs/haksan-cnc-mt-312-1000.pdf"
+    "pdfUrl": "pdfs/haksan-cnc-mt-312-1000.pdf"
   },
   {
     "id": "haksan-cnc-mt-312-500",
     "brand": "ECOCA",
     "productGroup": "CNC",
     "productGroupCode": "CNC",
+    "series": "MT Serisi",
     "model": "MT-312/500",
     "modelName": "MT-312/500 CNC Torna",
     "type": "CNC Torna Tezgahı",
@@ -2170,7 +2395,7 @@
     "categoryCode": "TEZGAH",
     "subcategory": "Torna",
     "subcategoryCode": "TORNA",
-    "imageUrl": "/product-blobs/haksancnc/haksan-cnc-mt-312-500.jpg",
+    "imageUrl": "images/haksan-cnc-mt-312-500.jpg",
     "shortDescription": "MT-312, güçlü performansı ve hassas işleme kabiliyetiyle yüksek verimlilik sunar. Endüstriyel projelerinizde uzun süreli güvenilir bir çözüm sağlar.",
     "description": "MT-312, güçlü performansı ve hassas işleme kabiliyetiyle yüksek verimlilik sunar. Endüstriyel projelerinizde uzun süreli güvenilir bir çözüm sağlar. Kaynak: https://www.haksancnc.com.tr/urun-detay-mt-312-500cnctorna-1608",
     "listPrice": 0,
@@ -2198,13 +2423,14 @@
     "optionalEquipment": [],
     "muadilProductId": null,
     "status": "active",
-    "pdfUrl": "/product-blobs/haksancnc/pdfs/haksan-cnc-mt-312-500.pdf"
+    "pdfUrl": "pdfs/haksan-cnc-mt-312-500.pdf"
   },
   {
     "id": "haksan-cnc-mt-312-750",
     "brand": "ECOCA",
     "productGroup": "CNC",
     "productGroupCode": "CNC",
+    "series": "MT Serisi",
     "model": "MT-312/750",
     "modelName": "MT-312/750 CNC Torna",
     "type": "CNC Torna Tezgahı",
@@ -2214,7 +2440,7 @@
     "categoryCode": "TEZGAH",
     "subcategory": "Torna",
     "subcategoryCode": "TORNA",
-    "imageUrl": "/product-blobs/haksancnc/haksan-cnc-mt-312-750.jpg",
+    "imageUrl": "images/haksan-cnc-mt-312-750.jpg",
     "shortDescription": "MT-312, güçlü performansı ve hassas işleme kabiliyetiyle yüksek verimlilik sunar. Endüstriyel projelerinizde uzun süreli güvenilir bir çözüm sağlar.",
     "description": "MT-312, güçlü performansı ve hassas işleme kabiliyetiyle yüksek verimlilik sunar. Endüstriyel projelerinizde uzun süreli güvenilir bir çözüm sağlar. Kaynak: https://www.haksancnc.com.tr/urun-detay-mt-312-750cnctorna-1609",
     "listPrice": 0,
@@ -2242,13 +2468,14 @@
     "optionalEquipment": [],
     "muadilProductId": null,
     "status": "active",
-    "pdfUrl": "/product-blobs/haksancnc/pdfs/haksan-cnc-mt-312-750.pdf"
+    "pdfUrl": "pdfs/haksan-cnc-mt-312-750.pdf"
   },
   {
     "id": "haksan-cnc-mt-412-1000",
     "brand": "ECOCA",
     "productGroup": "CNC",
     "productGroupCode": "CNC",
+    "series": "MT Serisi",
     "model": "MT-412/1000",
     "modelName": "MT-412/1000 CNC Torna",
     "type": "CNC Torna Tezgahı",
@@ -2258,7 +2485,7 @@
     "categoryCode": "TEZGAH",
     "subcategory": "Torna",
     "subcategoryCode": "TORNA",
-    "imageUrl": "/product-blobs/haksancnc/haksan-cnc-mt-412-1000.jpg",
+    "imageUrl": "images/haksan-cnc-mt-412-1000.jpg",
     "shortDescription": "MT-412, dayanıklı yapısı ve hassas işleme kapasitesi ile endüstriyel torna projelerinizde mükemmel performans gösterir.",
     "description": "MT-412, dayanıklı yapısı ve hassas işleme kapasitesi ile endüstriyel torna projelerinizde mükemmel performans gösterir. Kaynak: https://www.haksancnc.com.tr/urun-detay-mt-412-1000cnctorna-1613",
     "listPrice": 0,
@@ -2286,13 +2513,14 @@
     "optionalEquipment": [],
     "muadilProductId": null,
     "status": "active",
-    "pdfUrl": "/product-blobs/haksancnc/pdfs/haksan-cnc-mt-412-1000.pdf"
+    "pdfUrl": "pdfs/haksan-cnc-mt-412-1000.pdf"
   },
   {
     "id": "haksan-cnc-mt-412-750",
     "brand": "ECOCA",
     "productGroup": "CNC",
     "productGroupCode": "CNC",
+    "series": "MT Serisi",
     "model": "MT-412/750",
     "modelName": "MT-412/750 CNC Torna",
     "type": "CNC Torna Tezgahı",
@@ -2302,7 +2530,7 @@
     "categoryCode": "TEZGAH",
     "subcategory": "Torna",
     "subcategoryCode": "TORNA",
-    "imageUrl": "/product-blobs/haksancnc/haksan-cnc-mt-412-750.jpg",
+    "imageUrl": "images/haksan-cnc-mt-412-750.jpg",
     "shortDescription": "MT-412, dayanıklı yapısı ve hassas işleme kapasitesi ile endüstriyel torna projelerinizde mükemmel performans gösterir.",
     "description": "MT-412, dayanıklı yapısı ve hassas işleme kapasitesi ile endüstriyel torna projelerinizde mükemmel performans gösterir. Kaynak: https://www.haksancnc.com.tr/urun-detay-mt-412-750cnctorna-1614",
     "listPrice": 0,
@@ -2330,13 +2558,14 @@
     "optionalEquipment": [],
     "muadilProductId": null,
     "status": "active",
-    "pdfUrl": "/product-blobs/haksancnc/pdfs/haksan-cnc-mt-412-750.pdf"
+    "pdfUrl": "pdfs/haksan-cnc-mt-412-750.pdf"
   },
   {
     "id": "haksan-cnc-mt-415-1000",
     "brand": "ECOCA",
     "productGroup": "CNC",
     "productGroupCode": "CNC",
+    "series": "MT Serisi",
     "model": "MT-415/1000",
     "modelName": "MT-415/1000 CNC Torna",
     "type": "CNC Torna Tezgahı",
@@ -2346,7 +2575,7 @@
     "categoryCode": "TEZGAH",
     "subcategory": "Torna",
     "subcategoryCode": "TORNA",
-    "imageUrl": "/product-blobs/haksancnc/haksan-cnc-mt-415-1000.jpg",
+    "imageUrl": "images/haksan-cnc-mt-415-1000.jpg",
     "shortDescription": "MT-415, metal işleme ihtiyaçlarınıza güçlü ve esnek çözümler sunarak yüksek performans sağlar. Endüstriyel tornalama işlemleri için idealdir.",
     "description": "MT-415, metal işleme ihtiyaçlarınıza güçlü ve esnek çözümler sunarak yüksek performans sağlar. Endüstriyel tornalama işlemleri için idealdir. Kaynak: https://www.haksancnc.com.tr/urun-detay-mt-415-1000cnctorna-1611",
     "listPrice": 0,
@@ -2374,13 +2603,14 @@
     "optionalEquipment": [],
     "muadilProductId": null,
     "status": "active",
-    "pdfUrl": "/product-blobs/haksancnc/pdfs/haksan-cnc-mt-415-1000.pdf"
+    "pdfUrl": "pdfs/haksan-cnc-mt-415-1000.pdf"
   },
   {
     "id": "haksan-cnc-mt-415-750",
     "brand": "ECOCA",
     "productGroup": "CNC",
     "productGroupCode": "CNC",
+    "series": "MT Serisi",
     "model": "MT-415/750",
     "modelName": "MT-415/750 CNC Torna",
     "type": "CNC Torna Tezgahı",
@@ -2390,7 +2620,7 @@
     "categoryCode": "TEZGAH",
     "subcategory": "Torna",
     "subcategoryCode": "TORNA",
-    "imageUrl": "/product-blobs/haksancnc/haksan-cnc-mt-415-750.jpg",
+    "imageUrl": "images/haksan-cnc-mt-415-750.jpg",
     "shortDescription": "MT-415, metal işleme ihtiyaçlarınıza güçlü ve esnek çözümler sunarak yüksek performans sağlar. Endüstriyel tornalama işlemleri için idealdir.",
     "description": "MT-415, metal işleme ihtiyaçlarınıza güçlü ve esnek çözümler sunarak yüksek performans sağlar. Endüstriyel tornalama işlemleri için idealdir. Kaynak: https://www.haksancnc.com.tr/urun-detay-mt-415-750cnctorna-1612",
     "listPrice": 0,
@@ -2418,13 +2648,14 @@
     "optionalEquipment": [],
     "muadilProductId": null,
     "status": "active",
-    "pdfUrl": "/product-blobs/haksancnc/pdfs/haksan-cnc-mt-415-750.pdf"
+    "pdfUrl": "pdfs/haksan-cnc-mt-415-750.pdf"
   },
   {
     "id": "haksan-cnc-mt-520-1000",
     "brand": "ECOCA",
     "productGroup": "CNC",
     "productGroupCode": "CNC",
+    "series": "MT Serisi",
     "model": "MT-520/1000",
     "modelName": "MT-520/1000 CNC Torna",
     "type": "CNC Torna Tezgahı",
@@ -2434,7 +2665,7 @@
     "categoryCode": "TEZGAH",
     "subcategory": "Torna",
     "subcategoryCode": "TORNA",
-    "imageUrl": "/product-blobs/haksancnc/haksan-cnc-mt-520-1000.jpg",
+    "imageUrl": "images/haksan-cnc-mt-520-1000.jpg",
     "shortDescription": "MT-520, yüksek hassasiyet ve güçlü performansı ile endüstriyel torna işlemlerinde güvenilirlik sunar. Yüksek kaliteli işleme çözümleri için tercih edilir.",
     "description": "MT-520, yüksek hassasiyet ve güçlü performansı ile endüstriyel torna işlemlerinde güvenilirlik sunar. Yüksek kaliteli işleme çözümleri için tercih edilir. Kaynak: https://www.haksancnc.com.tr/urun-detay-mt-520-1000cnctorna-1615",
     "listPrice": 0,
@@ -2462,13 +2693,14 @@
     "optionalEquipment": [],
     "muadilProductId": null,
     "status": "active",
-    "pdfUrl": "/product-blobs/haksancnc/pdfs/haksan-cnc-mt-520-1000.pdf"
+    "pdfUrl": "pdfs/haksan-cnc-mt-520-1000.pdf"
   },
   {
     "id": "haksan-cnc-mt-520-2000",
     "brand": "ECOCA",
     "productGroup": "CNC",
     "productGroupCode": "CNC",
+    "series": "MT Serisi",
     "model": "MT-520/2000",
     "modelName": "MT-520/2000 CNC Torna",
     "type": "CNC Torna Tezgahı",
@@ -2478,7 +2710,7 @@
     "categoryCode": "TEZGAH",
     "subcategory": "Torna",
     "subcategoryCode": "TORNA",
-    "imageUrl": "/product-blobs/haksancnc/haksan-cnc-mt-520-2000.jpg",
+    "imageUrl": "images/haksan-cnc-mt-520-2000.jpg",
     "shortDescription": "MT-520, yüksek hassasiyet ve güçlü performansı ile endüstriyel torna işlemlerinde güvenilirlik sunar. Yüksek kaliteli işleme çözümleri için tercih edilir.",
     "description": "MT-520, yüksek hassasiyet ve güçlü performansı ile endüstriyel torna işlemlerinde güvenilirlik sunar. Yüksek kaliteli işleme çözümleri için tercih edilir. Kaynak: https://www.haksancnc.com.tr/urun-detay-mt-520-2000cnctorna-1616",
     "listPrice": 0,
@@ -2506,13 +2738,14 @@
     "optionalEquipment": [],
     "muadilProductId": null,
     "status": "active",
-    "pdfUrl": "/product-blobs/haksancnc/pdfs/haksan-cnc-mt-520-2000.pdf"
+    "pdfUrl": "pdfs/haksan-cnc-mt-520-2000.pdf"
   },
   {
     "id": "haksan-cnc-sj-20",
     "brand": "ECOCA",
     "productGroup": "CNC",
     "productGroupCode": "CNC",
+    "series": "SJ Serisi",
     "model": "SJ-20",
     "modelName": "SJ-20 CNC Torna",
     "type": "CNC Torna Tezgahı",
@@ -2522,7 +2755,7 @@
     "categoryCode": "TEZGAH",
     "subcategory": "Torna",
     "subcategoryCode": "TORNA",
-    "imageUrl": "/product-blobs/haksancnc/haksan-cnc-sj-20.jpg",
+    "imageUrl": "images/haksan-cnc-sj-20.jpg",
     "shortDescription": "SJ-20, küçük ve orta ölçekli torna projelerinde yüksek hassasiyet ve dayanıklılık sunar. Metal işleme ve tornalama işlemleri için mükemmel bir tercihtir.",
     "description": "SJ-20, küçük ve orta ölçekli torna projelerinde yüksek hassasiyet ve dayanıklılık sunar. Metal işleme ve tornalama işlemleri için mükemmel bir tercihtir. Kaynak: https://www.haksancnc.com.tr/urun-detay-sj-20cnctorna-1597",
     "listPrice": 0,
@@ -2550,13 +2783,14 @@
     "optionalEquipment": [],
     "muadilProductId": null,
     "status": "active",
-    "pdfUrl": "/product-blobs/haksancnc/pdfs/haksan-cnc-sj-20.pdf"
+    "pdfUrl": "pdfs/haksan-cnc-sj-20.pdf"
   },
   {
     "id": "haksan-cnc-sl-8",
     "brand": "ECOCA",
     "productGroup": "CNC",
     "productGroupCode": "CNC",
+    "series": "SL Serisi",
     "model": "SL-8",
     "modelName": "SL-8 CNC Torna",
     "type": "CNC Torna Tezgahı",
@@ -2566,7 +2800,7 @@
     "categoryCode": "TEZGAH",
     "subcategory": "Torna",
     "subcategoryCode": "TORNA",
-    "imageUrl": "/product-blobs/haksancnc/haksan-cnc-sl-8.jpg",
+    "imageUrl": "images/haksan-cnc-sl-8.jpg",
     "shortDescription": "SL-8, dayanıklı yapısı ve yüksek hassasiyetli torna kabiliyeti ile metal işleme endüstrisinde geniş bir kullanım alanına sahiptir.",
     "description": "SL-8, dayanıklı yapısı ve yüksek hassasiyetli torna kabiliyeti ile metal işleme endüstrisinde geniş bir kullanım alanına sahiptir. Kaynak: https://www.haksancnc.com.tr/urun-detay-sl-8cnctorna-1598",
     "listPrice": 0,
@@ -2594,13 +2828,14 @@
     "optionalEquipment": [],
     "muadilProductId": null,
     "status": "active",
-    "pdfUrl": "/product-blobs/haksancnc/pdfs/haksan-cnc-sl-8.pdf"
+    "pdfUrl": "pdfs/haksan-cnc-sl-8.pdf"
   },
   {
     "id": "haksan-cnc-ht-500",
     "brand": "LK Machinery",
     "productGroup": "CNC",
     "productGroupCode": "CNC",
+    "series": "HT Serisi",
     "model": "HT-500",
     "modelName": "HT-500 CNC Yatay İşleme Merkezi",
     "type": "CNC Yatay İşleme Merkezi",
@@ -2610,7 +2845,7 @@
     "categoryCode": "TEZGAH",
     "subcategory": "İşleme Merkezi",
     "subcategoryCode": "ISLEME_MERKEZI",
-    "imageUrl": "/product-blobs/haksancnc/haksan-cnc-ht-500.jpg",
+    "imageUrl": "images/haksan-cnc-ht-500.jpg",
     "shortDescription": "HT-500, CNC yatay işleme merkezi olarak büyük parça işleme ve yüksek performans gerektiren projeler için tasarlanmıştır.",
     "description": "HT-500, CNC yatay işleme merkezi olarak büyük parça işleme ve yüksek performans gerektiren projeler için tasarlanmıştır. Kaynak: https://www.haksancnc.com.tr/urun-detay-ht-500cncyatayislememerkezi-1590",
     "listPrice": 0,
@@ -2668,6 +2903,7 @@
     "brand": "LK Machinery",
     "productGroup": "CNC",
     "productGroupCode": "CNC",
+    "series": "HT Serisi",
     "model": "HT-630",
     "modelName": "HT-630 CNC Yatay İşleme Merkezi",
     "type": "CNC Yatay İşleme Merkezi",
@@ -2677,7 +2913,7 @@
     "categoryCode": "TEZGAH",
     "subcategory": "İşleme Merkezi",
     "subcategoryCode": "ISLEME_MERKEZI",
-    "imageUrl": "/product-blobs/haksancnc/haksan-cnc-ht-630.jpg",
+    "imageUrl": "images/haksan-cnc-ht-630.jpg",
     "shortDescription": "HT-630, CNC yatay işleme merkezi olarak büyük parça işleme kapasitesi ve üstün hassasiyet sunar. Endüstriyel projelerde yüksek performans sağlar.",
     "description": "HT-630, CNC yatay işleme merkezi olarak büyük parça işleme kapasitesi ve üstün hassasiyet sunar. Endüstriyel projelerde yüksek performans sağlar. Kaynak: https://www.haksancnc.com.tr/urun-detay-ht-630cncyatayislememerkezi-1591",
     "listPrice": 0,
@@ -2735,6 +2971,7 @@
     "brand": "LK Machinery",
     "productGroup": "CNC",
     "productGroupCode": "CNC",
+    "series": "HT Serisi",
     "model": "HT-800",
     "modelName": "HT-800 CNC Yatay İşleme Merkezi",
     "type": "CNC Yatay İşleme Merkezi",
@@ -2744,7 +2981,7 @@
     "categoryCode": "TEZGAH",
     "subcategory": "İşleme Merkezi",
     "subcategoryCode": "ISLEME_MERKEZI",
-    "imageUrl": "/product-blobs/haksancnc/haksan-cnc-ht-800.jpg",
+    "imageUrl": "images/haksan-cnc-ht-800.jpg",
     "shortDescription": "HT-800, geniş işleme alanı ve yüksek verimliliği ile büyük ve karmaşık projelerde mükemmel sonuçlar sunar. Yüksek kapasiteli işleme için idealdir.",
     "description": "HT-800, geniş işleme alanı ve yüksek verimliliği ile büyük ve karmaşık projelerde mükemmel sonuçlar sunar. Yüksek kapasiteli işleme için idealdir. Kaynak: https://www.haksancnc.com.tr/urun-detay-ht-800cncyatayislememerkezi-1592",
     "listPrice": 0,
@@ -2796,13 +3033,14 @@
     "optionalEquipment": [],
     "muadilProductId": null,
     "status": "active",
-    "pdfUrl": "/product-blobs/haksancnc/pdfs/haksan-cnc-ht-800.pdf"
+    "pdfUrl": "pdfs/haksan-cnc-ht-800.pdf"
   },
   {
     "id": "haksan-cnc-lh-500",
     "brand": "LK Machinery",
     "productGroup": "CNC",
     "productGroupCode": "CNC",
+    "series": "LH Serisi",
     "model": "LH-500",
     "modelName": "LH-500 CNC Yatay İşleme Merkezi",
     "type": "CNC Yatay İşleme Merkezi",
@@ -2812,7 +3050,7 @@
     "categoryCode": "TEZGAH",
     "subcategory": "İşleme Merkezi",
     "subcategoryCode": "ISLEME_MERKEZI",
-    "imageUrl": "/product-blobs/haksancnc/haksan-cnc-lh-500.jpg",
+    "imageUrl": "images/haksan-cnc-lh-500.jpg",
     "shortDescription": "LH-500, CNC yatay işleme merkezi olarak büyük ölçekli üretim ve yüksek hassasiyet gerektiren işler için uygundur.",
     "description": "LH-500, CNC yatay işleme merkezi olarak büyük ölçekli üretim ve yüksek hassasiyet gerektiren işler için uygundur. Kaynak: https://www.haksancnc.com.tr/urun-detay-lh-500cncyatayislememerkezi-1596",
     "listPrice": 0,

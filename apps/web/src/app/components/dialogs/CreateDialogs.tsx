@@ -1453,7 +1453,7 @@ export function QuickCreateDialog({ trigger }: { trigger: React.ReactNode }) {
 type ProductOption = { code: string; label: string };
 type ProductTypeOption = ProductOption & { categoryCode?: string; subcategoryCode?: string };
 
-const PRODUCT_BRANDS = ["LK", "ECOCA", "MANFORD", "MAXİMART"];
+const PRODUCT_BRANDS = ["LK", "LK Machinery", "ECOCA", "MANFORD", "Manford", "MAXİMART", "Maximart"];
 const PRODUCT_GROUPS: ProductOption[] = [
   { code: "CNC", label: "CNC" },
   { code: "UNIVERSAL", label: "Üniversal" },
@@ -1478,6 +1478,7 @@ const PRODUCT_TYPE_GROUPS: Array<{ label: string; options: ProductTypeOption[] }
       { code: "CNC_YATAY_ISLEME_MERKEZI", label: "CNC Yatay İşleme Merkezi", categoryCode: "TEZGAH", subcategoryCode: "ISLEME_MERKEZI" },
       { code: "CNC_KOPRU_TIPI_ISLEME_MERKEZI", label: "CNC Köprü Tipi İşleme Merkezi", categoryCode: "TEZGAH", subcategoryCode: "ISLEME_MERKEZI" },
       { code: "CNC_5_EKSEN_ISLEME_MERKEZI", label: "CNC 5 Eksen İşleme Merkezi", categoryCode: "TEZGAH", subcategoryCode: "ISLEME_MERKEZI" },
+      { code: "CNC_TAPPING_CENTER", label: "CNC Tapping Center", categoryCode: "TEZGAH", subcategoryCode: "ISLEME_MERKEZI" },
     ],
   },
   {
@@ -1538,6 +1539,7 @@ const SPEC_TEMPLATE_BY_TYPE: Record<string, string[]> = {
   CNC_YATAY_ISLEME_MERKEZI: ["X / Y / Z Eksen Stroku", "Pallet Ölçüsü", "Pallet Sayısı", "Spindle Devri (rpm)", "Spindle Konik", "Takım Magazini Kapasitesi"],
   CNC_KOPRU_TIPI_ISLEME_MERKEZI: ["X / Y / Z Eksen Stroku", "Köprü Açıklığı", "Tabla Ölçüsü", "Spindle Devri (rpm)", "Spindle Gücü (kW)"],
   CNC_5_EKSEN_ISLEME_MERKEZI: ["X / Y / Z Eksen Stroku", "A / C Eksen Dönüş Aralığı", "Tabla Çapı", "Spindle Devri (rpm)", "Spindle Konik"],
+  CNC_TAPPING_CENTER: ["X / Y / Z Eksen Stroku", "Tabla Ölçüsü", "Spindle Devri (rpm)", "Takım Magazini Kapasitesi", "Hızlı İlerleme (m/dk)"],
   CNC_YATAY_TORNA_TEZGAHI: ["Ayna Ölçüsü", "Maks. Tornalama Çapı", "Maks. Tornalama Boyu", "Fener Mili Devri (rpm)", "Taret İstasyon Sayısı", "Çubuk Geçiş Çapı"],
   CNC_DIK_TORNA_TEZGAHI: ["Ayna Ölçüsü", "Maks. Tornalama Çapı", "Maks. Tornalama Yüksekliği", "Fener Mili Devri (rpm)", "Taret İstasyon Sayısı"],
   ELEKTRONIK: ["Parça No", "Uyumlu Model", "Marka", "Garanti Süresi"],

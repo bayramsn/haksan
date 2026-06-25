@@ -285,6 +285,22 @@ export async function importHaksanCnc(): Promise<void> {
         );
       }
     } else {
+      const patch: Partial<typeof schema.productModels.$inferInsert> = {};
+      if (!product.productGroupId && cncGroup?.id) patch.productGroupId = cncGroup.id;
+      if (!product.categoryId && tezgahCat?.id) patch.categoryId = tezgahCat.id;
+      if (!product.subcategoryId && subId) patch.subcategoryId = subId;
+      if (!product.productTypeId && typeId) patch.productTypeId = typeId;
+      if (!product.currencyId && currencyId) patch.currencyId = currencyId;
+      if (!product.modelName && p.modelName) patch.modelName = p.modelName;
+      if (!product.fullName && (p.modelName || modelCode)) patch.fullName = p.modelName || modelCode;
+      if (!product.stockCode && p.stockCode) patch.stockCode = p.stockCode;
+      if (!product.description && (p.description || p.shortDescription)) {
+        patch.description = p.description || p.shortDescription;
+      }
+      if (Object.keys(patch).length) {
+        await db.update(schema.productModels).set(patch).where(eq(schema.productModels.id, product.id));
+        product = { ...product, ...patch };
+      }
       updated += 1;
     }
 

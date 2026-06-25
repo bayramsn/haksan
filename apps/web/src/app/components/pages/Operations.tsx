@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from "react";
+import { Fragment, useEffect, useState, useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
 import { Input } from "../ui/input";
 import { Button } from "../ui/button";
@@ -16,7 +16,7 @@ import { ProductDetailDialog, ProductThumb } from "../dialogs/ProductDetailDialo
 import {
   Cpu, Search, Package, CheckCircle2, Truck, Wrench, Building2,
   ShieldCheck, AlertTriangle, Clock, MapPin, ChevronRight,
-  Plus, Upload,
+  Plus, Upload, Pencil,
 } from "lucide-react";
 
 type Stage = "Stokta" | "Rezerve" | "Sevkiyatta" | "Kuruldu" | "Servis" | "Hizmet Dışı";
@@ -79,19 +79,61 @@ const CURRENCY_LABEL: Record<string, string> = { USD: "USD", EUR: "EUR", TRY: "T
 const fmtMoney = (n?: number | null, cur = "USD") =>
   n === undefined || n === null || Number.isNaN(n) || n === 0 ? "—" : `${n.toLocaleString("tr-TR")} ${CURRENCY_LABEL[cur] ?? cur}`;
 
+const SERIES_ORDER = ["VM", "MV", "VC", "SL", "MT", "SJ", "TC", "HT", "LH", "D", "C", "DL"];
+const SERIES_PREFIX_RE = /^(DL|VM|MV|VC|SL|MT|SJ|TC|HT|LH|D|C)(?=[-\d\s/]|$)/i;
+
+function productSeriesCode(product: Product) {
+  const model = (product.model || product.modelName || "").trim().toLocaleUpperCase("tr-TR");
+  return model.match(SERIES_PREFIX_RE)?.[1]?.toLocaleUpperCase("tr-TR") ?? "";
+}
+
+function productSeriesLabel(product: Product) {
+  const code = productSeriesCode(product);
+  return code ? `${code} Serisi` : "Serisiz";
+}
+
+function productFamilyLabel(product: Product) {
+  const typeCode = (product.productTypeCode ?? "").toLocaleUpperCase("tr-TR");
+  const series = productSeriesCode(product);
+  if (typeCode.includes("TORNA") || ["SL", "MT", "SJ"].includes(series)) return "CNC Torna Tezgahları";
+  if (typeCode === "CNC_TAPPING_CENTER" || series === "TC") return "CNC Tapping Center";
+  if (typeCode.includes("YATAY_ISLEME") || ["HT", "LH"].includes(series)) return "CNC Yatay İşleme Merkezleri";
+  if (typeCode.includes("5_EKSEN") || ["D", "C"].includes(series)) return "CNC 5 Eksen İşleme Merkezleri";
+  if (typeCode.includes("KOPRU") || series === "DL") return "CNC Köprü Tipi İşleme Merkezleri";
+  if (typeCode.includes("DIK_ISLEME") || ["VM", "MV", "VC"].includes(series)) return "CNC Dik İşleme Merkezleri";
+  return product.category || product.productGroup || "Genel";
+}
+
+function seriesSort(a: string, b: string) {
+  const ac = a.replace(" Serisi", "");
+  const bc = b.replace(" Serisi", "");
+  const ai = SERIES_ORDER.indexOf(ac);
+  const bi = SERIES_ORDER.indexOf(bc);
+  if (ai !== -1 || bi !== -1) return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi);
+  return a.localeCompare(b, "tr");
+}
+
 /* =========================================================================
    ÜRÜNLER (Products) — flat list like the company list, click → detail popup
    ========================================================================= */
 export function ProductsPage({ initialQuery }: { initialQuery?: string }) {
   const { products } = useStore();
-  const { hasRole } = useAuth();
+  const { hasRole, hasPermission } = useAuth();
   const [q, setQ] = useState("");
   const [cat, setCat] = useState<string>("all");
+  const [series, setSeries] = useState<string>("all");
   const [selected, setSelected] = useState<Product | null>(null);
+  const [editing, setEditing] = useState<Product | null>(null);
+  const canCreateProducts = hasPermission("products.create");
+  const canEditProducts = hasPermission("products.update");
 
   useEffect(() => {
     if (initialQuery) setQ(initialQuery);
   }, [initialQuery]);
+
+  useEffect(() => {
+    setSeries("all");
+  }, [cat]);
 
   // Servis departmanı katalogda yalnızca yedek parça ve işçilik kalemlerini
   // görür; tezgah/aksesuar gibi satış kalemleri gizlenir. Yöneticiler hepsini görür.
@@ -109,21 +151,35 @@ export function ProductsPage({ initialQuery }: { initialQuery?: string }) {
     [products, serviceScope]
   );
 
-  const categoryLabel = (p: Product) => p.category || p.productGroup || "Genel";
   const productSubtitle = (p: Product) => [p.type, p.subcategory].filter(Boolean).join(" · ");
   const categories = useMemo(
-    () => Array.from(new Set(visibleProducts.map(categoryLabel))).filter(Boolean),
+    () => Array.from(new Set(visibleProducts.map(productFamilyLabel))).filter(Boolean),
     [visibleProducts]
   );
 
-  const filtered = visibleProducts.filter((p) => {
-    if (cat !== "all" && categoryLabel(p) !== cat) return false;
+  const categoryFiltered = visibleProducts.filter((p) => cat === "all" || productFamilyLabel(p) === cat);
+  const seriesOptions = useMemo(
+    () => Array.from(new Set(categoryFiltered.map(productSeriesLabel))).filter(Boolean).sort(seriesSort),
+    [categoryFiltered]
+  );
+
+  const filtered = categoryFiltered.filter((p) => {
+    if (series !== "all" && productSeriesLabel(p) !== series) return false;
     if (!q) return true;
-    const s = q.toLowerCase();
-    return [p.model, p.brand, p.type, p.shortDescription, p.stockCode, p.category].some(
-      (v) => (v ?? "").toLowerCase().includes(s)
+    const s = q.toLocaleLowerCase("tr-TR");
+    return [p.model, p.brand, p.type, p.shortDescription, p.stockCode, p.category, productSeriesLabel(p), productFamilyLabel(p)].some(
+      (v) => (v ?? "").toLocaleLowerCase("tr-TR").includes(s)
     );
   });
+  const grouped = Array.from(
+    filtered.reduce((acc, product) => {
+      const label = productSeriesLabel(product);
+      const list = acc.get(label) ?? [];
+      list.push(product);
+      acc.set(label, list);
+      return acc;
+    }, new Map<string, Product[]>())
+  ).sort(([a], [b]) => seriesSort(a, b));
 
   return (
     <div className="space-y-4">
@@ -131,11 +187,11 @@ export function ProductsPage({ initialQuery }: { initialQuery?: string }) {
         <Tabs value={cat} onValueChange={setCat}>
           <TabsList className="h-9 bg-muted/60 flex-wrap">
             <TabsTrigger value="all" className="gap-1.5">
-              Tümü <CountBadge n={products.length} />
+              Tümü <CountBadge n={visibleProducts.length} />
             </TabsTrigger>
             {categories.map((c) => (
               <TabsTrigger key={c} value={c} className="gap-1.5">
-                {c} <CountBadge n={visibleProducts.filter((p) => categoryLabel(p) === c).length} />
+                {c} <CountBadge n={visibleProducts.filter((p) => productFamilyLabel(p) === c).length} />
               </TabsTrigger>
             ))}
           </TabsList>
@@ -151,14 +207,47 @@ export function ProductsPage({ initialQuery }: { initialQuery?: string }) {
               onChange={(e) => setQ(e.target.value)}
             />
           </div>
-          <ProductImportDialog
-            trigger={<Button size="sm" variant="outline" className="h-9 gap-1"><Upload className="size-4" /> İçe Aktar</Button>}
-          />
-          <ProductDialog
-            trigger={<Button size="sm" className="h-9 gap-1"><Plus className="size-4" /> Yeni Ürün</Button>}
-          />
+          {canCreateProducts && (
+            <ProductImportDialog
+              trigger={<Button size="sm" variant="outline" className="h-9 gap-1"><Upload className="size-4" /> İçe Aktar</Button>}
+            />
+          )}
+          {canCreateProducts && (
+            <ProductDialog
+              trigger={<Button size="sm" className="h-9 gap-1"><Plus className="size-4" /> Yeni Ürün</Button>}
+            />
+          )}
         </div>
       </div>
+
+      {seriesOptions.length > 1 && (
+        <div className="flex flex-wrap items-center gap-1.5">
+          <Button
+            type="button"
+            size="sm"
+            variant={series === "all" ? "default" : "outline"}
+            className="h-7 px-2 text-xs"
+            onClick={() => setSeries("all")}
+          >
+            Tüm Seriler
+          </Button>
+          {seriesOptions.map((option) => (
+            <Button
+              key={option}
+              type="button"
+              size="sm"
+              variant={series === option ? "default" : "outline"}
+              className="h-7 px-2 text-xs"
+              onClick={() => setSeries(option)}
+            >
+              {option}
+              <span className="ml-1 text-[10px] opacity-75">
+                {categoryFiltered.filter((p) => productSeriesLabel(p) === option).length}
+              </span>
+            </Button>
+          ))}
+        </div>
+      )}
 
       <Card className="border-border/60 shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
@@ -166,6 +255,7 @@ export function ProductsPage({ initialQuery }: { initialQuery?: string }) {
             <TableHeader>
               <TableRow className="bg-muted/30 hover:bg-muted/30">
                 <TableHead className="w-[360px]">Ürün</TableHead>
+                <TableHead>Seri</TableHead>
                 <TableHead>Tip</TableHead>
                 <TableHead>Kategori</TableHead>
                 <TableHead className="text-right">Liste Fiyatı</TableHead>
@@ -174,35 +264,63 @@ export function ProductsPage({ initialQuery }: { initialQuery?: string }) {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filtered.map((p) => (
-                <TableRow key={p.id} className="cursor-pointer group" onClick={() => setSelected(p)}>
-                  <TableCell>
-                    <div className="flex items-center gap-3 min-w-0">
-                      <ProductThumb product={p} />
-                      <div className="min-w-0">
-                        <div className="text-sm leading-tight truncate group-hover:text-primary transition-colors">
-                          {p.brand} {p.model}
+              {grouped.map(([group, rows]) => (
+                <Fragment key={group}>
+                  <TableRow key={`${group}-header`} className="bg-muted/20 hover:bg-muted/20">
+                    <TableCell colSpan={7} className="py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      {group} <span className="ml-1 font-normal normal-case tracking-normal text-muted-foreground/80">({rows.length} model)</span>
+                    </TableCell>
+                  </TableRow>
+                  {rows.map((p) => (
+                    <TableRow key={p.id} className="cursor-pointer group" onClick={() => setSelected(p)}>
+                      <TableCell>
+                        <div className="flex items-center gap-3 min-w-0">
+                          <ProductThumb product={p} />
+                          <div className="min-w-0">
+                            <div className="text-sm leading-tight truncate group-hover:text-primary transition-colors">
+                              {p.brand} {p.model}
+                            </div>
+                            <div className="text-[11px] text-muted-foreground mt-0.5 truncate">
+                              {p.shortDescription || productSubtitle(p) || "—"}
+                            </div>
+                          </div>
                         </div>
-                        <div className="text-[11px] text-muted-foreground mt-0.5 truncate">
-                          {p.shortDescription || productSubtitle(p) || "—"}
-                        </div>
-                      </div>
-                    </div>
-                  </TableCell>
-                  <TableCell className="text-sm text-muted-foreground">{p.type || "—"}</TableCell>
-                  <TableCell>
-                    <Badge variant="secondary" className="text-[10px] h-5">{categoryLabel(p)}</Badge>
-                  </TableCell>
-                  <TableCell className="text-right tabular-nums">{fmtMoney(p.listPrice, p.currency)}</TableCell>
-                  <TableCell className="text-right tabular-nums text-emerald-600">{fmtMoney(p.cashPrice, p.currency)}</TableCell>
-                  <TableCell>
-                    <ChevronRight className="size-4 text-muted-foreground opacity-0 group-hover:opacity-100" />
-                  </TableCell>
-                </TableRow>
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant="outline" className="h-5 text-[10px]">{productSeriesLabel(p)}</Badge>
+                      </TableCell>
+                      <TableCell className="text-sm text-muted-foreground">{p.type || productFamilyLabel(p) || "—"}</TableCell>
+                      <TableCell>
+                        <Badge variant="secondary" className="text-[10px] h-5">{productFamilyLabel(p)}</Badge>
+                      </TableCell>
+                      <TableCell className="text-right tabular-nums">{fmtMoney(p.listPrice, p.currency)}</TableCell>
+                      <TableCell className="text-right tabular-nums text-emerald-600">{fmtMoney(p.cashPrice, p.currency)}</TableCell>
+                      <TableCell>
+                        {canEditProducts ? (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              setEditing(p);
+                            }}
+                            title="Ürünü düzenle"
+                          >
+                            <Pencil className="size-4 text-muted-foreground" />
+                          </Button>
+                        ) : (
+                          <ChevronRight className="size-4 text-muted-foreground opacity-0 group-hover:opacity-100" />
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </Fragment>
               ))}
               {filtered.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={6} className="text-center py-16 text-sm text-muted-foreground">
+                  <TableCell colSpan={7} className="text-center py-16 text-sm text-muted-foreground">
                     Bu filtreye uyan ürün bulunamadı.
                   </TableCell>
                 </TableRow>
@@ -218,6 +336,16 @@ export function ProductsPage({ initialQuery }: { initialQuery?: string }) {
       </Card>
 
       <ProductDetailDialog product={selected} onClose={() => setSelected(null)} />
+      {editing && (
+        <ProductDialog
+          mode="edit"
+          product={editing}
+          open={!!editing}
+          onOpenChange={(open) => {
+            if (!open) setEditing(null);
+          }}
+        />
+      )}
     </div>
   );
 }
