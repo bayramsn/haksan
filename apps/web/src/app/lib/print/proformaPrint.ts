@@ -5,6 +5,7 @@ import type { Contact, Customer, DocumentItem, Offer, Product, SalesCase } from 
 import { quoteService } from "../../../lib/services";
 import { splitVat } from "../pageHelpers";
 import { trLongDate } from "./core";
+import { PROFORMA_NOTE_VARIANTS, fillNotePlaceholders } from "./notes";
 import type { ProformaItem, ProformaPrintData } from "./templates";
 
 export type ProformaBuildInput = {
@@ -14,6 +15,8 @@ export type ProformaBuildInput = {
   offers: Offer[];
   products: Product[];
   contacts?: Contact[];
+  /** Belgenin altına basılacak proforma not şablonu (CİF İstanbul / İşletme Teslim). */
+  variantKey?: string;
 };
 
 type QuoteDetail = Awaited<ReturnType<typeof quoteService.get>>;
@@ -119,7 +122,7 @@ export function buildProformaPrintData(
   input: ProformaBuildInput,
   quoteDetail?: QuoteDetail | null,
 ): ProformaPrintData {
-  const { doc, customers, cases, offers, products, contacts = [] } = input;
+  const { doc, customers, cases, offers, products, contacts = [], variantKey } = input;
   const offer = resolveQuote(doc, offers);
   const sc = cases.find((s) => s.id === (doc.salesCaseId || offer?.salesCaseId)) ?? null;
   const cust =
@@ -140,7 +143,6 @@ export function buildProformaPrintData(
       ? itemsFromQuote(quoteDetail, products, sc)
       : fallbackItem({ urunAdi, product, qty, net: vat.net });
 
-  const araToplam = items.reduce((a, i) => a + i.tutar, 0);
   const enteredVatRates = (quoteDetail?.items ?? []).map((item: { vatRate?: unknown }) => Number(item.vatRate ?? 0));
   const kdvOran = enteredVatRates.length > 0
     ? enteredVatRates.every((rate: number) => rate === enteredVatRates[0])
@@ -167,15 +169,26 @@ export function buildProformaPrintData(
       vat.kdv,
     ),
     currency: (offer?.currency ?? sc?.currency ?? "USD") as ProformaPrintData["currency"],
-    notlar: [
-      quoteDetail?.terms?.paymentTermsText ?? quoteDetail?.paymentTerms,
-      quoteDetail?.terms?.deliveryTermsText ?? quoteDetail?.deliveryTerms,
-      quoteDetail?.terms?.warrantyTermsText ?? quoteDetail?.warrantyTerms,
-      quoteDetail?.notes ?? offer?.note,
-    ]
-      .flatMap((value) => String(value ?? "").split(/\r?\n/))
-      .map((value) => value.trim())
-      .filter(Boolean),
+    // Proforma not şablonu seçildiyse onun maddeleri ({{ALICI}}/{{YIL}} doldurularak)
+    // belgenin altına basılır; seçilmediyse bağlı teklifin şartlarına düşülür.
+    notlar: (() => {
+      const variant = variantKey ? PROFORMA_NOTE_VARIANTS.find((v) => v.key === variantKey) : undefined;
+      if (variant) {
+        return fillNotePlaceholders(variant.notlar, {
+          alici: cust?.name,
+          yil: new Date(doc.uploadedAt || offer?.date || Date.now()).getFullYear(),
+        });
+      }
+      return [
+        quoteDetail?.terms?.paymentTermsText ?? quoteDetail?.paymentTerms,
+        quoteDetail?.terms?.deliveryTermsText ?? quoteDetail?.deliveryTerms,
+        quoteDetail?.terms?.warrantyTermsText ?? quoteDetail?.warrantyTerms,
+        quoteDetail?.notes ?? offer?.note,
+      ]
+        .flatMap((value) => String(value ?? "").split(/\r?\n/))
+        .map((value) => value.trim())
+        .filter(Boolean);
+    })(),
   };
 }
 

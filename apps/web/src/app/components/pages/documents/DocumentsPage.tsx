@@ -29,7 +29,7 @@ import {
   Search, Upload, Download, Printer, Eye, FileText, FileSignature, Receipt, Wrench, ClipboardCheck, Plus,
 } from "lucide-react";
 import {
-  printAssetBase, proformaDoc, contractDoc, loadContractPrintData, loadProformaPrintData,
+  printAssetBase, proformaDoc, contractDoc, loadContractPrintData, loadProformaPrintData, PROFORMA_NOTE_VARIANTS,
 } from "../../../lib/print";
 import { printOrWarn, downloadPrintOrWarn } from "../../../lib/pageHelpers";
 
@@ -92,22 +92,24 @@ export function DocumentsPage({
     };
   };
 
-  const proformaInput = (d: (typeof documents)[number]) => ({
+  const proformaInput = (d: (typeof documents)[number], variantKey: string) => ({
     doc: d,
     customers,
     cases,
     offers,
     products,
     contacts,
+    variantKey,
   });
 
   const runProforma = async (
     d: (typeof documents)[number],
+    variantKey: string,
     mode: "print" | "download",
   ) => {
     const loading = toast.loading("Proforma hazırlanıyor…");
     try {
-      const data = await loadProformaPrintData(proformaInput(d));
+      const data = await loadProformaPrintData(proformaInput(d, variantKey));
       const rendered = proformaDoc(data, printAssetBase());
       if (mode === "print") printOrWarn(rendered);
       else downloadPrintOrWarn(rendered, `Proforma-${d.fileName}`);
@@ -118,12 +120,12 @@ export function DocumentsPage({
     }
   };
 
-  const printProforma = (d: (typeof documents)[number]) => {
-    void runProforma(d, "print");
+  const printProforma = (d: (typeof documents)[number], variantKey: string) => {
+    void runProforma(d, variantKey, "print");
   };
 
-  const downloadProforma = (d: (typeof documents)[number]) => {
-    void runProforma(d, "download");
+  const downloadProforma = (d: (typeof documents)[number], variantKey: string) => {
+    void runProforma(d, variantKey, "download");
   };
 
   const printContract = async (d: (typeof documents)[number]) => {
@@ -307,7 +309,11 @@ export function DocumentsPage({
                                 </Button>
                               </DropdownMenuTrigger>
                               <DropdownMenuContent align="end">
-                                <DropdownMenuItem onClick={() => printProforma(d)}>Girilen verilerle yazdır</DropdownMenuItem>
+                                {PROFORMA_NOTE_VARIANTS.map((v) => (
+                                  <DropdownMenuItem key={v.key} onClick={() => printProforma(d, v.key)}>
+                                    {v.label} — yazdır
+                                  </DropdownMenuItem>
+                                ))}
                               </DropdownMenuContent>
                             </DropdownMenu>
                             <DropdownMenu>
@@ -317,7 +323,11 @@ export function DocumentsPage({
                                 </Button>
                               </DropdownMenuTrigger>
                               <DropdownMenuContent align="end">
-                                <DropdownMenuItem onClick={() => downloadProforma(d)}>Girilen verilerle indir</DropdownMenuItem>
+                                {PROFORMA_NOTE_VARIANTS.map((v) => (
+                                  <DropdownMenuItem key={v.key} onClick={() => downloadProforma(d, v.key)}>
+                                    {v.label} — indir
+                                  </DropdownMenuItem>
+                                ))}
                                 {d.fileId && (
                                   <DropdownMenuItem onClick={() => downloadDocument(d)}>
                                     Yüklenen dosyayı indir
