@@ -18,6 +18,20 @@ import { toast } from "sonner";
 import { Plus, Trash2, Save, BookmarkPlus, Bold } from "lucide-react";
 import type { Product } from "../../lib/mock";
 import { quoteDefaultsFromCase } from "../../lib/workflow";
+import { QUOTE_NOTE_VARIANTS } from "../../lib/print";
+
+// Şablon eşleşmesi: edit modunda yüklenen şartlar bir şablonla birebir aynıysa
+// o şablonu önseç. Karşılaştırma satır-bazlı (trim) yapılır.
+const matchNoteVariant = (payment: string, delivery: string, warranty: string): string => {
+  const norm = (s: string) => s.split(/\r?\n/).map((l) => l.trim()).filter(Boolean).join("\n");
+  const p = norm(payment), d = norm(delivery), w = norm(warranty);
+  if (!p && !d && !w) return "";
+  return (
+    QUOTE_NOTE_VARIANTS.find(
+      (v) => norm(v.odeme.join("\n")) === p && norm(v.teslimat.join("\n")) === d && norm(v.garanti.join("\n")) === w,
+    )?.key ?? ""
+  );
+};
 
 type Currency = "USD" | "EUR" | "TRY";
 
@@ -136,6 +150,7 @@ export function QuoteDialog({
   const [currency, setCurrency] = useState<Currency>("USD");
   const [vatEnabled, setVatEnabled] = useState(true);
   const [deliveryCode, setDeliveryCode] = useState<string>("");
+  const [noteVariantKey, setNoteVariantKey] = useState<string>("");
   const [paymentTerms, setPaymentTerms] = useState("");
   const [deliveryTerms, setDeliveryTerms] = useState("");
   const [warrantyTerms, setWarrantyTerms] = useState("");
@@ -155,6 +170,7 @@ export function QuoteDialog({
     setSenderId(users.find((u) => u.id === user?.id)?.id ?? users[0]?.id ?? "");
     setVatEnabled(true);
     setDeliveryCode("");
+    setNoteVariantKey("");
     setPaymentTerms("");
     setDeliveryTerms("");
     setWarrantyTerms("");
@@ -195,9 +211,14 @@ export function QuoteDialog({
       setCurrency(currencyCode);
       setVatEnabled(true);
       setDeliveryCode("");
-      setPaymentTerms(data.terms?.paymentTermsText ?? data.paymentTerms ?? "");
-      setDeliveryTerms(data.terms?.deliveryTermsText ?? data.deliveryTerms ?? "");
-      setWarrantyTerms(data.terms?.warrantyTermsText ?? data.warrantyTerms ?? "");
+      const loadedPayment = data.terms?.paymentTermsText ?? data.paymentTerms ?? "";
+      const loadedDelivery = data.terms?.deliveryTermsText ?? data.deliveryTerms ?? "";
+      const loadedWarranty = data.terms?.warrantyTermsText ?? data.warrantyTerms ?? "";
+      setPaymentTerms(loadedPayment);
+      setDeliveryTerms(loadedDelivery);
+      setWarrantyTerms(loadedWarranty);
+      // Yüklenen şartlar bir şablonla birebir aynıysa o şablonu önseç (yoksa "Özel").
+      setNoteVariantKey(matchNoteVariant(loadedPayment, loadedDelivery, loadedWarranty));
       setNote(data.notes ?? "");
       setNoteFontSize("14");
       setNoteBold(false);
@@ -278,6 +299,17 @@ export function QuoteDialog({
 
   const companyContacts = contacts.filter((c) => c.customerId === companyId);
   const companyCases = cases.filter((c) => c.customerId === companyId);
+
+  // Belge şartları şablonu seçimi: ödeme/teslimat/garanti alanlarını şablondan
+  // doldurur. Boş anahtar = "Özel (manuel)" — alanlar elle düzenlenir.
+  const applyNoteVariant = (key: string) => {
+    setNoteVariantKey(key);
+    const v = QUOTE_NOTE_VARIANTS.find((x) => x.key === key);
+    if (!v) return;
+    setPaymentTerms(v.odeme.join("\n"));
+    setDeliveryTerms(v.teslimat.join("\n"));
+    setWarrantyTerms(v.garanti.join("\n"));
+  };
 
   const setLine = (i: number, patch: Partial<LineState>) =>
     setLines((ls) => ls.map((l, idx) => (idx === i ? { ...l, ...patch } : l)));
@@ -799,7 +831,10 @@ export function QuoteDialog({
                 value={deliveryCode}
                 onValueChange={(value) => {
                   setDeliveryCode(value);
-                  setDeliveryTerms(DELIVERY_TERMS.find((item) => item.code === value)?.label ?? "");
+                  // Şablon seçiliyken teslimat şartlarını ezme (şablon metni korunur).
+                  if (!noteVariantKey) {
+                    setDeliveryTerms(DELIVERY_TERMS.find((item) => item.code === value)?.label ?? "");
+                  }
                 }}
               >
                 <SelectTrigger className="mt-1.5"><SelectValue placeholder="Teslim şekli seçin..." /></SelectTrigger>
@@ -824,34 +859,73 @@ export function QuoteDialog({
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-            <div>
-              <Label className="text-xs">Ödeme Şartları</Label>
-              <Textarea
-                className="mt-1.5 min-h-24"
-                value={paymentTerms}
-                onChange={(event) => setPaymentTerms(event.target.value)}
-                placeholder="Bu teklife ait ödeme şartlarını girin..."
-              />
+          {/* BELGE ŞARTLARI ŞABLONU — seçilen şablonun ödeme/teslimat/garanti
+              şartları teklif/proforma belgesine otomatik basılır. Form temiz
+              kalır; metinler burada elle düzenlenmez (Özel hariç). */}
+          <div className="rounded-lg border border-border/70">
+            <div className="flex flex-col gap-2 px-3 py-2.5 border-b border-border/60 bg-muted/30 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <div className="text-sm font-medium">Belge Şartları</div>
+                <div className="text-[11px] text-muted-foreground">Seçilen şablonun ödeme · teslimat · garanti şartları belgeye otomatik eklenir.</div>
+              </div>
+              <Select value={noteVariantKey || "ozel"} onValueChange={(v) => applyNoteVariant(v === "ozel" ? "" : v)}>
+                <SelectTrigger className="h-9 w-full sm:w-64"><SelectValue placeholder="Şablon seçin..." /></SelectTrigger>
+                <SelectContent>
+                  {QUOTE_NOTE_VARIANTS.map((v) => <SelectItem key={v.key} value={v.key}>{v.label}</SelectItem>)}
+                  <SelectItem value="ozel">Özel (manuel gir)</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
-            <div>
-              <Label className="text-xs">Teslimat Şartları</Label>
-              <Textarea
-                className="mt-1.5 min-h-24"
-                value={deliveryTerms}
-                onChange={(event) => setDeliveryTerms(event.target.value)}
-                placeholder="Bu teklife ait teslimat şartlarını girin..."
-              />
-            </div>
-            <div>
-              <Label className="text-xs">Garanti Şartları</Label>
-              <Textarea
-                className="mt-1.5 min-h-24"
-                value={warrantyTerms}
-                onChange={(event) => setWarrantyTerms(event.target.value)}
-                placeholder="Bu teklife ait garanti şartlarını girin..."
-              />
-            </div>
+
+            {noteVariantKey ? (
+              <details className="px-3 py-2.5 text-sm">
+                <summary className="cursor-pointer text-xs text-muted-foreground select-none">Belgeye eklenecek şartları görüntüle</summary>
+                <div className="mt-3 grid grid-cols-1 md:grid-cols-3 gap-4">
+                  {([
+                    ["ÖDEME ŞARTLARI", paymentTerms],
+                    ["TESLİMAT ŞARTLARI", deliveryTerms],
+                    ["GARANTİ ŞARTLARI", warrantyTerms],
+                  ] as const).map(([title, body]) => (
+                    <div key={title}>
+                      <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1.5">{title}</div>
+                      <ol className="list-[lower-alpha] pl-4 space-y-1 text-[12px] leading-relaxed text-foreground/85">
+                        {body.split(/\r?\n/).map((l) => l.trim()).filter(Boolean).map((l, i) => <li key={i}>{l}</li>)}
+                      </ol>
+                    </div>
+                  ))}
+                </div>
+              </details>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 p-3">
+                <div>
+                  <Label className="text-xs">Ödeme Şartları</Label>
+                  <Textarea
+                    className="mt-1.5 min-h-24"
+                    value={paymentTerms}
+                    onChange={(event) => setPaymentTerms(event.target.value)}
+                    placeholder="Her satıra bir madde yazın (belgede a, b, c olarak listelenir)..."
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs">Teslimat Şartları</Label>
+                  <Textarea
+                    className="mt-1.5 min-h-24"
+                    value={deliveryTerms}
+                    onChange={(event) => setDeliveryTerms(event.target.value)}
+                    placeholder="Her satıra bir madde yazın..."
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs">Garanti Şartları</Label>
+                  <Textarea
+                    className="mt-1.5 min-h-24"
+                    value={warrantyTerms}
+                    onChange={(event) => setWarrantyTerms(event.target.value)}
+                    placeholder="Her satıra bir madde yazın..."
+                  />
+                </div>
+              </div>
+            )}
           </div>
 
           {/* NOTES */}
