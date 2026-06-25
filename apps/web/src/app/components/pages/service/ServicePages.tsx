@@ -2037,8 +2037,34 @@ function ServiceQuoteEditor({
       <Card className="border-border/60">
         <CardHeader className="pb-3"><CardTitle className="text-base">Teklif notları</CardTitle></CardHeader>
         <CardContent className="space-y-3">
-          <div className="max-w-sm"><Label>Not taslağı (isteğe bağlı)</Label><Select value={draft.noteVariantKey || undefined} onValueChange={(key) => { const variant = SERVICE_NOTE_VARIANTS.find((item) => item.key === key); if (variant) setDraft({ ...draft, noteVariantKey: key, notes: [...variant.notlar] }); }}><SelectTrigger className="mt-1"><SelectValue placeholder="Hazır not kullanma" /></SelectTrigger><SelectContent>{SERVICE_NOTE_VARIANTS.map((variant) => <SelectItem key={variant.key} value={variant.key}>{variant.label}</SelectItem>)}</SelectContent></Select></div>
-          <div><Label>Notlar (her satır ayrı madde)</Label><Textarea className="mt-1 min-h-36" value={draft.notes.join("\n")} onChange={(e) => setDraft({ ...draft, notes: e.target.value.split("\n") })} /></div>
+          <div className="max-w-sm">
+            <Label>Not şablonu</Label>
+            <Select
+              value={draft.noteVariantKey || "ozel"}
+              onValueChange={(key) => {
+                if (key === "ozel") { setDraft({ ...draft, noteVariantKey: "" }); return; }
+                const variant = SERVICE_NOTE_VARIANTS.find((item) => item.key === key);
+                if (variant) setDraft({ ...draft, noteVariantKey: key, notes: [...variant.notlar] });
+              }}
+            >
+              <SelectTrigger className="mt-1"><SelectValue placeholder="Şablon seçin..." /></SelectTrigger>
+              <SelectContent>
+                {SERVICE_NOTE_VARIANTS.map((variant) => <SelectItem key={variant.key} value={variant.key}>{variant.label}</SelectItem>)}
+                <SelectItem value="ozel">Özel (manuel gir)</SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="mt-1 text-[11px] text-muted-foreground">Seçilen şablonun notları servis teklifi PDF'inin alt kısmına otomatik eklenir.</p>
+          </div>
+          {draft.noteVariantKey ? (
+            <details className="text-sm">
+              <summary className="cursor-pointer text-xs text-muted-foreground select-none">Belgeye eklenecek notları görüntüle</summary>
+              <ol className="mt-2 list-decimal pl-5 space-y-1 text-[12px] leading-relaxed text-foreground/85">
+                {draft.notes.map((n) => n.trim()).filter(Boolean).map((n, i) => <li key={i}>{n}</li>)}
+              </ol>
+            </details>
+          ) : (
+            <div><Label>Notlar (her satır ayrı madde)</Label><Textarea className="mt-1 min-h-36" value={draft.notes.join("\n")} onChange={(e) => setDraft({ ...draft, notes: e.target.value.split("\n") })} /></div>
+          )}
         </CardContent>
       </Card>
 

@@ -96,7 +96,7 @@ export const SERVICE_NOTE_VARIANTS: FlatNoteVariant[] = [
       "Teklifimize dahil olmayan, yeni tespit edilmiş arızaların onarımı/parça değişimi yeni teklif hazırlanarak müşteri onayına istinaden yapılacaktır,",
       "Fiyatlarımıza %20 K.D.V. dahil değildir,",
       "Ürünlerin teslimi kesin siparişten 90 (±10) gün sonra gerçekleştirilecektir,",
-      "Sipariş için teklif onayı ve ödeme dekontu servis@haksancnc.com.tr adresine gönderilmelidir.",
+      "Sipariş için teklif onayı ve ödeme dekontunu servis@haksancnc.com.tr adresine gönderilmelidir.",
     ],
   },
   {
@@ -130,7 +130,7 @@ export const SERVICE_NOTE_VARIANTS: FlatNoteVariant[] = [
       "Ödeme teklif onayından sonra %50 nakit/havale, kalanı eğitimden en geç 30 gün sonra havale şeklindedir,",
       "Fiyatlarımıza %20 K.D.V. dahil değildir,",
       "Teklif onayınıza istinaden Eğitim randevusu oluşturularak tarafınıza bildirilecektir,",
-      "Eğitim randevusu için teklif onayı ve ödeme dekontu servis@haksancnc.com.tr adresine gönderilmelidir.",
+      "Eğitim randevusu için teklif onayı ve ödeme dekontunu servis@haksancnc.com.tr adresine gönderilmelidir.",
     ],
   },
 ];
