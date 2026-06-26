@@ -395,21 +395,35 @@ export function KanbanPage({ onSelect, items }: { onSelect: (s: SalesCase) => vo
               <div className="max-h-72 overflow-y-auto rounded-md border border-border/70 bg-white">
                 {stockCandidates.map((item) => {
                   const checked = selectedStockIds.includes(item.id);
+                  const toggleItem = (checkedNext: boolean) => {
+                    setSelectedStockIds((prev) =>
+                      checkedNext
+                        ? prev.includes(item.id)
+                          ? prev
+                          : [...prev, item.id]
+                        : prev.filter((id) => id !== item.id)
+                    );
+                  };
                   return (
-                    <label
+                    <div
                       key={item.id}
+                      role="checkbox"
+                      aria-checked={checked}
+                      tabIndex={0}
                       className="flex cursor-pointer items-start gap-3 border-b border-border/50 p-3 last:border-0 hover:bg-muted/40"
+                      onClick={() => toggleItem(!checked)}
+                      onKeyDown={(event) => {
+                        if (event.key === " " || event.key === "Enter") {
+                          event.preventDefault();
+                          toggleItem(!checked);
+                        }
+                      }}
                     >
                       <Checkbox
                         checked={checked}
+                        onClick={(event) => event.stopPropagation()}
                         onCheckedChange={(next) => {
-                          setSelectedStockIds((prev) =>
-                            next === true
-                              ? prev.includes(item.id)
-                                ? prev
-                                : [...prev, item.id]
-                              : prev.filter((id) => id !== item.id)
-                          );
+                          toggleItem(next === true);
                         }}
                         className="mt-0.5"
                       />
@@ -426,7 +440,7 @@ export function KanbanPage({ onSelect, items }: { onSelect: (s: SalesCase) => vo
                           </span>
                         )}
                       </span>
-                    </label>
+                    </div>
                   );
                 })}
               </div>

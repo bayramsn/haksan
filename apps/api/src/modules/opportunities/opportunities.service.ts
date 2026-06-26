@@ -319,16 +319,14 @@ export class OpportunitiesService {
       if (!icount[0].c) throw new ValidationError('Ticari fatura dosyası yüklenmelidir');
     }
     if (input.toStage === 'stock_picking') {
-      if (!input.inventoryItemIds?.length) {
-        throw new ValidationError('Stok seçimi için en az bir seri no belirtilmelidir');
-      }
+      const inventoryItemIds = await this.resolveStockPickingItemIds(opp, actor, input.inventoryItemIds);
       const reserved = await this.db.query.inventoryStatuses.findFirst({ where: eq(inventoryStatuses.code, 'reserved') });
       const available = await this.db.query.inventoryStatuses.findFirst({ where: eq(inventoryStatuses.code, 'available') });
       // Verify items belong to tenant
       const items = await this.db.query.inventoryItems.findMany({
-        where: and(eq(inventoryItems.tenantId, actor.tenantId), isNull(inventoryItems.deletedAt), inArray(inventoryItems.id, input.inventoryItemIds)),
+        where: and(eq(inventoryItems.tenantId, actor.tenantId), isNull(inventoryItems.deletedAt), inArray(inventoryItems.id, inventoryItemIds)),
       });
-      if (items.length !== input.inventoryItemIds.length) {
+      if (items.length !== inventoryItemIds.length) {
         throw new ValidationError('Bazı stok kalemleri bu tenant\'a ait değil');
       }
       const now = new Date();
@@ -396,6 +394,59 @@ export class OpportunitiesService {
       newValues: { stage: toStage.code, reason: input.changeReason },
     });
     return this.get(id, actor);
+  }
+
+  private async resolveStockPickingItemIds(
+    opp: { id: string; companyId: string },
+    actor: AuthContext,
+    inventoryItemIds?: string[],
+  ) {
+    const explicitIds = [...new Set(inventoryItemIds ?? [])];
+    if (explicitIds.length) return explicitIds;
+
+    const reservationRows = await this.db
+      .select({ inventoryItemId: inventoryMovements.inventoryItemId })
+      .from(inventoryMovements)
+      .where(and(
+        eq(inventoryMovements.tenantId, actor.tenantId),
+        eq(inventoryMovements.referenceType, 'opportunity'),
+        eq(inventoryMovements.referenceId, opp.id),
+        eq(inventoryMovements.movementType, 'reserve'),
+      ));
+    const movementIds = [...new Set(reservationRows.map((row) => row.inventoryItemId))];
+    if (movementIds.length) return movementIds;
+
+    const reservedStatus = await this.db.query.inventoryStatuses.findFirst({ where: eq(inventoryStatuses.code, 'reserved') });
+    if (reservedStatus) {
+      const reservedRows = await this.db
+        .select({ id: inventoryItems.id })
+        .from(inventoryItems)
+        .where(and(
+          eq(inventoryItems.tenantId, actor.tenantId),
+          isNull(inventoryItems.deletedAt),
+          eq(inventoryItems.stockStatusId, reservedStatus.id),
+          eq(inventoryItems.reservedCompanyId, opp.companyId),
+        ));
+      if (reservedRows.length) return reservedRows.map((row) => row.id);
+    }
+
+    const availableStatus = await this.db.query.inventoryStatuses.findFirst({ where: eq(inventoryStatuses.code, 'available') });
+    if (availableStatus) {
+      const availableRows = await this.db
+        .select({ id: inventoryItems.id })
+        .from(inventoryItems)
+        .where(and(
+          eq(inventoryItems.tenantId, actor.tenantId),
+          isNull(inventoryItems.deletedAt),
+          eq(inventoryItems.stockStatusId, availableStatus.id),
+        ));
+      if (availableRows.length === 1) return [availableRows[0].id];
+      if (availableRows.length > 1) {
+        throw new ValidationError('Birden fazla hazır stok var; stok seçimi için seri no seçilmelidir');
+      }
+    }
+
+    throw new ValidationError('Stok seçimi için en az bir seri no belirtilmelidir');
   }
 
   /**
