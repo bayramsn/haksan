@@ -42,6 +42,7 @@ export type CurrencyBalance = {
   borc: number;
   alacak: number;
   net: number;
+  totalBalance: number;
 };
 
 export type FinanceSummary = {
@@ -113,6 +114,26 @@ export class FinanceService {
 
   private num(v: string | number | null | undefined): number {
     return Number(v ?? 0);
+  }
+
+  private roundMoney(value: number): number {
+    return Math.round((Number.isFinite(value) ? value : 0) * 10_000) / 10_000;
+  }
+
+  private normalizeAccountingInvoiceTotals(body: AccountingInvoiceCreateInput) {
+    const amount = this.roundMoney(body.amount);
+    const vatRate = this.roundMoney(body.vatRate ?? 20);
+    const providedVat = this.roundMoney(body.vatAmount ?? 0);
+    const computedVat = this.roundMoney(amount * (vatRate / 100));
+    const vatAmount = providedVat > 0 || vatRate === 0 ? providedVat : computedVat;
+    const expectedGrandTotal = this.roundMoney(amount + vatAmount);
+    const providedGrandTotal = this.roundMoney(body.grandTotal);
+    const grandTotal =
+      vatAmount > 0 && Math.abs(providedGrandTotal - amount) <= 0.0001
+        ? expectedGrandTotal
+        : providedGrandTotal || expectedGrandTotal;
+
+    return { amount, vatRate, vatAmount, grandTotal: this.roundMoney(grandTotal) };
   }
 
   async getCompanyFinanceSummary(companyId: string, actor: AuthContext): Promise<FinanceSummary> {
@@ -201,6 +222,7 @@ export class FinanceService {
     const byCurrency: CurrencyBalance[] = [...bucket.entries()].map(([currencyCode, v]) => {
       const borc = Math.max(0, v.sales - v.collections);
       const alacak = showAlacak ? Math.max(0, v.purchases - v.payouts) : 0;
+      const net = borc - alacak;
       return {
         currencyCode,
         salesTotal: v.sales,
@@ -209,7 +231,8 @@ export class FinanceService {
         payouts: v.payouts,
         borc,
         alacak,
-        net: borc - alacak,
+        net,
+        totalBalance: net,
       };
     });
 
@@ -396,6 +419,7 @@ export class FinanceService {
           payouts: showAlacak ? (primary?.payouts ?? 0) : null,
           alacak: showAlacak ? (primary?.alacak ?? 0) : null,
           netBorc: primary?.net ?? 0,
+          totalBalance: primary?.totalBalance ?? primary?.net ?? 0,
           primaryCurrency: primary?.currencyCode ?? null,
           nearestDueDate: summary.nearestDueDate,
           nearestDueAmount: summary.nearestDueAmount,
@@ -526,9 +550,10 @@ export class FinanceService {
     const st = await this.statusIds();
     const divisionId = resolveAssignedDivision(actor, body.divisionId ?? null);
     if (!divisionId) throw new ValidationError('Fatura için bölüm ataması zorunludur', { field: 'divisionId' });
+    const totals = this.normalizeAccountingInvoiceTotals(body);
 
     const installments = this.buildInstallments({
-      grandTotal: body.grandTotal,
+      grandTotal: totals.grandTotal,
       installmentCount: body.installmentCount,
       firstDueDate: body.firstDueDate ?? body.invoiceDate,
       lastDueDate: body.lastDueDate,
@@ -547,9 +572,9 @@ export class FinanceService {
         type: body.type,
         invoiceNo: body.invoiceNo,
         invoiceDate: body.invoiceDate,
-        amount: body.amount.toString(),
-        vatAmount: (body.vatAmount ?? 0).toString(),
-        grandTotal: body.grandTotal.toString(),
+        amount: totals.amount.toString(),
+        vatAmount: totals.vatAmount.toString(),
+        grandTotal: totals.grandTotal.toString(),
         currencyId,
         quoteId: body.quoteId ?? null,
         salesOrderId: body.salesOrderId ?? null,

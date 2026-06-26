@@ -12,20 +12,18 @@ import {
   shipmentItems,
   deliveries,
 } from '../../db/schema/service';
-import { serviceTicketStatuses, installationStatuses, shipmentStatuses, inventoryStatuses, units } from '../../db/schema/lookup';
+import { serviceTicketStatuses, installationStatuses, shipmentStatuses, inventoryStatuses, productTypes, units } from '../../db/schema/lookup';
 import { companies, contacts } from '../../db/schema/companies';
 import { opportunities } from '../../db/schema/crm';
 import { customerDevices, inventoryItems, inventoryMovements } from '../../db/schema/inventory';
 import { salesOrders, salesOrderItems } from '../../db/schema/orders';
-import { productModels } from '../../db/schema/products';
+import { brands, productModels, productSpecs } from '../../db/schema/products';
 import { quotes } from '../../db/schema/quotes';
 import { users as usersTable } from '../../db/schema/users';
 import { DB } from '../../shared/database/database.module';
 import {
   paginationSchema,
   type Pagination,
-  computeInstallationFee,
-  type InstallationLocationType,
   shipmentCreateSchema,
   shipmentStatusUpdateSchema,
   deliveryCreateSchema,
@@ -1083,17 +1081,82 @@ export class ServiceController {
         company: { id: companies.id, legalTitle: companies.legalTitle, shortName: companies.shortName },
         contact: { id: contacts.id, fullName: contacts.fullName },
         assignedTo: { id: usersTable.id, fullName: usersTable.fullName },
+        customerDevice: {
+          id: customerDevices.id,
+          productModelId: inventoryItems.productModelId,
+          serialNumber: inventoryItems.serialNumber,
+          controlUnit: inventoryItems.controlUnit,
+          controlUnitSerialNumber: inventoryItems.controlUnitSerialNumber,
+          model: productModels.modelCode,
+          productModelName: productModels.modelName,
+          brandName: brands.name,
+          productTypeName: productTypes.name,
+        },
       })
       .from(installationJobs)
       .leftJoin(installationStatuses, eq(installationJobs.statusId, installationStatuses.id))
       .leftJoin(companies, eq(installationJobs.companyId, companies.id))
       .leftJoin(contacts, eq(installationJobs.contactId, contacts.id))
       .leftJoin(usersTable, eq(installationJobs.assignedToUserId, usersTable.id))
+      .leftJoin(customerDevices, eq(installationJobs.customerDeviceId, customerDevices.id))
+      .leftJoin(inventoryItems, eq(customerDevices.inventoryItemId, inventoryItems.id))
+      .leftJoin(productModels, eq(inventoryItems.productModelId, productModels.id))
+      .leftJoin(brands, eq(productModels.brandId, brands.id))
+      .leftJoin(productTypes, eq(productModels.productTypeId, productTypes.id))
       .where(where)
       .orderBy(desc(installationJobs.createdAt))
       .limit(limit)
       .offset(offset);
-    return buildPaginated(rows.map((r) => ({ ...r.installation, status: r.status, company: r.company, contact: r.contact, assignedTo: r.assignedTo })), count, p);
+    const productModelIds = [
+      ...new Set(
+        rows
+          .map((row) => row.customerDevice?.productModelId)
+          .filter((id): id is string => Boolean(id))
+      ),
+    ];
+    const specRows = productModelIds.length
+      ? await this.db
+          .select({
+            productModelId: productSpecs.productModelId,
+            key: productSpecs.specKey,
+            value: productSpecs.specValue,
+            unit: productSpecs.specUnit,
+          })
+          .from(productSpecs)
+          .where(
+            and(
+              eq(productSpecs.tenantId, user.tenantId),
+              isNull(productSpecs.deletedAt),
+              inArray(productSpecs.productModelId, productModelIds)
+            )
+          )
+          .orderBy(asc(productSpecs.sortOrder))
+      : [];
+    const specsByProduct = new Map<string, Array<{ key: string; value: string; unit?: string | null }>>();
+    for (const spec of specRows) {
+      const list = specsByProduct.get(spec.productModelId) ?? [];
+      list.push({ key: spec.key, value: spec.value, unit: spec.unit });
+      specsByProduct.set(spec.productModelId, list);
+    }
+    return buildPaginated(
+      rows.map((r) => ({
+        ...r.installation,
+        status: r.status,
+        company: r.company,
+        contact: r.contact,
+        assignedTo: r.assignedTo,
+        customerDevice: r.customerDevice?.id
+          ? {
+              ...r.customerDevice,
+              technicalSpecs: r.customerDevice.productModelId
+                ? specsByProduct.get(r.customerDevice.productModelId) ?? []
+                : [],
+            }
+          : null,
+      })),
+      count,
+      p
+    );
   }
 
   @RequirePermissions('installations.create')
@@ -1110,12 +1173,6 @@ export class ServiceController {
     const scheduled = await this.db.query.installationStatuses.findFirst({ where: eq(installationStatuses.code, 'scheduled') });
     const divisionId = resolveAssignedDivision(user, body.divisionId ?? opportunity?.divisionId ?? quote?.divisionId ?? null);
     if (!divisionId) throw new ValidationError('Kurulum için bölüm ataması zorunludur', { field: 'divisionId' });
-    // Konum tipi + süre verildiyse saha ücretini @haksan/shared ile hesapla
-    // (İstanbul içi 70$/saat, dışı 100$/saat; 15/45 dk eşikli yuvarlama).
-    const fee =
-      body.locationType && body.durationMinutes != null
-        ? computeInstallationFee(body.durationMinutes, body.locationType as InstallationLocationType)
-        : null;
     const [row] = await this.db
       .insert(installationJobs)
       .values({
@@ -1132,7 +1189,7 @@ export class ServiceController {
         location: body.location ?? null,
         locationType: body.locationType ?? null,
         durationMinutes: body.durationMinutes ?? null,
-        feeAmount: fee ? fee.amount.toString() : null,
+        feeAmount: null,
         notes: body.notes ?? null,
       })
       .returning();

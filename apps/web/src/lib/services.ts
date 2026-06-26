@@ -33,6 +33,7 @@ import type {
   InventoryReserveInput,
   InventorySellInput,
   NoteTemplateCreateInput,
+  NoteTemplateUpdateInput,
   OpportunityCreateInput,
   OpportunityStageChangeInput,
   OpportunityUpdateInput,
@@ -492,8 +493,9 @@ export const quoteService = {
 
 // ───── Note templates (reusable quote notes) ─────
 export const noteTemplateService = {
-  list: (scope = 'quote') => api.get<any[]>(`/note-templates${qs({ scope })}`),
+  list: (scope?: string) => api.get<any[]>(`/note-templates${qs(scope ? { scope } : undefined)}`),
   create: (body: NoteTemplateCreateInput) => api.post<any>('/note-templates', body),
+  update: (id: string, body: NoteTemplateUpdateInput) => api.patch<any>(`/note-templates/${id}`, body),
   remove: (id: string) => api.delete(`/note-templates/${id}`),
 };
 
@@ -731,6 +733,7 @@ export const adminService = {
   users: () => api.get<any[]>('/users'),
   createUser: (body: UserCreateInput) => api.post<any>('/users', body),
   updateUser: (id: string, body: UserUpdateInput) => api.patch<any>(`/users/${id}`, body),
+  deleteUser: (id: string) => api.delete(`/users/${id}`),
   userTargets: (params?: Record<string, string | number | undefined>) => api.get<any[]>(`/user-targets${qs(params)}`),
   myTargets: (params?: Record<string, string | number | undefined>) => api.get<any[]>(`/me/targets${qs(params)}`),
   saveUserTarget: (userId: string, body: TargetUpsertInput) => api.post<any>(`/users/${userId}/targets`, body),

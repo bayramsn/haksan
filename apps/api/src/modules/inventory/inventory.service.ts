@@ -1,10 +1,10 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { and, asc, desc, eq, ilike, isNull, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, ilike, inArray, isNull, sql } from 'drizzle-orm';
 import type { DbClient } from '../../db/client';
 import { inventoryItems, inventoryMovements, warehouses, customerDevices } from '../../db/schema/inventory';
 import { warrantyStatuses } from '../../db/schema/lookup';
 import type { CustomerDeviceCreateInput } from '@haksan/shared';
-import { productModels, brands } from '../../db/schema/products';
+import { productModels, productSpecs, brands } from '../../db/schema/products';
 import { inventoryStatuses, productCategories, productTypes } from '../../db/schema/lookup';
 import { companies } from '../../db/schema/companies';
 import { installationJobs } from '../../db/schema/service';
@@ -615,6 +615,7 @@ export class InventoryService {
     const rows = await this.db
       .select({
         device: customerDevices,
+        productModelId: inventoryItems.productModelId,
         serialNumber: inventoryItems.serialNumber,
         controlUnit: inventoryItems.controlUnit,
         controlUnitSerialNumber: inventoryItems.controlUnitSerialNumber,
@@ -632,9 +633,37 @@ export class InventoryService {
       .orderBy(desc(customerDevices.createdAt))
       .limit(limit)
       .offset(offset);
+    const productModelIds = [
+      ...new Set(rows.map((row) => row.productModelId).filter((id): id is string => Boolean(id))),
+    ];
+    const specRows = productModelIds.length
+      ? await this.db
+          .select({
+            productModelId: productSpecs.productModelId,
+            key: productSpecs.specKey,
+            value: productSpecs.specValue,
+            unit: productSpecs.specUnit,
+          })
+          .from(productSpecs)
+          .where(
+            and(
+              eq(productSpecs.tenantId, actor.tenantId),
+              isNull(productSpecs.deletedAt),
+              inArray(productSpecs.productModelId, productModelIds)
+            )
+          )
+          .orderBy(asc(productSpecs.sortOrder))
+      : [];
+    const specsByProduct = new Map<string, Array<{ key: string; value: string; unit?: string | null }>>();
+    for (const spec of specRows) {
+      const list = specsByProduct.get(spec.productModelId) ?? [];
+      list.push({ key: spec.key, value: spec.value, unit: spec.unit });
+      specsByProduct.set(spec.productModelId, list);
+    }
     return buildPaginated(
       rows.map((r) => ({
         ...r.device,
+        productModelId: r.productModelId,
         serialNumber: r.serialNumber,
         controlUnit: r.controlUnit,
         controlUnitSerialNumber: r.controlUnitSerialNumber,
@@ -642,6 +671,7 @@ export class InventoryService {
         productModelName: r.modelName,
         brandName: r.brandName,
         productTypeName: r.productTypeName,
+        technicalSpecs: r.productModelId ? specsByProduct.get(r.productModelId) ?? [] : [],
       })),
       count,
       page

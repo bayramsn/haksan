@@ -1394,15 +1394,14 @@ export async function seedDemo(): Promise<void> {
     location: string;
     locationType?: 'istanbul_ici' | 'istanbul_disi';
     durationMinutes?: number;
-    feeAmount?: string;
     notes: string;
   }> = [
-    { companyId: kilitsan?.id, divisionCode: 'cnc', statusId: scheduledId, scheduledDate: new Date('2026-06-20'), location: 'Hendek, Sakarya', locationType: 'istanbul_disi', durationMinutes: 480, feeAmount: '800.0000', notes: 'MANFORD DL-2112 köprü tipi işleme merkezi kurulumu ve devreye alma.' },
-    { companyId: contra?.id, divisionCode: 'cnc', statusId: inProgressId, scheduledDate: new Date('2026-06-05'), startedAt: new Date('2026-06-05'), location: 'İkitelli OSB, İstanbul', locationType: 'istanbul_ici', durationMinutes: 300, feeAmount: '350.0000', notes: 'LK MV-1050 dik işleme merkezi kurulumu — elektrik bağlantısı yapılıyor.' },
-    { companyId: alipler?.id, divisionCode: 'cnc', statusId: completedId, scheduledDate: new Date('2026-04-12'), startedAt: new Date('2026-04-12'), completedAt: new Date('2026-04-15'), location: 'Nilüfer OSB, Bursa', locationType: 'istanbul_disi', durationMinutes: 960, feeAmount: '1600.0000', notes: 'ECOCA MT-208/500 CNC torna kurulumu tamamlandı, operatör eğitimi verildi.' },
-    { companyId: unimak?.id, divisionCode: 'universal', statusId: scheduledId, scheduledDate: new Date('2026-06-24'), location: 'İvedik OSB, Ankara', locationType: 'istanbul_disi', durationMinutes: 360, feeAmount: '600.0000', notes: 'HAKSAN UF-560 üniversal freze kurulumu ve hassasiyet kontrolü.' },
-    { companyId: sactech?.id, divisionCode: 'sac_isleme', statusId: completedId, scheduledDate: new Date('2026-05-14'), startedAt: new Date('2026-05-14'), completedAt: new Date('2026-05-15'), location: 'Nilüfer OSB, Bursa', locationType: 'istanbul_disi', durationMinutes: 720, feeAmount: '1200.0000', notes: 'HAKSAN HPB-30135 abkant pres kurulum ve operatör eğitimi.' },
-    { companyId: kilitsan?.id, divisionCode: 'cnc', statusId: scheduledId, scheduledDate: new Date('2026-07-02'), location: 'Hendek, Sakarya', locationType: 'istanbul_disi', durationMinutes: 240, feeAmount: '400.0000', notes: 'Periyodik bakım ve kalibrasyon ziyareti.' },
+    { companyId: kilitsan?.id, divisionCode: 'cnc', statusId: scheduledId, scheduledDate: new Date('2026-06-20'), location: 'Hendek, Sakarya', locationType: 'istanbul_disi', durationMinutes: 480, notes: 'MANFORD DL-2112 köprü tipi işleme merkezi kurulumu ve devreye alma.' },
+    { companyId: contra?.id, divisionCode: 'cnc', statusId: inProgressId, scheduledDate: new Date('2026-06-05'), startedAt: new Date('2026-06-05'), location: 'İkitelli OSB, İstanbul', locationType: 'istanbul_ici', durationMinutes: 300, notes: 'LK MV-1050 dik işleme merkezi kurulumu — elektrik bağlantısı yapılıyor.' },
+    { companyId: alipler?.id, divisionCode: 'cnc', statusId: completedId, scheduledDate: new Date('2026-04-12'), startedAt: new Date('2026-04-12'), completedAt: new Date('2026-04-15'), location: 'Nilüfer OSB, Bursa', locationType: 'istanbul_disi', durationMinutes: 960, notes: 'ECOCA MT-208/500 CNC torna kurulumu tamamlandı, operatör eğitimi verildi.' },
+    { companyId: unimak?.id, divisionCode: 'universal', statusId: scheduledId, scheduledDate: new Date('2026-06-24'), location: 'İvedik OSB, Ankara', locationType: 'istanbul_disi', durationMinutes: 360, notes: 'HAKSAN UF-560 üniversal freze kurulumu ve hassasiyet kontrolü.' },
+    { companyId: sactech?.id, divisionCode: 'sac_isleme', statusId: completedId, scheduledDate: new Date('2026-05-14'), startedAt: new Date('2026-05-14'), completedAt: new Date('2026-05-15'), location: 'Nilüfer OSB, Bursa', locationType: 'istanbul_disi', durationMinutes: 720, notes: 'HAKSAN HPB-30135 abkant pres kurulum ve operatör eğitimi.' },
+    { companyId: kilitsan?.id, divisionCode: 'cnc', statusId: scheduledId, scheduledDate: new Date('2026-07-02'), location: 'Hendek, Sakarya', locationType: 'istanbul_disi', durationMinutes: 240, notes: 'Periyodik bakım ve kalibrasyon ziyareti.' },
   ];
 
   let createdInstallations = 0;
@@ -1424,7 +1423,6 @@ export async function seedDemo(): Promise<void> {
       location: inst.location,
       locationType: inst.locationType,
       durationMinutes: inst.durationMinutes,
-      feeAmount: inst.feeAmount,
       notes: inst.notes,
     });
     createdInstallations++;

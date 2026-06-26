@@ -5,7 +5,7 @@ import { noteTemplates } from '../../db/schema/notes';
 import { DB } from '../../shared/database/database.module';
 import { NotFoundError } from '../../shared/utils/errors';
 import type { AuthContext } from '../../shared/security/auth.types';
-import type { NoteTemplateCreateInput } from '@haksan/shared';
+import type { NoteTemplateCreateInput, NoteTemplateUpdateInput } from '@haksan/shared';
 
 @Injectable()
 export class NoteTemplatesService {
@@ -31,6 +31,25 @@ export class NoteTemplatesService {
         scope: input.scope,
         createdBy: actor.userId,
       })
+      .returning();
+    return row;
+  }
+
+  async update(id: string, input: NoteTemplateUpdateInput, actor: AuthContext) {
+    const existing = await this.db.query.noteTemplates.findFirst({
+      where: and(eq(noteTemplates.id, id), eq(noteTemplates.tenantId, actor.tenantId), isNull(noteTemplates.deletedAt)),
+    });
+    if (!existing) throw new NotFoundError('Not şablonu');
+
+    const [row] = await this.db
+      .update(noteTemplates)
+      .set({
+        ...(input.title !== undefined ? { title: input.title } : {}),
+        ...(input.body !== undefined ? { body: input.body } : {}),
+        ...(input.scope !== undefined ? { scope: input.scope } : {}),
+        updatedBy: actor.userId,
+      })
+      .where(eq(noteTemplates.id, id))
       .returning();
     return row;
   }

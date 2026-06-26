@@ -226,6 +226,7 @@ const paymentTypeLabel = (value?: string) => {
   return "Peşin";
 };
 const todayInput = () => new Date().toISOString().slice(0, 10);
+const VAT_OPTIONS = ["20", "18", "10", "8", "1", "0"] as const;
 const blankPurchaseLine = (type: PurchaseType): PurchaseLineForm => ({
   productModelId: "",
   description: type === "administrative" ? "İdari satın alma gideri" : "",
@@ -240,6 +241,9 @@ const toDecimal = (value: string | number | undefined) => {
   const number = Number(String(value ?? "").replace(",", "."));
   return Number.isFinite(number) ? number : 0;
 };
+const valueToInput = (value: unknown) => (value === null || value === undefined || value === "" ? "" : String(value));
+const productTitle = (product: any) =>
+  product?.fullName || [product?.brand?.name ?? product?.brandName ?? product?.brand, product?.modelCode ?? product?.model].filter(Boolean).join(" · ");
 const lineTotals = (line: PurchaseLineForm) => {
   const gross = toDecimal(line.quantity) * toDecimal(line.unitPrice);
   const discount = toDecimal(line.discountAmount);
@@ -344,12 +348,18 @@ function CreatePurchaseOrderDialog({ onCreated }: { onCreated: () => void }) {
     }
     const cleanLines = form.lines
       .map((line) => ({ ...line, description: line.description.trim() }))
-      .filter((line) => line.description && toDecimal(line.quantity) > 0 && toDecimal(line.unitPrice) >= 0);
+      .filter((line) => line.description && toDecimal(line.quantity) > 0 && toDecimal(line.unitPrice) > 0);
     if (!cleanLines.length) {
-      toast.error("En az bir satın alma kalemi girin");
+      toast.error("En az bir geçerli satın alma kalemi girin", { description: "Açıklama, adet ve olur fiyatı zorunludur." });
+      return;
+    }
+    const invalidDiscountLine = cleanLines.find((line) => toDecimal(line.discountAmount) > toDecimal(line.quantity) * toDecimal(line.unitPrice));
+    if (invalidDiscountLine) {
+      toast.error("İndirim kalem tutarını aşamaz", { description: invalidDiscountLine.description });
       return;
     }
     setSubmitting(true);
+    let createdOrderId: string | null = null;
     try {
       const created = await purchaseOrderService.create({
         supplierCompanyId: form.supplierCompanyId || undefined,
@@ -367,6 +377,7 @@ function CreatePurchaseOrderDialog({ onCreated }: { onCreated: () => void }) {
         shipmentReference: form.shipmentReference.trim() || undefined,
         notes: form.notes.trim() || undefined,
       });
+      createdOrderId = created.id;
       for (const [index, line] of cleanLines.entries()) {
         const description = form.purchaseType === "administrative" && line.productModelId
           ? `${line.productModelId.trim()} - ${line.description}`
@@ -406,6 +417,9 @@ function CreatePurchaseOrderDialog({ onCreated }: { onCreated: () => void }) {
       });
       onCreated();
     } catch (err: any) {
+      if (createdOrderId) {
+        await purchaseOrderService.remove(createdOrderId).catch(() => undefined);
+      }
       toast.error("Satın alma siparişi oluşturulamadı", { description: err?.message ?? "API isteği başarısız oldu." });
     } finally {
       setSubmitting(false);
@@ -518,7 +532,7 @@ function CreatePurchaseOrderDialog({ onCreated }: { onCreated: () => void }) {
           </div>
 
           <div className="rounded-lg border border-border/60 overflow-x-auto">
-            <div className="grid min-w-[1020px] grid-cols-[1.1fr_1.7fr_90px_120px_120px_110px_90px_120px_40px] gap-2 bg-muted/30 px-3 py-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+            <div className="grid min-w-[1280px] grid-cols-[320px_280px_80px_120px_120px_105px_96px_130px_40px] gap-2 bg-muted/30 px-3 py-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
               <div>{form.purchaseType === "commercial" ? "Ürün" : "Gider Türü"}</div>
               <div>Açıklama</div>
               <div>Adet</div>
@@ -533,24 +547,30 @@ function CreatePurchaseOrderDialog({ onCreated }: { onCreated: () => void }) {
               {form.lines.map((line, index) => {
                 const t = lineTotals(line);
                 return (
-                  <div key={index} className="grid min-w-[1020px] grid-cols-[1.1fr_1.7fr_90px_120px_120px_110px_90px_120px_40px] gap-2 px-3 py-2 items-center">
+                  <div key={index} className="grid min-w-[1280px] grid-cols-[320px_280px_80px_120px_120px_105px_96px_130px_40px] gap-2 px-3 py-2 items-center">
                     {form.purchaseType === "commercial" ? (
                       <Select value={line.productModelId || "__none"} onValueChange={(value) => {
+                        if (value === "__none") {
+                          updateLine(index, { productModelId: "" });
+                          return;
+                        }
                         const product = products.find((p) => p.id === value);
-                        const productListPrice = product?.listPrice === null || product?.listPrice === undefined ? "" : String(product.listPrice);
+                        const productListPrice = valueToInput(product?.listPrice);
+                        const productUnitPrice = valueToInput(product?.cashPrice ?? product?.approvedPrice ?? product?.listPrice);
                         updateLine(index, {
-                          productModelId: value === "__none" ? "" : value,
-                          description: product ? product.fullName ?? product.modelCode ?? line.description : line.description,
+                          productModelId: value,
+                          description: product ? productTitle(product) || line.description : line.description,
                           listPrice: productListPrice || line.listPrice,
-                          unitPrice: productListPrice || line.unitPrice,
+                          unitPrice: productUnitPrice || line.unitPrice,
+                          vatRate: valueToInput(product?.vatRate) || line.vatRate,
                         });
                       }}>
-                        <SelectTrigger className="h-8"><SelectValue placeholder="Ürün seç" /></SelectTrigger>
+                        <SelectTrigger className="h-8 min-w-0"><SelectValue placeholder="Ürün seç" /></SelectTrigger>
                         <SelectContent>
                           <SelectItem value="__none">Ürün seçmeden</SelectItem>
                           {products.map((product) => (
                             <SelectItem key={product.id} value={product.id}>
-                              {[product.brand?.name, product.modelCode, product.fullName].filter(Boolean).join(" · ")}
+                              {productTitle(product)}
                             </SelectItem>
                           ))}
                         </SelectContent>
@@ -566,9 +586,10 @@ function CreatePurchaseOrderDialog({ onCreated }: { onCreated: () => void }) {
                     <Select value={line.vatRate} onValueChange={(vatRate) => updateLine(index, { vatRate })}>
                       <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="1">1%</SelectItem>
-                        <SelectItem value="10">10%</SelectItem>
-                        <SelectItem value="20">20%</SelectItem>
+                        {!VAT_OPTIONS.includes(line.vatRate as typeof VAT_OPTIONS[number]) && line.vatRate ? (
+                          <SelectItem value={line.vatRate}>%{line.vatRate}</SelectItem>
+                        ) : null}
+                        {VAT_OPTIONS.map((rate) => <SelectItem key={rate} value={rate}>%{rate}</SelectItem>)}
                       </SelectContent>
                     </Select>
                     <div className="text-right text-sm tabular-nums">{formatCurrency(t.total, form.currencyCode)}</div>

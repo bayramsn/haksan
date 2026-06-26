@@ -105,6 +105,30 @@ describe('Finance — cari özet ve raporlar', () => {
     }
   });
 
+  it('satış/alış muhasebe faturasında KDV oranından toplam hesaplar', async () => {
+    const invoiceNo = uniqueNo('KDV');
+    const created = await supertest(app.getHttpServer())
+      .post('/api/v1/accounting-invoices')
+      .set('Authorization', auth())
+      .send({
+        companyId,
+        type: 'sales',
+        invoiceNo,
+        invoiceDate: now(),
+        amount: 1000,
+        vatRate: 20,
+        vatAmount: 0,
+        grandTotal: 1000,
+        currencyCode: 'USD',
+        firstDueDate: now(),
+        installmentCount: 1,
+      });
+
+    expect(created.status).toBe(201);
+    expect(Number(created.body.vatAmount)).toBeCloseTo(200, 2);
+    expect(Number(created.body.grandTotal)).toBeCloseTo(1200, 2);
+  });
+
   it('satış muhasebe faturası 3 taksit → 3 alacak kaydı üretir', async () => {
     const invoiceNo = uniqueNo('SAT-3T');
     const created = await supertest(app.getHttpServer())

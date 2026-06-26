@@ -253,7 +253,7 @@ table.q-meta td.val { text-align: center; font-style: italic; font-weight: bold;
 .q-photo { max-width: 150mm; max-height: 130mm; margin-top: 6mm; }
 .q-h1 { text-align: center; font-size: 14pt; font-weight: bold; margin: 5mm 0 5mm; }
 table.q-specs { width: 100%; }
-table.q-specs td { border: 1pt solid #000; font-size: 10pt; padding: 1.4mm 2mm; }
+table.q-specs td { border: 1pt solid #000; font-size: 8.4pt; padding: .75mm 1.5mm; }
 table.q-specs td.k { width: 45%; text-align: center; }
 table.q-specs td.v { text-align: center; }
 .q-eq-h { font-weight: bold; text-decoration: underline; font-size: 11pt; margin: 4mm 0 2mm; }
@@ -754,8 +754,7 @@ export interface InstallationPrintData {
   teslimAlan?: string;
   kurulumYeri?: string;
   sure?: string;
-  kurulumUcreti?: number | null;
-  currency?: CurrencyCode;
+  technicalSpecs?: Array<{ key: string; value: string }>;
   notlar?: string;
 }
 
@@ -788,6 +787,8 @@ table.f td.val { font-style: italic; }
 table.f-check th { font-weight: bold; }
 table.f-check td.c { text-align: center; width: 26mm; }
 table.f-check td.n { width: 60mm; }
+.f-spec td.lbl { width: 31mm; }
+.f-spec td.val { width: 55mm; }
 .f-sign { display: flex; gap: 6mm; margin-top: 2.5mm; }
 .f-sign > div { flex: 1; border: 1.4pt solid #000; padding: 1.4mm 2mm 3mm; }
 .f-sign .cap { font-weight: bold; font-size: 10.5pt; border-bottom: 1pt solid #000; margin: -1.6mm -2mm 2mm; padding: 1.2mm 2mm; }
@@ -798,6 +799,11 @@ table.f-check td.n { width: 60mm; }
 export function installationFormDoc(d: InstallationPrintData, assetBase: string): PrintDocument {
   const t = d.tezgah ?? {};
   const c = d.cnc ?? {};
+  const technicalSpecs = (d.technicalSpecs ?? []).filter((spec) => spec.key.trim() && spec.value.trim());
+  const technicalSpecRows = Array.from({ length: Math.ceil(technicalSpecs.length / 2) }, (_, index) => [
+    technicalSpecs[index * 2],
+    technicalSpecs[index * 2 + 1],
+  ]);
   const body = `
 <div class="page">
   ${drmakHeader(assetBase, "KURULUM TUTANAĞI")}
@@ -830,6 +836,18 @@ export function installationFormDoc(d: InstallationPrintData, assetBase: string)
       </div>
     </div>
 
+    ${technicalSpecRows.length ? `
+    <div class="f-sec" style="margin-top:4mm">TEKNİK BİLGİLER</div>
+    <table class="f f-spec">
+      ${technicalSpecRows.map(([left, right]) => `
+      <tr>
+        <td class="lbl">${esc(left.key)}</td>
+        <td class="val">${blank(left.value)}</td>
+        <td class="lbl">${right ? esc(right.key) : ""}</td>
+        <td class="val">${right ? blank(right.value) : ""}</td>
+      </tr>`).join("")}
+    </table>` : ""}
+
     <div class="f-sec" style="margin-top:4mm">KULLANICI BİLGİLERİ</div>
     <table class="f">
       <tr><td class="lbl">Firma</td><td class="val">${blank(d.firma)}</td></tr>
@@ -842,12 +860,11 @@ export function installationFormDoc(d: InstallationPrintData, assetBase: string)
       <tr><td class="lbl">E-Posta</td><td class="val">${blank(d.eposta)}</td></tr>
     </table>
 
-    ${(d.kurulumYeri || d.sure || d.kurulumUcreti || d.notlar) ? `
+    ${(d.kurulumYeri || d.sure || d.notlar) ? `
     <div class="f-sec" style="margin-top:4mm">KURULUM PLANI</div>
     <table class="f">
       ${d.kurulumYeri ? `<tr><td class="lbl">Kurulum Yeri</td><td class="val">${blank(d.kurulumYeri)}</td></tr>` : ""}
       ${d.sure ? `<tr><td class="lbl">Süre</td><td class="val">${blank(d.sure)}</td></tr>` : ""}
-      ${d.kurulumUcreti ? `<tr><td class="lbl">Kurulum Ücreti</td><td class="val">${fmtMoney(d.kurulumUcreti, d.currency ?? "USD")}</td></tr>` : ""}
       ${d.notlar ? `<tr><td class="lbl">Notlar</td><td class="val">${blank(d.notlar)}</td></tr>` : ""}
     </table>` : ""}
 

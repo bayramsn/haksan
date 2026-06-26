@@ -52,9 +52,13 @@ export class OrdersService {
   ) {}
 
   private calcItem(qty: number, unitPrice: number, discount: number, vatRate: number): ItemTotals {
-    const gross = qty * unitPrice;
-    const subtotal = gross - discount;
-    const vat = subtotal * (vatRate / 100);
+    const safeQty = Number.isFinite(qty) && qty > 0 ? qty : 0;
+    const safeUnitPrice = Number.isFinite(unitPrice) && unitPrice > 0 ? unitPrice : 0;
+    const gross = safeQty * safeUnitPrice;
+    const safeDiscount = Math.min(Math.max(Number.isFinite(discount) ? discount : 0, 0), gross);
+    const safeVatRate = Number.isFinite(vatRate) && vatRate > 0 ? vatRate : 0;
+    const subtotal = Math.max(gross - safeDiscount, 0);
+    const vat = subtotal * (safeVatRate / 100);
     return { subtotal: gross, discount, vat, total: subtotal + vat, lineTotal: subtotal, vatAmount: vat };
   }
 

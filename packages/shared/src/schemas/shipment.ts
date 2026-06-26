@@ -78,6 +78,12 @@ export const deliveryCncInfoSchema = z.object({
 });
 export type DeliveryCncInfo = z.infer<typeof deliveryCncInfoSchema>;
 
+export const deliveryTechnicalSpecSchema = z.object({
+  key: z.string().trim().min(1).max(255),
+  value: z.string().trim().max(1000),
+});
+export type DeliveryTechnicalSpec = z.infer<typeof deliveryTechnicalSpecSchema>;
+
 /** Teslimat / kurulum tutanağı yazdırma alanları. */
 export const deliveryFormDataSchema = z.object({
   formNo: z.string().max(64).optional(),
@@ -87,6 +93,7 @@ export const deliveryFormDataSchema = z.object({
   cnc: deliveryCncInfoSchema.optional(),
   ilgili: z.string().max(255).optional(),
   kurulumuYapan: z.string().max(255).optional(),
+  technicalSpecs: z.array(deliveryTechnicalSpecSchema).max(100).optional(),
 });
 export type DeliveryFormData = z.infer<typeof deliveryFormDataSchema>;
 

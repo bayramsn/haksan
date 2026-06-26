@@ -201,6 +201,7 @@ export function KanbanPage({ onSelect, items }: { onSelect: (s: SalesCase) => vo
           faks: cust?.fax,
           gsm: cust?.phone2,
           eposta: cust?.email,
+          technicalSpecs: m?.technicalSpecs,
         },
         printAssetBase()
       )

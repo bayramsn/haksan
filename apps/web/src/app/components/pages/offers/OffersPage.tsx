@@ -56,11 +56,15 @@ function invoicePrefillFromOffer(offer: Offer, customer: Customer | null, order?
 
 function invoicePrefillFromOrder(order: any): AccountingInvoicePrefill {
   const grandTotal = Number(order.grandTotal ?? 0);
+  const vatAmount = Number(order.vatAmount ?? order.vatTotal ?? 0);
+  const amount = Number(order.subtotal ?? Math.max(0, grandTotal - vatAmount) ?? grandTotal);
+  const vatRate = amount > 0 && vatAmount > 0 ? (vatAmount / amount) * 100 : 20;
   return {
     companyId: order.companyId ?? order.company?.id ?? "",
-    amount: grandTotal,
+    amount,
     grandTotal,
-    vatAmount: 0,
+    vatAmount,
+    vatRate,
     currencyCode: order.currency?.code ?? "USD",
     invoiceNo: `MF-${order.orderNo}`,
     quoteId: order.quoteId ?? order.quote?.id,

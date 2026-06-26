@@ -319,6 +319,8 @@ export type Machine = {
   type?: string;
   controlUnit?: string;
   controlUnitSerial?: string;
+  productModelId?: string;
+  technicalSpecs?: ProductSpec[];
   deliveryDate?: string;
   installationDate: string;
   warrantyStart: string;
@@ -611,6 +613,7 @@ export type DeliveryFormFields = {
   cnc?: { marka?: string; model?: string; seriNo?: string; mainSw?: string };
   ilgili?: string;
   kurulumuYapan?: string;
+  technicalSpecs?: ProductSpec[];
 };
 
 export type Delivery = {

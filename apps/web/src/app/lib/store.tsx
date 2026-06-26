@@ -319,6 +319,7 @@ type Store = {
   addOffer: (o: Omit<Offer, 'id' | 'date' | 'revision'> & { revision?: number }) => Promise<Offer>;
   createQuoteFull: (payload: CreateQuotePayload) => Promise<{ quoteId: string; documentNo: string; opportunityId: string }>;
   addNoteTemplate: (t: { title: string; body: string; scope?: string }) => Promise<NoteTemplate>;
+  updateNoteTemplate: (id: string, patch: { title?: string; body?: string; scope?: string }) => Promise<NoteTemplate>;
   deleteNoteTemplate: (id: string) => Promise<void>;
   addStock: (s: Omit<StockItem, 'id'>) => Promise<StockItem>;
   updateStockStatus: (id: string, status: StockItem['status']) => Promise<void>;
@@ -442,7 +443,7 @@ function StoreInner({ children }: { children: ReactNode }) {
         load('Proformalar', () => documentService.proformas({ pageSize: 200 }), empty, 'proformas.read'),
         load('Sözleşmeler', () => documentService.contracts({ pageSize: 200 }), empty, 'contracts.read'),
         load('Faturalar', () => documentService.commercialInvoices({ pageSize: 200 }), empty, 'commercial_invoices.read'),
-        load('Not şablonları', () => noteTemplateService.list('quote'), [] as any[]),
+        load('Not şablonları', () => noteTemplateService.list(), [] as any[]),
         load('Sevkiyatlar', () => serviceService.shipments({ pageSize: 200 }), empty, 'shipments.read'),
         load('Teslimatlar', () => serviceService.deliveries({ pageSize: 200 }), empty, 'shipments.read'),
         load('Dosya bağlantıları', () => fileService.links({ pageSize: 200 }), empty, 'files.read'),
@@ -751,6 +752,13 @@ function StoreInner({ children }: { children: ReactNode }) {
           type: d.productTypeName ?? '',
           controlUnit: d.controlUnit ?? '',
           controlUnitSerial: d.controlUnitSerialNumber ?? '',
+          productModelId: d.productModelId ?? '',
+          technicalSpecs: Array.isArray(d.technicalSpecs)
+            ? d.technicalSpecs.map((spec: any) => ({
+                key: String(spec.key ?? ''),
+                value: [spec.value, spec.unit].filter(Boolean).join(' '),
+              }))
+            : [],
           deliveryDate: (d.deliveryDate as string)?.slice(0, 10) ?? '',
           installationDate: (d.installationDate as string)?.slice(0, 10) ?? '',
           warrantyStart: (d.warrantyStartDate as string)?.slice(0, 10) ?? '',
@@ -1276,6 +1284,12 @@ function StoreInner({ children }: { children: ReactNode }) {
     const created = await noteTemplateService.create({ title: t.title, body: t.body, scope: t.scope ?? 'quote' });
     await fetchAll();
     return { id: created.id, title: created.title, body: created.body, scope: created.scope ?? 'quote' };
+  };
+
+  const updateNoteTemplate: Store['updateNoteTemplate'] = async (id, patch) => {
+    const updated = await noteTemplateService.update(id, patch);
+    await fetchAll();
+    return { id: updated.id, title: updated.title, body: updated.body, scope: updated.scope ?? 'quote' };
   };
 
   const deleteNoteTemplate: Store['deleteNoteTemplate'] = async (id) => {
@@ -1814,6 +1828,7 @@ function StoreInner({ children }: { children: ReactNode }) {
       addOffer,
       createQuoteFull,
       addNoteTemplate,
+      updateNoteTemplate,
       deleteNoteTemplate,
       addStock,
       updateStockStatus,

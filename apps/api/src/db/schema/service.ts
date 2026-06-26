@@ -30,11 +30,10 @@ export const installationJobs = pgTable(
     assignedToUserId: uuid('assigned_to_user_id').references(() => users.id),
     statusId: uuid('status_id').references(() => installationStatuses.id),
     location: varchar('location', { length: 255 }),
-    // Saha ücretlendirme: konum tipi (istanbul_ici | istanbul_disi), gerçekleşen
-    // süre (dk) ve hesaplanan ücret. Ücret @haksan/shared computeInstallationFee
-    // ile türetilir; saatlik tarife konum tipinden bellidir (70/100 USD).
+    // Saha planlama: konum tipi ve gerçekleşen süre.
     locationType: varchar('location_type', { length: 32 }),
     durationMinutes: integer('duration_minutes'),
+    // Eski kayıtlarla şema uyumluluğu için tutulur; yeni kurulumlarda daima null.
     feeAmount: money('fee_amount'),
     notes: text('notes'),
     ...auditColumns,
