@@ -20,6 +20,9 @@ const envSchema = z.object({
   DATABASE_POOL_MAX: z.coerce.number().int().positive().default(10),
   // Managed Postgres (Supabase/RDS/Azure) için TLS. Self-hosted/docker'da false bırak.
   DATABASE_SSL: envBoolean.default(false),
+  // Prod'da TLS'siz DB bağlantısına bilinçli izin (özel ağ/self-hosted). Aksi halde
+  // prod'da DATABASE_SSL=true zorunludur (bkz. superRefine).
+  DATABASE_ALLOW_PLAINTEXT: envBoolean.default(false),
 
   // CORS allowlist (comma-separated)
   CORS_ORIGINS: z
@@ -43,6 +46,9 @@ const envSchema = z.object({
   JWT_ACCESS_TTL: z.string().default('15m'),
   JWT_REFRESH_TTL: z.string().default('30d'),
   PUBLIC_LINK_SECRET: z.string().min(32).optional(),
+  // Cookie imzalama sırrı. Verilmezse JWT_REFRESH_SECRET'e düşer; ayrı bir değer
+  // sır yeniden-kullanımını önler (least-privilege).
+  COOKIE_SECRET: z.string().min(32).optional(),
 
   // Auth lockout
   AUTH_MAX_FAILED_ATTEMPTS: z.coerce.number().int().positive().default(5),
@@ -51,6 +57,11 @@ const envSchema = z.object({
   // Rate limit
   RATE_LIMIT_GLOBAL: z.coerce.number().int().positive().default(100),
   RATE_LIMIT_LOGIN: z.coerce.number().int().positive().default(5),
+  // Dosya yükleme endpoint'leri için sıkı limit (CLAUDE.md #2).
+  RATE_LIMIT_UPLOAD: z.coerce.number().int().positive().default(5),
+  // Önündeki güvenilir proxy (Render/Nginx) sayısı. trustProxy bu sayıya sabitlenir;
+  // istemcinin X-Forwarded-For ile IP sahtekarlığı yapıp limit/lockout atlatmasını önler.
+  TRUST_PROXY_HOPS: z.coerce.number().int().nonnegative().default(1),
 
   // Sohbet gerçek-zaman (Socket.IO). Varsayılan KAPALI — Render ücretsiz planda
   // soketler uyku/yeniden başlatmada kopar; polling fallback çalışır. VDS'te
@@ -115,6 +126,14 @@ const envSchema = z.object({
       code: z.ZodIssueCode.custom,
       path: ['CALL_WEBHOOK_SECRET'],
       message: 'CALL_WEBHOOK_SECRET must be set in production',
+    });
+  }
+  if (!env.DATABASE_SSL && !env.DATABASE_ALLOW_PLAINTEXT) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['DATABASE_SSL'],
+      message:
+        'Production requires DATABASE_SSL=true (or set DATABASE_ALLOW_PLAINTEXT=true for private-network/self-hosted DBs)',
     });
   }
 });

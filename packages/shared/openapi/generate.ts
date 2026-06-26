@@ -100,22 +100,30 @@ function paginated(item: z.ZodTypeAny) {
 const json = (schema: z.ZodTypeAny) => ({ content: { 'application/json': { schema } } });
 const SECURED = [{ bearerAuth: [] as string[] }];
 
-// ───── Opportunity yanıt DTO'su (shared'da response şeması yok — başlangıç; ileride shared'a taşınır) ─────
+// ───── Opportunity yanıt DTO'su — gerçek liste yanıtına göre (opportunities.service.ts list()).
+// Not: estimatedValue numeric(18,4) → JSON'da string; stage/company/currency leftJoin → nesne ve nullable.
+// (Bu shared zod değil; yalnız native codegen sözleşmesi. İleride shared response şemasına taşınır.)
 const opportunityDto = registry.register(
   'OpportunityDTO',
   z.object({
     id: z.string(),
     companyId: z.string(),
-    divisionId: z.string().nullable(),
     title: z.string(),
     description: z.string().nullable(),
-    stage: z.string(),
-    estimatedValue: z.number().nullable(),
-    currencyCode: z.string(),
+    estimatedValue: z.string().nullable(),
     probability: z.number().int(),
     expectedCloseDate: z.string().nullable(),
     ownerUserId: z.string().nullable(),
     createdAt: z.string(),
+    company: z
+      .object({ id: z.string(), legalTitle: z.string(), shortName: z.string().nullable() })
+      .nullable(),
+    stage: z
+      .object({ id: z.string(), code: z.string(), name: z.string() })
+      .nullable(),
+    currency: z
+      .object({ id: z.string(), code: z.string() })
+      .nullable(),
   })
 );
 
@@ -127,6 +135,7 @@ const opportunityDto = registry.register(
 registry.registerPath({
   method: 'post',
   path: '/auth/login',
+  operationId: 'login',
   tags: ['auth'],
   summary: 'E-posta + parola ile giriş; refresh token httpOnly cookie olarak set edilir.',
   request: { body: json(ref('loginSchema')) },
@@ -139,6 +148,7 @@ registry.registerPath({
 registry.registerPath({
   method: 'post',
   path: '/auth/refresh',
+  operationId: 'refresh',
   tags: ['auth'],
   summary: 'Cookie refresh token ile yeni access token (gövdesiz POST).',
   responses: {
@@ -150,6 +160,7 @@ registry.registerPath({
 registry.registerPath({
   method: 'post',
   path: '/auth/logout',
+  operationId: 'logout',
   tags: ['auth'],
   summary: 'Oturumu kapatır; refresh cookie temizlenir.',
   responses: { 204: { description: 'Çıkış yapıldı' } },
@@ -158,6 +169,7 @@ registry.registerPath({
 registry.registerPath({
   method: 'post',
   path: '/auth/forgot-password',
+  operationId: 'forgotPassword',
   tags: ['auth'],
   request: { body: json(ref('forgotPasswordSchema')) },
   responses: { 200: { description: 'Sıfırlama tetiklendi', ...json(z.object({ ok: z.boolean(), token: z.string().optional() })) } },
@@ -166,6 +178,7 @@ registry.registerPath({
 registry.registerPath({
   method: 'post',
   path: '/auth/reset-password',
+  operationId: 'resetPassword',
   tags: ['auth'],
   request: { body: json(ref('resetPasswordSchema')) },
   responses: { 200: { description: 'Parola güncellendi', ...json(z.object({ ok: z.boolean() })) } },
@@ -174,6 +187,7 @@ registry.registerPath({
 registry.registerPath({
   method: 'get',
   path: '/auth/me',
+  operationId: 'getMe',
   tags: ['auth'],
   summary: 'Oturum sahibi kullanıcı + tenant + bölümler/izinler.',
   security: SECURED,
@@ -189,6 +203,7 @@ const idParam = z.object({ id: z.string() });
 registry.registerPath({
   method: 'get',
   path: '/opportunities',
+  operationId: 'listOpportunities',
   tags: ['opportunities'],
   summary: 'Satış kartları listesi (sayfalı, kanban için stage bazlı filtrelenebilir).',
   security: SECURED,
@@ -208,6 +223,7 @@ registry.registerPath({
 registry.registerPath({
   method: 'get',
   path: '/opportunities/{id}',
+  operationId: 'getOpportunity',
   tags: ['opportunities'],
   security: SECURED,
   request: { params: idParam },
@@ -220,6 +236,7 @@ registry.registerPath({
 registry.registerPath({
   method: 'post',
   path: '/opportunities',
+  operationId: 'createOpportunity',
   tags: ['opportunities'],
   security: SECURED,
   request: { body: json(ref('opportunityCreateSchema')) },
@@ -229,6 +246,7 @@ registry.registerPath({
 registry.registerPath({
   method: 'patch',
   path: '/opportunities/{id}',
+  operationId: 'updateOpportunity',
   tags: ['opportunities'],
   security: SECURED,
   request: { params: idParam, body: json(ref('opportunityUpdateSchema')) },
@@ -238,6 +256,7 @@ registry.registerPath({
 registry.registerPath({
   method: 'patch',
   path: '/opportunities/{id}/stage',
+  operationId: 'changeOpportunityStage',
   tags: ['opportunities'],
   summary: 'Kanban aşaması değiştir (sürükle-bırak).',
   security: SECURED,
@@ -248,10 +267,96 @@ registry.registerPath({
 registry.registerPath({
   method: 'delete',
   path: '/opportunities/{id}',
+  operationId: 'deleteOpportunity',
   tags: ['opportunities'],
   security: SECURED,
   request: { params: idParam },
   responses: { 204: { description: 'Silindi' } },
+});
+
+// ───── Company / Contact yanıt DTO'ları — gerçek list() çıktısına göre ─────
+const companyDto = registry.register(
+  'CompanyDTO',
+  z.object({
+    id: z.string(),
+    legalTitle: z.string(),
+    shortName: z.string().nullable(),
+    sector: z.string().nullable(),
+    taxNumber: z.string().nullable(),
+    website: z.string().nullable(),
+    createdAt: z.string(),
+    primaryPhone: z.string().nullable(),
+    primaryEmail: z.string().nullable(),
+    relationType: z.object({ code: z.string(), name: z.string() }).nullable(),
+    customerStatus: z.object({ code: z.string(), name: z.string() }).nullable(),
+  })
+);
+
+const contactDto = registry.register(
+  'ContactDTO',
+  z.object({
+    id: z.string(),
+    companyId: z.string(),
+    fullName: z.string(),
+    title: z.string().nullable(),
+    department: z.string().nullable(),
+    workPhone: z.string().nullable(),
+    mobilePhone: z.string().nullable(),
+    workEmail: z.string().nullable(),
+    personalEmail: z.string().nullable(),
+    createdAt: z.string(),
+    company: z.object({ id: z.string(), legalTitle: z.string(), shortName: z.string().nullable() }).nullable(),
+  })
+);
+
+// ── Companies (firmalar) ──
+registry.registerPath({
+  method: 'get',
+  path: '/companies',
+  operationId: 'listCompanies',
+  tags: ['companies'],
+  security: SECURED,
+  request: {
+    query: z.object({
+      page: z.coerce.number().int().optional(),
+      pageSize: z.coerce.number().int().optional(),
+      search: z.string().optional(),
+      relationTypeCode: z.string().optional(),
+      customerStatusCode: z.string().optional(),
+    }),
+  },
+  responses: { 200: { description: 'Sayfalı firma listesi', ...json(paginated(companyDto)) } },
+});
+
+registry.registerPath({
+  method: 'get',
+  path: '/companies/{id}',
+  operationId: 'getCompany',
+  tags: ['companies'],
+  security: SECURED,
+  request: { params: idParam },
+  responses: {
+    200: { description: 'Firma', ...json(companyDto) },
+    404: { description: 'Bulunamadı', ...json(errorEnvelope) },
+  },
+});
+
+// ── Contacts (kontaklar) ──
+registry.registerPath({
+  method: 'get',
+  path: '/contacts',
+  operationId: 'listContacts',
+  tags: ['contacts'],
+  security: SECURED,
+  request: {
+    query: z.object({
+      page: z.coerce.number().int().optional(),
+      pageSize: z.coerce.number().int().optional(),
+      search: z.string().optional(),
+      companyId: z.string().optional(),
+    }),
+  },
+  responses: { 200: { description: 'Sayfalı kontak listesi', ...json(paginated(contactDto)) } },
 });
 
 // ───── Doküman üret ve yaz ─────

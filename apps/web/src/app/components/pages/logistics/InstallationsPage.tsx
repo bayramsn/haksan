@@ -10,7 +10,7 @@ import { serviceService } from "../../../../lib/services";
 import { INSTALLATION_LOCATION_LABELS, formatDuration, type InstallationLocationType } from "@haksan/shared";
 import { printOrWarn } from "../../../lib/pageHelpers";
 import { installationFormDoc, printAssetBase, trShortDate } from "../../../lib/print";
-import { Plus, Wrench, Calendar, CheckCircle2, TrendingUp, Wallet, Building2, MapPin, Printer } from "lucide-react";
+import { Plus, Wrench, Calendar, CheckCircle2, TrendingUp, Building2, MapPin, Printer } from "lucide-react";
 import { toast } from "sonner";
 
 export function InstallationsPage() {
@@ -41,6 +41,7 @@ export function InstallationsPage() {
     customerName: i.company?.shortName || i.company?.legalTitle || customers.find((c) => c.id === i.companyId)?.name || "—",
     contactName: i.contact?.fullName ?? "",
     deviceId: i.customerDeviceId ?? "",
+    device: i.customerDevice ?? null,
     technician: i.assignedTo?.fullName ?? "—",
     scheduledDate: (i.scheduledDate as string | undefined)?.slice(0, 10) ?? "—",
     completedDate: (i.completedAt as string | undefined)?.slice(0, 10) ?? "",
@@ -48,19 +49,43 @@ export function InstallationsPage() {
     location: i.location ?? "",
     locationType: (i.locationType as InstallationLocationType | null) ?? null,
     durationMinutes: i.durationMinutes != null ? Number(i.durationMinutes) : null,
-    feeAmount: i.feeAmount != null ? Number(i.feeAmount) : null,
+    technicalSpecs: Array.isArray(i.customerDevice?.technicalSpecs)
+      ? i.customerDevice.technicalSpecs.map((spec: any) => ({
+          key: String(spec.key ?? ""),
+          value: [spec.value, spec.unit].filter(Boolean).join(" "),
+        }))
+      : [],
+    notes: i.notes ?? "",
   }));
-
-  // Toplam kurulum geliri (kaydedilmiş ücretler, USD).
-  const totalFee = installationRows.reduce((s, i) => s + (i.feeAmount ?? 0), 0);
 
   // Kurulum Tutanağı çıktısı — müşteri bilgileri CRM'den, tezgah/CNC bilgileri
   // kuruluma bağlı makineden (yoksa müşterinin makinesinden) gelir; CRM'de
   // olmayan alanlar sahada elle doldurulmak üzere boş basılır.
-  const printInstallationForm = (row: (typeof installationRows)[number], index: number) => {
+  const printInstallationForm = (row: (typeof installationRows)[number], _index: number) => {
     const cust = customers.find((c) => c.id === row.customerId);
+    const rowDevice = row.device
+      ? {
+          id: row.device.id,
+          customerId: row.customerId,
+          salesCaseId: "",
+          stockItemId: "",
+          serialNumber: row.device.serialNumber ?? "—",
+          model: row.device.model ?? row.device.productModelName ?? "—",
+          brand: row.device.brandName ?? "",
+          type: row.device.productTypeName ?? "",
+          controlUnit: row.device.controlUnit ?? "",
+          controlUnitSerial: row.device.controlUnitSerialNumber ?? "",
+          technicalSpecs: row.technicalSpecs,
+          deliveryDate: "",
+          installationDate: row.completedDate,
+          warrantyStart: "",
+          warrantyEnd: "",
+          status: "Active" as const,
+        }
+      : null;
     const m =
       machines.find((x) => x.id === row.deviceId) ??
+      rowDevice ??
       machines.find((x) => x.customerId === row.customerId);
     printOrWarn(
       installationFormDoc(
@@ -71,7 +96,7 @@ export function InstallationsPage() {
             : row.scheduledDate !== "—"
               ? trShortDate(row.scheduledDate)
               : "",
-          formNo: String(index + 1).padStart(5, "0"),
+          formNo: row.id,
           tezgah: m ? { marka: m.brand, tip: m.type, model: m.model, seriNo: m.serialNumber } : undefined,
           cnc: m?.controlUnit
             ? {
@@ -88,6 +113,10 @@ export function InstallationsPage() {
           gsm: cust?.phone2,
           eposta: cust?.email,
           kurulumuYapan: row.technician !== "—" ? row.technician : "",
+          kurulumYeri: row.location,
+          sure: row.durationMinutes != null ? formatDuration(row.durationMinutes) : undefined,
+          technicalSpecs: row.technicalSpecs,
+          notlar: row.notes,
         },
         printAssetBase()
       )
@@ -102,12 +131,11 @@ export function InstallationsPage() {
 
   return (
     <div className="space-y-5">
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <MiniKpi tone="violet" icon={<Wrench className="size-[18px]" />} label="Toplam Kurulum" value={installationRows.length} sub="tüm zamanlar" delta={6} />
         <MiniKpi tone="amber" icon={<Calendar className="size-[18px]" />} label="Planlı" value={planned} sub="gelecek" delta={2} />
         <MiniKpi tone="emerald" icon={<CheckCircle2 className="size-[18px]" />} label="Tamamlandı" value={completed} sub="bu çeyrek" delta={4} />
         <MiniKpi tone="blue" icon={<TrendingUp className="size-[18px]" />} label="Başarı" value={`%${installationRows.length ? Math.round((completed / installationRows.length) * 100) : 0}`} sub="ilk seferde" delta={1} />
-        <MiniKpi tone="emerald" icon={<Wallet className="size-[18px]" />} label="Kurulum Geliri" value={`$ ${totalFee.toLocaleString("tr-TR")}`} sub="hesaplanan ücret" delta={0} />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
@@ -127,7 +155,6 @@ export function InstallationsPage() {
                   <TableHead>Teknisyen</TableHead>
                   <TableHead>Planlanan Tarih</TableHead>
                   <TableHead>Konum / Süre</TableHead>
-                  <TableHead className="text-right">Ücret</TableHead>
                   <TableHead>Durum</TableHead>
                   <TableHead className="w-16 text-right">İşlem</TableHead>
                 </TableRow>
@@ -164,13 +191,6 @@ export function InstallationsPage() {
                         <span className="text-[11px] text-muted-foreground">—</span>
                       )}
                     </TableCell>
-                    <TableCell className="text-right tabular-nums">
-                      {i.feeAmount != null ? (
-                        <span className="text-sm text-emerald-700">$ {i.feeAmount.toLocaleString("tr-TR")}</span>
-                      ) : (
-                        <span className="text-xs text-muted-foreground">—</span>
-                      )}
-                    </TableCell>
                     <TableCell><StatusBadge status={i.status} /></TableCell>
                     <TableCell className="text-right">
                       <Button variant="ghost" size="icon" className="size-7" title="Kurulum Tutanağı yazdır / PDF"
@@ -182,14 +202,14 @@ export function InstallationsPage() {
                 ))}
                 {!loading && installationRows.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={7} className="text-center py-12 text-sm text-muted-foreground">
+                    <TableCell colSpan={6} className="text-center py-12 text-sm text-muted-foreground">
                       Henüz kurulum kaydı yok.
                     </TableCell>
                   </TableRow>
                 )}
                 {loading && (
                   <TableRow>
-                    <TableCell colSpan={7} className="text-center py-12 text-sm text-muted-foreground">
+                    <TableCell colSpan={6} className="text-center py-12 text-sm text-muted-foreground">
                       Kurulumlar yükleniyor...
                     </TableCell>
                   </TableRow>

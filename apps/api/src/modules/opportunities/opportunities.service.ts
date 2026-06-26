@@ -5,8 +5,9 @@ import { opportunities, opportunityStageHistory, salesActivities, visits, calls 
 import { companies, contacts } from '../../db/schema/companies';
 import { users } from '../../db/schema/users';
 import { quotes } from '../../db/schema/quotes';
-import { inventoryItems, customerDevices } from '../../db/schema/inventory';
-import { pipelineStages, currencies, opportunityStatuses, contactSources, inventoryStatuses, warrantyStatuses } from '../../db/schema/lookup';
+import { inventoryItems, inventoryMovements, customerDevices } from '../../db/schema/inventory';
+import { installationJobs } from '../../db/schema/service';
+import { pipelineStages, currencies, opportunityStatuses, contactSources, inventoryStatuses, warrantyStatuses, installationStatuses } from '../../db/schema/lookup';
 import { cancellationReasons } from '../../db/schema/crm';
 import { commercialInvoices, contracts } from '../../db/schema/quotes';
 import { receivables } from '../../db/schema/finance';
@@ -322,24 +323,51 @@ export class OpportunitiesService {
         throw new ValidationError('Stok seçimi için en az bir seri no belirtilmelidir');
       }
       const reserved = await this.db.query.inventoryStatuses.findFirst({ where: eq(inventoryStatuses.code, 'reserved') });
+      const available = await this.db.query.inventoryStatuses.findFirst({ where: eq(inventoryStatuses.code, 'available') });
       // Verify items belong to tenant
       const items = await this.db.query.inventoryItems.findMany({
-        where: and(eq(inventoryItems.tenantId, actor.tenantId), inArray(inventoryItems.id, input.inventoryItemIds)),
+        where: and(eq(inventoryItems.tenantId, actor.tenantId), isNull(inventoryItems.deletedAt), inArray(inventoryItems.id, input.inventoryItemIds)),
       });
       if (items.length !== input.inventoryItemIds.length) {
         throw new ValidationError('Bazı stok kalemleri bu tenant\'a ait değil');
       }
+      const now = new Date();
       for (const item of items) {
+        const isAvailable = available ? item.stockStatusId === available.id : true;
+        const isReservedForCompany = reserved && item.stockStatusId === reserved.id && item.reservedCompanyId === opp.companyId;
+        if (!isAvailable && !isReservedForCompany) {
+          throw new ValidationError('Sadece stokta olan veya bu firmaya rezerve edilmiş seri nolar seçilebilir');
+        }
+        const divisionId = item.divisionId ?? opp.divisionId;
         await this.db
           .update(inventoryItems)
-          .set({ stockStatusId: reserved?.id ?? item.stockStatusId })
+          .set({
+            divisionId,
+            stockStatusId: reserved?.id ?? item.stockStatusId,
+            reservedCompanyId: opp.companyId,
+            reservedAt: now,
+          })
           .where(eq(inventoryItems.id, item.id));
+        await this.db.insert(inventoryMovements).values({
+          tenantId: actor.tenantId,
+          divisionId,
+          inventoryItemId: item.id,
+          movementType: 'reserve',
+          movementDate: now,
+          referenceType: 'opportunity',
+          referenceId: opp.id,
+          notes: 'Kanban stok seçimi',
+          createdBy: actor.userId,
+        });
       }
     }
     if (input.toStage === 'installation') {
       // Garanti, tezgâhın kurulumuyla başlar: rezerve stok kalemlerinden
       // müşteri cihazı / garanti kayıtları oluşturulur (idempotent).
       await this.ensureWarrantyDevices(opp, actor, input.inventoryItemIds);
+      // Satıştan servise devir: servis ekibi Kurulum listesinde görebilsin diye
+      // bir kurulum kaydı oluşturulur (idempotent).
+      await this.ensureInstallationJob(opp, actor);
     }
     if (input.toStage === 'delivered') {
       // Cihaz/garanti kayıtları kurulumda oluşturulmuş olabilir; tekrar çağırmak
@@ -381,27 +409,72 @@ export class OpportunitiesService {
     actor: AuthContext,
     inventoryItemIds?: string[],
   ) {
-    const items = await this.db.query.inventoryItems.findMany({
-      where: and(eq(inventoryItems.tenantId, actor.tenantId)),
-    });
     const reservedStatus = await this.db.query.inventoryStatuses.findFirst({ where: eq(inventoryStatuses.code, 'reserved') });
     const soldStatus = await this.db.query.inventoryStatuses.findFirst({ where: eq(inventoryStatuses.code, 'sold') });
     const activeWarranty = await this.db.query.warrantyStatuses.findFirst({ where: eq(warrantyStatuses.code, 'active') });
-    const ids = inventoryItemIds ?? [];
-    const selected = ids.length
-      ? items.filter((i) => ids.includes(i.id))
-      : items.filter((i) => reservedStatus && i.stockStatusId === reservedStatus.id);
-    for (const item of selected) {
-      const existing = await this.db
+    let ids = [...new Set(inventoryItemIds ?? [])];
+    if (!ids.length) {
+      const existingDevices = await this.db
         .select({ id: customerDevices.id })
         .from(customerDevices)
         .where(and(
           eq(customerDevices.tenantId, actor.tenantId),
           eq(customerDevices.opportunityId, opp.id),
-          eq(customerDevices.inventoryItemId, item.id),
+          isNull(customerDevices.deletedAt),
         ))
         .limit(1);
-      if (existing.length) continue;
+      if (existingDevices.length) return;
+    }
+    if (!ids.length) {
+      const reservationRows = await this.db
+        .select({ inventoryItemId: inventoryMovements.inventoryItemId })
+        .from(inventoryMovements)
+        .where(and(
+          eq(inventoryMovements.tenantId, actor.tenantId),
+          eq(inventoryMovements.referenceType, 'opportunity'),
+          eq(inventoryMovements.referenceId, opp.id),
+          eq(inventoryMovements.movementType, 'reserve'),
+        ));
+      ids = [...new Set(reservationRows.map((row) => row.inventoryItemId))];
+    }
+    if (!ids.length && reservedStatus) {
+      const reservedRows = await this.db
+        .select({ id: inventoryItems.id })
+        .from(inventoryItems)
+        .where(and(
+          eq(inventoryItems.tenantId, actor.tenantId),
+          isNull(inventoryItems.deletedAt),
+          eq(inventoryItems.stockStatusId, reservedStatus.id),
+          eq(inventoryItems.reservedCompanyId, opp.companyId),
+        ));
+      ids = reservedRows.map((row) => row.id);
+    }
+    if (!ids.length) {
+      throw new ValidationError('Kurulum için bu karta bağlı stok seçimi bulunamadı');
+    }
+    const selected = await this.db.query.inventoryItems.findMany({
+      where: and(eq(inventoryItems.tenantId, actor.tenantId), isNull(inventoryItems.deletedAt), inArray(inventoryItems.id, ids)),
+    });
+    if (selected.length !== ids.length) {
+      throw new ValidationError('Kurulum için seçilen bazı stok kalemleri bulunamadı');
+    }
+    for (const item of selected) {
+      if (item.reservedCompanyId && item.reservedCompanyId !== opp.companyId) {
+        throw new ValidationError('Seçilen stok kalemi bu firmaya rezerve edilmemiş');
+      }
+      const existing = await this.db
+        .select({ id: customerDevices.id, opportunityId: customerDevices.opportunityId })
+        .from(customerDevices)
+        .where(and(
+          eq(customerDevices.tenantId, actor.tenantId),
+          eq(customerDevices.inventoryItemId, item.id),
+          isNull(customerDevices.deletedAt),
+        ))
+        .limit(1);
+      if (existing.length) {
+        if (existing[0].opportunityId === opp.id) continue;
+        throw new ValidationError('Seçilen seri no başka bir müşteri cihazına bağlı');
+      }
       await this.db.insert(customerDevices).values({
         tenantId: actor.tenantId,
         divisionId: opp.divisionId,
@@ -418,5 +491,42 @@ export class OpportunitiesService {
         await this.db.update(inventoryItems).set({ stockStatusId: soldStatus.id }).where(eq(inventoryItems.id, item.id));
       }
     }
+  }
+
+  /**
+   * Satış hattı kurulum aşamasına gelince servis ekibinin Kurulum listesinde
+   * görebilmesi için bir kurulum kaydı oluşturur. Idempotenttir — bu fırsat için
+   * zaten kurulum kaydı varsa yenisini oluşturmaz.
+   */
+  private async ensureInstallationJob(
+    opp: { id: string; companyId: string; divisionId: string | null; primaryContactId?: string | null; ownerUserId?: string | null },
+    actor: AuthContext,
+  ) {
+    const existing = await this.db
+      .select({ id: installationJobs.id })
+      .from(installationJobs)
+      .where(and(eq(installationJobs.tenantId, actor.tenantId), eq(installationJobs.opportunityId, opp.id)))
+      .limit(1);
+    if (existing.length) return;
+    const scheduled = await this.db.query.installationStatuses.findFirst({
+      where: eq(installationStatuses.code, 'scheduled'),
+    });
+    // Kurulumu (varsa) bu fırsat için oluşturulmuş müşteri cihazına bağla.
+    const device = await this.db
+      .select({ id: customerDevices.id })
+      .from(customerDevices)
+      .where(and(eq(customerDevices.tenantId, actor.tenantId), eq(customerDevices.opportunityId, opp.id)))
+      .limit(1);
+    await this.db.insert(installationJobs).values({
+      tenantId: actor.tenantId,
+      divisionId: opp.divisionId,
+      opportunityId: opp.id,
+      companyId: opp.companyId,
+      contactId: opp.primaryContactId ?? null,
+      customerDeviceId: device[0]?.id ?? null,
+      statusId: scheduled?.id ?? null,
+      scheduledDate: new Date(),
+      assignedToUserId: opp.ownerUserId ?? actor.userId,
+    });
   }
 }

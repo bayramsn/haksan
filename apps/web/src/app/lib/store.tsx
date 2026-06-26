@@ -270,11 +270,14 @@ export type CreateQuotePayload = {
   companyId: string;
   contactId?: string;
   quoteDate: string;
+  validityDays: number;
   documentNo?: string;
   currencyCode: string;
   projectOwnerUserId?: string;
   notes?: string;
+  paymentTermsText?: string;
   deliveryTermsText?: string;
+  warrantyTermsText?: string;
   importCostsExcluded?: boolean;
   items: QuoteLineInput[];
   caseTitle?: string;
@@ -313,9 +316,11 @@ type Store = {
   updateCustomer: (id: string, patch: Partial<Omit<Customer, 'id' | 'createdAt'>>) => Promise<void>;
   deleteCustomer: (id: string) => Promise<void>;
   addCase: (c: Omit<SalesCase, 'id' | 'createdAt' | 'stage' | 'isLost' | 'isOfferPrepared'> & { stage?: SalesStage; divisionId?: string }) => Promise<SalesCase>;
+  deleteCase: (id: string) => Promise<void>;
   addOffer: (o: Omit<Offer, 'id' | 'date' | 'revision'> & { revision?: number }) => Promise<Offer>;
   createQuoteFull: (payload: CreateQuotePayload) => Promise<{ quoteId: string; documentNo: string; opportunityId: string }>;
   addNoteTemplate: (t: { title: string; body: string; scope?: string }) => Promise<NoteTemplate>;
+  updateNoteTemplate: (id: string, patch: { title?: string; body?: string; scope?: string }) => Promise<NoteTemplate>;
   deleteNoteTemplate: (id: string) => Promise<void>;
   addStock: (s: Omit<StockItem, 'id'>) => Promise<StockItem>;
   updateStockStatus: (id: string, status: StockItem['status']) => Promise<void>;
@@ -325,7 +330,7 @@ type Store = {
   addDelivery: (d: Omit<Delivery, 'id'>) => Promise<Delivery>;
   updateDelivery: (id: string, d: Partial<Omit<Delivery, 'id'>>) => Promise<void>;
   updateDeliveryStatus: (id: string, status: Delivery['status']) => Promise<void>;
-  moveCase: (id: string, to: SalesStage) => Promise<void>;
+  moveCase: (id: string, to: SalesStage, options?: { inventoryItemIds?: string[]; changeReason?: string }) => Promise<void>;
   markCaseLost: (
     id: string,
     payload: { reasonCode: string; competitorId?: string; competitorProductModel?: string }
@@ -439,7 +444,7 @@ function StoreInner({ children }: { children: ReactNode }) {
         load('Proformalar', () => documentService.proformas({ pageSize: 200 }), empty, 'proformas.read'),
         load('Sözleşmeler', () => documentService.contracts({ pageSize: 200 }), empty, 'contracts.read'),
         load('Faturalar', () => documentService.commercialInvoices({ pageSize: 200 }), empty, 'commercial_invoices.read'),
-        load('Not şablonları', () => noteTemplateService.list('quote'), [] as any[]),
+        load('Not şablonları', () => noteTemplateService.list(), [] as any[]),
         load('Sevkiyatlar', () => serviceService.shipments({ pageSize: 200 }), empty, 'shipments.read'),
         load('Teslimatlar', () => serviceService.deliveries({ pageSize: 200 }), empty, 'shipments.read'),
         load('Dosya bağlantıları', () => fileService.links({ pageSize: 200 }), empty, 'files.read'),
@@ -602,6 +607,7 @@ function StoreInner({ children }: { children: ReactNode }) {
           return {
             id: s.id,
             brand: s.brand?.name ?? '',
+            productId: s.product?.id ?? s.productModelId ?? undefined,
             counterType: s.product?.fullName ?? '',
             counterModel: s.product?.modelCode ?? '',
             serialNumber: s.serialNumber ?? '',
@@ -645,7 +651,7 @@ function StoreInner({ children }: { children: ReactNode }) {
                 : q.status?.code === 'rejected'
                   ? 'Rejected'
                   : 'Draft',
-          note: q.paymentTerms ?? '',
+          note: q.notes ?? '',
         }))
       );
 
@@ -671,6 +677,7 @@ function StoreInner({ children }: { children: ReactNode }) {
           ];
           return {
             id: t.id,
+            ticketNo: t.ticketNo ?? undefined,
             customerId: t.companyId,
             contactId: t.contactId ?? undefined,
             assignedUserId: t.assignedToUserId ?? '',
@@ -713,10 +720,11 @@ function StoreInner({ children }: { children: ReactNode }) {
             serviceHourlyRate: Number(meta.serviceHourlyRate ?? 120),
             serviceCurrency: (meta.serviceCurrency as 'USD' | 'EUR' | 'TRY') ?? 'USD',
             serviceQuote: meta.serviceQuote && typeof meta.serviceQuote === 'object' ? meta.serviceQuote : null,
+            completionForm: meta.completionForm && typeof meta.completionForm === 'object' ? meta.completionForm : null,
             warrantyClaim: normalizeWarrantyClaim(t.warrantyClaim),
             sourceComplaint: t.sourceComplaint ?? null,
             createdAt: (t.reportedAt as string)?.slice(0, 10) ?? '',
-            closedAt: undefined,
+            closedAt: t.resolvedAt ? (t.resolvedAt as string).slice(0, 10) : undefined,
           };
         })
       );
@@ -746,6 +754,13 @@ function StoreInner({ children }: { children: ReactNode }) {
           type: d.productTypeName ?? '',
           controlUnit: d.controlUnit ?? '',
           controlUnitSerial: d.controlUnitSerialNumber ?? '',
+          productModelId: d.productModelId ?? '',
+          technicalSpecs: Array.isArray(d.technicalSpecs)
+            ? d.technicalSpecs.map((spec: any) => ({
+                key: String(spec.key ?? ''),
+                value: [spec.value, spec.unit].filter(Boolean).join(' '),
+              }))
+            : [],
           deliveryDate: (d.deliveryDate as string)?.slice(0, 10) ?? '',
           installationDate: (d.installationDate as string)?.slice(0, 10) ?? '',
           warrantyStart: (d.warrantyStartDate as string)?.slice(0, 10) ?? '',
@@ -1134,13 +1149,20 @@ function StoreInner({ children }: { children: ReactNode }) {
     } as SalesCase;
   };
 
-  const moveCase: Store['moveCase'] = async (id, to) => {
+  const deleteCase: Store['deleteCase'] = async (id) => {
+    await opportunityService.remove(id);
+    await fetchAll();
+  };
+
+  const moveCase: Store['moveCase'] = async (id, to, options) => {
     const code = CODE_BY_STAGE[to];
     if (!code) return;
     try {
       await opportunityService.changeStage(id, {
         toStage: code,
         cancellationReasonCode: code === 'cancelled' ? 'other' : undefined,
+        changeReason: options?.changeReason,
+        inventoryItemIds: options?.inventoryItemIds?.length ? options.inventoryItemIds : undefined,
       });
     } catch (err) {
       console.error('Stage change failed', err);
@@ -1208,10 +1230,14 @@ function StoreInner({ children }: { children: ReactNode }) {
       companyId: p.companyId,
       contactId: p.contactId || undefined,
       quoteDate: p.quoteDate,
+      validityDays: p.validityDays,
       documentNo: p.documentNo || undefined,
       currencyCode: p.currencyCode,
       projectOwnerUserId: p.projectOwnerUserId || undefined,
       notes: p.notes || undefined,
+      paymentTerms: p.paymentTermsText || undefined,
+      deliveryTerms: p.deliveryTermsText || undefined,
+      warrantyTerms: p.warrantyTermsText || undefined,
       divisionId: p.divisionId || undefined,
     });
 
@@ -1229,13 +1255,19 @@ function StoreInner({ children }: { children: ReactNode }) {
       });
     }
 
-    if (p.deliveryTermsText !== undefined || p.importCostsExcluded !== undefined) {
+    if (
+      p.paymentTermsText !== undefined ||
+      p.deliveryTermsText !== undefined ||
+      p.warrantyTermsText !== undefined ||
+      p.importCostsExcluded !== undefined
+    ) {
       await quoteService
         .terms(quote.id, {
+          paymentTermsText: p.paymentTermsText,
           deliveryTermsText: p.deliveryTermsText,
+          warrantyTermsText: p.warrantyTermsText,
           importCostsExcluded: p.importCostsExcluded ?? true,
-        })
-        .catch(() => undefined);
+        });
     }
 
     await activityService
@@ -1261,6 +1293,12 @@ function StoreInner({ children }: { children: ReactNode }) {
     const created = await noteTemplateService.create({ title: t.title, body: t.body, scope: t.scope ?? 'quote' });
     await fetchAll();
     return { id: created.id, title: created.title, body: created.body, scope: created.scope ?? 'quote' };
+  };
+
+  const updateNoteTemplate: Store['updateNoteTemplate'] = async (id, patch) => {
+    const updated = await noteTemplateService.update(id, patch);
+    await fetchAll();
+    return { id: updated.id, title: updated.title, body: updated.body, scope: updated.scope ?? 'quote' };
   };
 
   const deleteNoteTemplate: Store['deleteNoteTemplate'] = async (id) => {
@@ -1623,12 +1661,13 @@ function StoreInner({ children }: { children: ReactNode }) {
     if (patch.assignedUserId !== undefined) apiPatch.assignedToUserId = patch.assignedUserId;
     if (patch.ticketType !== undefined) apiPatch.ticketType = patch.ticketType;
 
-    const metaKeys = ['quoteRequired', 'serviceQuote', 'timerStatus', 'timerStartedAt', 'timerElapsedSeconds', 'serviceHourlyRate', 'serviceCurrency', 'noteHistory', 'complaints', 'activityHistory', 'operations'] as const;
+    const metaKeys = ['quoteRequired', 'serviceQuote', 'completionForm', 'timerStatus', 'timerStartedAt', 'timerElapsedSeconds', 'serviceHourlyRate', 'serviceCurrency', 'noteHistory', 'complaints', 'activityHistory', 'operations'] as const;
     if (metaKeys.some((k) => patch[k] !== undefined)) {
       apiPatch.metadata = {
         quoteRequired: merged.quoteRequired ?? false,
         serviceStage: merged.stage,
         serviceQuote: merged.serviceQuote ?? null,
+        completionForm: merged.completionForm ?? null,
         timerStatus: merged.timerStatus ?? 'idle',
         timerStartedAt: merged.timerStartedAt ?? null,
         timerElapsedSeconds: merged.timerElapsedSeconds ?? 0,
@@ -1795,9 +1834,11 @@ function StoreInner({ children }: { children: ReactNode }) {
       updateCustomer,
       deleteCustomer,
       addCase,
+      deleteCase,
       addOffer,
       createQuoteFull,
       addNoteTemplate,
+      updateNoteTemplate,
       deleteNoteTemplate,
       addStock,
       updateStockStatus,

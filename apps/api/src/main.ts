@@ -23,7 +23,9 @@ async function bootstrap() {
     AppModule,
     new FastifyAdapter({
       logger: false,
-      trustProxy: true,
+      // Güvenilir proxy sayısına sabitle: istemcinin X-Forwarded-For ile sahte IP
+      // enjekte edip rate-limit/lockout'u atlatmasını ve log zehirlemesini önler.
+      trustProxy: env.TRUST_PROXY_HOPS,
       bodyLimit: env.MAX_UPLOAD_SIZE_MB * 1024 * 1024,
     }),
     { bufferLogs: true }
@@ -31,8 +33,11 @@ async function bootstrap() {
 
   await app.register(helmet as any, {
     contentSecurityPolicy: env.NODE_ENV === 'production' ? undefined : false,
+    // Clickjacking: çerçeveye gömülmeyi tamamen reddet (helmet default SAMEORIGIN'den sıkı).
+    frameguard: { action: 'deny' },
   });
-  await app.register(cookie as any, { secret: env.JWT_REFRESH_SECRET });
+  // Cookie imzalama sırrı JWT_REFRESH_SECRET'ten ayrılır (verilmişse); sır yeniden-kullanımını önler.
+  await app.register(cookie as any, { secret: env.COOKIE_SECRET ?? env.JWT_REFRESH_SECRET });
   await app.register(cors as any, {
     origin: env.CORS_ORIGINS,
     credentials: true,

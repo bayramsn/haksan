@@ -317,13 +317,13 @@ describe('Service — kurulum / sevkiyat / teslimat', () => {
     expect(warranty.body.coverageSuggestion).toBe('in_warranty');
   });
 
-  it('kurulum oluşturur ve saha ücretini hesaplar (İstanbul içi 90dk → 105$)', async () => {
+  it('kurulum oluşturur ve ücret yazmaz', async () => {
     const r = await supertest(app.getHttpServer())
       .post('/api/v1/installations')
       .set('Authorization', auth())
       .send({ companyId, locationType: 'istanbul_ici', durationMinutes: 90, scheduledDate: now() });
     expect(r.status).toBe(201);
-    expect(Number(r.body.feeAmount)).toBe(105);
+    expect(r.body.feeAmount).toBeNull();
   });
 
   it('var olmayan companyId ile kurulum reddedilir (tenant izolasyonu)', async () => {

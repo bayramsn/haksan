@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { moneySchema, dateRangeSchema } from './common';
+import { moneySchema, dateRangeSchema, percentSchema } from './common';
 
 export const receivableCreateSchema = z.object({
   companyId: z.string().min(1),
@@ -64,6 +64,7 @@ export const accountingInvoiceCreateSchema = z.object({
   invoiceNo: z.string().min(1).max(64),
   invoiceDate: z.coerce.date(),
   amount: moneySchema,
+  vatRate: percentSchema.default(20),
   vatAmount: moneySchema.default(0),
   grandTotal: moneySchema,
   currencyCode: z.string().max(8).default('USD'),

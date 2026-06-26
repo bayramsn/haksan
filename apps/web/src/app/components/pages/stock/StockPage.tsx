@@ -31,6 +31,7 @@ import {
 import {
   Plus, Search, Package, Clock, CheckCircle2, AlertTriangle, MapPin, MoreHorizontal, Wrench, Bookmark,
 } from "lucide-react";
+import { inventoryService } from "../../../../lib/services";
 
 const CATEGORY_ICONS: Record<StockCategoryCode, typeof Package> = {
   TEZGAH: Package,
@@ -38,8 +39,18 @@ const CATEGORY_ICONS: Record<StockCategoryCode, typeof Package> = {
   YEDEK_PARCA: Wrench,
 };
 
+const compactSerialPart = (value: string) =>
+  value
+    .trim()
+    .toLocaleUpperCase("tr-TR")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^A-Z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 36) || "MAKINE";
+
 export function StockPage({ focus, initialQuery }: { focus?: OperationFocus; initialQuery?: string }) {
-  const { stock, customers, updateStockStatus, reserveStock } = useStore();
+  const { stock, customers, products, updateStockStatus, reserveStock, refresh } = useStore();
   const [q, setQ] = useState("");
   const [tab, setTab] = useState<"all" | "Available" | "Reserved" | "Sold" | "Inactive">("all");
   const [categoryTab, setCategoryTab] = useState<"all" | StockCategoryCode>("all");
@@ -47,6 +58,10 @@ export function StockPage({ focus, initialQuery }: { focus?: OperationFocus; ini
   const [reserveTarget, setReserveTarget] = useState<(typeof stock)[number] | null>(null);
   const [reserveCompanyId, setReserveCompanyId] = useState("");
   const [reserving, setReserving] = useState(false);
+  const [quantityOpen, setQuantityOpen] = useState(false);
+  const [quantityProductId, setQuantityProductId] = useState("");
+  const [quantityTarget, setQuantityTarget] = useState("");
+  const [quantitySaving, setQuantitySaving] = useState(false);
 
   const scopedStock = useMemo(
     () => stock.filter((s) => categoryTab === "all" || (s.categoryCode ?? "TEZGAH") === categoryTab),
@@ -79,6 +94,116 @@ export function StockPage({ focus, initialQuery }: { focus?: OperationFocus; ini
       value: scopedStock.filter((s) => s.brand === b).length,
       fill: ["#000c69", "#cf060c", "#3b82f6", "#10b981", "#f59e0b"][i % 5],
     }));
+
+  const machineProducts = useMemo(
+    () => products.filter((p) => (p.categoryCode ?? "").toLocaleUpperCase("tr-TR") === "TEZGAH"),
+    [products],
+  );
+
+  const machineRows = useMemo(() => {
+    const byProduct = new Map(
+      machineProducts.map((p) => [
+        p.id,
+        {
+          product: p,
+          available: 0,
+          reserved: 0,
+          sold: 0,
+          inactive: 0,
+          total: 0,
+          items: [] as typeof stock,
+        },
+      ]),
+    );
+
+    for (const item of stock.filter((s) => (s.categoryCode ?? "TEZGAH") === "TEZGAH")) {
+      const productId = item.productId ?? machineProducts.find((p) => p.model === item.counterModel && p.brand === item.brand)?.id;
+      if (!productId) continue;
+      const existing =
+        byProduct.get(productId) ??
+        ({
+          product: {
+            id: productId,
+            brand: item.brand,
+            model: item.counterModel,
+            type: item.counterType,
+            categoryCode: "TEZGAH",
+          } as (typeof products)[number],
+          available: 0,
+          reserved: 0,
+          sold: 0,
+          inactive: 0,
+          total: 0,
+          items: [] as typeof stock,
+        });
+      existing.total += 1;
+      existing.items.push(item);
+      if (item.status === "Available") existing.available += 1;
+      if (item.status === "Reserved") existing.reserved += 1;
+      if (item.status === "Sold") existing.sold += 1;
+      if (item.status === "Inactive") existing.inactive += 1;
+      byProduct.set(productId, existing);
+    }
+
+    return [...byProduct.values()].sort((a, b) => {
+      const stockDiff = b.available + b.reserved - (a.available + a.reserved);
+      if (stockDiff !== 0) return stockDiff;
+      return `${a.product.brand} ${a.product.model}`.localeCompare(`${b.product.brand} ${b.product.model}`, "tr");
+    });
+  }, [machineProducts, products, stock]);
+
+  const selectedMachineRow = quantityProductId ? machineRows.find((row) => row.product.id === quantityProductId) : undefined;
+
+  const openQuantityDialog = (productId: string) => {
+    const row = machineRows.find((r) => r.product.id === productId);
+    setQuantityProductId(productId);
+    setQuantityTarget(String(row?.available ?? 0));
+    setQuantityOpen(true);
+  };
+
+  const saveMachineQuantity = async () => {
+    const row = selectedMachineRow;
+    if (!row) return;
+    const target = Number(quantityTarget);
+    if (!Number.isInteger(target) || target < 0 || target > 500) {
+      toast.error("Geçerli adet girin", { description: "Adet 0 ile 500 arasında tam sayı olmalı." });
+      return;
+    }
+    setQuantitySaving(true);
+    try {
+      const currentAvailable = row.items
+        .filter((item) => item.status === "Available")
+        .sort((a, b) => (a.serialNumber || a.id).localeCompare(b.serialNumber || b.id, "tr"));
+      const diff = target - currentAvailable.length;
+      if (diff > 0) {
+        const stamp = Date.now().toString(36).toUpperCase();
+        const prefix = compactSerialPart(row.product.model || row.product.modelName || row.product.shortDescription || row.product.id);
+        for (let i = 0; i < diff; i += 1) {
+          await inventoryService.create({
+            productModelId: row.product.id,
+            serialNumber: `AUTO-${prefix}-${stamp}-${String(i + 1).padStart(2, "0")}`,
+            controlUnit: row.product.controlPanel || undefined,
+            stockStatusCode: "available",
+            notes: "Stok adet ayarı ile otomatik oluşturuldu",
+          });
+        }
+      } else if (diff < 0) {
+        const excess = currentAvailable.slice(target);
+        for (const item of excess) {
+          await inventoryService.update(item.id, { stockStatusCode: "damaged", notes: "Stok adet ayarı ile pasife alındı" });
+        }
+      }
+      await refresh();
+      toast.success("Stok adedi güncellendi", {
+        description: `${row.product.brand} ${row.product.model}: ${currentAvailable.length} → ${target}`,
+      });
+      setQuantityOpen(false);
+    } catch (err: any) {
+      toast.error("Stok adedi güncellenemedi", { description: err?.message ?? "API isteği başarısız oldu." });
+    } finally {
+      setQuantitySaving(false);
+    }
+  };
 
   const filtered = scopedStock.filter((s) => {
     if (focus === "low" && s.status !== "Reserved" && s.status !== "Inactive") return false;
@@ -165,6 +290,66 @@ export function StockPage({ focus, initialQuery }: { focus?: OperationFocus; ini
           </CardContent>
         </Card>
       </div>
+
+      <Card className="border-border/60 shadow-sm overflow-hidden">
+        <CardHeader className="flex flex-row items-center justify-between gap-3 pb-3">
+          <div>
+            <CardTitle className="tracking-tight">Model Bazında Makine Stoku</CardTitle>
+            <p className="text-xs text-muted-foreground">Hazır stok adedi model seviyesinde ayarlanır</p>
+          </div>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-9"
+            disabled={!machineRows.length}
+            onClick={() => openQuantityDialog(machineRows[0]?.product.id ?? "")}
+          >
+            Adet Ayarla
+          </Button>
+        </CardHeader>
+        <div className="overflow-x-auto">
+          <Table>
+            <TableHeader>
+              <TableRow className="bg-muted/30 hover:bg-muted/30">
+                <TableHead>Makine</TableHead>
+                <TableHead className="text-right">Hazır</TableHead>
+                <TableHead className="text-right">Rezerve</TableHead>
+                <TableHead className="text-right">Satılan</TableHead>
+                <TableHead className="text-right">Pasif</TableHead>
+                <TableHead className="text-right">Toplam</TableHead>
+                <TableHead className="w-28 text-right">İşlem</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {machineRows.slice(0, 12).map((row) => (
+                <TableRow key={row.product.id}>
+                  <TableCell>
+                    <div className="text-sm font-medium">{[row.product.brand, row.product.model].filter(Boolean).join(" ") || row.product.shortDescription}</div>
+                    <div className="text-[11px] text-muted-foreground">{row.product.type || row.product.modelName || "Tezgah"}</div>
+                  </TableCell>
+                  <TableCell className="text-right tabular-nums">{row.available}</TableCell>
+                  <TableCell className="text-right tabular-nums text-amber-700">{row.reserved}</TableCell>
+                  <TableCell className="text-right tabular-nums text-emerald-700">{row.sold}</TableCell>
+                  <TableCell className="text-right tabular-nums text-muted-foreground">{row.inactive}</TableCell>
+                  <TableCell className="text-right tabular-nums">{row.total}</TableCell>
+                  <TableCell className="text-right">
+                    <Button variant="outline" size="sm" className="h-8" onClick={() => openQuantityDialog(row.product.id)}>
+                      Ayarla
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              ))}
+              {machineRows.length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={7} className="py-8 text-center text-sm text-muted-foreground">
+                    Makine kataloğu veya stok kaydı yok.
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </div>
+      </Card>
 
       <Card className="border-border/60 shadow-sm overflow-hidden">
         <CardHeader className="flex flex-row items-center justify-between gap-3 flex-wrap pb-3">
@@ -344,6 +529,63 @@ export function StockPage({ focus, initialQuery }: { focus?: OperationFocus; ini
               }}
             >
               {reserving ? "Kaydediliyor…" : "Rezerve Et"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={quantityOpen} onOpenChange={setQuantityOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Makine Stok Adedi</DialogTitle>
+            <DialogDescription>Modelin hazır stok adedini güncelleyin.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label className="text-xs">Makine modeli</Label>
+              <Select
+                value={quantityProductId}
+                onValueChange={(value) => {
+                  const row = machineRows.find((r) => r.product.id === value);
+                  setQuantityProductId(value);
+                  setQuantityTarget(String(row?.available ?? 0));
+                }}
+              >
+                <SelectTrigger className="mt-1 h-9"><SelectValue placeholder="Makine seçin" /></SelectTrigger>
+                <SelectContent>
+                  {machineRows.map((row) => (
+                    <SelectItem key={row.product.id} value={row.product.id}>
+                      {[row.product.brand, row.product.model].filter(Boolean).join(" ") || row.product.shortDescription || row.product.id}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            {selectedMachineRow && (
+              <div className="grid grid-cols-4 gap-2 rounded-md border border-border/70 bg-muted/30 p-3 text-center text-xs">
+                <div><div className="text-muted-foreground">Hazır</div><div className="mt-1 font-medium tabular-nums">{selectedMachineRow.available}</div></div>
+                <div><div className="text-muted-foreground">Rezerve</div><div className="mt-1 font-medium tabular-nums">{selectedMachineRow.reserved}</div></div>
+                <div><div className="text-muted-foreground">Satılan</div><div className="mt-1 font-medium tabular-nums">{selectedMachineRow.sold}</div></div>
+                <div><div className="text-muted-foreground">Pasif</div><div className="mt-1 font-medium tabular-nums">{selectedMachineRow.inactive}</div></div>
+              </div>
+            )}
+            <div>
+              <Label className="text-xs">Hedef hazır stok adedi</Label>
+              <Input
+                className="mt-1 h-9"
+                type="number"
+                min={0}
+                max={500}
+                step={1}
+                value={quantityTarget}
+                onChange={(event) => setQuantityTarget(event.target.value)}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setQuantityOpen(false)} disabled={quantitySaving}>Vazgeç</Button>
+            <Button onClick={() => void saveMachineQuantity()} disabled={!selectedMachineRow || quantitySaving}>
+              {quantitySaving ? "Kaydediliyor…" : "Kaydet"}
             </Button>
           </DialogFooter>
         </DialogContent>

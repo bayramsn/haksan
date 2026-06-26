@@ -37,6 +37,7 @@ export interface ProformaItem {
   gtip?: string;
   birim: string;
   birimFiyati?: number | null;
+  iskonto?: number | null;
   tutar: number;
 }
 
@@ -110,6 +111,7 @@ export function proformaDoc(d: ProformaPrintData, assetBase: string): PrintDocum
     if (i.marka) rows.push(`<tr><td>Markası</td><td>${esc(i.marka)}</td></tr>`);
     if (i.mensei) rows.push(`<tr><td>Menşei</td><td>${esc(i.mensei)}</td></tr>`);
     if (i.gtip) rows.push(`<tr><td>G.T.İ.P.</td><td>${esc(i.gtip)}</td></tr>`);
+    if (i.iskonto != null && i.iskonto > 0) rows.push(`<tr><td>İskonto</td><td>${fmtMoney(i.iskonto, d.currency)}</td></tr>`);
     return rows.length ? `<table class="meta">${rows.join("")}</table>` : "";
   };
   const yalniz = tutarYaziylaProforma(genelToplam, d.currency);
@@ -157,7 +159,7 @@ export function proformaDoc(d: ProformaPrintData, assetBase: string): PrintDocum
       <tr class="itemrow">
         <td class="desc"><div class="d1">${esc(i.aciklama)}</div>${meta(i)}</td>
         <td class="c">${esc(i.birim)}</td>
-        <td class="c">${i.birimFiyati ? fmtMoney(i.birimFiyati, d.currency) : ""}</td>
+        <td class="c">${i.birimFiyati != null ? fmtMoney(i.birimFiyati, d.currency) : ""}</td>
         <td class="r">${fmtMoney(i.tutar, d.currency)}</td>
       </tr>`).join("")}
     </tbody>
@@ -168,7 +170,7 @@ export function proformaDoc(d: ProformaPrintData, assetBase: string): PrintDocum
     <table class="pf-tot">
       <tr><td class="tl">ARA TOPLAM</td><td class="tv">${fmtMoney(araToplam, d.currency)}</td></tr>
       <tr class="sp"><td colspan="2"></td></tr>
-      <tr><td class="tl">K.D.V. (%${esc(d.kdvOran)})</td><td class="tv">${fmtMoney(kdvTutar, d.currency)}</td></tr>
+      <tr><td class="tl">K.D.V.${d.kdvOran > 0 ? ` (%${esc(d.kdvOran)})` : ""}</td><td class="tv">${fmtMoney(kdvTutar, d.currency)}</td></tr>
       <tr class="sp"><td colspan="2"></td></tr>
       <tr><td class="tl">GENEL TOPLAM</td><td class="tv">${fmtMoney(genelToplam, d.currency)}</td></tr>
     </table>
@@ -200,6 +202,7 @@ export interface QuoteItem {
   urun: string;
   birim?: string;
   fiyat?: number | null;
+  indirim?: number | null;
   tutar?: number | null;
 }
 
@@ -230,6 +233,7 @@ export interface QuotePrintData {
   kdvTutar: number;
   currency: CurrencyCode;
   notes: QuoteNoteVariant;
+  genelNotlar?: string[];
 }
 
 const QUOTE_CSS = `
@@ -249,7 +253,7 @@ table.q-meta td.val { text-align: center; font-style: italic; font-weight: bold;
 .q-photo { max-width: 150mm; max-height: 130mm; margin-top: 6mm; }
 .q-h1 { text-align: center; font-size: 14pt; font-weight: bold; margin: 5mm 0 5mm; }
 table.q-specs { width: 100%; }
-table.q-specs td { border: 1pt solid #000; font-size: 10pt; padding: 1.4mm 2mm; }
+table.q-specs td { border: 1pt solid #000; font-size: 8.4pt; padding: .75mm 1.5mm; }
 table.q-specs td.k { width: 45%; text-align: center; }
 table.q-specs td.v { text-align: center; }
 .q-eq-h { font-weight: bold; text-decoration: underline; font-size: 11pt; margin: 4mm 0 2mm; }
@@ -357,15 +361,15 @@ export function quoteDoc(d: QuotePrintData, assetBase: string): PrintDocument {
     const discRow = iskonto > 0 && i === Math.max(3, items.length);
     rows.push(`<tr>
       <td class="no">${i + 1}</td>
-      <td class="urun">${it ? esc(it.urun) : ""}</td>
+      <td class="urun">${it ? `${esc(it.urun)}${it.indirim != null && it.indirim > 0 ? `<div class="disc" style="margin-top:.8mm">İndirim: ${fmtMoney(it.indirim, d.currency)}</div>` : ""}` : ""}</td>
       <td class="c" style="width:18mm">${it?.birim ? esc(it.birim) : ""}</td>
-      <td class="c disc" style="width:32mm">${discRow ? "ÖZEL İSKONTO" : it?.fiyat ? fmtMoney(it.fiyat, d.currency) : ""}</td>
-      <td class="r ${discRow ? "disc" : ""}" style="width:36mm">${discRow ? fmtMoney(iskonto, d.currency) : it?.tutar ? fmtMoney(it.tutar, d.currency) : ""}</td>
+      <td class="c disc" style="width:32mm">${discRow ? "ÖZEL İSKONTO" : it?.fiyat != null ? fmtMoney(it.fiyat, d.currency) : ""}</td>
+      <td class="r ${discRow ? "disc" : ""}" style="width:36mm">${discRow ? fmtMoney(iskonto, d.currency) : it?.tutar != null ? fmtMoney(it.tutar, d.currency) : ""}</td>
     </tr>`);
   }
   const toplam = items.reduce((a, i) => a + (i.tutar ?? 0), 0) - iskonto;
   // KDV tutarı açıkça verilmediyse toplam × oran üzerinden hesapla.
-  const kdvTutar = d.kdvTutar && d.kdvTutar > 0 ? d.kdvTutar : toplam * (d.kdvOran / 100);
+  const kdvTutar = Number.isFinite(d.kdvTutar) ? d.kdvTutar : toplam * (d.kdvOran / 100);
   const genel = toplam + kdvTutar;
 
   const noteSection = (no: number, baslik: string, list: string[]) => `
@@ -383,14 +387,15 @@ export function quoteDoc(d: QuotePrintData, assetBase: string): PrintDocument {
   </table>
   <table class="q-tot">
     <tr><td class="tl">TOPLAM</td><td class="tv">${fmtMoney(toplam, d.currency)}</td></tr>
-    <tr><td class="tl">K.D.V. (%${esc(d.kdvOran)})</td><td class="tv">${fmtMoney(kdvTutar, d.currency)}</td></tr>
+    <tr><td class="tl">K.D.V.${d.kdvOran > 0 ? ` (%${esc(d.kdvOran)})` : ""}</td><td class="tv">${fmtMoney(kdvTutar, d.currency)}</td></tr>
     <tr><td class="tl">GENEL TOPLAM</td><td class="tv">${fmtMoney(genel, d.currency)}</td></tr>
   </table>
   <div class="q-notes">
     <ol class="outer">
-      ${noteSection(1, "ÖDEME ŞARTLARI", d.notes.odeme)}
-      ${noteSection(2, "TESLİMAT ŞARTLARI", d.notes.teslimat)}
-      ${noteSection(3, "GARANTİ ŞARTLARI", d.notes.garanti)}
+      ${d.notes.odeme.length ? noteSection(1, "ÖDEME ŞARTLARI", d.notes.odeme) : ""}
+      ${d.notes.teslimat.length ? noteSection(2, "TESLİMAT ŞARTLARI", d.notes.teslimat) : ""}
+      ${d.notes.garanti.length ? noteSection(3, "GARANTİ ŞARTLARI", d.notes.garanti) : ""}
+      ${(d.genelNotlar?.length ?? 0) > 0 ? noteSection(4, "NOTLAR", d.genelNotlar!) : ""}
     </ol>
   </div>
   <div class="q-sign">
@@ -554,6 +559,10 @@ export interface ContractPrintData {
   fiyat: number;
   currency: CurrencyCode;
   teslimSekli?: string; // ör. "Millileştirilmiş"
+  teslimKosullari?: string;
+  odemeKosullari?: string;
+  garantiKosullari?: string;
+  notlar?: string;
   kdvOran: number;
   odemePlani: { label: string; tutar: number; senet?: boolean }[];
   kontrolUnitesiMarka?: string;
@@ -592,7 +601,6 @@ ol.ct-n2 > li { margin-bottom: .5mm; }
 
 export function contractDoc(d: ContractPrintData, assetBase: string): PrintDocument {
   const tarihUzun = trLongDate(d.sozlesmeTarihi) || d.sozlesmeTarihi;
-  const cu = d.kontrolUnitesiMarka || "FANUC";
   const toplam = d.fiyat;
   const pn = (n: number) => `<div class="pageno">Sayfa <b>${n}</b> / <b>3</b></div>`;
   const aliciKisa = esc(shortFirmName(d.alici.unvan));
@@ -635,12 +643,8 @@ export function contractDoc(d: ContractPrintData, assetBase: string): PrintDocum
   ${haksanHeader(assetBase)}
   <div class="ct-h2" style="margin-top:3mm">2.&nbsp;&nbsp;Nakliye, Ambalaj ve Teslimat;</div>
   <ol class="ct-n2" style="list-style:none">
-    <li><span class="b">2.1.</span> Tezgahın teslimi sözleşme şartları yerine getirilmesi ve gümrük işlemleri tamamlanmasıyla ${d.teslimAyi ? `<span class="b">${esc(d.teslimAyi)}</span> ayı içerisinde` : "en kısa sürede"} gerçekleştirilecektir;</li>
-    <li><span class="b">2.2.</span> Tezgahın ${A} 'ye teslim olmasını müteakip 2 (iki) gün içerisinde <span class="b">HAKSAN MAKİNA</span> personeli tarafından tezgahın kurulumu ve ilk çalıştırması gerçekleştirilecektir,</li>
-    <li><span class="b">2.3.</span> Tezgahın kurulmasından sonra <span class="b">HAKSAN MAKİNA</span>, ${A} 'ye 2 (iki) gün süre ile eğitim ve demo çalışması yapacaktır. Eğitim ve demo çalışması ${A} tesislerinde gerçekleştirilecektir.</li>
-    <li><span class="b">2.4.</span> Tezgahın mekanik garantisi ${A} 'ye teslimiyle başlayacak olup, mekanik garanti tüm üretim hatalarına karşı 1 (bir) yıldır,</li>
-    <li><span class="b">2.5.</span> Tezgahın kontrol ünitesi garantisi ${A} 'ye teslimiyle başlayacak olup, uluslararası ${esc(cu)} garantisi 2 (iki) yıldır,</li>
-    <li><span class="b">2.6.</span> Tezgah <span class="b">HAKSAN MAKİNA/Hadımköy</span> tesislerinden teslim edilecek olup, tezgahın nakliye ve sigorta giderleri ${A} 'e aittir.</li>
+    ${d.teslimKosullari ? `<li><span class="b">2.1.</span> ${blank(d.teslimKosullari)}</li>` : ""}
+    ${d.garantiKosullari ? `<li><span class="b">2.2.</span> ${blank(d.garantiKosullari)}</li>` : ""}
   </ol>
   <div class="ct-h2" style="margin-top:2.5mm">3.&nbsp;&nbsp;Fiyat ve Ödeme Şartları;</div>
   <ol class="ct-n2" style="list-style:none">
@@ -651,12 +655,13 @@ export function contractDoc(d: ContractPrintData, assetBase: string): PrintDocum
         <div class="b">${esc(tutarYaziyla(toplam, d.currency))}</div>
       </div>
     </li>
-    <li><span class="b">3.2.</span> Sözleşmeye konu <span class="b">${esc(d.model)}</span> ${d.teslimSekli ? `<span class="b">${esc(d.teslimSekli)}</span> şeklinde fiyatlandırılmıştır. Tezgahın fiyatına, tezgahın ithalatı ile ilgili masraf ve vergiler (Gümrük Vergisi, Liman Masrafları, Ardiye Giderleri, Gümrükleme Ücreti, İlave Gümrük Vergisi) dahildir.` : "fiyatlandırılması yukarıdaki gibidir."}</li>
-    <li><span class="b">3.3.</span> Sözleşmeye konu tezgahın fiyatına <span class="b">%${esc(d.kdvOran)}</span> oranındaki <span class="b">K.D.V.</span> dahil değildir,</li>
+    <li><span class="b">3.2.</span> Sözleşmeye konu <span class="b">${esc(d.model)}</span> ${d.teslimSekli ? `<span class="b">${esc(d.teslimSekli)}</span> teslim şartıyla fiyatlandırılmıştır.` : "fiyatlandırılması yukarıdaki gibidir."}</li>
+    <li><span class="b">3.3.</span> Sözleşmeye konu tezgahın fiyatına ${d.kdvOran > 0 ? `<span class="b">%${esc(d.kdvOran)}</span> oranındaki ` : ""}<span class="b">K.D.V.</span> dahil değildir,</li>
     <li><span class="b">3.4.</span> Sözleşmeye konu tezgahın bedelinin tamamı ${A} firmasından aşağıdaki şekilde tahsil edilecektir;
-      <table class="ct-pay">
+      ${d.odemeKosullari ? `<div class="sub" style="margin:1mm 0">${blank(d.odemeKosullari)}</div>` : ""}
+      ${d.odemePlani.length ? `<table class="ct-pay">
         ${d.odemePlani.map((p) => `<tr><td>${esc(p.label)}</td><td class="amt">${fmtMoney(p.tutar, d.currency)}${p.senet ? " (Senet)" : ""}</td></tr>`).join("")}
-      </table>
+      </table>` : ""}
     </li>
   </ol>
   <div class="ct-h2" style="margin-top:2mm">&nbsp;Diğer Hususlar;</div>
@@ -666,6 +671,7 @@ export function contractDoc(d: ContractPrintData, assetBase: string): PrintDocum
     <li><span class="b">3.7.</span> İş bu sözleşmenin karşılıklı feshedilmesi veya şartlarının değiştirilmesi halinde sözleşmeye istinaden alınan kaparo veya teminatlar taraflara iade edilecektir,</li>
     <li><span class="b">3.8.</span> Taraflar arasında bu sözleşmeden doğabilecek uyuşmazlıkların çözümünde İstanbul Merkez Adliyesi Mahkemeleri ve İcra Müdürlükleri yetkilidir,</li>
     <li><span class="b">3.9.</span> İş bu sözleşme ${esc(tarihUzun)} tarihinde imza altına alınmış ve yürürlüğe girmiştir.</li>
+    ${d.notlar ? `<li><span class="b">3.10.</span> ${blank(d.notlar)}</li>` : ""}
   </ol>
   ${pn(2)}
 </div>`;
@@ -746,6 +752,10 @@ export interface InstallationPrintData {
   eposta?: string;
   kurulumuYapan?: string;
   teslimAlan?: string;
+  kurulumYeri?: string;
+  sure?: string;
+  technicalSpecs?: Array<{ key: string; value: string }>;
+  notlar?: string;
 }
 
 const INSTALL_CHECKS = [
@@ -777,6 +787,8 @@ table.f td.val { font-style: italic; }
 table.f-check th { font-weight: bold; }
 table.f-check td.c { text-align: center; width: 26mm; }
 table.f-check td.n { width: 60mm; }
+.f-spec td.lbl { width: 31mm; }
+.f-spec td.val { width: 55mm; }
 .f-sign { display: flex; gap: 6mm; margin-top: 2.5mm; }
 .f-sign > div { flex: 1; border: 1.4pt solid #000; padding: 1.4mm 2mm 3mm; }
 .f-sign .cap { font-weight: bold; font-size: 10.5pt; border-bottom: 1pt solid #000; margin: -1.6mm -2mm 2mm; padding: 1.2mm 2mm; }
@@ -787,6 +799,11 @@ table.f-check td.n { width: 60mm; }
 export function installationFormDoc(d: InstallationPrintData, assetBase: string): PrintDocument {
   const t = d.tezgah ?? {};
   const c = d.cnc ?? {};
+  const technicalSpecs = (d.technicalSpecs ?? []).filter((spec) => spec.key.trim() && spec.value.trim());
+  const technicalSpecRows = Array.from({ length: Math.ceil(technicalSpecs.length / 2) }, (_, index) => [
+    technicalSpecs[index * 2],
+    technicalSpecs[index * 2 + 1],
+  ]);
   const body = `
 <div class="page">
   ${drmakHeader(assetBase, "KURULUM TUTANAĞI")}
@@ -819,6 +836,18 @@ export function installationFormDoc(d: InstallationPrintData, assetBase: string)
       </div>
     </div>
 
+    ${technicalSpecRows.length ? `
+    <div class="f-sec" style="margin-top:4mm">TEKNİK BİLGİLER</div>
+    <table class="f f-spec">
+      ${technicalSpecRows.map(([left, right]) => `
+      <tr>
+        <td class="lbl">${esc(left.key)}</td>
+        <td class="val">${blank(left.value)}</td>
+        <td class="lbl">${right ? esc(right.key) : ""}</td>
+        <td class="val">${right ? blank(right.value) : ""}</td>
+      </tr>`).join("")}
+    </table>` : ""}
+
     <div class="f-sec" style="margin-top:4mm">KULLANICI BİLGİLERİ</div>
     <table class="f">
       <tr><td class="lbl">Firma</td><td class="val">${blank(d.firma)}</td></tr>
@@ -830,6 +859,14 @@ export function installationFormDoc(d: InstallationPrintData, assetBase: string)
       <tr><td class="lbl">Gsm</td><td class="val">${blank(d.gsm)}</td></tr>
       <tr><td class="lbl">E-Posta</td><td class="val">${blank(d.eposta)}</td></tr>
     </table>
+
+    ${(d.kurulumYeri || d.sure || d.notlar) ? `
+    <div class="f-sec" style="margin-top:4mm">KURULUM PLANI</div>
+    <table class="f">
+      ${d.kurulumYeri ? `<tr><td class="lbl">Kurulum Yeri</td><td class="val">${blank(d.kurulumYeri)}</td></tr>` : ""}
+      ${d.sure ? `<tr><td class="lbl">Süre</td><td class="val">${blank(d.sure)}</td></tr>` : ""}
+      ${d.notlar ? `<tr><td class="lbl">Notlar</td><td class="val">${blank(d.notlar)}</td></tr>` : ""}
+    </table>` : ""}
 
     <div class="f-sec" style="margin-top:4mm">TEZGAH KONTROL ÇİZELGESİ</div>
     <table class="f f-check">
@@ -859,6 +896,123 @@ export function installationFormDoc(d: InstallationPrintData, assetBase: string)
   ${drmakFooter(assetBase)}
 </div>`;
   return { title: `Kurulum Tutanağı ${d.formNo}`, css: DRMAK_CSS + FORM_CSS, body };
+}
+
+// ── 5b) SERVİS TAMAMLANDI FORMU (Kurulum Tutanağı tabanlı) ──────────────────
+
+export interface ServiceCompletionCheck {
+  label: string;
+  status: "done" | "not_done" | "na";
+  note?: string;
+}
+
+export interface ServiceCompletionPrintData {
+  teslimTarihi?: string;
+  kurulumTarihi?: string;
+  formNo: string;
+  tezgah?: MachineInfo;
+  cnc?: CncInfo;
+  firma?: string;
+  ilgili?: string;
+  adres?: string;
+  telefon?: string;
+  faks?: string;
+  gsm?: string;
+  eposta?: string;
+  checks: ServiceCompletionCheck[];
+  yapilanIsler?: string;
+  notlar?: string;
+  kurulumuYapan?: string;
+  teslimAlan?: string;
+}
+
+export function serviceCompletionFormDoc(
+  d: ServiceCompletionPrintData,
+  assetBase: string
+): PrintDocument {
+  const t = d.tezgah ?? {};
+  const c = d.cnc ?? {};
+  const cb = (on: boolean) => `<span class="cb">${on ? "&#9745;" : "&#9744;"}</span>`;
+  const checks = d.checks?.length ? d.checks : [];
+  const body = `
+<div class="page">
+  ${drmakHeader(assetBase, "SERVİS TAMAMLAMA TUTANAĞI")}
+  ${drmakWatermark(assetBase)}
+  <div class="z">
+    <div class="f-boxes">
+      <div class="f-box"><div class="cap">TEZGAH TESLİM TARİHİ</div><div class="bod val" style="font-style:italic">${blank(d.teslimTarihi)}</div></div>
+      <div class="f-box"><div class="cap">SERVİS / KURULUM TARİHİ</div><div class="bod" style="font-style:italic">${blank(d.kurulumTarihi)}</div></div>
+      <div class="f-box"><div class="cap">FORM NO</div><div class="bod red">${blank(d.formNo)}</div></div>
+    </div>
+
+    <div class="f-cols" style="margin-top:6mm">
+      <div>
+        <div class="f-sec">TEZGAH BİLGİLERİ</div>
+        <table class="f">
+          <tr><td class="lbl">Tezgah Markası</td><td class="val">${blank(t.marka)}</td></tr>
+          <tr><td class="lbl">Tezgah Tipi</td><td class="val">${blank(t.tip)}</td></tr>
+          <tr><td class="lbl">Tezgah Modeli</td><td class="val">${blank(t.model)}</td></tr>
+          <tr><td class="lbl">Tezgah Seri No</td><td class="val">${blank(t.seriNo)}</td></tr>
+        </table>
+      </div>
+      <div>
+        <div class="f-sec">KONTROL ÜNİTESİ BİLGİLERİ</div>
+        <table class="f">
+          <tr><td class="lbl">Cnc Markası</td><td class="val">${blank(c.marka)}</td></tr>
+          <tr><td class="lbl">Cnc Modeli</td><td class="val">${blank(c.model)}</td></tr>
+          <tr><td class="lbl">Cnc Seri No</td><td class="val">${blank(c.seriNo)}</td></tr>
+          <tr><td class="lbl">Cnc Main S/W</td><td class="val">${blank(c.mainSw)}</td></tr>
+        </table>
+      </div>
+    </div>
+
+    <div class="f-sec" style="margin-top:4mm">KULLANICI BİLGİLERİ</div>
+    <table class="f">
+      <tr><td class="lbl">Firma</td><td class="val">${blank(d.firma)}</td></tr>
+      <tr><td class="lbl">İlgili</td><td class="val">${blank(d.ilgili)}</td></tr>
+      <tr><td class="lbl">Adres</td><td class="val">${blank(d.adres)}</td></tr>
+      <tr><td class="lbl">Telefon</td><td class="val">${blank(d.telefon)}</td></tr>
+      <tr><td class="lbl">Faks</td><td class="val">${blank(d.faks)}</td></tr>
+      <tr><td class="lbl">Gsm</td><td class="val">${blank(d.gsm)}</td></tr>
+      <tr><td class="lbl">E-Posta</td><td class="val">${blank(d.eposta)}</td></tr>
+    </table>
+
+    <div class="f-sec" style="margin-top:4mm">SERVİS KONTROL ÇİZELGESİ</div>
+    <table class="f f-check">
+      <tr><th>Açıklama</th><th style="width:22mm">Tamamlandı</th><th style="width:26mm">Tamamlanmadı</th><th style="width:18mm">N/A</th><th class="n">Not</th></tr>
+      ${checks.map((row) => `
+      <tr>
+        <td>${esc(row.label)}</td>
+        <td class="c">${cb(row.status === "done")}</td>
+        <td class="c">${cb(row.status === "not_done")}</td>
+        <td class="c">${cb(row.status === "na")}</td>
+        <td class="n">${esc(row.note ?? "")}</td>
+      </tr>`).join("")}
+    </table>
+
+    ${(d.yapilanIsler || d.notlar) ? `
+    <div class="f-sec" style="margin-top:4mm">YAPILAN İŞLER / NOTLAR</div>
+    <table class="f">
+      ${d.yapilanIsler ? `<tr><td class="lbl">Yapılan İşler</td><td class="val">${esc(d.yapilanIsler).replace(/\n/g, "<br>")}</td></tr>` : ""}
+      ${d.notlar ? `<tr><td class="lbl">Notlar</td><td class="val">${esc(d.notlar).replace(/\n/g, "<br>")}</td></tr>` : ""}
+    </table>` : ""}
+
+    <div class="f-sign">
+      <div>
+        <div class="cap">SERVİSİ YAPAN</div>
+        <div class="ln"><span>Ad, Soyad</span><span>:</span><span class="v">${blank(d.kurulumuYapan)}</span></div>
+        <div class="ln" style="margin-top:6mm"><span>İmza</span><span>:</span><span class="v"></span></div>
+      </div>
+      <div>
+        <div class="cap">TEZGAHI TESLİM ALAN</div>
+        <div class="ln"><span>Ad, Soyad</span><span>:</span><span class="v">${blank(d.teslimAlan)}</span></div>
+        <div class="ln" style="margin-top:6mm"><span>İmza</span><span>:</span><span class="v"></span></div>
+      </div>
+    </div>
+  </div>
+  ${drmakFooter(assetBase)}
+</div>`;
+  return { title: `Servis Tamamlama Tutanağı ${d.formNo}`, css: DRMAK_CSS + FORM_CSS, body };
 }
 
 // ── 6) SERVİS FORMU (DR.MAK) ────────────────────────────────────────────────
@@ -892,6 +1046,9 @@ export interface ServiceFormPrintData {
   servisUcreti?: number | null;
   ulasimUcreti?: number | null;
   currency?: CurrencyCode;
+  notlar?: string[];
+  servisYetkilisi?: string;
+  firmaYetkilisi?: string;
 }
 
 const SERVICE_FORM_CSS = `
@@ -936,8 +1093,8 @@ export function serviceFormDoc(d: ServiceFormPrintData, assetBase: string): Prin
   <div class="z">
     <table class="sf-top">
       <tr>
-        <td class="lbl">Firma</td><td class="val" style="width:58mm">${blank(d.firma)}</td>
-        <td class="lbl">İlgili</td><td class="val">${blank(d.ilgili)}</td>
+        <td class="lbl">Firma</td><td class="val" style="width:44mm">${blank(d.firma)}</td>
+        <td class="lbl" style="width:12mm">İlgili</td><td class="val">${blank(d.ilgili)}</td>
         <td class="lbl formno" rowspan="2">Form No.<br><br><span style="font-style:italic">${blank(d.formNo)}</span></td>
       </tr>
       <tr><td class="lbl">Adres</td><td class="val" colspan="3">${blank(d.adres)}</td></tr>
@@ -1020,26 +1177,34 @@ export function serviceFormDoc(d: ServiceFormPrintData, assetBase: string): Prin
         <td class="no">${i + 1}</td>
         <td class="val" style="font-style:italic">${blank(p.ad)}</td>
         <td class="c">${blank(p.miktar)}</td>
-        <td class="r">${p.birimFiyat ? fmtMoney(p.birimFiyat, cur) : ""}</td>
-        <td class="r">${p.tutar ? fmtMoney(p.tutar, cur) : ""}</td>
+        <td class="r">${p.birimFiyat != null ? fmtMoney(p.birimFiyat, cur) : ""}</td>
+        <td class="r">${p.tutar != null ? fmtMoney(p.tutar, cur) : ""}</td>
       </tr>`).join("")}
-      <tr><td class="sumlbl" colspan="4" style="border:1pt solid #000">SERVİS ÜCRETİ (İŞÇİLİK)</td><td class="r">${d.servisUcreti ? fmtMoney(d.servisUcreti, cur) : ""}</td></tr>
-      <tr><td class="sumlbl" colspan="4" style="border:1pt solid #000">ULAŞIM ÜCRETİ</td><td class="r">${d.ulasimUcreti ? fmtMoney(d.ulasimUcreti, cur) : ""}</td></tr>
+      <tr><td class="sumlbl" colspan="4" style="border:1pt solid #000">SERVİS ÜCRETİ (İŞÇİLİK)</td><td class="r">${d.servisUcreti != null ? fmtMoney(d.servisUcreti, cur) : ""}</td></tr>
+      <tr><td class="sumlbl" colspan="4" style="border:1pt solid #000">ULAŞIM ÜCRETİ</td><td class="r">${d.ulasimUcreti != null ? fmtMoney(d.ulasimUcreti, cur) : ""}</td></tr>
       <tr>
         <td colspan="4" class="toplbl">TOPLAM<br><small>(K.D.V. Hariç)</small></td>
         <td class="r" style="font-weight:bold">${toplam ? fmtMoney(toplam, cur) : ""}</td>
       </tr>
     </table>
 
+    ${d.notlar && d.notlar.length ? `
+    <div style="margin-top:2.5mm; font-size:9pt;">
+      <div style="font-weight:bold; text-decoration:underline; margin-bottom:1mm;">NOTLAR:</div>
+      <ol style="margin:0; padding-left:5mm;">
+        ${d.notlar.map((n) => `<li style="margin-bottom:.4mm; text-align:justify;">${esc(n)}</li>`).join("")}
+      </ol>
+    </div>` : ""}
+
     <div class="f-sign">
       <div>
         <div class="cap">SERVİS YETKİLİSİ</div>
-        <div class="ln"><span>Ad, Soyad</span><span>:</span><span class="v"></span></div>
+        <div class="ln"><span>Ad, Soyad</span><span>:</span><span class="v">${blank(d.servisYetkilisi)}</span></div>
         <div class="ln" style="margin-top:6mm"><span>İmza</span><span>:</span><span class="v"></span></div>
       </div>
       <div>
         <div class="cap">FİRMA YETKİLİSİ</div>
-        <div class="ln"><span>Ad, Soyad</span><span>:</span><span class="v"></span></div>
+        <div class="ln"><span>Ad, Soyad</span><span>:</span><span class="v">${blank(d.firmaYetkilisi)}</span></div>
         <div class="ln" style="margin-top:6mm"><span>İmza</span><span>:</span><span class="v"></span></div>
       </div>
     </div>
