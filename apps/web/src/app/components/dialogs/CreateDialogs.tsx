@@ -29,7 +29,6 @@ import { serviceService, fileService, financeService, activityService, inventory
 import { Badge } from "../ui/badge";
 import { useAuth } from "../../../lib/auth";
 import {
-  computeInstallationFee,
   INSTALLATION_LOCATION_LABELS,
   type InstallationLocationType,
   COMPANY_SECTOR_OPTIONS,
@@ -42,6 +41,13 @@ import {
   type StockCategoryCode,
 } from "@haksan/shared";
 import { PROVINCE_NAMES } from "../../lib/geo";
+import {
+  CNC_DIK_ISLEME_SPEC_TEMPLATE,
+  CNC_DIK_TORNA_SPEC_TEMPLATE,
+  CNC_YATAY_TORNA_SPEC_TEMPLATE,
+  productSpecTemplate,
+  specsForProductType,
+} from "../../lib/productSpecTemplates";
 import { QuoteDialog } from "./QuoteDialog";
 
 /* ---------- Customer ---------- */
@@ -1535,13 +1541,13 @@ const MACHINE_TYPE_OPTIONS: ProductOption[] = PRODUCT_TYPE_OPTIONS
 
 // Ürün tipine göre örnek teknik bilgi şablonları (anahtarlar; değerleri kullanıcı doldurur)
 const SPEC_TEMPLATE_BY_TYPE: Record<string, string[]> = {
-  CNC_DIK_ISLEME_MERKEZ: ["X / Y / Z Eksen Stroku", "Tabla Ölçüsü", "Spindle Devri (rpm)", "Spindle Gücü (kW)", "Spindle Konik", "Takım Magazini Kapasitesi", "Hızlı İlerleme (m/dk)"],
+  CNC_DIK_ISLEME_MERKEZ: [...CNC_DIK_ISLEME_SPEC_TEMPLATE],
   CNC_YATAY_ISLEME_MERKEZI: ["X / Y / Z Eksen Stroku", "Pallet Ölçüsü", "Pallet Sayısı", "Spindle Devri (rpm)", "Spindle Konik", "Takım Magazini Kapasitesi"],
   CNC_KOPRU_TIPI_ISLEME_MERKEZI: ["X / Y / Z Eksen Stroku", "Köprü Açıklığı", "Tabla Ölçüsü", "Spindle Devri (rpm)", "Spindle Gücü (kW)"],
   CNC_5_EKSEN_ISLEME_MERKEZI: ["X / Y / Z Eksen Stroku", "A / C Eksen Dönüş Aralığı", "Tabla Çapı", "Spindle Devri (rpm)", "Spindle Konik"],
   CNC_TAPPING_CENTER: ["X / Y / Z Eksen Stroku", "Tabla Ölçüsü", "Spindle Devri (rpm)", "Takım Magazini Kapasitesi", "Hızlı İlerleme (m/dk)"],
-  CNC_YATAY_TORNA_TEZGAHI: ["Ayna Ölçüsü", "Maks. Tornalama Çapı", "Maks. Tornalama Boyu", "Fener Mili Devri (rpm)", "Taret İstasyon Sayısı", "Çubuk Geçiş Çapı"],
-  CNC_DIK_TORNA_TEZGAHI: ["Ayna Ölçüsü", "Maks. Tornalama Çapı", "Maks. Tornalama Yüksekliği", "Fener Mili Devri (rpm)", "Taret İstasyon Sayısı"],
+  CNC_YATAY_TORNA_TEZGAHI: [...CNC_YATAY_TORNA_SPEC_TEMPLATE],
+  CNC_DIK_TORNA_TEZGAHI: [...CNC_DIK_TORNA_SPEC_TEMPLATE],
   ELEKTRONIK: ["Parça No", "Uyumlu Model", "Marka", "Garanti Süresi"],
   ELEKTRIK: ["Parça No", "Uyumlu Model", "Voltaj / Akım", "Marka"],
   MEKANIK: ["Parça No", "Uyumlu Model", "Malzeme", "Ölçü"],
@@ -1567,7 +1573,9 @@ const toSpecs = (keys: string[]): ProductSpec[] =>
   keys.length ? keys.map((key) => ({ key, value: "" })) : [{ key: "", value: "" }];
 
 const specsForType = (typeCode: string, categoryCode: string): ProductSpec[] =>
-  toSpecs(SPEC_TEMPLATE_BY_TYPE[typeCode] ?? SPEC_TEMPLATE_BY_CATEGORY[categoryCode] ?? []);
+  productSpecTemplate(typeCode).length
+    ? specsForProductType(typeCode, [])
+    : toSpecs(SPEC_TEMPLATE_BY_TYPE[typeCode] ?? SPEC_TEMPLATE_BY_CATEGORY[categoryCode] ?? []);
 
 const specsForCategory = (categoryCode: string): ProductSpec[] =>
   toSpecs(SPEC_TEMPLATE_BY_CATEGORY[categoryCode] ?? []);
@@ -1643,7 +1651,9 @@ const fromProduct = (p: Product): ProductFormState => ({
   originCountry: p.originCountry ?? "",
   hsCode: p.hsCode ?? "",
   stockCode: p.stockCode || p.model,
-  specs: p.specs.length ? [...p.specs] : [{ key: "", value: "" }],
+  specs: p.specs.length
+    ? specsForProductType(p.productTypeCode, p.specs)
+    : (productSpecTemplate(p.productTypeCode).length ? specsForProductType(p.productTypeCode, []) : [{ key: "", value: "" }]),
   standardEquipment: [...p.standardEquipment], optionalEquipment: [...p.optionalEquipment],
   muadilProductId: p.muadilProductId ?? "",
   status: p.status,
@@ -2128,9 +2138,25 @@ export function ProductDialog({
               <div className="space-y-2">
                 <div className="flex items-center justify-between gap-2">
                   <div className="text-[11px] text-muted-foreground">Ürün tipine göre değişiklik gösterecek teknik satırlar.</div>
-                  <Button type="button" variant="outline" size="sm" className="h-7 gap-1" onClick={addSpec}>
-                    <Plus className="size-3.5" /> Özellik Ekle
-                  </Button>
+                  <div className="flex flex-wrap justify-end gap-1.5">
+                    {productSpecTemplate(form.productTypeCode).length > 0 && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-7"
+                        onClick={() => setForm((f) => ({
+                          ...f,
+                          specs: specsForProductType(f.productTypeCode, f.specs),
+                        }))}
+                      >
+                        Teknik şablonu uygula
+                      </Button>
+                    )}
+                    <Button type="button" variant="outline" size="sm" className="h-7 gap-1" onClick={addSpec}>
+                      <Plus className="size-3.5" /> Özellik Ekle
+                    </Button>
+                  </div>
                 </div>
                 <div className="space-y-2">
                   {form.specs.map((s, i) => (
@@ -2239,16 +2265,33 @@ function ChipField({ label, chips, input, setInput, onAdd, onRemove, placeholder
           <Plus className="size-4" />
         </Button>
       </div>
-      <div className="mt-2 flex flex-wrap gap-1.5 min-h-[28px]">
-        {chips.length === 0 && <span className="text-[11px] text-muted-foreground">Henüz eklenmedi</span>}
-        {chips.map((c, i) => (
-          <span key={`${c}-${i}`} className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[11px]">
-            {c}
-            <button type="button" onClick={() => onRemove(i)} className="hover:text-destructive">
-              <X className="size-3" />
-            </button>
-          </span>
-        ))}
+      <div className="mt-2 overflow-hidden rounded-md border border-border/70">
+        {chips.length === 0 ? (
+          <div className="px-3 py-3 text-xs text-muted-foreground">Henüz eklenmedi</div>
+        ) : (
+          <ol className="divide-y divide-border/60">
+            {chips.map((c, i) => (
+              <li key={`${c}-${i}`} className="group flex min-w-0 items-start gap-3 px-3 py-2">
+                <span className="mt-0.5 min-w-6 text-right text-xs font-medium tabular-nums text-muted-foreground">
+                  {i + 1}.
+                </span>
+                <span className="min-w-0 flex-1 whitespace-pre-wrap break-words text-sm leading-5">
+                  {c}
+                </span>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7 shrink-0 text-muted-foreground hover:text-destructive"
+                  onClick={() => onRemove(i)}
+                  aria-label={`${c} donanımını sil`}
+                >
+                  <Trash2 className="size-3.5" />
+                </Button>
+              </li>
+            ))}
+          </ol>
+        )}
       </div>
     </div>
   );
@@ -2382,9 +2425,18 @@ export type DeliveryFormState = {
   cncModel: string;
   cncSeriNo: string;
   cncMainSw: string;
+  technicalSpecs: ProductSpec[];
 };
 
-function machineToDeliveryFields(m?: { brand?: string; type?: string; model: string; serialNumber: string; controlUnit?: string; controlUnitSerial?: string }) {
+function machineToDeliveryFields(m?: {
+  brand?: string;
+  type?: string;
+  model: string;
+  serialNumber: string;
+  controlUnit?: string;
+  controlUnitSerial?: string;
+  technicalSpecs?: ProductSpec[];
+}) {
   if (!m) return {};
   return {
     tezgahMarka: m.brand ?? "",
@@ -2394,6 +2446,7 @@ function machineToDeliveryFields(m?: { brand?: string; type?: string; model: str
     cncMarka: m.controlUnit?.split(" ")[0] ?? "",
     cncModel: m.controlUnit?.split(" ").slice(1).join(" ") ?? "",
     cncSeriNo: m.controlUnitSerial ?? "",
+    technicalSpecs: (m.technicalSpecs ?? []).map((spec) => ({ ...spec })),
   };
 }
 
@@ -2416,6 +2469,9 @@ export function deliveryFormToPayload(form: DeliveryFormState) {
       seriNo: form.cncSeriNo.trim() || undefined,
       mainSw: form.cncMainSw.trim() || undefined,
     },
+    technicalSpecs: form.technicalSpecs
+      .filter((spec) => spec.key.trim() && spec.value.trim())
+      .map((spec) => ({ key: spec.key.trim(), value: spec.value.trim() })),
   };
 }
 
@@ -2433,6 +2489,7 @@ export function deliveryToFormState(d: {
     kurulumuYapan?: string;
     tezgah?: { marka?: string; tip?: string; model?: string; seriNo?: string };
     cnc?: { marka?: string; model?: string; seriNo?: string; mainSw?: string };
+    technicalSpecs?: ProductSpec[];
   };
 }, contactPerson?: string): DeliveryFormState {
   const fd = d.formData;
@@ -2455,6 +2512,7 @@ export function deliveryToFormState(d: {
     cncModel: fd?.cnc?.model ?? "",
     cncSeriNo: fd?.cnc?.seriNo ?? "",
     cncMainSw: fd?.cnc?.mainSw ?? "",
+    technicalSpecs: (fd?.technicalSpecs ?? []).map((spec) => ({ ...spec })),
   };
 }
 
@@ -2469,7 +2527,13 @@ export function DeliveryFormFields({
   setForm: React.Dispatch<React.SetStateAction<DeliveryFormState>>;
   customers: Customer[];
   casesForCustomer: { id: string; requestedProduct: string }[];
-  machinesForCustomer: { id: string; brand?: string; model: string; serialNumber: string }[];
+  machinesForCustomer: {
+    id: string;
+    brand?: string;
+    model: string;
+    serialNumber: string;
+    technicalSpecs?: ProductSpec[];
+  }[];
 }) {
   const applyMachine = (machineId: string) => {
     const m = machinesForCustomer.find((x) => x.id === machineId);
@@ -2495,6 +2559,7 @@ export function DeliveryFormFields({
                 salesCaseId: "",
                 machineId: "",
                 ilgili: cust?.contactPerson ?? "",
+                technicalSpecs: [],
               });
             }}
           >
@@ -2516,7 +2581,14 @@ export function DeliveryFormFields({
         </div>
         <div>
           <Label className="text-xs">Makine / Tezgah</Label>
-          <Select value={form.machineId || "none"} onValueChange={(v) => (v === "none" ? setForm({ ...form, machineId: "" }) : applyMachine(v))}>
+          <Select
+            value={form.machineId || "none"}
+            onValueChange={(v) => (
+              v === "none"
+                ? setForm({ ...form, machineId: "", technicalSpecs: [] })
+                : applyMachine(v)
+            )}
+          >
             <SelectTrigger className="mt-1.5"><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="none">Belirtilmedi</SelectItem>
@@ -2554,6 +2626,25 @@ export function DeliveryFormFields({
           <Field label="Cnc Seri No" value={form.cncSeriNo} onChange={(v) => setForm({ ...form, cncSeriNo: v })} />
           <Field label="Cnc Main S/W" value={form.cncMainSw} onChange={(v) => setForm({ ...form, cncMainSw: v })} />
         </div>
+      </div>
+
+      <div className="rounded-lg border border-border/60 p-3 space-y-2">
+        <div className="text-xs font-medium text-center">Teknik Bilgiler</div>
+        {form.technicalSpecs.length ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4">
+            {form.technicalSpecs.map((spec, index) => (
+              <div
+                key={`${spec.key}-${index}`}
+                className="flex items-start justify-between gap-3 border-b border-border/50 py-1.5 text-xs"
+              >
+                <span className="text-muted-foreground">{spec.key}</span>
+                <span className="text-right">{spec.value}</span>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="text-xs text-muted-foreground">Seçilen makine için teknik bilgi bulunamadı.</div>
+        )}
       </div>
 
       <div className="rounded-lg border border-border/60 p-3 space-y-2">
@@ -2601,6 +2692,7 @@ export function CreateDeliveryDialog({ trigger, onCreated }: { trigger: React.Re
     cncModel: "",
     cncSeriNo: "",
     cncMainSw: "",
+    technicalSpecs: [],
   });
   const [form, setForm] = useState(emptyForm);
   const reset = () => setForm(emptyForm());
@@ -3399,10 +3491,8 @@ export function CreateInstallationDialog({
 
   const reset = () => setForm(emptyForm());
 
-  // Süre (saat + dk) → toplam dakika; ücret @haksan/shared ile hesaplanır
-  // (İstanbul içi 70$/saat, dışı 100$/saat; 15/45 dk eşikli yuvarlama).
+  // Süre (saat + dk) → toplam dakika.
   const totalMinutes = (parseInt(form.durationHours || "0", 10) || 0) * 60 + (parseInt(form.durationMinutes || "0", 10) || 0);
-  const fee = computeInstallationFee(totalMinutes, form.locationType);
 
   const selectedContacts = contacts.filter((c) => c.customerId === form.companyId);
   // Kurulum tutanağındaki tezgah/CNC alanları bu makineden doldurulur.
@@ -3505,7 +3595,7 @@ export function CreateInstallationDialog({
             </div>
             <Field label="Lokasyon" value={form.location} onChange={(v) => setForm({ ...form, location: v })} />
 
-            {/* ── Saha ücretlendirme ── */}
+            {/* ── Saha planlama ── */}
             <div className="col-span-2 grid grid-cols-2 gap-3 rounded-lg border border-border/60 bg-muted/30 p-3">
               <div>
                 <Label className="text-xs">Konum Tipi</Label>
@@ -3526,14 +3616,6 @@ export function CreateInstallationDialog({
                   <Input type="number" min={0} max={59} className="bg-white" value={form.durationMinutes} onChange={(e) => setForm({ ...form, durationMinutes: e.target.value })} />
                   <span className="text-muted-foreground text-sm">dk</span>
                 </div>
-              </div>
-              <div className="col-span-2 flex items-center justify-between rounded-md bg-white border border-border/60 px-3 py-2">
-                <span className="inline-flex items-center gap-2 text-sm text-muted-foreground">
-                  <Wallet className="size-4 text-emerald-600" />
-                  Hesaplanan ücret
-                  <span className="text-[11px]">· {fee.billedHours} saat × ${fee.hourlyRate}</span>
-                </span>
-                <b className="tabular-nums text-emerald-700">$ {fee.amount.toLocaleString("tr-TR")}</b>
               </div>
             </div>
 

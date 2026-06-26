@@ -45,6 +45,17 @@ const numeric = (value: unknown): number => {
   return Number.isFinite(result) ? result : 0;
 };
 
+const quoteItemTechnicalSpecs = (item?: { compatibility?: unknown } | null): Array<{ key: string; value: string }> => {
+  const specs = (item?.compatibility as { technicalSpecs?: unknown } | null | undefined)?.technicalSpecs;
+  if (!Array.isArray(specs)) return [];
+  return specs
+    .map((spec) => ({
+      key: String((spec as { key?: unknown }).key ?? "").trim(),
+      value: String((spec as { value?: unknown }).value ?? "").trim(),
+    }))
+    .filter((spec) => spec.key && spec.value);
+};
+
 export function buildQuotePrintData(input: QuoteBuildInput, quote: QuoteDetail): QuotePrintData {
   const { offer, customer, salesCase, users, contacts, products } = input;
   const contact = contacts.find((item) => item.id === quote.contactId);
@@ -62,6 +73,10 @@ export function buildQuotePrintData(input: QuoteBuildInput, quote: QuoteDetail):
     .map((item: { description?: string | null }) => String(item.description ?? "").trim())
     .filter((description: string) => description.startsWith("↳ Opsiyon:"))
     .map((description: string) => description.replace(/^↳\s*Opsiyon:\s*/, ""));
+  const mainProductItem = quoteItems.find((item: { description?: string | null; productModelId?: string | null }) =>
+    item.productModelId && !String(item.description ?? "").trimStart().startsWith("↳ Opsiyon:")
+  );
+  const customSpecs = quoteItemTechnicalSpecs(mainProductItem as { compatibility?: unknown } | undefined);
 
   return {
     firma: customer?.name ?? "",
@@ -81,7 +96,7 @@ export function buildQuotePrintData(input: QuoteBuildInput, quote: QuoteDetail):
     model: product?.model ?? salesCase?.requestedModel,
     tip: product?.type ?? salesCase?.requestedProduct,
     imageUrl: product?.imageUrl || undefined,
-    specs: product?.specs,
+    specs: customSpecs.length ? customSpecs : product?.specs,
     standartDonanim: product?.standardEquipment ?? [],
     opsiyonelDonanim: selectedOptions,
     items: quoteItems.map((item: {

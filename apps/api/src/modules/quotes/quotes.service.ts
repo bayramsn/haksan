@@ -454,6 +454,7 @@ export class QuotesService {
     for (const k of ['quantity', 'unitPrice', 'discountAmount', 'vatRate'] as const) {
       if ((input as any)[k] !== undefined) patch[k] = ((input as any)[k] as number | undefined)?.toString();
     }
+    if (input.compatibility !== undefined) patch.compatibility = input.compatibility ?? null;
     if (input.unitCode !== undefined) patch.unitId = await lookupIdByCode(this.db, units, input.unitCode);
 
     // Recalc line totals

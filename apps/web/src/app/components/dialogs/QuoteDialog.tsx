@@ -16,31 +16,35 @@ import { useAuth } from "../../../lib/auth";
 import { quoteService } from "../../../lib/services";
 import { toast } from "sonner";
 import { Plus, Trash2, Save, BookmarkPlus, Bold } from "lucide-react";
-import type { Product } from "../../lib/mock";
+import type { Product, ProductSpec } from "../../lib/mock";
+import { specsForProductType } from "../../lib/productSpecTemplates";
 import { quoteDefaultsFromCase } from "../../lib/workflow";
-import { QUOTE_NOTE_VARIANTS } from "../../lib/print";
+import { QUOTE_NOTE_VARIANTS, matchQuoteNoteVariantKey } from "../../lib/print";
 
 // Şablon eşleşmesi: edit modunda yüklenen şartlar bir şablonla birebir aynıysa
-// o şablonu önseç. Karşılaştırma satır-bazlı (trim) yapılır.
-const matchNoteVariant = (payment: string, delivery: string, warranty: string): string => {
-  const norm = (s: string) => s.split(/\r?\n/).map((l) => l.trim()).filter(Boolean).join("\n");
-  const p = norm(payment), d = norm(delivery), w = norm(warranty);
-  if (!p && !d && !w) return "";
-  return (
-    QUOTE_NOTE_VARIANTS.find(
-      (v) => norm(v.odeme.join("\n")) === p && norm(v.teslimat.join("\n")) === d && norm(v.garanti.join("\n")) === w,
-    )?.key ?? ""
-  );
-};
+// o şablonu önseç (proforma otomatik tespitiyle aynı yardımcıyı kullanır).
+const matchNoteVariant = matchQuoteNoteVariantKey;
 
 type Currency = "USD" | "EUR" | "TRY";
 
 const DELIVERY_TERMS = [
+  { code: "cif_istanbul", label: "Tezgah CİF İstanbul", importCostsExcluded: true },
+  { code: "export_address", label: "İhracat Adrese Teslim", importCostsExcluded: true },
   { code: "nationalized", label: "Millileştirilmiş Teklif", importCostsExcluded: false },
   { code: "customs", label: "Gümrük Teklif", importCostsExcluded: true },
   { code: "ex_works", label: "İşletme Teslim", importCostsExcluded: false },
   { code: "fob", label: "F.O.B Teslim", importCostsExcluded: true },
 ] as const;
+
+const DELIVERY_NOTE_VARIANT: Record<string, string> = {
+  cif_istanbul: "cif-istanbul",
+  export_address: "ihracat",
+  nationalized: "millilestirilmis",
+};
+
+const NOTE_VARIANT_DELIVERY: Record<string, string> = Object.fromEntries(
+  Object.entries(DELIVERY_NOTE_VARIANT).map(([delivery, variant]) => [variant, delivery])
+);
 
 // Ürün ekle ekranındakiyle aynı kategoriler
 const PRODUCT_CATEGORIES = [
@@ -88,6 +92,7 @@ type LineState = {
   productId: string;
   stockCode: string;
   description: string; // ürün adı / modeli
+  technicalSpecs: ProductSpec[];
   quantity: string;
   unitPrice: string;
   discount: string;
@@ -100,8 +105,16 @@ const emptyCompatibility = (): LineCompatibility => ({ machineIds: [], brands: [
 const hasCompatibility = (c: LineCompatibility) =>
   c.machineIds.length > 0 || c.brands.length > 0 || c.controlUnits.length > 0 || c.supplierIds.length > 0;
 
-const emptyLine = (): LineState => ({ categoryCode: "", productId: "", stockCode: "", description: "", quantity: "1", unitPrice: "", discount: "0", vatRate: "20", options: [], compatibility: emptyCompatibility() });
+const emptyLine = (): LineState => ({ categoryCode: "", productId: "", stockCode: "", description: "", technicalSpecs: [], quantity: "1", unitPrice: "", discount: "0", vatRate: "20", options: [], compatibility: emptyCompatibility() });
 const emptyOption = (vatRate = "20"): OptionInput => ({ productId: "", description: "", quantity: "1", unitPrice: "0", discount: "0", vatRate });
+
+const cleanTechnicalSpecs = (specs: ProductSpec[] = []) =>
+  specs
+    .map((spec) => ({ key: spec.key.trim(), value: spec.value.trim() }))
+    .filter((spec) => spec.key && spec.value);
+
+const technicalSpecsFromProduct = (product?: Product): ProductSpec[] =>
+  product ? specsForProductType(product.productTypeCode, product.specs ?? []) : [];
 
 const num = (s: string) => {
   const n = Number(String(s).replace(",", "."));
@@ -227,6 +240,9 @@ export function QuoteDialog({
       const optionItems = items.filter((it) => String(it.description ?? "").startsWith("↳ Opsiyon:"));
       const mapped: LineState[] = mainItems.map((it) => {
         const product = it.productModelId ? products.find((p) => p.id === it.productModelId) : undefined;
+        const storedSpecs = Array.isArray(it.compatibility?.technicalSpecs)
+          ? cleanTechnicalSpecs(it.compatibility.technicalSpecs)
+          : [];
         const desc = String(it.description ?? "");
         const dashIdx = desc.indexOf(" — ");
         const stockCode = dashIdx > -1 ? desc.slice(0, dashIdx) : product?.stockCode ?? "";
@@ -236,6 +252,7 @@ export function QuoteDialog({
           productId: it.productModelId ?? "",
           stockCode,
           description,
+          technicalSpecs: storedSpecs.length ? storedSpecs : technicalSpecsFromProduct(product),
           quantity: String(it.quantity ?? "1"),
           unitPrice: String(it.unitPrice ?? "0"),
           discount: String(it.discountAmount ?? "0"),
@@ -304,6 +321,7 @@ export function QuoteDialog({
   // doldurur. Boş anahtar = "Özel (manuel)" — alanlar elle düzenlenir.
   const applyNoteVariant = (key: string) => {
     setNoteVariantKey(key);
+    if (key && NOTE_VARIANT_DELIVERY[key]) setDeliveryCode(NOTE_VARIANT_DELIVERY[key]);
     const v = QUOTE_NOTE_VARIANTS.find((x) => x.key === key);
     if (!v) return;
     setPaymentTerms(v.odeme.join("\n"));
@@ -348,6 +366,7 @@ export function QuoteDialog({
       categoryCode: p.categoryCode || "",
       stockCode: p.stockCode || p.model || "",
       description: p.shortDescription?.trim() || [p.brand, p.model].filter(Boolean).join(" "),
+      technicalSpecs: technicalSpecsFromProduct(p),
       unitPrice: p.listPrice ? String(p.listPrice) : "",
       vatRate: String(p.vatRate ?? 20),
     });
@@ -361,9 +380,27 @@ export function QuoteDialog({
       const prod = products.find((x) => x.id === l.productId);
       // Seçili ürün yeni kategoriye uymuyorsa temizle
       const keep = prod && prod.categoryCode === code;
-      return keep ? { ...l, categoryCode: code } : { ...l, categoryCode: code, productId: "", stockCode: "", description: "", options: [] };
+      return keep ? { ...l, categoryCode: code } : { ...l, categoryCode: code, productId: "", stockCode: "", description: "", technicalSpecs: [], options: [] };
     }));
   };
+
+  const setTechnicalSpec = (i: number, j: number, patch: Partial<ProductSpec>) =>
+    setLines((ls) => ls.map((l, idx) => (
+      idx === i
+        ? { ...l, technicalSpecs: l.technicalSpecs.map((spec, specIdx) => (specIdx === j ? { ...spec, ...patch } : spec)) }
+        : l
+    )));
+  const addTechnicalSpec = (i: number) =>
+    setLines((ls) => ls.map((l, idx) => (idx === i ? { ...l, technicalSpecs: [...l.technicalSpecs, { key: "", value: "" }] } : l)));
+  const rmTechnicalSpec = (i: number, j: number) =>
+    setLines((ls) => ls.map((l, idx) => (
+      idx === i ? { ...l, technicalSpecs: l.technicalSpecs.filter((_, specIdx) => specIdx !== j) } : l
+    )));
+  const resetTechnicalSpecsFromProduct = (i: number) =>
+    setLines((ls) => ls.map((l, idx) => {
+      if (idx !== i) return l;
+      return { ...l, technicalSpecs: technicalSpecsFromProduct(products.find((p) => p.id === l.productId)) };
+    }));
 
   const setOption = (i: number, j: number, patch: Partial<OptionInput>) =>
     setLines((ls) => ls.map((l, idx) => (idx === i ? { ...l, options: l.options.map((o, k) => (k === j ? { ...o, ...patch } : o)) } : l)));
@@ -444,6 +481,12 @@ export function QuoteDialog({
     // Ana ürün + teklife özel opsiyonel donanımları tek kalem listesine düzleştir
     const items = valid.flatMap((l) => {
       const mainName = [l.stockCode.trim(), l.description.trim()].filter(Boolean).join(" — ") || "Ürün";
+      const technicalSpecs = cleanTechnicalSpecs(l.technicalSpecs);
+      const lineCompatibility = {
+        ...(COMPAT_CATEGORIES.includes(l.categoryCode) && hasCompatibility(l.compatibility) ? l.compatibility : emptyCompatibility()),
+        ...(technicalSpecs.length ? { technicalSpecs } : {}),
+      };
+      const hasLineCompatibility = hasCompatibility(lineCompatibility) || technicalSpecs.length > 0;
       const main = {
         productModelId: l.productId || undefined,
         description: mainName,
@@ -451,10 +494,7 @@ export function QuoteDialog({
         unitPrice: Number(netUnitPrice(l).toFixed(4)),
         discountAmount: num(l.discount),
         vatRate: effVatRate(l),
-        compatibility:
-          COMPAT_CATEGORIES.includes(l.categoryCode) && hasCompatibility(l.compatibility)
-            ? l.compatibility
-            : undefined,
+        compatibility: hasLineCompatibility ? lineCompatibility : undefined,
       };
       const opts = (l.categoryCode === "TEZGAH" ? l.options : [])
         .filter((o) => o.productId || o.description.trim())
@@ -718,6 +758,64 @@ export function QuoteDialog({
                       </div>
                     </div>
 
+                    {l.categoryCode === "TEZGAH" && (
+                      <details className="rounded-md border border-dashed border-border/70 bg-muted/20 p-2">
+                        <summary className="cursor-pointer select-none text-[11px] font-medium text-muted-foreground">
+                          Teknik Bilgiler · bu teklife özel ({cleanTechnicalSpecs(l.technicalSpecs).length || l.technicalSpecs.length})
+                        </summary>
+                        <div className="mt-2 space-y-2">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <span className="text-[11px] text-muted-foreground">
+                              Ürün kartındaki değerler buraya kopyalanır; burada yapılan değişiklik yalnızca bu teklife yazılır.
+                            </span>
+                            <div className="flex flex-wrap gap-1.5">
+                              {product && (
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-7 text-xs"
+                                  onClick={() => resetTechnicalSpecsFromProduct(i)}
+                                >
+                                  Üründen yenile
+                                </Button>
+                              )}
+                              <Button type="button" variant="outline" size="sm" className="h-7 gap-1 text-xs" onClick={() => addTechnicalSpec(i)}>
+                                <Plus className="size-3.5" /> Özellik Ekle
+                              </Button>
+                            </div>
+                          </div>
+                          {l.technicalSpecs.length === 0 ? (
+                            <div className="rounded-md border border-border/60 bg-white px-3 py-2 text-xs text-muted-foreground">
+                              Teknik özellik yok. Özellik ekleyebilir veya ürün seçerek katalog değerlerini çekebilirsiniz.
+                            </div>
+                          ) : (
+                            <div className="space-y-1.5">
+                              {l.technicalSpecs.map((spec, specIndex) => (
+                                <div key={specIndex} className="grid grid-cols-[minmax(130px,1fr)_minmax(150px,1.3fr)_32px] gap-1.5">
+                                  <Input
+                                    className="h-8 bg-white"
+                                    value={spec.key}
+                                    onChange={(event) => setTechnicalSpec(i, specIndex, { key: event.target.value })}
+                                    placeholder="Özellik"
+                                  />
+                                  <Input
+                                    className="h-8 bg-white"
+                                    value={spec.value}
+                                    onChange={(event) => setTechnicalSpec(i, specIndex, { value: event.target.value })}
+                                    placeholder="Değer"
+                                  />
+                                  <Button type="button" variant="ghost" size="icon" className="h-8 w-8" onClick={() => rmTechnicalSpec(i, specIndex)}>
+                                    <Trash2 className="size-4 text-muted-foreground" />
+                                  </Button>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </details>
+                    )}
+
                     {/* Teklife özel opsiyonel donanım — yalnızca Tezgah kategorisinde */}
                     {l.categoryCode === "TEZGAH" && (
                     <div className="mt-1 rounded-md border border-dashed border-border/70 bg-muted/20 p-2 space-y-2">
@@ -831,8 +929,10 @@ export function QuoteDialog({
                 value={deliveryCode}
                 onValueChange={(value) => {
                   setDeliveryCode(value);
-                  // Şablon seçiliyken teslimat şartlarını ezme (şablon metni korunur).
-                  if (!noteVariantKey) {
+                  const variantKey = DELIVERY_NOTE_VARIANT[value];
+                  if (variantKey) applyNoteVariant(variantKey);
+                  else {
+                    setNoteVariantKey("");
                     setDeliveryTerms(DELIVERY_TERMS.find((item) => item.code === value)?.label ?? "");
                   }
                 }}

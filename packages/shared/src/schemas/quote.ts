@@ -22,11 +22,17 @@ export const quoteUpdateSchema = quoteCreateSchema.partial();
 export type QuoteUpdateInput = z.infer<typeof quoteUpdateSchema>;
 
 // Opsiyonel donanım / yedek parça kalemleri için uyumluluk seçimleri (çoklu).
+export const quoteItemTechnicalSpecSchema = z.object({
+  key: z.string().min(1).max(255),
+  value: z.string().max(2000),
+});
+
 export const quoteItemCompatibilitySchema = z.object({
   machineIds: z.array(z.string()).default([]),
   brands: z.array(z.string()).default([]),
   controlUnits: z.array(z.string()).default([]),
   supplierIds: z.array(z.string()).default([]),
+  technicalSpecs: z.array(quoteItemTechnicalSpecSchema).default([]),
 });
 export type QuoteItemCompatibility = z.infer<typeof quoteItemCompatibilitySchema>;
 

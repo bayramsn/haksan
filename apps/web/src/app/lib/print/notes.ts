@@ -34,10 +34,9 @@ export const QUOTE_NOTE_VARIANTS: QuoteNoteVariant[] = [
     garanti: [
       "Tezgâhın güvenlik ve elektrik donanımı CE normlarına uygun olarak üretilmiştir,",
       "Tezgâhın üretim hatalarına karşı mekanik aksam garantisi 1 (bir) yıldır,",
-      "Tezgâhın kontrol ünitesi 2 (iki) yıl üretim hatalarına karşı MITSUBISHI/Türkiye garantisi kapsamındadır,",
+      "Tezgâhın kontrol ünitesi 2(iki) yıl üretim hatalarına karşı MITSUBISHI/Türkiye garantisi kapsamındadır,",
       "Tezgâhın garantisi kurulumuna müteakip başlayacaktır,",
       "Tezgâhın teslimatından sonra en geç 2 (iki) gün içerisinde, HAKSAN MAKİNA teknik personeli tarafından tezgâhın kurulumu gerçekleştirilecektir,",
-      "Tezgâh ile eğitim ve demo çalışması 3 (üç) gün süre ile HAKSAN MAKİNA teknik personeli tarafından yapılacaktır.",
     ],
   },
   {
@@ -56,10 +55,10 @@ export const QUOTE_NOTE_VARIANTS: QuoteNoteVariant[] = [
     garanti: [
       "Tezgâhın güvenlik ve elektrik donanımı CE normlarına uygun olarak üretilmiştir,",
       "Tezgâhın üretim hatalarına karşı mekanik aksam garantisi 1 (bir) yıldır,",
-      "Tezgâhın kontrol ünitesi 2 (iki) yıl üretim hatalarına karşı FANUC/Türkiye garantisi kapsamındadır,",
+      "Tezgâhın kontrol ünitesi 2(iki) yıl üretim hatalarına karşı FANUC/Türkiye garantisi kapsamındadır,",
       "Tezgâhın garantisi kurulumuna müteakip başlayacaktır,",
       "Tezgâhın teslimatından sonra en geç 2 (iki) gün içerisinde, HAKSAN MAKİNA teknik personeli tarafından tezgâhın kurulumu gerçekleştirilecektir,",
-      "Tezgâh ile eğitim ve demo çalışması 2 (iki) gün süre ile HAKSAN MAKİNA teknik personeli tarafından yapılacaktır.",
+      "Tezgâhın ile eğitim ve demo çalışması 2 (iki) gün süre ile HAKSAN MAKİNA teknik personeli tarafından yapılacaktır.",
     ],
   },
   {
@@ -68,7 +67,7 @@ export const QUOTE_NOTE_VARIANTS: QuoteNoteVariant[] = [
     odeme: [
       "Teklifimiz, tamamı nakit/leasing aracılığı ile ödemeye göre düzenlenmiştir,",
       "Teklifimize tezgâhın cari orandaki %10 K.D.V.'si dahil edilmemiştir, Leasing aracılığı ile yapılan alımlarda K.D.V oranı %1 olarak tahakkuk ettirilir,",
-      "Teklifimiz C.I.F/İstanbul teslim şeklinde düzenlenmiş olup, tezgahın ithalatı ile ilgili masraf ve vergiler (Gümrük Vergisi, Liman Masrafları, Ardiye Giderleri, Gümrükleme Ücreti, İlave Gümrük Vergisi) fiyat teklifimize dahil değildir. Tezgâh antrepo'dan devir edilecektir,",
+      "Teklifimiz C.I.F/İstanbul teslim şeklinde düzenlenmiş olup, tezgahın ithalatı ile ilgili masraf ve vergiler (Gümrük Vergisi, Liman Masrafları, Ardiye Giderleri, Gümrükleme Ücreti, İlave Gümrük Vergisi) fiyat teklifimize dahil değildir. Tezgâh antrepo’dan devir edilecektir,",
     ],
     teslimat: [
       "Tezgâhın teslimi kesin siparişten 90 (±10) gün sonra gerçekleştirilecektir,",
@@ -78,10 +77,10 @@ export const QUOTE_NOTE_VARIANTS: QuoteNoteVariant[] = [
     garanti: [
       "Tezgâhın güvenlik ve elektrik donanımı CE normlarına uygun olarak üretilmiştir,",
       "Tezgâhın üretim hatalarına karşı mekanik aksam garantisi 1 (bir) yıldır,",
-      "Tezgâhın kontrol ünitesi 2 (iki) yıl üretim hatalarına karşı FANUC/Türkiye garantisi kapsamındadır,",
+      "Tezgâhın kontrol ünitesi 2(iki) yıl üretim hatalarına karşı FANUC/Türkiye garantisi kapsamındadır,",
       "Tezgâhın garantisi kurulumuna müteakip başlayacaktır,",
       "Tezgâhın teslimatından sonra en geç 2 (iki) gün içerisinde, HAKSAN MAKİNA teknik personeli tarafından tezgâhın kurulumu gerçekleştirilecektir,",
-      "Tezgâh ile eğitim ve demo çalışması 2 (iki) gün süre ile HAKSAN MAKİNA teknik personeli tarafından yapılacaktır.",
+      "Tezgâhın ile eğitim ve demo çalışması 2 (iki) gün süre ile HAKSAN MAKİNA teknik personeli tarafından yapılacaktır.",
     ],
   },
 ];
@@ -180,3 +179,60 @@ export const fillNotePlaceholders = (
       .replace(/\{\{ALICI\}\}/g, ctx.alici?.trim() || "alıcı firma")
       .replace(/\{\{YIL\}\}/g, String(ctx.yil ?? new Date().getFullYear()))
   );
+
+/** Teklif teslim şekli şablonlarını proforma seçeneklerinde ayırt etmek için ön ek. */
+export const QUOTE_VARIANT_PREFIX = "teklif:";
+
+const normalizeBlock = (s: string): string =>
+  s
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean)
+    .join("\n")
+    .trim();
+
+/**
+ * Kayıtlı ödeme/teslimat/garanti metinlerini QUOTE_NOTE_VARIANTS ile karşılaştırıp
+ * birebir eşleşen teslim şekli şablonunun anahtarını döndürür (yoksa "").
+ * Hem teklif formunda ön seçim, hem proformada otomatik tespit için kullanılır.
+ */
+export function matchQuoteNoteVariantKey(payment: string, delivery: string, warranty: string): string {
+  const p = normalizeBlock(payment);
+  const d = normalizeBlock(delivery);
+  const w = normalizeBlock(warranty);
+  if (!p && !d && !w) return "";
+  return (
+    QUOTE_NOTE_VARIANTS.find(
+      (v) =>
+        normalizeBlock(v.odeme.join("\n")) === p &&
+        normalizeBlock(v.teslimat.join("\n")) === d &&
+        normalizeBlock(v.garanti.join("\n")) === w
+    )?.key ?? ""
+  );
+}
+
+/** Proforma yazdırma menüsü: mevcut 2 düz proforma şablonu + teklifteki 3 teslim şekli. */
+export const PROFORMA_NOTE_OPTIONS: { key: string; label: string; group: "proforma" | "teslim" }[] = [
+  ...PROFORMA_NOTE_VARIANTS.map((v) => ({ key: v.key, label: v.label, group: "proforma" as const })),
+  ...QUOTE_NOTE_VARIANTS.map((v) => ({ key: `${QUOTE_VARIANT_PREFIX}${v.key}`, label: v.label, group: "teslim" as const })),
+];
+
+/**
+ * Bir proforma not anahtarını ({@link PROFORMA_NOTE_OPTIONS}) düz not satırlarına çözer.
+ * `teklif:` ön ekli anahtarlar teklif teslim şeklinin ödeme+teslimat+garanti maddelerini
+ * tek listede birleştirir; diğerleri düz proforma şablonudur. Eşleşme yoksa null.
+ */
+export function resolveProformaNotes(
+  variantKey: string | undefined,
+  ctx: { alici?: string; yil?: string | number }
+): string[] | null {
+  if (!variantKey) return null;
+  if (variantKey.startsWith(QUOTE_VARIANT_PREFIX)) {
+    const v = QUOTE_NOTE_VARIANTS.find((x) => x.key === variantKey.slice(QUOTE_VARIANT_PREFIX.length));
+    if (!v) return null;
+    return fillNotePlaceholders([...v.odeme, ...v.teslimat, ...v.garanti], ctx);
+  }
+  const v = PROFORMA_NOTE_VARIANTS.find((x) => x.key === variantKey);
+  if (!v) return null;
+  return fillNotePlaceholders(v.notlar, ctx);
+}

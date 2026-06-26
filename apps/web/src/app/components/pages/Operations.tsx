@@ -183,22 +183,24 @@ export function ProductsPage({ initialQuery }: { initialQuery?: string }) {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between gap-3 flex-wrap">
-        <Tabs value={cat} onValueChange={setCat}>
-          <TabsList className="h-9 bg-muted/60 flex-wrap">
-            <TabsTrigger value="all" className="gap-1.5">
-              Tümü <CountBadge n={visibleProducts.length} />
-            </TabsTrigger>
-            {categories.map((c) => (
-              <TabsTrigger key={c} value={c} className="gap-1.5">
-                {c} <CountBadge n={visibleProducts.filter((p) => productFamilyLabel(p) === c).length} />
+      <div className="space-y-2">
+        <div className="w-full overflow-x-auto pb-1">
+          <Tabs value={cat} onValueChange={setCat} className="min-w-max">
+            <TabsList className="h-10 w-max flex-nowrap bg-muted/60 p-1">
+              <TabsTrigger value="all" className="gap-1.5 whitespace-nowrap px-3">
+                Tümü <CountBadge n={visibleProducts.length} />
               </TabsTrigger>
-            ))}
-          </TabsList>
-        </Tabs>
+              {categories.map((c) => (
+                <TabsTrigger key={c} value={c} className="gap-1.5 whitespace-nowrap px-3">
+                  {c} <CountBadge n={visibleProducts.filter((p) => productFamilyLabel(p) === c).length} />
+                </TabsTrigger>
+              ))}
+            </TabsList>
+          </Tabs>
+        </div>
 
-        <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:ml-auto">
-          <div className="relative w-full sm:w-64">
+        <div className="flex w-full flex-col gap-2 sm:flex-row sm:items-center sm:justify-end">
+          <div className="relative w-full sm:w-72 lg:w-80">
             <Search className="size-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
             <Input
               placeholder="Marka, model, ürün ara..."
@@ -207,16 +209,18 @@ export function ProductsPage({ initialQuery }: { initialQuery?: string }) {
               onChange={(e) => setQ(e.target.value)}
             />
           </div>
-          {canCreateProducts && (
-            <ProductImportDialog
-              trigger={<Button size="sm" variant="outline" className="h-9 gap-1"><Upload className="size-4" /> İçe Aktar</Button>}
-            />
-          )}
-          {canCreateProducts && (
-            <ProductDialog
-              trigger={<Button size="sm" className="h-9 gap-1"><Plus className="size-4" /> Yeni Ürün</Button>}
-            />
-          )}
+          <div className="flex shrink-0 items-center gap-2">
+            {canCreateProducts && (
+              <ProductImportDialog
+                trigger={<Button size="sm" variant="outline" className="h-9 gap-1 whitespace-nowrap"><Upload className="size-4" /> İçe Aktar</Button>}
+              />
+            )}
+            {canCreateProducts && (
+              <ProductDialog
+                trigger={<Button size="sm" className="h-9 gap-1 whitespace-nowrap"><Plus className="size-4" /> Yeni Ürün</Button>}
+              />
+            )}
+          </div>
         </div>
       </div>
 
