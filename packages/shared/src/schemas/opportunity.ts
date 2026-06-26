@@ -43,6 +43,16 @@ export const opportunityStageChangeSchema = z
   );
 export type OpportunityStageChangeInput = z.infer<typeof opportunityStageChangeSchema>;
 
+// Mantıksal kapanış ("Bitir") — opsiyonel gerekçe. Yalnız terminal (delivered/cancelled) fırsatlar.
+export const opportunityCloseSchema = z.object({
+  reason: z.string().max(1000).optional(),
+});
+export type OpportunityCloseInput = z.infer<typeof opportunityCloseSchema>;
+
+// Liste görünümü: active (kapatılmamış, varsayılan) | closed (Geçmiş/Arşiv) | all
+export const opportunityViewEnum = z.enum(['active', 'closed', 'all']);
+export type OpportunityView = z.infer<typeof opportunityViewEnum>;
+
 export const visitCreateSchema = z.object({
   opportunityId: z.string().optional(),
   companyId: z.string().min(1),

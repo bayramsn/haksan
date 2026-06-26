@@ -3,7 +3,7 @@ import { Avatar, AvatarFallback } from "../ui/avatar";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../ui/table";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
-import { Search, Download, ArrowUpDown, Building2, MoreHorizontal } from "lucide-react";
+import { Search, Download, ArrowUpDown, Building2, MoreHorizontal, CheckCircle2, RotateCcw } from "lucide-react";
 import { SalesCase, salesStageLabel } from "../../lib/mock";
 import { StatusBadge } from "../Layout";
 import { useEffect, useMemo, useState } from "react";
@@ -25,8 +25,29 @@ export function SalesCasesPage({
   initialView?: "list" | "kanban";
   focus?: OperationFocus;
 }) {
-  const { cases: salesCases, customers, users } = useStore();
-  const [view, setView] = useState<"list" | "kanban">(initialView);
+  const { cases: salesCases, closedCases, customers, users, closeCase, reopenCase } = useStore();
+  const [view, setView] = useState<"list" | "kanban" | "archive">(initialView);
+  const [busyId, setBusyId] = useState<string | null>(null);
+
+  const onClose = async (id: string) => {
+    if (busyId) return;
+    if (!window.confirm("Bu kart 'Tamamlandı' olarak arşivlenecek (silinmez, Geçmiş'te kalır). Devam edilsin mi?")) return;
+    setBusyId(id);
+    try {
+      await closeCase(id);
+    } finally {
+      setBusyId(null);
+    }
+  };
+  const onReopen = async (id: string) => {
+    if (busyId) return;
+    setBusyId(id);
+    try {
+      await reopenCase(id);
+    } finally {
+      setBusyId(null);
+    }
+  };
   const [q, setQ] = useState("");
   const [stage, setStage] = useState("all");
   const [currency, setCurrency] = useState("all");
@@ -75,10 +96,11 @@ export function SalesCasesPage({
   };
 
   return (
-    <Tabs value={view} onValueChange={(v) => setView(v as "list" | "kanban")} className="space-y-4">
+    <Tabs value={view} onValueChange={(v) => setView(v as "list" | "kanban" | "archive")} className="space-y-4">
       <TabsList>
         <TabsTrigger value="list">Liste</TabsTrigger>
         <TabsTrigger value="kanban">Kanban</TabsTrigger>
+        <TabsTrigger value="archive">Geçmiş{closedCases.length ? ` (${closedCases.length})` : ""}</TabsTrigger>
       </TabsList>
       <TabsContent value="kanban" className="mt-0">
         <KanbanPage onSelect={onSelect} />
@@ -180,10 +202,24 @@ export function SalesCasesPage({
                       </div>
                     </TableCell>
                     <TableCell className="text-xs text-muted-foreground tabular-nums">{s.createdAt}</TableCell>
-                    <TableCell>
-                      <Button variant="ghost" size="icon" className="size-8 opacity-0 group-hover:opacity-100" title="Detay" onClick={(e) => { e.stopPropagation(); onSelect(s); }}>
-                        <MoreHorizontal className="size-4" />
-                      </Button>
+                    <TableCell onClick={(e) => e.stopPropagation()}>
+                      <div className="flex items-center justify-end gap-1">
+                        {(s.stage === "delivered" || s.isLost) && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-8 gap-1 text-xs text-emerald-700 hover:text-emerald-800 hover:bg-emerald-50"
+                            disabled={busyId === s.id}
+                            title="Tamamla / Arşivle (silmez, Geçmiş'te kalır)"
+                            onClick={() => onClose(s.id)}
+                          >
+                            <CheckCircle2 className="size-3.5" /> Bitir
+                          </Button>
+                        )}
+                        <Button variant="ghost" size="icon" className="size-8 opacity-0 group-hover:opacity-100" title="Detay" onClick={() => onSelect(s)}>
+                          <MoreHorizontal className="size-4" />
+                        </Button>
+                      </div>
                     </TableCell>
                   </TableRow>
                 );
@@ -199,6 +235,72 @@ export function SalesCasesPage({
           <Pager page={page} totalPages={totalPages} setPage={setPage} />
         </div>
       </Card>
+      </TabsContent>
+
+      <TabsContent value="archive" className="mt-0 space-y-4">
+        <Card className="border-border/60 shadow-sm overflow-hidden">
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow className="bg-muted/30 hover:bg-muted/30">
+                  <TableHead className="w-[280px]">Müşteri</TableHead>
+                  <TableHead>Ürün / Model</TableHead>
+                  <TableHead>Sonuç</TableHead>
+                  <TableHead>Kapanış</TableHead>
+                  <TableHead className="w-28"></TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {closedCases.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={5} className="text-center text-sm text-muted-foreground py-10">
+                      Arşivlenmiş (tamamlanmış/iptal) kart yok. Teslim edilen veya iptal edilen bir kartta "Bitir" deyince burada birikir.
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  closedCases.map((s) => {
+                    const c = customers.find((x) => x.id === s.customerId);
+                    return (
+                      <TableRow key={s.id} className="cursor-pointer group" onClick={() => onSelect(s)}>
+                        <TableCell>
+                          <div className="flex items-center gap-3 min-w-0">
+                            <div className="size-8 rounded-md bg-muted text-muted-foreground grid place-items-center shrink-0">
+                              <Building2 className="size-4" />
+                            </div>
+                            <div className="min-w-0">
+                              <div className="text-sm leading-tight truncate group-hover:text-primary transition-colors">{c?.name ?? "Firma bulunamadı"}</div>
+                              <div className="text-[11px] text-muted-foreground truncate mt-0.5">#{s.id.toUpperCase()}</div>
+                            </div>
+                          </div>
+                        </TableCell>
+                        <TableCell><div className="text-sm">{s.requestedProduct}</div></TableCell>
+                        <TableCell><StatusBadge status={s.stage} /></TableCell>
+                        <TableCell className="text-xs text-muted-foreground tabular-nums">{s.closedAt ?? "—"}</TableCell>
+                        <TableCell onClick={(e) => e.stopPropagation()}>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-8 gap-1 text-xs"
+                            disabled={busyId === s.id}
+                            title="Geri Aç (aktif panoya döndür)"
+                            onClick={() => onReopen(s.id)}
+                          >
+                            <RotateCcw className="size-3.5" /> Geri Aç
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })
+                )}
+              </TableBody>
+            </Table>
+          </div>
+          <div className="flex items-center justify-between gap-3 px-4 py-3 border-t border-border/60 bg-muted/20">
+            <div className="text-xs text-muted-foreground">
+              Toplam <b className="text-foreground">{closedCases.length}</b> arşiv kartı (teslim + iptal) · silinmedi, DB'de duruyor
+            </div>
+          </div>
+        </Card>
       </TabsContent>
     </Tabs>
   );

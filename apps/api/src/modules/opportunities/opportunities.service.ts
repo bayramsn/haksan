@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { and, desc, eq, ilike, isNull, sql } from 'drizzle-orm';
+import { and, desc, eq, ilike, isNotNull, isNull, sql } from 'drizzle-orm';
 import type { DbClient } from '../../db/client';
 import { opportunities, opportunityStageHistory, salesActivities, visits, calls } from '../../db/schema/crm';
 import { companies, contacts } from '../../db/schema/companies';
@@ -70,9 +70,18 @@ export class OpportunitiesService {
     return user;
   }
 
-  async list(actor: AuthContext, query: { search?: string; stageCode?: string; companyId?: string }, page: Pagination) {
+  async list(
+    actor: AuthContext,
+    query: { search?: string; stageCode?: string; companyId?: string; view?: 'active' | 'closed' | 'all' },
+    page: Pagination
+  ) {
     const { limit, offset } = pageOffset(page);
     const filters = [eq(opportunities.tenantId, actor.tenantId), isNull(opportunities.deletedAt)];
+    // Mantıksal kapanış filtresi (deletedAt'ten ayrı): aktif pano kapatılmamışları;
+    // "Geçmiş/Arşiv" (view=closed) kapatılanları (teslim+iptal); all=ikisi de gösterir.
+    const view = query.view ?? 'active';
+    if (view === 'active') filters.push(isNull(opportunities.closedAt));
+    else if (view === 'closed') filters.push(isNotNull(opportunities.closedAt));
     if (query.search) filters.push(ilike(opportunities.title, `%${query.search}%`));
     if (query.companyId) filters.push(eq(opportunities.companyId, query.companyId));
     if (query.stageCode) {
@@ -217,6 +226,70 @@ export class OpportunitiesService {
     await this.get(id, actor);
     await this.db.update(opportunities).set({ deletedAt: new Date() }).where(eq(opportunities.id, id));
     return { ok: true };
+  }
+
+  private async findScopedOpp(id: string, actor: AuthContext) {
+    const opp = await this.db.query.opportunities.findFirst({
+      where: and(
+        eq(opportunities.id, id),
+        eq(opportunities.tenantId, actor.tenantId),
+        isNull(opportunities.deletedAt),
+        divisionFilter(resolveActorDivisionScope(actor), opportunities.divisionId) ?? sql`true`
+      ),
+    });
+    if (!opp) throw new NotFoundError('Fırsat');
+    return opp;
+  }
+
+  /**
+   * Mantıksal kapanış ("Bitir"): terminal aşamadaki (delivered/cancelled) fırsatı arşivler.
+   * SİLMEZ — `closedAt` set edilir; aktif panodan düşer ama rapor/geçmiş/servis erişimi için
+   * DB'de kalır (krş. `deletedAt`). delivered ise servise devir (customer_devices) idempotent
+   * olarak garanti edilir. Yanlış kapanış `reopen` ile geri alınır.
+   */
+  async close(id: string, actor: AuthContext, reason?: string | null) {
+    const opp = await this.findScopedOpp(id, actor);
+    if (opp.closedAt) throw new ValidationError('Fırsat zaten kapatılmış');
+    const stage = await this.db.query.pipelineStages.findFirst({ where: eq(pipelineStages.id, opp.currentStageId) });
+    if (!stage || (stage.code !== 'delivered' && stage.code !== 'cancelled')) {
+      throw new ValidationError('Yalnız teslim edilen veya iptal edilen fırsatlar kapatılabilir');
+    }
+    if (stage.code === 'delivered') {
+      // Cihaz/garanti kayıtları teslim aşamasında oluşmuş olmalı; oluşmadıysa (stok yok vb.)
+      // kapanışı bloke etme — kurulu cihaz envanteri ayrıca düzeltilebilir.
+      try {
+        await this.ensureWarrantyDevices(opp, actor);
+      } catch {
+        /* best-effort servise devir */
+      }
+    }
+    const now = new Date();
+    await this.db.update(opportunities).set({ closedAt: now, closedBy: actor.userId }).where(eq(opportunities.id, id));
+    await this.audit.write({
+      tenantId: actor.tenantId,
+      actorUserId: actor.userId,
+      action: 'opportunity.closed',
+      resourceType: 'opportunity',
+      resourceId: id,
+      oldValues: { stage: stage.code },
+      newValues: { closedAt: now, reason: reason ?? null },
+    });
+    return this.get(id, actor);
+  }
+
+  /** Geri Aç: yanlış kapatmayı geri alır — `closedAt` sıfırlanır, fırsat aktif panoya döner. */
+  async reopen(id: string, actor: AuthContext) {
+    const opp = await this.findScopedOpp(id, actor);
+    if (!opp.closedAt) throw new ValidationError('Fırsat zaten açık');
+    await this.db.update(opportunities).set({ closedAt: null, closedBy: null }).where(eq(opportunities.id, id));
+    await this.audit.write({
+      tenantId: actor.tenantId,
+      actorUserId: actor.userId,
+      action: 'opportunity.reopened',
+      resourceType: 'opportunity',
+      resourceId: id,
+    });
+    return this.get(id, actor);
   }
 
   /**

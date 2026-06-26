@@ -281,6 +281,10 @@ export const opportunityService = {
   update: (id: string, body: OpportunityUpdateInput) => api.patch<any>(`/opportunities/${id}`, body),
   remove: (id: string) => api.delete(`/opportunities/${id}`),
   changeStage: (id: string, body: OpportunityStageChangeInput) => api.patch<any>(`/opportunities/${id}/stage`, body),
+  // Mantıksal kapanış (Bitir/Arşiv) — silmez; closedAt set eder. Yalnız terminal (delivered/cancelled).
+  close: (id: string, body?: { reason?: string }) => api.post<any>(`/opportunities/${id}/close`, body ?? {}),
+  // Geri Aç — kapanışı geri alır, fırsatı aktif panoya döndürür.
+  reopen: (id: string) => api.post<any>(`/opportunities/${id}/reopen`, {}),
 };
 
 // ───── Activities ─────

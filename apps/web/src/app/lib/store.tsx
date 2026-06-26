@@ -288,6 +288,8 @@ export type CreateQuotePayload = {
 type Store = {
   customers: Customer[];
   cases: SalesCase[];
+  // Mantıksal olarak kapatılmış (arşiv/geçmiş) satış kartları — teslim+iptal. closedAt dolu.
+  closedCases: SalesCase[];
   service: ServiceRequest[];
   offers: Offer[];
   noteTemplates: NoteTemplate[];
@@ -331,6 +333,9 @@ type Store = {
   updateDelivery: (id: string, d: Partial<Omit<Delivery, 'id'>>) => Promise<void>;
   updateDeliveryStatus: (id: string, status: Delivery['status']) => Promise<void>;
   moveCase: (id: string, to: SalesStage, options?: { inventoryItemIds?: string[]; changeReason?: string }) => Promise<void>;
+  // Mantıksal kapanış (Bitir) ve geri alma (Geri Aç) — silmez, closedAt set/sıfırlar.
+  closeCase: (id: string, reason?: string) => Promise<void>;
+  reopenCase: (id: string) => Promise<void>;
   markCaseLost: (
     id: string,
     payload: { reasonCode: string; competitorId?: string; competitorProductModel?: string }
@@ -363,6 +368,7 @@ function StoreInner({ children }: { children: ReactNode }) {
 
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [cases, setCases] = useState<SalesCase[]>([]);
+  const [closedCases, setClosedCases] = useState<SalesCase[]>([]);
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [stock, setStock] = useState<StockItem[]>([]);
@@ -449,6 +455,13 @@ function StoreInner({ children }: { children: ReactNode }) {
         load('Teslimatlar', () => serviceService.deliveries({ pageSize: 200 }), empty, 'shipments.read'),
         load('Dosya bağlantıları', () => fileService.links({ pageSize: 200 }), empty, 'files.read'),
       ]);
+      // Kapatılan (arşiv/geçmiş) kartlar ayrı çekilir; aktif liste varsayılan view=active döner.
+      const closedOpps = await load(
+        'Geçmiş kartlar',
+        () => opportunityService.list({ pageSize: 200, view: 'closed' }),
+        empty,
+        'opportunities.read'
+      );
       setLoadErrors(errors);
       setLoadTruncated(truncated);
 
@@ -541,28 +554,25 @@ function StoreInner({ children }: { children: ReactNode }) {
         }))
       );
 
-      setCases(
-        opps.data.map((o: any) => {
-          const stageCode = o.stage?.code ?? '';
-          const hasQuote = qts.data.some((q: any) => q.opportunityId === o.id);
-          return {
-            id: o.id,
-            customerId: o.companyId,
-            assignedUserId: o.ownerUserId ?? '',
-            department: '',
-            requestedProduct: o.title ?? '',
-            requestedModel: o.title ?? '',
-            quantity: 1,
-            estimatedAmount: Number(o.estimatedValue ?? 0),
-            currency: (o.currency?.code as 'USD' | 'EUR' | 'TRY') ?? 'USD',
-            stage: STAGE_BY_CODE[stageCode] ?? 'lead',
-            isOfferPrepared: hasQuote,
-            isLost: stageCode === 'cancelled',
-            createdAt: (o.createdAt as string)?.slice(0, 10) ?? '',
-            closedAt: undefined,
-          } as SalesCase;
-        })
-      );
+      const mapCase = (o: any): SalesCase =>
+        ({
+          id: o.id,
+          customerId: o.companyId,
+          assignedUserId: o.ownerUserId ?? '',
+          department: '',
+          requestedProduct: o.title ?? '',
+          requestedModel: o.title ?? '',
+          quantity: 1,
+          estimatedAmount: Number(o.estimatedValue ?? 0),
+          currency: (o.currency?.code as 'USD' | 'EUR' | 'TRY') ?? 'USD',
+          stage: STAGE_BY_CODE[o.stage?.code ?? ''] ?? 'lead',
+          isOfferPrepared: qts.data.some((q: any) => q.opportunityId === o.id),
+          isLost: (o.stage?.code ?? '') === 'cancelled',
+          createdAt: (o.createdAt as string)?.slice(0, 10) ?? '',
+          closedAt: o.closedAt ? (o.closedAt as string).slice(0, 10) : undefined,
+        }) as SalesCase;
+      setCases(opps.data.map(mapCase));
+      setClosedCases(closedOpps.data.map(mapCase));
 
       const apiProducts = prods.data.map((p: any) => ({
           id: p.id,
@@ -1168,6 +1178,19 @@ function StoreInner({ children }: { children: ReactNode }) {
       console.error('Stage change failed', err);
       throw err;
     }
+    await fetchAll();
+  };
+
+  // Mantıksal kapanış (Bitir): terminal kartı arşivler — silmez. Backend closedAt set eder,
+  // kart aktif listeden düşer (view=active), Geçmiş'te görünür. delivered ise servise devir korunur.
+  const closeCase: Store['closeCase'] = async (id, reason) => {
+    await opportunityService.close(id, reason ? { reason } : undefined);
+    await fetchAll();
+  };
+
+  // Geri Aç: kapanışı geri alır, kart aktif panoya döner.
+  const reopenCase: Store['reopenCase'] = async (id) => {
+    await opportunityService.reopen(id);
     await fetchAll();
   };
 
@@ -1806,6 +1829,7 @@ function StoreInner({ children }: { children: ReactNode }) {
     () => ({
       customers,
       cases,
+      closedCases,
       service,
       offers,
       noteTemplates,
@@ -1849,6 +1873,8 @@ function StoreInner({ children }: { children: ReactNode }) {
       updateDelivery,
       updateDeliveryStatus,
       moveCase,
+      closeCase,
+      reopenCase,
       markCaseLost,
       moveService,
       updateService,
@@ -1864,7 +1890,7 @@ function StoreInner({ children }: { children: ReactNode }) {
       refresh: fetchAll,
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [customers, cases, service, offers, noteTemplates, stock, products, activities, contacts, users, machines, payments, documents, shipments, deliveries, loading, loadErrors, loadTruncated, clearLoadErrors]
+    [customers, cases, closedCases, service, offers, noteTemplates, stock, products, activities, contacts, users, machines, payments, documents, shipments, deliveries, loading, loadErrors, loadTruncated, clearLoadErrors]
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
