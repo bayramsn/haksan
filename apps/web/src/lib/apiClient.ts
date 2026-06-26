@@ -53,10 +53,12 @@ export function resolveMediaUrl(ref?: string | null): string {
   return ref;
 }
 
-const ACCESS_TOKEN_STORAGE_KEY = 'haksan_access_token';
 const ACTIVE_DIVISION_STORAGE_KEY = 'haksan_active_division';
 
-let accessToken: string | null = readStoredAccessToken();
+// Access token YALNIZCA bellekte tutulur (sessionStorage/localStorage DEĞİL) — XSS ile
+// sızdırılmasını önler. Sayfa yenilemede httpOnly refresh cookie'siyle /auth/refresh
+// üzerinden sessizce yeniden alınır (bkz. tryRefresh + 401 auto-retry). CLAUDE.md #4/#11.
+let accessToken: string | null = null;
 let activeDivision: string | null = readStoredActiveDivision();
 let refreshing: Promise<string | null> | null = null;
 let onSessionExpired: (() => void) | null = null;
@@ -88,23 +90,6 @@ export function getActiveDivision(): string | null {
   return activeDivision;
 }
 
-function readStoredAccessToken(): string | null {
-  try {
-    return sessionStorage.getItem(ACCESS_TOKEN_STORAGE_KEY);
-  } catch {
-    return null;
-  }
-}
-
-function persistAccessToken(token: string | null): void {
-  try {
-    if (token) sessionStorage.setItem(ACCESS_TOKEN_STORAGE_KEY, token);
-    else sessionStorage.removeItem(ACCESS_TOKEN_STORAGE_KEY);
-  } catch {
-    // private browsing / storage quota — in-memory token still works for this tab
-  }
-}
-
 /** AuthProvider registers a handler so a hard 401 clears stale React session state. */
 export function setSessionExpiredHandler(handler: (() => void) | null): void {
   onSessionExpired = handler;
@@ -112,7 +97,6 @@ export function setSessionExpiredHandler(handler: (() => void) | null): void {
 
 export function setAccessToken(token: string | null): void {
   accessToken = token;
-  persistAccessToken(token);
 }
 /** Cookie tabanlı oturum yenileme — gövdesiz POST (Fastify boş JSON reddeder). */
 export async function refreshSession(): Promise<string | null> {

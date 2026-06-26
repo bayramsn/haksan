@@ -10,6 +10,12 @@ out/
 coverage/
 .DS_Store
 
+# ruflo / claude-flow workspace artifacts (multi-agent harness)
+.claude-flow/
+.swarm/
+.hive-mind/
+.ruflo/
+
 .env
 .env.local
 .env.*.local

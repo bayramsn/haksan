@@ -43,8 +43,9 @@ function clearRefreshCookie(res: FastifyReply): void {
 }
 
 function getIp(req: FastifyRequest): string | undefined {
-  const xf = req.headers['x-forwarded-for'];
-  if (typeof xf === 'string') return xf.split(',')[0]?.trim();
+  // Fastify, trustProxy (TRUST_PROXY_HOPS) ayarına göre X-Forwarded-For'u doğru
+  // değerlendirip güvenilir istemci IP'sini req.ip'e koyar. Başlığın en solunu
+  // (istemci-kontrollü) elle okumak IP sahtekarlığına açıktı; req.ip kullan.
   return req.ip;
 }
 
@@ -112,6 +113,7 @@ export class AuthController {
   }
 
   @Public()
+  @Throttle(LOGIN_THROTTLE)
   @Post('reset-password')
   async reset(@Body(new ZodValidationPipe(resetPasswordSchema)) body: ResetPasswordInput) {
     await this.auth.resetPassword(body.token, body.newPassword);

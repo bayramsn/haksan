@@ -1,11 +1,12 @@
-import { Body, Controller, Get, Inject, Patch, Post, Param, Query, UseGuards } from '@nestjs/common';
-import * as argon2 from 'argon2';
+import { Body, Controller, Delete, Get, Inject, Patch, Post, Param, Query, UseGuards } from '@nestjs/common';
+import { hashPassword } from '../../shared/security/password';
 import { and, asc, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import type { DbClient } from '../../db/client';
-import { users, roles, permissions, userRoles, rolePermissions, userTargets, departmentTargets, userDivisions } from '../../db/schema/users';
+import { users, roles, permissions, userRoles, rolePermissions, userTargets, departmentTargets, userDivisions, loginSessions, refreshTokens } from '../../db/schema/users';
 import { departments, tenants, divisions } from '../../db/schema/tenants';
 import { auditLogs } from '../../db/schema/audit';
 import { DB } from '../../shared/database/database.module';
+import { AuditService } from '../../shared/database/audit.service';
 import { ZodValidationPipe } from '../../shared/utils/zod-pipe';
 import { AuthGuard } from '../../shared/security/auth.guard';
 import { PermissionsGuard, RequirePermissions } from '../../shared/security/permissions.guard';
@@ -42,7 +43,10 @@ import { buildPaginated, pageOffset } from '../../shared/utils/pagination';
 @UseGuards(AuthGuard, PermissionsGuard)
 @Controller()
 export class AdminController {
-  constructor(@Inject(DB) private readonly db: DbClient) {}
+  constructor(
+    @Inject(DB) private readonly db: DbClient,
+    private readonly audit: AuditService
+  ) {}
 
   private requireSuperAdmin(user: AuthContext) {
     if (!user.roles.includes('super_admin')) {
@@ -117,11 +121,14 @@ export class AdminController {
   @RequirePermissions('users.create')
   @Post('users')
   async createUser(@Body(new ZodValidationPipe(userCreateSchema)) body: UserCreateInput, @CurrentUser() user: AuthContext) {
+    // Yetki yükseltmeyi önle: super_admin rolünü yalnızca super_admin atayabilir.
+    // (users.create izni tek başına yeni bir süper admin oluşturmaya yetmez.)
+    if (body.roleCodes.includes('super_admin')) this.requireSuperAdmin(user);
     const existing = await this.db.query.users.findFirst({
       where: and(eq(users.tenantId, user.tenantId), eq(users.email, body.email)),
     });
     if (existing) throw new ConflictError('Bu e-posta zaten kayıtlı');
-    const hash = await argon2.hash(body.password, { type: argon2.argon2id });
+    const hash = await hashPassword(body.password);
     const [created] = await this.db
       .insert(users)
       .values({
@@ -167,9 +174,23 @@ export class AdminController {
       }
       patch.managerId = body.managerId;
     }
-    if (body.password) patch.passwordHash = await argon2.hash(body.password, { type: argon2.argon2id });
-    await this.db.update(users).set(patch).where(eq(users.id, id));
+    if (body.password) patch.passwordHash = await hashPassword(body.password);
+    // Yalnızca rol/bölüm değişen PATCH'lerde `patch` boş kalır; boş `.set()` Drizzle'da
+    // "No values to set" ile 500 atar (krş. updateRole/updateTenant deseni).
+    if (Object.keys(patch).length > 0) {
+      await this.db.update(users).set(patch).where(eq(users.id, id));
+    }
     if (body.roleCodes) {
+      // Yetki yükseltme/indirme koruması: super_admin rolüne dokunan (atayan VEYA
+      // kaldıran) her değişiklik yalnızca super_admin tarafından yapılabilir.
+      const currentRoleCodes = await this.db
+        .select({ code: roles.code })
+        .from(userRoles)
+        .innerJoin(roles, eq(userRoles.roleId, roles.id))
+        .where(eq(userRoles.userId, id));
+      const touchesSuperAdmin =
+        body.roleCodes.includes('super_admin') || currentRoleCodes.some((r) => r.code === 'super_admin');
+      if (touchesSuperAdmin) this.requireSuperAdmin(user);
       // Replace user_roles
       const allRoles = await this.db.query.roles.findMany({ where: eq(roles.tenantId, user.tenantId) });
       const wantIds = allRoles.filter((r) => body.roleCodes!.includes(r.code)).map((r) => r.id);
@@ -182,6 +203,73 @@ export class AdminController {
     if (body.divisionIds) {
       await this.setUserDivisions(id, user.tenantId, body.divisionIds);
     }
+    return { ok: true };
+  }
+
+  @RequirePermissions('users.delete')
+  @Delete('users/:id')
+  async deleteUser(@Param('id') id: string, @CurrentUser() user: AuthContext) {
+    if (id === user.userId) {
+      throw new ForbiddenError('Kullanıcı kendi hesabını silemez');
+    }
+
+    const existing = await this.db.query.users.findFirst({
+      where: and(eq(users.id, id), eq(users.tenantId, user.tenantId), isNull(users.deletedAt)),
+    });
+    if (!existing) throw new NotFoundError('Kullanıcı');
+
+    const targetRoles = await this.db
+      .select({ code: roles.code })
+      .from(userRoles)
+      .innerJoin(roles, eq(userRoles.roleId, roles.id))
+      .where(eq(userRoles.userId, id));
+    const isSuperAdmin = targetRoles.some((role) => role.code === 'super_admin');
+
+    if (isSuperAdmin) {
+      const [{ count }] = await this.db
+        .select({ count: sql<number>`count(*)::int` })
+        .from(userRoles)
+        .innerJoin(roles, eq(userRoles.roleId, roles.id))
+        .innerJoin(users, eq(userRoles.userId, users.id))
+        .where(
+          and(
+            eq(roles.tenantId, user.tenantId),
+            eq(roles.code, 'super_admin'),
+            eq(users.tenantId, user.tenantId),
+            eq(users.status, 'active'),
+            isNull(users.deletedAt)
+          )
+        );
+      if ((count ?? 0) <= 1) {
+        throw new ConflictError('Son Süper Admin kullanıcısı silinemez');
+      }
+    }
+
+    const now = new Date();
+    await this.db
+      .update(users)
+      .set({ deletedAt: now, status: 'passive' })
+      .where(eq(users.id, id));
+    await this.db
+      .update(refreshTokens)
+      .set({ revokedAt: now })
+      .where(and(eq(refreshTokens.userId, id), isNull(refreshTokens.revokedAt)));
+    await this.db
+      .update(loginSessions)
+      .set({ revokedAt: now })
+      .where(and(eq(loginSessions.userId, id), isNull(loginSessions.revokedAt)));
+    invalidateRbacCache(id);
+
+    await this.audit.write({
+      tenantId: user.tenantId,
+      actorUserId: user.userId,
+      action: 'user.deleted',
+      resourceType: 'user',
+      resourceId: id,
+      oldValues: existing,
+      newValues: { deletedAt: now, status: 'passive' },
+    });
+
     return { ok: true };
   }
 

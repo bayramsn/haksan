@@ -1,7 +1,8 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { and, eq, gt } from 'drizzle-orm';
+import { and, eq, gt, isNull } from 'drizzle-orm';
 import * as argon2 from 'argon2';
 import { randomBytes } from 'node:crypto';
+import { hashPassword } from '../../shared/security/password';
 import type { DbClient } from '../../db/client';
 import {
   users,
@@ -176,9 +177,29 @@ export class AuthService {
   async refresh(rawRefreshToken: string, ip?: string, ua?: string): Promise<LoginResult> {
     const hash = this.jwt.hashToken(rawRefreshToken);
     const row = await this.db.query.refreshTokens.findFirst({
-      where: and(eq(refreshTokens.tokenHash, hash)),
+      where: eq(refreshTokens.tokenHash, hash),
     });
-    if (!row || row.revokedAt || row.expiresAt < new Date()) {
+    if (!row) {
+      throw new UnauthorizedError('Refresh token geçersiz veya süresi dolmuş');
+    }
+    // Reuse detection: zaten döndürülmüş (revoked) bir refresh token tekrar
+    // sunulduysa bu bir hırsızlık sinyalidir (rotasyondan sonra eski token çalınıp
+    // kullanılıyor). Meşru kullanıcının bu oturum ailesini tamamen iptal et —
+    // çalınan zincir de, hâlâ geçerli olan yeni token da ölür.
+    if (row.revokedAt) {
+      await this.revokeSessionFamily(row.sessionId, row.userId);
+      await this.audit.write({
+        tenantId: row.tenantId,
+        actorUserId: row.userId,
+        action: 'auth.refresh.reuse_detected',
+        resourceType: 'user',
+        resourceId: row.userId,
+        ipAddress: ip,
+        userAgent: ua,
+      });
+      throw new UnauthorizedError('Oturum güvenlik nedeniyle sonlandırıldı. Lütfen tekrar giriş yapın.');
+    }
+    if (row.expiresAt < new Date()) {
       throw new UnauthorizedError('Refresh token geçersiz veya süresi dolmuş');
     }
 
@@ -236,6 +257,28 @@ export class AuthService {
         roles: userRoleCodes,
       },
     };
+  }
+
+  /**
+   * Bir oturum ailesini topluca iptal eder — reuse tespitinde çağrılır.
+   * sessionId varsa o oturumun tüm aktif refresh token'ları + login session'ı,
+   * yoksa kullanıcının tüm aktif token'ları iptal edilir (fallback).
+   */
+  private async revokeSessionFamily(sessionId: string | null, userId: string): Promise<void> {
+    const now = new Date();
+    if (sessionId) {
+      await this.db
+        .update(refreshTokens)
+        .set({ revokedAt: now })
+        .where(and(eq(refreshTokens.sessionId, sessionId), isNull(refreshTokens.revokedAt)));
+      await this.db.update(loginSessions).set({ revokedAt: now }).where(eq(loginSessions.id, sessionId));
+    } else {
+      await this.db
+        .update(refreshTokens)
+        .set({ revokedAt: now })
+        .where(and(eq(refreshTokens.userId, userId), isNull(refreshTokens.revokedAt)));
+    }
+    invalidateRbacCache(userId);
   }
 
   async logout(rawRefreshToken: string | undefined): Promise<void> {
@@ -343,7 +386,7 @@ export class AuthService {
       where: and(eq(passwordResetTokens.tokenHash, hash), gt(passwordResetTokens.expiresAt, new Date())),
     });
     if (!row || row.usedAt) throw new ValidationError('Token geçersiz veya süresi dolmuş');
-    const hashed = await argon2.hash(newPassword, { type: argon2.argon2id });
+    const hashed = await hashPassword(newPassword);
     await this.db
       .update(users)
       .set({ passwordHash: hashed, failedLoginAttempts: 0, lockedUntil: null })

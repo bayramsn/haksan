@@ -12,7 +12,7 @@
  * bunu kullanın:
  *   ADMIN_EMAIL=admin@firma.com ADMIN_PASSWORD='GucluParola1!' npm run db:bootstrap
  */
-import * as argon2 from 'argon2';
+import { hashPassword } from '../../shared/security/password';
 import { and, eq } from 'drizzle-orm';
 import { getDb, closeDb, schema } from '../client';
 import { allRoles, rolePermissionMatrix } from './_data';
@@ -128,7 +128,7 @@ async function main(): Promise<void> {
   if (existingUser) {
     console.log(`[bootstrap] kullanıcı zaten mevcut, atlandı: ${adminEmail}`);
   } else {
-    const passwordHash = await argon2.hash(adminPassword, { type: argon2.argon2id });
+    const passwordHash = await hashPassword(adminPassword);
     const [user] = await db
       .insert(schema.users)
       .values({ tenantId: tenant.id, fullName: adminName, email: adminEmail, passwordHash })

@@ -1,4 +1,5 @@
 import { Body, Controller, Delete, Get, Param, Post, Put, Query, UseGuards } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { z } from 'zod';
 import { paginationSchema, type Pagination } from '@haksan/shared';
 import { signedUploadUrlSchema, signedDownloadUrlSchema, fileLinkSchema, type SignedUploadUrlInput, type SignedDownloadUrlInput, type FileLinkInput } from '@haksan/shared';
@@ -8,12 +9,17 @@ import { AuthGuard } from '../../shared/security/auth.guard';
 import { PermissionsGuard, RequirePermissions } from '../../shared/security/permissions.guard';
 import { CurrentUser } from '../../shared/security/current-user.decorator';
 import type { AuthContext } from '../../shared/security/auth.types';
+import { loadEnv } from '../../config/env';
+
+// Dosya yükleme için sıkı, IP-bazlı limit (global throttler'ı override eder) — CLAUDE.md #2.
+const UPLOAD_THROTTLE = { default: { limit: loadEnv().RATE_LIMIT_UPLOAD, ttl: 60_000 } };
 
 @UseGuards(AuthGuard, PermissionsGuard)
 @Controller('files')
 export class FilesController {
   constructor(private readonly svc: FilesService) {}
 
+  @Throttle(UPLOAD_THROTTLE)
   @RequirePermissions('files.create')
   @Post('signed-upload-url')
   signedUpload(
@@ -38,6 +44,7 @@ export class FilesController {
     return this.svc.linkFile(body, user);
   }
 
+  @Throttle(UPLOAD_THROTTLE)
   @RequirePermissions('files.create')
   @Put(':id/content')
   uploadContent(@Param('id') id: string, @Body() body: Buffer, @CurrentUser() user: AuthContext) {

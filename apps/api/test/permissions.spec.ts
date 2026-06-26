@@ -129,6 +129,142 @@ describe('RBAC permissions', () => {
     expect(r.status).toBe(403);
   });
 
+  it('sales cannot delete users (admin scope)', async () => {
+    const users = await supertest(app.getHttpServer()).get('/api/v1/users').set('Authorization', `Bearer ${tokens.admin}`);
+    expect(users.status).toBe(200);
+    const target = users.body.find((row: any) => row.email === 'readonly@haksan.local') ?? users.body[0];
+    expect(target?.id).toBeTruthy();
+
+    const r = await supertest(app.getHttpServer())
+      .delete(`/api/v1/users/${target.id}`)
+      .set('Authorization', `Bearer ${tokens.sales}`);
+    expect(r.status).toBe(403);
+  });
+
+  it('admin can soft-delete a user, revoke refresh, and hide it from the user list', async () => {
+    const server = app.getHttpServer();
+    const email = `delete-user-${Date.now()}@haksan.local`;
+    const password = 'deleteUser12345';
+
+    const created = await supertest(server)
+      .post('/api/v1/users')
+      .set('Authorization', `Bearer ${tokens.admin}`)
+      .send({ fullName: 'Delete User Test', email, password, roleCodes: ['readonly'], divisionIds: [] });
+    expect(created.status).toBe(201);
+    const userId = created.body.id;
+    expect(userId).toBeTruthy();
+
+    const agent = supertest.agent(server);
+    const login = await agent.post('/api/v1/auth/login').send({ email, password });
+    expect(login.status).toBe(201);
+    expect(login.body.accessToken).toBeTruthy();
+
+    const removed = await supertest(server)
+      .delete(`/api/v1/users/${userId}`)
+      .set('Authorization', `Bearer ${tokens.admin}`);
+    expect(removed.status).toBe(200);
+    expect(removed.body.ok).toBe(true);
+
+    const listed = await supertest(server).get('/api/v1/users').set('Authorization', `Bearer ${tokens.admin}`);
+    expect(listed.status).toBe(200);
+    expect(listed.body.some((row: any) => row.id === userId)).toBe(false);
+
+    const relogin = await supertest(server).post('/api/v1/auth/login').send({ email, password });
+    expect(relogin.status).toBe(401);
+
+    const refreshed = await agent.post('/api/v1/auth/refresh').send();
+    expect(refreshed.status).toBe(401);
+  });
+
+  it('admin (users.*) cannot escalate by assigning super_admin; super_admin can', async () => {
+    const server = app.getHttpServer();
+
+    // createUser: a non-super-admin minting a new super_admin is rejected.
+    const escalateCreate = await supertest(server)
+      .post('/api/v1/users')
+      .set('Authorization', `Bearer ${tokens.admin}`)
+      .send({
+        fullName: 'Escalation Attempt',
+        email: `escalate-${Date.now()}@haksan.local`,
+        password: 'escalate12345',
+        roleCodes: ['super_admin'],
+        divisionIds: [],
+      });
+    expect(escalateCreate.status).toBe(403);
+
+    // updateUser: a non-super-admin granting an existing user super_admin is rejected.
+    const list = await supertest(server).get('/api/v1/users').set('Authorization', `Bearer ${tokens.admin}`);
+    const target = list.body.find((row: any) => row.email === 'readonly@haksan.local') ?? list.body[0];
+    expect(target?.id).toBeTruthy();
+    const escalateUpdate = await supertest(server)
+      .patch(`/api/v1/users/${target.id}`)
+      .set('Authorization', `Bearer ${tokens.admin}`)
+      .send({ roleCodes: ['super_admin'] });
+    expect(escalateUpdate.status).toBe(403);
+
+    // Positive control: super_admin may legitimately create another super_admin.
+    const allowed = await supertest(server)
+      .post('/api/v1/users')
+      .set('Authorization', `Bearer ${tokens.superAdmin}`)
+      .send({
+        fullName: 'Legit Super Admin',
+        email: `legit-sa-${Date.now()}@haksan.local`,
+        password: 'legitsa12345',
+        roleCodes: ['super_admin'],
+        divisionIds: [],
+      });
+    expect(allowed.status).toBe(201);
+  });
+
+  it('admin cannot delete self or the last super_admin user', async () => {
+    const server = app.getHttpServer();
+    const me = await supertest(server).get('/api/v1/auth/me').set('Authorization', `Bearer ${tokens.admin}`);
+    expect(me.status).toBe(200);
+
+    const selfDelete = await supertest(server)
+      .delete(`/api/v1/users/${me.body.user.id}`)
+      .set('Authorization', `Bearer ${tokens.admin}`);
+    expect(selfDelete.status).toBe(403);
+
+    const { getDb } = await import('../src/db/client');
+    const { sql } = await import('drizzle-orm');
+    const db = getDb();
+    const activeSupers = await db.execute(sql`
+      SELECT u.id
+      FROM users u
+      JOIN user_roles ur ON ur.user_id = u.id
+      JOIN roles r ON r.id = ur.role_id
+      WHERE u.tenant_id = ${me.body.user.tenantId}
+        AND r.code = 'super_admin'
+        AND u.status = 'active'
+        AND u.deleted_at IS NULL
+    `);
+    const superRows = (activeSupers as any).rows as Array<{ id: string }>;
+    expect(superRows.length).toBeGreaterThan(0);
+    const [targetSuperAdmin, ...otherSuperAdmins] = superRows;
+
+    try {
+      if (otherSuperAdmins.length > 0) {
+        await db.execute(sql`
+          UPDATE users
+          SET deleted_at = now(), status = 'passive'
+          WHERE id IN (${sql.join(otherSuperAdmins.map((row) => sql`${row.id}`), sql`, `)})
+        `);
+      }
+
+      const lastSuperAdminDelete = await supertest(server)
+        .delete(`/api/v1/users/${targetSuperAdmin.id}`)
+        .set('Authorization', `Bearer ${tokens.admin}`);
+      expect(lastSuperAdminDelete.status).toBe(409);
+    } finally {
+      await db.execute(sql`
+        UPDATE users
+        SET deleted_at = NULL, status = 'active'
+        WHERE id IN (${sql.join(superRows.map((row) => sql`${row.id}`), sql`, `)})
+      `);
+    }
+  });
+
   it('sales can read companies', async () => {
     const r = await supertest(app.getHttpServer()).get('/api/v1/companies').set('Authorization', `Bearer ${tokens.sales}`);
     expect(r.status).toBe(200);

@@ -142,6 +142,9 @@ export class FilesService {
       extension: file.extension,
       sizeBytes: body.byteLength,
     });
+    // İçerik (magic-byte) doğrulaması: istemcinin beyan ettiği MIME'a güvenme; gerçek
+    // baytlardan türü tespit edip allowlist'e karşı doğrula (CLAUDE.md #8).
+    await this.storage.validateActualFile(body);
     await this.storage.uploadFile({
       bucket: file.bucket,
       objectKey: file.objectKey,
