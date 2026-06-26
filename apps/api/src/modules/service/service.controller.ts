@@ -1053,6 +1053,17 @@ export class ServiceController {
         });
       }
     }
+    if (body.serviceStage === 'Signed Form' || body.serviceStage === 'Closed' || body.statusCode === 'closed') {
+      const completionForm = (ticket.metadata as Record<string, unknown> | null)?.completionForm;
+      const signedAt = completionForm && typeof completionForm === 'object'
+        ? String((completionForm as Record<string, unknown>).signedAt ?? '').trim()
+        : '';
+      if (!signedAt) {
+        throw new ValidationError('Servisi kapatmadan önce Servis Tamamlama Formu imzalanmalıdır', {
+          field: 'completionForm.signedAt',
+        });
+      }
+    }
     const statusId = await lookupIdByCode(this.db, serviceTicketStatuses, body.statusCode);
     const patch: Record<string, unknown> = { statusId };
     if (body.serviceStage) {

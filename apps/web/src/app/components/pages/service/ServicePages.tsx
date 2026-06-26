@@ -350,6 +350,7 @@ export function ServiceRequestsPage({ initialView = "list", focus, initialQuery 
   const [view, setView] = useState<"list" | "board" | "complaints" | "history">(initialView);
   const [historyQuery, setHistoryQuery] = useState("");
   const [selectedServiceId, setSelectedServiceId] = useState<string | null>(null);
+  const [selectedServiceInitialTab, setSelectedServiceInitialTab] = useState<ServiceDetailTab | undefined>();
   const [selectedComplaint, setSelectedComplaint] = useState<ServiceComplaintIntake | null>(null);
   const [complaints, setComplaints] = useState<ServiceComplaintIntake[]>([]);
   const [complaintLinks, setComplaintLinks] = useState<ServiceComplaintLink[]>([]);
@@ -368,6 +369,10 @@ export function ServiceRequestsPage({ initialView = "list", focus, initialQuery 
     return machine ? [machine.model, machine.serialNumber].filter(Boolean).join(" · ") : "—";
   };
   const selectedService = selectedServiceId ? service.find((s) => s.id === selectedServiceId) ?? null : null;
+  const openServiceDetail = (s: ServiceRequest, initialTab?: ServiceDetailTab) => {
+    setSelectedServiceId(s.id);
+    setSelectedServiceInitialTab(initialTab);
+  };
   const visibleService = service
     .filter((s) => matchesServiceFocus(s, focus))
     .filter((s) => ticketTypeFilter === "all" || (s.ticketType ?? "complaint") === ticketTypeFilter)
@@ -672,8 +677,8 @@ export function ServiceRequestsPage({ initialView = "list", focus, initialQuery 
                   <TableRow
                     key={s.id}
                     className="cursor-pointer group"
-                    onClick={() => setSelectedServiceId(s.id)}
-                    onKeyDown={(e) => e.key === "Enter" && setSelectedServiceId(s.id)}
+                    onClick={() => openServiceDetail(s)}
+                    onKeyDown={(e) => e.key === "Enter" && openServiceDetail(s)}
                     tabIndex={0}
                     role="button"
                     aria-label={`${customerName(s.customerId)} servis talebi, ${s.stage}`}
@@ -738,7 +743,7 @@ export function ServiceRequestsPage({ initialView = "list", focus, initialQuery 
         </Card>
       </TabsContent>
       <TabsContent value="board" className="mt-4">
-        <ServiceBoard items={visibleService} onOpen={(s) => setSelectedServiceId(s.id)} />
+        <ServiceBoard items={visibleService} onOpen={openServiceDetail} />
       </TabsContent>
       <TabsContent value="complaints" className="mt-4">
         <ComplaintInbox
@@ -766,14 +771,21 @@ export function ServiceRequestsPage({ initialView = "list", focus, initialQuery 
           contacts={contacts}
           machines={machines}
           users={users}
-          onOpen={(s) => setSelectedServiceId(s.id)}
+          onOpen={(s) => openServiceDetail(s)}
         />
       </TabsContent>
     </Tabs>
     <ServiceDetailDialog
       serviceRequest={selectedService}
-      onClose={() => setSelectedServiceId(null)}
-      onSelectService={setSelectedServiceId}
+      initialTab={selectedServiceInitialTab}
+      onClose={() => {
+        setSelectedServiceId(null);
+        setSelectedServiceInitialTab(undefined);
+      }}
+      onSelectService={(id) => {
+        setSelectedServiceId(id);
+        setSelectedServiceInitialTab(undefined);
+      }}
       onOpenComplaint={openSourceComplaint}
     />
     <ComplaintDetailDialog
@@ -1715,13 +1727,23 @@ function ComplaintDetailDialog({
   );
 }
 
-function ServiceBoard({ items: visibleService, onOpen }: { items: ServiceRequest[]; onOpen?: (s: ServiceRequest) => void }) {
+function ServiceBoard({ items: visibleService, onOpen }: { items: ServiceRequest[]; onOpen?: (s: ServiceRequest, initialTab?: ServiceDetailTab) => void }) {
   const { moveService, customers, machines, documents } = useStore();
   const [previewDoc, setPreviewDoc] = useState<DocumentItem | null>(null);
   const customerName = (id: string) => customers.find((c) => c.id === id)?.name ?? "—";
   const moveToColumn = async (id: string, to: string) => {
     const target = SERVICE_COLUMNS.find((c) => c.key === to);
     if (!target) return;
+    if (target.key === "Servis Tamamlandı Formu") {
+      const serviceRequest = visibleService.find((item) => item.id === id);
+      if (serviceRequest) {
+        toast.message("Tamamlama formu açıldı", {
+          description: "Servisi kapatmak için formu doldurup Servisi Kapat butonunu kullanın.",
+        });
+        onOpen?.(serviceRequest, "completion");
+      }
+      return;
+    }
     try {
       await moveService(id, target.primary);
       toast.success("Servis kartı taşındı", { description: `Yeni aşama: ${target.key}` });
@@ -2078,11 +2100,13 @@ function ServiceQuoteEditor({
 
 function ServiceDetailDialog({
   serviceRequest,
+  initialTab,
   onClose,
   onSelectService,
   onOpenComplaint,
 }: {
   serviceRequest: ServiceRequest | null;
+  initialTab?: ServiceDetailTab;
   onClose: () => void;
   onSelectService?: (id: string) => void;
   onOpenComplaint?: (id: string) => void;
@@ -2152,7 +2176,7 @@ function ServiceDetailDialog({
     setOperationQty("1");
     setOperationPrice("0");
     setOperationCurrency(serviceRequest?.serviceCurrency ?? "USD");
-    setDetailTab("summary");
+    setDetailTab(initialTab ?? "summary");
     setPartProductId("");
     setPartQty("1");
     setPartNote("");
@@ -2164,6 +2188,7 @@ function ServiceDetailDialog({
     setWarrantyPartCharge(false);
   }, [
     serviceRequest?.id,
+    initialTab,
     serviceRequest?.serviceCurrency,
     serviceRequest?.stage,
     serviceRequest?.warrantyClaim?.id,
