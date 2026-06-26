@@ -329,7 +329,7 @@ type Store = {
   addDelivery: (d: Omit<Delivery, 'id'>) => Promise<Delivery>;
   updateDelivery: (id: string, d: Partial<Omit<Delivery, 'id'>>) => Promise<void>;
   updateDeliveryStatus: (id: string, status: Delivery['status']) => Promise<void>;
-  moveCase: (id: string, to: SalesStage) => Promise<void>;
+  moveCase: (id: string, to: SalesStage, options?: { inventoryItemIds?: string[]; changeReason?: string }) => Promise<void>;
   markCaseLost: (
     id: string,
     payload: { reasonCode: string; competitorId?: string; competitorProductModel?: string }
@@ -1147,13 +1147,15 @@ function StoreInner({ children }: { children: ReactNode }) {
     } as SalesCase;
   };
 
-  const moveCase: Store['moveCase'] = async (id, to) => {
+  const moveCase: Store['moveCase'] = async (id, to, options) => {
     const code = CODE_BY_STAGE[to];
     if (!code) return;
     try {
       await opportunityService.changeStage(id, {
         toStage: code,
         cancellationReasonCode: code === 'cancelled' ? 'other' : undefined,
+        changeReason: options?.changeReason,
+        inventoryItemIds: options?.inventoryItemIds?.length ? options.inventoryItemIds : undefined,
       });
     } catch (err) {
       console.error('Stage change failed', err);

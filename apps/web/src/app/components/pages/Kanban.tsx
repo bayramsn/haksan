@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Card } from "../ui/card";
 import { Avatar, AvatarFallback } from "../ui/avatar";
 import { SALES_STAGES, SalesCase, SalesStage, salesStageLabel, DocumentItem } from "../../lib/mock";
@@ -12,6 +12,9 @@ import { loadContractPrintData, loadProformaPrintData, proformaDoc, contractDoc,
 import { printOrWarn } from "../../lib/pageHelpers";
 import { toast } from "sonner";
 import { Button } from "../ui/button";
+import { Checkbox } from "../ui/checkbox";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "../ui/dialog";
+import { Label } from "../ui/label";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -55,11 +58,56 @@ const STAGE_DOT: Record<string, string> = {
 const initials = (n: string) => (n || "—").split(" ").slice(0, 2).map((p) => p[0]).join("").toUpperCase();
 
 export function KanbanPage({ onSelect, items }: { onSelect: (s: SalesCase) => void; items?: SalesCase[] }) {
-  const { cases: storeCases, moveCase, customers, contacts, users, documents, offers, products, payments, machines, addDocument } = useStore();
+  const { cases: storeCases, moveCase, customers, contacts, users, documents, offers, products, payments, machines, stock, addDocument } = useStore();
   const cases = items ?? storeCases;
   const [lostId, setLostId] = useState<string | null>(null);
   const [previewDoc, setPreviewDoc] = useState<DocumentItem | null>(null);
+  const [stockPickCaseId, setStockPickCaseId] = useState<string | null>(null);
+  const [selectedStockIds, setSelectedStockIds] = useState<string[]>([]);
+  const [stockPickSaving, setStockPickSaving] = useState(false);
   const lostCustomer = lostId ? customers.find((x) => x.id === cases.find((s) => s.id === lostId)?.customerId)?.name : undefined;
+  const stockPickCase = stockPickCaseId ? storeCases.find((s) => s.id === stockPickCaseId) ?? cases.find((s) => s.id === stockPickCaseId) : null;
+  const stockPickCustomer = stockPickCase ? customers.find((x) => x.id === stockPickCase.customerId) : undefined;
+  const stockPickTargetQty = Math.max(1, Number(stockPickCase?.quantity) || 1);
+  const stockCandidates = useMemo(() => {
+    if (!stockPickCase) return [];
+    return stock
+      .filter((item) => {
+        if ((item.categoryCode ?? "TEZGAH") !== "TEZGAH") return false;
+        if (item.status === "Available") return true;
+        return item.status === "Reserved" && item.reservedCompanyId === stockPickCase.customerId;
+      })
+      .sort((a, b) => {
+        const reservedScore = Number(b.status === "Reserved") - Number(a.status === "Reserved");
+        if (reservedScore !== 0) return reservedScore;
+        return (a.serialNumber || a.stockCode).localeCompare(b.serialNumber || b.stockCode, "tr");
+      });
+  }, [stock, stockPickCase]);
+
+  const closeStockPicker = () => {
+    if (stockPickSaving) return;
+    setStockPickCaseId(null);
+    setSelectedStockIds([]);
+  };
+
+  const confirmStockPicking = async () => {
+    if (!stockPickCaseId) return;
+    if (!selectedStockIds.length) {
+      toast.error("Seri no seçin");
+      return;
+    }
+    setStockPickSaving(true);
+    try {
+      await moveCase(stockPickCaseId, "stock_picking", { inventoryItemIds: selectedStockIds });
+      toast.success("Stok rezerve edildi", { description: `${selectedStockIds.length} seri no seçildi` });
+      setStockPickCaseId(null);
+      setSelectedStockIds([]);
+    } catch (err: any) {
+      toast.error("Stok seçimi yapılamadı", { description: err?.message ?? "Seri no seçimi kontrol edilmeli." });
+    } finally {
+      setStockPickSaving(false);
+    }
+  };
 
   // Kart "Proforma" aşamasına geldiğinde: kartın ve (varsa) ilişkili teklifin
   // bilgilerinden örnek PDF formatında proforma üretip yeni sekmede açar ve
@@ -216,6 +264,16 @@ export function KanbanPage({ onSelect, items }: { onSelect: (s: SalesCase) => vo
     }
     const sc = storeCases.find((s) => s.id === id);
 
+    if (to === "stock_picking") {
+      if (from !== "customs_approved") {
+        toast.error("Stok seçimine geçmek için kart önce Gümrük Onayı aşamasında olmalı");
+        return;
+      }
+      setStockPickCaseId(id);
+      setSelectedStockIds([]);
+      return;
+    }
+
     // Sözleşme aşaması belge şartlı: önce üret+kaydet, kapı sağlanmazsa taşıma.
     if (to === "contract" && sc) {
       const ready = await prepareContract(sc);
@@ -264,6 +322,86 @@ export function KanbanPage({ onSelect, items }: { onSelect: (s: SalesCase) => vo
     <>
     <LostCaseDialog open={!!lostId} onOpenChange={(o) => !o && setLostId(null)} caseId={lostId} caseName={lostCustomer} />
     <DocumentPreviewDialog doc={previewDoc} onClose={() => setPreviewDoc(null)} />
+    <Dialog open={!!stockPickCaseId} onOpenChange={(open) => !open && closeStockPicker()}>
+      <DialogContent className="sm:max-w-xl">
+        <DialogHeader>
+          <DialogTitle>Stok Seçimi</DialogTitle>
+          <DialogDescription>
+            Gümrük onayı tamamlanan kart için seri no seçimi.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-4">
+          <div className="rounded-md border border-border/70 bg-muted/30 p-3">
+            <div className="text-sm font-medium truncate">{stockPickCustomer?.name ?? "Firma bulunamadı"}</div>
+            <div className="mt-1 text-xs text-muted-foreground line-clamp-2">
+              {[stockPickCase?.requestedProduct, stockPickCase?.requestedModel].filter(Boolean).join(" · ") || "Ürün bilgisi yok"}
+            </div>
+            <div className="mt-2 flex items-center gap-2 text-[11px] text-muted-foreground">
+              <span className="rounded bg-white px-2 py-1">Miktar: {stockPickTargetQty}</span>
+              <span className="rounded bg-white px-2 py-1">Seçilen: {selectedStockIds.length}</span>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <Label>Uygun seri numaraları</Label>
+            {stockCandidates.length ? (
+              <div className="max-h-72 overflow-y-auto rounded-md border border-border/70 bg-white">
+                {stockCandidates.map((item) => {
+                  const checked = selectedStockIds.includes(item.id);
+                  return (
+                    <label
+                      key={item.id}
+                      className="flex cursor-pointer items-start gap-3 border-b border-border/50 p-3 last:border-0 hover:bg-muted/40"
+                    >
+                      <Checkbox
+                        checked={checked}
+                        onCheckedChange={(next) => {
+                          setSelectedStockIds((prev) =>
+                            next === true
+                              ? prev.includes(item.id)
+                                ? prev
+                                : [...prev, item.id]
+                              : prev.filter((id) => id !== item.id)
+                          );
+                        }}
+                        className="mt-0.5"
+                      />
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-sm font-medium">
+                          {item.serialNumber || item.stockCode || item.id.slice(0, 8)}
+                        </span>
+                        <span className="mt-0.5 block truncate text-xs text-muted-foreground">
+                          {[item.brand, item.counterModel || item.counterType, item.warehouse].filter(Boolean).join(" · ")}
+                        </span>
+                        {item.status === "Reserved" && (
+                          <span className="mt-1 inline-flex rounded bg-amber-50 px-1.5 py-0.5 text-[10px] text-amber-700">
+                            {item.reservedCompanyName ? `${item.reservedCompanyName} için rezerve` : "Rezerve"}
+                          </span>
+                        )}
+                      </span>
+                    </label>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="rounded-md border border-dashed border-border p-4 text-sm text-muted-foreground">
+                Uygun hazır stok bulunamadı.
+              </div>
+            )}
+          </div>
+        </div>
+
+        <DialogFooter>
+          <Button type="button" variant="outline" onClick={closeStockPicker} disabled={stockPickSaving}>
+            Vazgeç
+          </Button>
+          <Button type="button" onClick={() => void confirmStockPicking()} disabled={stockPickSaving || !selectedStockIds.length}>
+            Stok Seçimine Al
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
     <KanbanBoard<SalesCase>
       columns={columns}
       fit={false}
