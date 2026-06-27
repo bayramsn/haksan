@@ -1,8 +1,8 @@
-import { Body, Controller, Get, Inject, Patch, Post, Param, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Inject, Patch, Post, Param, Query, UseGuards } from '@nestjs/common';
 import * as argon2 from 'argon2';
 import { and, asc, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import type { DbClient } from '../../db/client';
-import { users, roles, permissions, userRoles, rolePermissions, userTargets, departmentTargets, userDivisions } from '../../db/schema/users';
+import { users, roles, permissions, userRoles, rolePermissions, userTargets, departmentTargets, userDivisions, loginSessions, refreshTokens } from '../../db/schema/users';
 import { departments, tenants, divisions } from '../../db/schema/tenants';
 import { auditLogs } from '../../db/schema/audit';
 import { DB } from '../../shared/database/database.module';
@@ -154,6 +154,16 @@ export class AdminController {
     for (const k of ['fullName', 'phone', 'departmentId', 'status'] as const) {
       if ((body as any)[k] !== undefined) patch[k] = (body as any)[k];
     }
+    // E-posta değişimi hassas bir işlemdir: yalnızca super_admin yapabilir ve
+    // tenant içinde benzersiz olmalıdır (silinmiş kullanıcılar dahil — uniq index).
+    if (body.email !== undefined && body.email !== existing.email) {
+      this.requireSuperAdmin(user);
+      const emailOwner = await this.db.query.users.findFirst({
+        where: and(eq(users.tenantId, user.tenantId), eq(users.email, body.email)),
+      });
+      if (emailOwner && emailOwner.id !== id) throw new ConflictError('Bu e-posta zaten kayıtlı');
+      patch.email = body.email;
+    }
     if (body.purchaseApprovalLimit !== undefined) {
       patch.purchaseApprovalLimit = body.purchaseApprovalLimit;
     }
@@ -167,7 +177,12 @@ export class AdminController {
       }
       patch.managerId = body.managerId;
     }
-    if (body.password) patch.passwordHash = await argon2.hash(body.password, { type: argon2.argon2id });
+    // Şifre değişimi yalnızca super_admin'e açık (kullanıcılar kendi şifrelerini
+    // "şifremi unuttum" e-posta akışıyla yeniler).
+    if (body.password) {
+      this.requireSuperAdmin(user);
+      patch.passwordHash = await argon2.hash(body.password, { type: argon2.argon2id });
+    }
     await this.db.update(users).set(patch).where(eq(users.id, id));
     if (body.roleCodes) {
       // Replace user_roles
@@ -182,6 +197,70 @@ export class AdminController {
     if (body.divisionIds) {
       await this.setUserDivisions(id, user.tenantId, body.divisionIds);
     }
+    return { ok: true };
+  }
+
+  @RequirePermissions('users.delete')
+  @Delete('users/:id')
+  async deleteUser(@Param('id') id: string, @CurrentUser() user: AuthContext) {
+    // Kullanıcı silme yalnızca super_admin'e açık (users.delete izni tek başına yetmez).
+    this.requireSuperAdmin(user);
+    if (id === user.userId) {
+      throw new ForbiddenError('Kullanıcı kendi hesabını silemez');
+    }
+
+    const existing = await this.db.query.users.findFirst({
+      where: and(eq(users.id, id), eq(users.tenantId, user.tenantId), isNull(users.deletedAt)),
+    });
+    if (!existing) throw new NotFoundError('Kullanıcı');
+
+    // Son aktif super_admin'i silmeye izin verme (kilitlenmeyi önler).
+    const targetRoles = await this.db
+      .select({ code: roles.code })
+      .from(userRoles)
+      .innerJoin(roles, eq(userRoles.roleId, roles.id))
+      .where(eq(userRoles.userId, id));
+    if (targetRoles.some((r) => r.code === 'super_admin')) {
+      const [{ count }] = await this.db
+        .select({ count: sql<number>`count(*)::int` })
+        .from(userRoles)
+        .innerJoin(roles, eq(userRoles.roleId, roles.id))
+        .innerJoin(users, eq(userRoles.userId, users.id))
+        .where(
+          and(
+            eq(roles.tenantId, user.tenantId),
+            eq(roles.code, 'super_admin'),
+            eq(users.tenantId, user.tenantId),
+            eq(users.status, 'active'),
+            isNull(users.deletedAt)
+          )
+        );
+      if ((count ?? 0) <= 1) throw new ConflictError('Son Süper Admin kullanıcısı silinemez');
+    }
+
+    // Soft-delete + aktif oturum/refresh token'ları iptal et.
+    const now = new Date();
+    await this.db.update(users).set({ deletedAt: now, status: 'passive' }).where(eq(users.id, id));
+    await this.db
+      .update(refreshTokens)
+      .set({ revokedAt: now })
+      .where(and(eq(refreshTokens.userId, id), isNull(refreshTokens.revokedAt)));
+    await this.db
+      .update(loginSessions)
+      .set({ revokedAt: now })
+      .where(and(eq(loginSessions.userId, id), isNull(loginSessions.revokedAt)));
+    invalidateRbacCache(id);
+
+    await this.db.insert(auditLogs).values({
+      tenantId: user.tenantId,
+      actorUserId: user.userId,
+      action: 'user.deleted',
+      resourceType: 'user',
+      resourceId: id,
+      oldValues: existing,
+      newValues: { deletedAt: now, status: 'passive' },
+    });
+
     return { ok: true };
   }
 
