@@ -183,7 +183,9 @@ export class AdminController {
       this.requireSuperAdmin(user);
       patch.passwordHash = await argon2.hash(body.password, { type: argon2.argon2id });
     }
-    await this.db.update(users).set(patch).where(eq(users.id, id));
+    if (Object.keys(patch).length > 0) {
+      await this.db.update(users).set(patch).where(eq(users.id, id));
+    }
     if (body.roleCodes) {
       // Replace user_roles
       const allRoles = await this.db.query.roles.findMany({ where: eq(roles.tenantId, user.tenantId) });
