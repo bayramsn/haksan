@@ -3204,6 +3204,7 @@ export function CreateServiceRequestDialog({ trigger, defaultMachineId }: { trig
   const { customers, contacts, addService, machines: machinesAll, users } = useStore();
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  const initializedRef = useRef(false);
   const serviceUsers = users.filter((u) => u.role === "Service" || u.department === "Servis");
   const [form, setForm] = useState<{
     customerId: string;
@@ -3226,7 +3227,13 @@ export function CreateServiceRequestDialog({ trigger, defaultMachineId }: { trig
   });
 
   useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      initializedRef.current = false;
+      return;
+    }
+    if (initializedRef.current) return;
+    if (defaultMachineId && !machinesAll.some((machine) => machine.id === defaultMachineId)) return;
+    if (!defaultMachineId && customers.length === 0) return;
     const defaultMachine = machinesAll.find((machine) => machine.id === defaultMachineId);
     const firstCustomerWithMachine = customers.find((customer) =>
       machinesAll.some((machine) => machine.customerId === customer.id)
@@ -3244,6 +3251,7 @@ export function CreateServiceRequestDialog({ trigger, defaultMachineId }: { trig
       quoteRequired: false,
       serviceNote: "",
     });
+    initializedRef.current = true;
   }, [open, defaultMachineId, customers, contacts, machinesAll, users]);
 
   const customerById = useMemo(() => new Map(customers.map((customer) => [customer.id, customer])), [customers]);

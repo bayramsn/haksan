@@ -76,9 +76,9 @@ export function Combobox({
               {options.map((o) => (
                 <CommandItem
                   key={o.value}
-                  value={`${o.label} ${o.hint ?? ""}`}
+                  value={`${o.value} ${o.label} ${o.hint ?? ""}`}
                   onSelect={() => {
-                    onChange(o.value);
+                    onChange(String(o.value));
                     setOpen(false);
                     setQuery("");
                   }}
