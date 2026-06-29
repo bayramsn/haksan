@@ -1,18 +1,18 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { and, desc, eq, ilike, isNull, sql } from 'drizzle-orm';
+import { and, desc, eq, ilike, isNotNull, isNull, sql } from 'drizzle-orm';
 import type { DbClient } from '../../db/client';
 import { opportunities, opportunityStageHistory, salesActivities, visits, calls } from '../../db/schema/crm';
 import { companies, contacts } from '../../db/schema/companies';
 import { users } from '../../db/schema/users';
 import { quotes } from '../../db/schema/quotes';
-import { inventoryItems, customerDevices } from '../../db/schema/inventory';
+import { inventoryItems, inventoryMovements, customerDevices } from '../../db/schema/inventory';
 import { installationJobs } from '../../db/schema/service';
 import { pipelineStages, currencies, opportunityStatuses, contactSources, inventoryStatuses, warrantyStatuses, installationStatuses } from '../../db/schema/lookup';
 import { cancellationReasons } from '../../db/schema/crm';
 import { commercialInvoices, contracts } from '../../db/schema/quotes';
 import { receivables } from '../../db/schema/finance';
 import { DB } from '../../shared/database/database.module';
-import { NotFoundError, ValidationError } from '../../shared/utils/errors';
+import { ForbiddenError, NotFoundError, ValidationError } from '../../shared/utils/errors';
 import type { AuthContext } from '../../shared/security/auth.types';
 import type { OpportunityCreateInput, OpportunityUpdateInput, OpportunityStageChangeInput, Pagination } from '@haksan/shared';
 import { PIPELINE_STAGES, STAGE_TRANSITIONS, type PipelineStageCode } from '@haksan/shared';
@@ -26,6 +26,7 @@ import {
   resolveActorDivisionScope,
   resolveAssignedDivision,
 } from '../../shared/utils/division-scope';
+import { companyVisibilityFilter, companyVisibilityExistsFilter } from '../../shared/utils/company-visibility';
 
 @Injectable()
 export class OpportunitiesService {
@@ -46,7 +47,8 @@ export class OpportunitiesService {
         eq(companies.id, companyId),
         eq(companies.tenantId, actor.tenantId),
         isNull(companies.deletedAt),
-        companyPortfolioFilter(resolveActorDivisionScope(actor), companies.id) ?? sql`true`
+        companyPortfolioFilter(resolveActorDivisionScope(actor), companies.id) ?? sql`true`,
+        (await companyVisibilityFilter(this.db, actor)) ?? sql`true`
       ),
     });
     if (!company) throw new NotFoundError('Firma');
@@ -70,9 +72,18 @@ export class OpportunitiesService {
     return user;
   }
 
-  async list(actor: AuthContext, query: { search?: string; stageCode?: string; companyId?: string }, page: Pagination) {
+  async list(
+    actor: AuthContext,
+    query: { search?: string; stageCode?: string; companyId?: string; view?: 'active' | 'closed' | 'all' },
+    page: Pagination
+  ) {
     const { limit, offset } = pageOffset(page);
     const filters = [eq(opportunities.tenantId, actor.tenantId), isNull(opportunities.deletedAt)];
+    // Mantıksal kapanış filtresi (deletedAt'ten ayrı): aktif pano kapatılmamışları;
+    // "Geçmiş/Arşiv" (view=closed) kapatılanları (teslim+iptal); all=ikisi de gösterir.
+    const view = query.view ?? 'active';
+    if (view === 'active') filters.push(isNull(opportunities.closedAt));
+    else if (view === 'closed') filters.push(isNotNull(opportunities.closedAt));
     if (query.search) filters.push(ilike(opportunities.title, `%${query.search}%`));
     if (query.companyId) filters.push(eq(opportunities.companyId, query.companyId));
     if (query.stageCode) {
@@ -81,6 +92,8 @@ export class OpportunitiesService {
     }
     const scoped = divisionFilter(resolveActorDivisionScope(actor), opportunities.divisionId);
     if (scoped) filters.push(scoped);
+    const visibility = await companyVisibilityExistsFilter(this.db, actor, opportunities.companyId);
+    if (visibility) filters.push(visibility);
     const where = and(...filters);
     const [{ count }] = await this.db
       .select({ count: sql<number>`count(*)::int` })
@@ -109,6 +122,7 @@ export class OpportunitiesService {
   }
 
   async get(id: string, actor: AuthContext) {
+    const visibility = await companyVisibilityExistsFilter(this.db, actor, opportunities.companyId);
     const row = await this.db
       .select({
         opp: opportunities,
@@ -125,7 +139,8 @@ export class OpportunitiesService {
           eq(opportunities.id, id),
           eq(opportunities.tenantId, actor.tenantId),
           isNull(opportunities.deletedAt),
-          divisionFilter(resolveActorDivisionScope(actor), opportunities.divisionId) ?? sql`true`
+          divisionFilter(resolveActorDivisionScope(actor), opportunities.divisionId) ?? sql`true`,
+          visibility ?? sql`true`
         )
       )
       .limit(1);
@@ -143,6 +158,11 @@ export class OpportunitiesService {
   async create(input: OpportunityCreateInput, actor: AuthContext) {
     await this.assertCompany(input.companyId, actor);
     if (input.primaryContactId) await this.assertContact(input.primaryContactId, actor, input.companyId);
+    // super_admin olmayan kullanıcılar sadece kendilerine lead açabilir.
+    const isSuperAdmin = actor.roles.includes('super_admin');
+    if (!isSuperAdmin && input.ownerUserId && input.ownerUserId !== actor.userId) {
+      throw new ForbiddenError('Yalnızca süper admin başka kullanıcıya lead atayabilir');
+    }
     if (input.ownerUserId) await this.assertUser(input.ownerUserId, actor);
 
     const leadStage = await this.stageRowByCode('lead');
@@ -201,6 +221,10 @@ export class OpportunitiesService {
     } else if (input.companyId !== undefined && existing.primaryContactId) {
       await this.assertContact(existing.primaryContactId, actor, companyId);
     }
+    const isSuperAdmin = actor.roles.includes('super_admin');
+    if (input.ownerUserId !== undefined && !isSuperAdmin) {
+      throw new ForbiddenError('Sorumlu kullanıcıyı yalnızca süper admin değiştirebilir');
+    }
     if (input.ownerUserId) await this.assertUser(input.ownerUserId, actor);
     const patch: Record<string, unknown> = { updatedBy: actor.userId };
     if (input.currencyCode !== undefined) patch.currencyId = await lookupIdByCode(this.db, currencies, input.currencyCode);
@@ -217,6 +241,70 @@ export class OpportunitiesService {
     await this.get(id, actor);
     await this.db.update(opportunities).set({ deletedAt: new Date() }).where(eq(opportunities.id, id));
     return { ok: true };
+  }
+
+  private async findScopedOpp(id: string, actor: AuthContext) {
+    const opp = await this.db.query.opportunities.findFirst({
+      where: and(
+        eq(opportunities.id, id),
+        eq(opportunities.tenantId, actor.tenantId),
+        isNull(opportunities.deletedAt),
+        divisionFilter(resolveActorDivisionScope(actor), opportunities.divisionId) ?? sql`true`
+      ),
+    });
+    if (!opp) throw new NotFoundError('Fırsat');
+    return opp;
+  }
+
+  /**
+   * Mantıksal kapanış ("Bitir"): terminal aşamadaki (delivered/cancelled) fırsatı arşivler.
+   * SİLMEZ — `closedAt` set edilir; aktif panodan düşer ama rapor/geçmiş/servis erişimi için
+   * DB'de kalır (krş. `deletedAt`). delivered ise servise devir (customer_devices) idempotent
+   * olarak garanti edilir. Yanlış kapanış `reopen` ile geri alınır.
+   */
+  async close(id: string, actor: AuthContext, reason?: string | null) {
+    const opp = await this.findScopedOpp(id, actor);
+    if (opp.closedAt) throw new ValidationError('Fırsat zaten kapatılmış');
+    const stage = await this.db.query.pipelineStages.findFirst({ where: eq(pipelineStages.id, opp.currentStageId) });
+    if (!stage || (stage.code !== 'delivered' && stage.code !== 'cancelled')) {
+      throw new ValidationError('Yalnız teslim edilen veya iptal edilen fırsatlar kapatılabilir');
+    }
+    if (stage.code === 'delivered') {
+      // Cihaz/garanti kayıtları teslim aşamasında oluşmuş olmalı; oluşmadıysa (stok yok vb.)
+      // kapanışı bloke etme — kurulu cihaz envanteri ayrıca düzeltilebilir.
+      try {
+        await this.ensureWarrantyDevices(opp, actor);
+      } catch {
+        /* best-effort servise devir */
+      }
+    }
+    const now = new Date();
+    await this.db.update(opportunities).set({ closedAt: now, closedBy: actor.userId }).where(eq(opportunities.id, id));
+    await this.audit.write({
+      tenantId: actor.tenantId,
+      actorUserId: actor.userId,
+      action: 'opportunity.closed',
+      resourceType: 'opportunity',
+      resourceId: id,
+      oldValues: { stage: stage.code },
+      newValues: { closedAt: now, reason: reason ?? null },
+    });
+    return this.get(id, actor);
+  }
+
+  /** Geri Aç: yanlış kapatmayı geri alır — `closedAt` sıfırlanır, fırsat aktif panoya döner. */
+  async reopen(id: string, actor: AuthContext) {
+    const opp = await this.findScopedOpp(id, actor);
+    if (!opp.closedAt) throw new ValidationError('Fırsat zaten açık');
+    await this.db.update(opportunities).set({ closedAt: null, closedBy: null }).where(eq(opportunities.id, id));
+    await this.audit.write({
+      tenantId: actor.tenantId,
+      actorUserId: actor.userId,
+      action: 'opportunity.reopened',
+      resourceType: 'opportunity',
+      resourceId: id,
+    });
+    return this.get(id, actor);
   }
 
   /**
@@ -323,18 +411,42 @@ export class OpportunitiesService {
         throw new ValidationError('Stok seçimi için en az bir seri no belirtilmelidir');
       }
       const reserved = await this.db.query.inventoryStatuses.findFirst({ where: eq(inventoryStatuses.code, 'reserved') });
+      const available = await this.db.query.inventoryStatuses.findFirst({ where: eq(inventoryStatuses.code, 'available') });
       // Verify items belong to tenant
       const items = await this.db.query.inventoryItems.findMany({
-        where: and(eq(inventoryItems.tenantId, actor.tenantId), inArray(inventoryItems.id, input.inventoryItemIds)),
+        where: and(eq(inventoryItems.tenantId, actor.tenantId), isNull(inventoryItems.deletedAt), inArray(inventoryItems.id, input.inventoryItemIds)),
       });
       if (items.length !== input.inventoryItemIds.length) {
         throw new ValidationError('Bazı stok kalemleri bu tenant\'a ait değil');
       }
+      const now = new Date();
       for (const item of items) {
+        const isAvailable = available ? item.stockStatusId === available.id : true;
+        const isReservedForCompany = reserved && item.stockStatusId === reserved.id && item.reservedCompanyId === opp.companyId;
+        if (!isAvailable && !isReservedForCompany) {
+          throw new ValidationError('Sadece stokta olan veya bu firmaya rezerve edilmiş seri nolar seçilebilir');
+        }
+        const divisionId = item.divisionId ?? opp.divisionId;
         await this.db
           .update(inventoryItems)
-          .set({ stockStatusId: reserved?.id ?? item.stockStatusId })
+          .set({
+            divisionId,
+            stockStatusId: reserved?.id ?? item.stockStatusId,
+            reservedCompanyId: opp.companyId,
+            reservedAt: now,
+          })
           .where(eq(inventoryItems.id, item.id));
+        await this.db.insert(inventoryMovements).values({
+          tenantId: actor.tenantId,
+          divisionId,
+          inventoryItemId: item.id,
+          movementType: 'reserve',
+          movementDate: now,
+          referenceType: 'opportunity',
+          referenceId: opp.id,
+          notes: 'Kanban stok seçimi',
+          createdBy: actor.userId,
+        });
       }
     }
     if (input.toStage === 'installation') {
@@ -385,27 +497,72 @@ export class OpportunitiesService {
     actor: AuthContext,
     inventoryItemIds?: string[],
   ) {
-    const items = await this.db.query.inventoryItems.findMany({
-      where: and(eq(inventoryItems.tenantId, actor.tenantId)),
-    });
     const reservedStatus = await this.db.query.inventoryStatuses.findFirst({ where: eq(inventoryStatuses.code, 'reserved') });
     const soldStatus = await this.db.query.inventoryStatuses.findFirst({ where: eq(inventoryStatuses.code, 'sold') });
     const activeWarranty = await this.db.query.warrantyStatuses.findFirst({ where: eq(warrantyStatuses.code, 'active') });
-    const ids = inventoryItemIds ?? [];
-    const selected = ids.length
-      ? items.filter((i) => ids.includes(i.id))
-      : items.filter((i) => reservedStatus && i.stockStatusId === reservedStatus.id);
-    for (const item of selected) {
-      const existing = await this.db
+    let ids = [...new Set(inventoryItemIds ?? [])];
+    if (!ids.length) {
+      const existingDevices = await this.db
         .select({ id: customerDevices.id })
         .from(customerDevices)
         .where(and(
           eq(customerDevices.tenantId, actor.tenantId),
           eq(customerDevices.opportunityId, opp.id),
-          eq(customerDevices.inventoryItemId, item.id),
+          isNull(customerDevices.deletedAt),
         ))
         .limit(1);
-      if (existing.length) continue;
+      if (existingDevices.length) return;
+    }
+    if (!ids.length) {
+      const reservationRows = await this.db
+        .select({ inventoryItemId: inventoryMovements.inventoryItemId })
+        .from(inventoryMovements)
+        .where(and(
+          eq(inventoryMovements.tenantId, actor.tenantId),
+          eq(inventoryMovements.referenceType, 'opportunity'),
+          eq(inventoryMovements.referenceId, opp.id),
+          eq(inventoryMovements.movementType, 'reserve'),
+        ));
+      ids = [...new Set(reservationRows.map((row) => row.inventoryItemId))];
+    }
+    if (!ids.length && reservedStatus) {
+      const reservedRows = await this.db
+        .select({ id: inventoryItems.id })
+        .from(inventoryItems)
+        .where(and(
+          eq(inventoryItems.tenantId, actor.tenantId),
+          isNull(inventoryItems.deletedAt),
+          eq(inventoryItems.stockStatusId, reservedStatus.id),
+          eq(inventoryItems.reservedCompanyId, opp.companyId),
+        ));
+      ids = reservedRows.map((row) => row.id);
+    }
+    if (!ids.length) {
+      throw new ValidationError('Kurulum için bu karta bağlı stok seçimi bulunamadı');
+    }
+    const selected = await this.db.query.inventoryItems.findMany({
+      where: and(eq(inventoryItems.tenantId, actor.tenantId), isNull(inventoryItems.deletedAt), inArray(inventoryItems.id, ids)),
+    });
+    if (selected.length !== ids.length) {
+      throw new ValidationError('Kurulum için seçilen bazı stok kalemleri bulunamadı');
+    }
+    for (const item of selected) {
+      if (item.reservedCompanyId && item.reservedCompanyId !== opp.companyId) {
+        throw new ValidationError('Seçilen stok kalemi bu firmaya rezerve edilmemiş');
+      }
+      const existing = await this.db
+        .select({ id: customerDevices.id, opportunityId: customerDevices.opportunityId })
+        .from(customerDevices)
+        .where(and(
+          eq(customerDevices.tenantId, actor.tenantId),
+          eq(customerDevices.inventoryItemId, item.id),
+          isNull(customerDevices.deletedAt),
+        ))
+        .limit(1);
+      if (existing.length) {
+        if (existing[0].opportunityId === opp.id) continue;
+        throw new ValidationError('Seçilen seri no başka bir müşteri cihazına bağlı');
+      }
       await this.db.insert(customerDevices).values({
         tenantId: actor.tenantId,
         divisionId: opp.divisionId,
@@ -430,7 +587,7 @@ export class OpportunitiesService {
    * zaten kurulum kaydı varsa yenisini oluşturmaz.
    */
   private async ensureInstallationJob(
-    opp: { id: string; companyId: string; divisionId: string | null },
+    opp: { id: string; companyId: string; divisionId: string | null; primaryContactId?: string | null; ownerUserId?: string | null },
     actor: AuthContext,
   ) {
     const existing = await this.db
@@ -453,9 +610,11 @@ export class OpportunitiesService {
       divisionId: opp.divisionId,
       opportunityId: opp.id,
       companyId: opp.companyId,
+      contactId: opp.primaryContactId ?? null,
       customerDeviceId: device[0]?.id ?? null,
       statusId: scheduled?.id ?? null,
       scheduledDate: new Date(),
+      assignedToUserId: opp.ownerUserId ?? actor.userId,
     });
   }
 }

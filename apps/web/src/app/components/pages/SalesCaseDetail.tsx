@@ -7,6 +7,7 @@ import { SalesCase, SALES_STAGES, salesStageLabel, type Offer } from "../../lib/
 import { StatusBadge } from "../Layout";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../ui/table";
 import { useStore } from "../../lib/store";
+import { useAuth } from "../../../lib/auth";
 import { AddActivityDialog } from "../dialogs/CreateDialogs";
 import { QuoteDialog } from "../dialogs/QuoteDialog";
 import { LostCaseDialog } from "../dialogs/LostCaseDialog";
@@ -59,6 +60,8 @@ export function SalesCaseDetailPage({
   mode?: "page" | "dialog";
 }) {
   const { offers, activities, customers, users, documents, payments, refresh, deleteCase, updateCase } = useStore();
+  const { hasRole } = useAuth();
+  const isSuperAdmin = hasRole("super_admin");
   const [lostOpen, setLostOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteSaving, setDeleteSaving] = useState(false);
@@ -218,22 +221,28 @@ export function SalesCaseDetailPage({
             <div className="shrink-0 text-left lg:text-right">
               <div className="text-2xl tabular-nums">{sc.estimatedAmount.toLocaleString()} {sc.currency}</div>
               <div className="mt-2"><StatusBadge status={sc.stage} /></div>
-              <Select
-                value={sc.assignedUserId ?? '__none__'}
-                onValueChange={async (v) => {
-                  await updateCase(sc.id, { assignedUserId: v === '__none__' ? '' : v });
-                }}
-              >
-                <SelectTrigger className="h-7 text-xs w-44 mt-1">
-                  <SelectValue placeholder="Atanmadı" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__none__">Atanmadı</SelectItem>
-                  {users.map((usr) => (
-                    <SelectItem key={usr.id} value={usr.id}>{usr.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              {isSuperAdmin ? (
+                <Select
+                  value={sc.assignedUserId ?? '__none__'}
+                  onValueChange={async (v) => {
+                    await updateCase(sc.id, { assignedUserId: v === '__none__' ? '' : v });
+                  }}
+                >
+                  <SelectTrigger className="h-7 text-xs w-44 mt-1">
+                    <SelectValue placeholder="Atanmadı" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">Atanmadı</SelectItem>
+                    {users.map((usr) => (
+                      <SelectItem key={usr.id} value={usr.id}>{usr.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              ) : (
+                <div className="h-7 text-xs mt-1 text-muted-foreground">
+                  {users.find((u) => u.id === sc.assignedUserId)?.name ?? "Atanmadı"}
+                </div>
+              )}
             </div>
           </div>
 

@@ -29,6 +29,7 @@ import { serviceService, fileService, financeService, activityService, inventory
 import { Badge } from "../ui/badge";
 import { useAuth } from "../../../lib/auth";
 import {
+  computeInstallationFee,
   INSTALLATION_LOCATION_LABELS,
   type InstallationLocationType,
   COMPANY_SECTOR_OPTIONS,
@@ -41,13 +42,6 @@ import {
   type StockCategoryCode,
 } from "@haksan/shared";
 import { PROVINCE_NAMES } from "../../lib/geo";
-import {
-  CNC_DIK_ISLEME_SPEC_TEMPLATE,
-  CNC_DIK_TORNA_SPEC_TEMPLATE,
-  CNC_YATAY_TORNA_SPEC_TEMPLATE,
-  productSpecTemplate,
-  specsForProductType,
-} from "../../lib/productSpecTemplates";
 import { QuoteDialog } from "./QuoteDialog";
 
 /* ---------- Customer ---------- */
@@ -361,7 +355,7 @@ export function CreateContactDialog({
   defaultCustomerId?: string;
   onCreated?: (id: string) => void;
 }) {
-  const { customers, addContact, addCustomer } = useStore();
+  const { customers, addContact } = useStore();
   const [open, setOpen] = useState(false);
   // Taslak yenilemede korunur; açılışta sıfırlanmaz, yalnızca başarılı kayıtta temizlenir.
   const [form, setForm] = usePersistentState("draft.contact.form", emptyContactForm(defaultCustomerId));
@@ -426,30 +420,14 @@ export function CreateContactDialog({
           <div className="grid grid-cols-2 gap-3">
             <div className="col-span-2">
               <Label className="text-xs">Firma *</Label>
-              <div className="mt-1.5">
-                <Combobox
-                  options={customers.map((c) => ({ value: c.id, label: c.name, hint: c.city }))}
-                  value={form.customerId}
-                  onChange={(v) => setForm({ ...form, customerId: v })}
-                  placeholder="Firma seçin veya adını yazın..."
-                  searchPlaceholder="Firma adı / şehir ara..."
-                  emptyText="Firma bulunamadı."
-                  onCreate={async (label) => {
-                    try {
-                      const created = await addCustomer({
-                        type: "company", firmType: "customer", name: label,
-                        contactPerson: "", phone: "", email: "", city: "", address: "",
-                        taxNumber: "", wantedProduct: "", initialNote: "", source: "Kontak",
-                      } as any);
-                      setForm((f) => ({ ...f, customerId: created.id }));
-                      toast.success("Firma oluşturuldu", { description: label });
-                    } catch (err: any) {
-                      toast.error("Firma oluşturulamadı", { description: err?.message ?? "İstek başarısız oldu." });
-                    }
-                  }}
-                  createLabel={(q) => `"${q}" adıyla yeni firma oluştur`}
-                />
-              </div>
+              <Select value={form.customerId} onValueChange={(v) => setForm({ ...form, customerId: v })}>
+                <SelectTrigger className="mt-1.5"><SelectValue placeholder="Firma seçin..." /></SelectTrigger>
+                <SelectContent>
+                  {customers.map((c) => (
+                    <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
 
             <Field label="Adı Soyadı *" value={form.name} onChange={(v) => setForm({ ...form, name: v })} />
@@ -833,7 +811,6 @@ export function CreateCaseDialog({ trigger, defaultCustomerId }: { trigger: Reac
   const defaultDivisionId = activeDivision && activeDivision !== "all" ? activeDivision : divisions[0]?.id ?? "";
   const [open, setOpen] = useState(false);
   const [selectedProductId, setSelectedProductId] = useState("");
-  const [saving, setSaving] = useState(false);
   const makeEmptyCase = () => ({
     customerId: defaultCustomerId ?? "",
     assignedUserId: user?.id ?? users.find((u) => u.role === "Sales" || u.role === "Admin")?.id ?? users[0]?.id ?? "",
@@ -851,11 +828,9 @@ export function CreateCaseDialog({ trigger, defaultCustomerId }: { trigger: Reac
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (saving) return;
     if (!form.customerId) return toast.error("Müşteri seçiniz");
     if (!form.requestedProduct) return toast.error("Ürün giriniz");
     if (canPickDivision && !form.divisionId) return toast.error("Bölüm seçiniz", { description: "Satış kartını CNC / Üniversal / Sac bölümlerinden birine atayın." });
-    setSaving(true);
     try {
       const sc = await addCase(form as any);
       toast.success("Satış kartı oluşturuldu", { description: `#${sc.id.toUpperCase()}` });
@@ -864,8 +839,6 @@ export function CreateCaseDialog({ trigger, defaultCustomerId }: { trigger: Reac
       setOpen(false);
     } catch (err: any) {
       toast.error("Satış kartı oluşturulamadı", { description: err?.message ?? "API isteği başarısız oldu." });
-    } finally {
-      setSaving(false);
     }
   };
 
@@ -985,10 +958,8 @@ export function CreateCaseDialog({ trigger, defaultCustomerId }: { trigger: Reac
           </div>
 
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => setOpen(false)} disabled={saving}>Vazgeç</Button>
-            <Button type="submit" disabled={saving}>
-              {saving ? "Oluşturuluyor..." : "Satış Kartını Oluştur"}
-            </Button>
+            <Button type="button" variant="outline" onClick={() => setOpen(false)}>Vazgeç</Button>
+            <Button type="submit">Satış Kartını Oluştur</Button>
           </DialogFooter>
         </form>
       </DialogContent>
@@ -1469,7 +1440,7 @@ export function QuickCreateDialog({ trigger }: { trigger: React.ReactNode }) {
 type ProductOption = { code: string; label: string };
 type ProductTypeOption = ProductOption & { categoryCode?: string; subcategoryCode?: string };
 
-const PRODUCT_BRANDS = ["LK", "LK Machinery", "ECOCA", "MANFORD", "Manford", "MAXİMART", "Maximart"];
+const PRODUCT_BRANDS = ["LK", "ECOCA", "MANFORD", "MAXİMART"];
 const PRODUCT_GROUPS: ProductOption[] = [
   { code: "CNC", label: "CNC" },
   { code: "UNIVERSAL", label: "Üniversal" },
@@ -1494,7 +1465,6 @@ const PRODUCT_TYPE_GROUPS: Array<{ label: string; options: ProductTypeOption[] }
       { code: "CNC_YATAY_ISLEME_MERKEZI", label: "CNC Yatay İşleme Merkezi", categoryCode: "TEZGAH", subcategoryCode: "ISLEME_MERKEZI" },
       { code: "CNC_KOPRU_TIPI_ISLEME_MERKEZI", label: "CNC Köprü Tipi İşleme Merkezi", categoryCode: "TEZGAH", subcategoryCode: "ISLEME_MERKEZI" },
       { code: "CNC_5_EKSEN_ISLEME_MERKEZI", label: "CNC 5 Eksen İşleme Merkezi", categoryCode: "TEZGAH", subcategoryCode: "ISLEME_MERKEZI" },
-      { code: "CNC_TAPPING_CENTER", label: "CNC Tapping Center", categoryCode: "TEZGAH", subcategoryCode: "ISLEME_MERKEZI" },
     ],
   },
   {
@@ -1551,13 +1521,12 @@ const MACHINE_TYPE_OPTIONS: ProductOption[] = PRODUCT_TYPE_OPTIONS
 
 // Ürün tipine göre örnek teknik bilgi şablonları (anahtarlar; değerleri kullanıcı doldurur)
 const SPEC_TEMPLATE_BY_TYPE: Record<string, string[]> = {
-  CNC_DIK_ISLEME_MERKEZ: [...CNC_DIK_ISLEME_SPEC_TEMPLATE],
+  CNC_DIK_ISLEME_MERKEZ: ["X / Y / Z Eksen Stroku", "Tabla Ölçüsü", "Spindle Devri (rpm)", "Spindle Gücü (kW)", "Spindle Konik", "Takım Magazini Kapasitesi", "Hızlı İlerleme (m/dk)"],
   CNC_YATAY_ISLEME_MERKEZI: ["X / Y / Z Eksen Stroku", "Pallet Ölçüsü", "Pallet Sayısı", "Spindle Devri (rpm)", "Spindle Konik", "Takım Magazini Kapasitesi"],
   CNC_KOPRU_TIPI_ISLEME_MERKEZI: ["X / Y / Z Eksen Stroku", "Köprü Açıklığı", "Tabla Ölçüsü", "Spindle Devri (rpm)", "Spindle Gücü (kW)"],
   CNC_5_EKSEN_ISLEME_MERKEZI: ["X / Y / Z Eksen Stroku", "A / C Eksen Dönüş Aralığı", "Tabla Çapı", "Spindle Devri (rpm)", "Spindle Konik"],
-  CNC_TAPPING_CENTER: ["X / Y / Z Eksen Stroku", "Tabla Ölçüsü", "Spindle Devri (rpm)", "Takım Magazini Kapasitesi", "Hızlı İlerleme (m/dk)"],
-  CNC_YATAY_TORNA_TEZGAHI: [...CNC_YATAY_TORNA_SPEC_TEMPLATE],
-  CNC_DIK_TORNA_TEZGAHI: [...CNC_DIK_TORNA_SPEC_TEMPLATE],
+  CNC_YATAY_TORNA_TEZGAHI: ["Ayna Ölçüsü", "Maks. Tornalama Çapı", "Maks. Tornalama Boyu", "Fener Mili Devri (rpm)", "Taret İstasyon Sayısı", "Çubuk Geçiş Çapı"],
+  CNC_DIK_TORNA_TEZGAHI: ["Ayna Ölçüsü", "Maks. Tornalama Çapı", "Maks. Tornalama Yüksekliği", "Fener Mili Devri (rpm)", "Taret İstasyon Sayısı"],
   ELEKTRONIK: ["Parça No", "Uyumlu Model", "Marka", "Garanti Süresi"],
   ELEKTRIK: ["Parça No", "Uyumlu Model", "Voltaj / Akım", "Marka"],
   MEKANIK: ["Parça No", "Uyumlu Model", "Malzeme", "Ölçü"],
@@ -1583,9 +1552,7 @@ const toSpecs = (keys: string[]): ProductSpec[] =>
   keys.length ? keys.map((key) => ({ key, value: "" })) : [{ key: "", value: "" }];
 
 const specsForType = (typeCode: string, categoryCode: string): ProductSpec[] =>
-  productSpecTemplate(typeCode).length
-    ? specsForProductType(typeCode, [])
-    : toSpecs(SPEC_TEMPLATE_BY_TYPE[typeCode] ?? SPEC_TEMPLATE_BY_CATEGORY[categoryCode] ?? []);
+  toSpecs(SPEC_TEMPLATE_BY_TYPE[typeCode] ?? SPEC_TEMPLATE_BY_CATEGORY[categoryCode] ?? []);
 
 const specsForCategory = (categoryCode: string): ProductSpec[] =>
   toSpecs(SPEC_TEMPLATE_BY_CATEGORY[categoryCode] ?? []);
@@ -1661,9 +1628,7 @@ const fromProduct = (p: Product): ProductFormState => ({
   originCountry: p.originCountry ?? "",
   hsCode: p.hsCode ?? "",
   stockCode: p.stockCode || p.model,
-  specs: p.specs.length
-    ? specsForProductType(p.productTypeCode, p.specs)
-    : (productSpecTemplate(p.productTypeCode).length ? specsForProductType(p.productTypeCode, []) : [{ key: "", value: "" }]),
+  specs: p.specs.length ? [...p.specs] : [{ key: "", value: "" }],
   standardEquipment: [...p.standardEquipment], optionalEquipment: [...p.optionalEquipment],
   muadilProductId: p.muadilProductId ?? "",
   status: p.status,
@@ -2148,25 +2113,9 @@ export function ProductDialog({
               <div className="space-y-2">
                 <div className="flex items-center justify-between gap-2">
                   <div className="text-[11px] text-muted-foreground">Ürün tipine göre değişiklik gösterecek teknik satırlar.</div>
-                  <div className="flex flex-wrap justify-end gap-1.5">
-                    {productSpecTemplate(form.productTypeCode).length > 0 && (
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        className="h-7"
-                        onClick={() => setForm((f) => ({
-                          ...f,
-                          specs: specsForProductType(f.productTypeCode, f.specs),
-                        }))}
-                      >
-                        Teknik şablonu uygula
-                      </Button>
-                    )}
-                    <Button type="button" variant="outline" size="sm" className="h-7 gap-1" onClick={addSpec}>
-                      <Plus className="size-3.5" /> Özellik Ekle
-                    </Button>
-                  </div>
+                  <Button type="button" variant="outline" size="sm" className="h-7 gap-1" onClick={addSpec}>
+                    <Plus className="size-3.5" /> Özellik Ekle
+                  </Button>
                 </div>
                 <div className="space-y-2">
                   {form.specs.map((s, i) => (
@@ -2275,33 +2224,16 @@ function ChipField({ label, chips, input, setInput, onAdd, onRemove, placeholder
           <Plus className="size-4" />
         </Button>
       </div>
-      <div className="mt-2 overflow-hidden rounded-md border border-border/70">
-        {chips.length === 0 ? (
-          <div className="px-3 py-3 text-xs text-muted-foreground">Henüz eklenmedi</div>
-        ) : (
-          <ol className="divide-y divide-border/60">
-            {chips.map((c, i) => (
-              <li key={`${c}-${i}`} className="group flex min-w-0 items-start gap-3 px-3 py-2">
-                <span className="mt-0.5 min-w-6 text-right text-xs font-medium tabular-nums text-muted-foreground">
-                  {i + 1}.
-                </span>
-                <span className="min-w-0 flex-1 whitespace-pre-wrap break-words text-sm leading-5">
-                  {c}
-                </span>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="h-7 w-7 shrink-0 text-muted-foreground hover:text-destructive"
-                  onClick={() => onRemove(i)}
-                  aria-label={`${c} donanımını sil`}
-                >
-                  <Trash2 className="size-3.5" />
-                </Button>
-              </li>
-            ))}
-          </ol>
-        )}
+      <div className="mt-2 flex flex-wrap gap-1.5 min-h-[28px]">
+        {chips.length === 0 && <span className="text-[11px] text-muted-foreground">Henüz eklenmedi</span>}
+        {chips.map((c, i) => (
+          <span key={`${c}-${i}`} className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[11px]">
+            {c}
+            <button type="button" onClick={() => onRemove(i)} className="hover:text-destructive">
+              <X className="size-3" />
+            </button>
+          </span>
+        ))}
       </div>
     </div>
   );
@@ -2435,18 +2367,9 @@ export type DeliveryFormState = {
   cncModel: string;
   cncSeriNo: string;
   cncMainSw: string;
-  technicalSpecs: ProductSpec[];
 };
 
-function machineToDeliveryFields(m?: {
-  brand?: string;
-  type?: string;
-  model: string;
-  serialNumber: string;
-  controlUnit?: string;
-  controlUnitSerial?: string;
-  technicalSpecs?: ProductSpec[];
-}) {
+function machineToDeliveryFields(m?: { brand?: string; type?: string; model: string; serialNumber: string; controlUnit?: string; controlUnitSerial?: string }) {
   if (!m) return {};
   return {
     tezgahMarka: m.brand ?? "",
@@ -2456,7 +2379,6 @@ function machineToDeliveryFields(m?: {
     cncMarka: m.controlUnit?.split(" ")[0] ?? "",
     cncModel: m.controlUnit?.split(" ").slice(1).join(" ") ?? "",
     cncSeriNo: m.controlUnitSerial ?? "",
-    technicalSpecs: (m.technicalSpecs ?? []).map((spec) => ({ ...spec })),
   };
 }
 
@@ -2479,9 +2401,6 @@ export function deliveryFormToPayload(form: DeliveryFormState) {
       seriNo: form.cncSeriNo.trim() || undefined,
       mainSw: form.cncMainSw.trim() || undefined,
     },
-    technicalSpecs: form.technicalSpecs
-      .filter((spec) => spec.key.trim() && spec.value.trim())
-      .map((spec) => ({ key: spec.key.trim(), value: spec.value.trim() })),
   };
 }
 
@@ -2499,7 +2418,6 @@ export function deliveryToFormState(d: {
     kurulumuYapan?: string;
     tezgah?: { marka?: string; tip?: string; model?: string; seriNo?: string };
     cnc?: { marka?: string; model?: string; seriNo?: string; mainSw?: string };
-    technicalSpecs?: ProductSpec[];
   };
 }, contactPerson?: string): DeliveryFormState {
   const fd = d.formData;
@@ -2522,7 +2440,6 @@ export function deliveryToFormState(d: {
     cncModel: fd?.cnc?.model ?? "",
     cncSeriNo: fd?.cnc?.seriNo ?? "",
     cncMainSw: fd?.cnc?.mainSw ?? "",
-    technicalSpecs: (fd?.technicalSpecs ?? []).map((spec) => ({ ...spec })),
   };
 }
 
@@ -2537,13 +2454,7 @@ export function DeliveryFormFields({
   setForm: React.Dispatch<React.SetStateAction<DeliveryFormState>>;
   customers: Customer[];
   casesForCustomer: { id: string; requestedProduct: string }[];
-  machinesForCustomer: {
-    id: string;
-    brand?: string;
-    model: string;
-    serialNumber: string;
-    technicalSpecs?: ProductSpec[];
-  }[];
+  machinesForCustomer: { id: string; brand?: string; model: string; serialNumber: string }[];
 }) {
   const applyMachine = (machineId: string) => {
     const m = machinesForCustomer.find((x) => x.id === machineId);
@@ -2569,7 +2480,6 @@ export function DeliveryFormFields({
                 salesCaseId: "",
                 machineId: "",
                 ilgili: cust?.contactPerson ?? "",
-                technicalSpecs: [],
               });
             }}
           >
@@ -2591,14 +2501,7 @@ export function DeliveryFormFields({
         </div>
         <div>
           <Label className="text-xs">Makine / Tezgah</Label>
-          <Select
-            value={form.machineId || "none"}
-            onValueChange={(v) => (
-              v === "none"
-                ? setForm({ ...form, machineId: "", technicalSpecs: [] })
-                : applyMachine(v)
-            )}
-          >
+          <Select value={form.machineId || "none"} onValueChange={(v) => (v === "none" ? setForm({ ...form, machineId: "" }) : applyMachine(v))}>
             <SelectTrigger className="mt-1.5"><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="none">Belirtilmedi</SelectItem>
@@ -2636,25 +2539,6 @@ export function DeliveryFormFields({
           <Field label="Cnc Seri No" value={form.cncSeriNo} onChange={(v) => setForm({ ...form, cncSeriNo: v })} />
           <Field label="Cnc Main S/W" value={form.cncMainSw} onChange={(v) => setForm({ ...form, cncMainSw: v })} />
         </div>
-      </div>
-
-      <div className="rounded-lg border border-border/60 p-3 space-y-2">
-        <div className="text-xs font-medium text-center">Teknik Bilgiler</div>
-        {form.technicalSpecs.length ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4">
-            {form.technicalSpecs.map((spec, index) => (
-              <div
-                key={`${spec.key}-${index}`}
-                className="flex items-start justify-between gap-3 border-b border-border/50 py-1.5 text-xs"
-              >
-                <span className="text-muted-foreground">{spec.key}</span>
-                <span className="text-right">{spec.value}</span>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <div className="text-xs text-muted-foreground">Seçilen makine için teknik bilgi bulunamadı.</div>
-        )}
       </div>
 
       <div className="rounded-lg border border-border/60 p-3 space-y-2">
@@ -2702,7 +2586,6 @@ export function CreateDeliveryDialog({ trigger, onCreated }: { trigger: React.Re
     cncModel: "",
     cncSeriNo: "",
     cncMainSw: "",
-    technicalSpecs: [],
   });
   const [form, setForm] = useState(emptyForm);
   const reset = () => setForm(emptyForm());
@@ -3501,8 +3384,10 @@ export function CreateInstallationDialog({
 
   const reset = () => setForm(emptyForm());
 
-  // Süre (saat + dk) → toplam dakika.
+  // Süre (saat + dk) → toplam dakika; ücret @haksan/shared ile hesaplanır
+  // (İstanbul içi 70$/saat, dışı 100$/saat; 15/45 dk eşikli yuvarlama).
   const totalMinutes = (parseInt(form.durationHours || "0", 10) || 0) * 60 + (parseInt(form.durationMinutes || "0", 10) || 0);
+  const fee = computeInstallationFee(totalMinutes, form.locationType);
 
   const selectedContacts = contacts.filter((c) => c.customerId === form.companyId);
   // Kurulum tutanağındaki tezgah/CNC alanları bu makineden doldurulur.
@@ -3605,7 +3490,7 @@ export function CreateInstallationDialog({
             </div>
             <Field label="Lokasyon" value={form.location} onChange={(v) => setForm({ ...form, location: v })} />
 
-            {/* ── Saha planlama ── */}
+            {/* ── Saha ücretlendirme ── */}
             <div className="col-span-2 grid grid-cols-2 gap-3 rounded-lg border border-border/60 bg-muted/30 p-3">
               <div>
                 <Label className="text-xs">Konum Tipi</Label>
@@ -3627,6 +3512,14 @@ export function CreateInstallationDialog({
                   <span className="text-muted-foreground text-sm">dk</span>
                 </div>
               </div>
+              <div className="col-span-2 flex items-center justify-between rounded-md bg-white border border-border/60 px-3 py-2">
+                <span className="inline-flex items-center gap-2 text-sm text-muted-foreground">
+                  <Wallet className="size-4 text-emerald-600" />
+                  Hesaplanan ücret
+                  <span className="text-[11px]">· {fee.billedHours} saat × ${fee.hourlyRate}</span>
+                </span>
+                <b className="tabular-nums text-emerald-700">$ {fee.amount.toLocaleString("tr-TR")}</b>
+              </div>
             </div>
 
             <div className="col-span-2">
@@ -3647,7 +3540,7 @@ export function CreateInstallationDialog({
 
 export function CreateMachineDialog({ children }: { children: React.ReactNode }) {
   const [open, setOpen] = useState(false);
-  const { customers, stock, machines, addMachine } = useStore();
+  const { customers, stock, addMachine } = useStore();
   const [form, setForm] = useState({
     customerId: "",
     stockItemId: "",
@@ -3657,90 +3550,6 @@ export function CreateMachineDialog({ children }: { children: React.ReactNode })
     warrantyStart: "",
     warrantyEnd: "",
   });
-  const [warrantyTouched, setWarrantyTouched] = useState({ start: false, end: false });
-
-  const machineStockUsed = useMemo(
-    () => new Set(machines.map((machine) => machine.stockItemId).filter(Boolean)),
-    [machines],
-  );
-
-  const stockCandidatesForCustomer = (customerId: string) =>
-    customerId
-      ? stock.filter((item) => {
-          const categoryCode = item.categoryCode ?? "TEZGAH";
-          return (
-            categoryCode === "TEZGAH" &&
-            item.reservedCompanyId === customerId &&
-            item.status !== "Inactive" &&
-            !machineStockUsed.has(item.id)
-          );
-        })
-      : [];
-
-  const companyStockCandidates = useMemo(
-    () => stockCandidatesForCustomer(form.customerId),
-    [form.customerId, stock, machineStockUsed],
-  );
-
-  const addYears = (dateString: string, years: number) => {
-    if (!dateString) return "";
-    const [year, month, day] = dateString.split("-").map(Number);
-    if (!year || !month || !day) return "";
-    const date = new Date(Date.UTC(year, month - 1, day));
-    date.setUTCFullYear(date.getUTCFullYear() + years);
-    return date.toISOString().slice(0, 10);
-  };
-
-  const applyStock = (item: (typeof stock)[number], base = form) => ({
-    ...base,
-    stockItemId: item.id,
-    model: item.counterModel || item.counterType || base.model,
-    serialNumber: item.serialNumber || base.serialNumber,
-  });
-
-  const resetForm = () => {
-    setWarrantyTouched({ start: false, end: false });
-    setForm({
-      customerId: "",
-      stockItemId: "",
-      serialNumber: "",
-      model: "",
-      installationDate: "",
-      warrantyStart: "",
-      warrantyEnd: "",
-    });
-  };
-
-  const selectCustomer = (value: string) => {
-    const customerId = value === "none" ? "" : value;
-    const candidates = stockCandidatesForCustomer(customerId);
-    const next = {
-      ...form,
-      customerId,
-      stockItemId: "",
-      model: "",
-      serialNumber: "",
-    };
-    setForm(candidates[0] ? applyStock(candidates[0], next) : next);
-  };
-
-  const selectStock = (value: string) => {
-    if (value === "none") {
-      setForm({ ...form, stockItemId: "", model: "", serialNumber: "" });
-      return;
-    }
-    const item = companyStockCandidates.find((candidate) => candidate.id === value);
-    if (item) setForm(applyStock(item));
-  };
-
-  const setInstallationDate = (installationDate: string) => {
-    setForm((current) => ({
-      ...current,
-      installationDate,
-      warrantyStart: warrantyTouched.start ? current.warrantyStart : installationDate,
-      warrantyEnd: warrantyTouched.end ? current.warrantyEnd : addYears(installationDate, 2),
-    }));
-  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -3755,7 +3564,15 @@ export function CreateMachineDialog({ children }: { children: React.ReactNode })
       });
       toast.success("Makine başarıyla eklendi.");
       setOpen(false);
-      resetForm();
+      setForm({
+        customerId: "",
+        stockItemId: "",
+        serialNumber: "",
+        model: "",
+        installationDate: "",
+        warrantyStart: "",
+        warrantyEnd: "",
+      });
     } catch (err) {
       toast.error("Makine eklenirken hata oluştu.");
     }
@@ -3773,7 +3590,7 @@ export function CreateMachineDialog({ children }: { children: React.ReactNode })
           <div className="grid grid-cols-2 gap-4">
             <div className="col-span-2">
               <Label className="text-xs">Firma Seçimi <span className="text-destructive">*</span></Label>
-              <Select value={form.customerId || "none"} onValueChange={selectCustomer}>
+              <Select value={form.customerId || "none"} onValueChange={(v) => setForm({ ...form, customerId: v === "none" ? "" : v })}>
                 <SelectTrigger className="mt-1.5"><SelectValue placeholder="Firma Seçin" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="none">Seçilmedi</SelectItem>
@@ -3783,48 +3600,12 @@ export function CreateMachineDialog({ children }: { children: React.ReactNode })
                 </SelectContent>
               </Select>
             </div>
-            {form.customerId && companyStockCandidates.length > 0 && (
-              <div className="col-span-2">
-                <Label className="text-xs">Stok / Seri No</Label>
-                <Select value={form.stockItemId || "none"} onValueChange={selectStock}>
-                  <SelectTrigger className="mt-1.5"><SelectValue placeholder="Makine seçin" /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">Manuel giriş</SelectItem>
-                    {companyStockCandidates.map((item) => (
-                      <SelectItem key={item.id} value={item.id}>
-                        {[item.counterModel || item.counterType, item.serialNumber].filter(Boolean).join(" · ")}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
             <Field label="Model *" value={form.model} onChange={(v) => setForm({ ...form, model: v })} />
             <Field label="Seri No *" value={form.serialNumber} onChange={(v) => setForm({ ...form, serialNumber: v })} />
-            <Field label="Kurulum Tarihi" type="date" value={form.installationDate} onChange={setInstallationDate} />
+            <Field label="Kurulum Tarihi" type="date" value={form.installationDate} onChange={(v) => setForm({ ...form, installationDate: v })} />
             <div />
-            <Field
-              label="Garanti Başlangıç"
-              type="date"
-              value={form.warrantyStart}
-              onChange={(v) => {
-                setWarrantyTouched((current) => ({ ...current, start: true }));
-                setForm((current) => ({
-                  ...current,
-                  warrantyStart: v,
-                  warrantyEnd: warrantyTouched.end ? current.warrantyEnd : addYears(v, 2),
-                }));
-              }}
-            />
-            <Field
-              label="Garanti Bitiş"
-              type="date"
-              value={form.warrantyEnd}
-              onChange={(v) => {
-                setWarrantyTouched((current) => ({ ...current, end: true }));
-                setForm((current) => ({ ...current, warrantyEnd: v }));
-              }}
-            />
+            <Field label="Garanti Başlangıç" type="date" value={form.warrantyStart} onChange={(v) => setForm({ ...form, warrantyStart: v })} />
+            <Field label="Garanti Bitiş" type="date" value={form.warrantyEnd} onChange={(v) => setForm({ ...form, warrantyEnd: v })} />
           </div>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => setOpen(false)}>Vazgeç</Button>
