@@ -1,9 +1,11 @@
-import { Body, Controller, Delete, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import {
   noteTemplateCreateSchema,
   noteTemplateListQuerySchema,
+  noteTemplateUpdateSchema,
   type NoteTemplateCreateInput,
   type NoteTemplateListQuery,
+  type NoteTemplateUpdateInput,
 } from '@haksan/shared';
 import { ZodValidationPipe } from '../../shared/utils/zod-pipe';
 import { AuthGuard } from '../../shared/security/auth.guard';
@@ -33,6 +35,16 @@ export class NoteTemplatesController {
     @CurrentUser() user: AuthContext
   ) {
     return this.svc.create(body, user);
+  }
+
+  @RequirePermissions('quotes.create')
+  @Patch(':id')
+  update(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(noteTemplateUpdateSchema)) body: NoteTemplateUpdateInput,
+    @CurrentUser() user: AuthContext
+  ) {
+    return this.svc.update(id, body, user);
   }
 
   @RequirePermissions('quotes.create')

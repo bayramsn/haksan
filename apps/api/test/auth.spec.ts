@@ -104,6 +104,32 @@ describe('Auth session lifecycle (refresh / logout)', () => {
     expect(r.body.accessToken).toBeNull();
   });
 
+  it('detects refresh-token reuse and revokes the whole session family', async () => {
+    const agent = supertest.agent(app.getHttpServer());
+    const login = await agent.post('/api/v1/auth/login').send({ email: 'admin@haksan.local', password: 'admin12345' });
+    expect(login.status).toBe(201);
+
+    // İlk refresh cookie'sini (T1) yakala — agent ikinci refresh'te onu T2 ile değiştirecek.
+    const rawSetCookie = login.headers['set-cookie'];
+    const cookieLine = (Array.isArray(rawSetCookie) ? rawSetCookie : [rawSetCookie]).find((c) => /haksan_rt=/.test(String(c)))!;
+    const t1 = String(cookieLine).split(';')[0]; // "haksan_rt=..."
+
+    // T1 ile bir kez dön → başarı, T2 üretilir, T1 artık revoked.
+    const rotated = await supertest(app.getHttpServer()).post('/api/v1/auth/refresh').set('Cookie', t1).send();
+    expect(rotated.status).toBe(201);
+    expect(rotated.body.accessToken).toBeTruthy();
+    const t2Line = (rotated.headers['set-cookie'] as string[]).find((c) => /haksan_rt=/.test(c))!;
+    const t2 = t2Line.split(';')[0];
+
+    // T1'i TEKRAR sun (reuse) → 401 ve oturum ailesi iptal edilir.
+    const reuse = await supertest(app.getHttpServer()).post('/api/v1/auth/refresh').set('Cookie', t1).send();
+    expect(reuse.status).toBe(401);
+
+    // T2 hâlâ "geçerli" görünse de aile iptal edildiği için artık çalışmamalı.
+    const t2AfterReuse = await supertest(app.getHttpServer()).post('/api/v1/auth/refresh').set('Cookie', t2).send();
+    expect(t2AfterReuse.status).toBe(401);
+  });
+
   it('revokes the session on /auth/logout so a subsequent refresh yields no token', async () => {
     const agent = supertest.agent(app.getHttpServer());
     await agent.post('/api/v1/auth/login').send({ email: 'admin@haksan.local', password: 'admin12345' });

@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import supertest from 'supertest';
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
 import { createTestApp } from './setup';
+import { INSTALLATION_FORM_DEFAULT_CHECKS } from '@haksan/shared';
 
 let app: NestFastifyApplication;
 let adminToken: string;
@@ -317,13 +318,43 @@ describe('Service — kurulum / sevkiyat / teslimat', () => {
     expect(warranty.body.coverageSuggestion).toBe('in_warranty');
   });
 
-  it('kurulum oluşturur ve saha ücretini hesaplar (İstanbul içi 90dk → 105$)', async () => {
+  it('kurulum oluşturur ve ücret yazmaz', async () => {
     const r = await supertest(app.getHttpServer())
       .post('/api/v1/installations')
       .set('Authorization', auth())
       .send({ companyId, locationType: 'istanbul_ici', durationMinutes: 90, scheduledDate: now() });
     expect(r.status).toBe(201);
-    expect(Number(r.body.feeAmount)).toBe(105);
+    expect(r.body.feeAmount).toBeNull();
+  });
+
+  it('kurulum tamamlamadan önce tutanak kontrol ve problem alanlarını zorunlu tutar', async () => {
+    const created = await supertest(app.getHttpServer())
+      .post('/api/v1/installations')
+      .set('Authorization', auth())
+      .send({ companyId, locationType: 'istanbul_ici', durationMinutes: 90, scheduledDate: now() });
+    expect(created.status).toBe(201);
+
+    const denied = await supertest(app.getHttpServer())
+      .patch(`/api/v1/installations/${created.body.id}/status`)
+      .set('Authorization', auth())
+      .send({ statusCode: 'completed', installationDate: now() });
+    expect(denied.status).toBe(422);
+
+    const formData = {
+      formNo: 'KRL-TEST',
+      problem: { hasProblem: false },
+      checks: INSTALLATION_FORM_DEFAULT_CHECKS.map((check) => ({
+        id: check.id,
+        label: check.label,
+        status: 'done',
+      })),
+    };
+    const completed = await supertest(app.getHttpServer())
+      .patch(`/api/v1/installations/${created.body.id}/status`)
+      .set('Authorization', auth())
+      .send({ statusCode: 'completed', installationDate: now(), formData });
+    expect(completed.status).toBe(200);
+    expect(completed.body.completedAt).toBeTruthy();
   });
 
   it('var olmayan companyId ile kurulum reddedilir (tenant izolasyonu)', async () => {

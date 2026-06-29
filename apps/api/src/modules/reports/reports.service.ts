@@ -139,6 +139,8 @@ export class ReportsService {
           eq(opportunities.currentStageId, pipelineStages.id),
           eq(opportunities.tenantId, actor.tenantId),
           isNull(opportunities.deletedAt),
+          // Mantıksal kapanış: kapatılan (arşivlenen) fırsatlar aktif pano sayımından düşer.
+          isNull(opportunities.closedAt),
           this.activeDivisionFilter(actor, opportunities.divisionId)
         )
       )

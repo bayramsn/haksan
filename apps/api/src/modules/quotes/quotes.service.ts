@@ -1,4 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
+import { existsSync } from 'node:fs';
 import { and, desc, eq, ilike, isNull, sql } from 'drizzle-orm';
 import type { DbClient } from '../../db/client';
 import { quotes, quoteItems, quoteTerms, proformas, contracts, commercialInvoices } from '../../db/schema/quotes';
@@ -35,6 +36,7 @@ import {
   resolveActorDivisionScope,
   resolveAssignedDivision,
 } from '../../shared/utils/division-scope';
+import { companyVisibilityFilter, companyVisibilityExistsFilter } from '../../shared/utils/company-visibility';
 
 interface ItemTotals {
   subtotal: number;
@@ -42,6 +44,20 @@ interface ItemTotals {
   vat: number;
   total: number;
 }
+
+const PDF_REGULAR_FONT_CANDIDATES = [
+  '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
+  '/System/Library/Fonts/Supplemental/Arial.ttf',
+  `${process.cwd()}/node_modules/@expo-google-fonts/plus-jakarta-sans/400Regular/PlusJakartaSans_400Regular.ttf`,
+];
+
+const PDF_BOLD_FONT_CANDIDATES = [
+  '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',
+  '/System/Library/Fonts/Supplemental/Arial Bold.ttf',
+  `${process.cwd()}/node_modules/@expo-google-fonts/plus-jakarta-sans/700Bold/PlusJakartaSans_700Bold.ttf`,
+];
+
+const firstExistingPath = (paths: string[]) => paths.find((p) => existsSync(p));
 
 @Injectable()
 export class QuotesService {
@@ -98,7 +114,8 @@ export class QuotesService {
         eq(companies.id, companyId),
         eq(companies.tenantId, actor.tenantId),
         isNull(companies.deletedAt),
-        companyPortfolioFilter(resolveActorDivisionScope(actor), companies.id) ?? sql`true`
+        companyPortfolioFilter(resolveActorDivisionScope(actor), companies.id) ?? sql`true`,
+        (await companyVisibilityFilter(this.db, actor)) ?? sql`true`
       ),
     });
     if (!company) throw new NotFoundError('Firma');
@@ -158,6 +175,8 @@ export class QuotesService {
     }
     const scoped = divisionFilter(resolveActorDivisionScope(actor), quotes.divisionId);
     if (scoped) filters.push(scoped);
+    const visibility = await companyVisibilityExistsFilter(this.db, actor, quotes.companyId);
+    if (visibility) filters.push(visibility);
     const where = and(...filters);
     const [{ count }] = await this.db.select({ count: sql<number>`count(*)::int` }).from(quotes).where(where);
     const rows = await this.db
@@ -183,12 +202,14 @@ export class QuotesService {
   }
 
   async get(id: string, actor: AuthContext) {
+    const visibility = await companyVisibilityExistsFilter(this.db, actor, quotes.companyId);
     const quote = await this.db.query.quotes.findFirst({
       where: and(
         eq(quotes.id, id),
         eq(quotes.tenantId, actor.tenantId),
         isNull(quotes.deletedAt),
-        divisionFilter(resolveActorDivisionScope(actor), quotes.divisionId) ?? sql`true`
+        divisionFilter(resolveActorDivisionScope(actor), quotes.divisionId) ?? sql`true`,
+        visibility ?? sql`true`
       ),
     });
     if (!quote) throw new NotFoundError('Teklif');
@@ -204,12 +225,14 @@ export class QuotesService {
    * bir Unicode TTF (örn. DejaVuSans) gömülebilir.
    */
   async generatePdf(id: string, actor: AuthContext): Promise<{ buffer: Buffer; filename: string }> {
+    const visibility = await companyVisibilityExistsFilter(this.db, actor, quotes.companyId);
     const quote = await this.db.query.quotes.findFirst({
       where: and(
         eq(quotes.id, id),
         eq(quotes.tenantId, actor.tenantId),
         isNull(quotes.deletedAt),
-        divisionFilter(resolveActorDivisionScope(actor), quotes.divisionId) ?? sql`true`
+        divisionFilter(resolveActorDivisionScope(actor), quotes.divisionId) ?? sql`true`,
+        visibility ?? sql`true`
       ),
     });
     if (!quote) throw new NotFoundError('Teklif');
@@ -224,11 +247,6 @@ export class QuotesService {
       : null;
     const cur = currency?.code ?? '';
 
-    const tr = (s: string | null | undefined): string =>
-      (s ?? '')
-        .replace(/ş/g, 's').replace(/Ş/g, 'S')
-        .replace(/ğ/g, 'g').replace(/Ğ/g, 'G')
-        .replace(/ı/g, 'i').replace(/İ/g, 'I');
     const money = (v: string | number | null | undefined) =>
       `${Number(v ?? 0).toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${cur}`.trim();
 
@@ -240,18 +258,47 @@ export class QuotesService {
       doc.on('error', reject);
     });
 
+    const regularFontPath = firstExistingPath(PDF_REGULAR_FONT_CANDIDATES);
+    const boldFontPath = firstExistingPath(PDF_BOLD_FONT_CANDIDATES);
+    const regularFont = regularFontPath ? 'HaksanRegular' : 'Helvetica';
+    const boldFont = boldFontPath ? 'HaksanBold' : 'Helvetica-Bold';
+    if (regularFontPath) doc.registerFont(regularFont, regularFontPath);
+    if (boldFontPath) doc.registerFont(boldFont, boldFontPath);
+
+    const supportsTurkish = !!regularFontPath;
+    const tr = (s: string | null | undefined): string => {
+      const value = s ?? '';
+      if (supportsTurkish) return value;
+      return value
+        .replace(/ş/g, 's').replace(/Ş/g, 'S')
+        .replace(/ğ/g, 'g').replace(/Ğ/g, 'G')
+        .replace(/ı/g, 'i').replace(/İ/g, 'I');
+    };
+
+    const ensureSpace = (height: number) => {
+      if (doc.y + height <= 790) return;
+      doc.addPage();
+      doc.y = 50;
+    };
+
+    const splitTermLines = (value: string | null | undefined) =>
+      tr(value)
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter(Boolean);
+
     // Başlık
-    doc.fontSize(22).font('Helvetica-Bold').text('TEKLIF', { align: 'right' });
-    doc.font('Helvetica').fontSize(10)
+    doc.fontSize(22).font(boldFont).text(tr('FİYAT TEKLİFİ'), { align: 'right' });
+    doc.font(regularFont).fontSize(10)
       .text(`No: ${tr(quote.documentNo)}`, { align: 'right' })
       .text(`Tarih: ${new Date(quote.quoteDate).toLocaleDateString('tr-TR')}`, { align: 'right' })
-      .text(`Gecerlilik: ${quote.validityDays} gun`, { align: 'right' });
+      .text(`Geçerlilik: ${quote.validityDays} gün`, { align: 'right' });
 
     // Müşteri
     doc.moveDown(1.5);
-    doc.fontSize(11).font('Helvetica-Bold').text('Musteri', 50);
-    doc.font('Helvetica').fontSize(11).text(tr(company?.legalTitle ?? '-'), 50);
-    if (contact?.fullName) doc.text(`Ilgili: ${tr(contact.fullName)}`, 50);
+    doc.fontSize(11).font(boldFont).text('Müşteri', 50);
+    doc.font(regularFont).fontSize(11).text(tr(company?.legalTitle ?? '-'), 50);
+    if (contact?.fullName) doc.text(`İlgili: ${tr(contact.fullName)}`, 50);
     if (contact?.workPhone || contact?.mobilePhone) {
       doc.text(`Tel: ${tr([contact.workPhone, contact.mobilePhone].filter(Boolean).join(' / '))}`, 50);
     }
@@ -264,15 +311,15 @@ export class QuotesService {
     doc.moveDown(1.5);
     const top = doc.y;
     const x = { no: 50, desc: 80, qty: 330, price: 400, total: 480 };
-    doc.fontSize(9).font('Helvetica-Bold');
+    doc.fontSize(9).font(boldFont);
     doc.text('#', x.no, top, { lineBreak: false });
-    doc.text('Aciklama', x.desc, top, { lineBreak: false });
+    doc.text('Açıklama', x.desc, top, { lineBreak: false });
     doc.text('Miktar', x.qty, top, { lineBreak: false });
     doc.text('B.Fiyat', x.price, top, { lineBreak: false });
     doc.text('Tutar', x.total, top, { lineBreak: false });
     doc.moveTo(50, top + 14).lineTo(545, top + 14).stroke();
 
-    doc.font('Helvetica').fontSize(9);
+    doc.font(regularFont).fontSize(9);
     let y = top + 20;
     const rowH = 16;
     for (let i = 0; i < items.length; i++) {
@@ -291,7 +338,7 @@ export class QuotesService {
     // Toplamlar
     y += 12;
     const totalLine = (label: string, val: string, bold = false) => {
-      doc.font(bold ? 'Helvetica-Bold' : 'Helvetica').fontSize(bold ? 11 : 9);
+      doc.font(bold ? boldFont : regularFont).fontSize(bold ? 11 : 9);
       doc.text(label, 340, y, { width: 110, align: 'right', lineBreak: false });
       doc.text(val, 455, y, { width: 90, align: 'right', lineBreak: false });
       y += bold ? 20 : 15;
@@ -301,19 +348,33 @@ export class QuotesService {
     totalLine('KDV', money(quote.vatAmount));
     totalLine('GENEL TOPLAM', money(quote.grandTotal), true);
 
-    // Şartlar
-    const termRows = ([
-      ['Odeme', terms?.paymentTermsText ?? quote.paymentTerms],
-      ['Teslim', terms?.deliveryTermsText ?? quote.deliveryTerms],
-      ['Garanti', terms?.warrantyTermsText ?? quote.warrantyTerms],
-      ['Notlar', quote.notes],
-    ] as Array<[string, string | null | undefined]>).filter(([, v]) => v);
-    if (termRows.length) {
+    // Şartlar — örnek formdaki gibi 1/2/3 ve a/b/c maddeleri.
+    const termSections = ([
+      ['ÖDEME ŞARTLARI', splitTermLines(terms?.paymentTermsText ?? quote.paymentTerms)],
+      ['TESLİMAT ŞARTLARI', splitTermLines(terms?.deliveryTermsText ?? quote.deliveryTerms)],
+      ['GARANTİ ŞARTLARI', splitTermLines(terms?.warrantyTermsText ?? quote.warrantyTerms)],
+      ['NOTLAR', splitTermLines(quote.notes)],
+    ] as Array<[string, string[]]>).filter(([, lines]) => lines.length > 0);
+
+    if (termSections.length) {
       doc.x = 50;
       doc.y = y + 24;
-      doc.font('Helvetica-Bold').fontSize(10).text('Sartlar', 50);
-      doc.font('Helvetica').fontSize(9);
-      for (const [k, v] of termRows) doc.text(`${k}: ${tr(v)}`, 50, undefined, { width: 495 });
+      termSections.forEach(([title, lines], sectionIndex) => {
+        ensureSpace(24);
+        doc.font(boldFont).fontSize(10).text(`${sectionIndex + 1}. ${title}`, 50, doc.y, { width: 495 });
+        doc.moveDown(0.3);
+        lines.forEach((line, lineIndex) => {
+          const label = `${String.fromCharCode(97 + lineIndex)}.`;
+          const textWidth = 465;
+          const textHeight = doc.font(regularFont).fontSize(9).heightOfString(line, { width: textWidth, align: 'left' });
+          ensureSpace(textHeight + 8);
+          const rowY = doc.y;
+          doc.font(boldFont).fontSize(9).text(label, 62, rowY, { width: 14, lineBreak: false });
+          doc.font(regularFont).fontSize(9).text(line, 82, rowY, { width: textWidth, align: 'left' });
+          doc.y = rowY + textHeight + 4;
+        });
+        doc.moveDown(0.35);
+      });
     }
 
     doc.end();
@@ -454,6 +515,7 @@ export class QuotesService {
     for (const k of ['quantity', 'unitPrice', 'discountAmount', 'vatRate'] as const) {
       if ((input as any)[k] !== undefined) patch[k] = ((input as any)[k] as number | undefined)?.toString();
     }
+    if (input.compatibility !== undefined) patch.compatibility = input.compatibility ?? null;
     if (input.unitCode !== undefined) patch.unitId = await lookupIdByCode(this.db, units, input.unitCode);
 
     // Recalc line totals
@@ -560,17 +622,25 @@ export class QuotesService {
     const rows = await this.db
       .select({
         proforma: proformas,
-        quote: { id: quotes.id, documentNo: quotes.documentNo, companyId: quotes.companyId, opportunityId: quotes.opportunityId },
+        quote: { id: quotes.id, documentNo: quotes.documentNo, companyId: quotes.companyId, opportunityId: quotes.opportunityId, grandTotal: quotes.grandTotal },
+        company: { id: companies.id, legalTitle: companies.legalTitle, shortName: companies.shortName },
+        currency: { id: currencies.id, code: currencies.code },
         status: { id: proformaStatuses.id, code: proformaStatuses.code, name: proformaStatuses.name },
       })
       .from(proformas)
       .leftJoin(quotes, eq(proformas.quoteId, quotes.id))
+      .leftJoin(companies, eq(quotes.companyId, companies.id))
+      .leftJoin(currencies, eq(quotes.currencyId, currencies.id))
       .leftJoin(proformaStatuses, eq(proformas.statusId, proformaStatuses.id))
       .where(where)
       .orderBy(desc(proformas.issueDate))
       .limit(limit)
       .offset(offset);
-    return buildPaginated(rows.map((r) => ({ ...r.proforma, quote: r.quote, status: r.status })), count, page);
+    return buildPaginated(
+      rows.map((r) => ({ ...r.proforma, quote: r.quote, company: r.company, currency: r.currency, status: r.status })),
+      count,
+      page
+    );
   }
 
   async createProforma(input: ProformaCreateInput, actor: AuthContext) {
@@ -635,17 +705,25 @@ export class QuotesService {
     const rows = await this.db
       .select({
         contract: contracts,
-        quote: { id: quotes.id, documentNo: quotes.documentNo, companyId: quotes.companyId, opportunityId: quotes.opportunityId },
+        quote: { id: quotes.id, documentNo: quotes.documentNo, companyId: quotes.companyId, opportunityId: quotes.opportunityId, grandTotal: quotes.grandTotal },
+        company: { id: companies.id, legalTitle: companies.legalTitle, shortName: companies.shortName },
+        currency: { id: currencies.id, code: currencies.code },
         status: { id: contractStatuses.id, code: contractStatuses.code, name: contractStatuses.name },
       })
       .from(contracts)
       .leftJoin(quotes, eq(contracts.quoteId, quotes.id))
+      .leftJoin(companies, eq(quotes.companyId, companies.id))
+      .leftJoin(currencies, eq(quotes.currencyId, currencies.id))
       .leftJoin(contractStatuses, eq(contracts.statusId, contractStatuses.id))
       .where(where)
       .orderBy(desc(contracts.createdAt))
       .limit(limit)
       .offset(offset);
-    return buildPaginated(rows.map((r) => ({ ...r.contract, quote: r.quote, status: r.status })), count, page);
+    return buildPaginated(
+      rows.map((r) => ({ ...r.contract, quote: r.quote, company: r.company, currency: r.currency, status: r.status })),
+      count,
+      page
+    );
   }
 
   async createContract(input: ContractCreateInput, actor: AuthContext) {

@@ -34,6 +34,7 @@ import {
   resolveAssignedDivision,
   type DivisionScope,
 } from '../../shared/utils/division-scope';
+import { companyVisibilityFilter } from '../../shared/utils/company-visibility';
 
 @Injectable()
 export class CompaniesService {
@@ -83,6 +84,8 @@ export class CompaniesService {
     const filters = [eq(companies.id, companyId), eq(companies.tenantId, actor.tenantId), isNull(companies.deletedAt)];
     const portfolio = companyPortfolioFilter(this.scope(actor), companies.id);
     if (portfolio) filters.push(portfolio);
+    const visibility = await companyVisibilityFilter(this.db, actor);
+    if (visibility) filters.push(visibility);
     const row = await this.db.query.companies.findFirst({ where: and(...filters) });
     if (!row) throw new NotFoundError('Firma');
     return row;
@@ -124,6 +127,8 @@ export class CompaniesService {
     }
     const portfolio = companyPortfolioFilter(this.scope(actor), companies.id);
     if (portfolio) filters.push(portfolio);
+    const visibility = await companyVisibilityFilter(this.db, actor);
+    if (visibility) filters.push(visibility);
 
     const where = and(...filters);
     const [{ count }] = await this.db
@@ -384,6 +389,20 @@ export class CompaniesService {
     return company;
   }
 
+  /**
+   * Tenant + role-bazlı (ilişki tipi/durum) görünürlük doğrular; bölüm portföyünü
+   * UYGULAMAZ. Bölümler-arası (cross-division) okumalarda kullanılır: kullanıcı
+   * firmayı hiç göremiyorsa (ör. saf tedarikçi + satış rolü) 404 döner.
+   */
+  private async assertCompanyRelationVisible(companyId: string, actor: AuthContext) {
+    const filters = [eq(companies.id, companyId), eq(companies.tenantId, actor.tenantId), isNull(companies.deletedAt)];
+    const visibility = await companyVisibilityFilter(this.db, actor);
+    if (visibility) filters.push(visibility);
+    const row = await this.db.query.companies.findFirst({ where: and(...filters) });
+    if (!row) throw new NotFoundError('Firma');
+    return row;
+  }
+
   private async userIdsInDivision(divisionId: string): Promise<string[]> {
     const rows = await this.db
       .select({ userId: userDivisions.userId })
@@ -534,7 +553,7 @@ export class CompaniesService {
   }
 
   async crossDivisionDebt(companyId: string, actor: AuthContext) {
-    await this.ensureCompanyTenant(companyId, actor);
+    await this.assertCompanyRelationVisible(companyId, actor);
     const scope = this.scope(actor);
     const excludedDivisionIds = scope.mode === 'list' ? scope.divisionIds : actor.divisionIds;
     const filters = [

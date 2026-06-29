@@ -161,6 +161,16 @@ export class AdminController {
     for (const k of ['fullName', 'phone', 'departmentId', 'status'] as const) {
       if ((body as any)[k] !== undefined) patch[k] = (body as any)[k];
     }
+    // E-posta değişimi hassas bir işlemdir: yalnızca super_admin yapabilir ve
+    // tenant içinde benzersiz olmalıdır (silinmiş kullanıcılar dahil — uniq index).
+    if (body.email !== undefined && body.email !== existing.email) {
+      this.requireSuperAdmin(user);
+      const emailOwner = await this.db.query.users.findFirst({
+        where: and(eq(users.tenantId, user.tenantId), eq(users.email, body.email)),
+      });
+      if (emailOwner && emailOwner.id !== id) throw new ConflictError('Bu e-posta zaten kayıtlı');
+      patch.email = body.email;
+    }
     if (body.purchaseApprovalLimit !== undefined) {
       patch.purchaseApprovalLimit = body.purchaseApprovalLimit;
     }
@@ -174,7 +184,12 @@ export class AdminController {
       }
       patch.managerId = body.managerId;
     }
-    if (body.password) patch.passwordHash = await hashPassword(body.password);
+    // Şifre değişimi yalnızca super_admin'e açık (kullanıcılar kendi şifrelerini
+    // "şifremi unuttum" e-posta akışıyla yeniler).
+    if (body.password) {
+      this.requireSuperAdmin(user);
+      patch.passwordHash = await hashPassword(body.password);
+    }
     // Yalnızca rol/bölüm değişen PATCH'lerde `patch` boş kalır; boş `.set()` Drizzle'da
     // "No values to set" ile 500 atar (krş. updateRole/updateTenant deseni).
     if (Object.keys(patch).length > 0) {
@@ -209,6 +224,8 @@ export class AdminController {
   @RequirePermissions('users.delete')
   @Delete('users/:id')
   async deleteUser(@Param('id') id: string, @CurrentUser() user: AuthContext) {
+    // Kullanıcı silme yalnızca super_admin'e açık (users.delete izni tek başına yetmez).
+    this.requireSuperAdmin(user);
     if (id === user.userId) {
       throw new ForbiddenError('Kullanıcı kendi hesabını silemez');
     }

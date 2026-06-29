@@ -141,7 +141,20 @@ describe('RBAC permissions', () => {
     expect(r.status).toBe(403);
   });
 
-  it('admin can soft-delete a user, revoke refresh, and hide it from the user list', async () => {
+  it('admin (users.*) cannot delete users — deletion is super_admin only', async () => {
+    const server = app.getHttpServer();
+    const users = await supertest(server).get('/api/v1/users').set('Authorization', `Bearer ${tokens.admin}`);
+    expect(users.status).toBe(200);
+    const target = users.body.find((row: any) => row.email === 'readonly@haksan.local') ?? users.body[0];
+    expect(target?.id).toBeTruthy();
+
+    const r = await supertest(server)
+      .delete(`/api/v1/users/${target.id}`)
+      .set('Authorization', `Bearer ${tokens.admin}`);
+    expect(r.status).toBe(403);
+  });
+
+  it('super_admin can soft-delete a user, revoke refresh, and hide it from the user list', async () => {
     const server = app.getHttpServer();
     const email = `delete-user-${Date.now()}@haksan.local`;
     const password = 'deleteUser12345';
@@ -161,7 +174,7 @@ describe('RBAC permissions', () => {
 
     const removed = await supertest(server)
       .delete(`/api/v1/users/${userId}`)
-      .set('Authorization', `Bearer ${tokens.admin}`);
+      .set('Authorization', `Bearer ${tokens.superAdmin}`);
     expect(removed.status).toBe(200);
     expect(removed.body.ok).toBe(true);
 
@@ -216,53 +229,63 @@ describe('RBAC permissions', () => {
     expect(allowed.status).toBe(201);
   });
 
-  it('admin cannot delete self or the last super_admin user', async () => {
+  it('super_admin cannot delete their own account', async () => {
     const server = app.getHttpServer();
-    const me = await supertest(server).get('/api/v1/auth/me').set('Authorization', `Bearer ${tokens.admin}`);
+    const me = await supertest(server).get('/api/v1/auth/me').set('Authorization', `Bearer ${tokens.superAdmin}`);
     expect(me.status).toBe(200);
 
     const selfDelete = await supertest(server)
       .delete(`/api/v1/users/${me.body.user.id}`)
-      .set('Authorization', `Bearer ${tokens.admin}`);
+      .set('Authorization', `Bearer ${tokens.superAdmin}`);
     expect(selfDelete.status).toBe(403);
+  });
 
-    const { getDb } = await import('../src/db/client');
-    const { sql } = await import('drizzle-orm');
-    const db = getDb();
-    const activeSupers = await db.execute(sql`
-      SELECT u.id
-      FROM users u
-      JOIN user_roles ur ON ur.user_id = u.id
-      JOIN roles r ON r.id = ur.role_id
-      WHERE u.tenant_id = ${me.body.user.tenantId}
-        AND r.code = 'super_admin'
-        AND u.status = 'active'
-        AND u.deleted_at IS NULL
-    `);
-    const superRows = (activeSupers as any).rows as Array<{ id: string }>;
-    expect(superRows.length).toBeGreaterThan(0);
-    const [targetSuperAdmin, ...otherSuperAdmins] = superRows;
+  it('password & email changes are super_admin only; admin (users.*) is rejected', async () => {
+    const server = app.getHttpServer();
+    // Yan etki bırakmamak için bu teste özel atılabilir bir kullanıcı oluştur.
+    const email = `pw-email-target-${Date.now()}@haksan.local`;
+    const created = await supertest(server)
+      .post('/api/v1/users')
+      .set('Authorization', `Bearer ${tokens.admin}`)
+      .send({ fullName: 'PwEmail Target', email, password: 'initialPwd12345', roleCodes: ['readonly'], divisionIds: [] });
+    expect(created.status).toBe(201);
+    const targetId = created.body.id;
 
-    try {
-      if (otherSuperAdmins.length > 0) {
-        await db.execute(sql`
-          UPDATE users
-          SET deleted_at = now(), status = 'passive'
-          WHERE id IN (${sql.join(otherSuperAdmins.map((row) => sql`${row.id}`), sql`, `)})
-        `);
-      }
+    // admin: şifre değişimi yasak
+    const adminPw = await supertest(server)
+      .patch(`/api/v1/users/${targetId}`)
+      .set('Authorization', `Bearer ${tokens.admin}`)
+      .send({ password: 'newPassword12345' });
+    expect(adminPw.status).toBe(403);
 
-      const lastSuperAdminDelete = await supertest(server)
-        .delete(`/api/v1/users/${targetSuperAdmin.id}`)
-        .set('Authorization', `Bearer ${tokens.admin}`);
-      expect(lastSuperAdminDelete.status).toBe(409);
-    } finally {
-      await db.execute(sql`
-        UPDATE users
-        SET deleted_at = NULL, status = 'active'
-        WHERE id IN (${sql.join(superRows.map((row) => sql`${row.id}`), sql`, `)})
-      `);
-    }
+    // admin: e-posta değişimi yasak
+    const adminEmail = await supertest(server)
+      .patch(`/api/v1/users/${targetId}`)
+      .set('Authorization', `Bearer ${tokens.admin}`)
+      .send({ email: `changed-${Date.now()}@haksan.local` });
+    expect(adminEmail.status).toBe(403);
+
+    // admin: hassas olmayan alan (fullName) hâlâ güncellenebilir
+    const adminName = await supertest(server)
+      .patch(`/api/v1/users/${targetId}`)
+      .set('Authorization', `Bearer ${tokens.admin}`)
+      .send({ fullName: 'PwEmail Target 2' });
+    expect(adminName.status).toBe(200);
+
+    // super_admin: şifre değişimi serbest
+    const superPw = await supertest(server)
+      .patch(`/api/v1/users/${targetId}`)
+      .set('Authorization', `Bearer ${tokens.superAdmin}`)
+      .send({ password: 'superSetPwd12345' });
+    expect(superPw.status).toBe(200);
+
+    // super_admin: e-posta değişimi serbest
+    const newEmail = `pw-email-renamed-${Date.now()}@haksan.local`;
+    const superEmail = await supertest(server)
+      .patch(`/api/v1/users/${targetId}`)
+      .set('Authorization', `Bearer ${tokens.superAdmin}`)
+      .send({ email: newEmail });
+    expect(superEmail.status).toBe(200);
   });
 
   it('sales can read companies', async () => {

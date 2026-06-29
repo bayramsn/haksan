@@ -323,7 +323,7 @@ export class ExportsService {
         base['Alış'] = cur?.purchases ?? r.purchases ?? 0;
         base['Ödeme'] = cur?.payouts ?? r.payouts ?? 0;
         base['Alacak (bizim borcumuz)'] = cur?.alacak ?? r.alacak ?? 0;
-        base['Net'] = cur?.net ?? r.netBorc;
+        base['Toplam Bakiye'] = cur?.totalBalance ?? cur?.net ?? r.totalBalance ?? r.netBorc;
       }
       return base;
     });

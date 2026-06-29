@@ -12,25 +12,25 @@ import {
   shipmentItems,
   deliveries,
 } from '../../db/schema/service';
-import { serviceTicketStatuses, installationStatuses, shipmentStatuses, inventoryStatuses, units } from '../../db/schema/lookup';
+import { serviceTicketStatuses, installationStatuses, shipmentStatuses, inventoryStatuses, productTypes, units } from '../../db/schema/lookup';
 import { companies, contacts } from '../../db/schema/companies';
 import { opportunities } from '../../db/schema/crm';
 import { customerDevices, inventoryItems, inventoryMovements } from '../../db/schema/inventory';
 import { salesOrders, salesOrderItems } from '../../db/schema/orders';
-import { productModels } from '../../db/schema/products';
+import { brands, productModels, productSpecs } from '../../db/schema/products';
 import { quotes } from '../../db/schema/quotes';
 import { users as usersTable } from '../../db/schema/users';
 import { DB } from '../../shared/database/database.module';
 import {
   paginationSchema,
   type Pagination,
-  computeInstallationFee,
-  type InstallationLocationType,
   shipmentCreateSchema,
   shipmentStatusUpdateSchema,
   deliveryCreateSchema,
   deliveryUpdateSchema,
   deliveryStatusUpdateSchema,
+  installationFormDataSchema,
+  INSTALLATION_FORM_DEFAULT_CHECKS,
   type ShipmentItemInput,
 } from '@haksan/shared';
 import { ZodValidationPipe } from '../../shared/utils/zod-pipe';
@@ -42,6 +42,7 @@ import { NotFoundError, ValidationError } from '../../shared/utils/errors';
 import { buildPaginated, pageOffset } from '../../shared/utils/pagination';
 import { lookupIdByCode } from '../../shared/utils/lookup.helper';
 import { divisionFilter, resolveActorDivisionScope, resolveAssignedDivision } from '../../shared/utils/division-scope';
+import { companyVisibilityExistsFilter } from '../../shared/utils/company-visibility';
 
 const ticketCreate = z.object({
   ticketNo: z.string().min(1).max(64).optional(),
@@ -145,11 +146,50 @@ const installCreate = z.object({
   locationType: z.enum(['istanbul_ici', 'istanbul_disi']).optional(),
   durationMinutes: z.coerce.number().int().min(0).max(100000).optional(),
   notes: z.string().max(2000).optional(),
+  formData: installationFormDataSchema.optional(),
+});
+const installUpdate = z.object({
+  divisionId: z.string().uuid().optional(),
+  opportunityId: z.string().optional().nullable(),
+  quoteId: z.string().optional().nullable(),
+  customerDeviceId: z.string().optional().nullable(),
+  companyId: z.string().optional().nullable(),
+  contactId: z.string().optional().nullable(),
+  scheduledDate: z.coerce.date().optional().nullable(),
+  assignedToUserId: z.string().optional().nullable(),
+  location: z.string().max(255).optional().nullable(),
+  locationType: z.enum(['istanbul_ici', 'istanbul_disi']).optional().nullable(),
+  durationMinutes: z.coerce.number().int().min(0).max(100000).optional().nullable(),
+  notes: z.string().max(2000).optional().nullable(),
+  formData: installationFormDataSchema.optional().nullable(),
 });
 const installStatusUpdate = z.object({
   statusCode: z.enum(['scheduled', 'in_progress', 'completed', 'cancelled']),
   installationDate: z.coerce.date().optional(),
+  formData: installationFormDataSchema.optional(),
 });
+
+const assertInstallationCompletionReady = (formData: z.infer<typeof installationFormDataSchema> | null | undefined) => {
+  if (!formData) {
+    throw new ValidationError('Kurulumu tamamlamadan önce Kurulum Tutanağı doldurulmalıdır', { field: 'formData' });
+  }
+  if (typeof formData.problem?.hasProblem !== 'boolean') {
+    throw new ValidationError('Kurulumu tamamlamadan önce "Problem var mı?" alanı işaretlenmelidir', {
+      field: 'formData.problem.hasProblem',
+    });
+  }
+  const checks = formData.checks ?? [];
+  const missing = INSTALLATION_FORM_DEFAULT_CHECKS.filter((required) => {
+    const row = checks.find((check) => check.id === required.id || check.label === required.label);
+    return row?.status !== 'done' && row?.status !== 'not_done';
+  });
+  if (missing.length > 0) {
+    throw new ValidationError('Kurulum kontrol çizelgesindeki tüm standart satırlar işaretlenmelidir', {
+      field: 'formData.checks',
+      missing: missing.map((row) => row.label),
+    });
+  }
+};
 
 // Sevkiyat/teslimat doğrulama şemaları @haksan/shared'a taşındı (shipment.ts).
 // Eski kayıtlarda origin/destination/eta `notes` içine JSON gömülüydü; aşağıdaki
@@ -227,12 +267,14 @@ export class ServiceController {
   }
 
   private async getScopedTicket(id: string, user: AuthContext) {
+    const visibility = await companyVisibilityExistsFilter(this.db, user, serviceTickets.companyId);
     const ticket = await this.db.query.serviceTickets.findFirst({
       where: and(
         eq(serviceTickets.id, id),
         eq(serviceTickets.tenantId, user.tenantId),
         isNull(serviceTickets.deletedAt),
-        divisionFilter(resolveActorDivisionScope(user), serviceTickets.divisionId) ?? sql`true`
+        divisionFilter(resolveActorDivisionScope(user), serviceTickets.divisionId) ?? sql`true`,
+        visibility ?? sql`true`
       ),
     });
     if (!ticket) throw new NotFoundError('Servis kaydı');
@@ -759,10 +801,12 @@ export class ServiceController {
   @Get('service-tickets')
   async listTickets(@Query(new ZodValidationPipe(paginationSchema)) p: Pagination, @CurrentUser() user: AuthContext) {
     const { limit, offset } = pageOffset(p);
+    const visibility = await companyVisibilityExistsFilter(this.db, user, serviceTickets.companyId);
     const where = and(
       eq(serviceTickets.tenantId, user.tenantId),
       isNull(serviceTickets.deletedAt),
-      divisionFilter(resolveActorDivisionScope(user), serviceTickets.divisionId) ?? sql`true`
+      divisionFilter(resolveActorDivisionScope(user), serviceTickets.divisionId) ?? sql`true`,
+      visibility ?? sql`true`
     );
     const [{ count }] = await this.db.select({ count: sql<number>`count(*)::int` }).from(serviceTickets).where(where);
     const rows = await this.db
@@ -851,11 +895,13 @@ export class ServiceController {
   @RequirePermissions('service_tickets.update')
   @Patch('service-tickets/:id')
   async updateTicket(@Param('id') id: string, @Body(new ZodValidationPipe(ticketUpdate)) body: z.infer<typeof ticketUpdate>, @CurrentUser() user: AuthContext) {
+    const ticketVisibility = await companyVisibilityExistsFilter(this.db, user, serviceTickets.companyId);
     const ticket = await this.db.query.serviceTickets.findFirst({
       where: and(
         eq(serviceTickets.id, id),
         eq(serviceTickets.tenantId, user.tenantId),
-        divisionFilter(resolveActorDivisionScope(user), serviceTickets.divisionId) ?? sql`true`
+        divisionFilter(resolveActorDivisionScope(user), serviceTickets.divisionId) ?? sql`true`,
+        ticketVisibility ?? sql`true`
       ),
     });
     if (!ticket) throw new NotFoundError('Servis kaydı');
@@ -1039,11 +1085,13 @@ export class ServiceController {
   @RequirePermissions('service_tickets.update')
   @Patch('service-tickets/:id/status')
   async updateTicketStatus(@Param('id') id: string, @Body(new ZodValidationPipe(ticketStatus)) body: z.infer<typeof ticketStatus>, @CurrentUser() user: AuthContext) {
+    const ticketVisibility = await companyVisibilityExistsFilter(this.db, user, serviceTickets.companyId);
     const ticket = await this.db.query.serviceTickets.findFirst({
       where: and(
         eq(serviceTickets.id, id),
         eq(serviceTickets.tenantId, user.tenantId),
-        divisionFilter(resolveActorDivisionScope(user), serviceTickets.divisionId) ?? sql`true`
+        divisionFilter(resolveActorDivisionScope(user), serviceTickets.divisionId) ?? sql`true`,
+        ticketVisibility ?? sql`true`
       ),
     });
     if (!ticket) throw new NotFoundError('Servis kaydı');
@@ -1052,6 +1100,17 @@ export class ServiceController {
       if (!serviceQuoteSchema.safeParse(quote).success) {
         throw new ValidationError('Bakım/Onarım aşamasından önce Servis Teklifi formu eksiksiz doldurulmalıdır', {
           field: 'serviceQuote',
+        });
+      }
+    }
+    if (body.serviceStage === 'Signed Form' || body.serviceStage === 'Closed' || body.statusCode === 'closed') {
+      const completionForm = (ticket.metadata as Record<string, unknown> | null)?.completionForm;
+      const signedAt = completionForm && typeof completionForm === 'object'
+        ? String((completionForm as Record<string, unknown>).signedAt ?? '').trim()
+        : '';
+      if (!signedAt) {
+        throw new ValidationError('Servisi kapatmadan önce Servis Tamamlama Formu imzalanmalıdır', {
+          field: 'completionForm.signedAt',
         });
       }
     }
@@ -1083,17 +1142,82 @@ export class ServiceController {
         company: { id: companies.id, legalTitle: companies.legalTitle, shortName: companies.shortName },
         contact: { id: contacts.id, fullName: contacts.fullName },
         assignedTo: { id: usersTable.id, fullName: usersTable.fullName },
+        customerDevice: {
+          id: customerDevices.id,
+          productModelId: inventoryItems.productModelId,
+          serialNumber: inventoryItems.serialNumber,
+          controlUnit: inventoryItems.controlUnit,
+          controlUnitSerialNumber: inventoryItems.controlUnitSerialNumber,
+          model: productModels.modelCode,
+          productModelName: productModels.modelName,
+          brandName: brands.name,
+          productTypeName: productTypes.name,
+        },
       })
       .from(installationJobs)
       .leftJoin(installationStatuses, eq(installationJobs.statusId, installationStatuses.id))
       .leftJoin(companies, eq(installationJobs.companyId, companies.id))
       .leftJoin(contacts, eq(installationJobs.contactId, contacts.id))
       .leftJoin(usersTable, eq(installationJobs.assignedToUserId, usersTable.id))
+      .leftJoin(customerDevices, eq(installationJobs.customerDeviceId, customerDevices.id))
+      .leftJoin(inventoryItems, eq(customerDevices.inventoryItemId, inventoryItems.id))
+      .leftJoin(productModels, eq(inventoryItems.productModelId, productModels.id))
+      .leftJoin(brands, eq(productModels.brandId, brands.id))
+      .leftJoin(productTypes, eq(productModels.productTypeId, productTypes.id))
       .where(where)
       .orderBy(desc(installationJobs.createdAt))
       .limit(limit)
       .offset(offset);
-    return buildPaginated(rows.map((r) => ({ ...r.installation, status: r.status, company: r.company, contact: r.contact, assignedTo: r.assignedTo })), count, p);
+    const productModelIds = [
+      ...new Set(
+        rows
+          .map((row) => row.customerDevice?.productModelId)
+          .filter((id): id is string => Boolean(id))
+      ),
+    ];
+    const specRows = productModelIds.length
+      ? await this.db
+          .select({
+            productModelId: productSpecs.productModelId,
+            key: productSpecs.specKey,
+            value: productSpecs.specValue,
+            unit: productSpecs.specUnit,
+          })
+          .from(productSpecs)
+          .where(
+            and(
+              eq(productSpecs.tenantId, user.tenantId),
+              isNull(productSpecs.deletedAt),
+              inArray(productSpecs.productModelId, productModelIds)
+            )
+          )
+          .orderBy(asc(productSpecs.sortOrder))
+      : [];
+    const specsByProduct = new Map<string, Array<{ key: string; value: string; unit?: string | null }>>();
+    for (const spec of specRows) {
+      const list = specsByProduct.get(spec.productModelId) ?? [];
+      list.push({ key: spec.key, value: spec.value, unit: spec.unit });
+      specsByProduct.set(spec.productModelId, list);
+    }
+    return buildPaginated(
+      rows.map((r) => ({
+        ...r.installation,
+        status: r.status,
+        company: r.company,
+        contact: r.contact,
+        assignedTo: r.assignedTo,
+        customerDevice: r.customerDevice?.id
+          ? {
+              ...r.customerDevice,
+              technicalSpecs: r.customerDevice.productModelId
+                ? specsByProduct.get(r.customerDevice.productModelId) ?? []
+                : [],
+            }
+          : null,
+      })),
+      count,
+      p
+    );
   }
 
   @RequirePermissions('installations.create')
@@ -1110,12 +1234,6 @@ export class ServiceController {
     const scheduled = await this.db.query.installationStatuses.findFirst({ where: eq(installationStatuses.code, 'scheduled') });
     const divisionId = resolveAssignedDivision(user, body.divisionId ?? opportunity?.divisionId ?? quote?.divisionId ?? null);
     if (!divisionId) throw new ValidationError('Kurulum için bölüm ataması zorunludur', { field: 'divisionId' });
-    // Konum tipi + süre verildiyse saha ücretini @haksan/shared ile hesapla
-    // (İstanbul içi 70$/saat, dışı 100$/saat; 15/45 dk eşikli yuvarlama).
-    const fee =
-      body.locationType && body.durationMinutes != null
-        ? computeInstallationFee(body.durationMinutes, body.locationType as InstallationLocationType)
-        : null;
     const [row] = await this.db
       .insert(installationJobs)
       .values({
@@ -1132,10 +1250,54 @@ export class ServiceController {
         location: body.location ?? null,
         locationType: body.locationType ?? null,
         durationMinutes: body.durationMinutes ?? null,
-        feeAmount: fee ? fee.amount.toString() : null,
+        feeAmount: null,
         notes: body.notes ?? null,
+        formData: body.formData ?? null,
       })
       .returning();
+    return row;
+  }
+
+  @RequirePermissions('installations.update')
+  @Patch('installations/:id')
+  async updateInstallation(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(installUpdate)) body: z.infer<typeof installUpdate>,
+    @CurrentUser() user: AuthContext,
+  ) {
+    const job = await this.db.query.installationJobs.findFirst({
+      where: and(
+        eq(installationJobs.id, id),
+        eq(installationJobs.tenantId, user.tenantId),
+        isNull(installationJobs.deletedAt),
+        divisionFilter(resolveActorDivisionScope(user), installationJobs.divisionId) ?? sql`true`
+      ),
+    });
+    if (!job) throw new NotFoundError('Kurulum');
+    const companyId = body.companyId ?? job.companyId;
+    if (body.companyId) await this.assertCompany(body.companyId, user.tenantId);
+    if (body.opportunityId) await this.assertOpportunity(body.opportunityId, user.tenantId, companyId);
+    if (body.quoteId) await this.assertQuote(body.quoteId, user.tenantId, companyId, body.opportunityId ?? job.opportunityId);
+    if (body.contactId) await this.assertContact(body.contactId, user.tenantId, companyId);
+    if (body.customerDeviceId) await this.assertCustomerDevice(body.customerDeviceId, user.tenantId, companyId);
+    if (body.assignedToUserId) await this.assertUser(body.assignedToUserId, user.tenantId);
+
+    const patch: Partial<typeof installationJobs.$inferInsert> = {};
+    if (body.divisionId !== undefined) patch.divisionId = resolveAssignedDivision(user, body.divisionId) ?? null;
+    if (body.opportunityId !== undefined) patch.opportunityId = body.opportunityId ?? null;
+    if (body.quoteId !== undefined) patch.quoteId = body.quoteId ?? null;
+    if (body.customerDeviceId !== undefined) patch.customerDeviceId = body.customerDeviceId ?? null;
+    if (body.companyId !== undefined) patch.companyId = body.companyId ?? null;
+    if (body.contactId !== undefined) patch.contactId = body.contactId ?? null;
+    if (body.scheduledDate !== undefined) patch.scheduledDate = body.scheduledDate ?? null;
+    if (body.assignedToUserId !== undefined) patch.assignedToUserId = body.assignedToUserId ?? null;
+    if (body.location !== undefined) patch.location = body.location ?? null;
+    if (body.locationType !== undefined) patch.locationType = body.locationType ?? null;
+    if (body.durationMinutes !== undefined) patch.durationMinutes = body.durationMinutes ?? null;
+    if (body.notes !== undefined) patch.notes = body.notes ?? null;
+    if (body.formData !== undefined) patch.formData = body.formData ?? null;
+
+    const [row] = await this.db.update(installationJobs).set(patch).where(eq(installationJobs.id, id)).returning();
     return row;
   }
 
@@ -1157,8 +1319,10 @@ export class ServiceController {
     if (!job) throw new NotFoundError('Kurulum');
     const statusId = await lookupIdByCode(this.db, installationStatuses, body.statusCode);
     const patch: Record<string, unknown> = { statusId };
+    if (body.formData !== undefined) patch.formData = body.formData;
     if (body.statusCode === 'in_progress' && !job.startedAt) patch.startedAt = new Date();
     if (body.statusCode === 'completed') {
+      assertInstallationCompletionReady(body.formData ?? job.formData);
       const completedAt = body.installationDate ?? new Date();
       patch.completedAt = completedAt;
       if (job.customerDeviceId) {
