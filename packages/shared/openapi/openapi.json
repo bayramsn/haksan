@@ -6487,10 +6487,6 @@
           "companyId": {
             "type": "string"
           },
-          "divisionId": {
-            "type": "string",
-            "nullable": true
-          },
           "title": {
             "type": "string"
           },
@@ -6498,15 +6494,9 @@
             "type": "string",
             "nullable": true
           },
-          "stage": {
-            "type": "string"
-          },
           "estimatedValue": {
-            "type": "number",
+            "type": "string",
             "nullable": true
-          },
-          "currencyCode": {
-            "type": "string"
           },
           "probability": {
             "type": "integer"
@@ -6521,21 +6511,236 @@
           },
           "createdAt": {
             "type": "string"
+          },
+          "company": {
+            "type": "object",
+            "nullable": true,
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "legalTitle": {
+                "type": "string"
+              },
+              "shortName": {
+                "type": "string",
+                "nullable": true
+              }
+            },
+            "required": [
+              "id",
+              "legalTitle",
+              "shortName"
+            ]
+          },
+          "stage": {
+            "type": "object",
+            "nullable": true,
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "code": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "code",
+              "name"
+            ]
+          },
+          "currency": {
+            "type": "object",
+            "nullable": true,
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "code": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "code"
+            ]
           }
         },
         "required": [
           "id",
           "companyId",
-          "divisionId",
           "title",
           "description",
-          "stage",
           "estimatedValue",
-          "currencyCode",
           "probability",
           "expectedCloseDate",
           "ownerUserId",
-          "createdAt"
+          "createdAt",
+          "company",
+          "stage",
+          "currency"
+        ]
+      },
+      "CompanyDTO": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "legalTitle": {
+            "type": "string"
+          },
+          "shortName": {
+            "type": "string",
+            "nullable": true
+          },
+          "sector": {
+            "type": "string",
+            "nullable": true
+          },
+          "taxNumber": {
+            "type": "string",
+            "nullable": true
+          },
+          "website": {
+            "type": "string",
+            "nullable": true
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "primaryPhone": {
+            "type": "string",
+            "nullable": true
+          },
+          "primaryEmail": {
+            "type": "string",
+            "nullable": true
+          },
+          "relationType": {
+            "type": "object",
+            "nullable": true,
+            "properties": {
+              "code": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "code",
+              "name"
+            ]
+          },
+          "customerStatus": {
+            "type": "object",
+            "nullable": true,
+            "properties": {
+              "code": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "code",
+              "name"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "legalTitle",
+          "shortName",
+          "sector",
+          "taxNumber",
+          "website",
+          "createdAt",
+          "primaryPhone",
+          "primaryEmail",
+          "relationType",
+          "customerStatus"
+        ]
+      },
+      "ContactDTO": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "companyId": {
+            "type": "string"
+          },
+          "fullName": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string",
+            "nullable": true
+          },
+          "department": {
+            "type": "string",
+            "nullable": true
+          },
+          "workPhone": {
+            "type": "string",
+            "nullable": true
+          },
+          "mobilePhone": {
+            "type": "string",
+            "nullable": true
+          },
+          "workEmail": {
+            "type": "string",
+            "nullable": true
+          },
+          "personalEmail": {
+            "type": "string",
+            "nullable": true
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "company": {
+            "type": "object",
+            "nullable": true,
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "legalTitle": {
+                "type": "string"
+              },
+              "shortName": {
+                "type": "string",
+                "nullable": true
+              }
+            },
+            "required": [
+              "id",
+              "legalTitle",
+              "shortName"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "companyId",
+          "fullName",
+          "title",
+          "department",
+          "workPhone",
+          "mobilePhone",
+          "workEmail",
+          "personalEmail",
+          "createdAt",
+          "company"
         ]
       }
     },
@@ -6544,6 +6749,7 @@
   "paths": {
     "/auth/login": {
       "post": {
+        "operationId": "login",
         "tags": [
           "auth"
         ],
@@ -6583,6 +6789,7 @@
     },
     "/auth/refresh": {
       "post": {
+        "operationId": "refresh",
         "tags": [
           "auth"
         ],
@@ -6621,6 +6828,7 @@
     },
     "/auth/logout": {
       "post": {
+        "operationId": "logout",
         "tags": [
           "auth"
         ],
@@ -6634,6 +6842,7 @@
     },
     "/auth/forgot-password": {
       "post": {
+        "operationId": "forgotPassword",
         "tags": [
           "auth"
         ],
@@ -6673,6 +6882,7 @@
     },
     "/auth/reset-password": {
       "post": {
+        "operationId": "resetPassword",
         "tags": [
           "auth"
         ],
@@ -6709,6 +6919,7 @@
     },
     "/auth/me": {
       "get": {
+        "operationId": "getMe",
         "tags": [
           "auth"
         ],
@@ -6744,6 +6955,7 @@
     },
     "/opportunities": {
       "get": {
+        "operationId": "listOpportunities",
         "tags": [
           "opportunities"
         ],
@@ -6854,6 +7066,7 @@
         }
       },
       "post": {
+        "operationId": "createOpportunity",
         "tags": [
           "opportunities"
         ],
@@ -6887,6 +7100,7 @@
     },
     "/opportunities/{id}": {
       "get": {
+        "operationId": "getOpportunity",
         "tags": [
           "opportunities"
         ],
@@ -6929,6 +7143,7 @@
         }
       },
       "patch": {
+        "operationId": "updateOpportunity",
         "tags": [
           "opportunities"
         ],
@@ -6970,6 +7185,7 @@
         }
       },
       "delete": {
+        "operationId": "deleteOpportunity",
         "tags": [
           "opportunities"
         ],
@@ -6997,6 +7213,7 @@
     },
     "/opportunities/{id}/stage": {
       "patch": {
+        "operationId": "changeOpportunityStage",
         "tags": [
           "opportunities"
         ],
@@ -7032,6 +7249,251 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/OpportunityDTO"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/companies": {
+      "get": {
+        "operationId": "listCompanies",
+        "tags": [
+          "companies"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "integer",
+              "nullable": true
+            },
+            "required": false,
+            "name": "page",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "nullable": true
+            },
+            "required": false,
+            "name": "pageSize",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "name": "search",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "name": "relationTypeCode",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "name": "customerStatusCode",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Sayfalı firma listesi",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/CompanyDTO"
+                      }
+                    },
+                    "meta": {
+                      "type": "object",
+                      "properties": {
+                        "page": {
+                          "type": "integer"
+                        },
+                        "pageSize": {
+                          "type": "integer"
+                        },
+                        "total": {
+                          "type": "integer"
+                        },
+                        "totalPages": {
+                          "type": "integer"
+                        }
+                      },
+                      "required": [
+                        "page",
+                        "pageSize",
+                        "total",
+                        "totalPages"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "data",
+                    "meta"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/companies/{id}": {
+      "get": {
+        "operationId": "getCompany",
+        "tags": [
+          "companies"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Firma",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CompanyDTO"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Bulunamadı",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/contacts": {
+      "get": {
+        "operationId": "listContacts",
+        "tags": [
+          "contacts"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "integer",
+              "nullable": true
+            },
+            "required": false,
+            "name": "page",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "nullable": true
+            },
+            "required": false,
+            "name": "pageSize",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "name": "search",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "name": "companyId",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Sayfalı kontak listesi",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/ContactDTO"
+                      }
+                    },
+                    "meta": {
+                      "type": "object",
+                      "properties": {
+                        "page": {
+                          "type": "integer"
+                        },
+                        "pageSize": {
+                          "type": "integer"
+                        },
+                        "total": {
+                          "type": "integer"
+                        },
+                        "totalPages": {
+                          "type": "integer"
+                        }
+                      },
+                      "required": [
+                        "page",
+                        "pageSize",
+                        "total",
+                        "totalPages"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "data",
+                    "meta"
+                  ]
                 }
               }
             }

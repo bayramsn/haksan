@@ -15,6 +15,8 @@ export type UserCreateInput = z.infer<typeof userCreateSchema>;
 
 export const userUpdateSchema = z.object({
   fullName: z.string().min(1).max(255).optional(),
+  // E-posta değişikliği yalnızca super_admin tarafından yapılabilir (controller'da zorlanır).
+  email: z.string().email().max(255).optional(),
   phone: z.string().max(32).optional(),
   departmentId: z.string().nullable().optional(),
   status: z.enum(['active', 'passive']).optional(),

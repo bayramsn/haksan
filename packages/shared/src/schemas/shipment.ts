@@ -78,6 +78,69 @@ export const deliveryCncInfoSchema = z.object({
 });
 export type DeliveryCncInfo = z.infer<typeof deliveryCncInfoSchema>;
 
+export const deliveryTechnicalSpecSchema = z.object({
+  key: z.string().trim().min(1).max(255),
+  value: z.string().trim().max(1000),
+});
+export type DeliveryTechnicalSpec = z.infer<typeof deliveryTechnicalSpecSchema>;
+
+export const INSTALLATION_FORM_DEFAULT_CHECKS = [
+  { id: 'tezgah-montaji', label: 'Tezgah Montajı' },
+  { id: 'tezgah-dengeye-alinmasi', label: 'Tezgahın Dengeye Alınması' },
+  { id: 'elektrik-baglantisi', label: 'Elektrik Bağlantısı' },
+  { id: 'yaglama-sistemi', label: 'Yağlama Sistemi Kontrolü' },
+  { id: 'sogutma-sistemi', label: 'Soğutma Sistemi Kontrolü' },
+  { id: 'hidrolik-sistemi', label: 'Hidrolik Sistemi Kontrolü' },
+  { id: 'cnc-parametreleri', label: 'Cnc Parametreleri Kontrolü' },
+  { id: 'ilk-calistirma', label: 'Tezgahın İlk Çalıştırılması' },
+  { id: 'parametre-yedek', label: 'Parametrelerin Yedeklenmesi' },
+] as const;
+
+export const installationCheckStatusSchema = z.enum(['done', 'not_done']);
+export type InstallationCheckStatus = z.infer<typeof installationCheckStatusSchema>;
+
+export const installationCheckSchema = z.object({
+  id: z.string().trim().max(128).optional(),
+  label: z.string().trim().min(1).max(255),
+  status: installationCheckStatusSchema.optional(),
+  note: z.string().trim().max(1000).optional(),
+});
+export type InstallationCheck = z.infer<typeof installationCheckSchema>;
+
+export const installationProblemSchema = z.object({
+  hasProblem: z.boolean().optional(),
+  note: z.string().trim().max(2000).optional(),
+  actionNote: z.string().trim().max(2000).optional(),
+});
+export type InstallationProblem = z.infer<typeof installationProblemSchema>;
+
+export const installationUserInfoSchema = z.object({
+  firma: z.string().max(255).optional(),
+  ilgili: z.string().max(255).optional(),
+  adres: z.string().max(1000).optional(),
+  telefon: z.string().max(64).optional(),
+  faks: z.string().max(64).optional(),
+  gsm: z.string().max(64).optional(),
+  eposta: z.string().max(255).optional(),
+});
+export type InstallationUserInfo = z.infer<typeof installationUserInfoSchema>;
+
+export const installationFormDataSchema = z.object({
+  formNo: z.string().max(64).optional(),
+  teslimTarihi: z.coerce.date().optional(),
+  kurulumTarihi: z.coerce.date().optional(),
+  machineId: z.string().optional(),
+  tezgah: deliveryMachineInfoSchema.optional(),
+  cnc: deliveryCncInfoSchema.optional(),
+  kullanici: installationUserInfoSchema.optional(),
+  technicalSpecs: z.array(deliveryTechnicalSpecSchema).max(100).optional(),
+  checks: z.array(installationCheckSchema).max(50).optional(),
+  problem: installationProblemSchema.optional(),
+  kurulumuYapan: z.string().max(255).optional(),
+  teslimAlan: z.string().max(255).optional(),
+});
+export type InstallationFormData = z.infer<typeof installationFormDataSchema>;
+
 /** Teslimat / kurulum tutanağı yazdırma alanları. */
 export const deliveryFormDataSchema = z.object({
   formNo: z.string().max(64).optional(),
@@ -87,6 +150,7 @@ export const deliveryFormDataSchema = z.object({
   cnc: deliveryCncInfoSchema.optional(),
   ilgili: z.string().max(255).optional(),
   kurulumuYapan: z.string().max(255).optional(),
+  technicalSpecs: z.array(deliveryTechnicalSpecSchema).max(100).optional(),
 });
 export type DeliveryFormData = z.infer<typeof deliveryFormDataSchema>;
 

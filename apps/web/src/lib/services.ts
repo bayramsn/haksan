@@ -33,6 +33,7 @@ import type {
   InventoryReserveInput,
   InventorySellInput,
   NoteTemplateCreateInput,
+  NoteTemplateUpdateInput,
   OpportunityCreateInput,
   OpportunityStageChangeInput,
   OpportunityUpdateInput,
@@ -281,6 +282,10 @@ export const opportunityService = {
   update: (id: string, body: OpportunityUpdateInput) => api.patch<any>(`/opportunities/${id}`, body),
   remove: (id: string) => api.delete(`/opportunities/${id}`),
   changeStage: (id: string, body: OpportunityStageChangeInput) => api.patch<any>(`/opportunities/${id}/stage`, body),
+  // Mantıksal kapanış (Bitir/Arşiv) — silmez; closedAt set eder. Yalnız terminal (delivered/cancelled).
+  close: (id: string, body?: { reason?: string }) => api.post<any>(`/opportunities/${id}/close`, body ?? {}),
+  // Geri Aç — kapanışı geri alır, fırsatı aktif panoya döndürür.
+  reopen: (id: string) => api.post<any>(`/opportunities/${id}/reopen`, {}),
 };
 
 // ───── Activities ─────
@@ -492,8 +497,9 @@ export const quoteService = {
 
 // ───── Note templates (reusable quote notes) ─────
 export const noteTemplateService = {
-  list: (scope = 'quote') => api.get<any[]>(`/note-templates${qs({ scope })}`),
+  list: (scope?: string) => api.get<any[]>(`/note-templates${qs(scope ? { scope } : undefined)}`),
   create: (body: NoteTemplateCreateInput) => api.post<any>('/note-templates', body),
+  update: (id: string, body: NoteTemplateUpdateInput) => api.patch<any>(`/note-templates/${id}`, body),
   remove: (id: string) => api.delete(`/note-templates/${id}`),
 };
 
@@ -583,7 +589,8 @@ export const serviceService = {
   rejectWarranty: (id: string, decisionNote?: string) => api.post<any>(`/service-tickets/${id}/warranty/reject`, { decisionNote }),
   installations: (params?: Record<string, string | number | undefined>) => api.get<Paginated<any>>(`/installations${qs(params)}`),
   createInstallation: (body: any) => api.post<any>('/installations', body),
-  updateInstallationStatus: (id: string, body: { statusCode: string; installationDate?: string }) =>
+  updateInstallation: (id: string, body: any) => api.patch<any>(`/installations/${id}`, body),
+  updateInstallationStatus: (id: string, body: { statusCode: string; installationDate?: string; formData?: any }) =>
     api.patch<any>(`/installations/${id}/status`, body),
   shipments: (params?: Record<string, string | number | undefined>) => api.get<Paginated<any>>(`/shipments${qs(params)}`),
   shipment: (id: string) => api.get<any>(`/shipments/${id}`),
@@ -731,6 +738,7 @@ export const adminService = {
   users: () => api.get<any[]>('/users'),
   createUser: (body: UserCreateInput) => api.post<any>('/users', body),
   updateUser: (id: string, body: UserUpdateInput) => api.patch<any>(`/users/${id}`, body),
+  deleteUser: (id: string) => api.delete(`/users/${id}`),
   userTargets: (params?: Record<string, string | number | undefined>) => api.get<any[]>(`/user-targets${qs(params)}`),
   myTargets: (params?: Record<string, string | number | undefined>) => api.get<any[]>(`/me/targets${qs(params)}`),
   saveUserTarget: (userId: string, body: TargetUpsertInput) => api.post<any>(`/users/${userId}/targets`, body),
