@@ -4,9 +4,11 @@ import { Input } from "../ui/input";
 import { Tabs, TabsList, TabsTrigger } from "../ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../ui/table";
-import { Search, ChevronRight, Lock, Wrench, Package } from "lucide-react";
+import { Search, ChevronRight, Lock, Wrench, Package, Pencil, Check, X } from "lucide-react";
+import { toast } from "sonner";
 import { Product } from "../../lib/mock";
 import { useStore } from "../../lib/store";
+import { useAuth } from "../../../lib/auth";
 import { ProductDetailDialog, ProductThumb } from "../dialogs/ProductDetailDialog";
 import { productService } from "../../../lib/services";
 
@@ -32,6 +34,87 @@ function ReadOnlyNote({ text }: { text: string }) {
   );
 }
 
+/**
+ * Süper admin için satır-içi düzenlenebilir fiyat hücresi. Tıklayınca input olur,
+ * Enter/✓ ile kaydeder, Esc/✕ ile iptal eder. Satırın onClick'ini tetiklememek
+ * için tüm etkileşimlerde stopPropagation uygulanır.
+ */
+function EditablePriceCell({
+  value,
+  currency,
+  editable,
+  className = "",
+  onSave,
+}: {
+  value?: number | null;
+  currency?: string;
+  editable: boolean;
+  className?: string;
+  onSave: (next: number) => Promise<void> | void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [text, setText] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const begin = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!editable || busy) return;
+    setText(value != null ? String(value) : "");
+    setEditing(true);
+  };
+
+  const commit = async () => {
+    const next = Number(text.replace(/\./g, "").replace(",", "."));
+    if (text.trim() === "" || Number.isNaN(next)) {
+      setEditing(false);
+      return;
+    }
+    setBusy(true);
+    try {
+      await onSave(next);
+      setEditing(false);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (editing) {
+    return (
+      <TableCell className={`text-right ${className}`} onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-end gap-1">
+          <Input
+            autoFocus
+            inputMode="decimal"
+            value={text}
+            disabled={busy}
+            onChange={(e) => setText(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") commit();
+              if (e.key === "Escape") setEditing(false);
+            }}
+            className="h-8 w-28 text-right tabular-nums bg-white"
+          />
+          <button type="button" onClick={commit} disabled={busy} className="text-emerald-600 hover:text-emerald-700 disabled:opacity-50" title="Kaydet">
+            <Check className="size-4" />
+          </button>
+          <button type="button" onClick={(e) => { e.stopPropagation(); setEditing(false); }} className="text-muted-foreground hover:text-foreground" title="İptal">
+            <X className="size-4" />
+          </button>
+        </div>
+      </TableCell>
+    );
+  }
+
+  return (
+    <TableCell className={`text-right tabular-nums ${className}`} onClick={editable ? begin : undefined}>
+      <span className={`inline-flex items-center gap-1.5 ${editable ? "cursor-text group/price hover:text-primary" : ""}`}>
+        {fmtMoney(value, currency)}
+        {editable && <Pencil className="size-3 text-muted-foreground opacity-0 group-hover/price:opacity-100" />}
+      </span>
+    </TableCell>
+  );
+}
+
 function SearchBox({ q, setQ, placeholder }: { q: string; setQ: (v: string) => void; placeholder: string }) {
   return (
     <div className="relative w-full sm:w-72 sm:ml-auto">
@@ -45,7 +128,9 @@ function SearchBox({ q, setQ, placeholder }: { q: string; setQ: (v: string) => v
    SATIŞ FİYAT LİSTESİ — tezgahlar; tıklayınca uyumlu opsiyonel donanım + fiyat
    ========================================================================= */
 export function SalesPriceListPage() {
-  const { products } = useStore();
+  const { products, patchProduct } = useStore();
+  const { hasRole } = useAuth();
+  const canEdit = hasRole("super_admin");
   const [q, setQ] = useState("");
   const [selected, setSelected] = useState<Product | null>(null);
   const [priceLists, setPriceLists] = useState<Array<{ id: string; name: string; code: string; isActive?: boolean; currency?: { code?: string } }>>([]);
@@ -92,10 +177,29 @@ export function SalesPriceListPage() {
   const machines = useMemo(() => products.filter((p) => p.categoryCode === "TEZGAH"), [products]);
   const filtered = machines.filter((p) => matches(p, q));
 
+  // Süper admin satır-içi fiyat düzenlemesi: ürünün baz fiyatını PATCH'ler ve
+  // hem store (tablo geneli) hem de yerel override haritası anında güncellenir.
+  const savePrice = async (p: Product, field: "cashPrice" | "listPrice", next: number) => {
+    try {
+      await patchProduct(p.id, { [field]: next });
+      setPriceOverrides((prev) => ({ ...prev, [p.id]: { ...prev[p.id], [field]: next } }));
+      toast.success("Fiyat güncellendi");
+    } catch {
+      toast.error("Fiyat güncellenemedi");
+    }
+  };
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-3 flex-wrap">
-        <ReadOnlyNote text="Fiyat listesi salt-okunur. Tezgaha tıklayarak uyumlu opsiyonel donanımları ve fiyatlarını görebilirsiniz." />
+        {canEdit ? (
+          <div className="flex items-center gap-2 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-xs text-primary">
+            <Pencil className="size-3.5 shrink-0" />
+            <span>Süper admin: Peşin ve Liste fiyatlarına tıklayarak düzenleyebilir; satıra tıklayarak diğer tüm alanları (KDV, stok kodu, açıklama vb.) güncelleyebilirsiniz.</span>
+          </div>
+        ) : (
+          <ReadOnlyNote text="Fiyat listesi salt-okunur. Tezgaha tıklayarak uyumlu opsiyonel donanımları ve fiyatlarını görebilirsiniz." />
+        )}
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full sm:w-auto">
           {priceLists.length > 0 && (
             <Select value={selectedListId || "none"} onValueChange={(v) => setSelectedListId(v === "none" ? "" : v)}>
@@ -145,8 +249,19 @@ export function SalesPriceListPage() {
                   </TableCell>
                   <TableCell className="text-sm">{p.brand}</TableCell>
                   <TableCell className="text-sm text-muted-foreground">{p.type || "—"}</TableCell>
-                  <TableCell className="text-right tabular-nums text-emerald-600">{fmtMoney(cash, cur)}</TableCell>
-                  <TableCell className="text-right tabular-nums">{fmtMoney(list, cur)}</TableCell>
+                  <EditablePriceCell
+                    value={cash}
+                    currency={cur}
+                    editable={canEdit}
+                    className="text-emerald-600"
+                    onSave={(next) => savePrice(p, "cashPrice", next)}
+                  />
+                  <EditablePriceCell
+                    value={list}
+                    currency={cur}
+                    editable={canEdit}
+                    onSave={(next) => savePrice(p, "listPrice", next)}
+                  />
                   <TableCell><ChevronRight className="size-4 text-muted-foreground opacity-0 group-hover:opacity-100" /></TableCell>
                 </TableRow>
               );})}
@@ -172,7 +287,9 @@ export function SalesPriceListPage() {
    SERVİS FİYAT LİSTESİ — sadece yedek parça + işçilik
    ========================================================================= */
 export function ServicePriceListPage() {
-  const { products } = useStore();
+  const { products, patchProduct } = useStore();
+  const { hasRole } = useAuth();
+  const canEdit = hasRole("super_admin");
   const [tab, setTab] = useState<"parts" | "labor">("parts");
   const [q, setQ] = useState("");
   const [selected, setSelected] = useState<Product | null>(null);
@@ -181,6 +298,15 @@ export function ServicePriceListPage() {
   const labor = useMemo(() => products.filter((p) => p.categoryCode === "ISCILIK"), [products]);
 
   const list = (tab === "parts" ? spareParts : labor).filter((p) => matches(p, q));
+
+  const savePrice = async (p: Product, field: "cashPrice" | "listPrice", next: number) => {
+    try {
+      await patchProduct(p.id, { [field]: next });
+      toast.success("Fiyat güncellendi");
+    } catch {
+      toast.error("Fiyat güncellenemedi");
+    }
+  };
 
   return (
     <div className="space-y-4">
@@ -200,7 +326,14 @@ export function ServicePriceListPage() {
         <SearchBox q={q} setQ={setQ} placeholder={tab === "parts" ? "Parça, marka ara..." : "İşçilik kalemi ara..."} />
       </div>
 
-      <ReadOnlyNote text="Servis fiyat listesi salt-okunur. Yalnızca yedek parça ve işçilik kalemlerini içerir." />
+      {canEdit ? (
+        <div className="flex items-center gap-2 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-xs text-primary">
+          <Pencil className="size-3.5 shrink-0" />
+          <span>Süper admin: Fiyatlara tıklayarak düzenleyebilir; satıra tıklayarak diğer tüm alanları (KDV, stok kodu, açıklama vb.) güncelleyebilirsiniz.</span>
+        </div>
+      ) : (
+        <ReadOnlyNote text="Servis fiyat listesi salt-okunur. Yalnızca yedek parça ve işçilik kalemlerini içerir." />
+      )}
 
       <Card className="border-border/60 shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
@@ -228,8 +361,19 @@ export function ServicePriceListPage() {
                       </div>
                     </TableCell>
                     <TableCell className="text-sm">{p.brand}</TableCell>
-                    <TableCell className="text-right tabular-nums text-emerald-600">{fmtMoney(p.cashPrice, p.currency)}</TableCell>
-                    <TableCell className="text-right tabular-nums">{fmtMoney(p.listPrice, p.currency)}</TableCell>
+                    <EditablePriceCell
+                      value={p.cashPrice}
+                      currency={p.currency}
+                      editable={canEdit}
+                      className="text-emerald-600"
+                      onSave={(next) => savePrice(p, "cashPrice", next)}
+                    />
+                    <EditablePriceCell
+                      value={p.listPrice}
+                      currency={p.currency}
+                      editable={canEdit}
+                      onSave={(next) => savePrice(p, "listPrice", next)}
+                    />
                     <TableCell><ChevronRight className="size-4 text-muted-foreground opacity-0 group-hover:opacity-100" /></TableCell>
                   </TableRow>
                 ))}
@@ -249,16 +393,21 @@ export function ServicePriceListPage() {
               </TableHeader>
               <TableBody>
                 {list.map((p) => (
-                  <TableRow key={p.id} className="group">
+                  <TableRow key={p.id} className="cursor-pointer group" onClick={() => setSelected(p)}>
                     <TableCell>
                       <div className="flex items-center gap-3 min-w-0">
                         <div className="size-9 rounded-lg bg-gradient-to-br from-rose-100 to-rose-50 text-rose-600 grid place-items-center shrink-0">
                           <Wrench className="size-4" />
                         </div>
-                        <div className="text-sm leading-tight truncate">{p.shortDescription || p.model}</div>
+                        <div className="text-sm leading-tight truncate group-hover:text-primary transition-colors">{p.shortDescription || p.model}</div>
                       </div>
                     </TableCell>
-                    <TableCell className="text-right tabular-nums">{fmtMoney(p.listPrice, p.currency)}</TableCell>
+                    <EditablePriceCell
+                      value={p.listPrice}
+                      currency={p.currency}
+                      editable={canEdit}
+                      onSave={(next) => savePrice(p, "listPrice", next)}
+                    />
                     <TableCell className="text-right tabular-nums text-muted-foreground">{p.vatRate ? `%${p.vatRate}` : "—"}</TableCell>
                   </TableRow>
                 ))}

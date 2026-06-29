@@ -313,6 +313,12 @@ type Store = {
   addActivity: (a: Omit<Activity, 'id' | 'date'> & { date?: string }) => Promise<Activity>;
   addProduct: (p: Omit<Product, 'id' | 'status'> & { status?: 'active' | 'passive' }) => Promise<Product>;
   updateProduct: (id: string, patch: Partial<Omit<Product, 'id'>>) => Promise<void>;
+  /**
+   * Ürünün yalnızca verilen alanlarını günceller (fiyat, KDV, stok kodu vb.).
+   * `updateProduct`'tan farkı: specs/donanımı yeniden yazmaz, bu yüzden
+   * satış fiyat listesinden hızlı fiyat düzenlemesi için güvenlidir.
+   */
+  patchProduct: (id: string, fields: Partial<Omit<Product, 'id'>>) => Promise<void>;
   deleteProduct: (id: string) => Promise<void>;
   addCustomer: (c: Omit<Customer, 'id' | 'createdAt' | 'status'> & { status?: 'active' | 'passive' }) => Promise<Customer>;
   updateCustomer: (id: string, patch: Partial<Omit<Customer, 'id' | 'createdAt'>>) => Promise<void>;
@@ -1385,6 +1391,23 @@ function StoreInner({ children }: { children: ReactNode }) {
     await fetchAll();
   };
 
+  // Sadece verilen alanları PATCH'ler; specs/donanıma dokunmaz. API yalnızca
+  // `!== undefined` alanları yazdığı için kısmi gönderim güvenlidir.
+  const patchProduct: Store['patchProduct'] = async (id, fields) => {
+    const apiPatch: Record<string, unknown> = {};
+    if (fields.listPrice !== undefined) apiPatch.listPrice = toOptionalNumber(fields.listPrice);
+    if (fields.cashPrice !== undefined) apiPatch.cashPrice = toOptionalNumber(fields.cashPrice);
+    if (fields.vatRate !== undefined) apiPatch.vatRate = toOptionalNumber(fields.vatRate);
+    if (fields.currency !== undefined) apiPatch.currencyCode = fields.currency;
+    if (fields.stockCode !== undefined) apiPatch.stockCode = cleanString(fields.stockCode);
+    if (fields.originCountry !== undefined) apiPatch.originCountry = cleanString(fields.originCountry);
+    if (fields.hsCode !== undefined) apiPatch.hsCode = cleanString(fields.hsCode);
+    if (fields.modelName !== undefined) apiPatch.modelName = cleanString(fields.modelName);
+    if (fields.description !== undefined) apiPatch.description = cleanString(fields.description);
+    await productService.update(id, apiPatch);
+    setProducts((prev) => prev.map((p) => (p.id === id ? { ...p, ...fields } : p)));
+  };
+
   const deleteProduct: Store['deleteProduct'] = async (id) => {
     await productService.remove(id);
     await fetchAll();
@@ -1886,6 +1909,7 @@ function StoreInner({ children }: { children: ReactNode }) {
       addActivity,
       addProduct,
       updateProduct,
+      patchProduct,
       deleteProduct,
       addCustomer,
       updateCustomer,
