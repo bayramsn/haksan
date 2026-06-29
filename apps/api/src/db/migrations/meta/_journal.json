@@ -281,6 +281,20 @@
       "when": 1783276800000,
       "tag": "0039_haksan_tapping_center_lookup",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1783363200000,
+      "tag": "0040_installation_form_data",
+      "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1783449600000,
+      "tag": "0041_opportunity_closure",
+      "breakpoints": true
     }
   ]
 }
