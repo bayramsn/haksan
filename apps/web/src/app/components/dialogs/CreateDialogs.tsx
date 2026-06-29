@@ -96,6 +96,91 @@ function LookupCombobox({
   );
 }
 
+function InlineOptionPicker({
+  options,
+  value,
+  onChange,
+  placeholder,
+  searchPlaceholder = "Ara...",
+  emptyText = "Sonuç yok.",
+  maxVisible = 80,
+}: {
+  options: { value: string; label: string; hint?: string }[];
+  value: string;
+  onChange: (value: string) => void;
+  placeholder: string;
+  searchPlaceholder?: string;
+  emptyText?: string;
+  maxVisible?: number;
+}) {
+  const [query, setQuery] = useState("");
+  const selected = options.find((option) => option.value === value);
+  const normalizedQuery = query.trim().toLocaleLowerCase("tr-TR");
+  const filteredOptions = normalizedQuery
+    ? options.filter((option) =>
+        [option.value, option.label, option.hint]
+          .filter(Boolean)
+          .join(" ")
+          .toLocaleLowerCase("tr-TR")
+          .includes(normalizedQuery)
+      )
+    : options;
+  const visibleOptions = filteredOptions.slice(0, maxVisible);
+
+  return (
+    <div className="mt-1.5 rounded-md border border-border bg-background">
+      <div className="border-b border-border/70 p-2">
+        <div className="min-h-8 rounded-md border border-input bg-input-background px-3 py-2 text-sm">
+          <div className={selected ? "truncate font-medium text-foreground" : "truncate text-muted-foreground"}>
+            {selected?.label ?? placeholder}
+          </div>
+          {selected?.hint && <div className="mt-0.5 truncate text-xs text-muted-foreground">{selected.hint}</div>}
+        </div>
+        <Input
+          className="mt-2"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder={searchPlaceholder}
+        />
+      </div>
+      <div className="max-h-52 overflow-y-auto p-1">
+        {visibleOptions.length === 0 ? (
+          <div className="px-3 py-6 text-center text-sm text-muted-foreground">{emptyText}</div>
+        ) : (
+          visibleOptions.map((option) => {
+            const selectedOption = option.value === value;
+            return (
+              <button
+                key={option.value}
+                type="button"
+                className={[
+                  "flex w-full items-start gap-2 rounded-md px-3 py-2 text-left text-sm transition-colors hover:bg-accent hover:text-accent-foreground",
+                  selectedOption ? "bg-primary/10 text-primary" : "",
+                ].join(" ")}
+                onClick={() => {
+                  onChange(option.value);
+                  setQuery("");
+                }}
+              >
+                <span className="mt-1 size-2 shrink-0 rounded-full border border-current bg-transparent">
+                  {selectedOption && <span className="block size-full rounded-full bg-current" />}
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate font-medium">{option.label}</span>
+                  {option.hint && <span className="block truncate text-xs text-muted-foreground">{option.hint}</span>}
+                </span>
+              </button>
+            );
+          })
+        )}
+        {filteredOptions.length > visibleOptions.length && (
+          <div className="px-3 py-2 text-xs text-muted-foreground">Daha fazla sonuç için aramayı daraltın.</div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 const CONTACT_SOURCE_OPTIONS = [
   { code: "email", label: "Mail" },
   { code: "phone", label: "Telefon" },
@@ -3264,6 +3349,11 @@ export function CreateServiceRequestDialog({ trigger, defaultMachineId }: { trig
   const contactPhone = selectedContact?.mobilePhone || selectedContact?.phone || selectedContact?.otherPhone || selectedCustomer?.phone || selectedCustomer?.phone2 || "";
   const contactEmail = selectedContact?.email || selectedContact?.personalEmail || selectedContact?.otherEmail || selectedCustomer?.email || selectedCustomer?.email2 || "";
   const assignedUser = (serviceUsers.length > 0 ? serviceUsers : users).find((u) => u.id === form.assignedUserId);
+  const customerOptions = customers.map((customer) => ({
+    value: customer.id,
+    label: customer.name,
+    hint: [customer.city, customer.phone].filter(Boolean).join(" · ") || undefined,
+  }));
 
   const selectCustomer = (customerId: string) => {
     const nextContacts = contacts.filter((contact) => contact.customerId === customerId);
@@ -3368,35 +3458,26 @@ export function CreateServiceRequestDialog({ trigger, defaultMachineId }: { trig
               <div className="min-w-0 space-y-4">
                 <div className="min-w-0">
                   <Label className="text-xs">Firma *</Label>
-                  <Select value={form.customerId || "none"} onValueChange={(value) => selectCustomer(value === "none" ? "" : value)}>
-                    <SelectTrigger className="mt-1.5 min-w-0 [&_[data-slot=select-value]]:min-w-0 [&_[data-slot=select-value]]:truncate">
-                      <SelectValue placeholder="Firma seçin" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="none">Firma seçin</SelectItem>
-                      {customers.map((customer) => (
-                        <SelectItem key={customer.id} value={customer.id}>
-                          {[customer.name, customer.city, customer.phone].filter(Boolean).join(" · ")}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <InlineOptionPicker
+                    options={customerOptions}
+                    value={form.customerId}
+                    onChange={selectCustomer}
+                    placeholder="Firma seçin"
+                    searchPlaceholder="Firma adı / şehir / telefon ara..."
+                    emptyText="Firma bulunamadı."
+                  />
                 </div>
 
                 <div className="min-w-0">
                   <Label className="text-xs">Makine (opsiyonel)</Label>
-                  <Select value={form.machineId || "none"} onValueChange={selectMachine}>
-                    <SelectTrigger className="mt-1.5 min-w-0 [&_[data-slot=select-value]]:min-w-0 [&_[data-slot=select-value]]:truncate">
-                      <SelectValue placeholder="Makine seçin (opsiyonel)" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {machineOptions.map((option) => (
-                        <SelectItem key={option.value} value={option.value}>
-                          {[option.label, option.hint].filter(Boolean).join(" · ")}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <InlineOptionPicker
+                    options={machineOptions}
+                    value={form.machineId || "none"}
+                    onChange={selectMachine}
+                    placeholder="Makine seçin (opsiyonel)"
+                    searchPlaceholder="Model / seri no / firma ara..."
+                    emptyText={companyMachines.length ? "Makine bulunamadı." : "Seçili firmada kayıtlı makine yok."}
+                  />
                 </div>
 
                 <div className="min-w-0">
