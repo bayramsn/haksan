@@ -295,6 +295,13 @@
       "when": 1783449600000,
       "tag": "0041_opportunity_closure",
       "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1783536000000,
+      "tag": "0042_product_alternatives_compatible_machine",
+      "breakpoints": true
     }
   ]
 }
