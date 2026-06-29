@@ -10,6 +10,7 @@ import { Combobox } from "../ui/combobox";
 import {
   Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue,
 } from "../ui/select";
+import { Checkbox } from "../ui/checkbox";
 import { useStore } from "../../lib/store";
 import { usePersistentState } from "../../lib/persist";
 import { SALES_STAGES, salesStageLabel, SHIPMENT_STATUSES, DELIVERY_STATUSES, type ShipmentStatus, type DeliveryStatus, type Customer, type Contact, type Product, type ProductSpec, type ServiceTicketType } from "../../lib/mock";
@@ -1546,9 +1547,14 @@ const PRODUCT_CURRENCIES: Array<{ code: "USD" | "TRY" | "EUR"; label: string }> 
   { code: "TRY", label: "TL" },
   { code: "EUR", label: "EUR" },
 ];
-const PRODUCT_VAT_RATES = ["1", "10", "20"];
+const PRODUCT_VAT_RATES = ["10", "20"];
+const DEFAULT_PRODUCT_VAT_RATE = "20";
 
-// "Dik İşleme Merkezi" ürün tipi kodu — spindle kuralı için referans
+const normalizeProductVatRate = (value: string | number | null | undefined) => {
+  const rate = String(value ?? DEFAULT_PRODUCT_VAT_RATE);
+  return PRODUCT_VAT_RATES.includes(rate) ? rate : DEFAULT_PRODUCT_VAT_RATE;
+};
+
 // Opsiyonel donanımın "uyumlu makine tipi" seçenekleri (tezgah tipleri)
 const MACHINE_TYPE_OPTIONS: ProductOption[] = PRODUCT_TYPE_OPTIONS
   .filter((o) => o.categoryCode === "TEZGAH")
@@ -1639,7 +1645,7 @@ const emptyProduct = (): ProductFormState => ({
   model: "", modelName: "", controlPanel: "",
   imageUrl: "", shortDescription: "", description: "",
   listPrice: "", cashPrice: "", currency: "USD",
-  vatRate: "20", originCountry: "", hsCode: "", stockCode: "",
+  vatRate: DEFAULT_PRODUCT_VAT_RATE, originCountry: "", hsCode: "", stockCode: "",
   specs: [{ key: "", value: "" }], standardEquipment: [], optionalEquipment: [],
   muadilProductIds: [],
   status: "active",
@@ -1661,7 +1667,7 @@ const fromProduct = (p: Product): ProductFormState => ({
   controlPanel: p.controlPanel,
   imageUrl: p.imageUrl, shortDescription: p.shortDescription, description: p.description,
   listPrice: String(p.listPrice || ""), cashPrice: p.cashPrice ? String(p.cashPrice) : "", currency: p.currency,
-  vatRate: String(p.vatRate ?? 20),
+  vatRate: normalizeProductVatRate(p.vatRate),
   originCountry: p.originCountry ?? "",
   hsCode: p.hsCode ?? "",
   stockCode: p.stockCode || p.model,
@@ -1898,7 +1904,7 @@ export function ProductDialog({
       listPrice: moneyNumber(form.listPrice),
       cashPrice: form.cashPrice ? moneyNumber(form.cashPrice) : undefined,
       currency: form.currency,
-      vatRate: Number(form.vatRate) || 20,
+      vatRate: Number(normalizeProductVatRate(form.vatRate)),
       originCountry: form.originCountry.trim(),
       hsCode: form.hsCode.trim(),
       stockCode: form.stockCode.trim(),
@@ -2119,25 +2125,44 @@ export function ProductDialog({
                 {Object.entries(muadilGroups).length === 0 ? (
                   <p className="text-[11px] text-muted-foreground">Muadil olarak seçilebilecek ürün yok.</p>
                 ) : (
-                  <div className="space-y-2">
+                  <div className="max-h-80 overflow-y-auto rounded-lg border border-border/70 bg-white">
                     {Object.entries(muadilGroups).map(([category, items]) => (
-                      <div key={category} className="space-y-1.5">
-                        <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{category}</div>
-                        <div className="flex flex-wrap gap-1.5">
+                      <div key={category} className="border-b border-border/60 last:border-b-0">
+                        <div className="bg-muted/30 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{category}</div>
+                        <div className="divide-y divide-border/60">
                           {items.map((p) => {
                             const active = form.muadilProductIds.includes(p.id);
                             return (
-                              <Button
+                              <div
                                 key={p.id}
-                                type="button"
-                                size="sm"
-                                variant={active ? "default" : "outline"}
-                                className="h-8 max-w-[260px] gap-1.5 px-2"
+                                role="button"
+                                tabIndex={0}
+                                className="flex cursor-pointer items-center gap-3 px-3 py-2 text-sm hover:bg-muted/30"
                                 onClick={() => toggleMuadil(p.id)}
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter" || e.key === " ") {
+                                    e.preventDefault();
+                                    toggleMuadil(p.id);
+                                  }
+                                }}
                               >
-                                <Package className="size-3.5 shrink-0" />
-                                <span className="truncate">{[p.brand, p.model].filter(Boolean).join(" ") || p.shortDescription}</span>
-                              </Button>
+                                <Checkbox
+                                  checked={active}
+                                  onCheckedChange={() => toggleMuadil(p.id)}
+                                  onClick={(e) => e.stopPropagation()}
+                                  aria-label={`${[p.brand, p.model].filter(Boolean).join(" ") || p.shortDescription} muadil seçimi`}
+                                />
+                                <Package className="size-3.5 shrink-0 text-muted-foreground" />
+                                <span className="min-w-0 flex-1">
+                                  <span className="block truncate">{[p.brand, p.model].filter(Boolean).join(" ") || p.shortDescription}</span>
+                                  <span className="block truncate text-[11px] text-muted-foreground">{p.type || p.stockCode || "—"}</span>
+                                </span>
+                                {p.listPrice ? (
+                                  <span className="shrink-0 text-xs tabular-nums text-brand-blue">
+                                    {p.listPrice.toLocaleString("tr-TR")} {p.currency}
+                                  </span>
+                                ) : null}
+                              </div>
                             );
                           })}
                         </div>
@@ -2151,11 +2176,21 @@ export function ProductDialog({
                     {Object.entries(selectedMuadilGroups).map(([category, items]) => (
                       <div key={category} className="space-y-1">
                         <div className="text-[10px] font-medium text-muted-foreground">{category}</div>
-                        <div className="flex flex-wrap gap-1.5">
+                        <div className="divide-y divide-blue-100 overflow-hidden rounded-md border border-blue-100 bg-white/70">
                           {items.map((p) => (
-                            <Badge key={p.id} variant="secondary" className="max-w-[260px] gap-1">
-                              <span className="truncate">{p.brand} {p.model}</span>
-                            </Badge>
+                            <div key={p.id} className="flex items-center justify-between gap-2 px-2 py-1.5 text-xs">
+                              <span className="min-w-0 truncate">{p.brand} {p.model}</span>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                className="h-6 w-6 shrink-0 text-muted-foreground hover:text-destructive"
+                                onClick={() => toggleMuadil(p.id)}
+                                aria-label={`${p.brand} ${p.model} muadil seçimini kaldır`}
+                              >
+                                <X className="size-3.5" />
+                              </Button>
+                            </div>
                           ))}
                         </div>
                       </div>

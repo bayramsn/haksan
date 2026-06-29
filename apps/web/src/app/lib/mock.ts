@@ -280,6 +280,18 @@ export type StockItem = {
 
 export type ProductSpec = { key: string; value: string };
 
+export type ProductAlternative = {
+  id: string;
+  brand: string;
+  model: string;
+  shortDescription: string;
+  category: string;
+  categoryCode?: string;
+  type?: string;
+  listPrice?: number;
+  currency?: "USD" | "EUR" | "TRY";
+};
+
 export type Product = {
   id: string;
   brand: string;
@@ -289,6 +301,7 @@ export type Product = {
   modelName?: string;
   type: string;
   productTypeCode?: string;
+  compatibleMachineTypeCode?: string | null;
   controlPanel: string;
   category: string;
   categoryCode?: string;
@@ -309,6 +322,8 @@ export type Product = {
   optionalEquipment: string[];
   // Bu ürünün muadili (eşdeğer) olarak işaretlenen başka bir ürünün id'si.
   muadilProductId?: string | null;
+  muadilProductIds?: string[];
+  muadilProducts?: ProductAlternative[];
   status: "active" | "passive";
   pdfUrl?: string;
 };

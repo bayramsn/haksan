@@ -130,6 +130,12 @@ const toOptionalNumber = (value: unknown) => {
   return Number.isFinite(number) ? number : undefined;
 };
 
+const DEFAULT_PRODUCT_VAT_RATE = 20;
+const normalizeProductVatRate = (value: unknown) => {
+  const rate = toOptionalNumber(value);
+  return rate === undefined || rate === 1 ? DEFAULT_PRODUCT_VAT_RATE : rate;
+};
+
 const toNullableNumber = (value: unknown) => {
   const number = toOptionalNumber(value);
   return number === undefined ? null : number;
@@ -204,20 +210,22 @@ const productApiPayload = (p: Partial<Product>, brandId?: string) => {
     categoryCode: cleanString(p.categoryCode),
     subcategoryCode: cleanString(p.subcategoryCode),
     productTypeCode: cleanString(p.productTypeCode),
+    compatibleMachineTypeCode: cleanString(p.compatibleMachineTypeCode),
     modelCode,
     modelName: cleanString(p.modelName),
     fullName,
     currencyCode: p.currency,
     listPrice: toOptionalNumber(p.listPrice),
     cashPrice: toOptionalNumber(p.cashPrice),
-    vatRate: toOptionalNumber(p.vatRate) ?? 20,
+    vatRate: normalizeProductVatRate(p.vatRate),
     originCountry: cleanString(p.originCountry),
     hsCode: cleanString(p.hsCode),
     stockCode: cleanString(p.stockCode),
     imageUrl: cleanString(p.imageUrl),
     description: cleanString(p.description),
-    // Boş seçim muadili temizler (null), seçiliyse id gönderilir.
-    muadilProductId: p.muadilProductId ? p.muadilProductId : null,
+    // Boş seçim muadili temizler (null), seçiliyse ilk id eski alanı da besler.
+    muadilProductId: p.muadilProductIds?.[0] ?? p.muadilProductId ?? null,
+    muadilProductIds: p.muadilProductIds ?? (p.muadilProductId ? [p.muadilProductId] : []),
   };
 };
 
@@ -285,6 +293,19 @@ export type CreateQuotePayload = {
   divisionId?: string;
 };
 
+export type InstallationSummary = {
+  id: string;
+  salesCaseId: string;
+  customerId: string;
+  statusCode: string;
+  statusName: string;
+  technician: string;
+  scheduledDate: string;
+  completedDate: string;
+  deviceLabel: string;
+  serialNumber: string;
+};
+
 type Store = {
   customers: Customer[];
   cases: SalesCase[];
@@ -303,6 +324,7 @@ type Store = {
   documents: DocumentItem[];
   shipments: Shipment[];
   deliveries: Delivery[];
+  installations: InstallationSummary[];
   loading: boolean;
   loadErrors: string[];
   loadTruncated: string[];
@@ -313,6 +335,12 @@ type Store = {
   addActivity: (a: Omit<Activity, 'id' | 'date'> & { date?: string }) => Promise<Activity>;
   addProduct: (p: Omit<Product, 'id' | 'status'> & { status?: 'active' | 'passive' }) => Promise<Product>;
   updateProduct: (id: string, patch: Partial<Omit<Product, 'id'>>) => Promise<void>;
+  /**
+   * Ürünün yalnızca verilen alanlarını günceller (fiyat, KDV, stok kodu vb.).
+   * `updateProduct`'tan farkı: specs/donanımı yeniden yazmaz, bu yüzden
+   * satış fiyat listesinden hızlı fiyat düzenlemesi için güvenlidir.
+   */
+  patchProduct: (id: string, fields: Partial<Omit<Product, 'id'>>) => Promise<void>;
   deleteProduct: (id: string) => Promise<void>;
   addCustomer: (c: Omit<Customer, 'id' | 'createdAt' | 'status'> & { status?: 'active' | 'passive' }) => Promise<Customer>;
   updateCustomer: (id: string, patch: Partial<Omit<Customer, 'id' | 'createdAt'>>) => Promise<void>;
@@ -382,6 +410,7 @@ function StoreInner({ children }: { children: ReactNode }) {
   const [payments, setPayments] = useState<Payment[]>([]);
   const [shipments, setShipments] = useState<Shipment[]>([]);
   const [deliveries, setDeliveries] = useState<Delivery[]>([]);
+  const [installations, setInstallations] = useState<InstallationSummary[]>([]);
   const [documents, setDocuments] = useState<DocumentItem[]>([]);
 
   const shipmentStatusFromCode = (code?: string | null): Shipment['status'] => {
@@ -585,6 +614,7 @@ function StoreInner({ children }: { children: ReactNode }) {
           modelName: p.modelName ?? '',
           type: p.productType?.name ?? '',
           productTypeCode: p.productType?.code ?? '',
+          compatibleMachineTypeCode: p.compatibleMachineType?.code ?? undefined,
           controlPanel: p.modelName ?? '',
           category: p.category?.name ?? '',
           categoryCode: p.category?.code ?? '',
@@ -596,7 +626,7 @@ function StoreInner({ children }: { children: ReactNode }) {
           listPrice: Number(p.listPrice ?? 0),
           cashPrice: p.cashPrice === null || p.cashPrice === undefined ? undefined : Number(p.cashPrice),
           currency: (p.currency?.code as 'USD' | 'EUR' | 'TRY') ?? 'USD',
-          vatRate: p.vatRate === null || p.vatRate === undefined ? undefined : Number(p.vatRate),
+          vatRate: normalizeProductVatRate(p.vatRate),
           originCountry: p.originCountry ?? '',
           hsCode: p.hsCode ?? '',
           stockCode: p.stockCode ?? '',
@@ -607,6 +637,18 @@ function StoreInner({ children }: { children: ReactNode }) {
           standardEquipment: p.standardEquipment ?? [],
           optionalEquipment: p.optionalEquipment ?? [],
           muadilProductId: p.muadilProductId ?? undefined,
+          muadilProductIds: p.muadilProductIds ?? (p.muadilProductId ? [p.muadilProductId] : []),
+          muadilProducts: (p.muadilProducts ?? []).map((alt: any) => ({
+            id: alt.id,
+            brand: alt.brand?.name ?? '',
+            model: alt.modelCode ?? '',
+            shortDescription: alt.fullName ?? '',
+            category: alt.category?.name ?? '',
+            categoryCode: alt.category?.code ?? '',
+            type: alt.productType?.name ?? '',
+            listPrice: alt.listPrice == null ? undefined : Number(alt.listPrice),
+            currency: (alt.currency?.code as 'USD' | 'EUR' | 'TRY') ?? 'USD',
+          })),
           status: p.isActive ? 'active' : 'passive',
         }));
       // Products (incl. the imported Haksan CNC catalogue) come from the DB API.
@@ -933,6 +975,28 @@ function StoreInner({ children }: { children: ReactNode }) {
         return true;
       });
       setDocuments(dedupedDocs);
+
+      setInstallations(
+        (installationsR.data ?? []).map((i: any) => {
+          const device = i.customerDevice ?? {};
+          const deviceLabel =
+            [device.brandName, device.model ?? device.productModelName].filter(Boolean).join(' ') ||
+            device.productModelName ||
+            'Cihaz seçilmedi';
+          return {
+            id: i.id,
+            salesCaseId: i.opportunityId ?? '',
+            customerId: i.companyId ?? '',
+            statusCode: i.status?.code ?? '',
+            statusName: i.status?.name ?? i.status?.code ?? 'Planlandı',
+            technician: i.assignedTo?.fullName ?? 'Atanmadı',
+            scheduledDate: (i.scheduledDate as string | undefined)?.slice(0, 10) ?? '',
+            completedDate: (i.completedAt as string | undefined)?.slice(0, 10) ?? '',
+            deviceLabel,
+            serialNumber: device.serialNumber ?? '',
+          };
+        })
+      );
 
       setShipments(
         (shipmentsR.data ?? []).map((s: any) => ({
@@ -1384,6 +1448,28 @@ function StoreInner({ children }: { children: ReactNode }) {
     await productService.update(id, productApiPayload(patch, brandId));
     await productService.replaceDetails(id, productDetailsPayload(patch));
     await fetchAll();
+  };
+
+  // Sadece verilen alanları PATCH'ler; specs/donanıma dokunmaz. API yalnızca
+  // `!== undefined` alanları yazdığı için kısmi gönderim güvenlidir.
+  const patchProduct: Store['patchProduct'] = async (id, fields) => {
+    const apiPatch: Record<string, unknown> = {};
+    const localPatch: Partial<Omit<Product, 'id'>> = { ...fields };
+    if (fields.listPrice !== undefined) apiPatch.listPrice = toOptionalNumber(fields.listPrice);
+    if (fields.cashPrice !== undefined) apiPatch.cashPrice = toOptionalNumber(fields.cashPrice);
+    if (fields.vatRate !== undefined) {
+      const vatRate = normalizeProductVatRate(fields.vatRate);
+      apiPatch.vatRate = vatRate;
+      localPatch.vatRate = vatRate;
+    }
+    if (fields.currency !== undefined) apiPatch.currencyCode = fields.currency;
+    if (fields.stockCode !== undefined) apiPatch.stockCode = cleanString(fields.stockCode);
+    if (fields.originCountry !== undefined) apiPatch.originCountry = cleanString(fields.originCountry);
+    if (fields.hsCode !== undefined) apiPatch.hsCode = cleanString(fields.hsCode);
+    if (fields.modelName !== undefined) apiPatch.modelName = cleanString(fields.modelName);
+    if (fields.description !== undefined) apiPatch.description = cleanString(fields.description);
+    await productService.update(id, apiPatch);
+    setProducts((prev) => prev.map((p) => (p.id === id ? { ...p, ...localPatch } : p)));
   };
 
   const deleteProduct: Store['deleteProduct'] = async (id) => {
@@ -1877,6 +1963,7 @@ function StoreInner({ children }: { children: ReactNode }) {
       documents,
       shipments,
       deliveries,
+      installations,
       loading,
       loadErrors,
       loadTruncated,
@@ -1887,6 +1974,7 @@ function StoreInner({ children }: { children: ReactNode }) {
       addActivity,
       addProduct,
       updateProduct,
+      patchProduct,
       deleteProduct,
       addCustomer,
       updateCustomer,
@@ -1925,7 +2013,7 @@ function StoreInner({ children }: { children: ReactNode }) {
       refresh: fetchAll,
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [customers, cases, service, offers, noteTemplates, stock, products, activities, contacts, users, machines, payments, documents, shipments, deliveries, loading, loadErrors, loadTruncated, clearLoadErrors]
+    [customers, cases, closedCases, service, offers, noteTemplates, stock, products, activities, contacts, users, machines, payments, documents, shipments, deliveries, installations, loading, loadErrors, loadTruncated, clearLoadErrors]
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

@@ -1,19 +1,24 @@
 import { z } from 'zod';
 import { moneySchema, percentSchema } from './common';
 
+const productVatRateSchema = percentSchema.refine((rate) => rate !== 1, {
+  message: 'Ürün KDV oranı %1 olamaz',
+});
+
 export const productCreateSchema = z.object({
   brandId: z.string().min(1),
   productGroupCode: z.string().max(64).optional(),
   categoryCode: z.string().max(64).optional(),
   subcategoryCode: z.string().max(64).optional(),
   productTypeCode: z.string().max(64).optional(),
+  compatibleMachineTypeCode: z.string().max(64).nullish(),
   modelCode: z.string().min(1).max(64),
   modelName: z.string().max(255).optional(),
   fullName: z.string().min(1).max(512),
   currencyCode: z.string().max(8).default('USD'),
   listPrice: moneySchema.optional(),
   cashPrice: moneySchema.optional(),
-  vatRate: percentSchema.default(20),
+  vatRate: productVatRateSchema.default(20),
   originCountry: z.string().max(64).optional(),
   hsCode: z.string().max(32).optional(),
   stockCode: z.string().max(64).optional(),
@@ -21,6 +26,8 @@ export const productCreateSchema = z.object({
   description: z.string().max(4000).optional(),
   // Muadil (eşdeğer) ürün modeli; boş/null ise muadil yok demektir.
   muadilProductId: z.string().uuid().nullish(),
+  // Çoklu muadil ürün modeli listesi. Eski muadilProductId geriye uyumluluk için korunur.
+  muadilProductIds: z.array(z.string().uuid()).max(50).optional(),
 });
 export type ProductCreateInput = z.infer<typeof productCreateSchema>;
 
@@ -127,6 +134,7 @@ export const productImportRowSchema = z.object({
   categoryCode: z.string().max(64).optional(),
   subcategoryCode: z.string().max(64).optional(),
   productTypeCode: z.string().max(64).optional(),
+  compatibleMachineTypeCode: z.string().max(64).nullish(),
   currencyCode: z.string().max(8).default('USD'),
   listPrice: moneySchema.optional(),
   cashPrice: moneySchema.optional(),

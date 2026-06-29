@@ -45,6 +45,7 @@ export const productModels = pgTable(
     categoryId: uuid('category_id').references(() => productCategories.id),
     subcategoryId: uuid('subcategory_id').references(() => productSubcategories.id),
     productTypeId: uuid('product_type_id').references(() => productTypes.id),
+    compatibleMachineTypeId: uuid('compatible_machine_type_id').references(() => productTypes.id),
     modelCode: varchar('model_code', { length: 128 }).notNull(),
     modelName: varchar('model_name', { length: 255 }),
     fullName: varchar('full_name', { length: 512 }).notNull(),
@@ -67,6 +68,30 @@ export const productModels = pgTable(
     tenantIdx: index('product_models_tenant_idx').on(t.tenantId),
     brandIdx: index('product_models_brand_idx').on(t.brandId),
     fullNameIdx: index('product_models_full_name_idx').on(t.fullName),
+    compatibleMachineTypeIdx: index('product_models_compatible_machine_type_idx').on(t.tenantId, t.categoryId, t.compatibleMachineTypeId),
+  })
+);
+
+export const productAlternatives = pgTable(
+  'product_alternatives',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id')
+      .notNull()
+      .references(() => tenants.id, { onDelete: 'cascade' }),
+    productModelId: uuid('product_model_id')
+      .notNull()
+      .references(() => productModels.id, { onDelete: 'cascade' }),
+    alternativeProductModelId: uuid('alternative_product_model_id')
+      .notNull()
+      .references(() => productModels.id, { onDelete: 'cascade' }),
+    ...auditColumns,
+  },
+  (t) => ({
+    tenantIdx: index('product_alternatives_tenant_idx').on(t.tenantId),
+    productIdx: index('product_alternatives_product_idx').on(t.productModelId),
+    alternativeIdx: index('product_alternatives_alternative_idx').on(t.alternativeProductModelId),
+    productAlternativeUnique: uniqueIndex('product_alternatives_product_alternative_unique').on(t.productModelId, t.alternativeProductModelId),
   })
 );
 

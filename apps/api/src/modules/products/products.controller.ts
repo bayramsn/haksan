@@ -183,6 +183,12 @@ export class ProductsController {
     return this.svc.listEquipment(id, user);
   }
 
+  @RequirePermissions('products.read')
+  @Get('products/:id/compatible-optional-equipment')
+  compatibleOptionalEquipment(@Param('id') id: string, @CurrentUser() user: AuthContext) {
+    return this.svc.listCompatibleOptionalEquipment(id, user);
+  }
+
   @RequirePermissions('products.update')
   @Post('products/:id/equipment')
   addEquipment(
