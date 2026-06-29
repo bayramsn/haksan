@@ -694,6 +694,22 @@ export class QuotesService {
     return this.getProforma(id, actor);
   }
 
+  async deleteProforma(id: string, actor: AuthContext) {
+    const existing = await this.getProforma(id, actor);
+    const now = new Date();
+    await this.db.update(proformas).set({ deletedAt: now }).where(eq(proformas.id, id));
+    await this.audit.write({
+      tenantId: actor.tenantId,
+      actorUserId: actor.userId,
+      action: 'proforma.deleted',
+      resourceType: 'proforma',
+      resourceId: id,
+      oldValues: existing,
+      newValues: { deletedAt: now },
+    });
+    return { ok: true };
+  }
+
   async listContracts(actor: AuthContext, page: Pagination) {
     const { limit, offset } = pageOffset(page);
     const where = and(
@@ -777,6 +793,22 @@ export class QuotesService {
     return this.getContract(id, actor);
   }
 
+  async deleteContract(id: string, actor: AuthContext) {
+    const existing = await this.getContract(id, actor);
+    const now = new Date();
+    await this.db.update(contracts).set({ deletedAt: now }).where(eq(contracts.id, id));
+    await this.audit.write({
+      tenantId: actor.tenantId,
+      actorUserId: actor.userId,
+      action: 'contract.deleted',
+      resourceType: 'contract',
+      resourceId: id,
+      oldValues: existing,
+      newValues: { deletedAt: now },
+    });
+    return { ok: true };
+  }
+
   async listCommercialInvoices(actor: AuthContext, page: Pagination) {
     const { limit, offset } = pageOffset(page);
     const where = and(
@@ -850,6 +882,20 @@ export class QuotesService {
       newValues: patch,
     });
     return this.getCommercialInvoice(id, actor);
+  }
+
+  async deleteCommercialInvoice(id: string, actor: AuthContext) {
+    const existing = await this.getCommercialInvoice(id, actor);
+    await this.db.update(commercialInvoices).set({ deletedAt: new Date() }).where(eq(commercialInvoices.id, id));
+    await this.audit.write({
+      tenantId: actor.tenantId,
+      actorUserId: actor.userId,
+      action: 'commercial_invoice.deleted',
+      resourceType: 'commercial_invoice',
+      resourceId: id,
+      oldValues: existing,
+    });
+    return { ok: true };
   }
 
   private async getProforma(id: string, actor: AuthContext) {

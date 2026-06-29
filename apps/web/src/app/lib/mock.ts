@@ -253,6 +253,7 @@ export type Payment = {
   status: "Pending" | "Paid" | "Overdue" | "Cancelled";
   note: string;
   invoiceNo?: string;
+  paymentMethod?: "bank_transfer" | "cash" | "credit_card" | "check" | "other";
   /** Durum güncellemesinin hangi backend tablosuna gideceğini belirler. */
   source?: "receivable" | "payment";
 };

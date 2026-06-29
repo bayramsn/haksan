@@ -314,10 +314,10 @@ export const rolePermissionMatrix: Record<string, Record<string, string[] | '*'>
     // Satış hattı proforma → sözleşme → ticari fatura aşamalarından geçer ve her
     // aşama bu belgenin oluşturulmasını şart koşar; satış rolü bu belgeleri
     // üretebilmelidir.
-    proformas: ['read', 'create', 'update'],
-    contracts: ['read', 'create', 'update'],
-    commercial_invoices: ['read', 'create'],
-    accounting_invoices: ['read', 'create'],
+    proformas: ['read', 'create', 'update', 'delete'],
+    contracts: ['read', 'create', 'update', 'delete'],
+    commercial_invoices: ['read', 'create', 'update', 'delete'],
+    accounting_invoices: ['read', 'create', 'update', 'delete'],
     files: ['read', 'create'],
     reports: ['read', 'export'],
     inventory: ['read'],
@@ -360,7 +360,7 @@ export const rolePermissionMatrix: Record<string, Record<string, string[] | '*'>
     opportunities: ['read'],
     warehouses: '*',
     inventory: '*',
-    customer_devices: ['read', 'update'],
+    customer_devices: ['read', 'update', 'delete'],
     products: ['read'],
     purchase_orders: ['read', 'create', 'update', 'delete', 'export'],
     sales_orders: ['read', 'update'],

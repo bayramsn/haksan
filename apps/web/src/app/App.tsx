@@ -74,7 +74,7 @@ const TITLES: Record<NavKey, { title: string; subtitle?: string }> = {
   installations: { title: "Kurulumlar", subtitle: "Saha kurulum operasyonları" },
   deliveries: { title: "Teslimatlar", subtitle: "Müşteri teslim formları" },
   machines: { title: "Makineler / Varlıklar", subtitle: "Müşteriye kurulu makineler ve garanti" },
-  "service-requests": { title: "Servis Talepleri", subtitle: "Servis akışı (satıştan ayrı)" },
+  "service-requests": { title: "Servis Talepleri", subtitle: "Talep listesi, şikayet kutusu ve servis geçmişi" },
   "service-kanban": { title: "Servis Kanban", subtitle: "Servis süreç akışı: talep → form" },
   "service-price-list": { title: "Servis Fiyat Listesi", subtitle: "Yedek parça ve işçilik fiyatları" },
   reports: { title: "Raporlar", subtitle: "Satış, finans, stok ve servis raporları" },

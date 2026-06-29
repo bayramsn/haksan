@@ -22,7 +22,7 @@ import {
 } from "recharts";
 import {
   Plus, Search, CheckCircle2, TrendingUp, Mail, FileText, FileSignature, ClipboardCheck, Building2,
-  Wallet, Receipt, Calendar, Printer, Download, Eye, RotateCcw, XCircle, Pencil, ChevronDown,
+  Wallet, Receipt, Calendar, Printer, Download, Eye, RotateCcw, XCircle, Pencil, ChevronDown, Trash2,
 } from "lucide-react";
 import { useStore } from "../../../lib/store";
 import { buildOfferTrend } from "../../../lib/chartAggregates";
@@ -183,6 +183,18 @@ export function OffersPage({ focus }: { focus?: OperationFocus }) {
       await refresh();
     } catch (err: any) {
       toast.error("İşlem başarısız", { description: err?.message ?? "API isteği başarısız oldu." });
+    }
+  };
+
+  const deleteOffer = async (offer: Offer) => {
+    if (!window.confirm(`${offer.quoteNo} teklif kaydı silinsin mi?`)) return;
+    try {
+      await quoteService.remove(offer.id);
+      toast.success("Teklif silindi", { description: offer.quoteNo });
+      if (selectedOfferId === offer.id) setSelectedOfferId(null);
+      await refresh();
+    } catch (err: any) {
+      toast.error("Teklif silinemedi", { description: err?.message ?? "API isteği başarısız oldu." });
     }
   };
 
@@ -391,6 +403,19 @@ export function OffersPage({ focus }: { focus?: OperationFocus }) {
                         >
                           <Eye className="size-4" />
                         </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="size-8 opacity-0 group-hover:opacity-100 sm:opacity-100"
+                          title="Teklifi sil"
+                          aria-label="Teklifi sil"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            void deleteOffer(o);
+                          }}
+                        >
+                          <Trash2 className="size-4 text-muted-foreground hover:text-destructive" />
+                        </Button>
                       </div>
                     </TableCell>
                   </TableRow>
@@ -415,6 +440,7 @@ export function OffersPage({ focus }: { focus?: OperationFocus }) {
         order={selectedOrder}
         onClose={() => setSelectedOfferId(null)}
         onQuoteAction={runQuoteAction}
+        onDeleteOffer={deleteOffer}
         onOrderCreated={refresh}
       />
 
@@ -502,6 +528,7 @@ export function OfferDetailDialog({
   order,
   onClose,
   onQuoteAction,
+  onDeleteOffer,
   onOrderCreated,
 }: {
   offer: Offer | null;
@@ -512,6 +539,7 @@ export function OfferDetailDialog({
   order?: any;
   onClose: () => void;
   onQuoteAction?: (offerId: string, action: "send" | "approve" | "reject") => Promise<void>;
+  onDeleteOffer?: (offer: Offer) => Promise<void>;
   onOrderCreated?: () => void;
 }) {
   const { products, users, contacts } = useStore();
@@ -744,6 +772,16 @@ export function OfferDetailDialog({
                 <XCircle className="size-4" /> Reddet
               </Button>
             </>
+          )}
+          {onDeleteOffer && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-9 gap-1 border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700"
+              onClick={() => void onDeleteOffer(offer)}
+            >
+              <Trash2 className="size-4" /> Sil
+            </Button>
           )}
           <Button variant="outline" size="sm" className="h-9 ml-auto sm:ml-2" onClick={onClose}>Kapat</Button>
         </DialogFooter>

@@ -33,8 +33,13 @@ export type AccountingInvoicePrefill = {
   vatAmount?: number;
   currencyCode?: string;
   invoiceNo?: string;
+  invoiceDate?: string;
   quoteId?: string;
   salesOrderId?: string;
+  firstDueDate?: string;
+  lastDueDate?: string | null;
+  installmentCount?: number;
+  installments?: InstallmentRow[];
   notes?: string;
   type?: "sales" | "purchase";
 };
@@ -77,15 +82,20 @@ const deriveVatRate = (amount: number, vatAmount?: number, grandTotal?: number, 
 export function CreateAccountingInvoiceDialog({
   trigger,
   onCreated,
+  onSaved,
   defaultCompanyId,
   prefill,
+  invoiceId,
 }: {
   trigger: React.ReactNode;
   onCreated?: () => void;
+  onSaved?: () => void;
   defaultCompanyId?: string;
   prefill?: AccountingInvoicePrefill;
+  invoiceId?: string;
 }) {
   const { customers, stock, products, refresh } = useStore();
+  const isEditing = Boolean(invoiceId);
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState(defaultForm(defaultCompanyId));
@@ -116,15 +126,21 @@ export function CreateAccountingInvoiceDialog({
         type: prefill.type ?? "sales",
         companyId: prefill.companyId,
         invoiceNo: prefill.invoiceNo ?? "",
+        invoiceDate: prefill.invoiceDate?.slice(0, 10) ?? new Date().toISOString().slice(0, 10),
         amount: String(subtotal),
         vatRate: String(vatRate),
         vatAmount: String(vatAmount),
         grandTotal: String(grandTotal),
         currencyCode: prefill.currencyCode ?? "USD",
+        firstDueDate: prefill.firstDueDate?.slice(0, 10) ?? prefill.invoiceDate?.slice(0, 10) ?? new Date().toISOString().slice(0, 10),
+        lastDueDate: prefill.lastDueDate?.slice(0, 10) ?? "",
+        installmentCount: String(prefill.installmentCount ?? prefill.installments?.length ?? 1),
         notes: prefill.notes ?? "",
       });
       setQuoteId(prefill.quoteId);
       setSalesOrderId(prefill.salesOrderId);
+      setInstallments(prefill.installments ?? []);
+      setLineItems([]);
     } else {
       setForm(defaultForm(defaultCompanyId));
       setQuoteId(undefined);
@@ -180,7 +196,7 @@ export function CreateAccountingInvoiceDialog({
     }
     setSaving(true);
     try {
-      await financeService.createAccountingInvoice({
+      const payload = {
         companyId: form.companyId,
         type: form.type,
         invoiceNo: form.invoiceNo,
@@ -211,13 +227,16 @@ export function CreateAccountingInvoiceDialog({
               quantity: l.quantity,
             }))
           : undefined,
-      });
-      toast.success(form.type === "sales" ? "Satış faturası oluşturuldu" : "Alış faturası oluşturuldu");
+      };
+      if (invoiceId) await financeService.updateAccountingInvoice(invoiceId, payload);
+      else await financeService.createAccountingInvoice(payload);
+      toast.success(invoiceId ? "Fatura güncellendi" : form.type === "sales" ? "Satış faturası oluşturuldu" : "Alış faturası oluşturuldu");
       setOpen(false);
       refresh();
+      onSaved?.();
       onCreated?.();
     } catch (err: any) {
-      toast.error("Fatura oluşturulamadı", { description: err?.message });
+      toast.error(invoiceId ? "Fatura güncellenemedi" : "Fatura oluşturulamadı", { description: err?.message });
     } finally {
       setSaving(false);
     }
@@ -228,8 +247,8 @@ export function CreateAccountingInvoiceDialog({
       <DialogTrigger asChild>{trigger}</DialogTrigger>
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2"><Receipt className="size-5" /> Muhasebe Faturası</DialogTitle>
-          <DialogDescription>Satış veya alış faturası ile vade planı oluşturun; cari hareketler otomatik açılır.</DialogDescription>
+          <DialogTitle className="flex items-center gap-2"><Receipt className="size-5" /> {isEditing ? "Faturayı Düzenle" : "Muhasebe Faturası"}</DialogTitle>
+          <DialogDescription>{isEditing ? "Fatura bilgileri ve vade planını güncelleyin." : "Satış veya alış faturası ile vade planı oluşturun; cari hareketler otomatik açılır."}</DialogDescription>
         </DialogHeader>
         <form onSubmit={submit} className="space-y-4">
           <div className="grid grid-cols-2 gap-2">
@@ -237,8 +256,9 @@ export function CreateAccountingInvoiceDialog({
               <button
                 key={t}
                 type="button"
+                disabled={isEditing}
                 onClick={() => setForm({ ...form, type: t })}
-                className={`rounded-lg border px-3 py-2 text-sm ${form.type === t ? "border-primary bg-primary/10 text-primary" : "border-border/60"}`}
+                className={`rounded-lg border px-3 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-70 ${form.type === t ? "border-primary bg-primary/10 text-primary" : "border-border/60"}`}
               >
                 {t === "sales" ? "Satış Faturası" : "Alış Faturası"}
               </button>
@@ -316,7 +336,7 @@ export function CreateAccountingInvoiceDialog({
               <Input className="mt-1 h-9 bg-muted/40 font-medium" readOnly value={invoiceTotals.grandTotal.toLocaleString("tr-TR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} />
             </div>
           </div>
-          {form.type === "sales" && (
+          {form.type === "sales" && !isEditing && (
             <div className="rounded-lg border border-border/60 p-3 space-y-3">
               <div className="flex items-center justify-between">
                 <div className="text-sm font-medium">Stok Satırları</div>
@@ -471,7 +491,7 @@ export function CreateAccountingInvoiceDialog({
           </div>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => setOpen(false)}>Vazgeç</Button>
-            <Button type="submit" disabled={saving}>{saving ? "Kaydediliyor…" : "Faturayı Kaydet"}</Button>
+            <Button type="submit" disabled={saving}>{saving ? "Kaydediliyor…" : isEditing ? "Güncelle" : "Faturayı Kaydet"}</Button>
           </DialogFooter>
         </form>
       </DialogContent>

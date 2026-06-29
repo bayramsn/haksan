@@ -18,7 +18,7 @@ import { CreateContractDialog } from "../../dialogs/CreateContractDialog";
 import { useStore } from "../../../lib/store";
 import { DocumentItem } from "../../../lib/mock";
 import { toast } from "sonner";
-import { fileService, serviceService } from "../../../../lib/services";
+import { documentService, fileService, serviceService } from "../../../../lib/services";
 import { exportToCsv } from "../../../../lib/exportCsv";
 import { formatDuration } from "@haksan/shared";
 import { ExportExcelButton } from "../../ui/ExportExcelButton";
@@ -27,7 +27,7 @@ import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger,
 } from "../../ui/dropdown-menu";
 import {
-  Search, Upload, Download, Printer, Eye, FileText, FileSignature, Receipt, Wrench, ClipboardCheck, Plus,
+  Search, Upload, Download, Printer, Eye, FileText, FileSignature, Receipt, Wrench, ClipboardCheck, Plus, Trash2,
 } from "lucide-react";
 import {
   printAssetBase, proformaDoc, contractDoc, installationFormDoc, loadContractPrintData, loadProformaPrintData, PROFORMA_NOTE_OPTIONS, trShortDate,
@@ -65,7 +65,7 @@ export function DocumentsPage({
   title?: string;
   description?: string;
 }) {
-  const { documents, cases, customers, contacts, users, offers, payments, products, deliveries, machines } = useStore();
+  const { documents, cases, customers, contacts, users, offers, payments, products, deliveries, machines, refresh } = useStore();
   const customerName = (id: string) => customers.find((c) => c.id === id)?.name ?? "—";
   const userName = (id: string) => users.find((u) => u.id === id)?.name ?? "—";
 
@@ -181,7 +181,6 @@ export function DocumentsPage({
     }
     const cust = customers.find((c) => c.id === delivery.customerId);
     const fd = delivery.formData;
-    const selectedMachine = fd?.machineId ? machines.find((machine) => machine.id === fd.machineId) : null;
     printOrWarn(
       installationFormDoc(
         {
@@ -199,7 +198,6 @@ export function DocumentsPage({
           eposta: cust?.email,
           kurulumuYapan: fd?.kurulumuYapan || undefined,
           teslimAlan: delivery.signedBy && delivery.signedBy !== "—" ? delivery.signedBy : undefined,
-          technicalSpecs: fd?.technicalSpecs?.length ? fd.technicalSpecs : selectedMachine?.technicalSpecs,
         },
         printAssetBase(),
       ),
@@ -285,7 +283,6 @@ export function DocumentsPage({
           teslimAlan: fd.teslimAlan || installation.contact?.fullName || cust?.contactPerson,
           kurulumYeri: installation.location ?? "",
           sure: installation.durationMinutes != null ? formatDuration(Number(installation.durationMinutes)) : undefined,
-          technicalSpecs: fd.technicalSpecs?.length ? fd.technicalSpecs : specs,
           checks: fd.checks?.map((check: any) => ({ label: check.label, status: check.status, note: check.note })),
           problem: fd.problem,
           notlar: installation.notes ?? "",
@@ -351,6 +348,26 @@ export function DocumentsPage({
       document.body.removeChild(a);
     } catch (err: any) {
       toast.error("Doküman indirilemedi", { description: err?.message ?? "İstek başarısız oldu." });
+    }
+  };
+
+  const deleteDocumentRecord = async (d: (typeof documents)[number]) => {
+    const label = d.type === "Contract" ? "sözleşme" : d.type === "Proforma" ? "proforma" : d.type === "CommercialInvoice" ? "ticari fatura" : "doküman";
+    if (!window.confirm(`${d.fileName} ${label} kaydı silinsin mi?`)) return;
+    try {
+      if (d.type === "Proforma") {
+        await documentService.deleteProforma(d.id);
+      } else if (d.type === "Contract") {
+        await documentService.deleteContract(d.id);
+      } else if (d.type === "CommercialInvoice") {
+        await documentService.deleteCommercialInvoice(d.id);
+      } else {
+        return;
+      }
+      toast.success(`${DOC_TYPE_LABELS[d.type]} silindi`, { description: d.fileName });
+      await refresh();
+    } catch (err: any) {
+      toast.error(`${DOC_TYPE_LABELS[d.type]} silinemedi`, { description: err?.message ?? "API isteği başarısız oldu." });
     }
   };
 
@@ -537,6 +554,17 @@ export function DocumentsPage({
                           <Button variant="ghost" size="icon" className="size-7" title="İndir"
                             onClick={() => downloadDocument(d)}>
                             <Download className="size-4 text-muted-foreground hover:text-primary" />
+                          </Button>
+                        )}
+                        {(d.type === "Proforma" || d.type === "Contract" || d.type === "CommercialInvoice") && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="size-7"
+                            title="Sil"
+                            onClick={() => void deleteDocumentRecord(d)}
+                          >
+                            <Trash2 className="size-4 text-muted-foreground hover:text-destructive" />
                           </Button>
                         )}
                       </div>

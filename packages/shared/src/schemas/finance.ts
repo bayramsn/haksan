@@ -35,6 +35,20 @@ export const paymentCreateSchema = z
   });
 export type PaymentCreateInput = z.infer<typeof paymentCreateSchema>;
 
+export const paymentUpdateSchema = z.object({
+  direction: z.enum(['in', 'out']).optional(),
+  companyId: z.string().min(1).optional(),
+  divisionId: z.string().uuid().optional(),
+  amount: moneySchema.optional(),
+  currencyCode: z.string().max(8).optional(),
+  paymentDate: z.coerce.date().optional(),
+  paymentMethod: z.enum(['bank_transfer', 'cash', 'credit_card', 'check', 'other']).optional(),
+  invoiceNo: z.string().max(64).optional(),
+  notes: z.string().max(2000).optional(),
+  status: z.string().max(64).optional(),
+});
+export type PaymentUpdateInput = z.infer<typeof paymentUpdateSchema>;
+
 export const financeListQuerySchema = z.object({
   companyId: z.string().uuid().optional(),
 });
@@ -96,6 +110,9 @@ export const accountingInvoiceCreateSchema = z.object({
   ).optional(),
 });
 export type AccountingInvoiceCreateInput = z.infer<typeof accountingInvoiceCreateSchema>;
+
+export const accountingInvoiceUpdateSchema = accountingInvoiceCreateSchema.partial();
+export type AccountingInvoiceUpdateInput = z.infer<typeof accountingInvoiceUpdateSchema>;
 
 export const accountingInvoiceListQuerySchema = z.object({
   companyId: z.string().uuid().optional(),

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type MouseEvent } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "../../ui/card";
 import { Button } from "../../ui/button";
 import { Input } from "../../ui/input";
@@ -10,7 +10,8 @@ import {
 import { Tabs, TabsList, TabsTrigger } from "../../ui/tabs";
 import { financeService } from "../../../../lib/services";
 import { CreateAccountingInvoiceDialog } from "./CreateAccountingInvoiceDialog";
-import { ArrowDownLeft, ArrowUpRight, Building2, Layers, Plus, Receipt, Search } from "lucide-react";
+import { toast } from "sonner";
+import { ArrowDownLeft, ArrowUpRight, Building2, Layers, Pencil, Plus, Receipt, Search, Trash2 } from "lucide-react";
 
 type InvoiceRow = {
   id: string;
@@ -45,12 +46,38 @@ function companyName(company?: InvoiceDetail["company"]): string {
   return company?.shortName || company?.legalTitle || "Firma bilgisi yok";
 }
 
+function invoicePrefill(invoice: InvoiceDetail) {
+  const amount = Number(invoice.amount ?? invoice.grandTotal ?? 0);
+  const vatAmount = Number(invoice.vatAmount ?? 0);
+  return {
+    companyId: invoice.company?.id ?? "",
+    type: invoice.type,
+    invoiceNo: invoice.invoiceNo,
+    invoiceDate: invoice.invoiceDate,
+    amount,
+    vatAmount,
+    grandTotal: Number(invoice.grandTotal ?? 0),
+    vatRate: amount > 0 ? Math.round((vatAmount / amount) * 10000) / 100 : 0,
+    currencyCode: invoice.currency?.code ?? "USD",
+    firstDueDate: invoice.firstDueDate ?? invoice.invoiceDate,
+    lastDueDate: invoice.lastDueDate,
+    installmentCount: invoice.installmentCount,
+    installments: invoice.installments?.map((i) => ({
+      installmentNo: i.installmentNo,
+      dueDate: i.dueDate?.slice(0, 10),
+      amount: String(i.amount),
+    })),
+    notes: invoice.notes ?? "",
+  };
+}
+
 export function AccountingInvoicesPage() {
   const [rows, setRows] = useState<InvoiceRow[]>([]);
   const [q, setQ] = useState("");
   const [typeFilter, setTypeFilter] = useState<"all" | "sales" | "purchase">("sales");
   const [loading, setLoading] = useState(true);
   const [detail, setDetail] = useState<InvoiceDetail | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const load = () => {
     setLoading(true);
@@ -90,6 +117,22 @@ export function AccountingInvoicesPage() {
       setDetail({ ...row, ...data, company: data.company ?? row.company, currency: data.currency ?? row.currency });
     } catch {
       setDetail(row);
+    }
+  };
+
+  const deleteInvoice = async (row: InvoiceRow, event?: MouseEvent) => {
+    event?.stopPropagation();
+    if (!window.confirm(`${row.invoiceNo} numaralı faturayı arşivlemek istediğinize emin misiniz?`)) return;
+    setDeletingId(row.id);
+    try {
+      await financeService.deleteAccountingInvoice(row.id);
+      toast.success("Fatura silindi");
+      if (detail?.id === row.id) setDetail(null);
+      load();
+    } catch (err: any) {
+      toast.error("Fatura silinemedi", { description: err?.message ?? "Aktif ödeme veya yetki kontrolü nedeniyle işlem tamamlanamadı." });
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -156,11 +199,12 @@ export function AccountingInvoicesPage() {
                 <TableHead className="text-right">Tutar</TableHead>
                 <TableHead>Taksit</TableHead>
                 <TableHead>Vade Aralığı</TableHead>
+                <TableHead className="w-12 text-right">İşlem</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {loading && (
-                <TableRow><TableCell colSpan={typeFilter === "all" ? 7 : 6} className="text-center py-10 text-muted-foreground">Yükleniyor…</TableCell></TableRow>
+                <TableRow><TableCell colSpan={typeFilter === "all" ? 8 : 7} className="text-center py-10 text-muted-foreground">Yükleniyor…</TableCell></TableRow>
               )}
               {!loading && filtered.map((r) => (
                 <TableRow key={r.id} className="cursor-pointer hover:bg-muted/30" onClick={() => openDetail(r)}>
@@ -182,10 +226,22 @@ export function AccountingInvoicesPage() {
                     {r.firstDueDate ? new Date(r.firstDueDate).toLocaleDateString("tr-TR") : "—"}
                     {r.lastDueDate && r.installmentCount > 1 ? ` – ${new Date(r.lastDueDate).toLocaleDateString("tr-TR")}` : ""}
                   </TableCell>
+                  <TableCell className="text-right">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="size-8 text-muted-foreground hover:text-red-600"
+                      title="Faturayı sil"
+                      disabled={deletingId === r.id}
+                      onClick={(event) => deleteInvoice(r, event)}
+                    >
+                      <Trash2 className="size-4" />
+                    </Button>
+                  </TableCell>
                 </TableRow>
               ))}
               {!loading && filtered.length === 0 && (
-                <TableRow><TableCell colSpan={typeFilter === "all" ? 7 : 6} className="text-center py-10 text-muted-foreground">Kayıt yok</TableCell></TableRow>
+                <TableRow><TableCell colSpan={typeFilter === "all" ? 8 : 7} className="text-center py-10 text-muted-foreground">Kayıt yok</TableCell></TableRow>
               )}
             </TableBody>
           </Table>
@@ -246,6 +302,29 @@ export function AccountingInvoicesPage() {
                   </TableBody>
                 </Table>
               )}
+              <div className="flex justify-end gap-2 pt-2">
+                <CreateAccountingInvoiceDialog
+                  invoiceId={detail.id}
+                  prefill={invoicePrefill(detail)}
+                  onSaved={() => {
+                    load();
+                    setDetail(null);
+                  }}
+                  trigger={
+                    <Button variant="outline" className="gap-1">
+                      <Pencil className="size-4" /> Düzenle
+                    </Button>
+                  }
+                />
+                <Button
+                  variant="outline"
+                  className="gap-1 text-red-600 hover:bg-red-50 hover:text-red-700"
+                  disabled={deletingId === detail.id}
+                  onClick={() => deleteInvoice(detail)}
+                >
+                  <Trash2 className="size-4" /> Sil
+                </Button>
+              </div>
             </div>
           )}
         </DialogContent>

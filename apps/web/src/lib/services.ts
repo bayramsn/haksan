@@ -5,6 +5,7 @@
 import type {
   ActivityCreateInput,
   AccountingInvoiceCreateInput,
+  AccountingInvoiceUpdateInput,
   BrandCreateInput,
   CallCreateInput,
   ChatMemberRole,
@@ -39,6 +40,7 @@ import type {
   OpportunityUpdateInput,
   OrderStatusUpdateInput,
   PaymentCreateInput,
+  PaymentUpdateInput,
   PriceListCreateInput,
   PriceListItemCreateInput,
   PriceListItemUpdateInput,
@@ -421,6 +423,7 @@ export const inventoryService = {
   customerDevices: (params?: Record<string, string | number | undefined>) =>
     api.get<Paginated<any>>(`/customer-devices${qs(params)}`),
   createCustomerDevice: (body: CustomerDeviceCreateInput) => api.post<any>('/customer-devices', body),
+  deleteCustomerDevice: (id: string) => api.delete<any>(`/customer-devices/${id}`),
   consumeServiceParts: (body: {
     serviceTicketId: string;
     companyId?: string;
@@ -538,13 +541,16 @@ export const documentService = {
   proformas: (params?: Record<string, string | number | undefined>) => api.get<Paginated<any>>(`/proformas${qs(params)}`),
   createProforma: (body: ProformaCreateInput) => api.post<any>('/proformas', body),
   updateProforma: (id: string, body: ProformaUpdateInput) => api.patch<any>(`/proformas/${id}`, body),
+  deleteProforma: (id: string) => api.delete<any>(`/proformas/${id}`),
   contracts: (params?: Record<string, string | number | undefined>) => api.get<Paginated<any>>(`/contracts${qs(params)}`),
   createContract: (body: ContractCreateInput) => api.post<any>('/contracts', body),
   updateContract: (id: string, body: ContractUpdateInput) => api.patch<any>(`/contracts/${id}`, body),
+  deleteContract: (id: string) => api.delete<any>(`/contracts/${id}`),
   commercialInvoices: (params?: Record<string, string | number | undefined>) =>
     api.get<Paginated<any>>(`/commercial-invoices${qs(params)}`),
   createCommercialInvoice: (body: CommercialInvoiceCreateInput) => api.post<any>('/commercial-invoices', body),
   updateCommercialInvoice: (id: string, body: CommercialInvoiceUpdateInput) => api.patch<any>(`/commercial-invoices/${id}`, body),
+  deleteCommercialInvoice: (id: string) => api.delete<any>(`/commercial-invoices/${id}`),
 };
 
 // ───── Finance ─────
@@ -553,6 +559,8 @@ export const financeService = {
   createReceivable: (body: ReceivableCreateInput) => api.post<any>('/receivables', body),
   payments: (params?: Record<string, string | number | undefined>) => api.get<Paginated<any>>(`/payments${qs(params)}`),
   createPayment: (body: PaymentCreateInput) => api.post<any>('/payments', body),
+  updatePayment: (id: string, body: PaymentUpdateInput) => api.patch<any>(`/payments/${id}`, body),
+  deletePayment: (id: string) => api.delete<any>(`/payments/${id}`),
   updatePaymentStatus: (id: string, status: string) => api.patch<any>(`/payments/${id}/status`, { status }),
   updateReceivableStatus: (id: string, status: string) => api.patch<any>(`/receivables/${id}/status`, { status }),
   companySummary: (companyId: string) => api.get<any>(`/companies/${companyId}/finance-summary`),
@@ -564,6 +572,8 @@ export const financeService = {
     api.get<any>(`/accounting-invoices${qs(params)}`),
   accountingInvoice: (id: string) => api.get<any>(`/accounting-invoices/${id}`),
   createAccountingInvoice: (body: AccountingInvoiceCreateInput) => api.post<any>('/accounting-invoices', body),
+  updateAccountingInvoice: (id: string, body: AccountingInvoiceUpdateInput) => api.patch<any>(`/accounting-invoices/${id}`, body),
+  deleteAccountingInvoice: (id: string) => api.delete<any>(`/accounting-invoices/${id}`),
 };
 
 // ───── Service / Installation / Shipment ─────
@@ -571,6 +581,7 @@ export const serviceService = {
   tickets: (params?: Record<string, string | number | undefined>) => api.get<Paginated<any>>(`/service-tickets${qs(params)}`),
   createTicket: (body: any) => api.post<any>('/service-tickets', body),
   update: (id: string, body: any) => api.patch<any>(`/service-tickets/${id}`, body),
+  deleteTicket: (id: string) => api.delete<any>(`/service-tickets/${id}`),
   updateTicketStatus: (id: string, statusCode: string, serviceStage?: string) =>
     api.patch<any>(`/service-tickets/${id}/status`, { statusCode, serviceStage }),
   complaints: (params?: Record<string, string | number | undefined>) => api.get<Paginated<any>>(`/service-complaints${qs(params)}`),
@@ -590,6 +601,7 @@ export const serviceService = {
   installations: (params?: Record<string, string | number | undefined>) => api.get<Paginated<any>>(`/installations${qs(params)}`),
   createInstallation: (body: any) => api.post<any>('/installations', body),
   updateInstallation: (id: string, body: any) => api.patch<any>(`/installations/${id}`, body),
+  deleteInstallation: (id: string) => api.delete<any>(`/installations/${id}`),
   updateInstallationStatus: (id: string, body: { statusCode: string; installationDate?: string; formData?: any }) =>
     api.patch<any>(`/installations/${id}/status`, body),
   shipments: (params?: Record<string, string | number | undefined>) => api.get<Paginated<any>>(`/shipments${qs(params)}`),

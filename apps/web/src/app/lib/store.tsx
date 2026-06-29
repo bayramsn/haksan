@@ -826,6 +826,7 @@ function StoreInner({ children }: { children: ReactNode }) {
         status: mapStatus(p.status?.code),
         note: p.notes ?? p.paymentMethod ?? '',
         invoiceNo: p.invoiceNo ?? undefined,
+        paymentMethod: p.paymentMethod ?? 'bank_transfer',
         source: 'payment',
       }));
       setPayments([...receivablePayments, ...completedPayments]);

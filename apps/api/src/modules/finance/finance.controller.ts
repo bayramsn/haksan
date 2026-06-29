@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Inject, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Inject, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { and, desc, eq, isNull, sql } from 'drizzle-orm';
 import type { DbClient } from '../../db/client';
 import { receivables, payments } from '../../db/schema/finance';
@@ -7,19 +7,23 @@ import { DB } from '../../shared/database/database.module';
 import {
   receivableCreateSchema,
   paymentCreateSchema,
+  paymentUpdateSchema,
   paginationSchema,
   financeListQuerySchema,
   statementQuerySchema,
   accountingInvoiceCreateSchema,
+  accountingInvoiceUpdateSchema,
   accountingInvoiceListQuerySchema,
   dueDatesQuerySchema,
   financeStatusUpdateSchema,
   type ReceivableCreateInput,
   type PaymentCreateInput,
+  type PaymentUpdateInput,
   type Pagination,
   type FinanceListQuery,
   type StatementQuery,
   type AccountingInvoiceCreateInput,
+  type AccountingInvoiceUpdateInput,
   type AccountingInvoiceListQuery,
   type DueDatesQuery,
   type FinanceStatusUpdate,
@@ -124,7 +128,23 @@ export class FinanceController {
     return this.finance.createPayment(body, user);
   }
 
-  @RequirePermissions('payments.create')
+  @RequirePermissions('payments.update')
+  @Patch('payments/:id')
+  updatePayment(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(paymentUpdateSchema)) body: PaymentUpdateInput,
+    @CurrentUser() user: AuthContext
+  ) {
+    return this.finance.updatePayment(id, body, user);
+  }
+
+  @RequirePermissions('payments.delete')
+  @Delete('payments/:id')
+  deletePayment(@Param('id') id: string, @CurrentUser() user: AuthContext) {
+    return this.finance.deletePayment(id, user);
+  }
+
+  @RequirePermissions('payments.update')
   @Patch('payments/:id/status')
   async updatePaymentStatus(
     @Param('id') id: string,
@@ -141,7 +161,7 @@ export class FinanceController {
     return row;
   }
 
-  @RequirePermissions('receivables.create')
+  @RequirePermissions('receivables.update')
   @Patch('receivables/:id/status')
   async updateReceivableStatus(
     @Param('id') id: string,
@@ -183,6 +203,16 @@ export class FinanceController {
   }
 
   @RequirePermissions('accounting_invoices.update')
+  @Patch('accounting-invoices/:id')
+  updateAccountingInvoice(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(accountingInvoiceUpdateSchema)) body: AccountingInvoiceUpdateInput,
+    @CurrentUser() user: AuthContext
+  ) {
+    return this.finance.updateAccountingInvoice(id, body, user);
+  }
+
+  @RequirePermissions('accounting_invoices.update')
   @Patch('accounting-invoices/:id/cancel')
   cancelAccountingInvoice(
     @Param('id') id: string,
@@ -190,6 +220,12 @@ export class FinanceController {
     @CurrentUser() user: AuthContext
   ) {
     return this.finance.cancelAccountingInvoice(id, user);
+  }
+
+  @RequirePermissions('accounting_invoices.delete')
+  @Delete('accounting-invoices/:id')
+  deleteAccountingInvoice(@Param('id') id: string, @CurrentUser() user: AuthContext) {
+    return this.finance.deleteAccountingInvoice(id, user);
   }
 
   @RequirePermissions('receivables.read')

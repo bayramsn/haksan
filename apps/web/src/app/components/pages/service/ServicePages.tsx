@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type MouseEvent } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "../../ui/card";
 import { Button } from "../../ui/button";
 import { Input } from "../../ui/input";
@@ -345,9 +345,21 @@ const matchesServiceFocus = (s: ServiceRequest, focus?: OperationFocus) => {
   return true;
 };
 
-export function ServiceRequestsPage({ initialView = "list", focus, initialQuery }: { initialView?: "list" | "board"; focus?: OperationFocus; initialQuery?: string }) {
+type ServiceRequestsView = "list" | "board" | "complaints" | "history";
+
+export function ServiceRequestsPage({
+  initialView = "list",
+  focus,
+  initialQuery,
+  kanbanOnly = false,
+}: {
+  initialView?: "list" | "board";
+  focus?: OperationFocus;
+  initialQuery?: string;
+  kanbanOnly?: boolean;
+}) {
   const { service, machines, customers, contacts, users, refresh } = useStore();
-  const [view, setView] = useState<"list" | "board" | "complaints" | "history">(initialView);
+  const [view, setView] = useState<ServiceRequestsView>(initialView);
   const [historyQuery, setHistoryQuery] = useState("");
   const [selectedServiceId, setSelectedServiceId] = useState<string | null>(null);
   const [selectedServiceInitialTab, setSelectedServiceInitialTab] = useState<ServiceDetailTab | undefined>();
@@ -363,6 +375,7 @@ export function ServiceRequestsPage({ initialView = "list", focus, initialQuery 
   const [ticketTypeFilter, setTicketTypeFilter] = useState("all");
   const [sourceFilter, setSourceFilter] = useState("all");
   const [warrantyFilter, setWarrantyFilter] = useState("all");
+  const [deletingServiceId, setDeletingServiceId] = useState<string | null>(null);
   const customerName = (id: string) => customers.find((c) => c.id === id)?.name ?? "—";
   const machineName = (id: string) => {
     const machine = machines.find((m) => m.id === id);
@@ -521,6 +534,26 @@ export function ServiceRequestsPage({ initialView = "list", focus, initialQuery 
     setSelectedComplaint(complaint);
   };
 
+  const deleteService = async (s: ServiceRequest, event?: MouseEvent) => {
+    event?.stopPropagation();
+    const label = s.ticketNo || s.id;
+    if (!window.confirm(`${label} servis talebini arşivlemek istediğinize emin misiniz?`)) return;
+    setDeletingServiceId(s.id);
+    try {
+      await serviceService.deleteTicket(s.id);
+      toast.success("Servis talebi silindi");
+      if (selectedServiceId === s.id) {
+        setSelectedServiceId(null);
+        setSelectedServiceInitialTab(undefined);
+      }
+      await refresh();
+    } catch (err: any) {
+      toast.error("Servis talebi silinemedi", { description: err?.message ?? "İşlem başarısız oldu." });
+    } finally {
+      setDeletingServiceId(null);
+    }
+  };
+
   // DR.MAK Servis Formu — müşteri, kontak, makine, işlem, ücret, garanti
   // kararı ve notlar kaydedilmiş servis verilerinden doldurulur.
   const printServiceForm = (s: ServiceRequest, _index: number) => {
@@ -613,13 +646,70 @@ export function ServiceRequestsPage({ initialView = "list", focus, initialQuery 
     printOrWarn(printServiceQuoteForm(s.serviceQuote));
   };
 
+  const dialogs = (
+    <>
+      <ServiceDetailDialog
+        serviceRequest={selectedService}
+        initialTab={selectedServiceInitialTab}
+        onClose={() => {
+          setSelectedServiceId(null);
+          setSelectedServiceInitialTab(undefined);
+        }}
+        onSelectService={(id) => {
+          setSelectedServiceId(id);
+          setSelectedServiceInitialTab(undefined);
+        }}
+        onOpenComplaint={openSourceComplaint}
+        onDelete={deleteService}
+      />
+      <ComplaintDetailDialog
+        complaint={selectedComplaint}
+        customers={customers}
+        machines={machines}
+        onClose={() => setSelectedComplaint(null)}
+        onSaved={loadComplaints}
+        onConvert={convertComplaint}
+        onReject={rejectComplaint}
+      />
+      <CreateComplaintDialog
+        open={createComplaintOpen}
+        onOpenChange={setCreateComplaintOpen}
+        customers={customers}
+        contacts={contacts}
+        machines={machines}
+        onCreated={loadComplaints}
+      />
+      <CreateComplaintLinkDialog
+        open={createLinkOpen}
+        onOpenChange={setCreateLinkOpen}
+        customers={customers}
+        machines={machines}
+        onCreated={loadComplaints}
+      />
+    </>
+  );
+
+  if (kanbanOnly) {
+    return (
+      <>
+        <div className="space-y-4">
+          <div className="flex items-center justify-end gap-2">
+            <span className="text-sm text-muted-foreground tabular-nums">{visibleService.length} kayıt</span>
+            <FilterPopover filters={filterControls} />
+          </div>
+          <ServiceBoard items={visibleService} onOpen={openServiceDetail} onDelete={deleteService} deletingId={deletingServiceId} />
+        </div>
+        {dialogs}
+      </>
+    );
+  }
+
   return (
     <>
-    <Tabs value={view} onValueChange={(v) => setView(v as "list" | "board" | "complaints" | "history")}>
+    <Tabs value={view} onValueChange={(v) => setView(v as ServiceRequestsView)}>
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <TabsList>
           <TabsTrigger value="list">Liste</TabsTrigger>
-          <TabsTrigger value="board">Servis Akışı</TabsTrigger>
           <TabsTrigger value="complaints">
             <Inbox className="size-4" /> Şikayet Kutusu
           </TabsTrigger>
@@ -732,6 +822,16 @@ export function ServiceRequestsPage({ initialView = "list", focus, initialQuery 
                           </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="size-7"
+                        title="Servis talebini sil"
+                        disabled={deletingServiceId === s.id}
+                        onClick={(event) => deleteService(s, event)}
+                      >
+                        <Trash2 className="size-4 text-muted-foreground hover:text-red-600" />
+                      </Button>
                       </div>
                     </TableCell>
                   </TableRow>
@@ -741,9 +841,6 @@ export function ServiceRequestsPage({ initialView = "list", focus, initialQuery 
           </Table>
           </div>
         </Card>
-      </TabsContent>
-      <TabsContent value="board" className="mt-4">
-        <ServiceBoard items={visibleService} onOpen={openServiceDetail} />
       </TabsContent>
       <TabsContent value="complaints" className="mt-4">
         <ComplaintInbox
@@ -775,43 +872,7 @@ export function ServiceRequestsPage({ initialView = "list", focus, initialQuery 
         />
       </TabsContent>
     </Tabs>
-    <ServiceDetailDialog
-      serviceRequest={selectedService}
-      initialTab={selectedServiceInitialTab}
-      onClose={() => {
-        setSelectedServiceId(null);
-        setSelectedServiceInitialTab(undefined);
-      }}
-      onSelectService={(id) => {
-        setSelectedServiceId(id);
-        setSelectedServiceInitialTab(undefined);
-      }}
-      onOpenComplaint={openSourceComplaint}
-    />
-    <ComplaintDetailDialog
-      complaint={selectedComplaint}
-      customers={customers}
-      machines={machines}
-      onClose={() => setSelectedComplaint(null)}
-      onSaved={loadComplaints}
-      onConvert={convertComplaint}
-      onReject={rejectComplaint}
-    />
-    <CreateComplaintDialog
-      open={createComplaintOpen}
-      onOpenChange={setCreateComplaintOpen}
-      customers={customers}
-      contacts={contacts}
-      machines={machines}
-      onCreated={loadComplaints}
-    />
-    <CreateComplaintLinkDialog
-      open={createLinkOpen}
-      onOpenChange={setCreateLinkOpen}
-      customers={customers}
-      machines={machines}
-      onCreated={loadComplaints}
-    />
+    {dialogs}
     </>
   );
 }
@@ -912,7 +973,7 @@ const mergeCompletionForm = (
 };
 
 export function ServiceKanbanPage({ focus }: { focus?: OperationFocus }) {
-  return <ServiceRequestsPage initialView="board" focus={focus} />;
+  return <ServiceRequestsPage initialView="board" focus={focus} kanbanOnly />;
 }
 
 const complaintCompanyName = (complaint: ServiceComplaintIntake) =>
@@ -1727,7 +1788,17 @@ function ComplaintDetailDialog({
   );
 }
 
-function ServiceBoard({ items: visibleService, onOpen }: { items: ServiceRequest[]; onOpen?: (s: ServiceRequest, initialTab?: ServiceDetailTab) => void }) {
+function ServiceBoard({
+  items: visibleService,
+  onOpen,
+  onDelete,
+  deletingId,
+}: {
+  items: ServiceRequest[];
+  onOpen?: (s: ServiceRequest, initialTab?: ServiceDetailTab) => void;
+  onDelete?: (s: ServiceRequest, event?: MouseEvent) => void | Promise<void>;
+  deletingId?: string | null;
+}) {
   const { moveService, customers, machines, documents } = useStore();
   const [previewDoc, setPreviewDoc] = useState<DocumentItem | null>(null);
   const customerName = (id: string) => customers.find((c) => c.id === id)?.name ?? "—";
@@ -1799,6 +1870,21 @@ function ServiceBoard({ items: visibleService, onOpen }: { items: ServiceRequest
                 )}
                 <div className="text-[11px] text-muted-foreground line-clamp-3 break-words mt-1.5">{serviceNoteText(s)}</div>
               </div>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="size-7 shrink-0 text-muted-foreground hover:text-red-600"
+                title="Servis talebini sil"
+                disabled={deletingId === s.id}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  void onDelete?.(s, event);
+                }}
+                onMouseDown={(event) => event.stopPropagation()}
+              >
+                <Trash2 className="size-3.5" />
+              </Button>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button
@@ -2104,12 +2190,14 @@ function ServiceDetailDialog({
   onClose,
   onSelectService,
   onOpenComplaint,
+  onDelete,
 }: {
   serviceRequest: ServiceRequest | null;
   initialTab?: ServiceDetailTab;
   onClose: () => void;
   onSelectService?: (id: string) => void;
   onOpenComplaint?: (id: string) => void;
+  onDelete?: (serviceRequest: ServiceRequest) => Promise<void> | void;
 }) {
   const {
     updateService,
@@ -2549,10 +2637,22 @@ function ServiceDetailDialog({
     <Dialog open={!!serviceRequest} onOpenChange={(open) => !open && onClose()}>
       <DialogContent className="flex flex-col w-[min(1120px,calc(100vw-2rem))] max-w-none sm:max-w-none max-h-[90dvh] overflow-hidden p-0 gap-0">
         <DialogHeader className="shrink-0 border-b border-border/60 px-5 pt-5 pb-4 pr-12">
-          <DialogTitle className="flex min-w-0 items-center gap-2">
-            <Wrench className="size-5 text-primary" />
-            <span className="min-w-0 truncate">{customer?.name ?? "Firma bulunamadı"}</span>
-          </DialogTitle>
+          <div className="flex min-w-0 items-start justify-between gap-3">
+            <DialogTitle className="flex min-w-0 items-center gap-2">
+              <Wrench className="size-5 text-primary" />
+              <span className="min-w-0 truncate">{customer?.name ?? "Firma bulunamadı"}</span>
+            </DialogTitle>
+            {onDelete && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 shrink-0 gap-1 text-red-600 hover:bg-red-50 hover:text-red-700"
+                onClick={() => onDelete(serviceRequest)}
+              >
+                <Trash2 className="size-3.5" /> Sil
+              </Button>
+            )}
+          </div>
           <DialogDescription className="flex items-center gap-2 flex-wrap">
             <StatusBadge status={serviceRequest.stage} />
             {machine && <span>{machine.model} · {machine.serialNumber}</span>}

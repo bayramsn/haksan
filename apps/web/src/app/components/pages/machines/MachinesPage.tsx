@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type MouseEvent } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "../../ui/card";
 import { Button } from "../../ui/button";
 import {
@@ -9,9 +9,11 @@ import { Badge } from "../../ui/badge";
 import { StatusBadge } from "../../Layout";
 import { CreateMachineDialog, CreateServiceRequestDialog } from "../../dialogs/CreateDialogs";
 import { useStore } from "../../../lib/store";
+import { inventoryService } from "../../../../lib/services";
 import type { Machine } from "../../../lib/mock";
 import { warrantyInfo, type WarrantyState } from "../../../lib/pageHelpers";
-import { Eye, Wrench, Cpu, ShieldCheck } from "lucide-react";
+import { toast } from "sonner";
+import { Eye, Wrench, Cpu, ShieldCheck, Trash2 } from "lucide-react";
 
 const WARRANTY_TONE: Record<WarrantyState, string> = {
   active: "border-emerald-200 bg-emerald-50 text-emerald-700",
@@ -75,9 +77,13 @@ function WarrantyKpi({
 function MachineDetailDialog({
   machine,
   onClose,
+  onDelete,
+  deleting,
 }: {
   machine: Machine | null;
   onClose: () => void;
+  onDelete: (machine: Machine) => void;
+  deleting?: boolean;
 }) {
   const { customers, service } = useStore();
   if (!machine) return null;
@@ -107,14 +113,25 @@ function MachineDetailDialog({
         </div>
         <div className="flex items-center justify-between gap-2 pt-2">
           <StatusBadge status={machine.status} />
-          <CreateServiceRequestDialog
-            defaultMachineId={machine.id}
-            trigger={
-              <Button size="sm" className="gap-1">
-                <Wrench className="size-4" /> Servis talebi aç
-              </Button>
-            }
-          />
+          <div className="flex items-center gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              className="gap-1 text-red-600 hover:bg-red-50 hover:text-red-700"
+              disabled={deleting}
+              onClick={() => onDelete(machine)}
+            >
+              <Trash2 className="size-4" /> Sil
+            </Button>
+            <CreateServiceRequestDialog
+              defaultMachineId={machine.id}
+              trigger={
+                <Button size="sm" className="gap-1">
+                  <Wrench className="size-4" /> Servis talebi aç
+                </Button>
+              }
+            />
+          </div>
         </div>
         <Card className="border-border/60">
           <CardHeader className="pb-2">
@@ -141,9 +158,28 @@ function MachineDetailDialog({
 }
 
 export function MachinesPage() {
-  const { machines, service, customers } = useStore();
+  const { machines, service, customers, refresh } = useStore();
   const [selected, setSelected] = useState<Machine | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const customerName = (id: string) => customers.find((c) => c.id === id)?.name ?? "—";
+
+  const deleteMachine = async (machine: Machine, event?: MouseEvent) => {
+    event?.stopPropagation();
+    const srCount = service.filter((s) => s.machineId === machine.id).length;
+    const suffix = srCount > 0 ? ` Bu makineye bağlı ${srCount} servis kaydı kalacak, sadece makine kartı arşivlenecek.` : "";
+    if (!window.confirm(`${machine.serialNumber} seri numaralı makineyi silmek istediğinize emin misiniz?${suffix}`)) return;
+    setDeletingId(machine.id);
+    try {
+      await inventoryService.deleteCustomerDevice(machine.id);
+      toast.success("Makine kaydı silindi");
+      if (selected?.id === machine.id) setSelected(null);
+      refresh();
+    } catch (err: any) {
+      toast.error("Makine silinemedi", { description: err?.message ?? "İstek başarısız oldu." });
+    } finally {
+      setDeletingId(null);
+    }
+  };
 
   const warrantyStats = machines.reduce(
     (acc, m) => {
@@ -197,7 +233,7 @@ export function MachinesPage() {
                   <TableHead>Garanti Bitiş</TableHead>
                   <TableHead>Servis Sayısı</TableHead>
                   <TableHead>Durum</TableHead>
-                  <TableHead className="w-12" />
+                  <TableHead className="w-20 text-right">İşlem</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -228,19 +264,31 @@ export function MachinesPage() {
                       </TableCell>
                       <TableCell className="tabular-nums">{srCount}</TableCell>
                       <TableCell><StatusBadge status={m.status} /></TableCell>
-                      <TableCell>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="size-8"
-                          aria-label="Makine detayı"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setSelected(m);
-                          }}
-                        >
-                          <Eye className="size-4" />
-                        </Button>
+                      <TableCell className="text-right">
+                        <div className="inline-flex items-center justify-end gap-1">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="size-8"
+                            aria-label="Makine detayı"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setSelected(m);
+                            }}
+                          >
+                            <Eye className="size-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="size-8 text-muted-foreground hover:text-red-600"
+                            aria-label="Makine sil"
+                            disabled={deletingId === m.id}
+                            onClick={(e) => deleteMachine(m, e)}
+                          >
+                            <Trash2 className="size-4" />
+                          </Button>
+                        </div>
                       </TableCell>
                     </TableRow>
                   );
@@ -250,7 +298,7 @@ export function MachinesPage() {
           )}
         </div>
       </Card>
-      <MachineDetailDialog machine={selected} onClose={() => setSelected(null)} />
+      <MachineDetailDialog machine={selected} onClose={() => setSelected(null)} onDelete={deleteMachine} deleting={!!selected && deletingId === selected.id} />
     </>
   );
 }

@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { z } from 'zod';
 import {
   inventoryItemCreateSchema,
@@ -131,6 +131,12 @@ export class InventoryController {
     @CurrentUser() user: AuthContext
   ) {
     return this.svc.createCustomerDevice(body, user);
+  }
+
+  @RequirePermissions('customer_devices.delete')
+  @Delete('customer-devices/:id')
+  deleteCustomerDevice(@Param('id') id: string, @CurrentUser() user: AuthContext) {
+    return this.svc.deleteCustomerDevice(id, user);
   }
 
   @RequirePermissions('inventory.update')

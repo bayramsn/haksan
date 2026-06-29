@@ -727,4 +727,29 @@ export class InventoryService {
       .returning();
     return device;
   }
+
+  async deleteCustomerDevice(id: string, actor: AuthContext) {
+    const device = await this.db.query.customerDevices.findFirst({
+      where: and(
+        eq(customerDevices.id, id),
+        eq(customerDevices.tenantId, actor.tenantId),
+        isNull(customerDevices.deletedAt),
+        divisionFilter(resolveActorDivisionScope(actor), customerDevices.divisionId) ?? sql`true`,
+      ),
+    });
+    if (!device) throw new NotFoundError('Makine kaydı bulunamadı');
+    await this.db
+      .update(customerDevices)
+      .set({ deletedAt: new Date() })
+      .where(and(eq(customerDevices.id, id), eq(customerDevices.tenantId, actor.tenantId), isNull(customerDevices.deletedAt)));
+    await this.audit.write({
+      tenantId: actor.tenantId,
+      actorUserId: actor.userId,
+      action: 'customer_device.deleted',
+      resourceType: 'customer_device',
+      resourceId: id,
+      oldValues: { companyId: device.companyId, inventoryItemId: device.inventoryItemId },
+    });
+    return { ok: true };
+  }
 }

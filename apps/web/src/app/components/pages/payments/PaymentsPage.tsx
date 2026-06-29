@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "../../ui/card";
 import { Button } from "../../ui/button";
 import { Input } from "../../ui/input";
@@ -10,6 +10,7 @@ import {
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../../ui/table";
 import { Label } from "../../ui/label";
+import { Textarea } from "../../ui/textarea";
 import { StatusBadge } from "../../Layout";
 import { CreatePaymentDialog } from "../../dialogs/CreateDialogs";
 import { PayKpi } from "../../shared/MiniKpi";
@@ -29,7 +30,7 @@ import {
 } from "recharts";
 import {
   Plus, Search, ArrowDownRight, ArrowUpRight, Wallet, Clock, Building2, Mail, Phone,
-  Upload, FileText, Receipt, Download, Eye,
+  Upload, FileText, Receipt, Download, Eye, Save, Trash2,
 } from "lucide-react";
 
 export function PaymentsPage({ focus }: { focus?: OperationFocus }) {
@@ -67,6 +68,7 @@ export function PaymentsPage({ focus }: { focus?: OperationFocus }) {
   const [dirFilter, setDirFilter] = useState<"all" | "in" | "out">("all");
   // Tıklanan kasa hareketi → detay + fiş/fatura pop-up'ı
   const [selectedPayment, setSelectedPayment] = useState<Payment | null>(null);
+  const [deletingPaymentId, setDeletingPaymentId] = useState<string | null>(null);
 
   useEffect(() => {
     if (focus === "overdue") setStatusFilter("Overdue");
@@ -132,6 +134,26 @@ export function PaymentsPage({ focus }: { focus?: OperationFocus }) {
     return true;
   });
   const { page, setPage, totalPages, pageItems } = usePaged(filtered, 12);
+
+  const deletePayment = async (payment: Payment, event?: MouseEvent) => {
+    event?.stopPropagation();
+    if (payment.source !== "payment") {
+      toast.error("Bu satır ödeme kaydı değil", { description: "Bekleyen alacak/vade satırları kasa hareketi olarak silinemez." });
+      return;
+    }
+    if (!window.confirm(`${customerName(payment.customerId)} için ${payment.amount.toLocaleString("tr-TR")} ${payment.currency} kasa hareketini silmek istediğinize emin misiniz?`)) return;
+    setDeletingPaymentId(payment.id);
+    try {
+      await financeService.deletePayment(payment.id);
+      toast.success("Kasa hareketi silindi");
+      if (selectedPayment?.id === payment.id) setSelectedPayment(null);
+      refresh();
+    } catch (err: any) {
+      toast.error("Kasa hareketi silinemedi", { description: err?.message ?? "İstek başarısız oldu." });
+    } finally {
+      setDeletingPaymentId(null);
+    }
+  };
 
   const payMonthly = useMemo(() => buildPaymentMonthly(filteredPayments, 6, (amount, currency) => convert(amount, currency, "USD")), [filteredPayments, convert]);
   const currencyPie = useMemo(() => {
@@ -511,6 +533,7 @@ export function PaymentsPage({ focus }: { focus?: OperationFocus }) {
                 <TableHead>Ödeme Tarihi</TableHead>
                 <TableHead>Durum</TableHead>
                 <TableHead>Not</TableHead>
+                <TableHead className="w-20 text-right">İşlem</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -567,12 +590,40 @@ export function PaymentsPage({ focus }: { focus?: OperationFocus }) {
                     <TableCell>
                       <span className="text-xs text-muted-foreground line-clamp-1 max-w-[220px]">{p.note}</span>
                     </TableCell>
+                    <TableCell className="text-right">
+                      <div className="inline-flex items-center justify-end gap-1">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="size-8"
+                          title="Detay"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            setSelectedPayment(p);
+                          }}
+                        >
+                          <Eye className="size-4" />
+                        </Button>
+                        {p.source === "payment" && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="size-8 text-muted-foreground hover:text-red-600"
+                            title="Kasa hareketini sil"
+                            disabled={deletingPaymentId === p.id}
+                            onClick={(event) => deletePayment(p, event)}
+                          >
+                            <Trash2 className="size-4" />
+                          </Button>
+                        )}
+                      </div>
+                    </TableCell>
                   </TableRow>
                 );
               })}
               {filtered.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={8} className="text-center py-12 text-sm text-muted-foreground">
+                  <TableCell colSpan={9} className="text-center py-12 text-sm text-muted-foreground">
                     Bu filtreye uyan hareket bulunamadı.
                   </TableCell>
                 </TableRow>
@@ -618,6 +669,14 @@ const STATUS_LABELS_TR: Record<Payment["status"], string> = {
   Overdue: "Gecikmiş",
   Cancelled: "İptal",
 };
+const PAYMENT_METHOD_LABELS: Record<NonNullable<Payment["paymentMethod"]>, string> = {
+  bank_transfer: "Havale/EFT",
+  cash: "Nakit",
+  credit_card: "Kredi Kartı",
+  check: "Çek",
+  other: "Diğer",
+};
+const PAYMENT_METHOD_OPTIONS = Object.keys(PAYMENT_METHOD_LABELS) as Array<NonNullable<Payment["paymentMethod"]>>;
 
 function DetailRow({ label, value, accent }: { label: string; value: React.ReactNode; accent?: string }) {
   return (
@@ -646,12 +705,28 @@ function PaymentDetailDialog({
   const [uploading, setUploading] = useState(false);
   const [status, setStatus] = useState<Payment["status"]>("Pending");
   const [savingStatus, setSavingStatus] = useState(false);
+  const [savingPayment, setSavingPayment] = useState(false);
+  const [deletingPayment, setDeletingPayment] = useState(false);
+  const [editForm, setEditForm] = useState({
+    amount: "",
+    paymentDate: "",
+    paymentMethod: "bank_transfer" as NonNullable<Payment["paymentMethod"]>,
+    invoiceNo: "",
+    notes: "",
+  });
 
   useEffect(() => {
     if (payment) {
       setFile(null);
       setDocType("CommercialInvoice");
       setStatus(payment.status);
+      setEditForm({
+        amount: String(payment.amount ?? ""),
+        paymentDate: payment.paidDate ?? payment.dueDate ?? new Date().toISOString().slice(0, 10),
+        paymentMethod: payment.paymentMethod ?? "bank_transfer",
+        invoiceNo: payment.invoiceNo ?? "",
+        notes: payment.note ?? "",
+      });
       if (inputRef.current) inputRef.current.value = "";
     }
   }, [payment]);
@@ -679,6 +754,48 @@ function PaymentDetailDialog({
       toast.error("Durum güncellenemedi", { description: err?.message ?? "İstek başarısız oldu." });
     } finally {
       setSavingStatus(false);
+    }
+  };
+
+  const savePayment = async () => {
+    if (!payment || payment.source !== "payment") return;
+    const amount = Number(String(editForm.amount).replace(",", "."));
+    if (!Number.isFinite(amount) || amount <= 0) return toast.error("Geçerli tutar girin");
+    if (!editForm.paymentDate) return toast.error("Ödeme tarihi girin");
+    setSavingPayment(true);
+    try {
+      await financeService.updatePayment(payment.id, {
+        amount,
+        currencyCode: payment.currency,
+        paymentDate: editForm.paymentDate,
+        paymentMethod: editForm.paymentMethod,
+        invoiceNo: editForm.invoiceNo || undefined,
+        notes: editForm.notes || undefined,
+        direction: payment.direction,
+        companyId: payment.customerId,
+      });
+      toast.success("Kasa hareketi güncellendi");
+      refresh();
+    } catch (err: any) {
+      toast.error("Kasa hareketi güncellenemedi", { description: err?.message ?? "İstek başarısız oldu." });
+    } finally {
+      setSavingPayment(false);
+    }
+  };
+
+  const deletePayment = async () => {
+    if (!payment || payment.source !== "payment") return;
+    if (!window.confirm(`${customerName(payment.customerId)} için ${payment.amount.toLocaleString("tr-TR")} ${payment.currency} kasa hareketini silmek istediğinize emin misiniz?`)) return;
+    setDeletingPayment(true);
+    try {
+      await financeService.deletePayment(payment.id);
+      toast.success("Kasa hareketi silindi");
+      refresh();
+      onClose();
+    } catch (err: any) {
+      toast.error("Kasa hareketi silinemedi", { description: err?.message ?? "İstek başarısız oldu." });
+    } finally {
+      setDeletingPayment(false);
     }
   };
 
@@ -787,6 +904,72 @@ function PaymentDetailDialog({
                 <DetailRow label="Kayıt Tipi" value={payment.paymentType === "received" ? "Tahsilat" : "Beklenen"} />
               </div>
 
+              {payment.source === "payment" && (
+                <div className="rounded-lg border border-border/60 p-3 space-y-3">
+                  <div className="flex items-center gap-2 text-sm font-medium">
+                    <Wallet className="size-4 text-primary" /> Kasa Hareketi
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <Label className="text-xs">Tutar</Label>
+                      <Input
+                        className="mt-1 h-9"
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={editForm.amount}
+                        onChange={(event) => setEditForm((prev) => ({ ...prev, amount: event.target.value }))}
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-xs">Ödeme Tarihi</Label>
+                      <Input
+                        className="mt-1 h-9"
+                        type="date"
+                        value={editForm.paymentDate}
+                        onChange={(event) => setEditForm((prev) => ({ ...prev, paymentDate: event.target.value }))}
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-xs">Ödeme Yöntemi</Label>
+                      <Select
+                        value={editForm.paymentMethod}
+                        onValueChange={(value) => setEditForm((prev) => ({ ...prev, paymentMethod: value as NonNullable<Payment["paymentMethod"]> }))}
+                      >
+                        <SelectTrigger className="mt-1 h-9"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          {PAYMENT_METHOD_OPTIONS.map((method) => (
+                            <SelectItem key={method} value={method}>{PAYMENT_METHOD_LABELS[method]}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <Label className="text-xs">Fatura No</Label>
+                      <Input
+                        className="mt-1 h-9"
+                        value={editForm.invoiceNo}
+                        onChange={(event) => setEditForm((prev) => ({ ...prev, invoiceNo: event.target.value }))}
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <Label className="text-xs">Not</Label>
+                    <Textarea
+                      className="mt-1"
+                      rows={2}
+                      value={editForm.notes}
+                      onChange={(event) => setEditForm((prev) => ({ ...prev, notes: event.target.value }))}
+                    />
+                  </div>
+                  <div className="flex justify-end">
+                    <Button size="sm" className="gap-1" disabled={savingPayment} onClick={savePayment}>
+                      <Save className="size-4" /> {savingPayment ? "Kaydediliyor…" : "Kaydet"}
+                    </Button>
+                  </div>
+                </div>
+              )}
+
               {payment.note && (
                 <div className="rounded-lg border border-border/60 bg-muted/30 p-3">
                   <div className="text-[11px] uppercase tracking-wider text-muted-foreground mb-1">Not</div>
@@ -853,6 +1036,16 @@ function PaymentDetailDialog({
             </div>
 
             <DialogFooter className="border-t border-border/60 bg-muted/20 px-5 py-4">
+              {payment.source === "payment" && (
+                <Button
+                  variant="outline"
+                  className="mr-auto gap-1 text-red-600 hover:bg-red-50 hover:text-red-700"
+                  disabled={deletingPayment}
+                  onClick={deletePayment}
+                >
+                  <Trash2 className="size-4" /> Sil
+                </Button>
+              )}
               <Button variant="outline" onClick={onClose}>Kapat</Button>
             </DialogFooter>
           </>
