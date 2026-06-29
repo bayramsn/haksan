@@ -17,13 +17,13 @@ import { Checkbox } from "../../ui/checkbox";
 import { Label } from "../../ui/label";
 import { Alert, AlertDescription, AlertTitle } from "../../ui/alert";
 import { Skeleton } from "../../ui/skeleton";
-import { CreateUserDialog, UserDepartmentDialog } from "../../admin/UserAdminDialogs";
+import { CreateUserDialog, UserDepartmentDialog, UserEditDialog } from "../../admin/UserAdminDialogs";
 import { FormField } from "../shared/formFields";
 import { useStore } from "../../../lib/store";
 import { useAuth } from "../../../../lib/auth";
 import { adminService } from "../../../../lib/services";
 import type { User } from "../../../lib/mock";
-import { Plus, TrendingUp, ShieldCheck, Settings, Building2, Wrench, RotateCcw, AlertTriangle, Trash2 } from "lucide-react";
+import { Plus, TrendingUp, ShieldCheck, Settings, Building2, Wrench, RotateCcw, AlertTriangle, Trash2, Pencil } from "lucide-react";
 import { toast } from "sonner";
 
 type UserTargetType = "sales" | "service";
@@ -409,6 +409,7 @@ const normalizeAdminUser = (user: any, fallback?: User): AdminUserRow => {
     id: user.id,
     name: user.fullName ?? user.name ?? fallback?.name ?? user.email ?? "—",
     email: user.email ?? fallback?.email ?? "",
+    phone: user.phone ?? fallback?.phone ?? null,
     role: ((roleNames[0] ?? fallbackRole) as User["role"]) || fallbackRole,
     department: user.department?.name ?? fallback?.department ?? "",
     departmentId: user.departmentId ?? user.department?.id ?? fallback?.departmentId ?? null,
@@ -432,7 +433,10 @@ export function UsersPage() {
   const canCreateUser = hasRole("super_admin") || hasPermission("users.create");
   const canUpdateUser = hasRole("super_admin") || hasPermission("users.update");
   const canDeleteUser = hasRole("super_admin") || hasPermission("users.delete");
-  const canShowActions = canSetTargets || canAssignRoles || canUpdateUser || canDeleteUser;
+  // Ad/e-posta/telefon düzenleme ve şifre sıfırlama yalnızca süper admin'e açık
+  // (e-posta ve şifre değişimi backend'de super_admin gerektirir).
+  const canEditUser = hasRole("super_admin");
+  const canShowActions = canSetTargets || canAssignRoles || canUpdateUser || canDeleteUser || canEditUser;
   const [adminUsers, setAdminUsers] = useState<AdminUserRow[]>([]);
   const [departments, setDepartments] = useState<{ id: string; name: string; code?: string }[]>([]);
   const [divisions, setDivisions] = useState<{ id: string; code: string; name: string }[]>([]);
@@ -445,11 +449,13 @@ export function UsersPage() {
   const [roleUser, setRoleUser] = useState<AdminUserRow | null>(null);
   const [limitUser, setLimitUser] = useState<User | null>(null);
   const [deptUser, setDeptUser] = useState<AdminUserRow | null>(null);
+  const [editUser, setEditUser] = useState<AdminUserRow | null>(null);
   const [deletingUser, setDeletingUser] = useState<AdminUserRow | null>(null);
   const [createUserOpen, setCreateUserOpen] = useState(false);
   const [savingRoles, setSavingRoles] = useState(false);
   const [savingLimit, setSavingLimit] = useState(false);
   const [savingDept, setSavingDept] = useState(false);
+  const [savingEdit, setSavingEdit] = useState(false);
   const [deletingSaving, setDeletingSaving] = useState(false);
 
   const loadAdminUsers = useCallback(async () => {
@@ -565,6 +571,23 @@ export function UsersPage() {
       toast.error("Güncellenemedi", { description: err?.message ?? "Lütfen tekrar deneyin." });
     } finally {
       setSavingDept(false);
+    }
+  };
+
+  const handleSaveEdit = async (
+    userId: string,
+    patch: { fullName: string; email: string; phone: string | null; password?: string }
+  ) => {
+    setSavingEdit(true);
+    try {
+      await adminService.updateUser(userId, patch);
+      toast.success(patch.password ? "Kullanıcı bilgileri ve şifre güncellendi" : "Kullanıcı bilgileri güncellendi");
+      setEditUser(null);
+      await loadAdminUsers();
+    } catch (err: any) {
+      toast.error("Kullanıcı güncellenemedi", { description: err?.message ?? "Lütfen tekrar deneyin." });
+    } finally {
+      setSavingEdit(false);
     }
   };
 
@@ -690,6 +713,11 @@ export function UsersPage() {
                     </TableCell>
                     {canShowActions && (
                       <TableCell className="text-right whitespace-nowrap">
+                        {canEditUser && (
+                          <Button variant="ghost" size="sm" className="h-7 gap-1 text-xs" onClick={() => setEditUser(u)}>
+                            <Pencil className="size-3.5" /> Düzenle
+                          </Button>
+                        )}
                         {canUpdateUser && (
                           <Button variant="ghost" size="sm" className="h-7 gap-1 text-xs" onClick={() => setDeptUser(u)}>
                             <Building2 className="size-3.5" /> Departman
@@ -757,6 +785,14 @@ export function UsersPage() {
           saving={savingLimit}
           onClose={() => setLimitUser(null)}
           onSave={handleSaveLimit}
+        />
+      )}
+      {canEditUser && (
+        <UserEditDialog
+          user={editUser}
+          saving={savingEdit}
+          onClose={() => setEditUser(null)}
+          onSave={handleSaveEdit}
         />
       )}
       {canUpdateUser && (

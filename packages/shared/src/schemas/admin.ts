@@ -17,7 +17,8 @@ export const userUpdateSchema = z.object({
   fullName: z.string().min(1).max(255).optional(),
   // E-posta değişikliği yalnızca super_admin tarafından yapılabilir (controller'da zorlanır).
   email: z.string().email().max(255).optional(),
-  phone: z.string().max(32).optional(),
+  // null gönderilirse telefon temizlenir (super_admin düzenleme dialogu için).
+  phone: z.string().max(32).nullable().optional(),
   departmentId: z.string().nullable().optional(),
   status: z.enum(['active', 'passive']).optional(),
   roleCodes: z.array(z.string()).optional(),

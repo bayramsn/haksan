@@ -8,6 +8,7 @@ export type User = {
   id: string;
   name: string;
   email: string;
+  phone?: string | null;
   role: Role;
   roleCodes?: string[];
   roleNames?: string[];

@@ -176,6 +176,132 @@ export function CreateUserDialog({
   );
 }
 
+/**
+ * Süper admin için kullanıcı bilgilerini (ad, e-posta, telefon) düzenleme ve şifre
+ * sıfırlama dialogu. E-posta ve şifre değişimi backend'de yalnızca super_admin'e
+ * açıktır (admin.controller#updateUser → requireSuperAdmin), bu yüzden bu dialog
+ * UsersPage'de sadece super_admin'e gösterilir.
+ */
+export function UserEditDialog({
+  user,
+  saving,
+  onClose,
+  onSave,
+}: {
+  user: { id: string; name: string; email: string; phone?: string | null } | null;
+  saving: boolean;
+  onClose: () => void;
+  onSave: (
+    userId: string,
+    patch: { fullName: string; email: string; phone: string | null; password?: string }
+  ) => Promise<void>;
+}) {
+  const [fullName, setFullName] = useState("");
+  const [email, setEmail] = useState("");
+  const [phone, setPhone] = useState("");
+  const [password, setPassword] = useState("");
+  const [passwordConfirm, setPasswordConfirm] = useState("");
+
+  useEffect(() => {
+    if (user) {
+      setFullName(user.name ?? "");
+      setEmail(user.email ?? "");
+      setPhone(user.phone ?? "");
+      setPassword("");
+      setPasswordConfirm("");
+    }
+  }, [user]);
+
+  if (!user) return null;
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!fullName.trim()) {
+      toast.error("Ad Soyad zorunlu");
+      return;
+    }
+    if (!email.trim()) {
+      toast.error("E-posta zorunlu");
+      return;
+    }
+    if (password) {
+      if (password.length < 8) {
+        toast.error("Şifre en az 8 karakter olmalı");
+        return;
+      }
+      if (password !== passwordConfirm) {
+        toast.error("Şifreler eşleşmiyor");
+        return;
+      }
+    }
+    await onSave(user.id, {
+      fullName: fullName.trim(),
+      email: email.trim(),
+      phone: phone.trim() || null,
+      // Boş bırakılırsa mevcut şifre korunur.
+      ...(password ? { password } : {}),
+    });
+  };
+
+  return (
+    <Dialog open={!!user} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Kullanıcıyı Düzenle · {user.name}</DialogTitle>
+          <DialogDescription>Ad, e-posta ve telefonu güncelleyin veya şifreyi sıfırlayın.</DialogDescription>
+        </DialogHeader>
+        <form onSubmit={submit} className="space-y-3">
+          <div>
+            <Label className="text-xs">Ad Soyad *</Label>
+            <Input className="mt-1.5" value={fullName} onChange={(e) => setFullName(e.target.value)} disabled={saving} />
+          </div>
+          <div>
+            <Label className="text-xs">E-posta *</Label>
+            <Input type="email" className="mt-1.5" value={email} onChange={(e) => setEmail(e.target.value)} disabled={saving} />
+          </div>
+          <div>
+            <Label className="text-xs">Telefon</Label>
+            <Input className="mt-1.5" value={phone} onChange={(e) => setPhone(e.target.value)} disabled={saving} />
+          </div>
+          <div className="rounded-md border border-border/60 p-3 space-y-3">
+            <div className="text-xs font-medium text-muted-foreground">Şifre Sıfırla (isteğe bağlı)</div>
+            <div>
+              <Label className="text-xs">Yeni Şifre</Label>
+              <Input
+                type="password"
+                autoComplete="new-password"
+                placeholder="Değiştirmemek için boş bırakın"
+                className="mt-1.5"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                disabled={saving}
+              />
+            </div>
+            {password && (
+              <div>
+                <Label className="text-xs">Yeni Şifre (Tekrar)</Label>
+                <Input
+                  type="password"
+                  autoComplete="new-password"
+                  className="mt-1.5"
+                  value={passwordConfirm}
+                  onChange={(e) => setPasswordConfirm(e.target.value)}
+                  disabled={saving}
+                />
+                <p className="mt-1 text-[11px] text-muted-foreground">En az 8 karakter.</p>
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={onClose} disabled={saving}>İptal</Button>
+            <Button type="submit" disabled={saving}>{saving ? "Kaydediliyor..." : "Kaydet"}</Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export function UserDepartmentDialog({
   user,
   departments,
