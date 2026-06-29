@@ -754,7 +754,6 @@ export interface InstallationPrintData {
   teslimAlan?: string;
   kurulumYeri?: string;
   sure?: string;
-  technicalSpecs?: Array<{ key: string; value: string }>;
   checks?: Array<{ label: string; status?: "done" | "not_done"; note?: string }>;
   problem?: { hasProblem?: boolean; note?: string; actionNote?: string };
   notlar?: string;
@@ -796,8 +795,6 @@ table.f-check td.n { width: 58mm; }
 .f-problem td.lbl { width: 34mm; }
 .f-problem td { font-size: 8.8pt; padding: .45mm 1mm; }
 .f-choice { display: inline-block; margin-right: 8mm; white-space: nowrap; }
-.f-spec td.lbl { width: 29mm; }
-.f-spec td.val { width: 55mm; }
 .f-sign { display: flex; gap: 4mm; margin-top: 1.5mm; }
 .f-sign > div { flex: 1; border: 1.4pt solid #000; padding: 1mm 1.5mm 1.8mm; }
 .f-sign .cap { font-weight: bold; font-size: 9.8pt; border-bottom: 1pt solid #000; margin: -1.2mm -1.5mm 1.2mm; padding: .8mm 1.5mm; }
@@ -810,11 +807,6 @@ export function installationFormDoc(d: InstallationPrintData, assetBase: string)
   const c = d.cnc ?? {};
   const cb = (on: boolean) => `<span class="cb">${on ? "&#9745;" : "&#9744;"}</span>`;
   const checks = d.checks?.length ? d.checks : INSTALL_CHECKS.map((label) => ({ label }));
-  const technicalSpecs = (d.technicalSpecs ?? []).filter((spec) => spec.key.trim() && spec.value.trim());
-  const technicalSpecRows = Array.from({ length: Math.ceil(technicalSpecs.length / 2) }, (_, index) => [
-    technicalSpecs[index * 2],
-    technicalSpecs[index * 2 + 1],
-  ]);
   const body = `
 <div class="page">
   ${drmakHeader(assetBase, "KURULUM TUTANAĞI")}
@@ -846,18 +838,6 @@ export function installationFormDoc(d: InstallationPrintData, assetBase: string)
         </table>
       </div>
     </div>
-
-    ${technicalSpecRows.length ? `
-    <div class="f-sec" style="margin-top:2mm">TEKNİK BİLGİLER</div>
-    <table class="f f-spec">
-      ${technicalSpecRows.map(([left, right]) => `
-      <tr>
-        <td class="lbl">${esc(left.key)}</td>
-        <td class="val">${blank(left.value)}</td>
-        <td class="lbl">${right ? esc(right.key) : ""}</td>
-        <td class="val">${right ? blank(right.value) : ""}</td>
-      </tr>`).join("")}
-    </table>` : ""}
 
     <div class="f-sec" style="margin-top:2mm">KULLANICI BİLGİLERİ</div>
     <table class="f">

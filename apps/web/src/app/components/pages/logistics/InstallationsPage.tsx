@@ -449,7 +449,6 @@ function InstallationFormDialog({
           teslimAlan: payload.teslimAlan,
           kurulumYeri: row.location,
           sure: row.durationMinutes != null ? formatDuration(row.durationMinutes) : undefined,
-          technicalSpecs: payload.technicalSpecs,
           checks: payload.checks?.map((check) => ({ label: check.label, status: check.status, note: check.note })),
           problem: payload.problem,
           notlar: row.notes,
