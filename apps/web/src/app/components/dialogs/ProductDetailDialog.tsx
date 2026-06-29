@@ -180,7 +180,7 @@ export function ProductDetailDialog({
   );
   const standard = equipment.filter((e) => e.type?.code !== "opsiyonel").map((e) => e.item.title);
   // Fall back to the store's flat lists if the equipment endpoint returned nothing.
-  const standardTitles = standard.length ? standard : product.standardEquipment;
+  const standardTitles = standard.length ? standard : (product.standardEquipment || []);
   const muadilGroups = (view.muadilProducts ?? []).reduce<Record<string, NonNullable<Product["muadilProducts"]>>>((acc, item) => {
     const key = item.category || "Kategorisiz";
     acc[key] = [...(acc[key] ?? []), item];
@@ -367,7 +367,7 @@ export function ProductDetailDialog({
         {/* specs */}
         <div className="px-6 pb-4">
           <SectionTitle icon={<ListChecks className="size-3.5" />} text="Teknik Bilgiler" />
-          {product.specs.length === 0 ? (
+          {!(product.specs && product.specs.length > 0) ? (
             <div className="text-xs text-muted-foreground">Teknik özellik girilmemiş.</div>
           ) : (
             <div className="rounded-lg border border-border/60 divide-y divide-border/60 sm:columns-2 sm:gap-0">
