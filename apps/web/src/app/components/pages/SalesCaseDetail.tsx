@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
 import { Button } from "../ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../ui/tabs";
-import { ArrowLeft, Plus, Upload, X, XCircle, Eye, FileText, CreditCard, CheckCircle2 } from "lucide-react";
+import { ArrowLeft, Plus, Upload, X, XCircle, Eye, FileText, CreditCard, CheckCircle2, Trash2 } from "lucide-react";
 import { SalesCase, SALES_STAGES, salesStageLabel, type Offer } from "../../lib/mock";
 import { StatusBadge } from "../Layout";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../ui/table";
@@ -11,6 +11,16 @@ import { AddActivityDialog } from "../dialogs/CreateDialogs";
 import { QuoteDialog } from "../dialogs/QuoteDialog";
 import { LostCaseDialog } from "../dialogs/LostCaseDialog";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "../ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "../ui/alert-dialog";
 import { Label } from "../ui/label";
 import { Input } from "../ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
@@ -48,8 +58,10 @@ export function SalesCaseDetailPage({
   onBack: () => void;
   mode?: "page" | "dialog";
 }) {
-  const { offers, activities, customers, users, documents, payments, refresh } = useStore();
+  const { offers, activities, customers, users, documents, payments, refresh, deleteCase, updateCase } = useStore();
   const [lostOpen, setLostOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleteSaving, setDeleteSaving] = useState(false);
   const [selectedOfferId, setSelectedOfferId] = useState<string | null>(null);
   const [salesOrders, setSalesOrders] = useState<any[]>([]);
   const canMarkLost = !sc.isLost && sc.stage !== "cancelled" && sc.stage !== "delivered";
@@ -116,6 +128,22 @@ export function SalesCaseDetailPage({
       toast.error("Doküman indirilemedi", { description: err?.message ?? "İstek başarısız oldu." });
     }
   };
+
+  const handleDeleteCase = async () => {
+    if (deleteSaving) return;
+    setDeleteSaving(true);
+    try {
+      await deleteCase(sc.id);
+      toast.success("Satış kartı silindi", { description: c?.name ?? sc.requestedProduct });
+      setDeleteOpen(false);
+      onBack();
+    } catch (err: any) {
+      toast.error("Satış kartı silinemedi", { description: err?.message ?? "API isteği başarısız oldu." });
+    } finally {
+      setDeleteSaving(false);
+    }
+  };
+
   const rootClass = mode === "dialog" ? "flex max-h-[90dvh] min-h-0 flex-col overflow-hidden" : "space-y-4";
   const toolbarClass =
     mode === "dialog"
@@ -130,19 +158,53 @@ export function SalesCaseDetailPage({
           {mode === "dialog" ? <X className="size-4" /> : <ArrowLeft className="size-4" />}
           {mode === "dialog" ? "Kapat" : "Listeye dön"}
         </Button>
-        {canMarkLost && (
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          {canMarkLost && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setLostOpen(true)}
+              className="gap-1 text-red-600 border-red-200 hover:bg-red-50 hover:text-red-700"
+            >
+              <XCircle className="size-4" /> Kaybedildi olarak işaretle
+            </Button>
+          )}
           <Button
             variant="outline"
             size="sm"
-            onClick={() => setLostOpen(true)}
-            className="gap-1 text-red-600 border-red-200 hover:bg-red-50 hover:text-red-700"
+            onClick={() => setDeleteOpen(true)}
+            className="gap-1 border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700"
           >
-            <XCircle className="size-4" /> Kaybedildi olarak işaretle
+            <Trash2 className="size-4" /> Satış Kartını Sil
           </Button>
-        )}
+        </div>
       </div>
 
       <LostCaseDialog open={lostOpen} onOpenChange={setLostOpen} caseId={sc.id} caseName={c?.name} />
+      <AlertDialog open={deleteOpen} onOpenChange={(open) => !deleteSaving && setDeleteOpen(open)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Satış kartını sil?</AlertDialogTitle>
+            <AlertDialogDescription>
+              <b>{c?.name ?? "Firma bulunamadı"}</b> için açılan <b>{sc.requestedProduct}</b> satış kartı silinecek.
+              Bağlı teklif, doküman veya ödeme varsa backend işlemi reddedebilir.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleteSaving}>Vazgeç</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-red-600 hover:bg-red-700"
+              disabled={deleteSaving}
+              onClick={(event) => {
+                event.preventDefault();
+                void handleDeleteCase();
+              }}
+            >
+              {deleteSaving ? "Siliniyor..." : "Sil"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <div className={bodyClass}>
       <Card>
@@ -156,7 +218,22 @@ export function SalesCaseDetailPage({
             <div className="shrink-0 text-left lg:text-right">
               <div className="text-2xl tabular-nums">{sc.estimatedAmount.toLocaleString()} {sc.currency}</div>
               <div className="mt-2"><StatusBadge status={sc.stage} /></div>
-              <div className="text-xs text-muted-foreground mt-1">Atanan: {u?.name ?? "Atanmadı"}</div>
+              <Select
+                value={sc.assignedUserId ?? '__none__'}
+                onValueChange={async (v) => {
+                  await updateCase(sc.id, { assignedUserId: v === '__none__' ? '' : v });
+                }}
+              >
+                <SelectTrigger className="h-7 text-xs w-44 mt-1">
+                  <SelectValue placeholder="Atanmadı" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">Atanmadı</SelectItem>
+                  {users.map((usr) => (
+                    <SelectItem key={usr.id} value={usr.id}>{usr.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
           </div>
 

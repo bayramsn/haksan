@@ -288,6 +288,8 @@ export type CreateQuotePayload = {
 type Store = {
   customers: Customer[];
   cases: SalesCase[];
+  // Mantıksal olarak kapatılmış (arşiv/geçmiş) satış kartları — teslim+iptal. closedAt dolu.
+  closedCases: SalesCase[];
   service: ServiceRequest[];
   offers: Offer[];
   noteTemplates: NoteTemplate[];
@@ -316,9 +318,12 @@ type Store = {
   updateCustomer: (id: string, patch: Partial<Omit<Customer, 'id' | 'createdAt'>>) => Promise<void>;
   deleteCustomer: (id: string) => Promise<void>;
   addCase: (c: Omit<SalesCase, 'id' | 'createdAt' | 'stage' | 'isLost' | 'isOfferPrepared'> & { stage?: SalesStage; divisionId?: string }) => Promise<SalesCase>;
+  updateCase: (id: string, patch: { assignedUserId?: string }) => Promise<void>;
+  deleteCase: (id: string) => Promise<void>;
   addOffer: (o: Omit<Offer, 'id' | 'date' | 'revision'> & { revision?: number }) => Promise<Offer>;
   createQuoteFull: (payload: CreateQuotePayload) => Promise<{ quoteId: string; documentNo: string; opportunityId: string }>;
   addNoteTemplate: (t: { title: string; body: string; scope?: string }) => Promise<NoteTemplate>;
+  updateNoteTemplate: (id: string, patch: { title?: string; body?: string; scope?: string }) => Promise<NoteTemplate>;
   deleteNoteTemplate: (id: string) => Promise<void>;
   addStock: (s: Omit<StockItem, 'id'>) => Promise<StockItem>;
   updateStockStatus: (id: string, status: StockItem['status']) => Promise<void>;
@@ -328,7 +333,10 @@ type Store = {
   addDelivery: (d: Omit<Delivery, 'id'>) => Promise<Delivery>;
   updateDelivery: (id: string, d: Partial<Omit<Delivery, 'id'>>) => Promise<void>;
   updateDeliveryStatus: (id: string, status: Delivery['status']) => Promise<void>;
-  moveCase: (id: string, to: SalesStage) => Promise<void>;
+  moveCase: (id: string, to: SalesStage, options?: { inventoryItemIds?: string[]; changeReason?: string }) => Promise<void>;
+  // Mantıksal kapanış (Bitir) ve geri alma (Geri Aç) — silmez, closedAt set/sıfırlar.
+  closeCase: (id: string, reason?: string) => Promise<void>;
+  reopenCase: (id: string) => Promise<void>;
   markCaseLost: (
     id: string,
     payload: { reasonCode: string; competitorId?: string; competitorProductModel?: string }
@@ -361,6 +369,7 @@ function StoreInner({ children }: { children: ReactNode }) {
 
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [cases, setCases] = useState<SalesCase[]>([]);
+  const [closedCases, setClosedCases] = useState<SalesCase[]>([]);
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [stock, setStock] = useState<StockItem[]>([]);
@@ -426,7 +435,7 @@ function StoreInner({ children }: { children: ReactNode }) {
     };
     try {
       const empty = { data: [] as any[], meta: { total: 0, page: 1, pageSize: 0, totalPages: 0 } };
-      const [companies, contactsR, opps, prods, inv, qts, svcTickets, acts, usersR, devicesR, receivablesR, paymentsR, proformasR, contractsR, invoicesR, noteTemplatesR, shipmentsR, deliveriesR, fileLinksR] = await Promise.all([
+      const [companies, contactsR, opps, prods, inv, qts, svcTickets, acts, usersR, devicesR, receivablesR, paymentsR, proformasR, contractsR, invoicesR, noteTemplatesR, shipmentsR, deliveriesR, installationsR, fileLinksR] = await Promise.all([
         load('Firmalar', () => companyService.list({ pageSize: 200 }), empty, 'companies.read'),
         load('Kontaklar', () => contactService.list({ pageSize: 200 }), empty, 'contacts.read'),
         load('Satış kartları', () => opportunityService.list({ pageSize: 200 }), empty, 'opportunities.read'),
@@ -442,11 +451,19 @@ function StoreInner({ children }: { children: ReactNode }) {
         load('Proformalar', () => documentService.proformas({ pageSize: 200 }), empty, 'proformas.read'),
         load('Sözleşmeler', () => documentService.contracts({ pageSize: 200 }), empty, 'contracts.read'),
         load('Faturalar', () => documentService.commercialInvoices({ pageSize: 200 }), empty, 'commercial_invoices.read'),
-        load('Not şablonları', () => noteTemplateService.list('quote'), [] as any[]),
+        load('Not şablonları', () => noteTemplateService.list(), [] as any[]),
         load('Sevkiyatlar', () => serviceService.shipments({ pageSize: 200 }), empty, 'shipments.read'),
         load('Teslimatlar', () => serviceService.deliveries({ pageSize: 200 }), empty, 'shipments.read'),
+        load('Kurulumlar', () => serviceService.installations({ pageSize: 200 }), empty, 'installations.read'),
         load('Dosya bağlantıları', () => fileService.links({ pageSize: 200 }), empty, 'files.read'),
       ]);
+      // Kapatılan (arşiv/geçmiş) kartlar ayrı çekilir; aktif liste varsayılan view=active döner.
+      const closedOpps = await load(
+        'Geçmiş kartlar',
+        () => opportunityService.list({ pageSize: 200, view: 'closed' }),
+        empty,
+        'opportunities.read'
+      );
       setLoadErrors(errors);
       setLoadTruncated(truncated);
 
@@ -539,28 +556,25 @@ function StoreInner({ children }: { children: ReactNode }) {
         }))
       );
 
-      setCases(
-        opps.data.map((o: any) => {
-          const stageCode = o.stage?.code ?? '';
-          const hasQuote = qts.data.some((q: any) => q.opportunityId === o.id);
-          return {
-            id: o.id,
-            customerId: o.companyId,
-            assignedUserId: o.ownerUserId ?? '',
-            department: '',
-            requestedProduct: o.title ?? '',
-            requestedModel: o.title ?? '',
-            quantity: 1,
-            estimatedAmount: Number(o.estimatedValue ?? 0),
-            currency: (o.currency?.code as 'USD' | 'EUR' | 'TRY') ?? 'USD',
-            stage: STAGE_BY_CODE[stageCode] ?? 'lead',
-            isOfferPrepared: hasQuote,
-            isLost: stageCode === 'cancelled',
-            createdAt: (o.createdAt as string)?.slice(0, 10) ?? '',
-            closedAt: undefined,
-          } as SalesCase;
-        })
-      );
+      const mapCase = (o: any): SalesCase =>
+        ({
+          id: o.id,
+          customerId: o.companyId,
+          assignedUserId: o.ownerUserId ?? '',
+          department: '',
+          requestedProduct: o.title ?? '',
+          requestedModel: o.title ?? '',
+          quantity: 1,
+          estimatedAmount: Number(o.estimatedValue ?? 0),
+          currency: (o.currency?.code as 'USD' | 'EUR' | 'TRY') ?? 'USD',
+          stage: STAGE_BY_CODE[o.stage?.code ?? ''] ?? 'lead',
+          isOfferPrepared: qts.data.some((q: any) => q.opportunityId === o.id),
+          isLost: (o.stage?.code ?? '') === 'cancelled',
+          createdAt: (o.createdAt as string)?.slice(0, 10) ?? '',
+          closedAt: o.closedAt ? (o.closedAt as string).slice(0, 10) : undefined,
+        }) as SalesCase;
+      setCases(opps.data.map(mapCase));
+      setClosedCases(closedOpps.data.map(mapCase));
 
       const apiProducts = prods.data.map((p: any) => ({
           id: p.id,
@@ -605,6 +619,7 @@ function StoreInner({ children }: { children: ReactNode }) {
           return {
             id: s.id,
             brand: s.brand?.name ?? '',
+            productId: s.product?.id ?? s.productModelId ?? undefined,
             counterType: s.product?.fullName ?? '',
             counterModel: s.product?.modelCode ?? '',
             serialNumber: s.serialNumber ?? '',
@@ -751,6 +766,13 @@ function StoreInner({ children }: { children: ReactNode }) {
           type: d.productTypeName ?? '',
           controlUnit: d.controlUnit ?? '',
           controlUnitSerial: d.controlUnitSerialNumber ?? '',
+          productModelId: d.productModelId ?? '',
+          technicalSpecs: Array.isArray(d.technicalSpecs)
+            ? d.technicalSpecs.map((spec: any) => ({
+                key: String(spec.key ?? ''),
+                value: [spec.value, spec.unit].filter(Boolean).join(' '),
+              }))
+            : [],
           deliveryDate: (d.deliveryDate as string)?.slice(0, 10) ?? '',
           installationDate: (d.installationDate as string)?.slice(0, 10) ?? '',
           warrantyStart: (d.warrantyStartDate as string)?.slice(0, 10) ?? '',
@@ -865,6 +887,29 @@ function StoreInner({ children }: { children: ReactNode }) {
           size: d.fileId ? 'Dosya bağlı' : 'Kayıt',
           fileId: d.fileId ?? undefined,
         })),
+        ...(deliveriesR.data ?? []).map((d: any) => ({
+          id: `delivery-form-${d.id}`,
+          salesCaseId: d.opportunityId ?? '',
+          companyId: d.companyId ?? '',
+          deliveryId: d.id,
+          type: 'DeliveryForm' as const,
+          fileName: d.formData?.formNo ?? `Teslim Formu ${String(d.id ?? '').slice(0, 8).toUpperCase()}`,
+          uploadedBy: '',
+          uploadedAt: (d.deliveryDate as string)?.slice(0, 10) ?? (d.createdAt as string)?.slice(0, 10) ?? '',
+          size: 'Canlı form',
+        })),
+        ...(installationsR.data ?? []).map((d: any) => ({
+          id: `installation-form-${d.id}`,
+          salesCaseId: d.opportunityId ?? '',
+          companyId: d.companyId ?? '',
+          installationId: d.id,
+          installationData: d,
+          type: 'InstallationForm' as const,
+          fileName: d.formData?.formNo ?? `Kurulum Formu ${String(d.id ?? '').slice(0, 8).toUpperCase()}`,
+          uploadedBy: d.assignedTo?.id ?? d.assignedToUserId ?? '',
+          uploadedAt: (d.completedAt as string)?.slice(0, 10) ?? (d.scheduledDate as string)?.slice(0, 10) ?? (d.createdAt as string)?.slice(0, 10) ?? '',
+          size: 'Canlı form',
+        })),
         ...(fileLinksR.data ?? []).map((row: any) => ({
           id: row.id ?? row.file?.id,
           salesCaseId: row.entityType === 'opportunity' ? row.entityId : '',
@@ -919,6 +964,7 @@ function StoreInner({ children }: { children: ReactNode }) {
                 cnc: d.formData.cnc,
                 ilgili: d.formData.ilgili,
                 kurulumuYapan: d.formData.kurulumuYapan,
+                technicalSpecs: d.formData.technicalSpecs,
               }
             : undefined,
         }))
@@ -1139,18 +1185,45 @@ function StoreInner({ children }: { children: ReactNode }) {
     } as SalesCase;
   };
 
-  const moveCase: Store['moveCase'] = async (id, to) => {
+  const updateCase: Store['updateCase'] = async (id, patch) => {
+    const body: Record<string, unknown> = {};
+    if (patch.assignedUserId !== undefined) body.ownerUserId = patch.assignedUserId || null;
+    await opportunityService.update(id, body);
+    await fetchAll();
+  };
+
+  const deleteCase: Store['deleteCase'] = async (id) => {
+    await opportunityService.remove(id);
+    await fetchAll();
+  };
+
+  const moveCase: Store['moveCase'] = async (id, to, options) => {
     const code = CODE_BY_STAGE[to];
     if (!code) return;
     try {
       await opportunityService.changeStage(id, {
         toStage: code,
         cancellationReasonCode: code === 'cancelled' ? 'other' : undefined,
+        changeReason: options?.changeReason,
+        inventoryItemIds: options?.inventoryItemIds?.length ? options.inventoryItemIds : undefined,
       });
     } catch (err) {
       console.error('Stage change failed', err);
       throw err;
     }
+    await fetchAll();
+  };
+
+  // Mantıksal kapanış (Bitir): terminal kartı arşivler — silmez. Backend closedAt set eder,
+  // kart aktif listeden düşer (view=active), Geçmiş'te görünür. delivered ise servise devir korunur.
+  const closeCase: Store['closeCase'] = async (id, reason) => {
+    await opportunityService.close(id, reason ? { reason } : undefined);
+    await fetchAll();
+  };
+
+  // Geri Aç: kapanışı geri alır, kart aktif panoya döner.
+  const reopenCase: Store['reopenCase'] = async (id) => {
+    await opportunityService.reopen(id);
     await fetchAll();
   };
 
@@ -1276,6 +1349,12 @@ function StoreInner({ children }: { children: ReactNode }) {
     const created = await noteTemplateService.create({ title: t.title, body: t.body, scope: t.scope ?? 'quote' });
     await fetchAll();
     return { id: created.id, title: created.title, body: created.body, scope: created.scope ?? 'quote' };
+  };
+
+  const updateNoteTemplate: Store['updateNoteTemplate'] = async (id, patch) => {
+    const updated = await noteTemplateService.update(id, patch);
+    await fetchAll();
+    return { id: updated.id, title: updated.title, body: updated.body, scope: updated.scope ?? 'quote' };
   };
 
   const deleteNoteTemplate: Store['deleteNoteTemplate'] = async (id) => {
@@ -1783,6 +1862,7 @@ function StoreInner({ children }: { children: ReactNode }) {
     () => ({
       customers,
       cases,
+      closedCases,
       service,
       offers,
       noteTemplates,
@@ -1811,9 +1891,12 @@ function StoreInner({ children }: { children: ReactNode }) {
       updateCustomer,
       deleteCustomer,
       addCase,
+      updateCase,
+      deleteCase,
       addOffer,
       createQuoteFull,
       addNoteTemplate,
+      updateNoteTemplate,
       deleteNoteTemplate,
       addStock,
       updateStockStatus,
@@ -1824,6 +1907,8 @@ function StoreInner({ children }: { children: ReactNode }) {
       updateDelivery,
       updateDeliveryStatus,
       moveCase,
+      closeCase,
+      reopenCase,
       markCaseLost,
       moveService,
       updateService,
