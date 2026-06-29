@@ -3102,7 +3102,10 @@ export function CreateServiceRequestDialog({ trigger, defaultMachineId }: { trig
   useEffect(() => {
     if (!open) return;
     const defaultMachine = machinesAll.find((machine) => machine.id === defaultMachineId);
-    const customerId = defaultMachine?.customerId ?? customers[0]?.id ?? "";
+    const firstCustomerWithMachine = customers.find((customer) =>
+      machinesAll.some((machine) => machine.customerId === customer.id)
+    );
+    const customerId = defaultMachine?.customerId ?? firstCustomerWithMachine?.id ?? customers[0]?.id ?? "";
     const companyContacts = contacts.filter((contact) => contact.customerId === customerId);
     const preferredContact = companyContacts.find((contact) => contact.isPrimary) ?? companyContacts[0];
     setForm({
@@ -3117,8 +3120,10 @@ export function CreateServiceRequestDialog({ trigger, defaultMachineId }: { trig
     });
   }, [open, defaultMachineId, customers, contacts, machinesAll, users]);
 
+  const customerById = useMemo(() => new Map(customers.map((customer) => [customer.id, customer])), [customers]);
   const selectedCustomer = customers.find((customer) => customer.id === form.customerId);
   const companyMachines = machinesAll.filter((machine) => machine.customerId === form.customerId);
+  const otherCompanyMachines = machinesAll.filter((machine) => machine.customerId !== form.customerId);
   const companyContacts = contacts.filter((contact) => contact.customerId === form.customerId);
   const selectedMachine = machinesAll.find((m) => m.id === form.machineId);
   const selectedContact = contacts.find((contact) => contact.id === form.contactId);
@@ -3135,6 +3140,30 @@ export function CreateServiceRequestDialog({ trigger, defaultMachineId }: { trig
       contactId: preferredContact?.id ?? "",
       machineId: "",
     }));
+  };
+
+  const selectMachine = (machineId: string) => {
+    if (machineId === "none") {
+      setForm((current) => ({ ...current, machineId: "" }));
+      return;
+    }
+    const machine = machinesAll.find((item) => item.id === machineId);
+    if (!machine) return;
+    const nextContacts = contacts.filter((contact) => contact.customerId === machine.customerId);
+    const preferredContact = nextContacts.find((contact) => contact.isPrimary) ?? nextContacts[0];
+    setForm((current) => ({
+      ...current,
+      customerId: machine.customerId || current.customerId,
+      contactId: machine.customerId !== current.customerId ? preferredContact?.id ?? "" : current.contactId,
+      machineId: machine.id,
+    }));
+  };
+
+  const machineOptionText = (machine: typeof machinesAll[number], includeCompany = false) => {
+    const base = [machine.model, machine.serialNumber].filter(Boolean).join(" · ") || "Makine";
+    if (!includeCompany) return base;
+    const company = customerById.get(machine.customerId)?.name;
+    return company ? `${base} · ${company}` : base;
   };
 
   const submit = async (e: React.FormEvent) => {
@@ -3206,17 +3235,30 @@ export function CreateServiceRequestDialog({ trigger, defaultMachineId }: { trig
 
                 <div className="min-w-0">
                   <Label className="text-xs">Makine (opsiyonel)</Label>
-                  <Select value={form.machineId || "none"} onValueChange={(v) => setForm({ ...form, machineId: v === "none" ? "" : v })}>
+                  <Select value={form.machineId || "none"} onValueChange={selectMachine}>
                     <SelectTrigger className="mt-1.5 min-w-0 [&_[data-slot=select-value]]:min-w-0 [&_[data-slot=select-value]]:truncate">
                       <SelectValue placeholder="Makine seçin (opsiyonel)" />
                     </SelectTrigger>
                     <SelectContent className="max-w-[min(700px,calc(100vw-2rem))]">
                       <SelectItem value="none">Makine bağlama</SelectItem>
-                      {companyMachines.map((machine) => (
-                        <SelectItem key={machine.id} value={machine.id}>
-                          <span className="block max-w-[620px] truncate">{machine.model} · {machine.serialNumber}</span>
-                        </SelectItem>
-                      ))}
+                      <SelectGroup>
+                        <SelectLabel>{companyMachines.length ? "Seçili firmanın makineleri" : "Seçili firmada kayıtlı makine yok"}</SelectLabel>
+                        {companyMachines.map((machine) => (
+                          <SelectItem key={machine.id} value={machine.id}>
+                            <span className="block max-w-[620px] truncate">{machineOptionText(machine)}</span>
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
+                      {otherCompanyMachines.length > 0 && (
+                        <SelectGroup>
+                          <SelectLabel>Diğer firmalardaki makineler</SelectLabel>
+                          {otherCompanyMachines.map((machine) => (
+                            <SelectItem key={machine.id} value={machine.id}>
+                              <span className="block max-w-[620px] truncate">{machineOptionText(machine, true)}</span>
+                            </SelectItem>
+                          ))}
+                        </SelectGroup>
+                      )}
                     </SelectContent>
                   </Select>
                 </div>
