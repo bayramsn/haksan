@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type PointerEvent, type ReactNode } from "react";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Badge } from "../ui/badge";
@@ -22,6 +22,7 @@ import {
   X,
   AlertTriangle,
   Clock,
+  GripVertical,
 } from "lucide-react";
 
 type ChatMessage = {
@@ -31,6 +32,60 @@ type ChatMessage = {
   actions?: AssistantReply["actions"];
   results?: SearchResult[];
 };
+
+type FloatingPosition = { x: number; y: number };
+type DragTarget = "launcher" | "panel";
+
+const ASSISTANT_LAUNCHER_POSITION_KEY = "haksan.assistant.launcherPosition";
+const ASSISTANT_PANEL_POSITION_KEY = "haksan.assistant.panelPosition";
+const VIEWPORT_GAP = 16;
+const LAUNCHER_FALLBACK = { width: 132, height: 44 };
+const PANEL_FALLBACK = { width: 420, height: 720 };
+
+function viewportSize() {
+  if (typeof window === "undefined") return { width: 1280, height: 800 };
+  return {
+    width: window.innerWidth,
+    height: window.innerHeight,
+  };
+}
+
+function defaultLauncherPosition(): FloatingPosition {
+  const viewport = viewportSize();
+  return {
+    x: Math.max(VIEWPORT_GAP, viewport.width - LAUNCHER_FALLBACK.width - 20),
+    y: Math.max(VIEWPORT_GAP, viewport.height - LAUNCHER_FALLBACK.height - 20),
+  };
+}
+
+function defaultPanelPosition(): FloatingPosition {
+  const viewport = viewportSize();
+  const width = Math.min(PANEL_FALLBACK.width, viewport.width - VIEWPORT_GAP * 2);
+  const height = Math.min(PANEL_FALLBACK.height, viewport.height - VIEWPORT_GAP * 2);
+  return {
+    x: Math.max(VIEWPORT_GAP, viewport.width - width - VIEWPORT_GAP),
+    y: Math.max(VIEWPORT_GAP, viewport.height - height - VIEWPORT_GAP),
+  };
+}
+
+function readStoredPosition(key: string, fallback: FloatingPosition): FloatingPosition {
+  if (typeof window === "undefined") return fallback;
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(key) ?? "null") as Partial<FloatingPosition> | null;
+    if (typeof parsed?.x === "number" && typeof parsed?.y === "number") return parsed as FloatingPosition;
+  } catch {
+    // Ignore invalid stored coordinates.
+  }
+  return fallback;
+}
+
+function clampPosition(position: FloatingPosition, width: number, height: number): FloatingPosition {
+  const viewport = viewportSize();
+  return {
+    x: Math.min(Math.max(VIEWPORT_GAP, position.x), Math.max(VIEWPORT_GAP, viewport.width - width - VIEWPORT_GAP)),
+    y: Math.min(Math.max(VIEWPORT_GAP, position.y), Math.max(VIEWPORT_GAP, viewport.height - height - VIEWPORT_GAP)),
+  };
+}
 
 export function AssistantPanel({
   onAction,
@@ -42,6 +97,24 @@ export function AssistantPanel({
   const store = useStore();
   const [open, setOpen] = useState(false);
   const [input, setInput] = useState("");
+  const launcherRef = useRef<HTMLButtonElement | null>(null);
+  const panelRef = useRef<HTMLElement | null>(null);
+  const skipLauncherClickRef = useRef(false);
+  const dragRef = useRef<{
+    target: DragTarget;
+    pointerId: number;
+    offsetX: number;
+    offsetY: number;
+    startX: number;
+    startY: number;
+    moved: boolean;
+  } | null>(null);
+  const [launcherPosition, setLauncherPosition] = useState<FloatingPosition>(() =>
+    readStoredPosition(ASSISTANT_LAUNCHER_POSITION_KEY, defaultLauncherPosition())
+  );
+  const [panelPosition, setPanelPosition] = useState<FloatingPosition>(() =>
+    readStoredPosition(ASSISTANT_PANEL_POSITION_KEY, defaultPanelPosition())
+  );
   const workItems = useMemo(() => buildWorkItems(store), [store]);
   const alerts = useMemo(() => buildAlerts(store), [store]);
   const management = useMemo(() => buildManagementInsights(store), [store]);
@@ -61,6 +134,36 @@ export function AssistantPanel({
   useEffect(() => {
     setMessages((current) => (current.length === 1 && current[0]?.id === "initial" ? [initialMessage] : current));
   }, [initialMessage]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(ASSISTANT_LAUNCHER_POSITION_KEY, JSON.stringify(launcherPosition));
+    } catch {
+      // localStorage may be unavailable in private sessions.
+    }
+  }, [launcherPosition]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(ASSISTANT_PANEL_POSITION_KEY, JSON.stringify(panelPosition));
+    } catch {
+      // localStorage may be unavailable in private sessions.
+    }
+  }, [panelPosition]);
+
+  useEffect(() => {
+    const onResize = () => {
+      const launcherWidth = launcherRef.current?.offsetWidth ?? LAUNCHER_FALLBACK.width;
+      const launcherHeight = launcherRef.current?.offsetHeight ?? LAUNCHER_FALLBACK.height;
+      const panelWidth = panelRef.current?.offsetWidth ?? Math.min(PANEL_FALLBACK.width, viewportSize().width - VIEWPORT_GAP * 2);
+      const panelHeight = panelRef.current?.offsetHeight ?? Math.min(PANEL_FALLBACK.height, viewportSize().height - VIEWPORT_GAP * 2);
+      setLauncherPosition((current) => clampPosition(current, launcherWidth, launcherHeight));
+      setPanelPosition((current) => clampPosition(current, panelWidth, panelHeight));
+    };
+    onResize();
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
 
   const visibleActions = (actions?: AssistantReply["actions"]) =>
     (actions ?? []).filter((item) => !canUseAction || canUseAction(item.action));
@@ -88,12 +191,65 @@ export function AssistantPanel({
     setOpen(false);
   };
 
+  const beginDrag = (target: DragTarget, event: PointerEvent<HTMLElement>) => {
+    if (event.button !== 0) return;
+    const rect = event.currentTarget.getBoundingClientRect();
+    dragRef.current = {
+      target,
+      pointerId: event.pointerId,
+      offsetX: event.clientX - rect.left,
+      offsetY: event.clientY - rect.top,
+      startX: event.clientX,
+      startY: event.clientY,
+      moved: false,
+    };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  };
+
+  const moveDrag = (event: PointerEvent<HTMLElement>) => {
+    const drag = dragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    const width =
+      drag.target === "launcher"
+        ? launcherRef.current?.offsetWidth ?? LAUNCHER_FALLBACK.width
+        : panelRef.current?.offsetWidth ?? Math.min(PANEL_FALLBACK.width, viewportSize().width - VIEWPORT_GAP * 2);
+    const height =
+      drag.target === "launcher"
+        ? launcherRef.current?.offsetHeight ?? LAUNCHER_FALLBACK.height
+        : panelRef.current?.offsetHeight ?? Math.min(PANEL_FALLBACK.height, viewportSize().height - VIEWPORT_GAP * 2);
+    const next = clampPosition({ x: event.clientX - drag.offsetX, y: event.clientY - drag.offsetY }, width, height);
+    if (Math.abs(event.clientX - drag.startX) > 4 || Math.abs(event.clientY - drag.startY) > 4) {
+      drag.moved = true;
+      if (drag.target === "launcher") skipLauncherClickRef.current = true;
+    }
+    if (drag.target === "launcher") setLauncherPosition(next);
+    else setPanelPosition(next);
+  };
+
+  const endDrag = (event: PointerEvent<HTMLElement>) => {
+    const drag = dragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    dragRef.current = null;
+    window.setTimeout(() => {
+      skipLauncherClickRef.current = false;
+    }, 0);
+  };
+
   return (
     <>
       <Button
+        ref={launcherRef}
         type="button"
-        className="fixed bottom-5 right-5 z-40 h-11 gap-2 rounded-full border border-primary/15 bg-primary px-4 text-primary-foreground shadow-lg shadow-primary/20 hover:bg-primary/90"
-        onClick={() => setOpen(true)}
+        className="fixed z-40 h-11 touch-none gap-2 rounded-full border border-primary/15 bg-primary px-4 text-primary-foreground shadow-lg shadow-primary/20 hover:bg-primary/90"
+        style={{ left: launcherPosition.x, top: launcherPosition.y }}
+        onPointerDown={(event) => beginDrag("launcher", event)}
+        onPointerMove={moveDrag}
+        onPointerUp={endDrag}
+        onPointerCancel={endDrag}
+        onClick={() => {
+          if (skipLauncherClickRef.current) return;
+          setOpen(true);
+        }}
       >
         <Bot className="size-4" />
         Asistan
@@ -112,9 +268,20 @@ export function AssistantPanel({
             className="absolute inset-0 bg-black/15 pointer-events-auto"
             onClick={() => setOpen(false)}
           />
-          <section className="absolute bottom-4 right-4 top-4 flex w-[min(420px,calc(100vw-1rem))] flex-col overflow-hidden rounded-lg border border-border/70 bg-white shadow-2xl pointer-events-auto">
-            <div className="flex items-center justify-between gap-3 border-b border-border/60 px-4 py-3">
+          <section
+            ref={panelRef}
+            className="absolute flex h-[min(720px,calc(100dvh-2rem))] w-[min(420px,calc(100vw-2rem))] flex-col overflow-hidden rounded-lg border border-border/70 bg-white shadow-2xl pointer-events-auto"
+            style={{ left: panelPosition.x, top: panelPosition.y }}
+          >
+            <div
+              className="flex touch-none cursor-move select-none items-center justify-between gap-3 border-b border-border/60 px-4 py-3"
+              onPointerDown={(event) => beginDrag("panel", event)}
+              onPointerMove={moveDrag}
+              onPointerUp={endDrag}
+              onPointerCancel={endDrag}
+            >
               <div className="flex items-center gap-2 min-w-0">
+                <GripVertical className="size-4 shrink-0 text-muted-foreground" />
                 <div className="grid size-9 place-items-center rounded-md bg-primary/10 text-primary">
                   <Sparkles className="size-4" />
                 </div>
@@ -123,7 +290,7 @@ export function AssistantPanel({
                   <div className="truncate text-[11px] text-muted-foreground">API'siz komut ve takip</div>
                 </div>
               </div>
-              <div className="flex items-center gap-1">
+              <div className="flex items-center gap-1" onPointerDown={(event) => event.stopPropagation()}>
                 <Button variant="ghost" size="icon" className="size-8" onClick={() => setMessages([initialMessage])}>
                   <ChevronDown className="size-4" />
                 </Button>

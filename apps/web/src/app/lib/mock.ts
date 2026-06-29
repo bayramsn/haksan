@@ -218,6 +218,10 @@ export type DocumentItem = {
   companyId?: string;
   /** Servis talebine bağlı ek (service kanban kartı). */
   serviceRequestId?: string;
+  /** Canlı teslim/kurulum formu kayıtları için üretilmiş doküman referansları. */
+  deliveryId?: string;
+  installationId?: string;
+  installationData?: any;
   type:
     | "Proforma"
     | "Contract"
@@ -319,6 +323,8 @@ export type Machine = {
   type?: string;
   controlUnit?: string;
   controlUnitSerial?: string;
+  productModelId?: string;
+  technicalSpecs?: ProductSpec[];
   deliveryDate?: string;
   installationDate: string;
   warrantyStart: string;
@@ -611,6 +617,7 @@ export type DeliveryFormFields = {
   cnc?: { marka?: string; model?: string; seriNo?: string; mainSw?: string };
   ilgili?: string;
   kurulumuYapan?: string;
+  technicalSpecs?: ProductSpec[];
 };
 
 export type Delivery = {

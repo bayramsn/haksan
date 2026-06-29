@@ -29,6 +29,7 @@ export type AccountingInvoicePrefill = {
   companyId: string;
   amount?: number;
   grandTotal: number;
+  vatRate?: number;
   vatAmount?: number;
   currencyCode?: string;
   invoiceNo?: string;
@@ -44,6 +45,7 @@ const defaultForm = (companyId = "") => ({
   invoiceNo: "",
   invoiceDate: new Date().toISOString().slice(0, 10),
   amount: "",
+  vatRate: "20",
   vatAmount: "0",
   grandTotal: "",
   currencyCode: "USD",
@@ -52,6 +54,25 @@ const defaultForm = (companyId = "") => ({
   installmentCount: "1",
   notes: "",
 });
+
+const VAT_RATE_OPTIONS = ["20", "18", "10", "8", "1", "0"] as const;
+
+const roundMoney = (value: number) => Math.round((Number.isFinite(value) ? value : 0) * 100) / 100;
+const parseMoneyInput = (value: string | number | undefined) => {
+  const parsed = Number(String(value ?? "").replace(",", "."));
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+const vatAmountFromRate = (amount: string | number | undefined, vatRate: string | number | undefined) =>
+  roundMoney(Math.max(parseMoneyInput(amount), 0) * (Math.max(parseMoneyInput(vatRate), 0) / 100));
+
+const deriveVatRate = (amount: number, vatAmount?: number, grandTotal?: number, fallback = 20) => {
+  if (!Number.isFinite(amount) || amount <= 0) return fallback;
+  const vat = Number.isFinite(vatAmount) && Number(vatAmount) > 0
+    ? Number(vatAmount)
+    : Math.max(0, Number(grandTotal ?? 0) - amount);
+  if (!Number.isFinite(vat) || vat <= 0) return fallback;
+  return roundMoney((vat / amount) * 100);
+};
 
 export function CreateAccountingInvoiceDialog({
   trigger,
@@ -87,14 +108,18 @@ export function CreateAccountingInvoiceDialog({
     if (!open) return;
     if (prefill) {
       const subtotal = prefill.amount ?? prefill.grandTotal;
+      const vatRate = prefill.vatRate ?? deriveVatRate(subtotal, prefill.vatAmount, prefill.grandTotal);
+      const vatAmount = prefill.vatAmount ?? vatAmountFromRate(subtotal, vatRate);
+      const grandTotal = roundMoney(subtotal + vatAmount);
       setForm({
         ...defaultForm(prefill.companyId),
         type: prefill.type ?? "sales",
         companyId: prefill.companyId,
         invoiceNo: prefill.invoiceNo ?? "",
         amount: String(subtotal),
-        vatAmount: String(prefill.vatAmount ?? 0),
-        grandTotal: String(prefill.grandTotal),
+        vatRate: String(vatRate),
+        vatAmount: String(vatAmount),
+        grandTotal: String(grandTotal),
         currencyCode: prefill.currencyCode ?? "USD",
         notes: prefill.notes ?? "",
       });
@@ -108,8 +133,23 @@ export function CreateAccountingInvoiceDialog({
     }
   }, [open, prefill, defaultCompanyId]);
 
+  const invoiceTotals = useMemo(() => {
+    const amount = parseMoneyInput(form.amount);
+    const vatRate = parseMoneyInput(form.vatRate);
+    const typedVatAmount = parseMoneyInput(form.vatAmount);
+    const net = Number.isFinite(amount) && amount > 0 ? amount : 0;
+    const rate = Number.isFinite(vatRate) && vatRate >= 0 ? vatRate : 0;
+    const vatAmount = roundMoney(Math.max(typedVatAmount, 0));
+    return {
+      amount: roundMoney(net),
+      vatRate: rate,
+      vatAmount,
+      grandTotal: roundMoney(net + vatAmount),
+    };
+  }, [form.amount, form.vatAmount, form.vatRate]);
+
   const previewInstallments = useMemo(() => {
-    const total = Number(form.grandTotal || form.amount);
+    const total = invoiceTotals.grandTotal;
     const count = Math.max(1, Number(form.installmentCount) || 1);
     if (!Number.isFinite(total) || total <= 0) return [];
     const base = Math.floor((total / count) * 100) / 100;
@@ -125,7 +165,7 @@ export function CreateAccountingInvoiceDialog({
       rows.push({ installmentNo: i + 1, dueDate: d.toISOString().slice(0, 10), amount: String(amount) });
     }
     return rows;
-  }, [form.grandTotal, form.amount, form.installmentCount, form.firstDueDate, form.lastDueDate]);
+  }, [invoiceTotals.grandTotal, form.installmentCount, form.firstDueDate, form.lastDueDate]);
 
   useEffect(() => {
     setInstallments(previewInstallments);
@@ -134,9 +174,7 @@ export function CreateAccountingInvoiceDialog({
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!form.companyId) return toast.error("Firma seçin");
-    const amount = Number(form.amount);
-    const grandTotal = Number(form.grandTotal || form.amount);
-    if (!Number.isFinite(grandTotal) || grandTotal <= 0) return toast.error("Geçerli tutar girin");
+    if (!Number.isFinite(invoiceTotals.amount) || invoiceTotals.amount <= 0) return toast.error("Geçerli matrah girin");
     if (form.type === "sales" && lineItems.some((l) => l.saleType === "tezgah" && !l.inventoryItemId)) {
       return toast.error("Tezgah satışı için seri numarası seçin");
     }
@@ -147,9 +185,10 @@ export function CreateAccountingInvoiceDialog({
         type: form.type,
         invoiceNo: form.invoiceNo,
         invoiceDate: form.invoiceDate,
-        amount: Number.isFinite(amount) ? amount : grandTotal,
-        vatAmount: Number(form.vatAmount) || 0,
-        grandTotal,
+        amount: invoiceTotals.amount,
+        vatRate: invoiceTotals.vatRate,
+        vatAmount: invoiceTotals.vatAmount,
+        grandTotal: invoiceTotals.grandTotal,
         currencyCode: form.currencyCode,
         quoteId,
         salesOrderId,
@@ -234,15 +273,47 @@ export function CreateAccountingInvoiceDialog({
             </div>
             <div>
               <Label className="text-xs">Matrah</Label>
-              <Input className="mt-1 h-9" type="number" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} />
+              <Input
+                className="mt-1 h-9"
+                type="number"
+                min="0"
+                step="0.01"
+                value={form.amount}
+                onChange={(e) => {
+                  const amount = e.target.value;
+                  setForm({ ...form, amount, vatAmount: String(vatAmountFromRate(amount, form.vatRate)) });
+                }}
+              />
             </div>
             <div>
-              <Label className="text-xs">KDV</Label>
-              <Input className="mt-1 h-9" type="number" value={form.vatAmount} onChange={(e) => setForm({ ...form, vatAmount: e.target.value })} />
+              <Label className="text-xs">KDV Oranı</Label>
+              <Select
+                value={form.vatRate}
+                onValueChange={(vatRate) => setForm({ ...form, vatRate, vatAmount: String(vatAmountFromRate(form.amount, vatRate)) })}
+              >
+                <SelectTrigger className="mt-1 h-9"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {!VAT_RATE_OPTIONS.includes(form.vatRate as typeof VAT_RATE_OPTIONS[number]) && form.vatRate ? (
+                    <SelectItem value={form.vatRate}>%{form.vatRate}</SelectItem>
+                  ) : null}
+                  {VAT_RATE_OPTIONS.map((rate) => <SelectItem key={rate} value={rate}>%{rate}</SelectItem>)}
+                </SelectContent>
+              </Select>
             </div>
-            <div className="col-span-2">
+            <div>
+              <Label className="text-xs">KDV Tutarı</Label>
+              <Input
+                className="mt-1 h-9"
+                type="number"
+                min="0"
+                step="0.01"
+                value={form.vatAmount}
+                onChange={(e) => setForm({ ...form, vatAmount: e.target.value })}
+              />
+            </div>
+            <div>
               <Label className="text-xs">Genel Toplam *</Label>
-              <Input className="mt-1 h-9" type="number" value={form.grandTotal} onChange={(e) => setForm({ ...form, grandTotal: e.target.value })} placeholder={form.amount || "0"} />
+              <Input className="mt-1 h-9 bg-muted/40 font-medium" readOnly value={invoiceTotals.grandTotal.toLocaleString("tr-TR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} />
             </div>
           </div>
           {form.type === "sales" && (

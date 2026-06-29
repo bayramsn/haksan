@@ -160,6 +160,7 @@ function DeliveryDetailDialog({
     if (!delivery || !form) return;
     const cust = customers.find((c) => c.id === form.customerId);
     const fd = deliveryFormToPayload(form);
+    const selectedMachine = machines.find((machine) => machine.id === form.machineId);
     const formNo = fd.formNo || "";
     const doc = installationFormDoc(
       {
@@ -177,6 +178,7 @@ function DeliveryDetailDialog({
         eposta: cust?.email,
         kurulumuYapan: form.kurulumuYapan || undefined,
         teslimAlan: form.signedBy && form.signedBy !== "—" ? form.signedBy : undefined,
+        technicalSpecs: fd.technicalSpecs?.length ? fd.technicalSpecs : selectedMachine?.technicalSpecs,
       },
       printAssetBase()
     );

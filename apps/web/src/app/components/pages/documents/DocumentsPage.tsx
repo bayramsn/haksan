@@ -18,18 +18,19 @@ import { CreateContractDialog } from "../../dialogs/CreateContractDialog";
 import { useStore } from "../../../lib/store";
 import { DocumentItem } from "../../../lib/mock";
 import { toast } from "sonner";
-import { fileService } from "../../../../lib/services";
+import { fileService, serviceService } from "../../../../lib/services";
 import { exportToCsv } from "../../../../lib/exportCsv";
+import { formatDuration } from "@haksan/shared";
 import { ExportExcelButton } from "../../ui/ExportExcelButton";
 import { FilterPopover } from "../../ui/list-controls";
 import {
-  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger,
 } from "../../ui/dropdown-menu";
 import {
   Search, Upload, Download, Printer, Eye, FileText, FileSignature, Receipt, Wrench, ClipboardCheck, Plus,
 } from "lucide-react";
 import {
-  printAssetBase, proformaDoc, contractDoc, loadContractPrintData, loadProformaPrintData, PROFORMA_NOTE_VARIANTS,
+  printAssetBase, proformaDoc, contractDoc, installationFormDoc, loadContractPrintData, loadProformaPrintData, PROFORMA_NOTE_OPTIONS, trShortDate,
 } from "../../../lib/print";
 import { printOrWarn, downloadPrintOrWarn } from "../../../lib/pageHelpers";
 
@@ -64,7 +65,7 @@ export function DocumentsPage({
   title?: string;
   description?: string;
 }) {
-  const { documents, cases, customers, contacts, users, offers, payments, products } = useStore();
+  const { documents, cases, customers, contacts, users, offers, payments, products, deliveries, machines } = useStore();
   const customerName = (id: string) => customers.find((c) => c.id === id)?.name ?? "—";
   const userName = (id: string) => users.find((u) => u.id === id)?.name ?? "—";
 
@@ -152,6 +153,158 @@ export function DocumentsPage({
     } finally {
       toast.dismiss(loading);
     }
+  };
+
+  const printUploadedDocument = async (d: (typeof documents)[number]) => {
+    if (!d.fileId) {
+      toast.error("Yazdırılacak dosya yok", { description: "Bu kayıt canlı form değil ve yüklenmiş dosya içermiyor." });
+      return;
+    }
+    try {
+      const signed = await fileService.signedDownload(d.fileId);
+      const opened = window.open(signed.downloadUrl, "_blank", "noopener");
+      if (!opened) {
+        toast.error("Yazdırma sekmesi açılamadı", { description: "Lütfen pop-up engelleyiciyi kapatın." });
+        return;
+      }
+      toast.message("Dosya yeni sekmede açıldı", { description: "Tarayıcı yazdır menüsünden çıktı alabilirsiniz." });
+    } catch (err: any) {
+      toast.error("Doküman açılamadı", { description: err?.message ?? "İmzalı indirme bağlantısı alınamadı." });
+    }
+  };
+
+  const printDeliveryForm = (d: (typeof documents)[number]) => {
+    const delivery = deliveries.find((item) => item.id === d.deliveryId);
+    if (!delivery) {
+      toast.error("Teslim formu yazdırılamadı", { description: "Canlı teslimat kaydı bulunamadı." });
+      return;
+    }
+    const cust = customers.find((c) => c.id === delivery.customerId);
+    const fd = delivery.formData;
+    const selectedMachine = fd?.machineId ? machines.find((machine) => machine.id === fd.machineId) : null;
+    printOrWarn(
+      installationFormDoc(
+        {
+          teslimTarihi: delivery.date ? trShortDate(delivery.date) : "",
+          kurulumTarihi: fd?.kurulumTarihi ? trShortDate(fd.kurulumTarihi) : "",
+          formNo: fd?.formNo || delivery.id.slice(0, 6).toUpperCase(),
+          tezgah: fd?.tezgah,
+          cnc: fd?.cnc,
+          firma: cust?.name ?? customerName(delivery.customerId),
+          ilgili: fd?.ilgili || cust?.contactPerson,
+          adres: cust ? [cust.address, cust.district, cust.city].filter(Boolean).join(" ") : undefined,
+          telefon: cust?.phone,
+          faks: cust?.fax,
+          gsm: cust?.phone2,
+          eposta: cust?.email,
+          kurulumuYapan: fd?.kurulumuYapan || undefined,
+          teslimAlan: delivery.signedBy && delivery.signedBy !== "—" ? delivery.signedBy : undefined,
+          technicalSpecs: fd?.technicalSpecs?.length ? fd.technicalSpecs : selectedMachine?.technicalSpecs,
+        },
+        printAssetBase(),
+      ),
+    );
+  };
+
+  const printInstallationForm = async (d: (typeof documents)[number]) => {
+    let installation = d.installationData;
+    if (!installation && d.installationId) {
+      try {
+        const res = await serviceService.installations({ pageSize: 500 });
+        installation = (res.data ?? []).find((row: any) => row.id === d.installationId);
+      } catch (err: any) {
+        toast.error("Kurulum formu alınamadı", { description: err?.message ?? "Kurulum listesi yüklenemedi." });
+        return;
+      }
+    }
+    if (!installation) {
+      toast.error("Kurulum formu yazdırılamadı", { description: "Canlı kurulum kaydı bulunamadı." });
+      return;
+    }
+    const cust = customers.find((c) => c.id === installation.companyId);
+    const specs = Array.isArray(installation.customerDevice?.technicalSpecs)
+      ? installation.customerDevice.technicalSpecs.map((spec: any) => ({
+          key: String(spec.key ?? ""),
+          value: [spec.value, spec.unit].filter(Boolean).join(" "),
+        }))
+      : [];
+    const device = installation.customerDevice
+      ? {
+          id: installation.customerDevice.id,
+          customerId: installation.companyId ?? "",
+          salesCaseId: "",
+          stockItemId: "",
+          serialNumber: installation.customerDevice.serialNumber ?? "—",
+          model: installation.customerDevice.model ?? installation.customerDevice.productModelName ?? "—",
+          brand: installation.customerDevice.brandName ?? "",
+          type: installation.customerDevice.productTypeName ?? "",
+          controlUnit: installation.customerDevice.controlUnit ?? "",
+          controlUnitSerial: installation.customerDevice.controlUnitSerialNumber ?? "",
+          technicalSpecs: specs,
+          deliveryDate: "",
+          installationDate: (installation.completedAt as string | undefined)?.slice(0, 10) ?? "",
+          warrantyStart: "",
+          warrantyEnd: "",
+          status: "Active" as const,
+        }
+      : null;
+    const machine =
+      machines.find((item) => item.id === installation.customerDeviceId) ??
+      device ??
+      machines.find((item) => item.customerId === installation.companyId);
+    const fd = installation.formData ?? {};
+    const cncParts = machine?.controlUnit?.split(" ") ?? [];
+    printOrWarn(
+      installationFormDoc(
+        {
+          teslimTarihi: fd.teslimTarihi ? trShortDate(fd.teslimTarihi) : machine?.deliveryDate ? trShortDate(machine.deliveryDate) : "",
+          kurulumTarihi: fd.kurulumTarihi
+            ? trShortDate(fd.kurulumTarihi)
+            : installation.completedAt
+              ? trShortDate(installation.completedAt)
+              : installation.scheduledDate
+                ? trShortDate(installation.scheduledDate)
+                : "",
+          formNo: fd.formNo || installation.id.slice(0, 6).toUpperCase(),
+          tezgah: fd.tezgah ?? (machine ? { marka: machine.brand, tip: machine.type, model: machine.model, seriNo: machine.serialNumber } : undefined),
+          cnc: fd.cnc ?? (machine?.controlUnit
+            ? {
+                marka: cncParts[0],
+                model: cncParts.slice(1).join(" "),
+                seriNo: machine.controlUnitSerial,
+              }
+            : undefined),
+          firma: fd.kullanici?.firma || cust?.name || customerName(installation.companyId ?? ""),
+          ilgili: fd.kullanici?.ilgili || installation.contact?.fullName || cust?.contactPerson,
+          adres: fd.kullanici?.adres || (cust ? [cust.address, cust.district, cust.city].filter(Boolean).join(" ") : installation.location),
+          telefon: fd.kullanici?.telefon || cust?.phone,
+          faks: fd.kullanici?.faks || cust?.fax,
+          gsm: fd.kullanici?.gsm || cust?.phone2,
+          eposta: fd.kullanici?.eposta || cust?.email,
+          kurulumuYapan: fd.kurulumuYapan || installation.assignedTo?.fullName,
+          teslimAlan: fd.teslimAlan || installation.contact?.fullName || cust?.contactPerson,
+          kurulumYeri: installation.location ?? "",
+          sure: installation.durationMinutes != null ? formatDuration(Number(installation.durationMinutes)) : undefined,
+          technicalSpecs: fd.technicalSpecs?.length ? fd.technicalSpecs : specs,
+          checks: fd.checks?.map((check: any) => ({ label: check.label, status: check.status, note: check.note })),
+          problem: fd.problem,
+          notlar: installation.notes ?? "",
+        },
+        printAssetBase(),
+      ),
+    );
+  };
+
+  const printDocument = async (d: (typeof documents)[number]) => {
+    if (d.type === "DeliveryForm" && d.deliveryId) {
+      printDeliveryForm(d);
+      return;
+    }
+    if (d.type === "InstallationForm" && d.installationId) {
+      await printInstallationForm(d);
+      return;
+    }
+    await printUploadedDocument(d);
   };
   const [q, setQ] = useState("");
   const [docType, setDocType] = useState("all");
@@ -309,9 +462,21 @@ export function DocumentsPage({
                                 </Button>
                               </DropdownMenuTrigger>
                               <DropdownMenuContent align="end">
-                                {PROFORMA_NOTE_VARIANTS.map((v) => (
+                                <DropdownMenuItem onClick={() => printProforma(d, "")}>
+                                  Otomatik (teklife göre)
+                                </DropdownMenuItem>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuLabel>Proforma şablonu</DropdownMenuLabel>
+                                {PROFORMA_NOTE_OPTIONS.filter((v) => v.group === "proforma").map((v) => (
                                   <DropdownMenuItem key={v.key} onClick={() => printProforma(d, v.key)}>
-                                    {v.label} — yazdır
+                                    {v.label}
+                                  </DropdownMenuItem>
+                                ))}
+                                <DropdownMenuSeparator />
+                                <DropdownMenuLabel>Teklif teslim şekli</DropdownMenuLabel>
+                                {PROFORMA_NOTE_OPTIONS.filter((v) => v.group === "teslim").map((v) => (
+                                  <DropdownMenuItem key={v.key} onClick={() => printProforma(d, v.key)}>
+                                    {v.label}
                                   </DropdownMenuItem>
                                 ))}
                               </DropdownMenuContent>
@@ -323,11 +488,24 @@ export function DocumentsPage({
                                 </Button>
                               </DropdownMenuTrigger>
                               <DropdownMenuContent align="end">
-                                {PROFORMA_NOTE_VARIANTS.map((v) => (
+                                <DropdownMenuItem onClick={() => downloadProforma(d, "")}>
+                                  Otomatik (teklife göre)
+                                </DropdownMenuItem>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuLabel>Proforma şablonu</DropdownMenuLabel>
+                                {PROFORMA_NOTE_OPTIONS.filter((v) => v.group === "proforma").map((v) => (
                                   <DropdownMenuItem key={v.key} onClick={() => downloadProforma(d, v.key)}>
-                                    {v.label} — indir
+                                    {v.label}
                                   </DropdownMenuItem>
                                 ))}
+                                <DropdownMenuSeparator />
+                                <DropdownMenuLabel>Teklif teslim şekli</DropdownMenuLabel>
+                                {PROFORMA_NOTE_OPTIONS.filter((v) => v.group === "teslim").map((v) => (
+                                  <DropdownMenuItem key={v.key} onClick={() => downloadProforma(d, v.key)}>
+                                    {v.label}
+                                  </DropdownMenuItem>
+                                ))}
+                                <DropdownMenuSeparator />
                                 {d.fileId && (
                                   <DropdownMenuItem onClick={() => downloadDocument(d)}>
                                     Yüklenen dosyayı indir
@@ -343,11 +521,19 @@ export function DocumentsPage({
                             <Printer className="size-4 text-muted-foreground hover:text-primary" />
                           </Button>
                         )}
-                        <Button variant="ghost" size="icon" className="size-7" title="Önizle"
-                          onClick={() => setPreviewDoc(d)}>
-                          <Eye className="size-4 text-muted-foreground hover:text-primary" />
-                        </Button>
-                        {d.type !== "Proforma" && (
+                        {d.type !== "Proforma" && d.type !== "Contract" && (
+                          <Button variant="ghost" size="icon" className="size-7" title="Yazdır / PDF"
+                            onClick={() => void printDocument(d)}>
+                            <Printer className="size-4 text-muted-foreground hover:text-primary" />
+                          </Button>
+                        )}
+                        {!(d.deliveryId || d.installationId) && (
+                          <Button variant="ghost" size="icon" className="size-7" title="Önizle"
+                            onClick={() => setPreviewDoc(d)}>
+                            <Eye className="size-4 text-muted-foreground hover:text-primary" />
+                          </Button>
+                        )}
+                        {d.type !== "Proforma" && !(d.deliveryId || d.installationId) && (
                           <Button variant="ghost" size="icon" className="size-7" title="İndir"
                             onClick={() => downloadDocument(d)}>
                             <Download className="size-4 text-muted-foreground hover:text-primary" />

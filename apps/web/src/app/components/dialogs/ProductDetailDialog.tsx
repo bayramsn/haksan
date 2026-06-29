@@ -156,7 +156,7 @@ export function ProductDetailDialog({
 
         {/* specs */}
         <div className="px-6 pb-4">
-          <SectionTitle icon={<ListChecks className="size-3.5" />} text="Teknik Özellikler" />
+          <SectionTitle icon={<ListChecks className="size-3.5" />} text="Teknik Bilgiler" />
           {product.specs.length === 0 ? (
             <div className="text-xs text-muted-foreground">Teknik özellik girilmemiş.</div>
           ) : (

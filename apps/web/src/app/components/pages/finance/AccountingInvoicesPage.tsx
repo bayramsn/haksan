@@ -191,6 +191,8 @@ export function AccountingInvoicesPage() {
               <div className="grid grid-cols-2 gap-2">
                 <div><span className="text-muted-foreground">Tür:</span> {detail.type === "sales" ? "Satış" : "Alış"}</div>
                 <div><span className="text-muted-foreground">Tarih:</span> {new Date(detail.invoiceDate).toLocaleDateString("tr-TR")}</div>
+                <div><span className="text-muted-foreground">Matrah:</span> {Number(detail.amount ?? 0).toLocaleString("tr-TR")} {detail.currency?.code ?? ""}</div>
+                <div><span className="text-muted-foreground">KDV:</span> {Number(detail.vatAmount ?? 0).toLocaleString("tr-TR")} {detail.currency?.code ?? ""}</div>
                 <div><span className="text-muted-foreground">Toplam:</span> {Number(detail.grandTotal).toLocaleString("tr-TR")} {detail.currency?.code ?? ""}</div>
                 <div><span className="text-muted-foreground">Taksit:</span> {detail.installmentCount}</div>
               </div>

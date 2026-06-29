@@ -5,6 +5,10 @@ import { Input } from "../../ui/input";
 import { Badge } from "../../ui/badge";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "../../ui/tabs";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "../../ui/dialog";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "../../ui/alert-dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../ui/select";
 import { Textarea } from "../../ui/textarea";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../../ui/table";
@@ -19,7 +23,7 @@ import { useStore } from "../../../lib/store";
 import { useAuth } from "../../../../lib/auth";
 import { adminService } from "../../../../lib/services";
 import type { User } from "../../../lib/mock";
-import { Plus, TrendingUp, ShieldCheck, Settings, Building2, Wrench, RotateCcw, AlertTriangle } from "lucide-react";
+import { Plus, TrendingUp, ShieldCheck, Settings, Building2, Wrench, RotateCcw, AlertTriangle, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 type UserTargetType = "sales" | "service";
@@ -421,13 +425,14 @@ const normalizeAdminUser = (user: any, fallback?: User): AdminUserRow => {
 
 export function UsersPage() {
   const { users } = useStore();
-  const { hasRole, hasPermission } = useAuth();
+  const { hasRole, hasPermission, user: currentUser } = useAuth();
   // Hedef oluşturma süper admin (ve admin) yetkisine bağlı.
   const canSetTargets = hasRole("super_admin") || hasRole("admin");
   const canAssignRoles = hasRole("super_admin") || hasPermission("users.update");
   const canCreateUser = hasRole("super_admin") || hasPermission("users.create");
   const canUpdateUser = hasRole("super_admin") || hasPermission("users.update");
-  const canShowActions = canSetTargets || canAssignRoles || canUpdateUser;
+  const canDeleteUser = hasRole("super_admin") || hasPermission("users.delete");
+  const canShowActions = canSetTargets || canAssignRoles || canUpdateUser || canDeleteUser;
   const [adminUsers, setAdminUsers] = useState<AdminUserRow[]>([]);
   const [departments, setDepartments] = useState<{ id: string; name: string; code?: string }[]>([]);
   const [divisions, setDivisions] = useState<{ id: string; code: string; name: string }[]>([]);
@@ -440,10 +445,12 @@ export function UsersPage() {
   const [roleUser, setRoleUser] = useState<AdminUserRow | null>(null);
   const [limitUser, setLimitUser] = useState<User | null>(null);
   const [deptUser, setDeptUser] = useState<AdminUserRow | null>(null);
+  const [deletingUser, setDeletingUser] = useState<AdminUserRow | null>(null);
   const [createUserOpen, setCreateUserOpen] = useState(false);
   const [savingRoles, setSavingRoles] = useState(false);
   const [savingLimit, setSavingLimit] = useState(false);
   const [savingDept, setSavingDept] = useState(false);
+  const [deletingSaving, setDeletingSaving] = useState(false);
 
   const loadAdminUsers = useCallback(async () => {
     setAdminLoading(true);
@@ -558,6 +565,21 @@ export function UsersPage() {
       toast.error("Güncellenemedi", { description: err?.message ?? "Lütfen tekrar deneyin." });
     } finally {
       setSavingDept(false);
+    }
+  };
+
+  const handleDeleteUser = async () => {
+    if (!deletingUser) return;
+    setDeletingSaving(true);
+    try {
+      await adminService.deleteUser(deletingUser.id);
+      toast.success("Kullanıcı silindi");
+      setDeletingUser(null);
+      await loadAdminUsers();
+    } catch (err: any) {
+      toast.error("Kullanıcı silinemedi", { description: err?.message ?? "API isteği başarısız oldu." });
+    } finally {
+      setDeletingSaving(false);
     }
   };
 
@@ -688,6 +710,18 @@ export function UsersPage() {
                             </Button>
                           </>
                         )}
+                        {canDeleteUser && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 gap-1 text-xs text-red-600 hover:text-red-600"
+                            disabled={currentUser?.id === u.id}
+                            title={currentUser?.id === u.id ? "Kendi hesabınızı silemezsiniz" : "Kullanıcıyı sil"}
+                            onClick={() => setDeletingUser(u)}
+                          >
+                            <Trash2 className="size-3.5" /> Sil
+                          </Button>
+                        )}
                       </TableCell>
                     )}
                   </TableRow>
@@ -744,6 +778,32 @@ export function UsersPage() {
           divisions={divisions}
           onCreated={loadAdminUsers}
         />
+      )}
+      {canDeleteUser && (
+        <AlertDialog open={!!deletingUser} onOpenChange={(open) => !open && setDeletingUser(null)}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Kullanıcıyı sil?</AlertDialogTitle>
+              <AlertDialogDescription>
+                <b>{deletingUser?.name}</b> kullanıcı listesinden kaldırılacak, giriş yapamayacak ve aktif oturumları kapatılacak.
+                Geçmiş kayıtlar korunur.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={deletingSaving}>Vazgeç</AlertDialogCancel>
+              <AlertDialogAction
+                className="bg-red-600 hover:bg-red-700"
+                disabled={deletingSaving}
+                onClick={(event) => {
+                  event.preventDefault();
+                  void handleDeleteUser();
+                }}
+              >
+                {deletingSaving ? "Siliniyor..." : "Sil"}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       )}
     </>
   );

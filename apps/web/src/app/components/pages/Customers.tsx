@@ -19,6 +19,7 @@ import { useDetailDialogs } from "../dialogs/DetailDialogs";
 import { FilterPopover, usePaged, Pager } from "../ui/list-controls";
 import { ExportExcelButton } from "../ui/ExportExcelButton";
 import { financeService } from "../../../lib/services";
+import { useAuth } from "../../../lib/auth";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
 } from "../ui/dropdown-menu";
@@ -41,6 +42,14 @@ const FIRM_TYPE_COLOR: Record<FirmType, string> = {
 export function CustomersPage(_props: { onSelect?: (c: Customer) => void } = {}) {
   const { customers, deleteCustomer } = useStore();
   const { openCompany, dialogs } = useDetailDialogs();
+  // Rol bazlı görünürlük (backend ile aynı kural): yalnızca sales/service rolleri
+  // kısıtlıdır. Kısıtlı kullanıcılar tedarikçi sekmesini hiç görmez; servis-only
+  // kullanıcılar ayrıca potansiyel müşteri sekmesini görmez (sales görür).
+  const { user } = useAuth();
+  const roles = user?.roles ?? [];
+  const restricted = roles.length > 0 && roles.every((r) => r === "sales" || r === "service");
+  const canSeeSuppliers = !restricted;
+  const canSeePotential = !restricted || roles.includes("sales");
   const [editing, setEditing] = useState<Customer | null>(null);
   const [deleting, setDeleting] = useState<Customer | null>(null);
   const [q, setQ] = useState("");
@@ -124,12 +133,14 @@ export function CustomersPage(_props: { onSelect?: (c: Customer) => void } = {})
                 {countBy("supplier_customer")}
               </span>
             </TabsTrigger>
-            <TabsTrigger value="supplier" className="gap-1.5">
-              Tedarikçi
-              <span className="ml-0.5 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 text-[10px] rounded-full bg-amber-100 text-amber-700">
-                {countBy("supplier")}
-              </span>
-            </TabsTrigger>
+            {canSeeSuppliers && (
+              <TabsTrigger value="supplier" className="gap-1.5">
+                Tedarikçi
+                <span className="ml-0.5 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 text-[10px] rounded-full bg-amber-100 text-amber-700">
+                  {countBy("supplier")}
+                </span>
+              </TabsTrigger>
+            )}
           </TabsList>
         </Tabs>
 
@@ -156,11 +167,11 @@ export function CustomersPage(_props: { onSelect?: (c: Customer) => void } = {})
       {tab !== "supplier" && (
         <div className="flex items-center gap-2 flex-wrap">
           <span className="text-[11px] uppercase tracking-wider text-muted-foreground">Müşteri Statüsü:</span>
-          {([
+          {(([
             { k: "all", l: "Hepsi" },
-            { k: "potential", l: "Potansiyel" },
+            ...(canSeePotential ? [{ k: "potential", l: "Potansiyel" }] : []),
             { k: "active_customer", l: "Cari Satış Yapılan" },
-          ] as const).map((s) => (
+          ]) as { k: "all" | "potential" | "active_customer"; l: string }[]).map((s) => (
             <button
               key={s.k}
               onClick={() => setSalesTab(s.k)}

@@ -5,7 +5,7 @@ import type { Contact, Customer, DocumentItem, Offer, Product, SalesCase } from 
 import { quoteService } from "../../../lib/services";
 import { splitVat } from "../pageHelpers";
 import { trLongDate } from "./core";
-import { PROFORMA_NOTE_VARIANTS, fillNotePlaceholders } from "./notes";
+import { matchQuoteNoteVariantKey, resolveProformaNotes, QUOTE_VARIANT_PREFIX } from "./notes";
 import type { ProformaItem, ProformaPrintData } from "./templates";
 
 export type ProformaBuildInput = {
@@ -169,22 +169,30 @@ export function buildProformaPrintData(
       vat.kdv,
     ),
     currency: (offer?.currency ?? sc?.currency ?? "USD") as ProformaPrintData["currency"],
-    // Proforma not şablonu seçildiyse onun maddeleri ({{ALICI}}/{{YIL}} doldurularak)
-    // belgenin altına basılır; seçilmediyse bağlı teklifin şartlarına düşülür.
+    // Not önceliği: (1) menüden açıkça seçilen şablon, (2) teklifte seçilen teslim
+    // şeklinin otomatik tespiti, (3) bağlı teklifin ham şartları. {{ALICI}}/{{YIL}} doldurulur.
     notlar: (() => {
-      const variant = variantKey ? PROFORMA_NOTE_VARIANTS.find((v) => v.key === variantKey) : undefined;
-      if (variant) {
-        return fillNotePlaceholders(variant.notlar, {
-          alici: cust?.name,
-          yil: new Date(doc.uploadedAt || offer?.date || Date.now()).getFullYear(),
-        });
+      const ctx = {
+        alici: cust?.name,
+        yil: new Date(doc.uploadedAt || offer?.date || Date.now()).getFullYear(),
+      };
+      const payment = String(quoteDetail?.terms?.paymentTermsText ?? quoteDetail?.paymentTerms ?? "");
+      const delivery = String(quoteDetail?.terms?.deliveryTermsText ?? quoteDetail?.deliveryTerms ?? "");
+      const warranty = String(quoteDetail?.terms?.warrantyTermsText ?? quoteDetail?.warrantyTerms ?? "");
+
+      // (1) Menüden açık seçim (proforma şablonu ya da teklif teslim şekli).
+      const explicit = resolveProformaNotes(variantKey, ctx);
+      if (explicit) return explicit;
+
+      // (2) Teklifte seçilen teslim şekli şablonunu kayıtlı şartlardan tespit et.
+      const autoKey = matchQuoteNoteVariantKey(payment, delivery, warranty);
+      if (autoKey) {
+        const auto = resolveProformaNotes(`${QUOTE_VARIANT_PREFIX}${autoKey}`, ctx);
+        if (auto) return auto;
       }
-      return [
-        quoteDetail?.terms?.paymentTermsText ?? quoteDetail?.paymentTerms,
-        quoteDetail?.terms?.deliveryTermsText ?? quoteDetail?.deliveryTerms,
-        quoteDetail?.terms?.warrantyTermsText ?? quoteDetail?.warrantyTerms,
-        quoteDetail?.notes ?? offer?.note,
-      ]
+
+      // (3) Eşleşme yoksa teklifin ham şart metinleri + serbest not.
+      return [payment, delivery, warranty, quoteDetail?.notes ?? offer?.note]
         .flatMap((value) => String(value ?? "").split(/\r?\n/))
         .map((value) => value.trim())
         .filter(Boolean);
