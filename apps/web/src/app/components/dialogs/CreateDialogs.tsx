@@ -20,6 +20,7 @@ const SERVICE_TICKET_TYPE_OPTIONS: { value: ServiceTicketType; label: string }[]
   { value: "warranty_claim", label: "Garanti" },
   { value: "question", label: "Soru / Bilgi" },
 ];
+const NO_SERVICE_MACHINE = "__no_service_machine__";
 import { toast } from "sonner";
 import {
   Building2, User as UserIcon, Wallet, Truck, ClipboardCheck, ChevronDown, Receipt, Upload,
@@ -1548,8 +1549,6 @@ const PRODUCT_CURRENCIES: Array<{ code: "USD" | "TRY" | "EUR"; label: string }> 
 const PRODUCT_VAT_RATES = ["1", "10", "20"];
 
 // "Dik İşleme Merkezi" ürün tipi kodu — spindle kuralı için referans
-const DIK_ISLEME_MERKEZI_CODE = "CNC_DIK_ISLEME_MERKEZ";
-
 // Opsiyonel donanımın "uyumlu makine tipi" seçenekleri (tezgah tipleri)
 const MACHINE_TYPE_OPTIONS: ProductOption[] = PRODUCT_TYPE_OPTIONS
   .filter((o) => o.categoryCode === "TEZGAH")
@@ -1608,7 +1607,7 @@ type ProductFormState = {
   listPrice: string; cashPrice: string; currency: "USD" | "EUR" | "TRY";
   vatRate: string; originCountry: string; hsCode: string; stockCode: string;
   specs: ProductSpec[]; standardEquipment: string[]; optionalEquipment: string[];
-  muadilProductId: string;
+  muadilProductIds: string[];
   status: "active" | "passive";
 };
 
@@ -1642,7 +1641,7 @@ const emptyProduct = (): ProductFormState => ({
   listPrice: "", cashPrice: "", currency: "USD",
   vatRate: "20", originCountry: "", hsCode: "", stockCode: "",
   specs: [{ key: "", value: "" }], standardEquipment: [], optionalEquipment: [],
-  muadilProductId: "",
+  muadilProductIds: [],
   status: "active",
 });
 
@@ -1656,8 +1655,7 @@ const fromProduct = (p: Product): ProductFormState => ({
   subcategory: p.subcategory || findLabel(PRODUCT_SUBCATEGORIES, p.subcategoryCode ?? "ISLEME_MERKEZI", "İşleme Merkezi"),
   productTypeCode: p.productTypeCode ?? "",
   type: p.type,
-  // UI-only: spindle ürünü ise düzenlemede "dik işleme merkezi" varsayılır (kural görünür kalsın)
-  compatibleMachineType: p.productTypeCode === "SPINDLE" ? DIK_ISLEME_MERKEZI_CODE : "",
+  compatibleMachineType: p.compatibleMachineTypeCode ?? "",
   model: p.model,
   modelName: p.modelName ?? "",
   controlPanel: p.controlPanel,
@@ -1671,7 +1669,7 @@ const fromProduct = (p: Product): ProductFormState => ({
     ? specsForProductType(p.productTypeCode, p.specs)
     : (productSpecTemplate(p.productTypeCode).length ? specsForProductType(p.productTypeCode, []) : [{ key: "", value: "" }]),
   standardEquipment: [...p.standardEquipment], optionalEquipment: [...p.optionalEquipment],
-  muadilProductId: p.muadilProductId ?? "",
+  muadilProductIds: p.muadilProductIds?.length ? p.muadilProductIds : (p.muadilProductId ? [p.muadilProductId] : []),
   status: p.status,
 });
 
@@ -1777,31 +1775,42 @@ export function ProductDialog({
     return true;
   };
 
-  // Spindle yalnızca uyumlu makine tipi "dik işleme merkezi" iken listelenir
-  const isTypeAllowed = (o: ProductTypeOption, categoryCode: string, subcategoryCode: string, machineType: string) => {
-    if (!typeMatches(o, categoryCode, subcategoryCode)) return false;
-    if (o.code === "SPINDLE" && machineType !== DIK_ISLEME_MERKEZI_CODE) return false;
-    return true;
-  };
+  const isTypeAllowed = (o: ProductTypeOption, categoryCode: string, subcategoryCode: string) =>
+    typeMatches(o, categoryCode, subcategoryCode);
 
   const typeGroups = PRODUCT_TYPE_GROUPS
     .map((group) => ({
       label: group.label,
-      options: group.options.filter((o) => isTypeAllowed(o, form.categoryCode, form.subcategoryCode, form.compatibleMachineType)),
+      options: group.options.filter((o) => isTypeAllowed(o, form.categoryCode, form.subcategoryCode)),
     }))
     .filter((group) => group.options.length > 0);
 
   // Opsiyonel donanım kategorisinde "uyumlu makine tipi" alanı gösterilir
   const showMachineType = form.categoryCode === "OPSIYONEL_DONANIM";
 
-  // Muadil ürün seçimi: ürün kendi kendine muadil olamaz; seçiliyse örnek önizleme gösterilir
   const muadilOptions = products.filter((p) => p.id !== product?.id);
-  const selectedMuadil = products.find((p) => p.id === form.muadilProductId) ?? null;
+  const selectedMuadils = muadilOptions.filter((p) => form.muadilProductIds.includes(p.id));
+  const groupMuadils = (items: Product[]) =>
+    items.reduce<Record<string, Product[]>>((acc, item) => {
+      const key = item.category || "Kategorisiz";
+      acc[key] = [...(acc[key] ?? []), item];
+      return acc;
+    }, {});
+  const muadilGroups = groupMuadils(muadilOptions);
+  const selectedMuadilGroups = groupMuadils(selectedMuadils);
+  const toggleMuadil = (id: string) => {
+    setForm((current) => ({
+      ...current,
+      muadilProductIds: current.muadilProductIds.includes(id)
+        ? current.muadilProductIds.filter((item) => item !== id)
+        : [...current.muadilProductIds, id],
+    }));
+  };
 
-  // Kategori/alt kategori/makine tipi değişince mevcut ürün tipi artık uymuyorsa sıfırla
-  const keepTypeIfValid = (categoryCode: string, subcategoryCode: string, machineType: string) => {
+  // Kategori/alt kategori değişince mevcut ürün tipi artık uymuyorsa sıfırla
+  const keepTypeIfValid = (categoryCode: string, subcategoryCode: string) => {
     const opt = PRODUCT_TYPE_OPTIONS.find((o) => o.code === form.productTypeCode);
-    if (opt && isTypeAllowed(opt, categoryCode, subcategoryCode, machineType)) {
+    if (opt && isTypeAllowed(opt, categoryCode, subcategoryCode)) {
       return { productTypeCode: form.productTypeCode, type: form.type };
     }
     return { productTypeCode: "", type: "" };
@@ -1817,7 +1826,7 @@ export function ProductDialog({
     const subcategoryCode = code === "TEZGAH" ? form.subcategoryCode || "ISLEME_MERKEZI" : "";
     const subcategory = code === "TEZGAH" ? form.subcategory || "İşleme Merkezi" : "";
     const machineType = code === "OPSIYONEL_DONANIM" ? form.compatibleMachineType : "";
-    const kept = keepTypeIfValid(code, subcategoryCode, machineType);
+    const kept = keepTypeIfValid(code, subcategoryCode);
     setForm({
       ...form,
       categoryCode: code,
@@ -1831,7 +1840,7 @@ export function ProductDialog({
   };
 
   const onSubcategoryChange = (code: string) => {
-    const kept = keepTypeIfValid(form.categoryCode, code, form.compatibleMachineType);
+    const kept = keepTypeIfValid(form.categoryCode, code);
     setForm({
       ...form,
       subcategoryCode: code,
@@ -1859,8 +1868,7 @@ export function ProductDialog({
   };
 
   const onMachineTypeChange = (code: string) => {
-    const kept = keepTypeIfValid(form.categoryCode, form.subcategoryCode, code);
-    setForm({ ...form, compatibleMachineType: code, ...kept });
+    setForm({ ...form, compatibleMachineType: code });
   };
 
   const submit = async (e: React.FormEvent) => {
@@ -1897,7 +1905,9 @@ export function ProductDialog({
       specs: cleanSpecs,
       standardEquipment: form.standardEquipment,
       optionalEquipment: form.optionalEquipment,
-      muadilProductId: form.muadilProductId || null,
+      compatibleMachineTypeCode: form.compatibleMachineType || null,
+      muadilProductId: form.muadilProductIds[0] ?? null,
+      muadilProductIds: form.muadilProductIds,
       status: form.status,
     };
 
@@ -1978,7 +1988,6 @@ export function ProductDialog({
                       {MACHINE_TYPE_OPTIONS.map((o) => <SelectItem key={o.code} value={o.code}>{o.label}</SelectItem>)}
                     </SelectContent>
                   </Select>
-                  <p className="text-[11px] text-muted-foreground">Spindle yalnızca "Dik İşleme Merkezi" seçiliyken ürün tipinde listelenir.</p>
                 </div>
               </ProductSheetRow>
             )}
@@ -2105,47 +2114,55 @@ export function ProductDialog({
               </Select>
             </ProductSheetRow>
 
-            <ProductSheetRow label="Muadil Ürün" className="items-start">
-              <div className="space-y-2">
-                <Select
-                  value={form.muadilProductId || "__none"}
-                  onValueChange={(v) => setForm({ ...form, muadilProductId: v === "__none" ? "" : v })}
-                >
-                  <SelectTrigger className="h-8 max-w-md"><SelectValue placeholder="Muadil ürün seçin" /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="__none">Muadil yok</SelectItem>
-                    {muadilOptions.map((p) => (
-                      <SelectItem key={p.id} value={p.id}>
-                        {[p.brand, p.model, p.shortDescription].filter(Boolean).join(" · ")}
-                      </SelectItem>
+            <ProductSheetRow label="Muadil Ürünler" className="items-start">
+              <div className="space-y-3">
+                {Object.entries(muadilGroups).length === 0 ? (
+                  <p className="text-[11px] text-muted-foreground">Muadil olarak seçilebilecek ürün yok.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {Object.entries(muadilGroups).map(([category, items]) => (
+                      <div key={category} className="space-y-1.5">
+                        <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{category}</div>
+                        <div className="flex flex-wrap gap-1.5">
+                          {items.map((p) => {
+                            const active = form.muadilProductIds.includes(p.id);
+                            return (
+                              <Button
+                                key={p.id}
+                                type="button"
+                                size="sm"
+                                variant={active ? "default" : "outline"}
+                                className="h-8 max-w-[260px] gap-1.5 px-2"
+                                onClick={() => toggleMuadil(p.id)}
+                              >
+                                <Package className="size-3.5 shrink-0" />
+                                <span className="truncate">{[p.brand, p.model].filter(Boolean).join(" ") || p.shortDescription}</span>
+                              </Button>
+                            );
+                          })}
+                        </div>
+                      </div>
                     ))}
-                  </SelectContent>
-                </Select>
-                {selectedMuadil ? (
-                  <div className="flex items-center gap-3 rounded-lg border border-blue-200 bg-brand-blue-soft p-2.5">
-                    <div className="size-12 shrink-0 overflow-hidden rounded-md border border-blue-200 bg-white grid place-items-center">
-                      {selectedMuadil.imageUrl ? (
-                        <img src={selectedMuadil.imageUrl} alt={selectedMuadil.model} className="h-full w-full object-cover" />
-                      ) : (
-                        <Package className="size-5 text-blue-400" />
-                      )}
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="text-[10px] font-semibold uppercase tracking-wide text-brand-blue">Örnek Muadil Ürün</div>
-                      <div className="truncate text-sm">{selectedMuadil.brand} {selectedMuadil.model}</div>
-                      <div className="truncate text-[11px] text-muted-foreground">
-                        {[selectedMuadil.category, selectedMuadil.type].filter(Boolean).join(" · ") || "—"}
+                  </div>
+                )}
+                {selectedMuadils.length > 0 ? (
+                  <div className="space-y-2 rounded-lg border border-blue-200 bg-brand-blue-soft p-2.5">
+                    <div className="text-[10px] font-semibold uppercase tracking-wide text-brand-blue">Seçili Muadil Ürünler</div>
+                    {Object.entries(selectedMuadilGroups).map(([category, items]) => (
+                      <div key={category} className="space-y-1">
+                        <div className="text-[10px] font-medium text-muted-foreground">{category}</div>
+                        <div className="flex flex-wrap gap-1.5">
+                          {items.map((p) => (
+                            <Badge key={p.id} variant="secondary" className="max-w-[260px] gap-1">
+                              <span className="truncate">{p.brand} {p.model}</span>
+                            </Badge>
+                          ))}
+                        </div>
                       </div>
-                    </div>
-                    <div className="shrink-0 text-right">
-                      <div className="text-sm tabular-nums">
-                        {selectedMuadil.listPrice ? `${selectedMuadil.listPrice.toLocaleString("tr-TR")} ${selectedMuadil.currency}` : "—"}
-                      </div>
-                      <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Liste Fiyatı</div>
-                    </div>
+                    ))}
                   </div>
                 ) : (
-                  <p className="text-[11px] text-muted-foreground">Bir muadil ürün seçilirse örnek ürün kartı burada görünür.</p>
+                  <p className="text-[11px] text-muted-foreground">Birden fazla muadil ürün kategori bazında seçilebilir.</p>
                 )}
               </div>
             </ProductSheetRow>
@@ -3204,7 +3221,7 @@ export function CreateServiceRequestDialog({ trigger, defaultMachineId }: { trig
   const { customers, contacts, addService, machines: machinesAll, users } = useStore();
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
-  const serviceUsers = users.filter((u) => u.role === "Service" || u.department === "Servis");
+  const serviceUsers = useMemo(() => users.filter((u) => u.role === "Service" || u.department === "Servis"), [users]);
   const [form, setForm] = useState<{
     customerId: string;
     contactId: string;
@@ -3228,10 +3245,7 @@ export function CreateServiceRequestDialog({ trigger, defaultMachineId }: { trig
   useEffect(() => {
     if (!open) return;
     const defaultMachine = machinesAll.find((machine) => machine.id === defaultMachineId);
-    const firstCustomerWithMachine = customers.find((customer) =>
-      machinesAll.some((machine) => machine.customerId === customer.id)
-    );
-    const customerId = defaultMachine?.customerId ?? firstCustomerWithMachine?.id ?? customers[0]?.id ?? "";
+    const customerId = defaultMachine?.customerId ?? "";
     const companyContacts = contacts.filter((contact) => contact.customerId === customerId);
     const preferredContact = companyContacts.find((contact) => contact.isPrimary) ?? companyContacts[0];
     setForm({
@@ -3244,18 +3258,36 @@ export function CreateServiceRequestDialog({ trigger, defaultMachineId }: { trig
       quoteRequired: false,
       serviceNote: "",
     });
-  }, [open, defaultMachineId, customers, contacts, machinesAll, users]);
+  }, [open, defaultMachineId, contacts, machinesAll, serviceUsers, users]);
 
-  const customerById = useMemo(() => new Map(customers.map((customer) => [customer.id, customer])), [customers]);
+  const customerOptions = useMemo(
+    () => customers.map((customer) => ({ value: customer.id, label: customer.name })),
+    [customers],
+  );
   const selectedCustomer = customers.find((customer) => customer.id === form.customerId);
-  const companyMachines = machinesAll.filter((machine) => machine.customerId === form.customerId);
-  const otherCompanyMachines = machinesAll.filter((machine) => machine.customerId !== form.customerId);
+  const companyMachines = useMemo(
+    () => machinesAll.filter((machine) => machine.customerId === form.customerId),
+    [machinesAll, form.customerId],
+  );
   const companyContacts = contacts.filter((contact) => contact.customerId === form.customerId);
   const selectedMachine = machinesAll.find((m) => m.id === form.machineId);
   const selectedContact = contacts.find((contact) => contact.id === form.contactId);
   const contactPhone = selectedContact?.mobilePhone || selectedContact?.phone || selectedContact?.otherPhone || selectedCustomer?.phone || selectedCustomer?.phone2 || "";
   const contactEmail = selectedContact?.email || selectedContact?.personalEmail || selectedContact?.otherEmail || selectedCustomer?.email || selectedCustomer?.email2 || "";
   const assignedUser = (serviceUsers.length > 0 ? serviceUsers : users).find((u) => u.id === form.assignedUserId);
+  const machineOptionText = (machine: typeof machinesAll[number]) =>
+    [machine.model, machine.serialNumber].filter(Boolean).join(" · ") || "Makine";
+  const machineOptions = useMemo(
+    () => [
+      { value: NO_SERVICE_MACHINE, label: "Makine bağlama" },
+      ...companyMachines.map((machine) => ({
+        value: machine.id,
+        label: machineOptionText(machine),
+        hint: machine.status === "Out of Warranty" ? "Garanti dışı" : machine.status === "Decommissioned" ? "Devre dışı" : "Aktif",
+      })),
+    ],
+    [companyMachines],
+  );
 
   const selectCustomer = (customerId: string) => {
     const nextContacts = contacts.filter((contact) => contact.customerId === customerId);
@@ -3269,27 +3301,14 @@ export function CreateServiceRequestDialog({ trigger, defaultMachineId }: { trig
   };
 
   const selectMachine = (machineId: string) => {
-    if (machineId === "none") {
+    if (machineId === NO_SERVICE_MACHINE) {
       setForm((current) => ({ ...current, machineId: "" }));
       return;
     }
-    const machine = machinesAll.find((item) => item.id === machineId);
-    if (!machine) return;
-    const nextContacts = contacts.filter((contact) => contact.customerId === machine.customerId);
-    const preferredContact = nextContacts.find((contact) => contact.isPrimary) ?? nextContacts[0];
     setForm((current) => ({
       ...current,
-      customerId: machine.customerId || current.customerId,
-      contactId: machine.customerId !== current.customerId ? preferredContact?.id ?? "" : current.contactId,
-      machineId: machine.id,
+      machineId: companyMachines.some((machine) => machine.id === machineId) ? machineId : "",
     }));
-  };
-
-  const machineOptionText = (machine: typeof machinesAll[number], includeCompany = false) => {
-    const base = [machine.model, machine.serialNumber].filter(Boolean).join(" · ") || "Makine";
-    if (!includeCompany) return base;
-    const company = customerById.get(machine.customerId)?.name;
-    return company ? `${base} · ${company}` : base;
   };
 
   const submit = async (e: React.FormEvent) => {
@@ -3347,46 +3366,31 @@ export function CreateServiceRequestDialog({ trigger, defaultMachineId }: { trig
               <div className="min-w-0 space-y-4">
                 <div className="min-w-0">
                   <Label className="text-xs">Firma *</Label>
-                  <Select value={form.customerId} onValueChange={selectCustomer}>
-                    <SelectTrigger className="mt-1.5 min-w-0 [&_[data-slot=select-value]]:min-w-0 [&_[data-slot=select-value]]:truncate">
-                      <SelectValue placeholder="Firma seçin" />
-                    </SelectTrigger>
-                    <SelectContent className="max-w-[min(700px,calc(100vw-2rem))]">
-                      {customers.map((customer) => (
-                        <SelectItem key={customer.id} value={customer.id}>{customer.name}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <div className="mt-1.5">
+                    <Combobox
+                      options={customerOptions}
+                      value={form.customerId}
+                      onChange={selectCustomer}
+                      placeholder="Firma seçin"
+                      searchPlaceholder="Firma ara..."
+                      emptyText="Firma bulunamadı."
+                    />
+                  </div>
                 </div>
 
                 <div className="min-w-0">
                   <Label className="text-xs">Makine (opsiyonel)</Label>
-                  <Select value={form.machineId || "none"} onValueChange={selectMachine}>
-                    <SelectTrigger className="mt-1.5 min-w-0 [&_[data-slot=select-value]]:min-w-0 [&_[data-slot=select-value]]:truncate">
-                      <SelectValue placeholder="Makine seçin (opsiyonel)" />
-                    </SelectTrigger>
-                    <SelectContent className="max-w-[min(700px,calc(100vw-2rem))]">
-                      <SelectItem value="none">Makine bağlama</SelectItem>
-                      <SelectGroup>
-                        <SelectLabel>{companyMachines.length ? "Seçili firmanın makineleri" : "Seçili firmada kayıtlı makine yok"}</SelectLabel>
-                        {companyMachines.map((machine) => (
-                          <SelectItem key={machine.id} value={machine.id}>
-                            <span className="block max-w-[620px] truncate">{machineOptionText(machine)}</span>
-                          </SelectItem>
-                        ))}
-                      </SelectGroup>
-                      {otherCompanyMachines.length > 0 && (
-                        <SelectGroup>
-                          <SelectLabel>Diğer firmalardaki makineler</SelectLabel>
-                          {otherCompanyMachines.map((machine) => (
-                            <SelectItem key={machine.id} value={machine.id}>
-                              <span className="block max-w-[620px] truncate">{machineOptionText(machine, true)}</span>
-                            </SelectItem>
-                          ))}
-                        </SelectGroup>
-                      )}
-                    </SelectContent>
-                  </Select>
+                  <div className="mt-1.5">
+                    <Combobox
+                      options={machineOptions}
+                      value={form.customerId ? form.machineId || NO_SERVICE_MACHINE : ""}
+                      onChange={selectMachine}
+                      placeholder={form.customerId ? "Makine seçin (opsiyonel)" : "Önce firma seçin"}
+                      searchPlaceholder="Makine ara..."
+                      emptyText="Seçili firmada kayıtlı makine yok."
+                      disabled={!form.customerId}
+                    />
+                  </div>
                 </div>
 
                 <div className="min-w-0">
