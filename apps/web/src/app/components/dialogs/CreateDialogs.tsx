@@ -3256,6 +3256,11 @@ export function CreateServiceRequestDialog({ trigger, defaultMachineId }: { trig
   const contactPhone = selectedContact?.mobilePhone || selectedContact?.phone || selectedContact?.otherPhone || selectedCustomer?.phone || selectedCustomer?.phone2 || "";
   const contactEmail = selectedContact?.email || selectedContact?.personalEmail || selectedContact?.otherEmail || selectedCustomer?.email || selectedCustomer?.email2 || "";
   const assignedUser = (serviceUsers.length > 0 ? serviceUsers : users).find((u) => u.id === form.assignedUserId);
+  const customerOptions = customers.map((customer) => ({
+    value: customer.id,
+    label: customer.name,
+    hint: [customer.city, customer.phone].filter(Boolean).join(" · ") || undefined,
+  }));
 
   const selectCustomer = (customerId: string) => {
     const nextContacts = contacts.filter((contact) => contact.customerId === customerId);
@@ -3291,6 +3296,19 @@ export function CreateServiceRequestDialog({ trigger, defaultMachineId }: { trig
     const company = customerById.get(machine.customerId)?.name;
     return company ? `${base} · ${company}` : base;
   };
+  const machineOptions = [
+    { value: "none", label: "Makine bağlama", hint: "Opsiyonel" },
+    ...companyMachines.map((machine) => ({
+      value: machine.id,
+      label: machineOptionText(machine),
+      hint: "Seçili firma",
+    })),
+    ...otherCompanyMachines.map((machine) => ({
+      value: machine.id,
+      label: machineOptionText(machine),
+      hint: customerById.get(machine.customerId)?.name,
+    })),
+  ];
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -3347,46 +3365,30 @@ export function CreateServiceRequestDialog({ trigger, defaultMachineId }: { trig
               <div className="min-w-0 space-y-4">
                 <div className="min-w-0">
                   <Label className="text-xs">Firma *</Label>
-                  <Select value={form.customerId} onValueChange={selectCustomer}>
-                    <SelectTrigger className="mt-1.5 min-w-0 [&_[data-slot=select-value]]:min-w-0 [&_[data-slot=select-value]]:truncate">
-                      <SelectValue placeholder="Firma seçin" />
-                    </SelectTrigger>
-                    <SelectContent className="max-w-[min(700px,calc(100vw-2rem))]">
-                      {customers.map((customer) => (
-                        <SelectItem key={customer.id} value={customer.id}>{customer.name}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <div className="mt-1.5">
+                    <Combobox
+                      options={customerOptions}
+                      value={form.customerId}
+                      onChange={selectCustomer}
+                      placeholder="Firma seçin"
+                      searchPlaceholder="Firma adı / şehir / telefon ara..."
+                      emptyText="Firma bulunamadı."
+                    />
+                  </div>
                 </div>
 
                 <div className="min-w-0">
                   <Label className="text-xs">Makine (opsiyonel)</Label>
-                  <Select value={form.machineId || "none"} onValueChange={selectMachine}>
-                    <SelectTrigger className="mt-1.5 min-w-0 [&_[data-slot=select-value]]:min-w-0 [&_[data-slot=select-value]]:truncate">
-                      <SelectValue placeholder="Makine seçin (opsiyonel)" />
-                    </SelectTrigger>
-                    <SelectContent className="max-w-[min(700px,calc(100vw-2rem))]">
-                      <SelectItem value="none">Makine bağlama</SelectItem>
-                      <SelectGroup>
-                        <SelectLabel>{companyMachines.length ? "Seçili firmanın makineleri" : "Seçili firmada kayıtlı makine yok"}</SelectLabel>
-                        {companyMachines.map((machine) => (
-                          <SelectItem key={machine.id} value={machine.id}>
-                            <span className="block max-w-[620px] truncate">{machineOptionText(machine)}</span>
-                          </SelectItem>
-                        ))}
-                      </SelectGroup>
-                      {otherCompanyMachines.length > 0 && (
-                        <SelectGroup>
-                          <SelectLabel>Diğer firmalardaki makineler</SelectLabel>
-                          {otherCompanyMachines.map((machine) => (
-                            <SelectItem key={machine.id} value={machine.id}>
-                              <span className="block max-w-[620px] truncate">{machineOptionText(machine, true)}</span>
-                            </SelectItem>
-                          ))}
-                        </SelectGroup>
-                      )}
-                    </SelectContent>
-                  </Select>
+                  <div className="mt-1.5">
+                    <Combobox
+                      options={machineOptions}
+                      value={form.machineId || "none"}
+                      onChange={selectMachine}
+                      placeholder="Makine seçin (opsiyonel)"
+                      searchPlaceholder="Model / seri no / firma ara..."
+                      emptyText={companyMachines.length ? "Makine bulunamadı." : "Seçili firmada kayıtlı makine yok."}
+                    />
+                  </div>
                 </div>
 
                 <div className="min-w-0">

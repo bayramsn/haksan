@@ -439,11 +439,46 @@ function StoreInner({ children }: { children: ReactNode }) {
         return fallback;
       }
     };
+    const loadAllPages = async <T extends { data: any[]; meta?: { total?: number; pageSize?: number; totalPages?: number } }>(
+      label: string,
+      fn: (params: { page: number; pageSize: number }) => Promise<T>,
+      fallback: T,
+      permission?: string
+    ): Promise<T> => {
+      if (!can(permission)) return fallback;
+      try {
+        const pageSize = 200;
+        const first = await fn({ page: 1, pageSize });
+        const totalPages = first.meta?.totalPages ?? 1;
+        const pages: T[] = [];
+        for (let page = 2; page <= totalPages; page += 1) {
+          pages.push(await fn({ page, pageSize }));
+        }
+        const data = [first, ...pages].flatMap((page) => page.data ?? []);
+        return {
+          ...first,
+          data,
+          meta: first.meta
+            ? {
+                ...first.meta,
+                page: 1,
+                pageSize: data.length || first.meta.pageSize,
+                total: first.meta.total ?? data.length,
+                totalPages: 1,
+              }
+            : first.meta,
+        };
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : 'yüklenemedi';
+        errors.push(`${label}: ${msg}`);
+        return fallback;
+      }
+    };
     try {
       const empty = { data: [] as any[], meta: { total: 0, page: 1, pageSize: 0, totalPages: 0 } };
       const [companies, contactsR, opps, prods, inv, qts, svcTickets, acts, usersR, devicesR, receivablesR, paymentsR, proformasR, contractsR, invoicesR, noteTemplatesR, shipmentsR, deliveriesR, installationsR, fileLinksR] = await Promise.all([
-        load('Firmalar', () => companyService.list({ pageSize: 200 }), empty, 'companies.read'),
-        load('Kontaklar', () => contactService.list({ pageSize: 200 }), empty, 'contacts.read'),
+        loadAllPages('Firmalar', (params) => companyService.list(params), empty, 'companies.read'),
+        loadAllPages('Kontaklar', (params) => contactService.list(params), empty, 'contacts.read'),
         load('Satış kartları', () => opportunityService.list({ pageSize: 200 }), empty, 'opportunities.read'),
         load('Ürünler', () => productService.list({ pageSize: 200 }), empty, 'products.read'),
         load('Stok', () => inventoryService.list({ pageSize: 200 }), empty, 'inventory.read'),
@@ -451,7 +486,7 @@ function StoreInner({ children }: { children: ReactNode }) {
         load('Servis', () => serviceService.tickets({ pageSize: 200 }), empty, 'service_tickets.read'),
         load('Aktiviteler', () => activityService.list({ pageSize: 200 }), empty, 'activities.read'),
         load('Kullanıcılar', () => adminService.users(), [] as any[], 'users.read'),
-        load('Makineler', () => inventoryService.customerDevices({ pageSize: 200 }), empty, 'customer_devices.read'),
+        loadAllPages('Makineler', (params) => inventoryService.customerDevices(params), empty, 'customer_devices.read'),
         load('Alacaklar', () => financeService.receivables({ pageSize: 200 }), empty, 'receivables.read'),
         load('Ödemeler', () => financeService.payments({ pageSize: 200 }), empty, 'payments.read'),
         load('Proformalar', () => documentService.proformas({ pageSize: 200 }), empty, 'proformas.read'),
