@@ -12,7 +12,7 @@ import { cancellationReasons } from '../../db/schema/crm';
 import { commercialInvoices, contracts } from '../../db/schema/quotes';
 import { receivables } from '../../db/schema/finance';
 import { DB } from '../../shared/database/database.module';
-import { NotFoundError, ValidationError } from '../../shared/utils/errors';
+import { ForbiddenError, NotFoundError, ValidationError } from '../../shared/utils/errors';
 import type { AuthContext } from '../../shared/security/auth.types';
 import type { OpportunityCreateInput, OpportunityUpdateInput, OpportunityStageChangeInput, Pagination } from '@haksan/shared';
 import { PIPELINE_STAGES, STAGE_TRANSITIONS, type PipelineStageCode } from '@haksan/shared';
@@ -152,6 +152,10 @@ export class OpportunitiesService {
   async create(input: OpportunityCreateInput, actor: AuthContext) {
     await this.assertCompany(input.companyId, actor);
     if (input.primaryContactId) await this.assertContact(input.primaryContactId, actor, input.companyId);
+    const isSuperAdmin = actor.roles.includes('super_admin');
+    if (!isSuperAdmin && input.ownerUserId && input.ownerUserId !== actor.userId) {
+      throw new ForbiddenError('Yalnızca süper admin başka kullanıcıya lead atayabilir');
+    }
     if (input.ownerUserId) await this.assertUser(input.ownerUserId, actor);
 
     const leadStage = await this.stageRowByCode('lead');
@@ -209,6 +213,10 @@ export class OpportunitiesService {
       if (input.primaryContactId) await this.assertContact(input.primaryContactId, actor, companyId);
     } else if (input.companyId !== undefined && existing.primaryContactId) {
       await this.assertContact(existing.primaryContactId, actor, companyId);
+    }
+    const isSuperAdmin = actor.roles.includes('super_admin');
+    if (input.ownerUserId !== undefined && !isSuperAdmin) {
+      throw new ForbiddenError('Sorumlu kullanıcıyı yalnızca süper admin değiştirebilir');
     }
     if (input.ownerUserId) await this.assertUser(input.ownerUserId, actor);
     const patch: Record<string, unknown> = { updatedBy: actor.userId };

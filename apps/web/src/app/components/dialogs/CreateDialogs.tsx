@@ -804,7 +804,8 @@ export function EditContactDialog({ contact, onClose }: { contact: Contact | nul
 
 export function CreateCaseDialog({ trigger, defaultCustomerId }: { trigger: React.ReactNode; defaultCustomerId?: string }) {
   const { customers, addCase, addCustomer, users, products } = useStore();
-  const { user, activeDivision } = useAuth();
+  const { user, activeDivision, hasRole } = useAuth();
+  const isSuperAdmin = hasRole("super_admin");
   const canPickDivision = user?.canViewAllDivisions ?? false;
   const divisions = user?.divisions ?? [];
   const defaultDivisionId = activeDivision && activeDivision !== "all" ? activeDivision : divisions[0]?.id ?? "";
@@ -812,7 +813,7 @@ export function CreateCaseDialog({ trigger, defaultCustomerId }: { trigger: Reac
   const [selectedProductId, setSelectedProductId] = useState("");
   const makeEmptyCase = () => ({
     customerId: defaultCustomerId ?? "",
-    assignedUserId: users.find((u) => u.role === "Sales" || u.role === "Admin")?.id ?? users[0]?.id ?? "",
+    assignedUserId: user?.id ?? users.find((u) => u.role === "Sales" || u.role === "Admin")?.id ?? users[0]?.id ?? "",
     requestedProduct: "",
     requestedModel: "",
     quantity: 1,
@@ -917,17 +918,19 @@ export function CreateCaseDialog({ trigger, defaultCustomerId }: { trigger: Reac
                 </SelectContent>
               </Select>
             </div>
-            <div>
-              <Label className="text-xs">Atanan Kullanıcı</Label>
-              <Select value={form.assignedUserId} onValueChange={(v) => setForm({ ...form, assignedUserId: v })}>
-                <SelectTrigger className="mt-1.5"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {(users.filter((u) => u.role === "Sales" || u.role === "Admin").length > 0 ? users.filter((u) => u.role === "Sales" || u.role === "Admin") : users).map((u) => (
-                    <SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+            {isSuperAdmin && (
+              <div>
+                <Label className="text-xs">Atanan Kullanıcı</Label>
+                <Select value={form.assignedUserId} onValueChange={(v) => setForm({ ...form, assignedUserId: v })}>
+                  <SelectTrigger className="mt-1.5"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {(users.filter((u) => u.role === "Sales" || u.role === "Admin").length > 0 ? users.filter((u) => u.role === "Sales" || u.role === "Admin") : users).map((u) => (
+                      <SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
             {canPickDivision && (
               <div className="col-span-2">
                 <Label className="text-xs">Bölüm *</Label>
