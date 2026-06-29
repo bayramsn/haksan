@@ -7,10 +7,10 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from ".
 import {
   Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle,
 } from "../../ui/dialog";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../ui/select";
+import { Tabs, TabsList, TabsTrigger } from "../../ui/tabs";
 import { financeService } from "../../../../lib/services";
 import { CreateAccountingInvoiceDialog } from "./CreateAccountingInvoiceDialog";
-import { Building2, Plus, Receipt, Search } from "lucide-react";
+import { ArrowDownLeft, ArrowUpRight, Building2, Layers, Plus, Receipt, Search } from "lucide-react";
 
 type InvoiceRow = {
   id: string;
@@ -48,7 +48,7 @@ function companyName(company?: InvoiceDetail["company"]): string {
 export function AccountingInvoicesPage() {
   const [rows, setRows] = useState<InvoiceRow[]>([]);
   const [q, setQ] = useState("");
-  const [typeFilter, setTypeFilter] = useState<"all" | "sales" | "purchase">("all");
+  const [typeFilter, setTypeFilter] = useState<"all" | "sales" | "purchase">("sales");
   const [loading, setLoading] = useState(true);
   const [detail, setDetail] = useState<InvoiceDetail | null>(null);
 
@@ -72,6 +72,16 @@ export function AccountingInvoicesPage() {
       name.toLowerCase().includes(q.toLowerCase())
     );
   });
+
+  // Para birimine göre toplam tutarlar (farklı dövizler ayrı satır olarak gösterilir).
+  const totalsByCurrency = filtered.reduce<Record<string, number>>((acc, r) => {
+    const code = r.currency?.code ?? "—";
+    acc[code] = (acc[code] ?? 0) + Number(r.grandTotal || 0);
+    return acc;
+  }, {});
+  const totalsSummary = Object.entries(totalsByCurrency)
+    .map(([code, amount]) => `${amount.toLocaleString("tr-TR")} ${code}`)
+    .join(" · ");
 
   const openDetail = async (row: InvoiceRow) => {
     setDetail(row);
@@ -98,14 +108,6 @@ export function AccountingInvoicesPage() {
               <Search className="size-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
               <Input placeholder="Fatura no veya firma..." className="pl-9 h-9" value={q} onChange={(e) => setQ(e.target.value)} />
             </div>
-            <Select value={typeFilter} onValueChange={(v) => setTypeFilter(v as typeof typeFilter)}>
-              <SelectTrigger className="h-9 w-[140px]"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Tümü</SelectItem>
-                <SelectItem value="sales">Satış</SelectItem>
-                <SelectItem value="purchase">Alış</SelectItem>
-              </SelectContent>
-            </Select>
             <CreateAccountingInvoiceDialog
               onCreated={load}
               trigger={
@@ -117,13 +119,39 @@ export function AccountingInvoicesPage() {
             <Button size="sm" variant="outline" className="h-9" onClick={load}>Yenile</Button>
           </div>
         </CardHeader>
+        <div className="flex flex-col gap-2 px-6 pb-3 sm:flex-row sm:items-center sm:justify-between">
+          <Tabs value={typeFilter} onValueChange={(v) => setTypeFilter(v as typeof typeFilter)}>
+            <TabsList className="h-9 bg-muted/60">
+              <TabsTrigger value="sales" className="gap-1.5">
+                <ArrowUpRight className="size-4" /> Satış
+              </TabsTrigger>
+              <TabsTrigger value="purchase" className="gap-1.5">
+                <ArrowDownLeft className="size-4" /> Alış
+              </TabsTrigger>
+              <TabsTrigger value="all" className="gap-1.5">
+                <Layers className="size-4" /> Tümü
+              </TabsTrigger>
+            </TabsList>
+          </Tabs>
+          {!loading && (
+            <div className="text-xs text-muted-foreground">
+              <span className="font-medium text-foreground">{filtered.length}</span> fatura
+              {totalsSummary && (
+                <>
+                  {" · "}
+                  <span className="font-medium text-foreground tabular-nums">{totalsSummary}</span>
+                </>
+              )}
+            </div>
+          )}
+        </div>
         <CardContent className="p-0">
           <Table>
             <TableHeader>
               <TableRow className="bg-muted/30">
                 <TableHead>Fatura No</TableHead>
-                <TableHead>Tür</TableHead>
-                <TableHead>Firma</TableHead>
+                {typeFilter === "all" && <TableHead>Tür</TableHead>}
+                <TableHead>{typeFilter === "purchase" ? "Tedarikçi" : typeFilter === "sales" ? "Müşteri" : "Firma"}</TableHead>
                 <TableHead>Tarih</TableHead>
                 <TableHead className="text-right">Tutar</TableHead>
                 <TableHead>Taksit</TableHead>
@@ -132,16 +160,18 @@ export function AccountingInvoicesPage() {
             </TableHeader>
             <TableBody>
               {loading && (
-                <TableRow><TableCell colSpan={7} className="text-center py-10 text-muted-foreground">Yükleniyor…</TableCell></TableRow>
+                <TableRow><TableCell colSpan={typeFilter === "all" ? 7 : 6} className="text-center py-10 text-muted-foreground">Yükleniyor…</TableCell></TableRow>
               )}
               {!loading && filtered.map((r) => (
                 <TableRow key={r.id} className="cursor-pointer hover:bg-muted/30" onClick={() => openDetail(r)}>
                   <TableCell className="font-medium tabular-nums">{r.invoiceNo}</TableCell>
-                  <TableCell>
-                    <Badge variant="outline" className={r.type === "sales" ? "text-emerald-700 border-emerald-200" : "text-sky-700 border-sky-200"}>
-                      {r.type === "sales" ? "Satış" : "Alış"}
-                    </Badge>
-                  </TableCell>
+                  {typeFilter === "all" && (
+                    <TableCell>
+                      <Badge variant="outline" className={r.type === "sales" ? "text-emerald-700 border-emerald-200" : "text-sky-700 border-sky-200"}>
+                        {r.type === "sales" ? "Satış" : "Alış"}
+                      </Badge>
+                    </TableCell>
+                  )}
                   <TableCell>{r.company?.shortName || r.company?.legalTitle || "—"}</TableCell>
                   <TableCell className="text-sm text-muted-foreground">{new Date(r.invoiceDate).toLocaleDateString("tr-TR")}</TableCell>
                   <TableCell className="text-right tabular-nums font-medium">
@@ -155,7 +185,7 @@ export function AccountingInvoicesPage() {
                 </TableRow>
               ))}
               {!loading && filtered.length === 0 && (
-                <TableRow><TableCell colSpan={7} className="text-center py-10 text-muted-foreground">Kayıt yok</TableCell></TableRow>
+                <TableRow><TableCell colSpan={typeFilter === "all" ? 7 : 6} className="text-center py-10 text-muted-foreground">Kayıt yok</TableCell></TableRow>
               )}
             </TableBody>
           </Table>
@@ -196,7 +226,7 @@ export function AccountingInvoicesPage() {
                 <div><span className="text-muted-foreground">Toplam:</span> {Number(detail.grandTotal).toLocaleString("tr-TR")} {detail.currency?.code ?? ""}</div>
                 <div><span className="text-muted-foreground">Taksit:</span> {detail.installmentCount}</div>
               </div>
-              {detail.installments?.length > 0 && (
+              {(detail.installments?.length ?? 0) > 0 && (
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -206,7 +236,7 @@ export function AccountingInvoicesPage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {detail.installments.map((i: any) => (
+                    {detail.installments?.map((i: any) => (
                       <TableRow key={i.id}>
                         <TableCell>{i.installmentNo}</TableCell>
                         <TableCell>{new Date(i.dueDate).toLocaleDateString("tr-TR")}</TableCell>
