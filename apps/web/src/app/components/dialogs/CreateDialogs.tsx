@@ -3264,11 +3264,6 @@ export function CreateServiceRequestDialog({ trigger, defaultMachineId }: { trig
   const contactPhone = selectedContact?.mobilePhone || selectedContact?.phone || selectedContact?.otherPhone || selectedCustomer?.phone || selectedCustomer?.phone2 || "";
   const contactEmail = selectedContact?.email || selectedContact?.personalEmail || selectedContact?.otherEmail || selectedCustomer?.email || selectedCustomer?.email2 || "";
   const assignedUser = (serviceUsers.length > 0 ? serviceUsers : users).find((u) => u.id === form.assignedUserId);
-  const customerOptions = customers.map((customer) => ({
-    value: customer.id,
-    label: customer.name,
-    hint: [customer.city, customer.phone].filter(Boolean).join(" · ") || undefined,
-  }));
 
   const selectCustomer = (customerId: string) => {
     const nextContacts = contacts.filter((contact) => contact.customerId === customerId);
@@ -3373,30 +3368,35 @@ export function CreateServiceRequestDialog({ trigger, defaultMachineId }: { trig
               <div className="min-w-0 space-y-4">
                 <div className="min-w-0">
                   <Label className="text-xs">Firma *</Label>
-                  <div className="mt-1.5">
-                    <Combobox
-                      options={customerOptions}
-                      value={form.customerId}
-                      onChange={selectCustomer}
-                      placeholder="Firma seçin"
-                      searchPlaceholder="Firma adı / şehir / telefon ara..."
-                      emptyText="Firma bulunamadı."
-                    />
-                  </div>
+                  <Select value={form.customerId || "none"} onValueChange={(value) => selectCustomer(value === "none" ? "" : value)}>
+                    <SelectTrigger className="mt-1.5 min-w-0 [&_[data-slot=select-value]]:min-w-0 [&_[data-slot=select-value]]:truncate">
+                      <SelectValue placeholder="Firma seçin" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">Firma seçin</SelectItem>
+                      {customers.map((customer) => (
+                        <SelectItem key={customer.id} value={customer.id}>
+                          {[customer.name, customer.city, customer.phone].filter(Boolean).join(" · ")}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
 
                 <div className="min-w-0">
                   <Label className="text-xs">Makine (opsiyonel)</Label>
-                  <div className="mt-1.5">
-                    <Combobox
-                      options={machineOptions}
-                      value={form.machineId || "none"}
-                      onChange={selectMachine}
-                      placeholder="Makine seçin (opsiyonel)"
-                      searchPlaceholder="Model / seri no / firma ara..."
-                      emptyText={companyMachines.length ? "Makine bulunamadı." : "Seçili firmada kayıtlı makine yok."}
-                    />
-                  </div>
+                  <Select value={form.machineId || "none"} onValueChange={selectMachine}>
+                    <SelectTrigger className="mt-1.5 min-w-0 [&_[data-slot=select-value]]:min-w-0 [&_[data-slot=select-value]]:truncate">
+                      <SelectValue placeholder="Makine seçin (opsiyonel)" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {machineOptions.map((option) => (
+                        <SelectItem key={option.value} value={option.value}>
+                          {[option.label, option.hint].filter(Boolean).join(" · ")}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
 
                 <div className="min-w-0">
