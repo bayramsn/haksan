@@ -1652,6 +1652,22 @@ const productMachineLabel = (p: { brand?: string; model?: string; modelName?: st
   p.stockCode?.trim() ||
   p.type?.trim() ||
   "Makine";
+const OPTIONAL_EQUIPMENT_SERIES_PREFIX_RE = /^(DL|VM|MV|VC|SL|MT|SJ|TC|HT|LH|D|C)(?=[-\d\s/]|$)/i;
+const productSeriesLabelForEquipment = (p: Partial<ProductFormState & Product>) => {
+  const model = (p.model || p.modelName || p.shortDescription || "").trim().toLocaleUpperCase("tr-TR");
+  const code = model.match(OPTIONAL_EQUIPMENT_SERIES_PREFIX_RE)?.[1]?.toLocaleUpperCase("tr-TR");
+  return code ? `${code} Serisi` : (p.modelName || p.model || "").trim();
+};
+const optionalEquipmentDefaultsForMachine = (machine: Partial<ProductFormState & Product> | null | undefined) => ({
+  serial: machine ? productSeriesLabelForEquipment(machine) : "",
+  type: machine?.type || findLabel(PRODUCT_TYPE_OPTIONS, machine?.productTypeCode ?? "", ""),
+  category: machine?.category || findLabel(PRODUCT_CATEGORIES, machine?.categoryCode ?? "", ""),
+});
+const optionalEquipmentDraftForMachine = (machine: Partial<ProductFormState & Product> | null | undefined): OptionalEquipmentDraft => ({
+  ...emptyOptionalEquipmentDraft(),
+  machine: machine ? productMachineLabel(machine) : "",
+  ...optionalEquipmentDefaultsForMachine(machine),
+});
 
 const formatOptionalEquipment = (draft: OptionalEquipmentDraft) =>
   OPTIONAL_EQUIPMENT_LABELS
@@ -1820,7 +1836,7 @@ export function ProductDialog({
     }
     const value = formatOptionalEquipment({ ...optionalEquipmentDraft, machine: productMachineLabel(form) });
     setForm((f) => ({ ...f, optionalEquipment: [...f.optionalEquipment, value] }));
-    setOptionalEquipmentDraft(emptyOptionalEquipmentDraft());
+    setOptionalEquipmentDraft(optionalEquipmentDraftForMachine(form));
   };
 
   // Yalnızca TEZGAH kategorisinde alt kategori (işleme merkezi / torna) ayrımı var
@@ -2318,6 +2334,7 @@ export function ProductDialog({
               onAdd={addOptionalEquipment}
               onRemove={(i) => rmChip("optionalEquipment", i)}
               machineLabel={productMachineLabel(form)}
+              machineDefaults={optionalEquipmentDefaultsForMachine(form)}
             />
           )}
 
@@ -2366,6 +2383,7 @@ export function OptionalEquipmentDialog({ trigger }: { trigger: React.ReactNode 
     setOpen(nextOpen);
     if (!nextOpen) reset();
   };
+  const machineDefaults = optionalEquipmentDefaultsForMachine(selectedMachine);
   const persistEquipment = async (nextEquipment: string[], successMessage: string) => {
     if (!selectedMachine) {
       toast.error("Makine seçiniz");
@@ -2395,7 +2413,7 @@ export function OptionalEquipmentDialog({ trigger }: { trigger: React.ReactNode 
     }
     const value = formatOptionalEquipment({ ...draft, machine: selectedMachineLabel });
     await persistEquipment([...(selectedMachine.optionalEquipment ?? []), value], "Opsiyonel donanım makineye eklendi");
-    setDraft(emptyOptionalEquipmentDraft());
+    setDraft(optionalEquipmentDraftForMachine(selectedMachine));
   };
   const removeEquipment = async (index: number) => {
     if (!selectedMachine || saving) return;
@@ -2440,6 +2458,7 @@ export function OptionalEquipmentDialog({ trigger }: { trigger: React.ReactNode 
             onAdd={() => void addEquipment()}
             onRemove={(index) => void removeEquipment(index)}
             machineLabel={selectedMachineLabel}
+            machineDefaults={machineDefaults}
             disabled={!selectedMachine || saving}
           />
         </div>
@@ -2542,6 +2561,7 @@ function OptionalEquipmentField({
   onAdd,
   onRemove,
   machineLabel = "",
+  machineDefaults,
   disabled = false,
 }: {
   chips: string[];
@@ -2550,8 +2570,31 @@ function OptionalEquipmentField({
   onAdd: () => void;
   onRemove: (i: number) => void;
   machineLabel?: string;
+  machineDefaults?: Pick<OptionalEquipmentDraft, "serial" | "type" | "category">;
   disabled?: boolean;
 }) {
+  useEffect(() => {
+    if (!machineLabel && !machineDefaults) return;
+    setDraft((current) => {
+      const machineChanged = Boolean(machineLabel) && current.machine !== machineLabel;
+      const next: OptionalEquipmentDraft = {
+        ...current,
+        machine: machineLabel || current.machine,
+        product: machineChanged ? "" : current.product,
+        serial: machineDefaults?.serial && (machineChanged || !current.serial) ? machineDefaults.serial : current.serial,
+        type: machineDefaults?.type && (machineChanged || !current.type) ? machineDefaults.type : current.type,
+        category: machineDefaults?.category && (machineChanged || !current.category) ? machineDefaults.category : current.category,
+      };
+      return next.machine === current.machine &&
+        next.product === current.product &&
+        next.serial === current.serial &&
+        next.type === current.type &&
+        next.category === current.category
+        ? current
+        : next;
+    });
+  }, [machineLabel, machineDefaults?.serial, machineDefaults?.type, machineDefaults?.category, setDraft]);
+
   const update = (key: keyof OptionalEquipmentDraft, value: string) => {
     setDraft((current) => ({ ...current, [key]: value }));
   };
