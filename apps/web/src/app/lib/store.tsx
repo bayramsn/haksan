@@ -1468,6 +1468,26 @@ function StoreInner({ children }: { children: ReactNode }) {
     if (fields.hsCode !== undefined) apiPatch.hsCode = cleanString(fields.hsCode);
     if (fields.modelName !== undefined) apiPatch.modelName = cleanString(fields.modelName);
     if (fields.description !== undefined) apiPatch.description = cleanString(fields.description);
+    if (fields.muadilProductIds !== undefined) {
+      const muadilProductIds = fields.muadilProductIds.filter(Boolean);
+      apiPatch.muadilProductIds = muadilProductIds;
+      apiPatch.muadilProductId = muadilProductIds[0] ?? null;
+      localPatch.muadilProductIds = muadilProductIds;
+      localPatch.muadilProductId = muadilProductIds[0] ?? null;
+      localPatch.muadilProducts = products
+        .filter((product) => muadilProductIds.includes(product.id))
+        .map((product) => ({
+          id: product.id,
+          brand: product.brand,
+          model: product.model,
+          shortDescription: product.shortDescription,
+          category: product.category,
+          categoryCode: product.categoryCode,
+          type: product.type,
+          listPrice: product.listPrice,
+          currency: product.currency,
+        }));
+    }
     await productService.update(id, apiPatch);
     setProducts((prev) => prev.map((p) => (p.id === id ? { ...p, ...localPatch } : p)));
   };

@@ -6,6 +6,7 @@ import { Input } from "../ui/input";
 import { Label } from "../ui/label";
 import { Textarea } from "../ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
+import { Checkbox } from "../ui/checkbox";
 import {
   ImageIcon, ListChecks, CheckCircle2, Sparkles, Tag, Cpu, Package, Wrench, Settings2, FileText,
   Pencil, Save, X,
@@ -30,6 +31,22 @@ const normalizeProductVatRate = (value: unknown) => {
   const rate = Number(value ?? DEFAULT_PRODUCT_VAT_RATE);
   return PRODUCT_VAT_RATES.includes(String(rate) as typeof PRODUCT_VAT_RATES[number]) ? rate : DEFAULT_PRODUCT_VAT_RATE;
 };
+const isOptionalEquipmentProduct = (product: Product) =>
+  product.categoryCode === OPTIONAL_EQUIPMENT_CATEGORY_CODE ||
+  product.category?.toLocaleLowerCase("tr-TR") === "opsiyonel donanım";
+const productDisplayName = (product: Product) =>
+  [product.brand, product.model].filter(Boolean).join(" ") || product.shortDescription || product.stockCode || "Ürün";
+const toMuadilProduct = (product: Product): NonNullable<Product["muadilProducts"]>[number] => ({
+  id: product.id,
+  brand: product.brand,
+  model: product.model,
+  shortDescription: product.shortDescription,
+  category: product.category,
+  categoryCode: product.categoryCode,
+  type: product.type,
+  listPrice: product.listPrice,
+  currency: product.currency,
+});
 
 type EquipmentRow = {
   item: { id: string; title: string; description?: string | null; unitPrice?: string | null };
@@ -70,9 +87,9 @@ export function ProductDetailDialog({
   const [documents, setDocuments] = useState<MediaItem[]>([]);
   const [loading, setLoading] = useState(false);
 
-  const { patchProduct } = useStore();
-  const { hasRole } = useAuth();
-  const canEdit = hasRole("super_admin");
+  const { patchProduct, products } = useStore();
+  const { hasRole, hasPermission } = useAuth();
+  const canEdit = hasRole("super_admin") || hasPermission("products.update");
   // Yalnızca düzenlenen alanların yereldeki gösterimini tutar (kayıttan sonra
   // dialog'un anlık güncel kalması için). Tablo zaten store'dan tazelenir.
   const [overrides, setOverrides] = useState<Partial<Product>>({});
@@ -131,6 +148,28 @@ export function ProductDetailDialog({
   // Gösterimde, kaydedilmiş yerel override'ları ürünün üzerine bindir.
   const view = { ...product, ...overrides } as Product;
   const cur = view.currency;
+  const muadilOptions = products.filter((item) => item.id !== product.id && !isOptionalEquipmentProduct(item));
+  const validMuadilIds = new Set(muadilOptions.map((item) => item.id));
+  const currentMuadilIds = (view.muadilProductIds?.length ? view.muadilProductIds : (view.muadilProductId ? [view.muadilProductId] : []))
+    .filter((id) => validMuadilIds.has(id));
+  const selectedMuadilIds = (draft.muadilProductIds ?? currentMuadilIds).filter((id) => validMuadilIds.has(id));
+  const selectedMuadilProducts = muadilOptions.filter((item) => selectedMuadilIds.includes(item.id));
+  const groupMuadilOptions = (items: Product[]) =>
+    items.reduce<Record<string, Product[]>>((acc, item) => {
+      const key = item.category || "Kategorisiz";
+      acc[key] = [...(acc[key] ?? []), item];
+      return acc;
+    }, {});
+  const muadilOptionGroups = groupMuadilOptions(muadilOptions);
+  const toggleDraftMuadil = (id: string) => {
+    setDraft((current) => {
+      const currentIds = (current.muadilProductIds ?? currentMuadilIds).filter((item) => validMuadilIds.has(item));
+      return {
+        ...current,
+        muadilProductIds: currentIds.includes(id) ? currentIds.filter((item) => item !== id) : [...currentIds, id],
+      };
+    });
+  };
 
   const startEdit = () => {
     setDraft({
@@ -143,6 +182,7 @@ export function ProductDetailDialog({
       hsCode: view.hsCode,
       modelName: view.modelName,
       description: view.description,
+      muadilProductIds: currentMuadilIds,
     });
     setEditing(true);
   };
@@ -151,8 +191,15 @@ export function ProductDetailDialog({
     setSaving(true);
     try {
       const nextDraft = draft.vatRate !== undefined ? { ...draft, vatRate: normalizeProductVatRate(draft.vatRate) } : draft;
-      await patchProduct(product.id, nextDraft);
-      setOverrides((prev) => ({ ...prev, ...nextDraft }));
+      const cleanMuadilIds = (nextDraft.muadilProductIds ?? []).filter((id) => validMuadilIds.has(id));
+      const patch = {
+        ...nextDraft,
+        muadilProductId: cleanMuadilIds[0] ?? null,
+        muadilProductIds: cleanMuadilIds,
+        muadilProducts: muadilOptions.filter((item) => cleanMuadilIds.includes(item.id)).map(toMuadilProduct),
+      };
+      await patchProduct(product.id, patch);
+      setOverrides((prev) => ({ ...prev, ...patch }));
       setEditing(false);
       toast.success("Ürün güncellendi");
     } catch {
@@ -338,6 +385,67 @@ export function ProductDetailDialog({
                     defaultValue={draft.description ?? ""}
                     onChange={(e) => setDraft((d) => ({ ...d, description: e.target.value }))}
                   />
+                </EditField>
+                <EditField label="Muadil Ürünler">
+                  {Object.entries(muadilOptionGroups).length === 0 ? (
+                    <div className="rounded-md border border-border/60 bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
+                      Muadil olarak seçilebilecek ürün yok.
+                    </div>
+                  ) : (
+                    <div className="max-h-56 overflow-y-auto rounded-md border border-border/60 bg-white">
+                      {Object.entries(muadilOptionGroups).map(([category, items]) => (
+                        <div key={category} className="border-b border-border/60 last:border-b-0">
+                          <div className="bg-muted/30 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{category}</div>
+                          <div className="divide-y divide-border/60">
+                            {items.map((item) => {
+                              const active = selectedMuadilIds.includes(item.id);
+                              return (
+                                <div
+                                  key={item.id}
+                                  role="button"
+                                  tabIndex={0}
+                                  className="flex cursor-pointer items-center gap-2 px-3 py-2 text-xs hover:bg-muted/30"
+                                  onClick={() => toggleDraftMuadil(item.id)}
+                                  onKeyDown={(event) => {
+                                    if (event.key === "Enter" || event.key === " ") {
+                                      event.preventDefault();
+                                      toggleDraftMuadil(item.id);
+                                    }
+                                  }}
+                                >
+                                  <Checkbox
+                                    checked={active}
+                                    onCheckedChange={() => toggleDraftMuadil(item.id)}
+                                    onClick={(event) => event.stopPropagation()}
+                                    aria-label={`${productDisplayName(item)} muadil seçimi`}
+                                  />
+                                  <Package className="size-3.5 shrink-0 text-muted-foreground" />
+                                  <span className="min-w-0 flex-1">
+                                    <span className="block truncate">{productDisplayName(item)}</span>
+                                    <span className="block truncate text-[11px] text-muted-foreground">{item.type || item.stockCode || "—"}</span>
+                                  </span>
+                                  {item.listPrice ? (
+                                    <span className="shrink-0 tabular-nums text-brand-blue">
+                                      {fmtMoney(item.listPrice, item.currency)}
+                                    </span>
+                                  ) : null}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {selectedMuadilProducts.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5 pt-1">
+                      {selectedMuadilProducts.map((item) => (
+                        <Badge key={item.id} variant="secondary" className="max-w-full text-[10px]">
+                          <span className="truncate">{productDisplayName(item)}</span>
+                        </Badge>
+                      ))}
+                    </div>
+                  )}
                 </EditField>
               </>
             ) : (
