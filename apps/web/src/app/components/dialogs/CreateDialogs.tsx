@@ -1635,14 +1635,23 @@ const compactProductCode = (value: string) =>
 
 const moneyNumber = (value: string) => Number(value.replace(",", ".")) || 0;
 const OPTIONAL_EQUIPMENT_CATEGORY_CODE = "OPSIYONEL_DONANIM";
-type OptionalEquipmentDraft = { product: string; serial: string; type: string; category: string };
-const emptyOptionalEquipmentDraft = (): OptionalEquipmentDraft => ({ product: "", serial: "", type: "", category: "" });
+type OptionalEquipmentDraft = { machine: string; product: string; serial: string; type: string; category: string };
+const emptyOptionalEquipmentDraft = (): OptionalEquipmentDraft => ({ machine: "", product: "", serial: "", type: "", category: "" });
 const OPTIONAL_EQUIPMENT_LABELS: Array<{ key: keyof OptionalEquipmentDraft; label: string }> = [
+  { key: "machine", label: "Makine" },
   { key: "product", label: "Ürün" },
   { key: "serial", label: "Seri" },
   { key: "type", label: "Tip" },
   { key: "category", label: "Kategori" },
 ];
+
+const productMachineLabel = (p: { brand?: string; model?: string; modelName?: string; shortDescription?: string; type?: string; stockCode?: string }) =>
+  [p.brand, p.model].filter(Boolean).join(" ").trim() ||
+  [p.brand, p.modelName].filter(Boolean).join(" ").trim() ||
+  p.shortDescription?.trim() ||
+  p.stockCode?.trim() ||
+  p.type?.trim() ||
+  "Makine";
 
 const formatOptionalEquipment = (draft: OptionalEquipmentDraft) =>
   OPTIONAL_EQUIPMENT_LABELS
@@ -1809,7 +1818,7 @@ export function ProductDialog({
       toast.error("Opsiyonel donanım için ürün alanı zorunludur");
       return;
     }
-    const value = formatOptionalEquipment(optionalEquipmentDraft);
+    const value = formatOptionalEquipment({ ...optionalEquipmentDraft, machine: productMachineLabel(form) });
     setForm((f) => ({ ...f, optionalEquipment: [...f.optionalEquipment, value] }));
     setOptionalEquipmentDraft(emptyOptionalEquipmentDraft());
   };
@@ -1833,6 +1842,10 @@ export function ProductDialog({
       options: group.options.filter((o) => isTypeAllowed(o, form.categoryCode, form.subcategoryCode)),
     }))
     .filter((group) => group.options.length > 0);
+  const productCategoryOptions = PRODUCT_CATEGORIES.filter(
+    (option) => option.code !== OPTIONAL_EQUIPMENT_CATEGORY_CODE ||
+      (mode === "edit" && form.categoryCode === OPTIONAL_EQUIPMENT_CATEGORY_CODE)
+  );
 
   // Opsiyonel donanım kategorisinde "uyumlu makine tipi" alanı gösterilir
   const showMachineType = form.categoryCode === "OPSIYONEL_DONANIM";
@@ -2014,7 +2027,7 @@ export function ProductDialog({
               <Select value={form.categoryCode} onValueChange={onCategoryChange}>
                 <SelectTrigger className="h-8 max-w-xs"><SelectValue placeholder="Kategori seçin" /></SelectTrigger>
                 <SelectContent>
-                  {PRODUCT_CATEGORIES.map((o) => <SelectItem key={o.code} value={o.code}>{o.label}</SelectItem>)}
+                  {productCategoryOptions.map((o) => <SelectItem key={o.code} value={o.code}>{o.label}</SelectItem>)}
                 </SelectContent>
               </Select>
             </ProductSheetRow>
@@ -2297,13 +2310,16 @@ export function ProductDialog({
             placeholder="Standart donanım ekleyip Enter'a basın"
           />
 
-          <OptionalEquipmentField
-            chips={form.optionalEquipment}
-            draft={optionalEquipmentDraft}
-            setDraft={setOptionalEquipmentDraft}
-            onAdd={addOptionalEquipment}
-            onRemove={(i) => rmChip("optionalEquipment", i)}
-          />
+          {mode === "edit" && form.categoryCode === "TEZGAH" && (
+            <OptionalEquipmentField
+              chips={form.optionalEquipment}
+              draft={optionalEquipmentDraft}
+              setDraft={setOptionalEquipmentDraft}
+              onAdd={addOptionalEquipment}
+              onRemove={(i) => rmChip("optionalEquipment", i)}
+              machineLabel={productMachineLabel(form)}
+            />
+          )}
 
           <div>
             <Label className="text-xs">Notlar</Label>
@@ -2320,6 +2336,117 @@ export function ProductDialog({
             <Button type="submit">{mode === "edit" ? "Güncelle" : "Oluştur"}</Button>
           </DialogFooter>
         </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+export function OptionalEquipmentDialog({ trigger }: { trigger: React.ReactNode }) {
+  const { products, updateProduct } = useStore();
+  const [open, setOpen] = useState(false);
+  const [machineId, setMachineId] = useState("");
+  const [draft, setDraft] = useState<OptionalEquipmentDraft>(emptyOptionalEquipmentDraft);
+  const [saving, setSaving] = useState(false);
+  const machineProducts = useMemo(
+    () => products
+      .filter((p) => p.categoryCode === "TEZGAH" || p.category?.toLocaleLowerCase("tr-TR") === "tezgah")
+      .slice()
+      .sort((a, b) => productMachineLabel(a).localeCompare(productMachineLabel(b), "tr")),
+    [products]
+  );
+  const selectedMachine = machineProducts.find((p) => p.id === machineId) ?? null;
+  const selectedMachineLabel = selectedMachine ? productMachineLabel(selectedMachine) : "";
+
+  const reset = () => {
+    setMachineId("");
+    setDraft(emptyOptionalEquipmentDraft());
+    setSaving(false);
+  };
+  const handleOpen = (nextOpen: boolean) => {
+    setOpen(nextOpen);
+    if (!nextOpen) reset();
+  };
+  const persistEquipment = async (nextEquipment: string[], successMessage: string) => {
+    if (!selectedMachine) {
+      toast.error("Makine seçiniz");
+      return;
+    }
+    setSaving(true);
+    try {
+      const machinePatch = Object.fromEntries(
+        Object.entries(selectedMachine).filter(([key]) => key !== "id")
+      ) as Omit<Product, "id">;
+      await updateProduct(selectedMachine.id, { ...machinePatch, optionalEquipment: nextEquipment });
+      toast.success(successMessage, { description: selectedMachineLabel });
+    } catch (err: any) {
+      toast.error("Opsiyonel donanım kaydedilemedi", { description: err?.message ?? "API isteği başarısız oldu." });
+    } finally {
+      setSaving(false);
+    }
+  };
+  const addEquipment = async () => {
+    if (!selectedMachine) {
+      toast.error("Makine seçiniz");
+      return;
+    }
+    if (!draft.product.trim()) {
+      toast.error("Opsiyonel donanım için ürün alanı zorunludur");
+      return;
+    }
+    const value = formatOptionalEquipment({ ...draft, machine: selectedMachineLabel });
+    await persistEquipment([...(selectedMachine.optionalEquipment ?? []), value], "Opsiyonel donanım makineye eklendi");
+    setDraft(emptyOptionalEquipmentDraft());
+  };
+  const removeEquipment = async (index: number) => {
+    if (!selectedMachine || saving) return;
+    const nextEquipment = (selectedMachine.optionalEquipment ?? []).filter((_, itemIndex) => itemIndex !== index);
+    await persistEquipment(nextEquipment, "Opsiyonel donanım kaldırıldı");
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={handleOpen}>
+      <DialogTrigger asChild>{trigger}</DialogTrigger>
+      <DialogContent className="w-[95vw] sm:max-w-[900px] max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Opsiyonel Donanım Ekle</DialogTitle>
+          <DialogDescription>Mevcut tezgah seçerek opsiyonel donanım listesini yönetin.</DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-4">
+          <div>
+            <Label className="text-xs">Makine</Label>
+            <Select value={machineId} onValueChange={setMachineId}>
+              <SelectTrigger className="mt-1.5 h-9">
+                <SelectValue placeholder="Makine seçin" />
+              </SelectTrigger>
+              <SelectContent>
+                {machineProducts.length === 0 ? (
+                  <div className="px-2 py-1.5 text-xs text-muted-foreground">Kayıtlı tezgah bulunamadı</div>
+                ) : (
+                  machineProducts.map((machine) => (
+                    <SelectItem key={machine.id} value={machine.id}>
+                      {[productMachineLabel(machine), machine.type].filter(Boolean).join(" · ")}
+                    </SelectItem>
+                  ))
+                )}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <OptionalEquipmentField
+            chips={selectedMachine?.optionalEquipment ?? []}
+            draft={draft}
+            setDraft={setDraft}
+            onAdd={() => void addEquipment()}
+            onRemove={(index) => void removeEquipment(index)}
+            machineLabel={selectedMachineLabel}
+            disabled={!selectedMachine || saving}
+          />
+        </div>
+
+        <DialogFooter>
+          <Button type="button" variant="outline" onClick={() => handleOpen(false)}>Kapat</Button>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );
@@ -2414,12 +2541,16 @@ function OptionalEquipmentField({
   setDraft,
   onAdd,
   onRemove,
+  machineLabel = "",
+  disabled = false,
 }: {
   chips: string[];
   draft: OptionalEquipmentDraft;
   setDraft: React.Dispatch<React.SetStateAction<OptionalEquipmentDraft>>;
   onAdd: () => void;
   onRemove: (i: number) => void;
+  machineLabel?: string;
+  disabled?: boolean;
 }) {
   const update = (key: keyof OptionalEquipmentDraft, value: string) => {
     setDraft((current) => ({ ...current, [key]: value }));
@@ -2441,6 +2572,7 @@ function OptionalEquipmentField({
           onKeyDown={handleKeyDown}
           placeholder="Ürün"
           aria-label="Opsiyonel donanım ürün"
+          disabled={disabled}
         />
         <Input
           value={draft.serial}
@@ -2448,6 +2580,7 @@ function OptionalEquipmentField({
           onKeyDown={handleKeyDown}
           placeholder="Seri"
           aria-label="Opsiyonel donanım seri"
+          disabled={disabled}
         />
         <Input
           value={draft.type}
@@ -2455,6 +2588,7 @@ function OptionalEquipmentField({
           onKeyDown={handleKeyDown}
           placeholder="Tip"
           aria-label="Opsiyonel donanım tip"
+          disabled={disabled}
         />
         <Input
           value={draft.category}
@@ -2462,8 +2596,9 @@ function OptionalEquipmentField({
           onKeyDown={handleKeyDown}
           placeholder="Kategori"
           aria-label="Opsiyonel donanım kategori"
+          disabled={disabled}
         />
-        <Button type="button" variant="outline" size="icon" className="h-9 w-9 shrink-0" onClick={onAdd} aria-label="Opsiyonel donanım ekle">
+        <Button type="button" variant="outline" size="icon" className="h-9 w-9 shrink-0" onClick={onAdd} aria-label="Opsiyonel donanım ekle" disabled={disabled}>
           <Plus className="size-4" />
         </Button>
       </div>
@@ -2472,10 +2607,11 @@ function OptionalEquipmentField({
           <div className="px-3 py-3 text-xs text-muted-foreground">Henüz eklenmedi</div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[640px] text-sm">
+            <table className="w-full min-w-[760px] text-sm">
               <thead className="bg-muted/35 text-[11px] uppercase tracking-wide text-muted-foreground">
                 <tr>
                   <th className="w-12 px-3 py-2 text-right font-semibold">#</th>
+                  <th className="px-3 py-2 text-left font-semibold">Makine</th>
                   <th className="px-3 py-2 text-left font-semibold">Ürün</th>
                   <th className="px-3 py-2 text-left font-semibold">Seri</th>
                   <th className="px-3 py-2 text-left font-semibold">Tip</th>
@@ -2489,6 +2625,7 @@ function OptionalEquipmentField({
                   return (
                     <tr key={`${chip}-${index}`} className="align-top">
                       <td className="px-3 py-2 text-right text-xs font-medium tabular-nums text-muted-foreground">{index + 1}.</td>
+                      <td className="px-3 py-2 text-muted-foreground">{item.machine || machineLabel || "—"}</td>
                       <td className="px-3 py-2">{item.product || "—"}</td>
                       <td className="px-3 py-2 text-muted-foreground">{item.serial || "—"}</td>
                       <td className="px-3 py-2 text-muted-foreground">{item.type || "—"}</td>

@@ -10,7 +10,7 @@ import {
 import { type Machine, type Product, type StockItem } from "../../lib/mock";
 import { useStore } from "../../lib/store";
 import { useAuth } from "../../../lib/auth";
-import { ProductDialog } from "../dialogs/CreateDialogs";
+import { OptionalEquipmentDialog, ProductDialog } from "../dialogs/CreateDialogs";
 import { ProductImportDialog } from "../dialogs/ProductImportDialog";
 import { ProductDetailDialog, ProductThumb } from "../dialogs/ProductDetailDialog";
 import {
@@ -213,6 +213,11 @@ export function ProductsPage({ initialQuery }: { initialQuery?: string }) {
             {canCreateProducts && (
               <ProductImportDialog
                 trigger={<Button size="sm" variant="outline" className="h-9 gap-1 whitespace-nowrap"><Upload className="size-4" /> İçe Aktar</Button>}
+              />
+            )}
+            {canEditProducts && (
+              <OptionalEquipmentDialog
+                trigger={<Button size="sm" variant="outline" className="h-9 gap-1 whitespace-nowrap"><Wrench className="size-4" /> Opsiyonel Donanım</Button>}
               />
             )}
             {canCreateProducts && (
