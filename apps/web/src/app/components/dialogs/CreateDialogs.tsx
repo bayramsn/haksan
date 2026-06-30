@@ -1604,7 +1604,7 @@ type ProductFormState = {
   subcategoryCode: string; subcategory: string;
   productTypeCode: string; type: string;
   compatibleMachineType: string;
-  subBrand: string; supplierCompanyId: string;
+  supplierCompanyId: string;
   optionalCompatibilityGroupCodes: string[];
   optionalCompatibilityCategoryCodes: string[];
   optionalCompatibilitySubcategoryCodes: string[];
@@ -1703,7 +1703,7 @@ const emptyProduct = (): ProductFormState => ({
   subcategoryCode: "ISLEME_MERKEZI", subcategory: "İşleme Merkezi",
   productTypeCode: "", type: "",
   compatibleMachineType: "",
-  subBrand: "", supplierCompanyId: "",
+  supplierCompanyId: "",
   optionalCompatibilityGroupCodes: [],
   optionalCompatibilityCategoryCodes: [],
   optionalCompatibilitySubcategoryCodes: [],
@@ -1729,7 +1729,6 @@ const fromProduct = (p: Product): ProductFormState => ({
   productTypeCode: p.productTypeCode ?? "",
   type: p.type,
   compatibleMachineType: p.compatibleMachineTypeCode ?? "",
-  subBrand: p.subBrand ?? "",
   supplierCompanyId: p.supplierCompanyId ?? "",
   optionalCompatibilityGroupCodes: p.optionalCompatibilityGroupCodes ?? [],
   optionalCompatibilityCategoryCodes: p.optionalCompatibilityCategoryCodes ?? [],
@@ -1893,6 +1892,20 @@ export function ProductDialog({
     .filter((o) => o.categoryCode === "TEZGAH")
     .map((o) => ({ value: o.code, label: o.label }));
   const compatibilityBrandOptions = brandRows.map((row) => ({ value: row.id, label: row.name }));
+  const productBrandOptions = Array.from(new Set([
+    ...products
+      .filter((p) => {
+        if (form.productGroupCode && p.productGroupCode && p.productGroupCode !== form.productGroupCode) return false;
+        if (form.categoryCode && p.categoryCode && p.categoryCode !== form.categoryCode) return false;
+        if (form.subcategoryCode && p.subcategoryCode && p.subcategoryCode !== form.subcategoryCode) return false;
+        if (form.productTypeCode && p.productTypeCode && p.productTypeCode !== form.productTypeCode) return false;
+        return true;
+      })
+      .map((p) => p.brand),
+    ...PRODUCT_BRANDS,
+    form.brand,
+  ].filter(Boolean))).sort((a, b) => a.localeCompare(b, "tr-TR"));
+  const canSelectProductBrand = Boolean(form.productTypeCode);
 
   const muadilOptions = products.filter((p) => p.id !== product?.id && p.categoryCode !== OPTIONAL_EQUIPMENT_CATEGORY_CODE);
   const validMuadilIds = new Set(muadilOptions.map((p) => p.id));
@@ -1930,6 +1943,18 @@ export function ProductDialog({
     return kept.productTypeCode ? specsForType(kept.productTypeCode, categoryCode) : specsForCategory(categoryCode);
   };
 
+  const onProductGroupChange = (code: string) => {
+    setForm({
+      ...form,
+      productGroupCode: code,
+      productGroup: findLabel(PRODUCT_GROUPS, code),
+      productTypeCode: "",
+      type: "",
+      brand: "",
+      specs: specsForCategory(form.categoryCode),
+    });
+  };
+
   const onCategoryChange = (code: string) => {
     const usesSubcategory = code === "TEZGAH" || code === OPTIONAL_EQUIPMENT_CATEGORY_CODE;
     const subcategoryCode = usesSubcategory ? form.subcategoryCode || "ISLEME_MERKEZI" : "";
@@ -1949,6 +1974,7 @@ export function ProductDialog({
       optionalCompatibilityTypeCodes: code === OPTIONAL_EQUIPMENT_CATEGORY_CODE ? form.optionalCompatibilityTypeCodes : [],
       optionalCompatibilityBrandIds: code === OPTIONAL_EQUIPMENT_CATEGORY_CODE ? form.optionalCompatibilityBrandIds : [],
       ...kept,
+      brand: "",
       specs: specsAfterChange(kept, code),
     });
   };
@@ -1960,6 +1986,7 @@ export function ProductDialog({
       subcategoryCode: code,
       subcategory: findLabel(PRODUCT_SUBCATEGORIES, code),
       ...kept,
+      brand: "",
       specs: specsAfterChange(kept, form.categoryCode),
     });
   };
@@ -1977,12 +2004,17 @@ export function ProductDialog({
       category: findLabel(PRODUCT_CATEGORIES, categoryCode, form.category),
       subcategoryCode,
       subcategory: findLabel(PRODUCT_SUBCATEGORIES, subcategoryCode, form.subcategory),
+      brand: opt.code === form.productTypeCode ? form.brand : "",
       specs: specsForType(opt.code, categoryCode),
     });
   };
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!form.productTypeCode) {
+      toast.error("Ürün tipi seçin");
+      return;
+    }
     if (!form.brand.trim() || !form.shortDescription.trim()) {
       toast.error("Marka ve ürün adı zorunludur");
       return;
@@ -2012,7 +2044,6 @@ export function ProductDialog({
       originCountry: form.originCountry.trim(),
       hsCode: form.hsCode.trim(),
       stockCode: form.stockCode.trim(),
-      subBrand: form.subBrand.trim(),
       supplierCompanyId: form.supplierCompanyId || null,
       optionalCompatibilityGroupCodes: form.optionalCompatibilityGroupCodes,
       optionalCompatibilityCategoryCodes: form.optionalCompatibilityCategoryCodes,
@@ -2055,19 +2086,10 @@ export function ProductDialog({
 
         <form onSubmit={submit} className="space-y-4">
           <div className="overflow-hidden rounded-lg border border-border/70 bg-white">
-            <ProductSheetRow label="Ürün Markası">
-              <Select value={form.brand} onValueChange={(v) => setForm({ ...form, brand: v })}>
-                <SelectTrigger className="h-8 max-w-xs"><SelectValue placeholder="Marka seçin" /></SelectTrigger>
-                <SelectContent>
-                  {PRODUCT_BRANDS.map((brand) => <SelectItem key={brand} value={brand}>{brand}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </ProductSheetRow>
-
             <ProductSheetRow label="Ürün Grubu">
               <Select
                 value={form.productGroupCode}
-                onValueChange={(code) => setForm({ ...form, productGroupCode: code, productGroup: findLabel(PRODUCT_GROUPS, code) })}
+                onValueChange={onProductGroupChange}
               >
                 <SelectTrigger className="h-8 max-w-xs"><SelectValue placeholder="Grup seçin" /></SelectTrigger>
                 <SelectContent>
@@ -2116,31 +2138,36 @@ export function ProductDialog({
               </Select>
             </ProductSheetRow>
 
+            <ProductSheetRow label="Ürün Markası">
+              <Select
+                value={form.brand}
+                onValueChange={(v) => setForm({ ...form, brand: v })}
+                disabled={!canSelectProductBrand}
+              >
+                <SelectTrigger className="h-8 max-w-xs">
+                  <SelectValue placeholder={canSelectProductBrand ? "Marka seçin" : "Önce ürün tipi seçin"} />
+                </SelectTrigger>
+                <SelectContent>
+                  {productBrandOptions.map((brand) => <SelectItem key={brand} value={brand}>{brand}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </ProductSheetRow>
+
             {isMachineProduct && (
-              <>
-                <ProductSheetRow label="Ürün Alt Markası">
-                  <Input
-                    className="h-8 max-w-xs"
-                    value={form.subBrand}
-                    onChange={(e) => setForm({ ...form, subBrand: e.target.value })}
-                    placeholder="Alt marka"
-                  />
-                </ProductSheetRow>
-                <ProductSheetRow label="Ürün Tedarikçisi">
-                  <Select
-                    value={form.supplierCompanyId || "__none"}
-                    onValueChange={(v) => setForm({ ...form, supplierCompanyId: v === "__none" ? "" : v })}
-                  >
-                    <SelectTrigger className="h-8 max-w-md"><SelectValue placeholder="Tedarikçi seçin" /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="__none">Belirtilmedi</SelectItem>
-                      {supplierOptions.map((supplier) => (
-                        <SelectItem key={supplier.id} value={supplier.id}>{supplier.name}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </ProductSheetRow>
-              </>
+              <ProductSheetRow label="Ürün Tedarikçisi">
+                <Select
+                  value={form.supplierCompanyId || "__none"}
+                  onValueChange={(v) => setForm({ ...form, supplierCompanyId: v === "__none" ? "" : v })}
+                >
+                  <SelectTrigger className="h-8 max-w-md"><SelectValue placeholder="Tedarikçi seçin" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none">Belirtilmedi</SelectItem>
+                    {supplierOptions.map((supplier) => (
+                      <SelectItem key={supplier.id} value={supplier.id}>{supplier.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </ProductSheetRow>
             )}
 
             {isOptionalEquipmentProduct && (

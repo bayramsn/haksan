@@ -716,7 +716,6 @@ export class ProductsService {
         subcategoryId: subId,
         productTypeId: typeId,
         compatibleMachineTypeId,
-        subBrand: input.subBrand ?? null,
         supplierCompanyId: input.supplierCompanyId ?? null,
         modelCode: input.modelCode,
         modelName: input.modelName ?? null,
@@ -769,7 +768,7 @@ export class ProductsService {
     const alternativesProvided = input.muadilProductIds !== undefined || input.muadilProductId !== undefined;
     const alternativeIds = alternativesProvided ? this.uniqueAlternativeIds(input, id) : [];
     if (alternativesProvided) patch.muadilProductId = alternativeIds[0] ?? null;
-    for (const k of ['modelCode', 'modelName', 'fullName', 'originCountry', 'hsCode', 'stockCode', 'imageUrl', 'description', 'subBrand'] as const) {
+    for (const k of ['modelCode', 'modelName', 'fullName', 'originCountry', 'hsCode', 'stockCode', 'imageUrl', 'description'] as const) {
       if ((input as any)[k] !== undefined) patch[k] = (input as any)[k] ?? null;
     }
     for (const k of ['listPrice', 'cashPrice', 'vatRate'] as const) {

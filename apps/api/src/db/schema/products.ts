@@ -47,7 +47,6 @@ export const productModels = pgTable(
     subcategoryId: uuid('subcategory_id').references(() => productSubcategories.id),
     productTypeId: uuid('product_type_id').references(() => productTypes.id),
     compatibleMachineTypeId: uuid('compatible_machine_type_id').references(() => productTypes.id),
-    subBrand: varchar('sub_brand', { length: 128 }),
     supplierCompanyId: uuid('supplier_company_id').references(() => companies.id, { onDelete: 'set null' }),
     modelCode: varchar('model_code', { length: 128 }).notNull(),
     modelName: varchar('model_name', { length: 255 }),

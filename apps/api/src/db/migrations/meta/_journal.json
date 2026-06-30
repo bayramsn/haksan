@@ -302,6 +302,20 @@
       "when": 1783536000000,
       "tag": "0042_product_alternatives_compatible_machine",
       "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1783622400000,
+      "tag": "0043_product_optional_compat_quote_discount",
+      "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1783708800000,
+      "tag": "0044_drop_product_sub_brand",
+      "breakpoints": true
     }
   ]
 }

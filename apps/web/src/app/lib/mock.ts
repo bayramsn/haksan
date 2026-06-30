@@ -302,7 +302,6 @@ export type Product = {
   type: string;
   productTypeCode?: string;
   compatibleMachineTypeCode?: string | null;
-  subBrand?: string;
   supplierCompanyId?: string | null;
   controlPanel: string;
   category: string;

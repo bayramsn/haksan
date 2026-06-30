@@ -12,7 +12,6 @@ export const productCreateSchema = z.object({
   subcategoryCode: z.string().max(64).optional(),
   productTypeCode: z.string().max(64).optional(),
   compatibleMachineTypeCode: z.string().max(64).nullish(),
-  subBrand: z.string().max(128).optional(),
   supplierCompanyId: z.string().uuid().nullish(),
   modelCode: z.string().min(1).max(64),
   modelName: z.string().max(255).optional(),
