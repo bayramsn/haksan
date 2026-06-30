@@ -38,8 +38,16 @@ function clearRefreshCookie(res: FastifyReply): void {
   const env = loadEnv();
   res.clearCookie(REFRESH_COOKIE, {
     path: '/api/v1/auth',
+    secure: env.COOKIE_SECURE,
+    sameSite: env.COOKIE_SAMESITE,
     ...(cookieDomain(env) ? { domain: cookieDomain(env) } : {}),
   });
+}
+
+function hasRefreshCookiePayload(
+  result: Awaited<ReturnType<AuthService['refresh']>>
+): result is Awaited<ReturnType<AuthService['login']>> {
+  return 'refreshToken' in result && !!result.refreshToken && result.refreshTokenExpiresAt instanceof Date;
 }
 
 function getIp(req: FastifyRequest): string | undefined {
@@ -79,7 +87,9 @@ export class AuthController {
     const ua = req.headers['user-agent'];
     try {
       const result = await this.auth.refresh(raw, getIp(req), typeof ua === 'string' ? ua : undefined);
-      setRefreshCookie(res, result.refreshToken, result.refreshTokenExpiresAt);
+      if (hasRefreshCookiePayload(result)) {
+        setRefreshCookie(res, result.refreshToken, result.refreshTokenExpiresAt);
+      }
       return { accessToken: result.accessToken, user: result.user };
     } catch (err) {
       clearRefreshCookie(res);

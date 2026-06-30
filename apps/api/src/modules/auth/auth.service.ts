@@ -21,10 +21,10 @@ import { loadEnv } from '../../config/env';
 import { AuditService } from '../../shared/database/audit.service';
 import { invalidateRbacCache, rolePermissionsCacheKey } from '../../shared/security/rbac.cache';
 
-export interface LoginResult {
+const REFRESH_REPLAY_GRACE_MS = 10_000;
+
+interface AccessSessionResult {
   accessToken: string;
-  refreshToken: string;
-  refreshTokenExpiresAt: Date;
   user: {
     id: string;
     email: string;
@@ -33,6 +33,15 @@ export interface LoginResult {
     roles: string[];
   };
 }
+
+export interface LoginResult {
+  accessToken: string;
+  refreshToken: string;
+  refreshTokenExpiresAt: Date;
+  user: AccessSessionResult['user'];
+}
+
+export type RefreshResult = LoginResult | AccessSessionResult;
 
 @Injectable()
 export class AuthService {
@@ -174,7 +183,7 @@ export class AuthService {
     };
   }
 
-  async refresh(rawRefreshToken: string, ip?: string, ua?: string): Promise<LoginResult> {
+  async refresh(rawRefreshToken: string, ip?: string, ua?: string): Promise<RefreshResult> {
     const hash = this.jwt.hashToken(rawRefreshToken);
     const row = await this.db.query.refreshTokens.findFirst({
       where: eq(refreshTokens.tokenHash, hash),
@@ -182,11 +191,23 @@ export class AuthService {
     if (!row) {
       throw new UnauthorizedError('Refresh token geçersiz veya süresi dolmuş');
     }
-    // Reuse detection: zaten döndürülmüş (revoked) bir refresh token tekrar
-    // sunulduysa bu bir hırsızlık sinyalidir (rotasyondan sonra eski token çalınıp
-    // kullanılıyor). Meşru kullanıcının bu oturum ailesini tamamen iptal et —
-    // çalınan zincir de, hâlâ geçerli olan yeni token da ölür.
+    // Reuse detection: yakın zamanlı aynı-istemci replay sekme/reload yarışı
+    // olabilir. Bunun dışındaki revoked token tekrarı hırsızlık sinyalidir ve
+    // oturum ailesi iptal edilir.
     if (row.revokedAt) {
+      if (this.isBenignRefreshReplay(row, ip, ua)) {
+        const access = await this.issueAccessForRefreshRow(row);
+        await this.audit.write({
+          tenantId: row.tenantId,
+          actorUserId: row.userId,
+          action: 'auth.refresh.replay_grace',
+          resourceType: 'user',
+          resourceId: row.userId,
+          ipAddress: ip,
+          userAgent: ua,
+        });
+        return access;
+      }
       await this.revokeSessionFamily(row.sessionId, row.userId);
       await this.audit.write({
         tenantId: row.tenantId,
@@ -249,6 +270,50 @@ export class AuthService {
       accessToken,
       refreshToken: newRaw,
       refreshTokenExpiresAt: expiresAt,
+      user: {
+        id: user.id,
+        email: user.email,
+        fullName: user.fullName,
+        tenantId: user.tenantId,
+        roles: userRoleCodes,
+      },
+    };
+  }
+
+  private isBenignRefreshReplay(
+    row: typeof refreshTokens.$inferSelect,
+    ip?: string,
+    ua?: string
+  ): boolean {
+    if (!row.revokedAt || !row.replacedById) return false;
+    if (Date.now() - row.revokedAt.getTime() > REFRESH_REPLAY_GRACE_MS) return false;
+    if (row.ipAddress && ip && row.ipAddress !== ip) return false;
+    if (row.userAgent && ua && row.userAgent !== ua) return false;
+    return true;
+  }
+
+  private async issueAccessForRefreshRow(row: typeof refreshTokens.$inferSelect): Promise<AccessSessionResult> {
+    const user = await this.db.query.users.findFirst({ where: eq(users.id, row.userId) });
+    if (!user || user.deletedAt || user.status !== 'active') {
+      throw new UnauthorizedError('Kullanıcı geçersiz');
+    }
+
+    const userRoleCodes = (
+      await this.db
+        .select({ code: rolesTable.code })
+        .from(userRoles)
+        .innerJoin(rolesTable, eq(userRoles.roleId, rolesTable.id))
+        .where(eq(userRoles.userId, user.id))
+    ).map((r) => r.code);
+
+    return {
+      accessToken: this.jwt.signAccess({
+        sub: user.id,
+        tid: user.tenantId,
+        email: user.email,
+        roles: userRoleCodes,
+        sid: row.sessionId ?? '',
+      }),
       user: {
         id: user.id,
         email: user.email,

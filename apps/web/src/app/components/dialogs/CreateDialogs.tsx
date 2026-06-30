@@ -1634,6 +1634,7 @@ const compactProductCode = (value: string) =>
     .slice(0, 64);
 
 const moneyNumber = (value: string) => Number(value.replace(",", ".")) || 0;
+const OPTIONAL_EQUIPMENT_CATEGORY_CODE = "OPSIYONEL_DONANIM";
 
 const emptyProduct = (): ProductFormState => ({
   brand: "",
@@ -1794,8 +1795,10 @@ export function ProductDialog({
   // Opsiyonel donanım kategorisinde "uyumlu makine tipi" alanı gösterilir
   const showMachineType = form.categoryCode === "OPSIYONEL_DONANIM";
 
-  const muadilOptions = products.filter((p) => p.id !== product?.id);
-  const selectedMuadils = muadilOptions.filter((p) => form.muadilProductIds.includes(p.id));
+  const muadilOptions = products.filter((p) => p.id !== product?.id && p.categoryCode !== OPTIONAL_EQUIPMENT_CATEGORY_CODE);
+  const validMuadilIds = new Set(muadilOptions.map((p) => p.id));
+  const selectedMuadilIds = form.muadilProductIds.filter((id) => validMuadilIds.has(id));
+  const selectedMuadils = muadilOptions.filter((p) => selectedMuadilIds.includes(p.id));
   const groupMuadils = (items: Product[]) =>
     items.reduce<Record<string, Product[]>>((acc, item) => {
       const key = item.category || "Kategorisiz";
@@ -1912,8 +1915,8 @@ export function ProductDialog({
       standardEquipment: form.standardEquipment,
       optionalEquipment: form.optionalEquipment,
       compatibleMachineTypeCode: form.compatibleMachineType || null,
-      muadilProductId: form.muadilProductIds[0] ?? null,
-      muadilProductIds: form.muadilProductIds,
+      muadilProductId: selectedMuadilIds[0] ?? null,
+      muadilProductIds: selectedMuadilIds,
       status: form.status,
     };
 

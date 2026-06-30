@@ -24,6 +24,8 @@ const fmtMoney = (n?: number | null, cur = "USD") =>
   n === undefined || n === null || Number.isNaN(n) ? "—" : `${n.toLocaleString("tr-TR")} ${CURRENCY_LABEL[cur] ?? cur}`;
 const PRODUCT_VAT_RATES = ["10", "20"] as const;
 const DEFAULT_PRODUCT_VAT_RATE = 20;
+const OPTIONAL_EQUIPMENT_CATEGORY_CODE = "OPSIYONEL_DONANIM";
+const MACHINE_CATEGORY_CODE = "TEZGAH";
 const normalizeProductVatRate = (value: unknown) => {
   const rate = Number(value ?? DEFAULT_PRODUCT_VAT_RATE);
   return PRODUCT_VAT_RATES.includes(String(rate) as typeof PRODUCT_VAT_RATES[number]) ? rate : DEFAULT_PRODUCT_VAT_RATE;
@@ -89,10 +91,13 @@ export function ProductDetailDialog({
     if (!product) return;
     let alive = true;
     setLoading(true);
+    const shouldLoadCompatibleOptionalEquipment = product.categoryCode === MACHINE_CATEGORY_CODE;
 
     Promise.all([
-      productService.equipment(product.id),
-      productService.compatibleOptionalEquipment(product.id).catch(() => [] as CompatibleOptionalRow[]),
+      productService.equipment(product.id).catch(() => [] as EquipmentRow[]),
+      shouldLoadCompatibleOptionalEquipment
+        ? productService.compatibleOptionalEquipment(product.id).catch(() => [] as CompatibleOptionalRow[])
+        : Promise.resolve([] as CompatibleOptionalRow[]),
       productService.options(product.id).catch(() => []),
       productService.media(product.id).catch(() => [] as MediaItem[]),
     ])
@@ -108,6 +113,7 @@ export function ProductDetailDialog({
         if (alive) {
           setEquipment([]);
           setCompatibleOptionalEquipment([]);
+          setOptions([]);
           setDocuments([]);
         }
       })
@@ -162,6 +168,17 @@ export function ProductDetailDialog({
   };
 
   const directOptional = equipment.filter((e) => e.type?.code === "opsiyonel");
+  const optionalMuadilProducts = (view.muadilProducts ?? []).filter((item) => item.categoryCode === OPTIONAL_EQUIPMENT_CATEGORY_CODE);
+  const optionalMuadilRows: EquipmentRow[] = optionalMuadilProducts.map((item) => ({
+    item: {
+      id: item.id,
+      title: [item.brand, item.model].filter(Boolean).join(" ") || item.shortDescription || "Opsiyonel donanım",
+      description: item.type || item.category || null,
+      unitPrice: item.listPrice != null ? String(item.listPrice) : null,
+    },
+    type: { code: "opsiyonel" },
+    currency: { code: item.currency ?? cur },
+  }));
   const compatibleOptional: EquipmentRow[] = compatibleOptionalEquipment
     .filter((row) => row.product?.id)
     .map((row) => ({
@@ -174,14 +191,19 @@ export function ProductDetailDialog({
       type: { code: "opsiyonel" },
       currency: { code: row.currency?.code ?? cur },
     }));
-  const optionalSource = highlightOptional ? compatibleOptional : [...directOptional, ...compatibleOptional];
+  const canShowCompatibleOptionalEquipment = view.categoryCode === MACHINE_CATEGORY_CODE;
+  const optionalSource = canShowCompatibleOptionalEquipment
+    ? [...directOptional, ...compatibleOptional, ...optionalMuadilRows]
+    : directOptional;
   const optional = optionalSource.filter((item, index, all) =>
     all.findIndex((candidate) => candidate.item.id === item.item.id) === index
   );
   const standard = equipment.filter((e) => e.type?.code !== "opsiyonel").map((e) => e.item.title);
   // Fall back to the store's flat lists if the equipment endpoint returned nothing.
   const standardTitles = standard.length ? standard : (product.standardEquipment || []);
-  const muadilGroups = (view.muadilProducts ?? []).reduce<Record<string, NonNullable<Product["muadilProducts"]>>>((acc, item) => {
+  const muadilGroups = (view.muadilProducts ?? [])
+    .filter((item) => item.categoryCode !== OPTIONAL_EQUIPMENT_CATEGORY_CODE)
+    .reduce<Record<string, NonNullable<Product["muadilProducts"]>>>((acc, item) => {
     const key = item.category || "Kategorisiz";
     acc[key] = [...(acc[key] ?? []), item];
     return acc;
