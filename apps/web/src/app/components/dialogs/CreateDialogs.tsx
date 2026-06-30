@@ -10,6 +10,7 @@ import { Combobox } from "../ui/combobox";
 import {
   Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue,
 } from "../ui/select";
+import { MultiSelect } from "../ui/multi-select";
 import { Checkbox } from "../ui/checkbox";
 import { useStore } from "../../lib/store";
 import { usePersistentState } from "../../lib/persist";
@@ -27,7 +28,7 @@ import {
   Building2, User as UserIcon, Wallet, Truck, ClipboardCheck, ChevronDown, Receipt, Upload,
   ClipboardList, Plus, Trash2, X, Loader2, Package, UserRound, Wrench,
 } from "lucide-react";
-import { serviceService, fileService, financeService, activityService, inventoryService, contactService } from "../../../lib/services";
+import { serviceService, fileService, financeService, activityService, inventoryService, contactService, productService } from "../../../lib/services";
 import { Badge } from "../ui/badge";
 import { useAuth } from "../../../lib/auth";
 import {
@@ -1555,11 +1556,6 @@ const normalizeProductVatRate = (value: string | number | null | undefined) => {
   return PRODUCT_VAT_RATES.includes(rate) ? rate : DEFAULT_PRODUCT_VAT_RATE;
 };
 
-// Opsiyonel donanımın "uyumlu makine tipi" seçenekleri (tezgah tipleri)
-const MACHINE_TYPE_OPTIONS: ProductOption[] = PRODUCT_TYPE_OPTIONS
-  .filter((o) => o.categoryCode === "TEZGAH")
-  .map((o) => ({ code: o.code, label: o.label }));
-
 // Ürün tipine göre örnek teknik bilgi şablonları (anahtarlar; değerleri kullanıcı doldurur)
 const SPEC_TEMPLATE_BY_TYPE: Record<string, string[]> = {
   CNC_DIK_ISLEME_MERKEZ: [...CNC_DIK_ISLEME_SPEC_TEMPLATE],
@@ -1608,6 +1604,12 @@ type ProductFormState = {
   subcategoryCode: string; subcategory: string;
   productTypeCode: string; type: string;
   compatibleMachineType: string;
+  subBrand: string; supplierCompanyId: string;
+  optionalCompatibilityGroupCodes: string[];
+  optionalCompatibilityCategoryCodes: string[];
+  optionalCompatibilitySubcategoryCodes: string[];
+  optionalCompatibilityTypeCodes: string[];
+  optionalCompatibilityBrandIds: string[];
   model: string; modelName: string; controlPanel: string;
   imageUrl: string; shortDescription: string; description: string;
   listPrice: string; cashPrice: string; currency: "USD" | "EUR" | "TRY";
@@ -1701,6 +1703,12 @@ const emptyProduct = (): ProductFormState => ({
   subcategoryCode: "ISLEME_MERKEZI", subcategory: "İşleme Merkezi",
   productTypeCode: "", type: "",
   compatibleMachineType: "",
+  subBrand: "", supplierCompanyId: "",
+  optionalCompatibilityGroupCodes: [],
+  optionalCompatibilityCategoryCodes: [],
+  optionalCompatibilitySubcategoryCodes: [],
+  optionalCompatibilityTypeCodes: [],
+  optionalCompatibilityBrandIds: [],
   model: "", modelName: "", controlPanel: "",
   imageUrl: "", shortDescription: "", description: "",
   listPrice: "", cashPrice: "", currency: "USD",
@@ -1721,6 +1729,13 @@ const fromProduct = (p: Product): ProductFormState => ({
   productTypeCode: p.productTypeCode ?? "",
   type: p.type,
   compatibleMachineType: p.compatibleMachineTypeCode ?? "",
+  subBrand: p.subBrand ?? "",
+  supplierCompanyId: p.supplierCompanyId ?? "",
+  optionalCompatibilityGroupCodes: p.optionalCompatibilityGroupCodes ?? [],
+  optionalCompatibilityCategoryCodes: p.optionalCompatibilityCategoryCodes ?? [],
+  optionalCompatibilitySubcategoryCodes: p.optionalCompatibilitySubcategoryCodes ?? [],
+  optionalCompatibilityTypeCodes: p.optionalCompatibilityTypeCodes ?? [],
+  optionalCompatibilityBrandIds: p.optionalCompatibilityBrandIds ?? [],
   model: p.model,
   modelName: p.modelName ?? "",
   controlPanel: p.controlPanel,
@@ -1747,7 +1762,7 @@ export function ProductDialog({
   open?: boolean;
   onOpenChange?: (o: boolean) => void;
 }) {
-  const { addProduct, updateProduct, products } = useStore();
+  const { addProduct, updateProduct, products, customers } = useStore();
   const [internalOpen, setInternalOpen] = useState(false);
   const open = controlledOpen ?? internalOpen;
   const setOpen = (o: boolean) => { onOpenChange ? onOpenChange(o) : setInternalOpen(o); };
@@ -1757,8 +1772,16 @@ export function ProductDialog({
   );
   const [stdInput, setStdInput] = useState("");
   const [optionalEquipmentDraft, setOptionalEquipmentDraft] = useState<OptionalEquipmentDraft>(emptyOptionalEquipmentDraft);
+  const [brandRows, setBrandRows] = useState<Array<{ id: string; name: string }>>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploadingImage, setUploadingImage] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    void productService.listBrands()
+      .then((rows) => setBrandRows((rows ?? []).map((row: any) => ({ id: row.id, name: row.name })).filter((row: any) => row.id && row.name)))
+      .catch(() => setBrandRows([]));
+  }, [open]);
 
   const reset = () => {
     setForm(mode === "edit" && product ? fromProduct(product) : emptyProduct());
@@ -1839,8 +1862,7 @@ export function ProductDialog({
     setOptionalEquipmentDraft(optionalEquipmentDraftForMachine(form));
   };
 
-  // Yalnızca TEZGAH kategorisinde alt kategori (işleme merkezi / torna) ayrımı var
-  const categoryUsesSubcategory = form.categoryCode === "TEZGAH";
+  const categoryUsesSubcategory = form.categoryCode === "TEZGAH" || form.categoryCode === OPTIONAL_EQUIPMENT_CATEGORY_CODE;
 
   // Ürün tipini seçili kategoriye ve (tezgahsa) alt kategoriye göre filtrele
   const typeMatches = (o: ProductTypeOption, categoryCode: string, subcategoryCode: string) => {
@@ -1858,13 +1880,19 @@ export function ProductDialog({
       options: group.options.filter((o) => isTypeAllowed(o, form.categoryCode, form.subcategoryCode)),
     }))
     .filter((group) => group.options.length > 0);
-  const productCategoryOptions = PRODUCT_CATEGORIES.filter(
-    (option) => option.code !== OPTIONAL_EQUIPMENT_CATEGORY_CODE ||
-      (mode === "edit" && form.categoryCode === OPTIONAL_EQUIPMENT_CATEGORY_CODE)
-  );
-
-  // Opsiyonel donanım kategorisinde "uyumlu makine tipi" alanı gösterilir
-  const showMachineType = form.categoryCode === "OPSIYONEL_DONANIM";
+  const productCategoryOptions = PRODUCT_CATEGORIES;
+  const isMachineProduct = form.categoryCode === "TEZGAH";
+  const isOptionalEquipmentProduct = form.categoryCode === OPTIONAL_EQUIPMENT_CATEGORY_CODE;
+  const supplierOptions = customers.filter((c) => c.firmType === "supplier" || c.firmType === "supplier_customer");
+  const compatibilityGroupOptions = PRODUCT_GROUPS.map((o) => ({ value: o.code, label: o.label }));
+  const compatibilityCategoryOptions = PRODUCT_CATEGORIES
+    .filter((o) => o.code !== OPTIONAL_EQUIPMENT_CATEGORY_CODE)
+    .map((o) => ({ value: o.code, label: o.label }));
+  const compatibilitySubcategoryOptions = PRODUCT_SUBCATEGORIES.map((o) => ({ value: o.code, label: o.label }));
+  const compatibilityTypeOptions = PRODUCT_TYPE_OPTIONS
+    .filter((o) => o.categoryCode === "TEZGAH")
+    .map((o) => ({ value: o.code, label: o.label }));
+  const compatibilityBrandOptions = brandRows.map((row) => ({ value: row.id, label: row.name }));
 
   const muadilOptions = products.filter((p) => p.id !== product?.id && p.categoryCode !== OPTIONAL_EQUIPMENT_CATEGORY_CODE);
   const validMuadilIds = new Set(muadilOptions.map((p) => p.id));
@@ -1903,8 +1931,9 @@ export function ProductDialog({
   };
 
   const onCategoryChange = (code: string) => {
-    const subcategoryCode = code === "TEZGAH" ? form.subcategoryCode || "ISLEME_MERKEZI" : "";
-    const subcategory = code === "TEZGAH" ? form.subcategory || "İşleme Merkezi" : "";
+    const usesSubcategory = code === "TEZGAH" || code === OPTIONAL_EQUIPMENT_CATEGORY_CODE;
+    const subcategoryCode = usesSubcategory ? form.subcategoryCode || "ISLEME_MERKEZI" : "";
+    const subcategory = usesSubcategory ? form.subcategory || "İşleme Merkezi" : "";
     const machineType = code === "OPSIYONEL_DONANIM" ? form.compatibleMachineType : "";
     const kept = keepTypeIfValid(code, subcategoryCode);
     setForm({
@@ -1914,6 +1943,11 @@ export function ProductDialog({
       subcategoryCode,
       subcategory,
       compatibleMachineType: machineType,
+      optionalCompatibilityGroupCodes: code === OPTIONAL_EQUIPMENT_CATEGORY_CODE ? form.optionalCompatibilityGroupCodes : [],
+      optionalCompatibilityCategoryCodes: code === OPTIONAL_EQUIPMENT_CATEGORY_CODE ? form.optionalCompatibilityCategoryCodes : [],
+      optionalCompatibilitySubcategoryCodes: code === OPTIONAL_EQUIPMENT_CATEGORY_CODE ? form.optionalCompatibilitySubcategoryCodes : [],
+      optionalCompatibilityTypeCodes: code === OPTIONAL_EQUIPMENT_CATEGORY_CODE ? form.optionalCompatibilityTypeCodes : [],
+      optionalCompatibilityBrandIds: code === OPTIONAL_EQUIPMENT_CATEGORY_CODE ? form.optionalCompatibilityBrandIds : [],
       ...kept,
       specs: specsAfterChange(kept, code),
     });
@@ -1947,10 +1981,6 @@ export function ProductDialog({
     });
   };
 
-  const onMachineTypeChange = (code: string) => {
-    setForm({ ...form, compatibleMachineType: code });
-  };
-
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!form.brand.trim() || !form.shortDescription.trim()) {
@@ -1982,6 +2012,13 @@ export function ProductDialog({
       originCountry: form.originCountry.trim(),
       hsCode: form.hsCode.trim(),
       stockCode: form.stockCode.trim(),
+      subBrand: form.subBrand.trim(),
+      supplierCompanyId: form.supplierCompanyId || null,
+      optionalCompatibilityGroupCodes: form.optionalCompatibilityGroupCodes,
+      optionalCompatibilityCategoryCodes: form.optionalCompatibilityCategoryCodes,
+      optionalCompatibilitySubcategoryCodes: form.optionalCompatibilitySubcategoryCodes,
+      optionalCompatibilityTypeCodes: form.optionalCompatibilityTypeCodes,
+      optionalCompatibilityBrandIds: form.optionalCompatibilityBrandIds,
       specs: cleanSpecs,
       standardEquipment: form.standardEquipment,
       optionalEquipment: form.optionalEquipment,
@@ -2049,26 +2086,13 @@ export function ProductDialog({
             </ProductSheetRow>
 
             {categoryUsesSubcategory && (
-              <ProductSheetRow label="Ürün Alt Kategori Tezgah">
+              <ProductSheetRow label="Ürün Alt Kategorisi">
                 <Select value={form.subcategoryCode} onValueChange={onSubcategoryChange}>
                   <SelectTrigger className="h-8 max-w-xs"><SelectValue placeholder="Alt kategori seçin" /></SelectTrigger>
                   <SelectContent>
                     {PRODUCT_SUBCATEGORIES.map((o) => <SelectItem key={o.code} value={o.code}>{o.label}</SelectItem>)}
                   </SelectContent>
                 </Select>
-              </ProductSheetRow>
-            )}
-
-            {showMachineType && (
-              <ProductSheetRow label="Uyumlu Makine Tipi">
-                <div className="space-y-1.5">
-                  <Select value={form.compatibleMachineType} onValueChange={onMachineTypeChange}>
-                    <SelectTrigger className="h-8 max-w-md"><SelectValue placeholder="Makine tipi seçin" /></SelectTrigger>
-                    <SelectContent>
-                      {MACHINE_TYPE_OPTIONS.map((o) => <SelectItem key={o.code} value={o.code}>{o.label}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                </div>
               </ProductSheetRow>
             )}
 
@@ -2091,6 +2115,79 @@ export function ProductDialog({
                 </SelectContent>
               </Select>
             </ProductSheetRow>
+
+            {isMachineProduct && (
+              <>
+                <ProductSheetRow label="Ürün Alt Markası">
+                  <Input
+                    className="h-8 max-w-xs"
+                    value={form.subBrand}
+                    onChange={(e) => setForm({ ...form, subBrand: e.target.value })}
+                    placeholder="Alt marka"
+                  />
+                </ProductSheetRow>
+                <ProductSheetRow label="Ürün Tedarikçisi">
+                  <Select
+                    value={form.supplierCompanyId || "__none"}
+                    onValueChange={(v) => setForm({ ...form, supplierCompanyId: v === "__none" ? "" : v })}
+                  >
+                    <SelectTrigger className="h-8 max-w-md"><SelectValue placeholder="Tedarikçi seçin" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none">Belirtilmedi</SelectItem>
+                      {supplierOptions.map((supplier) => (
+                        <SelectItem key={supplier.id} value={supplier.id}>{supplier.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </ProductSheetRow>
+              </>
+            )}
+
+            {isOptionalEquipmentProduct && (
+              <>
+                <ProductSheetRow label="Uyumlu Ürün Grupları" className="items-start">
+                  <MultiSelect
+                    options={compatibilityGroupOptions}
+                    selected={form.optionalCompatibilityGroupCodes}
+                    onChange={(next) => setForm({ ...form, optionalCompatibilityGroupCodes: next })}
+                    placeholder="Grup seçin"
+                  />
+                </ProductSheetRow>
+                <ProductSheetRow label="Uyumlu Ürün Kategorileri" className="items-start">
+                  <MultiSelect
+                    options={compatibilityCategoryOptions}
+                    selected={form.optionalCompatibilityCategoryCodes}
+                    onChange={(next) => setForm({ ...form, optionalCompatibilityCategoryCodes: next })}
+                    placeholder="Kategori seçin"
+                  />
+                </ProductSheetRow>
+                <ProductSheetRow label="Uyumlu Ürün Alt Kategorileri" className="items-start">
+                  <MultiSelect
+                    options={compatibilitySubcategoryOptions}
+                    selected={form.optionalCompatibilitySubcategoryCodes}
+                    onChange={(next) => setForm({ ...form, optionalCompatibilitySubcategoryCodes: next })}
+                    placeholder="Alt kategori seçin"
+                  />
+                </ProductSheetRow>
+                <ProductSheetRow label="Uyumlu Ürün Tipleri" className="items-start">
+                  <MultiSelect
+                    options={compatibilityTypeOptions}
+                    selected={form.optionalCompatibilityTypeCodes}
+                    onChange={(next) => setForm({ ...form, optionalCompatibilityTypeCodes: next })}
+                    placeholder="Tip seçin"
+                  />
+                </ProductSheetRow>
+                <ProductSheetRow label="Uyumlu Ürün Markaları" className="items-start">
+                  <MultiSelect
+                    options={compatibilityBrandOptions}
+                    selected={form.optionalCompatibilityBrandIds}
+                    onChange={(next) => setForm({ ...form, optionalCompatibilityBrandIds: next })}
+                    placeholder="Marka seçin"
+                    emptyText="Marka bulunamadı"
+                  />
+                </ProductSheetRow>
+              </>
+            )}
 
             <ProductSheetRow label="Ürün Adı">
               <Input className="h-8" value={form.shortDescription} onChange={(e) => setForm({ ...form, shortDescription: e.target.value })} placeholder="Ürün adı" />

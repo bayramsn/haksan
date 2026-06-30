@@ -7,12 +7,14 @@ import {
   priceListItems,
   priceLists,
   productAlternatives,
+  productOptionalEquipmentCompatibilities,
   productModels,
   productSpecs,
   productEquipmentItems,
   productOptionSets,
   productOptionValues,
 } from '../../db/schema/products';
+import { companies } from '../../db/schema/companies';
 import {
   productGroups,
   productCategories,
@@ -21,6 +23,7 @@ import {
   productSpecGroups,
   equipmentTypes,
   currencies,
+  companyRelationTypes,
 } from '../../db/schema/lookup';
 import { DB } from '../../shared/database/database.module';
 import { ConflictError, NotFoundError, ValidationError } from '../../shared/utils/errors';
@@ -385,6 +388,140 @@ export class ProductsService {
     return out;
   }
 
+  private optionalCompatibilityProvided(input: ProductCreateInput | ProductUpdateInput) {
+    return (
+      input.optionalCompatibilityGroupCodes !== undefined ||
+      input.optionalCompatibilityCategoryCodes !== undefined ||
+      input.optionalCompatibilitySubcategoryCodes !== undefined ||
+      input.optionalCompatibilityTypeCodes !== undefined ||
+      input.optionalCompatibilityBrandIds !== undefined
+    );
+  }
+
+  private async lookupIdsByCode(table: any, codes: string[] | undefined) {
+    const ids = await Promise.all([...new Set(codes ?? [])].filter(Boolean).map((code) => lookupIdByCode(this.db, table, code)));
+    return ids.filter((id): id is string => Boolean(id));
+  }
+
+  private async assertSupplierCompany(companyId: string | null | undefined, tenantId: string) {
+    if (!companyId) return;
+    const [company] = await this.db
+      .select({ id: companies.id, relationCode: companyRelationTypes.code })
+      .from(companies)
+      .leftJoin(companyRelationTypes, eq(companies.relationTypeId, companyRelationTypes.id))
+      .where(and(eq(companies.id, companyId), eq(companies.tenantId, tenantId), isNull(companies.deletedAt)))
+      .limit(1);
+    if (!company) throw new NotFoundError('Tedarikçi');
+    if (company.relationCode !== 'supplier' && company.relationCode !== 'supplier_customer') {
+      throw new ValidationError('Tedarikçi firma seçiniz');
+    }
+  }
+
+  private async assertBrandIds(brandIds: string[] | undefined, tenantId: string) {
+    const ids = [...new Set(brandIds ?? [])].filter(Boolean);
+    if (!ids.length) return [];
+    const rows = await this.db.query.brands.findMany({
+      where: and(eq(brands.tenantId, tenantId), inArray(brands.id, ids), isNull(brands.deletedAt)),
+    });
+    if (rows.length !== ids.length) throw new NotFoundError('Marka');
+    return ids;
+  }
+
+  private async replaceOptionalCompatibilities(productId: string, tenantId: string, input: ProductCreateInput | ProductUpdateInput) {
+    const [groupIds, categoryIds, subcategoryIds, typeIds, brandIds] = await Promise.all([
+      this.lookupIdsByCode(productGroups, input.optionalCompatibilityGroupCodes),
+      this.lookupIdsByCode(productCategories, input.optionalCompatibilityCategoryCodes),
+      this.lookupIdsByCode(productSubcategories, input.optionalCompatibilitySubcategoryCodes),
+      this.lookupIdsByCode(productTypes, input.optionalCompatibilityTypeCodes),
+      this.assertBrandIds(input.optionalCompatibilityBrandIds, tenantId),
+    ]);
+
+    await this.db
+      .update(productOptionalEquipmentCompatibilities)
+      .set({ deletedAt: new Date() })
+      .where(and(eq(productOptionalEquipmentCompatibilities.tenantId, tenantId), eq(productOptionalEquipmentCompatibilities.productModelId, productId), isNull(productOptionalEquipmentCompatibilities.deletedAt)));
+
+    const rows = [
+      ...groupIds.map((productGroupId) => ({ productGroupId })),
+      ...categoryIds.map((categoryId) => ({ categoryId })),
+      ...subcategoryIds.map((subcategoryId) => ({ subcategoryId })),
+      ...typeIds.map((productTypeId) => ({ productTypeId })),
+      ...brandIds.map((brandId) => ({ brandId })),
+    ].map((row) => ({
+      tenantId,
+      productModelId: productId,
+      productGroupId: 'productGroupId' in row ? row.productGroupId : null,
+      categoryId: 'categoryId' in row ? row.categoryId : null,
+      subcategoryId: 'subcategoryId' in row ? row.subcategoryId : null,
+      productTypeId: 'productTypeId' in row ? row.productTypeId : null,
+      brandId: 'brandId' in row ? row.brandId : null,
+    }));
+
+    if (rows.length) {
+      await this.db.insert(productOptionalEquipmentCompatibilities).values(rows).onConflictDoNothing();
+    }
+  }
+
+  private async optionalCompatibilitiesByProduct(productIds: string[], tenantId: string) {
+    const out = new Map<string, {
+      groupCodes: string[];
+      categoryCodes: string[];
+      subcategoryCodes: string[];
+      typeCodes: string[];
+      brandIds: string[];
+      rows: Array<{
+        productGroupId: string | null;
+        categoryId: string | null;
+        subcategoryId: string | null;
+        productTypeId: string | null;
+        brandId: string | null;
+      }>;
+    }>();
+    const ids = [...new Set(productIds.filter(Boolean))];
+    if (!ids.length) return out;
+    const rows = await this.db
+      .select({
+        productId: productOptionalEquipmentCompatibilities.productModelId,
+        productGroupId: productOptionalEquipmentCompatibilities.productGroupId,
+        categoryId: productOptionalEquipmentCompatibilities.categoryId,
+        subcategoryId: productOptionalEquipmentCompatibilities.subcategoryId,
+        productTypeId: productOptionalEquipmentCompatibilities.productTypeId,
+        brandId: productOptionalEquipmentCompatibilities.brandId,
+        groupCode: productGroups.code,
+        categoryCode: productCategories.code,
+        subcategoryCode: productSubcategories.code,
+        typeCode: productTypes.code,
+      })
+      .from(productOptionalEquipmentCompatibilities)
+      .leftJoin(productGroups, eq(productOptionalEquipmentCompatibilities.productGroupId, productGroups.id))
+      .leftJoin(productCategories, eq(productOptionalEquipmentCompatibilities.categoryId, productCategories.id))
+      .leftJoin(productSubcategories, eq(productOptionalEquipmentCompatibilities.subcategoryId, productSubcategories.id))
+      .leftJoin(productTypes, eq(productOptionalEquipmentCompatibilities.productTypeId, productTypes.id))
+      .where(and(
+        eq(productOptionalEquipmentCompatibilities.tenantId, tenantId),
+        inArray(productOptionalEquipmentCompatibilities.productModelId, ids),
+        isNull(productOptionalEquipmentCompatibilities.deletedAt)
+      ));
+
+    for (const row of rows) {
+      const item = out.get(row.productId) ?? { groupCodes: [], categoryCodes: [], subcategoryCodes: [], typeCodes: [], brandIds: [], rows: [] };
+      if (row.groupCode) item.groupCodes.push(row.groupCode);
+      if (row.categoryCode) item.categoryCodes.push(row.categoryCode);
+      if (row.subcategoryCode) item.subcategoryCodes.push(row.subcategoryCode);
+      if (row.typeCode) item.typeCodes.push(row.typeCode);
+      if (row.brandId) item.brandIds.push(row.brandId);
+      item.rows.push({
+        productGroupId: row.productGroupId,
+        categoryId: row.categoryId,
+        subcategoryId: row.subcategoryId,
+        productTypeId: row.productTypeId,
+        brandId: row.brandId,
+      });
+      out.set(row.productId, item);
+    }
+    return out;
+  }
+
   // ────────── PRODUCTS ──────────
   async list(actor: AuthContext, query: { search?: string; brandId?: string; categoryCode?: string }, page: Pagination) {
     const { limit, offset } = pageOffset(page);
@@ -469,11 +606,15 @@ export class ProductsService {
     const compatibleTypes = await this.productTypesById(
       rows.map((r) => r.product.compatibleMachineTypeId).filter((id): id is string => !!id)
     );
-    const alternatives = await this.alternativesByProduct(productIds, actor.tenantId);
+    const [alternatives, optionalCompatibilities] = await Promise.all([
+      this.alternativesByProduct(productIds, actor.tenantId),
+      this.optionalCompatibilitiesByProduct(productIds, actor.tenantId),
+    ]);
 
     return buildPaginated(
       rows.map((r) => {
         const muadilProducts = alternatives.get(r.product.id) ?? [];
+        const optionalCompatibility = optionalCompatibilities.get(r.product.id);
         return {
           ...r.product,
           brand: r.brand,
@@ -488,6 +629,11 @@ export class ProductsService {
           optionalEquipment: optionalByProduct.get(r.product.id) ?? [],
           muadilProductIds: muadilProducts.map((p) => p.id),
           muadilProducts,
+          optionalCompatibilityGroupCodes: optionalCompatibility?.groupCodes ?? [],
+          optionalCompatibilityCategoryCodes: optionalCompatibility?.categoryCodes ?? [],
+          optionalCompatibilitySubcategoryCodes: optionalCompatibility?.subcategoryCodes ?? [],
+          optionalCompatibilityTypeCodes: optionalCompatibility?.typeCodes ?? [],
+          optionalCompatibilityBrandIds: optionalCompatibility?.brandIds ?? [],
         };
       }),
       count,
@@ -516,11 +662,13 @@ export class ProductsService {
       .where(and(eq(productModels.id, id), eq(productModels.tenantId, actor.tenantId), isNull(productModels.deletedAt)))
       .limit(1);
     if (!row) throw new NotFoundError('Ürün');
-    const [compatibleTypes, alternatives] = await Promise.all([
+    const [compatibleTypes, alternatives, optionalCompatibilities] = await Promise.all([
       this.productTypesById(row.product.compatibleMachineTypeId ? [row.product.compatibleMachineTypeId] : []),
       this.alternativesByProduct([id], actor.tenantId),
+      this.optionalCompatibilitiesByProduct([id], actor.tenantId),
     ]);
     const muadilProducts = alternatives.get(id) ?? [];
+    const optionalCompatibility = optionalCompatibilities.get(id);
     return {
       ...row.product,
       brand: row.brand,
@@ -532,6 +680,11 @@ export class ProductsService {
       compatibleMachineType: row.product.compatibleMachineTypeId ? compatibleTypes.get(row.product.compatibleMachineTypeId) ?? null : null,
       muadilProductIds: muadilProducts.map((p) => p.id),
       muadilProducts,
+      optionalCompatibilityGroupCodes: optionalCompatibility?.groupCodes ?? [],
+      optionalCompatibilityCategoryCodes: optionalCompatibility?.categoryCodes ?? [],
+      optionalCompatibilitySubcategoryCodes: optionalCompatibility?.subcategoryCodes ?? [],
+      optionalCompatibilityTypeCodes: optionalCompatibility?.typeCodes ?? [],
+      optionalCompatibilityBrandIds: optionalCompatibility?.brandIds ?? [],
     };
   }
 
@@ -551,6 +704,7 @@ export class ProductsService {
     ]);
     const alternativeIds = this.uniqueAlternativeIds(input);
     await this.assertAlternativeProducts('', actor.tenantId, alternativeIds);
+    await this.assertSupplierCompany(input.supplierCompanyId, actor.tenantId);
 
     const [row] = await this.db
       .insert(productModels)
@@ -562,6 +716,8 @@ export class ProductsService {
         subcategoryId: subId,
         productTypeId: typeId,
         compatibleMachineTypeId,
+        subBrand: input.subBrand ?? null,
+        supplierCompanyId: input.supplierCompanyId ?? null,
         modelCode: input.modelCode,
         modelName: input.modelName ?? null,
         fullName: input.fullName,
@@ -578,6 +734,7 @@ export class ProductsService {
       })
       .returning();
     await this.replaceAlternatives(row.id, actor.tenantId, alternativeIds);
+    await this.replaceOptionalCompatibilities(row.id, actor.tenantId, input);
     await this.audit.write({
       tenantId: actor.tenantId,
       actorUserId: actor.userId,
@@ -605,10 +762,14 @@ export class ProductsService {
       patch.compatibleMachineTypeId = input.compatibleMachineTypeCode ? await lookupIdByCode(this.db, productTypes, input.compatibleMachineTypeCode) : null;
     if (input.currencyCode !== undefined)
       patch.currencyId = await lookupIdByCode(this.db, currencies, input.currencyCode);
+    if (input.supplierCompanyId !== undefined) {
+      await this.assertSupplierCompany(input.supplierCompanyId, actor.tenantId);
+      patch.supplierCompanyId = input.supplierCompanyId ?? null;
+    }
     const alternativesProvided = input.muadilProductIds !== undefined || input.muadilProductId !== undefined;
     const alternativeIds = alternativesProvided ? this.uniqueAlternativeIds(input, id) : [];
     if (alternativesProvided) patch.muadilProductId = alternativeIds[0] ?? null;
-    for (const k of ['modelCode', 'modelName', 'fullName', 'originCountry', 'hsCode', 'stockCode', 'imageUrl', 'description'] as const) {
+    for (const k of ['modelCode', 'modelName', 'fullName', 'originCountry', 'hsCode', 'stockCode', 'imageUrl', 'description', 'subBrand'] as const) {
       if ((input as any)[k] !== undefined) patch[k] = (input as any)[k] ?? null;
     }
     for (const k of ['listPrice', 'cashPrice', 'vatRate'] as const) {
@@ -616,6 +777,7 @@ export class ProductsService {
     }
     await this.db.update(productModels).set(patch).where(eq(productModels.id, id));
     if (alternativesProvided) await this.replaceAlternatives(id, actor.tenantId, alternativeIds);
+    if (this.optionalCompatibilityProvided(input)) await this.replaceOptionalCompatibilities(id, actor.tenantId, input);
     await this.audit.write({
       tenantId: actor.tenantId,
       actorUserId: actor.userId,
@@ -684,31 +846,46 @@ export class ProductsService {
 
   async listCompatibleOptionalEquipment(productId: string, actor: AuthContext) {
     const machine = await this.get(productId, actor);
-    if (!machine.productTypeId) return [];
     const optionalCategoryId = await lookupIdByCode(this.db, productCategories, 'OPSIYONEL_DONANIM');
     if (!optionalCategoryId) return [];
-    return this.db
+    const rows = await this.db
       .select({
         product: productModels,
         brand: { id: brands.id, name: brands.name },
         currency: { id: currencies.id, code: currencies.code },
+        productGroup: { id: productGroups.id, code: productGroups.code, name: productGroups.name },
         category: { id: productCategories.id, code: productCategories.code, name: productCategories.name },
+        subcategory: { id: productSubcategories.id, code: productSubcategories.code, name: productSubcategories.name },
         productType: { id: productTypes.id, code: productTypes.code, name: productTypes.name },
       })
       .from(productModels)
       .leftJoin(brands, eq(productModels.brandId, brands.id))
       .leftJoin(currencies, eq(productModels.currencyId, currencies.id))
+      .leftJoin(productGroups, eq(productModels.productGroupId, productGroups.id))
       .leftJoin(productCategories, eq(productModels.categoryId, productCategories.id))
+      .leftJoin(productSubcategories, eq(productModels.subcategoryId, productSubcategories.id))
       .leftJoin(productTypes, eq(productModels.productTypeId, productTypes.id))
       .where(
         and(
           eq(productModels.tenantId, actor.tenantId),
           eq(productModels.categoryId, optionalCategoryId),
-          eq(productModels.compatibleMachineTypeId, machine.productTypeId),
           isNull(productModels.deletedAt)
         )
       )
       .orderBy(asc(productModels.fullName));
+    const compatibilities = await this.optionalCompatibilitiesByProduct(rows.map((r) => r.product.id), actor.tenantId);
+    return rows.filter((row) => {
+      if (row.product.compatibleMachineTypeId && row.product.compatibleMachineTypeId === machine.productTypeId) return true;
+      const compatibility = compatibilities.get(row.product.id);
+      if (!compatibility) return false;
+      return compatibility.rows.some((item) =>
+        (item.productGroupId && item.productGroupId === machine.productGroupId) ||
+        (item.categoryId && item.categoryId === machine.categoryId) ||
+        (item.subcategoryId && item.subcategoryId === machine.subcategoryId) ||
+        (item.productTypeId && item.productTypeId === machine.productTypeId) ||
+        (item.brandId && item.brandId === machine.brandId)
+      );
+    });
   }
 
   async addEquipment(productId: string, input: ProductEquipmentCreateInput, actor: AuthContext) {

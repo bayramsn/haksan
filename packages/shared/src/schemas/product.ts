@@ -12,6 +12,8 @@ export const productCreateSchema = z.object({
   subcategoryCode: z.string().max(64).optional(),
   productTypeCode: z.string().max(64).optional(),
   compatibleMachineTypeCode: z.string().max(64).nullish(),
+  subBrand: z.string().max(128).optional(),
+  supplierCompanyId: z.string().uuid().nullish(),
   modelCode: z.string().min(1).max(64),
   modelName: z.string().max(255).optional(),
   fullName: z.string().min(1).max(512),
@@ -28,6 +30,11 @@ export const productCreateSchema = z.object({
   muadilProductId: z.string().uuid().nullish(),
   // Çoklu muadil ürün modeli listesi. Eski muadilProductId geriye uyumluluk için korunur.
   muadilProductIds: z.array(z.string().uuid()).max(50).optional(),
+  optionalCompatibilityGroupCodes: z.array(z.string().max(64)).max(50).optional(),
+  optionalCompatibilityCategoryCodes: z.array(z.string().max(64)).max(50).optional(),
+  optionalCompatibilitySubcategoryCodes: z.array(z.string().max(64)).max(50).optional(),
+  optionalCompatibilityTypeCodes: z.array(z.string().max(64)).max(50).optional(),
+  optionalCompatibilityBrandIds: z.array(z.string().uuid()).max(50).optional(),
 });
 export type ProductCreateInput = z.infer<typeof productCreateSchema>;
 

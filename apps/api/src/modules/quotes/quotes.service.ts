@@ -75,16 +75,29 @@ export class QuotesService {
   }
 
   private async recalcQuoteTotals(quoteId: string) {
-    const items = await this.db.select().from(quoteItems).where(eq(quoteItems.quoteId, quoteId));
+    const [quote, items] = await Promise.all([
+      this.db.query.quotes.findFirst({ where: eq(quotes.id, quoteId) }),
+      this.db.select().from(quoteItems).where(eq(quoteItems.quoteId, quoteId)),
+    ]);
     let subtotal = 0;
-    let discount = 0;
-    let vat = 0;
+    let lineDiscount = 0;
+    const taxableRows: Array<{ amount: number; vatRate: number }> = [];
     for (const it of items) {
       const t = this.calcItem(Number(it.quantity), Number(it.unitPrice), Number(it.discountAmount), Number(it.vatRate));
       subtotal += t.subtotal + t.discount; // gross
-      discount += t.discount;
-      vat += t.vat;
+      lineDiscount += t.discount;
+      taxableRows.push({ amount: t.subtotal, vatRate: Number(it.vatRate) });
     }
+    const taxableBeforeHeader = Math.max(subtotal - lineDiscount, 0);
+    const headerPercent = Number(quote?.headerDiscountPercent ?? 0);
+    const headerAmount = Number(quote?.headerDiscountAmount ?? 0);
+    const headerDiscount = Math.min(
+      taxableBeforeHeader,
+      Math.max(headerPercent > 0 ? taxableBeforeHeader * (headerPercent / 100) : headerAmount, 0)
+    );
+    const ratio = taxableBeforeHeader > 0 ? (taxableBeforeHeader - headerDiscount) / taxableBeforeHeader : 1;
+    const vat = taxableRows.reduce((sum, row) => sum + (row.amount * ratio * (row.vatRate / 100)), 0);
+    const discount = lineDiscount + headerDiscount;
     const grand = subtotal - discount + vat;
     await this.db
       .update(quotes)
@@ -421,6 +434,8 @@ export class QuotesService {
         validityDays: input.validityDays,
         projectOwnerUserId: input.projectOwnerUserId ?? actor.userId,
         currencyId,
+        headerDiscountAmount: (input.headerDiscountAmount ?? 0).toString(),
+        headerDiscountPercent: (input.headerDiscountPercent ?? 0).toString(),
         paymentTerms: input.paymentTerms ?? null,
         deliveryTerms: input.deliveryTerms ?? null,
         warrantyTerms: input.warrantyTerms ?? null,
@@ -460,7 +475,11 @@ export class QuotesService {
     for (const k of ['opportunityId', 'companyId', 'contactId', 'documentNo', 'quoteDate', 'validityDays', 'projectOwnerUserId', 'paymentTerms', 'deliveryTerms', 'warrantyTerms', 'notes'] as const) {
       if ((input as any)[k] !== undefined) patch[k] = (input as any)[k] ?? null;
     }
+    for (const k of ['headerDiscountAmount', 'headerDiscountPercent'] as const) {
+      if ((input as any)[k] !== undefined) patch[k] = ((input as any)[k] as number | undefined)?.toString() ?? '0';
+    }
     await this.db.update(quotes).set(patch).where(eq(quotes.id, id));
+    if (input.headerDiscountAmount !== undefined || input.headerDiscountPercent !== undefined) await this.recalcQuoteTotals(id);
     return this.get(id, actor);
   }
 

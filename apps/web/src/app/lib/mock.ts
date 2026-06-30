@@ -302,6 +302,8 @@ export type Product = {
   type: string;
   productTypeCode?: string;
   compatibleMachineTypeCode?: string | null;
+  subBrand?: string;
+  supplierCompanyId?: string | null;
   controlPanel: string;
   category: string;
   categoryCode?: string;
@@ -324,6 +326,11 @@ export type Product = {
   muadilProductId?: string | null;
   muadilProductIds?: string[];
   muadilProducts?: ProductAlternative[];
+  optionalCompatibilityGroupCodes?: string[];
+  optionalCompatibilityCategoryCodes?: string[];
+  optionalCompatibilitySubcategoryCodes?: string[];
+  optionalCompatibilityTypeCodes?: string[];
+  optionalCompatibilityBrandIds?: string[];
   status: "active" | "passive";
   pdfUrl?: string;
 };

@@ -30,6 +30,8 @@ export const quotes = pgTable(
     currencyId: uuid('currency_id').references(() => currencies.id),
     subtotal: money('subtotal').notNull().default('0'),
     discountTotal: money('discount_total').notNull().default('0'),
+    headerDiscountAmount: money('header_discount_amount').notNull().default('0'),
+    headerDiscountPercent: percent('header_discount_percent').notNull().default('0'),
     vatRate: percent('vat_rate').notNull().default('20'),
     vatAmount: money('vat_amount').notNull().default('0'),
     grandTotal: money('grand_total').notNull().default('0'),

@@ -223,6 +223,8 @@ export function QuoteDialog({
   const [deliveryTerms, setDeliveryTerms] = useState("");
   const [warrantyTerms, setWarrantyTerms] = useState("");
   const [lines, setLines] = useState<LineState[]>([emptyLine()]);
+  const [headerDiscountType, setHeaderDiscountType] = useState<"amount" | "percent">("amount");
+  const [headerDiscountValue, setHeaderDiscountValue] = useState("0");
   const [note, setNote] = useState("");
   const [noteFontSize, setNoteFontSize] = useState("14");
   const [noteBold, setNoteBold] = useState(false);
@@ -254,6 +256,8 @@ export function QuoteDialog({
     setPaymentTerms("");
     setDeliveryTerms("");
     setWarrantyTerms("");
+    setHeaderDiscountType("amount");
+    setHeaderDiscountValue("0");
     // Faz 1 · Satış kartı carry-over: kart üzerinden açıldıysa ilk satırı + para birimini ön-doldur.
     const seedCase = defaultCaseId ? cases.find((c) => c.id === defaultCaseId) : undefined;
     if (seedCase) {
@@ -297,6 +301,10 @@ export function QuoteDialog({
       setPaymentTerms(loadedPayment);
       setDeliveryTerms(loadedDelivery);
       setWarrantyTerms(loadedWarranty);
+      const loadedHeaderPercent = num(String(data.headerDiscountPercent ?? "0"));
+      const loadedHeaderAmount = num(String(data.headerDiscountAmount ?? "0"));
+      setHeaderDiscountType(loadedHeaderPercent > 0 ? "percent" : "amount");
+      setHeaderDiscountValue(String(loadedHeaderPercent > 0 ? loadedHeaderPercent : loadedHeaderAmount));
       // Yüklenen şartlar bir şablonla birebir aynıysa o şablonu önseç (yoksa "Özel").
       setNoteVariantKey(
         matchNoteVariant(loadedPayment, loadedDelivery, loadedWarranty) ||
@@ -532,20 +540,29 @@ export function QuoteDialog({
     num(r.quantity) * netUnitPrice(r) - num(r.discount);
 
   const totals = useMemo(() => {
-    let subtotal = 0, discount = 0, vat = 0;
+    let subtotal = 0, lineDiscount = 0;
+    const vatRows: Array<{ netBeforeHeader: number; vatRate: number }> = [];
     const rows = lines.flatMap((l) => [l, ...l.options]);
     for (const r of rows) {
       const net = netUnitPrice(r);
       const qty = num(r.quantity);
       const disc = num(r.discount);
-      const rowNet = qty * net - disc;
+      const rowNet = Math.max(0, qty * net - disc);
       subtotal += qty * net;
-      discount += disc;
-      vat += rowNet * (effVatRate(r) / 100);
+      lineDiscount += Math.max(0, disc);
+      vatRows.push({ netBeforeHeader: rowNet, vatRate: effVatRate(r) });
     }
-    const grand = subtotal - discount + vat;
-    return { subtotal, discount, vat, grand };
-  }, [lines, vatEnabled]);
+    const taxableBeforeHeader = Math.max(0, subtotal - lineDiscount);
+    const rawHeaderDiscount = headerDiscountType === "percent"
+      ? taxableBeforeHeader * Math.max(0, num(headerDiscountValue)) / 100
+      : Math.max(0, num(headerDiscountValue));
+    const headerDiscount = Math.min(rawHeaderDiscount, taxableBeforeHeader);
+    const ratio = taxableBeforeHeader > 0 ? (taxableBeforeHeader - headerDiscount) / taxableBeforeHeader : 1;
+    const vat = vatRows.reduce((sum, row) => sum + (row.netBeforeHeader * ratio * (row.vatRate / 100)), 0);
+    const discount = lineDiscount + headerDiscount;
+    const grand = taxableBeforeHeader - headerDiscount + vat;
+    return { subtotal, lineDiscount, headerDiscount, discount, vat, grand };
+  }, [lines, vatEnabled, headerDiscountType, headerDiscountValue]);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -556,6 +573,8 @@ export function QuoteDialog({
     if (valid.length === 0) return toast.error("En az bir ürün satırı ekleyin");
 
     const preset = DELIVERY_TERMS.find((d) => d.code === deliveryCode);
+    const headerDiscountAmount = headerDiscountType === "amount" ? totals.headerDiscount : 0;
+    const headerDiscountPercent = headerDiscountType === "percent" ? Math.max(0, num(headerDiscountValue)) : 0;
 
     // Ana ürün + teklife özel opsiyonel donanımları tek kalem listesine düzleştir
     const items = valid.flatMap((l) => {
@@ -599,6 +618,8 @@ export function QuoteDialog({
           validityDays: num(validityDays),
           documentNo: documentNo.trim() || undefined,
           currencyCode: currency,
+          headerDiscountAmount,
+          headerDiscountPercent,
           projectOwnerUserId: senderId || undefined,
           notes: note.trim() || undefined,
           paymentTerms: paymentTerms.trim() || undefined,
@@ -631,6 +652,8 @@ export function QuoteDialog({
           validityDays: num(validityDays),
           documentNo: documentNo.trim() || undefined,
           currencyCode: currency,
+          headerDiscountAmount,
+          headerDiscountPercent,
           projectOwnerUserId: senderId || undefined,
           notes: note.trim() || undefined,
           paymentTermsText: paymentTerms.trim() || undefined,
@@ -1051,29 +1074,52 @@ export function QuoteDialog({
 
           {/* PRICING + DELIVERY */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <div>
-              <Label className="text-xs">Teslim Şekli</Label>
-              <Select
-                value={deliveryCode}
-                onValueChange={(value) => {
-                  setDeliveryCode(value);
-                  const variantKey = DELIVERY_NOTE_VARIANT[value];
-                  if (variantKey) applyNoteVariant(variantKey);
-                  else {
-                    setNoteVariantKey("");
-                    setDeliveryTerms(DELIVERY_TERMS.find((item) => item.code === value)?.label ?? "");
-                  }
-                }}
-              >
-                <SelectTrigger className="mt-1.5"><SelectValue placeholder="Teslim şekli seçin..." /></SelectTrigger>
-                <SelectContent>
-                  {DELIVERY_TERMS.map((d) => <SelectItem key={d.code} value={d.code}>{d.label}</SelectItem>)}
-                </SelectContent>
-              </Select>
+            <div className="space-y-3">
+              <div>
+                <Label className="text-xs">Teslim Şekli</Label>
+                <Select
+                  value={deliveryCode}
+                  onValueChange={(value) => {
+                    setDeliveryCode(value);
+                    const variantKey = DELIVERY_NOTE_VARIANT[value];
+                    if (variantKey) applyNoteVariant(variantKey);
+                    else {
+                      setNoteVariantKey("");
+                      setDeliveryTerms(DELIVERY_TERMS.find((item) => item.code === value)?.label ?? "");
+                    }
+                  }}
+                >
+                  <SelectTrigger className="mt-1.5"><SelectValue placeholder="Teslim şekli seçin..." /></SelectTrigger>
+                  <SelectContent>
+                    {DELIVERY_TERMS.map((d) => <SelectItem key={d.code} value={d.code}>{d.label}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label className="text-xs">Teklif İskontosu</Label>
+                <div className="mt-1.5 grid grid-cols-[130px_1fr] gap-2">
+                  <Select value={headerDiscountType} onValueChange={(value) => setHeaderDiscountType(value as "amount" | "percent")}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="amount">Tutar</SelectItem>
+                      <SelectItem value="percent">Yüzde</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Input
+                    inputMode="decimal"
+                    value={headerDiscountValue}
+                    onChange={(event) => setHeaderDiscountValue(event.target.value)}
+                    placeholder={headerDiscountType === "percent" ? "0" : "0,00"}
+                  />
+                </div>
+              </div>
             </div>
             <div className="rounded-lg border border-border/60 bg-muted/20 p-3 text-sm space-y-1">
               <div className="flex justify-between"><span className="text-muted-foreground">Ara Toplam</span><span className="tabular-nums">{money(totals.subtotal, currency)}</span></div>
-              <div className="flex justify-between"><span className="text-muted-foreground">İndirim</span><span className="tabular-nums">-{money(totals.discount, currency)}</span></div>
+              {totals.lineDiscount > 0 && (
+                <div className="flex justify-between"><span className="text-muted-foreground">Satır İndirimi</span><span className="tabular-nums">-{money(totals.lineDiscount, currency)}</span></div>
+              )}
+              <div className="flex justify-between"><span className="text-muted-foreground">Teklif İskontosu</span><span className="tabular-nums">-{money(totals.headerDiscount, currency)}</span></div>
               <div className="flex justify-between"><span className="text-muted-foreground">KDV</span><span className="tabular-nums">{money(totals.vat, currency)}</span></div>
               <div className="flex justify-between border-t border-border/60 pt-1 font-medium"><span>Genel Toplam</span><span className="tabular-nums">{money(totals.grand, currency)}</span></div>
               <div className="flex justify-between items-center gap-2 pt-1.5 mt-1 border-t border-dashed border-border/60 flex-wrap">

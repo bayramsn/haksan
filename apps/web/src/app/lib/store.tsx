@@ -223,6 +223,13 @@ const productApiPayload = (p: Partial<Product>, brandId?: string) => {
     stockCode: cleanString(p.stockCode),
     imageUrl: cleanString(p.imageUrl),
     description: cleanString(p.description),
+    ...(p.subBrand !== undefined ? { subBrand: String(p.subBrand ?? '').trim() } : {}),
+    ...(p.supplierCompanyId !== undefined ? { supplierCompanyId: cleanString(p.supplierCompanyId) ?? null } : {}),
+    ...(p.optionalCompatibilityGroupCodes !== undefined ? { optionalCompatibilityGroupCodes: p.optionalCompatibilityGroupCodes ?? [] } : {}),
+    ...(p.optionalCompatibilityCategoryCodes !== undefined ? { optionalCompatibilityCategoryCodes: p.optionalCompatibilityCategoryCodes ?? [] } : {}),
+    ...(p.optionalCompatibilitySubcategoryCodes !== undefined ? { optionalCompatibilitySubcategoryCodes: p.optionalCompatibilitySubcategoryCodes ?? [] } : {}),
+    ...(p.optionalCompatibilityTypeCodes !== undefined ? { optionalCompatibilityTypeCodes: p.optionalCompatibilityTypeCodes ?? [] } : {}),
+    ...(p.optionalCompatibilityBrandIds !== undefined ? { optionalCompatibilityBrandIds: p.optionalCompatibilityBrandIds ?? [] } : {}),
     // Boş seçim muadili temizler (null), seçiliyse ilk id eski alanı da besler.
     muadilProductId: p.muadilProductIds?.[0] ?? p.muadilProductId ?? null,
     muadilProductIds: p.muadilProductIds ?? (p.muadilProductId ? [p.muadilProductId] : []),
@@ -281,6 +288,8 @@ export type CreateQuotePayload = {
   validityDays: number;
   documentNo?: string;
   currencyCode: string;
+  headerDiscountAmount?: number;
+  headerDiscountPercent?: number;
   projectOwnerUserId?: string;
   notes?: string;
   paymentTermsText?: string;
@@ -630,6 +639,13 @@ function StoreInner({ children }: { children: ReactNode }) {
           originCountry: p.originCountry ?? '',
           hsCode: p.hsCode ?? '',
           stockCode: p.stockCode ?? '',
+          subBrand: p.subBrand ?? '',
+          supplierCompanyId: p.supplierCompanyId ?? null,
+          optionalCompatibilityGroupCodes: p.optionalCompatibilityGroupCodes ?? [],
+          optionalCompatibilityCategoryCodes: p.optionalCompatibilityCategoryCodes ?? [],
+          optionalCompatibilitySubcategoryCodes: p.optionalCompatibilitySubcategoryCodes ?? [],
+          optionalCompatibilityTypeCodes: p.optionalCompatibilityTypeCodes ?? [],
+          optionalCompatibilityBrandIds: p.optionalCompatibilityBrandIds ?? [],
           specs: (p.specs ?? []).map((s: any) => ({
             key: s.key ?? s.specKey ?? '',
             value: s.unit ? `${s.value ?? s.specValue ?? ''} ${s.unit}` : s.value ?? s.specValue ?? '',
@@ -1354,6 +1370,8 @@ function StoreInner({ children }: { children: ReactNode }) {
       validityDays: p.validityDays,
       documentNo: p.documentNo || undefined,
       currencyCode: p.currencyCode,
+      headerDiscountAmount: p.headerDiscountAmount ?? 0,
+      headerDiscountPercent: p.headerDiscountPercent ?? 0,
       projectOwnerUserId: p.projectOwnerUserId || undefined,
       notes: p.notes || undefined,
       paymentTerms: p.paymentTermsText || undefined,

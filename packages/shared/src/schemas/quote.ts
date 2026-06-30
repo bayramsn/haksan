@@ -11,15 +11,21 @@ export const quoteCreateSchema = z.object({
   validityDays: z.coerce.number().int().min(1).max(365).default(30),
   projectOwnerUserId: z.string().optional(),
   currencyCode: z.string().max(8).default('USD'),
+  headerDiscountAmount: moneySchema.default(0),
+  headerDiscountPercent: percentSchema.default(0),
   paymentTerms: z.string().max(2000).optional(),
   deliveryTerms: z.string().max(2000).optional(),
   warrantyTerms: z.string().max(2000).optional(),
   notes: z.string().max(4000).optional(),
 });
-export type QuoteCreateInput = z.infer<typeof quoteCreateSchema>;
+type QuoteCreateParsed = z.infer<typeof quoteCreateSchema>;
+export type QuoteCreateInput = Omit<QuoteCreateParsed, 'headerDiscountAmount' | 'headerDiscountPercent'> & {
+  headerDiscountAmount?: number;
+  headerDiscountPercent?: number;
+};
 
 export const quoteUpdateSchema = quoteCreateSchema.partial();
-export type QuoteUpdateInput = z.infer<typeof quoteUpdateSchema>;
+export type QuoteUpdateInput = Partial<QuoteCreateInput>;
 
 // Opsiyonel donanım / yedek parça kalemleri için uyumluluk seçimleri (çoklu).
 export const quoteItemTechnicalSpecSchema = z.object({
