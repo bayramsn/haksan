@@ -1635,6 +1635,39 @@ const compactProductCode = (value: string) =>
 
 const moneyNumber = (value: string) => Number(value.replace(",", ".")) || 0;
 const OPTIONAL_EQUIPMENT_CATEGORY_CODE = "OPSIYONEL_DONANIM";
+type OptionalEquipmentDraft = { product: string; serial: string; type: string; category: string };
+const emptyOptionalEquipmentDraft = (): OptionalEquipmentDraft => ({ product: "", serial: "", type: "", category: "" });
+const OPTIONAL_EQUIPMENT_LABELS: Array<{ key: keyof OptionalEquipmentDraft; label: string }> = [
+  { key: "product", label: "Ürün" },
+  { key: "serial", label: "Seri" },
+  { key: "type", label: "Tip" },
+  { key: "category", label: "Kategori" },
+];
+
+const formatOptionalEquipment = (draft: OptionalEquipmentDraft) =>
+  OPTIONAL_EQUIPMENT_LABELS
+    .map(({ key, label }) => {
+      const value = draft[key].trim();
+      return value ? `${label}: ${value}` : "";
+    })
+    .filter(Boolean)
+    .join(" | ");
+
+const parseOptionalEquipment = (value: string): OptionalEquipmentDraft => {
+  const parsed = emptyOptionalEquipmentDraft();
+  let matched = false;
+  for (const part of value.split("|")) {
+    const [rawLabel, ...rest] = part.split(":");
+    const label = rawLabel?.trim().toLocaleLowerCase("tr-TR");
+    const content = rest.join(":").trim();
+    const field = OPTIONAL_EQUIPMENT_LABELS.find((item) => item.label.toLocaleLowerCase("tr-TR") === label);
+    if (field && content) {
+      parsed[field.key] = content;
+      matched = true;
+    }
+  }
+  return matched ? parsed : { ...parsed, product: value };
+};
 
 const emptyProduct = (): ProductFormState => ({
   brand: "",
@@ -1698,14 +1731,14 @@ export function ProductDialog({
     mode === "edit" && product ? fromProduct(product) : emptyProduct()
   );
   const [stdInput, setStdInput] = useState("");
-  const [optInput, setOptInput] = useState("");
+  const [optionalEquipmentDraft, setOptionalEquipmentDraft] = useState<OptionalEquipmentDraft>(emptyOptionalEquipmentDraft);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploadingImage, setUploadingImage] = useState(false);
 
   const reset = () => {
     setForm(mode === "edit" && product ? fromProduct(product) : emptyProduct());
     setStdInput("");
-    setOptInput("");
+    setOptionalEquipmentDraft(emptyOptionalEquipmentDraft());
   };
 
   const IMAGE_MIME_TO_EXT: Record<string, "png" | "jpg" | "webp"> = {
@@ -1770,6 +1803,15 @@ export function ProductDialog({
   };
   const rmChip = (which: "standardEquipment" | "optionalEquipment", i: number) => {
     setForm((f) => ({ ...f, [which]: f[which].filter((_, idx) => idx !== i) }));
+  };
+  const addOptionalEquipment = () => {
+    if (!optionalEquipmentDraft.product.trim()) {
+      toast.error("Opsiyonel donanım için ürün alanı zorunludur");
+      return;
+    }
+    const value = formatOptionalEquipment(optionalEquipmentDraft);
+    setForm((f) => ({ ...f, optionalEquipment: [...f.optionalEquipment, value] }));
+    setOptionalEquipmentDraft(emptyOptionalEquipmentDraft());
   };
 
   // Yalnızca TEZGAH kategorisinde alt kategori (işleme merkezi / torna) ayrımı var
@@ -2255,14 +2297,12 @@ export function ProductDialog({
             placeholder="Standart donanım ekleyip Enter'a basın"
           />
 
-          <ChipField
-            label="Opsiyonel Donanımlar"
+          <OptionalEquipmentField
             chips={form.optionalEquipment}
-            input={optInput}
-            setInput={setOptInput}
-            onAdd={() => addChip("optionalEquipment", optInput, setOptInput)}
+            draft={optionalEquipmentDraft}
+            setDraft={setOptionalEquipmentDraft}
+            onAdd={addOptionalEquipment}
             onRemove={(i) => rmChip("optionalEquipment", i)}
-            placeholder="Opsiyonel donanım ekleyip Enter'a basın"
           />
 
           <div>
@@ -2362,6 +2402,115 @@ function ChipField({ label, chips, input, setInput, onAdd, onRemove, placeholder
               </li>
             ))}
           </ol>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function OptionalEquipmentField({
+  chips,
+  draft,
+  setDraft,
+  onAdd,
+  onRemove,
+}: {
+  chips: string[];
+  draft: OptionalEquipmentDraft;
+  setDraft: React.Dispatch<React.SetStateAction<OptionalEquipmentDraft>>;
+  onAdd: () => void;
+  onRemove: (i: number) => void;
+}) {
+  const update = (key: keyof OptionalEquipmentDraft, value: string) => {
+    setDraft((current) => ({ ...current, [key]: value }));
+  };
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      onAdd();
+    }
+  };
+
+  return (
+    <div>
+      <Label className="text-xs">Opsiyonel Donanımlar</Label>
+      <div className="mt-1.5 grid gap-2 lg:grid-cols-[1.2fr_0.9fr_0.9fr_0.9fr_40px]">
+        <Input
+          value={draft.product}
+          onChange={(e) => update("product", e.target.value)}
+          onKeyDown={handleKeyDown}
+          placeholder="Ürün"
+          aria-label="Opsiyonel donanım ürün"
+        />
+        <Input
+          value={draft.serial}
+          onChange={(e) => update("serial", e.target.value)}
+          onKeyDown={handleKeyDown}
+          placeholder="Seri"
+          aria-label="Opsiyonel donanım seri"
+        />
+        <Input
+          value={draft.type}
+          onChange={(e) => update("type", e.target.value)}
+          onKeyDown={handleKeyDown}
+          placeholder="Tip"
+          aria-label="Opsiyonel donanım tip"
+        />
+        <Input
+          value={draft.category}
+          onChange={(e) => update("category", e.target.value)}
+          onKeyDown={handleKeyDown}
+          placeholder="Kategori"
+          aria-label="Opsiyonel donanım kategori"
+        />
+        <Button type="button" variant="outline" size="icon" className="h-9 w-9 shrink-0" onClick={onAdd} aria-label="Opsiyonel donanım ekle">
+          <Plus className="size-4" />
+        </Button>
+      </div>
+      <div className="mt-2 overflow-hidden rounded-md border border-border/70">
+        {chips.length === 0 ? (
+          <div className="px-3 py-3 text-xs text-muted-foreground">Henüz eklenmedi</div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[640px] text-sm">
+              <thead className="bg-muted/35 text-[11px] uppercase tracking-wide text-muted-foreground">
+                <tr>
+                  <th className="w-12 px-3 py-2 text-right font-semibold">#</th>
+                  <th className="px-3 py-2 text-left font-semibold">Ürün</th>
+                  <th className="px-3 py-2 text-left font-semibold">Seri</th>
+                  <th className="px-3 py-2 text-left font-semibold">Tip</th>
+                  <th className="px-3 py-2 text-left font-semibold">Kategori</th>
+                  <th className="w-12 px-2 py-2"></th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border/60">
+                {chips.map((chip, index) => {
+                  const item = parseOptionalEquipment(chip);
+                  return (
+                    <tr key={`${chip}-${index}`} className="align-top">
+                      <td className="px-3 py-2 text-right text-xs font-medium tabular-nums text-muted-foreground">{index + 1}.</td>
+                      <td className="px-3 py-2">{item.product || "—"}</td>
+                      <td className="px-3 py-2 text-muted-foreground">{item.serial || "—"}</td>
+                      <td className="px-3 py-2 text-muted-foreground">{item.type || "—"}</td>
+                      <td className="px-3 py-2 text-muted-foreground">{item.category || "—"}</td>
+                      <td className="px-2 py-1.5 text-right">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                          onClick={() => onRemove(index)}
+                          aria-label={`${item.product || chip} opsiyonel donanımını sil`}
+                        >
+                          <Trash2 className="size-3.5" />
+                        </Button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
     </div>
