@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { and, eq, gt } from 'drizzle-orm';
+import { and, eq, gt, isNull } from 'drizzle-orm';
 import * as argon2 from 'argon2';
 import { randomBytes } from 'node:crypto';
 import type { DbClient } from '../../db/client';
@@ -20,10 +20,10 @@ import { loadEnv } from '../../config/env';
 import { AuditService } from '../../shared/database/audit.service';
 import { invalidateRbacCache, rolePermissionsCacheKey } from '../../shared/security/rbac.cache';
 
-export interface LoginResult {
+const REFRESH_REPLAY_GRACE_MS = 10_000;
+
+interface AccessSessionResult {
   accessToken: string;
-  refreshToken: string;
-  refreshTokenExpiresAt: Date;
   user: {
     id: string;
     email: string;
@@ -32,6 +32,15 @@ export interface LoginResult {
     roles: string[];
   };
 }
+
+export interface LoginResult {
+  accessToken: string;
+  refreshToken: string;
+  refreshTokenExpiresAt: Date;
+  user: AccessSessionResult['user'];
+}
+
+export type RefreshResult = LoginResult | AccessSessionResult;
 
 @Injectable()
 export class AuthService {
@@ -173,12 +182,44 @@ export class AuthService {
     };
   }
 
-  async refresh(rawRefreshToken: string, ip?: string, ua?: string): Promise<LoginResult> {
+  async refresh(rawRefreshToken: string, ip?: string, ua?: string): Promise<RefreshResult> {
     const hash = this.jwt.hashToken(rawRefreshToken);
     const row = await this.db.query.refreshTokens.findFirst({
-      where: and(eq(refreshTokens.tokenHash, hash)),
+      where: eq(refreshTokens.tokenHash, hash),
     });
-    if (!row || row.revokedAt || row.expiresAt < new Date()) {
+    if (!row) {
+      throw new UnauthorizedError('Refresh token geçersiz veya süresi dolmuş');
+    }
+    // Reuse detection: yakın zamanlı aynı-istemci replay sekme/reload yarışı
+    // olabilir. Bunun dışındaki revoked token tekrarı hırsızlık sinyalidir ve
+    // oturum ailesi iptal edilir.
+    if (row.revokedAt) {
+      if (this.isBenignRefreshReplay(row, ip, ua)) {
+        const access = await this.issueAccessForRefreshRow(row);
+        await this.audit.write({
+          tenantId: row.tenantId,
+          actorUserId: row.userId,
+          action: 'auth.refresh.replay_grace',
+          resourceType: 'user',
+          resourceId: row.userId,
+          ipAddress: ip,
+          userAgent: ua,
+        });
+        return access;
+      }
+      await this.revokeSessionFamily(row.sessionId, row.userId);
+      await this.audit.write({
+        tenantId: row.tenantId,
+        actorUserId: row.userId,
+        action: 'auth.refresh.reuse_detected',
+        resourceType: 'user',
+        resourceId: row.userId,
+        ipAddress: ip,
+        userAgent: ua,
+      });
+      throw new UnauthorizedError('Oturum güvenlik nedeniyle sonlandırıldı. Lütfen tekrar giriş yapın.');
+    }
+    if (row.expiresAt < new Date()) {
       throw new UnauthorizedError('Refresh token geçersiz veya süresi dolmuş');
     }
 
@@ -236,6 +277,72 @@ export class AuthService {
         roles: userRoleCodes,
       },
     };
+  }
+
+  private isBenignRefreshReplay(
+    row: typeof refreshTokens.$inferSelect,
+    ip?: string,
+    ua?: string
+  ): boolean {
+    if (!row.revokedAt || !row.replacedById) return false;
+    if (Date.now() - row.revokedAt.getTime() > REFRESH_REPLAY_GRACE_MS) return false;
+    if (row.ipAddress && ip && row.ipAddress !== ip) return false;
+    if (row.userAgent && ua && row.userAgent !== ua) return false;
+    return true;
+  }
+
+  private async issueAccessForRefreshRow(row: typeof refreshTokens.$inferSelect): Promise<AccessSessionResult> {
+    const user = await this.db.query.users.findFirst({ where: eq(users.id, row.userId) });
+    if (!user || user.deletedAt || user.status !== 'active') {
+      throw new UnauthorizedError('Kullanıcı geçersiz');
+    }
+
+    const userRoleCodes = (
+      await this.db
+        .select({ code: rolesTable.code })
+        .from(userRoles)
+        .innerJoin(rolesTable, eq(userRoles.roleId, rolesTable.id))
+        .where(eq(userRoles.userId, user.id))
+    ).map((r) => r.code);
+
+    return {
+      accessToken: this.jwt.signAccess({
+        sub: user.id,
+        tid: user.tenantId,
+        email: user.email,
+        roles: userRoleCodes,
+        sid: row.sessionId ?? '',
+      }),
+      user: {
+        id: user.id,
+        email: user.email,
+        fullName: user.fullName,
+        tenantId: user.tenantId,
+        roles: userRoleCodes,
+      },
+    };
+  }
+
+  /**
+   * Bir oturum ailesini topluca iptal eder — reuse tespitinde çağrılır.
+   * sessionId varsa o oturumun tüm aktif refresh token'ları + login session'ı,
+   * yoksa kullanıcının tüm aktif token'ları iptal edilir (fallback).
+   */
+  private async revokeSessionFamily(sessionId: string | null, userId: string): Promise<void> {
+    const now = new Date();
+    if (sessionId) {
+      await this.db
+        .update(refreshTokens)
+        .set({ revokedAt: now })
+        .where(and(eq(refreshTokens.sessionId, sessionId), isNull(refreshTokens.revokedAt)));
+      await this.db.update(loginSessions).set({ revokedAt: now }).where(eq(loginSessions.id, sessionId));
+    } else {
+      await this.db
+        .update(refreshTokens)
+        .set({ revokedAt: now })
+        .where(and(eq(refreshTokens.userId, userId), isNull(refreshTokens.revokedAt)));
+    }
+    invalidateRbacCache(userId);
   }
 
   async logout(rawRefreshToken: string | undefined): Promise<void> {
