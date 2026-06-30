@@ -5,6 +5,16 @@ import { Button } from "../ui/button";
 import { Badge } from "../ui/badge";
 import { Tabs, TabsList, TabsTrigger } from "../ui/tabs";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "../ui/alert-dialog";
+import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "../ui/table";
 import { type Machine, type Product, type StockItem } from "../../lib/mock";
@@ -13,10 +23,11 @@ import { useAuth } from "../../../lib/auth";
 import { ProductDialog } from "../dialogs/CreateDialogs";
 import { ProductImportDialog } from "../dialogs/ProductImportDialog";
 import { ProductDetailDialog, ProductThumb } from "../dialogs/ProductDetailDialog";
+import { toast } from "sonner";
 import {
   Cpu, Search, Package, CheckCircle2, Truck, Wrench, Building2,
   ShieldCheck, AlertTriangle, Clock, MapPin, ChevronRight,
-  Plus, Upload, Pencil,
+  Plus, Upload, Pencil, Trash2,
 } from "lucide-react";
 
 type Stage = "Stokta" | "Rezerve" | "Sevkiyatta" | "Kuruldu" | "Servis" | "Hizmet Dışı";
@@ -117,15 +128,18 @@ function seriesSort(a: string, b: string) {
    ÜRÜNLER (Products) — flat list like the company list, click → detail popup
    ========================================================================= */
 export function ProductsPage({ initialQuery }: { initialQuery?: string }) {
-  const { products } = useStore();
+  const { products, deleteProduct } = useStore();
   const { hasRole, hasPermission } = useAuth();
   const [q, setQ] = useState("");
   const [cat, setCat] = useState<string>("all");
   const [series, setSeries] = useState<string>("all");
   const [selected, setSelected] = useState<Product | null>(null);
   const [editing, setEditing] = useState<Product | null>(null);
+  const [deleting, setDeleting] = useState<Product | null>(null);
+  const [deleteSaving, setDeleteSaving] = useState(false);
   const canCreateProducts = hasPermission("products.create");
   const canEditProducts = hasPermission("products.update");
+  const canDeleteProducts = hasPermission("products.delete");
 
   useEffect(() => {
     if (initialQuery) setQ(initialQuery);
@@ -264,7 +278,7 @@ export function ProductsPage({ initialQuery }: { initialQuery?: string }) {
                 <TableHead>Kategori</TableHead>
                 <TableHead className="text-right">Liste Fiyatı</TableHead>
                 <TableHead className="text-right">Peşin</TableHead>
-                <TableHead className="w-10"></TableHead>
+                <TableHead className="w-[88px]"></TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -300,20 +314,39 @@ export function ProductsPage({ initialQuery }: { initialQuery?: string }) {
                       <TableCell className="text-right tabular-nums">{fmtMoney(p.listPrice, p.currency)}</TableCell>
                       <TableCell className="text-right tabular-nums text-emerald-600">{fmtMoney(p.cashPrice, p.currency)}</TableCell>
                       <TableCell>
-                        {canEditProducts ? (
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon"
-                            className="h-8 w-8"
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              setEditing(p);
-                            }}
-                            title="Ürünü düzenle"
-                          >
-                            <Pencil className="size-4 text-muted-foreground" />
-                          </Button>
+                        {(canEditProducts || canDeleteProducts) ? (
+                          <div className="flex items-center justify-end gap-1">
+                            {canEditProducts && (
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  setEditing(p);
+                                }}
+                                title="Ürünü düzenle"
+                              >
+                                <Pencil className="size-4 text-muted-foreground" />
+                              </Button>
+                            )}
+                            {canDeleteProducts && (
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8 hover:bg-red-50"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  setDeleting(p);
+                                }}
+                                title="Ürünü sil"
+                              >
+                                <Trash2 className="size-4 text-red-600" />
+                              </Button>
+                            )}
+                          </div>
                         ) : (
                           <ChevronRight className="size-4 text-muted-foreground opacity-0 group-hover:opacity-100" />
                         )}
@@ -340,6 +373,40 @@ export function ProductsPage({ initialQuery }: { initialQuery?: string }) {
       </Card>
 
       <ProductDetailDialog product={selected} onClose={() => setSelected(null)} />
+      <AlertDialog open={!!deleting} onOpenChange={(open) => !open && !deleteSaving && setDeleting(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Ürünü sil?</AlertDialogTitle>
+            <AlertDialogDescription>
+              <b>{deleting ? `${deleting.brand} ${deleting.model}`.trim() : ""}</b> arşive alınacak. Bağlı kayıtlarda kullanılıyorsa işlem reddedilebilir.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleteSaving}>Vazgeç</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-red-600 hover:bg-red-700"
+              disabled={deleteSaving}
+              onClick={async () => {
+                if (!deleting) return;
+                setDeleteSaving(true);
+                try {
+                  await deleteProduct(deleting.id);
+                  if (selected?.id === deleting.id) setSelected(null);
+                  if (editing?.id === deleting.id) setEditing(null);
+                  toast.success("Ürün silindi", { description: `${deleting.brand} ${deleting.model}`.trim() });
+                  setDeleting(null);
+                } catch (err: any) {
+                  toast.error("Ürün silinemedi", { description: err?.message ?? "Bağlı kayıtlar olabilir." });
+                } finally {
+                  setDeleteSaving(false);
+                }
+              }}
+            >
+              {deleteSaving ? "Siliniyor..." : "Sil"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
       {editing && (
         <ProductDialog
           mode="edit"
