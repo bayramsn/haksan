@@ -14,7 +14,7 @@ import { MultiSelect } from "../ui/multi-select";
 import { Checkbox } from "../ui/checkbox";
 import { useStore } from "../../lib/store";
 import { usePersistentState } from "../../lib/persist";
-import { SALES_STAGES, salesStageLabel, SHIPMENT_STATUSES, DELIVERY_STATUSES, type ShipmentStatus, type DeliveryStatus, type Customer, type Contact, type Product, type ProductSpec, type ServiceTicketType } from "../../lib/mock";
+import { SALES_STAGES, salesStageLabel, SHIPMENT_STATUSES, DELIVERY_STATUSES, type ShipmentStatus, type DeliveryStatus, type Customer, type Contact, type Product, type ProductSpec, type ServiceTicketType, type StockItem } from "../../lib/mock";
 
 const SERVICE_TICKET_TYPE_OPTIONS: { value: ServiceTicketType; label: string }[] = [
   { value: "complaint", label: "Şikayet" },
@@ -46,6 +46,7 @@ import {
 import { PROVINCE_NAMES } from "../../lib/geo";
 import {
   HAKSAN_CNC_SPEC_KEYS,
+  HAKSAN_CNC_SPEC_VALUE_UNITS,
   allCatalogProductSpecs,
 } from "../../lib/productSpecTemplates";
 import { QuoteDialog } from "./QuoteDialog";
@@ -1060,7 +1061,7 @@ function AutocompleteInput({ value, onChange, options, placeholder }: { value: s
 }
 
 /* ---------- Stock Item ---------- */
-const STATUSES: Array<"Available" | "Reserved" | "Sold" | "Inactive"> = ["Available", "Reserved", "Sold", "Inactive"];
+const STATUSES: Array<StockItem["status"]> = ["Available", "Reserved", "InTransit", "Sold", "Inactive"];
 
 const emptyStockForm = () => ({
   brand: "",
@@ -1070,15 +1071,16 @@ const emptyStockForm = () => ({
   controlPanel: "",
   stockCode: "",
   warehouse: "",
-  status: "Available" as "Available" | "Reserved" | "Sold" | "Inactive",
+  status: "Available" as StockItem["status"],
   categoryCode: "TEZGAH" as StockCategoryCode,
   optionalHardware: "",
   spareParts: "",
   productId: "",
+  parentInventoryItemId: null as string | null,
 });
 
 export function CreateStockDialog({ trigger }: { trigger: React.ReactNode }) {
-  const { addStock, stock, products } = useStore();
+  const { addStock, stock, products, refresh } = useStore();
   const [open, setOpen] = useState(false);
   // Mod: "single" = tek seri-no'lu kalem · "bulk" = bir üründen N adet seri-no üret.
   const [mode, setMode] = useState<"single" | "bulk">("single");
@@ -1087,6 +1089,7 @@ export function CreateStockDialog({ trigger }: { trigger: React.ReactNode }) {
   const [saving, setSaving] = useState(false);
   const [warehouses, setWarehouses] = useState<string[]>([]);
   const [form, setForm] = useState(emptyStockForm);
+  const [linkedOptionalIds, setLinkedOptionalIds] = useState<string[]>([]);
 
   useEffect(() => {
     if (!open) return;
@@ -1104,6 +1107,8 @@ export function CreateStockDialog({ trigger }: { trigger: React.ReactNode }) {
   const allTypes = Array.from(new Set([...catalogProducts.map((p) => p.type), ...stock.filter((s) => s.categoryCode === form.categoryCode).map((s) => s.counterType), form.counterType].filter(Boolean)));
   const allPanels = Array.from(new Set([...catalogProducts.map((p) => p.controlPanel), ...stock.filter((s) => s.categoryCode === form.categoryCode).map((s) => s.controlPanel), form.controlPanel].filter(Boolean)));
   const warehouseOptions = Array.from(new Set([...warehouses, ...stock.map((s) => s.warehouse), form.warehouse].filter(Boolean)));
+  const machineStockOptions = stock.filter((s) => (s.categoryCode ?? "TEZGAH") === "TEZGAH" && !s.parentInventoryItemId);
+  const independentOptionalEquipment = stock.filter((s) => s.categoryCode === "OPSIYONEL_DONANIM" && !s.parentInventoryItemId);
 
   // Katalogdan seçilen ürünle stok alanlarını otomatik doldur. 
   // Artık tüm alanlar serbest metin (datalist destekli) olduğu için
@@ -1128,6 +1133,7 @@ export function CreateStockDialog({ trigger }: { trigger: React.ReactNode }) {
 
   const reset = () => {
     setMode("single"); setProductId(""); setQuantity("5");
+    setLinkedOptionalIds([]);
     setForm(emptyStockForm());
   };
 
@@ -1160,6 +1166,10 @@ export function CreateStockDialog({ trigger }: { trigger: React.ReactNode }) {
         if (stock.some((s) => s.serialNumber === form.serialNumber)) { setSaving(false); return toast.error("Bu seri numarası zaten kayıtlı"); }
         if (stock.some((s) => s.stockCode === form.stockCode)) { setSaving(false); return toast.error("Bu stok kodu zaten kullanılıyor"); }
         const c = await addStock(form);
+        if (form.categoryCode === "TEZGAH" && linkedOptionalIds.length) {
+          await Promise.all(linkedOptionalIds.map((id) => inventoryService.update(id, { parentInventoryItemId: c.id })));
+          await refresh();
+        }
         toast.success("Stok kalemi eklendi", { description: `${c.stockCode} · ${c.serialNumber}` });
       }
       setOpen(false);
@@ -1194,7 +1204,8 @@ export function CreateStockDialog({ trigger }: { trigger: React.ReactNode }) {
               value={form.categoryCode}
               onValueChange={(v: StockCategoryCode) => {
                 setProductId("");
-                setForm((f) => ({ ...f, categoryCode: v, counterModel: "", counterType: "", brand: "", controlPanel: "" }));
+                setLinkedOptionalIds([]);
+                setForm((f) => ({ ...f, categoryCode: v, counterModel: "", counterType: "", brand: "", controlPanel: "", parentInventoryItemId: null }));
               }}
             >
               <SelectTrigger className="mt-1.5"><SelectValue /></SelectTrigger>
@@ -1207,9 +1218,54 @@ export function CreateStockDialog({ trigger }: { trigger: React.ReactNode }) {
             <p className="text-[11px] text-muted-foreground mt-1">
               {form.categoryCode === "TEZGAH"
                 ? "Tezgah stoku yalnızca satış süreçlerinde kullanılır."
-                : "Yedek parça stoku hem satış hem servis süreçlerinde kullanılır."}
+                : form.categoryCode === "OPSIYONEL_DONANIM"
+                  ? "Opsiyonel donanım bağımsız stok kalemi olarak kalabilir veya bir tezgaha bağlanabilir."
+                  : "Bu kategori seri no ile stok ve sevkiyat süreçlerinde takip edilir."}
             </p>
           </div>
+
+          {form.categoryCode === "OPSIYONEL_DONANIM" && (
+            <div>
+              <Label className="text-xs" htmlFor="stock-parent-machine">Bağlı Tezgah</Label>
+              <Select
+                value={form.parentInventoryItemId ?? "independent"}
+                onValueChange={(v) => setForm({ ...form, parentInventoryItemId: v === "independent" ? null : v })}
+              >
+                <SelectTrigger id="stock-parent-machine" className="mt-1.5">
+                  <SelectValue placeholder="Bağımsız stok kalemi" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="independent">Bağımsız stok kalemi</SelectItem>
+                  {machineStockOptions.map((item) => (
+                    <SelectItem key={item.id} value={item.id}>
+                      {item.brand} {item.counterModel} · {item.serialNumber}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+
+          {form.categoryCode === "TEZGAH" && independentOptionalEquipment.length > 0 && mode === "single" && (
+            <div className="rounded-lg border border-border/60 bg-muted/30 p-3">
+              <Label className="text-xs">Bağlanacak Opsiyonel Donanımlar</Label>
+              <div className="mt-2 grid gap-2 max-h-32 overflow-y-auto">
+                {independentOptionalEquipment.map((item) => (
+                  <label key={item.id} className="flex items-center gap-2 rounded-md bg-white px-2 py-1.5 text-sm">
+                    <Checkbox
+                      checked={linkedOptionalIds.includes(item.id)}
+                      onCheckedChange={(checked) => {
+                        setLinkedOptionalIds((prev) =>
+                          checked ? [...prev, item.id] : prev.filter((id) => id !== item.id),
+                        );
+                      }}
+                    />
+                    <span className="truncate">{item.brand} {item.counterModel} · {item.serialNumber}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Katalogdan ürün seç → alanları otomatik doldur */}
           <div className="rounded-lg border border-border/60 bg-muted/30 p-3 space-y-2.5">
@@ -1891,6 +1947,7 @@ export function ProductDialog({
   const specValueOptionsFor = (spec: ProductSpec) => {
     const values = new Set(specValueOptionsByKey.get(spec.key.trim()) ?? []);
     if (spec.value.trim()) values.add(spec.value.trim());
+    for (const unit of HAKSAN_CNC_SPEC_VALUE_UNITS) values.add(unit);
     values.add("-");
     return [...values]
       .sort((a, b) => a.localeCompare(b, "tr-TR", { numeric: true }))
@@ -2843,38 +2900,154 @@ function Field({ label, value, onChange, type = "text", placeholder, className =
 }
 
 /* ---------- Sevkiyat ---------- */
-const SHIPMENT_CARRIERS = ["DHL", "UPS", "FedEx", "MNG", "Aras", "Yurtiçi", "Sürat", "Diğer"];
+type ShipmentTransportMode = "road" | "air" | "sea" | "local_cargo";
+const TRANSPORT_MODE_LABELS: Record<ShipmentTransportMode, string> = {
+  road: "Karayolu",
+  air: "Havayolu",
+  sea: "Deniz Yolu",
+  local_cargo: "Yerel Kargo",
+};
+
+type ShipmentLineForm = {
+  id: string;
+  productModelId: string;
+  inventoryItemId: string;
+  description: string;
+  serialNumber: string;
+  quantity: string;
+  packageCount: string;
+  palletCount: string;
+  packageLengthCm: string;
+  packageWidthCm: string;
+  packageHeightCm: string;
+  grossWeightKg: string;
+  packageNotes: string;
+};
+
+const emptyShipmentLine = (): ShipmentLineForm => ({
+  id: globalThis.crypto?.randomUUID?.() ?? `line-${Date.now()}-${Math.random()}`,
+  productModelId: "",
+  inventoryItemId: "",
+  description: "",
+  serialNumber: "",
+  quantity: "1",
+  packageCount: "1",
+  palletCount: "0",
+  packageLengthCm: "",
+  packageWidthCm: "",
+  packageHeightCm: "",
+  grossWeightKg: "",
+  packageNotes: "",
+});
+
 export function CreateShipmentDialog({ trigger, onCreated }: { trigger: React.ReactNode; onCreated?: () => void }) {
-  const { addShipment, cases, customers } = useStore();
+  const { addShipment, cases, customers, products, stock } = useStore();
   const customerName = (id: string) => customers.find((c) => c.id === id)?.name ?? "—";
   const [open, setOpen] = useState(false);
+  const [warehouses, setWarehouses] = useState<Array<{ id: string; name: string }>>([]);
+  const [senderCompanies, setSenderCompanies] = useState<Array<{ id: string; legalTitle: string; shortName?: string | null }>>([]);
+  const [carrierCompanies, setCarrierCompanies] = useState<Array<{ id: string; legalTitle: string; shortName?: string | null }>>([]);
   const emptyForm = () => ({
     salesCaseId: cases[0]?.id ?? "",
+    senderCompanyId: "",
+    carrierCompanyId: "",
+    transportMode: "road" as ShipmentTransportMode,
+    productCategoryCode: "TEZGAH" as StockCategoryCode,
+    destinationWarehouseId: "",
+    loadingDate: new Date().toISOString().slice(0, 10),
     trackingNo: `TRK-${Math.floor(100000 + Math.random() * 900000)}`,
-    carrier: "DHL",
+    carrier: "",
     origin: "",
     destination: "",
     eta: new Date().toISOString().slice(0, 10),
     status: "Hazırlanıyor" as ShipmentStatus,
+    items: [emptyShipmentLine()],
   });
   const [form, setForm] = useState(emptyForm);
   const reset = () => setForm(emptyForm());
 
+  useEffect(() => {
+    if (!open) return;
+    inventoryService.listWarehouses()
+      .then((rows) => setWarehouses(rows.map((w: any) => ({ id: w.id, name: w.name })).filter((w: any) => w.id && w.name)))
+      .catch(() => setWarehouses([]));
+    serviceService.shipmentCompanyOptions({ purpose: "sender" })
+      .then(setSenderCompanies)
+      .catch(() => setSenderCompanies([]));
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    serviceService.shipmentCompanyOptions({ purpose: "carrier", transportMode: form.transportMode })
+      .then((rows) => {
+        setCarrierCompanies(rows);
+        if (form.carrierCompanyId && !rows.some((row: any) => row.id === form.carrierCompanyId)) {
+          setForm((prev) => ({ ...prev, carrierCompanyId: "", carrier: "" }));
+        }
+      })
+      .catch(() => setCarrierCompanies([]));
+  }, [open, form.transportMode]);
+
+  const productOptions = useMemo(
+    () => products.filter((p) => (p.categoryCode ?? "TEZGAH") === form.productCategoryCode),
+    [products, form.productCategoryCode],
+  );
+
+  const updateLine = (id: string, patch: Partial<ShipmentLineForm>) => {
+    setForm((prev) => ({
+      ...prev,
+      items: prev.items.map((line) => (line.id === id ? { ...line, ...patch } : line)),
+    }));
+  };
+
+  const productLabel = (productId: string) => {
+    const p = products.find((x) => x.id === productId);
+    return [p?.brand, p?.model].filter(Boolean).join(" ") || p?.modelName || "Ürün";
+  };
+
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!form.trackingNo.trim()) return toast.error("Takip no giriniz");
-    if (!form.destination.trim()) return toast.error("Varış noktası giriniz");
+    if (!form.senderCompanyId) return toast.error("Gönderici firma seçiniz");
+    if (!form.carrierCompanyId) return toast.error("Taşıyıcı firma seçiniz");
+    if (!form.destinationWarehouseId) return toast.error("Varış deposu seçiniz");
+    if (!form.items.length || form.items.some((line) => !line.productModelId || !line.description.trim())) {
+      return toast.error("Ürün satırlarını tamamlayınız");
+    }
     try {
+      const carrier = carrierCompanies.find((c) => c.id === form.carrierCompanyId);
+      const destinationWarehouse = warehouses.find((w) => w.id === form.destinationWarehouseId);
       await addShipment({
         salesCaseId: form.salesCaseId,
+        senderCompanyId: form.senderCompanyId,
+        carrierCompanyId: form.carrierCompanyId,
+        transportMode: form.transportMode,
+        productCategoryCode: form.productCategoryCode,
+        destinationWarehouseId: form.destinationWarehouseId,
+        destinationWarehouseName: destinationWarehouse?.name,
+        loadingDate: form.loadingDate,
         trackingNo: form.trackingNo.trim(),
-        carrier: form.carrier,
+        carrier: carrier?.shortName ?? carrier?.legalTitle ?? "",
         origin: form.origin.trim(),
-        destination: form.destination.trim(),
+        destination: destinationWarehouse?.name ?? form.destination.trim(),
         eta: form.eta,
         status: form.status,
+        items: form.items.map((line) => ({
+          productModelId: line.productModelId,
+          inventoryItemId: line.inventoryItemId || undefined,
+          description: line.description.trim(),
+          serialNumber: line.serialNumber || undefined,
+          quantity: Number(line.quantity || 1),
+          packageCount: line.packageCount ? Number(line.packageCount) : undefined,
+          palletCount: line.palletCount ? Number(line.palletCount) : undefined,
+          packageLengthCm: line.packageLengthCm ? Number(line.packageLengthCm) : undefined,
+          packageWidthCm: line.packageWidthCm ? Number(line.packageWidthCm) : undefined,
+          packageHeightCm: line.packageHeightCm ? Number(line.packageHeightCm) : undefined,
+          grossWeightKg: line.grossWeightKg ? Number(line.grossWeightKg) : undefined,
+          packageNotes: line.packageNotes.trim() || undefined,
+        })),
       });
-      toast.success("Sevkiyat oluşturuldu", { description: `${form.trackingNo} · ${form.carrier}` });
+      toast.success("Sevkiyat oluşturuldu", { description: `${form.trackingNo} · ${TRANSPORT_MODE_LABELS[form.transportMode]}` });
       setOpen(false);
       reset();
       onCreated?.();
@@ -2886,36 +3059,82 @@ export function CreateShipmentDialog({ trigger, onCreated }: { trigger: React.Re
   return (
     <Dialog open={open} onOpenChange={(o) => { setOpen(o); if (o) reset(); }}>
       <DialogTrigger asChild>{trigger}</DialogTrigger>
-      <DialogContent className="max-w-lg">
+      <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2"><Truck className="size-5 text-primary" /> Yeni Sevkiyat</DialogTitle>
-          <DialogDescription>Bir satış kartına bağlı sevkiyat takibi oluşturun.</DialogDescription>
+          <DialogDescription>Seri no, paket ve palet bilgileriyle sevkiyat kaydı oluşturun.</DialogDescription>
         </DialogHeader>
         <form onSubmit={submit} className="space-y-4">
-          <div>
-            <Label className="text-xs" htmlFor="ship-case">Satış Kartı / Müşteri</Label>
-            <Select value={form.salesCaseId} onValueChange={(v) => setForm({ ...form, salesCaseId: v })}>
-              <SelectTrigger id="ship-case" className="mt-1.5"><SelectValue placeholder="Satış kartı seçin..." /></SelectTrigger>
-              <SelectContent>
-                {cases.map((c) => (
-                  <SelectItem key={c.id} value={c.id}>{customerName(c.customerId)} · {c.requestedProduct}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="Takip No *" name="ship-tracking" value={form.trackingNo} onChange={(v) => setForm({ ...form, trackingNo: v })} placeholder="TRK-000000" />
+          <div className="grid grid-cols-3 gap-3">
             <div>
-              <Label className="text-xs" htmlFor="ship-carrier">Taşıyıcı</Label>
-              <Select value={form.carrier} onValueChange={(v) => setForm({ ...form, carrier: v })}>
-                <SelectTrigger id="ship-carrier" className="mt-1.5"><SelectValue /></SelectTrigger>
+              <Label className="text-xs" htmlFor="ship-case">Satış Kartı / Müşteri</Label>
+              <Select value={form.salesCaseId || "none"} onValueChange={(v) => setForm({ ...form, salesCaseId: v === "none" ? "" : v })}>
+                <SelectTrigger id="ship-case" className="mt-1.5"><SelectValue placeholder="Satış kartı seçin..." /></SelectTrigger>
                 <SelectContent>
-                  {SHIPMENT_CARRIERS.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+                  <SelectItem value="none">Bağımsız sevkiyat</SelectItem>
+                  {cases.map((c) => (
+                    <SelectItem key={c.id} value={c.id}>{customerName(c.customerId)} · {c.requestedProduct}</SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
+            <div>
+              <Label className="text-xs" htmlFor="ship-sender">Gönderici Firma *</Label>
+              <Select value={form.senderCompanyId || undefined} onValueChange={(v) => setForm({ ...form, senderCompanyId: v })}>
+                <SelectTrigger id="ship-sender" className="mt-1.5"><SelectValue placeholder="Firma seçin" /></SelectTrigger>
+                <SelectContent>
+                  {senderCompanies.map((c) => <SelectItem key={c.id} value={c.id}>{c.shortName ?? c.legalTitle}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label className="text-xs" htmlFor="ship-mode">Sevkiyat Türü *</Label>
+              <Select value={form.transportMode} onValueChange={(v: ShipmentTransportMode) => setForm({ ...form, transportMode: v })}>
+                <SelectTrigger id="ship-mode" className="mt-1.5"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {Object.entries(TRANSPORT_MODE_LABELS).map(([code, label]) => <SelectItem key={code} value={code}>{label}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label className="text-xs" htmlFor="ship-carrier">Taşıyıcı Firma *</Label>
+              <Select
+                value={form.carrierCompanyId || undefined}
+                onValueChange={(v) => {
+                  const carrier = carrierCompanies.find((c) => c.id === v);
+                  setForm({ ...form, carrierCompanyId: v, carrier: carrier?.shortName ?? carrier?.legalTitle ?? "" });
+                }}
+              >
+                <SelectTrigger id="ship-carrier" className="mt-1.5"><SelectValue placeholder="Firma seçin" /></SelectTrigger>
+                <SelectContent>
+                  {carrierCompanies.map((c) => <SelectItem key={c.id} value={c.id}>{c.shortName ?? c.legalTitle}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label className="text-xs" htmlFor="ship-category">Ürün Kategorisi</Label>
+              <Select
+                value={form.productCategoryCode}
+                onValueChange={(v: StockCategoryCode) => setForm({ ...form, productCategoryCode: v, items: [emptyShipmentLine()] })}
+              >
+                <SelectTrigger id="ship-category" className="mt-1.5"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {STOCK_CATEGORY_CODES.map((code) => <SelectItem key={code} value={code}>{STOCK_CATEGORY_LABELS[code]}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label className="text-xs" htmlFor="ship-warehouse">Varış Deposu *</Label>
+              <Select value={form.destinationWarehouseId || undefined} onValueChange={(v) => setForm({ ...form, destinationWarehouseId: v })}>
+                <SelectTrigger id="ship-warehouse" className="mt-1.5"><SelectValue placeholder="Depo seçin" /></SelectTrigger>
+                <SelectContent>
+                  {warehouses.map((w) => <SelectItem key={w.id} value={w.id}>{w.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <Field label="Takip No *" name="ship-tracking" value={form.trackingNo} onChange={(v) => setForm({ ...form, trackingNo: v })} placeholder="TRK-000000" />
             <Field label="Çıkış" name="ship-origin" value={form.origin} onChange={(v) => setForm({ ...form, origin: v })} placeholder="Hamburg" />
-            <Field label="Varış *" name="ship-dest" value={form.destination} onChange={(v) => setForm({ ...form, destination: v })} placeholder="İstanbul" />
+            <Field label="Yüklenme Tarihi" name="ship-loading-date" type="date" value={form.loadingDate} onChange={(v) => setForm({ ...form, loadingDate: v })} />
             <Field label="Tahmini Varış (ETA)" name="ship-eta" type="date" value={form.eta} onChange={(v) => setForm({ ...form, eta: v })} />
             <div>
               <Label className="text-xs" htmlFor="ship-status">Durum</Label>
@@ -2926,6 +3145,93 @@ export function CreateShipmentDialog({ trigger, onCreated }: { trigger: React.Re
                 </SelectContent>
               </Select>
             </div>
+          </div>
+
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <Label className="text-xs">Ürün ve Paket Satırları</Label>
+              <Button type="button" variant="outline" size="sm" onClick={() => setForm({ ...form, items: [...form.items, emptyShipmentLine()] })}>
+                <Plus className="size-4 mr-1" /> Satır
+              </Button>
+            </div>
+            {form.items.map((line, index) => {
+              const serialOptions = stock.filter((s) =>
+                (s.categoryCode ?? "TEZGAH") === form.productCategoryCode &&
+                (!line.productModelId || s.productId === line.productModelId)
+              );
+              return (
+                <div key={line.id} className="rounded-lg border border-border/70 p-3 space-y-3">
+                  <div className="grid grid-cols-12 gap-2">
+                    <div className="col-span-4">
+                      <Label className="text-xs">Ürün *</Label>
+                      <Select
+                        value={line.productModelId || undefined}
+                        onValueChange={(v) => {
+                          updateLine(line.id, {
+                            productModelId: v,
+                            inventoryItemId: "",
+                            serialNumber: "",
+                            description: productLabel(v),
+                          });
+                        }}
+                      >
+                        <SelectTrigger className="mt-1.5"><SelectValue placeholder="Ürün seçin" /></SelectTrigger>
+                        <SelectContent>
+                          {productOptions.map((p) => <SelectItem key={p.id} value={p.id}>{[p.brand, p.model].filter(Boolean).join(" ")}{p.type ? ` · ${p.type}` : ""}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="col-span-3">
+                      <Label className="text-xs">Seri No</Label>
+                      <Select
+                        value={line.inventoryItemId || "unresolved"}
+                        onValueChange={(v) => {
+                          if (v === "unresolved") return updateLine(line.id, { inventoryItemId: "", serialNumber: "" });
+                          const item = stock.find((s) => s.id === v);
+                          updateLine(line.id, {
+                            inventoryItemId: v,
+                            productModelId: item?.productId ?? line.productModelId,
+                            serialNumber: item?.serialNumber ?? "",
+                            description: line.description || [item?.brand, item?.counterModel].filter(Boolean).join(" "),
+                          });
+                        }}
+                      >
+                        <SelectTrigger className="mt-1.5"><SelectValue placeholder="Seri no seçin" /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="unresolved">Sonra seçilecek</SelectItem>
+                          {serialOptions.map((s) => <SelectItem key={s.id} value={s.id}>{s.serialNumber} · {s.brand} {s.counterModel}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <Field className="col-span-3" label="Açıklama *" value={line.description} onChange={(v) => updateLine(line.id, { description: v })} placeholder="Ürün açıklaması" />
+                    <div className="col-span-1">
+                      <Field label="Adet" type="number" value={line.quantity} onChange={(v) => updateLine(line.id, { quantity: v })} />
+                    </div>
+                    <div className="col-span-1 flex items-end justify-end">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        disabled={form.items.length === 1}
+                        onClick={() => setForm((prev) => ({ ...prev, items: prev.items.filter((item) => item.id !== line.id) }))}
+                        aria-label={`Satır ${index + 1} sil`}
+                      >
+                        <Trash2 className="size-4" />
+                      </Button>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-6 gap-2">
+                    <Field label="Paket" type="number" value={line.packageCount} onChange={(v) => updateLine(line.id, { packageCount: v })} />
+                    <Field label="Palet" type="number" value={line.palletCount} onChange={(v) => updateLine(line.id, { palletCount: v })} />
+                    <Field label="Uzunluk cm" type="number" value={line.packageLengthCm} onChange={(v) => updateLine(line.id, { packageLengthCm: v })} />
+                    <Field label="Genişlik cm" type="number" value={line.packageWidthCm} onChange={(v) => updateLine(line.id, { packageWidthCm: v })} />
+                    <Field label="Yükseklik cm" type="number" value={line.packageHeightCm} onChange={(v) => updateLine(line.id, { packageHeightCm: v })} />
+                    <Field label="Brüt kg" type="number" value={line.grossWeightKg} onChange={(v) => updateLine(line.id, { grossWeightKg: v })} />
+                  </div>
+                  <Field label="Paket Notu" value={line.packageNotes} onChange={(v) => updateLine(line.id, { packageNotes: v })} placeholder="Paket bilgisi" />
+                </div>
+              );
+            })}
           </div>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => setOpen(false)}>Vazgeç</Button>

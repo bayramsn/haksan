@@ -10,25 +10,43 @@ export const shipmentStatusCodeSchema = z.enum([
 ]);
 export type ShipmentStatusCode = z.infer<typeof shipmentStatusCodeSchema>;
 
+export const shipmentTransportModeSchema = z.enum(['road', 'air', 'sea', 'local_cargo']);
+export type ShipmentTransportMode = z.infer<typeof shipmentTransportModeSchema>;
+
+const optionalUuidSchema = z.string().uuid().optional();
+
 /** Sevkiyat satır kalemi (paketleme listesi); bir seri-numaralı stok kalemine bağlanabilir. */
 export const shipmentItemInputSchema = z.object({
-  inventoryItemId: z.string().optional(),
-  salesOrderItemId: z.string().optional(),
-  productModelId: z.string().optional(),
+  inventoryItemId: optionalUuidSchema,
+  salesOrderItemId: optionalUuidSchema,
+  productModelId: optionalUuidSchema,
   description: z.string().min(1).max(2000),
   serialNumber: z.string().max(128).optional(),
   quantity: moneySchema.default(1),
   unitCode: z.string().max(16).default('adet'),
   sortOrder: z.coerce.number().int().default(0),
+  packageCount: z.coerce.number().int().min(0).optional(),
+  palletCount: z.coerce.number().int().min(0).optional(),
+  packageLengthCm: moneySchema.optional(),
+  packageWidthCm: moneySchema.optional(),
+  packageHeightCm: moneySchema.optional(),
+  grossWeightKg: moneySchema.optional(),
+  packageNotes: z.string().max(2000).optional(),
 });
 export type ShipmentItemInput = z.infer<typeof shipmentItemInputSchema>;
 
 export const shipmentCreateSchema = z.object({
-  divisionId: z.string().uuid().optional(),
-  opportunityId: z.string().optional(),
-  quoteId: z.string().optional(),
-  salesOrderId: z.string().optional(),
-  companyId: z.string().optional(),
+  divisionId: optionalUuidSchema,
+  opportunityId: optionalUuidSchema,
+  quoteId: optionalUuidSchema,
+  salesOrderId: optionalUuidSchema,
+  companyId: optionalUuidSchema,
+  senderCompanyId: optionalUuidSchema,
+  carrierCompanyId: optionalUuidSchema,
+  transportMode: shipmentTransportModeSchema.optional(),
+  productCategoryCode: z.string().max(64).optional(),
+  destinationWarehouseId: optionalUuidSchema,
+  loadingDate: z.coerce.date().optional(),
   shipmentNo: z.string().max(64).optional(),
   carrier: z.string().max(255).optional(),
   trackingNo: z.string().max(128).optional(),
@@ -45,7 +63,17 @@ export type ShipmentCreateInput = z.infer<typeof shipmentCreateSchema>;
 export const shipmentUpdateSchema = shipmentCreateSchema.partial();
 export type ShipmentUpdateInput = z.infer<typeof shipmentUpdateSchema>;
 
-export const shipmentStatusUpdateSchema = z.object({ statusCode: shipmentStatusCodeSchema });
+export const shipmentStartSchema = z.object({
+  loadingDate: z.coerce.date().optional(),
+});
+export type ShipmentStartInput = z.infer<typeof shipmentStartSchema>;
+
+export const shipmentStatusUpdateSchema = z.object({
+  statusCode: shipmentStatusCodeSchema,
+  destinationWarehouseId: optionalUuidSchema,
+  loadingDate: z.coerce.date().optional(),
+  arrivedAt: z.coerce.date().optional(),
+});
 export type ShipmentStatusUpdateInput = z.infer<typeof shipmentStatusUpdateSchema>;
 
 /** "fulfilled" satış siparişinden otomatik sevkiyat üretirken kullanılan opsiyonel meta. */

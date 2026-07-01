@@ -316,6 +316,20 @@
       "when": 1783708800000,
       "tag": "0044_drop_product_sub_brand",
       "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "7",
+      "when": 1783795200000,
+      "tag": "0045_accounting_invoice_category_lines",
+      "breakpoints": true
+    },
+    {
+      "idx": 46,
+      "version": "7",
+      "when": 1783881600000,
+      "tag": "0046_shipment_stock_sync",
+      "breakpoints": true
     }
   ]
 }

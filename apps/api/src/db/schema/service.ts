@@ -4,7 +4,7 @@ import { auditColumns, money } from './_helpers';
 import { tenants, divisions } from './tenants';
 import { users } from './users';
 import { companies, contacts } from './companies';
-import { customerDevices, inventoryItems } from './inventory';
+import { customerDevices, inventoryItems, warehouses } from './inventory';
 import { opportunities } from './crm';
 import { quotes } from './quotes';
 import { salesOrders, salesOrderItems } from './orders';
@@ -243,6 +243,12 @@ export const shipments = pgTable(
     // Sevkiyatı satış siparişine ve müşteriye bağlar; "fulfilled" sipariş bu kolonlardan sevkiyat doğurur.
     salesOrderId: uuid('sales_order_id').references(() => salesOrders.id, { onDelete: 'set null' }),
     companyId: uuid('company_id').references(() => companies.id, { onDelete: 'set null' }),
+    senderCompanyId: uuid('sender_company_id').references(() => companies.id, { onDelete: 'set null' }),
+    carrierCompanyId: uuid('carrier_company_id').references(() => companies.id, { onDelete: 'set null' }),
+    transportMode: varchar('transport_mode', { length: 32 }),
+    productCategoryCode: varchar('product_category_code', { length: 64 }),
+    destinationWarehouseId: uuid('destination_warehouse_id').references(() => warehouses.id, { onDelete: 'set null' }),
+    loadingDate: timestamp('loading_date', { withTimezone: true }),
     shipmentNo: varchar('shipment_no', { length: 64 }),
     carrier: varchar('carrier', { length: 255 }),
     trackingNo: varchar('tracking_no', { length: 128 }),
@@ -264,6 +270,9 @@ export const shipments = pgTable(
     statusIdx: index('shipments_status_idx').on(t.statusId),
     salesOrderIdx: index('shipments_sales_order_idx').on(t.salesOrderId),
     companyIdx: index('shipments_company_idx').on(t.companyId),
+    senderCompanyIdx: index('shipments_sender_company_idx').on(t.senderCompanyId),
+    carrierCompanyIdx: index('shipments_carrier_company_idx').on(t.carrierCompanyId),
+    destinationWarehouseIdx: index('shipments_destination_warehouse_idx').on(t.destinationWarehouseId),
   })
 );
 
@@ -290,6 +299,13 @@ export const shipmentItems = pgTable(
     quantity: money('quantity').notNull().default('1'),
     unitId: uuid('unit_id').references(() => units.id),
     sortOrder: integer('sort_order').notNull().default(0),
+    packageCount: integer('package_count'),
+    palletCount: integer('pallet_count'),
+    packageLengthCm: money('package_length_cm'),
+    packageWidthCm: money('package_width_cm'),
+    packageHeightCm: money('package_height_cm'),
+    grossWeightKg: money('gross_weight_kg'),
+    packageNotes: text('package_notes'),
     ...auditColumns,
   },
   (t) => ({

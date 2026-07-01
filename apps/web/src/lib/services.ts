@@ -74,6 +74,8 @@ import type {
   ServiceComplaintRejectInput,
   ServiceComplaintUpdateInput,
   ShipmentCreateInput,
+  ShipmentStartInput,
+  ShipmentStatusUpdateInput,
   SignedUploadUrlInput,
   TargetUpsertInput,
   TenantUpdateInput,
@@ -607,9 +609,12 @@ export const serviceService = {
     api.patch<any>(`/installations/${id}/status`, body),
   shipments: (params?: Record<string, string | number | undefined>) => api.get<Paginated<any>>(`/shipments${qs(params)}`),
   shipment: (id: string) => api.get<any>(`/shipments/${id}`),
+  shipmentCompanyOptions: (params?: { purpose?: 'sender' | 'carrier'; transportMode?: 'road' | 'air' | 'sea' | 'local_cargo'; search?: string }) =>
+    api.get<any[]>(`/shipments/company-options${qs(params as Record<string, string | number | undefined>)}`),
   createShipment: (body: ShipmentCreateInput) => api.post<any>('/shipments', body),
-  updateShipmentStatus: (id: string, statusCode: string) =>
-    api.patch<any>(`/shipments/${id}/status`, { statusCode }),
+  startShipment: (id: string, body: ShipmentStartInput = {}) => api.post<any>(`/shipments/${id}/start`, body),
+  updateShipmentStatus: (id: string, body: ShipmentStatusUpdateInput | string) =>
+    api.patch<any>(`/shipments/${id}/status`, typeof body === 'string' ? { statusCode: body } : body),
   deliveries: (params?: Record<string, string | number | undefined>) => api.get<Paginated<any>>(`/deliveries${qs(params)}`),
   createDelivery: (body: DeliveryCreateInput) => api.post<any>('/deliveries', body),
   updateDelivery: (id: string, body: DeliveryUpdateInput) => api.patch<any>(`/deliveries/${id}`, body),

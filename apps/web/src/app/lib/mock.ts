@@ -267,15 +267,19 @@ export type StockItem = {
   controlPanel: string;
   stockCode: string;
   warehouse: string;
-  status: "Available" | "Reserved" | "Sold" | "Inactive";
-  /** TEZGAH = satış; YEDEK_PARCA / AKSESUAR = satış + servis */
-  categoryCode?: "TEZGAH" | "AKSESUAR" | "YEDEK_PARCA";
+  status: "Available" | "Reserved" | "InTransit" | "Sold" | "Inactive";
+  /** Seri no ile takip edilen CRM stok kategorisi. */
+  categoryCode?: "TEZGAH" | "OPSIYONEL_DONANIM" | "YEDEK_PARCA" | "AKSESUAR" | "EVRAK" | "IDARI_MALZEME";
   category?: string;
   reservedCompanyId?: string;
   reservedCompanyName?: string;
   optionalHardware?: string;
   spareParts?: string;
   productId?: string;
+  parentInventoryItemId?: string | null;
+  loadingDate?: string;
+  arrivalDate?: string;
+  locationStatus?: string;
 };
 
 export type ProductSpec = { key: string; value: string };
@@ -621,12 +625,36 @@ export const SHIPMENT_STATUSES: ShipmentStatus[] = ["Hazırlanıyor", "Yolda", "
 export type Shipment = {
   id: string;
   salesCaseId: string;
+  senderCompanyId?: string;
+  senderCompanyName?: string;
+  carrierCompanyId?: string;
+  carrierCompanyName?: string;
+  transportMode?: "road" | "air" | "sea" | "local_cargo";
+  productCategoryCode?: StockItem["categoryCode"];
+  destinationWarehouseId?: string;
+  destinationWarehouseName?: string;
+  loadingDate?: string;
   trackingNo: string;
   carrier: string;
   origin: string;
   destination: string;
   status: ShipmentStatus;
   eta: string;
+  items?: Array<{
+    id?: string;
+    productModelId?: string;
+    inventoryItemId?: string;
+    description: string;
+    serialNumber?: string;
+    quantity?: number;
+    packageCount?: number;
+    palletCount?: number;
+    packageLengthCm?: number;
+    packageWidthCm?: number;
+    packageHeightCm?: number;
+    grossWeightKg?: number;
+    packageNotes?: string;
+  }>;
 };
 
 export type DeliveryStatus = "Bekliyor" | "Tamamlandı";

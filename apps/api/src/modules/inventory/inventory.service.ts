@@ -5,7 +5,7 @@ import { inventoryItems, inventoryMovements, warehouses, customerDevices } from 
 import { warrantyStatuses } from '../../db/schema/lookup';
 import type { CustomerDeviceCreateInput } from '@haksan/shared';
 import { productModels, productSpecs, brands } from '../../db/schema/products';
-import { inventoryStatuses, productCategories, productTypes } from '../../db/schema/lookup';
+import { inventoryStatuses, productCategories, productTypes, stockLocationStatuses } from '../../db/schema/lookup';
 import { companies } from '../../db/schema/companies';
 import { installationJobs } from '../../db/schema/service';
 import { installationStatuses } from '../../db/schema/lookup';
@@ -37,6 +37,15 @@ function parseManualDeviceNotes(notes: string | null): { model: string | null; s
   };
 }
 
+const DEFAULT_WAREHOUSES = [
+  { name: 'Antrepo', type: 'antrepo' },
+  { name: 'Küçükköy Depo', type: 'depo' },
+  { name: 'Akel Depo', type: 'depo' },
+  { name: 'İkitelli Depo', type: 'depo' },
+  { name: 'Servis Stok', type: 'servis_stok' },
+  { name: 'Mağaza', type: 'magaza' },
+] as const;
+
 @Injectable()
 export class InventoryService {
   constructor(
@@ -46,10 +55,25 @@ export class InventoryService {
 
   // ────────── WAREHOUSES ──────────
   async listWarehouses(actor: AuthContext) {
+    await this.ensureDefaultWarehouses(actor.tenantId);
     return this.db
       .select()
       .from(warehouses)
       .where(and(eq(warehouses.tenantId, actor.tenantId), isNull(warehouses.deletedAt)));
+  }
+
+  private async ensureDefaultWarehouses(tenantId: string) {
+    for (const warehouse of DEFAULT_WAREHOUSES) {
+      await this.db
+        .insert(warehouses)
+        .values({
+          tenantId,
+          name: warehouse.name,
+          type: warehouse.type,
+          country: 'Türkiye',
+        })
+        .onConflictDoNothing({ target: [warehouses.tenantId, warehouses.name] });
+    }
   }
 
   async createWarehouse(input: WarehouseCreateInput, actor: AuthContext) {
@@ -96,6 +120,7 @@ export class InventoryService {
         brand: { id: brands.id, name: brands.name },
         category: { id: productCategories.id, code: productCategories.code, name: productCategories.name },
         status: { id: inventoryStatuses.id, code: inventoryStatuses.code, name: inventoryStatuses.name },
+        locationStatus: { id: stockLocationStatuses.id, code: stockLocationStatuses.code, name: stockLocationStatuses.name },
         warehouse: { id: warehouses.id, name: warehouses.name },
         reservedCompany: { id: companies.id, legalTitle: companies.legalTitle, shortName: companies.shortName },
       })
@@ -104,6 +129,7 @@ export class InventoryService {
       .leftJoin(brands, eq(productModels.brandId, brands.id))
       .leftJoin(productCategories, eq(productModels.categoryId, productCategories.id))
       .leftJoin(inventoryStatuses, eq(inventoryItems.stockStatusId, inventoryStatuses.id))
+      .leftJoin(stockLocationStatuses, eq(inventoryItems.locationStatusId, stockLocationStatuses.id))
       .leftJoin(warehouses, eq(inventoryItems.warehouseId, warehouses.id))
       .leftJoin(companies, eq(inventoryItems.reservedCompanyId, companies.id))
       .where(categoryId ? and(where, eq(productModels.categoryId, categoryId)) : where)
@@ -117,6 +143,7 @@ export class InventoryService {
         brand: r.brand,
         category: r.category,
         status: r.status,
+        locationStatus: r.locationStatus,
         warehouse: r.warehouse,
         reservedCompany: r.reservedCompany,
       })),
@@ -158,17 +185,27 @@ export class InventoryService {
     const statusId = await lookupIdByCode(this.db, inventoryStatuses, input.stockStatusCode);
     const divisionId = resolveAssignedDivision(actor, input.divisionId ?? null);
     if (!divisionId) throw new ValidationError('Stok kalemi için bölüm ataması zorunludur', { field: 'divisionId' });
+    if (input.parentInventoryItemId) {
+      await this.assertParentInventoryItem(input.parentInventoryItemId, actor);
+    }
+    const locationStatusId = input.locationStatusCode
+      ? await lookupIdByCode(this.db, stockLocationStatuses, input.locationStatusCode)
+      : input.warehouseId
+        ? await lookupIdByCode(this.db, stockLocationStatuses, 'at_warehouse')
+        : null;
     const [row] = await this.db
       .insert(inventoryItems)
       .values({
         tenantId: actor.tenantId,
         divisionId,
         productModelId: input.productModelId,
+        parentInventoryItemId: input.parentInventoryItemId ?? null,
         serialNumber: input.serialNumber,
         controlUnit: input.controlUnit ?? null,
         controlUnitSerialNumber: input.controlUnitSerialNumber ?? null,
         loadingDate: input.loadingDate ?? null,
         arrivalDate: input.arrivalDate ?? null,
+        locationStatusId,
         stockStatusId: statusId,
         warehouseId: input.warehouseId ?? null,
         notes: input.notes ?? null,
@@ -191,8 +228,15 @@ export class InventoryService {
       throw new ValidationError('Satıldı durumu yalnızca satış faturası ile işaretlenebilir (harici satış kapalı)');
     }
     const patch: Record<string, unknown> = {};
-    for (const k of ['productModelId', 'serialNumber', 'controlUnit', 'controlUnitSerialNumber', 'loadingDate', 'arrivalDate', 'warehouseId', 'notes'] as const) {
+    for (const k of ['productModelId', 'parentInventoryItemId', 'serialNumber', 'controlUnit', 'controlUnitSerialNumber', 'loadingDate', 'arrivalDate', 'warehouseId', 'notes'] as const) {
       if ((input as any)[k] !== undefined) patch[k] = (input as any)[k] ?? null;
+    }
+    if (input.parentInventoryItemId) {
+      if (input.parentInventoryItemId === id) throw new ValidationError('Stok kalemi kendisine bağlanamaz', { field: 'parentInventoryItemId' });
+      await this.assertParentInventoryItem(input.parentInventoryItemId, actor);
+    }
+    if (input.locationStatusCode !== undefined) {
+      patch.locationStatusId = input.locationStatusCode ? await lookupIdByCode(this.db, stockLocationStatuses, input.locationStatusCode) : null;
     }
     if (input.stockStatusCode !== undefined) {
       patch.stockStatusId = await lookupIdByCode(this.db, inventoryStatuses, input.stockStatusCode);
@@ -203,6 +247,19 @@ export class InventoryService {
     }
     await this.db.update(inventoryItems).set(patch).where(eq(inventoryItems.id, id));
     return this.get(id, actor);
+  }
+
+  private async assertParentInventoryItem(parentInventoryItemId: string, actor: AuthContext) {
+    const parent = await this.db.query.inventoryItems.findFirst({
+      where: and(
+        eq(inventoryItems.id, parentInventoryItemId),
+        eq(inventoryItems.tenantId, actor.tenantId),
+        isNull(inventoryItems.deletedAt),
+        divisionFilter(resolveActorDivisionScope(actor), inventoryItems.divisionId) ?? sql`true`,
+      ),
+    });
+    if (!parent) throw new NotFoundError('Bağlanacak tezgah stok kalemi');
+    return parent;
   }
 
   async reserve(id: string, input: InventoryReserveInput, actor: AuthContext) {

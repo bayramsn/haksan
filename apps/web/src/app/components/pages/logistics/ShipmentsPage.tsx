@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "../../ui/card";
 import { Button } from "../../ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../ui/select";
@@ -14,11 +15,12 @@ import { printOrWarn } from "../../../lib/pageHelpers";
 import { dispatchNoteDoc, printAssetBase } from "../../../lib/print";
 import type { OperationFocus } from "../../../lib/operations";
 import { ResponsiveContainer, PieChart, Pie, Cell, Legend, Tooltip } from "recharts";
-import { Plus, Truck, ShieldCheck, CheckCircle2, MapPin, Printer } from "lucide-react";
+import { Plus, Truck, ShieldCheck, CheckCircle2, MapPin, Printer, Play } from "lucide-react";
 import { toast } from "sonner";
 
 export function ShipmentsPage({ focus }: { focus?: OperationFocus }) {
-  const { shipments, updateShipmentStatus, cases, customers } = useStore();
+  const { shipments, startShipment, updateShipmentStatus, cases, customers } = useStore();
+  const [startingId, setStartingId] = useState<string | null>(null);
   const liveCustomerName = (id: string) => customers.find((c) => c.id === id)?.name ?? "—";
   const inTransit = shipments.filter((s) => s.status === "Yolda").length;
   const customs = shipments.filter((s) => s.status === "Gümrükte").length;
@@ -104,7 +106,7 @@ export function ShipmentsPage({ focus }: { focus?: OperationFocus }) {
                   <TableHead>Taşıyıcı</TableHead>
                   <TableHead>ETA</TableHead>
                   <TableHead>Durum</TableHead>
-                  <TableHead className="w-12"></TableHead>
+                  <TableHead className="w-24"></TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -140,7 +142,14 @@ export function ShipmentsPage({ focus }: { focus?: OperationFocus }) {
                       <TableCell>
                         <Select value={s.status} onValueChange={async (v) => {
                           try {
-                            await updateShipmentStatus(s.id, v as any);
+                            if (v === "Yolda") {
+                              await startShipment(s.id, s.loadingDate);
+                            } else {
+                              await updateShipmentStatus(s.id, v as any, {
+                                destinationWarehouseId: v === "Teslim Edildi" ? s.destinationWarehouseId : undefined,
+                                arrivedAt: v === "Teslim Edildi" ? new Date().toISOString() : undefined,
+                              });
+                            }
                             toast.success(`Sevkiyat durumu: ${v}`);
                           } catch (err: any) {
                             toast.error("Sevkiyat durumu güncellenemedi", { description: err?.message ?? "API isteği başarısız oldu." });
@@ -152,8 +161,30 @@ export function ShipmentsPage({ focus }: { focus?: OperationFocus }) {
                           </SelectContent>
                         </Select>
                       </TableCell>
-                      <TableCell>
-                        <Button variant="ghost" size="icon" className="size-8 opacity-0 group-hover:opacity-100" title="Sevk İrsaliyesi yazdır"
+                      <TableCell className="text-right">
+                        {s.status === "Hazırlanıyor" && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="size-8 opacity-0 group-hover:opacity-100 sm:opacity-100"
+                            title="Sevkiyatı başlat"
+                            disabled={startingId === s.id}
+                            onClick={async () => {
+                              setStartingId(s.id);
+                              try {
+                                await startShipment(s.id, s.loadingDate);
+                                toast.success("Sevkiyat başlatıldı");
+                              } catch (err: any) {
+                                toast.error("Sevkiyat başlatılamadı", { description: err?.message ?? "Seri no seçimlerini kontrol edin." });
+                              } finally {
+                                setStartingId(null);
+                              }
+                            }}
+                          >
+                            <Play className="size-4" />
+                          </Button>
+                        )}
+                        <Button variant="ghost" size="icon" className="size-8 opacity-0 group-hover:opacity-100 sm:opacity-100" title="Sevk İrsaliyesi yazdır"
                           onClick={() => printDispatchNote(s)}>
                           <Printer className="size-4" />
                         </Button>

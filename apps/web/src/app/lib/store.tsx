@@ -366,7 +366,12 @@ type Store = {
   updateStockStatus: (id: string, status: StockItem['status']) => Promise<void>;
   reserveStock: (id: string, companyId: string, notes?: string) => Promise<void>;
   addShipment: (s: Omit<Shipment, 'id'>) => Promise<Shipment>;
-  updateShipmentStatus: (id: string, status: Shipment['status']) => Promise<void>;
+  startShipment: (id: string, loadingDate?: string) => Promise<void>;
+  updateShipmentStatus: (
+    id: string,
+    status: Shipment['status'],
+    options?: { destinationWarehouseId?: string; loadingDate?: string; arrivedAt?: string },
+  ) => Promise<void>;
   addDelivery: (d: Omit<Delivery, 'id'>) => Promise<Delivery>;
   updateDelivery: (id: string, d: Partial<Omit<Delivery, 'id'>>) => Promise<void>;
   updateDeliveryStatus: (id: string, status: Delivery['status']) => Promise<void>;
@@ -687,14 +692,20 @@ function StoreInner({ children }: { children: ReactNode }) {
             category: s.category?.name ?? STOCK_CATEGORY_LABELS[categoryCode],
             reservedCompanyId: s.reservedCompany?.id ?? s.reservedCompanyId ?? undefined,
             reservedCompanyName: s.reservedCompany?.shortName ?? s.reservedCompany?.legalTitle ?? undefined,
+            parentInventoryItemId: s.parentInventoryItemId ?? null,
+            loadingDate: (s.loadingDate as string | undefined)?.slice(0, 10) ?? undefined,
+            arrivalDate: (s.arrivalDate as string | undefined)?.slice(0, 10) ?? undefined,
+            locationStatus: s.locationStatus?.code ?? s.locationStatusCode ?? undefined,
             status:
               s.status?.code === 'available'
                 ? 'Available'
                 : s.status?.code === 'reserved'
                   ? 'Reserved'
-                  : s.status?.code === 'sold'
-                    ? 'Sold'
-                    : 'Inactive',
+                  : s.status?.code === 'in_transit'
+                    ? 'InTransit'
+                    : s.status?.code === 'sold'
+                      ? 'Sold'
+                      : 'Inactive',
           };
         })
       );
@@ -1017,12 +1028,36 @@ function StoreInner({ children }: { children: ReactNode }) {
         (shipmentsR.data ?? []).map((s: any) => ({
           id: s.id,
           salesCaseId: s.opportunityId ?? '',
+          senderCompanyId: s.senderCompanyId ?? undefined,
+          senderCompanyName: s.senderCompany?.shortName ?? s.senderCompany?.legalTitle ?? undefined,
+          carrierCompanyId: s.carrierCompanyId ?? undefined,
+          carrierCompanyName: s.carrierCompany?.shortName ?? s.carrierCompany?.legalTitle ?? undefined,
+          transportMode: s.transportMode ?? undefined,
+          productCategoryCode: s.productCategoryCode ?? undefined,
+          destinationWarehouseId: s.destinationWarehouseId ?? undefined,
+          destinationWarehouseName: s.destinationWarehouse?.name ?? undefined,
+          loadingDate: (s.loadingDate as string | undefined)?.slice(0, 10) ?? undefined,
           trackingNo: s.trackingNo ?? s.shipmentNo ?? s.id?.slice(0, 8) ?? '—',
-          carrier: s.carrier ?? '—',
+          carrier: s.carrierCompany?.shortName ?? s.carrierCompany?.legalTitle ?? s.carrier ?? '—',
           origin: s.origin ?? '',
           destination: s.destination ?? '',
           status: shipmentStatusFromCode(s.status?.code),
           eta: (s.eta as string | undefined)?.slice(0, 10) ?? (s.arrivedAt as string | undefined)?.slice(0, 10) ?? '',
+          items: (s.items ?? []).map((item: any) => ({
+            id: item.id,
+            productModelId: item.productModelId ?? undefined,
+            inventoryItemId: item.inventoryItemId ?? undefined,
+            description: item.description ?? '',
+            serialNumber: item.serialNumber ?? undefined,
+            quantity: item.quantity == null ? undefined : Number(item.quantity),
+            packageCount: item.packageCount == null ? undefined : Number(item.packageCount),
+            palletCount: item.palletCount == null ? undefined : Number(item.palletCount),
+            packageLengthCm: item.packageLengthCm == null ? undefined : Number(item.packageLengthCm),
+            packageWidthCm: item.packageWidthCm == null ? undefined : Number(item.packageWidthCm),
+            packageHeightCm: item.packageHeightCm == null ? undefined : Number(item.packageHeightCm),
+            grossWeightKg: item.grossWeightKg == null ? undefined : Number(item.grossWeightKg),
+            packageNotes: item.packageNotes ?? undefined,
+          })),
         }))
       );
 
@@ -1536,12 +1571,22 @@ function StoreInner({ children }: { children: ReactNode }) {
       s.optionalHardware ? `Opsiyon Donanım: ${s.optionalHardware}` : '',
       s.spareParts ? `Yedek Parça: ${s.spareParts}` : '',
     ].filter(Boolean).join('\n');
+    const createStatusCodeMap: Record<StockItem['status'], string> = {
+      Available: 'available',
+      Reserved: 'reserved',
+      InTransit: 'in_transit',
+      Sold: 'sold',
+      Inactive: 'damaged',
+    };
 
     const created = await inventoryService.create({
       productModelId: product.id,
+      parentInventoryItemId: s.parentInventoryItemId ?? undefined,
       serialNumber: s.serialNumber,
       controlUnit: s.controlPanel,
-      stockStatusCode: 'available',
+      loadingDate: s.loadingDate || undefined,
+      arrivalDate: s.arrivalDate || undefined,
+      stockStatusCode: createStatusCodeMap[s.status] ?? 'available',
       notes: extraNotes || undefined,
     });
     await fetchAll();
@@ -1559,6 +1604,7 @@ function StoreInner({ children }: { children: ReactNode }) {
     const codeMap: Record<StockItem['status'], string> = {
       Available: 'available',
       Reserved: 'reserved',
+      InTransit: 'in_transit',
       Sold: 'sold',
       Inactive: 'damaged',
     };
@@ -1575,19 +1621,49 @@ function StoreInner({ children }: { children: ReactNode }) {
   const addShipment: Store['addShipment'] = async (s) => {
     const created = await serviceService.createShipment({
       opportunityId: s.salesCaseId || undefined,
+      senderCompanyId: s.senderCompanyId || undefined,
+      carrierCompanyId: s.carrierCompanyId || undefined,
+      transportMode: s.transportMode || undefined,
+      productCategoryCode: s.productCategoryCode || undefined,
+      destinationWarehouseId: s.destinationWarehouseId || undefined,
+      loadingDate: s.loadingDate || undefined,
       trackingNo: s.trackingNo,
       carrier: s.carrier,
       origin: s.origin || undefined,
       destination: s.destination || undefined,
       eta: s.eta || undefined,
       statusCode: shipmentStatusToCode(s.status),
+      items: s.items?.map((item, index) => ({
+        inventoryItemId: item.inventoryItemId || undefined,
+        productModelId: item.productModelId || undefined,
+        description: item.description,
+        serialNumber: item.serialNumber || undefined,
+        quantity: item.quantity ?? 1,
+        sortOrder: index,
+        packageCount: item.packageCount,
+        palletCount: item.palletCount,
+        packageLengthCm: item.packageLengthCm,
+        packageWidthCm: item.packageWidthCm,
+        packageHeightCm: item.packageHeightCm,
+        grossWeightKg: item.grossWeightKg,
+        packageNotes: item.packageNotes || undefined,
+      })),
     });
     await fetchAll();
     return { id: created.id, ...s };
   };
-  const updateShipmentStatus: Store['updateShipmentStatus'] = async (id, status) => {
-    await serviceService.updateShipmentStatus(id, shipmentStatusToCode(status));
-    setShipments((prev) => prev.map((s) => (s.id === id ? { ...s, status } : s)));
+  const startShipment: Store['startShipment'] = async (id, loadingDate) => {
+    await serviceService.startShipment(id, { loadingDate });
+    await fetchAll();
+  };
+  const updateShipmentStatus: Store['updateShipmentStatus'] = async (id, status, options) => {
+    await serviceService.updateShipmentStatus(id, {
+      statusCode: shipmentStatusToCode(status),
+      destinationWarehouseId: options?.destinationWarehouseId,
+      loadingDate: options?.loadingDate,
+      arrivedAt: options?.arrivedAt,
+    });
+    await fetchAll();
   };
   const addDelivery: Store['addDelivery'] = async (d) => {
     const created = await serviceService.createDelivery({
@@ -2033,6 +2109,7 @@ function StoreInner({ children }: { children: ReactNode }) {
       updateStockStatus,
       reserveStock,
       addShipment,
+      startShipment,
       updateShipmentStatus,
       addDelivery,
       updateDelivery,

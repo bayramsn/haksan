@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "../../ui/card";
 import { Button } from "../../ui/button";
 import { Input } from "../../ui/input";
@@ -29,14 +29,17 @@ import {
   type StockCategoryCode,
 } from "@haksan/shared";
 import {
-  Plus, Search, Package, Clock, CheckCircle2, AlertTriangle, MapPin, MoreHorizontal, Wrench, Bookmark,
+  Plus, Search, Package, Clock, CheckCircle2, AlertTriangle, MapPin, MoreHorizontal, Wrench, Bookmark, ChevronDown,
 } from "lucide-react";
 import { inventoryService } from "../../../../lib/services";
 
 const CATEGORY_ICONS: Record<StockCategoryCode, typeof Package> = {
   TEZGAH: Package,
+  OPSIYONEL_DONANIM: Wrench,
   AKSESUAR: Bookmark,
   YEDEK_PARCA: Wrench,
+  EVRAK: Bookmark,
+  IDARI_MALZEME: Package,
 };
 
 const compactSerialPart = (value: string) =>
@@ -52,8 +55,9 @@ const compactSerialPart = (value: string) =>
 export function StockPage({ focus, initialQuery }: { focus?: OperationFocus; initialQuery?: string }) {
   const { stock, customers, products, updateStockStatus, reserveStock, refresh } = useStore();
   const [q, setQ] = useState("");
-  const [tab, setTab] = useState<"all" | "Available" | "Reserved" | "Sold" | "Inactive">("all");
+  const [tab, setTab] = useState<"all" | "Available" | "Reserved" | "InTransit" | "Sold" | "Inactive">("all");
   const [categoryTab, setCategoryTab] = useState<"all" | StockCategoryCode>("all");
+  const [expandedRows, setExpandedRows] = useState<Record<string, boolean>>({});
   const [reserveOpen, setReserveOpen] = useState(false);
   const [reserveTarget, setReserveTarget] = useState<(typeof stock)[number] | null>(null);
   const [reserveCompanyId, setReserveCompanyId] = useState("");
@@ -81,9 +85,21 @@ export function StockPage({ focus, initialQuery }: { focus?: OperationFocus; ini
   const counts = {
     Available: scopedStock.filter((s) => s.status === "Available").length,
     Reserved: scopedStock.filter((s) => s.status === "Reserved").length,
+    InTransit: scopedStock.filter((s) => s.status === "InTransit").length,
     Sold: scopedStock.filter((s) => s.status === "Sold").length,
     Inactive: scopedStock.filter((s) => s.status === "Inactive").length,
   };
+
+  const optionsByParent = useMemo(() => {
+    const map = new Map<string, typeof stock>();
+    for (const item of stock) {
+      if (!item.parentInventoryItemId) continue;
+      const list = map.get(item.parentInventoryItemId) ?? [];
+      list.push(item);
+      map.set(item.parentInventoryItemId, list);
+    }
+    return map;
+  }, [stock]);
 
   const warehouses = Array.from(new Set(scopedStock.map((s) => s.warehouse)))
     .map((w) => ({ name: w, count: scopedStock.filter((s) => s.warehouse === w).length }));
@@ -205,7 +221,9 @@ export function StockPage({ focus, initialQuery }: { focus?: OperationFocus; ini
     }
   };
 
-  const filtered = scopedStock.filter((s) => {
+  const displayStock = scopedStock.filter((s) => !s.parentInventoryItemId || categoryTab === "OPSIYONEL_DONANIM");
+
+  const filtered = displayStock.filter((s) => {
     if (focus === "low" && s.status !== "Reserved" && s.status !== "Inactive") return false;
     if (focus !== "low" && tab !== "all" && s.status !== tab) return false;
     return (
@@ -218,6 +236,7 @@ export function StockPage({ focus, initialQuery }: { focus?: OperationFocus; ini
   const stockStatusExportCode: Record<string, string> = {
     Available: 'available',
     Reserved: 'reserved',
+    InTransit: 'in_transit',
     Sold: 'sold',
     Inactive: 'damaged',
   };
@@ -360,6 +379,7 @@ export function StockPage({ focus, initialQuery }: { focus?: OperationFocus; ini
                 <TabsTrigger value="all" className="text-xs">Tümü</TabsTrigger>
                 <TabsTrigger value="Available" className="text-xs">Hazır</TabsTrigger>
                 <TabsTrigger value="Reserved" className="text-xs">Rezerve</TabsTrigger>
+                <TabsTrigger value="InTransit" className="text-xs">Yolda</TabsTrigger>
                 <TabsTrigger value="Sold" className="text-xs">Satılan</TabsTrigger>
                 <TabsTrigger value="Inactive" className="text-xs">Pasif</TabsTrigger>
               </TabsList>
@@ -393,13 +413,29 @@ export function StockPage({ focus, initialQuery }: { focus?: OperationFocus; ini
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filtered.map((s) => (
-                <TableRow key={s.id} className="group">
+              {filtered.map((s) => {
+                const linkedOptions = optionsByParent.get(s.id) ?? [];
+                const isExpanded = Boolean(expandedRows[s.id]);
+                return (
+                <Fragment key={s.id}>
+                <TableRow className="group">
                   <TableCell className="text-xs text-muted-foreground">
                     {s.category ?? STOCK_CATEGORY_LABELS[(s.categoryCode ?? "TEZGAH") as StockCategoryCode]}
                   </TableCell>
                   <TableCell>
                     <div className="flex items-center gap-2.5">
+                      {linkedOptions.length > 0 && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="size-7 shrink-0"
+                          onClick={() => setExpandedRows((prev) => ({ ...prev, [s.id]: !prev[s.id] }))}
+                          aria-label="Opsiyonel donanımları göster"
+                        >
+                          <ChevronDown className={`size-4 transition-transform ${isExpanded ? "" : "-rotate-90"}`} />
+                        </Button>
+                      )}
                       <div className="size-8 rounded-md bg-gradient-to-br from-primary/15 to-primary/5 text-primary grid place-items-center shrink-0">
                         <Package className="size-4" />
                       </div>
@@ -480,7 +516,25 @@ export function StockPage({ focus, initialQuery }: { focus?: OperationFocus; ini
                     </DropdownMenu>
                   </TableCell>
                 </TableRow>
-              ))}
+                {isExpanded && linkedOptions.length > 0 && (
+                  <TableRow className="bg-muted/20 hover:bg-muted/20">
+                    <TableCell />
+                    <TableCell colSpan={9} className="py-3">
+                      <div className="flex flex-wrap gap-2">
+                        {linkedOptions.map((item) => (
+                          <span key={item.id} className="inline-flex items-center gap-1.5 rounded-md border border-border/70 bg-white px-2 py-1 text-xs">
+                            <Wrench className="size-3.5 text-muted-foreground" />
+                            {item.brand} {item.counterModel} · {item.serialNumber}
+                            <StatusBadge status={item.status} />
+                          </span>
+                        ))}
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                )}
+                </Fragment>
+                );
+              })}
               {filtered.length === 0 && (
                 <TableRow>
                   <TableCell colSpan={10} className="text-center py-12 text-sm text-muted-foreground">Kayıt bulunamadı.</TableCell>
