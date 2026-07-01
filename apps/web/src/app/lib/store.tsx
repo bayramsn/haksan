@@ -51,6 +51,7 @@ import {
   Shipment,
   Delivery,
 } from './mock';
+import { allCatalogProductSpecs } from './productSpecTemplates';
 import { isServiceQuoteComplete, serviceQuoteMissingFields } from './serviceQuote';
 
 const SERVICE_STAGES: ServiceStage[] = [
@@ -236,12 +237,12 @@ const productApiPayload = (p: Partial<Product>, brandId?: string) => {
 };
 
 const productDetailsPayload = (p: Partial<Product>) => ({
-  specs: (p.specs ?? [])
-    .filter((s) => cleanString(s.key) && cleanString(s.value))
+  specs: allCatalogProductSpecs(p.specs ?? [], '-')
+    .filter((s) => cleanString(s.key))
     .map((s, index) => ({
       specGroupCode: 'GENEL',
       specKey: s.key.trim(),
-      specValue: s.value.trim(),
+      specValue: s.value.trim() || '-',
       sortOrder: index + 1,
     })),
   equipment: [
@@ -1462,7 +1463,12 @@ function StoreInner({ children }: { children: ReactNode }) {
       brandId = brand.id;
     }
     await productService.update(id, productApiPayload(patch, brandId));
-    await productService.replaceDetails(id, productDetailsPayload(patch));
+    const current = products.find((item) => item.id === id);
+    await productService.replaceDetails(id, productDetailsPayload({
+      specs: patch.specs ?? current?.specs ?? [],
+      standardEquipment: patch.standardEquipment ?? current?.standardEquipment ?? [],
+      optionalEquipment: patch.optionalEquipment ?? current?.optionalEquipment ?? [],
+    }));
     await fetchAll();
   };
 

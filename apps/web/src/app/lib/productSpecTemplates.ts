@@ -225,6 +225,94 @@ export const CNC_TAPPING_CENTER_SPEC_TEMPLATE = CNC_TAPPING_CENTER_SPEC_DEFAULTS
 export const CNC_BES_EKSEN_SPEC_TEMPLATE = CNC_BES_EKSEN_SPEC_DEFAULTS.map((spec) => spec.key);
 export const CNC_KOPRU_TIPI_SPEC_TEMPLATE = CNC_KOPRU_TIPI_SPEC_DEFAULTS.map((spec) => spec.key);
 
+export const HAKSAN_CNC_SPEC_KEYS: readonly string[] = [
+  "A Eksen Dönüş Açısı",
+  "A Eksen Hareketi",
+  "Ayna Ölçüsü",
+  "Bağlanabilir Canlı Takım Sayısı",
+  "C Eksen Dönüş Açısı",
+  "C Eksen Hareketi",
+  "Canlı Takım Devri",
+  "Canlı Takım Motor Gücü",
+  "Canlı Takım Tutucu Standardı",
+  "Döner Tabla Ölçüsü",
+  "Fener Mili",
+  "Fener Mili Aktarması",
+  "Fener Mili Delik Çapı",
+  "Fener Mili Devri",
+  "Fener Mili Motor Gücü",
+  "Fener Mili Motor Tipi",
+  "Fener Mili Rulman Tipi",
+  "Fener Mili Standardı",
+  "Fener Mili Ön Rulman Çapı",
+  "Güç Tüketimi",
+  "Karşı Ayna Devri",
+  "Karşı Ayna Motor Gücü",
+  "Karşı Ayna Çubuk İşleme Çapı",
+  "Karşı Ayna Ölçüsü",
+  "Karşı Punta Gövde Hareketi",
+  "Karşı Punta Pinol Hareketi",
+  "Karşı Punta Pinol Koniği",
+  "Karşı Punta Pinol Çapı",
+  "Maks. Kare Takım Ölçüsü",
+  "Maks. Takım Ağırlığı",
+  "Maks. Takım Uzunluğu",
+  "Maks. Takım Çapı",
+  "Maks. Tornalama Boyu",
+  "Maks. Tornalama Çapı",
+  "Maks. Yuvarlak Takım Ölçüsü",
+  "Maks. Çevirme Kapasitesi",
+  "Maks. Çubuk İşleme Çapı",
+  "Soğutma Sistemi Motor Gücü",
+  "Soğutma Sıvısı Tank Kapasitesi",
+  "T Slot Ölçü ve Sayısı",
+  "Tabla Yükleme Kapasitesi",
+  "Tabla ~ Fener Mili Ucu Arası Mesafe",
+  "Tabla Ölçüsü",
+  "Takım Değiştirici",
+  "Takım Değiştirici Tipi",
+  "Takım Değiştirme Süresi (Takımdan Takıma)",
+  "Takım Kapasitesi",
+  "Takım Tutucu Standardı",
+  "Taret Tipi",
+  "Taret İstasyon Sayısı",
+  "Tezgah Ağırlığı",
+  "Tezgah Hava Gereksinimi",
+  "Tezgah Ölçüleri",
+  "Tezgah Ölçüleri (Döner Kontrol Paneliyle Birlikte)",
+  "Tezgahın Kapladığı Alan",
+  "Toplam Güç Gereksinimi",
+  "Toplam Hava Gereksinimi",
+  "X Eksen Boşta İlerleme Hızı",
+  "X Eksen Boşta İlerleme Oranı",
+  "X Eksen Hareketi",
+  "X Eksen Motor Gücü",
+  "X, Y ve Z Eksen Boşta İlerleme Hızı",
+  "X, Y, Z Eksen Boşta İlerleme Oranı",
+  "X, Y, Z Eksen Hareketi",
+  "X, Y, Z Eksen Kesme Hızı",
+  "X, Y, Z Eksen Pozisyonlama Hassasiyeti",
+  "X, Y, Z Eksen Tekrarlama Hassasiyeti",
+  "X, Z ve Z Eksen Boşta İlerleme Hızı",
+  "X,Y ve Z Eksen Hareketi",
+  "Y Eksen Boşta İlerleme Hızı",
+  "Y Eksen Boşta İlerleme Oranı",
+  "Y Eksen Hareketi",
+  "Y Eksen Motor Gücü",
+  "Z Eksen Boşta İlerleme Hızı",
+  "Z Eksen Boşta İlerleme Oranı",
+  "Z Eksen Hareketi",
+  "Z Eksen Motor Gücü",
+  "Z-2 Eksen Boşta İlerleme Oranı",
+  "Z-2 Eksen Hareketi",
+  "Z-2 Eksen Motor Gücü",
+];
+
+const HAKSAN_CNC_SPEC_DEFAULTS: readonly ProductSpec[] = HAKSAN_CNC_SPEC_KEYS.map((key) => ({
+  key,
+  value: "",
+}));
+
 const SPEC_DEFAULTS: Record<string, readonly ProductSpec[]> = {
   CNC_YATAY_TORNA_TEZGAHI: CNC_YATAY_TORNA_SPEC_DEFAULTS,
   CNC_DIK_TORNA_TEZGAHI: CNC_DIK_TORNA_SPEC_DEFAULTS,
@@ -365,6 +453,13 @@ export function mergeSpecsWithDefaults(
       (spec.key.trim() || spec.value.trim()),
   );
   return [...templated, ...custom];
+}
+
+export function allCatalogProductSpecs(specs: ProductSpec[] = [], emptyValue = ""): ProductSpec[] {
+  return mergeSpecsWithDefaults(specs, HAKSAN_CNC_SPEC_DEFAULTS).map((spec) => ({
+    key: spec.key,
+    value: spec.value?.trim() ? spec.value : emptyValue,
+  }));
 }
 
 export function specsForProductType(typeCode: string | undefined, specs: ProductSpec[]): ProductSpec[] {

@@ -45,11 +45,8 @@ import {
 } from "@haksan/shared";
 import { PROVINCE_NAMES } from "../../lib/geo";
 import {
-  CNC_DIK_ISLEME_SPEC_TEMPLATE,
-  CNC_DIK_TORNA_SPEC_TEMPLATE,
-  CNC_YATAY_TORNA_SPEC_TEMPLATE,
-  productSpecTemplate,
-  specsForProductType,
+  HAKSAN_CNC_SPEC_KEYS,
+  allCatalogProductSpecs,
 } from "../../lib/productSpecTemplates";
 import { QuoteDialog } from "./QuoteDialog";
 
@@ -1556,46 +1553,10 @@ const normalizeProductVatRate = (value: string | number | null | undefined) => {
   return PRODUCT_VAT_RATES.includes(rate) ? rate : DEFAULT_PRODUCT_VAT_RATE;
 };
 
-// Ürün tipine göre örnek teknik bilgi şablonları (anahtarlar; değerleri kullanıcı doldurur)
-const SPEC_TEMPLATE_BY_TYPE: Record<string, string[]> = {
-  CNC_DIK_ISLEME_MERKEZ: [...CNC_DIK_ISLEME_SPEC_TEMPLATE],
-  CNC_YATAY_ISLEME_MERKEZI: ["X / Y / Z Eksen Stroku", "Pallet Ölçüsü", "Pallet Sayısı", "Spindle Devri (rpm)", "Spindle Konik", "Takım Magazini Kapasitesi"],
-  CNC_KOPRU_TIPI_ISLEME_MERKEZI: ["X / Y / Z Eksen Stroku", "Köprü Açıklığı", "Tabla Ölçüsü", "Spindle Devri (rpm)", "Spindle Gücü (kW)"],
-  CNC_5_EKSEN_ISLEME_MERKEZI: ["X / Y / Z Eksen Stroku", "A / C Eksen Dönüş Aralığı", "Tabla Çapı", "Spindle Devri (rpm)", "Spindle Konik"],
-  CNC_TAPPING_CENTER: ["X / Y / Z Eksen Stroku", "Tabla Ölçüsü", "Spindle Devri (rpm)", "Takım Magazini Kapasitesi", "Hızlı İlerleme (m/dk)"],
-  CNC_YATAY_TORNA_TEZGAHI: [...CNC_YATAY_TORNA_SPEC_TEMPLATE],
-  CNC_DIK_TORNA_TEZGAHI: [...CNC_DIK_TORNA_SPEC_TEMPLATE],
-  ELEKTRONIK: ["Parça No", "Uyumlu Model", "Marka", "Garanti Süresi"],
-  ELEKTRIK: ["Parça No", "Uyumlu Model", "Voltaj / Akım", "Marka"],
-  MEKANIK: ["Parça No", "Uyumlu Model", "Malzeme", "Ölçü"],
-  KONTROL_UNITESI: ["Marka / Model", "Eksen Sayısı", "Ekran Boyutu", "Bağlantı Arayüzleri"],
-  SPINDLE: ["Devir (rpm)", "Güç (kW)", "Konik Tipi", "Soğutma Tipi", "Uyumlu Makine"],
-  ISCILIK: ["Hizmet Türü", "Süre (saat)", "Birim", "Kapsam"],
-  YAG_SIYIRICI: ["Uyumlu Model", "Kapasite", "Marka"],
-  TUTUCU_TAKIMLAR: ["Uyumlu Model", "Tip", "Ölçü", "Marka"],
-  DIVIZOR: ["Uyumlu Model", "Tabla Çapı", "Bölme Hassasiyeti"],
-  REGULATOR: ["Uyumlu Model", "Giriş / Çıkış", "Kapasite (kVA)"],
-};
+const catalogSpecs = (specs: ProductSpec[] = [], emptyValue = "") =>
+  allCatalogProductSpecs(specs, emptyValue);
 
-// Kategori bazlı yedek şablon (ürün tipi seçilmeden / tipe özel şablon yoksa)
-const SPEC_TEMPLATE_BY_CATEGORY: Record<string, string[]> = {
-  TEZGAH: ["X / Y / Z Eksen Stroku", "Tabla / Ayna Ölçüsü", "Spindle / Fener Mili Devri (rpm)"],
-  YEDEK_PARCA: ["Parça No", "Uyumlu Model", "Marka"],
-  OPSIYONEL_DONANIM: ["Uyumlu Makine", "Marka / Model", "Teknik Özellik"],
-  ISCILIK: ["Hizmet Türü", "Süre (saat)", "Birim"],
-  AKSESUAR: ["Uyumlu Model", "Ölçü", "Marka"],
-};
-
-const toSpecs = (keys: string[]): ProductSpec[] =>
-  keys.length ? keys.map((key) => ({ key, value: "" })) : [{ key: "", value: "" }];
-
-const specsForType = (typeCode: string, categoryCode: string): ProductSpec[] =>
-  productSpecTemplate(typeCode).length
-    ? specsForProductType(typeCode, [])
-    : toSpecs(SPEC_TEMPLATE_BY_TYPE[typeCode] ?? SPEC_TEMPLATE_BY_CATEGORY[categoryCode] ?? []);
-
-const specsForCategory = (categoryCode: string): ProductSpec[] =>
-  toSpecs(SPEC_TEMPLATE_BY_CATEGORY[categoryCode] ?? []);
+const catalogSpecKeyOptions = HAKSAN_CNC_SPEC_KEYS.map((key) => ({ value: key, label: key }));
 
 type ProductFormState = {
   brand: string;
@@ -1713,7 +1674,7 @@ const emptyProduct = (): ProductFormState => ({
   imageUrl: "", shortDescription: "", description: "",
   listPrice: "", cashPrice: "", currency: "USD",
   vatRate: DEFAULT_PRODUCT_VAT_RATE, originCountry: "", hsCode: "", stockCode: "",
-  specs: [{ key: "", value: "" }], standardEquipment: [], optionalEquipment: [],
+  specs: catalogSpecs(), standardEquipment: [], optionalEquipment: [],
   muadilProductIds: [],
   status: "active",
 });
@@ -1744,9 +1705,7 @@ const fromProduct = (p: Product): ProductFormState => ({
   originCountry: p.originCountry ?? "",
   hsCode: p.hsCode ?? "",
   stockCode: p.stockCode || p.model,
-  specs: p.specs.length
-    ? specsForProductType(p.productTypeCode, p.specs)
-    : (productSpecTemplate(p.productTypeCode).length ? specsForProductType(p.productTypeCode, []) : [{ key: "", value: "" }]),
+  specs: catalogSpecs(p.specs),
   standardEquipment: [...p.standardEquipment], optionalEquipment: [...p.optionalEquipment],
   muadilProductIds: p.muadilProductIds?.length ? p.muadilProductIds : (p.muadilProductId ? [p.muadilProductId] : []),
   status: p.status,
@@ -1906,6 +1865,37 @@ export function ProductDialog({
     form.brand,
   ].filter(Boolean))).sort((a, b) => a.localeCompare(b, "tr-TR"));
   const canSelectProductBrand = Boolean(form.productTypeCode);
+  const specValueOptionsByKey = useMemo(() => {
+    const valuesByKey = new Map<string, Set<string>>();
+    const addValue = (key?: string, value?: string) => {
+      const cleanKey = key?.trim();
+      const cleanValue = value?.trim();
+      if (!cleanKey || !cleanValue) return;
+      const values = valuesByKey.get(cleanKey) ?? new Set<string>();
+      values.add(cleanValue);
+      valuesByKey.set(cleanKey, values);
+    };
+
+    for (const item of products) {
+      for (const spec of item.specs ?? []) addValue(spec.key, spec.value);
+    }
+    for (const spec of form.specs) addValue(spec.key, spec.value);
+
+    return valuesByKey;
+  }, [products, form.specs]);
+  const specKeyOptionsFor = (key: string) => {
+    const value = key.trim();
+    if (!value || HAKSAN_CNC_SPEC_KEYS.includes(value)) return catalogSpecKeyOptions;
+    return [{ value, label: value }, ...catalogSpecKeyOptions];
+  };
+  const specValueOptionsFor = (spec: ProductSpec) => {
+    const values = new Set(specValueOptionsByKey.get(spec.key.trim()) ?? []);
+    if (spec.value.trim()) values.add(spec.value.trim());
+    values.add("-");
+    return [...values]
+      .sort((a, b) => a.localeCompare(b, "tr-TR", { numeric: true }))
+      .map((value) => ({ value, label: value }));
+  };
 
   const muadilOptions = products.filter((p) => p.id !== product?.id && p.categoryCode !== OPTIONAL_EQUIPMENT_CATEGORY_CODE);
   const validMuadilIds = new Set(muadilOptions.map((p) => p.id));
@@ -1937,10 +1927,11 @@ export function ProductDialog({
     return { productTypeCode: "", type: "" };
   };
 
-  // Ürün tipi/kategoriye göre teknik bilgi şablonu uygula (tip değiştiyse)
+  // Ürün tipi/kategori değişse de sabit teknik katalog korunur.
   const specsAfterChange = (kept: { productTypeCode: string }, categoryCode: string) => {
-    if (kept.productTypeCode === form.productTypeCode) return form.specs;
-    return kept.productTypeCode ? specsForType(kept.productTypeCode, categoryCode) : specsForCategory(categoryCode);
+    void kept;
+    void categoryCode;
+    return catalogSpecs(form.specs);
   };
 
   const onProductGroupChange = (code: string) => {
@@ -1951,7 +1942,7 @@ export function ProductDialog({
       productTypeCode: "",
       type: "",
       brand: "",
-      specs: specsForCategory(form.categoryCode),
+      specs: catalogSpecs(form.specs),
     });
   };
 
@@ -2005,7 +1996,7 @@ export function ProductDialog({
       subcategoryCode,
       subcategory: findLabel(PRODUCT_SUBCATEGORIES, subcategoryCode, form.subcategory),
       brand: opt.code === form.productTypeCode ? form.brand : "",
-      specs: specsForType(opt.code, categoryCode),
+      specs: catalogSpecs(form.specs),
     });
   };
 
@@ -2019,7 +2010,7 @@ export function ProductDialog({
       toast.error("Marka ve ürün adı zorunludur");
       return;
     }
-    const cleanSpecs = form.specs.filter((s) => s.key.trim() && s.value.trim());
+    const cleanSpecs = catalogSpecs(form.specs, "-").filter((s) => s.key.trim());
     const modelCode = form.stockCode.trim() || form.model.trim() || compactProductCode(form.shortDescription) || "URUN";
     const payload = {
       brand: form.brand.trim(),
@@ -2403,22 +2394,20 @@ export function ProductDialog({
             <ProductSheetRow label="Teknik Bilgiler" className="items-start">
               <div className="space-y-2">
                 <div className="flex items-center justify-between gap-2">
-                  <div className="text-[11px] text-muted-foreground">Ürün tipine göre değişiklik gösterecek teknik satırlar.</div>
+                  <div className="text-[11px] text-muted-foreground">Sabit katalogdaki tüm teknik satırlar; boş değerler kayıtta “-” olur.</div>
                   <div className="flex flex-wrap justify-end gap-1.5">
-                    {productSpecTemplate(form.productTypeCode).length > 0 && (
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        className="h-7"
-                        onClick={() => setForm((f) => ({
-                          ...f,
-                          specs: specsForProductType(f.productTypeCode, f.specs),
-                        }))}
-                      >
-                        Teknik şablonu uygula
-                      </Button>
-                    )}
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-7"
+                      onClick={() => setForm((f) => ({
+                        ...f,
+                        specs: catalogSpecs(f.specs),
+                      }))}
+                    >
+                      Sabit listeyi tamamla
+                    </Button>
                     <Button type="button" variant="outline" size="sm" className="h-7 gap-1" onClick={addSpec}>
                       <Plus className="size-3.5" /> Özellik Ekle
                     </Button>
@@ -2427,8 +2416,28 @@ export function ProductDialog({
                 <div className="space-y-2">
                   {form.specs.map((s, i) => (
                     <div key={i} className="grid grid-cols-[minmax(120px,1fr)_minmax(160px,1.5fr)_36px] gap-2">
-                      <Input className="h-8" placeholder="Örn: Tabla ölçüsü" value={s.key} onChange={(e) => updSpec(i, { key: e.target.value })} />
-                      <Input className="h-8" placeholder="Örn: 1200 x 600 mm" value={s.value} onChange={(e) => updSpec(i, { value: e.target.value })} />
+                      <Combobox
+                        className="h-8 bg-white"
+                        options={specKeyOptionsFor(s.key)}
+                        value={s.key}
+                        onChange={(value) => updSpec(i, { key: value })}
+                        placeholder="Özellik seçin"
+                        searchPlaceholder="Özellik ara..."
+                        emptyText="Özellik bulunamadı"
+                        onCreate={(value) => updSpec(i, { key: value })}
+                        createLabel={(query) => `"${query}" kullan`}
+                      />
+                      <Combobox
+                        className="h-8 bg-white"
+                        options={specValueOptionsFor(s)}
+                        value={s.value}
+                        onChange={(value) => updSpec(i, { value })}
+                        placeholder="Boş / -"
+                        searchPlaceholder="Değer ara..."
+                        emptyText="Değer bulunamadı"
+                        onCreate={(value) => updSpec(i, { value })}
+                        createLabel={(query) => `"${query}" kullan`}
+                      />
                       <Button type="button" variant="ghost" size="icon" className="h-8 w-8" onClick={() => rmSpec(i)}>
                         <Trash2 className="size-4 text-muted-foreground" />
                       </Button>
