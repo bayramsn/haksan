@@ -25,6 +25,7 @@ import {
   financeService,
   noteTemplateService,
   fileService,
+  type Paginated,
 } from '../../lib/services';
 import { useAuth } from '../../lib/auth';
 import { resolveMediaUrl } from '../../lib/apiClient';
@@ -69,6 +70,30 @@ const SERVICE_STAGES: ServiceStage[] = [
 
 const persistedServiceStage = (value: unknown): ServiceStage | null =>
   typeof value === 'string' && SERVICE_STAGES.includes(value as ServiceStage) ? value as ServiceStage : null;
+
+const loadAllPaginated = async <T,>(
+  fetchPage: (page: number, pageSize: number) => Promise<Paginated<T>>,
+  pageSize = 200
+): Promise<Paginated<T>> => {
+  const first = await fetchPage(1, pageSize);
+  const totalPages = Math.max(1, Number(first.meta?.totalPages ?? 1));
+  if (totalPages <= 1) return first;
+
+  const rest = await Promise.all(
+    Array.from({ length: totalPages - 1 }, (_, index) => fetchPage(index + 2, pageSize))
+  );
+  const data = [first, ...rest].flatMap((page) => page.data);
+  return {
+    data,
+    meta: {
+      ...first.meta,
+      page: 1,
+      pageSize: data.length,
+      total: first.meta?.total ?? data.length,
+      totalPages: 1,
+    },
+  };
+};
 
 // pipeline stage code → UI stage key. Legacy names are still accepted for old mock rows.
 const STAGE_BY_CODE: Record<string, SalesStage> = {
@@ -482,7 +507,7 @@ function StoreInner({ children }: { children: ReactNode }) {
         load('Firmalar', () => companyService.list({ pageSize: 200 }), empty, 'companies.read'),
         load('Kontaklar', () => contactService.list({ pageSize: 200 }), empty, 'contacts.read'),
         load('Satış kartları', () => opportunityService.list({ pageSize: 200 }), empty, 'opportunities.read'),
-        load('Ürünler', () => productService.list({ pageSize: 200 }), empty, 'products.read'),
+        load('Ürünler', () => loadAllPaginated((page, pageSize) => productService.list({ page, pageSize })), empty, 'products.read'),
         load('Stok', () => inventoryService.list({ pageSize: 200 }), empty, 'inventory.read'),
         load('Teklifler', () => quoteService.list({ pageSize: 200 }), empty, 'quotes.read'),
         load('Servis', () => serviceService.tickets({ pageSize: 200 }), empty, 'service_tickets.read'),
