@@ -308,6 +308,31 @@ export const HAKSAN_CNC_SPEC_KEYS: readonly string[] = [
   "Z-2 Eksen Motor Gücü",
 ];
 
+export const HAKSAN_CNC_SPEC_VALUE_UNITS: readonly string[] = [
+  "Ø",
+  "mm",
+  "cm",
+  "m",
+  "kg",
+  "gr",
+  "ton",
+  "kw",
+  "kW",
+  "hp",
+  "V",
+  "Hz",
+  "bar",
+  "psi",
+  "lt",
+  "sn",
+  "dk",
+  "dv",
+  "dv/dk",
+  "rpm",
+  "Adet",
+  "°",
+];
+
 const HAKSAN_CNC_SPEC_DEFAULTS: readonly ProductSpec[] = HAKSAN_CNC_SPEC_KEYS.map((key) => ({
   key,
   value: "",
