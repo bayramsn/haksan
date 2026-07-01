@@ -64,6 +64,31 @@ describe('Service — kurulum / sevkiyat / teslimat', () => {
     expect(r.body.metadata.quoteRequired).toBe(true);
   });
 
+  it('servis talebini arşivler ve listeden düşürür', async () => {
+    const created = await supertest(app.getHttpServer())
+      .post('/api/v1/service-tickets')
+      .set('Authorization', auth())
+      .send({
+        companyId,
+        subject: 'Silinecek servis talebi',
+        description: 'Soft delete regresyon testi',
+        severity: 'normal',
+      });
+    expect(created.status).toBe(201);
+
+    const deleted = await supertest(app.getHttpServer())
+      .delete(`/api/v1/service-tickets/${created.body.id}`)
+      .set('Authorization', auth());
+    expect(deleted.status).toBe(200);
+    expect(deleted.body.ok).toBe(true);
+
+    const list = await supertest(app.getHttpServer())
+      .get('/api/v1/service-tickets?pageSize=100')
+      .set('Authorization', auth());
+    expect(list.status).toBe(200);
+    expect(list.body.data.some((row: any) => row.id === created.body.id)).toBe(false);
+  });
+
   it('servis teklif formu olmadan bakım/onarım aşamasına geçişi reddeder', async () => {
     const created = await supertest(app.getHttpServer())
       .post('/api/v1/service-tickets')

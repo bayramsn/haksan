@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Inject, Param, Patch, Post, Put, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Inject, Param, Patch, Post, Put, Query, UseGuards } from '@nestjs/common';
 import { z } from 'zod';
 import { and, asc, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import type { DbClient } from '../../db/client';
@@ -1121,6 +1121,29 @@ export class ServiceController {
     }
     if (body.statusCode === 'resolved' || body.statusCode === 'closed') patch.resolvedAt = new Date();
     await this.db.update(serviceTickets).set(patch).where(eq(serviceTickets.id, id));
+    return { ok: true };
+  }
+
+  @RequirePermissions('service_tickets.delete')
+  @Delete('service-tickets/:id')
+  async deleteTicket(@Param('id') id: string, @CurrentUser() user: AuthContext) {
+    const ticket = await this.getScopedTicket(id, user);
+    const now = new Date();
+    const claim = await this.findWarrantyClaim(ticket.id, user.tenantId);
+    if (claim) {
+      await this.db
+        .update(serviceWarrantyParts)
+        .set({ deletedAt: now })
+        .where(and(eq(serviceWarrantyParts.warrantyClaimId, claim.id), eq(serviceWarrantyParts.tenantId, user.tenantId), isNull(serviceWarrantyParts.deletedAt)));
+      await this.db
+        .update(serviceWarrantyClaims)
+        .set({ deletedAt: now })
+        .where(and(eq(serviceWarrantyClaims.id, claim.id), eq(serviceWarrantyClaims.tenantId, user.tenantId), isNull(serviceWarrantyClaims.deletedAt)));
+    }
+    await this.db
+      .update(serviceTickets)
+      .set({ deletedAt: now })
+      .where(and(eq(serviceTickets.id, ticket.id), eq(serviceTickets.tenantId, user.tenantId), isNull(serviceTickets.deletedAt)));
     return { ok: true };
   }
 
