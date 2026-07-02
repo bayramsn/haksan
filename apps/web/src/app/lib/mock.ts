@@ -60,6 +60,7 @@ export type Customer = {
 export type Contact = {
   id: string;
   customerId: string;
+  companyIds?: string[];
   name: string;
   title: string;
   department: string;

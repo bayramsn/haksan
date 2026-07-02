@@ -14,7 +14,7 @@ import { MultiSelect } from "../ui/multi-select";
 import { Checkbox } from "../ui/checkbox";
 import { useStore } from "../../lib/store";
 import { usePersistentState } from "../../lib/persist";
-import { SALES_STAGES, salesStageLabel, SHIPMENT_STATUSES, DELIVERY_STATUSES, type ShipmentStatus, type DeliveryStatus, type Customer, type Contact, type Product, type ProductSpec, type ServiceTicketType, type StockItem } from "../../lib/mock";
+import { SALES_STAGES, salesStageLabel, SHIPMENT_STATUSES, DELIVERY_STATUSES, type ShipmentStatus, type DeliveryStatus, type Customer, type Contact, type Machine, type Product, type ProductSpec, type ServiceTicketType, type StockItem } from "../../lib/mock";
 
 const SERVICE_TICKET_TYPE_OPTIONS: { value: ServiceTicketType; label: string }[] = [
   { value: "complaint", label: "Şikayet" },
@@ -23,6 +23,19 @@ const SERVICE_TICKET_TYPE_OPTIONS: { value: ServiceTicketType; label: string }[]
   { value: "question", label: "Soru / Bilgi" },
 ];
 const NO_SERVICE_MACHINE = "__no_service_machine__";
+const contactCompanyIds = (contact: Contact) =>
+  Array.from(new Set([contact.customerId, ...(contact.companyIds ?? [])].filter(Boolean)));
+const contactBelongsToCustomer = (contact: Contact, customerId: string) =>
+  Boolean(customerId && contactCompanyIds(contact).includes(customerId));
+const machineCustomerId = (machine?: Machine | null) =>
+  machine?.customerId || machine?.userCompanyId || "";
+const preferredServiceContact = (items: Contact[], customerId: string) => {
+  const matches = items.filter((contact) => contactBelongsToCustomer(contact, customerId));
+  return matches.find((contact) => contact.isPrimary && contact.customerId === customerId) ??
+    matches.find((contact) => contact.customerId === customerId) ??
+    matches.find((contact) => contact.isPrimary) ??
+    matches[0];
+};
 import { toast } from "sonner";
 import {
   Building2, User as UserIcon, Wallet, Truck, ClipboardCheck, ChevronDown, Receipt, Upload,
@@ -4389,9 +4402,8 @@ export function CreateServiceRequestDialog({ trigger, defaultMachineId }: { trig
   useEffect(() => {
     if (!open) return;
     const defaultMachine = machinesAll.find((machine) => machine.id === defaultMachineId);
-    const customerId = defaultMachine?.customerId ?? "";
-    const companyContacts = contacts.filter((contact) => contact.customerId === customerId);
-    const preferredContact = companyContacts.find((contact) => contact.isPrimary) ?? companyContacts[0];
+    const customerId = machineCustomerId(defaultMachine);
+    const preferredContact = preferredServiceContact(contacts, customerId);
     setForm({
       customerId,
       contactId: preferredContact?.id ?? "",
@@ -4410,10 +4422,13 @@ export function CreateServiceRequestDialog({ trigger, defaultMachineId }: { trig
   );
   const selectedCustomer = customers.find((customer) => customer.id === form.customerId);
   const companyMachines = useMemo(
-    () => machinesAll.filter((machine) => machine.customerId === form.customerId),
+    () => machinesAll.filter((machine) => machineCustomerId(machine) === form.customerId),
     [machinesAll, form.customerId],
   );
-  const companyContacts = contacts.filter((contact) => contact.customerId === form.customerId);
+  const companyContacts = useMemo(
+    () => contacts.filter((contact) => contactBelongsToCustomer(contact, form.customerId)),
+    [contacts, form.customerId],
+  );
   const selectedMachine = machinesAll.find((m) => m.id === form.machineId);
   const selectedContact = contacts.find((contact) => contact.id === form.contactId);
   const contactPhone = selectedContact?.mobilePhone || selectedContact?.phone || selectedContact?.otherPhone || selectedCustomer?.phone || selectedCustomer?.phone2 || "";
@@ -4434,13 +4449,15 @@ export function CreateServiceRequestDialog({ trigger, defaultMachineId }: { trig
   );
 
   const selectCustomer = (customerId: string) => {
-    const nextContacts = contacts.filter((contact) => contact.customerId === customerId);
-    const preferredContact = nextContacts.find((contact) => contact.isPrimary) ?? nextContacts[0];
+    const preferredContact = preferredServiceContact(contacts, customerId);
+    const currentMachine = machinesAll.find((machine) => machine.id === form.machineId);
+    const currentMachineBelongsToCustomer = machineCustomerId(currentMachine) === customerId;
+    const nextMachines = machinesAll.filter((machine) => machineCustomerId(machine) === customerId);
     setForm((current) => ({
       ...current,
       customerId,
       contactId: preferredContact?.id ?? "",
-      machineId: "",
+      machineId: currentMachineBelongsToCustomer ? current.machineId : nextMachines.length === 1 ? nextMachines[0].id : "",
     }));
   };
 
@@ -4449,9 +4466,16 @@ export function CreateServiceRequestDialog({ trigger, defaultMachineId }: { trig
       setForm((current) => ({ ...current, machineId: "" }));
       return;
     }
+    const machine = machinesAll.find((item) => item.id === machineId);
+    const customerId = machineCustomerId(machine) || form.customerId;
+    const preferredContact = selectedContact && contactBelongsToCustomer(selectedContact, customerId)
+      ? selectedContact
+      : preferredServiceContact(contacts, customerId);
     setForm((current) => ({
       ...current,
-      machineId: companyMachines.some((machine) => machine.id === machineId) ? machineId : "",
+      customerId,
+      contactId: preferredContact?.id ?? "",
+      machineId: machine ? machineId : "",
     }));
   };
 
@@ -4461,7 +4485,7 @@ export function CreateServiceRequestDialog({ trigger, defaultMachineId }: { trig
       toast.error("Firma seçimi zorunludur");
       return;
     }
-    if (selectedMachine && selectedMachine.customerId !== form.customerId) {
+    if (selectedMachine && machineCustomerId(selectedMachine) !== form.customerId) {
       toast.error("Seçilen makine firmaya ait değil");
       return;
     }
@@ -4527,7 +4551,7 @@ export function CreateServiceRequestDialog({ trigger, defaultMachineId }: { trig
                   <div className="mt-1.5">
                     <Combobox
                       options={machineOptions}
-                      value={form.customerId ? form.machineId || NO_SERVICE_MACHINE : ""}
+                      value={form.customerId ? form.machineId : ""}
                       onChange={selectMachine}
                       placeholder={form.customerId ? "Makine seçin (opsiyonel)" : "Önce firma seçin"}
                       searchPlaceholder="Makine ara..."

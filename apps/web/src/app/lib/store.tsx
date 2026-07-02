@@ -619,34 +619,42 @@ function StoreInner({ children }: { children: ReactNode }) {
       );
 
       setContacts(
-        contactsR.data.map((k: any) => ({
-          id: k.id,
-          customerId: k.companyId,
-          name: k.fullName ?? '',
-          title: k.title ?? '',
-          department: k.department ?? '',
-          phone: k.workPhone ?? k.mobilePhone ?? '',
-          phoneExtension: k.phoneExtension ?? '',
-          mobilePhone: k.mobilePhone ?? '',
-          otherPhone: k.otherPhone ?? '',
-          email: k.workEmail ?? k.personalEmail ?? k.otherEmail ?? '',
-          personalEmail: k.personalEmail ?? '',
-          otherEmail: k.otherEmail ?? '',
-          gender: k.gender ?? '',
-          birthDate: (k.birthDate as string | undefined)?.slice(0, 10) ?? '',
-          decisionRoleCode: k.decisionRole?.code ?? '',
-          decisionRoleName: k.decisionRole?.name ?? '',
-          hometown: k.hometown ?? '',
-          favoriteTeam: k.favoriteTeam ?? '',
-          knownIllness: k.knownIllness ?? '',
-          favoriteColor: k.favoriteColor ?? '',
-          graduatedSchool: k.graduatedSchool ?? '',
-          politicalView: k.politicalView ?? '',
-          isPrimary: !!k.isPrimary,
-          note: k.notes ?? '',
-          isBlacklisted: !!k.isBlacklisted,
-          blacklistReason: k.blacklistReason ?? '',
-        }))
+        contactsR.data.map((k: any) => {
+          const companyIds = Array.from(new Set([
+            k.companyId,
+            k.company?.id,
+            ...(Array.isArray(k.companyLinks) ? k.companyLinks.map((company: any) => company.id ?? company.companyId) : []),
+          ].filter(Boolean)));
+          return {
+            id: k.id,
+            customerId: k.companyId ?? companyIds[0] ?? '',
+            companyIds,
+            name: k.fullName ?? '',
+            title: k.title ?? '',
+            department: k.department ?? '',
+            phone: k.workPhone ?? k.mobilePhone ?? '',
+            phoneExtension: k.phoneExtension ?? '',
+            mobilePhone: k.mobilePhone ?? '',
+            otherPhone: k.otherPhone ?? '',
+            email: k.workEmail ?? k.personalEmail ?? k.otherEmail ?? '',
+            personalEmail: k.personalEmail ?? '',
+            otherEmail: k.otherEmail ?? '',
+            gender: k.gender ?? '',
+            birthDate: (k.birthDate as string | undefined)?.slice(0, 10) ?? '',
+            decisionRoleCode: k.decisionRole?.code ?? '',
+            decisionRoleName: k.decisionRole?.name ?? '',
+            hometown: k.hometown ?? '',
+            favoriteTeam: k.favoriteTeam ?? '',
+            knownIllness: k.knownIllness ?? '',
+            favoriteColor: k.favoriteColor ?? '',
+            graduatedSchool: k.graduatedSchool ?? '',
+            politicalView: k.politicalView ?? '',
+            isPrimary: !!k.isPrimary || (Array.isArray(k.companyLinks) && k.companyLinks.some((company: any) => company.id === (k.companyId ?? companyIds[0]) && company.isPrimary)),
+            note: k.notes ?? '',
+            isBlacklisted: !!k.isBlacklisted,
+            blacklistReason: k.blacklistReason ?? '',
+          };
+        })
       );
 
       const mapCase = (o: any): SalesCase =>

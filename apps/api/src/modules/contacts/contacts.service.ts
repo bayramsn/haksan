@@ -21,6 +21,7 @@ export class ContactsService {
 
   async list(actor: AuthContext, query: { search?: string; companyId?: string }, page: Pagination) {
     const { limit, offset } = pageOffset(page);
+    const scope = resolveActorDivisionScope(actor);
     const filters = [eq(contacts.tenantId, actor.tenantId), isNull(contacts.deletedAt)];
     if (query.companyId) {
       await this.assertCompany(query.companyId, actor);
@@ -31,7 +32,6 @@ export class ContactsService {
           and cc.company_id = ${query.companyId}
       )`);
     } else {
-      const scope = resolveActorDivisionScope(actor);
       if (scope.mode === 'list') {
         if (scope.divisionIds.length === 0) {
           filters.push(sql`1 = 0`);
@@ -67,8 +67,42 @@ export class ContactsService {
       .orderBy(desc(contacts.createdAt))
       .limit(limit)
       .offset(offset);
+    if (rows.length === 0) return buildPaginated([], count, page);
+    const contactIds = rows.map((r) => r.contact.id);
+    const linkRows = await this.db
+      .select({
+        contactId: contactCompanies.contactId,
+        id: companies.id,
+        legalTitle: companies.legalTitle,
+        shortName: companies.shortName,
+        isPrimary: contactCompanies.isPrimary,
+      })
+      .from(contactCompanies)
+      .innerJoin(companies, eq(contactCompanies.companyId, companies.id))
+      .where(
+        and(
+          eq(contactCompanies.tenantId, actor.tenantId),
+          inArray(contactCompanies.contactId, contactIds),
+          eq(companies.tenantId, actor.tenantId),
+          isNull(companies.deletedAt),
+          companyPortfolioFilter(scope, companies.id) ?? sql`true`
+        )
+      )
+      .orderBy(desc(contactCompanies.isPrimary));
+    const linksByContact = new Map<string, Array<{ id: string; legalTitle: string; shortName: string | null; isPrimary: boolean }>>();
+    for (const link of linkRows) {
+      const links = linksByContact.get(link.contactId) ?? [];
+      links.push({ id: link.id, legalTitle: link.legalTitle, shortName: link.shortName, isPrimary: link.isPrimary });
+      linksByContact.set(link.contactId, links);
+    }
     return buildPaginated(
-      rows.map((r) => ({ ...r.contact, company: r.company })),
+      rows.map((r) => ({
+        ...r.contact,
+        company: r.company,
+        companyLinks:
+          linksByContact.get(r.contact.id) ??
+          (r.company?.id ? [{ ...r.company, isPrimary: true }] : []),
+      })),
       count,
       page
     );
