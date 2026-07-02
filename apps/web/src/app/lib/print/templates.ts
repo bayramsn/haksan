@@ -721,7 +721,103 @@ const ADET_YAZI: Record<number, string> = {
 const sayiAdet = (n: number) => ADET_YAZI[n] ?? String(n);
 const shortFirmName = (s: string) => s.split(" ").slice(0, 2).join(" ");
 
-// ── 5) KURULUM TUTANAĞI (DR.MAK) ────────────────────────────────────────────
+// ── 5) KUTU ADRES ETİKETİ ───────────────────────────────────────────────────
+
+export interface CargoLabelPrintData {
+  firma: string;
+  adres?: string;
+  ilce?: string;
+  sehir?: string;
+  tel?: string;
+}
+
+export function cargoLabelDoc(d: CargoLabelPrintData, assetBase: string): PrintDocument {
+  const brandAssetBase = assetBase.replace(/\/print\/?$/, "/brand");
+  const css = `
+    @page { size: A4 landscape; margin: 0; }
+    .lbl-page { 
+      width: 297mm; height: 210mm; 
+      padding: 15mm; 
+      font-family: Calibri, "Segoe UI", Arial, sans-serif; 
+      background: #fff;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      position: relative;
+    }
+    .lbl-haksan {
+      position: absolute;
+      top: 15mm;
+      left: 15mm;
+      width: 120mm;
+    }
+    .lbl-logo {
+      width: 90mm;
+      display: block;
+      margin-bottom: 2mm;
+    }
+    .lbl-motto {
+      font-size: 16pt;
+      font-weight: bold;
+      font-style: italic;
+      color: #2b3990;
+      margin-bottom: 5mm;
+      letter-spacing: 0.5px;
+    }
+    .lbl-haksan-address {
+      font-size: 14pt;
+      line-height: 1.4;
+    }
+    .lbl-haksan-tel {
+      margin-top: 1mm;
+      font-size: 14pt;
+    }
+    .lbl-customer {
+      position: absolute;
+      bottom: 25mm;
+      right: 25mm;
+      width: 150mm;
+      text-align: center;
+    }
+    .lbl-customer-name {
+      font-size: 26pt;
+      font-weight: 900;
+      line-height: 1.2;
+      margin-bottom: 3mm;
+    }
+    .lbl-customer-address {
+      font-size: 20pt;
+      line-height: 1.4;
+      margin-bottom: 2mm;
+    }
+    .lbl-customer-tel {
+      font-size: 18pt;
+    }
+  `;
+
+  const body = `
+<div class="lbl-page">
+  <div class="lbl-haksan">
+    <img class="lbl-logo" src="${brandAssetBase}/haksan-logo.png" alt="HAKSAN MAKİNA">
+    <div class="lbl-motto">" Makina Marketiniz "</div>
+    <div class="lbl-haksan-address">Yenidoğan Mah. Eyüp Sultan Cad. No:24<br>Bayrampaşa, İstanbul</div>
+    <div class="lbl-haksan-tel"><span style="text-decoration: underline;">Tel. :</span> 0(212) 567 33 31</div>
+  </div>
+  
+  <div class="lbl-customer">
+    <div class="lbl-customer-name">${esc(d.firma)}</div>
+    <div class="lbl-customer-address">
+      ${blank(d.adres)}<br>
+      ${blank(d.ilce)}${d.ilce && d.sehir ? '/' : ''}${blank(d.sehir)}
+    </div>
+    ${d.tel ? `<div class="lbl-customer-tel">Tel: ${esc(d.tel)}</div>` : ''}
+  </div>
+</div>`;
+
+  return { title: `Kargo Etiketi - ${d.firma}`, css, body };
+}
+
+// ── 6) KURULUM TUTANAĞI (DR.MAK) ────────────────────────────────────────────
 
 export interface MachineInfo {
   marka?: string;

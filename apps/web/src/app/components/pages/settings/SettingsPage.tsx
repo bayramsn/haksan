@@ -8,6 +8,12 @@ import { Pencil, Plus, Save, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "../../../../lib/auth";
 import { adminService } from "../../../../lib/services";
+import {
+  PRODUCT_SPEC_GROUPS,
+  normalizeProductSpecKey,
+  productSpecGroupForKey,
+  type ProductSpecGroup,
+} from "../../../lib/productSpecTemplates";
 
 type Preferences = {
   notifyNewCase: boolean;
@@ -72,6 +78,13 @@ type SpecTemplateRow = {
 
 type ProductOption = { code: string; label: string };
 type ProductTypeOption = ProductOption & { categoryCode: string; subcategoryCode?: string };
+type SpecTemplateDisplayGroup = { group: ProductSpecGroup; rows: SpecTemplateRow[] };
+type SpecTemplateDisplaySection = {
+  id: string;
+  title: string;
+  description: string;
+  groups: SpecTemplateDisplayGroup[];
+};
 
 const TEMPLATE_PRODUCT_CATEGORIES: ProductOption[] = [
   { code: "TEZGAH", label: "Tezgah" },
@@ -164,6 +177,16 @@ const emptySpecScope: SpecTemplateScope = { categoryCode: "TEZGAH", subcategoryC
 
 const productTypeLabel = (code: string) => TEMPLATE_PRODUCT_TYPES.find((item) => item.code === code)?.label ?? code;
 const productTypeByCode = (code: string) => TEMPLATE_PRODUCT_TYPES.find((item) => item.code === code);
+const specTemplateKey = (row: SpecTemplateRow) => normalizeProductSpecKey(row.specKey);
+
+const groupSpecTemplateRows = (rows: SpecTemplateRow[]): SpecTemplateDisplayGroup[] => {
+  const buckets = new Map<ProductSpecGroup["code"], SpecTemplateRow[]>();
+  for (const row of rows) {
+    const group = productSpecGroupForKey({ key: row.specKey, value: row.defaultValue ?? "" });
+    buckets.set(group.code, [...(buckets.get(group.code) ?? []), row]);
+  }
+  return PRODUCT_SPEC_GROUPS.map((group) => ({ group, rows: buckets.get(group.code) ?? [] })).filter((item) => item.rows.length > 0);
+};
 
 const subcategoriesForCategory = (categoryCode: string) => {
   const subcategoryCodes = new Set(
@@ -248,6 +271,49 @@ export function SettingsPage() {
     const availableCodes = new Set(availableSpecProductTypes.map((item) => item.code));
     return specRows.filter((row) => availableCodes.has(row.productTypeCode));
   }, [availableSpecProductTypes, specRows, specScope.productTypeCode]);
+
+  const scopedSpecRows = useMemo(() => {
+    const availableCodes = new Set(availableSpecProductTypes.map((item) => item.code));
+    return specRows.filter((row) => availableCodes.has(row.productTypeCode));
+  }, [availableSpecProductTypes, specRows]);
+
+  const commonSpecKeys = useMemo(() => {
+    const productTypesByKey = new Map<string, Set<string>>();
+    for (const row of scopedSpecRows) {
+      const key = specTemplateKey(row);
+      if (!key) continue;
+      const codes = productTypesByKey.get(key) ?? new Set<string>();
+      codes.add(row.productTypeCode);
+      productTypesByKey.set(key, codes);
+    }
+    return new Set(
+      [...productTypesByKey.entries()]
+        .filter(([, productTypeCodes]) => productTypeCodes.size > 1)
+        .map(([key]) => key),
+    );
+  }, [scopedSpecRows]);
+
+  const specTemplateSections = useMemo<SpecTemplateDisplaySection[]>(() => {
+    const commonRows = filteredSpecRows.filter((row) => commonSpecKeys.has(specTemplateKey(row)));
+    const specificRows = filteredSpecRows.filter((row) => !commonSpecKeys.has(specTemplateKey(row)));
+    const selectedTypeLabel = specScope.productTypeCode ? productTypeLabel(specScope.productTypeCode) : "Seçili kapsam";
+    return [
+      {
+        id: "common",
+        title: "Ortak Teknik Bilgiler",
+        description: "Seçili üst/alt grupta birden fazla ürün tipinde kullanılan alanlar.",
+        rows: commonRows,
+      },
+      {
+        id: "specific",
+        title: specScope.productTypeCode ? `${selectedTypeLabel} Özel Teknik Bilgiler` : "Ürün Tipine Özel Teknik Bilgiler",
+        description: "Sadece tek ürün tipinde bulunan veya kapsam içinde ortak olmayan alanlar.",
+        rows: specificRows,
+      },
+    ]
+      .map((section) => ({ ...section, groups: groupSpecTemplateRows(section.rows) }))
+      .filter((section) => section.groups.length > 0);
+  }, [commonSpecKeys, filteredSpecRows, specScope.productTypeCode]);
 
   useEffect(() => {
     if (!canReadTenant) return;
@@ -712,55 +778,96 @@ export function SettingsPage() {
                   </div>
                 </div>
               </div>
-              <div className="overflow-x-auto rounded-lg border border-border/60">
-                <table className="w-full text-sm">
-                  <thead className="bg-muted/40 text-left text-xs text-muted-foreground">
-                    <tr>
-                      <th className="px-3 py-2">Ürün Tipi</th>
-                      <th className="px-3 py-2">Alan</th>
-                      <th className="px-3 py-2">Başlangıç Değeri</th>
-                      <th className="px-3 py-2">Birim</th>
-                      <th className="px-3 py-2">Sıra</th>
-                      <th className="px-3 py-2">Durum</th>
-                      <th className="px-3 py-2 text-right">İşlem</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredSpecRows.map((row) => (
-                      <tr key={row.id} className="border-t border-border/60">
-                        <td className="px-3 py-2">
-                          <div className="font-medium">{productTypeLabel(row.productTypeCode)}</div>
-                          <div className="font-mono text-[11px] text-muted-foreground">{row.productTypeCode}</div>
-                        </td>
-                        <td className="px-3 py-2">{row.specKey}</td>
-                        <td className="px-3 py-2">{row.defaultValue || "-"}</td>
-                        <td className="px-3 py-2">{row.specUnit || "-"}</td>
-                        <td className="px-3 py-2">{row.sortOrder ?? 0}</td>
-                        <td className="px-3 py-2">{row.isActive === false ? "Pasif" : "Aktif"}</td>
-                        <td className="px-3 py-2">
-                          <div className="flex justify-end gap-1">
-                            <Button type="button" variant="ghost" size="icon" className="size-8" onClick={() => editSpecTemplate(row)}>
-                              <Pencil className="size-4" />
-                            </Button>
-                            <Button type="button" variant="ghost" size="icon" className="size-8 text-destructive" onClick={() => deleteSpecTemplate(row)}>
-                              <Trash2 className="size-4" />
-                            </Button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                    {!filteredSpecRows.length && (
-                      <tr>
-                        <td className="px-3 py-6 text-center text-muted-foreground" colSpan={7}>Seçili kapsamda kayıt yok.</td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
+              <div className="space-y-3">
+                {specTemplateSections.map((section) => (
+                  <SpecTemplateSectionTable
+                    key={section.id}
+                    section={section}
+                    onEdit={editSpecTemplate}
+                    onDelete={deleteSpecTemplate}
+                  />
+                ))}
+                {!specTemplateSections.length && (
+                  <div className="rounded-lg border border-border/60 px-3 py-6 text-center text-sm text-muted-foreground">
+                    Seçili kapsamda kayıt yok.
+                  </div>
+                )}
               </div>
             </CardContent>
           </Card>
         </>
       )}
+    </div>
+  );
+}
+
+function SpecTemplateSectionTable({
+  section,
+  onEdit,
+  onDelete,
+}: {
+  section: SpecTemplateDisplaySection;
+  onEdit: (row: SpecTemplateRow) => void;
+  onDelete: (row: SpecTemplateRow) => void;
+}) {
+  return (
+    <div className="overflow-hidden rounded-lg border border-border/60 bg-white">
+      <div className="border-b border-border/60 bg-muted/40 px-3 py-2">
+        <div className="text-sm font-semibold">{section.title}</div>
+        <div className="mt-0.5 text-xs text-muted-foreground">{section.description}</div>
+      </div>
+      {section.groups.map(({ group, rows }, groupIndex) => (
+        <div
+          key={`${section.id}-${group.code}`}
+          className={`grid grid-cols-[56px_minmax(0,1fr)] ${groupIndex > 0 ? "border-t border-border/60" : ""}`}
+        >
+          <div className="flex items-center justify-center border-r border-border/60 bg-muted/50 px-1 py-2">
+            <div className="rotate-180 text-center text-[10px] font-semibold uppercase tracking-[0.16em] text-foreground/80 [writing-mode:vertical-rl]">
+              {group.label}
+            </div>
+          </div>
+          <div className="min-w-0 overflow-x-auto">
+            <table className="w-full min-w-[720px] text-sm">
+              <thead className="bg-muted/20 text-left text-[11px] uppercase text-muted-foreground">
+                <tr>
+                  <th className="px-3 py-2">Ürün Tipi</th>
+                  <th className="px-3 py-2">Alan</th>
+                  <th className="px-3 py-2">Başlangıç Değeri</th>
+                  <th className="px-3 py-2">Birim</th>
+                  <th className="px-3 py-2">Sıra</th>
+                  <th className="px-3 py-2">Durum</th>
+                  <th className="px-3 py-2 text-right">İşlem</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((row) => (
+                  <tr key={row.id} className="border-t border-dotted border-foreground/30">
+                    <td className="px-3 py-2">
+                      <div className="font-medium">{productTypeLabel(row.productTypeCode)}</div>
+                      <div className="font-mono text-[11px] text-muted-foreground">{row.productTypeCode}</div>
+                    </td>
+                    <td className="px-3 py-2">{row.specKey}</td>
+                    <td className="px-3 py-2">{row.defaultValue || "-"}</td>
+                    <td className="px-3 py-2">{row.specUnit || "-"}</td>
+                    <td className="px-3 py-2">{row.sortOrder ?? 0}</td>
+                    <td className="px-3 py-2">{row.isActive === false ? "Pasif" : "Aktif"}</td>
+                    <td className="px-3 py-2">
+                      <div className="flex justify-end gap-1">
+                        <Button type="button" variant="ghost" size="icon" className="size-8" onClick={() => onEdit(row)}>
+                          <Pencil className="size-4" />
+                        </Button>
+                        <Button type="button" variant="ghost" size="icon" className="size-8 text-destructive" onClick={() => onDelete(row)}>
+                          <Trash2 className="size-4" />
+                        </Button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ))}
     </div>
   );
 }

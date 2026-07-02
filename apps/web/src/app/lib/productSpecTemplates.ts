@@ -467,6 +467,8 @@ function normalizeSpecKey(value: string) {
   return aliases[normalized] ?? normalized;
 }
 
+export const normalizeProductSpecKey = normalizeSpecKey;
+
 const splitTriplet = (value: string, separator: RegExp): string[] => {
   const unit = value.match(/\s([a-zA-ZçğıöşüÇĞİÖŞÜ.\/]+)$/)?.[1] ?? "";
   return value

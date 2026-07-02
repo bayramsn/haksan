@@ -11,17 +11,22 @@ import { useStore } from "../../../lib/store";
 import { SHIPMENT_STATUSES } from "../../../lib/mock";
 import { serviceService } from "../../../../lib/services";
 import { ExportExcelButton } from "../../ui/ExportExcelButton";
+import { PrintCargoLabelDialog, printCargoLabelForCustomer } from "../../dialogs/CargoLabelDialog";
 import { printOrWarn } from "../../../lib/pageHelpers";
 import { dispatchNoteDoc, printAssetBase } from "../../../lib/print";
 import type { OperationFocus } from "../../../lib/operations";
 import { ResponsiveContainer, PieChart, Pie, Cell, Legend, Tooltip } from "recharts";
-import { Plus, Truck, ShieldCheck, CheckCircle2, MapPin, Printer, Play } from "lucide-react";
+import { Plus, Truck, ShieldCheck, CheckCircle2, MapPin, Printer, Play, Tag } from "lucide-react";
 import { toast } from "sonner";
 
 export function ShipmentsPage({ focus }: { focus?: OperationFocus }) {
   const { shipments, startShipment, updateShipmentStatus, cases, customers } = useStore();
   const [startingId, setStartingId] = useState<string | null>(null);
   const liveCustomerName = (id: string) => customers.find((c) => c.id === id)?.name ?? "—";
+  const customerForShipment = (s: (typeof shipments)[number]) => {
+    const sc = cases.find((x) => x.id === s.salesCaseId);
+    return sc ? customers.find((c) => c.id === sc.customerId) : undefined;
+  };
   const inTransit = shipments.filter((s) => s.status === "Yolda").length;
   const customs = shipments.filter((s) => s.status === "Gümrükte").length;
   const delivered = shipments.filter((s) => s.status === "Teslim Edildi").length;
@@ -92,6 +97,7 @@ export function ShipmentsPage({ focus }: { focus?: OperationFocus }) {
           <CardHeader className="flex flex-row items-center justify-between pb-3">
             <CardTitle className="tracking-tight">Sevkiyat Takibi</CardTitle>
             <div className="flex items-center gap-2">
+              <PrintCargoLabelDialog />
               <ExportExcelButton path="/exports/shipments" filename="sevkiyatlar.xlsx" className="h-9" />
               <CreateShipmentDialog trigger={<Button size="sm" className="h-9 gap-1"><Plus className="size-4" /> Yeni Sevkiyat</Button>} />
             </div>
@@ -112,6 +118,7 @@ export function ShipmentsPage({ focus }: { focus?: OperationFocus }) {
               <TableBody>
                 {visibleShipments.map((s) => {
                   const sc = cases.find((x) => x.id === s.salesCaseId);
+                  const customer = customerForShipment(s);
                   return (
                     <TableRow key={s.id} className="group">
                       <TableCell>
@@ -125,7 +132,7 @@ export function ShipmentsPage({ focus }: { focus?: OperationFocus }) {
                           </div>
                         </div>
                       </TableCell>
-                      <TableCell className="text-sm">{liveCustomerName(sc?.customerId ?? "")}</TableCell>
+                      <TableCell className="text-sm">{customer?.name ?? liveCustomerName(sc?.customerId ?? "")}</TableCell>
                       <TableCell>
                         <div className="flex items-center gap-1.5 text-xs">
                           <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-muted text-foreground/70">
@@ -184,6 +191,22 @@ export function ShipmentsPage({ focus }: { focus?: OperationFocus }) {
                             <Play className="size-4" />
                           </Button>
                         )}
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="size-8 opacity-0 group-hover:opacity-100 sm:opacity-100"
+                          title="Kargo etiketi yazdır"
+                          disabled={!customer}
+                          onClick={() => {
+                            if (!customer) {
+                              toast.error("Kargo etiketi yazdırılamadı", { description: "Bu sevkiyat için müşteri bulunamadı." });
+                              return;
+                            }
+                            printCargoLabelForCustomer(customer);
+                          }}
+                        >
+                          <Tag className="size-4" />
+                        </Button>
                         <Button variant="ghost" size="icon" className="size-8 opacity-0 group-hover:opacity-100 sm:opacity-100" title="Sevk İrsaliyesi yazdır"
                           onClick={() => printDispatchNote(s)}>
                           <Printer className="size-4" />
