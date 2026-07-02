@@ -11,7 +11,8 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip";
 import { cn } from "../ui/utils";
 import {
-  AlertTriangle, CheckCircle2, ChevronDown, CircleDollarSign, Eraser, ListChecks, RotateCcw, Trash2, TrendingUp, Users, Wrench,
+  AlertTriangle, BriefcaseBusiness, CheckCircle2, ChevronDown, CircleDollarSign, Eraser, ListChecks, PackageCheck,
+  RotateCcw, Settings2, Trash2, TrendingUp, Truck, Users, Wrench,
   type LucideIcon,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -22,8 +23,27 @@ import { toast } from "sonner";
  * kaydedilirken hedef roldeki tüm kullanıcılara kişisel hedef olarak kopyalanır.
  */
 
-export type UserTargetType = "sales" | "service";
+export type UserTargetType = "sales" | "service" | "finance" | "purchase" | "operations" | "logistics" | "other";
 type UserTargetUnit = "count" | "amount";
+type TargetTrackingMode = "automatic" | "manual";
+type TargetMetricKey =
+  | "salesAmount"
+  | "salesNewCustomers"
+  | "quoteTarget"
+  | "visitTarget"
+  | "callTarget"
+  | "serviceCompleted"
+  | "serviceAmount"
+  | "digitalLeadTarget"
+  | "digitalConversionTarget"
+  | "digitalBudget"
+  | "paymentsInAmount"
+  | "purchaseInvoiceAmount"
+  | "purchaseOrderAmount"
+  | "purchaseOrderCount"
+  | "salesOrderAmount"
+  | "salesOrderCount"
+  | "installationCompleted";
 
 export type UserTargetItem = {
   targetType: UserTargetType;
@@ -33,9 +53,13 @@ export type UserTargetItem = {
   unit: UserTargetUnit;
   defaultTarget: string;
   target: string;
+  metricKey?: TargetMetricKey | null;
+  trackingMode?: TargetTrackingMode;
+  actual?: number | null;
+  pct?: number | null;
 };
 
-type TargetTemplateItem = Omit<UserTargetItem, "target">;
+type TargetTemplateItem = Omit<UserTargetItem, "target" | "actual" | "pct">;
 
 export type UserTarget = {
   period: string;
@@ -55,6 +79,18 @@ export type UserTarget = {
 };
 
 export const currentPeriod = () => new Date().toISOString().slice(0, 7);
+
+export const TARGET_TYPE_ORDER: UserTargetType[] = ["sales", "service", "finance", "purchase", "operations", "logistics", "other"];
+
+const TARGET_TYPE_META: Record<UserTargetType, { label: string; title: string; icon: LucideIcon }> = {
+  sales: { label: "Satış", title: "Satış Hedefleri", icon: TrendingUp },
+  service: { label: "Servis", title: "Servis Hedefleri", icon: Wrench },
+  finance: { label: "Finans", title: "Finans Hedefleri", icon: CircleDollarSign },
+  purchase: { label: "Satınalma", title: "Satınalma Hedefleri", icon: PackageCheck },
+  operations: { label: "Operasyon", title: "Operasyon Hedefleri", icon: Settings2 },
+  logistics: { label: "Lojistik", title: "Lojistik Hedefleri", icon: Truck },
+  other: { label: "Diğer", title: "Diğer Hedefler", icon: BriefcaseBusiness },
+};
 
 const sharedVisitTargets: Omit<TargetTemplateItem, "targetType">[] = [
   {
@@ -139,8 +175,34 @@ const sharedQuoteTargets: Omit<TargetTemplateItem, "targetType">[] = [
     defaultTarget: "30",
   },
 ];
+const inferTemplateMetricKey = (targetType: UserTargetType, row: Omit<TargetTemplateItem, "targetType">): TargetMetricKey | null => {
+  const text = `${row.category} ${row.activity}`.toLocaleUpperCase("tr-TR");
+  if (text.includes("TAHSİLAT")) return "paymentsInAmount";
+  if (targetType === "sales" && text.includes("SATIŞ HEDEF")) return "salesOrderCount";
+  if (targetType === "sales" && row.unit === "amount") return "salesAmount";
+  if (targetType === "service" && text.includes("KURULUM")) return "installationCompleted";
+  if (targetType === "service" && (text.includes("SERVİS") || text.includes("BAKIM"))) return row.unit === "amount" ? "serviceAmount" : "serviceCompleted";
+  if (targetType === "finance" && text.includes("ALIŞ FATUR")) return "purchaseInvoiceAmount";
+  if (targetType === "finance" && row.unit === "amount") return "paymentsInAmount";
+  if (targetType === "purchase") return row.unit === "amount" ? "purchaseOrderAmount" : "purchaseOrderCount";
+  if (targetType === "operations" && text.includes("SATIŞ SİPARİŞ")) return row.unit === "amount" ? "salesOrderAmount" : "salesOrderCount";
+  if (targetType === "operations" && text.includes("KURULUM")) return "installationCompleted";
+  if (text.includes("TEKLİF")) return "quoteTarget";
+  if (text.includes("ZİYARET")) return "visitTarget";
+  if (text.includes("ARAMA")) return "callTarget";
+  if (text.includes("DİJİTAL") || text.includes("LEAD")) return "digitalLeadTarget";
+  return null;
+};
 const withTargetType = (targetType: UserTargetType, rows: Omit<TargetTemplateItem, "targetType">[]): TargetTemplateItem[] =>
-  rows.map((row) => ({ targetType, ...row }));
+  rows.map((row) => {
+    const metricKey = row.metricKey ?? inferTemplateMetricKey(targetType, row);
+    return {
+      targetType,
+      ...row,
+      metricKey,
+      trackingMode: row.trackingMode ?? (metricKey ? "automatic" : "manual"),
+    };
+  });
 export const TARGET_TEMPLATES: Record<UserTargetType, TargetTemplateItem[]> = {
   sales: withTargetType("sales", [
     {
@@ -250,8 +312,138 @@ export const TARGET_TEMPLATES: Record<UserTargetType, TargetTemplateItem[]> = {
       defaultTarget: "1",
     },
   ]),
+  finance: withTargetType("finance", [
+    {
+      category: "FİNANS",
+      activity: "TAHSİLAT",
+      description: "Dönem içinde müşterilerden gelen tahsilat toplamı.",
+      unit: "amount",
+      defaultTarget: "",
+      metricKey: "paymentsInAmount",
+    },
+    {
+      category: "FİNANS",
+      activity: "ALIŞ FATURASI KONTROLÜ",
+      description: "Dönem içinde işlenen alış faturalarının toplam tutarı.",
+      unit: "amount",
+      defaultTarget: "",
+      metricKey: "purchaseInvoiceAmount",
+    },
+    {
+      category: "FİNANS",
+      activity: "CARİ MUTABAKAT",
+      description: "Müşteri ve tedarikçi cari mutabakatlarının tamamlanması.",
+      unit: "count",
+      defaultTarget: "20",
+      trackingMode: "manual",
+    },
+    {
+      category: "FİNANS",
+      activity: "VADE TAKİBİ",
+      description: "Vadesi yaklaşan ve geciken ödemelerin takip edilmesi.",
+      unit: "count",
+      defaultTarget: "30",
+      trackingMode: "manual",
+    },
+  ]),
+  purchase: withTargetType("purchase", [
+    {
+      category: "SATINALMA",
+      activity: "SATINALMA SİPARİŞİ",
+      description: "Dönem içinde oluşturulan satınalma siparişi adedi.",
+      unit: "count",
+      defaultTarget: "20",
+      metricKey: "purchaseOrderCount",
+    },
+    {
+      category: "SATINALMA",
+      activity: "SATINALMA SİPARİŞ TUTARI",
+      description: "Dönem içinde oluşturulan satınalma siparişlerinin toplam tutarı.",
+      unit: "amount",
+      defaultTarget: "",
+      metricKey: "purchaseOrderAmount",
+    },
+    {
+      category: "TEDARİK",
+      activity: "TEDARİKÇİ GÖRÜŞMESİ",
+      description: "Fiyat, teslim ve termin takibi için yapılan tedarikçi görüşmeleri.",
+      unit: "count",
+      defaultTarget: "30",
+      trackingMode: "manual",
+    },
+  ]),
+  operations: withTargetType("operations", [
+    {
+      category: "OPERASYON",
+      activity: "SATIŞ SİPARİŞİ",
+      description: "Dönem içinde satış siparişine çevrilen işler.",
+      unit: "count",
+      defaultTarget: "15",
+      metricKey: "salesOrderCount",
+    },
+    {
+      category: "OPERASYON",
+      activity: "SATIŞ SİPARİŞ TUTARI",
+      description: "Dönem içinde oluşturulan satış siparişlerinin toplam tutarı.",
+      unit: "amount",
+      defaultTarget: "",
+      metricKey: "salesOrderAmount",
+    },
+    {
+      category: "OPERASYON",
+      activity: "KURULUM TAMAMLAMA",
+      description: "Dönem içinde tamamlanan kurulum işleri.",
+      unit: "count",
+      defaultTarget: "8",
+      metricKey: "installationCompleted",
+    },
+  ]),
+  logistics: withTargetType("logistics", [
+    {
+      category: "LOJİSTİK",
+      activity: "SEVKİYAT PLANLAMA",
+      description: "Dönem içinde planlanan sevkiyat operasyonları.",
+      unit: "count",
+      defaultTarget: "20",
+      trackingMode: "manual",
+    },
+    {
+      category: "LOJİSTİK",
+      activity: "TESLİMAT TAKİBİ",
+      description: "Teslimat, evrak ve gümrük adımlarının takip edilmesi.",
+      unit: "count",
+      defaultTarget: "20",
+      trackingMode: "manual",
+    },
+    {
+      category: "LOJİSTİK",
+      activity: "GECİKME AKSİYONU",
+      description: "Geciken teslimatlarda müşteri ve tedarikçi iletişimi.",
+      unit: "count",
+      defaultTarget: "10",
+      trackingMode: "manual",
+    },
+  ]),
+  other: withTargetType("other", [
+    {
+      category: "GENEL",
+      activity: "PROJE / İYİLEŞTİRME",
+      description: "Departmana özel proje, süreç iyileştirme veya operasyonel iş hedefi.",
+      unit: "count",
+      defaultTarget: "1",
+      trackingMode: "manual",
+    },
+    {
+      category: "GENEL",
+      activity: "EĞİTİM / DOKÜMANTASYON",
+      description: "Ekip içi eğitim, süreç dokümantasyonu veya bilgi paylaşımı.",
+      unit: "count",
+      defaultTarget: "2",
+      trackingMode: "manual",
+    },
+  ]),
 };
-const allTargetTemplates = () => [...TARGET_TEMPLATES.sales, ...TARGET_TEMPLATES.service];
+const allTargetTemplates = () => TARGET_TYPE_ORDER.flatMap((targetType) => TARGET_TEMPLATES[targetType]);
 export const targetItemKey = (item: Pick<UserTargetItem, "targetType" | "category" | "activity">) =>
   `${item.targetType}:${item.category}:${item.activity}`;
 const defaultTargetItems = (): UserTargetItem[] => allTargetTemplates().map((item) => ({ ...item, target: item.defaultTarget }));
@@ -296,6 +488,8 @@ export const mergeTargetItems = (items: unknown): UserTargetItem[] => {
     return {
       ...template,
       target: targetValue(existing?.target ?? template.defaultTarget),
+      metricKey: existing?.metricKey ?? template.metricKey,
+      trackingMode: existing?.trackingMode ?? template.trackingMode,
     };
   });
 };
@@ -332,13 +526,15 @@ export const targetToApi = (target: UserTarget) => ({
   visitTarget: targetNumberOrNull(target.visitTarget),
   callTarget: targetNumberOrNull(target.callTarget),
   quoteTarget: targetNumberOrNull(target.quoteTarget),
-  targetItems: target.targetItems.map(({ targetType, category, activity, description, unit, target }) => ({
+  targetItems: target.targetItems.map(({ targetType, category, activity, description, unit, target, metricKey, trackingMode }) => ({
     targetType,
     category,
     activity,
     description,
     unit,
     target: target.trim(),
+    metricKey: metricKey ?? undefined,
+    trackingMode: trackingMode ?? (metricKey ? "automatic" : "manual"),
   })),
   note: target.note.trim() || undefined,
 });
@@ -360,8 +556,8 @@ export const hasTargetValue = (t?: UserTarget) =>
 export const targetFilledCount = (target: UserTarget, targetType: UserTargetType) =>
   target.targetItems.filter((item) => item.targetType === targetType && !!item.target.trim()).length;
 export const targetTotalCount = (targetType: UserTargetType) => TARGET_TEMPLATES[targetType].length;
-const targetTypeLabel = (targetType: UserTargetType) => (targetType === "sales" ? "Satış" : "Servis");
-const targetTypeTitle = (targetType: UserTargetType) => `${targetTypeLabel(targetType)} Hedefleri`;
+const targetTypeLabel = (targetType: UserTargetType) => TARGET_TYPE_META[targetType]?.label ?? targetType;
+const targetTypeTitle = (targetType: UserTargetType) => TARGET_TYPE_META[targetType]?.title ?? `${targetTypeLabel(targetType)} Hedefleri`;
 export const formatPeriodLabel = (period: string) => {
   const [year, month] = period.split("-").map(Number);
   if (!year || !month) return period;
@@ -401,6 +597,12 @@ const targetCategoryToneClass = (category: string) =>
     "DİJİTAL PAZARLAMA": "border-violet-200 bg-violet-50 text-violet-700",
     "TEKLİF": "border-sky-200 bg-sky-50 text-sky-700",
     "TEKNİK": "border-slate-200 bg-slate-100 text-slate-700",
+    "FİNANS": "border-cyan-200 bg-cyan-50 text-cyan-700",
+    "SATINALMA": "border-indigo-200 bg-indigo-50 text-indigo-700",
+    "TEDARİK": "border-fuchsia-200 bg-fuchsia-50 text-fuchsia-700",
+    "OPERASYON": "border-teal-200 bg-teal-50 text-teal-700",
+    "LOJİSTİK": "border-orange-200 bg-orange-50 text-orange-700",
+    "GENEL": "border-zinc-200 bg-zinc-50 text-zinc-700",
   }[category] ?? "border-border bg-muted text-muted-foreground");
 
 function groupTargetItems(items: UserTargetItem[]) {
@@ -669,13 +871,25 @@ export function TargetDialog({ scope, target, period, onClose, onSave }: {
     setActiveTargetType("sales");
   }, [scope, target, period]);
 
-  const salesItems = useMemo(() => form.targetItems.filter((item) => item.targetType === "sales"), [form.targetItems]);
-  const serviceItems = useMemo(() => form.targetItems.filter((item) => item.targetType === "service"), [form.targetItems]);
-  const salesStats = useMemo(() => summarizeTargetItems(salesItems), [salesItems]);
-  const serviceStats = useMemo(() => summarizeTargetItems(serviceItems), [serviceItems]);
+  const itemsByType = useMemo(
+    () =>
+      TARGET_TYPE_ORDER.reduce((acc, targetType) => {
+        acc[targetType] = form.targetItems.filter((item) => item.targetType === targetType);
+        return acc;
+      }, {} as Record<UserTargetType, UserTargetItem[]>),
+    [form.targetItems]
+  );
+  const statsByType = useMemo(
+    () =>
+      TARGET_TYPE_ORDER.reduce((acc, targetType) => {
+        acc[targetType] = summarizeTargetItems(itemsByType[targetType]);
+        return acc;
+      }, {} as Record<UserTargetType, ReturnType<typeof summarizeTargetItems>>),
+    [itemsByType]
+  );
   const allStats = useMemo(() => summarizeTargetItems(form.targetItems), [form.targetItems]);
-  const activeStats = activeTargetType === "sales" ? salesStats : serviceStats;
-  const invalidCount = salesStats.invalid + serviceStats.invalid;
+  const activeStats = statsByType[activeTargetType] ?? summarizeTargetItems([]);
+  const invalidCount = allStats.invalid;
   const hasInvalidTargets = invalidCount > 0;
   const activeCompletion = activeStats.total ? Math.round((activeStats.filled / activeStats.total) * 100) : 0;
   const activeLabel = targetTypeLabel(activeTargetType);
@@ -815,22 +1029,23 @@ export function TargetDialog({ scope, target, period, onClose, onSave }: {
 
             <Tabs value={activeTargetType} onValueChange={(value) => setActiveTargetType(value as UserTargetType)}>
               <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                <TabsList className="grid h-auto w-full grid-cols-2 bg-muted/60 p-1 lg:w-[460px]">
-                  <TabsTrigger value="sales" className="h-10 gap-2 whitespace-nowrap px-3">
-                    <TrendingUp className="size-3.5" />
-                    <span>Satış</span>
-                    <span className="ml-auto rounded bg-background/80 px-1.5 py-0.5 text-[11px] tabular-nums text-muted-foreground">
-                      {salesStats.filled}/{salesStats.total}
-                    </span>
-                  </TabsTrigger>
-                  <TabsTrigger value="service" className="h-10 gap-2 whitespace-nowrap px-3">
-                    <Wrench className="size-3.5" />
-                    <span>Servis</span>
-                    <span className="ml-auto rounded bg-background/80 px-1.5 py-0.5 text-[11px] tabular-nums text-muted-foreground">
-                      {serviceStats.filled}/{serviceStats.total}
-                    </span>
-                  </TabsTrigger>
-                </TabsList>
+                <div className="w-full overflow-x-auto lg:max-w-[860px]">
+                  <TabsList className="grid h-auto min-w-[760px] grid-cols-7 bg-muted/60 p-1">
+                    {TARGET_TYPE_ORDER.map((targetType) => {
+                      const Icon = TARGET_TYPE_META[targetType].icon;
+                      const stats = statsByType[targetType];
+                      return (
+                        <TabsTrigger key={targetType} value={targetType} className="h-10 min-w-0 gap-1.5 whitespace-nowrap px-2">
+                          <Icon className="size-3.5 shrink-0" />
+                          <span className="truncate">{targetTypeLabel(targetType)}</span>
+                          <span className="ml-auto rounded bg-background/80 px-1.5 py-0.5 text-[11px] tabular-nums text-muted-foreground">
+                            {stats.filled}/{stats.total}
+                          </span>
+                        </TabsTrigger>
+                      );
+                    })}
+                  </TabsList>
+                </div>
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <Button type="button" variant="outline" size="sm" className="h-9 w-full justify-between gap-2 sm:w-auto">
@@ -858,18 +1073,14 @@ export function TargetDialog({ scope, target, period, onClose, onSave }: {
                   </DropdownMenuContent>
                 </DropdownMenu>
               </div>
-              <TabsContent value="sales" className="mt-3">
-                <TargetTemplateTable
-                  items={salesItems}
-                  onTargetChange={updateItemTarget}
-                />
-              </TabsContent>
-              <TabsContent value="service" className="mt-3">
-                <TargetTemplateTable
-                  items={serviceItems}
-                  onTargetChange={updateItemTarget}
-                />
-              </TabsContent>
+              {TARGET_TYPE_ORDER.map((targetType) => (
+                <TabsContent key={targetType} value={targetType} className="mt-3">
+                  <TargetTemplateTable
+                    items={itemsByType[targetType]}
+                    onTargetChange={updateItemTarget}
+                  />
+                </TabsContent>
+              ))}
             </Tabs>
           </div>
           <DialogFooter className="border-t border-border/60 px-4 py-3 sm:items-center sm:justify-between sm:px-5 sm:py-4">

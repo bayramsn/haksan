@@ -55,6 +55,7 @@ import {
 } from "../../lib/productSpecTemplates";
 import { QuoteDialog } from "./QuoteDialog";
 import { ProductSpecsTable } from "../shared/ProductSpecsTable";
+import { OsmCompanySearch } from "../company/OsmCompanySearch";
 
 /* ---------- Customer ---------- */
 const COMPANY_GROUP_OPTIONS = [
@@ -218,6 +219,9 @@ const emptyCompanyForm = () => ({
   email: "",
   email2: "",
   address: "",
+  latitude: "",
+  longitude: "",
+  osmDisplayName: "",
   district: "",
   city: "",
   country: "Türkiye",
@@ -262,11 +266,16 @@ export function CreateCustomerDialog({ trigger, onCreated }: { trigger: React.Re
       return;
     }
     try {
+      const { latitude: latitudeRaw, longitude: longitudeRaw, ...companyForm } = form;
+      const latitude = latitudeRaw ? Number(latitudeRaw) : undefined;
+      const longitude = longitudeRaw ? Number(longitudeRaw) : undefined;
       const c = await addCustomer({
-        ...form,
+        ...companyForm,
         type,
         firmType,
         salesStatus: firmType === "supplier" ? undefined : salesStatus,
+        latitude: Number.isFinite(latitude) ? latitude : undefined,
+        longitude: Number.isFinite(longitude) ? longitude : undefined,
         contactPerson: "",
         wantedProduct: "",
         source: contactSourceRows.find((s) => s.code === form.contactSourceCode)?.name ?? "",
@@ -408,6 +417,28 @@ export function CreateCustomerDialog({ trigger, onCreated }: { trigger: React.Re
               onChange={(v) => setForm({ ...form, district: v })}
               placeholder={form.city ? "İlçe seçin..." : "Önce il seçin"}
             />
+            <div className="col-span-2">
+              <OsmCompanySearch
+                query={form.name}
+                city={form.city}
+                district={form.district}
+                onSelect={(result) => {
+                  setForm({
+                    ...form,
+                    latitude: String(result.latitude),
+                    longitude: String(result.longitude),
+                    osmDisplayName: result.displayName,
+                    address: form.address.trim() ? form.address : result.displayName,
+                  });
+                  toast.success("Konum seçildi", { description: `${result.latitude.toFixed(5)}, ${result.longitude.toFixed(5)}` });
+                }}
+              />
+              {form.latitude && form.longitude && (
+                <div className="mt-2 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-900">
+                  Harita konumu kayda eklenecek: {Number(form.latitude).toFixed(5)}, {Number(form.longitude).toFixed(5)}
+                </div>
+              )}
+            </div>
             <LookupCombobox
               label="Vergi Dairesi"
               options={lookupNameOptions(taxOfficeRows)}

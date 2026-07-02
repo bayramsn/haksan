@@ -88,14 +88,14 @@ const defaultForm = (companyId = "") => ({
   grandTotal: "",
   currencyCode: "USD",
   paymentType: "cash" as PaymentType,
-  paymentTermDays: "0",
+  paymentTermDays: "",
   previousPaymentTermDays: "",
   termChangeReason: "",
   incoterm: "",
   shipmentReference: "",
   orderNo: "",
   expectedDate: "",
-  firstDueDate: new Date().toISOString().slice(0, 10),
+  firstDueDate: "",
   lastDueDate: "",
   installmentCount: "1",
   notes: "",
@@ -110,6 +110,12 @@ const parseMoneyInput = (value: string | number | undefined) => {
 };
 const vatAmountFromRate = (amount: string | number | undefined, vatRate: string | number | undefined) =>
   roundMoney(Math.max(parseMoneyInput(amount), 0) * (Math.max(parseMoneyInput(vatRate), 0) / 100));
+const addDaysToDateInput = (dateText: string, days: number) => {
+  const base = new Date(dateText);
+  if (Number.isNaN(base.getTime())) return "";
+  const due = new Date(base.getTime() + days * 24 * 60 * 60 * 1000);
+  return due.toISOString().slice(0, 10);
+};
 
 const deriveVatRate = (amount: number, vatAmount?: number, grandTotal?: number, fallback = 20) => {
   if (!Number.isFinite(amount) || amount <= 0) return fallback;
@@ -251,14 +257,14 @@ export function CreateAccountingInvoiceDialog({
         grandTotal: String(grandTotal),
         currencyCode: prefill.currencyCode ?? "USD",
         paymentType: prefill.paymentType ?? "cash",
-        paymentTermDays: prefill.paymentTermDays === null || prefill.paymentTermDays === undefined ? "0" : String(prefill.paymentTermDays),
+        paymentTermDays: prefill.paymentTermDays === null || prefill.paymentTermDays === undefined ? "" : String(prefill.paymentTermDays),
         previousPaymentTermDays: prefill.previousPaymentTermDays === null || prefill.previousPaymentTermDays === undefined ? "" : String(prefill.previousPaymentTermDays),
         termChangeReason: prefill.termChangeReason ?? "",
         incoterm: prefill.incoterm ?? "",
         shipmentReference: prefill.shipmentReference ?? "",
         orderNo: prefill.orderNo ?? "",
         expectedDate: prefill.expectedDate?.slice(0, 10) ?? "",
-        firstDueDate: prefill.firstDueDate?.slice(0, 10) ?? prefill.invoiceDate?.slice(0, 10) ?? new Date().toISOString().slice(0, 10),
+        firstDueDate: prefill.firstDueDate?.slice(0, 10) ?? "",
         lastDueDate: prefill.lastDueDate?.slice(0, 10) ?? "",
         installmentCount: String(prefill.installmentCount ?? prefill.installments?.length ?? 1),
         notes: prefill.notes ?? "",
@@ -275,6 +281,7 @@ export function CreateAccountingInvoiceDialog({
       setForm(defaultForm(defaultCompanyId));
       setQuoteId(undefined);
       setSalesOrderId(undefined);
+      setInstallments([]);
       setLines([blankLine("commercial")]);
     }
   }, [open, prefill, defaultCompanyId]);
@@ -296,13 +303,11 @@ export function CreateAccountingInvoiceDialog({
         setContractTermHint(`Vade sözleşmeden alındı${s.contractNo ? ` (${s.contractNo})` : ""}: ${s.paymentTermDays} gün`);
         if (!termTouched) {
           setForm((current) => {
-            const base = new Date(current.invoiceDate);
-            const due = new Date(base.getTime() + Number(s.paymentTermDays) * 24 * 60 * 60 * 1000);
             return {
               ...current,
               paymentType: "term" as PaymentType,
               paymentTermDays: String(s.paymentTermDays),
-              firstDueDate: due.toISOString().slice(0, 10),
+              firstDueDate: addDaysToDateInput(current.invoiceDate, Number(s.paymentTermDays)),
             };
           });
         }
@@ -313,7 +318,7 @@ export function CreateAccountingInvoiceDialog({
     return () => {
       alive = false;
     };
-  }, [open, isEditing, form.type, form.companyId, quoteId, termTouched]);
+  }, [open, isEditing, form.type, form.companyId, form.invoiceDate, quoteId, termTouched]);
 
   useEffect(() => {
     if (!gridDrivesTotals) return;
@@ -347,7 +352,8 @@ export function CreateAccountingInvoiceDialog({
     const count = Math.max(1, Number(form.installmentCount) || 1);
     if (!Number.isFinite(total) || total <= 0) return [];
     const base = Math.floor((total / count) * 100) / 100;
-    const first = new Date(form.firstDueDate);
+    const first = new Date(form.firstDueDate || form.invoiceDate);
+    if (Number.isNaN(first.getTime())) return [];
     const last = form.lastDueDate ? new Date(form.lastDueDate) : null;
     const stepMs = last && count > 1 ? (last.getTime() - first.getTime()) / (count - 1) : 30 * 24 * 60 * 60 * 1000;
     let allocated = 0;
@@ -503,6 +509,12 @@ export function CreateAccountingInvoiceDialog({
     };
     const termDaysOrUndef = (value: string) =>
       value === "" ? undefined : Math.max(0, Math.trunc(parseMoneyInput(value)));
+    const paymentTermDays =
+      form.paymentType === "cash" ? 0 : termDaysOrUndef(form.paymentTermDays);
+    const firstDueDate =
+      form.firstDueDate ? new Date(form.firstDueDate) : undefined;
+    const shouldSendInstallments =
+      form.paymentType !== "term" || Boolean(form.paymentTermDays.trim()) || Boolean(form.firstDueDate);
 
     setSaving(true);
     try {
@@ -518,7 +530,7 @@ export function CreateAccountingInvoiceDialog({
         grandTotal: invoiceTotals.grandTotal,
         currencyCode: form.currencyCode,
         paymentType: form.paymentType,
-        paymentTermDays: termDaysOrUndef(form.paymentTermDays),
+        paymentTermDays,
         previousPaymentTermDays: termDaysOrUndef(form.previousPaymentTermDays),
         termChangeReason: textOrUndef(form.termChangeReason),
         incoterm: isAdministrative ? (isEditing ? "" : undefined) : textOrUndef(form.incoterm),
@@ -527,15 +539,17 @@ export function CreateAccountingInvoiceDialog({
         expectedDate: form.expectedDate ? new Date(form.expectedDate) : undefined,
         quoteId,
         salesOrderId,
-        firstDueDate: new Date(form.firstDueDate),
+        firstDueDate,
         lastDueDate: form.lastDueDate ? new Date(form.lastDueDate) : undefined,
         installmentCount: Number(form.installmentCount) || 1,
         notes: form.notes || undefined,
-        installments: installments.map((i) => ({
-          installmentNo: i.installmentNo,
-          dueDate: new Date(i.dueDate),
-          amount: Number(i.amount),
-        })),
+        installments: shouldSendInstallments
+          ? installments.map((i) => ({
+              installmentNo: i.installmentNo,
+              dueDate: new Date(i.dueDate),
+              amount: Number(i.amount),
+            }))
+          : undefined,
         lineItems: invoiceLineItems,
       };
       if (invoiceId) await financeService.updateAccountingInvoice(invoiceId, payload);
@@ -558,12 +572,13 @@ export function CreateAccountingInvoiceDialog({
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>{trigger}</DialogTrigger>
-      <DialogContent className={`${gridVisible ? "w-[95vw] sm:max-w-[1100px]" : "max-w-2xl"} max-h-[90vh] overflow-y-auto`}>
-        <DialogHeader>
+      <DialogContent className={`${gridVisible ? "w-[95vw] sm:max-w-[1100px]" : "max-w-2xl"} max-h-[92dvh] gap-0 overflow-hidden p-0`}>
+        <DialogHeader className="border-b border-border/60 px-4 py-4 pr-11 sm:px-5">
           <DialogTitle className="flex items-center gap-2"><Receipt className="size-5" /> {isEditing ? "Faturayı Düzenle" : "Muhasebe Faturası"}</DialogTitle>
           <DialogDescription>{isEditing ? "Fatura bilgileri ve vade planını güncelleyin." : "Satış veya alış faturası ile vade planı oluşturun; cari hareketler otomatik açılır."}</DialogDescription>
         </DialogHeader>
-        <form onSubmit={submit} className="space-y-4 min-w-0">
+        <form onSubmit={submit} className="flex max-h-[calc(92dvh-86px)] min-h-0 flex-col">
+          <div className="min-w-0 flex-1 space-y-4 overflow-y-auto px-4 py-4 sm:px-5">
           <div className="grid gap-3 md:grid-cols-2">
             <div className="rounded-lg border border-border/60 bg-muted/20 p-3">
               <Label className="text-xs">Fatura Sınıfı</Label>
@@ -619,7 +634,12 @@ export function CreateAccountingInvoiceDialog({
                 onValueChange={(v) => {
                   const paymentType = v as PaymentType;
                   setTermTouched(true);
-                  setForm({ ...form, paymentType, paymentTermDays: paymentType === "cash" ? "0" : form.paymentTermDays });
+                  setForm({
+                    ...form,
+                    paymentType,
+                    paymentTermDays: paymentType === "cash" ? "" : form.paymentTermDays,
+                    firstDueDate: paymentType === "cash" ? "" : form.firstDueDate,
+                  });
                 }}
               >
                 <SelectTrigger className="mt-1 h-9"><SelectValue /></SelectTrigger>
@@ -662,8 +682,15 @@ export function CreateAccountingInvoiceDialog({
                 inputMode="numeric"
                 value={form.paymentTermDays}
                 onChange={(e) => {
+                  const paymentTermDays = e.target.value;
+                  const numericDays = paymentTermDays.trim() ? Math.max(0, Math.trunc(parseMoneyInput(paymentTermDays))) : null;
                   setTermTouched(true);
-                  setForm({ ...form, paymentTermDays: e.target.value });
+                  setForm({
+                    ...form,
+                    paymentType: paymentTermDays.trim() ? "term" : form.paymentType,
+                    paymentTermDays,
+                    firstDueDate: numericDays === null ? form.firstDueDate : addDaysToDateInput(form.invoiceDate, numericDays),
+                  });
                 }}
                 placeholder="0"
               />
@@ -856,7 +883,7 @@ export function CreateAccountingInvoiceDialog({
           )}
           <div className="rounded-lg border border-border/60 p-3 space-y-3">
             <div className="text-sm font-medium">Vade Planı</div>
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid gap-3 md:grid-cols-3">
               <div>
                 <Label className="text-xs">İlk Vade</Label>
                 <Input
@@ -903,7 +930,8 @@ export function CreateAccountingInvoiceDialog({
             <Label className="text-xs">Notlar</Label>
             <Textarea className="mt-1" rows={2} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
           </div>
-          <DialogFooter>
+          </div>
+          <DialogFooter className="border-t border-border/60 px-4 py-3 sm:px-5">
             <Button type="button" variant="outline" onClick={() => setOpen(false)}>Vazgeç</Button>
             <Button type="submit" disabled={saving}>{saving ? "Kaydediliyor…" : isEditing ? "Güncelle" : "Faturayı Kaydet"}</Button>
           </DialogFooter>

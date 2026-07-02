@@ -14,6 +14,7 @@ import { useStore } from "../../lib/store";
 import { coordsForCity, haversineKm, openDirections, centroidForProvince, PROVINCE_NAMES, TURKEY_CENTER, type LatLng } from "../../lib/geo";
 import { usePersistentState } from "../../lib/persist";
 import { companyService } from "../../../lib/services";
+import { OsmCompanySearch } from "../company/OsmCompanySearch";
 import { toast } from "sonner";
 
 const FIRM_TYPE_LABEL: Record<FirmType, string> = {
@@ -175,6 +176,7 @@ export function SalesMapPage({ initialQuery }: { initialQuery?: string }) {
   const [geoStatus, setGeoStatus] = useState<GeoStatus>("idle");
   const [focusedId, setFocusedId] = useState<string | null>(null);
   const [selectionMode, setSelectionMode] = useState<SelectionMode>(null);
+  const [osmSearchFirmId, setOsmSearchFirmId] = useState<string | null>(null);
   const watchdog = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
@@ -258,6 +260,19 @@ export function SalesMapPage({ initialQuery }: { initialQuery?: string }) {
       .catch((err: any) => {
         toast.error("Konum sıfırlanamadı", { description: err?.message });
       });
+  };
+
+  const applyOsmLocation = async (customer: Customer, pos: LatLng) => {
+    setFirmCoords((current) => ({ ...current, [customer.id]: pos }));
+    setFocusedId(customer.id);
+    try {
+      await companyService.setLocation(customer.id, { latitude: pos.lat, longitude: pos.lng });
+      toast.success("OpenStreetMap konumu kaydedildi", { description: customer.name });
+      setOsmSearchFirmId(null);
+      void refresh();
+    } catch (err: any) {
+      toast.error("Konum kaydedilemedi", { description: err?.message ?? "Lütfen tekrar deneyin." });
+    }
   };
 
   const clearUserLocation = () => {
@@ -355,6 +370,21 @@ export function SalesMapPage({ initialQuery }: { initialQuery?: string }) {
   }, [customers, firmCoords, userPos]);
 
   const unmappedCount = customers.length - mapped.length;
+  const firmsWithoutExactPin = useMemo(() => {
+    const term = q.trim().toLocaleLowerCase("tr-TR");
+    return customers
+      .filter((c) => c.latitude == null || c.longitude == null)
+      .filter((c) => !firmCoords[c.id])
+      .filter((c) => firmType === "all" || c.firmType === firmType)
+      .filter((c) =>
+        !term ||
+        c.name.toLocaleLowerCase("tr-TR").includes(term) ||
+        (c.city ?? "").toLocaleLowerCase("tr-TR").includes(term) ||
+        (c.district ?? "").toLocaleLowerCase("tr-TR").includes(term)
+      )
+      .sort((a, b) => a.name.localeCompare(b.name, "tr"))
+      .slice(0, 12);
+  }, [customers, firmCoords, firmType, q]);
 
   const filtered = useMemo(() => {
     const term = q.trim().toLowerCase();
@@ -533,6 +563,48 @@ export function SalesMapPage({ initialQuery }: { initialQuery?: string }) {
             )}
           </div>
         </Card>
+
+        {firmsWithoutExactPin.length > 0 && (
+          <Card className="border-border/60 shadow-sm overflow-hidden">
+            <div className="border-b border-border/60 px-3 py-2">
+              <div className="text-sm font-medium">Tam pini olmayan firmalar</div>
+              <div className="text-[11px] text-muted-foreground">OSM sonucu seçilince koordinat firmaya kalıcı yazılır.</div>
+            </div>
+            <div className="max-h-[42vh] overflow-y-auto divide-y divide-border/60">
+              {firmsWithoutExactPin.map((customer) => (
+                <div key={customer.id} className="p-3">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-medium">{customer.name}</div>
+                      <div className="mt-0.5 text-[11px] text-muted-foreground">
+                        {[customer.district, customer.city].filter(Boolean).join(", ") || "Adres bilgisi yok"}
+                      </div>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-8 shrink-0"
+                      onClick={() => setOsmSearchFirmId((current) => (current === customer.id ? null : customer.id))}
+                    >
+                      {osmSearchFirmId === customer.id ? "Kapat" : "OSM'de ara"}
+                    </Button>
+                  </div>
+                  {osmSearchFirmId === customer.id && (
+                    <OsmCompanySearch
+                      className="mt-3"
+                      query={customer.name}
+                      city={customer.city}
+                      district={customer.district}
+                      buttonLabel="Ara"
+                      onSelect={(result) => applyOsmLocation(customer, { lat: result.latitude, lng: result.longitude })}
+                    />
+                  )}
+                </div>
+              ))}
+            </div>
+          </Card>
+        )}
       </div>
 
       {/* Sağ panel: harita */}

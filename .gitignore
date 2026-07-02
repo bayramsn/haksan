@@ -19,6 +19,10 @@ coverage/
 .env
 .env.local
 .env.*.local
+deploy/certbot/
+deploy/keys/
+deploy/security/
+backups/
 
 # Drizzle generated migrations are committed, but local SQLite snapshots are not
 *.sqlite

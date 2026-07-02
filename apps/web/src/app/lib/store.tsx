@@ -1159,6 +1159,7 @@ function StoreInner({ children }: { children: ReactNode }) {
   const addCustomer: Store['addCustomer'] = async (c) => {
     const rawWebsite = c.website?.trim();
     const website = rawWebsite ? (/^https?:\/\//i.test(rawWebsite) ? rawWebsite : `https://${rawWebsite}`) : undefined;
+    const hasCoordinates = c.latitude != null && c.longitude != null;
     const created = await companyService.create({
       companyType: c.type === 'person' ? 'person' : 'company',
       legalTitle: c.name,
@@ -1172,12 +1173,14 @@ function StoreInner({ children }: { children: ReactNode }) {
       fax: c.fax || undefined,
       primaryEmail: c.email || undefined,
       secondaryEmail: c.email2 || undefined,
-      address: c.address || c.city || c.district || c.country
+      address: c.address || c.city || c.district || c.country || hasCoordinates
         ? {
             country: c.country || 'Türkiye',
             province: c.city || undefined,
             district: c.district || undefined,
             fullAddress: c.address || undefined,
+            latitude: hasCoordinates ? c.latitude : undefined,
+            longitude: hasCoordinates ? c.longitude : undefined,
           }
         : undefined,
       notes: c.initialNote || undefined,
@@ -1207,6 +1210,9 @@ function StoreInner({ children }: { children: ReactNode }) {
       district: c.district ?? '',
       country: c.country ?? '',
       address: c.address ?? '',
+      latitude: c.latitude,
+      longitude: c.longitude,
+      locationSource: c.locationSource ?? (hasCoordinates ? 'osm' : undefined),
       taxOffice: c.taxOffice ?? '',
       taxNumber: c.taxNumber,
       website: c.website ?? '',

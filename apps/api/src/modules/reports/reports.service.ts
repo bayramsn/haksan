@@ -10,6 +10,7 @@ import { productModels, brands } from '../../db/schema/products';
 import { receivables, payments, accountingInvoices } from '../../db/schema/finance';
 import { inventoryItems, customerDevices } from '../../db/schema/inventory';
 import { serviceComplaintIntakes, serviceTickets, installationJobs } from '../../db/schema/service';
+import { salesOrders, purchaseOrders } from '../../db/schema/orders';
 import { pipelineStages, inventoryStatuses, paymentStatuses, warrantyStatuses, quoteStatuses } from '../../db/schema/lookup';
 import { companies } from '../../db/schema/companies';
 import { DB } from '../../shared/database/database.module';
@@ -30,6 +31,13 @@ const MEASURED_METRICS = [
   'serviceCompleted',
   'serviceAmount',
   'digitalLeadTarget',
+  'paymentsInAmount',
+  'purchaseInvoiceAmount',
+  'purchaseOrderAmount',
+  'purchaseOrderCount',
+  'salesOrderAmount',
+  'salesOrderCount',
+  'installationCompleted',
 ] as const;
 type MeasuredMetric = (typeof MEASURED_METRICS)[number];
 const MANUAL_METRICS = ['digitalConversionTarget', 'digitalBudget'] as const;
@@ -37,6 +45,16 @@ type TargetMetricKey = MeasuredMetric | (typeof MANUAL_METRICS)[number];
 
 type MetricProgress = { target: number | null; actual: number | null; pct: number | null };
 type UserActuals = Record<MeasuredMetric, number>;
+type TargetItemLike = {
+  targetType?: string;
+  category?: string;
+  activity?: string;
+  description?: string;
+  unit?: string;
+  target?: string | number | null;
+  metricKey?: string | null;
+  trackingMode?: 'automatic' | 'manual' | string | null;
+};
 
 const emptyActuals = (): UserActuals => ({
   salesAmount: 0,
@@ -47,7 +65,18 @@ const emptyActuals = (): UserActuals => ({
   serviceCompleted: 0,
   serviceAmount: 0,
   digitalLeadTarget: 0,
+  paymentsInAmount: 0,
+  purchaseInvoiceAmount: 0,
+  purchaseOrderAmount: 0,
+  purchaseOrderCount: 0,
+  salesOrderAmount: 0,
+  salesOrderCount: 0,
+  installationCompleted: 0,
 });
+
+const measuredMetricSet = new Set<string>(MEASURED_METRICS);
+const manualMetricSet = new Set<string>(MANUAL_METRICS);
+const allMetricKeys = [...MEASURED_METRICS, ...MANUAL_METRICS] as TargetMetricKey[];
 
 @Injectable()
 export class ReportsService {
@@ -608,6 +637,48 @@ export class ReportsService {
       if (entry) entry.salesAmount = Number(r.total ?? 0);
     }
 
+    // Tahsilat: müşteriden gelen ödemeler
+    const paymentRows = await this.db
+      .select({ userId: payments.createdBy, total: sql<string>`coalesce(sum(${payments.amount}), 0)::text` })
+      .from(payments)
+      .where(
+        and(
+          eq(payments.tenantId, actor.tenantId),
+          isNull(payments.deletedAt),
+          eq(payments.direction, 'in'),
+          gte(payments.paymentDate, from),
+          lte(payments.paymentDate, to),
+          inArray(payments.createdBy, userIds),
+          this.activeDivisionFilter(actor, payments.divisionId)
+        )
+      )
+      .groupBy(payments.createdBy);
+    for (const r of paymentRows) {
+      const entry = get(r.userId);
+      if (entry) entry.paymentsInAmount = Number(r.total ?? 0);
+    }
+
+    // Alış faturası tutarı: finans/satınalma hedefleri için
+    const purchaseInvoiceRows = await this.db
+      .select({ userId: accountingInvoices.createdBy, total: sql<string>`coalesce(sum(${accountingInvoices.grandTotal}), 0)::text` })
+      .from(accountingInvoices)
+      .where(
+        and(
+          eq(accountingInvoices.tenantId, actor.tenantId),
+          isNull(accountingInvoices.deletedAt),
+          eq(accountingInvoices.type, 'purchase'),
+          gte(accountingInvoices.invoiceDate, from),
+          lte(accountingInvoices.invoiceDate, to),
+          inArray(accountingInvoices.createdBy, userIds),
+          this.activeDivisionFilter(actor, accountingInvoices.divisionId)
+        )
+      )
+      .groupBy(accountingInvoices.createdBy);
+    for (const r of purchaseInvoiceRows) {
+      const entry = get(r.userId);
+      if (entry) entry.purchaseInvoiceAmount = Number(r.total ?? 0);
+    }
+
     // Yeni müşteri: kullanıcının oluşturduğu firmalar
     const companyRows = await this.db
       .select({ userId: companies.createdBy, count: sql<number>`count(*)::int` })
@@ -645,6 +716,60 @@ export class ReportsService {
     for (const r of quoteRows) {
       const entry = get(r.userId);
       if (entry) entry.quoteTarget = r.count;
+    }
+
+    // Satış siparişleri: operasyon/satış siparişleşme hedefleri
+    const salesOrderRows = await this.db
+      .select({
+        userId: salesOrders.createdBy,
+        count: sql<number>`count(*)::int`,
+        total: sql<string>`coalesce(sum(${salesOrders.grandTotal}), 0)::text`,
+      })
+      .from(salesOrders)
+      .where(
+        and(
+          eq(salesOrders.tenantId, actor.tenantId),
+          isNull(salesOrders.deletedAt),
+          gte(salesOrders.orderDate, from),
+          lte(salesOrders.orderDate, to),
+          inArray(salesOrders.createdBy, userIds),
+          this.activeDivisionFilter(actor, salesOrders.divisionId)
+        )
+      )
+      .groupBy(salesOrders.createdBy);
+    for (const r of salesOrderRows) {
+      const entry = get(r.userId);
+      if (entry) {
+        entry.salesOrderCount = r.count;
+        entry.salesOrderAmount = Number(r.total ?? 0);
+      }
+    }
+
+    // Satınalma siparişleri
+    const purchaseOrderRows = await this.db
+      .select({
+        userId: purchaseOrders.createdBy,
+        count: sql<number>`count(*)::int`,
+        total: sql<string>`coalesce(sum(${purchaseOrders.grandTotal}), 0)::text`,
+      })
+      .from(purchaseOrders)
+      .where(
+        and(
+          eq(purchaseOrders.tenantId, actor.tenantId),
+          isNull(purchaseOrders.deletedAt),
+          gte(purchaseOrders.orderDate, from),
+          lte(purchaseOrders.orderDate, to),
+          inArray(purchaseOrders.createdBy, userIds),
+          this.activeDivisionFilter(actor, purchaseOrders.divisionId)
+        )
+      )
+      .groupBy(purchaseOrders.createdBy);
+    for (const r of purchaseOrderRows) {
+      const entry = get(r.userId);
+      if (entry) {
+        entry.purchaseOrderCount = r.count;
+        entry.purchaseOrderAmount = Number(r.total ?? 0);
+      }
     }
 
     // Ziyaret
@@ -707,9 +832,13 @@ export class ReportsService {
       if (entry) entry.serviceCompleted = r.count;
     }
 
-    // Servis cirosu: tamamlanan kurulum işlerinin ücret toplamı
+    // Servis cirosu ve kurulum sayısı: tamamlanan kurulum işleri
     const installRows = await this.db
-      .select({ userId: installationJobs.assignedToUserId, total: sql<string>`coalesce(sum(${installationJobs.feeAmount}), 0)::text` })
+      .select({
+        userId: installationJobs.assignedToUserId,
+        count: sql<number>`count(*)::int`,
+        total: sql<string>`coalesce(sum(${installationJobs.feeAmount}), 0)::text`,
+      })
       .from(installationJobs)
       .where(
         and(
@@ -724,7 +853,10 @@ export class ReportsService {
       .groupBy(installationJobs.assignedToUserId);
     for (const r of installRows) {
       const entry = get(r.userId);
-      if (entry) entry.serviceAmount = Number(r.total ?? 0);
+      if (entry) {
+        entry.serviceAmount = Number(r.total ?? 0);
+        entry.installationCompleted = r.count;
+      }
     }
 
     // Dijital lead
@@ -752,7 +884,9 @@ export class ReportsService {
 
   private targetNumbers(row: typeof userTargets.$inferSelect | typeof departmentTargets.$inferSelect | null | undefined) {
     if (!row) return null;
+    const values = Object.fromEntries(allMetricKeys.map((key) => [key, null])) as Record<TargetMetricKey, number | null>;
     return {
+      ...values,
       salesAmount: row.salesAmount == null ? null : Number(row.salesAmount),
       salesNewCustomers: row.salesNewCustomers ?? null,
       quoteTarget: row.quoteTarget ?? null,
@@ -792,6 +926,91 @@ export class ReportsService {
     return total;
   }
 
+  private parseTargetItemNumber(value: unknown) {
+    if (value === null || value === undefined) return null;
+    const compact = String(value).trim().replace(/\s/g, '');
+    if (!compact) return null;
+    const turkishThousands = /^\d{1,3}(\.\d{3})+(,\d+)?$/;
+    const plainNumber = /^\d+([.,]\d+)?$/;
+    if (!turkishThousands.test(compact) && !plainNumber.test(compact)) return null;
+    const normalized = turkishThousands.test(compact) ? compact.replace(/\./g, '').replace(',', '.') : compact.replace(',', '.');
+    const numeric = Number(normalized);
+    return Number.isFinite(numeric) ? numeric : null;
+  }
+
+  private targetItemMetricKey(item: TargetItemLike): TargetMetricKey | null {
+    if (item.trackingMode === 'manual') return null;
+    if (item.metricKey && (measuredMetricSet.has(item.metricKey) || manualMetricSet.has(item.metricKey))) {
+      return item.metricKey as TargetMetricKey;
+    }
+
+    const text = `${item.targetType ?? ''} ${item.category ?? ''} ${item.activity ?? ''}`.toLocaleUpperCase('tr-TR');
+    if (text.includes('TAHSİLAT')) return 'paymentsInAmount';
+    if (text.includes('SATIŞ SİPARİŞ') || text.includes('SİPARİŞLEŞ')) return 'salesOrderCount';
+    if (text.includes('SATIŞ HEDEF')) return 'salesOrderCount';
+    if (text.includes('SATIŞ') && item.unit === 'amount') return 'salesAmount';
+    if (text.includes('ALIŞ FATURA')) return 'purchaseInvoiceAmount';
+    if (text.includes('SATINALMA') || text.includes('SATIN ALMA') || text.includes('TEDARİK')) {
+      return item.unit === 'amount' ? 'purchaseOrderAmount' : 'purchaseOrderCount';
+    }
+    if (text.includes('KURULUM')) return 'installationCompleted';
+    if (text.includes('SERVİS') || text.includes('BAKIM')) return item.unit === 'amount' ? 'serviceAmount' : 'serviceCompleted';
+    if (text.includes('TEKLİF')) return 'quoteTarget';
+    if (text.includes('ZİYARET')) return 'visitTarget';
+    if (text.includes('ARAMA')) return 'callTarget';
+    if (text.includes('YENİ MÜŞTERİ')) return 'salesNewCustomers';
+    if (text.includes('DİJİTAL') || text.includes('LEAD')) return 'digitalLeadTarget';
+    return null;
+  }
+
+  private buildTargetItems(items: unknown, actuals: UserActuals | null) {
+    const rows = Array.isArray(items) ? (items as TargetItemLike[]) : [];
+    return rows.map((item) => {
+      const metricKey = this.targetItemMetricKey(item);
+      const measured = metricKey && measuredMetricSet.has(metricKey);
+      const target = this.parseTargetItemNumber(item.target);
+      const actual = measured && actuals ? actuals[metricKey as MeasuredMetric] : null;
+      return {
+        ...item,
+        metricKey,
+        trackingMode: item.trackingMode === 'manual' || !metricKey || manualMetricSet.has(metricKey) ? 'manual' : 'automatic',
+        actual,
+        pct: target != null && target > 0 && actual != null ? Math.round((actual / target) * 100) : null,
+      };
+    });
+  }
+
+  private sumTargetItems(rows: (typeof userTargets.$inferSelect | typeof departmentTargets.$inferSelect)[], actuals: UserActuals | null) {
+    const grouped = new Map<
+      string,
+      TargetItemLike & { numericTarget: number | null; fallbackTarget: string }
+    >();
+    for (const row of rows) {
+      const items = Array.isArray(row.targetItems) ? (row.targetItems as TargetItemLike[]) : [];
+      for (const item of items) {
+        if (!item?.targetType || !item.category || !item.activity) continue;
+        const metricKey = this.targetItemMetricKey(item);
+        const key = `${item.targetType}:${item.category}:${item.activity}:${metricKey ?? ''}`;
+        const existing =
+          grouped.get(key) ??
+          ({
+            ...item,
+            metricKey,
+            numericTarget: null,
+            fallbackTarget: item.target === null || item.target === undefined ? '' : String(item.target),
+          } as TargetItemLike & { numericTarget: number | null; fallbackTarget: string });
+        const numeric = this.parseTargetItemNumber(item.target);
+        if (numeric !== null) existing.numericTarget = (existing.numericTarget ?? 0) + numeric;
+        grouped.set(key, existing);
+      }
+    }
+    const items = [...grouped.values()].map(({ numericTarget, fallbackTarget, ...item }) => ({
+      ...item,
+      target: numericTarget === null ? fallbackTarget : String(numericTarget),
+    }));
+    return this.buildTargetItems(items, actuals);
+  }
+
   /**
    * Hedef-fiilî ilerlemesi. Ciro = kesilen satış faturaları; servis = çözülen kayıtlar +
    * tamamlanan kurulum ücretleri. Rol hedefleri fan-out ile user_targets'a yazıldığından
@@ -829,7 +1048,7 @@ export class ReportsService {
           subject: { kind: 'user' as const, id: u.id, name: u.fullName },
           hasTarget: Boolean(targetRow),
           note: targetRow?.note ?? null,
-          targetItems: (targetRow?.targetItems ?? []).map((item) => ({ ...item, actual: null })),
+          targetItems: this.buildTargetItems(targetRow?.targetItems ?? [], actualsMap.get(u.id) ?? emptyActuals()),
           metrics: this.buildMetrics(this.targetNumbers(targetRow), actualsMap.get(u.id) ?? emptyActuals()),
         };
       });
@@ -858,7 +1077,7 @@ export class ReportsService {
           subject: { kind: 'department' as const, id: dept.id, name: dept.name, memberCount: members.length },
           hasTarget: Boolean(targetRow),
           note: targetRow?.note ?? null,
-          targetItems: (targetRow?.targetItems ?? []).map((item) => ({ ...item, actual: null })),
+          targetItems: this.buildTargetItems(targetRow?.targetItems ?? [], summed),
           metrics: this.buildMetrics(this.targetNumbers(targetRow), summed),
         });
       }
@@ -914,7 +1133,7 @@ export class ReportsService {
         subject: { kind: 'role' as const, id: role.id, name: role.name, code: role.code, memberCount: memberIds.length },
         hasTarget: memberTargets.length > 0,
         note: null,
-        targetItems: [] as { actual: null }[],
+        targetItems: this.sumTargetItems(memberIds.map((id) => targetByUser.get(id)).filter((row): row is typeof userTargets.$inferSelect => Boolean(row)), summedActuals),
         metrics: this.buildMetrics(memberTargets.length ? summedTargets : null, summedActuals),
       };
     });

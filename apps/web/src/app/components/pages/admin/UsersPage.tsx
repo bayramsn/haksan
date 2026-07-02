@@ -17,7 +17,7 @@ import { Alert, AlertDescription, AlertTitle } from "../../ui/alert";
 import { Skeleton } from "../../ui/skeleton";
 import { CreateUserDialog, UserDepartmentDialog, UserEditDialog } from "../../admin/UserAdminDialogs";
 import {
-  TargetDialog, TargetPill, currentPeriod, hasTargetValue, targetFilledCount, targetFromApi, targetToApi, targetTotalCount,
+  TARGET_TYPE_ORDER, TargetDialog, TargetPill, currentPeriod, hasTargetValue, targetFilledCount, targetFromApi, targetToApi, targetTotalCount,
   type UserTarget,
 } from "../../admin/TargetDialog";
 import { useStore } from "../../../lib/store";
@@ -65,6 +65,15 @@ const FALLBACK_ROLE_CODES: Record<string, string> = {
   Admin: "admin",
   Sales: "sales",
   Service: "service",
+};
+const TARGET_LABELS: Record<string, string> = {
+  sales: "Satış",
+  service: "Servis",
+  finance: "Finans",
+  purchase: "Satınalma",
+  operations: "Operasyon",
+  logistics: "Lojistik",
+  other: "Diğer",
 };
 
 const normalizeStoreUser = (user: User): AdminUserRow => ({
@@ -399,6 +408,13 @@ export function UsersPage() {
                 ))
               ) : displayUsers.map((u) => {
                 const t = targets[u.id];
+                const targetSummaries = t
+                  ? TARGET_TYPE_ORDER.map((targetType) => ({
+                      targetType,
+                      filled: targetFilledCount(t, targetType),
+                      total: targetTotalCount(targetType),
+                    })).filter((summary) => summary.filled > 0)
+                  : [];
                 return (
                   <TableRow key={u.id}>
                     <TableCell>
@@ -440,10 +456,16 @@ export function UsersPage() {
                       )}
                     </TableCell>
                     <TableCell>
-                      {hasTargetValue(t) ? (
+                      {hasTargetValue(t) && targetSummaries.length > 0 ? (
                         <div className="flex flex-wrap gap-1">
-                          <TargetPill label="Satış" value={`${targetFilledCount(t, "sales")}/${targetTotalCount("sales")}`} />
-                          <TargetPill label="Servis" value={`${targetFilledCount(t, "service")}/${targetTotalCount("service")}`} />
+                          {targetSummaries.slice(0, 4).map((summary) => (
+                            <TargetPill
+                              key={summary.targetType}
+                              label={TARGET_LABELS[summary.targetType] ?? summary.targetType}
+                              value={`${summary.filled}/${summary.total}`}
+                            />
+                          ))}
+                          {targetSummaries.length > 4 && <TargetPill label="+" value={String(targetSummaries.length - 4)} />}
                         </div>
                       ) : (
                         <span className="text-[11px] text-muted-foreground">—</span>
@@ -517,12 +539,12 @@ export function UsersPage() {
       </Card>
 
       {canSetTargets && (
-        <UserTargetDialog
-          user={targetUser}
+        <TargetDialog
+          scope={targetUser ? { kind: "user", id: targetUser.id, name: targetUser.name, subtitle: targetUser.email } : null}
           target={targetUser ? targets[targetUser.id] : undefined}
           period={targetPeriod}
           onClose={() => setTargetUser(null)}
-          onSave={handleSaveTarget}
+          onSave={(scope, target) => handleSaveTarget(scope.id, target)}
         />
       )}
       {canAssignRoles && (

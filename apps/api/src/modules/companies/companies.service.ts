@@ -22,6 +22,8 @@ import type {
   CompanyAccessRequestDecisionInput,
   CompanyCreateInput,
   CompanyLocationInput,
+  CompanyOsmSearchQuery,
+  CompanyOsmSearchResult,
   CompanyUpdateInput,
   CompanyListQuery,
   Pagination,
@@ -39,6 +41,9 @@ import { companyVisibilityFilter } from '../../shared/utils/company-visibility';
 
 @Injectable()
 export class CompaniesService {
+  private readonly osmCache = new Map<string, { expiresAt: number; results: CompanyOsmSearchResult[] }>();
+  private osmLastRequestAt = 0;
+
   constructor(
     @Inject(DB) private readonly db: DbClient,
     private readonly audit: AuditService
@@ -199,6 +204,71 @@ export class CompaniesService {
       this.companyDivisionRows([id]),
     ]);
     return { ...row, addresses, phones, emails, divisions: divisionRows.map(({ companyId: _companyId, ...d }) => d) };
+  }
+
+  async searchOpenStreetMap(query: CompanyOsmSearchQuery, _actor: AuthContext): Promise<CompanyOsmSearchResult[]> {
+    const parts = [query.q, query.district, query.city, 'Türkiye']
+      .map((part) => part?.trim())
+      .filter((part): part is string => !!part);
+    const searchText = [...new Set(parts)].join(', ');
+    const cacheKey = searchText.toLocaleLowerCase('tr-TR');
+    const cached = this.osmCache.get(cacheKey);
+    const now = Date.now();
+    if (cached && cached.expiresAt > now) return cached.results;
+
+    const waitMs = Math.max(0, 1000 - (now - this.osmLastRequestAt));
+    if (waitMs > 0) await new Promise((resolve) => setTimeout(resolve, waitMs));
+    this.osmLastRequestAt = Date.now();
+
+    const url = new URL('https://nominatim.openstreetmap.org/search');
+    url.searchParams.set('q', searchText);
+    url.searchParams.set('format', 'jsonv2');
+    url.searchParams.set('addressdetails', '1');
+    url.searchParams.set('limit', '5');
+    url.searchParams.set('countrycodes', 'tr');
+    url.searchParams.set('accept-language', 'tr');
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 8000);
+    try {
+      const response = await fetch(url, {
+        signal: controller.signal,
+        headers: {
+          Accept: 'application/json',
+          Referer: 'https://haksan.local',
+          'User-Agent': 'Haksan-CRM-ERP/0.1 (company map search; contact: admin@haksan.local)',
+        },
+      });
+      if (!response.ok) {
+        throw new ValidationError('OpenStreetMap araması şu anda yanıt vermiyor', { status: response.status });
+      }
+      const rows = (await response.json()) as Array<Record<string, unknown>>;
+      const results = rows
+        .map((row, index): CompanyOsmSearchResult | null => {
+          const latitude = Number(row.lat);
+          const longitude = Number(row.lon);
+          const displayName = typeof row.display_name === 'string' ? row.display_name : '';
+          if (!Number.isFinite(latitude) || !Number.isFinite(longitude) || !displayName) return null;
+          return {
+            id: String(row.place_id ?? `${cacheKey}:${index}`),
+            displayName,
+            latitude,
+            longitude,
+            type: typeof row.type === 'string' ? row.type : null,
+            category: typeof row.category === 'string' ? row.category : null,
+            importance: Number.isFinite(Number(row.importance)) ? Number(row.importance) : null,
+            address: row.address && typeof row.address === 'object' ? (row.address as Record<string, unknown>) : undefined,
+          };
+        })
+        .filter((row): row is CompanyOsmSearchResult => row != null);
+      this.osmCache.set(cacheKey, { expiresAt: Date.now() + 10 * 60 * 1000, results });
+      return results;
+    } catch (err) {
+      if (err instanceof ValidationError) throw err;
+      throw new ValidationError('OpenStreetMap araması tamamlanamadı');
+    } finally {
+      clearTimeout(timeout);
+    }
   }
 
   async create(input: CompanyCreateInput, actor: AuthContext) {

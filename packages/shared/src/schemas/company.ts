@@ -56,6 +56,25 @@ export const companyListQuerySchema = z.object({
 });
 export type CompanyListQuery = z.infer<typeof companyListQuerySchema>;
 
+export const companyOsmSearchQuerySchema = z.object({
+  q: z.string().trim().min(2).max(160),
+  city: z.string().trim().max(64).optional(),
+  district: z.string().trim().max(64).optional(),
+});
+export type CompanyOsmSearchQuery = z.infer<typeof companyOsmSearchQuerySchema>;
+
+export const companyOsmSearchResultSchema = z.object({
+  id: z.string(),
+  displayName: z.string(),
+  latitude: z.number(),
+  longitude: z.number(),
+  type: z.string().nullable(),
+  category: z.string().nullable(),
+  importance: z.number().nullable(),
+  address: z.record(z.unknown()).optional(),
+});
+export type CompanyOsmSearchResult = z.infer<typeof companyOsmSearchResultSchema>;
+
 export const companyLocationSchema = z.object({
   latitude: z.coerce.number().min(-90).max(90).nullable(),
   longitude: z.coerce.number().min(-180).max(180).nullable(),

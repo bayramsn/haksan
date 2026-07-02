@@ -20,8 +20,7 @@ import { useStore } from "../../lib/store";
 import { useAuth } from "../../../lib/auth";
 import { useFx } from "../../lib/fx";
 import { buildSalesMonthly, buildFunnelFromCases, buildPipelineFunnel, buildPipelineStagePie } from "../../lib/chartAggregates";
-import { computeTargetAchievement } from "../../lib/targetAchievement";
-import { adminService, reportService } from "../../../lib/services";
+import { reportService } from "../../../lib/services";
 import {
   buildManagementInsights,
   buildWorkItems,
@@ -34,17 +33,23 @@ import {
 const COLORS = ["#000c69", "#cf060c", "#3b82f6", "#10b981", "#f59e0b", "#64748b", "#0ea5e9", "#14b8a6", "#ef4444", "#334155", "#fbbf24", "#60a5fa"];
 
 type AssignedTargetItem = {
-  targetType: "sales" | "service";
+  targetType: "sales" | "service" | "finance" | "purchase" | "operations" | "logistics" | "other";
   category: string;
   activity: string;
   description?: string;
   unit: "count" | "amount";
   target: string;
+  metricKey?: string | null;
+  trackingMode?: "automatic" | "manual";
+  actual?: number | null;
+  pct?: number | null;
 };
+type MetricProgress = { target: number | null; actual: number | null; pct: number | null };
 type AssignedTarget = {
   period: string;
   targetItems?: AssignedTargetItem[];
   note?: string | null;
+  metrics?: Record<string, MetricProgress>;
   // Özet sayısal alanlar (detaylı targetItems yoksa bunlardan hedef türetilir).
   salesAmount?: string | number | null;
   salesNewCustomers?: string | number | null;
@@ -56,6 +61,34 @@ type AssignedTarget = {
   digitalLeadTarget?: string | number | null;
   digitalConversionTarget?: string | number | null;
   digitalBudget?: string | number | null;
+};
+
+const TARGET_TYPE_ORDER: AssignedTargetItem["targetType"][] = ["sales", "service", "finance", "purchase", "operations", "logistics", "other"];
+const TARGET_TYPE_LABEL: Record<AssignedTargetItem["targetType"], string> = {
+  sales: "Satış",
+  service: "Servis",
+  finance: "Finans",
+  purchase: "Satınalma",
+  operations: "Operasyon",
+  logistics: "Lojistik",
+  other: "Diğer",
+};
+const METRIC_LABEL: Record<string, string> = {
+  salesAmount: "Satış Cirosu",
+  salesNewCustomers: "Yeni Müşteri",
+  quoteTarget: "Teklif",
+  visitTarget: "Ziyaret",
+  callTarget: "Arama",
+  serviceCompleted: "Tamamlanan Servis",
+  serviceAmount: "Servis Cirosu",
+  digitalLeadTarget: "Dijital Lead",
+  paymentsInAmount: "Tahsilat",
+  purchaseInvoiceAmount: "Alış Faturası",
+  purchaseOrderAmount: "Satınalma Tutarı",
+  purchaseOrderCount: "Satınalma Siparişi",
+  salesOrderAmount: "Satış Sipariş Tutarı",
+  salesOrderCount: "Satış Siparişi",
+  installationCompleted: "Kurulum",
 };
 
 /** Özet alanlardan hedef kalemleri türetir (targetItems boşken görünürlük için). */
@@ -86,7 +119,7 @@ const synthesizeTargetItems = (t: AssignedTarget | null): AssignedTargetItem[] =
 };
 
 const currentPeriod = () => new Date().toISOString().slice(0, 7);
-const targetTypeLabel = (type: AssignedTargetItem["targetType"]) => (type === "sales" ? "Satış" : "Servis");
+const targetTypeLabel = (type: AssignedTargetItem["targetType"]) => TARGET_TYPE_LABEL[type] ?? type;
 const formatTargetValue = (item: AssignedTargetItem) => {
   const value = item.target?.trim();
   if (!value) return "Belirlenmedi";
@@ -97,16 +130,11 @@ const formatTargetValue = (item: AssignedTargetItem) => {
   }
   return `${value} adet`;
 };
-const filledTargetCount = (items: AssignedTargetItem[], type: AssignedTargetItem["targetType"]) =>
-  items.filter((item) => item.targetType === type && !!item.target?.trim()).length;
-const totalTargetCount = (items: AssignedTargetItem[], type: AssignedTargetItem["targetType"]) =>
-  items.filter((item) => item.targetType === type).length;
-
 type DashboardSection = "ozet" | "operasyon" | "grafikler" | "hedefler";
 
 export function DashboardPage({ onAction }: { onAction?: (action: OperationAction) => void }) {
   const store = useStore();
-  const { customers, cases: salesCases, service: serviceRequests, machines, users, offers, activities } = store;
+  const { customers, cases: salesCases, service: serviceRequests, machines, users, offers } = store;
   const { user } = useAuth();
   const { convert } = useFx();
   const [targetPeriod, setTargetPeriod] = useState(currentPeriod());
@@ -185,21 +213,24 @@ export function DashboardPage({ onAction }: { onAction?: (action: OperationActio
     return items.length > 0 ? items : synthesizeTargetItems(myTarget);
   }, [myTarget]);
 
-  const targetAchievements = useMemo(
-    () =>
-      myTargetItems.slice(0, 4).map((item) => ({
-        label: item.activity,
-        ...computeTargetAchievement(item, {
-          period: targetPeriod,
-          offers,
-          customers,
-          activities,
-          service: serviceRequests,
-          convert: (amount, currency) => convert(amount, currency, 'USD'),
-        }),
-      })),
-    [myTargetItems, targetPeriod, offers, customers, activities, serviceRequests, convert],
-  );
+  const targetAchievements = useMemo(() => {
+    const metrics = myTarget?.metrics ?? {};
+    return Object.entries(metrics)
+      .filter(([, metric]) => metric.target != null && metric.target > 0)
+      .map(([key, metric]) => {
+        const pct = metric.pct ?? 0;
+        const target = metric.target ?? 0;
+        const actual = metric.actual ?? 0;
+        return {
+          label: METRIC_LABEL[key] ?? key,
+          pct,
+          hint: `${actual.toLocaleString("tr-TR")} / ${target.toLocaleString("tr-TR")}`,
+          tone: pct >= 100 ? ("ok" as const) : pct < 60 ? ("warn" as const) : undefined,
+        };
+      })
+      .sort((a, b) => b.pct - a.pct)
+      .slice(0, 8);
+  }, [myTarget]);
 
   useEffect(() => {
     let cancelled = false;
@@ -220,9 +251,16 @@ export function DashboardPage({ onAction }: { onAction?: (action: OperationActio
     let cancelled = false;
     setTargetLoading(true);
     setTargetError("");
-    adminService.myTargets({ period: targetPeriod })
-      .then((rows) => {
-        if (!cancelled) setMyTarget(rows[0] ?? null);
+    reportService.myTargetProgress({ period: targetPeriod })
+      .then((progress) => {
+        if (cancelled) return;
+        const subject = Array.isArray(progress?.subjects) ? progress.subjects[0] : null;
+        setMyTarget(subject ? {
+          period: targetPeriod,
+          targetItems: Array.isArray(subject.targetItems) ? subject.targetItems : [],
+          metrics: subject.metrics ?? {},
+          note: subject.note ?? "",
+        } : null);
       })
       .catch((err: any) => {
         if (!cancelled) {
@@ -1132,8 +1170,12 @@ function MyTargetsPanel({
   error: string;
   note?: string | null;
 }) {
-  const salesItems = items.filter((item) => item.targetType === "sales");
-  const serviceItems = items.filter((item) => item.targetType === "service");
+  const groups = TARGET_TYPE_ORDER
+    .map((targetType) => ({
+      targetType,
+      items: items.filter((item) => item.targetType === targetType),
+    }))
+    .filter((group) => group.items.length > 0);
   const hasItems = items.length > 0;
 
   return (
@@ -1146,7 +1188,7 @@ function MyTargetsPanel({
             </span>
             Hedeflerim
           </CardTitle>
-          <p className="mt-1 text-xs text-muted-foreground">Size atanmış aylık satış ve servis hedefleri · USD sabit</p>
+          <p className="mt-1 text-xs text-muted-foreground">Size atanmış aylık hedefler · ölçülebilenler sistemden takip edilir</p>
         </div>
         <Input
           type="month"
@@ -1175,13 +1217,14 @@ function MyTargetsPanel({
         ) : (
           <>
             <div className="grid gap-2 sm:grid-cols-3">
-              <TargetSummary label="Satış" value={`${filledTargetCount(items, "sales")}/${totalTargetCount(items, "sales")}`} />
-              <TargetSummary label="Servis" value={`${filledTargetCount(items, "service")}/${totalTargetCount(items, "service")}`} />
+              <TargetSummary label="Aktif Hedef" value={`${items.filter((item) => item.target?.trim()).length}/${items.length}`} />
+              <TargetSummary label="Otomatik Takip" value={`${items.filter((item) => item.trackingMode !== "manual" && item.metricKey).length}`} />
               <TargetSummary label="Para Birimi" value="USD" />
             </div>
             <div className="grid gap-3 lg:grid-cols-2">
-              <TargetList title="Satış Hedefleri" items={salesItems} />
-              <TargetList title="Servis Hedefleri" items={serviceItems} />
+              {groups.map((group) => (
+                <TargetList key={group.targetType} title={`${targetTypeLabel(group.targetType)} Hedefleri`} items={group.items} />
+              ))}
             </div>
             {note && <div className="rounded-md bg-muted/35 px-3 py-2 text-xs leading-relaxed text-muted-foreground">{note}</div>}
           </>
@@ -1218,6 +1261,15 @@ function TargetList({ title, items }: { title: string; items: AssignedTargetItem
                   <div className="text-[11px] font-semibold tracking-wide text-muted-foreground">{item.category} · {targetTypeLabel(item.targetType)}</div>
                   <div className="mt-0.5 text-sm font-medium leading-snug">{item.activity}</div>
                   {item.description && <div className="mt-1 text-xs leading-relaxed text-muted-foreground">{item.description}</div>}
+                  {item.actual != null && item.pct != null && (
+                    <div className="mt-2">
+                      <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+                        <span>Gerçekleşen: {item.actual.toLocaleString("tr-TR")}</span>
+                        <span>%{item.pct}</span>
+                      </div>
+                      <Progress value={Math.min(Math.max(item.pct, 0), 100)} className="mt-1 h-1.5" />
+                    </div>
+                  )}
                 </div>
                 <div className="shrink-0 rounded-md bg-brand-blue-soft px-2 py-1 text-right text-xs font-medium tabular-nums text-brand-blue">
                   {formatTargetValue(item)}

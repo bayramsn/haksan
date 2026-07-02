@@ -77,6 +77,9 @@ export const targetPeriodQuerySchema = z.object({
 });
 export type TargetPeriodQuery = z.infer<typeof targetPeriodQuerySchema>;
 
+export const targetTypeSchema = z.enum(['sales', 'service', 'finance', 'purchase', 'operations', 'logistics', 'other']);
+export type TargetType = z.infer<typeof targetTypeSchema>;
+
 // Empty string / undefined collapse to null so optional numeric form fields clear cleanly.
 const nullableAmount = z.preprocess(
   (value) => (value === '' || value === undefined ? null : value),
@@ -88,11 +91,13 @@ const nullableCount = z.preprocess(
 );
 
 export const targetItemSchema = z.object({
-  targetType: z.enum(['sales', 'service']),
+  targetType: targetTypeSchema,
   category: z.string().min(1).max(64),
   activity: z.string().min(1).max(255),
   description: z.string().max(2000).default(''),
   unit: z.enum(['count', 'amount']),
+  metricKey: z.string().max(64).optional(),
+  trackingMode: z.enum(['automatic', 'manual']).optional(),
   target: z.string().max(64).default(''),
 });
 export type TargetItemInput = z.infer<typeof targetItemSchema>;

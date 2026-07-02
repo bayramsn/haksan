@@ -32,11 +32,13 @@ export const users = pgTable(
 );
 
 export type UserTargetItem = {
-  targetType: 'sales' | 'service';
+  targetType: 'sales' | 'service' | 'finance' | 'purchase' | 'operations' | 'logistics' | 'other';
   category: string;
   activity: string;
   description: string;
   unit: 'count' | 'amount';
+  metricKey?: string;
+  trackingMode?: 'automatic' | 'manual';
   target: string;
 };
 
