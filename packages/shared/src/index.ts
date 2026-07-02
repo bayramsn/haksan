@@ -19,4 +19,5 @@ export * from './schemas/service';
 export * from './schemas/report';
 export * from './schemas/chat';
 export * from './schemas/callAssistant';
+export * from './schemas/assistant';
 export * from './schemas/calendar';

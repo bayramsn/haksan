@@ -72,6 +72,15 @@ const envSchema = z.object({
   // boşsa varsayılan test sırrı `dev-call-secret` kabul edilir.
   CALL_WEBHOOK_SECRET: z.string().min(8).optional(),
 
+  // CRM Asistanı LLM ayarları. API key sadece backend ortamında tutulur; boşsa
+  // asistan CRM verilerinden deterministik yanıt üretir. Ücret oluşmaması için
+  // yalnız OpenRouter Free Router (`openrouter/free`) veya `:free` varyantları
+  // kabul edilir.
+  ASSISTANT_LLM_PROVIDER: z.enum(['none', 'openrouter']).default('none'),
+  ASSISTANT_MODEL: z.string().max(128).default('openrouter/free'),
+  ASSISTANT_API_KEY: z.string().min(8).optional(),
+  ASSISTANT_MAX_TOKENS: z.coerce.number().int().positive().max(4000).default(700),
+
   // Storage
   S3_PROVIDER: z.enum(['minio', 'supabase', 's3', 'r2']).default('minio'),
   S3_ENDPOINT: z.string().optional(),
@@ -99,6 +108,25 @@ const envSchema = z.object({
   SMTP_PORT: z.coerce.number().int().positive().default(1025),
   SMTP_FROM: z.string().default('noreply@haksan.local'),
 }).superRefine((env, ctx) => {
+  if (env.ASSISTANT_LLM_PROVIDER !== 'none' && !env.ASSISTANT_API_KEY) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['ASSISTANT_API_KEY'],
+      message: 'ASSISTANT_API_KEY must be set when ASSISTANT_LLM_PROVIDER is enabled',
+    });
+  }
+  if (
+    env.ASSISTANT_LLM_PROVIDER === 'openrouter' &&
+    env.ASSISTANT_MODEL !== 'openrouter/free' &&
+    !env.ASSISTANT_MODEL.endsWith(':free')
+  ) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['ASSISTANT_MODEL'],
+      message: 'OpenRouter assistant model must be openrouter/free or a :free model variant',
+    });
+  }
+
   if (env.NODE_ENV !== 'production') return;
   if (!env.COOKIE_SECURE) {
     ctx.addIssue({

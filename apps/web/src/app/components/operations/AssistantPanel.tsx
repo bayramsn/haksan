@@ -1,8 +1,10 @@
-import { useEffect, useMemo, useRef, useState, type PointerEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent, type ReactNode } from "react";
+import type { AssistantOperationAction, AssistantSource, AssistantSuggestedAction, AssistantSuggestion } from "@haksan/shared";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Badge } from "../ui/badge";
 import { useStore } from "../../lib/store";
+import { assistantService } from "../../../lib/services";
 import {
   answerAssistant,
   buildAlerts,
@@ -10,26 +12,42 @@ import {
   buildWorkItems,
   type AssistantReply,
   type OperationAction,
+  type OperationFocus,
+  type OperationNav,
+  type OperationSeverity,
   type SearchResult,
 } from "../../lib/operations";
 import {
+  AlertTriangle,
   Bot,
+  CheckCircle2,
   ChevronDown,
+  Clock,
+  GripVertical,
+  Loader2,
   MessageSquareText,
+  Phone,
+  Route,
   Search,
   Send,
   Sparkles,
   X,
-  AlertTriangle,
-  Clock,
-  GripVertical,
 } from "lucide-react";
+
+type PanelTab = "today" | "risks" | "calls" | "chat" | "actions";
+
+type PanelAction = {
+  label: string;
+  operationAction?: OperationAction;
+  suggestionId?: string;
+  assistantAction?: AssistantSuggestedAction;
+};
 
 type ChatMessage = {
   id: string;
   from: "user" | "assistant";
   text: string;
-  actions?: AssistantReply["actions"];
+  actions?: PanelAction[];
   results?: SearchResult[];
 };
 
@@ -40,7 +58,65 @@ const ASSISTANT_LAUNCHER_POSITION_KEY = "haksan.assistant.launcherPosition";
 const ASSISTANT_PANEL_POSITION_KEY = "haksan.assistant.panelPosition";
 const VIEWPORT_GAP = 16;
 const LAUNCHER_FALLBACK = { width: 132, height: 44 };
-const PANEL_FALLBACK = { width: 420, height: 720 };
+const PANEL_FALLBACK = { width: 460, height: 740 };
+
+const TABS: Array<{ id: PanelTab; label: string }> = [
+  { id: "today", label: "Bugün" },
+  { id: "risks", label: "Riskler" },
+  { id: "calls", label: "Çağrılar" },
+  { id: "chat", label: "AI Sohbet" },
+  { id: "actions", label: "Aksiyonlar" },
+];
+
+const NAVS = new Set<OperationNav>([
+  "dashboard",
+  "customers",
+  "contacts",
+  "sales-cases",
+  "kanban",
+  "sales-map",
+  "offers",
+  "proformas",
+  "contracts",
+  "documents",
+  "payments",
+  "sales-price-list",
+  "products",
+  "stock",
+  "purchase-orders",
+  "shipments",
+  "installations",
+  "deliveries",
+  "machines",
+  "service-requests",
+  "service-kanban",
+  "service-price-list",
+  "reports",
+  "users",
+  "roles",
+  "departments",
+  "settings",
+]);
+
+const FOCUSES = new Set<OperationFocus>([
+  "open",
+  "overdue",
+  "upcoming",
+  "paid",
+  "pending",
+  "reserved",
+  "available",
+  "low",
+  "sla",
+  "late",
+  "scheduled",
+  "shipments",
+  "delivered",
+  "expired",
+  "won",
+  "lost",
+  "today",
+]);
 
 function viewportSize() {
   if (typeof window === "undefined") return { width: 1280, height: 800 };
@@ -87,6 +163,57 @@ function clampPosition(position: FloatingPosition, width: number, height: number
   };
 }
 
+function toOperationAction(action?: AssistantOperationAction): OperationAction | undefined {
+  if (!action) return undefined;
+  if (action.kind === "customer" && typeof action.customerId === "string") return { kind: "customer", customerId: action.customerId };
+  if (action.kind === "salesCase" && typeof action.salesCaseId === "string") return { kind: "salesCase", salesCaseId: action.salesCaseId };
+  if (action.kind === "navigate" && typeof action.nav === "string" && NAVS.has(action.nav as OperationNav)) {
+    return {
+      kind: "navigate",
+      nav: action.nav as OperationNav,
+      focus: typeof action.focus === "string" && FOCUSES.has(action.focus as OperationFocus) ? (action.focus as OperationFocus) : undefined,
+      query: typeof action.query === "string" ? action.query : undefined,
+    };
+  }
+  return undefined;
+}
+
+function sourceAction(source: AssistantSource): OperationAction {
+  const query = source.label ?? source.id;
+  if (source.type === "company") return { kind: "navigate", nav: "customers", query };
+  if (source.type === "quote") return { kind: "navigate", nav: "offers", query };
+  if (source.type === "inventory_item") return { kind: "navigate", nav: "stock", query };
+  if (source.type === "receivable") return { kind: "navigate", nav: "payments", focus: "overdue", query };
+  if (source.type === "service_ticket") return { kind: "navigate", nav: "service-requests", query };
+  if (source.type === "shipment") return { kind: "navigate", nav: "shipments", query };
+  if (source.type === "opportunity") return { kind: "salesCase", salesCaseId: source.id };
+  return { kind: "navigate", nav: "dashboard", query };
+}
+
+function sourceToResult(source: AssistantSource): SearchResult {
+  return {
+    id: `${source.type}:${source.id}`,
+    type: source.type,
+    title: source.label || source.id,
+    subtitle: "CRM kaynağı",
+    badge: "AI",
+    keywords: `${source.type} ${source.label ?? ""}`,
+    action: sourceAction(source),
+  };
+}
+
+function severityTone(severity: OperationSeverity | AssistantSuggestion["severity"]) {
+  if (severity === "critical") return "border-red-200 bg-red-50 text-red-700";
+  if (severity === "warning") return "border-amber-200 bg-amber-50 text-amber-700";
+  if (severity === "success") return "border-emerald-200 bg-emerald-50 text-emerald-700";
+  return "border-sky-200 bg-sky-50 text-sky-700";
+}
+
+function payloadSuggestionId(action: AssistantSuggestedAction): string | undefined {
+  const value = action.payload?.assistantSuggestionId;
+  return typeof value === "string" ? value : undefined;
+}
+
 export function AssistantPanel({
   onAction,
   canUseAction,
@@ -96,7 +223,12 @@ export function AssistantPanel({
 }) {
   const store = useStore();
   const [open, setOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState<PanelTab>("today");
   const [input, setInput] = useState("");
+  const [loadingChat, setLoadingChat] = useState(false);
+  const [suggestions, setSuggestions] = useState<AssistantSuggestion[]>([]);
+  const [loadingSuggestions, setLoadingSuggestions] = useState(false);
+  const [suggestionError, setSuggestionError] = useState<string | null>(null);
   const launcherRef = useRef<HTMLButtonElement | null>(null);
   const panelRef = useRef<HTMLElement | null>(null);
   const skipLauncherClickRef = useRef(false);
@@ -118,18 +250,50 @@ export function AssistantPanel({
   const workItems = useMemo(() => buildWorkItems(store), [store]);
   const alerts = useMemo(() => buildAlerts(store), [store]);
   const management = useMemo(() => buildManagementInsights(store), [store]);
-  const initialMessage = useMemo<ChatMessage>(() => ({
-    id: "initial",
-    from: "assistant",
-    text: `${workItems.length} iş takipte. ${management.risks.length} yönetim riski, ${management.opportunities.length} fırsat ve ${alerts.length} aktif uyarı var.`,
-    actions: [
-      { label: "Yönetim özeti", action: { kind: "navigate", nav: "reports" } },
-      { label: "Bugün ne var?", action: { kind: "navigate", nav: "dashboard", focus: "today" } },
-      { label: "Geciken ödemeler", action: { kind: "navigate", nav: "payments", focus: "overdue" } },
-      { label: "Servis gecikmeleri", action: { kind: "navigate", nav: "service-requests", focus: "late" } },
-    ],
-  }), [alerts.length, management.opportunities.length, management.risks.length, workItems.length]);
+
+  const visibleLocalActions = useCallback(
+    (actions?: AssistantReply["actions"]): PanelAction[] =>
+      (actions ?? [])
+        .filter((item) => !canUseAction || canUseAction(item.action))
+        .map((item) => ({ label: item.label, operationAction: item.action })),
+    [canUseAction]
+  );
+
+  const initialMessage = useMemo<ChatMessage>(
+    () => ({
+      id: "initial",
+      from: "assistant",
+      text: `${workItems.length} iş takipte. ${management.risks.length} yönetim riski, ${management.opportunities.length} fırsat ve ${alerts.length} aktif uyarı var.`,
+      actions: visibleLocalActions([
+        { label: "Yönetim özeti", action: { kind: "navigate", nav: "reports" } },
+        { label: "Bugün ne var?", action: { kind: "navigate", nav: "dashboard", focus: "today" } },
+        { label: "Geciken ödemeler", action: { kind: "navigate", nav: "payments", focus: "overdue" } },
+        { label: "Servis gecikmeleri", action: { kind: "navigate", nav: "service-requests", focus: "late" } },
+      ]),
+    }),
+    [alerts.length, management.opportunities.length, management.risks.length, visibleLocalActions, workItems.length]
+  );
   const [messages, setMessages] = useState<ChatMessage[]>([initialMessage]);
+
+  const refreshSuggestions = useCallback(async () => {
+    setLoadingSuggestions(true);
+    setSuggestionError(null);
+    try {
+      const rows = await assistantService.suggestions();
+      setSuggestions(rows);
+    } catch (err) {
+      setSuggestionError(err instanceof Error ? err.message : "Asistan önerileri alınamadı");
+    } finally {
+      setLoadingSuggestions(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    void refreshSuggestions();
+    const id = window.setInterval(() => void refreshSuggestions(), 30_000);
+    return () => window.clearInterval(id);
+  }, [open, refreshSuggestions]);
 
   useEffect(() => {
     setMessages((current) => (current.length === 1 && current[0]?.id === "initial" ? [initialMessage] : current));
@@ -165,30 +329,110 @@ export function AssistantPanel({
     return () => window.removeEventListener("resize", onResize);
   }, []);
 
-  const visibleActions = (actions?: AssistantReply["actions"]) =>
-    (actions ?? []).filter((item) => !canUseAction || canUseAction(item.action));
+  const riskSuggestions = useMemo(
+    () => suggestions.filter((item) => item.severity === "critical" || item.severity === "warning"),
+    [suggestions]
+  );
+  const callSuggestions = useMemo(() => suggestions.filter((item) => item.category === "call"), [suggestions]);
+  const todaySuggestions = useMemo(() => suggestions.slice(0, 10), [suggestions]);
+  const tabSuggestions = activeTab === "risks" ? riskSuggestions : activeTab === "calls" ? callSuggestions : activeTab === "actions" ? suggestions : todaySuggestions;
+  const badgeCount = Math.max(alerts.length, riskSuggestions.length + callSuggestions.length);
 
-  const submit = (value = input) => {
-    const text = value.trim();
-    if (!text) return;
-    const reply = answerAssistant(text, store);
-    setMessages((current) => [
-      ...current,
-      { id: `u-${Date.now()}`, from: "user", text },
-      {
-        id: `a-${Date.now()}`,
-        from: "assistant",
-        text: reply.text,
-        actions: visibleActions(reply.actions),
-        results: canUseAction ? reply.results?.filter((r) => canUseAction(r.action)) : reply.results,
-      },
-    ]);
-    setInput("");
-  };
+  const canRunOperation = (action?: OperationAction) => !!action && (!canUseAction || canUseAction(action));
 
   const runAction = (action: OperationAction) => {
     onAction(action);
     setOpen(false);
+  };
+
+  const executeAssistantAction = async (suggestionId: string, action: AssistantSuggestedAction) => {
+    const operationAction = toOperationAction(action.operationAction);
+    if (operationAction && !action.requiresConfirmation) {
+      runAction(operationAction);
+      return;
+    }
+    const confirmed = !action.requiresConfirmation || window.confirm(`${action.label} işlemini onaylıyor musunuz?`);
+    if (!confirmed) return;
+    const response = await assistantService.executeAction(suggestionId, {
+      action: action.kind,
+      payload: action.payload,
+      confirm: true,
+    });
+    if (response.previewRequired) {
+      const secondConfirm = window.confirm(response.message);
+      if (!secondConfirm) return;
+      await assistantService.executeAction(suggestionId, {
+        action: action.kind,
+        payload: action.payload,
+        confirm: true,
+      });
+    }
+    await refreshSuggestions();
+    if (response.operationAction) {
+      const next = toOperationAction(response.operationAction);
+      if (next && canRunOperation(next)) runAction(next);
+    }
+  };
+
+  const runPanelAction = (item: PanelAction) => {
+    if (item.suggestionId && item.assistantAction) {
+      void executeAssistantAction(item.suggestionId, item.assistantAction);
+      return;
+    }
+    if (item.operationAction) runAction(item.operationAction);
+  };
+
+  const submit = async (value = input) => {
+    const text = value.trim();
+    if (!text || loadingChat) return;
+    setActiveTab("chat");
+    setInput("");
+    setLoadingChat(true);
+    const userMessage: ChatMessage = { id: `u-${Date.now()}`, from: "user", text };
+    setMessages((current) => [...current, userMessage]);
+    try {
+      const response = await assistantService.chat({ message: text, context: { page: activeTab } });
+      const backendActions: PanelAction[] = response.actions
+        .map((action) => {
+          const suggestionId = payloadSuggestionId(action);
+          const operationAction = toOperationAction(action.operationAction);
+          if (!suggestionId && !operationAction) return null;
+          return {
+            label: action.label,
+            operationAction,
+            suggestionId,
+            assistantAction: suggestionId ? action : undefined,
+          };
+        })
+        .filter((item): item is PanelAction => !!item)
+        .filter((item) => !item.operationAction || canRunOperation(item.operationAction));
+      const results = response.sources.map(sourceToResult).filter((result) => canRunOperation(result.action));
+      setMessages((current) => [
+        ...current,
+        {
+          id: `a-${Date.now()}`,
+          from: "assistant",
+          text: response.text,
+          actions: backendActions,
+          results,
+        },
+      ]);
+      await refreshSuggestions();
+    } catch {
+      const reply = answerAssistant(text, store);
+      setMessages((current) => [
+        ...current,
+        {
+          id: `a-${Date.now()}`,
+          from: "assistant",
+          text: reply.text,
+          actions: visibleLocalActions(reply.actions),
+          results: canUseAction ? reply.results?.filter((r) => canUseAction(r.action)) : reply.results,
+        },
+      ]);
+    } finally {
+      setLoadingChat(false);
+    }
   };
 
   const beginDrag = (target: DragTarget, event: PointerEvent<HTMLElement>) => {
@@ -253,9 +497,9 @@ export function AssistantPanel({
       >
         <Bot className="size-4" />
         Asistan
-        {alerts.length > 0 && (
+        {badgeCount > 0 && (
           <span className="ml-0.5 grid min-w-5 place-items-center rounded-full bg-white px-1.5 text-[10px] text-primary">
-            {alerts.length}
+            {badgeCount}
           </span>
         )}
       </Button>
@@ -270,7 +514,7 @@ export function AssistantPanel({
           />
           <section
             ref={panelRef}
-            className="absolute flex h-[min(720px,calc(100dvh-2rem))] w-[min(420px,calc(100vw-2rem))] flex-col overflow-hidden rounded-lg border border-border/70 bg-white shadow-2xl pointer-events-auto"
+            className="absolute flex h-[min(740px,calc(100dvh-2rem))] w-[min(460px,calc(100vw-2rem))] flex-col overflow-hidden rounded-lg border border-border/70 bg-white shadow-2xl pointer-events-auto"
             style={{ left: panelPosition.x, top: panelPosition.y }}
           >
             <div
@@ -280,14 +524,14 @@ export function AssistantPanel({
               onPointerUp={endDrag}
               onPointerCancel={endDrag}
             >
-              <div className="flex items-center gap-2 min-w-0">
+              <div className="flex min-w-0 items-center gap-2">
                 <GripVertical className="size-4 shrink-0 text-muted-foreground" />
                 <div className="grid size-9 place-items-center rounded-md bg-primary/10 text-primary">
                   <Sparkles className="size-4" />
                 </div>
                 <div className="min-w-0">
-                  <div className="truncate text-sm font-medium">Operasyon Asistanı</div>
-                  <div className="truncate text-[11px] text-muted-foreground">API'siz komut ve takip</div>
+                  <div className="truncate text-sm font-medium">CRM Asistanı</div>
+                  <div className="truncate text-[11px] text-muted-foreground">Sohbet, çağrı ve aksiyon önerileri</div>
                 </div>
               </div>
               <div className="flex items-center gap-1" onPointerDown={(event) => event.stopPropagation()}>
@@ -300,66 +544,48 @@ export function AssistantPanel({
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-2 border-b border-border/60 bg-muted/20 p-3">
-              <Metric icon={<Clock className="size-3.5" />} label="İş" value={workItems.length} />
-              <Metric icon={<AlertTriangle className="size-3.5" />} label="Risk" value={management.risks.length} tone="text-red-600" />
+            <div className="grid grid-cols-3 gap-2 border-b border-border/60 bg-muted/20 p-3">
+              <Metric icon={<Clock className="size-3.5" />} label="Bugün" value={todaySuggestions.length || workItems.length} />
+              <Metric icon={<AlertTriangle className="size-3.5" />} label="Risk" value={riskSuggestions.length || management.risks.length} tone="text-red-600" />
+              <Metric icon={<Phone className="size-3.5" />} label="Çağrı" value={callSuggestions.length} tone="text-sky-600" />
             </div>
 
-            <div className="min-h-0 flex-1 space-y-3 overflow-y-auto bg-[#f7f7f8] p-3">
-              {messages.map((message) => (
-                <div key={message.id} className={message.from === "user" ? "ml-10" : "mr-4"}>
-                  <div
-                    className={`rounded-lg border px-3 py-2 text-sm shadow-sm ${
-                      message.from === "user"
-                        ? "border-primary/20 bg-primary text-primary-foreground"
-                        : "border-border/60 bg-white"
-                    }`}
-                  >
-                    <div className="whitespace-pre-wrap leading-relaxed">{message.text}</div>
-                    {message.actions && message.actions.length > 0 && (
-                      <div className="mt-2 flex flex-wrap gap-1.5">
-                        {message.actions.map((item) => (
-                          <Button
-                            key={item.label}
-                            type="button"
-                            size="sm"
-                            variant={message.from === "user" ? "secondary" : "outline"}
-                            className="h-7 px-2 text-xs"
-                            onClick={() => runAction(item.action)}
-                          >
-                            {item.label}
-                          </Button>
-                        ))}
-                      </div>
-                    )}
-                    {message.results && message.results.length > 0 && (
-                      <div className="mt-2 space-y-1">
-                        {message.results.map((result) => (
-                          <button
-                            key={result.id}
-                            type="button"
-                            onClick={() => runAction(result.action)}
-                            className="flex w-full items-center gap-2 rounded-md border border-border/60 bg-muted/25 px-2 py-1.5 text-left hover:bg-muted"
-                          >
-                            <Search className="size-3.5 text-muted-foreground" />
-                            <span className="min-w-0 flex-1">
-                              <span className="block truncate text-xs font-medium">{result.title}</span>
-                              <span className="block truncate text-[11px] text-muted-foreground">{result.subtitle}</span>
-                            </span>
-                            <Badge variant="secondary" className="h-5 px-1.5 text-[10px]">{result.type}</Badge>
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </div>
+            <div className="flex gap-1 overflow-x-auto border-b border-border/60 px-3 py-2">
+              {TABS.map((tab) => (
+                <Button
+                  key={tab.id}
+                  type="button"
+                  size="sm"
+                  variant={activeTab === tab.id ? "default" : "ghost"}
+                  className="h-8 shrink-0 px-2.5 text-xs"
+                  onClick={() => setActiveTab(tab.id)}
+                >
+                  {tab.label}
+                </Button>
               ))}
+            </div>
+
+            <div className="min-h-0 flex-1 overflow-y-auto bg-[#f7f7f8] p-3">
+              {activeTab === "chat" ? (
+                <ChatView messages={messages} loading={loadingChat} runPanelAction={runPanelAction} runAction={runAction} />
+              ) : (
+                <SuggestionView
+                  tab={activeTab}
+                  suggestions={tabSuggestions}
+                  loading={loadingSuggestions}
+                  error={suggestionError}
+                  refreshSuggestions={refreshSuggestions}
+                  executeAssistantAction={executeAssistantAction}
+                  canRunOperation={canRunOperation}
+                  runAction={runAction}
+                />
+              )}
             </div>
 
             <div className="border-t border-border/60 bg-white p-3">
               <div className="mb-2 flex flex-wrap gap-1.5">
-                {["Yönetim özeti", "Riskler", "Fırsatlar", "Bugün ne var?", "MV-1050 ara", "Geciken ödemeler", "Servis gecikmeleri", "Stok riski", "Teklif dönüşümü", "Harita"].map((item) => (
-                  <Button key={item} type="button" size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={() => submit(item)}>
+                {["Bugün kime dönmeliyim?", "Riskler", "Çağrılar", "VM-2 stokta var mı?", "Geciken ödemeler", "Açık servisler"].map((item) => (
+                  <Button key={item} type="button" size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={() => void submit(item)}>
                     {item}
                   </Button>
                 ))}
@@ -368,7 +594,7 @@ export function AssistantPanel({
                 className="flex gap-2"
                 onSubmit={(e) => {
                   e.preventDefault();
-                  submit();
+                  void submit();
                 }}
               >
                 <div className="relative min-w-0 flex-1">
@@ -376,12 +602,13 @@ export function AssistantPanel({
                   <Input
                     value={input}
                     onChange={(e) => setInput(e.target.value)}
-                    placeholder="Komut veya arama..."
+                    placeholder="CRM'e sor..."
                     className="h-10 pl-9"
+                    disabled={loadingChat}
                   />
                 </div>
-                <Button type="submit" size="icon" className="size-10">
-                  <Send className="size-4" />
+                <Button type="submit" size="icon" className="size-10" disabled={loadingChat}>
+                  {loadingChat ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />}
                 </Button>
               </form>
             </div>
@@ -389,6 +616,199 @@ export function AssistantPanel({
         </div>
       )}
     </>
+  );
+}
+
+function ChatView({
+  messages,
+  loading,
+  runPanelAction,
+  runAction,
+}: {
+  messages: ChatMessage[];
+  loading: boolean;
+  runPanelAction: (item: PanelAction) => void;
+  runAction: (action: OperationAction) => void;
+}) {
+  return (
+    <div className="space-y-3">
+      {messages.map((message) => (
+        <div key={message.id} className={message.from === "user" ? "ml-10" : "mr-4"}>
+          <div
+            className={`rounded-lg border px-3 py-2 text-sm shadow-sm ${
+              message.from === "user" ? "border-primary/20 bg-primary text-primary-foreground" : "border-border/60 bg-white"
+            }`}
+          >
+            <div className="whitespace-pre-wrap leading-relaxed">{message.text}</div>
+            {message.actions && message.actions.length > 0 && (
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {message.actions.map((item) => (
+                  <Button
+                    key={`${message.id}-${item.label}`}
+                    type="button"
+                    size="sm"
+                    variant={message.from === "user" ? "secondary" : "outline"}
+                    className="h-7 px-2 text-xs"
+                    onClick={() => runPanelAction(item)}
+                  >
+                    {item.label}
+                  </Button>
+                ))}
+              </div>
+            )}
+            {message.results && message.results.length > 0 && (
+              <div className="mt-2 space-y-1">
+                {message.results.map((result) => (
+                  <button
+                    key={result.id}
+                    type="button"
+                    onClick={() => runAction(result.action)}
+                    className="flex w-full items-center gap-2 rounded-md border border-border/60 bg-muted/25 px-2 py-1.5 text-left hover:bg-muted"
+                  >
+                    <Search className="size-3.5 text-muted-foreground" />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-xs font-medium">{result.title}</span>
+                      <span className="block truncate text-[11px] text-muted-foreground">{result.subtitle}</span>
+                    </span>
+                    <Badge variant="secondary" className="h-5 px-1.5 text-[10px]">
+                      {result.type}
+                    </Badge>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      ))}
+      {loading && (
+        <div className="mr-4 rounded-lg border border-border/60 bg-white px-3 py-2 text-sm shadow-sm">
+          <span className="inline-flex items-center gap-2 text-muted-foreground">
+            <Loader2 className="size-4 animate-spin" />
+            Yanıt hazırlanıyor
+          </span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SuggestionView({
+  tab,
+  suggestions,
+  loading,
+  error,
+  refreshSuggestions,
+  executeAssistantAction,
+  canRunOperation,
+  runAction,
+}: {
+  tab: PanelTab;
+  suggestions: AssistantSuggestion[];
+  loading: boolean;
+  error: string | null;
+  refreshSuggestions: () => Promise<void>;
+  executeAssistantAction: (suggestionId: string, action: AssistantSuggestedAction) => Promise<void>;
+  canRunOperation: (action?: OperationAction) => boolean;
+  runAction: (action: OperationAction) => void;
+}) {
+  if (loading && suggestions.length === 0) {
+    return (
+      <div className="grid h-full place-items-center text-sm text-muted-foreground">
+        <span className="inline-flex items-center gap-2">
+          <Loader2 className="size-4 animate-spin" />
+          Öneriler yükleniyor
+        </span>
+      </div>
+    );
+  }
+  if (error && suggestions.length === 0) {
+    return (
+      <div className="space-y-3 rounded-lg border border-border/60 bg-white p-4 text-sm">
+        <div className="font-medium">Öneriler alınamadı</div>
+        <div className="text-muted-foreground">{error}</div>
+        <Button size="sm" variant="outline" onClick={() => void refreshSuggestions()}>
+          Tekrar Dene
+        </Button>
+      </div>
+    );
+  }
+  if (suggestions.length === 0) {
+    return (
+      <div className="grid h-full place-items-center rounded-lg border border-dashed border-border/70 bg-white p-6 text-center text-sm text-muted-foreground">
+        {tab === "calls" ? "Bekleyen çağrı önerisi yok." : tab === "risks" ? "Görünür kritik risk yok." : "Bekleyen asistan aksiyonu yok."}
+      </div>
+    );
+  }
+  return (
+    <div className="space-y-2">
+      {suggestions.map((suggestion) => (
+        <SuggestionCard
+          key={suggestion.id}
+          suggestion={suggestion}
+          executeAssistantAction={executeAssistantAction}
+          canRunOperation={canRunOperation}
+          runAction={runAction}
+        />
+      ))}
+    </div>
+  );
+}
+
+function SuggestionCard({
+  suggestion,
+  executeAssistantAction,
+  canRunOperation,
+  runAction,
+}: {
+  suggestion: AssistantSuggestion;
+  executeAssistantAction: (suggestionId: string, action: AssistantSuggestedAction) => Promise<void>;
+  canRunOperation: (action?: OperationAction) => boolean;
+  runAction: (action: OperationAction) => void;
+}) {
+  const visibleActions = suggestion.actions.filter((action) => {
+    const operation = toOperationAction(action.operationAction);
+    return !operation || canRunOperation(operation);
+  });
+  return (
+    <div className="rounded-lg border border-border/60 bg-white p-3 shadow-sm">
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <div className="flex min-w-0 items-center gap-2">
+            <Badge variant="outline" className={`h-5 shrink-0 px-1.5 text-[10px] ${severityTone(suggestion.severity)}`}>
+              {suggestion.severity === "critical" ? "Kritik" : suggestion.severity === "warning" ? "Risk" : suggestion.category}
+            </Badge>
+            <div className="truncate text-sm font-medium">{suggestion.title}</div>
+          </div>
+          <div className="mt-1 text-xs leading-relaxed text-muted-foreground">{suggestion.description}</div>
+          {suggestion.meta && <div className="mt-1 truncate text-[11px] text-muted-foreground">{suggestion.meta}</div>}
+        </div>
+        {suggestion.category === "call" ? <Phone className="size-4 shrink-0 text-sky-600" /> : <Route className="size-4 shrink-0 text-muted-foreground" />}
+      </div>
+      {visibleActions.length > 0 && (
+        <div className="mt-3 flex flex-wrap gap-1.5">
+          {visibleActions.map((action) => {
+            const operation = toOperationAction(action.operationAction);
+            const icon = action.kind === "dismiss" ? <X className="size-3" /> : action.requiresConfirmation ? <CheckCircle2 className="size-3" /> : <Route className="size-3" />;
+            return (
+              <Button
+                key={action.id}
+                type="button"
+                size="sm"
+                variant={action.kind === "dismiss" ? "ghost" : "outline"}
+                className="h-7 gap-1 px-2 text-xs"
+                onClick={() => {
+                  if (operation && !action.requiresConfirmation) runAction(operation);
+                  else void executeAssistantAction(suggestion.id, action);
+                }}
+              >
+                {icon}
+                {action.label}
+              </Button>
+            );
+          })}
+        </div>
+      )}
+    </div>
   );
 }
 

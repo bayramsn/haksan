@@ -16,6 +16,7 @@ import type {
   CommercialInvoiceCreateInput,
   CommercialInvoiceUpdateInput,
   CompanyCreateInput,
+  CompanyOsmSearchResult,
   CompanyUpdateInput,
   CompetitorCreateInput,
   CompetitorProductCreateInput,
@@ -90,6 +91,11 @@ import type {
   CallAssistantAction,
   CallSuggestionActionInput,
   ManualCallEventInput,
+  AssistantChatInput,
+  AssistantChatResponse,
+  AssistantExecuteActionInput,
+  AssistantExecuteActionResponse,
+  AssistantSuggestion,
 } from '@haksan/shared';
 import { API_BASE_URL, ApiError, api, getAccessToken, getActiveDivision } from './apiClient';
 import { exportService } from './downloadExport';
@@ -166,6 +172,8 @@ export const companyService = {
   get: (id: string) => api.get<CompanyDTO & { addresses: any[]; phones: any[]; emails: any[] }>(`/companies/${id}`),
   create: (body: CompanyCreateInput) => api.post<CompanyDTO>('/companies', body),
   update: (id: string, body: CompanyUpdateInput) => api.patch<CompanyDTO>(`/companies/${id}`, body),
+  osmSearch: (params: { q: string; city?: string; district?: string }) =>
+    api.get<CompanyOsmSearchResult[]>(`/companies/osm-search${qs(params)}`),
   /** Haritadaki manuel pin düzeltmesini kalıcı kaydeder; null'lar konumu temizler. */
   setLocation: (id: string, body: { latitude: number | null; longitude: number | null }) =>
     api.patch<CompanyDTO>(`/companies/${id}/location`, body),
@@ -265,6 +273,13 @@ export const callAssistantService = {
     api.post<CallEventIngestResponse>('/call-assistant/manual-events', body),
   action: (id: string, action: CallAssistantAction, body: Omit<CallSuggestionActionInput, 'action'> = {}) =>
     api.post<any>(`/call-assistant/suggestions/${id}/actions`, { action, ...body }),
+};
+
+export const assistantService = {
+  suggestions: () => api.get<AssistantSuggestion[]>('/assistant/suggestions'),
+  chat: (body: AssistantChatInput) => api.post<AssistantChatResponse>('/assistant/chat', body),
+  executeAction: (id: string, body: AssistantExecuteActionInput) =>
+    api.post<AssistantExecuteActionResponse>(`/assistant/actions/${encodeURIComponent(id)}/execute`, body),
 };
 
 // ───── Contacts ─────
@@ -765,6 +780,9 @@ export const reportService = {
   warrantyExpiring: (params?: Record<string, string | number>) => api.get<any[]>(`/reports/warranty-expiring${qs(params)}`),
   serviceComplaintsSummary: () => api.get<any>('/reports/service-complaints-summary'),
   yearEnd: (year: number) => api.get<YearEndReport>(`/reports/year-end?year=${year}`),
+  targetProgress: (params: { period: string; scope?: 'user' | 'department' | 'role' | 'all-users'; id?: string }) =>
+    api.get<any>(`/reports/target-progress${qs(params)}`),
+  myTargetProgress: (params: { period: string }) => api.get<any>(`/reports/my-target-progress${qs(params)}`),
   downloadYearEnd: (year: number) => exportService.yearEnd(year),
 };
 
@@ -780,6 +798,11 @@ export const adminService = {
   saveUserTarget: (userId: string, body: TargetUpsertInput) => api.post<any>(`/users/${userId}/targets`, body),
   departmentTargets: (params?: Record<string, string | number | undefined>) => api.get<any[]>(`/department-targets${qs(params)}`),
   saveDepartmentTarget: (departmentId: string, body: TargetUpsertInput) => api.post<any>(`/departments/${departmentId}/targets`, body),
+  saveRoleTarget: (roleId: string, body: TargetUpsertInput) => api.post<any>(`/roles/${roleId}/targets`, body),
+  roleTargetMembers: (roleId: string) =>
+    api.get<{ roleCode: string; roleName: string; memberCount: number; members: { userId: string; fullName: string }[] }>(
+      `/roles/${roleId}/target-members`
+    ),
   updateDept: (id: string, body: DepartmentUpdateInput) => api.patch<any>(`/departments/${id}`, body),
   roles: () => api.get<any[]>('/roles'),
   createRole: (body: RoleCreateInput) => api.post<any>('/roles', body),
