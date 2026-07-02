@@ -34,6 +34,8 @@ export const companyCreateSchema = z.object({
       street: optionalText(255),
       buildingNumber: optionalText(32),
       fullAddress: optionalText(1000),
+      latitude: z.coerce.number().min(-90).max(90).optional(),
+      longitude: z.coerce.number().min(-180).max(180).optional(),
     })
     .optional(),
   primaryPhone: optionalPhone,
@@ -53,6 +55,12 @@ export const companyListQuerySchema = z.object({
   customerStatusCode: z.enum(['potential', 'active', 'passive', 'blacklist']).optional(),
 });
 export type CompanyListQuery = z.infer<typeof companyListQuerySchema>;
+
+export const companyLocationSchema = z.object({
+  latitude: z.coerce.number().min(-90).max(90).nullable(),
+  longitude: z.coerce.number().min(-180).max(180).nullable(),
+});
+export type CompanyLocationInput = z.infer<typeof companyLocationSchema>;
 
 export const companyAccessRequestSchema = z.object({
   divisionId: z.string().uuid().optional(),

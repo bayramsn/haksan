@@ -1,13 +1,13 @@
-import { Controller, Get, Param, UseGuards } from '@nestjs/common';
+import { Controller, Get, Param, Query, UseGuards } from '@nestjs/common';
 import { Inject } from '@nestjs/common';
-import { asc, eq } from 'drizzle-orm';
+import { and, asc, eq } from 'drizzle-orm';
 import type { DbClient } from '../../db/client';
 import * as schema from '../../db/schema';
 import { DB } from '../../shared/database/database.module';
 import { AuthGuard } from '../../shared/security/auth.guard';
 import { NotFoundError } from '../../shared/utils/errors';
 
-const TABLE_MAP: Record<string, keyof typeof schema> = {
+export const LOOKUP_TABLE_MAP: Record<string, keyof typeof schema> = {
   'pipeline-stages': 'pipelineStages',
   'quote-statuses': 'quoteStatuses',
   'opportunity-statuses': 'opportunityStatuses',
@@ -15,7 +15,9 @@ const TABLE_MAP: Record<string, keyof typeof schema> = {
   'company-relation-types': 'companyRelationTypes',
   'company-statuses': 'companyStatuses',
   'company-groups': 'companyGroups',
+  'company-sectors': 'companySectors',
   'contact-sources': 'contactSources',
+  'tax-offices': 'taxOffices',
   'decision-roles': 'decisionRoles',
   'product-groups': 'productGroups',
   'product-categories': 'productCategories',
@@ -46,14 +48,20 @@ export class LookupsController {
 
   @Get()
   list() {
-    return { available: Object.keys(TABLE_MAP) };
+    return { available: Object.keys(LOOKUP_TABLE_MAP) };
   }
 
   @Get(':name')
-  async byName(@Param('name') name: string) {
-    const tableKey = TABLE_MAP[name];
+  async byName(@Param('name') name: string, @Query('city') city?: string) {
+    const tableKey = LOOKUP_TABLE_MAP[name];
     if (!tableKey) throw new NotFoundError('Lookup');
     const table = (schema as any)[tableKey];
-    return this.db.select().from(table).where(eq(table.isActive, true)).orderBy(asc(table.sortOrder));
+    const filters = [eq(table.isActive, true)];
+    if (name === 'tax-offices' && city?.trim()) filters.push(eq(table.province, city.trim()));
+    return this.db
+      .select()
+      .from(table)
+      .where(and(...filters))
+      .orderBy(asc(table.sortOrder), asc(table.name));
   }
 }

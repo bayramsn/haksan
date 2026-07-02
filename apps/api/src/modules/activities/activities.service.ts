@@ -1,13 +1,15 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { and, desc, eq, isNull, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import type { DbClient } from '../../db/client';
 import { salesActivities, visits, calls, opportunities } from '../../db/schema/crm';
 import { companies, contacts } from '../../db/schema/companies';
-import { activityTypes } from '../../db/schema/lookup';
+import { activityTypes, fileDocumentTypes } from '../../db/schema/lookup';
+import { fileLinks, files } from '../../db/schema/files';
+import { users } from '../../db/schema/users';
 import { DB } from '../../shared/database/database.module';
 import { NotFoundError, ValidationError } from '../../shared/utils/errors';
 import type { AuthContext } from '../../shared/security/auth.types';
-import type { ActivityCreateInput, VisitCreateInput, CallCreateInput, Pagination } from '@haksan/shared';
+import type { ActivityCreateInput, ActivityUpdateInput, VisitCreateInput, CallCreateInput, Pagination } from '@haksan/shared';
 import { buildPaginated, pageOffset } from '../../shared/utils/pagination';
 import { lookupIdByCode } from '../../shared/utils/lookup.helper';
 import { divisionFilter, resolveActorDivisionScope, resolveAssignedDivision } from '../../shared/utils/division-scope';
@@ -48,6 +50,15 @@ export class ActivitiesService {
     if (input.opportunityId) await this.assertOpportunity(input.opportunityId, actor, input.companyId);
   }
 
+  private async assertActivity(activityId: string, actor: AuthContext) {
+    const filters = [eq(salesActivities.id, activityId), eq(salesActivities.tenantId, actor.tenantId), isNull(salesActivities.deletedAt)];
+    const scoped = divisionFilter(resolveActorDivisionScope(actor), salesActivities.divisionId);
+    if (scoped) filters.push(scoped);
+    const [row] = await this.db.select().from(salesActivities).where(and(...filters)).limit(1);
+    if (!row) throw new NotFoundError('Aktivite');
+    return row;
+  }
+
   /** Aktiviteye atanacak bölüm: bağlı fırsattan miras, yoksa kullanıcının birincil bölümü. */
   private async resolveActivityDivision(input: { opportunityId?: string }, actor: AuthContext): Promise<string | null> {
     if (input.opportunityId) {
@@ -62,7 +73,7 @@ export class ActivitiesService {
 
   async list(actor: AuthContext, query: { opportunityId?: string; companyId?: string }, page: Pagination) {
     const { limit, offset } = pageOffset(page);
-    const filters = [eq(salesActivities.tenantId, actor.tenantId)];
+    const filters = [eq(salesActivities.tenantId, actor.tenantId), isNull(salesActivities.deletedAt)];
     if (query.opportunityId) filters.push(eq(salesActivities.opportunityId, query.opportunityId));
     if (query.companyId) filters.push(eq(salesActivities.companyId, query.companyId));
     const scoped = divisionFilter(resolveActorDivisionScope(actor), salesActivities.divisionId);
@@ -76,15 +87,53 @@ export class ActivitiesService {
       .select({
         activity: salesActivities,
         type: { id: activityTypes.id, code: activityTypes.code, name: activityTypes.name },
+        createdByUser: { id: users.id, fullName: users.fullName, email: users.email },
       })
       .from(salesActivities)
       .leftJoin(activityTypes, eq(salesActivities.activityTypeId, activityTypes.id))
+      .leftJoin(users, eq(salesActivities.createdBy, users.id))
       .where(where)
       .orderBy(desc(salesActivities.activityDate))
       .limit(limit)
       .offset(offset);
+    const activityIds = rows.map((r) => r.activity.id);
+    const filesByActivity = new Map<string, any[]>();
+    if (activityIds.length) {
+      const linkedFiles = await this.db
+        .select({
+          link: fileLinks,
+          file: files,
+          documentType: { id: fileDocumentTypes.id, code: fileDocumentTypes.code, name: fileDocumentTypes.name },
+        })
+        .from(fileLinks)
+        .innerJoin(files, eq(fileLinks.fileId, files.id))
+        .leftJoin(fileDocumentTypes, eq(fileLinks.documentTypeId, fileDocumentTypes.id))
+        .where(
+          and(
+            eq(fileLinks.tenantId, actor.tenantId),
+            eq(fileLinks.entityType, 'sales_activity'),
+            inArray(fileLinks.entityId, activityIds),
+            isNull(files.deletedAt)
+          )
+        );
+      for (const row of linkedFiles) {
+        const list = filesByActivity.get(row.link.entityId) ?? [];
+        list.push({
+          ...row.file,
+          linkId: row.link.id,
+          documentType: row.documentType,
+          description: row.link.description,
+        });
+        filesByActivity.set(row.link.entityId, list);
+      }
+    }
     return buildPaginated(
-      rows.map((r) => ({ ...r.activity, type: r.type })),
+      rows.map((r) => ({
+        ...r.activity,
+        type: r.type,
+        createdByUser: r.createdByUser?.id ? r.createdByUser : null,
+        files: filesByActivity.get(r.activity.id) ?? [],
+      })),
       count,
       page
     );
@@ -113,6 +162,45 @@ export class ActivitiesService {
       })
       .returning();
     return row;
+  }
+
+  async updateActivity(activityId: string, input: ActivityUpdateInput, actor: AuthContext) {
+    const existing = await this.assertActivity(activityId, actor);
+    const companyId = input.companyId ?? existing.companyId;
+    if (!companyId) throw new ValidationError('Aktivite için firma zorunlu');
+    await this.assertReferences(
+      {
+        companyId,
+        contactId: input.contactId ?? existing.contactId ?? undefined,
+        opportunityId: input.opportunityId ?? existing.opportunityId ?? undefined,
+      },
+      actor
+    );
+
+    const patch: Record<string, unknown> = {};
+    if (input.companyId !== undefined) patch.companyId = input.companyId;
+    if (input.contactId !== undefined) patch.contactId = input.contactId || null;
+    if (input.opportunityId !== undefined) patch.opportunityId = input.opportunityId || null;
+    if (input.activityTypeCode !== undefined) {
+      const typeId = await lookupIdByCode(this.db, activityTypes, input.activityTypeCode);
+      if (!typeId) throw new ValidationError(`Bilinmeyen aktivite türü: ${input.activityTypeCode}`);
+      patch.activityTypeId = typeId;
+    }
+    if (input.subject !== undefined) patch.subject = input.subject;
+    if (input.description !== undefined) patch.description = input.description ?? null;
+    if (input.activityDate !== undefined) patch.activityDate = input.activityDate;
+    if (input.nextFollowUpAt !== undefined) patch.nextFollowUpAt = input.nextFollowUpAt ?? null;
+    if (input.result !== undefined) patch.result = input.result ?? null;
+    patch.updatedAt = new Date();
+
+    const [row] = await this.db.update(salesActivities).set(patch).where(eq(salesActivities.id, activityId)).returning();
+    return row;
+  }
+
+  async deleteActivity(activityId: string, actor: AuthContext) {
+    await this.assertActivity(activityId, actor);
+    await this.db.update(salesActivities).set({ deletedAt: new Date(), updatedAt: new Date() }).where(eq(salesActivities.id, activityId));
+    return { ok: true };
   }
 
   async createVisit(input: VisitCreateInput, actor: AuthContext) {

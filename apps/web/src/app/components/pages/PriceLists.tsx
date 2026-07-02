@@ -438,7 +438,7 @@ export function ServicePriceListPage() {
         </div>
       </Card>
 
-      <ProductDetailDialog product={selected} onClose={() => setSelected(null)} />
+      <ProductDetailDialog product={selected} onClose={() => setSelected(null)} hideOptionalEquipment />
     </div>
   );
 }

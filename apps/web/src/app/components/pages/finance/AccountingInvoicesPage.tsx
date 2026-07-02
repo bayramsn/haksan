@@ -13,9 +13,12 @@ import { CreateAccountingInvoiceDialog } from "./CreateAccountingInvoiceDialog";
 import { toast } from "sonner";
 import { ArrowDownLeft, ArrowUpRight, Building2, Layers, Pencil, Plus, Receipt, Search, Trash2 } from "lucide-react";
 
+type InvoiceCategory = "commercial" | "administrative";
+
 type InvoiceRow = {
   id: string;
   type: "sales" | "purchase";
+  invoiceCategory?: InvoiceCategory;
   invoiceNo: string;
   invoiceDate: string;
   grandTotal: string;
@@ -30,6 +33,14 @@ type InvoiceDetail = InvoiceRow & {
   amount?: string;
   vatAmount?: string;
   notes?: string | null;
+  paymentType?: "cash" | "leasing" | "term" | null;
+  paymentTermDays?: number | null;
+  previousPaymentTermDays?: number | null;
+  termChangeReason?: string | null;
+  incoterm?: string | null;
+  shipmentReference?: string | null;
+  orderNo?: string | null;
+  expectedDate?: string | null;
   company?: InvoiceRow["company"] & {
     taxOffice?: string | null;
     taxNumber?: string | null;
@@ -40,11 +51,32 @@ type InvoiceDetail = InvoiceRow & {
     dueDate: string;
     amount: string;
   }>;
+  lineItems?: Array<{
+    id: string;
+    productModelId?: string | null;
+    inventoryItemId?: string | null;
+    categoryCode?: string | null;
+    description?: string | null;
+    quantity?: string | number;
+    listPrice?: string | number | null;
+    unitPrice?: string | number | null;
+    discountAmount?: string | number | null;
+    vatRate?: string | number | null;
+    lineTotal?: string | number | null;
+    expectedDate?: string | null;
+  }>;
 };
 
 function companyName(company?: InvoiceDetail["company"]): string {
   return company?.shortName || company?.legalTitle || "Firma bilgisi yok";
 }
+
+const invoiceCategoryLabel = (category?: string) => (category === "administrative" ? "İdari" : "Ticari");
+const paymentTypeLabel = (value?: string | null) => {
+  if (value === "leasing") return "Leasing";
+  if (value === "term") return "Vadeli";
+  return "Peşin";
+};
 
 function invoicePrefill(invoice: InvoiceDetail) {
   const amount = Number(invoice.amount ?? invoice.grandTotal ?? 0);
@@ -59,6 +91,15 @@ function invoicePrefill(invoice: InvoiceDetail) {
     grandTotal: Number(invoice.grandTotal ?? 0),
     vatRate: amount > 0 ? Math.round((vatAmount / amount) * 10000) / 100 : 0,
     currencyCode: invoice.currency?.code ?? "USD",
+    invoiceCategory: invoice.invoiceCategory ?? "commercial",
+    paymentType: invoice.paymentType ?? undefined,
+    paymentTermDays: invoice.paymentTermDays,
+    previousPaymentTermDays: invoice.previousPaymentTermDays,
+    termChangeReason: invoice.termChangeReason,
+    incoterm: invoice.incoterm,
+    shipmentReference: invoice.shipmentReference,
+    orderNo: invoice.orderNo,
+    expectedDate: invoice.expectedDate,
     firstDueDate: invoice.firstDueDate ?? invoice.invoiceDate,
     lastDueDate: invoice.lastDueDate,
     installmentCount: invoice.installmentCount,
@@ -74,6 +115,7 @@ function invoicePrefill(invoice: InvoiceDetail) {
 export function AccountingInvoicesPage() {
   const [rows, setRows] = useState<InvoiceRow[]>([]);
   const [q, setQ] = useState("");
+  const [categoryFilter, setCategoryFilter] = useState<InvoiceCategory>("commercial");
   const [typeFilter, setTypeFilter] = useState<"all" | "sales" | "purchase">("sales");
   const [loading, setLoading] = useState(true);
   const [detail, setDetail] = useState<InvoiceDetail | null>(null);
@@ -82,7 +124,12 @@ export function AccountingInvoicesPage() {
   const load = () => {
     setLoading(true);
     financeService
-      .accountingInvoices({ page: 1, pageSize: 200, ...(typeFilter !== "all" ? { type: typeFilter } : {}) })
+      .accountingInvoices({
+        page: 1,
+        pageSize: 200,
+        invoiceCategory: categoryFilter,
+        ...(typeFilter !== "all" ? { type: typeFilter } : {}),
+      })
       .then((res) => setRows(res?.data ?? []))
       .catch(() => setRows([]))
       .finally(() => setLoading(false));
@@ -90,7 +137,7 @@ export function AccountingInvoicesPage() {
 
   useEffect(() => {
     load();
-  }, [typeFilter]);
+  }, [categoryFilter, typeFilter]);
 
   const filtered = rows.filter((r) => {
     const name = r.company?.shortName || r.company?.legalTitle || "";
@@ -163,19 +210,31 @@ export function AccountingInvoicesPage() {
           </div>
         </CardHeader>
         <div className="flex flex-col gap-2 px-6 pb-3 sm:flex-row sm:items-center sm:justify-between">
-          <Tabs value={typeFilter} onValueChange={(v) => setTypeFilter(v as typeof typeFilter)}>
-            <TabsList className="h-9 bg-muted/60">
-              <TabsTrigger value="sales" className="gap-1.5">
-                <ArrowUpRight className="size-4" /> Satış
-              </TabsTrigger>
-              <TabsTrigger value="purchase" className="gap-1.5">
-                <ArrowDownLeft className="size-4" /> Alış
-              </TabsTrigger>
-              <TabsTrigger value="all" className="gap-1.5">
-                <Layers className="size-4" /> Tümü
-              </TabsTrigger>
-            </TabsList>
-          </Tabs>
+          <div className="flex flex-wrap items-center gap-2">
+            <Tabs value={categoryFilter} onValueChange={(v) => setCategoryFilter(v as InvoiceCategory)}>
+              <TabsList className="h-9 bg-muted/60">
+                <TabsTrigger value="commercial" className="gap-1.5">
+                  <Receipt className="size-4" /> Ticari
+                </TabsTrigger>
+                <TabsTrigger value="administrative" className="gap-1.5">
+                  <Building2 className="size-4" /> İdari
+                </TabsTrigger>
+              </TabsList>
+            </Tabs>
+            <Tabs value={typeFilter} onValueChange={(v) => setTypeFilter(v as typeof typeFilter)}>
+              <TabsList className="h-9 bg-muted/60">
+                <TabsTrigger value="sales" className="gap-1.5">
+                  <ArrowUpRight className="size-4" /> Satış
+                </TabsTrigger>
+                <TabsTrigger value="purchase" className="gap-1.5">
+                  <ArrowDownLeft className="size-4" /> Alış
+                </TabsTrigger>
+                <TabsTrigger value="all" className="gap-1.5">
+                  <Layers className="size-4" /> Tümü
+                </TabsTrigger>
+              </TabsList>
+            </Tabs>
+          </div>
           {!loading && (
             <div className="text-xs text-muted-foreground">
               <span className="font-medium text-foreground">{filtered.length}</span> fatura
@@ -194,6 +253,7 @@ export function AccountingInvoicesPage() {
               <TableRow className="bg-muted/30">
                 <TableHead>Fatura No</TableHead>
                 {typeFilter === "all" && <TableHead>Tür</TableHead>}
+                <TableHead>Sınıf</TableHead>
                 <TableHead>{typeFilter === "purchase" ? "Tedarikçi" : typeFilter === "sales" ? "Müşteri" : "Firma"}</TableHead>
                 <TableHead>Tarih</TableHead>
                 <TableHead className="text-right">Tutar</TableHead>
@@ -204,7 +264,7 @@ export function AccountingInvoicesPage() {
             </TableHeader>
             <TableBody>
               {loading && (
-                <TableRow><TableCell colSpan={typeFilter === "all" ? 8 : 7} className="text-center py-10 text-muted-foreground">Yükleniyor…</TableCell></TableRow>
+                <TableRow><TableCell colSpan={typeFilter === "all" ? 9 : 8} className="text-center py-10 text-muted-foreground">Yükleniyor…</TableCell></TableRow>
               )}
               {!loading && filtered.map((r) => (
                 <TableRow key={r.id} className="cursor-pointer hover:bg-muted/30" onClick={() => openDetail(r)}>
@@ -216,6 +276,11 @@ export function AccountingInvoicesPage() {
                       </Badge>
                     </TableCell>
                   )}
+                  <TableCell>
+                    <Badge variant="secondary" className="h-6 text-[11px]">
+                      {invoiceCategoryLabel(r.invoiceCategory)}
+                    </Badge>
+                  </TableCell>
                   <TableCell>{r.company?.shortName || r.company?.legalTitle || "—"}</TableCell>
                   <TableCell className="text-sm text-muted-foreground">{new Date(r.invoiceDate).toLocaleDateString("tr-TR")}</TableCell>
                   <TableCell className="text-right tabular-nums font-medium">
@@ -241,7 +306,7 @@ export function AccountingInvoicesPage() {
                 </TableRow>
               ))}
               {!loading && filtered.length === 0 && (
-                <TableRow><TableCell colSpan={typeFilter === "all" ? 8 : 7} className="text-center py-10 text-muted-foreground">Kayıt yok</TableCell></TableRow>
+                <TableRow><TableCell colSpan={typeFilter === "all" ? 9 : 8} className="text-center py-10 text-muted-foreground">Kayıt yok</TableCell></TableRow>
               )}
             </TableBody>
           </Table>
@@ -276,11 +341,25 @@ export function AccountingInvoicesPage() {
               </div>
               <div className="grid grid-cols-2 gap-2">
                 <div><span className="text-muted-foreground">Tür:</span> {detail.type === "sales" ? "Satış" : "Alış"}</div>
+                <div><span className="text-muted-foreground">Sınıf:</span> {invoiceCategoryLabel(detail.invoiceCategory)}</div>
                 <div><span className="text-muted-foreground">Tarih:</span> {new Date(detail.invoiceDate).toLocaleDateString("tr-TR")}</div>
                 <div><span className="text-muted-foreground">Matrah:</span> {Number(detail.amount ?? 0).toLocaleString("tr-TR")} {detail.currency?.code ?? ""}</div>
                 <div><span className="text-muted-foreground">KDV:</span> {Number(detail.vatAmount ?? 0).toLocaleString("tr-TR")} {detail.currency?.code ?? ""}</div>
                 <div><span className="text-muted-foreground">Toplam:</span> {Number(detail.grandTotal).toLocaleString("tr-TR")} {detail.currency?.code ?? ""}</div>
                 <div><span className="text-muted-foreground">Taksit:</span> {detail.installmentCount}</div>
+                <div><span className="text-muted-foreground">Ödeme Tipi:</span> {paymentTypeLabel(detail.paymentType)}</div>
+                {detail.paymentTermDays != null && detail.paymentTermDays > 0 && (
+                  <div><span className="text-muted-foreground">Vade:</span> {detail.paymentTermDays} gün</div>
+                )}
+                {detail.orderNo && <div><span className="text-muted-foreground">Sipariş No:</span> {detail.orderNo}</div>}
+                {detail.incoterm && <div><span className="text-muted-foreground">Incoterm:</span> {detail.incoterm}</div>}
+                {detail.shipmentReference && <div><span className="text-muted-foreground">Referans:</span> {detail.shipmentReference}</div>}
+                {detail.expectedDate && (
+                  <div><span className="text-muted-foreground">Beklenen:</span> {new Date(detail.expectedDate).toLocaleDateString("tr-TR")}</div>
+                )}
+                {detail.termChangeReason && (
+                  <div className="col-span-2"><span className="text-muted-foreground">Vade Notu:</span> {detail.termChangeReason}</div>
+                )}
               </div>
               {(detail.installments?.length ?? 0) > 0 && (
                 <Table>
@@ -301,6 +380,34 @@ export function AccountingInvoicesPage() {
                     ))}
                   </TableBody>
                 </Table>
+              )}
+              {(detail.lineItems?.length ?? 0) > 0 && (
+                <div className="rounded-lg border border-border/60 overflow-hidden">
+                  <div className="bg-muted/30 px-3 py-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">Fatura Kalemleri</div>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Kalem</TableHead>
+                        <TableHead className="text-right">Adet</TableHead>
+                        <TableHead className="text-right">Birim</TableHead>
+                        <TableHead className="text-right">Toplam</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {detail.lineItems?.map((line) => (
+                        <TableRow key={line.id}>
+                          <TableCell>
+                            <div className="text-sm">{line.description || line.categoryCode || "Kalem"}</div>
+                            {line.expectedDate && <div className="text-[11px] text-muted-foreground">ETA {new Date(line.expectedDate).toLocaleDateString("tr-TR")}</div>}
+                          </TableCell>
+                          <TableCell className="text-right tabular-nums">{Number(line.quantity ?? 1).toLocaleString("tr-TR")}</TableCell>
+                          <TableCell className="text-right tabular-nums">{line.unitPrice ? Number(line.unitPrice).toLocaleString("tr-TR") : "—"}</TableCell>
+                          <TableCell className="text-right tabular-nums">{line.lineTotal ? Number(line.lineTotal).toLocaleString("tr-TR") : "—"}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
               )}
               <div className="flex justify-end gap-2 pt-2">
                 <CreateAccountingInvoiceDialog

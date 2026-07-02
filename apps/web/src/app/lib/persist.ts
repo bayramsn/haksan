@@ -36,6 +36,18 @@ export function clearPersisted(key: string): void {
   }
 }
 
+export function clearDrafts(): void {
+  try {
+    const prefix = `${PREFIX}draft.`;
+    for (let index = localStorage.length - 1; index >= 0; index -= 1) {
+      const key = localStorage.key(index);
+      if (key?.startsWith(prefix)) localStorage.removeItem(key);
+    }
+  } catch {
+    /* yok say */
+  }
+}
+
 /**
  * `useState` gibi davranır ama değeri localStorage ile eşitler; yenilemede
  * son değer geri yüklenir. `key` sabit olmalıdır.

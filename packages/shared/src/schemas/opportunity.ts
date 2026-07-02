@@ -88,6 +88,9 @@ export const activityCreateSchema = z.object({
 });
 export type ActivityCreateInput = z.infer<typeof activityCreateSchema>;
 
+export const activityUpdateSchema = activityCreateSchema.partial();
+export type ActivityUpdateInput = z.infer<typeof activityUpdateSchema>;
+
 export const competitorCreateSchema = z.object({
   name: z.string().min(1).max(255),
   website: z.string().url().max(512).optional(),

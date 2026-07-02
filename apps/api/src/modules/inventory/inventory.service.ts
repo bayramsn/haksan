@@ -3,7 +3,7 @@ import { and, asc, desc, eq, ilike, inArray, isNull, sql } from 'drizzle-orm';
 import type { DbClient } from '../../db/client';
 import { inventoryItems, inventoryMovements, warehouses, customerDevices } from '../../db/schema/inventory';
 import { warrantyStatuses } from '../../db/schema/lookup';
-import type { CustomerDeviceCreateInput } from '@haksan/shared';
+import type { CustomerDeviceCreateInput, CustomerDeviceUpdateInput } from '@haksan/shared';
 import { productModels, productSpecs, brands } from '../../db/schema/products';
 import { inventoryStatuses, productCategories, productTypes, stockLocationStatuses } from '../../db/schema/lookup';
 import { companies } from '../../db/schema/companies';
@@ -492,6 +492,7 @@ export class InventoryService {
               tenantId: actor.tenantId,
               divisionId: invoiceDivisionId ?? item.divisionId,
               companyId: params.companyId,
+              initialCompanyId: params.companyId,
               inventoryItemId: item.id,
               saleDate: params.invoiceDate,
             })
@@ -521,6 +522,7 @@ export class InventoryService {
             tenantId: actor.tenantId,
             divisionId: invoiceDivisionId ?? item.divisionId,
             companyId: params.companyId,
+            initialCompanyId: params.companyId,
             inventoryItemId: item.id,
             saleDate: params.invoiceDate,
           });
@@ -771,6 +773,7 @@ export class InventoryService {
         tenantId: actor.tenantId,
         divisionId: resolveAssignedDivision(actor, input.divisionId ?? null),
         companyId: input.companyId,
+        initialCompanyId: input.initialCompanyId ?? input.companyId,
         inventoryItemId: input.inventoryItemId ?? null,
         opportunityId: input.opportunityId ?? null,
         quoteId: input.quoteId ?? null,
@@ -783,6 +786,37 @@ export class InventoryService {
       })
       .returning();
     return device;
+  }
+
+  async updateCustomerDevice(id: string, input: CustomerDeviceUpdateInput, actor: AuthContext) {
+    const device = await this.db.query.customerDevices.findFirst({
+      where: and(
+        eq(customerDevices.id, id),
+        eq(customerDevices.tenantId, actor.tenantId),
+        isNull(customerDevices.deletedAt),
+        divisionFilter(resolveActorDivisionScope(actor), customerDevices.divisionId) ?? sql`true`,
+      ),
+    });
+    if (!device) throw new NotFoundError('Makine kaydı bulunamadı');
+
+    const patch: Record<string, unknown> = {};
+    if (input.companyId !== undefined) patch.companyId = input.companyId;
+    if (input.initialCompanyId !== undefined) patch.initialCompanyId = input.initialCompanyId ?? null;
+    if (input.divisionId !== undefined) patch.divisionId = resolveAssignedDivision(actor, input.divisionId ?? null);
+    if (input.inventoryItemId !== undefined) patch.inventoryItemId = input.inventoryItemId ?? null;
+    if (input.opportunityId !== undefined) patch.opportunityId = input.opportunityId ?? null;
+    if (input.quoteId !== undefined) patch.quoteId = input.quoteId ?? null;
+    if (input.installationDate !== undefined) patch.installationDate = input.installationDate ?? null;
+    if (input.warrantyStartDate !== undefined) patch.warrantyStartDate = input.warrantyStartDate ?? null;
+    if (input.warrantyEndDate !== undefined) patch.warrantyEndDate = input.warrantyEndDate ?? null;
+    if (input.deliveryDate !== undefined) patch.deliveryDate = input.deliveryDate ?? null;
+    if (input.notes !== undefined) patch.notes = input.notes ?? null;
+
+    if (Object.keys(patch).length === 0) return device;
+    await this.db.update(customerDevices).set(patch).where(eq(customerDevices.id, id));
+    return this.db.query.customerDevices.findFirst({
+      where: and(eq(customerDevices.id, id), eq(customerDevices.tenantId, actor.tenantId)),
+    });
   }
 
   async deleteCustomerDevice(id: string, actor: AuthContext) {

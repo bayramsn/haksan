@@ -45,6 +45,7 @@ export type QuoteItemCompatibility = z.infer<typeof quoteItemCompatibilitySchema
 export const quoteItemCreateSchema = z.object({
   productModelId: z.string().optional(),
   inventoryItemId: z.string().optional(),
+  stockCode: z.string().max(64).optional(),
   description: z.string().min(1).max(2000),
   quantity: z.coerce.number().positive().multipleOf(0.001),
   unitCode: z.string().max(16).default('adet'),
@@ -86,6 +87,7 @@ export const contractCreateSchema = z.object({
   quoteId: z.string().min(1),
   contractNo: z.string().min(1).max(64),
   signedDate: z.coerce.date().optional(),
+  paymentTermDays: z.coerce.number().int().min(0).max(3650).optional(),
   statusCode: z.string().max(64).default('draft'),
   fileId: z.string().optional(),
 });

@@ -4,6 +4,7 @@
  */
 import type {
   ActivityCreateInput,
+  ActivityUpdateInput,
   AccountingInvoiceCreateInput,
   AccountingInvoiceUpdateInput,
   BrandCreateInput,
@@ -24,6 +25,7 @@ import type {
   ContractCreateInput,
   ContractUpdateInput,
   CustomerDeviceCreateInput,
+  CustomerDeviceUpdateInput,
   DeliveryCreateInput,
   DeliveryUpdateInput,
   DepartmentCreateInput,
@@ -49,6 +51,8 @@ import type {
   ProductDetailsReplaceInput,
   ProductEquipmentCreateInput,
   ProductSpecCreateInput,
+  ProductSpecTemplateCreateInput,
+  ProductSpecTemplateUpdateInput,
   ProductUpdateInput,
   ProformaCreateInput,
   ProformaUpdateInput,
@@ -162,6 +166,9 @@ export const companyService = {
   get: (id: string) => api.get<CompanyDTO & { addresses: any[]; phones: any[]; emails: any[] }>(`/companies/${id}`),
   create: (body: CompanyCreateInput) => api.post<CompanyDTO>('/companies', body),
   update: (id: string, body: CompanyUpdateInput) => api.patch<CompanyDTO>(`/companies/${id}`, body),
+  /** Haritadaki manuel pin düzeltmesini kalıcı kaydeder; null'lar konumu temizler. */
+  setLocation: (id: string, body: { latitude: number | null; longitude: number | null }) =>
+    api.patch<CompanyDTO>(`/companies/${id}/location`, body),
   remove: (id: string) => api.delete(`/companies/${id}`),
   /** Başka bölümlerdeki açık alacak (borç) uyarısı. Tutar yalnızca süper yönetici/view_all için döner. */
   crossDivisionDebt: (id: string) =>
@@ -296,6 +303,8 @@ export const opportunityService = {
 export const activityService = {
   list: (params?: Record<string, string | number | undefined>) => api.get<Paginated<any>>(`/activities${qs(params)}`),
   create: (body: ActivityCreateInput) => api.post<any>('/activities', body),
+  update: (id: string, body: ActivityUpdateInput) => api.patch<any>(`/activities/${id}`, body),
+  remove: (id: string) => api.delete(`/activities/${id}`),
   createVisit: (body: VisitCreateInput) => api.post<any>('/visits', body),
   createCall: (body: CallCreateInput) => api.post<any>('/calls', body),
 };
@@ -385,6 +394,7 @@ export const productService = {
   commitImport: (body: { rows: ProductImportRow[]; mode?: 'upsert' | 'create_only'; replaceDetails?: boolean }) =>
     api.post<{ rows: ProductImportRow[]; summary: ProductImportSummary }>('/products/import/commit', body),
   specs: (id: string) => api.get<any[]>(`/products/${id}/specs`),
+  specTemplates: (productTypeCode?: string) => api.get<any[]>(`/product-spec-templates${qs({ productTypeCode })}`),
   options: (id: string) => api.get<any[]>(`/products/${id}/options`),
   addSpec: (id: string, body: ProductSpecCreateInput) => api.post<any>(`/products/${id}/specs`, body),
   equipment: (id: string) => api.get<any[]>(`/products/${id}/equipment`),
@@ -426,6 +436,7 @@ export const inventoryService = {
   customerDevices: (params?: Record<string, string | number | undefined>) =>
     api.get<Paginated<any>>(`/customer-devices${qs(params)}`),
   createCustomerDevice: (body: CustomerDeviceCreateInput) => api.post<any>('/customer-devices', body),
+  updateCustomerDevice: (id: string, body: CustomerDeviceUpdateInput) => api.patch<any>(`/customer-devices/${id}`, body),
   deleteCustomerDevice: (id: string) => api.delete<any>(`/customer-devices/${id}`),
   consumeServiceParts: (body: {
     serviceTicketId: string;
@@ -447,6 +458,8 @@ export const quoteService = {
   deleteItem: (id: string, itemId: string) => api.delete(`/quotes/${id}/items/${itemId}`),
   terms: (id: string, body: QuoteTermsUpsertInput) => api.put<any>(`/quotes/${id}/terms`, body),
   approve: (id: string) => api.post(`/quotes/${id}/approve`),
+  approvePrice: (id: string, note?: string) => api.post<any>(`/quotes/${id}/price-approval/approve`, { note }),
+  rejectPrice: (id: string, note?: string) => api.post<any>(`/quotes/${id}/price-approval/reject`, { note }),
   reject: (id: string) => api.post(`/quotes/${id}/reject`),
   send: (id: string) => api.post(`/quotes/${id}/send`),
   /**
@@ -574,6 +587,10 @@ export const financeService = {
   accountingInvoices: (params?: Record<string, string | number | undefined>) =>
     api.get<any>(`/accounting-invoices${qs(params)}`),
   accountingInvoice: (id: string) => api.get<any>(`/accounting-invoices/${id}`),
+  paymentTermSuggestion: (params: { companyId: string; quoteId?: string }) =>
+    api.get<{ paymentTermDays: number | null; contractNo: string | null; source: 'contract' | 'none' }>(
+      `/accounting-invoices/payment-term-suggestion${qs(params)}`
+    ),
   createAccountingInvoice: (body: AccountingInvoiceCreateInput) => api.post<any>('/accounting-invoices', body),
   updateAccountingInvoice: (id: string, body: AccountingInvoiceUpdateInput) => api.patch<any>(`/accounting-invoices/${id}`, body),
   deleteAccountingInvoice: (id: string) => api.delete<any>(`/accounting-invoices/${id}`),
@@ -756,6 +773,7 @@ export const adminService = {
   users: () => api.get<any[]>('/users'),
   createUser: (body: UserCreateInput) => api.post<any>('/users', body),
   updateUser: (id: string, body: UserUpdateInput) => api.patch<any>(`/users/${id}`, body),
+  unlockUser: (id: string) => api.post<{ ok: true; id: string; failedLoginAttempts: number; lockedUntil: null }>(`/users/${id}/unlock`, {}),
   deleteUser: (id: string) => api.delete(`/users/${id}`),
   userTargets: (params?: Record<string, string | number | undefined>) => api.get<any[]>(`/user-targets${qs(params)}`),
   myTargets: (params?: Record<string, string | number | undefined>) => api.get<any[]>(`/me/targets${qs(params)}`),
@@ -773,11 +791,29 @@ export const adminService = {
   auditLogs: (params?: Record<string, string | number | undefined>) => api.get<Paginated<any>>(`/audit-logs${qs(params)}`),
   tenant: () => api.get<any>('/tenant'),
   updateTenant: (body: TenantUpdateInput) => api.patch<any>('/tenant', body),
+  lookups: () => api.get<{ available: string[] }>('/admin/lookups'),
+  lookupRows: (name: string, params?: Record<string, string | number | undefined>) =>
+    api.get<any[]>(`/admin/lookups/${name}${qs(params)}`),
+  createLookup: (name: string, body: { code?: string; name: string; description?: string; sortOrder?: number; isActive?: boolean; province?: string }) =>
+    api.post<any>(`/admin/lookups/${name}`, body),
+  updateLookup: (
+    name: string,
+    id: string,
+    body: { code?: string; name?: string; description?: string; sortOrder?: number; isActive?: boolean; province?: string }
+  ) => api.patch<any>(`/admin/lookups/${name}/${id}`, body),
+  deleteLookup: (name: string, id: string) => api.delete<any>(`/admin/lookups/${name}/${id}`),
+  productSpecTemplates: (productTypeCode?: string) => api.get<any[]>(`/admin/product-spec-templates${qs({ productTypeCode })}`),
+  createProductSpecTemplate: (body: ProductSpecTemplateCreateInput) => api.post<any>('/admin/product-spec-templates', body),
+  updateProductSpecTemplate: (id: string, body: ProductSpecTemplateUpdateInput) =>
+    api.patch<any>(`/admin/product-spec-templates/${id}`, body),
+  deleteProductSpecTemplate: (id: string) => api.delete<any>(`/admin/product-spec-templates/${id}`),
 };
 
 // ───── Lookups ─────
 export const lookupService = {
-  byName: (name: string) => api.get<any[]>(`/lookups/${name}`),
+  available: () => api.get<{ available: string[] }>('/lookups'),
+  byName: (name: string, params?: Record<string, string | number | undefined>) => api.get<any[]>(`/lookups/${name}${qs(params)}`),
+  taxOffices: (city?: string) => api.get<any[]>(`/lookups/tax-offices${qs({ city })}`),
 };
 
 // ───── Chat (kurum içi sohbet) ─────
@@ -881,7 +917,7 @@ export const chatService = {
 };
 
 // ───── helpers ─────
-function qs(params?: Record<string, string | number | undefined>): string {
+function qs(params?: Record<string, string | number | boolean | undefined>): string {
   if (!params) return '';
   const usp = new URLSearchParams();
   for (const [k, v] of Object.entries(params)) {

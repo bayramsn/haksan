@@ -16,6 +16,7 @@ import {
   accountingInvoiceListQuerySchema,
   dueDatesQuerySchema,
   financeStatusUpdateSchema,
+  paymentTermSuggestionQuerySchema,
   type ReceivableCreateInput,
   type PaymentCreateInput,
   type PaymentUpdateInput,
@@ -27,6 +28,7 @@ import {
   type AccountingInvoiceListQuery,
   type DueDatesQuery,
   type FinanceStatusUpdate,
+  type PaymentTermSuggestionQuery,
 } from '@haksan/shared';
 import { ZodValidationPipe } from '../../shared/utils/zod-pipe';
 import { AuthGuard } from '../../shared/security/auth.guard';
@@ -185,6 +187,20 @@ export class FinanceController {
     @CurrentUser() user: AuthContext
   ) {
     return this.finance.listAccountingInvoices(user, query);
+  }
+
+  @RequirePermissions('accounting_invoices.read')
+  @Get('accounting-invoices/payment-term-suggestion')
+  async paymentTermSuggestion(
+    @Query(new ZodValidationPipe(paymentTermSuggestionQuerySchema)) query: PaymentTermSuggestionQuery,
+    @CurrentUser() user: AuthContext
+  ) {
+    const term = await this.finance.resolveContractPaymentTerm(query.companyId, user, query.quoteId ?? null);
+    return {
+      paymentTermDays: term?.paymentTermDays ?? null,
+      contractNo: term?.contractNo ?? null,
+      source: term ? ('contract' as const) : ('none' as const),
+    };
   }
 
   @RequirePermissions('accounting_invoices.read')

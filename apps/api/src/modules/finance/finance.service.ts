@@ -10,6 +10,7 @@ import {
   receivables,
 } from '../../db/schema/finance';
 import { installationJobs } from '../../db/schema/service';
+import { contracts, quotes } from '../../db/schema/quotes';
 import { companies } from '../../db/schema/companies';
 import { currencies, invoiceStatuses, paymentStatuses } from '../../db/schema/lookup';
 import { installationStatuses, warrantyStatuses } from '../../db/schema/lookup';
@@ -545,6 +546,31 @@ export class FinanceService {
     return items;
   }
 
+  async resolveContractPaymentTerm(companyId: string, actor: AuthContext, quoteId?: string | null) {
+    const baseWhere = [
+      eq(contracts.tenantId, actor.tenantId),
+      isNull(contracts.deletedAt),
+      sql`${contracts.paymentTermDays} IS NOT NULL`,
+    ];
+    if (quoteId) {
+      const [byQuote] = await this.db
+        .select({ paymentTermDays: contracts.paymentTermDays, contractNo: contracts.contractNo })
+        .from(contracts)
+        .where(and(...baseWhere, eq(contracts.quoteId, quoteId)))
+        .orderBy(sql`${contracts.signedDate} DESC NULLS LAST`, desc(contracts.createdAt))
+        .limit(1);
+      if (byQuote) return byQuote;
+    }
+    const [byCompany] = await this.db
+      .select({ paymentTermDays: contracts.paymentTermDays, contractNo: contracts.contractNo })
+      .from(contracts)
+      .innerJoin(quotes, eq(contracts.quoteId, quotes.id))
+      .where(and(...baseWhere, eq(quotes.companyId, companyId)))
+      .orderBy(sql`${contracts.signedDate} DESC NULLS LAST`, desc(contracts.createdAt))
+      .limit(1);
+    return byCompany ?? null;
+  }
+
   async createAccountingInvoice(body: AccountingInvoiceCreateInput, actor: AuthContext) {
     await this.assertCompanyVisible(body.companyId, actor);
     const currencyId = await lookupIdByCode(this.db, currencies, body.currencyCode);
@@ -554,10 +580,21 @@ export class FinanceService {
     if (!divisionId) throw new ValidationError('Fatura için bölüm ataması zorunludur', { field: 'divisionId' });
     const totals = this.normalizeAccountingInvoiceTotals(body);
 
+    // Vadeli satış faturasında vade girilmemişse sözleşmedeki vadeyi uygula (kullanıcı girdisi her zaman kazanır)
+    let paymentTermDays = body.paymentTermDays ?? null;
+    let firstDueDate = body.firstDueDate ?? null;
+    if (body.type === 'sales' && body.paymentType === 'term' && paymentTermDays == null && firstDueDate == null) {
+      const term = await this.resolveContractPaymentTerm(body.companyId, actor, body.quoteId);
+      if (term?.paymentTermDays != null) {
+        paymentTermDays = term.paymentTermDays;
+        firstDueDate = new Date(body.invoiceDate.getTime() + term.paymentTermDays * 24 * 60 * 60 * 1000);
+      }
+    }
+
     const installments = this.buildInstallments({
       grandTotal: totals.grandTotal,
       installmentCount: body.installmentCount,
-      firstDueDate: body.firstDueDate ?? body.invoiceDate,
+      firstDueDate: firstDueDate ?? body.invoiceDate,
       lastDueDate: body.lastDueDate,
       installments: body.installments,
     });
@@ -572,12 +609,21 @@ export class FinanceService {
         divisionId,
         companyId: body.companyId,
         type: body.type,
+        invoiceCategory: body.invoiceCategory ?? 'commercial',
         invoiceNo: body.invoiceNo,
         invoiceDate: body.invoiceDate,
         amount: totals.amount.toString(),
         vatAmount: totals.vatAmount.toString(),
         grandTotal: totals.grandTotal.toString(),
         currencyId,
+        paymentType: body.paymentType ?? 'cash',
+        paymentTermDays,
+        previousPaymentTermDays: body.previousPaymentTermDays ?? null,
+        termChangeReason: body.termChangeReason ?? null,
+        incoterm: body.incoterm ?? null,
+        shipmentReference: body.shipmentReference ?? null,
+        orderNo: body.orderNo ?? null,
+        expectedDate: body.expectedDate ?? null,
         quoteId: body.quoteId ?? null,
         salesOrderId: body.salesOrderId ?? null,
         firstDueDate: firstDue,
@@ -645,7 +691,7 @@ export class FinanceService {
       }
     }
 
-    if (body.type === 'sales' && body.lineItems?.length) {
+    if (body.lineItems?.length) {
       for (const line of body.lineItems) {
         await this.db.insert(accountingInvoiceLines).values({
           tenantId: actor.tenantId,
@@ -655,8 +701,17 @@ export class FinanceService {
           categoryCode: line.categoryCode ?? (line.saleType === 'tezgah' ? 'TEZGAH' : null),
           description: line.description ?? null,
           quantity: (line.quantity ?? 1).toString(),
+          listPrice: line.listPrice?.toString() ?? null,
+          unitPrice: line.unitPrice?.toString() ?? null,
+          discountAmount: (line.discountAmount ?? 0).toString(),
+          vatRate: (line.vatRate ?? 20).toString(),
+          lineTotal: line.lineTotal?.toString() ?? null,
+          expectedDate: line.expectedDate ?? null,
         });
       }
+    }
+
+    if (body.type === 'sales' && body.lineItems?.length) {
       await this.inventory.sellFromSalesInvoice(
         {
           invoiceId: invoice.id,
@@ -744,6 +799,7 @@ export class FinanceService {
 
     const invoiceDate = body.invoiceDate ?? invoice.invoiceDate;
     const invoiceNo = body.invoiceNo ?? invoice.invoiceNo;
+    const invoiceCategory = body.invoiceCategory ?? (invoice.invoiceCategory as 'commercial' | 'administrative' | null) ?? 'commercial';
     const amount = body.amount ?? this.num(invoice.amount);
     const vatAmount = body.vatAmount ?? this.num(invoice.vatAmount);
     const grandTotal = body.grandTotal ?? this.num(invoice.grandTotal);
@@ -755,6 +811,7 @@ export class FinanceService {
       companyId,
       divisionId,
       type: invoice.type as 'sales' | 'purchase',
+      invoiceCategory,
       invoiceNo,
       invoiceDate,
       amount,
@@ -762,6 +819,7 @@ export class FinanceService {
       vatAmount,
       grandTotal,
       currencyCode,
+      paymentType: body.paymentType ?? (invoice.paymentType as 'cash' | 'leasing' | 'term' | null) ?? 'cash',
       quoteId: body.quoteId ?? invoice.quoteId ?? undefined,
       salesOrderId: body.salesOrderId ?? invoice.salesOrderId ?? undefined,
       firstDueDate,
@@ -802,12 +860,21 @@ export class FinanceService {
       .set({
         divisionId,
         companyId,
+        invoiceCategory,
         invoiceNo,
         invoiceDate,
         amount: totals.amount.toString(),
         vatAmount: totals.vatAmount.toString(),
         grandTotal: totals.grandTotal.toString(),
         currencyId,
+        paymentType: body.paymentType ?? invoice.paymentType,
+        paymentTermDays: body.paymentTermDays !== undefined ? body.paymentTermDays ?? null : invoice.paymentTermDays,
+        previousPaymentTermDays: body.previousPaymentTermDays !== undefined ? body.previousPaymentTermDays ?? null : invoice.previousPaymentTermDays,
+        termChangeReason: body.termChangeReason !== undefined ? body.termChangeReason || null : invoice.termChangeReason,
+        incoterm: body.incoterm !== undefined ? body.incoterm || null : invoice.incoterm,
+        shipmentReference: body.shipmentReference !== undefined ? body.shipmentReference || null : invoice.shipmentReference,
+        orderNo: body.orderNo !== undefined ? body.orderNo || null : invoice.orderNo,
+        expectedDate: body.expectedDate !== undefined ? body.expectedDate ?? null : invoice.expectedDate,
         quoteId: body.quoteId !== undefined ? body.quoteId ?? null : invoice.quoteId,
         salesOrderId: body.salesOrderId !== undefined ? body.salesOrderId ?? null : invoice.salesOrderId,
         firstDueDate: firstDue,
@@ -1074,6 +1141,7 @@ export class FinanceService {
     const filters = [eq(accountingInvoices.tenantId, actor.tenantId), isNull(accountingInvoices.deletedAt)];
     if (query.companyId) filters.push(eq(accountingInvoices.companyId, query.companyId));
     if (query.type) filters.push(eq(accountingInvoices.type, query.type));
+    if (query.invoiceCategory) filters.push(eq(accountingInvoices.invoiceCategory, query.invoiceCategory));
     const scoped = divisionFilter(resolveActorDivisionScope(actor), accountingInvoices.divisionId);
     if (scoped) filters.push(scoped);
 
@@ -1135,7 +1203,12 @@ export class FinanceService {
       .from(invoiceInstallments)
       .where(and(eq(invoiceInstallments.accountingInvoiceId, id), isNull(invoiceInstallments.deletedAt)))
       .orderBy(asc(invoiceInstallments.installmentNo));
-    return { ...row.inv, company: row.company, currency: row.currency, installments };
+    const lineItems = await this.db
+      .select()
+      .from(accountingInvoiceLines)
+      .where(and(eq(accountingInvoiceLines.accountingInvoiceId, id), isNull(accountingInvoiceLines.deletedAt)))
+      .orderBy(asc(accountingInvoiceLines.createdAt));
+    return { ...row.inv, company: row.company, currency: row.currency, installments, lineItems };
   }
 
   async createReceivable(body: ReceivableCreateInput, actor: AuthContext) {

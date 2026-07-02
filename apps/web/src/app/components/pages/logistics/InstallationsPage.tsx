@@ -21,7 +21,7 @@ import {
 } from "@haksan/shared";
 import { printOrWarn } from "../../../lib/pageHelpers";
 import { installationFormDoc, printAssetBase, trShortDate } from "../../../lib/print";
-import { Plus, Wrench, Calendar, CheckCircle2, TrendingUp, Building2, MapPin, Printer, FileText, Save, Lock } from "lucide-react";
+import { Plus, Wrench, Calendar, CheckCircle2, TrendingUp, Building2, MapPin, Printer, FileText, Save, Lock, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 type TechnicalSpec = { key: string; value: string };
@@ -169,6 +169,7 @@ export function InstallationsPage() {
   const [rows, setRows] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedRow, setSelectedRow] = useState<InstallationRow | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const loadInstallations = async () => {
     setLoading(true);
@@ -218,6 +219,22 @@ export function InstallationsPage() {
     .filter((i) => ["Planlandı", "scheduled"].includes(i.status) || i.statusCode === "scheduled")
     .sort((a, b) => a.scheduledDate.localeCompare(b.scheduledDate));
 
+  const deleteInstallation = async (row: InstallationRow, event?: React.MouseEvent) => {
+    event?.stopPropagation();
+    if (!window.confirm(`${row.customerName} kurulum kaydını arşivlemek istediğinize emin misiniz?`)) return;
+    setDeletingId(row.id);
+    try {
+      await serviceService.deleteInstallation(row.id);
+      toast.success("Kurulum silindi");
+      if (selectedRow?.id === row.id) setSelectedRow(null);
+      await loadInstallations();
+    } catch (err: any) {
+      toast.error("Kurulum silinemedi", { description: err?.message ?? "İşlem başarısız oldu." });
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
   return (
     <div className="space-y-5">
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
@@ -245,7 +262,7 @@ export function InstallationsPage() {
                   <TableHead>Planlanan Tarih</TableHead>
                   <TableHead>Konum / Süre</TableHead>
                   <TableHead>Durum</TableHead>
-                  <TableHead className="w-16 text-right">İşlem</TableHead>
+                  <TableHead className="w-20 text-right">İşlem</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -282,10 +299,22 @@ export function InstallationsPage() {
                     </TableCell>
                     <TableCell><StatusBadge status={i.status} /></TableCell>
                     <TableCell className="text-right">
-                      <Button variant="ghost" size="icon" className="size-7" title="Kurulum tutanağını aç"
-                        onClick={() => setSelectedRow(i)}>
-                        <FileText className="size-4 text-muted-foreground hover:text-primary" />
-                      </Button>
+                      <div className="flex items-center justify-end gap-1">
+                        <Button variant="ghost" size="icon" className="size-7" title="Kurulum tutanağını aç"
+                          onClick={() => setSelectedRow(i)}>
+                          <FileText className="size-4 text-muted-foreground hover:text-primary" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="size-7"
+                          title="Kurulumu sil"
+                          disabled={deletingId === i.id}
+                          onClick={(event) => deleteInstallation(i, event)}
+                        >
+                          <Trash2 className="size-4 text-muted-foreground hover:text-red-600" />
+                        </Button>
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))}
@@ -449,7 +478,6 @@ function InstallationFormDialog({
           teslimAlan: payload.teslimAlan,
           kurulumYeri: row.location,
           sure: row.durationMinutes != null ? formatDuration(row.durationMinutes) : undefined,
-          technicalSpecs: payload.technicalSpecs,
           checks: payload.checks?.map((check) => ({ label: check.label, status: check.status, note: check.note })),
           problem: payload.problem,
           notlar: row.notes,
@@ -478,12 +506,14 @@ function InstallationFormDialog({
     setSaving(true);
     try {
       const payload = formToPayload(form);
-      await serviceService.updateInstallationStatus(row.id, {
+      const result = await serviceService.updateInstallationStatus(row.id, {
         statusCode: "completed",
         installationDate: payload.kurulumTarihi ? String(payload.kurulumTarihi) : new Date().toISOString(),
         formData: payload,
       });
-      toast.success("Kurulum tamamlandı");
+      toast.success("Kurulum tamamlandı", {
+        description: result?.opportunityStageChanged ? "Bağlı satış kartı Teslim Edildi aşamasına alındı." : undefined,
+      });
       onSaved();
       onClose();
     } catch (err: any) {

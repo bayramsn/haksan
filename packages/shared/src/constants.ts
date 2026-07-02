@@ -84,7 +84,7 @@ export type CompanyStatusCode = (typeof COMPANY_STATUSES)[number];
 export const INVENTORY_STATUSES = ['available', 'reserved', 'sold', 'in_transit', 'damaged', 'returned'] as const;
 export type InventoryStatusCode = (typeof INVENTORY_STATUSES)[number];
 
-export const QUOTE_STATUSES = ['draft', 'sent', 'approved', 'rejected', 'expired'] as const;
+export const QUOTE_STATUSES = ['draft', 'sent', 'approved', 'rejected', 'expired', 'pending_super_admin_approval'] as const;
 export type QuoteStatusCode = (typeof QUOTE_STATUSES)[number];
 
 export const SALES_ORDER_STATUSES = ['draft', 'confirmed', 'reserved', 'fulfilled', 'cancelled'] as const;
@@ -104,6 +104,7 @@ export const FILE_DOCUMENT_TYPES = [
   'commercial_invoice_pdf',
   'stock_document',
   'service_document',
+  'activity_document',
   'service_complaint_evidence',
   'customs_document',
   'other',

@@ -1,4 +1,4 @@
-import { pgTable, uniqueIndex } from 'drizzle-orm/pg-core';
+import { index, pgTable, uniqueIndex, varchar } from 'drizzle-orm/pg-core';
 import { lookupColumns } from './_helpers';
 
 /**
@@ -25,6 +25,7 @@ export const activityTypes = makeLookup('activity_types');
 export const companyRelationTypes = makeLookup('company_relation_types');
 export const companyStatuses = makeLookup('company_statuses');
 export const companyGroups = makeLookup('company_groups');
+export const companySectors = makeLookup('company_sectors');
 export const contactSources = makeLookup('contact_sources');
 export const decisionRoles = makeLookup('decision_roles');
 export const productGroups = makeLookup('product_groups');
@@ -47,3 +48,15 @@ export const shipmentStatuses = makeLookup('shipment_statuses');
 export const invoiceStatuses = makeLookup('invoice_statuses');
 export const proformaStatuses = makeLookup('proforma_statuses');
 export const contractStatuses = makeLookup('contract_statuses');
+
+export const taxOffices = pgTable(
+  'tax_offices',
+  {
+    ...lookupColumns,
+    province: varchar('province', { length: 64 }).notNull().default(''),
+  },
+  (t) => ({
+    codeUnique: uniqueIndex('tax_offices_code_unique').on(t.code),
+    provinceIdx: index('tax_offices_province_idx').on(t.province),
+  })
+);

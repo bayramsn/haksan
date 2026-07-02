@@ -29,7 +29,14 @@ import {
 } from '../../lib/services';
 import { useAuth } from '../../lib/auth';
 import { resolveMediaUrl } from '../../lib/apiClient';
-import { activityTypeCodeFromLabel, STOCK_CATEGORY_LABELS, type StockCategoryCode } from '@haksan/shared';
+import {
+  activityTypeCodeFromLabel,
+  STOCK_CATEGORY_LABELS,
+  type PipelineStageCode,
+  type ProductCreateInput,
+  type ProductUpdateInput,
+  type StockCategoryCode,
+} from '@haksan/shared';
 import {
   Customer,
   SalesCase,
@@ -114,7 +121,7 @@ const STAGE_BY_CODE: Record<string, SalesStage> = {
   delivered: 'delivered',
 };
 
-const CODE_BY_STAGE: Partial<Record<SalesStage, string>> = {
+const CODE_BY_STAGE: Partial<Record<SalesStage, PipelineStageCode>> = {
   lead: 'lead',
   sales: 'sales',
   call: 'call',
@@ -166,6 +173,16 @@ const toNullableNumber = (value: unknown) => {
   const number = toOptionalNumber(value);
   return number === undefined ? null : number;
 };
+
+const toOptionalDate = (value: string | Date | null | undefined) => (value ? new Date(value) : undefined);
+
+const deliveryFormDataPayload = (formData: Delivery['formData'] | undefined) =>
+  formData
+    ? {
+        ...formData,
+        kurulumTarihi: toOptionalDate(formData.kurulumTarihi),
+      }
+    : undefined;
 
 const normalizeWarrantyPart = (part: any): ServiceWarrantyPart => ({
   id: part.id,
@@ -227,11 +244,11 @@ const productModelCode = (p: Partial<Product>) =>
   cleanString(p.stockCode) ??
   (compactProductCode(`${p.brand ?? ''} ${p.shortDescription ?? ''}`) || 'URUN');
 
-const productApiPayload = (p: Partial<Product>, brandId?: string) => {
+const productApiPayload = (p: Partial<Product>, brandId?: string): ProductUpdateInput => {
   const modelCode = productModelCode(p);
   const fullName = cleanString(p.shortDescription) ?? [p.brand, modelCode].filter(Boolean).join(' ');
   return {
-    brandId,
+    ...(brandId ? { brandId } : {}),
     productGroupCode: cleanString(p.productGroupCode),
     categoryCode: cleanString(p.categoryCode),
     subcategoryCode: cleanString(p.subcategoryCode),
@@ -293,10 +310,12 @@ export type QuoteLineCompatibility = {
   brands: string[];
   controlUnits: string[];
   supplierIds: string[];
+  technicalSpecs?: { key: string; value: string }[];
 };
 
 export type QuoteLineInput = {
   productModelId?: string;
+  stockCode?: string;
   description: string;
   quantity: number;
   unitPrice: number; // NET birim fiyat
@@ -367,6 +386,8 @@ type Store = {
   updateContact: (id: string, patch: Partial<Omit<Contact, 'id'>>) => Promise<void>;
   deleteContact: (id: string) => Promise<void>;
   addActivity: (a: Omit<Activity, 'id' | 'date'> & { date?: string }) => Promise<Activity>;
+  updateActivity: (id: string, patch: Partial<Omit<Activity, 'id'>>) => Promise<void>;
+  deleteActivity: (id: string) => Promise<void>;
   addProduct: (p: Omit<Product, 'id' | 'status'> & { status?: 'active' | 'passive' }) => Promise<Product>;
   updateProduct: (id: string, patch: Partial<Omit<Product, 'id'>>) => Promise<void>;
   /**
@@ -418,6 +439,7 @@ type Store = {
   rejectServiceWarranty: (id: string, decisionNote?: string) => Promise<ServiceWarrantyClaim | null>;
   addService: (s: Omit<ServiceRequest, 'id' | 'createdAt' | 'stage'> & { stage?: ServiceStage; createdAt?: string }) => Promise<ServiceRequest>;
   addMachine: (m: Omit<Machine, 'id' | 'status'> & { status?: Machine['status'] }) => Promise<Machine>;
+  updateMachineCustomer: (id: string, customerId: string) => Promise<void>;
   addDocument: (
     d: Omit<DocumentItem, 'id' | 'uploadedAt' | 'uploadedBy'> &
       Partial<Pick<DocumentItem, 'id' | 'uploadedAt' | 'uploadedBy'>>
@@ -504,7 +526,7 @@ function StoreInner({ children }: { children: ReactNode }) {
     try {
       const empty = { data: [] as any[], meta: { total: 0, page: 1, pageSize: 0, totalPages: 0 } };
       const [companies, contactsR, opps, prods, inv, qts, svcTickets, acts, usersR, devicesR, receivablesR, paymentsR, proformasR, contractsR, invoicesR, noteTemplatesR, shipmentsR, deliveriesR, installationsR, fileLinksR] = await Promise.all([
-        load('Firmalar', () => companyService.list({ pageSize: 200 }), empty, 'companies.read'),
+        load('Firmalar', () => loadAllPaginated((page, pageSize) => companyService.list({ page, pageSize })), empty, 'companies.read'),
         load('Kontaklar', () => contactService.list({ pageSize: 200 }), empty, 'contacts.read'),
         load('Satış kartları', () => opportunityService.list({ pageSize: 200 }), empty, 'opportunities.read'),
         load('Ürünler', () => loadAllPaginated((page, pageSize) => productService.list({ page, pageSize })), empty, 'products.read'),
@@ -582,6 +604,9 @@ function StoreInner({ children }: { children: ReactNode }) {
           district: c.primaryAddress?.district ?? '',
           country: c.primaryAddress?.country ?? '',
           address: c.primaryAddress?.fullAddress ?? '',
+          latitude: c.primaryAddress?.latitude != null ? Number(c.primaryAddress.latitude) : undefined,
+          longitude: c.primaryAddress?.longitude != null ? Number(c.primaryAddress.longitude) : undefined,
+          locationSource: c.primaryAddress?.locationSource ?? undefined,
           taxOffice: c.taxOffice ?? '',
           taxNumber: c.taxNumber ?? '',
           website: c.website ?? '',
@@ -694,7 +719,7 @@ function StoreInner({ children }: { children: ReactNode }) {
             listPrice: alt.listPrice == null ? undefined : Number(alt.listPrice),
             currency: (alt.currency?.code as 'USD' | 'EUR' | 'TRY') ?? 'USD',
           })),
-          status: p.isActive ? 'active' : 'passive',
+          status: (p.isActive ? 'active' : 'passive') as Product['status'],
         }));
       // Products (incl. the imported Haksan CNC catalogue) come from the DB API.
       // Blobs are served by the auth-gated public media endpoint, not bundled.
@@ -748,8 +773,11 @@ function StoreInner({ children }: { children: ReactNode }) {
           subtotal: q.subtotal === null || q.subtotal === undefined ? undefined : Number(q.subtotal),
           vatTotal: q.vatAmount === null || q.vatAmount === undefined ? undefined : Number(q.vatAmount),
           currency: (q.currency?.code as 'USD' | 'EUR' | 'TRY') ?? 'USD',
+          priceApprovalStatus: q.priceApprovalStatus ?? 'not_required',
           status:
-            q.status?.code === 'approved'
+            q.priceApprovalStatus === 'pending' || q.status?.code === 'pending_super_admin_approval'
+              ? 'Pending Approval'
+              : q.status?.code === 'approved'
               ? 'Approved'
               : q.status?.code === 'sent'
                 ? 'Sent'
@@ -842,14 +870,19 @@ function StoreInner({ children }: { children: ReactNode }) {
           type: a.type?.name ?? '',
           title: a.subject ?? '',
           note: a.description ?? '',
+          result: a.result ?? '',
           date: (a.activityDate as string)?.slice(0, 10) ?? '',
           byUserId: a.createdBy ?? '',
+          createdByName: a.createdByUser?.fullName ?? a.createdByUser?.email ?? '',
+          files: Array.isArray(a.files) ? a.files : [],
         }))
       );
 
       setMachines(
         (devicesR.data ?? []).map((d: any) => ({
           id: d.id,
+          initialCustomerId: d.initialCompanyId ?? d.companyId ?? '',
+          userCompanyId: d.companyId ?? '',
           customerId: d.companyId ?? '',
           salesCaseId: d.opportunityId ?? '',
           stockItemId: d.inventoryItemId ?? '',
@@ -1055,6 +1088,7 @@ function StoreInner({ children }: { children: ReactNode }) {
           salesCaseId: s.opportunityId ?? '',
           senderCompanyId: s.senderCompanyId ?? undefined,
           senderCompanyName: s.senderCompany?.shortName ?? s.senderCompany?.legalTitle ?? undefined,
+          senderName: s.senderName ?? undefined,
           carrierCompanyId: s.carrierCompanyId ?? undefined,
           carrierCompanyName: s.carrierCompany?.shortName ?? s.carrierCompany?.legalTitle ?? undefined,
           transportMode: s.transportMode ?? undefined,
@@ -1218,7 +1252,7 @@ function StoreInner({ children }: { children: ReactNode }) {
   };
 
   const addContact: Store['addContact'] = async (k) => {
-    const created = await contactService.create({
+      const created = await contactService.create({
       companyId: k.customerId,
       fullName: k.name,
       title: k.title,
@@ -1231,7 +1265,7 @@ function StoreInner({ children }: { children: ReactNode }) {
       personalEmail: k.personalEmail,
       otherEmail: k.otherEmail,
       gender: k.gender,
-      birthDate: k.birthDate,
+      birthDate: k.birthDate ? new Date(k.birthDate) : undefined,
       decisionRoleCode: k.decisionRoleCode,
       hometown: k.hometown,
       favoriteTeam: k.favoriteTeam,
@@ -1241,7 +1275,7 @@ function StoreInner({ children }: { children: ReactNode }) {
       politicalView: k.politicalView,
       isPrimary: k.isPrimary,
       notes: k.note,
-      isBlacklisted: k.isBlacklisted,
+      isBlacklisted: k.isBlacklisted ?? false,
       blacklistReason: k.blacklistReason,
     });
     await fetchAll();
@@ -1261,7 +1295,7 @@ function StoreInner({ children }: { children: ReactNode }) {
       personalEmail: patch.personalEmail,
       otherEmail: patch.otherEmail,
       gender: patch.gender,
-      birthDate: patch.birthDate,
+      birthDate: patch.birthDate ? new Date(patch.birthDate) : undefined,
       decisionRoleCode: patch.decisionRoleCode,
       hometown: patch.hometown,
       favoriteTeam: patch.favoriteTeam,
@@ -1290,10 +1324,30 @@ function StoreInner({ children }: { children: ReactNode }) {
       activityTypeCode,
       subject: a.title,
       description: a.note,
-      activityDate: a.date ?? new Date().toISOString().slice(0, 10),
+      activityDate: new Date(a.date ?? new Date().toISOString().slice(0, 10)),
+      result: a.result || undefined,
     });
     await fetchAll();
     return { ...a, id: created.id, date: a.date ?? new Date().toISOString().slice(0, 10) } as Activity;
+  };
+
+  const updateActivity: Store['updateActivity'] = async (id, patch) => {
+    const activityTypeCode = patch.type ? activityTypeCodeFromLabel(patch.type) ?? 'note' : undefined;
+    await activityService.update(id, {
+      opportunityId: patch.salesCaseId || undefined,
+      companyId: patch.customerId || undefined,
+      activityTypeCode,
+      subject: patch.title,
+      description: patch.note,
+      activityDate: patch.date ? new Date(patch.date) : undefined,
+      result: patch.result,
+    });
+    await fetchAll();
+  };
+
+  const deleteActivity: Store['deleteActivity'] = async (id) => {
+    await activityService.remove(id);
+    await fetchAll();
   };
 
   const addCase: Store['addCase'] = async (c) => {
@@ -1385,7 +1439,7 @@ function StoreInner({ children }: { children: ReactNode }) {
     const created = await quoteService.create({
       opportunityId: o.salesCaseId,
       companyId: sc.customerId,
-      quoteDate: new Date().toISOString(),
+      quoteDate: new Date(),
       validityDays: 15,
       currencyCode: o.currency,
       paymentTerms: o.note,
@@ -1420,12 +1474,13 @@ function StoreInner({ children }: { children: ReactNode }) {
       opportunityId = opp.id;
       createdNewCase = true;
     }
+    if (!opportunityId) throw new Error('Teklif için satış kartı oluşturulamadı');
 
     const quote = await quoteService.create({
       opportunityId,
       companyId: p.companyId,
       contactId: p.contactId || undefined,
-      quoteDate: p.quoteDate,
+      quoteDate: new Date(p.quoteDate),
       validityDays: p.validityDays,
       documentNo: p.documentNo || undefined,
       currencyCode: p.currencyCode,
@@ -1443,13 +1498,23 @@ function StoreInner({ children }: { children: ReactNode }) {
       const it = p.items[i];
       await quoteService.addItem(quote.id, {
         productModelId: it.productModelId || undefined,
+        stockCode: it.stockCode || undefined,
         description: it.description,
         quantity: it.quantity,
+        unitCode: 'adet',
         unitPrice: it.unitPrice,
         discountAmount: it.discountAmount,
         vatRate: it.vatRate,
         sortOrder: i,
-        compatibility: it.compatibility,
+        compatibility: it.compatibility
+          ? {
+              machineIds: it.compatibility.machineIds ?? [],
+              brands: it.compatibility.brands ?? [],
+              controlUnits: it.compatibility.controlUnits ?? [],
+              supplierIds: it.compatibility.supplierIds ?? [],
+              technicalSpecs: it.compatibility.technicalSpecs ?? [],
+            }
+          : undefined,
       });
     }
 
@@ -1475,7 +1540,7 @@ function StoreInner({ children }: { children: ReactNode }) {
         activityTypeCode: 'note',
         subject: 'Teklif oluşturuldu',
         description: quote.documentNo,
-        activityDate: new Date().toISOString().slice(0, 10),
+        activityDate: new Date(),
       })
       .catch(() => undefined);
 
@@ -1508,7 +1573,7 @@ function StoreInner({ children }: { children: ReactNode }) {
     const brands = await productService.listBrands();
     let brand = brands.find((b: any) => b.name?.toLocaleLowerCase('tr-TR') === p.brand.toLocaleLowerCase('tr-TR'));
     if (!brand) brand = await productService.createBrand({ name: p.brand || 'Generic' });
-    const created = await productService.create(productApiPayload(p, brand.id));
+    const created = await productService.create(productApiPayload(p, brand.id) as ProductCreateInput);
     await productService.replaceDetails(created.id, productDetailsPayload(p));
     await fetchAll();
     return { id: created.id, ...p, status: p.status ?? 'active' } as Product;
@@ -1609,8 +1674,8 @@ function StoreInner({ children }: { children: ReactNode }) {
       parentInventoryItemId: s.parentInventoryItemId ?? undefined,
       serialNumber: s.serialNumber,
       controlUnit: s.controlPanel,
-      loadingDate: s.loadingDate || undefined,
-      arrivalDate: s.arrivalDate || undefined,
+      loadingDate: toOptionalDate(s.loadingDate),
+      arrivalDate: toOptionalDate(s.arrivalDate),
       stockStatusCode: createStatusCodeMap[s.status] ?? 'available',
       notes: extraNotes || undefined,
     });
@@ -1647,16 +1712,17 @@ function StoreInner({ children }: { children: ReactNode }) {
     const created = await serviceService.createShipment({
       opportunityId: s.salesCaseId || undefined,
       senderCompanyId: s.senderCompanyId || undefined,
+      senderName: s.senderName || undefined,
       carrierCompanyId: s.carrierCompanyId || undefined,
       transportMode: s.transportMode || undefined,
       productCategoryCode: s.productCategoryCode || undefined,
       destinationWarehouseId: s.destinationWarehouseId || undefined,
-      loadingDate: s.loadingDate || undefined,
+      loadingDate: toOptionalDate(s.loadingDate),
       trackingNo: s.trackingNo,
       carrier: s.carrier,
       origin: s.origin || undefined,
       destination: s.destination || undefined,
-      eta: s.eta || undefined,
+      eta: toOptionalDate(s.eta),
       statusCode: shipmentStatusToCode(s.status),
       items: s.items?.map((item, index) => ({
         inventoryItemId: item.inventoryItemId || undefined,
@@ -1664,6 +1730,7 @@ function StoreInner({ children }: { children: ReactNode }) {
         description: item.description,
         serialNumber: item.serialNumber || undefined,
         quantity: item.quantity ?? 1,
+        unitCode: 'adet',
         sortOrder: index,
         packageCount: item.packageCount,
         palletCount: item.palletCount,
@@ -1678,15 +1745,15 @@ function StoreInner({ children }: { children: ReactNode }) {
     return { id: created.id, ...s };
   };
   const startShipment: Store['startShipment'] = async (id, loadingDate) => {
-    await serviceService.startShipment(id, { loadingDate });
+    await serviceService.startShipment(id, { loadingDate: toOptionalDate(loadingDate) });
     await fetchAll();
   };
   const updateShipmentStatus: Store['updateShipmentStatus'] = async (id, status, options) => {
     await serviceService.updateShipmentStatus(id, {
       statusCode: shipmentStatusToCode(status),
       destinationWarehouseId: options?.destinationWarehouseId,
-      loadingDate: options?.loadingDate,
-      arrivedAt: options?.arrivedAt,
+      loadingDate: toOptionalDate(options?.loadingDate),
+      arrivedAt: toOptionalDate(options?.arrivedAt),
     });
     await fetchAll();
   };
@@ -1695,15 +1762,10 @@ function StoreInner({ children }: { children: ReactNode }) {
       companyId: d.customerId,
       opportunityId: d.salesCaseId || undefined,
       shipmentId: d.shipmentId || undefined,
-      deliveryDate: d.date,
+      deliveryDate: new Date(d.date),
       signedBy: d.signedBy === '—' ? undefined : d.signedBy,
       status: deliveryStatusToCode(d.status),
-      formData: d.formData
-        ? {
-            ...d.formData,
-            kurulumTarihi: d.formData.kurulumTarihi || undefined,
-          }
-        : undefined,
+      formData: deliveryFormDataPayload(d.formData),
     });
     await fetchAll();
     return {
@@ -1761,15 +1823,10 @@ function StoreInner({ children }: { children: ReactNode }) {
       companyId: d.customerId,
       opportunityId: d.salesCaseId,
       shipmentId: d.shipmentId,
-      deliveryDate: d.date,
+      deliveryDate: d.date ? new Date(d.date) : undefined,
       signedBy: d.signedBy === '—' ? undefined : d.signedBy,
       status: d.status ? deliveryStatusToCode(d.status) : undefined,
-      formData: d.formData
-        ? {
-            ...d.formData,
-            kurulumTarihi: d.formData.kurulumTarihi || undefined,
-          }
-        : undefined,
+      formData: deliveryFormDataPayload(d.formData),
     });
     await fetchAll();
 
@@ -1866,16 +1923,19 @@ function StoreInner({ children }: { children: ReactNode }) {
   const addMachine: Store['addMachine'] = async (m) => {
     const created = await inventoryService.createCustomerDevice({
       companyId: m.customerId,
+      initialCompanyId: m.initialCustomerId || m.customerId,
       inventoryItemId: m.stockItemId || undefined,
       opportunityId: m.salesCaseId || undefined,
-      installationDate: m.installationDate || undefined,
-      warrantyStartDate: m.warrantyStart || undefined,
-      warrantyEndDate: m.warrantyEnd || undefined,
+      installationDate: toOptionalDate(m.installationDate),
+      warrantyStartDate: toOptionalDate(m.warrantyStart),
+      warrantyEndDate: toOptionalDate(m.warrantyEnd),
       notes: [m.model, m.serialNumber].filter(Boolean).join(' · ') || undefined,
     });
     await fetchAll();
     const mapped: Machine = {
       id: created.id,
+      initialCustomerId: created.initialCompanyId ?? m.initialCustomerId ?? m.customerId,
+      userCompanyId: created.companyId ?? m.customerId,
       customerId: m.customerId,
       salesCaseId: m.salesCaseId ?? '',
       stockItemId: m.stockItemId ?? '',
@@ -1887,6 +1947,11 @@ function StoreInner({ children }: { children: ReactNode }) {
       status: m.status ?? 'Active',
     };
     return mapped;
+  };
+
+  const updateMachineCustomer: Store['updateMachineCustomer'] = async (id, customerId) => {
+    await inventoryService.updateCustomerDevice(id, { companyId: customerId });
+    await fetchAll();
   };
 
   const moveService: Store['moveService'] = async (id, to) => {
@@ -2058,13 +2123,13 @@ function StoreInner({ children }: { children: ReactNode }) {
     const needsQuoteRecord = d.type === 'Proforma' || d.type === 'Contract' || d.type === 'CommercialInvoice' || d.type === 'AccountingInvoice';
     if (d.type === 'Proforma') {
       if (!quoteId) throw new Error('Proforma için ilişkili teklif bulunamadı.');
-      await documentService.createProforma({ quoteId, documentNo: baseName, issueDate: today, fileId: d.fileId });
+      await documentService.createProforma({ quoteId, documentNo: baseName, issueDate: today, statusCode: 'draft', fileId: d.fileId });
     } else if (d.type === 'Contract') {
       if (!quoteId) throw new Error('Sözleşme için ilişkili teklif bulunamadı.');
-      await documentService.createContract({ quoteId, contractNo: baseName, signedDate: today, fileId: d.fileId });
+      await documentService.createContract({ quoteId, contractNo: baseName, signedDate: today, statusCode: 'draft', fileId: d.fileId });
     } else if (d.type === 'CommercialInvoice' || d.type === 'AccountingInvoice') {
       if (!quoteId) throw new Error('Fatura için ilişkili teklif bulunamadı.');
-      await documentService.createCommercialInvoice({ quoteId, invoiceNo: baseName, invoiceDate: today, fileId: d.fileId });
+      await documentService.createCommercialInvoice({ quoteId, invoiceNo: baseName, invoiceDate: today, statusCode: 'draft', fileId: d.fileId });
     }
 
     const row: DocumentItem = {
@@ -2115,6 +2180,8 @@ function StoreInner({ children }: { children: ReactNode }) {
       updateContact,
       deleteContact,
       addActivity,
+      updateActivity,
+      deleteActivity,
       addProduct,
       updateProduct,
       patchProduct,
@@ -2153,6 +2220,7 @@ function StoreInner({ children }: { children: ReactNode }) {
       rejectServiceWarranty,
       addService,
       addMachine,
+      updateMachineCustomer,
       addDocument,
       refresh: fetchAll,
     }),

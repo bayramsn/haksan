@@ -25,6 +25,7 @@ import {
   Wallet, Receipt, Calendar, Printer, Download, Eye, RotateCcw, XCircle, Pencil, ChevronDown, Trash2,
 } from "lucide-react";
 import { useStore } from "../../../lib/store";
+import { useAuth } from "../../../../lib/auth";
 import { buildOfferTrend } from "../../../lib/chartAggregates";
 import { useFx } from "../../../lib/fx";
 import { Customer, Offer, SalesCase, User } from "../../../lib/mock";
@@ -76,7 +77,9 @@ function invoicePrefillFromOrder(order: any): AccountingInvoicePrefill {
 
 export function OffersPage({ focus }: { focus?: OperationFocus }) {
   const { offers: rawOffers, cases, customers, users, moveCase, refresh } = useStore();
+  const { hasRole } = useAuth();
   const { convert } = useFx();
+  const isSuperAdmin = hasRole("super_admin");
   const customerName = (id: string) => customers.find((c) => c.id === id)?.name ?? "—";
   const backToSales = async (caseId: string) => {
     try {
@@ -174,12 +177,24 @@ export function OffersPage({ focus }: { focus?: OperationFocus }) {
 
   const offerTrend = useMemo(() => buildOfferTrend(offers, 6), [offers]);
 
-  const runQuoteAction = async (offerId: string, action: "send" | "approve" | "reject") => {
+  const runQuoteAction = async (offerId: string, action: "send" | "approve" | "reject" | "approve-price" | "reject-price") => {
     try {
       if (action === "send") await quoteService.send(offerId);
       else if (action === "approve") await quoteService.approve(offerId);
+      else if (action === "approve-price") await quoteService.approvePrice(offerId);
+      else if (action === "reject-price") await quoteService.rejectPrice(offerId);
       else await quoteService.reject(offerId);
-      toast.success(action === "send" ? "Teklif gönderildi" : action === "approve" ? "Teklif onaylandı" : "Teklif reddedildi");
+      toast.success(
+        action === "send"
+          ? "Teklif gönderildi"
+          : action === "approve"
+            ? "Teklif onaylandı"
+            : action === "approve-price"
+              ? "Fiyat onaylandı"
+              : action === "reject-price"
+                ? "Fiyat reddedildi"
+                : "Teklif reddedildi"
+      );
       await refresh();
     } catch (err: any) {
       toast.error("İşlem başarısız", { description: err?.message ?? "API isteği başarısız oldu." });
@@ -377,6 +392,32 @@ export function OffersPage({ focus }: { focus?: OperationFocus }) {
                             </Button>
                           </>
                         )}
+                        {o.status === "Pending Approval" && isSuperAdmin && (
+                          <>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="h-7 gap-1 text-xs border-emerald-200 text-emerald-700"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                void runQuoteAction(o.id, "approve-price");
+                              }}
+                            >
+                              <CheckCircle2 className="size-3.5" /> Fiyat Onay
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="h-7 gap-1 text-xs border-red-200 text-red-600"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                void runQuoteAction(o.id, "reject-price");
+                              }}
+                            >
+                              <XCircle className="size-3.5" /> Red
+                            </Button>
+                          </>
+                        )}
                         {sc?.isLost && (
                           <Button
                             variant="outline"
@@ -440,6 +481,7 @@ export function OffersPage({ focus }: { focus?: OperationFocus }) {
         order={selectedOrder}
         onClose={() => setSelectedOfferId(null)}
         onQuoteAction={runQuoteAction}
+        canApprovePrice={isSuperAdmin}
         onDeleteOffer={deleteOffer}
         onOrderCreated={refresh}
       />
@@ -530,6 +572,7 @@ export function OfferDetailDialog({
   onQuoteAction,
   onDeleteOffer,
   onOrderCreated,
+  canApprovePrice = false,
 }: {
   offer: Offer | null;
   salesCase: SalesCase | null;
@@ -538,9 +581,10 @@ export function OfferDetailDialog({
   revisions: Offer[];
   order?: any;
   onClose: () => void;
-  onQuoteAction?: (offerId: string, action: "send" | "approve" | "reject") => Promise<void>;
+  onQuoteAction?: (offerId: string, action: "send" | "approve" | "reject" | "approve-price" | "reject-price") => Promise<void>;
   onDeleteOffer?: (offer: Offer) => Promise<void>;
   onOrderCreated?: () => void;
+  canApprovePrice?: boolean;
 }) {
   const { products, users, contacts } = useStore();
   const [creatingOrder, setCreatingOrder] = useState(false);
@@ -729,6 +773,16 @@ export function OfferDetailDialog({
             <Button size="sm" className="h-9 gap-1" onClick={() => onQuoteAction(offer.id, "send")}>
               <Mail className="size-4" /> Gönder
             </Button>
+          )}
+          {offer.status === "Pending Approval" && canApprovePrice && onQuoteAction && (
+            <>
+              <Button variant="default" size="sm" className="h-9 gap-1 bg-emerald-600 hover:bg-emerald-700" onClick={() => onQuoteAction(offer.id, "approve-price")}>
+                <CheckCircle2 className="size-4" /> Fiyatı Onayla
+              </Button>
+              <Button variant="outline" size="sm" className="h-9 gap-1 border-red-200 text-red-600" onClick={() => onQuoteAction(offer.id, "reject-price")}>
+                <XCircle className="size-4" /> Fiyatı Reddet
+              </Button>
+            </>
           )}
           {offer.status === "Approved" && (
             <CreateAccountingInvoiceDialog

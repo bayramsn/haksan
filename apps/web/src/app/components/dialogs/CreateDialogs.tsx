@@ -6,7 +6,7 @@ import { Input } from "../ui/input";
 import { Label } from "../ui/label";
 import { Button } from "../ui/button";
 import { Textarea } from "../ui/textarea";
-import { Combobox } from "../ui/combobox";
+import { Combobox, type ComboboxOption } from "../ui/combobox";
 import {
   Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue,
 } from "../ui/select";
@@ -26,9 +26,9 @@ const NO_SERVICE_MACHINE = "__no_service_machine__";
 import { toast } from "sonner";
 import {
   Building2, User as UserIcon, Wallet, Truck, ClipboardCheck, ChevronDown, Receipt, Upload,
-  ClipboardList, Plus, Trash2, X, Loader2, Package, UserRound, Wrench,
+  ClipboardList, Plus, Trash2, X, Loader2, Package, UserRound, Wrench, Check,
 } from "lucide-react";
-import { serviceService, fileService, financeService, activityService, inventoryService, contactService, productService } from "../../../lib/services";
+import { serviceService, fileService, financeService, activityService, inventoryService, contactService, productService, lookupService } from "../../../lib/services";
 import { Badge } from "../ui/badge";
 import { useAuth } from "../../../lib/auth";
 import {
@@ -42,12 +42,15 @@ import {
   STOCK_CATEGORY_CODES,
   STOCK_CATEGORY_LABELS,
   type StockCategoryCode,
+  type AllowedFileExtension,
+  type AllowedMimeType,
 } from "@haksan/shared";
 import { PROVINCE_NAMES } from "../../lib/geo";
 import {
   HAKSAN_CNC_SPEC_KEYS,
   HAKSAN_CNC_SPEC_VALUE_UNITS,
   allCatalogProductSpecs,
+  specsForProductType,
 } from "../../lib/productSpecTemplates";
 import { QuoteDialog } from "./QuoteDialog";
 
@@ -97,6 +100,50 @@ function LookupCombobox({
   );
 }
 
+/**
+ * Kayıtlı kayda (id) bağlanabilen VEYA serbest metin girilebilen combobox.
+ * - Listeden seçim → onPick(id); id set edilir, serbest metin temizlenir.
+ * - Listede olmayan bir değer yazıp "kullan" → onFreeText(text); id temizlenir.
+ * Serbest metin, seçili görünmesi için options'a geçici bir kayıt olarak eklenir.
+ */
+const FREE_TEXT_PREFIX = "__free__:";
+function FreeTextCombobox({
+  idValue,
+  textValue,
+  options,
+  onPick,
+  onFreeText,
+  placeholder,
+}: {
+  idValue: string;
+  textValue: string;
+  options: ComboboxOption[];
+  onPick: (id: string) => void;
+  onFreeText: (text: string) => void;
+  placeholder?: string;
+}) {
+  const mergedOptions = useMemo<ComboboxOption[]>(
+    () => (!idValue && textValue ? [{ value: FREE_TEXT_PREFIX + textValue, label: textValue }, ...options] : options),
+    [idValue, textValue, options],
+  );
+  const value = idValue || (textValue ? FREE_TEXT_PREFIX + textValue : "");
+  return (
+    <Combobox
+      options={mergedOptions}
+      value={value}
+      onChange={(v) => {
+        if (v.startsWith(FREE_TEXT_PREFIX)) return;
+        onPick(v);
+      }}
+      onCreate={(label) => onFreeText(label)}
+      placeholder={placeholder ?? "Seçin veya yazın..."}
+      searchPlaceholder="Ara veya yaz..."
+      emptyText="Sonuç yok — yazıp ekleyebilirsiniz."
+      createLabel={(q) => `"${q}" kullan`}
+    />
+  );
+}
+
 const CONTACT_SOURCE_OPTIONS = [
   { code: "email", label: "Mail" },
   { code: "phone", label: "Telefon" },
@@ -105,6 +152,60 @@ const CONTACT_SOURCE_OPTIONS = [
   { code: "fair", label: "Fuar" },
   { code: "musiad", label: "MÜSİAD" },
 ];
+
+type LookupRow = { id?: string; code: string; name: string; province?: string; sortOrder?: number; isActive?: boolean };
+
+function useLookupRows(name: string, fallback: LookupRow[] = []) {
+  const [rows, setRows] = useState<LookupRow[]>(fallback);
+  useEffect(() => {
+    let alive = true;
+    lookupService
+      .byName(name)
+      .then((items) => {
+        if (!alive) return;
+        const normalized = (items ?? [])
+          .map((item: any) => ({ id: item.id, code: item.code, name: item.name, province: item.province, sortOrder: item.sortOrder, isActive: item.isActive }))
+          .filter((item: LookupRow) => item.code && item.name);
+        setRows(normalized.length ? normalized : fallback);
+      })
+      .catch(() => alive && setRows(fallback));
+    return () => {
+      alive = false;
+    };
+  }, [name]);
+  return rows;
+}
+
+function useTaxOfficeRows(city: string) {
+  const fallback = useMemo<LookupRow[]>(
+    () =>
+      TAX_OFFICE_OPTIONS
+        .filter((name) => !city || name.toLocaleLowerCase("tr-TR").includes(city.toLocaleLowerCase("tr-TR")))
+        .map((name, index) => ({ code: name, name, province: city, sortOrder: index })),
+    [city],
+  );
+  const [rows, setRows] = useState<LookupRow[]>(fallback);
+  useEffect(() => {
+    let alive = true;
+    lookupService
+      .taxOffices(city || undefined)
+      .then((items) => {
+        if (!alive) return;
+        const normalized = (items ?? [])
+          .map((item: any) => ({ id: item.id, code: item.code, name: item.name, province: item.province, sortOrder: item.sortOrder, isActive: item.isActive }))
+          .filter((item: LookupRow) => item.code && item.name);
+        setRows(normalized.length ? normalized : fallback);
+      })
+      .catch(() => alive && setRows(fallback));
+    return () => {
+      alive = false;
+    };
+  }, [city, fallback]);
+  return rows;
+}
+
+const lookupCodeOptions = (rows: LookupRow[]) => rows.map((row) => ({ code: row.code, label: row.name }));
+const lookupNameOptions = (rows: LookupRow[]) => rows.map((row) => ({ value: row.name, label: row.name }));
 
 const emptyCompanyForm = () => ({
   name: "",
@@ -140,6 +241,10 @@ export function CreateCustomerDialog({ trigger, onCreated }: { trigger: React.Re
     const districts = DISTRICTS_BY_PROVINCE[form.city] ?? [];
     return toComboboxOptions(districts);
   }, [form.city]);
+  const companyGroupRows = useLookupRows("company-groups", COMPANY_GROUP_OPTIONS.map((g) => ({ code: g.code, name: g.label })));
+  const contactSourceRows = useLookupRows("contact-sources", CONTACT_SOURCE_OPTIONS.map((s) => ({ code: s.code, name: s.label })));
+  const sectorRows = useLookupRows("company-sectors", COMPANY_SECTOR_OPTIONS.map((name, index) => ({ code: name, name, sortOrder: index })));
+  const taxOfficeRows = useTaxOfficeRows(form.city);
 
   const reset = () => {
     setForm(emptyCompanyForm());
@@ -162,8 +267,8 @@ export function CreateCustomerDialog({ trigger, onCreated }: { trigger: React.Re
         salesStatus: firmType === "supplier" ? undefined : salesStatus,
         contactPerson: "",
         wantedProduct: "",
-        source: CONTACT_SOURCE_OPTIONS.find((s) => s.code === form.contactSourceCode)?.label ?? "",
-        companyGroupName: COMPANY_GROUP_OPTIONS.find((g) => g.code === form.companyGroupCode)?.label ?? "",
+        source: contactSourceRows.find((s) => s.code === form.contactSourceCode)?.name ?? "",
+        companyGroupName: companyGroupRows.find((g) => g.code === form.companyGroupCode)?.name ?? "",
       });
       toast.success("Firma oluşturuldu", { description: c.name });
       reset();
@@ -248,7 +353,7 @@ export function CreateCustomerDialog({ trigger, onCreated }: { trigger: React.Re
               <Select value={form.companyGroupCode} onValueChange={(v) => setForm({ ...form, companyGroupCode: v })}>
                 <SelectTrigger className="mt-1.5"><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  {COMPANY_GROUP_OPTIONS.map((g) => (
+                  {lookupCodeOptions(companyGroupRows).map((g) => (
                     <SelectItem key={g.code} value={g.code}>{g.label}</SelectItem>
                   ))}
                 </SelectContent>
@@ -259,7 +364,7 @@ export function CreateCustomerDialog({ trigger, onCreated }: { trigger: React.Re
               <Select value={form.contactSourceCode} onValueChange={(v) => setForm({ ...form, contactSourceCode: v })}>
                 <SelectTrigger className="mt-1.5"><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  {CONTACT_SOURCE_OPTIONS.map((s) => (
+                  {lookupCodeOptions(contactSourceRows).map((s) => (
                     <SelectItem key={s.code} value={s.code}>{s.label}</SelectItem>
                   ))}
                 </SelectContent>
@@ -267,7 +372,7 @@ export function CreateCustomerDialog({ trigger, onCreated }: { trigger: React.Re
             </div>
             <LookupCombobox
               label="Firma Sektörü"
-              options={toComboboxOptions(COMPANY_SECTOR_OPTIONS)}
+              options={lookupNameOptions(sectorRows)}
               value={form.sector}
               onChange={(v) => setForm({ ...form, sector: v })}
               placeholder="Sektör seçin..."
@@ -303,7 +408,7 @@ export function CreateCustomerDialog({ trigger, onCreated }: { trigger: React.Re
             />
             <LookupCombobox
               label="Vergi Dairesi"
-              options={toComboboxOptions(TAX_OFFICE_OPTIONS)}
+              options={lookupNameOptions(taxOfficeRows)}
               value={form.taxOffice}
               onChange={(v) => setForm({ ...form, taxOffice: v })}
               placeholder="Vergi dairesi seçin..."
@@ -561,6 +666,8 @@ export function EditCustomerDialog({ customer, onClose }: { customer: Customer |
     const districts = DISTRICTS_BY_PROVINCE[form.city] ?? [];
     return toComboboxOptions(districts);
   }, [form.city]);
+  const sectorRows = useLookupRows("company-sectors", COMPANY_SECTOR_OPTIONS.map((name, index) => ({ code: name, name, sortOrder: index })));
+  const taxOfficeRows = useTaxOfficeRows(form.city);
 
   useEffect(() => {
     if (customer)
@@ -606,7 +713,7 @@ export function EditCustomerDialog({ customer, onClose }: { customer: Customer |
           <div className="grid grid-cols-2 gap-3">
             <LookupCombobox
               label="Sektör"
-              options={toComboboxOptions(COMPANY_SECTOR_OPTIONS)}
+              options={lookupNameOptions(sectorRows)}
               value={form.sector}
               onChange={(v) => setForm({ ...form, sector: v })}
             />
@@ -634,7 +741,7 @@ export function EditCustomerDialog({ customer, onClose }: { customer: Customer |
             <Field label="VKN" value={form.taxNumber} onChange={(v) => setForm({ ...form, taxNumber: v })} />
             <LookupCombobox
               label="Vergi Dairesi"
-              options={toComboboxOptions(TAX_OFFICE_OPTIONS)}
+              options={lookupNameOptions(taxOfficeRows)}
               value={form.taxOffice}
               onChange={(v) => setForm({ ...form, taxOffice: v })}
             />
@@ -829,7 +936,7 @@ export function CreateCaseDialog({ trigger, defaultCustomerId }: { trigger: Reac
   const { customers, addCase, addCustomer, users, products } = useStore();
   const { user, activeDivision, hasRole } = useAuth();
   const isSuperAdmin = hasRole("super_admin");
-  const canPickDivision = user?.canViewAllDivisions ?? false;
+  const canPickDivision = isSuperAdmin && (user?.canViewAllDivisions ?? false);
   const divisions = user?.divisions ?? [];
   const defaultDivisionId = activeDivision && activeDivision !== "all" ? activeDivision : divisions[0]?.id ?? "";
   const [open, setOpen] = useState(false);
@@ -914,8 +1021,8 @@ export function CreateCaseDialog({ trigger, defaultCustomerId }: { trigger: Reac
                 />
               </div>
             </div>
-            <div className="col-span-2">
-              <Label className="text-xs">Talep Edilen Ürün ve Model *</Label>
+            <div>
+              <Label className="text-xs">Talep Edilen Ürün *</Label>
               <div className="mt-1.5">
                 <Combobox
                   options={products.map((p) => ({ value: p.id, label: [p.brand, p.model].filter(Boolean).join(" "), hint: p.type }))}
@@ -924,21 +1031,21 @@ export function CreateCaseDialog({ trigger, defaultCustomerId }: { trigger: Reac
                     const p = products.find((pr) => pr.id === v);
                     setSelectedProductId(v);
                     if (p) {
-                      const line = [p.brand, p.model].filter(Boolean).join(" ").trim();
-                      setForm((f) => ({ ...f, requestedProduct: line, requestedModel: p.model ?? "" }));
+                      setForm((f) => ({ ...f, requestedProduct: p.brand || p.type || p.model, requestedModel: p.model ?? "" }));
                     }
                   }}
-                  placeholder="Ürün ve model seçin veya yazın..."
+                  placeholder="Ürün seçin veya yazın..."
                   searchPlaceholder="Marka / model ara..."
                   emptyText="Ürün bulunamadı."
                   onCreate={(label) => {
                     setSelectedProductId("");
-                    setForm((f) => ({ ...f, requestedProduct: label, requestedModel: label }));
+                    setForm((f) => ({ ...f, requestedProduct: label }));
                   }}
                   createLabel={(q) => `"${q}" serbest ürün olarak ekle`}
                 />
               </div>
             </div>
+            <Field label="Model" value={form.requestedModel} onChange={(v) => setForm({ ...form, requestedModel: v })} placeholder="Model elle girilebilir" />
             <Field label="Adet" type="number" value={String(form.quantity)} onChange={(v) => setForm({ ...form, quantity: Number(v) || 1 })} />
             <Field label="Tahmini Tutar" type="number" value={String(form.estimatedAmount)} onChange={(v) => setForm({ ...form, estimatedAmount: Number(v) || 0 })} />
             <div>
@@ -1392,19 +1499,72 @@ export function AddActivityDialog({
   const open = controlledOpen ?? internalOpen;
   const setOpen = (o: boolean) => { onOpenChange ? onOpenChange(o) : setInternalOpen(o); };
 
-  const [form, setForm] = useState({
+  const [form, setForm] = usePersistentState<{
+    type: string;
+    title: string;
+    note: string;
+    result: string;
+    date: string;
+    byUserId: string;
+  }>(`draft.activity.${salesCaseId || customerId}`, {
     type: ACTIVITY_TYPE_OPTIONS[0].label,
     title: "",
     note: "",
+    result: "",
     date: new Date().toISOString().slice(0, 10),
     byUserId: defaultUserId,
   });
+  const [pendingFiles, setPendingFiles] = useState<File[]>([]);
+  const activityFileRef = useRef<HTMLInputElement>(null);
 
-  const reset = () => setForm({
-    type: ACTIVITY_TYPE_OPTIONS[0].label, title: "", note: "",
-    date: new Date().toISOString().slice(0, 10),
-    byUserId: defaultUserId,
-  });
+  const reset = () => {
+    setForm({
+      type: ACTIVITY_TYPE_OPTIONS[0].label,
+      title: "",
+      note: "",
+      result: "",
+      date: new Date().toISOString().slice(0, 10),
+      byUserId: defaultUserId,
+    });
+    setPendingFiles([]);
+    if (activityFileRef.current) activityFileRef.current.value = "";
+  };
+
+  const activityFileExt = (file: File) => {
+    const lowerName = file.name.toLocaleLowerCase("tr-TR");
+    if (file.type === "application/pdf" || lowerName.endsWith(".pdf")) return { extension: "pdf" as const, mimeType: "application/pdf" as const };
+    if (file.type === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" || lowerName.endsWith(".docx")) return { extension: "docx" as const, mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" as const };
+    if (file.type === "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" || lowerName.endsWith(".xlsx")) return { extension: "xlsx" as const, mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" as const };
+    if (file.type === "image/png" || lowerName.endsWith(".png")) return { extension: "png" as const, mimeType: "image/png" as const };
+    if (file.type === "image/jpeg" || lowerName.endsWith(".jpg") || lowerName.endsWith(".jpeg")) return { extension: "jpg" as const, mimeType: "image/jpeg" as const };
+    if (file.type === "image/webp" || lowerName.endsWith(".webp")) return { extension: "webp" as const, mimeType: "image/webp" as const };
+    return null;
+  };
+
+  const uploadActivityFiles = async (activityId: string) => {
+    for (const file of pendingFiles) {
+      const meta = activityFileExt(file);
+      if (!meta) throw new Error(`${file.name}: desteklenmeyen dosya tipi`);
+      if (file.size > 25 * 1024 * 1024) throw new Error(`${file.name}: dosya boyutu 25 MB'ı aşamaz`);
+      const upload = await fileService.signedUpload({
+        bucket: "erp-service-documents",
+        entityType: "sales_activity",
+        entityId: activityId,
+        filename: file.name,
+        mimeType: meta.mimeType,
+        extension: meta.extension,
+        sizeBytes: file.size,
+      });
+      await fileService.uploadBinary(upload, file, meta.mimeType);
+      await fileService.link({
+        fileId: upload.fileId,
+        entityType: "sales_activity",
+        entityId: activityId,
+        documentTypeCode: "activity_document",
+        description: file.name,
+      });
+    }
+  };
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1413,15 +1573,17 @@ export function AddActivityDialog({
       return;
     }
     try {
-      await addActivity({
+      const created = await addActivity({
         salesCaseId,
         customerId,
         type: form.type,
         title: form.title.trim(),
         note: form.note.trim(),
+        result: form.result.trim(),
         date: form.date,
         byUserId: form.byUserId,
       });
+      if (pendingFiles.length) await uploadActivityFiles(created.id);
       toast.success("Aktivite eklendi", { description: form.title.trim() });
       reset();
       setOpen(false);
@@ -1431,7 +1593,7 @@ export function AddActivityDialog({
   };
 
   return (
-    <Dialog open={open} onOpenChange={(o) => { setOpen(o); if (o) reset(); }}>
+    <Dialog open={open} onOpenChange={setOpen}>
       {trigger && <DialogTrigger asChild>{trigger}</DialogTrigger>}
       <DialogContent className="max-w-md">
         <DialogHeader>
@@ -1461,6 +1623,31 @@ export function AddActivityDialog({
           <div>
             <Label className="text-xs">Not</Label>
             <Textarea className="mt-1.5 min-h-[80px]" value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} placeholder="Detaylar..." />
+          </div>
+          <div>
+            <Label className="text-xs">Sonuç / Ne Yapıldı</Label>
+            <Textarea className="mt-1.5 min-h-[64px]" value={form.result} onChange={(e) => setForm({ ...form, result: e.target.value })} placeholder="Yapılan işlem ve sonuç..." />
+          </div>
+          <div>
+            <Label className="text-xs">Dosyalar</Label>
+            <Input
+              ref={activityFileRef}
+              type="file"
+              multiple
+              className="mt-1.5"
+              accept=".pdf,.docx,.xlsx,.png,.jpg,.jpeg,.webp"
+              onChange={(e) => setPendingFiles(Array.from(e.target.files ?? []))}
+            />
+            {pendingFiles.length > 0 && (
+              <div className="mt-2 space-y-1 text-xs text-muted-foreground">
+                {pendingFiles.map((file) => (
+                  <div key={`${file.name}-${file.size}`} className="flex items-center gap-2">
+                    <Upload className="size-3.5" />
+                    <span className="truncate">{file.name}</span>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
           <div>
             <Label className="text-xs">Atanan</Label>
@@ -1609,8 +1796,11 @@ const normalizeProductVatRate = (value: string | number | null | undefined) => {
   return PRODUCT_VAT_RATES.includes(rate) ? rate : DEFAULT_PRODUCT_VAT_RATE;
 };
 
-const catalogSpecs = (specs: ProductSpec[] = [], emptyValue = "") =>
-  allCatalogProductSpecs(specs, emptyValue);
+const catalogSpecs = (specs: ProductSpec[] = [], emptyValue = "", productTypeCode?: string) =>
+  (productTypeCode ? specsForProductType(productTypeCode, specs) : allCatalogProductSpecs(specs, emptyValue)).map((spec) => ({
+    key: spec.key,
+    value: spec.value?.trim() ? spec.value : emptyValue,
+  }));
 
 const catalogSpecKeyOptions = HAKSAN_CNC_SPEC_KEYS.map((key) => ({ value: key, label: key }));
 
@@ -1664,7 +1854,19 @@ const OPTIONAL_EQUIPMENT_LABELS: Array<{ key: keyof OptionalEquipmentDraft; labe
   { key: "category", label: "Kategori" },
 ];
 
-const productMachineLabel = (p: { brand?: string; model?: string; modelName?: string; shortDescription?: string; type?: string; stockCode?: string }) =>
+type ProductMachineSource = {
+  brand?: string;
+  model?: string;
+  modelName?: string;
+  shortDescription?: string;
+  type?: string;
+  stockCode?: string;
+  productTypeCode?: string;
+  category?: string;
+  categoryCode?: string;
+};
+
+const productMachineLabel = (p: ProductMachineSource) =>
   [p.brand, p.model].filter(Boolean).join(" ").trim() ||
   [p.brand, p.modelName].filter(Boolean).join(" ").trim() ||
   p.shortDescription?.trim() ||
@@ -1672,17 +1874,17 @@ const productMachineLabel = (p: { brand?: string; model?: string; modelName?: st
   p.type?.trim() ||
   "Makine";
 const OPTIONAL_EQUIPMENT_SERIES_PREFIX_RE = /^(DL|VM|MV|VC|SL|MT|SJ|TC|HT|LH|D|C)(?=[-\d\s/]|$)/i;
-const productSeriesLabelForEquipment = (p: Partial<ProductFormState & Product>) => {
+const productSeriesLabelForEquipment = (p: ProductMachineSource) => {
   const model = (p.model || p.modelName || p.shortDescription || "").trim().toLocaleUpperCase("tr-TR");
   const code = model.match(OPTIONAL_EQUIPMENT_SERIES_PREFIX_RE)?.[1]?.toLocaleUpperCase("tr-TR");
   return code ? `${code} Serisi` : (p.modelName || p.model || "").trim();
 };
-const optionalEquipmentDefaultsForMachine = (machine: Partial<ProductFormState & Product> | null | undefined) => ({
+const optionalEquipmentDefaultsForMachine = (machine: ProductMachineSource | null | undefined) => ({
   serial: machine ? productSeriesLabelForEquipment(machine) : "",
   type: machine?.type || findLabel(PRODUCT_TYPE_OPTIONS, machine?.productTypeCode ?? "", ""),
   category: machine?.category || findLabel(PRODUCT_CATEGORIES, machine?.categoryCode ?? "", ""),
 });
-const optionalEquipmentDraftForMachine = (machine: Partial<ProductFormState & Product> | null | undefined): OptionalEquipmentDraft => ({
+const optionalEquipmentDraftForMachine = (machine: ProductMachineSource | null | undefined): OptionalEquipmentDraft => ({
   ...emptyOptionalEquipmentDraft(),
   machine: machine ? productMachineLabel(machine) : "",
   ...optionalEquipmentDefaultsForMachine(machine),
@@ -1761,7 +1963,7 @@ const fromProduct = (p: Product): ProductFormState => ({
   originCountry: p.originCountry ?? "",
   hsCode: p.hsCode ?? "",
   stockCode: p.stockCode || p.model,
-  specs: catalogSpecs(p.specs),
+  specs: catalogSpecs(p.specs, "", p.productTypeCode),
   standardEquipment: [...p.standardEquipment], optionalEquipment: [...p.optionalEquipment],
   muadilProductIds: p.muadilProductIds?.length ? p.muadilProductIds : (p.muadilProductId ? [p.muadilProductId] : []),
   status: p.status,
@@ -1822,16 +2024,17 @@ export function ProductDialog({
     }
     setUploadingImage(true);
     try {
+      const mimeType = file.type as "image/png" | "image/jpeg" | "image/webp";
       const upload = await fileService.signedUpload({
         bucket: "erp-product-images",
         entityType: "product",
         entityId: product?.id ?? "new",
         filename: file.name,
-        mimeType: file.type,
+        mimeType,
         extension: ext,
         sizeBytes: file.size,
       });
-      await fileService.uploadBinary(upload, file, file.type);
+      await fileService.uploadBinary(upload, file, mimeType);
       const publicUrl = upload.uploadUrl.split("?")[0];
       setForm((f) => ({ ...f, imageUrl: publicUrl }));
       toast.success("Fotoğraf yüklendi");
@@ -1845,7 +2048,7 @@ export function ProductDialog({
 
   const handleOpen = (o: boolean) => {
     setOpen(o);
-    if (o) reset();
+    if (o && mode === "edit") reset();
   };
 
   const updSpec = (i: number, patch: Partial<ProductSpec>) => {
@@ -1988,7 +2191,7 @@ export function ProductDialog({
   const specsAfterChange = (kept: { productTypeCode: string }, categoryCode: string) => {
     void kept;
     void categoryCode;
-    return catalogSpecs(form.specs);
+    return catalogSpecs(form.specs, "", kept.productTypeCode);
   };
 
   const onProductGroupChange = (code: string) => {
@@ -1999,7 +2202,7 @@ export function ProductDialog({
       productTypeCode: "",
       type: "",
       brand: "",
-      specs: catalogSpecs(form.specs),
+      specs: catalogSpecs(form.specs, "", code),
     });
   };
 
@@ -2053,8 +2256,21 @@ export function ProductDialog({
       subcategoryCode,
       subcategory: findLabel(PRODUCT_SUBCATEGORIES, subcategoryCode, form.subcategory),
       brand: opt.code === form.productTypeCode ? form.brand : "",
-      specs: catalogSpecs(form.specs),
+      specs: catalogSpecs(form.specs, "", opt.code),
     });
+    void productService
+      .specTemplates(opt.code)
+      .then((rows) => {
+        const templateSpecs = (rows ?? [])
+          .filter((row: any) => row.isActive !== false && row.specKey)
+          .map((row: any) => ({ key: row.specKey, value: [row.defaultValue, row.specUnit].filter(Boolean).join(" ") }));
+        if (!templateSpecs.length) return;
+        setForm((current) => {
+          if (current.productTypeCode !== opt.code) return current;
+          return { ...current, specs: catalogSpecs([...current.specs, ...templateSpecs], "", opt.code) };
+        });
+      })
+      .catch(() => undefined);
   };
 
   const submit = async (e: React.FormEvent) => {
@@ -2067,7 +2283,7 @@ export function ProductDialog({
       toast.error("Marka ve ürün adı zorunludur");
       return;
     }
-    const cleanSpecs = catalogSpecs(form.specs, "-").filter((s) => s.key.trim());
+    const cleanSpecs = catalogSpecs(form.specs, "-", form.productTypeCode).filter((s) => s.key.trim());
     const modelCode = form.stockCode.trim() || form.model.trim() || compactProductCode(form.shortDescription) || "URUN";
     const payload = {
       brand: form.brand.trim(),
@@ -2115,6 +2331,7 @@ export function ProductDialog({
         const p = await addProduct(payload);
         toast.success("Ürün oluşturuldu", { description: `${p.brand} ${p.model}` });
       }
+      reset();
       setOpen(false);
     } catch (err: any) {
       toast.error(mode === "edit" ? "Ürün güncellenemedi" : "Ürün oluşturulamadı", { description: err?.message ?? "API isteği başarısız oldu." });
@@ -2460,7 +2677,7 @@ export function ProductDialog({
                       className="h-7"
                       onClick={() => setForm((f) => ({
                         ...f,
-                        specs: catalogSpecs(f.specs),
+                        specs: catalogSpecs(f.specs, "", f.productTypeCode),
                       }))}
                     >
                       Sabit listeyi tamamla
@@ -2947,9 +3164,13 @@ export function CreateShipmentDialog({ trigger, onCreated }: { trigger: React.Re
   const [warehouses, setWarehouses] = useState<Array<{ id: string; name: string }>>([]);
   const [senderCompanies, setSenderCompanies] = useState<Array<{ id: string; legalTitle: string; shortName?: string | null }>>([]);
   const [carrierCompanies, setCarrierCompanies] = useState<Array<{ id: string; legalTitle: string; shortName?: string | null }>>([]);
+  // Satır bazında, seçilen tezgahla uyumlu opsiyonel donanım önerileri (ürün-id → sonuç önbelleği).
+  const [optionalByLine, setOptionalByLine] = useState<Record<string, Array<{ id: string; label: string }>>>({});
+  const optionalCache = useRef<Record<string, Array<{ id: string; label: string }>>>({});
   const emptyForm = () => ({
     salesCaseId: cases[0]?.id ?? "",
     senderCompanyId: "",
+    senderName: "",
     carrierCompanyId: "",
     transportMode: "road" as ShipmentTransportMode,
     productCategoryCode: "TEZGAH" as StockCategoryCode,
@@ -3000,6 +3221,47 @@ export function CreateShipmentDialog({ trigger, onCreated }: { trigger: React.Re
     }));
   };
 
+  // Seçilen tezgahla uyumlu opsiyonel donanımı getir (önbellekli); ürün temizlenince listeyi kaldır.
+  const loadOptionalEquipment = async (lineId: string, productId: string) => {
+    if (!productId) {
+      setOptionalByLine((prev) => {
+        const next = { ...prev };
+        delete next[lineId];
+        return next;
+      });
+      return;
+    }
+    if (optionalCache.current[productId]) {
+      setOptionalByLine((prev) => ({ ...prev, [lineId]: optionalCache.current[productId] }));
+      return;
+    }
+    try {
+      const rows = await productService.compatibleOptionalEquipment(productId);
+      const mapped = (rows ?? [])
+        .map((r: any) => ({
+          id: r.product?.id ?? r.id,
+          label:
+            r.product?.fullName ||
+            [r.brand?.name, r.product?.modelName ?? r.product?.modelCode].filter(Boolean).join(" ") ||
+            "Opsiyonel donanım",
+        }))
+        .filter((x: { id?: string }) => !!x.id);
+      optionalCache.current[productId] = mapped;
+      setOptionalByLine((prev) => ({ ...prev, [lineId]: mapped }));
+    } catch {
+      setOptionalByLine((prev) => ({ ...prev, [lineId]: [] }));
+    }
+  };
+
+  // Opsiyonel donanımı yeni bir sevkiyat satırı olarak ekle (aynı ürün iki kez eklenmez).
+  const addOptionalLine = (eq: { id: string; label: string }) => {
+    setForm((prev) =>
+      prev.items.some((l) => l.productModelId === eq.id)
+        ? prev
+        : { ...prev, items: [...prev.items, { ...emptyShipmentLine(), productModelId: eq.id, description: eq.label }] },
+    );
+  };
+
   const productLabel = (productId: string) => {
     const p = products.find((x) => x.id === productId);
     return [p?.brand, p?.model].filter(Boolean).join(" ") || p?.modelName || "Ürün";
@@ -3008,10 +3270,10 @@ export function CreateShipmentDialog({ trigger, onCreated }: { trigger: React.Re
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!form.trackingNo.trim()) return toast.error("Takip no giriniz");
-    if (!form.senderCompanyId) return toast.error("Gönderici firma seçiniz");
-    if (!form.carrierCompanyId) return toast.error("Taşıyıcı firma seçiniz");
-    if (!form.destinationWarehouseId) return toast.error("Varış deposu seçiniz");
-    if (!form.items.length || form.items.some((line) => !line.productModelId || !line.description.trim())) {
+    if (!form.senderCompanyId && !form.senderName.trim()) return toast.error("Gönderici firma seçin veya yazın");
+    if (!form.carrierCompanyId && !form.carrier.trim()) return toast.error("Taşıyıcı firma seçin veya yazın");
+    if (!form.destinationWarehouseId && !form.destination.trim()) return toast.error("Varış yeri seçin veya yazın");
+    if (!form.items.length || form.items.some((line) => !line.productModelId && !line.description.trim())) {
       return toast.error("Ürün satırlarını tamamlayınız");
     }
     try {
@@ -3019,15 +3281,16 @@ export function CreateShipmentDialog({ trigger, onCreated }: { trigger: React.Re
       const destinationWarehouse = warehouses.find((w) => w.id === form.destinationWarehouseId);
       await addShipment({
         salesCaseId: form.salesCaseId,
-        senderCompanyId: form.senderCompanyId,
-        carrierCompanyId: form.carrierCompanyId,
+        senderCompanyId: form.senderCompanyId || undefined,
+        senderName: form.senderName.trim() || undefined,
+        carrierCompanyId: form.carrierCompanyId || undefined,
         transportMode: form.transportMode,
         productCategoryCode: form.productCategoryCode,
-        destinationWarehouseId: form.destinationWarehouseId,
+        destinationWarehouseId: form.destinationWarehouseId || undefined,
         destinationWarehouseName: destinationWarehouse?.name,
         loadingDate: form.loadingDate,
         trackingNo: form.trackingNo.trim(),
-        carrier: carrier?.shortName ?? carrier?.legalTitle ?? "",
+        carrier: form.carrierCompanyId ? (carrier?.shortName ?? carrier?.legalTitle ?? "") : form.carrier.trim(),
         origin: form.origin.trim(),
         destination: destinationWarehouse?.name ?? form.destination.trim(),
         eta: form.eta,
@@ -3079,13 +3342,17 @@ export function CreateShipmentDialog({ trigger, onCreated }: { trigger: React.Re
               </Select>
             </div>
             <div>
-              <Label className="text-xs" htmlFor="ship-sender">Gönderici Firma *</Label>
-              <Select value={form.senderCompanyId || undefined} onValueChange={(v) => setForm({ ...form, senderCompanyId: v })}>
-                <SelectTrigger id="ship-sender" className="mt-1.5"><SelectValue placeholder="Firma seçin" /></SelectTrigger>
-                <SelectContent>
-                  {senderCompanies.map((c) => <SelectItem key={c.id} value={c.id}>{c.shortName ?? c.legalTitle}</SelectItem>)}
-                </SelectContent>
-              </Select>
+              <Label className="text-xs">Gönderici Firma *</Label>
+              <div className="mt-1.5">
+                <FreeTextCombobox
+                  idValue={form.senderCompanyId}
+                  textValue={form.senderName}
+                  options={senderCompanies.map((c) => ({ value: c.id, label: c.shortName ?? c.legalTitle }))}
+                  onPick={(id) => setForm({ ...form, senderCompanyId: id, senderName: "" })}
+                  onFreeText={(t) => setForm({ ...form, senderCompanyId: "", senderName: t })}
+                  placeholder="Firma seçin veya yazın"
+                />
+              </div>
             </div>
             <div>
               <Label className="text-xs" htmlFor="ship-mode">Sevkiyat Türü *</Label>
@@ -3097,19 +3364,17 @@ export function CreateShipmentDialog({ trigger, onCreated }: { trigger: React.Re
               </Select>
             </div>
             <div>
-              <Label className="text-xs" htmlFor="ship-carrier">Taşıyıcı Firma *</Label>
-              <Select
-                value={form.carrierCompanyId || undefined}
-                onValueChange={(v) => {
-                  const carrier = carrierCompanies.find((c) => c.id === v);
-                  setForm({ ...form, carrierCompanyId: v, carrier: carrier?.shortName ?? carrier?.legalTitle ?? "" });
-                }}
-              >
-                <SelectTrigger id="ship-carrier" className="mt-1.5"><SelectValue placeholder="Firma seçin" /></SelectTrigger>
-                <SelectContent>
-                  {carrierCompanies.map((c) => <SelectItem key={c.id} value={c.id}>{c.shortName ?? c.legalTitle}</SelectItem>)}
-                </SelectContent>
-              </Select>
+              <Label className="text-xs">Taşıyıcı Firma *</Label>
+              <div className="mt-1.5">
+                <FreeTextCombobox
+                  idValue={form.carrierCompanyId}
+                  textValue={form.carrier}
+                  options={carrierCompanies.map((c) => ({ value: c.id, label: c.shortName ?? c.legalTitle }))}
+                  onPick={(id) => setForm({ ...form, carrierCompanyId: id, carrier: "" })}
+                  onFreeText={(t) => setForm({ ...form, carrierCompanyId: "", carrier: t })}
+                  placeholder="Firma seçin veya yazın"
+                />
+              </div>
             </div>
             <div>
               <Label className="text-xs" htmlFor="ship-category">Ürün Kategorisi</Label>
@@ -3124,13 +3389,17 @@ export function CreateShipmentDialog({ trigger, onCreated }: { trigger: React.Re
               </Select>
             </div>
             <div>
-              <Label className="text-xs" htmlFor="ship-warehouse">Varış Deposu *</Label>
-              <Select value={form.destinationWarehouseId || undefined} onValueChange={(v) => setForm({ ...form, destinationWarehouseId: v })}>
-                <SelectTrigger id="ship-warehouse" className="mt-1.5"><SelectValue placeholder="Depo seçin" /></SelectTrigger>
-                <SelectContent>
-                  {warehouses.map((w) => <SelectItem key={w.id} value={w.id}>{w.name}</SelectItem>)}
-                </SelectContent>
-              </Select>
+              <Label className="text-xs">Varış Yeri *</Label>
+              <div className="mt-1.5">
+                <FreeTextCombobox
+                  idValue={form.destinationWarehouseId}
+                  textValue={form.destination}
+                  options={warehouses.map((w) => ({ value: w.id, label: w.name }))}
+                  onPick={(id) => setForm({ ...form, destinationWarehouseId: id, destination: "" })}
+                  onFreeText={(t) => setForm({ ...form, destinationWarehouseId: "", destination: t })}
+                  placeholder="Depo seçin veya yazın"
+                />
+              </div>
             </div>
             <Field label="Takip No *" name="ship-tracking" value={form.trackingNo} onChange={(v) => setForm({ ...form, trackingNo: v })} placeholder="TRK-000000" />
             <Field label="Çıkış" name="ship-origin" value={form.origin} onChange={(v) => setForm({ ...form, origin: v })} placeholder="Hamburg" />
@@ -3164,44 +3433,48 @@ export function CreateShipmentDialog({ trigger, onCreated }: { trigger: React.Re
                   <div className="grid grid-cols-12 gap-2">
                     <div className="col-span-4">
                       <Label className="text-xs">Ürün *</Label>
-                      <Select
-                        value={line.productModelId || undefined}
-                        onValueChange={(v) => {
-                          updateLine(line.id, {
-                            productModelId: v,
-                            inventoryItemId: "",
-                            serialNumber: "",
-                            description: productLabel(v),
-                          });
-                        }}
-                      >
-                        <SelectTrigger className="mt-1.5"><SelectValue placeholder="Ürün seçin" /></SelectTrigger>
-                        <SelectContent>
-                          {productOptions.map((p) => <SelectItem key={p.id} value={p.id}>{[p.brand, p.model].filter(Boolean).join(" ")}{p.type ? ` · ${p.type}` : ""}</SelectItem>)}
-                        </SelectContent>
-                      </Select>
+                      <div className="mt-1.5">
+                        <FreeTextCombobox
+                          idValue={line.productModelId}
+                          textValue={line.productModelId ? "" : line.description}
+                          options={productOptions.map((p) => ({ value: p.id, label: `${[p.brand, p.model].filter(Boolean).join(" ")}${p.type ? ` · ${p.type}` : ""}` }))}
+                          onPick={(v) => {
+                            updateLine(line.id, {
+                              productModelId: v,
+                              inventoryItemId: "",
+                              serialNumber: "",
+                              description: productLabel(v),
+                            });
+                            void loadOptionalEquipment(line.id, v);
+                          }}
+                          onFreeText={(t) => {
+                            updateLine(line.id, { productModelId: "", inventoryItemId: "", description: t });
+                            void loadOptionalEquipment(line.id, "");
+                          }}
+                          placeholder="Ürün seçin veya yazın"
+                        />
+                      </div>
                     </div>
                     <div className="col-span-3">
                       <Label className="text-xs">Seri No</Label>
-                      <Select
-                        value={line.inventoryItemId || "unresolved"}
-                        onValueChange={(v) => {
-                          if (v === "unresolved") return updateLine(line.id, { inventoryItemId: "", serialNumber: "" });
-                          const item = stock.find((s) => s.id === v);
-                          updateLine(line.id, {
-                            inventoryItemId: v,
-                            productModelId: item?.productId ?? line.productModelId,
-                            serialNumber: item?.serialNumber ?? "",
-                            description: line.description || [item?.brand, item?.counterModel].filter(Boolean).join(" "),
-                          });
-                        }}
-                      >
-                        <SelectTrigger className="mt-1.5"><SelectValue placeholder="Seri no seçin" /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="unresolved">Sonra seçilecek</SelectItem>
-                          {serialOptions.map((s) => <SelectItem key={s.id} value={s.id}>{s.serialNumber} · {s.brand} {s.counterModel}</SelectItem>)}
-                        </SelectContent>
-                      </Select>
+                      <div className="mt-1.5">
+                        <FreeTextCombobox
+                          idValue={line.inventoryItemId}
+                          textValue={line.serialNumber}
+                          options={serialOptions.map((s) => ({ value: s.id, label: `${s.serialNumber} · ${s.brand} ${s.counterModel}` }))}
+                          onPick={(v) => {
+                            const item = stock.find((s) => s.id === v);
+                            updateLine(line.id, {
+                              inventoryItemId: v,
+                              productModelId: item?.productId ?? line.productModelId,
+                              serialNumber: item?.serialNumber ?? "",
+                              description: line.description || [item?.brand, item?.counterModel].filter(Boolean).join(" "),
+                            });
+                          }}
+                          onFreeText={(t) => updateLine(line.id, { inventoryItemId: "", serialNumber: t })}
+                          placeholder="Seri no seçin veya yazın"
+                        />
+                      </div>
                     </div>
                     <Field className="col-span-3" label="Açıklama *" value={line.description} onChange={(v) => updateLine(line.id, { description: v })} placeholder="Ürün açıklaması" />
                     <div className="col-span-1">
@@ -3229,6 +3502,32 @@ export function CreateShipmentDialog({ trigger, onCreated }: { trigger: React.Re
                     <Field label="Brüt kg" type="number" value={line.grossWeightKg} onChange={(v) => updateLine(line.id, { grossWeightKg: v })} />
                   </div>
                   <Field label="Paket Notu" value={line.packageNotes} onChange={(v) => updateLine(line.id, { packageNotes: v })} placeholder="Paket bilgisi" />
+                  {(optionalByLine[line.id]?.length ?? 0) > 0 && (
+                    <div className="rounded-md border border-dashed border-border/70 bg-muted/20 p-2.5">
+                      <div className="mb-1.5 flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+                        <Wrench className="size-3.5" /> Uyumlu Opsiyonel Donanım
+                      </div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {optionalByLine[line.id]!.map((eq) => {
+                          const added = form.items.some((l) => l.productModelId === eq.id);
+                          return (
+                            <Button
+                              key={eq.id}
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              className="h-7"
+                              disabled={added}
+                              onClick={() => addOptionalLine(eq)}
+                            >
+                              {added ? <Check className="size-3.5 mr-1" /> : <Plus className="size-3.5 mr-1" />}
+                              {eq.label}
+                            </Button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
                 </div>
               );
             })}
@@ -3589,15 +3888,16 @@ export function CreateDeliveryDialog({ trigger, onCreated }: { trigger: React.Re
 }
 
 /* ---------- Kasa Hareketi (Ödeme) ---------- */
-const PAYMENT_METHOD_LABELS: Record<string, string> = {
+const PAYMENT_METHOD_LABELS = {
   bank_transfer: "Banka Havalesi",
   cash: "Nakit",
   credit_card: "Kredi Kartı",
   check: "Çek",
   other: "Diğer",
-};
+} as const;
+type PaymentMethodCode = keyof typeof PAYMENT_METHOD_LABELS;
 const PAYMENT_CURRENCIES = ["USD", "EUR", "TRY"] as const;
-const PAYMENT_DOC_EXT_TO_MIME: Record<string, string> = {
+const PAYMENT_DOC_EXT_TO_MIME = {
   pdf: "application/pdf",
   png: "image/png",
   jpg: "image/jpeg",
@@ -3605,11 +3905,18 @@ const PAYMENT_DOC_EXT_TO_MIME: Record<string, string> = {
   webp: "image/webp",
   docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
   xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-};
+} satisfies Record<string, AllowedMimeType>;
+type PaymentDocExtension = keyof typeof PAYMENT_DOC_EXT_TO_MIME;
 const fmtPaymentDocBytes = (b: number) =>
   b < 1024 ? `${b} B` : b < 1048576 ? `${(b / 1024).toFixed(1)} KB` : `${(b / 1048576).toFixed(1)} MB`;
 const paymentDocTypeLabel = (t: "AccountingInvoice" | "CommercialInvoice") =>
   t === "AccountingInvoice" ? "Fiş" : "Fatura";
+const paymentDocMeta = (file: File): { extension: AllowedFileExtension; mimeType: AllowedMimeType } | null => {
+  const ext = file.name.split(".").pop()?.toLocaleLowerCase("tr-TR") ?? "";
+  if (!Object.prototype.hasOwnProperty.call(PAYMENT_DOC_EXT_TO_MIME, ext)) return null;
+  const extension = ext as PaymentDocExtension;
+  return { extension, mimeType: PAYMENT_DOC_EXT_TO_MIME[extension] };
+};
 
 /**
  * Manuel kasa hareketi oluşturma. Yön ('in' = alınan/giren, 'out' = ödenen/çıkan)
@@ -3635,7 +3942,7 @@ export function CreatePaymentDialog({
     amount: "",
     currencyCode: "USD" as (typeof PAYMENT_CURRENCIES)[number],
     paymentDate: new Date().toISOString().slice(0, 10),
-    paymentMethod: "bank_transfer",
+    paymentMethod: "bank_transfer" as PaymentMethodCode,
     invoiceNo: "",
     notes: "",
   });
@@ -3652,18 +3959,18 @@ export function CreatePaymentDialog({
 
   const uploadInvoice = async (paymentId: string, companyId: string) => {
     if (!file) return;
-    const ext = file.name.split(".").pop()?.toLocaleLowerCase("tr-TR") ?? "";
-    const mime = file.type || PAYMENT_DOC_EXT_TO_MIME[ext];
+    const meta = paymentDocMeta(file);
+    if (!meta) throw new Error("Desteklenmeyen dosya tipi");
     const up = await fileService.signedUpload({
       bucket: "erp-invoice-documents",
       entityType: "company",
       entityId: companyId,
       filename: file.name,
-      mimeType: mime,
-      extension: ext,
+      mimeType: meta.mimeType,
+      extension: meta.extension,
       sizeBytes: file.size,
     });
-    await fileService.uploadBinary(up, file, mime);
+    await fileService.uploadBinary(up, file, meta.mimeType);
     await fileService.link({
       fileId: up.fileId,
       entityType: "company",
@@ -3679,7 +3986,7 @@ export function CreatePaymentDialog({
       type: docType,
       fileName: file.name,
       size: fmtPaymentDocBytes(file.size),
-      mimeType: mime,
+      mimeType: meta.mimeType,
     });
   };
 
@@ -3690,9 +3997,8 @@ export function CreatePaymentDialog({
     if (!Number.isFinite(amount) || amount <= 0) return toast.error("Geçerli bir tutar giriniz");
     if (!file) return toast.error("Fatura veya fiş dosyası seçiniz");
     if (file.size > 25 * 1024 * 1024) return toast.error("Dosya boyutu 25 MB'ı aşamaz");
-    const ext = file.name.split(".").pop()?.toLocaleLowerCase("tr-TR") ?? "";
-    const mime = file.type || PAYMENT_DOC_EXT_TO_MIME[ext];
-    if (!PAYMENT_DOC_EXT_TO_MIME[ext] || !mime) {
+    const meta = paymentDocMeta(file);
+    if (!meta) {
       return toast.error("Desteklenmeyen dosya tipi", { description: "PDF, PNG, JPG, WEBP, DOCX veya XLSX" });
     }
     setSaving(true);
@@ -3703,7 +4009,8 @@ export function CreatePaymentDialog({
           companyId: form.companyId,
           amount,
           currencyCode: form.currencyCode,
-          dueDate: form.paymentDate,
+          dueDate: new Date(form.paymentDate),
+          movementType: "manual",
           notes: form.notes || undefined,
           invoiceNo: form.invoiceNo || undefined,
         });
@@ -3712,7 +4019,7 @@ export function CreatePaymentDialog({
           receivableId: receivable.id,
           amount,
           currencyCode: form.currencyCode,
-          paymentDate: form.paymentDate,
+          paymentDate: new Date(form.paymentDate),
           paymentMethod: form.paymentMethod,
           notes: form.notes || undefined,
           invoiceNo: form.invoiceNo || undefined,
@@ -3724,7 +4031,7 @@ export function CreatePaymentDialog({
           companyId: form.companyId,
           amount,
           currencyCode: form.currencyCode,
-          paymentDate: form.paymentDate,
+          paymentDate: new Date(form.paymentDate),
           paymentMethod: form.paymentMethod,
           notes: form.notes || undefined,
           invoiceNo: form.invoiceNo || undefined,
@@ -3826,10 +4133,10 @@ export function CreatePaymentDialog({
           <div className="grid grid-cols-2 gap-3">
             <div>
               <Label className="text-xs">Ödeme Yöntemi</Label>
-              <Select value={form.paymentMethod} onValueChange={(v) => setForm({ ...form, paymentMethod: v })}>
+              <Select value={form.paymentMethod} onValueChange={(v) => setForm({ ...form, paymentMethod: v as PaymentMethodCode })}>
                 <SelectTrigger className="mt-1.5"><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  {Object.keys(PAYMENT_METHOD_LABELS).map((k) => (
+                  {(Object.keys(PAYMENT_METHOD_LABELS) as PaymentMethodCode[]).map((k) => (
                     <SelectItem key={k} value={k}>{PAYMENT_METHOD_LABELS[k]}</SelectItem>
                   ))}
                 </SelectContent>
@@ -3934,7 +4241,8 @@ export function CreateReceivableDialog({
         quoteId: form.quoteId || undefined,
         amount,
         currencyCode: form.currencyCode,
-        dueDate: form.dueDate,
+        dueDate: new Date(form.dueDate),
+        movementType: "manual",
         invoiceNo: form.invoiceNo || undefined,
         notes: form.notes || undefined,
       });
@@ -4762,7 +5070,7 @@ export function LogActivityDialog({
           activityTypeCode: kind,
           subject: label,
           description: [result.trim(), nextAction.trim() ? `Sonraki adım: ${nextAction.trim()}` : ""].filter(Boolean).join("\n"),
-          activityDate: date,
+          activityDate: new Date(date),
         });
         toast.success("Aktivite kaydedildi");
       }

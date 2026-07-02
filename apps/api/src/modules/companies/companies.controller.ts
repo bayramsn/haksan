@@ -4,6 +4,7 @@ import {
   companyAccessRequestDecisionSchema,
   companyAccessRequestSchema,
   companyCreateSchema,
+  companyLocationSchema,
   companyUpdateSchema,
   companyListQuerySchema,
   paginationSchema,
@@ -11,6 +12,7 @@ import {
   type CompanyAccessRequestDecisionInput,
   type CompanyAccessRequestInput,
   type CompanyCreateInput,
+  type CompanyLocationInput,
   type CompanyUpdateInput,
   type CompanyListQuery,
   type Pagination,
@@ -67,6 +69,16 @@ export class CompaniesController {
     @CurrentUser() user: AuthContext
   ) {
     return this.svc.create(body, user);
+  }
+
+  @RequirePermissions('companies.update')
+  @Patch(':id/location')
+  setLocation(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(companyLocationSchema)) body: CompanyLocationInput,
+    @CurrentUser() user: AuthContext
+  ) {
+    return this.svc.setLocation(id, body, user);
   }
 
   @RequirePermissions('companies.update')

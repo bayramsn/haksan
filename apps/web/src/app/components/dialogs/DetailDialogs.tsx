@@ -7,11 +7,14 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from ".
 import {
   Phone, Smartphone, Mail, MapPin, Building2, Star, Globe, Hash, Briefcase,
   FileText, FileSignature, Receipt, Wallet, Cpu, Wrench, ChevronRight, User as UserIcon,
+  Plus, Pencil, Trash2,
 } from "lucide-react";
 import { Customer, Contact, FirmType, salesStageLabel } from "../../lib/mock";
 import { useStore } from "../../lib/store";
 import { StatusBadge } from "../Layout";
 import { CompanyFinancePanel } from "../shared/CompanyFinancePanel";
+import { CreateContactDialog, EditContactDialog } from "./CreateDialogs";
+import { toast } from "sonner";
 
 // ───────────────────────── helpers ─────────────────────────
 
@@ -84,7 +87,8 @@ export function CompanyDetailDialog({
   onClose: () => void;
   onOpenContact?: (c: Contact) => void;
 }) {
-  const { contacts, cases, offers, documents, payments, machines, service } = useStore();
+  const { contacts, cases, offers, documents, payments, machines, service, deleteContact } = useStore();
+  const [editingContact, setEditingContact] = useState<Contact | null>(null);
   if (!customer) return null;
 
   const firmContacts = contacts.filter((k) => k.customerId === customer.id);
@@ -192,6 +196,16 @@ export function CompanyDetailDialog({
 
             {/* contacts */}
             <TabsContent value="kontaklar" className="mt-3">
+              <div className="mb-2 flex justify-end">
+                <CreateContactDialog
+                  defaultCustomerId={customer.id}
+                  trigger={
+                    <Button type="button" size="sm" className="gap-1">
+                      <Plus className="size-4" /> Kontak Ekle
+                    </Button>
+                  }
+                />
+              </div>
               <div className="rounded-lg border border-border/60 overflow-hidden">
                 <Table>
                   <TableHeader>
@@ -199,7 +213,7 @@ export function CompanyDetailDialog({
                       <TableHead>Kişi</TableHead>
                       <TableHead>Ünvan</TableHead>
                       <TableHead>İletişim</TableHead>
-                      <TableHead className="w-8"></TableHead>
+                      <TableHead className="w-24 text-right">İşlem</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -228,7 +242,41 @@ export function CompanyDetailDialog({
                           <div className="text-xs flex items-center gap-1.5"><Phone className="size-3 text-muted-foreground" />{k.phone || "—"}</div>
                           <div className="text-xs flex items-center gap-1.5 mt-0.5"><Mail className="size-3 text-muted-foreground" />{k.email || "—"}</div>
                         </TableCell>
-                        <TableCell>{onOpenContact && <ChevronRight className="size-4 text-muted-foreground opacity-0 group-hover:opacity-100" />}</TableCell>
+                        <TableCell>
+                          <div className="flex justify-end gap-1">
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              className="size-8"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                setEditingContact(k);
+                              }}
+                            >
+                              <Pencil className="size-4" />
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              className="size-8 text-destructive"
+                              onClick={async (event) => {
+                                event.stopPropagation();
+                                if (!window.confirm(`${k.name} kontağı silinsin mi?`)) return;
+                                try {
+                                  await deleteContact(k.id);
+                                  toast.success("Kontak silindi");
+                                } catch (err: any) {
+                                  toast.error("Kontak silinemedi", { description: err?.message ?? "API isteği başarısız oldu." });
+                                }
+                              }}
+                            >
+                              <Trash2 className="size-4" />
+                            </Button>
+                            {onOpenContact && <ChevronRight className="size-4 text-muted-foreground opacity-0 group-hover:opacity-100 self-center" />}
+                          </div>
+                        </TableCell>
                       </TableRow>
                     ))}
                     {firmContacts.length === 0 && <EmptyRow cols={4} text="Bu firmaya bağlı kontak yok." />}
@@ -383,6 +431,7 @@ export function CompanyDetailDialog({
           </Tabs>
         </div>
       </DialogContent>
+      <EditContactDialog contact={editingContact} onClose={() => setEditingContact(null)} />
     </Dialog>
   );
 }

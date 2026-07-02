@@ -1341,6 +1341,7 @@ export async function seedDemo(): Promise<void> {
       tenantId: tenantRow.id,
       divisionId: item.divisionId ?? defaultDivision?.id ?? null,
       companyId: def.companyId,
+      initialCompanyId: def.companyId,
       inventoryItemId: item.id,
       opportunityId: opportunity?.id ?? null,
       quoteId: quote?.id ?? null,

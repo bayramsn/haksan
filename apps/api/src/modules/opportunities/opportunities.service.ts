@@ -567,6 +567,7 @@ export class OpportunitiesService {
         tenantId: actor.tenantId,
         divisionId: opp.divisionId,
         companyId: opp.companyId,
+        initialCompanyId: opp.companyId,
         inventoryItemId: item.id,
         opportunityId: opp.id,
         saleDate: new Date(),

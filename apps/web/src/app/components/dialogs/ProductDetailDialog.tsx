@@ -76,16 +76,19 @@ export function ProductDetailDialog({
   product,
   onClose,
   highlightOptional = false,
+  hideOptionalEquipment = false,
 }: {
   product: Product | null;
   onClose: () => void;
   highlightOptional?: boolean;
+  hideOptionalEquipment?: boolean;
 }) {
   const [equipment, setEquipment] = useState<EquipmentRow[]>([]);
   const [compatibleOptionalEquipment, setCompatibleOptionalEquipment] = useState<CompatibleOptionalRow[]>([]);
   const [options, setOptions] = useState<any[]>([]);
   const [documents, setDocuments] = useState<MediaItem[]>([]);
   const [loading, setLoading] = useState(false);
+  const [selectedOptionalIds, setSelectedOptionalIds] = useState<string[] | null>(null);
 
   const { patchProduct, products } = useStore();
   const { hasRole, hasPermission } = useAuth();
@@ -102,6 +105,7 @@ export function ProductDetailDialog({
     setEditing(false);
     setOverrides({});
     setDraft({});
+    setSelectedOptionalIds(null);
   }, [product?.id]);
 
   useEffect(() => {
@@ -245,6 +249,29 @@ export function ProductDetailDialog({
   const optional = optionalSource.filter((item, index, all) =>
     all.findIndex((candidate) => candidate.item.id === item.item.id) === index
   );
+  const effectiveSelectedOptionalIds = selectedOptionalIds ?? optional.map((item) => item.item.id);
+  const selectedOptionalRows = optional.filter((item) => effectiveSelectedOptionalIds.includes(item.item.id));
+  const optionPrice = (item: EquipmentRow) => {
+    const value = item.item.unitPrice ? Number(item.item.unitPrice) : 0;
+    return Number.isFinite(value) ? value : 0;
+  };
+  const selectedOptionalTotal = selectedOptionalRows
+    .filter((item) => (item.currency?.code ?? cur) === cur)
+    .reduce((sum, item) => sum + optionPrice(item), 0);
+  const selectedOtherCurrencyTotals = selectedOptionalRows.reduce<Record<string, number>>((acc, item) => {
+    const currency = item.currency?.code ?? cur;
+    if (currency === cur) return acc;
+    acc[currency] = (acc[currency] ?? 0) + optionPrice(item);
+    return acc;
+  }, {});
+  const selectedGrandTotal = (view.listPrice ?? 0) + selectedOptionalTotal;
+  const showOptionalEquipment = !hideOptionalEquipment && (highlightOptional || optional.length > 0);
+  const toggleOptional = (id: string) => {
+    setSelectedOptionalIds((current) => {
+      const activeIds = current ?? optional.map((item) => item.item.id);
+      return activeIds.includes(id) ? activeIds.filter((item) => item !== id) : [...activeIds, id];
+    });
+  };
   const standard = equipment.filter((e) => e.type?.code !== "opsiyonel").map((e) => e.item.title);
   // Fall back to the store's flat lists if the equipment endpoint returned nothing.
   const standardTitles = standard.length ? standard : (product.standardEquipment || []);
@@ -572,7 +599,7 @@ export function ProductDetailDialog({
         )}
 
         {/* optional equipment with prices */}
-        {(highlightOptional || optional.length > 0) && (
+        {showOptionalEquipment && (
           <div className="px-6 pb-4">
             <SectionTitle icon={<Sparkles className="size-3.5" />} text="Uyumlu Opsiyonel Donanım" count={optional.length} />
             {loading ? (
@@ -580,24 +607,56 @@ export function ProductDetailDialog({
             ) : optional.length === 0 ? (
               <div className="text-xs text-muted-foreground">Bu ürün için tanımlı opsiyonel donanım yok.</div>
             ) : (
-              <div className="rounded-lg border border-border/60 overflow-hidden">
-                {optional.map((e, i) => (
-                  <div
-                    key={e.item.id}
-                    className={`flex items-center justify-between gap-3 px-3 py-2 text-sm ${i > 0 ? "border-t border-border/60" : ""}`}
-                  >
-                    <div className="flex items-center gap-2 min-w-0">
-                      <Sparkles className="size-3.5 text-brand-blue shrink-0" />
-                      <div className="min-w-0">
-                        <div className="truncate">{e.item.title}</div>
-                        {e.item.description && <div className="text-[11px] text-muted-foreground truncate">{e.item.description}</div>}
-                      </div>
+              <div className="space-y-2">
+                {highlightOptional && (
+                  <div className="grid gap-2 rounded-lg border border-primary/25 bg-primary/5 p-3 text-sm sm:grid-cols-3">
+                    <div>
+                      <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Makine Liste</div>
+                      <div className="tabular-nums font-medium">{fmtMoney(view.listPrice, cur)}</div>
                     </div>
-                    <div className="tabular-nums text-brand-blue shrink-0">
-                      {fmtMoney(e.item.unitPrice ? Number(e.item.unitPrice) : null, e.currency?.code ?? cur)}
+                    <div>
+                      <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Seçili Opsiyon</div>
+                      <div className="tabular-nums font-medium">{fmtMoney(selectedOptionalTotal, cur)}</div>
+                      {Object.entries(selectedOtherCurrencyTotals).map(([currency, total]) => (
+                        <div key={currency} className="text-[11px] text-muted-foreground tabular-nums">+ {fmtMoney(total, currency)}</div>
+                      ))}
+                    </div>
+                    <div>
+                      <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Toplam Liste</div>
+                      <div className="tabular-nums font-semibold text-brand-blue">{fmtMoney(selectedGrandTotal, cur)}</div>
                     </div>
                   </div>
-                ))}
+                )}
+                <div className="rounded-lg border border-border/60 overflow-hidden">
+                  {optional.map((e, i) => {
+                    const checked = effectiveSelectedOptionalIds.includes(e.item.id);
+                    return (
+                    <div
+                      key={e.item.id}
+                      className={`flex items-center justify-between gap-3 px-3 py-2 text-sm ${i > 0 ? "border-t border-border/60" : ""}`}
+                    >
+                      <div className="flex items-center gap-2 min-w-0">
+                        {highlightOptional ? (
+                          <Checkbox
+                            checked={checked}
+                            onCheckedChange={() => toggleOptional(e.item.id)}
+                            aria-label={`${e.item.title} opsiyon seçimi`}
+                          />
+                        ) : (
+                          <Sparkles className="size-3.5 text-brand-blue shrink-0" />
+                        )}
+                        <div className="min-w-0">
+                          <div className="truncate">{e.item.title}</div>
+                          {e.item.description && <div className="text-[11px] text-muted-foreground truncate">{e.item.description}</div>}
+                        </div>
+                      </div>
+                      <div className="tabular-nums text-brand-blue shrink-0">
+                        {fmtMoney(e.item.unitPrice ? Number(e.item.unitPrice) : null, e.currency?.code ?? cur)}
+                      </div>
+                    </div>
+                    );
+                  })}
+                </div>
               </div>
             )}
           </div>

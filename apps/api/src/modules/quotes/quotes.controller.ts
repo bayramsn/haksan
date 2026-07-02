@@ -23,6 +23,7 @@ import type { AuthContext } from '../../shared/security/auth.types';
 import { QuotesService } from './quotes.service';
 
 const listQuery = z.object({ search: z.string().optional(), statusCode: z.string().optional(), companyId: z.string().optional() });
+const priceApprovalSchema = z.object({ note: z.string().max(1000).optional() });
 
 @UseGuards(AuthGuard, PermissionsGuard)
 @Controller('quotes')
@@ -109,6 +110,26 @@ export class QuotesController {
   @Post(':id/approve')
   approve(@Param('id') id: string, @CurrentUser() user: AuthContext) {
     return this.svc.approve(id, user);
+  }
+
+  @RequirePermissions('quotes.approve')
+  @Post(':id/price-approval/approve')
+  approvePrice(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(priceApprovalSchema)) body: z.infer<typeof priceApprovalSchema>,
+    @CurrentUser() user: AuthContext
+  ) {
+    return this.svc.approvePrice(id, user, body.note);
+  }
+
+  @RequirePermissions('quotes.reject')
+  @Post(':id/price-approval/reject')
+  rejectPrice(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(priceApprovalSchema)) body: z.infer<typeof priceApprovalSchema>,
+    @CurrentUser() user: AuthContext
+  ) {
+    return this.svc.rejectPrice(id, user, body.note);
   }
 
   @RequirePermissions('quotes.reject')

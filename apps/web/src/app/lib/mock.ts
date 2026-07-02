@@ -43,6 +43,10 @@ export type Customer = {
   district?: string;
   country?: string;
   address: string;
+  /** Kalıcı harita konumu (company_addresses.latitude/longitude) */
+  latitude?: number;
+  longitude?: number;
+  locationSource?: string;
   taxOffice?: string;
   taxNumber: string;
   website?: string;
@@ -189,8 +193,11 @@ export type Activity = {
   type: string;
   title: string;
   note: string;
+  result?: string;
   date: string;
   byUserId: string;
+  createdByName?: string;
+  files?: any[];
 };
 
 export type Offer = {
@@ -207,7 +214,8 @@ export type Offer = {
   /** Hesaplanan KDV tutarı. */
   vatTotal?: number;
   currency: "USD" | "EUR" | "TRY";
-  status: "Draft" | "Sent" | "Approved" | "Rejected";
+  status: "Draft" | "Sent" | "Approved" | "Rejected" | "Pending Approval";
+  priceApprovalStatus?: 'not_required' | 'pending' | 'approved' | 'rejected';
   note: string;
 };
 
@@ -340,6 +348,10 @@ export type Product = {
 
 export type Machine = {
   id: string;
+  /** Cihazın satıştaki ilk müşterisi. Firma el değiştirse de referans için korunur. */
+  initialCustomerId?: string;
+  /** Cihazı bugün kullanan firma. Varsayılan olarak ilk müşteriyle aynıdır. */
+  userCompanyId?: string;
   customerId: string;
   salesCaseId: string;
   stockItemId: string;
@@ -627,6 +639,8 @@ export type Shipment = {
   salesCaseId: string;
   senderCompanyId?: string;
   senderCompanyName?: string;
+  /** Kayıtlı olmayan gönderici için elle girilen serbest-metin ad. */
+  senderName?: string;
   carrierCompanyId?: string;
   carrierCompanyName?: string;
   transportMode?: "road" | "air" | "sea" | "local_cargo";

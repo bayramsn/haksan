@@ -22,6 +22,7 @@ export const accountingInvoices = pgTable(
       .notNull()
       .references(() => companies.id, { onDelete: 'restrict' }),
     type: varchar('type', { length: 16 }).notNull(), // sales | purchase
+    invoiceCategory: varchar('invoice_category', { length: 32 }).notNull().default('commercial'), // commercial | administrative
     invoiceNo: varchar('invoice_no', { length: 64 }).notNull(),
     invoiceDate: timestamp('invoice_date', { withTimezone: true }).notNull(),
     amount: money('amount').notNull(),
@@ -33,6 +34,14 @@ export const accountingInvoices = pgTable(
     firstDueDate: timestamp('first_due_date', { withTimezone: true }),
     lastDueDate: timestamp('last_due_date', { withTimezone: true }),
     installmentCount: integer('installment_count').notNull().default(1),
+    paymentType: varchar('payment_type', { length: 32 }).notNull().default('cash'),
+    paymentTermDays: integer('payment_term_days'),
+    previousPaymentTermDays: integer('previous_payment_term_days'),
+    termChangeReason: text('term_change_reason'),
+    incoterm: varchar('incoterm', { length: 64 }),
+    shipmentReference: varchar('shipment_reference', { length: 128 }),
+    orderNo: varchar('order_no', { length: 64 }),
+    expectedDate: timestamp('expected_date', { withTimezone: true }),
     statusId: uuid('status_id').references(() => invoiceStatuses.id),
     fileId: uuid('file_id').references(() => files.id, { onDelete: 'set null' }),
     notes: text('notes'),
@@ -62,6 +71,12 @@ export const accountingInvoiceLines = pgTable(
     categoryCode: varchar('category_code', { length: 64 }),
     description: text('description'),
     quantity: money('quantity').notNull().default('1'),
+    listPrice: money('list_price'),
+    unitPrice: money('unit_price'),
+    discountAmount: money('discount_amount').notNull().default('0'),
+    vatRate: money('vat_rate').notNull().default('20'),
+    lineTotal: money('line_total'),
+    expectedDate: timestamp('expected_date', { withTimezone: true }),
     ...auditColumns,
   },
   (t) => ({

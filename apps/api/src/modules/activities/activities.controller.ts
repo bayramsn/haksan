@@ -1,11 +1,13 @@
-import { Body, Controller, Get, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { z } from 'zod';
 import {
   activityCreateSchema,
+  activityUpdateSchema,
   visitCreateSchema,
   callCreateSchema,
   paginationSchema,
   type ActivityCreateInput,
+  type ActivityUpdateInput,
   type VisitCreateInput,
   type CallCreateInput,
   type Pagination,
@@ -42,6 +44,22 @@ export class ActivitiesController {
     @CurrentUser() user: AuthContext
   ) {
     return this.svc.createActivity(body, user);
+  }
+
+  @RequirePermissions('activities.update')
+  @Patch('activities/:id')
+  updateActivity(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(activityUpdateSchema)) body: ActivityUpdateInput,
+    @CurrentUser() user: AuthContext
+  ) {
+    return this.svc.updateActivity(id, body, user);
+  }
+
+  @RequirePermissions('activities.delete')
+  @Delete('activities/:id')
+  deleteActivity(@Param('id') id: string, @CurrentUser() user: AuthContext) {
+    return this.svc.deleteActivity(id, user);
   }
 
   @RequirePermissions('activities.create')

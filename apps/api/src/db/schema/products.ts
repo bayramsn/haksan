@@ -149,6 +149,28 @@ export const productSpecs = pgTable(
   })
 );
 
+export const productSpecTemplates = pgTable(
+  'product_spec_templates',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    productTypeCode: varchar('product_type_code', { length: 64 }).notNull(),
+    specKey: varchar('spec_key', { length: 255 }).notNull(),
+    defaultValue: text('default_value'),
+    specUnit: varchar('spec_unit', { length: 64 }),
+    sortOrder: integer('sort_order').notNull().default(0),
+    isActive: boolean('is_active').notNull().default(true),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true })
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (t) => ({
+    productTypeIdx: index('product_spec_templates_product_type_idx').on(t.productTypeCode),
+    productTypeKeyUnique: uniqueIndex('product_spec_templates_product_type_key_unique').on(t.productTypeCode, t.specKey),
+  })
+);
+
 export const productEquipmentItems = pgTable(
   'product_equipment_items',
   {

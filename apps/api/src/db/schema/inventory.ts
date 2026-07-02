@@ -102,6 +102,7 @@ export const customerDevices = pgTable(
     companyId: uuid('company_id')
       .notNull()
       .references(() => companies.id, { onDelete: 'restrict' }),
+    initialCompanyId: uuid('initial_company_id').references(() => companies.id, { onDelete: 'set null' }),
     contactId: uuid('contact_id').references(() => contacts.id),
     inventoryItemId: uuid('inventory_item_id').references(() => inventoryItems.id),
     opportunityId: uuid('opportunity_id'),

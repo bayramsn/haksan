@@ -1,4 +1,4 @@
-import { pgTable, uuid, varchar, text, boolean, timestamp, index, uniqueIndex, primaryKey } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, varchar, text, boolean, timestamp, numeric, index, uniqueIndex, primaryKey } from 'drizzle-orm/pg-core';
 import { auditColumns, ownerColumns } from './_helpers';
 import { tenants, divisions } from './tenants';
 import { users } from './users';
@@ -53,6 +53,9 @@ export const companyAddresses = pgTable(
     street: varchar('street', { length: 255 }),
     buildingNumber: varchar('building_number', { length: 32 }),
     fullAddress: text('full_address'),
+    latitude: numeric('latitude', { precision: 10, scale: 7 }),
+    longitude: numeric('longitude', { precision: 10, scale: 7 }),
+    locationSource: varchar('location_source', { length: 16 }),
     isDefault: boolean('is_default').notNull().default(false),
     ...auditColumns,
   },

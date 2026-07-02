@@ -2,8 +2,8 @@ import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
 import { Button } from "../ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../ui/tabs";
-import { ArrowLeft, Plus, Upload, X, XCircle, Eye, FileText, CreditCard, CheckCircle2, Trash2 } from "lucide-react";
-import { SalesCase, SALES_STAGES, salesStageLabel, type Offer } from "../../lib/mock";
+import { ArrowLeft, Plus, Upload, X, XCircle, Eye, FileText, CreditCard, CheckCircle2, Trash2, Wrench, Pencil } from "lucide-react";
+import { SalesCase, SALES_STAGES, salesStageLabel, type Activity, type Offer } from "../../lib/mock";
 import { StatusBadge } from "../Layout";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../ui/table";
 import { useStore } from "../../lib/store";
@@ -24,6 +24,7 @@ import {
 } from "../ui/alert-dialog";
 import { Label } from "../ui/label";
 import { Input } from "../ui/input";
+import { Textarea } from "../ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
 import { DocumentUploadDialog } from "../dialogs/DocumentUploadDialog";
 import { OfferDetailDialog } from "./offers/OffersPage";
@@ -59,13 +60,16 @@ export function SalesCaseDetailPage({
   onBack: () => void;
   mode?: "page" | "dialog";
 }) {
-  const { offers, activities, customers, users, documents, payments, refresh, deleteCase, updateCase } = useStore();
+  const { offers, activities, customers, users, documents, payments, installations, refresh, deleteCase, updateCase, closeCase, updateActivity, deleteActivity } = useStore();
   const { hasRole } = useAuth();
   const isSuperAdmin = hasRole("super_admin");
   const [lostOpen, setLostOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteSaving, setDeleteSaving] = useState(false);
+  const [closeSaving, setCloseSaving] = useState(false);
   const [selectedOfferId, setSelectedOfferId] = useState<string | null>(null);
+  const [editingActivity, setEditingActivity] = useState<Activity | null>(null);
+  const [activityForm, setActivityForm] = useState({ type: "", title: "", note: "", result: "", date: "" });
   const [salesOrders, setSalesOrders] = useState<any[]>([]);
   const canMarkLost = !sc.isLost && sc.stage !== "cancelled" && sc.stage !== "delivered";
   const c = customers.find((x) => x.id === sc.customerId);
@@ -74,9 +78,11 @@ export function SalesCaseDetailPage({
   const offs = offers.filter((o) => o.salesCaseId === sc.id);
   const docs = documents.filter((d) => d.salesCaseId === sc.id);
   const pays = payments.filter((p) => p.salesCaseId === sc.id);
+  const relatedInstallation = installations.find((item) => item.salesCaseId === sc.id);
   // Kart "Sözleşme" aşamasına ulaştıysa ticari fatura yükleme alanını aç.
   const reachedContract = SALES_STAGES.indexOf(sc.stage) >= SALES_STAGES.indexOf("contract");
   const reachedPaymentPlan = SALES_STAGES.indexOf(sc.stage) >= SALES_STAGES.indexOf("payment_plan");
+  const reachedInstallation = SALES_STAGES.indexOf(sc.stage) >= SALES_STAGES.indexOf("installation");
   const commercialInvoiceDoc = docs.find((d) => d.type === "CommercialInvoice");
   const selectedOffer = selectedOfferId ? offers.find((o) => o.id === selectedOfferId) ?? null : null;
   const selectedRevisions = selectedOffer
@@ -102,12 +108,24 @@ export function SalesCaseDetailPage({
     };
   }, [selectedOfferId]);
 
-  const runQuoteAction = async (offerId: string, action: "send" | "approve" | "reject") => {
+  const runQuoteAction = async (offerId: string, action: "send" | "approve" | "reject" | "approve-price" | "reject-price") => {
     try {
       if (action === "send") await quoteService.send(offerId);
       else if (action === "approve") await quoteService.approve(offerId);
+      else if (action === "approve-price") await quoteService.approvePrice(offerId);
+      else if (action === "reject-price") await quoteService.rejectPrice(offerId);
       else await quoteService.reject(offerId);
-      toast.success(action === "send" ? "Teklif gönderildi" : action === "approve" ? "Teklif onaylandı" : "Teklif reddedildi");
+      toast.success(
+        action === "send"
+          ? "Teklif gönderildi"
+          : action === "approve"
+            ? "Teklif onaylandı"
+            : action === "approve-price"
+              ? "Fiyat onaylandı"
+              : action === "reject-price"
+                ? "Fiyat reddedildi"
+                : "Teklif reddedildi"
+      );
       await refresh();
     } catch (err: any) {
       toast.error("İşlem başarısız", { description: err?.message ?? "API isteği başarısız oldu." });
@@ -129,6 +147,60 @@ export function SalesCaseDetailPage({
       document.body.removeChild(a);
     } catch (err: any) {
       toast.error("Doküman indirilemedi", { description: err?.message ?? "İstek başarısız oldu." });
+    }
+  };
+
+  const openActivityEdit = (activity: Activity) => {
+    setEditingActivity(activity);
+    setActivityForm({
+      type: activity.type,
+      title: activity.title,
+      note: activity.note,
+      result: activity.result ?? "",
+      date: activity.date,
+    });
+  };
+
+  const saveActivityEdit = async () => {
+    if (!editingActivity) return;
+    if (!activityForm.title.trim()) return toast.error("Aktivite başlığı zorunludur");
+    try {
+      await updateActivity(editingActivity.id, {
+        type: activityForm.type,
+        title: activityForm.title.trim(),
+        note: activityForm.note.trim(),
+        result: activityForm.result.trim(),
+        date: activityForm.date,
+      });
+      toast.success("Aktivite güncellendi");
+      setEditingActivity(null);
+    } catch (err: any) {
+      toast.error("Aktivite güncellenemedi", { description: err?.message ?? "API isteği başarısız oldu." });
+    }
+  };
+
+  const removeActivity = async (activity: Activity) => {
+    if (!window.confirm(`${activity.title} aktivitesi silinsin mi?`)) return;
+    try {
+      await deleteActivity(activity.id);
+      toast.success("Aktivite silindi");
+    } catch (err: any) {
+      toast.error("Aktivite silinemedi", { description: err?.message ?? "API isteği başarısız oldu." });
+    }
+  };
+
+  const handleCloseCase = async () => {
+    if (closeSaving) return;
+    if (!window.confirm("Bu kart 'Tamamlandı' olarak arşivlenecek (silinmez, Geçmiş'te kalır). Devam edilsin mi?")) return;
+    setCloseSaving(true);
+    try {
+      await closeCase(sc.id);
+      toast.success("Kart Geçmiş'e alındı", { description: c?.name ?? sc.requestedProduct });
+      onBack();
+    } catch (err: any) {
+      toast.error("Kart bitirilemedi", { description: err?.message ?? "Yalnız teslim edilen veya iptal edilen kartlar kapatılabilir." });
+    } finally {
+      setCloseSaving(false);
     }
   };
 
@@ -162,6 +234,17 @@ export function SalesCaseDetailPage({
           {mode === "dialog" ? "Kapat" : "Listeye dön"}
         </Button>
         <div className="flex flex-wrap items-center justify-end gap-2">
+          {sc.stage === "delivered" && !sc.closedAt && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => void handleCloseCase()}
+              disabled={closeSaving}
+              className="gap-1 border-emerald-200 text-emerald-700 hover:bg-emerald-50 hover:text-emerald-800"
+            >
+              <CheckCircle2 className="size-4" /> Bitir
+            </Button>
+          )}
           {canMarkLost && (
             <Button
               variant="outline"
@@ -346,6 +429,44 @@ export function SalesCaseDetailPage({
         </Card>
       )}
 
+      {(reachedInstallation || relatedInstallation) && (
+        <Card className="border-blue-300/70 bg-blue-50/50">
+          <CardContent className="p-4 sm:p-5">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex items-start gap-3 min-w-0">
+                <div className="size-10 rounded-lg bg-blue-100 text-blue-700 grid place-items-center shrink-0">
+                  <Wrench className="size-5" />
+                </div>
+                <div className="min-w-0">
+                  <div className="text-sm font-medium">Servis Kurulum</div>
+                  {relatedInstallation ? (
+                    <div className="mt-1 grid gap-1 text-xs text-muted-foreground sm:grid-cols-2">
+                      <span>Durum: <span className="text-foreground">{relatedInstallation.statusName}</span></span>
+                      <span>Teknisyen: <span className="text-foreground">{relatedInstallation.technician}</span></span>
+                      <span>Plan: <span className="text-foreground">{relatedInstallation.scheduledDate || "—"}</span></span>
+                      <span>Tamamlanma: <span className="text-foreground">{relatedInstallation.completedDate || "—"}</span></span>
+                      <span className="sm:col-span-2">
+                        Cihaz: <span className="text-foreground">{relatedInstallation.deviceLabel}</span>
+                        {relatedInstallation.serialNumber ? ` · ${relatedInstallation.serialNumber}` : ""}
+                      </span>
+                    </div>
+                  ) : (
+                    <div className="text-xs text-muted-foreground mt-0.5">
+                      Kart kurulum aşamasına geldi. Servis kurulum kaydı yüklenince durum burada görünecek.
+                    </div>
+                  )}
+                </div>
+              </div>
+              {relatedInstallation?.statusCode === "completed" && (
+                <div className="inline-flex h-8 items-center gap-1 rounded-md border border-emerald-200 bg-white px-2.5 text-xs text-emerald-700">
+                  <CheckCircle2 className="size-3.5" /> Kurulum tamamlandı
+                </div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       <Tabs defaultValue="timeline">
         <TabsList className="h-auto w-full justify-start overflow-x-auto">
           <TabsTrigger value="timeline">Zaman Çizelgesi</TabsTrigger>
@@ -369,9 +490,45 @@ export function SalesCaseDetailPage({
                 {acts.map((a) => (
                   <li key={a.id} className="ml-4">
                     <span className="absolute -left-1.5 size-3 rounded-full bg-primary" />
-                    <div className="text-xs text-muted-foreground">{a.date}</div>
-                    <div className="text-sm">{a.title}</div>
-                    <div className="text-sm text-muted-foreground">{a.note}</div>
+                    <div className="rounded-lg border border-border/60 bg-white p-3">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="text-xs text-muted-foreground">
+                            {[a.date, a.type, a.createdByName || users.find((u) => u.id === a.byUserId)?.name].filter(Boolean).join(" · ")}
+                          </div>
+                          <div className="mt-1 text-sm font-medium">{a.title}</div>
+                        </div>
+                        <div className="flex shrink-0 gap-1">
+                          <Button type="button" variant="ghost" size="icon" className="size-8" onClick={() => openActivityEdit(a)}>
+                            <Pencil className="size-4" />
+                          </Button>
+                          <Button type="button" variant="ghost" size="icon" className="size-8 text-destructive" onClick={() => removeActivity(a)}>
+                            <Trash2 className="size-4" />
+                          </Button>
+                        </div>
+                      </div>
+                      {a.note && <div className="mt-2 text-sm text-muted-foreground">{a.note}</div>}
+                      {a.result && (
+                        <div className="mt-2 rounded-md bg-muted/50 px-2.5 py-1.5 text-sm">
+                          {a.result}
+                        </div>
+                      )}
+                      {Array.isArray(a.files) && a.files.length > 0 && (
+                        <div className="mt-2 flex flex-wrap gap-1.5">
+                          {a.files.map((file: any) => (
+                            <button
+                              key={file.id ?? file.fileId ?? file.linkId}
+                              type="button"
+                              className="inline-flex items-center gap-1 rounded-md border border-border/60 px-2 py-1 text-xs text-muted-foreground hover:text-primary"
+                              onClick={() => downloadDocument(file.id ?? file.fileId, file.originalFilename ?? file.filename ?? "aktivite-dosyasi")}
+                            >
+                              <FileText className="size-3.5" />
+                              <span className="max-w-[180px] truncate">{file.originalFilename ?? file.filename ?? "Dosya"}</span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   </li>
                 ))}
                 {acts.length === 0 && <div className="text-sm text-muted-foreground">Aktivite yok.</div>}
@@ -552,8 +709,45 @@ export function SalesCaseDetailPage({
         order={selectedOrder}
         onClose={() => setSelectedOfferId(null)}
         onQuoteAction={runQuoteAction}
+        canApprovePrice={isSuperAdmin}
         onOrderCreated={refresh}
       />
+      <Dialog open={!!editingActivity} onOpenChange={(open) => !open && setEditingActivity(null)}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Aktivite Düzenle</DialogTitle>
+            <DialogDescription>Aktivite başlığı, notu, sonucu ve tarihini güncelleyin.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label className="text-xs">Tür</Label>
+                <Input className="mt-1.5" value={activityForm.type} onChange={(e) => setActivityForm({ ...activityForm, type: e.target.value })} />
+              </div>
+              <div>
+                <Label className="text-xs">Tarih</Label>
+                <Input type="date" className="mt-1.5" value={activityForm.date} onChange={(e) => setActivityForm({ ...activityForm, date: e.target.value })} />
+              </div>
+            </div>
+            <div>
+              <Label className="text-xs">Başlık *</Label>
+              <Input className="mt-1.5" value={activityForm.title} onChange={(e) => setActivityForm({ ...activityForm, title: e.target.value })} />
+            </div>
+            <div>
+              <Label className="text-xs">Not</Label>
+              <Textarea className="mt-1.5 min-h-[80px]" value={activityForm.note} onChange={(e) => setActivityForm({ ...activityForm, note: e.target.value })} />
+            </div>
+            <div>
+              <Label className="text-xs">Sonuç / Ne Yapıldı</Label>
+              <Textarea className="mt-1.5 min-h-[64px]" value={activityForm.result} onChange={(e) => setActivityForm({ ...activityForm, result: e.target.value })} />
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button type="button" variant="outline" onClick={() => setEditingActivity(null)}>Vazgeç</Button>
+              <Button type="button" onClick={saveActivityEdit}>Kaydet</Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

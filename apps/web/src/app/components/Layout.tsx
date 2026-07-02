@@ -7,7 +7,7 @@ import {
   LifeBuoy, BarChart3, ShieldCheck, Building2, Contact as ContactIcon, Settings as SettingsIcon,
   Search, Bell, ChevronDown, LogOut, Plus, HelpCircle, Menu,
   CheckCircle2, Clock, AlertTriangle, XCircle, ChevronRight, Tag, Receipt, Map as MapIcon, FileSignature, Wallet, Calendar, MessageCircle, MessageSquare,
-  PhoneCall,
+  PhoneCall, ListChecks,
 } from "lucide-react";
 import { callAssistantService, chatService, notificationService, type CallSuggestionDTO, type NotificationDTO } from "../../lib/services";
 import { useAuth } from "../../lib/auth";
@@ -34,7 +34,7 @@ import { buildAlerts, type OperationAction } from "../lib/operations";
 
 export type NavKey =
   | "dashboard" | "chat" | "calendar" | "customers" | "contacts" | "sales-cases" | "kanban" | "sales-map" | "offers"
-  | "proformas" | "contracts" | "documents" | "payments" | "accounting-invoices" | "customer-balances" | "due-dates" | "sales-price-list" | "products"
+  | "proformas" | "contracts" | "documents" | "payments" | "accounting-invoices" | "customer-balances" | "due-dates" | "sales-price-list" | "references" | "products"
   | "stock" | "purchase-orders" | "shipments"
   | "installations" | "deliveries" | "machines" | "service-requests" | "service-kanban" | "service-price-list"
   | "reports" | "users" | "roles" | "departments" | "settings";
@@ -67,6 +67,7 @@ const NAV: { group: string; items: NavItem[] }[] = [
       { key: "contracts", label: "Sözleşmeler", icon: FileSignature, roles: ["sales", "finance"] },
       { key: "documents", label: "Dokümanlar", icon: FolderOpen, roles: ["sales", "finance"] },
       { key: "sales-price-list", label: "Satış Fiyat Listesi", icon: Tag, roles: ["sales"] },
+      { key: "references", label: "Referanslar", icon: ListChecks, roles: ["sales"] },
     ],
   },
   {
@@ -114,7 +115,7 @@ export function Layout({ current, onNavigate, onLogout, pageTitle, pageSubtitle,
   const { hasRole, hasPermission, user, activeDivision, setActiveDivision } = useAuth();
   const canApprove = hasPermission("companies.update") || hasRole("super_admin");
   const divisions = user?.divisions ?? [];
-  const canViewAllDivisions = user?.canViewAllDivisions ?? false;
+  const canPickDivision = hasRole("super_admin") && (user?.canViewAllDivisions ?? false);
   const activeDivisionLabel =
     activeDivision === "all" ? "Tümü" : divisions.find((d) => d.id === activeDivision)?.name ?? "Bölüm";
   const roleLabel = user?.roles?.[0] ? user.roles[0].replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()) : "Kullanıcı";
@@ -392,11 +393,9 @@ export function Layout({ current, onNavigate, onLogout, pageTitle, pageSubtitle,
 
             <div className="flex-1" />
 
-            {/* Bölüm seçici (CNC/Üniversal/Sac/Tümü) — yalnızca 'tümünü gör'
-                yetkisi olan kullanıcılarda (süper admin / admin) görünür. Diğer
-                kullanıcılar zaten yalnızca kendi bölümlerini görür; başlık backend
-                tarafından yok sayıldığı için seçici de gösterilmez. */}
-            {canViewAllDivisions && divisions.length > 0 && (
+            {/* Bölüm seçici yalnızca süper admin'e açıktır. Diğer kullanıcılar
+                auth başlangıcında kendi birincil bölümüne kilitlenir. */}
+            {canPickDivision && divisions.length > 0 && (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button variant="outline" size="sm" className="gap-1.5 h-9 px-2 sm:px-3" aria-label="Bölüm seç">

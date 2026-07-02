@@ -2,10 +2,11 @@ import { useMemo, useState } from "react";
 import { Card } from "../ui/card";
 import { Avatar, AvatarFallback } from "../ui/avatar";
 import { SALES_STAGES, SalesCase, SalesStage, salesStageLabel, DocumentItem, type Machine } from "../../lib/mock";
-import { ArrowRight, Building2, Calendar } from "lucide-react";
+import { ArrowRight, Building2, Calendar, CheckCircle2 } from "lucide-react";
 import { KanbanBoard, KanbanColumn } from "../KanbanBoard";
 import { KanbanCardAttachments } from "../KanbanCardAttachments";
 import { DocumentPreviewDialog } from "../dialogs/DocumentPreviewDialog";
+import { DocumentUploadDialog } from "../dialogs/DocumentUploadDialog";
 import { useStore } from "../../lib/store";
 import { LostCaseDialog } from "../dialogs/LostCaseDialog";
 import { loadContractPrintData, loadProformaPrintData, proformaDoc, contractDoc, installationFormDoc, printAssetBase, trShortDate } from "../../lib/print";
@@ -59,13 +60,15 @@ const STAGE_DOT: Record<string, string> = {
 const initials = (n: string) => (n || "—").split(" ").slice(0, 2).map((p) => p[0]).join("").toUpperCase();
 
 export function KanbanPage({ onSelect, items }: { onSelect: (s: SalesCase) => void; items?: SalesCase[] }) {
-  const { cases: storeCases, moveCase, customers, contacts, users, documents, offers, products, payments, machines, stock, addDocument } = useStore();
+  const { cases: storeCases, moveCase, closeCase, customers, contacts, users, documents, offers, products, payments, machines, stock, addDocument } = useStore();
   const cases = items ?? storeCases;
   const [lostId, setLostId] = useState<string | null>(null);
   const [previewDoc, setPreviewDoc] = useState<DocumentItem | null>(null);
   const [stockPickCaseId, setStockPickCaseId] = useState<string | null>(null);
   const [selectedStockIds, setSelectedStockIds] = useState<string[]>([]);
   const [stockPickSaving, setStockPickSaving] = useState(false);
+  const [invoiceUploadCase, setInvoiceUploadCase] = useState<SalesCase | null>(null);
+  const [closingCaseId, setClosingCaseId] = useState<string | null>(null);
   const lostCustomer = lostId ? customers.find((x) => x.id === cases.find((s) => s.id === lostId)?.customerId)?.name : undefined;
   const stockPickCase = stockPickCaseId ? storeCases.find((s) => s.id === stockPickCaseId) ?? cases.find((s) => s.id === stockPickCaseId) : null;
   const stockPickCustomer = stockPickCase ? customers.find((x) => x.id === stockPickCase.customerId) : undefined;
@@ -258,6 +261,9 @@ export function KanbanPage({ onSelect, items }: { onSelect: (s: SalesCase) => vo
     machines.find((x) => x.salesCaseId === sc.id) ??
     machines.find((x) => x.customerId === sc.customerId);
 
+  const hasCommercialInvoice = (caseId: string) =>
+    documents.some((doc) => doc.salesCaseId === caseId && doc.type === "CommercialInvoice");
+
   const loadInstallationMachine = async (sc: SalesCase) => {
     const fallback = localMachineForCase(sc);
     try {
@@ -295,7 +301,6 @@ export function KanbanPage({ onSelect, items }: { onSelect: (s: SalesCase) => vo
           faks: cust?.fax,
           gsm: cust?.phone2,
           eposta: cust?.email,
-          technicalSpecs: m?.technicalSpecs,
         },
         printAssetBase()
       )
@@ -317,6 +322,17 @@ export function KanbanPage({ onSelect, items }: { onSelect: (s: SalesCase) => vo
       }
       setStockPickCaseId(id);
       setSelectedStockIds([]);
+      return;
+    }
+
+    if (to === "commercial_invoice" && sc && from === "payment_plan" && !hasCommercialInvoice(sc.id)) {
+      if (!offers.some((offer) => offer.salesCaseId === sc.id)) {
+        toast.error("Fatura için ilişkili teklif bulunamadı", { description: "Ticari fatura kaydı teklif üzerinden oluşturulur." });
+        onSelect(sc);
+        return;
+      }
+      setInvoiceUploadCase(sc);
+      toast.message("Ticari fatura gerekli", { description: "Dosyayı yükleyince kart otomatik olarak Ticari Fatura aşamasına geçirilecek." });
       return;
     }
 
@@ -347,6 +363,31 @@ export function KanbanPage({ onSelect, items }: { onSelect: (s: SalesCase) => vo
     }
   };
 
+  const completeCommercialInvoiceStage = async (sc: SalesCase) => {
+    setInvoiceUploadCase(null);
+    try {
+      await moveCase(sc.id, "commercial_invoice");
+      toast.success("Ticari fatura yüklendi", { description: "Kart Ticari Fatura aşamasına alındı." });
+    } catch (err: any) {
+      toast.error("Kart taşınamadı", { description: err?.message ?? "Aşama gereksinimleri tamamlanmalı." });
+      onSelect(sc);
+    }
+  };
+
+  const finishDeliveredCase = async (sc: SalesCase) => {
+    if (closingCaseId) return;
+    if (!window.confirm("Bu kart 'Tamamlandı' olarak arşivlenecek (silinmez, Geçmiş'te kalır). Devam edilsin mi?")) return;
+    setClosingCaseId(sc.id);
+    try {
+      await closeCase(sc.id);
+      toast.success("Kart Geçmiş'e alındı", { description: salesStageLabel(sc.stage) });
+    } catch (err: any) {
+      toast.error("Kart bitirilemedi", { description: err?.message ?? "Yalnız teslim edilen veya iptal edilen kartlar kapatılabilir." });
+    } finally {
+      setClosingCaseId(null);
+    }
+  };
+
   const columns: KanbanColumn<SalesCase>[] = SALES_STAGES.map((stage) => {
     const items = cases.filter((s) => s.stage === stage);
     const total = items.reduce((a, s) => a + s.estimatedAmount, 0);
@@ -368,6 +409,18 @@ export function KanbanPage({ onSelect, items }: { onSelect: (s: SalesCase) => vo
     <>
     <LostCaseDialog open={!!lostId} onOpenChange={(o) => !o && setLostId(null)} caseId={lostId} caseName={lostCustomer} />
     <DocumentPreviewDialog doc={previewDoc} onClose={() => setPreviewDoc(null)} />
+    <DocumentUploadDialog
+      open={!!invoiceUploadCase}
+      onOpenChange={(open) => {
+        if (!open) setInvoiceUploadCase(null);
+      }}
+      defaultSalesCaseId={invoiceUploadCase?.id}
+      defaultCompanyId={invoiceUploadCase?.customerId}
+      defaultType="CommercialInvoice"
+      onUploaded={() => {
+        if (invoiceUploadCase) void completeCommercialInvoiceStage(invoiceUploadCase);
+      }}
+    />
     <Dialog open={!!stockPickCaseId} onOpenChange={(open) => !open && closeStockPicker()}>
       <DialogContent className="sm:max-w-xl">
         <DialogHeader>
@@ -523,6 +576,23 @@ export function KanbanPage({ onSelect, items }: { onSelect: (s: SalesCase) => vo
                 {s.estimatedAmount.toLocaleString()} <span className="text-[11px] text-muted-foreground">{s.currency}</span>
               </div>
               <div className="flex items-center gap-1.5 shrink-0">
+                {s.stage === "delivered" && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 gap-1 px-2 text-[10px] text-emerald-700 hover:bg-emerald-50 hover:text-emerald-800"
+                    disabled={closingCaseId === s.id}
+                    title="Tamamla / Geçmiş'e al"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      void finishDeliveredCase(s);
+                    }}
+                    onMouseDown={(event) => event.stopPropagation()}
+                  >
+                    <CheckCircle2 className="size-3" /> Bitir
+                  </Button>
+                )}
                 <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground">
                   <Calendar className="size-2.5" />
                   {s.createdAt.slice(5)}

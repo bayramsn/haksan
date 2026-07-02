@@ -13,6 +13,8 @@ import { Customer, FirmType } from "../../lib/mock";
 import { useStore } from "../../lib/store";
 import { coordsForCity, haversineKm, openDirections, centroidForProvince, PROVINCE_NAMES, TURKEY_CENTER, type LatLng } from "../../lib/geo";
 import { usePersistentState } from "../../lib/persist";
+import { companyService } from "../../../lib/services";
+import { toast } from "sonner";
 
 const FIRM_TYPE_LABEL: Record<FirmType, string> = {
   customer: "Müşteri",
@@ -162,7 +164,7 @@ const GEO_MESSAGES: Partial<Record<GeoStatus, string>> = {
 };
 
 export function SalesMapPage({ initialQuery }: { initialQuery?: string }) {
-  const { customers } = useStore();
+  const { customers, refresh } = useStore();
   const [q, setQ] = usePersistentState("salesmap.q", "");
   const [firmType, setFirmType] = usePersistentState<"all" | FirmType>("salesmap.firmType", "all");
   const [radius, setRadius] = usePersistentState<"all" | "50" | "100" | "250" | "500">("salesmap.radius", "all");
@@ -223,9 +225,20 @@ export function SalesMapPage({ initialQuery }: { initialQuery?: string }) {
       setSelectionMode(null);
       return;
     }
-    setFirmCoords((current) => ({ ...current, [selectionMode.customerId]: pos }));
-    setFocusedId(selectionMode.customerId);
+    const customerId = selectionMode.customerId;
+    // İyimser yerel yazım + kalıcı DB kaydı
+    setFirmCoords((current) => ({ ...current, [customerId]: pos }));
+    setFocusedId(customerId);
     setSelectionMode(null);
+    companyService
+      .setLocation(customerId, { latitude: pos.lat, longitude: pos.lng })
+      .then(() => {
+        toast.success("Firma konumu kaydedildi");
+        void refresh();
+      })
+      .catch((err: any) => {
+        toast.error("Konum kaydedilemedi", { description: err?.message ?? "Pin yalnızca bu tarayıcıda kaldı." });
+      });
   };
 
   const resetFirmPin = (customerId: string) => {
@@ -236,6 +249,15 @@ export function SalesMapPage({ initialQuery }: { initialQuery?: string }) {
     });
     setFocusedId(customerId);
     setSelectionMode(null);
+    companyService
+      .setLocation(customerId, { latitude: null, longitude: null })
+      .then(() => {
+        toast.success("Firma konumu yaklaşık merkeze döndü");
+        void refresh();
+      })
+      .catch((err: any) => {
+        toast.error("Konum sıfırlanamadı", { description: err?.message });
+      });
   };
 
   const clearUserLocation = () => {
@@ -296,11 +318,34 @@ export function SalesMapPage({ initialQuery }: { initialQuery?: string }) {
     );
   };
 
+  // Eski localStorage pinlerini tek seferlik DB'ye taşı (DB'de konumu olmayanlar için).
+  const migratedPins = useRef(false);
+  useEffect(() => {
+    if (migratedPins.current || customers.length === 0) return;
+    const pending = customers.filter((c) => c.latitude == null && firmCoords[c.id]);
+    if (pending.length === 0) {
+      migratedPins.current = true;
+      return;
+    }
+    migratedPins.current = true;
+    void Promise.allSettled(
+      pending.map((c) => {
+        const pin = firmCoords[c.id];
+        return companyService.setLocation(c.id, { latitude: pin.lat, longitude: pin.lng });
+      })
+    ).then((results) => {
+      if (results.some((r) => r.status === "fulfilled")) void refresh();
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [customers]);
+
   // Haritalanabilir firmalar + (varsa) kullanıcıya mesafe.
+  // Konum çözüm sırası: DB koordinatı → yerel pin (eski) → il/ilçe merkezi.
   const mapped = useMemo<MappedFirm[]>(() => {
     return customers
       .map((c) => {
-        const override = firmCoords[c.id];
+        const dbPos = c.latitude != null && c.longitude != null ? { lat: c.latitude, lng: c.longitude } : null;
+        const override = dbPos ?? firmCoords[c.id] ?? null;
         const pos = override ?? coordsForCity(c.city, c.district, c.id);
         if (!pos) return null;
         const distanceKm = userPos ? haversineKm(userPos, pos) : null;
@@ -419,6 +464,7 @@ export function SalesMapPage({ initialQuery }: { initialQuery?: string }) {
 
         <div className="text-[11px] text-muted-foreground px-0.5">
           {userPos ? <><b className="text-foreground">{filtered.length}</b> firma yakınlık sırasıyla</> : <><b className="text-foreground">{filtered.length}</b> firma haritada</>}
+          <span> · toplam {customers.length} firma</span>
           {unmappedCount > 0 && <span> · {unmappedCount} firma konumsuz</span>}
         </div>
 
@@ -498,7 +544,9 @@ export function SalesMapPage({ initialQuery }: { initialQuery?: string }) {
                 {selectionMode.type === "user" ? "Kendi konumunuzu seçin" : "Firma pinini düzeltin"}
               </div>
               <div className="mt-0.5 text-muted-foreground">
-                Haritada doğru noktaya tıklayın. İşlem yalnızca bu tarayıcıda kaydedilir.
+                {selectionMode.type === "user"
+                  ? "Haritada doğru noktaya tıklayın. Kendi konumunuz yalnızca bu tarayıcıda saklanır."
+                  : "Haritada doğru noktaya tıklayın. Firma pini kalıcı olarak kaydedilir ve herkes görür."}
               </div>
             </div>
           )}
@@ -536,7 +584,7 @@ export function SalesMapPage({ initialQuery }: { initialQuery?: string }) {
           <span className="inline-flex items-center gap-1"><span className="size-2.5 rounded-full" style={{ background: FIRM_TYPE_COLOR.customer }} /> Müşteri</span>
           <span className="inline-flex items-center gap-1"><span className="size-2.5 rounded-full" style={{ background: FIRM_TYPE_COLOR.supplier_customer }} /> Ted.+Müşteri</span>
           <span className="inline-flex items-center gap-1"><span className="size-2.5 rounded-full" style={{ background: FIRM_TYPE_COLOR.supplier }} /> Tedarikçi</span>
-          <span className="ml-auto inline-flex items-center gap-1"><AlertCircle className="size-3" /> Tam pinler yerelde saklanır; diğerleri şehir/ilçe yaklaşıktır</span>
+          <span className="ml-auto inline-flex items-center gap-1"><AlertCircle className="size-3" /> Tam pinler kalıcı kaydedilir; diğerleri şehir/ilçe yaklaşıktır</span>
         </div>
       </Card>
     </div>

@@ -193,10 +193,10 @@ export function QuoteDialog({
   const { customers, contacts, products, users, cases, offers, noteTemplates, createQuoteFull, addNoteTemplate, updateNoteTemplate, deleteNoteTemplate, refresh } = useStore();
   const editing = Boolean(offerId);
   const { convert } = useFx();
-  const { user, activeDivision } = useAuth();
-  // Bölüm seçici yalnızca "Tümü"yü görebilen (view_all) kullanıcılarda görünür;
-  // diğerleri kendi bölümüne otomatik atanır (backend zorlar).
-  const canPickDivision = user?.canViewAllDivisions ?? false;
+  const { user, activeDivision, hasRole } = useAuth();
+  // Bölüm seçici yalnızca süper admin'e açıktır; diğer roller kendi birincil
+  // bölümüne auth/header seviyesinde kilitlenir.
+  const canPickDivision = hasRole("super_admin") && (user?.canViewAllDivisions ?? false);
   const divisions = user?.divisions ?? [];
   const defaultDivisionId = activeDivision && activeDivision !== "all" ? activeDivision : divisions[0]?.id ?? "";
   const [internalOpen, setInternalOpen] = useState(false);
@@ -323,8 +323,8 @@ export function QuoteDialog({
           : [];
         const desc = String(it.description ?? "");
         const dashIdx = desc.indexOf(" — ");
-        const stockCode = dashIdx > -1 ? desc.slice(0, dashIdx) : product?.stockCode ?? "";
-        const description = dashIdx > -1 ? desc.slice(dashIdx + 3) : desc;
+        const stockCode = it.stockCode ?? (dashIdx > -1 ? desc.slice(0, dashIdx) : product?.stockCode ?? "");
+        const description = it.stockCode ? desc : dashIdx > -1 ? desc.slice(dashIdx + 3) : desc;
         return {
           categoryCode: product?.categoryCode ?? "",
           productId: it.productModelId ?? "",
@@ -376,8 +376,6 @@ export function QuoteDialog({
       if (editing && offerId) {
         reset();
         void loadForEdit(offerId);
-      } else {
-        reset();
       }
     }
   };
@@ -578,7 +576,7 @@ export function QuoteDialog({
 
     // Ana ürün + teklife özel opsiyonel donanımları tek kalem listesine düzleştir
     const items = valid.flatMap((l) => {
-      const mainName = [l.stockCode.trim(), l.description.trim()].filter(Boolean).join(" — ") || "Ürün";
+      const mainName = l.description.trim() || "Ürün";
       const technicalSpecs = cleanTechnicalSpecs(l.technicalSpecs);
       const lineCompatibility = {
         ...(COMPAT_CATEGORIES.includes(l.categoryCode) && hasCompatibility(l.compatibility) ? l.compatibility : emptyCompatibility()),
@@ -587,6 +585,7 @@ export function QuoteDialog({
       const hasLineCompatibility = hasCompatibility(lineCompatibility) || technicalSpecs.length > 0;
       const main = {
         productModelId: l.productId || undefined,
+        stockCode: l.stockCode.trim() || undefined,
         description: mainName,
         quantity: num(l.quantity),
         unitPrice: Number(netUnitPrice(l).toFixed(4)),

@@ -587,15 +587,18 @@ export class ServiceController {
         }
         serialNumber = serialNumber ?? inv.serialNumber;
       } else if (serialNumber) {
+        // Serbest girilen seri no envanterde varsa otomatik bağlanır; yoksa snapshot metin olarak
+        // saklanır (henüz stoğa girmemiş gelen sevkiyat kalemleri için elle giriş desteklenir).
         const inv = await this.db.query.inventoryItems.findFirst({
           where: and(eq(inventoryItems.tenantId, tenantId), eq(inventoryItems.serialNumber, serialNumber), isNull(inventoryItems.deletedAt)),
         });
-        if (!inv) throw new NotFoundError('Seri numarası');
-        if (item.productModelId && inv.productModelId !== item.productModelId) {
-          throw new ValidationError('Sevkiyat satırındaki ürün modeli ve seri no eşleşmiyor', { field: 'items' });
+        if (inv) {
+          if (item.productModelId && inv.productModelId !== item.productModelId) {
+            throw new ValidationError('Sevkiyat satırındaki ürün modeli ve seri no eşleşmiyor', { field: 'items' });
+          }
+          inventoryItemId = inv.id;
+          serialNumber = inv.serialNumber;
         }
-        inventoryItemId = inv.id;
-        serialNumber = inv.serialNumber;
       }
       const unitId = await lookupIdByCode(this.db, units, item.unitCode);
       await this.db.insert(shipmentItems).values({
@@ -742,6 +745,7 @@ export class ServiceController {
             await this.db.insert(customerDevices).values({
               tenantId,
               companyId: deliveryCompanyId,
+              initialCompanyId: deliveryCompanyId,
               inventoryItemId: item.id,
               saleDate: deliveryDate,
               deliveryDate,
@@ -1538,6 +1542,7 @@ export class ServiceController {
         salesOrderId: body.salesOrderId ?? null,
         companyId,
         senderCompanyId: body.senderCompanyId ?? null,
+        senderName: body.senderName ?? null,
         carrierCompanyId: body.carrierCompanyId ?? null,
         transportMode: body.transportMode ?? null,
         productCategoryCode: body.productCategoryCode ?? null,

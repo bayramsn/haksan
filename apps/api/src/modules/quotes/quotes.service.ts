@@ -10,7 +10,7 @@ import { productModels } from '../../db/schema/products';
 import { users } from '../../db/schema/users';
 import { currencies, units, quoteStatuses, proformaStatuses, contractStatuses, invoiceStatuses } from '../../db/schema/lookup';
 import { DB } from '../../shared/database/database.module';
-import { ConflictError, NotFoundError, ValidationError } from '../../shared/utils/errors';
+import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from '../../shared/utils/errors';
 import type { AuthContext } from '../../shared/security/auth.types';
 import type {
   CommercialInvoiceCreateInput,
@@ -77,7 +77,7 @@ export class QuotesService {
   private async recalcQuoteTotals(quoteId: string) {
     const [quote, items] = await Promise.all([
       this.db.query.quotes.findFirst({ where: eq(quotes.id, quoteId) }),
-      this.db.select().from(quoteItems).where(eq(quoteItems.quoteId, quoteId)),
+      this.db.select().from(quoteItems).where(and(eq(quoteItems.quoteId, quoteId), isNull(quoteItems.deletedAt))),
     ]);
     let subtotal = 0;
     let lineDiscount = 0;
@@ -177,6 +177,102 @@ export class QuotesService {
     return item;
   }
 
+  private isSuperAdmin(actor: AuthContext) {
+    return actor.roles.includes('super_admin');
+  }
+
+  private async quotePriceCheck(quoteId: string) {
+    const rows = await this.db
+      .select({ item: quoteItems, product: productModels })
+      .from(quoteItems)
+      .leftJoin(productModels, eq(quoteItems.productModelId, productModels.id))
+      .where(and(eq(quoteItems.quoteId, quoteId), isNull(quoteItems.deletedAt)));
+    const belowItems = rows
+      .map((row) => {
+        const product = row.product;
+        if (!product) return null;
+        const basePrice = Number(product.cashPrice ?? product.listPrice ?? 0);
+        if (!Number.isFinite(basePrice) || basePrice <= 0) return null;
+        const quantity = Number(row.item.quantity);
+        if (!Number.isFinite(quantity) || quantity <= 0) return null;
+        const netUnitPrice = Math.max((quantity * Number(row.item.unitPrice) - Number(row.item.discountAmount ?? 0)) / quantity, 0);
+        if (netUnitPrice + 0.0001 >= basePrice) return null;
+        return {
+          itemId: row.item.id,
+          productModelId: product.id,
+          productName: product.fullName,
+          stockCode: row.item.stockCode ?? product.stockCode,
+          basePrice,
+          netUnitPrice,
+        };
+      })
+      .filter(Boolean) as Array<{
+      itemId: string;
+      productModelId: string;
+      productName: string;
+      stockCode: string | null;
+      basePrice: number;
+      netUnitPrice: number;
+    }>;
+    return { needsApproval: belowItems.length > 0, belowItems };
+  }
+
+  private async refreshPriceApprovalStatus(quoteId: string, actor: AuthContext) {
+    const check = await this.quotePriceCheck(quoteId);
+    if (!check.needsApproval) {
+      await this.db
+        .update(quotes)
+        .set({
+          priceApprovalStatus: 'not_required',
+          priceApprovalRequestedBy: null,
+          priceApprovalRequestedAt: null,
+          priceApprovedBy: null,
+          priceApprovedAt: null,
+          priceRejectedBy: null,
+          priceRejectedAt: null,
+          priceApprovalNote: null,
+        })
+        .where(eq(quotes.id, quoteId));
+      return check;
+    }
+
+    const pendingStatusId = await lookupIdByCode(this.db, quoteStatuses, 'pending_super_admin_approval');
+    await this.db
+      .update(quotes)
+      .set({
+        statusId: pendingStatusId,
+        priceApprovalStatus: 'pending',
+        priceApprovalRequestedBy: actor.userId,
+        priceApprovalRequestedAt: new Date(),
+        priceApprovedBy: null,
+        priceApprovedAt: null,
+        priceRejectedBy: null,
+        priceRejectedAt: null,
+        priceApprovalNote: null,
+      })
+      .where(eq(quotes.id, quoteId));
+    return check;
+  }
+
+  private async ensurePriceApprovalAllowsAction(quoteId: string, actor: AuthContext) {
+    const check = await this.quotePriceCheck(quoteId);
+    if (!check.needsApproval) {
+      await this.refreshPriceApprovalStatus(quoteId, actor);
+      return;
+    }
+
+    const quote = await this.db.query.quotes.findFirst({ where: eq(quotes.id, quoteId) });
+    if (quote?.priceApprovalStatus === 'approved') return;
+    if (this.isSuperAdmin(actor)) {
+      await this.approvePrice(quoteId, actor, 'Süper admin işlem sırasında onayladı');
+      return;
+    }
+    await this.refreshPriceApprovalStatus(quoteId, actor);
+    throw new ConflictError('Peşin/liste fiyatının altındaki teklif için Süper Admin onayı gerekiyor', {
+      belowItems: check.belowItems,
+    });
+  }
+
   async list(actor: AuthContext, query: { search?: string; statusCode?: string; companyId?: string }, page: Pagination) {
     const { limit, offset } = pageOffset(page);
     const filters = [eq(quotes.tenantId, actor.tenantId), isNull(quotes.deletedAt)];
@@ -226,7 +322,7 @@ export class QuotesService {
       ),
     });
     if (!quote) throw new NotFoundError('Teklif');
-    const items = await this.db.select().from(quoteItems).where(eq(quoteItems.quoteId, id));
+    const items = await this.db.select().from(quoteItems).where(and(eq(quoteItems.quoteId, id), isNull(quoteItems.deletedAt)));
     const terms = await this.db.query.quoteTerms.findFirst({ where: eq(quoteTerms.quoteId, id) });
     return { ...quote, items, terms };
   }
@@ -249,7 +345,11 @@ export class QuotesService {
       ),
     });
     if (!quote) throw new NotFoundError('Teklif');
-    const items = await this.db.select().from(quoteItems).where(eq(quoteItems.quoteId, id)).orderBy(quoteItems.sortOrder);
+    const items = await this.db
+      .select()
+      .from(quoteItems)
+      .where(and(eq(quoteItems.quoteId, id), isNull(quoteItems.deletedAt)))
+      .orderBy(quoteItems.sortOrder);
     const terms = await this.db.query.quoteTerms.findFirst({ where: eq(quoteTerms.quoteId, id) });
     const company = await this.db.query.companies.findFirst({ where: eq(companies.id, quote.companyId) });
     const contact = quote.contactId
@@ -323,9 +423,10 @@ export class QuotesService {
     // Kalemler tablosu
     doc.moveDown(1.5);
     const top = doc.y;
-    const x = { no: 50, desc: 80, qty: 330, price: 400, total: 480 };
+    const x = { no: 50, stock: 75, desc: 145, qty: 340, price: 405, total: 485 };
     doc.fontSize(9).font(boldFont);
     doc.text('#', x.no, top, { lineBreak: false });
+    doc.text('Stok Kodu', x.stock, top, { lineBreak: false });
     doc.text('Açıklama', x.desc, top, { lineBreak: false });
     doc.text('Miktar', x.qty, top, { lineBreak: false });
     doc.text('B.Fiyat', x.price, top, { lineBreak: false });
@@ -340,7 +441,8 @@ export class QuotesService {
       const it = items[i];
       const desc = tr(it.description);
       doc.text(String(i + 1), x.no, y, { lineBreak: false });
-      doc.text(desc.length > 46 ? `${desc.slice(0, 45)}...` : desc, x.desc, y, { width: 240, lineBreak: false });
+      doc.text(tr(it.stockCode ?? ''), x.stock, y, { width: 65, lineBreak: false });
+      doc.text(desc.length > 34 ? `${desc.slice(0, 33)}...` : desc, x.desc, y, { width: 185, lineBreak: false });
       doc.text(Number(it.quantity).toLocaleString('tr-TR'), x.qty, y, { lineBreak: false });
       doc.text(money(it.unitPrice), x.price, y, { lineBreak: false });
       doc.text(money(it.lineTotal), x.total, y, { lineBreak: false });
@@ -504,6 +606,7 @@ export class QuotesService {
         quoteId,
         productModelId: input.productModelId ?? null,
         inventoryItemId: input.inventoryItemId ?? null,
+        stockCode: input.stockCode ?? null,
         description: input.description,
         quantity: input.quantity.toString(),
         unitId,
@@ -517,6 +620,7 @@ export class QuotesService {
       })
       .returning();
     await this.recalcQuoteTotals(quoteId);
+    await this.refreshPriceApprovalStatus(quoteId, actor);
     return row;
   }
 
@@ -528,7 +632,7 @@ export class QuotesService {
     if (input.productModelId) await this.assertProductModel(input.productModelId, actor);
     if (input.inventoryItemId) await this.assertInventoryItem(input.inventoryItemId, actor);
     const patch: Record<string, unknown> = {};
-    for (const k of ['productModelId', 'inventoryItemId', 'description', 'sortOrder'] as const) {
+    for (const k of ['productModelId', 'inventoryItemId', 'stockCode', 'description', 'sortOrder'] as const) {
       if ((input as any)[k] !== undefined) patch[k] = (input as any)[k] ?? null;
     }
     for (const k of ['quantity', 'unitPrice', 'discountAmount', 'vatRate'] as const) {
@@ -548,6 +652,7 @@ export class QuotesService {
 
     await this.db.update(quoteItems).set(patch).where(eq(quoteItems.id, itemId));
     await this.recalcQuoteTotals(quoteId);
+    await this.refreshPriceApprovalStatus(quoteId, actor);
     return { ok: true };
   }
 
@@ -558,6 +663,7 @@ export class QuotesService {
     if (!existing) throw new NotFoundError('Kalem');
     await this.db.update(quoteItems).set({ deletedAt: new Date() }).where(eq(quoteItems.id, itemId));
     await this.recalcQuoteTotals(quoteId);
+    await this.refreshPriceApprovalStatus(quoteId, actor);
     return { ok: true };
   }
 
@@ -595,8 +701,65 @@ export class QuotesService {
   }
 
   // ────────── APPROVE / REJECT / SEND ──────────
+  async approvePrice(quoteId: string, actor: AuthContext, note?: string) {
+    if (!this.isSuperAdmin(actor)) throw new ForbiddenError('Liste altı teklif fiyatını yalnızca Süper Admin onaylayabilir');
+    await this.get(quoteId, actor);
+    const check = await this.quotePriceCheck(quoteId);
+    if (!check.needsApproval) {
+      await this.refreshPriceApprovalStatus(quoteId, actor);
+      return this.get(quoteId, actor);
+    }
+    await this.db
+      .update(quotes)
+      .set({
+        priceApprovalStatus: 'approved',
+        priceApprovedBy: actor.userId,
+        priceApprovedAt: new Date(),
+        priceRejectedBy: null,
+        priceRejectedAt: null,
+        priceApprovalNote: note ?? null,
+      })
+      .where(eq(quotes.id, quoteId));
+    await this.audit.write({
+      tenantId: actor.tenantId,
+      actorUserId: actor.userId,
+      action: 'quote.price_approved',
+      resourceType: 'quote',
+      resourceId: quoteId,
+      newValues: { belowItems: check.belowItems, note },
+    });
+    return this.get(quoteId, actor);
+  }
+
+  async rejectPrice(quoteId: string, actor: AuthContext, note?: string) {
+    if (!this.isSuperAdmin(actor)) throw new ForbiddenError('Liste altı teklif fiyatını yalnızca Süper Admin reddedebilir');
+    await this.get(quoteId, actor);
+    const status = await this.db.query.quoteStatuses.findFirst({ where: eq(quoteStatuses.code, 'rejected') });
+    await this.db
+      .update(quotes)
+      .set({
+        statusId: status?.id ?? null,
+        priceApprovalStatus: 'rejected',
+        priceRejectedBy: actor.userId,
+        priceRejectedAt: new Date(),
+        priceApprovalNote: note ?? null,
+        rejectedAt: new Date(),
+      })
+      .where(eq(quotes.id, quoteId));
+    await this.audit.write({
+      tenantId: actor.tenantId,
+      actorUserId: actor.userId,
+      action: 'quote.price_rejected',
+      resourceType: 'quote',
+      resourceId: quoteId,
+      newValues: { note },
+    });
+    return this.get(quoteId, actor);
+  }
+
   async approve(quoteId: string, actor: AuthContext) {
     const quote = await this.get(quoteId, actor);
+    await this.ensurePriceApprovalAllowsAction(quoteId, actor);
     const status = await this.db.query.quoteStatuses.findFirst({ where: eq(quoteStatuses.code, 'approved') });
     await this.db
       .update(quotes)
@@ -624,6 +787,7 @@ export class QuotesService {
 
   async send(quoteId: string, actor: AuthContext) {
     await this.get(quoteId, actor);
+    await this.ensurePriceApprovalAllowsAction(quoteId, actor);
     const status = await this.db.query.quoteStatuses.findFirst({ where: eq(quoteStatuses.code, 'sent') });
     await this.db.update(quotes).set({ statusId: status?.id ?? null, sentAt: new Date() }).where(eq(quotes.id, quoteId));
     return { ok: true };
@@ -772,6 +936,7 @@ export class QuotesService {
         quoteId: input.quoteId,
         contractNo: input.contractNo,
         signedDate: input.signedDate ?? null,
+        paymentTermDays: input.paymentTermDays ?? null,
         statusId,
         fileId: input.fileId ?? null,
         createdBy: actor.userId,
@@ -796,7 +961,7 @@ export class QuotesService {
       patch.quoteId = input.quoteId;
     }
     if (input.statusCode !== undefined) patch.statusId = await lookupIdByCode(this.db, contractStatuses, input.statusCode);
-    for (const k of ['contractNo', 'signedDate', 'fileId'] as const) {
+    for (const k of ['contractNo', 'signedDate', 'paymentTermDays', 'fileId'] as const) {
       if ((input as any)[k] !== undefined) patch[k] = (input as any)[k] ?? null;
     }
     await this.db.update(contracts).set(patch).where(eq(contracts.id, id));

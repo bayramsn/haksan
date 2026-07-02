@@ -330,6 +330,48 @@
       "when": 1783881600000,
       "tag": "0046_shipment_stock_sync",
       "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1783968000000,
+      "tag": "0047_shipment_sender_name",
+      "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "7",
+      "when": 1784054400000,
+      "tag": "0048_accounting_invoice_po_fields",
+      "breakpoints": true
+    },
+    {
+      "idx": 49,
+      "version": "7",
+      "when": 1784140800000,
+      "tag": "0049_contract_payment_term",
+      "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1784227200000,
+      "tag": "0050_company_address_coords",
+      "breakpoints": true
+    },
+    {
+      "idx": 51,
+      "version": "7",
+      "when": 1784313600000,
+      "tag": "0051_customer_device_initial_company",
+      "breakpoints": true
+    },
+    {
+      "idx": 52,
+      "version": "7",
+      "when": 1784400000000,
+      "tag": "0052_crm_settings_activity_quote_approval",
+      "breakpoints": true
     }
   ]
 }

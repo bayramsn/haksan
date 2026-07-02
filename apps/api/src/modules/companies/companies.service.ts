@@ -21,6 +21,7 @@ import type {
   CompanyAccessRequestInput,
   CompanyAccessRequestDecisionInput,
   CompanyCreateInput,
+  CompanyLocationInput,
   CompanyUpdateInput,
   CompanyListQuery,
   Pagination,
@@ -276,6 +277,9 @@ export class CompaniesService {
         street: input.address.street ?? null,
         buildingNumber: input.address.buildingNumber ?? null,
         fullAddress: input.address.fullAddress ?? null,
+        latitude: input.address.latitude != null ? String(input.address.latitude) : null,
+        longitude: input.address.longitude != null ? String(input.address.longitude) : null,
+        locationSource: input.address.latitude != null && input.address.longitude != null ? 'manual' : null,
         isDefault: true,
       });
     }
@@ -367,6 +371,49 @@ export class CompaniesService {
       resourceId: id,
       oldValues: existing,
       newValues: patch,
+    });
+    return this.get(id, actor);
+  }
+
+  /** Haritadaki manuel pin düzeltmesini varsayılan adrese kalıcı yazar (null'lar konumu temizler). */
+  async setLocation(id: string, input: CompanyLocationInput, actor: AuthContext) {
+    await this.get(id, actor);
+    const hasCoords = input.latitude != null && input.longitude != null;
+    const patch = {
+      latitude: input.latitude != null ? String(input.latitude) : null,
+      longitude: input.longitude != null ? String(input.longitude) : null,
+      locationSource: hasCoords ? 'manual' : null,
+      updatedAt: new Date(),
+    };
+
+    const rows = await this.db
+      .select({ id: companyAddresses.id, isDefault: companyAddresses.isDefault })
+      .from(companyAddresses)
+      .where(and(eq(companyAddresses.companyId, id), isNull(companyAddresses.deletedAt)));
+    const target = rows.find((r) => r.isDefault) ?? rows[0];
+
+    if (target) {
+      await this.db.update(companyAddresses).set(patch).where(eq(companyAddresses.id, target.id));
+    } else if (hasCoords) {
+      await this.db.insert(companyAddresses).values({
+        tenantId: actor.tenantId,
+        companyId: id,
+        addressType: 'billing',
+        country: 'Türkiye',
+        isDefault: true,
+        latitude: patch.latitude,
+        longitude: patch.longitude,
+        locationSource: patch.locationSource,
+      });
+    }
+
+    await this.audit.write({
+      tenantId: actor.tenantId,
+      actorUserId: actor.userId,
+      action: 'company.location_updated',
+      resourceType: 'company',
+      resourceId: id,
+      newValues: { latitude: patch.latitude, longitude: patch.longitude },
     });
     return this.get(id, actor);
   }

@@ -42,6 +42,7 @@ export function CreateContractDialog({
   const [quoteId, setQuoteId] = useState(defaultQuoteId ?? "");
   const [contractNo, setContractNo] = useState("");
   const [signedDate, setSignedDate] = useState(today);
+  const [paymentTermDays, setPaymentTermDays] = useState("");
   const [saving, setSaving] = useState(false);
 
   const contractCount = documents.filter((d) => d.type === "Contract").length;
@@ -52,6 +53,7 @@ export function CreateContractDialog({
     setQuoteId(defaultQuoteId ?? "");
     setContractNo(suggestNo());
     setSignedDate(today);
+    setPaymentTermDays("");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, defaultQuoteId]);
 
@@ -83,10 +85,12 @@ export function CreateContractDialog({
     if (!contractNo.trim()) return toast.error("Sözleşme no zorunludur");
     setSaving(true);
     try {
+      const termDays = paymentTermDays.trim() === "" ? undefined : Number(paymentTermDays);
       const created = await documentService.createContract({
         quoteId,
         contractNo: contractNo.trim(),
         signedDate: new Date(signedDate),
+        paymentTermDays: termDays !== undefined && Number.isFinite(termDays) ? termDays : undefined,
         statusCode: "draft",
       });
       toast.success("Sözleşme oluşturuldu", { description: contractNo.trim() });
@@ -147,6 +151,22 @@ export function CreateContractDialog({
               <Label className="text-xs">İmza Tarihi</Label>
               <Input type="date" className="mt-1.5" value={signedDate} onChange={(e) => setSignedDate(e.target.value)} />
             </div>
+          </div>
+
+          <div>
+            <Label className="text-xs">Ödeme Vadesi (Gün)</Label>
+            <Input
+              type="number"
+              min={0}
+              max={3650}
+              className="mt-1.5"
+              value={paymentTermDays}
+              onChange={(e) => setPaymentTermDays(e.target.value)}
+              placeholder="Örn. 60"
+            />
+            <p className="text-[11px] text-muted-foreground mt-1.5">
+              Bu firmaya satış faturası kesilirken vade otomatik bu değerden hesaplanır.
+            </p>
           </div>
 
           <DialogFooter>

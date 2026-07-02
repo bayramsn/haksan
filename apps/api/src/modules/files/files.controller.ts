@@ -13,6 +13,9 @@ import { loadEnv } from '../../config/env';
 
 // Dosya yükleme için sıkı, IP-bazlı limit (global throttler'ı override eder) — CLAUDE.md #2.
 const UPLOAD_THROTTLE = { default: { limit: loadEnv().RATE_LIMIT_UPLOAD, ttl: 60_000 } };
+const fileContentSchema = z
+  .instanceof(Buffer)
+  .refine((body) => body.byteLength > 0, 'Dosya boyutu sıfır olamaz');
 
 @UseGuards(AuthGuard, PermissionsGuard)
 @Controller('files')
@@ -47,7 +50,7 @@ export class FilesController {
   @Throttle(UPLOAD_THROTTLE)
   @RequirePermissions('files.create')
   @Put(':id/content')
-  uploadContent(@Param('id') id: string, @Body() body: Buffer, @CurrentUser() user: AuthContext) {
+  uploadContent(@Param('id') id: string, @Body(new ZodValidationPipe(fileContentSchema)) body: Buffer, @CurrentUser() user: AuthContext) {
     return this.svc.uploadContent(id, body, user);
   }
 

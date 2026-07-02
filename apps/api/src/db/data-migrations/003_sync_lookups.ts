@@ -26,7 +26,9 @@ const TABLE_MAP = {
   company_relation_types: schema.companyRelationTypes,
   company_statuses: schema.companyStatuses,
   company_groups: schema.companyGroups,
+  company_sectors: schema.companySectors,
   contact_sources: schema.contactSources,
+  tax_offices: schema.taxOffices,
   decision_roles: schema.decisionRoles,
   product_groups: schema.productGroups,
   product_categories: schema.productCategories,
@@ -60,6 +62,7 @@ export async function up(db: DbClient): Promise<void> {
       set: {
         name: sql`EXCLUDED.name`,
         sortOrder: sql`EXCLUDED.sort_order`,
+        ...(tableName === 'tax_offices' ? { province: sql`EXCLUDED.province` } : {}),
       },
     });
     console.log(`[003_sync_lookups] synced ${rows.length} rows into ${tableName}`);

@@ -42,6 +42,8 @@ export const shipmentCreateSchema = z.object({
   salesOrderId: optionalUuidSchema,
   companyId: optionalUuidSchema,
   senderCompanyId: optionalUuidSchema,
+  // Kayıtlı olmayan gönderici için serbest-metin ad (senderCompanyId yerine elle giriş).
+  senderName: z.string().max(255).optional(),
   carrierCompanyId: optionalUuidSchema,
   transportMode: shipmentTransportModeSchema.optional(),
   productCategoryCode: z.string().max(64).optional(),

@@ -110,6 +110,8 @@ export class AdminController {
         purchaseApprovalLimit: u.purchaseApprovalLimit,
         managerId: u.managerId,
         lastLoginAt: u.lastLoginAt,
+        failedLoginAttempts: u.failedLoginAttempts,
+        lockedUntil: u.lockedUntil,
         mfaEnabled: u.mfaEnabled,
         roles: userRoleRows,
         divisions: userDivisionRows,
@@ -290,6 +292,35 @@ export class AdminController {
     return { ok: true };
   }
 
+  @RequirePermissions('users.update')
+  @Post('users/:id/unlock')
+  async unlockUser(@Param('id') id: string, @CurrentUser() user: AuthContext) {
+    const existing = await this.db.query.users.findFirst({
+      where: and(eq(users.id, id), eq(users.tenantId, user.tenantId), isNull(users.deletedAt)),
+    });
+    if (!existing) throw new NotFoundError('Kullanıcı');
+
+    await this.db
+      .update(users)
+      .set({ failedLoginAttempts: 0, lockedUntil: null })
+      .where(eq(users.id, id));
+
+    await this.audit.write({
+      tenantId: user.tenantId,
+      actorUserId: user.userId,
+      action: 'user.unlocked',
+      resourceType: 'user',
+      resourceId: id,
+      oldValues: {
+        failedLoginAttempts: existing.failedLoginAttempts,
+        lockedUntil: existing.lockedUntil,
+      },
+      newValues: { failedLoginAttempts: 0, lockedUntil: null },
+    });
+
+    return { ok: true, id, failedLoginAttempts: 0, lockedUntil: null };
+  }
+
   @RequirePermissions('users.read')
   @Get('user-targets')
   async listUserTargets(@Query(new ZodValidationPipe(targetPeriodQuerySchema)) query: TargetPeriodQuery, @CurrentUser() user: AuthContext) {
@@ -312,21 +343,10 @@ export class AdminController {
     });
   }
 
-  @RequirePermissions('users.update')
-  @Post('users/:id/targets')
-  async upsertUserTarget(
-    @Param('id') id: string,
-    @Body(new ZodValidationPipe(targetUpsertSchema)) body: TargetUpsertInput,
-    @CurrentUser() user: AuthContext
-  ) {
-    const targetUser = await this.db.query.users.findFirst({
-      where: and(eq(users.id, id), eq(users.tenantId, user.tenantId), isNull(users.deletedAt)),
-    });
-    if (!targetUser) throw new NotFoundError('Kullanıcı');
-
+  private async upsertUserTargetRow(userId: string, body: TargetUpsertInput, tenantId: string) {
     const values = {
-      tenantId: user.tenantId,
-      userId: id,
+      tenantId,
+      userId,
       period: body.period,
       currency: 'USD',
       salesAmount: body.salesAmount == null ? null : body.salesAmount.toString(),
@@ -344,7 +364,7 @@ export class AdminController {
     };
 
     const existing = await this.db.query.userTargets.findFirst({
-      where: and(eq(userTargets.tenantId, user.tenantId), eq(userTargets.userId, id), eq(userTargets.period, body.period)),
+      where: and(eq(userTargets.tenantId, tenantId), eq(userTargets.userId, userId), eq(userTargets.period, body.period)),
     });
     if (existing) {
       const [row] = await this.db.update(userTargets).set(values).where(eq(userTargets.id, existing.id)).returning();
@@ -352,6 +372,70 @@ export class AdminController {
     }
     const [row] = await this.db.insert(userTargets).values(values).returning();
     return row;
+  }
+
+  @RequirePermissions('users.update')
+  @Post('users/:id/targets')
+  async upsertUserTarget(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(targetUpsertSchema)) body: TargetUpsertInput,
+    @CurrentUser() user: AuthContext
+  ) {
+    const targetUser = await this.db.query.users.findFirst({
+      where: and(eq(users.id, id), eq(users.tenantId, user.tenantId), isNull(users.deletedAt)),
+    });
+    if (!targetUser) throw new NotFoundError('Kullanıcı');
+    return this.upsertUserTargetRow(id, body, user.tenantId);
+  }
+
+  /** Rol hedefi = toplu atama: roldeki tüm aktif kullanıcılara kişisel hedef olarak kopyalanır. */
+  @RequirePermissions('roles.update')
+  @Post('roles/:id/targets')
+  async upsertRoleTargets(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(targetUpsertSchema)) body: TargetUpsertInput,
+    @CurrentUser() user: AuthContext
+  ) {
+    const role = await this.db.query.roles.findFirst({
+      where: and(eq(roles.id, id), eq(roles.tenantId, user.tenantId)),
+    });
+    if (!role) throw new NotFoundError('Rol');
+
+    const members = await this.db
+      .select({ userId: users.id })
+      .from(userRoles)
+      .innerJoin(users, eq(userRoles.userId, users.id))
+      .where(and(eq(userRoles.roleId, id), eq(users.tenantId, user.tenantId), isNull(users.deletedAt), eq(users.status, 'active')));
+
+    for (const member of members) {
+      await this.upsertUserTargetRow(member.userId, body, user.tenantId);
+    }
+
+    await this.audit.write({
+      tenantId: user.tenantId,
+      actorUserId: user.userId,
+      action: 'role.targets_assigned',
+      resourceType: 'role',
+      resourceId: id,
+      newValues: { period: body.period, updatedUserCount: members.length },
+    });
+    return { ok: true, roleCode: role.code, period: body.period, updatedUserCount: members.length };
+  }
+
+  /** Rol hedefi atamadan önce etkilenecek kullanıcı sayısını döner (UI onayı için). */
+  @RequirePermissions('roles.read')
+  @Get('roles/:id/target-members')
+  async roleTargetMembers(@Param('id') id: string, @CurrentUser() user: AuthContext) {
+    const role = await this.db.query.roles.findFirst({
+      where: and(eq(roles.id, id), eq(roles.tenantId, user.tenantId)),
+    });
+    if (!role) throw new NotFoundError('Rol');
+    const members = await this.db
+      .select({ userId: users.id, fullName: users.fullName })
+      .from(userRoles)
+      .innerJoin(users, eq(userRoles.userId, users.id))
+      .where(and(eq(userRoles.roleId, id), eq(users.tenantId, user.tenantId), isNull(users.deletedAt), eq(users.status, 'active')));
+    return { roleCode: role.code, roleName: role.name, memberCount: members.length, members };
   }
 
   @RequirePermissions('users.read')

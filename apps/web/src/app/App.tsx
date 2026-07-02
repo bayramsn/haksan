@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { Layout, NavKey } from "./components/Layout";
 import { Button } from "./components/ui/button";
 import { Plus } from "lucide-react";
@@ -35,11 +35,12 @@ const ChatPage = lazy(() => import("./components/pages/chat/ChatPage").then((m) 
 const CalendarPage = lazy(() => import("./components/pages/CalendarPage").then((m) => ({ default: m.CalendarPage })));
 import { Customer, SalesCase } from "./lib/mock";
 import { StoreProvider, useStore } from "./lib/store";
-import { usePersistentState } from "./lib/persist";
+import { clearDrafts, usePersistentState } from "./lib/persist";
 import { Toaster } from "./components/ui/sonner";
 import { CreateCustomerDialog, CreateCaseDialog, CreateContactDialog, CreateServiceRequestDialog } from "./components/dialogs/CreateDialogs";
 import { ProductsPage } from "./components/pages/Operations";
 import { SalesPriceListPage, ServicePriceListPage } from "./components/pages/PriceLists";
+import { ReferencesPage } from "./components/pages/ReferencesPage";
 import { PublicServiceComplaintPage } from "./components/pages/PublicServiceComplaint";
 import { AuthProvider, useAuth } from "../lib/auth";
 import { FxProvider } from "./lib/fx";
@@ -67,6 +68,7 @@ const TITLES: Record<NavKey, { title: string; subtitle?: string }> = {
   "customer-balances": { title: "Cari Rapor", subtitle: "Firma borç/alacak özeti ve ekstre" },
   "due-dates": { title: "Vade Takvimi", subtitle: "Tahsil ve ödeme vadeleri" },
   "sales-price-list": { title: "Satış Fiyat Listesi", subtitle: "Tezgahlar ve uyumlu opsiyonel donanım fiyatları" },
+  references: { title: "Referanslar", subtitle: "Satış için firma ve teslim edilen tezgah referansları" },
   products: { title: "Ürünler", subtitle: "Makine modeline göre ürün kataloğu" },
   stock: { title: "Stok", subtitle: "Seri numarası bazlı stok yönetimi" },
   "purchase-orders": { title: "Satın Alma", subtitle: "Tedarikçi siparişleri" },
@@ -99,10 +101,16 @@ function AppShell() {
   const [selectedCaseId, setSelectedCaseId] = usePersistentState<string | null>("selectedCaseId", null);
   const [focus, setFocus] = useState<{ nav: NavKey; focus?: OperationFocus; query?: string } | null>(null);
   const currentNav = isNavKey(nav) ? nav : DEFAULT_NAV;
+  const previousNavRef = useRef<NavKey | null>(null);
 
   useEffect(() => {
     if (currentNav !== nav) setNav(currentNav);
   }, [currentNav, nav, setNav]);
+
+  useEffect(() => {
+    if (previousNavRef.current && previousNavRef.current !== currentNav) clearDrafts();
+    previousNavRef.current = currentNav;
+  }, [currentNav]);
 
   if (loading) {
     return (
@@ -213,6 +221,7 @@ function AppShell() {
       case "customer-balances": content = <CustomerBalancesPage />; break;
       case "due-dates": content = <DueDatesCalendarPage />; break;
       case "sales-price-list": content = <SalesPriceListPage />; break;
+      case "references": content = <ReferencesPage />; break;
       case "products": content = <ProductsPage initialQuery={focus?.nav === "products" ? focus.query : undefined} />; break;
       case "stock": content = <StockPage focus={focus?.nav === "stock" ? focus.focus : undefined} initialQuery={focus?.nav === "stock" ? focus.query : undefined} />; break;
       case "purchase-orders": content = <PurchaseOrdersPage />; break;

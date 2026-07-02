@@ -69,18 +69,27 @@ export function DocumentUploadDialog({
   defaultSalesCaseId,
   defaultCompanyId,
   defaultType,
+  open: controlledOpen,
+  onOpenChange,
   onUploaded,
 }: {
-  trigger: React.ReactNode;
+  trigger?: React.ReactNode;
   defaultSalesCaseId?: string;
   defaultCompanyId?: string;
   defaultType?: DocumentTypeValue;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
   onUploaded?: (document: DocumentItem) => void;
 }) {
   const { cases, customers, addDocument } = useStore();
   const inputRef = useRef<HTMLInputElement>(null);
   const initialScope = defaultSalesCaseId ? "case" : defaultCompanyId ? "company" : "case";
-  const [open, setOpen] = useState(false);
+  const [internalOpen, setInternalOpen] = useState(false);
+  const open = controlledOpen ?? internalOpen;
+  const setOpen = (next: boolean) => {
+    if (controlledOpen === undefined) setInternalOpen(next);
+    onOpenChange?.(next);
+  };
   const [scope, setScope] = useState<"case" | "company">(initialScope);
   const [type, setType] = useState<DocumentTypeValue>(defaultType ?? "Other");
   const [selectedCaseId, setSelectedCaseId] = useState(defaultSalesCaseId ?? "");
@@ -176,7 +185,7 @@ export function DocumentUploadDialog({
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>{trigger}</DialogTrigger>
+      {trigger && <DialogTrigger asChild>{trigger}</DialogTrigger>}
       <DialogContent className="w-[min(620px,calc(100vw-2rem))] max-w-none sm:max-w-none max-h-[90dvh] overflow-hidden p-0 gap-0">
         <DialogHeader className="border-b border-border/60 px-5 pt-5 pb-4 pr-12">
           <DialogTitle className="flex items-center gap-2">

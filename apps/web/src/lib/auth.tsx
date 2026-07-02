@@ -37,6 +37,8 @@ export interface MeUser {
 
 /** Kullanıcı için varsayılan aktif bölümü seçer (kalıcı seçim geçerliyse onu korur). */
 function pickActiveDivision(user: MeUser, stored: string | null): ActiveDivision {
+  const canPickAnyDivision = user.roles.includes('super_admin');
+  if (!canPickAnyDivision) return user.divisions.find((d) => d.isPrimary)?.id ?? user.divisions[0]?.id ?? 'all';
   const storedValid =
     stored === 'all' ? user.canViewAllDivisions : !!stored && user.divisions.some((d) => d.id === stored);
   if (storedValid) return stored as string;

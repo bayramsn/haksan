@@ -7,6 +7,7 @@ import {
   inventorySellSchema,
   warehouseCreateSchema,
   customerDeviceCreateSchema,
+  customerDeviceUpdateSchema,
   paginationSchema,
   type InventoryItemCreateInput,
   type InventoryItemUpdateInput,
@@ -14,6 +15,7 @@ import {
   type InventorySellInput,
   type WarehouseCreateInput,
   type CustomerDeviceCreateInput,
+  type CustomerDeviceUpdateInput,
   type Pagination,
 } from '@haksan/shared';
 import { ZodValidationPipe } from '../../shared/utils/zod-pipe';
@@ -131,6 +133,16 @@ export class InventoryController {
     @CurrentUser() user: AuthContext
   ) {
     return this.svc.createCustomerDevice(body, user);
+  }
+
+  @RequirePermissions('customer_devices.update')
+  @Patch('customer-devices/:id')
+  updateCustomerDevice(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(customerDeviceUpdateSchema)) body: CustomerDeviceUpdateInput,
+    @CurrentUser() user: AuthContext
+  ) {
+    return this.svc.updateCustomerDevice(id, body, user);
   }
 
   @RequirePermissions('customer_devices.delete')

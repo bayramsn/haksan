@@ -10,6 +10,7 @@ import {
   productOptionalEquipmentCompatibilities,
   productModels,
   productSpecs,
+  productSpecTemplates,
   productEquipmentItems,
   productOptionSets,
   productOptionValues,
@@ -796,6 +797,16 @@ export class ProductsService {
   }
 
   // ────────── SPECS ──────────
+  async listSpecTemplates(productTypeCode?: string) {
+    const filters = [eq(productSpecTemplates.isActive, true)];
+    if (productTypeCode?.trim()) filters.push(eq(productSpecTemplates.productTypeCode, productTypeCode.trim()));
+    return this.db
+      .select()
+      .from(productSpecTemplates)
+      .where(and(...filters))
+      .orderBy(asc(productSpecTemplates.productTypeCode), asc(productSpecTemplates.sortOrder), asc(productSpecTemplates.specKey));
+  }
+
   async listSpecs(productId: string, actor: AuthContext) {
     await this.get(productId, actor);
     return this.db

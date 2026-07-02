@@ -244,6 +244,8 @@ export const shipments = pgTable(
     salesOrderId: uuid('sales_order_id').references(() => salesOrders.id, { onDelete: 'set null' }),
     companyId: uuid('company_id').references(() => companies.id, { onDelete: 'set null' }),
     senderCompanyId: uuid('sender_company_id').references(() => companies.id, { onDelete: 'set null' }),
+    // Kayıtlı olmayan gönderici için serbest-metin adı (senderCompanyId FK yerine elle giriş).
+    senderName: varchar('sender_name', { length: 255 }),
     carrierCompanyId: uuid('carrier_company_id').references(() => companies.id, { onDelete: 'set null' }),
     transportMode: varchar('transport_mode', { length: 32 }),
     productCategoryCode: varchar('product_category_code', { length: 64 }),
