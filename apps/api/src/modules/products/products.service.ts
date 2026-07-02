@@ -562,7 +562,7 @@ export class ProductsService {
       .offset(offset);
 
     const productIds = rows.map((r) => r.product.id);
-    const specsByProduct = new Map<string, Array<{ key: string; value: string; unit?: string | null; group?: string | null }>>();
+    const specsByProduct = new Map<string, Array<{ key: string; value: string; unit?: string | null; groupCode?: string | null; groupName?: string | null; group?: string | null }>>();
     const standardByProduct = new Map<string, string[]>();
     const optionalByProduct = new Map<string, string[]>();
 
@@ -573,7 +573,8 @@ export class ProductsService {
           key: productSpecs.specKey,
           value: productSpecs.specValue,
           unit: productSpecs.specUnit,
-          group: productSpecGroups.name,
+          groupCode: productSpecGroups.code,
+          groupName: productSpecGroups.name,
         })
         .from(productSpecs)
         .leftJoin(productSpecGroups, eq(productSpecs.specGroupId, productSpecGroups.id))
@@ -582,7 +583,7 @@ export class ProductsService {
 
       for (const spec of specRows) {
         const list = specsByProduct.get(spec.productId) ?? [];
-        list.push({ key: spec.key, value: spec.value, unit: spec.unit, group: spec.group });
+        list.push({ key: spec.key, value: spec.value, unit: spec.unit, groupCode: spec.groupCode, groupName: spec.groupName, group: spec.groupName });
         specsByProduct.set(spec.productId, list);
       }
 

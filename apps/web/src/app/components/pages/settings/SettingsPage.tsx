@@ -70,6 +70,78 @@ type SpecTemplateRow = {
   isActive?: boolean;
 };
 
+type ProductOption = { code: string; label: string };
+type ProductTypeOption = ProductOption & { categoryCode: string; subcategoryCode?: string };
+
+const TEMPLATE_PRODUCT_CATEGORIES: ProductOption[] = [
+  { code: "TEZGAH", label: "Tezgah" },
+  { code: "YEDEK_PARCA", label: "Yedek Parça" },
+  { code: "OPSIYONEL_DONANIM", label: "Opsiyonel Donanım" },
+  { code: "ISCILIK", label: "İşçilik" },
+  { code: "AKSESUAR", label: "Aksesuar" },
+];
+
+const TEMPLATE_PRODUCT_SUBCATEGORIES: ProductOption[] = [
+  { code: "ISLEME_MERKEZI", label: "İşleme Merkezi" },
+  { code: "TORNA", label: "Torna" },
+];
+
+const TEMPLATE_PRODUCT_TYPE_GROUPS: Array<{ label: string; options: ProductTypeOption[] }> = [
+  {
+    label: "İşleme Merkezi",
+    options: [
+      { code: "CNC_DIK_ISLEME_MERKEZ", label: "CNC Dik İşleme Merkezi", categoryCode: "TEZGAH", subcategoryCode: "ISLEME_MERKEZI" },
+      { code: "CNC_YATAY_ISLEME_MERKEZI", label: "CNC Yatay İşleme Merkezi", categoryCode: "TEZGAH", subcategoryCode: "ISLEME_MERKEZI" },
+      { code: "CNC_KOPRU_TIPI_ISLEME_MERKEZI", label: "CNC Köprü Tipi İşleme Merkezi", categoryCode: "TEZGAH", subcategoryCode: "ISLEME_MERKEZI" },
+      { code: "CNC_5_EKSEN_ISLEME_MERKEZI", label: "CNC 5 Eksen İşleme Merkezi", categoryCode: "TEZGAH", subcategoryCode: "ISLEME_MERKEZI" },
+      { code: "CNC_TAPPING_CENTER", label: "CNC Tapping Center", categoryCode: "TEZGAH", subcategoryCode: "ISLEME_MERKEZI" },
+    ],
+  },
+  {
+    label: "Torna",
+    options: [
+      { code: "CNC_YATAY_TORNA_TEZGAHI", label: "CNC Yatay Torna Tezgahı", categoryCode: "TEZGAH", subcategoryCode: "TORNA" },
+      { code: "CNC_DIK_TORNA_TEZGAHI", label: "CNC Dik Torna Tezgahı", categoryCode: "TEZGAH", subcategoryCode: "TORNA" },
+    ],
+  },
+  {
+    label: "Yedek Parça",
+    options: [
+      { code: "ELEKTRONIK", label: "Elektronik", categoryCode: "YEDEK_PARCA" },
+      { code: "ELEKTRIK", label: "Elektrik", categoryCode: "YEDEK_PARCA" },
+      { code: "MEKANIK", label: "Mekanik", categoryCode: "YEDEK_PARCA" },
+    ],
+  },
+  {
+    label: "Opsiyonel Donanım",
+    options: [
+      { code: "KONTROL_UNITESI", label: "Kontrol Ünitesi", categoryCode: "OPSIYONEL_DONANIM" },
+      { code: "SPINDLE", label: "Spindle", categoryCode: "OPSIYONEL_DONANIM" },
+    ],
+  },
+  {
+    label: "İşçilik",
+    options: [{ code: "ISCILIK", label: "İşçilik", categoryCode: "ISCILIK" }],
+  },
+  {
+    label: "Aksesuar",
+    options: [
+      { code: "YAG_SIYIRICI", label: "Yağ Sıyırıcı", categoryCode: "AKSESUAR" },
+      { code: "TUTUCU_TAKIMLAR", label: "Tutucu & Takımlar", categoryCode: "AKSESUAR" },
+      { code: "DIVIZOR", label: "Divizör", categoryCode: "AKSESUAR" },
+      { code: "REGULATOR", label: "Regülatör", categoryCode: "AKSESUAR" },
+    ],
+  },
+];
+
+const TEMPLATE_PRODUCT_TYPES = TEMPLATE_PRODUCT_TYPE_GROUPS.flatMap((group) => group.options);
+
+type SpecTemplateScope = {
+  categoryCode: string;
+  subcategoryCode: string;
+  productTypeCode: string;
+};
+
 const lookupLabels: Record<string, string> = {
   "company-sectors": "Sektörler",
   "contact-sources": "Firma İrtibat Şekli",
@@ -88,6 +160,41 @@ const lookupLabels: Record<string, string> = {
 
 const emptyLookupForm: LookupForm = { code: "", name: "", description: "", province: "", sortOrder: "0", isActive: true };
 const emptySpecForm = { productTypeCode: "", specKey: "", defaultValue: "", specUnit: "", sortOrder: "0", isActive: true };
+const emptySpecScope: SpecTemplateScope = { categoryCode: "TEZGAH", subcategoryCode: "ISLEME_MERKEZI", productTypeCode: "" };
+
+const productTypeLabel = (code: string) => TEMPLATE_PRODUCT_TYPES.find((item) => item.code === code)?.label ?? code;
+const productTypeByCode = (code: string) => TEMPLATE_PRODUCT_TYPES.find((item) => item.code === code);
+
+const subcategoriesForCategory = (categoryCode: string) => {
+  const subcategoryCodes = new Set(
+    TEMPLATE_PRODUCT_TYPES.filter((item) => item.categoryCode === categoryCode && item.subcategoryCode).map((item) => item.subcategoryCode!),
+  );
+  return TEMPLATE_PRODUCT_SUBCATEGORIES.filter((item) => subcategoryCodes.has(item.code));
+};
+
+const productTypesForScope = (categoryCode: string, subcategoryCode: string) => {
+  const categorySubcategories = subcategoriesForCategory(categoryCode);
+  return TEMPLATE_PRODUCT_TYPES.filter((item) => {
+    if (item.categoryCode !== categoryCode) return false;
+    if (!categorySubcategories.length) return true;
+    return item.subcategoryCode === subcategoryCode;
+  });
+};
+
+const scopeForCategory = (categoryCode: string): SpecTemplateScope => {
+  const [firstSubcategory] = subcategoriesForCategory(categoryCode);
+  return { categoryCode, subcategoryCode: firstSubcategory?.code ?? "", productTypeCode: "" };
+};
+
+const scopeForProductType = (productTypeCode: string): SpecTemplateScope => {
+  const productType = productTypeByCode(productTypeCode);
+  if (!productType) return emptySpecScope;
+  return {
+    categoryCode: productType.categoryCode,
+    subcategoryCode: productType.subcategoryCode ?? "",
+    productTypeCode,
+  };
+};
 
 function storageKey(userId?: string) {
   return userId ? `haksan:settings:${userId}` : "haksan:settings:guest";
@@ -119,6 +226,7 @@ export function SettingsPage() {
   const [editingLookupId, setEditingLookupId] = useState<string | null>(null);
   const [lookupBusy, setLookupBusy] = useState(false);
   const [specRows, setSpecRows] = useState<SpecTemplateRow[]>([]);
+  const [specScope, setSpecScope] = useState<SpecTemplateScope>(emptySpecScope);
   const [specForm, setSpecForm] = useState(emptySpecForm);
   const [editingSpecId, setEditingSpecId] = useState<string | null>(null);
   const [specBusy, setSpecBusy] = useState(false);
@@ -127,6 +235,19 @@ export function SettingsPage() {
     const rows = lookupNames.length ? lookupNames : Object.keys(lookupLabels);
     return [...rows].sort((a, b) => (lookupLabels[a] ?? a).localeCompare(lookupLabels[b] ?? b, "tr-TR"));
   }, [lookupNames]);
+
+  const availableSpecSubcategories = useMemo(() => subcategoriesForCategory(specScope.categoryCode), [specScope.categoryCode]);
+
+  const availableSpecProductTypes = useMemo(
+    () => productTypesForScope(specScope.categoryCode, specScope.subcategoryCode),
+    [specScope.categoryCode, specScope.subcategoryCode],
+  );
+
+  const filteredSpecRows = useMemo(() => {
+    if (specScope.productTypeCode) return specRows.filter((row) => row.productTypeCode === specScope.productTypeCode);
+    const availableCodes = new Set(availableSpecProductTypes.map((item) => item.code));
+    return specRows.filter((row) => availableCodes.has(row.productTypeCode));
+  }, [availableSpecProductTypes, specRows, specScope.productTypeCode]);
 
   useEffect(() => {
     if (!canReadTenant) return;
@@ -256,10 +377,32 @@ export function SettingsPage() {
     }
   };
 
+  const resetSpecTemplateForm = (productTypeCode = specScope.productTypeCode) => {
+    setEditingSpecId(null);
+    setSpecForm({ ...emptySpecForm, productTypeCode });
+  };
+
+  const changeSpecCategory = (categoryCode: string) => {
+    const nextScope = scopeForCategory(categoryCode);
+    setSpecScope(nextScope);
+    resetSpecTemplateForm("");
+  };
+
+  const changeSpecSubcategory = (subcategoryCode: string) => {
+    setSpecScope({ categoryCode: specScope.categoryCode, subcategoryCode, productTypeCode: "" });
+    resetSpecTemplateForm("");
+  };
+
+  const changeSpecProductType = (productTypeCode: string) => {
+    setSpecScope(productTypeCode ? scopeForProductType(productTypeCode) : { ...specScope, productTypeCode: "" });
+    resetSpecTemplateForm(productTypeCode);
+  };
+
   const submitSpecTemplate = async () => {
-    if (!specForm.productTypeCode.trim() || !specForm.specKey.trim()) return toast.error("Ürün tipi ve teknik alan zorunludur");
+    const productTypeCode = specForm.productTypeCode.trim();
+    if (!productTypeCode || !specForm.specKey.trim()) return toast.error("Ürün tipi ve teknik alan zorunludur");
     const body = {
-      productTypeCode: specForm.productTypeCode.trim(),
+      productTypeCode,
       specKey: specForm.specKey.trim(),
       defaultValue: specForm.defaultValue || undefined,
       specUnit: specForm.specUnit || undefined,
@@ -271,7 +414,7 @@ export function SettingsPage() {
       if (editingSpecId) await adminService.updateProductSpecTemplate(editingSpecId, body);
       else await adminService.createProductSpecTemplate(body);
       toast.success(editingSpecId ? "Teknik alan güncellendi" : "Teknik alan eklendi");
-      setSpecForm(emptySpecForm);
+      setSpecForm({ ...emptySpecForm, productTypeCode });
       setEditingSpecId(null);
       await loadSpecTemplates();
     } catch (err: any) {
@@ -283,6 +426,7 @@ export function SettingsPage() {
 
   const editSpecTemplate = (row: SpecTemplateRow) => {
     setEditingSpecId(row.id);
+    setSpecScope(scopeForProductType(row.productTypeCode));
     setSpecForm({
       productTypeCode: row.productTypeCode,
       specKey: row.specKey,
@@ -508,38 +652,64 @@ export function SettingsPage() {
               <CardTitle>Ürün Teknik Bilgi Şablonları</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
-              <div className="grid grid-cols-1 md:grid-cols-6 gap-2 rounded-lg border border-border/60 p-3">
-                <SettingsField label="Ürün Tipi Kodu" value={specForm.productTypeCode} onChange={(v) => setSpecForm({ ...specForm, productTypeCode: v })} />
-                <div className="md:col-span-2">
-                  <SettingsField label="Alan Etiketi" value={specForm.specKey} onChange={(v) => setSpecForm({ ...specForm, specKey: v })} />
-                </div>
-                <SettingsField label="Varsayılan" value={specForm.defaultValue} onChange={(v) => setSpecForm({ ...specForm, defaultValue: v })} />
-                <SettingsField label="Birim" value={specForm.specUnit} onChange={(v) => setSpecForm({ ...specForm, specUnit: v })} />
-                <SettingsField label="Sıra" value={specForm.sortOrder} onChange={(v) => setSpecForm({ ...specForm, sortOrder: v })} />
-                <label className="flex items-center gap-2 text-sm">
-                  <input
-                    type="checkbox"
-                    checked={specForm.isActive}
-                    onChange={(e) => setSpecForm({ ...specForm, isActive: e.target.checked })}
-                  />
-                  Aktif
-                </label>
-                <div className="md:col-span-5 flex justify-end gap-2">
-                  {editingSpecId && (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() => {
-                        setEditingSpecId(null);
-                        setSpecForm(emptySpecForm);
-                      }}
-                    >
-                      Temizle
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-2 rounded-lg border border-border/60 bg-muted/20 p-3">
+                <SettingsSelect
+                  label="Üst Grup"
+                  value={specScope.categoryCode}
+                  onChange={changeSpecCategory}
+                  options={TEMPLATE_PRODUCT_CATEGORIES.map((item) => ({ value: item.code, label: item.label }))}
+                />
+                <SettingsSelect
+                  label="Alt Grup"
+                  value={specScope.subcategoryCode}
+                  onChange={changeSpecSubcategory}
+                  disabled={!availableSpecSubcategories.length}
+                  options={
+                    availableSpecSubcategories.length
+                      ? availableSpecSubcategories.map((item) => ({ value: item.code, label: item.label }))
+                      : [{ value: "", label: "Alt grup yok" }]
+                  }
+                />
+                <SettingsSelect
+                  label="Ürün Tipi"
+                  value={specScope.productTypeCode}
+                  onChange={changeSpecProductType}
+                  options={[
+                    { value: "", label: "Tüm ürün tipleri" },
+                    ...availableSpecProductTypes.map((item) => ({ value: item.code, label: item.label })),
+                  ]}
+                />
+              </div>
+              <div className="rounded-lg border border-border/60 p-3">
+                <div className="grid grid-cols-1 md:grid-cols-6 gap-2">
+                  <SettingsField label="Ürün Tipi Kodu" value={specForm.productTypeCode} disabled onChange={(v) => setSpecForm({ ...specForm, productTypeCode: v })} />
+                  <div className="md:col-span-2">
+                    <SettingsField label="Alan Etiketi" value={specForm.specKey} onChange={(v) => setSpecForm({ ...specForm, specKey: v })} />
+                  </div>
+                  <SettingsField label="Yeni Ürün Başlangıç Değeri" value={specForm.defaultValue} onChange={(v) => setSpecForm({ ...specForm, defaultValue: v })} />
+                  <SettingsField label="Birim" value={specForm.specUnit} onChange={(v) => setSpecForm({ ...specForm, specUnit: v })} />
+                  <SettingsField label="Sıra" value={specForm.sortOrder} onChange={(v) => setSpecForm({ ...specForm, sortOrder: v })} />
+                  <label className="flex items-end gap-2 pb-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={specForm.isActive}
+                      onChange={(e) => setSpecForm({ ...specForm, isActive: e.target.checked })}
+                    />
+                    Aktif
+                  </label>
+                  <div className="md:col-span-6 rounded-md bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+                    Başlangıç değeri, yeni ürün oluşturulurken bu teknik bilgi alanına otomatik gelen değerdir. Boş bırakılırsa alan boş gelir.
+                  </div>
+                  <div className="md:col-span-6 flex justify-end gap-2">
+                    {editingSpecId && (
+                      <Button type="button" variant="outline" onClick={() => resetSpecTemplateForm()}>
+                        Temizle
+                      </Button>
+                    )}
+                    <Button type="button" onClick={submitSpecTemplate} disabled={specBusy} className="gap-1">
+                      <Plus className="size-4" /> {editingSpecId ? "Güncelle" : "Ekle"}
                     </Button>
-                  )}
-                  <Button type="button" onClick={submitSpecTemplate} disabled={specBusy} className="gap-1">
-                    <Plus className="size-4" /> {editingSpecId ? "Güncelle" : "Ekle"}
-                  </Button>
+                  </div>
                 </div>
               </div>
               <div className="overflow-x-auto rounded-lg border border-border/60">
@@ -548,7 +718,7 @@ export function SettingsPage() {
                     <tr>
                       <th className="px-3 py-2">Ürün Tipi</th>
                       <th className="px-3 py-2">Alan</th>
-                      <th className="px-3 py-2">Varsayılan</th>
+                      <th className="px-3 py-2">Başlangıç Değeri</th>
                       <th className="px-3 py-2">Birim</th>
                       <th className="px-3 py-2">Sıra</th>
                       <th className="px-3 py-2">Durum</th>
@@ -556,9 +726,12 @@ export function SettingsPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {specRows.map((row) => (
+                    {filteredSpecRows.map((row) => (
                       <tr key={row.id} className="border-t border-border/60">
-                        <td className="px-3 py-2 font-mono text-xs">{row.productTypeCode}</td>
+                        <td className="px-3 py-2">
+                          <div className="font-medium">{productTypeLabel(row.productTypeCode)}</div>
+                          <div className="font-mono text-[11px] text-muted-foreground">{row.productTypeCode}</div>
+                        </td>
                         <td className="px-3 py-2">{row.specKey}</td>
                         <td className="px-3 py-2">{row.defaultValue || "-"}</td>
                         <td className="px-3 py-2">{row.specUnit || "-"}</td>
@@ -576,9 +749,9 @@ export function SettingsPage() {
                         </td>
                       </tr>
                     ))}
-                    {!specRows.length && (
+                    {!filteredSpecRows.length && (
                       <tr>
-                        <td className="px-3 py-6 text-center text-muted-foreground" colSpan={7}>Kayıt yok.</td>
+                        <td className="px-3 py-6 text-center text-muted-foreground" colSpan={7}>Seçili kapsamda kayıt yok.</td>
                       </tr>
                     )}
                   </tbody>
@@ -597,6 +770,38 @@ function SettingsField({ label, value, onChange, disabled }: { label: string; va
     <div>
       <Label className="text-xs text-muted-foreground">{label}</Label>
       <Input value={value} disabled={disabled} onChange={(e) => onChange(e.target.value)} className="mt-1" />
+    </div>
+  );
+}
+
+function SettingsSelect({
+  label,
+  value,
+  onChange,
+  options,
+  disabled,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  options: Array<{ value: string; label: string }>;
+  disabled?: boolean;
+}) {
+  return (
+    <div>
+      <Label className="text-xs text-muted-foreground">{label}</Label>
+      <select
+        value={value}
+        disabled={disabled}
+        onChange={(e) => onChange(e.target.value)}
+        className="mt-1 h-9 w-full rounded-md border border-input bg-input-background px-3 text-sm outline-none transition-colors focus:border-ring focus:ring-[3px] focus:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        {options.map((option) => (
+          <option key={option.value || option.label} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
     </div>
   );
 }

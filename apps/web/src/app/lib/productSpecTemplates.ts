@@ -333,6 +333,100 @@ export const HAKSAN_CNC_SPEC_VALUE_UNITS: readonly string[] = [
   "°",
 ];
 
+export type ProductSpecGroupCode =
+  | "TABLA"
+  | "EKSENLER"
+  | "FENER_MILI"
+  | "MOTORLAR"
+  | "TAKIM_DEGISTIRICI"
+  | "GENEL";
+
+export type ProductSpecGroup = {
+  code: ProductSpecGroupCode;
+  label: string;
+  order: number;
+};
+
+export type GroupedProductSpec<T extends ProductSpec = ProductSpec> = {
+  group: ProductSpecGroup;
+  specs: T[];
+};
+
+export const PRODUCT_SPEC_GROUPS: readonly ProductSpecGroup[] = [
+  { code: "TABLA", label: "TABLA", order: 10 },
+  { code: "EKSENLER", label: "EKSENLER", order: 20 },
+  { code: "FENER_MILI", label: "FENER MİLİ", order: 30 },
+  { code: "MOTORLAR", label: "MOTORLAR", order: 40 },
+  { code: "TAKIM_DEGISTIRICI", label: "TAKIM DEĞİŞTİRİCİ", order: 50 },
+  { code: "GENEL", label: "GENEL", order: 60 },
+];
+
+const PRODUCT_SPEC_GROUP_BY_CODE = new Map(PRODUCT_SPEC_GROUPS.map((group) => [group.code, group]));
+const PRODUCT_SPEC_GROUP_BY_LABEL = new Map(
+  PRODUCT_SPEC_GROUPS.map((group) => [normalizeSpecKey(group.label), group]),
+);
+
+const specGroupByCode = (code?: string | null) =>
+  code ? PRODUCT_SPEC_GROUP_BY_CODE.get(code.toLocaleUpperCase("tr-TR") as ProductSpecGroupCode) : undefined;
+
+const specGroupByLabel = (label?: string | null) =>
+  label ? PRODUCT_SPEC_GROUP_BY_LABEL.get(normalizeSpecKey(label)) : undefined;
+
+export function productSpecGroupForKey(spec: ProductSpec | string): ProductSpecGroup {
+  const value = typeof spec === "string" ? { key: spec, value: "" } : spec;
+  const explicitGroup = specGroupByCode(value.groupCode) ?? specGroupByLabel(value.groupName);
+  if (explicitGroup) return explicitGroup;
+
+  const key = normalizeSpecKey(value.key);
+  if (
+    key.includes("tabla") ||
+    key.includes("ayna") ||
+    key.includes("is parcasi") ||
+    key.includes("cevirme kapasitesi") ||
+    key.includes("tornalama capi") ||
+    key.includes("tornalama boyu") ||
+    key.includes("cubuk isleme capi")
+  ) {
+    return PRODUCT_SPEC_GROUP_BY_CODE.get("TABLA")!;
+  }
+  if (
+    key.includes("kolonlar arasi") ||
+    key.includes("eksen") ||
+    key.includes("pozisyonlama") ||
+    key.includes("tekrarlama") ||
+    key.includes("ilerleme") ||
+    key.includes("hareketi")
+  ) {
+    return PRODUCT_SPEC_GROUP_BY_CODE.get("EKSENLER")!;
+  }
+  if (key === "fener mili motor tipi" || key.includes("motor tipi") || (key.includes("motor") && !key.includes("fener mili motor gucu"))) {
+    return PRODUCT_SPEC_GROUP_BY_CODE.get("MOTORLAR")!;
+  }
+  if (key.includes("fener mili") || key.includes("spindle") || key.includes("rulman")) {
+    return PRODUCT_SPEC_GROUP_BY_CODE.get("FENER_MILI")!;
+  }
+  if (
+    key.includes("takim") ||
+    key.includes("taret") ||
+    key.includes("istasyon") ||
+    key.includes("canli takim")
+  ) {
+    return PRODUCT_SPEC_GROUP_BY_CODE.get("TAKIM_DEGISTIRICI")!;
+  }
+  return PRODUCT_SPEC_GROUP_BY_CODE.get("GENEL")!;
+}
+
+export function groupProductSpecs<T extends ProductSpec>(specs: readonly T[]): GroupedProductSpec<T>[] {
+  const buckets = new Map<ProductSpecGroupCode, T[]>();
+  for (const spec of specs) {
+    const group = productSpecGroupForKey(spec);
+    buckets.set(group.code, [...(buckets.get(group.code) ?? []), spec]);
+  }
+  return PRODUCT_SPEC_GROUPS
+    .map((group) => ({ group, specs: buckets.get(group.code) ?? [] }))
+    .filter((item) => item.specs.length > 0);
+}
+
 const HAKSAN_CNC_SPEC_DEFAULTS: readonly ProductSpec[] = HAKSAN_CNC_SPEC_KEYS.map((key) => ({
   key,
   value: "",
@@ -349,7 +443,7 @@ const SPEC_DEFAULTS: Record<string, readonly ProductSpec[]> = {
   KOPRU_TIPI_ISLEME_MERKEZI: CNC_KOPRU_TIPI_SPEC_DEFAULTS,
 };
 
-const normalizeSpecKey = (value: string) => {
+function normalizeSpecKey(value: string) {
   const normalized = value
     .trim()
     .toLocaleLowerCase("tr-TR")
@@ -371,7 +465,7 @@ const normalizeSpecKey = (value: string) => {
     "agirlik": "tezgah agirligi",
   };
   return aliases[normalized] ?? normalized;
-};
+}
 
 const splitTriplet = (value: string, separator: RegExp): string[] => {
   const unit = value.match(/\s([a-zA-ZçğıöşüÇĞİÖŞÜ.\/]+)$/)?.[1] ?? "";

@@ -50,9 +50,11 @@ import {
   HAKSAN_CNC_SPEC_KEYS,
   HAKSAN_CNC_SPEC_VALUE_UNITS,
   allCatalogProductSpecs,
+  groupProductSpecs,
   specsForProductType,
 } from "../../lib/productSpecTemplates";
 import { QuoteDialog } from "./QuoteDialog";
+import { ProductSpecsTable } from "../shared/ProductSpecsTable";
 
 /* ---------- Customer ---------- */
 const COMPANY_GROUP_OPTIONS = [
@@ -2688,33 +2690,44 @@ export function ProductDialog({
                   </div>
                 </div>
                 <div className="space-y-2">
-                  {form.specs.map((s, i) => (
-                    <div key={i} className="grid grid-cols-[minmax(120px,1fr)_minmax(160px,1.5fr)_36px] gap-2">
-                      <Combobox
-                        className="h-8 bg-white"
-                        options={specKeyOptionsFor(s.key)}
-                        value={s.key}
-                        onChange={(value) => updSpec(i, { key: value })}
-                        placeholder="Özellik seçin"
-                        searchPlaceholder="Özellik ara..."
-                        emptyText="Özellik bulunamadı"
-                        onCreate={(value) => updSpec(i, { key: value })}
-                        createLabel={(query) => `"${query}" kullan`}
-                      />
-                      <Combobox
-                        className="h-8 bg-white"
-                        options={specValueOptionsFor(s)}
-                        value={s.value}
-                        onChange={(value) => updSpec(i, { value })}
-                        placeholder="Boş / -"
-                        searchPlaceholder="Değer ara..."
-                        emptyText="Değer bulunamadı"
-                        onCreate={(value) => updSpec(i, { value })}
-                        createLabel={(query) => `"${query}" kullan`}
-                      />
-                      <Button type="button" variant="ghost" size="icon" className="h-8 w-8" onClick={() => rmSpec(i)}>
-                        <Trash2 className="size-4 text-muted-foreground" />
-                      </Button>
+                  {groupProductSpecs(form.specs.map((spec, index) => ({ ...spec, index }))).map(({ group, specs }) => (
+                    <div key={group.code} className="grid grid-cols-[48px_minmax(0,1fr)] overflow-hidden rounded-md border border-border/60 bg-white">
+                      <div className="flex items-center justify-center border-r border-border/60 bg-muted/50 px-1 py-2">
+                        <div className="rotate-180 text-center text-[10px] font-semibold uppercase tracking-[0.16em] text-foreground/80 [writing-mode:vertical-rl]">
+                          {group.label}
+                        </div>
+                      </div>
+                      <div className="min-w-0 divide-y divide-dotted divide-foreground/30">
+                        {specs.map((s) => (
+                          <div key={s.index} className="grid grid-cols-[minmax(120px,1fr)_minmax(160px,1.5fr)_36px] gap-2 px-2 py-1.5">
+                            <Combobox
+                              className="h-8 bg-white"
+                              options={specKeyOptionsFor(s.key)}
+                              value={s.key}
+                              onChange={(value) => updSpec(s.index, { key: value })}
+                              placeholder="Özellik seçin"
+                              searchPlaceholder="Özellik ara..."
+                              emptyText="Özellik bulunamadı"
+                              onCreate={(value) => updSpec(s.index, { key: value })}
+                              createLabel={(query) => `"${query}" kullan`}
+                            />
+                            <Combobox
+                              className="h-8 bg-white"
+                              options={specValueOptionsFor(s)}
+                              value={s.value}
+                              onChange={(value) => updSpec(s.index, { value })}
+                              placeholder="Boş / -"
+                              searchPlaceholder="Değer ara..."
+                              emptyText="Değer bulunamadı"
+                              onCreate={(value) => updSpec(s.index, { value })}
+                              createLabel={(query) => `"${query}" kullan`}
+                            />
+                            <Button type="button" variant="ghost" size="icon" className="h-8 w-8" onClick={() => rmSpec(s.index)}>
+                              <Trash2 className="size-4 text-muted-foreground" />
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -3768,21 +3781,7 @@ export function DeliveryFormFields({
 
       <div className="rounded-lg border border-border/60 p-3 space-y-2">
         <div className="text-xs font-medium text-center">Teknik Bilgiler</div>
-        {form.technicalSpecs.length ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4">
-            {form.technicalSpecs.map((spec, index) => (
-              <div
-                key={`${spec.key}-${index}`}
-                className="flex items-start justify-between gap-3 border-b border-border/50 py-1.5 text-xs"
-              >
-                <span className="text-muted-foreground">{spec.key}</span>
-                <span className="text-right">{spec.value}</span>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <div className="text-xs text-muted-foreground">Seçilen makine için teknik bilgi bulunamadı.</div>
-        )}
+        <ProductSpecsTable specs={form.technicalSpecs} emptyText="Seçilen makine için teknik bilgi bulunamadı." />
       </div>
 
       <div className="rounded-lg border border-border/60 p-3 space-y-2">

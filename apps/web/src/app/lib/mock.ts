@@ -290,7 +290,7 @@ export type StockItem = {
   locationStatus?: string;
 };
 
-export type ProductSpec = { key: string; value: string };
+export type ProductSpec = { key: string; value: string; groupCode?: string; groupName?: string };
 
 export type ProductAlternative = {
   id: string;

@@ -17,6 +17,7 @@ import { useStore } from "../../lib/store";
 import { useAuth } from "../../../lib/auth";
 import { productService } from "../../../lib/services";
 import { resolveMediaUrl } from "../../../lib/apiClient";
+import { ProductSpecsTable } from "../shared/ProductSpecsTable";
 
 type MediaItem = { fileId: string; mediaType: "image" | "document"; title: string | null; mimeType: string; url: string };
 
@@ -524,18 +525,7 @@ export function ProductDetailDialog({
         {/* specs */}
         <div className="px-6 pb-4">
           <SectionTitle icon={<ListChecks className="size-3.5" />} text="Teknik Bilgiler" />
-          {!(product.specs && product.specs.length > 0) ? (
-            <div className="text-xs text-muted-foreground">Teknik özellik girilmemiş.</div>
-          ) : (
-            <div className="rounded-lg border border-border/60 divide-y divide-border/60 sm:columns-2 sm:gap-0">
-              {product.specs.map((s, i) => (
-                <div key={`${s.key}-${i}`} className="flex items-start justify-between gap-3 px-3 py-1.5 text-xs break-inside-avoid">
-                  <span className="text-muted-foreground">{s.key}</span>
-                  <span className="tracking-tight text-right">{s.value}</span>
-                </div>
-              ))}
-            </div>
-          )}
+          <ProductSpecsTable specs={product.specs ?? []} />
         </div>
 
         {/* option sets */}

@@ -59,7 +59,7 @@ import {
   Shipment,
   Delivery,
 } from './mock';
-import { allCatalogProductSpecs } from './productSpecTemplates';
+import { allCatalogProductSpecs, productSpecGroupForKey } from './productSpecTemplates';
 import { isServiceQuoteComplete, serviceQuoteMissingFields } from './serviceQuote';
 
 const SERVICE_STAGES: ServiceStage[] = [
@@ -282,7 +282,7 @@ const productDetailsPayload = (p: Partial<Product>) => ({
   specs: allCatalogProductSpecs(p.specs ?? [], '-')
     .filter((s) => cleanString(s.key))
     .map((s, index) => ({
-      specGroupCode: 'GENEL',
+      specGroupCode: productSpecGroupForKey(s).code,
       specKey: s.key.trim(),
       specValue: s.value.trim() || '-',
       sortOrder: index + 1,
@@ -703,6 +703,8 @@ function StoreInner({ children }: { children: ReactNode }) {
           specs: (p.specs ?? []).map((s: any) => ({
             key: s.key ?? s.specKey ?? '',
             value: s.unit ? `${s.value ?? s.specValue ?? ''} ${s.unit}` : s.value ?? s.specValue ?? '',
+            groupCode: s.groupCode ?? s.specGroupCode ?? '',
+            groupName: s.groupName ?? s.group ?? '',
           })).filter((s: any) => s.key && s.value),
           standardEquipment: p.standardEquipment ?? [],
           optionalEquipment: p.optionalEquipment ?? [],
