@@ -9,6 +9,11 @@ const envBoolean = z.preprocess((value) => {
   return value;
 }, z.boolean());
 
+const envOptionalSecret = z.preprocess((value) => {
+  if (typeof value === 'string' && value.trim() === '') return undefined;
+  return value;
+}, z.string().min(8).optional());
+
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   PORT: z.coerce.number().int().positive().default(3000),
@@ -78,7 +83,7 @@ const envSchema = z.object({
   // kabul edilir.
   ASSISTANT_LLM_PROVIDER: z.enum(['none', 'openrouter']).default('none'),
   ASSISTANT_MODEL: z.string().max(128).default('openrouter/free'),
-  ASSISTANT_API_KEY: z.string().min(8).optional(),
+  ASSISTANT_API_KEY: envOptionalSecret,
   ASSISTANT_MAX_TOKENS: z.coerce.number().int().positive().max(4000).default(700),
 
   // Storage
