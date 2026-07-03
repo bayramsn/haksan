@@ -1,7 +1,22 @@
 server_tokens off;
 limit_req_status 429;
+
+# AWS ALB / özel ağ reverse proxy arkasında nginx'e gelen isteklerde gerçek
+# istemci IP'sini kullan. Sadece private/proxy ağlarını trusted kabul eder;
+# doğrudan internetten gelen istemci X-Forwarded-For enjekte ederse yok sayılır.
+real_ip_header X-Forwarded-For;
+real_ip_recursive on;
+set_real_ip_from 10.0.0.0/8;
+set_real_ip_from 172.16.0.0/12;
+set_real_ip_from 192.168.0.0/16;
+set_real_ip_from 127.0.0.1;
+set_real_ip_from ::1;
+
 limit_req_zone $binary_remote_addr zone=app_per_ip:10m rate=120r/m;
-limit_req_zone $binary_remote_addr zone=api_per_ip:10m rate=60r/m;
+# API'nin kendi NestJS throttler'ı endpoint/metot/IP bazlı çalışır. Nginx'teki bu
+# limit yalnız edge flood kontrolüdür; SPA ilk yükleme fan-out'unu tek global
+# /api kotasında 429'a düşürmeyecek kadar geniş tutulur.
+limit_req_zone $binary_remote_addr zone=api_per_ip:10m rate=300r/m;
 limit_req_zone $binary_remote_addr zone=auth_per_ip:10m rate=5r/m;
 
 server {
@@ -92,7 +107,9 @@ server {
     }
 
     location /api/ {
-        limit_req zone=api_per_ip burst=30 nodelay;
+        # CRM açılışında çok sayıda GET paralel gelir. Bu burst yalnızca normal
+        # SPA veri fan-out'unun 429'a düşmesini önler; auth ayrı 5/dk limitte kalır.
+        limit_req zone=api_per_ip burst=240 nodelay;
         proxy_pass http://api:3000;
         proxy_http_version 1.1;
         proxy_set_header Host $host;

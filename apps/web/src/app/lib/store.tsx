@@ -8,7 +8,7 @@
  *   so pages don't need to change.
  * - Mutations call backend endpoints, then trigger a refetch.
  */
-import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { queryClient } from '../../lib/queryClient';
 import {
@@ -455,6 +455,8 @@ function StoreInner({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [loadErrors, setLoadErrors] = useState<string[]>([]);
   const [loadTruncated, setLoadTruncated] = useState<string[]>([]);
+  const fetchAllInFlightRef = useRef<Promise<void> | null>(null);
+  const fetchAllQueuedRef = useRef(false);
   const clearLoadErrors = useCallback(() => setLoadErrors([]), []);
 
   const [customers, setCustomers] = useState<Customer[]>([]);
@@ -495,7 +497,7 @@ function StoreInner({ children }: { children: ReactNode }) {
   const deliveryStatusToCode = (status: Delivery['status']): 'pending' | 'completed' =>
     status === 'Tamamlandı' ? 'completed' : 'pending';
 
-  const fetchAll = useCallback(async () => {
+  const fetchAllOnce = useCallback(async () => {
     if (!sessionReady || !authed) {
       setLoading(false);
       setLoadErrors([]);
@@ -1162,6 +1164,25 @@ function StoreInner({ children }: { children: ReactNode }) {
       setLoading(false);
     }
   }, [authed, sessionReady, user?.permissions]);
+
+  const fetchAll = useCallback(async () => {
+    if (fetchAllInFlightRef.current) {
+      fetchAllQueuedRef.current = true;
+      return fetchAllInFlightRef.current;
+    }
+
+    const run = (async () => {
+      do {
+        fetchAllQueuedRef.current = false;
+        await fetchAllOnce();
+      } while (fetchAllQueuedRef.current);
+    })().finally(() => {
+      fetchAllInFlightRef.current = null;
+    });
+
+    fetchAllInFlightRef.current = run;
+    return run;
+  }, [fetchAllOnce]);
 
   // Aktif bölüm değişince (CNC/Üniversal/Sac/Tümü) tüm veriyi yeni
   // `X-Active-Division` başlığıyla yeniden çek.
