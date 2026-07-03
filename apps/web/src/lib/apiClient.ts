@@ -104,25 +104,24 @@ function scheduleApiRequest<T>(task: () => Promise<T>): Promise<T> {
 }
 
 function retryAfterMs(res: Response, attempt: number): number {
-  const header = res.headers.get('retry-after');
+  const header = res.headers.get('retry-after')?.trim();
   if (header) {
     const seconds = Number(header);
-    if (Number.isFinite(seconds) && seconds >= 0) return Math.min(seconds * 1000, 10_000);
+    if (Number.isFinite(seconds) && seconds >= 0) return Math.min(Math.max(seconds * 1000, 250), 10_000);
     const dateMs = Date.parse(header);
-    if (Number.isFinite(dateMs)) return Math.min(Math.max(0, dateMs - Date.now()), 10_000);
+    if (Number.isFinite(dateMs)) return Math.min(Math.max(250, dateMs - Date.now()), 10_000);
   }
   return Math.min(1_000 * 2 ** attempt, 5_000) + Math.floor(Math.random() * 400);
 }
 
+// Her deneme kuyruğa ayrı girer: 429 sonrası bekleme slot tutmaz, diğer
+// istekler retry beklemesi sırasında akmaya devam eder.
 async function fetchWithRateLimitRetry(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
-  return scheduleApiRequest(async () => {
-    for (let attempt = 0; attempt <= API_RATE_LIMIT_RETRIES; attempt += 1) {
-      const res = await fetch(input, init);
-      if (res.status !== 429 || attempt === API_RATE_LIMIT_RETRIES) return res;
-      await sleep(retryAfterMs(res, attempt));
-    }
-    throw new Error('Rate limit retry failed');
-  });
+  for (let attempt = 0; ; attempt += 1) {
+    const res = await scheduleApiRequest(() => fetch(input, init));
+    if (res.status !== 429 || attempt >= API_RATE_LIMIT_RETRIES) return res;
+    await sleep(retryAfterMs(res, attempt));
+  }
 }
 
 function readStoredActiveDivision(): string | null {

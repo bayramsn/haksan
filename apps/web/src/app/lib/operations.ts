@@ -234,7 +234,9 @@ const monthKeyOf = (iso?: string) => (iso ?? "").slice(0, 7);
 const sumPaidByMonth = (data: OperationStoreSnapshot, monthKey: string) => {
   const totals = new Map<string, number>();
   for (const payment of paidInboundPayments(data)) {
-    if (monthKeyOf(payment.paidDate ?? payment.dueDate) !== monthKey) continue;
+    // Ay ataması yalnız gerçek tahsilat tarihine göre yapılır; paidDate'i
+    // olmayan Paid kayıtlar vade ayına yazılıp ciroyu saptırmasın.
+    if (!payment.paidDate || monthKeyOf(payment.paidDate) !== monthKey) continue;
     totals.set(payment.currency, (totals.get(payment.currency) ?? 0) + payment.amount);
   }
   return Array.from(totals.entries())
@@ -1191,7 +1193,9 @@ export function answerAssistant(input: string, data: OperationStoreSnapshot, ext
 
   {
     const serialTerm = stripCommandWords(query, ["seri", "no", "numara", "numarasi", "numarası", "servis", "ile", "makine", "makina", "cihaz"]);
-    const machine = serialTerm
+    // 1-2 karakterlik generik terimler ("3" gibi) rastgele bir seri numarasına
+    // tutunmasın; en az 3 karakterlik anlamlı bir arama terimi iste.
+    const machine = serialTerm && serialTerm.length >= 3
       ? data.machines.find((m) => normalize(m.serialNumber).includes(normalize(serialTerm)))
       : undefined;
     if (machine && includesAny(text, ["seri", "servis", "makine", "makina", "cihaz"])) {

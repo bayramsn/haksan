@@ -24,12 +24,6 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["--workspace", "@haksan/web", "exec", "--", "vite", "preview", "--host", "127.0.0.1", "--port", "4173", "--strictPort"],
       "port": 4173
-    },
-    {
-      "name": "stitch-html",
-      "runtimeExecutable": "python3",
-      "runtimeArgs": ["-m", "http.server", "8799", "--directory", ".stitch/download/html"],
-      "port": 8799
     }
   ]
 }

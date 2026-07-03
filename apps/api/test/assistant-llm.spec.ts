@@ -3,16 +3,28 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 /**
  * llmAnswer sağlayıcı dallarını DB'siz test eder — AssistantService'in
  * yalnızca env + fetch kullanan kısmı çalıştırılır, bağımlılıklar boş geçilir.
- * Env loadEnv() içinde cache'lendiğinden değerler dinamik import öncesi ayarlanır.
+ * Env loadEnv() içinde cache'lendiğinden her buildService modül kaydını
+ * sıfırlar; dokunulan env anahtarları afterEach'te eski değerine döner.
  */
+const touchedEnvKeys = new Map<string, string | undefined>();
+
 async function buildService(env: Record<string, string>) {
-  for (const [key, value] of Object.entries(env)) process.env[key] = value;
+  vi.resetModules();
+  for (const [key, value] of Object.entries(env)) {
+    if (!touchedEnvKeys.has(key)) touchedEnvKeys.set(key, process.env[key]);
+    process.env[key] = value;
+  }
   const { AssistantService } = await import('../src/modules/assistant/assistant.service');
   return new AssistantService({} as never, {} as never, {} as never, {} as never);
 }
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  for (const [key, value] of touchedEnvKeys) {
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  }
+  touchedEnvKeys.clear();
 });
 
 describe('Assistant LLM providers', () => {
