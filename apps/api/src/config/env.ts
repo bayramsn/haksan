@@ -78,10 +78,11 @@ const envSchema = z.object({
   CALL_WEBHOOK_SECRET: z.string().min(8).optional(),
 
   // CRM Asistanı LLM ayarları. API key sadece backend ortamında tutulur; boşsa
-  // asistan CRM verilerinden deterministik yanıt üretir. Ücret oluşmaması için
-  // yalnız OpenRouter Free Router (`openrouter/free`) veya `:free` varyantları
-  // kabul edilir.
-  ASSISTANT_LLM_PROVIDER: z.enum(['none', 'openrouter']).default('none'),
+  // asistan CRM verilerinden deterministik yanıt üretir. OpenRouter'da ücret
+  // oluşmaması için yalnız Free Router (`openrouter/free`) veya `:free`
+  // varyantları kabul edilir; anthropic'te model `claude-*` olmalıdır
+  // (örn. claude-haiku-4-5).
+  ASSISTANT_LLM_PROVIDER: z.enum(['none', 'openrouter', 'groq', 'anthropic']).default('none'),
   ASSISTANT_MODEL: z.string().max(128).default('openrouter/free'),
   ASSISTANT_API_KEY: envOptionalSecret,
   ASSISTANT_MAX_TOKENS: z.coerce.number().int().positive().max(4000).default(700),
@@ -129,6 +130,13 @@ const envSchema = z.object({
       code: z.ZodIssueCode.custom,
       path: ['ASSISTANT_MODEL'],
       message: 'OpenRouter assistant model must be openrouter/free or a :free model variant',
+    });
+  }
+  if (env.ASSISTANT_LLM_PROVIDER === 'anthropic' && !env.ASSISTANT_MODEL.startsWith('claude-')) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['ASSISTANT_MODEL'],
+      message: 'Anthropic assistant model must be a claude-* model (e.g. claude-haiku-4-5)',
     });
   }
 
