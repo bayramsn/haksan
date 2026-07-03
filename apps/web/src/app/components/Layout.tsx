@@ -270,7 +270,7 @@ export function Layout({ current, onNavigate, onLogout, pageTitle, pageSubtitle,
     }
   };
 
-  const renderSidebarContent = (onItemClick?: () => void, menuSide: "right" | "top" = "right") => (
+  const renderSidebarContent = (onItemClick?: () => void) => (
     <div className="flex h-full min-h-0 flex-col overflow-hidden">
       {/* Logo */}
       <div className="h-16 shrink-0 flex items-center gap-3 px-5 border-b border-border/60">
@@ -357,7 +357,7 @@ export function Layout({ current, onNavigate, onLogout, pageTitle, pageSubtitle,
               onClick={() => setMobileNavOpen(false)}
             />
             <aside className="relative z-10 flex h-full min-h-0 w-[min(300px,calc(100vw-2rem))] flex-col overflow-hidden border-r border-border/60 bg-white shadow-xl">
-              {renderSidebarContent(() => setMobileNavOpen(false), "top")}
+              {renderSidebarContent(() => setMobileNavOpen(false))}
             </aside>
           </div>
         )}

@@ -395,7 +395,7 @@ export function AssistantPanel({
     try {
       const response = await assistantService.chat({ message: text, context: { page: activeTab } });
       const backendActions: PanelAction[] = response.actions
-        .map((action) => {
+        .map((action): PanelAction | null => {
           const suggestionId = payloadSuggestionId(action);
           const operationAction = toOperationAction(action.operationAction);
           if (!suggestionId && !operationAction) return null;
