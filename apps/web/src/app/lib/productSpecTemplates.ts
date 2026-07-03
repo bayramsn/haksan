@@ -469,6 +469,34 @@ function normalizeSpecKey(value: string) {
 
 export const normalizeProductSpecKey = normalizeSpecKey;
 
+const SPEC_VALUE_UNIT_PATTERNS: RegExp[] = [
+  /^(.+?)\s+(bar\s*\(.+\))$/i,
+  /^(.+?)\s+(kw\s*\(.+\))$/i,
+  /^(.+?)\s+(mm\/dk|dv\/dk|mm|kg|kw|hp|lt|adet|sn|bar|psi)$/i,
+  /^(.+?)(\")$/,
+];
+
+const splitSpecValueUnit = (value?: string | null): Pick<ProductSpec, "value" | "unit"> => {
+  const text = (value ?? "").trim();
+  if (!text || text === "-") return { value: text, unit: "" };
+  for (const pattern of SPEC_VALUE_UNIT_PATTERNS) {
+    const match = text.match(pattern);
+    if (match?.[1] && match?.[2]) {
+      return { value: match[1].trim(), unit: match[2].trim() };
+    }
+  }
+  return { value: text, unit: "" };
+};
+
+const normalizeSpecUnit = (spec: ProductSpec): ProductSpec => {
+  const explicitUnit = spec.unit ?? spec.specUnit;
+  if (explicitUnit !== undefined) {
+    return { ...spec, value: spec.value ?? "", unit: explicitUnit, specUnit: explicitUnit };
+  }
+  const parts = splitSpecValueUnit(spec.value);
+  return { ...spec, ...parts, specUnit: parts.unit };
+};
+
 const splitTriplet = (value: string, separator: RegExp): string[] => {
   const unit = value.match(/\s([a-zA-ZçğıöşüÇĞİÖŞÜ.\/]+)$/)?.[1] ?? "";
   return value
@@ -550,27 +578,35 @@ export function mergeSpecsWithDefaults(
   specs: ProductSpec[],
   defaults: readonly ProductSpec[],
 ): ProductSpec[] {
-  if (!defaults.length) return specs.map((spec) => ({ ...spec }));
+  const normalizedSpecs = specs.map(normalizeSpecUnit);
+  const normalizedDefaults = defaults.map(normalizeSpecUnit);
+  if (!normalizedDefaults.length) return normalizedSpecs.map((spec) => ({ ...spec }));
 
   const used = new Set<number>();
-  const templated = defaults.map((defaultSpec) => {
+  const templated = normalizedDefaults.map((defaultSpec) => {
     const normalized = normalizeSpecKey(defaultSpec.key);
-    const index = specs.findIndex(
+    const index = normalizedSpecs.findIndex(
       (spec, specIndex) => !used.has(specIndex) && normalizeSpecKey(spec.key) === normalized,
     );
     if (index >= 0) {
       used.add(index);
+      const existing = normalizedSpecs[index];
+      const unit = existing.unit ?? existing.specUnit ?? defaultSpec.unit ?? defaultSpec.specUnit ?? "";
       return {
         key: defaultSpec.key,
-        value: specs[index].value?.trim() ? specs[index].value : defaultSpec.value,
+        value: existing.value?.trim() ? existing.value : defaultSpec.value,
+        unit,
+        specUnit: unit,
+        groupCode: existing.groupCode ?? defaultSpec.groupCode,
+        groupName: existing.groupName ?? defaultSpec.groupName,
       };
     }
     return { ...defaultSpec };
   });
-  const custom = specs.filter(
+  const custom = normalizedSpecs.filter(
     (spec, index) =>
       !used.has(index) &&
-      !defaults.some((defaultSpec) => normalizeSpecKey(defaultSpec.key) === normalizeSpecKey(spec.key)) &&
+      !normalizedDefaults.some((defaultSpec) => normalizeSpecKey(defaultSpec.key) === normalizeSpecKey(spec.key)) &&
       (spec.key.trim() || spec.value.trim()),
   );
   return [...templated, ...custom];
@@ -580,6 +616,10 @@ export function allCatalogProductSpecs(specs: ProductSpec[] = [], emptyValue = "
   return mergeSpecsWithDefaults(specs, HAKSAN_CNC_SPEC_DEFAULTS).map((spec) => ({
     key: spec.key,
     value: spec.value?.trim() ? spec.value : emptyValue,
+    unit: spec.unit ?? spec.specUnit ?? "",
+    specUnit: spec.unit ?? spec.specUnit ?? "",
+    groupCode: spec.groupCode,
+    groupName: spec.groupName,
   }));
 }
 

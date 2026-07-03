@@ -57,7 +57,7 @@ import { printOrWarn, openInMaps, warrantyInfo, type WarrantyState } from "../..
 import {
   Plus, Printer, MapPin, Wrench, Building2, Lock, Play, Pause, Square, MessageSquare,
   ShieldCheck, Send, Check, X, Package, ClipboardCheck, Inbox, Link2, Copy, ExternalLink,
-  PhoneCall, Trash2, ArrowRight, FileCheck2, History, FileText,
+  PhoneCall, Trash2, ArrowRight, FileCheck2, History, FileText, Save,
 } from "lucide-react";
 
 const SERVICE_CURRENCIES = ["USD", "EUR", "TRY"] as const;
@@ -75,6 +75,8 @@ const COMPLAINT_EXT_TO_MIME: Record<string, string> = {
 
 const newServiceQuoteItem = (): ServiceQuoteItem => ({
   id: `service-quote-item-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+  productModelId: null,
+  stockCode: null,
   description: "",
   quantity: 1,
   unit: "Ad.",
@@ -1991,6 +1993,7 @@ function ServiceQuoteEditor({
   actor?: ServiceActor | null;
   onSave: (quote: ServiceQuoteForm) => Promise<void>;
 }) {
+  const { products } = useStore();
   const buildDraft = (): ServiceQuoteForm => {
     if (serviceRequest.serviceQuote) {
       return {
@@ -2039,6 +2042,24 @@ function ServiceQuoteEditor({
       items: current.items.map((item) => item.id === id ? { ...item, ...patch } : item),
     }));
   };
+  const serviceProducts = products.filter((product) => product.categoryCode !== "TEZGAH");
+  const pickProduct = (itemId: string, productId: string) => {
+    if (productId === NONE) {
+      updateItem(itemId, { productModelId: null, stockCode: null });
+      return;
+    }
+    const product = serviceProducts.find((item) => item.id === productId);
+    if (!product) return;
+    updateItem(itemId, {
+      productModelId: product.id,
+      stockCode: product.stockCode || null,
+      description: product.shortDescription || [product.brand, product.model].filter(Boolean).join(" ") || product.model,
+      unitPrice: product.cashPrice ?? product.listPrice ?? 0,
+    });
+    if (product.currency && product.currency !== draft.currency) {
+      setDraft((current) => ({ ...current, currency: product.currency }));
+    }
+  };
 
   const save = async (printAfterSave = false) => {
     const normalized: ServiceQuoteForm = {
@@ -2051,6 +2072,8 @@ function ServiceQuoteEditor({
       items: draft.items
         .map((item) => ({
           ...item,
+          productModelId: item.productModelId ?? null,
+          stockCode: item.stockCode ?? null,
           description: item.description.trim(),
           unit: item.unit.trim(),
           quantity: Number(item.quantity) || 0,
@@ -2117,11 +2140,25 @@ function ServiceQuoteEditor({
         </CardHeader>
         <CardContent className="space-y-3">
           <div className="overflow-x-auto rounded-lg border border-border/60">
-            <Table className="min-w-[760px]">
-              <TableHeader><TableRow className="bg-muted/30"><TableHead>Açıklama *</TableHead><TableHead className="w-24">Miktar *</TableHead><TableHead className="w-24">Birim *</TableHead><TableHead className="w-36">Birim Fiyat *</TableHead><TableHead className="w-36 text-right">Tutar</TableHead><TableHead className="w-12" /></TableRow></TableHeader>
+            <Table className="min-w-[980px]">
+              <TableHeader><TableRow className="bg-muted/30"><TableHead className="w-64">Ürün</TableHead><TableHead>Açıklama *</TableHead><TableHead className="w-24">Miktar *</TableHead><TableHead className="w-24">Birim *</TableHead><TableHead className="w-36">Birim Fiyat *</TableHead><TableHead className="w-36 text-right">Tutar</TableHead><TableHead className="w-12" /></TableRow></TableHeader>
               <TableBody>
                 {draft.items.map((item) => (
                   <TableRow key={item.id}>
+                    <TableCell>
+                      <Select value={item.productModelId || NONE} onValueChange={(value) => pickProduct(item.id, value)}>
+                        <SelectTrigger><SelectValue placeholder="Ürün seç" /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value={NONE}>Serbest kalem</SelectItem>
+                          {serviceProducts.map((product) => (
+                            <SelectItem key={product.id} value={product.id}>
+                              {[product.stockCode, product.shortDescription || product.model].filter(Boolean).join(" · ")}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      {item.stockCode && <div className="mt-1 text-[11px] text-muted-foreground">Stok: {item.stockCode}</div>}
+                    </TableCell>
                     <TableCell><Input value={item.description} onChange={(e) => updateItem(item.id, { description: e.target.value })} placeholder="Ürün veya hizmet açıklaması" /></TableCell>
                     <TableCell><Input type="number" min="0" step="0.01" value={item.quantity} onChange={(e) => updateItem(item.id, { quantity: Number(e.target.value) })} /></TableCell>
                     <TableCell><Input value={item.unit} onChange={(e) => updateItem(item.id, { unit: e.target.value })} /></TableCell>
@@ -2219,6 +2256,8 @@ function ServiceDetailDialog({
   const { user: authUser } = useAuth();
   const [nowMs, setNowMs] = useState(Date.now());
   const [note, setNote] = useState("");
+  const [editingNoteId, setEditingNoteId] = useState("");
+  const [editingNoteText, setEditingNoteText] = useState("");
   const [complaint, setComplaint] = useState("");
   const [warrantyAssessment, setWarrantyAssessment] = useState("");
   const [warrantyFailureCategory, setWarrantyFailureCategory] = useState("");
@@ -2250,6 +2289,8 @@ function ServiceDetailDialog({
 
   useEffect(() => {
     setNote("");
+    setEditingNoteId("");
+    setEditingNoteText("");
     setComplaint("");
     setWarrantyAssessment(serviceRequest?.warrantyClaim?.technicianAssessment ?? "");
     setWarrantyFailureCategory(serviceRequest?.warrantyClaim?.failureCategory ?? "");
@@ -2441,6 +2482,29 @@ function ServiceDetailDialog({
       })
     );
     setNote("");
+  };
+  const saveEditedNote = async () => {
+    const text = editingNoteText.trim();
+    if (!editingNoteId || !text) return;
+    await updateService(
+      serviceRequest.id,
+      withActivity("Not düzenlendi.", {
+        serviceNote: text,
+        noteHistory: (serviceRequest.noteHistory ?? []).map((item) =>
+          item.id === editingNoteId ? { ...item, text, byUserId: currentActorId } : item
+        ),
+      })
+    );
+    setEditingNoteId("");
+    setEditingNoteText("");
+  };
+  const deleteNote = async (id: string) => {
+    await updateService(
+      serviceRequest.id,
+      withActivity("Not silindi.", {
+        noteHistory: (serviceRequest.noteHistory ?? []).filter((item) => item.id !== id),
+      })
+    );
   };
 
   const addComplaint = async () => {
@@ -3207,12 +3271,33 @@ function ServiceDetailDialog({
                 </div>
                 <div className="space-y-2">
                   {(serviceRequest.noteHistory ?? []).map((item) => (
-                    <ServiceHistoryCard
-                      key={item.id}
-                      text={item.text}
-                      createdAt={item.createdAt}
-                      actor={actorFor(item.byUserId)}
-                    />
+                    <div key={item.id} className="rounded-lg border border-border/60 bg-white p-2">
+                      {editingNoteId === item.id ? (
+                        <div className="space-y-2">
+                          <Textarea value={editingNoteText} onChange={(e) => setEditingNoteText(e.target.value)} className="min-h-24" />
+                          <div className="flex justify-end gap-2">
+                            <Button size="sm" variant="outline" onClick={() => { setEditingNoteId(""); setEditingNoteText(""); }}>İptal</Button>
+                            <Button size="sm" className="gap-1" onClick={saveEditedNote}><Save className="size-3.5" /> Kaydet</Button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="space-y-2">
+                          <ServiceHistoryCard
+                            text={item.text}
+                            createdAt={item.createdAt}
+                            actor={actorFor(item.byUserId)}
+                          />
+                          <div className="flex justify-end gap-1">
+                            <Button size="sm" variant="ghost" className="h-7 px-2" onClick={() => { setEditingNoteId(item.id); setEditingNoteText(item.text); }}>
+                              Düzenle
+                            </Button>
+                            <Button size="sm" variant="ghost" className="h-7 px-2 text-red-600 hover:text-red-700" onClick={() => deleteNote(item.id)}>
+                              Sil
+                            </Button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
                   ))}
                   {(serviceRequest.noteHistory ?? []).length === 0 && <div className="text-sm text-muted-foreground">Not kaydı yok.</div>}
                 </div>

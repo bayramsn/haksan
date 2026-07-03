@@ -5,7 +5,7 @@ import { inventoryItems, inventoryMovements, warehouses, customerDevices } from 
 import { warrantyStatuses } from '../../db/schema/lookup';
 import type { CustomerDeviceCreateInput, CustomerDeviceUpdateInput } from '@haksan/shared';
 import { productModels, productSpecs, brands } from '../../db/schema/products';
-import { inventoryStatuses, productCategories, productTypes, stockLocationStatuses } from '../../db/schema/lookup';
+import { currencies, inventoryStatuses, productCategories, productTypes, stockLocationStatuses } from '../../db/schema/lookup';
 import { companies } from '../../db/schema/companies';
 import { installationJobs } from '../../db/schema/service';
 import { installationStatuses } from '../../db/schema/lookup';
@@ -694,12 +694,15 @@ export class InventoryService {
         controlUnitSerialNumber: inventoryItems.controlUnitSerialNumber,
         modelCode: productModels.modelCode,
         modelName: productModels.modelName,
+        cashPrice: productModels.cashPrice,
+        currencyCode: currencies.code,
         brandName: brands.name,
         productTypeName: productTypes.name,
       })
       .from(customerDevices)
       .leftJoin(inventoryItems, eq(customerDevices.inventoryItemId, inventoryItems.id))
       .leftJoin(productModels, eq(inventoryItems.productModelId, productModels.id))
+      .leftJoin(currencies, eq(productModels.currencyId, currencies.id))
       .leftJoin(brands, eq(productModels.brandId, brands.id))
       .leftJoin(productTypes, eq(productModels.productTypeId, productTypes.id))
       .where(where)
@@ -744,6 +747,8 @@ export class InventoryService {
           controlUnitSerialNumber: r.controlUnitSerialNumber,
           model: r.modelCode ?? manual.model,
           productModelName: r.modelName,
+          cashPrice: r.cashPrice,
+          currencyCode: r.currencyCode,
           brandName: r.brandName,
           productTypeName: r.productTypeName,
           technicalSpecs: r.productModelId ? specsByProduct.get(r.productModelId) ?? [] : [],

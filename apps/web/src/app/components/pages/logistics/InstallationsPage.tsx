@@ -7,6 +7,7 @@ import { Textarea } from "../../ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../ui/select";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "../../ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../../ui/table";
+import { Tabs, TabsList, TabsTrigger } from "../../ui/tabs";
 import { StatusBadge } from "../../Layout";
 import { CreateInstallationDialog } from "../../dialogs/CreateDialogs";
 import { MiniKpi } from "../../shared/MiniKpi";
@@ -24,7 +25,7 @@ import { installationFormDoc, printAssetBase, trShortDate } from "../../../lib/p
 import { Plus, Wrench, Calendar, CheckCircle2, TrendingUp, Building2, MapPin, Printer, FileText, Save, Lock, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
-type TechnicalSpec = { key: string; value: string };
+type TechnicalSpec = { key: string; value: string; unit?: string; specUnit?: string };
 type CheckDraft = {
   id: string;
   label: string;
@@ -110,7 +111,9 @@ const mapDeviceToMachine = (row: InstallationRow) =>
         controlUnit: row.device.controlUnit ?? "",
         controlUnitSerial: row.device.controlUnitSerialNumber ?? "",
         technicalSpecs: row.technicalSpecs,
-        deliveryDate: "",
+        deliveryDate: toDateInput(row.device.deliveryDate),
+        cashPrice: row.device.cashPrice == null ? undefined : Number(row.device.cashPrice),
+        currency: row.device.currencyCode ?? "USD",
         installationDate: row.completedDate,
         warrantyStart: "",
         warrantyEnd: "",
@@ -160,7 +163,12 @@ function formToPayload(form: InstallationFormDraft): any {
     teslimAlan: clean(form.teslimAlan),
     technicalSpecs: form.technicalSpecs
       .filter((spec) => spec.key.trim() && spec.value.trim())
-      .map((spec) => ({ key: spec.key.trim(), value: spec.value.trim() })),
+      .map((spec) => ({
+        key: spec.key.trim(),
+        value: spec.value.trim(),
+        unit: (spec.unit ?? spec.specUnit ?? "").trim() || undefined,
+        specUnit: (spec.unit ?? spec.specUnit ?? "").trim() || undefined,
+      })),
   };
 }
 
@@ -170,6 +178,7 @@ export function InstallationsPage() {
   const [loading, setLoading] = useState(true);
   const [selectedRow, setSelectedRow] = useState<InstallationRow | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [tab, setTab] = useState<"open" | "history">("open");
 
   const loadInstallations = async () => {
     setLoading(true);
@@ -206,7 +215,8 @@ export function InstallationsPage() {
     technicalSpecs: Array.isArray(i.customerDevice?.technicalSpecs)
       ? i.customerDevice.technicalSpecs.map((spec: any) => ({
           key: String(spec.key ?? ""),
-          value: [spec.value, spec.unit].filter(Boolean).join(" "),
+          value: String(spec.value ?? ""),
+          unit: spec.unit ?? spec.specUnit ?? "",
         }))
       : [],
     notes: i.notes ?? "",
@@ -215,6 +225,9 @@ export function InstallationsPage() {
 
   const planned = installationRows.filter((i) => ["Planlandı", "scheduled"].includes(i.status) || i.statusCode === "scheduled").length;
   const completed = installationRows.filter((i) => ["Tamamlandı", "completed"].includes(i.status) || i.statusCode === "completed").length;
+  const openRows = installationRows.filter((i) => i.statusCode !== "completed");
+  const historyRows = installationRows.filter((i) => i.statusCode === "completed");
+  const visibleRows = tab === "history" ? historyRows : openRows;
   const upcoming = [...installationRows]
     .filter((i) => ["Planlandı", "scheduled"].includes(i.status) || i.statusCode === "scheduled")
     .sort((a, b) => a.scheduledDate.localeCompare(b.scheduledDate));
@@ -247,7 +260,15 @@ export function InstallationsPage() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <Card className="lg:col-span-2 border-border/60 shadow-sm overflow-hidden">
           <CardHeader className="flex flex-row items-center justify-between pb-3">
-            <CardTitle className="tracking-tight">Tüm Kurulumlar</CardTitle>
+            <div className="space-y-2">
+              <CardTitle className="tracking-tight">Kurulumlar</CardTitle>
+              <Tabs value={tab} onValueChange={(value) => setTab(value as "open" | "history")}>
+                <TabsList className="h-9 bg-muted/60">
+                  <TabsTrigger value="open">Açık ({openRows.length})</TabsTrigger>
+                  <TabsTrigger value="history">Geçmiş ({historyRows.length})</TabsTrigger>
+                </TabsList>
+              </Tabs>
+            </div>
             <CreateInstallationDialog
               onCreated={loadInstallations}
               trigger={<Button size="sm" className="h-9 gap-1"><Plus className="size-4" /> Yeni Kurulum</Button>}
@@ -266,7 +287,7 @@ export function InstallationsPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {installationRows.map((i) => (
+                {visibleRows.map((i) => (
                   <TableRow key={i.id} className="group">
                     <TableCell>
                       <div className="flex items-center gap-2.5">
@@ -318,10 +339,10 @@ export function InstallationsPage() {
                     </TableCell>
                   </TableRow>
                 ))}
-                {!loading && installationRows.length === 0 && (
+                {!loading && visibleRows.length === 0 && (
                   <TableRow>
                     <TableCell colSpan={6} className="text-center py-12 text-sm text-muted-foreground">
-                      Henüz kurulum kaydı yok.
+                      {tab === "history" ? "Geçmiş kurulum kaydı yok." : "Açık kurulum kaydı yok."}
                     </TableCell>
                   </TableRow>
                 )}

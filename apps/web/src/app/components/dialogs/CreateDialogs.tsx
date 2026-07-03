@@ -60,8 +60,6 @@ import {
 } from "@haksan/shared";
 import { PROVINCE_NAMES } from "../../lib/geo";
 import {
-  HAKSAN_CNC_SPEC_KEYS,
-  HAKSAN_CNC_SPEC_VALUE_UNITS,
   allCatalogProductSpecs,
   groupProductSpecs,
   specsForProductType,
@@ -1846,9 +1844,11 @@ const catalogSpecs = (specs: ProductSpec[] = [], emptyValue = "", productTypeCod
   (productTypeCode ? specsForProductType(productTypeCode, specs) : allCatalogProductSpecs(specs, emptyValue)).map((spec) => ({
     key: spec.key,
     value: spec.value?.trim() ? spec.value : emptyValue,
+    unit: spec.unit ?? spec.specUnit ?? "",
+    specUnit: spec.unit ?? spec.specUnit ?? "",
+    groupCode: spec.groupCode,
+    groupName: spec.groupName,
   }));
-
-const catalogSpecKeyOptions = HAKSAN_CNC_SPEC_KEYS.map((key) => ({ value: key, label: key }));
 
 type ProductFormState = {
   brand: string;
@@ -2100,7 +2100,6 @@ export function ProductDialog({
   const updSpec = (i: number, patch: Partial<ProductSpec>) => {
     setForm((f) => ({ ...f, specs: f.specs.map((s, idx) => (idx === i ? { ...s, ...patch } : s)) }));
   };
-  const addSpec = () => setForm((f) => ({ ...f, specs: [...f.specs, { key: "", value: "" }] }));
   const rmSpec = (i: number) => setForm((f) => {
     const next = f.specs.filter((_, idx) => idx !== i);
     return { ...f, specs: next.length ? next : [{ key: "", value: "" }] };
@@ -2146,6 +2145,7 @@ export function ProductDialog({
   const productCategoryOptions = PRODUCT_CATEGORIES;
   const isMachineProduct = form.categoryCode === "TEZGAH";
   const isOptionalEquipmentProduct = form.categoryCode === OPTIONAL_EQUIPMENT_CATEGORY_CODE;
+  const isLaborProduct = form.categoryCode === "ISCILIK" || form.productTypeCode === "ISCILIK";
   const supplierOptions = customers.filter((c) => c.firmType === "supplier" || c.firmType === "supplier_customer");
   const compatibilityGroupOptions = PRODUCT_GROUPS.map((o) => ({ value: o.code, label: o.label }));
   const compatibilityCategoryOptions = PRODUCT_CATEGORIES
@@ -2188,15 +2188,9 @@ export function ProductDialog({
 
     return valuesByKey;
   }, [products, form.specs]);
-  const specKeyOptionsFor = (key: string) => {
-    const value = key.trim();
-    if (!value || HAKSAN_CNC_SPEC_KEYS.includes(value)) return catalogSpecKeyOptions;
-    return [{ value, label: value }, ...catalogSpecKeyOptions];
-  };
   const specValueOptionsFor = (spec: ProductSpec) => {
     const values = new Set(specValueOptionsByKey.get(spec.key.trim()) ?? []);
     if (spec.value.trim()) values.add(spec.value.trim());
-    for (const unit of HAKSAN_CNC_SPEC_VALUE_UNITS) values.add(unit);
     values.add("-");
     return [...values]
       .sort((a, b) => a.localeCompare(b, "tr-TR", { numeric: true }))
@@ -2309,7 +2303,7 @@ export function ProductDialog({
       .then((rows) => {
         const templateSpecs = (rows ?? [])
           .filter((row: any) => row.isActive !== false && row.specKey)
-          .map((row: any) => ({ key: row.specKey, value: [row.defaultValue, row.specUnit].filter(Boolean).join(" ") }));
+          .map((row: any) => ({ key: row.specKey, value: row.defaultValue ?? "", unit: row.specUnit ?? "", specUnit: row.specUnit ?? "" }));
         if (!templateSpecs.length) return;
         setForm((current) => {
           if (current.productTypeCode !== opt.code) return current;
@@ -2325,14 +2319,14 @@ export function ProductDialog({
       toast.error("Ürün tipi seçin");
       return;
     }
-    if (!form.brand.trim() || !form.shortDescription.trim()) {
-      toast.error("Marka ve ürün adı zorunludur");
+    if ((!isLaborProduct && !form.brand.trim()) || !form.shortDescription.trim()) {
+      toast.error(isLaborProduct ? "Ürün adı zorunludur" : "Marka ve ürün adı zorunludur");
       return;
     }
     const cleanSpecs = catalogSpecs(form.specs, "-", form.productTypeCode).filter((s) => s.key.trim());
     const modelCode = form.stockCode.trim() || form.model.trim() || compactProductCode(form.shortDescription) || "URUN";
     const payload = {
-      brand: form.brand.trim(),
+      brand: isLaborProduct ? (form.brand.trim() || "Haksan") : form.brand.trim(),
       productGroup: form.productGroup,
       productGroupCode: form.productGroupCode,
       model: modelCode,
@@ -2449,20 +2443,22 @@ export function ProductDialog({
               </Select>
             </ProductSheetRow>
 
-            <ProductSheetRow label="Ürün Markası">
-              <Select
-                value={form.brand}
-                onValueChange={(v) => setForm({ ...form, brand: v })}
-                disabled={!canSelectProductBrand}
-              >
-                <SelectTrigger className="h-8 max-w-xs">
-                  <SelectValue placeholder={canSelectProductBrand ? "Marka seçin" : "Önce ürün tipi seçin"} />
-                </SelectTrigger>
-                <SelectContent>
-                  {productBrandOptions.map((brand) => <SelectItem key={brand} value={brand}>{brand}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </ProductSheetRow>
+            {!isLaborProduct && (
+              <ProductSheetRow label="Ürün Markası">
+                <Select
+                  value={form.brand}
+                  onValueChange={(v) => setForm({ ...form, brand: v })}
+                  disabled={!canSelectProductBrand}
+                >
+                  <SelectTrigger className="h-8 max-w-xs">
+                    <SelectValue placeholder={canSelectProductBrand ? "Marka seçin" : "Önce ürün tipi seçin"} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {productBrandOptions.map((brand) => <SelectItem key={brand} value={brand}>{brand}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </ProductSheetRow>
+            )}
 
             {isMachineProduct && (
               <ProductSheetRow label="Ürün Tedarikçisi">
@@ -2547,13 +2543,17 @@ export function ProductDialog({
               <Input className="h-8 max-w-xs" inputMode="decimal" value={form.cashPrice} onChange={(e) => setForm({ ...form, cashPrice: e.target.value })} placeholder="0" />
             </ProductSheetRow>
 
-            <ProductSheetRow label="Menşei">
-              <Input className="h-8 max-w-xs" value={form.originCountry} onChange={(e) => setForm({ ...form, originCountry: e.target.value })} placeholder="Ülke" />
-            </ProductSheetRow>
+            {!isLaborProduct && (
+              <>
+                <ProductSheetRow label="Menşei">
+                  <Input className="h-8 max-w-xs" value={form.originCountry} onChange={(e) => setForm({ ...form, originCountry: e.target.value })} placeholder="Ülke" />
+                </ProductSheetRow>
 
-            <ProductSheetRow label="GTIP Kodu">
-              <Input className="h-8 max-w-xs" value={form.hsCode} onChange={(e) => setForm({ ...form, hsCode: e.target.value })} />
-            </ProductSheetRow>
+                <ProductSheetRow label="GTIP Kodu">
+                  <Input className="h-8 max-w-xs" value={form.hsCode} onChange={(e) => setForm({ ...form, hsCode: e.target.value })} />
+                </ProductSheetRow>
+              </>
+            )}
 
             <ProductSheetRow label="Ürün KDV">
               <ChoiceGrid
@@ -2629,6 +2629,7 @@ export function ProductDialog({
               </Select>
             </ProductSheetRow>
 
+            {!isLaborProduct && (
             <ProductSheetRow label="Muadil Ürünler" className="items-start">
               <div className="space-y-3">
                 {Object.entries(muadilGroups).length === 0 ? (
@@ -2710,11 +2711,13 @@ export function ProductDialog({
                 )}
               </div>
             </ProductSheetRow>
+            )}
 
+            {!isLaborProduct && (
             <ProductSheetRow label="Teknik Bilgiler" className="items-start">
               <div className="space-y-2">
                 <div className="flex items-center justify-between gap-2">
-                  <div className="text-[11px] text-muted-foreground">Sabit katalogdaki tüm teknik satırlar; boş değerler kayıtta “-” olur.</div>
+                  <div className="text-[11px] text-muted-foreground">Şablon ürün tipine göre gelir; etiket ve birim sabittir, sadece değer girilir.</div>
                   <div className="flex flex-wrap justify-end gap-1.5">
                     <Button
                       type="button"
@@ -2728,9 +2731,6 @@ export function ProductDialog({
                     >
                       Sabit listeyi tamamla
                     </Button>
-                    <Button type="button" variant="outline" size="sm" className="h-7 gap-1" onClick={addSpec}>
-                      <Plus className="size-3.5" /> Özellik Ekle
-                    </Button>
                   </div>
                 </div>
                 <div className="space-y-2">
@@ -2743,18 +2743,10 @@ export function ProductDialog({
                       </div>
                       <div className="min-w-0 divide-y divide-dotted divide-foreground/30">
                         {specs.map((s) => (
-                          <div key={s.index} className="grid grid-cols-[minmax(120px,1fr)_minmax(160px,1.5fr)_36px] gap-2 px-2 py-1.5">
-                            <Combobox
-                              className="h-8 bg-white"
-                              options={specKeyOptionsFor(s.key)}
-                              value={s.key}
-                              onChange={(value) => updSpec(s.index, { key: value })}
-                              placeholder="Özellik seçin"
-                              searchPlaceholder="Özellik ara..."
-                              emptyText="Özellik bulunamadı"
-                              onCreate={(value) => updSpec(s.index, { key: value })}
-                              createLabel={(query) => `"${query}" kullan`}
-                            />
+                          <div key={s.index} className="grid grid-cols-[minmax(160px,1fr)_minmax(140px,0.9fr)_88px_36px] items-center gap-2 px-2 py-1.5">
+                            <div className="min-w-0 truncate text-xs font-medium text-foreground" title={s.key}>
+                              {s.key}
+                            </div>
                             <Combobox
                               className="h-8 bg-white"
                               options={specValueOptionsFor(s)}
@@ -2766,7 +2758,10 @@ export function ProductDialog({
                               onCreate={(value) => updSpec(s.index, { value })}
                               createLabel={(query) => `"${query}" kullan`}
                             />
-                            <Button type="button" variant="ghost" size="icon" className="h-8 w-8" onClick={() => rmSpec(s.index)}>
+                            <div className="h-8 rounded-md border border-border/70 bg-muted/30 px-2 text-center text-xs leading-8 text-muted-foreground" title={s.unit ?? s.specUnit ?? ""}>
+                              {s.unit || s.specUnit || "-"}
+                            </div>
+                            <Button type="button" variant="ghost" size="icon" className="h-8 w-8" onClick={() => rmSpec(s.index)} aria-label={`${s.key} satırını kaldır`}>
                               <Trash2 className="size-4 text-muted-foreground" />
                             </Button>
                           </div>
@@ -2777,18 +2772,21 @@ export function ProductDialog({
                 </div>
               </div>
             </ProductSheetRow>
+            )}
 
           </div>
 
-          <ChipField
-            label="Standart Donanımlar"
-            chips={form.standardEquipment}
-            input={stdInput}
-            setInput={setStdInput}
-            onAdd={() => addChip("standardEquipment", stdInput, setStdInput)}
-            onRemove={(i) => rmChip("standardEquipment", i)}
-            placeholder="Standart donanım ekleyip Enter'a basın"
-          />
+          {!isLaborProduct && (
+            <ChipField
+              label="Standart Donanımlar"
+              chips={form.standardEquipment}
+              input={stdInput}
+              setInput={setStdInput}
+              onAdd={() => addChip("standardEquipment", stdInput, setStdInput)}
+              onRemove={(i) => rmChip("standardEquipment", i)}
+              placeholder="Standart donanım ekleyip Enter'a basın"
+            />
+          )}
 
           {mode === "edit" && form.categoryCode === "TEZGAH" && (
             <OptionalEquipmentField
@@ -3666,7 +3664,12 @@ export function deliveryFormToPayload(form: DeliveryFormState) {
     },
     technicalSpecs: form.technicalSpecs
       .filter((spec) => spec.key.trim() && spec.value.trim())
-      .map((spec) => ({ key: spec.key.trim(), value: spec.value.trim() })),
+      .map((spec) => ({
+        key: spec.key.trim(),
+        value: spec.value.trim(),
+        unit: (spec.unit ?? spec.specUnit ?? "").trim() || undefined,
+        specUnit: (spec.unit ?? spec.specUnit ?? "").trim() || undefined,
+      })),
   };
 }
 
@@ -4705,10 +4708,12 @@ export function CreateInstallationDialog({
 }) {
   const { customers, contacts, users, machines } = useStore();
   const [open, setOpen] = useState(false);
-  const emptyForm = () => ({
-    companyId: customers[0]?.id ?? "",
-    contactId: "",
-    customerDeviceId: "",
+  const emptyForm = () => {
+    const companyId = customers[0]?.id ?? "";
+    return {
+    companyId,
+    contactId: contacts.find((c) => c.customerId === companyId)?.id ?? "",
+    customerDeviceId: machines.find((m) => m.customerId === companyId || m.userCompanyId === companyId)?.id ?? "",
     scheduledDate: new Date().toISOString().slice(0, 10),
     assignedToUserId: users.find((u) => u.role === "Service" || u.department === "Servis")?.id ?? users[0]?.id ?? "",
     location: "",
@@ -4716,7 +4721,8 @@ export function CreateInstallationDialog({
     durationHours: "1",
     durationMinutes: "0",
     notes: "",
-  });
+    };
+  };
   const [form, setForm] = useState(emptyForm);
 
   const reset = () => setForm(emptyForm());
@@ -4726,8 +4732,14 @@ export function CreateInstallationDialog({
 
   const selectedContacts = contacts.filter((c) => c.customerId === form.companyId);
   // Kurulum tutanağındaki tezgah/CNC alanları bu makineden doldurulur.
-  const selectedMachines = machines.filter((m) => m.customerId === form.companyId);
+  const selectedMachines = machines.filter((m) => m.customerId === form.companyId || m.userCompanyId === form.companyId);
+  const selectedMachine = selectedMachines.find((m) => m.id === form.customerDeviceId) ?? null;
   const serviceUsers = users.filter((u) => u.role === "Service" || u.department === "Servis");
+  const onCompanyChange = (companyId: string) => {
+    const contactId = contacts.find((c) => c.customerId === companyId)?.id ?? "";
+    const customerDeviceId = machines.find((m) => m.customerId === companyId || m.userCompanyId === companyId)?.id ?? "";
+    setForm({ ...form, companyId, contactId, customerDeviceId });
+  };
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -4756,7 +4768,7 @@ export function CreateInstallationDialog({
   return (
     <Dialog open={open} onOpenChange={(o) => { setOpen(o); if (o) reset(); }}>
       <DialogTrigger asChild>{trigger}</DialogTrigger>
-      <DialogContent className="max-w-2xl">
+      <DialogContent className="w-[min(920px,calc(100vw-2rem))] max-w-none sm:max-w-none">
         <DialogHeader>
           <DialogTitle>Yeni Kurulum</DialogTitle>
           <DialogDescription>Saha kurulum planı oluşturun.</DialogDescription>
@@ -4768,7 +4780,7 @@ export function CreateInstallationDialog({
               <Label className="text-xs">Firma *</Label>
               <Select
                 value={form.companyId}
-                onValueChange={(v) => setForm({ ...form, companyId: v, contactId: "" })}
+                onValueChange={onCompanyChange}
               >
                 <SelectTrigger className="mt-1.5"><SelectValue placeholder="Firma seçin..." /></SelectTrigger>
                 <SelectContent>
@@ -4809,6 +4821,16 @@ export function CreateInstallationDialog({
                   ))}
                 </SelectContent>
               </Select>
+              {selectedMachine && (
+                <div className="mt-2 rounded-md border border-border/60 bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+                  <div className="font-medium text-foreground">{[selectedMachine.brand, selectedMachine.model].filter(Boolean).join(" ") || selectedMachine.model}</div>
+                  <div className="mt-0.5 grid gap-1 sm:grid-cols-3">
+                    <span>Seri No: {selectedMachine.serialNumber || "—"}</span>
+                    <span>CNC: {selectedMachine.controlUnit || "—"}</span>
+                    <span>Teslim: {selectedMachine.deliveryDate || "—"}</span>
+                  </div>
+                </div>
+              )}
             </div>
             <Field label="Planlanan Tarih" type="date" value={form.scheduledDate} onChange={(v) => setForm({ ...form, scheduledDate: v })} />
             <div>

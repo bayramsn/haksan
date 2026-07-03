@@ -111,6 +111,8 @@ export type DeliveryCncInfo = z.infer<typeof deliveryCncInfoSchema>;
 export const deliveryTechnicalSpecSchema = z.object({
   key: z.string().trim().min(1).max(255),
   value: z.string().trim().max(1000),
+  unit: z.string().trim().max(64).optional(),
+  specUnit: z.string().trim().max(64).optional(),
 });
 export type DeliveryTechnicalSpec = z.infer<typeof deliveryTechnicalSpecSchema>;
 

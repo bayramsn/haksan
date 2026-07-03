@@ -25,9 +25,12 @@ const findProduct = (
   quote: QuoteDetail,
   salesCase: SalesCase | null,
 ): Product | undefined => {
+  const isLabor = (product?: Product) => product?.categoryCode === "ISCILIK";
   const firstProductId = quote.items?.find(
     (item: { productModelId?: string | null; description?: string | null }) =>
-      item.productModelId && !String(item.description ?? "").trimStart().startsWith("↳ Opsiyon:"),
+      item.productModelId &&
+      !String(item.description ?? "").trimStart().startsWith("↳ Opsiyon:") &&
+      !isLabor(products.find((product) => product.id === item.productModelId)),
   )?.productModelId;
   if (firstProductId) {
     const exact = products.find((product) => product.id === firstProductId);
@@ -36,7 +39,7 @@ const findProduct = (
 
   const model = salesCase?.requestedModel?.trim();
   return products.find(
-    (product) => product.model && model && (model.includes(product.model) || product.model.includes(model)),
+    (product) => !isLabor(product) && product.model && model && (model.includes(product.model) || product.model.includes(model)),
   );
 };
 
@@ -45,13 +48,15 @@ const numeric = (value: unknown): number => {
   return Number.isFinite(result) ? result : 0;
 };
 
-const quoteItemTechnicalSpecs = (item?: { compatibility?: unknown } | null): Array<{ key: string; value: string }> => {
+const quoteItemTechnicalSpecs = (item?: { compatibility?: unknown } | null): Array<{ key: string; value: string; unit?: string; specUnit?: string }> => {
   const specs = (item?.compatibility as { technicalSpecs?: unknown } | null | undefined)?.technicalSpecs;
   if (!Array.isArray(specs)) return [];
   return specs
     .map((spec) => ({
       key: String((spec as { key?: unknown }).key ?? "").trim(),
       value: String((spec as { value?: unknown }).value ?? "").trim(),
+      unit: String((spec as { unit?: unknown; specUnit?: unknown }).unit ?? (spec as { specUnit?: unknown }).specUnit ?? "").trim() || undefined,
+      specUnit: String((spec as { unit?: unknown; specUnit?: unknown }).unit ?? (spec as { specUnit?: unknown }).specUnit ?? "").trim() || undefined,
     }))
     .filter((spec) => spec.key && spec.value);
 };
@@ -74,7 +79,9 @@ export function buildQuotePrintData(input: QuoteBuildInput, quote: QuoteDetail):
     .filter((description: string) => description.startsWith("↳ Opsiyon:"))
     .map((description: string) => description.replace(/^↳\s*Opsiyon:\s*/, ""));
   const mainProductItem = quoteItems.find((item: { description?: string | null; productModelId?: string | null }) =>
-    item.productModelId && !String(item.description ?? "").trimStart().startsWith("↳ Opsiyon:")
+    item.productModelId &&
+    !String(item.description ?? "").trimStart().startsWith("↳ Opsiyon:") &&
+    products.find((product) => product.id === item.productModelId)?.categoryCode !== "ISCILIK"
   );
   const customSpecs = quoteItemTechnicalSpecs(mainProductItem as { compatibility?: unknown } | undefined);
 

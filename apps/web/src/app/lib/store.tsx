@@ -285,6 +285,7 @@ const productDetailsPayload = (p: Partial<Product>) => ({
       specGroupCode: productSpecGroupForKey(s).code,
       specKey: s.key.trim(),
       specValue: s.value.trim() || '-',
+      specUnit: cleanString(s.unit ?? s.specUnit),
       sortOrder: index + 1,
     })),
   equipment: [
@@ -310,7 +311,7 @@ export type QuoteLineCompatibility = {
   brands: string[];
   controlUnits: string[];
   supplierIds: string[];
-  technicalSpecs?: { key: string; value: string }[];
+  technicalSpecs?: { key: string; value: string; unit?: string; specUnit?: string }[];
 };
 
 export type QuoteLineInput = {
@@ -710,7 +711,8 @@ function StoreInner({ children }: { children: ReactNode }) {
           optionalCompatibilityBrandIds: p.optionalCompatibilityBrandIds ?? [],
           specs: (p.specs ?? []).map((s: any) => ({
             key: s.key ?? s.specKey ?? '',
-            value: s.unit ? `${s.value ?? s.specValue ?? ''} ${s.unit}` : s.value ?? s.specValue ?? '',
+            value: s.value ?? s.specValue ?? '',
+            unit: s.unit ?? s.specUnit ?? '',
             groupCode: s.groupCode ?? s.specGroupCode ?? '',
             groupName: s.groupName ?? s.group ?? '',
           })).filter((s: any) => s.key && s.value),
@@ -903,10 +905,13 @@ function StoreInner({ children }: { children: ReactNode }) {
           controlUnit: d.controlUnit ?? '',
           controlUnitSerial: d.controlUnitSerialNumber ?? '',
           productModelId: d.productModelId ?? '',
+          cashPrice: d.cashPrice === null || d.cashPrice === undefined ? undefined : Number(d.cashPrice),
+          currency: (d.currencyCode as 'USD' | 'EUR' | 'TRY') ?? 'USD',
           technicalSpecs: Array.isArray(d.technicalSpecs)
             ? d.technicalSpecs.map((spec: any) => ({
                 key: String(spec.key ?? ''),
-                value: [spec.value, spec.unit].filter(Boolean).join(' '),
+                value: String(spec.value ?? ''),
+                unit: spec.unit ?? spec.specUnit ?? '',
               }))
             : [],
           deliveryDate: (d.deliveryDate as string)?.slice(0, 10) ?? '',

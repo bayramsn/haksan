@@ -291,7 +291,7 @@ export type StockItem = {
   locationStatus?: string;
 };
 
-export type ProductSpec = { key: string; value: string; groupCode?: string; groupName?: string };
+export type ProductSpec = { key: string; value: string; unit?: string; specUnit?: string; groupCode?: string; groupName?: string };
 
 export type ProductAlternative = {
   id: string;
@@ -365,6 +365,8 @@ export type Machine = {
   controlUnitSerial?: string;
   productModelId?: string;
   technicalSpecs?: ProductSpec[];
+  cashPrice?: number;
+  currency?: "USD" | "EUR" | "TRY";
   deliveryDate?: string;
   installationDate: string;
   warrantyStart: string;
@@ -557,6 +559,8 @@ export type ServiceRequest = {
 
 export type ServiceQuoteItem = {
   id: string;
+  productModelId?: string | null;
+  stockCode?: string | null;
   description: string;
   quantity: number;
   unit: string;

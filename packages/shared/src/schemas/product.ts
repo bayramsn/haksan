@@ -103,6 +103,10 @@ export const priceListItemCreateSchema = z.object({
   productModelId: z.string().min(1),
   listPrice: moneySchema.optional(),
   cashPrice: moneySchema.optional(),
+  campaignPrice: moneySchema.optional(),
+  campaignValidFrom: z.coerce.date().optional(),
+  campaignValidUntil: z.coerce.date().optional(),
+  campaignIsActive: z.boolean().default(false),
   vatRate: percentSchema.optional(),
   notes: z.string().max(4000).optional(),
 });

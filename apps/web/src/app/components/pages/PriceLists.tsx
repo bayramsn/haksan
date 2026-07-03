@@ -15,6 +15,16 @@ import { productService } from "../../../lib/services";
 const CURRENCY_LABEL: Record<string, string> = { USD: "USD", EUR: "EUR", TRY: "TL" };
 const fmtMoney = (n?: number | null, cur = "USD") =>
   n === undefined || n === null || Number.isNaN(n) || n === 0 ? "—" : `${n.toLocaleString("tr-TR")} ${CURRENCY_LABEL[cur] ?? cur}`;
+const dateInput = (value?: string | null) => value ? String(value).slice(0, 10) : "";
+type PriceOverride = {
+  itemId?: string;
+  listPrice?: number;
+  cashPrice?: number;
+  campaignPrice?: number;
+  campaignValidFrom?: string;
+  campaignValidUntil?: string;
+  campaignIsActive?: boolean;
+};
 
 const matches = (p: Product, q: string) => {
   if (!q) return true;
@@ -123,6 +133,105 @@ function EditablePriceCell({
   );
 }
 
+function CampaignPriceCell({
+  value,
+  currency,
+  editable,
+  disabled,
+  onSave,
+}: {
+  value?: PriceOverride;
+  currency?: string;
+  editable: boolean;
+  disabled?: boolean;
+  onSave: (next: Required<Pick<PriceOverride, "campaignIsActive">> & Pick<PriceOverride, "campaignPrice" | "campaignValidFrom" | "campaignValidUntil">) => Promise<void>;
+}) {
+  const [price, setPrice] = useState(value?.campaignPrice != null ? String(value.campaignPrice) : "");
+  const [from, setFrom] = useState(dateInput(value?.campaignValidFrom));
+  const [until, setUntil] = useState(dateInput(value?.campaignValidUntil));
+  const [active, setActive] = useState(Boolean(value?.campaignIsActive));
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    setPrice(value?.campaignPrice != null ? String(value.campaignPrice) : "");
+    setFrom(dateInput(value?.campaignValidFrom));
+    setUntil(dateInput(value?.campaignValidUntil));
+    setActive(Boolean(value?.campaignIsActive));
+  }, [value?.campaignPrice, value?.campaignValidFrom, value?.campaignValidUntil, value?.campaignIsActive]);
+
+  const commit = async (event: React.MouseEvent) => {
+    event.stopPropagation();
+    const parsed = Number(price.replace(/\./g, "").replace(",", "."));
+    if (price.trim() && Number.isNaN(parsed)) return toast.error("Kampanya fiyatı geçersiz");
+    setBusy(true);
+    try {
+      await onSave({
+        campaignPrice: price.trim() ? parsed : undefined,
+        campaignValidFrom: from || undefined,
+        campaignValidUntil: until || undefined,
+        campaignIsActive: active,
+      });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (!editable) {
+    return (
+      <TableCell className="text-right">
+        {value?.campaignIsActive && value.campaignPrice != null ? (
+          <div className="inline-flex flex-col items-end gap-1">
+            <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700">
+              {fmtMoney(value.campaignPrice, currency)}
+            </span>
+            {(value.campaignValidFrom || value.campaignValidUntil) && (
+              <span className="text-[10px] text-muted-foreground">
+                {dateInput(value.campaignValidFrom) || "..."} - {dateInput(value.campaignValidUntil) || "..."}
+              </span>
+            )}
+          </div>
+        ) : "—"}
+      </TableCell>
+    );
+  }
+
+  return (
+    <TableCell className="min-w-[290px]" onClick={(e) => e.stopPropagation()}>
+      <div className="grid grid-cols-[88px_1fr_1fr_auto] items-center gap-1.5">
+        <Input
+          inputMode="decimal"
+          value={price}
+          disabled={busy || disabled}
+          onChange={(e) => setPrice(e.target.value)}
+          placeholder="Kamp."
+          className="h-8 bg-white text-right tabular-nums"
+        />
+        <Input type="date" value={from} disabled={busy || disabled} onChange={(e) => setFrom(e.target.value)} className="h-8 bg-white text-xs" />
+        <Input type="date" value={until} disabled={busy || disabled} onChange={(e) => setUntil(e.target.value)} className="h-8 bg-white text-xs" />
+        <div className="flex items-center gap-1.5">
+          <input
+            type="checkbox"
+            checked={active}
+            disabled={busy || disabled}
+            onChange={(e) => setActive(e.target.checked)}
+            className="size-4 accent-primary"
+            aria-label="Kampanya aktif"
+          />
+          <button
+            type="button"
+            disabled={busy || disabled}
+            onClick={commit}
+            className="text-emerald-600 hover:text-emerald-700 disabled:opacity-50"
+            title={disabled ? "Önce fiyat listesi seçin" : "Kampanyayı kaydet"}
+          >
+            <Check className="size-4" />
+          </button>
+        </div>
+      </div>
+    </TableCell>
+  );
+}
+
 function SearchBox({ q, setQ, placeholder }: { q: string; setQ: (v: string) => void; placeholder: string }) {
   return (
     <div className="relative w-full sm:w-72 sm:ml-auto">
@@ -143,7 +252,7 @@ export function SalesPriceListPage() {
   const [selected, setSelected] = useState<Product | null>(null);
   const [priceLists, setPriceLists] = useState<Array<{ id: string; name: string; code: string; isActive?: boolean; currency?: { code?: string } }>>([]);
   const [selectedListId, setSelectedListId] = useState("");
-  const [priceOverrides, setPriceOverrides] = useState<Record<string, { listPrice?: number; cashPrice?: number }>>({});
+  const [priceOverrides, setPriceOverrides] = useState<Record<string, PriceOverride>>({});
 
   useEffect(() => {
     productService
@@ -165,13 +274,18 @@ export function SalesPriceListPage() {
     productService
       .listPriceListItems(selectedListId)
       .then((rows) => {
-        const map: Record<string, { listPrice?: number; cashPrice?: number }> = {};
+        const map: Record<string, PriceOverride> = {};
         for (const row of rows ?? []) {
           const pid = row.product?.id ?? row.item?.productModelId;
           if (!pid) continue;
           map[pid] = {
+            itemId: row.item?.id,
             listPrice: row.item?.listPrice != null ? Number(row.item.listPrice) : undefined,
             cashPrice: row.item?.cashPrice != null ? Number(row.item.cashPrice) : undefined,
+            campaignPrice: row.item?.campaignPrice != null ? Number(row.item.campaignPrice) : undefined,
+            campaignValidFrom: dateInput(row.item?.campaignValidFrom),
+            campaignValidUntil: dateInput(row.item?.campaignValidUntil),
+            campaignIsActive: Boolean(row.item?.campaignIsActive),
           };
         }
         setPriceOverrides(map);
@@ -194,6 +308,42 @@ export function SalesPriceListPage() {
       toast.success("Fiyat güncellendi");
     } catch {
       toast.error("Fiyat güncellenemedi");
+    }
+  };
+  const saveCampaign = async (
+    p: Product,
+    next: Required<Pick<PriceOverride, "campaignIsActive">> & Pick<PriceOverride, "campaignPrice" | "campaignValidFrom" | "campaignValidUntil">,
+  ) => {
+    if (!selectedListId) {
+      toast.error("Önce fiyat listesi seçin");
+      return;
+    }
+    const current = priceOverrides[p.id];
+    const payload = {
+      productModelId: p.id,
+      campaignPrice: next.campaignPrice,
+      campaignValidFrom: next.campaignValidFrom,
+      campaignValidUntil: next.campaignValidUntil,
+      campaignIsActive: next.campaignIsActive,
+    };
+    try {
+      const saved = current?.itemId
+        ? await productService.updatePriceListItem(selectedListId, current.itemId, payload)
+        : await productService.createPriceListItem(selectedListId, payload);
+      setPriceOverrides((prev) => ({
+        ...prev,
+        [p.id]: {
+          ...prev[p.id],
+          itemId: saved?.id ?? prev[p.id]?.itemId,
+          campaignPrice: next.campaignPrice,
+          campaignValidFrom: next.campaignValidFrom,
+          campaignValidUntil: next.campaignValidUntil,
+          campaignIsActive: next.campaignIsActive,
+        },
+      }));
+      toast.success("Kampanya fiyatı güncellendi");
+    } catch (err: any) {
+      toast.error("Kampanya fiyatı kaydedilemedi", { description: err?.message ?? "API isteği başarısız oldu." });
     }
   };
 
@@ -235,6 +385,7 @@ export function SalesPriceListPage() {
                 <TableHead>Tip</TableHead>
                 <TableHead className="text-right">Peşin Fiyat</TableHead>
                 <TableHead className="text-right">Liste Fiyatı</TableHead>
+                <TableHead className="text-right">Kampanya</TableHead>
                 <TableHead className="w-10"></TableHead>
               </TableRow>
             </TableHeader>
@@ -270,12 +421,19 @@ export function SalesPriceListPage() {
                     editable={canEdit}
                     onSave={(next) => savePrice(p, "listPrice", next)}
                   />
+                  <CampaignPriceCell
+                    value={override}
+                    currency={cur}
+                    editable={canEdit}
+                    disabled={!selectedListId}
+                    onSave={(next) => saveCampaign(p, next)}
+                  />
                   <TableCell><ChevronRight className="size-4 text-muted-foreground opacity-0 group-hover:opacity-100" /></TableCell>
                 </TableRow>
               );})}
               {filtered.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={6} className="text-center py-16 text-sm text-muted-foreground">Tezgah bulunamadı.</TableCell>
+                  <TableCell colSpan={7} className="text-center py-16 text-sm text-muted-foreground">Tezgah bulunamadı.</TableCell>
                 </TableRow>
               )}
             </TableBody>

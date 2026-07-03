@@ -165,7 +165,12 @@ const emptyOption = (vatRate = "20"): OptionInput => ({ productId: "", descripti
 
 const cleanTechnicalSpecs = (specs: ProductSpec[] = []) =>
   specs
-    .map((spec) => ({ key: spec.key.trim(), value: spec.value.trim() }))
+    .map((spec) => ({
+      key: spec.key.trim(),
+      value: spec.value.trim(),
+      unit: (spec.unit ?? spec.specUnit ?? "").trim() || undefined,
+      specUnit: (spec.unit ?? spec.specUnit ?? "").trim() || undefined,
+    }))
     .filter((spec) => spec.key && spec.value);
 
 const technicalSpecsFromProduct = (product?: Product): ProductSpec[] =>
@@ -216,7 +221,7 @@ export function QuoteDialog({
   const [documentNo, setDocumentNo] = useState("");
   const [senderId, setSenderId] = useState("");
   const [currency, setCurrency] = useState<Currency>("USD");
-  const [vatEnabled, setVatEnabled] = useState(true);
+  const [vatEnabled, setVatEnabled] = useState(false);
   const [deliveryCode, setDeliveryCode] = useState<string>("");
   const [noteVariantKey, setNoteVariantKey] = useState<string>("");
   const [paymentTerms, setPaymentTerms] = useState("");
@@ -250,7 +255,7 @@ export function QuoteDialog({
     setValidityDays("");
     setDocumentNo("");
     setSenderId(users.find((u) => u.id === user?.id)?.id ?? users[0]?.id ?? "");
-    setVatEnabled(true);
+    setVatEnabled(false);
     setDeliveryCode("");
     setNoteVariantKey("");
     setPaymentTerms("");
@@ -293,7 +298,6 @@ export function QuoteDialog({
       const offer = offers.find((o) => o.id === id);
       const currencyCode = (offer?.currency ?? "USD") as Currency;
       setCurrency(currencyCode);
-      setVatEnabled(true);
       setDeliveryCode("");
       const loadedPayment = data.terms?.paymentTermsText ?? data.paymentTerms ?? "";
       const loadedDelivery = data.terms?.deliveryTermsText ?? data.deliveryTerms ?? "";
@@ -314,6 +318,10 @@ export function QuoteDialog({
       setNoteFontSize("14");
       setNoteBold(false);
       const items: any[] = Array.isArray(data.items) ? data.items : [];
+      setVatEnabled(
+        Number(data.vatAmount ?? 0) > 0 ||
+        items.some((it) => Number(it.vatRate ?? 0) > 0 || Number(it.vatAmount ?? 0) > 0)
+      );
       const mainItems = items.filter((it) => !String(it.description ?? "").startsWith("↳ Opsiyon:"));
       const optionItems = items.filter((it) => String(it.description ?? "").startsWith("↳ Opsiyon:"));
       const mapped: LineState[] = mainItems.map((it) => {
@@ -858,6 +866,7 @@ export function QuoteDialog({
                 const product = products.find((x) => x.id === l.productId);
                 const suggestions = product?.optionalEquipment ?? [];
                 const lineProducts = products.filter((p) => !l.categoryCode || p.categoryCode === l.categoryCode);
+                const isLaborLine = l.categoryCode === "ISCILIK";
                 return (
                   <div key={i} className="p-3 space-y-2">
                     <div className="grid grid-cols-1 lg:grid-cols-[200px_1fr_auto] gap-2">
@@ -881,8 +890,10 @@ export function QuoteDialog({
                         <Trash2 className="size-4 text-muted-foreground" />
                       </Button>
                     </div>
-                    <div className="grid grid-cols-1 md:grid-cols-[220px_1fr] gap-2">
-                      <Input className="h-8" value={l.stockCode} onChange={(e) => setLine(i, { stockCode: e.target.value })} placeholder="Stok Kodu" />
+                    <div className={isLaborLine ? "grid grid-cols-1 gap-2" : "grid grid-cols-1 md:grid-cols-[220px_1fr] gap-2"}>
+                      {!isLaborLine && (
+                        <Input className="h-8" value={l.stockCode} onChange={(e) => setLine(i, { stockCode: e.target.value })} placeholder="Stok Kodu" />
+                      )}
                       <Input className="h-8" value={l.description} onChange={(e) => setLine(i, { description: e.target.value })} placeholder="Ürün adı / modeli" />
                     </div>
                     <div className="grid grid-cols-2 md:grid-cols-5 gap-2 items-end">
@@ -900,7 +911,7 @@ export function QuoteDialog({
                       </div>
                       <div>
                         <Label className="text-[10px] uppercase text-muted-foreground">KDV %</Label>
-                        <Input className="h-8" inputMode="decimal" value={l.vatRate} onChange={(e) => setLine(i, { vatRate: e.target.value })} />
+                        <Input className="h-8" inputMode="decimal" value={l.vatRate} disabled={!vatEnabled} onChange={(e) => setLine(i, { vatRate: e.target.value })} />
                       </div>
                       <div className="text-right">
                         <Label className="text-[10px] uppercase text-muted-foreground">Satır (net)</Label>

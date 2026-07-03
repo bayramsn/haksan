@@ -37,6 +37,11 @@ function warrantyShortLabel(info: ReturnType<typeof warrantyInfo>) {
   }
 }
 
+const formatMachinePrice = (machine: Machine) =>
+  machine.cashPrice == null
+    ? "—"
+    : `${machine.cashPrice.toLocaleString("tr-TR", { maximumFractionDigits: 2 })} ${machine.currency ?? "USD"}`;
+
 /** Makine garanti durumu rozeti (Aktif / Yaklaşıyor / Süresi doldu). */
 export function WarrantyBadge({ end }: { end?: string | null }) {
   const info = warrantyInfo(end);
@@ -109,6 +114,7 @@ function MachineDetailDialog({
           <div><span className="text-muted-foreground">İlk müşteri:</span> {initialCustomer?.name ?? "—"}</div>
           <div><span className="text-muted-foreground">Marka:</span> {machine.brand || "—"}</div>
           <div><span className="text-muted-foreground">Tip:</span> {machine.type || "—"}</div>
+          <div><span className="text-muted-foreground">Peşin fiyat:</span> {formatMachinePrice(machine)}</div>
           <div><span className="text-muted-foreground">Kurulum:</span> {machine.installationDate || "—"}</div>
           <div className="flex items-center gap-2">
             <span className="text-muted-foreground">Garanti bitiş:</span> {machine.warrantyEnd || "—"}
@@ -269,6 +275,7 @@ export function MachinesPage() {
                   <TableHead>Seri No</TableHead>
                   <TableHead>Kontrol Paneli</TableHead>
                   <TableHead>Kontrol Paneli Seri No</TableHead>
+                  <TableHead>Peşin Fiyat</TableHead>
                   <TableHead>Kurulum</TableHead>
                   <TableHead>Servis Sayısı</TableHead>
                   <TableHead>Durum</TableHead>
@@ -297,6 +304,7 @@ export function MachinesPage() {
                       <TableCell className="tabular-nums">{m.serialNumber}</TableCell>
                       <TableCell className="text-muted-foreground">{m.controlUnit || "—"}</TableCell>
                       <TableCell className="text-muted-foreground tabular-nums">{m.controlUnitSerial || "—"}</TableCell>
+                      <TableCell className="tabular-nums">{formatMachinePrice(m)}</TableCell>
                       <TableCell className="text-muted-foreground">{m.installationDate}</TableCell>
                       <TableCell className="tabular-nums">{srCount}</TableCell>
                       <TableCell><StatusBadge status={m.status} /></TableCell>

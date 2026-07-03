@@ -224,7 +224,7 @@ export interface QuotePrintData {
   model?: string;
   tip?: string;
   imageUrl?: string;
-  specs?: { key: string; value: string }[];
+  specs?: { key: string; value: string; unit?: string; specUnit?: string }[];
   standartDonanim?: string[];
   opsiyonelDonanim?: string[];
   items: QuoteItem[];
@@ -286,6 +286,12 @@ table.q-tot td.tv { border: 1.4pt solid #000; text-align: right; font-style: ita
 export function quoteDoc(d: QuotePrintData, assetBase: string): PrintDocument {
   const pages: string[] = [];
   const hasSpecs = (d.specs?.length ?? 0) > 0;
+  const specValue = (spec: NonNullable<QuotePrintData["specs"]>[number]) => {
+    const value = spec.value?.trim() || "-";
+    const unit = (spec.unit ?? spec.specUnit ?? "").trim();
+    if (!unit || value === "-" || value.toLocaleLowerCase("tr-TR").includes(unit.toLocaleLowerCase("tr-TR"))) return value;
+    return `${value} ${unit}`;
+  };
   const hasEquip = (d.standartDonanim?.length ?? 0) + (d.opsiyonelDonanim?.length ?? 0) > 0;
   const pageCount = 2 + (hasSpecs ? 1 : 0) + (hasEquip ? 1 : 0);
   let pageNo = 0;
@@ -327,7 +333,7 @@ export function quoteDoc(d: QuotePrintData, assetBase: string): PrintDocument {
   ${haksanHeader(assetBase)}
   <div class="q-h1">TEKNİK BİLGİLER</div>
   <table class="q-specs">
-    ${d.specs!.map((s) => `<tr><td class="k">${esc(s.key)}</td><td class="v">${esc(s.value)}</td></tr>`).join("")}
+    ${d.specs!.map((s) => `<tr><td class="k">${esc(s.key)}</td><td class="v">${esc(specValue(s))}</td></tr>`).join("")}
   </table>
   ${pn()}
 </div>`);

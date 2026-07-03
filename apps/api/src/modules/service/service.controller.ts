@@ -12,7 +12,7 @@ import {
   shipmentItems,
   deliveries,
 } from '../../db/schema/service';
-import { serviceTicketStatuses, installationStatuses, shipmentStatuses, inventoryStatuses, productTypes, units, pipelineStages, opportunityStatuses, stockLocationStatuses } from '../../db/schema/lookup';
+import { serviceTicketStatuses, installationStatuses, shipmentStatuses, inventoryStatuses, productTypes, units, pipelineStages, opportunityStatuses, stockLocationStatuses, currencies } from '../../db/schema/lookup';
 import { companies, contacts } from '../../db/schema/companies';
 import { opportunities, opportunityStageHistory } from '../../db/schema/crm';
 import { customerDevices, inventoryItems, inventoryMovements, warehouses } from '../../db/schema/inventory';
@@ -80,6 +80,8 @@ const serviceQuoteSchema = z.object({
   subject: z.string().trim().min(1),
   currency: z.enum(['USD', 'EUR', 'TRY']),
   items: z.array(z.object({
+    productModelId: z.string().uuid().optional().nullable(),
+    stockCode: z.string().trim().max(64).optional().nullable(),
     description: z.string().trim().min(1),
     quantity: z.coerce.number().positive(),
     unit: z.string().trim().min(1),
@@ -196,6 +198,20 @@ const assertInstallationCompletionReady = (formData: z.infer<typeof installation
       missing: missing.map((row) => row.label),
     });
   }
+};
+
+const formDate = (value: unknown): Date | null => {
+  if (!value) return null;
+  if (value instanceof Date && !Number.isNaN(value.getTime())) return value;
+  if (typeof value === 'string' || typeof value === 'number') {
+    const parsed = new Date(value);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }
+  return null;
+};
+
+const formText = (value: unknown): string | null => {
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
 };
 
 // Sevkiyat/teslimat doğrulama şemaları @haksan/shared'a taşındı (shipment.ts).
@@ -1213,6 +1229,9 @@ export class ServiceController {
           controlUnitSerialNumber: inventoryItems.controlUnitSerialNumber,
           model: productModels.modelCode,
           productModelName: productModels.modelName,
+          deliveryDate: customerDevices.deliveryDate,
+          cashPrice: productModels.cashPrice,
+          currencyCode: currencies.code,
           brandName: brands.name,
           productTypeName: productTypes.name,
         },
@@ -1225,6 +1244,7 @@ export class ServiceController {
       .leftJoin(customerDevices, eq(installationJobs.customerDeviceId, customerDevices.id))
       .leftJoin(inventoryItems, eq(customerDevices.inventoryItemId, inventoryItems.id))
       .leftJoin(productModels, eq(inventoryItems.productModelId, productModels.id))
+      .leftJoin(currencies, eq(productModels.currencyId, currencies.id))
       .leftJoin(brands, eq(productModels.brandId, brands.id))
       .leftJoin(productTypes, eq(productModels.productTypeId, productTypes.id))
       .where(where)
@@ -1385,18 +1405,42 @@ export class ServiceController {
     if (body.formData !== undefined) patch.formData = body.formData;
     if (body.statusCode === 'in_progress' && !job.startedAt) patch.startedAt = new Date();
     if (body.statusCode === 'completed') {
-      assertInstallationCompletionReady(body.formData ?? job.formData);
-      const completedAt = body.installationDate ?? new Date();
+      const formData = body.formData ?? job.formData;
+      assertInstallationCompletionReady(formData);
+      const completedAt = body.installationDate ?? formDate((formData as any)?.kurulumTarihi) ?? new Date();
       patch.completedAt = completedAt;
       if (job.customerDeviceId) {
+        const device = await this.db.query.customerDevices.findFirst({
+          where: and(eq(customerDevices.id, job.customerDeviceId), eq(customerDevices.tenantId, user.tenantId), isNull(customerDevices.deletedAt)),
+        });
+        const deliveryDate = formDate((formData as any)?.teslimTarihi);
+        const devicePatch: Record<string, unknown> = {
+          installationDate: completedAt,
+          warrantyStartDate: completedAt,
+          warrantyEndDate: new Date(completedAt.getTime() + 365 * 24 * 60 * 60 * 1000),
+        };
+        if (deliveryDate) devicePatch.deliveryDate = deliveryDate;
         await this.db
           .update(customerDevices)
-          .set({
-            installationDate: completedAt,
-            warrantyStartDate: completedAt,
-            warrantyEndDate: new Date(completedAt.getTime() + 365 * 24 * 60 * 60 * 1000),
-          })
+          .set(devicePatch)
           .where(and(eq(customerDevices.id, job.customerDeviceId), eq(customerDevices.tenantId, user.tenantId)));
+        if (device?.inventoryItemId) {
+          const machineSerial = formText((formData as any)?.tezgah?.seriNo);
+          const cncSerial = formText((formData as any)?.cnc?.seriNo);
+          const cncName = [formText((formData as any)?.cnc?.marka), formText((formData as any)?.cnc?.model)]
+            .filter(Boolean)
+            .join(' ');
+          const inventoryPatch: Record<string, unknown> = {};
+          if (machineSerial) inventoryPatch.serialNumber = machineSerial;
+          if (cncName) inventoryPatch.controlUnit = cncName;
+          if (cncSerial) inventoryPatch.controlUnitSerialNumber = cncSerial;
+          if (Object.keys(inventoryPatch).length) {
+            await this.db
+              .update(inventoryItems)
+              .set(inventoryPatch)
+              .where(and(eq(inventoryItems.id, device.inventoryItemId), eq(inventoryItems.tenantId, user.tenantId)));
+          }
+        }
       }
     }
     const [row] = await this.db.update(installationJobs).set(patch).where(eq(installationJobs.id, id)).returning();

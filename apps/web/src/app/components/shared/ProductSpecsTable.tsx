@@ -12,6 +12,12 @@ export function ProductSpecsTable({
   className?: string;
 }) {
   const groups = groupProductSpecs(specs.filter((spec) => spec.key.trim()));
+  const formatSpecValue = (spec: ProductSpec) => {
+    const value = spec.value?.trim() || "-";
+    const unit = (spec.unit ?? spec.specUnit ?? "").trim();
+    if (!unit || value === "-" || value.toLocaleLowerCase("tr-TR").includes(unit.toLocaleLowerCase("tr-TR"))) return value;
+    return `${value} ${unit}`;
+  };
 
   if (!groups.length) {
     return <div className="text-xs text-muted-foreground">{emptyText}</div>;
@@ -43,7 +49,7 @@ export function ProductSpecsTable({
               >
                 <div className="min-w-0 text-center font-medium leading-snug text-foreground/85">{spec.key}</div>
                 <div className="min-w-0 text-center font-semibold leading-snug text-foreground">
-                  {spec.value?.trim() || "-"}
+                  {formatSpecValue(spec)}
                 </div>
               </div>
             ))}

@@ -572,12 +572,12 @@ export function CreateAccountingInvoiceDialog({
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>{trigger}</DialogTrigger>
-      <DialogContent className={`${gridVisible ? "w-[95vw] sm:max-w-[1100px]" : "max-w-2xl"} max-h-[92dvh] gap-0 overflow-hidden p-0`}>
+      <DialogContent className={`${gridVisible ? "w-[min(1280px,calc(100vw-1rem))] max-w-none sm:max-w-none" : "w-[min(820px,calc(100vw-1rem))] max-w-none sm:max-w-none"} max-h-[94dvh] gap-0 overflow-hidden p-0`}>
         <DialogHeader className="border-b border-border/60 px-4 py-4 pr-11 sm:px-5">
           <DialogTitle className="flex items-center gap-2"><Receipt className="size-5" /> {isEditing ? "Faturayı Düzenle" : "Muhasebe Faturası"}</DialogTitle>
           <DialogDescription>{isEditing ? "Fatura bilgileri ve vade planını güncelleyin." : "Satış veya alış faturası ile vade planı oluşturun; cari hareketler otomatik açılır."}</DialogDescription>
         </DialogHeader>
-        <form onSubmit={submit} className="flex max-h-[calc(92dvh-86px)] min-h-0 flex-col">
+        <form onSubmit={submit} className="flex max-h-[calc(94dvh-86px)] min-h-0 flex-col">
           <div className="min-w-0 flex-1 space-y-4 overflow-y-auto px-4 py-4 sm:px-5">
           <div className="grid gap-3 md:grid-cols-2">
             <div className="rounded-lg border border-border/60 bg-muted/20 p-3">
@@ -931,7 +931,7 @@ export function CreateAccountingInvoiceDialog({
             <Textarea className="mt-1" rows={2} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
           </div>
           </div>
-          <DialogFooter className="border-t border-border/60 px-4 py-3 sm:px-5">
+          <DialogFooter className="sticky bottom-0 z-10 border-t border-border/60 bg-background px-4 py-3 sm:px-5">
             <Button type="button" variant="outline" onClick={() => setOpen(false)}>Vazgeç</Button>
             <Button type="submit" disabled={saving}>{saving ? "Kaydediliyor…" : isEditing ? "Güncelle" : "Faturayı Kaydet"}</Button>
           </DialogFooter>

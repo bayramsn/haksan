@@ -1270,6 +1270,10 @@ export class ProductsService {
         productModelId: input.productModelId,
         listPrice: input.listPrice?.toString() ?? null,
         cashPrice: input.cashPrice?.toString() ?? null,
+        campaignPrice: input.campaignPrice?.toString() ?? null,
+        campaignValidFrom: input.campaignValidFrom ?? null,
+        campaignValidUntil: input.campaignValidUntil ?? null,
+        campaignIsActive: input.campaignIsActive ?? false,
         vatRate: input.vatRate?.toString() ?? null,
         notes: input.notes ?? null,
       })
@@ -1296,9 +1300,13 @@ export class ProductsService {
       await this.get(input.productModelId, actor);
       patch.productModelId = input.productModelId;
     }
-    for (const k of ['listPrice', 'cashPrice', 'vatRate'] as const) {
+    for (const k of ['listPrice', 'cashPrice', 'campaignPrice', 'vatRate'] as const) {
       if ((input as any)[k] !== undefined) patch[k] = ((input as any)[k] as number | undefined)?.toString() ?? null;
     }
+    for (const k of ['campaignValidFrom', 'campaignValidUntil'] as const) {
+      if ((input as any)[k] !== undefined) patch[k] = (input as any)[k] ?? null;
+    }
+    if (input.campaignIsActive !== undefined) patch.campaignIsActive = input.campaignIsActive;
     if (input.notes !== undefined) patch.notes = input.notes ?? null;
     await this.db.update(priceListItems).set(patch).where(eq(priceListItems.id, itemId));
     return this.db.query.priceListItems.findFirst({ where: eq(priceListItems.id, itemId) });
