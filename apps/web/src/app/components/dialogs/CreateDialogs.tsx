@@ -4439,17 +4439,26 @@ export function CreateServiceRequestDialog({ trigger, defaultMachineId }: { trig
   const assignedUser = (serviceUsers.length > 0 ? serviceUsers : users).find((u) => u.id === form.assignedUserId);
   const machineOptionText = (machine: typeof machinesAll[number]) =>
     [machine.model, machine.serialNumber].filter(Boolean).join(" · ") || "Makine";
-  const machineOptions = useMemo(
-    () => [
+  // Diğer firmalardaki makineler de seçilebilir; seçilince selectMachine formu
+  // makinenin sahibi firmaya geçirir (servis formunda firmalar arası makine desteği).
+  const machineOptions = useMemo(() => {
+    const otherCompanyMachines = machinesAll.filter((machine) => machineCustomerId(machine) !== form.customerId);
+    const companyNameOf = (machine: typeof machinesAll[number]) =>
+      customers.find((customer) => customer.id === machineCustomerId(machine))?.name ?? "Diğer firma";
+    return [
       { value: NO_SERVICE_MACHINE, label: "Makine bağlama" },
       ...companyMachines.map((machine) => ({
         value: machine.id,
         label: machineOptionText(machine),
         hint: machine.status === "Out of Warranty" ? "Garanti dışı" : machine.status === "Decommissioned" ? "Devre dışı" : "Aktif",
       })),
-    ],
-    [companyMachines],
-  );
+      ...otherCompanyMachines.map((machine) => ({
+        value: machine.id,
+        label: machineOptionText(machine),
+        hint: companyNameOf(machine),
+      })),
+    ];
+  }, [companyMachines, machinesAll, customers, form.customerId]);
 
   const selectCustomer = (customerId: string) => {
     const preferredContact = preferredServiceContact(contacts, customerId);

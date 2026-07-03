@@ -501,6 +501,10 @@ function InstallationFormDialog({
           sure: row.durationMinutes != null ? formatDuration(row.durationMinutes) : undefined,
           checks: payload.checks?.map((check: { label: string; status?: InstallationCheckStatus; note?: string }) => ({ label: check.label, status: check.status, note: check.note })),
           problem: payload.problem,
+          technicalSpecs: form.technicalSpecs.map((spec) => ({
+            key: spec.key,
+            value: [spec.value, spec.unit ?? spec.specUnit].filter(Boolean).join(" "),
+          })),
           notlar: row.notes,
         },
         printAssetBase(),

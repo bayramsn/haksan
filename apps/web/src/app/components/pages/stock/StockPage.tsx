@@ -571,6 +571,7 @@ export function StockPage({ focus, initialQuery }: { focus?: OperationFocus; ini
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
     </div>
   );
 }
