@@ -160,23 +160,78 @@ const lookupLabels: Record<string, string> = {
   "contact-sources": "Firma İrtibat Şekli",
   "company-groups": "Firma Grupları",
   "company-statuses": "Firma Durumları",
+  "company-relation-types": "Firma İlişki Türleri",
+  "decision-roles": "Karar Rolleri",
   "activity-types": "Aktivite Türleri",
+  "pipeline-stages": "Satış Aşamaları",
+  "opportunity-statuses": "Satış Kartı Durumları",
+  "quote-statuses": "Teklif Durumları",
+  "proforma-statuses": "Proforma Durumları",
+  "contract-statuses": "Sözleşme Durumları",
   "product-types": "Ürün Tipleri",
   "product-groups": "Ürün Grupları",
   "product-categories": "Ürün Kategorileri",
   "product-subcategories": "Ürün Alt Kategorileri",
   "product-spec-groups": "Teknik Bilgi Grupları",
   "equipment-types": "Donanım Tipleri",
+  "units": "Birimler",
   "inventory-statuses": "Stok Durumları",
+  "stock-location-statuses": "Stok Lokasyon Durumları",
+  "warranty-statuses": "Garanti Durumları",
+  "service-ticket-statuses": "Servis Talebi Durumları",
+  "installation-statuses": "Kurulum Durumları",
+  "shipment-statuses": "Sevkiyat Durumları",
+  "payment-statuses": "Ödeme Durumları",
+  "invoice-statuses": "Fatura Durumları",
+  "currencies": "Para Birimleri",
+  "file-document-types": "Doküman Türleri",
+  "storage-providers": "Depolama Sağlayıcıları",
   "tax-offices": "Vergi Daireleri",
 };
+
+const LOOKUP_MENU_GROUPS: Array<{ label: string; names: string[] }> = [
+  {
+    label: "Firma",
+    names: ["company-sectors", "company-groups", "company-statuses", "company-relation-types", "contact-sources", "decision-roles", "tax-offices"],
+  },
+  {
+    label: "Satış",
+    names: ["pipeline-stages", "opportunity-statuses", "activity-types", "quote-statuses", "proforma-statuses", "contract-statuses"],
+  },
+  {
+    label: "Ürün",
+    names: ["product-categories", "product-subcategories", "product-types", "product-groups", "product-spec-groups", "equipment-types", "units"],
+  },
+  {
+    label: "Stok & Servis",
+    names: ["inventory-statuses", "stock-location-statuses", "warranty-statuses", "service-ticket-statuses", "installation-statuses", "shipment-statuses"],
+  },
+  {
+    label: "Finans",
+    names: ["payment-statuses", "invoice-statuses", "currencies"],
+  },
+  {
+    label: "Genel",
+    names: ["file-document-types", "storage-providers"],
+  },
+];
 
 const emptyLookupForm: LookupForm = { code: "", name: "", description: "", province: "", sortOrder: "0", isActive: true };
 const emptySpecForm = { productTypeCode: "", specKey: "", defaultValue: "", specUnit: "", sortOrder: "0", isActive: true };
 const emptySpecScope: SpecTemplateScope = { categoryCode: "TEZGAH", subcategoryCode: "ISLEME_MERKEZI", productTypeCode: "" };
 
-const productTypeLabel = (code: string) => TEMPLATE_PRODUCT_TYPES.find((item) => item.code === code)?.label ?? code;
-const productTypeByCode = (code: string) => TEMPLATE_PRODUCT_TYPES.find((item) => item.code === code);
+// Eski şablon kayıtları bu ürün tipi kodlarıyla saklanmış olabilir; güncel kodlara eşlenir.
+const LEGACY_PRODUCT_TYPE_ALIASES: Record<string, string> = {
+  DIK_ISLEME_MERKEZI: "CNC_DIK_ISLEME_MERKEZ",
+  YATAY_ISLEME_MERKEZI: "CNC_YATAY_ISLEME_MERKEZI",
+  KOPRU_TIPI_ISLEME_MERKEZI: "CNC_KOPRU_TIPI_ISLEME_MERKEZI",
+  CNC_TORNA: "CNC_YATAY_TORNA_TEZGAHI",
+};
+
+const canonicalProductTypeCode = (code: string) => LEGACY_PRODUCT_TYPE_ALIASES[code] ?? code;
+const productTypeLabel = (code: string) =>
+  TEMPLATE_PRODUCT_TYPES.find((item) => item.code === canonicalProductTypeCode(code))?.label ?? code;
+const productTypeByCode = (code: string) => TEMPLATE_PRODUCT_TYPES.find((item) => item.code === canonicalProductTypeCode(code));
 const specTemplateKey = (row: SpecTemplateRow) => normalizeProductSpecKey(row.specKey);
 
 const groupSpecTemplateRows = (rows: SpecTemplateRow[]): SpecTemplateDisplayGroup[] => {
@@ -215,7 +270,7 @@ const scopeForProductType = (productTypeCode: string): SpecTemplateScope => {
   return {
     categoryCode: productType.categoryCode,
     subcategoryCode: productType.subcategoryCode ?? "",
-    productTypeCode,
+    productTypeCode: productType.code,
   };
 };
 
@@ -254,9 +309,18 @@ export function SettingsPage() {
   const [editingSpecId, setEditingSpecId] = useState<string | null>(null);
   const [specBusy, setSpecBusy] = useState(false);
 
-  const orderedLookupNames = useMemo(() => {
-    const rows = lookupNames.length ? lookupNames : Object.keys(lookupLabels);
-    return [...rows].sort((a, b) => (lookupLabels[a] ?? a).localeCompare(lookupLabels[b] ?? b, "tr-TR"));
+  const lookupMenuGroups = useMemo(() => {
+    const names = new Set(lookupNames.length ? lookupNames : Object.keys(lookupLabels));
+    const grouped = new Set(LOOKUP_MENU_GROUPS.flatMap((group) => group.names));
+    const rest = [...names]
+      .filter((name) => !grouped.has(name))
+      .sort((a, b) => (lookupLabels[a] ?? a).localeCompare(lookupLabels[b] ?? b, "tr-TR"));
+    const groups = LOOKUP_MENU_GROUPS.map((group) => ({
+      label: group.label,
+      names: group.names.filter((name) => names.has(name)),
+    }));
+    if (rest.length) groups.push({ label: "Diğer", names: rest });
+    return groups.filter((group) => group.names.length > 0);
   }, [lookupNames]);
 
   const availableSpecSubcategories = useMemo(() => subcategoriesForCategory(specScope.categoryCode), [specScope.categoryCode]);
@@ -267,14 +331,14 @@ export function SettingsPage() {
   );
 
   const filteredSpecRows = useMemo(() => {
-    if (specScope.productTypeCode) return specRows.filter((row) => row.productTypeCode === specScope.productTypeCode);
+    if (specScope.productTypeCode) return specRows.filter((row) => canonicalProductTypeCode(row.productTypeCode) === specScope.productTypeCode);
     const availableCodes = new Set(availableSpecProductTypes.map((item) => item.code));
-    return specRows.filter((row) => availableCodes.has(row.productTypeCode));
+    return specRows.filter((row) => availableCodes.has(canonicalProductTypeCode(row.productTypeCode)));
   }, [availableSpecProductTypes, specRows, specScope.productTypeCode]);
 
   const scopedSpecRows = useMemo(() => {
     const availableCodes = new Set(availableSpecProductTypes.map((item) => item.code));
-    return specRows.filter((row) => availableCodes.has(row.productTypeCode));
+    return specRows.filter((row) => availableCodes.has(canonicalProductTypeCode(row.productTypeCode)));
   }, [availableSpecProductTypes, specRows]);
 
   const commonSpecKeys = useMemo(() => {
@@ -283,7 +347,7 @@ export function SettingsPage() {
       const key = specTemplateKey(row);
       if (!key) continue;
       const codes = productTypesByKey.get(key) ?? new Set<string>();
-      codes.add(row.productTypeCode);
+      codes.add(canonicalProductTypeCode(row.productTypeCode));
       productTypesByKey.set(key, codes);
     }
     return new Set(
@@ -494,7 +558,7 @@ export function SettingsPage() {
     setEditingSpecId(row.id);
     setSpecScope(scopeForProductType(row.productTypeCode));
     setSpecForm({
-      productTypeCode: row.productTypeCode,
+      productTypeCode: canonicalProductTypeCode(row.productTypeCode),
       specKey: row.specKey,
       defaultValue: row.defaultValue ?? "",
       specUnit: row.specUnit ?? "",
@@ -616,15 +680,22 @@ export function SettingsPage() {
             <CardContent>
               <div className="grid grid-cols-1 lg:grid-cols-[260px_1fr] gap-4">
                 <div className="rounded-lg border border-border/60 overflow-hidden">
-                  {orderedLookupNames.map((name) => (
-                    <button
-                      key={name}
-                      type="button"
-                      onClick={() => setSelectedLookup(name)}
-                      className={`block w-full px-3 py-2 text-left text-sm border-b border-border/60 last:border-b-0 ${selectedLookup === name ? "bg-primary/10 text-primary" : "hover:bg-muted/50"}`}
-                    >
-                      {lookupLabels[name] ?? name}
-                    </button>
+                  {lookupMenuGroups.map((group) => (
+                    <div key={group.label} className="border-b border-border/60 last:border-b-0">
+                      <div className="bg-muted/50 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-foreground/70">
+                        {group.label}
+                      </div>
+                      {group.names.map((name) => (
+                        <button
+                          key={name}
+                          type="button"
+                          onClick={() => setSelectedLookup(name)}
+                          className={`block w-full px-3 py-2 text-left text-sm border-t border-border/60 ${selectedLookup === name ? "bg-primary/10 text-primary" : "hover:bg-muted/50"}`}
+                        >
+                          {lookupLabels[name] ?? name}
+                        </button>
+                      ))}
+                    </div>
                   ))}
                 </div>
                 <div className="space-y-3">
@@ -666,47 +737,56 @@ export function SettingsPage() {
                       </Button>
                     </div>
                   </div>
-                  <div className="overflow-x-auto rounded-lg border border-border/60">
-                    <table className="w-full text-sm">
-                      <thead className="bg-muted/40 text-left text-xs text-muted-foreground">
-                        <tr>
-                          <th className="px-3 py-2">Kod</th>
-                          <th className="px-3 py-2">Ad</th>
-                          {selectedLookup === "tax-offices" && <th className="px-3 py-2">İl</th>}
-                          <th className="px-3 py-2">Sıra</th>
-                          <th className="px-3 py-2">Durum</th>
-                          <th className="px-3 py-2 text-right">İşlem</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {lookupRows.map((row) => (
-                          <tr key={row.id} className="border-t border-border/60">
-                            <td className="px-3 py-2 font-mono text-xs">{row.code}</td>
-                            <td className="px-3 py-2">{row.name}</td>
-                            {selectedLookup === "tax-offices" && <td className="px-3 py-2">{row.province || "-"}</td>}
-                            <td className="px-3 py-2">{row.sortOrder ?? 0}</td>
-                            <td className="px-3 py-2">{row.isActive === false ? "Pasif" : "Aktif"}</td>
-                            <td className="px-3 py-2">
-                              <div className="flex justify-end gap-1">
-                                <Button type="button" variant="ghost" size="icon" className="size-8" onClick={() => editLookup(row)}>
-                                  <Pencil className="size-4" />
-                                </Button>
-                                <Button type="button" variant="ghost" size="icon" className="size-8 text-destructive" onClick={() => deleteLookup(row)}>
-                                  <Trash2 className="size-4" />
-                                </Button>
-                              </div>
-                            </td>
-                          </tr>
-                        ))}
-                        {!lookupRows.length && (
-                          <tr>
-                            <td className="px-3 py-6 text-center text-muted-foreground" colSpan={selectedLookup === "tax-offices" ? 6 : 5}>
-                              Kayıt yok.
-                            </td>
-                          </tr>
-                        )}
-                      </tbody>
-                    </table>
+                  <div className="overflow-hidden rounded-lg border border-border/60 bg-white">
+                    <div className="grid grid-cols-[56px_minmax(0,1fr)]">
+                      <div className="flex items-center justify-center border-r border-border/60 bg-muted/50 px-1 py-2">
+                        <div className="rotate-180 text-center text-[10px] font-semibold uppercase tracking-[0.16em] text-foreground/80 [writing-mode:vertical-rl]">
+                          {lookupLabels[selectedLookup] ?? selectedLookup}
+                        </div>
+                      </div>
+                      <div className="min-w-0 overflow-x-auto">
+                        <table className="w-full text-sm">
+                          <thead className="bg-muted/20 text-left text-[11px] uppercase text-muted-foreground">
+                            <tr>
+                              <th className="px-3 py-2">Kod</th>
+                              <th className="px-3 py-2">Ad</th>
+                              {selectedLookup === "tax-offices" && <th className="px-3 py-2">İl</th>}
+                              <th className="px-3 py-2">Sıra</th>
+                              <th className="px-3 py-2">Durum</th>
+                              <th className="px-3 py-2 text-right">İşlem</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {lookupRows.map((row) => (
+                              <tr key={row.id} className="border-t border-dotted border-foreground/30">
+                                <td className="px-3 py-2 font-mono text-xs">{row.code}</td>
+                                <td className="px-3 py-2 font-medium">{row.name}</td>
+                                {selectedLookup === "tax-offices" && <td className="px-3 py-2">{row.province || "-"}</td>}
+                                <td className="px-3 py-2">{row.sortOrder ?? 0}</td>
+                                <td className="px-3 py-2">{row.isActive === false ? "Pasif" : "Aktif"}</td>
+                                <td className="px-3 py-2">
+                                  <div className="flex justify-end gap-1">
+                                    <Button type="button" variant="ghost" size="icon" className="size-8" onClick={() => editLookup(row)}>
+                                      <Pencil className="size-4" />
+                                    </Button>
+                                    <Button type="button" variant="ghost" size="icon" className="size-8 text-destructive" onClick={() => deleteLookup(row)}>
+                                      <Trash2 className="size-4" />
+                                    </Button>
+                                  </div>
+                                </td>
+                              </tr>
+                            ))}
+                            {!lookupRows.length && (
+                              <tr>
+                                <td className="px-3 py-6 text-center text-muted-foreground" colSpan={selectedLookup === "tax-offices" ? 6 : 5}>
+                                  Kayıt yok.
+                                </td>
+                              </tr>
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>
