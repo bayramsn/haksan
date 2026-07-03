@@ -17,6 +17,7 @@ import { up as standardizeRemainingCncAliasSpecs } from './008_standardize_remai
 import { up as forceRemainingCncDefaultSpecs } from './009_force_remaining_cnc_default_specs';
 import { up as cleanupRemainingCncAliasSpecs } from './010_cleanup_remaining_cnc_alias_specs';
 import { up as syncDocDeletePermissions } from './011_sync_doc_delete_permissions';
+import { up as resyncLookupsSpecGroups } from './012_resync_lookups_spec_groups';
 
 export interface DataMigration {
   id: string;
@@ -35,4 +36,5 @@ export const dataMigrations: DataMigration[] = [
   { id: '009_force_remaining_cnc_default_specs', up: forceRemainingCncDefaultSpecs },
   { id: '010_cleanup_remaining_cnc_alias_specs', up: cleanupRemainingCncAliasSpecs },
   { id: '011_sync_doc_delete_permissions', up: syncDocDeletePermissions },
+  { id: '012_resync_lookups_spec_groups', up: resyncLookupsSpecGroups },
 ];
