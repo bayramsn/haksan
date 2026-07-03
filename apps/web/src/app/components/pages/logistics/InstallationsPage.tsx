@@ -422,8 +422,8 @@ function InstallationFormDialog({
       machines.find((x) => x.customerId === row.customerId);
     const fd = row.formData ?? {};
     const cncParts = machine?.controlUnit?.split(" ") ?? [];
-    const existingChecks = fd.checks?.length
-      ? fd.checks.map((check) => ({
+    const existingChecks: CheckDraft[] = fd.checks?.length
+      ? fd.checks.map((check: { id?: string; label: string; status?: InstallationCheckStatus; note?: string }) => ({
           id: check.id || `custom-${check.label}`,
           label: check.label,
           status: check.status ?? "",
@@ -499,7 +499,7 @@ function InstallationFormDialog({
           teslimAlan: payload.teslimAlan,
           kurulumYeri: row.location,
           sure: row.durationMinutes != null ? formatDuration(row.durationMinutes) : undefined,
-          checks: payload.checks?.map((check) => ({ label: check.label, status: check.status, note: check.note })),
+          checks: payload.checks?.map((check: { label: string; status?: InstallationCheckStatus; note?: string }) => ({ label: check.label, status: check.status, note: check.note })),
           problem: payload.problem,
           notlar: row.notes,
         },

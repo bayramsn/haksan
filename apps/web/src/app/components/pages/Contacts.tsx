@@ -4,7 +4,7 @@ import { Input } from "../ui/input";
 import { Button } from "../ui/button";
 import { Avatar, AvatarFallback } from "../ui/avatar";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../ui/table";
-import { Search, Download, Phone, Mail, Building2, Star, Pencil, Trash2 } from "lucide-react";
+import { Search, Phone, Mail, Building2, Star, Pencil, Trash2 } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger } from "../ui/tabs";
 import { toast } from "sonner";
 import { type Contact } from "../../lib/mock";

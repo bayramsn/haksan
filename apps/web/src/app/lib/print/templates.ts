@@ -378,7 +378,7 @@ export function quoteDoc(d: QuotePrintData, assetBase: string): PrintDocument {
   const kdvTutar = Number.isFinite(d.kdvTutar) ? d.kdvTutar : toplam * (d.kdvOran / 100);
   const genel = toplam + kdvTutar;
 
-  const noteSection = (no: number, baslik: string, list: string[]) => `
+  const noteSection = (_no: number, baslik: string, list: string[]) => `
     <li><div class="sec">${esc(baslik)}</div>
       <ol class="alpha">${list.map((n) => `<li>${esc(n)}</li>`).join("")}</ol>
     </li>`;
@@ -908,7 +908,7 @@ export function installationFormDoc(d: InstallationPrintData, assetBase: string)
   const t = d.tezgah ?? {};
   const c = d.cnc ?? {};
   const cb = (on: boolean) => `<span class="cb">${on ? "&#9745;" : "&#9744;"}</span>`;
-  const checks = d.checks?.length ? d.checks : INSTALL_CHECKS.map((label) => ({ label }));
+  const checks: NonNullable<InstallationPrintData["checks"]> = d.checks?.length ? d.checks : INSTALL_CHECKS.map((label) => ({ label }));
   const body = `
 <div class="page">
   ${drmakHeader(assetBase, "KURULUM TUTANAĞI")}

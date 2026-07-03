@@ -322,8 +322,8 @@ export function SalesPriceListPage() {
     const payload = {
       productModelId: p.id,
       campaignPrice: next.campaignPrice,
-      campaignValidFrom: next.campaignValidFrom,
-      campaignValidUntil: next.campaignValidUntil,
+      campaignValidFrom: next.campaignValidFrom ? new Date(next.campaignValidFrom) : undefined,
+      campaignValidUntil: next.campaignValidUntil ? new Date(next.campaignValidUntil) : undefined,
       campaignIsActive: next.campaignIsActive,
     };
     try {

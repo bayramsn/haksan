@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "../../ui/card";
 import { Button } from "../../ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../../ui/table";
-import { StatusBadge } from "../../Layout";
+
 import { CreateShipmentDialog } from "../../dialogs/CreateDialogs";
 import { EmptyState } from "../../shared/EmptyState";
 import { MiniKpi } from "../../shared/MiniKpi";

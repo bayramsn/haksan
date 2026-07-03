@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "../../ui/card";
+import { Card, CardHeader, CardTitle } from "../../ui/card";
 import { Button } from "../../ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../../ui/table";
@@ -194,7 +194,11 @@ function DeliveryDetailDialog({
             </DialogHeader>
             <DeliveryFormFields
               form={form}
-              setForm={setForm}
+              setForm={(update) =>
+                setForm((prev) =>
+                  prev == null ? prev : typeof update === "function" ? (update as (p: DeliveryFormState) => DeliveryFormState)(prev) : update
+                )
+              }
               customers={customers}
               casesForCustomer={casesForCustomer}
               machinesForCustomer={machinesForCustomer}

@@ -29,7 +29,7 @@ export function DepartmentsPage() {
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({ name: "", code: "", description: "" });
 
-  const loadTargets = useCallback(async (depts: DeptItem[]) => {
+  const loadTargets = useCallback(async (_depts: DeptItem[]) => {
     if (!canSetTargets) return;
     const targets = await safeLoad("department-targets", () =>
       adminService.departmentTargets({ period: targetPeriod })

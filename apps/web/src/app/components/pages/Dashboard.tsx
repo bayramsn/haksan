@@ -18,7 +18,7 @@ import { SALES_STAGES, SALES_STAGE_LABELS, salesStageLabel } from "../../lib/moc
 import { StatusBadge } from "../Layout";
 import { useStore } from "../../lib/store";
 import { useAuth } from "../../../lib/auth";
-import { useFx } from "../../lib/fx";
+import { useFx, type FxCurrency } from "../../lib/fx";
 import { buildSalesMonthly, buildFunnelFromCases, buildPipelineFunnel, buildPipelineStagePie } from "../../lib/chartAggregates";
 import { reportService } from "../../../lib/services";
 import {
@@ -146,7 +146,7 @@ export function DashboardPage({ onAction }: { onAction?: (action: OperationActio
   const [pipelineRows, setPipelineRows] = useState<Array<{ stageName?: string; count?: number; sortOrder?: number }>>([]);
   const monthCount = { "1A": 1, "3A": 3, "6A": 6, "1Y": 12 }[chartPeriod];
   const monthly = useMemo(
-    () => buildSalesMonthly(offers, salesCases, 12, (amount, currency) => convert(amount, currency, "USD")),
+    () => buildSalesMonthly(offers, salesCases, 12, (amount, currency) => convert(amount, currency as FxCurrency, "USD")),
     [offers, salesCases, convert],
   );
   const monthlyView = monthly.slice(-monthCount);
@@ -183,7 +183,8 @@ export function DashboardPage({ onAction }: { onAction?: (action: OperationActio
       { konu: "Teklif", deger: Math.min(100, Math.round((offers.length / Math.max(total, 1)) * 20)) },
       { konu: "Tahsilat", deger: Math.min(100, Math.max(0, 100 - overdue * 15)) },
       { konu: "Servis", deger: Math.min(100, openSvc * 12) },
-      { konu: "Stok", deger: Math.min(100, store.stock.filter((s) => s.quantity > 0).length * 8) },
+      // Stok seri no bazlı takip edilir (adet alanı yok); satılabilir gücü Available birim sayısı gösterir.
+      { konu: "Stok", deger: Math.min(100, store.stock.filter((s) => s.status === "Available").length * 8) },
       { konu: "Onay", deger: Math.min(100, approved * 10) },
     ];
   }, [customers.length, salesCases, offers, serviceRequests, store.stock, store.payments]);

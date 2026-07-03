@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "../../ui/card";
 import { Button } from "../../ui/button";
 import { Input } from "../../ui/input";
-import { Badge } from "../../ui/badge";
 import { Tabs, TabsList, TabsTrigger } from "../../ui/tabs";
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
@@ -16,21 +15,21 @@ import { CreatePaymentDialog } from "../../dialogs/CreateDialogs";
 import { PayKpi } from "../../shared/MiniKpi";
 import { useStore } from "../../../lib/store";
 import { buildPaymentMonthly, buildCurrencyPie } from "../../../lib/chartAggregates";
-import { useFx, FxRateBadge } from "../../../lib/fx";
+import { useFx, FxRateBadge, type FxCurrency } from "../../../lib/fx";
 import { Payment } from "../../../lib/mock";
 import { toast } from "sonner";
 import { financeService, fileService } from "../../../../lib/services";
-import { FilterPopover, usePaged, Pager } from "../../ui/list-controls";
+import { usePaged, Pager } from "../../ui/list-controls";
 import { CreateAccountingInvoiceDialog } from "../finance/CreateAccountingInvoiceDialog";
 import { ExportExcelButton } from "../../ui/ExportExcelButton";
 import type { OperationFocus } from "../../../lib/operations";
 import {
-  ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid,
+  ResponsiveContainer, XAxis, YAxis, Tooltip, CartesianGrid,
   AreaChart, Area, PieChart, Pie, Cell, Legend, LineChart, Line,
 } from "recharts";
 import {
   Plus, Search, ArrowDownRight, ArrowUpRight, Wallet, Clock, Building2, Mail, Phone,
-  Upload, FileText, Receipt, Download, Eye, Save, Trash2,
+  Upload, FileText, Receipt, Eye, Save, Trash2,
 } from "lucide-react";
 
 export function PaymentsPage({ focus }: { focus?: OperationFocus }) {
@@ -82,8 +81,6 @@ export function PaymentsPage({ focus }: { focus?: OperationFocus }) {
   const totalPaid = inflow.filter((p) => p.status === "Paid").reduce((s, p) => s + toUsd(p), 0);
   const totalPending = inflow.filter((p) => p.status === "Pending").reduce((s, p) => s + toUsd(p), 0);
   const totalOverdue = inflow.filter((p) => p.status === "Overdue").reduce((s, p) => s + toUsd(p), 0);
-  const total = totalPaid + totalPending + totalOverdue;
-  const collectionRate = total > 0 ? Math.round((totalPaid / total) * 100) : 0;
 
   // Kasa bakiyesi: gerçekleşen (Paid) giriş/çıkış, para birimi bazında ayrı.
   // Farklı para birimleri toplanamaz; her biri kendi satırında gösterilir.
@@ -155,7 +152,7 @@ export function PaymentsPage({ focus }: { focus?: OperationFocus }) {
     }
   };
 
-  const payMonthly = useMemo(() => buildPaymentMonthly(filteredPayments, 6, (amount, currency) => convert(amount, currency, "USD")), [filteredPayments, convert]);
+  const payMonthly = useMemo(() => buildPaymentMonthly(filteredPayments, 6, (amount, currency) => convert(amount, currency as FxCurrency, "USD")), [filteredPayments, convert]);
   const currencyPie = useMemo(() => {
     const pie = buildCurrencyPie(filteredPayments);
     return pie.length ? pie : [{ name: "USD", value: 0, fill: "#000c69" }];
@@ -163,10 +160,10 @@ export function PaymentsPage({ focus }: { focus?: OperationFocus }) {
   const cashflow = useMemo(() => {
     const now = new Date();
     const key = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
-    const inMonth = filteredPayments.filter((p) => String(p.paymentDate ?? "").startsWith(key) && p.status === "Paid");
+    const inMonth = filteredPayments.filter((p) => String(p.paidDate ?? "").startsWith(key) && p.status === "Paid");
     const days = [1, 5, 10, 15, 20, 25, 30];
     return days.map((gun) => {
-      const dayRows = inMonth.filter((p) => new Date(p.paymentDate).getDate() <= gun);
+      const dayRows = inMonth.filter((p) => new Date(p.paidDate ?? "").getDate() <= gun);
       const giris = dayRows.filter((p) => p.direction !== "out").reduce((s, p) => s + convert(p.amount, p.currency, "USD"), 0);
       const cikis = dayRows.filter((p) => p.direction === "out").reduce((s, p) => s + convert(p.amount, p.currency, "USD"), 0);
       return { gun: String(gun), giris: Math.round(giris / 1000), cikis: Math.round(cikis / 1000) };
@@ -650,7 +647,7 @@ export function PaymentsPage({ focus }: { focus?: OperationFocus }) {
   );
 }
 
-const PAYMENT_EXT_TO_MIME: Record<string, string> = {
+const PAYMENT_EXT_TO_MIME = {
   pdf: "application/pdf",
   png: "image/png",
   jpg: "image/jpeg",
@@ -658,7 +655,8 @@ const PAYMENT_EXT_TO_MIME: Record<string, string> = {
   webp: "image/webp",
   docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
   xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-};
+} as const;
+type PaymentUploadExt = keyof typeof PAYMENT_EXT_TO_MIME;
 const fmtBytes = (b: number) =>
   b < 1024 ? `${b} B` : b < 1048576 ? `${(b / 1024).toFixed(1)} KB` : `${(b / 1048576).toFixed(1)} MB`;
 const paymentDocLabel = (t: string) =>
@@ -767,7 +765,7 @@ function PaymentDetailDialog({
       await financeService.updatePayment(payment.id, {
         amount,
         currencyCode: payment.currency,
-        paymentDate: editForm.paymentDate,
+        paymentDate: new Date(editForm.paymentDate),
         paymentMethod: editForm.paymentMethod,
         invoiceNo: editForm.invoiceNo || undefined,
         notes: editForm.notes || undefined,
@@ -821,11 +819,12 @@ function PaymentDetailDialog({
   const upload = async () => {
     if (!payment || !file) return toast.error("Dosya seçin");
     if (file.size > 25 * 1024 * 1024) return toast.error("Dosya boyutu 25 MB'ı aşamaz");
-    const ext = file.name.split(".").pop()?.toLocaleLowerCase("tr-TR") ?? "";
-    const mime = file.type || PAYMENT_EXT_TO_MIME[ext];
-    if (!PAYMENT_EXT_TO_MIME[ext] || !mime) {
+    const rawExt = file.name.split(".").pop()?.toLocaleLowerCase("tr-TR") ?? "";
+    const ext = rawExt in PAYMENT_EXT_TO_MIME ? (rawExt as PaymentUploadExt) : null;
+    if (!ext) {
       return toast.error("Desteklenmeyen dosya tipi", { description: "PDF, PNG, JPG, WEBP, DOCX veya XLSX" });
     }
+    const mime = PAYMENT_EXT_TO_MIME[ext];
     setUploading(true);
     try {
       const up = await fileService.signedUpload({
