@@ -725,9 +725,11 @@ export class AssistantService {
 
   private async llmAnswer(message: string, suggestions: AssistantSuggestion[], sources: AssistantSource[]): Promise<string | null> {
     const env = loadEnv();
-    if (env.ASSISTANT_LLM_PROVIDER !== 'openrouter' || !env.ASSISTANT_API_KEY) return null;
-    if (!this.isAllowedOpenRouterFreeModel(env.ASSISTANT_MODEL)) {
-      throw new Error('Assistant model must be openrouter/free or a :free OpenRouter model');
+    if (env.ASSISTANT_LLM_PROVIDER === 'none' || !env.ASSISTANT_API_KEY) return null;
+    if (env.ASSISTANT_LLM_PROVIDER === 'openrouter') {
+      if (!this.isAllowedOpenRouterFreeModel(env.ASSISTANT_MODEL)) {
+        throw new Error('Assistant model must be openrouter/free or a :free OpenRouter model');
+      }
     }
     const compactData = {
       suggestions: suggestions.slice(0, 12).map((s) => ({
@@ -739,14 +741,21 @@ export class AssistantService {
       })),
       sources: sources.slice(0, 12),
     };
-    const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+
+    const headers: Record<string, string> = {
+      Authorization: `Bearer ${env.ASSISTANT_API_KEY}`,
+      'Content-Type': 'application/json',
+    };
+    let apiUrl = 'https://api.groq.com/openai/v1/chat/completions';
+    if (env.ASSISTANT_LLM_PROVIDER === 'openrouter') {
+      apiUrl = 'https://openrouter.ai/api/v1/chat/completions';
+      headers['HTTP-Referer'] = 'https://haksan.local';
+      headers['X-OpenRouter-Title'] = 'Haksan CRM';
+    }
+
+    const res = await fetch(apiUrl, {
       method: 'POST',
-      headers: {
-        Authorization: `Bearer ${env.ASSISTANT_API_KEY}`,
-        'Content-Type': 'application/json',
-        'HTTP-Referer': 'https://haksan.local',
-        'X-OpenRouter-Title': 'Haksan CRM',
-      },
+      headers,
       body: JSON.stringify({
         model: env.ASSISTANT_MODEL,
         max_tokens: env.ASSISTANT_MAX_TOKENS,

@@ -73,10 +73,10 @@ const envSchema = z.object({
   CALL_WEBHOOK_SECRET: z.string().min(8).optional(),
 
   // CRM Asistanı LLM ayarları. API key sadece backend ortamında tutulur; boşsa
-  // asistan CRM verilerinden deterministik yanıt üretir. Ücret oluşmaması için
-  // yalnız OpenRouter Free Router (`openrouter/free`) veya `:free` varyantları
-  // kabul edilir.
-  ASSISTANT_LLM_PROVIDER: z.enum(['none', 'openrouter']).default('none'),
+  // asistan CRM verilerinden deterministik yanıt üretir. OpenRouter'da ücret
+  // oluşmaması için yalnız Free Router (`openrouter/free`) veya `:free`
+  // varyantları kabul edilir.
+  ASSISTANT_LLM_PROVIDER: z.enum(['none', 'openrouter', 'groq']).default('none'),
   ASSISTANT_MODEL: z.string().max(128).default('openrouter/free'),
   ASSISTANT_API_KEY: z.string().min(8).optional(),
   ASSISTANT_MAX_TOKENS: z.coerce.number().int().positive().max(4000).default(700),

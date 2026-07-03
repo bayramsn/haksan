@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { JwtService as NestJwtService } from '@nestjs/jwt';
+import { JwtService as NestJwtService, type JwtSignOptions } from '@nestjs/jwt';
 import { createHash, randomBytes } from 'node:crypto';
 import { loadEnv } from '../../config/env';
 
@@ -20,7 +20,7 @@ export class JwtTokenService {
   signAccess(payload: AccessTokenPayload): string {
     return this.nest.sign(payload, {
       secret: this.env.JWT_ACCESS_SECRET,
-      expiresIn: this.env.JWT_ACCESS_TTL,
+      expiresIn: this.env.JWT_ACCESS_TTL as JwtSignOptions['expiresIn'],
     });
   }
 
