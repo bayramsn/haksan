@@ -18,6 +18,7 @@ import {
 
 export type OperationNav =
   | "dashboard"
+  | "call-assistant"
   | "customers"
   | "contacts"
   | "sales-cases"
@@ -28,6 +29,7 @@ export type OperationNav =
   | "contracts"
   | "documents"
   | "payments"
+  | "customer-balances"
   | "sales-price-list"
   | "products"
   | "stock"
@@ -206,6 +208,39 @@ const summarizePayments = (payments: Payment[]) => {
 
 const findCustomer = (data: OperationStoreSnapshot, id: string) =>
   data.customers.find((c) => c.id === id);
+
+const paidInboundPayments = (data: OperationStoreSnapshot) =>
+  data.payments.filter((p) => p.status === "Paid" && p.direction === "in");
+
+const topCustomersByPaid = (data: OperationStoreSnapshot, limit = 5) => {
+  const byCustomer = new Map<string, Payment[]>();
+  for (const payment of paidInboundPayments(data)) {
+    const list = byCustomer.get(payment.customerId) ?? [];
+    list.push(payment);
+    byCustomer.set(payment.customerId, list);
+  }
+  return Array.from(byCustomer.entries())
+    .map(([customerId, payments]) => ({
+      customerId,
+      total: payments.reduce((sum, p) => sum + p.amount, 0),
+      payments,
+    }))
+    .sort((a, b) => b.total - a.total)
+    .slice(0, limit);
+};
+
+const monthKeyOf = (iso?: string) => (iso ?? "").slice(0, 7);
+
+const sumPaidByMonth = (data: OperationStoreSnapshot, monthKey: string) => {
+  const totals = new Map<string, number>();
+  for (const payment of paidInboundPayments(data)) {
+    if (monthKeyOf(payment.paidDate ?? payment.dueDate) !== monthKey) continue;
+    totals.set(payment.currency, (totals.get(payment.currency) ?? 0) + payment.amount);
+  }
+  return Array.from(totals.entries())
+    .map(([currency, amount]) => formatMoney(amount, currency))
+    .join(" · ");
+};
 
 const findUser = (data: OperationStoreSnapshot, id?: string) =>
   data.users.find((u) => u.id === id)?.name ?? "Atanmadı";
@@ -1043,7 +1078,9 @@ const COMMAND_HELP_TEXT = [
   "• Raporlar, dashboard, kullanıcı/rol/ayar sayfaları",
 ].join("\n");
 
-export function answerAssistant(input: string, data: OperationStoreSnapshot): AssistantReply {
+export type AssistantExtras = { pendingCallCount?: number };
+
+export function answerAssistant(input: string, data: OperationStoreSnapshot, extras?: AssistantExtras): AssistantReply {
   const query = input.trim();
   const text = normalize(query);
   const index = buildGlobalSearchIndex(data);
@@ -1058,6 +1095,128 @@ export function answerAssistant(input: string, data: OperationStoreSnapshot): As
         { label: "Harita", action: { kind: "navigate", nav: "sales-map" } },
       ],
     };
+  }
+
+  if (includesAny(text, ["arayan", "cagri", "çağrı", "cevapsiz", "cevapsız", "kacan arama", "kaçan arama", "santral"])) {
+    const pending = extras?.pendingCallCount;
+    return {
+      text:
+        pending === undefined
+          ? "Çağrı Asistanı gelen aramaları firma ve kontaklarla eşleştirip teklif, servis kaydı ve görüşme notu önerir."
+          : pending > 0
+            ? `${pending} bekleyen çağrı önerisi var. Çağrı Asistanı sayfasından teklif, servis kaydı veya görüşme notu oluşturabilirsiniz.`
+            : "Bekleyen çağrı önerisi yok. Manuel arama kaydıyla yeni öneri oluşturabilirsiniz.",
+      actions: [
+        { label: "Çağrı Asistanı", action: { kind: "navigate", nav: "call-assistant" } },
+        { label: "Kontaklar", action: { kind: "navigate", nav: "contacts" } },
+      ],
+    };
+  }
+
+  if (
+    includesAny(text, ["bu ay", "gecen ay", "geçen ay", "aylik", "aylık"]) &&
+    includesAny(text, ["ciro", "tahsilat", "odeme", "ödeme", "gelir", "kasa"])
+  ) {
+    const now = new Date();
+    const currentKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+    const previous = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const previousKey = `${previous.getFullYear()}-${String(previous.getMonth() + 1).padStart(2, "0")}`;
+    const currentTotal = sumPaidByMonth(data, currentKey);
+    const previousTotal = sumPaidByMonth(data, previousKey);
+    return {
+      text: `Bu ay tahsilat: ${currentTotal || "0"} · Geçen ay: ${previousTotal || "0"}. Detay için ödemeler sayfasına geçebilirsiniz.`,
+      actions: [
+        { label: "Ödemeler & Kasa", action: { kind: "navigate", nav: "payments", focus: "paid" } },
+        { label: "Geciken ödemeler", action: { kind: "navigate", nav: "payments", focus: "overdue" } },
+        { label: "Cari Rapor", action: { kind: "navigate", nav: "customer-balances" } },
+      ],
+    };
+  }
+
+  if (
+    includesAny(text, ["en iyi", "en cok", "en çok", "top "]) &&
+    includesAny(text, ["musteri", "müşteri", "firma", "alici", "alıcı", "ciro"])
+  ) {
+    const top = topCustomersByPaid(data, 5);
+    return {
+      text: top.length
+        ? `Tahsilata göre öne çıkan ${top.length} müşteri listeleniyor.`
+        : "Ödenmiş tahsilat kaydı bulunamadığı için müşteri sıralaması yapılamadı.",
+      actions: [
+        { label: "Firmalar", action: { kind: "navigate", nav: "customers" } },
+        { label: "Cari Rapor", action: { kind: "navigate", nav: "customer-balances" } },
+      ],
+      results: top.map((entry, i) => ({
+        id: `top-customer:${entry.customerId}`,
+        type: "Firma",
+        title: `${i + 1}. ${customerName(data, entry.customerId)}`,
+        subtitle: `Tahsilat: ${summarizePayments(entry.payments)}`,
+        badge: `${entry.payments.length} ödeme`,
+        keywords: customerName(data, entry.customerId),
+        action: { kind: "customer", customerId: entry.customerId },
+      })),
+    };
+  }
+
+  if (includesAny(text, ["teklif"])) {
+    const term = stripCommandWords(query, ["teklif", "teklifleri", "teklifler", "durum", "durumu", "firmasinin", "firmasının", "firma"]);
+    const customer = term
+      ? data.customers.find((c) => normalize(c.name).includes(normalize(term)))
+      : undefined;
+    if (customer) {
+      const caseIds = new Set(data.cases.filter((s) => s.customerId === customer.id).map((s) => s.id));
+      const offers = data.offers.filter((o) => caseIds.has(o.salesCaseId) || o.companyId === customer.id);
+      const sent = offers.filter((o) => o.status === "Sent").length;
+      const approved = offers.filter((o) => o.status === "Approved").length;
+      return {
+        text: offers.length
+          ? `${customer.name} için ${offers.length} teklif var: ${sent} gönderilen, ${approved} onaylı.`
+          : `${customer.name} için kayıtlı teklif bulunamadı.`,
+        actions: [
+          { label: "Firma Kartı", action: { kind: "customer", customerId: customer.id } },
+          { label: "Teklifler", action: { kind: "navigate", nav: "offers", query: customer.name } },
+        ],
+        results: offers.slice(0, 6).map((o) => ({
+          id: `offer:${o.id}`,
+          type: "Teklif",
+          title: `${o.quoteNo} · ${formatMoney(o.amount, o.currency)}`,
+          subtitle: `${o.date} · rev ${o.revision}`,
+          badge: o.status,
+          keywords: [o.quoteNo, customer.name].join(" "),
+          action: { kind: "navigate", nav: "offers", query: o.quoteNo },
+        })),
+      };
+    }
+  }
+
+  {
+    const serialTerm = stripCommandWords(query, ["seri", "no", "numara", "numarasi", "numarası", "servis", "ile", "makine", "makina", "cihaz"]);
+    const machine = serialTerm
+      ? data.machines.find((m) => normalize(m.serialNumber).includes(normalize(serialTerm)))
+      : undefined;
+    if (machine && includesAny(text, ["seri", "servis", "makine", "makina", "cihaz"])) {
+      const openTickets = data.service.filter((s) => s.machineId === machine.id && isOpenService(s));
+      const owner = customerName(data, machine.customerId);
+      return {
+        text: openTickets.length
+          ? `${machine.serialNumber} (${machine.model}) için ${openTickets.length} açık servis kaydı var. Firma: ${owner}.`
+          : `${machine.serialNumber} (${machine.model}) için açık servis kaydı yok. Firma: ${owner}.`,
+        actions: [
+          { label: "Makineler", action: { kind: "navigate", nav: "machines", query: machine.serialNumber } },
+          { label: "Servis Talepleri", action: { kind: "navigate", nav: "service-requests", query: machine.serialNumber } },
+          { label: "Firma Kartı", action: { kind: "customer", customerId: machine.customerId } },
+        ],
+        results: openTickets.slice(0, 5).map((s) => ({
+          id: `service:${s.id}`,
+          type: "Servis",
+          title: s.ticketNo ?? s.diagnosisNote ?? "Servis kaydı",
+          subtitle: `${owner} · ${String(s.stage)}`,
+          badge: s.priority ?? "normal",
+          keywords: [s.ticketNo ?? "", machine.serialNumber].join(" "),
+          action: { kind: "navigate", nav: "service-requests", focus: "open", query: s.ticketNo ?? machine.serialNumber },
+        })),
+      };
+    }
   }
 
   if (includesAny(text, ["yonetim", "yönetim", "risk", "firsat", "fırsat", "ciro", "donusum", "dönüşüm", "karlilik", "karlılık", "marj", "rapor ozeti", "rapor özeti", "stok riski"])) {
@@ -1230,7 +1389,7 @@ export function answerAssistant(input: string, data: OperationStoreSnapshot): As
     const scopedStock = reservedIntent ? reserved : availableIntent ? available : data.stock;
     const results = stockTerm
       ? byType(index, "Stok", stockTerm, [], 6)
-      : scopedStock.slice(0, 6).map((s) => ({
+      : scopedStock.slice(0, 6).map((s): SearchResult => ({
           id: `stock:${s.id}`,
           type: "Stok",
           title: `${s.counterModel} · ${s.serialNumber}`,
@@ -1303,12 +1462,24 @@ export function answerAssistant(input: string, data: OperationStoreSnapshot): As
   }
 
   if (includesAny(text, ["kurulum", "montaj", "saha"])) {
+    const waitingDeliveries = data.deliveries.filter((d) => d.status === "Bekliyor");
+    const pendingShipments = data.shipments.filter((s) => s.status !== "Teslim Edildi").length;
     return {
-      text: "Kurulumlar saha operasyonu ekranında takip ediliyor. Kurulum planı ve formlar için ilgili sayfaya geçebilirsiniz.",
+      text: `${waitingDeliveries.length} teslimat bekliyor, ${pendingShipments} sevkiyat yolda. Kurulum planı ve formlar için saha operasyonu ekranına geçebilirsiniz.`,
       actions: [
         { label: "Kurulumlar", action: { kind: "navigate", nav: "installations" } },
         { label: "Teslimatlar", action: { kind: "navigate", nav: "deliveries" } },
+        { label: "Sevkiyatlar", action: { kind: "navigate", nav: "shipments", focus: "pending" } },
       ],
+      results: waitingDeliveries.slice(0, 5).map((d) => ({
+        id: `delivery:${d.id}`,
+        type: "Teslimat",
+        title: customerName(data, d.customerId),
+        subtitle: `Planlanan: ${d.date}`,
+        badge: d.status,
+        keywords: customerName(data, d.customerId),
+        action: { kind: "navigate", nav: "deliveries" },
+      })),
     };
   }
 

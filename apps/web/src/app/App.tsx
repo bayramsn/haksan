@@ -33,6 +33,7 @@ const DepartmentsPage = lazy(() => import("./components/pages/SimplePages").then
 const SettingsPage = lazy(() => import("./components/pages/SimplePages").then((m) => ({ default: m.SettingsPage })));
 const ChatPage = lazy(() => import("./components/pages/chat/ChatPage").then((m) => ({ default: m.ChatPage })));
 const CalendarPage = lazy(() => import("./components/pages/CalendarPage").then((m) => ({ default: m.CalendarPage })));
+const CallAssistantPage = lazy(() => import("./components/pages/CallAssistantPage").then((m) => ({ default: m.CallAssistantPage })));
 import { Customer, SalesCase } from "./lib/mock";
 import { StoreProvider, useStore } from "./lib/store";
 import { clearDrafts, usePersistentState } from "./lib/persist";
@@ -54,6 +55,7 @@ const TITLES: Record<NavKey, { title: string; subtitle?: string }> = {
   dashboard: { title: "Dashboard", subtitle: "Genel performans ve KPI özeti" },
   chat: { title: "Sohbet", subtitle: "Çalışanlarla özel ve grup mesajlaşma" },
   calendar: { title: "Takvim", subtitle: "Kişisel planlar, toplantılar ve müşteri ziyaretleri" },
+  "call-assistant": { title: "Çağrı Asistanı", subtitle: "Gelen aramalardan teklif, servis ve görüşme kaydı önerileri" },
   customers: { title: "Firmalar", subtitle: "Müşteri, tedarikçi+müşteri ve tedarikçi kayıtları" },
   contacts: { title: "Kontaklar", subtitle: "Firmalara bağlı kişiler" },
   "sales-cases": { title: "Satış Kartları", subtitle: "Tüm satış fırsatları" },
@@ -179,6 +181,7 @@ function AppShell() {
         />
       ); break;
       case "calendar": content = <CalendarPage />; break;
+      case "call-assistant": content = <CallAssistantPage onAction={runOperationAction} />; break;
       case "customers":
         actions = (
           <CreateCustomerDialog

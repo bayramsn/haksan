@@ -70,6 +70,7 @@ const TABS: Array<{ id: PanelTab; label: string }> = [
 
 const NAVS = new Set<OperationNav>([
   "dashboard",
+  "call-assistant",
   "customers",
   "contacts",
   "sales-cases",
@@ -269,6 +270,7 @@ export function AssistantPanel({
         { label: "Bugün ne var?", action: { kind: "navigate", nav: "dashboard", focus: "today" } },
         { label: "Geciken ödemeler", action: { kind: "navigate", nav: "payments", focus: "overdue" } },
         { label: "Servis gecikmeleri", action: { kind: "navigate", nav: "service-requests", focus: "late" } },
+        { label: "Çağrı Asistanı", action: { kind: "navigate", nav: "call-assistant" } },
       ]),
     }),
     [alerts.length, management.opportunities.length, management.risks.length, visibleLocalActions, workItems.length]
@@ -419,7 +421,7 @@ export function AssistantPanel({
       ]);
       await refreshSuggestions();
     } catch {
-      const reply = answerAssistant(text, store);
+      const reply = answerAssistant(text, store, { pendingCallCount: callSuggestions.length });
       setMessages((current) => [
         ...current,
         {
@@ -584,7 +586,7 @@ export function AssistantPanel({
 
             <div className="border-t border-border/60 bg-white p-3">
               <div className="mb-2 flex flex-wrap gap-1.5">
-                {["Bugün kime dönmeliyim?", "Riskler", "Çağrılar", "VM-2 stokta var mı?", "Geciken ödemeler", "Açık servisler"].map((item) => (
+                {["Bugün kime dönmeliyim?", "Riskler", "Arayanlar", "VM-2 stokta var mı?", "Geciken ödemeler", "Açık servisler"].map((item) => (
                   <Button key={item} type="button" size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={() => void submit(item)}>
                     {item}
                   </Button>

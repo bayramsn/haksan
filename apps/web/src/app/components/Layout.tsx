@@ -33,7 +33,7 @@ import { AssistantPanel } from "./operations/AssistantPanel";
 import { buildAlerts, type OperationAction } from "../lib/operations";
 
 export type NavKey =
-  | "dashboard" | "chat" | "calendar" | "customers" | "contacts" | "sales-cases" | "kanban" | "sales-map" | "offers"
+  | "dashboard" | "chat" | "calendar" | "call-assistant" | "customers" | "contacts" | "sales-cases" | "kanban" | "sales-map" | "offers"
   | "proformas" | "contracts" | "documents" | "payments" | "accounting-invoices" | "customer-balances" | "due-dates" | "sales-price-list" | "references" | "products"
   | "stock" | "purchase-orders" | "shipments"
   | "installations" | "deliveries" | "machines" | "service-requests" | "service-kanban" | "service-price-list"
@@ -53,6 +53,7 @@ const NAV: { group: string; items: NavItem[] }[] = [
       { key: "dashboard", label: "Gösterge Paneli", icon: LayoutDashboard },
       { key: "chat", label: "Sohbet", icon: MessageCircle },
       { key: "calendar", label: "Takvim", icon: Calendar },
+      { key: "call-assistant", label: "Çağrı Asistanı", icon: PhoneCall, roles: ["sales", "service", "finance"] },
     ],
   },
   {
@@ -315,7 +316,11 @@ export function Layout({ current, onNavigate, onLogout, pageTitle, pageSubtitle,
                       )}
                       <Icon className={`size-[17px] shrink-0 ${active ? "text-primary" : "text-muted-foreground group-hover:text-foreground"}`} strokeWidth={1.8} />
                       <span className="truncate flex-1 text-left">{item.label}</span>
-                      {(item.key === "chat" && chatUnread > 0) ? (
+                      {(item.key === "call-assistant" && callSuggestions.length > 0) ? (
+                        <Badge variant="secondary" className={`h-5 px-1.5 text-[10px] ${active ? "bg-primary text-primary-foreground" : "bg-primary/10 text-primary"}`}>
+                          {callSuggestions.length}
+                        </Badge>
+                      ) : (item.key === "chat" && chatUnread > 0) ? (
                         <Badge variant="secondary" className={`h-5 px-1.5 text-[10px] ${active ? "bg-primary text-primary-foreground" : "bg-primary/10 text-primary"}`}>
                           {chatUnread}
                         </Badge>
