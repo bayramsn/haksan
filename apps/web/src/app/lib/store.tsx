@@ -59,7 +59,7 @@ import {
   Shipment,
   Delivery,
 } from './mock';
-import { allCatalogProductSpecs, productSpecGroupForKey } from './productSpecTemplates';
+import { allCatalogProductSpecs, productSpecGroupForTypeKey } from './productSpecTemplates';
 import { isServiceQuoteComplete, serviceQuoteMissingFields } from './serviceQuote';
 
 const SERVICE_STAGES: ServiceStage[] = [
@@ -282,7 +282,7 @@ const productDetailsPayload = (p: Partial<Product>) => ({
   specs: allCatalogProductSpecs(p.specs ?? [], '-')
     .filter((s) => cleanString(s.key))
     .map((s, index) => ({
-      specGroupCode: productSpecGroupForKey(s).code,
+      specGroupCode: productSpecGroupForTypeKey(p.productTypeCode, s).code,
       specKey: s.key.trim(),
       specValue: s.value.trim() || '-',
       specUnit: cleanString(s.unit ?? s.specUnit),

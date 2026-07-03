@@ -11,7 +11,7 @@ import { adminService } from "../../../../lib/services";
 import {
   PRODUCT_SPEC_GROUPS,
   normalizeProductSpecKey,
-  productSpecGroupForKey,
+  productSpecGroupForTypeKey,
   type ProductSpecGroup,
 } from "../../../lib/productSpecTemplates";
 
@@ -237,7 +237,7 @@ const specTemplateKey = (row: SpecTemplateRow) => normalizeProductSpecKey(row.sp
 const groupSpecTemplateRows = (rows: SpecTemplateRow[]): SpecTemplateDisplayGroup[] => {
   const buckets = new Map<ProductSpecGroup["code"], SpecTemplateRow[]>();
   for (const row of rows) {
-    const group = productSpecGroupForKey({ key: row.specKey, value: row.defaultValue ?? "" });
+    const group = productSpecGroupForTypeKey(canonicalProductTypeCode(row.productTypeCode), { key: row.specKey, value: row.defaultValue ?? "" });
     buckets.set(group.code, [...(buckets.get(group.code) ?? []), row]);
   }
   return PRODUCT_SPEC_GROUPS.map((group) => ({ group, rows: buckets.get(group.code) ?? [] })).filter((item) => item.rows.length > 0);

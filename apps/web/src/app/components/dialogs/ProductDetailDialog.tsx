@@ -525,7 +525,7 @@ export function ProductDetailDialog({
         {/* specs */}
         <div className="px-6 pb-4">
           <SectionTitle icon={<ListChecks className="size-3.5" />} text="Teknik Bilgiler" />
-          <ProductSpecsTable specs={product.specs ?? []} />
+          <ProductSpecsTable specs={product.specs ?? []} productTypeCode={product.productTypeCode} />
         </div>
 
         {/* option sets */}

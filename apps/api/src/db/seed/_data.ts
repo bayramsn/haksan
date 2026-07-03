@@ -177,6 +177,8 @@ export const lookupRows = {
     { code: 'KAPASITE', name: 'Kapasite', sortOrder: 60 },
     { code: 'TARET', name: 'Taret', sortOrder: 70 },
     { code: 'KARSI_PUNTA', name: 'Karşı Punta', sortOrder: 80 },
+    { code: 'KARSI_AYNA', name: 'Karşı Ayna', sortOrder: 82 },
+    { code: 'CANLI_TAKIM', name: 'Canlı Takım', sortOrder: 84 },
     { code: 'GENEL', name: 'Genel', sortOrder: 90 },
   ],
   equipment_types: [

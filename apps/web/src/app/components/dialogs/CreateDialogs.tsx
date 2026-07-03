@@ -61,7 +61,7 @@ import {
 import { PROVINCE_NAMES } from "../../lib/geo";
 import {
   allCatalogProductSpecs,
-  groupProductSpecs,
+  groupProductSpecsForType,
   specsForProductType,
 } from "../../lib/productSpecTemplates";
 import { QuoteDialog } from "./QuoteDialog";
@@ -2734,7 +2734,7 @@ export function ProductDialog({
                   </div>
                 </div>
                 <div className="space-y-2">
-                  {groupProductSpecs(form.specs.map((spec, index) => ({ ...spec, index }))).map(({ group, specs }) => (
+                  {groupProductSpecsForType(form.productTypeCode, form.specs.map((spec, index) => ({ ...spec, index }))).map(({ group, specs }) => (
                     <div key={group.code} className="grid grid-cols-[48px_minmax(0,1fr)] overflow-hidden rounded-md border border-border/60 bg-white">
                       <div className="flex items-center justify-center border-r border-border/60 bg-muted/50 px-1 py-2">
                         <div className="rotate-180 text-center text-[10px] font-semibold uppercase tracking-[0.16em] text-foreground/80 [writing-mode:vertical-rl]">

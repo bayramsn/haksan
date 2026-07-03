@@ -1,222 +1,338 @@
 import type { ProductSpec } from "./mock";
 
-export const CNC_YATAY_TORNA_SPEC_DEFAULTS: readonly ProductSpec[] = [
-  { key: "Ayna Ölçüsü", value: '10"' },
-  { key: "Maks. Çevirme Kapasitesi", value: "Ø 545 mm" },
-  { key: "Maks. Tornalama Çapı", value: "Ø 380 mm" },
-  { key: "Maks. Tornalama Boyu", value: "1.000 mm" },
-  { key: "Maks. Çubuk İşleme Çapı", value: "Ø 75 mm" },
-  { key: "Fener Mili Devri", value: "4.200 dv/dk" },
-  { key: "Fener Mili Motor Gücü", value: "15 kw" },
-  { key: "Fener Mili Standardı", value: "A2-08" },
-  { key: "Fener Mili Delik Çapı", value: "Ø 92 mm" },
-  { key: "Fener Mili Ön Rulman Çapı", value: "Ø 130 mm" },
-  { key: "Karşı Punta Pinol Çapı", value: "Ø 90 mm" },
-  { key: "Karşı Punta Pinol Hareketi", value: "85 mm" },
-  { key: "Karşı Punta Pinol Koniği", value: "MT-5" },
-  { key: "Karşı Punta Gövde Hareketi", value: "960 mm" },
-  { key: "Karşı Ayna Ölçüsü", value: "-" },
-  { key: "Karşı Ayna Çubuk İşleme Çapı", value: "-" },
-  { key: "Karşı Ayna Devri", value: "-" },
-  { key: "Karşı Ayna Motor Gücü", value: "-" },
-  { key: "Canlı Takım Devri", value: "-" },
-  { key: "Canlı Takım Motor Gücü", value: "-" },
-  { key: "Bağlanabilir Canlı Takım Sayısı", value: "-" },
-  { key: "Canlı Takım Tutucu Standardı", value: "-" },
-  { key: "X Eksen Hareketi", value: "200 mm" },
-  { key: "Z Eksen Hareketi", value: "1.030 mm" },
-  { key: "Y Eksen Hareketi", value: "-" },
-  { key: "Z-2 Eksen Hareketi", value: "-" },
-  { key: "X Eksen Boşta İlerleme Oranı", value: "20.000 mm/dk" },
-  { key: "Z Eksen Boşta İlerleme Oranı", value: "20.000 mm/dk" },
-  { key: "Y Eksen Boşta İlerleme Oranı", value: "-" },
-  { key: "Z-2 Eksen Boşta İlerleme Oranı", value: "-" },
-  { key: "X Eksen Motor Gücü", value: "2,5 kw" },
-  { key: "Z Eksen Motor Gücü", value: "2,5 kw" },
-  { key: "Y Eksen Motor Gücü", value: "-" },
-  { key: "Z-2 Eksen Motor Gücü", value: "-" },
-  { key: "Taret Tipi", value: "Hidrolik Taret" },
-  { key: "Taret İstasyon Sayısı", value: "10 Adet" },
-  { key: "Maks. Kare Takım Ölçüsü", value: "25x25 mm" },
-  { key: "Maks. Yuvarlak Takım Ölçüsü", value: "Ø 40 mm" },
-  { key: "Toplam Güç Gereksinimi", value: "30 kw" },
-  { key: "Toplam Hava Gereksinimi", value: "-" },
-  { key: "Soğutma Sıvısı Tank Kapasitesi", value: "125 lt" },
-  { key: "Tezgahın Kapladığı Alan", value: "4.557 x 1.618 x 2.115 mm" },
-  { key: "Tezgah Ağırlığı", value: "5.500 kg" },
+// ---------------------------------------------------------------------------
+// Teknik bilgi grupları
+// ---------------------------------------------------------------------------
+
+export type ProductSpecGroupCode =
+  | "KAPASITE"
+  | "TABLA"
+  | "EKSENLER"
+  | "FENER_MILI"
+  | "KARSI_PUNTA"
+  | "KARSI_AYNA"
+  | "CANLI_TAKIM"
+  | "MOTORLAR"
+  | "TARET"
+  | "TAKIM_DEGISTIRICI"
+  | "GENEL";
+
+export type ProductSpecGroup = {
+  code: ProductSpecGroupCode;
+  label: string;
+  order: number;
+};
+
+export type GroupedProductSpec<T extends ProductSpec = ProductSpec> = {
+  group: ProductSpecGroup;
+  specs: T[];
+};
+
+// Genel sıralama, şablonu olmayan ürün tipleri için kullanılır; şablonu olan
+// tezgahlarda grup sırası katalogdaki şablon sırasından gelir.
+export const PRODUCT_SPEC_GROUPS: readonly ProductSpecGroup[] = [
+  { code: "KAPASITE", label: "KAPASİTE", order: 5 },
+  { code: "TABLA", label: "TABLA", order: 10 },
+  { code: "EKSENLER", label: "EKSENLER", order: 20 },
+  { code: "FENER_MILI", label: "FENER MİLİ", order: 30 },
+  { code: "KARSI_PUNTA", label: "KARŞI PUNTA", order: 32 },
+  { code: "KARSI_AYNA", label: "KARŞI AYNA", order: 34 },
+  { code: "CANLI_TAKIM", label: "CANLI TAKIM", order: 36 },
+  { code: "MOTORLAR", label: "MOTORLAR", order: 40 },
+  { code: "TARET", label: "TARET", order: 45 },
+  { code: "TAKIM_DEGISTIRICI", label: "TAKIM DEĞİŞTİRİCİ", order: 50 },
+  { code: "GENEL", label: "GENEL", order: 60 },
 ];
 
-export const CNC_DIK_TORNA_SPEC_DEFAULTS: readonly ProductSpec[] = [
-  { key: "Tabla (Ayna) Çapı", value: '12"' },
-  { key: "Maks. Çevirme Kapasitesi", value: "Ø 650 mm" },
-  { key: "Maks. Tornalama Çapı", value: "Ø 550 mm" },
-  { key: "Maks. Tornalama Boyu", value: "500 mm" },
-  { key: "Maks. İş Parçası Ağırlığı", value: "500 kg" },
-  { key: "Tabla (Fener Mili) Motor Gücü", value: "15/18,5 kw" },
-  { key: "Tabla C Eksen İndeksleme Motor Gücü", value: "-" },
-  { key: "Tabla (Fener Mili) Devir Aralığı", value: "50 ~ 2.500 dv/dk" },
-  { key: "Fener Mili Delik Standardı", value: "A2-08" },
-  { key: "Taret Tipi", value: "Hidrolik Taret" },
-  { key: "İstasyon Sayısı", value: "8 Adet" },
-  { key: "Maks. Takım Uzunluğu", value: "2,8 sn" },
-  { key: "Maks. Kare Takım Çapı", value: "25 x 25 mm" },
-  { key: "Maks. Yuvarlak Takım Çapı", value: "Ø 40 mm" },
-  { key: "Canlı Takım Motor Gücü", value: "-" },
-  { key: "Canlı Takım Devri", value: "-" },
-  { key: "Bağlanabilir Canlı Takım Sayısı", value: "-" },
-  { key: "Canlı Takım Tutucu Standardı", value: "-" },
-  { key: "X Eksen Hareketi", value: "-40 / 350 mm" },
-  { key: "Z Eksen Hareketi", value: "550 mm" },
-  { key: "W Eksen Hareketi", value: "-" },
-  { key: "X Eksen Boşta İlerleme Oranı", value: "12.000 mm/dk" },
-  { key: "Z Eksen Boşta İlerleme Oranı", value: "24.000 mm/dk" },
-  { key: "X Eksen Motor Gücü", value: "1,6 kw" },
-  { key: "Z Eksen Motor Gücü", value: "3,0 kw" },
-  { key: "Toplam Güç Gereksinimi", value: "40 kw" },
-  { key: "Toplam Hava Gereksinimi", value: "6 bar" },
-  { key: "Soğutma Sıvısı Tank Kapasitesi", value: "300 lt" },
-  { key: "Tezgah Ölçüleri", value: "2.850 x 2.000 x 3.100 mm" },
-  { key: "Tezgah Ağırlığı", value: "6.000 kg" },
+const PRODUCT_SPEC_GROUP_BY_CODE = new Map(PRODUCT_SPEC_GROUPS.map((group) => [group.code, group]));
+const PRODUCT_SPEC_GROUP_BY_LABEL = new Map(
+  PRODUCT_SPEC_GROUPS.map((group) => [normalizeSpecKey(group.label), group]),
+);
+
+// ---------------------------------------------------------------------------
+// Tezgah tipine göre teknik bilgi şablonları (Haksan katalog düzeni).
+// value: sadece sayısal/metin değer; unit: sabit birim (kullanıcı değiştirmez).
+// ---------------------------------------------------------------------------
+
+export type MachineSpecTemplateEntry = {
+  group: ProductSpecGroupCode;
+  key: string;
+  value: string;
+  unit: string;
+};
+
+const entry = (
+  group: ProductSpecGroupCode,
+  key: string,
+  value = "",
+  unit = "",
+): MachineSpecTemplateEntry => ({ group, key, value, unit });
+
+const CNC_YATAY_TORNA_TEMPLATE_ENTRIES: readonly MachineSpecTemplateEntry[] = [
+  entry("KAPASITE", "Ayna Ölçüsü", '10"', '"'),
+  entry("KAPASITE", "Maks. Çevirme Kapasitesi", "Ø 545", "mm"),
+  entry("KAPASITE", "Maks. Tornalama Çapı", "Ø 380", "mm"),
+  entry("KAPASITE", "Maks. Tornalama Boyu", "1.000", "mm"),
+  entry("KAPASITE", "Maks. Çubuk İşleme Çapı", "Ø 75", "mm"),
+  entry("FENER_MILI", "Fener Mili Devri", "4.200", "dv/dk"),
+  entry("FENER_MILI", "Fener Mili Motor Gücü", "15", "kw"),
+  entry("FENER_MILI", "Fener Mili Standardı", "A2-08"),
+  entry("FENER_MILI", "Fener Mili Delik Çapı", "Ø 92", "mm"),
+  entry("FENER_MILI", "Fener Mili Ön Rulman Çapı", "Ø 130", "mm"),
+  entry("KARSI_PUNTA", "Karşı Punta Pinol Çapı", "Ø 90", "mm"),
+  entry("KARSI_PUNTA", "Karşı Punta Pinol Hareketi", "85", "mm"),
+  entry("KARSI_PUNTA", "Karşı Punta Pinol Koniği", "MT-5"),
+  entry("KARSI_PUNTA", "Karşı Punta Gövde Hareketi", "960", "mm"),
+  entry("KARSI_AYNA", "Karşı Ayna Ölçüsü", "-"),
+  entry("KARSI_AYNA", "Karşı Ayna Çubuk İşleme Çapı", "-", "mm"),
+  entry("KARSI_AYNA", "Karşı Ayna Devri", "-", "dv/dk"),
+  entry("KARSI_AYNA", "Karşı Ayna Motor Gücü", "-", "kw"),
+  entry("CANLI_TAKIM", "Canlı Takım Devri", "-", "dv/dk"),
+  entry("CANLI_TAKIM", "Canlı Takım Motor Gücü", "-", "kw"),
+  entry("CANLI_TAKIM", "Bağlanabilir Canlı Takım Sayısı", "-", "Adet"),
+  entry("CANLI_TAKIM", "Canlı Takım Tutucu Standardı", "-"),
+  entry("EKSENLER", "X Eksen Hareketi", "200", "mm"),
+  entry("EKSENLER", "Z Eksen Hareketi", "1.030", "mm"),
+  entry("EKSENLER", "Y Eksen Hareketi", "-", "mm"),
+  entry("EKSENLER", "Z-2 Eksen Hareketi", "-", "mm"),
+  entry("EKSENLER", "X Eksen Boşta İlerleme Oranı", "20.000", "mm/dk"),
+  entry("EKSENLER", "Z Eksen Boşta İlerleme Oranı", "20.000", "mm/dk"),
+  entry("EKSENLER", "Y Eksen Boşta İlerleme Oranı", "-", "mm/dk"),
+  entry("EKSENLER", "Z-2 Eksen Boşta İlerleme Oranı", "-", "mm/dk"),
+  entry("EKSENLER", "X Eksen Motor Gücü", "2,5", "kw"),
+  entry("EKSENLER", "Z Eksen Motor Gücü", "2,5", "kw"),
+  entry("EKSENLER", "Y Eksen Motor Gücü", "-", "kw"),
+  entry("EKSENLER", "Z-2 Eksen Motor Gücü", "-", "kw"),
+  entry("TARET", "Taret Tipi", "Hidrolik Taret"),
+  entry("TARET", "Taret İstasyon Sayısı", "10", "Adet"),
+  entry("TARET", "Maks. Kare Takım Ölçüsü", "25x25", "mm"),
+  entry("TARET", "Maks. Yuvarlak Takım Ölçüsü", "Ø 40", "mm"),
+  entry("GENEL", "Toplam Güç Gereksinimi", "30", "kw"),
+  entry("GENEL", "Toplam Hava Gereksinimi", "-", "bar"),
+  entry("GENEL", "Soğutma Sıvısı Tank Kapasitesi", "125", "lt"),
+  entry("GENEL", "Tezgahın Kapladığı Alan", "4.557 x 1.618 x 2.115", "mm"),
+  entry("GENEL", "Tezgah Ağırlığı", "5.500", "kg"),
 ];
 
-export const CNC_DIK_ISLEME_SPEC_DEFAULTS: readonly ProductSpec[] = [
-  { key: "Tabla Ölçüsü", value: "1.750 x 700 mm" },
-  { key: "T Slot Ölçü ve Sayısı", value: "18 x 125 x 5" },
-  { key: "Tabla Yükleme Kapasitesi", value: "1.500 kg" },
-  { key: "Tabla ~ Fener Mili Ucu Arası Mesafe", value: "130 ~ 830 mm" },
-  { key: "X Eksen Hareketi", value: "1.600 mm" },
-  { key: "Y Eksen Hareketi", value: "700 mm" },
-  { key: "Z Eksen Hareketi", value: "700 mm" },
-  { key: "X Eksen Boşta İlerleme Hızı", value: "36.000 mm/dk" },
-  { key: "Y Eksen Boşta İlerleme Hızı", value: "36.000 mm/dk" },
-  { key: "Z Eksen Boşta İlerleme Hızı", value: "36.000 mm/dk" },
-  { key: "X, Y, Z Eksen Kesme Hızı", value: "20.000 mm/dk" },
-  { key: "X, Y, Z Eksen Pozisyonlama Hassasiyeti", value: "0,017 / 300 mm" },
-  { key: "X, Y, Z Eksen Tekrarlama Hassasiyeti", value: "± 0,005 mm" },
-  { key: "Fener Mili Standardı", value: "BT-40" },
-  { key: "Fener Mili Devri", value: "12.000 dv/dk" },
-  { key: "Fener Mili Aktarması", value: "Direkt" },
-  { key: "Fener Mili Rulman Tipi", value: "Çelik" },
-  { key: "Fener Mili Motor Gücü", value: "18,5 kw" },
-  { key: "Fener Mili Motor Tipi", value: "AC Servo" },
-  { key: "X Eksen Motor Gücü", value: "4,0 kw" },
-  { key: "Y Eksen Motor Gücü", value: "4,0 kw" },
-  { key: "Z Eksen Motor Gücü", value: "4,0 kw" },
-  { key: "Soğutma Sistemi Motor Gücü", value: "0,75 kw x 2 Adet" },
-  { key: "Takım Değiştirici Tipi", value: "Kol Tipi" },
-  { key: "Takım Kapasitesi", value: "30 Adet" },
-  { key: "Maks. Takım Ağırlığı", value: "7 kg" },
-  { key: "Maks. Takım Uzunluğu", value: "300 mm" },
-  { key: "Maks. Takım Çapı", value: "Ø 75 / Ø 150 mm" },
-  { key: "Takım Değiştirme Süresi (Takımdan Takıma)", value: "1,4 sn" },
-  { key: "Tezgah Hava Gereksinimi", value: "6 bar (100 psi)" },
-  { key: "Toplam Güç Gereksinimi", value: "380 V / 50 Hz, 30 kw" },
-  { key: "Tezgah Ölçüleri", value: "4.350 x 2.507 x 3.240 mm" },
-  { key: "Tezgahın Kapladığı Alan", value: "5.950 x 3.530 x 3.240 mm" },
-  { key: "Tezgah Ağırlığı", value: "8.860 kg" },
+const CNC_DIK_TORNA_TEMPLATE_ENTRIES: readonly MachineSpecTemplateEntry[] = [
+  entry("KAPASITE", "Tabla (Ayna) Çapı", '12"', '"'),
+  entry("KAPASITE", "Maks. Çevirme Kapasitesi", "Ø 650", "mm"),
+  entry("KAPASITE", "Maks. Tornalama Çapı", "Ø 550", "mm"),
+  entry("KAPASITE", "Maks. Tornalama Boyu", "500", "mm"),
+  entry("TABLA", "Maks. İş Parçası Ağırlığı", "500", "kg"),
+  entry("TABLA", "Tabla (Fener Mili) Motor Gücü", "15/18,5", "kw"),
+  entry("TABLA", "Tabla C Eksen İndeksleme Motor Gücü", "-", "kw"),
+  entry("TABLA", "Tabla (Fener Mili) Devir Aralığı", "50 ~ 2.500", "dv/dk"),
+  entry("TABLA", "Fener Mili Delik Standardı", "A2-08"),
+  entry("TARET", "Taret Tipi", "Hidrolik Taret"),
+  entry("TARET", "İstasyon Sayısı", "8", "Adet"),
+  entry("TARET", "Maks. Takım Uzunluğu", "2,8", "sn"),
+  entry("TARET", "Maks. Kare Takım Çapı", "25 x 25", "mm"),
+  entry("TARET", "Maks. Yuvarlak Takım Çapı", "Ø 40", "mm"),
+  entry("CANLI_TAKIM", "Canlı Takım Motor Gücü", "-", "kw"),
+  entry("CANLI_TAKIM", "Canlı Takım Devri", "-", "dv/dk"),
+  entry("CANLI_TAKIM", "Bağlanabilir Canlı Takım Sayısı", "-", "Adet"),
+  entry("CANLI_TAKIM", "Canlı Takım Tutucu Standardı", "-"),
+  entry("EKSENLER", "X Eksen Hareketi", "-40 / 350", "mm"),
+  entry("EKSENLER", "Z Eksen Hareketi", "550", "mm"),
+  entry("EKSENLER", "W Eksen Hareketi", "-", "mm"),
+  entry("EKSENLER", "X Eksen Boşta İlerleme Oranı", "12.000", "mm/dk"),
+  entry("EKSENLER", "Z Eksen Boşta İlerleme Oranı", "24.000", "mm/dk"),
+  entry("EKSENLER", "X Eksen Motor Gücü", "1,6", "kw"),
+  entry("EKSENLER", "Z Eksen Motor Gücü", "3,0", "kw"),
+  entry("GENEL", "Toplam Güç Gereksinimi", "40", "kw"),
+  entry("GENEL", "Toplam Hava Gereksinimi", "6", "bar"),
+  entry("GENEL", "Soğutma Sıvısı Tank Kapasitesi", "300", "lt"),
+  entry("GENEL", "Tezgah Ölçüleri", "2.850 x 2.000 x 3.100", "mm"),
+  entry("GENEL", "Tezgah Ağırlığı", "6.000", "kg"),
 ];
 
-export const CNC_TAPPING_CENTER_SPEC_DEFAULTS: readonly ProductSpec[] = [
-  { key: "Tabla Ölçüsü", value: "650 x 420 mm" },
-  { key: "T Slot Ölçü ve Sayısı", value: "14 x 100 x 3" },
-  { key: "Tabla Yükleme Kapasitesi", value: "250 kg" },
-  { key: "Tabla ~ Fener Mili Ucu Arası Mesafe", value: "180 ~ 530 mm" },
-  { key: "X Eksen Hareketi", value: "510 mm" },
-  { key: "Y Eksen Hareketi", value: "420 mm" },
-  { key: "Z Eksen Hareketi", value: "350 mm" },
-  { key: "X Eksen Boşta İlerleme Hızı", value: "48.000 mm/dk" },
-  { key: "Y Eksen Boşta İlerleme Hızı", value: "48.000 mm/dk" },
-  { key: "Z Eksen Boşta İlerleme Hızı", value: "48.000 mm/dk" },
-  { key: "X, Y, Z Eksen Kesme Hızı", value: "20.000 mm/dk" },
-  { key: "X, Y, Z Eksen Pozisyonlama Hassasiyeti", value: "0,017 / 300 mm" },
-  { key: "X, Y, Z Eksen Tekrarlama Hassasiyeti", value: "±0,005 mm" },
-  { key: "Fener Mili Standardı", value: "BT-30" },
-  { key: "Fener Mili Devri", value: "12.000 dv/dk" },
-  { key: "Fener Mili Aktarması", value: "Direkt" },
-  { key: "Fener Mili Rulman Tipi", value: "Çelik" },
-  { key: "Fener Mili Motor Gücü", value: "5,5 kw (7,5 hp)" },
-  { key: "Fener Mili Motor Tipi", value: "AC Servo" },
-  { key: "X Eksen Motor Gücü", value: "2,2 kw" },
-  { key: "Y Eksen Motor Gücü", value: "2,0 kw" },
-  { key: "Z Eksen Motor Gücü", value: "2,2 kw" },
-  { key: "Soğutma Sistemi Motor Gücü", value: "0,75 kw x 2 Adet" },
-  { key: "Takım Değiştirici Tipi", value: "Taret Tipi" },
-  { key: "Takım Kapasitesi", value: "21 Adet" },
-  { key: "Maks. Takım Ağırlığı", value: "3 kg" },
-  { key: "Maks. Takım Uzunluğu", value: "200 mm" },
-  { key: "Maks. Takım Çapı", value: "Ø 100 / Ø 140 mm" },
-  { key: "Takım Değiştirme Süresi (Takımdan Takıma)", value: "1,6 sn" },
-  { key: "Tezgah Hava Gereksinimi", value: "6 bar (100 psi)" },
-  { key: "Toplam Güç Gereksinimi", value: "380 V/ 50 Hz. 12 kw" },
-  { key: "Tezgah Ölçüleri", value: "2.600 x 4.100 x 2.400 mm" },
-  { key: "Tezgahın Kapladığı Alan", value: "-" },
-  { key: "Tezgah Ağırlığı", value: "2.800 kg" },
+const CNC_DIK_ISLEME_TEMPLATE_ENTRIES: readonly MachineSpecTemplateEntry[] = [
+  entry("TABLA", "Tabla Ölçüsü", "1.750 x 700", "mm"),
+  entry("TABLA", "T Slot Ölçü ve Sayısı", "18 x 125 x 5"),
+  entry("TABLA", "Tabla Yükleme Kapasitesi", "1.500", "kg"),
+  entry("TABLA", "Tabla ~ Fener Mili Ucu Arası Mesafe", "130 ~ 830", "mm"),
+  entry("EKSENLER", "X Eksen Hareketi", "1.600", "mm"),
+  entry("EKSENLER", "Y Eksen Hareketi", "700", "mm"),
+  entry("EKSENLER", "Z Eksen Hareketi", "700", "mm"),
+  entry("EKSENLER", "X Eksen Boşta İlerleme Hızı", "36.000", "mm/dk"),
+  entry("EKSENLER", "Y Eksen Boşta İlerleme Hızı", "36.000", "mm/dk"),
+  entry("EKSENLER", "Z Eksen Boşta İlerleme Hızı", "36.000", "mm/dk"),
+  entry("EKSENLER", "X, Y, Z Eksen Kesme Hızı", "20.000", "mm/dk"),
+  entry("EKSENLER", "X, Y, Z Eksen Pozisyonlama Hassasiyeti", "0,017 / 300", "mm"),
+  entry("EKSENLER", "X, Y, Z Eksen Tekrarlama Hassasiyeti", "± 0,005", "mm"),
+  entry("FENER_MILI", "Fener Mili Standardı", "BT-40"),
+  entry("FENER_MILI", "Fener Mili Devri", "12.000", "dv/dk"),
+  entry("FENER_MILI", "Fener Mili Aktarması", "Direkt"),
+  entry("FENER_MILI", "Fener Mili Rulman Tipi", "Çelik"),
+  entry("MOTORLAR", "Fener Mili Motor Gücü", "18,5", "kw"),
+  entry("MOTORLAR", "Fener Mili Motor Tipi", "AC Servo"),
+  entry("MOTORLAR", "X Eksen Motor Gücü", "4,0", "kw"),
+  entry("MOTORLAR", "Y Eksen Motor Gücü", "4,0", "kw"),
+  entry("MOTORLAR", "Z Eksen Motor Gücü", "4,0", "kw"),
+  entry("MOTORLAR", "Soğutma Sistemi Motor Gücü", "0,75 kw x 2 Adet"),
+  entry("TAKIM_DEGISTIRICI", "Takım Değiştirici Tipi", "Kol Tipi"),
+  entry("TAKIM_DEGISTIRICI", "Takım Kapasitesi", "30", "Adet"),
+  entry("TAKIM_DEGISTIRICI", "Maks. Takım Ağırlığı", "7", "kg"),
+  entry("TAKIM_DEGISTIRICI", "Maks. Takım Uzunluğu", "300", "mm"),
+  entry("TAKIM_DEGISTIRICI", "Maks. Takım Çapı", "Ø 75 / Ø 150", "mm"),
+  entry("TAKIM_DEGISTIRICI", "Takım Değiştirme Süresi (Takımdan Takıma)", "1,4", "sn"),
+  entry("GENEL", "Tezgah Hava Gereksinimi", "6", "bar (100 psi)"),
+  entry("GENEL", "Toplam Güç Gereksinimi", "380 V/ 50 Hz. 30 kw"),
+  entry("GENEL", "Tezgah Ölçüleri", "4.350 x 2.507 x 3.240", "mm"),
+  entry("GENEL", "Tezgahın Kapladığı Alan", "5.950 x 3.530 x 3.240", "mm"),
+  entry("GENEL", "Tezgah Ağırlığı", "8.860", "kg"),
 ];
 
-export const CNC_BES_EKSEN_SPEC_DEFAULTS: readonly ProductSpec[] = [
-  { key: "Döner Tabla Ölçüsü", value: "" },
-  { key: "T Slot Ölçü ve Sayısı", value: "" },
-  { key: "Tabla Yükleme Kapasitesi", value: "" },
-  { key: "Tabla ~ Fener Mili Ucu Arası Mesafe", value: "" },
-  { key: "X Eksen Hareketi", value: "" },
-  { key: "Y Eksen Hareketi", value: "" },
-  { key: "Z Eksen Hareketi", value: "" },
-  { key: "A Eksen Hareketi", value: "" },
-  { key: "C Eksen Hareketi", value: "" },
-  { key: "X Eksen Boşta İlerleme Hızı", value: "" },
-  { key: "Y Eksen Boşta İlerleme Hızı", value: "" },
-  { key: "Z Eksen Boşta İlerleme Hızı", value: "" },
-  { key: "X, Y, Z Eksen Kesme Hızı", value: "" },
-  { key: "Fener Mili Standardı", value: "" },
-  { key: "Fener Mili Devri", value: "" },
-  { key: "Fener Mili Aktarması", value: "" },
-  { key: "Soğutma Sistemi Motor Gücü", value: "" },
-  { key: "Takım Değiştirici Tipi", value: "" },
-  { key: "Takım Kapasitesi", value: "" },
-  { key: "Maks. Takım Ağırlığı", value: "" },
-  { key: "Maks. Takım Uzunluğu", value: "" },
-  { key: "Maks. Takım Çapı", value: "" },
-  { key: "Tezgah Hava Gereksinimi", value: "" },
-  { key: "Toplam Güç Gereksinimi", value: "" },
-  { key: "Tezgah Ağırlığı", value: "" },
+const CNC_TAPPING_CENTER_TEMPLATE_ENTRIES: readonly MachineSpecTemplateEntry[] = [
+  entry("TABLA", "Tabla Ölçüsü", "650 x 420", "mm"),
+  entry("TABLA", "T Slot Ölçü ve Sayısı", "14 x 100 x 3"),
+  entry("TABLA", "Tabla Yükleme Kapasitesi", "250", "kg"),
+  entry("TABLA", "Tabla ~ Fener Mili Ucu Arası Mesafe", "180 ~ 530", "mm"),
+  entry("EKSENLER", "X Eksen Hareketi", "510", "mm"),
+  entry("EKSENLER", "Y Eksen Hareketi", "420", "mm"),
+  entry("EKSENLER", "Z Eksen Hareketi", "350", "mm"),
+  entry("EKSENLER", "X Eksen Boşta İlerleme Hızı", "48.000", "mm/dk"),
+  entry("EKSENLER", "Y Eksen Boşta İlerleme Hızı", "48.000", "mm/dk"),
+  entry("EKSENLER", "Z Eksen Boşta İlerleme Hızı", "48.000", "mm/dk"),
+  entry("EKSENLER", "X, Y, Z Eksen Kesme Hızı", "20.000", "mm/dk"),
+  entry("EKSENLER", "X, Y, Z Eksen Pozisyonlama Hassasiyeti", "0,017 / 300", "mm"),
+  entry("EKSENLER", "X, Y, Z Eksen Tekrarlama Hassasiyeti", "± 0,005", "mm"),
+  entry("FENER_MILI", "Fener Mili Standardı", "BT-30"),
+  entry("FENER_MILI", "Fener Mili Devri", "12.000", "dv/dk"),
+  entry("FENER_MILI", "Fener Mili Aktarması", "Direkt"),
+  entry("FENER_MILI", "Fener Mili Rulman Tipi", "Çelik"),
+  entry("MOTORLAR", "Fener Mili Motor Gücü", "5,5", "kw (7,5 hp)"),
+  entry("MOTORLAR", "Fener Mili Motor Tipi", "AC Servo"),
+  entry("MOTORLAR", "X Eksen Motor Gücü", "2,2", "kw"),
+  entry("MOTORLAR", "Y Eksen Motor Gücü", "2,0", "kw"),
+  entry("MOTORLAR", "Z Eksen Motor Gücü", "2,2", "kw"),
+  entry("MOTORLAR", "Soğutma Sistemi Motor Gücü", "0,75 kw x 2 Adet"),
+  entry("TAKIM_DEGISTIRICI", "Takım Değiştirici Tipi", "Taret Tipi"),
+  entry("TAKIM_DEGISTIRICI", "Takım Kapasitesi", "21", "Adet"),
+  entry("TAKIM_DEGISTIRICI", "Maks. Takım Ağırlığı", "3", "kg"),
+  entry("TAKIM_DEGISTIRICI", "Maks. Takım Uzunluğu", "200", "mm"),
+  entry("TAKIM_DEGISTIRICI", "Maks. Takım Çapı", "Ø 100 / Ø 140", "mm"),
+  entry("TAKIM_DEGISTIRICI", "Takım Değiştirme Süresi (Takımdan Takıma)", "1,6", "sn"),
+  entry("GENEL", "Tezgah Hava Gereksinimi", "6", "bar (100 psi)"),
+  entry("GENEL", "Toplam Güç Gereksinimi", "380 V/ 50 Hz. 12 kw"),
+  entry("GENEL", "Tezgah Ölçüleri", "2.600 x 4.100 x 2.400", "mm"),
+  entry("GENEL", "Tezgahın Kapladığı Alan", "-", "mm"),
+  entry("GENEL", "Tezgah Ağırlığı", "2.800", "kg"),
 ];
 
-export const CNC_KOPRU_TIPI_SPEC_DEFAULTS: readonly ProductSpec[] = [
-  { key: "Tabla Ölçüsü", value: "2.000 x 1.100 mm" },
-  { key: "T Slot Ölçü ve Sayısı", value: "22 x 150 x 7" },
-  { key: "Tabla Yükleme Kapasitesi", value: "4.000 kg" },
-  { key: "Kolonlar Arası Mesafe", value: "1.400 mm" },
-  { key: "Tabla ~ Fener Mili Ucu Arası Mesafe", value: "100 ~ 900 mm" },
-  { key: "X Eksen Hareketi", value: "2.100 mm" },
-  { key: "Y Eksen Hareketi", value: "1.200 mm" },
-  { key: "Z Eksen Hareketi", value: "800 mm" },
-  { key: "X Eksen Boşta İlerleme Hızı", value: "12.000 mm/dk" },
-  { key: "Y Eksen Boşta İlerleme Hızı", value: "15.000 mm/dk" },
-  { key: "Z Eksen Boşta İlerleme Hızı", value: "15.000 mm/dk" },
-  { key: "X, Y, Z Eksen Kesme Hızı", value: "10.000 mm/dk" },
-  { key: "X, Y, Z Eksen Pozisyonlama Hassasiyeti", value: "±0,005 / 300 mm" },
-  { key: "X, Y, Z Eksen Tekrarlama Hassasiyeti", value: "±0,003 / 300 mm" },
-  { key: "Fener Mili Standardı", value: "BT-40" },
-  { key: "Fener Mili Devri", value: "10.000 dv/dk" },
-  { key: "Fener Mili Aktarması", value: "Direkt Aktarma" },
-  { key: "Fener Mili Rulman Tipi", value: "Çelik" },
-  { key: "Fener Mili Motor Gücü", value: "15 kw" },
-  { key: "Fener Mili Motor Tipi", value: "AC Servo" },
-  { key: "X Eksen Motor Gücü", value: "9,0 kw" },
-  { key: "Y Eksen Motor Gücü", value: "4,5 kw" },
-  { key: "Z Eksen Motor Gücü", value: "4,5 kw" },
-  { key: "Soğutma Sistemi Motor Gücü", value: "0,75 kw x 2 Adet" },
-  { key: "Takım Değiştirici Tipi", value: "Kol Tipi" },
-  { key: "Takım Kapasitesi", value: "24 Adet" },
-  { key: "Maks. Takım Ağırlığı", value: "8 kg" },
-  { key: "Maks. Takım Uzunluğu", value: "300 mm" },
-  { key: "Maks. Takım Çapı", value: "Ø 125 / Ø 250 mm" },
-  { key: "Takım Değiştirme Süresi (Takımdan Takıma)", value: "6,0 sn" },
-  { key: "Tezgah Hava Gereksinimi", value: "6 bar (100 psi)" },
-  { key: "Toplam Güç Gereksinimi", value: "380 V/ 50 Hz. 30 kw" },
-  { key: "Tezgahın Kapladığı Alan", value: "6.455 x 3.640 x 3.820 mm" },
-  { key: "Tezgah Ağırlığı", value: "15.500 kg" },
+const CNC_BES_EKSEN_TEMPLATE_ENTRIES: readonly MachineSpecTemplateEntry[] = [
+  entry("TABLA", "Tabla Ölçüsü", "Ø 350", "mm"),
+  entry("TABLA", "T Slot Ölçü ve Sayısı", "12 H7 x 8 x 45°"),
+  entry("TABLA", "Tabla Merkez Delik Çapı", "", "mm"),
+  entry("TABLA", "Tabla Yükleme Kapasitesi", "1.000", "kg"),
+  entry("TABLA", "Tabla ~ Fener Mili Ucu Arası Mesafe", "85 ~ 525", "mm"),
+  entry("EKSENLER", "X,Y ve Z Eksen Hareketi", "800", "mm"),
+  entry("EKSENLER", "A Eksen Dönüş Açısı", "500", "mm"),
+  entry("EKSENLER", "C Eksen Dönüş Açısı", "610", "mm"),
+  entry("EKSENLER", "X, Y ve Z Eksen Boşta İlerleme Hızı", "48.000", "mm/dk"),
+  entry("EKSENLER", "X, Y, Z Eksen Kesme Hızı", "20.000", "mm/dk"),
+  entry("EKSENLER", "X, Y, Z Eksen Pozisyonlama Hassasiyeti", "0,010", "mm"),
+  entry("EKSENLER", "X, Y, Z Eksen Tekrarlama Hassasiyeti", "± 0,006", "mm"),
+  entry("FENER_MILI", "Fener Mili Standardı", "BT-40"),
+  entry("FENER_MILI", "Fener Mili Devri", "10.000", "dv/dk"),
+  entry("FENER_MILI", "Fener Mili Aktarması", "Direkt"),
+  entry("FENER_MILI", "Fener Mili Rulman Tipi", "Çelik"),
+  entry("MOTORLAR", "Fener Mili Motor Gücü", "15", "kw (20 hp)"),
+  entry("MOTORLAR", "Fener Mili Motor Tipi", "AC Servo"),
+  entry("MOTORLAR", "X Eksen Motor Gücü", "2,0", "kw"),
+  entry("MOTORLAR", "Y Eksen Motor Gücü", "2,0", "kw"),
+  entry("MOTORLAR", "Z Eksen Motor Gücü", "3,5", "kw"),
+  entry("MOTORLAR", "A Eksen Motor Gücü", "", "kw"),
+  entry("MOTORLAR", "C Eksen Motor Gücü", "", "kw"),
+  entry("TAKIM_DEGISTIRICI", "Takım Değiştirici Tipi", "Kol Tipi"),
+  entry("TAKIM_DEGISTIRICI", "Takım Kapasitesi", "24", "Adet"),
+  entry("TAKIM_DEGISTIRICI", "Maks. Takım Ağırlığı", "7", "kg"),
+  entry("TAKIM_DEGISTIRICI", "Maks. Takım Uzunluğu", "300", "mm"),
+  entry("TAKIM_DEGISTIRICI", "Maks. Takım Çapı", "Ø 75 / Ø 150", "mm"),
+  entry("TAKIM_DEGISTIRICI", "Takım Değiştirme Süresi (Takımdan Takıma)", "1,8", "sn"),
+  entry("GENEL", "Tezgah Hava Gereksinimi", "6", "bar (100 psi)"),
+  entry("GENEL", "Toplam Güç Gereksinimi", "380 V/ 50 Hz. 30 kw"),
+  entry("GENEL", "Tezgah Ölçüleri", "2.230 x 2.483 x 2.970", "mm"),
+  entry("GENEL", "Tezgah Ağırlığı", "6.100", "kg"),
 ];
+
+const CNC_KOPRU_TIPI_TEMPLATE_ENTRIES: readonly MachineSpecTemplateEntry[] = [
+  entry("TABLA", "Tabla Ölçüsü", "2.000 x 1.100", "mm"),
+  entry("TABLA", "T Slot Ölçü ve Sayısı", "22 x 150 x 7"),
+  entry("TABLA", "Tabla Yükleme Kapasitesi", "4.000", "kg"),
+  entry("TABLA", "Kolonlar Arası Mesafe", "1.400", "mm"),
+  entry("TABLA", "Tabla ~ Fener Mili Ucu Arası Mesafe", "100 ~ 900", "mm"),
+  entry("EKSENLER", "X Eksen Hareketi", "2.100", "mm"),
+  entry("EKSENLER", "Y Eksen Hareketi", "1.220", "mm"),
+  entry("EKSENLER", "Z Eksen Hareketi", "800", "mm"),
+  entry("EKSENLER", "X Eksen Boşta İlerleme Hızı", "12.000", "mm/dk"),
+  entry("EKSENLER", "Y Eksen Boşta İlerleme Hızı", "15.000", "mm/dk"),
+  entry("EKSENLER", "Z Eksen Boşta İlerleme Hızı", "15.000", "mm/dk"),
+  entry("EKSENLER", "X, Y, Z Eksen Kesme Hızı", "10.000", "mm/dk"),
+  entry("EKSENLER", "X, Y, Z Eksen Pozisyonlama Hassasiyeti", "± 0,005 / 300", "mm"),
+  entry("EKSENLER", "X, Y, Z Eksen Tekrarlama Hassasiyeti", "± 0,003 / 300", "mm"),
+  entry("FENER_MILI", "Fener Mili Standardı", "BT-40"),
+  entry("FENER_MILI", "Fener Mili Devri", "10.000", "dv/dk"),
+  entry("FENER_MILI", "Fener Mili Aktarması", "Direk Aktarma"),
+  entry("FENER_MILI", "Fener Mili Rulman Tipi", "Çelik"),
+  entry("MOTORLAR", "Fener Mili Motor Gücü", "15", "kw"),
+  entry("MOTORLAR", "Fener Mili Motor Tipi", "AC Servo"),
+  entry("MOTORLAR", "X Eksen Motor Gücü", "9,0", "kw"),
+  entry("MOTORLAR", "Y Eksen Motor Gücü", "4,5", "kw"),
+  entry("MOTORLAR", "Z Eksen Motor Gücü", "4,5", "kw"),
+  entry("MOTORLAR", "Soğutma Sistemi Motor Gücü", "0,75 kw x 2 Adet"),
+  entry("TAKIM_DEGISTIRICI", "Takım Değiştirici Tipi", "Kol Tipi"),
+  entry("TAKIM_DEGISTIRICI", "Takım Kapasitesi", "24", "Adet"),
+  entry("TAKIM_DEGISTIRICI", "Maks. Takım Ağırlığı", "8", "kg"),
+  entry("TAKIM_DEGISTIRICI", "Maks. Takım Uzunluğu", "300", "mm"),
+  entry("TAKIM_DEGISTIRICI", "Maks. Takım Çapı", "Ø 125 / Ø 250", "mm"),
+  entry("TAKIM_DEGISTIRICI", "Takım Değiştirme Süresi (Takımdan Takıma)", "6,0", "sn"),
+  entry("GENEL", "Tezgah Hava Gereksinimi", "6", "bar (100 psi)"),
+  entry("GENEL", "Toplam Güç Gereksinimi", "380 V/ 50 Hz. 30 kw"),
+  entry("GENEL", "Tezgahın Kapladığı Alan", "6.455 x 3.640 x 3.820", "mm"),
+  entry("GENEL", "Tezgah Ağırlığı", "15.500", "kg"),
+];
+
+export const MACHINE_SPEC_TEMPLATES: Record<string, readonly MachineSpecTemplateEntry[]> = {
+  CNC_YATAY_TORNA_TEZGAHI: CNC_YATAY_TORNA_TEMPLATE_ENTRIES,
+  CNC_DIK_TORNA_TEZGAHI: CNC_DIK_TORNA_TEMPLATE_ENTRIES,
+  CNC_DIK_ISLEME_MERKEZ: CNC_DIK_ISLEME_TEMPLATE_ENTRIES,
+  CNC_TAPPING_CENTER: CNC_TAPPING_CENTER_TEMPLATE_ENTRIES,
+  CNC_5_EKSEN_ISLEME_MERKEZI: CNC_BES_EKSEN_TEMPLATE_ENTRIES,
+  CNC_KOPRU_TIPI_ISLEME_MERKEZI: CNC_KOPRU_TIPI_TEMPLATE_ENTRIES,
+};
+
+// Eski verilerde geçen ürün tipi kodları güncel kodlara eşlenir.
+const MACHINE_TYPE_ALIASES: Record<string, string> = {
+  DIK_ISLEME_MERKEZI: "CNC_DIK_ISLEME_MERKEZ",
+  KOPRU_TIPI_ISLEME_MERKEZI: "CNC_KOPRU_TIPI_ISLEME_MERKEZI",
+  YATAY_ISLEME_MERKEZI: "CNC_YATAY_ISLEME_MERKEZI",
+  CNC_TORNA: "CNC_YATAY_TORNA_TEZGAHI",
+};
+
+const canonicalMachineTypeCode = (typeCode?: string | null) => {
+  const upper = (typeCode ?? "").toLocaleUpperCase("tr-TR");
+  return MACHINE_TYPE_ALIASES[upper] ?? upper;
+};
+
+export const machineSpecTemplateEntries = (typeCode?: string | null): readonly MachineSpecTemplateEntry[] =>
+  MACHINE_SPEC_TEMPLATES[canonicalMachineTypeCode(typeCode)] ?? [];
+
+const templateEntryToSpec = (item: MachineSpecTemplateEntry): ProductSpec => ({
+  key: item.key,
+  value: item.value,
+  unit: item.unit,
+  specUnit: item.unit,
+  groupCode: item.group,
+});
+
+export const CNC_YATAY_TORNA_SPEC_DEFAULTS: readonly ProductSpec[] = CNC_YATAY_TORNA_TEMPLATE_ENTRIES.map(templateEntryToSpec);
+export const CNC_DIK_TORNA_SPEC_DEFAULTS: readonly ProductSpec[] = CNC_DIK_TORNA_TEMPLATE_ENTRIES.map(templateEntryToSpec);
+export const CNC_DIK_ISLEME_SPEC_DEFAULTS: readonly ProductSpec[] = CNC_DIK_ISLEME_TEMPLATE_ENTRIES.map(templateEntryToSpec);
+export const CNC_TAPPING_CENTER_SPEC_DEFAULTS: readonly ProductSpec[] = CNC_TAPPING_CENTER_TEMPLATE_ENTRIES.map(templateEntryToSpec);
+export const CNC_BES_EKSEN_SPEC_DEFAULTS: readonly ProductSpec[] = CNC_BES_EKSEN_TEMPLATE_ENTRIES.map(templateEntryToSpec);
+export const CNC_KOPRU_TIPI_SPEC_DEFAULTS: readonly ProductSpec[] = CNC_KOPRU_TIPI_TEMPLATE_ENTRIES.map(templateEntryToSpec);
 
 export const CNC_YATAY_TORNA_SPEC_TEMPLATE = CNC_YATAY_TORNA_SPEC_DEFAULTS.map((spec) => spec.key);
 export const CNC_DIK_TORNA_SPEC_TEMPLATE = CNC_DIK_TORNA_SPEC_DEFAULTS.map((spec) => spec.key);
@@ -225,88 +341,53 @@ export const CNC_TAPPING_CENTER_SPEC_TEMPLATE = CNC_TAPPING_CENTER_SPEC_DEFAULTS
 export const CNC_BES_EKSEN_SPEC_TEMPLATE = CNC_BES_EKSEN_SPEC_DEFAULTS.map((spec) => spec.key);
 export const CNC_KOPRU_TIPI_SPEC_TEMPLATE = CNC_KOPRU_TIPI_SPEC_DEFAULTS.map((spec) => spec.key);
 
-export const HAKSAN_CNC_SPEC_KEYS: readonly string[] = [
-  "A Eksen Dönüş Açısı",
+// Şablon dışında kalan, eski ürünlerde geçen alan adları (katalog birleşik listesi).
+const LEGACY_SPEC_KEYS: readonly string[] = [
   "A Eksen Hareketi",
-  "Ayna Ölçüsü",
-  "Bağlanabilir Canlı Takım Sayısı",
-  "C Eksen Dönüş Açısı",
   "C Eksen Hareketi",
-  "Canlı Takım Devri",
-  "Canlı Takım Motor Gücü",
-  "Canlı Takım Tutucu Standardı",
+  "A Eksen Dönüş Açısı",
+  "C Eksen Dönüş Açısı",
   "Döner Tabla Ölçüsü",
   "Fener Mili",
-  "Fener Mili Aktarması",
-  "Fener Mili Delik Çapı",
-  "Fener Mili Devri",
-  "Fener Mili Motor Gücü",
-  "Fener Mili Motor Tipi",
-  "Fener Mili Rulman Tipi",
-  "Fener Mili Standardı",
-  "Fener Mili Ön Rulman Çapı",
   "Güç Tüketimi",
-  "Karşı Ayna Devri",
-  "Karşı Ayna Motor Gücü",
-  "Karşı Ayna Çubuk İşleme Çapı",
-  "Karşı Ayna Ölçüsü",
-  "Karşı Punta Gövde Hareketi",
-  "Karşı Punta Pinol Hareketi",
-  "Karşı Punta Pinol Koniği",
-  "Karşı Punta Pinol Çapı",
-  "Maks. Kare Takım Ölçüsü",
-  "Maks. Takım Ağırlığı",
-  "Maks. Takım Uzunluğu",
-  "Maks. Takım Çapı",
-  "Maks. Tornalama Boyu",
-  "Maks. Tornalama Çapı",
-  "Maks. Yuvarlak Takım Ölçüsü",
-  "Maks. Çevirme Kapasitesi",
-  "Maks. Çubuk İşleme Çapı",
-  "Soğutma Sistemi Motor Gücü",
-  "Soğutma Sıvısı Tank Kapasitesi",
-  "T Slot Ölçü ve Sayısı",
-  "Tabla Yükleme Kapasitesi",
-  "Tabla ~ Fener Mili Ucu Arası Mesafe",
-  "Tabla Ölçüsü",
   "Takım Değiştirici",
-  "Takım Değiştirici Tipi",
-  "Takım Değiştirme Süresi (Takımdan Takıma)",
-  "Takım Kapasitesi",
   "Takım Tutucu Standardı",
-  "Taret Tipi",
-  "Taret İstasyon Sayısı",
-  "Tezgah Ağırlığı",
-  "Tezgah Hava Gereksinimi",
-  "Tezgah Ölçüleri",
   "Tezgah Ölçüleri (Döner Kontrol Paneliyle Birlikte)",
-  "Tezgahın Kapladığı Alan",
-  "Toplam Güç Gereksinimi",
-  "Toplam Hava Gereksinimi",
-  "X Eksen Boşta İlerleme Hızı",
-  "X Eksen Boşta İlerleme Oranı",
-  "X Eksen Hareketi",
-  "X Eksen Motor Gücü",
   "X, Y ve Z Eksen Boşta İlerleme Hızı",
   "X, Y, Z Eksen Boşta İlerleme Oranı",
   "X, Y, Z Eksen Hareketi",
-  "X, Y, Z Eksen Kesme Hızı",
-  "X, Y, Z Eksen Pozisyonlama Hassasiyeti",
-  "X, Y, Z Eksen Tekrarlama Hassasiyeti",
   "X, Z ve Z Eksen Boşta İlerleme Hızı",
   "X,Y ve Z Eksen Hareketi",
-  "Y Eksen Boşta İlerleme Hızı",
-  "Y Eksen Boşta İlerleme Oranı",
-  "Y Eksen Hareketi",
-  "Y Eksen Motor Gücü",
-  "Z Eksen Boşta İlerleme Hızı",
-  "Z Eksen Boşta İlerleme Oranı",
-  "Z Eksen Hareketi",
-  "Z Eksen Motor Gücü",
-  "Z-2 Eksen Boşta İlerleme Oranı",
-  "Z-2 Eksen Hareketi",
-  "Z-2 Eksen Motor Gücü",
 ];
+
+const SPEC_KEY_CATALOG = (() => {
+  const seen = new Set<string>();
+  const keys: string[] = [];
+  const units = new Map<string, string>();
+  for (const entries of Object.values(MACHINE_SPEC_TEMPLATES)) {
+    for (const item of entries) {
+      const norm = normalizeSpecKey(item.key);
+      if (!seen.has(norm)) {
+        seen.add(norm);
+        keys.push(item.key);
+      }
+      if (item.unit && !units.has(norm)) units.set(norm, item.unit);
+    }
+  }
+  for (const key of LEGACY_SPEC_KEYS) {
+    const norm = normalizeSpecKey(key);
+    if (!seen.has(norm)) {
+      seen.add(norm);
+      keys.push(key);
+    }
+  }
+  return { keys, units };
+})();
+
+export const HAKSAN_CNC_SPEC_KEYS: readonly string[] = SPEC_KEY_CATALOG.keys;
+
+export const specUnitForKey = (key: string): string =>
+  SPEC_KEY_CATALOG.units.get(normalizeSpecKey(key)) ?? "";
 
 export const HAKSAN_CNC_SPEC_VALUE_UNITS: readonly string[] = [
   "Ø",
@@ -333,38 +414,9 @@ export const HAKSAN_CNC_SPEC_VALUE_UNITS: readonly string[] = [
   "°",
 ];
 
-export type ProductSpecGroupCode =
-  | "TABLA"
-  | "EKSENLER"
-  | "FENER_MILI"
-  | "MOTORLAR"
-  | "TAKIM_DEGISTIRICI"
-  | "GENEL";
-
-export type ProductSpecGroup = {
-  code: ProductSpecGroupCode;
-  label: string;
-  order: number;
-};
-
-export type GroupedProductSpec<T extends ProductSpec = ProductSpec> = {
-  group: ProductSpecGroup;
-  specs: T[];
-};
-
-export const PRODUCT_SPEC_GROUPS: readonly ProductSpecGroup[] = [
-  { code: "TABLA", label: "TABLA", order: 10 },
-  { code: "EKSENLER", label: "EKSENLER", order: 20 },
-  { code: "FENER_MILI", label: "FENER MİLİ", order: 30 },
-  { code: "MOTORLAR", label: "MOTORLAR", order: 40 },
-  { code: "TAKIM_DEGISTIRICI", label: "TAKIM DEĞİŞTİRİCİ", order: 50 },
-  { code: "GENEL", label: "GENEL", order: 60 },
-];
-
-const PRODUCT_SPEC_GROUP_BY_CODE = new Map(PRODUCT_SPEC_GROUPS.map((group) => [group.code, group]));
-const PRODUCT_SPEC_GROUP_BY_LABEL = new Map(
-  PRODUCT_SPEC_GROUPS.map((group) => [normalizeSpecKey(group.label), group]),
-);
+// ---------------------------------------------------------------------------
+// Gruplama
+// ---------------------------------------------------------------------------
 
 const specGroupByCode = (code?: string | null) =>
   code ? PRODUCT_SPEC_GROUP_BY_CODE.get(code.toLocaleUpperCase("tr-TR") as ProductSpecGroupCode) : undefined;
@@ -372,25 +424,31 @@ const specGroupByCode = (code?: string | null) =>
 const specGroupByLabel = (label?: string | null) =>
   label ? PRODUCT_SPEC_GROUP_BY_LABEL.get(normalizeSpecKey(label)) : undefined;
 
+// Tip şablonu olmayan durumlar için anahtar-adı sezgisi.
 export function productSpecGroupForKey(spec: ProductSpec | string): ProductSpecGroup {
   const value = typeof spec === "string" ? { key: spec, value: "" } : spec;
   const explicitGroup = specGroupByCode(value.groupCode) ?? specGroupByLabel(value.groupName);
   if (explicitGroup) return explicitGroup;
 
   const key = normalizeSpecKey(value.key);
+  if (key.includes("karsi punta")) return PRODUCT_SPEC_GROUP_BY_CODE.get("KARSI_PUNTA")!;
+  if (key.includes("karsi ayna")) return PRODUCT_SPEC_GROUP_BY_CODE.get("KARSI_AYNA")!;
+  if (key.includes("canli takim")) return PRODUCT_SPEC_GROUP_BY_CODE.get("CANLI_TAKIM")!;
+  if (key.includes("taret") || key.includes("istasyon")) return PRODUCT_SPEC_GROUP_BY_CODE.get("TARET")!;
   if (
-    key.includes("tabla") ||
-    key.includes("ayna") ||
-    key.includes("is parcasi") ||
     key.includes("cevirme kapasitesi") ||
     key.includes("tornalama capi") ||
     key.includes("tornalama boyu") ||
-    key.includes("cubuk isleme capi")
+    key.includes("cubuk isleme capi") ||
+    key.includes("ayna olcusu") ||
+    key.includes("ayna capi")
   ) {
+    return PRODUCT_SPEC_GROUP_BY_CODE.get("KAPASITE")!;
+  }
+  if (key.includes("tabla") || key.includes("is parcasi") || key.includes("kolonlar arasi")) {
     return PRODUCT_SPEC_GROUP_BY_CODE.get("TABLA")!;
   }
   if (
-    key.includes("kolonlar arasi") ||
     key.includes("eksen") ||
     key.includes("pozisyonlama") ||
     key.includes("tekrarlama") ||
@@ -405,42 +463,87 @@ export function productSpecGroupForKey(spec: ProductSpec | string): ProductSpecG
   if (key.includes("fener mili") || key.includes("spindle") || key.includes("rulman")) {
     return PRODUCT_SPEC_GROUP_BY_CODE.get("FENER_MILI")!;
   }
-  if (
-    key.includes("takim") ||
-    key.includes("taret") ||
-    key.includes("istasyon") ||
-    key.includes("canli takim")
-  ) {
+  if (key.includes("takim")) {
     return PRODUCT_SPEC_GROUP_BY_CODE.get("TAKIM_DEGISTIRICI")!;
   }
   return PRODUCT_SPEC_GROUP_BY_CODE.get("GENEL")!;
 }
 
-export function groupProductSpecs<T extends ProductSpec>(specs: readonly T[]): GroupedProductSpec<T>[] {
+type MachineTemplateIndex = {
+  groupByKey: Map<string, ProductSpecGroupCode>;
+  groupOrder: ProductSpecGroupCode[];
+};
+
+const TEMPLATE_INDEX_CACHE = new Map<string, MachineTemplateIndex>();
+
+const templateIndexFor = (typeCode?: string | null): MachineTemplateIndex => {
+  const canonical = canonicalMachineTypeCode(typeCode);
+  const cached = TEMPLATE_INDEX_CACHE.get(canonical);
+  if (cached) return cached;
+  const groupByKey = new Map<string, ProductSpecGroupCode>();
+  const groupOrder: ProductSpecGroupCode[] = [];
+  for (const item of MACHINE_SPEC_TEMPLATES[canonical] ?? []) {
+    const norm = normalizeSpecKey(item.key);
+    if (!groupByKey.has(norm)) groupByKey.set(norm, item.group);
+    if (!groupOrder.includes(item.group)) groupOrder.push(item.group);
+  }
+  const index = { groupByKey, groupOrder };
+  TEMPLATE_INDEX_CACHE.set(canonical, index);
+  return index;
+};
+
+// Tezgah tipi biliniyorsa grup ataması ve grup sırası katalog şablonundan gelir.
+export function productSpecGroupForTypeKey(
+  typeCode: string | null | undefined,
+  spec: ProductSpec | string,
+): ProductSpecGroup {
+  const value = typeof spec === "string" ? { key: spec, value: "" } : spec;
+  const templateGroup = templateIndexFor(typeCode).groupByKey.get(normalizeSpecKey(value.key));
+  if (templateGroup) return PRODUCT_SPEC_GROUP_BY_CODE.get(templateGroup)!;
+  return productSpecGroupForKey(value);
+}
+
+export function groupProductSpecsForType<T extends ProductSpec>(
+  typeCode: string | null | undefined,
+  specs: readonly T[],
+): GroupedProductSpec<T>[] {
+  const { groupByKey, groupOrder } = templateIndexFor(typeCode);
   const buckets = new Map<ProductSpecGroupCode, T[]>();
   for (const spec of specs) {
-    const group = productSpecGroupForKey(spec);
-    buckets.set(group.code, [...(buckets.get(group.code) ?? []), spec]);
+    const code = groupByKey.get(normalizeSpecKey(spec.key)) ?? productSpecGroupForKey(spec).code;
+    buckets.set(code, [...(buckets.get(code) ?? []), spec]);
   }
-  return PRODUCT_SPEC_GROUPS
-    .map((group) => ({ group, specs: buckets.get(group.code) ?? [] }))
+  const orderedCodes: ProductSpecGroupCode[] = [
+    ...groupOrder,
+    ...PRODUCT_SPEC_GROUPS.map((group) => group.code).filter((code) => !groupOrder.includes(code)),
+  ];
+  return orderedCodes
+    .map((code) => ({ group: PRODUCT_SPEC_GROUP_BY_CODE.get(code)!, specs: buckets.get(code) ?? [] }))
     .filter((item) => item.specs.length > 0);
 }
+
+export function groupProductSpecs<T extends ProductSpec>(specs: readonly T[]): GroupedProductSpec<T>[] {
+  return groupProductSpecsForType(undefined, specs);
+}
+
+// ---------------------------------------------------------------------------
+// Anahtar normalizasyonu ve değer/birim ayrıştırma
+// ---------------------------------------------------------------------------
 
 const HAKSAN_CNC_SPEC_DEFAULTS: readonly ProductSpec[] = HAKSAN_CNC_SPEC_KEYS.map((key) => ({
   key,
   value: "",
+  unit: specUnitForKey(key),
+  specUnit: specUnitForKey(key),
 }));
 
 const SPEC_DEFAULTS: Record<string, readonly ProductSpec[]> = {
   CNC_YATAY_TORNA_TEZGAHI: CNC_YATAY_TORNA_SPEC_DEFAULTS,
   CNC_DIK_TORNA_TEZGAHI: CNC_DIK_TORNA_SPEC_DEFAULTS,
   CNC_DIK_ISLEME_MERKEZ: CNC_DIK_ISLEME_SPEC_DEFAULTS,
-  DIK_ISLEME_MERKEZI: CNC_DIK_ISLEME_SPEC_DEFAULTS,
   CNC_TAPPING_CENTER: CNC_TAPPING_CENTER_SPEC_DEFAULTS,
   CNC_5_EKSEN_ISLEME_MERKEZI: CNC_BES_EKSEN_SPEC_DEFAULTS,
   CNC_KOPRU_TIPI_ISLEME_MERKEZI: CNC_KOPRU_TIPI_SPEC_DEFAULTS,
-  KOPRU_TIPI_ISLEME_MERKEZI: CNC_KOPRU_TIPI_SPEC_DEFAULTS,
 };
 
 function normalizeSpecKey(value: string) {
@@ -463,6 +566,9 @@ function normalizeSpecKey(value: string) {
     "hava gereksinimi": "tezgah hava gereksinimi",
     "kapladigi alan": "tezgahin kapladigi alan",
     "agirlik": "tezgah agirligi",
+    "a eksen hareketi": "a eksen donus acisi",
+    "c eksen hareketi": "c eksen donus acisi",
+    "doner tabla olcusu": "tabla olcusu",
   };
   return aliases[normalized] ?? normalized;
 }
@@ -562,8 +668,12 @@ function expandLegacyMachiningCenterSpecs(specs: ProductSpec[]): ProductSpec[] {
   return expanded;
 }
 
+// ---------------------------------------------------------------------------
+// Şablon + mevcut değer birleştirme
+// ---------------------------------------------------------------------------
+
 export function productSpecDefaults(typeCode?: string | null): readonly ProductSpec[] {
-  return SPEC_DEFAULTS[(typeCode ?? "").toLocaleUpperCase("tr-TR")] ?? [];
+  return SPEC_DEFAULTS[canonicalMachineTypeCode(typeCode)] ?? [];
 }
 
 export function productSpecTemplate(typeCode?: string | null): readonly string[] {
@@ -591,14 +701,16 @@ export function mergeSpecsWithDefaults(
     if (index >= 0) {
       used.add(index);
       const existing = normalizedSpecs[index];
-      const unit = existing.unit ?? existing.specUnit ?? defaultSpec.unit ?? defaultSpec.specUnit ?? "";
+      // Birim şablondan gelir ve sabittir; şablonda birim yoksa mevcut korunur.
+      const templateUnit = (defaultSpec.unit ?? defaultSpec.specUnit ?? "").trim();
+      const unit = templateUnit || (existing.unit ?? existing.specUnit ?? "");
       return {
         key: defaultSpec.key,
         value: existing.value?.trim() ? existing.value : defaultSpec.value,
         unit,
         specUnit: unit,
-        groupCode: existing.groupCode ?? defaultSpec.groupCode,
-        groupName: existing.groupName ?? defaultSpec.groupName,
+        groupCode: defaultSpec.groupCode ?? existing.groupCode,
+        groupName: defaultSpec.groupName ?? existing.groupName,
       };
     }
     return { ...defaultSpec };
@@ -624,14 +736,14 @@ export function allCatalogProductSpecs(specs: ProductSpec[] = [], emptyValue = "
 }
 
 export function specsForProductType(typeCode: string | undefined, specs: ProductSpec[]): ProductSpec[] {
-  const normalizedType = (typeCode ?? "").toLocaleUpperCase("tr-TR");
+  const normalizedType = canonicalMachineTypeCode(typeCode);
+  // 5 eksen katalog şablonu birleşik eksen anahtarları kullandığı için
+  // legacy açılımı uygulanmaz; diğer işleme merkezlerinde eski birleşik
+  // değerler tekil eksen alanlarına açılır.
   const source = [
     "CNC_DIK_ISLEME_MERKEZ",
-    "DIK_ISLEME_MERKEZI",
     "CNC_TAPPING_CENTER",
-    "CNC_5_EKSEN_ISLEME_MERKEZI",
     "CNC_KOPRU_TIPI_ISLEME_MERKEZI",
-    "KOPRU_TIPI_ISLEME_MERKEZI",
   ].includes(normalizedType)
     ? expandLegacyMachiningCenterSpecs(specs)
     : specs;

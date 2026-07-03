@@ -1,17 +1,19 @@
 import type { ProductSpec } from "../../lib/mock";
-import { groupProductSpecs } from "../../lib/productSpecTemplates";
+import { groupProductSpecsForType } from "../../lib/productSpecTemplates";
 import { cn } from "../ui/utils";
 
 export function ProductSpecsTable({
   specs,
+  productTypeCode,
   emptyText = "Teknik özellik girilmemiş.",
   className,
 }: {
   specs: readonly ProductSpec[];
+  productTypeCode?: string | null;
   emptyText?: string;
   className?: string;
 }) {
-  const groups = groupProductSpecs(specs.filter((spec) => spec.key.trim()));
+  const groups = groupProductSpecsForType(productTypeCode, specs.filter((spec) => spec.key.trim()));
   const formatSpecValue = (spec: ProductSpec) => {
     const value = spec.value?.trim() || "-";
     const unit = (spec.unit ?? spec.specUnit ?? "").trim();
