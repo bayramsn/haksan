@@ -154,6 +154,53 @@ describe('RBAC permissions', () => {
     expect(r.status).toBe(403);
   });
 
+  it('admin can unlock a temporarily locked user account', async () => {
+    const server = app.getHttpServer();
+    const email = `locked-user-${Date.now()}@haksan.local`;
+    const password = 'lockedUser12345';
+
+    const created = await supertest(server)
+      .post('/api/v1/users')
+      .set('Authorization', `Bearer ${tokens.admin}`)
+      .send({ fullName: 'Locked User Test', email, password, roleCodes: ['readonly'], divisionIds: [] });
+    expect(created.status).toBe(201);
+    const userId = created.body.id;
+
+    const { getDb } = await import('../src/db/client');
+    const { users } = await import('../src/db/schema/users');
+    const { eq } = await import('drizzle-orm');
+    await getDb()
+      .update(users)
+      .set({ failedLoginAttempts: 9, lockedUntil: new Date(Date.now() + 10 * 60_000) })
+      .where(eq(users.id, userId));
+
+    const lockedLogin = await supertest(server).post('/api/v1/auth/login').send({ email, password });
+    expect(lockedLogin.status).toBe(423);
+
+    const listed = await supertest(server).get('/api/v1/users').set('Authorization', `Bearer ${tokens.admin}`);
+    expect(listed.status).toBe(200);
+    const lockedRow = listed.body.find((row: any) => row.id === userId);
+    expect(lockedRow.failedLoginAttempts).toBe(9);
+    expect(lockedRow.lockedUntil).toBeTruthy();
+
+    const salesUnlock = await supertest(server)
+      .post(`/api/v1/users/${userId}/unlock`)
+      .set('Authorization', `Bearer ${tokens.sales}`)
+      .send({});
+    expect(salesUnlock.status).toBe(403);
+
+    const unlocked = await supertest(server)
+      .post(`/api/v1/users/${userId}/unlock`)
+      .set('Authorization', `Bearer ${tokens.admin}`)
+      .send({});
+    expect(unlocked.status).toBe(201);
+    expect(unlocked.body).toMatchObject({ ok: true, id: userId, failedLoginAttempts: 0, lockedUntil: null });
+
+    const relogin = await supertest(server).post('/api/v1/auth/login').send({ email, password });
+    expect(relogin.status).toBe(201);
+    expect(relogin.body.accessToken).toBeTruthy();
+  });
+
   it('super_admin can soft-delete a user, revoke refresh, and hide it from the user list', async () => {
     const server = app.getHttpServer();
     const email = `delete-user-${Date.now()}@haksan.local`;
