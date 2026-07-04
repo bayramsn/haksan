@@ -115,6 +115,8 @@ export const opportunities = pgTable(
     lostReasonId: uuid('lost_reason_id').references(() => cancellationReasons.id),
     lostCompetitorId: uuid('lost_competitor_id').references(() => competitors.id),
     lostCompetitorProductModel: varchar('lost_competitor_product_model', { length: 255 }),
+    // Makine satışında ödeme vadesi (gün); sözleşme/ödeme planı varsayılanı.
+    paymentTermDays: integer('payment_term_days'),
     // Kazanılan fırsatlarda kabul/kazanma nedeni (yıl sonu raporu için).
     wonReason: varchar('won_reason', { length: 255 }),
     // Mantıksal kapanış (arşiv) — `deletedAt` (silme) DEĞİL. Terminal aşamadaki
