@@ -95,49 +95,49 @@ function Column<T extends { id: string }>({
     [col.key, col.items.length, onMove]
   );
 
+  // Trello benzeri kolon: düz gri zemin, kompakt başlık, kartlar kolon içinde
+  // dikey kaydırılır; sürükleme hedefi halka ile vurgulanır.
   return (
     <div
       ref={dropRef as any}
       style={{ width }}
-      className={`shrink-0 snap-center flex flex-col rounded-xl border transition-colors ${
-        isOver && canDrop ? "border-primary bg-primary/5" : "border-border/60 bg-muted/30"
+      className={`shrink-0 snap-center flex max-h-[calc(100dvh-240px)] flex-col self-start rounded-xl transition-shadow ${
+        isOver && canDrop ? "bg-primary/10 ring-2 ring-primary/50" : "bg-slate-200/70"
       }`}
     >
-      <div className="px-3 py-2.5 border-b border-border/60 bg-white rounded-t-xl flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2 min-w-0">
+      <div className="flex items-center justify-between gap-2 px-3 pb-1 pt-2.5">
+        <div className="flex min-w-0 items-center gap-2">
           {col.dot && <span className={`size-2 rounded-full shrink-0 ${col.dot}`} />}
-          <span className="text-[13px] tracking-tight truncate">{col.title}</span>
-          <span className="inline-flex items-center justify-center min-w-[20px] h-[18px] px-1 text-[10px] rounded-full bg-muted text-foreground/70 shrink-0">
-            {col.items.length}
-          </span>
+          <span className="truncate text-[13px] font-semibold tracking-tight text-foreground/80">{col.title}</span>
+          <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">{col.items.length}</span>
         </div>
         <div className="flex items-center gap-0.5 shrink-0">
           {onAdd && (
-            <Button variant="ghost" size="icon" className="size-6" onClick={() => onAdd(col.key)}>
+            <Button variant="ghost" size="icon" className="size-6 text-muted-foreground hover:bg-black/5" onClick={() => onAdd(col.key)}>
               <Plus className="size-3.5" />
             </Button>
           )}
         </div>
       </div>
-      {col.footer && (
-        <div className="px-3 py-1.5 border-b border-border/60 bg-white/60 text-[11px] text-muted-foreground tabular-nums">
-          {col.footer}
-        </div>
-      )}
-      <div className="p-2 space-y-2 min-h-[200px] whitespace-normal">
+      <div className="min-h-[120px] flex-1 space-y-2 overflow-y-auto whitespace-normal px-2 pb-2 pt-1">
         {col.items.map((item) => (
           <DraggableCard key={item.id} id={item.id} from={col.key}>
             {(dragging) => renderCard(item, dragging)}
           </DraggableCard>
         ))}
         {col.items.length === 0 && (
-          <div className={`text-[11px] text-center py-8 border border-dashed rounded-md transition-colors ${
-            isOver && canDrop ? "border-primary text-primary bg-primary/5" : "border-border/60 text-muted-foreground"
+          <div className={`rounded-lg border border-dashed py-8 text-center text-[11px] transition-colors ${
+            isOver && canDrop ? "border-primary bg-primary/5 text-primary" : "border-slate-300 text-muted-foreground"
           }`}>
             {isOver && canDrop ? "Buraya bırak" : "Kart yok"}
           </div>
         )}
       </div>
+      {col.footer && (
+        <div className="rounded-b-xl border-t border-black/5 px-3 py-1.5 text-[11px] tabular-nums text-muted-foreground">
+          {col.footer}
+        </div>
+      )}
     </div>
   );
 }
@@ -157,7 +157,7 @@ function DraggableCard({
     <div
       ref={dragRef as any}
       style={{ opacity: isDragging ? 0.4 : 1, cursor: "grab" }}
-      className={isDragging ? "rotate-1" : ""}
+      className={isDragging ? "rotate-2 scale-[1.02]" : ""}
     >
       {children(isDragging)}
     </div>

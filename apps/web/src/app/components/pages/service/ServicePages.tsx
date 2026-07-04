@@ -1857,7 +1857,7 @@ function ServiceBoard({
           <Card
             data-testid={`service-kanban-card-${s.id}`}
             onClick={() => onOpen?.(s)}
-            className="p-3 hover:shadow-md hover:border-primary/40 transition-all border-border/60 group bg-white cursor-pointer"
+            className="group cursor-pointer rounded-lg border-transparent bg-white p-3 shadow-sm transition-all hover:-translate-y-px hover:shadow-md"
           >
             <div className="flex items-start gap-2">
               <div className="size-8 rounded-md bg-gradient-to-br from-primary/15 to-primary/5 text-primary grid place-items-center text-[10px] shrink-0">

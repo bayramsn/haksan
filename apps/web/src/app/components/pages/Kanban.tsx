@@ -226,11 +226,9 @@ export function KanbanPage({ onSelect, items }: { onSelect: (s: SalesCase) => vo
     if (to === "commercial_invoice" && sc && from === "payment_plan" && !hasCommercialInvoice(sc.id)) {
       if (!offers.some((offer) => offer.salesCaseId === sc.id)) {
         toast.error("Fatura için ilişkili teklif bulunamadı", { description: "Ticari fatura kaydı teklif üzerinden oluşturulur." });
-        onSelect(sc);
         return;
       }
-      setInvoiceUploadCase(sc);
-      toast.message("Ticari fatura gerekli", { description: "Dosyayı yükleyince kart otomatik olarak Ticari Fatura aşamasına geçirilecek." });
+      toast.error("Ticari fatura gerekli", { description: "Karttaki Fatura butonuyla belgeyi yükledikten sonra kart otomatik taşınır." });
       return;
     }
 
@@ -246,10 +244,9 @@ export function KanbanPage({ onSelect, items }: { onSelect: (s: SalesCase) => vo
         toast.message("Kurulum aşamasına alındı", { description: "Tutanağı karttaki butonla manuel açabilirsiniz." });
       }
       if (to === "payment_plan" && sc) {
-        // Kart Ödeme Planı aşamasına geldiğinde detay/dialog otomatik açılır;
-        // SalesCaseDetail içindeki "Ödeme Planı Gerekli" kartı kullanıcıyı
-        // "Ödeme Planı Oluştur" butonuna yönlendirir.
-        onSelect({ ...sc, stage: to });
+        // Otomatik dialog açılmaz; kullanıcı kartı açıp "Ödeme Planı Oluştur"
+        // butonunu kendisi kullanır.
+        toast.message("Ödeme planı gerekli", { description: "Kartı açıp Ödeme Planı Oluştur butonunu kullanın." });
       }
     } catch (err: any) {
       toast.error("Kart taşınamadı", { description: err?.message ?? "Aşama gereksinimleri tamamlanmalı." });
@@ -425,7 +422,7 @@ export function KanbanPage({ onSelect, items }: { onSelect: (s: SalesCase) => vo
           <Card
             data-testid={`sales-kanban-card-${s.id}`}
             onClick={() => onSelect(s)}
-            className="overflow-hidden p-3 hover:shadow-md hover:border-primary/40 transition-all border-border/60 group bg-white"
+            className="group overflow-hidden rounded-lg border-transparent bg-white p-3 shadow-sm transition-all hover:-translate-y-px hover:shadow-md"
           >
             <div className="flex items-start gap-2">
               <div className="size-8 rounded-md bg-gradient-to-br from-primary/15 to-primary/5 text-primary grid place-items-center text-[10px] shrink-0">
@@ -547,6 +544,26 @@ export function KanbanPage({ onSelect, items }: { onSelect: (s: SalesCase) => vo
                   onMouseDown={stopCardClick}
                 >
                   <FileSignature className="size-3" /> Sözleşme
+                </Button>
+              )}
+              {s.stage === "payment_plan" && !hasCommercialInvoice(s.id) && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-7 gap-1 px-2 text-[10px]"
+                  title="Ticari fatura yükle"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    if (!offers.some((offer) => offer.salesCaseId === s.id)) {
+                      toast.error("Teklif gerekli", { description: "Ticari fatura kaydı teklif üzerinden oluşturulur." });
+                      return;
+                    }
+                    setInvoiceUploadCase(s);
+                  }}
+                  onMouseDown={stopCardClick}
+                >
+                  <FileText className="size-3" /> Fatura
                 </Button>
               )}
               {(s.stage === "installation" || s.stage === "delivered") && (

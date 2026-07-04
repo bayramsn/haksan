@@ -16,6 +16,8 @@ export const opportunityCreateSchema = z.object({
   probability: z.coerce.number().int().min(0).max(100).default(50),
   expectedCloseDate: z.coerce.date().optional(),
   sourceCode: z.string().max(64).optional(),
+  // Makine satışında ödeme vadesi (gün). Sözleşme/ödeme planı için varsayılan.
+  paymentTermDays: z.coerce.number().int().min(0).max(3650).nullish(),
   // Kazanılan fırsat için kabul/kazanma nedeni (yıl sonu raporu).
   wonReason: z.string().max(255).nullish(),
 });
