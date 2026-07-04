@@ -303,6 +303,23 @@ export function SalesCaseDetailPage({
             </div>
             <div className="shrink-0 text-left lg:text-right">
               <div className="text-2xl tabular-nums">{sc.estimatedAmount.toLocaleString()} {sc.currency}</div>
+              <div className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground lg:justify-end">
+                <span>Vade:</span>
+                <input
+                  type="number"
+                  min={0}
+                  className="h-6 w-16 rounded border border-border/70 bg-white px-1.5 text-right text-xs tabular-nums outline-none focus:border-ring"
+                  defaultValue={sc.paymentTermDays ?? ""}
+                  placeholder="—"
+                  onBlur={async (e) => {
+                    const raw = e.target.value.trim();
+                    const next = raw === "" ? null : Math.max(0, Number(raw) || 0);
+                    if ((next ?? undefined) === sc.paymentTermDays) return;
+                    await updateCase(sc.id, { paymentTermDays: next });
+                  }}
+                />
+                <span>gün</span>
+              </div>
               <div className="mt-2"><StatusBadge status={sc.stage} /></div>
               {isSuperAdmin ? (
                 <Select

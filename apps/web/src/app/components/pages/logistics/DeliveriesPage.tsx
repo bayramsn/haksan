@@ -11,6 +11,7 @@ import { useStore } from "../../../lib/store";
 import { DELIVERY_STATUSES, type Delivery } from "../../../lib/mock";
 import { ExportExcelButton } from "../../ui/ExportExcelButton";
 import { printOrWarn } from "../../../lib/pageHelpers";
+import { resolveServiceFormNo } from "../../../lib/serviceFormNo";
 import { installationFormDoc, printAssetBase, trShortDate } from "../../../lib/print";
 import { Plus, ClipboardCheck, CheckCircle2, Clock, Building2, FileSignature, Printer } from "lucide-react";
 import { toast } from "sonner";
@@ -160,7 +161,12 @@ function DeliveryDetailDialog({
     if (!delivery || !form) return;
     const cust = customers.find((c) => c.id === form.customerId);
     const fd = deliveryFormToPayload(form);
-    const formNo = fd.formNo || "";
+    const formNo = resolveServiceFormNo({
+      currentFormNo: fd.formNo,
+      salesCaseId: delivery.salesCaseId,
+      machineId: fd.machineId,
+      fallbackId: delivery.id,
+    });
     const doc = installationFormDoc(
       {
         teslimTarihi: form.date ? trShortDate(form.date) : "",

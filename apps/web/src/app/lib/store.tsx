@@ -402,7 +402,7 @@ type Store = {
   updateCustomer: (id: string, patch: Partial<Omit<Customer, 'id' | 'createdAt'>>) => Promise<void>;
   deleteCustomer: (id: string) => Promise<void>;
   addCase: (c: Omit<SalesCase, 'id' | 'createdAt' | 'stage' | 'isLost' | 'isOfferPrepared'> & { stage?: SalesStage; divisionId?: string }) => Promise<SalesCase>;
-  updateCase: (id: string, patch: { assignedUserId?: string }) => Promise<void>;
+  updateCase: (id: string, patch: { assignedUserId?: string; paymentTermDays?: number | null }) => Promise<void>;
   deleteCase: (id: string) => Promise<void>;
   addOffer: (o: Omit<Offer, 'id' | 'date' | 'revision'> & { revision?: number }) => Promise<Offer>;
   createQuoteFull: (payload: CreateQuotePayload) => Promise<{ quoteId: string; documentNo: string; opportunityId: string }>;
@@ -672,6 +672,7 @@ function StoreInner({ children }: { children: ReactNode }) {
           estimatedAmount: Number(o.estimatedValue ?? 0),
           currency: (o.currency?.code as 'USD' | 'EUR' | 'TRY') ?? 'USD',
           stage: STAGE_BY_CODE[o.stage?.code ?? ''] ?? 'lead',
+          paymentTermDays: o.paymentTermDays === null || o.paymentTermDays === undefined ? undefined : Number(o.paymentTermDays),
           isOfferPrepared: qts.data.some((q: any) => q.opportunityId === o.id),
           isLost: (o.stage?.code ?? '') === 'cancelled',
           createdAt: (o.createdAt as string)?.slice(0, 10) ?? '',
@@ -1401,6 +1402,7 @@ function StoreInner({ children }: { children: ReactNode }) {
       estimatedValue: c.estimatedAmount,
       currencyCode: c.currency,
       probability: 50,
+      paymentTermDays: c.paymentTermDays ?? undefined,
       divisionId: c.divisionId || undefined,
     });
     const targetStage = c.stage ?? 'lead';
@@ -1424,6 +1426,7 @@ function StoreInner({ children }: { children: ReactNode }) {
   const updateCase: Store['updateCase'] = async (id, patch) => {
     const body: Record<string, unknown> = {};
     if (patch.assignedUserId !== undefined) body.ownerUserId = patch.assignedUserId || null;
+    if (patch.paymentTermDays !== undefined) body.paymentTermDays = patch.paymentTermDays ?? null;
     await opportunityService.update(id, body);
     await fetchAll();
   };

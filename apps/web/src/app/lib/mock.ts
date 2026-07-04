@@ -179,6 +179,8 @@ export type SalesCase = {
   estimatedAmount: number;
   currency: "USD" | "EUR" | "TRY";
   stage: SalesStage;
+  /** Makine satışında ödeme vadesi (gün); sözleşme/ödeme planı varsayılanı. */
+  paymentTermDays?: number;
   isOfferPrepared: boolean;
   isLost: boolean;
   lostReason?: string;

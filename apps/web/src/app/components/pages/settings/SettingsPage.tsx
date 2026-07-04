@@ -10,6 +10,7 @@ import { useAuth } from "../../../../lib/auth";
 import { adminService } from "../../../../lib/services";
 import {
   PRODUCT_SPEC_GROUPS,
+  machineSpecTemplateEntries,
   normalizeProductSpecKey,
   productSpecGroupForTypeKey,
   type ProductSpecGroup,
@@ -507,6 +508,23 @@ export function SettingsPage() {
     }
   };
 
+  // Şablonu olan tezgahlarda alan etiketi katalog listesinden seçilir; birim
+  // şablondan sabit gelir, sadece başlangıç değeri elle girilir.
+  const specTemplateOptions = useMemo(
+    () => [...machineSpecTemplateEntries(specForm.productTypeCode)],
+    [specForm.productTypeCode],
+  );
+
+  const applySpecTemplateKey = (specKey: string) => {
+    const item = specTemplateOptions.find((option) => option.key === specKey);
+    setSpecForm((current) => ({
+      ...current,
+      specKey,
+      specUnit: item ? item.unit : current.specUnit,
+      defaultValue: current.defaultValue || (item?.value ?? ""),
+    }));
+  };
+
   const resetSpecTemplateForm = (productTypeCode = specScope.productTypeCode) => {
     setEditingSpecId(null);
     setSpecForm({ ...emptySpecForm, productTypeCode });
@@ -750,6 +768,7 @@ export function SettingsPage() {
                             <tr>
                               <th className="px-3 py-2">Kod</th>
                               <th className="px-3 py-2">Ad</th>
+                              <th className="px-3 py-2">Açıklama</th>
                               {selectedLookup === "tax-offices" && <th className="px-3 py-2">İl</th>}
                               <th className="px-3 py-2">Sıra</th>
                               <th className="px-3 py-2">Durum</th>
@@ -761,6 +780,7 @@ export function SettingsPage() {
                               <tr key={row.id} className="border-t border-dotted border-foreground/30">
                                 <td className="px-3 py-2 font-mono text-xs">{row.code}</td>
                                 <td className="px-3 py-2 font-medium">{row.name}</td>
+                                <td className="max-w-[220px] truncate px-3 py-2 text-xs text-muted-foreground" title={row.description ?? undefined}>{row.description || "-"}</td>
                                 {selectedLookup === "tax-offices" && <td className="px-3 py-2">{row.province || "-"}</td>}
                                 <td className="px-3 py-2">{row.sortOrder ?? 0}</td>
                                 <td className="px-3 py-2">{row.isActive === false ? "Pasif" : "Aktif"}</td>
@@ -778,7 +798,7 @@ export function SettingsPage() {
                             ))}
                             {!lookupRows.length && (
                               <tr>
-                                <td className="px-3 py-6 text-center text-muted-foreground" colSpan={selectedLookup === "tax-offices" ? 6 : 5}>
+                                <td className="px-3 py-6 text-center text-muted-foreground" colSpan={selectedLookup === "tax-offices" ? 7 : 6}>
                                   Kayıt yok.
                                 </td>
                               </tr>
@@ -830,10 +850,27 @@ export function SettingsPage() {
                 <div className="grid grid-cols-1 md:grid-cols-6 gap-2">
                   <SettingsField label="Ürün Tipi Kodu" value={specForm.productTypeCode} disabled onChange={(v) => setSpecForm({ ...specForm, productTypeCode: v })} />
                   <div className="md:col-span-2">
-                    <SettingsField label="Alan Etiketi" value={specForm.specKey} onChange={(v) => setSpecForm({ ...specForm, specKey: v })} />
+                    {specTemplateOptions.length ? (
+                      <SettingsSelect
+                        label="Alan Etiketi"
+                        value={specForm.specKey}
+                        onChange={applySpecTemplateKey}
+                        options={[
+                          { value: "", label: "Alan seçin" },
+                          ...specTemplateOptions.map((item) => ({ value: item.key, label: item.key })),
+                        ]}
+                      />
+                    ) : (
+                      <SettingsField label="Alan Etiketi" value={specForm.specKey} onChange={(v) => setSpecForm({ ...specForm, specKey: v })} />
+                    )}
                   </div>
                   <SettingsField label="Yeni Ürün Başlangıç Değeri" value={specForm.defaultValue} onChange={(v) => setSpecForm({ ...specForm, defaultValue: v })} />
-                  <SettingsField label="Birim" value={specForm.specUnit} onChange={(v) => setSpecForm({ ...specForm, specUnit: v })} />
+                  <SettingsField
+                    label="Birim"
+                    value={specForm.specUnit}
+                    disabled={Boolean(specTemplateOptions.length && specForm.specKey)}
+                    onChange={(v) => setSpecForm({ ...specForm, specUnit: v })}
+                  />
                   <SettingsField label="Sıra" value={specForm.sortOrder} onChange={(v) => setSpecForm({ ...specForm, sortOrder: v })} />
                   <label className="flex items-end gap-2 pb-2 text-sm">
                     <input

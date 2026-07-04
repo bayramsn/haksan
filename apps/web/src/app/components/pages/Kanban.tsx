@@ -11,6 +11,7 @@ import { useStore } from "../../lib/store";
 import { LostCaseDialog } from "../dialogs/LostCaseDialog";
 import { installationFormDoc, printAssetBase, trShortDate } from "../../lib/print";
 import { printOrWarn } from "../../lib/pageHelpers";
+import { relatedDeliveryFormNo, resolveServiceFormNo } from "../../lib/serviceFormNo";
 import { toast } from "sonner";
 import { Button } from "../ui/button";
 import { Checkbox } from "../ui/checkbox";
@@ -62,7 +63,7 @@ const STAGE_DOT: Record<string, string> = {
 const initials = (n: string) => (n || "—").split(" ").slice(0, 2).map((p) => p[0]).join("").toUpperCase();
 
 export function KanbanPage({ onSelect, items }: { onSelect: (s: SalesCase) => void; items?: SalesCase[] }) {
-  const { cases: storeCases, moveCase, closeCase, customers, users, documents, offers, machines, stock } = useStore();
+  const { cases: storeCases, moveCase, closeCase, customers, users, documents, offers, machines, stock, deliveries } = useStore();
   const cases = items ?? storeCases;
   const [lostId, setLostId] = useState<string | null>(null);
   const [previewDoc, setPreviewDoc] = useState<DocumentItem | null>(null);
@@ -182,7 +183,12 @@ export function KanbanPage({ onSelect, items }: { onSelect: (s: SalesCase) => vo
         {
           teslimTarihi: m?.deliveryDate ? trShortDate(m.deliveryDate) : "",
           kurulumTarihi: m?.installationDate ? trShortDate(m.installationDate) : "",
-          formNo: sc.id.slice(0, 6).toUpperCase(),
+          formNo: resolveServiceFormNo({
+            relatedFormNo: relatedDeliveryFormNo(deliveries, { salesCaseId: sc.id, machineId: m?.id }),
+            salesCaseId: sc.id,
+            machineId: m?.id,
+            fallbackId: sc.id,
+          }),
           tezgah: m ? { marka: m.brand, tip: m.type, model: m.model, seriNo: m.serialNumber } : undefined,
           cnc: m?.controlUnit
             ? {

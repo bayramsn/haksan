@@ -996,6 +996,7 @@ export function CreateCaseDialog({ trigger, defaultCustomerId }: { trigger: Reac
     requestedModel: "",
     quantity: 1,
     estimatedAmount: 0,
+    paymentTermDays: undefined as number | undefined,
     currency: "USD" as "USD" | "EUR" | "TRY",
     stage: "lead" as (typeof SALES_STAGES)[number],
     department: "Satış",
@@ -1095,6 +1096,13 @@ export function CreateCaseDialog({ trigger, defaultCustomerId }: { trigger: Reac
             <Field label="Model" value={form.requestedModel} onChange={(v) => setForm({ ...form, requestedModel: v })} placeholder="Model elle girilebilir" />
             <Field label="Adet" type="number" value={String(form.quantity)} onChange={(v) => setForm({ ...form, quantity: Number(v) || 1 })} />
             <Field label="Tahmini Tutar" type="number" value={String(form.estimatedAmount)} onChange={(v) => setForm({ ...form, estimatedAmount: Number(v) || 0 })} />
+            <Field
+              label="Vade (gün)"
+              type="number"
+              value={form.paymentTermDays === undefined ? "" : String(form.paymentTermDays)}
+              onChange={(v) => setForm({ ...form, paymentTermDays: v.trim() === "" ? undefined : Math.max(0, Number(v) || 0) })}
+              placeholder="Örn. 90"
+            />
             <div>
               <Label className="text-xs">Para Birimi</Label>
               <Select value={form.currency} onValueChange={(v: any) => setForm({ ...form, currency: v })}>
@@ -4950,7 +4958,7 @@ export function CreateInstallationDialog({
 
 export function CreateMachineDialog({ children }: { children: React.ReactNode }) {
   const [open, setOpen] = useState(false);
-  const { customers, stock, machines, addMachine } = useStore();
+  const { customers, stock, machines, products, addMachine } = useStore();
   const [form, setForm] = useState({
     customerId: "",
     stockItemId: "",
@@ -5129,6 +5137,29 @@ export function CreateMachineDialog({ children }: { children: React.ReactNode })
               }}
             />
           </div>
+          {(() => {
+            // Teknik bilgiler makineye bağlı üründen şablon olarak gelir; etiket
+            // ve birim sabittir, değerler ürün kartında yönetilir.
+            const stockItem = stock.find((item) => item.id === form.stockItemId);
+            const product = stockItem?.productId ? products.find((item) => item.id === stockItem.productId) : undefined;
+            if (!form.stockItemId) return null;
+            return (
+              <div className="space-y-1.5">
+                <Label className="text-xs">Teknik Bilgiler (üründen otomatik)</Label>
+                {product ? (
+                  <ProductSpecsTable
+                    specs={specsForProductType(product.productTypeCode, product.specs ?? [])}
+                    productTypeCode={product.productTypeCode}
+                    emptyText="Ürün kartında teknik bilgi girilmemiş."
+                  />
+                ) : (
+                  <div className="rounded-md border border-dashed border-border/70 px-3 py-2 text-xs text-muted-foreground">
+                    Seçilen stok bir katalog ürününe bağlı değil; teknik bilgiler ürün kartından gelir.
+                  </div>
+                )}
+              </div>
+            );
+          })()}
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => setOpen(false)}>Vazgeç</Button>
             <Button type="submit">Kaydet</Button>

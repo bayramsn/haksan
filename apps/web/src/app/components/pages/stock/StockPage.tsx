@@ -463,7 +463,7 @@ export function StockPage({ focus, initialQuery }: { focus?: OperationFocus; ini
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
-                        {(s.categoryCode ?? "TEZGAH") === "TEZGAH" && s.status !== "Sold" && (
+                        {s.status !== "Sold" && (
                           <DropdownMenuItem onClick={() => openReserveDialog(s)}>
                             {s.status === "Reserved" ? "Firma bilgisini düzenle" : "Firmaya rezerve et"}
                           </DropdownMenuItem>
