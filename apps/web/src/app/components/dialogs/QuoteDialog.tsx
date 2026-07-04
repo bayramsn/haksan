@@ -10,75 +10,26 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "../ui/select";
 import { MultiSelect } from "../ui/multi-select";
-import { useStore, type NoteTemplate } from "../../lib/store";
+import { useStore } from "../../lib/store";
 import { useFx, FxRateBadge } from "../../lib/fx";
 import { useAuth } from "../../../lib/auth";
 import { quoteService } from "../../../lib/services";
 import { toast } from "sonner";
 import { Plus, Trash2, Save, BookmarkPlus, Bold } from "lucide-react";
 import type { Product, ProductSpec } from "../../lib/mock";
-import { specsForProductType } from "../../lib/productSpecTemplates";
+import { normalizeProductSpecKey, productSpecDefaults, specsForProductType } from "../../lib/productSpecTemplates";
 import { quoteDefaultsFromCase } from "../../lib/workflow";
-import { QUOTE_NOTE_VARIANTS, matchQuoteNoteVariantKey } from "../../lib/print";
+import { matchQuoteNoteVariantKey } from "../../lib/print";
+import {
+  DocumentTermsTemplateEditor,
+  matchSavedTermsTemplate,
+  useTermsTemplates,
+} from "./DocumentTermsTemplateEditor";
 
 // Şablon eşleşmesi: edit modunda yüklenen şartlar bir şablonla birebir aynıysa
 // o şablonu önseç (proforma otomatik tespitiyle aynı yardımcıyı kullanır).
 const matchNoteVariant = matchQuoteNoteVariantKey;
 const TERMS_TEMPLATE_SCOPE = "quote_terms";
-const TERMS_TEMPLATE_PREFIX = "template:";
-
-type TermsTemplate = {
-  id: string;
-  title: string;
-  selectKey: string;
-  paymentTerms: string;
-  deliveryTerms: string;
-  warrantyTerms: string;
-};
-
-const termsTemplateKey = (id: string) => `${TERMS_TEMPLATE_PREFIX}${id}`;
-
-const encodeTermsTemplateBody = (input: { paymentTerms: string; deliveryTerms: string; warrantyTerms: string }) =>
-  JSON.stringify({
-    paymentTermsText: input.paymentTerms,
-    deliveryTermsText: input.deliveryTerms,
-    warrantyTermsText: input.warrantyTerms,
-  });
-
-const parseTermsTemplate = (template: NoteTemplate): TermsTemplate | null => {
-  try {
-    const parsed = JSON.parse(template.body) as Record<string, unknown>;
-    return {
-      id: template.id,
-      title: template.title,
-      selectKey: termsTemplateKey(template.id),
-      paymentTerms: String(parsed.paymentTermsText ?? parsed.paymentTerms ?? ""),
-      deliveryTerms: String(parsed.deliveryTermsText ?? parsed.deliveryTerms ?? ""),
-      warrantyTerms: String(parsed.warrantyTermsText ?? parsed.warrantyTerms ?? ""),
-    };
-  } catch {
-    return null;
-  }
-};
-
-const normalizeTermsText = (value: string) =>
-  value.split(/\r?\n/).map((line) => line.trim()).filter(Boolean).join("\n");
-
-const matchSavedTermsTemplate = (
-  paymentTerms: string,
-  deliveryTerms: string,
-  warrantyTerms: string,
-  templates: TermsTemplate[],
-) => {
-  const payment = normalizeTermsText(paymentTerms);
-  const delivery = normalizeTermsText(deliveryTerms);
-  const warranty = normalizeTermsText(warrantyTerms);
-  return templates.find((template) =>
-    normalizeTermsText(template.paymentTerms) === payment &&
-    normalizeTermsText(template.deliveryTerms) === delivery &&
-    normalizeTermsText(template.warrantyTerms) === warranty
-  )?.selectKey ?? "";
-};
 
 type Currency = "USD" | "EUR" | "TRY";
 
@@ -176,6 +127,9 @@ const cleanTechnicalSpecs = (specs: ProductSpec[] = []) =>
 const technicalSpecsFromProduct = (product?: Product): ProductSpec[] =>
   product ? specsForProductType(product.productTypeCode, product.specs ?? []) : [];
 
+const isProductTypeTemplateSpec = (product: Product | undefined, spec: ProductSpec) =>
+  productSpecDefaults(product?.productTypeCode).some((templateSpec) => normalizeProductSpecKey(templateSpec.key) === normalizeProductSpecKey(spec.key));
+
 const num = (s: string) => {
   const n = Number(String(s).replace(",", "."));
   return Number.isFinite(n) ? n : 0;
@@ -237,14 +191,7 @@ export function QuoteDialog({
     () => noteTemplates.filter((template) => (template.scope ?? "quote") === "quote"),
     [noteTemplates]
   );
-  const savedTermsTemplates = useMemo(
-    () => noteTemplates
-      .filter((template) => template.scope === TERMS_TEMPLATE_SCOPE)
-      .map(parseTermsTemplate)
-      .filter((template): template is TermsTemplate => Boolean(template)),
-    [noteTemplates]
-  );
-  const selectedSavedTermsTemplate = savedTermsTemplates.find((template) => template.selectKey === noteVariantKey);
+  const savedTermsTemplates = useTermsTemplates(noteTemplates, TERMS_TEMPLATE_SCOPE);
 
   const reset = () => {
     setCompanyId(defaultCustomerId ?? "");
@@ -401,25 +348,8 @@ export function QuoteDialog({
   const companyContacts = contacts.filter((c) => c.customerId === companyId);
   const companyCases = cases.filter((c) => c.customerId === companyId);
 
-  // Belge şartları şablonu seçimi: ödeme/teslimat/garanti alanlarını şablondan
-  // doldurur. Boş anahtar = "Özel (manuel)" — alanlar elle düzenlenir.
-  const applyNoteVariant = (key: string) => {
-    setNoteVariantKey(key);
-    if (!key) return;
-    if (key.startsWith(TERMS_TEMPLATE_PREFIX)) {
-      const template = savedTermsTemplates.find((item) => item.selectKey === key);
-      if (!template) return;
-      setPaymentTerms(template.paymentTerms);
-      setDeliveryTerms(template.deliveryTerms);
-      setWarrantyTerms(template.warrantyTerms);
-      return;
-    }
+  const onTermsBuiltInSelected = (key: string) => {
     if (key && NOTE_VARIANT_DELIVERY[key]) setDeliveryCode(NOTE_VARIANT_DELIVERY[key]);
-    const v = QUOTE_NOTE_VARIANTS.find((x) => x.key === key);
-    if (!v) return;
-    setPaymentTerms(v.odeme.join("\n"));
-    setDeliveryTerms(v.teslimat.join("\n"));
-    setWarrantyTerms(v.garanti.join("\n"));
   };
 
   const setLine = (i: number, patch: Partial<LineState>) =>
@@ -686,55 +616,6 @@ export function QuoteDialog({
     setNote((n) => (n.trim() ? `${n}\n${t.body}` : t.body));
   };
 
-  const currentTermsTemplateBody = () => encodeTermsTemplateBody({ paymentTerms, deliveryTerms, warrantyTerms });
-
-  const saveTermsTemplate = async () => {
-    if (!paymentTerms.trim() && !deliveryTerms.trim() && !warrantyTerms.trim()) {
-      return toast.error("Önce belge şartı girin");
-    }
-    const title = window.prompt("Belge şartları şablon başlığı:");
-    if (!title?.trim()) return;
-    try {
-      const created = await addNoteTemplate({
-        title: title.trim(),
-        body: currentTermsTemplateBody(),
-        scope: TERMS_TEMPLATE_SCOPE,
-      });
-      setNoteVariantKey(termsTemplateKey(created.id));
-      toast.success("Belge şartları şablonu kaydedildi");
-    } catch (err: any) {
-      toast.error("Şablon kaydedilemedi", { description: err?.message });
-    }
-  };
-
-  const updateTermsTemplate = async () => {
-    if (!selectedSavedTermsTemplate) return;
-    const title = window.prompt("Şablon başlığı:", selectedSavedTermsTemplate.title);
-    if (!title?.trim()) return;
-    try {
-      await updateNoteTemplate(selectedSavedTermsTemplate.id, {
-        title: title.trim(),
-        body: currentTermsTemplateBody(),
-        scope: TERMS_TEMPLATE_SCOPE,
-      });
-      toast.success("Belge şartları şablonu güncellendi");
-    } catch (err: any) {
-      toast.error("Şablon güncellenemedi", { description: err?.message });
-    }
-  };
-
-  const deleteTermsTemplate = async () => {
-    if (!selectedSavedTermsTemplate) return;
-    if (!window.confirm(`"${selectedSavedTermsTemplate.title}" şablonu silinsin mi?`)) return;
-    try {
-      await deleteNoteTemplate(selectedSavedTermsTemplate.id);
-      setNoteVariantKey("");
-      toast.success("Belge şartları şablonu silindi");
-    } catch (err: any) {
-      toast.error("Şablon silinemedi", { description: err?.message });
-    }
-  };
-
   const saveTemplate = async () => {
     const body = note.trim();
     if (!body) return toast.error("Önce not yazın");
@@ -952,25 +833,46 @@ export function QuoteDialog({
                             </div>
                           ) : (
                             <div className="space-y-1.5">
-                              {l.technicalSpecs.map((spec, specIndex) => (
-                                <div key={specIndex} className="grid grid-cols-[minmax(130px,1fr)_minmax(150px,1.3fr)_32px] gap-1.5">
-                                  <Input
-                                    className="h-8 bg-white"
-                                    value={spec.key}
-                                    onChange={(event) => setTechnicalSpec(i, specIndex, { key: event.target.value })}
-                                    placeholder="Özellik"
-                                  />
-                                  <Input
-                                    className="h-8 bg-white"
-                                    value={spec.value}
-                                    onChange={(event) => setTechnicalSpec(i, specIndex, { value: event.target.value })}
-                                    placeholder="Değer"
-                                  />
-                                  <Button type="button" variant="ghost" size="icon" className="h-8 w-8" onClick={() => rmTechnicalSpec(i, specIndex)}>
-                                    <Trash2 className="size-4 text-muted-foreground" />
-                                  </Button>
-                                </div>
-                              ))}
+                              {l.technicalSpecs.map((spec, specIndex) => {
+                                const lockedTemplateRow = isProductTypeTemplateSpec(product, spec);
+                                const unit = spec.unit ?? spec.specUnit ?? "";
+                                return (
+                                  <div key={specIndex} className="grid grid-cols-[minmax(150px,1fr)_minmax(150px,1.2fr)_72px_32px] gap-1.5">
+                                    {lockedTemplateRow ? (
+                                      <div className="flex h-8 min-w-0 items-center rounded-md border border-border/70 bg-muted/30 px-2 text-xs font-medium text-foreground" title={spec.key}>
+                                        <span className="truncate">{spec.key}</span>
+                                      </div>
+                                    ) : (
+                                      <Input
+                                        className="h-8 bg-white"
+                                        value={spec.key}
+                                        onChange={(event) => setTechnicalSpec(i, specIndex, { key: event.target.value })}
+                                        placeholder="Özellik"
+                                      />
+                                    )}
+                                    <Input
+                                      className="h-8 bg-white"
+                                      value={spec.value}
+                                      onChange={(event) => setTechnicalSpec(i, specIndex, { value: event.target.value })}
+                                      placeholder="Değer"
+                                    />
+                                    <div className="h-8 rounded-md border border-border/70 bg-muted/30 px-2 text-center text-xs leading-8 text-muted-foreground" title={unit}>
+                                      {unit || "-"}
+                                    </div>
+                                    <Button
+                                      type="button"
+                                      variant="ghost"
+                                      size="icon"
+                                      className="h-8 w-8"
+                                      disabled={lockedTemplateRow}
+                                      title={lockedTemplateRow ? "Şablon satırı silinemez" : "Satırı kaldır"}
+                                      onClick={() => rmTechnicalSpec(i, specIndex)}
+                                    >
+                                      <Trash2 className={`size-4 ${lockedTemplateRow ? "text-muted-foreground/30" : "text-muted-foreground"}`} />
+                                    </Button>
+                                  </div>
+                                );
+                              })}
                             </div>
                           )}
                         </div>
@@ -1143,74 +1045,23 @@ export function QuoteDialog({
             </div>
           </div>
 
-          {/* BELGE ŞARTLARI ŞABLONU — seçilen şablon ödeme/teslimat/garanti
-              alanlarını doldurur; alanlar belgeye basılmadan önce elle düzenlenebilir. */}
-          <div className="rounded-lg border border-border/70">
-            <div className="flex flex-col gap-2 px-3 py-2.5 border-b border-border/60 bg-muted/30 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <div className="text-sm font-medium">Belge Şartları</div>
-                <div className="text-[11px] text-muted-foreground">Şablon seçin, metinleri gerekiyorsa düzenleyin; değişiklikler teklif/proforma belgesine eklenir.</div>
-              </div>
-              <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
-                <Select value={noteVariantKey || "ozel"} onValueChange={(v) => applyNoteVariant(v === "ozel" ? "" : v)}>
-                  <SelectTrigger className="h-9 w-full sm:w-64"><SelectValue placeholder="Şablon seçin..." /></SelectTrigger>
-                  <SelectContent>
-                    {QUOTE_NOTE_VARIANTS.map((v) => <SelectItem key={v.key} value={v.key}>{v.label}</SelectItem>)}
-                    {savedTermsTemplates.length > 0 && (
-                      <div className="px-2 py-1.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Kayıtlı şablonlar</div>
-                    )}
-                    {savedTermsTemplates.map((template) => (
-                      <SelectItem key={template.id} value={template.selectKey}>{template.title}</SelectItem>
-                    ))}
-                    <SelectItem value="ozel">Özel (manuel gir)</SelectItem>
-                  </SelectContent>
-                </Select>
-                <Button type="button" variant="outline" size="sm" className="h-9 gap-1" onClick={saveTermsTemplate}>
-                  <BookmarkPlus className="size-3.5" /> Yeni şablon
-                </Button>
-              </div>
-            </div>
-
-            {selectedSavedTermsTemplate && (
-              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/60 px-3 py-2 text-xs">
-                <span className="text-muted-foreground">Kayıtlı şablon düzenleniyor: {selectedSavedTermsTemplate.title}</span>
-                <div className="flex gap-2">
-                  <Button type="button" variant="outline" size="sm" className="h-7 text-xs" onClick={updateTermsTemplate}>Şablonu güncelle</Button>
-                  <Button type="button" variant="ghost" size="sm" className="h-7 text-xs text-destructive" onClick={deleteTermsTemplate}>Sil</Button>
-                </div>
-              </div>
-            )}
-
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 p-3">
-              <div>
-                <Label className="text-xs">Ödeme Şartları</Label>
-                <Textarea
-                  className="mt-1.5 min-h-28"
-                  value={paymentTerms}
-                  onChange={(event) => setPaymentTerms(event.target.value)}
-                  placeholder="Her satıra bir madde yazın (belgede a, b, c olarak listelenir)..."
-                />
-              </div>
-              <div>
-                <Label className="text-xs">Teslimat Şartları</Label>
-                <Textarea
-                  className="mt-1.5 min-h-28"
-                  value={deliveryTerms}
-                  onChange={(event) => setDeliveryTerms(event.target.value)}
-                  placeholder="Her satıra bir madde yazın..."
-                />
-              </div>
-              <div>
-                <Label className="text-xs">Garanti Şartları</Label>
-                <Textarea
-                  className="mt-1.5 min-h-28"
-                  value={warrantyTerms}
-                  onChange={(event) => setWarrantyTerms(event.target.value)}
-                  placeholder="Her satıra bir madde yazın..."
-                />
-              </div>
-            </div>
-          </div>
+          <DocumentTermsTemplateEditor
+            description="Şablon seçin, metinleri gerekiyorsa düzenleyin; değişiklikler teklif/proforma belgesine eklenir."
+            templateScope={TERMS_TEMPLATE_SCOPE}
+            noteTemplates={noteTemplates}
+            selectedTemplateKey={noteVariantKey}
+            onSelectedTemplateKeyChange={setNoteVariantKey}
+            value={{ paymentTerms, deliveryTerms, warrantyTerms }}
+            onChange={(next) => {
+              setPaymentTerms(next.paymentTerms);
+              setDeliveryTerms(next.deliveryTerms);
+              setWarrantyTerms(next.warrantyTerms);
+            }}
+            addNoteTemplate={addNoteTemplate}
+            updateNoteTemplate={updateNoteTemplate}
+            deleteNoteTemplate={deleteNoteTemplate}
+            onBuiltInTemplateSelected={onTermsBuiltInSelected}
+          />
 
           {/* NOTES */}
           <div>

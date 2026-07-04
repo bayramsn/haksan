@@ -14,7 +14,7 @@ import { MultiSelect } from "../ui/multi-select";
 import { Checkbox } from "../ui/checkbox";
 import { useStore } from "../../lib/store";
 import { usePersistentState } from "../../lib/persist";
-import { SALES_STAGES, salesStageLabel, SHIPMENT_STATUSES, DELIVERY_STATUSES, type ShipmentStatus, type DeliveryStatus, type Customer, type Contact, type Machine, type Product, type ProductSpec, type ServiceTicketType, type StockItem } from "../../lib/mock";
+import { SALES_STAGES, salesStageLabel, SHIPMENT_STATUSES, DELIVERY_STATUSES, type ShipmentStatus, type DeliveryStatus, type Delivery, type Customer, type Contact, type Machine, type Product, type ProductSpec, type ServiceTicketType, type StockItem } from "../../lib/mock";
 
 const SERVICE_TICKET_TYPE_OPTIONS: { value: ServiceTicketType; label: string }[] = [
   { value: "complaint", label: "Şikayet" },
@@ -62,11 +62,14 @@ import { PROVINCE_NAMES } from "../../lib/geo";
 import {
   allCatalogProductSpecs,
   groupProductSpecsForType,
+  normalizeProductSpecKey,
+  productSpecDefaults,
   specsForProductType,
 } from "../../lib/productSpecTemplates";
 import { QuoteDialog } from "./QuoteDialog";
 import { ProductSpecsTable } from "../shared/ProductSpecsTable";
 import { OsmCompanySearch } from "../company/OsmCompanySearch";
+import { relatedDeliveryFormNo, resolveServiceFormNo } from "../../lib/serviceFormNo";
 
 /* ---------- Customer ---------- */
 const COMPANY_GROUP_OPTIONS = [
@@ -1850,6 +1853,9 @@ const catalogSpecs = (specs: ProductSpec[] = [], emptyValue = "", productTypeCod
     groupName: spec.groupName,
   }));
 
+const isProductTypeTemplateSpec = (productTypeCode: string | undefined, spec: ProductSpec) =>
+  productSpecDefaults(productTypeCode).some((templateSpec) => normalizeProductSpecKey(templateSpec.key) === normalizeProductSpecKey(spec.key));
+
 type ProductFormState = {
   brand: string;
   productGroupCode: string; productGroup: string;
@@ -2742,30 +2748,42 @@ export function ProductDialog({
                         </div>
                       </div>
                       <div className="min-w-0 divide-y divide-dotted divide-foreground/30">
-                        {specs.map((s) => (
-                          <div key={s.index} className="grid grid-cols-[minmax(160px,1fr)_minmax(140px,0.9fr)_88px_36px] items-center gap-2 px-2 py-1.5">
-                            <div className="min-w-0 truncate text-xs font-medium text-foreground" title={s.key}>
-                              {s.key}
+                        {specs.map((s) => {
+                          const lockedTemplateRow = isProductTypeTemplateSpec(form.productTypeCode, s);
+                          return (
+                            <div key={s.index} className="grid grid-cols-[minmax(160px,1fr)_minmax(140px,0.9fr)_88px_36px] items-center gap-2 px-2 py-1.5">
+                              <div className="min-w-0 truncate text-xs font-medium text-foreground" title={s.key}>
+                                {s.key}
+                              </div>
+                              <Combobox
+                                className="h-8 bg-white"
+                                options={specValueOptionsFor(s)}
+                                value={s.value}
+                                onChange={(value) => updSpec(s.index, { value })}
+                                placeholder="Boş / -"
+                                searchPlaceholder="Değer ara..."
+                                emptyText="Değer bulunamadı"
+                                onCreate={(value) => updSpec(s.index, { value })}
+                                createLabel={(query) => `"${query}" kullan`}
+                              />
+                              <div className="h-8 rounded-md border border-border/70 bg-muted/30 px-2 text-center text-xs leading-8 text-muted-foreground" title={s.unit ?? s.specUnit ?? ""}>
+                                {s.unit || s.specUnit || "-"}
+                              </div>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8"
+                                disabled={lockedTemplateRow}
+                                title={lockedTemplateRow ? "Şablon satırı silinemez" : "Satırı kaldır"}
+                                onClick={() => rmSpec(s.index)}
+                                aria-label={`${s.key} satırını kaldır`}
+                              >
+                                <Trash2 className={`size-4 ${lockedTemplateRow ? "text-muted-foreground/30" : "text-muted-foreground"}`} />
+                              </Button>
                             </div>
-                            <Combobox
-                              className="h-8 bg-white"
-                              options={specValueOptionsFor(s)}
-                              value={s.value}
-                              onChange={(value) => updSpec(s.index, { value })}
-                              placeholder="Boş / -"
-                              searchPlaceholder="Değer ara..."
-                              emptyText="Değer bulunamadı"
-                              onCreate={(value) => updSpec(s.index, { value })}
-                              createLabel={(query) => `"${query}" kullan`}
-                            />
-                            <div className="h-8 rounded-md border border-border/70 bg-muted/30 px-2 text-center text-xs leading-8 text-muted-foreground" title={s.unit ?? s.specUnit ?? ""}>
-                              {s.unit || s.specUnit || "-"}
-                            </div>
-                            <Button type="button" variant="ghost" size="icon" className="h-8 w-8" onClick={() => rmSpec(s.index)} aria-label={`${s.key} satırını kaldır`}>
-                              <Trash2 className="size-4 text-muted-foreground" />
-                            </Button>
-                          </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     </div>
                   ))}
@@ -3720,6 +3738,7 @@ export function DeliveryFormFields({
   customers,
   casesForCustomer,
   machinesForCustomer,
+  relatedDeliveries = [],
 }: {
   form: DeliveryFormState;
   setForm: React.Dispatch<React.SetStateAction<DeliveryFormState>>;
@@ -3732,12 +3751,19 @@ export function DeliveryFormFields({
     serialNumber: string;
     technicalSpecs?: ProductSpec[];
   }[];
+  relatedDeliveries?: Delivery[];
 }) {
   const applyMachine = (machineId: string) => {
     const m = machinesForCustomer.find((x) => x.id === machineId);
     setForm((prev) => ({
       ...prev,
       machineId,
+      formNo: resolveServiceFormNo({
+        currentFormNo: prev.formNo,
+        relatedFormNo: relatedDeliveryFormNo(relatedDeliveries, { salesCaseId: prev.salesCaseId, machineId }),
+        salesCaseId: prev.salesCaseId,
+        machineId,
+      }),
       ...machineToDeliveryFields(m as any),
     }));
   };
@@ -3769,7 +3795,22 @@ export function DeliveryFormFields({
         </div>
         <div>
           <Label className="text-xs">Satış Kartı</Label>
-          <Select value={form.salesCaseId || "none"} onValueChange={(v) => setForm({ ...form, salesCaseId: v === "none" ? "" : v })}>
+          <Select
+            value={form.salesCaseId || "none"}
+            onValueChange={(v) => {
+              const salesCaseId = v === "none" ? "" : v;
+              setForm({
+                ...form,
+                salesCaseId,
+                formNo: resolveServiceFormNo({
+                  currentFormNo: form.formNo,
+                  relatedFormNo: relatedDeliveryFormNo(relatedDeliveries, { salesCaseId, machineId: form.machineId }),
+                  salesCaseId,
+                  machineId: form.machineId,
+                }),
+              });
+            }}
+          >
             <SelectTrigger className="mt-1.5"><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="none">Belirtilmedi</SelectItem>
@@ -3853,7 +3894,7 @@ export function DeliveryFormFields({
 }
 
 export function CreateDeliveryDialog({ trigger, onCreated }: { trigger: React.ReactNode; onCreated?: () => void }) {
-  const { addDelivery, cases, customers, machines } = useStore();
+  const { addDelivery, cases, customers, machines, deliveries } = useStore();
   const customerName = (id: string) => customers.find((c) => c.id === id)?.name ?? "—";
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -3922,6 +3963,7 @@ export function CreateDeliveryDialog({ trigger, onCreated }: { trigger: React.Re
             customers={customers}
             casesForCustomer={casesForCustomer}
             machinesForCustomer={machinesForCustomer}
+            relatedDeliveries={deliveries}
           />
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => setOpen(false)} disabled={saving}>Vazgeç</Button>
@@ -4715,7 +4757,7 @@ export function CreateInstallationDialog({
   trigger: React.ReactNode;
   onCreated?: () => void;
 }) {
-  const { customers, contacts, users, machines } = useStore();
+  const { customers, contacts, users, machines, deliveries } = useStore();
   const [open, setOpen] = useState(false);
   const emptyForm = () => {
     const companyId = customers[0]?.id ?? "";
@@ -4754,6 +4796,10 @@ export function CreateInstallationDialog({
     e.preventDefault();
     if (!form.companyId) return toast.error("Firma seçiniz");
     try {
+      const formNo = resolveServiceFormNo({
+        relatedFormNo: relatedDeliveryFormNo(deliveries, { machineId: form.customerDeviceId }),
+        machineId: form.customerDeviceId,
+      });
       await serviceService.createInstallation({
         companyId: form.companyId,
         contactId: form.contactId || undefined,
@@ -4764,6 +4810,12 @@ export function CreateInstallationDialog({
         locationType: form.locationType,
         durationMinutes: totalMinutes > 0 ? totalMinutes : undefined,
         notes: form.notes || undefined,
+        formData: formNo
+          ? {
+              formNo,
+              machineId: form.customerDeviceId || undefined,
+            }
+          : undefined,
       });
       toast.success("Kurulum oluşturuldu");
       setOpen(false);

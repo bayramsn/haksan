@@ -1,15 +1,15 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type MouseEvent } from "react";
 import { Card } from "../ui/card";
 import { Avatar, AvatarFallback } from "../ui/avatar";
 import { SALES_STAGES, SalesCase, SalesStage, salesStageLabel, DocumentItem, type Machine } from "../../lib/mock";
-import { ArrowRight, Building2, Calendar, CheckCircle2 } from "lucide-react";
+import { ArrowRight, Building2, Calendar, CheckCircle2, FileSignature, FileText, Printer } from "lucide-react";
 import { KanbanBoard, KanbanColumn } from "../KanbanBoard";
 import { KanbanCardAttachments } from "../KanbanCardAttachments";
 import { DocumentPreviewDialog } from "../dialogs/DocumentPreviewDialog";
 import { DocumentUploadDialog } from "../dialogs/DocumentUploadDialog";
 import { useStore } from "../../lib/store";
 import { LostCaseDialog } from "../dialogs/LostCaseDialog";
-import { loadContractPrintData, loadProformaPrintData, proformaDoc, contractDoc, installationFormDoc, printAssetBase, trShortDate } from "../../lib/print";
+import { installationFormDoc, printAssetBase, trShortDate } from "../../lib/print";
 import { printOrWarn } from "../../lib/pageHelpers";
 import { toast } from "sonner";
 import { Button } from "../ui/button";
@@ -25,6 +25,8 @@ import {
   DropdownMenuTrigger,
 } from "../ui/dropdown-menu";
 import { inventoryService } from "../../../lib/services";
+import { CreateProformaDialog } from "../dialogs/CreateProformaDialog";
+import { CreateContractDialog } from "../dialogs/CreateContractDialog";
 
 const STAGE_DOT: Record<string, string> = {
   lead: "bg-zinc-400",
@@ -60,7 +62,7 @@ const STAGE_DOT: Record<string, string> = {
 const initials = (n: string) => (n || "—").split(" ").slice(0, 2).map((p) => p[0]).join("").toUpperCase();
 
 export function KanbanPage({ onSelect, items }: { onSelect: (s: SalesCase) => void; items?: SalesCase[] }) {
-  const { cases: storeCases, moveCase, closeCase, customers, contacts, users, documents, offers, products, payments, machines, stock, addDocument } = useStore();
+  const { cases: storeCases, moveCase, closeCase, customers, users, documents, offers, machines, stock } = useStore();
   const cases = items ?? storeCases;
   const [lostId, setLostId] = useState<string | null>(null);
   const [previewDoc, setPreviewDoc] = useState<DocumentItem | null>(null);
@@ -113,115 +115,10 @@ export function KanbanPage({ onSelect, items }: { onSelect: (s: SalesCase) => vo
     }
   };
 
-  // Kart "Proforma" aşamasına geldiğinde: kartın ve (varsa) ilişkili teklifin
-  // bilgilerinden örnek PDF formatında proforma üretip yeni sekmede açar ve
-  // sistemde bir Proforma belge kaydı oluşturur (zaten varsa yalnızca açar).
-  const generateProforma = async (sc: SalesCase) => {
-    const loading = toast.loading("Proforma hazırlanıyor…");
-    try {
-      const existing = documents.find((d) => d.salesCaseId === sc.id && d.type === "Proforma");
-      const year = new Date().getFullYear();
-      const seq = String(documents.filter((d) => d.type === "Proforma").length + 1).padStart(3, "0");
-      const belgeNo = existing?.fileName ?? `${year}/${seq}`;
-
-      const doc: DocumentItem = {
-        id: existing?.id ?? `pf-${sc.id}`,
-        salesCaseId: sc.id,
-        companyId: sc.customerId,
-        quoteId: existing?.quoteId,
-        type: "Proforma",
-        fileName: belgeNo,
-        uploadedBy: "",
-        uploadedAt: new Date().toISOString().slice(0, 10),
-        size: "—",
-      };
-
-      // 1) Örnek formatında proformayı oluştur ve yeni sekmede aç.
-      const data = await loadProformaPrintData({
-        doc,
-        customers,
-        cases,
-        offers,
-        products,
-        contacts,
-      });
-      printOrWarn(proformaDoc(data, printAssetBase()));
-
-      // 2) Sistemde proforma kaydı oluştur (zaten varsa atla).
-      if (!existing) {
-        try {
-          await addDocument({
-            salesCaseId: sc.id,
-            companyId: sc.customerId,
-            type: "Proforma",
-            fileName: belgeNo,
-            size: "—",
-          });
-          toast.success("Proforma oluşturuldu", { description: `Belge No: ${belgeNo}` });
-        } catch (err: any) {
-          toast.message("Proforma açıldı, kayıt oluşturulamadı", {
-            description: err?.message ?? "İlişkili teklif bulunamadı.",
-          });
-        }
-      }
-    } catch (err: any) {
-      toast.error("Proforma oluşturulamadı", { description: err?.message ?? "Teklif verisi okunamadı." });
-    } finally {
-      toast.dismiss(loading);
-    }
-  };
-
-  // Satış Sözleşmesi PDF'ini kartın/teklifinin verisinden üretir (Belgeler
-  // sayfasındaki printContract ile aynı kurallar).
-  const buildContractDoc = async (sc: SalesCase) => {
-    const cust = customers.find((c) => c.id === sc.customerId) ?? null;
-    const offer = offers
-      .filter((o) => o.salesCaseId === sc.id || (cust && o.companyId === cust.id))
-      .sort((a, b) => b.date.localeCompare(a.date))[0];
-    const data = await loadContractPrintData({
-      customer: cust,
-      salesCase: sc,
-      offer,
-      products,
-      payments,
-      contractDate: new Date().toISOString().slice(0, 10),
-    });
-    return contractDoc(data, printAssetBase());
-  };
-
-  // Sözleşme aşaması backend'de bir sözleşme kaydı şartı koşar; bu yüzden
-  // proformanın aksine önce sözleşmeyi üretip kaydı oluştururuz, sonra
-  // aşamayı taşırız. Kapı sağlanırsa true döner.
-  const prepareContract = async (sc: SalesCase): Promise<boolean> => {
-    const loading = toast.loading("Sözleşme hazırlanıyor…");
-    try {
-      const existing = documents.find((d) => d.salesCaseId === sc.id && d.type === "Contract");
-      const year = new Date().getFullYear();
-      const seq = String(documents.filter((d) => d.type === "Contract").length + 1).padStart(3, "0");
-      const sozlesmeNo = existing?.fileName ?? `${year}/S-${seq}`;
-
-      // 1) Satış Sözleşmesi PDF'ini üret ve yeni sekmede aç.
-      printOrWarn(await buildContractDoc(sc));
-
-      // 2) Kayıt yoksa oluştur (backend aşama kapısını geçirir).
-      if (!existing) {
-        await addDocument({
-          salesCaseId: sc.id,
-          companyId: sc.customerId,
-          type: "Contract",
-          fileName: sozlesmeNo,
-          size: "—",
-        });
-        toast.success("Sözleşme oluşturuldu", { description: `Belge No: ${sozlesmeNo}` });
-      }
-      return true;
-    } catch (err: any) {
-      toast.error("Sözleşme oluşturulamadı", { description: err?.message ?? "İlişkili teklif bulunamadı." });
-      return false;
-    } finally {
-      toast.dismiss(loading);
-    }
-  };
+  const latestOfferForCase = (sc: SalesCase) =>
+    offers
+      .filter((offer) => offer.salesCaseId === sc.id || offer.companyId === sc.customerId)
+      .sort((a, b) => b.date.localeCompare(a.date) || b.quoteNo.localeCompare(a.quoteNo, "tr", { numeric: true }))[0];
 
   // Kurulum aşamasına gelince Kurulum Tutanağı'nı (DR.MAK) kartın müşterisi ve
   // (varsa) bağlı makinesinin bilgileriyle üretip yeni sekmede açar. Sahada
@@ -337,21 +234,16 @@ export function KanbanPage({ onSelect, items }: { onSelect: (s: SalesCase) => vo
       return;
     }
 
-    // Sözleşme aşaması belge şartlı: önce üret+kaydet, kapı sağlanmazsa taşıma.
-    if (to === "contract" && sc) {
-      const ready = await prepareContract(sc);
-      if (!ready) return;
+    if (to === "contract" && sc && !documents.some((d) => d.salesCaseId === sc.id && d.type === "Contract")) {
+      toast.error("Sözleşme gerekli", { description: "Karttaki Sözleşme butonuyla belgeyi oluşturduktan sonra aşamayı taşıyın." });
+      return;
     }
 
     try {
       await moveCase(id, to);
       toast.success("Kart taşındı", { description: `Yeni aşama: ${salesStageLabel(to)}` });
-      if (to === "proforma" && sc) {
-        void generateProforma(sc);
-      }
       if (to === "installation" && sc) {
-        await generateInstallationForm(sc);
-        toast.success("Kurulum tutanağı hazırlandı", { description: "Garanti, kurulumla otomatik başlatıldı." });
+        toast.message("Kurulum aşamasına alındı", { description: "Tutanağı karttaki butonla manuel açabilirsiniz." });
       }
       if (to === "payment_plan" && sc) {
         // Kart Ödeme Planı aşamasına geldiğinde detay/dialog otomatik açılır;
@@ -525,6 +417,10 @@ export function KanbanPage({ onSelect, items }: { onSelect: (s: SalesCase) => vo
         const c = customers.find((x) => x.id === s.customerId);
         const u = users.find((x) => x.id === s.assignedUserId);
         const caseDocs = documents.filter((d) => d.salesCaseId === s.id);
+        const latestOffer = latestOfferForCase(s);
+        const hasProforma = caseDocs.some((d) => d.type === "Proforma");
+        const hasContract = caseDocs.some((d) => d.type === "Contract");
+        const stopCardClick = (event: MouseEvent) => event.stopPropagation();
         return (
           <Card
             data-testid={`sales-kanban-card-${s.id}`}
@@ -585,6 +481,91 @@ export function KanbanPage({ onSelect, items }: { onSelect: (s: SalesCase) => vo
               onPreview={setPreviewDoc}
               onOpenCase={() => onSelect(s)}
             />
+
+            <div className="mt-2 flex flex-wrap items-center gap-1.5">
+              {latestOffer ? (
+                <CreateProformaDialog
+                  defaultQuoteId={latestOffer.id}
+                  trigger={
+                    <Button
+                      type="button"
+                      variant={hasProforma ? "secondary" : "outline"}
+                      size="sm"
+                      className="h-7 gap-1 px-2 text-[10px]"
+                      title="Proforma oluştur"
+                      onClick={stopCardClick}
+                      onMouseDown={stopCardClick}
+                    >
+                      <FileText className="size-3" /> Proforma
+                    </Button>
+                  }
+                />
+              ) : (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-7 gap-1 px-2 text-[10px]"
+                  title="Önce teklif oluşturulmalı"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    toast.error("Teklif gerekli", { description: "Proforma için önce bu karta bağlı teklif oluşturun." });
+                  }}
+                  onMouseDown={stopCardClick}
+                >
+                  <FileText className="size-3" /> Proforma
+                </Button>
+              )}
+              {latestOffer ? (
+                <CreateContractDialog
+                  defaultQuoteId={latestOffer.id}
+                  trigger={
+                    <Button
+                      type="button"
+                      variant={hasContract ? "secondary" : "outline"}
+                      size="sm"
+                      className="h-7 gap-1 px-2 text-[10px]"
+                      title="Sözleşme oluştur"
+                      onClick={stopCardClick}
+                      onMouseDown={stopCardClick}
+                    >
+                      <FileSignature className="size-3" /> Sözleşme
+                    </Button>
+                  }
+                />
+              ) : (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-7 gap-1 px-2 text-[10px]"
+                  title="Önce teklif oluşturulmalı"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    toast.error("Teklif gerekli", { description: "Sözleşme için önce bu karta bağlı teklif oluşturun." });
+                  }}
+                  onMouseDown={stopCardClick}
+                >
+                  <FileSignature className="size-3" /> Sözleşme
+                </Button>
+              )}
+              {(s.stage === "installation" || s.stage === "delivered") && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-7 gap-1 px-2 text-[10px]"
+                  title="Kurulum tutanağını aç"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    void generateInstallationForm(s);
+                  }}
+                  onMouseDown={stopCardClick}
+                >
+                  <Printer className="size-3" /> Tutanak
+                </Button>
+              )}
+            </div>
 
             <div className="flex items-center justify-between mt-3 pt-2.5 border-t border-border/60">
               <div className="min-w-0 truncate text-[13px] tabular-nums tracking-tight">

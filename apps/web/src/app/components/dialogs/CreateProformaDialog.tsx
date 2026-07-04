@@ -9,7 +9,14 @@ import { Input } from "../ui/input";
 import { Label } from "../ui/label";
 import { Combobox } from "../ui/combobox";
 import { useStore } from "../../lib/store";
-import { documentService } from "../../../lib/services";
+import { documentService, quoteService } from "../../../lib/services";
+import {
+  DocumentTermsTemplateEditor,
+  matchSavedTermsTemplate,
+  useTermsTemplates,
+} from "./DocumentTermsTemplateEditor";
+
+const PROFORMA_TERMS_TEMPLATE_SCOPE = "proforma_terms";
 
 /**
  * Yüklemesiz proforma kaydı oluşturur — sadece tekliften no/tarih bilgisi ile
@@ -29,7 +36,7 @@ export function CreateProformaDialog({
   onOpenChange?: (open: boolean) => void;
   onCreated?: (id: string) => void;
 }) {
-  const { offers, customers, cases, documents, refresh } = useStore();
+  const { offers, customers, cases, documents, noteTemplates, addNoteTemplate, updateNoteTemplate, deleteNoteTemplate, refresh } = useStore();
   const [internalOpen, setInternalOpen] = useState(false);
   const open = controlledOpen ?? internalOpen;
   const setOpen = (next: boolean) => {
@@ -43,19 +50,62 @@ export function CreateProformaDialog({
   const [quoteId, setQuoteId] = useState(defaultQuoteId ?? "");
   const [documentNo, setDocumentNo] = useState("");
   const [issueDate, setIssueDate] = useState(today);
+  const [termsTemplateKey, setTermsTemplateKey] = useState("");
+  const [paymentTerms, setPaymentTerms] = useState("");
+  const [deliveryTerms, setDeliveryTerms] = useState("");
+  const [warrantyTerms, setWarrantyTerms] = useState("");
+  const [termsDirty, setTermsDirty] = useState(false);
   const [saving, setSaving] = useState(false);
 
   const proformaCount = documents.filter((d) => d.type === "Proforma").length;
   const suggestNo = () => `PRF-${new Date().getFullYear()}/${String(proformaCount + 1).padStart(3, "0")}`;
+  const savedTermsTemplates = useTermsTemplates(noteTemplates, PROFORMA_TERMS_TEMPLATE_SCOPE);
 
   useEffect(() => {
     if (!open) return;
     setQuoteId(defaultQuoteId ?? "");
     setDocumentNo(suggestNo());
     setIssueDate(today);
+    setTermsTemplateKey("");
+    setPaymentTerms("");
+    setDeliveryTerms("");
+    setWarrantyTerms("");
+    setTermsDirty(false);
     // suggestNo, today: stable per open
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, defaultQuoteId]);
+
+  useEffect(() => {
+    if (!open || !quoteId) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const data: any = await quoteService.get(quoteId);
+        if (cancelled) return;
+        const loadedPayment = data.terms?.paymentTermsText ?? data.paymentTerms ?? "";
+        const loadedDelivery = data.terms?.deliveryTermsText ?? data.deliveryTerms ?? "";
+        const loadedWarranty = data.terms?.warrantyTermsText ?? data.warrantyTerms ?? "";
+        setPaymentTerms(loadedPayment);
+        setDeliveryTerms(loadedDelivery);
+        setWarrantyTerms(loadedWarranty);
+        setTermsTemplateKey(matchSavedTermsTemplate(loadedPayment, loadedDelivery, loadedWarranty, savedTermsTemplates));
+        setTermsDirty(false);
+      } catch {
+        if (cancelled) return;
+        setPaymentTerms("");
+        setDeliveryTerms("");
+        setWarrantyTerms("");
+        setTermsTemplateKey("");
+        setTermsDirty(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // savedTermsTemplates intentionally excluded: saving a new template refreshes
+    // the store and must not overwrite the in-progress edited terms.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, quoteId]);
 
   const quoteOptions = useMemo(
     () =>
@@ -85,6 +135,14 @@ export function CreateProformaDialog({
     if (!documentNo.trim()) return toast.error("Proforma no zorunludur");
     setSaving(true);
     try {
+      if (termsDirty) {
+        await quoteService.terms(quoteId, {
+          paymentTermsText: paymentTerms,
+          deliveryTermsText: deliveryTerms,
+          warrantyTermsText: warrantyTerms,
+          importCostsExcluded: true,
+        });
+      }
       const created = await documentService.createProforma({
         quoteId,
         documentNo: documentNo.trim(),
@@ -105,7 +163,7 @@ export function CreateProformaDialog({
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       {trigger && <DialogTrigger asChild>{trigger}</DialogTrigger>}
-      <DialogContent className="w-[min(560px,calc(100vw-2rem))] max-w-none sm:max-w-none">
+      <DialogContent className="w-[min(820px,calc(100vw-2rem))] max-w-none sm:max-w-none">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <FileText className="size-5 text-primary" />
@@ -150,6 +208,28 @@ export function CreateProformaDialog({
               <Input type="date" className="mt-1.5" value={issueDate} onChange={(e) => setIssueDate(e.target.value)} />
             </div>
           </div>
+
+          <DocumentTermsTemplateEditor
+            title="Proforma Şartları"
+            description="Şablon seçin veya metni düzenleyin. Kaydedilen değişiklik bağlı teklif şartlarına yazılır ve proforma çıktısında kullanılır."
+            templateScope={PROFORMA_TERMS_TEMPLATE_SCOPE}
+            noteTemplates={noteTemplates}
+            selectedTemplateKey={termsTemplateKey}
+            onSelectedTemplateKeyChange={(key) => {
+              setTermsTemplateKey(key);
+              setTermsDirty(true);
+            }}
+            value={{ paymentTerms, deliveryTerms, warrantyTerms }}
+            onChange={(next) => {
+              setPaymentTerms(next.paymentTerms);
+              setDeliveryTerms(next.deliveryTerms);
+              setWarrantyTerms(next.warrantyTerms);
+              setTermsDirty(true);
+            }}
+            addNoteTemplate={addNoteTemplate}
+            updateNoteTemplate={updateNoteTemplate}
+            deleteNoteTemplate={deleteNoteTemplate}
+          />
 
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => setOpen(false)} disabled={saving}>Vazgeç</Button>

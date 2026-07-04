@@ -119,7 +119,7 @@ function DeliveryDetailDialog({
   customerName: (id: string) => string;
   onClose: () => void;
 }) {
-  const { customers, cases, machines, updateDelivery } = useStore();
+  const { customers, cases, machines, deliveries, updateDelivery } = useStore();
   const [form, setForm] = useState<DeliveryFormState | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -202,6 +202,7 @@ function DeliveryDetailDialog({
               customers={customers}
               casesForCustomer={casesForCustomer}
               machinesForCustomer={machinesForCustomer}
+              relatedDeliveries={deliveries}
             />
             <DialogFooter className="gap-2 sm:justify-between">
               <Button variant="outline" className="gap-1" onClick={printForm}><Printer className="size-4" /> Formu Yazdır</Button>

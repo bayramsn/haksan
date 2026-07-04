@@ -84,6 +84,16 @@ const stockRowClass = (status: StockItem["status"]) => {
   return "";
 };
 
+const STOCK_STATUS_LABELS: Record<StockItem["status"], string> = {
+  Available: "Hazır",
+  Reserved: "Rezerve",
+  InTransit: "Yolda",
+  Sold: "Satıldı",
+  Inactive: "Pasif",
+};
+
+const STOCK_STATUS_ACTIONS: Array<Exclude<StockItem["status"], "Sold">> = ["Available", "Reserved", "InTransit", "Inactive"];
+
 export function StockPage({ focus, initialQuery }: { focus?: OperationFocus; initialQuery?: string }) {
   const { stock, customers, products, updateStockStatus, reserveStock } = useStore();
   const [q, setQ] = useState("");
@@ -231,6 +241,12 @@ export function StockPage({ focus, initialQuery }: { focus?: OperationFocus; ini
     ...(q ? { search: q } : {}),
     ...(tab !== "all" ? { statusCode: stockStatusExportCode[tab] ?? tab.toLowerCase() } : {}),
     ...(categoryTab !== "all" ? { categoryCode: categoryTab } : {}),
+  };
+
+  const openReserveDialog = (item: StockItem) => {
+    setReserveTarget(item);
+    setReserveCompanyId(item.reservedCompanyId ?? "");
+    setReserveOpen(true);
   };
 
   return (
@@ -447,15 +463,9 @@ export function StockPage({ focus, initialQuery }: { focus?: OperationFocus; ini
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
-                        {s.status === "Available" && (s.categoryCode ?? "TEZGAH") === "TEZGAH" && (
-                          <DropdownMenuItem
-                            onClick={() => {
-                              setReserveTarget(s);
-                              setReserveCompanyId("");
-                              setReserveOpen(true);
-                            }}
-                          >
-                            Firmaya rezerve et
+                        {(s.categoryCode ?? "TEZGAH") === "TEZGAH" && s.status !== "Sold" && (
+                          <DropdownMenuItem onClick={() => openReserveDialog(s)}>
+                            {s.status === "Reserved" ? "Firma bilgisini düzenle" : "Firmaya rezerve et"}
                           </DropdownMenuItem>
                         )}
                         {s.status === "Reserved" && (
@@ -472,20 +482,25 @@ export function StockPage({ focus, initialQuery }: { focus?: OperationFocus; ini
                             Rezervasyonu kaldır
                           </DropdownMenuItem>
                         )}
-                        {(["Available", "Inactive"] as const).map((st) => (
+                        <DropdownMenuSeparator />
+                        {STOCK_STATUS_ACTIONS.map((st) => (
                           <DropdownMenuItem
                             key={st}
-                            disabled={s.status === st || (st === "Available" && s.status === "Sold")}
+                            disabled={s.status === st}
                             onClick={async () => {
+                              if (st === "Reserved") {
+                                openReserveDialog(s);
+                                return;
+                              }
                               try {
                                 await updateStockStatus(s.id, st);
-                                toast.success("Durum güncellendi", { description: `${s.stockCode} → ${st}` });
+                                toast.success("Durum güncellendi", { description: `${s.stockCode} → ${STOCK_STATUS_LABELS[st]}` });
                               } catch (err: any) {
                                 toast.error("Durum güncellenemedi", { description: err?.message ?? "API isteği başarısız oldu." });
                               }
                             }}
                           >
-                            {st === "Available" ? "Hazır" : "Pasif"} olarak işaretle
+                            {STOCK_STATUS_LABELS[st]} olarak işaretle
                           </DropdownMenuItem>
                         ))}
                         {s.status === "Sold" && (
@@ -503,7 +518,7 @@ export function StockPage({ focus, initialQuery }: { focus?: OperationFocus; ini
                 {isExpanded && linkedOptions.length > 0 && (
                   <TableRow className="bg-muted/20 hover:bg-muted/20">
                     <TableCell />
-                    <TableCell colSpan={13} className="py-3">
+                    <TableCell colSpan={14} className="py-3">
                       <div className="flex flex-wrap gap-2">
                         {linkedOptions.map((item) => (
                           <span key={item.id} className="inline-flex items-center gap-1.5 rounded-md border border-border/70 bg-white px-2 py-1 text-xs">
@@ -521,7 +536,7 @@ export function StockPage({ focus, initialQuery }: { focus?: OperationFocus; ini
               })}
               {filtered.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={14} className="text-center py-12 text-sm text-muted-foreground">Kayıt bulunamadı.</TableCell>
+                  <TableCell colSpan={15} className="text-center py-12 text-sm text-muted-foreground">Kayıt bulunamadı.</TableCell>
                 </TableRow>
               )}
             </TableBody>
@@ -532,9 +547,9 @@ export function StockPage({ focus, initialQuery }: { focus?: OperationFocus; ini
       <Dialog open={reserveOpen} onOpenChange={setReserveOpen}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>Tezgah Rezervasyonu</DialogTitle>
+            <DialogTitle>{reserveTarget?.status === "Reserved" ? "Rezervasyon Firması" : "Tezgah Rezervasyonu"}</DialogTitle>
             <DialogDescription>
-              {reserveTarget ? `${reserveTarget.serialNumber} — hangi firmaya rezerve edilecek?` : "Firma seçin"}
+              {reserveTarget ? `${reserveTarget.serialNumber} — firma bilgisini seçin.` : "Firma seçin"}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
@@ -566,7 +581,7 @@ export function StockPage({ focus, initialQuery }: { focus?: OperationFocus; ini
                 }
               }}
             >
-              {reserving ? "Kaydediliyor…" : "Rezerve Et"}
+              {reserving ? "Kaydediliyor…" : reserveTarget?.status === "Reserved" ? "Firmayı Güncelle" : "Rezerve Et"}
             </Button>
           </DialogFooter>
         </DialogContent>

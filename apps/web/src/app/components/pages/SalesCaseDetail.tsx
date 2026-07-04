@@ -770,6 +770,7 @@ export function CreatePaymentPlanDialog({
   const [amount, setAmount] = useState<number>(0);
   const [currency, setCurrency] = useState<string>("USD");
   const [installmentCount, setInstallmentCount] = useState<number>(3);
+  const [paymentTermDays, setPaymentTermDays] = useState<number>(30);
   const [installments, setInstallments] = useState<Array<{ amount: number; dueDate: string }>>([]);
   const [saving, setSaving] = useState(false);
 
@@ -789,9 +790,10 @@ export function CreatePaymentPlanDialog({
       setAmount(sc.estimatedAmount || 0);
       setCurrency(sc.currency || "USD");
     }
+    setPaymentTermDays(30);
   }, [open, offs, sc]);
 
-  // Recalculate installments when amount, count, or quote changes
+  // Recalculate installments when amount, count, term, or quote changes
   useEffect(() => {
     if (amount <= 0 || installmentCount <= 0) {
       setInstallments([]);
@@ -800,9 +802,10 @@ export function CreatePaymentPlanDialog({
     const val = Number((amount / installmentCount).toFixed(2));
     const list = [];
     const today = new Date();
+    const firstTermDays = Math.max(0, Math.trunc(paymentTermDays || 0));
     for (let i = 0; i < installmentCount; i++) {
       const date = new Date();
-      date.setDate(today.getDate() + 30 * (i + 1));
+      date.setDate(today.getDate() + firstTermDays + 30 * i);
       const dateStr = date.toISOString().slice(0, 10);
       list.push({
         amount: i === 0 ? Number((amount - val * (installmentCount - 1)).toFixed(2)) : val,
@@ -810,7 +813,7 @@ export function CreatePaymentPlanDialog({
       });
     }
     setInstallments(list);
-  }, [amount, installmentCount]);
+  }, [amount, installmentCount, paymentTermDays]);
 
   const handleEqualize = () => {
     if (amount <= 0 || installmentCount <= 0) return;
@@ -916,6 +919,19 @@ export function CreatePaymentPlanDialog({
                     ))}
                   </SelectContent>
                 </Select>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="payment-term-days">İlk Vade Günü</Label>
+                <Input
+                  id="payment-term-days"
+                  type="number"
+                  min={0}
+                  max={3650}
+                  value={paymentTermDays}
+                  onChange={(e) => setPaymentTermDays(Math.max(0, Math.trunc(Number(e.target.value) || 0)))}
+                  placeholder="Örn. 30"
+                />
               </div>
 
               <div className="space-y-1.5">

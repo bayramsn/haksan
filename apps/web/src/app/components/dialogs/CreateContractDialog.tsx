@@ -9,7 +9,14 @@ import { Input } from "../ui/input";
 import { Label } from "../ui/label";
 import { Combobox } from "../ui/combobox";
 import { useStore } from "../../lib/store";
-import { documentService } from "../../../lib/services";
+import { documentService, quoteService } from "../../../lib/services";
+import {
+  DocumentTermsTemplateEditor,
+  matchSavedTermsTemplate,
+  useTermsTemplates,
+} from "./DocumentTermsTemplateEditor";
+
+const CONTRACT_TERMS_TEMPLATE_SCOPE = "contract_terms";
 
 /**
  * Yüklemesiz sözleşme kaydı oluşturur — teklife referans verir; çıktısı CRM
@@ -28,7 +35,7 @@ export function CreateContractDialog({
   onOpenChange?: (open: boolean) => void;
   onCreated?: (id: string) => void;
 }) {
-  const { offers, customers, cases, documents, refresh } = useStore();
+  const { offers, customers, cases, documents, noteTemplates, addNoteTemplate, updateNoteTemplate, deleteNoteTemplate, refresh } = useStore();
   const [internalOpen, setInternalOpen] = useState(false);
   const open = controlledOpen ?? internalOpen;
   const setOpen = (next: boolean) => {
@@ -43,10 +50,16 @@ export function CreateContractDialog({
   const [contractNo, setContractNo] = useState("");
   const [signedDate, setSignedDate] = useState(today);
   const [paymentTermDays, setPaymentTermDays] = useState("");
+  const [termsTemplateKey, setTermsTemplateKey] = useState("");
+  const [paymentTerms, setPaymentTerms] = useState("");
+  const [deliveryTerms, setDeliveryTerms] = useState("");
+  const [warrantyTerms, setWarrantyTerms] = useState("");
+  const [termsDirty, setTermsDirty] = useState(false);
   const [saving, setSaving] = useState(false);
 
   const contractCount = documents.filter((d) => d.type === "Contract").length;
   const suggestNo = () => `SOZ-${new Date().getFullYear()}/${String(contractCount + 1).padStart(3, "0")}`;
+  const savedTermsTemplates = useTermsTemplates(noteTemplates, CONTRACT_TERMS_TEMPLATE_SCOPE);
 
   useEffect(() => {
     if (!open) return;
@@ -54,8 +67,45 @@ export function CreateContractDialog({
     setContractNo(suggestNo());
     setSignedDate(today);
     setPaymentTermDays("");
+    setTermsTemplateKey("");
+    setPaymentTerms("");
+    setDeliveryTerms("");
+    setWarrantyTerms("");
+    setTermsDirty(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, defaultQuoteId]);
+
+  useEffect(() => {
+    if (!open || !quoteId) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const data: any = await quoteService.get(quoteId);
+        if (cancelled) return;
+        const loadedPayment = data.terms?.paymentTermsText ?? data.paymentTerms ?? "";
+        const loadedDelivery = data.terms?.deliveryTermsText ?? data.deliveryTerms ?? "";
+        const loadedWarranty = data.terms?.warrantyTermsText ?? data.warrantyTerms ?? "";
+        setPaymentTerms(loadedPayment);
+        setDeliveryTerms(loadedDelivery);
+        setWarrantyTerms(loadedWarranty);
+        setTermsTemplateKey(matchSavedTermsTemplate(loadedPayment, loadedDelivery, loadedWarranty, savedTermsTemplates));
+        setTermsDirty(false);
+      } catch {
+        if (cancelled) return;
+        setPaymentTerms("");
+        setDeliveryTerms("");
+        setWarrantyTerms("");
+        setTermsTemplateKey("");
+        setTermsDirty(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // savedTermsTemplates intentionally excluded: saving a new template refreshes
+    // the store and must not overwrite the in-progress edited terms.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, quoteId]);
 
   const quoteOptions = useMemo(
     () =>
@@ -86,6 +136,14 @@ export function CreateContractDialog({
     setSaving(true);
     try {
       const termDays = paymentTermDays.trim() === "" ? undefined : Number(paymentTermDays);
+      if (termsDirty) {
+        await quoteService.terms(quoteId, {
+          paymentTermsText: paymentTerms,
+          deliveryTermsText: deliveryTerms,
+          warrantyTermsText: warrantyTerms,
+          importCostsExcluded: true,
+        });
+      }
       const created = await documentService.createContract({
         quoteId,
         contractNo: contractNo.trim(),
@@ -107,7 +165,7 @@ export function CreateContractDialog({
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       {trigger && <DialogTrigger asChild>{trigger}</DialogTrigger>}
-      <DialogContent className="w-[min(560px,calc(100vw-2rem))] max-w-none sm:max-w-none">
+      <DialogContent className="w-[min(820px,calc(100vw-2rem))] max-w-none sm:max-w-none">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <FileSignature className="size-5 text-primary" />
@@ -168,6 +226,28 @@ export function CreateContractDialog({
               Bu firmaya satış faturası kesilirken vade otomatik bu değerden hesaplanır.
             </p>
           </div>
+
+          <DocumentTermsTemplateEditor
+            title="Sözleşme Şartları"
+            description="Şablon seçin veya metni düzenleyin. Kaydedilen değişiklik bağlı teklif şartlarına yazılır ve sözleşme çıktısında kullanılır."
+            templateScope={CONTRACT_TERMS_TEMPLATE_SCOPE}
+            noteTemplates={noteTemplates}
+            selectedTemplateKey={termsTemplateKey}
+            onSelectedTemplateKeyChange={(key) => {
+              setTermsTemplateKey(key);
+              setTermsDirty(true);
+            }}
+            value={{ paymentTerms, deliveryTerms, warrantyTerms }}
+            onChange={(next) => {
+              setPaymentTerms(next.paymentTerms);
+              setDeliveryTerms(next.deliveryTerms);
+              setWarrantyTerms(next.warrantyTerms);
+              setTermsDirty(true);
+            }}
+            addNoteTemplate={addNoteTemplate}
+            updateNoteTemplate={updateNoteTemplate}
+            deleteNoteTemplate={deleteNoteTemplate}
+          />
 
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => setOpen(false)} disabled={saving}>Vazgeç</Button>

@@ -22,6 +22,7 @@ import {
 } from "@haksan/shared";
 import { printOrWarn } from "../../../lib/pageHelpers";
 import { installationFormDoc, printAssetBase, trShortDate } from "../../../lib/print";
+import { relatedDeliveryFormNo, resolveServiceFormNo } from "../../../lib/serviceFormNo";
 import { Plus, Wrench, Calendar, CheckCircle2, TrendingUp, Building2, MapPin, Printer, FileText, Save, Lock, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -63,6 +64,7 @@ type InstallationFormDraft = {
 
 type InstallationRow = {
   id: string;
+  salesCaseId: string;
   customerId: string;
   customerName: string;
   contactName: string;
@@ -102,7 +104,7 @@ const mapDeviceToMachine = (row: InstallationRow) =>
     ? {
         id: row.device.id,
         customerId: row.customerId,
-        salesCaseId: "",
+        salesCaseId: row.salesCaseId,
         stockItemId: "",
         serialNumber: row.device.serialNumber ?? "—",
         model: row.device.model ?? row.device.productModelName ?? "—",
@@ -173,7 +175,7 @@ function formToPayload(form: InstallationFormDraft): any {
 }
 
 export function InstallationsPage() {
-  const { customers, machines } = useStore();
+  const { customers, machines, deliveries } = useStore();
   const [rows, setRows] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedRow, setSelectedRow] = useState<InstallationRow | null>(null);
@@ -199,6 +201,7 @@ export function InstallationsPage() {
 
   const installationRows: InstallationRow[] = rows.map((i) => ({
     id: i.id,
+    salesCaseId: i.opportunityId ?? "",
     customerId: i.companyId ?? "",
     customerName: i.company?.shortName || i.company?.legalTitle || customers.find((c) => c.id === i.companyId)?.name || "—",
     contactName: i.contact?.fullName ?? "",
@@ -385,6 +388,7 @@ export function InstallationsPage() {
         row={selectedRow}
         customers={customers}
         machines={machines}
+        deliveries={deliveries}
         onClose={() => setSelectedRow(null)}
         onSaved={loadInstallations}
       />
@@ -396,12 +400,14 @@ function InstallationFormDialog({
   row,
   customers,
   machines,
+  deliveries,
   onClose,
   onSaved,
 }: {
   row: InstallationRow | null;
   customers: ReturnType<typeof useStore>["customers"];
   machines: ReturnType<typeof useStore>["machines"];
+  deliveries: ReturnType<typeof useStore>["deliveries"];
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -439,7 +445,16 @@ function InstallationFormDialog({
     ];
 
     setForm({
-      formNo: fd.formNo ?? row.id.slice(0, 6).toUpperCase(),
+      formNo: resolveServiceFormNo({
+        currentFormNo: fd.formNo,
+        relatedFormNo: relatedDeliveryFormNo(deliveries, {
+          salesCaseId: row.salesCaseId,
+          machineId: fd.machineId ?? machine?.id ?? row.deviceId,
+        }),
+        salesCaseId: row.salesCaseId,
+        machineId: fd.machineId ?? machine?.id ?? row.deviceId,
+        fallbackId: row.id,
+      }),
       teslimTarihi: toDateInput(fd.teslimTarihi) || machine?.deliveryDate || "",
       kurulumTarihi: toDateInput(fd.kurulumTarihi) || row.completedDate || (row.scheduledDate !== "—" ? row.scheduledDate : ""),
       machineId: fd.machineId ?? machine?.id ?? "",
@@ -466,7 +481,7 @@ function InstallationFormDialog({
       teslimAlan: fd.teslimAlan ?? row.contactName ?? customer?.contactPerson ?? "",
       technicalSpecs: fd.technicalSpecs?.length ? fd.technicalSpecs : row.technicalSpecs,
     });
-  }, [row, machines, customer]);
+  }, [row, machines, customer, deliveries]);
 
   const update = <K extends keyof InstallationFormDraft>(key: K, value: InstallationFormDraft[K]) => {
     setForm((current) => (current ? { ...current, [key]: value } : current));
