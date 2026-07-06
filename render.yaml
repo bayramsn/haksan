@@ -25,7 +25,7 @@ services:
     # /health/ready gates on DB connectivity AND applied-migration count, so a
     # deploy with pending/failed migrations will not start receiving traffic.
     healthCheckPath: /health/ready
-    buildCommand: NPM_CONFIG_PRODUCTION=false npm ci && npm run build:shared && npm run build:api
+    buildCommand: NPM_CONFIG_PRODUCTION=false npm ci --workspace @haksan/shared --workspace @haksan/api --workspace @haksan/web --include-workspace-root && npm run build:shared && npm run build:api
     # Free tier does not support preDeployCommand, so the compiled migration
     # chain runs before the API process starts. Migration scripts are idempotent.
     #
@@ -122,7 +122,7 @@ services:
     runtime: static
     branch: main
     autoDeploy: true
-    buildCommand: NPM_CONFIG_PRODUCTION=false npm ci && npm run build:shared && npm run build:web
+    buildCommand: NPM_CONFIG_PRODUCTION=false npm ci --workspace @haksan/shared --workspace @haksan/api --workspace @haksan/web --include-workspace-root && npm run build:shared && npm run build:web
     staticPublishPath: ./apps/web/dist
     routes:
       - type: rewrite

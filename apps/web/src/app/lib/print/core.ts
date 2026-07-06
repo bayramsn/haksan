@@ -240,3 +240,18 @@ export const openPrintWindow = (doc: PrintDocument): boolean => {
   setTimeout(() => URL.revokeObjectURL(url), 60000);
   return true;
 };
+
+/**
+ * Belgeyi otomatik yazdırmadan yeni pencerede açar. Kullanıcı buradan
+ * tarayıcı menüsüyle PDF olarak kaydedebilir.
+ */
+export const openPrintPreviewWindow = (doc: PrintDocument): boolean => {
+  const url = URL.createObjectURL(new Blob([buildPrintHtml(doc, { autoPrint: false })], { type: "text/html" }));
+  const w = window.open(url, "_blank");
+  if (!w) {
+    URL.revokeObjectURL(url);
+    return false;
+  }
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
+  return true;
+};

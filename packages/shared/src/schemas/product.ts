@@ -52,6 +52,7 @@ export type ProductSpecCreateInput = z.infer<typeof productSpecCreateSchema>;
 export const productSpecTemplateCreateSchema = z.object({
   productTypeCode: z.string().min(1).max(64),
   specKey: z.string().min(1).max(255),
+  specGroupCode: z.string().max(64).optional(),
   defaultValue: z.string().max(2000).optional(),
   specUnit: z.string().max(64).optional(),
   sortOrder: z.coerce.number().int().default(0),
@@ -61,6 +62,11 @@ export type ProductSpecTemplateCreateInput = z.infer<typeof productSpecTemplateC
 
 export const productSpecTemplateUpdateSchema = productSpecTemplateCreateSchema.partial();
 export type ProductSpecTemplateUpdateInput = z.infer<typeof productSpecTemplateUpdateSchema>;
+
+export const productSpecTemplateBulkCreateSchema = z.object({
+  items: z.array(productSpecTemplateCreateSchema).min(1).max(500),
+});
+export type ProductSpecTemplateBulkCreateInput = z.infer<typeof productSpecTemplateBulkCreateSchema>;
 
 export const productEquipmentCreateSchema = z.object({
   equipmentTypeCode: z.string().max(64),

@@ -32,7 +32,7 @@ export function KanbanBoard<T extends { id: string }>({
   return (
     <DndProvider backend={HTML5Backend}>
       <div className="relative min-w-0">
-        <div className="absolute right-1 top-1 z-10 flex items-center gap-1 rounded-md border border-border/60 bg-white/90 p-1 shadow-sm backdrop-blur">
+        <div className="absolute right-1 top-1 z-10 flex items-center gap-1 rounded-md border border-border/60 bg-card/90 p-1 shadow-sm backdrop-blur">
           <Button variant="ghost" size="icon" className="size-7" title="Sola kaydır" onClick={() => scrollBy(-420)}>
             <ChevronLeft className="size-4" />
           </Button>
@@ -95,46 +95,59 @@ function Column<T extends { id: string }>({
     [col.key, col.items.length, onMove]
   );
 
-  // Trello benzeri kolon: düz gri zemin, kompakt başlık, kartlar kolon içinde
-  // dikey kaydırılır; sürükleme hedefi halka ile vurgulanır.
+  // Trello benzeri kolon: gri panel, başlıkta renkli nokta + sayaç rozeti,
+  // kartlar kolon içinde dikey kaydırılır, altta "Kart ekle" butonu;
+  // sürükleme hedefi halka ve bırakma alanı ile vurgulanır.
   return (
     <div
       ref={dropRef as any}
       style={{ width }}
-      className={`shrink-0 snap-center flex max-h-[calc(100dvh-240px)] flex-col self-start rounded-xl transition-shadow ${
-        isOver && canDrop ? "bg-primary/10 ring-2 ring-primary/50" : "bg-slate-200/70"
+      className={`shrink-0 snap-center flex max-h-[calc(100dvh-240px)] flex-col self-start rounded-xl border border-border/50 shadow-xs transition-all ${
+        isOver && canDrop ? "bg-primary/5 ring-2 ring-primary/40 ring-inset" : "bg-muted"
       }`}
     >
-      <div className="flex items-center justify-between gap-2 px-3 pb-1 pt-2.5">
+      <div className="flex items-center justify-between gap-2 px-3 pb-1.5 pt-2.5">
         <div className="flex min-w-0 items-center gap-2">
-          {col.dot && <span className={`size-2 rounded-full shrink-0 ${col.dot}`} />}
+          {col.dot && <span className={`size-2.5 rounded-full shrink-0 ${col.dot}`} />}
           <span className="truncate text-[13px] font-semibold tracking-tight text-foreground/80">{col.title}</span>
-          <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">{col.items.length}</span>
         </div>
-        <div className="flex items-center gap-0.5 shrink-0">
-          {onAdd && (
-            <Button variant="ghost" size="icon" className="size-6 text-muted-foreground hover:bg-black/5" onClick={() => onAdd(col.key)}>
-              <Plus className="size-3.5" />
-            </Button>
-          )}
-        </div>
+        <span className="shrink-0 rounded-full bg-foreground/5 px-2 py-0.5 text-[11px] font-medium tabular-nums text-muted-foreground">
+          {col.items.length}
+        </span>
       </div>
-      <div className="min-h-[120px] flex-1 space-y-2 overflow-y-auto whitespace-normal px-2 pb-2 pt-1">
+      <div className="min-h-[120px] flex-1 space-y-2 overflow-y-auto whitespace-normal px-2 pb-1 pt-0.5">
         {col.items.map((item) => (
           <DraggableCard key={item.id} id={item.id} from={col.key}>
             {(dragging) => renderCard(item, dragging)}
           </DraggableCard>
         ))}
         {col.items.length === 0 && (
-          <div className={`rounded-lg border border-dashed py-8 text-center text-[11px] transition-colors ${
-            isOver && canDrop ? "border-primary bg-primary/5 text-primary" : "border-slate-300 text-muted-foreground"
+          <div className={`rounded-lg border-2 border-dashed py-8 text-center text-[11px] transition-colors ${
+            isOver && canDrop ? "border-primary bg-primary/5 text-primary" : "border-border text-muted-foreground"
           }`}>
             {isOver && canDrop ? "Buraya bırak" : "Kart yok"}
           </div>
         )}
+        {col.items.length > 0 && isOver && canDrop && (
+          <div className="rounded-lg border-2 border-dashed border-primary bg-primary/5 py-4 text-center text-[11px] text-primary">
+            Buraya bırak
+          </div>
+        )}
       </div>
+      {onAdd && (
+        <div className="px-2 pb-1.5">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-8 w-full justify-start gap-1.5 rounded-lg px-2 text-[12px] text-muted-foreground hover:bg-foreground/5 hover:text-foreground"
+            onClick={() => onAdd(col.key)}
+          >
+            <Plus className="size-3.5" /> Kart ekle
+          </Button>
+        </div>
+      )}
       {col.footer && (
-        <div className="rounded-b-xl border-t border-black/5 px-3 py-1.5 text-[11px] tabular-nums text-muted-foreground">
+        <div className="rounded-b-xl border-t border-border/60 px-3 py-1.5 text-[11px] tabular-nums text-muted-foreground">
           {col.footer}
         </div>
       )}
@@ -157,7 +170,7 @@ function DraggableCard({
     <div
       ref={dragRef as any}
       style={{ opacity: isDragging ? 0.4 : 1, cursor: "grab" }}
-      className={isDragging ? "rotate-2 scale-[1.02]" : ""}
+      className={isDragging ? "rotate-1 scale-[1.02] shadow-lg" : ""}
     >
       {children(isDragging)}
     </div>

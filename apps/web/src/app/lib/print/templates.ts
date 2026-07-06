@@ -101,7 +101,11 @@ table.pf-addr td:first-child { width: 14mm; }
 table.pf-addr .b { font-weight: bold; font-size: 9pt; }
 `;
 
-export function proformaDoc(d: ProformaPrintData, assetBase: string): PrintDocument {
+export function proformaDoc(
+  d: ProformaPrintData,
+  assetBase: string,
+  opts?: { title?: string; headingHtml?: string },
+): PrintDocument {
   const araToplam = d.items.reduce((a, i) => a + i.tutar, 0);
   // Proformada KDV satırı genelde 0 gösterilir (fiyat KDV hariç); null ise oran üzerinden hesapla.
   const kdvTutar = d.kdvTutar != null ? d.kdvTutar : araToplam * (d.kdvOran / 100);
@@ -142,7 +146,7 @@ export function proformaDoc(d: ProformaPrintData, assetBase: string): PrintDocum
       </table>
     </div>
     <div class="pf-right">
-      <div class="pf-title">PROFORMA<br>FATURA</div>
+      <div class="pf-title">${opts?.headingHtml ?? "PROFORMA<br>FATURA"}</div>
       <table class="pf-info">
         <tr><td class="lbl" style="width:22mm">Tarih</td><td class="val c">${blank(d.tarih)}</td></tr>
         <tr><td class="lbl" style="width:22mm">Belge No</td><td class="val c">${blank(d.belgeNo)}</td></tr>
@@ -193,7 +197,11 @@ export function proformaDoc(d: ProformaPrintData, assetBase: string): PrintDocum
   </div>
 </div>`;
 
-  return { title: `Proforma Fatura ${d.belgeNo}`, css: PROFORMA_CSS, body };
+  return { title: `${opts?.title ?? "Proforma Fatura"} ${d.belgeNo}`, css: PROFORMA_CSS, body };
+}
+
+export function commercialInvoiceDoc(d: ProformaPrintData, assetBase: string): PrintDocument {
+  return proformaDoc(d, assetBase, { title: "Ticari Fatura", headingHtml: "TİCARİ<br>FATURA" });
 }
 
 // ── 2) FİYAT TEKLİFİ ────────────────────────────────────────────────────────
@@ -224,7 +232,7 @@ export interface QuotePrintData {
   model?: string;
   tip?: string;
   imageUrl?: string;
-  specs?: { key: string; value: string; unit?: string; specUnit?: string }[];
+  specs?: { key: string; value: string; unit?: string; specUnit?: string; groupCode?: string; groupName?: string; group?: string }[];
   standartDonanim?: string[];
   opsiyonelDonanim?: string[];
   items: QuoteItem[];
@@ -254,6 +262,7 @@ table.q-meta td.val { text-align: center; font-style: italic; font-weight: bold;
 .q-h1 { text-align: center; font-size: 14pt; font-weight: bold; margin: 5mm 0 5mm; }
 table.q-specs { width: 100%; }
 table.q-specs td { border: 1pt solid #000; font-size: 8.4pt; padding: .75mm 1.5mm; }
+table.q-specs td.g { width: 17mm; text-align: center; vertical-align: middle; font-weight: bold; writing-mode: vertical-rl; transform: rotate(180deg); letter-spacing: .2px; }
 table.q-specs td.k { width: 45%; text-align: center; }
 table.q-specs td.v { text-align: center; }
 .q-eq-h { font-weight: bold; text-decoration: underline; font-size: 11pt; margin: 4mm 0 2mm; }
@@ -291,6 +300,28 @@ export function quoteDoc(d: QuotePrintData, assetBase: string): PrintDocument {
     const unit = (spec.unit ?? spec.specUnit ?? "").trim();
     if (!unit || value === "-" || value.toLocaleLowerCase("tr-TR").includes(unit.toLocaleLowerCase("tr-TR"))) return value;
     return `${value} ${unit}`;
+  };
+  const specGroupLabel = (spec: NonNullable<QuotePrintData["specs"]>[number]) =>
+    (spec.groupName || spec.group || spec.groupCode || "").trim();
+  const renderSpecs = () => {
+    const specs = d.specs ?? [];
+    const hasGroups = specs.some((spec) => specGroupLabel(spec));
+    if (!hasGroups) {
+      return specs.map((s) => `<tr><td class="k">${esc(s.key)}</td><td class="v">${esc(specValue(s))}</td></tr>`).join("");
+    }
+    const rows: string[] = [];
+    for (let i = 0; i < specs.length;) {
+      const label = specGroupLabel(specs[i]) || "GENEL";
+      let end = i + 1;
+      while (end < specs.length && (specGroupLabel(specs[end]) || "GENEL") === label) end += 1;
+      const groupSpecs = specs.slice(i, end);
+      for (let j = 0; j < groupSpecs.length; j++) {
+        const spec = groupSpecs[j];
+        rows.push(`<tr>${j === 0 ? `<td class="g" rowspan="${groupSpecs.length}">${esc(label.toLocaleUpperCase("tr-TR"))}</td>` : ""}<td class="k">${esc(spec.key)}</td><td class="v">${esc(specValue(spec))}</td></tr>`);
+      }
+      i = end;
+    }
+    return rows.join("");
   };
   const hasEquip = (d.standartDonanim?.length ?? 0) + (d.opsiyonelDonanim?.length ?? 0) > 0;
   const pageCount = 2 + (hasSpecs ? 1 : 0) + (hasEquip ? 1 : 0);
@@ -333,7 +364,7 @@ export function quoteDoc(d: QuotePrintData, assetBase: string): PrintDocument {
   ${haksanHeader(assetBase)}
   <div class="q-h1">TEKNİK BİLGİLER</div>
   <table class="q-specs">
-    ${d.specs!.map((s) => `<tr><td class="k">${esc(s.key)}</td><td class="v">${esc(specValue(s))}</td></tr>`).join("")}
+    ${renderSpecs()}
   </table>
   ${pn()}
 </div>`);

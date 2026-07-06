@@ -48,7 +48,7 @@ const numeric = (value: unknown): number => {
   return Number.isFinite(result) ? result : 0;
 };
 
-const quoteItemTechnicalSpecs = (item?: { compatibility?: unknown } | null): Array<{ key: string; value: string; unit?: string; specUnit?: string }> => {
+const quoteItemTechnicalSpecs = (item?: { compatibility?: unknown } | null): Array<{ key: string; value: string; unit?: string; specUnit?: string; groupCode?: string; groupName?: string; group?: string }> => {
   const specs = (item?.compatibility as { technicalSpecs?: unknown } | null | undefined)?.technicalSpecs;
   if (!Array.isArray(specs)) return [];
   return specs
@@ -57,6 +57,9 @@ const quoteItemTechnicalSpecs = (item?: { compatibility?: unknown } | null): Arr
       value: String((spec as { value?: unknown }).value ?? "").trim(),
       unit: String((spec as { unit?: unknown; specUnit?: unknown }).unit ?? (spec as { specUnit?: unknown }).specUnit ?? "").trim() || undefined,
       specUnit: String((spec as { unit?: unknown; specUnit?: unknown }).unit ?? (spec as { specUnit?: unknown }).specUnit ?? "").trim() || undefined,
+      groupCode: String((spec as { groupCode?: unknown }).groupCode ?? "").trim() || undefined,
+      groupName: String((spec as { groupName?: unknown }).groupName ?? "").trim() || undefined,
+      group: String((spec as { group?: unknown; groupName?: unknown; groupCode?: unknown }).group ?? (spec as { groupName?: unknown }).groupName ?? (spec as { groupCode?: unknown }).groupCode ?? "").trim() || undefined,
     }))
     .filter((spec) => spec.key && spec.value);
 };

@@ -29,7 +29,7 @@ import { inventoryService } from "../../../lib/services";
 import { CreateProformaDialog } from "../dialogs/CreateProformaDialog";
 import { CreateContractDialog } from "../dialogs/CreateContractDialog";
 
-const STAGE_DOT: Record<string, string> = {
+export const STAGE_DOT: Record<string, string> = {
   lead: "bg-zinc-400",
   sales: "bg-zinc-400",
   call: "bg-blue-400",
@@ -333,15 +333,15 @@ export function KanbanPage({ onSelect, items }: { onSelect: (s: SalesCase) => vo
               {[stockPickCase?.requestedProduct, stockPickCase?.requestedModel].filter(Boolean).join(" · ") || "Ürün bilgisi yok"}
             </div>
             <div className="mt-2 flex items-center gap-2 text-[11px] text-muted-foreground">
-              <span className="rounded bg-white px-2 py-1">Miktar: {stockPickTargetQty}</span>
-              <span className="rounded bg-white px-2 py-1">Seçilen: {selectedStockIds.length}</span>
+              <span className="rounded bg-card px-2 py-1">Miktar: {stockPickTargetQty}</span>
+              <span className="rounded bg-card px-2 py-1">Seçilen: {selectedStockIds.length}</span>
             </div>
           </div>
 
           <div className="space-y-2">
             <Label>Uygun seri numaraları</Label>
             {stockCandidates.length ? (
-              <div className="max-h-72 overflow-y-auto rounded-md border border-border/70 bg-white">
+              <div className="max-h-72 overflow-y-auto rounded-md border border-border/70 bg-card">
                 {stockCandidates.map((item) => {
                   const checked = selectedStockIds.includes(item.id);
                   const toggleItem = (checkedNext: boolean) => {
@@ -384,7 +384,7 @@ export function KanbanPage({ onSelect, items }: { onSelect: (s: SalesCase) => vo
                           {[item.brand, item.counterModel || item.counterType, item.warehouse].filter(Boolean).join(" · ")}
                         </span>
                         {item.status === "Reserved" && (
-                          <span className="mt-1 inline-flex rounded bg-amber-50 px-1.5 py-0.5 text-[10px] text-amber-700">
+                          <span className="mt-1 inline-flex rounded bg-warning-soft px-1.5 py-0.5 text-[10px] text-warning">
                             {item.reservedCompanyName ? `${item.reservedCompanyName} için rezerve` : "Rezerve"}
                           </span>
                         )}
@@ -428,14 +428,19 @@ export function KanbanPage({ onSelect, items }: { onSelect: (s: SalesCase) => vo
           <Card
             data-testid={`sales-kanban-card-${s.id}`}
             onClick={() => onSelect(s)}
-            className="group overflow-hidden rounded-lg border-transparent bg-white p-3 shadow-sm transition-all hover:-translate-y-px hover:shadow-md"
+            className="group gap-0 overflow-hidden rounded-lg border border-border/60 bg-card p-3 shadow-xs transition-all hover:-translate-y-px hover:border-primary/40 hover:shadow-md"
           >
+            {/* Trello benzeri etiket şeridi: aşama rengi */}
+            <div className="mb-2 flex items-center gap-1">
+              <span className={`h-2 w-10 rounded-full ${STAGE_DOT[s.stage] ?? "bg-zinc-300"}`} />
+              {s.isLost && <span className="h-2 w-10 rounded-full bg-destructive" />}
+            </div>
             <div className="flex items-start gap-2">
               <div className="size-8 rounded-md bg-gradient-to-br from-primary/15 to-primary/5 text-primary grid place-items-center text-[10px] shrink-0">
                 {c?.type !== "person" ? <Building2 className="size-3.5" /> : initials(c.name)}
               </div>
               <div className="min-w-0 flex-1">
-                <div className="text-[13px] leading-tight truncate group-hover:text-primary transition-colors">{c?.name ?? "Firma bulunamadı"}</div>
+                <div className="text-[13px] font-medium leading-tight truncate group-hover:text-primary transition-colors">{c?.name ?? "Firma bulunamadı"}</div>
                 <div className="text-[11px] text-muted-foreground line-clamp-2 break-words mt-0.5">{s.requestedProduct}</div>
               </div>
               <DropdownMenu>
@@ -470,10 +475,10 @@ export function KanbanPage({ onSelect, items }: { onSelect: (s: SalesCase) => vo
             </div>
 
             <div className="flex items-center gap-1.5 mt-2.5 flex-wrap">
-              <span className="inline-flex max-w-full truncate px-1.5 py-0.5 rounded text-[10px] bg-muted text-foreground/70">{s.requestedModel || "Model yok"}</span>
-              <span className="inline-flex px-1.5 py-0.5 rounded text-[10px] bg-muted text-foreground/70">×{s.quantity}</span>
+              <span className="inline-flex max-w-full truncate px-1.5 py-0.5 rounded-md text-[10px] bg-muted text-muted-foreground">{s.requestedModel || "Model yok"}</span>
+              <span className="inline-flex px-1.5 py-0.5 rounded-md text-[10px] bg-muted text-muted-foreground">×{s.quantity}</span>
               {s.isOfferPrepared && (
-                <span className="inline-flex px-1.5 py-0.5 rounded text-[10px] bg-emerald-50 text-emerald-700">Teklif</span>
+                <span className="inline-flex px-1.5 py-0.5 rounded text-[10px] bg-success-soft text-success">Teklif</span>
               )}
             </div>
 
@@ -485,7 +490,7 @@ export function KanbanPage({ onSelect, items }: { onSelect: (s: SalesCase) => vo
               onOpenCase={() => onSelect(s)}
             />
 
-            <div className="mt-2 flex flex-wrap items-center gap-1.5">
+            <div className="mt-2.5 flex flex-wrap items-center gap-1.5 border-t border-border/40 pt-2">
               {latestOffer ? (
                 <CreateProformaDialog
                   defaultQuoteId={latestOffer.id}
@@ -494,7 +499,7 @@ export function KanbanPage({ onSelect, items }: { onSelect: (s: SalesCase) => vo
                       type="button"
                       variant={hasProforma ? "secondary" : "outline"}
                       size="sm"
-                      className="h-7 gap-1 px-2 text-[10px]"
+                      className="h-7 gap-1 rounded-md px-2 text-[10px] font-medium"
                       title="Proforma oluştur"
                       onClick={stopCardClick}
                       onMouseDown={stopCardClick}
@@ -508,7 +513,7 @@ export function KanbanPage({ onSelect, items }: { onSelect: (s: SalesCase) => vo
                   type="button"
                   variant="outline"
                   size="sm"
-                  className="h-7 gap-1 px-2 text-[10px]"
+                  className="h-7 gap-1 rounded-md px-2 text-[10px] font-medium"
                   title="Önce teklif oluşturulmalı"
                   onClick={(event) => {
                     event.stopPropagation();
@@ -527,7 +532,7 @@ export function KanbanPage({ onSelect, items }: { onSelect: (s: SalesCase) => vo
                       type="button"
                       variant={hasContract ? "secondary" : "outline"}
                       size="sm"
-                      className="h-7 gap-1 px-2 text-[10px]"
+                      className="h-7 gap-1 rounded-md px-2 text-[10px] font-medium"
                       title="Sözleşme oluştur"
                       onClick={stopCardClick}
                       onMouseDown={stopCardClick}
@@ -541,7 +546,7 @@ export function KanbanPage({ onSelect, items }: { onSelect: (s: SalesCase) => vo
                   type="button"
                   variant="outline"
                   size="sm"
-                  className="h-7 gap-1 px-2 text-[10px]"
+                  className="h-7 gap-1 rounded-md px-2 text-[10px] font-medium"
                   title="Önce teklif oluşturulmalı"
                   onClick={(event) => {
                     event.stopPropagation();
@@ -557,7 +562,7 @@ export function KanbanPage({ onSelect, items }: { onSelect: (s: SalesCase) => vo
                   type="button"
                   variant="outline"
                   size="sm"
-                  className="h-7 gap-1 px-2 text-[10px]"
+                  className="h-7 gap-1 rounded-md px-2 text-[10px] font-medium"
                   title="Ticari fatura yükle"
                   onClick={(event) => {
                     event.stopPropagation();
@@ -577,7 +582,7 @@ export function KanbanPage({ onSelect, items }: { onSelect: (s: SalesCase) => vo
                   type="button"
                   variant="outline"
                   size="sm"
-                  className="h-7 gap-1 px-2 text-[10px]"
+                  className="h-7 gap-1 rounded-md px-2 text-[10px] font-medium"
                   title="Kurulum tutanağını aç"
                   onClick={(event) => {
                     event.stopPropagation();
@@ -591,7 +596,7 @@ export function KanbanPage({ onSelect, items }: { onSelect: (s: SalesCase) => vo
             </div>
 
             <div className="flex items-center justify-between mt-3 pt-2.5 border-t border-border/60">
-              <div className="min-w-0 truncate text-[13px] tabular-nums tracking-tight">
+              <div className="min-w-0 truncate text-[13px] font-medium tabular-nums tracking-tight">
                 {s.estimatedAmount.toLocaleString()} <span className="text-[11px] text-muted-foreground">{s.currency}</span>
               </div>
               <div className="flex items-center gap-1.5 shrink-0">
@@ -600,7 +605,7 @@ export function KanbanPage({ onSelect, items }: { onSelect: (s: SalesCase) => vo
                     type="button"
                     variant="ghost"
                     size="sm"
-                    className="h-7 gap-1 px-2 text-[10px] text-emerald-700 hover:bg-emerald-50 hover:text-emerald-800"
+                    className="h-7 gap-1 rounded-md px-2 text-[10px] font-medium text-success hover:bg-success-soft hover:text-success"
                     disabled={closingCaseId === s.id}
                     title="Tamamla / Geçmiş'e al"
                     onClick={(event) => {
@@ -612,7 +617,7 @@ export function KanbanPage({ onSelect, items }: { onSelect: (s: SalesCase) => vo
                     <CheckCircle2 className="size-3" /> Bitir
                   </Button>
                 )}
-                <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground">
+                <span className="inline-flex items-center gap-1 rounded-md bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
                   <Calendar className="size-2.5" />
                   {s.createdAt.slice(5)}
                 </span>

@@ -39,6 +39,83 @@ import {
 } from '../../shared/utils/division-scope';
 import { companyVisibilityFilter } from '../../shared/utils/company-visibility';
 
+const TURKISH_FOLD_MAP: Record<string, string> = {
+  ç: 'c',
+  Ç: 'C',
+  ğ: 'g',
+  Ğ: 'G',
+  ı: 'i',
+  I: 'I',
+  İ: 'I',
+  ö: 'o',
+  Ö: 'O',
+  ş: 's',
+  Ş: 'S',
+  ü: 'u',
+  Ü: 'U',
+};
+
+const compactOsmPart = (value?: string | null) =>
+  value
+    ?.trim()
+    .replace(/\s+/g, ' ')
+    .replace(/\s*,\s*/g, ', ')
+    .replace(/,+/g, ',')
+    .replace(/^,|,$/g, '')
+    .trim() || '';
+
+const foldTurkishForOsm = (value: string) =>
+  value
+    .replace(/[çÇğĞıIİöÖşŞüÜ]/g, (char) => TURKISH_FOLD_MAP[char] ?? char)
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+
+const stripCompanySuffixes = (value: string) =>
+  value
+    .replace(/\b(a\.?\s*ş\.?|anonim|limited|ltd\.?|şti\.?|şirketi|sanayi|san\.?|ticaret|tic\.?|ithalat|ihracat|pazarlama|ve)\b/giu, ' ')
+    .replace(/[^\p{L}\p{N}\s.-]/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+const uniqueTexts = (values: string[]) => {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const raw of values) {
+    const value = compactOsmPart(raw);
+    if (value.length < 2) continue;
+    const key = value.toLocaleLowerCase('tr-TR');
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(value);
+  }
+  return out;
+};
+
+const joinOsmParts = (parts: Array<string | undefined | null>) =>
+  uniqueTexts(parts.map(compactOsmPart)).join(', ');
+
+const buildOsmSearchCandidates = (query: CompanyOsmSearchQuery) => {
+  const q = compactOsmPart(query.q);
+  const stripped = stripCompanySuffixes(q);
+  const folded = foldTurkishForOsm(q);
+  const foldedStripped = stripCompanySuffixes(foldTurkishForOsm(q));
+  const names = uniqueTexts([q, stripped, folded, foldedStripped]);
+  const address = compactOsmPart(query.address);
+  const district = compactOsmPart(query.district);
+  const city = compactOsmPart(query.city);
+  const scoped = [address, district, city].filter(Boolean);
+  const candidates: string[] = [];
+
+  for (const name of names) {
+    if (scoped.length) candidates.push(joinOsmParts([name, address, district, city, 'Türkiye']));
+    if (district || city) candidates.push(joinOsmParts([name, district, city, 'Türkiye']));
+    candidates.push(joinOsmParts([name, 'Türkiye']));
+  }
+  if (address) candidates.push(joinOsmParts([address, district, city, 'Türkiye']));
+
+  return uniqueTexts(candidates).slice(0, 6);
+};
+
 @Injectable()
 export class CompaniesService {
   private readonly osmCache = new Map<string, { expiresAt: number; results: CompanyOsmSearchResult[] }>();
@@ -207,60 +284,64 @@ export class CompaniesService {
   }
 
   async searchOpenStreetMap(query: CompanyOsmSearchQuery, _actor: AuthContext): Promise<CompanyOsmSearchResult[]> {
-    const parts = [query.q, query.district, query.city, 'Türkiye']
-      .map((part) => part?.trim())
-      .filter((part): part is string => !!part);
-    const searchText = [...new Set(parts)].join(', ');
-    const cacheKey = searchText.toLocaleLowerCase('tr-TR');
+    const candidates = buildOsmSearchCandidates(query);
+    const cacheKey = candidates.join('|').toLocaleLowerCase('tr-TR');
     const cached = this.osmCache.get(cacheKey);
     const now = Date.now();
     if (cached && cached.expiresAt > now) return cached.results;
 
-    const waitMs = Math.max(0, 1000 - (now - this.osmLastRequestAt));
-    if (waitMs > 0) await new Promise((resolve) => setTimeout(resolve, waitMs));
-    this.osmLastRequestAt = Date.now();
-
-    const url = new URL('https://nominatim.openstreetmap.org/search');
-    url.searchParams.set('q', searchText);
-    url.searchParams.set('format', 'jsonv2');
-    url.searchParams.set('addressdetails', '1');
-    url.searchParams.set('limit', '5');
-    url.searchParams.set('countrycodes', 'tr');
-    url.searchParams.set('accept-language', 'tr');
-
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 8000);
+    const timeout = setTimeout(() => controller.abort(), 15000);
     try {
-      const response = await fetch(url, {
-        signal: controller.signal,
-        headers: {
-          Accept: 'application/json',
-          Referer: 'https://haksan.local',
-          'User-Agent': 'Haksan-CRM-ERP/0.1 (company map search; contact: admin@haksan.local)',
-        },
-      });
-      if (!response.ok) {
-        throw new ValidationError('OpenStreetMap araması şu anda yanıt vermiyor', { status: response.status });
+      const byId = new Map<string, CompanyOsmSearchResult>();
+      for (const searchText of candidates) {
+        const waitMs = Math.max(0, 1000 - (Date.now() - this.osmLastRequestAt));
+        if (waitMs > 0) await new Promise((resolve) => setTimeout(resolve, waitMs));
+        this.osmLastRequestAt = Date.now();
+
+        const url = new URL('https://nominatim.openstreetmap.org/search');
+        url.searchParams.set('q', searchText);
+        url.searchParams.set('format', 'jsonv2');
+        url.searchParams.set('addressdetails', '1');
+        url.searchParams.set('limit', '5');
+        url.searchParams.set('countrycodes', 'tr');
+        url.searchParams.set('accept-language', 'tr');
+
+        const response = await fetch(url, {
+          signal: controller.signal,
+          headers: {
+            Accept: 'application/json',
+            Referer: 'https://haksan.local',
+            'User-Agent': 'Haksan-CRM-ERP/0.1 (company map search; contact: admin@haksan.local)',
+          },
+        });
+        if (!response.ok) {
+          throw new ValidationError('OpenStreetMap araması şu anda yanıt vermiyor', { status: response.status });
+        }
+        const rows = (await response.json()) as Array<Record<string, unknown>>;
+        const results = rows
+          .map((row, index): CompanyOsmSearchResult | null => {
+            const latitude = Number(row.lat);
+            const longitude = Number(row.lon);
+            const displayName = typeof row.display_name === 'string' ? row.display_name : '';
+            if (!Number.isFinite(latitude) || !Number.isFinite(longitude) || !displayName) return null;
+            return {
+              id: String(row.place_id ?? `${cacheKey}:${index}`),
+              displayName,
+              latitude,
+              longitude,
+              type: typeof row.type === 'string' ? row.type : null,
+              category: typeof row.category === 'string' ? row.category : null,
+              importance: Number.isFinite(Number(row.importance)) ? Number(row.importance) : null,
+              address: row.address && typeof row.address === 'object' ? (row.address as Record<string, unknown>) : undefined,
+            };
+          })
+          .filter((row): row is CompanyOsmSearchResult => row != null);
+
+        for (const result of results) byId.set(result.id, result);
+        if (byId.size > 0) break;
       }
-      const rows = (await response.json()) as Array<Record<string, unknown>>;
-      const results = rows
-        .map((row, index): CompanyOsmSearchResult | null => {
-          const latitude = Number(row.lat);
-          const longitude = Number(row.lon);
-          const displayName = typeof row.display_name === 'string' ? row.display_name : '';
-          if (!Number.isFinite(latitude) || !Number.isFinite(longitude) || !displayName) return null;
-          return {
-            id: String(row.place_id ?? `${cacheKey}:${index}`),
-            displayName,
-            latitude,
-            longitude,
-            type: typeof row.type === 'string' ? row.type : null,
-            category: typeof row.category === 'string' ? row.category : null,
-            importance: Number.isFinite(Number(row.importance)) ? Number(row.importance) : null,
-            address: row.address && typeof row.address === 'object' ? (row.address as Record<string, unknown>) : undefined,
-          };
-        })
-        .filter((row): row is CompanyOsmSearchResult => row != null);
+      const results = Array.from(byId.values()).slice(0, 5);
       this.osmCache.set(cacheKey, { expiresAt: Date.now() + 10 * 60 * 1000, results });
       return results;
     } catch (err) {

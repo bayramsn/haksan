@@ -2,7 +2,38 @@ import { useEffect, useState } from "react";
 import { Button } from "./button";
 import { Popover, PopoverContent, PopoverTrigger } from "./popover";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./select";
-import { Filter, X } from "lucide-react";
+import { Filter, LayoutGrid, Rows3, X } from "lucide-react";
+
+export type ListView = "table" | "cards";
+
+/** Tablo ↔ kart görünüm geçişi; tercih sayfa tarafında usePersistentState ile saklanır. */
+export function ViewToggle({ view, onChange }: { view: ListView; onChange: (v: ListView) => void }) {
+  const options: { value: ListView; icon: React.ReactNode; label: string }[] = [
+    { value: "table", icon: <Rows3 className="size-4" />, label: "Tablo görünümü" },
+    { value: "cards", icon: <LayoutGrid className="size-4" />, label: "Kart görünümü" },
+  ];
+  return (
+    <div className="inline-flex h-9 items-center rounded-md border border-border bg-white p-0.5 shadow-xs">
+      {options.map((o) => (
+        <button
+          key={o.value}
+          type="button"
+          title={o.label}
+          aria-label={o.label}
+          aria-pressed={view === o.value}
+          onClick={() => onChange(o.value)}
+          className={`inline-flex h-8 w-9 items-center justify-center rounded-[5px] transition-colors ${
+            view === o.value
+              ? "bg-primary text-primary-foreground shadow-xs"
+              : "text-muted-foreground hover:bg-muted hover:text-foreground"
+          }`}
+        >
+          {o.icon}
+        </button>
+      ))}
+    </div>
+  );
+}
 
 export type FilterDef = {
   label: string;

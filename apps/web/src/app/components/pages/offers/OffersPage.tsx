@@ -35,7 +35,7 @@ import { ExportExcelButton } from "../../ui/ExportExcelButton";
 import { CreateAccountingInvoiceDialog, type AccountingInvoicePrefill } from "../finance/CreateAccountingInvoiceDialog";
 import type { OperationFocus } from "../../../lib/operations";
 import { loadQuotePrintData, printAssetBase, quoteDoc } from "../../../lib/print";
-import { printOrWarn, splitVat, formatDate, formatCurrency } from "../../../lib/pageHelpers";
+import { downloadPrintOrWarn, previewPrintOrWarn, printOrWarn, splitVat, formatDate, formatCurrency } from "../../../lib/pageHelpers";
 
 function invoicePrefillFromOffer(offer: Offer, customer: Customer | null, order?: any): AccountingInvoicePrefill {
   const vat = splitVat(offer.amount, { subtotal: offer.subtotal, vatTotal: offer.vatTotal });
@@ -597,19 +597,30 @@ export function OfferDetailDialog({
 
   // Teklif yazdırma: ürün kataloğundan model eşleşirse teknik bilgiler ve
   // donanım sayfaları da basılır; alt notlar seçilen teslim şekline göre gelir.
-  const handlePrint = async () => {
+  const loadQuoteDocument = async () => {
+    const data = await loadQuotePrintData({ offer, customer, salesCase, users, contacts, products });
+    return quoteDoc(data, printAssetBase());
+  };
+
+  const runQuoteDocument = async (mode: "print" | "preview" | "download") => {
     const loading = toast.loading("Teklif hazırlanıyor…");
     try {
-      const data = await loadQuotePrintData({ offer, customer, salesCase, users, contacts, products });
-      printOrWarn(quoteDoc(data, printAssetBase()));
+      const doc = await loadQuoteDocument();
+      if (mode === "print") printOrWarn(doc);
+      else if (mode === "preview") previewPrintOrWarn(doc);
+      else downloadPrintOrWarn(doc, `Teklif-${offer.quoteNo}`, "Teklif");
     } catch (error: unknown) {
-      toast.error("Teklif yazdırılamadı", {
+      toast.error("Teklif dosyası hazırlanamadı", {
         description: error instanceof Error ? error.message : "Teklif ayrıntıları alınamadı.",
       });
     } finally {
       toast.dismiss(loading);
     }
   };
+
+  const handlePrint = () => void runQuoteDocument("print");
+  const handlePreview = () => void runQuoteDocument("preview");
+  const handleDownload = () => void runQuoteDocument("download");
 
   return (
     <Dialog open={!!offer} onOpenChange={(open) => !open && onClose()}>
@@ -720,34 +731,18 @@ export function OfferDetailDialog({
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="outline" size="sm" className="h-9 gap-1">
-                <Printer className="size-4" /> Yazdır / PDF <ChevronDown className="size-3.5 opacity-60" />
+                <Printer className="size-4" /> Teklif Dosyası <ChevronDown className="size-3.5 opacity-60" />
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              <DropdownMenuItem onClick={() => void handlePrint()}>
-                <Printer className="size-4" /> Yazdır
+              <DropdownMenuItem onClick={handlePrint}>
+                <Printer className="size-4" /> Yazdır / PDF Kaydet
               </DropdownMenuItem>
-              <DropdownMenuItem
-                onClick={async () => {
-                  try {
-                    await quoteService.openPdf(offer.id);
-                  } catch (err: any) {
-                    toast.error("PDF açılamadı", { description: err?.message ?? "Sunucu hatası." });
-                  }
-                }}
-              >
-                <Eye className="size-4" /> PDF Aç
+              <DropdownMenuItem onClick={handlePreview}>
+                <Eye className="size-4" /> Önizle
               </DropdownMenuItem>
-              <DropdownMenuItem
-                onClick={async () => {
-                  try {
-                    await quoteService.downloadPdf(offer.id, offer.quoteNo);
-                  } catch (err: any) {
-                    toast.error("PDF indirilemedi", { description: err?.message ?? "Sunucu hatası." });
-                  }
-                }}
-              >
-                <Download className="size-4" /> PDF İndir
+              <DropdownMenuItem onClick={handleDownload}>
+                <Download className="size-4" /> HTML İndir
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>

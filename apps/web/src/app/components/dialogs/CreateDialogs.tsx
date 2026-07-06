@@ -434,6 +434,7 @@ export function CreateCustomerDialog({ trigger, onCreated }: { trigger: React.Re
             <div className="col-span-2">
               <OsmCompanySearch
                 query={form.name}
+                address={form.address}
                 city={form.city}
                 district={form.district}
                 onSelect={(result) => {
@@ -1792,7 +1793,7 @@ const PRODUCT_SUBCATEGORIES: ProductOption[] = [
 ];
 const PRODUCT_TYPE_GROUPS: Array<{ label: string; options: ProductTypeOption[] }> = [
   {
-    label: "Ürün tipi işleme merkezi için liste",
+    label: "İşleme Merkezi",
     options: [
       { code: "CNC_DIK_ISLEME_MERKEZ", label: "CNC Dik İşleme Merkezi", categoryCode: "TEZGAH", subcategoryCode: "ISLEME_MERKEZI" },
       { code: "CNC_YATAY_ISLEME_MERKEZI", label: "CNC Yatay İşleme Merkezi", categoryCode: "TEZGAH", subcategoryCode: "ISLEME_MERKEZI" },
@@ -1802,14 +1803,14 @@ const PRODUCT_TYPE_GROUPS: Array<{ label: string; options: ProductTypeOption[] }
     ],
   },
   {
-    label: "Ürün tipi torna",
+    label: "Torna",
     options: [
       { code: "CNC_YATAY_TORNA_TEZGAHI", label: "CNC Yatay Torna Tezgahı", categoryCode: "TEZGAH", subcategoryCode: "TORNA" },
       { code: "CNC_DIK_TORNA_TEZGAHI", label: "CNC Dik Torna Tezgahı", categoryCode: "TEZGAH", subcategoryCode: "TORNA" },
     ],
   },
   {
-    label: "Ürün tipi yedek parça",
+    label: "Yedek Parça",
     options: [
       { code: "ELEKTRONIK", label: "Elektronik", categoryCode: "YEDEK_PARCA" },
       { code: "ELEKTRIK", label: "Elektrik", categoryCode: "YEDEK_PARCA" },
@@ -1817,18 +1818,18 @@ const PRODUCT_TYPE_GROUPS: Array<{ label: string; options: ProductTypeOption[] }
     ],
   },
   {
-    label: "Ürün tipi opsiyonel donanım",
+    label: "Opsiyonel Donanım",
     options: [
       { code: "KONTROL_UNITESI", label: "Kontrol Ünitesi", categoryCode: "OPSIYONEL_DONANIM" },
       { code: "SPINDLE", label: "Spindle", categoryCode: "OPSIYONEL_DONANIM" },
     ],
   },
   {
-    label: "Ürün tipi işçilik",
+    label: "İşçilik",
     options: [{ code: "ISCILIK", label: "İşçilik", categoryCode: "ISCILIK" }],
   },
   {
-    label: "Ürün tipi aksesuar",
+    label: "Aksesuar",
     options: [
       { code: "YAG_SIYIRICI", label: "Yağ Sıyırıcı", categoryCode: "AKSESUAR" },
       { code: "TUTUCU_TAKIMLAR", label: "Tutucu & Takımlar", categoryCode: "AKSESUAR" },
@@ -1852,7 +1853,7 @@ const normalizeProductVatRate = (value: string | number | null | undefined) => {
 };
 
 const catalogSpecs = (specs: ProductSpec[] = [], emptyValue = "", productTypeCode?: string) =>
-  (productTypeCode ? specsForProductType(productTypeCode, specs) : allCatalogProductSpecs(specs, emptyValue)).map((spec) => ({
+  (productTypeCode ? specsForProductType(productTypeCode, specs) : specs).map((spec) => ({
     key: spec.key,
     value: spec.value?.trim() ? spec.value : emptyValue,
     unit: spec.unit ?? spec.specUnit ?? "",
@@ -1863,6 +1864,34 @@ const catalogSpecs = (specs: ProductSpec[] = [], emptyValue = "", productTypeCod
 
 const isProductTypeTemplateSpec = (productTypeCode: string | undefined, spec: ProductSpec) =>
   productSpecDefaults(productTypeCode).some((templateSpec) => normalizeProductSpecKey(templateSpec.key) === normalizeProductSpecKey(spec.key));
+
+const ALL_MACHINE_TEMPLATE_KEYS = new Set(
+  allCatalogProductSpecs([], "").map((spec) => normalizeProductSpecKey(spec.key)),
+);
+
+const templateKeysForProductType = (productTypeCode?: string) =>
+  new Set(productSpecDefaults(productTypeCode).map((spec) => normalizeProductSpecKey(spec.key)));
+
+const hasSpecContent = (spec: ProductSpec) => Boolean(spec.key.trim() || spec.value.trim());
+
+const specsForSelectedProductType = (specs: ProductSpec[] = [], productTypeCode?: string, emptyValue = "") => {
+  if (!productTypeCode) return catalogSpecs(specs.filter(hasSpecContent), emptyValue);
+
+  const selectedTemplateKeys = templateKeysForProductType(productTypeCode);
+  const source = specs.filter((spec) => {
+    const normalizedKey = normalizeProductSpecKey(spec.key);
+    if (selectedTemplateKeys.has(normalizedKey)) return true;
+    if (ALL_MACHINE_TEMPLATE_KEYS.has(normalizedKey)) return false;
+    return hasSpecContent(spec);
+  });
+
+  return catalogSpecs(source, emptyValue, productTypeCode);
+};
+
+const subcategoriesForProductCategory = (categoryCode: string) =>
+  PRODUCT_SUBCATEGORIES.filter((subcategory) =>
+    PRODUCT_TYPE_OPTIONS.some((type) => type.categoryCode === categoryCode && type.subcategoryCode === subcategory.code),
+  );
 
 type ProductFormState = {
   brand: string;
@@ -1992,7 +2021,7 @@ const emptyProduct = (): ProductFormState => ({
   imageUrl: "", shortDescription: "", description: "",
   listPrice: "", cashPrice: "", currency: "USD",
   vatRate: DEFAULT_PRODUCT_VAT_RATE, originCountry: "", hsCode: "", stockCode: "",
-  specs: catalogSpecs(), standardEquipment: [], optionalEquipment: [],
+  specs: [], standardEquipment: [], optionalEquipment: [],
   muadilProductIds: [],
   status: "active",
 });
@@ -2138,12 +2167,13 @@ export function ProductDialog({
     setOptionalEquipmentDraft(optionalEquipmentDraftForMachine(form));
   };
 
-  const categoryUsesSubcategory = form.categoryCode === "TEZGAH" || form.categoryCode === OPTIONAL_EQUIPMENT_CATEGORY_CODE;
+  const availableProductSubcategories = subcategoriesForProductCategory(form.categoryCode);
+  const categoryUsesSubcategory = availableProductSubcategories.length > 0;
 
   // Ürün tipini seçili kategoriye ve (tezgahsa) alt kategoriye göre filtrele
   const typeMatches = (o: ProductTypeOption, categoryCode: string, subcategoryCode: string) => {
     if (o.categoryCode !== categoryCode) return false;
-    if (categoryCode === "TEZGAH" && o.subcategoryCode) return o.subcategoryCode === subcategoryCode;
+    if (subcategoriesForProductCategory(categoryCode).length > 0) return o.subcategoryCode === subcategoryCode;
     return true;
   };
 
@@ -2215,6 +2245,14 @@ export function ProductDialog({
   const validMuadilIds = new Set(muadilOptions.map((p) => p.id));
   const selectedMuadilIds = form.muadilProductIds.filter((id) => validMuadilIds.has(id));
   const selectedMuadils = muadilOptions.filter((p) => selectedMuadilIds.includes(p.id));
+  const selectedProductTypeLabel = form.productTypeCode
+    ? PRODUCT_TYPE_OPTIONS.find((option) => option.code === form.productTypeCode)?.label ?? form.type
+    : "";
+  const selectedProductTypeTemplateCount = productSpecDefaults(form.productTypeCode).length;
+  const technicalSpecGroups = useMemo(
+    () => groupProductSpecsForType(form.productTypeCode, form.specs.map((spec, index) => ({ ...spec, index }))),
+    [form.productTypeCode, form.specs],
+  );
   const groupMuadils = (items: Product[]) =>
     items.reduce<Record<string, Product[]>>((acc, item) => {
       const key = item.category || "Kategorisiz";
@@ -2242,11 +2280,8 @@ export function ProductDialog({
   };
 
   // Ürün tipi/kategori değişse de sabit teknik katalog korunur.
-  const specsAfterChange = (kept: { productTypeCode: string }, categoryCode: string) => {
-    void kept;
-    void categoryCode;
-    return catalogSpecs(form.specs, "", kept.productTypeCode);
-  };
+  const specsAfterChange = (kept: { productTypeCode: string }) =>
+    specsForSelectedProductType(form.specs, kept.productTypeCode);
 
   const onProductGroupChange = (code: string) => {
     setForm({
@@ -2256,14 +2291,17 @@ export function ProductDialog({
       productTypeCode: "",
       type: "",
       brand: "",
-      specs: catalogSpecs(form.specs, "", code),
+      specs: [],
     });
   };
 
   const onCategoryChange = (code: string) => {
-    const usesSubcategory = code === "TEZGAH" || code === OPTIONAL_EQUIPMENT_CATEGORY_CODE;
-    const subcategoryCode = usesSubcategory ? form.subcategoryCode || "ISLEME_MERKEZI" : "";
-    const subcategory = usesSubcategory ? form.subcategory || "İşleme Merkezi" : "";
+    const subcategoryOptions = subcategoriesForProductCategory(code);
+    const usesSubcategory = subcategoryOptions.length > 0;
+    const subcategoryCode = usesSubcategory && subcategoryOptions.some((option) => option.code === form.subcategoryCode)
+      ? form.subcategoryCode
+      : subcategoryOptions[0]?.code ?? "";
+    const subcategory = usesSubcategory ? findLabel(PRODUCT_SUBCATEGORIES, subcategoryCode, subcategoryOptions[0]?.label ?? "") : "";
     const machineType = code === "OPSIYONEL_DONANIM" ? form.compatibleMachineType : "";
     const kept = keepTypeIfValid(code, subcategoryCode);
     setForm({
@@ -2280,7 +2318,7 @@ export function ProductDialog({
       optionalCompatibilityBrandIds: code === OPTIONAL_EQUIPMENT_CATEGORY_CODE ? form.optionalCompatibilityBrandIds : [],
       ...kept,
       brand: "",
-      specs: specsAfterChange(kept, code),
+      specs: specsAfterChange(kept),
     });
   };
 
@@ -2292,7 +2330,7 @@ export function ProductDialog({
       subcategory: findLabel(PRODUCT_SUBCATEGORIES, code),
       ...kept,
       brand: "",
-      specs: specsAfterChange(kept, form.categoryCode),
+      specs: specsAfterChange(kept),
     });
   };
 
@@ -2310,18 +2348,24 @@ export function ProductDialog({
       subcategoryCode,
       subcategory: findLabel(PRODUCT_SUBCATEGORIES, subcategoryCode, form.subcategory),
       brand: opt.code === form.productTypeCode ? form.brand : "",
-      specs: catalogSpecs(form.specs, "", opt.code),
+      specs: specsForSelectedProductType(form.specs, opt.code),
     });
     void productService
       .specTemplates(opt.code)
       .then((rows) => {
         const templateSpecs = (rows ?? [])
           .filter((row: any) => row.isActive !== false && row.specKey)
-          .map((row: any) => ({ key: row.specKey, value: row.defaultValue ?? "", unit: row.specUnit ?? "", specUnit: row.specUnit ?? "" }));
+          .map((row: any) => ({
+            key: row.specKey,
+            value: row.defaultValue ?? "",
+            unit: row.specUnit ?? "",
+            specUnit: row.specUnit ?? "",
+            groupCode: row.specGroupCode ?? undefined,
+          }));
         if (!templateSpecs.length) return;
         setForm((current) => {
           if (current.productTypeCode !== opt.code) return current;
-          return { ...current, specs: catalogSpecs([...current.specs, ...templateSpecs], "", opt.code) };
+          return { ...current, specs: specsForSelectedProductType([...current.specs, ...templateSpecs], opt.code) };
         });
       })
       .catch(() => undefined);
@@ -2431,7 +2475,7 @@ export function ProductDialog({
                 <Select value={form.subcategoryCode} onValueChange={onSubcategoryChange}>
                   <SelectTrigger className="h-8 max-w-xs"><SelectValue placeholder="Alt kategori seçin" /></SelectTrigger>
                   <SelectContent>
-                    {PRODUCT_SUBCATEGORIES.map((o) => <SelectItem key={o.code} value={o.code}>{o.label}</SelectItem>)}
+                    {availableProductSubcategories.map((o) => <SelectItem key={o.code} value={o.code}>{o.label}</SelectItem>)}
                   </SelectContent>
                 </Select>
               </ProductSheetRow>
@@ -2730,72 +2774,93 @@ export function ProductDialog({
             {!isLaborProduct && (
             <ProductSheetRow label="Teknik Bilgiler" className="items-start">
               <div className="space-y-2">
-                <div className="flex items-center justify-between gap-2">
-                  <div className="text-[11px] text-muted-foreground">Şablon ürün tipine göre gelir; etiket ve birim sabittir, sadece değer girilir.</div>
-                  <div className="flex flex-wrap justify-end gap-1.5">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="h-7"
-                      onClick={() => setForm((f) => ({
-                        ...f,
-                        specs: catalogSpecs(f.specs, "", f.productTypeCode),
-                      }))}
-                    >
-                      Sabit listeyi tamamla
-                    </Button>
+                {!form.productTypeCode ? (
+                  <div className="rounded-md border border-dashed border-border/70 bg-muted/20 px-3 py-6 text-center">
+                    <div className="text-sm font-medium">Teknik bilgiler ürün tipi seçilince gelir</div>
+                    <p className="mx-auto mt-1 max-w-md text-xs text-muted-foreground">
+                      Örneğin CNC Dik İşleme Merkezi seçildiğinde yalnızca o tipe ait tabla, eksen, fener mili, motor ve takım değiştirici alanları açılır.
+                    </p>
                   </div>
-                </div>
-                <div className="space-y-2">
-                  {groupProductSpecsForType(form.productTypeCode, form.specs.map((spec, index) => ({ ...spec, index }))).map(({ group, specs }) => (
-                    <div key={group.code} className="grid grid-cols-[48px_minmax(0,1fr)] overflow-hidden rounded-md border border-border/60 bg-white">
-                      <div className="flex items-center justify-center border-r border-border/60 bg-muted/50 px-1 py-2">
-                        <div className="rotate-180 text-center text-[10px] font-semibold uppercase tracking-[0.16em] text-foreground/80 [writing-mode:vertical-rl]">
-                          {group.label}
-                        </div>
+                ) : (
+                  <>
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
+                        <Badge variant="secondary">{selectedProductTypeLabel}</Badge>
+                        <span>{selectedProductTypeTemplateCount || form.specs.length} teknik alan</span>
+                        <span>Etiket ve birim sabittir; sadece değer girilir.</span>
                       </div>
-                      <div className="min-w-0 divide-y divide-dotted divide-foreground/30">
-                        {specs.map((s) => {
-                          const lockedTemplateRow = isProductTypeTemplateSpec(form.productTypeCode, s);
-                          return (
-                            <div key={s.index} className="grid grid-cols-[minmax(160px,1fr)_minmax(140px,0.9fr)_88px_36px] items-center gap-2 px-2 py-1.5">
-                              <div className="min-w-0 truncate text-xs font-medium text-foreground" title={s.key}>
-                                {s.key}
-                              </div>
-                              <Combobox
-                                className="h-8 bg-white"
-                                options={specValueOptionsFor(s)}
-                                value={s.value}
-                                onChange={(value) => updSpec(s.index, { value })}
-                                placeholder="Boş / -"
-                                searchPlaceholder="Değer ara..."
-                                emptyText="Değer bulunamadı"
-                                onCreate={(value) => updSpec(s.index, { value })}
-                                createLabel={(query) => `"${query}" kullan`}
-                              />
-                              <div className="h-8 rounded-md border border-border/70 bg-muted/30 px-2 text-center text-xs leading-8 text-muted-foreground" title={s.unit ?? s.specUnit ?? ""}>
-                                {s.unit || s.specUnit || "-"}
-                              </div>
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="icon"
-                                className="h-8 w-8"
-                                disabled={lockedTemplateRow}
-                                title={lockedTemplateRow ? "Şablon satırı silinemez" : "Satırı kaldır"}
-                                onClick={() => rmSpec(s.index)}
-                                aria-label={`${s.key} satırını kaldır`}
-                              >
-                                <Trash2 className={`size-4 ${lockedTemplateRow ? "text-muted-foreground/30" : "text-muted-foreground"}`} />
-                              </Button>
-                            </div>
-                          );
-                        })}
+                      <div className="flex flex-wrap justify-end gap-1.5">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="h-7"
+                          onClick={() => setForm((f) => ({
+                            ...f,
+                            specs: specsForSelectedProductType(f.specs, f.productTypeCode),
+                          }))}
+                        >
+                          Sabit listeyi tamamla
+                        </Button>
                       </div>
                     </div>
-                  ))}
-                </div>
+                    {technicalSpecGroups.length ? (
+                      <div className="space-y-2">
+                        {technicalSpecGroups.map(({ group, specs }) => (
+                          <div key={group.code} className="grid grid-cols-[48px_minmax(0,1fr)] overflow-hidden rounded-md border border-border/60 bg-white">
+                            <div className="flex items-center justify-center border-r border-border/60 bg-muted/50 px-1 py-2">
+                              <div className="rotate-180 text-center text-[10px] font-semibold uppercase tracking-[0.16em] text-foreground/80 [writing-mode:vertical-rl]">
+                                {group.label}
+                              </div>
+                            </div>
+                            <div className="min-w-0 divide-y divide-dotted divide-foreground/30">
+                              {specs.map((s) => {
+                                const lockedTemplateRow = isProductTypeTemplateSpec(form.productTypeCode, s);
+                                return (
+                                  <div key={s.index} className="grid grid-cols-[minmax(160px,1fr)_minmax(140px,0.9fr)_88px_36px] items-center gap-2 px-2 py-1.5">
+                                    <div className="min-w-0 truncate text-xs font-medium text-foreground" title={s.key}>
+                                      {s.key}
+                                    </div>
+                                    <Combobox
+                                      className="h-8 bg-white"
+                                      options={specValueOptionsFor(s)}
+                                      value={s.value}
+                                      onChange={(value) => updSpec(s.index, { value })}
+                                      placeholder="Boş / -"
+                                      searchPlaceholder="Değer ara..."
+                                      emptyText="Değer bulunamadı"
+                                      onCreate={(value) => updSpec(s.index, { value })}
+                                      createLabel={(query) => `"${query}" kullan`}
+                                    />
+                                    <div className="h-8 rounded-md border border-border/70 bg-muted/30 px-2 text-center text-xs leading-8 text-muted-foreground" title={s.unit ?? s.specUnit ?? ""}>
+                                      {s.unit || s.specUnit || "-"}
+                                    </div>
+                                    <Button
+                                      type="button"
+                                      variant="ghost"
+                                      size="icon"
+                                      className="h-8 w-8"
+                                      disabled={lockedTemplateRow}
+                                      title={lockedTemplateRow ? "Şablon satırı silinemez" : "Satırı kaldır"}
+                                      onClick={() => rmSpec(s.index)}
+                                      aria-label={`${s.key} satırını kaldır`}
+                                    >
+                                      <Trash2 className={`size-4 ${lockedTemplateRow ? "text-muted-foreground/30" : "text-muted-foreground"}`} />
+                                    </Button>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="rounded-md border border-dashed border-border/70 bg-muted/20 px-3 py-6 text-center text-sm text-muted-foreground">
+                        Bu ürün tipi için kayıtlı teknik bilgi şablonu yok.
+                      </div>
+                    )}
+                  </>
+                )}
               </div>
             </ProductSheetRow>
             )}

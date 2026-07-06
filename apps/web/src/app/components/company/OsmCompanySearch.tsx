@@ -4,25 +4,29 @@ import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { cn } from "../ui/utils";
 import { companyService } from "../../../lib/services";
-import { Loader2, MapPin, Search } from "lucide-react";
+import { Crosshair, Loader2, MapPin, Search } from "lucide-react";
 import { toast } from "sonner";
 
 type OsmCompanySearchProps = {
   query: string;
+  address?: string | null;
   city?: string | null;
   district?: string | null;
   buttonLabel?: string;
   className?: string;
   onSelect: (result: CompanyOsmSearchResult) => void | Promise<void>;
+  onManualPick?: () => void;
 };
 
 export function OsmCompanySearch({
   query,
+  address,
   city,
   district,
   buttonLabel = "OSM'de ara",
   className,
   onSelect,
+  onManualPick,
 }: OsmCompanySearchProps) {
   const [term, setTerm] = useState(query);
   const [results, setResults] = useState<CompanyOsmSearchResult[]>([]);
@@ -44,11 +48,16 @@ export function OsmCompanySearch({
     try {
       const rows = await companyService.osmSearch({
         q,
+        address: address?.trim() || undefined,
         city: city?.trim() || undefined,
         district: district?.trim() || undefined,
       });
       setResults(rows);
-      if (rows.length === 0) toast.info("OpenStreetMap sonucu bulunamadı");
+      if (rows.length === 0) {
+        toast.info("OpenStreetMap sonucu bulunamadı", {
+          description: onManualPick ? "Adres bilgisi yoksa haritadan pin seçebilirsiniz." : undefined,
+        });
+      }
     } catch (err: any) {
       toast.error("OpenStreetMap araması başarısız", { description: err?.message ?? "Lütfen tekrar deneyin." });
     } finally {
@@ -84,6 +93,12 @@ export function OsmCompanySearch({
           {loading ? <Loader2 className="size-4 animate-spin" /> : <MapPin className="size-4" />}
           {buttonLabel}
         </Button>
+        {onManualPick && (
+          <Button type="button" variant="outline" className="h-9 gap-1.5" onClick={onManualPick}>
+            <Crosshair className="size-4" />
+            Haritadan seç
+          </Button>
+        )}
       </form>
 
       {results.length > 0 && (

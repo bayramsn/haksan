@@ -12,6 +12,8 @@ import { financeService } from "../../../../lib/services";
 import { CreateAccountingInvoiceDialog } from "./CreateAccountingInvoiceDialog";
 import { toast } from "sonner";
 import { ArrowDownLeft, ArrowUpRight, Building2, Layers, Pencil, Plus, Receipt, Search, Trash2 } from "lucide-react";
+import { MiniKpi } from "../../shared/MiniKpi";
+import { EmptyState } from "../../shared/EmptyState";
 
 type InvoiceCategory = "commercial" | "administrative";
 
@@ -183,8 +185,21 @@ export function AccountingInvoicesPage() {
     }
   };
 
+  const installmentedCount = filtered.filter((r) => r.installmentCount > 1).length;
+  const companyCount = new Set(filtered.map((r) => r.company?.id).filter(Boolean)).size;
+  const [primaryTotal, ...otherTotals] = Object.entries(totalsByCurrency)
+    .sort(([, a], [, b]) => b - a)
+    .map(([code, amount]) => `${amount.toLocaleString("tr-TR")} ${code}`);
+
   return (
     <div className="space-y-5">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <MiniKpi tone="violet" icon={<Receipt className="size-[18px]" />} label="Fatura" value={filtered.length} sub={invoiceCategoryLabel(categoryFilter).toLocaleLowerCase("tr-TR")} />
+        <MiniKpi tone="emerald" icon={<ArrowUpRight className="size-[18px]" />} label="Toplam Tutar" value={primaryTotal ?? "—"} sub={otherTotals.join(" · ") || undefined} />
+        <MiniKpi tone="amber" icon={<Layers className="size-[18px]" />} label="Taksitli" value={installmentedCount} sub="vade planlı" />
+        <MiniKpi tone="blue" icon={<Building2 className="size-[18px]" />} label="Firma" value={companyCount} sub="farklı cari" />
+      </div>
+
       <Card className="border-border/60 shadow-sm overflow-hidden">
         <CardHeader className="flex flex-col gap-3 pb-3 lg:flex-row lg:items-center lg:justify-between">
           <div>
@@ -250,7 +265,7 @@ export function AccountingInvoicesPage() {
         <CardContent className="p-0">
           <Table>
             <TableHeader>
-              <TableRow className="bg-muted/30">
+              <TableRow className="bg-muted/40 hover:bg-muted/40 [&_th]:text-[11px] [&_th]:uppercase [&_th]:tracking-wider [&_th]:text-muted-foreground">
                 <TableHead>Fatura No</TableHead>
                 {typeFilter === "all" && <TableHead>Tür</TableHead>}
                 <TableHead>Sınıf</TableHead>
@@ -267,11 +282,11 @@ export function AccountingInvoicesPage() {
                 <TableRow><TableCell colSpan={typeFilter === "all" ? 9 : 8} className="text-center py-10 text-muted-foreground">Yükleniyor…</TableCell></TableRow>
               )}
               {!loading && filtered.map((r) => (
-                <TableRow key={r.id} className="cursor-pointer hover:bg-muted/30" onClick={() => openDetail(r)}>
+                <TableRow key={r.id} className="cursor-pointer hover:bg-primary/[0.025]" onClick={() => openDetail(r)}>
                   <TableCell className="font-medium tabular-nums">{r.invoiceNo}</TableCell>
                   {typeFilter === "all" && (
                     <TableCell>
-                      <Badge variant="outline" className={r.type === "sales" ? "text-emerald-700 border-emerald-200" : "text-sky-700 border-sky-200"}>
+                      <Badge variant="outline" className={r.type === "sales" ? "text-success border-success/20 bg-success-soft" : "text-info border-info/20 bg-info-soft"}>
                         {r.type === "sales" ? "Satış" : "Alış"}
                       </Badge>
                     </TableCell>
@@ -295,7 +310,7 @@ export function AccountingInvoicesPage() {
                     <Button
                       variant="ghost"
                       size="icon"
-                      className="size-8 text-muted-foreground hover:text-red-600"
+                      className="size-8 text-muted-foreground hover:text-destructive"
                       title="Faturayı sil"
                       disabled={deletingId === r.id}
                       onClick={(event) => deleteInvoice(r, event)}
@@ -306,7 +321,15 @@ export function AccountingInvoicesPage() {
                 </TableRow>
               ))}
               {!loading && filtered.length === 0 && (
-                <TableRow><TableCell colSpan={typeFilter === "all" ? 9 : 8} className="text-center py-10 text-muted-foreground">Kayıt yok</TableCell></TableRow>
+                <TableRow>
+                  <TableCell colSpan={typeFilter === "all" ? 9 : 8} className="py-4">
+                    <EmptyState
+                      icon={<Receipt className="size-6" />}
+                      title="Fatura bulunamadı"
+                      description="Arama terimini veya tür/sınıf sekmelerini değiştirerek tekrar deneyin."
+                    />
+                  </TableCell>
+                </TableRow>
               )}
             </TableBody>
           </Table>
@@ -425,7 +448,7 @@ export function AccountingInvoicesPage() {
                 />
                 <Button
                   variant="outline"
-                  className="gap-1 text-red-600 hover:bg-red-50 hover:text-red-700"
+                  className="gap-1 text-destructive hover:bg-brand-red-soft hover:text-destructive"
                   disabled={deletingId === detail.id}
                   onClick={() => deleteInvoice(detail)}
                 >

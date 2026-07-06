@@ -1013,6 +1013,7 @@ function StoreInner({ children }: { children: ReactNode }) {
         ...(contractsR.data ?? []).map((d: any) => ({
           id: d.id,
           salesCaseId: d.quote?.opportunityId ?? '',
+          quoteId: d.quoteId ?? d.quote?.id ?? undefined,
           companyId: docCompanyId(d),
           type: 'Contract' as const,
           fileName: d.contractNo ?? 'Sözleşme',
@@ -1024,6 +1025,7 @@ function StoreInner({ children }: { children: ReactNode }) {
         ...(invoicesR.data ?? []).map((d: any) => ({
           id: d.id,
           salesCaseId: d.quote?.opportunityId ?? '',
+          quoteId: d.quoteId ?? d.quote?.id ?? undefined,
           companyId: docCompanyId(d),
           type: 'CommercialInvoice' as const,
           fileName: d.invoiceNo ?? 'Ticari Fatura',

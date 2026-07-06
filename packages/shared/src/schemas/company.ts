@@ -58,6 +58,7 @@ export type CompanyListQuery = z.infer<typeof companyListQuerySchema>;
 
 export const companyOsmSearchQuerySchema = z.object({
   q: z.string().trim().min(2).max(160),
+  address: z.string().trim().max(240).optional(),
   city: z.string().trim().max(64).optional(),
   district: z.string().trim().max(64).optional(),
 });

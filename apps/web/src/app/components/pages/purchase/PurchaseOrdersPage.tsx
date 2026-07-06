@@ -11,6 +11,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Tabs, TabsList, TabsTrigger } from "../../ui/tabs";
 import { StatusBadge } from "../../Layout";
 import { MiniKpi } from "../../shared/MiniKpi";
+import { EmptyState } from "../../shared/EmptyState";
 import { FormField, SummaryLine } from "../shared/formFields";
 import { CreateAccountingInvoiceDialog, type AccountingInvoicePrefill } from "../finance/CreateAccountingInvoiceDialog";
 import { purchaseOrderService, companyService, productService } from "../../../../lib/services";
@@ -120,10 +121,10 @@ export function PurchaseOrdersPage() {
   return (
     <div className="space-y-5">
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <MiniKpi tone="violet" icon={<ShoppingCart className="size-[18px]" />} label="Toplam Sipariş" value={total} sub={formatCurrency(totalAmount, "USD")} delta={6} />
+        <MiniKpi tone="violet" icon={<ShoppingCart className="size-[18px]" />} label="Toplam Sipariş" value={total} sub={formatCurrency(totalAmount, "USD")} delta={6} onClick={() => setTab("all")} active={tab === "all"} />
         <MiniKpi tone="emerald" icon={<Package className="size-[18px]" />} label="Ticari" value={commercial} sub="mal/hizmet alımı" delta={3} />
         <MiniKpi tone="blue" icon={<Receipt className="size-[18px]" />} label="İdari" value={administrative} sub="genel gider" delta={2} />
-        <MiniKpi tone="amber" icon={<Clock className="size-[18px]" />} label="Bekleyen" value={pending} sub="onay bekliyor" delta={1} />
+        <MiniKpi tone="amber" icon={<Clock className="size-[18px]" />} label="Bekleyen" value={pending} sub="onay bekliyor" delta={1} onClick={() => setTab("pending_manager_approval")} active={tab === "pending_manager_approval"} />
       </div>
 
       <Card className="border-border/60 shadow-sm">
@@ -138,7 +139,7 @@ export function PurchaseOrdersPage() {
               <XAxis type="number" stroke="#9ca3af" fontSize={11} tickLine={false} axisLine={false} />
               <YAxis type="category" dataKey="name" stroke="#6b7280" fontSize={11} width={120} tickLine={false} axisLine={false} />
               <Tooltip contentStyle={{ borderRadius: 8, border: "1px solid #e5e7eb", fontSize: 12 }} />
-              <Bar dataKey="tutar" fill="#000c69" barSize={22} isAnimationActive={false} />
+              <Bar dataKey="tutar" fill="var(--brand-blue)" barSize={22} isAnimationActive={false} />
             </BarChart>
           </ResponsiveContainer>
         </CardContent>
@@ -171,7 +172,7 @@ export function PurchaseOrdersPage() {
         <div className="overflow-x-auto">
           <Table>
             <TableHeader>
-              <TableRow className="bg-muted/30 hover:bg-muted/30">
+              <TableRow className="bg-muted/40 hover:bg-muted/40 [&_th]:text-[11px] [&_th]:uppercase [&_th]:tracking-wider [&_th]:text-muted-foreground">
                 <TableHead>Tedarikçi</TableHead>
                 <TableHead>Tip</TableHead>
                 <TableHead>Ödeme</TableHead>
@@ -188,7 +189,7 @@ export function PurchaseOrdersPage() {
               {filtered.map((p) => (
                 <TableRow
                   key={p.id}
-                  className="group cursor-pointer"
+                  className="group cursor-pointer hover:bg-primary/[0.025]"
                   onClick={() => openOrderDetail(p)}
                   onKeyDown={(e) => e.key === "Enter" && openOrderDetail(p)}
                   tabIndex={0}
@@ -228,7 +229,7 @@ export function PurchaseOrdersPage() {
                         <Button 
                           size="sm" 
                           variant="outline" 
-                          className="h-6 px-2 text-[10px] uppercase tracking-wider font-semibold border-amber-200 text-amber-700 hover:bg-amber-50"
+                          className="h-6 px-2 text-[10px] uppercase tracking-wider font-semibold border-warning/30 text-warning hover:bg-warning-soft"
                           onClick={(event) => {
                             event.stopPropagation();
                             void runPurchaseAction(p, "approve");
@@ -263,15 +264,19 @@ export function PurchaseOrdersPage() {
                           <Eye className="size-4" />
                         </Button>
                       </div>
-                      {p.approvalReason && <span className="text-[11px] text-amber-700">{p.approvalReason}</span>}
+                      {p.approvalReason && <span className="text-[11px] text-warning">{p.approvalReason}</span>}
                     </div>
                   </TableCell>
                 </TableRow>
               ))}
               {!loading && filtered.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={10} className="text-center py-12 text-sm text-muted-foreground">
-                    Satın alma siparişi bulunamadı.
+                  <TableCell colSpan={10} className="py-4">
+                    <EmptyState
+                      icon={<ShoppingCart className="size-6" />}
+                      title="Satın alma siparişi bulunamadı"
+                      description="Arama terimini veya durum sekmesini değiştirerek tekrar deneyin."
+                    />
                   </TableCell>
                 </TableRow>
               )}
@@ -479,7 +484,7 @@ function PurchaseOrderDetailDialog({
             }
           />
           {current?.status?.code !== "cancelled" && (
-            <Button variant="outline" size="sm" className="h-9 gap-1 border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700" onClick={() => onAction(current, "cancelled")}>
+            <Button variant="outline" size="sm" className="h-9 gap-1 border-destructive/30 text-destructive hover:bg-brand-red-soft hover:text-destructive" onClick={() => onAction(current, "cancelled")}>
               <XCircle className="size-4" /> İptal
             </Button>
           )}

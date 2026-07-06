@@ -12,8 +12,10 @@ import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from '.
 import { ZodValidationPipe } from '../../shared/utils/zod-pipe';
 import { LOOKUP_TABLE_MAP } from '../lookups/lookups.controller';
 import {
+  productSpecTemplateBulkCreateSchema,
   productSpecTemplateCreateSchema,
   productSpecTemplateUpdateSchema,
+  type ProductSpecTemplateBulkCreateInput,
   type ProductSpecTemplateCreateInput,
   type ProductSpecTemplateUpdateInput,
 } from '@haksan/shared';
@@ -180,6 +182,25 @@ export class AdminLookupsController {
       if (error?.code === '23505') throw new ConflictError('Bu ürün tipi için aynı teknik alan zaten var');
       throw error;
     }
+  }
+
+  // Katalog şablonundaki eksik alanları toplu ekler. Aynı (ürün tipi + alan)
+  // zaten varsa dokunmaz — admin'in düzenlediği değer/birim ve pasifleştirdiği
+  // satırlar korunur.
+  @Post('product-spec-templates/bulk')
+  async bulkCreateProductSpecTemplates(
+    @Body(new ZodValidationPipe(productSpecTemplateBulkCreateSchema)) body: ProductSpecTemplateBulkCreateInput,
+    @CurrentUser() user: AuthContext
+  ) {
+    this.requireSuperAdmin(user);
+    const rows = await this.db
+      .insert(productSpecTemplates)
+      .values(body.items)
+      .onConflictDoNothing({
+        target: [productSpecTemplates.productTypeCode, productSpecTemplates.specKey],
+      })
+      .returning();
+    return { ok: true, created: rows.length, skipped: body.items.length - rows.length, rows };
   }
 
   @Patch('product-spec-templates/:id')

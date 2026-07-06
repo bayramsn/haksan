@@ -22,6 +22,7 @@ import { toast } from "sonner";
 export function ShipmentsPage({ focus }: { focus?: OperationFocus }) {
   const { shipments, startShipment, updateShipmentStatus, cases, customers } = useStore();
   const [startingId, setStartingId] = useState<string | null>(null);
+  const [statusFilter, setStatusFilter] = useState<"all" | "Yolda" | "Gümrükte" | "Teslim Edildi">("all");
   const liveCustomerName = (id: string) => customers.find((c) => c.id === id)?.name ?? "—";
   const customerForShipment = (s: (typeof shipments)[number]) => {
     const sc = cases.find((x) => x.id === s.salesCaseId);
@@ -30,18 +31,23 @@ export function ShipmentsPage({ focus }: { focus?: OperationFocus }) {
   const inTransit = shipments.filter((s) => s.status === "Yolda").length;
   const customs = shipments.filter((s) => s.status === "Gümrükte").length;
   const delivered = shipments.filter((s) => s.status === "Teslim Edildi").length;
-  const visibleShipments =
+  const focusedShipments =
     focus === "shipments" || focus === "pending"
       ? shipments.filter((s) => s.status !== "Teslim Edildi")
       : focus === "delivered"
       ? shipments.filter((s) => s.status === "Teslim Edildi")
       : shipments;
+  const visibleShipments =
+    statusFilter === "all" ? focusedShipments : focusedShipments.filter((s) => s.status === statusFilter);
+  // KPI kartı ikinci tıklamada filtreyi kaldırır.
+  const toggleStatus = (status: Exclude<typeof statusFilter, "all">) =>
+    setStatusFilter((current) => (current === status ? "all" : status));
 
   const carrierMap = Array.from(new Set(shipments.map((s) => s.carrier)))
     .map((c, i) => ({
       name: c,
       value: shipments.filter((s) => s.carrier === c).length,
-      fill: ["#000c69", "#cf060c", "#3b82f6", "#10b981"][i % 4],
+      fill: ["var(--brand-blue)", "var(--brand-red)", "var(--info)", "var(--success)"][i % 4],
     }));
 
   /** Sevkiyat detayını (satır kalemleri/seri no dahil) çekip HAKSAN antetli irsaliye basar. */
@@ -86,10 +92,10 @@ export function ShipmentsPage({ focus }: { focus?: OperationFocus }) {
   return (
     <div className="space-y-5">
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <MiniKpi tone="violet" icon={<Truck className="size-[18px]" />} label="Toplam Sevkiyat" value={shipments.length} sub="aktif izlenen" delta={4} />
-        <MiniKpi tone="blue" icon={<Truck className="size-[18px]" />} label="Yolda" value={inTransit} sub="taşıma sürüyor" delta={1} />
-        <MiniKpi tone="amber" icon={<ShieldCheck className="size-[18px]" />} label="Gümrükte" value={customs} sub="işlem bekliyor" delta={0} />
-        <MiniKpi tone="emerald" icon={<CheckCircle2 className="size-[18px]" />} label="Teslim Edilen" value={delivered} sub="bu ay" delta={5} />
+        <MiniKpi tone="violet" icon={<Truck className="size-[18px]" />} label="Toplam Sevkiyat" value={shipments.length} sub="aktif izlenen" delta={4} onClick={() => setStatusFilter("all")} active={statusFilter === "all"} />
+        <MiniKpi tone="blue" icon={<Truck className="size-[18px]" />} label="Yolda" value={inTransit} sub="taşıma sürüyor" delta={1} onClick={() => toggleStatus("Yolda")} active={statusFilter === "Yolda"} />
+        <MiniKpi tone="amber" icon={<ShieldCheck className="size-[18px]" />} label="Gümrükte" value={customs} sub="işlem bekliyor" delta={0} onClick={() => toggleStatus("Gümrükte")} active={statusFilter === "Gümrükte"} />
+        <MiniKpi tone="emerald" icon={<CheckCircle2 className="size-[18px]" />} label="Teslim Edilen" value={delivered} sub="bu ay" delta={5} onClick={() => toggleStatus("Teslim Edildi")} active={statusFilter === "Teslim Edildi"} />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
@@ -105,7 +111,7 @@ export function ShipmentsPage({ focus }: { focus?: OperationFocus }) {
           <div className="overflow-x-auto">
             <Table>
               <TableHeader>
-                <TableRow className="bg-muted/30 hover:bg-muted/30">
+                <TableRow className="bg-muted/40 hover:bg-muted/40 [&_th]:text-[11px] [&_th]:uppercase [&_th]:tracking-wider [&_th]:text-muted-foreground">
                   <TableHead>Takip</TableHead>
                   <TableHead>Müşteri</TableHead>
                   <TableHead>Rota</TableHead>
@@ -120,7 +126,7 @@ export function ShipmentsPage({ focus }: { focus?: OperationFocus }) {
                   const sc = cases.find((x) => x.id === s.salesCaseId);
                   const customer = customerForShipment(s);
                   return (
-                    <TableRow key={s.id} className="group">
+                    <TableRow key={s.id} className="group hover:bg-primary/[0.025]">
                       <TableCell>
                         <div className="flex items-center gap-2.5">
                           <div className="size-8 rounded-md bg-gradient-to-br from-primary/15 to-primary/5 text-primary grid place-items-center shrink-0">

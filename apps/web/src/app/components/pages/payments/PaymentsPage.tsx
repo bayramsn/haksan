@@ -209,7 +209,7 @@ export function PaymentsPage({ focus }: { focus?: OperationFocus }) {
         <CardHeader className="pb-2">
           <div className="flex flex-wrap items-start justify-between gap-2">
             <div>
-              <CardTitle className="tracking-tight flex items-center gap-2"><Wallet className="size-4 text-emerald-600" /> Kasa Bakiyesi</CardTitle>
+              <CardTitle className="tracking-tight flex items-center gap-2"><Wallet className="size-4 text-success" /> Kasa Bakiyesi</CardTitle>
               <p className="text-xs text-muted-foreground">Gerçekleşen (ödenmiş) hareketler · para birimi bazında</p>
             </div>
             <FxRateBadge />
@@ -224,21 +224,21 @@ export function PaymentsPage({ focus }: { focus?: OperationFocus }) {
                 <div key={k.cur} className="rounded-lg border border-border/60 bg-muted/20 p-3">
                   <div className="flex items-center justify-between mb-2">
                     <span className="text-xs uppercase tracking-wide text-muted-foreground">{k.cur} Kasa</span>
-                    <span className={`text-sm tabular-nums font-medium ${k.net >= 0 ? "text-emerald-700" : "text-red-600"}`}>
+                    <span className={`text-sm tabular-nums font-medium ${k.net >= 0 ? "text-success" : "text-destructive"}`}>
                       {curSymbol(k.cur)} {k.net.toLocaleString("tr-TR")}
                     </span>
                   </div>
                   <div className="flex items-center justify-between text-[12px]">
-                    <span className="inline-flex items-center gap-1 text-emerald-700"><ArrowDownRight className="size-3.5" /> Giren</span>
+                    <span className="inline-flex items-center gap-1 text-success"><ArrowDownRight className="size-3.5" /> Giren</span>
                     <span className="tabular-nums">{curSymbol(k.cur)} {k.gir.toLocaleString("tr-TR")}</span>
                   </div>
                   <div className="flex items-center justify-between text-[12px] mt-1">
-                    <span className="inline-flex items-center gap-1 text-red-600"><ArrowUpRight className="size-3.5" /> Çıkan</span>
+                    <span className="inline-flex items-center gap-1 text-destructive"><ArrowUpRight className="size-3.5" /> Çıkan</span>
                     <span className="tabular-nums">{curSymbol(k.cur)} {k.cik.toLocaleString("tr-TR")}</span>
                   </div>
                   <div className="mt-2 pt-2 border-t border-border/60 flex items-center justify-between text-[12px]">
                     <span className="text-muted-foreground">Net Bakiye</span>
-                    <span className={`tabular-nums font-medium ${k.net >= 0 ? "text-emerald-700" : "text-red-600"}`}>{curSymbol(k.cur)} {k.net.toLocaleString("tr-TR")}</span>
+                    <span className={`tabular-nums font-medium ${k.net >= 0 ? "text-success" : "text-destructive"}`}>{curSymbol(k.cur)} {k.net.toLocaleString("tr-TR")}</span>
                   </div>
                 </div>
               ))}
@@ -248,7 +248,7 @@ export function PaymentsPage({ focus }: { focus?: OperationFocus }) {
             <div className="mt-3 text-[12px] text-muted-foreground flex flex-wrap items-center gap-x-2 gap-y-1">
               <span>Bekleyen ödeme (çıkış):</span>
               {outPendingTotalByCur.map((x) => (
-                <span key={x.cur} className="tabular-nums text-amber-700">{curSymbol(x.cur)} {x.amt.toLocaleString("tr-TR")}</span>
+                <span key={x.cur} className="tabular-nums text-warning">{curSymbol(x.cur)} {x.amt.toLocaleString("tr-TR")}</span>
               ))}
             </div>
           )}
@@ -259,7 +259,7 @@ export function PaymentsPage({ focus }: { focus?: OperationFocus }) {
         <Card className="border-border/60 shadow-sm">
           <CardHeader className="pb-2">
             <CardTitle className="tracking-tight flex items-center gap-2 text-base">
-              <Clock className="size-4 text-amber-600" /> Yaklaşan Vadeler
+              <Clock className="size-4 text-warning" /> Yaklaşan Vadeler
             </CardTitle>
             <p className="text-xs text-muted-foreground">Önümüzdeki 60 gün · en yakın 5 kayıt</p>
           </CardHeader>
@@ -371,7 +371,7 @@ export function PaymentsPage({ focus }: { focus?: OperationFocus }) {
             })}
             <div className="pt-3 mt-2 border-t border-border/60 flex items-center justify-between text-[12px]">
               <span className="text-muted-foreground">Toplam Gecikmiş</span>
-              <span className="tabular-nums text-red-600">$ {totalOverdue.toLocaleString()}</span>
+              <span className="tabular-nums text-destructive">$ {totalOverdue.toLocaleString()}</span>
             </div>
           </CardContent>
         </Card>
@@ -471,12 +471,12 @@ export function PaymentsPage({ focus }: { focus?: OperationFocus }) {
               <TabsList className="h-8 bg-muted/60">
                 <TabsTrigger value="all" className="text-xs">Tümü</TabsTrigger>
                 <TabsTrigger value="in" className="text-xs gap-1.5">
-                  <ArrowDownRight className="size-3 text-emerald-600" /> Alınan
-                  <span className="inline-flex items-center justify-center min-w-[16px] h-[16px] px-1 text-[10px] rounded-full bg-emerald-100 text-emerald-700">{inflow.length}</span>
+                  <ArrowDownRight className="size-3 text-success" /> Alınan
+                  <span className="inline-flex items-center justify-center min-w-[16px] h-[16px] px-1 text-[10px] rounded-full bg-success-soft text-success">{inflow.length}</span>
                 </TabsTrigger>
                 <TabsTrigger value="out" className="text-xs gap-1.5">
-                  <ArrowUpRight className="size-3 text-red-500" /> Ödenen
-                  <span className="inline-flex items-center justify-center min-w-[16px] h-[16px] px-1 text-[10px] rounded-full bg-red-100 text-red-700">{outflow.length}</span>
+                  <ArrowUpRight className="size-3 text-destructive" /> Ödenen
+                  <span className="inline-flex items-center justify-center min-w-[16px] h-[16px] px-1 text-[10px] rounded-full bg-brand-red-soft text-destructive">{outflow.length}</span>
                 </TabsTrigger>
               </TabsList>
             </Tabs>
@@ -485,19 +485,19 @@ export function PaymentsPage({ focus }: { focus?: OperationFocus }) {
                 <TabsTrigger value="all" className="text-xs">Tümü</TabsTrigger>
                 <TabsTrigger value="Paid" className="text-xs gap-1.5">
                   Tahsil
-                  <span className="inline-flex items-center justify-center min-w-[16px] h-[16px] px-1 text-[10px] rounded-full bg-emerald-100 text-emerald-700">
+                  <span className="inline-flex items-center justify-center min-w-[16px] h-[16px] px-1 text-[10px] rounded-full bg-success-soft text-success">
                     {filteredPayments.filter((p) => p.status === "Paid").length}
                   </span>
                 </TabsTrigger>
                 <TabsTrigger value="Pending" className="text-xs gap-1.5">
                   Bekleyen
-                  <span className="inline-flex items-center justify-center min-w-[16px] h-[16px] px-1 text-[10px] rounded-full bg-amber-100 text-amber-700">
+                  <span className="inline-flex items-center justify-center min-w-[16px] h-[16px] px-1 text-[10px] rounded-full bg-warning-soft text-warning">
                     {filteredPayments.filter((p) => p.status === "Pending").length}
                   </span>
                 </TabsTrigger>
                 <TabsTrigger value="Overdue" className="text-xs gap-1.5">
                   Gecikmiş
-                  <span className="inline-flex items-center justify-center min-w-[16px] h-[16px] px-1 text-[10px] rounded-full bg-red-100 text-red-700">
+                  <span className="inline-flex items-center justify-center min-w-[16px] h-[16px] px-1 text-[10px] rounded-full bg-brand-red-soft text-destructive">
                     {filteredPayments.filter((p) => p.status === "Overdue").length}
                   </span>
                 </TabsTrigger>
@@ -562,8 +562,8 @@ export function PaymentsPage({ focus }: { focus?: OperationFocus }) {
                     <TableCell>
                       <span className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded ${
                         p.direction === "in"
-                          ? "bg-emerald-50 text-emerald-700"
-                          : "bg-red-50 text-red-700"
+                          ? "bg-success-soft text-success"
+                          : "bg-destructive-soft text-destructive"
                       }`}>
                         {p.direction === "in" ? <ArrowDownRight className="size-3" /> : <ArrowUpRight className="size-3" />}
                         {p.direction === "in" ? "Alınan" : "Ödenen"}
@@ -571,7 +571,7 @@ export function PaymentsPage({ focus }: { focus?: OperationFocus }) {
                     </TableCell>
                     <TableCell className="text-xs text-muted-foreground">{p.invoiceNo || "—"}</TableCell>
                     <TableCell className="text-right tabular-nums">
-                      <span className={`text-sm ${p.direction === "in" ? "text-emerald-700" : "text-red-600"}`}>
+                      <span className={`text-sm ${p.direction === "in" ? "text-success" : "text-destructive"}`}>
                         {p.direction === "in" ? "+" : "−"}{p.amount.toLocaleString()}
                       </span>{" "}
                       <span className="text-[11px] text-muted-foreground">{p.currency}</span>
@@ -579,7 +579,7 @@ export function PaymentsPage({ focus }: { focus?: OperationFocus }) {
                     <TableCell>
                       <div className="text-sm tabular-nums">{p.dueDate}</div>
                       {overdueDays !== null && overdueDays > 0 && (
-                        <div className="text-[11px] text-red-600 mt-0.5">+{overdueDays} gün gecikmiş</div>
+                        <div className="text-[11px] text-destructive mt-0.5">+{overdueDays} gün gecikmiş</div>
                       )}
                     </TableCell>
                     <TableCell className="text-sm tabular-nums text-muted-foreground">{p.paidDate ?? "—"}</TableCell>
@@ -605,7 +605,7 @@ export function PaymentsPage({ focus }: { focus?: OperationFocus }) {
                           <Button
                             variant="ghost"
                             size="icon"
-                            className="size-8 text-muted-foreground hover:text-red-600"
+                            className="size-8 text-muted-foreground hover:text-destructive"
                             title="Kasa hareketini sil"
                             disabled={deletingPaymentId === p.id}
                             onClick={(event) => deletePayment(p, event)}
@@ -883,7 +883,7 @@ function PaymentDetailDialog({
                 <DetailRow
                   label="Tutar"
                   value={`${payment.direction === "in" ? "+" : "−"}${payment.amount.toLocaleString("tr-TR")} ${payment.currency}`}
-                  accent={payment.direction === "in" ? "text-emerald-600" : "text-red-600"}
+                  accent={payment.direction === "in" ? "text-success" : "text-destructive"}
                 />
                 <DetailRow label="USD karşılığı" value={`≈ $ ${Math.round(convert(payment.amount, payment.currency, "USD")).toLocaleString()}`} />
                 <DetailRow label="Vade" value={payment.dueDate} />
@@ -1038,7 +1038,7 @@ function PaymentDetailDialog({
               {payment.source === "payment" && (
                 <Button
                   variant="outline"
-                  className="mr-auto gap-1 text-red-600 hover:bg-red-50 hover:text-red-700"
+                  className="mr-auto gap-1 text-destructive hover:bg-destructive-soft hover:text-destructive"
                   disabled={deletingPayment}
                   onClick={deletePayment}
                 >

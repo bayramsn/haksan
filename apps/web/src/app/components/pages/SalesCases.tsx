@@ -125,12 +125,12 @@ export function SalesCasesPage({
             </span>
           )}
           {focusWon && (
-            <span className="inline-flex h-8 items-center rounded-md border border-emerald-200 bg-emerald-50 px-2.5 text-xs text-emerald-700">
+            <span className="inline-flex h-8 items-center rounded-md border border-emerald-200 bg-success-soft px-2.5 text-xs text-success">
               Kazanılanlar
             </span>
           )}
           {focusLost && (
-            <span className="inline-flex h-8 items-center rounded-md border border-red-200 bg-red-50 px-2.5 text-xs text-red-700">
+            <span className="inline-flex h-8 items-center rounded-md border border-red-200 bg-destructive-soft px-2.5 text-xs text-destructive">
               Kaybedilenler
             </span>
           )}
@@ -209,7 +209,7 @@ export function SalesCasesPage({
                           <Button
                             variant="ghost"
                             size="sm"
-                            className="h-8 gap-1 text-xs text-emerald-700 hover:text-emerald-800 hover:bg-emerald-50"
+                            className="h-8 gap-1 text-xs text-success hover:text-emerald-800 hover:bg-success-soft"
                             disabled={busyId === s.id}
                             title="Tamamla / Arşivle (silmez, Geçmiş'te kalır)"
                             onClick={() => onClose(s.id)}

@@ -8,6 +8,7 @@ import {
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
 import { Combobox } from "../ui/combobox";
+import { DialogSplitLayout, DialogSidebarSection } from "../shared/DialogSplitLayout";
 import { useStore } from "../../lib/store";
 import { documentService, quoteService } from "../../../lib/services";
 import {
@@ -163,7 +164,7 @@ export function CreateProformaDialog({
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       {trigger && <DialogTrigger asChild>{trigger}</DialogTrigger>}
-      <DialogContent className="w-[min(820px,calc(100vw-2rem))] max-w-none sm:max-w-none">
+      <DialogContent className="w-[min(1000px,calc(100vw-2rem))] max-w-none sm:max-w-none">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <FileText className="size-5 text-primary" />
@@ -172,7 +173,29 @@ export function CreateProformaDialog({
           <DialogDescription>Teklife bağlı proforma kaydı oluşturun. Dosya yüklemek gerekmez.</DialogDescription>
         </DialogHeader>
 
-        <form onSubmit={submit} className="space-y-4">
+        <form onSubmit={submit}>
+          <DialogSplitLayout
+            aside={
+              <>
+                <DialogSidebarSection title="Seçilen Teklif">
+                  {selectedOffer ? (
+                    <p className="text-sm text-muted-foreground">
+                      {selectedCustomer?.name ?? ""} · {selectedOffer.amount.toLocaleString("tr-TR")} {selectedOffer.currency}
+                    </p>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">Henüz teklif seçilmedi.</p>
+                  )}
+                </DialogSidebarSection>
+                <DialogFooter className="sm:flex-col-reverse">
+                  <Button type="button" variant="outline" className="w-full" onClick={() => setOpen(false)} disabled={saving}>Vazgeç</Button>
+                  <Button type="submit" disabled={saving} className="w-full gap-1">
+                    <Save className="size-4" /> {saving ? "Oluşturuluyor…" : "Proforma Oluştur"}
+                  </Button>
+                </DialogFooter>
+              </>
+            }
+          >
+          <div className="space-y-4">
           <div>
             <Label className="text-xs">Bağlı Teklif *</Label>
             <div className="mt-1.5">
@@ -186,11 +209,6 @@ export function CreateProformaDialog({
                 disabled={Boolean(defaultQuoteId)}
               />
             </div>
-            {selectedOffer && (
-              <p className="text-[11px] text-muted-foreground mt-1.5">
-                {selectedCustomer?.name ?? ""} · {selectedOffer.amount.toLocaleString("tr-TR")} {selectedOffer.currency}
-              </p>
-            )}
           </div>
 
           <div className="grid grid-cols-2 gap-3">
@@ -230,13 +248,8 @@ export function CreateProformaDialog({
             updateNoteTemplate={updateNoteTemplate}
             deleteNoteTemplate={deleteNoteTemplate}
           />
-
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => setOpen(false)} disabled={saving}>Vazgeç</Button>
-            <Button type="submit" disabled={saving} className="gap-1">
-              <Save className="size-4" /> {saving ? "Oluşturuluyor…" : "Proforma Oluştur"}
-            </Button>
-          </DialogFooter>
+          </div>
+          </DialogSplitLayout>
         </form>
       </DialogContent>
     </Dialog>

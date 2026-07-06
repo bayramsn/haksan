@@ -20,14 +20,19 @@ export function DeliveriesPage() {
   const { deliveries, updateDeliveryStatus, customers } = useStore();
   const liveCustomerName = (id: string) => customers.find((c) => c.id === id)?.name ?? "—";
   const [selectedDelivery, setSelectedDelivery] = useState<(typeof deliveries)[number] | null>(null);
+  const [statusFilter, setStatusFilter] = useState<"all" | "Tamamlandı" | "Bekliyor">("all");
   const completed = deliveries.filter((d) => d.status === "Tamamlandı").length;
   const pending = deliveries.filter((d) => d.status === "Bekliyor").length;
+  const visibleDeliveries = statusFilter === "all" ? deliveries : deliveries.filter((d) => d.status === statusFilter);
+  // KPI kartı ikinci tıklamada filtreyi kaldırır.
+  const toggleStatus = (status: Exclude<typeof statusFilter, "all">) =>
+    setStatusFilter((current) => (current === status ? "all" : status));
   return (
     <div className="space-y-5">
       <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
-        <MiniKpi tone="violet" icon={<ClipboardCheck className="size-[18px]" />} label="Toplam Teslimat" value={deliveries.length} sub="kayıt" delta={3} />
-        <MiniKpi tone="emerald" icon={<CheckCircle2 className="size-[18px]" />} label="Tamamlandı" value={completed} sub="imzalı" delta={2} />
-        <MiniKpi tone="amber" icon={<Clock className="size-[18px]" />} label="Bekleyen" value={pending} sub="imza bekliyor" delta={1} />
+        <MiniKpi tone="violet" icon={<ClipboardCheck className="size-[18px]" />} label="Toplam Teslimat" value={deliveries.length} sub="kayıt" delta={3} onClick={() => setStatusFilter("all")} active={statusFilter === "all"} />
+        <MiniKpi tone="emerald" icon={<CheckCircle2 className="size-[18px]" />} label="Tamamlandı" value={completed} sub="imzalı" delta={2} onClick={() => toggleStatus("Tamamlandı")} active={statusFilter === "Tamamlandı"} />
+        <MiniKpi tone="amber" icon={<Clock className="size-[18px]" />} label="Bekleyen" value={pending} sub="imza bekliyor" delta={1} onClick={() => toggleStatus("Bekliyor")} active={statusFilter === "Bekliyor"} />
       </div>
 
       <Card className="border-border/60 shadow-sm overflow-hidden">
@@ -41,7 +46,7 @@ export function DeliveriesPage() {
         <div className="overflow-x-auto">
           <Table>
             <TableHeader>
-              <TableRow className="bg-muted/30 hover:bg-muted/30">
+              <TableRow className="bg-muted/40 hover:bg-muted/40 [&_th]:text-[11px] [&_th]:uppercase [&_th]:tracking-wider [&_th]:text-muted-foreground">
                 <TableHead>Müşteri</TableHead>
                 <TableHead>Tarih</TableHead>
                 <TableHead>Teslim Alan</TableHead>
@@ -50,8 +55,8 @@ export function DeliveriesPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {deliveries.map((d) => (
-                <TableRow key={d.id} className="group">
+              {visibleDeliveries.map((d) => (
+                <TableRow key={d.id} className="group hover:bg-primary/[0.025]">
                   <TableCell>
                     <div className="flex items-center gap-2.5">
                       <div className="size-8 rounded-md bg-gradient-to-br from-primary/15 to-primary/5 text-primary grid place-items-center shrink-0">
@@ -85,7 +90,7 @@ export function DeliveriesPage() {
                   </TableCell>
                 </TableRow>
               ))}
-              {deliveries.length === 0 && (
+              {visibleDeliveries.length === 0 && (
                 <TableRow>
                   <TableCell colSpan={5}>
                     <EmptyState

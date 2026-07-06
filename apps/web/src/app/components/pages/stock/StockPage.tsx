@@ -9,6 +9,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from ".
 import { StatusBadge } from "../../Layout";
 import { CreateStockDialog } from "../../dialogs/CreateDialogs";
 import { MiniKpi } from "../../shared/MiniKpi";
+import { EmptyState } from "../../shared/EmptyState";
 import { useStore } from "../../../lib/store";
 import { toast } from "sonner";
 import { ExportExcelButton } from "../../ui/ExportExcelButton";
@@ -78,9 +79,9 @@ const fallbackSpecValue = (
 };
 
 const stockRowClass = (status: StockItem["status"]) => {
-  if (status === "Available") return "bg-emerald-50/60 hover:bg-emerald-50";
-  if (status === "Reserved") return "bg-amber-50/70 hover:bg-amber-50";
-  if (status === "InTransit") return "bg-sky-50/60 hover:bg-sky-50";
+  if (status === "Available") return "bg-success-soft/60 hover:bg-success-soft";
+  if (status === "Reserved") return "bg-warning-soft/70 hover:bg-warning-soft";
+  if (status === "InTransit") return "bg-info-soft/60 hover:bg-info-soft";
   return "";
 };
 
@@ -146,7 +147,7 @@ export function StockPage({ focus, initialQuery }: { focus?: OperationFocus; ini
     .map((b, i) => ({
       name: b,
       value: scopedStock.filter((s) => s.brand === b).length,
-      fill: ["#000c69", "#cf060c", "#3b82f6", "#10b981", "#f59e0b"][i % 5],
+      fill: ["var(--brand-blue)", "var(--brand-red)", "var(--info)", "var(--success)", "var(--warning)"][i % 5],
     }));
 
   const machineProducts = useMemo(
@@ -267,10 +268,10 @@ export function StockPage({ focus, initialQuery }: { focus?: OperationFocus; ini
       </Tabs>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <MiniKpi tone="emerald" icon={<Package className="size-[18px]" />} label="Hazır Stok" value={counts.Available} sub="adet" delta={5} />
-        <MiniKpi tone="amber" icon={<Clock className="size-[18px]" />} label="Rezerve" value={counts.Reserved} sub="bekleyen sipariş" delta={2} />
-        <MiniKpi tone="violet" icon={<CheckCircle2 className="size-[18px]" />} label="Satılan" value={counts.Sold} sub="bu çeyrek" delta={9} />
-        <MiniKpi tone="red" icon={<AlertTriangle className="size-[18px]" />} label="Pasif" value={counts.Inactive} sub="kullanım dışı" delta={0} />
+        <MiniKpi tone="emerald" icon={<Package className="size-[18px]" />} label="Hazır Stok" value={counts.Available} sub="adet" delta={5} onClick={() => setTab("Available")} active={tab === "Available"} />
+        <MiniKpi tone="amber" icon={<Clock className="size-[18px]" />} label="Rezerve" value={counts.Reserved} sub="bekleyen sipariş" delta={2} onClick={() => setTab("Reserved")} active={tab === "Reserved"} />
+        <MiniKpi tone="violet" icon={<CheckCircle2 className="size-[18px]" />} label="Satılan" value={counts.Sold} sub="bu çeyrek" delta={9} onClick={() => setTab("Sold")} active={tab === "Sold"} />
+        <MiniKpi tone="red" icon={<AlertTriangle className="size-[18px]" />} label="Pasif" value={counts.Inactive} sub="kullanım dışı" delta={0} onClick={() => setTab("Inactive")} active={tab === "Inactive"} />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
@@ -286,7 +287,7 @@ export function StockPage({ focus, initialQuery }: { focus?: OperationFocus; ini
                 <XAxis dataKey="name" stroke="#9ca3af" fontSize={11} tickLine={false} axisLine={false} />
                 <YAxis stroke="#9ca3af" fontSize={11} tickLine={false} axisLine={false} allowDecimals={false} />
                 <Tooltip contentStyle={{ borderRadius: 8, border: "1px solid #e5e7eb", fontSize: 12 }} />
-                <Bar dataKey="count" name="Kalem" fill="#000c69" barSize={32} isAnimationActive={false} />
+                <Bar dataKey="count" name="Kalem" fill="var(--brand-blue)" barSize={32} isAnimationActive={false} />
               </BarChart>
             </ResponsiveContainer>
           </CardContent>
@@ -317,12 +318,12 @@ export function StockPage({ focus, initialQuery }: { focus?: OperationFocus; ini
         <CardHeader className="flex flex-row items-center justify-between gap-3 pb-3">
           <div>
             <CardTitle className="tracking-tight flex items-center gap-2">
-              <AlertTriangle className="size-4 text-amber-600" /> Kritik Makine Stoku
+              <AlertTriangle className="size-4 text-warning" /> Kritik Makine Stoku
             </CardTitle>
             <p className="text-xs text-muted-foreground">Hazır adedi {LOW_STOCK_THRESHOLD} ve altındaki modeller — yeniden sipariş sinyali</p>
           </div>
           {criticalMachines.length > 0 && (
-            <span className="text-xs font-medium text-amber-700 bg-amber-50 border border-amber-200 rounded-full px-2.5 py-1">
+            <span className="text-xs font-medium text-warning bg-warning-soft border border-warning/20 rounded-full px-2.5 py-1">
               {criticalMachines.length} model
             </span>
           )}
@@ -330,7 +331,7 @@ export function StockPage({ focus, initialQuery }: { focus?: OperationFocus; ini
         <CardContent>
           {criticalMachines.length === 0 ? (
             <div className="flex items-center justify-center gap-2 py-6 text-sm text-muted-foreground">
-              <CheckCircle2 className="size-4 text-emerald-600" /> Tüm modellerde yeterli hazır stok var.
+              <CheckCircle2 className="size-4 text-success" /> Tüm modellerde yeterli hazır stok var.
             </div>
           ) : (
             <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
@@ -348,13 +349,13 @@ export function StockPage({ focus, initialQuery }: { focus?: OperationFocus; ini
                         <div className="truncate text-sm font-medium">{[row.product.brand, row.product.model].filter(Boolean).join(" ") || row.product.shortDescription || "Tezgah"}</div>
                         <div className="truncate text-[11px] text-muted-foreground">{row.product.type || row.product.modelName || "Tezgah"}</div>
                       </div>
-                      <Badge className={out ? "bg-red-100 text-red-700 hover:bg-red-100" : "bg-amber-100 text-amber-700 hover:bg-amber-100"}>
+                      <Badge className={out ? "bg-brand-red-soft text-brand-red hover:bg-brand-red-soft" : "bg-warning-soft text-warning hover:bg-warning-soft"}>
                         {out ? "Tükendi" : "Düşük"}
                       </Badge>
                     </div>
                     <div className="mt-2 flex items-center gap-3 text-xs text-muted-foreground">
                       <span>Hazır: <span className="font-medium tabular-nums text-foreground">{row.available}</span></span>
-                      <span>Rezerve: <span className="font-medium tabular-nums text-amber-700">{row.reserved}</span></span>
+                      <span>Rezerve: <span className="font-medium tabular-nums text-warning">{row.reserved}</span></span>
                       <span>Toplam: <span className="font-medium tabular-nums text-foreground">{row.total}</span></span>
                     </div>
                   </button>
@@ -394,7 +395,7 @@ export function StockPage({ focus, initialQuery }: { focus?: OperationFocus; ini
         <div className="overflow-x-auto">
           <Table>
             <TableHeader>
-              <TableRow className="bg-muted/30 hover:bg-muted/30">
+              <TableRow className="bg-muted/40 hover:bg-muted/40 [&_th]:text-[11px] [&_th]:uppercase [&_th]:tracking-wider [&_th]:text-muted-foreground">
                 <TableHead className="w-14">No.</TableHead>
                 <TableHead>Marka</TableHead>
                 <TableHead>Yeni / Kullanılmış</TableHead>
@@ -536,7 +537,13 @@ export function StockPage({ focus, initialQuery }: { focus?: OperationFocus; ini
               })}
               {filtered.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={15} className="text-center py-12 text-sm text-muted-foreground">Kayıt bulunamadı.</TableCell>
+                  <TableCell colSpan={15} className="py-4">
+                    <EmptyState
+                      icon={<Package className="size-6" />}
+                      title="Kayıt bulunamadı"
+                      description="Arama terimini veya durum/kategori sekmelerini değiştirerek tekrar deneyin."
+                    />
+                  </TableCell>
                 </TableRow>
               )}
             </TableBody>

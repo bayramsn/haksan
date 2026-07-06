@@ -53,7 +53,7 @@ function ImageThumb({ doc, onClick }: { doc: DocumentItem; onClick: () => void }
       type="button"
       title={doc.fileName}
       onClick={onClick}
-      className="relative size-9 shrink-0 overflow-hidden rounded-md border border-border/60 bg-muted/40 grid place-items-center transition hover:border-primary/60 hover:shadow-sm"
+      className="relative size-9 shrink-0 overflow-hidden rounded-lg border border-border/60 bg-muted/40 grid place-items-center transition hover:border-primary/60 hover:shadow-sm"
     >
       {src && !failed ? (
         <img src={src} alt={doc.fileName} className="size-full object-cover" onError={() => setFailed(true)} />
@@ -73,7 +73,7 @@ function FileChip({ doc, onClick }: { doc: DocumentItem; onClick: () => void }) 
       type="button"
       title={doc.fileName}
       onClick={onClick}
-      className="relative size-9 shrink-0 overflow-hidden rounded-md border border-border/60 bg-primary/5 text-primary grid place-items-center transition hover:border-primary/60 hover:shadow-sm"
+      className="relative size-9 shrink-0 overflow-hidden rounded-lg border border-border/60 bg-primary/5 text-primary grid place-items-center transition hover:border-primary/60 hover:shadow-sm"
     >
       <FileText className="size-4" />
       <span className="absolute bottom-0 inset-x-0 bg-primary/85 text-white text-[7px] leading-[10px] text-center truncate px-0.5">
@@ -160,7 +160,7 @@ export function KanbanCardAttachments({
           <button
             type="button"
             title="Dosya / görsel yükle"
-            className="size-9 shrink-0 rounded-md border border-dashed border-border/70 bg-white text-muted-foreground grid place-items-center transition hover:border-primary hover:text-primary"
+            className="size-9 shrink-0 rounded-md border border-dashed border-border/70 bg-card text-muted-foreground grid place-items-center transition hover:border-primary hover:text-primary"
           >
             {docs.length === 0 ? <Paperclip className="size-4" /> : <Plus className="size-4" />}
           </button>
@@ -237,7 +237,7 @@ function ServiceUploadButton({ serviceRequestId, hasDocs }: { serviceRequestId: 
         disabled={busy}
         title="Dosya / görsel yükle"
         onClick={() => inputRef.current?.click()}
-        className="size-9 shrink-0 rounded-md border border-dashed border-border/70 bg-white text-muted-foreground grid place-items-center transition hover:border-primary hover:text-primary disabled:opacity-60"
+        className="size-9 shrink-0 rounded-md border border-dashed border-border/70 bg-card text-muted-foreground grid place-items-center transition hover:border-primary hover:text-primary disabled:opacity-60"
       >
         {busy ? <Loader2 className="size-4 animate-spin" /> : hasDocs ? <Plus className="size-4" /> : <Paperclip className="size-4" />}
       </button>

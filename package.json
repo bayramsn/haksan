@@ -41,6 +41,9 @@
     "typescript": "5.6.3"
   },
   "dependencies": {
-    "@expo/config-plugins": "^56.0.9"
+    "@nestjs/common": "^11.1.27",
+    "@nestjs/core": "^11.1.27",
+    "@nestjs/platform-socket.io": "^11.1.27",
+    "@nestjs/websockets": "^11.1.27"
   }
 }

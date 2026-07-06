@@ -46,6 +46,7 @@ import { toast } from "sonner";
 import { fileService, inventoryService, serviceService } from "../../../../lib/services";
 import { exportService } from "../../../../lib/downloadExport";
 import { ExportExcelButton } from "../../ui/ExportExcelButton";
+import { KanbanDetailDialogShell } from "../../shared/KanbanDetailDialogShell";
 import type { OperationFocus } from "../../../lib/operations";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
@@ -1857,8 +1858,12 @@ function ServiceBoard({
           <Card
             data-testid={`service-kanban-card-${s.id}`}
             onClick={() => onOpen?.(s)}
-            className="group cursor-pointer rounded-lg border-transparent bg-white p-3 shadow-sm transition-all hover:-translate-y-px hover:shadow-md"
+            className="group cursor-pointer rounded-lg border-transparent bg-white p-3 shadow-sm transition-all hover:-translate-y-px hover:shadow-md hover:ring-1 hover:ring-black/10"
           >
+            {/* Trello benzeri etiket şeridi: kolon rengi */}
+            <div className="mb-2 flex items-center gap-1">
+              <span className={`h-1.5 w-10 rounded-full ${SERVICE_COLUMNS.find((col) => col.key === STAGE_TO_COLUMN[s.stage])?.dot ?? "bg-zinc-300"}`} />
+            </div>
             <div className="flex items-start gap-2">
               <div className="size-8 rounded-md bg-gradient-to-br from-primary/15 to-primary/5 text-primary grid place-items-center text-[10px] shrink-0">
                 {c?.type === "company" ? <Building2 className="size-3.5" /> : <Wrench className="size-3.5" />}
@@ -2697,33 +2702,117 @@ function ServiceDetailDialog({
     }
   };
 
+  const rightFeed = [
+    ...(serviceRequest.noteHistory ?? []).map((item) => ({ ...item, kind: "Not" })),
+    ...(serviceRequest.activityHistory ?? []).map((item) => ({ ...item, kind: "Aktivite" })),
+  ].sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? ""));
+
+  const serviceRightPanel = (
+    <div className="space-y-4">
+      <div className="rounded-lg border border-border/60 bg-white px-3 py-3">
+        <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Durum</div>
+        <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+          <StatusBadge status={serviceRequest.stage} />
+          {machine && <span>{machine.model} · {machine.serialNumber}</span>}
+          {machine && <MachineWarrantyBadge warrantyEnd={machine.warrantyEnd} />}
+          {assignee && <span>Atanan: {assignee.name}</span>}
+        </div>
+        <div className="mt-2">
+          <ServiceIntakeBadges serviceRequest={serviceRequest} />
+        </div>
+      </div>
+
+      <Card className="border-border/60 bg-white">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base">Saha Süresi</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="text-3xl tabular-nums tracking-tight">{formatElapsed(elapsed)}</div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button size="sm" className="gap-1" onClick={startTimer} disabled={serviceRequest.timerStatus === "running"}>
+              <Play className="size-4" /> Başlat
+            </Button>
+            <Button size="sm" variant="outline" className="gap-1 bg-white" onClick={pauseTimer} disabled={serviceRequest.timerStatus !== "running"}>
+              <Pause className="size-4" /> Beklet
+            </Button>
+            <Button size="sm" variant="outline" className="gap-1 bg-white" onClick={stopTimer} disabled={serviceRequest.timerStatus === "idle" || serviceRequest.timerStatus === "stopped"}>
+              <Square className="size-4" /> Durdur
+            </Button>
+          </div>
+          <div className="rounded-md border border-border/60 bg-primary/5 px-3 py-2 text-sm flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+            <span>Servis Ücreti Kalemi</span>
+            <b className="tabular-nums">{moneyText(serviceFee, serviceCurrency)}</b>
+          </div>
+        </CardContent>
+      </Card>
+
+      <div className="rounded-lg border border-border/60 bg-white p-3">
+        <Textarea
+          value={note}
+          onChange={(event) => setNote(event.target.value)}
+          placeholder="Servis notu yaz..."
+          className="min-h-20 resize-none border-border/70"
+        />
+        <div className="mt-2 flex justify-end">
+          <Button size="sm" className="gap-1" onClick={addNote} disabled={!note.trim()}>
+            <Plus className="size-4" /> Not ekle
+          </Button>
+        </div>
+      </div>
+
+      <div className="space-y-3">
+        {rightFeed.map((item) => (
+          <div key={`${item.kind}-${item.id}`} className="space-y-1">
+            <div className="flex items-center gap-2 px-1 text-[11px] text-muted-foreground">
+              <span className="rounded bg-white px-1.5 py-0.5">{item.kind}</span>
+              {item.createdAt && <span className="tabular-nums">{item.createdAt}</span>}
+            </div>
+            <ServiceHistoryCard
+              text={item.text}
+              createdAt={item.createdAt}
+              actor={actorFor(item.byUserId)}
+            />
+          </div>
+        ))}
+        {rightFeed.length === 0 && (
+          <div className="rounded-lg border border-dashed border-border bg-white px-3 py-8 text-center text-sm text-muted-foreground">
+            Not veya aktivite yok.
+          </div>
+        )}
+      </div>
+    </div>
+  );
+
   return (
     <Dialog open={!!serviceRequest} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="flex flex-col w-[min(1120px,calc(100vw-2rem))] max-w-none sm:max-w-none max-h-[90dvh] overflow-hidden p-0 gap-0">
-        <DialogHeader className="shrink-0 border-b border-border/60 px-5 pt-5 pb-4 pr-12">
-          <div className="flex min-w-0 items-start justify-between gap-3">
-            <DialogTitle className="flex min-w-0 items-center gap-2">
-              <Wrench className="size-5 text-primary" />
-              <span className="min-w-0 truncate">{customer?.name ?? "Firma bulunamadı"}</span>
-            </DialogTitle>
-            {onDelete && (
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-8 shrink-0 gap-1 text-red-600 hover:bg-red-50 hover:text-red-700"
-                onClick={() => onDelete(serviceRequest)}
-              >
-                <Trash2 className="size-3.5" /> Sil
-              </Button>
-            )}
-          </div>
-          <DialogDescription className="flex items-center gap-2 flex-wrap">
-            <StatusBadge status={serviceRequest.stage} />
-            {machine && <span>{machine.model} · {machine.serialNumber}</span>}
-            {machine && <MachineWarrantyBadge warrantyEnd={machine.warrantyEnd} />}
-            {assignee && <span>Atanan: {assignee.name}</span>}
-          </DialogDescription>
-          <ServiceIntakeBadges serviceRequest={serviceRequest} />
+      <DialogContent className="w-[min(1280px,calc(100vw-2rem))] max-w-none sm:max-w-none max-h-[92dvh] overflow-hidden p-0 gap-0">
+        <DialogHeader className="sr-only">
+          <DialogTitle>{customer?.name ?? "Servis talebi detayı"}</DialogTitle>
+          <DialogDescription className="sr-only">Servis talebi detayı; durum ve makine bilgisi sağ paneldedir.</DialogDescription>
+        </DialogHeader>
+        <KanbanDetailDialogShell
+          accentClassName={SERVICE_COLUMNS.find((col) => col.key === STAGE_TO_COLUMN[serviceRequest.stage])?.dot ?? "bg-primary"}
+          title={customer?.name ?? "Firma bulunamadı"}
+          subtitle={[serviceRequest.ticketNo, machine?.model, machine?.serialNumber].filter(Boolean).join(" · ") || serviceNoteText(serviceRequest)}
+          meta={
+            <>
+              <StatusBadge status={serviceRequest.stage} />
+              <span className="rounded-md bg-muted px-2.5 py-1 text-xs text-muted-foreground">{SERVICE_TICKET_TYPE_LABELS[serviceRequest.ticketType ?? "complaint"]}</span>
+              <span className="rounded-md bg-muted px-2.5 py-1 text-xs text-muted-foreground">Kaynak: {serviceSourceLabel(serviceRequest.source)}</span>
+            </>
+          }
+          actions={onDelete ? (
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 shrink-0 gap-1 bg-white text-red-600 hover:bg-red-50 hover:text-red-700"
+              onClick={() => onDelete(serviceRequest)}
+            >
+              <Trash2 className="size-3.5" /> Sil
+            </Button>
+          ) : undefined}
+          right={serviceRightPanel}
+        >
           {serviceRequest.sourceComplaint && (
             <div className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
               <div className="min-w-0">
@@ -2748,9 +2837,10 @@ function ServiceDetailDialog({
           <p className="text-xs text-muted-foreground bg-muted/50 border border-border/60 rounded-md px-3 py-2 mt-2">
             Sayaç, işlemler ve aktivite geçmişi sunucuya kaydedilir; not ve şikayet kayıtları ayrıca metin alanlarına yazılır.
           </p>
-        </DialogHeader>
 
-        <Tabs value={detailTab} onValueChange={setAllowedDetailTab} className="flex flex-1 min-h-0 flex-col">
+        {/* Gövde: sol sekmeler + sağ sabit özet panel (mobilde panel üstte, kendi scroll'u ile) */}
+        <div className="mt-4 min-h-0">
+        <Tabs value={detailTab} onValueChange={setAllowedDetailTab} className="flex flex-1 min-h-0 flex-col min-w-0">
           <div className="shrink-0 border-b border-border/60 px-5 py-3">
             <TabsList className="h-auto w-full justify-start overflow-x-auto">
               <TabsTrigger value="summary">Özet</TabsTrigger>
@@ -2784,36 +2874,13 @@ function ServiceDetailDialog({
           <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
 
           <TabsContent value="summary" className="m-0 space-y-4">
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
-              <Card className="lg:col-span-2 border-border/60">
+            <div className="grid grid-cols-1 gap-3">
+              <Card className="border-border/60">
                 <CardHeader className="pb-2">
                   <CardTitle className="text-base">Servis Notu</CardTitle>
                 </CardHeader>
                 <CardContent>
                   <p className="text-sm text-muted-foreground whitespace-pre-wrap">{serviceNoteText(serviceRequest)}</p>
-                </CardContent>
-              </Card>
-              <Card className="border-border/60">
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-base">Saha Süresi</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  <div className="text-3xl tabular-nums tracking-tight">{formatElapsed(elapsed)}</div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Button size="sm" className="gap-1" onClick={startTimer} disabled={serviceRequest.timerStatus === "running"}>
-                      <Play className="size-4" /> Başlat
-                    </Button>
-                    <Button size="sm" variant="outline" className="gap-1" onClick={pauseTimer} disabled={serviceRequest.timerStatus !== "running"}>
-                      <Pause className="size-4" /> Beklet
-                    </Button>
-                    <Button size="sm" variant="outline" className="gap-1" onClick={stopTimer} disabled={serviceRequest.timerStatus === "idle" || serviceRequest.timerStatus === "stopped"}>
-                      <Square className="size-4" /> Durdur
-                    </Button>
-                  </div>
-                  <div className="rounded-md border border-border/60 bg-primary/5 px-3 py-2 text-sm flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-                    <span>Servis Ücreti Kalemi</span>
-                    <b className="tabular-nums">{moneyText(serviceFee, serviceCurrency)}</b>
-                  </div>
                 </CardContent>
               </Card>
             </div>
@@ -3515,6 +3582,8 @@ function ServiceDetailDialog({
           </TabsContent>
           </div>
         </Tabs>
+        </div>
+      </KanbanDetailDialogShell>
       </DialogContent>
       <DocumentPreviewDialog doc={warrantyPreviewDoc} onClose={() => setWarrantyPreviewDoc(null)} />
       <DocumentPreviewDialog doc={quotePreviewDoc} onClose={() => setQuotePreviewDoc(null)} />

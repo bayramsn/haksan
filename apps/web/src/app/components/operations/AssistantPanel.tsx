@@ -567,7 +567,7 @@ export function AssistantPanel({
               ))}
             </div>
 
-            <div className="min-h-0 flex-1 overflow-y-auto bg-[#f7f7f8] p-3">
+            <div className="min-h-0 flex-1 overflow-y-auto bg-canvas p-3">
               {activeTab === "chat" ? (
                 <ChatView messages={messages} loading={loadingChat} runPanelAction={runPanelAction} runAction={runAction} />
               ) : (

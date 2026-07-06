@@ -27,8 +27,10 @@ import { toast } from "sonner";
 import {
   Cpu, Search, Package, CheckCircle2, Truck, Wrench, Building2,
   ShieldCheck, AlertTriangle, Clock, MapPin, ChevronRight,
-  Plus, Upload, Pencil, Trash2,
+  Plus, Upload, Pencil, Trash2, Boxes, Layers,
 } from "lucide-react";
+import { MiniKpi } from "../shared/MiniKpi";
+import { EmptyState } from "../shared/EmptyState";
 
 type Stage = "Stokta" | "Rezerve" | "Sevkiyatta" | "Kuruldu" | "Servis" | "Hizmet Dışı";
 
@@ -47,12 +49,12 @@ type Device = {
 };
 
 const STAGE_TONE: Record<Stage, { bg: string; text: string; icon: any }> = {
-  "Stokta": { bg: "bg-emerald-50", text: "text-emerald-700", icon: Package },
-  "Rezerve": { bg: "bg-amber-50", text: "text-amber-700", icon: Clock },
-  "Sevkiyatta": { bg: "bg-blue-50", text: "text-blue-700", icon: Truck },
+  "Stokta": { bg: "bg-success-soft", text: "text-success", icon: Package },
+  "Rezerve": { bg: "bg-warning-soft", text: "text-warning", icon: Clock },
+  "Sevkiyatta": { bg: "bg-info-soft", text: "text-info", icon: Truck },
   "Kuruldu": { bg: "bg-brand-blue-soft", text: "text-brand-blue", icon: CheckCircle2 },
   "Servis": { bg: "bg-orange-50", text: "text-orange-700", icon: Wrench },
-  "Hizmet Dışı": { bg: "bg-zinc-100", text: "text-zinc-600", icon: AlertTriangle },
+  "Hizmet Dışı": { bg: "bg-muted", text: "text-muted-foreground", icon: AlertTriangle },
 };
 
 function buildDevices(stockItems: StockItem[], machines: Machine[]): Device[] {
@@ -197,6 +199,31 @@ export function ProductsPage({ initialQuery }: { initialQuery?: string }) {
 
   return (
     <div className="space-y-4">
+      <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
+        <MiniKpi
+          icon={<Package className="size-4" />}
+          label="Toplam Ürün"
+          value={visibleProducts.length}
+          tone="violet"
+          onClick={() => setCat("all")}
+          active={cat === "all"}
+        />
+        <MiniKpi
+          icon={<Boxes className="size-4" />}
+          label="Kategori"
+          value={categories.length}
+          sub="ürün ailesi"
+          tone="blue"
+        />
+        <MiniKpi
+          icon={<Layers className="size-4" />}
+          label="Seri"
+          value={new Set(visibleProducts.map(productSeriesLabel)).size}
+          sub="model serisi"
+          tone="amber"
+        />
+      </div>
+
       <div className="space-y-2">
         <div className="w-full overflow-x-auto pb-1">
           <Tabs value={cat} onValueChange={setCat} className="min-w-max">
@@ -271,13 +298,13 @@ export function ProductsPage({ initialQuery }: { initialQuery?: string }) {
         <div className="overflow-x-auto">
           <Table>
             <TableHeader>
-              <TableRow className="bg-muted/30 hover:bg-muted/30">
-                <TableHead className="w-[360px]">Ürün</TableHead>
-                <TableHead>Seri</TableHead>
-                <TableHead>Tip</TableHead>
-                <TableHead>Kategori</TableHead>
-                <TableHead className="text-right">Liste Fiyatı</TableHead>
-                <TableHead className="text-right">Peşin</TableHead>
+              <TableRow className="bg-muted/40 hover:bg-muted/40">
+                <TableHead className="w-[360px] text-[11px] uppercase tracking-wider text-muted-foreground">Ürün</TableHead>
+                <TableHead className="text-[11px] uppercase tracking-wider text-muted-foreground">Seri</TableHead>
+                <TableHead className="text-[11px] uppercase tracking-wider text-muted-foreground">Tip</TableHead>
+                <TableHead className="text-[11px] uppercase tracking-wider text-muted-foreground">Kategori</TableHead>
+                <TableHead className="text-right text-[11px] uppercase tracking-wider text-muted-foreground">Liste Fiyatı</TableHead>
+                <TableHead className="text-right text-[11px] uppercase tracking-wider text-muted-foreground">Peşin</TableHead>
                 <TableHead className="w-[88px]"></TableHead>
               </TableRow>
             </TableHeader>
@@ -290,7 +317,7 @@ export function ProductsPage({ initialQuery }: { initialQuery?: string }) {
                     </TableCell>
                   </TableRow>
                   {rows.map((p) => (
-                    <TableRow key={p.id} className="cursor-pointer group" onClick={() => setSelected(p)}>
+                    <TableRow key={p.id} className="cursor-pointer group hover:bg-primary/[0.025]" onClick={() => setSelected(p)}>
                       <TableCell>
                         <div className="flex items-center gap-3 min-w-0">
                           <ProductThumb product={p} />
@@ -312,7 +339,7 @@ export function ProductsPage({ initialQuery }: { initialQuery?: string }) {
                         <Badge variant="secondary" className="text-[10px] h-5">{productFamilyLabel(p)}</Badge>
                       </TableCell>
                       <TableCell className="text-right tabular-nums">{fmtMoney(p.listPrice, p.currency)}</TableCell>
-                      <TableCell className="text-right tabular-nums text-emerald-600">{fmtMoney(p.cashPrice, p.currency)}</TableCell>
+                      <TableCell className="text-right tabular-nums text-success">{fmtMoney(p.cashPrice, p.currency)}</TableCell>
                       <TableCell>
                         {(canEditProducts || canDeleteProducts) ? (
                           <div className="flex items-center justify-end gap-1">
@@ -336,14 +363,14 @@ export function ProductsPage({ initialQuery }: { initialQuery?: string }) {
                                 type="button"
                                 variant="ghost"
                                 size="icon"
-                                className="h-8 w-8 hover:bg-red-50"
+                                className="h-8 w-8 hover:bg-brand-red-soft"
                                 onClick={(event) => {
                                   event.stopPropagation();
                                   setDeleting(p);
                                 }}
                                 title="Ürünü sil"
                               >
-                                <Trash2 className="size-4 text-red-600" />
+                                <Trash2 className="size-4 text-destructive" />
                               </Button>
                             )}
                           </div>
@@ -357,8 +384,12 @@ export function ProductsPage({ initialQuery }: { initialQuery?: string }) {
               ))}
               {filtered.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={7} className="text-center py-16 text-sm text-muted-foreground">
-                    Bu filtreye uyan ürün bulunamadı.
+                  <TableCell colSpan={7} className="py-4">
+                    <EmptyState
+                      icon={<Package className="size-6" />}
+                      title="Bu filtreye uyan ürün bulunamadı"
+                      description="Arama terimini veya kategori/seri filtrelerini değiştirerek tekrar deneyin."
+                    />
                   </TableCell>
                 </TableRow>
               )}
@@ -384,7 +415,7 @@ export function ProductsPage({ initialQuery }: { initialQuery?: string }) {
           <AlertDialogFooter>
             <AlertDialogCancel disabled={deleteSaving}>Vazgeç</AlertDialogCancel>
             <AlertDialogAction
-              className="bg-red-600 hover:bg-red-700"
+              className="bg-destructive hover:bg-destructive/90"
               disabled={deleteSaving}
               onClick={async () => {
                 if (!deleting) return;
@@ -423,7 +454,7 @@ export function ProductsPage({ initialQuery }: { initialQuery?: string }) {
 
 function CountBadge({ n }: { n: number }) {
   return (
-    <span className="ml-0.5 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 text-[10px] rounded-full bg-zinc-200 text-zinc-700">
+    <span className="ml-0.5 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 text-[10px] rounded-full bg-muted text-muted-foreground">
       {n}
     </span>
   );
@@ -571,10 +602,10 @@ export function DeviceTrackingPage() {
 
 /* ---------- helpers ---------- */
 const TONES: Record<string, { bg: string; ic: string; ring: string }> = {
-  violet: { bg: "bg-brand-blue-soft", ic: "text-brand-blue", ring: "ring-blue-100" },
-  emerald: { bg: "bg-emerald-50", ic: "text-emerald-600", ring: "ring-emerald-100" },
-  amber: { bg: "bg-amber-50", ic: "text-amber-600", ring: "ring-amber-100" },
-  blue: { bg: "bg-blue-50", ic: "text-blue-600", ring: "ring-blue-100" },
+  violet: { bg: "bg-brand-blue-soft", ic: "text-brand-blue", ring: "ring-brand-blue/10" },
+  emerald: { bg: "bg-success-soft", ic: "text-success", ring: "ring-success/10" },
+  amber: { bg: "bg-warning-soft", ic: "text-warning", ring: "ring-warning/10" },
+  blue: { bg: "bg-info-soft", ic: "text-info", ring: "ring-info/10" },
 };
 
 function KpiTile({ icon, label, value, tone = "violet", sub }: {
@@ -597,9 +628,9 @@ function KpiTile({ icon, label, value, tone = "violet", sub }: {
 
 function WarrantyBadge({ end }: { end: string }) {
   const days = Math.round((new Date(end).getTime() - Date.now()) / 86400000);
-  const tone = days < 0 ? "bg-red-50 text-red-700"
-    : days < 90 ? "bg-amber-50 text-amber-700"
-    : "bg-emerald-50 text-emerald-700";
+  const tone = days < 0 ? "bg-brand-red-soft text-brand-red"
+    : days < 90 ? "bg-warning-soft text-warning"
+    : "bg-success-soft text-success";
   const label = days < 0 ? "Doldu" : days < 90 ? `${days} gün` : "Aktif";
   return (
     <span className="inline-flex items-center gap-1.5">

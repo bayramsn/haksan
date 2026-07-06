@@ -112,11 +112,11 @@ export function PublicServiceComplaintPage({ slug, token }: { slug: string; toke
     }
   };
 
-  if (loading) return <div className="grid min-h-screen place-items-center bg-[#f7f7f8] text-muted-foreground">Form yükleniyor...</div>;
-  if (!data) return <div className="grid min-h-screen place-items-center bg-[#f7f7f8] text-muted-foreground">Şikayet formu bulunamadı.</div>;
+  if (loading) return <div className="grid min-h-screen place-items-center bg-canvas text-muted-foreground">Form yükleniyor...</div>;
+  if (!data) return <div className="grid min-h-screen place-items-center bg-canvas text-muted-foreground">Şikayet formu bulunamadı.</div>;
 
   return (
-    <div className="min-h-screen bg-[#f7f7f8] text-foreground">
+    <div className="min-h-screen bg-canvas text-foreground">
       <header className="border-b bg-white">
         <div className="mx-auto flex max-w-4xl items-center justify-between gap-4 px-4 py-4">
           <img src="/brand/haksan-logo.png" alt="Haksan Makina" className="h-9 w-auto" />

@@ -85,7 +85,7 @@ const TITLES: Record<NavKey, { title: string; subtitle?: string }> = {
   users: { title: "Kullanıcılar" },
   roles: { title: "Roller & Yetkiler", subtitle: "Rol bazlı izin yönetimi" },
   departments: { title: "Departmanlar" },
-  settings: { title: "Ayarlar" },
+  settings: { title: "Ayarlar", subtitle: "Kurumsal bilgiler, tercihler ve alan yönetimi" },
 };
 
 const DEFAULT_NAV: NavKey = "dashboard";

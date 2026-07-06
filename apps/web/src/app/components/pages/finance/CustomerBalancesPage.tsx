@@ -7,6 +7,7 @@ import {
   Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle,
 } from "../../ui/dialog";
 import { MiniKpi } from "../../shared/MiniKpi";
+import { EmptyState } from "../../shared/EmptyState";
 import { ExportExcelButton } from "../../ui/ExportExcelButton";
 import { financeService } from "../../../../lib/services";
 import { exportService } from "../../../../lib/downloadExport";
@@ -42,7 +43,7 @@ type StatementBalance = {
 const formatMoney = (amount: number, currencyCode?: string | null) =>
   `${Number(amount ?? 0).toLocaleString("tr-TR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}${currencyCode ? ` ${currencyCode}` : ""}`;
 
-const balanceTone = (amount: number) => amount >= 0 ? "text-amber-800" : "text-sky-800";
+const balanceTone = (amount: number) => amount >= 0 ? "text-warning" : "text-info";
 
 export function CustomerBalancesPage() {
   const { hasRole } = useAuth();
@@ -123,7 +124,7 @@ export function CustomerBalancesPage() {
         <CardContent className="p-0">
           <Table>
             <TableHeader>
-              <TableRow className="bg-muted/30">
+              <TableRow className="bg-muted/40 hover:bg-muted/40 [&_th]:text-[11px] [&_th]:uppercase [&_th]:tracking-wider [&_th]:text-muted-foreground">
                 <TableHead>Firma</TableHead>
                 <TableHead className="text-right">Satış</TableHead>
                 <TableHead className="text-right">Tahsilat</TableHead>
@@ -141,14 +142,18 @@ export function CustomerBalancesPage() {
                 <TableRow><TableCell colSpan={isAdmin ? 10 : 6} className="text-center py-10 text-muted-foreground">Yükleniyor…</TableCell></TableRow>
               )}
               {!loading && filtered.map((r) => (
-                <TableRow key={r.companyId} className="cursor-pointer hover:bg-muted/30" onClick={() => openStatement(r)}>
+                <TableRow
+                  key={r.companyId}
+                  className={`cursor-pointer ${r.borc > 0 ? "bg-warning-soft/40 hover:bg-warning-soft/60" : "hover:bg-primary/[0.025]"}`}
+                  onClick={() => openStatement(r)}
+                >
                   <TableCell className="font-medium">{r.companyName}</TableCell>
                   <TableCell className="text-right tabular-nums text-muted-foreground">{r.salesTotal.toLocaleString("tr-TR")}</TableCell>
                   <TableCell className="text-right tabular-nums text-muted-foreground">{r.collections.toLocaleString("tr-TR")}</TableCell>
-                  <TableCell className="text-right tabular-nums text-amber-800">{r.borc.toLocaleString("tr-TR")}</TableCell>
+                  <TableCell className="text-right tabular-nums text-warning font-medium">{r.borc.toLocaleString("tr-TR")}</TableCell>
                   {isAdmin && <TableCell className="text-right tabular-nums text-muted-foreground">{(r.purchases ?? 0).toLocaleString("tr-TR")}</TableCell>}
                   {isAdmin && <TableCell className="text-right tabular-nums text-muted-foreground">{(r.payouts ?? 0).toLocaleString("tr-TR")}</TableCell>}
-                  {isAdmin && <TableCell className="text-right tabular-nums text-sky-800">{(r.alacak ?? 0).toLocaleString("tr-TR")}</TableCell>}
+                  {isAdmin && <TableCell className="text-right tabular-nums text-info">{(r.alacak ?? 0).toLocaleString("tr-TR")}</TableCell>}
                   {isAdmin && (
                     <TableCell className={`text-right tabular-nums font-medium ${balanceTone(Number(r.totalBalance ?? r.netBorc ?? 0))}`}>
                       {formatMoney(Number(r.totalBalance ?? r.netBorc ?? 0), r.primaryCurrency)}
@@ -193,7 +198,15 @@ export function CustomerBalancesPage() {
                 </TableRow>
               ))}
               {!loading && filtered.length === 0 && (
-                <TableRow><TableCell colSpan={isAdmin ? 10 : 6} className="text-center py-10 text-muted-foreground">Kayıt yok</TableCell></TableRow>
+                <TableRow>
+                  <TableCell colSpan={isAdmin ? 10 : 6} className="py-4">
+                    <EmptyState
+                      icon={<Wallet className="size-6" />}
+                      title="Kayıt bulunamadı"
+                      description="Arama terimini değiştirerek tekrar deneyin."
+                    />
+                  </TableCell>
+                </TableRow>
               )}
             </TableBody>
           </Table>

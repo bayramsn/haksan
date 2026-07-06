@@ -19,7 +19,8 @@ import { Plus, Trash2, Save, BookmarkPlus, Bold } from "lucide-react";
 import type { Product, ProductSpec } from "../../lib/mock";
 import { normalizeProductSpecKey, productSpecDefaults, specsForProductType } from "../../lib/productSpecTemplates";
 import { quoteDefaultsFromCase } from "../../lib/workflow";
-import { matchQuoteNoteVariantKey } from "../../lib/print";
+import { matchQuoteNoteVariantKey, QUOTE_NOTE_VARIANTS } from "../../lib/print";
+import { DialogSplitLayout, DialogSidebarSection } from "../shared/DialogSplitLayout";
 import {
   DocumentTermsTemplateEditor,
   matchSavedTermsTemplate,
@@ -46,6 +47,9 @@ const DELIVERY_NOTE_VARIANT: Record<string, string> = {
   cif_istanbul: "cif-istanbul",
   export_address: "ihracat",
   nationalized: "millilestirilmis",
+  customs: "gumruk",
+  ex_works: "isletme-teslim",
+  fob: "fob",
 };
 
 const NOTE_VARIANT_DELIVERY: Record<string, string> = Object.fromEntries(
@@ -121,6 +125,9 @@ const cleanTechnicalSpecs = (specs: ProductSpec[] = []) =>
       value: spec.value.trim(),
       unit: (spec.unit ?? spec.specUnit ?? "").trim() || undefined,
       specUnit: (spec.unit ?? spec.specUnit ?? "").trim() || undefined,
+      groupCode: spec.groupCode?.trim() || undefined,
+      groupName: spec.groupName?.trim() || undefined,
+      group: spec.groupName?.trim() || spec.groupCode?.trim() || undefined,
     }))
     .filter((spec) => spec.key && spec.value);
 
@@ -350,6 +357,16 @@ export function QuoteDialog({
 
   const onTermsBuiltInSelected = (key: string) => {
     if (key && NOTE_VARIANT_DELIVERY[key]) setDeliveryCode(NOTE_VARIANT_DELIVERY[key]);
+  };
+
+  // Teslim şekli seçilince eşleşen yerleşik belge şartları şablonunu uygula.
+  const applyNoteVariant = (key: string) => {
+    setNoteVariantKey(key);
+    const builtIn = QUOTE_NOTE_VARIANTS.find((variant) => variant.key === key);
+    if (!builtIn) return;
+    setPaymentTerms(builtIn.odeme.join("\n"));
+    setDeliveryTerms(builtIn.teslimat.join("\n"));
+    setWarrantyTerms(builtIn.garanti.join("\n"));
   };
 
   const setLine = (i: number, patch: Partial<LineState>) =>
@@ -632,7 +649,7 @@ export function QuoteDialog({
   return (
     <Dialog open={open} onOpenChange={handleOpen}>
       {trigger && <DialogTrigger asChild>{trigger}</DialogTrigger>}
-      <DialogContent className="w-[95vw] sm:max-w-[1080px] max-h-[92vh] overflow-y-auto">
+      <DialogContent className="w-[95vw] sm:max-w-[1180px] max-h-[92vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{editing ? "Teklifi Düzenle" : "Yeni Teklif"}</DialogTitle>
           <DialogDescription>
@@ -643,7 +660,78 @@ export function QuoteDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <form onSubmit={submit} className="space-y-5">
+        <form onSubmit={submit}>
+          <DialogSplitLayout
+            aside={
+              <>
+                <DialogSidebarSection>
+                  <div>
+                    <Label className="text-xs">Teslim Şekli</Label>
+                    <Select
+                      value={deliveryCode}
+                      onValueChange={(value) => {
+                        setDeliveryCode(value);
+                        const variantKey = DELIVERY_NOTE_VARIANT[value];
+                        if (variantKey) applyNoteVariant(variantKey);
+                        else {
+                          setNoteVariantKey("");
+                          setDeliveryTerms(DELIVERY_TERMS.find((item) => item.code === value)?.label ?? "");
+                        }
+                      }}
+                    >
+                      <SelectTrigger className="mt-1.5"><SelectValue placeholder="Teslim şekli seçin..." /></SelectTrigger>
+                      <SelectContent>
+                        {DELIVERY_TERMS.map((d) => <SelectItem key={d.code} value={d.code}>{d.label}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </DialogSidebarSection>
+                <div className="rounded-lg border border-border/60 bg-muted/20 p-3 text-sm space-y-1">
+                  <div className="flex justify-between"><span className="text-muted-foreground">Ara Toplam</span><span className="tabular-nums">{money(totals.subtotal, currency)}</span></div>
+                  {totals.lineDiscount > 0 && (
+                    <div className="flex justify-between"><span className="text-muted-foreground">Satır İndirimi</span><span className="tabular-nums">-{money(totals.lineDiscount, currency)}</span></div>
+                  )}
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <span className="text-muted-foreground">Teklif İskontosu</span>
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <Select value={headerDiscountType} onValueChange={(value) => setHeaderDiscountType(value as "amount" | "percent")}>
+                        <SelectTrigger className="h-7 w-[88px] text-xs"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="amount">Tutar</SelectItem>
+                          <SelectItem value="percent">Yüzde</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <Input
+                        className="h-7 w-24 text-right"
+                        inputMode="decimal"
+                        value={headerDiscountValue}
+                        onChange={(event) => setHeaderDiscountValue(event.target.value)}
+                        placeholder={headerDiscountType === "percent" ? "0" : "0,00"}
+                      />
+                      <span className="tabular-nums">-{money(totals.headerDiscount, currency)}</span>
+                    </div>
+                  </div>
+                  <div className="flex justify-between"><span className="text-muted-foreground">KDV</span><span className="tabular-nums">{money(totals.vat, currency)}</span></div>
+                  <div className="flex justify-between border-t border-border/60 pt-1 font-medium"><span>Genel Toplam</span><span className="tabular-nums">{money(totals.grand, currency)}</span></div>
+                  <div className="flex justify-between items-center gap-2 pt-1.5 mt-1 border-t border-dashed border-border/60 flex-wrap">
+                    <FxRateBadge />
+                    <span className="tabular-nums text-xs text-muted-foreground">
+                      {currency === "TRY"
+                        ? `≈ ${money(convert(totals.grand, "TRY", "USD"), "USD")}`
+                        : `≈ ${money(convert(totals.grand, currency, "TRY"), "TRY")} · ${money(convert(totals.grand, currency, "USD"), "USD")}`}
+                    </span>
+                  </div>
+                </div>
+                <DialogFooter className="sm:flex-col-reverse">
+                  <Button type="button" variant="outline" className="w-full" onClick={() => setOpen(false)}>Vazgeç</Button>
+                  <Button type="submit" disabled={saving || loadingEdit} className="w-full gap-1">
+                    <Save className="size-4" />
+                    {saving ? (editing ? "Güncelleniyor…" : "Kaydediliyor…") : editing ? "Teklifi Güncelle" : "Teklifi Kaydet"}
+                  </Button>
+                </DialogFooter>
+              </>
+            }
+          >
           {/* META */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             <div className="md:col-span-1">
@@ -984,67 +1072,6 @@ export function QuoteDialog({
             </div>
           </div>
 
-          {/* PRICING + DELIVERY */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <div className="space-y-3">
-              <div>
-                <Label className="text-xs">Teslim Şekli</Label>
-                <Select
-                  value={deliveryCode}
-                  onValueChange={(value) => {
-                    setDeliveryCode(value);
-                    const variantKey = DELIVERY_NOTE_VARIANT[value];
-                    if (variantKey) applyNoteVariant(variantKey);
-                    else {
-                      setNoteVariantKey("");
-                      setDeliveryTerms(DELIVERY_TERMS.find((item) => item.code === value)?.label ?? "");
-                    }
-                  }}
-                >
-                  <SelectTrigger className="mt-1.5"><SelectValue placeholder="Teslim şekli seçin..." /></SelectTrigger>
-                  <SelectContent>
-                    {DELIVERY_TERMS.map((d) => <SelectItem key={d.code} value={d.code}>{d.label}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <Label className="text-xs">Teklif İskontosu</Label>
-                <div className="mt-1.5 grid grid-cols-[130px_1fr] gap-2">
-                  <Select value={headerDiscountType} onValueChange={(value) => setHeaderDiscountType(value as "amount" | "percent")}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="amount">Tutar</SelectItem>
-                      <SelectItem value="percent">Yüzde</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <Input
-                    inputMode="decimal"
-                    value={headerDiscountValue}
-                    onChange={(event) => setHeaderDiscountValue(event.target.value)}
-                    placeholder={headerDiscountType === "percent" ? "0" : "0,00"}
-                  />
-                </div>
-              </div>
-            </div>
-            <div className="rounded-lg border border-border/60 bg-muted/20 p-3 text-sm space-y-1">
-              <div className="flex justify-between"><span className="text-muted-foreground">Ara Toplam</span><span className="tabular-nums">{money(totals.subtotal, currency)}</span></div>
-              {totals.lineDiscount > 0 && (
-                <div className="flex justify-between"><span className="text-muted-foreground">Satır İndirimi</span><span className="tabular-nums">-{money(totals.lineDiscount, currency)}</span></div>
-              )}
-              <div className="flex justify-between"><span className="text-muted-foreground">Teklif İskontosu</span><span className="tabular-nums">-{money(totals.headerDiscount, currency)}</span></div>
-              <div className="flex justify-between"><span className="text-muted-foreground">KDV</span><span className="tabular-nums">{money(totals.vat, currency)}</span></div>
-              <div className="flex justify-between border-t border-border/60 pt-1 font-medium"><span>Genel Toplam</span><span className="tabular-nums">{money(totals.grand, currency)}</span></div>
-              <div className="flex justify-between items-center gap-2 pt-1.5 mt-1 border-t border-dashed border-border/60 flex-wrap">
-                <FxRateBadge />
-                <span className="tabular-nums text-xs text-muted-foreground">
-                  {currency === "TRY"
-                    ? `≈ ${money(convert(totals.grand, "TRY", "USD"), "USD")}`
-                    : `≈ ${money(convert(totals.grand, currency, "TRY"), "TRY")} · ${money(convert(totals.grand, currency, "USD"), "USD")}`}
-                </span>
-              </div>
-            </div>
-          </div>
-
           <DocumentTermsTemplateEditor
             description="Şablon seçin, metinleri gerekiyorsa düzenleyin; değişiklikler teklif/proforma belgesine eklenir."
             templateScope={TERMS_TEMPLATE_SCOPE}
@@ -1067,7 +1094,7 @@ export function QuoteDialog({
           <div>
             <div className="flex items-center justify-between gap-2 flex-wrap">
               <Label className="text-xs">Notlar</Label>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 {/* Yazı puntosu */}
                 <Select value={noteFontSize} onValueChange={setNoteFontSize}>
                   <SelectTrigger className="h-7 w-28 text-xs"><SelectValue /></SelectTrigger>
@@ -1110,13 +1137,7 @@ export function QuoteDialog({
             />
           </div>
 
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => setOpen(false)}>Vazgeç</Button>
-            <Button type="submit" disabled={saving || loadingEdit} className="gap-1">
-              <Save className="size-4" />
-              {saving ? (editing ? "Güncelleniyor…" : "Kaydediliyor…") : editing ? "Teklifi Güncelle" : "Teklifi Kaydet"}
-            </Button>
-          </DialogFooter>
+          </DialogSplitLayout>
         </form>
       </DialogContent>
     </Dialog>

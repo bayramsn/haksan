@@ -155,6 +155,7 @@ export const productSpecTemplates = pgTable(
     id: uuid('id').primaryKey().defaultRandom(),
     productTypeCode: varchar('product_type_code', { length: 64 }).notNull(),
     specKey: varchar('spec_key', { length: 255 }).notNull(),
+    specGroupCode: varchar('spec_group_code', { length: 64 }),
     defaultValue: text('default_value'),
     specUnit: varchar('spec_unit', { length: 64 }),
     sortOrder: integer('sort_order').notNull().default(0),

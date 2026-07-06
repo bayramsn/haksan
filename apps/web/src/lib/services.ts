@@ -54,6 +54,7 @@ import type {
   ProductSpecCreateInput,
   ProductSpecTemplateCreateInput,
   ProductSpecTemplateUpdateInput,
+  ProductSpecTemplateBulkCreateInput,
   ProductUpdateInput,
   ProformaCreateInput,
   ProformaUpdateInput,
@@ -172,7 +173,7 @@ export const companyService = {
   get: (id: string) => api.get<CompanyDTO & { addresses: any[]; phones: any[]; emails: any[] }>(`/companies/${id}`),
   create: (body: CompanyCreateInput) => api.post<CompanyDTO>('/companies', body),
   update: (id: string, body: CompanyUpdateInput) => api.patch<CompanyDTO>(`/companies/${id}`, body),
-  osmSearch: (params: { q: string; city?: string; district?: string }) =>
+  osmSearch: (params: { q: string; address?: string; city?: string; district?: string }) =>
     api.get<CompanyOsmSearchResult[]>(`/companies/osm-search${qs(params)}`),
   /** Haritadaki manuel pin düzeltmesini kalıcı kaydeder; null'lar konumu temizler. */
   setLocation: (id: string, body: { latitude: number | null; longitude: number | null }) =>
@@ -827,6 +828,8 @@ export const adminService = {
   deleteLookup: (name: string, id: string) => api.delete<any>(`/admin/lookups/${name}/${id}`),
   productSpecTemplates: (productTypeCode?: string) => api.get<any[]>(`/admin/product-spec-templates${qs({ productTypeCode })}`),
   createProductSpecTemplate: (body: ProductSpecTemplateCreateInput) => api.post<any>('/admin/product-spec-templates', body),
+  bulkCreateProductSpecTemplates: (items: ProductSpecTemplateBulkCreateInput['items']) =>
+    api.post<{ ok: boolean; created: number; skipped: number; rows: any[] }>('/admin/product-spec-templates/bulk', { items }),
   updateProductSpecTemplate: (id: string, body: ProductSpecTemplateUpdateInput) =>
     api.patch<any>(`/admin/product-spec-templates/${id}`, body),
   deleteProductSpecTemplate: (id: string) => api.delete<any>(`/admin/product-spec-templates/${id}`),

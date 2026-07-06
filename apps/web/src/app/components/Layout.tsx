@@ -347,7 +347,7 @@ export function Layout({ current, onNavigate, onLogout, pageTitle, pageSubtitle,
 
   return (
     <TooltipProvider delayDuration={150}>
-      <div className="flex h-full min-h-0 w-full overflow-hidden bg-[#f7f7f8] text-foreground">
+      <div className="flex h-full min-h-0 w-full overflow-hidden bg-canvas text-foreground">
         {mobileNavOpen && (
           <div className="fixed inset-0 z-50 lg:hidden">
             <button
@@ -571,7 +571,7 @@ export function Layout({ current, onNavigate, onLogout, pageTitle, pageSubtitle,
           </div>
 
           {/* Content */}
-          <main className="app-main flex-1 min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain p-4 md:p-6 min-w-0 bg-[#f7f7f8]">{children}</main>
+          <main className="app-main flex-1 min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain p-4 md:p-6 min-w-0 bg-canvas">{children}</main>
         </div>
         <CommandPalette
           open={commandOpen}

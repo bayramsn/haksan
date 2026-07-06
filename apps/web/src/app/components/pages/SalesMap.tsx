@@ -594,10 +594,19 @@ export function SalesMapPage({ initialQuery }: { initialQuery?: string }) {
                     <OsmCompanySearch
                       className="mt-3"
                       query={customer.name}
+                      address={customer.address}
                       city={customer.city}
                       district={customer.district}
                       buttonLabel="Ara"
                       onSelect={(result) => applyOsmLocation(customer, { lat: result.latitude, lng: result.longitude })}
+                      onManualPick={() => {
+                        setFocusedId(customer.id);
+                        setSelectionMode({ type: "firm", customerId: customer.id });
+                        setOsmSearchFirmId(null);
+                        toast.message("Haritada firma noktasını seçin", {
+                          description: "Doğru noktaya tıklayınca koordinat firmaya kalıcı yazılır.",
+                        });
+                      }}
                     />
                   )}
                 </div>

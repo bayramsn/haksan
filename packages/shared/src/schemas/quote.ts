@@ -31,6 +31,11 @@ export type QuoteUpdateInput = Partial<QuoteCreateInput>;
 export const quoteItemTechnicalSpecSchema = z.object({
   key: z.string().min(1).max(255),
   value: z.string().max(2000),
+  unit: z.string().max(64).optional(),
+  specUnit: z.string().max(64).optional(),
+  groupCode: z.string().max(64).optional(),
+  groupName: z.string().max(255).optional(),
+  group: z.string().max(255).optional(),
 });
 
 export const quoteItemCompatibilitySchema = z.object({

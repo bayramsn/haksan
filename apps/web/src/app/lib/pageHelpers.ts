@@ -1,6 +1,6 @@
 import { toast } from 'sonner';
 import type { PrintDocument } from './print';
-import { downloadPrintHtml, openPrintWindow } from './print';
+import { downloadPrintHtml, openPrintPreviewWindow, openPrintWindow } from './print';
 
 export const printOrWarn = (doc: PrintDocument) => {
   if (!openPrintWindow(doc)) {
@@ -8,14 +8,20 @@ export const printOrWarn = (doc: PrintDocument) => {
   }
 };
 
-export const downloadPrintOrWarn = (doc: PrintDocument, filename: string) => {
+export const previewPrintOrWarn = (doc: PrintDocument) => {
+  if (!openPrintPreviewWindow(doc)) {
+    toast.error('Önizleme penceresi açılamadı', { description: 'Lütfen pop-up engelleyiciyi kapatın.' });
+  }
+};
+
+export const downloadPrintOrWarn = (doc: PrintDocument, filename: string, label = 'Belge') => {
   try {
     downloadPrintHtml(doc, filename);
-    toast.success('Proforma indirildi', {
+    toast.success(`${label} indirildi`, {
       description: 'Dosyayı tarayıcıda açıp Yazdır → PDF olarak kaydet ile PDF oluşturabilirsiniz.',
     });
   } catch {
-    toast.error('Proforma indirilemedi', { description: 'İndirme başarısız oldu.' });
+    toast.error(`${label} indirilemedi`, { description: 'İndirme başarısız oldu.' });
   }
 };
 

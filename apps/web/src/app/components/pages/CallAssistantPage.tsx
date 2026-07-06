@@ -10,6 +10,8 @@ import { Badge } from "../ui/badge";
 import { Card, CardContent } from "../ui/card";
 import { Input } from "../ui/input";
 import { Textarea } from "../ui/textarea";
+import { Tabs, TabsList, TabsTrigger } from "../ui/tabs";
+import { EmptyState } from "../shared/EmptyState";
 import {
   Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle,
 } from "../ui/dialog";
@@ -92,20 +94,20 @@ export function CallAssistantPage({ onAction }: { onAction?: (action: OperationA
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex gap-1 rounded-lg border border-border/60 bg-white p-1">
-          {STATUS_TABS.map((tab) => (
-            <Button
-              key={tab.id}
-              type="button"
-              size="sm"
-              variant={status === tab.id ? "default" : "ghost"}
-              className="h-8 px-3 text-xs"
-              onClick={() => setStatus(tab.id)}
-            >
-              {tab.label}
-            </Button>
-          ))}
-        </div>
+        <Tabs value={status} onValueChange={(v) => setStatus(v as SuggestionStatus)}>
+          <TabsList className="h-9 bg-muted/60">
+            {STATUS_TABS.map((tab) => (
+              <TabsTrigger key={tab.id} value={tab.id} className="gap-1.5 text-xs">
+                {tab.label}
+                {status === tab.id && !loading && (
+                  <span className="ml-0.5 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 text-[10px] rounded-full bg-muted text-muted-foreground">
+                    {suggestions.length}
+                  </span>
+                )}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        </Tabs>
         <div className="flex items-center gap-2">
           <Button type="button" variant="outline" size="sm" className="gap-1.5" onClick={() => void refresh()}>
             <RefreshCw className="size-3.5" />
@@ -131,12 +133,19 @@ export function CallAssistantPage({ onAction }: { onAction?: (action: OperationA
           </Button>
         </div>
       ) : suggestions.length === 0 ? (
-        <div className="grid place-items-center rounded-lg border border-dashed border-border/70 bg-white py-16 text-center text-sm text-muted-foreground">
-          {status === "pending"
-            ? "Bekleyen çağrı önerisi yok. Manuel arama ekleyerek yeni öneri oluşturabilirsiniz."
-            : status === "acted"
-              ? "İşlenmiş çağrı önerisi yok."
-              : "Yoksayılan çağrı önerisi yok."}
+        <div className="rounded-lg border border-dashed border-border/70 bg-white">
+          <EmptyState
+            icon={<PhoneCall className="size-6" />}
+            title={
+              status === "pending"
+                ? "Bekleyen çağrı önerisi yok"
+                : status === "acted"
+                  ? "İşlenmiş çağrı önerisi yok"
+                  : "Yoksayılan çağrı önerisi yok"
+            }
+            description={status === "pending" ? "Manuel arama ekleyerek yeni öneri oluşturabilirsiniz." : undefined}
+            action={status === "pending" ? <ManualCallDialog onCreated={() => void refresh("pending")} /> : undefined}
+          />
         </div>
       ) : (
         <div className="grid gap-3 lg:grid-cols-2">
@@ -182,15 +191,23 @@ function SuggestionCard({
   const missed = suggestion.event.eventType === "missed";
   const inbound = suggestion.event.direction === "inbound";
   return (
-    <Card className="border-border/60">
+    <Card className="group relative overflow-hidden border-border/60 shadow-sm hover:shadow-md transition-shadow">
+      <div className={`absolute inset-x-0 top-0 h-0.5 ${missed ? "bg-brand-red" : "bg-success"}`} />
       <CardContent className="space-y-3 p-4">
-        <div className="flex items-start justify-between gap-2">
-          <div className="min-w-0">
+        <div className="flex items-start gap-3">
+          <div
+            className={`size-9 rounded-lg grid place-items-center shrink-0 shadow-xs ring-1 ring-border/50 ${
+              missed ? "bg-brand-red-soft text-brand-red" : "bg-success-soft text-success"
+            }`}
+          >
+            {missed ? <PhoneMissed className="size-4" /> : <PhoneCall className="size-4" />}
+          </div>
+          <div className="min-w-0 flex-1">
             <div className="flex min-w-0 flex-wrap items-center gap-2">
               <div className="truncate text-sm font-medium">{companyName}</div>
               <Badge
                 variant="outline"
-                className={`h-5 px-1.5 text-[10px] ${missed ? "border-red-200 bg-red-50 text-red-700" : "border-emerald-200 bg-emerald-50 text-emerald-700"}`}
+                className={`h-5 px-1.5 text-[10px] ${missed ? "border-brand-red/20 bg-brand-red-soft text-brand-red" : "border-success/20 bg-success-soft text-success"}`}
               >
                 {missed ? "Kaçan arama" : "Arama bitti"}
               </Badge>
@@ -206,7 +223,6 @@ function SuggestionCard({
               {formatDateTime(suggestion.createdAt)}
             </div>
           </div>
-          {missed ? <PhoneMissed className="size-4 shrink-0 text-red-600" /> : <PhoneCall className="size-4 shrink-0 text-emerald-600" />}
         </div>
         <div className="text-sm leading-relaxed">{suggestion.title}</div>
         {suggestion.body && <div className="text-xs leading-relaxed text-muted-foreground">{suggestion.body}</div>}
