@@ -2080,6 +2080,7 @@ export function ProductDialog({
   const [brandRows, setBrandRows] = useState<Array<{ id: string; name: string }>>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploadingImage, setUploadingImage] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -2373,6 +2374,7 @@ export function ProductDialog({
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (submitting) return;
     if (!form.productTypeCode) {
       toast.error("Ürün tipi seçin");
       return;
@@ -2421,6 +2423,7 @@ export function ProductDialog({
       status: form.status,
     };
 
+    setSubmitting(true);
     try {
       if (mode === "edit" && product) {
         await updateProduct(product.id, payload);
@@ -2433,6 +2436,8 @@ export function ProductDialog({
       setOpen(false);
     } catch (err: any) {
       toast.error(mode === "edit" ? "Ürün güncellenemedi" : "Ürün oluşturulamadı", { description: err?.message ?? "API isteği başarısız oldu." });
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -2902,8 +2907,8 @@ export function ProductDialog({
           </div>
 
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => setOpen(false)}>İptal</Button>
-            <Button type="submit">{mode === "edit" ? "Güncelle" : "Oluştur"}</Button>
+            <Button type="button" variant="outline" onClick={() => setOpen(false)} disabled={submitting}>İptal</Button>
+            <Button type="submit" disabled={submitting}>{submitting ? "Kaydediliyor..." : mode === "edit" ? "Güncelle" : "Oluştur"}</Button>
           </DialogFooter>
         </form>
       </DialogContent>

@@ -708,32 +708,42 @@ export class ProductsService {
     await this.assertAlternativeProducts('', actor.tenantId, alternativeIds);
     await this.assertSupplierCompany(input.supplierCompanyId, actor.tenantId);
 
-    const [row] = await this.db
-      .insert(productModels)
-      .values({
-        tenantId: actor.tenantId,
-        brandId: input.brandId,
-        productGroupId: groupId,
-        categoryId: catId,
-        subcategoryId: subId,
-        productTypeId: typeId,
-        compatibleMachineTypeId,
-        supplierCompanyId: input.supplierCompanyId ?? null,
-        modelCode: input.modelCode,
-        modelName: input.modelName ?? null,
-        fullName: input.fullName,
-        currencyId,
-        listPrice: input.listPrice?.toString() ?? null,
-        cashPrice: input.cashPrice?.toString() ?? null,
-        vatRate: input.vatRate.toString(),
-        originCountry: input.originCountry ?? null,
-        hsCode: input.hsCode ?? null,
-        stockCode: input.stockCode ?? null,
-        imageUrl: input.imageUrl ?? null,
-        description: input.description ?? null,
-        muadilProductId: alternativeIds[0] ?? input.muadilProductId ?? null,
-      })
-      .returning();
+    let row: typeof productModels.$inferSelect;
+    try {
+      [row] = await this.db
+        .insert(productModels)
+        .values({
+          tenantId: actor.tenantId,
+          brandId: input.brandId,
+          productGroupId: groupId,
+          categoryId: catId,
+          subcategoryId: subId,
+          productTypeId: typeId,
+          compatibleMachineTypeId,
+          supplierCompanyId: input.supplierCompanyId ?? null,
+          modelCode: input.modelCode,
+          modelName: input.modelName ?? null,
+          fullName: input.fullName,
+          currencyId,
+          listPrice: input.listPrice?.toString() ?? null,
+          cashPrice: input.cashPrice?.toString() ?? null,
+          vatRate: input.vatRate.toString(),
+          originCountry: input.originCountry ?? null,
+          hsCode: input.hsCode ?? null,
+          stockCode: input.stockCode ?? null,
+          imageUrl: input.imageUrl ?? null,
+          description: input.description ?? null,
+          muadilProductId: alternativeIds[0] ?? input.muadilProductId ?? null,
+        })
+        .returning();
+    } catch (error: any) {
+      // Eşzamanlı (örn. çift tıklamayla gönderilen) istekler bu noktaya kadarki
+      // "existing" kontrolünü ikisi de geçebilir; DB'nin unique constraint'i
+      // ikinci isteği burada yakalar. Ham pg hatasını 500 olarak sızdırmak yerine
+      // aynı temiz ConflictError'a çeviriyoruz.
+      if ((error?.code ?? error?.cause?.code) === '23505') throw new ConflictError('Bu model kodu zaten kayıtlı');
+      throw error;
+    }
     await this.replaceAlternatives(row.id, actor.tenantId, alternativeIds);
     await this.replaceOptionalCompatibilities(row.id, actor.tenantId, input);
     await this.audit.write({
@@ -776,7 +786,12 @@ export class ProductsService {
     for (const k of ['listPrice', 'cashPrice', 'vatRate'] as const) {
       if ((input as any)[k] !== undefined) patch[k] = ((input as any)[k] as number | undefined)?.toString() ?? null;
     }
-    await this.db.update(productModels).set(patch).where(eq(productModels.id, id));
+    try {
+      await this.db.update(productModels).set(patch).where(eq(productModels.id, id));
+    } catch (error: any) {
+      if ((error?.code ?? error?.cause?.code) === '23505') throw new ConflictError('Bu model kodu zaten kayıtlı');
+      throw error;
+    }
     if (alternativesProvided) await this.replaceAlternatives(id, actor.tenantId, alternativeIds);
     if (this.optionalCompatibilityProvided(input)) await this.replaceOptionalCompatibilities(id, actor.tenantId, input);
     await this.audit.write({
