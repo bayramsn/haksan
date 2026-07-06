@@ -1830,16 +1830,16 @@ function StoreInner({ children }: { children: ReactNode }) {
     }
     const serial = delivery.formData?.tezgah?.seriNo;
     if (serial && serial !== '—') {
-      const exists = machines.some(m => m.serialNumber === serial);
-      if (!exists) {
+      const existingMachine = machines.find(m => m.serialNumber === serial);
+      const cncMarka = delivery.formData?.cnc?.marka || '';
+      const cncModel = delivery.formData?.cnc?.model || '';
+      const controlUnit = [cncMarka, cncModel].filter(Boolean).join(' ');
+      const controlUnitSerial = delivery.formData?.cnc?.seriNo || '';
+      if (!existingMachine) {
         try {
           const brand = delivery.formData?.tezgah?.marka || '';
           const model = delivery.formData?.tezgah?.model || '—';
           const type = delivery.formData?.tezgah?.tip || '';
-          const cncMarka = delivery.formData?.cnc?.marka || '';
-          const cncModel = delivery.formData?.cnc?.model || '';
-          const controlUnit = [cncMarka, cncModel].filter(Boolean).join(' ');
-          const controlUnitSerial = delivery.formData?.cnc?.seriNo || '';
           await addMachine({
             customerId: delivery.customerId,
             salesCaseId: delivery.salesCaseId || '',
@@ -1860,6 +1860,22 @@ function StoreInner({ children }: { children: ReactNode }) {
           });
         } catch (err) {
           console.error('Failed to auto create machine on delivery completion', err);
+        }
+      }
+      // Kontrol ünitesi bilgisi customerDevices'ta değil, bağlı inventoryItem'da
+      // tutulur; teslimat tutanağında girilen değeri kurulum formunun ürün
+      // kaydından okuyabilmesi için oraya senkronize etmemiz gerekir.
+      const linkedMachine = existingMachine ?? machines.find(m => m.id === delivery.formData?.machineId);
+      const stockItemId = linkedMachine?.stockItemId;
+      if (stockItemId && controlUnit) {
+        try {
+          await inventoryService.update(stockItemId, {
+            controlUnit,
+            controlUnitSerialNumber: controlUnitSerial || undefined,
+          });
+          await fetchAll();
+        } catch (err) {
+          console.error('Failed to sync control unit info to inventory item', err);
         }
       }
     }
