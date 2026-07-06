@@ -1772,7 +1772,7 @@ export function QuickCreateDialog({ trigger }: { trigger: React.ReactNode }) {
 /* ---------- Product (create / edit) ---------- */
 
 type ProductOption = { code: string; label: string };
-type ProductTypeOption = ProductOption & { categoryCode?: string; subcategoryCode?: string };
+type ProductTypeOption = ProductOption & { categoryCode?: string; subcategoryCode?: string; productGroupCode?: string };
 
 const PRODUCT_BRANDS = ["LK", "LK Machinery", "ECOCA", "MANFORD", "Manford", "MAXİMART", "Maximart"];
 const PRODUCT_GROUPS: ProductOption[] = [
@@ -1795,18 +1795,18 @@ const PRODUCT_TYPE_GROUPS: Array<{ label: string; options: ProductTypeOption[] }
   {
     label: "İşleme Merkezi",
     options: [
-      { code: "CNC_DIK_ISLEME_MERKEZ", label: "CNC Dik İşleme Merkezi", categoryCode: "TEZGAH", subcategoryCode: "ISLEME_MERKEZI" },
-      { code: "CNC_YATAY_ISLEME_MERKEZI", label: "CNC Yatay İşleme Merkezi", categoryCode: "TEZGAH", subcategoryCode: "ISLEME_MERKEZI" },
-      { code: "CNC_KOPRU_TIPI_ISLEME_MERKEZI", label: "CNC Köprü Tipi İşleme Merkezi", categoryCode: "TEZGAH", subcategoryCode: "ISLEME_MERKEZI" },
-      { code: "CNC_5_EKSEN_ISLEME_MERKEZI", label: "CNC 5 Eksen İşleme Merkezi", categoryCode: "TEZGAH", subcategoryCode: "ISLEME_MERKEZI" },
-      { code: "CNC_TAPPING_CENTER", label: "CNC Tapping Center", categoryCode: "TEZGAH", subcategoryCode: "ISLEME_MERKEZI" },
+      { code: "CNC_DIK_ISLEME_MERKEZ", label: "CNC Dik İşleme Merkezi", categoryCode: "TEZGAH", subcategoryCode: "ISLEME_MERKEZI", productGroupCode: "CNC" },
+      { code: "CNC_YATAY_ISLEME_MERKEZI", label: "CNC Yatay İşleme Merkezi", categoryCode: "TEZGAH", subcategoryCode: "ISLEME_MERKEZI", productGroupCode: "CNC" },
+      { code: "CNC_KOPRU_TIPI_ISLEME_MERKEZI", label: "CNC Köprü Tipi İşleme Merkezi", categoryCode: "TEZGAH", subcategoryCode: "ISLEME_MERKEZI", productGroupCode: "CNC" },
+      { code: "CNC_5_EKSEN_ISLEME_MERKEZI", label: "CNC 5 Eksen İşleme Merkezi", categoryCode: "TEZGAH", subcategoryCode: "ISLEME_MERKEZI", productGroupCode: "CNC" },
+      { code: "CNC_TAPPING_CENTER", label: "CNC Tapping Center", categoryCode: "TEZGAH", subcategoryCode: "ISLEME_MERKEZI", productGroupCode: "CNC" },
     ],
   },
   {
     label: "Torna",
     options: [
-      { code: "CNC_YATAY_TORNA_TEZGAHI", label: "CNC Yatay Torna Tezgahı", categoryCode: "TEZGAH", subcategoryCode: "TORNA" },
-      { code: "CNC_DIK_TORNA_TEZGAHI", label: "CNC Dik Torna Tezgahı", categoryCode: "TEZGAH", subcategoryCode: "TORNA" },
+      { code: "CNC_YATAY_TORNA_TEZGAHI", label: "CNC Yatay Torna Tezgahı", categoryCode: "TEZGAH", subcategoryCode: "TORNA", productGroupCode: "CNC" },
+      { code: "CNC_DIK_TORNA_TEZGAHI", label: "CNC Dik Torna Tezgahı", categoryCode: "TEZGAH", subcategoryCode: "TORNA", productGroupCode: "CNC" },
     ],
   },
   {
@@ -1887,6 +1887,13 @@ const specsForSelectedProductType = (specs: ProductSpec[] = [], productTypeCode?
 
   return catalogSpecs(source, emptyValue, productTypeCode);
 };
+
+// Ürün Grubu → Ürün Kategorisi → Ürün Alt Kategorisi → Ürün Tipi sırasıyla daraltılır.
+// Alt kategori (İşleme Merkezi/Torna) her grupta geçerli olabilir (ör. Üniversal Torna, Sac İşleme
+// Tezgahı gerçek üründe de görülüyor); yalnızca Tip listesi katalogda tanımlı gruba göre daralır.
+// Tipin productGroupCode'u yoksa (Yedek Parça/Opsiyonel Donanım/İşçilik/Aksesuar gibi) her grupta geçerlidir.
+const typeMatchesGroup = (type: ProductTypeOption, groupCode?: string) =>
+  !type.productGroupCode || !groupCode || type.productGroupCode === groupCode;
 
 const subcategoriesForProductCategory = (categoryCode: string) =>
   PRODUCT_SUBCATEGORIES.filter((subcategory) =>
@@ -2171,20 +2178,21 @@ export function ProductDialog({
   const availableProductSubcategories = subcategoriesForProductCategory(form.categoryCode);
   const categoryUsesSubcategory = availableProductSubcategories.length > 0;
 
-  // Ürün tipini seçili kategoriye ve (tezgahsa) alt kategoriye göre filtrele
-  const typeMatches = (o: ProductTypeOption, categoryCode: string, subcategoryCode: string) => {
+  // Ürün tipini seçili gruba, kategoriye ve (tezgahsa) alt kategoriye göre filtrele
+  const typeMatches = (o: ProductTypeOption, categoryCode: string, subcategoryCode: string, groupCode?: string) => {
+    if (!typeMatchesGroup(o, groupCode)) return false;
     if (o.categoryCode !== categoryCode) return false;
     if (subcategoriesForProductCategory(categoryCode).length > 0) return o.subcategoryCode === subcategoryCode;
     return true;
   };
 
-  const isTypeAllowed = (o: ProductTypeOption, categoryCode: string, subcategoryCode: string) =>
-    typeMatches(o, categoryCode, subcategoryCode);
+  const isTypeAllowed = (o: ProductTypeOption, categoryCode: string, subcategoryCode: string, groupCode?: string) =>
+    typeMatches(o, categoryCode, subcategoryCode, groupCode);
 
   const typeGroups = PRODUCT_TYPE_GROUPS
     .map((group) => ({
       label: group.label,
-      options: group.options.filter((o) => isTypeAllowed(o, form.categoryCode, form.subcategoryCode)),
+      options: group.options.filter((o) => isTypeAllowed(o, form.categoryCode, form.subcategoryCode, form.productGroupCode)),
     }))
     .filter((group) => group.options.length > 0);
   const productCategoryOptions = PRODUCT_CATEGORIES;
@@ -2271,10 +2279,10 @@ export function ProductDialog({
     }));
   };
 
-  // Kategori/alt kategori değişince mevcut ürün tipi artık uymuyorsa sıfırla
-  const keepTypeIfValid = (categoryCode: string, subcategoryCode: string) => {
+  // Grup/kategori/alt kategori değişince mevcut ürün tipi artık uymuyorsa sıfırla
+  const keepTypeIfValid = (categoryCode: string, subcategoryCode: string, groupCode: string) => {
     const opt = PRODUCT_TYPE_OPTIONS.find((o) => o.code === form.productTypeCode);
-    if (opt && isTypeAllowed(opt, categoryCode, subcategoryCode)) {
+    if (opt && isTypeAllowed(opt, categoryCode, subcategoryCode, groupCode)) {
       return { productTypeCode: form.productTypeCode, type: form.type };
     }
     return { productTypeCode: "", type: "" };
@@ -2285,14 +2293,16 @@ export function ProductDialog({
     specsForSelectedProductType(form.specs, kept.productTypeCode);
 
   const onProductGroupChange = (code: string) => {
+    // Ürün Grubu → Ürün Kategorisi → Ürün Alt Kategorisi → Ürün Tipi: grup değişince,
+    // katalogdaki Ürün Tipi seçili gruba artık uymuyorsa sıfırlanır.
+    const kept = keepTypeIfValid(form.categoryCode, form.subcategoryCode, code);
     setForm({
       ...form,
       productGroupCode: code,
       productGroup: findLabel(PRODUCT_GROUPS, code),
-      productTypeCode: "",
-      type: "",
+      ...kept,
       brand: "",
-      specs: [],
+      specs: specsAfterChange(kept),
     });
   };
 
@@ -2304,7 +2314,7 @@ export function ProductDialog({
       : subcategoryOptions[0]?.code ?? "";
     const subcategory = usesSubcategory ? findLabel(PRODUCT_SUBCATEGORIES, subcategoryCode, subcategoryOptions[0]?.label ?? "") : "";
     const machineType = code === "OPSIYONEL_DONANIM" ? form.compatibleMachineType : "";
-    const kept = keepTypeIfValid(code, subcategoryCode);
+    const kept = keepTypeIfValid(code, subcategoryCode, form.productGroupCode);
     setForm({
       ...form,
       categoryCode: code,
@@ -2324,7 +2334,7 @@ export function ProductDialog({
   };
 
   const onSubcategoryChange = (code: string) => {
-    const kept = keepTypeIfValid(form.categoryCode, code);
+    const kept = keepTypeIfValid(form.categoryCode, code, form.productGroupCode);
     setForm({
       ...form,
       subcategoryCode: code,
@@ -2493,7 +2503,11 @@ export function ProductDialog({
                 </SelectTrigger>
                 <SelectContent>
                   {typeGroups.length === 0 ? (
-                    <div className="px-2 py-1.5 text-xs text-muted-foreground">Bu kategori için ürün tipi yok</div>
+                    <div className="px-2 py-1.5 text-xs text-muted-foreground">
+                      {isMachineProduct
+                        ? "Bu ürün grubu için tezgah tipi tanımlı değil"
+                        : "Bu kategori için ürün tipi yok"}
+                    </div>
                   ) : (
                     typeGroups.map((group) => (
                       <SelectGroup key={group.label}>

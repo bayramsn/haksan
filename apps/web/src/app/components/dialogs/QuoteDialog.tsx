@@ -98,7 +98,9 @@ type LineCompatibility = {
 };
 
 type LineState = {
+  groupCode: string;
   categoryCode: string;
+  subcategoryCode: string;
   productId: string;
   stockCode: string;
   description: string; // ürün adı / modeli
@@ -115,7 +117,7 @@ const emptyCompatibility = (): LineCompatibility => ({ machineIds: [], brands: [
 const hasCompatibility = (c: LineCompatibility) =>
   c.machineIds.length > 0 || c.brands.length > 0 || c.controlUnits.length > 0 || c.supplierIds.length > 0;
 
-const emptyLine = (): LineState => ({ categoryCode: "", productId: "", stockCode: "", description: "", technicalSpecs: [], quantity: "1", unitPrice: "", discount: "0", vatRate: "20", options: [], compatibility: emptyCompatibility() });
+const emptyLine = (): LineState => ({ groupCode: "", categoryCode: "", subcategoryCode: "", productId: "", stockCode: "", description: "", technicalSpecs: [], quantity: "1", unitPrice: "", discount: "0", vatRate: "20", options: [], compatibility: emptyCompatibility() });
 const emptyOption = (vatRate = "20"): OptionInput => ({ productId: "", description: "", quantity: "1", unitPrice: "0", discount: "0", vatRate });
 
 const cleanTechnicalSpecs = (specs: ProductSpec[] = []) =>
@@ -288,7 +290,9 @@ export function QuoteDialog({
         const stockCode = it.stockCode ?? (dashIdx > -1 ? desc.slice(0, dashIdx) : product?.stockCode ?? "");
         const description = it.stockCode ? desc : dashIdx > -1 ? desc.slice(dashIdx + 3) : desc;
         return {
+          groupCode: product?.productGroupCode ?? "",
           categoryCode: product?.categoryCode ?? "",
+          subcategoryCode: product?.subcategoryCode ?? "",
           productId: it.productModelId ?? "",
           stockCode,
           description,
@@ -403,7 +407,9 @@ export function QuoteDialog({
     if (!p) return setLine(i, { productId });
     setLine(i, {
       productId,
+      groupCode: p.productGroupCode || "",
       categoryCode: p.categoryCode || "",
+      subcategoryCode: p.subcategoryCode || "",
       stockCode: p.stockCode || p.model || "",
       description: p.shortDescription?.trim() || [p.brand, p.model].filter(Boolean).join(" "),
       technicalSpecs: technicalSpecsFromProduct(p),
@@ -414,13 +420,39 @@ export function QuoteDialog({
     if (i === 0 && p.currency) setCurrency(p.currency as Currency);
   };
 
+  // Ürün Grubu → Ürün Kategorisi → Ürün Alt Kategorisi → Ürün Tipi sırasıyla daraltılır.
+  // Bir üst seviye değişince alttaki seçim ve seçili ürün artık uymuyorsa sıfırlanır.
+  const onPickGroup = (i: number, code: string) => {
+    setLines((ls) => ls.map((l, idx) => {
+      if (idx !== i) return l;
+      const prod = products.find((x) => x.id === l.productId);
+      const keep = prod && (prod.productGroupCode || "") === code;
+      return keep
+        ? { ...l, groupCode: code }
+        : { ...l, groupCode: code, subcategoryCode: "", productId: "", stockCode: "", description: "", technicalSpecs: [], options: [] };
+    }));
+  };
+
   const onPickCategory = (i: number, code: string) => {
     setLines((ls) => ls.map((l, idx) => {
       if (idx !== i) return l;
       const prod = products.find((x) => x.id === l.productId);
       // Seçili ürün yeni kategoriye uymuyorsa temizle
       const keep = prod && prod.categoryCode === code;
-      return keep ? { ...l, categoryCode: code } : { ...l, categoryCode: code, productId: "", stockCode: "", description: "", technicalSpecs: [], options: [] };
+      return keep
+        ? { ...l, categoryCode: code }
+        : { ...l, categoryCode: code, subcategoryCode: "", productId: "", stockCode: "", description: "", technicalSpecs: [], options: [] };
+    }));
+  };
+
+  const onPickSubcategory = (i: number, code: string) => {
+    setLines((ls) => ls.map((l, idx) => {
+      if (idx !== i) return l;
+      const prod = products.find((x) => x.id === l.productId);
+      const keep = prod && (prod.subcategoryCode || "") === code;
+      return keep
+        ? { ...l, subcategoryCode: code }
+        : { ...l, subcategoryCode: code, productId: "", stockCode: "", description: "", technicalSpecs: [], options: [] };
     }));
   };
 
@@ -834,20 +866,48 @@ export function QuoteDialog({
                 const lineTotal = lineTotalNet(l);
                 const product = products.find((x) => x.id === l.productId);
                 const suggestions = product?.optionalEquipment ?? [];
-                const lineProducts = products.filter((p) => !l.categoryCode || p.categoryCode === l.categoryCode);
+                // Ürün Grubu → Ürün Kategorisi → Ürün Alt Kategorisi → Ürün Tipi sırasıyla daralt;
+                // seçenekler gerçek ürün verisinden türetilir.
+                const productsInGroup = products.filter((p) => !l.groupCode || (p.productGroupCode || "") === l.groupCode);
+                const productsInCategory = productsInGroup.filter((p) => !l.categoryCode || p.categoryCode === l.categoryCode);
+                const lineProducts = productsInCategory.filter((p) => !l.subcategoryCode || (p.subcategoryCode || "") === l.subcategoryCode);
+                const groupOptionsMap = new Map<string, string>();
+                for (const p of products) if (p.productGroupCode) groupOptionsMap.set(p.productGroupCode, p.productGroup || p.productGroupCode);
+                const groupOptions = Array.from(groupOptionsMap, ([code, label]) => ({ code, label }));
+                const subcategoryOptionsMap = new Map<string, string>();
+                for (const p of productsInCategory) if (p.subcategoryCode) subcategoryOptionsMap.set(p.subcategoryCode, p.subcategory || p.subcategoryCode);
+                const subcategoryOptions = Array.from(subcategoryOptionsMap, ([code, label]) => ({ code, label }));
                 const isLaborLine = l.categoryCode === "ISCILIK";
                 return (
                   <div key={i} className="p-3 space-y-2">
-                    <div className="grid grid-cols-1 lg:grid-cols-[200px_1fr_auto] gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                      {groupOptions.length > 0 && (
+                        <Select value={l.groupCode || "all"} onValueChange={(v) => onPickGroup(i, v === "all" ? "" : v)}>
+                          <SelectTrigger className="h-8 w-full sm:w-36"><SelectValue placeholder="Ürün Grubu" /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="all">Tüm gruplar</SelectItem>
+                            {groupOptions.map((g) => <SelectItem key={g.code} value={g.code}>{g.label}</SelectItem>)}
+                          </SelectContent>
+                        </Select>
+                      )}
                       <Select value={l.categoryCode || "all"} onValueChange={(v) => onPickCategory(i, v === "all" ? "" : v)}>
-                        <SelectTrigger className="h-8"><SelectValue placeholder="Kategori" /></SelectTrigger>
+                        <SelectTrigger className="h-8 w-full sm:w-36"><SelectValue placeholder="Kategori" /></SelectTrigger>
                         <SelectContent>
                           <SelectItem value="all">Tüm kategoriler</SelectItem>
                           {PRODUCT_CATEGORIES.map((c) => <SelectItem key={c.code} value={c.code}>{c.label}</SelectItem>)}
                         </SelectContent>
                       </Select>
+                      {subcategoryOptions.length > 0 && (
+                        <Select value={l.subcategoryCode || "all"} onValueChange={(v) => onPickSubcategory(i, v === "all" ? "" : v)}>
+                          <SelectTrigger className="h-8 w-full sm:w-36"><SelectValue placeholder="Alt Kategori" /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="all">Tüm alt kategoriler</SelectItem>
+                            {subcategoryOptions.map((s) => <SelectItem key={s.code} value={s.code}>{s.label}</SelectItem>)}
+                          </SelectContent>
+                        </Select>
+                      )}
                       <Select value={l.productId || "custom"} onValueChange={(v) => onPickProduct(i, v === "custom" ? "" : v)}>
-                        <SelectTrigger className="h-8"><SelectValue placeholder="Ürün seçin" /></SelectTrigger>
+                        <SelectTrigger className="h-8 flex-1 min-w-[180px]"><SelectValue placeholder="Ürün seçin" /></SelectTrigger>
                         <SelectContent>
                           <SelectItem value="custom">Serbest kalem</SelectItem>
                           {lineProducts.map((p: Product) => (
@@ -855,7 +915,7 @@ export function QuoteDialog({
                           ))}
                         </SelectContent>
                       </Select>
-                      <Button type="button" variant="ghost" size="icon" className="h-8 w-8 justify-self-end" onClick={() => rmLine(i)}>
+                      <Button type="button" variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={() => rmLine(i)}>
                         <Trash2 className="size-4 text-muted-foreground" />
                       </Button>
                     </div>
