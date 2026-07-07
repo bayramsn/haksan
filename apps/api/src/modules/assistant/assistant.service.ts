@@ -17,7 +17,7 @@ import { companies } from '../../db/schema/companies';
 import { opportunities, salesActivities } from '../../db/schema/crm';
 import { receivables } from '../../db/schema/finance';
 import { inventoryItems } from '../../db/schema/inventory';
-import { paymentStatuses, pipelineStages, inventoryStatuses, serviceTicketStatuses, shipmentStatuses, quoteStatuses } from '../../db/schema/lookup';
+import { currencies, paymentStatuses, pipelineStages, inventoryStatuses, serviceTicketStatuses, shipmentStatuses, quoteStatuses } from '../../db/schema/lookup';
 import { productModels } from '../../db/schema/products';
 import { quotes } from '../../db/schema/quotes';
 import { serviceTickets, shipments } from '../../db/schema/service';
@@ -96,15 +96,21 @@ export class AssistantService {
     const message = this.safeText(input.message, 2000);
     const [suggestions, sources] = await Promise.all([this.listSuggestions(actor), this.findSources(message, actor)]);
     const deterministic = this.composeAnswer(message, suggestions, sources);
-    const llm = await this.llmAnswer(message, suggestions, sources).catch(async (err) => {
-      await this.writeLog(actor, {
-        eventType: 'error',
-        status: 'llm_error',
-        message,
-        metadata: { error: err instanceof Error ? err.message : String(err) },
-      });
-      return null;
-    });
+    // Kullanıcı başına günlük token bütçesi aşıldıysa LLM'i hiç çağırma; kaçak
+    // maliyeti önler ve deterministik cevaba düşer (CLAUDE.md AI kuralı).
+    const budget = loadEnv().ASSISTANT_DAILY_TOKEN_BUDGET;
+    const overBudget = budget > 0 && (await this.dailyTokenUsage(actor)) >= budget;
+    const llm = overBudget
+      ? null
+      : await this.llmAnswer(message, suggestions, sources).catch(async (err) => {
+          await this.writeLog(actor, {
+            eventType: 'error',
+            status: 'llm_error',
+            message,
+            metadata: { error: err instanceof Error ? err.message : String(err) },
+          });
+          return null;
+        });
     const response: AssistantChatResponse = {
       text: this.safeText(llm?.text || deterministic.text, 4000),
       sources: this.dedupeSources([...deterministic.sources, ...sources]).slice(0, 12),
@@ -121,6 +127,7 @@ export class AssistantService {
         llmProvider: loadEnv().ASSISTANT_LLM_PROVIDER,
         inputTokens: llm?.usage?.inputTokens ?? null,
         outputTokens: llm?.usage?.outputTokens ?? null,
+        budgetExceeded: overBudget,
       },
     });
     return response;
@@ -197,21 +204,52 @@ export class AssistantService {
       this.requirePermission(actor, 'quotes.create');
       const companyId = this.stringPayload(payload, 'companyId');
       if (!companyId) throw new ValidationError('Teklif için firma bilgisi zorunlu');
+      const opportunityId = this.stringPayload(payload, 'opportunityId');
+      // Fırsat varsa başlık/para birimi/tahmini değeri taslağa taşı; böylece
+      // asistan boş kabuk değil, satış temsilcisinin üstünde çalışabileceği
+      // (fırsata bağlı, bir başlangıç kalemi olan) anlamlı bir taslak açar.
+      const opportunity = opportunityId ? await this.loadOpportunityForQuote(opportunityId, companyId, actor) : null;
+      const currencyCode = opportunity?.currencyCode ?? 'USD';
       const quote = await this.quotes.create(
         {
           companyId,
+          opportunityId: opportunity ? opportunityId : undefined,
           quoteDate: new Date(),
           validityDays: 30,
-          currencyCode: 'USD',
-          notes: this.stringPayload(payload, 'notes') ?? 'CRM Asistanı önerisiyle oluşturulan teklif taslağı.',
+          currencyCode,
+          notes:
+            this.stringPayload(payload, 'notes') ??
+            (opportunity?.title
+              ? `CRM Asistanı önerisiyle ${opportunity.title} için oluşturulan teklif taslağı.`
+              : 'CRM Asistanı önerisiyle oluşturulan teklif taslağı.'),
         },
         actor
       );
+      // Fırsatta tahmini değer varsa tek başlangıç kalemi ekle; temsilci fiyatı/
+      // ürünü sonra düzenler. Değer yoksa taslak kalemsiz kalır (eski davranış).
+      if (opportunity && opportunity.estimatedValue > 0) {
+        await this.quotes
+          .addItem(
+            quote.id,
+            {
+              description: opportunity.title || 'Talep edilen ürün / hizmet',
+              quantity: 1,
+              unitCode: 'adet',
+              unitPrice: opportunity.estimatedValue,
+              discountAmount: 0,
+              vatRate: 20,
+              sortOrder: 0,
+            },
+            actor
+          )
+          .catch(() => undefined);
+      }
+      const result = opportunity ? await this.quotes.get(quote.id, actor) : quote;
       return {
         ok: true,
         previewRequired: false,
-        message: 'Teklif taslağı oluşturuldu.',
-        result: quote,
+        message: opportunity ? 'Fırsattan teklif taslağı oluşturuldu.' : 'Teklif taslağı oluşturuldu.',
+        result,
         operationAction: { kind: 'navigate', nav: 'offers', query: quote.documentNo } as AssistantOperationAction,
       };
     }
@@ -253,6 +291,36 @@ export class AssistantService {
     }
 
     throw new ValidationError('Bilinmeyen asistan aksiyonu');
+  }
+
+  private async loadOpportunityForQuote(
+    opportunityId: string,
+    companyId: string,
+    actor: AuthContext
+  ): Promise<{ title: string; estimatedValue: number; currencyCode?: string } | null> {
+    const [row] = await this.db
+      .select({
+        title: opportunities.title,
+        estimatedValue: opportunities.estimatedValue,
+        currencyCode: currencies.code,
+      })
+      .from(opportunities)
+      .leftJoin(currencies, eq(opportunities.currencyId, currencies.id))
+      .where(
+        and(
+          eq(opportunities.tenantId, actor.tenantId),
+          eq(opportunities.id, opportunityId),
+          eq(opportunities.companyId, companyId),
+          isNull(opportunities.deletedAt)
+        )
+      )
+      .limit(1);
+    if (!row) return null;
+    return {
+      title: row.title ?? '',
+      estimatedValue: Number(row.estimatedValue ?? 0),
+      currencyCode: row.currencyCode ?? undefined,
+    };
   }
 
   private async callSuggestions(actor: AuthContext): Promise<AssistantSuggestion[]> {
@@ -827,6 +895,27 @@ export class AssistantService {
   private async findSuggestion(id: string, actor: AuthContext): Promise<AssistantSuggestion | undefined> {
     const suggestions = await this.listSuggestions(actor);
     return suggestions.find((item) => item.id === id);
+  }
+
+  /** Kullanıcının bugünkü kümülatif LLM token kullanımı (input+output, chat olayları). */
+  private async dailyTokenUsage(actor: AuthContext): Promise<number> {
+    const [row] = await this.db
+      .select({
+        total: sql<number>`coalesce(sum(
+          coalesce((${assistantLogs.metadata} ->> 'inputTokens')::int, 0) +
+          coalesce((${assistantLogs.metadata} ->> 'outputTokens')::int, 0)
+        ), 0)::int`,
+      })
+      .from(assistantLogs)
+      .where(
+        and(
+          eq(assistantLogs.tenantId, actor.tenantId),
+          eq(assistantLogs.userId, actor.userId),
+          eq(assistantLogs.eventType, 'chat'),
+          sql`${assistantLogs.createdAt} >= date_trunc('day', now())`
+        )
+      );
+    return Number(row?.total ?? 0);
   }
 
   private async dismissedSuggestionIds(actor: AuthContext): Promise<Set<string>> {

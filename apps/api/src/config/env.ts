@@ -86,6 +86,9 @@ const envSchema = z.object({
   ASSISTANT_MODEL: z.string().max(128).default('openrouter/free'),
   ASSISTANT_API_KEY: envOptionalSecret,
   ASSISTANT_MAX_TOKENS: z.coerce.number().int().positive().max(4000).default(700),
+  // Kullanıcı başına GÜNLÜK kümülatif LLM token tavanı (input+output). Aşınca
+  // asistan chat LLM'i atlar, deterministik cevaba düşer. 0 = sınırsız (kapalı).
+  ASSISTANT_DAILY_TOKEN_BUDGET: z.coerce.number().int().nonnegative().default(50_000),
 
   // Storage
   S3_PROVIDER: z.enum(['minio', 'supabase', 's3', 'r2']).default('minio'),
