@@ -71,7 +71,6 @@ const TEMPLATE_PRODUCT_TYPE_GROUPS: Array<{ label: string; options: ProductTypeO
     label: "İşleme Merkezi",
     options: [
       { code: "CNC_DIK_ISLEME_MERKEZ", label: "CNC Dik İşleme Merkezi", categoryCode: "TEZGAH", subcategoryCode: "ISLEME_MERKEZI" },
-      { code: "CNC_YATAY_ISLEME_MERKEZI", label: "CNC Yatay İşleme Merkezi", categoryCode: "TEZGAH", subcategoryCode: "ISLEME_MERKEZI" },
       { code: "CNC_KOPRU_TIPI_ISLEME_MERKEZI", label: "CNC Köprü Tipi İşleme Merkezi", categoryCode: "TEZGAH", subcategoryCode: "ISLEME_MERKEZI" },
       { code: "CNC_5_EKSEN_ISLEME_MERKEZI", label: "CNC 5 Eksen İşleme Merkezi", categoryCode: "TEZGAH", subcategoryCode: "ISLEME_MERKEZI" },
       { code: "CNC_TAPPING_CENTER", label: "CNC Tapping Center", categoryCode: "TEZGAH", subcategoryCode: "ISLEME_MERKEZI" },
@@ -122,7 +121,6 @@ const emptySpecScope: SpecTemplateScope = { categoryCode: "TEZGAH", subcategoryC
 // Eski şablon kayıtları bu ürün tipi kodlarıyla saklanmış olabilir; güncel kodlara eşlenir.
 const LEGACY_PRODUCT_TYPE_ALIASES: Record<string, string> = {
   DIK_ISLEME_MERKEZI: "CNC_DIK_ISLEME_MERKEZ",
-  YATAY_ISLEME_MERKEZI: "CNC_YATAY_ISLEME_MERKEZI",
   KOPRU_TIPI_ISLEME_MERKEZI: "CNC_KOPRU_TIPI_ISLEME_MERKEZI",
   CNC_TORNA: "CNC_YATAY_TORNA_TEZGAHI",
 };

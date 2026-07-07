@@ -294,56 +294,12 @@ const CNC_KOPRU_TIPI_TEMPLATE_ENTRIES: readonly MachineSpecTemplateEntry[] = [
   entry("GENEL", "Tezgah Ağırlığı", "15.500", "kg"),
 ];
 
-// Yatay işleme merkezi katalog sayfası henüz temin edilmedi; alan listesi dik
-// işleme şablonu + palet/B ekseni alanlarından türetildi, değerler katalog
-// gelene kadar "-" yer tutucudur.
-const CNC_YATAY_ISLEME_TEMPLATE_ENTRIES: readonly MachineSpecTemplateEntry[] = [
-  entry("TABLA", "Palet Ölçüsü", "-", "mm"),
-  entry("TABLA", "Palet Sayısı", "-", "Adet"),
-  entry("TABLA", "Palet Değiştirme Süresi", "-", "sn"),
-  entry("TABLA", "Tabla İndeksleme (B Eksen) Açısı", "-", "°"),
-  entry("TABLA", "Tabla Yükleme Kapasitesi", "-", "kg"),
-  entry("TABLA", "Tabla ~ Fener Mili Ucu Arası Mesafe", "-", "mm"),
-  entry("EKSENLER", "X Eksen Hareketi", "-", "mm"),
-  entry("EKSENLER", "Y Eksen Hareketi", "-", "mm"),
-  entry("EKSENLER", "Z Eksen Hareketi", "-", "mm"),
-  entry("EKSENLER", "B Eksen Dönüş Açısı", "-", "°"),
-  entry("EKSENLER", "X Eksen Boşta İlerleme Hızı", "-", "mm/dk"),
-  entry("EKSENLER", "Y Eksen Boşta İlerleme Hızı", "-", "mm/dk"),
-  entry("EKSENLER", "Z Eksen Boşta İlerleme Hızı", "-", "mm/dk"),
-  entry("EKSENLER", "X, Y, Z Eksen Kesme Hızı", "-", "mm/dk"),
-  entry("EKSENLER", "X, Y, Z Eksen Pozisyonlama Hassasiyeti", "-", "mm"),
-  entry("EKSENLER", "X, Y, Z Eksen Tekrarlama Hassasiyeti", "-", "mm"),
-  entry("FENER_MILI", "Fener Mili Standardı", "-"),
-  entry("FENER_MILI", "Fener Mili Devri", "-", "dv/dk"),
-  entry("FENER_MILI", "Fener Mili Aktarması", "-"),
-  entry("FENER_MILI", "Fener Mili Rulman Tipi", "-"),
-  entry("MOTORLAR", "Fener Mili Motor Gücü", "-", "kw"),
-  entry("MOTORLAR", "Fener Mili Motor Tipi", "-"),
-  entry("MOTORLAR", "X Eksen Motor Gücü", "-", "kw"),
-  entry("MOTORLAR", "Y Eksen Motor Gücü", "-", "kw"),
-  entry("MOTORLAR", "Z Eksen Motor Gücü", "-", "kw"),
-  entry("MOTORLAR", "Soğutma Sistemi Motor Gücü", "-"),
-  entry("TAKIM_DEGISTIRICI", "Takım Değiştirici Tipi", "-"),
-  entry("TAKIM_DEGISTIRICI", "Takım Kapasitesi", "-", "Adet"),
-  entry("TAKIM_DEGISTIRICI", "Maks. Takım Ağırlığı", "-", "kg"),
-  entry("TAKIM_DEGISTIRICI", "Maks. Takım Uzunluğu", "-", "mm"),
-  entry("TAKIM_DEGISTIRICI", "Maks. Takım Çapı", "-", "mm"),
-  entry("TAKIM_DEGISTIRICI", "Takım Değiştirme Süresi (Takımdan Takıma)", "-", "sn"),
-  entry("GENEL", "Tezgah Hava Gereksinimi", "-", "bar (100 psi)"),
-  entry("GENEL", "Toplam Güç Gereksinimi", "-"),
-  entry("GENEL", "Tezgah Ölçüleri", "-", "mm"),
-  entry("GENEL", "Tezgahın Kapladığı Alan", "-", "mm"),
-  entry("GENEL", "Tezgah Ağırlığı", "-", "kg"),
-];
-
 // Tezgah dışı ürün tipleri (yedek parça, opsiyonel donanım, işçilik, aksesuar)
 // bilinçli olarak şablonsuzdur; teknik alanları serbest metinle girilir.
 export const MACHINE_SPEC_TEMPLATES: Record<string, readonly MachineSpecTemplateEntry[]> = {
   CNC_YATAY_TORNA_TEZGAHI: CNC_YATAY_TORNA_TEMPLATE_ENTRIES,
   CNC_DIK_TORNA_TEZGAHI: CNC_DIK_TORNA_TEMPLATE_ENTRIES,
   CNC_DIK_ISLEME_MERKEZ: CNC_DIK_ISLEME_TEMPLATE_ENTRIES,
-  CNC_YATAY_ISLEME_MERKEZI: CNC_YATAY_ISLEME_TEMPLATE_ENTRIES,
   CNC_TAPPING_CENTER: CNC_TAPPING_CENTER_TEMPLATE_ENTRIES,
   CNC_5_EKSEN_ISLEME_MERKEZI: CNC_BES_EKSEN_TEMPLATE_ENTRIES,
   CNC_KOPRU_TIPI_ISLEME_MERKEZI: CNC_KOPRU_TIPI_TEMPLATE_ENTRIES,
@@ -353,7 +309,6 @@ export const MACHINE_SPEC_TEMPLATES: Record<string, readonly MachineSpecTemplate
 const MACHINE_TYPE_ALIASES: Record<string, string> = {
   DIK_ISLEME_MERKEZI: "CNC_DIK_ISLEME_MERKEZ",
   KOPRU_TIPI_ISLEME_MERKEZI: "CNC_KOPRU_TIPI_ISLEME_MERKEZI",
-  YATAY_ISLEME_MERKEZI: "CNC_YATAY_ISLEME_MERKEZI",
   CNC_TORNA: "CNC_YATAY_TORNA_TEZGAHI",
 };
 
@@ -376,7 +331,6 @@ const templateEntryToSpec = (item: MachineSpecTemplateEntry): ProductSpec => ({
 export const CNC_YATAY_TORNA_SPEC_DEFAULTS: readonly ProductSpec[] = CNC_YATAY_TORNA_TEMPLATE_ENTRIES.map(templateEntryToSpec);
 export const CNC_DIK_TORNA_SPEC_DEFAULTS: readonly ProductSpec[] = CNC_DIK_TORNA_TEMPLATE_ENTRIES.map(templateEntryToSpec);
 export const CNC_DIK_ISLEME_SPEC_DEFAULTS: readonly ProductSpec[] = CNC_DIK_ISLEME_TEMPLATE_ENTRIES.map(templateEntryToSpec);
-export const CNC_YATAY_ISLEME_SPEC_DEFAULTS: readonly ProductSpec[] = CNC_YATAY_ISLEME_TEMPLATE_ENTRIES.map(templateEntryToSpec);
 export const CNC_TAPPING_CENTER_SPEC_DEFAULTS: readonly ProductSpec[] = CNC_TAPPING_CENTER_TEMPLATE_ENTRIES.map(templateEntryToSpec);
 export const CNC_BES_EKSEN_SPEC_DEFAULTS: readonly ProductSpec[] = CNC_BES_EKSEN_TEMPLATE_ENTRIES.map(templateEntryToSpec);
 export const CNC_KOPRU_TIPI_SPEC_DEFAULTS: readonly ProductSpec[] = CNC_KOPRU_TIPI_TEMPLATE_ENTRIES.map(templateEntryToSpec);
@@ -384,7 +338,6 @@ export const CNC_KOPRU_TIPI_SPEC_DEFAULTS: readonly ProductSpec[] = CNC_KOPRU_TI
 export const CNC_YATAY_TORNA_SPEC_TEMPLATE = CNC_YATAY_TORNA_SPEC_DEFAULTS.map((spec) => spec.key);
 export const CNC_DIK_TORNA_SPEC_TEMPLATE = CNC_DIK_TORNA_SPEC_DEFAULTS.map((spec) => spec.key);
 export const CNC_DIK_ISLEME_SPEC_TEMPLATE = CNC_DIK_ISLEME_SPEC_DEFAULTS.map((spec) => spec.key);
-export const CNC_YATAY_ISLEME_SPEC_TEMPLATE = CNC_YATAY_ISLEME_SPEC_DEFAULTS.map((spec) => spec.key);
 export const CNC_TAPPING_CENTER_SPEC_TEMPLATE = CNC_TAPPING_CENTER_SPEC_DEFAULTS.map((spec) => spec.key);
 export const CNC_BES_EKSEN_SPEC_TEMPLATE = CNC_BES_EKSEN_SPEC_DEFAULTS.map((spec) => spec.key);
 export const CNC_KOPRU_TIPI_SPEC_TEMPLATE = CNC_KOPRU_TIPI_SPEC_DEFAULTS.map((spec) => spec.key);
@@ -589,7 +542,6 @@ const SPEC_DEFAULTS: Record<string, readonly ProductSpec[]> = {
   CNC_YATAY_TORNA_TEZGAHI: CNC_YATAY_TORNA_SPEC_DEFAULTS,
   CNC_DIK_TORNA_TEZGAHI: CNC_DIK_TORNA_SPEC_DEFAULTS,
   CNC_DIK_ISLEME_MERKEZ: CNC_DIK_ISLEME_SPEC_DEFAULTS,
-  CNC_YATAY_ISLEME_MERKEZI: CNC_YATAY_ISLEME_SPEC_DEFAULTS,
   CNC_TAPPING_CENTER: CNC_TAPPING_CENTER_SPEC_DEFAULTS,
   CNC_5_EKSEN_ISLEME_MERKEZI: CNC_BES_EKSEN_SPEC_DEFAULTS,
   CNC_KOPRU_TIPI_ISLEME_MERKEZI: CNC_KOPRU_TIPI_SPEC_DEFAULTS,

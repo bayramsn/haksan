@@ -110,7 +110,6 @@ function productFamilyLabel(product: Product) {
   const series = productSeriesCode(product);
   if (typeCode.includes("TORNA") || ["SL", "MT", "SJ"].includes(series)) return "CNC Torna Tezgahları";
   if (typeCode === "CNC_TAPPING_CENTER" || series === "TC") return "CNC Tapping Center";
-  if (typeCode.includes("YATAY_ISLEME") || ["HT", "LH"].includes(series)) return "CNC Yatay İşleme Merkezleri";
   if (typeCode.includes("5_EKSEN") || ["D", "C"].includes(series)) return "CNC 5 Eksen İşleme Merkezleri";
   if (typeCode.includes("KOPRU") || series === "DL") return "CNC Köprü Tipi İşleme Merkezleri";
   if (typeCode.includes("DIK_ISLEME") || ["VM", "MV", "VC"].includes(series)) return "CNC Dik İşleme Merkezleri";

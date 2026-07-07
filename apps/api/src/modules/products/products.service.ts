@@ -199,7 +199,6 @@ function inferProductTypeCode(...values: Array<unknown>): string | undefined {
   const text = normalizeText(values.filter(Boolean).join(' '));
   if (!text) return undefined;
   if (text.includes('kopru') || text.includes('gantry')) return 'KOPRU_TIPI_ISLEME_MERKEZI';
-  if (text.includes('yatay') || text.includes('hmc')) return 'YATAY_ISLEME_MERKEZI';
   if (text.includes('torna') || text.includes('lathe')) return 'CNC_TORNA';
   if (text.includes('dik') || text.includes('isleme') || text.includes('vmc')) return 'DIK_ISLEME_MERKEZI';
   return undefined;
