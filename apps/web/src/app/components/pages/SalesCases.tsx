@@ -18,7 +18,7 @@ const initials = (n: string) => (n || "—").split(" ").slice(0, 2).map((p) => p
 
 export function SalesCasesPage({
   onSelect,
-  initialView = "list",
+  initialView = "kanban",
   focus,
 }: {
   onSelect: (s: SalesCase) => void;
@@ -98,8 +98,8 @@ export function SalesCasesPage({
   return (
     <Tabs value={view} onValueChange={(v) => setView(v as "list" | "kanban" | "archive")} className="space-y-4">
       <TabsList>
-        <TabsTrigger value="list">Liste</TabsTrigger>
         <TabsTrigger value="kanban">Kanban</TabsTrigger>
+        <TabsTrigger value="list">Liste</TabsTrigger>
         <TabsTrigger value="archive">Geçmiş{closedCases.length ? ` (${closedCases.length})` : ""}</TabsTrigger>
       </TabsList>
       <div className="flex items-center justify-between gap-3 flex-wrap">

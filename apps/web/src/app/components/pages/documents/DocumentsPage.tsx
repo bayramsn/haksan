@@ -6,6 +6,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from ".
 import { StatusBadge } from "../../Layout";
 import { DocumentUploadDialog } from "../../dialogs/DocumentUploadDialog";
 import { DocumentPreviewDialog } from "../../dialogs/DocumentPreviewDialog";
+import { DocumentDetailDialog } from "../../dialogs/DocumentDetailDialog";
 import { CreateProformaDialog } from "../../dialogs/CreateProformaDialog";
 import { CreateContractDialog } from "../../dialogs/CreateContractDialog";
 import { useStore } from "../../../lib/store";
@@ -311,6 +312,19 @@ export function DocumentsPage({
   const [q, setQ] = useState("");
   const [docType, setDocType] = useState("all");
   const [previewDoc, setPreviewDoc] = useState<(typeof documents)[number] | null>(null);
+  const [detailDoc, setDetailDoc] = useState<(typeof documents)[number] | null>(null);
+  // Proforma / sözleşme / ticari fatura kayıtları için içerik pop-up'ını açar.
+  const CONTENT_TYPES: DocumentItem["type"][] = ["Proforma", "Contract", "CommercialInvoice"];
+  const detailPrint = (d: (typeof documents)[number]) => {
+    if (d.type === "Proforma") printProforma(d, "");
+    else if (d.type === "Contract") printContract(d);
+    else if (d.type === "CommercialInvoice") printCommercialInvoice(d);
+  };
+  const detailDownload = (d: (typeof documents)[number]) => {
+    if (d.type === "Proforma") downloadProforma(d, "");
+    else if (d.type === "Contract") downloadContract(d);
+    else if (d.type === "CommercialInvoice") downloadCommercialInvoice(d);
+  };
   const types = ["Proforma", "Contract", "CommercialInvoice", "AccountingInvoice", "DeliveryForm", "InstallationForm", "Other"];
   const visibleTypes = initialType ? [initialType] : types;
   const counts = visibleTypes.map((t) => ({ type: t, count: documents.filter((d) => d.type === t).length }));
@@ -480,8 +494,17 @@ export function DocumentsPage({
               {filtered.map((d) => {
                 const sc = cases.find((s) => s.id === d.salesCaseId);
                 const companyId = sc?.customerId || d.companyId || "";
+                const openable = CONTENT_TYPES.includes(d.type);
                 return (
-                  <TableRow key={d.id} className="group">
+                  <TableRow
+                    key={d.id}
+                    className={`group ${openable ? "cursor-pointer" : ""}`}
+                    onClick={openable ? () => setDetailDoc(d) : undefined}
+                    onKeyDown={openable ? (e) => { if (e.key === "Enter") setDetailDoc(d); } : undefined}
+                    tabIndex={openable ? 0 : undefined}
+                    role={openable ? "button" : undefined}
+                    aria-label={openable ? `${d.fileName} içeriğini aç` : undefined}
+                  >
                     <TableCell>
                       <div className="flex items-center gap-2.5 min-w-0">
                         <div className="size-8 rounded-md bg-primary/10 text-primary grid place-items-center shrink-0">
@@ -500,7 +523,7 @@ export function DocumentsPage({
                     <TableCell className="text-sm tabular-nums text-muted-foreground">{d.size}</TableCell>
                     <TableCell className="text-sm">{userName(d.uploadedBy)}</TableCell>
                     <TableCell className="text-sm tabular-nums text-muted-foreground">{d.uploadedAt}</TableCell>
-                    <TableCell className="text-right">
+                    <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
                       <div className="flex items-center gap-1 justify-end">
                         {d.type === "Proforma" && (
                           <>
@@ -595,8 +618,8 @@ export function DocumentsPage({
                           </Button>
                         )}
                         {!(d.deliveryId || d.installationId) && (
-                          <Button variant="ghost" size="icon" className="size-7" title="Önizle"
-                            onClick={() => setPreviewDoc(d)}>
+                          <Button variant="ghost" size="icon" className="size-7" title={openable ? "İçeriği göster" : "Önizle"}
+                            onClick={() => (openable ? setDetailDoc(d) : setPreviewDoc(d))}>
                             <Eye className="size-4 text-muted-foreground hover:text-primary" />
                           </Button>
                         )}
@@ -635,6 +658,13 @@ export function DocumentsPage({
       </Card>
 
       <DocumentPreviewDialog doc={previewDoc} onClose={() => setPreviewDoc(null)} />
+      <DocumentDetailDialog
+        doc={detailDoc}
+        onClose={() => setDetailDoc(null)}
+        onPrint={detailPrint}
+        onDownload={detailDownload}
+        onOpenFile={(d) => { setDetailDoc(null); setPreviewDoc(d); }}
+      />
     </div>
   );
 }

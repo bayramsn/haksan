@@ -49,7 +49,6 @@ import {
   type InstallationLocationType,
   COMPANY_SECTOR_OPTIONS,
   COUNTRY_OPTIONS,
-  DISTRICTS_BY_PROVINCE,
   TAX_OFFICE_OPTIONS,
   ACTIVITY_TYPE_OPTIONS,
   STOCK_CATEGORY_CODES,
@@ -58,7 +57,7 @@ import {
   type AllowedFileExtension,
   type AllowedMimeType,
 } from "@haksan/shared";
-import { PROVINCE_NAMES } from "../../lib/geo";
+import { provincesForCountry, districtsForCountry } from "../../lib/geoByCountry";
 import {
   allCatalogProductSpecs,
   groupProductSpecsForType,
@@ -256,11 +255,11 @@ export function CreateCustomerDialog({ trigger, onCreated }: { trigger: React.Re
   const [salesStatus, setSalesStatus] = usePersistentState<"potential" | "active_customer">("draft.customer.salesStatus", "potential");
   const [form, setForm] = usePersistentState("draft.customer.form", emptyCompanyForm());
 
-  const provinceOptions = useMemo(() => toComboboxOptions(PROVINCE_NAMES), []);
-  const districtOptions = useMemo(() => {
-    const districts = DISTRICTS_BY_PROVINCE[form.city] ?? [];
-    return toComboboxOptions(districts);
-  }, [form.city]);
+  const provinceOptions = useMemo(() => toComboboxOptions(provincesForCountry(form.country)), [form.country]);
+  const districtOptions = useMemo(
+    () => toComboboxOptions(districtsForCountry(form.country, form.city)),
+    [form.country, form.city],
+  );
   const companyGroupRows = useLookupRows("company-groups", COMPANY_GROUP_OPTIONS.map((g) => ({ code: g.code, name: g.label })));
   const contactSourceRows = useLookupRows("contact-sources", CONTACT_SOURCE_OPTIONS.map((s) => ({ code: s.code, name: s.label })));
   const sectorRows = useLookupRows("company-sectors", COMPANY_SECTOR_OPTIONS.map((name, index) => ({ code: name, name, sortOrder: index })));
@@ -414,7 +413,7 @@ export function CreateCustomerDialog({ trigger, onCreated }: { trigger: React.Re
               label="Ülke"
               options={toComboboxOptions(COUNTRY_OPTIONS)}
               value={form.country}
-              onChange={(v) => setForm({ ...form, country: v })}
+              onChange={(v) => setForm({ ...form, country: v, city: "", district: "" })}
               placeholder="Ülke seçin..."
             />
             <LookupCombobox
@@ -422,14 +421,14 @@ export function CreateCustomerDialog({ trigger, onCreated }: { trigger: React.Re
               options={provinceOptions}
               value={form.city}
               onChange={(v) => setForm({ ...form, city: v, district: "" })}
-              placeholder="İl seçin..."
+              placeholder={provinceOptions.length ? "İl seçin veya yazın..." : "İl yazın..."}
             />
             <LookupCombobox
               label="İlçe"
               options={districtOptions}
               value={form.district}
               onChange={(v) => setForm({ ...form, district: v })}
-              placeholder={form.city ? "İlçe seçin..." : "Önce il seçin"}
+              placeholder={!form.city ? "Önce il seçin" : districtOptions.length ? "İlçe seçin veya yazın..." : "İlçe yazın..."}
             />
             <div className="col-span-2">
               <OsmCompanySearch
@@ -709,11 +708,11 @@ export function EditCustomerDialog({ customer, onClose }: { customer: Customer |
     taxNumber: "", taxOffice: "", website: "",
   });
 
-  const provinceOptions = useMemo(() => toComboboxOptions(PROVINCE_NAMES), []);
-  const districtOptions = useMemo(() => {
-    const districts = DISTRICTS_BY_PROVINCE[form.city] ?? [];
-    return toComboboxOptions(districts);
-  }, [form.city]);
+  const provinceOptions = useMemo(() => toComboboxOptions(provincesForCountry(form.country)), [form.country]);
+  const districtOptions = useMemo(
+    () => toComboboxOptions(districtsForCountry(form.country, form.city)),
+    [form.country, form.city],
+  );
   const sectorRows = useLookupRows("company-sectors", COMPANY_SECTOR_OPTIONS.map((name, index) => ({ code: name, name, sortOrder: index })));
   const taxOfficeRows = useTaxOfficeRows(form.city);
 
@@ -772,7 +771,7 @@ export function EditCustomerDialog({ customer, onClose }: { customer: Customer |
               label="Ülke"
               options={toComboboxOptions(COUNTRY_OPTIONS)}
               value={form.country}
-              onChange={(v) => setForm({ ...form, country: v })}
+              onChange={(v) => setForm({ ...form, country: v, city: "", district: "" })}
             />
             <LookupCombobox
               label="İl"

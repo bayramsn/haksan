@@ -179,9 +179,23 @@ export function CreateProformaDialog({
               <>
                 <DialogSidebarSection title="Seçilen Teklif">
                   {selectedOffer ? (
-                    <p className="text-sm text-muted-foreground">
-                      {selectedCustomer?.name ?? ""} · {selectedOffer.amount.toLocaleString("tr-TR")} {selectedOffer.currency}
-                    </p>
+                    <div className="space-y-2.5">
+                      <dl className="space-y-1.5">
+                        <SummaryRow label="Teklif No" value={`${selectedOffer.quoteNo}${selectedOffer.revision ? ` · R${selectedOffer.revision}` : ""}`} />
+                        <SummaryRow label="Müşteri" value={selectedCustomer?.name ?? "—"} />
+                        {(selectedCustomer?.district || selectedCustomer?.city) && (
+                          <SummaryRow label="Konum" value={[selectedCustomer?.district, selectedCustomer?.city].filter(Boolean).join(" / ")} />
+                        )}
+                        {selectedCase?.requestedProduct && <SummaryRow label="Ürün" value={selectedCase.requestedProduct} />}
+                        {selectedCase?.requestedModel && <SummaryRow label="Model" value={selectedCase.requestedModel} />}
+                        {selectedCase?.quantity != null && <SummaryRow label="Adet" value={String(selectedCase.quantity)} />}
+                        {selectedOffer.date && <SummaryRow label="Teklif Tarihi" value={selectedOffer.date} />}
+                        <SummaryRow label="Tutar" value={`${selectedOffer.amount.toLocaleString("tr-TR")} ${selectedOffer.currency}`} highlight />
+                      </dl>
+                      {(paymentTerms || deliveryTerms || warrantyTerms) && (
+                        <p className="text-[11px] text-muted-foreground">Şartlar bağlı tekliften otomatik dolduruldu.</p>
+                      )}
+                    </div>
                   ) : (
                     <p className="text-sm text-muted-foreground">Henüz teklif seçilmedi.</p>
                   )}
@@ -253,5 +267,14 @@ export function CreateProformaDialog({
         </form>
       </DialogContent>
     </Dialog>
+  );
+}
+
+function SummaryRow({ label, value, highlight = false }: { label: string; value: string; highlight?: boolean }) {
+  return (
+    <div className="grid grid-cols-[84px_1fr] gap-2 text-sm">
+      <dt className="text-xs text-muted-foreground">{label}</dt>
+      <dd className={`min-w-0 break-words ${highlight ? "font-medium text-emerald-600 tabular-nums" : "text-foreground/90"}`}>{value}</dd>
+    </div>
   );
 }
