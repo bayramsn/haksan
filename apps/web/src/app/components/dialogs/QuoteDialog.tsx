@@ -17,7 +17,7 @@ import { quoteService } from "../../../lib/services";
 import { toast } from "sonner";
 import { Plus, Trash2, Save, BookmarkPlus, Bold } from "lucide-react";
 import type { Product, ProductSpec } from "../../lib/mock";
-import { normalizeProductSpecKey, productSpecDefaults, specsForProductType } from "../../lib/productSpecTemplates";
+import { normalizeProductSpecKey, productSpecDefaults, specsForProductTypeStrict } from "../../lib/productSpecTemplates";
 import { quoteDefaultsFromCase } from "../../lib/workflow";
 import { matchQuoteNoteVariantKey, QUOTE_NOTE_VARIANTS } from "../../lib/print";
 import { DialogSplitLayout, DialogSidebarSection } from "../shared/DialogSplitLayout";
@@ -134,7 +134,7 @@ const cleanTechnicalSpecs = (specs: ProductSpec[] = []) =>
     .filter((spec) => spec.key && spec.value);
 
 const technicalSpecsFromProduct = (product?: Product): ProductSpec[] =>
-  product ? specsForProductType(product.productTypeCode, product.specs ?? []) : [];
+  product ? specsForProductTypeStrict(product.productTypeCode, product.specs ?? []) : [];
 
 const isProductTypeTemplateSpec = (product: Product | undefined, spec: ProductSpec) =>
   productSpecDefaults(product?.productTypeCode).some((templateSpec) => normalizeProductSpecKey(templateSpec.key) === normalizeProductSpecKey(spec.key));

@@ -750,3 +750,29 @@ export function specsForProductType(typeCode: string | undefined, specs: Product
     : specs;
   return mergeSpecsWithDefaults(source, productSpecDefaults(normalizedType));
 }
+
+// Tüm tezgah şablonlarının + legacy anahtarların birleşik kümesi (normalize).
+const ALL_KNOWN_MACHINE_SPEC_KEYS = new Set(HAKSAN_CNC_SPEC_KEYS.map(normalizeSpecKey));
+
+/**
+ * Seçili tip şablonuna ait OLMAYAN ama başka bir tezgah/katalog alanına ait olan
+ * spec'leri eler. Seçili tipin alanları ve hiçbir katalog şablonunda bulunmayan
+ * gerçekten özel (dolu) alanlar korunur. Bir ürünün specs'i başka tezgah
+ * tiplerinden alan taşısa bile yalnızca seçili tipin alanları kalır.
+ */
+export function dropForeignMachineSpecs(typeCode: string | undefined, specs: ProductSpec[]): ProductSpec[] {
+  const templateDefaults = productSpecDefaults(typeCode);
+  if (!templateDefaults.length) return specs;
+  const selectedKeys = new Set(templateDefaults.map((spec) => normalizeSpecKey(spec.key)));
+  return specs.filter((spec) => {
+    const key = normalizeSpecKey(spec.key);
+    if (selectedKeys.has(key)) return true;
+    if (ALL_KNOWN_MACHINE_SPEC_KEYS.has(key)) return false;
+    return Boolean(spec.key.trim() || spec.value.trim());
+  });
+}
+
+/** `specsForProductType` + yabancı tezgah alanlarının elenmesi: yalnızca seçili tipin teknik alanları. */
+export function specsForProductTypeStrict(typeCode: string | undefined, specs: ProductSpec[]): ProductSpec[] {
+  return specsForProductType(typeCode, dropForeignMachineSpecs(typeCode, specs));
+}

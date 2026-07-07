@@ -59,7 +59,7 @@ import {
   Shipment,
   Delivery,
 } from './mock';
-import { allCatalogProductSpecs, productSpecGroupForTypeKey } from './productSpecTemplates';
+import { productSpecGroupForTypeKey, specsForProductTypeStrict } from './productSpecTemplates';
 import { isServiceQuoteComplete, serviceQuoteMissingFields } from './serviceQuote';
 
 const SERVICE_STAGES: ServiceStage[] = [
@@ -279,7 +279,9 @@ const productApiPayload = (p: Partial<Product>, brandId?: string): ProductUpdate
 };
 
 const productDetailsPayload = (p: Partial<Product>) => ({
-  specs: allCatalogProductSpecs(p.specs ?? [], '-')
+  // Yalnızca ürünün kendi tipine ait teknik alanlar saklanır; başka tezgah
+  // tiplerinin şablon alanları artık DB'ye "-" ile birlikte yazılmaz.
+  specs: specsForProductTypeStrict(p.productTypeCode, p.specs ?? [])
     .filter((s) => cleanString(s.key))
     .map((s, index) => ({
       specGroupCode: productSpecGroupForTypeKey(p.productTypeCode, s).code,
@@ -1637,6 +1639,7 @@ function StoreInner({ children }: { children: ReactNode }) {
     await productService.update(id, productApiPayload(patch, brandId));
     const current = products.find((item) => item.id === id);
     await productService.replaceDetails(id, productDetailsPayload({
+      productTypeCode: patch.productTypeCode ?? current?.productTypeCode,
       specs: patch.specs ?? current?.specs ?? [],
       standardEquipment: patch.standardEquipment ?? current?.standardEquipment ?? [],
       optionalEquipment: patch.optionalEquipment ?? current?.optionalEquipment ?? [],

@@ -64,7 +64,7 @@ import {
   groupProductSpecsForType,
   normalizeProductSpecKey,
   productSpecDefaults,
-  specsForProductType,
+  specsForProductTypeStrict,
 } from "../../lib/productSpecTemplates";
 import { QuoteDialog } from "./QuoteDialog";
 import { ProductSpecsTable } from "../shared/ProductSpecsTable";
@@ -1852,7 +1852,7 @@ const normalizeProductVatRate = (value: string | number | null | undefined) => {
 };
 
 const catalogSpecs = (specs: ProductSpec[] = [], emptyValue = "", productTypeCode?: string) =>
-  (productTypeCode ? specsForProductType(productTypeCode, specs) : specs).map((spec) => ({
+  (productTypeCode ? specsForProductTypeStrict(productTypeCode, specs) : specs).map((spec) => ({
     key: spec.key,
     value: spec.value?.trim() ? spec.value : emptyValue,
     unit: spec.unit ?? spec.specUnit ?? "",
@@ -5231,7 +5231,7 @@ export function CreateMachineDialog({ children }: { children: React.ReactNode })
                 <Label className="text-xs">Teknik Bilgiler (üründen otomatik)</Label>
                 {product ? (
                   <ProductSpecsTable
-                    specs={specsForProductType(product.productTypeCode, product.specs ?? [])}
+                    specs={specsForProductTypeStrict(product.productTypeCode, product.specs ?? [])}
                     productTypeCode={product.productTypeCode}
                     emptyText="Ürün kartında teknik bilgi girilmemiş."
                   />
