@@ -648,11 +648,13 @@ export const serviceService = {
   startShipment: (id: string, body: ShipmentStartInput = {}) => api.post<any>(`/shipments/${id}/start`, body),
   updateShipmentStatus: (id: string, body: ShipmentStatusUpdateInput | string) =>
     api.patch<any>(`/shipments/${id}/status`, typeof body === 'string' ? { statusCode: body } : body),
+  deleteShipment: (id: string) => api.delete<any>(`/shipments/${id}`),
   deliveries: (params?: Record<string, string | number | undefined>) => api.get<Paginated<any>>(`/deliveries${qs(params)}`),
   createDelivery: (body: DeliveryCreateInput) => api.post<any>('/deliveries', body),
   updateDelivery: (id: string, body: DeliveryUpdateInput) => api.patch<any>(`/deliveries/${id}`, body),
   updateDeliveryStatus: (id: string, status: 'pending' | 'completed') =>
     api.patch<any>(`/deliveries/${id}/status`, { status }),
+  deleteDelivery: (id: string) => api.delete<any>(`/deliveries/${id}`),
 };
 
 // ───── Public complaint intake ─────

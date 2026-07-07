@@ -1469,6 +1469,44 @@ export class ServiceController {
     return { ok: true };
   }
 
+  @RequirePermissions('shipments.update')
+  @Delete('shipments/:id')
+  async deleteShipment(@Param('id') id: string, @CurrentUser() user: AuthContext) {
+    const shipment = await this.db.query.shipments.findFirst({
+      where: and(
+        eq(shipments.id, id),
+        eq(shipments.tenantId, user.tenantId),
+        isNull(shipments.deletedAt),
+        divisionFilter(resolveActorDivisionScope(user), shipments.divisionId) ?? sql`true`
+      ),
+    });
+    if (!shipment) throw new NotFoundError('Sevkiyat');
+    await this.db
+      .update(shipments)
+      .set({ deletedAt: new Date() })
+      .where(and(eq(shipments.id, id), eq(shipments.tenantId, user.tenantId), isNull(shipments.deletedAt)));
+    return { ok: true };
+  }
+
+  @RequirePermissions('shipments.update')
+  @Delete('deliveries/:id')
+  async deleteDelivery(@Param('id') id: string, @CurrentUser() user: AuthContext) {
+    const delivery = await this.db.query.deliveries.findFirst({
+      where: and(
+        eq(deliveries.id, id),
+        eq(deliveries.tenantId, user.tenantId),
+        isNull(deliveries.deletedAt),
+        divisionFilter(resolveActorDivisionScope(user), deliveries.divisionId) ?? sql`true`
+      ),
+    });
+    if (!delivery) throw new NotFoundError('Teslimat');
+    await this.db
+      .update(deliveries)
+      .set({ deletedAt: new Date() })
+      .where(and(eq(deliveries.id, id), eq(deliveries.tenantId, user.tenantId), isNull(deliveries.deletedAt)));
+    return { ok: true };
+  }
+
   // ─────── SHIPMENTS ───────
   /** Sevkiyatı durum + firma + satır kalemleri (paketleme listesi) ile zenginleştirir; eski JSON-notes satırlarını da çözer. */
   private async enrichShipment(shipment: typeof shipments.$inferSelect) {

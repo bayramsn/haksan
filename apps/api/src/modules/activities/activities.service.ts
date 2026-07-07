@@ -2,7 +2,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import type { DbClient } from '../../db/client';
 import { salesActivities, visits, calls, opportunities } from '../../db/schema/crm';
-import { companies, contacts } from '../../db/schema/companies';
+import { companies, contacts, notifications } from '../../db/schema/companies';
 import { activityTypes, fileDocumentTypes } from '../../db/schema/lookup';
 import { fileLinks, files } from '../../db/schema/files';
 import { users } from '../../db/schema/users';
@@ -161,7 +161,55 @@ export class ActivitiesService {
         createdBy: actor.userId,
       })
       .returning();
+    // Aktivite metninde (@ isim) etiketlenen kullanıcılara bildirim gönder.
+    // Bildirim hatası aktivite oluşturmayı bozmamalı.
+    await this.notifyActivityMentions(
+      { id: row.id, divisionId, subject: input.subject, description: input.description ?? null },
+      actor,
+    ).catch(() => undefined);
     return row;
+  }
+
+  /**
+   * Aktivite konu/açıklamasındaki "@isim" bahisleri tenant kullanıcılarıyla
+   * eşleştirilip her bahsi geçen kullanıcıya (kendisi hariç) bildirim yazılır.
+   * Tam ad, ilk ad veya e-posta kullanıcı-adı ile eşleşme aranır; @'ten sonra
+   * gelen harf/rakamla devam eden token'lar (kısmi eşleşme) elenir.
+   */
+  private async notifyActivityMentions(
+    activity: { id: string; divisionId: string | null; subject: string; description: string | null },
+    actor: AuthContext,
+  ) {
+    const text = [activity.subject, activity.description].filter(Boolean).join(' ');
+    if (!text.includes('@')) return;
+    const tenantUsers = await this.db
+      .select({ id: users.id, fullName: users.fullName, email: users.email })
+      .from(users)
+      .where(and(eq(users.tenantId, actor.tenantId), eq(users.status, 'active')));
+    const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const mentioned = new Set<string>();
+    for (const u of tenantUsers) {
+      if (u.id === actor.userId) continue;
+      const full = (u.fullName ?? '').trim();
+      const first = full.split(/\s+/)[0] ?? '';
+      const emailLocal = (u.email ?? '').split('@')[0] ?? '';
+      const handles = [full, first, emailLocal].filter((h) => h.length >= 2);
+      const hit = handles.some((h) => new RegExp('@' + escape(h) + '(?![\\p{L}\\p{N}])', 'iu').test(text));
+      if (hit) mentioned.add(u.id);
+    }
+    if (!mentioned.size) return;
+    await this.db.insert(notifications).values(
+      [...mentioned].map((userId) => ({
+        tenantId: actor.tenantId,
+        userId,
+        divisionId: activity.divisionId,
+        type: 'mention',
+        title: 'Bir aktivitede sizden bahsedildi',
+        body: activity.subject?.slice(0, 240) ?? null,
+        entityType: 'activity',
+        entityId: activity.id,
+      })),
+    );
   }
 
   async updateActivity(activityId: string, input: ActivityUpdateInput, actor: AuthContext) {

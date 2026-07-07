@@ -130,7 +130,7 @@ function seriesSort(a: string, b: string) {
    ========================================================================= */
 export function ProductsPage({ initialQuery }: { initialQuery?: string }) {
   const { products, deleteProduct } = useStore();
-  const { hasRole, hasPermission } = useAuth();
+  const { hasRole, hasPermission, activeDivision, user } = useAuth();
   const [q, setQ] = useState("");
   const [cat, setCat] = useState<string>("all");
   const [series, setSeries] = useState<string>("all");
@@ -161,10 +161,22 @@ export function ProductsPage({ initialQuery }: { initialQuery?: string }) {
       name.includes("yedek") || name.includes("işçilik") || name.includes("iscilik")
     );
   };
-  const visibleProducts = useMemo(
-    () => (serviceScope ? products.filter(isServiceItem) : products),
-    [products, serviceScope]
-  );
+  // Aktif bölüm (CNC/Üniversal/Sac İşleme) seçiliyse ürünler kendi ürün grubuna
+  // göre daralır: bir bölümün ürünü yalnızca o bölümde görünür. Ürün grubu kodu
+  // bölüm koduyla birebir eşleşir (cnc→CNC, universal→UNIVERSAL, sac_isleme→SAC_ISLEME).
+  // "Tümü" seçiliyse hepsi görünür.
+  const divisionGroupCode = useMemo(() => {
+    if (!activeDivision || activeDivision === "all") return null;
+    const code = (user?.divisions ?? []).find((d) => d.id === activeDivision)?.code;
+    return code ? code.toLocaleUpperCase("en-US") : null;
+  }, [activeDivision, user?.divisions]);
+  const visibleProducts = useMemo(() => {
+    let list = serviceScope ? products.filter(isServiceItem) : products;
+    if (divisionGroupCode) {
+      list = list.filter((p) => (p.productGroupCode ?? "").toLocaleUpperCase("en-US") === divisionGroupCode);
+    }
+    return list;
+  }, [products, serviceScope, divisionGroupCode]);
 
   const productSubtitle = (p: Product) => [p.type, p.subcategory].filter(Boolean).join(" · ");
   const categories = useMemo(

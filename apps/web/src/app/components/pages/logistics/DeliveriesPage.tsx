@@ -13,14 +13,28 @@ import { ExportExcelButton } from "../../ui/ExportExcelButton";
 import { printOrWarn } from "../../../lib/pageHelpers";
 import { resolveServiceFormNo } from "../../../lib/serviceFormNo";
 import { installationFormDoc, printAssetBase, trShortDate } from "../../../lib/print";
-import { Plus, ClipboardCheck, CheckCircle2, Clock, Building2, FileSignature, Printer } from "lucide-react";
+import { Plus, ClipboardCheck, CheckCircle2, Clock, Building2, FileSignature, Printer, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 export function DeliveriesPage() {
-  const { deliveries, updateDeliveryStatus, customers } = useStore();
+  const { deliveries, updateDeliveryStatus, deleteDelivery, customers } = useStore();
   const liveCustomerName = (id: string) => customers.find((c) => c.id === id)?.name ?? "—";
   const [selectedDelivery, setSelectedDelivery] = useState<(typeof deliveries)[number] | null>(null);
   const [statusFilter, setStatusFilter] = useState<"all" | "Tamamlandı" | "Bekliyor">("all");
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const removeDelivery = async (d: (typeof deliveries)[number]) => {
+    if (deletingId) return;
+    if (!window.confirm(`${liveCustomerName(d.customerId)} için teslimat kaydını silmek istediğinize emin misiniz?`)) return;
+    setDeletingId(d.id);
+    try {
+      await deleteDelivery(d.id);
+      toast.success("Teslimat silindi");
+    } catch (err: any) {
+      toast.error("Teslimat silinemedi", { description: err?.message ?? "İstek başarısız oldu." });
+    } finally {
+      setDeletingId(null);
+    }
+  };
   const completed = deliveries.filter((d) => d.status === "Tamamlandı").length;
   const pending = deliveries.filter((d) => d.status === "Bekliyor").length;
   const visibleDeliveries = statusFilter === "all" ? deliveries : deliveries.filter((d) => d.status === statusFilter);
@@ -86,6 +100,16 @@ export function DeliveriesPage() {
                     <Button variant="ghost" size="icon" className="size-8 opacity-0 group-hover:opacity-100" title="Teslim formu / düzenle"
                       onClick={() => setSelectedDelivery(d)}>
                       <FileSignature className="size-4" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="size-8 text-muted-foreground opacity-0 group-hover:opacity-100 hover:text-destructive"
+                      title="Teslimatı sil"
+                      disabled={deletingId === d.id}
+                      onClick={() => removeDelivery(d)}
+                    >
+                      <Trash2 className="size-4" />
                     </Button>
                   </TableCell>
                 </TableRow>

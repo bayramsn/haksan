@@ -2,7 +2,7 @@ import { useMemo, useState, type MouseEvent } from "react";
 import { Card } from "../ui/card";
 import { Avatar, AvatarFallback } from "../ui/avatar";
 import { SALES_STAGES, SalesCase, SalesStage, salesStageLabel, DocumentItem, type Machine } from "../../lib/mock";
-import { ArrowRight, Building2, Calendar, CheckCircle2, FileSignature, FileText, Printer } from "lucide-react";
+import { ArrowRight, Building2, Calendar, CheckCircle2, FileSignature, FileText, MapPin, Printer } from "lucide-react";
 import { KanbanBoard, KanbanColumn } from "../KanbanBoard";
 import { KanbanCardAttachments } from "../KanbanCardAttachments";
 import { DocumentPreviewDialog } from "../dialogs/DocumentPreviewDialog";
@@ -413,6 +413,7 @@ export function KanbanPage({ onSelect, items }: { onSelect: (s: SalesCase) => vo
     <KanbanBoard<SalesCase>
       columns={columns}
       fit={false}
+      wrap
       columnWidth={typeof window !== 'undefined' && window.innerWidth < 640 ? 240 : 292}
       onMove={(id, from, to) => moveToStage(id, from as SalesStage, to as SalesStage)}
       renderCard={(s) => {
@@ -440,6 +441,12 @@ export function KanbanPage({ onSelect, items }: { onSelect: (s: SalesCase) => vo
               </div>
               <div className="min-w-0 flex-1">
                 <div className="text-[13px] font-medium leading-tight truncate group-hover:text-primary transition-colors">{c?.name ?? "Firma bulunamadı"}</div>
+                {(c?.city || c?.district) && (
+                  <div className="mt-0.5 flex items-center gap-1 text-[11px] text-muted-foreground">
+                    <MapPin className="size-3 shrink-0" />
+                    <span className="truncate">{[c?.district, c?.city].filter(Boolean).join(" / ")}</span>
+                  </div>
+                )}
                 <div className="text-[11px] text-muted-foreground line-clamp-2 break-words mt-0.5">{s.requestedProduct}</div>
               </div>
               <DropdownMenu>

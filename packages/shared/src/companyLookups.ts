@@ -129,7 +129,7 @@ export const ACTIVITY_TYPE_OPTIONS = [
   { code: 'email', label: 'E-posta / Mail' },
   { code: 'meeting', label: 'Toplantı' },
   { code: 'demo', label: 'Demo / Sunum' },
-  { code: 'note', label: 'Not' },
+  { code: 'note', label: 'Yorum' },
 ] as const;
 
 export type ActivityTypeCode = (typeof ACTIVITY_TYPE_OPTIONS)[number]['code'];

@@ -1011,6 +1011,17 @@ export function CreateCaseDialog({ trigger, defaultCustomerId }: { trigger: Reac
     }
   }, [user?.id, isSuperAdmin]);
 
+  // Satış kartı ürün seçici: yalnızca tezgahlar (satış kalemi), aktif/seçili bölüme
+  // (CNC/Üniversal/Sac) göre daraltılır. Serbest ürün adı yine elle yazılabilir.
+  const machineProductOptions = useMemo(() => {
+    const activeDivId = canPickDivision ? form.divisionId : (activeDivision && activeDivision !== "all" ? activeDivision : "");
+    const divCode = activeDivId ? divisions.find((d) => d.id === activeDivId)?.code?.toLocaleUpperCase("en-US") : null;
+    return products
+      .filter((p) => (p.categoryCode ?? "").toLocaleUpperCase("en-US") === "TEZGAH")
+      .filter((p) => !divCode || (p.productGroupCode ?? "").toLocaleUpperCase("en-US") === divCode)
+      .map((p) => ({ value: p.id, label: [p.brand, p.model].filter(Boolean).join(" "), hint: p.type }));
+  }, [products, canPickDivision, form.divisionId, activeDivision, divisions]);
+
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (saving) return;
@@ -1073,18 +1084,27 @@ export function CreateCaseDialog({ trigger, defaultCustomerId }: { trigger: Reac
               <Label className="text-xs">Talep Edilen Ürün *</Label>
               <div className="mt-1.5">
                 <Combobox
-                  options={products.map((p) => ({ value: p.id, label: [p.brand, p.model].filter(Boolean).join(" "), hint: p.type }))}
+                  options={machineProductOptions}
                   value={selectedProductId}
                   onChange={(v) => {
                     const p = products.find((pr) => pr.id === v);
                     setSelectedProductId(v);
                     if (p) {
-                      setForm((f) => ({ ...f, requestedProduct: p.brand || p.type || p.model, requestedModel: p.model ?? "" }));
+                      // Tahmini tutar peşin fiyattan otomatik çekilir (yoksa liste
+                      // fiyatı) ve adetle çarpılır; kullanıcı el ile değiştirebilir.
+                      const unit = p.cashPrice ?? p.listPrice ?? 0;
+                      setForm((f) => ({
+                        ...f,
+                        requestedProduct: p.brand || p.type || p.model,
+                        requestedModel: p.model ?? "",
+                        estimatedAmount: unit ? unit * (Number(f.quantity) || 1) : f.estimatedAmount,
+                        currency: (p.currency as typeof f.currency) ?? f.currency,
+                      }));
                     }
                   }}
-                  placeholder="Ürün seçin veya yazın..."
+                  placeholder="Tezgah seçin veya yazın..."
                   searchPlaceholder="Marka / model ara..."
-                  emptyText="Ürün bulunamadı."
+                  emptyText="Tezgah bulunamadı."
                   onCreate={(label) => {
                     setSelectedProductId("");
                     setForm((f) => ({ ...f, requestedProduct: label }));
@@ -1860,9 +1880,6 @@ const catalogSpecs = (specs: ProductSpec[] = [], emptyValue = "", productTypeCod
     groupName: spec.groupName,
   }));
 
-const isProductTypeTemplateSpec = (productTypeCode: string | undefined, spec: ProductSpec) =>
-  productSpecDefaults(productTypeCode).some((templateSpec) => normalizeProductSpecKey(templateSpec.key) === normalizeProductSpecKey(spec.key));
-
 const ALL_MACHINE_TEMPLATE_KEYS = new Set(
   allCatalogProductSpecs([], "").map((spec) => normalizeProductSpecKey(spec.key)),
 );
@@ -2426,8 +2443,8 @@ export function ProductDialog({
       standardEquipment: form.standardEquipment,
       optionalEquipment: form.optionalEquipment,
       compatibleMachineTypeCode: form.compatibleMachineType || null,
-      muadilProductId: selectedMuadilIds[0] ?? null,
-      muadilProductIds: selectedMuadilIds,
+      muadilProductId: isOptionalEquipmentProduct ? null : (selectedMuadilIds[0] ?? null),
+      muadilProductIds: isOptionalEquipmentProduct ? [] : selectedMuadilIds,
       status: form.status,
     };
 
@@ -2704,7 +2721,7 @@ export function ProductDialog({
               </Select>
             </ProductSheetRow>
 
-            {!isLaborProduct && (
+            {!isLaborProduct && !isOptionalEquipmentProduct && (
             <ProductSheetRow label="Muadil Ürünler" className="items-start">
               <div className="space-y-3">
                 {Object.entries(muadilGroups).length === 0 ? (
@@ -2832,7 +2849,6 @@ export function ProductDialog({
                             </div>
                             <div className="min-w-0 divide-y divide-dotted divide-foreground/30">
                               {specs.map((s) => {
-                                const lockedTemplateRow = isProductTypeTemplateSpec(form.productTypeCode, s);
                                 return (
                                   <div key={s.index} className="grid grid-cols-[minmax(160px,1fr)_minmax(140px,0.9fr)_88px_36px] items-center gap-2 px-2 py-1.5">
                                     <div className="min-w-0 truncate text-xs font-medium text-foreground" title={s.key}>
@@ -2857,12 +2873,11 @@ export function ProductDialog({
                                       variant="ghost"
                                       size="icon"
                                       className="h-8 w-8"
-                                      disabled={lockedTemplateRow}
-                                      title={lockedTemplateRow ? "Şablon satırı silinemez" : "Satırı kaldır"}
+                                      title="Satırı kaldır"
                                       onClick={() => rmSpec(s.index)}
                                       aria-label={`${s.key} satırını kaldır`}
                                     >
-                                      <Trash2 className={`size-4 ${lockedTemplateRow ? "text-muted-foreground/30" : "text-muted-foreground"}`} />
+                                      <Trash2 className="size-4 text-muted-foreground hover:text-destructive" />
                                     </Button>
                                   </div>
                                 );

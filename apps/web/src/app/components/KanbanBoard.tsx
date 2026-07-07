@@ -21,13 +21,37 @@ type Props<T extends { id: string }> = {
   onAddInColumn?: (colKey: string) => void;
   columnWidth?: number;
   fit?: boolean;
+  /** Kolonları yatay kaydırma yerine responsive grid'de alt alta akıtır (sayfayı aşağı doldurur). */
+  wrap?: boolean;
 };
 
 export function KanbanBoard<T extends { id: string }>({
-  columns, onMove, renderCard, onAddInColumn, columnWidth = 280,
+  columns, onMove, renderCard, onAddInColumn, columnWidth = 280, wrap = false,
 }: Props<T>) {
   const scrollerRef = useRef<HTMLDivElement | null>(null);
   const scrollBy = (amount: number) => scrollerRef.current?.scrollBy({ left: amount, behavior: "smooth" });
+
+  if (wrap) {
+    // Aşağı-akan yerleşim: kolonlar sayfa genişliğine yayılır, taşınca alt satıra
+    // sarar; pano yatay kaymaz, sayfa dikey kayar.
+    return (
+      <DndProvider backend={HTML5Backend}>
+        <div className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
+          {columns.map((col) => (
+            <Column
+              key={col.key}
+              col={col}
+              width={columnWidth}
+              wrap
+              onMove={onMove}
+              renderCard={renderCard}
+              onAdd={onAddInColumn}
+            />
+          ))}
+        </div>
+      </DndProvider>
+    );
+  }
 
   return (
     <DndProvider backend={HTML5Backend}>
@@ -75,13 +99,14 @@ export function KanbanBoard<T extends { id: string }>({
 }
 
 function Column<T extends { id: string }>({
-  col, width, onMove, renderCard, onAdd,
+  col, width, onMove, renderCard, onAdd, wrap = false,
 }: {
   col: KanbanColumn<T>;
   width: number;
   onMove: (id: string, from: string, to: string) => void | Promise<void>;
   renderCard: (item: T, dragging: boolean) => ReactNode;
   onAdd?: (k: string) => void;
+  wrap?: boolean;
 }) {
   const [{ isOver, canDrop }, dropRef] = useDrop<{ id: string; from: string }, void, { isOver: boolean; canDrop: boolean }>(
     () => ({
@@ -101,8 +126,10 @@ function Column<T extends { id: string }>({
   return (
     <div
       ref={dropRef as any}
-      style={{ width }}
-      className={`shrink-0 snap-center flex max-h-[calc(100dvh-240px)] flex-col self-start rounded-xl border border-border/50 shadow-xs transition-all ${
+      style={wrap ? undefined : { width }}
+      className={`flex flex-col self-start rounded-xl border border-border/50 shadow-xs transition-all ${
+        wrap ? "w-full max-h-[70vh]" : "shrink-0 snap-center max-h-[calc(100dvh-240px)]"
+      } ${
         isOver && canDrop ? "bg-primary/5 ring-2 ring-primary/40 ring-inset" : "bg-muted"
       }`}
     >

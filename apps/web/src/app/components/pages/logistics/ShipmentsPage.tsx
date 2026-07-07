@@ -16,12 +16,26 @@ import { printOrWarn } from "../../../lib/pageHelpers";
 import { dispatchNoteDoc, printAssetBase } from "../../../lib/print";
 import type { OperationFocus } from "../../../lib/operations";
 import { ResponsiveContainer, PieChart, Pie, Cell, Legend, Tooltip } from "recharts";
-import { Plus, Truck, ShieldCheck, CheckCircle2, MapPin, Printer, Play, Tag } from "lucide-react";
+import { Plus, Truck, ShieldCheck, CheckCircle2, MapPin, Printer, Play, Tag, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 export function ShipmentsPage({ focus }: { focus?: OperationFocus }) {
-  const { shipments, startShipment, updateShipmentStatus, cases, customers } = useStore();
+  const { shipments, startShipment, updateShipmentStatus, deleteShipment, cases, customers } = useStore();
   const [startingId, setStartingId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const removeShipment = async (s: (typeof shipments)[number]) => {
+    if (deletingId) return;
+    if (!window.confirm(`${s.trackingNo || "Sevkiyat"} kaydını silmek istediğinize emin misiniz?`)) return;
+    setDeletingId(s.id);
+    try {
+      await deleteShipment(s.id);
+      toast.success("Sevkiyat silindi");
+    } catch (err: any) {
+      toast.error("Sevkiyat silinemedi", { description: err?.message ?? "İstek başarısız oldu." });
+    } finally {
+      setDeletingId(null);
+    }
+  };
   const [statusFilter, setStatusFilter] = useState<"all" | "Yolda" | "Gümrükte" | "Teslim Edildi">("all");
   const liveCustomerName = (id: string) => customers.find((c) => c.id === id)?.name ?? "—";
   const customerForShipment = (s: (typeof shipments)[number]) => {
@@ -216,6 +230,16 @@ export function ShipmentsPage({ focus }: { focus?: OperationFocus }) {
                         <Button variant="ghost" size="icon" className="size-8 opacity-0 group-hover:opacity-100 sm:opacity-100" title="Sevk İrsaliyesi yazdır"
                           onClick={() => printDispatchNote(s)}>
                           <Printer className="size-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="size-8 text-muted-foreground opacity-0 group-hover:opacity-100 hover:text-destructive sm:opacity-100"
+                          title="Sevkiyatı sil"
+                          disabled={deletingId === s.id}
+                          onClick={() => removeShipment(s)}
+                        >
+                          <Trash2 className="size-4" />
                         </Button>
                       </TableCell>
                     </TableRow>

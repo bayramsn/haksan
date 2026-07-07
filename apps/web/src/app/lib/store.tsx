@@ -421,9 +421,11 @@ type Store = {
     status: Shipment['status'],
     options?: { destinationWarehouseId?: string; loadingDate?: string; arrivedAt?: string },
   ) => Promise<void>;
+  deleteShipment: (id: string) => Promise<void>;
   addDelivery: (d: Omit<Delivery, 'id'>) => Promise<Delivery>;
   updateDelivery: (id: string, d: Partial<Omit<Delivery, 'id'>>) => Promise<void>;
   updateDeliveryStatus: (id: string, status: Delivery['status']) => Promise<void>;
+  deleteDelivery: (id: string) => Promise<void>;
   moveCase: (id: string, to: SalesStage, options?: { inventoryItemIds?: string[]; changeReason?: string }) => Promise<void>;
   // Mantıksal kapanış (Bitir) ve geri alma (Geri Aç) — silmez, closedAt set/sıfırlar.
   closeCase: (id: string, reason?: string) => Promise<void>;
@@ -1798,6 +1800,14 @@ function StoreInner({ children }: { children: ReactNode }) {
     await serviceService.startShipment(id, { loadingDate: toOptionalDate(loadingDate) });
     await fetchAll();
   };
+  const deleteShipment: Store['deleteShipment'] = async (id) => {
+    await serviceService.deleteShipment(id);
+    await fetchAll();
+  };
+  const deleteDelivery: Store['deleteDelivery'] = async (id) => {
+    await serviceService.deleteDelivery(id);
+    await fetchAll();
+  };
   const updateShipmentStatus: Store['updateShipmentStatus'] = async (id, status, options) => {
     await serviceService.updateShipmentStatus(id, {
       statusCode: shipmentStatusToCode(status),
@@ -2269,9 +2279,11 @@ function StoreInner({ children }: { children: ReactNode }) {
       addShipment,
       startShipment,
       updateShipmentStatus,
+      deleteShipment,
       addDelivery,
       updateDelivery,
       updateDeliveryStatus,
+      deleteDelivery,
       moveCase,
       closeCase,
       reopenCase,
