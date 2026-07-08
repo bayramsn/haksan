@@ -13,7 +13,7 @@ import { MultiSelect } from "../ui/multi-select";
 import { useStore } from "../../lib/store";
 import { useFx, FxRateBadge } from "../../lib/fx";
 import { useAuth } from "../../../lib/auth";
-import { quoteService, productService } from "../../../lib/services";
+import { lookupService, quoteService, productService } from "../../../lib/services";
 import { toast } from "sonner";
 import { Plus, Trash2, Save, BookmarkPlus, Bold } from "lucide-react";
 import type { Product, ProductSpec } from "../../lib/mock";
@@ -56,14 +56,44 @@ const NOTE_VARIANT_DELIVERY: Record<string, string> = Object.fromEntries(
   Object.entries(DELIVERY_NOTE_VARIANT).map(([delivery, variant]) => [variant, delivery])
 );
 
-// Ürün ekle ekranındakiyle aynı kategoriler
-const PRODUCT_CATEGORIES = [
+type ProductOption = { code: string; label: string };
+type ProductLookupName = "product-categories" | "product-subcategories" | "product-groups" | "product-types";
+type LookupRow = { code: string; name: string; sortOrder?: number; divisionId?: string | null };
+
+// Ürün ekle ekranındakiyle aynı güvenli yedek kategoriler.
+const PRODUCT_CATEGORIES: ProductOption[] = [
   { code: "TEZGAH", label: "Tezgah" },
   { code: "YEDEK_PARCA", label: "Yedek Parça" },
   { code: "OPSIYONEL_DONANIM", label: "Opsiyonel Donanım" },
   { code: "ISCILIK", label: "İşçilik" },
   { code: "AKSESUAR", label: "Aksesuar" },
 ];
+const PRODUCT_LOOKUP_NAMES: ProductLookupName[] = ["product-categories", "product-subcategories", "product-groups", "product-types"];
+const FALLBACK_PRODUCT_LOOKUPS: Record<ProductLookupName, LookupRow[]> = {
+  "product-categories": PRODUCT_CATEGORIES.map((option) => ({ code: option.code, name: option.label })),
+  "product-subcategories": [],
+  "product-groups": [],
+  "product-types": [],
+};
+const normalizeLookupRows = (rows: any[] | undefined): LookupRow[] =>
+  (rows ?? [])
+    .map((row) => ({
+      code: String(row.code ?? ""),
+      name: String(row.name ?? ""),
+      sortOrder: Number.isFinite(Number(row.sortOrder)) ? Number(row.sortOrder) : undefined,
+      divisionId: row.divisionId ?? null,
+    }))
+    .filter((row) => row.code && row.name);
+const toProductOptions = (rows: LookupRow[]): ProductOption[] =>
+  rows
+    .map((row) => ({ code: row.code, label: row.name }))
+    .sort((a, b) => a.label.localeCompare(b.label, "tr-TR"));
+const divisionGroupCode = (code?: string | null) => {
+  if (!code || code === "all") return "";
+  if (code === "sac_isleme") return "SAC_ISLEME";
+  return code.toLocaleUpperCase("tr-TR");
+};
+const PRIMARY_PRODUCT_GROUP_CODES = new Set(["CNC", "UNIVERSAL", "SAC_ISLEME"]);
 const NOTE_FONT_SIZES = [
   { code: "12", label: "Küçük" },
   { code: "14", label: "Normal" },
@@ -101,6 +131,7 @@ type LineState = {
   groupCode: string;
   categoryCode: string;
   subcategoryCode: string;
+  productTypeCode: string;
   productId: string;
   stockCode: string;
   description: string; // ürün adı / modeli
@@ -117,7 +148,7 @@ const emptyCompatibility = (): LineCompatibility => ({ machineIds: [], brands: [
 const hasCompatibility = (c: LineCompatibility) =>
   c.machineIds.length > 0 || c.brands.length > 0 || c.controlUnits.length > 0 || c.supplierIds.length > 0;
 
-const emptyLine = (): LineState => ({ groupCode: "", categoryCode: "", subcategoryCode: "", productId: "", stockCode: "", description: "", technicalSpecs: [], quantity: "1", unitPrice: "", discount: "0", vatRate: "20", options: [], compatibility: emptyCompatibility() });
+const emptyLine = (): LineState => ({ groupCode: "", categoryCode: "", subcategoryCode: "", productTypeCode: "", productId: "", stockCode: "", description: "", technicalSpecs: [], quantity: "1", unitPrice: "", discount: "0", vatRate: "20", options: [], compatibility: emptyCompatibility() });
 const emptyOption = (vatRate = "20"): OptionInput => ({ productId: "", description: "", quantity: "1", unitPrice: "0", discount: "0", vatRate });
 
 const cleanTechnicalSpecs = (specs: ProductSpec[] = []) =>
@@ -201,6 +232,49 @@ export function QuoteDialog({
     [noteTemplates]
   );
   const savedTermsTemplates = useTermsTemplates(noteTemplates, TERMS_TEMPLATE_SCOPE);
+  const quoteDivisionId = canPickDivision ? divisionId : activeDivision && activeDivision !== "all" ? activeDivision : "";
+  const quoteDivision = quoteDivisionId ? divisions.find((d) => d.id === quoteDivisionId) : undefined;
+  const quoteDivisionGroupCode = divisionGroupCode(quoteDivision?.code);
+  const scopedProducts = useMemo(
+    () =>
+      quoteDivisionGroupCode
+        ? products.filter((product) => {
+            const groupCode = product.productGroupCode || "";
+            return !PRIMARY_PRODUCT_GROUP_CODES.has(groupCode) || groupCode === quoteDivisionGroupCode;
+          })
+        : products,
+    [products, quoteDivisionGroupCode]
+  );
+  const [productLookupRows, setProductLookupRows] = useState<Record<ProductLookupName, LookupRow[]>>(FALLBACK_PRODUCT_LOOKUPS);
+  useEffect(() => {
+    if (!open) return;
+    let alive = true;
+    const params = quoteDivisionId ? { divisionId: quoteDivisionId, scope: "exact" } : { scope: "exact" };
+    Promise.all(PRODUCT_LOOKUP_NAMES.map((name) => lookupService.byName(name, params).catch(() => null)))
+      .then((results) => {
+        if (!alive) return;
+        const next: Record<ProductLookupName, LookupRow[]> = { ...FALLBACK_PRODUCT_LOOKUPS };
+        PRODUCT_LOOKUP_NAMES.forEach((name, index) => {
+          const normalized = normalizeLookupRows(results[index] ?? undefined);
+          next[name] = normalized.length ? normalized : FALLBACK_PRODUCT_LOOKUPS[name];
+        });
+        setProductLookupRows(next);
+      })
+      .catch(() => alive && setProductLookupRows(FALLBACK_PRODUCT_LOOKUPS));
+    return () => {
+      alive = false;
+    };
+  }, [open, quoteDivisionId]);
+  const productCategoryOptions = useMemo(() => {
+    const byCode = new Map<string, string>();
+    for (const row of productLookupRows["product-categories"]) byCode.set(row.code, row.name);
+    for (const product of scopedProducts) if (product.categoryCode) byCode.set(product.categoryCode, product.category || byCode.get(product.categoryCode) || product.categoryCode);
+    if (byCode.size === 0) for (const fallback of PRODUCT_CATEGORIES) byCode.set(fallback.code, fallback.label);
+    return Array.from(byCode, ([code, label]) => ({ code, label })).sort((a, b) => a.label.localeCompare(b.label, "tr-TR"));
+  }, [productLookupRows, scopedProducts]);
+  const productSubcategoryLookupOptions = useMemo(() => toProductOptions(productLookupRows["product-subcategories"]), [productLookupRows]);
+  const productGroupLookupOptions = useMemo(() => toProductOptions(productLookupRows["product-groups"]), [productLookupRows]);
+  const productTypeLookupOptions = useMemo(() => toProductOptions(productLookupRows["product-types"]), [productLookupRows]);
 
   const reset = () => {
     setCompanyId(defaultCustomerId ?? "");
@@ -293,6 +367,7 @@ export function QuoteDialog({
           groupCode: product?.productGroupCode ?? "",
           categoryCode: product?.categoryCode ?? "",
           subcategoryCode: product?.subcategoryCode ?? "",
+          productTypeCode: product?.productTypeCode ?? "",
           productId: it.productModelId ?? "",
           stockCode,
           description,
@@ -430,6 +505,7 @@ export function QuoteDialog({
       groupCode: p.productGroupCode || "",
       categoryCode: p.categoryCode || "",
       subcategoryCode: p.subcategoryCode || "",
+      productTypeCode: p.productTypeCode || "",
       stockCode: p.stockCode || p.model || "",
       description: p.shortDescription?.trim() || [p.brand, p.model].filter(Boolean).join(" "),
       technicalSpecs: technicalSpecsFromProduct(p),
@@ -440,19 +516,8 @@ export function QuoteDialog({
     if (i === 0 && p.currency) setCurrency(p.currency as Currency);
   };
 
-  // Ürün Grubu → Ürün Kategorisi → Ürün Alt Kategorisi → Ürün Tipi sırasıyla daraltılır.
+  // Ürün Kategorisi → Ürün → Ürün Alt Kategorisi → Ürün Grubu → Ürün Tipi sırasıyla daraltılır.
   // Bir üst seviye değişince alttaki seçim ve seçili ürün artık uymuyorsa sıfırlanır.
-  const onPickGroup = (i: number, code: string) => {
-    setLines((ls) => ls.map((l, idx) => {
-      if (idx !== i) return l;
-      const prod = products.find((x) => x.id === l.productId);
-      const keep = prod && (prod.productGroupCode || "") === code;
-      return keep
-        ? { ...l, groupCode: code }
-        : { ...l, groupCode: code, subcategoryCode: "", productId: "", stockCode: "", description: "", technicalSpecs: [], options: [] };
-    }));
-  };
-
   const onPickCategory = (i: number, code: string) => {
     setLines((ls) => ls.map((l, idx) => {
       if (idx !== i) return l;
@@ -461,7 +526,7 @@ export function QuoteDialog({
       const keep = prod && prod.categoryCode === code;
       return keep
         ? { ...l, categoryCode: code }
-        : { ...l, categoryCode: code, subcategoryCode: "", productId: "", stockCode: "", description: "", technicalSpecs: [], options: [] };
+        : { ...l, categoryCode: code, subcategoryCode: "", groupCode: "", productTypeCode: "", productId: "", stockCode: "", description: "", technicalSpecs: [], options: [] };
     }));
   };
 
@@ -472,7 +537,29 @@ export function QuoteDialog({
       const keep = prod && (prod.subcategoryCode || "") === code;
       return keep
         ? { ...l, subcategoryCode: code }
-        : { ...l, subcategoryCode: code, productId: "", stockCode: "", description: "", technicalSpecs: [], options: [] };
+        : { ...l, subcategoryCode: code, groupCode: "", productTypeCode: "", productId: "", stockCode: "", description: "", technicalSpecs: [], options: [] };
+    }));
+  };
+
+  const onPickGroup = (i: number, code: string) => {
+    setLines((ls) => ls.map((l, idx) => {
+      if (idx !== i) return l;
+      const prod = products.find((x) => x.id === l.productId);
+      const keep = prod && (prod.productGroupCode || "") === code;
+      return keep
+        ? { ...l, groupCode: code }
+        : { ...l, groupCode: code, productTypeCode: "", productId: "", stockCode: "", description: "", technicalSpecs: [], options: [] };
+    }));
+  };
+
+  const onPickType = (i: number, code: string) => {
+    setLines((ls) => ls.map((l, idx) => {
+      if (idx !== i) return l;
+      const prod = products.find((x) => x.id === l.productId);
+      const keep = prod && (prod.productTypeCode || "") === code;
+      return keep
+        ? { ...l, productTypeCode: code }
+        : { ...l, productTypeCode: code, productId: "", stockCode: "", description: "", technicalSpecs: [], options: [] };
     }));
   };
 
@@ -506,27 +593,41 @@ export function QuoteDialog({
     if (!p) return setOption(i, j, { productId });
 
     // Etki EDEN opsiyonel donanım: ürün tipinin şablon alanlarından, bu tezgah
-    // satırının teknik bilgisinde bulunanlar → o alan(lar)ı şablon değeriyle
-    // günceller ve opsiyonu AYRI kalem olarak tutmaz (kullanıcı 'sadece spec'i
-    // değiştirsin' dedi). Değer sonradan spec tablosunda elle düzenlenebilir.
+    // satırının teknik bilgisinde bulunanlar → o alan(lar)ı günceller ve opsiyonu
+    // AYRI kalem olarak tutmaz (kullanıcı 'sadece spec'i değiştirsin' dedi).
+    // Değer önceliği: seçilen ürünün KENDİ spec değeri → yoksa şablon varsayılanı.
+    // Böylece farklı devirli spindle ürünleri kendi değerini yazar.
     const templateFields = specTemplatesByType[p.productTypeCode ?? ""] ?? [];
     const lineSpecs = lines[i]?.technicalSpecs ?? [];
     const affecting = templateFields.filter((tf) =>
       lineSpecs.some((s) => normalizeProductSpecKey(s.key) === normalizeProductSpecKey(tf.specKey)),
     );
     if (affecting.length) {
+      // Uygulanacak değerleri önceden hesapla (normalize(specKey) → değer):
+      // önce ürünün kendi teknik değeri, yoksa şablon başlangıç değeri.
+      const applied = new Map<string, string>();
+      for (const s of lineSpecs) {
+        const hit = affecting.find((tf) => normalizeProductSpecKey(tf.specKey) === normalizeProductSpecKey(s.key));
+        if (!hit) continue;
+        const own = p.specs?.find((sp) => normalizeProductSpecKey(sp.key) === normalizeProductSpecKey(s.key))?.value?.trim();
+        const val = own || hit.defaultValue.trim();
+        if (val) applied.set(normalizeProductSpecKey(s.key), val);
+      }
       setLines((ls) =>
         ls.map((l, idx) => {
           if (idx !== i) return l;
           const nextSpecs = l.technicalSpecs.map((s) => {
-            const hit = affecting.find((tf) => normalizeProductSpecKey(tf.specKey) === normalizeProductSpecKey(s.key));
-            return hit && hit.defaultValue.trim() ? { ...s, value: hit.defaultValue } : s;
+            const val = applied.get(normalizeProductSpecKey(s.key));
+            return val ? { ...s, value: val } : s;
           });
           return { ...l, technicalSpecs: nextSpecs, options: l.options.filter((_, k) => k !== j) };
         }),
       );
+      const summary = lineSpecs
+        .filter((s) => applied.has(normalizeProductSpecKey(s.key)))
+        .map((s) => `${s.key} → ${applied.get(normalizeProductSpecKey(s.key))}`);
       toast.success(`${p.shortDescription?.trim() || `${p.brand} ${p.model}`.trim()} teknik bilgiyi güncelledi`, {
-        description: `Etkilenen alan: ${affecting.map((a) => a.specKey).join(", ")}`,
+        description: `Etkilenen alan: ${summary.length ? summary.join(", ") : affecting.map((a) => a.specKey).join(", ")}`,
       });
       return;
     }
@@ -542,8 +643,8 @@ export function QuoteDialog({
   };
 
   const optionalProducts = useMemo(
-    () => products.filter((p) => p.categoryCode === "OPSIYONEL_DONANIM"),
-    [products]
+    () => scopedProducts.filter((p) => p.categoryCode === "OPSIYONEL_DONANIM"),
+    [scopedProducts]
   );
 
   // Uyumluluk seçimi için kaynak listeler (çoklu seçim)
@@ -551,12 +652,12 @@ export function QuoteDialog({
     setLines((ls) => ls.map((l, idx) => (idx === i ? { ...l, compatibility: { ...l.compatibility, ...patch } } : l)));
 
   const machineOptions = useMemo(
-    () => products.filter((p) => p.categoryCode === "TEZGAH").map((p) => ({ value: p.id, label: `${p.brand} ${p.model}`.trim() })),
-    [products]
+    () => scopedProducts.filter((p) => p.categoryCode === "TEZGAH").map((p) => ({ value: p.id, label: `${p.brand} ${p.model}`.trim() })),
+    [scopedProducts]
   );
   const brandOptions = useMemo(
-    () => Array.from(new Set(products.map((p) => p.brand).filter(Boolean))).sort().map((b) => ({ value: b, label: b })),
-    [products]
+    () => Array.from(new Set(scopedProducts.map((p) => p.brand).filter(Boolean))).sort().map((b) => ({ value: b, label: b })),
+    [scopedProducts]
   );
   const supplierOptions = useMemo(
     () => customers.filter((c) => c.firmType === "supplier" || c.firmType === "supplier_customer").map((c) => ({ value: c.id, label: c.name })),
@@ -913,35 +1014,39 @@ export function QuoteDialog({
                 const lineTotal = lineTotalNet(l);
                 const product = products.find((x) => x.id === l.productId);
                 const suggestions = product?.optionalEquipment ?? [];
-                // Ürün Grubu → Ürün Kategorisi → Ürün Alt Kategorisi → Ürün Tipi sırasıyla daralt;
+                // Ürün Kategorisi → Ürün → Ürün Alt Kategorisi → Ürün Grubu → Ürün Tipi sırasıyla daralt;
                 // seçenekler gerçek ürün verisinden türetilir.
-                const productsInGroup = products.filter((p) => !l.groupCode || (p.productGroupCode || "") === l.groupCode);
-                const productsInCategory = productsInGroup.filter((p) => !l.categoryCode || p.categoryCode === l.categoryCode);
-                const lineProducts = productsInCategory.filter((p) => !l.subcategoryCode || (p.subcategoryCode || "") === l.subcategoryCode);
-                const groupOptionsMap = new Map<string, string>();
-                for (const p of products) if (p.productGroupCode) groupOptionsMap.set(p.productGroupCode, p.productGroup || p.productGroupCode);
-                const groupOptions = Array.from(groupOptionsMap, ([code, label]) => ({ code, label }));
-                const subcategoryOptionsMap = new Map<string, string>();
+                const productsInCategory = scopedProducts.filter((p) => !l.categoryCode || p.categoryCode === l.categoryCode);
+                const productsInSubcategory = productsInCategory.filter((p) => !l.subcategoryCode || (p.subcategoryCode || "") === l.subcategoryCode);
+                const productsInGroup = productsInSubcategory.filter((p) => !l.groupCode || (p.productGroupCode || "") === l.groupCode);
+                const lineProducts = productsInGroup.filter((p) => !l.productTypeCode || (p.productTypeCode || "") === l.productTypeCode);
+                const subcategoryOptionsMap = new Map<string, string>(productSubcategoryLookupOptions.map((option) => [option.code, option.label]));
                 for (const p of productsInCategory) if (p.subcategoryCode) subcategoryOptionsMap.set(p.subcategoryCode, p.subcategory || p.subcategoryCode);
                 const subcategoryOptions = Array.from(subcategoryOptionsMap, ([code, label]) => ({ code, label }));
+                const groupOptionsMap = new Map<string, string>(productGroupLookupOptions.map((option) => [option.code, option.label]));
+                for (const p of productsInSubcategory) if (p.productGroupCode) groupOptionsMap.set(p.productGroupCode, p.productGroup || p.productGroupCode);
+                const groupOptions = Array.from(groupOptionsMap, ([code, label]) => ({ code, label }));
+                const typeOptionsMap = new Map<string, string>(productTypeLookupOptions.map((option) => [option.code, option.label]));
+                for (const p of productsInGroup) if (p.productTypeCode) typeOptionsMap.set(p.productTypeCode, p.type || p.productTypeCode);
+                const typeOptions = Array.from(typeOptionsMap, ([code, label]) => ({ code, label }));
                 const isLaborLine = l.categoryCode === "ISCILIK";
                 return (
                   <div key={i} className="p-3 space-y-2">
                     <div className="flex flex-wrap items-center gap-2">
-                      {groupOptions.length > 0 && (
-                        <Select value={l.groupCode || "all"} onValueChange={(v) => onPickGroup(i, v === "all" ? "" : v)}>
-                          <SelectTrigger className="h-8 w-full sm:w-36"><SelectValue placeholder="Ürün Grubu" /></SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="all">Tüm gruplar</SelectItem>
-                            {groupOptions.map((g) => <SelectItem key={g.code} value={g.code}>{g.label}</SelectItem>)}
-                          </SelectContent>
-                        </Select>
-                      )}
                       <Select value={l.categoryCode || "all"} onValueChange={(v) => onPickCategory(i, v === "all" ? "" : v)}>
                         <SelectTrigger className="h-8 w-full sm:w-36"><SelectValue placeholder="Kategori" /></SelectTrigger>
                         <SelectContent>
                           <SelectItem value="all">Tüm kategoriler</SelectItem>
-                          {PRODUCT_CATEGORIES.map((c) => <SelectItem key={c.code} value={c.code}>{c.label}</SelectItem>)}
+                          {productCategoryOptions.map((c) => <SelectItem key={c.code} value={c.code}>{c.label}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                      <Select value={l.productId || "custom"} onValueChange={(v) => onPickProduct(i, v === "custom" ? "" : v)}>
+                        <SelectTrigger className="h-8 flex-1 min-w-[180px]"><SelectValue placeholder="Ürün seçin" /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="custom">Serbest kalem</SelectItem>
+                          {lineProducts.map((p: Product) => (
+                            <SelectItem key={p.id} value={p.id}>{p.brand} {p.model}</SelectItem>
+                          ))}
                         </SelectContent>
                       </Select>
                       {subcategoryOptions.length > 0 && (
@@ -953,15 +1058,24 @@ export function QuoteDialog({
                           </SelectContent>
                         </Select>
                       )}
-                      <Select value={l.productId || "custom"} onValueChange={(v) => onPickProduct(i, v === "custom" ? "" : v)}>
-                        <SelectTrigger className="h-8 flex-1 min-w-[180px]"><SelectValue placeholder="Ürün seçin" /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="custom">Serbest kalem</SelectItem>
-                          {lineProducts.map((p: Product) => (
-                            <SelectItem key={p.id} value={p.id}>{p.brand} {p.model}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                      {groupOptions.length > 0 && (
+                        <Select value={l.groupCode || "all"} onValueChange={(v) => onPickGroup(i, v === "all" ? "" : v)}>
+                          <SelectTrigger className="h-8 w-full sm:w-36"><SelectValue placeholder="Ürün Grubu" /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="all">Tüm gruplar</SelectItem>
+                            {groupOptions.map((g) => <SelectItem key={g.code} value={g.code}>{g.label}</SelectItem>)}
+                          </SelectContent>
+                        </Select>
+                      )}
+                      {typeOptions.length > 0 && (
+                        <Select value={l.productTypeCode || "all"} onValueChange={(v) => onPickType(i, v === "all" ? "" : v)}>
+                          <SelectTrigger className="h-8 w-full sm:w-44"><SelectValue placeholder="Ürün Tipi" /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="all">Tüm ürün tipleri</SelectItem>
+                            {typeOptions.map((t) => <SelectItem key={t.code} value={t.code}>{t.label}</SelectItem>)}
+                          </SelectContent>
+                        </Select>
+                      )}
                       <Button type="button" variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={() => rmLine(i)}>
                         <Trash2 className="size-4 text-muted-foreground" />
                       </Button>

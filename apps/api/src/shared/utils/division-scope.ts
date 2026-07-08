@@ -1,4 +1,4 @@
-import { inArray, sql, type AnyColumn, type SQL } from 'drizzle-orm';
+import { inArray, isNull, or, sql, type AnyColumn, type SQL } from 'drizzle-orm';
 import type { AuthContext } from '../security/auth.types';
 
 /**
@@ -40,6 +40,20 @@ export function divisionFilter(scope: DivisionScope, column: AnyColumn): SQL | u
   if (scope.mode === 'all') return undefined;
   if (scope.divisionIds.length === 0) return sql`1 = 0`;
   return inArray(column, scope.divisionIds);
+}
+
+/**
+ * `divisionFilter` ile aynı, ancak paylaşılan "Tümü" (NULL bölüm) kayıtlarını DA
+ * dahil eder — ürün listeleri / teknik bilgi şablonları gibi bölüme atanabilen ama
+ * bölümsüz de olabilen referans veriler için.
+ *  - `all`      → undefined (filtre yok).
+ *  - boş liste  → yalnızca paylaşılan (`column IS NULL`).
+ *  - dolu liste → `column IN (...) OR column IS NULL`.
+ */
+export function divisionFilterWithShared(scope: DivisionScope, column: AnyColumn): SQL | undefined {
+  if (scope.mode === 'all') return undefined;
+  if (scope.divisionIds.length === 0) return isNull(column);
+  return or(inArray(column, scope.divisionIds), isNull(column));
 }
 
 export function companyPortfolioFilter(scope: DivisionScope, companyIdColumn: AnyColumn): SQL | undefined {

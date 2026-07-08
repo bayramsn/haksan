@@ -1,5 +1,7 @@
-import { index, pgTable, uniqueIndex, varchar } from 'drizzle-orm/pg-core';
+import { index, pgTable, uniqueIndex, uuid, varchar } from 'drizzle-orm/pg-core';
+import { sql } from 'drizzle-orm';
 import { lookupColumns } from './_helpers';
+import { divisions } from './tenants';
 
 /**
  * Lookup / reference tables.
@@ -16,6 +18,28 @@ function makeLookup(name: string) {
   }));
 }
 
+/** "Tümü" (tüm bölümlerde geçerli) kayıtlarda `division_id` NULL olur. NULL'ları
+ *  benzersizlik açısından tek bir değere indirgemek için coalesce sentinel'i. */
+const ALL_DIVISIONS_SENTINEL = sql`coalesce(division_id, '00000000-0000-0000-0000-000000000000'::uuid)`;
+
+/**
+ * Bölüme (CNC / Üniversal / Sac İşleme) göre ayrılabilen lookup tablosu.
+ * `division_id` NULL ise kayıt tüm bölümlerde ("Tümü") geçerlidir. Kod tekliği
+ * (division, code) bazındadır; NULL bölümler de coalesce sentinel'i ile tekildir.
+ */
+function makeDivisionLookup(name: string) {
+  return pgTable(
+    name,
+    {
+      ...lookupColumns,
+      divisionId: uuid('division_id').references(() => divisions.id, { onDelete: 'set null' }),
+    },
+    (t) => ({
+      codeUnique: uniqueIndex(`${name}_division_code_unique`).on(ALL_DIVISIONS_SENTINEL, t.code),
+    })
+  );
+}
+
 export const pipelineStages = makeLookup('pipeline_stages');
 export const quoteStatuses = makeLookup('quote_statuses');
 export const salesOrderStatuses = makeLookup('sales_order_statuses');
@@ -28,11 +52,11 @@ export const companyGroups = makeLookup('company_groups');
 export const companySectors = makeLookup('company_sectors');
 export const contactSources = makeLookup('contact_sources');
 export const decisionRoles = makeLookup('decision_roles');
-export const productGroups = makeLookup('product_groups');
-export const productCategories = makeLookup('product_categories');
-export const productSubcategories = makeLookup('product_subcategories');
-export const productTypes = makeLookup('product_types');
-export const productSpecGroups = makeLookup('product_spec_groups');
+export const productGroups = makeDivisionLookup('product_groups');
+export const productCategories = makeDivisionLookup('product_categories');
+export const productSubcategories = makeDivisionLookup('product_subcategories');
+export const productTypes = makeDivisionLookup('product_types');
+export const productSpecGroups = makeDivisionLookup('product_spec_groups');
 export const equipmentTypes = makeLookup('equipment_types');
 export const inventoryStatuses = makeLookup('inventory_statuses');
 export const stockLocationStatuses = makeLookup('stock_location_statuses');

@@ -81,8 +81,8 @@ export class ProductsController {
 
   @RequirePermissions('products.read')
   @Get('product-spec-templates')
-  listSpecTemplates(@Query('productTypeCode') productTypeCode?: string) {
-    return this.svc.listSpecTemplates(productTypeCode);
+  listSpecTemplates(@CurrentUser() user: AuthContext, @Query('productTypeCode') productTypeCode?: string) {
+    return this.svc.listSpecTemplates(productTypeCode, user);
   }
 
   @RequirePermissions('products.read')

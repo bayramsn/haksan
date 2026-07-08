@@ -171,12 +171,13 @@ const CONTACT_SOURCE_OPTIONS = [
 
 type LookupRow = { id?: string; code: string; name: string; province?: string; sortOrder?: number; isActive?: boolean };
 
-function useLookupRows(name: string, fallback: LookupRow[] = []) {
+function useLookupRows(name: string, fallback: LookupRow[] = [], exactDivision = false) {
+  const { activeDivision } = useAuth();
   const [rows, setRows] = useState<LookupRow[]>(fallback);
   useEffect(() => {
     let alive = true;
     lookupService
-      .byName(name)
+      .byName(name, exactDivision ? { scope: "exact" } : undefined)
       .then((items) => {
         if (!alive) return;
         const normalized = (items ?? [])
@@ -188,7 +189,7 @@ function useLookupRows(name: string, fallback: LookupRow[] = []) {
     return () => {
       alive = false;
     };
-  }, [name]);
+  }, [name, activeDivision, exactDivision]);
   return rows;
 }
 
@@ -1857,6 +1858,8 @@ const PRODUCT_TYPE_GROUPS: Array<{ label: string; options: ProductTypeOption[] }
   },
 ];
 const PRODUCT_TYPE_OPTIONS = PRODUCT_TYPE_GROUPS.flatMap((g) => g.options);
+const PRODUCT_TYPE_META_BY_CODE = new Map(PRODUCT_TYPE_OPTIONS.map((option) => [option.code, option]));
+const PRODUCT_TYPE_GROUP_BY_CODE = new Map(PRODUCT_TYPE_GROUPS.flatMap((group) => group.options.map((option) => [option.code, group.label])));
 const PRODUCT_CURRENCIES: Array<{ code: "USD" | "TRY" | "EUR"; label: string }> = [
   { code: "USD", label: "USD" },
   { code: "TRY", label: "TL" },
@@ -1903,17 +1906,26 @@ const specsForSelectedProductType = (specs: ProductSpec[] = [], productTypeCode?
   return catalogSpecs(source, emptyValue, productTypeCode);
 };
 
-// Ürün Grubu → Ürün Kategorisi → Ürün Alt Kategorisi → Ürün Tipi sırasıyla daraltılır.
+// Ürün Kategorisi → Ürün → Ürün Alt Kategorisi → Ürün Grubu → Ürün Tipi sırasıyla daraltılır.
 // Alt kategori (İşleme Merkezi/Torna) her grupta geçerli olabilir (ör. Üniversal Torna, Sac İşleme
-// Tezgahı gerçek üründe de görülüyor); yalnızca Tip listesi katalogda tanımlı gruba göre daralır.
+// Tezgahı gerçek üründe de görülüyor); ürün tipi listesi katalogda tanımlı gruba göre daralır.
 // Tipin productGroupCode'u yoksa (Yedek Parça/Opsiyonel Donanım/İşçilik/Aksesuar gibi) her grupta geçerlidir.
 const typeMatchesGroup = (type: ProductTypeOption, groupCode?: string) =>
   !type.productGroupCode || !groupCode || type.productGroupCode === groupCode;
 
-const subcategoriesForProductCategory = (categoryCode: string) =>
-  PRODUCT_SUBCATEGORIES.filter((subcategory) =>
-    PRODUCT_TYPE_OPTIONS.some((type) => type.categoryCode === categoryCode && type.subcategoryCode === subcategory.code),
-  );
+const fallbackLookupRows = (options: ProductOption[]): LookupRow[] =>
+  options.map((option, index) => ({ code: option.code, name: option.label, sortOrder: index }));
+
+const subcategoriesForProductCategory = (
+  categoryCode: string,
+  productTypeOptions: ProductTypeOption[] = PRODUCT_TYPE_OPTIONS,
+  productSubcategoryOptions: ProductOption[] = PRODUCT_SUBCATEGORIES,
+) =>
+  categoryCode === "TEZGAH"
+    ? productSubcategoryOptions
+    : productSubcategoryOptions.filter((subcategory) =>
+        productTypeOptions.some((type) => (!type.categoryCode || type.categoryCode === categoryCode) && type.subcategoryCode === subcategory.code),
+      );
 
 type ProductFormState = {
   brand: string;
@@ -2103,6 +2115,54 @@ export function ProductDialog({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploadingImage, setUploadingImage] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const productGroupRows = useLookupRows("product-groups", [], true);
+  const productCategoryRows = useLookupRows("product-categories", fallbackLookupRows(PRODUCT_CATEGORIES), true);
+  const productSubcategoryRows = useLookupRows("product-subcategories", [], true);
+  const productTypeRows = useLookupRows("product-types", [], true);
+  const productGroupOptions = lookupCodeOptions(productGroupRows);
+  const productCategoryOptions = lookupCodeOptions(productCategoryRows);
+  const productSubcategoryOptions = lookupCodeOptions(productSubcategoryRows);
+  const productTypeOptions = useMemo<ProductTypeOption[]>(() => {
+    const labelByCode = new Map(productTypeRows.map((row) => [row.code, row.name]));
+    const byCode = new Map<string, ProductTypeOption>();
+    const put = (option: ProductTypeOption) => {
+      if (!option.code) return;
+      const current = byCode.get(option.code);
+      byCode.set(option.code, {
+        code: option.code,
+        label: option.label || current?.label || option.code,
+        categoryCode: option.categoryCode ?? current?.categoryCode,
+        subcategoryCode: option.subcategoryCode ?? current?.subcategoryCode,
+        productGroupCode: option.productGroupCode ?? current?.productGroupCode,
+      });
+    };
+    productTypeRows.forEach((row) => {
+      const meta = PRODUCT_TYPE_META_BY_CODE.get(row.code);
+      put({ ...(meta ?? {}), code: row.code, label: row.name });
+    });
+    products.forEach((product) => {
+      if (!product.productTypeCode) return;
+      const meta = PRODUCT_TYPE_META_BY_CODE.get(product.productTypeCode);
+      put({
+        code: product.productTypeCode,
+        label: labelByCode.get(product.productTypeCode) ?? product.type ?? product.productTypeCode,
+        categoryCode: product.categoryCode ?? meta?.categoryCode,
+        subcategoryCode: product.subcategoryCode ?? meta?.subcategoryCode,
+        productGroupCode: product.productGroupCode ?? meta?.productGroupCode,
+      });
+    });
+    if (form.productTypeCode) {
+      const meta = PRODUCT_TYPE_META_BY_CODE.get(form.productTypeCode);
+      put({
+        code: form.productTypeCode,
+        label: form.type || labelByCode.get(form.productTypeCode) || form.productTypeCode,
+        categoryCode: form.categoryCode || meta?.categoryCode,
+        subcategoryCode: form.subcategoryCode || meta?.subcategoryCode,
+        productGroupCode: form.productGroupCode || meta?.productGroupCode,
+      });
+    }
+    return Array.from(byCode.values());
+  }, [form.categoryCode, form.productGroupCode, form.productTypeCode, form.subcategoryCode, form.type, productTypeRows, products]);
 
   useEffect(() => {
     if (!open) return;
@@ -2192,37 +2252,44 @@ export function ProductDialog({
     setOptionalEquipmentDraft(optionalEquipmentDraftForMachine(form));
   };
 
-  const availableProductSubcategories = subcategoriesForProductCategory(form.categoryCode);
+  const availableProductSubcategories = subcategoriesForProductCategory(form.categoryCode, productTypeOptions, productSubcategoryOptions);
   const categoryUsesSubcategory = availableProductSubcategories.length > 0;
 
   // Ürün tipini seçili gruba, kategoriye ve (tezgahsa) alt kategoriye göre filtrele
   const typeMatches = (o: ProductTypeOption, categoryCode: string, subcategoryCode: string, groupCode?: string) => {
     if (!typeMatchesGroup(o, groupCode)) return false;
-    if (o.categoryCode !== categoryCode) return false;
-    if (subcategoriesForProductCategory(categoryCode).length > 0) return o.subcategoryCode === subcategoryCode;
+    if (o.categoryCode && o.categoryCode !== categoryCode) return false;
+    if (subcategoriesForProductCategory(categoryCode, productTypeOptions, productSubcategoryOptions).length > 0) {
+      return !o.subcategoryCode || o.subcategoryCode === subcategoryCode;
+    }
     return true;
   };
 
   const isTypeAllowed = (o: ProductTypeOption, categoryCode: string, subcategoryCode: string, groupCode?: string) =>
     typeMatches(o, categoryCode, subcategoryCode, groupCode);
 
-  const typeGroups = PRODUCT_TYPE_GROUPS
-    .map((group) => ({
-      label: group.label,
-      options: group.options.filter((o) => isTypeAllowed(o, form.categoryCode, form.subcategoryCode, form.productGroupCode)),
-    }))
+  const typeGroups = Array.from(
+    productTypeOptions
+      .filter((o) => isTypeAllowed(o, form.categoryCode, form.subcategoryCode, form.productGroupCode))
+      .reduce((groups, option) => {
+        const label = PRODUCT_TYPE_GROUP_BY_CODE.get(option.code) ??
+          (option.subcategoryCode ? findLabel(productSubcategoryOptions, option.subcategoryCode, "Diğer") : "Diğer");
+        groups.set(label, [...(groups.get(label) ?? []), option]);
+        return groups;
+      }, new Map<string, ProductTypeOption[]>()),
+    ([label, options]) => ({ label, options }),
+  )
     .filter((group) => group.options.length > 0);
-  const productCategoryOptions = PRODUCT_CATEGORIES;
   const isMachineProduct = form.categoryCode === "TEZGAH";
   const isOptionalEquipmentProduct = form.categoryCode === OPTIONAL_EQUIPMENT_CATEGORY_CODE;
   const isLaborProduct = form.categoryCode === "ISCILIK" || form.productTypeCode === "ISCILIK";
   const supplierOptions = customers.filter((c) => c.firmType === "supplier" || c.firmType === "supplier_customer");
-  const compatibilityGroupOptions = PRODUCT_GROUPS.map((o) => ({ value: o.code, label: o.label }));
-  const compatibilityCategoryOptions = PRODUCT_CATEGORIES
+  const compatibilityGroupOptions = productGroupOptions.map((o) => ({ value: o.code, label: o.label }));
+  const compatibilityCategoryOptions = productCategoryOptions
     .filter((o) => o.code !== OPTIONAL_EQUIPMENT_CATEGORY_CODE)
     .map((o) => ({ value: o.code, label: o.label }));
-  const compatibilitySubcategoryOptions = PRODUCT_SUBCATEGORIES.map((o) => ({ value: o.code, label: o.label }));
-  const compatibilityTypeOptions = PRODUCT_TYPE_OPTIONS
+  const compatibilitySubcategoryOptions = productSubcategoryOptions.map((o) => ({ value: o.code, label: o.label }));
+  const compatibilityTypeOptions = productTypeOptions
     .filter((o) => o.categoryCode === "TEZGAH")
     .map((o) => ({ value: o.code, label: o.label }));
   const compatibilityBrandOptions = brandRows.map((row) => ({ value: row.id, label: row.name }));
@@ -2272,7 +2339,7 @@ export function ProductDialog({
   const selectedMuadilIds = form.muadilProductIds.filter((id) => validMuadilIds.has(id));
   const selectedMuadils = muadilOptions.filter((p) => selectedMuadilIds.includes(p.id));
   const selectedProductTypeLabel = form.productTypeCode
-    ? PRODUCT_TYPE_OPTIONS.find((option) => option.code === form.productTypeCode)?.label ?? form.type
+    ? productTypeOptions.find((option) => option.code === form.productTypeCode)?.label ?? form.type
     : "";
   const selectedProductTypeTemplateCount = productSpecDefaults(form.productTypeCode).length;
   const technicalSpecGroups = useMemo(
@@ -2296,9 +2363,9 @@ export function ProductDialog({
     }));
   };
 
-  // Grup/kategori/alt kategori değişince mevcut ürün tipi artık uymuyorsa sıfırla
+  // Kategori / alt kategori / ürün grubu değişince mevcut ürün tipi artık uymuyorsa sıfırla.
   const keepTypeIfValid = (categoryCode: string, subcategoryCode: string, groupCode: string) => {
-    const opt = PRODUCT_TYPE_OPTIONS.find((o) => o.code === form.productTypeCode);
+    const opt = productTypeOptions.find((o) => o.code === form.productTypeCode);
     if (opt && isTypeAllowed(opt, categoryCode, subcategoryCode, groupCode)) {
       return { productTypeCode: form.productTypeCode, type: form.type };
     }
@@ -2310,13 +2377,13 @@ export function ProductDialog({
     specsForSelectedProductType(form.specs, kept.productTypeCode);
 
   const onProductGroupChange = (code: string) => {
-    // Ürün Grubu → Ürün Kategorisi → Ürün Alt Kategorisi → Ürün Tipi: grup değişince,
-    // katalogdaki Ürün Tipi seçili gruba artık uymuyorsa sıfırlanır.
+    // Ürün Kategorisi → Ürün → Ürün Alt Kategorisi → Ürün Grubu → Ürün Tipi:
+    // grup değişince katalogdaki ürün tipi seçili gruba artık uymuyorsa sıfırlanır.
     const kept = keepTypeIfValid(form.categoryCode, form.subcategoryCode, code);
     setForm({
       ...form,
       productGroupCode: code,
-      productGroup: findLabel(PRODUCT_GROUPS, code),
+      productGroup: findLabel(productGroupOptions, code),
       ...kept,
       brand: "",
       specs: specsAfterChange(kept),
@@ -2324,18 +2391,18 @@ export function ProductDialog({
   };
 
   const onCategoryChange = (code: string) => {
-    const subcategoryOptions = subcategoriesForProductCategory(code);
+    const subcategoryOptions = subcategoriesForProductCategory(code, productTypeOptions, productSubcategoryOptions);
     const usesSubcategory = subcategoryOptions.length > 0;
     const subcategoryCode = usesSubcategory && subcategoryOptions.some((option) => option.code === form.subcategoryCode)
       ? form.subcategoryCode
       : subcategoryOptions[0]?.code ?? "";
-    const subcategory = usesSubcategory ? findLabel(PRODUCT_SUBCATEGORIES, subcategoryCode, subcategoryOptions[0]?.label ?? "") : "";
+    const subcategory = usesSubcategory ? findLabel(productSubcategoryOptions, subcategoryCode, subcategoryOptions[0]?.label ?? "") : "";
     const machineType = code === "OPSIYONEL_DONANIM" ? form.compatibleMachineType : "";
     const kept = keepTypeIfValid(code, subcategoryCode, form.productGroupCode);
     setForm({
       ...form,
       categoryCode: code,
-      category: findLabel(PRODUCT_CATEGORIES, code),
+      category: findLabel(productCategoryOptions, code),
       subcategoryCode,
       subcategory,
       compatibleMachineType: machineType,
@@ -2355,7 +2422,7 @@ export function ProductDialog({
     setForm({
       ...form,
       subcategoryCode: code,
-      subcategory: findLabel(PRODUCT_SUBCATEGORIES, code),
+      subcategory: findLabel(productSubcategoryOptions, code),
       ...kept,
       brand: "",
       specs: specsAfterChange(kept),
@@ -2363,7 +2430,7 @@ export function ProductDialog({
   };
 
   const onTypeChange = (code: string) => {
-    const opt = PRODUCT_TYPE_OPTIONS.find((item) => item.code === code);
+    const opt = productTypeOptions.find((item) => item.code === code);
     if (!opt) return;
     const categoryCode = opt.categoryCode ?? form.categoryCode;
     const subcategoryCode = opt.subcategoryCode ?? form.subcategoryCode;
@@ -2372,9 +2439,9 @@ export function ProductDialog({
       productTypeCode: opt.code,
       type: opt.label,
       categoryCode,
-      category: findLabel(PRODUCT_CATEGORIES, categoryCode, form.category),
+      category: findLabel(productCategoryOptions, categoryCode, form.category),
       subcategoryCode,
-      subcategory: findLabel(PRODUCT_SUBCATEGORIES, subcategoryCode, form.subcategory),
+      subcategory: findLabel(productSubcategoryOptions, subcategoryCode, form.subcategory),
       brand: opt.code === form.productTypeCode ? form.brand : "",
       specs: specsForSelectedProductType(form.specs, opt.code),
     });
@@ -2481,18 +2548,6 @@ export function ProductDialog({
 
         <form onSubmit={submit} className="space-y-4">
           <div className="overflow-hidden rounded-lg border border-border/70 bg-white">
-            <ProductSheetRow label="Ürün Grubu">
-              <Select
-                value={form.productGroupCode}
-                onValueChange={onProductGroupChange}
-              >
-                <SelectTrigger className="h-8 max-w-xs"><SelectValue placeholder="Grup seçin" /></SelectTrigger>
-                <SelectContent>
-                  {PRODUCT_GROUPS.map((o) => <SelectItem key={o.code} value={o.code}>{o.label}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </ProductSheetRow>
-
             <ProductSheetRow label="Ürün Kategorisi">
               <Select value={form.categoryCode} onValueChange={onCategoryChange}>
                 <SelectTrigger className="h-8 max-w-xs"><SelectValue placeholder="Kategori seçin" /></SelectTrigger>
@@ -2500,6 +2555,10 @@ export function ProductDialog({
                   {productCategoryOptions.map((o) => <SelectItem key={o.code} value={o.code}>{o.label}</SelectItem>)}
                 </SelectContent>
               </Select>
+            </ProductSheetRow>
+
+            <ProductSheetRow label="Ürün">
+              <Input className="h-8" value={form.shortDescription} onChange={(e) => setForm({ ...form, shortDescription: e.target.value })} placeholder="Ürün adı" />
             </ProductSheetRow>
 
             {categoryUsesSubcategory && (
@@ -2512,6 +2571,18 @@ export function ProductDialog({
                 </Select>
               </ProductSheetRow>
             )}
+
+            <ProductSheetRow label="Ürün Grubu">
+              <Select
+                value={form.productGroupCode}
+                onValueChange={onProductGroupChange}
+              >
+                <SelectTrigger className="h-8 max-w-xs"><SelectValue placeholder="Grup seçin" /></SelectTrigger>
+                <SelectContent>
+                  {productGroupOptions.map((o) => <SelectItem key={o.code} value={o.code}>{o.label}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </ProductSheetRow>
 
             <ProductSheetRow label="Ürün Tipi">
               <Select value={form.productTypeCode} onValueChange={onTypeChange}>
@@ -2616,10 +2687,6 @@ export function ProductDialog({
                 </ProductSheetRow>
               </>
             )}
-
-            <ProductSheetRow label="Ürün Adı">
-              <Input className="h-8" value={form.shortDescription} onChange={(e) => setForm({ ...form, shortDescription: e.target.value })} placeholder="Ürün adı" />
-            </ProductSheetRow>
 
             <ProductSheetRow label="Ürün Para Birimi">
               <ChoiceGrid

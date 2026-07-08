@@ -1,6 +1,7 @@
 import { pgTable, uuid, varchar, text, boolean, integer, timestamp, index, uniqueIndex } from 'drizzle-orm/pg-core';
+import { sql } from 'drizzle-orm';
 import { auditColumns, money, percent } from './_helpers';
-import { tenants } from './tenants';
+import { tenants, divisions } from './tenants';
 import { companies } from './companies';
 import {
   productGroups,
@@ -158,6 +159,8 @@ export const productSpecTemplates = pgTable(
     specGroupCode: varchar('spec_group_code', { length: 64 }),
     defaultValue: text('default_value'),
     specUnit: varchar('spec_unit', { length: 64 }),
+    // Bölüm (CNC / Üniversal / Sac İşleme). NULL → tüm bölümlerde ("Tümü") geçerli.
+    divisionId: uuid('division_id').references(() => divisions.id, { onDelete: 'set null' }),
     sortOrder: integer('sort_order').notNull().default(0),
     isActive: boolean('is_active').notNull().default(true),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -168,7 +171,12 @@ export const productSpecTemplates = pgTable(
   },
   (t) => ({
     productTypeIdx: index('product_spec_templates_product_type_idx').on(t.productTypeCode),
-    productTypeKeyUnique: uniqueIndex('product_spec_templates_product_type_key_unique').on(t.productTypeCode, t.specKey),
+    // Teklik bölüm bazında: aynı (bölüm, tip, alan) tek kayıt. NULL bölümler coalesce ile tekil.
+    productTypeKeyUnique: uniqueIndex('product_spec_templates_division_type_key_unique').on(
+      sql`coalesce(division_id, '00000000-0000-0000-0000-000000000000'::uuid)`,
+      t.productTypeCode,
+      t.specKey,
+    ),
   })
 );
 

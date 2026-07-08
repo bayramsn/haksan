@@ -5,7 +5,7 @@ import { Input } from "../../ui/input";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "../../ui/accordion";
 import { Layers, Pencil, Plus, Search, Sparkles, Trash2 } from "lucide-react";
 import { toast } from "sonner";
-import { adminService } from "../../../../lib/services";
+import { adminService, lookupService } from "../../../../lib/services";
 import {
   HAKSAN_CNC_SPEC_KEYS,
   PRODUCT_SPEC_GROUPS,
@@ -20,6 +20,9 @@ import {
 } from "../../../lib/productSpecTemplates";
 import { MultiSelect } from "../../ui/multi-select";
 import { SettingsField, SettingsSection, SettingsSelect } from "./settings-controls";
+import { useAuth } from "../../../../lib/auth";
+import { useStore } from "../../../lib/store";
+import { ALL_DIVISIONS, isCncDivision, usePersistedSettingsDivision } from "./settings-division";
 
 // Opsiyonel donanım tipleri için katalog şablonu yoktur; bu tiplerin "etkilediği"
 // teknik alan, tüm tezgah teknik anahtarlarının birleşik listesinden seçilir
@@ -48,15 +51,18 @@ type SpecTemplateRow = {
   specGroupCode?: string | null;
   defaultValue?: string | null;
   specUnit?: string | null;
+  divisionId?: string | null;
   sortOrder?: number;
   isActive?: boolean;
 };
 
 type ProductOption = { code: string; label: string };
-type ProductTypeOption = ProductOption & { categoryCode: string; subcategoryCode?: string };
+type ProductTypeOption = ProductOption & { categoryCode?: string; subcategoryCode?: string; productGroupCode?: string };
 
 type SpecTemplateScope = {
+  productId: string;
   categoryCode: string;
+  productGroupCode: string;
   subcategoryCode: string;
   productTypeCode: string;
 };
@@ -70,6 +76,7 @@ type SpecDisplayRow = {
   sortOrder: number;
   groupCode: ProductSpecGroupCode;
   isActive: boolean;
+  divisionId?: string | null;
   dbRow?: SpecTemplateRow;
   catalogEntry?: MachineSpecTemplateEntry;
   catalogIndex: number;
@@ -85,6 +92,12 @@ const TEMPLATE_PRODUCT_CATEGORIES: ProductOption[] = [
   { code: "AKSESUAR", label: "Aksesuar" },
 ];
 
+const TEMPLATE_PRODUCT_GROUPS: ProductOption[] = [
+  { code: "CNC", label: "CNC" },
+  { code: "UNIVERSAL", label: "Üniversal" },
+  { code: "SAC_ISLEME", label: "Sac İşleme" },
+];
+
 const TEMPLATE_PRODUCT_SUBCATEGORIES: ProductOption[] = [
   { code: "ISLEME_MERKEZI", label: "İşleme Merkezi" },
   { code: "TORNA", label: "Torna" },
@@ -94,17 +107,17 @@ const TEMPLATE_PRODUCT_TYPE_GROUPS: Array<{ label: string; options: ProductTypeO
   {
     label: "İşleme Merkezi",
     options: [
-      { code: "CNC_DIK_ISLEME_MERKEZ", label: "CNC Dik İşleme Merkezi", categoryCode: "TEZGAH", subcategoryCode: "ISLEME_MERKEZI" },
-      { code: "CNC_KOPRU_TIPI_ISLEME_MERKEZI", label: "CNC Köprü Tipi İşleme Merkezi", categoryCode: "TEZGAH", subcategoryCode: "ISLEME_MERKEZI" },
-      { code: "CNC_5_EKSEN_ISLEME_MERKEZI", label: "CNC 5 Eksen İşleme Merkezi", categoryCode: "TEZGAH", subcategoryCode: "ISLEME_MERKEZI" },
-      { code: "CNC_TAPPING_CENTER", label: "CNC Tapping Center", categoryCode: "TEZGAH", subcategoryCode: "ISLEME_MERKEZI" },
+      { code: "CNC_DIK_ISLEME_MERKEZ", label: "CNC Dik İşleme Merkezi", categoryCode: "TEZGAH", subcategoryCode: "ISLEME_MERKEZI", productGroupCode: "CNC" },
+      { code: "CNC_KOPRU_TIPI_ISLEME_MERKEZI", label: "CNC Köprü Tipi İşleme Merkezi", categoryCode: "TEZGAH", subcategoryCode: "ISLEME_MERKEZI", productGroupCode: "CNC" },
+      { code: "CNC_5_EKSEN_ISLEME_MERKEZI", label: "CNC 5 Eksen İşleme Merkezi", categoryCode: "TEZGAH", subcategoryCode: "ISLEME_MERKEZI", productGroupCode: "CNC" },
+      { code: "CNC_TAPPING_CENTER", label: "CNC Tapping Center", categoryCode: "TEZGAH", subcategoryCode: "ISLEME_MERKEZI", productGroupCode: "CNC" },
     ],
   },
   {
     label: "Torna",
     options: [
-      { code: "CNC_YATAY_TORNA_TEZGAHI", label: "CNC Yatay Torna Tezgahı", categoryCode: "TEZGAH", subcategoryCode: "TORNA" },
-      { code: "CNC_DIK_TORNA_TEZGAHI", label: "CNC Dik Torna Tezgahı", categoryCode: "TEZGAH", subcategoryCode: "TORNA" },
+      { code: "CNC_YATAY_TORNA_TEZGAHI", label: "CNC Yatay Torna Tezgahı", categoryCode: "TEZGAH", subcategoryCode: "TORNA", productGroupCode: "CNC" },
+      { code: "CNC_DIK_TORNA_TEZGAHI", label: "CNC Dik Torna Tezgahı", categoryCode: "TEZGAH", subcategoryCode: "TORNA", productGroupCode: "CNC" },
     ],
   },
   {
@@ -138,9 +151,10 @@ const TEMPLATE_PRODUCT_TYPE_GROUPS: Array<{ label: string; options: ProductTypeO
 ];
 
 const TEMPLATE_PRODUCT_TYPES = TEMPLATE_PRODUCT_TYPE_GROUPS.flatMap((group) => group.options);
+const TEMPLATE_PRODUCT_TYPE_GROUP_BY_CODE = new Map(TEMPLATE_PRODUCT_TYPE_GROUPS.flatMap((group) => group.options.map((option) => [option.code, group.label])));
 
-const emptySpecForm = { productTypeCode: "", specKey: "", specGroupCode: "", defaultValue: "", specUnit: "", sortOrder: "0", isActive: true };
-const emptySpecScope: SpecTemplateScope = { categoryCode: "TEZGAH", subcategoryCode: "ISLEME_MERKEZI", productTypeCode: "" };
+const emptySpecForm = { productTypeCode: "", specKey: "", specGroupCode: "", defaultValue: "", specUnit: "", divisionId: "", sortOrder: "0", isActive: true };
+const emptySpecScope: SpecTemplateScope = { productId: "", categoryCode: "TEZGAH", productGroupCode: "CNC", subcategoryCode: "ISLEME_MERKEZI", productTypeCode: "" };
 
 // Eski şablon kayıtları bu ürün tipi kodlarıyla saklanmış olabilir; güncel kodlara eşlenir.
 const LEGACY_PRODUCT_TYPE_ALIASES: Record<string, string> = {
@@ -168,32 +182,76 @@ const resolveRowGroupCode = (row: SpecTemplateRow): ProductSpecGroupCode => {
 
 const seedValueFromEntry = (value: string) => (value && value !== "-" ? value : undefined);
 
-const subcategoriesForCategory = (categoryCode: string) => {
+type LookupRow = { code: string; name: string };
+const fallbackLookupRows = (options: ProductOption[]): LookupRow[] => options.map((option) => ({ code: option.code, name: option.label }));
+const lookupCodeOptions = (rows: LookupRow[]) => rows.map((row) => ({ code: row.code, label: row.name }));
+const findLabel = (options: ProductOption[], code: string, fallback = "") =>
+  options.find((option) => option.code === code)?.label ?? fallback;
+
+function useProductLookupRows(name: string, fallback: ProductOption[], divisionId?: string, includeShared = false) {
+  const allowFallback = !divisionId;
+  const [rows, setRows] = useState<LookupRow[]>(() => (allowFallback ? fallbackLookupRows(fallback) : []));
+  useEffect(() => {
+    let alive = true;
+    const fallbackRows = allowFallback ? fallbackLookupRows(fallback) : [];
+    lookupService
+      .byName(name, divisionId ? { divisionId, scope: includeShared ? undefined : "exact" } : undefined)
+      .then((items) => {
+        if (!alive) return;
+        const normalized = (items ?? [])
+          .map((item: any) => ({ code: String(item.code ?? ""), name: String(item.name ?? "") }))
+          .filter((item: LookupRow) => item.code && item.name);
+        setRows(normalized.length ? normalized : fallbackRows);
+      })
+      .catch(() => alive && setRows(fallbackRows));
+    return () => {
+      alive = false;
+    };
+  }, [name, divisionId, includeShared, allowFallback]);
+  return rows;
+}
+
+const subcategoriesForCategory = (
+  categoryCode: string,
+  productTypeOptions: ProductTypeOption[] = TEMPLATE_PRODUCT_TYPES,
+  productSubcategoryOptions: ProductOption[] = TEMPLATE_PRODUCT_SUBCATEGORIES,
+) => {
   const subcategoryCodes = new Set(
-    TEMPLATE_PRODUCT_TYPES.filter((item) => item.categoryCode === categoryCode && item.subcategoryCode).map((item) => item.subcategoryCode!),
+    productTypeOptions
+      .filter((item) => (!item.categoryCode || item.categoryCode === categoryCode) && item.subcategoryCode)
+      .map((item) => item.subcategoryCode!),
   );
-  return TEMPLATE_PRODUCT_SUBCATEGORIES.filter((item) => subcategoryCodes.has(item.code));
+  return productSubcategoryOptions.filter((item) => subcategoryCodes.has(item.code));
 };
 
-const productTypesForScope = (categoryCode: string, subcategoryCode: string) => {
-  const categorySubcategories = subcategoriesForCategory(categoryCode);
-  return TEMPLATE_PRODUCT_TYPES.filter((item) => {
-    if (item.categoryCode !== categoryCode) return false;
-    if (!categorySubcategories.length) return true;
-    return item.subcategoryCode === subcategoryCode;
+const productTypesForScope = (
+  categoryCode: string,
+  subcategoryCode: string,
+  productGroupCode: string,
+  productTypeOptions: ProductTypeOption[] = TEMPLATE_PRODUCT_TYPES,
+  productSubcategoryOptions: ProductOption[] = TEMPLATE_PRODUCT_SUBCATEGORIES,
+) => {
+  const categorySubcategories = subcategoriesForCategory(categoryCode, productTypeOptions, productSubcategoryOptions);
+  return productTypeOptions.filter((item) => {
+    if (item.categoryCode && item.categoryCode !== categoryCode) return false;
+    if (categorySubcategories.length && item.subcategoryCode && item.subcategoryCode !== subcategoryCode) return false;
+    if (item.productGroupCode && productGroupCode && item.productGroupCode !== productGroupCode) return false;
+    return true;
   });
 };
 
 const scopeForCategory = (categoryCode: string): SpecTemplateScope => {
   const [firstSubcategory] = subcategoriesForCategory(categoryCode);
-  return { categoryCode, subcategoryCode: firstSubcategory?.code ?? "", productTypeCode: "" };
+  return { productId: "", categoryCode, productGroupCode: "", subcategoryCode: firstSubcategory?.code ?? "", productTypeCode: "" };
 };
 
 const scopeForProductType = (productTypeCode: string): SpecTemplateScope => {
   const productType = productTypeByCode(productTypeCode);
   if (!productType) return emptySpecScope;
   return {
-    categoryCode: productType.categoryCode,
+    productId: "",
+    categoryCode: productType.categoryCode ?? emptySpecScope.categoryCode,
+    productGroupCode: productType.productGroupCode ?? "",
     subcategoryCode: productType.subcategoryCode ?? "",
     productTypeCode: productType.code,
   };
@@ -208,17 +266,112 @@ export function ProductSpecTemplatesCard() {
   const [search, setSearch] = useState("");
   // Yeni teknik alanın uygulanacağı ürün tipleri (çoklu seçim). Düzenlemede tek tip.
   const [specTargetTypes, setSpecTargetTypes] = useState<string[]>([]);
+  // Bölüm (CNC / Üniversal / Sac İşleme) filtresi. "all" → Tümü (paylaşılan dahil hepsi).
+  const { user } = useAuth();
+  const { products } = useStore();
+  const divisions = user?.divisions ?? [];
+  const [specDivisionId, setSpecDivisionId] = usePersistedSettingsDivision();
+  const selectedDivisionId = specDivisionId === ALL_DIVISIONS ? undefined : specDivisionId;
+  const selectedDivisionIncludesShared = isCncDivision(divisions, specDivisionId);
+  const divisionLabel = (id?: string | null) => (id ? divisions.find((d) => d.id === id)?.name ?? "Bölüm" : "Tümü");
+  const divisionOptions = [{ value: ALL_DIVISIONS, label: "Tümü" }, ...divisions.map((d) => ({ value: d.id, label: d.name }))];
+  const productCategoryRows = useProductLookupRows("product-categories", TEMPLATE_PRODUCT_CATEGORIES, selectedDivisionId, selectedDivisionIncludesShared);
+  const productGroupRows = useProductLookupRows("product-groups", TEMPLATE_PRODUCT_GROUPS, selectedDivisionId, selectedDivisionIncludesShared);
+  const productSubcategoryRows = useProductLookupRows("product-subcategories", TEMPLATE_PRODUCT_SUBCATEGORIES, selectedDivisionId, selectedDivisionIncludesShared);
+  const productTypeRows = useProductLookupRows("product-types", TEMPLATE_PRODUCT_TYPES, selectedDivisionId, selectedDivisionIncludesShared);
+  const productCategoryOptions = useMemo(() => lookupCodeOptions(productCategoryRows), [productCategoryRows]);
+  const productGroupOptions = useMemo(() => lookupCodeOptions(productGroupRows), [productGroupRows]);
+  const productSubcategoryOptions = useMemo(() => lookupCodeOptions(productSubcategoryRows), [productSubcategoryRows]);
+  const scopedProducts = useMemo(() => {
+    if (!selectedDivisionId) return products;
+    const categoryCodes = new Set(productCategoryRows.map((row) => row.code));
+    const groupCodes = new Set(productGroupRows.map((row) => row.code));
+    const subcategoryCodes = new Set(productSubcategoryRows.map((row) => row.code));
+    const typeCodes = new Set(productTypeRows.map((row) => row.code));
+    const hasScopedRows = categoryCodes.size || groupCodes.size || subcategoryCodes.size || typeCodes.size;
+    if (!hasScopedRows) return [];
+    return products.filter((product) => {
+      if (categoryCodes.size && (!product.categoryCode || !categoryCodes.has(product.categoryCode))) return false;
+      if (groupCodes.size && (!product.productGroupCode || !groupCodes.has(product.productGroupCode))) return false;
+      if (subcategoryCodes.size && (!product.subcategoryCode || !subcategoryCodes.has(product.subcategoryCode))) return false;
+      if (typeCodes.size && (!product.productTypeCode || !typeCodes.has(product.productTypeCode))) return false;
+      return true;
+    });
+  }, [productCategoryRows, productGroupRows, productSubcategoryRows, productTypeRows, products, selectedDivisionId]);
+  const productTypeOptions = useMemo<ProductTypeOption[]>(() => {
+    const templateByCode = new Map(TEMPLATE_PRODUCT_TYPES.map((option) => [option.code, option]));
+    const byCode = new Map<string, ProductTypeOption>();
+    const put = (option: ProductTypeOption) => {
+      if (!option.code) return;
+      const current = byCode.get(option.code);
+      byCode.set(option.code, {
+        code: option.code,
+        label: option.label || current?.label || option.code,
+        categoryCode: option.categoryCode ?? current?.categoryCode,
+        subcategoryCode: option.subcategoryCode ?? current?.subcategoryCode,
+        productGroupCode: option.productGroupCode ?? current?.productGroupCode,
+      });
+    };
+    if (!selectedDivisionId) {
+      TEMPLATE_PRODUCT_TYPES.forEach((option) => put(option));
+    }
+    productTypeRows.forEach((row) => {
+      const template = templateByCode.get(canonicalProductTypeCode(row.code));
+      put({
+        code: row.code,
+        label: row.name,
+        categoryCode: template?.categoryCode,
+        subcategoryCode: template?.subcategoryCode,
+        productGroupCode: template?.productGroupCode,
+      });
+    });
+    scopedProducts.forEach((product) => {
+      if (!product.productTypeCode) return;
+      put({
+        code: product.productTypeCode,
+        label: productTypeRows.find((row) => row.code === product.productTypeCode)?.name ?? product.type ?? product.productTypeCode,
+        categoryCode: product.categoryCode,
+        subcategoryCode: product.subcategoryCode,
+        productGroupCode: product.productGroupCode,
+      });
+    });
+    return Array.from(byCode.values());
+  }, [productTypeRows, scopedProducts, selectedDivisionId]);
 
-  const availableSpecSubcategories = useMemo(() => subcategoriesForCategory(specScope.categoryCode), [specScope.categoryCode]);
+  const availableSpecProducts = useMemo(
+    () =>
+      scopedProducts
+        .filter((product) => !specScope.categoryCode || product.categoryCode === specScope.categoryCode)
+        .map((product) => ({
+          value: product.id,
+          label: [product.brand, product.model].filter(Boolean).join(" ").trim() || product.shortDescription || product.stockCode || "Ürün",
+        }))
+        .sort((a, b) => a.label.localeCompare(b.label, "tr-TR", { numeric: true })),
+    [scopedProducts, specScope.categoryCode],
+  );
+  const availableSpecSubcategories = useMemo(
+    () => subcategoriesForCategory(specScope.categoryCode, productTypeOptions, productSubcategoryOptions),
+    [productSubcategoryOptions, productTypeOptions, specScope.categoryCode],
+  );
+  const availableSpecProductGroups = useMemo(() => {
+    const usedCodes = new Set(
+      scopedProducts
+        .filter((product) => (!specScope.categoryCode || product.categoryCode === specScope.categoryCode) && (!specScope.subcategoryCode || product.subcategoryCode === specScope.subcategoryCode))
+        .map((product) => product.productGroupCode)
+        .filter(Boolean),
+    );
+    const options = productGroupOptions.filter((option) => !usedCodes.size || usedCodes.has(option.code));
+    return options.length ? options : productGroupOptions;
+  }, [productGroupOptions, scopedProducts, specScope.categoryCode, specScope.subcategoryCode]);
   const availableSpecProductTypes = useMemo(
-    () => productTypesForScope(specScope.categoryCode, specScope.subcategoryCode),
-    [specScope.categoryCode, specScope.subcategoryCode],
+    () => productTypesForScope(specScope.categoryCode, specScope.subcategoryCode, specScope.productGroupCode, productTypeOptions, productSubcategoryOptions),
+    [productSubcategoryOptions, productTypeOptions, specScope.categoryCode, specScope.productGroupCode, specScope.subcategoryCode],
   );
 
   const loadSpecTemplates = async () => {
     setSpecBusy(true);
     try {
-      setSpecRows(await adminService.productSpecTemplates());
+      setSpecRows(await adminService.productSpecTemplates(undefined, selectedDivisionId, selectedDivisionId && !selectedDivisionIncludesShared ? "exact" : undefined));
     } catch (err: any) {
       toast.error("Teknik bilgi şablonları yüklenemedi", { description: err?.message ?? "API isteği başarısız oldu." });
     } finally {
@@ -228,7 +381,40 @@ export function ProductSpecTemplatesCard() {
 
   useEffect(() => {
     void loadSpecTemplates();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [specDivisionId, selectedDivisionIncludesShared]);
+
+  useEffect(() => {
+    setSpecScope((current) => {
+      const categoryCode = current.categoryCode && productCategoryOptions.some((item) => item.code === current.categoryCode)
+        ? current.categoryCode
+        : productCategoryOptions[0]?.code ?? "";
+      const subcategoryCode = current.subcategoryCode && productSubcategoryOptions.some((item) => item.code === current.subcategoryCode)
+        ? current.subcategoryCode
+        : "";
+      const productGroupCode = current.productGroupCode && productGroupOptions.some((item) => item.code === current.productGroupCode)
+        ? current.productGroupCode
+        : "";
+      const productTypeCode = current.productTypeCode && productTypeOptions.some((item) => item.code === current.productTypeCode)
+        ? current.productTypeCode
+        : "";
+      const productId = current.productId && scopedProducts.some((item) => item.id === current.productId) ? current.productId : "";
+      if (
+        categoryCode === current.categoryCode &&
+        subcategoryCode === current.subcategoryCode &&
+        productGroupCode === current.productGroupCode &&
+        productTypeCode === current.productTypeCode &&
+        productId === current.productId
+      ) {
+        return current;
+      }
+      setSearch("");
+      setEditingSpecId(null);
+      setSpecTargetTypes(productTypeCode ? [productTypeCode] : []);
+      setSpecForm({ ...emptySpecForm, productTypeCode, divisionId: selectedDivisionId ?? "" });
+      return { productId, categoryCode, productGroupCode, subcategoryCode, productTypeCode };
+    });
+  }, [productCategoryOptions, productGroupOptions, productSubcategoryOptions, productTypeOptions, scopedProducts, selectedDivisionId]);
 
   // Seçili ürün tipinin DB satırları.
   const typeDbRows = useMemo(
@@ -261,6 +447,7 @@ export function ProductSpecTemplatesCard() {
       sortOrder: row.sortOrder ?? 0,
       groupCode: resolveRowGroupCode(row),
       isActive: row.isActive !== false,
+      divisionId: row.divisionId ?? null,
       dbRow: row,
       catalogIndex: catalogIndexByKey.get(normalizeProductSpecKey(row.specKey)) ?? Number.MAX_SAFE_INTEGER,
     }));
@@ -318,8 +505,8 @@ export function ProductSpecTemplatesCard() {
 
   // Şablonu olan tezgahlarda alan etiketi katalogdan seçilir; birim sabit gelir.
   const specFormCategoryCode = useMemo(
-    () => productTypeByCode(specForm.productTypeCode)?.categoryCode ?? "",
-    [specForm.productTypeCode],
+    () => productTypeOptions.find((item) => item.code === specForm.productTypeCode)?.categoryCode ?? "",
+    [productTypeOptions, specForm.productTypeCode],
   );
   const specTemplateOptions = useMemo(() => {
     const entries = specEntriesForType(specFormCategoryCode, specForm.productTypeCode);
@@ -347,24 +534,93 @@ export function ProductSpecTemplatesCard() {
 
   const resetSpecTemplateForm = (productTypeCode = specScope.productTypeCode) => {
     setEditingSpecId(null);
-    setSpecForm({ ...emptySpecForm, productTypeCode });
+    // Yeni alan varsayılan olarak filtrede seçili bölüme atanır (Tümü → boş).
+    setSpecForm({ ...emptySpecForm, productTypeCode, divisionId: selectedDivisionId ?? "" });
     setSpecTargetTypes(productTypeCode ? [productTypeCode] : []);
   };
 
   const changeSpecCategory = (categoryCode: string) => {
-    setSpecScope(scopeForCategory(categoryCode));
+    if (!categoryCode) {
+      setSpecScope({ productId: "", categoryCode: "", productGroupCode: "", subcategoryCode: "", productTypeCode: "" });
+      resetSpecTemplateForm("");
+      setSearch("");
+      return;
+    }
+    const [firstSubcategory] = subcategoriesForCategory(categoryCode, productTypeOptions, productSubcategoryOptions);
+    setSpecScope({ productId: "", categoryCode, productGroupCode: "", subcategoryCode: firstSubcategory?.code ?? "", productTypeCode: "" });
     resetSpecTemplateForm("");
+    setSearch("");
+  };
+
+  const changeSpecProduct = (productId: string) => {
+    const product = scopedProducts.find((item) => item.id === productId);
+    if (!product) {
+      setSpecScope((current) => ({ ...current, productId: "", productTypeCode: "" }));
+      resetSpecTemplateForm("");
+      setSearch("");
+      return;
+    }
+    const productTypeCode = product.productTypeCode ?? "";
+    setSpecScope({
+      productId,
+      categoryCode: product.categoryCode || specScope.categoryCode,
+      productGroupCode: product.productGroupCode || "",
+      subcategoryCode: product.subcategoryCode || "",
+      productTypeCode,
+    });
+    resetSpecTemplateForm(productTypeCode);
     setSearch("");
   };
 
   const changeSpecSubcategory = (subcategoryCode: string) => {
-    setSpecScope({ categoryCode: specScope.categoryCode, subcategoryCode, productTypeCode: "" });
-    resetSpecTemplateForm("");
+    const selectedProduct = scopedProducts.find((item) => item.id === specScope.productId);
+    const keepProduct = selectedProduct && (selectedProduct.subcategoryCode || "") === subcategoryCode;
+    const productTypeCode = keepProduct ? specScope.productTypeCode : "";
+    setSpecScope({
+      ...specScope,
+      productId: keepProduct ? specScope.productId : "",
+      subcategoryCode,
+      productGroupCode: keepProduct ? specScope.productGroupCode : "",
+      productTypeCode,
+    });
+    resetSpecTemplateForm(productTypeCode);
+    setSearch("");
+  };
+
+  const changeSpecProductGroup = (productGroupCode: string) => {
+    const selectedProduct = scopedProducts.find((item) => item.id === specScope.productId);
+    const keepProduct = selectedProduct && (selectedProduct.productGroupCode || "") === productGroupCode;
+    const currentType = productTypeOptions.find((item) => item.code === specScope.productTypeCode);
+    const keepType = currentType && (!currentType.productGroupCode || currentType.productGroupCode === productGroupCode);
+    const productTypeCode = keepProduct ? specScope.productTypeCode : keepType ? specScope.productTypeCode : "";
+    setSpecScope({ ...specScope, productId: keepProduct ? specScope.productId : "", productGroupCode, productTypeCode });
+    resetSpecTemplateForm(productTypeCode);
+    setSearch("");
+  };
+
+  const changeSpecDivision = (divisionId: string) => {
+    const nextDivisionId = divisionId === ALL_DIVISIONS ? undefined : divisionId;
+    setSpecDivisionId(divisionId);
+    setSpecScope({ productId: "", categoryCode: "", productGroupCode: "", subcategoryCode: "", productTypeCode: "" });
+    setSpecForm({ ...emptySpecForm, divisionId: nextDivisionId ?? "" });
+    setSpecTargetTypes([]);
+    setEditingSpecId(null);
     setSearch("");
   };
 
   const changeSpecProductType = (productTypeCode: string) => {
-    setSpecScope(productTypeCode ? scopeForProductType(productTypeCode) : { ...specScope, productTypeCode: "" });
+    const productType = productTypeOptions.find((item) => item.code === productTypeCode);
+    setSpecScope(
+      productTypeCode && productType
+        ? {
+            productId: "",
+            categoryCode: productType.categoryCode || specScope.categoryCode,
+            productGroupCode: productType.productGroupCode || specScope.productGroupCode,
+            subcategoryCode: productType.subcategoryCode || specScope.subcategoryCode,
+            productTypeCode: productType.code,
+          }
+        : { ...specScope, productId: "", productTypeCode: "" },
+    );
     resetSpecTemplateForm(productTypeCode);
     setSearch("");
   };
@@ -372,12 +628,14 @@ export function ProductSpecTemplatesCard() {
   const submitSpecTemplate = async () => {
     const productTypeCode = specForm.productTypeCode.trim();
     if (!productTypeCode || !specForm.specKey.trim()) return toast.error("Ürün tipi ve teknik alan zorunludur");
+    const formDivisionId = selectedDivisionId ?? (specForm.divisionId || null);
     const body = {
       productTypeCode,
       specKey: specForm.specKey.trim(),
       specGroupCode: specForm.specGroupCode || undefined,
       defaultValue: specForm.defaultValue || undefined,
       specUnit: specForm.specUnit || undefined,
+      divisionId: formDivisionId,
       sortOrder: Number(specForm.sortOrder || 0),
       isActive: specForm.isActive,
     };
@@ -399,7 +657,7 @@ export function ProductSpecTemplatesCard() {
           toast.success("Teknik alan eklendi");
         }
       }
-      setSpecForm({ ...emptySpecForm, productTypeCode });
+      setSpecForm({ ...emptySpecForm, productTypeCode, divisionId: formDivisionId ?? "" });
       setSpecTargetTypes(productTypeCode ? [productTypeCode] : []);
       setEditingSpecId(null);
       await loadSpecTemplates();
@@ -421,6 +679,7 @@ export function ProductSpecTemplatesCard() {
         specGroupCode: entry.group,
         defaultValue: seedValueFromEntry(entry.value),
         specUnit: entry.unit || undefined,
+        divisionId: specDivisionId === ALL_DIVISIONS ? null : specDivisionId,
         sortOrder: row.catalogIndex === Number.MAX_SAFE_INTEGER ? 0 : row.catalogIndex,
         isActive: true,
       });
@@ -443,6 +702,7 @@ export function ProductSpecTemplatesCard() {
         specGroupCode: entry.group,
         defaultValue: seedValueFromEntry(entry.value),
         specUnit: entry.unit || undefined,
+        divisionId: specDivisionId === ALL_DIVISIONS ? null : specDivisionId,
         sortOrder: index < 0 ? 0 : index,
         isActive: true,
       };
@@ -462,15 +722,28 @@ export function ProductSpecTemplatesCard() {
   };
 
   const editSpecTemplate = (row: SpecTemplateRow) => {
+    const productTypeCode = canonicalProductTypeCode(row.productTypeCode);
+    const productType = productTypeOptions.find((item) => item.code === productTypeCode);
     setEditingSpecId(row.id);
-    setSpecTargetTypes([canonicalProductTypeCode(row.productTypeCode)]);
-    setSpecScope(scopeForProductType(row.productTypeCode));
+    setSpecTargetTypes([productTypeCode]);
+    setSpecScope(
+      productType
+        ? {
+            productId: "",
+            categoryCode: productType.categoryCode || specScope.categoryCode,
+            productGroupCode: productType.productGroupCode || specScope.productGroupCode,
+            subcategoryCode: productType.subcategoryCode || specScope.subcategoryCode,
+            productTypeCode,
+          }
+        : scopeForProductType(row.productTypeCode),
+    );
     setSpecForm({
-      productTypeCode: canonicalProductTypeCode(row.productTypeCode),
+      productTypeCode,
       specKey: row.specKey,
       specGroupCode: row.specGroupCode ?? "",
       defaultValue: row.defaultValue ?? "",
       specUnit: row.specUnit ?? "",
+      divisionId: row.divisionId ?? "",
       sortOrder: String(row.sortOrder ?? 0),
       isActive: row.isActive !== false,
     });
@@ -494,6 +767,7 @@ export function ProductSpecTemplatesCard() {
   const hasCatalog = catalogEntries.length > 0;
   const registeredCount = typeDbRows.length;
   const openGroupValues = groupedDisplay.map((item) => item.group.code);
+  const selectedSpecProductTypeLabel = productTypeOptions.find((item) => item.code === specScope.productTypeCode)?.label ?? productTypeLabel(specScope.productTypeCode);
 
   return (
     <SettingsSection
@@ -505,15 +779,33 @@ export function ProductSpecTemplatesCard() {
     >
         {/* Yapışkan filtre çubuğu: kaydırırken kapsam seçimi görünür kalır. */}
         <div className="sticky top-0 z-10 -mx-5 border-b border-border/60 bg-card/95 px-5 py-3 backdrop-blur supports-[backdrop-filter]:bg-card/80">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+          <div className="grid grid-cols-1 md:grid-cols-6 gap-2">
             <SettingsSelect
-              label="Üst Grup"
-              value={specScope.categoryCode}
-              onChange={changeSpecCategory}
-              options={TEMPLATE_PRODUCT_CATEGORIES.map((item) => ({ value: item.code, label: item.label }))}
+              label="Bölüm"
+              value={specDivisionId}
+              onChange={changeSpecDivision}
+              options={divisionOptions}
             />
             <SettingsSelect
-              label="Alt Grup"
+              label="Ürün Kategorisi"
+              value={specScope.categoryCode}
+              onChange={changeSpecCategory}
+              options={[
+                { value: "", label: "Kategori seçin" },
+                ...productCategoryOptions.map((item) => ({ value: item.code, label: item.label })),
+              ]}
+            />
+            <SettingsSelect
+              label="Ürün"
+              value={specScope.productId}
+              onChange={changeSpecProduct}
+              options={[
+                { value: "", label: "Tüm ürünler" },
+                ...availableSpecProducts,
+              ]}
+            />
+            <SettingsSelect
+              label="Ürün Alt Kategorisi"
               value={specScope.subcategoryCode}
               onChange={changeSpecSubcategory}
               disabled={!availableSpecSubcategories.length}
@@ -524,7 +816,16 @@ export function ProductSpecTemplatesCard() {
               }
             />
             <SettingsSelect
-              label="Ürün Tipi"
+              label="Ürün Grupları"
+              value={specScope.productGroupCode}
+              onChange={changeSpecProductGroup}
+              options={[
+                { value: "", label: "Tüm gruplar" },
+                ...availableSpecProductGroups.map((item) => ({ value: item.code, label: item.label })),
+              ]}
+            />
+            <SettingsSelect
+              label="Ürün Tipleri"
               value={specScope.productTypeCode}
               onChange={changeSpecProductType}
               options={[
@@ -548,7 +849,7 @@ export function ProductSpecTemplatesCard() {
             <div className="flex flex-col gap-3 rounded-lg border border-border/60 bg-muted/20 p-3 sm:flex-row sm:items-center sm:justify-between">
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-sm font-semibold">{productTypeLabel(specScope.productTypeCode)}</span>
+                  <span className="text-sm font-semibold">{selectedSpecProductTypeLabel}</span>
                   <Badge variant="secondary">{registeredCount} kayıtlı</Badge>
                   {hasCatalog && missingCatalogEntries.length > 0 && (
                     <Badge variant="outline" className="border-warning/40 bg-warning-soft text-warning">
@@ -605,6 +906,11 @@ export function ProductSpecTemplatesCard() {
                     ...PRODUCT_SPEC_GROUPS.map((group) => ({ value: group.code, label: group.label })),
                   ]}
                 />
+                <div className="flex items-end">
+                  <div className="w-full rounded-md border border-border/60 bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+                    Teknik alan <span className="font-medium text-foreground">{divisionLabel(selectedDivisionId)}</span> seçimine göre kaydedilecek.
+                  </div>
+                </div>
                 <SettingsField label="Başlangıç Değeri" value={specForm.defaultValue} onChange={(v) => setSpecForm({ ...specForm, defaultValue: v })} />
                 <SettingsField
                   label="Birim"
@@ -667,7 +973,7 @@ export function ProductSpecTemplatesCard() {
                         </div>
                       </AccordionTrigger>
                       <AccordionContent className="px-0">
-                        <SpecGroupTable rows={rows} onAdd={addCatalogEntry} onEdit={editSpecTemplate} onDelete={deleteSpecTemplate} disabled={specBusy} />
+                        <SpecGroupTable rows={rows} onAdd={addCatalogEntry} onEdit={editSpecTemplate} onDelete={deleteSpecTemplate} disabled={specBusy} divisionLabel={divisionLabel} />
                       </AccordionContent>
                     </AccordionItem>
                   );
@@ -701,21 +1007,24 @@ function SpecGroupTable({
   onEdit,
   onDelete,
   disabled,
+  divisionLabel,
 }: {
   rows: SpecDisplayRow[];
   onAdd: (row: SpecDisplayRow) => void;
   onEdit: (row: SpecTemplateRow) => void;
   onDelete: (row: SpecTemplateRow) => void;
   disabled: boolean;
+  divisionLabel: (id?: string | null) => string;
 }) {
   return (
     <div className="min-w-0 overflow-x-auto pb-2">
-      <table className="w-full min-w-[640px] text-sm">
+      <table className="w-full min-w-[720px] text-sm">
         <thead className="bg-muted/20 text-left text-[11px] uppercase text-muted-foreground">
           <tr>
             <th className="px-3 py-2">Alan</th>
             <th className="px-3 py-2">Başlangıç Değeri</th>
             <th className="px-3 py-2">Birim</th>
+            <th className="px-3 py-2">Bölüm</th>
             <th className="px-3 py-2">Sıra</th>
             <th className="px-3 py-2">Durum</th>
             <th className="px-3 py-2 text-right">İşlem</th>
@@ -739,6 +1048,15 @@ function SpecGroupTable({
                 </td>
                 <td className="px-3 py-2">{row.defaultValue && row.defaultValue !== "-" ? row.defaultValue : "-"}</td>
                 <td className="px-3 py-2">{row.specUnit || "-"}</td>
+                <td className="px-3 py-2">
+                  {isCatalogOnly ? (
+                    "-"
+                  ) : (
+                    <Badge variant={row.divisionId ? "secondary" : "outline"} className={row.divisionId ? "" : "text-muted-foreground"}>
+                      {divisionLabel(row.divisionId)}
+                    </Badge>
+                  )}
+                </td>
                 <td className="px-3 py-2 tabular-nums">{isCatalogOnly ? "-" : row.sortOrder}</td>
                 <td className="px-3 py-2">
                   {isCatalogOnly ? (

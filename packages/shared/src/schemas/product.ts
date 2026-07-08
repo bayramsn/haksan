@@ -55,6 +55,8 @@ export const productSpecTemplateCreateSchema = z.object({
   specGroupCode: z.string().max(64).optional(),
   defaultValue: z.string().max(2000).optional(),
   specUnit: z.string().max(64).optional(),
+  // Bölüm (CNC / Üniversal / Sac İşleme). Boş/null → tüm bölümlerde ("Tümü").
+  divisionId: z.string().uuid().nullish(),
   sortOrder: z.coerce.number().int().default(0),
   isActive: z.boolean().default(true),
 });

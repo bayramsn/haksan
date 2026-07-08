@@ -5,7 +5,23 @@ import type { DbClient } from '../../db/client';
 import * as schema from '../../db/schema';
 import { DB } from '../../shared/database/database.module';
 import { AuthGuard } from '../../shared/security/auth.guard';
+import { CurrentUser } from '../../shared/security/current-user.decorator';
+import type { AuthContext } from '../../shared/security/auth.types';
+import { divisionFilter, divisionFilterWithShared, resolveDivisionScope } from '../../shared/utils/division-scope';
 import { NotFoundError } from '../../shared/utils/errors';
+
+/**
+ * Bölüme (CNC / Üniversal / Sac İşleme) göre ayrılabilen lookup listeleri.
+ * Bu listeler `division_id` kolonu taşır; aktif bölüm kendi + paylaşılan ("Tümü")
+ * kayıtlarını görür. Diğer listeler global kalır.
+ */
+export const DIVISION_SCOPED_LOOKUPS = new Set([
+  'product-groups',
+  'product-categories',
+  'product-subcategories',
+  'product-types',
+  'product-spec-groups',
+]);
 
 export const LOOKUP_TABLE_MAP: Record<string, keyof typeof schema> = {
   'pipeline-stages': 'pipelineStages',
@@ -52,12 +68,26 @@ export class LookupsController {
   }
 
   @Get(':name')
-  async byName(@Param('name') name: string, @Query('city') city?: string) {
+  async byName(
+    @Param('name') name: string,
+    @CurrentUser() user: AuthContext,
+    @Query('city') city?: string,
+    @Query('divisionId') divisionId?: string,
+    @Query('scope') scope?: string
+  ) {
     const tableKey = LOOKUP_TABLE_MAP[name];
     if (!tableKey) throw new NotFoundError('Lookup');
     const table = (schema as any)[tableKey];
     const filters = [eq(table.isActive, true)];
     if (name === 'tax-offices' && city?.trim()) filters.push(eq(table.province, city.trim()));
+    // Bölüm-kapsamlı listelerde aktif/seçili bölüm kendi + paylaşılan
+    // ("Tümü") kayıtları görür. `scope=exact`, ayar/kurulum akışlarında
+    // yalnızca seçili bölüme atanmış kayıtları istemek için kullanılır.
+    if (DIVISION_SCOPED_LOOKUPS.has(name)) {
+      const divisionScope = resolveDivisionScope(user, divisionId?.trim() || user.activeDivisionId);
+      const divFilter = scope === 'exact' ? divisionFilter(divisionScope, table.divisionId) : divisionFilterWithShared(divisionScope, table.divisionId);
+      if (divFilter) filters.push(divFilter);
+    }
     return this.db
       .select()
       .from(table)

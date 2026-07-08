@@ -369,6 +369,7 @@ describe('Departman yetkileri — finance', () => {
 describe('Departman yetkileri — stock', () => {
   it('okuyabildikleri: warehouses, inventory, purchase-orders, products, sales-orders, shipments', async () => {
     for (const p of [
+      '/api/v1/companies',
       '/api/v1/warehouses',
       '/api/v1/inventory',
       '/api/v1/purchase-orders',
@@ -380,9 +381,8 @@ describe('Departman yetkileri — stock', () => {
       expect(r.status, `stock GET ${p}`).toBe(200);
     }
   });
-  it('okuyamadıkları: companies, quotes, payments, receivables, service-tickets, users', async () => {
+  it('okuyamadıkları: quotes, payments, receivables, service-tickets, users', async () => {
     for (const p of [
-      '/api/v1/companies',
       '/api/v1/quotes',
       '/api/v1/payments',
       '/api/v1/receivables',

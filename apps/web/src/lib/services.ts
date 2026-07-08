@@ -820,15 +820,16 @@ export const adminService = {
   lookups: () => api.get<{ available: string[] }>('/admin/lookups'),
   lookupRows: (name: string, params?: Record<string, string | number | undefined>) =>
     api.get<any[]>(`/admin/lookups/${name}${qs(params)}`),
-  createLookup: (name: string, body: { code?: string; name: string; description?: string; sortOrder?: number; isActive?: boolean; province?: string }) =>
+  createLookup: (name: string, body: { code?: string; name: string; description?: string; sortOrder?: number; isActive?: boolean; province?: string; divisionId?: string | null }) =>
     api.post<any>(`/admin/lookups/${name}`, body),
   updateLookup: (
     name: string,
     id: string,
-    body: { code?: string; name?: string; description?: string; sortOrder?: number; isActive?: boolean; province?: string }
+    body: { code?: string; name?: string; description?: string; sortOrder?: number; isActive?: boolean; province?: string; divisionId?: string | null }
   ) => api.patch<any>(`/admin/lookups/${name}/${id}`, body),
   deleteLookup: (name: string, id: string) => api.delete<any>(`/admin/lookups/${name}/${id}`),
-  productSpecTemplates: (productTypeCode?: string) => api.get<any[]>(`/admin/product-spec-templates${qs({ productTypeCode })}`),
+  productSpecTemplates: (productTypeCode?: string, divisionId?: string, scope?: string) =>
+    api.get<any[]>(`/admin/product-spec-templates${qs({ productTypeCode, divisionId, scope })}`),
   createProductSpecTemplate: (body: ProductSpecTemplateCreateInput) => api.post<any>('/admin/product-spec-templates', body),
   bulkCreateProductSpecTemplates: (items: ProductSpecTemplateBulkCreateInput['items']) =>
     api.post<{ ok: boolean; created: number; skipped: number; rows: any[] }>('/admin/product-spec-templates/bulk', { items }),

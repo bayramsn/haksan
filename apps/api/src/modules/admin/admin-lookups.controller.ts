@@ -1,6 +1,6 @@
 import { Body, Controller, Delete, Get, Inject, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { z } from 'zod';
-import { and, asc, eq } from 'drizzle-orm';
+import { and, asc, eq, isNull, or } from 'drizzle-orm';
 import type { DbClient } from '../../db/client';
 import * as schema from '../../db/schema';
 import { productSpecTemplates } from '../../db/schema/products';
@@ -10,7 +10,8 @@ import { CurrentUser } from '../../shared/security/current-user.decorator';
 import type { AuthContext } from '../../shared/security/auth.types';
 import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from '../../shared/utils/errors';
 import { ZodValidationPipe } from '../../shared/utils/zod-pipe';
-import { LOOKUP_TABLE_MAP } from '../lookups/lookups.controller';
+import { AuditService } from '../../shared/database/audit.service';
+import { DIVISION_SCOPED_LOOKUPS, LOOKUP_TABLE_MAP } from '../lookups/lookups.controller';
 import {
   productSpecTemplateBulkCreateSchema,
   productSpecTemplateCreateSchema,
@@ -27,6 +28,8 @@ const lookupCreateSchema = z.object({
   sortOrder: z.coerce.number().int().default(0),
   isActive: z.boolean().default(true),
   province: z.string().trim().max(64).optional(),
+  // Yalnızca bölüm-kapsamlı listelerde kullanılır; boş/null → "Tümü".
+  divisionId: z.string().uuid().nullish(),
 });
 type LookupCreateInput = z.infer<typeof lookupCreateSchema>;
 
@@ -48,7 +51,10 @@ function toLookupCode(value: string): string {
 @UseGuards(AuthGuard)
 @Controller('admin')
 export class AdminLookupsController {
-  constructor(@Inject(DB) private readonly db: DbClient) {}
+  constructor(
+    @Inject(DB) private readonly db: DbClient,
+    private readonly audit: AuditService
+  ) {}
 
   private requireSuperAdmin(user: AuthContext) {
     if (!user.roles.includes('super_admin')) {
@@ -80,6 +86,9 @@ export class AdminLookupsController {
       if (!province?.trim()) throw new ValidationError('Vergi dairesi için il bilgisi zorunlu');
       values.province = province.trim();
     }
+    if (DIVISION_SCOPED_LOOKUPS.has(name) && body.divisionId !== undefined) {
+      values.divisionId = body.divisionId || null;
+    }
     return values;
   }
 
@@ -90,11 +99,23 @@ export class AdminLookupsController {
   }
 
   @Get('lookups/:name')
-  async listLookup(@Param('name') name: string, @Query('city') city: string | undefined, @CurrentUser() user: AuthContext) {
+  async listLookup(
+    @Param('name') name: string,
+    @Query('city') city: string | undefined,
+    @Query('divisionId') divisionId: string | undefined,
+    @Query('scope') scope: string | undefined,
+    @CurrentUser() user: AuthContext
+  ) {
     this.requireSuperAdmin(user);
     const table = this.lookupTable(name);
     const filters = [];
     if (name === 'tax-offices' && city?.trim()) filters.push(eq(table.province, city.trim()));
+    // CRM ürün akışında belirli bölüm seçildiyse yalnızca o bölüme ait
+    // kayıtları gösterebiliriz; ortak ("Tümü") kayıtlar Tümü görünümünden
+    // düzenlenir. Diğer kullanımlarda eski bölüm + ortak davranışı korunur.
+    if (DIVISION_SCOPED_LOOKUPS.has(name) && divisionId?.trim() && divisionId !== 'all') {
+      filters.push(scope === 'exact' ? eq(table.divisionId, divisionId.trim()) : or(eq(table.divisionId, divisionId.trim()), isNull(table.divisionId)));
+    }
     return this.db
       .select()
       .from(table)
@@ -114,6 +135,14 @@ export class AdminLookupsController {
     if (!values.code) values.code = toLookupCode(body.name);
     try {
       const rows = (await this.db.insert(table).values(values as any).returning()) as any[];
+      await this.audit.write({
+        tenantId: user.tenantId,
+        actorUserId: user.userId,
+        action: 'lookup.created',
+        resourceType: `lookup:${name}`,
+        resourceId: rows[0]?.id ?? null,
+        newValues: rows[0] ?? values,
+      });
       return rows[0];
     } catch (error: any) {
       if (error?.code === '23505') throw new ConflictError('Bu lookup kodu zaten kullanılıyor');
@@ -135,6 +164,15 @@ export class AdminLookupsController {
     const values = this.lookupValues(name, body, existing);
     try {
       const [row] = await this.db.update(table).set(values as any).where(eq(table.id, id)).returning();
+      await this.audit.write({
+        tenantId: user.tenantId,
+        actorUserId: user.userId,
+        action: 'lookup.updated',
+        resourceType: `lookup:${name}`,
+        resourceId: id,
+        oldValues: existing,
+        newValues: row,
+      });
       return row;
     } catch (error: any) {
       if (error?.code === '23505') throw new ConflictError('Bu lookup kodu zaten kullanılıyor');
@@ -150,18 +188,46 @@ export class AdminLookupsController {
     if (!existing) throw new NotFoundError('Lookup');
     try {
       await this.db.delete(table).where(eq(table.id, id));
+      await this.audit.write({
+        tenantId: user.tenantId,
+        actorUserId: user.userId,
+        action: 'lookup.deleted',
+        resourceType: `lookup:${name}`,
+        resourceId: id,
+        oldValues: existing,
+        newValues: { deleted: true },
+      });
       return { ok: true, deleted: true, deactivated: false };
     } catch (error: any) {
       if (error?.code !== '23503') throw error;
       const [row] = await this.db.update(table).set({ isActive: false }).where(eq(table.id, id)).returning();
+      await this.audit.write({
+        tenantId: user.tenantId,
+        actorUserId: user.userId,
+        action: 'lookup.deactivated',
+        resourceType: `lookup:${name}`,
+        resourceId: id,
+        oldValues: existing,
+        newValues: row,
+      });
       return { ok: true, deleted: false, deactivated: true, row };
     }
   }
 
   @Get('product-spec-templates')
-  async listProductSpecTemplates(@Query('productTypeCode') productTypeCode: string | undefined, @CurrentUser() user: AuthContext) {
+  async listProductSpecTemplates(
+    @Query('productTypeCode') productTypeCode: string | undefined,
+    @Query('divisionId') divisionId: string | undefined,
+    @Query('scope') scope: string | undefined,
+    @CurrentUser() user: AuthContext
+  ) {
     this.requireSuperAdmin(user);
-    const filters = productTypeCode?.trim() ? [eq(productSpecTemplates.productTypeCode, productTypeCode.trim())] : [];
+    const filters = [];
+    if (productTypeCode?.trim()) filters.push(eq(productSpecTemplates.productTypeCode, productTypeCode.trim()));
+    // Belirli bölüm → o bölüm + paylaşılan ("Tümü"); `scope=exact` → sadece o bölüm.
+    if (divisionId?.trim() && divisionId !== 'all') {
+      filters.push(scope === 'exact' ? eq(productSpecTemplates.divisionId, divisionId.trim()) : or(eq(productSpecTemplates.divisionId, divisionId.trim()), isNull(productSpecTemplates.divisionId)));
+    }
     return this.db
       .select()
       .from(productSpecTemplates)
@@ -193,12 +259,12 @@ export class AdminLookupsController {
     @CurrentUser() user: AuthContext
   ) {
     this.requireSuperAdmin(user);
+    // Unique index artık (bölüm, tip, alan) ifade indeksi olduğundan hedefsiz
+    // ON CONFLICT DO NOTHING kullanılır (herhangi bir teklik çakışmasını atlar).
     const rows = await this.db
       .insert(productSpecTemplates)
       .values(body.items)
-      .onConflictDoNothing({
-        target: [productSpecTemplates.productTypeCode, productSpecTemplates.specKey],
-      })
+      .onConflictDoNothing()
       .returning();
     return { ok: true, created: rows.length, skipped: body.items.length - rows.length, rows };
   }

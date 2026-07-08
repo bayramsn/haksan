@@ -49,6 +49,7 @@ import type {
 import { productImportRowSchema } from '@haksan/shared';
 import { buildPaginated, pageOffset } from '../../shared/utils/pagination';
 import { lookupIdByCode } from '../../shared/utils/lookup.helper';
+import { divisionFilterWithShared, resolveActorDivisionScope } from '../../shared/utils/division-scope';
 import { AuditService } from '../../shared/database/audit.service';
 
 type ImportStatus = 'create' | 'update' | 'error' | 'skip';
@@ -812,9 +813,14 @@ export class ProductsService {
   }
 
   // ────────── SPECS ──────────
-  async listSpecTemplates(productTypeCode?: string) {
+  async listSpecTemplates(productTypeCode?: string, actor?: AuthContext) {
     const filters = [eq(productSpecTemplates.isActive, true)];
     if (productTypeCode?.trim()) filters.push(eq(productSpecTemplates.productTypeCode, productTypeCode.trim()));
+    // Aktif bölüm kendi + paylaşılan ("Tümü") şablonları görür (teklif/ürün diyalogları).
+    if (actor) {
+      const divFilter = divisionFilterWithShared(resolveActorDivisionScope(actor), productSpecTemplates.divisionId);
+      if (divFilter) filters.push(divFilter);
+    }
     return this.db
       .select()
       .from(productSpecTemplates)
