@@ -772,11 +772,16 @@ export class InventoryService {
         : warrantyStartDate
           ? addWarrantyYears(warrantyStartDate, 2)
           : null);
+    // Aktif bölüm daraltmasıyla çalışan view_all kullanıcı makine eklerse cihaz o
+    // aktif bölüme atanmalı; aksi halde birincil bölüme düşer ve aynı liste
+    // görünümünde (servis talebi makine seçici dahil) filtrelenip kaybolur.
+    const activeDivisionId =
+      actor.activeDivisionId && actor.activeDivisionId !== 'all' ? actor.activeDivisionId : null;
     const [device] = await this.db
       .insert(customerDevices)
       .values({
         tenantId: actor.tenantId,
-        divisionId: resolveAssignedDivision(actor, input.divisionId ?? null),
+        divisionId: resolveAssignedDivision(actor, input.divisionId ?? activeDivisionId),
         companyId: input.companyId,
         initialCompanyId: input.initialCompanyId ?? input.companyId,
         inventoryItemId: input.inventoryItemId ?? null,
