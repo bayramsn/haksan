@@ -2147,8 +2147,10 @@ export function ProductDialog({
         sizeBytes: file.size,
       });
       await fileService.uploadBinary(upload, file, mimeType);
-      const publicUrl = upload.uploadUrl.split("?")[0];
-      setForm((f) => ({ ...f, imageUrl: publicUrl }));
+      // Ham (private) MinIO URL'i yerine auth'suz public product-media yolunu sakla;
+      // resolveMediaUrl bunu API tabanıyla birleştirir ve teklif/katalog print'inde
+      // (auth cookie'siz açılan pencerede) yüklenebilir olur.
+      setForm((f) => ({ ...f, imageUrl: `/products/media/${upload.fileId}` }));
       toast.success("Fotoğraf yüklendi");
     } catch (err: any) {
       toast.error("Fotoğraf yüklenemedi", { description: err?.message ?? "İstek başarısız oldu." });

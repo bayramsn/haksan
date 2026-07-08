@@ -114,18 +114,24 @@ export class ProductMediaService {
     });
     if (!file) return null;
 
-    // Confirm the file is genuinely a product asset (not just any public file).
-    const linkedAsMedia = await this.db.query.productMedia.findFirst({
-      where: eq(productMedia.fileId, fileId),
-    });
-    let linkedAsDoc = false;
-    if (!linkedAsMedia) {
-      const docLink = await this.db.query.fileLinks.findFirst({
-        where: and(eq(fileLinks.fileId, fileId), eq(fileLinks.entityType, 'product_model')),
+    // `erp-product-images` bucket'ı yalnızca public ürün görsellerine adanmıştır;
+    // ürün oluşturulmadan önce yüklenen görseller için ürün-bağı henüz olmayabilir,
+    // bu yüzden bu bucket'taki public dosyalar bağ aranmadan sunulur. Diğer
+    // bucket'lar için dosyanın gerçekten bir ürüne bağlı olması şarttır (özel
+    // belgelerin — teklif/sözleşme/gümrük — buradan sızmaması için).
+    if (file.bucket !== 'erp-product-images') {
+      const linkedAsMedia = await this.db.query.productMedia.findFirst({
+        where: eq(productMedia.fileId, fileId),
       });
-      linkedAsDoc = Boolean(docLink);
+      let linkedAsDoc = false;
+      if (!linkedAsMedia) {
+        const docLink = await this.db.query.fileLinks.findFirst({
+          where: and(eq(fileLinks.fileId, fileId), eq(fileLinks.entityType, 'product_model')),
+        });
+        linkedAsDoc = Boolean(docLink);
+      }
+      if (!linkedAsMedia && !linkedAsDoc) return null;
     }
-    if (!linkedAsMedia && !linkedAsDoc) return null;
 
     const body = await this.storage.getObject(file.bucket, file.objectKey);
     if (!body) return null;

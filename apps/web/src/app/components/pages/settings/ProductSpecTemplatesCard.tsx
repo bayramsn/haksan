@@ -7,15 +7,39 @@ import { Layers, Pencil, Plus, Search, Sparkles, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { adminService } from "../../../../lib/services";
 import {
+  HAKSAN_CNC_SPEC_KEYS,
   PRODUCT_SPEC_GROUPS,
   machineSpecTemplateEntries,
   normalizeProductSpecKey,
+  productSpecGroupForKey,
   productSpecGroupForTypeKey,
+  specUnitForKey,
   type MachineSpecTemplateEntry,
   type ProductSpecGroup,
   type ProductSpecGroupCode,
 } from "../../../lib/productSpecTemplates";
+import { MultiSelect } from "../../ui/multi-select";
 import { SettingsField, SettingsSection, SettingsSelect } from "./settings-controls";
+
+// Opsiyonel donanım tipleri için katalog şablonu yoktur; bu tiplerin "etkilediği"
+// teknik alan, tüm tezgah teknik anahtarlarının birleşik listesinden seçilir
+// (örn. Spindle → "Fener Mili Devri"). Böylece anahtar tezgah alanıyla birebir eşleşir.
+const optionalEquipmentSpecEntries = (): MachineSpecTemplateEntry[] =>
+  HAKSAN_CNC_SPEC_KEYS.map((key) => ({
+    group: productSpecGroupForKey(key).code,
+    key,
+    value: "",
+    unit: specUnitForKey(key),
+  }));
+
+// Bir ürün tipinin seçilebilir teknik alan (etiket) kaynağı: tezgahsa katalog
+// şablonu; opsiyonel donanımsa tezgah anahtarları birleşik listesi.
+const specEntriesForType = (categoryCode: string, productTypeCode: string): MachineSpecTemplateEntry[] => {
+  const catalog = machineSpecTemplateEntries(productTypeCode);
+  if (catalog.length) return [...catalog];
+  if (categoryCode === "OPSIYONEL_DONANIM") return optionalEquipmentSpecEntries();
+  return [];
+};
 
 type SpecTemplateRow = {
   id: string;
@@ -182,6 +206,8 @@ export function ProductSpecTemplatesCard() {
   const [editingSpecId, setEditingSpecId] = useState<string | null>(null);
   const [specBusy, setSpecBusy] = useState(false);
   const [search, setSearch] = useState("");
+  // Yeni teknik alanın uygulanacağı ürün tipleri (çoklu seçim). Düzenlemede tek tip.
+  const [specTargetTypes, setSpecTargetTypes] = useState<string[]>([]);
 
   const availableSpecSubcategories = useMemo(() => subcategoriesForCategory(specScope.categoryCode), [specScope.categoryCode]);
   const availableSpecProductTypes = useMemo(
@@ -291,8 +317,12 @@ export function ProductSpecTemplatesCard() {
   }, [catalogEntries, typeDbRows]);
 
   // Şablonu olan tezgahlarda alan etiketi katalogdan seçilir; birim sabit gelir.
+  const specFormCategoryCode = useMemo(
+    () => productTypeByCode(specForm.productTypeCode)?.categoryCode ?? "",
+    [specForm.productTypeCode],
+  );
   const specTemplateOptions = useMemo(() => {
-    const entries = machineSpecTemplateEntries(specForm.productTypeCode);
+    const entries = specEntriesForType(specFormCategoryCode, specForm.productTypeCode);
     if (!entries.length) return [] as MachineSpecTemplateEntry[];
     // Ekleme sırasında zaten kayıtlı alanlar gizlenir; düzenlemede mevcut alan dahil edilir.
     const existing = new Set(typeDbRows.map((row) => normalizeProductSpecKey(row.specKey)));
@@ -302,10 +332,10 @@ export function ProductSpecTemplatesCard() {
       if (editingSpecId && norm === currentNorm) return true;
       return !existing.has(norm);
     });
-  }, [specForm.productTypeCode, specForm.specKey, typeDbRows, editingSpecId]);
+  }, [specFormCategoryCode, specForm.productTypeCode, specForm.specKey, typeDbRows, editingSpecId]);
 
   const applySpecTemplateKey = (specKey: string) => {
-    const item = machineSpecTemplateEntries(specForm.productTypeCode).find((option) => option.key === specKey);
+    const item = specEntriesForType(specFormCategoryCode, specForm.productTypeCode).find((option) => option.key === specKey);
     setSpecForm((current) => ({
       ...current,
       specKey,
@@ -318,6 +348,7 @@ export function ProductSpecTemplatesCard() {
   const resetSpecTemplateForm = (productTypeCode = specScope.productTypeCode) => {
     setEditingSpecId(null);
     setSpecForm({ ...emptySpecForm, productTypeCode });
+    setSpecTargetTypes(productTypeCode ? [productTypeCode] : []);
   };
 
   const changeSpecCategory = (categoryCode: string) => {
@@ -352,10 +383,24 @@ export function ProductSpecTemplatesCard() {
     };
     setSpecBusy(true);
     try {
-      if (editingSpecId) await adminService.updateProductSpecTemplate(editingSpecId, body);
-      else await adminService.createProductSpecTemplate(body);
-      toast.success(editingSpecId ? "Teknik alan güncellendi" : "Teknik alan eklendi");
+      if (editingSpecId) {
+        await adminService.updateProductSpecTemplate(editingSpecId, body);
+        toast.success("Teknik alan güncellendi");
+      } else {
+        // Çoklu ürün tipi: seçilen her tipe aynı alan eklenir (birincil tip dahil).
+        const targets = Array.from(new Set([productTypeCode, ...specTargetTypes])).filter(Boolean);
+        if (targets.length > 1) {
+          const res = await adminService.bulkCreateProductSpecTemplates(targets.map((t) => ({ ...body, productTypeCode: t })));
+          toast.success(`${res.created} ürün tipine eklendi`, {
+            description: res.skipped ? `${res.skipped} tip için alan zaten kayıtlıydı, atlandı.` : undefined,
+          });
+        } else {
+          await adminService.createProductSpecTemplate(body);
+          toast.success("Teknik alan eklendi");
+        }
+      }
       setSpecForm({ ...emptySpecForm, productTypeCode });
+      setSpecTargetTypes(productTypeCode ? [productTypeCode] : []);
       setEditingSpecId(null);
       await loadSpecTemplates();
     } catch (err: any) {
@@ -418,6 +463,7 @@ export function ProductSpecTemplatesCard() {
 
   const editSpecTemplate = (row: SpecTemplateRow) => {
     setEditingSpecId(row.id);
+    setSpecTargetTypes([canonicalProductTypeCode(row.productTypeCode)]);
     setSpecScope(scopeForProductType(row.productTypeCode));
     setSpecForm({
       productTypeCode: canonicalProductTypeCode(row.productTypeCode),
@@ -522,6 +568,19 @@ export function ProductSpecTemplatesCard() {
             {/* Ekleme / düzenleme formu */}
             <div className="rounded-lg border border-border/60 p-3">
               <div className="grid grid-cols-1 md:grid-cols-6 gap-2">
+                {!editingSpecId && availableSpecProductTypes.length > 1 && (
+                  <div className="md:col-span-6">
+                    <label className="mb-1 block text-xs font-medium text-muted-foreground">Uygulanacak Ürün Tipleri</label>
+                    <MultiSelect
+                      options={availableSpecProductTypes.map((item) => ({ value: item.code, label: item.label }))}
+                      selected={specTargetTypes}
+                      onChange={setSpecTargetTypes}
+                      placeholder="Ürün tipi seçin"
+                      emptyText="Ürün tipi yok"
+                    />
+                    <p className="mt-1 text-[11px] text-muted-foreground">Bu teknik alan seçilen tüm ürün tiplerine tek seferde eklenir.</p>
+                  </div>
+                )}
                 <div className="md:col-span-2">
                   {specTemplateOptions.length ? (
                     <SettingsSelect
@@ -550,7 +609,7 @@ export function ProductSpecTemplatesCard() {
                 <SettingsField
                   label="Birim"
                   value={specForm.specUnit}
-                  disabled={Boolean(specTemplateOptions.length && specForm.specKey && machineSpecTemplateEntries(specForm.productTypeCode).some((e) => e.key === specForm.specKey))}
+                  disabled={Boolean(specTemplateOptions.length && specForm.specKey && specEntriesForType(specFormCategoryCode, specForm.productTypeCode).some((e) => e.key === specForm.specKey))}
                   onChange={(v) => setSpecForm({ ...specForm, specUnit: v })}
                 />
                 <SettingsField label="Sıra" value={specForm.sortOrder} onChange={(v) => setSpecForm({ ...specForm, sortOrder: v })} />

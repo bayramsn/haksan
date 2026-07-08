@@ -13,7 +13,7 @@ import { MultiSelect } from "../ui/multi-select";
 import { useStore } from "../../lib/store";
 import { useFx, FxRateBadge } from "../../lib/fx";
 import { useAuth } from "../../../lib/auth";
-import { quoteService } from "../../../lib/services";
+import { quoteService, productService } from "../../../lib/services";
 import { toast } from "sonner";
 import { Plus, Trash2, Save, BookmarkPlus, Bold } from "lucide-react";
 import type { Product, ProductSpec } from "../../lib/mock";
@@ -356,6 +356,26 @@ export function QuoteDialog({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, offerId]);
 
+  // Opsiyonel donanım → tezgah teknik bilgisi eşlemesi: ürün tipine göre şablon
+  // alanlarını yükler. Bir opsiyonel donanımın tipi, tezgahın bir teknik alanını
+  // etkiliyorsa (specKey eşleşiyorsa) o alanı değiştirir; etkilemezse normal opsiyon olur.
+  const [specTemplatesByType, setSpecTemplatesByType] = useState<Record<string, { specKey: string; defaultValue: string }[]>>({});
+  useEffect(() => {
+    if (!open) return;
+    void productService
+      .specTemplates()
+      .then((rows) => {
+        const map: Record<string, { specKey: string; defaultValue: string }[]> = {};
+        for (const r of (rows ?? []) as any[]) {
+          if (r?.isActive === false || !r?.specKey) continue;
+          const type = String(r.productTypeCode ?? "");
+          (map[type] ??= []).push({ specKey: String(r.specKey), defaultValue: String(r.defaultValue ?? "") });
+        }
+        setSpecTemplatesByType(map);
+      })
+      .catch(() => setSpecTemplatesByType({}));
+  }, [open]);
+
   const companyContacts = contacts.filter((c) => c.customerId === companyId);
   const companyCases = cases.filter((c) => c.customerId === companyId);
 
@@ -484,7 +504,34 @@ export function QuoteDialog({
   const onPickOptionProduct = (i: number, j: number, productId: string) => {
     const p = products.find((x) => x.id === productId);
     if (!p) return setOption(i, j, { productId });
-    // Ürünün teknik bilgisini açıklamaya taşı (yalnızca bu teklif için düzenlenebilir)
+
+    // Etki EDEN opsiyonel donanım: ürün tipinin şablon alanlarından, bu tezgah
+    // satırının teknik bilgisinde bulunanlar → o alan(lar)ı şablon değeriyle
+    // günceller ve opsiyonu AYRI kalem olarak tutmaz (kullanıcı 'sadece spec'i
+    // değiştirsin' dedi). Değer sonradan spec tablosunda elle düzenlenebilir.
+    const templateFields = specTemplatesByType[p.productTypeCode ?? ""] ?? [];
+    const lineSpecs = lines[i]?.technicalSpecs ?? [];
+    const affecting = templateFields.filter((tf) =>
+      lineSpecs.some((s) => normalizeProductSpecKey(s.key) === normalizeProductSpecKey(tf.specKey)),
+    );
+    if (affecting.length) {
+      setLines((ls) =>
+        ls.map((l, idx) => {
+          if (idx !== i) return l;
+          const nextSpecs = l.technicalSpecs.map((s) => {
+            const hit = affecting.find((tf) => normalizeProductSpecKey(tf.specKey) === normalizeProductSpecKey(s.key));
+            return hit && hit.defaultValue.trim() ? { ...s, value: hit.defaultValue } : s;
+          });
+          return { ...l, technicalSpecs: nextSpecs, options: l.options.filter((_, k) => k !== j) };
+        }),
+      );
+      toast.success(`${p.shortDescription?.trim() || `${p.brand} ${p.model}`.trim()} teknik bilgiyi güncelledi`, {
+        description: `Etkilenen alan: ${affecting.map((a) => a.specKey).join(", ")}`,
+      });
+      return;
+    }
+
+    // Etkilemeyen (doğrudan) opsiyon: eskisi gibi teknik bilgiyi açıklamaya taşı.
     const tech = p.specs?.filter((s) => s.key && s.value).map((s) => `${s.key}: ${s.value}`).join(" · ");
     setOption(i, j, {
       productId,

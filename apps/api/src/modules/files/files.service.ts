@@ -60,7 +60,9 @@ export class FilesService {
         extension: input.extension,
         sizeBytes: input.sizeBytes,
         storageProviderId: provider?.id ?? null,
-        visibility: 'private',
+        // Ürün pazarlama görselleri (teklif/katalog fotoğrafı) auth'suz public
+        // /products/media/:id ucundan sunulur; diğer belgeler private kalır.
+        visibility: input.bucket === 'erp-product-images' ? 'public' : 'private',
         uploadedBy: actor.userId,
       })
       .returning();

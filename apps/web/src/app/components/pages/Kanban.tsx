@@ -413,7 +413,6 @@ export function KanbanPage({ onSelect, items }: { onSelect: (s: SalesCase) => vo
     <KanbanBoard<SalesCase>
       columns={columns}
       fit={false}
-      wrap
       columnWidth={typeof window !== 'undefined' && window.innerWidth < 640 ? 240 : 292}
       onMove={(id, from, to) => moveToStage(id, from as SalesStage, to as SalesStage)}
       renderCard={(s) => {
