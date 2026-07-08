@@ -1,7 +1,24 @@
-import type { Contact, Customer, Offer, Product, SalesCase, User } from "../mock";
+import type { Contact, Customer, Offer, Product, SalesCase, User, ProductSpec } from "../mock";
 import { quoteService } from "../../../lib/services";
+import { specsForProductTypeStrict } from "../productSpecTemplates";
 import { trShortDate } from "./core";
 import type { QuotePrintData } from "./templates";
+
+// Seçilen tezgahın TAM teknik özellik listesi (tip şablonu + üründe girilen
+// değerler), teklifte kalem bazında girilen (customSpecs) değerlerle üzerine
+// yazılır. Böylece teklif PDF'i eksik değil tam özellik tablosu basar.
+const fullProductSpecs = (
+  product: Product | undefined,
+  customSpecs: Array<{ key: string; value: string; unit?: string; specUnit?: string; groupCode?: string; groupName?: string }>,
+): QuotePrintData["specs"] => {
+  const base = product ? specsForProductTypeStrict(product.productTypeCode, (product.specs ?? []) as ProductSpec[]) : [];
+  if (!base.length) return customSpecs.length ? customSpecs : product?.specs;
+  const overrides = new Map(customSpecs.map((s) => [s.key.trim().toLocaleLowerCase("tr-TR"), s]));
+  return base.map((s) => {
+    const ov = overrides.get(s.key.trim().toLocaleLowerCase("tr-TR"));
+    return ov && ov.value.trim() ? { ...s, value: ov.value } : s;
+  });
+};
 
 type QuoteDetail = Awaited<ReturnType<typeof quoteService.get>>;
 
@@ -106,9 +123,10 @@ export function buildQuotePrintData(input: QuoteBuildInput, quote: QuoteDetail):
     model: product?.model ?? salesCase?.requestedModel,
     tip: product?.type ?? salesCase?.requestedProduct,
     imageUrl: product?.imageUrl || undefined,
-    specs: customSpecs.length ? customSpecs : product?.specs,
+    specs: fullProductSpecs(product, customSpecs),
     standartDonanim: product?.standardEquipment ?? [],
-    opsiyonelDonanim: selectedOptions,
+    // Teklifte seçilen opsiyonlar; yoksa ürünün tanımlı opsiyonel donanımı gelir.
+    opsiyonelDonanim: selectedOptions.length ? selectedOptions : (product?.optionalEquipment ?? []),
     items: quoteItems.map((item: {
       description?: string | null;
       quantity?: unknown;

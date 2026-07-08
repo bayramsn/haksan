@@ -592,6 +592,7 @@ export interface ContractPrintData {
   adet: number;
   ozellikler: { key: string; value: string }[];
   aksesuarlar: string[];
+  muadiller?: string[];
   teslimAyi?: string; // ör. "2026 TEMMUZ"
   fiyat: number;
   currency: CurrencyCode;
@@ -668,6 +669,11 @@ export function contractDoc(d: ContractPrintData, assetBase: string): PrintDocum
         <p class="b" style="margin-top:2mm">1.1.2. Tezgâhın Standart Aksesuarları;</p>
         <ul class="ct-acc">
           ${d.aksesuarlar.map((a) => `<li>${esc(a)}</li>`).join("")}
+        </ul>` : ""}
+        ${(d.muadiller?.length ?? 0) > 0 ? `
+        <p class="b" style="margin-top:2mm">1.1.3. Muadil Ürünler;</p>
+        <ul class="ct-acc">
+          ${d.muadiller!.map((m) => `<li>${esc(m)}</li>`).join("")}
         </ul>` : ""}
       </div>
     </li>
