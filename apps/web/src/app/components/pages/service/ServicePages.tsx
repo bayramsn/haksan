@@ -1,4 +1,4 @@
-import { useEffect, useState, type MouseEvent } from "react";
+import { useEffect, useMemo, useState, type MouseEvent } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "../../ui/card";
 import { Button } from "../../ui/button";
 import { Input } from "../../ui/input";
@@ -58,11 +58,13 @@ import { printOrWarn, openInMaps, warrantyInfo, type WarrantyState } from "../..
 import {
   Plus, Printer, MapPin, Wrench, Building2, Lock, Play, Pause, Square, MessageSquare,
   ShieldCheck, Send, Check, X, Package, ClipboardCheck, Inbox, Link2, Copy, ExternalLink,
-  PhoneCall, Trash2, ArrowRight, FileCheck2, History, FileText, Save,
+  PhoneCall, Trash2, ArrowRight, FileCheck2, History, FileText, Save, BookmarkPlus,
 } from "lucide-react";
 
 const SERVICE_CURRENCIES = ["USD", "EUR", "TRY"] as const;
 const NONE = "__none__";
+const SERVICE_QUOTE_NOTE_TEMPLATE_SCOPE = "service_quote";
+const NOTE_TEMPLATE_KEY_PREFIX = "note-template:";
 const COMPLAINT_EVIDENCE_ACCEPT = ".pdf,.docx,.xlsx,.png,.jpg,.jpeg,.webp";
 const COMPLAINT_EXT_TO_MIME: Record<string, string> = {
   pdf: "application/pdf",
@@ -83,6 +85,10 @@ const newServiceQuoteItem = (): ServiceQuoteItem => ({
   unit: "Ad.",
   unitPrice: 0,
 });
+
+const noteTemplateKey = (id: string) => `${NOTE_TEMPLATE_KEY_PREFIX}${id}`;
+const noteTemplateIdFromKey = (key: string) => key.startsWith(NOTE_TEMPLATE_KEY_PREFIX) ? key.slice(NOTE_TEMPLATE_KEY_PREFIX.length) : "";
+const noteLinesFromText = (value: string) => value.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
 
 const printServiceCompletionForm = (
   s: ServiceRequest,
@@ -1998,7 +2004,19 @@ function ServiceQuoteEditor({
   actor?: ServiceActor | null;
   onSave: (quote: ServiceQuoteForm) => Promise<void>;
 }) {
-  const { products } = useStore();
+  const { products, noteTemplates, addNoteTemplate, updateNoteTemplate, deleteNoteTemplate } = useStore();
+  const serviceQuoteTemplates = useMemo(
+    () => noteTemplates.filter((template) => template.scope === SERVICE_QUOTE_NOTE_TEMPLATE_SCOPE),
+    [noteTemplates]
+  );
+  const quoteNoteTemplates = useMemo(
+    () => noteTemplates.filter((template) => (template.scope ?? "quote") === "quote"),
+    [noteTemplates]
+  );
+  const savedNoteTemplates = useMemo(
+    () => [...serviceQuoteTemplates, ...quoteNoteTemplates],
+    [serviceQuoteTemplates, quoteNoteTemplates]
+  );
   const buildDraft = (): ServiceQuoteForm => {
     if (serviceRequest.serviceQuote) {
       return {
@@ -2036,6 +2054,9 @@ function ServiceQuoteEditor({
 
   const [draft, setDraft] = useState<ServiceQuoteForm>(buildDraft);
   const [saving, setSaving] = useState(false);
+  const selectedNoteTemplateId = noteTemplateIdFromKey(draft.noteVariantKey);
+  const selectedSavedNoteTemplate = savedNoteTemplates.find((template) => template.id === selectedNoteTemplateId);
+  const noteTemplateBody = () => draft.notes.map((note) => note.trim()).filter(Boolean).join("\n");
 
   useEffect(() => {
     setDraft(buildDraft());
@@ -2102,6 +2123,69 @@ function ServiceQuoteEditor({
       toast.error("Servis teklifi kaydedilemedi", { description: err?.message ?? "İşlem başarısız." });
     } finally {
       setSaving(false);
+    }
+  };
+
+  const applyNoteTemplate = (key: string) => {
+    if (key === "ozel") {
+      setDraft((current) => ({ ...current, noteVariantKey: "" }));
+      return;
+    }
+    if (key.startsWith(NOTE_TEMPLATE_KEY_PREFIX)) {
+      const template = savedNoteTemplates.find((item) => noteTemplateKey(item.id) === key);
+      if (!template) return;
+      setDraft((current) => ({ ...current, noteVariantKey: key, notes: noteLinesFromText(template.body) }));
+      return;
+    }
+    const variant = SERVICE_NOTE_VARIANTS.find((item) => item.key === key);
+    if (variant) setDraft((current) => ({ ...current, noteVariantKey: key, notes: [...variant.notlar] }));
+  };
+
+  const saveNoteTemplate = async () => {
+    const body = noteTemplateBody();
+    if (!body) return toast.error("Önce teklif notu girin");
+    const title = window.prompt("Şablon başlığı:", selectedSavedNoteTemplate ? `${selectedSavedNoteTemplate.title} kopya` : "");
+    if (!title?.trim()) return;
+    try {
+      const created = await addNoteTemplate({
+        title: title.trim(),
+        body,
+        scope: SERVICE_QUOTE_NOTE_TEMPLATE_SCOPE,
+      });
+      setDraft((current) => ({ ...current, noteVariantKey: noteTemplateKey(created.id) }));
+      toast.success("Servis teklif notu şablonu kaydedildi");
+    } catch (err: any) {
+      toast.error("Şablon kaydedilemedi", { description: err?.message });
+    }
+  };
+
+  const updateSelectedNoteTemplate = async () => {
+    if (!selectedSavedNoteTemplate || selectedSavedNoteTemplate.scope !== SERVICE_QUOTE_NOTE_TEMPLATE_SCOPE) return;
+    const body = noteTemplateBody();
+    if (!body) return toast.error("Önce teklif notu girin");
+    const title = window.prompt("Şablon başlığı:", selectedSavedNoteTemplate.title);
+    if (!title?.trim()) return;
+    try {
+      await updateNoteTemplate(selectedSavedNoteTemplate.id, {
+        title: title.trim(),
+        body,
+        scope: SERVICE_QUOTE_NOTE_TEMPLATE_SCOPE,
+      });
+      toast.success("Servis teklif notu şablonu güncellendi");
+    } catch (err: any) {
+      toast.error("Şablon güncellenemedi", { description: err?.message });
+    }
+  };
+
+  const deleteSelectedNoteTemplate = async () => {
+    if (!selectedSavedNoteTemplate || selectedSavedNoteTemplate.scope !== SERVICE_QUOTE_NOTE_TEMPLATE_SCOPE) return;
+    if (!window.confirm(`"${selectedSavedNoteTemplate.title}" şablonu silinsin mi?`)) return;
+    try {
+      await deleteNoteTemplate(selectedSavedNoteTemplate.id);
+      setDraft((current) => ({ ...current, noteVariantKey: "" }));
+      toast.success("Servis teklif notu şablonu silindi");
+    } catch (err: any) {
+      toast.error("Şablon silinemedi", { description: err?.message });
     }
   };
 
@@ -2187,34 +2271,50 @@ function ServiceQuoteEditor({
       <Card className="border-border/60">
         <CardHeader className="pb-3"><CardTitle className="text-base">Teklif notları</CardTitle></CardHeader>
         <CardContent className="space-y-3">
-          <div className="max-w-sm">
-            <Label>Not şablonu</Label>
-            <Select
-              value={draft.noteVariantKey || "ozel"}
-              onValueChange={(key) => {
-                if (key === "ozel") { setDraft({ ...draft, noteVariantKey: "" }); return; }
-                const variant = SERVICE_NOTE_VARIANTS.find((item) => item.key === key);
-                if (variant) setDraft({ ...draft, noteVariantKey: key, notes: [...variant.notlar] });
-              }}
-            >
-              <SelectTrigger className="mt-1"><SelectValue placeholder="Şablon seçin..." /></SelectTrigger>
-              <SelectContent>
-                {SERVICE_NOTE_VARIANTS.map((variant) => <SelectItem key={variant.key} value={variant.key}>{variant.label}</SelectItem>)}
-                <SelectItem value="ozel">Özel (manuel gir)</SelectItem>
-              </SelectContent>
-            </Select>
-            <p className="mt-1 text-[11px] text-muted-foreground">Seçilen şablonun notları servis teklifi PDF'inin alt kısmına otomatik eklenir.</p>
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+            <div className="max-w-sm flex-1">
+              <Label>Not şablonu</Label>
+              <Select value={draft.noteVariantKey || "ozel"} onValueChange={applyNoteTemplate}>
+                <SelectTrigger className="mt-1"><SelectValue placeholder="Şablon seçin..." /></SelectTrigger>
+                <SelectContent>
+                  <div className="px-2 py-1.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Hazır servis notları</div>
+                  {SERVICE_NOTE_VARIANTS.map((variant) => <SelectItem key={variant.key} value={variant.key}>{variant.label}</SelectItem>)}
+                  {serviceQuoteTemplates.length > 0 && (
+                    <div className="px-2 py-1.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Kayıtlı servis notları</div>
+                  )}
+                  {serviceQuoteTemplates.map((template) => (
+                    <SelectItem key={template.id} value={noteTemplateKey(template.id)}>{template.title}</SelectItem>
+                  ))}
+                  {quoteNoteTemplates.length > 0 && (
+                    <div className="px-2 py-1.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Teklif notları</div>
+                  )}
+                  {quoteNoteTemplates.map((template) => (
+                    <SelectItem key={template.id} value={noteTemplateKey(template.id)}>{template.title}</SelectItem>
+                  ))}
+                  <SelectItem value="ozel">Özel (manuel gir)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {selectedSavedNoteTemplate?.scope === SERVICE_QUOTE_NOTE_TEMPLATE_SCOPE && (
+                <>
+                  <Button type="button" variant="outline" size="sm" className="h-9" onClick={updateSelectedNoteTemplate}>Şablonu güncelle</Button>
+                  <Button type="button" variant="ghost" size="sm" className="h-9 text-destructive" onClick={deleteSelectedNoteTemplate}>Sil</Button>
+                </>
+              )}
+              <Button type="button" variant="outline" size="sm" className="h-9 gap-1" onClick={saveNoteTemplate}>
+                <BookmarkPlus className="size-3.5" /> Yeni şablon
+              </Button>
+            </div>
           </div>
-          {draft.noteVariantKey ? (
-            <details className="text-sm">
-              <summary className="cursor-pointer text-xs text-muted-foreground select-none">Belgeye eklenecek notları görüntüle</summary>
-              <ol className="mt-2 list-decimal pl-5 space-y-1 text-[12px] leading-relaxed text-foreground/85">
-                {draft.notes.map((n) => n.trim()).filter(Boolean).map((n, i) => <li key={i}>{n}</li>)}
-              </ol>
-            </details>
-          ) : (
-            <div><Label>Notlar (her satır ayrı madde)</Label><Textarea className="mt-1 min-h-36" value={draft.notes.join("\n")} onChange={(e) => setDraft({ ...draft, notes: e.target.value.split("\n") })} /></div>
+          {selectedSavedNoteTemplate && (
+            <div className="rounded-md border border-border/60 bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+              {selectedSavedNoteTemplate.scope === SERVICE_QUOTE_NOTE_TEMPLATE_SCOPE
+                ? `Kayıtlı servis notu: ${selectedSavedNoteTemplate.title}`
+                : `Teklif notu kullanılıyor: ${selectedSavedNoteTemplate.title}`}
+            </div>
           )}
+          <div><Label>Notlar (her satır ayrı madde)</Label><Textarea className="mt-1 min-h-36" value={draft.notes.join("\n")} onChange={(e) => setDraft({ ...draft, notes: e.target.value.split("\n") })} /></div>
         </CardContent>
       </Card>
 
