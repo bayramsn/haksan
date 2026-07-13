@@ -21,6 +21,7 @@ import { salesOrders, salesOrderItems } from '../../db/schema/orders';
 import { brands, productModels, productSpecs } from '../../db/schema/products';
 import { quotes } from '../../db/schema/quotes';
 import { users as usersTable } from '../../db/schema/users';
+import { divisions } from '../../db/schema/tenants';
 import { DB } from '../../shared/database/database.module';
 import {
   paginationSchema,
@@ -347,6 +348,14 @@ type ShipmentMeta = { origin?: string; destination?: string; eta?: string; notes
 @Controller()
 export class ServiceController {
   constructor(@Inject(DB) private readonly db: DbClient) {}
+
+  private async tenantHasActiveDivisions(actor: AuthContext): Promise<boolean> {
+    const [row] = await this.db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(divisions)
+      .where(and(eq(divisions.tenantId, actor.tenantId), eq(divisions.isActive, true)));
+    return (row?.count ?? 0) > 0;
+  }
 
   private async markOpportunityDeliveredFromInstallation(job: typeof installationJobs.$inferSelect, user: AuthContext) {
     if (!job.opportunityId) return false;
@@ -1298,8 +1307,10 @@ export class ServiceController {
     if (body.assignedToUserId) await this.assertUser(body.assignedToUserId, user.tenantId);
     const openStatus = await this.db.query.serviceTicketStatuses.findFirst({ where: eq(serviceTicketStatuses.code, 'open') });
     const divisionId = resolveAssignedResourceDivision(user, 'service_tickets', body.divisionId ?? null);
-    if (!divisionId) throw new ValidationError('Servis kaydı için bölüm ataması zorunludur', { field: 'divisionId' });
-    const businessLine = await resolveBusinessLine(this.db, user.tenantId, divisionId);
+    if (!divisionId && (await this.tenantHasActiveDivisions(user))) {
+      throw new ValidationError('Servis kaydı için bölüm ataması zorunludur', { field: 'divisionId' });
+    }
+    const businessLine = divisionId ? await resolveBusinessLine(this.db, user.tenantId, divisionId) : 'CNC';
     const ticketNo =
       normalizeSeriesDocumentNo(body.ticketNo, businessLine) ??
       (await nextSeriesDocumentNo(this.db, user.tenantId, businessLine, 'service'));
@@ -1714,7 +1725,9 @@ export class ServiceController {
     if (body.assignedToUserId) await this.assertUser(body.assignedToUserId, user.tenantId);
     const scheduled = await this.db.query.installationStatuses.findFirst({ where: eq(installationStatuses.code, 'scheduled') });
     const divisionId = resolveAssignedResourceDivision(user, 'installations', body.divisionId ?? opportunity?.divisionId ?? quote?.divisionId ?? null);
-    if (!divisionId) throw new ValidationError('Kurulum için bölüm ataması zorunludur', { field: 'divisionId' });
+    if (!divisionId && (await this.tenantHasActiveDivisions(user))) {
+      throw new ValidationError('Kurulum için bölüm ataması zorunludur', { field: 'divisionId' });
+    }
     const [row] = await this.db
       .insert(installationJobs)
       .values({
@@ -2034,7 +2047,9 @@ export class ServiceController {
       'shipments',
       body.divisionId ?? opportunity?.divisionId ?? null
     );
-    if (!divisionId) throw new ValidationError('Sevkiyat için bölüm ataması zorunludur', { field: 'divisionId' });
+    if (!divisionId && (await this.tenantHasActiveDivisions(user))) {
+      throw new ValidationError('Sevkiyat için bölüm ataması zorunludur', { field: 'divisionId' });
+    }
     const [row] = await this.db
       .insert(shipments)
       .values({
@@ -2162,7 +2177,9 @@ export class ServiceController {
     if (body.salesOrderId) await this.assertSalesOrder(body.salesOrderId, user.tenantId, body.companyId);
     if (body.shipmentId) await this.assertShipment(body.shipmentId, user.tenantId, user);
     const divisionId = resolveAssignedResourceDivision(user, 'shipments', body.divisionId ?? null);
-    if (!divisionId) throw new ValidationError('Teslimat için bölüm ataması zorunludur', { field: 'divisionId' });
+    if (!divisionId && (await this.tenantHasActiveDivisions(user))) {
+      throw new ValidationError('Teslimat için bölüm ataması zorunludur', { field: 'divisionId' });
+    }
     const [row] = await this.db
       .insert(deliveries)
       .values({
