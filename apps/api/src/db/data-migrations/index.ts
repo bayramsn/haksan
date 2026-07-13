@@ -22,6 +22,7 @@ import { up as scopeProductLookupDefaults } from './013_scope_product_lookup_def
 import { up as syncFilePermissions } from './014_sync_file_permissions';
 import { up as seedFilePermissionCatalog } from './015_seed_file_permission_catalog';
 import { up as syncStockVisibilityPermissions } from './016_sync_stock_visibility_permissions';
+import { up as dedupeProductGroupLookups } from './017_dedupe_product_group_lookups';
 
 export interface DataMigration {
   id: string;
@@ -45,4 +46,5 @@ export const dataMigrations: DataMigration[] = [
   { id: '014_sync_file_permissions', up: syncFilePermissions },
   { id: '015_seed_file_permission_catalog', up: seedFilePermissionCatalog },
   { id: '016_sync_stock_visibility_permissions', up: syncStockVisibilityPermissions },
+  { id: '017_dedupe_product_group_lookups', up: dedupeProductGroupLookups },
 ];
