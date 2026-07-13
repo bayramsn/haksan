@@ -158,7 +158,7 @@ export function ChatPage({ onOpenRecord }: { onOpenRecord?: (card: ChatRefCard) 
     if (!ALLOWED_EXT.includes(ext)) { toast.error(`Desteklenmeyen tür: .${ext}`); return; }
     const up = await fileService.signedUpload({
       bucket: "erp-service-documents",
-      entityType: "chat-attachment",
+      entityType: "chat_conversation",
       entityId: id,
       filename: file.name,
       mimeType: file.type as SignedUploadUrlInput["mimeType"],

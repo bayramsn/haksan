@@ -6,6 +6,8 @@ import type { ProductSpec } from "./mock";
 
 export type ProductSpecGroupCode =
   | "KAPASITE"
+  | "BUKME"
+  | "KESME"
   | "TABLA"
   | "EKSENLER"
   | "FENER_MILI"
@@ -32,6 +34,8 @@ export type GroupedProductSpec<T extends ProductSpec = ProductSpec> = {
 // tezgahlarda grup sırası katalogdaki şablon sırasından gelir.
 export const PRODUCT_SPEC_GROUPS: readonly ProductSpecGroup[] = [
   { code: "KAPASITE", label: "KAPASİTE", order: 5 },
+  { code: "BUKME", label: "BÜKME", order: 6 },
+  { code: "KESME", label: "KESME", order: 7 },
   { code: "TABLA", label: "TABLA", order: 10 },
   { code: "EKSENLER", label: "EKSENLER", order: 20 },
   { code: "FENER_MILI", label: "FENER MİLİ", order: 30 },
@@ -294,6 +298,160 @@ const CNC_KOPRU_TIPI_TEMPLATE_ENTRIES: readonly MachineSpecTemplateEntry[] = [
   entry("GENEL", "Tezgah Ağırlığı", "15.500", "kg"),
 ];
 
+// ---------------------------------------------------------------------------
+// Üniversal tezgah şablonları. Katalog değeri yoktur; alan + birim yapısı
+// hazır gelir, değerler makineye göre elle doldurulur.
+// ---------------------------------------------------------------------------
+
+const UNIVERSAL_TORNA_TEMPLATE_ENTRIES: readonly MachineSpecTemplateEntry[] = [
+  entry("KAPASITE", "Punta Arası Mesafe", "", "mm"),
+  entry("KAPASITE", "Bank Üzeri Dönme Çapı", "", "mm"),
+  entry("KAPASITE", "Sport Üzeri Dönme Çapı", "", "mm"),
+  entry("KAPASITE", "Gap İçi Dönme Çapı", "", "mm"),
+  entry("KAPASITE", "Ayna Ölçüsü", "", '"'),
+  entry("FENER_MILI", "Fener Mili Devri", "", "dv/dk"),
+  entry("FENER_MILI", "Fener Mili Devir Kademe Sayısı", "", "Adet"),
+  entry("FENER_MILI", "Fener Mili Delik Çapı", "", "mm"),
+  entry("FENER_MILI", "Fener Mili Koniği"),
+  entry("EKSENLER", "Boyuna (Z) Hareket", "", "mm"),
+  entry("EKSENLER", "Enine (X) Hareket", "", "mm"),
+  entry("EKSENLER", "Boyuna İlerleme Aralığı", "", "mm/dev"),
+  entry("EKSENLER", "Enine İlerleme Aralığı", "", "mm/dev"),
+  entry("EKSENLER", "Metrik Diş Açma Aralığı", "", "mm"),
+  entry("KARSI_PUNTA", "Punta Pinol Çapı", "", "mm"),
+  entry("KARSI_PUNTA", "Punta Pinol Hareketi", "", "mm"),
+  entry("KARSI_PUNTA", "Punta Koniği"),
+  entry("MOTORLAR", "Ana Motor Gücü", "", "kw"),
+  entry("GENEL", "Tezgahın Kapladığı Alan", "", "mm"),
+  entry("GENEL", "Tezgah Ağırlığı", "", "kg"),
+];
+
+const UNIVERSAL_FREZE_TEMPLATE_ENTRIES: readonly MachineSpecTemplateEntry[] = [
+  entry("TABLA", "Tabla Ölçüsü", "", "mm"),
+  entry("TABLA", "Tabla Yük Kapasitesi", "", "kg"),
+  entry("TABLA", "T-Kanal Ölçüsü / Sayısı"),
+  entry("KAPASITE", "Fener Mili - Tabla Mesafesi", "", "mm"),
+  entry("EKSENLER", "X Eksen Hareketi", "", "mm"),
+  entry("EKSENLER", "Y Eksen Hareketi", "", "mm"),
+  entry("EKSENLER", "Z Eksen Hareketi", "", "mm"),
+  entry("EKSENLER", "Otomatik İlerleme Aralığı", "", "mm/dk"),
+  entry("FENER_MILI", "Fener Mili Devri", "", "dv/dk"),
+  entry("FENER_MILI", "Fener Mili Koniği"),
+  entry("FENER_MILI", "Fener Mili Motor Gücü", "", "kw"),
+  entry("GENEL", "Toplam Güç Gereksinimi", "", "kw"),
+  entry("GENEL", "Tezgahın Kapladığı Alan", "", "mm"),
+  entry("GENEL", "Tezgah Ağırlığı", "", "kg"),
+];
+
+const RADYAL_MATKAP_TEMPLATE_ENTRIES: readonly MachineSpecTemplateEntry[] = [
+  entry("KAPASITE", "Maks. Delme Kapasitesi (Çelik)", "", "mm"),
+  entry("KAPASITE", "Maks. Delme Yarıçapı", "", "mm"),
+  entry("KAPASITE", "Kolon - Mil Mesafesi (Min./Maks.)", "", "mm"),
+  entry("KAPASITE", "Mil - Tabla Mesafesi (Min./Maks.)", "", "mm"),
+  entry("FENER_MILI", "Mil Devri", "", "dv/dk"),
+  entry("FENER_MILI", "Mil Koniği"),
+  entry("FENER_MILI", "Mil Hareketi (Strok)", "", "mm"),
+  entry("MOTORLAR", "Ana Motor Gücü", "", "kw"),
+  entry("GENEL", "Tezgahın Kapladığı Alan", "", "mm"),
+  entry("GENEL", "Tezgah Ağırlığı", "", "kg"),
+];
+
+const SATIH_TASLAMA_TEMPLATE_ENTRIES: readonly MachineSpecTemplateEntry[] = [
+  entry("KAPASITE", "Maks. Taşlama Boyu", "", "mm"),
+  entry("KAPASITE", "Maks. Taşlama Genişliği", "", "mm"),
+  entry("KAPASITE", "Tabla Üstü Maks. Yükseklik", "", "mm"),
+  entry("TABLA", "Tabla Ölçüsü", "", "mm"),
+  entry("TABLA", "Manyetik Tabla Ölçüsü", "", "mm"),
+  entry("TABLA", "Tabla Yük Kapasitesi", "", "kg"),
+  entry("FENER_MILI", "Taş Mili Devri", "", "dv/dk"),
+  entry("FENER_MILI", "Taş Ölçüsü (Çap x Genişlik x Delik)", "", "mm"),
+  entry("MOTORLAR", "Taş Mili Motor Gücü", "", "kw"),
+  entry("GENEL", "Toplam Güç Gereksinimi", "", "kw"),
+  entry("GENEL", "Tezgahın Kapladığı Alan", "", "mm"),
+  entry("GENEL", "Tezgah Ağırlığı", "", "kg"),
+];
+
+// ---------------------------------------------------------------------------
+// Sac işleme tezgah şablonları.
+// ---------------------------------------------------------------------------
+
+const ABKANT_PRES_TEMPLATE_ENTRIES: readonly MachineSpecTemplateEntry[] = [
+  entry("BUKME", "Bükme Kuvveti", "", "ton"),
+  entry("BUKME", "Bükme Boyu", "", "mm"),
+  entry("BUKME", "Ayaklar Arası Mesafe", "", "mm"),
+  entry("BUKME", "Boğaz Derinliği", "", "mm"),
+  entry("BUKME", "Strok", "", "mm"),
+  entry("BUKME", "Gırtlak (Açıklık) Yüksekliği", "", "mm"),
+  entry("EKSENLER", "Eksen Sayısı", "", "Adet"),
+  entry("EKSENLER", "Arka Dayama Hareketi (X)", "", "mm"),
+  entry("EKSENLER", "Yaklaşma Hızı", "", "mm/sn"),
+  entry("EKSENLER", "Bükme Hızı", "", "mm/sn"),
+  entry("EKSENLER", "Geri Dönüş Hızı", "", "mm/sn"),
+  entry("MOTORLAR", "Ana Motor Gücü", "", "kw"),
+  entry("GENEL", "Kontrol Ünitesi"),
+  entry("GENEL", "Yağ Tankı Kapasitesi", "", "lt"),
+  entry("GENEL", "Makine Ölçüleri", "", "mm"),
+  entry("GENEL", "Makine Ağırlığı", "", "kg"),
+];
+
+const GIYOTIN_MAKAS_TEMPLATE_ENTRIES: readonly MachineSpecTemplateEntry[] = [
+  entry("KESME", "Kesme Kapasitesi (St37)", "", "mm"),
+  entry("KESME", "Kesme Kapasitesi (Paslanmaz)", "", "mm"),
+  entry("KESME", "Kesme Boyu", "", "mm"),
+  entry("KESME", "Kesme Açısı", "", "derece"),
+  entry("KESME", "Vuruş Sayısı", "", "vuruş/dk"),
+  entry("KESME", "Arka Dayama Hareketi", "", "mm"),
+  entry("MOTORLAR", "Ana Motor Gücü", "", "kw"),
+  entry("GENEL", "Kontrol Ünitesi"),
+  entry("GENEL", "Yağ Tankı Kapasitesi", "", "lt"),
+  entry("GENEL", "Makine Ölçüleri", "", "mm"),
+  entry("GENEL", "Makine Ağırlığı", "", "kg"),
+];
+
+const FIBER_LAZER_KESIM_TEMPLATE_ENTRIES: readonly MachineSpecTemplateEntry[] = [
+  entry("KESME", "Lazer Gücü", "", "kw"),
+  entry("KESME", "Kesme Alanı", "", "mm"),
+  entry("KESME", "Maks. Kesme Kalınlığı (Çelik)", "", "mm"),
+  entry("KESME", "Maks. Kesme Kalınlığı (Paslanmaz)", "", "mm"),
+  entry("KESME", "Maks. Kesme Kalınlığı (Alüminyum)", "", "mm"),
+  entry("KESME", "Maks. Eksen Hızı", "", "m/dk"),
+  entry("KESME", "Konumlama Hassasiyeti", "", "mm"),
+  entry("TABLA", "Tabla Boyutu", "", "mm"),
+  entry("TABLA", "Tabla Yük Kapasitesi", "", "kg"),
+  entry("TABLA", "Tabla Değişim Tipi"),
+  entry("GENEL", "Rezonatör Markası"),
+  entry("GENEL", "Kesme Kafası"),
+  entry("GENEL", "Kontrol Ünitesi"),
+  entry("GENEL", "Toplam Güç Gereksinimi", "", "kw"),
+  entry("GENEL", "Makine Ölçüleri", "", "mm"),
+  entry("GENEL", "Makine Ağırlığı", "", "kg"),
+];
+
+const PLAZMA_KESIM_TEMPLATE_ENTRIES: readonly MachineSpecTemplateEntry[] = [
+  entry("KESME", "Plazma Güç Kaynağı", "", "A"),
+  entry("KESME", "Kesme Alanı", "", "mm"),
+  entry("KESME", "Maks. Kesme Kalınlığı (Delme)", "", "mm"),
+  entry("KESME", "Maks. Kesme Kalınlığı (Kenardan)", "", "mm"),
+  entry("KESME", "Maks. Kesme Hızı", "", "m/dk"),
+  entry("GENEL", "Kontrol Ünitesi"),
+  entry("GENEL", "Toplam Güç Gereksinimi", "", "kw"),
+  entry("GENEL", "Makine Ölçüleri", "", "mm"),
+  entry("GENEL", "Makine Ağırlığı", "", "kg"),
+];
+
+const SILINDIR_MAKINESI_TEMPLATE_ENTRIES: readonly MachineSpecTemplateEntry[] = [
+  entry("BUKME", "Silindir Boyu", "", "mm"),
+  entry("BUKME", "Sac Bükme Kapasitesi", "", "mm"),
+  entry("BUKME", "Ön Bükme Kapasitesi", "", "mm"),
+  entry("BUKME", "Üst Top Çapı", "", "mm"),
+  entry("BUKME", "Alt/Yan Top Çapı", "", "mm"),
+  entry("BUKME", "Top Sayısı", "", "Adet"),
+  entry("BUKME", "Bükme Hızı", "", "m/dk"),
+  entry("MOTORLAR", "Ana Motor Gücü", "", "kw"),
+  entry("GENEL", "Makine Ölçüleri", "", "mm"),
+  entry("GENEL", "Makine Ağırlığı", "", "kg"),
+];
+
 // Tezgah dışı ürün tipleri (yedek parça, opsiyonel donanım, işçilik, aksesuar)
 // bilinçli olarak şablonsuzdur; teknik alanları serbest metinle girilir.
 export const MACHINE_SPEC_TEMPLATES: Record<string, readonly MachineSpecTemplateEntry[]> = {
@@ -303,7 +461,38 @@ export const MACHINE_SPEC_TEMPLATES: Record<string, readonly MachineSpecTemplate
   CNC_TAPPING_CENTER: CNC_TAPPING_CENTER_TEMPLATE_ENTRIES,
   CNC_5_EKSEN_ISLEME_MERKEZI: CNC_BES_EKSEN_TEMPLATE_ENTRIES,
   CNC_KOPRU_TIPI_ISLEME_MERKEZI: CNC_KOPRU_TIPI_TEMPLATE_ENTRIES,
+  UNIVERSAL_TORNA: UNIVERSAL_TORNA_TEMPLATE_ENTRIES,
+  UNIVERSAL_FREZE: UNIVERSAL_FREZE_TEMPLATE_ENTRIES,
+  RADYAL_MATKAP: RADYAL_MATKAP_TEMPLATE_ENTRIES,
+  SATIH_TASLAMA: SATIH_TASLAMA_TEMPLATE_ENTRIES,
+  ABKANT_PRES: ABKANT_PRES_TEMPLATE_ENTRIES,
+  GIYOTIN_MAKAS: GIYOTIN_MAKAS_TEMPLATE_ENTRIES,
+  FIBER_LAZER_KESIM: FIBER_LAZER_KESIM_TEMPLATE_ENTRIES,
+  PLAZMA_KESIM: PLAZMA_KESIM_TEMPLATE_ENTRIES,
+  SILINDIR_MAKINESI: SILINDIR_MAKINESI_TEMPLATE_ENTRIES,
 };
+
+// Bölüme göre tezgah tipi katalogu: Teknik Bilgi kartındaki tip seçenekleri ve
+// Alan Ayarları "önerilen kurulum" bu listeden beslenir.
+export type MachineTypeTemplate = {
+  code: string;
+  label: string;
+  productGroupCode: "CNC" | "UNIVERSAL" | "SAC_ISLEME";
+  subcategoryCode: string;
+  subcategoryLabel: string;
+};
+
+export const DIVISION_MACHINE_TYPES: readonly MachineTypeTemplate[] = [
+  { code: "UNIVERSAL_TORNA", label: "Üniversal Torna", productGroupCode: "UNIVERSAL", subcategoryCode: "TORNA", subcategoryLabel: "Torna" },
+  { code: "UNIVERSAL_FREZE", label: "Üniversal Freze", productGroupCode: "UNIVERSAL", subcategoryCode: "FREZE", subcategoryLabel: "Freze" },
+  { code: "RADYAL_MATKAP", label: "Radyal Matkap", productGroupCode: "UNIVERSAL", subcategoryCode: "MATKAP", subcategoryLabel: "Matkap" },
+  { code: "SATIH_TASLAMA", label: "Satıh Taşlama", productGroupCode: "UNIVERSAL", subcategoryCode: "TASLAMA", subcategoryLabel: "Taşlama" },
+  { code: "ABKANT_PRES", label: "Abkant Pres", productGroupCode: "SAC_ISLEME", subcategoryCode: "SAC_BUKME", subcategoryLabel: "Bükme" },
+  { code: "SILINDIR_MAKINESI", label: "Silindir Makinesi", productGroupCode: "SAC_ISLEME", subcategoryCode: "SAC_BUKME", subcategoryLabel: "Bükme" },
+  { code: "GIYOTIN_MAKAS", label: "Giyotin Makas", productGroupCode: "SAC_ISLEME", subcategoryCode: "SAC_KESME", subcategoryLabel: "Kesme" },
+  { code: "FIBER_LAZER_KESIM", label: "Fiber Lazer Kesim", productGroupCode: "SAC_ISLEME", subcategoryCode: "SAC_KESME", subcategoryLabel: "Kesme" },
+  { code: "PLAZMA_KESIM", label: "Plazma Kesim", productGroupCode: "SAC_ISLEME", subcategoryCode: "SAC_KESME", subcategoryLabel: "Kesme" },
+];
 
 // Eski verilerde geçen ürün tipi kodları güncel kodlara eşlenir.
 const MACHINE_TYPE_ALIASES: Record<string, string> = {
@@ -312,8 +501,17 @@ const MACHINE_TYPE_ALIASES: Record<string, string> = {
   CNC_TORNA: "CNC_YATAY_TORNA_TEZGAHI",
 };
 
+// Kod eşleştirme harf/aksan duyarsızdır: admin ekranı kodları küçük harfle
+// üretir ("abkant_pres"), şablon anahtarları büyük harftir ("ABKANT_PRES").
+// tr-TR upper sonrası İ→I katlaması Türkçe i tuzağını da kapatır.
+export const foldProductTypeCode = (typeCode?: string | null) =>
+  (typeCode ?? "")
+    .toLocaleUpperCase("tr-TR")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+
 const canonicalMachineTypeCode = (typeCode?: string | null) => {
-  const upper = (typeCode ?? "").toLocaleUpperCase("tr-TR");
+  const upper = foldProductTypeCode(typeCode);
   return MACHINE_TYPE_ALIASES[upper] ?? upper;
 };
 

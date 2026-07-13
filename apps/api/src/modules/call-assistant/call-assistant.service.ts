@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
+import { createHash, createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
 import { and, asc, desc, eq, inArray, isNull, or, sql } from 'drizzle-orm';
 import type { DbClient } from '../../db/client';
 import { DB } from '../../shared/database/database.module';
@@ -36,7 +36,11 @@ import {
   type MobileCallEventInput,
 } from '@haksan/shared';
 import { buildPaginated } from '../../shared/utils/pagination';
-import { divisionFilter, resolveActorDivisionScope, resolveAssignedDivision } from '../../shared/utils/division-scope';
+import {
+  divisionFilter,
+  resolveActorDivisionScope,
+  resolveAssignedResourceDivision,
+} from '../../shared/utils/division-scope';
 
 type PhoneMatch = {
   companyId: string | null;
@@ -75,6 +79,25 @@ export class CallAssistantService {
     if (!actual || !this.safeEqual(actual, expected)) {
       throw new UnauthorizedError('Geçersiz çağrı webhook sırrı');
     }
+  }
+
+  verifyTenantWebhookSecret(
+    headerValue: string | string[] | undefined,
+    tenantId: string,
+    configuredSecret?: string | null
+  ) {
+    const actual = Array.isArray(headerValue) ? headerValue[0] : headerValue;
+    const expected = this.tenantWebhookSecret(tenantId, configuredSecret);
+    if (!actual || !this.safeEqual(actual, expected)) {
+      throw new UnauthorizedError('Geçersiz çağrı webhook sırrı');
+    }
+  }
+
+  webhookCredential(actor: AuthContext, configuredSecret?: string | null) {
+    if (!actor.roles.includes('super_admin')) {
+      throw new ForbiddenError('Webhook kimlik bilgisi yalnızca tenant süper yöneticisi tarafından görüntülenebilir');
+    }
+    return { tenantId: actor.tenantId, secret: this.tenantWebhookSecret(actor.tenantId, configuredSecret) };
   }
 
   async tenantForWebhook(input: { tenantId?: string | null; headerTenantId?: string | null }) {
@@ -215,6 +238,7 @@ export class CallAssistantService {
         {
           companyId: suggestion.companyId,
           contactId: suggestion.contactId ?? undefined,
+          divisionId: suggestion.divisionId ?? undefined,
           quoteDate: new Date(),
           validityDays: 30,
           currencyCode: 'USD',
@@ -234,11 +258,13 @@ export class CallAssistantService {
     if (action === 'log_call') {
       this.requirePermission(actor, 'activities.create');
       const event = await this.db.query.callEvents.findFirst({ where: eq(callEvents.id, suggestion.callEventId) });
+      const divisionId = resolveAssignedResourceDivision(actor, 'activities', suggestion.divisionId ?? null);
+      if (!divisionId) throw new ValidationError('Arama kaydı için bölüm ataması zorunludur', { field: 'divisionId' });
       const [row] = await this.db
         .insert(calls)
         .values({
           tenantId: actor.tenantId,
-          divisionId: resolveAssignedDivision(actor, suggestion.divisionId ?? null),
+          divisionId,
           companyId: suggestion.companyId,
           contactId: suggestion.contactId ?? null,
           callDate: event?.endedAt ?? event?.startedAt ?? new Date(),
@@ -547,7 +573,7 @@ export class CallAssistantService {
     input: CallSuggestionActionInput,
     actor: AuthContext
   ) {
-    const divisionId = resolveAssignedDivision(actor, suggestion.divisionId ?? null);
+    const divisionId = resolveAssignedResourceDivision(actor, 'service_tickets', suggestion.divisionId ?? null);
     if (!divisionId) throw new ValidationError('Şikayet kaydı için bölüm ataması zorunludur', { field: 'divisionId' });
     const [{ c }] = await this.db
       .select({ c: sql<number>`count(*)::int` })
@@ -676,5 +702,10 @@ export class CallAssistantService {
     const a = Buffer.from(actual);
     const b = Buffer.from(expected);
     return a.length === b.length && timingSafeEqual(a, b);
+  }
+
+  private tenantWebhookSecret(tenantId: string, configuredSecret?: string | null) {
+    const masterSecret = configuredSecret || 'dev-call-secret';
+    return createHmac('sha256', masterSecret).update(`haksan:call-webhook:${tenantId}`).digest('base64url');
   }
 }

@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 
-FROM node:20-bookworm-slim AS build
+FROM node:22-bookworm-slim AS build
 
 WORKDIR /app
 ENV CI=true
@@ -35,17 +35,22 @@ RUN npm run build:shared \
     --workspace @haksan/api \
     --include-workspace-root
 
-FROM node:20-bookworm-slim AS api
+FROM node:22-bookworm-slim AS api
 
 WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=3000
+
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends fonts-dejavu-core postgresql-client \
+  && rm -rf /var/lib/apt/lists/*
 
 COPY --from=build --chown=node:node /app/package.json /app/package-lock.json ./
 COPY --from=build --chown=node:node /app/node_modules ./node_modules
 COPY --from=build --chown=node:node /app/apps/api/package.json ./apps/api/package.json
 COPY --from=build --chown=node:node /app/apps/api/node_modules ./apps/api/node_modules
 COPY --from=build --chown=node:node /app/apps/api/dist ./apps/api/dist
+COPY --from=build --chown=node:node /app/apps/web/public/print ./apps/web/public/print
 COPY --from=build --chown=node:node /app/packages/shared/package.json ./packages/shared/package.json
 COPY --from=build --chown=node:node /app/packages/shared/dist ./packages/shared/dist
 

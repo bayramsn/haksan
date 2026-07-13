@@ -85,7 +85,13 @@ export class AuthController {
     @Res({ passthrough: true }) res: FastifyReply
   ) {
     const ua = req.headers['user-agent'];
-    const result = await this.auth.login(body.email, body.password, getIp(req), typeof ua === 'string' ? ua : undefined);
+    const result = await this.auth.login(
+      body.email,
+      body.password,
+      getIp(req),
+      typeof ua === 'string' ? ua : undefined,
+      body.tenantSlug
+    );
     setRefreshCookie(res, result.refreshToken, result.refreshTokenExpiresAt);
     return {
       accessToken: result.accessToken,
@@ -126,7 +132,7 @@ export class AuthController {
   @Throttle(LOGIN_THROTTLE)
   @Post('forgot-password')
   async forgot(@Body(new ZodValidationPipe(forgotPasswordSchema)) body: ForgotPasswordInput) {
-    const token = await this.auth.forgotPassword(body.email);
+    const token = await this.auth.forgotPassword(body.email, body.tenantSlug);
     const env = loadEnv();
     // Test/dev token echo is opt-in so accidental non-production NODE_ENV on a live server
     // does not expose reset tokens by default. Omit devToken when no user matched so

@@ -28,6 +28,58 @@ afterEach(() => {
 });
 
 describe('Assistant LLM providers', () => {
+  it('NVIDIA NIM OpenAI uyumlu endpointini güvenli CRM ayarlarıyla çağırır', async () => {
+    const service = await buildService({
+      ASSISTANT_LLM_PROVIDER: 'nvidia',
+      ASSISTANT_MODEL: 'qwen/qwen3-next-80b-a3b-instruct',
+      ASSISTANT_API_KEY: 'test-nvidia-key-123456',
+      ASSISTANT_MAX_TOKENS: '700',
+      ASSISTANT_TEMPERATURE: '0.2',
+      ASSISTANT_TOP_P: '0.8',
+    });
+    const fetchMock = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          choices: [{ message: { content: 'Bugün 2 kritik takip var.' } }],
+          usage: { prompt_tokens: 52, completion_tokens: 11 },
+        }),
+        { status: 200 }
+      )
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await (service as never as { llmAnswer: (m: string, s: unknown[], src: unknown[]) => Promise<unknown> }).llmAnswer(
+      'bugünkü kritik işler',
+      [],
+      []
+    );
+
+    expect(result).toEqual({
+      text: 'Bugün 2 kritik takip var.',
+      usage: { inputTokens: 52, outputTokens: 11 },
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0] as [string, { headers: Record<string, string>; body: string }];
+    expect(url).toBe('https://integrate.api.nvidia.com/v1/chat/completions');
+    expect(init.headers.Authorization).toBe('Bearer test-nvidia-key-123456');
+    expect(init.headers.Accept).toBe('application/json');
+    const body = JSON.parse(init.body) as {
+      model: string;
+      max_tokens: number;
+      temperature: number;
+      top_p: number;
+      messages: Array<{ role: string; content: string }>;
+    };
+    expect(body).toMatchObject({
+      model: 'qwen/qwen3-next-80b-a3b-instruct',
+      max_tokens: 700,
+      temperature: 0.2,
+      top_p: 0.8,
+    });
+    expect(body.messages[0]?.content).toContain('Yalnız sağlanan crmData');
+    expect(body.messages[1]?.content).toContain('bugünkü kritik işler');
+  });
+
   it('anthropic sağlayıcısı Messages API çağırır ve metni token kullanımıyla döner', async () => {
     const service = await buildService({
       ASSISTANT_LLM_PROVIDER: 'anthropic',

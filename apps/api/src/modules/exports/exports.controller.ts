@@ -32,7 +32,7 @@ import { ExportsService } from './exports.service';
 export class ExportsController {
   constructor(private readonly svc: ExportsService) {}
 
-  @RequirePermissions('reports.export')
+  @RequirePermissions('reports.export', 'companies.read')
   @Get('companies')
   async companies(
     @Query(new ZodValidationPipe(companyListQuerySchema.pick({ search: true, relationTypeCode: true, customerStatusCode: true })))
@@ -44,7 +44,7 @@ export class ExportsController {
     return sendXlsx(reply, await rowsToXlsxBuffer(rows, 'Firmalar'), 'firmalar.xlsx');
   }
 
-  @RequirePermissions('reports.export')
+  @RequirePermissions('reports.export', 'contacts.read')
   @Get('contacts')
   async contacts(
     @Query(new ZodValidationPipe(exportContactQuerySchema)) q: ExportContactQuery,
@@ -55,7 +55,7 @@ export class ExportsController {
     return sendXlsx(reply, await rowsToXlsxBuffer(rows, 'Kontaklar'), 'kontaklar.xlsx');
   }
 
-  @RequirePermissions('reports.export')
+  @RequirePermissions('reports.export', 'opportunities.read')
   @Get('opportunities')
   async opportunities(
     @Query(new ZodValidationPipe(exportOpportunityQuerySchema)) q: ExportOpportunityQuery,
@@ -66,7 +66,7 @@ export class ExportsController {
     return sendXlsx(reply, await rowsToXlsxBuffer(rows, 'Satış Kartları'), 'satis-kartlari.xlsx');
   }
 
-  @RequirePermissions('reports.export')
+  @RequirePermissions('reports.export', 'quotes.read')
   @Get('quotes')
   async quotes(
     @Query(new ZodValidationPipe(exportQuoteQuerySchema)) q: ExportQuoteQuery,
@@ -77,14 +77,14 @@ export class ExportsController {
     return sendXlsx(reply, await rowsToXlsxBuffer(rows, 'Teklifler'), 'teklifler.xlsx');
   }
 
-  @RequirePermissions('reports.export')
+  @RequirePermissions('reports.export', 'receivables.read', 'payments.read')
   @Get('finance')
   async finance(@CurrentUser() user: AuthContext, @Res({ passthrough: true }) reply: FastifyReply) {
     const sheets = await this.svc.exportFinance(user);
     return sendXlsx(reply, await sheetsToXlsxBuffer(sheets), 'kasa-hareketleri.xlsx');
   }
 
-  @RequirePermissions('reports.export')
+  @RequirePermissions('reports.export', 'receivables.read')
   @Get('customer-statement/:companyId')
   async customerStatement(
     @Param('companyId') companyId: string,
@@ -101,28 +101,28 @@ export class ExportsController {
     return sendXlsx(reply, await rowsToXlsxBuffer(rows, 'Cari Ekstre'), `${baseName}.xlsx`);
   }
 
-  @RequirePermissions('reports.export')
+  @RequirePermissions('reports.export', 'receivables.read')
   @Get('customer-balances')
   async customerBalances(@CurrentUser() user: AuthContext, @Res({ passthrough: true }) reply: FastifyReply) {
     const rows = await this.svc.exportCustomerBalances(user);
     return sendXlsx(reply, await rowsToXlsxBuffer(rows, 'Cari Rapor'), 'cari-rapor.xlsx');
   }
 
-  @RequirePermissions('reports.export')
+  @RequirePermissions('reports.export', 'service_tickets.read')
   @Get('service-tickets')
   async serviceTickets(@CurrentUser() user: AuthContext, @Res({ passthrough: true }) reply: FastifyReply) {
     const rows = await this.svc.exportServiceTickets(user);
     return sendXlsx(reply, await rowsToXlsxBuffer(rows, 'Servis'), 'servis-talepleri.xlsx');
   }
 
-  @RequirePermissions('reports.export')
+  @RequirePermissions('reports.export', 'service_tickets.read')
   @Get('service-complaints')
   async serviceComplaints(@CurrentUser() user: AuthContext, @Res({ passthrough: true }) reply: FastifyReply) {
     const rows = await this.svc.exportServiceComplaints(user);
     return sendXlsx(reply, await rowsToXlsxBuffer(rows, 'Şikayet Kutusu'), 'sikayet-kutusu.xlsx');
   }
 
-  @RequirePermissions('reports.export')
+  @RequirePermissions('reports.export', 'inventory.read')
   @Get('inventory')
   async inventory(
     @Query(new ZodValidationPipe(exportInventoryQuerySchema)) q: ExportInventoryQuery,
@@ -133,21 +133,21 @@ export class ExportsController {
     return sendXlsx(reply, await rowsToXlsxBuffer(rows, 'Stok'), 'stok.xlsx');
   }
 
-  @RequirePermissions('reports.export')
+  @RequirePermissions('reports.export', 'shipments.read')
   @Get('shipments')
   async shipments(@CurrentUser() user: AuthContext, @Res({ passthrough: true }) reply: FastifyReply) {
     const rows = await this.svc.exportShipments(user);
     return sendXlsx(reply, await rowsToXlsxBuffer(rows, 'Sevkiyatlar'), 'sevkiyatlar.xlsx');
   }
 
-  @RequirePermissions('reports.export')
+  @RequirePermissions('reports.export', 'shipments.read')
   @Get('deliveries')
   async deliveries(@CurrentUser() user: AuthContext, @Res({ passthrough: true }) reply: FastifyReply) {
     const rows = await this.svc.exportDeliveries(user);
     return sendXlsx(reply, await rowsToXlsxBuffer(rows, 'Teslimatlar'), 'teslimatlar.xlsx');
   }
 
-  @RequirePermissions('reports.export')
+  @RequirePermissions('reports.export', 'purchase_orders.read')
   @Get('purchase-orders')
   async purchaseOrders(
     @Query(new ZodValidationPipe(exportPurchaseOrderQuerySchema)) q: ExportPurchaseOrderQuery,
@@ -158,14 +158,14 @@ export class ExportsController {
     return sendXlsx(reply, await rowsToXlsxBuffer(rows, 'Satın Alma'), 'satinalma-siparisleri.xlsx');
   }
 
-  @RequirePermissions('reports.export')
+  @RequirePermissions('reports.export', 'files.read')
   @Get('documents')
   async documents(@CurrentUser() user: AuthContext, @Res({ passthrough: true }) reply: FastifyReply) {
     const rows = await this.svc.exportDocuments(user);
     return sendXlsx(reply, await rowsToXlsxBuffer(rows, 'Dokümanlar'), 'dokumanlar.xlsx');
   }
 
-  @RequirePermissions('reports.export')
+  @RequirePermissions('reports.export', 'reports.read')
   @Get('operational')
   async operational(
     @Query(new ZodValidationPipe(exportOperationalQuerySchema)) q: ExportOperationalQuery,

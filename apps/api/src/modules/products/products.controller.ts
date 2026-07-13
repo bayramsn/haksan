@@ -94,7 +94,7 @@ export class ProductsController {
   @RequirePermissions('products.read')
   @Get('products/:id/media')
   async listMedia(@Param('id') id: string, @CurrentUser() user: AuthContext) {
-    await this.media.assertProductExists(id, user.tenantId);
+    await this.svc.get(id, user);
     return this.media.listForProduct(id, user.tenantId);
   }
 

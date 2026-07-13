@@ -47,21 +47,22 @@ export function PublicServiceComplaintPage({ slug, token }: { slug: string; toke
   }, [slug, token]);
 
   const submit = async () => {
-    if (!subject.trim()) {
-      toast.error("Konu girilmeli.");
+    const nextSubject = subject.trim();
+    if (nextSubject.length < 3) {
+      toast.error("Konu en az 3 karakter olmalı.");
       return;
     }
     setSubmitting(true);
     try {
       const row = await publicComplaintService.submit(slug, token, {
-        subject,
-        description,
+        subject: nextSubject,
+        description: description.trim() || undefined,
         severity,
         ticketType: warrantyClaim ? "warranty_claim" : "complaint",
         source,
-        contactName,
-        contactPhone,
-        contactEmail,
+        contactName: contactName.trim() || undefined,
+        contactPhone: contactPhone.trim() || undefined,
+        contactEmail: contactEmail.trim(),
         attachmentFileIds: attachments.map((file) => file.fileId),
       });
       setSubmittedNo(row.complaintNo);
@@ -101,8 +102,7 @@ export function PublicServiceComplaintPage({ slug, token }: { slug: string; toke
         extension: ext as any,
         sizeBytes: file.size,
       });
-      const res = await fetch(up.uploadUrl, { method: "PUT", body: file, headers: { "Content-Type": mime } });
-      if (!res.ok) throw new Error(`Depoya yükleme başarısız (${res.status})`);
+      await publicComplaintService.uploadBinary(slug, token, up.fileId, file, mime);
       setAttachments((prev) => [...prev, { fileId: up.fileId, name: file.name, size: file.size }]);
       toast.success("Dosya eklendi");
     } catch (err: any) {

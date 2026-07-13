@@ -35,7 +35,7 @@ export class SupabaseStorageProvider implements StorageProvider {
     const url = `${this.baseUrl}/object/${opts.bucket}/${opts.objectKey}`;
     const res = await fetch(url, {
       method: 'POST',
-      headers: { ...this.headers(), 'Content-Type': opts.mimeType, 'x-upsert': 'true' },
+      headers: { ...this.headers(), 'Content-Type': opts.mimeType, 'x-upsert': 'false' },
       body: opts.body,
     });
     if (!res.ok) throw new Error(`Supabase upload failed: ${res.status} ${await res.text()}`);

@@ -1,4 +1,4 @@
-import { pgTable, uuid, varchar, text, boolean, integer, uniqueIndex } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, varchar, text, boolean, integer, timestamp, index, uniqueIndex } from 'drizzle-orm/pg-core';
 import { auditColumns } from './_helpers';
 
 export const tenants = pgTable(
@@ -50,5 +50,35 @@ export const divisions = pgTable(
   },
   (t) => ({
     tenantCodeUnique: uniqueIndex('divisions_tenant_code_unique').on(t.tenantId, t.code),
+  })
+);
+
+/**
+ * Bölüm ve belge türü bazında atomik numara sayacı. Teklif/proforma/sözleşme/
+ * servis serilerinin birbirine karışmasını ve eşzamanlı kayıtta aynı numaranın
+ * üretilmesini önler.
+ */
+export const documentSequences = pgTable(
+  'document_sequences',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id')
+      .notNull()
+      .references(() => tenants.id, { onDelete: 'cascade' }),
+    businessLine: varchar('business_line', { length: 16 }).notNull(),
+    documentType: varchar('document_type', { length: 32 }).notNull(),
+    year: integer('year').notNull(),
+    lastNumber: integer('last_number').notNull().default(0),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    tenantSeriesUnique: uniqueIndex('document_sequences_tenant_series_unique').on(
+      t.tenantId,
+      t.businessLine,
+      t.documentType,
+      t.year
+    ),
+    tenantYearIdx: index('document_sequences_tenant_year_idx').on(t.tenantId, t.year),
   })
 );

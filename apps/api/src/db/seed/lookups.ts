@@ -44,6 +44,14 @@ const TABLE_MAP = {
   contract_statuses: schema.contractStatuses,
 } as const;
 
+const DIVISION_LOOKUP_TABLES = new Set([
+  'product_groups',
+  'product_categories',
+  'product_subcategories',
+  'product_types',
+  'product_spec_groups',
+]);
+
 export async function seedLookups(): Promise<void> {
   const db = getDb();
 
@@ -54,15 +62,24 @@ export async function seedLookups(): Promise<void> {
       continue;
     }
     if (!rows.length) continue;
-    // @ts-expect-error Drizzle's union of insert types is too narrow for our dynamic seeding loop
-    await db.insert(table).values(rows).onConflictDoUpdate({
-      target: table.code,
-      set: {
-        name: sql`EXCLUDED.name`,
-        sortOrder: sql`EXCLUDED.sort_order`,
-        ...(tableName === 'tax_offices' ? { province: sql`EXCLUDED.province` } : {}),
-      },
-    });
+    if (DIVISION_LOOKUP_TABLES.has(tableName)) {
+      // Bölüm kapsamlı lookup'larda benzersizlik (coalesce(division_id), code)
+      // expression index'i üstünden kurulu; ON CONFLICT (code) artık geçerli değil.
+      // Varsayılan seed satırları paylaşılan/null bölüm kayıtlarıdır ve tekrar
+      // çalıştırmada mevcut kayıtları korumak yeterlidir.
+      // @ts-expect-error Drizzle's union of insert types is too narrow for our dynamic seeding loop
+      await db.insert(table).values(rows).onConflictDoNothing();
+    } else {
+      // @ts-expect-error Drizzle's union of insert types is too narrow for our dynamic seeding loop
+      await db.insert(table).values(rows).onConflictDoUpdate({
+        target: table.code,
+        set: {
+          name: sql`EXCLUDED.name`,
+          sortOrder: sql`EXCLUDED.sort_order`,
+          ...(tableName === 'tax_offices' ? { province: sql`EXCLUDED.province` } : {}),
+        },
+      });
+    }
     console.log(`[lookups] seeded ${rows.length} rows into ${tableName}`);
   }
 

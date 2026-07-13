@@ -78,7 +78,7 @@ export type QuoteTermsUpsertInput = z.infer<typeof quoteTermsUpsertSchema>;
 
 export const proformaCreateSchema = z.object({
   quoteId: z.string().min(1),
-  documentNo: z.string().min(1).max(64),
+  documentNo: z.string().trim().min(1).max(64).optional(),
   issueDate: z.coerce.date(),
   statusCode: z.string().max(64).default('draft'),
   fileId: z.string().optional(),
@@ -90,7 +90,7 @@ export type ProformaUpdateInput = z.infer<typeof proformaUpdateSchema>;
 
 export const contractCreateSchema = z.object({
   quoteId: z.string().min(1),
-  contractNo: z.string().min(1).max(64),
+  contractNo: z.string().trim().min(1).max(64).optional(),
   signedDate: z.coerce.date().optional(),
   paymentTermDays: z.coerce.number().int().min(0).max(3650).optional(),
   statusCode: z.string().max(64).default('draft'),
@@ -103,7 +103,7 @@ export type ContractUpdateInput = z.infer<typeof contractUpdateSchema>;
 
 export const commercialInvoiceCreateSchema = z.object({
   quoteId: z.string().min(1),
-  invoiceNo: z.string().min(1).max(64),
+  invoiceNo: z.string().trim().min(1).max(64).optional(),
   invoiceDate: z.coerce.date(),
   statusCode: z.string().max(64).default('draft'),
   fileId: z.string().optional(),

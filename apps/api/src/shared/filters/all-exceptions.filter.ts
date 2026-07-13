@@ -4,6 +4,7 @@ import * as Sentry from '@sentry/node';
 import { AppError } from '../utils/errors';
 import { logger } from '../utils/logger';
 import { incUnhandledException } from '../observability/metrics';
+import { redactRequestPath } from '../observability/redact-request-path';
 
 interface ErrorBody {
   error: {
@@ -84,7 +85,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
     // and the acting tenant/user/session during incident triage.
     const context = {
       reqId: req.requestId,
-      path: req.url,
+      path: redactRequestPath(req.url),
       method: req.method,
       tenantId: req.auth?.tenantId,
       userId: req.auth?.userId,
@@ -101,7 +102,10 @@ export class AllExceptionsFilter implements ExceptionFilter {
       });
       logger.error({ err: exception, ...context }, 'Unhandled exception');
     } else {
-      logger.warn({ status, code: body.error.code, ...context }, 'Request error');
+      logger.warn(
+        { status, code: body.error.code, ...(body.error.details ? { details: body.error.details } : {}), ...context },
+        'Request error'
+      );
     }
 
     res.status(status).send(body);

@@ -1,4 +1,13 @@
 import { z } from 'zod';
+import { PERMISSION_RESOURCES } from '../constants';
+
+export const userAccessScopeSchema = z.object({
+  resource: z.enum(PERMISSION_RESOURCES),
+  departmentId: z.string().uuid().nullable().optional(),
+  divisionId: z.string().uuid().nullable().optional(),
+  isPrimary: z.boolean().default(false),
+});
+export type UserAccessScopeInput = z.infer<typeof userAccessScopeSchema>;
 
 export const userCreateSchema = z.object({
   fullName: z.string().min(1).max(255),
@@ -10,6 +19,9 @@ export const userCreateSchema = z.object({
   // Bölüm (CNC / Üniversal / Sac İşleme) üyelikleri — ticari veri izolasyonu ekseni.
   // İlk eleman birincil (varsayılan aktif) bölüm kabul edilir.
   divisionIds: z.array(z.string().uuid()).default([]),
+  // Sayfa/modül + departman + bölüm kapsamları. Verilmezse API divisionIds'ten
+  // geriye uyumlu varsayılan kapsam üretir.
+  accessScopes: z.array(userAccessScopeSchema).optional(),
 });
 export type UserCreateInput = z.infer<typeof userCreateSchema>;
 
@@ -24,6 +36,8 @@ export const userUpdateSchema = z.object({
   roleCodes: z.array(z.string()).optional(),
   // Verildiğinde kullanıcının bölüm üyelikleri tümüyle bununla değiştirilir.
   divisionIds: z.array(z.string().uuid()).optional(),
+  // Verildiğinde kullanıcının yetki alanı matrisi tümüyle bununla değiştirilir.
+  accessScopes: z.array(userAccessScopeSchema).optional(),
   password: z.string().min(8).max(128).optional(),
   purchaseApprovalLimit: z.coerce.number().int().min(0).optional(),
   managerId: z.string().uuid().nullable().optional(),

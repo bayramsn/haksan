@@ -118,7 +118,7 @@ export function KanbanPage({ onSelect, items }: { onSelect: (s: SalesCase) => vo
 
   const latestOfferForCase = (sc: SalesCase) =>
     offers
-      .filter((offer) => offer.salesCaseId === sc.id || offer.companyId === sc.customerId)
+      .filter((offer) => offer.salesCaseId === sc.id)
       .sort((a, b) => b.date.localeCompare(a.date) || b.quoteNo.localeCompare(a.quoteNo, "tr", { numeric: true }))[0];
 
   // Kurulum aşamasına gelince Kurulum Tutanağı'nı (DR.MAK) kartın müşterisi ve

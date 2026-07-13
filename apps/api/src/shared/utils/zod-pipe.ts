@@ -21,7 +21,12 @@ export class ZodValidationPipe<T> implements PipeTransform {
         fieldErrors[key] ??= [];
         fieldErrors[key].push(issue.message);
       }
-      throw new ValidationError('Doğrulama hatası', { fieldErrors });
+      // Kullanıcı hangi alanın neden reddedildiğini mesajda görsün (ilk 4 alan).
+      const summary = Object.entries(fieldErrors)
+        .slice(0, 4)
+        .map(([field, messages]) => `${field}: ${messages[0]}`)
+        .join('; ');
+      throw new ValidationError(summary ? `Doğrulama hatası — ${summary}` : 'Doğrulama hatası', { fieldErrors });
     }
     return result.data;
   }

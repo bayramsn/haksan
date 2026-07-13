@@ -11,7 +11,7 @@ import type { AuthContext } from '../../shared/security/auth.types';
 import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from '../../shared/utils/errors';
 import { ZodValidationPipe } from '../../shared/utils/zod-pipe';
 import { AuditService } from '../../shared/database/audit.service';
-import { DIVISION_SCOPED_LOOKUPS, LOOKUP_TABLE_MAP } from '../lookups/lookups.controller';
+import { availableLookupNames, BRAND_LOOKUP_NAME, DIVISION_SCOPED_LOOKUPS, LOOKUP_TABLE_MAP } from '../lookups/lookups.controller';
 import {
   productSpecTemplateBulkCreateSchema,
   productSpecTemplateCreateSchema,
@@ -68,6 +68,106 @@ export class AdminLookupsController {
     return (schema as any)[tableKey];
   }
 
+  private brandToLookupRow(row: typeof schema.brands.$inferSelect) {
+    return {
+      id: row.id,
+      code: row.name,
+      name: row.name,
+      description: row.notes,
+      sortOrder: 0,
+      isActive: !row.deletedAt,
+    };
+  }
+
+  private async listBrandLookups(user: AuthContext) {
+    const rows = await this.db
+      .select()
+      .from(schema.brands)
+      .where(and(eq(schema.brands.tenantId, user.tenantId), isNull(schema.brands.deletedAt)))
+      .orderBy(asc(schema.brands.name));
+    return rows.map((row) => this.brandToLookupRow(row));
+  }
+
+  private async createBrandLookup(body: LookupCreateInput, user: AuthContext) {
+    const name = body.name.trim();
+    const existing = await this.db.query.brands.findFirst({
+      where: and(eq(schema.brands.tenantId, user.tenantId), eq(schema.brands.name, name)),
+    });
+    if (existing && !existing.deletedAt) throw new ConflictError('Bu marka adı zaten kayıtlı');
+    const values = {
+      tenantId: user.tenantId,
+      name,
+      notes: body.description?.trim() || null,
+      deletedAt: null,
+    };
+    const [row] = existing
+      ? await this.db.update(schema.brands).set(values).where(eq(schema.brands.id, existing.id)).returning()
+      : await this.db.insert(schema.brands).values(values).returning();
+    const lookupRow = this.brandToLookupRow(row);
+    await this.audit.write({
+      tenantId: user.tenantId,
+      actorUserId: user.userId,
+      action: 'lookup.created',
+      resourceType: `lookup:${BRAND_LOOKUP_NAME}`,
+      resourceId: row.id,
+      oldValues: existing ? this.brandToLookupRow(existing) : null,
+      newValues: lookupRow,
+    });
+    return lookupRow;
+  }
+
+  private async updateBrandLookup(id: string, body: LookupUpdateInput, user: AuthContext) {
+    const [existing] = await this.db
+      .select()
+      .from(schema.brands)
+      .where(and(eq(schema.brands.id, id), eq(schema.brands.tenantId, user.tenantId), isNull(schema.brands.deletedAt)))
+      .limit(1);
+    if (!existing) throw new NotFoundError('Lookup');
+    const values: Record<string, unknown> = {};
+    if (body.name != null) values.name = body.name.trim();
+    if (body.description !== undefined) values.notes = body.description?.trim() || null;
+    if (!Object.keys(values).length) return this.brandToLookupRow(existing);
+    try {
+      const [row] = await this.db.update(schema.brands).set(values).where(eq(schema.brands.id, id)).returning();
+      const oldValues = this.brandToLookupRow(existing);
+      const newValues = this.brandToLookupRow(row);
+      await this.audit.write({
+        tenantId: user.tenantId,
+        actorUserId: user.userId,
+        action: 'lookup.updated',
+        resourceType: `lookup:${BRAND_LOOKUP_NAME}`,
+        resourceId: id,
+        oldValues,
+        newValues,
+      });
+      return newValues;
+    } catch (error: any) {
+      if (error?.code === '23505') throw new ConflictError('Bu marka adı zaten kayıtlı');
+      throw error;
+    }
+  }
+
+  private async deleteBrandLookup(id: string, user: AuthContext) {
+    const [existing] = await this.db
+      .select()
+      .from(schema.brands)
+      .where(and(eq(schema.brands.id, id), eq(schema.brands.tenantId, user.tenantId), isNull(schema.brands.deletedAt)))
+      .limit(1);
+    if (!existing) throw new NotFoundError('Lookup');
+    const deletedAt = new Date();
+    const [row] = await this.db.update(schema.brands).set({ deletedAt }).where(eq(schema.brands.id, id)).returning();
+    await this.audit.write({
+      tenantId: user.tenantId,
+      actorUserId: user.userId,
+      action: 'lookup.deleted',
+      resourceType: `lookup:${BRAND_LOOKUP_NAME}`,
+      resourceId: id,
+      oldValues: this.brandToLookupRow(existing),
+      newValues: this.brandToLookupRow(row),
+    });
+    return { ok: true, deleted: true, deactivated: false };
+  }
+
   private lookupValues(name: string, body: LookupCreateInput | LookupUpdateInput, existing?: any) {
     const code = body.code ? toLookupCode(body.code) : body.name ? toLookupCode(body.name) : undefined;
     if (body.code && !code) throw new ValidationError('Lookup kodu geçersiz');
@@ -95,7 +195,7 @@ export class AdminLookupsController {
   @Get('lookups')
   listAvailable(@CurrentUser() user: AuthContext) {
     this.requireSuperAdmin(user);
-    return { available: Object.keys(LOOKUP_TABLE_MAP) };
+    return { available: availableLookupNames() };
   }
 
   @Get('lookups/:name')
@@ -107,6 +207,7 @@ export class AdminLookupsController {
     @CurrentUser() user: AuthContext
   ) {
     this.requireSuperAdmin(user);
+    if (name === BRAND_LOOKUP_NAME) return this.listBrandLookups(user);
     const table = this.lookupTable(name);
     const filters = [];
     if (name === 'tax-offices' && city?.trim()) filters.push(eq(table.province, city.trim()));
@@ -130,6 +231,7 @@ export class AdminLookupsController {
     @CurrentUser() user: AuthContext
   ) {
     this.requireSuperAdmin(user);
+    if (name === BRAND_LOOKUP_NAME) return this.createBrandLookup(body, user);
     const table = this.lookupTable(name);
     const values = this.lookupValues(name, body);
     if (!values.code) values.code = toLookupCode(body.name);
@@ -158,6 +260,7 @@ export class AdminLookupsController {
     @CurrentUser() user: AuthContext
   ) {
     this.requireSuperAdmin(user);
+    if (name === BRAND_LOOKUP_NAME) return this.updateBrandLookup(id, body, user);
     const table = this.lookupTable(name);
     const [existing] = await this.db.select().from(table).where(eq(table.id, id)).limit(1);
     if (!existing) throw new NotFoundError('Lookup');
@@ -183,6 +286,7 @@ export class AdminLookupsController {
   @Delete('lookups/:name/:id')
   async deleteLookup(@Param('name') name: string, @Param('id') id: string, @CurrentUser() user: AuthContext) {
     this.requireSuperAdmin(user);
+    if (name === BRAND_LOOKUP_NAME) return this.deleteBrandLookup(id, user);
     const table = this.lookupTable(name);
     const [existing] = await this.db.select().from(table).where(eq(table.id, id)).limit(1);
     if (!existing) throw new NotFoundError('Lookup');

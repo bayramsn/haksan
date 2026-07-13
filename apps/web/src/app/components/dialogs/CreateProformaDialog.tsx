@@ -37,7 +37,7 @@ export function CreateProformaDialog({
   onOpenChange?: (open: boolean) => void;
   onCreated?: (id: string) => void;
 }) {
-  const { offers, customers, cases, documents, noteTemplates, addNoteTemplate, updateNoteTemplate, deleteNoteTemplate, refresh } = useStore();
+  const { offers, customers, cases, noteTemplates, addNoteTemplate, updateNoteTemplate, deleteNoteTemplate, refresh } = useStore();
   const [internalOpen, setInternalOpen] = useState(false);
   const open = controlledOpen ?? internalOpen;
   const setOpen = (next: boolean) => {
@@ -58,14 +58,12 @@ export function CreateProformaDialog({
   const [termsDirty, setTermsDirty] = useState(false);
   const [saving, setSaving] = useState(false);
 
-  const proformaCount = documents.filter((d) => d.type === "Proforma").length;
-  const suggestNo = () => `PRF-${new Date().getFullYear()}/${String(proformaCount + 1).padStart(3, "0")}`;
   const savedTermsTemplates = useTermsTemplates(noteTemplates, PROFORMA_TERMS_TEMPLATE_SCOPE);
 
   useEffect(() => {
     if (!open) return;
     setQuoteId(defaultQuoteId ?? "");
-    setDocumentNo(suggestNo());
+    setDocumentNo("");
     setIssueDate(today);
     setTermsTemplateKey("");
     setPaymentTerms("");
@@ -133,7 +131,6 @@ export function CreateProformaDialog({
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!quoteId) return toast.error("Bağlı teklif seçiniz");
-    if (!documentNo.trim()) return toast.error("Proforma no zorunludur");
     setSaving(true);
     try {
       if (termsDirty) {
@@ -146,11 +143,11 @@ export function CreateProformaDialog({
       }
       const created = await documentService.createProforma({
         quoteId,
-        documentNo: documentNo.trim(),
+        documentNo: documentNo.trim() || undefined,
         issueDate: new Date(issueDate),
         statusCode: "draft",
       });
-      toast.success("Proforma oluşturuldu", { description: documentNo.trim() });
+      toast.success("Proforma oluşturuldu", { description: created?.documentNo ?? documentNo.trim() });
       await refresh();
       onCreated?.(created?.id ?? "");
       setOpen(false);
@@ -182,6 +179,7 @@ export function CreateProformaDialog({
                     <div className="space-y-2.5">
                       <dl className="space-y-1.5">
                         <SummaryRow label="Teklif No" value={`${selectedOffer.quoteNo}${selectedOffer.revision ? ` · R${selectedOffer.revision}` : ""}`} />
+                        <SummaryRow label="İş Alanı" value={selectedOffer.businessLine ?? selectedOffer.divisionName ?? "—"} />
                         <SummaryRow label="Müşteri" value={selectedCustomer?.name ?? "—"} />
                         {(selectedCustomer?.district || selectedCustomer?.city) && (
                           <SummaryRow label="Konum" value={[selectedCustomer?.district, selectedCustomer?.city].filter(Boolean).join(" / ")} />
@@ -227,13 +225,9 @@ export function CreateProformaDialog({
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <Label className="text-xs">Proforma No *</Label>
-              <div className="mt-1.5 flex gap-1.5">
-                <Input value={documentNo} onChange={(e) => setDocumentNo(e.target.value)} placeholder="Otomatik" />
-                <Button type="button" variant="outline" size="sm" onClick={() => setDocumentNo(suggestNo())}>
-                  Öner
-                </Button>
-              </div>
+              <Label className="text-xs">Proforma No</Label>
+              <Input className="mt-1.5" value={documentNo} onChange={(e) => setDocumentNo(e.target.value)} placeholder={`Otomatik: ${selectedOffer?.businessLine ?? "CNC"}-PRF-${new Date().getFullYear()}/...`} />
+              <p className="mt-1 text-[10px] text-muted-foreground">Boş bırakılırsa teklifin iş alanına ait seri atanır.</p>
             </div>
             <div>
               <Label className="text-xs">Tarih</Label>

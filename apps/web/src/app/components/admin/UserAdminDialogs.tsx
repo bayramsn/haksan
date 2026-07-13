@@ -13,10 +13,57 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "../ui/select";
 import { adminService } from "../../../lib/services";
+import { PERMISSION_RESOURCES, type PermissionResource } from "@haksan/shared";
 
 export type DeptOption = { id: string; name: string; code?: string };
 export type RoleOption = { id: string; code: string; name: string; description?: string | null; isSystemRole?: boolean };
 export type DivisionOption = { id: string; code: string; name: string };
+export type UserAccessScopeRow = { resource: PermissionResource; departmentId: string | null; divisionId: string | null; isPrimary: boolean };
+
+const PERMISSION_RESOURCE_LABELS: Record<PermissionResource, string> = {
+  tenants: "Kiracı / Kurum",
+  users: "Kullanıcılar",
+  roles: "Roller",
+  departments: "Departmanlar",
+  divisions: "Bölümler",
+  companies: "Firmalar / Cari Kart",
+  contacts: "Kontaklar",
+  leads: "Lead",
+  opportunities: "Satış Kartları",
+  activities: "Aktiviteler",
+  calendar: "Takvim",
+  competitors: "Rakipler",
+  brands: "Markalar / Referanslar",
+  products: "Ürünler",
+  product_specs: "Ürün Özellikleri",
+  price_lists: "Fiyat Listeleri",
+  warehouses: "Depolar",
+  inventory: "Stok",
+  customer_devices: "Müşteri Cihazları",
+  quotes: "Teklifler",
+  sales_orders: "Satış Siparişleri",
+  proformas: "Proformalar",
+  contracts: "Sözleşmeler",
+  commercial_invoices: "Ticari Faturalar",
+  accounting_invoices: "Muhasebe Faturaları",
+  purchase_orders: "Satın Alma",
+  shipments: "Sevkiyat / Teslimat",
+  installations: "Kurulumlar",
+  service_tickets: "Servis Talepleri",
+  receivables: "Cari Rapor / Alacaklar",
+  payments: "Ödemeler",
+  files: "Dokümanlar",
+  reports: "Raporlar",
+  audit: "Denetim Kayıtları",
+};
+
+const ACCESS_SCOPE_RESOURCES = PERMISSION_RESOURCES.map((code) => ({
+  code,
+  label: PERMISSION_RESOURCE_LABELS[code],
+}));
+
+const isPermissionResource = (value: string): value is PermissionResource =>
+  (PERMISSION_RESOURCES as readonly string[]).includes(value);
 
 export function CreateUserDialog({
   open,
@@ -310,22 +357,41 @@ export function UserDepartmentDialog({
   onClose,
   onSave,
 }: {
-  user: { id: string; name: string; email: string; departmentId?: string | null; active: boolean; divisionIds?: string[] } | null;
+  user: {
+    id: string;
+    name: string;
+    email: string;
+    departmentId?: string | null;
+    active: boolean;
+    divisionIds?: string[];
+    accessScopes?: UserAccessScopeRow[];
+  } | null;
   departments: DeptOption[];
   divisions: DivisionOption[];
   saving: boolean;
   onClose: () => void;
-  onSave: (userId: string, departmentId: string | null, active: boolean, divisionIds: string[]) => Promise<void>;
+  onSave: (userId: string, departmentId: string | null, active: boolean, divisionIds: string[], accessScopes: UserAccessScopeRow[]) => Promise<void>;
 }) {
   const [departmentId, setDepartmentId] = useState<string>("");
   const [active, setActive] = useState(true);
   const [divisionIds, setDivisionIds] = useState<string[]>([]);
+  const [accessScopes, setAccessScopes] = useState<UserAccessScopeRow[]>([]);
 
   useEffect(() => {
     if (user) {
       setDepartmentId(user.departmentId ?? "");
       setActive(user.active);
       setDivisionIds(user.divisionIds ?? []);
+      setAccessScopes(
+        user.accessScopes?.length
+          ? user.accessScopes.map((scope) => ({ ...scope }))
+          : ACCESS_SCOPE_RESOURCES.map((resource) => ({
+              resource: resource.code,
+              departmentId: user.departmentId ?? null,
+              divisionId: user.divisionIds?.[0] ?? null,
+              isPrimary: true,
+            }))
+      );
     }
   }, [user]);
 
@@ -339,12 +405,39 @@ export function UserDepartmentDialog({
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    await onSave(user.id, departmentId || null, active, divisionIds);
+    await onSave(user.id, departmentId || null, active, divisionIds, accessScopes);
+  };
+
+  const updateScope = (index: number, patch: Partial<UserAccessScopeRow>) => {
+    setAccessScopes((rows) => {
+      const currentResource = patch.resource ?? rows[index]?.resource;
+      return rows.map((row, rowIndex) => {
+        if (rowIndex === index) return { ...row, ...patch };
+        if (patch.isPrimary === true && row.resource === currentResource) return { ...row, isPrimary: false };
+        return row;
+      });
+    });
+  };
+
+  const addScope = () => {
+    setAccessScopes((rows) => [
+      ...rows,
+      {
+        resource: ACCESS_SCOPE_RESOURCES[0].code,
+        departmentId: departmentId || null,
+        divisionId: divisionIds[0] ?? null,
+        isPrimary: false,
+      },
+    ]);
+  };
+
+  const removeScope = (index: number) => {
+    setAccessScopes((rows) => rows.filter((_, rowIndex) => rowIndex !== index));
   };
 
   return (
     <Dialog open={!!user} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-md">
+      <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Departman & Bölüm · {user.name}</DialogTitle>
           <DialogDescription>{user.email}</DialogDescription>
@@ -383,6 +476,72 @@ export function UserDepartmentDialog({
               </div>
             </div>
           )}
+          <div>
+            <div className="flex items-center justify-between gap-2">
+              <Label className="text-xs">Yetki Alanları</Label>
+              <Button type="button" size="sm" variant="outline" onClick={addScope} disabled={saving}>Kapsam Ekle</Button>
+            </div>
+            <div className="mt-2 overflow-hidden rounded-md border border-border/60">
+              <div className="grid grid-cols-[1fr_1fr_1fr_80px_72px] gap-2 border-b bg-muted/40 px-3 py-2 text-xs font-medium text-muted-foreground">
+                <span>Sayfa</span>
+                <span>Departman</span>
+                <span>Bölüm</span>
+                <span>Birincil</span>
+                <span></span>
+              </div>
+              <div className="divide-y">
+                {accessScopes.map((scope, index) => (
+                  <div key={`${scope.resource}-${index}`} className="grid grid-cols-[1fr_1fr_1fr_80px_72px] gap-2 px-3 py-2 text-sm">
+                    <Select
+                      value={scope.resource}
+                      onValueChange={(value) => {
+                        if (isPermissionResource(value)) updateScope(index, { resource: value });
+                      }}
+                    >
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        {ACCESS_SCOPE_RESOURCES.map((resource) => (
+                          <SelectItem key={resource.code} value={resource.code}>{resource.label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Select
+                      value={scope.departmentId ?? "__all__"}
+                      onValueChange={(value) => updateScope(index, { departmentId: value === "__all__" ? null : value })}
+                    >
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__all__">Tüm Departmanlar</SelectItem>
+                        {departments.map((department) => (
+                          <SelectItem key={department.id} value={department.id}>{department.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Select
+                      value={scope.divisionId ?? "__all__"}
+                      onValueChange={(value) => updateScope(index, { divisionId: value === "__all__" ? null : value })}
+                    >
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__all__">Tümü</SelectItem>
+                        {divisions.map((division) => (
+                          <SelectItem key={division.id} value={division.id}>{division.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <div className="flex items-center justify-center">
+                      <Checkbox
+                        checked={scope.isPrimary}
+                        onCheckedChange={(value) => updateScope(index, { isPrimary: value === true })}
+                        disabled={saving}
+                      />
+                    </div>
+                    <Button type="button" variant="ghost" size="sm" onClick={() => removeScope(index)} disabled={saving || accessScopes.length <= 1}>Sil</Button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
           <div className="flex items-center justify-between rounded-md border border-border/60 px-3 py-2">
             <div>
               <div className="text-sm font-medium">Aktif hesap</div>

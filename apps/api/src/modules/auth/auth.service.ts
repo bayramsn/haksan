@@ -1,7 +1,7 @@
-import { Inject, Injectable } from '@nestjs/common';
-import { and, eq, gt, isNull } from 'drizzle-orm';
+import { Inject, Injectable, Optional } from '@nestjs/common';
+import { and, eq, gt, ilike, isNull, sql } from 'drizzle-orm';
 import * as argon2 from 'argon2';
-import { randomBytes } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import { hashPassword } from '../../shared/security/password';
 import type { DbClient } from '../../db/client';
 import {
@@ -11,15 +11,19 @@ import {
   passwordResetTokens,
   userRoles,
   roles as rolesTable,
+  userAccessScopes,
+  userDepartmentAssignments,
   userDivisions,
 } from '../../db/schema/users';
-import { divisions, tenants } from '../../db/schema/tenants';
+import { departments, divisions, tenants } from '../../db/schema/tenants';
 import { DB } from '../../shared/database/database.module';
 import { JwtTokenService } from '../../shared/security/jwt.service';
 import { ForbiddenError, LockedError, NotFoundError, UnauthorizedError, ValidationError } from '../../shared/utils/errors';
 import { loadEnv } from '../../config/env';
 import { AuditService } from '../../shared/database/audit.service';
 import { invalidateRbacCache, rolePermissionsCacheKey } from '../../shared/security/rbac.cache';
+import { MailerService } from '../../shared/mailer/mailer.service';
+import { logger } from '../../shared/utils/logger';
 
 const REFRESH_REPLAY_GRACE_MS = 10_000;
 
@@ -50,7 +54,8 @@ export class AuthService {
   constructor(
     @Inject(DB) private readonly db: DbClient,
     private readonly jwt: JwtTokenService,
-    private readonly audit: AuditService
+    private readonly audit: AuditService,
+    @Optional() private readonly mailer?: MailerService
   ) {}
 
   private parseDurationToMs(input: string): number {
@@ -61,16 +66,50 @@ export class AuthService {
     return unit === 's' ? v * 1000 : unit === 'm' ? v * 60_000 : unit === 'h' ? v * 3_600_000 : v * 86_400_000;
   }
 
-  async login(email: string, password: string, ip?: string, ua?: string): Promise<LoginResult> {
-    const user = await this.db.query.users.findFirst({
-      where: eq(users.email, email),
-    });
-    if (!user || user.deletedAt) {
-      // Take same time as a valid login to avoid user enumeration
-      await argon2.verify(
+  private async resolveAuthUser(email: string, tenantSlug?: string | null) {
+    const normalizedEmail = email.trim().toLowerCase();
+    const filters = [
+      ilike(users.email, normalizedEmail),
+      isNull(users.deletedAt),
+      eq(tenants.isActive, true),
+      isNull(tenants.deletedAt),
+    ];
+    if (tenantSlug) filters.push(eq(tenants.slug, tenantSlug.trim().toLowerCase()));
+    const rows = await this.db
+      .select({ user: users })
+      .from(users)
+      .innerJoin(tenants, eq(users.tenantId, tenants.id))
+      .where(and(...filters))
+      .limit(2);
+    // Tenant belirtilmemişse aynı e-postanın birden çok tenant'ta bulunması
+    // hangi hesaba erişileceğini açıkça seçmeyi zorunlu kılar.
+    return rows.length === 1 ? rows[0].user : null;
+  }
+
+  private async dummyPasswordVerify(password: string) {
+    await argon2
+      .verify(
         '$argon2id$v=19$m=65536,t=3,p=4$abcdefghijklmnopqrstuv$ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ',
         password
-      ).catch(() => null);
+      )
+      .catch(() => null);
+  }
+
+  private async roleCodesForUser(userId: string): Promise<string[]> {
+    return (
+      await this.db
+        .select({ code: rolesTable.code })
+        .from(userRoles)
+        .innerJoin(rolesTable, eq(userRoles.roleId, rolesTable.id))
+        .where(eq(userRoles.userId, userId))
+    ).map((row) => row.code);
+  }
+
+  async login(email: string, password: string, ip?: string, ua?: string, tenantSlug?: string | null): Promise<LoginResult> {
+    const user = await this.resolveAuthUser(email, tenantSlug);
+    if (!user) {
+      // Take same time as a valid login to avoid user enumeration
+      await this.dummyPasswordVerify(password);
       throw new UnauthorizedError('E-posta veya şifre hatalı');
     }
 
@@ -125,13 +164,7 @@ export class AuthService {
       .returning();
 
     // Build access token
-    const userRoleCodes = (
-      await this.db
-        .select({ code: rolesTable.code })
-        .from(userRoles)
-        .innerJoin(rolesTable, eq(userRoles.roleId, rolesTable.id))
-        .where(eq(userRoles.userId, user.id))
-    ).map((r) => r.code);
+    const userRoleCodes = await this.roleCodesForUser(user.id);
 
     const accessToken = this.jwt.signAccess({
       sub: user.id,
@@ -139,6 +172,7 @@ export class AuthService {
       email: user.email,
       roles: userRoleCodes,
       sid: session.id,
+      ver: user.authVersion,
     });
 
     // Issue refresh token
@@ -225,17 +259,38 @@ export class AuthService {
     }
 
     const user = await this.db.query.users.findFirst({ where: eq(users.id, row.userId) });
-    if (!user || user.deletedAt || user.status !== 'active') {
+    if (!user || user.deletedAt || user.status !== 'active' || user.tenantId !== row.tenantId || !row.sessionId) {
       throw new UnauthorizedError('Kullanıcı geçersiz');
     }
 
-    // Rotate: revoke old, issue new
+    const session = await this.db.query.loginSessions.findFirst({
+      where: and(
+        eq(loginSessions.id, row.sessionId),
+        eq(loginSessions.userId, user.id),
+        eq(loginSessions.tenantId, user.tenantId),
+        isNull(loginSessions.revokedAt)
+      ),
+    });
+    if (!session) {
+      throw new UnauthorizedError('Oturum sonlandırılmış');
+    }
+
+    // Conditional revoke makes token rotation single-winner even when two tabs
+    // refresh at the same instant. The replacement id is generated up front so
+    // the old row and the new row are committed together in one transaction.
     const { raw: newRaw, hash: newHash } = this.jwt.generateRefreshToken();
     const refreshTtlMs = this.parseDurationToMs(this.env.JWT_REFRESH_TTL) || 30 * 86_400_000;
     const expiresAt = new Date(Date.now() + refreshTtlMs);
-    const [newRow] = await this.db
-      .insert(refreshTokens)
-      .values({
+    const newTokenId = randomUUID();
+    const claimed = await this.db.transaction(async (tx) => {
+      const [oldToken] = await tx
+        .update(refreshTokens)
+        .set({ revokedAt: new Date(), replacedById: newTokenId })
+        .where(and(eq(refreshTokens.id, row.id), isNull(refreshTokens.revokedAt)))
+        .returning({ id: refreshTokens.id });
+      if (!oldToken) return false;
+      await tx.insert(refreshTokens).values({
+        id: newTokenId,
         tenantId: user.tenantId,
         userId: user.id,
         sessionId: row.sessionId,
@@ -243,27 +298,27 @@ export class AuthService {
         expiresAt,
         ipAddress: ip ?? null,
         userAgent: ua ?? null,
-      })
-      .returning();
-    await this.db
-      .update(refreshTokens)
-      .set({ revokedAt: new Date(), replacedById: newRow.id })
-      .where(eq(refreshTokens.id, row.id));
+      });
+      return true;
+    });
+    if (!claimed) {
+      const current = await this.db.query.refreshTokens.findFirst({ where: eq(refreshTokens.id, row.id) });
+      if (current?.revokedAt && this.isBenignRefreshReplay(current, ip, ua)) {
+        return this.issueAccessForRefreshRow(current);
+      }
+      await this.revokeSessionFamily(row.sessionId, row.userId);
+      throw new UnauthorizedError('Refresh token geçersiz veya süresi dolmuş');
+    }
 
-    const userRoleCodes = (
-      await this.db
-        .select({ code: rolesTable.code })
-        .from(userRoles)
-        .innerJoin(rolesTable, eq(userRoles.roleId, rolesTable.id))
-        .where(eq(userRoles.userId, user.id))
-    ).map((r) => r.code);
+    const userRoleCodes = await this.roleCodesForUser(user.id);
 
     const accessToken = this.jwt.signAccess({
       sub: user.id,
       tid: user.tenantId,
       email: user.email,
       roles: userRoleCodes,
-      sid: row.sessionId ?? '',
+      sid: row.sessionId,
+      ver: user.authVersion,
     });
 
     return {
@@ -294,17 +349,20 @@ export class AuthService {
 
   private async issueAccessForRefreshRow(row: typeof refreshTokens.$inferSelect): Promise<AccessSessionResult> {
     const user = await this.db.query.users.findFirst({ where: eq(users.id, row.userId) });
-    if (!user || user.deletedAt || user.status !== 'active') {
+    if (!user || user.deletedAt || user.status !== 'active' || user.tenantId !== row.tenantId || !row.sessionId) {
       throw new UnauthorizedError('Kullanıcı geçersiz');
     }
+    const session = await this.db.query.loginSessions.findFirst({
+      where: and(
+        eq(loginSessions.id, row.sessionId),
+        eq(loginSessions.userId, user.id),
+        eq(loginSessions.tenantId, user.tenantId),
+        isNull(loginSessions.revokedAt)
+      ),
+    });
+    if (!session) throw new UnauthorizedError('Oturum sonlandırılmış');
 
-    const userRoleCodes = (
-      await this.db
-        .select({ code: rolesTable.code })
-        .from(userRoles)
-        .innerJoin(rolesTable, eq(userRoles.roleId, rolesTable.id))
-        .where(eq(userRoles.userId, user.id))
-    ).map((r) => r.code);
+    const userRoleCodes = await this.roleCodesForUser(user.id);
 
     return {
       accessToken: this.jwt.signAccess({
@@ -312,7 +370,8 @@ export class AuthService {
         tid: user.tenantId,
         email: user.email,
         roles: userRoleCodes,
-        sid: row.sessionId ?? '',
+        sid: row.sessionId,
+        ver: user.authVersion,
       }),
       user: {
         id: user.id,
@@ -342,6 +401,10 @@ export class AuthService {
         .update(refreshTokens)
         .set({ revokedAt: now })
         .where(and(eq(refreshTokens.userId, userId), isNull(refreshTokens.revokedAt)));
+      await this.db
+        .update(loginSessions)
+        .set({ revokedAt: now })
+        .where(and(eq(loginSessions.userId, userId), isNull(loginSessions.revokedAt)));
     }
     invalidateRbacCache(userId);
   }
@@ -369,6 +432,8 @@ export class AuthService {
       permissions: string[];
       mfaEnabled: boolean;
       divisions: Array<{ id: string; code: string; name: string; isPrimary: boolean }>;
+      departments: Array<{ id: string; code: string; name: string; isPrimary: boolean }>;
+      accessScopes: Array<{ resource: string; departmentId: string | null; divisionId: string | null; isPrimary: boolean }>;
       canViewAllDivisions: boolean;
     };
     tenant: { id: string; name: string; slug: string };
@@ -385,6 +450,15 @@ export class AuthService {
         .where(eq(userRoles.userId, user.id))
     ).map((r) => r.code);
     const perms = await rolePermissionsCacheKey(this.db, user.id);
+    const accessScopes = await this.db
+      .select({
+        resource: userAccessScopes.resource,
+        departmentId: userAccessScopes.departmentId,
+        divisionId: userAccessScopes.divisionId,
+        isPrimary: userAccessScopes.isPrimary,
+      })
+      .from(userAccessScopes)
+      .where(and(eq(userAccessScopes.userId, user.id), eq(userAccessScopes.tenantId, user.tenantId)));
     const assignedDivisions = await this.db
       .select({
         id: divisions.id,
@@ -396,7 +470,8 @@ export class AuthService {
       .innerJoin(divisions, eq(userDivisions.divisionId, divisions.id))
       .where(and(eq(userDivisions.userId, user.id), eq(divisions.tenantId, user.tenantId)));
     const canViewAllDivisions = perms.has('divisions.view_all');
-    const rawAvailableDivisions = canViewAllDivisions
+    const hasAnyAllDivisionScope = accessScopes.some((scope) => scope.divisionId === null);
+    const rawAvailableDivisions = canViewAllDivisions || hasAnyAllDivisionScope
       ? (
           await this.db.query.divisions.findMany({
             where: and(eq(divisions.tenantId, user.tenantId), eq(divisions.isActive, true)),
@@ -413,6 +488,36 @@ export class AuthService {
       ...division,
       isPrimary: division.isPrimary || (!hasPrimaryDivision && index === 0),
     }));
+    const assignedDepartments = await this.db
+      .select({
+        id: departments.id,
+        code: departments.code,
+        name: departments.name,
+        isPrimary: userDepartmentAssignments.isPrimary,
+      })
+      .from(userDepartmentAssignments)
+      .innerJoin(departments, eq(userDepartmentAssignments.departmentId, departments.id))
+      .where(and(eq(userDepartmentAssignments.userId, user.id), eq(departments.tenantId, user.tenantId)));
+    const rawAvailableDepartments =
+      canViewAllDivisions || userRoleCodes.includes('super_admin')
+        ? await this.db
+            .select({ id: departments.id, code: departments.code, name: departments.name })
+            .from(departments)
+            .where(eq(departments.tenantId, user.tenantId))
+        : assignedDepartments.length
+          ? assignedDepartments
+          : user.departmentId
+            ? await this.db
+                .select({ id: departments.id, code: departments.code, name: departments.name })
+                .from(departments)
+                .where(and(eq(departments.id, user.departmentId), eq(departments.tenantId, user.tenantId)))
+            : [];
+    const primaryDepartmentId = assignedDepartments.find((department) => department.isPrimary)?.id ?? user.departmentId ?? null;
+    const hasPrimaryDepartment = rawAvailableDepartments.some((department) => department.id === primaryDepartmentId);
+    const availableDepartments = rawAvailableDepartments.map((department, index) => ({
+      ...department,
+      isPrimary: department.id === primaryDepartmentId || (!hasPrimaryDepartment && index === 0),
+    }));
     return {
       user: {
         id: user.id,
@@ -424,44 +529,104 @@ export class AuthService {
         permissions: Array.from(perms).sort(),
         mfaEnabled: user.mfaEnabled,
         divisions: availableDivisions,
+        departments: availableDepartments,
+        accessScopes,
         canViewAllDivisions,
       },
       tenant: { id: tenant.id, name: tenant.name, slug: tenant.slug },
     };
   }
 
-  async forgotPassword(email: string): Promise<string | null> {
-    const user = await this.db.query.users.findFirst({ where: eq(users.email, email) });
+  async forgotPassword(email: string, tenantSlug?: string | null): Promise<string | null> {
+    const user = await this.resolveAuthUser(email, tenantSlug);
     if (!user) return null;
     const raw = randomBytes(32).toString('base64url');
     const hash = this.jwt.hashToken(raw);
     const ttl = this.env.RESET_TOKEN_TTL_MINUTES * 60_000;
-    await this.db.insert(passwordResetTokens).values({
-      tenantId: user.tenantId,
-      userId: user.id,
-      tokenHash: hash,
-      expiresAt: new Date(Date.now() + ttl),
+    const now = new Date();
+    const [token] = await this.db.transaction(async (tx) => {
+      await tx
+        .update(passwordResetTokens)
+        .set({ usedAt: now })
+        .where(and(eq(passwordResetTokens.userId, user.id), isNull(passwordResetTokens.usedAt)));
+      return tx
+        .insert(passwordResetTokens)
+        .values({
+          tenantId: user.tenantId,
+          userId: user.id,
+          tokenHash: hash,
+          expiresAt: new Date(Date.now() + ttl),
+        })
+        .returning({ id: passwordResetTokens.id });
     });
-    return raw;
+
+    // A deliberately opt-in dev response keeps local/test workflows usable
+    // without turning production reset tokens into API output.
+    if (this.env.NODE_ENV !== 'production' && this.env.AUTH_DEV_RESET_TOKEN_RESPONSE) return raw;
+
+    try {
+      const delivered = await this.mailer?.sendPasswordReset(user.email, raw);
+      if (delivered) return null;
+    } catch (err) {
+      logger.error({ err, userId: user.id }, '[auth] password reset mail delivery failed');
+    }
+    // Do not leave a usable reset credential behind when delivery was not
+    // confirmed. The controller still returns the same generic response.
+    await this.db.update(passwordResetTokens).set({ usedAt: new Date() }).where(eq(passwordResetTokens.id, token.id));
+    logger.warn({ userId: user.id }, '[auth] password reset token invalidated because email delivery was unavailable');
+    return null;
   }
 
   async resetPassword(rawToken: string, newPassword: string): Promise<void> {
     const hash = this.jwt.hashToken(rawToken);
-    const row = await this.db.query.passwordResetTokens.findFirst({
-      where: and(eq(passwordResetTokens.tokenHash, hash), gt(passwordResetTokens.expiresAt, new Date())),
-    });
-    if (!row || row.usedAt) throw new ValidationError('Token geçersiz veya süresi dolmuş');
     const hashed = await hashPassword(newPassword);
-    await this.db
-      .update(users)
-      .set({ passwordHash: hashed, failedLoginAttempts: 0, lockedUntil: null })
-      .where(eq(users.id, row.userId));
-    await this.db
-      .update(passwordResetTokens)
-      .set({ usedAt: new Date() })
-      .where(eq(passwordResetTokens.id, row.id));
-    // Invalidate all sessions for this user
-    await this.db.update(refreshTokens).set({ revokedAt: new Date() }).where(eq(refreshTokens.userId, row.userId));
+    const now = new Date();
+    const row = await this.db.transaction(async (tx) => {
+      // Claim the credential first. The used/expiry predicates make parallel
+      // reset submissions single-use without a read-then-write race.
+      const [claimed] = await tx
+        .update(passwordResetTokens)
+        .set({ usedAt: now })
+        .where(
+          and(
+            eq(passwordResetTokens.tokenHash, hash),
+            isNull(passwordResetTokens.usedAt),
+            gt(passwordResetTokens.expiresAt, now)
+          )
+        )
+        .returning({ id: passwordResetTokens.id, userId: passwordResetTokens.userId, tenantId: passwordResetTokens.tenantId });
+      if (!claimed) return null;
+      await tx
+        .update(users)
+        .set({
+          passwordHash: hashed,
+          failedLoginAttempts: 0,
+          lockedUntil: null,
+          authVersion: sql`${users.authVersion} + 1`,
+        })
+        .where(eq(users.id, claimed.userId));
+      await tx
+        .update(passwordResetTokens)
+        .set({ usedAt: now })
+        .where(and(eq(passwordResetTokens.userId, claimed.userId), isNull(passwordResetTokens.usedAt)));
+      await tx
+        .update(refreshTokens)
+        .set({ revokedAt: now })
+        .where(and(eq(refreshTokens.userId, claimed.userId), isNull(refreshTokens.revokedAt)));
+      await tx
+        .update(loginSessions)
+        .set({ revokedAt: now })
+        .where(and(eq(loginSessions.userId, claimed.userId), isNull(loginSessions.revokedAt)));
+      return claimed;
+    });
+    if (!row) throw new ValidationError('Token geçersiz veya süresi dolmuş');
     invalidateRbacCache(row.userId);
+    await this.audit.write({
+      tenantId: row.tenantId ?? undefined,
+      actorUserId: row.userId,
+      action: 'auth.password.reset',
+      resourceType: 'user',
+      resourceId: row.userId,
+    });
   }
 }

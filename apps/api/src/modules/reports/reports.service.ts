@@ -15,7 +15,7 @@ import { pipelineStages, inventoryStatuses, paymentStatuses, warrantyStatuses, q
 import { companies } from '../../db/schema/companies';
 import { DB } from '../../shared/database/database.module';
 import type { AuthContext } from '../../shared/security/auth.types';
-import { divisionFilter, resolveActorDivisionScope } from '../../shared/utils/division-scope';
+import { resourceDivisionFilter, resolveResourceDivisionScope } from '../../shared/utils/division-scope';
 
 export type Granularity = 'weekly' | 'monthly' | 'yearly';
 
@@ -83,7 +83,7 @@ export class ReportsService {
   constructor(@Inject(DB) private readonly db: DbClient) {}
 
   private activeDivisionFilter(actor: AuthContext, column: any) {
-    return divisionFilter(resolveActorDivisionScope(actor), column) ?? sql`true`;
+    return resourceDivisionFilter(actor, 'reports', column) ?? sql`true`;
   }
 
   private bucket(granularity: Granularity, col: any) {
@@ -459,7 +459,7 @@ export class ReportsService {
 
     const isWon = sql`${pipelineStages.code} in ('contract','commercial_invoice','customs_approved','stock_picking','shipping','installation','delivered')`;
     const val = opportunities.estimatedValue;
-    const scope = resolveActorDivisionScope(actor);
+    const scope = resolveResourceDivisionScope(actor, 'reports');
 
     const rows = [];
     for (const dept of depts) {
@@ -584,7 +584,7 @@ export class ReportsService {
 
   /** Aktif kullanıcılar; bölüm kapsamı 'list' modundaysa yalnızca o bölümlere atanmış olanlar. */
   private async scopedActiveUsers(actor: AuthContext) {
-    const scope = resolveActorDivisionScope(actor);
+    const scope = resolveResourceDivisionScope(actor, 'reports');
     let rows = await this.db.query.users.findMany({
       where: and(eq(users.tenantId, actor.tenantId), isNull(users.deletedAt), eq(users.status, 'active')),
     });

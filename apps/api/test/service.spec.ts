@@ -87,6 +87,7 @@ describe('Service — kurulum / sevkiyat / teslimat', () => {
     expect(r.status).toBe(201);
     expect(r.body.companyId).toBe(companyId);
     expect(r.body.subject).toBe('Test servis talebi');
+    expect(r.body.ticketNo).toMatch(/^(CNC|UNI|SACISLE)-SRV-\d{4}\/\d{4}$/);
     expect(r.body.assignedToUserId).toBe(adminUserId);
     expect(r.body.metadata.quoteRequired).toBe(true);
   });
@@ -114,6 +115,59 @@ describe('Service — kurulum / sevkiyat / teslimat', () => {
       .set('Authorization', auth());
     expect(list.status).toBe(200);
     expect(list.body.data.some((row: any) => row.id === created.body.id)).toBe(false);
+  });
+
+  it('tamamlanan servis verilerini Doktor Makina servis formu PDF çıktısına dönüştürür', async () => {
+    const created = await supertest(app.getHttpServer())
+      .post('/api/v1/service-tickets')
+      .set('Authorization', auth())
+      .send({
+        companyId,
+        customerDeviceId,
+        subject: 'Spindle alarmı',
+        description: 'Makine çalışırken spindle alarmı veriyor.',
+        severity: 'high',
+        assignedToUserId: adminUserId,
+        metadata: {
+          serviceStage: 'Service Completed',
+          timerElapsedSeconds: 7200,
+          serviceHourlyRate: 150,
+          serviceCurrency: 'EUR',
+        },
+      });
+    expect(created.status).toBe(201);
+
+    const completionForm = {
+      formNo: created.body.ticketNo,
+      kurulumTarihi: '2026-07-10',
+      kullanici: { firma: 'PDF Test Firması', ilgili: 'Test Yetkilisi' },
+      musteriSikayeti: 'Spindle alarmı nedeniyle tezgah duruyor.',
+      serviceType: 'ariza',
+      responsibility: 'ucretli',
+      yapilanIsler: 'Spindle sürücüsü kontrol edildi ve alarm resetlendi.',
+      degisenParcalar: [{ id: 'part-1', description: 'Spindle fanı', quantity: 1, unitPrice: 75 }],
+      servisUcreti: 300,
+      ulasimUcreti: 40,
+      currency: 'EUR',
+      kurulumuYapan: 'Servis Teknisyeni',
+      teslimAlan: 'Test Yetkilisi',
+      checks: [],
+    };
+    const saved = await supertest(app.getHttpServer())
+      .patch(`/api/v1/service-tickets/${created.body.id}`)
+      .set('Authorization', auth())
+      .send({ metadata: { completionForm } });
+    expect(saved.status).toBe(200);
+
+    const pdf = await supertest(app.getHttpServer())
+      .get(`/api/v1/service-tickets/${created.body.id}/service-form.pdf`)
+      .set('Authorization', auth())
+      .buffer(true);
+    expect(pdf.status).toBe(200);
+    expect(pdf.headers['content-type']).toContain('application/pdf');
+    expect(pdf.headers['content-disposition']).toContain('inline');
+    expect(Buffer.isBuffer(pdf.body)).toBe(true);
+    expect(pdf.body.subarray(0, 4).toString()).toBe('%PDF');
   });
 
   it('servis teklif formu olmadan bakım/onarım aşamasına geçişi reddeder', async () => {
@@ -153,6 +207,7 @@ describe('Service — kurulum / sevkiyat / teslimat', () => {
       .set('Authorization', auth())
       .send({ metadata: { serviceQuote: quote } });
     expect(saved.status).toBe(200);
+    expect(saved.body.metadata.serviceQuote.quoteNo).toMatch(new RegExp(`^${created.body.businessLine}-`));
 
     const moved = await supertest(app.getHttpServer())
       .patch(`/api/v1/service-tickets/${created.body.id}/status`)
@@ -304,7 +359,7 @@ describe('Service — kurulum / sevkiyat / teslimat', () => {
     expect(converted.status).toBe(201);
     expect(converted.body.status).toBe('converted');
     expect(converted.body.serviceTicketId).toBeTruthy();
-    expect(converted.body.serviceTicket.ticketNo).toMatch(/^SVC-/);
+    expect(converted.body.serviceTicket.ticketNo).toMatch(/^[A-Z]+-SRV-\d{4}\/\d{4}$/);
 
     const duplicate = await supertest(app.getHttpServer())
       .post(`/api/v1/service-complaints/${created.body.id}/convert`)

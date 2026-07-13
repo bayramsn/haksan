@@ -18,6 +18,7 @@ import { ContactsService } from './contacts.service';
 const listQuerySchema = z.object({
   search: z.string().max(128).optional(),
   companyId: z.string().optional(),
+  divisionId: z.string().uuid().optional(),
 });
 
 @UseGuards(AuthGuard, PermissionsGuard)

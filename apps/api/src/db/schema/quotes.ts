@@ -17,6 +17,7 @@ export const quotes = pgTable(
       .notNull()
       .references(() => tenants.id, { onDelete: 'cascade' }),
     divisionId: uuid('division_id').references(() => divisions.id, { onDelete: 'set null' }),
+    businessLine: varchar('business_line', { length: 16 }),
     opportunityId: uuid('opportunity_id').references(() => opportunities.id, { onDelete: 'set null' }),
     companyId: uuid('company_id')
       .notNull()
@@ -59,6 +60,7 @@ export const quotes = pgTable(
     tenantDocumentNoUnique: uniqueIndex('quotes_tenant_document_no_unique').on(t.tenantId, t.documentNo),
     tenantIdx: index('quotes_tenant_idx').on(t.tenantId),
     tenantDivisionIdx: index('quotes_tenant_division_idx').on(t.tenantId, t.divisionId),
+    tenantBusinessLineIdx: index('quotes_tenant_business_line_idx').on(t.tenantId, t.businessLine),
     companyIdx: index('quotes_company_idx').on(t.companyId),
     opportunityIdx: index('quotes_opportunity_idx').on(t.opportunityId),
     quoteDateIdx: index('quotes_quote_date_idx').on(t.quoteDate),
@@ -143,6 +145,7 @@ export const proformas = pgTable(
       .notNull()
       .references(() => tenants.id, { onDelete: 'cascade' }),
     divisionId: uuid('division_id').references(() => divisions.id, { onDelete: 'set null' }),
+    businessLine: varchar('business_line', { length: 16 }),
     quoteId: uuid('quote_id')
       .notNull()
       .references(() => quotes.id, { onDelete: 'restrict' }),
@@ -156,6 +159,7 @@ export const proformas = pgTable(
   (t) => ({
     tenantDocumentNoUnique: uniqueIndex('proformas_tenant_document_no_unique').on(t.tenantId, t.documentNo),
     tenantDivisionIdx: index('proformas_tenant_division_idx').on(t.tenantId, t.divisionId),
+    tenantBusinessLineIdx: index('proformas_tenant_business_line_idx').on(t.tenantId, t.businessLine),
     quoteIdx: index('proformas_quote_idx').on(t.quoteId),
   })
 );
@@ -168,6 +172,7 @@ export const contracts = pgTable(
       .notNull()
       .references(() => tenants.id, { onDelete: 'cascade' }),
     divisionId: uuid('division_id').references(() => divisions.id, { onDelete: 'set null' }),
+    businessLine: varchar('business_line', { length: 16 }),
     quoteId: uuid('quote_id')
       .notNull()
       .references(() => quotes.id, { onDelete: 'restrict' }),
@@ -182,6 +187,7 @@ export const contracts = pgTable(
   (t) => ({
     tenantContractNoUnique: uniqueIndex('contracts_tenant_contract_no_unique').on(t.tenantId, t.contractNo),
     tenantDivisionIdx: index('contracts_tenant_division_idx').on(t.tenantId, t.divisionId),
+    tenantBusinessLineIdx: index('contracts_tenant_business_line_idx').on(t.tenantId, t.businessLine),
     quoteIdx: index('contracts_quote_idx').on(t.quoteId),
   })
 );
@@ -194,6 +200,7 @@ export const commercialInvoices = pgTable(
       .notNull()
       .references(() => tenants.id, { onDelete: 'cascade' }),
     divisionId: uuid('division_id').references(() => divisions.id, { onDelete: 'set null' }),
+    businessLine: varchar('business_line', { length: 16 }),
     quoteId: uuid('quote_id')
       .notNull()
       .references(() => quotes.id, { onDelete: 'restrict' }),
@@ -207,6 +214,7 @@ export const commercialInvoices = pgTable(
   (t) => ({
     tenantInvoiceNoUnique: uniqueIndex('commercial_invoices_tenant_invoice_no_unique').on(t.tenantId, t.invoiceNo),
     tenantDivisionIdx: index('commercial_invoices_tenant_division_idx').on(t.tenantId, t.divisionId),
+    tenantBusinessLineIdx: index('commercial_invoices_tenant_business_line_idx').on(t.tenantId, t.businessLine),
     quoteIdx: index('commercial_invoices_quote_idx').on(t.quoteId),
   })
 );

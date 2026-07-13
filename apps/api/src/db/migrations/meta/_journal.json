@@ -407,6 +407,41 @@
       "when": 1784832000000,
       "tag": "0057_division_scoped_product_lookups",
       "breakpoints": true
+    },
+    {
+      "idx": 58,
+      "version": "7",
+      "when": 1784918400000,
+      "tag": "0058_user_access_scopes_single_system",
+      "breakpoints": true
+    },
+    {
+      "idx": 60,
+      "version": "7",
+      "when": 1785091200000,
+      "tag": "0060_companies_tax_unique_alive_only",
+      "breakpoints": true
+    },
+    {
+      "idx": 61,
+      "version": "7",
+      "when": 1785177600000,
+      "tag": "0061_assistant_token_budget_reservations",
+      "breakpoints": true
+    },
+    {
+      "idx": 62,
+      "version": "7",
+      "when": 1785264000000,
+      "tag": "0062_business_lines_company_addresses",
+      "breakpoints": true
+    },
+    {
+      "idx": 63,
+      "version": "7",
+      "when": 1785350400000,
+      "tag": "0063_security_hardening_reapply",
+      "breakpoints": true
     }
   ]
 }

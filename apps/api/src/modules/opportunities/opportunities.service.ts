@@ -1,12 +1,13 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { and, desc, eq, ilike, isNotNull, isNull, sql } from 'drizzle-orm';
+import { and, desc, eq, ilike, isNotNull, isNull, or, sql } from 'drizzle-orm';
 import type { DbClient } from '../../db/client';
 import { opportunities, opportunityStageHistory, salesActivities, visits, calls } from '../../db/schema/crm';
-import { companies, contacts } from '../../db/schema/companies';
+import { companies, contactCompanies, contacts } from '../../db/schema/companies';
 import { users } from '../../db/schema/users';
 import { quotes } from '../../db/schema/quotes';
 import { inventoryItems, inventoryMovements, customerDevices } from '../../db/schema/inventory';
 import { installationJobs } from '../../db/schema/service';
+import { divisions } from '../../db/schema/tenants';
 import { pipelineStages, currencies, opportunityStatuses, contactSources, inventoryStatuses, warrantyStatuses, installationStatuses } from '../../db/schema/lookup';
 import { cancellationReasons } from '../../db/schema/crm';
 import { commercialInvoices, contracts } from '../../db/schema/quotes';
@@ -21,10 +22,9 @@ import { lookupIdByCode } from '../../shared/utils/lookup.helper';
 import { AuditService } from '../../shared/database/audit.service';
 import { inArray } from 'drizzle-orm';
 import {
-  companyPortfolioFilter,
-  divisionFilter,
-  resolveActorDivisionScope,
-  resolveAssignedDivision,
+  resourceCompanyPortfolioFilter,
+  resourceDivisionFilter,
+  resolveAssignedResourceDivision,
 } from '../../shared/utils/division-scope';
 import { companyVisibilityFilter, companyVisibilityExistsFilter } from '../../shared/utils/company-visibility';
 
@@ -47,7 +47,7 @@ export class OpportunitiesService {
         eq(companies.id, companyId),
         eq(companies.tenantId, actor.tenantId),
         isNull(companies.deletedAt),
-        companyPortfolioFilter(resolveActorDivisionScope(actor), companies.id) ?? sql`true`,
+        resourceCompanyPortfolioFilter(actor, 'companies', companies.id) ?? sql`true`,
         (await companyVisibilityFilter(this.db, actor)) ?? sql`true`
       ),
     });
@@ -60,7 +60,12 @@ export class OpportunitiesService {
       where: and(eq(contacts.id, contactId), eq(contacts.tenantId, actor.tenantId), isNull(contacts.deletedAt)),
     });
     if (!contact) throw new NotFoundError('Kontak');
-    if (contact.companyId !== companyId) throw new ValidationError('Kontak seçilen firmaya ait değil');
+    const [link] = await this.db
+      .select({ contactId: contactCompanies.contactId })
+      .from(contactCompanies)
+      .where(and(eq(contactCompanies.contactId, contactId), eq(contactCompanies.companyId, companyId)))
+      .limit(1);
+    if (contact.companyId !== companyId && !link) throw new ValidationError('Kontak seçilen firmaya ait değil');
     return contact;
   }
 
@@ -70,6 +75,20 @@ export class OpportunitiesService {
     });
     if (!user) throw new NotFoundError('Kullanıcı');
     return user;
+  }
+
+  private async tenantHasActiveDivisions(actor: AuthContext): Promise<boolean> {
+    const [row] = await this.db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(divisions)
+      .where(and(eq(divisions.tenantId, actor.tenantId), eq(divisions.isActive, true)));
+    return (row?.count ?? 0) > 0;
+  }
+
+  private inventoryScopeFilters(actor: AuthContext, divisionId?: string | null) {
+    const filters = [resourceDivisionFilter(actor, 'inventory', inventoryItems.divisionId) ?? sql`true`];
+    if (divisionId) filters.push(or(eq(inventoryItems.divisionId, divisionId), isNull(inventoryItems.divisionId)) ?? sql`true`);
+    return filters;
   }
 
   async list(
@@ -90,7 +109,7 @@ export class OpportunitiesService {
       const stage = await this.stageRowByCode(query.stageCode);
       filters.push(eq(opportunities.currentStageId, stage.id));
     }
-    const scoped = divisionFilter(resolveActorDivisionScope(actor), opportunities.divisionId);
+    const scoped = resourceDivisionFilter(actor, 'opportunities', opportunities.divisionId);
     if (scoped) filters.push(scoped);
     const visibility = await companyVisibilityExistsFilter(this.db, actor, opportunities.companyId);
     if (visibility) filters.push(visibility);
@@ -139,7 +158,7 @@ export class OpportunitiesService {
           eq(opportunities.id, id),
           eq(opportunities.tenantId, actor.tenantId),
           isNull(opportunities.deletedAt),
-          divisionFilter(resolveActorDivisionScope(actor), opportunities.divisionId) ?? sql`true`,
+          resourceDivisionFilter(actor, 'opportunities', opportunities.divisionId) ?? sql`true`,
           visibility ?? sql`true`
         )
       )
@@ -169,8 +188,10 @@ export class OpportunitiesService {
     const currencyId = await lookupIdByCode(this.db, currencies, input.currencyCode);
     const sourceId = await lookupIdByCode(this.db, contactSources, input.sourceCode);
     const openStatus = await this.db.query.opportunityStatuses.findFirst({ where: eq(opportunityStatuses.code, 'open') });
-    const divisionId = resolveAssignedDivision(actor, input.divisionId ?? null);
-    if (!divisionId) throw new ValidationError('Fırsat için bölüm ataması zorunludur', { field: 'divisionId' });
+    const divisionId = resolveAssignedResourceDivision(actor, 'opportunities', input.divisionId ?? null);
+    if (!divisionId && (await this.tenantHasActiveDivisions(actor))) {
+      throw new ValidationError('Fırsat için bölüm ataması zorunludur', { field: 'divisionId' });
+    }
 
     const [row] = await this.db
       .insert(opportunities)
@@ -245,12 +266,14 @@ export class OpportunitiesService {
   }
 
   private async findScopedOpp(id: string, actor: AuthContext) {
+    const visibility = await companyVisibilityExistsFilter(this.db, actor, opportunities.companyId);
     const opp = await this.db.query.opportunities.findFirst({
       where: and(
         eq(opportunities.id, id),
         eq(opportunities.tenantId, actor.tenantId),
         isNull(opportunities.deletedAt),
-        divisionFilter(resolveActorDivisionScope(actor), opportunities.divisionId) ?? sql`true`
+        resourceDivisionFilter(actor, 'opportunities', opportunities.divisionId) ?? sql`true`,
+        visibility ?? sql`true`
       ),
     });
     if (!opp) throw new NotFoundError('Fırsat');
@@ -324,7 +347,7 @@ export class OpportunitiesService {
         eq(opportunities.id, id),
         eq(opportunities.tenantId, actor.tenantId),
         isNull(opportunities.deletedAt),
-        divisionFilter(resolveActorDivisionScope(actor), opportunities.divisionId) ?? sql`true`
+        resourceDivisionFilter(actor, 'opportunities', opportunities.divisionId) ?? sql`true`
       ),
     });
     if (!opp) throw new NotFoundError('Fırsat');
@@ -413,10 +436,15 @@ export class OpportunitiesService {
       const available = await this.db.query.inventoryStatuses.findFirst({ where: eq(inventoryStatuses.code, 'available') });
       // Verify items belong to tenant
       const items = await this.db.query.inventoryItems.findMany({
-        where: and(eq(inventoryItems.tenantId, actor.tenantId), isNull(inventoryItems.deletedAt), inArray(inventoryItems.id, inventoryItemIds)),
+        where: and(
+          eq(inventoryItems.tenantId, actor.tenantId),
+          isNull(inventoryItems.deletedAt),
+          inArray(inventoryItems.id, inventoryItemIds),
+          ...this.inventoryScopeFilters(actor, opp.divisionId)
+        ),
       });
       if (items.length !== inventoryItemIds.length) {
-        throw new ValidationError('Bazı stok kalemleri bu tenant\'a ait değil');
+        throw new ValidationError('Bazı stok kalemleri yetki alanınızda değil');
       }
       const now = new Date();
       for (const item of items) {
@@ -486,7 +514,7 @@ export class OpportunitiesService {
   }
 
   private async resolveStockPickingItemIds(
-    opp: { id: string; companyId: string },
+    opp: { id: string; companyId: string; divisionId: string | null },
     actor: AuthContext,
     inventoryItemIds?: string[],
   ) {
@@ -515,6 +543,7 @@ export class OpportunitiesService {
           isNull(inventoryItems.deletedAt),
           eq(inventoryItems.stockStatusId, reservedStatus.id),
           eq(inventoryItems.reservedCompanyId, opp.companyId),
+          ...this.inventoryScopeFilters(actor, opp.divisionId)
         ));
       if (reservedRows.length) return reservedRows.map((row) => row.id);
     }
@@ -528,6 +557,7 @@ export class OpportunitiesService {
           eq(inventoryItems.tenantId, actor.tenantId),
           isNull(inventoryItems.deletedAt),
           eq(inventoryItems.stockStatusId, availableStatus.id),
+          ...this.inventoryScopeFilters(actor, opp.divisionId)
         ));
       if (availableRows.length === 1) return [availableRows[0].id];
       if (availableRows.length > 1) {
@@ -586,6 +616,7 @@ export class OpportunitiesService {
           isNull(inventoryItems.deletedAt),
           eq(inventoryItems.stockStatusId, reservedStatus.id),
           eq(inventoryItems.reservedCompanyId, opp.companyId),
+          ...this.inventoryScopeFilters(actor, opp.divisionId)
         ));
       ids = reservedRows.map((row) => row.id);
     }
@@ -593,7 +624,12 @@ export class OpportunitiesService {
       throw new ValidationError('Kurulum için bu karta bağlı stok seçimi bulunamadı');
     }
     const selected = await this.db.query.inventoryItems.findMany({
-      where: and(eq(inventoryItems.tenantId, actor.tenantId), isNull(inventoryItems.deletedAt), inArray(inventoryItems.id, ids)),
+      where: and(
+        eq(inventoryItems.tenantId, actor.tenantId),
+        isNull(inventoryItems.deletedAt),
+        inArray(inventoryItems.id, ids),
+        ...this.inventoryScopeFilters(actor, opp.divisionId)
+      ),
     });
     if (selected.length !== ids.length) {
       throw new ValidationError('Kurulum için seçilen bazı stok kalemleri bulunamadı');

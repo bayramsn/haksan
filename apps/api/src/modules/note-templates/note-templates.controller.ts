@@ -9,7 +9,7 @@ import {
 } from '@haksan/shared';
 import { ZodValidationPipe } from '../../shared/utils/zod-pipe';
 import { AuthGuard } from '../../shared/security/auth.guard';
-import { PermissionsGuard, RequirePermissions } from '../../shared/security/permissions.guard';
+import { PermissionsGuard } from '../../shared/security/permissions.guard';
 import { CurrentUser } from '../../shared/security/current-user.decorator';
 import type { AuthContext } from '../../shared/security/auth.types';
 import { NoteTemplatesService } from './note-templates.service';
@@ -19,7 +19,6 @@ import { NoteTemplatesService } from './note-templates.service';
 export class NoteTemplatesController {
   constructor(private readonly svc: NoteTemplatesService) {}
 
-  @RequirePermissions('quotes.read')
   @Get()
   list(
     @Query(new ZodValidationPipe(noteTemplateListQuerySchema)) query: NoteTemplateListQuery,
@@ -28,7 +27,6 @@ export class NoteTemplatesController {
     return this.svc.list(user, query.scope);
   }
 
-  @RequirePermissions('quotes.create')
   @Post()
   create(
     @Body(new ZodValidationPipe(noteTemplateCreateSchema)) body: NoteTemplateCreateInput,
@@ -37,7 +35,6 @@ export class NoteTemplatesController {
     return this.svc.create(body, user);
   }
 
-  @RequirePermissions('quotes.create')
   @Patch(':id')
   update(
     @Param('id') id: string,
@@ -47,7 +44,6 @@ export class NoteTemplatesController {
     return this.svc.update(id, body, user);
   }
 
-  @RequirePermissions('quotes.create')
   @Delete(':id')
   remove(@Param('id') id: string, @CurrentUser() user: AuthContext) {
     return this.svc.delete(id, user);

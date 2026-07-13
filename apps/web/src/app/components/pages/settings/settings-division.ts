@@ -17,6 +17,33 @@ export function isCncDivision(divisions: DivisionLike[], divisionId?: string) {
   return normalizeDivisionText(division?.code) === "CNC" || normalizeDivisionText(division?.name) === "CNC";
 }
 
+/** Aksan/harf farklarını silerek karşılaştırma metni üretir (ÜNİVERSAL → UNIVERSAL). */
+function asciiDivisionText(value?: string | null) {
+  return normalizeDivisionText(value)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/ı/g, "I");
+}
+
+/**
+ * Seçili bölümü şablon katalogundaki ürün grubu koduna eşler.
+ * Teknik Bilgi kartındaki bölüm bazlı tip fallback'leri ve Alan Ayarları
+ * "önerilen kurulum" bu eşlemeyi kullanır.
+ */
+export function divisionCatalogGroupCode(
+  divisions: DivisionLike[],
+  divisionId?: string,
+): "CNC" | "UNIVERSAL" | "SAC_ISLEME" | undefined {
+  if (!divisionId || divisionId === ALL_DIVISIONS) return undefined;
+  const division = divisions.find((item) => item.id === divisionId);
+  const text = asciiDivisionText(division?.code) || asciiDivisionText(division?.name);
+  if (!text) return undefined;
+  if (text.includes("CNC")) return "CNC";
+  if (text.includes("UNIVERSAL")) return "UNIVERSAL";
+  if (text.includes("SAC")) return "SAC_ISLEME";
+  return undefined;
+}
+
 function readStoredDivision() {
   if (typeof window === "undefined") return ALL_DIVISIONS;
   return localStorage.getItem(SETTINGS_DIVISION_STORAGE_KEY) || ALL_DIVISIONS;

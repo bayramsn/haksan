@@ -61,12 +61,30 @@ reject_placeholder() {
   [[ "$value" != *example.com* && "$value" != CHANGE_ME* ]] || die "$name still contains a placeholder"
 }
 
+is_true() {
+  case "${1,,}" in
+    true|1|yes|on) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 ensure_env_ready() {
   load_env
-  for key in APP_DOMAIN STORAGE_DOMAIN CERTBOT_EMAIL POSTGRES_PASSWORD DATABASE_URL JWT_ACCESS_SECRET JWT_REFRESH_SECRET COOKIE_SECRET CALL_WEBHOOK_SECRET MINIO_ROOT_USER MINIO_ROOT_PASSWORD S3_ACCESS_KEY_ID S3_SECRET_ACCESS_KEY CORS_ORIGINS COOKIE_DOMAIN S3_ENDPOINT; do
+  for key in APP_DOMAIN STORAGE_DOMAIN CERTBOT_EMAIL POSTGRES_DB POSTGRES_USER POSTGRES_PASSWORD DATABASE_URL DATABASE_SSL DATABASE_SSL_REJECT_UNAUTHORIZED DATABASE_ALLOW_PLAINTEXT JWT_ACCESS_SECRET JWT_REFRESH_SECRET COOKIE_SECRET CALL_WEBHOOK_SECRET MINIO_ROOT_USER MINIO_ROOT_PASSWORD S3_ACCESS_KEY_ID S3_SECRET_ACCESS_KEY S3_REGION S3_BUCKET_PREFIX CORS_ORIGINS COOKIE_DOMAIN S3_ENDPOINT APP_PUBLIC_URL SMTP_HOST SMTP_SECURE SMTP_FROM METRICS_TOKEN DB_BACKUP_ENABLED DB_BACKUP_REQUIRED DB_BACKUP_TIMEOUT_SECONDS; do
     require_env "$key"
     reject_placeholder "$key"
   done
+  if ! is_true "$DATABASE_SSL" && ! is_true "$DATABASE_ALLOW_PLAINTEXT"; then
+    die "DATABASE_SSL=true is required unless DATABASE_ALLOW_PLAINTEXT=true is explicitly set for a private network"
+  fi
+  if is_true "$DB_BACKUP_ENABLED"; then
+    require_env S3_BACKUP_BUCKET
+    reject_placeholder S3_BACKUP_BUCKET
+    is_true "$DB_BACKUP_REQUIRED" || die "DB_BACKUP_REQUIRED must be true when DB_BACKUP_ENABLED=true"
+  fi
+  [[ "$MINIO_ROOT_USER" != "minioadmin" && "$MINIO_ROOT_PASSWORD" != "minioadmin" ]] || die "MinIO default root credentials are forbidden"
+  [[ "$MINIO_ROOT_USER" != "$S3_ACCESS_KEY_ID" && "$MINIO_ROOT_PASSWORD" != "$S3_SECRET_ACCESS_KEY" ]] || die "S3 application credentials must be distinct from MinIO root credentials"
+  [[ -z "${SMTP_USER:-}" && -z "${SMTP_PASSWORD:-}" ]] || [[ -n "${SMTP_USER:-}" && -n "${SMTP_PASSWORD:-}" ]] || die "SMTP_USER and SMTP_PASSWORD must be configured together"
 }
 
 ensure_dummy_cert() {
@@ -93,6 +111,14 @@ build_and_start() {
 
   log "starting postgres, minio, and bucket setup"
   compose --env-file "$ENV_FILE" up -d postgres minio minio-init
+
+  log "creating and verifying PostgreSQL backup before migrations"
+  ENV_FILE="$ENV_FILE" "$APP_ROOT/deploy/backup-postgres.sh"
+
+  if is_true "$DB_BACKUP_ENABLED"; then
+    log "creating required offsite PostgreSQL backup before migrations"
+    compose --env-file "$ENV_FILE" run --rm api npm --workspace @haksan/api run db:backup:prod
+  fi
 
   log "running schema migrations"
   compose --env-file "$ENV_FILE" run --rm api npm --workspace @haksan/api run db:migrate:prod

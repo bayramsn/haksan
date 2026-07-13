@@ -3,12 +3,13 @@ import { existsSync } from 'node:fs';
 import { and, desc, eq, ilike, isNull, sql } from 'drizzle-orm';
 import type { DbClient } from '../../db/client';
 import { quotes, quoteItems, quoteTerms, proformas, contracts, commercialInvoices } from '../../db/schema/quotes';
-import { companies, contacts } from '../../db/schema/companies';
+import { companies, contactCompanies, contacts } from '../../db/schema/companies';
 import { opportunities } from '../../db/schema/crm';
 import { inventoryItems } from '../../db/schema/inventory';
 import { productModels } from '../../db/schema/products';
+import { divisions } from '../../db/schema/tenants';
 import { users } from '../../db/schema/users';
-import { currencies, units, quoteStatuses, proformaStatuses, contractStatuses, invoiceStatuses } from '../../db/schema/lookup';
+import { currencies, units, quoteStatuses, proformaStatuses, contractStatuses, invoiceStatuses, productGroups } from '../../db/schema/lookup';
 import { DB } from '../../shared/database/database.module';
 import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from '../../shared/utils/errors';
 import type { AuthContext } from '../../shared/security/auth.types';
@@ -31,12 +32,18 @@ import { lookupIdByCode } from '../../shared/utils/lookup.helper';
 import { AuditService } from '../../shared/database/audit.service';
 import PDFDocument from 'pdfkit';
 import {
-  companyPortfolioFilter,
-  divisionFilter,
-  resolveActorDivisionScope,
-  resolveAssignedDivision,
+  resourceCompanyPortfolioFilter,
+  resourceDivisionFilter,
+  resourceDivisionFilterWithShared,
+  resolveAssignedResourceDivision,
 } from '../../shared/utils/division-scope';
 import { companyVisibilityFilter, companyVisibilityExistsFilter } from '../../shared/utils/company-visibility';
+import {
+  nextSeriesDocumentNo,
+  normalizeSeriesDocumentNo,
+  resolveBusinessLine,
+  type BusinessLine,
+} from '../../shared/utils/document-series';
 
 interface ItemTotals {
   subtotal: number;
@@ -110,15 +117,19 @@ export class QuotesService {
       .where(eq(quotes.id, quoteId));
   }
 
-  private async nextDocumentNo(actor: AuthContext): Promise<string> {
-    const year = new Date().getUTCFullYear();
-    // count of current-year quotes; cheap & sufficient for MVP
+  private async tenantHasActiveDivisions(actor: AuthContext): Promise<boolean> {
     const [row] = await this.db
-      .select({ c: sql<number>`count(*)::int` })
-      .from(quotes)
-      .where(and(eq(quotes.tenantId, actor.tenantId), sql`extract(year from ${quotes.quoteDate}) = ${year}`));
-    const next = (row?.c ?? 0) + 1;
-    return `${year}/${String(next).padStart(3, '0')}`;
+      .select({ count: sql<number>`count(*)::int` })
+      .from(divisions)
+      .where(and(eq(divisions.tenantId, actor.tenantId), eq(divisions.isActive, true)));
+    return (row?.count ?? 0) > 0;
+  }
+
+  private async businessLineForQuote(quote: { divisionId: string | null; businessLine?: string | null }, actor: AuthContext) {
+    if (quote.businessLine === 'CNC' || quote.businessLine === 'UNI' || quote.businessLine === 'SACISLE') {
+      return quote.businessLine;
+    }
+    return quote.divisionId ? resolveBusinessLine(this.db, actor.tenantId, quote.divisionId) : 'CNC';
   }
 
   private async assertCompany(companyId: string, actor: AuthContext) {
@@ -127,7 +138,7 @@ export class QuotesService {
         eq(companies.id, companyId),
         eq(companies.tenantId, actor.tenantId),
         isNull(companies.deletedAt),
-        companyPortfolioFilter(resolveActorDivisionScope(actor), companies.id) ?? sql`true`,
+        resourceCompanyPortfolioFilter(actor, 'companies', companies.id) ?? sql`true`,
         (await companyVisibilityFilter(this.db, actor)) ?? sql`true`
       ),
     });
@@ -140,13 +151,24 @@ export class QuotesService {
       where: and(eq(contacts.id, contactId), eq(contacts.tenantId, actor.tenantId), isNull(contacts.deletedAt)),
     });
     if (!contact) throw new NotFoundError('Kontak');
-    if (contact.companyId !== companyId) throw new ValidationError('Kontak seçilen firmaya ait değil');
+    const [link] = await this.db
+      .select({ contactId: contactCompanies.contactId })
+      .from(contactCompanies)
+      .where(and(eq(contactCompanies.contactId, contactId), eq(contactCompanies.companyId, companyId)))
+      .limit(1);
+    if (contact.companyId !== companyId && !link) throw new ValidationError('Kontak seçilen firmaya ait değil');
     return contact;
   }
 
   private async assertOpportunity(opportunityId: string, actor: AuthContext, companyId: string) {
     const opportunity = await this.db.query.opportunities.findFirst({
-      where: and(eq(opportunities.id, opportunityId), eq(opportunities.tenantId, actor.tenantId), isNull(opportunities.deletedAt)),
+      where: and(
+        eq(opportunities.id, opportunityId),
+        eq(opportunities.tenantId, actor.tenantId),
+        isNull(opportunities.deletedAt),
+        resourceDivisionFilter(actor, 'opportunities', opportunities.divisionId) ?? sql`true`,
+        (await companyVisibilityExistsFilter(this.db, actor, opportunities.companyId)) ?? sql`true`
+      ),
     });
     if (!opportunity) throw new NotFoundError('Fırsat');
     if (opportunity.companyId !== companyId) throw new ValidationError('Fırsat seçilen firmaya ait değil');
@@ -161,24 +183,55 @@ export class QuotesService {
     return user;
   }
 
-  private async assertProductModel(productModelId: string, actor: AuthContext) {
-    const product = await this.db.query.productModels.findFirst({
-      where: and(eq(productModels.id, productModelId), eq(productModels.tenantId, actor.tenantId), isNull(productModels.deletedAt)),
-    });
-    if (!product) throw new NotFoundError('Ürün');
-    return product;
+  private async assertProductModel(productModelId: string, actor: AuthContext, quoteDivisionId?: string | null) {
+    const [row] = await this.db
+      .select({ product: productModels, groupDivisionId: productGroups.divisionId })
+      .from(productModels)
+      .leftJoin(productGroups, eq(productModels.productGroupId, productGroups.id))
+      .where(
+        and(
+          eq(productModels.id, productModelId),
+          eq(productModels.tenantId, actor.tenantId),
+          isNull(productModels.deletedAt),
+          resourceDivisionFilterWithShared(actor, 'products', productGroups.divisionId) ?? sql`true`
+        )
+      )
+      .limit(1);
+    if (!row?.product) throw new NotFoundError('Ürün');
+    if (quoteDivisionId && row.groupDivisionId && row.groupDivisionId !== quoteDivisionId) {
+      throw new ValidationError('Ürün seçilen teklif bölümüne ait değil');
+    }
+    return row.product;
   }
 
-  private async assertInventoryItem(inventoryItemId: string, actor: AuthContext) {
-    const item = await this.db.query.inventoryItems.findFirst({
-      where: and(eq(inventoryItems.id, inventoryItemId), eq(inventoryItems.tenantId, actor.tenantId), isNull(inventoryItems.deletedAt)),
-    });
+  private async assertInventoryItem(inventoryItemId: string, actor: AuthContext, quoteDivisionId?: string | null) {
+    const [item] = await this.db
+      .select()
+      .from(inventoryItems)
+      .where(
+        and(
+          eq(inventoryItems.id, inventoryItemId),
+          eq(inventoryItems.tenantId, actor.tenantId),
+          isNull(inventoryItems.deletedAt),
+          resourceDivisionFilter(actor, 'inventory', inventoryItems.divisionId) ?? sql`true`
+        )
+      )
+      .limit(1);
     if (!item) throw new NotFoundError('Stok kalemi');
+    if (quoteDivisionId && item.divisionId && item.divisionId !== quoteDivisionId) {
+      throw new ValidationError('Stok kalemi seçilen teklif bölümüne ait değil');
+    }
     return item;
   }
 
   private isSuperAdmin(actor: AuthContext) {
     return actor.roles.includes('super_admin');
+  }
+
+  private assertQuoteMutable(quote: { approvedAt: Date | null }) {
+    if (quote.approvedAt) {
+      throw new ConflictError('Onaylı teklif değiştirilemez; yeni bir revizyon oluşturun');
+    }
   }
 
   private async quotePriceCheck(quoteId: string) {
@@ -273,16 +326,17 @@ export class QuotesService {
     });
   }
 
-  async list(actor: AuthContext, query: { search?: string; statusCode?: string; companyId?: string }, page: Pagination) {
+  async list(actor: AuthContext, query: { search?: string; statusCode?: string; companyId?: string; businessLine?: BusinessLine }, page: Pagination) {
     const { limit, offset } = pageOffset(page);
     const filters = [eq(quotes.tenantId, actor.tenantId), isNull(quotes.deletedAt)];
     if (query.search) filters.push(ilike(quotes.documentNo, `%${query.search}%`));
     if (query.companyId) filters.push(eq(quotes.companyId, query.companyId));
+    if (query.businessLine) filters.push(eq(quotes.businessLine, query.businessLine));
     if (query.statusCode) {
       const sid = await lookupIdByCode(this.db, quoteStatuses, query.statusCode);
       if (sid) filters.push(eq(quotes.statusId, sid));
     }
-    const scoped = divisionFilter(resolveActorDivisionScope(actor), quotes.divisionId);
+    const scoped = resourceDivisionFilter(actor, 'quotes', quotes.divisionId);
     if (scoped) filters.push(scoped);
     const visibility = await companyVisibilityExistsFilter(this.db, actor, quotes.companyId);
     if (visibility) filters.push(visibility);
@@ -294,17 +348,19 @@ export class QuotesService {
         company: { id: companies.id, legalTitle: companies.legalTitle, shortName: companies.shortName },
         status: { id: quoteStatuses.id, code: quoteStatuses.code, name: quoteStatuses.name },
         currency: { id: currencies.id, code: currencies.code },
+        division: { id: divisions.id, code: divisions.code, name: divisions.name },
       })
       .from(quotes)
       .leftJoin(companies, eq(quotes.companyId, companies.id))
       .leftJoin(quoteStatuses, eq(quotes.statusId, quoteStatuses.id))
       .leftJoin(currencies, eq(quotes.currencyId, currencies.id))
+      .leftJoin(divisions, eq(quotes.divisionId, divisions.id))
       .where(where)
       .orderBy(desc(quotes.quoteDate))
       .limit(limit)
       .offset(offset);
     return buildPaginated(
-      rows.map((r) => ({ ...r.quote, company: r.company, status: r.status, currency: r.currency })),
+      rows.map((r) => ({ ...r.quote, company: r.company, status: r.status, currency: r.currency, division: r.division })),
       count,
       page
     );
@@ -317,7 +373,7 @@ export class QuotesService {
         eq(quotes.id, id),
         eq(quotes.tenantId, actor.tenantId),
         isNull(quotes.deletedAt),
-        divisionFilter(resolveActorDivisionScope(actor), quotes.divisionId) ?? sql`true`,
+        resourceDivisionFilter(actor, 'quotes', quotes.divisionId) ?? sql`true`,
         visibility ?? sql`true`
       ),
     });
@@ -340,7 +396,7 @@ export class QuotesService {
         eq(quotes.id, id),
         eq(quotes.tenantId, actor.tenantId),
         isNull(quotes.deletedAt),
-        divisionFilter(resolveActorDivisionScope(actor), quotes.divisionId) ?? sql`true`,
+        resourceDivisionFilter(actor, 'quotes', quotes.divisionId) ?? sql`true`,
         visibility ?? sql`true`
       ),
     });
@@ -422,30 +478,61 @@ export class QuotesService {
 
     // Kalemler tablosu
     doc.moveDown(1.5);
-    const top = doc.y;
-    const x = { no: 50, stock: 75, desc: 145, qty: 340, price: 405, total: 485 };
-    doc.fontSize(9).font(boldFont);
-    doc.text('#', x.no, top, { lineBreak: false });
-    doc.text('Stok Kodu', x.stock, top, { lineBreak: false });
-    doc.text('Açıklama', x.desc, top, { lineBreak: false });
-    doc.text('Miktar', x.qty, top, { lineBreak: false });
-    doc.text('B.Fiyat', x.price, top, { lineBreak: false });
-    doc.text('Tutar', x.total, top, { lineBreak: false });
-    doc.moveTo(50, top + 14).lineTo(545, top + 14).stroke();
+    const x = { no: 50, stock: 75, desc: 145, qty: 340, price: 400, total: 480 };
+    const colW = { stock: 65, desc: 190, qty: 55, price: 75, total: 65 };
 
-    doc.font(regularFont).fontSize(9);
-    let y = top + 20;
+    // Metni kolon genişliğine sığdırır: önce yazı küçülür, yine sığmazsa "..." ile kesilir.
+    const fitCell = (
+      value: string,
+      cx: number,
+      cy: number,
+      width: number,
+      opts: { size?: number; minSize?: number; align?: 'left' | 'right'; bold?: boolean } = {},
+    ) => {
+      if (!value) return;
+      let size = opts.size ?? 9;
+      const minSize = opts.minSize ?? 6.5;
+      doc.font(opts.bold ? boldFont : regularFont).fontSize(size);
+      while (size > minSize && doc.widthOfString(value) > width) {
+        size -= 0.25;
+        doc.fontSize(size);
+      }
+      let shown = value;
+      while (shown.length > 1 && doc.widthOfString(`${shown}...`) > width && doc.widthOfString(shown) > width) {
+        shown = shown.slice(0, -1);
+      }
+      if (shown !== value) shown = `${shown.trimEnd()}...`;
+      doc.text(shown, cx, cy, { width, align: opts.align ?? 'left', lineBreak: false });
+    };
+
+    // Tablo başlığı her sayfada yeniden çizilir.
+    const drawTableHeader = (headerY: number) => {
+      doc.fontSize(9).font(boldFont);
+      doc.text('#', x.no, headerY, { lineBreak: false });
+      doc.text('Stok Kodu', x.stock, headerY, { lineBreak: false });
+      doc.text(tr('Açıklama'), x.desc, headerY, { lineBreak: false });
+      doc.text('Miktar', x.qty, headerY, { width: colW.qty, align: 'right', lineBreak: false });
+      doc.text('B.Fiyat', x.price, headerY, { width: colW.price, align: 'right', lineBreak: false });
+      doc.text('Tutar', x.total, headerY, { width: colW.total, align: 'right', lineBreak: false });
+      doc.moveTo(50, headerY + 14).lineTo(545, headerY + 14).stroke();
+      return headerY + 20;
+    };
+
+    let y = drawTableHeader(doc.y);
     const rowH = 16;
     for (let i = 0; i < items.length; i++) {
-      if (y > 770) { doc.addPage(); y = 50; }
+      if (y > 770) {
+        doc.addPage();
+        y = drawTableHeader(50);
+      }
       const it = items[i];
-      const desc = tr(it.description);
+      doc.font(regularFont).fontSize(9);
       doc.text(String(i + 1), x.no, y, { lineBreak: false });
-      doc.text(tr(it.stockCode ?? ''), x.stock, y, { width: 65, lineBreak: false });
-      doc.text(desc.length > 34 ? `${desc.slice(0, 33)}...` : desc, x.desc, y, { width: 185, lineBreak: false });
-      doc.text(Number(it.quantity).toLocaleString('tr-TR'), x.qty, y, { lineBreak: false });
-      doc.text(money(it.unitPrice), x.price, y, { lineBreak: false });
-      doc.text(money(it.lineTotal), x.total, y, { lineBreak: false });
+      fitCell(tr(it.stockCode ?? ''), x.stock, y, colW.stock);
+      fitCell(tr(it.description), x.desc, y, colW.desc, { minSize: 7 });
+      fitCell(Number(it.quantity).toLocaleString('tr-TR'), x.qty, y, colW.qty, { align: 'right' });
+      fitCell(money(it.unitPrice), x.price, y, colW.price, { align: 'right' });
+      fitCell(money(it.lineTotal), x.total, y, colW.total, { align: 'right' });
       y += rowH;
     }
     doc.moveTo(50, y).lineTo(545, y).stroke();
@@ -455,7 +542,7 @@ export class QuotesService {
     const totalLine = (label: string, val: string, bold = false) => {
       doc.font(bold ? boldFont : regularFont).fontSize(bold ? 11 : 9);
       doc.text(label, 340, y, { width: 110, align: 'right', lineBreak: false });
-      doc.text(val, 455, y, { width: 90, align: 'right', lineBreak: false });
+      fitCell(val, 455, y, 90, { align: 'right', bold, size: bold ? 11 : 9, minSize: 7.5 });
       y += bold ? 20 : 15;
     };
     totalLine('Ara Toplam', money(quote.subtotal));
@@ -503,15 +590,20 @@ export class QuotesService {
     if (input.contactId) await this.assertContact(input.contactId, actor, input.companyId);
     if (input.opportunityId) await this.assertOpportunity(input.opportunityId, actor, input.companyId);
     if (input.projectOwnerUserId) await this.assertUser(input.projectOwnerUserId, actor);
-    const documentNo = input.documentNo?.trim() || (await this.nextDocumentNo(actor));
+    const divisionId = resolveAssignedResourceDivision(actor, 'quotes', input.divisionId ?? null);
+    if (!divisionId && (await this.tenantHasActiveDivisions(actor))) {
+      throw new ValidationError('Teklif için bölüm ataması zorunludur', { field: 'divisionId' });
+    }
+    const businessLine = divisionId ? await resolveBusinessLine(this.db, actor.tenantId, divisionId) : 'CNC';
+    const documentNo =
+      normalizeSeriesDocumentNo(input.documentNo, businessLine) ??
+      (await nextSeriesDocumentNo(this.db, actor.tenantId, businessLine, 'quote', input.quoteDate));
     const existing = await this.db.query.quotes.findFirst({
       where: and(eq(quotes.tenantId, actor.tenantId), eq(quotes.documentNo, documentNo)),
     });
     if (existing) throw new ConflictError('Bu doküman numarası zaten kullanılıyor');
     const draft = await this.db.query.quoteStatuses.findFirst({ where: eq(quoteStatuses.code, 'draft') });
     const currencyId = await lookupIdByCode(this.db, currencies, input.currencyCode);
-    const divisionId = resolveAssignedDivision(actor, input.divisionId ?? null);
-    if (!divisionId) throw new ValidationError('Teklif için bölüm ataması zorunludur', { field: 'divisionId' });
     // Aynı fırsata bağlı tekliflerde revizyon numarası artar (1, 2, 3 …).
     // Fırsatı olmayan teklifler her zaman 1'dir.
     let revisionNo = 1;
@@ -527,6 +619,7 @@ export class QuotesService {
       .values({
         tenantId: actor.tenantId,
         divisionId,
+        businessLine,
         opportunityId: input.opportunityId ?? null,
         companyId: input.companyId,
         contactId: input.contactId ?? null,
@@ -559,6 +652,7 @@ export class QuotesService {
 
   async update(id: string, input: QuoteUpdateInput, actor: AuthContext) {
     const existingQuote = await this.get(id, actor);
+    this.assertQuoteMutable(existingQuote);
     const companyId = input.companyId ?? existingQuote.companyId;
     if (input.companyId !== undefined) await this.assertCompany(input.companyId, actor);
     if (input.contactId !== undefined) {
@@ -573,20 +667,51 @@ export class QuotesService {
     }
     if (input.projectOwnerUserId) await this.assertUser(input.projectOwnerUserId, actor);
     const patch: Record<string, unknown> = {};
+    const targetDivisionId = input.divisionId !== undefined
+      ? resolveAssignedResourceDivision(actor, 'quotes', input.divisionId)
+      : existingQuote.divisionId;
+    const businessLine = targetDivisionId
+      ? await resolveBusinessLine(this.db, actor.tenantId, targetDivisionId)
+      : ((existingQuote.businessLine as BusinessLine | null) ?? 'CNC');
+    if (input.divisionId !== undefined) {
+      patch.divisionId = targetDivisionId;
+      patch.businessLine = businessLine;
+    }
     if (input.currencyCode !== undefined) patch.currencyId = await lookupIdByCode(this.db, currencies, input.currencyCode);
-    for (const k of ['opportunityId', 'companyId', 'contactId', 'documentNo', 'quoteDate', 'validityDays', 'projectOwnerUserId', 'paymentTerms', 'deliveryTerms', 'warrantyTerms', 'notes'] as const) {
+    for (const k of ['opportunityId', 'companyId', 'contactId', 'quoteDate', 'validityDays', 'projectOwnerUserId', 'paymentTerms', 'deliveryTerms', 'warrantyTerms', 'notes'] as const) {
       if ((input as any)[k] !== undefined) patch[k] = (input as any)[k] ?? null;
+    }
+    if (input.documentNo !== undefined) {
+      const documentNo = normalizeSeriesDocumentNo(input.documentNo, businessLine);
+      if (!documentNo) throw new ValidationError('Teklif numarası boş bırakılamaz', { field: 'documentNo' });
+      const duplicate = await this.db.query.quotes.findFirst({
+        where: and(eq(quotes.tenantId, actor.tenantId), eq(quotes.documentNo, documentNo)),
+      });
+      if (duplicate && duplicate.id !== id) throw new ConflictError('Bu doküman numarası zaten kullanılıyor');
+      patch.documentNo = documentNo;
+    } else if (input.divisionId !== undefined && businessLine !== existingQuote.businessLine) {
+      patch.documentNo = await nextSeriesDocumentNo(
+        this.db,
+        actor.tenantId,
+        businessLine,
+        'quote',
+        input.quoteDate ?? existingQuote.quoteDate
+      );
     }
     for (const k of ['headerDiscountAmount', 'headerDiscountPercent'] as const) {
       if ((input as any)[k] !== undefined) patch[k] = ((input as any)[k] as number | undefined)?.toString() ?? '0';
     }
     await this.db.update(quotes).set(patch).where(eq(quotes.id, id));
-    if (input.headerDiscountAmount !== undefined || input.headerDiscountPercent !== undefined) await this.recalcQuoteTotals(id);
+    if (input.headerDiscountAmount !== undefined || input.headerDiscountPercent !== undefined) {
+      await this.recalcQuoteTotals(id);
+      await this.refreshPriceApprovalStatus(id, actor);
+    }
     return this.get(id, actor);
   }
 
   async delete(id: string, actor: AuthContext) {
-    await this.get(id, actor);
+    const quote = await this.get(id, actor);
+    this.assertQuoteMutable(quote);
     await this.db.update(quotes).set({ deletedAt: new Date() }).where(eq(quotes.id, id));
     return { ok: true };
   }
@@ -594,8 +719,9 @@ export class QuotesService {
   // ────────── ITEMS ──────────
   async addItem(quoteId: string, input: QuoteItemCreateInput, actor: AuthContext) {
     const quote = await this.get(quoteId, actor);
-    if (input.productModelId) await this.assertProductModel(input.productModelId, actor);
-    if (input.inventoryItemId) await this.assertInventoryItem(input.inventoryItemId, actor);
+    this.assertQuoteMutable(quote);
+    if (input.productModelId) await this.assertProductModel(input.productModelId, actor, quote.divisionId);
+    if (input.inventoryItemId) await this.assertInventoryItem(input.inventoryItemId, actor, quote.divisionId);
     const t = this.calcItem(input.quantity, input.unitPrice, input.discountAmount, input.vatRate);
     const unitId = await lookupIdByCode(this.db, units, input.unitCode);
     const [row] = await this.db
@@ -625,12 +751,14 @@ export class QuotesService {
   }
 
   async updateItem(quoteId: string, itemId: string, input: QuoteItemUpdateInput, actor: AuthContext) {
+    const quote = await this.get(quoteId, actor);
+    this.assertQuoteMutable(quote);
     const existing = await this.db.query.quoteItems.findFirst({
-      where: and(eq(quoteItems.id, itemId), eq(quoteItems.quoteId, quoteId), eq(quoteItems.tenantId, actor.tenantId)),
+      where: and(eq(quoteItems.id, itemId), eq(quoteItems.quoteId, quoteId), eq(quoteItems.tenantId, actor.tenantId), isNull(quoteItems.deletedAt)),
     });
     if (!existing) throw new NotFoundError('Kalem');
-    if (input.productModelId) await this.assertProductModel(input.productModelId, actor);
-    if (input.inventoryItemId) await this.assertInventoryItem(input.inventoryItemId, actor);
+    if (input.productModelId) await this.assertProductModel(input.productModelId, actor, quote.divisionId);
+    if (input.inventoryItemId) await this.assertInventoryItem(input.inventoryItemId, actor, quote.divisionId);
     const patch: Record<string, unknown> = {};
     for (const k of ['productModelId', 'inventoryItemId', 'stockCode', 'description', 'sortOrder'] as const) {
       if ((input as any)[k] !== undefined) patch[k] = (input as any)[k] ?? null;
@@ -657,8 +785,10 @@ export class QuotesService {
   }
 
   async deleteItem(quoteId: string, itemId: string, actor: AuthContext) {
+    const quote = await this.get(quoteId, actor);
+    this.assertQuoteMutable(quote);
     const existing = await this.db.query.quoteItems.findFirst({
-      where: and(eq(quoteItems.id, itemId), eq(quoteItems.quoteId, quoteId), eq(quoteItems.tenantId, actor.tenantId)),
+      where: and(eq(quoteItems.id, itemId), eq(quoteItems.quoteId, quoteId), eq(quoteItems.tenantId, actor.tenantId), isNull(quoteItems.deletedAt)),
     });
     if (!existing) throw new NotFoundError('Kalem');
     await this.db.update(quoteItems).set({ deletedAt: new Date() }).where(eq(quoteItems.id, itemId));
@@ -669,7 +799,8 @@ export class QuotesService {
 
   // ────────── TERMS ──────────
   async upsertTerms(quoteId: string, input: QuoteTermsUpsertInput, actor: AuthContext) {
-    await this.get(quoteId, actor);
+    const quote = await this.get(quoteId, actor);
+    this.assertQuoteMutable(quote);
     const existing = await this.db.query.quoteTerms.findFirst({ where: eq(quoteTerms.quoteId, quoteId) });
     if (existing) {
       await this.db
@@ -702,7 +833,7 @@ export class QuotesService {
 
   // ────────── APPROVE / REJECT / SEND ──────────
   async approvePrice(quoteId: string, actor: AuthContext, note?: string) {
-    if (!this.isSuperAdmin(actor)) throw new ForbiddenError('Liste altı teklif fiyatını yalnızca Süper Admin onaylayabilir');
+    if (!actor.permissions.has('quotes.approve')) throw new ForbiddenError('Liste altı teklif fiyatını onaylama yetkiniz yok');
     await this.get(quoteId, actor);
     const check = await this.quotePriceCheck(quoteId);
     if (!check.needsApproval) {
@@ -732,7 +863,7 @@ export class QuotesService {
   }
 
   async rejectPrice(quoteId: string, actor: AuthContext, note?: string) {
-    if (!this.isSuperAdmin(actor)) throw new ForbiddenError('Liste altı teklif fiyatını yalnızca Süper Admin reddedebilir');
+    if (!actor.permissions.has('quotes.reject')) throw new ForbiddenError('Liste altı teklif fiyatını reddetme yetkiniz yok');
     await this.get(quoteId, actor);
     const status = await this.db.query.quoteStatuses.findFirst({ where: eq(quoteStatuses.code, 'rejected') });
     await this.db
@@ -799,7 +930,7 @@ export class QuotesService {
     const where = and(
       eq(proformas.tenantId, actor.tenantId),
       isNull(proformas.deletedAt),
-      divisionFilter(resolveActorDivisionScope(actor), proformas.divisionId) ?? sql`true`
+      resourceDivisionFilter(actor, 'proformas', proformas.divisionId) ?? sql`true`
     );
     const [{ count }] = await this.db.select({ count: sql<number>`count(*)::int` }).from(proformas).where(where);
     const rows = await this.db
@@ -828,14 +959,20 @@ export class QuotesService {
 
   async createProforma(input: ProformaCreateInput, actor: AuthContext) {
     const quote = await this.get(input.quoteId, actor);
+    const businessLine = await this.businessLineForQuote(quote, actor);
+    const documentNo =
+      normalizeSeriesDocumentNo(input.documentNo, businessLine) ??
+      (await nextSeriesDocumentNo(this.db, actor.tenantId, businessLine, 'proforma', input.issueDate));
     const statusId = await lookupIdByCode(this.db, proformaStatuses, input.statusCode);
+    if (!statusId) throw new ValidationError('Geçersiz proforma durumu', { field: 'statusCode' });
     const [row] = await this.db
       .insert(proformas)
       .values({
         tenantId: actor.tenantId,
         divisionId: quote.divisionId,
+        businessLine,
         quoteId: input.quoteId,
-        documentNo: input.documentNo,
+        documentNo,
         issueDate: input.issueDate,
         statusId,
         fileId: input.fileId ?? null,
@@ -856,13 +993,25 @@ export class QuotesService {
   async updateProforma(id: string, input: ProformaUpdateInput, actor: AuthContext) {
     const existing = await this.getProforma(id, actor);
     const patch: Record<string, unknown> = {};
+    let quote = await this.get(existing.quoteId, actor);
     if (input.quoteId !== undefined) {
-      await this.get(input.quoteId, actor);
+      quote = await this.get(input.quoteId, actor);
       patch.quoteId = input.quoteId;
+      patch.divisionId = quote.divisionId;
     }
-    if (input.statusCode !== undefined) patch.statusId = await lookupIdByCode(this.db, proformaStatuses, input.statusCode);
-    for (const k of ['documentNo', 'issueDate', 'fileId'] as const) {
+    const businessLine = await this.businessLineForQuote(quote, actor);
+    if (input.quoteId !== undefined) patch.businessLine = businessLine;
+    if (input.statusCode !== undefined) {
+      const statusId = await lookupIdByCode(this.db, proformaStatuses, input.statusCode);
+      if (!statusId) throw new ValidationError('Geçersiz proforma durumu', { field: 'statusCode' });
+      patch.statusId = statusId;
+    }
+    for (const k of ['issueDate', 'fileId'] as const) {
       if ((input as any)[k] !== undefined) patch[k] = (input as any)[k] ?? null;
+    }
+    if (input.documentNo !== undefined) patch.documentNo = normalizeSeriesDocumentNo(input.documentNo, businessLine);
+    else if (input.quoteId !== undefined && businessLine !== existing.businessLine) {
+      patch.documentNo = await nextSeriesDocumentNo(this.db, actor.tenantId, businessLine, 'proforma', input.issueDate ?? existing.issueDate);
     }
     await this.db.update(proformas).set(patch).where(eq(proformas.id, id));
     await this.audit.write({
@@ -898,7 +1047,7 @@ export class QuotesService {
     const where = and(
       eq(contracts.tenantId, actor.tenantId),
       isNull(contracts.deletedAt),
-      divisionFilter(resolveActorDivisionScope(actor), contracts.divisionId) ?? sql`true`
+      resourceDivisionFilter(actor, 'contracts', contracts.divisionId) ?? sql`true`
     );
     const [{ count }] = await this.db.select({ count: sql<number>`count(*)::int` }).from(contracts).where(where);
     const rows = await this.db
@@ -927,14 +1076,20 @@ export class QuotesService {
 
   async createContract(input: ContractCreateInput, actor: AuthContext) {
     const quote = await this.get(input.quoteId, actor);
+    const businessLine = await this.businessLineForQuote(quote, actor);
+    const contractNo =
+      normalizeSeriesDocumentNo(input.contractNo, businessLine) ??
+      (await nextSeriesDocumentNo(this.db, actor.tenantId, businessLine, 'contract', input.signedDate ?? new Date()));
     const statusId = await lookupIdByCode(this.db, contractStatuses, input.statusCode);
+    if (!statusId) throw new ValidationError('Geçersiz sözleşme durumu', { field: 'statusCode' });
     const [row] = await this.db
       .insert(contracts)
       .values({
         tenantId: actor.tenantId,
         divisionId: quote.divisionId,
+        businessLine,
         quoteId: input.quoteId,
-        contractNo: input.contractNo,
+        contractNo,
         signedDate: input.signedDate ?? null,
         paymentTermDays: input.paymentTermDays ?? null,
         statusId,
@@ -956,13 +1111,25 @@ export class QuotesService {
   async updateContract(id: string, input: ContractUpdateInput, actor: AuthContext) {
     const existing = await this.getContract(id, actor);
     const patch: Record<string, unknown> = {};
+    let quote = await this.get(existing.quoteId, actor);
     if (input.quoteId !== undefined) {
-      await this.get(input.quoteId, actor);
+      quote = await this.get(input.quoteId, actor);
       patch.quoteId = input.quoteId;
+      patch.divisionId = quote.divisionId;
     }
-    if (input.statusCode !== undefined) patch.statusId = await lookupIdByCode(this.db, contractStatuses, input.statusCode);
-    for (const k of ['contractNo', 'signedDate', 'paymentTermDays', 'fileId'] as const) {
+    const businessLine = await this.businessLineForQuote(quote, actor);
+    if (input.quoteId !== undefined) patch.businessLine = businessLine;
+    if (input.statusCode !== undefined) {
+      const statusId = await lookupIdByCode(this.db, contractStatuses, input.statusCode);
+      if (!statusId) throw new ValidationError('Geçersiz sözleşme durumu', { field: 'statusCode' });
+      patch.statusId = statusId;
+    }
+    for (const k of ['signedDate', 'paymentTermDays', 'fileId'] as const) {
       if ((input as any)[k] !== undefined) patch[k] = (input as any)[k] ?? null;
+    }
+    if (input.contractNo !== undefined) patch.contractNo = normalizeSeriesDocumentNo(input.contractNo, businessLine);
+    else if (input.quoteId !== undefined && businessLine !== existing.businessLine) {
+      patch.contractNo = await nextSeriesDocumentNo(this.db, actor.tenantId, businessLine, 'contract', input.signedDate ?? existing.signedDate ?? new Date());
     }
     await this.db.update(contracts).set(patch).where(eq(contracts.id, id));
     await this.audit.write({
@@ -998,7 +1165,7 @@ export class QuotesService {
     const where = and(
       eq(commercialInvoices.tenantId, actor.tenantId),
       isNull(commercialInvoices.deletedAt),
-      divisionFilter(resolveActorDivisionScope(actor), commercialInvoices.divisionId) ?? sql`true`
+      resourceDivisionFilter(actor, 'commercial_invoices', commercialInvoices.divisionId) ?? sql`true`
     );
     const [{ count }] = await this.db.select({ count: sql<number>`count(*)::int` }).from(commercialInvoices).where(where);
     const rows = await this.db
@@ -1019,14 +1186,20 @@ export class QuotesService {
 
   async createCommercialInvoice(input: CommercialInvoiceCreateInput, actor: AuthContext) {
     const quote = await this.get(input.quoteId, actor);
+    const businessLine = await this.businessLineForQuote(quote, actor);
+    const invoiceNo =
+      normalizeSeriesDocumentNo(input.invoiceNo, businessLine) ??
+      (await nextSeriesDocumentNo(this.db, actor.tenantId, businessLine, 'commercial_invoice', input.invoiceDate));
     const statusId = await lookupIdByCode(this.db, invoiceStatuses, input.statusCode);
+    if (!statusId) throw new ValidationError('Geçersiz ticari fatura durumu', { field: 'statusCode' });
     const [row] = await this.db
       .insert(commercialInvoices)
       .values({
         tenantId: actor.tenantId,
         divisionId: quote.divisionId,
+        businessLine,
         quoteId: input.quoteId,
-        invoiceNo: input.invoiceNo,
+        invoiceNo,
         invoiceDate: input.invoiceDate,
         statusId,
         fileId: input.fileId ?? null,
@@ -1047,13 +1220,25 @@ export class QuotesService {
   async updateCommercialInvoice(id: string, input: CommercialInvoiceUpdateInput, actor: AuthContext) {
     const existing = await this.getCommercialInvoice(id, actor);
     const patch: Record<string, unknown> = {};
+    let quote = await this.get(existing.quoteId, actor);
     if (input.quoteId !== undefined) {
-      await this.get(input.quoteId, actor);
+      quote = await this.get(input.quoteId, actor);
       patch.quoteId = input.quoteId;
+      patch.divisionId = quote.divisionId;
     }
-    if (input.statusCode !== undefined) patch.statusId = await lookupIdByCode(this.db, invoiceStatuses, input.statusCode);
-    for (const k of ['invoiceNo', 'invoiceDate', 'fileId'] as const) {
+    const businessLine = await this.businessLineForQuote(quote, actor);
+    if (input.quoteId !== undefined) patch.businessLine = businessLine;
+    if (input.statusCode !== undefined) {
+      const statusId = await lookupIdByCode(this.db, invoiceStatuses, input.statusCode);
+      if (!statusId) throw new ValidationError('Geçersiz ticari fatura durumu', { field: 'statusCode' });
+      patch.statusId = statusId;
+    }
+    for (const k of ['invoiceDate', 'fileId'] as const) {
       if ((input as any)[k] !== undefined) patch[k] = (input as any)[k] ?? null;
+    }
+    if (input.invoiceNo !== undefined) patch.invoiceNo = normalizeSeriesDocumentNo(input.invoiceNo, businessLine);
+    else if (input.quoteId !== undefined && businessLine !== existing.businessLine) {
+      patch.invoiceNo = await nextSeriesDocumentNo(this.db, actor.tenantId, businessLine, 'commercial_invoice', input.invoiceDate ?? existing.invoiceDate);
     }
     await this.db.update(commercialInvoices).set(patch).where(eq(commercialInvoices.id, id));
     await this.audit.write({
@@ -1088,7 +1273,7 @@ export class QuotesService {
         eq(proformas.id, id),
         eq(proformas.tenantId, actor.tenantId),
         isNull(proformas.deletedAt),
-        divisionFilter(resolveActorDivisionScope(actor), proformas.divisionId) ?? sql`true`
+        resourceDivisionFilter(actor, 'proformas', proformas.divisionId) ?? sql`true`
       ),
     });
     if (!row) throw new NotFoundError('Proforma');
@@ -1101,7 +1286,7 @@ export class QuotesService {
         eq(contracts.id, id),
         eq(contracts.tenantId, actor.tenantId),
         isNull(contracts.deletedAt),
-        divisionFilter(resolveActorDivisionScope(actor), contracts.divisionId) ?? sql`true`
+        resourceDivisionFilter(actor, 'contracts', contracts.divisionId) ?? sql`true`
       ),
     });
     if (!row) throw new NotFoundError('Sözleşme');
@@ -1114,7 +1299,7 @@ export class QuotesService {
         eq(commercialInvoices.id, id),
         eq(commercialInvoices.tenantId, actor.tenantId),
         isNull(commercialInvoices.deletedAt),
-        divisionFilter(resolveActorDivisionScope(actor), commercialInvoices.divisionId) ?? sql`true`
+        resourceDivisionFilter(actor, 'commercial_invoices', commercialInvoices.divisionId) ?? sql`true`
       ),
     });
     if (!row) throw new NotFoundError('Ticari fatura');

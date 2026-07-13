@@ -3,7 +3,7 @@ import type { DeliveryFormData, InstallationFormData } from '@haksan/shared';
 import { auditColumns, money } from './_helpers';
 import { tenants, divisions } from './tenants';
 import { users } from './users';
-import { companies, contacts } from './companies';
+import { companies, companyAddresses, contacts } from './companies';
 import { customerDevices, inventoryItems, warehouses } from './inventory';
 import { opportunities } from './crm';
 import { quotes } from './quotes';
@@ -56,6 +56,7 @@ export const serviceTickets = pgTable(
       .references(() => tenants.id, { onDelete: 'cascade' }),
     ticketNo: varchar('ticket_no', { length: 64 }).notNull(),
     divisionId: uuid('division_id').references(() => divisions.id, { onDelete: 'set null' }),
+    businessLine: varchar('business_line', { length: 16 }),
     companyId: uuid('company_id')
       .notNull()
       .references(() => companies.id, { onDelete: 'restrict' }),
@@ -82,6 +83,7 @@ export const serviceTickets = pgTable(
     tenantTicketNoUnique: uniqueIndex('service_tickets_tenant_ticket_no_unique').on(t.tenantId, t.ticketNo),
     tenantIdx: index('service_tickets_tenant_idx').on(t.tenantId),
     tenantDivisionIdx: index('service_tickets_tenant_division_idx').on(t.tenantId, t.divisionId),
+    tenantBusinessLineIdx: index('service_tickets_tenant_business_line_idx').on(t.tenantId, t.businessLine),
     statusIdx: index('service_tickets_status_idx').on(t.statusId),
   })
 );
@@ -102,6 +104,7 @@ export const serviceComplaintLinks = pgTable(
     notes: text('notes'),
     isActive: boolean('is_active').notNull().default(true),
     revokedAt: timestamp('revoked_at', { withTimezone: true }),
+    accessTokenExpiresAt: timestamp('access_token_expires_at', { withTimezone: true }),
     createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
     ...auditColumns,
   },
@@ -243,6 +246,8 @@ export const shipments = pgTable(
     // Sevkiyatı satış siparişine ve müşteriye bağlar; "fulfilled" sipariş bu kolonlardan sevkiyat doğurur.
     salesOrderId: uuid('sales_order_id').references(() => salesOrders.id, { onDelete: 'set null' }),
     companyId: uuid('company_id').references(() => companies.id, { onDelete: 'set null' }),
+    deliveryAddressId: uuid('delivery_address_id').references(() => companyAddresses.id, { onDelete: 'set null' }),
+    deliveryAddressSnapshot: text('delivery_address_snapshot'),
     senderCompanyId: uuid('sender_company_id').references(() => companies.id, { onDelete: 'set null' }),
     // Kayıtlı olmayan gönderici için serbest-metin adı (senderCompanyId FK yerine elle giriş).
     senderName: varchar('sender_name', { length: 255 }),
@@ -272,6 +277,7 @@ export const shipments = pgTable(
     statusIdx: index('shipments_status_idx').on(t.statusId),
     salesOrderIdx: index('shipments_sales_order_idx').on(t.salesOrderId),
     companyIdx: index('shipments_company_idx').on(t.companyId),
+    deliveryAddressIdx: index('shipments_delivery_address_idx').on(t.deliveryAddressId),
     senderCompanyIdx: index('shipments_sender_company_idx').on(t.senderCompanyId),
     carrierCompanyIdx: index('shipments_carrier_company_idx').on(t.carrierCompanyId),
     destinationWarehouseIdx: index('shipments_destination_warehouse_idx').on(t.destinationWarehouseId),

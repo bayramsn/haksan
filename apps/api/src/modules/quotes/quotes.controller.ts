@@ -22,7 +22,12 @@ import { CurrentUser } from '../../shared/security/current-user.decorator';
 import type { AuthContext } from '../../shared/security/auth.types';
 import { QuotesService } from './quotes.service';
 
-const listQuery = z.object({ search: z.string().optional(), statusCode: z.string().optional(), companyId: z.string().optional() });
+const listQuery = z.object({
+  search: z.string().optional(),
+  statusCode: z.string().optional(),
+  companyId: z.string().optional(),
+  businessLine: z.enum(['CNC', 'UNI', 'SACISLE']).optional(),
+});
 const priceApprovalSchema = z.object({ note: z.string().max(1000).optional() });
 
 @UseGuards(AuthGuard, PermissionsGuard)

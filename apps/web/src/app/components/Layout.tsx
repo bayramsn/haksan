@@ -42,7 +42,54 @@ export type NavKey =
 type NavItem = { key: NavKey; label: string; icon: any; badge?: string; roles?: string[] };
 
 // Yönetim grubu sadece admin/super_admin'e açıktır (canSee bu set'i kullanır).
-const MGMT_KEYS = new Set<NavKey>(["users", "roles", "departments", "settings"]);
+export const MGMT_KEYS = new Set<NavKey>(["users", "roles", "departments", "settings"]);
+
+export const RESOURCE_BY_NAV: Partial<Record<NavKey, string>> = {
+  calendar: "calendar",
+  "call-assistant": "activities",
+  customers: "companies",
+  contacts: "contacts",
+  "sales-cases": "opportunities",
+  kanban: "opportunities",
+  "sales-map": "companies",
+  offers: "quotes",
+  proformas: "proformas",
+  contracts: "contracts",
+  documents: "files",
+  "sales-price-list": "price_lists",
+  references: "brands",
+  products: "products",
+  stock: "inventory",
+  "purchase-orders": "purchase_orders",
+  payments: "payments",
+  "accounting-invoices": "accounting_invoices",
+  "customer-balances": "receivables",
+  "due-dates": "payments",
+  shipments: "shipments",
+  deliveries: "shipments",
+  machines: "customer_devices",
+  installations: "installations",
+  "service-requests": "service_tickets",
+  "service-kanban": "service_tickets",
+  "service-price-list": "price_lists",
+  reports: "reports",
+  users: "users",
+  roles: "roles",
+  departments: "departments",
+  settings: "tenants",
+};
+
+export function canAccessNavKey(
+  key: NavKey,
+  hasPermission: (permission: string) => boolean,
+  hasRole: (role: string) => boolean
+) {
+  if (hasRole("admin") || hasRole("super_admin")) return true;
+  if (MGMT_KEYS.has(key)) return false;
+  const resource = RESOURCE_BY_NAV[key];
+  if (!resource) return true;
+  return hasPermission(`${resource}.read`);
+}
 
 // Her nav öğesinin `roles` listesi, backend izin matrisini (rolePermissionMatrix)
 // yansıtır. admin/super_admin her şeyi görür; readonly yönetim hariç her şeyi.
@@ -113,27 +160,60 @@ type Props = {
 export function Layout({ current, onNavigate, onLogout, pageTitle, pageSubtitle, actions, children, onSelectFirm, onSelectCase, onOperationAction }: Props) {
   const store = useStore();
   const { customers, service } = store;
-  const { hasRole, hasPermission, user, activeDivision, setActiveDivision } = useAuth();
+  const {
+    activeDepartment,
+    activeDivision,
+    canUseAllDivisionsForResource,
+    hasPermission,
+    hasRole,
+    scopesForResource,
+    setActiveDepartment,
+    setActiveDivision,
+    user,
+  } = useAuth();
   const canApprove = hasPermission("companies.update") || hasRole("super_admin");
   const divisions = user?.divisions ?? [];
-  const canPickDivision = hasRole("super_admin") && (user?.canViewAllDivisions ?? false);
+  const departments = user?.departments ?? [];
+  const currentResource = RESOURCE_BY_NAV[current] ?? "reports";
+  const currentScopes = scopesForResource(currentResource);
+  const canPickAllForResource = currentScopes.length === 0 ? (user?.canViewAllDivisions ?? false) : canUseAllDivisionsForResource(currentResource);
+  const scopedDivisionIds = new Set(currentScopes.map((scope) => scope.divisionId).filter((id): id is string => !!id));
+  const hasAllDepartmentScope = currentScopes.some((scope) => scope.departmentId === null);
+  const scopedDepartmentIds = new Set(currentScopes.map((scope) => scope.departmentId).filter((id): id is string => !!id));
+  const visibleDivisions =
+    currentScopes.length === 0 || canPickAllForResource ? divisions : divisions.filter((division) => scopedDivisionIds.has(division.id));
+  const visibleDepartments =
+    currentScopes.length === 0 || hasAllDepartmentScope ? departments : departments.filter((department) => scopedDepartmentIds.has(department.id));
+  const canPickDivision = visibleDivisions.length > 1 || canPickAllForResource;
+  const canPickDepartment = visibleDepartments.length > 1;
   const activeDivisionLabel =
     activeDivision === "all" ? "Tümü" : divisions.find((d) => d.id === activeDivision)?.name ?? "Bölüm";
+  const activeDepartmentLabel = departments.find((department) => department.id === activeDepartment)?.name ?? "Departman";
   const roleLabel = user?.roles?.[0] ? user.roles[0].replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()) : "Kullanıcı";
   const userInitials = (user?.fullName ?? "?").split(" ").slice(0, 2).map((p) => p[0]).join("").toUpperCase();
-  // Departman bazlı menü görünürlüğü:
-  // - admin / super_admin: her şeyi görür.
-  // - readonly: yönetim grubu hariç her şeyi (salt-okunur) görür.
-  // - departman rolleri (sales/service/finance/stock): yalnızca öğenin `roles`
-  //   listesinde kendi rolü varsa. `roles` taşımayan öğeler (Gösterge Paneli)
-  //   herkese açıktır.
+  useEffect(() => {
+    if (!user) return;
+    if (activeDivision === "all") {
+      if (!canPickAllForResource) {
+        const next = visibleDivisions.find((division) => division.isPrimary)?.id ?? visibleDivisions[0]?.id;
+        if (next) setActiveDivision(next);
+      }
+      return;
+    }
+    if (visibleDivisions.length > 0 && !visibleDivisions.some((division) => division.id === activeDivision)) {
+      setActiveDivision(visibleDivisions.find((division) => division.isPrimary)?.id ?? visibleDivisions[0].id);
+    }
+  }, [activeDivision, canPickAllForResource, currentResource, setActiveDivision, user?.id, visibleDivisions]);
+  useEffect(() => {
+    if (!user) return;
+    if (visibleDepartments.length > 0 && !visibleDepartments.some((department) => department.id === activeDepartment)) {
+      setActiveDepartment(visibleDepartments.find((department) => department.isPrimary)?.id ?? visibleDepartments[0].id);
+    }
+  }, [activeDepartment, currentResource, setActiveDepartment, user?.id, visibleDepartments]);
   const canSee = (item: NavItem) => {
-    if (hasRole("admin") || hasRole("super_admin")) return true;
-    if (hasRole("readonly")) return !MGMT_KEYS.has(item.key);
-    if (!item.roles) return true;
-    return item.roles.some((r) => hasRole(r));
+    return canAccessNavKey(item.key, hasPermission, hasRole);
   };
-  const canSeeReports = hasRole("admin") || hasRole("super_admin") || hasRole("readonly") || hasRole("sales") || hasRole("finance");
+  const canSeeReports = hasRole("admin") || hasRole("super_admin") || hasPermission("reports.read");
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [commandOpen, setCommandOpen] = useState(false);
   // Sohbet okunmamış rozeti — konuşmaları 15 sn'de bir özetleyip toplam okunmamışı gösterir.
@@ -398,9 +478,29 @@ export function Layout({ current, onNavigate, onLogout, pageTitle, pageSubtitle,
 
             <div className="flex-1" />
 
-            {/* Bölüm seçici yalnızca süper admin'e açıktır. Diğer kullanıcılar
-                auth başlangıcında kendi birincil bölümüne kilitlenir. */}
-            {canPickDivision && divisions.length > 0 && (
+            {canPickDepartment && (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" size="sm" className="gap-1.5 h-9 px-2 sm:px-3" aria-label="Departman seç">
+                    <Briefcase className="size-4 text-muted-foreground" />
+                    <span className="hidden sm:inline max-w-[110px] truncate">{activeDepartmentLabel}</span>
+                    <ChevronDown className="size-3.5 text-muted-foreground" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-48">
+                  <DropdownMenuLabel>Departman</DropdownMenuLabel>
+                  <DropdownMenuSeparator />
+                  {visibleDepartments.map((department) => (
+                    <DropdownMenuItem key={department.id} className="justify-between" onClick={() => setActiveDepartment(department.id)}>
+                      {department.name}
+                      {activeDepartment === department.id && <CheckCircle2 className="size-4 text-primary" />}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
+
+            {canPickDivision && visibleDivisions.length > 0 && (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button variant="outline" size="sm" className="gap-1.5 h-9 px-2 sm:px-3" aria-label="Bölüm seç">
@@ -412,11 +512,13 @@ export function Layout({ current, onNavigate, onLogout, pageTitle, pageSubtitle,
                 <DropdownMenuContent align="end" className="w-48">
                   <DropdownMenuLabel>Bölüm</DropdownMenuLabel>
                   <DropdownMenuSeparator />
-                  <DropdownMenuItem className="justify-between" onClick={() => setActiveDivision("all")}>
-                    Tümü
-                    {activeDivision === "all" && <CheckCircle2 className="size-4 text-primary" />}
-                  </DropdownMenuItem>
-                  {divisions.map((d) => (
+                  {canPickAllForResource && (
+                    <DropdownMenuItem className="justify-between" onClick={() => setActiveDivision("all")}>
+                      Tümü
+                      {activeDivision === "all" && <CheckCircle2 className="size-4 text-primary" />}
+                    </DropdownMenuItem>
+                  )}
+                  {visibleDivisions.map((d) => (
                     <DropdownMenuItem key={d.id} className="justify-between" onClick={() => setActiveDivision(d.id)}>
                       {d.name}
                       {activeDivision === d.id && <CheckCircle2 className="size-4 text-primary" />}

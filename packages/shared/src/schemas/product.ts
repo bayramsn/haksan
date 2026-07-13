@@ -97,6 +97,7 @@ export const priceListCreateSchema = z.object({
   code: z.string().min(1).max(64),
   name: z.string().min(1).max(255),
   description: z.string().max(4000).optional(),
+  divisionId: z.string().uuid().optional(),
   currencyCode: z.string().max(8).default('USD'),
   validFrom: z.coerce.date().optional(),
   validUntil: z.coerce.date().optional(),
@@ -118,6 +119,9 @@ export const priceListItemCreateSchema = z.object({
   vatRate: percentSchema.optional(),
   notes: z.string().max(4000).optional(),
 });
+export type PriceListItemCreateRequest = Omit<z.infer<typeof priceListItemCreateSchema>, 'campaignIsActive'> & {
+  campaignIsActive?: boolean;
+};
 export type PriceListItemCreateInput = z.infer<typeof priceListItemCreateSchema>;
 
 export const priceListItemUpdateSchema = priceListItemCreateSchema.partial();

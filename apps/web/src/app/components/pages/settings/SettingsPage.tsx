@@ -3,12 +3,13 @@ import { Button } from "../../ui/button";
 import { Input } from "../../ui/input";
 import { Badge } from "../../ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../../ui/tabs";
-import { Bell, Briefcase, Building2, CheckCircle2, Clock, Database, Download, FileCheck2, Globe, History, Layers, Package, Pencil, Plus, RotateCcw, Save, Search, Settings2, SlidersHorizontal, Trash2, Upload, Wrench } from "lucide-react";
+import { Bell, Briefcase, Building2, CheckCircle2, Clock, Database, Download, FileCheck2, Globe, History, Layers, Package, Pencil, Plus, RotateCcw, Save, Search, Settings2, SlidersHorizontal, Sparkles, Trash2, Upload, Wrench } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "../../../../lib/auth";
 import { adminService } from "../../../../lib/services";
+import { DIVISION_MACHINE_TYPES, MACHINE_SPEC_TEMPLATES, PRODUCT_SPEC_GROUPS } from "../../../lib/productSpecTemplates";
 import { ProductSpecTemplatesCard } from "./ProductSpecTemplatesCard";
-import { ALL_DIVISIONS, isCncDivision, usePersistedSettingsDivision } from "./settings-division";
+import { ALL_DIVISIONS, divisionCatalogGroupCode, isCncDivision, usePersistedSettingsDivision } from "./settings-division";
 import { InfoCallout, SettingsField, SettingsSection, SettingsSelect, SettingsToggle } from "./settings-controls";
 
 type Preferences = {
@@ -88,6 +89,7 @@ const lookupLabels: Record<string, string> = {
   "proforma-statuses": "Proforma Durumları",
   "contract-statuses": "Sözleşme Durumları",
   "product-types": "Ürün Tipleri",
+  brands: "Ürün Markaları",
   "product-groups": "Ürün Grupları",
   "product-categories": "Ürün Kategorileri",
   "product-subcategories": "Ürün Alt Kategorileri",
@@ -122,6 +124,7 @@ const lookupUsage: Record<string, string[]> = {
   "proforma-statuses": ["Proforma listesi", "doküman durumu"],
   "contract-statuses": ["Sözleşme listesi", "doküman durumu"],
   "product-categories": ["Ürün formu", "teklif satırları", "stok filtreleri"],
+  brands: ["Ürün formu", "teklif satırları", "fiyat listesi"],
   "product-subcategories": ["Ürün formu", "teklif satırları", "ürün daraltma"],
   "product-groups": ["Ürün formu", "teklif satırları", "bölüm bazlı katalog"],
   "product-types": ["Ürün formu", "teklif satırları", "teknik bilgi şablonları"],
@@ -153,7 +156,7 @@ const LOOKUP_MENU_GROUPS: Array<{ label: string; names: string[] }> = [
   },
   {
     label: "Ürün",
-    names: ["product-groups", "product-categories", "product-subcategories", "equipment-types", "product-spec-groups", "units"],
+    names: ["brands", "product-groups", "product-categories", "product-subcategories", "equipment-types", "product-spec-groups", "units"],
   },
   {
     label: "Stok & Servis",
@@ -327,6 +330,9 @@ export function SettingsPage() {
   const selectedProductFlowIndex = PRODUCT_FLOW_STEPS.findIndex((step) => step.lookupName === selectedLookup);
   const selectedDivisionLabel = lookupDivisionId === ALL_DIVISIONS ? "Tümü" : divisionLabel(lookupDivisionId);
   const selectedDivisionIncludesShared = isCncDivision(divisions, lookupDivisionId);
+  // Üniversal / Sac İşleme için tek tıkla önerilen taksonomi kurulumu.
+  const selectedDivisionCatalogCode = divisionCatalogGroupCode(divisions, lookupDivisionId);
+  const canSeedDivisionSetup = lookupDivisionId !== ALL_DIVISIONS && (selectedDivisionCatalogCode === "UNIVERSAL" || selectedDivisionCatalogCode === "SAC_ISLEME");
   const selectedLookupUsage = lookupUsage[selectedLookup] ?? ["İlgili CRM formları"];
   const freshLookupForm = (): LookupForm => ({ ...emptyLookupForm, divisionId: lookupDivisionId === ALL_DIVISIONS ? "" : lookupDivisionId });
 
@@ -409,11 +415,98 @@ export function SettingsPage() {
     setLookupHistoryLoading(true);
     try {
       const res = await adminService.auditLogs({ resourceType: `lookup:${name}`, page: 1, pageSize: 8 });
-      setLookupHistory(res.items ?? []);
+      setLookupHistory(res.data ?? []);
     } catch {
       setLookupHistory([]);
     } finally {
       setLookupHistoryLoading(false);
+    }
+  };
+
+  // Seçili bölüm (Üniversal / Sac İşleme) için önerilen ürün taksonomisini kurar.
+  // Bölümde veya Tümü'nde aynı kod/ad zaten varsa o kayıt atlanır; hiçbir mevcut kayda dokunulmaz.
+  const seedDivisionSetup = async () => {
+    const groupCode = selectedDivisionCatalogCode;
+    if (!canSeedDivisionSetup || !groupCode || groupCode === "CNC") return;
+    const divisionName = divisionLabel(lookupDivisionId);
+    const machineTypes = DIVISION_MACHINE_TYPES.filter((item) => item.productGroupCode === groupCode);
+    const subcategoryByCode = new Map(machineTypes.map((item) => [item.subcategoryCode, item.subcategoryLabel]));
+    const specGroupCodes = new Set(
+      machineTypes.flatMap((item) => (MACHINE_SPEC_TEMPLATES[item.code] ?? []).map((entryItem) => entryItem.group)),
+    );
+    const pack: Array<{ lookup: string; rows: Array<{ code: string; name: string }> }> = [
+      { lookup: "product-groups", rows: [{ code: groupCode, name: divisionName }] },
+      {
+        lookup: "product-categories",
+        rows: [
+          { code: "TEZGAH", name: "Tezgah" },
+          { code: "YEDEK_PARCA", name: "Yedek Parça" },
+          { code: "OPSIYONEL_DONANIM", name: "Opsiyonel Donanım" },
+          { code: "AKSESUAR", name: "Aksesuar" },
+          { code: "ISCILIK", name: "İşçilik" },
+        ],
+      },
+      {
+        lookup: "product-subcategories",
+        rows: Array.from(subcategoryByCode, ([code, name]) => ({ code, name })),
+      },
+      { lookup: "product-types", rows: machineTypes.map((item) => ({ code: item.code, name: item.label })) },
+      {
+        lookup: "product-spec-groups",
+        rows: PRODUCT_SPEC_GROUPS.filter((group) => specGroupCodes.has(group.code)).map((group) => ({ code: group.code, name: group.label })),
+      },
+    ];
+
+    setLookupBusy(true);
+    let created = 0;
+    let skipped = 0;
+    const failures: string[] = [];
+    try {
+      for (const { lookup, rows } of pack) {
+        if (!rows.length) continue;
+        // Bölüm + Tümü kapsamındaki mevcut kayıtlarla karşılaştır (kod veya ad eşleşirse atla)
+        // ki ürün formlarında aynı ad iki kez görünmesin.
+        let existingKeys = new Set<string>();
+        try {
+          const existing = await adminService.lookupRows(lookup, { divisionId: lookupDivisionId });
+          existingKeys = new Set(
+            (existing ?? []).flatMap((row: any) => [normalizeHeader(String(row.code ?? "")), normalizeHeader(String(row.name ?? ""))]),
+          );
+        } catch {
+          // Liste alınamazsa güvenli taraf: eklemeyi dene, mükerrer 409'da atlanır.
+        }
+        let order = 0;
+        for (const row of rows) {
+          order += 10;
+          if (existingKeys.has(normalizeHeader(row.code)) || existingKeys.has(normalizeHeader(row.name))) {
+            skipped += 1;
+            continue;
+          }
+          try {
+            await adminService.createLookup(lookup, {
+              code: row.code,
+              name: row.name,
+              divisionId: lookupDivisionId,
+              sortOrder: order,
+              isActive: true,
+            });
+            created += 1;
+          } catch (err: any) {
+            if (err?.status === 409) skipped += 1;
+            else failures.push(`${lookupLabels[lookup] ?? lookup}: ${row.name}`);
+          }
+        }
+      }
+      if (failures.length) {
+        toast.error(`${failures.length} kayıt eklenemedi`, { description: failures.slice(0, 3).join(", ") });
+      }
+      toast.success(`${divisionName} için önerilen kurulum tamam: ${created} kayıt eklendi`, {
+        description: skipped ? `${skipped} kayıt zaten mevcuttu, atlandı.` : undefined,
+      });
+      await loadLookupRows(selectedLookup);
+      await loadLookupHistory(selectedLookup);
+    } finally {
+      setLookupBusy(false);
     }
   };
 
@@ -817,15 +910,34 @@ export function SettingsPage() {
                       </div>
                     </div>
                   </div>
-                  <div className="w-full lg:max-w-xs">
-                    <SettingsSelect
-                      label="Bölüm"
-                      value={lookupDivisionId}
-                      onChange={setLookupDivisionId}
-                      options={[{ value: ALL_DIVISIONS, label: "Tümü" }, ...divisions.map((d) => ({ value: d.id, label: d.name }))]}
-                    />
+                  <div className="flex w-full flex-col gap-2 sm:flex-row sm:items-end lg:max-w-xl">
+                    <div className="w-full sm:max-w-xs">
+                      <SettingsSelect
+                        label="Bölüm"
+                        value={lookupDivisionId}
+                        onChange={setLookupDivisionId}
+                        options={[{ value: ALL_DIVISIONS, label: "Tümü" }, ...divisions.map((d) => ({ value: d.id, label: d.name }))]}
+                      />
+                    </div>
+                    {canSeedDivisionSetup && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="gap-1 whitespace-nowrap"
+                        disabled={lookupBusy}
+                        onClick={() => void seedDivisionSetup()}
+                      >
+                        <Sparkles className="size-4" /> Önerilen {selectedDivisionLabel} kurulumunu yükle
+                      </Button>
+                    )}
                   </div>
                 </div>
+                {canSeedDivisionSetup && (
+                  <p className="mt-2 text-[11px] text-muted-foreground">
+                    Önerilen kurulum; {selectedDivisionLabel} bölümü için tezgah tiplerini, kategori/alt kategori yapısını ve teknik bilgi
+                    gruplarını hazır olarak ekler. Mevcut kayıtlara dokunulmaz, aynı ad/kod varsa atlanır.
+                  </p>
+                )}
 
                 <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
                   <div className="sm:col-span-2 lg:col-span-3 xl:col-span-6 rounded-lg border border-border/60 bg-card/70 px-3 py-2 text-xs text-muted-foreground">

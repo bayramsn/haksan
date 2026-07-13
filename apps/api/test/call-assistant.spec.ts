@@ -12,7 +12,7 @@ let divisionId: string;
 let companyId: string;
 let nationalPhone: string;
 let e164Phone: string;
-const secret = 'dev-call-secret';
+let webhookSecret: string;
 const server = () => app.getHttpServer();
 const auth = (token = adminToken) => `Bearer ${token}`;
 
@@ -20,6 +20,15 @@ beforeAll(async () => {
   app = await createTestApp();
   const adminLogin = await supertest(server()).post('/api/v1/auth/login').send({ email: 'admin@haksan.local', password: 'admin12345' });
   adminToken = adminLogin.body.accessToken;
+  const superAdminLogin = await supertest(server())
+    .post('/api/v1/auth/login')
+    .send({ email: 'superadmin@haksan.local', password: 'superadmin12345' });
+  expect(superAdminLogin.status).toBe(201);
+  const credential = await supertest(server())
+    .get('/api/v1/call-assistant/webhook-credential')
+    .set('Authorization', `Bearer ${superAdminLogin.body.accessToken}`);
+  expect(credential.status).toBe(200);
+  webhookSecret = credential.body.secret;
   const serviceLogin = await supertest(server()).post('/api/v1/auth/login').send({ email: 'service@haksan.local', password: 'service12345' });
   serviceToken = serviceLogin.body.accessToken;
 
@@ -69,7 +78,7 @@ describe('Call assistant', () => {
     };
     const first = await supertest(server())
       .post('/api/v1/integrations/calls/webhook/generic')
-      .set('x-call-webhook-secret', secret)
+      .set('x-call-webhook-secret', webhookSecret)
       .set('x-haksan-tenant-id', tenantId)
       .send(payload);
     expect(first.status).toBe(201);
@@ -79,7 +88,7 @@ describe('Call assistant', () => {
 
     const duplicate = await supertest(server())
       .post('/api/v1/integrations/calls/webhook/generic')
-      .set('x-call-webhook-secret', secret)
+      .set('x-call-webhook-secret', webhookSecret)
       .set('x-haksan-tenant-id', tenantId)
       .send(payload);
     expect(duplicate.status).toBe(201);
@@ -119,7 +128,7 @@ describe('Call assistant', () => {
     const createSuggestion = async (suffix: string) => {
       const event = await supertest(server())
         .post('/api/v1/integrations/calls/webhook/generic')
-        .set('x-call-webhook-secret', secret)
+        .set('x-call-webhook-secret', webhookSecret)
         .set('x-haksan-tenant-id', tenantId)
         .send({
           eventId: `pbx-action-${suffix}-${Date.now()}`,

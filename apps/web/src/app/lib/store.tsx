@@ -169,6 +169,45 @@ const normalizeProductVatRate = (value: unknown) => {
   return rate === undefined || rate === 1 ? DEFAULT_PRODUCT_VAT_RATE : rate;
 };
 
+const normalizeContact = (k: any): Contact => {
+  const companyIds = Array.from(new Set([
+    k.companyId,
+    k.company?.id,
+    ...(Array.isArray(k.companyLinks) ? k.companyLinks.map((company: any) => company.id ?? company.companyId) : []),
+  ].filter(Boolean))) as string[];
+  return {
+    id: k.id,
+    customerId: k.companyId ?? companyIds[0] ?? '',
+    companyIds,
+    name: k.fullName ?? '',
+    title: k.title ?? '',
+    department: k.department ?? '',
+    phone: k.workPhone ?? k.mobilePhone ?? '',
+    phoneExtension: k.phoneExtension ?? '',
+    mobilePhone: k.mobilePhone ?? '',
+    otherPhone: k.otherPhone ?? '',
+    email: k.workEmail ?? k.personalEmail ?? k.otherEmail ?? '',
+    personalEmail: k.personalEmail ?? '',
+    otherEmail: k.otherEmail ?? '',
+    gender: k.gender ?? '',
+    birthDate: (k.birthDate as string | undefined)?.slice(0, 10) ?? '',
+    decisionRoleCode: k.decisionRole?.code ?? '',
+    decisionRoleName: k.decisionRole?.name ?? '',
+    hometown: k.hometown ?? '',
+    favoriteTeam: k.favoriteTeam ?? '',
+    favoriteColor: k.favoriteColor ?? '',
+    graduatedSchool: k.graduatedSchool ?? '',
+    isPrimary: !!k.isPrimary || (Array.isArray(k.companyLinks) && k.companyLinks.some((company: any) => company.id === (k.companyId ?? companyIds[0]) && company.isPrimary)),
+    note: k.notes ?? '',
+    isBlacklisted: !!k.isBlacklisted,
+    blacklistReason: k.blacklistReason ?? '',
+    createdAt: (k.createdAt as string)?.slice(0, 10) ?? '',
+    createdByUserId: k.createdByUser?.id ?? k.createdBy ?? null,
+    createdByName: k.createdByUser?.fullName ?? k.createdByUser?.name ?? null,
+    createdByEmail: k.createdByUser?.email ?? null,
+  };
+};
+
 const toNullableNumber = (value: unknown) => {
   const number = toOptionalNumber(value);
   return number === undefined ? null : number;
@@ -385,7 +424,7 @@ type Store = {
   loadErrors: string[];
   loadTruncated: string[];
   clearLoadErrors: () => void;
-  addContact: (c: Omit<Contact, 'id'>) => Promise<Contact>;
+  addContact: (c: Omit<Contact, 'id' | 'createdAt' | 'createdByUserId' | 'createdByName' | 'createdByEmail'>) => Promise<Contact>;
   updateContact: (id: string, patch: Partial<Omit<Contact, 'id'>>) => Promise<void>;
   deleteContact: (id: string) => Promise<void>;
   addActivity: (a: Omit<Activity, 'id' | 'date'> & { date?: string }) => Promise<Activity>;
@@ -455,7 +494,7 @@ type Store = {
 const Ctx = createContext<Store | null>(null);
 
 function StoreInner({ children }: { children: ReactNode }) {
-  const { authed, sessionReady, user, activeDivision } = useAuth();
+  const { authed, sessionReady, user, activeDivision, activeDepartment } = useAuth();
   const [loading, setLoading] = useState(true);
   const [loadErrors, setLoadErrors] = useState<string[]>([]);
   const [loadTruncated, setLoadTruncated] = useState<string[]>([]);
@@ -515,6 +554,7 @@ function StoreInner({ children }: { children: ReactNode }) {
     // hataları "Bazı veriler yüklenemedi" banner'ını gereksiz yere doldurur.
     const userPerms = new Set(user?.permissions ?? []);
     const can = (permission?: string) => !permission || userPerms.has(permission);
+    const canAny = (...permissions: string[]) => permissions.some((permission) => userPerms.has(permission));
     const load = async <T,>(label: string, fn: () => Promise<T>, fallback: T, permission?: string): Promise<T> => {
       if (!can(permission)) return fallback;
       try {
@@ -534,30 +574,30 @@ function StoreInner({ children }: { children: ReactNode }) {
       const empty = { data: [] as any[], meta: { total: 0, page: 1, pageSize: 0, totalPages: 0 } };
       const [companies, contactsR, opps, prods, inv, qts, svcTickets, acts, usersR, devicesR, receivablesR, paymentsR, proformasR, contractsR, invoicesR, noteTemplatesR, shipmentsR, deliveriesR, installationsR, fileLinksR] = await Promise.all([
         load('Firmalar', () => loadAllPaginated((page, pageSize) => companyService.list({ page, pageSize })), empty, 'companies.read'),
-        load('Kontaklar', () => contactService.list({ pageSize: 200 }), empty, 'contacts.read'),
-        load('Satış kartları', () => opportunityService.list({ pageSize: 200 }), empty, 'opportunities.read'),
+        load('Kontaklar', () => loadAllPaginated((page, pageSize) => contactService.list({ page, pageSize })), empty, 'contacts.read'),
+        load('Satış kartları', () => loadAllPaginated((page, pageSize) => opportunityService.list({ page, pageSize })), empty, 'opportunities.read'),
         load('Ürünler', () => loadAllPaginated((page, pageSize) => productService.list({ page, pageSize })), empty, 'products.read'),
-        load('Stok', () => inventoryService.list({ pageSize: 200 }), empty, 'inventory.read'),
-        load('Teklifler', () => quoteService.list({ pageSize: 200 }), empty, 'quotes.read'),
-        load('Servis', () => serviceService.tickets({ pageSize: 200 }), empty, 'service_tickets.read'),
-        load('Aktiviteler', () => activityService.list({ pageSize: 200 }), empty, 'activities.read'),
+        load('Stok', () => loadAllPaginated((page, pageSize) => inventoryService.list({ page, pageSize })), empty, 'inventory.read'),
+        load('Teklifler', () => loadAllPaginated((page, pageSize) => quoteService.list({ page, pageSize })), empty, 'quotes.read'),
+        load('Servis', () => loadAllPaginated((page, pageSize) => serviceService.tickets({ page, pageSize })), empty, 'service_tickets.read'),
+        load('Aktiviteler', () => loadAllPaginated((page, pageSize) => activityService.list({ page, pageSize })), empty, 'activities.read'),
         load('Kullanıcılar', () => adminService.users(), [] as any[], 'users.read'),
-        load('Makineler', () => inventoryService.customerDevices({ pageSize: 200 }), empty, 'customer_devices.read'),
-        load('Alacaklar', () => financeService.receivables({ pageSize: 200 }), empty, 'receivables.read'),
-        load('Ödemeler', () => financeService.payments({ pageSize: 200 }), empty, 'payments.read'),
-        load('Proformalar', () => documentService.proformas({ pageSize: 200 }), empty, 'proformas.read'),
-        load('Sözleşmeler', () => documentService.contracts({ pageSize: 200 }), empty, 'contracts.read'),
-        load('Faturalar', () => documentService.commercialInvoices({ pageSize: 200 }), empty, 'commercial_invoices.read'),
-        load('Not şablonları', () => noteTemplateService.list(), [] as any[]),
-        load('Sevkiyatlar', () => serviceService.shipments({ pageSize: 200 }), empty, 'shipments.read'),
-        load('Teslimatlar', () => serviceService.deliveries({ pageSize: 200 }), empty, 'shipments.read'),
-        load('Kurulumlar', () => serviceService.installations({ pageSize: 200 }), empty, 'installations.read'),
-        load('Dosya bağlantıları', () => fileService.links({ pageSize: 200 }), empty, 'files.read'),
+        load('Makineler', () => loadAllPaginated((page, pageSize) => inventoryService.customerDevices({ page, pageSize })), empty, 'customer_devices.read'),
+        load('Alacaklar', () => loadAllPaginated((page, pageSize) => financeService.receivables({ page, pageSize })), empty, 'receivables.read'),
+        load('Ödemeler', () => loadAllPaginated((page, pageSize) => financeService.payments({ page, pageSize })), empty, 'payments.read'),
+        load('Proformalar', () => loadAllPaginated((page, pageSize) => documentService.proformas({ page, pageSize })), empty, 'proformas.read'),
+        load('Sözleşmeler', () => loadAllPaginated((page, pageSize) => documentService.contracts({ page, pageSize })), empty, 'contracts.read'),
+        load('Faturalar', () => loadAllPaginated((page, pageSize) => documentService.commercialInvoices({ page, pageSize })), empty, 'commercial_invoices.read'),
+        canAny('quotes.read', 'service_tickets.read') ? load('Not şablonları', () => noteTemplateService.list(), [] as any[]) : Promise.resolve([] as any[]),
+        load('Sevkiyatlar', () => loadAllPaginated((page, pageSize) => serviceService.shipments({ page, pageSize })), empty, 'shipments.read'),
+        load('Teslimatlar', () => loadAllPaginated((page, pageSize) => serviceService.deliveries({ page, pageSize })), empty, 'shipments.read'),
+        load('Kurulumlar', () => loadAllPaginated((page, pageSize) => serviceService.installations({ page, pageSize })), empty, 'installations.read'),
+        load('Dosya bağlantıları', () => loadAllPaginated((page, pageSize) => fileService.links({ page, pageSize })), empty, 'files.read'),
       ]);
       // Kapatılan (arşiv/geçmiş) kartlar ayrı çekilir; aktif liste varsayılan view=active döner.
       const closedOpps = await load(
         'Geçmiş kartlar',
-        () => opportunityService.list({ pageSize: 200, view: 'closed' }),
+        () => loadAllPaginated((page, pageSize) => opportunityService.list({ page, pageSize, view: 'closed' })),
         empty,
         'opportunities.read'
       );
@@ -596,8 +636,13 @@ function StoreInner({ children }: { children: ReactNode }) {
           type: (c.companyType === 'person' ? 'person' : 'company') as 'person' | 'company',
           firmType: ((c.relationType?.code as FirmType) ?? 'customer') as FirmType,
           salesStatus: ((c.customerStatus?.code === 'active' ? 'active_customer' : 'potential') as CustomerSalesStatus),
-          companyGroupCode: c.companyGroup?.code ?? '',
-          companyGroupName: c.companyGroup?.name ?? '',
+          divisions: Array.isArray(c.divisions)
+            ? c.divisions.map((d: any) => ({ id: d.id, code: d.code ?? null, name: d.name ?? '' }))
+            : [],
+          companyGroupCode: c.companyGroups?.[0]?.code ?? c.companyGroup?.code ?? '',
+          companyGroupName: c.companyGroups?.[0]?.name ?? c.companyGroup?.name ?? '',
+          companyGroupCodes: (c.companyGroups ?? (c.companyGroup ? [c.companyGroup] : [])).map((g: any) => g.code).filter(Boolean),
+          companyGroupNames: (c.companyGroups ?? (c.companyGroup ? [c.companyGroup] : [])).map((g: any) => g.name).filter(Boolean),
           contactSourceCode: c.contactSource?.code ?? '',
           sector: c.sector ?? '',
           name: c.legalTitle ?? c.shortName ?? '—',
@@ -611,6 +656,18 @@ function StoreInner({ children }: { children: ReactNode }) {
           district: c.primaryAddress?.district ?? '',
           country: c.primaryAddress?.country ?? '',
           address: c.primaryAddress?.fullAddress ?? '',
+          addresses: (c.addresses ?? (c.primaryAddress ? [c.primaryAddress] : [])).map((a: any) => ({
+            id: a.id,
+            addressType: a.addressType ?? 'office',
+            country: a.country ?? 'Türkiye',
+            city: a.province ?? '',
+            district: a.district ?? '',
+            address: a.fullAddress ?? '',
+            latitude: a.latitude == null ? undefined : Number(a.latitude),
+            longitude: a.longitude == null ? undefined : Number(a.longitude),
+            locationSource: a.locationSource ?? undefined,
+            isDefault: Boolean(a.isDefault),
+          })),
           latitude: c.primaryAddress?.latitude != null ? Number(c.primaryAddress.latitude) : undefined,
           longitude: c.primaryAddress?.longitude != null ? Number(c.primaryAddress.longitude) : undefined,
           locationSource: c.primaryAddress?.locationSource ?? undefined,
@@ -622,46 +679,14 @@ function StoreInner({ children }: { children: ReactNode }) {
           source: c.contactSource?.name ?? '',
           status: 'active',
           createdAt: (c.createdAt as string)?.slice(0, 10) ?? '',
+          createdByUserId: c.createdByUser?.id ?? c.createdBy ?? null,
+          createdByName: c.createdByUser?.fullName ?? c.createdByUser?.name ?? null,
+          createdByEmail: c.createdByUser?.email ?? null,
         }))
       );
 
       setContacts(
-        contactsR.data.map((k: any) => {
-          const companyIds = Array.from(new Set([
-            k.companyId,
-            k.company?.id,
-            ...(Array.isArray(k.companyLinks) ? k.companyLinks.map((company: any) => company.id ?? company.companyId) : []),
-          ].filter(Boolean)));
-          return {
-            id: k.id,
-            customerId: k.companyId ?? companyIds[0] ?? '',
-            companyIds,
-            name: k.fullName ?? '',
-            title: k.title ?? '',
-            department: k.department ?? '',
-            phone: k.workPhone ?? k.mobilePhone ?? '',
-            phoneExtension: k.phoneExtension ?? '',
-            mobilePhone: k.mobilePhone ?? '',
-            otherPhone: k.otherPhone ?? '',
-            email: k.workEmail ?? k.personalEmail ?? k.otherEmail ?? '',
-            personalEmail: k.personalEmail ?? '',
-            otherEmail: k.otherEmail ?? '',
-            gender: k.gender ?? '',
-            birthDate: (k.birthDate as string | undefined)?.slice(0, 10) ?? '',
-            decisionRoleCode: k.decisionRole?.code ?? '',
-            decisionRoleName: k.decisionRole?.name ?? '',
-            hometown: k.hometown ?? '',
-            favoriteTeam: k.favoriteTeam ?? '',
-            knownIllness: k.knownIllness ?? '',
-            favoriteColor: k.favoriteColor ?? '',
-            graduatedSchool: k.graduatedSchool ?? '',
-            politicalView: k.politicalView ?? '',
-            isPrimary: !!k.isPrimary || (Array.isArray(k.companyLinks) && k.companyLinks.some((company: any) => company.id === (k.companyId ?? companyIds[0]) && company.isPrimary)),
-            note: k.notes ?? '',
-            isBlacklisted: !!k.isBlacklisted,
-            blacklistReason: k.blacklistReason ?? '',
-          };
-        })
+        contactsR.data.map(normalizeContact)
       );
 
       const mapCase = (o: any): SalesCase =>
@@ -784,6 +809,10 @@ function StoreInner({ children }: { children: ReactNode }) {
           id: q.id,
           salesCaseId: q.opportunityId ?? '',
           companyId: q.companyId ?? '',
+          divisionId: q.divisionId ?? undefined,
+          divisionCode: q.division?.code ?? undefined,
+          divisionName: q.division?.name ?? undefined,
+          businessLine: q.businessLine ?? undefined,
           quoteNo: q.documentNo,
           revision: Number(q.revisionNo ?? 1),
           date: (q.quoteDate as string)?.slice(0, 10) ?? '',
@@ -1119,6 +1148,8 @@ function StoreInner({ children }: { children: ReactNode }) {
           productCategoryCode: s.productCategoryCode ?? undefined,
           destinationWarehouseId: s.destinationWarehouseId ?? undefined,
           destinationWarehouseName: s.destinationWarehouse?.name ?? undefined,
+          deliveryAddressId: s.deliveryAddressId ?? undefined,
+          deliveryAddressSnapshot: s.deliveryAddressSnapshot ?? undefined,
           loadingDate: (s.loadingDate as string | undefined)?.slice(0, 10) ?? undefined,
           trackingNo: s.trackingNo ?? s.shipmentNo ?? s.id?.slice(0, 8) ?? '—',
           carrier: s.carrierCompany?.shortName ?? s.carrierCompany?.legalTitle ?? s.carrier ?? '—',
@@ -1170,7 +1201,7 @@ function StoreInner({ children }: { children: ReactNode }) {
     } finally {
       setLoading(false);
     }
-  }, [authed, sessionReady, user?.permissions]);
+  }, [authed, sessionReady, user?.permissions, activeDepartment, activeDivision]);
 
   const fetchAll = useCallback(async () => {
     if (fetchAllInFlightRef.current) {
@@ -1191,11 +1222,10 @@ function StoreInner({ children }: { children: ReactNode }) {
     return run;
   }, [fetchAllOnce]);
 
-  // Aktif bölüm değişince (CNC/Üniversal/Sac/Tümü) tüm veriyi yeni
-  // `X-Active-Division` başlığıyla yeniden çek.
+  // Aktif bölüm/departman değişince tüm veriyi yeni scope başlıklarıyla yeniden çek.
   useEffect(() => {
     fetchAll();
-  }, [fetchAll, user?.id, sessionReady, activeDivision]);
+  }, [fetchAll, user?.id, sessionReady, activeDivision, activeDepartment]);
 
   const addCustomer: Store['addCustomer'] = async (c) => {
     const rawWebsite = c.website?.trim();
@@ -1214,7 +1244,18 @@ function StoreInner({ children }: { children: ReactNode }) {
       fax: c.fax || undefined,
       primaryEmail: c.email || undefined,
       secondaryEmail: c.email2 || undefined,
-      address: c.address || c.city || c.district || c.country || hasCoordinates
+      addresses: c.addresses?.map((a) => ({
+        id: a.id,
+        addressType: a.addressType,
+        country: a.country || 'Türkiye',
+        province: a.city || undefined,
+        district: a.district || undefined,
+        fullAddress: a.address || undefined,
+        latitude: a.latitude,
+        longitude: a.longitude,
+        isDefault: Boolean(a.isDefault),
+      })),
+      address: !c.addresses?.length && (c.address || c.city || c.district || c.country || hasCoordinates)
         ? {
             country: c.country || 'Türkiye',
             province: c.city || undefined,
@@ -1228,6 +1269,9 @@ function StoreInner({ children }: { children: ReactNode }) {
       relationTypeCode: c.firmType === 'supplier' ? 'supplier' : c.firmType === 'supplier_customer' ? 'supplier_customer' : 'customer',
       customerStatusCode: c.salesStatus === 'active_customer' ? 'active' : 'potential',
       companyGroupCode: c.companyGroupCode || undefined,
+      companyGroupCodes: c.companyGroupCodes?.length ? c.companyGroupCodes : undefined,
+      divisionId: c.divisionId || undefined,
+      divisionIds: c.divisionId ? [c.divisionId] : c.divisions?.map((division) => division.id),
       contactSourceCode: c.contactSourceCode || undefined,
     });
     await fetchAll();
@@ -1238,6 +1282,8 @@ function StoreInner({ children }: { children: ReactNode }) {
       salesStatus: c.salesStatus,
       companyGroupCode: c.companyGroupCode,
       companyGroupName: c.companyGroupName,
+      companyGroupCodes: c.companyGroupCodes,
+      companyGroupNames: c.companyGroupNames,
       contactSourceCode: c.contactSourceCode,
       sector: c.sector,
       name: c.name,
@@ -1251,6 +1297,7 @@ function StoreInner({ children }: { children: ReactNode }) {
       district: c.district ?? '',
       country: c.country ?? '',
       address: c.address ?? '',
+      addresses: c.addresses,
       latitude: c.latitude,
       longitude: c.longitude,
       locationSource: c.locationSource ?? (hasCoordinates ? 'osm' : undefined),
@@ -1267,28 +1314,45 @@ function StoreInner({ children }: { children: ReactNode }) {
 
   const updateCustomer: Store['updateCustomer'] = async (id, patch) => {
     const rawWebsite = patch.website?.trim();
-    const website = rawWebsite ? (/^https?:\/\//i.test(rawWebsite) ? rawWebsite : `https://${rawWebsite}`) : undefined;
+    const website = rawWebsite ? (/^https?:\/\//i.test(rawWebsite) ? rawWebsite : `https://${rawWebsite}`) : null;
     const body: Record<string, unknown> = {};
     if (patch.name !== undefined) body.legalTitle = patch.name;
-    if (patch.sector !== undefined) body.sector = patch.sector || undefined;
-    if (patch.taxOffice !== undefined) body.taxOffice = patch.taxOffice || undefined;
-    if (patch.taxNumber !== undefined) body.taxNumber = patch.taxNumber || undefined;
+    if (patch.type !== undefined) body.companyType = patch.type;
+    if (patch.sector !== undefined) body.sector = patch.sector || null;
+    if (patch.taxOffice !== undefined) body.taxOffice = patch.taxOffice || null;
+    if (patch.taxNumber !== undefined) body.taxNumber = patch.taxNumber || null;
     if (patch.website !== undefined) body.website = website;
-    if (patch.phone !== undefined) body.primaryPhone = patch.phone || undefined;
-    if (patch.phone2 !== undefined) body.secondaryPhone = patch.phone2 || undefined;
-    if (patch.fax !== undefined) body.fax = patch.fax || undefined;
-    if (patch.email !== undefined) body.primaryEmail = patch.email || undefined;
-    if (patch.email2 !== undefined) body.secondaryEmail = patch.email2 || undefined;
+    if (patch.phone !== undefined) body.primaryPhone = patch.phone || null;
+    if (patch.phone2 !== undefined) body.secondaryPhone = patch.phone2 || null;
+    if (patch.fax !== undefined) body.fax = patch.fax || null;
+    if (patch.email !== undefined) body.primaryEmail = patch.email || null;
+    if (patch.email2 !== undefined) body.secondaryEmail = patch.email2 || null;
+    if (patch.initialNote !== undefined) body.notes = patch.initialNote || null;
+    if (patch.contactSourceCode !== undefined) body.contactSourceCode = patch.contactSourceCode || null;
+    if (patch.companyGroupCodes !== undefined) body.companyGroupCodes = patch.companyGroupCodes;
+    if (patch.divisions !== undefined) body.divisionIds = patch.divisions.map((division) => division.id);
     if (patch.firmType !== undefined)
       body.relationTypeCode = patch.firmType === 'supplier' ? 'supplier' : patch.firmType === 'supplier_customer' ? 'supplier_customer' : 'customer';
     if (patch.salesStatus !== undefined)
       body.customerStatusCode = patch.salesStatus === 'active_customer' ? 'active' : 'potential';
-    if (patch.city !== undefined || patch.district !== undefined || patch.country !== undefined || patch.address !== undefined) {
+    if (patch.addresses !== undefined) {
+      body.addresses = patch.addresses.map((address) => ({
+        id: address.id,
+        addressType: address.addressType,
+        country: address.country || 'Türkiye',
+        province: address.city || undefined,
+        district: address.district || undefined,
+        fullAddress: address.address || undefined,
+        latitude: address.latitude,
+        longitude: address.longitude,
+        isDefault: address.isDefault,
+      }));
+    } else if (patch.city !== undefined || patch.district !== undefined || patch.country !== undefined || patch.address !== undefined) {
       body.address = {
         country: patch.country ?? undefined,
         province: patch.city ?? undefined,
         district: patch.district ?? undefined,
-        street: patch.address ?? undefined,
+        fullAddress: patch.address ?? undefined,
       };
     }
     await companyService.update(id, body);
@@ -1301,7 +1365,7 @@ function StoreInner({ children }: { children: ReactNode }) {
   };
 
   const addContact: Store['addContact'] = async (k) => {
-      const created = await contactService.create({
+    const created = await contactService.create({
       companyId: k.customerId,
       fullName: k.name,
       title: k.title,
@@ -1318,17 +1382,15 @@ function StoreInner({ children }: { children: ReactNode }) {
       decisionRoleCode: k.decisionRoleCode,
       hometown: k.hometown,
       favoriteTeam: k.favoriteTeam,
-      knownIllness: k.knownIllness,
       favoriteColor: k.favoriteColor,
       graduatedSchool: k.graduatedSchool,
-      politicalView: k.politicalView,
       isPrimary: k.isPrimary,
       notes: k.note,
       isBlacklisted: k.isBlacklisted ?? false,
       blacklistReason: k.blacklistReason,
     });
     await fetchAll();
-    return { id: created.id, ...k };
+    return normalizeContact(created);
   };
 
   const updateContact: Store['updateContact'] = async (id, patch) => {
@@ -1348,10 +1410,8 @@ function StoreInner({ children }: { children: ReactNode }) {
       decisionRoleCode: patch.decisionRoleCode,
       hometown: patch.hometown,
       favoriteTeam: patch.favoriteTeam,
-      knownIllness: patch.knownIllness,
       favoriteColor: patch.favoriteColor,
       graduatedSchool: patch.graduatedSchool,
-      politicalView: patch.politicalView,
       isPrimary: patch.isPrimary,
       notes: patch.note,
       isBlacklisted: patch.isBlacklisted,
@@ -1500,6 +1560,8 @@ function StoreInner({ children }: { children: ReactNode }) {
       id: created.id,
       salesCaseId: o.salesCaseId,
       quoteNo: created.documentNo,
+      divisionId: created.divisionId ?? undefined,
+      businessLine: created.businessLine ?? undefined,
       revision: o.revision ?? 1,
       date: new Date().toISOString().slice(0, 10),
       amount: o.amount,
@@ -1769,6 +1831,8 @@ function StoreInner({ children }: { children: ReactNode }) {
       transportMode: s.transportMode || undefined,
       productCategoryCode: s.productCategoryCode || undefined,
       destinationWarehouseId: s.destinationWarehouseId || undefined,
+      deliveryAddressId: s.deliveryAddressId || undefined,
+      deliveryAddressSnapshot: s.deliveryAddressSnapshot || undefined,
       loadingDate: toOptionalDate(s.loadingDate),
       trackingNo: s.trackingNo,
       carrier: s.carrier,
@@ -2073,23 +2137,34 @@ function StoreInner({ children }: { children: ReactNode }) {
   const updateService: Store['updateService'] = async (id, patch) => {
     const current = service.find((s) => s.id === id);
     if (!current) return;
-    const merged = { ...current, ...patch };
+    const nextPatch = { ...patch };
+    if (nextPatch.noteHistory !== undefined) {
+      nextPatch.serviceNote = (nextPatch.noteHistory ?? [])
+        .map((item) => item.text.trim())
+        .filter(Boolean)
+        .join('\n\n');
+    }
+    const merged = { ...current, ...nextPatch };
     const apiPatch: Record<string, unknown> = {};
-    if (patch.description !== undefined) apiPatch.description = patch.description;
-    if (patch.diagnosisNote !== undefined) {
+    if (nextPatch.description !== undefined) apiPatch.description = nextPatch.description;
+    if (nextPatch.diagnosisNote !== undefined) {
       const prev = current.diagnosisNote?.trim() ?? '';
-      apiPatch.description = prev ? `${prev}\n\n${patch.diagnosisNote}` : patch.diagnosisNote;
+      apiPatch.description = prev ? `${prev}\n\n${nextPatch.diagnosisNote}` : nextPatch.diagnosisNote;
     }
-    if (patch.serviceNote !== undefined) {
-      const prev = current.serviceNote?.trim() ?? '';
-      apiPatch.resolutionNote = prev ? `${prev}\n\n${patch.serviceNote}` : patch.serviceNote;
+    if (nextPatch.serviceNote !== undefined) {
+      if (nextPatch.noteHistory !== undefined) {
+        apiPatch.resolutionNote = nextPatch.serviceNote;
+      } else {
+        const prev = current.serviceNote?.trim() ?? '';
+        apiPatch.resolutionNote = prev ? `${prev}\n\n${nextPatch.serviceNote}` : nextPatch.serviceNote;
+      }
     }
-    if (patch.priority !== undefined) apiPatch.severity = patch.priority;
-    if (patch.assignedUserId !== undefined) apiPatch.assignedToUserId = patch.assignedUserId;
-    if (patch.ticketType !== undefined) apiPatch.ticketType = patch.ticketType;
+    if (nextPatch.priority !== undefined) apiPatch.severity = nextPatch.priority;
+    if (nextPatch.assignedUserId !== undefined) apiPatch.assignedToUserId = nextPatch.assignedUserId;
+    if (nextPatch.ticketType !== undefined) apiPatch.ticketType = nextPatch.ticketType;
 
     const metaKeys = ['quoteRequired', 'serviceQuote', 'completionForm', 'timerStatus', 'timerStartedAt', 'timerElapsedSeconds', 'serviceHourlyRate', 'serviceCurrency', 'noteHistory', 'complaints', 'activityHistory', 'operations'] as const;
-    if (metaKeys.some((k) => patch[k] !== undefined)) {
+    if (metaKeys.some((k) => nextPatch[k] !== undefined)) {
       apiPatch.metadata = {
         quoteRequired: merged.quoteRequired ?? false,
         serviceStage: merged.stage,
@@ -2110,7 +2185,7 @@ function StoreInner({ children }: { children: ReactNode }) {
     if (Object.keys(apiPatch).length) {
       await serviceService.update(id, apiPatch);
     }
-    setService((prev) => prev.map((s) => (s.id === id ? { ...s, ...patch } : s)));
+    setService((prev) => prev.map((s) => (s.id === id ? { ...s, ...nextPatch } : s)));
   };
 
   const setServiceWarranty = (id: string, claim: ServiceWarrantyClaim | null) => {

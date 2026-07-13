@@ -192,20 +192,20 @@ export function QuoteDialog({
   const { customers, contacts, products, users, cases, offers, noteTemplates, createQuoteFull, addNoteTemplate, updateNoteTemplate, deleteNoteTemplate, refresh } = useStore();
   const editing = Boolean(offerId);
   const { convert } = useFx();
-  const { user, activeDivision, hasRole } = useAuth();
-  // Bölüm seçici yalnızca süper admin'e açıktır; diğer roller kendi birincil
-  // bölümüne auth/header seviyesinde kilitlenir.
-  const canPickDivision = hasRole("super_admin") && (user?.canViewAllDivisions ?? false);
+  const { user, activeDivision, canUseAllDivisionsForResource, scopesForResource } = useAuth();
   const divisions = user?.divisions ?? [];
-  const defaultDivisionId = activeDivision && activeDivision !== "all" ? activeDivision : divisions[0]?.id ?? "";
+  const quoteScopes = scopesForResource("quotes");
+  const canPickAllQuotes = quoteScopes.length === 0 ? (user?.canViewAllDivisions ?? false) : canUseAllDivisionsForResource("quotes");
+  const scopedQuoteDivisionIds = new Set(quoteScopes.map((scope) => scope.divisionId).filter((id): id is string => !!id));
+  const quoteDivisions = quoteScopes.length === 0 || canPickAllQuotes ? divisions : divisions.filter((division) => scopedQuoteDivisionIds.has(division.id));
+  const canPickDivision = activeDivision === "all" || canPickAllQuotes || quoteDivisions.length > 1;
+  const defaultDivisionId = activeDivision && activeDivision !== "all" ? activeDivision : quoteDivisions.find((d) => d.isPrimary)?.id ?? quoteDivisions[0]?.id ?? "";
   const [internalOpen, setInternalOpen] = useState(false);
   const open = controlledOpen ?? internalOpen;
   const [saving, setSaving] = useState(false);
   const [loadingEdit, setLoadingEdit] = useState(false);
 
   const today = new Date().toISOString().slice(0, 10);
-  const suggestNo = () => `${new Date().getFullYear()}/${String(offers.length + 1).padStart(3, "0")}`;
-
   const [companyId, setCompanyId] = useState(defaultCustomerId ?? "");
   const [contactId, setContactId] = useState("");
   const [caseId, setCaseId] = useState(defaultCaseId ?? "");
@@ -234,6 +234,7 @@ export function QuoteDialog({
   const savedTermsTemplates = useTermsTemplates(noteTemplates, TERMS_TEMPLATE_SCOPE);
   const quoteDivisionId = canPickDivision ? divisionId : activeDivision && activeDivision !== "all" ? activeDivision : "";
   const quoteDivision = quoteDivisionId ? divisions.find((d) => d.id === quoteDivisionId) : undefined;
+  const quotePrefix = quoteDivision?.code === "universal" ? "UNI" : quoteDivision?.code === "sac_isleme" ? "SACISLE" : "CNC";
   const quoteDivisionGroupCode = divisionGroupCode(quoteDivision?.code);
   const scopedProducts = useMemo(
     () =>
@@ -321,6 +322,7 @@ export function QuoteDialog({
       setCompanyId(data.companyId ?? "");
       setContactId(data.contactId ?? "");
       setCaseId(data.opportunityId ?? "");
+      setDivisionId(data.divisionId ?? defaultDivisionId);
       setQuoteDate((data.quoteDate as string)?.slice(0, 10) ?? today);
       setValidityDays(data.validityDays ? String(data.validityDays) : "");
       setDocumentNo(data.documentNo ?? "");
@@ -748,6 +750,7 @@ export function QuoteDialog({
           companyId,
           contactId: contactId || undefined,
           opportunityId: caseId || undefined,
+          divisionId: quoteDivisionId || undefined,
           quoteDate: new Date(quoteDate),
           validityDays: num(validityDays),
           documentNo: documentNo.trim() || undefined,
@@ -950,10 +953,8 @@ export function QuoteDialog({
             </div>
             <div>
               <Label className="text-xs">Teklif No</Label>
-              <div className="flex gap-1.5 mt-1.5">
-                <Input value={documentNo} onChange={(e) => setDocumentNo(e.target.value)} placeholder="Otomatik" />
-                <Button type="button" variant="outline" size="sm" onClick={() => setDocumentNo(suggestNo())}>Öner</Button>
-              </div>
+              <Input className="mt-1.5" value={documentNo} onChange={(e) => setDocumentNo(e.target.value)} placeholder={`Otomatik: ${quotePrefix}-${new Date().getFullYear()}/...`} />
+              <p className="mt-1 text-[10px] text-muted-foreground">Boş bırakılırsa iş alanına ait sıra numarası güvenli biçimde atanır.</p>
             </div>
             <div>
               <Label className="text-xs">Geçerlilik Süresi (Gün) *</Label>
@@ -982,7 +983,7 @@ export function QuoteDialog({
                 <Select value={divisionId} onValueChange={setDivisionId}>
                   <SelectTrigger className="mt-1.5"><SelectValue placeholder="Bölüm seçin (CNC / Üniversal / Sac)..." /></SelectTrigger>
                   <SelectContent>
-                    {divisions.map((d) => <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>)}
+                    {quoteDivisions.map((d) => <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>)}
                   </SelectContent>
                 </Select>
               </div>

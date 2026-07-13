@@ -1,6 +1,7 @@
-import { Body, Controller, Get, Inject, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
-import { createHash, randomBytes, randomUUID } from 'crypto';
-import { and, desc, eq, inArray, isNull, or, sql } from 'drizzle-orm';
+import { Body, Controller, Get, Inject, Param, Patch, Post, Put, Query, UseGuards } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
+import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'crypto';
+import { and, desc, eq, gt, inArray, isNull, or, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import type { DbClient } from '../../db/client';
 import {
@@ -23,8 +24,10 @@ import { PermissionsGuard, RequirePermissions } from '../../shared/security/perm
 import type { AuthContext } from '../../shared/security/auth.types';
 import { NotFoundError, ValidationError } from '../../shared/utils/errors';
 import { buildPaginated, pageOffset } from '../../shared/utils/pagination';
-import { divisionFilter, resolveActorDivisionScope, resolveAssignedDivision } from '../../shared/utils/division-scope';
+import { resourceCompanyPortfolioFilter, resourceDivisionFilter, resolveAssignedResourceDivision } from '../../shared/utils/division-scope';
+import { companyVisibilityExistsFilter, companyVisibilityFilter } from '../../shared/utils/company-visibility';
 import { ZodValidationPipe } from '../../shared/utils/zod-pipe';
+import { nextSeriesDocumentNo, resolveBusinessLine } from '../../shared/utils/document-series';
 import { loadEnv } from '../../config/env';
 import {
   paginationSchema,
@@ -36,7 +39,7 @@ import {
   serviceComplaintSourceSchema,
   serviceComplaintStatusSchema,
   serviceComplaintUpdateSchema,
-  signedUploadUrlSchema,
+  signedUploadUrlBaseSchema,
 } from '@haksan/shared';
 
 const complaintListQuery = paginationSchema.extend({
@@ -49,9 +52,13 @@ const complaintLinkListQuery = paginationSchema.extend({
   companyId: z.string().uuid().optional(),
   customerDeviceId: z.string().uuid().optional(),
 });
-const publicComplaintUploadSchema = signedUploadUrlSchema
+const publicComplaintUploadSchema = signedUploadUrlBaseSchema
   .pick({ bucket: true, filename: true, mimeType: true, extension: true, sizeBytes: true })
   .extend({ bucket: z.literal('erp-service-documents').default('erp-service-documents') });
+const publicComplaintFileContentSchema = z
+  .instanceof(Buffer)
+  .refine((body) => body.byteLength > 0, 'Dosya boyutu sıfır olamaz');
+const PUBLIC_UPLOAD_THROTTLE = { default: { limit: loadEnv().RATE_LIMIT_UPLOAD, ttl: 60_000 } };
 
 function tokenHash(token: string): string {
   return createHash('sha256').update(token).digest('hex');
@@ -80,20 +87,14 @@ function isoDate(value: Date | string | null | undefined) {
 
 type ComplaintLink = typeof serviceComplaintLinks.$inferSelect;
 
-function complaintLinkToken(tenantId: string, linkId: string) {
-  const env = loadEnv();
-  const secret = env.PUBLIC_LINK_SECRET || env.JWT_ACCESS_SECRET;
-  return createHash('sha256').update(`${tenantId}:${linkId}:${secret}`).digest('base64url');
-}
-
-function legacyComplaintLinkToken(tenantId: string, linkId: string) {
-  return createHash('sha256').update(`${tenantId}:${linkId}:${loadEnv().JWT_ACCESS_SECRET}`).digest('base64url');
+function complaintLinkToken() {
+  return randomBytes(32).toString('base64url');
 }
 
 function validComplaintLinkToken(link: ComplaintLink, token: string) {
-  if (tokenHash(token) === link.accessTokenHash) return true;
-  const tokens = new Set([complaintLinkToken(link.tenantId, link.id), legacyComplaintLinkToken(link.tenantId, link.id)]);
-  return tokens.has(token);
+  const expected = Buffer.from(link.accessTokenHash, 'hex');
+  const actual = Buffer.from(tokenHash(token), 'hex');
+  return actual.length === expected.length && timingSafeEqual(actual, expected);
 }
 
 function safeCallAssistantMetadata(metadata?: Record<string, unknown> | null) {
@@ -148,11 +149,31 @@ async function notifyComplaintCreated(
 @UseGuards(AuthGuard, PermissionsGuard)
 @Controller()
 export class ServiceComplaintsController {
+  private env = loadEnv();
+
   constructor(@Inject(DB) private readonly db: DbClient) {}
 
   private publicPath(slug: string, token: string, source?: 'qr') {
     const base = `/public/service-complaints/${encodeURIComponent(slug)}/${encodeURIComponent(token)}`;
     return source === 'qr' ? `${base}?source=qr` : base;
+  }
+
+  private expiresAt() {
+    return new Date(Date.now() + this.env.PUBLIC_COMPLAINT_LINK_TTL_DAYS * 24 * 60 * 60 * 1000);
+  }
+
+  private safeLink(link: ComplaintLink) {
+    const { accessTokenHash: _accessTokenHash, ...safeLink } = link;
+    return safeLink;
+  }
+
+  private linkCredentialResponse(link: ComplaintLink, token: string) {
+    return {
+      ...this.safeLink(link),
+      token,
+      publicPath: this.publicPath(link.slug, token),
+      qrPublicPath: this.publicPath(link.slug, token, 'qr'),
+    };
   }
 
   private async assertCompany(companyId: string, tenantId: string) {
@@ -172,6 +193,37 @@ export class ServiceComplaintsController {
     return device;
   }
 
+  private async assertScopedCompany(companyId: string, actor: AuthContext) {
+    const visibility = await companyVisibilityFilter(this.db, actor);
+    const company = await this.db.query.companies.findFirst({
+      where: and(
+        eq(companies.id, companyId),
+        eq(companies.tenantId, actor.tenantId),
+        isNull(companies.deletedAt),
+        resourceCompanyPortfolioFilter(actor, 'service_tickets', companies.id) ?? sql`true`,
+        visibility ?? sql`true`
+      ),
+    });
+    if (!company) throw new NotFoundError('Firma');
+    return company;
+  }
+
+  private async assertScopedDevice(deviceId: string, actor: AuthContext, companyId?: string | null) {
+    const visibility = await companyVisibilityExistsFilter(this.db, actor, customerDevices.companyId);
+    const device = await this.db.query.customerDevices.findFirst({
+      where: and(
+        eq(customerDevices.id, deviceId),
+        eq(customerDevices.tenantId, actor.tenantId),
+        isNull(customerDevices.deletedAt),
+        resourceDivisionFilter(actor, 'customer_devices', customerDevices.divisionId) ?? sql`true`,
+        visibility ?? sql`true`
+      ),
+    });
+    if (!device) throw new NotFoundError('Makine');
+    if (companyId && device.companyId !== companyId) throw new ValidationError('Makine seçilen firmaya ait değil');
+    return device;
+  }
+
   private async assertAssignedUser(userId: string, tenantId: string) {
     const user = await this.db.query.users.findFirst({
       where: and(eq(usersTable.id, userId), eq(usersTable.tenantId, tenantId), isNull(usersTable.deletedAt)),
@@ -184,12 +236,6 @@ export class ServiceComplaintsController {
     const [{ c }] = await this.db.select({ c: sql<number>`count(*)::int` }).from(serviceComplaintIntakes).where(eq(serviceComplaintIntakes.tenantId, tenantId));
     const year = new Date().getUTCFullYear();
     return `CMP-${year}-${String(c + 1).padStart(4, '0')}`;
-  }
-
-  private async nextServiceTicketNo(tenantId: string) {
-    const [{ c }] = await this.db.select({ c: sql<number>`count(*)::int` }).from(serviceTickets).where(eq(serviceTickets.tenantId, tenantId));
-    const year = new Date().getUTCFullYear();
-    return `SVC-${year}-${String(c + 1).padStart(4, '0')}`;
   }
 
   private coverageSuggestion(device?: { warrantyStartDate: Date | null; warrantyEndDate: Date | null } | null) {
@@ -334,12 +380,14 @@ export class ServiceComplaintsController {
   }
 
   private async scopedIntake(id: string, user: AuthContext) {
+    const visibility = await companyVisibilityExistsFilter(this.db, user, serviceComplaintIntakes.companyId);
     const intake = await this.db.query.serviceComplaintIntakes.findFirst({
       where: and(
         eq(serviceComplaintIntakes.id, id),
         eq(serviceComplaintIntakes.tenantId, user.tenantId),
         isNull(serviceComplaintIntakes.deletedAt),
-        divisionFilter(resolveActorDivisionScope(user), serviceComplaintIntakes.divisionId) ?? sql`true`
+        resourceDivisionFilter(user, 'service_tickets', serviceComplaintIntakes.divisionId) ?? sql`true`,
+        visibility ? (or(isNull(serviceComplaintIntakes.companyId), visibility) ?? sql`true`) : sql`true`
       ),
     });
     if (!intake) throw new NotFoundError('Şikayet kaydı');
@@ -369,16 +417,7 @@ export class ServiceComplaintsController {
       callAssistant: safeCallAssistantMetadata(row.complaint.metadata),
       attachments: await this.complaintAttachments(row.complaint.id, row.complaint.tenantId),
       serviceTicket: row.ticket?.id ? row.ticket : null,
-      link: row.link?.id
-        ? (() => {
-            const token = complaintLinkToken(row.complaint.tenantId, row.link.id);
-            return {
-              ...row.link,
-              publicPath: this.publicPath(row.link.slug, token),
-              qrPublicPath: this.publicPath(row.link.slug, token, 'qr'),
-            };
-          })()
-        : null,
+      link: row.link?.id ? row.link : null,
     };
   }
 
@@ -420,16 +459,16 @@ export class ServiceComplaintsController {
   }
 
   private async resolveComplaintCompanyDevice(
-    tenantId: string,
+    actor: AuthContext,
     companyId?: string | null,
     customerDeviceId?: string | null
   ) {
     let resolvedCompanyId = companyId ?? null;
     if (customerDeviceId) {
-      const device = await this.assertDevice(customerDeviceId, tenantId, resolvedCompanyId);
+      const device = await this.assertScopedDevice(customerDeviceId, actor, resolvedCompanyId);
       resolvedCompanyId = resolvedCompanyId ?? device.companyId;
     }
-    if (resolvedCompanyId) await this.assertCompany(resolvedCompanyId, tenantId);
+    if (resolvedCompanyId) await this.assertScopedCompany(resolvedCompanyId, actor);
     return { companyId: resolvedCompanyId, customerDeviceId: customerDeviceId ?? null };
   }
 
@@ -437,11 +476,15 @@ export class ServiceComplaintsController {
   @Get('service-complaints')
   async listComplaints(@Query(new ZodValidationPipe(complaintListQuery)) query: z.infer<typeof complaintListQuery>, @CurrentUser() user: AuthContext) {
     const { limit, offset } = pageOffset(query);
+    if (query.companyId) await this.assertScopedCompany(query.companyId, user);
+    if (query.customerDeviceId) await this.assertScopedDevice(query.customerDeviceId, user, query.companyId);
+    const visibility = await companyVisibilityExistsFilter(this.db, user, serviceComplaintIntakes.companyId);
     const filters = [
       eq(serviceComplaintIntakes.tenantId, user.tenantId),
       isNull(serviceComplaintIntakes.deletedAt),
-      divisionFilter(resolveActorDivisionScope(user), serviceComplaintIntakes.divisionId) ?? sql`true`,
+      resourceDivisionFilter(user, 'service_tickets', serviceComplaintIntakes.divisionId) ?? sql`true`,
     ];
+    if (visibility) filters.push(or(isNull(serviceComplaintIntakes.companyId), visibility) ?? sql`true`);
     if (query.status) filters.push(eq(serviceComplaintIntakes.status, query.status));
     if (query.source) filters.push(eq(serviceComplaintIntakes.source, query.source));
     if (query.companyId) filters.push(eq(serviceComplaintIntakes.companyId, query.companyId));
@@ -480,13 +523,13 @@ export class ServiceComplaintsController {
     @Body(new ZodValidationPipe(serviceComplaintCreateSchema)) body: z.infer<typeof serviceComplaintCreateSchema>,
     @CurrentUser() user: AuthContext
   ) {
-    const resolved = await this.resolveComplaintCompanyDevice(user.tenantId, body.companyId, body.customerDeviceId);
+    const resolved = await this.resolveComplaintCompanyDevice(user, body.companyId, body.customerDeviceId);
     const [row] = await this.db
       .insert(serviceComplaintIntakes)
       .values({
         tenantId: user.tenantId,
         complaintNo: await this.nextComplaintNo(user.tenantId),
-        divisionId: resolveAssignedDivision(user, body.divisionId ?? null),
+        divisionId: resolveAssignedResourceDivision(user, 'service_tickets', body.divisionId ?? null),
         companyId: resolved.companyId,
         customerDeviceId: resolved.customerDeviceId,
         source: body.source,
@@ -524,7 +567,7 @@ export class ServiceComplaintsController {
     const patch: Partial<typeof serviceComplaintIntakes.$inferInsert> = {};
     if (body.companyId !== undefined || body.customerDeviceId !== undefined) {
       const resolved = await this.resolveComplaintCompanyDevice(
-        user.tenantId,
+        user,
         body.companyId !== undefined ? body.companyId : intake.companyId,
         body.customerDeviceId !== undefined ? body.customerDeviceId : intake.customerDeviceId
       );
@@ -559,12 +602,16 @@ export class ServiceComplaintsController {
     if (!intake.companyId) throw new ValidationError('Servis talebi açmak için firma eşleştirilmelidir');
     if (body.assignedToUserId) await this.assertAssignedUser(body.assignedToUserId, user.tenantId);
     const openStatus = await this.db.query.serviceTicketStatuses.findFirst({ where: eq(serviceTicketStatuses.code, 'open') });
+    const divisionId = intake.divisionId ?? resolveAssignedResourceDivision(user, 'service_tickets', null);
+    if (!divisionId) throw new ValidationError('Servis kaydı için bölüm ataması zorunludur', { field: 'divisionId' });
+    const businessLine = await resolveBusinessLine(this.db, user.tenantId, divisionId);
     const [ticket] = await this.db
       .insert(serviceTickets)
       .values({
         tenantId: user.tenantId,
-        ticketNo: await this.nextServiceTicketNo(user.tenantId),
-        divisionId: intake.divisionId ?? resolveAssignedDivision(user, null),
+        ticketNo: await nextSeriesDocumentNo(this.db, user.tenantId, businessLine, 'service'),
+        divisionId,
+        businessLine,
         companyId: intake.companyId,
         customerDeviceId: intake.customerDeviceId ?? null,
         subject: intake.subject,
@@ -617,7 +664,7 @@ export class ServiceComplaintsController {
     const filters = [
       eq(serviceComplaintLinks.tenantId, user.tenantId),
       isNull(serviceComplaintLinks.deletedAt),
-      divisionFilter(resolveActorDivisionScope(user), serviceComplaintLinks.divisionId) ?? sql`true`,
+      resourceDivisionFilter(user, 'service_tickets', serviceComplaintLinks.divisionId) ?? sql`true`,
     ];
     if (query.companyId) filters.push(eq(serviceComplaintLinks.companyId, query.companyId));
     if (query.customerDeviceId) filters.push(eq(serviceComplaintLinks.customerDeviceId, query.customerDeviceId));
@@ -644,9 +691,7 @@ export class ServiceComplaintsController {
       .offset(offset);
     return buildPaginated(
       rows.map((row) => ({
-        ...row.link,
-        publicPath: this.publicPath(row.link.slug, complaintLinkToken(row.link.tenantId, row.link.id)),
-        qrPublicPath: this.publicPath(row.link.slug, complaintLinkToken(row.link.tenantId, row.link.id), 'qr'),
+        ...this.safeLink(row.link),
         company: row.company?.id ? row.company : null,
         machine: row.device?.id
           ? {
@@ -668,28 +713,52 @@ export class ServiceComplaintsController {
     @Body(new ZodValidationPipe(serviceComplaintLinkCreateSchema)) body: z.infer<typeof serviceComplaintLinkCreateSchema>,
     @CurrentUser() user: AuthContext
   ) {
-    const resolved = await this.resolveComplaintCompanyDevice(user.tenantId, body.companyId, body.customerDeviceId);
-    const company = resolved.companyId ? await this.assertCompany(resolved.companyId, user.tenantId) : null;
+    const resolved = await this.resolveComplaintCompanyDevice(user, body.companyId, body.customerDeviceId);
+    const company = resolved.companyId ? await this.assertScopedCompany(resolved.companyId, user) : null;
     const title = cleanNullableText(body.title) ?? (company?.shortName || company?.legalTitle ? `${company?.shortName ?? company?.legalTitle} Şikayet Formu` : 'Servis Şikayet Formu');
     const slug = await this.uniqueSlug(user.tenantId, title);
     const linkId = randomUUID();
-    const token = complaintLinkToken(user.tenantId, linkId);
+    const token = complaintLinkToken();
     const [link] = await this.db
       .insert(serviceComplaintLinks)
       .values({
         id: linkId,
         tenantId: user.tenantId,
-        divisionId: resolveAssignedDivision(user, body.divisionId ?? null),
+        divisionId: resolveAssignedResourceDivision(user, 'service_tickets', body.divisionId ?? null),
         companyId: resolved.companyId,
         customerDeviceId: resolved.customerDeviceId,
         slug,
         accessTokenHash: tokenHash(token),
+        accessTokenExpiresAt: this.expiresAt(),
         title,
         notes: cleanNullableText(body.notes),
         createdBy: user.userId,
       })
       .returning();
-    return { ...link, token, publicPath: this.publicPath(link.slug, token), qrPublicPath: this.publicPath(link.slug, token, 'qr') };
+    return this.linkCredentialResponse(link, token);
+  }
+
+  @RequirePermissions('service_tickets.update')
+  @Patch('service-complaint-links/:id/rotate')
+  async rotateLink(@Param('id') id: string, @CurrentUser() user: AuthContext) {
+    const link = await this.db.query.serviceComplaintLinks.findFirst({
+      where: and(
+        eq(serviceComplaintLinks.id, id),
+        eq(serviceComplaintLinks.tenantId, user.tenantId),
+        eq(serviceComplaintLinks.isActive, true),
+        isNull(serviceComplaintLinks.revokedAt),
+        isNull(serviceComplaintLinks.deletedAt),
+        resourceDivisionFilter(user, 'service_tickets', serviceComplaintLinks.divisionId) ?? sql`true`
+      ),
+    });
+    if (!link) throw new NotFoundError('Şikayet linki');
+    const token = complaintLinkToken();
+    const [rotated] = await this.db
+      .update(serviceComplaintLinks)
+      .set({ accessTokenHash: tokenHash(token), accessTokenExpiresAt: this.expiresAt() })
+      .where(eq(serviceComplaintLinks.id, link.id))
+      .returning();
+    return this.linkCredentialResponse(rotated, token);
   }
 
   @RequirePermissions('service_tickets.update')
@@ -700,7 +769,7 @@ export class ServiceComplaintsController {
         eq(serviceComplaintLinks.id, id),
         eq(serviceComplaintLinks.tenantId, user.tenantId),
         isNull(serviceComplaintLinks.deletedAt),
-        divisionFilter(resolveActorDivisionScope(user), serviceComplaintLinks.divisionId) ?? sql`true`
+        resourceDivisionFilter(user, 'service_tickets', serviceComplaintLinks.divisionId) ?? sql`true`
       ),
     });
     if (!link) throw new NotFoundError('Şikayet linki');
@@ -709,7 +778,7 @@ export class ServiceComplaintsController {
       .set({ isActive: false, revokedAt: new Date() })
       .where(eq(serviceComplaintLinks.id, link.id))
       .returning();
-    return row;
+    return this.safeLink(row);
   }
 }
 
@@ -728,6 +797,7 @@ export class PublicServiceComplaintsController {
         eq(serviceComplaintLinks.slug, slug),
         eq(serviceComplaintLinks.isActive, true),
         isNull(serviceComplaintLinks.revokedAt),
+        gt(serviceComplaintLinks.accessTokenExpiresAt, new Date()),
         isNull(serviceComplaintLinks.deletedAt)
       ),
     });
@@ -758,24 +828,51 @@ export class PublicServiceComplaintsController {
     return docType.id;
   }
 
-  private async linkAttachmentFileIds(complaintId: string, tenantId: string, fileIds?: string[]) {
+  private async linkAttachmentFileIds(complaintId: string, link: ComplaintLink, fileIds?: string[]) {
     if (!fileIds?.length) return;
     const uniqueIds = [...new Set(fileIds)];
     const validFiles = await this.db
-      .select({ id: files.id })
+      .select({ id: files.id, bucket: files.bucket, objectKey: files.objectKey })
       .from(files)
-      .where(and(eq(files.tenantId, tenantId), inArray(files.id, uniqueIds), isNull(files.deletedAt)));
-    if (validFiles.length !== uniqueIds.length) throw new ValidationError('Geçersiz şikayet kanıt dosyası');
+      .where(
+        and(
+          eq(files.tenantId, link.tenantId),
+          eq(files.uploadStatus, 'uploaded'),
+          inArray(files.id, uniqueIds),
+          isNull(files.deletedAt)
+        )
+      );
+    const expectedPrefix = `tenant/${link.tenantId}/service_complaint_intake/${link.id}/`;
+    if (
+      validFiles.length !== uniqueIds.length ||
+      validFiles.some((file) => file.bucket !== 'erp-service-documents' || !file.objectKey.startsWith(expectedPrefix))
+    ) {
+      throw new ValidationError('Geçersiz şikayet kanıt dosyası');
+    }
     const documentTypeId = await this.complaintEvidenceDocumentTypeId();
-    await this.db.insert(fileLinks).values(
-      uniqueIds.map((fileId) => ({
-        tenantId,
-        fileId,
-        entityType: 'service_complaint_intake',
-        entityId: complaintId,
-        documentTypeId,
-      }))
-    );
+    await this.db.transaction(async (tx) => {
+      const claimed = await tx
+        .update(files)
+        .set({ uploadStatus: 'linked' })
+        .where(
+          and(
+            eq(files.tenantId, link.tenantId),
+            eq(files.uploadStatus, 'uploaded'),
+            inArray(files.id, uniqueIds)
+          )
+        )
+        .returning({ id: files.id });
+      if (claimed.length !== uniqueIds.length) throw new ValidationError('Şikayet kanıt dosyası artık kullanılamaz');
+      await tx.insert(fileLinks).values(
+        uniqueIds.map((fileId) => ({
+          tenantId: link.tenantId,
+          fileId,
+          entityType: 'service_complaint_intake',
+          entityId: complaintId,
+          documentTypeId,
+        }))
+      );
+    });
   }
 
   private async publicContext(link: ComplaintLink) {
@@ -823,6 +920,7 @@ export class PublicServiceComplaintsController {
     return this.publicContext(link);
   }
 
+  @Throttle(PUBLIC_UPLOAD_THROTTLE)
   @Post(':slug/:token/files/signed-upload-url')
   async createPublicSignedUploadUrl(
     @Param('slug') slug: string,
@@ -842,12 +940,6 @@ export class PublicServiceComplaintsController {
       entityId: link.id,
       filename: body.filename,
     });
-    const uploadUrl = await this.storage.getSignedUploadUrl({
-      bucket: body.bucket,
-      objectKey,
-      mimeType: body.mimeType,
-      contentLength: body.sizeBytes,
-    });
     const provider = await this.db.query.storageProviders.findFirst({
       where: eq(storageProviders.code, this.env.S3_PROVIDER),
     });
@@ -864,15 +956,75 @@ export class PublicServiceComplaintsController {
         storageProviderId: provider?.id ?? null,
         visibility: 'private',
         uploadedBy: null,
+        uploadStatus: 'pending',
       })
       .returning();
     return {
       fileId: file.id,
       bucket: body.bucket,
       objectKey,
-      uploadUrl,
+      uploadUrl: `${this.env.API_PREFIX.replace(/\/$/, '')}/public/service-complaints/${encodeURIComponent(slug)}/${encodeURIComponent(token)}/files/${file.id}/content`,
       expiresInSeconds: this.env.SIGNED_URL_EXPIRE_SECONDS,
     };
+  }
+
+  @Throttle(PUBLIC_UPLOAD_THROTTLE)
+  @Put(':slug/:token/files/:fileId/content')
+  async uploadPublicComplaintFileContent(
+    @Param('slug') slug: string,
+    @Param('token') token: string,
+    @Param('fileId') fileId: string,
+    @Body(new ZodValidationPipe(publicComplaintFileContentSchema)) body: Buffer
+  ) {
+    const link = await this.publicLink(slug, token);
+    const file = await this.db.query.files.findFirst({
+      where: and(eq(files.id, fileId), eq(files.tenantId, link.tenantId), isNull(files.deletedAt)),
+    });
+    if (!file) throw new NotFoundError('Dosya');
+    const expectedPrefix = `tenant/${link.tenantId}/service_complaint_intake/${link.id}/`;
+    if (file.bucket !== 'erp-service-documents' || !file.objectKey.startsWith(expectedPrefix)) {
+      throw new ValidationError('Dosya bu şikayet formuna ait değil');
+    }
+    if (!Buffer.isBuffer(body)) throw new ValidationError('Dosya gövdesi okunamadı.');
+    if (body.byteLength !== file.sizeBytes) {
+      throw new ValidationError(`Dosya boyutu eşleşmiyor. Beklenen ${file.sizeBytes} byte, gelen ${body.byteLength} byte.`);
+    }
+    if (file.uploadStatus !== 'pending') {
+      throw new ValidationError('Bu dosya için yükleme tamamlanmış veya devam ediyor');
+    }
+    this.storage.validateUploadIntent({
+      filename: file.originalFilename,
+      mimeType: file.mimeType,
+      extension: file.extension,
+      sizeBytes: body.byteLength,
+    });
+    const [claimed] = await this.db
+      .update(files)
+      .set({ uploadStatus: 'uploading' })
+      .where(and(eq(files.id, file.id), eq(files.uploadStatus, 'pending'), isNull(files.deletedAt)))
+      .returning({ id: files.id });
+    if (!claimed) throw new ValidationError('Bu dosya için yükleme tamamlanmış veya devam ediyor');
+    try {
+      await this.storage.validateActualFile(body, { mimeType: file.mimeType, extension: file.extension });
+      await this.storage.uploadFile({
+        bucket: file.bucket,
+        objectKey: file.objectKey,
+        body,
+        mimeType: file.mimeType,
+        contentLength: body.byteLength,
+      });
+      await this.db
+        .update(files)
+        .set({ uploadStatus: 'uploaded', uploadedAt: new Date(), sha256: this.storage.calculateChecksum(body) })
+        .where(and(eq(files.id, file.id), eq(files.uploadStatus, 'uploading')));
+    } catch (error) {
+      await this.db
+        .update(files)
+        .set({ uploadStatus: 'pending' })
+        .where(and(eq(files.id, file.id), eq(files.uploadStatus, 'uploading')));
+      throw error;
+    }
+    return { ok: true, fileId: file.id };
   }
 
   @Post(':slug/:token')
@@ -901,7 +1053,7 @@ export class PublicServiceComplaintsController {
         contactEmail: cleanNullableText(body.contactEmail),
       })
       .returning();
-    await this.linkAttachmentFileIds(row.id, link.tenantId, body.attachmentFileIds);
+    await this.linkAttachmentFileIds(row.id, link, body.attachmentFileIds);
     await notifyComplaintCreated(this.db, {
       tenantId: row.tenantId,
       divisionId: row.divisionId ?? null,

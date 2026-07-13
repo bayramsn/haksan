@@ -35,15 +35,19 @@
     "docker:logs": "docker compose logs -f"
   },
   "engines": {
-    "node": "20.x"
+    "node": "22.x"
   },
   "devDependencies": {
-    "typescript": "5.6.3"
+    "typescript": "5.6.3",
+    "vite": "6.4.3"
   },
   "dependencies": {
     "@nestjs/common": "^11.1.27",
     "@nestjs/core": "^11.1.27",
     "@nestjs/platform-socket.io": "^11.1.27",
     "@nestjs/websockets": "^11.1.27"
+  },
+  "overrides": {
+    "vite": "6.4.3"
   }
 }

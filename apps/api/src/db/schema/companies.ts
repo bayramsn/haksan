@@ -1,3 +1,4 @@
+import { sql } from 'drizzle-orm';
 import { pgTable, uuid, varchar, text, boolean, timestamp, numeric, index, uniqueIndex, primaryKey } from 'drizzle-orm/pg-core';
 import { auditColumns, ownerColumns } from './_helpers';
 import { tenants, divisions } from './tenants';
@@ -27,7 +28,10 @@ export const companies = pgTable(
     ...auditColumns,
   },
   (t) => ({
-    tenantTaxUnique: uniqueIndex('companies_tenant_tax_unique').on(t.tenantId, t.taxNumber),
+    // Vergi no tekliği yalnızca silinmemiş kayıtlar için; soft-delete sonrası yeniden ekleme serbest.
+    tenantTaxUnique: uniqueIndex('companies_tenant_tax_alive_unique')
+      .on(t.tenantId, t.taxNumber)
+      .where(sql`${t.deletedAt} is null`),
     tenantIdx: index('companies_tenant_idx').on(t.tenantId),
     legalTitleIdx: index('companies_legal_title_idx').on(t.legalTitle),
     relationTypeIdx: index('companies_relation_type_idx').on(t.relationTypeId),
@@ -83,6 +87,29 @@ export const companyDivisions = pgTable(
     pk: primaryKey({ columns: [t.companyId, t.divisionId] }),
     tenantIdx: index('company_divisions_tenant_idx').on(t.tenantId),
     divisionIdx: index('company_divisions_division_idx').on(t.divisionId),
+  })
+);
+
+/** Firma grupları artık çoktan seçilebilir; companies.companyGroupId eski
+ * istemciler ve geriye dönük uyumluluk için birincil grup olarak korunur. */
+export const companyGroupAssignments = pgTable(
+  'company_group_assignments',
+  {
+    tenantId: uuid('tenant_id')
+      .notNull()
+      .references(() => tenants.id, { onDelete: 'cascade' }),
+    companyId: uuid('company_id')
+      .notNull()
+      .references(() => companies.id, { onDelete: 'cascade' }),
+    companyGroupId: uuid('company_group_id')
+      .notNull()
+      .references(() => companyGroups.id, { onDelete: 'cascade' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    pk: primaryKey({ name: 'company_group_assignments_company_group_pk', columns: [t.companyId, t.companyGroupId] }),
+    tenantIdx: index('company_group_assignments_tenant_idx').on(t.tenantId),
+    groupIdx: index('company_group_assignments_group_idx').on(t.companyGroupId),
   })
 );
 
@@ -152,10 +179,8 @@ export const contacts = pgTable(
     birthDate: timestamp('birth_date', { withTimezone: true }),
     hometown: varchar('hometown', { length: 64 }),
     favoriteTeam: varchar('favorite_team', { length: 64 }),
-    knownIllness: text('known_illness'),
     favoriteColor: varchar('favorite_color', { length: 32 }),
     graduatedSchool: varchar('graduated_school', { length: 128 }),
-    politicalView: varchar('political_view', { length: 128 }),
     notes: text('notes'),
     isBlacklisted: boolean('is_blacklisted').notNull().default(false),
     blacklistReason: text('blacklist_reason'),

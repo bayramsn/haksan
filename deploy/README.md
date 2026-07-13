@@ -8,9 +8,9 @@ Tek sunucu (Ubuntu 22.04/24.04) üzerinde production kurulumu. Şablonlar:
 
 ## 0. Önkoşullar
 ```bash
-# Node 20+, Docker, nginx, certbot
+# Node 22+, Docker, nginx, certbot
 sudo apt update && sudo apt install -y nginx
-curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash - && sudo apt install -y nodejs
+curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash - && sudo apt install -y nodejs
 # Docker: https://docs.docker.com/engine/install/ubuntu/
 sudo apt install -y certbot python3-certbot-nginx
 ```

@@ -8,6 +8,7 @@ import type { NestFastifyApplication } from '@nestjs/platform-fastify';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { logger } from '../utils/logger';
 import { recordHttpMetric } from './metrics';
+import { redactRequestPath } from './redact-request-path';
 
 export const REQUEST_ID_HEADER = 'x-request-id';
 
@@ -40,7 +41,7 @@ export function registerHttpObservability(app: NestFastifyApplication): void {
     // Route template (e.g. /quotes/:id) keeps metric/label cardinality bounded;
     // raw URL is only used for the human-readable access log line.
     const template = req.routeOptions?.url;
-    const route = template ?? req.url;
+    const route = template ?? redactRequestPath(req.url);
     const ms = Math.round(reply.elapsedTime);
 
     recordHttpMetric(req.method, template ?? 'unmatched', reply.statusCode, reply.elapsedTime);

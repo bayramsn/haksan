@@ -232,6 +232,7 @@ export const priceLists = pgTable(
     code: varchar('code', { length: 64 }).notNull(),
     name: varchar('name', { length: 255 }).notNull(),
     description: text('description'),
+    divisionId: uuid('division_id').references(() => divisions.id, { onDelete: 'set null' }),
     currencyId: uuid('currency_id').references(() => currencies.id),
     validFrom: timestamp('valid_from', { withTimezone: true }),
     validUntil: timestamp('valid_until', { withTimezone: true }),

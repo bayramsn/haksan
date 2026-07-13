@@ -1,4 +1,5 @@
-import { Body, Controller, Delete, Get, Inject, Param, Patch, Post, Put, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Inject, Param, Patch, Post, Put, Query, Res, UseGuards } from '@nestjs/common';
+import type { FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { and, asc, desc, eq, ilike, inArray, isNull, or, sql } from 'drizzle-orm';
 import type { DbClient } from '../../db/client';
@@ -13,7 +14,7 @@ import {
   deliveries,
 } from '../../db/schema/service';
 import { serviceTicketStatuses, installationStatuses, shipmentStatuses, inventoryStatuses, productTypes, units, pipelineStages, opportunityStatuses, stockLocationStatuses, currencies } from '../../db/schema/lookup';
-import { companies, contacts } from '../../db/schema/companies';
+import { companies, companyAddresses, companyEmails, companyPhones, contactCompanies, contacts } from '../../db/schema/companies';
 import { opportunities, opportunityStageHistory } from '../../db/schema/crm';
 import { customerDevices, inventoryItems, inventoryMovements, warehouses } from '../../db/schema/inventory';
 import { salesOrders, salesOrderItems } from '../../db/schema/orders';
@@ -42,8 +43,10 @@ import type { AuthContext } from '../../shared/security/auth.types';
 import { NotFoundError, ValidationError } from '../../shared/utils/errors';
 import { buildPaginated, pageOffset } from '../../shared/utils/pagination';
 import { lookupIdByCode } from '../../shared/utils/lookup.helper';
-import { divisionFilter, resolveActorDivisionScope, resolveAssignedDivision } from '../../shared/utils/division-scope';
-import { companyVisibilityExistsFilter } from '../../shared/utils/company-visibility';
+import { resourceCompanyPortfolioFilter, resourceDivisionFilter, resolveAssignedResourceDivision } from '../../shared/utils/division-scope';
+import { companyVisibilityExistsFilter, companyVisibilityFilter } from '../../shared/utils/company-visibility';
+import { buildServiceFormPdf, type ServiceFormPdfData, type ServiceFormType, type ServiceResponsibility } from './service-form-pdf';
+import { nextSeriesDocumentNo, normalizeSeriesDocumentNo, resolveBusinessLine } from '../../shared/utils/document-series';
 
 const ticketCreate = z.object({
   ticketNo: z.string().min(1).max(64).optional(),
@@ -88,6 +91,94 @@ const serviceQuoteSchema = z.object({
     unitPrice: z.coerce.number().min(0),
   })).min(1),
 }).passthrough();
+const serviceCompletionPartSchema = z.object({
+  id: z.string().trim().min(1).max(128),
+  description: z.string().trim().min(1).max(500),
+  quantity: z.coerce.number().positive().max(100_000),
+  unitPrice: z.coerce.number().min(0).max(1_000_000_000),
+}).passthrough();
+const serviceCompletionFormSchema = z.object({
+  formNo: z.string().trim().max(64).optional(),
+  teslimTarihi: z.string().trim().max(32).optional(),
+  kurulumTarihi: z.string().trim().max(32).optional(),
+  tezgah: z.object({
+    marka: z.string().trim().max(255).optional(),
+    tip: z.string().trim().max(255).optional(),
+    model: z.string().trim().max(255).optional(),
+    seriNo: z.string().trim().max(255).optional(),
+  }).passthrough().optional(),
+  cnc: z.object({
+    marka: z.string().trim().max(255).optional(),
+    model: z.string().trim().max(255).optional(),
+    seriNo: z.string().trim().max(255).optional(),
+    mainSw: z.string().trim().max(255).optional(),
+  }).passthrough().optional(),
+  kullanici: z.object({
+    firma: z.string().trim().max(255).optional(),
+    ilgili: z.string().trim().max(255).optional(),
+    adres: z.string().trim().max(1000).optional(),
+    telefon: z.string().trim().max(64).optional(),
+    faks: z.string().trim().max(64).optional(),
+    gsm: z.string().trim().max(64).optional(),
+    eposta: z.string().trim().max(320).optional(),
+    vergiDairesi: z.string().trim().max(255).optional(),
+    vergiNo: z.string().trim().max(64).optional(),
+  }).passthrough().optional(),
+  checks: z.array(z.object({
+    id: z.string().max(128),
+    label: z.string().max(500),
+    status: z.enum(['done', 'not_done', 'na']),
+    note: z.string().max(1000).optional(),
+    custom: z.boolean().optional(),
+  }).passthrough()).max(50).optional(),
+  musteriSikayeti: z.string().trim().max(4000).optional(),
+  serviceType: z.enum(['montaj', 'ariza', 'periyodik']).optional(),
+  responsibility: z.enum(['ucretli', 'garanti', 'bakim']).optional(),
+  yapilanIsler: z.string().trim().max(8000).optional(),
+  notlar: z.string().trim().max(4000).optional(),
+  degisenParcalar: z.array(serviceCompletionPartSchema).max(6).optional(),
+  servisUcreti: z.coerce.number().min(0).max(1_000_000_000).optional(),
+  ulasimUcreti: z.coerce.number().min(0).max(1_000_000_000).optional(),
+  currency: z.enum(['USD', 'EUR', 'TRY']).optional(),
+  kurulumuYapan: z.string().trim().max(255).optional(),
+  teslimAlan: z.string().trim().max(255).optional(),
+  signedAt: z.string().trim().max(64).optional(),
+  signedByUserId: z.string().uuid().optional(),
+}).passthrough();
+const serviceCompletionCloseSchema = serviceCompletionFormSchema.extend({
+  serviceType: z.enum(['montaj', 'ariza', 'periyodik']),
+  responsibility: z.enum(['ucretli', 'garanti', 'bakim']),
+  yapilanIsler: z.string().trim().min(1).max(8000),
+  kurulumuYapan: z.string().trim().min(1).max(255),
+  teslimAlan: z.string().trim().min(1).max(255),
+  signedAt: z.string().trim().min(1).max(64),
+});
+
+const validateTicketMetadata = (metadata: Record<string, unknown> | undefined, businessLine?: 'CNC' | 'UNI' | 'SACISLE') => {
+  if (!metadata) return metadata;
+  let normalized = metadata;
+  if (Object.prototype.hasOwnProperty.call(metadata, 'completionForm') && metadata.completionForm !== null) {
+    const parsed = serviceCompletionFormSchema.safeParse(metadata.completionForm);
+    if (!parsed.success) {
+      throw new ValidationError('Servis tamamlandı formundaki alanlar geçersiz', {
+        field: 'metadata.completionForm',
+        issues: parsed.error.issues.map((issue) => ({ path: issue.path.join('.'), message: issue.message })),
+      });
+    }
+    normalized = { ...normalized, completionForm: parsed.data };
+  }
+  const quote = normalized.serviceQuote;
+  if (businessLine && quote && typeof quote === 'object' && !Array.isArray(quote)) {
+    const quoteRecord = quote as Record<string, unknown>;
+    if (typeof quoteRecord.quoteNo === 'string' && quoteRecord.quoteNo.trim()) {
+      normalized = {
+        ...normalized,
+        serviceQuote: { ...quoteRecord, quoteNo: normalizeSeriesDocumentNo(quoteRecord.quoteNo, businessLine) },
+      };
+    }
+  }
+  return normalized;
+};
 const ticketStatus = z.object({ statusCode: z.string(), serviceStage: serviceStageSchema.optional() });
 const ticketUpdate = z.object({
   description: z.string().max(4000).optional(),
@@ -214,6 +305,39 @@ const formText = (value: unknown): string | null => {
   return typeof value === 'string' && value.trim() ? value.trim() : null;
 };
 
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  Boolean(value && typeof value === 'object' && !Array.isArray(value));
+
+const recordField = (record: Record<string, unknown>, key: string): Record<string, unknown> =>
+  isRecord(record[key]) ? record[key] : {};
+
+const textField = (record: Record<string, unknown>, key: string): string | undefined => {
+  const value = record[key];
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+};
+
+const numberField = (record: Record<string, unknown>, key: string): number | undefined => {
+  const value = record[key];
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string' && value.trim()) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : undefined;
+  }
+  return undefined;
+};
+
+const recordArrayField = (record: Record<string, unknown>, key: string): Record<string, unknown>[] =>
+  Array.isArray(record[key]) ? record[key].filter(isRecord) : [];
+
+const firstText = (...values: Array<string | null | undefined>) =>
+  values.find((value) => typeof value === 'string' && value.trim())?.trim();
+
+const formatTrDate = (value: Date | string | number | null | undefined) => {
+  if (!value) return undefined;
+  const date = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(date.getTime()) ? undefined : date.toLocaleDateString('tr-TR');
+};
+
 // Sevkiyat/teslimat doğrulama şemaları @haksan/shared'a taşındı (shipment.ts).
 // Eski kayıtlarda origin/destination/eta `notes` içine JSON gömülüydü; aşağıdaki
 // tip + decode helper yalnızca o legacy satırları okurken kullanılır.
@@ -297,7 +421,14 @@ export class ServiceController {
       where: and(eq(contacts.id, contactId), eq(contacts.tenantId, tenantId), isNull(contacts.deletedAt)),
     });
     if (!contact) throw new NotFoundError('Kontak');
-    if (companyId && contact.companyId !== companyId) throw new ValidationError('Kontak seçilen firmaya ait değil');
+    if (companyId) {
+      const [link] = await this.db
+        .select({ contactId: contactCompanies.contactId })
+        .from(contactCompanies)
+        .where(and(eq(contactCompanies.contactId, contactId), eq(contactCompanies.companyId, companyId)))
+        .limit(1);
+      if (contact.companyId !== companyId && !link) throw new ValidationError('Kontak seçilen firmaya ait değil');
+    }
     return contact;
   }
 
@@ -331,6 +462,37 @@ export class ServiceController {
     return device;
   }
 
+  private async assertScopedCompany(companyId: string, actor: AuthContext, resource = 'service_tickets') {
+    const visibility = await companyVisibilityFilter(this.db, actor);
+    const company = await this.db.query.companies.findFirst({
+      where: and(
+        eq(companies.id, companyId),
+        eq(companies.tenantId, actor.tenantId),
+        isNull(companies.deletedAt),
+        resourceCompanyPortfolioFilter(actor, resource, companies.id) ?? sql`true`,
+        visibility ?? sql`true`
+      ),
+    });
+    if (!company) throw new NotFoundError('Firma');
+    return company;
+  }
+
+  private async assertScopedCustomerDevice(deviceId: string, actor: AuthContext, companyId?: string | null, resource = 'customer_devices') {
+    const visibility = await companyVisibilityExistsFilter(this.db, actor, customerDevices.companyId);
+    const device = await this.db.query.customerDevices.findFirst({
+      where: and(
+        eq(customerDevices.id, deviceId),
+        eq(customerDevices.tenantId, actor.tenantId),
+        isNull(customerDevices.deletedAt),
+        resourceDivisionFilter(actor, resource, customerDevices.divisionId) ?? sql`true`,
+        visibility ?? sql`true`
+      ),
+    });
+    if (!device) throw new NotFoundError('Müşteri cihazı');
+    if (companyId && device.companyId !== companyId) throw new ValidationError('Müşteri cihazı seçilen firmaya ait değil');
+    return device;
+  }
+
   private cleanNullableText(value: string | null | undefined) {
     const text = value?.trim();
     return text ? text : null;
@@ -356,12 +518,232 @@ export class ServiceController {
         eq(serviceTickets.id, id),
         eq(serviceTickets.tenantId, user.tenantId),
         isNull(serviceTickets.deletedAt),
-        divisionFilter(resolveActorDivisionScope(user), serviceTickets.divisionId) ?? sql`true`,
+        resourceDivisionFilter(user, 'service_tickets', serviceTickets.divisionId) ?? sql`true`,
         visibility ?? sql`true`
       ),
     });
     if (!ticket) throw new NotFoundError('Servis kaydı');
     return ticket;
+  }
+
+  private async buildServiceForm(id: string, user: AuthContext): Promise<{ buffer: Buffer; filename: string }> {
+    const ticket = await this.getScopedTicket(id, user);
+    const metadata = isRecord(ticket.metadata) ? ticket.metadata : {};
+    const completionForm = recordField(metadata, 'completionForm');
+    const completionUser = recordField(completionForm, 'kullanici');
+    const completionMachine = recordField(completionForm, 'tezgah');
+    const completionCnc = recordField(completionForm, 'cnc');
+
+    const [company, contact, addresses, phones, emails, assignee, warrantyClaim] = await Promise.all([
+      this.db.query.companies.findFirst({
+        where: and(eq(companies.id, ticket.companyId), eq(companies.tenantId, user.tenantId), isNull(companies.deletedAt)),
+      }),
+      ticket.contactId
+        ? this.db.query.contacts.findFirst({
+            where: and(eq(contacts.id, ticket.contactId), eq(contacts.tenantId, user.tenantId), isNull(contacts.deletedAt)),
+          })
+        : Promise.resolve(null),
+      this.db
+        .select()
+        .from(companyAddresses)
+        .where(and(eq(companyAddresses.companyId, ticket.companyId), eq(companyAddresses.tenantId, user.tenantId), isNull(companyAddresses.deletedAt)))
+        .orderBy(desc(companyAddresses.isDefault), asc(companyAddresses.createdAt))
+        .limit(3),
+      this.db
+        .select()
+        .from(companyPhones)
+        .where(and(eq(companyPhones.companyId, ticket.companyId), eq(companyPhones.tenantId, user.tenantId), isNull(companyPhones.deletedAt)))
+        .orderBy(desc(companyPhones.isDefault), asc(companyPhones.createdAt))
+        .limit(5),
+      this.db
+        .select()
+        .from(companyEmails)
+        .where(and(eq(companyEmails.companyId, ticket.companyId), eq(companyEmails.tenantId, user.tenantId), isNull(companyEmails.deletedAt)))
+        .orderBy(desc(companyEmails.isDefault), asc(companyEmails.createdAt))
+        .limit(5),
+      ticket.assignedToUserId
+        ? this.db.query.users.findFirst({
+            where: and(eq(usersTable.id, ticket.assignedToUserId), eq(usersTable.tenantId, user.tenantId), isNull(usersTable.deletedAt)),
+          })
+        : Promise.resolve(null),
+      this.findWarrantyClaim(ticket.id, user.tenantId),
+    ]);
+
+    const [deviceRow] = ticket.customerDeviceId
+      ? await this.db
+          .select({
+            device: customerDevices,
+            serialNumber: inventoryItems.serialNumber,
+            controlUnit: inventoryItems.controlUnit,
+            controlUnitSerialNumber: inventoryItems.controlUnitSerialNumber,
+            modelCode: productModels.modelCode,
+            modelName: productModels.modelName,
+            brandName: brands.name,
+            productTypeName: productTypes.name,
+          })
+          .from(customerDevices)
+          .leftJoin(inventoryItems, eq(customerDevices.inventoryItemId, inventoryItems.id))
+          .leftJoin(productModels, eq(inventoryItems.productModelId, productModels.id))
+          .leftJoin(brands, eq(productModels.brandId, brands.id))
+          .leftJoin(productTypes, eq(productModels.productTypeId, productTypes.id))
+          .where(and(eq(customerDevices.id, ticket.customerDeviceId), eq(customerDevices.tenantId, user.tenantId), isNull(customerDevices.deletedAt)))
+          .limit(1)
+      : [null];
+
+    const warrantyParts = warrantyClaim
+      ? await this.db
+          .select()
+          .from(serviceWarrantyParts)
+          .where(and(eq(serviceWarrantyParts.warrantyClaimId, warrantyClaim.id), eq(serviceWarrantyParts.tenantId, user.tenantId), isNull(serviceWarrantyParts.deletedAt)))
+          .orderBy(asc(serviceWarrantyParts.createdAt))
+      : [];
+
+    const defaultAddress = addresses[0];
+    const addressText = defaultAddress
+      ? firstText(
+          defaultAddress.fullAddress,
+          [
+            defaultAddress.street,
+            defaultAddress.buildingNumber,
+            defaultAddress.locality,
+            defaultAddress.district,
+            defaultAddress.province,
+            defaultAddress.country,
+          ].filter(Boolean).join(' ')
+        )
+      : undefined;
+    const faxPhone = phones.find((phone) => ['fax', 'faks'].includes((phone.phoneType ?? '').toLocaleLowerCase('tr-TR')));
+    const mainPhone = phones.find((phone) => phone.id !== faxPhone?.id);
+    const mainEmail = emails[0];
+
+    const operations = recordArrayField(metadata, 'operations');
+    const partOperations = operations.filter((operation) => {
+      const description = textField(operation, 'description')?.toLocaleLowerCase('tr-TR') ?? '';
+      return textField(operation, 'kind') === 'part'
+        || textField(operation, 'id')?.startsWith('srv-part-')
+        || description.startsWith('parça kullanımı:');
+    });
+    const workOperations = operations.filter((operation) => !partOperations.includes(operation));
+    const workText = textField(completionForm, 'yapilanIsler');
+    const noteText = textField(completionForm, 'notlar');
+    const operationLines = workText || noteText
+      ? [workText, noteText].filter((value): value is string => Boolean(value))
+      : [
+          ...workOperations.map((operation) => textField(operation, 'description')).filter((value): value is string => Boolean(value)),
+          ticket.resolutionNote ?? undefined,
+        ].filter((value): value is string => Boolean(value));
+
+    const operationParts = partOperations.map((operation) => {
+      const quantity = numberField(operation, 'quantity') ?? 1;
+      const unitPrice = numberField(operation, 'unitPrice') ?? 0;
+      return {
+        name: textField(operation, 'description')?.replace(/^Parça kullanımı:\s*/i, ''),
+        quantity: quantity ? String(quantity) : undefined,
+        unitPrice: unitPrice || undefined,
+        amount: quantity && unitPrice ? quantity * unitPrice : undefined,
+      };
+    });
+    const warrantyFormParts = warrantyParts.map((part) => {
+      const quantity = Number(part.quantity ?? 1);
+      const unitPrice = part.unitCost === null || part.unitCost === undefined ? 0 : Number(part.unitCost);
+      return {
+        name: part.description,
+        quantity: quantity ? String(quantity) : undefined,
+        unitPrice: unitPrice || undefined,
+        amount: quantity && unitPrice ? quantity * unitPrice : undefined,
+      };
+    });
+    const hasCompletionParts = Array.isArray(completionForm.degisenParcalar);
+    const completionParts = recordArrayField(completionForm, 'degisenParcalar').map((part) => {
+      const quantity = numberField(part, 'quantity') ?? 1;
+      const unitPrice = numberField(part, 'unitPrice') ?? 0;
+      return {
+        name: textField(part, 'description'),
+        quantity: quantity ? String(quantity) : undefined,
+        unitPrice: unitPrice || undefined,
+        amount: quantity && unitPrice ? quantity * unitPrice : undefined,
+      };
+    });
+    const parts = hasCompletionParts ? completionParts : [...operationParts, ...warrantyFormParts];
+
+    const serviceText = [ticket.subject, ticket.description, workText]
+      .filter(Boolean)
+      .join(' ')
+      .toLocaleLowerCase('tr-TR');
+    const explicitServiceType = textField(completionForm, 'serviceType');
+    const serviceType: ServiceFormType | undefined =
+      explicitServiceType === 'montaj' || explicitServiceType === 'ariza' || explicitServiceType === 'periyodik'
+        ? explicitServiceType
+        : serviceText.includes('periyodik') || serviceText.includes('bakım')
+        ? 'periyodik'
+        : serviceText.includes('montaj') || serviceText.includes('kurulum')
+          ? 'montaj'
+          : ticket.ticketType === 'complaint' || ticket.ticketType === 'warranty_claim'
+            ? 'ariza'
+            : undefined;
+
+    const explicitResponsibility = textField(completionForm, 'responsibility');
+    const responsibility: ServiceResponsibility | undefined =
+      explicitResponsibility === 'ucretli' || explicitResponsibility === 'garanti' || explicitResponsibility === 'bakim'
+        ? explicitResponsibility
+        : warrantyClaim?.coverageDecision === 'approved'
+        ? 'garanti'
+        : warrantyClaim?.coverageDecision === 'rejected'
+          ? 'ucretli'
+          : serviceText.includes('bakım anl')
+            ? 'bakim'
+            : undefined;
+
+    const timerSeconds = numberField(metadata, 'timerElapsedSeconds') ?? 0;
+    const hourlyRate = numberField(metadata, 'serviceHourlyRate') ?? 0;
+    const serviceFee = numberField(completionForm, 'servisUcreti')
+      ?? (timerSeconds > 0 && hourlyRate > 0 ? (timerSeconds / 3600) * hourlyRate : null);
+    const travelFee = numberField(completionForm, 'ulasimUcreti')
+      ?? numberField(metadata, 'travelFee')
+      ?? numberField(metadata, 'serviceTravelFee')
+      ?? null;
+    const currencyText = firstText(textField(completionForm, 'currency'), textField(metadata, 'serviceCurrency'));
+    const currency = currencyText === 'USD' || currencyText === 'EUR' || currencyText === 'TRY' ? currencyText : 'TRY';
+
+    const data: ServiceFormPdfData = {
+      company: firstText(textField(completionUser, 'firma'), company?.shortName, company?.legalTitle),
+      contact: firstText(textField(completionUser, 'ilgili'), contact?.fullName),
+      address: firstText(textField(completionUser, 'adres'), addressText),
+      phone: firstText(textField(completionUser, 'telefon'), contact?.workPhone, mainPhone?.phone),
+      fax: firstText(textField(completionUser, 'faks'), faxPhone?.phone),
+      mobile: firstText(textField(completionUser, 'gsm'), contact?.mobilePhone, contact?.otherPhone),
+      email: firstText(textField(completionUser, 'eposta'), contact?.workEmail, mainEmail?.email),
+      taxOffice: firstText(textField(completionUser, 'vergiDairesi'), company?.taxOffice),
+      taxNumber: firstText(textField(completionUser, 'vergiNo'), company?.taxNumber),
+      formNo: firstText(textField(completionForm, 'formNo'), ticket.ticketNo, ticket.id) ?? ticket.id,
+      date: formatTrDate(firstText(textField(completionForm, 'kurulumTarihi'), textField(completionForm, 'signedAt')) ?? ticket.resolvedAt ?? ticket.reportedAt),
+      machine: {
+        brand: firstText(textField(completionMachine, 'marka'), deviceRow?.brandName),
+        type: firstText(textField(completionMachine, 'tip'), deviceRow?.productTypeName),
+        model: firstText(textField(completionMachine, 'model'), deviceRow?.modelCode, deviceRow?.modelName),
+        serialNo: firstText(textField(completionMachine, 'seriNo'), deviceRow?.serialNumber),
+      },
+      cnc: {
+        brand: firstText(textField(completionCnc, 'marka'), deviceRow?.controlUnit?.split(' ')[0]),
+        model: firstText(textField(completionCnc, 'model'), deviceRow?.controlUnit?.split(' ').slice(1).join(' ')),
+        serialNo: firstText(textField(completionCnc, 'seriNo'), deviceRow?.controlUnitSerialNumber),
+        mainSw: textField(completionCnc, 'mainSw'),
+      },
+      complaint: firstText(textField(completionForm, 'musteriSikayeti'), ticket.description, ticket.subject),
+      serviceType,
+      responsibility,
+      operations: operationLines,
+      parts: parts.slice(0, 6),
+      serviceFee,
+      travelFee,
+      currency,
+      serviceTechnician: firstText(textField(completionForm, 'kurulumuYapan'), assignee?.fullName),
+      companyRepresentative: firstText(textField(completionForm, 'teslimAlan'), contact?.fullName),
+    };
+
+    const buffer = await buildServiceFormPdf(data);
+    const safeNo = data.formNo.replace(/[^a-zA-Z0-9._-]/g, '_');
+    return { buffer, filename: `servis-formu-${safeNo}.pdf` };
   }
 
   private async findWarrantyClaim(serviceTicketId: string, tenantId: string) {
@@ -451,7 +833,7 @@ export class ServiceController {
 
   private async assertShipment(shipmentId: string, tenantId: string, actor?: AuthContext) {
     const filters = [eq(shipments.id, shipmentId), eq(shipments.tenantId, tenantId), isNull(shipments.deletedAt)];
-    if (actor) filters.push(divisionFilter(resolveActorDivisionScope(actor), shipments.divisionId) ?? sql`true`);
+    if (actor) filters.push(resourceDivisionFilter(actor, 'shipments', shipments.divisionId) ?? sql`true`);
     const shipment = await this.db.query.shipments.findFirst({
       where: and(...filters),
     });
@@ -861,7 +1243,7 @@ export class ServiceController {
     const where = and(
       eq(serviceTickets.tenantId, user.tenantId),
       isNull(serviceTickets.deletedAt),
-      divisionFilter(resolveActorDivisionScope(user), serviceTickets.divisionId) ?? sql`true`,
+      resourceDivisionFilter(user, 'service_tickets', serviceTickets.divisionId) ?? sql`true`,
       visibility ?? sql`true`
     );
     const [{ count }] = await this.db.select({ count: sql<number>`count(*)::int` }).from(serviceTickets).where(where);
@@ -910,24 +1292,23 @@ export class ServiceController {
   @RequirePermissions('service_tickets.create')
   @Post('service-tickets')
   async createTicket(@Body(new ZodValidationPipe(ticketCreate)) body: z.infer<typeof ticketCreate>, @CurrentUser() user: AuthContext) {
-    await this.assertCompany(body.companyId, user.tenantId);
+    await this.assertScopedCompany(body.companyId, user, 'service_tickets');
     if (body.contactId) await this.assertContact(body.contactId, user.tenantId, body.companyId);
-    if (body.customerDeviceId) await this.assertCustomerDevice(body.customerDeviceId, user.tenantId, body.companyId);
+    if (body.customerDeviceId) await this.assertScopedCustomerDevice(body.customerDeviceId, user, body.companyId);
     if (body.assignedToUserId) await this.assertUser(body.assignedToUserId, user.tenantId);
     const openStatus = await this.db.query.serviceTicketStatuses.findFirst({ where: eq(serviceTicketStatuses.code, 'open') });
-    let ticketNo = body.ticketNo;
-    if (!ticketNo) {
-      const [{ c }] = await this.db.select({ c: sql<number>`count(*)::int` }).from(serviceTickets).where(eq(serviceTickets.tenantId, user.tenantId));
-      const year = new Date().getUTCFullYear();
-      ticketNo = `SVC-${year}-${String(c + 1).padStart(4, '0')}`;
-    }
-    const divisionId = resolveAssignedDivision(user, body.divisionId ?? null);
+    const divisionId = resolveAssignedResourceDivision(user, 'service_tickets', body.divisionId ?? null);
     if (!divisionId) throw new ValidationError('Servis kaydı için bölüm ataması zorunludur', { field: 'divisionId' });
+    const businessLine = await resolveBusinessLine(this.db, user.tenantId, divisionId);
+    const ticketNo =
+      normalizeSeriesDocumentNo(body.ticketNo, businessLine) ??
+      (await nextSeriesDocumentNo(this.db, user.tenantId, businessLine, 'service'));
     const [row] = await this.db
       .insert(serviceTickets)
       .values({
         tenantId: user.tenantId,
         divisionId,
+        businessLine,
         ticketNo,
         companyId: body.companyId,
         contactId: body.contactId ?? null,
@@ -939,7 +1320,7 @@ export class ServiceController {
         source: body.source,
         statusId: openStatus?.id ?? null,
         assignedToUserId: body.assignedToUserId ?? null,
-        metadata: body.metadata ?? null,
+        metadata: validateTicketMetadata(body.metadata, businessLine) ?? null,
       })
       .returning();
     if (row.ticketType === 'warranty_claim') {
@@ -956,7 +1337,7 @@ export class ServiceController {
       where: and(
         eq(serviceTickets.id, id),
         eq(serviceTickets.tenantId, user.tenantId),
-        divisionFilter(resolveActorDivisionScope(user), serviceTickets.divisionId) ?? sql`true`,
+        resourceDivisionFilter(user, 'service_tickets', serviceTickets.divisionId) ?? sql`true`,
         ticketVisibility ?? sql`true`
       ),
     });
@@ -967,13 +1348,31 @@ export class ServiceController {
     if (body.severity !== undefined) patch.severity = body.severity;
     if (body.ticketType !== undefined) patch.ticketType = body.ticketType;
     if (body.assignedToUserId !== undefined) patch.assignedToUserId = body.assignedToUserId;
-    if (body.metadata !== undefined) patch.metadata = { ...(ticket.metadata ?? {}), ...body.metadata };
+    if (body.metadata !== undefined) {
+      const businessLine = ticket.businessLine === 'UNI' || ticket.businessLine === 'SACISLE' || ticket.businessLine === 'CNC'
+        ? ticket.businessLine
+        : ticket.divisionId
+          ? await resolveBusinessLine(this.db, user.tenantId, ticket.divisionId)
+          : 'CNC';
+      patch.metadata = { ...(ticket.metadata ?? {}), ...(validateTicketMetadata(body.metadata, businessLine) ?? {}) };
+    }
     if (!Object.keys(patch).length) return ticket;
     const [row] = await this.db.update(serviceTickets).set(patch).where(eq(serviceTickets.id, id)).returning();
     if (row.ticketType === 'warranty_claim') {
       await this.ensureWarrantyClaim(row);
     }
     return row;
+  }
+
+  @RequirePermissions('service_tickets.read')
+  @Get('service-tickets/:id/service-form.pdf')
+  async downloadServiceForm(@Param('id') id: string, @CurrentUser() user: AuthContext, @Res() res: FastifyReply) {
+    const { buffer, filename } = await this.buildServiceForm(id, user);
+    res
+      .header('Content-Type', 'application/pdf')
+      .header('Content-Disposition', `inline; filename="${filename}"`)
+      .header('Cache-Control', 'private, no-store')
+      .send(buffer);
   }
 
   @RequirePermissions('service_tickets.read')
@@ -1146,7 +1545,7 @@ export class ServiceController {
       where: and(
         eq(serviceTickets.id, id),
         eq(serviceTickets.tenantId, user.tenantId),
-        divisionFilter(resolveActorDivisionScope(user), serviceTickets.divisionId) ?? sql`true`,
+        resourceDivisionFilter(user, 'service_tickets', serviceTickets.divisionId) ?? sql`true`,
         ticketVisibility ?? sql`true`
       ),
     });
@@ -1161,12 +1560,11 @@ export class ServiceController {
     }
     if (body.serviceStage === 'Signed Form' || body.serviceStage === 'Closed' || body.statusCode === 'closed') {
       const completionForm = (ticket.metadata as Record<string, unknown> | null)?.completionForm;
-      const signedAt = completionForm && typeof completionForm === 'object'
-        ? String((completionForm as Record<string, unknown>).signedAt ?? '').trim()
-        : '';
-      if (!signedAt) {
-        throw new ValidationError('Servisi kapatmadan önce Servis Tamamlama Formu imzalanmalıdır', {
-          field: 'completionForm.signedAt',
+      const parsed = serviceCompletionCloseSchema.safeParse(completionForm);
+      if (!parsed.success) {
+        throw new ValidationError('Servisi kapatmadan önce Servis Tamamlandı Formu eksiksiz doldurulup imzalanmalıdır', {
+          field: 'completionForm',
+          issues: parsed.error.issues.map((issue) => ({ path: issue.path.join('.'), message: issue.message })),
         });
       }
     }
@@ -1211,7 +1609,7 @@ export class ServiceController {
     const where = and(
       eq(installationJobs.tenantId, user.tenantId),
       isNull(installationJobs.deletedAt),
-      divisionFilter(resolveActorDivisionScope(user), installationJobs.divisionId) ?? sql`true`
+      resourceDivisionFilter(user, 'installations', installationJobs.divisionId) ?? sql`true`
     );
     const [{ count }] = await this.db.select({ count: sql<number>`count(*)::int` }).from(installationJobs).where(where);
     const rows = await this.db
@@ -1315,7 +1713,7 @@ export class ServiceController {
     if (body.customerDeviceId) await this.assertCustomerDevice(body.customerDeviceId, user.tenantId, companyId);
     if (body.assignedToUserId) await this.assertUser(body.assignedToUserId, user.tenantId);
     const scheduled = await this.db.query.installationStatuses.findFirst({ where: eq(installationStatuses.code, 'scheduled') });
-    const divisionId = resolveAssignedDivision(user, body.divisionId ?? opportunity?.divisionId ?? quote?.divisionId ?? null);
+    const divisionId = resolveAssignedResourceDivision(user, 'installations', body.divisionId ?? opportunity?.divisionId ?? quote?.divisionId ?? null);
     if (!divisionId) throw new ValidationError('Kurulum için bölüm ataması zorunludur', { field: 'divisionId' });
     const [row] = await this.db
       .insert(installationJobs)
@@ -1353,7 +1751,7 @@ export class ServiceController {
         eq(installationJobs.id, id),
         eq(installationJobs.tenantId, user.tenantId),
         isNull(installationJobs.deletedAt),
-        divisionFilter(resolveActorDivisionScope(user), installationJobs.divisionId) ?? sql`true`
+        resourceDivisionFilter(user, 'installations', installationJobs.divisionId) ?? sql`true`
       ),
     });
     if (!job) throw new NotFoundError('Kurulum');
@@ -1366,7 +1764,7 @@ export class ServiceController {
     if (body.assignedToUserId) await this.assertUser(body.assignedToUserId, user.tenantId);
 
     const patch: Partial<typeof installationJobs.$inferInsert> = {};
-    if (body.divisionId !== undefined) patch.divisionId = resolveAssignedDivision(user, body.divisionId) ?? null;
+    if (body.divisionId !== undefined) patch.divisionId = resolveAssignedResourceDivision(user, 'installations', body.divisionId) ?? null;
     if (body.opportunityId !== undefined) patch.opportunityId = body.opportunityId ?? null;
     if (body.quoteId !== undefined) patch.quoteId = body.quoteId ?? null;
     if (body.customerDeviceId !== undefined) patch.customerDeviceId = body.customerDeviceId ?? null;
@@ -1396,7 +1794,7 @@ export class ServiceController {
         eq(installationJobs.id, id),
         eq(installationJobs.tenantId, user.tenantId),
         isNull(installationJobs.deletedAt),
-        divisionFilter(resolveActorDivisionScope(user), installationJobs.divisionId) ?? sql`true`
+        resourceDivisionFilter(user, 'installations', installationJobs.divisionId) ?? sql`true`
       ),
     });
     if (!job) throw new NotFoundError('Kurulum');
@@ -1458,7 +1856,7 @@ export class ServiceController {
         eq(installationJobs.id, id),
         eq(installationJobs.tenantId, user.tenantId),
         isNull(installationJobs.deletedAt),
-        divisionFilter(resolveActorDivisionScope(user), installationJobs.divisionId) ?? sql`true`
+        resourceDivisionFilter(user, 'installations', installationJobs.divisionId) ?? sql`true`
       ),
     });
     if (!job) throw new NotFoundError('Kurulum');
@@ -1477,7 +1875,7 @@ export class ServiceController {
         eq(shipments.id, id),
         eq(shipments.tenantId, user.tenantId),
         isNull(shipments.deletedAt),
-        divisionFilter(resolveActorDivisionScope(user), shipments.divisionId) ?? sql`true`
+        resourceDivisionFilter(user, 'shipments', shipments.divisionId) ?? sql`true`
       ),
     });
     if (!shipment) throw new NotFoundError('Sevkiyat');
@@ -1496,7 +1894,7 @@ export class ServiceController {
         eq(deliveries.id, id),
         eq(deliveries.tenantId, user.tenantId),
         isNull(deliveries.deletedAt),
-        divisionFilter(resolveActorDivisionScope(user), deliveries.divisionId) ?? sql`true`
+        resourceDivisionFilter(user, 'shipments', deliveries.divisionId) ?? sql`true`
       ),
     });
     if (!delivery) throw new NotFoundError('Teslimat');
@@ -1556,7 +1954,7 @@ export class ServiceController {
     const where = and(
       eq(shipments.tenantId, user.tenantId),
       isNull(shipments.deletedAt),
-      divisionFilter(resolveActorDivisionScope(user), shipments.divisionId) ?? sql`true`
+      resourceDivisionFilter(user, 'shipments', shipments.divisionId) ?? sql`true`
     );
     const [{ count }] = await this.db.select({ count: sql<number>`count(*)::int` }).from(shipments).where(where);
     const rows = await this.db.select().from(shipments).where(where).orderBy(desc(shipments.createdAt)).limit(limit).offset(offset);
@@ -1606,11 +2004,34 @@ export class ServiceController {
     if (body.carrierCompanyId) await this.assertCarrierCompany(body.carrierCompanyId, user.tenantId, body.transportMode);
     if (body.destinationWarehouseId) await this.assertWarehouse(body.destinationWarehouseId, user.tenantId);
     const companyId = body.companyId ?? opportunity?.companyId ?? null;
+    let deliveryAddressSnapshot = body.deliveryAddressSnapshot ?? null;
+    if (body.deliveryAddressId) {
+      if (!companyId) throw new ValidationError('Sevkiyat adresi için müşteri seçilmelidir', { field: 'deliveryAddressId' });
+      const address = await this.db.query.companyAddresses.findFirst({
+        where: and(
+          eq(companyAddresses.id, body.deliveryAddressId),
+          eq(companyAddresses.tenantId, user.tenantId),
+          eq(companyAddresses.companyId, companyId),
+          isNull(companyAddresses.deletedAt)
+        ),
+      });
+      if (!address) throw new ValidationError('Seçilen sevkiyat adresi firmaya ait değil', { field: 'deliveryAddressId' });
+      deliveryAddressSnapshot = [
+        address.fullAddress,
+        address.street,
+        address.buildingNumber,
+        address.locality,
+        address.district,
+        address.province,
+        address.country,
+      ].filter(Boolean).join(' ');
+    }
     if (body.quoteId) await this.assertQuote(body.quoteId, user.tenantId, companyId, body.opportunityId);
     if (body.salesOrderId) await this.assertSalesOrder(body.salesOrderId, user.tenantId, companyId);
     const statusId = await lookupIdByCode(this.db, shipmentStatuses, body.statusCode);
-    const divisionId = resolveAssignedDivision(
+    const divisionId = resolveAssignedResourceDivision(
       user,
+      'shipments',
       body.divisionId ?? opportunity?.divisionId ?? null
     );
     if (!divisionId) throw new ValidationError('Sevkiyat için bölüm ataması zorunludur', { field: 'divisionId' });
@@ -1623,6 +2044,8 @@ export class ServiceController {
         quoteId: body.quoteId ?? null,
         salesOrderId: body.salesOrderId ?? null,
         companyId,
+        deliveryAddressId: body.deliveryAddressId ?? null,
+        deliveryAddressSnapshot,
         senderCompanyId: body.senderCompanyId ?? null,
         senderName: body.senderName ?? null,
         carrierCompanyId: body.carrierCompanyId ?? null,
@@ -1718,7 +2141,7 @@ export class ServiceController {
     const where = and(
       eq(deliveries.tenantId, user.tenantId),
       isNull(deliveries.deletedAt),
-      divisionFilter(resolveActorDivisionScope(user), deliveries.divisionId) ?? sql`true`
+      resourceDivisionFilter(user, 'shipments', deliveries.divisionId) ?? sql`true`
     );
     const [{ count }] = await this.db.select({ count: sql<number>`count(*)::int` }).from(deliveries).where(where);
     const rows = await this.db
@@ -1738,7 +2161,7 @@ export class ServiceController {
     if (body.opportunityId) await this.assertOpportunity(body.opportunityId, user.tenantId, body.companyId);
     if (body.salesOrderId) await this.assertSalesOrder(body.salesOrderId, user.tenantId, body.companyId);
     if (body.shipmentId) await this.assertShipment(body.shipmentId, user.tenantId, user);
-    const divisionId = resolveAssignedDivision(user, body.divisionId ?? null);
+    const divisionId = resolveAssignedResourceDivision(user, 'shipments', body.divisionId ?? null);
     if (!divisionId) throw new ValidationError('Teslimat için bölüm ataması zorunludur', { field: 'divisionId' });
     const [row] = await this.db
       .insert(deliveries)
@@ -1774,7 +2197,7 @@ export class ServiceController {
         eq(deliveries.id, id),
         eq(deliveries.tenantId, user.tenantId),
         isNull(deliveries.deletedAt),
-        divisionFilter(resolveActorDivisionScope(user), deliveries.divisionId) ?? sql`true`
+        resourceDivisionFilter(user, 'shipments', deliveries.divisionId) ?? sql`true`
       ),
     });
     if (!delivery) throw new NotFoundError('Teslimat');
@@ -1809,7 +2232,7 @@ export class ServiceController {
         eq(deliveries.id, id),
         eq(deliveries.tenantId, user.tenantId),
         isNull(deliveries.deletedAt),
-        divisionFilter(resolveActorDivisionScope(user), deliveries.divisionId) ?? sql`true`
+        resourceDivisionFilter(user, 'shipments', deliveries.divisionId) ?? sql`true`
       ),
     });
     if (!delivery) throw new NotFoundError('Teslimat');

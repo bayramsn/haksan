@@ -2,7 +2,15 @@ import { Body, Controller, Delete, Get, Param, Post, Put, Query, UseGuards } fro
 import { Throttle } from '@nestjs/throttler';
 import { z } from 'zod';
 import { paginationSchema, type Pagination } from '@haksan/shared';
-import { signedUploadUrlSchema, signedDownloadUrlSchema, fileLinkSchema, type SignedUploadUrlInput, type SignedDownloadUrlInput, type FileLinkInput } from '@haksan/shared';
+import {
+  FILE_READABLE_ENTITY_TYPES,
+  signedUploadUrlSchema,
+  signedDownloadUrlSchema,
+  fileLinkSchema,
+  type SignedUploadUrlInput,
+  type SignedDownloadUrlInput,
+  type FileLinkInput,
+} from '@haksan/shared';
 import { FilesService } from './files.service';
 import { ZodValidationPipe } from '../../shared/utils/zod-pipe';
 import { AuthGuard } from '../../shared/security/auth.guard';
@@ -57,7 +65,7 @@ export class FilesController {
   @RequirePermissions('files.read')
   @Get('links')
   listLinks(
-    @Query(new ZodValidationPipe(paginationSchema.extend({ entityType: z.string().max(64).optional(), entityId: z.string().uuid().optional() })))
+    @Query(new ZodValidationPipe(paginationSchema.extend({ entityType: z.enum(FILE_READABLE_ENTITY_TYPES).optional(), entityId: z.string().uuid().optional() })))
     query: Pagination & { entityType?: string; entityId?: string },
     @CurrentUser() user: AuthContext
   ) {

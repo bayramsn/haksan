@@ -1,14 +1,14 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { and, desc, eq, ilike, isNull, sql } from 'drizzle-orm';
 import type { DbClient } from '../../db/client';
-import { companies, contacts } from '../../db/schema/companies';
+import { companies, companyAddresses, contacts } from '../../db/schema/companies';
 import { opportunities } from '../../db/schema/crm';
 import { inventoryItems, inventoryMovements } from '../../db/schema/inventory';
 import { purchaseOrderItems, purchaseOrders, salesOrderItems, salesOrders } from '../../db/schema/orders';
 import { shipments, shipmentItems } from '../../db/schema/service';
 import { quoteItems, quotes } from '../../db/schema/quotes';
 import { productModels } from '../../db/schema/products';
-import { currencies, inventoryStatuses, purchaseOrderStatuses, salesOrderStatuses, shipmentStatuses, units } from '../../db/schema/lookup';
+import { currencies, inventoryStatuses, productGroups, purchaseOrderStatuses, salesOrderStatuses, shipmentStatuses, units } from '../../db/schema/lookup';
 import { DB } from '../../shared/database/database.module';
 import { AuditService } from '../../shared/database/audit.service';
 import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from '../../shared/utils/errors';
@@ -29,10 +29,10 @@ import type {
   SalesOrderUpdateInput,
 } from '@haksan/shared';
 import {
-  companyPortfolioFilter,
-  divisionFilter,
-  resolveActorDivisionScope,
-  resolveAssignedDivision,
+  resourceCompanyPortfolioFilter,
+  resourceDivisionFilter,
+  resourceDivisionFilterWithShared,
+  resolveAssignedResourceDivision,
 } from '../../shared/utils/division-scope';
 
 interface ItemTotals {
@@ -120,6 +120,18 @@ export class OrdersService {
     return actor.roles.includes('super_admin');
   }
 
+  private assertSalesOrderMutable(order: { confirmedAt: Date | null }) {
+    if (order.confirmedAt) {
+      throw new ConflictError('Onaylanmış satış siparişi değiştirilemez');
+    }
+  }
+
+  private assertPurchaseOrderMutable(order: { approvedAt: Date | null }) {
+    if (order.approvedAt) {
+      throw new ConflictError('Onaylanmış satın alma siparişi değiştirilemez');
+    }
+  }
+
   private purchaseOrderApprovalReasons(input: {
     paymentType?: string | null;
     paymentTermDays?: number | null;
@@ -165,7 +177,7 @@ export class OrdersService {
   }
 
   private async markPurchaseOrderPendingApproval(orderId: string, actor: AuthContext, reasons: string[]) {
-    if (!reasons.length || this.isSuperAdmin(actor)) return;
+    const effectiveReasons = reasons.length ? reasons : ['Sipariş bilgisi değişikliği'];
     const pendingId = await lookupIdByCode(this.db, purchaseOrderStatuses, 'pending_manager_approval');
     if (!pendingId) throw new ValidationError('Satın alma onay bekleme durumu bulunamadı');
     const order = await this.db.query.purchaseOrders.findFirst({
@@ -178,7 +190,7 @@ export class OrdersService {
         statusId: pendingId,
         approvedAt: null,
         approvedBy: null,
-        approvalReason: this.mergeApprovalReasons(order.approvalReason, reasons),
+        approvalReason: this.mergeApprovalReasons(order.approvalReason, effectiveReasons),
       })
       .where(eq(purchaseOrders.id, orderId));
   }
@@ -192,7 +204,7 @@ export class OrdersService {
       const statusId = await lookupIdByCode(this.db, salesOrderStatuses, query.statusCode);
       if (statusId) filters.push(eq(salesOrders.statusId, statusId));
     }
-    const scoped = divisionFilter(resolveActorDivisionScope(actor), salesOrders.divisionId);
+    const scoped = resourceDivisionFilter(actor, 'sales_orders', salesOrders.divisionId);
     if (scoped) filters.push(scoped);
     const where = and(...filters);
     const [{ count }] = await this.db.select({ count: sql<number>`count(*)::int` }).from(salesOrders).where(where);
@@ -220,7 +232,7 @@ export class OrdersService {
         eq(salesOrders.id, id),
         eq(salesOrders.tenantId, actor.tenantId),
         isNull(salesOrders.deletedAt),
-        divisionFilter(resolveActorDivisionScope(actor), salesOrders.divisionId) ?? sql`true`
+        resourceDivisionFilter(actor, 'sales_orders', salesOrders.divisionId) ?? sql`true`
       ),
     });
     if (!order) throw new NotFoundError('Satış siparişi');
@@ -241,7 +253,7 @@ export class OrdersService {
     await this.assertSalesOrderNoAvailable(orderNo, actor);
     const draft = await lookupIdByCode(this.db, salesOrderStatuses, 'draft');
     const currencyId = await lookupIdByCode(this.db, currencies, input.currencyCode);
-    const divisionId = resolveAssignedDivision(actor, input.divisionId ?? null);
+    const divisionId = resolveAssignedResourceDivision(actor, 'sales_orders', input.divisionId ?? null);
     if (!divisionId) throw new ValidationError('Satış siparişi için bölüm ataması zorunludur', { field: 'divisionId' });
     const [row] = await this.db
       .insert(salesOrders)
@@ -286,6 +298,7 @@ export class OrdersService {
         contactId: quote.contactId ?? undefined,
         orderNo: input.orderNo,
         orderDate: input.orderDate ?? new Date(),
+        divisionId: quote.divisionId ?? undefined,
         currencyCode: 'USD',
         notes: input.notes ?? quote.deliveryTerms ?? undefined,
       },
@@ -324,6 +337,7 @@ export class OrdersService {
 
   async updateSalesOrder(id: string, input: SalesOrderUpdateInput, actor: AuthContext) {
     const existing = await this.getSalesOrder(id, actor);
+    this.assertSalesOrderMutable(existing);
     const patch: Record<string, unknown> = {};
     const companyId = input.companyId ?? existing.companyId;
     if (input.companyId !== undefined) {
@@ -355,13 +369,15 @@ export class OrdersService {
   }
 
   async deleteSalesOrder(id: string, actor: AuthContext) {
-    await this.getSalesOrder(id, actor);
+    const existing = await this.getSalesOrder(id, actor);
+    this.assertSalesOrderMutable(existing);
     await this.db.update(salesOrders).set({ deletedAt: new Date() }).where(eq(salesOrders.id, id));
     return { ok: true };
   }
 
   async addSalesOrderItem(orderId: string, input: SalesOrderItemCreateInput, actor: AuthContext) {
-    await this.getSalesOrder(orderId, actor);
+    const order = await this.getSalesOrder(orderId, actor);
+    this.assertSalesOrderMutable(order);
     if (input.quoteItemId) await this.assertQuoteItem(input.quoteItemId, actor);
     if (input.productModelId) await this.assertProductModel(input.productModelId, actor);
     if (input.inventoryItemId) await this.assertInventoryItem(input.inventoryItemId, actor);
@@ -391,7 +407,8 @@ export class OrdersService {
   }
 
   async updateSalesOrderItem(orderId: string, itemId: string, input: SalesOrderItemUpdateInput, actor: AuthContext) {
-    await this.getSalesOrder(orderId, actor);
+    const order = await this.getSalesOrder(orderId, actor);
+    this.assertSalesOrderMutable(order);
     const existing = await this.db.query.salesOrderItems.findFirst({
       where: and(eq(salesOrderItems.id, itemId), eq(salesOrderItems.salesOrderId, orderId), eq(salesOrderItems.tenantId, actor.tenantId), isNull(salesOrderItems.deletedAt)),
     });
@@ -420,15 +437,31 @@ export class OrdersService {
   }
 
   async deleteSalesOrderItem(orderId: string, itemId: string, actor: AuthContext) {
-    await this.getSalesOrder(orderId, actor);
-    await this.db.update(salesOrderItems).set({ deletedAt: new Date() }).where(eq(salesOrderItems.id, itemId));
+    const order = await this.getSalesOrder(orderId, actor);
+    this.assertSalesOrderMutable(order);
+    const item = await this.db.query.salesOrderItems.findFirst({
+      where: and(
+        eq(salesOrderItems.id, itemId),
+        eq(salesOrderItems.salesOrderId, orderId),
+        eq(salesOrderItems.tenantId, actor.tenantId),
+        isNull(salesOrderItems.deletedAt)
+      ),
+    });
+    if (!item) throw new NotFoundError('Satış siparişi kalemi');
+    await this.db.update(salesOrderItems).set({ deletedAt: new Date() }).where(eq(salesOrderItems.id, item.id));
     await this.recalcSalesOrderTotals(orderId);
     return { ok: true };
   }
 
   async setSalesOrderStatus(id: string, input: OrderStatusUpdateInput, actor: AuthContext) {
-    await this.getSalesOrder(id, actor);
+    const existing = await this.getSalesOrder(id, actor);
     if (input.statusCode === 'reserved') return this.reserveSalesOrder(id, actor);
+    if (input.statusCode === 'confirmed' && !actor.permissions.has('sales_orders.approve')) {
+      throw new ForbiddenError('Satış siparişi onayı için yetkiniz yok');
+    }
+    if (existing.confirmedAt && !['fulfilled', 'cancelled'].includes(input.statusCode)) {
+      throw new ConflictError('Onaylanmış satış siparişi için yalnızca teslim veya iptal durumu değiştirilebilir');
+    }
     const statusId = await lookupIdByCode(this.db, salesOrderStatuses, input.statusCode);
     if (!statusId) throw new ValidationError('Geçersiz satış siparişi durumu');
     const now = new Date();
@@ -474,6 +507,23 @@ export class OrdersService {
       .from(salesOrderItems)
       .where(and(eq(salesOrderItems.salesOrderId, orderId), eq(salesOrderItems.tenantId, actor.tenantId), isNull(salesOrderItems.deletedAt)))
       .orderBy(salesOrderItems.sortOrder);
+    const [deliveryAddress] = await this.db
+      .select()
+      .from(companyAddresses)
+      .where(
+        and(
+          eq(companyAddresses.tenantId, actor.tenantId),
+          eq(companyAddresses.companyId, order.companyId),
+          isNull(companyAddresses.deletedAt)
+        )
+      )
+      .orderBy(desc(companyAddresses.isDefault), desc(companyAddresses.createdAt))
+      .limit(1);
+    const deliveryAddressSnapshot = deliveryAddress
+      ? [deliveryAddress.fullAddress, deliveryAddress.district, deliveryAddress.province, deliveryAddress.country]
+          .filter(Boolean)
+          .join(', ')
+      : null;
     const preparing = await lookupIdByCode(this.db, shipmentStatuses, 'preparing');
     const [shipment] = await this.db
       .insert(shipments)
@@ -484,6 +534,8 @@ export class OrdersService {
         companyId: order.companyId,
         opportunityId: order.opportunityId ?? null,
         quoteId: order.quoteId ?? null,
+        deliveryAddressId: deliveryAddress?.id ?? null,
+        deliveryAddressSnapshot,
         shipmentNo: order.orderNo ? `SEV-${order.orderNo}` : null,
         statusId: preparing,
       })
@@ -530,32 +582,64 @@ export class OrdersService {
       .where(and(eq(salesOrderItems.salesOrderId, id), eq(salesOrderItems.tenantId, actor.tenantId), isNull(salesOrderItems.deletedAt)));
     const inventoryLines = items.filter((item) => item.inventoryItemId);
     if (!inventoryLines.length) throw new ValidationError('Rezerve edilecek seri numaralı stok kalemi yok');
+    if (new Set(inventoryLines.map((item) => item.inventoryItemId)).size !== inventoryLines.length) {
+      throw new ValidationError('Aynı stok kalemi siparişte birden fazla kez rezerve edilemez');
+    }
 
     const available = await lookupIdByCode(this.db, inventoryStatuses, 'available');
     const reserved = await lookupIdByCode(this.db, inventoryStatuses, 'reserved');
-    for (const line of inventoryLines) {
-      const item = await this.db.query.inventoryItems.findFirst({
-        where: and(eq(inventoryItems.id, line.inventoryItemId!), eq(inventoryItems.tenantId, actor.tenantId), isNull(inventoryItems.deletedAt)),
-      });
-      if (!item) throw new NotFoundError('Stok kalemi');
-      if (available && reserved && item.stockStatusId !== available && item.stockStatusId !== reserved) {
-        throw new ValidationError(`${item.serialNumber} seri numarası rezerve edilemez`);
-      }
-      await this.db.update(inventoryItems).set({ stockStatusId: reserved }).where(eq(inventoryItems.id, item.id));
-      await this.db.insert(inventoryMovements).values({
-        tenantId: actor.tenantId,
-        divisionId: order.divisionId,
-        inventoryItemId: item.id,
-        movementType: 'reserve',
-        movementDate: new Date(),
-        referenceType: 'sales_order',
-        referenceId: id,
-        notes: 'Satış siparişi rezervasyonu',
-        createdBy: actor.userId,
-      });
-    }
+    if (!available || !reserved) throw new ValidationError('Rezervasyon stok durumları yapılandırılmamış');
     const statusId = await lookupIdByCode(this.db, salesOrderStatuses, 'reserved');
-    await this.db.update(salesOrders).set({ statusId, reservedAt: new Date() }).where(eq(salesOrders.id, id));
+    if (!statusId) throw new ValidationError('Rezervasyon sipariş durumu yapılandırılmamış');
+    const now = new Date();
+    await this.db.transaction(async (tx) => {
+      for (const line of inventoryLines) {
+        const [item] = await tx
+          .update(inventoryItems)
+          .set({
+            stockStatusId: reserved,
+            reservedCompanyId: order.companyId,
+            reservedAt: now,
+          })
+          .where(
+            and(
+              eq(inventoryItems.id, line.inventoryItemId!),
+              eq(inventoryItems.tenantId, actor.tenantId),
+              isNull(inventoryItems.deletedAt),
+              eq(inventoryItems.stockStatusId, available),
+              resourceDivisionFilter(actor, 'inventory', inventoryItems.divisionId) ?? sql`true`
+            )
+          )
+          .returning({ id: inventoryItems.id, serialNumber: inventoryItems.serialNumber });
+        if (!item) {
+          throw new ValidationError('Stok kalemi artık müsait değil; rezervasyonu yeniden başlatın');
+        }
+        await tx.insert(inventoryMovements).values({
+          tenantId: actor.tenantId,
+          divisionId: order.divisionId,
+          inventoryItemId: item.id,
+          movementType: 'reserve',
+          movementDate: now,
+          referenceType: 'sales_order',
+          referenceId: id,
+          notes: 'Satış siparişi rezervasyonu',
+          createdBy: actor.userId,
+        });
+      }
+      const [updatedOrder] = await tx
+        .update(salesOrders)
+        .set({ statusId, reservedAt: now })
+        .where(
+          and(
+            eq(salesOrders.id, id),
+            eq(salesOrders.tenantId, actor.tenantId),
+            isNull(salesOrders.deletedAt),
+            resourceDivisionFilter(actor, 'sales_orders', salesOrders.divisionId) ?? sql`true`
+          )
+        )
+        .returning({ id: salesOrders.id });
+      if (!updatedOrder) throw new NotFoundError('Satış siparişi');
+    });
     await this.audit.write({
       tenantId: actor.tenantId,
       actorUserId: actor.userId,
@@ -576,7 +660,7 @@ export class OrdersService {
       const statusId = await lookupIdByCode(this.db, purchaseOrderStatuses, query.statusCode);
       if (statusId) filters.push(eq(purchaseOrders.statusId, statusId));
     }
-    const scoped = divisionFilter(resolveActorDivisionScope(actor), purchaseOrders.divisionId);
+    const scoped = resourceDivisionFilter(actor, 'purchase_orders', purchaseOrders.divisionId);
     if (scoped) filters.push(scoped);
     const where = and(...filters);
     const [{ count }] = await this.db.select({ count: sql<number>`count(*)::int` }).from(purchaseOrders).where(where);
@@ -604,7 +688,7 @@ export class OrdersService {
         eq(purchaseOrders.id, id),
         eq(purchaseOrders.tenantId, actor.tenantId),
         isNull(purchaseOrders.deletedAt),
-        divisionFilter(resolveActorDivisionScope(actor), purchaseOrders.divisionId) ?? sql`true`
+        resourceDivisionFilter(actor, 'purchase_orders', purchaseOrders.divisionId) ?? sql`true`
       ),
     });
     if (!order) throw new NotFoundError('Satın alma siparişi');
@@ -625,7 +709,7 @@ export class OrdersService {
     const initialStatusCode = approvalReasons.length && !this.isSuperAdmin(actor) ? 'pending_manager_approval' : 'draft';
     const initialStatus = await lookupIdByCode(this.db, purchaseOrderStatuses, initialStatusCode);
     const currencyId = await lookupIdByCode(this.db, currencies, input.currencyCode);
-    const divisionId = resolveAssignedDivision(actor, input.divisionId ?? null);
+    const divisionId = resolveAssignedResourceDivision(actor, 'purchase_orders', input.divisionId ?? null);
     if (!divisionId) throw new ValidationError('Satın alma siparişi için bölüm ataması zorunludur', { field: 'divisionId' });
     const [row] = await this.db
       .insert(purchaseOrders)
@@ -664,6 +748,7 @@ export class OrdersService {
 
   async updatePurchaseOrder(id: string, input: PurchaseOrderUpdateInput, actor: AuthContext) {
     const existing = await this.getPurchaseOrder(id, actor);
+    this.assertPurchaseOrderMutable(existing);
     const patch: Record<string, unknown> = {};
     if (input.supplierCompanyId !== undefined) {
       if (input.supplierCompanyId) await this.assertCompany(input.supplierCompanyId, actor);
@@ -674,32 +759,29 @@ export class OrdersService {
       if ((input as any)[k] !== undefined) patch[k] = (input as any)[k] ?? null;
     }
     await this.db.update(purchaseOrders).set(patch).where(eq(purchaseOrders.id, id));
-    const approvalTouched = ['paymentType', 'paymentTermDays', 'previousPaymentTermDays', 'termChangeReason'].some(
-      (key) => (input as any)[key] !== undefined
+    await this.markPurchaseOrderPendingApproval(
+      id,
+      actor,
+      this.purchaseOrderApprovalReasons({
+        paymentType: input.paymentType ?? existing.paymentType,
+        paymentTermDays: input.paymentTermDays ?? existing.paymentTermDays,
+        previousPaymentTermDays: input.previousPaymentTermDays ?? existing.previousPaymentTermDays,
+        termChangeReason: input.termChangeReason ?? existing.termChangeReason,
+      })
     );
-    if (approvalTouched) {
-      await this.markPurchaseOrderPendingApproval(
-        id,
-        actor,
-        this.purchaseOrderApprovalReasons({
-          paymentType: input.paymentType ?? existing.paymentType,
-          paymentTermDays: input.paymentTermDays ?? existing.paymentTermDays,
-          previousPaymentTermDays: input.previousPaymentTermDays ?? existing.previousPaymentTermDays,
-          termChangeReason: input.termChangeReason ?? existing.termChangeReason,
-        })
-      );
-    }
     return this.getPurchaseOrder(id, actor);
   }
 
   async deletePurchaseOrder(id: string, actor: AuthContext) {
-    await this.getPurchaseOrder(id, actor);
+    const existing = await this.getPurchaseOrder(id, actor);
+    this.assertPurchaseOrderMutable(existing);
     await this.db.update(purchaseOrders).set({ deletedAt: new Date() }).where(eq(purchaseOrders.id, id));
     return { ok: true };
   }
 
   async addPurchaseOrderItem(orderId: string, input: PurchaseOrderItemCreateInput, actor: AuthContext) {
-    await this.getPurchaseOrder(orderId, actor);
+    const order = await this.getPurchaseOrder(orderId, actor);
+    this.assertPurchaseOrderMutable(order);
     if (input.productModelId) await this.assertProductModel(input.productModelId, actor);
     const t = this.calcItem(input.quantity, input.unitPrice, input.discountAmount, input.vatRate);
     const unitId = await lookupIdByCode(this.db, units, input.unitCode);
@@ -729,7 +811,8 @@ export class OrdersService {
   }
 
   async updatePurchaseOrderItem(orderId: string, itemId: string, input: PurchaseOrderItemUpdateInput, actor: AuthContext) {
-    await this.getPurchaseOrder(orderId, actor);
+    const order = await this.getPurchaseOrder(orderId, actor);
+    this.assertPurchaseOrderMutable(order);
     const existing = await this.db.query.purchaseOrderItems.findFirst({
       where: and(eq(purchaseOrderItems.id, itemId), eq(purchaseOrderItems.purchaseOrderId, orderId), eq(purchaseOrderItems.tenantId, actor.tenantId), isNull(purchaseOrderItems.deletedAt)),
     });
@@ -758,9 +841,20 @@ export class OrdersService {
   }
 
   async deletePurchaseOrderItem(orderId: string, itemId: string, actor: AuthContext) {
-    await this.getPurchaseOrder(orderId, actor);
-    await this.db.update(purchaseOrderItems).set({ deletedAt: new Date() }).where(eq(purchaseOrderItems.id, itemId));
+    const order = await this.getPurchaseOrder(orderId, actor);
+    this.assertPurchaseOrderMutable(order);
+    const item = await this.db.query.purchaseOrderItems.findFirst({
+      where: and(
+        eq(purchaseOrderItems.id, itemId),
+        eq(purchaseOrderItems.purchaseOrderId, orderId),
+        eq(purchaseOrderItems.tenantId, actor.tenantId),
+        isNull(purchaseOrderItems.deletedAt)
+      ),
+    });
+    if (!item) throw new NotFoundError('Satın alma siparişi kalemi');
+    await this.db.update(purchaseOrderItems).set({ deletedAt: new Date() }).where(eq(purchaseOrderItems.id, item.id));
     await this.recalcPurchaseOrderTotals(orderId);
+    await this.markPurchaseOrderPendingApproval(orderId, actor, ['Sipariş kalemi silindi']);
     return { ok: true };
   }
 
@@ -770,6 +864,9 @@ export class OrdersService {
     }
 
     const existing = await this.getPurchaseOrder(id, actor);
+    if (existing.approvedAt && !['received', 'cancelled'].includes(input.statusCode)) {
+      throw new ConflictError('Onaylanmış satın alma siparişi için yalnızca teslim veya iptal durumu değiştirilebilir');
+    }
     const statusId = await lookupIdByCode(this.db, purchaseOrderStatuses, input.statusCode);
     if (!statusId) throw new ValidationError('Geçersiz satın alma siparişi durumu');
     const pendingId = await lookupIdByCode(this.db, purchaseOrderStatuses, 'pending_manager_approval');
@@ -804,7 +901,7 @@ export class OrdersService {
         eq(companies.id, companyId),
         eq(companies.tenantId, actor.tenantId),
         isNull(companies.deletedAt),
-        companyPortfolioFilter(resolveActorDivisionScope(actor), companies.id) ?? sql`true`
+        resourceCompanyPortfolioFilter(actor, 'companies', companies.id) ?? sql`true`
       ),
     });
     if (!company) throw new NotFoundError('Firma');
@@ -826,7 +923,7 @@ export class OrdersService {
         eq(opportunities.id, opportunityId),
         eq(opportunities.tenantId, actor.tenantId),
         isNull(opportunities.deletedAt),
-        divisionFilter(resolveActorDivisionScope(actor), opportunities.divisionId) ?? sql`true`
+        resourceDivisionFilter(actor, 'opportunities', opportunities.divisionId) ?? sql`true`
       ),
     });
     if (!opportunity) throw new NotFoundError('Fırsat');
@@ -840,7 +937,7 @@ export class OrdersService {
         eq(quotes.id, quoteId),
         eq(quotes.tenantId, actor.tenantId),
         isNull(quotes.deletedAt),
-        divisionFilter(resolveActorDivisionScope(actor), quotes.divisionId) ?? sql`true`
+        resourceDivisionFilter(actor, 'quotes', quotes.divisionId) ?? sql`true`
       ),
     });
     if (!quote) throw new NotFoundError('Teklif');
@@ -860,16 +957,31 @@ export class OrdersService {
   }
 
   private async assertProductModel(productModelId: string, actor: AuthContext) {
-    const product = await this.db.query.productModels.findFirst({
-      where: and(eq(productModels.id, productModelId), eq(productModels.tenantId, actor.tenantId), isNull(productModels.deletedAt)),
-    });
+    const [product] = await this.db
+      .select({ id: productModels.id })
+      .from(productModels)
+      .leftJoin(productGroups, eq(productModels.productGroupId, productGroups.id))
+      .where(
+        and(
+          eq(productModels.id, productModelId),
+          eq(productModels.tenantId, actor.tenantId),
+          isNull(productModels.deletedAt),
+          resourceDivisionFilterWithShared(actor, 'products', productGroups.divisionId) ?? sql`true`
+        )
+      )
+      .limit(1);
     if (!product) throw new NotFoundError('Ürün');
     return product;
   }
 
   private async assertInventoryItem(inventoryItemId: string, actor: AuthContext) {
     const item = await this.db.query.inventoryItems.findFirst({
-      where: and(eq(inventoryItems.id, inventoryItemId), eq(inventoryItems.tenantId, actor.tenantId), isNull(inventoryItems.deletedAt)),
+      where: and(
+        eq(inventoryItems.id, inventoryItemId),
+        eq(inventoryItems.tenantId, actor.tenantId),
+        isNull(inventoryItems.deletedAt),
+        resourceDivisionFilter(actor, 'inventory', inventoryItems.divisionId) ?? sql`true`
+      ),
     });
     if (!item) throw new NotFoundError('Stok kalemi');
     return item;

@@ -36,7 +36,22 @@ const FIRM_TYPE_COLOR: Record<FirmType, string> = {
   supplier: "bg-amber-50 text-amber-700 border-amber-200",
 };
 
+const ADDRESS_TYPE_LABELS: Record<string, string> = {
+  office: "Ofis",
+  factory: "Fabrika",
+  work_area: "Çalışma Alanı",
+  shipping: "Sevkiyat",
+  billing: "Fatura",
+  other: "Diğer",
+};
+
 const fmtMoney = (n: number, cur: string) => `${n.toLocaleString("tr-TR")} ${cur}`;
+
+const createdByLabel = (item: { createdByName?: string | null; createdByEmail?: string | null }) =>
+  item.createdByName || item.createdByEmail || "";
+
+const createdMeta = (item: { createdAt?: string; createdByName?: string | null; createdByEmail?: string | null }) =>
+  [createdByLabel(item), item.createdAt].filter(Boolean).join(" · ");
 
 /** Sum amounts grouped by currency, rendered as "170.000 USD · 50.000 EUR". */
 function sumByCurrency(items: Array<{ amount: number; currency: string }>): string {
@@ -155,15 +170,18 @@ export function CompanyDetailDialog({
                 <span className={`inline-flex items-center px-2 py-0.5 rounded-full border text-[11px] ${FIRM_TYPE_COLOR[customer.firmType]}`}>
                   {FIRM_TYPE_LABEL[customer.firmType]}
                 </span>
-                {customer.firmType !== "supplier" && (
-                  <span className={`inline-flex px-2 py-0.5 rounded-full border text-[11px] ${
-                    customer.salesStatus === "active_customer"
-                      ? "bg-emerald-50 text-emerald-700 border-emerald-200"
-                      : "bg-zinc-100 text-zinc-700 border-zinc-200"
-                  }`}>
-                    {customer.salesStatus === "active_customer" ? "Cari Satış" : "Potansiyel"}
+                <span className={`inline-flex px-2 py-0.5 rounded-full border text-[11px] ${
+                  customer.salesStatus === "active_customer"
+                    ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                    : "bg-zinc-100 text-zinc-700 border-zinc-200"
+                }`}>
+                  {customer.salesStatus === "active_customer" ? "Cari" : "Potansiyel"}
+                </span>
+                {(customer.divisions ?? []).map((division) => (
+                  <span key={division.id} className="inline-flex rounded-full border border-primary/20 bg-primary/5 px-2 py-0.5 text-[11px] font-medium text-primary">
+                    {division.name}
                   </span>
-                )}
+                ))}
                 <span className="text-muted-foreground">{customer.type === "company" ? "Kurumsal" : "Bireysel"}</span>
               </DialogDescription>
             </div>
@@ -176,8 +194,20 @@ export function CompanyDetailDialog({
             <Field icon={<Mail className="size-4" />} label="E-posta" value={customer.email} />
             <Field icon={<MapPin className="size-4" />} label="Konum" value={[customer.city, customer.district].filter(Boolean).join(" / ")} />
             <Field icon={<Briefcase className="size-4" />} label="Sektör" value={customer.sector} />
+            <Field icon={<Building2 className="size-4" />} label="Firma Grubu" value={customer.companyGroupNames?.join(", ") || customer.companyGroupName} />
             <Field icon={<Globe className="size-4" />} label="Web" value={customer.website} />
+            <Field icon={<UserIcon className="size-4" />} label="Oluşturan" value={createdMeta(customer)} />
           </div>
+          {(customer.addresses?.length ?? 0) > 0 && (
+            <div className="mt-3 flex flex-wrap gap-2">
+              {customer.addresses!.map((address, index) => (
+                <div key={address.id ?? index} className="rounded-lg border border-border/60 bg-muted/30 px-3 py-2 text-xs">
+                  <span className="font-medium">{ADDRESS_TYPE_LABELS[address.addressType] ?? "Adres"}</span>
+                  <span className="ml-2 text-muted-foreground">{[address.address, address.district, address.city].filter(Boolean).join(", ") || "Adres bilgisi yok"}</span>
+                </div>
+              ))}
+            </div>
+          )}
         </DialogHeader>
 
         {/* KPI tiles — her biri tıklanınca ilgili kayıtlar pop-up olarak açılır */}
@@ -737,8 +767,6 @@ export function ContactDetailDialog({
     ["Takım", contact.favoriteTeam],
     ["Renk", contact.favoriteColor],
     ["Mezun Okul", contact.graduatedSchool],
-    ["Bilinen Rahatsızlık", contact.knownIllness],
-    ["Görüş", contact.politicalView],
   ];
   const hasPersonal = personalFields.some(([, v]) => v && v !== "—");
 
@@ -778,6 +806,7 @@ export function ContactDetailDialog({
           <Field icon={<Mail className="size-4" />} label="Diğer E-posta" value={contact.otherEmail} />
           <Field label="Cinsiyet" value={contact.gender} />
           <Field label="Doğum Tarihi" value={contact.birthDate} />
+          <Field icon={<UserIcon className="size-4" />} label="Oluşturan" value={createdMeta(contact)} />
         </div>
 
         {contact.note && (

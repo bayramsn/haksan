@@ -54,12 +54,14 @@ export function resolveMediaUrl(ref?: string | null): string {
 }
 
 const ACTIVE_DIVISION_STORAGE_KEY = 'haksan_active_division';
+const ACTIVE_DEPARTMENT_STORAGE_KEY = 'haksan_active_department';
 
 // Access token YALNIZCA bellekte tutulur (sessionStorage/localStorage DEĞİL) — XSS ile
 // sızdırılmasını önler. Sayfa yenilemede httpOnly refresh cookie'siyle /auth/refresh
 // üzerinden sessizce yeniden alınır (bkz. tryRefresh + 401 auto-retry). CLAUDE.md #4/#11.
 let accessToken: string | null = null;
 let activeDivision: string | null = readStoredActiveDivision();
+let activeDepartment: string | null = readStoredActiveDepartment();
 let refreshing: Promise<string | null> | null = null;
 let onSessionExpired: (() => void) | null = null;
 
@@ -132,10 +134,17 @@ function readStoredActiveDivision(): string | null {
   }
 }
 
+function readStoredActiveDepartment(): string | null {
+  try {
+    return localStorage.getItem(ACTIVE_DEPARTMENT_STORAGE_KEY);
+  } catch {
+    return null;
+  }
+}
+
 /**
- * Aktif bölüm (CNC/Üniversal/Sac veya 'all'). Her istekte backend'in yeni
- * ve plan dokümanındaki eski adlarını anlayabilmesi için iki başlıkla gönderilir.
- * view_all kullanıcılar bu başlıkla tek bölüme daralır; localStorage'da kalıcıdır.
+ * Aktif bölüm (CNC/Üniversal/Sac veya 'all'). Her istekte backend'e
+ * X-Active-Division olarak gider; localStorage'da kalıcıdır.
  */
 export function setActiveDivision(value: string | null): void {
   activeDivision = value;
@@ -149,6 +158,20 @@ export function setActiveDivision(value: string | null): void {
 
 export function getActiveDivision(): string | null {
   return activeDivision;
+}
+
+export function setActiveDepartment(value: string | null): void {
+  activeDepartment = value;
+  try {
+    if (value) localStorage.setItem(ACTIVE_DEPARTMENT_STORAGE_KEY, value);
+    else localStorage.removeItem(ACTIVE_DEPARTMENT_STORAGE_KEY);
+  } catch {
+    // storage unavailable — in-memory value still applies for this tab
+  }
+}
+
+export function getActiveDepartment(): string | null {
+  return activeDepartment;
 }
 
 /** AuthProvider registers a handler so a hard 401 clears stale React session state. */
@@ -196,7 +219,9 @@ async function request<T>(method: string, path: string, body?: unknown, opts: Re
   if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
   if (activeDivision) {
     headers['X-Active-Division'] = activeDivision;
-    headers['X-Active-Department'] = activeDivision;
+  }
+  if (activeDepartment) {
+    headers['X-Active-Department'] = activeDepartment;
   }
 
   let res = await fetchWithRateLimitRetry(url, {

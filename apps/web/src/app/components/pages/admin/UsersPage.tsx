@@ -15,7 +15,7 @@ import { Checkbox } from "../../ui/checkbox";
 import { Label } from "../../ui/label";
 import { Alert, AlertDescription, AlertTitle } from "../../ui/alert";
 import { Skeleton } from "../../ui/skeleton";
-import { CreateUserDialog, UserDepartmentDialog, UserEditDialog } from "../../admin/UserAdminDialogs";
+import { CreateUserDialog, UserDepartmentDialog, UserEditDialog, type UserAccessScopeRow } from "../../admin/UserAdminDialogs";
 import {
   TARGET_TYPE_ORDER, TargetDialog, TargetPill, currentPeriod, hasTargetValue, targetFilledCount, targetFromApi, targetToApi, targetTotalCount,
   type UserTarget,
@@ -24,6 +24,7 @@ import { useStore } from "../../../lib/store";
 import { useAuth } from "../../../../lib/auth";
 import { adminService } from "../../../../lib/services";
 import type { User } from "../../../lib/mock";
+import { PERMISSION_RESOURCES, type PermissionResource } from "@haksan/shared";
 import {
   AlertTriangle, Building2, LockKeyhole, Pencil, Plus, RotateCcw,
   Settings, ShieldCheck, Trash2, TrendingUp, Unlock,
@@ -56,6 +57,7 @@ type AdminUserRow = User & {
   departmentId?: string | null;
   divisionIds: string[];
   divisionNames: string[];
+  accessScopes: UserAccessScopeRow[];
   failedLoginAttempts: number;
   lockedUntil?: string | null;
 };
@@ -66,6 +68,8 @@ const FALLBACK_ROLE_CODES: Record<string, string> = {
   Sales: "sales",
   Service: "service",
 };
+const isPermissionResource = (value: string): value is PermissionResource =>
+  (PERMISSION_RESOURCES as readonly string[]).includes(value);
 const TARGET_LABELS: Record<string, string> = {
   sales: "Satış",
   service: "Servis",
@@ -82,6 +86,7 @@ const normalizeStoreUser = (user: User): AdminUserRow => ({
   roleNames: [user.role],
   divisionIds: [],
   divisionNames: [],
+  accessScopes: [],
   failedLoginAttempts: 0,
   lockedUntil: null,
 });
@@ -93,6 +98,14 @@ const normalizeAdminUser = (user: any, fallback?: User): AdminUserRow => {
   const divisionRows = Array.isArray(user.divisions) ? user.divisions : [];
   const divisionIds = divisionRows.map((d: any) => String(d?.id ?? "")).filter(Boolean);
   const divisionNames = divisionRows.map((d: any) => String(d?.name ?? d?.code ?? "")).filter(Boolean);
+  const accessScopes = Array.isArray(user.accessScopes)
+    ? user.accessScopes.map((scope: any) => ({
+        resource: String(scope.resource ?? ""),
+        departmentId: scope.departmentId ?? null,
+        divisionId: scope.divisionId ?? null,
+        isPrimary: Boolean(scope.isPrimary),
+      })).filter((scope: { resource: string }): scope is UserAccessScopeRow => isPermissionResource(scope.resource))
+    : [];
   const fallbackRole = fallback?.role ?? "Admin";
 
   return {
@@ -111,6 +124,7 @@ const normalizeAdminUser = (user: any, fallback?: User): AdminUserRow => {
     roleNames: roleNames.length ? roleNames : [fallbackRole],
     divisionIds,
     divisionNames,
+    accessScopes,
     failedLoginAttempts: Number(user.failedLoginAttempts ?? (fallback as Partial<AdminUserRow> | undefined)?.failedLoginAttempts ?? 0),
     lockedUntil: user.lockedUntil ?? (fallback as Partial<AdminUserRow> | undefined)?.lockedUntil ?? null,
   };
@@ -250,7 +264,13 @@ export function UsersPage() {
     }
   };
 
-  const handleSaveDepartment = async (userId: string, departmentId: string | null, active: boolean, divisionIds?: string[]) => {
+  const handleSaveDepartment = async (
+    userId: string,
+    departmentId: string | null,
+    active: boolean,
+    divisionIds?: string[],
+    accessScopes?: UserAccessScopeRow[]
+  ) => {
     setSavingDept(true);
     try {
       await adminService.updateUser(userId, {
@@ -258,6 +278,7 @@ export function UsersPage() {
         status: active ? "active" : "passive",
         // Yalnızca dialogdan açıkça düzenlendiğinde gönder — durum anahtarı bölümleri silmesin.
         ...(divisionIds ? { divisionIds } : {}),
+        ...(accessScopes ? { accessScopes } : {}),
       });
       toast.success("Kullanıcı güncellendi");
       setDeptUser(null);

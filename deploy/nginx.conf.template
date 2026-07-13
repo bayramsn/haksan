@@ -58,10 +58,10 @@ server {
     add_header X-Content-Type-Options "nosniff" always;
     add_header X-Frame-Options "DENY" always;
     add_header Referrer-Policy "strict-origin-when-cross-origin" always;
-    add_header Permissions-Policy "camera=(), microphone=(), geolocation=()" always;
+    add_header Permissions-Policy "camera=(), microphone=(), geolocation=(self)" always;
     add_header X-Robots-Tag "noindex, nofollow" always;
     add_header Cross-Origin-Opener-Policy "same-origin" always;
-    add_header Content-Security-Policy "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://${STORAGE_DOMAIN} https://tile.openstreetmap.org https://*.tile.openstreetmap.org; font-src 'self' data:; connect-src 'self' https://${APP_DOMAIN} https://${STORAGE_DOMAIN} wss://${APP_DOMAIN}; form-action 'self'; upgrade-insecure-requests" always;
+    add_header Content-Security-Policy "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://${STORAGE_DOMAIN} https://tile.openstreetmap.org https://*.tile.openstreetmap.org; font-src 'self' data:; connect-src 'self' https://${APP_DOMAIN} https://${STORAGE_DOMAIN} wss://${APP_DOMAIN}; frame-src 'self' https://${STORAGE_DOMAIN}; media-src 'self' blob: https://${STORAGE_DOMAIN}; form-action 'self'; upgrade-insecure-requests" always;
 
     client_max_body_size 25m;
 
@@ -135,6 +135,14 @@ server {
     location ~* \.(?:js|css|woff2?|png|jpg|jpeg|webp|svg|ico)$ {
         try_files $uri =404;
         expires 30d;
+        add_header Strict-Transport-Security "max-age=63072000; includeSubDomains; preload" always;
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header X-Frame-Options "DENY" always;
+        add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+        add_header Permissions-Policy "camera=(), microphone=(), geolocation=(self)" always;
+        add_header X-Robots-Tag "noindex, nofollow" always;
+        add_header Cross-Origin-Opener-Policy "same-origin" always;
+        add_header Content-Security-Policy "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://${STORAGE_DOMAIN} https://tile.openstreetmap.org https://*.tile.openstreetmap.org; font-src 'self' data:; connect-src 'self' https://${APP_DOMAIN} https://${STORAGE_DOMAIN} wss://${APP_DOMAIN}; frame-src 'self' https://${STORAGE_DOMAIN}; media-src 'self' blob: https://${STORAGE_DOMAIN}; form-action 'self'; upgrade-insecure-requests" always;
         add_header Cache-Control "public, immutable";
     }
 

@@ -3,6 +3,7 @@ import { and, desc, eq, ilike, inArray, isNull, or, sql } from 'drizzle-orm';
 import type { DbClient } from '../../db/client';
 import { companyDivisions, contactCompanies, contacts, companies } from '../../db/schema/companies';
 import { decisionRoles } from '../../db/schema/lookup';
+import { users } from '../../db/schema/users';
 import { DB } from '../../shared/database/database.module';
 import { ConflictError, NotFoundError } from '../../shared/utils/errors';
 import type { AuthContext } from '../../shared/security/auth.types';
@@ -10,7 +11,8 @@ import type { ContactCreateInput, ContactUpdateInput, Pagination } from '@haksan
 import { buildPaginated, pageOffset } from '../../shared/utils/pagination';
 import { lookupIdByCode } from '../../shared/utils/lookup.helper';
 import { AuditService } from '../../shared/database/audit.service';
-import { companyPortfolioFilter, resolveActorDivisionScope } from '../../shared/utils/division-scope';
+import { resourceCompanyPortfolioFilter, resolveResourceDivisionScope } from '../../shared/utils/division-scope';
+import { companyVisibilityFilter } from '../../shared/utils/company-visibility';
 
 @Injectable()
 export class ContactsService {
@@ -19,9 +21,20 @@ export class ContactsService {
     private readonly audit: AuditService
   ) {}
 
-  async list(actor: AuthContext, query: { search?: string; companyId?: string }, page: Pagination) {
+  private async createdByUser(createdBy: string | null | undefined, tenantId: string) {
+    if (!createdBy) return null;
+    const [row] = await this.db
+      .select({ id: users.id, fullName: users.fullName, email: users.email })
+      .from(users)
+      .where(and(eq(users.id, createdBy), eq(users.tenantId, tenantId)))
+      .limit(1);
+    return row ?? null;
+  }
+
+  async list(actor: AuthContext, query: { search?: string; companyId?: string; divisionId?: string }, page: Pagination) {
     const { limit, offset } = pageOffset(page);
-    const scope = resolveActorDivisionScope(actor);
+    const scope = resolveResourceDivisionScope(actor, 'contacts');
+    const visibility = await companyVisibilityFilter(this.db, actor);
     const filters = [eq(contacts.tenantId, actor.tenantId), isNull(contacts.deletedAt)];
     if (query.companyId) {
       await this.assertCompany(query.companyId, actor);
@@ -32,19 +45,27 @@ export class ContactsService {
           and cc.company_id = ${query.companyId}
       )`);
     } else {
-      if (scope.mode === 'list') {
-        if (scope.divisionIds.length === 0) {
-          filters.push(sql`1 = 0`);
-        } else {
-          filters.push(sql`exists (
-            select 1
-            from contact_companies cc
-            join company_divisions cd on cd.company_id = cc.company_id
-            where cc.contact_id = ${contacts.id}
-              and cd.division_id in (${sql.join(scope.divisionIds.map((id) => sql`${id}`), sql`, `)})
-          )`);
-        }
-      }
+      const requestedDivisionAllowed =
+        query.divisionId && (scope.mode === 'all' || scope.divisionIds.includes(query.divisionId));
+      const scopeFilter = requestedDivisionAllowed
+        ? eq(companyDivisions.divisionId, query.divisionId!)
+        : scope.mode === 'all'
+          ? sql`true`
+          : scope.divisionIds.length === 0
+            ? sql`1 = 0`
+            : inArray(companyDivisions.divisionId, scope.divisionIds);
+      filters.push(sql`exists (
+        select 1
+        from contact_companies
+        join companies on companies.id = contact_companies.company_id
+        left join company_divisions on company_divisions.company_id = contact_companies.company_id
+        where contact_companies.contact_id = ${contacts.id}
+          and companies.tenant_id = ${actor.tenantId}
+          and companies.deleted_at is null
+          and ${resourceCompanyPortfolioFilter(actor, 'contacts', companies.id) ?? sql`true`}
+          and ${visibility ?? sql`true`}
+          and ${scopeFilter}
+      )`);
     }
     if (query.search) {
       filters.push(ilike(contacts.fullName, `%${query.search}%`));
@@ -59,10 +80,12 @@ export class ContactsService {
         contact: contacts,
         company: { id: companies.id, legalTitle: companies.legalTitle, shortName: companies.shortName },
         decisionRole: { code: decisionRoles.code, name: decisionRoles.name },
+        createdByUser: { id: users.id, fullName: users.fullName, email: users.email },
       })
       .from(contacts)
       .leftJoin(companies, eq(contacts.companyId, companies.id))
       .leftJoin(decisionRoles, eq(contacts.decisionRoleId, decisionRoles.id))
+      .leftJoin(users, and(eq(contacts.createdBy, users.id), eq(users.tenantId, actor.tenantId)))
       .where(where)
       .orderBy(desc(contacts.createdAt))
       .limit(limit)
@@ -85,7 +108,8 @@ export class ContactsService {
           inArray(contactCompanies.contactId, contactIds),
           eq(companies.tenantId, actor.tenantId),
           isNull(companies.deletedAt),
-          companyPortfolioFilter(scope, companies.id) ?? sql`true`
+          resourceCompanyPortfolioFilter(actor, 'contacts', companies.id) ?? sql`true`,
+          visibility ?? sql`true`
         )
       )
       .orderBy(desc(contactCompanies.isPrimary));
@@ -96,13 +120,22 @@ export class ContactsService {
       linksByContact.set(link.contactId, links);
     }
     return buildPaginated(
-      rows.map((r) => ({
-        ...r.contact,
-        company: r.company,
-        companyLinks:
-          linksByContact.get(r.contact.id) ??
-          (r.company?.id ? [{ ...r.company, isPrimary: true }] : []),
-      })),
+      rows.map((r) => {
+        const companyLinks = linksByContact.get(r.contact.id) ?? [];
+        const primaryCompany = companyLinks.find((company) => company.isPrimary) ?? companyLinks[0] ?? null;
+        return {
+          ...r.contact,
+          // contacts.companyId denormalize bir alan; görünmeyen birincil firma
+          // burada döndürülmez. Görünen bağlardan biri güvenli temsilci olur.
+          companyId: primaryCompany?.id ?? null,
+          company: primaryCompany
+            ? { id: primaryCompany.id, legalTitle: primaryCompany.legalTitle, shortName: primaryCompany.shortName }
+            : null,
+          decisionRole: r.decisionRole,
+          createdByUser: r.createdByUser?.id ? r.createdByUser : null,
+          companyLinks,
+        };
+      }),
       count,
       page
     );
@@ -114,7 +147,17 @@ export class ContactsService {
     });
     if (!row) throw new NotFoundError('Kontak');
     await this.assertContactVisible(row.id, actor);
-    return row;
+    const [creator, companyLinks] = await Promise.all([
+      this.createdByUser(row.createdBy, actor.tenantId),
+      this.visibleCompanyLinks(row.id, actor),
+    ]);
+    const primaryCompany = companyLinks.find((company) => company.isPrimary) ?? companyLinks[0] ?? null;
+    return {
+      ...row,
+      companyId: primaryCompany?.id ?? null,
+      companyLinks,
+      createdByUser: creator,
+    };
   }
 
   /**
@@ -124,7 +167,11 @@ export class ContactsService {
    */
   async listCompanies(contactId: string, actor: AuthContext) {
     await this.get(contactId, actor); // görünürlük + varlık kontrolü
-    const scope = resolveActorDivisionScope(actor);
+    return this.visibleCompanyLinks(contactId, actor);
+  }
+
+  private async visibleCompanyLinks(contactId: string, actor: AuthContext) {
+    const visibility = await companyVisibilityFilter(this.db, actor);
     return this.db
       .select({
         id: companies.id,
@@ -139,10 +186,23 @@ export class ContactsService {
           eq(contactCompanies.contactId, contactId),
           eq(companies.tenantId, actor.tenantId),
           isNull(companies.deletedAt),
-          companyPortfolioFilter(scope, companies.id) ?? sql`true`
+          resourceCompanyPortfolioFilter(actor, 'contacts', companies.id) ?? sql`true`,
+          visibility ?? sql`true`
         )
       )
       .orderBy(desc(contactCompanies.isPrimary));
+  }
+
+  /** Kontağın tüm firma bağları görünmüyorsa ortak kaydı değiştirmek yasaktır. */
+  private async assertAllContactCompaniesVisible(contactId: string, actor: AuthContext) {
+    const [allLinks, visibleLinks] = await Promise.all([
+      this.db
+        .select({ companyId: contactCompanies.companyId })
+        .from(contactCompanies)
+        .where(and(eq(contactCompanies.contactId, contactId), eq(contactCompanies.tenantId, actor.tenantId))),
+      this.visibleCompanyLinks(contactId, actor),
+    ]);
+    if (allLinks.length !== visibleLinks.length) throw new NotFoundError('Kontak');
   }
 
   /** Kontağı bir firmadan ayırır (contact_companies bağını siler). Kontağın en az
@@ -150,6 +210,7 @@ export class ContactsService {
    *  birincil yapılır ve contacts.companyId ona göre güncellenir. */
   async unlinkCompany(contactId: string, companyId: string, actor: AuthContext) {
     await this.get(contactId, actor); // görünürlük + varlık kontrolü
+    await this.assertAllContactCompaniesVisible(contactId, actor);
     const links = await this.db
       .select({ companyId: contactCompanies.companyId, isPrimary: contactCompanies.isPrimary })
       .from(contactCompanies)
@@ -175,6 +236,7 @@ export class ContactsService {
    *  denormalize contacts.companyId alanını eşitler. */
   async setPrimaryCompany(contactId: string, companyId: string, actor: AuthContext) {
     await this.get(contactId, actor);
+    await this.assertAllContactCompaniesVisible(contactId, actor);
     const target = await this.db
       .select({ companyId: contactCompanies.companyId })
       .from(contactCompanies)
@@ -203,6 +265,10 @@ export class ContactsService {
     await this.assertCompany(input.companyId, actor);
     const duplicate = await this.findDuplicate(input, actor);
     if (duplicate) {
+      const duplicateVisible = await this.canSeeContact(duplicate.id, actor);
+      if (!duplicateVisible) {
+        throw new ConflictError('Bu kontak başka bir yetki alanında kayıtlı');
+      }
       if (duplicate.isBlacklisted) {
         throw new ConflictError('Bu kontak kara listede', { contactId: duplicate.id, reason: duplicate.blacklistReason });
       }
@@ -238,10 +304,8 @@ export class ContactsService {
         birthDate: input.birthDate ?? null,
         hometown: input.hometown ?? null,
         favoriteTeam: input.favoriteTeam ?? null,
-        knownIllness: input.knownIllness ?? null,
         favoriteColor: input.favoriteColor ?? null,
         graduatedSchool: input.graduatedSchool ?? null,
-        politicalView: input.politicalView ?? null,
         notes: input.notes ?? null,
         isBlacklisted: input.isBlacklisted ?? false,
         blacklistReason: input.blacklistReason ?? null,
@@ -272,6 +336,7 @@ export class ContactsService {
 
   async update(id: string, input: ContactUpdateInput, actor: AuthContext) {
     const existing = await this.get(id, actor);
+    await this.assertAllContactCompaniesVisible(id, actor);
     const patch: Record<string, unknown> = { updatedBy: actor.userId };
     if (input.companyId !== undefined) await this.assertCompany(input.companyId, actor);
     if (input.decisionRoleCode !== undefined) {
@@ -292,10 +357,8 @@ export class ContactsService {
       'birthDate',
       'hometown',
       'favoriteTeam',
-      'knownIllness',
       'favoriteColor',
       'graduatedSchool',
-      'politicalView',
       'notes',
       'isBlacklisted',
       'blacklistReason',
@@ -307,6 +370,10 @@ export class ContactsService {
     await this.db.update(contacts).set(patch).where(eq(contacts.id, id));
     if (input.companyId !== undefined) {
       await this.db
+        .update(contactCompanies)
+        .set({ isPrimary: false })
+        .where(and(eq(contactCompanies.contactId, id), eq(contactCompanies.tenantId, actor.tenantId)));
+      await this.db
         .insert(contactCompanies)
         .values({
           tenantId: actor.tenantId,
@@ -315,6 +382,16 @@ export class ContactsService {
           isPrimary: true,
         })
         .onConflictDoNothing();
+      await this.db
+        .update(contactCompanies)
+        .set({ isPrimary: true })
+        .where(
+          and(
+            eq(contactCompanies.contactId, id),
+            eq(contactCompanies.companyId, input.companyId),
+            eq(contactCompanies.tenantId, actor.tenantId)
+          )
+        );
     }
     await this.audit.write({
       tenantId: actor.tenantId,
@@ -329,12 +406,14 @@ export class ContactsService {
   }
 
   private async assertCompany(companyId: string, actor: AuthContext) {
+    const visibility = await companyVisibilityFilter(this.db, actor);
     const company = await this.db.query.companies.findFirst({
       where: and(
         eq(companies.id, companyId),
         eq(companies.tenantId, actor.tenantId),
         isNull(companies.deletedAt),
-        companyPortfolioFilter(resolveActorDivisionScope(actor), companies.id) ?? sql`true`
+        resourceCompanyPortfolioFilter(actor, 'companies', companies.id) ?? sql`true`,
+        visibility ?? sql`true`
       ),
     });
     if (!company) throw new NotFoundError('Firma');
@@ -342,16 +421,35 @@ export class ContactsService {
   }
 
   private async assertContactVisible(contactId: string, actor: AuthContext) {
-    const scope = resolveActorDivisionScope(actor);
-    if (scope.mode === 'all') return;
-    if (scope.divisionIds.length === 0) throw new NotFoundError('Kontak');
+    const scope = resolveResourceDivisionScope(actor, 'contacts');
+    const visibility = await companyVisibilityFilter(this.db, actor);
+    if (scope.mode === 'list' && scope.divisionIds.length === 0) throw new NotFoundError('Kontak');
     const rows = await this.db
       .select({ contactId: contactCompanies.contactId })
       .from(contactCompanies)
-      .innerJoin(companyDivisions, eq(contactCompanies.companyId, companyDivisions.companyId))
-      .where(and(eq(contactCompanies.contactId, contactId), inArray(companyDivisions.divisionId, scope.divisionIds)))
+      .innerJoin(companies, eq(contactCompanies.companyId, companies.id))
+      .leftJoin(companyDivisions, eq(contactCompanies.companyId, companyDivisions.companyId))
+      .where(
+        and(
+          eq(contactCompanies.contactId, contactId),
+          eq(companies.tenantId, actor.tenantId),
+          isNull(companies.deletedAt),
+          resourceCompanyPortfolioFilter(actor, 'contacts', companies.id) ?? sql`true`,
+          visibility ?? sql`true`,
+          scope.mode === 'all' ? sql`true` : inArray(companyDivisions.divisionId, scope.divisionIds)
+        )
+      )
       .limit(1);
     if (!rows.length) throw new NotFoundError('Kontak');
+  }
+
+  private async canSeeContact(contactId: string, actor: AuthContext) {
+    try {
+      await this.assertContactVisible(contactId, actor);
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   private async findDuplicate(input: ContactCreateInput, actor: AuthContext) {
@@ -371,6 +469,7 @@ export class ContactsService {
 
   async delete(id: string, actor: AuthContext) {
     await this.get(id, actor);
+    await this.assertAllContactCompaniesVisible(id, actor);
     await this.db.update(contacts).set({ deletedAt: new Date() }).where(eq(contacts.id, id));
     await this.audit.write({
       tenantId: actor.tenantId,

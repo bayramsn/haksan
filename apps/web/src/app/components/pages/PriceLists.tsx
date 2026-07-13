@@ -245,9 +245,9 @@ function SearchBox({ q, setQ, placeholder }: { q: string; setQ: (v: string) => v
    SATIŞ FİYAT LİSTESİ — tezgahlar; tıklayınca uyumlu opsiyonel donanım + fiyat
    ========================================================================= */
 export function SalesPriceListPage() {
-  const { products, patchProduct } = useStore();
-  const { hasRole } = useAuth();
-  const canEdit = hasRole("super_admin");
+  const { products } = useStore();
+  const { hasPermission } = useAuth();
+  const canEdit = hasPermission("price_lists.update") || hasPermission("price_lists.create");
   const [q, setQ] = useState("");
   const [selected, setSelected] = useState<Product | null>(null);
   const [priceLists, setPriceLists] = useState<Array<{ id: string; name: string; code: string; isActive?: boolean; currency?: { code?: string } }>>([]);
@@ -299,15 +299,21 @@ export function SalesPriceListPage() {
   const machines = useMemo(() => products.filter((p) => p.categoryCode === "TEZGAH"), [products]);
   const filtered = machines.filter((p) => matches(p, q));
 
-  // Süper admin satır-içi fiyat düzenlemesi: ürünün baz fiyatını PATCH'ler ve
-  // hem store (tablo geneli) hem de yerel override haritası anında güncellenir.
   const savePrice = async (p: Product, field: "cashPrice" | "listPrice", next: number) => {
+    if (!selectedListId) {
+      toast.error("Önce fiyat listesi seçin");
+      return;
+    }
+    const current = priceOverrides[p.id];
+    const payload = { productModelId: p.id, [field]: next };
     try {
-      await patchProduct(p.id, { [field]: next });
-      setPriceOverrides((prev) => ({ ...prev, [p.id]: { ...prev[p.id], [field]: next } }));
+      const saved = current?.itemId
+        ? await productService.updatePriceListItem(selectedListId, current.itemId, payload)
+        : await productService.createPriceListItem(selectedListId, payload);
+      setPriceOverrides((prev) => ({ ...prev, [p.id]: { ...prev[p.id], itemId: saved?.id ?? prev[p.id]?.itemId, [field]: next } }));
       toast.success("Fiyat güncellendi");
-    } catch {
-      toast.error("Fiyat güncellenemedi");
+    } catch (err: any) {
+      toast.error("Fiyat güncellenemedi", { description: err?.message ?? "API isteği başarısız oldu." });
     }
   };
   const saveCampaign = async (
@@ -353,7 +359,7 @@ export function SalesPriceListPage() {
         {canEdit ? (
           <div className="flex items-center gap-2 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-xs text-primary">
             <Pencil className="size-3.5 shrink-0" />
-            <span>Süper admin: Peşin ve Liste fiyatlarına tıklayarak düzenleyebilir; satıra tıklayarak diğer tüm alanları (KDV, stok kodu, açıklama vb.) güncelleyebilirsiniz.</span>
+            <span>Fiyat listesi yetkisi: Peşin ve Liste fiyatlarına tıklayarak seçili liste kalemini düzenleyebilirsiniz.</span>
           </div>
         ) : (
           <ReadOnlyNote text="Fiyat listesi salt-okunur. Tezgaha tıklayarak uyumlu opsiyonel donanımları ve fiyatlarını görebilirsiniz." />
@@ -453,12 +459,50 @@ export function SalesPriceListPage() {
    SERVİS FİYAT LİSTESİ — kategori sekmeli servis kalemleri
    ========================================================================= */
 export function ServicePriceListPage() {
-  const { products, patchProduct } = useStore();
-  const { hasRole } = useAuth();
-  const canEdit = hasRole("super_admin");
+  const { products } = useStore();
+  const { hasPermission } = useAuth();
+  const canEdit = hasPermission("price_lists.update") || hasPermission("price_lists.create");
   const [tab, setTab] = useState<ServicePriceTab>("parts");
   const [q, setQ] = useState("");
   const [selected, setSelected] = useState<Product | null>(null);
+  const [priceLists, setPriceLists] = useState<Array<{ id: string; name: string; code: string; isActive?: boolean; currency?: { code?: string } }>>([]);
+  const [selectedListId, setSelectedListId] = useState("");
+  const [priceOverrides, setPriceOverrides] = useState<Record<string, PriceOverride>>({});
+
+  useEffect(() => {
+    productService
+      .listPriceLists({ pageSize: 50 })
+      .then((res) => {
+        const rows = res.data ?? [];
+        setPriceLists(rows);
+        const active = rows.find((p) => p.isActive) ?? rows[0];
+        if (active?.id) setSelectedListId(active.id);
+      })
+      .catch(() => setPriceLists([]));
+  }, []);
+
+  useEffect(() => {
+    if (!selectedListId) {
+      setPriceOverrides({});
+      return;
+    }
+    productService
+      .listPriceListItems(selectedListId)
+      .then((rows) => {
+        const map: Record<string, PriceOverride> = {};
+        for (const row of rows ?? []) {
+          const pid = row.product?.id ?? row.item?.productModelId;
+          if (!pid) continue;
+          map[pid] = {
+            itemId: row.item?.id,
+            listPrice: row.item?.listPrice != null ? Number(row.item.listPrice) : undefined,
+            cashPrice: row.item?.cashPrice != null ? Number(row.item.cashPrice) : undefined,
+          };
+        }
+        setPriceOverrides(map);
+      })
+      .catch(() => setPriceOverrides({}));
+  }, [selectedListId]);
 
   const categoryCounts = useMemo(() =>
     SERVICE_PRICE_CATEGORIES.reduce<Record<ServicePriceTab, number>>((acc, category) => {
@@ -470,13 +514,24 @@ export function ServicePriceListPage() {
   const categoryProducts = useMemo(() => products.filter((p) => p.categoryCode === activeCategory.code), [products, activeCategory.code]);
   const list = categoryProducts.filter((p) => matches(p, q));
   const isLabor = tab === "labor";
+  const selectedList = priceLists.find((p) => p.id === selectedListId);
+  const listCurrency = selectedList?.currency?.code;
 
   const savePrice = async (p: Product, field: "cashPrice" | "listPrice", next: number) => {
+    if (!selectedListId) {
+      toast.error("Önce fiyat listesi seçin");
+      return;
+    }
+    const current = priceOverrides[p.id];
+    const payload = { productModelId: p.id, [field]: next };
     try {
-      await patchProduct(p.id, { [field]: next });
+      const saved = current?.itemId
+        ? await productService.updatePriceListItem(selectedListId, current.itemId, payload)
+        : await productService.createPriceListItem(selectedListId, payload);
+      setPriceOverrides((prev) => ({ ...prev, [p.id]: { ...prev[p.id], itemId: saved?.id ?? prev[p.id]?.itemId, [field]: next } }));
       toast.success("Fiyat güncellendi");
-    } catch {
-      toast.error("Fiyat güncellenemedi");
+    } catch (err: any) {
+      toast.error("Fiyat güncellenemedi", { description: err?.message ?? "API isteği başarısız oldu." });
     }
   };
 
@@ -496,13 +551,27 @@ export function ServicePriceListPage() {
             })}
           </TabsList>
         </Tabs>
-        <SearchBox q={q} setQ={setQ} placeholder={isLabor ? "İşçilik kalemi ara..." : `${activeCategory.label}, marka ara...`} />
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full sm:w-auto">
+          {priceLists.length > 0 && (
+            <Select value={selectedListId || "none"} onValueChange={(v) => setSelectedListId(v === "none" ? "" : v)}>
+              <SelectTrigger className="h-9 w-full sm:w-56 bg-white">
+                <SelectValue placeholder="Fiyat listesi" />
+              </SelectTrigger>
+              <SelectContent>
+                {priceLists.map((pl) => (
+                  <SelectItem key={pl.id} value={pl.id}>{pl.name || pl.code}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+          <SearchBox q={q} setQ={setQ} placeholder={isLabor ? "İşçilik kalemi ara..." : `${activeCategory.label}, marka ara...`} />
+        </div>
       </div>
 
       {canEdit ? (
         <div className="flex items-center gap-2 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-xs text-primary">
           <Pencil className="size-3.5 shrink-0" />
-          <span>Süper admin: Fiyatlara tıklayarak düzenleyebilir; satıra tıklayarak diğer tüm alanları (KDV, stok kodu, açıklama vb.) güncelleyebilirsiniz.</span>
+          <span>Fiyat listesi yetkisi: Fiyatlara tıklayarak seçili liste kalemini düzenleyebilirsiniz.</span>
         </div>
       ) : (
         <ReadOnlyNote text="Servis fiyat listesi salt-okunur. Kalemler kategori sekmelerine ayrılmıştır." />
@@ -522,7 +591,12 @@ export function ServicePriceListPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {list.map((p) => (
+                {list.map((p) => {
+                  const override = priceOverrides[p.id];
+                  const cash = override?.cashPrice ?? p.cashPrice;
+                  const listPrice = override?.listPrice ?? p.listPrice;
+                  const cur = listCurrency ?? p.currency;
+                  return (
                   <TableRow key={p.id} className="cursor-pointer group" onClick={() => setSelected(p)}>
                     <TableCell>
                       <div className="flex items-center gap-3 min-w-0">
@@ -535,21 +609,21 @@ export function ServicePriceListPage() {
                     </TableCell>
                     <TableCell className="text-sm">{p.brand}</TableCell>
                     <EditablePriceCell
-                      value={p.cashPrice}
-                      currency={p.currency}
+                      value={cash}
+                      currency={cur}
                       editable={canEdit}
                       className="text-emerald-600"
                       onSave={(next) => savePrice(p, "cashPrice", next)}
                     />
                     <EditablePriceCell
-                      value={p.listPrice}
-                      currency={p.currency}
+                      value={listPrice}
+                      currency={cur}
                       editable={canEdit}
                       onSave={(next) => savePrice(p, "listPrice", next)}
                     />
                     <TableCell><ChevronRight className="size-4 text-muted-foreground opacity-0 group-hover:opacity-100" /></TableCell>
                   </TableRow>
-                ))}
+                );})}
                 {list.length === 0 && (
                   <TableRow><TableCell colSpan={5} className="text-center py-16 text-sm text-muted-foreground">{activeCategory.label} bulunamadı.</TableCell></TableRow>
                 )}
@@ -565,7 +639,11 @@ export function ServicePriceListPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {list.map((p) => (
+                {list.map((p) => {
+                  const override = priceOverrides[p.id];
+                  const listPrice = override?.listPrice ?? p.listPrice;
+                  const cur = listCurrency ?? p.currency;
+                  return (
                   <TableRow key={p.id} className="cursor-pointer group" onClick={() => setSelected(p)}>
                     <TableCell>
                       <div className="flex items-center gap-3 min-w-0">
@@ -576,14 +654,14 @@ export function ServicePriceListPage() {
                       </div>
                     </TableCell>
                     <EditablePriceCell
-                      value={p.listPrice}
-                      currency={p.currency}
+                      value={listPrice}
+                      currency={cur}
                       editable={canEdit}
                       onSave={(next) => savePrice(p, "listPrice", next)}
                     />
                     <TableCell className="text-right tabular-nums text-muted-foreground">{p.vatRate ? `%${p.vatRate}` : "—"}</TableCell>
                   </TableRow>
-                ))}
+                );})}
                 {list.length === 0 && (
                   <TableRow><TableCell colSpan={3} className="text-center py-16 text-sm text-muted-foreground">İşçilik kalemi bulunamadı.</TableCell></TableRow>
                 )}

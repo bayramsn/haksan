@@ -33,7 +33,6 @@ export class CallAssistantController {
   ) {
     const raw = body as Record<string, unknown>;
     const env = loadEnv();
-    this.svc.verifyWebhookSecret(req.headers['x-call-webhook-secret'], env.CALL_WEBHOOK_SECRET);
     const headerTenantId = Array.isArray(req.headers['x-haksan-tenant-id'])
       ? req.headers['x-haksan-tenant-id'][0]
       : req.headers['x-haksan-tenant-id'];
@@ -41,7 +40,15 @@ export class CallAssistantController {
       tenantId: typeof raw.tenantId === 'string' ? raw.tenantId : null,
       headerTenantId: typeof headerTenantId === 'string' ? headerTenantId : null,
     });
+    this.svc.verifyTenantWebhookSecret(req.headers['x-call-webhook-secret'], tenantId, env.CALL_WEBHOOK_SECRET);
     return this.svc.ingestWebhook(provider, raw, tenantId);
+  }
+
+  @UseGuards(AuthGuard, PermissionsGuard)
+  @RequirePermissions('companies.read')
+  @Get('call-assistant/webhook-credential')
+  webhookCredential(@CurrentUser() user: AuthContext) {
+    return this.svc.webhookCredential(user, loadEnv().CALL_WEBHOOK_SECRET);
   }
 
   @UseGuards(AuthGuard, PermissionsGuard)

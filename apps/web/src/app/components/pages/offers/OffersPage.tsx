@@ -77,7 +77,7 @@ function invoicePrefillFromOrder(order: any): AccountingInvoicePrefill {
 
 export function OffersPage({ focus }: { focus?: OperationFocus }) {
   const { offers: rawOffers, cases, customers, users, moveCase, refresh } = useStore();
-  const { hasRole } = useAuth();
+  const { hasRole, user, activeDivision, setActiveDivision } = useAuth();
   const { convert } = useFx();
   const isSuperAdmin = hasRole("super_admin");
   const customerName = (id: string) => customers.find((c) => c.id === id)?.name ?? "—";
@@ -91,6 +91,9 @@ export function OffersPage({ focus }: { focus?: OperationFocus }) {
   };
   const [q, setQ] = useState("");
   const [tab, setTab] = useState<"all" | "Draft" | "Sent" | "Approved" | "Rejected">("all");
+  const divisionOptions = user?.divisions ?? [];
+  const [divisionTab, setDivisionTab] = useState(activeDivision !== "all" ? activeDivision : "all");
+  useEffect(() => setDivisionTab(activeDivision !== "all" ? activeDivision : "all"), [activeDivision]);
   const [selectedOfferId, setSelectedOfferId] = useState<string | null>(null);
   const [salesOrders, setSalesOrders] = useState<any[]>([]);
   const [salesOrdersLoading, setSalesOrdersLoading] = useState(false);
@@ -124,6 +127,7 @@ export function OffersPage({ focus }: { focus?: OperationFocus }) {
     const sc = cases.find((s) => s.id === o.salesCaseId);
     return sc?.isLost ? { ...o, status: "Rejected" as const } : o;
   });
+  const divisionOffers = divisionTab === "all" ? offers : offers.filter((offer) => offer.divisionId === divisionTab);
 
   useEffect(() => {
     if (focus === "open" || focus === "pending" || focus === "expired") setTab("Sent");
@@ -131,15 +135,15 @@ export function OffersPage({ focus }: { focus?: OperationFocus }) {
     if (focus === "lost") setTab("Rejected");
   }, [focus]);
 
-  const total = offers.length;
-  const approved = offers.filter((o) => o.status === "Approved").length;
-  const sent = offers.filter((o) => o.status === "Sent").length;
+  const total = divisionOffers.length;
+  const approved = divisionOffers.filter((o) => o.status === "Approved").length;
+  const sent = divisionOffers.filter((o) => o.status === "Sent").length;
   // Farklı para birimleri USD bazına çevrilerek toplanır (baz birim USD).
-  const totalAmount = offers.reduce((a, o) => a + convert(o.amount, o.currency, "USD"), 0);
-  const approvedAmount = offers.filter((o) => o.status === "Approved").reduce((a, o) => a + convert(o.amount, o.currency, "USD"), 0);
+  const totalAmount = divisionOffers.reduce((a, o) => a + convert(o.amount, o.currency, "USD"), 0);
+  const approvedAmount = divisionOffers.filter((o) => o.status === "Approved").reduce((a, o) => a + convert(o.amount, o.currency, "USD"), 0);
   const winRate = total > 0 ? Math.round((approved / total) * 100) : 0;
 
-  const filtered = offers
+  const filtered = divisionOffers
     .filter((o) => {
       if (focusExpired && !offerExpired(o)) return false;
       if (tab !== "all" && o.status !== tab) return false;
@@ -175,7 +179,7 @@ export function OffersPage({ focus }: { focus?: OperationFocus }) {
     ? salesOrders.find((order) => order.quoteId === selectedOffer.id || order.quote?.id === selectedOffer.id)
     : null;
 
-  const offerTrend = useMemo(() => buildOfferTrend(offers, 6), [offers]);
+  const offerTrend = useMemo(() => buildOfferTrend(divisionOffers, 6), [divisionOffers]);
 
   const runQuoteAction = async (offerId: string, action: "send" | "approve" | "reject" | "approve-price" | "reject-price") => {
     try {
@@ -222,6 +226,25 @@ export function OffersPage({ focus }: { focus?: OperationFocus }) {
         <MiniKpi tone="amber" icon={<TrendingUp className="size-[18px]" />} label="Kazanma Oranı" value={`%${winRate}`} sub={`hedef %50`} progress={winRate} />
       </div>
 
+      {divisionOptions.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-[11px] uppercase tracking-wider text-muted-foreground">İş alanı:</span>
+          {[{ id: "all", name: "Tümü" }, ...divisionOptions].map((division) => (
+            <button
+              key={division.id}
+              type="button"
+              onClick={() => {
+                setDivisionTab(division.id);
+                setActiveDivision(division.id);
+              }}
+              className={`rounded-full border px-2.5 py-1 text-xs transition-colors ${divisionTab === division.id ? "border-primary bg-primary text-primary-foreground shadow-xs" : "border-border bg-white text-foreground/70 hover:bg-muted"}`}
+            >
+              {division.name}
+            </button>
+          ))}
+        </div>
+      )}
+
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <Card className="lg:col-span-2 border-border/60 shadow-sm">
           <CardHeader className="pb-2">
@@ -250,7 +273,7 @@ export function OffersPage({ focus }: { focus?: OperationFocus }) {
           </CardHeader>
           <CardContent className="space-y-3 pt-2">
             {(["Draft", "Sent", "Approved", "Rejected"] as const).map((st) => {
-              const items = offers.filter((o) => o.status === st);
+              const items = divisionOffers.filter((o) => o.status === st);
               const pct = total > 0 ? (items.length / total) * 100 : 0;
               const color = st === "Approved" ? "#10b981" : st === "Sent" ? "#3b82f6" : st === "Rejected" ? "#ef4444" : "#9ca3af";
               return (
@@ -336,6 +359,7 @@ export function OffersPage({ focus }: { focus?: OperationFocus }) {
                         </div>
                         <div className="min-w-0">
                           <div className="text-sm leading-tight truncate">{o.quoteNo}</div>
+                          <div className="mt-0.5"><Badge variant="outline" className="h-4 px-1.5 text-[9px]">{o.businessLine ?? o.divisionName ?? "İş alanı yok"}</Badge></div>
                           <div className="text-[11px] text-muted-foreground mt-0.5 truncate">
                             {[sc?.requestedProduct, sc?.requestedModel].filter(Boolean).join(" · ") || (sc ? `#${sc.id.slice(0, 8).toUpperCase()}` : "—")}
                           </div>

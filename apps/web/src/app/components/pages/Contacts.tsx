@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Card } from "../ui/card";
 import { Input } from "../ui/input";
 import { Button } from "../ui/button";
@@ -20,13 +20,17 @@ import { ExportExcelButton } from "../ui/ExportExcelButton";
 import { usePersistentState } from "../../lib/persist";
 import { MiniKpi } from "../shared/MiniKpi";
 import { EmptyState } from "../shared/EmptyState";
+import { useAuth } from "../../../lib/auth";
 
 const initials = (n: string) => n.split(" ").slice(0, 2).map((p) => p[0]).join("").toUpperCase();
 const uniqueSorted = (values: (string | undefined)[]) =>
   Array.from(new Set(values.map((v) => (v ?? "").trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b, "tr"));
+const createdByLabel = (item: Pick<Contact, "createdByName" | "createdByEmail">) =>
+  item.createdByName || item.createdByEmail || "—";
 
 export function ContactsPage() {
   const { contacts, customers, deleteContact } = useStore();
+  const { user, activeDivision, setActiveDivision } = useAuth();
   const { openContact, dialogs } = useDetailDialogs();
   const [editing, setEditing] = useState<Contact | null>(null);
   const [deleting, setDeleting] = useState<Contact | null>(null);
@@ -34,6 +38,9 @@ export function ContactsPage() {
   const [tab, setTab] = useState<"all" | "primary">("all");
   const [dept, setDept] = useState("all");
   const [firmId, setFirmId] = useState("all");
+  const divisionOptions = user?.divisions ?? [];
+  const [divisionTab, setDivisionTab] = useState(activeDivision !== "all" ? activeDivision : "all");
+  useEffect(() => setDivisionTab(activeDivision !== "all" ? activeDivision : "all"), [activeDivision]);
   const [view, setView] = usePersistentState<ListView>("contactsView", "table");
 
   const enriched = contacts.map((k) => ({
@@ -45,6 +52,7 @@ export function ContactsPage() {
     if (tab === "primary" && !k.isPrimary) return false;
     if (dept !== "all" && (k.department ?? "") !== dept) return false;
     if (firmId !== "all" && k.customerId !== firmId) return false;
+    if (divisionTab !== "all" && !k.firm?.divisions?.some((division) => division.id === divisionTab)) return false;
     const t = q.toLowerCase();
     return (
       k.name.toLowerCase().includes(t) ||
@@ -145,6 +153,25 @@ export function ContactsPage() {
         />
       </div>
 
+      {divisionOptions.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-[11px] uppercase tracking-wider text-muted-foreground">İş alanı:</span>
+          {[{ id: "all", name: "Tümü" }, ...divisionOptions].map((division) => (
+            <button
+              key={division.id}
+              type="button"
+              onClick={() => {
+                setDivisionTab(division.id);
+                setActiveDivision(division.id);
+              }}
+              className={`rounded-full border px-2.5 py-1 text-xs transition-colors ${divisionTab === division.id ? "border-primary bg-primary text-primary-foreground shadow-xs" : "border-border bg-white text-foreground/70 hover:bg-muted"}`}
+            >
+              {division.name}
+            </button>
+          ))}
+        </div>
+      )}
+
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <Tabs value={tab} onValueChange={(v) => setTab(v as any)}>
           <TabsList className="h-9 bg-muted/60">
@@ -235,7 +262,12 @@ export function ContactsPage() {
                     </div>
 
                     <div className="flex items-center justify-between gap-2 pt-2 border-t border-border/50">
-                      <div className="text-[11px] text-muted-foreground truncate">{k.note ?? ""}</div>
+                      <div className="min-w-0">
+                        <div className="text-[11px] text-muted-foreground truncate">{k.note ?? ""}</div>
+                        <div className="text-[11px] text-muted-foreground/80 truncate">
+                          Oluşturan: {createdByLabel(k)} · {k.createdAt || "—"}
+                        </div>
+                      </div>
                       {quickActions(k, true)}
                     </div>
                   </div>
@@ -260,6 +292,7 @@ export function ContactsPage() {
                 <TableHead className="text-[11px] uppercase tracking-wider text-muted-foreground">Firma</TableHead>
                 <TableHead className="text-[11px] uppercase tracking-wider text-muted-foreground">Ünvan / Departman</TableHead>
                 <TableHead className="text-[11px] uppercase tracking-wider text-muted-foreground">İletişim</TableHead>
+                <TableHead className="text-[11px] uppercase tracking-wider text-muted-foreground">Oluşturma</TableHead>
                 <TableHead className="w-20"></TableHead>
               </TableRow>
             </TableHeader>
@@ -303,6 +336,12 @@ export function ContactsPage() {
                       <div className="text-xs flex items-center gap-1.5 mt-0.5 text-muted-foreground/50 italic">E-posta yok</div>
                     )}
                   </TableCell>
+                  <TableCell>
+                    <div className="text-xs text-muted-foreground tabular-nums">{k.createdAt || "—"}</div>
+                    <div className="mt-0.5 max-w-[150px] truncate text-[11px] text-muted-foreground/80">
+                      {createdByLabel(k)}
+                    </div>
+                  </TableCell>
                   <TableCell className="text-right">
                     {quickActions(k)}
                   </TableCell>
@@ -310,7 +349,7 @@ export function ContactsPage() {
               ))}
               {filtered.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={5} className="py-4">
+                  <TableCell colSpan={6} className="py-4">
                     {emptyState}
                   </TableCell>
                 </TableRow>

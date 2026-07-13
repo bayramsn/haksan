@@ -19,6 +19,8 @@ import { up as cleanupRemainingCncAliasSpecs } from './010_cleanup_remaining_cnc
 import { up as syncDocDeletePermissions } from './011_sync_doc_delete_permissions';
 import { up as resyncLookupsSpecGroups } from './012_resync_lookups_spec_groups';
 import { up as scopeProductLookupDefaults } from './013_scope_product_lookup_defaults';
+import { up as syncFilePermissions } from './014_sync_file_permissions';
+import { up as seedFilePermissionCatalog } from './015_seed_file_permission_catalog';
 
 export interface DataMigration {
   id: string;
@@ -39,4 +41,6 @@ export const dataMigrations: DataMigration[] = [
   { id: '011_sync_doc_delete_permissions', up: syncDocDeletePermissions },
   { id: '012_resync_lookups_spec_groups', up: resyncLookupsSpecGroups },
   { id: '013_scope_product_lookup_defaults', up: scopeProductLookupDefaults },
+  { id: '014_sync_file_permissions', up: syncFilePermissions },
+  { id: '015_seed_file_permission_catalog', up: seedFilePermissionCatalog },
 ];

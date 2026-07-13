@@ -1,18 +1,24 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull, or, sql } from 'drizzle-orm';
 import type { DbClient } from '../../db/client';
 import { salesActivities, visits, calls, opportunities } from '../../db/schema/crm';
-import { companies, contacts, notifications } from '../../db/schema/companies';
+import { companies, contactCompanies, contacts, notifications } from '../../db/schema/companies';
 import { activityTypes, fileDocumentTypes } from '../../db/schema/lookup';
 import { fileLinks, files } from '../../db/schema/files';
-import { users } from '../../db/schema/users';
+import { userAccessScopes, userDivisions, users } from '../../db/schema/users';
 import { DB } from '../../shared/database/database.module';
 import { NotFoundError, ValidationError } from '../../shared/utils/errors';
 import type { AuthContext } from '../../shared/security/auth.types';
 import type { ActivityCreateInput, ActivityUpdateInput, VisitCreateInput, CallCreateInput, Pagination } from '@haksan/shared';
 import { buildPaginated, pageOffset } from '../../shared/utils/pagination';
 import { lookupIdByCode } from '../../shared/utils/lookup.helper';
-import { divisionFilter, resolveActorDivisionScope, resolveAssignedDivision } from '../../shared/utils/division-scope';
+import {
+  assertCanUseResourceDivision,
+  resourceCompanyPortfolioFilter,
+  resourceDivisionFilter,
+  resolveAssignedResourceDivision,
+} from '../../shared/utils/division-scope';
+import { companyVisibilityExistsFilter, companyVisibilityFilter } from '../../shared/utils/company-visibility';
 
 @Injectable()
 export class ActivitiesService {
@@ -20,7 +26,13 @@ export class ActivitiesService {
 
   private async assertCompany(companyId: string, actor: AuthContext) {
     const company = await this.db.query.companies.findFirst({
-      where: and(eq(companies.id, companyId), eq(companies.tenantId, actor.tenantId), isNull(companies.deletedAt)),
+      where: and(
+        eq(companies.id, companyId),
+        eq(companies.tenantId, actor.tenantId),
+        isNull(companies.deletedAt),
+        resourceCompanyPortfolioFilter(actor, 'companies', companies.id) ?? sql`true`,
+        (await companyVisibilityFilter(this.db, actor)) ?? sql`true`
+      ),
     });
     if (!company) throw new NotFoundError('Firma');
     return company;
@@ -31,13 +43,24 @@ export class ActivitiesService {
       where: and(eq(contacts.id, contactId), eq(contacts.tenantId, actor.tenantId), isNull(contacts.deletedAt)),
     });
     if (!contact) throw new NotFoundError('Kontak');
-    if (contact.companyId !== companyId) throw new ValidationError('Kontak seçilen firmaya ait değil');
+    const [link] = await this.db
+      .select({ contactId: contactCompanies.contactId })
+      .from(contactCompanies)
+      .where(and(eq(contactCompanies.contactId, contactId), eq(contactCompanies.companyId, companyId)))
+      .limit(1);
+    if (contact.companyId !== companyId && !link) throw new ValidationError('Kontak seçilen firmaya ait değil');
     return contact;
   }
 
   private async assertOpportunity(opportunityId: string, actor: AuthContext, companyId: string) {
     const opportunity = await this.db.query.opportunities.findFirst({
-      where: and(eq(opportunities.id, opportunityId), eq(opportunities.tenantId, actor.tenantId), isNull(opportunities.deletedAt)),
+      where: and(
+        eq(opportunities.id, opportunityId),
+        eq(opportunities.tenantId, actor.tenantId),
+        isNull(opportunities.deletedAt),
+        resourceDivisionFilter(actor, 'opportunities', opportunities.divisionId) ?? sql`true`,
+        (await companyVisibilityExistsFilter(this.db, actor, opportunities.companyId)) ?? sql`true`
+      ),
     });
     if (!opportunity) throw new NotFoundError('Fırsat');
     if (opportunity.companyId !== companyId) throw new ValidationError('Fırsat seçilen firmaya ait değil');
@@ -52,8 +75,10 @@ export class ActivitiesService {
 
   private async assertActivity(activityId: string, actor: AuthContext) {
     const filters = [eq(salesActivities.id, activityId), eq(salesActivities.tenantId, actor.tenantId), isNull(salesActivities.deletedAt)];
-    const scoped = divisionFilter(resolveActorDivisionScope(actor), salesActivities.divisionId);
+    const scoped = resourceDivisionFilter(actor, 'activities', salesActivities.divisionId);
     if (scoped) filters.push(scoped);
+    const visibility = await companyVisibilityExistsFilter(this.db, actor, salesActivities.companyId);
+    if (visibility) filters.push(visibility);
     const [row] = await this.db.select().from(salesActivities).where(and(...filters)).limit(1);
     if (!row) throw new NotFoundError('Aktivite');
     return row;
@@ -63,12 +88,19 @@ export class ActivitiesService {
   private async resolveActivityDivision(input: { opportunityId?: string }, actor: AuthContext): Promise<string | null> {
     if (input.opportunityId) {
       const opp = await this.db.query.opportunities.findFirst({
-        where: and(eq(opportunities.id, input.opportunityId), eq(opportunities.tenantId, actor.tenantId)),
+        where: and(
+          eq(opportunities.id, input.opportunityId),
+          eq(opportunities.tenantId, actor.tenantId),
+          resourceDivisionFilter(actor, 'opportunities', opportunities.divisionId) ?? sql`true`
+        ),
         columns: { divisionId: true },
       });
-      if (opp?.divisionId) return opp.divisionId;
+      if (opp?.divisionId) {
+        assertCanUseResourceDivision(actor, 'activities', opp.divisionId);
+        return opp.divisionId;
+      }
     }
-    return resolveAssignedDivision(actor, null);
+    return resolveAssignedResourceDivision(actor, 'activities', null);
   }
 
   async list(actor: AuthContext, query: { opportunityId?: string; companyId?: string }, page: Pagination) {
@@ -76,8 +108,10 @@ export class ActivitiesService {
     const filters = [eq(salesActivities.tenantId, actor.tenantId), isNull(salesActivities.deletedAt)];
     if (query.opportunityId) filters.push(eq(salesActivities.opportunityId, query.opportunityId));
     if (query.companyId) filters.push(eq(salesActivities.companyId, query.companyId));
-    const scoped = divisionFilter(resolveActorDivisionScope(actor), salesActivities.divisionId);
+    const scoped = resourceDivisionFilter(actor, 'activities', salesActivities.divisionId);
     if (scoped) filters.push(scoped);
+    const visibility = await companyVisibilityExistsFilter(this.db, actor, salesActivities.companyId);
+    if (visibility) filters.push(visibility);
     const where = and(...filters);
     const [{ count }] = await this.db
       .select({ count: sql<number>`count(*)::int` })
@@ -144,6 +178,7 @@ export class ActivitiesService {
     const typeId = await lookupIdByCode(this.db, activityTypes, input.activityTypeCode);
     if (!typeId) throw new ValidationError(`Bilinmeyen aktivite türü: ${input.activityTypeCode}`);
     const divisionId = await this.resolveActivityDivision(input, actor);
+    if (!divisionId) throw new ValidationError('Aktivite için bölüm ataması zorunludur', { field: 'divisionId' });
     const [row] = await this.db
       .insert(salesActivities)
       .values({
@@ -198,8 +233,29 @@ export class ActivitiesService {
       if (hit) mentioned.add(u.id);
     }
     if (!mentioned.size) return;
+    let mentionedIds = [...mentioned];
+    if (activity.divisionId) {
+      const [scopeRows, legacyRows] = await Promise.all([
+        this.db
+          .select({ userId: userAccessScopes.userId })
+          .from(userAccessScopes)
+          .where(and(
+            eq(userAccessScopes.tenantId, actor.tenantId),
+            eq(userAccessScopes.resource, 'activities'),
+            inArray(userAccessScopes.userId, mentionedIds),
+            or(isNull(userAccessScopes.divisionId), eq(userAccessScopes.divisionId, activity.divisionId))
+          )),
+        this.db
+          .select({ userId: userDivisions.userId })
+          .from(userDivisions)
+          .where(and(inArray(userDivisions.userId, mentionedIds), eq(userDivisions.divisionId, activity.divisionId))),
+      ]);
+      const visibleUserIds = new Set([...scopeRows.map((row) => row.userId), ...legacyRows.map((row) => row.userId)]);
+      mentionedIds = mentionedIds.filter((userId) => visibleUserIds.has(userId));
+      if (!mentionedIds.length) return;
+    }
     await this.db.insert(notifications).values(
-      [...mentioned].map((userId) => ({
+      mentionedIds.map((userId) => ({
         tenantId: actor.tenantId,
         userId,
         divisionId: activity.divisionId,
@@ -254,6 +310,7 @@ export class ActivitiesService {
   async createVisit(input: VisitCreateInput, actor: AuthContext) {
     await this.assertReferences(input, actor);
     const divisionId = await this.resolveActivityDivision(input, actor);
+    if (!divisionId) throw new ValidationError('Ziyaret için bölüm ataması zorunludur', { field: 'divisionId' });
     const [row] = await this.db
       .insert(visits)
       .values({
@@ -276,6 +333,7 @@ export class ActivitiesService {
   async createCall(input: CallCreateInput, actor: AuthContext) {
     await this.assertReferences(input, actor);
     const divisionId = await this.resolveActivityDivision(input, actor);
+    if (!divisionId) throw new ValidationError('Arama kaydı için bölüm ataması zorunludur', { field: 'divisionId' });
     const [row] = await this.db
       .insert(calls)
       .values({

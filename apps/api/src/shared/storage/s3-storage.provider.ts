@@ -40,6 +40,7 @@ export class S3StorageProvider implements StorageProvider {
         Body: opts.body,
         ContentType: opts.mimeType,
         ContentLength: opts.contentLength,
+        IfNoneMatch: '*',
       })
     );
   }

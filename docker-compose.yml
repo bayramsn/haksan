@@ -59,7 +59,11 @@ services:
       - haksan_internal
     entrypoint: >
       /bin/sh -c "
+      if [ \"$${MINIO_ROOT_USER}\" = \"minioadmin\" ] || [ \"$${MINIO_ROOT_PASSWORD}\" = \"minioadmin\" ]; then exit 1; fi;
+      if [ \"$${MINIO_ROOT_USER}\" = \"$${S3_ACCESS_KEY_ID}\" ] || [ \"$${MINIO_ROOT_PASSWORD}\" = \"$${S3_SECRET_ACCESS_KEY}\" ]; then exit 1; fi;
       mc alias set local http://minio:9000 \"$${MINIO_ROOT_USER}\" \"$${MINIO_ROOT_PASSWORD}\";
+      mc admin user add local \"$${S3_ACCESS_KEY_ID}\" \"$${S3_SECRET_ACCESS_KEY}\" || true;
+      mc admin policy attach local readwrite --user \"$${S3_ACCESS_KEY_ID}\";
       mc mb -p local/erp-product-images || true;
       mc mb -p local/erp-quote-documents || true;
       mc mb -p local/erp-proforma-documents || true;
@@ -68,12 +72,17 @@ services:
       mc mb -p local/erp-stock-documents || true;
       mc mb -p local/erp-service-documents || true;
       mc mb -p local/erp-import-raw || true;
-      mc anonymous set download local/erp-product-images || true;
+      mc mb -p local/$${S3_BACKUP_BUCKET} || true;
+      mc anonymous set none local/erp-product-images || true;
+      mc anonymous set none local/$${S3_BACKUP_BUCKET} || true;
       exit 0;
       "
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:?MINIO_ROOT_USER is required}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD is required}
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:?S3_ACCESS_KEY_ID is required}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:?S3_SECRET_ACCESS_KEY is required}
+      S3_BACKUP_BUCKET: ${S3_BACKUP_BUCKET:?S3_BACKUP_BUCKET is required}
 
   api:
     <<: *runtime-hardening
@@ -86,6 +95,38 @@ services:
     restart: unless-stopped
     env_file:
       - .env
+    # Compose-level required substitutions make `docker compose up` fail before
+    # an API container starts with a partial root .env file.
+    environment:
+      NODE_ENV: ${NODE_ENV:?NODE_ENV is required}
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
+      DATABASE_SSL: ${DATABASE_SSL:?DATABASE_SSL is required}
+      DATABASE_SSL_REJECT_UNAUTHORIZED: ${DATABASE_SSL_REJECT_UNAUTHORIZED:?DATABASE_SSL_REJECT_UNAUTHORIZED is required}
+      DATABASE_ALLOW_PLAINTEXT: ${DATABASE_ALLOW_PLAINTEXT:?DATABASE_ALLOW_PLAINTEXT is required}
+      CORS_ORIGINS: ${CORS_ORIGINS:?CORS_ORIGINS is required}
+      COOKIE_DOMAIN: ${COOKIE_DOMAIN:?COOKIE_DOMAIN is required}
+      COOKIE_SECURE: ${COOKIE_SECURE:?COOKIE_SECURE is required}
+      COOKIE_SAMESITE: ${COOKIE_SAMESITE:?COOKIE_SAMESITE is required}
+      COOKIE_SECRET: ${COOKIE_SECRET:?COOKIE_SECRET is required}
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:?JWT_ACCESS_SECRET is required}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:?JWT_REFRESH_SECRET is required}
+      CALL_WEBHOOK_SECRET: ${CALL_WEBHOOK_SECRET:?CALL_WEBHOOK_SECRET is required}
+      METRICS_TOKEN: ${METRICS_TOKEN:?METRICS_TOKEN is required}
+      S3_ENDPOINT: ${S3_ENDPOINT:?S3_ENDPOINT is required}
+      S3_REGION: ${S3_REGION:?S3_REGION is required}
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:?S3_ACCESS_KEY_ID is required}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:?S3_SECRET_ACCESS_KEY is required}
+      S3_BUCKET_PREFIX: ${S3_BUCKET_PREFIX:?S3_BUCKET_PREFIX is required}
+      S3_BACKUP_BUCKET: ${S3_BACKUP_BUCKET:?S3_BACKUP_BUCKET is required}
+      DB_BACKUP_ENABLED: ${DB_BACKUP_ENABLED:?DB_BACKUP_ENABLED is required}
+      DB_BACKUP_REQUIRED: ${DB_BACKUP_REQUIRED:?DB_BACKUP_REQUIRED is required}
+      DB_BACKUP_TIMEOUT_SECONDS: ${DB_BACKUP_TIMEOUT_SECONDS:?DB_BACKUP_TIMEOUT_SECONDS is required}
+      SMTP_HOST: ${SMTP_HOST:?SMTP_HOST is required}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_SECURE: ${SMTP_SECURE:?SMTP_SECURE is required}
+      SMTP_FROM: ${SMTP_FROM:?SMTP_FROM is required}
+      APP_PUBLIC_URL: ${APP_PUBLIC_URL:?APP_PUBLIC_URL is required}
     depends_on:
       postgres:
         condition: service_healthy

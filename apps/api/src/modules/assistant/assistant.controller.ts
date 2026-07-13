@@ -10,13 +10,14 @@ import { AssistantService } from './assistant.service';
 import { AuthGuard } from '../../shared/security/auth.guard';
 import { CurrentUser } from '../../shared/security/current-user.decorator';
 import type { AuthContext } from '../../shared/security/auth.types';
-import { PermissionsGuard } from '../../shared/security/permissions.guard';
+import { PermissionsGuard, RequirePermissions } from '../../shared/security/permissions.guard';
 import { ZodValidationPipe } from '../../shared/utils/zod-pipe';
 
 const ASSISTANT_THROTTLE = { default: { limit: 10, ttl: 60_000 } };
 
 @UseGuards(AuthGuard, PermissionsGuard)
 @Throttle(ASSISTANT_THROTTLE)
+@RequirePermissions('companies.read')
 @Controller('assistant')
 export class AssistantController {
   constructor(private readonly assistant: AssistantService) {}

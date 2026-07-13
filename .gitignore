@@ -15,14 +15,26 @@ coverage/
 .swarm/
 .hive-mind/
 .ruflo/
+.gstack/
+.cursor/
+.stitch/
+.playwright-cli/
+.tmp/
+tmp/
+output/
 
 .env
-.env.local
-.env.*.local
+.env.*
+!.env.example
+!.env.*.example
 deploy/certbot/
 deploy/keys/
 deploy/security/
 backups/
+*.pem
+*.key
+*.p12
+*.pfx
 
 # Drizzle generated migrations are committed, but local SQLite snapshots are not
 *.sqlite

@@ -23,13 +23,31 @@ export type User = {
 export type FirmType = "customer" | "supplier_customer" | "supplier";
 export type CustomerSalesStatus = "potential" | "active_customer";
 
+export type CompanyAddress = {
+  id?: string;
+  addressType: "office" | "factory" | "work_area" | "shipping" | "billing" | "other";
+  country: string;
+  city?: string;
+  district?: string;
+  address?: string;
+  latitude?: number;
+  longitude?: number;
+  locationSource?: string;
+  isDefault?: boolean;
+};
+
 export type Customer = {
   id: string;
   type: "person" | "company";
   firmType: FirmType;
   salesStatus?: CustomerSalesStatus;
+  /** Firmanın portföyünde olduğu bölümler (CNC / Üniversal / Sac İşleme). */
+  divisions?: Array<{ id: string; code?: string | null; name: string }>;
+  divisionId?: string;
   companyGroupCode?: string;
   companyGroupName?: string;
+  companyGroupCodes?: string[];
+  companyGroupNames?: string[];
   contactSourceCode?: string;
   sector?: string;
   name: string;
@@ -43,6 +61,7 @@ export type Customer = {
   district?: string;
   country?: string;
   address: string;
+  addresses?: CompanyAddress[];
   /** Kalıcı harita konumu (company_addresses.latitude/longitude) */
   latitude?: number;
   longitude?: number;
@@ -55,6 +74,9 @@ export type Customer = {
   source: string;
   status: "active" | "passive";
   createdAt: string;
+  createdByUserId?: string | null;
+  createdByName?: string | null;
+  createdByEmail?: string | null;
 };
 
 export type Contact = {
@@ -77,14 +99,16 @@ export type Contact = {
   decisionRoleName?: string;
   hometown?: string;
   favoriteTeam?: string;
-  knownIllness?: string;
   favoriteColor?: string;
   graduatedSchool?: string;
-  politicalView?: string;
   isPrimary: boolean;
   note?: string;
   isBlacklisted?: boolean;
   blacklistReason?: string;
+  createdAt: string;
+  createdByUserId?: string | null;
+  createdByName?: string | null;
+  createdByEmail?: string | null;
 };
 
 export type SalesStage =
@@ -207,6 +231,10 @@ export type Offer = {
   id: string;
   salesCaseId: string;
   companyId?: string;
+  divisionId?: string;
+  divisionCode?: string;
+  divisionName?: string;
+  businessLine?: "CNC" | "UNI" | "SACISLE";
   quoteNo: string;
   revision: number;
   date: string;
@@ -403,6 +431,7 @@ export type ServiceOperation = {
   quantity: number;
   unitPrice: number;
   currency: "USD" | "EUR" | "TRY";
+  kind?: "labor" | "part";
   createdAt?: string;
   byUserId?: string;
 };
@@ -470,6 +499,7 @@ export type ServiceComplaintLink = {
   notes?: string | null;
   isActive: boolean;
   revokedAt?: string | null;
+  accessTokenExpiresAt?: string | null;
   publicPath?: string;
   qrPublicPath?: string;
   token?: string;
@@ -579,6 +609,16 @@ export type ServiceCompletionCheckItem = {
   custom?: boolean;
 };
 
+export type ServiceFormType = "montaj" | "ariza" | "periyodik";
+export type ServiceFormResponsibility = "ucretli" | "garanti" | "bakim";
+
+export type ServiceCompletionPart = {
+  id: string;
+  description: string;
+  quantity: number;
+  unitPrice: number;
+};
+
 export const SERVICE_COMPLETION_DEFAULT_CHECKS: { id: string; label: string }[] = [
   { id: "tezgah-montaji", label: "Tezgah Montajı" },
   { id: "tezgah-dengeye-alinmasi", label: "Tezgahın Dengeye Alınması" },
@@ -605,10 +645,19 @@ export type ServiceCompletionForm = {
     faks?: string;
     gsm?: string;
     eposta?: string;
+    vergiDairesi?: string;
+    vergiNo?: string;
   };
   checks: ServiceCompletionCheckItem[];
+  musteriSikayeti?: string;
+  serviceType?: ServiceFormType;
+  responsibility?: ServiceFormResponsibility;
   yapilanIsler?: string;       // Serbest metin: yapılan işler özet
   notlar?: string;
+  degisenParcalar?: ServiceCompletionPart[];
+  servisUcreti?: number;
+  ulasimUcreti?: number;
+  currency?: "USD" | "EUR" | "TRY";
   kurulumuYapan?: string;      // Servisi yapan teknisyen
   teslimAlan?: string;         // Tezgahı teslim alan / müşteri yetkilisi
   signedAt?: string;           // İmzalandığı / kapatıldığı an
@@ -654,6 +703,8 @@ export type Shipment = {
   productCategoryCode?: StockItem["categoryCode"];
   destinationWarehouseId?: string;
   destinationWarehouseName?: string;
+  deliveryAddressId?: string;
+  deliveryAddressSnapshot?: string;
   loadingDate?: string;
   trackingNo: string;
   carrier: string;

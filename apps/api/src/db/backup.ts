@@ -1,7 +1,7 @@
 /**
  * Pre-deploy database backup to S3/R2.
  *
- * Streams `pg_dump` (gzip) of DATABASE_URL into the configured object store
+ * Streams `pg_dump` (gzip) into the configured object store
  * using the same S3_* credentials as file storage. Intended to run in Render's
  * preDeployCommand BEFORE migrations, so a bad migration can be rolled back from
  * a fresh snapshot.
@@ -18,86 +18,168 @@
  *
  * Usage (prod): node dist/db/backup.js
  */
-import { spawn } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
+import { spawn, type ChildProcess } from 'node:child_process';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { PassThrough } from 'node:stream';
+import { finished } from 'node:stream/promises';
 import { createGzip } from 'node:zlib';
-import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import { CopyObjectCommand, DeleteObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { loadEnv } from '../config/env';
 
 function timestamp(): string {
   return new Date().toISOString().replace(/[:.]/g, '-');
 }
 
-async function streamToBuffer(stream: NodeJS.ReadableStream): Promise<Buffer> {
-  const chunks: Buffer[] = [];
-  for await (const chunk of stream) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
-  return Buffer.concat(chunks);
+function escapePgpass(value: string): string {
+  return value.replace(/([\\:])/g, '\\$1');
+}
+
+async function createPgpass(databaseUrl: string): Promise<{ directory: string; file: string; safeDatabaseUrl: string }> {
+  const url = new URL(databaseUrl);
+  if (url.protocol !== 'postgres:' && url.protocol !== 'postgresql:') {
+    throw new Error('DATABASE_URL must use the postgres or postgresql scheme');
+  }
+
+  const host = url.hostname;
+  const port = url.port || '5432';
+  const database = decodeURIComponent(url.pathname.replace(/^\//, ''));
+  const username = decodeURIComponent(url.username);
+  const password = decodeURIComponent(url.password);
+  if (!host || !database || !username || !password) {
+    throw new Error('DATABASE_URL must include host, database, username and password for backup');
+  }
+
+  const directory = await mkdtemp(join(tmpdir(), 'haksan-pgpass-'));
+  const file = join(directory, '.pgpass');
+  await writeFile(
+    file,
+    `${escapePgpass(host)}:${escapePgpass(port)}:${escapePgpass(database)}:${escapePgpass(username)}:${escapePgpass(password)}\n`,
+    { mode: 0o600 }
+  );
+
+  // Preserve SSL/query settings while ensuring the password never becomes a
+  // pg_dump command-line argument.
+  url.password = '';
+  url.searchParams.delete('password');
+  return { directory, file, safeDatabaseUrl: url.toString() };
+}
+
+function waitForSpawn(child: ChildProcess): Promise<void> {
+  return new Promise((resolve, reject) => {
+    child.once('spawn', resolve);
+    child.once('error', reject);
+  });
+}
+
+function waitForClose(child: ChildProcess): Promise<number> {
+  return new Promise((resolve) => child.once('close', (code) => resolve(code ?? 1)));
+}
+
+function copySource(bucket: string, key: string): string {
+  return `${encodeURIComponent(bucket)}/${key.split('/').map(encodeURIComponent).join('/')}`;
 }
 
 async function main(): Promise<void> {
-  if (process.env.DB_BACKUP_ENABLED !== 'true') {
+  const env = loadEnv();
+  if (!env.DB_BACKUP_ENABLED) {
     console.log('[backup] DB_BACKUP_ENABLED!=true — skipped.');
     return;
   }
-  const required = process.env.DB_BACKUP_REQUIRED === 'true';
-  const env = loadEnv();
-  const bucket = process.env.S3_BACKUP_BUCKET ?? `${env.S3_BUCKET_PREFIX}-backups`;
+  const required = env.DB_BACKUP_REQUIRED;
+  const bucket = env.S3_BACKUP_BUCKET ?? `${env.S3_BUCKET_PREFIX}-backups`;
   const key = `db-backups/haksan_${timestamp()}.sql.gz`;
-
-  // pg_dump --no-owner --no-acl <DATABASE_URL>; spawn (no shell) avoids injection.
-  const dump = spawn('pg_dump', ['--no-owner', '--no-acl', env.DATABASE_URL], {
-    stdio: ['ignore', 'pipe', 'pipe'],
-  });
-
-  const missingTool = await new Promise<boolean>((resolve) => {
-    dump.on('error', (err: NodeJS.ErrnoException) => {
-      if (err.code === 'ENOENT') resolve(true);
-      else {
-        console.error('[backup] pg_dump spawn error:', err);
-        resolve(false);
-      }
-    });
-    // If it starts producing data, the tool exists.
-    dump.stdout.once('data', () => resolve(false));
-  });
-
-  if (missingTool) {
-    const msg = '[backup] pg_dump not found on PATH.';
-    if (required) {
-      console.error(`${msg} DB_BACKUP_REQUIRED=true — failing deploy.`);
-      process.exit(1);
-    }
-    console.warn(`${msg} Skipping backup (set DB_BACKUP_REQUIRED=true to enforce).`);
-    return;
-  }
-
-  let stderr = '';
-  dump.stderr.on('data', (d) => {
-    stderr += String(d);
-  });
-
-  const gzipped = await streamToBuffer(dump.stdout.pipe(createGzip()));
-  const exitCode: number = await new Promise((resolve) => dump.on('close', resolve));
-  if (exitCode !== 0) {
-    console.error(`[backup] pg_dump exited ${exitCode}: ${stderr.trim()}`);
-    if (required) process.exit(1);
-    return;
-  }
-
   const s3 = new S3Client({
     region: env.S3_REGION,
     endpoint: env.S3_ENDPOINT,
     forcePathStyle: env.S3_FORCE_PATH_STYLE,
     credentials: { accessKeyId: env.S3_ACCESS_KEY_ID, secretAccessKey: env.S3_SECRET_ACCESS_KEY },
   });
-  await s3.send(
-    new PutObjectCommand({ Bucket: bucket, Key: key, Body: gzipped, ContentType: 'application/gzip' })
-  );
+  const pgpass = await createPgpass(env.DATABASE_URL);
+  const temporaryKey = `${key}.partial-${randomUUID()}`;
+  let temporaryObjectExists = false;
+  let killTimer: NodeJS.Timeout | undefined;
 
-  console.log(`[backup] uploaded s3://${bucket}/${key} (${(gzipped.length / 1024 / 1024).toFixed(2)} MB).`);
+  try {
+    const childEnv: NodeJS.ProcessEnv = { ...process.env, PGPASSFILE: pgpass.file };
+    delete childEnv.DATABASE_URL;
+    delete childEnv.PGPASSWORD;
+    const dump = spawn('pg_dump', ['--no-owner', '--no-acl', '--dbname', pgpass.safeDatabaseUrl], {
+      env: childEnv,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    const closePromise = waitForClose(dump);
+
+    try {
+      await waitForSpawn(dump);
+    } catch (err) {
+      const message = (err as NodeJS.ErrnoException).code === 'ENOENT'
+        ? '[backup] pg_dump not found on PATH.'
+        : `[backup] pg_dump could not start: ${err instanceof Error ? err.message : String(err)}`;
+      if (required) throw new Error(message);
+      console.warn(`${message} Skipping backup.`);
+      return;
+    }
+
+    if (!dump.stdout || !dump.stderr) throw new Error('[backup] pg_dump streams were unavailable');
+    let stderr = '';
+    dump.stderr.on('data', (data) => {
+      stderr += String(data);
+    });
+    let timedOut = false;
+    killTimer = setTimeout(() => {
+      timedOut = true;
+      dump.kill('SIGTERM');
+      const forceKillTimer = setTimeout(() => dump.kill('SIGKILL'), 10_000);
+      forceKillTimer.unref();
+    }, env.DB_BACKUP_TIMEOUT_SECONDS * 1_000);
+    killTimer.unref();
+
+    const uploadBody = new PassThrough();
+    const gzip = createGzip();
+    const streamFinished = finished(uploadBody);
+    temporaryObjectExists = true;
+    const upload = s3.send(
+      new PutObjectCommand({ Bucket: bucket, Key: temporaryKey, Body: uploadBody, ContentType: 'application/gzip' })
+    );
+    dump.stdout.pipe(gzip).pipe(uploadBody);
+
+    const exitCode = await closePromise;
+    await streamFinished;
+    await upload;
+    clearTimeout(killTimer);
+    killTimer = undefined;
+
+    if (timedOut || exitCode !== 0) {
+      const reason = timedOut
+        ? `pg_dump exceeded ${env.DB_BACKUP_TIMEOUT_SECONDS} seconds`
+        : `pg_dump exited ${exitCode}: ${stderr.trim()}`;
+      if (required) throw new Error(`[backup] ${reason}`);
+      console.warn(`[backup] ${reason}; backup skipped.`);
+      return;
+    }
+
+    await s3.send(new CopyObjectCommand({ Bucket: bucket, Key: key, CopySource: copySource(bucket, temporaryKey) }));
+    await s3.send(new DeleteObjectCommand({ Bucket: bucket, Key: temporaryKey }));
+    temporaryObjectExists = false;
+    console.log(`[backup] uploaded s3://${bucket}/${key}.`);
+  } finally {
+    if (killTimer) clearTimeout(killTimer);
+    if (temporaryObjectExists) {
+      await s3.send(new DeleteObjectCommand({ Bucket: bucket, Key: temporaryKey })).catch(() => undefined);
+    }
+    await rm(pgpass.directory, { recursive: true, force: true });
+  }
+}
+
+function rawBoolean(value: string | undefined): boolean {
+  return ['true', '1', 'yes', 'on'].includes(value?.trim().toLowerCase() ?? '');
 }
 
 main().catch((err) => {
   console.error('[backup] failed:', err);
   // A backup failure should not silently pass when explicitly required.
-  if (process.env.DB_BACKUP_REQUIRED === 'true') process.exit(1);
+  if (rawBoolean(process.env.DB_BACKUP_REQUIRED)) process.exitCode = 1;
 });

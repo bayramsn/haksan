@@ -10,6 +10,7 @@ export interface AccessTokenPayload {
   email: string;
   roles: string[];
   sid: string;       // session id
+  ver: number;       // user auth/session version
 }
 
 @Injectable()

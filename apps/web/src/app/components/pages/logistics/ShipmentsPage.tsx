@@ -71,7 +71,7 @@ export function ShipmentsPage({ focus }: { focus?: OperationFocus }) {
       const cust =
         customers.find((c) => c.id === full.companyId) ??
         customers.find((c) => c.id === cases.find((x) => x.id === s.salesCaseId)?.customerId);
-      const adres = cust ? [cust.address, cust.district, cust.city].filter(Boolean).join(" ") : undefined;
+      const adres = full.deliveryAddressSnapshot || (cust ? [cust.address, cust.district, cust.city].filter(Boolean).join(" ") : undefined);
       const doc = dispatchNoteDoc(
         {
           irsaliyeNo: full.shipmentNo || full.trackingNo || s.trackingNo || String(full.id).slice(0, 8),

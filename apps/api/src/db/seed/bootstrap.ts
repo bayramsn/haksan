@@ -17,6 +17,11 @@ import { and, eq } from 'drizzle-orm';
 import { getDb, closeDb, schema } from '../client';
 import { allRoles, rolePermissionMatrix } from './_data';
 import { seedLookups } from './lookups';
+import { PERMISSION_RESOURCES } from '@haksan/shared';
+
+const DEFAULT_SCOPE_RESOURCES = PERMISSION_RESOURCES.filter(
+  (resource) => !['tenants', 'users', 'roles', 'departments', 'divisions', 'audit', 'files'].includes(resource)
+);
 
 async function main(): Promise<void> {
   const tenantName = process.env.TENANT_NAME ?? 'Haksan';
@@ -125,6 +130,7 @@ async function main(): Promise<void> {
   const existingUser = await db.query.users.findFirst({
     where: and(eq(schema.users.tenantId, tenant.id), eq(schema.users.email, adminEmail)),
   });
+  let adminUser = existingUser;
   if (existingUser) {
     console.log(`[bootstrap] kullanıcı zaten mevcut, atlandı: ${adminEmail}`);
   } else {
@@ -137,7 +143,23 @@ async function main(): Promise<void> {
     if (superRole) {
       await db.insert(schema.userRoles).values({ userId: user.id, roleId: superRole.id }).onConflictDoNothing();
     }
+    adminUser = user;
     console.log(`[bootstrap] admin oluşturuldu: ${adminEmail} (super_admin)`);
+  }
+  if (adminUser) {
+    await db
+      .insert(schema.userAccessScopes)
+      .values(
+        DEFAULT_SCOPE_RESOURCES.map((resource) => ({
+          tenantId: tenant.id,
+          userId: adminUser.id,
+          resource,
+          departmentId: null,
+          divisionId: null,
+          isPrimary: true,
+        }))
+      )
+      .onConflictDoNothing();
   }
 
   await closeDb();

@@ -8,6 +8,11 @@ import { eq, and, isNull } from 'drizzle-orm';
 import { getDb, closeDb, schema } from '../client';
 import { allRoles, rolePermissionMatrix } from './_data';
 import { seedLookups } from './lookups';
+import { PERMISSION_RESOURCES } from '@haksan/shared';
+
+const DEFAULT_SCOPE_RESOURCES = PERMISSION_RESOURCES.filter(
+  (resource) => !['tenants', 'users', 'roles', 'departments', 'divisions', 'audit', 'files'].includes(resource)
+);
 
 async function getOrCreate<T extends { id: string }>(
   table: { findFirst?: never },
@@ -189,6 +194,37 @@ export async function seedDemo(): Promise<void> {
         .insert(schema.userDivisions)
         .values({ userId: user.id, divisionId: division.id, isPrimary: index === 0 })
         .onConflictDoNothing();
+    }
+    const canViewAll = u.roles.some((role) => role === 'super_admin' || role === 'admin');
+    const hasEveryDemoDivision = allDivisionCodes.every((code) => u.divisionCodes.includes(code));
+    const canUseAllDivisionScope = canViewAll || hasEveryDemoDivision;
+    const accessScopeRows = canUseAllDivisionScope
+      ? DEFAULT_SCOPE_RESOURCES.map((resource) => ({
+          tenantId: tenantRow.id,
+          userId: user.id,
+          resource,
+          departmentId: dept?.id ?? null,
+          divisionId: null,
+          isPrimary: true,
+        }))
+      : DEFAULT_SCOPE_RESOURCES.flatMap((resource) =>
+          u.divisionCodes
+            .map((code, index) => {
+              const division = divisionsByCode.get(code);
+              if (!division) return null;
+              return {
+                tenantId: tenantRow.id,
+                userId: user.id,
+                resource,
+                departmentId: dept?.id ?? null,
+                divisionId: division.id,
+                isPrimary: index === 0,
+              };
+            })
+            .filter((row): row is NonNullable<typeof row> => !!row)
+        );
+    if (accessScopeRows.length) {
+      await db.insert(schema.userAccessScopes).values(accessScopeRows).onConflictDoNothing();
     }
     if (!existing) console.log(`[demo] user: ${u.email} / ${u.password}`);
   }

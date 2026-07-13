@@ -13,6 +13,8 @@ import { StorageService } from '../../shared/storage/storage.service';
 import { ChatRealtimeService } from './chat.realtime';
 import { ForbiddenError, NotFoundError, ValidationError } from '../../shared/utils/errors';
 import type { AuthContext } from '../../shared/security/auth.types';
+import { resourceCompanyPortfolioFilter, resourceDivisionFilter } from '../../shared/utils/division-scope';
+import { companyVisibilityExistsFilter, companyVisibilityFilter } from '../../shared/utils/company-visibility';
 import type {
   CreateGroupInput,
   UpdateGroupInput,
@@ -444,7 +446,15 @@ export class ChatService {
       const owned = await this.db
         .select({ id: files.id })
         .from(files)
-        .where(and(eq(files.tenantId, actor.tenantId), isNull(files.deletedAt), inArray(files.id, fileIds)));
+        .where(
+          and(
+            eq(files.tenantId, actor.tenantId),
+            eq(files.uploadedBy, actor.userId),
+            eq(files.uploadStatus, 'uploaded'),
+            isNull(files.deletedAt),
+            inArray(files.id, fileIds)
+          )
+        );
       if (owned.length !== fileIds.length) throw new ValidationError('Geçersiz veya erişilemeyen ek dosya');
     }
 
@@ -474,9 +484,24 @@ export class ChatService {
           replyToId: input.replyToId ?? null,
           refType: input.refType ?? null,
           refId: input.refId ?? null,
-        })
-        .returning({ id: chatMessages.id });
+      })
+      .returning({ id: chatMessages.id });
       if (fileIds.length) {
+        const claimedFiles = await tx
+          .update(files)
+          .set({ uploadStatus: 'linked' })
+          .where(
+            and(
+              eq(files.tenantId, actor.tenantId),
+              eq(files.uploadedBy, actor.userId),
+              eq(files.uploadStatus, 'uploaded'),
+              inArray(files.id, fileIds)
+            )
+          )
+          .returning({ id: files.id });
+        if (claimedFiles.length !== fileIds.length) {
+          throw new ValidationError('Ek dosyalardan biri başka bir kayda bağlanmış');
+        }
         await tx.insert(fileLinks).values(
           fileIds.map((fid) => ({
             tenantId: actor.tenantId,
@@ -671,32 +696,68 @@ export class ChatService {
     const idsByType: Record<ChatRefType, string[]> = { quote: [], company: [], service_ticket: [], opportunity: [] };
     for (const r of refs) if (!idsByType[r.type].includes(r.id)) idsByType[r.type].push(r.id);
 
-    if (idsByType.quote.length) {
+    if (idsByType.quote.length && actor.permissions.has('quotes.read')) {
+      const visibility = await companyVisibilityExistsFilter(this.db, actor, quotes.companyId);
       const rows = await this.db
         .select({ id: quotes.id, documentNo: quotes.documentNo })
         .from(quotes)
-        .where(and(eq(quotes.tenantId, actor.tenantId), inArray(quotes.id, idsByType.quote)));
+        .where(
+          and(
+            eq(quotes.tenantId, actor.tenantId),
+            isNull(quotes.deletedAt),
+            resourceDivisionFilter(actor, 'quotes', quotes.divisionId) ?? sql`true`,
+            visibility ?? sql`true`,
+            inArray(quotes.id, idsByType.quote)
+          )
+        );
       for (const q of rows) map.set(`quote:${q.id}`, { type: 'quote', id: q.id, title: `Teklif ${q.documentNo}`, subtitle: null });
     }
-    if (idsByType.company.length) {
+    if (idsByType.company.length && actor.permissions.has('companies.read')) {
+      const visibility = await companyVisibilityFilter(this.db, actor);
       const rows = await this.db
         .select({ id: companies.id, legalTitle: companies.legalTitle, shortName: companies.shortName })
         .from(companies)
-        .where(and(eq(companies.tenantId, actor.tenantId), inArray(companies.id, idsByType.company)));
+        .where(
+          and(
+            eq(companies.tenantId, actor.tenantId),
+            isNull(companies.deletedAt),
+            resourceCompanyPortfolioFilter(actor, 'companies', companies.id) ?? sql`true`,
+            visibility ?? sql`true`,
+            inArray(companies.id, idsByType.company)
+          )
+        );
       for (const c of rows) map.set(`company:${c.id}`, { type: 'company', id: c.id, title: c.legalTitle, subtitle: c.shortName });
     }
-    if (idsByType.service_ticket.length) {
+    if (idsByType.service_ticket.length && actor.permissions.has('service_tickets.read')) {
+      const visibility = await companyVisibilityExistsFilter(this.db, actor, serviceTickets.companyId);
       const rows = await this.db
         .select({ id: serviceTickets.id, ticketNo: serviceTickets.ticketNo, subject: serviceTickets.subject })
         .from(serviceTickets)
-        .where(and(eq(serviceTickets.tenantId, actor.tenantId), inArray(serviceTickets.id, idsByType.service_ticket)));
+        .where(
+          and(
+            eq(serviceTickets.tenantId, actor.tenantId),
+            isNull(serviceTickets.deletedAt),
+            resourceDivisionFilter(actor, 'service_tickets', serviceTickets.divisionId) ?? sql`true`,
+            visibility ?? sql`true`,
+            inArray(serviceTickets.id, idsByType.service_ticket)
+          )
+        );
       for (const s of rows) map.set(`service_ticket:${s.id}`, { type: 'service_ticket', id: s.id, title: `Servis ${s.ticketNo}`, subtitle: s.subject });
     }
-    if (idsByType.opportunity.length) {
+    if (idsByType.opportunity.length && actor.permissions.has('opportunities.read')) {
+      const visibility = await companyVisibilityExistsFilter(this.db, actor, opportunities.companyId);
       const rows = await this.db
         .select({ id: opportunities.id, title: opportunities.title })
         .from(opportunities)
-        .where(and(eq(opportunities.tenantId, actor.tenantId), inArray(opportunities.id, idsByType.opportunity)));
+        .where(
+          and(
+            eq(opportunities.tenantId, actor.tenantId),
+            isNull(opportunities.deletedAt),
+            resourceDivisionFilter(actor, 'opportunities', opportunities.divisionId) ?? sql`true`,
+            visibility ?? sql`true`,
+            inArray(opportunities.id, idsByType.opportunity)
+          )
+        );
       for (const o of rows) map.set(`opportunity:${o.id}`, { type: 'opportunity', id: o.id, title: o.title, subtitle: 'Satış kartı' });
     }
     for (const r of refs) {
@@ -726,7 +787,8 @@ export class ChatService {
           eq(fileLinks.entityType, CHAT_ATTACHMENT_ENTITY),
           inArray(fileLinks.entityId, messageIds),
           eq(fileLinks.tenantId, actor.tenantId),
-          isNull(files.deletedAt)
+          isNull(files.deletedAt),
+          eq(files.uploadStatus, 'linked')
         )
       );
     for (const r of rows) {

@@ -36,7 +36,7 @@ export function CreateContractDialog({
   onOpenChange?: (open: boolean) => void;
   onCreated?: (id: string) => void;
 }) {
-  const { offers, customers, cases, documents, noteTemplates, addNoteTemplate, updateNoteTemplate, deleteNoteTemplate, refresh } = useStore();
+  const { offers, customers, cases, noteTemplates, addNoteTemplate, updateNoteTemplate, deleteNoteTemplate, refresh } = useStore();
   const [internalOpen, setInternalOpen] = useState(false);
   const open = controlledOpen ?? internalOpen;
   const setOpen = (next: boolean) => {
@@ -58,14 +58,12 @@ export function CreateContractDialog({
   const [termsDirty, setTermsDirty] = useState(false);
   const [saving, setSaving] = useState(false);
 
-  const contractCount = documents.filter((d) => d.type === "Contract").length;
-  const suggestNo = () => `SOZ-${new Date().getFullYear()}/${String(contractCount + 1).padStart(3, "0")}`;
   const savedTermsTemplates = useTermsTemplates(noteTemplates, CONTRACT_TERMS_TEMPLATE_SCOPE);
 
   useEffect(() => {
     if (!open) return;
     setQuoteId(defaultQuoteId ?? "");
-    setContractNo(suggestNo());
+    setContractNo("");
     setSignedDate(today);
     setPaymentTermDays("");
     setTermsTemplateKey("");
@@ -133,7 +131,6 @@ export function CreateContractDialog({
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!quoteId) return toast.error("Bağlı teklif seçiniz");
-    if (!contractNo.trim()) return toast.error("Sözleşme no zorunludur");
     setSaving(true);
     try {
       const termDays = paymentTermDays.trim() === "" ? undefined : Number(paymentTermDays);
@@ -147,12 +144,12 @@ export function CreateContractDialog({
       }
       const created = await documentService.createContract({
         quoteId,
-        contractNo: contractNo.trim(),
+        contractNo: contractNo.trim() || undefined,
         signedDate: new Date(signedDate),
         paymentTermDays: termDays !== undefined && Number.isFinite(termDays) ? termDays : undefined,
         statusCode: "draft",
       });
-      toast.success("Sözleşme oluşturuldu", { description: contractNo.trim() });
+      toast.success("Sözleşme oluşturuldu", { description: created?.contractNo ?? contractNo.trim() });
       await refresh();
       onCreated?.(created?.id ?? "");
       setOpen(false);
@@ -184,6 +181,7 @@ export function CreateContractDialog({
                     <div className="space-y-2.5">
                       <dl className="space-y-1.5">
                         <SummaryRow label="Teklif No" value={`${selectedOffer.quoteNo}${selectedOffer.revision ? ` · R${selectedOffer.revision}` : ""}`} />
+                        <SummaryRow label="İş Alanı" value={selectedOffer.businessLine ?? selectedOffer.divisionName ?? "—"} />
                         <SummaryRow label="Müşteri" value={selectedCustomer?.name ?? "—"} />
                         {(selectedCustomer?.district || selectedCustomer?.city) && (
                           <SummaryRow label="Konum" value={[selectedCustomer?.district, selectedCustomer?.city].filter(Boolean).join(" / ")} />
@@ -229,13 +227,9 @@ export function CreateContractDialog({
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <Label className="text-xs">Sözleşme No *</Label>
-              <div className="mt-1.5 flex gap-1.5">
-                <Input value={contractNo} onChange={(e) => setContractNo(e.target.value)} placeholder="Otomatik" />
-                <Button type="button" variant="outline" size="sm" onClick={() => setContractNo(suggestNo())}>
-                  Öner
-                </Button>
-              </div>
+              <Label className="text-xs">Sözleşme No</Label>
+              <Input className="mt-1.5" value={contractNo} onChange={(e) => setContractNo(e.target.value)} placeholder={`Otomatik: ${selectedOffer?.businessLine ?? "CNC"}-SOZ-${new Date().getFullYear()}/...`} />
+              <p className="mt-1 text-[10px] text-muted-foreground">Boş bırakılırsa teklifin iş alanına ait seri atanır.</p>
             </div>
             <div>
               <Label className="text-xs">İmza Tarihi</Label>

@@ -98,7 +98,7 @@ import type {
   AssistantExecuteActionResponse,
   AssistantSuggestion,
 } from '@haksan/shared';
-import { API_BASE_URL, ApiError, api, getAccessToken, getActiveDivision } from './apiClient';
+import { API_BASE_URL, ApiError, api, getAccessToken, getActiveDepartment, getActiveDivision } from './apiClient';
 import { exportService } from './downloadExport';
 
 export interface Paginated<T> {
@@ -107,6 +107,9 @@ export interface Paginated<T> {
 }
 
 type SignedUploadResponse = { fileId: string; bucket: string; objectKey: string; uploadUrl: string; expiresInSeconds: number };
+type PriceListItemCreateRequest = Omit<PriceListItemCreateInput, 'campaignIsActive'> & {
+  campaignIsActive?: boolean;
+};
 
 export type ProductImportStatus = 'create' | 'update' | 'error' | 'skip';
 
@@ -153,6 +156,12 @@ export interface ProductImportPreview {
 }
 
 // ───── Companies ─────
+export interface AuditUserDTO {
+  id: string;
+  fullName?: string | null;
+  email?: string | null;
+}
+
 export interface CompanyDTO {
   id: string;
   legalTitle: string;
@@ -164,6 +173,8 @@ export interface CompanyDTO {
   notes?: string | null;
   relationTypeId?: string | null;
   customerStatusId?: string | null;
+  createdBy?: string | null;
+  createdByUser?: AuditUserDTO | null;
   createdAt: string;
 }
 
@@ -425,7 +436,7 @@ export const productService = {
   createPriceList: (body: PriceListCreateInput) => api.post<any>('/price-lists', body),
   updatePriceList: (id: string, body: PriceListUpdateInput) => api.patch<any>(`/price-lists/${id}`, body),
   listPriceListItems: (id: string) => api.get<any[]>(`/price-lists/${id}/items`),
-  createPriceListItem: (id: string, body: PriceListItemCreateInput) => api.post<any>(`/price-lists/${id}/items`, body),
+  createPriceListItem: (id: string, body: PriceListItemCreateRequest) => api.post<any>(`/price-lists/${id}/items`, body),
   updatePriceListItem: (id: string, itemId: string, body: PriceListItemUpdateInput) => api.patch<any>(`/price-lists/${id}/items/${itemId}`, body),
 };
 
@@ -565,7 +576,12 @@ export const purchaseOrderService = {
 };
 
 export const authService = {
-  forgotPassword: (email: string) => api.post<{ ok: boolean; token?: string }>('/auth/forgot-password', { email }),
+  forgotPassword: (email: string, tenantSlug?: string) =>
+    api.post<{ ok: boolean; devToken?: string }>('/auth/forgot-password', {
+      email,
+      tenantSlug: tenantSlug?.trim().toLowerCase() || undefined,
+    }),
+  resetPassword: (token: string, newPassword: string) => api.post<{ ok: boolean }>('/auth/reset-password', { token, newPassword }),
 };
 
 // ───── Commercial documents ─────
@@ -620,6 +636,46 @@ export const serviceService = {
   deleteTicket: (id: string) => api.delete<any>(`/service-tickets/${id}`),
   updateTicketStatus: (id: string, statusCode: string, serviceStage?: string) =>
     api.patch<any>(`/service-tickets/${id}/status`, { statusCode, serviceStage }),
+  openServiceFormPdf: async (id: string, documentNo?: string, existingPreviewWindow?: Window | null): Promise<void> => {
+    const previewWindow = existingPreviewWindow === undefined ? window.open('', '_blank') : existingPreviewWindow;
+    if (previewWindow) {
+      previewWindow.opener = null;
+      previewWindow.document.title = 'Servis formu hazırlanıyor';
+      previewWindow.document.body.textContent = 'Servis formu hazırlanıyor...';
+    }
+    const token = getAccessToken();
+    try {
+      const res = await fetch(`${API_BASE_URL}/service-tickets/${encodeURIComponent(id)}/service-form.pdf`, {
+        method: 'GET',
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        credentials: 'include',
+      });
+      if (!res.ok) {
+        const contentType = res.headers.get('content-type') ?? '';
+        if (contentType.includes('application/json')) {
+          const json = (await res.json().catch(() => null)) as { error?: { message?: string } } | null;
+          throw new Error(json?.error?.message ?? `Servis formu oluşturulamadı (HTTP ${res.status})`);
+        }
+        throw new Error(`Servis formu oluşturulamadı (HTTP ${res.status})`);
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(new Blob([blob], { type: 'application/pdf' }));
+      if (previewWindow) {
+        previewWindow.location.replace(url);
+      } else {
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `servis-formu-${documentNo ?? id}.pdf`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+      }
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    } catch (error) {
+      previewWindow?.close();
+      throw error;
+    }
+  },
   complaints: (params?: Record<string, string | number | undefined>) => api.get<Paginated<any>>(`/service-complaints${qs(params)}`),
   createComplaint: (body: ServiceComplaintCreateInput) => api.post<any>('/service-complaints', body),
   updateComplaint: (id: string, body: ServiceComplaintUpdateInput) => api.patch<any>(`/service-complaints/${id}`, body),
@@ -627,6 +683,7 @@ export const serviceService = {
   rejectComplaint: (id: string, body: ServiceComplaintRejectInput = {}) => api.post<any>(`/service-complaints/${id}/reject`, body),
   complaintLinks: (params?: Record<string, string | number | undefined>) => api.get<Paginated<any>>(`/service-complaint-links${qs(params)}`),
   createComplaintLink: (body: ServiceComplaintLinkCreateInput) => api.post<any>('/service-complaint-links', body),
+  rotateComplaintLink: (id: string) => api.patch<any>(`/service-complaint-links/${id}/rotate`, {}),
   revokeComplaintLink: (id: string) => api.patch<any>(`/service-complaint-links/${id}/revoke`, {}),
   warranty: (id: string) => api.get<any | null>(`/service-tickets/${id}/warranty`),
   updateWarranty: (id: string, body: any) => api.put<any>(`/service-tickets/${id}/warranty`, body),
@@ -670,19 +727,34 @@ export const publicComplaintService = {
       `/public/service-complaints/${encodeURIComponent(slug)}/${encodeURIComponent(token)}/files/signed-upload-url`,
       body
     ),
+  uploadBinary: async (slug: string, token: string, fileId: string, file: Blob, mimeType: string) => {
+    const res = await fetch(
+      `${API_BASE_URL}/public/service-complaints/${encodeURIComponent(slug)}/${encodeURIComponent(token)}/files/${encodeURIComponent(fileId)}/content`,
+      {
+        method: 'PUT',
+        headers: {
+          Accept: 'application/json',
+          'Content-Type': mimeType || 'application/octet-stream',
+        },
+        body: file,
+      }
+    );
+    if (res.ok) return;
+    const contentType = res.headers.get('content-type') ?? '';
+    if (contentType.includes('application/json')) {
+      const json = (await res.json().catch(() => null)) as { error?: { code?: string; message?: string; details?: unknown } } | null;
+      throw new ApiError(
+        res.status,
+        json?.error?.code ?? `HTTP_${res.status}`,
+        json?.error?.message ?? `Hata ${res.status}`,
+        json?.error?.details
+      );
+    }
+    throw new ApiError(res.status, `HTTP_${res.status}`, res.statusText || `Hata ${res.status}`);
+  },
   submit: (slug: string, token: string, body: PublicServiceComplaintInput) =>
     api.post<any>(`/public/service-complaints/${encodeURIComponent(slug)}/${encodeURIComponent(token)}`, body),
 };
-
-async function uploadViaSignedUrl(upload: SignedUploadResponse, file: Blob, mimeType: string): Promise<void> {
-  const res = await fetch(upload.uploadUrl, { method: 'PUT', body: file, headers: { 'Content-Type': mimeType } });
-  if (!res.ok) {
-    const body = await res.text().catch(() => '');
-    const snippet = body.replace(/\s+/g, ' ').trim().slice(0, 240);
-    const reason = snippet ? `${res.status} ${res.statusText} — ${snippet}` : `${res.status} ${res.statusText}`;
-    throw new Error(`Depoya yükleme başarısız: ${reason}`);
-  }
-}
 
 async function uploadViaApi(fileId: string, file: Blob, mimeType: string): Promise<void> {
   const headers: Record<string, string> = {
@@ -691,10 +763,13 @@ async function uploadViaApi(fileId: string, file: Blob, mimeType: string): Promi
   };
   const token = getAccessToken();
   const activeDivision = getActiveDivision();
+  const activeDepartment = getActiveDepartment();
   if (token) headers.Authorization = `Bearer ${token}`;
   if (activeDivision) {
     headers['X-Active-Division'] = activeDivision;
-    headers['X-Active-Department'] = activeDivision;
+  }
+  if (activeDepartment) {
+    headers['X-Active-Department'] = activeDepartment;
   }
 
   const res = await fetch(`${API_BASE_URL}/files/${encodeURIComponent(fileId)}/content`, {
@@ -723,17 +798,7 @@ export const fileService = {
   signedUpload: (body: SignedUploadUrlInput) =>
     api.post<SignedUploadResponse>('/files/signed-upload-url', body),
   uploadBinary: async (upload: SignedUploadResponse, file: Blob, mimeType: string) => {
-    try {
-      await uploadViaSignedUrl(upload, file, mimeType);
-    } catch (directErr: any) {
-      try {
-        await uploadViaApi(upload.fileId, file, mimeType);
-      } catch (apiErr: any) {
-        const directMessage = directErr?.message ?? 'İmzalı URL yükleme başarısız.';
-        const apiMessage = apiErr?.message ?? 'API üzerinden yükleme başarısız.';
-        throw new Error(`${directMessage} API fallback de başarısız: ${apiMessage}`);
-      }
-    }
+    await uploadViaApi(upload.fileId, file, mimeType);
   },
   signedDownload: (fileId: string) => api.post<{ downloadUrl: string; filename: string; mimeType: string }>('/files/signed-download-url', { fileId }),
   link: (body: FileLinkInput) => api.post('/files/link', body),

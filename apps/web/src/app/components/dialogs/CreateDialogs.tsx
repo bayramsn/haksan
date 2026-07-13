@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useMemo } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger,
 } from "../ui/dialog";
@@ -57,7 +57,7 @@ import {
   type AllowedFileExtension,
   type AllowedMimeType,
 } from "@haksan/shared";
-import { provincesForCountry, districtsForCountry } from "../../lib/geoByCountry";
+import { provincesForCountry } from "../../lib/geoByCountry";
 import {
   allCatalogProductSpecs,
   groupProductSpecsForType,
@@ -193,19 +193,18 @@ function useLookupRows(name: string, fallback: LookupRow[] = [], exactDivision =
   return rows;
 }
 
-function useTaxOfficeRows(city: string) {
+function useTaxOfficeRows() {
   const fallback = useMemo<LookupRow[]>(
     () =>
       TAX_OFFICE_OPTIONS
-        .filter((name) => !city || name.toLocaleLowerCase("tr-TR").includes(city.toLocaleLowerCase("tr-TR")))
-        .map((name, index) => ({ code: name, name, province: city, sortOrder: index })),
-    [city],
+        .map((name, index) => ({ code: name, name, sortOrder: index })),
+    [],
   );
   const [rows, setRows] = useState<LookupRow[]>(fallback);
   useEffect(() => {
     let alive = true;
     lookupService
-      .taxOffices(city || undefined)
+      .taxOffices()
       .then((items) => {
         if (!alive) return;
         const normalized = (items ?? [])
@@ -217,12 +216,29 @@ function useTaxOfficeRows(city: string) {
     return () => {
       alive = false;
     };
-  }, [city, fallback]);
+  }, [fallback]);
   return rows;
 }
 
 const lookupCodeOptions = (rows: LookupRow[]) => rows.map((row) => ({ code: row.code, label: row.name }));
 const lookupNameOptions = (rows: LookupRow[]) => rows.map((row) => ({ value: row.name, label: row.name }));
+
+const ADDRESS_TYPE_OPTIONS = [
+  { value: "office", label: "Ofis" },
+  { value: "factory", label: "Fabrika" },
+  { value: "work_area", label: "Çalışma Alanı" },
+  { value: "shipping", label: "Sevkiyat" },
+  { value: "billing", label: "Fatura" },
+  { value: "other", label: "Diğer" },
+] as const;
+
+const emptyAdditionalAddress = () => ({
+  addressType: "factory" as const,
+  country: "Türkiye",
+  city: "",
+  district: "",
+  address: "",
+});
 
 const emptyCompanyForm = () => ({
   name: "",
@@ -243,12 +259,16 @@ const emptyCompanyForm = () => ({
   taxNumber: "",
   website: "",
   initialNote: "",
-  companyGroupCode: "cnc",
+  companyGroupCodes: ["cnc"],
+  divisionId: "",
+  addressType: "office" as const,
+  additionalAddresses: [] as ReturnType<typeof emptyAdditionalAddress>[],
   contactSourceCode: "email",
 });
 
 export function CreateCustomerDialog({ trigger, onCreated }: { trigger: React.ReactNode; onCreated?: (id: string) => void }) {
   const { addCustomer } = useStore();
+  const { user, activeDivision } = useAuth();
   const [open, setOpen] = useState(false);
   // Taslaklar yenilemede korunur; başarılı kayıtta temizlenir.
   const [type, setType] = usePersistentState<"company" | "person">("draft.customer.type", "company");
@@ -257,14 +277,12 @@ export function CreateCustomerDialog({ trigger, onCreated }: { trigger: React.Re
   const [form, setForm] = usePersistentState("draft.customer.form", emptyCompanyForm());
 
   const provinceOptions = useMemo(() => toComboboxOptions(provincesForCountry(form.country)), [form.country]);
-  const districtOptions = useMemo(
-    () => toComboboxOptions(districtsForCountry(form.country, form.city)),
-    [form.country, form.city],
-  );
   const companyGroupRows = useLookupRows("company-groups", COMPANY_GROUP_OPTIONS.map((g) => ({ code: g.code, name: g.label })));
   const contactSourceRows = useLookupRows("contact-sources", CONTACT_SOURCE_OPTIONS.map((s) => ({ code: s.code, name: s.label })));
   const sectorRows = useLookupRows("company-sectors", COMPANY_SECTOR_OPTIONS.map((name, index) => ({ code: name, name, sortOrder: index })));
-  const taxOfficeRows = useTaxOfficeRows(form.city);
+  const taxOfficeRows = useTaxOfficeRows();
+  const divisionOptions = user?.divisions ?? [];
+  const selectedDivisionId = form.divisionId || (activeDivision !== "all" ? activeDivision : divisionOptions.find((d) => d.isPrimary)?.id ?? divisionOptions[0]?.id ?? "");
 
   const reset = () => {
     setForm(emptyCompanyForm());
@@ -280,20 +298,38 @@ export function CreateCustomerDialog({ trigger, onCreated }: { trigger: React.Re
       return;
     }
     try {
-      const { latitude: latitudeRaw, longitude: longitudeRaw, ...companyForm } = form;
+      const { latitude: latitudeRaw, longitude: longitudeRaw, additionalAddresses, addressType, ...companyForm } = form;
       const latitude = latitudeRaw ? Number(latitudeRaw) : undefined;
       const longitude = longitudeRaw ? Number(longitudeRaw) : undefined;
+      const addresses = [
+        {
+          addressType,
+          country: form.country || "Türkiye",
+          city: form.city,
+          district: form.district,
+          address: form.address,
+          latitude: Number.isFinite(latitude) ? latitude : undefined,
+          longitude: Number.isFinite(longitude) ? longitude : undefined,
+          isDefault: true,
+        },
+        ...(additionalAddresses ?? []).map((item) => ({ ...item, isDefault: false })),
+      ].filter((item) => item.address || item.city || item.district);
       const c = await addCustomer({
         ...companyForm,
         type,
         firmType,
-        salesStatus: firmType === "supplier" ? undefined : salesStatus,
+        salesStatus,
+        divisionId: selectedDivisionId,
+        companyGroupCodes: form.companyGroupCodes ?? [],
+        companyGroupNames: companyGroupRows.filter((g) => (form.companyGroupCodes ?? []).includes(g.code)).map((g) => g.name),
+        addresses,
         latitude: Number.isFinite(latitude) ? latitude : undefined,
         longitude: Number.isFinite(longitude) ? longitude : undefined,
         contactPerson: "",
         wantedProduct: "",
         source: contactSourceRows.find((s) => s.code === form.contactSourceCode)?.name ?? "",
-        companyGroupName: companyGroupRows.find((g) => g.code === form.companyGroupCode)?.name ?? "",
+        companyGroupCode: form.companyGroupCodes?.[0] ?? "",
+        companyGroupName: companyGroupRows.find((g) => g.code === form.companyGroupCodes?.[0])?.name ?? "",
       });
       toast.success("Firma oluşturuldu", { description: c.name });
       reset();
@@ -351,9 +387,24 @@ export function CreateCustomerDialog({ trigger, onCreated }: { trigger: React.Re
             </div>
           </div>
 
-          {firmType !== "supplier" && (
-            <div>
-              <Label className="text-xs">Müşteri Statüsü</Label>
+          <div>
+            <Label className="text-xs">İş Alanı *</Label>
+            <div className="grid grid-cols-3 gap-2 mt-1.5">
+              {divisionOptions.map((division) => (
+                <button
+                  key={division.id}
+                  type="button"
+                  onClick={() => setForm({ ...form, divisionId: division.id })}
+                  className={`px-3 py-2 rounded-lg border text-xs ${selectedDivisionId === division.id ? "border-primary bg-primary/5 text-primary" : "border-border"}`}
+                >
+                  {division.name}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div>
+              <Label className="text-xs">Firma Statüsü</Label>
               <div className="grid grid-cols-2 gap-2 mt-1.5">
                 {([
                   { k: "active_customer", l: "Cari" },
@@ -369,20 +420,19 @@ export function CreateCustomerDialog({ trigger, onCreated }: { trigger: React.Re
                   </button>
                 ))}
               </div>
-            </div>
-          )}
+          </div>
 
           <div className="grid grid-cols-2 gap-3">
             <div>
               <Label className="text-xs">Firma Grubu</Label>
-              <Select value={form.companyGroupCode} onValueChange={(v) => setForm({ ...form, companyGroupCode: v })}>
-                <SelectTrigger className="mt-1.5"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {lookupCodeOptions(companyGroupRows).map((g) => (
-                    <SelectItem key={g.code} value={g.code}>{g.label}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <div className="mt-1.5">
+                <MultiSelect
+                  options={lookupCodeOptions(companyGroupRows).map((g) => ({ value: g.code, label: g.label }))}
+                  selected={form.companyGroupCodes ?? []}
+                  onChange={(companyGroupCodes) => setForm({ ...form, companyGroupCodes })}
+                  placeholder="Firma gruplarını seçin"
+                />
+              </div>
             </div>
             <div>
               <Label className="text-xs">Firma İrtibat Şekli</Label>
@@ -409,7 +459,14 @@ export function CreateCustomerDialog({ trigger, onCreated }: { trigger: React.Re
             <Field label="Mail-1" value={form.email} onChange={(v) => setForm({ ...form, email: v })} type="email" />
             <Field label="Mail-2" value={form.email2} onChange={(v) => setForm({ ...form, email2: v })} type="email" />
             <Field label="Web Sitesi" value={form.website} onChange={(v) => setForm({ ...form, website: v })} placeholder="https://..." />
-            <Field label="Açık Adres" value={form.address} onChange={(v) => setForm({ ...form, address: v })} className="col-span-2" />
+            <div>
+              <Label className="text-xs">Adres Türü</Label>
+              <Select value={form.addressType} onValueChange={(value) => setForm({ ...form, addressType: value as typeof form.addressType })}>
+                <SelectTrigger className="mt-1.5"><SelectValue /></SelectTrigger>
+                <SelectContent>{ADDRESS_TYPE_OPTIONS.map((option) => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}</SelectContent>
+              </Select>
+            </div>
+            <Field label="Açık Adres" value={form.address} onChange={(v) => setForm({ ...form, address: v })} />
             <LookupCombobox
               label="Ülke"
               options={toComboboxOptions(COUNTRY_OPTIONS)}
@@ -424,13 +481,7 @@ export function CreateCustomerDialog({ trigger, onCreated }: { trigger: React.Re
               onChange={(v) => setForm({ ...form, city: v, district: "" })}
               placeholder={provinceOptions.length ? "İl seçin veya yazın..." : "İl yazın..."}
             />
-            <LookupCombobox
-              label="İlçe"
-              options={districtOptions}
-              value={form.district}
-              onChange={(v) => setForm({ ...form, district: v })}
-              placeholder={!form.city ? "Önce il seçin" : districtOptions.length ? "İlçe seçin veya yazın..." : "İlçe yazın..."}
-            />
+            <Field label="İlçe" value={form.district} onChange={(v) => setForm({ ...form, district: v })} placeholder="İlçeyi yazın" />
             <div className="col-span-2">
               <OsmCompanySearch
                 query={form.name}
@@ -453,6 +504,30 @@ export function CreateCustomerDialog({ trigger, onCreated }: { trigger: React.Re
                   Harita konumu kayda eklenecek: {Number(form.latitude).toFixed(5)}, {Number(form.longitude).toFixed(5)}
                 </div>
               )}
+            </div>
+            <div className="col-span-2 space-y-3 rounded-lg border border-dashed p-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="text-sm font-medium">Ek adresler</div>
+                  <div className="text-xs text-muted-foreground">Fabrika, çalışma alanı veya sevkiyat adresi ekleyin.</div>
+                </div>
+                <Button type="button" variant="outline" size="sm" onClick={() => setForm({ ...form, additionalAddresses: [...(form.additionalAddresses ?? []), emptyAdditionalAddress()] })}>
+                  <Plus className="mr-1 size-3.5" /> Adres Ekle
+                </Button>
+              </div>
+              {(form.additionalAddresses ?? []).map((item, index) => (
+                <div key={index} className="grid grid-cols-2 gap-2 rounded-md bg-muted/30 p-3">
+                  <Select value={item.addressType} onValueChange={(value) => setForm({ ...form, additionalAddresses: form.additionalAddresses.map((row, i) => i === index ? { ...row, addressType: value as typeof row.addressType } : row) })}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>{ADDRESS_TYPE_OPTIONS.map((option) => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}</SelectContent>
+                  </Select>
+                  <div className="flex justify-end"><Button type="button" size="icon" variant="ghost" onClick={() => setForm({ ...form, additionalAddresses: form.additionalAddresses.filter((_, i) => i !== index) })}><Trash2 className="size-4" /></Button></div>
+                  <Input placeholder="Ülke" value={item.country} onChange={(e) => setForm({ ...form, additionalAddresses: form.additionalAddresses.map((row, i) => i === index ? { ...row, country: e.target.value } : row) })} />
+                  <Input placeholder="İl" value={item.city} onChange={(e) => setForm({ ...form, additionalAddresses: form.additionalAddresses.map((row, i) => i === index ? { ...row, city: e.target.value } : row) })} />
+                  <Input placeholder="İlçe" value={item.district} onChange={(e) => setForm({ ...form, additionalAddresses: form.additionalAddresses.map((row, i) => i === index ? { ...row, district: e.target.value } : row) })} />
+                  <Input placeholder="Açık adres" value={item.address} onChange={(e) => setForm({ ...form, additionalAddresses: form.additionalAddresses.map((row, i) => i === index ? { ...row, address: e.target.value } : row) })} />
+                </div>
+              ))}
             </div>
             <LookupCombobox
               label="Vergi Dairesi"
@@ -496,10 +571,8 @@ const emptyContactForm = (defaultCustomerId?: string) => ({
   decisionRoleCode: "",
   favoriteTeam: "",
   hometown: "",
-  knownIllness: "",
   favoriteColor: "",
   graduatedSchool: "",
-  politicalView: "",
   isPrimary: false,
   note: "",
   isBlacklisted: false,
@@ -545,10 +618,8 @@ export function CreateContactDialog({
         decisionRoleCode: form.decisionRoleCode,
         favoriteTeam: form.favoriteTeam.trim(),
         hometown: form.hometown.trim(),
-        knownIllness: form.knownIllness.trim(),
         favoriteColor: form.favoriteColor.trim(),
         graduatedSchool: form.graduatedSchool.trim(),
-        politicalView: form.politicalView.trim(),
         isPrimary: form.isPrimary,
         note: form.note.trim(),
         isBlacklisted: form.isBlacklisted,
@@ -651,10 +722,8 @@ export function CreateContactDialog({
             <Field label="Doğum Tarihi" type="date" value={form.birthDate} onChange={(v) => setForm({ ...form, birthDate: v })} />
             <Field label="Tuttuğu Takım" value={form.favoriteTeam} onChange={(v) => setForm({ ...form, favoriteTeam: v })} />
             <Field label="Memleketi" value={form.hometown} onChange={(v) => setForm({ ...form, hometown: v })} />
-            <Field label="Bilinen Hastalık" value={form.knownIllness} onChange={(v) => setForm({ ...form, knownIllness: v })} />
             <Field label="Sevdiği Renk" value={form.favoriteColor} onChange={(v) => setForm({ ...form, favoriteColor: v })} />
             <Field label="Mezun Olduğu Okul" value={form.graduatedSchool} onChange={(v) => setForm({ ...form, graduatedSchool: v })} />
-            <Field label="Siyasi Görüş / Parti" value={form.politicalView} onChange={(v) => setForm({ ...form, politicalView: v })} />
             <div className="col-span-2">
               <Label className="text-xs">Not</Label>
               <Textarea className="mt-1.5" rows={3} value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} />
@@ -703,33 +772,47 @@ export function CreateContactDialog({
 /* ---------- Firma düzenleme (controlled) ---------- */
 export function EditCustomerDialog({ customer, onClose }: { customer: Customer | null; onClose: () => void }) {
   const { updateCustomer } = useStore();
+  const { user } = useAuth();
   const [saving, setSaving] = useState(false);
-  const [form, setForm] = useState({
-    name: "", sector: "", phone: "", email: "", city: "", district: "", country: "Türkiye",
-    taxNumber: "", taxOffice: "", website: "",
-  });
-
-  const provinceOptions = useMemo(() => toComboboxOptions(provincesForCountry(form.country)), [form.country]);
-  const districtOptions = useMemo(
-    () => toComboboxOptions(districtsForCountry(form.country, form.city)),
-    [form.country, form.city],
-  );
+  const [form, setForm] = useState<any>({});
   const sectorRows = useLookupRows("company-sectors", COMPANY_SECTOR_OPTIONS.map((name, index) => ({ code: name, name, sortOrder: index })));
-  const taxOfficeRows = useTaxOfficeRows(form.city);
+  const companyGroupRows = useLookupRows("company-groups", COMPANY_GROUP_OPTIONS.map((g) => ({ code: g.code, name: g.label })));
+  const contactSourceRows = useLookupRows("contact-sources", CONTACT_SOURCE_OPTIONS.map((s) => ({ code: s.code, name: s.label })));
+  const taxOfficeRows = useTaxOfficeRows();
+  const divisionOptions = user?.divisions ?? [];
 
   useEffect(() => {
     if (customer)
       setForm({
+        type: customer.type ?? "company",
+        firmType: customer.firmType ?? "customer",
+        salesStatus: customer.salesStatus ?? "potential",
+        divisionIds: customer.divisions?.map((division) => division.id) ?? [],
+        companyGroupCodes: customer.companyGroupCodes ?? (customer.companyGroupCode ? [customer.companyGroupCode] : []),
+        contactSourceCode: customer.contactSourceCode ?? "",
         name: customer.name ?? "",
         sector: customer.sector ?? "",
         phone: customer.phone ?? "",
+        phone2: customer.phone2 ?? "",
+        fax: customer.fax ?? "",
         email: customer.email ?? "",
-        city: customer.city ?? "",
-        district: customer.district ?? "",
-        country: customer.country ?? "Türkiye",
+        email2: customer.email2 ?? "",
         taxNumber: customer.taxNumber ?? "",
         taxOffice: customer.taxOffice ?? "",
         website: customer.website ?? "",
+        initialNote: customer.initialNote ?? "",
+        addresses: customer.addresses?.length
+          ? customer.addresses.map((address) => ({ ...address }))
+          : [{
+              addressType: "office",
+              country: customer.country ?? "Türkiye",
+              city: customer.city ?? "",
+              district: customer.district ?? "",
+              address: customer.address ?? "",
+              latitude: customer.latitude,
+              longitude: customer.longitude,
+              isDefault: true,
+            }],
       });
   }, [customer]);
 
@@ -739,7 +822,13 @@ export function EditCustomerDialog({ customer, onClose }: { customer: Customer |
     if (!form.name.trim()) return toast.error("Firma ünvanı zorunludur");
     setSaving(true);
     try {
-      await updateCustomer(customer.id, form);
+      if (!form.divisionIds?.length) return toast.error("En az bir iş alanı seçin");
+      await updateCustomer(customer.id, {
+        ...form,
+        divisions: divisionOptions.filter((division) => form.divisionIds.includes(division.id)),
+        companyGroupCodes: form.companyGroupCodes ?? [],
+        addresses: (form.addresses ?? []).map((address: any, index: number) => ({ ...address, isDefault: address.isDefault || index === 0 })),
+      });
       toast.success("Firma güncellendi", { description: form.name });
       onClose();
     } catch (err: any) {
@@ -751,48 +840,94 @@ export function EditCustomerDialog({ customer, onClose }: { customer: Customer |
 
   return (
     <Dialog open={!!customer} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-lg">
+      <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Firma Düzenle</DialogTitle>
-          <DialogDescription>Firma temel bilgilerini güncelleyin.</DialogDescription>
+          <DialogDescription>Firma statüsü, iş alanları, iletişim ve adresler dahil tüm alanları güncelleyin.</DialogDescription>
         </DialogHeader>
-        <form onSubmit={submit} className="space-y-3">
-          <Field label="Ünvan *" value={form.name} onChange={(v) => setForm({ ...form, name: v })} />
+        <form onSubmit={submit} className="space-y-5">
+          <div className="grid grid-cols-2 gap-2">
+            {([{ value: "company", label: "Kurumsal" }, { value: "person", label: "Bireysel" }] as const).map((option) => (
+              <button key={option.value} type="button" onClick={() => setForm({ ...form, type: option.value })} className={`rounded-lg border px-3 py-2 text-sm ${form.type === option.value ? "border-primary bg-primary/5 text-primary" : "border-border"}`}>{option.label}</button>
+            ))}
+          </div>
+          <div>
+            <Label className="text-xs">Firma Tipi *</Label>
+            <div className="mt-1.5 grid grid-cols-3 gap-2">
+              {([{ value: "customer", label: "Müşteri" }, { value: "supplier", label: "Tedarikçi" }, { value: "supplier_customer", label: "Müşteri + Tedarikçi" }] as const).map((option) => (
+                <button key={option.value} type="button" onClick={() => setForm({ ...form, firmType: option.value })} className={`rounded-lg border px-3 py-2 text-xs ${form.firmType === option.value ? "border-primary bg-primary/5 text-primary" : "border-border"}`}>{option.label}</button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <Label className="text-xs">Firma Statüsü</Label>
+            <div className="mt-1.5 grid grid-cols-2 gap-2">
+              {([{ value: "active_customer", label: "Cari" }, { value: "potential", label: "Potansiyel" }] as const).map((option) => (
+                <button key={option.value} type="button" onClick={() => setForm({ ...form, salesStatus: option.value })} className={`rounded-lg border px-3 py-2 text-xs ${form.salesStatus === option.value ? "border-primary bg-primary/5 text-primary" : "border-border"}`}>{option.label}</button>
+              ))}
+            </div>
+          </div>
           <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label className="text-xs">İş Alanları *</Label>
+              <div className="mt-1.5"><MultiSelect options={divisionOptions.map((division) => ({ value: division.id, label: division.name }))} selected={form.divisionIds ?? []} onChange={(divisionIds) => setForm({ ...form, divisionIds })} /></div>
+            </div>
+            <div>
+              <Label className="text-xs">Firma Grupları</Label>
+              <div className="mt-1.5"><MultiSelect options={lookupCodeOptions(companyGroupRows).map((group) => ({ value: group.code, label: group.label }))} selected={form.companyGroupCodes ?? []} onChange={(companyGroupCodes) => setForm({ ...form, companyGroupCodes })} /></div>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Ünvan *" value={form.name ?? ""} onChange={(v) => setForm({ ...form, name: v })} />
             <LookupCombobox
               label="Sektör"
               options={lookupNameOptions(sectorRows)}
-              value={form.sector}
+              value={form.sector ?? ""}
               onChange={(v) => setForm({ ...form, sector: v })}
             />
-            <Field label="Web" value={form.website} onChange={(v) => setForm({ ...form, website: v })} />
-            <Field label="Telefon" value={form.phone} onChange={(v) => setForm({ ...form, phone: v })} />
-            <Field label="E-posta" value={form.email} onChange={(v) => setForm({ ...form, email: v })} />
-            <LookupCombobox
-              label="Ülke"
-              options={toComboboxOptions(COUNTRY_OPTIONS)}
-              value={form.country}
-              onChange={(v) => setForm({ ...form, country: v, city: "", district: "" })}
-            />
-            <LookupCombobox
-              label="İl"
-              options={provinceOptions}
-              value={form.city}
-              onChange={(v) => setForm({ ...form, city: v, district: "" })}
-            />
-            <LookupCombobox
-              label="İlçe"
-              options={districtOptions}
-              value={form.district}
-              onChange={(v) => setForm({ ...form, district: v })}
-            />
-            <Field label="VKN" value={form.taxNumber} onChange={(v) => setForm({ ...form, taxNumber: v })} />
+            <Field label="Web" value={form.website ?? ""} onChange={(v) => setForm({ ...form, website: v })} />
+            <Field label="Telefon-1" value={form.phone ?? ""} onChange={(v) => setForm({ ...form, phone: v })} />
+            <Field label="Telefon-2" value={form.phone2 ?? ""} onChange={(v) => setForm({ ...form, phone2: v })} />
+            <Field label="Faks" value={form.fax ?? ""} onChange={(v) => setForm({ ...form, fax: v })} />
+            <Field label="E-posta-1" value={form.email ?? ""} onChange={(v) => setForm({ ...form, email: v })} />
+            <Field label="E-posta-2" value={form.email2 ?? ""} onChange={(v) => setForm({ ...form, email2: v })} />
+            <div>
+              <Label className="text-xs">Firma İrtibat Şekli</Label>
+              <Select value={form.contactSourceCode || undefined} onValueChange={(value) => setForm({ ...form, contactSourceCode: value })}>
+                <SelectTrigger className="mt-1.5"><SelectValue placeholder="Seçin" /></SelectTrigger>
+                <SelectContent>{lookupCodeOptions(contactSourceRows).map((source) => <SelectItem key={source.code} value={source.code}>{source.label}</SelectItem>)}</SelectContent>
+              </Select>
+            </div>
+            <Field label="T.C. / Vergi Kimlik Numarası" value={form.taxNumber ?? ""} onChange={(v) => setForm({ ...form, taxNumber: v })} />
             <LookupCombobox
               label="Vergi Dairesi"
               options={lookupNameOptions(taxOfficeRows)}
-              value={form.taxOffice}
+              value={form.taxOffice ?? ""}
               onChange={(v) => setForm({ ...form, taxOffice: v })}
             />
+            <div className="col-span-2"><Label className="text-xs">Notlar</Label><Textarea className="mt-1.5" rows={3} value={form.initialNote ?? ""} onChange={(event) => setForm({ ...form, initialNote: event.target.value })} /></div>
+          </div>
+          <div className="space-y-3 rounded-lg border p-3">
+            <div className="flex items-center justify-between">
+              <div><div className="text-sm font-medium">Firma Adresleri</div><div className="text-xs text-muted-foreground">İlk adres varsayılan sevkiyat adresidir.</div></div>
+              <Button type="button" size="sm" variant="outline" onClick={() => setForm({ ...form, addresses: [...(form.addresses ?? []), emptyAdditionalAddress()] })}><Plus className="mr-1 size-3.5" /> Adres Ekle</Button>
+            </div>
+            {(form.addresses ?? []).map((address: any, index: number) => {
+              const updateAddress = (patch: Record<string, unknown>) => setForm({ ...form, addresses: form.addresses.map((row: any, rowIndex: number) => rowIndex === index ? { ...row, ...patch } : row) });
+              return (
+                <div key={address.id ?? index} className="grid grid-cols-2 gap-2 rounded-md bg-muted/30 p-3">
+                  <Select value={address.addressType ?? "office"} onValueChange={(value) => updateAddress({ addressType: value })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{ADDRESS_TYPE_OPTIONS.map((option) => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}</SelectContent></Select>
+                  <div className="flex items-center justify-end gap-2">
+                    {index === 0 && <Badge variant="secondary">Varsayılan</Badge>}
+                    <Button type="button" variant="ghost" size="icon" disabled={(form.addresses?.length ?? 0) <= 1} onClick={() => setForm({ ...form, addresses: form.addresses.filter((_: any, rowIndex: number) => rowIndex !== index) })}><Trash2 className="size-4" /></Button>
+                  </div>
+                  <LookupCombobox label="Ülke" options={toComboboxOptions(COUNTRY_OPTIONS)} value={address.country ?? "Türkiye"} onChange={(value) => updateAddress({ country: value, city: "", district: "" })} />
+                  <LookupCombobox label="İl" options={toComboboxOptions(provincesForCountry(address.country ?? "Türkiye"))} value={address.city ?? ""} onChange={(value) => updateAddress({ city: value })} />
+                  <Field label="İlçe" value={address.district ?? ""} onChange={(value) => updateAddress({ district: value })} placeholder="İlçeyi yazın" />
+                  <Field label="Açık Adres" value={address.address ?? ""} onChange={(value) => updateAddress({ address: value })} />
+                </div>
+              );
+            })}
           </div>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={onClose}>Vazgeç</Button>
@@ -982,11 +1117,16 @@ export function EditContactDialog({ contact, onClose }: { contact: Contact | nul
 
 export function CreateCaseDialog({ trigger, defaultCustomerId }: { trigger: React.ReactNode; defaultCustomerId?: string }) {
   const { customers, addCase, addCustomer, users, products } = useStore();
-  const { user, activeDivision, hasRole } = useAuth();
+  const { user, activeDivision, canUseAllDivisionsForResource, hasRole, scopesForResource } = useAuth();
   const isSuperAdmin = hasRole("super_admin");
-  const canPickDivision = isSuperAdmin && (user?.canViewAllDivisions ?? false);
   const divisions = user?.divisions ?? [];
-  const defaultDivisionId = activeDivision && activeDivision !== "all" ? activeDivision : divisions[0]?.id ?? "";
+  const opportunityScopes = scopesForResource("opportunities");
+  const canPickAllOpportunities = opportunityScopes.length === 0 ? (user?.canViewAllDivisions ?? false) : canUseAllDivisionsForResource("opportunities");
+  const scopedOpportunityDivisionIds = new Set(opportunityScopes.map((scope) => scope.divisionId).filter((id): id is string => !!id));
+  const opportunityDivisions =
+    opportunityScopes.length === 0 || canPickAllOpportunities ? divisions : divisions.filter((division) => scopedOpportunityDivisionIds.has(division.id));
+  const canPickDivision = activeDivision === "all" || canPickAllOpportunities || opportunityDivisions.length > 1;
+  const defaultDivisionId = activeDivision && activeDivision !== "all" ? activeDivision : opportunityDivisions.find((d) => d.isPrimary)?.id ?? opportunityDivisions[0]?.id ?? "";
   const [open, setOpen] = useState(false);
   const [selectedProductId, setSelectedProductId] = useState("");
   const [saving, setSaving] = useState(false);
@@ -1154,7 +1294,7 @@ export function CreateCaseDialog({ trigger, defaultCustomerId }: { trigger: Reac
                 <Select value={form.divisionId} onValueChange={(v) => setForm({ ...form, divisionId: v })}>
                   <SelectTrigger className="mt-1.5"><SelectValue placeholder="Bölüm seçin (CNC / Üniversal / Sac)..." /></SelectTrigger>
                   <SelectContent>
-                    {divisions.map((d) => (
+                    {opportunityDivisions.map((d) => (
                       <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>
                     ))}
                   </SelectContent>
@@ -2038,9 +2178,9 @@ const parseOptionalEquipment = (value: string): OptionalEquipmentDraft => {
   return matched ? parsed : { ...parsed, product: value };
 };
 
-const emptyProduct = (): ProductFormState => ({
+const emptyProduct = (productGroupCode = ""): ProductFormState => ({
   brand: "",
-  productGroupCode: "CNC", productGroup: "CNC",
+  productGroupCode, productGroup: findLabel(PRODUCT_GROUPS, productGroupCode, productGroupCode),
   categoryCode: "TEZGAH", category: "Tezgah",
   subcategoryCode: "ISLEME_MERKEZI", subcategory: "İşleme Merkezi",
   productTypeCode: "", type: "",
@@ -2102,12 +2242,21 @@ export function ProductDialog({
   onOpenChange?: (o: boolean) => void;
 }) {
   const { addProduct, updateProduct, products, customers } = useStore();
+  const { activeDivision, user } = useAuth();
+  const activeProductGroupCode = useMemo(() => {
+    if (!activeDivision || activeDivision === "all") return "";
+    const code = user?.divisions.find((division) => division.id === activeDivision)?.code;
+    if (code === "universal") return "UNIVERSAL";
+    if (code === "sac_isleme") return "SAC_ISLEME";
+    return "CNC";
+  }, [activeDivision, user?.divisions]);
   const [internalOpen, setInternalOpen] = useState(false);
   const open = controlledOpen ?? internalOpen;
   const setOpen = (o: boolean) => { onOpenChange ? onOpenChange(o) : setInternalOpen(o); };
+  const productBrandDatalistId = useId();
 
   const [form, setForm] = useState<ProductFormState>(
-    mode === "edit" && product ? fromProduct(product) : emptyProduct()
+    mode === "edit" && product ? fromProduct(product) : emptyProduct(activeProductGroupCode)
   );
   const [stdInput, setStdInput] = useState("");
   const [optionalEquipmentDraft, setOptionalEquipmentDraft] = useState<OptionalEquipmentDraft>(emptyOptionalEquipmentDraft);
@@ -2172,7 +2321,7 @@ export function ProductDialog({
   }, [open]);
 
   const reset = () => {
-    setForm(mode === "edit" && product ? fromProduct(product) : emptyProduct());
+    setForm(mode === "edit" && product ? fromProduct(product) : emptyProduct(activeProductGroupCode));
     setStdInput("");
     setOptionalEquipmentDraft(emptyOptionalEquipmentDraft());
   };
@@ -2199,7 +2348,7 @@ export function ProductDialog({
       const mimeType = file.type as "image/png" | "image/jpeg" | "image/webp";
       const upload = await fileService.signedUpload({
         bucket: "erp-product-images",
-        entityType: "product",
+        entityType: product?.id ? "product" : "product_draft",
         entityId: product?.id ?? "new",
         filename: file.name,
         mimeType,
@@ -2303,6 +2452,7 @@ export function ProductDialog({
         return true;
       })
       .map((p) => p.brand),
+    ...brandRows.map((row) => row.name),
     ...PRODUCT_BRANDS,
     form.brand,
   ].filter(Boolean))).sort((a, b) => a.localeCompare(b, "tr-TR"));
@@ -2473,6 +2623,10 @@ export function ProductDialog({
       toast.error("Ürün tipi seçin");
       return;
     }
+    if (!form.productGroupCode) {
+      toast.error("Ürün grubu seçin", { description: "Tümü kapsamındayken CNC / Üniversal / Sac İşleme gruplarından biri zorunludur." });
+      return;
+    }
     if ((!isLaborProduct && !form.brand.trim()) || !form.shortDescription.trim()) {
       toast.error(isLaborProduct ? "Ürün adı zorunludur" : "Marka ve ürün adı zorunludur");
       return;
@@ -2610,18 +2764,17 @@ export function ProductDialog({
 
             {!isLaborProduct && (
               <ProductSheetRow label="Ürün Markası">
-                <Select
+                <Input
+                  className="h-8 max-w-xs"
+                  list={canSelectProductBrand ? productBrandDatalistId : undefined}
                   value={form.brand}
-                  onValueChange={(v) => setForm({ ...form, brand: v })}
+                  onChange={(e) => setForm({ ...form, brand: e.target.value })}
                   disabled={!canSelectProductBrand}
-                >
-                  <SelectTrigger className="h-8 max-w-xs">
-                    <SelectValue placeholder={canSelectProductBrand ? "Marka seçin" : "Önce ürün tipi seçin"} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {productBrandOptions.map((brand) => <SelectItem key={brand} value={brand}>{brand}</SelectItem>)}
-                  </SelectContent>
-                </Select>
+                  placeholder={canSelectProductBrand ? "Marka seç veya yaz..." : "Önce ürün tipi seçin"}
+                />
+                <datalist id={productBrandDatalistId}>
+                  {productBrandOptions.map((brand) => <option key={brand} value={brand} />)}
+                </datalist>
               </ProductSheetRow>
             )}
 
@@ -3407,6 +3560,10 @@ const emptyShipmentLine = (): ShipmentLineForm => ({
 export function CreateShipmentDialog({ trigger, onCreated }: { trigger: React.ReactNode; onCreated?: () => void }) {
   const { addShipment, cases, customers, products, stock } = useStore();
   const customerName = (id: string) => customers.find((c) => c.id === id)?.name ?? "—";
+  const addressLabel = (address: NonNullable<Customer["addresses"]>[number]) =>
+    [ADDRESS_TYPE_OPTIONS.find((option) => option.value === address.addressType)?.label, address.address, address.district, address.city]
+      .filter(Boolean)
+      .join(" · ");
   const [open, setOpen] = useState(false);
   const [warehouses, setWarehouses] = useState<Array<{ id: string; name: string }>>([]);
   const [senderCompanies, setSenderCompanies] = useState<Array<{ id: string; legalTitle: string; shortName?: string | null }>>([]);
@@ -3414,23 +3571,33 @@ export function CreateShipmentDialog({ trigger, onCreated }: { trigger: React.Re
   // Satır bazında, seçilen tezgahla uyumlu opsiyonel donanım önerileri (ürün-id → sonuç önbelleği).
   const [optionalByLine, setOptionalByLine] = useState<Record<string, Array<{ id: string; label: string }>>>({});
   const optionalCache = useRef<Record<string, Array<{ id: string; label: string }>>>({});
-  const emptyForm = () => ({
-    salesCaseId: cases[0]?.id ?? "",
+  const emptyForm = () => {
+    const initialCase = cases[0];
+    const initialCustomer = initialCase ? customers.find((customer) => customer.id === initialCase.customerId) : undefined;
+    const initialAddress = initialCustomer?.addresses?.find((address) => address.isDefault) ?? initialCustomer?.addresses?.[0];
+    const initialSnapshot = initialAddress
+      ? [initialAddress.address, initialAddress.district, initialAddress.city, initialAddress.country].filter(Boolean).join(", ")
+      : "";
+    return {
+    salesCaseId: initialCase?.id ?? "",
     senderCompanyId: "",
     senderName: "",
     carrierCompanyId: "",
     transportMode: "road" as ShipmentTransportMode,
     productCategoryCode: "TEZGAH" as StockCategoryCode,
     destinationWarehouseId: "",
+    deliveryAddressId: initialAddress?.id ?? "",
+    deliveryAddressSnapshot: initialSnapshot,
     loadingDate: new Date().toISOString().slice(0, 10),
     trackingNo: `TRK-${Math.floor(100000 + Math.random() * 900000)}`,
     carrier: "",
     origin: "",
-    destination: "",
+    destination: initialSnapshot,
     eta: new Date().toISOString().slice(0, 10),
     status: "Hazırlanıyor" as ShipmentStatus,
     items: [emptyShipmentLine()],
-  });
+    };
+  };
   const [form, setForm] = useState(emptyForm);
   const reset = () => setForm(emptyForm());
 
@@ -3519,7 +3686,7 @@ export function CreateShipmentDialog({ trigger, onCreated }: { trigger: React.Re
     if (!form.trackingNo.trim()) return toast.error("Takip no giriniz");
     if (!form.senderCompanyId && !form.senderName.trim()) return toast.error("Gönderici firma seçin veya yazın");
     if (!form.carrierCompanyId && !form.carrier.trim()) return toast.error("Taşıyıcı firma seçin veya yazın");
-    if (!form.destinationWarehouseId && !form.destination.trim()) return toast.error("Varış yeri seçin veya yazın");
+    if (!form.destinationWarehouseId && !form.deliveryAddressId && !form.destination.trim()) return toast.error("Varış yeri veya firma adresi seçin");
     if (!form.items.length || form.items.some((line) => !line.productModelId && !line.description.trim())) {
       return toast.error("Ürün satırlarını tamamlayınız");
     }
@@ -3535,11 +3702,13 @@ export function CreateShipmentDialog({ trigger, onCreated }: { trigger: React.Re
         productCategoryCode: form.productCategoryCode,
         destinationWarehouseId: form.destinationWarehouseId || undefined,
         destinationWarehouseName: destinationWarehouse?.name,
+        deliveryAddressId: form.deliveryAddressId || undefined,
+        deliveryAddressSnapshot: form.deliveryAddressSnapshot || undefined,
         loadingDate: form.loadingDate,
         trackingNo: form.trackingNo.trim(),
         carrier: form.carrierCompanyId ? (carrier?.shortName ?? carrier?.legalTitle ?? "") : form.carrier.trim(),
         origin: form.origin.trim(),
-        destination: destinationWarehouse?.name ?? form.destination.trim(),
+        destination: destinationWarehouse?.name || form.deliveryAddressSnapshot || form.destination.trim(),
         eta: form.eta,
         status: form.status,
         items: form.items.map((line) => ({
@@ -3578,7 +3747,14 @@ export function CreateShipmentDialog({ trigger, onCreated }: { trigger: React.Re
           <div className="grid grid-cols-3 gap-3">
             <div>
               <Label className="text-xs" htmlFor="ship-case">Satış Kartı / Müşteri</Label>
-              <Select value={form.salesCaseId || "none"} onValueChange={(v) => setForm({ ...form, salesCaseId: v === "none" ? "" : v })}>
+              <Select value={form.salesCaseId || "none"} onValueChange={(value) => {
+                const salesCaseId = value === "none" ? "" : value;
+                const selectedCase = cases.find((item) => item.id === salesCaseId);
+                const selectedCustomer = customers.find((customer) => customer.id === selectedCase?.customerId);
+                const selectedAddress = selectedCustomer?.addresses?.find((address) => address.isDefault) ?? selectedCustomer?.addresses?.[0];
+                const snapshot = selectedAddress ? [selectedAddress.address, selectedAddress.district, selectedAddress.city, selectedAddress.country].filter(Boolean).join(", ") : "";
+                setForm({ ...form, salesCaseId, deliveryAddressId: selectedAddress?.id ?? "", deliveryAddressSnapshot: snapshot, destinationWarehouseId: "", destination: snapshot });
+              }}>
                 <SelectTrigger id="ship-case" className="mt-1.5"><SelectValue placeholder="Satış kartı seçin..." /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="none">Bağımsız sevkiyat</SelectItem>
@@ -3642,11 +3818,36 @@ export function CreateShipmentDialog({ trigger, onCreated }: { trigger: React.Re
                   idValue={form.destinationWarehouseId}
                   textValue={form.destination}
                   options={warehouses.map((w) => ({ value: w.id, label: w.name }))}
-                  onPick={(id) => setForm({ ...form, destinationWarehouseId: id, destination: "" })}
-                  onFreeText={(t) => setForm({ ...form, destinationWarehouseId: "", destination: t })}
+                  onPick={(id) => setForm({ ...form, destinationWarehouseId: id, deliveryAddressId: "", deliveryAddressSnapshot: "", destination: "" })}
+                  onFreeText={(t) => setForm({ ...form, destinationWarehouseId: "", deliveryAddressId: "", deliveryAddressSnapshot: "", destination: t })}
                   placeholder="Depo seçin veya yazın"
                 />
               </div>
+            </div>
+            <div>
+              <Label className="text-xs">Firma Teslimat Adresi</Label>
+              <Select
+                value={form.deliveryAddressId || "none"}
+                onValueChange={(value) => {
+                  const selectedCase = cases.find((item) => item.id === form.salesCaseId);
+                  const selectedCustomer = customers.find((customer) => customer.id === selectedCase?.customerId);
+                  const selectedAddress = selectedCustomer?.addresses?.find((address) => address.id === value);
+                  const snapshot = selectedAddress ? [selectedAddress.address, selectedAddress.district, selectedAddress.city, selectedAddress.country].filter(Boolean).join(", ") : "";
+                  setForm({ ...form, deliveryAddressId: selectedAddress?.id ?? "", deliveryAddressSnapshot: snapshot, destinationWarehouseId: "", destination: snapshot });
+                }}
+              >
+                <SelectTrigger className="mt-1.5"><SelectValue placeholder="Firma adresi seçin" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Firma adresi kullanılmayacak</SelectItem>
+                  {(() => {
+                    const selectedCase = cases.find((item) => item.id === form.salesCaseId);
+                    const selectedCustomer = customers.find((customer) => customer.id === selectedCase?.customerId);
+                    return (selectedCustomer?.addresses ?? []).filter((address) => address.id).map((address) => (
+                      <SelectItem key={address.id} value={address.id!}>{addressLabel(address)}</SelectItem>
+                    ));
+                  })()}
+                </SelectContent>
+              </Select>
             </div>
             <Field label="Takip No *" name="ship-tracking" value={form.trackingNo} onChange={(v) => setForm({ ...form, trackingNo: v })} placeholder="TRK-000000" />
             <Field label="Çıkış" name="ship-origin" value={form.origin} onChange={(v) => setForm({ ...form, origin: v })} placeholder="Hamburg" />

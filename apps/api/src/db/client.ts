@@ -14,8 +14,14 @@ export function getPool(): Pool {
       max: env.DATABASE_POOL_MAX,
       connectionTimeoutMillis: 10_000,
       idleTimeoutMillis: 30_000,
-      // Managed Postgres TLS (env.DATABASE_SSL=true). Self-hosted'da kapalı.
-      ssl: env.DATABASE_SSL ? { rejectUnauthorized: false } : undefined,
+      // Managed Postgres TLS (env.DATABASE_SSL=true). Sertifika doğrulaması
+      // kapatılamaz; özel CA gereken kurulumlar CA'yı ortamdan sağlar.
+      ssl: env.DATABASE_SSL
+        ? {
+            rejectUnauthorized: env.DATABASE_SSL_REJECT_UNAUTHORIZED,
+            ...(env.DATABASE_SSL_CA ? { ca: env.DATABASE_SSL_CA.replace(/\\n/g, '\n') } : {}),
+          }
+        : undefined,
     });
   }
   return _pool;

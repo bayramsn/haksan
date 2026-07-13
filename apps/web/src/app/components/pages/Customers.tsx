@@ -49,13 +49,16 @@ const FIRM_TYPE_ACCENT: Record<FirmType, string> = {
   supplier: "bg-warning",
 };
 
+const createdByLabel = (item: Pick<Customer, "createdByName" | "createdByEmail">) =>
+  item.createdByName || item.createdByEmail || "—";
+
 export function CustomersPage(_props: { onSelect?: (c: Customer) => void } = {}) {
   const { customers, deleteCustomer } = useStore();
   const { openCompany, dialogs } = useDetailDialogs();
   // Rol bazlı görünürlük (backend ile aynı kural): yalnızca sales/service rolleri
   // kısıtlıdır. Kısıtlı kullanıcılar tedarikçi sekmesini hiç görmez; servis-only
   // kullanıcılar ayrıca potansiyel müşteri sekmesini görmez (sales görür).
-  const { user } = useAuth();
+  const { user, activeDivision, setActiveDivision } = useAuth();
   const roles = user?.roles ?? [];
   const restricted = roles.length > 0 && roles.every((r) => r === "sales" || r === "service");
   const canSeeSuppliers = !restricted;
@@ -65,6 +68,14 @@ export function CustomersPage(_props: { onSelect?: (c: Customer) => void } = {})
   const [q, setQ] = useState("");
   const [tab, setTab] = useState<"all" | FirmType>("all");
   const [salesTab, setSalesTab] = useState<"all" | "potential" | "active_customer">("all");
+  // Bölüm filtresi: hangi bölümden girildiyse o seçili başlar; "Tümü" hepsini gösterir.
+  const divisionOptions = user?.divisions ?? [];
+  const [divisionTab, setDivisionTab] = useState<string>(() =>
+    activeDivision && activeDivision !== "all" ? activeDivision : "all"
+  );
+  useEffect(() => {
+    setDivisionTab(activeDivision && activeDivision !== "all" ? activeDivision : "all");
+  }, [activeDivision]);
   const [city, setCity] = useState("all");
   const [sector, setSector] = useState("all");
   const [nameSort, setNameSort] = useState<"asc" | "desc" | null>(null);
@@ -84,8 +95,9 @@ export function CustomersPage(_props: { onSelect?: (c: Customer) => void } = {})
 
   const filtered = customers.filter((c) => {
     if (tab !== "all" && c.firmType !== tab) return false;
-    if (salesTab !== "all" && c.firmType !== "supplier" && c.salesStatus !== salesTab) return false;
-    if (salesTab !== "all" && c.firmType === "supplier") return false;
+    // Statü filtresi tedarikçiler dahil tüm firma türlerine uygulanır.
+    if (salesTab !== "all" && c.salesStatus !== salesTab) return false;
+    if (divisionTab !== "all" && !(c.divisions ?? []).some((d) => d.id === divisionTab)) return false;
     if (city !== "all" && c.city !== city) return false;
     if (sector !== "all" && (c.sector ?? "") !== sector) return false;
     const t = q.toLowerCase();
@@ -117,6 +129,7 @@ export function CustomersPage(_props: { onSelect?: (c: Customer) => void } = {})
     ...(tab !== "all" ? { relationTypeCode: tab } : {}),
     ...(salesTab === "active_customer" ? { customerStatusCode: "active" } : {}),
     ...(salesTab === "potential" ? { customerStatusCode: "potential" } : {}),
+    ...(divisionTab !== "all" ? { divisionId: divisionTab } : {}),
   };
 
   const countBy = (ft: FirmType) => customers.filter((c) => c.firmType === ft).length;
@@ -231,28 +244,48 @@ export function CustomersPage(_props: { onSelect?: (c: Customer) => void } = {})
         </div>
       </div>
 
-      {tab !== "supplier" && (
+      {divisionOptions.length > 0 && (
         <div className="flex items-center gap-2 flex-wrap">
-          <span className="text-[11px] uppercase tracking-wider text-muted-foreground">Müşteri Statüsü:</span>
-          {(([
-            { k: "all", l: "Hepsi" },
-            ...(canSeePotential ? [{ k: "potential", l: "Potansiyel" }] : []),
-            { k: "active_customer", l: "Cari Satış Yapılan" },
-          ]) as { k: "all" | "potential" | "active_customer"; l: string }[]).map((s) => (
+          <span className="text-[11px] uppercase tracking-wider text-muted-foreground">Bölüm:</span>
+          {[{ id: "all", name: "Tümü" }, ...divisionOptions].map((d) => (
             <button
-              key={s.k}
-              onClick={() => setSalesTab(s.k)}
+              key={d.id}
+              onClick={() => {
+                setDivisionTab(d.id);
+                setActiveDivision(d.id);
+              }}
               className={`text-xs px-2.5 py-1 rounded-full border transition-colors ${
-                salesTab === s.k
+                divisionTab === d.id
                   ? "bg-primary text-primary-foreground border-primary shadow-xs"
                   : "bg-white border-border text-foreground/70 hover:bg-muted"
               }`}
             >
-              {s.l}
+              {d.name}
             </button>
           ))}
         </div>
       )}
+
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="text-[11px] uppercase tracking-wider text-muted-foreground">Müşteri Statüsü:</span>
+        {(([
+          { k: "all", l: "Hepsi" },
+          ...(canSeePotential ? [{ k: "potential", l: "Potansiyel" }] : []),
+          { k: "active_customer", l: "Cari Satış Yapılan" },
+        ]) as { k: "all" | "potential" | "active_customer"; l: string }[]).map((s) => (
+          <button
+            key={s.k}
+            onClick={() => setSalesTab(s.k)}
+            className={`text-xs px-2.5 py-1 rounded-full border transition-colors ${
+              salesTab === s.k
+                ? "bg-primary text-primary-foreground border-primary shadow-xs"
+                : "bg-white border-border text-foreground/70 hover:bg-muted"
+            }`}
+          >
+            {s.l}
+          </button>
+        ))}
+      </div>
 
       {view === "cards" ? (
         <>
@@ -286,17 +319,20 @@ export function CustomersPage(_props: { onSelect?: (c: Customer) => void } = {})
                           <span className={`inline-flex items-center px-2 py-0.5 rounded-full border text-[10px] whitespace-nowrap ${FIRM_TYPE_COLOR[c.firmType]}`}>
                             {FIRM_TYPE_LABEL[c.firmType]}
                           </span>
-                          {c.firmType !== "supplier" && (
-                            c.salesStatus === "active_customer" ? (
-                              <span className="inline-flex px-2 py-0.5 rounded-full border text-[10px] bg-success-soft text-success border-success/20">
-                                Cari Satış
-                              </span>
-                            ) : (
-                              <span className="inline-flex px-2 py-0.5 rounded-full border text-[10px] bg-muted text-muted-foreground border-border">
-                                Potansiyel
-                              </span>
-                            )
+                          {c.salesStatus === "active_customer" ? (
+                            <span className="inline-flex px-2 py-0.5 rounded-full border text-[10px] bg-success-soft text-success border-success/20">
+                              Cari Satış
+                            </span>
+                          ) : (
+                            <span className="inline-flex px-2 py-0.5 rounded-full border text-[10px] bg-muted text-muted-foreground border-border">
+                              Potansiyel
+                            </span>
                           )}
+                          {(c.divisions ?? []).map((d) => (
+                            <span key={d.id} className="inline-flex px-2 py-0.5 rounded-full border text-[10px] bg-primary/5 text-primary border-primary/20">
+                              {d.name}
+                            </span>
+                          ))}
                         </div>
                       </div>
                       <DropdownMenu>
@@ -337,7 +373,10 @@ export function CustomersPage(_props: { onSelect?: (c: Customer) => void } = {})
                     <div className="flex items-center justify-between gap-2 pt-2 border-t border-border/50">
                       <div className="min-w-0">
                         <div className="text-[11px] text-muted-foreground truncate">
-                          {c.companyGroupName || c.source || "Grup / kaynak yok"}
+                          {c.companyGroupNames?.join(", ") || c.companyGroupName || c.source || "Grup / kaynak yok"}
+                        </div>
+                        <div className="text-[11px] text-muted-foreground/80 truncate">
+                          Oluşturan: {createdByLabel(c)} · {c.createdAt || "—"}
                         </div>
                       </div>
                       {(balanceMap[c.id] ?? 0) > 0 ? (
@@ -418,11 +457,14 @@ export function CustomersPage(_props: { onSelect?: (c: Customer) => void } = {})
                     <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[11px] whitespace-nowrap ${FIRM_TYPE_COLOR[c.firmType]}`}>
                       {FIRM_TYPE_LABEL[c.firmType]}
                     </span>
+                    <div className="mt-1 flex flex-wrap gap-1">
+                      {(c.divisions ?? []).map((division) => (
+                        <span key={division.id} className="rounded-full border border-primary/20 bg-primary/5 px-1.5 py-0.5 text-[10px] text-primary">{division.name}</span>
+                      ))}
+                    </div>
                   </TableCell>
                   <TableCell>
-                    {c.firmType === "supplier" ? (
-                      <span className="text-[11px] text-muted-foreground">—</span>
-                    ) : c.salesStatus === "active_customer" ? (
+                    {c.salesStatus === "active_customer" ? (
                       <span className="inline-flex px-2 py-0.5 rounded-full border text-[11px] bg-success-soft text-success border-success/20">
                         Cari Satış
                       </span>
@@ -445,7 +487,7 @@ export function CustomersPage(_props: { onSelect?: (c: Customer) => void } = {})
                     </div>
                   </TableCell>
                   <TableCell>
-                    <div className="text-xs leading-tight">{c.companyGroupName || "—"}</div>
+                    <div className="text-xs leading-tight">{c.companyGroupNames?.join(", ") || c.companyGroupName || "—"}</div>
                     <div className="text-[11px] text-muted-foreground mt-0.5">{c.source || "Kaynak yok"}</div>
                   </TableCell>
                   <TableCell className="text-right tabular-nums text-sm">
@@ -455,7 +497,12 @@ export function CustomersPage(_props: { onSelect?: (c: Customer) => void } = {})
                       <span className="text-muted-foreground">—</span>
                     )}
                   </TableCell>
-                  <TableCell className="text-xs text-muted-foreground tabular-nums">{c.createdAt}</TableCell>
+                  <TableCell>
+                    <div className="text-xs text-muted-foreground tabular-nums">{c.createdAt || "—"}</div>
+                    <div className="mt-0.5 max-w-[150px] truncate text-[11px] text-muted-foreground/80">
+                      {createdByLabel(c)}
+                    </div>
+                  </TableCell>
                   <TableCell className="text-right">
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>

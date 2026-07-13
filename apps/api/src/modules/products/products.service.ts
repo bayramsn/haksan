@@ -14,8 +14,11 @@ import {
   productEquipmentItems,
   productOptionSets,
   productOptionValues,
+  productMedia,
 } from '../../db/schema/products';
+import { files } from '../../db/schema/files';
 import { companies } from '../../db/schema/companies';
+import { divisions } from '../../db/schema/tenants';
 import {
   productGroups,
   productCategories,
@@ -49,7 +52,11 @@ import type {
 import { productImportRowSchema } from '@haksan/shared';
 import { buildPaginated, pageOffset } from '../../shared/utils/pagination';
 import { lookupIdByCode } from '../../shared/utils/lookup.helper';
-import { divisionFilterWithShared, resolveActorDivisionScope } from '../../shared/utils/division-scope';
+import {
+  assertCanUseResourceDivision,
+  resourceDivisionFilterWithShared,
+  resolveAssignedResourceDivision,
+} from '../../shared/utils/division-scope';
 import { AuditService } from '../../shared/database/audit.service';
 
 type ImportStatus = 'create' | 'update' | 'error' | 'skip';
@@ -77,6 +84,9 @@ type ParsedImportFile = {
   headerRowNumber: number;
   rows: Array<Record<string, unknown> & { rowNumber: number }>;
 };
+
+const PRODUCT_MEDIA_PATH_RE =
+  /(?:^|\/)(?:api\/v\d+\/)?products\/media\/([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})(?:[?#].*)?$/i;
 
 const BASE_IMPORT_FIELD_ALIASES: Record<string, string[]> = {
   brandName: ['marka', 'brand', 'uretici', 'üretici'],
@@ -418,6 +428,87 @@ export class ProductsService {
     }
   }
 
+  private async defaultProductGroupCodeForActor(actor: AuthContext): Promise<string> {
+    const divisionId = resolveAssignedResourceDivision(actor, 'products', null);
+    if (!divisionId) {
+      throw new ValidationError('Ürün oluştururken somut bölüm seçimi zorunludur', { field: 'divisionId' });
+    }
+    const division = await this.db.query.divisions.findFirst({ where: eq(divisions.id, divisionId) });
+    const code = division?.code;
+    if (code === 'cnc') return 'CNC';
+    if (code === 'universal') return 'UNIVERSAL';
+    if (code === 'sac_isleme') return 'SAC_ISLEME';
+    throw new ValidationError('Aktif bölüm için varsayılan ürün grubu bulunamadı', { field: 'productGroupCode' });
+  }
+
+  private async assertProductGroupScope(productGroupId: string | null | undefined, actor: AuthContext) {
+    if (!productGroupId) return;
+    const group = await this.db.query.productGroups.findFirst({
+      where: eq(productGroups.id, productGroupId),
+    });
+    if (!group) throw new NotFoundError('Ürün grubu');
+    assertCanUseResourceDivision(actor, 'products', group.divisionId);
+  }
+
+  private productMediaFileId(imageUrl: string | null | undefined): string | null {
+    const clean = imageUrl?.trim();
+    if (!clean) return null;
+    return PRODUCT_MEDIA_PATH_RE.exec(clean)?.[1] ?? null;
+  }
+
+  private async resolveProductImageMediaFile(actor: AuthContext, imageUrl: string | null | undefined) {
+    const fileId = this.productMediaFileId(imageUrl);
+    if (!fileId) return null;
+
+    const file = await this.db.query.files.findFirst({
+      where: and(
+        eq(files.id, fileId),
+        eq(files.tenantId, actor.tenantId),
+        eq(files.bucket, 'erp-product-images'),
+        eq(files.visibility, 'public'),
+        inArray(files.uploadStatus, ['uploaded', 'linked']),
+        isNull(files.deletedAt)
+      ),
+    });
+    if (!file) throw new ValidationError('Ürün görsel dosyası bulunamadı veya public ürün görseli değil');
+    if (file.uploadedBy !== actor.userId) throw new ValidationError('Ürün görselini yalnızca yükleyen kullanıcı bağlayabilir');
+    if (!file.mimeType.startsWith('image/')) throw new ValidationError('Ürün görseli için yalnızca resim dosyası kullanılabilir');
+    return { fileId, file };
+  }
+
+  private async attachProductImageMedia(productId: string, actor: AuthContext, imageUrl: string | null | undefined) {
+    const resolved = await this.resolveProductImageMediaFile(actor, imageUrl);
+    if (!resolved) return;
+    const { fileId, file } = resolved;
+
+    const existing = await this.db.query.productMedia.findFirst({
+      where: and(
+        eq(productMedia.tenantId, actor.tenantId),
+        eq(productMedia.productModelId, productId),
+        eq(productMedia.fileId, fileId)
+      ),
+    });
+    if (existing) return;
+    if (file.uploadStatus !== 'uploaded') throw new ValidationError('Ürün görseli zaten başka bir kayda bağlanmış');
+
+    await this.db.transaction(async (tx) => {
+      const [claimed] = await tx
+        .update(files)
+        .set({ uploadStatus: 'linked' })
+        .where(and(eq(files.id, fileId), eq(files.tenantId, actor.tenantId), eq(files.uploadStatus, 'uploaded')))
+        .returning({ id: files.id });
+      if (!claimed) throw new ValidationError('Ürün görseli zaten başka bir kayda bağlanmış');
+      await tx.insert(productMedia).values({
+        tenantId: actor.tenantId,
+        productModelId: productId,
+        fileId,
+        mediaType: 'image',
+        title: file.originalFilename,
+        sortOrder: 0,
+      });
+    });
+  }
+
   private async assertBrandIds(brandIds: string[] | undefined, tenantId: string) {
     const ids = [...new Set(brandIds ?? [])].filter(Boolean);
     if (!ids.length) return [];
@@ -534,10 +625,13 @@ export class ProductsService {
       // Use a sentinel that matches nothing if the category code is unknown.
       filters.push(eq(productModels.categoryId, categoryId ?? '00000000-0000-0000-0000-000000000000'));
     }
+    const productScope = resourceDivisionFilterWithShared(actor, 'products', productGroups.divisionId);
+    if (productScope) filters.push(productScope);
     const where = and(...filters);
     const [{ count }] = await this.db
       .select({ count: sql<number>`count(*)::int` })
       .from(productModels)
+      .leftJoin(productGroups, eq(productModels.productGroupId, productGroups.id))
       .where(where);
     const rows = await this.db
       .select({
@@ -661,7 +755,14 @@ export class ProductsService {
       .leftJoin(productCategories, eq(productModels.categoryId, productCategories.id))
       .leftJoin(productSubcategories, eq(productModels.subcategoryId, productSubcategories.id))
       .leftJoin(productTypes, eq(productModels.productTypeId, productTypes.id))
-      .where(and(eq(productModels.id, id), eq(productModels.tenantId, actor.tenantId), isNull(productModels.deletedAt)))
+      .where(
+        and(
+          eq(productModels.id, id),
+          eq(productModels.tenantId, actor.tenantId),
+          isNull(productModels.deletedAt),
+          resourceDivisionFilterWithShared(actor, 'products', productGroups.divisionId) ?? sql`true`
+        )
+      )
       .limit(1);
     if (!row) throw new NotFoundError('Ürün');
     const [compatibleTypes, alternatives, optionalCompatibilities] = await Promise.all([
@@ -696,8 +797,9 @@ export class ProductsService {
     });
     if (existing) throw new ConflictError('Bu model kodu zaten kayıtlı');
 
+    const productGroupCode = input.productGroupCode ?? (await this.defaultProductGroupCodeForActor(actor));
     const [groupId, catId, subId, typeId, compatibleMachineTypeId, currencyId] = await Promise.all([
-      lookupIdByCode(this.db, productGroups, input.productGroupCode),
+      lookupIdByCode(this.db, productGroups, productGroupCode),
       lookupIdByCode(this.db, productCategories, input.categoryCode),
       lookupIdByCode(this.db, productSubcategories, input.subcategoryCode),
       lookupIdByCode(this.db, productTypes, input.productTypeCode),
@@ -707,6 +809,9 @@ export class ProductsService {
     const alternativeIds = this.uniqueAlternativeIds(input);
     await this.assertAlternativeProducts('', actor.tenantId, alternativeIds);
     await this.assertSupplierCompany(input.supplierCompanyId, actor.tenantId);
+    if (!groupId) throw new ValidationError('Ürün grubu bulunamadı', { field: 'productGroupCode' });
+    await this.assertProductGroupScope(groupId, actor);
+    await this.resolveProductImageMediaFile(actor, input.imageUrl);
 
     let row: typeof productModels.$inferSelect;
     try {
@@ -746,6 +851,7 @@ export class ProductsService {
     }
     await this.replaceAlternatives(row.id, actor.tenantId, alternativeIds);
     await this.replaceOptionalCompatibilities(row.id, actor.tenantId, input);
+    await this.attachProductImageMedia(row.id, actor, input.imageUrl);
     await this.audit.write({
       tenantId: actor.tenantId,
       actorUserId: actor.userId,
@@ -761,8 +867,11 @@ export class ProductsService {
     const existing = await this.get(id, actor);
     const patch: Record<string, unknown> = {};
     if (input.brandId !== undefined) patch.brandId = input.brandId;
-    if (input.productGroupCode !== undefined)
-      patch.productGroupId = await lookupIdByCode(this.db, productGroups, input.productGroupCode);
+    if (input.productGroupCode !== undefined) {
+      const groupId = await lookupIdByCode(this.db, productGroups, input.productGroupCode);
+      await this.assertProductGroupScope(groupId, actor);
+      patch.productGroupId = groupId;
+    }
     if (input.categoryCode !== undefined)
       patch.categoryId = await lookupIdByCode(this.db, productCategories, input.categoryCode);
     if (input.subcategoryCode !== undefined)
@@ -777,6 +886,7 @@ export class ProductsService {
       await this.assertSupplierCompany(input.supplierCompanyId, actor.tenantId);
       patch.supplierCompanyId = input.supplierCompanyId ?? null;
     }
+    if (input.imageUrl !== undefined) await this.resolveProductImageMediaFile(actor, input.imageUrl);
     const alternativesProvided = input.muadilProductIds !== undefined || input.muadilProductId !== undefined;
     const alternativeIds = alternativesProvided ? this.uniqueAlternativeIds(input, id) : [];
     if (alternativesProvided) patch.muadilProductId = alternativeIds[0] ?? null;
@@ -794,6 +904,7 @@ export class ProductsService {
     }
     if (alternativesProvided) await this.replaceAlternatives(id, actor.tenantId, alternativeIds);
     if (this.optionalCompatibilityProvided(input)) await this.replaceOptionalCompatibilities(id, actor.tenantId, input);
+    if (input.imageUrl !== undefined) await this.attachProductImageMedia(id, actor, input.imageUrl);
     await this.audit.write({
       tenantId: actor.tenantId,
       actorUserId: actor.userId,
@@ -818,7 +929,7 @@ export class ProductsService {
     if (productTypeCode?.trim()) filters.push(eq(productSpecTemplates.productTypeCode, productTypeCode.trim()));
     // Aktif bölüm kendi + paylaşılan ("Tümü") şablonları görür (teklif/ürün diyalogları).
     if (actor) {
-      const divFilter = divisionFilterWithShared(resolveActorDivisionScope(actor), productSpecTemplates.divisionId);
+      const divFilter = resourceDivisionFilterWithShared(actor, 'products', productSpecTemplates.divisionId);
       if (divFilter) filters.push(divFilter);
     }
     return this.db
@@ -900,7 +1011,8 @@ export class ProductsService {
         and(
           eq(productModels.tenantId, actor.tenantId),
           eq(productModels.categoryId, optionalCategoryId),
-          isNull(productModels.deletedAt)
+          isNull(productModels.deletedAt),
+          resourceDivisionFilterWithShared(actor, 'products', productGroups.divisionId) ?? sql`true`
         )
       )
       .orderBy(asc(productModels.fullName));
@@ -1097,6 +1209,28 @@ export class ProductsService {
         lookupIdByCode(this.db, productTypes, normalized.productTypeCode),
         lookupIdByCode(this.db, currencies, normalized.currencyCode),
       ]);
+      if (!groupId) {
+        results.push({
+          rowNumber: normalized.rowNumber,
+          modelCode: normalized.modelCode,
+          status: 'error',
+          errors: ['Ürün grubu zorunlu'],
+        });
+        continue;
+      }
+      try {
+        await this.assertProductGroupScope(groupId, actor);
+        if (existing) await this.assertProductGroupScope(existing.productGroupId, actor);
+        await this.resolveProductImageMediaFile(actor, normalized.imageUrl);
+      } catch (error) {
+        results.push({
+          rowNumber: normalized.rowNumber,
+          modelCode: normalized.modelCode,
+          status: 'error',
+          errors: [error instanceof Error ? error.message : 'Ürün grubu yetkiniz dışında'],
+        });
+        continue;
+      }
 
       const values = {
         brandId: brand.id,
@@ -1135,6 +1269,7 @@ export class ProductsService {
         productId = created.id;
         status = 'create';
       }
+      await this.attachProductImageMedia(productId, actor, normalized.imageUrl);
 
       const hasDetails = normalized.specs.length > 0 || normalized.equipment.length > 0;
       if (hasDetails && input.replaceDetails) {
@@ -1200,7 +1335,11 @@ export class ProductsService {
   // ────────── PRICE LISTS ──────────
   async listPriceLists(actor: AuthContext, page: Pagination) {
     const { limit, offset } = pageOffset(page);
-    const where = and(eq(priceLists.tenantId, actor.tenantId), isNull(priceLists.deletedAt));
+    const where = and(
+      eq(priceLists.tenantId, actor.tenantId),
+      isNull(priceLists.deletedAt),
+      resourceDivisionFilterWithShared(actor, 'price_lists', priceLists.divisionId) ?? sql`true`
+    );
     const [{ count }] = await this.db.select({ count: sql<number>`count(*)::int` }).from(priceLists).where(where);
     const rows = await this.db
       .select({
@@ -1222,10 +1361,13 @@ export class ProductsService {
     });
     if (existing) throw new ConflictError('Bu fiyat listesi kodu zaten kayıtlı');
     const currencyId = await lookupIdByCode(this.db, currencies, input.currencyCode);
+    const divisionId = resolveAssignedResourceDivision(actor, 'price_lists', input.divisionId ?? null);
+    if (!divisionId) throw new ValidationError('Fiyat listesi için somut bölüm seçimi zorunludur', { field: 'divisionId' });
     const [row] = await this.db
       .insert(priceLists)
       .values({
         tenantId: actor.tenantId,
+        divisionId,
         code: input.code,
         name: input.name,
         description: input.description ?? null,
@@ -1250,6 +1392,7 @@ export class ProductsService {
     const existing = await this.getPriceList(id, actor);
     const patch: Record<string, unknown> = {};
     if (input.currencyCode !== undefined) patch.currencyId = await lookupIdByCode(this.db, currencies, input.currencyCode);
+    if (input.divisionId !== undefined) patch.divisionId = resolveAssignedResourceDivision(actor, 'price_lists', input.divisionId);
     for (const k of ['code', 'name', 'description', 'validFrom', 'validUntil', 'isActive'] as const) {
       if ((input as any)[k] !== undefined) patch[k] = (input as any)[k] ?? null;
     }
@@ -1334,7 +1477,12 @@ export class ProductsService {
 
   private async getPriceList(id: string, actor: AuthContext) {
     const row = await this.db.query.priceLists.findFirst({
-      where: and(eq(priceLists.id, id), eq(priceLists.tenantId, actor.tenantId), isNull(priceLists.deletedAt)),
+      where: and(
+        eq(priceLists.id, id),
+        eq(priceLists.tenantId, actor.tenantId),
+        isNull(priceLists.deletedAt),
+        resourceDivisionFilterWithShared(actor, 'price_lists', priceLists.divisionId) ?? sql`true`
+      ),
     });
     if (!row) throw new NotFoundError('Fiyat listesi');
     return row;
@@ -1525,7 +1673,17 @@ export class ProductsService {
     if (!fullName) errors.push('Ürün adı zorunlu');
 
     const inferredText = [raw.productTypeCode, raw.categoryCode, raw.subcategoryCode, fullName, modelName, raw.description];
-    const productGroupCode = this.resolveLookupCode(lookups.productGroups, cellToText(raw.productGroupCode), 'CNC', warnings, 'Ürün grubu');
+    const rawProductGroupCode = cellToText(raw.productGroupCode);
+    let fallbackProductGroupCode: string | undefined;
+    if (!rawProductGroupCode) {
+      try {
+        fallbackProductGroupCode = await this.defaultProductGroupCodeForActor(actor);
+      } catch (error) {
+        errors.push(error instanceof Error ? error.message : 'Ürün grubu için bölüm seçimi zorunludur');
+      }
+    }
+    const productGroupCode = this.resolveLookupCode(lookups.productGroups, rawProductGroupCode, fallbackProductGroupCode, warnings, 'Ürün grubu');
+    if (!productGroupCode) errors.push('Ürün grubu zorunlu');
     const categoryCode = this.resolveLookupCode(lookups.productCategories, cellToText(raw.categoryCode), 'TEZGAH', warnings, 'Kategori');
     const subcategoryCode = this.resolveLookupCode(
       lookups.productSubcategories,
@@ -1576,6 +1734,13 @@ export class ProductsService {
     }
 
     const existing = modelCode ? await this.findProductByModelCode(modelCode, actor) : null;
+    if (existing) {
+      try {
+        await this.assertProductGroupScope(existing.productGroupId, actor);
+      } catch {
+        errors.push('Bu model kodu başka bir ürün yetki alanında kayıtlı');
+      }
+    }
     const status: ImportStatus = errors.length ? 'error' : existing ? 'update' : 'create';
 
     return {

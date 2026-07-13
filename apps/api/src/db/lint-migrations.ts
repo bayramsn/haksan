@@ -21,7 +21,7 @@ import { join } from 'path';
 const MIGRATIONS_DIR = join(__dirname, 'migrations');
 // Highest migration index that is already applied in production. New migrations
 // (idx > BASELINE_IDX) must pass the safety rules.
-const BASELINE_IDX = Number(process.env.BASELINE_IDX ?? '25');
+const BASELINE_IDX = Number(process.env.BASELINE_IDX ?? '57');
 const STRICT = process.env.STRICT === '1';
 
 type Severity = 'high' | 'warn';
