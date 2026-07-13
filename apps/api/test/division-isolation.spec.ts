@@ -292,8 +292,14 @@ describe('Bölüm izolasyonu — yazma yolunda otomatik atama', () => {
  * izin yoksa 403; oluşturma izni yoksa POST 403 (guard pipe'tan önce çalışır).
  */
 describe('Departman yetkileri — sales', () => {
-  it('okuyabildikleri: companies, quotes, sales-orders, inventory', async () => {
-    for (const p of ['/api/v1/companies', '/api/v1/quotes', '/api/v1/sales-orders', '/api/v1/inventory']) {
+  it('okuyabildikleri: companies, quotes, sales-orders, inventory, customer-devices', async () => {
+    for (const p of [
+      '/api/v1/companies',
+      '/api/v1/quotes',
+      '/api/v1/sales-orders',
+      '/api/v1/inventory',
+      '/api/v1/customer-devices',
+    ]) {
       const r = await supertest(server).get(p).set(auth(tokens.sales));
       expect(r.status, `sales GET ${p}`).toBe(200);
     }
@@ -341,7 +347,7 @@ describe('Departman yetkileri — service', () => {
 });
 
 describe('Departman yetkileri — finance', () => {
-  it('okuyabildikleri: receivables, payments, accounting-invoices, quotes, purchase-orders, companies', async () => {
+  it('okuyabildikleri: finans akışları ile inventory, customer-devices ve products', async () => {
     for (const p of [
       '/api/v1/receivables',
       '/api/v1/payments',
@@ -349,13 +355,16 @@ describe('Departman yetkileri — finance', () => {
       '/api/v1/quotes',
       '/api/v1/purchase-orders',
       '/api/v1/companies',
+      '/api/v1/inventory',
+      '/api/v1/customer-devices',
+      '/api/v1/products',
     ]) {
       const r = await supertest(server).get(p).set(auth(tokens.finance));
       expect(r.status, `finance GET ${p}`).toBe(200);
     }
   });
-  it('okuyamadıkları: warehouses, inventory, service-tickets, users', async () => {
-    for (const p of ['/api/v1/warehouses', '/api/v1/inventory', '/api/v1/service-tickets', '/api/v1/users']) {
+  it('okuyamadıkları: warehouses, service-tickets, users', async () => {
+    for (const p of ['/api/v1/warehouses', '/api/v1/service-tickets', '/api/v1/users']) {
       const r = await supertest(server).get(p).set(auth(tokens.finance));
       expect(r.status, `finance GET ${p}`).toBe(403);
     }

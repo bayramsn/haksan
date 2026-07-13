@@ -39,7 +39,7 @@ const preferredServiceContact = (items: Contact[], customerId: string) => {
 import { toast } from "sonner";
 import {
   Building2, User as UserIcon, Wallet, Truck, ClipboardCheck, ChevronDown, Receipt, Upload,
-  ClipboardList, Plus, Trash2, X, Loader2, Package, UserRound, Wrench, Check,
+  ClipboardList, Plus, Trash2, X, Loader2, Package, UserRound, Wrench, Check, GripVertical, Pencil,
 } from "lucide-react";
 import { serviceService, fileService, financeService, activityService, inventoryService, contactService, productService, lookupService } from "../../../lib/services";
 import { Badge } from "../ui/badge";
@@ -2268,7 +2268,16 @@ export function ProductDialog({
   const productCategoryRows = useLookupRows("product-categories", fallbackLookupRows(PRODUCT_CATEGORIES), true);
   const productSubcategoryRows = useLookupRows("product-subcategories", [], true);
   const productTypeRows = useLookupRows("product-types", [], true);
-  const productGroupOptions = lookupCodeOptions(productGroupRows);
+  // Ürün grubu = bölüm (CNC / Üniversal / Sac İşleme); "Diğer" gibi bölüm dışı
+  // gruplar seçilemez — ürün hangi bölüme eklendiyse onun altında görünür.
+  const DIVISION_GROUP_CODES = useMemo(() => new Set(PRODUCT_GROUPS.map((g) => g.code)), []);
+  const productGroupOptions = useMemo(() => {
+    const byCode = new Map<string, ProductOption>();
+    for (const option of lookupCodeOptions(productGroupRows)) {
+      if (DIVISION_GROUP_CODES.has(option.code) && !byCode.has(option.code)) byCode.set(option.code, option);
+    }
+    return byCode.size ? Array.from(byCode.values()) : PRODUCT_GROUPS;
+  }, [DIVISION_GROUP_CODES, productGroupRows]);
   const productCategoryOptions = lookupCodeOptions(productCategoryRows);
   const productSubcategoryOptions = lookupCodeOptions(productSubcategoryRows);
   const productTypeOptions = useMemo<ProductTypeOption[]>(() => {
@@ -2779,6 +2788,17 @@ export function ProductDialog({
             )}
 
             {isMachineProduct && (
+              <ProductSheetRow label="Kontrol Ünitesi">
+                <Input
+                  className="h-8 max-w-xs"
+                  value={form.controlPanel}
+                  onChange={(e) => setForm({ ...form, controlPanel: e.target.value })}
+                  placeholder="örn. FANUC 0i-MF"
+                />
+              </ProductSheetRow>
+            )}
+
+            {isMachineProduct && (
               <ProductSheetRow label="Ürün Tedarikçisi">
                 <Select
                   value={form.supplierCompanyId || "__none"}
@@ -3129,6 +3149,20 @@ export function ProductDialog({
               setInput={setStdInput}
               onAdd={() => addChip("standardEquipment", stdInput, setStdInput)}
               onRemove={(i) => rmChip("standardEquipment", i)}
+              onEdit={(i, value) =>
+                setForm((current) => ({
+                  ...current,
+                  standardEquipment: current.standardEquipment.map((item, idx) => (idx === i ? value : item)),
+                }))
+              }
+              onReorder={(from, to) =>
+                setForm((current) => {
+                  const next = [...current.standardEquipment];
+                  const [moved] = next.splice(from, 1);
+                  next.splice(to, 0, moved);
+                  return { ...current, standardEquipment: next };
+                })
+              }
               placeholder="Standart donanım ekleyip Enter'a basın"
             />
           )}
@@ -3311,10 +3345,26 @@ function ChoiceGrid({ value, options, onChange }: { value: string; options: Prod
   );
 }
 
-function ChipField({ label, chips, input, setInput, onAdd, onRemove, placeholder }: {
+function ChipField({ label, chips, input, setInput, onAdd, onRemove, onEdit, onReorder, placeholder }: {
   label: string; chips: string[]; input: string; setInput: (v: string) => void;
-  onAdd: () => void; onRemove: (i: number) => void; placeholder?: string;
+  onAdd: () => void; onRemove: (i: number) => void;
+  onEdit?: (i: number, value: string) => void;
+  onReorder?: (from: number, to: number) => void;
+  placeholder?: string;
 }) {
+  const [editingIndex, setEditingIndex] = useState<number | null>(null);
+  const [editValue, setEditValue] = useState("");
+  const [dragIndex, setDragIndex] = useState<number | null>(null);
+  const [dropIndex, setDropIndex] = useState<number | null>(null);
+
+  const commitEdit = () => {
+    if (editingIndex === null) return;
+    const next = editValue.trim();
+    if (next && onEdit) onEdit(editingIndex, next);
+    setEditingIndex(null);
+    setEditValue("");
+  };
+
   return (
     <div>
       <Label className="text-xs">{label}</Label>
@@ -3335,13 +3385,65 @@ function ChipField({ label, chips, input, setInput, onAdd, onRemove, placeholder
         ) : (
           <ol className="divide-y divide-border/60">
             {chips.map((c, i) => (
-              <li key={`${c}-${i}`} className="group flex min-w-0 items-start gap-3 px-3 py-2">
+              <li
+                key={`${c}-${i}`}
+                draggable={!!onReorder && editingIndex === null}
+                onDragStart={(e) => {
+                  setDragIndex(i);
+                  e.dataTransfer.effectAllowed = "move";
+                }}
+                onDragOver={(e) => {
+                  if (dragIndex === null) return;
+                  e.preventDefault();
+                  e.dataTransfer.dropEffect = "move";
+                  if (dropIndex !== i) setDropIndex(i);
+                }}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  if (dragIndex !== null && dragIndex !== i && onReorder) onReorder(dragIndex, i);
+                  setDragIndex(null);
+                  setDropIndex(null);
+                }}
+                onDragEnd={() => { setDragIndex(null); setDropIndex(null); }}
+                className={`group flex min-w-0 items-start gap-2 px-3 py-2 ${onReorder ? "cursor-grab active:cursor-grabbing" : ""} ${
+                  dropIndex === i && dragIndex !== null && dragIndex !== i ? "bg-primary/10" : dragIndex === i ? "opacity-50" : ""
+                }`}
+              >
+                {onReorder && (
+                  <GripVertical className="mt-0.5 size-4 shrink-0 text-muted-foreground/50 group-hover:text-muted-foreground" />
+                )}
                 <span className="mt-0.5 min-w-6 text-right text-xs font-medium tabular-nums text-muted-foreground">
                   {i + 1}.
                 </span>
-                <span className="min-w-0 flex-1 whitespace-pre-wrap break-words text-sm leading-5">
-                  {c}
-                </span>
+                {editingIndex === i ? (
+                  <Input
+                    autoFocus
+                    className="h-7 flex-1 text-sm"
+                    value={editValue}
+                    onChange={(e) => setEditValue(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") { e.preventDefault(); commitEdit(); }
+                      if (e.key === "Escape") { setEditingIndex(null); setEditValue(""); }
+                    }}
+                    onBlur={commitEdit}
+                  />
+                ) : (
+                  <span className="min-w-0 flex-1 whitespace-pre-wrap break-words text-sm leading-5">
+                    {c}
+                  </span>
+                )}
+                {onEdit && editingIndex !== i && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7 shrink-0 text-muted-foreground opacity-0 group-hover:opacity-100"
+                    onClick={() => { setEditingIndex(i); setEditValue(c); }}
+                    aria-label={`${c} donanımını düzenle`}
+                  >
+                    <Pencil className="size-3.5" />
+                  </Button>
+                )}
                 <Button
                   type="button"
                   variant="ghost"

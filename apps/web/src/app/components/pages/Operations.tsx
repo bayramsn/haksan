@@ -414,7 +414,18 @@ export function ProductsPage({ initialQuery }: { initialQuery?: string }) {
         </div>
       </Card>
 
-      <ProductDetailDialog product={selected} onClose={() => setSelected(null)} />
+      <ProductDetailDialog
+        product={selected}
+        onClose={() => setSelected(null)}
+        onEdit={
+          canEditProducts
+            ? (p) => {
+                setSelected(null);
+                setEditing(p);
+              }
+            : undefined
+        }
+      />
       <AlertDialog open={!!deleting} onOpenChange={(open) => !open && !deleteSaving && setDeleting(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>

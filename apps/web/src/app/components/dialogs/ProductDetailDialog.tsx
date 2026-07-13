@@ -76,11 +76,14 @@ type CompatibleOptionalRow = {
 export function ProductDetailDialog({
   product,
   onClose,
+  onEdit,
   highlightOptional = false,
   hideOptionalEquipment = false,
 }: {
   product: Product | null;
   onClose: () => void;
+  /** Verilirse Düzenle, yeni ürün ekleme pop-up'ının aynısını (ProductDialog) açar. */
+  onEdit?: (product: Product) => void;
   highlightOptional?: boolean;
   hideOptionalEquipment?: boolean;
 }) {
@@ -313,7 +316,12 @@ export function ProductDetailDialog({
                     </Button>
                   </>
                 ) : (
-                  <Button size="sm" variant="outline" className="h-8 gap-1.5" onClick={startEdit}>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-8 gap-1.5"
+                    onClick={() => (onEdit ? onEdit(product) : startEdit())}
+                  >
                     <Pencil className="size-3.5" /> Düzenle
                   </Button>
                 )}
