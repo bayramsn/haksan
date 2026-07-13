@@ -95,6 +95,13 @@ async function main(): Promise<void> {
     region: env.S3_REGION,
     endpoint: env.S3_ENDPOINT,
     forcePathStyle: env.S3_FORCE_PATH_STYLE,
+    // MinIO accepts the signed streaming upload, but not the optional flexible
+    // checksum trailer that recent AWS SDK releases enable by default. With an
+    // unknown-length pg_dump stream that trailer can also produce an undefined
+    // x-amz-decoded-content-length header on Node 22. S3 does not require the
+    // optional checksum for PutObject, so only calculate one when an operation
+    // explicitly requires it.
+    requestChecksumCalculation: 'WHEN_REQUIRED',
     credentials: { accessKeyId: env.S3_ACCESS_KEY_ID, secretAccessKey: env.S3_SECRET_ACCESS_KEY },
   });
   const pgpass = await createPgpass(env.DATABASE_URL);
