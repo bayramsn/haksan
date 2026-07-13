@@ -349,6 +349,9 @@ export const rolePermissionMatrix: Record<string, Record<string, string[] | '*'>
     files: ['read', 'create'],
     reports: ['read', 'export'],
     inventory: ['read'],
+    // Departmanlar arası görünürlük: stok gibi makineler de (fiyat listeleri hariç)
+    // tüm departman rollerince okunabilir.
+    customer_devices: ['read'],
   },
   service: {
     calendar: '*',
@@ -378,6 +381,11 @@ export const rolePermissionMatrix: Record<string, Record<string, string[] | '*'>
     payments: '*',
     files: ['read', 'create'],
     reports: ['read', 'export'],
+    // Departmanlar arası görünürlük: stok ve makineler (fiyat listeleri hariç)
+    // finans tarafından da okunabilir.
+    inventory: ['read'],
+    customer_devices: ['read'],
+    products: ['read'],
   },
   stock: {
     calendar: '*',
