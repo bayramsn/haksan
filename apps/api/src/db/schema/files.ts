@@ -21,6 +21,8 @@ export const files = pgTable(
     storageProviderId: uuid('storage_provider_id').references(() => storageProviders.id),
     visibility: varchar('visibility', { length: 16 }).notNull().default('private'),
     uploadedBy: uuid('uploaded_by').references(() => users.id),
+    uploadStatus: varchar('upload_status', { length: 16 }).notNull().default('pending'),
+    uploadedAt: timestamp('uploaded_at', { withTimezone: true }),
     ...auditColumns,
   },
   (t) => ({

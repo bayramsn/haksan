@@ -1,22 +1,36 @@
-import { useEffect, useState, useMemo } from "react";
+import { Fragment, useEffect, useState, useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
 import { Input } from "../ui/input";
 import { Button } from "../ui/button";
 import { Badge } from "../ui/badge";
 import { Tabs, TabsList, TabsTrigger } from "../ui/tabs";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "../ui/alert-dialog";
+import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "../ui/table";
 import { type Machine, type Product, type StockItem } from "../../lib/mock";
 import { useStore } from "../../lib/store";
+import { useAuth } from "../../../lib/auth";
 import { ProductDialog } from "../dialogs/CreateDialogs";
 import { ProductImportDialog } from "../dialogs/ProductImportDialog";
 import { ProductDetailDialog, ProductThumb } from "../dialogs/ProductDetailDialog";
+import { toast } from "sonner";
 import {
   Cpu, Search, Package, CheckCircle2, Truck, Wrench, Building2,
   ShieldCheck, AlertTriangle, Clock, MapPin, ChevronRight,
-  Plus, Upload,
+  Plus, Upload, Pencil, Trash2, Boxes, Layers,
 } from "lucide-react";
+import { MiniKpi } from "../shared/MiniKpi";
+import { EmptyState } from "../shared/EmptyState";
 
 type Stage = "Stokta" | "Rezerve" | "Sevkiyatta" | "Kuruldu" | "Servis" | "Hizmet Dışı";
 
@@ -35,12 +49,12 @@ type Device = {
 };
 
 const STAGE_TONE: Record<Stage, { bg: string; text: string; icon: any }> = {
-  "Stokta": { bg: "bg-emerald-50", text: "text-emerald-700", icon: Package },
-  "Rezerve": { bg: "bg-amber-50", text: "text-amber-700", icon: Clock },
-  "Sevkiyatta": { bg: "bg-blue-50", text: "text-blue-700", icon: Truck },
+  "Stokta": { bg: "bg-success-soft", text: "text-success", icon: Package },
+  "Rezerve": { bg: "bg-warning-soft", text: "text-warning", icon: Clock },
+  "Sevkiyatta": { bg: "bg-info-soft", text: "text-info", icon: Truck },
   "Kuruldu": { bg: "bg-brand-blue-soft", text: "text-brand-blue", icon: CheckCircle2 },
   "Servis": { bg: "bg-orange-50", text: "text-orange-700", icon: Wrench },
-  "Hizmet Dışı": { bg: "bg-zinc-100", text: "text-zinc-600", icon: AlertTriangle },
+  "Hizmet Dışı": { bg: "bg-muted", text: "text-muted-foreground", icon: AlertTriangle },
 };
 
 function buildDevices(stockItems: StockItem[], machines: Machine[]): Device[] {
@@ -78,53 +92,167 @@ const CURRENCY_LABEL: Record<string, string> = { USD: "USD", EUR: "EUR", TRY: "T
 const fmtMoney = (n?: number | null, cur = "USD") =>
   n === undefined || n === null || Number.isNaN(n) || n === 0 ? "—" : `${n.toLocaleString("tr-TR")} ${CURRENCY_LABEL[cur] ?? cur}`;
 
+const SERIES_ORDER = ["VM", "MV", "VC", "SL", "MT", "SJ", "TC", "HT", "LH", "D", "C", "DL"];
+const SERIES_PREFIX_RE = /^(DL|VM|MV|VC|SL|MT|SJ|TC|HT|LH|D|C)(?=[-\d\s/]|$)/i;
+
+function productSeriesCode(product: Product) {
+  const model = (product.model || product.modelName || "").trim().toLocaleUpperCase("tr-TR");
+  return model.match(SERIES_PREFIX_RE)?.[1]?.toLocaleUpperCase("tr-TR") ?? "";
+}
+
+function productSeriesLabel(product: Product) {
+  const code = productSeriesCode(product);
+  return code ? `${code} Serisi` : "Serisiz";
+}
+
+function productFamilyLabel(product: Product) {
+  const typeCode = (product.productTypeCode ?? "").toLocaleUpperCase("tr-TR");
+  const series = productSeriesCode(product);
+  if (typeCode.includes("TORNA") || ["SL", "MT", "SJ"].includes(series)) return "CNC Torna Tezgahları";
+  if (typeCode === "CNC_TAPPING_CENTER" || series === "TC") return "CNC Tapping Center";
+  if (typeCode.includes("5_EKSEN") || ["D", "C"].includes(series)) return "CNC 5 Eksen İşleme Merkezleri";
+  if (typeCode.includes("KOPRU") || series === "DL") return "CNC Köprü Tipi İşleme Merkezleri";
+  if (typeCode.includes("DIK_ISLEME") || ["VM", "MV", "VC"].includes(series)) return "CNC Dik İşleme Merkezleri";
+  return product.category || product.productGroup || "Genel";
+}
+
+function seriesSort(a: string, b: string) {
+  const ac = a.replace(" Serisi", "");
+  const bc = b.replace(" Serisi", "");
+  const ai = SERIES_ORDER.indexOf(ac);
+  const bi = SERIES_ORDER.indexOf(bc);
+  if (ai !== -1 || bi !== -1) return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi);
+  return a.localeCompare(b, "tr");
+}
+
 /* =========================================================================
    ÜRÜNLER (Products) — flat list like the company list, click → detail popup
    ========================================================================= */
 export function ProductsPage({ initialQuery }: { initialQuery?: string }) {
-  const { products } = useStore();
+  const { products, deleteProduct } = useStore();
+  const { hasRole, hasPermission, activeDivision, user } = useAuth();
   const [q, setQ] = useState("");
   const [cat, setCat] = useState<string>("all");
+  const [series, setSeries] = useState<string>("all");
   const [selected, setSelected] = useState<Product | null>(null);
+  const [editing, setEditing] = useState<Product | null>(null);
+  const [deleting, setDeleting] = useState<Product | null>(null);
+  const [deleteSaving, setDeleteSaving] = useState(false);
+  const canCreateProducts = hasPermission("products.create");
+  const canEditProducts = hasPermission("products.update");
+  const canDeleteProducts = hasPermission("products.delete");
 
   useEffect(() => {
     if (initialQuery) setQ(initialQuery);
   }, [initialQuery]);
 
-  const categoryLabel = (p: Product) => p.category || p.productGroup || "Genel";
+  useEffect(() => {
+    setSeries("all");
+  }, [cat]);
+
+  // Servis departmanı katalogda yalnızca yedek parça ve işçilik kalemlerini
+  // görür; tezgah/aksesuar gibi satış kalemleri gizlenir. Yöneticiler hepsini görür.
+  const serviceScope = hasRole("service") && !hasRole("admin") && !hasRole("super_admin");
+  const isServiceItem = (p: Product) => {
+    const code = (p.categoryCode ?? "").toUpperCase();
+    const name = (p.category ?? "").toLocaleLowerCase("tr-TR");
+    return (
+      code === "YEDEK_PARCA" || code === "ISCILIK" ||
+      name.includes("yedek") || name.includes("işçilik") || name.includes("iscilik")
+    );
+  };
+  // Aktif bölüm (CNC/Üniversal/Sac İşleme) seçiliyse ürünler kendi ürün grubuna
+  // göre daralır: bir bölümün ürünü yalnızca o bölümde görünür. Ürün grubu kodu
+  // bölüm koduyla birebir eşleşir (cnc→CNC, universal→UNIVERSAL, sac_isleme→SAC_ISLEME).
+  // "Tümü" seçiliyse hepsi görünür.
+  const divisionGroupCode = useMemo(() => {
+    if (!activeDivision || activeDivision === "all") return null;
+    const code = (user?.divisions ?? []).find((d) => d.id === activeDivision)?.code;
+    return code ? code.toLocaleUpperCase("en-US") : null;
+  }, [activeDivision, user?.divisions]);
+  const visibleProducts = useMemo(() => {
+    let list = serviceScope ? products.filter(isServiceItem) : products;
+    if (divisionGroupCode) {
+      list = list.filter((p) => (p.productGroupCode ?? "").toLocaleUpperCase("en-US") === divisionGroupCode);
+    }
+    return list;
+  }, [products, serviceScope, divisionGroupCode]);
+
   const productSubtitle = (p: Product) => [p.type, p.subcategory].filter(Boolean).join(" · ");
   const categories = useMemo(
-    () => Array.from(new Set(products.map(categoryLabel))).filter(Boolean),
-    [products]
+    () => Array.from(new Set(visibleProducts.map(productFamilyLabel))).filter(Boolean),
+    [visibleProducts]
   );
 
-  const filtered = products.filter((p) => {
-    if (cat !== "all" && categoryLabel(p) !== cat) return false;
+  const categoryFiltered = visibleProducts.filter((p) => cat === "all" || productFamilyLabel(p) === cat);
+  const seriesOptions = useMemo(
+    () => Array.from(new Set(categoryFiltered.map(productSeriesLabel))).filter(Boolean).sort(seriesSort),
+    [categoryFiltered]
+  );
+
+  const filtered = categoryFiltered.filter((p) => {
+    if (series !== "all" && productSeriesLabel(p) !== series) return false;
     if (!q) return true;
-    const s = q.toLowerCase();
-    return [p.model, p.brand, p.type, p.shortDescription, p.stockCode, p.category].some(
-      (v) => (v ?? "").toLowerCase().includes(s)
+    const s = q.toLocaleLowerCase("tr-TR");
+    return [p.model, p.brand, p.type, p.shortDescription, p.stockCode, p.category, productSeriesLabel(p), productFamilyLabel(p)].some(
+      (v) => (v ?? "").toLocaleLowerCase("tr-TR").includes(s)
     );
   });
+  const grouped = Array.from(
+    filtered.reduce((acc, product) => {
+      const label = productSeriesLabel(product);
+      const list = acc.get(label) ?? [];
+      list.push(product);
+      acc.set(label, list);
+      return acc;
+    }, new Map<string, Product[]>())
+  ).sort(([a], [b]) => seriesSort(a, b));
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between gap-3 flex-wrap">
-        <Tabs value={cat} onValueChange={setCat}>
-          <TabsList className="h-9 bg-muted/60 flex-wrap">
-            <TabsTrigger value="all" className="gap-1.5">
-              Tümü <CountBadge n={products.length} />
-            </TabsTrigger>
-            {categories.map((c) => (
-              <TabsTrigger key={c} value={c} className="gap-1.5">
-                {c} <CountBadge n={products.filter((p) => categoryLabel(p) === c).length} />
-              </TabsTrigger>
-            ))}
-          </TabsList>
-        </Tabs>
+      <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
+        <MiniKpi
+          icon={<Package className="size-4" />}
+          label="Toplam Ürün"
+          value={visibleProducts.length}
+          tone="violet"
+          onClick={() => setCat("all")}
+          active={cat === "all"}
+        />
+        <MiniKpi
+          icon={<Boxes className="size-4" />}
+          label="Kategori"
+          value={categories.length}
+          sub="ürün ailesi"
+          tone="blue"
+        />
+        <MiniKpi
+          icon={<Layers className="size-4" />}
+          label="Seri"
+          value={new Set(visibleProducts.map(productSeriesLabel)).size}
+          sub="model serisi"
+          tone="amber"
+        />
+      </div>
 
-        <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:ml-auto">
-          <div className="relative w-full sm:w-64">
+      <div className="space-y-2">
+        <div className="w-full overflow-x-auto pb-1">
+          <Tabs value={cat} onValueChange={setCat} className="min-w-max">
+            <TabsList className="h-10 w-max flex-nowrap bg-muted/60 p-1">
+              <TabsTrigger value="all" className="gap-1.5 whitespace-nowrap px-3">
+                Tümü <CountBadge n={visibleProducts.length} />
+              </TabsTrigger>
+              {categories.map((c) => (
+                <TabsTrigger key={c} value={c} className="gap-1.5 whitespace-nowrap px-3">
+                  {c} <CountBadge n={visibleProducts.filter((p) => productFamilyLabel(p) === c).length} />
+                </TabsTrigger>
+              ))}
+            </TabsList>
+          </Tabs>
+        </div>
+
+        <div className="flex w-full flex-col gap-2 sm:flex-row sm:items-center sm:justify-end">
+          <div className="relative w-full sm:w-72 lg:w-80">
             <Search className="size-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
             <Input
               placeholder="Marka, model, ürün ara..."
@@ -133,59 +261,146 @@ export function ProductsPage({ initialQuery }: { initialQuery?: string }) {
               onChange={(e) => setQ(e.target.value)}
             />
           </div>
-          <ProductImportDialog
-            trigger={<Button size="sm" variant="outline" className="h-9 gap-1"><Upload className="size-4" /> İçe Aktar</Button>}
-          />
-          <ProductDialog
-            trigger={<Button size="sm" className="h-9 gap-1"><Plus className="size-4" /> Yeni Ürün</Button>}
-          />
+          <div className="flex shrink-0 items-center gap-2">
+            {canCreateProducts && (
+              <ProductImportDialog
+                trigger={<Button size="sm" variant="outline" className="h-9 gap-1 whitespace-nowrap"><Upload className="size-4" /> İçe Aktar</Button>}
+              />
+            )}
+            {canCreateProducts && (
+              <ProductDialog
+                trigger={<Button size="sm" className="h-9 gap-1 whitespace-nowrap"><Plus className="size-4" /> Yeni Ürün</Button>}
+              />
+            )}
+          </div>
         </div>
       </div>
+
+      {seriesOptions.length > 1 && (
+        <div className="flex flex-wrap items-center gap-1.5">
+          <Button
+            type="button"
+            size="sm"
+            variant={series === "all" ? "default" : "outline"}
+            className="h-7 px-2 text-xs"
+            onClick={() => setSeries("all")}
+          >
+            Tüm Seriler
+          </Button>
+          {seriesOptions.map((option) => (
+            <Button
+              key={option}
+              type="button"
+              size="sm"
+              variant={series === option ? "default" : "outline"}
+              className="h-7 px-2 text-xs"
+              onClick={() => setSeries(option)}
+            >
+              {option}
+              <span className="ml-1 text-[10px] opacity-75">
+                {categoryFiltered.filter((p) => productSeriesLabel(p) === option).length}
+              </span>
+            </Button>
+          ))}
+        </div>
+      )}
 
       <Card className="border-border/60 shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
           <Table>
             <TableHeader>
-              <TableRow className="bg-muted/30 hover:bg-muted/30">
-                <TableHead className="w-[360px]">Ürün</TableHead>
-                <TableHead>Tip</TableHead>
-                <TableHead>Kategori</TableHead>
-                <TableHead className="text-right">Liste Fiyatı</TableHead>
-                <TableHead className="text-right">Peşin</TableHead>
-                <TableHead className="w-10"></TableHead>
+              <TableRow className="bg-muted/40 hover:bg-muted/40">
+                <TableHead className="w-[360px] text-[11px] uppercase tracking-wider text-muted-foreground">Ürün</TableHead>
+                <TableHead className="text-[11px] uppercase tracking-wider text-muted-foreground">Seri</TableHead>
+                <TableHead className="text-[11px] uppercase tracking-wider text-muted-foreground">Tip</TableHead>
+                <TableHead className="text-[11px] uppercase tracking-wider text-muted-foreground">Kategori</TableHead>
+                <TableHead className="text-right text-[11px] uppercase tracking-wider text-muted-foreground">Liste Fiyatı</TableHead>
+                <TableHead className="text-right text-[11px] uppercase tracking-wider text-muted-foreground">Peşin</TableHead>
+                <TableHead className="w-[88px]"></TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filtered.map((p) => (
-                <TableRow key={p.id} className="cursor-pointer group" onClick={() => setSelected(p)}>
-                  <TableCell>
-                    <div className="flex items-center gap-3 min-w-0">
-                      <ProductThumb product={p} />
-                      <div className="min-w-0">
-                        <div className="text-sm leading-tight truncate group-hover:text-primary transition-colors">
-                          {p.brand} {p.model}
+              {grouped.map(([group, rows]) => (
+                <Fragment key={group}>
+                  <TableRow key={`${group}-header`} className="bg-muted/20 hover:bg-muted/20">
+                    <TableCell colSpan={7} className="py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      {group} <span className="ml-1 font-normal normal-case tracking-normal text-muted-foreground/80">({rows.length} model)</span>
+                    </TableCell>
+                  </TableRow>
+                  {rows.map((p) => (
+                    <TableRow key={p.id} className="cursor-pointer group hover:bg-primary/[0.025]" onClick={() => setSelected(p)}>
+                      <TableCell>
+                        <div className="flex items-center gap-3 min-w-0">
+                          <ProductThumb product={p} />
+                          <div className="min-w-0">
+                            <div className="text-sm leading-tight truncate group-hover:text-primary transition-colors">
+                              {p.brand} {p.model}
+                            </div>
+                            <div className="text-[11px] text-muted-foreground mt-0.5 truncate">
+                              {p.shortDescription || productSubtitle(p) || "—"}
+                            </div>
+                          </div>
                         </div>
-                        <div className="text-[11px] text-muted-foreground mt-0.5 truncate">
-                          {p.shortDescription || productSubtitle(p) || "—"}
-                        </div>
-                      </div>
-                    </div>
-                  </TableCell>
-                  <TableCell className="text-sm text-muted-foreground">{p.type || "—"}</TableCell>
-                  <TableCell>
-                    <Badge variant="secondary" className="text-[10px] h-5">{categoryLabel(p)}</Badge>
-                  </TableCell>
-                  <TableCell className="text-right tabular-nums">{fmtMoney(p.listPrice, p.currency)}</TableCell>
-                  <TableCell className="text-right tabular-nums text-emerald-600">{fmtMoney(p.cashPrice, p.currency)}</TableCell>
-                  <TableCell>
-                    <ChevronRight className="size-4 text-muted-foreground opacity-0 group-hover:opacity-100" />
-                  </TableCell>
-                </TableRow>
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant="outline" className="h-5 text-[10px]">{productSeriesLabel(p)}</Badge>
+                      </TableCell>
+                      <TableCell className="text-sm text-muted-foreground">{p.type || productFamilyLabel(p) || "—"}</TableCell>
+                      <TableCell>
+                        <Badge variant="secondary" className="text-[10px] h-5">{productFamilyLabel(p)}</Badge>
+                      </TableCell>
+                      <TableCell className="text-right tabular-nums">{fmtMoney(p.listPrice, p.currency)}</TableCell>
+                      <TableCell className="text-right tabular-nums text-success">{fmtMoney(p.cashPrice, p.currency)}</TableCell>
+                      <TableCell>
+                        {(canEditProducts || canDeleteProducts) ? (
+                          <div className="flex items-center justify-end gap-1">
+                            {canEditProducts && (
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  setEditing(p);
+                                }}
+                                title="Ürünü düzenle"
+                              >
+                                <Pencil className="size-4 text-muted-foreground" />
+                              </Button>
+                            )}
+                            {canDeleteProducts && (
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8 hover:bg-brand-red-soft"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  setDeleting(p);
+                                }}
+                                title="Ürünü sil"
+                              >
+                                <Trash2 className="size-4 text-destructive" />
+                              </Button>
+                            )}
+                          </div>
+                        ) : (
+                          <ChevronRight className="size-4 text-muted-foreground opacity-0 group-hover:opacity-100" />
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </Fragment>
               ))}
               {filtered.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={6} className="text-center py-16 text-sm text-muted-foreground">
-                    Bu filtreye uyan ürün bulunamadı.
+                  <TableCell colSpan={7} className="py-4">
+                    <EmptyState
+                      icon={<Package className="size-6" />}
+                      title="Bu filtreye uyan ürün bulunamadı"
+                      description="Arama terimini veya kategori/seri filtrelerini değiştirerek tekrar deneyin."
+                    />
                   </TableCell>
                 </TableRow>
               )}
@@ -200,13 +415,57 @@ export function ProductsPage({ initialQuery }: { initialQuery?: string }) {
       </Card>
 
       <ProductDetailDialog product={selected} onClose={() => setSelected(null)} />
+      <AlertDialog open={!!deleting} onOpenChange={(open) => !open && !deleteSaving && setDeleting(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Ürünü sil?</AlertDialogTitle>
+            <AlertDialogDescription>
+              <b>{deleting ? `${deleting.brand} ${deleting.model}`.trim() : ""}</b> arşive alınacak. Bağlı kayıtlarda kullanılıyorsa işlem reddedilebilir.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleteSaving}>Vazgeç</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive hover:bg-destructive/90"
+              disabled={deleteSaving}
+              onClick={async () => {
+                if (!deleting) return;
+                setDeleteSaving(true);
+                try {
+                  await deleteProduct(deleting.id);
+                  if (selected?.id === deleting.id) setSelected(null);
+                  if (editing?.id === deleting.id) setEditing(null);
+                  toast.success("Ürün silindi", { description: `${deleting.brand} ${deleting.model}`.trim() });
+                  setDeleting(null);
+                } catch (err: any) {
+                  toast.error("Ürün silinemedi", { description: err?.message ?? "Bağlı kayıtlar olabilir." });
+                } finally {
+                  setDeleteSaving(false);
+                }
+              }}
+            >
+              {deleteSaving ? "Siliniyor..." : "Sil"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      {editing && (
+        <ProductDialog
+          mode="edit"
+          product={editing}
+          open={!!editing}
+          onOpenChange={(open) => {
+            if (!open) setEditing(null);
+          }}
+        />
+      )}
     </div>
   );
 }
 
 function CountBadge({ n }: { n: number }) {
   return (
-    <span className="ml-0.5 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 text-[10px] rounded-full bg-zinc-200 text-zinc-700">
+    <span className="ml-0.5 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 text-[10px] rounded-full bg-muted text-muted-foreground">
       {n}
     </span>
   );
@@ -354,10 +613,10 @@ export function DeviceTrackingPage() {
 
 /* ---------- helpers ---------- */
 const TONES: Record<string, { bg: string; ic: string; ring: string }> = {
-  violet: { bg: "bg-brand-blue-soft", ic: "text-brand-blue", ring: "ring-blue-100" },
-  emerald: { bg: "bg-emerald-50", ic: "text-emerald-600", ring: "ring-emerald-100" },
-  amber: { bg: "bg-amber-50", ic: "text-amber-600", ring: "ring-amber-100" },
-  blue: { bg: "bg-blue-50", ic: "text-blue-600", ring: "ring-blue-100" },
+  violet: { bg: "bg-brand-blue-soft", ic: "text-brand-blue", ring: "ring-brand-blue/10" },
+  emerald: { bg: "bg-success-soft", ic: "text-success", ring: "ring-success/10" },
+  amber: { bg: "bg-warning-soft", ic: "text-warning", ring: "ring-warning/10" },
+  blue: { bg: "bg-info-soft", ic: "text-info", ring: "ring-info/10" },
 };
 
 function KpiTile({ icon, label, value, tone = "violet", sub }: {
@@ -380,9 +639,9 @@ function KpiTile({ icon, label, value, tone = "violet", sub }: {
 
 function WarrantyBadge({ end }: { end: string }) {
   const days = Math.round((new Date(end).getTime() - Date.now()) / 86400000);
-  const tone = days < 0 ? "bg-red-50 text-red-700"
-    : days < 90 ? "bg-amber-50 text-amber-700"
-    : "bg-emerald-50 text-emerald-700";
+  const tone = days < 0 ? "bg-brand-red-soft text-brand-red"
+    : days < 90 ? "bg-warning-soft text-warning"
+    : "bg-success-soft text-success";
   const label = days < 0 ? "Doldu" : days < 90 ? `${days} gün` : "Aktif";
   return (
     <span className="inline-flex items-center gap-1.5">

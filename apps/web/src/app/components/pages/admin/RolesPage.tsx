@@ -11,7 +11,8 @@ import { Alert, AlertDescription, AlertTitle } from "../../ui/alert";
 import { Skeleton } from "../../ui/skeleton";
 import { useAuth } from "../../../../lib/auth";
 import { adminService } from "../../../../lib/services";
-import { Plus, Search, ShieldCheck, Lock, Save, X, RotateCcw, AlertTriangle } from "lucide-react";
+import { TargetDialog, currentPeriod, targetToApi, type TargetScope, type UserTarget } from "../../admin/TargetDialog";
+import { Plus, Search, ShieldCheck, Lock, Save, X, RotateCcw, AlertTriangle, TrendingUp } from "lucide-react";
 import { toast } from "sonner";
 
 type PermissionAction = "read" | "create" | "update" | "delete" | "approve" | "reject" | "export";
@@ -187,6 +188,9 @@ export function RolesPage() {
   const [createOpen, setCreateOpen] = useState(false);
   const [creating, setCreating] = useState(false);
   const [newRole, setNewRole] = useState({ name: "", code: "", description: "", permissionCodes: [] as string[] });
+  const [targetPeriod, setTargetPeriod] = useState(currentPeriod());
+  const [targetScope, setTargetScope] = useState<TargetScope | null>(null);
+  const [targetLoading, setTargetLoading] = useState(false);
 
   const load = useCallback(async (preferredId?: string | null) => {
     setLoading(true);
@@ -312,6 +316,29 @@ export function RolesPage() {
     }
   };
 
+  const openRoleTarget = async () => {
+    if (!selectedRole || !canManageRoles) return;
+    setTargetLoading(true);
+    try {
+      const members = await adminService.roleTargetMembers(selectedRole.id);
+      setTargetScope({
+        kind: "role",
+        id: selectedRole.id,
+        name: selectedRole.name,
+        subtitle: selectedRole.code,
+        memberCount: members.memberCount,
+      });
+    } catch (err: any) {
+      toast.error("Rol üyeleri alınamadı", { description: err?.message ?? "Backend isteği başarısız oldu." });
+    } finally {
+      setTargetLoading(false);
+    }
+  };
+
+  const saveRoleTarget = async (scope: TargetScope, target: UserTarget) => {
+    await adminService.saveRoleTarget(scope.id, targetToApi({ ...target, period: targetPeriod }));
+  };
+
   if (loading) {
     return (
       <div className="grid gap-4 lg:grid-cols-[320px_minmax(0,1fr)]">
@@ -358,6 +385,7 @@ export function RolesPage() {
   }
 
   return (
+    <>
     <div className="grid gap-4 lg:grid-cols-[320px_minmax(0,1fr)]">
       <Card className="min-h-[660px] overflow-hidden border-border/60 shadow-sm">
         <CardHeader className="border-b border-border/60 p-4">
@@ -514,6 +542,19 @@ export function RolesPage() {
                   </div>
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
+                  {canManageRoles && (
+                    <div className="flex items-center gap-2">
+                      <Input
+                        type="month"
+                        className="h-9 w-[145px]"
+                        value={targetPeriod}
+                        onChange={(event) => setTargetPeriod(event.target.value || currentPeriod())}
+                      />
+                      <Button variant="outline" size="sm" className="h-9 gap-1.5" onClick={openRoleTarget} disabled={targetLoading}>
+                        <TrendingUp className="size-4" /> {targetLoading ? "Açılıyor..." : "Hedef Belirle"}
+                      </Button>
+                    </div>
+                  )}
                   {dirty && (
                     <Button variant="outline" size="sm" className="h-9 gap-1.5" onClick={resetDraft} disabled={saving}>
                       <X className="size-4" /> Vazgeç
@@ -556,5 +597,15 @@ export function RolesPage() {
         )}
       </Card>
     </div>
+    {canManageRoles && (
+      <TargetDialog
+        scope={targetScope}
+        target={undefined}
+        period={targetPeriod}
+        onClose={() => setTargetScope(null)}
+        onSave={saveRoleTarget}
+      />
+    )}
+    </>
   );
 }

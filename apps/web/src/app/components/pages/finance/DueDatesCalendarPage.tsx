@@ -4,7 +4,8 @@ import { Button } from "../../ui/button";
 import { Badge } from "../../ui/badge";
 import { financeService } from "../../../../lib/services";
 import { useAuth } from "../../../../lib/auth";
-import { ChevronLeft, ChevronRight, Calendar } from "lucide-react";
+import { MiniKpi } from "../../shared/MiniKpi";
+import { ChevronLeft, ChevronRight, Calendar, Clock, ArrowDownLeft, ArrowUpRight } from "lucide-react";
 
 type DueItem = {
   id: string;
@@ -63,8 +64,40 @@ export function DueDatesCalendarPage() {
   const pad = startWeekday(cursor.year, cursor.month);
   const cells: (number | null)[] = [...Array(pad).fill(null), ...Array.from({ length: totalDays }, (_, i) => i + 1)];
 
+  const today = new Date();
+  const isCurrentMonth = today.getFullYear() === cursor.year && today.getMonth() === cursor.month;
+  const visibleItems = useMemo(
+    () => items.filter((it) => !(it.type === "alacak" && !isAdmin)),
+    [items, isAdmin],
+  );
+  const sumByCurrency = (list: DueItem[]) =>
+    Object.entries(
+      list.reduce<Record<string, number>>((acc, it) => {
+        acc[it.currencyCode] = (acc[it.currencyCode] ?? 0) + it.amount;
+        return acc;
+      }, {}),
+    )
+      .map(([code, amount]) => `${amount.toLocaleString("tr-TR")} ${code}`)
+      .join(" · ");
+  const startOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  const in7Days = new Date(startOfToday.getTime() + 7 * 86400000);
+  const next7 = visibleItems.filter((it) => {
+    const d = new Date(it.dueDate);
+    return d >= startOfToday && d < in7Days;
+  });
+  const tahsil = visibleItems.filter((it) => it.type === "borc");
+  const odeme = visibleItems.filter((it) => it.type === "alacak");
+
   return (
     <div className="space-y-5">
+      <div className={`grid grid-cols-2 gap-3 ${isAdmin ? "lg:grid-cols-4" : "lg:grid-cols-3"}`}>
+        <MiniKpi tone="violet" icon={<Calendar className="size-[18px]" />} label="Bu Ay Vade" value={visibleItems.length} sub={monthLabel} />
+        <MiniKpi tone="amber" icon={<Clock className="size-[18px]" />} label="Önümüzdeki 7 Gün" value={next7.length} sub={sumByCurrency(next7) || "vade yok"} />
+        <MiniKpi tone="emerald" icon={<ArrowDownLeft className="size-[18px]" />} label="Tahsil" value={tahsil.length} sub={sumByCurrency(tahsil) || "—"} />
+        {isAdmin && (
+          <MiniKpi tone="red" icon={<ArrowUpRight className="size-[18px]" />} label="Ödeme" value={odeme.length} sub={sumByCurrency(odeme) || "—"} />
+        )}
+      </div>
       <Card className="border-border/60 shadow-sm">
         <CardHeader className="flex flex-row items-center justify-between pb-2">
           <div>
@@ -88,15 +121,30 @@ export function DueDatesCalendarPage() {
             {cells.map((day, idx) => {
               if (!day) return <div key={`empty-${idx}`} className="min-h-[88px] rounded-md bg-muted/10" />;
               const dayItems = byDay.get(day) ?? [];
+              const isToday = isCurrentMonth && day === today.getDate();
               return (
-                <div key={day} className={`min-h-[88px] rounded-md border p-1.5 text-left ${dayItems.length ? "border-amber-200 bg-amber-50/40" : "border-border/50 bg-white"}`}>
-                  <div className="text-[11px] font-semibold text-muted-foreground mb-1">{day}</div>
+                <div
+                  key={day}
+                  className={`min-h-[88px] rounded-md border p-1.5 text-left ${
+                    dayItems.length ? "border-warning/30 bg-warning-soft/50" : "border-border/50 bg-white"
+                  } ${isToday ? "ring-2 ring-primary/30" : ""}`}
+                >
+                  <div className={`text-[11px] font-semibold mb-1 ${isToday ? "text-primary" : "text-muted-foreground"}`}>{day}</div>
                   <div className="space-y-1">
                     {dayItems.slice(0, 3).map((it) => (
                       <div key={it.id} className="rounded px-1 py-0.5 text-[10px] leading-tight bg-white border border-border/60">
                         <div className="truncate font-medium">{it.companyName}</div>
                         <div className="tabular-nums text-muted-foreground">{it.amount.toLocaleString("tr-TR")} {it.currencyCode}</div>
-                        <Badge variant="outline" className="mt-0.5 h-4 px-1 text-[9px]">{it.type === "borc" ? "Tahsil" : "Ödeme"}</Badge>
+                        <Badge
+                          variant="outline"
+                          className={`mt-0.5 h-4 px-1 text-[9px] ${
+                            it.type === "borc"
+                              ? "border-success/20 bg-success-soft text-success"
+                              : "border-warning/20 bg-warning-soft text-warning"
+                          }`}
+                        >
+                          {it.type === "borc" ? "Tahsil" : "Ödeme"}
+                        </Badge>
                       </div>
                     ))}
                     {dayItems.length > 3 && <div className="text-[9px] text-muted-foreground">+{dayItems.length - 3} daha</div>}

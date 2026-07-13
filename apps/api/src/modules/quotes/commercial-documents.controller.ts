@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import {
   commercialInvoiceCreateSchema,
   commercialInvoiceUpdateSchema,
@@ -49,6 +49,12 @@ export class CommercialDocumentsController {
     return this.svc.updateProforma(id, body, user);
   }
 
+  @RequirePermissions('proformas.delete')
+  @Delete('proformas/:id')
+  deleteProforma(@Param('id') id: string, @CurrentUser() user: AuthContext) {
+    return this.svc.deleteProforma(id, user);
+  }
+
   @RequirePermissions('contracts.read')
   @Get('contracts')
   listContracts(@Query(new ZodValidationPipe(paginationSchema)) qp: Pagination, @CurrentUser() user: AuthContext) {
@@ -69,6 +75,12 @@ export class CommercialDocumentsController {
     @CurrentUser() user: AuthContext
   ) {
     return this.svc.updateContract(id, body, user);
+  }
+
+  @RequirePermissions('contracts.delete')
+  @Delete('contracts/:id')
+  deleteContract(@Param('id') id: string, @CurrentUser() user: AuthContext) {
+    return this.svc.deleteContract(id, user);
   }
 
   @RequirePermissions('commercial_invoices.read')
@@ -94,5 +106,11 @@ export class CommercialDocumentsController {
     @CurrentUser() user: AuthContext
   ) {
     return this.svc.updateCommercialInvoice(id, body, user);
+  }
+
+  @RequirePermissions('commercial_invoices.delete')
+  @Delete('commercial-invoices/:id')
+  deleteCommercialInvoice(@Param('id') id: string, @CurrentUser() user: AuthContext) {
+    return this.svc.deleteCommercialInvoice(id, user);
   }
 }

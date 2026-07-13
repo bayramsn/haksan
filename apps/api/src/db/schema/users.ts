@@ -1,4 +1,5 @@
 import { pgTable, uuid, varchar, text, boolean, timestamp, integer, jsonb, index, uniqueIndex, primaryKey } from 'drizzle-orm/pg-core';
+import { sql } from 'drizzle-orm';
 import { auditColumns, money } from './_helpers';
 import { tenants, departments, divisions } from './tenants';
 
@@ -18,6 +19,7 @@ export const users = pgTable(
     lastLoginAt: timestamp('last_login_at', { withTimezone: true }),
     failedLoginAttempts: integer('failed_login_attempts').notNull().default(0),
     lockedUntil: timestamp('locked_until', { withTimezone: true }),
+    authVersion: integer('auth_version').notNull().default(0),
     mfaEnabled: boolean('mfa_enabled').notNull().default(false),
     mfaSecret: varchar('mfa_secret', { length: 128 }),
     purchaseApprovalLimit: integer('purchase_approval_limit').notNull().default(0),
@@ -32,11 +34,13 @@ export const users = pgTable(
 );
 
 export type UserTargetItem = {
-  targetType: 'sales' | 'service';
+  targetType: 'sales' | 'service' | 'finance' | 'purchase' | 'operations' | 'logistics' | 'other';
   category: string;
   activity: string;
   description: string;
   unit: 'count' | 'amount';
+  metricKey?: string;
+  trackingMode?: 'automatic' | 'manual';
   target: string;
 };
 
@@ -214,6 +218,46 @@ export const userDivisions = pgTable(
   },
   (t) => ({
     pk: primaryKey({ columns: [t.userId, t.divisionId] }),
+  })
+);
+
+/**
+ * Kullanıcı yetki alanı matrisi. Rol/permission işlem yetkisini belirler; bu
+ * tablo aynı işlemin hangi sayfa/modül + departman + bölüm kapsamında geçerli
+ * olduğunu belirler.
+ *
+ * `divisionId = null` → ilgili resource için tüm bölümler.
+ * `departmentId = null` → ilgili resource için tüm departmanlar.
+ */
+export const userAccessScopes = pgTable(
+  'user_access_scopes',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id')
+      .notNull()
+      .references(() => tenants.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    resource: varchar('resource', { length: 64 }).notNull(),
+    departmentId: uuid('department_id').references(() => departments.id, { onDelete: 'set null' }),
+    divisionId: uuid('division_id').references(() => divisions.id, { onDelete: 'set null' }),
+    isPrimary: boolean('is_primary').notNull().default(false),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true })
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (t) => ({
+    userResourceIdx: index('user_access_scopes_user_resource_idx').on(t.userId, t.resource),
+    tenantResourceIdx: index('user_access_scopes_tenant_resource_idx').on(t.tenantId, t.resource),
+    uniqueScope: uniqueIndex('user_access_scopes_unique').on(
+      t.userId,
+      t.resource,
+      sql`coalesce(department_id, '00000000-0000-0000-0000-000000000000'::uuid)`,
+      sql`coalesce(division_id, '00000000-0000-0000-0000-000000000000'::uuid)`
+    ),
   })
 );
 

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useMemo } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger,
 } from "../ui/dialog";
@@ -6,13 +6,15 @@ import { Input } from "../ui/input";
 import { Label } from "../ui/label";
 import { Button } from "../ui/button";
 import { Textarea } from "../ui/textarea";
-import { Combobox } from "../ui/combobox";
+import { Combobox, type ComboboxOption } from "../ui/combobox";
 import {
   Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue,
 } from "../ui/select";
+import { MultiSelect } from "../ui/multi-select";
+import { Checkbox } from "../ui/checkbox";
 import { useStore } from "../../lib/store";
 import { usePersistentState } from "../../lib/persist";
-import { SALES_STAGES, salesStageLabel, SHIPMENT_STATUSES, DELIVERY_STATUSES, type ShipmentStatus, type DeliveryStatus, type Customer, type Contact, type Product, type ProductSpec, type ServiceTicketType } from "../../lib/mock";
+import { SALES_STAGES, salesStageLabel, SHIPMENT_STATUSES, DELIVERY_STATUSES, type ShipmentStatus, type DeliveryStatus, type Delivery, type Customer, type Contact, type Machine, type Product, type ProductSpec, type ServiceTicketType, type StockItem } from "../../lib/mock";
 
 const SERVICE_TICKET_TYPE_OPTIONS: { value: ServiceTicketType; label: string }[] = [
   { value: "complaint", label: "Şikayet" },
@@ -20,29 +22,53 @@ const SERVICE_TICKET_TYPE_OPTIONS: { value: ServiceTicketType; label: string }[]
   { value: "warranty_claim", label: "Garanti" },
   { value: "question", label: "Soru / Bilgi" },
 ];
+const NO_SERVICE_MACHINE = "__no_service_machine__";
+const contactCompanyIds = (contact: Contact) =>
+  Array.from(new Set([contact.customerId, ...(contact.companyIds ?? [])].filter(Boolean)));
+const contactBelongsToCustomer = (contact: Contact, customerId: string) =>
+  Boolean(customerId && contactCompanyIds(contact).includes(customerId));
+const machineCustomerId = (machine?: Machine | null) =>
+  machine?.customerId || machine?.userCompanyId || "";
+const preferredServiceContact = (items: Contact[], customerId: string) => {
+  const matches = items.filter((contact) => contactBelongsToCustomer(contact, customerId));
+  return matches.find((contact) => contact.isPrimary && contact.customerId === customerId) ??
+    matches.find((contact) => contact.customerId === customerId) ??
+    matches.find((contact) => contact.isPrimary) ??
+    matches[0];
+};
 import { toast } from "sonner";
 import {
   Building2, User as UserIcon, Wallet, Truck, ClipboardCheck, ChevronDown, Receipt, Upload,
-  ClipboardList, Plus, Trash2, X, Loader2, Package, UserRound, Wrench,
+  ClipboardList, Plus, Trash2, X, Loader2, Package, UserRound, Wrench, Check,
 } from "lucide-react";
-import { serviceService, fileService, financeService, activityService, inventoryService, contactService } from "../../../lib/services";
+import { serviceService, fileService, financeService, activityService, inventoryService, contactService, productService, lookupService } from "../../../lib/services";
 import { Badge } from "../ui/badge";
 import { useAuth } from "../../../lib/auth";
 import {
-  computeInstallationFee,
   INSTALLATION_LOCATION_LABELS,
   type InstallationLocationType,
   COMPANY_SECTOR_OPTIONS,
   COUNTRY_OPTIONS,
-  DISTRICTS_BY_PROVINCE,
   TAX_OFFICE_OPTIONS,
   ACTIVITY_TYPE_OPTIONS,
   STOCK_CATEGORY_CODES,
   STOCK_CATEGORY_LABELS,
   type StockCategoryCode,
+  type AllowedFileExtension,
+  type AllowedMimeType,
 } from "@haksan/shared";
-import { PROVINCE_NAMES } from "../../lib/geo";
+import { provincesForCountry } from "../../lib/geoByCountry";
+import {
+  allCatalogProductSpecs,
+  groupProductSpecsForType,
+  normalizeProductSpecKey,
+  productSpecDefaults,
+  specsForProductTypeStrict,
+} from "../../lib/productSpecTemplates";
 import { QuoteDialog } from "./QuoteDialog";
+import { ProductSpecsTable } from "../shared/ProductSpecsTable";
+import { OsmCompanySearch } from "../company/OsmCompanySearch";
+import { relatedDeliveryFormNo, resolveServiceFormNo } from "../../lib/serviceFormNo";
 
 /* ---------- Customer ---------- */
 const COMPANY_GROUP_OPTIONS = [
@@ -90,6 +116,50 @@ function LookupCombobox({
   );
 }
 
+/**
+ * Kayıtlı kayda (id) bağlanabilen VEYA serbest metin girilebilen combobox.
+ * - Listeden seçim → onPick(id); id set edilir, serbest metin temizlenir.
+ * - Listede olmayan bir değer yazıp "kullan" → onFreeText(text); id temizlenir.
+ * Serbest metin, seçili görünmesi için options'a geçici bir kayıt olarak eklenir.
+ */
+const FREE_TEXT_PREFIX = "__free__:";
+function FreeTextCombobox({
+  idValue,
+  textValue,
+  options,
+  onPick,
+  onFreeText,
+  placeholder,
+}: {
+  idValue: string;
+  textValue: string;
+  options: ComboboxOption[];
+  onPick: (id: string) => void;
+  onFreeText: (text: string) => void;
+  placeholder?: string;
+}) {
+  const mergedOptions = useMemo<ComboboxOption[]>(
+    () => (!idValue && textValue ? [{ value: FREE_TEXT_PREFIX + textValue, label: textValue }, ...options] : options),
+    [idValue, textValue, options],
+  );
+  const value = idValue || (textValue ? FREE_TEXT_PREFIX + textValue : "");
+  return (
+    <Combobox
+      options={mergedOptions}
+      value={value}
+      onChange={(v) => {
+        if (v.startsWith(FREE_TEXT_PREFIX)) return;
+        onPick(v);
+      }}
+      onCreate={(label) => onFreeText(label)}
+      placeholder={placeholder ?? "Seçin veya yazın..."}
+      searchPlaceholder="Ara veya yaz..."
+      emptyText="Sonuç yok — yazıp ekleyebilirsiniz."
+      createLabel={(q) => `"${q}" kullan`}
+    />
+  );
+}
+
 const CONTACT_SOURCE_OPTIONS = [
   { code: "email", label: "Mail" },
   { code: "phone", label: "Telefon" },
@@ -98,6 +168,77 @@ const CONTACT_SOURCE_OPTIONS = [
   { code: "fair", label: "Fuar" },
   { code: "musiad", label: "MÜSİAD" },
 ];
+
+type LookupRow = { id?: string; code: string; name: string; province?: string; sortOrder?: number; isActive?: boolean };
+
+function useLookupRows(name: string, fallback: LookupRow[] = [], exactDivision = false) {
+  const { activeDivision } = useAuth();
+  const [rows, setRows] = useState<LookupRow[]>(fallback);
+  useEffect(() => {
+    let alive = true;
+    lookupService
+      .byName(name, exactDivision ? { scope: "exact" } : undefined)
+      .then((items) => {
+        if (!alive) return;
+        const normalized = (items ?? [])
+          .map((item: any) => ({ id: item.id, code: item.code, name: item.name, province: item.province, sortOrder: item.sortOrder, isActive: item.isActive }))
+          .filter((item: LookupRow) => item.code && item.name);
+        setRows(normalized.length ? normalized : fallback);
+      })
+      .catch(() => alive && setRows(fallback));
+    return () => {
+      alive = false;
+    };
+  }, [name, activeDivision, exactDivision]);
+  return rows;
+}
+
+function useTaxOfficeRows() {
+  const fallback = useMemo<LookupRow[]>(
+    () =>
+      TAX_OFFICE_OPTIONS
+        .map((name, index) => ({ code: name, name, sortOrder: index })),
+    [],
+  );
+  const [rows, setRows] = useState<LookupRow[]>(fallback);
+  useEffect(() => {
+    let alive = true;
+    lookupService
+      .taxOffices()
+      .then((items) => {
+        if (!alive) return;
+        const normalized = (items ?? [])
+          .map((item: any) => ({ id: item.id, code: item.code, name: item.name, province: item.province, sortOrder: item.sortOrder, isActive: item.isActive }))
+          .filter((item: LookupRow) => item.code && item.name);
+        setRows(normalized.length ? normalized : fallback);
+      })
+      .catch(() => alive && setRows(fallback));
+    return () => {
+      alive = false;
+    };
+  }, [fallback]);
+  return rows;
+}
+
+const lookupCodeOptions = (rows: LookupRow[]) => rows.map((row) => ({ code: row.code, label: row.name }));
+const lookupNameOptions = (rows: LookupRow[]) => rows.map((row) => ({ value: row.name, label: row.name }));
+
+const ADDRESS_TYPE_OPTIONS = [
+  { value: "office", label: "Ofis" },
+  { value: "factory", label: "Fabrika" },
+  { value: "work_area", label: "Çalışma Alanı" },
+  { value: "shipping", label: "Sevkiyat" },
+  { value: "billing", label: "Fatura" },
+  { value: "other", label: "Diğer" },
+] as const;
+
+const emptyAdditionalAddress = () => ({
+  addressType: "factory" as const,
+  country: "Türkiye",
+  city: "",
+  district: "",
+  address: "",
+});
 
 const emptyCompanyForm = () => ({
   name: "",
@@ -108,6 +249,9 @@ const emptyCompanyForm = () => ({
   email: "",
   email2: "",
   address: "",
+  latitude: "",
+  longitude: "",
+  osmDisplayName: "",
   district: "",
   city: "",
   country: "Türkiye",
@@ -115,12 +259,16 @@ const emptyCompanyForm = () => ({
   taxNumber: "",
   website: "",
   initialNote: "",
-  companyGroupCode: "cnc",
+  companyGroupCodes: ["cnc"],
+  divisionId: "",
+  addressType: "office" as const,
+  additionalAddresses: [] as ReturnType<typeof emptyAdditionalAddress>[],
   contactSourceCode: "email",
 });
 
 export function CreateCustomerDialog({ trigger, onCreated }: { trigger: React.ReactNode; onCreated?: (id: string) => void }) {
   const { addCustomer } = useStore();
+  const { user, activeDivision } = useAuth();
   const [open, setOpen] = useState(false);
   // Taslaklar yenilemede korunur; başarılı kayıtta temizlenir.
   const [type, setType] = usePersistentState<"company" | "person">("draft.customer.type", "company");
@@ -128,11 +276,13 @@ export function CreateCustomerDialog({ trigger, onCreated }: { trigger: React.Re
   const [salesStatus, setSalesStatus] = usePersistentState<"potential" | "active_customer">("draft.customer.salesStatus", "potential");
   const [form, setForm] = usePersistentState("draft.customer.form", emptyCompanyForm());
 
-  const provinceOptions = useMemo(() => toComboboxOptions(PROVINCE_NAMES), []);
-  const districtOptions = useMemo(() => {
-    const districts = DISTRICTS_BY_PROVINCE[form.city] ?? [];
-    return toComboboxOptions(districts);
-  }, [form.city]);
+  const provinceOptions = useMemo(() => toComboboxOptions(provincesForCountry(form.country)), [form.country]);
+  const companyGroupRows = useLookupRows("company-groups", COMPANY_GROUP_OPTIONS.map((g) => ({ code: g.code, name: g.label })));
+  const contactSourceRows = useLookupRows("contact-sources", CONTACT_SOURCE_OPTIONS.map((s) => ({ code: s.code, name: s.label })));
+  const sectorRows = useLookupRows("company-sectors", COMPANY_SECTOR_OPTIONS.map((name, index) => ({ code: name, name, sortOrder: index })));
+  const taxOfficeRows = useTaxOfficeRows();
+  const divisionOptions = user?.divisions ?? [];
+  const selectedDivisionId = form.divisionId || (activeDivision !== "all" ? activeDivision : divisionOptions.find((d) => d.isPrimary)?.id ?? divisionOptions[0]?.id ?? "");
 
   const reset = () => {
     setForm(emptyCompanyForm());
@@ -148,15 +298,38 @@ export function CreateCustomerDialog({ trigger, onCreated }: { trigger: React.Re
       return;
     }
     try {
+      const { latitude: latitudeRaw, longitude: longitudeRaw, additionalAddresses, addressType, ...companyForm } = form;
+      const latitude = latitudeRaw ? Number(latitudeRaw) : undefined;
+      const longitude = longitudeRaw ? Number(longitudeRaw) : undefined;
+      const addresses = [
+        {
+          addressType,
+          country: form.country || "Türkiye",
+          city: form.city,
+          district: form.district,
+          address: form.address,
+          latitude: Number.isFinite(latitude) ? latitude : undefined,
+          longitude: Number.isFinite(longitude) ? longitude : undefined,
+          isDefault: true,
+        },
+        ...(additionalAddresses ?? []).map((item) => ({ ...item, isDefault: false })),
+      ].filter((item) => item.address || item.city || item.district);
       const c = await addCustomer({
-        ...form,
+        ...companyForm,
         type,
         firmType,
-        salesStatus: firmType === "supplier" ? undefined : salesStatus,
+        salesStatus,
+        divisionId: selectedDivisionId,
+        companyGroupCodes: form.companyGroupCodes ?? [],
+        companyGroupNames: companyGroupRows.filter((g) => (form.companyGroupCodes ?? []).includes(g.code)).map((g) => g.name),
+        addresses,
+        latitude: Number.isFinite(latitude) ? latitude : undefined,
+        longitude: Number.isFinite(longitude) ? longitude : undefined,
         contactPerson: "",
         wantedProduct: "",
-        source: CONTACT_SOURCE_OPTIONS.find((s) => s.code === form.contactSourceCode)?.label ?? "",
-        companyGroupName: COMPANY_GROUP_OPTIONS.find((g) => g.code === form.companyGroupCode)?.label ?? "",
+        source: contactSourceRows.find((s) => s.code === form.contactSourceCode)?.name ?? "",
+        companyGroupCode: form.companyGroupCodes?.[0] ?? "",
+        companyGroupName: companyGroupRows.find((g) => g.code === form.companyGroupCodes?.[0])?.name ?? "",
       });
       toast.success("Firma oluşturuldu", { description: c.name });
       reset();
@@ -214,9 +387,24 @@ export function CreateCustomerDialog({ trigger, onCreated }: { trigger: React.Re
             </div>
           </div>
 
-          {firmType !== "supplier" && (
-            <div>
-              <Label className="text-xs">Müşteri Statüsü</Label>
+          <div>
+            <Label className="text-xs">İş Alanı *</Label>
+            <div className="grid grid-cols-3 gap-2 mt-1.5">
+              {divisionOptions.map((division) => (
+                <button
+                  key={division.id}
+                  type="button"
+                  onClick={() => setForm({ ...form, divisionId: division.id })}
+                  className={`px-3 py-2 rounded-lg border text-xs ${selectedDivisionId === division.id ? "border-primary bg-primary/5 text-primary" : "border-border"}`}
+                >
+                  {division.name}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div>
+              <Label className="text-xs">Firma Statüsü</Label>
               <div className="grid grid-cols-2 gap-2 mt-1.5">
                 {([
                   { k: "active_customer", l: "Cari" },
@@ -232,27 +420,26 @@ export function CreateCustomerDialog({ trigger, onCreated }: { trigger: React.Re
                   </button>
                 ))}
               </div>
-            </div>
-          )}
+          </div>
 
           <div className="grid grid-cols-2 gap-3">
             <div>
               <Label className="text-xs">Firma Grubu</Label>
-              <Select value={form.companyGroupCode} onValueChange={(v) => setForm({ ...form, companyGroupCode: v })}>
-                <SelectTrigger className="mt-1.5"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {COMPANY_GROUP_OPTIONS.map((g) => (
-                    <SelectItem key={g.code} value={g.code}>{g.label}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <div className="mt-1.5">
+                <MultiSelect
+                  options={lookupCodeOptions(companyGroupRows).map((g) => ({ value: g.code, label: g.label }))}
+                  selected={form.companyGroupCodes ?? []}
+                  onChange={(companyGroupCodes) => setForm({ ...form, companyGroupCodes })}
+                  placeholder="Firma gruplarını seçin"
+                />
+              </div>
             </div>
             <div>
               <Label className="text-xs">Firma İrtibat Şekli</Label>
               <Select value={form.contactSourceCode} onValueChange={(v) => setForm({ ...form, contactSourceCode: v })}>
                 <SelectTrigger className="mt-1.5"><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  {CONTACT_SOURCE_OPTIONS.map((s) => (
+                  {lookupCodeOptions(contactSourceRows).map((s) => (
                     <SelectItem key={s.code} value={s.code}>{s.label}</SelectItem>
                   ))}
                 </SelectContent>
@@ -260,7 +447,7 @@ export function CreateCustomerDialog({ trigger, onCreated }: { trigger: React.Re
             </div>
             <LookupCombobox
               label="Firma Sektörü"
-              options={toComboboxOptions(COMPANY_SECTOR_OPTIONS)}
+              options={lookupNameOptions(sectorRows)}
               value={form.sector}
               onChange={(v) => setForm({ ...form, sector: v })}
               placeholder="Sektör seçin..."
@@ -272,12 +459,19 @@ export function CreateCustomerDialog({ trigger, onCreated }: { trigger: React.Re
             <Field label="Mail-1" value={form.email} onChange={(v) => setForm({ ...form, email: v })} type="email" />
             <Field label="Mail-2" value={form.email2} onChange={(v) => setForm({ ...form, email2: v })} type="email" />
             <Field label="Web Sitesi" value={form.website} onChange={(v) => setForm({ ...form, website: v })} placeholder="https://..." />
-            <Field label="Açık Adres" value={form.address} onChange={(v) => setForm({ ...form, address: v })} className="col-span-2" />
+            <div>
+              <Label className="text-xs">Adres Türü</Label>
+              <Select value={form.addressType} onValueChange={(value) => setForm({ ...form, addressType: value as typeof form.addressType })}>
+                <SelectTrigger className="mt-1.5"><SelectValue /></SelectTrigger>
+                <SelectContent>{ADDRESS_TYPE_OPTIONS.map((option) => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}</SelectContent>
+              </Select>
+            </div>
+            <Field label="Açık Adres" value={form.address} onChange={(v) => setForm({ ...form, address: v })} />
             <LookupCombobox
               label="Ülke"
               options={toComboboxOptions(COUNTRY_OPTIONS)}
               value={form.country}
-              onChange={(v) => setForm({ ...form, country: v })}
+              onChange={(v) => setForm({ ...form, country: v, city: "", district: "" })}
               placeholder="Ülke seçin..."
             />
             <LookupCombobox
@@ -285,18 +479,59 @@ export function CreateCustomerDialog({ trigger, onCreated }: { trigger: React.Re
               options={provinceOptions}
               value={form.city}
               onChange={(v) => setForm({ ...form, city: v, district: "" })}
-              placeholder="İl seçin..."
+              placeholder={provinceOptions.length ? "İl seçin veya yazın..." : "İl yazın..."}
             />
-            <LookupCombobox
-              label="İlçe"
-              options={districtOptions}
-              value={form.district}
-              onChange={(v) => setForm({ ...form, district: v })}
-              placeholder={form.city ? "İlçe seçin..." : "Önce il seçin"}
-            />
+            <Field label="İlçe" value={form.district} onChange={(v) => setForm({ ...form, district: v })} placeholder="İlçeyi yazın" />
+            <div className="col-span-2">
+              <OsmCompanySearch
+                query={form.name}
+                address={form.address}
+                city={form.city}
+                district={form.district}
+                onSelect={(result) => {
+                  setForm({
+                    ...form,
+                    latitude: String(result.latitude),
+                    longitude: String(result.longitude),
+                    osmDisplayName: result.displayName,
+                    address: form.address.trim() ? form.address : result.displayName,
+                  });
+                  toast.success("Konum seçildi", { description: `${result.latitude.toFixed(5)}, ${result.longitude.toFixed(5)}` });
+                }}
+              />
+              {form.latitude && form.longitude && (
+                <div className="mt-2 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-900">
+                  Harita konumu kayda eklenecek: {Number(form.latitude).toFixed(5)}, {Number(form.longitude).toFixed(5)}
+                </div>
+              )}
+            </div>
+            <div className="col-span-2 space-y-3 rounded-lg border border-dashed p-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="text-sm font-medium">Ek adresler</div>
+                  <div className="text-xs text-muted-foreground">Fabrika, çalışma alanı veya sevkiyat adresi ekleyin.</div>
+                </div>
+                <Button type="button" variant="outline" size="sm" onClick={() => setForm({ ...form, additionalAddresses: [...(form.additionalAddresses ?? []), emptyAdditionalAddress()] })}>
+                  <Plus className="mr-1 size-3.5" /> Adres Ekle
+                </Button>
+              </div>
+              {(form.additionalAddresses ?? []).map((item, index) => (
+                <div key={index} className="grid grid-cols-2 gap-2 rounded-md bg-muted/30 p-3">
+                  <Select value={item.addressType} onValueChange={(value) => setForm({ ...form, additionalAddresses: form.additionalAddresses.map((row, i) => i === index ? { ...row, addressType: value as typeof row.addressType } : row) })}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>{ADDRESS_TYPE_OPTIONS.map((option) => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}</SelectContent>
+                  </Select>
+                  <div className="flex justify-end"><Button type="button" size="icon" variant="ghost" onClick={() => setForm({ ...form, additionalAddresses: form.additionalAddresses.filter((_, i) => i !== index) })}><Trash2 className="size-4" /></Button></div>
+                  <Input placeholder="Ülke" value={item.country} onChange={(e) => setForm({ ...form, additionalAddresses: form.additionalAddresses.map((row, i) => i === index ? { ...row, country: e.target.value } : row) })} />
+                  <Input placeholder="İl" value={item.city} onChange={(e) => setForm({ ...form, additionalAddresses: form.additionalAddresses.map((row, i) => i === index ? { ...row, city: e.target.value } : row) })} />
+                  <Input placeholder="İlçe" value={item.district} onChange={(e) => setForm({ ...form, additionalAddresses: form.additionalAddresses.map((row, i) => i === index ? { ...row, district: e.target.value } : row) })} />
+                  <Input placeholder="Açık adres" value={item.address} onChange={(e) => setForm({ ...form, additionalAddresses: form.additionalAddresses.map((row, i) => i === index ? { ...row, address: e.target.value } : row) })} />
+                </div>
+              ))}
+            </div>
             <LookupCombobox
               label="Vergi Dairesi"
-              options={toComboboxOptions(TAX_OFFICE_OPTIONS)}
+              options={lookupNameOptions(taxOfficeRows)}
               value={form.taxOffice}
               onChange={(v) => setForm({ ...form, taxOffice: v })}
               placeholder="Vergi dairesi seçin..."
@@ -336,10 +571,8 @@ const emptyContactForm = (defaultCustomerId?: string) => ({
   decisionRoleCode: "",
   favoriteTeam: "",
   hometown: "",
-  knownIllness: "",
   favoriteColor: "",
   graduatedSchool: "",
-  politicalView: "",
   isPrimary: false,
   note: "",
   isBlacklisted: false,
@@ -355,7 +588,7 @@ export function CreateContactDialog({
   defaultCustomerId?: string;
   onCreated?: (id: string) => void;
 }) {
-  const { customers, addContact } = useStore();
+  const { customers, addContact, addCustomer } = useStore();
   const [open, setOpen] = useState(false);
   // Taslak yenilemede korunur; açılışta sıfırlanmaz, yalnızca başarılı kayıtta temizlenir.
   const [form, setForm] = usePersistentState("draft.contact.form", emptyContactForm(defaultCustomerId));
@@ -385,10 +618,8 @@ export function CreateContactDialog({
         decisionRoleCode: form.decisionRoleCode,
         favoriteTeam: form.favoriteTeam.trim(),
         hometown: form.hometown.trim(),
-        knownIllness: form.knownIllness.trim(),
         favoriteColor: form.favoriteColor.trim(),
         graduatedSchool: form.graduatedSchool.trim(),
-        politicalView: form.politicalView.trim(),
         isPrimary: form.isPrimary,
         note: form.note.trim(),
         isBlacklisted: form.isBlacklisted,
@@ -420,14 +651,30 @@ export function CreateContactDialog({
           <div className="grid grid-cols-2 gap-3">
             <div className="col-span-2">
               <Label className="text-xs">Firma *</Label>
-              <Select value={form.customerId} onValueChange={(v) => setForm({ ...form, customerId: v })}>
-                <SelectTrigger className="mt-1.5"><SelectValue placeholder="Firma seçin..." /></SelectTrigger>
-                <SelectContent>
-                  {customers.map((c) => (
-                    <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <div className="mt-1.5">
+                <Combobox
+                  options={customers.map((c) => ({ value: c.id, label: c.name, hint: c.city }))}
+                  value={form.customerId}
+                  onChange={(v) => setForm({ ...form, customerId: v })}
+                  placeholder="Firma seçin veya adını yazın..."
+                  searchPlaceholder="Firma adı / şehir ara..."
+                  emptyText="Firma bulunamadı."
+                  onCreate={async (label) => {
+                    try {
+                      const created = await addCustomer({
+                        type: "company", firmType: "customer", name: label,
+                        contactPerson: "", phone: "", email: "", city: "", address: "",
+                        taxNumber: "", wantedProduct: "", initialNote: "", source: "Kontak",
+                      } as any);
+                      setForm((f) => ({ ...f, customerId: created.id }));
+                      toast.success("Firma oluşturuldu", { description: label });
+                    } catch (err: any) {
+                      toast.error("Firma oluşturulamadı", { description: err?.message ?? "İstek başarısız oldu." });
+                    }
+                  }}
+                  createLabel={(q) => `"${q}" adıyla yeni firma oluştur`}
+                />
+              </div>
             </div>
 
             <Field label="Adı Soyadı *" value={form.name} onChange={(v) => setForm({ ...form, name: v })} />
@@ -475,10 +722,8 @@ export function CreateContactDialog({
             <Field label="Doğum Tarihi" type="date" value={form.birthDate} onChange={(v) => setForm({ ...form, birthDate: v })} />
             <Field label="Tuttuğu Takım" value={form.favoriteTeam} onChange={(v) => setForm({ ...form, favoriteTeam: v })} />
             <Field label="Memleketi" value={form.hometown} onChange={(v) => setForm({ ...form, hometown: v })} />
-            <Field label="Bilinen Hastalık" value={form.knownIllness} onChange={(v) => setForm({ ...form, knownIllness: v })} />
             <Field label="Sevdiği Renk" value={form.favoriteColor} onChange={(v) => setForm({ ...form, favoriteColor: v })} />
             <Field label="Mezun Olduğu Okul" value={form.graduatedSchool} onChange={(v) => setForm({ ...form, graduatedSchool: v })} />
-            <Field label="Siyasi Görüş / Parti" value={form.politicalView} onChange={(v) => setForm({ ...form, politicalView: v })} />
             <div className="col-span-2">
               <Label className="text-xs">Not</Label>
               <Textarea className="mt-1.5" rows={3} value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} />
@@ -527,31 +772,47 @@ export function CreateContactDialog({
 /* ---------- Firma düzenleme (controlled) ---------- */
 export function EditCustomerDialog({ customer, onClose }: { customer: Customer | null; onClose: () => void }) {
   const { updateCustomer } = useStore();
+  const { user } = useAuth();
   const [saving, setSaving] = useState(false);
-  const [form, setForm] = useState({
-    name: "", sector: "", phone: "", email: "", city: "", district: "", country: "Türkiye",
-    taxNumber: "", taxOffice: "", website: "",
-  });
-
-  const provinceOptions = useMemo(() => toComboboxOptions(PROVINCE_NAMES), []);
-  const districtOptions = useMemo(() => {
-    const districts = DISTRICTS_BY_PROVINCE[form.city] ?? [];
-    return toComboboxOptions(districts);
-  }, [form.city]);
+  const [form, setForm] = useState<any>({});
+  const sectorRows = useLookupRows("company-sectors", COMPANY_SECTOR_OPTIONS.map((name, index) => ({ code: name, name, sortOrder: index })));
+  const companyGroupRows = useLookupRows("company-groups", COMPANY_GROUP_OPTIONS.map((g) => ({ code: g.code, name: g.label })));
+  const contactSourceRows = useLookupRows("contact-sources", CONTACT_SOURCE_OPTIONS.map((s) => ({ code: s.code, name: s.label })));
+  const taxOfficeRows = useTaxOfficeRows();
+  const divisionOptions = user?.divisions ?? [];
 
   useEffect(() => {
     if (customer)
       setForm({
+        type: customer.type ?? "company",
+        firmType: customer.firmType ?? "customer",
+        salesStatus: customer.salesStatus ?? "potential",
+        divisionIds: customer.divisions?.map((division) => division.id) ?? [],
+        companyGroupCodes: customer.companyGroupCodes ?? (customer.companyGroupCode ? [customer.companyGroupCode] : []),
+        contactSourceCode: customer.contactSourceCode ?? "",
         name: customer.name ?? "",
         sector: customer.sector ?? "",
         phone: customer.phone ?? "",
+        phone2: customer.phone2 ?? "",
+        fax: customer.fax ?? "",
         email: customer.email ?? "",
-        city: customer.city ?? "",
-        district: customer.district ?? "",
-        country: customer.country ?? "Türkiye",
+        email2: customer.email2 ?? "",
         taxNumber: customer.taxNumber ?? "",
         taxOffice: customer.taxOffice ?? "",
         website: customer.website ?? "",
+        initialNote: customer.initialNote ?? "",
+        addresses: customer.addresses?.length
+          ? customer.addresses.map((address) => ({ ...address }))
+          : [{
+              addressType: "office",
+              country: customer.country ?? "Türkiye",
+              city: customer.city ?? "",
+              district: customer.district ?? "",
+              address: customer.address ?? "",
+              latitude: customer.latitude,
+              longitude: customer.longitude,
+              isDefault: true,
+            }],
       });
   }, [customer]);
 
@@ -561,7 +822,13 @@ export function EditCustomerDialog({ customer, onClose }: { customer: Customer |
     if (!form.name.trim()) return toast.error("Firma ünvanı zorunludur");
     setSaving(true);
     try {
-      await updateCustomer(customer.id, form);
+      if (!form.divisionIds?.length) return toast.error("En az bir iş alanı seçin");
+      await updateCustomer(customer.id, {
+        ...form,
+        divisions: divisionOptions.filter((division) => form.divisionIds.includes(division.id)),
+        companyGroupCodes: form.companyGroupCodes ?? [],
+        addresses: (form.addresses ?? []).map((address: any, index: number) => ({ ...address, isDefault: address.isDefault || index === 0 })),
+      });
       toast.success("Firma güncellendi", { description: form.name });
       onClose();
     } catch (err: any) {
@@ -573,48 +840,94 @@ export function EditCustomerDialog({ customer, onClose }: { customer: Customer |
 
   return (
     <Dialog open={!!customer} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-lg">
+      <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Firma Düzenle</DialogTitle>
-          <DialogDescription>Firma temel bilgilerini güncelleyin.</DialogDescription>
+          <DialogDescription>Firma statüsü, iş alanları, iletişim ve adresler dahil tüm alanları güncelleyin.</DialogDescription>
         </DialogHeader>
-        <form onSubmit={submit} className="space-y-3">
-          <Field label="Ünvan *" value={form.name} onChange={(v) => setForm({ ...form, name: v })} />
+        <form onSubmit={submit} className="space-y-5">
+          <div className="grid grid-cols-2 gap-2">
+            {([{ value: "company", label: "Kurumsal" }, { value: "person", label: "Bireysel" }] as const).map((option) => (
+              <button key={option.value} type="button" onClick={() => setForm({ ...form, type: option.value })} className={`rounded-lg border px-3 py-2 text-sm ${form.type === option.value ? "border-primary bg-primary/5 text-primary" : "border-border"}`}>{option.label}</button>
+            ))}
+          </div>
+          <div>
+            <Label className="text-xs">Firma Tipi *</Label>
+            <div className="mt-1.5 grid grid-cols-3 gap-2">
+              {([{ value: "customer", label: "Müşteri" }, { value: "supplier", label: "Tedarikçi" }, { value: "supplier_customer", label: "Müşteri + Tedarikçi" }] as const).map((option) => (
+                <button key={option.value} type="button" onClick={() => setForm({ ...form, firmType: option.value })} className={`rounded-lg border px-3 py-2 text-xs ${form.firmType === option.value ? "border-primary bg-primary/5 text-primary" : "border-border"}`}>{option.label}</button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <Label className="text-xs">Firma Statüsü</Label>
+            <div className="mt-1.5 grid grid-cols-2 gap-2">
+              {([{ value: "active_customer", label: "Cari" }, { value: "potential", label: "Potansiyel" }] as const).map((option) => (
+                <button key={option.value} type="button" onClick={() => setForm({ ...form, salesStatus: option.value })} className={`rounded-lg border px-3 py-2 text-xs ${form.salesStatus === option.value ? "border-primary bg-primary/5 text-primary" : "border-border"}`}>{option.label}</button>
+              ))}
+            </div>
+          </div>
           <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label className="text-xs">İş Alanları *</Label>
+              <div className="mt-1.5"><MultiSelect options={divisionOptions.map((division) => ({ value: division.id, label: division.name }))} selected={form.divisionIds ?? []} onChange={(divisionIds) => setForm({ ...form, divisionIds })} /></div>
+            </div>
+            <div>
+              <Label className="text-xs">Firma Grupları</Label>
+              <div className="mt-1.5"><MultiSelect options={lookupCodeOptions(companyGroupRows).map((group) => ({ value: group.code, label: group.label }))} selected={form.companyGroupCodes ?? []} onChange={(companyGroupCodes) => setForm({ ...form, companyGroupCodes })} /></div>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Ünvan *" value={form.name ?? ""} onChange={(v) => setForm({ ...form, name: v })} />
             <LookupCombobox
               label="Sektör"
-              options={toComboboxOptions(COMPANY_SECTOR_OPTIONS)}
-              value={form.sector}
+              options={lookupNameOptions(sectorRows)}
+              value={form.sector ?? ""}
               onChange={(v) => setForm({ ...form, sector: v })}
             />
-            <Field label="Web" value={form.website} onChange={(v) => setForm({ ...form, website: v })} />
-            <Field label="Telefon" value={form.phone} onChange={(v) => setForm({ ...form, phone: v })} />
-            <Field label="E-posta" value={form.email} onChange={(v) => setForm({ ...form, email: v })} />
-            <LookupCombobox
-              label="Ülke"
-              options={toComboboxOptions(COUNTRY_OPTIONS)}
-              value={form.country}
-              onChange={(v) => setForm({ ...form, country: v })}
-            />
-            <LookupCombobox
-              label="İl"
-              options={provinceOptions}
-              value={form.city}
-              onChange={(v) => setForm({ ...form, city: v, district: "" })}
-            />
-            <LookupCombobox
-              label="İlçe"
-              options={districtOptions}
-              value={form.district}
-              onChange={(v) => setForm({ ...form, district: v })}
-            />
-            <Field label="VKN" value={form.taxNumber} onChange={(v) => setForm({ ...form, taxNumber: v })} />
+            <Field label="Web" value={form.website ?? ""} onChange={(v) => setForm({ ...form, website: v })} />
+            <Field label="Telefon-1" value={form.phone ?? ""} onChange={(v) => setForm({ ...form, phone: v })} />
+            <Field label="Telefon-2" value={form.phone2 ?? ""} onChange={(v) => setForm({ ...form, phone2: v })} />
+            <Field label="Faks" value={form.fax ?? ""} onChange={(v) => setForm({ ...form, fax: v })} />
+            <Field label="E-posta-1" value={form.email ?? ""} onChange={(v) => setForm({ ...form, email: v })} />
+            <Field label="E-posta-2" value={form.email2 ?? ""} onChange={(v) => setForm({ ...form, email2: v })} />
+            <div>
+              <Label className="text-xs">Firma İrtibat Şekli</Label>
+              <Select value={form.contactSourceCode || undefined} onValueChange={(value) => setForm({ ...form, contactSourceCode: value })}>
+                <SelectTrigger className="mt-1.5"><SelectValue placeholder="Seçin" /></SelectTrigger>
+                <SelectContent>{lookupCodeOptions(contactSourceRows).map((source) => <SelectItem key={source.code} value={source.code}>{source.label}</SelectItem>)}</SelectContent>
+              </Select>
+            </div>
+            <Field label="T.C. / Vergi Kimlik Numarası" value={form.taxNumber ?? ""} onChange={(v) => setForm({ ...form, taxNumber: v })} />
             <LookupCombobox
               label="Vergi Dairesi"
-              options={toComboboxOptions(TAX_OFFICE_OPTIONS)}
-              value={form.taxOffice}
+              options={lookupNameOptions(taxOfficeRows)}
+              value={form.taxOffice ?? ""}
               onChange={(v) => setForm({ ...form, taxOffice: v })}
             />
+            <div className="col-span-2"><Label className="text-xs">Notlar</Label><Textarea className="mt-1.5" rows={3} value={form.initialNote ?? ""} onChange={(event) => setForm({ ...form, initialNote: event.target.value })} /></div>
+          </div>
+          <div className="space-y-3 rounded-lg border p-3">
+            <div className="flex items-center justify-between">
+              <div><div className="text-sm font-medium">Firma Adresleri</div><div className="text-xs text-muted-foreground">İlk adres varsayılan sevkiyat adresidir.</div></div>
+              <Button type="button" size="sm" variant="outline" onClick={() => setForm({ ...form, addresses: [...(form.addresses ?? []), emptyAdditionalAddress()] })}><Plus className="mr-1 size-3.5" /> Adres Ekle</Button>
+            </div>
+            {(form.addresses ?? []).map((address: any, index: number) => {
+              const updateAddress = (patch: Record<string, unknown>) => setForm({ ...form, addresses: form.addresses.map((row: any, rowIndex: number) => rowIndex === index ? { ...row, ...patch } : row) });
+              return (
+                <div key={address.id ?? index} className="grid grid-cols-2 gap-2 rounded-md bg-muted/30 p-3">
+                  <Select value={address.addressType ?? "office"} onValueChange={(value) => updateAddress({ addressType: value })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{ADDRESS_TYPE_OPTIONS.map((option) => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}</SelectContent></Select>
+                  <div className="flex items-center justify-end gap-2">
+                    {index === 0 && <Badge variant="secondary">Varsayılan</Badge>}
+                    <Button type="button" variant="ghost" size="icon" disabled={(form.addresses?.length ?? 0) <= 1} onClick={() => setForm({ ...form, addresses: form.addresses.filter((_: any, rowIndex: number) => rowIndex !== index) })}><Trash2 className="size-4" /></Button>
+                  </div>
+                  <LookupCombobox label="Ülke" options={toComboboxOptions(COUNTRY_OPTIONS)} value={address.country ?? "Türkiye"} onChange={(value) => updateAddress({ country: value, city: "", district: "" })} />
+                  <LookupCombobox label="İl" options={toComboboxOptions(provincesForCountry(address.country ?? "Türkiye"))} value={address.city ?? ""} onChange={(value) => updateAddress({ city: value })} />
+                  <Field label="İlçe" value={address.district ?? ""} onChange={(value) => updateAddress({ district: value })} placeholder="İlçeyi yazın" />
+                  <Field label="Açık Adres" value={address.address ?? ""} onChange={(value) => updateAddress({ address: value })} />
+                </div>
+              );
+            })}
           </div>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={onClose}>Vazgeç</Button>
@@ -804,19 +1117,27 @@ export function EditContactDialog({ contact, onClose }: { contact: Contact | nul
 
 export function CreateCaseDialog({ trigger, defaultCustomerId }: { trigger: React.ReactNode; defaultCustomerId?: string }) {
   const { customers, addCase, addCustomer, users, products } = useStore();
-  const { user, activeDivision } = useAuth();
-  const canPickDivision = user?.canViewAllDivisions ?? false;
+  const { user, activeDivision, canUseAllDivisionsForResource, hasRole, scopesForResource } = useAuth();
+  const isSuperAdmin = hasRole("super_admin");
   const divisions = user?.divisions ?? [];
-  const defaultDivisionId = activeDivision && activeDivision !== "all" ? activeDivision : divisions[0]?.id ?? "";
+  const opportunityScopes = scopesForResource("opportunities");
+  const canPickAllOpportunities = opportunityScopes.length === 0 ? (user?.canViewAllDivisions ?? false) : canUseAllDivisionsForResource("opportunities");
+  const scopedOpportunityDivisionIds = new Set(opportunityScopes.map((scope) => scope.divisionId).filter((id): id is string => !!id));
+  const opportunityDivisions =
+    opportunityScopes.length === 0 || canPickAllOpportunities ? divisions : divisions.filter((division) => scopedOpportunityDivisionIds.has(division.id));
+  const canPickDivision = activeDivision === "all" || canPickAllOpportunities || opportunityDivisions.length > 1;
+  const defaultDivisionId = activeDivision && activeDivision !== "all" ? activeDivision : opportunityDivisions.find((d) => d.isPrimary)?.id ?? opportunityDivisions[0]?.id ?? "";
   const [open, setOpen] = useState(false);
   const [selectedProductId, setSelectedProductId] = useState("");
+  const [saving, setSaving] = useState(false);
   const makeEmptyCase = () => ({
     customerId: defaultCustomerId ?? "",
-    assignedUserId: users.find((u) => u.role === "Sales" || u.role === "Admin")?.id ?? users[0]?.id ?? "",
+    assignedUserId: user?.id ?? users.find((u) => u.role === "Sales" || u.role === "Admin")?.id ?? users[0]?.id ?? "",
     requestedProduct: "",
     requestedModel: "",
     quantity: 1,
     estimatedAmount: 0,
+    paymentTermDays: undefined as number | undefined,
     currency: "USD" as "USD" | "EUR" | "TRY",
     stage: "lead" as (typeof SALES_STAGES)[number],
     department: "Satış",
@@ -824,12 +1145,31 @@ export function CreateCaseDialog({ trigger, defaultCustomerId }: { trigger: Reac
   });
   // Taslak yenilemede korunur; başarılı kayıtta temizlenir.
   const [form, setForm] = usePersistentState("draft.case.form", makeEmptyCase());
+  // Super admin olmayan kullanıcılar için her zaman kendi ID'lerine kilitle.
+  useEffect(() => {
+    if (!isSuperAdmin && user?.id && form.assignedUserId !== user.id) {
+      setForm((f) => ({ ...f, assignedUserId: user.id }));
+    }
+  }, [user?.id, isSuperAdmin]);
+
+  // Satış kartı ürün seçici: yalnızca tezgahlar (satış kalemi), aktif/seçili bölüme
+  // (CNC/Üniversal/Sac) göre daraltılır. Serbest ürün adı yine elle yazılabilir.
+  const machineProductOptions = useMemo(() => {
+    const activeDivId = canPickDivision ? form.divisionId : (activeDivision && activeDivision !== "all" ? activeDivision : "");
+    const divCode = activeDivId ? divisions.find((d) => d.id === activeDivId)?.code?.toLocaleUpperCase("en-US") : null;
+    return products
+      .filter((p) => (p.categoryCode ?? "").toLocaleUpperCase("en-US") === "TEZGAH")
+      .filter((p) => !divCode || (p.productGroupCode ?? "").toLocaleUpperCase("en-US") === divCode)
+      .map((p) => ({ value: p.id, label: [p.brand, p.model].filter(Boolean).join(" "), hint: p.type }));
+  }, [products, canPickDivision, form.divisionId, activeDivision, divisions]);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (saving) return;
     if (!form.customerId) return toast.error("Müşteri seçiniz");
     if (!form.requestedProduct) return toast.error("Ürün giriniz");
     if (canPickDivision && !form.divisionId) return toast.error("Bölüm seçiniz", { description: "Satış kartını CNC / Üniversal / Sac bölümlerinden birine atayın." });
+    setSaving(true);
     try {
       const sc = await addCase(form as any);
       toast.success("Satış kartı oluşturuldu", { description: `#${sc.id.toUpperCase()}` });
@@ -838,6 +1178,8 @@ export function CreateCaseDialog({ trigger, defaultCustomerId }: { trigger: Reac
       setOpen(false);
     } catch (err: any) {
       toast.error("Satış kartı oluşturulamadı", { description: err?.message ?? "API isteği başarısız oldu." });
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -879,33 +1221,49 @@ export function CreateCaseDialog({ trigger, defaultCustomerId }: { trigger: Reac
                 />
               </div>
             </div>
-            <div className="col-span-2">
-              <Label className="text-xs">Talep Edilen Ürün ve Model *</Label>
+            <div>
+              <Label className="text-xs">Talep Edilen Ürün *</Label>
               <div className="mt-1.5">
                 <Combobox
-                  options={products.map((p) => ({ value: p.id, label: [p.brand, p.model].filter(Boolean).join(" "), hint: p.type }))}
+                  options={machineProductOptions}
                   value={selectedProductId}
                   onChange={(v) => {
                     const p = products.find((pr) => pr.id === v);
                     setSelectedProductId(v);
                     if (p) {
-                      const line = [p.brand, p.model].filter(Boolean).join(" ").trim();
-                      setForm((f) => ({ ...f, requestedProduct: line, requestedModel: p.model ?? "" }));
+                      // Tahmini tutar peşin fiyattan otomatik çekilir (yoksa liste
+                      // fiyatı) ve adetle çarpılır; kullanıcı el ile değiştirebilir.
+                      const unit = p.cashPrice ?? p.listPrice ?? 0;
+                      setForm((f) => ({
+                        ...f,
+                        requestedProduct: p.brand || p.type || p.model,
+                        requestedModel: p.model ?? "",
+                        estimatedAmount: unit ? unit * (Number(f.quantity) || 1) : f.estimatedAmount,
+                        currency: (p.currency as typeof f.currency) ?? f.currency,
+                      }));
                     }
                   }}
-                  placeholder="Ürün ve model seçin veya yazın..."
+                  placeholder="Tezgah seçin veya yazın..."
                   searchPlaceholder="Marka / model ara..."
-                  emptyText="Ürün bulunamadı."
+                  emptyText="Tezgah bulunamadı."
                   onCreate={(label) => {
                     setSelectedProductId("");
-                    setForm((f) => ({ ...f, requestedProduct: label, requestedModel: label }));
+                    setForm((f) => ({ ...f, requestedProduct: label }));
                   }}
                   createLabel={(q) => `"${q}" serbest ürün olarak ekle`}
                 />
               </div>
             </div>
+            <Field label="Model" value={form.requestedModel} onChange={(v) => setForm({ ...form, requestedModel: v })} placeholder="Model elle girilebilir" />
             <Field label="Adet" type="number" value={String(form.quantity)} onChange={(v) => setForm({ ...form, quantity: Number(v) || 1 })} />
             <Field label="Tahmini Tutar" type="number" value={String(form.estimatedAmount)} onChange={(v) => setForm({ ...form, estimatedAmount: Number(v) || 0 })} />
+            <Field
+              label="Vade (gün)"
+              type="number"
+              value={form.paymentTermDays === undefined ? "" : String(form.paymentTermDays)}
+              onChange={(v) => setForm({ ...form, paymentTermDays: v.trim() === "" ? undefined : Math.max(0, Number(v) || 0) })}
+              placeholder="Örn. 90"
+            />
             <div>
               <Label className="text-xs">Para Birimi</Label>
               <Select value={form.currency} onValueChange={(v: any) => setForm({ ...form, currency: v })}>
@@ -917,24 +1275,26 @@ export function CreateCaseDialog({ trigger, defaultCustomerId }: { trigger: Reac
                 </SelectContent>
               </Select>
             </div>
-            <div>
-              <Label className="text-xs">Atanan Kullanıcı</Label>
-              <Select value={form.assignedUserId} onValueChange={(v) => setForm({ ...form, assignedUserId: v })}>
-                <SelectTrigger className="mt-1.5"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {(users.filter((u) => u.role === "Sales" || u.role === "Admin").length > 0 ? users.filter((u) => u.role === "Sales" || u.role === "Admin") : users).map((u) => (
-                    <SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+            {isSuperAdmin && (
+              <div>
+                <Label className="text-xs">Atanan Kullanıcı</Label>
+                <Select value={form.assignedUserId} onValueChange={(v) => setForm({ ...form, assignedUserId: v })}>
+                  <SelectTrigger className="mt-1.5"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {(users.filter((u) => u.role === "Sales" || u.role === "Admin").length > 0 ? users.filter((u) => u.role === "Sales" || u.role === "Admin") : users).map((u) => (
+                      <SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
             {canPickDivision && (
               <div className="col-span-2">
                 <Label className="text-xs">Bölüm *</Label>
                 <Select value={form.divisionId} onValueChange={(v) => setForm({ ...form, divisionId: v })}>
                   <SelectTrigger className="mt-1.5"><SelectValue placeholder="Bölüm seçin (CNC / Üniversal / Sac)..." /></SelectTrigger>
                   <SelectContent>
-                    {divisions.map((d) => (
+                    {opportunityDivisions.map((d) => (
                       <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>
                     ))}
                   </SelectContent>
@@ -955,8 +1315,10 @@ export function CreateCaseDialog({ trigger, defaultCustomerId }: { trigger: Reac
           </div>
 
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => setOpen(false)}>Vazgeç</Button>
-            <Button type="submit">Satış Kartını Oluştur</Button>
+            <Button type="button" variant="outline" onClick={() => setOpen(false)} disabled={saving}>Vazgeç</Button>
+            <Button type="submit" disabled={saving}>
+              {saving ? "Oluşturuluyor..." : "Satış Kartını Oluştur"}
+            </Button>
           </DialogFooter>
         </form>
       </DialogContent>
@@ -1022,7 +1384,7 @@ function AutocompleteInput({ value, onChange, options, placeholder }: { value: s
 }
 
 /* ---------- Stock Item ---------- */
-const STATUSES: Array<"Available" | "Reserved" | "Sold" | "Inactive"> = ["Available", "Reserved", "Sold", "Inactive"];
+const STATUSES: Array<StockItem["status"]> = ["Available", "Reserved", "InTransit", "Sold", "Inactive"];
 
 const emptyStockForm = () => ({
   brand: "",
@@ -1032,15 +1394,16 @@ const emptyStockForm = () => ({
   controlPanel: "",
   stockCode: "",
   warehouse: "",
-  status: "Available" as "Available" | "Reserved" | "Sold" | "Inactive",
+  status: "Available" as StockItem["status"],
   categoryCode: "TEZGAH" as StockCategoryCode,
   optionalHardware: "",
   spareParts: "",
   productId: "",
+  parentInventoryItemId: null as string | null,
 });
 
 export function CreateStockDialog({ trigger }: { trigger: React.ReactNode }) {
-  const { addStock, stock, products } = useStore();
+  const { addStock, stock, products, refresh } = useStore();
   const [open, setOpen] = useState(false);
   // Mod: "single" = tek seri-no'lu kalem · "bulk" = bir üründen N adet seri-no üret.
   const [mode, setMode] = useState<"single" | "bulk">("single");
@@ -1049,6 +1412,7 @@ export function CreateStockDialog({ trigger }: { trigger: React.ReactNode }) {
   const [saving, setSaving] = useState(false);
   const [warehouses, setWarehouses] = useState<string[]>([]);
   const [form, setForm] = useState(emptyStockForm);
+  const [linkedOptionalIds, setLinkedOptionalIds] = useState<string[]>([]);
 
   useEffect(() => {
     if (!open) return;
@@ -1066,6 +1430,8 @@ export function CreateStockDialog({ trigger }: { trigger: React.ReactNode }) {
   const allTypes = Array.from(new Set([...catalogProducts.map((p) => p.type), ...stock.filter((s) => s.categoryCode === form.categoryCode).map((s) => s.counterType), form.counterType].filter(Boolean)));
   const allPanels = Array.from(new Set([...catalogProducts.map((p) => p.controlPanel), ...stock.filter((s) => s.categoryCode === form.categoryCode).map((s) => s.controlPanel), form.controlPanel].filter(Boolean)));
   const warehouseOptions = Array.from(new Set([...warehouses, ...stock.map((s) => s.warehouse), form.warehouse].filter(Boolean)));
+  const machineStockOptions = stock.filter((s) => (s.categoryCode ?? "TEZGAH") === "TEZGAH" && !s.parentInventoryItemId);
+  const independentOptionalEquipment = stock.filter((s) => s.categoryCode === "OPSIYONEL_DONANIM" && !s.parentInventoryItemId);
 
   // Katalogdan seçilen ürünle stok alanlarını otomatik doldur. 
   // Artık tüm alanlar serbest metin (datalist destekli) olduğu için
@@ -1090,6 +1456,7 @@ export function CreateStockDialog({ trigger }: { trigger: React.ReactNode }) {
 
   const reset = () => {
     setMode("single"); setProductId(""); setQuantity("5");
+    setLinkedOptionalIds([]);
     setForm(emptyStockForm());
   };
 
@@ -1122,6 +1489,10 @@ export function CreateStockDialog({ trigger }: { trigger: React.ReactNode }) {
         if (stock.some((s) => s.serialNumber === form.serialNumber)) { setSaving(false); return toast.error("Bu seri numarası zaten kayıtlı"); }
         if (stock.some((s) => s.stockCode === form.stockCode)) { setSaving(false); return toast.error("Bu stok kodu zaten kullanılıyor"); }
         const c = await addStock(form);
+        if (form.categoryCode === "TEZGAH" && linkedOptionalIds.length) {
+          await Promise.all(linkedOptionalIds.map((id) => inventoryService.update(id, { parentInventoryItemId: c.id })));
+          await refresh();
+        }
         toast.success("Stok kalemi eklendi", { description: `${c.stockCode} · ${c.serialNumber}` });
       }
       setOpen(false);
@@ -1156,7 +1527,8 @@ export function CreateStockDialog({ trigger }: { trigger: React.ReactNode }) {
               value={form.categoryCode}
               onValueChange={(v: StockCategoryCode) => {
                 setProductId("");
-                setForm((f) => ({ ...f, categoryCode: v, counterModel: "", counterType: "", brand: "", controlPanel: "" }));
+                setLinkedOptionalIds([]);
+                setForm((f) => ({ ...f, categoryCode: v, counterModel: "", counterType: "", brand: "", controlPanel: "", parentInventoryItemId: null }));
               }}
             >
               <SelectTrigger className="mt-1.5"><SelectValue /></SelectTrigger>
@@ -1169,9 +1541,54 @@ export function CreateStockDialog({ trigger }: { trigger: React.ReactNode }) {
             <p className="text-[11px] text-muted-foreground mt-1">
               {form.categoryCode === "TEZGAH"
                 ? "Tezgah stoku yalnızca satış süreçlerinde kullanılır."
-                : "Yedek parça stoku hem satış hem servis süreçlerinde kullanılır."}
+                : form.categoryCode === "OPSIYONEL_DONANIM"
+                  ? "Opsiyonel donanım bağımsız stok kalemi olarak kalabilir veya bir tezgaha bağlanabilir."
+                  : "Bu kategori seri no ile stok ve sevkiyat süreçlerinde takip edilir."}
             </p>
           </div>
+
+          {form.categoryCode === "OPSIYONEL_DONANIM" && (
+            <div>
+              <Label className="text-xs" htmlFor="stock-parent-machine">Bağlı Tezgah</Label>
+              <Select
+                value={form.parentInventoryItemId ?? "independent"}
+                onValueChange={(v) => setForm({ ...form, parentInventoryItemId: v === "independent" ? null : v })}
+              >
+                <SelectTrigger id="stock-parent-machine" className="mt-1.5">
+                  <SelectValue placeholder="Bağımsız stok kalemi" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="independent">Bağımsız stok kalemi</SelectItem>
+                  {machineStockOptions.map((item) => (
+                    <SelectItem key={item.id} value={item.id}>
+                      {item.brand} {item.counterModel} · {item.serialNumber}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+
+          {form.categoryCode === "TEZGAH" && independentOptionalEquipment.length > 0 && mode === "single" && (
+            <div className="rounded-lg border border-border/60 bg-muted/30 p-3">
+              <Label className="text-xs">Bağlanacak Opsiyonel Donanımlar</Label>
+              <div className="mt-2 grid gap-2 max-h-32 overflow-y-auto">
+                {independentOptionalEquipment.map((item) => (
+                  <label key={item.id} className="flex items-center gap-2 rounded-md bg-white px-2 py-1.5 text-sm">
+                    <Checkbox
+                      checked={linkedOptionalIds.includes(item.id)}
+                      onCheckedChange={(checked) => {
+                        setLinkedOptionalIds((prev) =>
+                          checked ? [...prev, item.id] : prev.filter((id) => id !== item.id),
+                        );
+                      }}
+                    />
+                    <span className="truncate">{item.brand} {item.counterModel} · {item.serialNumber}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Katalogdan ürün seç → alanları otomatik doldur */}
           <div className="rounded-lg border border-border/60 bg-muted/30 p-3 space-y-2.5">
@@ -1298,19 +1715,72 @@ export function AddActivityDialog({
   const open = controlledOpen ?? internalOpen;
   const setOpen = (o: boolean) => { onOpenChange ? onOpenChange(o) : setInternalOpen(o); };
 
-  const [form, setForm] = useState({
+  const [form, setForm] = usePersistentState<{
+    type: string;
+    title: string;
+    note: string;
+    result: string;
+    date: string;
+    byUserId: string;
+  }>(`draft.activity.${salesCaseId || customerId}`, {
     type: ACTIVITY_TYPE_OPTIONS[0].label,
     title: "",
     note: "",
+    result: "",
     date: new Date().toISOString().slice(0, 10),
     byUserId: defaultUserId,
   });
+  const [pendingFiles, setPendingFiles] = useState<File[]>([]);
+  const activityFileRef = useRef<HTMLInputElement>(null);
 
-  const reset = () => setForm({
-    type: ACTIVITY_TYPE_OPTIONS[0].label, title: "", note: "",
-    date: new Date().toISOString().slice(0, 10),
-    byUserId: defaultUserId,
-  });
+  const reset = () => {
+    setForm({
+      type: ACTIVITY_TYPE_OPTIONS[0].label,
+      title: "",
+      note: "",
+      result: "",
+      date: new Date().toISOString().slice(0, 10),
+      byUserId: defaultUserId,
+    });
+    setPendingFiles([]);
+    if (activityFileRef.current) activityFileRef.current.value = "";
+  };
+
+  const activityFileExt = (file: File) => {
+    const lowerName = file.name.toLocaleLowerCase("tr-TR");
+    if (file.type === "application/pdf" || lowerName.endsWith(".pdf")) return { extension: "pdf" as const, mimeType: "application/pdf" as const };
+    if (file.type === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" || lowerName.endsWith(".docx")) return { extension: "docx" as const, mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" as const };
+    if (file.type === "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" || lowerName.endsWith(".xlsx")) return { extension: "xlsx" as const, mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" as const };
+    if (file.type === "image/png" || lowerName.endsWith(".png")) return { extension: "png" as const, mimeType: "image/png" as const };
+    if (file.type === "image/jpeg" || lowerName.endsWith(".jpg") || lowerName.endsWith(".jpeg")) return { extension: "jpg" as const, mimeType: "image/jpeg" as const };
+    if (file.type === "image/webp" || lowerName.endsWith(".webp")) return { extension: "webp" as const, mimeType: "image/webp" as const };
+    return null;
+  };
+
+  const uploadActivityFiles = async (activityId: string) => {
+    for (const file of pendingFiles) {
+      const meta = activityFileExt(file);
+      if (!meta) throw new Error(`${file.name}: desteklenmeyen dosya tipi`);
+      if (file.size > 25 * 1024 * 1024) throw new Error(`${file.name}: dosya boyutu 25 MB'ı aşamaz`);
+      const upload = await fileService.signedUpload({
+        bucket: "erp-service-documents",
+        entityType: "sales_activity",
+        entityId: activityId,
+        filename: file.name,
+        mimeType: meta.mimeType,
+        extension: meta.extension,
+        sizeBytes: file.size,
+      });
+      await fileService.uploadBinary(upload, file, meta.mimeType);
+      await fileService.link({
+        fileId: upload.fileId,
+        entityType: "sales_activity",
+        entityId: activityId,
+        documentTypeCode: "activity_document",
+        description: file.name,
+      });
+    }
+  };
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1319,15 +1789,17 @@ export function AddActivityDialog({
       return;
     }
     try {
-      await addActivity({
+      const created = await addActivity({
         salesCaseId,
         customerId,
         type: form.type,
         title: form.title.trim(),
         note: form.note.trim(),
+        result: form.result.trim(),
         date: form.date,
         byUserId: form.byUserId,
       });
+      if (pendingFiles.length) await uploadActivityFiles(created.id);
       toast.success("Aktivite eklendi", { description: form.title.trim() });
       reset();
       setOpen(false);
@@ -1337,7 +1809,7 @@ export function AddActivityDialog({
   };
 
   return (
-    <Dialog open={open} onOpenChange={(o) => { setOpen(o); if (o) reset(); }}>
+    <Dialog open={open} onOpenChange={setOpen}>
       {trigger && <DialogTrigger asChild>{trigger}</DialogTrigger>}
       <DialogContent className="max-w-md">
         <DialogHeader>
@@ -1367,6 +1839,31 @@ export function AddActivityDialog({
           <div>
             <Label className="text-xs">Not</Label>
             <Textarea className="mt-1.5 min-h-[80px]" value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} placeholder="Detaylar..." />
+          </div>
+          <div>
+            <Label className="text-xs">Sonuç / Ne Yapıldı</Label>
+            <Textarea className="mt-1.5 min-h-[64px]" value={form.result} onChange={(e) => setForm({ ...form, result: e.target.value })} placeholder="Yapılan işlem ve sonuç..." />
+          </div>
+          <div>
+            <Label className="text-xs">Dosyalar</Label>
+            <Input
+              ref={activityFileRef}
+              type="file"
+              multiple
+              className="mt-1.5"
+              accept=".pdf,.docx,.xlsx,.png,.jpg,.jpeg,.webp"
+              onChange={(e) => setPendingFiles(Array.from(e.target.files ?? []))}
+            />
+            {pendingFiles.length > 0 && (
+              <div className="mt-2 space-y-1 text-xs text-muted-foreground">
+                {pendingFiles.map((file) => (
+                  <div key={`${file.name}-${file.size}`} className="flex items-center gap-2">
+                    <Upload className="size-3.5" />
+                    <span className="truncate">{file.name}</span>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
           <div>
             <Label className="text-xs">Atanan</Label>
@@ -1435,9 +1932,9 @@ export function QuickCreateDialog({ trigger }: { trigger: React.ReactNode }) {
 /* ---------- Product (create / edit) ---------- */
 
 type ProductOption = { code: string; label: string };
-type ProductTypeOption = ProductOption & { categoryCode?: string; subcategoryCode?: string };
+type ProductTypeOption = ProductOption & { categoryCode?: string; subcategoryCode?: string; productGroupCode?: string };
 
-const PRODUCT_BRANDS = ["LK", "ECOCA", "MANFORD", "MAXİMART"];
+const PRODUCT_BRANDS = ["LK", "LK Machinery", "ECOCA", "MANFORD", "Manford", "MAXİMART", "Maximart"];
 const PRODUCT_GROUPS: ProductOption[] = [
   { code: "CNC", label: "CNC" },
   { code: "UNIVERSAL", label: "Üniversal" },
@@ -1456,23 +1953,23 @@ const PRODUCT_SUBCATEGORIES: ProductOption[] = [
 ];
 const PRODUCT_TYPE_GROUPS: Array<{ label: string; options: ProductTypeOption[] }> = [
   {
-    label: "Ürün tipi işleme merkezi için liste",
+    label: "İşleme Merkezi",
     options: [
-      { code: "CNC_DIK_ISLEME_MERKEZ", label: "CNC Dik İşleme Merkezi", categoryCode: "TEZGAH", subcategoryCode: "ISLEME_MERKEZI" },
-      { code: "CNC_YATAY_ISLEME_MERKEZI", label: "CNC Yatay İşleme Merkezi", categoryCode: "TEZGAH", subcategoryCode: "ISLEME_MERKEZI" },
-      { code: "CNC_KOPRU_TIPI_ISLEME_MERKEZI", label: "CNC Köprü Tipi İşleme Merkezi", categoryCode: "TEZGAH", subcategoryCode: "ISLEME_MERKEZI" },
-      { code: "CNC_5_EKSEN_ISLEME_MERKEZI", label: "CNC 5 Eksen İşleme Merkezi", categoryCode: "TEZGAH", subcategoryCode: "ISLEME_MERKEZI" },
+      { code: "CNC_DIK_ISLEME_MERKEZ", label: "CNC Dik İşleme Merkezi", categoryCode: "TEZGAH", subcategoryCode: "ISLEME_MERKEZI", productGroupCode: "CNC" },
+      { code: "CNC_KOPRU_TIPI_ISLEME_MERKEZI", label: "CNC Köprü Tipi İşleme Merkezi", categoryCode: "TEZGAH", subcategoryCode: "ISLEME_MERKEZI", productGroupCode: "CNC" },
+      { code: "CNC_5_EKSEN_ISLEME_MERKEZI", label: "CNC 5 Eksen İşleme Merkezi", categoryCode: "TEZGAH", subcategoryCode: "ISLEME_MERKEZI", productGroupCode: "CNC" },
+      { code: "CNC_TAPPING_CENTER", label: "CNC Tapping Center", categoryCode: "TEZGAH", subcategoryCode: "ISLEME_MERKEZI", productGroupCode: "CNC" },
     ],
   },
   {
-    label: "Ürün tipi torna",
+    label: "Torna",
     options: [
-      { code: "CNC_YATAY_TORNA_TEZGAHI", label: "CNC Yatay Torna Tezgahı", categoryCode: "TEZGAH", subcategoryCode: "TORNA" },
-      { code: "CNC_DIK_TORNA_TEZGAHI", label: "CNC Dik Torna Tezgahı", categoryCode: "TEZGAH", subcategoryCode: "TORNA" },
+      { code: "CNC_YATAY_TORNA_TEZGAHI", label: "CNC Yatay Torna Tezgahı", categoryCode: "TEZGAH", subcategoryCode: "TORNA", productGroupCode: "CNC" },
+      { code: "CNC_DIK_TORNA_TEZGAHI", label: "CNC Dik Torna Tezgahı", categoryCode: "TEZGAH", subcategoryCode: "TORNA", productGroupCode: "CNC" },
     ],
   },
   {
-    label: "Ürün tipi yedek parça",
+    label: "Yedek Parça",
     options: [
       { code: "ELEKTRONIK", label: "Elektronik", categoryCode: "YEDEK_PARCA" },
       { code: "ELEKTRIK", label: "Elektrik", categoryCode: "YEDEK_PARCA" },
@@ -1480,18 +1977,18 @@ const PRODUCT_TYPE_GROUPS: Array<{ label: string; options: ProductTypeOption[] }
     ],
   },
   {
-    label: "Ürün tipi opsiyonel donanım",
+    label: "Opsiyonel Donanım",
     options: [
       { code: "KONTROL_UNITESI", label: "Kontrol Ünitesi", categoryCode: "OPSIYONEL_DONANIM" },
       { code: "SPINDLE", label: "Spindle", categoryCode: "OPSIYONEL_DONANIM" },
     ],
   },
   {
-    label: "Ürün tipi işçilik",
+    label: "İşçilik",
     options: [{ code: "ISCILIK", label: "İşçilik", categoryCode: "ISCILIK" }],
   },
   {
-    label: "Ürün tipi aksesuar",
+    label: "Aksesuar",
     options: [
       { code: "YAG_SIYIRICI", label: "Yağ Sıyırıcı", categoryCode: "AKSESUAR" },
       { code: "TUTUCU_TAKIMLAR", label: "Tutucu & Takımlar", categoryCode: "AKSESUAR" },
@@ -1501,58 +1998,74 @@ const PRODUCT_TYPE_GROUPS: Array<{ label: string; options: ProductTypeOption[] }
   },
 ];
 const PRODUCT_TYPE_OPTIONS = PRODUCT_TYPE_GROUPS.flatMap((g) => g.options);
+const PRODUCT_TYPE_META_BY_CODE = new Map(PRODUCT_TYPE_OPTIONS.map((option) => [option.code, option]));
+const PRODUCT_TYPE_GROUP_BY_CODE = new Map(PRODUCT_TYPE_GROUPS.flatMap((group) => group.options.map((option) => [option.code, group.label])));
 const PRODUCT_CURRENCIES: Array<{ code: "USD" | "TRY" | "EUR"; label: string }> = [
   { code: "USD", label: "USD" },
   { code: "TRY", label: "TL" },
   { code: "EUR", label: "EUR" },
 ];
-const PRODUCT_VAT_RATES = ["1", "10", "20"];
+const PRODUCT_VAT_RATES = ["10", "20"];
+const DEFAULT_PRODUCT_VAT_RATE = "20";
 
-// "Dik İşleme Merkezi" ürün tipi kodu — spindle kuralı için referans
-const DIK_ISLEME_MERKEZI_CODE = "CNC_DIK_ISLEME_MERKEZ";
-
-// Opsiyonel donanımın "uyumlu makine tipi" seçenekleri (tezgah tipleri)
-const MACHINE_TYPE_OPTIONS: ProductOption[] = PRODUCT_TYPE_OPTIONS
-  .filter((o) => o.categoryCode === "TEZGAH")
-  .map((o) => ({ code: o.code, label: o.label }));
-
-// Ürün tipine göre örnek teknik bilgi şablonları (anahtarlar; değerleri kullanıcı doldurur)
-const SPEC_TEMPLATE_BY_TYPE: Record<string, string[]> = {
-  CNC_DIK_ISLEME_MERKEZ: ["X / Y / Z Eksen Stroku", "Tabla Ölçüsü", "Spindle Devri (rpm)", "Spindle Gücü (kW)", "Spindle Konik", "Takım Magazini Kapasitesi", "Hızlı İlerleme (m/dk)"],
-  CNC_YATAY_ISLEME_MERKEZI: ["X / Y / Z Eksen Stroku", "Pallet Ölçüsü", "Pallet Sayısı", "Spindle Devri (rpm)", "Spindle Konik", "Takım Magazini Kapasitesi"],
-  CNC_KOPRU_TIPI_ISLEME_MERKEZI: ["X / Y / Z Eksen Stroku", "Köprü Açıklığı", "Tabla Ölçüsü", "Spindle Devri (rpm)", "Spindle Gücü (kW)"],
-  CNC_5_EKSEN_ISLEME_MERKEZI: ["X / Y / Z Eksen Stroku", "A / C Eksen Dönüş Aralığı", "Tabla Çapı", "Spindle Devri (rpm)", "Spindle Konik"],
-  CNC_YATAY_TORNA_TEZGAHI: ["Ayna Ölçüsü", "Maks. Tornalama Çapı", "Maks. Tornalama Boyu", "Fener Mili Devri (rpm)", "Taret İstasyon Sayısı", "Çubuk Geçiş Çapı"],
-  CNC_DIK_TORNA_TEZGAHI: ["Ayna Ölçüsü", "Maks. Tornalama Çapı", "Maks. Tornalama Yüksekliği", "Fener Mili Devri (rpm)", "Taret İstasyon Sayısı"],
-  ELEKTRONIK: ["Parça No", "Uyumlu Model", "Marka", "Garanti Süresi"],
-  ELEKTRIK: ["Parça No", "Uyumlu Model", "Voltaj / Akım", "Marka"],
-  MEKANIK: ["Parça No", "Uyumlu Model", "Malzeme", "Ölçü"],
-  KONTROL_UNITESI: ["Marka / Model", "Eksen Sayısı", "Ekran Boyutu", "Bağlantı Arayüzleri"],
-  SPINDLE: ["Devir (rpm)", "Güç (kW)", "Konik Tipi", "Soğutma Tipi", "Uyumlu Makine"],
-  ISCILIK: ["Hizmet Türü", "Süre (saat)", "Birim", "Kapsam"],
-  YAG_SIYIRICI: ["Uyumlu Model", "Kapasite", "Marka"],
-  TUTUCU_TAKIMLAR: ["Uyumlu Model", "Tip", "Ölçü", "Marka"],
-  DIVIZOR: ["Uyumlu Model", "Tabla Çapı", "Bölme Hassasiyeti"],
-  REGULATOR: ["Uyumlu Model", "Giriş / Çıkış", "Kapasite (kVA)"],
+const normalizeProductVatRate = (value: string | number | null | undefined) => {
+  const rate = String(value ?? DEFAULT_PRODUCT_VAT_RATE);
+  return PRODUCT_VAT_RATES.includes(rate) ? rate : DEFAULT_PRODUCT_VAT_RATE;
 };
 
-// Kategori bazlı yedek şablon (ürün tipi seçilmeden / tipe özel şablon yoksa)
-const SPEC_TEMPLATE_BY_CATEGORY: Record<string, string[]> = {
-  TEZGAH: ["X / Y / Z Eksen Stroku", "Tabla / Ayna Ölçüsü", "Spindle / Fener Mili Devri (rpm)"],
-  YEDEK_PARCA: ["Parça No", "Uyumlu Model", "Marka"],
-  OPSIYONEL_DONANIM: ["Uyumlu Makine", "Marka / Model", "Teknik Özellik"],
-  ISCILIK: ["Hizmet Türü", "Süre (saat)", "Birim"],
-  AKSESUAR: ["Uyumlu Model", "Ölçü", "Marka"],
+const catalogSpecs = (specs: ProductSpec[] = [], emptyValue = "", productTypeCode?: string) =>
+  (productTypeCode ? specsForProductTypeStrict(productTypeCode, specs) : specs).map((spec) => ({
+    key: spec.key,
+    value: spec.value?.trim() ? spec.value : emptyValue,
+    unit: spec.unit ?? spec.specUnit ?? "",
+    specUnit: spec.unit ?? spec.specUnit ?? "",
+    groupCode: spec.groupCode,
+    groupName: spec.groupName,
+  }));
+
+const ALL_MACHINE_TEMPLATE_KEYS = new Set(
+  allCatalogProductSpecs([], "").map((spec) => normalizeProductSpecKey(spec.key)),
+);
+
+const templateKeysForProductType = (productTypeCode?: string) =>
+  new Set(productSpecDefaults(productTypeCode).map((spec) => normalizeProductSpecKey(spec.key)));
+
+const hasSpecContent = (spec: ProductSpec) => Boolean(spec.key.trim() || spec.value.trim());
+
+const specsForSelectedProductType = (specs: ProductSpec[] = [], productTypeCode?: string, emptyValue = "") => {
+  if (!productTypeCode) return catalogSpecs(specs.filter(hasSpecContent), emptyValue);
+
+  const selectedTemplateKeys = templateKeysForProductType(productTypeCode);
+  const source = specs.filter((spec) => {
+    const normalizedKey = normalizeProductSpecKey(spec.key);
+    if (selectedTemplateKeys.has(normalizedKey)) return true;
+    if (ALL_MACHINE_TEMPLATE_KEYS.has(normalizedKey)) return false;
+    return hasSpecContent(spec);
+  });
+
+  return catalogSpecs(source, emptyValue, productTypeCode);
 };
 
-const toSpecs = (keys: string[]): ProductSpec[] =>
-  keys.length ? keys.map((key) => ({ key, value: "" })) : [{ key: "", value: "" }];
+// Ürün Kategorisi → Ürün → Ürün Alt Kategorisi → Ürün Grubu → Ürün Tipi sırasıyla daraltılır.
+// Alt kategori (İşleme Merkezi/Torna) her grupta geçerli olabilir (ör. Üniversal Torna, Sac İşleme
+// Tezgahı gerçek üründe de görülüyor); ürün tipi listesi katalogda tanımlı gruba göre daralır.
+// Tipin productGroupCode'u yoksa (Yedek Parça/Opsiyonel Donanım/İşçilik/Aksesuar gibi) her grupta geçerlidir.
+const typeMatchesGroup = (type: ProductTypeOption, groupCode?: string) =>
+  !type.productGroupCode || !groupCode || type.productGroupCode === groupCode;
 
-const specsForType = (typeCode: string, categoryCode: string): ProductSpec[] =>
-  toSpecs(SPEC_TEMPLATE_BY_TYPE[typeCode] ?? SPEC_TEMPLATE_BY_CATEGORY[categoryCode] ?? []);
+const fallbackLookupRows = (options: ProductOption[]): LookupRow[] =>
+  options.map((option, index) => ({ code: option.code, name: option.label, sortOrder: index }));
 
-const specsForCategory = (categoryCode: string): ProductSpec[] =>
-  toSpecs(SPEC_TEMPLATE_BY_CATEGORY[categoryCode] ?? []);
+const subcategoriesForProductCategory = (
+  categoryCode: string,
+  productTypeOptions: ProductTypeOption[] = PRODUCT_TYPE_OPTIONS,
+  productSubcategoryOptions: ProductOption[] = PRODUCT_SUBCATEGORIES,
+) =>
+  categoryCode === "TEZGAH"
+    ? productSubcategoryOptions
+    : productSubcategoryOptions.filter((subcategory) =>
+        productTypeOptions.some((type) => (!type.categoryCode || type.categoryCode === categoryCode) && type.subcategoryCode === subcategory.code),
+      );
 
 type ProductFormState = {
   brand: string;
@@ -1561,12 +2074,18 @@ type ProductFormState = {
   subcategoryCode: string; subcategory: string;
   productTypeCode: string; type: string;
   compatibleMachineType: string;
+  supplierCompanyId: string;
+  optionalCompatibilityGroupCodes: string[];
+  optionalCompatibilityCategoryCodes: string[];
+  optionalCompatibilitySubcategoryCodes: string[];
+  optionalCompatibilityTypeCodes: string[];
+  optionalCompatibilityBrandIds: string[];
   model: string; modelName: string; controlPanel: string;
   imageUrl: string; shortDescription: string; description: string;
   listPrice: string; cashPrice: string; currency: "USD" | "EUR" | "TRY";
   vatRate: string; originCountry: string; hsCode: string; stockCode: string;
   specs: ProductSpec[]; standardEquipment: string[]; optionalEquipment: string[];
-  muadilProductId: string;
+  muadilProductIds: string[];
   status: "active" | "passive";
 };
 
@@ -1587,20 +2106,97 @@ const compactProductCode = (value: string) =>
     .slice(0, 64);
 
 const moneyNumber = (value: string) => Number(value.replace(",", ".")) || 0;
+const OPTIONAL_EQUIPMENT_CATEGORY_CODE = "OPSIYONEL_DONANIM";
+type OptionalEquipmentDraft = { machine: string; product: string; serial: string; type: string; category: string };
+const emptyOptionalEquipmentDraft = (): OptionalEquipmentDraft => ({ machine: "", product: "", serial: "", type: "", category: "" });
+const OPTIONAL_EQUIPMENT_LABELS: Array<{ key: keyof OptionalEquipmentDraft; label: string }> = [
+  { key: "machine", label: "Makine" },
+  { key: "product", label: "Ürün" },
+  { key: "serial", label: "Seri" },
+  { key: "type", label: "Tip" },
+  { key: "category", label: "Kategori" },
+];
 
-const emptyProduct = (): ProductFormState => ({
+type ProductMachineSource = {
+  brand?: string;
+  model?: string;
+  modelName?: string;
+  shortDescription?: string;
+  type?: string;
+  stockCode?: string;
+  productTypeCode?: string;
+  category?: string;
+  categoryCode?: string;
+};
+
+const productMachineLabel = (p: ProductMachineSource) =>
+  [p.brand, p.model].filter(Boolean).join(" ").trim() ||
+  [p.brand, p.modelName].filter(Boolean).join(" ").trim() ||
+  p.shortDescription?.trim() ||
+  p.stockCode?.trim() ||
+  p.type?.trim() ||
+  "Makine";
+const OPTIONAL_EQUIPMENT_SERIES_PREFIX_RE = /^(DL|VM|MV|VC|SL|MT|SJ|TC|HT|LH|D|C)(?=[-\d\s/]|$)/i;
+const productSeriesLabelForEquipment = (p: ProductMachineSource) => {
+  const model = (p.model || p.modelName || p.shortDescription || "").trim().toLocaleUpperCase("tr-TR");
+  const code = model.match(OPTIONAL_EQUIPMENT_SERIES_PREFIX_RE)?.[1]?.toLocaleUpperCase("tr-TR");
+  return code ? `${code} Serisi` : (p.modelName || p.model || "").trim();
+};
+const optionalEquipmentDefaultsForMachine = (machine: ProductMachineSource | null | undefined) => ({
+  serial: machine ? productSeriesLabelForEquipment(machine) : "",
+  type: machine?.type || findLabel(PRODUCT_TYPE_OPTIONS, machine?.productTypeCode ?? "", ""),
+  category: machine?.category || findLabel(PRODUCT_CATEGORIES, machine?.categoryCode ?? "", ""),
+});
+const optionalEquipmentDraftForMachine = (machine: ProductMachineSource | null | undefined): OptionalEquipmentDraft => ({
+  ...emptyOptionalEquipmentDraft(),
+  machine: machine ? productMachineLabel(machine) : "",
+  ...optionalEquipmentDefaultsForMachine(machine),
+});
+
+const formatOptionalEquipment = (draft: OptionalEquipmentDraft) =>
+  OPTIONAL_EQUIPMENT_LABELS
+    .map(({ key, label }) => {
+      const value = draft[key].trim();
+      return value ? `${label}: ${value}` : "";
+    })
+    .filter(Boolean)
+    .join(" | ");
+
+const parseOptionalEquipment = (value: string): OptionalEquipmentDraft => {
+  const parsed = emptyOptionalEquipmentDraft();
+  let matched = false;
+  for (const part of value.split("|")) {
+    const [rawLabel, ...rest] = part.split(":");
+    const label = rawLabel?.trim().toLocaleLowerCase("tr-TR");
+    const content = rest.join(":").trim();
+    const field = OPTIONAL_EQUIPMENT_LABELS.find((item) => item.label.toLocaleLowerCase("tr-TR") === label);
+    if (field && content) {
+      parsed[field.key] = content;
+      matched = true;
+    }
+  }
+  return matched ? parsed : { ...parsed, product: value };
+};
+
+const emptyProduct = (productGroupCode = ""): ProductFormState => ({
   brand: "",
-  productGroupCode: "CNC", productGroup: "CNC",
+  productGroupCode, productGroup: findLabel(PRODUCT_GROUPS, productGroupCode, productGroupCode),
   categoryCode: "TEZGAH", category: "Tezgah",
   subcategoryCode: "ISLEME_MERKEZI", subcategory: "İşleme Merkezi",
   productTypeCode: "", type: "",
   compatibleMachineType: "",
+  supplierCompanyId: "",
+  optionalCompatibilityGroupCodes: [],
+  optionalCompatibilityCategoryCodes: [],
+  optionalCompatibilitySubcategoryCodes: [],
+  optionalCompatibilityTypeCodes: [],
+  optionalCompatibilityBrandIds: [],
   model: "", modelName: "", controlPanel: "",
   imageUrl: "", shortDescription: "", description: "",
   listPrice: "", cashPrice: "", currency: "USD",
-  vatRate: "20", originCountry: "", hsCode: "", stockCode: "",
-  specs: [{ key: "", value: "" }], standardEquipment: [], optionalEquipment: [],
-  muadilProductId: "",
+  vatRate: DEFAULT_PRODUCT_VAT_RATE, originCountry: "", hsCode: "", stockCode: "",
+  specs: [], standardEquipment: [], optionalEquipment: [],
+  muadilProductIds: [],
   status: "active",
 });
 
@@ -1614,20 +2210,25 @@ const fromProduct = (p: Product): ProductFormState => ({
   subcategory: p.subcategory || findLabel(PRODUCT_SUBCATEGORIES, p.subcategoryCode ?? "ISLEME_MERKEZI", "İşleme Merkezi"),
   productTypeCode: p.productTypeCode ?? "",
   type: p.type,
-  // UI-only: spindle ürünü ise düzenlemede "dik işleme merkezi" varsayılır (kural görünür kalsın)
-  compatibleMachineType: p.productTypeCode === "SPINDLE" ? DIK_ISLEME_MERKEZI_CODE : "",
+  compatibleMachineType: p.compatibleMachineTypeCode ?? "",
+  supplierCompanyId: p.supplierCompanyId ?? "",
+  optionalCompatibilityGroupCodes: p.optionalCompatibilityGroupCodes ?? [],
+  optionalCompatibilityCategoryCodes: p.optionalCompatibilityCategoryCodes ?? [],
+  optionalCompatibilitySubcategoryCodes: p.optionalCompatibilitySubcategoryCodes ?? [],
+  optionalCompatibilityTypeCodes: p.optionalCompatibilityTypeCodes ?? [],
+  optionalCompatibilityBrandIds: p.optionalCompatibilityBrandIds ?? [],
   model: p.model,
   modelName: p.modelName ?? "",
   controlPanel: p.controlPanel,
   imageUrl: p.imageUrl, shortDescription: p.shortDescription, description: p.description,
   listPrice: String(p.listPrice || ""), cashPrice: p.cashPrice ? String(p.cashPrice) : "", currency: p.currency,
-  vatRate: String(p.vatRate ?? 20),
+  vatRate: normalizeProductVatRate(p.vatRate),
   originCountry: p.originCountry ?? "",
   hsCode: p.hsCode ?? "",
   stockCode: p.stockCode || p.model,
-  specs: p.specs.length ? [...p.specs] : [{ key: "", value: "" }],
+  specs: catalogSpecs(p.specs, "", p.productTypeCode),
   standardEquipment: [...p.standardEquipment], optionalEquipment: [...p.optionalEquipment],
-  muadilProductId: p.muadilProductId ?? "",
+  muadilProductIds: p.muadilProductIds?.length ? p.muadilProductIds : (p.muadilProductId ? [p.muadilProductId] : []),
   status: p.status,
 });
 
@@ -1640,23 +2241,89 @@ export function ProductDialog({
   open?: boolean;
   onOpenChange?: (o: boolean) => void;
 }) {
-  const { addProduct, updateProduct, products } = useStore();
+  const { addProduct, updateProduct, products, customers } = useStore();
+  const { activeDivision, user } = useAuth();
+  const activeProductGroupCode = useMemo(() => {
+    if (!activeDivision || activeDivision === "all") return "";
+    const code = user?.divisions.find((division) => division.id === activeDivision)?.code;
+    if (code === "universal") return "UNIVERSAL";
+    if (code === "sac_isleme") return "SAC_ISLEME";
+    return "CNC";
+  }, [activeDivision, user?.divisions]);
   const [internalOpen, setInternalOpen] = useState(false);
   const open = controlledOpen ?? internalOpen;
   const setOpen = (o: boolean) => { onOpenChange ? onOpenChange(o) : setInternalOpen(o); };
+  const productBrandDatalistId = useId();
 
   const [form, setForm] = useState<ProductFormState>(
-    mode === "edit" && product ? fromProduct(product) : emptyProduct()
+    mode === "edit" && product ? fromProduct(product) : emptyProduct(activeProductGroupCode)
   );
   const [stdInput, setStdInput] = useState("");
-  const [optInput, setOptInput] = useState("");
+  const [optionalEquipmentDraft, setOptionalEquipmentDraft] = useState<OptionalEquipmentDraft>(emptyOptionalEquipmentDraft);
+  const [brandRows, setBrandRows] = useState<Array<{ id: string; name: string }>>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploadingImage, setUploadingImage] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const productGroupRows = useLookupRows("product-groups", [], true);
+  const productCategoryRows = useLookupRows("product-categories", fallbackLookupRows(PRODUCT_CATEGORIES), true);
+  const productSubcategoryRows = useLookupRows("product-subcategories", [], true);
+  const productTypeRows = useLookupRows("product-types", [], true);
+  const productGroupOptions = lookupCodeOptions(productGroupRows);
+  const productCategoryOptions = lookupCodeOptions(productCategoryRows);
+  const productSubcategoryOptions = lookupCodeOptions(productSubcategoryRows);
+  const productTypeOptions = useMemo<ProductTypeOption[]>(() => {
+    const labelByCode = new Map(productTypeRows.map((row) => [row.code, row.name]));
+    const byCode = new Map<string, ProductTypeOption>();
+    const put = (option: ProductTypeOption) => {
+      if (!option.code) return;
+      const current = byCode.get(option.code);
+      byCode.set(option.code, {
+        code: option.code,
+        label: option.label || current?.label || option.code,
+        categoryCode: option.categoryCode ?? current?.categoryCode,
+        subcategoryCode: option.subcategoryCode ?? current?.subcategoryCode,
+        productGroupCode: option.productGroupCode ?? current?.productGroupCode,
+      });
+    };
+    productTypeRows.forEach((row) => {
+      const meta = PRODUCT_TYPE_META_BY_CODE.get(row.code);
+      put({ ...(meta ?? {}), code: row.code, label: row.name });
+    });
+    products.forEach((product) => {
+      if (!product.productTypeCode) return;
+      const meta = PRODUCT_TYPE_META_BY_CODE.get(product.productTypeCode);
+      put({
+        code: product.productTypeCode,
+        label: labelByCode.get(product.productTypeCode) ?? product.type ?? product.productTypeCode,
+        categoryCode: product.categoryCode ?? meta?.categoryCode,
+        subcategoryCode: product.subcategoryCode ?? meta?.subcategoryCode,
+        productGroupCode: product.productGroupCode ?? meta?.productGroupCode,
+      });
+    });
+    if (form.productTypeCode) {
+      const meta = PRODUCT_TYPE_META_BY_CODE.get(form.productTypeCode);
+      put({
+        code: form.productTypeCode,
+        label: form.type || labelByCode.get(form.productTypeCode) || form.productTypeCode,
+        categoryCode: form.categoryCode || meta?.categoryCode,
+        subcategoryCode: form.subcategoryCode || meta?.subcategoryCode,
+        productGroupCode: form.productGroupCode || meta?.productGroupCode,
+      });
+    }
+    return Array.from(byCode.values());
+  }, [form.categoryCode, form.productGroupCode, form.productTypeCode, form.subcategoryCode, form.type, productTypeRows, products]);
+
+  useEffect(() => {
+    if (!open) return;
+    void productService.listBrands()
+      .then((rows) => setBrandRows((rows ?? []).map((row: any) => ({ id: row.id, name: row.name })).filter((row: any) => row.id && row.name)))
+      .catch(() => setBrandRows([]));
+  }, [open]);
 
   const reset = () => {
-    setForm(mode === "edit" && product ? fromProduct(product) : emptyProduct());
+    setForm(mode === "edit" && product ? fromProduct(product) : emptyProduct(activeProductGroupCode));
     setStdInput("");
-    setOptInput("");
+    setOptionalEquipmentDraft(emptyOptionalEquipmentDraft());
   };
 
   const IMAGE_MIME_TO_EXT: Record<string, "png" | "jpg" | "webp"> = {
@@ -1678,18 +2345,21 @@ export function ProductDialog({
     }
     setUploadingImage(true);
     try {
+      const mimeType = file.type as "image/png" | "image/jpeg" | "image/webp";
       const upload = await fileService.signedUpload({
         bucket: "erp-product-images",
-        entityType: "product",
+        entityType: product?.id ? "product" : "product_draft",
         entityId: product?.id ?? "new",
         filename: file.name,
-        mimeType: file.type,
+        mimeType,
         extension: ext,
         sizeBytes: file.size,
       });
-      await fileService.uploadBinary(upload, file, file.type);
-      const publicUrl = upload.uploadUrl.split("?")[0];
-      setForm((f) => ({ ...f, imageUrl: publicUrl }));
+      await fileService.uploadBinary(upload, file, mimeType);
+      // Ham (private) MinIO URL'i yerine auth'suz public product-media yolunu sakla;
+      // resolveMediaUrl bunu API tabanıyla birleştirir ve teklif/katalog print'inde
+      // (auth cookie'siz açılan pencerede) yüklenebilir olur.
+      setForm((f) => ({ ...f, imageUrl: `/products/media/${upload.fileId}` }));
       toast.success("Fotoğraf yüklendi");
     } catch (err: any) {
       toast.error("Fotoğraf yüklenemedi", { description: err?.message ?? "İstek başarısız oldu." });
@@ -1701,13 +2371,12 @@ export function ProductDialog({
 
   const handleOpen = (o: boolean) => {
     setOpen(o);
-    if (o) reset();
+    if (o && mode === "edit") reset();
   };
 
   const updSpec = (i: number, patch: Partial<ProductSpec>) => {
     setForm((f) => ({ ...f, specs: f.specs.map((s, idx) => (idx === i ? { ...s, ...patch } : s)) }));
   };
-  const addSpec = () => setForm((f) => ({ ...f, specs: [...f.specs, { key: "", value: "" }] }));
   const rmSpec = (i: number) => setForm((f) => {
     const next = f.specs.filter((_, idx) => idx !== i);
     return { ...f, specs: next.length ? next : [{ key: "", value: "" }] };
@@ -1722,83 +2391,196 @@ export function ProductDialog({
   const rmChip = (which: "standardEquipment" | "optionalEquipment", i: number) => {
     setForm((f) => ({ ...f, [which]: f[which].filter((_, idx) => idx !== i) }));
   };
+  const addOptionalEquipment = () => {
+    if (!optionalEquipmentDraft.product.trim()) {
+      toast.error("Opsiyonel donanım için ürün alanı zorunludur");
+      return;
+    }
+    const value = formatOptionalEquipment({ ...optionalEquipmentDraft, machine: productMachineLabel(form) });
+    setForm((f) => ({ ...f, optionalEquipment: [...f.optionalEquipment, value] }));
+    setOptionalEquipmentDraft(optionalEquipmentDraftForMachine(form));
+  };
 
-  // Yalnızca TEZGAH kategorisinde alt kategori (işleme merkezi / torna) ayrımı var
-  const categoryUsesSubcategory = form.categoryCode === "TEZGAH";
+  const availableProductSubcategories = subcategoriesForProductCategory(form.categoryCode, productTypeOptions, productSubcategoryOptions);
+  const categoryUsesSubcategory = availableProductSubcategories.length > 0;
 
-  // Ürün tipini seçili kategoriye ve (tezgahsa) alt kategoriye göre filtrele
-  const typeMatches = (o: ProductTypeOption, categoryCode: string, subcategoryCode: string) => {
-    if (o.categoryCode !== categoryCode) return false;
-    if (categoryCode === "TEZGAH" && o.subcategoryCode) return o.subcategoryCode === subcategoryCode;
+  // Ürün tipini seçili gruba, kategoriye ve (tezgahsa) alt kategoriye göre filtrele
+  const typeMatches = (o: ProductTypeOption, categoryCode: string, subcategoryCode: string, groupCode?: string) => {
+    if (!typeMatchesGroup(o, groupCode)) return false;
+    if (o.categoryCode && o.categoryCode !== categoryCode) return false;
+    if (subcategoriesForProductCategory(categoryCode, productTypeOptions, productSubcategoryOptions).length > 0) {
+      return !o.subcategoryCode || o.subcategoryCode === subcategoryCode;
+    }
     return true;
   };
 
-  // Spindle yalnızca uyumlu makine tipi "dik işleme merkezi" iken listelenir
-  const isTypeAllowed = (o: ProductTypeOption, categoryCode: string, subcategoryCode: string, machineType: string) => {
-    if (!typeMatches(o, categoryCode, subcategoryCode)) return false;
-    if (o.code === "SPINDLE" && machineType !== DIK_ISLEME_MERKEZI_CODE) return false;
-    return true;
-  };
+  const isTypeAllowed = (o: ProductTypeOption, categoryCode: string, subcategoryCode: string, groupCode?: string) =>
+    typeMatches(o, categoryCode, subcategoryCode, groupCode);
 
-  const typeGroups = PRODUCT_TYPE_GROUPS
-    .map((group) => ({
-      label: group.label,
-      options: group.options.filter((o) => isTypeAllowed(o, form.categoryCode, form.subcategoryCode, form.compatibleMachineType)),
-    }))
+  const typeGroups = Array.from(
+    productTypeOptions
+      .filter((o) => isTypeAllowed(o, form.categoryCode, form.subcategoryCode, form.productGroupCode))
+      .reduce((groups, option) => {
+        const label = PRODUCT_TYPE_GROUP_BY_CODE.get(option.code) ??
+          (option.subcategoryCode ? findLabel(productSubcategoryOptions, option.subcategoryCode, "Diğer") : "Diğer");
+        groups.set(label, [...(groups.get(label) ?? []), option]);
+        return groups;
+      }, new Map<string, ProductTypeOption[]>()),
+    ([label, options]) => ({ label, options }),
+  )
     .filter((group) => group.options.length > 0);
+  const isMachineProduct = form.categoryCode === "TEZGAH";
+  const isOptionalEquipmentProduct = form.categoryCode === OPTIONAL_EQUIPMENT_CATEGORY_CODE;
+  const isLaborProduct = form.categoryCode === "ISCILIK" || form.productTypeCode === "ISCILIK";
+  const supplierOptions = customers.filter((c) => c.firmType === "supplier" || c.firmType === "supplier_customer");
+  const compatibilityGroupOptions = productGroupOptions.map((o) => ({ value: o.code, label: o.label }));
+  const compatibilityCategoryOptions = productCategoryOptions
+    .filter((o) => o.code !== OPTIONAL_EQUIPMENT_CATEGORY_CODE)
+    .map((o) => ({ value: o.code, label: o.label }));
+  const compatibilitySubcategoryOptions = productSubcategoryOptions.map((o) => ({ value: o.code, label: o.label }));
+  const compatibilityTypeOptions = productTypeOptions
+    .filter((o) => o.categoryCode === "TEZGAH")
+    .map((o) => ({ value: o.code, label: o.label }));
+  const compatibilityBrandOptions = brandRows.map((row) => ({ value: row.id, label: row.name }));
+  const productBrandOptions = Array.from(new Set([
+    ...products
+      .filter((p) => {
+        if (form.productGroupCode && p.productGroupCode && p.productGroupCode !== form.productGroupCode) return false;
+        if (form.categoryCode && p.categoryCode && p.categoryCode !== form.categoryCode) return false;
+        if (form.subcategoryCode && p.subcategoryCode && p.subcategoryCode !== form.subcategoryCode) return false;
+        if (form.productTypeCode && p.productTypeCode && p.productTypeCode !== form.productTypeCode) return false;
+        return true;
+      })
+      .map((p) => p.brand),
+    ...brandRows.map((row) => row.name),
+    ...PRODUCT_BRANDS,
+    form.brand,
+  ].filter(Boolean))).sort((a, b) => a.localeCompare(b, "tr-TR"));
+  const canSelectProductBrand = Boolean(form.productTypeCode);
+  const specValueOptionsByKey = useMemo(() => {
+    const valuesByKey = new Map<string, Set<string>>();
+    const addValue = (key?: string, value?: string) => {
+      const cleanKey = key?.trim();
+      const cleanValue = value?.trim();
+      if (!cleanKey || !cleanValue) return;
+      const values = valuesByKey.get(cleanKey) ?? new Set<string>();
+      values.add(cleanValue);
+      valuesByKey.set(cleanKey, values);
+    };
 
-  // Opsiyonel donanım kategorisinde "uyumlu makine tipi" alanı gösterilir
-  const showMachineType = form.categoryCode === "OPSIYONEL_DONANIM";
+    for (const item of products) {
+      for (const spec of item.specs ?? []) addValue(spec.key, spec.value);
+    }
+    for (const spec of form.specs) addValue(spec.key, spec.value);
 
-  // Muadil ürün seçimi: ürün kendi kendine muadil olamaz; seçiliyse örnek önizleme gösterilir
-  const muadilOptions = products.filter((p) => p.id !== product?.id);
-  const selectedMuadil = products.find((p) => p.id === form.muadilProductId) ?? null;
+    return valuesByKey;
+  }, [products, form.specs]);
+  const specValueOptionsFor = (spec: ProductSpec) => {
+    const values = new Set(specValueOptionsByKey.get(spec.key.trim()) ?? []);
+    if (spec.value.trim()) values.add(spec.value.trim());
+    values.add("-");
+    return [...values]
+      .sort((a, b) => a.localeCompare(b, "tr-TR", { numeric: true }))
+      .map((value) => ({ value, label: value }));
+  };
 
-  // Kategori/alt kategori/makine tipi değişince mevcut ürün tipi artık uymuyorsa sıfırla
-  const keepTypeIfValid = (categoryCode: string, subcategoryCode: string, machineType: string) => {
-    const opt = PRODUCT_TYPE_OPTIONS.find((o) => o.code === form.productTypeCode);
-    if (opt && isTypeAllowed(opt, categoryCode, subcategoryCode, machineType)) {
+  const muadilOptions = products.filter((p) => p.id !== product?.id && p.categoryCode !== OPTIONAL_EQUIPMENT_CATEGORY_CODE);
+  const validMuadilIds = new Set(muadilOptions.map((p) => p.id));
+  const selectedMuadilIds = form.muadilProductIds.filter((id) => validMuadilIds.has(id));
+  const selectedMuadils = muadilOptions.filter((p) => selectedMuadilIds.includes(p.id));
+  const selectedProductTypeLabel = form.productTypeCode
+    ? productTypeOptions.find((option) => option.code === form.productTypeCode)?.label ?? form.type
+    : "";
+  const selectedProductTypeTemplateCount = productSpecDefaults(form.productTypeCode).length;
+  const technicalSpecGroups = useMemo(
+    () => groupProductSpecsForType(form.productTypeCode, form.specs.map((spec, index) => ({ ...spec, index }))),
+    [form.productTypeCode, form.specs],
+  );
+  const groupMuadils = (items: Product[]) =>
+    items.reduce<Record<string, Product[]>>((acc, item) => {
+      const key = item.category || "Kategorisiz";
+      acc[key] = [...(acc[key] ?? []), item];
+      return acc;
+    }, {});
+  const muadilGroups = groupMuadils(muadilOptions);
+  const selectedMuadilGroups = groupMuadils(selectedMuadils);
+  const toggleMuadil = (id: string) => {
+    setForm((current) => ({
+      ...current,
+      muadilProductIds: current.muadilProductIds.includes(id)
+        ? current.muadilProductIds.filter((item) => item !== id)
+        : [...current.muadilProductIds, id],
+    }));
+  };
+
+  // Kategori / alt kategori / ürün grubu değişince mevcut ürün tipi artık uymuyorsa sıfırla.
+  const keepTypeIfValid = (categoryCode: string, subcategoryCode: string, groupCode: string) => {
+    const opt = productTypeOptions.find((o) => o.code === form.productTypeCode);
+    if (opt && isTypeAllowed(opt, categoryCode, subcategoryCode, groupCode)) {
       return { productTypeCode: form.productTypeCode, type: form.type };
     }
     return { productTypeCode: "", type: "" };
   };
 
-  // Ürün tipi/kategoriye göre teknik bilgi şablonu uygula (tip değiştiyse)
-  const specsAfterChange = (kept: { productTypeCode: string }, categoryCode: string) => {
-    if (kept.productTypeCode === form.productTypeCode) return form.specs;
-    return kept.productTypeCode ? specsForType(kept.productTypeCode, categoryCode) : specsForCategory(categoryCode);
+  // Ürün tipi/kategori değişse de sabit teknik katalog korunur.
+  const specsAfterChange = (kept: { productTypeCode: string }) =>
+    specsForSelectedProductType(form.specs, kept.productTypeCode);
+
+  const onProductGroupChange = (code: string) => {
+    // Ürün Kategorisi → Ürün → Ürün Alt Kategorisi → Ürün Grubu → Ürün Tipi:
+    // grup değişince katalogdaki ürün tipi seçili gruba artık uymuyorsa sıfırlanır.
+    const kept = keepTypeIfValid(form.categoryCode, form.subcategoryCode, code);
+    setForm({
+      ...form,
+      productGroupCode: code,
+      productGroup: findLabel(productGroupOptions, code),
+      ...kept,
+      brand: "",
+      specs: specsAfterChange(kept),
+    });
   };
 
   const onCategoryChange = (code: string) => {
-    const subcategoryCode = code === "TEZGAH" ? form.subcategoryCode || "ISLEME_MERKEZI" : "";
-    const subcategory = code === "TEZGAH" ? form.subcategory || "İşleme Merkezi" : "";
+    const subcategoryOptions = subcategoriesForProductCategory(code, productTypeOptions, productSubcategoryOptions);
+    const usesSubcategory = subcategoryOptions.length > 0;
+    const subcategoryCode = usesSubcategory && subcategoryOptions.some((option) => option.code === form.subcategoryCode)
+      ? form.subcategoryCode
+      : subcategoryOptions[0]?.code ?? "";
+    const subcategory = usesSubcategory ? findLabel(productSubcategoryOptions, subcategoryCode, subcategoryOptions[0]?.label ?? "") : "";
     const machineType = code === "OPSIYONEL_DONANIM" ? form.compatibleMachineType : "";
-    const kept = keepTypeIfValid(code, subcategoryCode, machineType);
+    const kept = keepTypeIfValid(code, subcategoryCode, form.productGroupCode);
     setForm({
       ...form,
       categoryCode: code,
-      category: findLabel(PRODUCT_CATEGORIES, code),
+      category: findLabel(productCategoryOptions, code),
       subcategoryCode,
       subcategory,
       compatibleMachineType: machineType,
+      optionalCompatibilityGroupCodes: code === OPTIONAL_EQUIPMENT_CATEGORY_CODE ? form.optionalCompatibilityGroupCodes : [],
+      optionalCompatibilityCategoryCodes: code === OPTIONAL_EQUIPMENT_CATEGORY_CODE ? form.optionalCompatibilityCategoryCodes : [],
+      optionalCompatibilitySubcategoryCodes: code === OPTIONAL_EQUIPMENT_CATEGORY_CODE ? form.optionalCompatibilitySubcategoryCodes : [],
+      optionalCompatibilityTypeCodes: code === OPTIONAL_EQUIPMENT_CATEGORY_CODE ? form.optionalCompatibilityTypeCodes : [],
+      optionalCompatibilityBrandIds: code === OPTIONAL_EQUIPMENT_CATEGORY_CODE ? form.optionalCompatibilityBrandIds : [],
       ...kept,
-      specs: specsAfterChange(kept, code),
+      brand: "",
+      specs: specsAfterChange(kept),
     });
   };
 
   const onSubcategoryChange = (code: string) => {
-    const kept = keepTypeIfValid(form.categoryCode, code, form.compatibleMachineType);
+    const kept = keepTypeIfValid(form.categoryCode, code, form.productGroupCode);
     setForm({
       ...form,
       subcategoryCode: code,
-      subcategory: findLabel(PRODUCT_SUBCATEGORIES, code),
+      subcategory: findLabel(productSubcategoryOptions, code),
       ...kept,
-      specs: specsAfterChange(kept, form.categoryCode),
+      brand: "",
+      specs: specsAfterChange(kept),
     });
   };
 
   const onTypeChange = (code: string) => {
-    const opt = PRODUCT_TYPE_OPTIONS.find((item) => item.code === code);
+    const opt = productTypeOptions.find((item) => item.code === code);
     if (!opt) return;
     const categoryCode = opt.categoryCode ?? form.categoryCode;
     const subcategoryCode = opt.subcategoryCode ?? form.subcategoryCode;
@@ -1807,28 +2589,52 @@ export function ProductDialog({
       productTypeCode: opt.code,
       type: opt.label,
       categoryCode,
-      category: findLabel(PRODUCT_CATEGORIES, categoryCode, form.category),
+      category: findLabel(productCategoryOptions, categoryCode, form.category),
       subcategoryCode,
-      subcategory: findLabel(PRODUCT_SUBCATEGORIES, subcategoryCode, form.subcategory),
-      specs: specsForType(opt.code, categoryCode),
+      subcategory: findLabel(productSubcategoryOptions, subcategoryCode, form.subcategory),
+      brand: opt.code === form.productTypeCode ? form.brand : "",
+      specs: specsForSelectedProductType(form.specs, opt.code),
     });
-  };
-
-  const onMachineTypeChange = (code: string) => {
-    const kept = keepTypeIfValid(form.categoryCode, form.subcategoryCode, code);
-    setForm({ ...form, compatibleMachineType: code, ...kept });
+    void productService
+      .specTemplates(opt.code)
+      .then((rows) => {
+        const templateSpecs = (rows ?? [])
+          .filter((row: any) => row.isActive !== false && row.specKey)
+          .map((row: any) => ({
+            key: row.specKey,
+            value: row.defaultValue ?? "",
+            unit: row.specUnit ?? "",
+            specUnit: row.specUnit ?? "",
+            groupCode: row.specGroupCode ?? undefined,
+          }));
+        if (!templateSpecs.length) return;
+        setForm((current) => {
+          if (current.productTypeCode !== opt.code) return current;
+          return { ...current, specs: specsForSelectedProductType([...current.specs, ...templateSpecs], opt.code) };
+        });
+      })
+      .catch(() => undefined);
   };
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!form.brand.trim() || !form.shortDescription.trim()) {
-      toast.error("Marka ve ürün adı zorunludur");
+    if (submitting) return;
+    if (!form.productTypeCode) {
+      toast.error("Ürün tipi seçin");
       return;
     }
-    const cleanSpecs = form.specs.filter((s) => s.key.trim() && s.value.trim());
+    if (!form.productGroupCode) {
+      toast.error("Ürün grubu seçin", { description: "Tümü kapsamındayken CNC / Üniversal / Sac İşleme gruplarından biri zorunludur." });
+      return;
+    }
+    if ((!isLaborProduct && !form.brand.trim()) || !form.shortDescription.trim()) {
+      toast.error(isLaborProduct ? "Ürün adı zorunludur" : "Marka ve ürün adı zorunludur");
+      return;
+    }
+    const cleanSpecs = catalogSpecs(form.specs, "-", form.productTypeCode).filter((s) => s.key.trim());
     const modelCode = form.stockCode.trim() || form.model.trim() || compactProductCode(form.shortDescription) || "URUN";
     const payload = {
-      brand: form.brand.trim(),
+      brand: isLaborProduct ? (form.brand.trim() || "Haksan") : form.brand.trim(),
       productGroup: form.productGroup,
       productGroupCode: form.productGroupCode,
       model: modelCode,
@@ -1846,17 +2652,26 @@ export function ProductDialog({
       listPrice: moneyNumber(form.listPrice),
       cashPrice: form.cashPrice ? moneyNumber(form.cashPrice) : undefined,
       currency: form.currency,
-      vatRate: Number(form.vatRate) || 20,
+      vatRate: Number(normalizeProductVatRate(form.vatRate)),
       originCountry: form.originCountry.trim(),
       hsCode: form.hsCode.trim(),
       stockCode: form.stockCode.trim(),
+      supplierCompanyId: form.supplierCompanyId || null,
+      optionalCompatibilityGroupCodes: form.optionalCompatibilityGroupCodes,
+      optionalCompatibilityCategoryCodes: form.optionalCompatibilityCategoryCodes,
+      optionalCompatibilitySubcategoryCodes: form.optionalCompatibilitySubcategoryCodes,
+      optionalCompatibilityTypeCodes: form.optionalCompatibilityTypeCodes,
+      optionalCompatibilityBrandIds: form.optionalCompatibilityBrandIds,
       specs: cleanSpecs,
       standardEquipment: form.standardEquipment,
       optionalEquipment: form.optionalEquipment,
-      muadilProductId: form.muadilProductId || null,
+      compatibleMachineTypeCode: form.compatibleMachineType || null,
+      muadilProductId: isOptionalEquipmentProduct ? null : (selectedMuadilIds[0] ?? null),
+      muadilProductIds: isOptionalEquipmentProduct ? [] : selectedMuadilIds,
       status: form.status,
     };
 
+    setSubmitting(true);
     try {
       if (mode === "edit" && product) {
         await updateProduct(product.id, payload);
@@ -1865,9 +2680,12 @@ export function ProductDialog({
         const p = await addProduct(payload);
         toast.success("Ürün oluşturuldu", { description: `${p.brand} ${p.model}` });
       }
+      reset();
       setOpen(false);
     } catch (err: any) {
       toast.error(mode === "edit" ? "Ürün güncellenemedi" : "Ürün oluşturulamadı", { description: err?.message ?? "API isteği başarısız oldu." });
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -1884,60 +2702,41 @@ export function ProductDialog({
 
         <form onSubmit={submit} className="space-y-4">
           <div className="overflow-hidden rounded-lg border border-border/70 bg-white">
-            <ProductSheetRow label="Ürün Markası">
-              <Select value={form.brand} onValueChange={(v) => setForm({ ...form, brand: v })}>
-                <SelectTrigger className="h-8 max-w-xs"><SelectValue placeholder="Marka seçin" /></SelectTrigger>
-                <SelectContent>
-                  {PRODUCT_BRANDS.map((brand) => <SelectItem key={brand} value={brand}>{brand}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </ProductSheetRow>
-
-            <ProductSheetRow label="Ürün Grubu">
-              <Select
-                value={form.productGroupCode}
-                onValueChange={(code) => setForm({ ...form, productGroupCode: code, productGroup: findLabel(PRODUCT_GROUPS, code) })}
-              >
-                <SelectTrigger className="h-8 max-w-xs"><SelectValue placeholder="Grup seçin" /></SelectTrigger>
-                <SelectContent>
-                  {PRODUCT_GROUPS.map((o) => <SelectItem key={o.code} value={o.code}>{o.label}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </ProductSheetRow>
-
             <ProductSheetRow label="Ürün Kategorisi">
               <Select value={form.categoryCode} onValueChange={onCategoryChange}>
                 <SelectTrigger className="h-8 max-w-xs"><SelectValue placeholder="Kategori seçin" /></SelectTrigger>
                 <SelectContent>
-                  {PRODUCT_CATEGORIES.map((o) => <SelectItem key={o.code} value={o.code}>{o.label}</SelectItem>)}
+                  {productCategoryOptions.map((o) => <SelectItem key={o.code} value={o.code}>{o.label}</SelectItem>)}
                 </SelectContent>
               </Select>
             </ProductSheetRow>
 
+            <ProductSheetRow label="Ürün">
+              <Input className="h-8" value={form.shortDescription} onChange={(e) => setForm({ ...form, shortDescription: e.target.value })} placeholder="Ürün adı" />
+            </ProductSheetRow>
+
             {categoryUsesSubcategory && (
-              <ProductSheetRow label="Ürün Alt Kategori Tezgah">
+              <ProductSheetRow label="Ürün Alt Kategorisi">
                 <Select value={form.subcategoryCode} onValueChange={onSubcategoryChange}>
                   <SelectTrigger className="h-8 max-w-xs"><SelectValue placeholder="Alt kategori seçin" /></SelectTrigger>
                   <SelectContent>
-                    {PRODUCT_SUBCATEGORIES.map((o) => <SelectItem key={o.code} value={o.code}>{o.label}</SelectItem>)}
+                    {availableProductSubcategories.map((o) => <SelectItem key={o.code} value={o.code}>{o.label}</SelectItem>)}
                   </SelectContent>
                 </Select>
               </ProductSheetRow>
             )}
 
-            {showMachineType && (
-              <ProductSheetRow label="Uyumlu Makine Tipi">
-                <div className="space-y-1.5">
-                  <Select value={form.compatibleMachineType} onValueChange={onMachineTypeChange}>
-                    <SelectTrigger className="h-8 max-w-md"><SelectValue placeholder="Makine tipi seçin" /></SelectTrigger>
-                    <SelectContent>
-                      {MACHINE_TYPE_OPTIONS.map((o) => <SelectItem key={o.code} value={o.code}>{o.label}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                  <p className="text-[11px] text-muted-foreground">Spindle yalnızca "Dik İşleme Merkezi" seçiliyken ürün tipinde listelenir.</p>
-                </div>
-              </ProductSheetRow>
-            )}
+            <ProductSheetRow label="Ürün Grubu">
+              <Select
+                value={form.productGroupCode}
+                onValueChange={onProductGroupChange}
+              >
+                <SelectTrigger className="h-8 max-w-xs"><SelectValue placeholder="Grup seçin" /></SelectTrigger>
+                <SelectContent>
+                  {productGroupOptions.map((o) => <SelectItem key={o.code} value={o.code}>{o.label}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </ProductSheetRow>
 
             <ProductSheetRow label="Ürün Tipi">
               <Select value={form.productTypeCode} onValueChange={onTypeChange}>
@@ -1946,7 +2745,11 @@ export function ProductDialog({
                 </SelectTrigger>
                 <SelectContent>
                   {typeGroups.length === 0 ? (
-                    <div className="px-2 py-1.5 text-xs text-muted-foreground">Bu kategori için ürün tipi yok</div>
+                    <div className="px-2 py-1.5 text-xs text-muted-foreground">
+                      {isMachineProduct
+                        ? "Bu ürün grubu için tezgah tipi tanımlı değil"
+                        : "Bu kategori için ürün tipi yok"}
+                    </div>
                   ) : (
                     typeGroups.map((group) => (
                       <SelectGroup key={group.label}>
@@ -1959,9 +2762,84 @@ export function ProductDialog({
               </Select>
             </ProductSheetRow>
 
-            <ProductSheetRow label="Ürün Adı">
-              <Input className="h-8" value={form.shortDescription} onChange={(e) => setForm({ ...form, shortDescription: e.target.value })} placeholder="Ürün adı" />
-            </ProductSheetRow>
+            {!isLaborProduct && (
+              <ProductSheetRow label="Ürün Markası">
+                <Input
+                  className="h-8 max-w-xs"
+                  list={canSelectProductBrand ? productBrandDatalistId : undefined}
+                  value={form.brand}
+                  onChange={(e) => setForm({ ...form, brand: e.target.value })}
+                  disabled={!canSelectProductBrand}
+                  placeholder={canSelectProductBrand ? "Marka seç veya yaz..." : "Önce ürün tipi seçin"}
+                />
+                <datalist id={productBrandDatalistId}>
+                  {productBrandOptions.map((brand) => <option key={brand} value={brand} />)}
+                </datalist>
+              </ProductSheetRow>
+            )}
+
+            {isMachineProduct && (
+              <ProductSheetRow label="Ürün Tedarikçisi">
+                <Select
+                  value={form.supplierCompanyId || "__none"}
+                  onValueChange={(v) => setForm({ ...form, supplierCompanyId: v === "__none" ? "" : v })}
+                >
+                  <SelectTrigger className="h-8 max-w-md"><SelectValue placeholder="Tedarikçi seçin" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none">Belirtilmedi</SelectItem>
+                    {supplierOptions.map((supplier) => (
+                      <SelectItem key={supplier.id} value={supplier.id}>{supplier.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </ProductSheetRow>
+            )}
+
+            {isOptionalEquipmentProduct && (
+              <>
+                <ProductSheetRow label="Uyumlu Ürün Grupları" className="items-start">
+                  <MultiSelect
+                    options={compatibilityGroupOptions}
+                    selected={form.optionalCompatibilityGroupCodes}
+                    onChange={(next) => setForm({ ...form, optionalCompatibilityGroupCodes: next })}
+                    placeholder="Grup seçin"
+                  />
+                </ProductSheetRow>
+                <ProductSheetRow label="Uyumlu Ürün Kategorileri" className="items-start">
+                  <MultiSelect
+                    options={compatibilityCategoryOptions}
+                    selected={form.optionalCompatibilityCategoryCodes}
+                    onChange={(next) => setForm({ ...form, optionalCompatibilityCategoryCodes: next })}
+                    placeholder="Kategori seçin"
+                  />
+                </ProductSheetRow>
+                <ProductSheetRow label="Uyumlu Ürün Alt Kategorileri" className="items-start">
+                  <MultiSelect
+                    options={compatibilitySubcategoryOptions}
+                    selected={form.optionalCompatibilitySubcategoryCodes}
+                    onChange={(next) => setForm({ ...form, optionalCompatibilitySubcategoryCodes: next })}
+                    placeholder="Alt kategori seçin"
+                  />
+                </ProductSheetRow>
+                <ProductSheetRow label="Uyumlu Ürün Tipleri" className="items-start">
+                  <MultiSelect
+                    options={compatibilityTypeOptions}
+                    selected={form.optionalCompatibilityTypeCodes}
+                    onChange={(next) => setForm({ ...form, optionalCompatibilityTypeCodes: next })}
+                    placeholder="Tip seçin"
+                  />
+                </ProductSheetRow>
+                <ProductSheetRow label="Uyumlu Ürün Markaları" className="items-start">
+                  <MultiSelect
+                    options={compatibilityBrandOptions}
+                    selected={form.optionalCompatibilityBrandIds}
+                    onChange={(next) => setForm({ ...form, optionalCompatibilityBrandIds: next })}
+                    placeholder="Marka seçin"
+                    emptyText="Marka bulunamadı"
+                  />
+                </ProductSheetRow>
+              </>
+            )}
 
             <ProductSheetRow label="Ürün Para Birimi">
               <ChoiceGrid
@@ -1979,13 +2857,17 @@ export function ProductDialog({
               <Input className="h-8 max-w-xs" inputMode="decimal" value={form.cashPrice} onChange={(e) => setForm({ ...form, cashPrice: e.target.value })} placeholder="0" />
             </ProductSheetRow>
 
-            <ProductSheetRow label="Menşei">
-              <Input className="h-8 max-w-xs" value={form.originCountry} onChange={(e) => setForm({ ...form, originCountry: e.target.value })} placeholder="Ülke" />
-            </ProductSheetRow>
+            {!isLaborProduct && (
+              <>
+                <ProductSheetRow label="Menşei">
+                  <Input className="h-8 max-w-xs" value={form.originCountry} onChange={(e) => setForm({ ...form, originCountry: e.target.value })} placeholder="Ülke" />
+                </ProductSheetRow>
 
-            <ProductSheetRow label="GTIP Kodu">
-              <Input className="h-8 max-w-xs" value={form.hsCode} onChange={(e) => setForm({ ...form, hsCode: e.target.value })} />
-            </ProductSheetRow>
+                <ProductSheetRow label="GTIP Kodu">
+                  <Input className="h-8 max-w-xs" value={form.hsCode} onChange={(e) => setForm({ ...form, hsCode: e.target.value })} />
+                </ProductSheetRow>
+              </>
+            )}
 
             <ProductSheetRow label="Ürün KDV">
               <ChoiceGrid
@@ -2061,94 +2943,207 @@ export function ProductDialog({
               </Select>
             </ProductSheetRow>
 
-            <ProductSheetRow label="Muadil Ürün" className="items-start">
-              <div className="space-y-2">
-                <Select
-                  value={form.muadilProductId || "__none"}
-                  onValueChange={(v) => setForm({ ...form, muadilProductId: v === "__none" ? "" : v })}
-                >
-                  <SelectTrigger className="h-8 max-w-md"><SelectValue placeholder="Muadil ürün seçin" /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="__none">Muadil yok</SelectItem>
-                    {muadilOptions.map((p) => (
-                      <SelectItem key={p.id} value={p.id}>
-                        {[p.brand, p.model, p.shortDescription].filter(Boolean).join(" · ")}
-                      </SelectItem>
+            {!isLaborProduct && !isOptionalEquipmentProduct && (
+            <ProductSheetRow label="Muadil Ürünler" className="items-start">
+              <div className="space-y-3">
+                {Object.entries(muadilGroups).length === 0 ? (
+                  <p className="text-[11px] text-muted-foreground">Muadil olarak seçilebilecek ürün yok.</p>
+                ) : (
+                  <div className="max-h-80 overflow-y-auto rounded-lg border border-border/70 bg-white">
+                    {Object.entries(muadilGroups).map(([category, items]) => (
+                      <div key={category} className="border-b border-border/60 last:border-b-0">
+                        <div className="bg-muted/30 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{category}</div>
+                        <div className="divide-y divide-border/60">
+                          {items.map((p) => {
+                            const active = form.muadilProductIds.includes(p.id);
+                            return (
+                              <div
+                                key={p.id}
+                                role="button"
+                                tabIndex={0}
+                                className="flex cursor-pointer items-center gap-3 px-3 py-2 text-sm hover:bg-muted/30"
+                                onClick={() => toggleMuadil(p.id)}
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter" || e.key === " ") {
+                                    e.preventDefault();
+                                    toggleMuadil(p.id);
+                                  }
+                                }}
+                              >
+                                <Checkbox
+                                  checked={active}
+                                  onCheckedChange={() => toggleMuadil(p.id)}
+                                  onClick={(e) => e.stopPropagation()}
+                                  aria-label={`${[p.brand, p.model].filter(Boolean).join(" ") || p.shortDescription} muadil seçimi`}
+                                />
+                                <Package className="size-3.5 shrink-0 text-muted-foreground" />
+                                <span className="min-w-0 flex-1">
+                                  <span className="block truncate">{[p.brand, p.model].filter(Boolean).join(" ") || p.shortDescription}</span>
+                                  <span className="block truncate text-[11px] text-muted-foreground">{p.type || p.stockCode || "—"}</span>
+                                </span>
+                                {p.listPrice ? (
+                                  <span className="shrink-0 text-xs tabular-nums text-brand-blue">
+                                    {p.listPrice.toLocaleString("tr-TR")} {p.currency}
+                                  </span>
+                                ) : null}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
                     ))}
-                  </SelectContent>
-                </Select>
-                {selectedMuadil ? (
-                  <div className="flex items-center gap-3 rounded-lg border border-blue-200 bg-brand-blue-soft p-2.5">
-                    <div className="size-12 shrink-0 overflow-hidden rounded-md border border-blue-200 bg-white grid place-items-center">
-                      {selectedMuadil.imageUrl ? (
-                        <img src={selectedMuadil.imageUrl} alt={selectedMuadil.model} className="h-full w-full object-cover" />
-                      ) : (
-                        <Package className="size-5 text-blue-400" />
-                      )}
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="text-[10px] font-semibold uppercase tracking-wide text-brand-blue">Örnek Muadil Ürün</div>
-                      <div className="truncate text-sm">{selectedMuadil.brand} {selectedMuadil.model}</div>
-                      <div className="truncate text-[11px] text-muted-foreground">
-                        {[selectedMuadil.category, selectedMuadil.type].filter(Boolean).join(" · ") || "—"}
+                  </div>
+                )}
+                {selectedMuadils.length > 0 ? (
+                  <div className="space-y-2 rounded-lg border border-blue-200 bg-brand-blue-soft p-2.5">
+                    <div className="text-[10px] font-semibold uppercase tracking-wide text-brand-blue">Seçili Muadil Ürünler</div>
+                    {Object.entries(selectedMuadilGroups).map(([category, items]) => (
+                      <div key={category} className="space-y-1">
+                        <div className="text-[10px] font-medium text-muted-foreground">{category}</div>
+                        <div className="divide-y divide-blue-100 overflow-hidden rounded-md border border-blue-100 bg-white/70">
+                          {items.map((p) => (
+                            <div key={p.id} className="flex items-center justify-between gap-2 px-2 py-1.5 text-xs">
+                              <span className="min-w-0 truncate">{p.brand} {p.model}</span>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                className="h-6 w-6 shrink-0 text-muted-foreground hover:text-destructive"
+                                onClick={() => toggleMuadil(p.id)}
+                                aria-label={`${p.brand} ${p.model} muadil seçimini kaldır`}
+                              >
+                                <X className="size-3.5" />
+                              </Button>
+                            </div>
+                          ))}
+                        </div>
                       </div>
-                    </div>
-                    <div className="shrink-0 text-right">
-                      <div className="text-sm tabular-nums">
-                        {selectedMuadil.listPrice ? `${selectedMuadil.listPrice.toLocaleString("tr-TR")} ${selectedMuadil.currency}` : "—"}
-                      </div>
-                      <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Liste Fiyatı</div>
-                    </div>
+                    ))}
                   </div>
                 ) : (
-                  <p className="text-[11px] text-muted-foreground">Bir muadil ürün seçilirse örnek ürün kartı burada görünür.</p>
+                  <p className="text-[11px] text-muted-foreground">Birden fazla muadil ürün kategori bazında seçilebilir.</p>
                 )}
               </div>
             </ProductSheetRow>
+            )}
 
+            {!isLaborProduct && (
             <ProductSheetRow label="Teknik Bilgiler" className="items-start">
               <div className="space-y-2">
-                <div className="flex items-center justify-between gap-2">
-                  <div className="text-[11px] text-muted-foreground">Ürün tipine göre değişiklik gösterecek teknik satırlar.</div>
-                  <Button type="button" variant="outline" size="sm" className="h-7 gap-1" onClick={addSpec}>
-                    <Plus className="size-3.5" /> Özellik Ekle
-                  </Button>
-                </div>
-                <div className="space-y-2">
-                  {form.specs.map((s, i) => (
-                    <div key={i} className="grid grid-cols-[minmax(120px,1fr)_minmax(160px,1.5fr)_36px] gap-2">
-                      <Input className="h-8" placeholder="Örn: Tabla ölçüsü" value={s.key} onChange={(e) => updSpec(i, { key: e.target.value })} />
-                      <Input className="h-8" placeholder="Örn: 1200 x 600 mm" value={s.value} onChange={(e) => updSpec(i, { value: e.target.value })} />
-                      <Button type="button" variant="ghost" size="icon" className="h-8 w-8" onClick={() => rmSpec(i)}>
-                        <Trash2 className="size-4 text-muted-foreground" />
-                      </Button>
+                {!form.productTypeCode ? (
+                  <div className="rounded-md border border-dashed border-border/70 bg-muted/20 px-3 py-6 text-center">
+                    <div className="text-sm font-medium">Teknik bilgiler ürün tipi seçilince gelir</div>
+                    <p className="mx-auto mt-1 max-w-md text-xs text-muted-foreground">
+                      Örneğin CNC Dik İşleme Merkezi seçildiğinde yalnızca o tipe ait tabla, eksen, fener mili, motor ve takım değiştirici alanları açılır.
+                    </p>
+                  </div>
+                ) : (
+                  <>
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
+                        <Badge variant="secondary">{selectedProductTypeLabel}</Badge>
+                        <span>{selectedProductTypeTemplateCount || form.specs.length} teknik alan</span>
+                        <span>Etiket ve birim sabittir; sadece değer girilir.</span>
+                      </div>
+                      <div className="flex flex-wrap justify-end gap-1.5">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="h-7"
+                          onClick={() => setForm((f) => ({
+                            ...f,
+                            specs: specsForSelectedProductType(f.specs, f.productTypeCode),
+                          }))}
+                        >
+                          Sabit listeyi tamamla
+                        </Button>
+                      </div>
                     </div>
-                  ))}
-                </div>
+                    {technicalSpecGroups.length ? (
+                      <div className="space-y-2">
+                        {technicalSpecGroups.map(({ group, specs }) => (
+                          <div key={group.code} className="grid grid-cols-[48px_minmax(0,1fr)] overflow-hidden rounded-md border border-border/60 bg-white">
+                            <div className="flex items-center justify-center border-r border-border/60 bg-muted/50 px-1 py-2">
+                              <div className="rotate-180 text-center text-[10px] font-semibold uppercase tracking-[0.16em] text-foreground/80 [writing-mode:vertical-rl]">
+                                {group.label}
+                              </div>
+                            </div>
+                            <div className="min-w-0 divide-y divide-dotted divide-foreground/30">
+                              {specs.map((s) => {
+                                return (
+                                  <div key={s.index} className="grid grid-cols-[minmax(160px,1fr)_minmax(140px,0.9fr)_88px_36px] items-center gap-2 px-2 py-1.5">
+                                    <div className="min-w-0 truncate text-xs font-medium text-foreground" title={s.key}>
+                                      {s.key}
+                                    </div>
+                                    <Combobox
+                                      className="h-8 bg-white"
+                                      options={specValueOptionsFor(s)}
+                                      value={s.value}
+                                      onChange={(value) => updSpec(s.index, { value })}
+                                      placeholder="Boş / -"
+                                      searchPlaceholder="Değer ara..."
+                                      emptyText="Değer bulunamadı"
+                                      onCreate={(value) => updSpec(s.index, { value })}
+                                      createLabel={(query) => `"${query}" kullan`}
+                                    />
+                                    <div className="h-8 rounded-md border border-border/70 bg-muted/30 px-2 text-center text-xs leading-8 text-muted-foreground" title={s.unit ?? s.specUnit ?? ""}>
+                                      {s.unit || s.specUnit || "-"}
+                                    </div>
+                                    <Button
+                                      type="button"
+                                      variant="ghost"
+                                      size="icon"
+                                      className="h-8 w-8"
+                                      title="Satırı kaldır"
+                                      onClick={() => rmSpec(s.index)}
+                                      aria-label={`${s.key} satırını kaldır`}
+                                    >
+                                      <Trash2 className="size-4 text-muted-foreground hover:text-destructive" />
+                                    </Button>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="rounded-md border border-dashed border-border/70 bg-muted/20 px-3 py-6 text-center text-sm text-muted-foreground">
+                        Bu ürün tipi için kayıtlı teknik bilgi şablonu yok.
+                      </div>
+                    )}
+                  </>
+                )}
               </div>
             </ProductSheetRow>
+            )}
 
           </div>
 
-          <ChipField
-            label="Standart Donanımlar"
-            chips={form.standardEquipment}
-            input={stdInput}
-            setInput={setStdInput}
-            onAdd={() => addChip("standardEquipment", stdInput, setStdInput)}
-            onRemove={(i) => rmChip("standardEquipment", i)}
-            placeholder="Standart donanım ekleyip Enter'a basın"
-          />
+          {!isLaborProduct && (
+            <ChipField
+              label="Standart Donanımlar"
+              chips={form.standardEquipment}
+              input={stdInput}
+              setInput={setStdInput}
+              onAdd={() => addChip("standardEquipment", stdInput, setStdInput)}
+              onRemove={(i) => rmChip("standardEquipment", i)}
+              placeholder="Standart donanım ekleyip Enter'a basın"
+            />
+          )}
 
-          <ChipField
-            label="Opsiyonel Donanımlar"
-            chips={form.optionalEquipment}
-            input={optInput}
-            setInput={setOptInput}
-            onAdd={() => addChip("optionalEquipment", optInput, setOptInput)}
-            onRemove={(i) => rmChip("optionalEquipment", i)}
-            placeholder="Opsiyonel donanım ekleyip Enter'a basın"
-          />
+          {mode === "edit" && form.categoryCode === "TEZGAH" && (
+            <OptionalEquipmentField
+              chips={form.optionalEquipment}
+              draft={optionalEquipmentDraft}
+              setDraft={setOptionalEquipmentDraft}
+              onAdd={addOptionalEquipment}
+              onRemove={(i) => rmChip("optionalEquipment", i)}
+              machineLabel={productMachineLabel(form)}
+              machineDefaults={optionalEquipmentDefaultsForMachine(form)}
+            />
+          )}
 
           <div>
             <Label className="text-xs">Notlar</Label>
@@ -2161,10 +3156,123 @@ export function ProductDialog({
           </div>
 
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => setOpen(false)}>İptal</Button>
-            <Button type="submit">{mode === "edit" ? "Güncelle" : "Oluştur"}</Button>
+            <Button type="button" variant="outline" onClick={() => setOpen(false)} disabled={submitting}>İptal</Button>
+            <Button type="submit" disabled={submitting}>{submitting ? "Kaydediliyor..." : mode === "edit" ? "Güncelle" : "Oluştur"}</Button>
           </DialogFooter>
         </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+export function OptionalEquipmentDialog({ trigger }: { trigger: React.ReactNode }) {
+  const { products, updateProduct } = useStore();
+  const [open, setOpen] = useState(false);
+  const [machineId, setMachineId] = useState("");
+  const [draft, setDraft] = useState<OptionalEquipmentDraft>(emptyOptionalEquipmentDraft);
+  const [saving, setSaving] = useState(false);
+  const machineProducts = useMemo(
+    () => products
+      .filter((p) => p.categoryCode === "TEZGAH" || p.category?.toLocaleLowerCase("tr-TR") === "tezgah")
+      .slice()
+      .sort((a, b) => productMachineLabel(a).localeCompare(productMachineLabel(b), "tr")),
+    [products]
+  );
+  const selectedMachine = machineProducts.find((p) => p.id === machineId) ?? null;
+  const selectedMachineLabel = selectedMachine ? productMachineLabel(selectedMachine) : "";
+
+  const reset = () => {
+    setMachineId("");
+    setDraft(emptyOptionalEquipmentDraft());
+    setSaving(false);
+  };
+  const handleOpen = (nextOpen: boolean) => {
+    setOpen(nextOpen);
+    if (!nextOpen) reset();
+  };
+  const machineDefaults = optionalEquipmentDefaultsForMachine(selectedMachine);
+  const persistEquipment = async (nextEquipment: string[], successMessage: string) => {
+    if (!selectedMachine) {
+      toast.error("Makine seçiniz");
+      return;
+    }
+    setSaving(true);
+    try {
+      const machinePatch = Object.fromEntries(
+        Object.entries(selectedMachine).filter(([key]) => key !== "id")
+      ) as Omit<Product, "id">;
+      await updateProduct(selectedMachine.id, { ...machinePatch, optionalEquipment: nextEquipment });
+      toast.success(successMessage, { description: selectedMachineLabel });
+    } catch (err: any) {
+      toast.error("Opsiyonel donanım kaydedilemedi", { description: err?.message ?? "API isteği başarısız oldu." });
+    } finally {
+      setSaving(false);
+    }
+  };
+  const addEquipment = async () => {
+    if (!selectedMachine) {
+      toast.error("Makine seçiniz");
+      return;
+    }
+    if (!draft.product.trim()) {
+      toast.error("Opsiyonel donanım için ürün alanı zorunludur");
+      return;
+    }
+    const value = formatOptionalEquipment({ ...draft, machine: selectedMachineLabel });
+    await persistEquipment([...(selectedMachine.optionalEquipment ?? []), value], "Opsiyonel donanım makineye eklendi");
+    setDraft(optionalEquipmentDraftForMachine(selectedMachine));
+  };
+  const removeEquipment = async (index: number) => {
+    if (!selectedMachine || saving) return;
+    const nextEquipment = (selectedMachine.optionalEquipment ?? []).filter((_, itemIndex) => itemIndex !== index);
+    await persistEquipment(nextEquipment, "Opsiyonel donanım kaldırıldı");
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={handleOpen}>
+      <DialogTrigger asChild>{trigger}</DialogTrigger>
+      <DialogContent className="w-[95vw] sm:max-w-[900px] max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Opsiyonel Donanım Ekle</DialogTitle>
+          <DialogDescription>Mevcut tezgah seçerek opsiyonel donanım listesini yönetin.</DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-4">
+          <div>
+            <Label className="text-xs">Makine</Label>
+            <Select value={machineId} onValueChange={setMachineId}>
+              <SelectTrigger className="mt-1.5 h-9">
+                <SelectValue placeholder="Makine seçin" />
+              </SelectTrigger>
+              <SelectContent>
+                {machineProducts.length === 0 ? (
+                  <div className="px-2 py-1.5 text-xs text-muted-foreground">Kayıtlı tezgah bulunamadı</div>
+                ) : (
+                  machineProducts.map((machine) => (
+                    <SelectItem key={machine.id} value={machine.id}>
+                      {[productMachineLabel(machine), machine.type].filter(Boolean).join(" · ")}
+                    </SelectItem>
+                  ))
+                )}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <OptionalEquipmentField
+            chips={selectedMachine?.optionalEquipment ?? []}
+            draft={draft}
+            setDraft={setDraft}
+            onAdd={() => void addEquipment()}
+            onRemove={(index) => void removeEquipment(index)}
+            machineLabel={selectedMachineLabel}
+            machineDefaults={machineDefaults}
+            disabled={!selectedMachine || saving}
+          />
+        </div>
+
+        <DialogFooter>
+          <Button type="button" variant="outline" onClick={() => handleOpen(false)}>Kapat</Button>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );
@@ -2221,16 +3329,176 @@ function ChipField({ label, chips, input, setInput, onAdd, onRemove, placeholder
           <Plus className="size-4" />
         </Button>
       </div>
-      <div className="mt-2 flex flex-wrap gap-1.5 min-h-[28px]">
-        {chips.length === 0 && <span className="text-[11px] text-muted-foreground">Henüz eklenmedi</span>}
-        {chips.map((c, i) => (
-          <span key={`${c}-${i}`} className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[11px]">
-            {c}
-            <button type="button" onClick={() => onRemove(i)} className="hover:text-destructive">
-              <X className="size-3" />
-            </button>
-          </span>
-        ))}
+      <div className="mt-2 overflow-hidden rounded-md border border-border/70">
+        {chips.length === 0 ? (
+          <div className="px-3 py-3 text-xs text-muted-foreground">Henüz eklenmedi</div>
+        ) : (
+          <ol className="divide-y divide-border/60">
+            {chips.map((c, i) => (
+              <li key={`${c}-${i}`} className="group flex min-w-0 items-start gap-3 px-3 py-2">
+                <span className="mt-0.5 min-w-6 text-right text-xs font-medium tabular-nums text-muted-foreground">
+                  {i + 1}.
+                </span>
+                <span className="min-w-0 flex-1 whitespace-pre-wrap break-words text-sm leading-5">
+                  {c}
+                </span>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7 shrink-0 text-muted-foreground hover:text-destructive"
+                  onClick={() => onRemove(i)}
+                  aria-label={`${c} donanımını sil`}
+                >
+                  <Trash2 className="size-3.5" />
+                </Button>
+              </li>
+            ))}
+          </ol>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function OptionalEquipmentField({
+  chips,
+  draft,
+  setDraft,
+  onAdd,
+  onRemove,
+  machineLabel = "",
+  machineDefaults,
+  disabled = false,
+}: {
+  chips: string[];
+  draft: OptionalEquipmentDraft;
+  setDraft: React.Dispatch<React.SetStateAction<OptionalEquipmentDraft>>;
+  onAdd: () => void;
+  onRemove: (i: number) => void;
+  machineLabel?: string;
+  machineDefaults?: Pick<OptionalEquipmentDraft, "serial" | "type" | "category">;
+  disabled?: boolean;
+}) {
+  useEffect(() => {
+    if (!machineLabel && !machineDefaults) return;
+    setDraft((current) => {
+      const machineChanged = Boolean(machineLabel) && current.machine !== machineLabel;
+      const next: OptionalEquipmentDraft = {
+        ...current,
+        machine: machineLabel || current.machine,
+        product: machineChanged ? "" : current.product,
+        serial: machineDefaults?.serial && (machineChanged || !current.serial) ? machineDefaults.serial : current.serial,
+        type: machineDefaults?.type && (machineChanged || !current.type) ? machineDefaults.type : current.type,
+        category: machineDefaults?.category && (machineChanged || !current.category) ? machineDefaults.category : current.category,
+      };
+      return next.machine === current.machine &&
+        next.product === current.product &&
+        next.serial === current.serial &&
+        next.type === current.type &&
+        next.category === current.category
+        ? current
+        : next;
+    });
+  }, [machineLabel, machineDefaults?.serial, machineDefaults?.type, machineDefaults?.category, setDraft]);
+
+  const update = (key: keyof OptionalEquipmentDraft, value: string) => {
+    setDraft((current) => ({ ...current, [key]: value }));
+  };
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      onAdd();
+    }
+  };
+
+  return (
+    <div>
+      <Label className="text-xs">Opsiyonel Donanımlar</Label>
+      <div className="mt-1.5 grid gap-2 lg:grid-cols-[1.2fr_0.9fr_0.9fr_0.9fr_40px]">
+        <Input
+          value={draft.product}
+          onChange={(e) => update("product", e.target.value)}
+          onKeyDown={handleKeyDown}
+          placeholder="Ürün"
+          aria-label="Opsiyonel donanım ürün"
+          disabled={disabled}
+        />
+        <Input
+          value={draft.serial}
+          onChange={(e) => update("serial", e.target.value)}
+          onKeyDown={handleKeyDown}
+          placeholder="Seri"
+          aria-label="Opsiyonel donanım seri"
+          disabled={disabled}
+        />
+        <Input
+          value={draft.type}
+          onChange={(e) => update("type", e.target.value)}
+          onKeyDown={handleKeyDown}
+          placeholder="Tip"
+          aria-label="Opsiyonel donanım tip"
+          disabled={disabled}
+        />
+        <Input
+          value={draft.category}
+          onChange={(e) => update("category", e.target.value)}
+          onKeyDown={handleKeyDown}
+          placeholder="Kategori"
+          aria-label="Opsiyonel donanım kategori"
+          disabled={disabled}
+        />
+        <Button type="button" variant="outline" size="icon" className="h-9 w-9 shrink-0" onClick={onAdd} aria-label="Opsiyonel donanım ekle" disabled={disabled}>
+          <Plus className="size-4" />
+        </Button>
+      </div>
+      <div className="mt-2 overflow-hidden rounded-md border border-border/70">
+        {chips.length === 0 ? (
+          <div className="px-3 py-3 text-xs text-muted-foreground">Henüz eklenmedi</div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[760px] text-sm">
+              <thead className="bg-muted/35 text-[11px] uppercase tracking-wide text-muted-foreground">
+                <tr>
+                  <th className="w-12 px-3 py-2 text-right font-semibold">#</th>
+                  <th className="px-3 py-2 text-left font-semibold">Makine</th>
+                  <th className="px-3 py-2 text-left font-semibold">Ürün</th>
+                  <th className="px-3 py-2 text-left font-semibold">Seri</th>
+                  <th className="px-3 py-2 text-left font-semibold">Tip</th>
+                  <th className="px-3 py-2 text-left font-semibold">Kategori</th>
+                  <th className="w-12 px-2 py-2"></th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border/60">
+                {chips.map((chip, index) => {
+                  const item = parseOptionalEquipment(chip);
+                  return (
+                    <tr key={`${chip}-${index}`} className="align-top">
+                      <td className="px-3 py-2 text-right text-xs font-medium tabular-nums text-muted-foreground">{index + 1}.</td>
+                      <td className="px-3 py-2 text-muted-foreground">{item.machine || machineLabel || "—"}</td>
+                      <td className="px-3 py-2">{item.product || "—"}</td>
+                      <td className="px-3 py-2 text-muted-foreground">{item.serial || "—"}</td>
+                      <td className="px-3 py-2 text-muted-foreground">{item.type || "—"}</td>
+                      <td className="px-3 py-2 text-muted-foreground">{item.category || "—"}</td>
+                      <td className="px-2 py-1.5 text-right">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                          onClick={() => onRemove(index)}
+                          aria-label={`${item.product || chip} opsiyonel donanımını sil`}
+                        >
+                          <Trash2 className="size-3.5" />
+                        </Button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -2249,38 +3517,216 @@ function Field({ label, value, onChange, type = "text", placeholder, className =
 }
 
 /* ---------- Sevkiyat ---------- */
-const SHIPMENT_CARRIERS = ["DHL", "UPS", "FedEx", "MNG", "Aras", "Yurtiçi", "Sürat", "Diğer"];
+type ShipmentTransportMode = "road" | "air" | "sea" | "local_cargo";
+const TRANSPORT_MODE_LABELS: Record<ShipmentTransportMode, string> = {
+  road: "Karayolu",
+  air: "Havayolu",
+  sea: "Deniz Yolu",
+  local_cargo: "Yerel Kargo",
+};
+
+type ShipmentLineForm = {
+  id: string;
+  productModelId: string;
+  inventoryItemId: string;
+  description: string;
+  serialNumber: string;
+  quantity: string;
+  packageCount: string;
+  palletCount: string;
+  packageLengthCm: string;
+  packageWidthCm: string;
+  packageHeightCm: string;
+  grossWeightKg: string;
+  packageNotes: string;
+};
+
+const emptyShipmentLine = (): ShipmentLineForm => ({
+  id: globalThis.crypto?.randomUUID?.() ?? `line-${Date.now()}-${Math.random()}`,
+  productModelId: "",
+  inventoryItemId: "",
+  description: "",
+  serialNumber: "",
+  quantity: "1",
+  packageCount: "1",
+  palletCount: "0",
+  packageLengthCm: "",
+  packageWidthCm: "",
+  packageHeightCm: "",
+  grossWeightKg: "",
+  packageNotes: "",
+});
+
 export function CreateShipmentDialog({ trigger, onCreated }: { trigger: React.ReactNode; onCreated?: () => void }) {
-  const { addShipment, cases, customers } = useStore();
+  const { addShipment, cases, customers, products, stock } = useStore();
   const customerName = (id: string) => customers.find((c) => c.id === id)?.name ?? "—";
+  const addressLabel = (address: NonNullable<Customer["addresses"]>[number]) =>
+    [ADDRESS_TYPE_OPTIONS.find((option) => option.value === address.addressType)?.label, address.address, address.district, address.city]
+      .filter(Boolean)
+      .join(" · ");
   const [open, setOpen] = useState(false);
-  const emptyForm = () => ({
-    salesCaseId: cases[0]?.id ?? "",
+  const [warehouses, setWarehouses] = useState<Array<{ id: string; name: string }>>([]);
+  const [senderCompanies, setSenderCompanies] = useState<Array<{ id: string; legalTitle: string; shortName?: string | null }>>([]);
+  const [carrierCompanies, setCarrierCompanies] = useState<Array<{ id: string; legalTitle: string; shortName?: string | null }>>([]);
+  // Satır bazında, seçilen tezgahla uyumlu opsiyonel donanım önerileri (ürün-id → sonuç önbelleği).
+  const [optionalByLine, setOptionalByLine] = useState<Record<string, Array<{ id: string; label: string }>>>({});
+  const optionalCache = useRef<Record<string, Array<{ id: string; label: string }>>>({});
+  const emptyForm = () => {
+    const initialCase = cases[0];
+    const initialCustomer = initialCase ? customers.find((customer) => customer.id === initialCase.customerId) : undefined;
+    const initialAddress = initialCustomer?.addresses?.find((address) => address.isDefault) ?? initialCustomer?.addresses?.[0];
+    const initialSnapshot = initialAddress
+      ? [initialAddress.address, initialAddress.district, initialAddress.city, initialAddress.country].filter(Boolean).join(", ")
+      : "";
+    return {
+    salesCaseId: initialCase?.id ?? "",
+    senderCompanyId: "",
+    senderName: "",
+    carrierCompanyId: "",
+    transportMode: "road" as ShipmentTransportMode,
+    productCategoryCode: "TEZGAH" as StockCategoryCode,
+    destinationWarehouseId: "",
+    deliveryAddressId: initialAddress?.id ?? "",
+    deliveryAddressSnapshot: initialSnapshot,
+    loadingDate: new Date().toISOString().slice(0, 10),
     trackingNo: `TRK-${Math.floor(100000 + Math.random() * 900000)}`,
-    carrier: "DHL",
+    carrier: "",
     origin: "",
-    destination: "",
+    destination: initialSnapshot,
     eta: new Date().toISOString().slice(0, 10),
     status: "Hazırlanıyor" as ShipmentStatus,
-  });
+    items: [emptyShipmentLine()],
+    };
+  };
   const [form, setForm] = useState(emptyForm);
   const reset = () => setForm(emptyForm());
+
+  useEffect(() => {
+    if (!open) return;
+    inventoryService.listWarehouses()
+      .then((rows) => setWarehouses(rows.map((w: any) => ({ id: w.id, name: w.name })).filter((w: any) => w.id && w.name)))
+      .catch(() => setWarehouses([]));
+    serviceService.shipmentCompanyOptions({ purpose: "sender" })
+      .then(setSenderCompanies)
+      .catch(() => setSenderCompanies([]));
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    serviceService.shipmentCompanyOptions({ purpose: "carrier", transportMode: form.transportMode })
+      .then((rows) => {
+        setCarrierCompanies(rows);
+        if (form.carrierCompanyId && !rows.some((row: any) => row.id === form.carrierCompanyId)) {
+          setForm((prev) => ({ ...prev, carrierCompanyId: "", carrier: "" }));
+        }
+      })
+      .catch(() => setCarrierCompanies([]));
+  }, [open, form.transportMode]);
+
+  const productOptions = useMemo(
+    () => products.filter((p) => (p.categoryCode ?? "TEZGAH") === form.productCategoryCode),
+    [products, form.productCategoryCode],
+  );
+
+  const updateLine = (id: string, patch: Partial<ShipmentLineForm>) => {
+    setForm((prev) => ({
+      ...prev,
+      items: prev.items.map((line) => (line.id === id ? { ...line, ...patch } : line)),
+    }));
+  };
+
+  // Seçilen tezgahla uyumlu opsiyonel donanımı getir (önbellekli); ürün temizlenince listeyi kaldır.
+  const loadOptionalEquipment = async (lineId: string, productId: string) => {
+    if (!productId) {
+      setOptionalByLine((prev) => {
+        const next = { ...prev };
+        delete next[lineId];
+        return next;
+      });
+      return;
+    }
+    if (optionalCache.current[productId]) {
+      setOptionalByLine((prev) => ({ ...prev, [lineId]: optionalCache.current[productId] }));
+      return;
+    }
+    try {
+      const rows = await productService.compatibleOptionalEquipment(productId);
+      const mapped = (rows ?? [])
+        .map((r: any) => ({
+          id: r.product?.id ?? r.id,
+          label:
+            r.product?.fullName ||
+            [r.brand?.name, r.product?.modelName ?? r.product?.modelCode].filter(Boolean).join(" ") ||
+            "Opsiyonel donanım",
+        }))
+        .filter((x: { id?: string }) => !!x.id);
+      optionalCache.current[productId] = mapped;
+      setOptionalByLine((prev) => ({ ...prev, [lineId]: mapped }));
+    } catch {
+      setOptionalByLine((prev) => ({ ...prev, [lineId]: [] }));
+    }
+  };
+
+  // Opsiyonel donanımı yeni bir sevkiyat satırı olarak ekle (aynı ürün iki kez eklenmez).
+  const addOptionalLine = (eq: { id: string; label: string }) => {
+    setForm((prev) =>
+      prev.items.some((l) => l.productModelId === eq.id)
+        ? prev
+        : { ...prev, items: [...prev.items, { ...emptyShipmentLine(), productModelId: eq.id, description: eq.label }] },
+    );
+  };
+
+  const productLabel = (productId: string) => {
+    const p = products.find((x) => x.id === productId);
+    return [p?.brand, p?.model].filter(Boolean).join(" ") || p?.modelName || "Ürün";
+  };
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!form.trackingNo.trim()) return toast.error("Takip no giriniz");
-    if (!form.destination.trim()) return toast.error("Varış noktası giriniz");
+    if (!form.senderCompanyId && !form.senderName.trim()) return toast.error("Gönderici firma seçin veya yazın");
+    if (!form.carrierCompanyId && !form.carrier.trim()) return toast.error("Taşıyıcı firma seçin veya yazın");
+    if (!form.destinationWarehouseId && !form.deliveryAddressId && !form.destination.trim()) return toast.error("Varış yeri veya firma adresi seçin");
+    if (!form.items.length || form.items.some((line) => !line.productModelId && !line.description.trim())) {
+      return toast.error("Ürün satırlarını tamamlayınız");
+    }
     try {
+      const carrier = carrierCompanies.find((c) => c.id === form.carrierCompanyId);
+      const destinationWarehouse = warehouses.find((w) => w.id === form.destinationWarehouseId);
       await addShipment({
         salesCaseId: form.salesCaseId,
+        senderCompanyId: form.senderCompanyId || undefined,
+        senderName: form.senderName.trim() || undefined,
+        carrierCompanyId: form.carrierCompanyId || undefined,
+        transportMode: form.transportMode,
+        productCategoryCode: form.productCategoryCode,
+        destinationWarehouseId: form.destinationWarehouseId || undefined,
+        destinationWarehouseName: destinationWarehouse?.name,
+        deliveryAddressId: form.deliveryAddressId || undefined,
+        deliveryAddressSnapshot: form.deliveryAddressSnapshot || undefined,
+        loadingDate: form.loadingDate,
         trackingNo: form.trackingNo.trim(),
-        carrier: form.carrier,
+        carrier: form.carrierCompanyId ? (carrier?.shortName ?? carrier?.legalTitle ?? "") : form.carrier.trim(),
         origin: form.origin.trim(),
-        destination: form.destination.trim(),
+        destination: destinationWarehouse?.name || form.deliveryAddressSnapshot || form.destination.trim(),
         eta: form.eta,
         status: form.status,
+        items: form.items.map((line) => ({
+          productModelId: line.productModelId,
+          inventoryItemId: line.inventoryItemId || undefined,
+          description: line.description.trim(),
+          serialNumber: line.serialNumber || undefined,
+          quantity: Number(line.quantity || 1),
+          packageCount: line.packageCount ? Number(line.packageCount) : undefined,
+          palletCount: line.palletCount ? Number(line.palletCount) : undefined,
+          packageLengthCm: line.packageLengthCm ? Number(line.packageLengthCm) : undefined,
+          packageWidthCm: line.packageWidthCm ? Number(line.packageWidthCm) : undefined,
+          packageHeightCm: line.packageHeightCm ? Number(line.packageHeightCm) : undefined,
+          grossWeightKg: line.grossWeightKg ? Number(line.grossWeightKg) : undefined,
+          packageNotes: line.packageNotes.trim() || undefined,
+        })),
       });
-      toast.success("Sevkiyat oluşturuldu", { description: `${form.trackingNo} · ${form.carrier}` });
+      toast.success("Sevkiyat oluşturuldu", { description: `${form.trackingNo} · ${TRANSPORT_MODE_LABELS[form.transportMode]}` });
       setOpen(false);
       reset();
       onCreated?.();
@@ -2292,36 +3738,120 @@ export function CreateShipmentDialog({ trigger, onCreated }: { trigger: React.Re
   return (
     <Dialog open={open} onOpenChange={(o) => { setOpen(o); if (o) reset(); }}>
       <DialogTrigger asChild>{trigger}</DialogTrigger>
-      <DialogContent className="max-w-lg">
+      <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2"><Truck className="size-5 text-primary" /> Yeni Sevkiyat</DialogTitle>
-          <DialogDescription>Bir satış kartına bağlı sevkiyat takibi oluşturun.</DialogDescription>
+          <DialogDescription>Seri no, paket ve palet bilgileriyle sevkiyat kaydı oluşturun.</DialogDescription>
         </DialogHeader>
         <form onSubmit={submit} className="space-y-4">
-          <div>
-            <Label className="text-xs" htmlFor="ship-case">Satış Kartı / Müşteri</Label>
-            <Select value={form.salesCaseId} onValueChange={(v) => setForm({ ...form, salesCaseId: v })}>
-              <SelectTrigger id="ship-case" className="mt-1.5"><SelectValue placeholder="Satış kartı seçin..." /></SelectTrigger>
-              <SelectContent>
-                {cases.map((c) => (
-                  <SelectItem key={c.id} value={c.id}>{customerName(c.customerId)} · {c.requestedProduct}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="Takip No *" name="ship-tracking" value={form.trackingNo} onChange={(v) => setForm({ ...form, trackingNo: v })} placeholder="TRK-000000" />
+          <div className="grid grid-cols-3 gap-3">
             <div>
-              <Label className="text-xs" htmlFor="ship-carrier">Taşıyıcı</Label>
-              <Select value={form.carrier} onValueChange={(v) => setForm({ ...form, carrier: v })}>
-                <SelectTrigger id="ship-carrier" className="mt-1.5"><SelectValue /></SelectTrigger>
+              <Label className="text-xs" htmlFor="ship-case">Satış Kartı / Müşteri</Label>
+              <Select value={form.salesCaseId || "none"} onValueChange={(value) => {
+                const salesCaseId = value === "none" ? "" : value;
+                const selectedCase = cases.find((item) => item.id === salesCaseId);
+                const selectedCustomer = customers.find((customer) => customer.id === selectedCase?.customerId);
+                const selectedAddress = selectedCustomer?.addresses?.find((address) => address.isDefault) ?? selectedCustomer?.addresses?.[0];
+                const snapshot = selectedAddress ? [selectedAddress.address, selectedAddress.district, selectedAddress.city, selectedAddress.country].filter(Boolean).join(", ") : "";
+                setForm({ ...form, salesCaseId, deliveryAddressId: selectedAddress?.id ?? "", deliveryAddressSnapshot: snapshot, destinationWarehouseId: "", destination: snapshot });
+              }}>
+                <SelectTrigger id="ship-case" className="mt-1.5"><SelectValue placeholder="Satış kartı seçin..." /></SelectTrigger>
                 <SelectContent>
-                  {SHIPMENT_CARRIERS.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+                  <SelectItem value="none">Bağımsız sevkiyat</SelectItem>
+                  {cases.map((c) => (
+                    <SelectItem key={c.id} value={c.id}>{customerName(c.customerId)} · {c.requestedProduct}</SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
+            <div>
+              <Label className="text-xs">Gönderici Firma *</Label>
+              <div className="mt-1.5">
+                <FreeTextCombobox
+                  idValue={form.senderCompanyId}
+                  textValue={form.senderName}
+                  options={senderCompanies.map((c) => ({ value: c.id, label: c.shortName ?? c.legalTitle }))}
+                  onPick={(id) => setForm({ ...form, senderCompanyId: id, senderName: "" })}
+                  onFreeText={(t) => setForm({ ...form, senderCompanyId: "", senderName: t })}
+                  placeholder="Firma seçin veya yazın"
+                />
+              </div>
+            </div>
+            <div>
+              <Label className="text-xs" htmlFor="ship-mode">Sevkiyat Türü *</Label>
+              <Select value={form.transportMode} onValueChange={(v: ShipmentTransportMode) => setForm({ ...form, transportMode: v })}>
+                <SelectTrigger id="ship-mode" className="mt-1.5"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {Object.entries(TRANSPORT_MODE_LABELS).map(([code, label]) => <SelectItem key={code} value={code}>{label}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label className="text-xs">Taşıyıcı Firma *</Label>
+              <div className="mt-1.5">
+                <FreeTextCombobox
+                  idValue={form.carrierCompanyId}
+                  textValue={form.carrier}
+                  options={carrierCompanies.map((c) => ({ value: c.id, label: c.shortName ?? c.legalTitle }))}
+                  onPick={(id) => setForm({ ...form, carrierCompanyId: id, carrier: "" })}
+                  onFreeText={(t) => setForm({ ...form, carrierCompanyId: "", carrier: t })}
+                  placeholder="Firma seçin veya yazın"
+                />
+              </div>
+            </div>
+            <div>
+              <Label className="text-xs" htmlFor="ship-category">Ürün Kategorisi</Label>
+              <Select
+                value={form.productCategoryCode}
+                onValueChange={(v: StockCategoryCode) => setForm({ ...form, productCategoryCode: v, items: [emptyShipmentLine()] })}
+              >
+                <SelectTrigger id="ship-category" className="mt-1.5"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {STOCK_CATEGORY_CODES.map((code) => <SelectItem key={code} value={code}>{STOCK_CATEGORY_LABELS[code]}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label className="text-xs">Varış Yeri *</Label>
+              <div className="mt-1.5">
+                <FreeTextCombobox
+                  idValue={form.destinationWarehouseId}
+                  textValue={form.destination}
+                  options={warehouses.map((w) => ({ value: w.id, label: w.name }))}
+                  onPick={(id) => setForm({ ...form, destinationWarehouseId: id, deliveryAddressId: "", deliveryAddressSnapshot: "", destination: "" })}
+                  onFreeText={(t) => setForm({ ...form, destinationWarehouseId: "", deliveryAddressId: "", deliveryAddressSnapshot: "", destination: t })}
+                  placeholder="Depo seçin veya yazın"
+                />
+              </div>
+            </div>
+            <div>
+              <Label className="text-xs">Firma Teslimat Adresi</Label>
+              <Select
+                value={form.deliveryAddressId || "none"}
+                onValueChange={(value) => {
+                  const selectedCase = cases.find((item) => item.id === form.salesCaseId);
+                  const selectedCustomer = customers.find((customer) => customer.id === selectedCase?.customerId);
+                  const selectedAddress = selectedCustomer?.addresses?.find((address) => address.id === value);
+                  const snapshot = selectedAddress ? [selectedAddress.address, selectedAddress.district, selectedAddress.city, selectedAddress.country].filter(Boolean).join(", ") : "";
+                  setForm({ ...form, deliveryAddressId: selectedAddress?.id ?? "", deliveryAddressSnapshot: snapshot, destinationWarehouseId: "", destination: snapshot });
+                }}
+              >
+                <SelectTrigger className="mt-1.5"><SelectValue placeholder="Firma adresi seçin" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Firma adresi kullanılmayacak</SelectItem>
+                  {(() => {
+                    const selectedCase = cases.find((item) => item.id === form.salesCaseId);
+                    const selectedCustomer = customers.find((customer) => customer.id === selectedCase?.customerId);
+                    return (selectedCustomer?.addresses ?? []).filter((address) => address.id).map((address) => (
+                      <SelectItem key={address.id} value={address.id!}>{addressLabel(address)}</SelectItem>
+                    ));
+                  })()}
+                </SelectContent>
+              </Select>
+            </div>
+            <Field label="Takip No *" name="ship-tracking" value={form.trackingNo} onChange={(v) => setForm({ ...form, trackingNo: v })} placeholder="TRK-000000" />
             <Field label="Çıkış" name="ship-origin" value={form.origin} onChange={(v) => setForm({ ...form, origin: v })} placeholder="Hamburg" />
-            <Field label="Varış *" name="ship-dest" value={form.destination} onChange={(v) => setForm({ ...form, destination: v })} placeholder="İstanbul" />
+            <Field label="Yüklenme Tarihi" name="ship-loading-date" type="date" value={form.loadingDate} onChange={(v) => setForm({ ...form, loadingDate: v })} />
             <Field label="Tahmini Varış (ETA)" name="ship-eta" type="date" value={form.eta} onChange={(v) => setForm({ ...form, eta: v })} />
             <div>
               <Label className="text-xs" htmlFor="ship-status">Durum</Label>
@@ -2332,6 +3862,123 @@ export function CreateShipmentDialog({ trigger, onCreated }: { trigger: React.Re
                 </SelectContent>
               </Select>
             </div>
+          </div>
+
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <Label className="text-xs">Ürün ve Paket Satırları</Label>
+              <Button type="button" variant="outline" size="sm" onClick={() => setForm({ ...form, items: [...form.items, emptyShipmentLine()] })}>
+                <Plus className="size-4 mr-1" /> Satır
+              </Button>
+            </div>
+            {form.items.map((line, index) => {
+              const serialOptions = stock.filter((s) =>
+                (s.categoryCode ?? "TEZGAH") === form.productCategoryCode &&
+                (!line.productModelId || s.productId === line.productModelId)
+              );
+              return (
+                <div key={line.id} className="rounded-lg border border-border/70 p-3 space-y-3">
+                  <div className="grid grid-cols-12 gap-2">
+                    <div className="col-span-4">
+                      <Label className="text-xs">Ürün *</Label>
+                      <div className="mt-1.5">
+                        <FreeTextCombobox
+                          idValue={line.productModelId}
+                          textValue={line.productModelId ? "" : line.description}
+                          options={productOptions.map((p) => ({ value: p.id, label: `${[p.brand, p.model].filter(Boolean).join(" ")}${p.type ? ` · ${p.type}` : ""}` }))}
+                          onPick={(v) => {
+                            updateLine(line.id, {
+                              productModelId: v,
+                              inventoryItemId: "",
+                              serialNumber: "",
+                              description: productLabel(v),
+                            });
+                            void loadOptionalEquipment(line.id, v);
+                          }}
+                          onFreeText={(t) => {
+                            updateLine(line.id, { productModelId: "", inventoryItemId: "", description: t });
+                            void loadOptionalEquipment(line.id, "");
+                          }}
+                          placeholder="Ürün seçin veya yazın"
+                        />
+                      </div>
+                    </div>
+                    <div className="col-span-3">
+                      <Label className="text-xs">Seri No</Label>
+                      <div className="mt-1.5">
+                        <FreeTextCombobox
+                          idValue={line.inventoryItemId}
+                          textValue={line.serialNumber}
+                          options={serialOptions.map((s) => ({ value: s.id, label: `${s.serialNumber} · ${s.brand} ${s.counterModel}` }))}
+                          onPick={(v) => {
+                            const item = stock.find((s) => s.id === v);
+                            updateLine(line.id, {
+                              inventoryItemId: v,
+                              productModelId: item?.productId ?? line.productModelId,
+                              serialNumber: item?.serialNumber ?? "",
+                              description: line.description || [item?.brand, item?.counterModel].filter(Boolean).join(" "),
+                            });
+                          }}
+                          onFreeText={(t) => updateLine(line.id, { inventoryItemId: "", serialNumber: t })}
+                          placeholder="Seri no seçin veya yazın"
+                        />
+                      </div>
+                    </div>
+                    <Field className="col-span-3" label="Açıklama *" value={line.description} onChange={(v) => updateLine(line.id, { description: v })} placeholder="Ürün açıklaması" />
+                    <div className="col-span-1">
+                      <Field label="Adet" type="number" value={line.quantity} onChange={(v) => updateLine(line.id, { quantity: v })} />
+                    </div>
+                    <div className="col-span-1 flex items-end justify-end">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        disabled={form.items.length === 1}
+                        onClick={() => setForm((prev) => ({ ...prev, items: prev.items.filter((item) => item.id !== line.id) }))}
+                        aria-label={`Satır ${index + 1} sil`}
+                      >
+                        <Trash2 className="size-4" />
+                      </Button>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-6 gap-2">
+                    <Field label="Paket" type="number" value={line.packageCount} onChange={(v) => updateLine(line.id, { packageCount: v })} />
+                    <Field label="Palet" type="number" value={line.palletCount} onChange={(v) => updateLine(line.id, { palletCount: v })} />
+                    <Field label="Uzunluk cm" type="number" value={line.packageLengthCm} onChange={(v) => updateLine(line.id, { packageLengthCm: v })} />
+                    <Field label="Genişlik cm" type="number" value={line.packageWidthCm} onChange={(v) => updateLine(line.id, { packageWidthCm: v })} />
+                    <Field label="Yükseklik cm" type="number" value={line.packageHeightCm} onChange={(v) => updateLine(line.id, { packageHeightCm: v })} />
+                    <Field label="Brüt kg" type="number" value={line.grossWeightKg} onChange={(v) => updateLine(line.id, { grossWeightKg: v })} />
+                  </div>
+                  <Field label="Paket Notu" value={line.packageNotes} onChange={(v) => updateLine(line.id, { packageNotes: v })} placeholder="Paket bilgisi" />
+                  {(optionalByLine[line.id]?.length ?? 0) > 0 && (
+                    <div className="rounded-md border border-dashed border-border/70 bg-muted/20 p-2.5">
+                      <div className="mb-1.5 flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+                        <Wrench className="size-3.5" /> Uyumlu Opsiyonel Donanım
+                      </div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {optionalByLine[line.id]!.map((eq) => {
+                          const added = form.items.some((l) => l.productModelId === eq.id);
+                          return (
+                            <Button
+                              key={eq.id}
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              className="h-7"
+                              disabled={added}
+                              onClick={() => addOptionalLine(eq)}
+                            >
+                              {added ? <Check className="size-3.5 mr-1" /> : <Plus className="size-3.5 mr-1" />}
+                              {eq.label}
+                            </Button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => setOpen(false)}>Vazgeç</Button>
@@ -2364,9 +4011,18 @@ export type DeliveryFormState = {
   cncModel: string;
   cncSeriNo: string;
   cncMainSw: string;
+  technicalSpecs: ProductSpec[];
 };
 
-function machineToDeliveryFields(m?: { brand?: string; type?: string; model: string; serialNumber: string; controlUnit?: string; controlUnitSerial?: string }) {
+function machineToDeliveryFields(m?: {
+  brand?: string;
+  type?: string;
+  model: string;
+  serialNumber: string;
+  controlUnit?: string;
+  controlUnitSerial?: string;
+  technicalSpecs?: ProductSpec[];
+}) {
   if (!m) return {};
   return {
     tezgahMarka: m.brand ?? "",
@@ -2376,6 +4032,7 @@ function machineToDeliveryFields(m?: { brand?: string; type?: string; model: str
     cncMarka: m.controlUnit?.split(" ")[0] ?? "",
     cncModel: m.controlUnit?.split(" ").slice(1).join(" ") ?? "",
     cncSeriNo: m.controlUnitSerial ?? "",
+    technicalSpecs: (m.technicalSpecs ?? []).map((spec) => ({ ...spec })),
   };
 }
 
@@ -2398,6 +4055,14 @@ export function deliveryFormToPayload(form: DeliveryFormState) {
       seriNo: form.cncSeriNo.trim() || undefined,
       mainSw: form.cncMainSw.trim() || undefined,
     },
+    technicalSpecs: form.technicalSpecs
+      .filter((spec) => spec.key.trim() && spec.value.trim())
+      .map((spec) => ({
+        key: spec.key.trim(),
+        value: spec.value.trim(),
+        unit: (spec.unit ?? spec.specUnit ?? "").trim() || undefined,
+        specUnit: (spec.unit ?? spec.specUnit ?? "").trim() || undefined,
+      })),
   };
 }
 
@@ -2415,6 +4080,7 @@ export function deliveryToFormState(d: {
     kurulumuYapan?: string;
     tezgah?: { marka?: string; tip?: string; model?: string; seriNo?: string };
     cnc?: { marka?: string; model?: string; seriNo?: string; mainSw?: string };
+    technicalSpecs?: ProductSpec[];
   };
 }, contactPerson?: string): DeliveryFormState {
   const fd = d.formData;
@@ -2437,6 +4103,7 @@ export function deliveryToFormState(d: {
     cncModel: fd?.cnc?.model ?? "",
     cncSeriNo: fd?.cnc?.seriNo ?? "",
     cncMainSw: fd?.cnc?.mainSw ?? "",
+    technicalSpecs: (fd?.technicalSpecs ?? []).map((spec) => ({ ...spec })),
   };
 }
 
@@ -2446,18 +4113,32 @@ export function DeliveryFormFields({
   customers,
   casesForCustomer,
   machinesForCustomer,
+  relatedDeliveries = [],
 }: {
   form: DeliveryFormState;
   setForm: React.Dispatch<React.SetStateAction<DeliveryFormState>>;
   customers: Customer[];
   casesForCustomer: { id: string; requestedProduct: string }[];
-  machinesForCustomer: { id: string; brand?: string; model: string; serialNumber: string }[];
+  machinesForCustomer: {
+    id: string;
+    brand?: string;
+    model: string;
+    serialNumber: string;
+    technicalSpecs?: ProductSpec[];
+  }[];
+  relatedDeliveries?: Delivery[];
 }) {
   const applyMachine = (machineId: string) => {
     const m = machinesForCustomer.find((x) => x.id === machineId);
     setForm((prev) => ({
       ...prev,
       machineId,
+      formNo: resolveServiceFormNo({
+        currentFormNo: prev.formNo,
+        relatedFormNo: relatedDeliveryFormNo(relatedDeliveries, { salesCaseId: prev.salesCaseId, machineId }),
+        salesCaseId: prev.salesCaseId,
+        machineId,
+      }),
       ...machineToDeliveryFields(m as any),
     }));
   };
@@ -2477,6 +4158,7 @@ export function DeliveryFormFields({
                 salesCaseId: "",
                 machineId: "",
                 ilgili: cust?.contactPerson ?? "",
+                technicalSpecs: [],
               });
             }}
           >
@@ -2488,7 +4170,22 @@ export function DeliveryFormFields({
         </div>
         <div>
           <Label className="text-xs">Satış Kartı</Label>
-          <Select value={form.salesCaseId || "none"} onValueChange={(v) => setForm({ ...form, salesCaseId: v === "none" ? "" : v })}>
+          <Select
+            value={form.salesCaseId || "none"}
+            onValueChange={(v) => {
+              const salesCaseId = v === "none" ? "" : v;
+              setForm({
+                ...form,
+                salesCaseId,
+                formNo: resolveServiceFormNo({
+                  currentFormNo: form.formNo,
+                  relatedFormNo: relatedDeliveryFormNo(relatedDeliveries, { salesCaseId, machineId: form.machineId }),
+                  salesCaseId,
+                  machineId: form.machineId,
+                }),
+              });
+            }}
+          >
             <SelectTrigger className="mt-1.5"><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="none">Belirtilmedi</SelectItem>
@@ -2498,7 +4195,14 @@ export function DeliveryFormFields({
         </div>
         <div>
           <Label className="text-xs">Makine / Tezgah</Label>
-          <Select value={form.machineId || "none"} onValueChange={(v) => (v === "none" ? setForm({ ...form, machineId: "" }) : applyMachine(v))}>
+          <Select
+            value={form.machineId || "none"}
+            onValueChange={(v) => (
+              v === "none"
+                ? setForm({ ...form, machineId: "", technicalSpecs: [] })
+                : applyMachine(v)
+            )}
+          >
             <SelectTrigger className="mt-1.5"><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="none">Belirtilmedi</SelectItem>
@@ -2539,6 +4243,11 @@ export function DeliveryFormFields({
       </div>
 
       <div className="rounded-lg border border-border/60 p-3 space-y-2">
+        <div className="text-xs font-medium text-center">Teknik Bilgiler</div>
+        <ProductSpecsTable specs={form.technicalSpecs} emptyText="Seçilen makine için teknik bilgi bulunamadı." />
+      </div>
+
+      <div className="rounded-lg border border-border/60 p-3 space-y-2">
         <div className="text-xs font-medium text-center">İmza Bilgileri</div>
         <div className="grid grid-cols-2 gap-3">
           <Field label="İlgili Kişi" value={form.ilgili} onChange={(v) => setForm({ ...form, ilgili: v })} />
@@ -2560,7 +4269,7 @@ export function DeliveryFormFields({
 }
 
 export function CreateDeliveryDialog({ trigger, onCreated }: { trigger: React.ReactNode; onCreated?: () => void }) {
-  const { addDelivery, cases, customers, machines } = useStore();
+  const { addDelivery, cases, customers, machines, deliveries } = useStore();
   const customerName = (id: string) => customers.find((c) => c.id === id)?.name ?? "—";
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -2583,6 +4292,7 @@ export function CreateDeliveryDialog({ trigger, onCreated }: { trigger: React.Re
     cncModel: "",
     cncSeriNo: "",
     cncMainSw: "",
+    technicalSpecs: [],
   });
   const [form, setForm] = useState(emptyForm);
   const reset = () => setForm(emptyForm());
@@ -2628,6 +4338,7 @@ export function CreateDeliveryDialog({ trigger, onCreated }: { trigger: React.Re
             customers={customers}
             casesForCustomer={casesForCustomer}
             machinesForCustomer={machinesForCustomer}
+            relatedDeliveries={deliveries}
           />
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => setOpen(false)} disabled={saving}>Vazgeç</Button>
@@ -2640,15 +4351,16 @@ export function CreateDeliveryDialog({ trigger, onCreated }: { trigger: React.Re
 }
 
 /* ---------- Kasa Hareketi (Ödeme) ---------- */
-const PAYMENT_METHOD_LABELS: Record<string, string> = {
+const PAYMENT_METHOD_LABELS = {
   bank_transfer: "Banka Havalesi",
   cash: "Nakit",
   credit_card: "Kredi Kartı",
   check: "Çek",
   other: "Diğer",
-};
+} as const;
+type PaymentMethodCode = keyof typeof PAYMENT_METHOD_LABELS;
 const PAYMENT_CURRENCIES = ["USD", "EUR", "TRY"] as const;
-const PAYMENT_DOC_EXT_TO_MIME: Record<string, string> = {
+const PAYMENT_DOC_EXT_TO_MIME = {
   pdf: "application/pdf",
   png: "image/png",
   jpg: "image/jpeg",
@@ -2656,11 +4368,18 @@ const PAYMENT_DOC_EXT_TO_MIME: Record<string, string> = {
   webp: "image/webp",
   docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
   xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-};
+} satisfies Record<string, AllowedMimeType>;
+type PaymentDocExtension = keyof typeof PAYMENT_DOC_EXT_TO_MIME;
 const fmtPaymentDocBytes = (b: number) =>
   b < 1024 ? `${b} B` : b < 1048576 ? `${(b / 1024).toFixed(1)} KB` : `${(b / 1048576).toFixed(1)} MB`;
 const paymentDocTypeLabel = (t: "AccountingInvoice" | "CommercialInvoice") =>
   t === "AccountingInvoice" ? "Fiş" : "Fatura";
+const paymentDocMeta = (file: File): { extension: AllowedFileExtension; mimeType: AllowedMimeType } | null => {
+  const ext = file.name.split(".").pop()?.toLocaleLowerCase("tr-TR") ?? "";
+  if (!Object.prototype.hasOwnProperty.call(PAYMENT_DOC_EXT_TO_MIME, ext)) return null;
+  const extension = ext as PaymentDocExtension;
+  return { extension, mimeType: PAYMENT_DOC_EXT_TO_MIME[extension] };
+};
 
 /**
  * Manuel kasa hareketi oluşturma. Yön ('in' = alınan/giren, 'out' = ödenen/çıkan)
@@ -2686,7 +4405,7 @@ export function CreatePaymentDialog({
     amount: "",
     currencyCode: "USD" as (typeof PAYMENT_CURRENCIES)[number],
     paymentDate: new Date().toISOString().slice(0, 10),
-    paymentMethod: "bank_transfer",
+    paymentMethod: "bank_transfer" as PaymentMethodCode,
     invoiceNo: "",
     notes: "",
   });
@@ -2703,18 +4422,18 @@ export function CreatePaymentDialog({
 
   const uploadInvoice = async (paymentId: string, companyId: string) => {
     if (!file) return;
-    const ext = file.name.split(".").pop()?.toLocaleLowerCase("tr-TR") ?? "";
-    const mime = file.type || PAYMENT_DOC_EXT_TO_MIME[ext];
+    const meta = paymentDocMeta(file);
+    if (!meta) throw new Error("Desteklenmeyen dosya tipi");
     const up = await fileService.signedUpload({
       bucket: "erp-invoice-documents",
       entityType: "company",
       entityId: companyId,
       filename: file.name,
-      mimeType: mime,
-      extension: ext,
+      mimeType: meta.mimeType,
+      extension: meta.extension,
       sizeBytes: file.size,
     });
-    await fileService.uploadBinary(up, file, mime);
+    await fileService.uploadBinary(up, file, meta.mimeType);
     await fileService.link({
       fileId: up.fileId,
       entityType: "company",
@@ -2730,7 +4449,7 @@ export function CreatePaymentDialog({
       type: docType,
       fileName: file.name,
       size: fmtPaymentDocBytes(file.size),
-      mimeType: mime,
+      mimeType: meta.mimeType,
     });
   };
 
@@ -2741,9 +4460,8 @@ export function CreatePaymentDialog({
     if (!Number.isFinite(amount) || amount <= 0) return toast.error("Geçerli bir tutar giriniz");
     if (!file) return toast.error("Fatura veya fiş dosyası seçiniz");
     if (file.size > 25 * 1024 * 1024) return toast.error("Dosya boyutu 25 MB'ı aşamaz");
-    const ext = file.name.split(".").pop()?.toLocaleLowerCase("tr-TR") ?? "";
-    const mime = file.type || PAYMENT_DOC_EXT_TO_MIME[ext];
-    if (!PAYMENT_DOC_EXT_TO_MIME[ext] || !mime) {
+    const meta = paymentDocMeta(file);
+    if (!meta) {
       return toast.error("Desteklenmeyen dosya tipi", { description: "PDF, PNG, JPG, WEBP, DOCX veya XLSX" });
     }
     setSaving(true);
@@ -2754,7 +4472,8 @@ export function CreatePaymentDialog({
           companyId: form.companyId,
           amount,
           currencyCode: form.currencyCode,
-          dueDate: form.paymentDate,
+          dueDate: new Date(form.paymentDate),
+          movementType: "manual",
           notes: form.notes || undefined,
           invoiceNo: form.invoiceNo || undefined,
         });
@@ -2763,7 +4482,7 @@ export function CreatePaymentDialog({
           receivableId: receivable.id,
           amount,
           currencyCode: form.currencyCode,
-          paymentDate: form.paymentDate,
+          paymentDate: new Date(form.paymentDate),
           paymentMethod: form.paymentMethod,
           notes: form.notes || undefined,
           invoiceNo: form.invoiceNo || undefined,
@@ -2775,7 +4494,7 @@ export function CreatePaymentDialog({
           companyId: form.companyId,
           amount,
           currencyCode: form.currencyCode,
-          paymentDate: form.paymentDate,
+          paymentDate: new Date(form.paymentDate),
           paymentMethod: form.paymentMethod,
           notes: form.notes || undefined,
           invoiceNo: form.invoiceNo || undefined,
@@ -2877,10 +4596,10 @@ export function CreatePaymentDialog({
           <div className="grid grid-cols-2 gap-3">
             <div>
               <Label className="text-xs">Ödeme Yöntemi</Label>
-              <Select value={form.paymentMethod} onValueChange={(v) => setForm({ ...form, paymentMethod: v })}>
+              <Select value={form.paymentMethod} onValueChange={(v) => setForm({ ...form, paymentMethod: v as PaymentMethodCode })}>
                 <SelectTrigger className="mt-1.5"><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  {Object.keys(PAYMENT_METHOD_LABELS).map((k) => (
+                  {(Object.keys(PAYMENT_METHOD_LABELS) as PaymentMethodCode[]).map((k) => (
                     <SelectItem key={k} value={k}>{PAYMENT_METHOD_LABELS[k]}</SelectItem>
                   ))}
                 </SelectContent>
@@ -2985,7 +4704,8 @@ export function CreateReceivableDialog({
         quoteId: form.quoteId || undefined,
         amount,
         currencyCode: form.currencyCode,
-        dueDate: form.dueDate,
+        dueDate: new Date(form.dueDate),
+        movementType: "manual",
         invoiceNo: form.invoiceNo || undefined,
         notes: form.notes || undefined,
       });
@@ -3078,7 +4798,7 @@ export function CreateServiceRequestDialog({ trigger, defaultMachineId }: { trig
   const { customers, contacts, addService, machines: machinesAll, users } = useStore();
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
-  const serviceUsers = users.filter((u) => u.role === "Service" || u.department === "Servis");
+  const serviceUsers = useMemo(() => users.filter((u) => u.role === "Service" || u.department === "Servis"), [users]);
   const [form, setForm] = useState<{
     customerId: string;
     contactId: string;
@@ -3102,12 +4822,8 @@ export function CreateServiceRequestDialog({ trigger, defaultMachineId }: { trig
   useEffect(() => {
     if (!open) return;
     const defaultMachine = machinesAll.find((machine) => machine.id === defaultMachineId);
-    const firstCustomerWithMachine = customers.find((customer) =>
-      machinesAll.some((machine) => machine.customerId === customer.id)
-    );
-    const customerId = defaultMachine?.customerId ?? firstCustomerWithMachine?.id ?? customers[0]?.id ?? "";
-    const companyContacts = contacts.filter((contact) => contact.customerId === customerId);
-    const preferredContact = companyContacts.find((contact) => contact.isPrimary) ?? companyContacts[0];
+    const customerId = machineCustomerId(defaultMachine);
+    const preferredContact = preferredServiceContact(contacts, customerId);
     setForm({
       customerId,
       contactId: preferredContact?.id ?? "",
@@ -3118,52 +4834,78 @@ export function CreateServiceRequestDialog({ trigger, defaultMachineId }: { trig
       quoteRequired: false,
       serviceNote: "",
     });
-  }, [open, defaultMachineId, customers, contacts, machinesAll, users]);
+  }, [open, defaultMachineId, contacts, machinesAll, serviceUsers, users]);
 
-  const customerById = useMemo(() => new Map(customers.map((customer) => [customer.id, customer])), [customers]);
+  const customerOptions = useMemo(
+    () => customers.map((customer) => ({ value: customer.id, label: customer.name })),
+    [customers],
+  );
   const selectedCustomer = customers.find((customer) => customer.id === form.customerId);
-  const companyMachines = machinesAll.filter((machine) => machine.customerId === form.customerId);
-  const otherCompanyMachines = machinesAll.filter((machine) => machine.customerId !== form.customerId);
-  const companyContacts = contacts.filter((contact) => contact.customerId === form.customerId);
+  const companyMachines = useMemo(
+    () => machinesAll.filter((machine) => machineCustomerId(machine) === form.customerId),
+    [machinesAll, form.customerId],
+  );
+  const companyContacts = useMemo(
+    () => contacts.filter((contact) => contactBelongsToCustomer(contact, form.customerId)),
+    [contacts, form.customerId],
+  );
   const selectedMachine = machinesAll.find((m) => m.id === form.machineId);
   const selectedContact = contacts.find((contact) => contact.id === form.contactId);
   const contactPhone = selectedContact?.mobilePhone || selectedContact?.phone || selectedContact?.otherPhone || selectedCustomer?.phone || selectedCustomer?.phone2 || "";
   const contactEmail = selectedContact?.email || selectedContact?.personalEmail || selectedContact?.otherEmail || selectedCustomer?.email || selectedCustomer?.email2 || "";
   const assignedUser = (serviceUsers.length > 0 ? serviceUsers : users).find((u) => u.id === form.assignedUserId);
+  const machineOptionText = (machine: typeof machinesAll[number]) =>
+    [machine.model, machine.serialNumber].filter(Boolean).join(" · ") || "Makine";
+  // Diğer firmalardaki makineler de seçilebilir; seçilince selectMachine formu
+  // makinenin sahibi firmaya geçirir (servis formunda firmalar arası makine desteği).
+  const machineOptions = useMemo(() => {
+    const otherCompanyMachines = machinesAll.filter((machine) => machineCustomerId(machine) !== form.customerId);
+    const companyNameOf = (machine: typeof machinesAll[number]) =>
+      customers.find((customer) => customer.id === machineCustomerId(machine))?.name ?? "Diğer firma";
+    return [
+      { value: NO_SERVICE_MACHINE, label: "Makine bağlama" },
+      ...companyMachines.map((machine) => ({
+        value: machine.id,
+        label: machineOptionText(machine),
+        hint: machine.status === "Out of Warranty" ? "Garanti dışı" : machine.status === "Decommissioned" ? "Devre dışı" : "Aktif",
+      })),
+      ...otherCompanyMachines.map((machine) => ({
+        value: machine.id,
+        label: machineOptionText(machine),
+        hint: companyNameOf(machine),
+      })),
+    ];
+  }, [companyMachines, machinesAll, customers, form.customerId]);
 
   const selectCustomer = (customerId: string) => {
-    const nextContacts = contacts.filter((contact) => contact.customerId === customerId);
-    const preferredContact = nextContacts.find((contact) => contact.isPrimary) ?? nextContacts[0];
+    const preferredContact = preferredServiceContact(contacts, customerId);
+    const currentMachine = machinesAll.find((machine) => machine.id === form.machineId);
+    const currentMachineBelongsToCustomer = machineCustomerId(currentMachine) === customerId;
+    const nextMachines = machinesAll.filter((machine) => machineCustomerId(machine) === customerId);
     setForm((current) => ({
       ...current,
       customerId,
       contactId: preferredContact?.id ?? "",
-      machineId: "",
+      machineId: currentMachineBelongsToCustomer ? current.machineId : nextMachines.length === 1 ? nextMachines[0].id : "",
     }));
   };
 
   const selectMachine = (machineId: string) => {
-    if (machineId === "none") {
+    if (machineId === NO_SERVICE_MACHINE) {
       setForm((current) => ({ ...current, machineId: "" }));
       return;
     }
     const machine = machinesAll.find((item) => item.id === machineId);
-    if (!machine) return;
-    const nextContacts = contacts.filter((contact) => contact.customerId === machine.customerId);
-    const preferredContact = nextContacts.find((contact) => contact.isPrimary) ?? nextContacts[0];
+    const customerId = machineCustomerId(machine) || form.customerId;
+    const preferredContact = selectedContact && contactBelongsToCustomer(selectedContact, customerId)
+      ? selectedContact
+      : preferredServiceContact(contacts, customerId);
     setForm((current) => ({
       ...current,
-      customerId: machine.customerId || current.customerId,
-      contactId: machine.customerId !== current.customerId ? preferredContact?.id ?? "" : current.contactId,
-      machineId: machine.id,
+      customerId,
+      contactId: preferredContact?.id ?? "",
+      machineId: machine ? machineId : "",
     }));
-  };
-
-  const machineOptionText = (machine: typeof machinesAll[number], includeCompany = false) => {
-    const base = [machine.model, machine.serialNumber].filter(Boolean).join(" · ") || "Makine";
-    if (!includeCompany) return base;
-    const company = customerById.get(machine.customerId)?.name;
-    return company ? `${base} · ${company}` : base;
   };
 
   const submit = async (e: React.FormEvent) => {
@@ -3172,7 +4914,7 @@ export function CreateServiceRequestDialog({ trigger, defaultMachineId }: { trig
       toast.error("Firma seçimi zorunludur");
       return;
     }
-    if (selectedMachine && selectedMachine.customerId !== form.customerId) {
+    if (selectedMachine && machineCustomerId(selectedMachine) !== form.customerId) {
       toast.error("Seçilen makine firmaya ait değil");
       return;
     }
@@ -3221,46 +4963,31 @@ export function CreateServiceRequestDialog({ trigger, defaultMachineId }: { trig
               <div className="min-w-0 space-y-4">
                 <div className="min-w-0">
                   <Label className="text-xs">Firma *</Label>
-                  <Select value={form.customerId} onValueChange={selectCustomer}>
-                    <SelectTrigger className="mt-1.5 min-w-0 [&_[data-slot=select-value]]:min-w-0 [&_[data-slot=select-value]]:truncate">
-                      <SelectValue placeholder="Firma seçin" />
-                    </SelectTrigger>
-                    <SelectContent className="max-w-[min(700px,calc(100vw-2rem))]">
-                      {customers.map((customer) => (
-                        <SelectItem key={customer.id} value={customer.id}>{customer.name}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <div className="mt-1.5">
+                    <Combobox
+                      options={customerOptions}
+                      value={form.customerId}
+                      onChange={selectCustomer}
+                      placeholder="Firma seçin"
+                      searchPlaceholder="Firma ara..."
+                      emptyText="Firma bulunamadı."
+                    />
+                  </div>
                 </div>
 
                 <div className="min-w-0">
                   <Label className="text-xs">Makine (opsiyonel)</Label>
-                  <Select value={form.machineId || "none"} onValueChange={selectMachine}>
-                    <SelectTrigger className="mt-1.5 min-w-0 [&_[data-slot=select-value]]:min-w-0 [&_[data-slot=select-value]]:truncate">
-                      <SelectValue placeholder="Makine seçin (opsiyonel)" />
-                    </SelectTrigger>
-                    <SelectContent className="max-w-[min(700px,calc(100vw-2rem))]">
-                      <SelectItem value="none">Makine bağlama</SelectItem>
-                      <SelectGroup>
-                        <SelectLabel>{companyMachines.length ? "Seçili firmanın makineleri" : "Seçili firmada kayıtlı makine yok"}</SelectLabel>
-                        {companyMachines.map((machine) => (
-                          <SelectItem key={machine.id} value={machine.id}>
-                            <span className="block max-w-[620px] truncate">{machineOptionText(machine)}</span>
-                          </SelectItem>
-                        ))}
-                      </SelectGroup>
-                      {otherCompanyMachines.length > 0 && (
-                        <SelectGroup>
-                          <SelectLabel>Diğer firmalardaki makineler</SelectLabel>
-                          {otherCompanyMachines.map((machine) => (
-                            <SelectItem key={machine.id} value={machine.id}>
-                              <span className="block max-w-[620px] truncate">{machineOptionText(machine, true)}</span>
-                            </SelectItem>
-                          ))}
-                        </SelectGroup>
-                      )}
-                    </SelectContent>
-                  </Select>
+                  <div className="mt-1.5">
+                    <Combobox
+                      options={machineOptions}
+                      value={form.customerId ? form.machineId : ""}
+                      onChange={selectMachine}
+                      placeholder={form.customerId ? "Makine seçin (opsiyonel)" : "Önce firma seçin"}
+                      searchPlaceholder="Makine ara..."
+                      emptyText="Seçili firmada kayıtlı makine yok."
+                      disabled={!form.customerId}
+                    />
+                  </div>
                 </div>
 
                 <div className="min-w-0">
@@ -3405,12 +5132,14 @@ export function CreateInstallationDialog({
   trigger: React.ReactNode;
   onCreated?: () => void;
 }) {
-  const { customers, contacts, users, machines } = useStore();
+  const { customers, contacts, users, machines, deliveries } = useStore();
   const [open, setOpen] = useState(false);
-  const emptyForm = () => ({
-    companyId: customers[0]?.id ?? "",
-    contactId: "",
-    customerDeviceId: "",
+  const emptyForm = () => {
+    const companyId = customers[0]?.id ?? "";
+    return {
+    companyId,
+    contactId: contacts.find((c) => c.customerId === companyId)?.id ?? "",
+    customerDeviceId: machines.find((m) => m.customerId === companyId || m.userCompanyId === companyId)?.id ?? "",
     scheduledDate: new Date().toISOString().slice(0, 10),
     assignedToUserId: users.find((u) => u.role === "Service" || u.department === "Servis")?.id ?? users[0]?.id ?? "",
     location: "",
@@ -3418,25 +5147,34 @@ export function CreateInstallationDialog({
     durationHours: "1",
     durationMinutes: "0",
     notes: "",
-  });
+    };
+  };
   const [form, setForm] = useState(emptyForm);
 
   const reset = () => setForm(emptyForm());
 
-  // Süre (saat + dk) → toplam dakika; ücret @haksan/shared ile hesaplanır
-  // (İstanbul içi 70$/saat, dışı 100$/saat; 15/45 dk eşikli yuvarlama).
+  // Süre (saat + dk) → toplam dakika.
   const totalMinutes = (parseInt(form.durationHours || "0", 10) || 0) * 60 + (parseInt(form.durationMinutes || "0", 10) || 0);
-  const fee = computeInstallationFee(totalMinutes, form.locationType);
 
   const selectedContacts = contacts.filter((c) => c.customerId === form.companyId);
   // Kurulum tutanağındaki tezgah/CNC alanları bu makineden doldurulur.
-  const selectedMachines = machines.filter((m) => m.customerId === form.companyId);
+  const selectedMachines = machines.filter((m) => m.customerId === form.companyId || m.userCompanyId === form.companyId);
+  const selectedMachine = selectedMachines.find((m) => m.id === form.customerDeviceId) ?? null;
   const serviceUsers = users.filter((u) => u.role === "Service" || u.department === "Servis");
+  const onCompanyChange = (companyId: string) => {
+    const contactId = contacts.find((c) => c.customerId === companyId)?.id ?? "";
+    const customerDeviceId = machines.find((m) => m.customerId === companyId || m.userCompanyId === companyId)?.id ?? "";
+    setForm({ ...form, companyId, contactId, customerDeviceId });
+  };
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!form.companyId) return toast.error("Firma seçiniz");
     try {
+      const formNo = resolveServiceFormNo({
+        relatedFormNo: relatedDeliveryFormNo(deliveries, { machineId: form.customerDeviceId }),
+        machineId: form.customerDeviceId,
+      });
       await serviceService.createInstallation({
         companyId: form.companyId,
         contactId: form.contactId || undefined,
@@ -3447,6 +5185,12 @@ export function CreateInstallationDialog({
         locationType: form.locationType,
         durationMinutes: totalMinutes > 0 ? totalMinutes : undefined,
         notes: form.notes || undefined,
+        formData: formNo
+          ? {
+              formNo,
+              machineId: form.customerDeviceId || undefined,
+            }
+          : undefined,
       });
       toast.success("Kurulum oluşturuldu");
       setOpen(false);
@@ -3460,7 +5204,7 @@ export function CreateInstallationDialog({
   return (
     <Dialog open={open} onOpenChange={(o) => { setOpen(o); if (o) reset(); }}>
       <DialogTrigger asChild>{trigger}</DialogTrigger>
-      <DialogContent className="max-w-2xl">
+      <DialogContent className="w-[min(920px,calc(100vw-2rem))] max-w-none sm:max-w-none">
         <DialogHeader>
           <DialogTitle>Yeni Kurulum</DialogTitle>
           <DialogDescription>Saha kurulum planı oluşturun.</DialogDescription>
@@ -3472,7 +5216,7 @@ export function CreateInstallationDialog({
               <Label className="text-xs">Firma *</Label>
               <Select
                 value={form.companyId}
-                onValueChange={(v) => setForm({ ...form, companyId: v, contactId: "" })}
+                onValueChange={onCompanyChange}
               >
                 <SelectTrigger className="mt-1.5"><SelectValue placeholder="Firma seçin..." /></SelectTrigger>
                 <SelectContent>
@@ -3513,6 +5257,16 @@ export function CreateInstallationDialog({
                   ))}
                 </SelectContent>
               </Select>
+              {selectedMachine && (
+                <div className="mt-2 rounded-md border border-border/60 bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+                  <div className="font-medium text-foreground">{[selectedMachine.brand, selectedMachine.model].filter(Boolean).join(" ") || selectedMachine.model}</div>
+                  <div className="mt-0.5 grid gap-1 sm:grid-cols-3">
+                    <span>Seri No: {selectedMachine.serialNumber || "—"}</span>
+                    <span>CNC: {selectedMachine.controlUnit || "—"}</span>
+                    <span>Teslim: {selectedMachine.deliveryDate || "—"}</span>
+                  </div>
+                </div>
+              )}
             </div>
             <Field label="Planlanan Tarih" type="date" value={form.scheduledDate} onChange={(v) => setForm({ ...form, scheduledDate: v })} />
             <div>
@@ -3529,7 +5283,7 @@ export function CreateInstallationDialog({
             </div>
             <Field label="Lokasyon" value={form.location} onChange={(v) => setForm({ ...form, location: v })} />
 
-            {/* ── Saha ücretlendirme ── */}
+            {/* ── Saha planlama ── */}
             <div className="col-span-2 grid grid-cols-2 gap-3 rounded-lg border border-border/60 bg-muted/30 p-3">
               <div>
                 <Label className="text-xs">Konum Tipi</Label>
@@ -3551,14 +5305,6 @@ export function CreateInstallationDialog({
                   <span className="text-muted-foreground text-sm">dk</span>
                 </div>
               </div>
-              <div className="col-span-2 flex items-center justify-between rounded-md bg-white border border-border/60 px-3 py-2">
-                <span className="inline-flex items-center gap-2 text-sm text-muted-foreground">
-                  <Wallet className="size-4 text-emerald-600" />
-                  Hesaplanan ücret
-                  <span className="text-[11px]">· {fee.billedHours} saat × ${fee.hourlyRate}</span>
-                </span>
-                <b className="tabular-nums text-emerald-700">$ {fee.amount.toLocaleString("tr-TR")}</b>
-              </div>
             </div>
 
             <div className="col-span-2">
@@ -3579,7 +5325,7 @@ export function CreateInstallationDialog({
 
 export function CreateMachineDialog({ children }: { children: React.ReactNode }) {
   const [open, setOpen] = useState(false);
-  const { customers, stock, addMachine } = useStore();
+  const { customers, stock, machines, products, addMachine } = useStore();
   const [form, setForm] = useState({
     customerId: "",
     stockItemId: "",
@@ -3589,6 +5335,90 @@ export function CreateMachineDialog({ children }: { children: React.ReactNode })
     warrantyStart: "",
     warrantyEnd: "",
   });
+  const [warrantyTouched, setWarrantyTouched] = useState({ start: false, end: false });
+
+  const machineStockUsed = useMemo(
+    () => new Set(machines.map((machine) => machine.stockItemId).filter(Boolean)),
+    [machines],
+  );
+
+  const stockCandidatesForCustomer = (customerId: string) =>
+    customerId
+      ? stock.filter((item) => {
+          const categoryCode = item.categoryCode ?? "TEZGAH";
+          return (
+            categoryCode === "TEZGAH" &&
+            item.reservedCompanyId === customerId &&
+            item.status !== "Inactive" &&
+            !machineStockUsed.has(item.id)
+          );
+        })
+      : [];
+
+  const companyStockCandidates = useMemo(
+    () => stockCandidatesForCustomer(form.customerId),
+    [form.customerId, stock, machineStockUsed],
+  );
+
+  const addYears = (dateString: string, years: number) => {
+    if (!dateString) return "";
+    const [year, month, day] = dateString.split("-").map(Number);
+    if (!year || !month || !day) return "";
+    const date = new Date(Date.UTC(year, month - 1, day));
+    date.setUTCFullYear(date.getUTCFullYear() + years);
+    return date.toISOString().slice(0, 10);
+  };
+
+  const applyStock = (item: (typeof stock)[number], base = form) => ({
+    ...base,
+    stockItemId: item.id,
+    model: item.counterModel || item.counterType || base.model,
+    serialNumber: item.serialNumber || base.serialNumber,
+  });
+
+  const resetForm = () => {
+    setWarrantyTouched({ start: false, end: false });
+    setForm({
+      customerId: "",
+      stockItemId: "",
+      serialNumber: "",
+      model: "",
+      installationDate: "",
+      warrantyStart: "",
+      warrantyEnd: "",
+    });
+  };
+
+  const selectCustomer = (value: string) => {
+    const customerId = value === "none" ? "" : value;
+    const candidates = stockCandidatesForCustomer(customerId);
+    const next = {
+      ...form,
+      customerId,
+      stockItemId: "",
+      model: "",
+      serialNumber: "",
+    };
+    setForm(candidates[0] ? applyStock(candidates[0], next) : next);
+  };
+
+  const selectStock = (value: string) => {
+    if (value === "none") {
+      setForm({ ...form, stockItemId: "", model: "", serialNumber: "" });
+      return;
+    }
+    const item = companyStockCandidates.find((candidate) => candidate.id === value);
+    if (item) setForm(applyStock(item));
+  };
+
+  const setInstallationDate = (installationDate: string) => {
+    setForm((current) => ({
+      ...current,
+      installationDate,
+      warrantyStart: warrantyTouched.start ? current.warrantyStart : installationDate,
+      warrantyEnd: warrantyTouched.end ? current.warrantyEnd : addYears(installationDate, 2),
+    }));
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -3603,15 +5433,7 @@ export function CreateMachineDialog({ children }: { children: React.ReactNode })
       });
       toast.success("Makine başarıyla eklendi.");
       setOpen(false);
-      setForm({
-        customerId: "",
-        stockItemId: "",
-        serialNumber: "",
-        model: "",
-        installationDate: "",
-        warrantyStart: "",
-        warrantyEnd: "",
-      });
+      resetForm();
     } catch (err) {
       toast.error("Makine eklenirken hata oluştu.");
     }
@@ -3629,7 +5451,7 @@ export function CreateMachineDialog({ children }: { children: React.ReactNode })
           <div className="grid grid-cols-2 gap-4">
             <div className="col-span-2">
               <Label className="text-xs">Firma Seçimi <span className="text-destructive">*</span></Label>
-              <Select value={form.customerId || "none"} onValueChange={(v) => setForm({ ...form, customerId: v === "none" ? "" : v })}>
+              <Select value={form.customerId || "none"} onValueChange={selectCustomer}>
                 <SelectTrigger className="mt-1.5"><SelectValue placeholder="Firma Seçin" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="none">Seçilmedi</SelectItem>
@@ -3639,13 +5461,72 @@ export function CreateMachineDialog({ children }: { children: React.ReactNode })
                 </SelectContent>
               </Select>
             </div>
+            {form.customerId && companyStockCandidates.length > 0 && (
+              <div className="col-span-2">
+                <Label className="text-xs">Stok / Seri No</Label>
+                <Select value={form.stockItemId || "none"} onValueChange={selectStock}>
+                  <SelectTrigger className="mt-1.5"><SelectValue placeholder="Makine seçin" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Manuel giriş</SelectItem>
+                    {companyStockCandidates.map((item) => (
+                      <SelectItem key={item.id} value={item.id}>
+                        {[item.counterModel || item.counterType, item.serialNumber].filter(Boolean).join(" · ")}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
             <Field label="Model *" value={form.model} onChange={(v) => setForm({ ...form, model: v })} />
             <Field label="Seri No *" value={form.serialNumber} onChange={(v) => setForm({ ...form, serialNumber: v })} />
-            <Field label="Kurulum Tarihi" type="date" value={form.installationDate} onChange={(v) => setForm({ ...form, installationDate: v })} />
+            <Field label="Kurulum Tarihi" type="date" value={form.installationDate} onChange={setInstallationDate} />
             <div />
-            <Field label="Garanti Başlangıç" type="date" value={form.warrantyStart} onChange={(v) => setForm({ ...form, warrantyStart: v })} />
-            <Field label="Garanti Bitiş" type="date" value={form.warrantyEnd} onChange={(v) => setForm({ ...form, warrantyEnd: v })} />
+            <Field
+              label="Garanti Başlangıç"
+              type="date"
+              value={form.warrantyStart}
+              onChange={(v) => {
+                setWarrantyTouched((current) => ({ ...current, start: true }));
+                setForm((current) => ({
+                  ...current,
+                  warrantyStart: v,
+                  warrantyEnd: warrantyTouched.end ? current.warrantyEnd : addYears(v, 2),
+                }));
+              }}
+            />
+            <Field
+              label="Garanti Bitiş"
+              type="date"
+              value={form.warrantyEnd}
+              onChange={(v) => {
+                setWarrantyTouched((current) => ({ ...current, end: true }));
+                setForm((current) => ({ ...current, warrantyEnd: v }));
+              }}
+            />
           </div>
+          {(() => {
+            // Teknik bilgiler makineye bağlı üründen şablon olarak gelir; etiket
+            // ve birim sabittir, değerler ürün kartında yönetilir.
+            const stockItem = stock.find((item) => item.id === form.stockItemId);
+            const product = stockItem?.productId ? products.find((item) => item.id === stockItem.productId) : undefined;
+            if (!form.stockItemId) return null;
+            return (
+              <div className="space-y-1.5">
+                <Label className="text-xs">Teknik Bilgiler (üründen otomatik)</Label>
+                {product ? (
+                  <ProductSpecsTable
+                    specs={specsForProductTypeStrict(product.productTypeCode, product.specs ?? [])}
+                    productTypeCode={product.productTypeCode}
+                    emptyText="Ürün kartında teknik bilgi girilmemiş."
+                  />
+                ) : (
+                  <div className="rounded-md border border-dashed border-border/70 px-3 py-2 text-xs text-muted-foreground">
+                    Seçilen stok bir katalog ürününe bağlı değil; teknik bilgiler ürün kartından gelir.
+                  </div>
+                )}
+              </div>
+            );
+          })()}
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => setOpen(false)}>Vazgeç</Button>
             <Button type="submit">Kaydet</Button>
@@ -3724,7 +5605,7 @@ export function LogActivityDialog({
           activityTypeCode: kind,
           subject: label,
           description: [result.trim(), nextAction.trim() ? `Sonraki adım: ${nextAction.trim()}` : ""].filter(Boolean).join("\n"),
-          activityDate: date,
+          activityDate: new Date(date),
         });
         toast.success("Aktivite kaydedildi");
       }

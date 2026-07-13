@@ -38,6 +38,7 @@ export const inventoryItems = pgTable(
     productModelId: uuid('product_model_id')
       .notNull()
       .references(() => productModels.id, { onDelete: 'restrict' }),
+    parentInventoryItemId: uuid('parent_inventory_item_id'),
     serialNumber: varchar('serial_number', { length: 128 }).notNull(),
     controlUnit: varchar('control_unit', { length: 128 }),
     controlUnitSerialNumber: varchar('control_unit_serial_number', { length: 128 }),
@@ -56,6 +57,7 @@ export const inventoryItems = pgTable(
     tenantIdx: index('inventory_items_tenant_idx').on(t.tenantId),
     tenantDivisionIdx: index('inventory_items_tenant_division_idx').on(t.tenantId, t.divisionId),
     productIdx: index('inventory_items_product_idx').on(t.productModelId),
+    parentIdx: index('inventory_items_parent_idx').on(t.parentInventoryItemId),
     serialIdx: index('inventory_items_serial_idx').on(t.serialNumber),
     statusIdx: index('inventory_items_status_idx').on(t.stockStatusId),
   })
@@ -100,6 +102,7 @@ export const customerDevices = pgTable(
     companyId: uuid('company_id')
       .notNull()
       .references(() => companies.id, { onDelete: 'restrict' }),
+    initialCompanyId: uuid('initial_company_id').references(() => companies.id, { onDelete: 'set null' }),
     contactId: uuid('contact_id').references(() => contacts.id),
     inventoryItemId: uuid('inventory_item_id').references(() => inventoryItems.id),
     opportunityId: uuid('opportunity_id'),

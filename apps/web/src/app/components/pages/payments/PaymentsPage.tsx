@@ -1,8 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "../../ui/card";
 import { Button } from "../../ui/button";
 import { Input } from "../../ui/input";
-import { Badge } from "../../ui/badge";
 import { Tabs, TabsList, TabsTrigger } from "../../ui/tabs";
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
@@ -10,26 +9,27 @@ import {
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../../ui/table";
 import { Label } from "../../ui/label";
+import { Textarea } from "../../ui/textarea";
 import { StatusBadge } from "../../Layout";
 import { CreatePaymentDialog } from "../../dialogs/CreateDialogs";
 import { PayKpi } from "../../shared/MiniKpi";
 import { useStore } from "../../../lib/store";
 import { buildPaymentMonthly, buildCurrencyPie } from "../../../lib/chartAggregates";
-import { useFx, FxRateBadge } from "../../../lib/fx";
+import { useFx, FxRateBadge, type FxCurrency } from "../../../lib/fx";
 import { Payment } from "../../../lib/mock";
 import { toast } from "sonner";
 import { financeService, fileService } from "../../../../lib/services";
-import { FilterPopover, usePaged, Pager } from "../../ui/list-controls";
+import { usePaged, Pager } from "../../ui/list-controls";
 import { CreateAccountingInvoiceDialog } from "../finance/CreateAccountingInvoiceDialog";
 import { ExportExcelButton } from "../../ui/ExportExcelButton";
 import type { OperationFocus } from "../../../lib/operations";
 import {
-  ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid,
+  ResponsiveContainer, XAxis, YAxis, Tooltip, CartesianGrid,
   AreaChart, Area, PieChart, Pie, Cell, Legend, LineChart, Line,
 } from "recharts";
 import {
   Plus, Search, ArrowDownRight, ArrowUpRight, Wallet, Clock, Building2, Mail, Phone,
-  Upload, FileText, Receipt, Download, Eye,
+  Upload, FileText, Receipt, Eye, Save, Trash2,
 } from "lucide-react";
 
 export function PaymentsPage({ focus }: { focus?: OperationFocus }) {
@@ -67,6 +67,7 @@ export function PaymentsPage({ focus }: { focus?: OperationFocus }) {
   const [dirFilter, setDirFilter] = useState<"all" | "in" | "out">("all");
   // Tıklanan kasa hareketi → detay + fiş/fatura pop-up'ı
   const [selectedPayment, setSelectedPayment] = useState<Payment | null>(null);
+  const [deletingPaymentId, setDeletingPaymentId] = useState<string | null>(null);
 
   useEffect(() => {
     if (focus === "overdue") setStatusFilter("Overdue");
@@ -80,8 +81,6 @@ export function PaymentsPage({ focus }: { focus?: OperationFocus }) {
   const totalPaid = inflow.filter((p) => p.status === "Paid").reduce((s, p) => s + toUsd(p), 0);
   const totalPending = inflow.filter((p) => p.status === "Pending").reduce((s, p) => s + toUsd(p), 0);
   const totalOverdue = inflow.filter((p) => p.status === "Overdue").reduce((s, p) => s + toUsd(p), 0);
-  const total = totalPaid + totalPending + totalOverdue;
-  const collectionRate = total > 0 ? Math.round((totalPaid / total) * 100) : 0;
 
   // Kasa bakiyesi: gerçekleşen (Paid) giriş/çıkış, para birimi bazında ayrı.
   // Farklı para birimleri toplanamaz; her biri kendi satırında gösterilir.
@@ -133,7 +132,27 @@ export function PaymentsPage({ focus }: { focus?: OperationFocus }) {
   });
   const { page, setPage, totalPages, pageItems } = usePaged(filtered, 12);
 
-  const payMonthly = useMemo(() => buildPaymentMonthly(filteredPayments, 6, (amount, currency) => convert(amount, currency, "USD")), [filteredPayments, convert]);
+  const deletePayment = async (payment: Payment, event?: MouseEvent) => {
+    event?.stopPropagation();
+    if (payment.source !== "payment") {
+      toast.error("Bu satır ödeme kaydı değil", { description: "Bekleyen alacak/vade satırları kasa hareketi olarak silinemez." });
+      return;
+    }
+    if (!window.confirm(`${customerName(payment.customerId)} için ${payment.amount.toLocaleString("tr-TR")} ${payment.currency} kasa hareketini silmek istediğinize emin misiniz?`)) return;
+    setDeletingPaymentId(payment.id);
+    try {
+      await financeService.deletePayment(payment.id);
+      toast.success("Kasa hareketi silindi");
+      if (selectedPayment?.id === payment.id) setSelectedPayment(null);
+      refresh();
+    } catch (err: any) {
+      toast.error("Kasa hareketi silinemedi", { description: err?.message ?? "İstek başarısız oldu." });
+    } finally {
+      setDeletingPaymentId(null);
+    }
+  };
+
+  const payMonthly = useMemo(() => buildPaymentMonthly(filteredPayments, 6, (amount, currency) => convert(amount, currency as FxCurrency, "USD")), [filteredPayments, convert]);
   const currencyPie = useMemo(() => {
     const pie = buildCurrencyPie(filteredPayments);
     return pie.length ? pie : [{ name: "USD", value: 0, fill: "#000c69" }];
@@ -141,10 +160,10 @@ export function PaymentsPage({ focus }: { focus?: OperationFocus }) {
   const cashflow = useMemo(() => {
     const now = new Date();
     const key = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
-    const inMonth = filteredPayments.filter((p) => String(p.paymentDate ?? "").startsWith(key) && p.status === "Paid");
+    const inMonth = filteredPayments.filter((p) => String(p.paidDate ?? "").startsWith(key) && p.status === "Paid");
     const days = [1, 5, 10, 15, 20, 25, 30];
     return days.map((gun) => {
-      const dayRows = inMonth.filter((p) => new Date(p.paymentDate).getDate() <= gun);
+      const dayRows = inMonth.filter((p) => new Date(p.paidDate ?? "").getDate() <= gun);
       const giris = dayRows.filter((p) => p.direction !== "out").reduce((s, p) => s + convert(p.amount, p.currency, "USD"), 0);
       const cikis = dayRows.filter((p) => p.direction === "out").reduce((s, p) => s + convert(p.amount, p.currency, "USD"), 0);
       return { gun: String(gun), giris: Math.round(giris / 1000), cikis: Math.round(cikis / 1000) };
@@ -190,7 +209,7 @@ export function PaymentsPage({ focus }: { focus?: OperationFocus }) {
         <CardHeader className="pb-2">
           <div className="flex flex-wrap items-start justify-between gap-2">
             <div>
-              <CardTitle className="tracking-tight flex items-center gap-2"><Wallet className="size-4 text-emerald-600" /> Kasa Bakiyesi</CardTitle>
+              <CardTitle className="tracking-tight flex items-center gap-2"><Wallet className="size-4 text-success" /> Kasa Bakiyesi</CardTitle>
               <p className="text-xs text-muted-foreground">Gerçekleşen (ödenmiş) hareketler · para birimi bazında</p>
             </div>
             <FxRateBadge />
@@ -205,21 +224,21 @@ export function PaymentsPage({ focus }: { focus?: OperationFocus }) {
                 <div key={k.cur} className="rounded-lg border border-border/60 bg-muted/20 p-3">
                   <div className="flex items-center justify-between mb-2">
                     <span className="text-xs uppercase tracking-wide text-muted-foreground">{k.cur} Kasa</span>
-                    <span className={`text-sm tabular-nums font-medium ${k.net >= 0 ? "text-emerald-700" : "text-red-600"}`}>
+                    <span className={`text-sm tabular-nums font-medium ${k.net >= 0 ? "text-success" : "text-destructive"}`}>
                       {curSymbol(k.cur)} {k.net.toLocaleString("tr-TR")}
                     </span>
                   </div>
                   <div className="flex items-center justify-between text-[12px]">
-                    <span className="inline-flex items-center gap-1 text-emerald-700"><ArrowDownRight className="size-3.5" /> Giren</span>
+                    <span className="inline-flex items-center gap-1 text-success"><ArrowDownRight className="size-3.5" /> Giren</span>
                     <span className="tabular-nums">{curSymbol(k.cur)} {k.gir.toLocaleString("tr-TR")}</span>
                   </div>
                   <div className="flex items-center justify-between text-[12px] mt-1">
-                    <span className="inline-flex items-center gap-1 text-red-600"><ArrowUpRight className="size-3.5" /> Çıkan</span>
+                    <span className="inline-flex items-center gap-1 text-destructive"><ArrowUpRight className="size-3.5" /> Çıkan</span>
                     <span className="tabular-nums">{curSymbol(k.cur)} {k.cik.toLocaleString("tr-TR")}</span>
                   </div>
                   <div className="mt-2 pt-2 border-t border-border/60 flex items-center justify-between text-[12px]">
                     <span className="text-muted-foreground">Net Bakiye</span>
-                    <span className={`tabular-nums font-medium ${k.net >= 0 ? "text-emerald-700" : "text-red-600"}`}>{curSymbol(k.cur)} {k.net.toLocaleString("tr-TR")}</span>
+                    <span className={`tabular-nums font-medium ${k.net >= 0 ? "text-success" : "text-destructive"}`}>{curSymbol(k.cur)} {k.net.toLocaleString("tr-TR")}</span>
                   </div>
                 </div>
               ))}
@@ -229,7 +248,7 @@ export function PaymentsPage({ focus }: { focus?: OperationFocus }) {
             <div className="mt-3 text-[12px] text-muted-foreground flex flex-wrap items-center gap-x-2 gap-y-1">
               <span>Bekleyen ödeme (çıkış):</span>
               {outPendingTotalByCur.map((x) => (
-                <span key={x.cur} className="tabular-nums text-amber-700">{curSymbol(x.cur)} {x.amt.toLocaleString("tr-TR")}</span>
+                <span key={x.cur} className="tabular-nums text-warning">{curSymbol(x.cur)} {x.amt.toLocaleString("tr-TR")}</span>
               ))}
             </div>
           )}
@@ -240,7 +259,7 @@ export function PaymentsPage({ focus }: { focus?: OperationFocus }) {
         <Card className="border-border/60 shadow-sm">
           <CardHeader className="pb-2">
             <CardTitle className="tracking-tight flex items-center gap-2 text-base">
-              <Clock className="size-4 text-amber-600" /> Yaklaşan Vadeler
+              <Clock className="size-4 text-warning" /> Yaklaşan Vadeler
             </CardTitle>
             <p className="text-xs text-muted-foreground">Önümüzdeki 60 gün · en yakın 5 kayıt</p>
           </CardHeader>
@@ -352,7 +371,7 @@ export function PaymentsPage({ focus }: { focus?: OperationFocus }) {
             })}
             <div className="pt-3 mt-2 border-t border-border/60 flex items-center justify-between text-[12px]">
               <span className="text-muted-foreground">Toplam Gecikmiş</span>
-              <span className="tabular-nums text-red-600">$ {totalOverdue.toLocaleString()}</span>
+              <span className="tabular-nums text-destructive">$ {totalOverdue.toLocaleString()}</span>
             </div>
           </CardContent>
         </Card>
@@ -452,12 +471,12 @@ export function PaymentsPage({ focus }: { focus?: OperationFocus }) {
               <TabsList className="h-8 bg-muted/60">
                 <TabsTrigger value="all" className="text-xs">Tümü</TabsTrigger>
                 <TabsTrigger value="in" className="text-xs gap-1.5">
-                  <ArrowDownRight className="size-3 text-emerald-600" /> Alınan
-                  <span className="inline-flex items-center justify-center min-w-[16px] h-[16px] px-1 text-[10px] rounded-full bg-emerald-100 text-emerald-700">{inflow.length}</span>
+                  <ArrowDownRight className="size-3 text-success" /> Alınan
+                  <span className="inline-flex items-center justify-center min-w-[16px] h-[16px] px-1 text-[10px] rounded-full bg-success-soft text-success">{inflow.length}</span>
                 </TabsTrigger>
                 <TabsTrigger value="out" className="text-xs gap-1.5">
-                  <ArrowUpRight className="size-3 text-red-500" /> Ödenen
-                  <span className="inline-flex items-center justify-center min-w-[16px] h-[16px] px-1 text-[10px] rounded-full bg-red-100 text-red-700">{outflow.length}</span>
+                  <ArrowUpRight className="size-3 text-destructive" /> Ödenen
+                  <span className="inline-flex items-center justify-center min-w-[16px] h-[16px] px-1 text-[10px] rounded-full bg-brand-red-soft text-destructive">{outflow.length}</span>
                 </TabsTrigger>
               </TabsList>
             </Tabs>
@@ -466,19 +485,19 @@ export function PaymentsPage({ focus }: { focus?: OperationFocus }) {
                 <TabsTrigger value="all" className="text-xs">Tümü</TabsTrigger>
                 <TabsTrigger value="Paid" className="text-xs gap-1.5">
                   Tahsil
-                  <span className="inline-flex items-center justify-center min-w-[16px] h-[16px] px-1 text-[10px] rounded-full bg-emerald-100 text-emerald-700">
+                  <span className="inline-flex items-center justify-center min-w-[16px] h-[16px] px-1 text-[10px] rounded-full bg-success-soft text-success">
                     {filteredPayments.filter((p) => p.status === "Paid").length}
                   </span>
                 </TabsTrigger>
                 <TabsTrigger value="Pending" className="text-xs gap-1.5">
                   Bekleyen
-                  <span className="inline-flex items-center justify-center min-w-[16px] h-[16px] px-1 text-[10px] rounded-full bg-amber-100 text-amber-700">
+                  <span className="inline-flex items-center justify-center min-w-[16px] h-[16px] px-1 text-[10px] rounded-full bg-warning-soft text-warning">
                     {filteredPayments.filter((p) => p.status === "Pending").length}
                   </span>
                 </TabsTrigger>
                 <TabsTrigger value="Overdue" className="text-xs gap-1.5">
                   Gecikmiş
-                  <span className="inline-flex items-center justify-center min-w-[16px] h-[16px] px-1 text-[10px] rounded-full bg-red-100 text-red-700">
+                  <span className="inline-flex items-center justify-center min-w-[16px] h-[16px] px-1 text-[10px] rounded-full bg-brand-red-soft text-destructive">
                     {filteredPayments.filter((p) => p.status === "Overdue").length}
                   </span>
                 </TabsTrigger>
@@ -511,6 +530,7 @@ export function PaymentsPage({ focus }: { focus?: OperationFocus }) {
                 <TableHead>Ödeme Tarihi</TableHead>
                 <TableHead>Durum</TableHead>
                 <TableHead>Not</TableHead>
+                <TableHead className="w-20 text-right">İşlem</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -542,8 +562,8 @@ export function PaymentsPage({ focus }: { focus?: OperationFocus }) {
                     <TableCell>
                       <span className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded ${
                         p.direction === "in"
-                          ? "bg-emerald-50 text-emerald-700"
-                          : "bg-red-50 text-red-700"
+                          ? "bg-success-soft text-success"
+                          : "bg-destructive-soft text-destructive"
                       }`}>
                         {p.direction === "in" ? <ArrowDownRight className="size-3" /> : <ArrowUpRight className="size-3" />}
                         {p.direction === "in" ? "Alınan" : "Ödenen"}
@@ -551,7 +571,7 @@ export function PaymentsPage({ focus }: { focus?: OperationFocus }) {
                     </TableCell>
                     <TableCell className="text-xs text-muted-foreground">{p.invoiceNo || "—"}</TableCell>
                     <TableCell className="text-right tabular-nums">
-                      <span className={`text-sm ${p.direction === "in" ? "text-emerald-700" : "text-red-600"}`}>
+                      <span className={`text-sm ${p.direction === "in" ? "text-success" : "text-destructive"}`}>
                         {p.direction === "in" ? "+" : "−"}{p.amount.toLocaleString()}
                       </span>{" "}
                       <span className="text-[11px] text-muted-foreground">{p.currency}</span>
@@ -559,7 +579,7 @@ export function PaymentsPage({ focus }: { focus?: OperationFocus }) {
                     <TableCell>
                       <div className="text-sm tabular-nums">{p.dueDate}</div>
                       {overdueDays !== null && overdueDays > 0 && (
-                        <div className="text-[11px] text-red-600 mt-0.5">+{overdueDays} gün gecikmiş</div>
+                        <div className="text-[11px] text-destructive mt-0.5">+{overdueDays} gün gecikmiş</div>
                       )}
                     </TableCell>
                     <TableCell className="text-sm tabular-nums text-muted-foreground">{p.paidDate ?? "—"}</TableCell>
@@ -567,12 +587,40 @@ export function PaymentsPage({ focus }: { focus?: OperationFocus }) {
                     <TableCell>
                       <span className="text-xs text-muted-foreground line-clamp-1 max-w-[220px]">{p.note}</span>
                     </TableCell>
+                    <TableCell className="text-right">
+                      <div className="inline-flex items-center justify-end gap-1">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="size-8"
+                          title="Detay"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            setSelectedPayment(p);
+                          }}
+                        >
+                          <Eye className="size-4" />
+                        </Button>
+                        {p.source === "payment" && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="size-8 text-muted-foreground hover:text-destructive"
+                            title="Kasa hareketini sil"
+                            disabled={deletingPaymentId === p.id}
+                            onClick={(event) => deletePayment(p, event)}
+                          >
+                            <Trash2 className="size-4" />
+                          </Button>
+                        )}
+                      </div>
+                    </TableCell>
                   </TableRow>
                 );
               })}
               {filtered.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={8} className="text-center py-12 text-sm text-muted-foreground">
+                  <TableCell colSpan={9} className="text-center py-12 text-sm text-muted-foreground">
                     Bu filtreye uyan hareket bulunamadı.
                   </TableCell>
                 </TableRow>
@@ -599,7 +647,7 @@ export function PaymentsPage({ focus }: { focus?: OperationFocus }) {
   );
 }
 
-const PAYMENT_EXT_TO_MIME: Record<string, string> = {
+const PAYMENT_EXT_TO_MIME = {
   pdf: "application/pdf",
   png: "image/png",
   jpg: "image/jpeg",
@@ -607,7 +655,8 @@ const PAYMENT_EXT_TO_MIME: Record<string, string> = {
   webp: "image/webp",
   docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
   xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-};
+} as const;
+type PaymentUploadExt = keyof typeof PAYMENT_EXT_TO_MIME;
 const fmtBytes = (b: number) =>
   b < 1024 ? `${b} B` : b < 1048576 ? `${(b / 1024).toFixed(1)} KB` : `${(b / 1048576).toFixed(1)} MB`;
 const paymentDocLabel = (t: string) =>
@@ -618,6 +667,14 @@ const STATUS_LABELS_TR: Record<Payment["status"], string> = {
   Overdue: "Gecikmiş",
   Cancelled: "İptal",
 };
+const PAYMENT_METHOD_LABELS: Record<NonNullable<Payment["paymentMethod"]>, string> = {
+  bank_transfer: "Havale/EFT",
+  cash: "Nakit",
+  credit_card: "Kredi Kartı",
+  check: "Çek",
+  other: "Diğer",
+};
+const PAYMENT_METHOD_OPTIONS = Object.keys(PAYMENT_METHOD_LABELS) as Array<NonNullable<Payment["paymentMethod"]>>;
 
 function DetailRow({ label, value, accent }: { label: string; value: React.ReactNode; accent?: string }) {
   return (
@@ -646,12 +703,28 @@ function PaymentDetailDialog({
   const [uploading, setUploading] = useState(false);
   const [status, setStatus] = useState<Payment["status"]>("Pending");
   const [savingStatus, setSavingStatus] = useState(false);
+  const [savingPayment, setSavingPayment] = useState(false);
+  const [deletingPayment, setDeletingPayment] = useState(false);
+  const [editForm, setEditForm] = useState({
+    amount: "",
+    paymentDate: "",
+    paymentMethod: "bank_transfer" as NonNullable<Payment["paymentMethod"]>,
+    invoiceNo: "",
+    notes: "",
+  });
 
   useEffect(() => {
     if (payment) {
       setFile(null);
       setDocType("CommercialInvoice");
       setStatus(payment.status);
+      setEditForm({
+        amount: String(payment.amount ?? ""),
+        paymentDate: payment.paidDate ?? payment.dueDate ?? new Date().toISOString().slice(0, 10),
+        paymentMethod: payment.paymentMethod ?? "bank_transfer",
+        invoiceNo: payment.invoiceNo ?? "",
+        notes: payment.note ?? "",
+      });
       if (inputRef.current) inputRef.current.value = "";
     }
   }, [payment]);
@@ -682,6 +755,48 @@ function PaymentDetailDialog({
     }
   };
 
+  const savePayment = async () => {
+    if (!payment || payment.source !== "payment") return;
+    const amount = Number(String(editForm.amount).replace(",", "."));
+    if (!Number.isFinite(amount) || amount <= 0) return toast.error("Geçerli tutar girin");
+    if (!editForm.paymentDate) return toast.error("Ödeme tarihi girin");
+    setSavingPayment(true);
+    try {
+      await financeService.updatePayment(payment.id, {
+        amount,
+        currencyCode: payment.currency,
+        paymentDate: new Date(editForm.paymentDate),
+        paymentMethod: editForm.paymentMethod,
+        invoiceNo: editForm.invoiceNo || undefined,
+        notes: editForm.notes || undefined,
+        direction: payment.direction,
+        companyId: payment.customerId,
+      });
+      toast.success("Kasa hareketi güncellendi");
+      refresh();
+    } catch (err: any) {
+      toast.error("Kasa hareketi güncellenemedi", { description: err?.message ?? "İstek başarısız oldu." });
+    } finally {
+      setSavingPayment(false);
+    }
+  };
+
+  const deletePayment = async () => {
+    if (!payment || payment.source !== "payment") return;
+    if (!window.confirm(`${customerName(payment.customerId)} için ${payment.amount.toLocaleString("tr-TR")} ${payment.currency} kasa hareketini silmek istediğinize emin misiniz?`)) return;
+    setDeletingPayment(true);
+    try {
+      await financeService.deletePayment(payment.id);
+      toast.success("Kasa hareketi silindi");
+      refresh();
+      onClose();
+    } catch (err: any) {
+      toast.error("Kasa hareketi silinemedi", { description: err?.message ?? "İstek başarısız oldu." });
+    } finally {
+      setDeletingPayment(false);
+    }
+  };
+
   const related = payment
     ? documents.filter(
         (d) =>
@@ -704,11 +819,12 @@ function PaymentDetailDialog({
   const upload = async () => {
     if (!payment || !file) return toast.error("Dosya seçin");
     if (file.size > 25 * 1024 * 1024) return toast.error("Dosya boyutu 25 MB'ı aşamaz");
-    const ext = file.name.split(".").pop()?.toLocaleLowerCase("tr-TR") ?? "";
-    const mime = file.type || PAYMENT_EXT_TO_MIME[ext];
-    if (!PAYMENT_EXT_TO_MIME[ext] || !mime) {
+    const rawExt = file.name.split(".").pop()?.toLocaleLowerCase("tr-TR") ?? "";
+    const ext = rawExt in PAYMENT_EXT_TO_MIME ? (rawExt as PaymentUploadExt) : null;
+    if (!ext) {
       return toast.error("Desteklenmeyen dosya tipi", { description: "PDF, PNG, JPG, WEBP, DOCX veya XLSX" });
     }
+    const mime = PAYMENT_EXT_TO_MIME[ext];
     setUploading(true);
     try {
       const up = await fileService.signedUpload({
@@ -767,7 +883,7 @@ function PaymentDetailDialog({
                 <DetailRow
                   label="Tutar"
                   value={`${payment.direction === "in" ? "+" : "−"}${payment.amount.toLocaleString("tr-TR")} ${payment.currency}`}
-                  accent={payment.direction === "in" ? "text-emerald-600" : "text-red-600"}
+                  accent={payment.direction === "in" ? "text-success" : "text-destructive"}
                 />
                 <DetailRow label="USD karşılığı" value={`≈ $ ${Math.round(convert(payment.amount, payment.currency, "USD")).toLocaleString()}`} />
                 <DetailRow label="Vade" value={payment.dueDate} />
@@ -786,6 +902,72 @@ function PaymentDetailDialog({
                 </div>
                 <DetailRow label="Kayıt Tipi" value={payment.paymentType === "received" ? "Tahsilat" : "Beklenen"} />
               </div>
+
+              {payment.source === "payment" && (
+                <div className="rounded-lg border border-border/60 p-3 space-y-3">
+                  <div className="flex items-center gap-2 text-sm font-medium">
+                    <Wallet className="size-4 text-primary" /> Kasa Hareketi
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <Label className="text-xs">Tutar</Label>
+                      <Input
+                        className="mt-1 h-9"
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={editForm.amount}
+                        onChange={(event) => setEditForm((prev) => ({ ...prev, amount: event.target.value }))}
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-xs">Ödeme Tarihi</Label>
+                      <Input
+                        className="mt-1 h-9"
+                        type="date"
+                        value={editForm.paymentDate}
+                        onChange={(event) => setEditForm((prev) => ({ ...prev, paymentDate: event.target.value }))}
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-xs">Ödeme Yöntemi</Label>
+                      <Select
+                        value={editForm.paymentMethod}
+                        onValueChange={(value) => setEditForm((prev) => ({ ...prev, paymentMethod: value as NonNullable<Payment["paymentMethod"]> }))}
+                      >
+                        <SelectTrigger className="mt-1 h-9"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          {PAYMENT_METHOD_OPTIONS.map((method) => (
+                            <SelectItem key={method} value={method}>{PAYMENT_METHOD_LABELS[method]}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <Label className="text-xs">Fatura No</Label>
+                      <Input
+                        className="mt-1 h-9"
+                        value={editForm.invoiceNo}
+                        onChange={(event) => setEditForm((prev) => ({ ...prev, invoiceNo: event.target.value }))}
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <Label className="text-xs">Not</Label>
+                    <Textarea
+                      className="mt-1"
+                      rows={2}
+                      value={editForm.notes}
+                      onChange={(event) => setEditForm((prev) => ({ ...prev, notes: event.target.value }))}
+                    />
+                  </div>
+                  <div className="flex justify-end">
+                    <Button size="sm" className="gap-1" disabled={savingPayment} onClick={savePayment}>
+                      <Save className="size-4" /> {savingPayment ? "Kaydediliyor…" : "Kaydet"}
+                    </Button>
+                  </div>
+                </div>
+              )}
 
               {payment.note && (
                 <div className="rounded-lg border border-border/60 bg-muted/30 p-3">
@@ -853,6 +1035,16 @@ function PaymentDetailDialog({
             </div>
 
             <DialogFooter className="border-t border-border/60 bg-muted/20 px-5 py-4">
+              {payment.source === "payment" && (
+                <Button
+                  variant="outline"
+                  className="mr-auto gap-1 text-destructive hover:bg-destructive-soft hover:text-destructive"
+                  disabled={deletingPayment}
+                  onClick={deletePayment}
+                >
+                  <Trash2 className="size-4" /> Sil
+                </Button>
+              )}
               <Button variant="outline" onClick={onClose}>Kapat</Button>
             </DialogFooter>
           </>

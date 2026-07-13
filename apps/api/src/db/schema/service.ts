@@ -1,10 +1,10 @@
 import { pgTable, uuid, varchar, text, timestamp, integer, boolean, index, uniqueIndex, jsonb } from 'drizzle-orm/pg-core';
-import type { DeliveryFormData } from '@haksan/shared';
+import type { DeliveryFormData, InstallationFormData } from '@haksan/shared';
 import { auditColumns, money } from './_helpers';
 import { tenants, divisions } from './tenants';
 import { users } from './users';
-import { companies, contacts } from './companies';
-import { customerDevices, inventoryItems } from './inventory';
+import { companies, companyAddresses, contacts } from './companies';
+import { customerDevices, inventoryItems, warehouses } from './inventory';
 import { opportunities } from './crm';
 import { quotes } from './quotes';
 import { salesOrders, salesOrderItems } from './orders';
@@ -30,13 +30,14 @@ export const installationJobs = pgTable(
     assignedToUserId: uuid('assigned_to_user_id').references(() => users.id),
     statusId: uuid('status_id').references(() => installationStatuses.id),
     location: varchar('location', { length: 255 }),
-    // Saha ücretlendirme: konum tipi (istanbul_ici | istanbul_disi), gerçekleşen
-    // süre (dk) ve hesaplanan ücret. Ücret @haksan/shared computeInstallationFee
-    // ile türetilir; saatlik tarife konum tipinden bellidir (70/100 USD).
+    // Saha planlama: konum tipi ve gerçekleşen süre.
     locationType: varchar('location_type', { length: 32 }),
     durationMinutes: integer('duration_minutes'),
+    // Eski kayıtlarla şema uyumluluğu için tutulur; yeni kurulumlarda daima null.
     feeAmount: money('fee_amount'),
     notes: text('notes'),
+    /** Kurulum tutanağı alanları (kontrol çizelgesi, problem ve imza bilgileri). */
+    formData: jsonb('form_data').$type<InstallationFormData>(),
     ...auditColumns,
   },
   (t) => ({
@@ -55,6 +56,7 @@ export const serviceTickets = pgTable(
       .references(() => tenants.id, { onDelete: 'cascade' }),
     ticketNo: varchar('ticket_no', { length: 64 }).notNull(),
     divisionId: uuid('division_id').references(() => divisions.id, { onDelete: 'set null' }),
+    businessLine: varchar('business_line', { length: 16 }),
     companyId: uuid('company_id')
       .notNull()
       .references(() => companies.id, { onDelete: 'restrict' }),
@@ -81,6 +83,7 @@ export const serviceTickets = pgTable(
     tenantTicketNoUnique: uniqueIndex('service_tickets_tenant_ticket_no_unique').on(t.tenantId, t.ticketNo),
     tenantIdx: index('service_tickets_tenant_idx').on(t.tenantId),
     tenantDivisionIdx: index('service_tickets_tenant_division_idx').on(t.tenantId, t.divisionId),
+    tenantBusinessLineIdx: index('service_tickets_tenant_business_line_idx').on(t.tenantId, t.businessLine),
     statusIdx: index('service_tickets_status_idx').on(t.statusId),
   })
 );
@@ -101,6 +104,7 @@ export const serviceComplaintLinks = pgTable(
     notes: text('notes'),
     isActive: boolean('is_active').notNull().default(true),
     revokedAt: timestamp('revoked_at', { withTimezone: true }),
+    accessTokenExpiresAt: timestamp('access_token_expires_at', { withTimezone: true }),
     createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
     ...auditColumns,
   },
@@ -242,6 +246,16 @@ export const shipments = pgTable(
     // Sevkiyatı satış siparişine ve müşteriye bağlar; "fulfilled" sipariş bu kolonlardan sevkiyat doğurur.
     salesOrderId: uuid('sales_order_id').references(() => salesOrders.id, { onDelete: 'set null' }),
     companyId: uuid('company_id').references(() => companies.id, { onDelete: 'set null' }),
+    deliveryAddressId: uuid('delivery_address_id').references(() => companyAddresses.id, { onDelete: 'set null' }),
+    deliveryAddressSnapshot: text('delivery_address_snapshot'),
+    senderCompanyId: uuid('sender_company_id').references(() => companies.id, { onDelete: 'set null' }),
+    // Kayıtlı olmayan gönderici için serbest-metin adı (senderCompanyId FK yerine elle giriş).
+    senderName: varchar('sender_name', { length: 255 }),
+    carrierCompanyId: uuid('carrier_company_id').references(() => companies.id, { onDelete: 'set null' }),
+    transportMode: varchar('transport_mode', { length: 32 }),
+    productCategoryCode: varchar('product_category_code', { length: 64 }),
+    destinationWarehouseId: uuid('destination_warehouse_id').references(() => warehouses.id, { onDelete: 'set null' }),
+    loadingDate: timestamp('loading_date', { withTimezone: true }),
     shipmentNo: varchar('shipment_no', { length: 64 }),
     carrier: varchar('carrier', { length: 255 }),
     trackingNo: varchar('tracking_no', { length: 128 }),
@@ -263,6 +277,10 @@ export const shipments = pgTable(
     statusIdx: index('shipments_status_idx').on(t.statusId),
     salesOrderIdx: index('shipments_sales_order_idx').on(t.salesOrderId),
     companyIdx: index('shipments_company_idx').on(t.companyId),
+    deliveryAddressIdx: index('shipments_delivery_address_idx').on(t.deliveryAddressId),
+    senderCompanyIdx: index('shipments_sender_company_idx').on(t.senderCompanyId),
+    carrierCompanyIdx: index('shipments_carrier_company_idx').on(t.carrierCompanyId),
+    destinationWarehouseIdx: index('shipments_destination_warehouse_idx').on(t.destinationWarehouseId),
   })
 );
 
@@ -289,6 +307,13 @@ export const shipmentItems = pgTable(
     quantity: money('quantity').notNull().default('1'),
     unitId: uuid('unit_id').references(() => units.id),
     sortOrder: integer('sort_order').notNull().default(0),
+    packageCount: integer('package_count'),
+    palletCount: integer('pallet_count'),
+    packageLengthCm: money('package_length_cm'),
+    packageWidthCm: money('package_width_cm'),
+    packageHeightCm: money('package_height_cm'),
+    grossWeightKg: money('gross_weight_kg'),
+    packageNotes: text('package_notes'),
     ...auditColumns,
   },
   (t) => ({

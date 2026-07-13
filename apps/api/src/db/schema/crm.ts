@@ -115,8 +115,15 @@ export const opportunities = pgTable(
     lostReasonId: uuid('lost_reason_id').references(() => cancellationReasons.id),
     lostCompetitorId: uuid('lost_competitor_id').references(() => competitors.id),
     lostCompetitorProductModel: varchar('lost_competitor_product_model', { length: 255 }),
+    // Makine satışında ödeme vadesi (gün); sözleşme/ödeme planı varsayılanı.
+    paymentTermDays: integer('payment_term_days'),
     // Kazanılan fırsatlarda kabul/kazanma nedeni (yıl sonu raporu için).
     wonReason: varchar('won_reason', { length: 255 }),
+    // Mantıksal kapanış (arşiv) — `deletedAt` (silme) DEĞİL. Terminal aşamadaki
+    // (delivered/cancelled) fırsat "Bitir" ile kapatılınca dolar: aktif panodan
+    // düşer ama kayıt; rapor/geçmiş/servis erişimi için DB'de kalır. "Geri Aç" ile sıfırlanır.
+    closedAt: timestamp('closed_at', { withTimezone: true }),
+    closedBy: uuid('closed_by').references(() => users.id),
     ...ownerColumns,
     ...auditColumns,
   },
@@ -127,6 +134,7 @@ export const opportunities = pgTable(
     stageIdx: index('opportunities_stage_idx').on(t.currentStageId),
     expectedCloseDateIdx: index('opportunities_expected_close_date_idx').on(t.expectedCloseDate),
     ownerIdx: index('opportunities_owner_idx').on(t.ownerUserId),
+    closedAtIdx: index('opportunities_closed_at_idx').on(t.closedAt),
   })
 );
 

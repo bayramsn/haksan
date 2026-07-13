@@ -1,4 +1,13 @@
 import { z } from 'zod';
+import { PERMISSION_RESOURCES } from '../constants';
+
+export const userAccessScopeSchema = z.object({
+  resource: z.enum(PERMISSION_RESOURCES),
+  departmentId: z.string().uuid().nullable().optional(),
+  divisionId: z.string().uuid().nullable().optional(),
+  isPrimary: z.boolean().default(false),
+});
+export type UserAccessScopeInput = z.infer<typeof userAccessScopeSchema>;
 
 export const userCreateSchema = z.object({
   fullName: z.string().min(1).max(255),
@@ -10,17 +19,25 @@ export const userCreateSchema = z.object({
   // Bölüm (CNC / Üniversal / Sac İşleme) üyelikleri — ticari veri izolasyonu ekseni.
   // İlk eleman birincil (varsayılan aktif) bölüm kabul edilir.
   divisionIds: z.array(z.string().uuid()).default([]),
+  // Sayfa/modül + departman + bölüm kapsamları. Verilmezse API divisionIds'ten
+  // geriye uyumlu varsayılan kapsam üretir.
+  accessScopes: z.array(userAccessScopeSchema).optional(),
 });
 export type UserCreateInput = z.infer<typeof userCreateSchema>;
 
 export const userUpdateSchema = z.object({
   fullName: z.string().min(1).max(255).optional(),
-  phone: z.string().max(32).optional(),
+  // E-posta değişikliği yalnızca super_admin tarafından yapılabilir (controller'da zorlanır).
+  email: z.string().email().max(255).optional(),
+  // null gönderilirse telefon temizlenir (super_admin düzenleme dialogu için).
+  phone: z.string().max(32).nullable().optional(),
   departmentId: z.string().nullable().optional(),
   status: z.enum(['active', 'passive']).optional(),
   roleCodes: z.array(z.string()).optional(),
   // Verildiğinde kullanıcının bölüm üyelikleri tümüyle bununla değiştirilir.
   divisionIds: z.array(z.string().uuid()).optional(),
+  // Verildiğinde kullanıcının yetki alanı matrisi tümüyle bununla değiştirilir.
+  accessScopes: z.array(userAccessScopeSchema).optional(),
   password: z.string().min(8).max(128).optional(),
   purchaseApprovalLimit: z.coerce.number().int().min(0).optional(),
   managerId: z.string().uuid().nullable().optional(),
@@ -74,6 +91,9 @@ export const targetPeriodQuerySchema = z.object({
 });
 export type TargetPeriodQuery = z.infer<typeof targetPeriodQuerySchema>;
 
+export const targetTypeSchema = z.enum(['sales', 'service', 'finance', 'purchase', 'operations', 'logistics', 'other']);
+export type TargetType = z.infer<typeof targetTypeSchema>;
+
 // Empty string / undefined collapse to null so optional numeric form fields clear cleanly.
 const nullableAmount = z.preprocess(
   (value) => (value === '' || value === undefined ? null : value),
@@ -85,11 +105,13 @@ const nullableCount = z.preprocess(
 );
 
 export const targetItemSchema = z.object({
-  targetType: z.enum(['sales', 'service']),
+  targetType: targetTypeSchema,
   category: z.string().min(1).max(64),
   activity: z.string().min(1).max(255),
   description: z.string().max(2000).default(''),
   unit: z.enum(['count', 'amount']),
+  metricKey: z.string().max(64).optional(),
+  trackingMode: z.enum(['automatic', 'manual']).optional(),
   target: z.string().max(64).default(''),
 });
 export type TargetItemInput = z.infer<typeof targetItemSchema>;

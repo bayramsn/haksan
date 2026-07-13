@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "../../ui/card";
+import { Card, CardHeader, CardTitle } from "../../ui/card";
 import { Button } from "../../ui/button";
 import { Input } from "../../ui/input";
 import { Label } from "../../ui/label";
 import { Textarea } from "../../ui/textarea";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../../ui/table";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "../../ui/dialog";
-import { DepartmentTargetButton } from "../../admin/DepartmentTargetDialog";
+import { TargetDialog, currentPeriod, hasTargetValue, targetFromApi, targetToApi, type UserTarget } from "../../admin/TargetDialog";
 import { safeLoad } from "../../../../lib/safeLoad";
 import { useAuth } from "../../../../lib/auth";
 import { adminService } from "../../../../lib/services";
@@ -20,30 +20,28 @@ export function DepartmentsPage() {
   const canManage = hasRole("super_admin") || hasRole("admin") || hasPermission("departments.create");
   const canSetTargets = hasRole("super_admin") || hasRole("admin");
   const [rows, setRows] = useState<DeptItem[]>([]);
-  const [deptTargets, setDeptTargets] = useState<Record<string, boolean>>({});
+  const [deptTargets, setDeptTargets] = useState<Record<string, UserTarget>>({});
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [targetPeriod, setTargetPeriod] = useState(() => {
-    const d = new Date();
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-  });
+  const [targetPeriod, setTargetPeriod] = useState(currentPeriod());
+  const [targetDepartment, setTargetDepartment] = useState<DeptItem | null>(null);
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({ name: "", code: "", description: "" });
 
-  const loadTargets = useCallback(async (depts: DeptItem[]) => {
+  const loadTargets = useCallback(async (_depts: DeptItem[]) => {
     if (!canSetTargets) return;
     const targets = await safeLoad("department-targets", () =>
       adminService.departmentTargets({ period: targetPeriod })
     );
     if (targets) {
-      const map: Record<string, boolean> = {};
+      const map: Record<string, UserTarget> = {};
       (targets as any[]).forEach((t) => {
-        map[t.departmentId] = !!(t.salesAmount || t.quoteTarget || t.visitTarget);
+        map[t.departmentId] = targetFromApi(t);
       });
       setDeptTargets(map);
     } else {
-      setDeptTargets(Object.fromEntries(depts.map((d) => [d.id, false])));
+      setDeptTargets({});
     }
   }, [canSetTargets, targetPeriod]);
 
@@ -86,7 +84,13 @@ export function DepartmentsPage() {
     }
   };
 
+  const saveDepartmentTarget = async (_scope: { id: string }, target: UserTarget) => {
+    const saved = await adminService.saveDepartmentTarget(_scope.id, targetToApi({ ...target, period: targetPeriod }));
+    setDeptTargets((prev) => ({ ...prev, [_scope.id]: targetFromApi(saved) }));
+  };
+
   return (
+    <>
     <Card className="border-border/60 shadow-sm overflow-hidden">
       <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <CardTitle>Departmanlar</CardTitle>
@@ -150,7 +154,9 @@ export function DepartmentsPage() {
                 <TableCell className="text-muted-foreground">{d.description ?? "—"}</TableCell>
                 {canSetTargets && (
                   <TableCell>
-                    <DepartmentTargetButton department={d} period={targetPeriod} hasTarget={!!deptTargets[d.id]} onSaved={load} />
+                    <Button variant={hasTargetValue(deptTargets[d.id]) ? "default" : "outline"} size="sm" onClick={() => setTargetDepartment(d)}>
+                      {hasTargetValue(deptTargets[d.id]) ? "Hedef Var" : "Hedef Belirle"}
+                    </Button>
                   </TableCell>
                 )}
               </TableRow>
@@ -165,5 +171,15 @@ export function DepartmentsPage() {
         </Table>
       </div>
     </Card>
+    {canSetTargets && (
+      <TargetDialog
+        scope={targetDepartment ? { kind: "department", id: targetDepartment.id, name: targetDepartment.name, subtitle: targetDepartment.code } : null}
+        target={targetDepartment ? deptTargets[targetDepartment.id] : undefined}
+        period={targetPeriod}
+        onClose={() => setTargetDepartment(null)}
+        onSave={saveDepartmentTarget}
+      />
+    )}
+    </>
   );
 }

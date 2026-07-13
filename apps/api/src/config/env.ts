@@ -9,6 +9,11 @@ const envBoolean = z.preprocess((value) => {
   return value;
 }, z.boolean());
 
+const envOptionalSecret = z.preprocess((value) => {
+  if (typeof value === 'string' && value.trim() === '') return undefined;
+  return value;
+}, z.string().min(8).optional());
+
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   PORT: z.coerce.number().int().positive().default(3000),
@@ -20,6 +25,10 @@ const envSchema = z.object({
   DATABASE_POOL_MAX: z.coerce.number().int().positive().default(10),
   // Managed Postgres (Supabase/RDS/Azure) için TLS. Self-hosted/docker'da false bırak.
   DATABASE_SSL: envBoolean.default(false),
+  // Sertifika doğrulaması varsayılan olarak zorunludur. Özel CA kullanan
+  // kurulumlar DATABASE_SSL_CA ile kök sertifikayı sağlayabilir.
+  DATABASE_SSL_REJECT_UNAUTHORIZED: envBoolean.default(true),
+  DATABASE_SSL_CA: z.string().min(1).optional(),
   // Prod'da TLS'siz DB bağlantısına bilinçli izin (özel ağ/self-hosted). Aksi halde
   // prod'da DATABASE_SSL=true zorunludur (bkz. superRefine).
   DATABASE_ALLOW_PLAINTEXT: envBoolean.default(false),
@@ -45,7 +54,6 @@ const envSchema = z.object({
   JWT_REFRESH_SECRET: z.string().min(32),
   JWT_ACCESS_TTL: z.string().default('15m'),
   JWT_REFRESH_TTL: z.string().default('30d'),
-  PUBLIC_LINK_SECRET: z.string().min(32).optional(),
   // Cookie imzalama sırrı. Verilmezse JWT_REFRESH_SECRET'e düşer; ayrı bir değer
   // sır yeniden-kullanımını önler (least-privilege).
   COOKIE_SECRET: z.string().min(32).optional(),
@@ -72,6 +80,25 @@ const envSchema = z.object({
   // boşsa varsayılan test sırrı `dev-call-secret` kabul edilir.
   CALL_WEBHOOK_SECRET: z.string().min(8).optional(),
 
+  // CRM Asistanı LLM ayarları. API key sadece backend ortamında tutulur; boşsa
+  // asistan CRM verilerinden deterministik yanıt üretir. NVIDIA NIM hosted API
+  // OpenAI uyumlu chat/completions sözleşmesiyle çağrılır.
+  ASSISTANT_LLM_PROVIDER: z.enum(['none', 'openrouter', 'groq', 'anthropic', 'nvidia']).default('none'),
+  ASSISTANT_MODEL: z.string().max(128).default('openrouter/free'),
+  ASSISTANT_API_KEY: envOptionalSecret,
+  ASSISTANT_MAX_TOKENS: z.coerce.number().int().positive().max(4000).default(700),
+  // CRM özetlerinde tutarlılık için düşük yaratıcılık kullanılır. Sağlayıcının
+  // desteklemediği özel reasoning parametreleri bilinçli olarak gönderilmez.
+  ASSISTANT_TEMPERATURE: z.coerce.number().min(0).max(2).default(0.2),
+  ASSISTANT_TOP_P: z.coerce.number().gt(0).max(1).default(0.8),
+  // Kullanıcı başına GÜNLÜK kümülatif LLM token tavanı (input+output). Aşınca
+  // asistan chat LLM'i atlar, deterministik cevaba düşer. 0 = sınırsız (kapalı).
+  ASSISTANT_DAILY_TOKEN_BUDGET: z.coerce.number().int().nonnegative().default(50_000),
+
+  // Prometheus endpoint'i production'da bearer token ile korunur. Boş değer
+  // yalnız private local/test ağlarında kabul edilir.
+  METRICS_TOKEN: envOptionalSecret,
+
   // Storage
   S3_PROVIDER: z.enum(['minio', 'supabase', 's3', 'r2']).default('minio'),
   S3_ENDPOINT: z.string().optional(),
@@ -80,6 +107,13 @@ const envSchema = z.object({
   S3_SECRET_ACCESS_KEY: z.string().min(1),
   S3_BUCKET_PREFIX: z.string().default('erp'),
   S3_FORCE_PATH_STYLE: envBoolean.default(true),
+
+  // Şema migration öncesi opsiyonel offsite PostgreSQL yedeği. Etkinleştirilen
+  // production kurulumlarında başarısız yedek deploy'u durdurur.
+  DB_BACKUP_ENABLED: envBoolean.default(false),
+  DB_BACKUP_REQUIRED: envBoolean.default(false),
+  DB_BACKUP_TIMEOUT_SECONDS: z.coerce.number().int().min(30).max(7_200).default(1_800),
+  S3_BACKUP_BUCKET: z.string().min(1).optional(),
 
   // Supabase (used when S3_PROVIDER=supabase)
   SUPABASE_URL: z.string().optional(),
@@ -94,11 +128,54 @@ const envSchema = z.object({
   RESET_TOKEN_TTL_MINUTES: z.coerce.number().int().positive().default(60),
   AUTH_DEV_RESET_TOKEN_RESPONSE: envBoolean.default(false),
 
+  // Kamuya açık şikayet formu bağlantıları kalıcı bearer credential olmamalıdır.
+  PUBLIC_COMPLAINT_LINK_TTL_DAYS: z.coerce.number().int().positive().max(365).default(30),
+
   // Mail
   SMTP_HOST: z.string().default('localhost'),
   SMTP_PORT: z.coerce.number().int().positive().default(1025),
+  SMTP_USER: z.string().min(1).optional(),
+  SMTP_PASSWORD: z.string().min(1).optional(),
+  SMTP_SECURE: envBoolean.default(false),
   SMTP_FROM: z.string().default('noreply@haksan.local'),
+  APP_PUBLIC_URL: z.string().url().optional(),
 }).superRefine((env, ctx) => {
+  if (env.ASSISTANT_LLM_PROVIDER !== 'none' && !env.ASSISTANT_API_KEY) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['ASSISTANT_API_KEY'],
+      message: 'ASSISTANT_API_KEY must be set when ASSISTANT_LLM_PROVIDER is enabled',
+    });
+  }
+  if (
+    env.ASSISTANT_LLM_PROVIDER === 'openrouter' &&
+    env.ASSISTANT_MODEL !== 'openrouter/free' &&
+    !env.ASSISTANT_MODEL.endsWith(':free')
+  ) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['ASSISTANT_MODEL'],
+      message: 'OpenRouter assistant model must be openrouter/free or a :free model variant',
+    });
+  }
+  if (env.ASSISTANT_LLM_PROVIDER === 'anthropic' && !env.ASSISTANT_MODEL.startsWith('claude-')) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['ASSISTANT_MODEL'],
+      message: 'Anthropic assistant model must be a claude-* model (e.g. claude-haiku-4-5)',
+    });
+  }
+  if (
+    env.ASSISTANT_LLM_PROVIDER === 'nvidia' &&
+    !/^[a-z0-9][a-z0-9._-]*\/[a-z0-9][a-z0-9._-]*$/i.test(env.ASSISTANT_MODEL)
+  ) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['ASSISTANT_MODEL'],
+      message: 'NVIDIA NIM assistant model must use publisher/model format',
+    });
+  }
+
   if (env.NODE_ENV !== 'production') return;
   if (!env.COOKIE_SECURE) {
     ctx.addIssue({
@@ -128,12 +205,47 @@ const envSchema = z.object({
       message: 'CALL_WEBHOOK_SECRET must be set in production',
     });
   }
+  if (!env.METRICS_TOKEN) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['METRICS_TOKEN'],
+      message: 'METRICS_TOKEN must be set in production',
+    });
+  }
+  if (env.DB_BACKUP_ENABLED && !env.DB_BACKUP_REQUIRED) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['DB_BACKUP_REQUIRED'],
+      message: 'DB_BACKUP_REQUIRED must be true when DB_BACKUP_ENABLED is enabled in production',
+    });
+  }
   if (!env.DATABASE_SSL && !env.DATABASE_ALLOW_PLAINTEXT) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       path: ['DATABASE_SSL'],
       message:
         'Production requires DATABASE_SSL=true (or set DATABASE_ALLOW_PLAINTEXT=true for private-network/self-hosted DBs)',
+    });
+  }
+  if (!env.APP_PUBLIC_URL) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['APP_PUBLIC_URL'],
+      message: 'APP_PUBLIC_URL must be set in production for password reset links',
+    });
+  }
+  if (!!env.SMTP_USER !== !!env.SMTP_PASSWORD) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['SMTP_USER'],
+      message: 'SMTP_USER and SMTP_PASSWORD must be configured together',
+    });
+  }
+  if (env.SMTP_USER && /^(localhost|127\.0\.0\.1)$/i.test(env.SMTP_HOST)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['SMTP_HOST'],
+      message: 'Authenticated production SMTP must not use a localhost host',
     });
   }
 });

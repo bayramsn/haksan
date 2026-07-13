@@ -13,7 +13,7 @@ import {
 } from 'drizzle-orm';
 import type { DbClient } from '../../db/client';
 import { companies, companyAddresses, companyEmails, companyPhones, contacts } from '../../db/schema/companies';
-import { opportunities } from '../../db/schema/crm';
+import { opportunities, salesActivities } from '../../db/schema/crm';
 import { files, fileLinks } from '../../db/schema/files';
 import { receivables, payments } from '../../db/schema/finance';
 import { customerDevices, inventoryItems } from '../../db/schema/inventory';
@@ -29,6 +29,7 @@ import {
   inventoryStatuses,
   paymentStatuses,
   pipelineStages,
+  productGroups,
   purchaseOrderStatuses,
   quoteStatuses,
   serviceTicketStatuses,
@@ -42,7 +43,8 @@ import { isoDate, type ExportRow } from '../../shared/utils/excel-export';
 import { lookupIdByCode } from '../../shared/utils/lookup.helper';
 import { FinanceService } from '../finance/finance.service';
 import type { DateRange } from '@haksan/shared';
-import { divisionFilter, resolveActorDivisionScope } from '../../shared/utils/division-scope';
+import { resourceCompanyPortfolioFilter, resourceDivisionFilter, resourceDivisionFilterWithShared } from '../../shared/utils/division-scope';
+import { companyVisibilityExistsFilter, companyVisibilityFilter } from '../../shared/utils/company-visibility';
 
 const EXPORT_LIMIT = 15_000;
 
@@ -52,6 +54,103 @@ export class ExportsService {
     @Inject(DB) private readonly db: DbClient,
     private readonly finance: FinanceService
   ) {}
+
+  private async canExportDocumentLink(link: typeof fileLinks.$inferSelect, actor: AuthContext): Promise<boolean> {
+    switch (link.entityType) {
+      case 'company': {
+        const visibility = await companyVisibilityFilter(this.db, actor);
+        const [row] = await this.db
+          .select({ id: companies.id })
+          .from(companies)
+          .where(and(
+            eq(companies.id, link.entityId),
+            eq(companies.tenantId, actor.tenantId),
+            isNull(companies.deletedAt),
+            resourceCompanyPortfolioFilter(actor, 'companies', companies.id) ?? sql`true`,
+            visibility ?? sql`true`
+          ))
+          .limit(1);
+        return Boolean(row);
+      }
+      case 'opportunity': {
+        const visibility = await companyVisibilityExistsFilter(this.db, actor, opportunities.companyId);
+        const [row] = await this.db
+          .select({ id: opportunities.id })
+          .from(opportunities)
+          .where(and(
+            eq(opportunities.id, link.entityId),
+            eq(opportunities.tenantId, actor.tenantId),
+            isNull(opportunities.deletedAt),
+            resourceDivisionFilter(actor, 'opportunities', opportunities.divisionId) ?? sql`true`,
+            visibility ?? sql`true`
+          ))
+          .limit(1);
+        return Boolean(row);
+      }
+      case 'sales_activity': {
+        const visibility = await companyVisibilityExistsFilter(this.db, actor, salesActivities.companyId);
+        const [row] = await this.db
+          .select({ id: salesActivities.id })
+          .from(salesActivities)
+          .where(and(
+            eq(salesActivities.id, link.entityId),
+            eq(salesActivities.tenantId, actor.tenantId),
+            isNull(salesActivities.deletedAt),
+            resourceDivisionFilter(actor, 'activities', salesActivities.divisionId) ?? sql`true`,
+            visibility ?? sql`true`
+          ))
+          .limit(1);
+        return Boolean(row);
+      }
+      case 'service_ticket': {
+        const visibility = await companyVisibilityExistsFilter(this.db, actor, serviceTickets.companyId);
+        const [row] = await this.db
+          .select({ id: serviceTickets.id })
+          .from(serviceTickets)
+          .where(and(
+            eq(serviceTickets.id, link.entityId),
+            eq(serviceTickets.tenantId, actor.tenantId),
+            isNull(serviceTickets.deletedAt),
+            resourceDivisionFilter(actor, 'service_tickets', serviceTickets.divisionId) ?? sql`true`,
+            visibility ?? sql`true`
+          ))
+          .limit(1);
+        return Boolean(row);
+      }
+      case 'service_complaint_intake': {
+        const visibility = await companyVisibilityExistsFilter(this.db, actor, serviceComplaintIntakes.companyId);
+        const [row] = await this.db
+          .select({ id: serviceComplaintIntakes.id })
+          .from(serviceComplaintIntakes)
+          .where(and(
+            eq(serviceComplaintIntakes.id, link.entityId),
+            eq(serviceComplaintIntakes.tenantId, actor.tenantId),
+            isNull(serviceComplaintIntakes.deletedAt),
+            resourceDivisionFilter(actor, 'service_tickets', serviceComplaintIntakes.divisionId) ?? sql`true`,
+            visibility ? (or(isNull(serviceComplaintIntakes.companyId), visibility) ?? sql`true`) : sql`true`
+          ))
+          .limit(1);
+        return Boolean(row);
+      }
+      case 'product':
+      case 'product_model': {
+        const [row] = await this.db
+          .select({ id: productModels.id })
+          .from(productModels)
+          .leftJoin(productGroups, eq(productModels.productGroupId, productGroups.id))
+          .where(and(
+            eq(productModels.id, link.entityId),
+            eq(productModels.tenantId, actor.tenantId),
+            isNull(productModels.deletedAt),
+            resourceDivisionFilterWithShared(actor, 'products', productGroups.divisionId) ?? sql`true`
+          ))
+          .limit(1);
+        return Boolean(row);
+      }
+      default:
+        return false;
+    }
+  }
 
   async exportCompanies(
     actor: AuthContext,
@@ -75,6 +174,8 @@ export class ExportsService {
       const sid = await lookupIdByCode(this.db, companyStatuses, query.customerStatusCode);
       if (sid) filters.push(eq(companies.customerStatusId, sid));
     }
+    filters.push(resourceCompanyPortfolioFilter(actor, 'companies', companies.id) ?? sql`true`);
+    filters.push((await companyVisibilityFilter(this.db, actor)) ?? sql`true`);
 
     const rows = await this.db
       .select({
@@ -129,6 +230,9 @@ export class ExportsService {
     const filters = [eq(contacts.tenantId, actor.tenantId), isNull(contacts.deletedAt)];
     if (query.companyId) filters.push(eq(contacts.companyId, query.companyId));
     if (query.search) filters.push(ilike(contacts.fullName, `%${query.search}%`));
+    filters.push(eq(companies.tenantId, actor.tenantId), isNull(companies.deletedAt));
+    filters.push(resourceCompanyPortfolioFilter(actor, 'contacts', companies.id) ?? sql`true`);
+    filters.push((await companyVisibilityFilter(this.db, actor)) ?? sql`true`);
 
     const rows = await this.db
       .select({
@@ -164,6 +268,8 @@ export class ExportsService {
       const stage = await this.db.query.pipelineStages.findFirst({ where: eq(pipelineStages.code, query.stageCode) });
       if (stage) filters.push(eq(opportunities.currentStageId, stage.id));
     }
+    filters.push(resourceDivisionFilter(actor, 'opportunities', opportunities.divisionId) ?? sql`true`);
+    filters.push((await companyVisibilityExistsFilter(this.db, actor, opportunities.companyId)) ?? sql`true`);
 
     const rows = await this.db
       .select({
@@ -205,6 +311,8 @@ export class ExportsService {
       const sid = await lookupIdByCode(this.db, quoteStatuses, query.statusCode);
       if (sid) filters.push(eq(quotes.statusId, sid));
     }
+    filters.push(resourceDivisionFilter(actor, 'quotes', quotes.divisionId) ?? sql`true`);
+    filters.push((await companyVisibilityExistsFilter(this.db, actor, quotes.companyId)) ?? sql`true`);
 
     const rows = await this.db
       .select({
@@ -232,6 +340,8 @@ export class ExportsService {
   }
 
   async exportFinance(actor: AuthContext): Promise<Array<{ name: string; rows: ExportRow[] }>> {
+    const paymentCompanyVisibility = await companyVisibilityExistsFilter(this.db, actor, payments.companyId);
+    const receivableCompanyVisibility = await companyVisibilityExistsFilter(this.db, actor, receivables.companyId);
     const payRows = await this.db
       .select({
         payment: payments,
@@ -243,7 +353,12 @@ export class ExportsService {
       .leftJoin(companies, eq(payments.companyId, companies.id))
       .leftJoin(paymentStatuses, eq(payments.statusId, paymentStatuses.id))
       .leftJoin(currencies, eq(payments.currencyId, currencies.id))
-      .where(and(eq(payments.tenantId, actor.tenantId), isNull(payments.deletedAt)))
+      .where(and(
+        eq(payments.tenantId, actor.tenantId),
+        isNull(payments.deletedAt),
+        resourceDivisionFilter(actor, 'payments', payments.divisionId) ?? sql`true`,
+        paymentCompanyVisibility ?? sql`true`
+      ))
       .orderBy(desc(payments.paymentDate))
       .limit(EXPORT_LIMIT);
 
@@ -258,7 +373,12 @@ export class ExportsService {
       .leftJoin(companies, eq(receivables.companyId, companies.id))
       .leftJoin(paymentStatuses, eq(receivables.statusId, paymentStatuses.id))
       .leftJoin(currencies, eq(receivables.currencyId, currencies.id))
-      .where(and(eq(receivables.tenantId, actor.tenantId), isNull(receivables.deletedAt)))
+      .where(and(
+        eq(receivables.tenantId, actor.tenantId),
+        isNull(receivables.deletedAt),
+        resourceDivisionFilter(actor, 'receivables', receivables.divisionId) ?? sql`true`,
+        receivableCompanyVisibility ?? sql`true`
+      ))
       .orderBy(desc(receivables.dueDate))
       .limit(EXPORT_LIMIT);
 
@@ -323,13 +443,14 @@ export class ExportsService {
         base['Alış'] = cur?.purchases ?? r.purchases ?? 0;
         base['Ödeme'] = cur?.payouts ?? r.payouts ?? 0;
         base['Alacak (bizim borcumuz)'] = cur?.alacak ?? r.alacak ?? 0;
-        base['Net'] = cur?.net ?? r.netBorc;
+        base['Toplam Bakiye'] = cur?.totalBalance ?? cur?.net ?? r.totalBalance ?? r.netBorc;
       }
       return base;
     });
   }
 
   async exportServiceTickets(actor: AuthContext): Promise<ExportRow[]> {
+    const visibility = await companyVisibilityExistsFilter(this.db, actor, serviceTickets.companyId);
     const rows = await this.db
       .select({
         ticket: serviceTickets,
@@ -339,7 +460,12 @@ export class ExportsService {
       .from(serviceTickets)
       .leftJoin(companies, eq(serviceTickets.companyId, companies.id))
       .leftJoin(serviceTicketStatuses, eq(serviceTickets.statusId, serviceTicketStatuses.id))
-      .where(and(eq(serviceTickets.tenantId, actor.tenantId), isNull(serviceTickets.deletedAt)))
+      .where(and(
+        eq(serviceTickets.tenantId, actor.tenantId),
+        isNull(serviceTickets.deletedAt),
+        resourceDivisionFilter(actor, 'service_tickets', serviceTickets.divisionId) ?? sql`true`,
+        visibility ?? sql`true`
+      ))
       .orderBy(desc(serviceTickets.reportedAt))
       .limit(EXPORT_LIMIT);
 
@@ -355,6 +481,7 @@ export class ExportsService {
   }
 
   async exportServiceComplaints(actor: AuthContext): Promise<ExportRow[]> {
+    const visibility = await companyVisibilityExistsFilter(this.db, actor, serviceComplaintIntakes.companyId);
     const rows = await this.db
       .select({
         complaint: serviceComplaintIntakes,
@@ -376,7 +503,8 @@ export class ExportsService {
         and(
           eq(serviceComplaintIntakes.tenantId, actor.tenantId),
           isNull(serviceComplaintIntakes.deletedAt),
-          divisionFilter(resolveActorDivisionScope(actor), serviceComplaintIntakes.divisionId) ?? sql`true`
+          resourceDivisionFilter(actor, 'service_tickets', serviceComplaintIntakes.divisionId) ?? sql`true`,
+          visibility ? (or(isNull(serviceComplaintIntakes.companyId), visibility) ?? sql`true`) : sql`true`
         )
       )
       .orderBy(desc(serviceComplaintIntakes.createdAt))
@@ -413,6 +541,7 @@ export class ExportsService {
       const sid = await lookupIdByCode(this.db, inventoryStatuses, query.statusCode);
       if (sid) filters.push(eq(inventoryItems.stockStatusId, sid));
     }
+    filters.push(resourceDivisionFilter(actor, 'inventory', inventoryItems.divisionId) ?? sql`true`);
 
     const rows = await this.db
       .select({
@@ -452,7 +581,7 @@ export class ExportsService {
       .from(shipments)
       .leftJoin(companies, eq(shipments.companyId, companies.id))
       .leftJoin(shipmentStatuses, eq(shipments.statusId, shipmentStatuses.id))
-      .where(and(eq(shipments.tenantId, actor.tenantId), isNull(shipments.deletedAt)))
+      .where(and(eq(shipments.tenantId, actor.tenantId), isNull(shipments.deletedAt), resourceDivisionFilter(actor, 'shipments', shipments.divisionId) ?? sql`true`))
       .orderBy(desc(shipments.createdAt))
       .limit(EXPORT_LIMIT);
 
@@ -475,7 +604,7 @@ export class ExportsService {
       })
       .from(deliveries)
       .leftJoin(companies, eq(deliveries.companyId, companies.id))
-      .where(and(eq(deliveries.tenantId, actor.tenantId), isNull(deliveries.deletedAt)))
+      .where(and(eq(deliveries.tenantId, actor.tenantId), isNull(deliveries.deletedAt), resourceDivisionFilter(actor, 'shipments', deliveries.divisionId) ?? sql`true`))
       .orderBy(desc(deliveries.createdAt))
       .limit(EXPORT_LIMIT);
 
@@ -498,6 +627,7 @@ export class ExportsService {
       const statusId = await lookupIdByCode(this.db, purchaseOrderStatuses, query.statusCode);
       if (statusId) filters.push(eq(purchaseOrders.statusId, statusId));
     }
+    filters.push(resourceDivisionFilter(actor, 'purchase_orders', purchaseOrders.divisionId) ?? sql`true`);
 
     const rows = await this.db
       .select({
@@ -547,7 +677,12 @@ export class ExportsService {
       .orderBy(desc(files.createdAt))
       .limit(EXPORT_LIMIT);
 
-    return rows.map((r) => ({
+    const visibleRows = [];
+    for (const row of rows) {
+      if (await this.canExportDocumentLink(row.link, actor)) visibleRows.push(row);
+    }
+
+    return visibleRows.map((r) => ({
       Dosya: r.file.originalFilename,
       Tip: r.docType?.name ?? r.file.extension,
       'Bağlı Kayıt': `${r.link.entityType}:${r.link.entityId}`,
@@ -562,6 +697,9 @@ export class ExportsService {
     const from = new Date(Date.UTC(year, 0, 1));
     const to = new Date(Date.UTC(year, 11, 31, 23, 59, 59));
     const tenant = eq(opportunities.tenantId, actor.tenantId);
+    const opportunityScope = resourceDivisionFilter(actor, 'opportunities', opportunities.divisionId) ?? sql`true`;
+    const quoteScope = resourceDivisionFilter(actor, 'quotes', quotes.divisionId) ?? sql`true`;
+    const serviceScope = resourceDivisionFilter(actor, 'service_tickets', serviceTickets.divisionId) ?? sql`true`;
     const isWon = sql`${pipelineStages.code} in ('contract','commercial_invoice','customs_approved','stock_picking','shipping','installation','delivered')`;
     const isLost = sql`${pipelineStages.code} = 'cancelled'`;
 
@@ -579,14 +717,12 @@ export class ExportsService {
           })
           .from(opportunities)
           .leftJoin(pipelineStages, eq(opportunities.currentStageId, pipelineStages.id))
-          .where(and(tenant, isNull(opportunities.deletedAt), gte(opportunities.createdAt, mFrom), lte(opportunities.createdAt, mTo)));
+          .where(and(tenant, isNull(opportunities.deletedAt), opportunityScope, gte(opportunities.createdAt, mFrom), lte(opportunities.createdAt, mTo)));
 
         const [qc] = await this.db
           .select({ count: sql<number>`count(*)::int` })
           .from(quotes)
-          .where(
-            and(eq(quotes.tenantId, actor.tenantId), isNull(quotes.deletedAt), gte(quotes.quoteDate, mFrom), lte(quotes.quoteDate, mTo))
-          );
+          .where(and(eq(quotes.tenantId, actor.tenantId), isNull(quotes.deletedAt), quoteScope, gte(quotes.quoteDate, mFrom), lte(quotes.quoteDate, mTo)));
 
         const [sc] = await this.db
           .select({ count: sql<number>`count(*)::int` })
@@ -595,6 +731,7 @@ export class ExportsService {
             and(
               eq(serviceTickets.tenantId, actor.tenantId),
               isNull(serviceTickets.deletedAt),
+              serviceScope,
               gte(serviceTickets.reportedAt, mFrom),
               lte(serviceTickets.reportedAt, mTo)
             )
@@ -615,7 +752,7 @@ export class ExportsService {
     const years = await this.db
       .select({ y: sql<number>`distinct extract(year from ${opportunities.createdAt})::int` })
       .from(opportunities)
-      .where(and(tenant, isNull(opportunities.deletedAt)))
+      .where(and(tenant, isNull(opportunities.deletedAt), opportunityScope))
       .orderBy(sql`1`);
 
     const yearList = years.map((r) => r.y).filter((y) => y > 0);
@@ -631,12 +768,12 @@ export class ExportsService {
         })
         .from(opportunities)
         .leftJoin(pipelineStages, eq(opportunities.currentStageId, pipelineStages.id))
-        .where(and(tenant, isNull(opportunities.deletedAt), gte(opportunities.createdAt, yFrom), lte(opportunities.createdAt, yTo)));
+        .where(and(tenant, isNull(opportunities.deletedAt), opportunityScope, gte(opportunities.createdAt, yFrom), lte(opportunities.createdAt, yTo)));
 
       const [qc] = await this.db
         .select({ count: sql<number>`count(*)::int` })
         .from(quotes)
-        .where(and(eq(quotes.tenantId, actor.tenantId), isNull(quotes.deletedAt), gte(quotes.quoteDate, yFrom), lte(quotes.quoteDate, yTo)));
+        .where(and(eq(quotes.tenantId, actor.tenantId), isNull(quotes.deletedAt), quoteScope, gte(quotes.quoteDate, yFrom), lte(quotes.quoteDate, yTo)));
 
       const [sc] = await this.db
         .select({ count: sql<number>`count(*)::int` })
@@ -645,6 +782,7 @@ export class ExportsService {
           and(
             eq(serviceTickets.tenantId, actor.tenantId),
             isNull(serviceTickets.deletedAt),
+            serviceScope,
             gte(serviceTickets.reportedAt, yFrom),
             lte(serviceTickets.reportedAt, yTo)
           )

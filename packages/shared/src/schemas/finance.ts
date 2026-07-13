@@ -35,6 +35,20 @@ export const paymentCreateSchema = z
   });
 export type PaymentCreateInput = z.infer<typeof paymentCreateSchema>;
 
+export const paymentUpdateSchema = z.object({
+  direction: z.enum(['in', 'out']).optional(),
+  companyId: z.string().min(1).optional(),
+  divisionId: z.string().uuid().optional(),
+  amount: moneySchema.optional(),
+  currencyCode: z.string().max(8).optional(),
+  paymentDate: z.coerce.date().optional(),
+  paymentMethod: z.enum(['bank_transfer', 'cash', 'credit_card', 'check', 'other']).optional(),
+  invoiceNo: z.string().max(64).optional(),
+  notes: z.string().max(2000).optional(),
+  status: z.string().max(64).optional(),
+});
+export type PaymentUpdateInput = z.infer<typeof paymentUpdateSchema>;
+
 export const financeListQuerySchema = z.object({
   companyId: z.string().uuid().optional(),
 });
@@ -57,10 +71,17 @@ export const installmentPreviewSchema = z.object({
 });
 export type InstallmentPreviewInput = z.infer<typeof installmentPreviewSchema>;
 
+export const paymentTermSuggestionQuerySchema = z.object({
+  companyId: z.string().uuid(),
+  quoteId: z.string().uuid().optional(),
+});
+export type PaymentTermSuggestionQuery = z.infer<typeof paymentTermSuggestionQuerySchema>;
+
 export const accountingInvoiceCreateSchema = z.object({
   companyId: z.string().min(1),
   divisionId: z.string().uuid().optional(),
   type: z.enum(['sales', 'purchase']),
+  invoiceCategory: z.enum(['commercial', 'administrative']).default('commercial'),
   invoiceNo: z.string().min(1).max(64),
   invoiceDate: z.coerce.date(),
   amount: moneySchema,
@@ -68,6 +89,14 @@ export const accountingInvoiceCreateSchema = z.object({
   vatAmount: moneySchema.default(0),
   grandTotal: moneySchema,
   currencyCode: z.string().max(8).default('USD'),
+  paymentType: z.enum(['cash', 'leasing', 'term']).default('cash'),
+  paymentTermDays: z.coerce.number().int().min(0).max(3650).optional(),
+  previousPaymentTermDays: z.coerce.number().int().min(0).max(3650).optional(),
+  termChangeReason: z.string().max(500).optional(),
+  incoterm: z.string().max(64).optional(),
+  shipmentReference: z.string().max(128).optional(),
+  orderNo: z.string().max(64).optional(),
+  expectedDate: z.coerce.date().optional(),
   quoteId: z.string().optional(),
   salesOrderId: z.string().optional(),
   firstDueDate: z.coerce.date().optional(),
@@ -92,14 +121,24 @@ export const accountingInvoiceCreateSchema = z.object({
       description: z.string().max(500).optional(),
       quantity: z.coerce.number().positive().default(1),
       saleType: z.enum(['tezgah', 'product']).optional(),
+      listPrice: moneySchema.optional(),
+      unitPrice: moneySchema.optional(),
+      discountAmount: moneySchema.default(0).optional(),
+      vatRate: percentSchema.default(20).optional(),
+      lineTotal: moneySchema.optional(),
+      expectedDate: z.coerce.date().optional(),
     })
   ).optional(),
 });
 export type AccountingInvoiceCreateInput = z.infer<typeof accountingInvoiceCreateSchema>;
 
+export const accountingInvoiceUpdateSchema = accountingInvoiceCreateSchema.partial();
+export type AccountingInvoiceUpdateInput = z.infer<typeof accountingInvoiceUpdateSchema>;
+
 export const accountingInvoiceListQuerySchema = z.object({
   companyId: z.string().uuid().optional(),
   type: z.enum(['sales', 'purchase']).optional(),
+  invoiceCategory: z.enum(['commercial', 'administrative']).optional(),
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(200).default(25),
 });

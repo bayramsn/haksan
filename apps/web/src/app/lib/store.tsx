@@ -8,7 +8,7 @@
  *   so pages don't need to change.
  * - Mutations call backend endpoints, then trigger a refetch.
  */
-import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { queryClient } from '../../lib/queryClient';
 import {
@@ -25,10 +25,18 @@ import {
   financeService,
   noteTemplateService,
   fileService,
+  type Paginated,
 } from '../../lib/services';
 import { useAuth } from '../../lib/auth';
 import { resolveMediaUrl } from '../../lib/apiClient';
-import { activityTypeCodeFromLabel, STOCK_CATEGORY_LABELS, type StockCategoryCode } from '@haksan/shared';
+import {
+  activityTypeCodeFromLabel,
+  STOCK_CATEGORY_LABELS,
+  type PipelineStageCode,
+  type ProductCreateInput,
+  type ProductUpdateInput,
+  type StockCategoryCode,
+} from '@haksan/shared';
 import {
   Customer,
   SalesCase,
@@ -51,6 +59,7 @@ import {
   Shipment,
   Delivery,
 } from './mock';
+import { productSpecGroupForTypeKey, specsForProductTypeStrict } from './productSpecTemplates';
 import { isServiceQuoteComplete, serviceQuoteMissingFields } from './serviceQuote';
 
 const SERVICE_STAGES: ServiceStage[] = [
@@ -68,6 +77,30 @@ const SERVICE_STAGES: ServiceStage[] = [
 
 const persistedServiceStage = (value: unknown): ServiceStage | null =>
   typeof value === 'string' && SERVICE_STAGES.includes(value as ServiceStage) ? value as ServiceStage : null;
+
+const loadAllPaginated = async <T,>(
+  fetchPage: (page: number, pageSize: number) => Promise<Paginated<T>>,
+  pageSize = 200
+): Promise<Paginated<T>> => {
+  const first = await fetchPage(1, pageSize);
+  const totalPages = Math.max(1, Number(first.meta?.totalPages ?? 1));
+  if (totalPages <= 1) return first;
+
+  const rest = await Promise.all(
+    Array.from({ length: totalPages - 1 }, (_, index) => fetchPage(index + 2, pageSize))
+  );
+  const data = [first, ...rest].flatMap((page) => page.data);
+  return {
+    data,
+    meta: {
+      ...first.meta,
+      page: 1,
+      pageSize: data.length,
+      total: first.meta?.total ?? data.length,
+      totalPages: 1,
+    },
+  };
+};
 
 // pipeline stage code → UI stage key. Legacy names are still accepted for old mock rows.
 const STAGE_BY_CODE: Record<string, SalesStage> = {
@@ -88,7 +121,7 @@ const STAGE_BY_CODE: Record<string, SalesStage> = {
   delivered: 'delivered',
 };
 
-const CODE_BY_STAGE: Partial<Record<SalesStage, string>> = {
+const CODE_BY_STAGE: Partial<Record<SalesStage, PipelineStageCode>> = {
   lead: 'lead',
   sales: 'sales',
   call: 'call',
@@ -130,10 +163,65 @@ const toOptionalNumber = (value: unknown) => {
   return Number.isFinite(number) ? number : undefined;
 };
 
+const DEFAULT_PRODUCT_VAT_RATE = 20;
+const normalizeProductVatRate = (value: unknown) => {
+  const rate = toOptionalNumber(value);
+  return rate === undefined || rate === 1 ? DEFAULT_PRODUCT_VAT_RATE : rate;
+};
+
+const normalizeContact = (k: any): Contact => {
+  const companyIds = Array.from(new Set([
+    k.companyId,
+    k.company?.id,
+    ...(Array.isArray(k.companyLinks) ? k.companyLinks.map((company: any) => company.id ?? company.companyId) : []),
+  ].filter(Boolean))) as string[];
+  return {
+    id: k.id,
+    customerId: k.companyId ?? companyIds[0] ?? '',
+    companyIds,
+    name: k.fullName ?? '',
+    title: k.title ?? '',
+    department: k.department ?? '',
+    phone: k.workPhone ?? k.mobilePhone ?? '',
+    phoneExtension: k.phoneExtension ?? '',
+    mobilePhone: k.mobilePhone ?? '',
+    otherPhone: k.otherPhone ?? '',
+    email: k.workEmail ?? k.personalEmail ?? k.otherEmail ?? '',
+    personalEmail: k.personalEmail ?? '',
+    otherEmail: k.otherEmail ?? '',
+    gender: k.gender ?? '',
+    birthDate: (k.birthDate as string | undefined)?.slice(0, 10) ?? '',
+    decisionRoleCode: k.decisionRole?.code ?? '',
+    decisionRoleName: k.decisionRole?.name ?? '',
+    hometown: k.hometown ?? '',
+    favoriteTeam: k.favoriteTeam ?? '',
+    favoriteColor: k.favoriteColor ?? '',
+    graduatedSchool: k.graduatedSchool ?? '',
+    isPrimary: !!k.isPrimary || (Array.isArray(k.companyLinks) && k.companyLinks.some((company: any) => company.id === (k.companyId ?? companyIds[0]) && company.isPrimary)),
+    note: k.notes ?? '',
+    isBlacklisted: !!k.isBlacklisted,
+    blacklistReason: k.blacklistReason ?? '',
+    createdAt: (k.createdAt as string)?.slice(0, 10) ?? '',
+    createdByUserId: k.createdByUser?.id ?? k.createdBy ?? null,
+    createdByName: k.createdByUser?.fullName ?? k.createdByUser?.name ?? null,
+    createdByEmail: k.createdByUser?.email ?? null,
+  };
+};
+
 const toNullableNumber = (value: unknown) => {
   const number = toOptionalNumber(value);
   return number === undefined ? null : number;
 };
+
+const toOptionalDate = (value: string | Date | null | undefined) => (value ? new Date(value) : undefined);
+
+const deliveryFormDataPayload = (formData: Delivery['formData'] | undefined) =>
+  formData
+    ? {
+        ...formData,
+        kurulumTarihi: toOptionalDate(formData.kurulumTarihi),
+      }
+    : undefined;
 
 const normalizeWarrantyPart = (part: any): ServiceWarrantyPart => ({
   id: part.id,
@@ -195,39 +283,50 @@ const productModelCode = (p: Partial<Product>) =>
   cleanString(p.stockCode) ??
   (compactProductCode(`${p.brand ?? ''} ${p.shortDescription ?? ''}`) || 'URUN');
 
-const productApiPayload = (p: Partial<Product>, brandId?: string) => {
+const productApiPayload = (p: Partial<Product>, brandId?: string): ProductUpdateInput => {
   const modelCode = productModelCode(p);
   const fullName = cleanString(p.shortDescription) ?? [p.brand, modelCode].filter(Boolean).join(' ');
   return {
-    brandId,
+    ...(brandId ? { brandId } : {}),
     productGroupCode: cleanString(p.productGroupCode),
     categoryCode: cleanString(p.categoryCode),
     subcategoryCode: cleanString(p.subcategoryCode),
     productTypeCode: cleanString(p.productTypeCode),
+    compatibleMachineTypeCode: cleanString(p.compatibleMachineTypeCode),
     modelCode,
     modelName: cleanString(p.modelName),
     fullName,
     currencyCode: p.currency,
     listPrice: toOptionalNumber(p.listPrice),
     cashPrice: toOptionalNumber(p.cashPrice),
-    vatRate: toOptionalNumber(p.vatRate) ?? 20,
+    vatRate: normalizeProductVatRate(p.vatRate),
     originCountry: cleanString(p.originCountry),
     hsCode: cleanString(p.hsCode),
     stockCode: cleanString(p.stockCode),
     imageUrl: cleanString(p.imageUrl),
     description: cleanString(p.description),
-    // Boş seçim muadili temizler (null), seçiliyse id gönderilir.
-    muadilProductId: p.muadilProductId ? p.muadilProductId : null,
+    ...(p.supplierCompanyId !== undefined ? { supplierCompanyId: cleanString(p.supplierCompanyId) ?? null } : {}),
+    ...(p.optionalCompatibilityGroupCodes !== undefined ? { optionalCompatibilityGroupCodes: p.optionalCompatibilityGroupCodes ?? [] } : {}),
+    ...(p.optionalCompatibilityCategoryCodes !== undefined ? { optionalCompatibilityCategoryCodes: p.optionalCompatibilityCategoryCodes ?? [] } : {}),
+    ...(p.optionalCompatibilitySubcategoryCodes !== undefined ? { optionalCompatibilitySubcategoryCodes: p.optionalCompatibilitySubcategoryCodes ?? [] } : {}),
+    ...(p.optionalCompatibilityTypeCodes !== undefined ? { optionalCompatibilityTypeCodes: p.optionalCompatibilityTypeCodes ?? [] } : {}),
+    ...(p.optionalCompatibilityBrandIds !== undefined ? { optionalCompatibilityBrandIds: p.optionalCompatibilityBrandIds ?? [] } : {}),
+    // Boş seçim muadili temizler (null), seçiliyse ilk id eski alanı da besler.
+    muadilProductId: p.muadilProductIds?.[0] ?? p.muadilProductId ?? null,
+    muadilProductIds: p.muadilProductIds ?? (p.muadilProductId ? [p.muadilProductId] : []),
   };
 };
 
 const productDetailsPayload = (p: Partial<Product>) => ({
-  specs: (p.specs ?? [])
-    .filter((s) => cleanString(s.key) && cleanString(s.value))
+  // Yalnızca ürünün kendi tipine ait teknik alanlar saklanır; başka tezgah
+  // tiplerinin şablon alanları artık DB'ye "-" ile birlikte yazılmaz.
+  specs: specsForProductTypeStrict(p.productTypeCode, p.specs ?? [])
+    .filter((s) => cleanString(s.key))
     .map((s, index) => ({
-      specGroupCode: 'GENEL',
+      specGroupCode: productSpecGroupForTypeKey(p.productTypeCode, s).code,
       specKey: s.key.trim(),
-      specValue: s.value.trim(),
+      specValue: s.value.trim() || '-',
+      specUnit: cleanString(s.unit ?? s.specUnit),
       sortOrder: index + 1,
     })),
   equipment: [
@@ -253,10 +352,12 @@ export type QuoteLineCompatibility = {
   brands: string[];
   controlUnits: string[];
   supplierIds: string[];
+  technicalSpecs?: { key: string; value: string; unit?: string; specUnit?: string }[];
 };
 
 export type QuoteLineInput = {
   productModelId?: string;
+  stockCode?: string;
   description: string;
   quantity: number;
   unitPrice: number; // NET birim fiyat
@@ -273,6 +374,8 @@ export type CreateQuotePayload = {
   validityDays: number;
   documentNo?: string;
   currencyCode: string;
+  headerDiscountAmount?: number;
+  headerDiscountPercent?: number;
   projectOwnerUserId?: string;
   notes?: string;
   paymentTermsText?: string;
@@ -285,9 +388,24 @@ export type CreateQuotePayload = {
   divisionId?: string;
 };
 
+export type InstallationSummary = {
+  id: string;
+  salesCaseId: string;
+  customerId: string;
+  statusCode: string;
+  statusName: string;
+  technician: string;
+  scheduledDate: string;
+  completedDate: string;
+  deviceLabel: string;
+  serialNumber: string;
+};
+
 type Store = {
   customers: Customer[];
   cases: SalesCase[];
+  // Mantıksal olarak kapatılmış (arşiv/geçmiş) satış kartları — teslim+iptal. closedAt dolu.
+  closedCases: SalesCase[];
   service: ServiceRequest[];
   offers: Offer[];
   noteTemplates: NoteTemplate[];
@@ -301,21 +419,31 @@ type Store = {
   documents: DocumentItem[];
   shipments: Shipment[];
   deliveries: Delivery[];
+  installations: InstallationSummary[];
   loading: boolean;
   loadErrors: string[];
   loadTruncated: string[];
   clearLoadErrors: () => void;
-  addContact: (c: Omit<Contact, 'id'>) => Promise<Contact>;
+  addContact: (c: Omit<Contact, 'id' | 'createdAt' | 'createdByUserId' | 'createdByName' | 'createdByEmail'>) => Promise<Contact>;
   updateContact: (id: string, patch: Partial<Omit<Contact, 'id'>>) => Promise<void>;
   deleteContact: (id: string) => Promise<void>;
   addActivity: (a: Omit<Activity, 'id' | 'date'> & { date?: string }) => Promise<Activity>;
+  updateActivity: (id: string, patch: Partial<Omit<Activity, 'id'>>) => Promise<void>;
+  deleteActivity: (id: string) => Promise<void>;
   addProduct: (p: Omit<Product, 'id' | 'status'> & { status?: 'active' | 'passive' }) => Promise<Product>;
   updateProduct: (id: string, patch: Partial<Omit<Product, 'id'>>) => Promise<void>;
+  /**
+   * Ürünün yalnızca verilen alanlarını günceller (fiyat, KDV, stok kodu vb.).
+   * `updateProduct`'tan farkı: specs/donanımı yeniden yazmaz, bu yüzden
+   * satış fiyat listesinden hızlı fiyat düzenlemesi için güvenlidir.
+   */
+  patchProduct: (id: string, fields: Partial<Omit<Product, 'id'>>) => Promise<void>;
   deleteProduct: (id: string) => Promise<void>;
   addCustomer: (c: Omit<Customer, 'id' | 'createdAt' | 'status'> & { status?: 'active' | 'passive' }) => Promise<Customer>;
   updateCustomer: (id: string, patch: Partial<Omit<Customer, 'id' | 'createdAt'>>) => Promise<void>;
   deleteCustomer: (id: string) => Promise<void>;
   addCase: (c: Omit<SalesCase, 'id' | 'createdAt' | 'stage' | 'isLost' | 'isOfferPrepared'> & { stage?: SalesStage; divisionId?: string }) => Promise<SalesCase>;
+  updateCase: (id: string, patch: { assignedUserId?: string; paymentTermDays?: number | null }) => Promise<void>;
   deleteCase: (id: string) => Promise<void>;
   addOffer: (o: Omit<Offer, 'id' | 'date' | 'revision'> & { revision?: number }) => Promise<Offer>;
   createQuoteFull: (payload: CreateQuotePayload) => Promise<{ quoteId: string; documentNo: string; opportunityId: string }>;
@@ -326,11 +454,21 @@ type Store = {
   updateStockStatus: (id: string, status: StockItem['status']) => Promise<void>;
   reserveStock: (id: string, companyId: string, notes?: string) => Promise<void>;
   addShipment: (s: Omit<Shipment, 'id'>) => Promise<Shipment>;
-  updateShipmentStatus: (id: string, status: Shipment['status']) => Promise<void>;
+  startShipment: (id: string, loadingDate?: string) => Promise<void>;
+  updateShipmentStatus: (
+    id: string,
+    status: Shipment['status'],
+    options?: { destinationWarehouseId?: string; loadingDate?: string; arrivedAt?: string },
+  ) => Promise<void>;
+  deleteShipment: (id: string) => Promise<void>;
   addDelivery: (d: Omit<Delivery, 'id'>) => Promise<Delivery>;
   updateDelivery: (id: string, d: Partial<Omit<Delivery, 'id'>>) => Promise<void>;
   updateDeliveryStatus: (id: string, status: Delivery['status']) => Promise<void>;
+  deleteDelivery: (id: string) => Promise<void>;
   moveCase: (id: string, to: SalesStage, options?: { inventoryItemIds?: string[]; changeReason?: string }) => Promise<void>;
+  // Mantıksal kapanış (Bitir) ve geri alma (Geri Aç) — silmez, closedAt set/sıfırlar.
+  closeCase: (id: string, reason?: string) => Promise<void>;
+  reopenCase: (id: string) => Promise<void>;
   markCaseLost: (
     id: string,
     payload: { reasonCode: string; competitorId?: string; competitorProductModel?: string }
@@ -345,6 +483,7 @@ type Store = {
   rejectServiceWarranty: (id: string, decisionNote?: string) => Promise<ServiceWarrantyClaim | null>;
   addService: (s: Omit<ServiceRequest, 'id' | 'createdAt' | 'stage'> & { stage?: ServiceStage; createdAt?: string }) => Promise<ServiceRequest>;
   addMachine: (m: Omit<Machine, 'id' | 'status'> & { status?: Machine['status'] }) => Promise<Machine>;
+  updateMachineCustomer: (id: string, customerId: string) => Promise<void>;
   addDocument: (
     d: Omit<DocumentItem, 'id' | 'uploadedAt' | 'uploadedBy'> &
       Partial<Pick<DocumentItem, 'id' | 'uploadedAt' | 'uploadedBy'>>
@@ -355,14 +494,17 @@ type Store = {
 const Ctx = createContext<Store | null>(null);
 
 function StoreInner({ children }: { children: ReactNode }) {
-  const { authed, sessionReady, user, activeDivision } = useAuth();
+  const { authed, sessionReady, user, activeDivision, activeDepartment } = useAuth();
   const [loading, setLoading] = useState(true);
   const [loadErrors, setLoadErrors] = useState<string[]>([]);
   const [loadTruncated, setLoadTruncated] = useState<string[]>([]);
+  const fetchAllInFlightRef = useRef<Promise<void> | null>(null);
+  const fetchAllQueuedRef = useRef(false);
   const clearLoadErrors = useCallback(() => setLoadErrors([]), []);
 
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [cases, setCases] = useState<SalesCase[]>([]);
+  const [closedCases, setClosedCases] = useState<SalesCase[]>([]);
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [stock, setStock] = useState<StockItem[]>([]);
@@ -375,6 +517,7 @@ function StoreInner({ children }: { children: ReactNode }) {
   const [payments, setPayments] = useState<Payment[]>([]);
   const [shipments, setShipments] = useState<Shipment[]>([]);
   const [deliveries, setDeliveries] = useState<Delivery[]>([]);
+  const [installations, setInstallations] = useState<InstallationSummary[]>([]);
   const [documents, setDocuments] = useState<DocumentItem[]>([]);
 
   const shipmentStatusFromCode = (code?: string | null): Shipment['status'] => {
@@ -397,7 +540,7 @@ function StoreInner({ children }: { children: ReactNode }) {
   const deliveryStatusToCode = (status: Delivery['status']): 'pending' | 'completed' =>
     status === 'Tamamlandı' ? 'completed' : 'pending';
 
-  const fetchAll = useCallback(async () => {
+  const fetchAllOnce = useCallback(async () => {
     if (!sessionReady || !authed) {
       setLoading(false);
       setLoadErrors([]);
@@ -411,6 +554,7 @@ function StoreInner({ children }: { children: ReactNode }) {
     // hataları "Bazı veriler yüklenemedi" banner'ını gereksiz yere doldurur.
     const userPerms = new Set(user?.permissions ?? []);
     const can = (permission?: string) => !permission || userPerms.has(permission);
+    const canAny = (...permissions: string[]) => permissions.some((permission) => userPerms.has(permission));
     const load = async <T,>(label: string, fn: () => Promise<T>, fallback: T, permission?: string): Promise<T> => {
       if (!can(permission)) return fallback;
       try {
@@ -428,27 +572,35 @@ function StoreInner({ children }: { children: ReactNode }) {
     };
     try {
       const empty = { data: [] as any[], meta: { total: 0, page: 1, pageSize: 0, totalPages: 0 } };
-      const [companies, contactsR, opps, prods, inv, qts, svcTickets, acts, usersR, devicesR, receivablesR, paymentsR, proformasR, contractsR, invoicesR, noteTemplatesR, shipmentsR, deliveriesR, fileLinksR] = await Promise.all([
-        load('Firmalar', () => companyService.list({ pageSize: 200 }), empty, 'companies.read'),
-        load('Kontaklar', () => contactService.list({ pageSize: 200 }), empty, 'contacts.read'),
-        load('Satış kartları', () => opportunityService.list({ pageSize: 200 }), empty, 'opportunities.read'),
-        load('Ürünler', () => productService.list({ pageSize: 200 }), empty, 'products.read'),
-        load('Stok', () => inventoryService.list({ pageSize: 200 }), empty, 'inventory.read'),
-        load('Teklifler', () => quoteService.list({ pageSize: 200 }), empty, 'quotes.read'),
-        load('Servis', () => serviceService.tickets({ pageSize: 200 }), empty, 'service_tickets.read'),
-        load('Aktiviteler', () => activityService.list({ pageSize: 200 }), empty, 'activities.read'),
+      const [companies, contactsR, opps, prods, inv, qts, svcTickets, acts, usersR, devicesR, receivablesR, paymentsR, proformasR, contractsR, invoicesR, noteTemplatesR, shipmentsR, deliveriesR, installationsR, fileLinksR] = await Promise.all([
+        load('Firmalar', () => loadAllPaginated((page, pageSize) => companyService.list({ page, pageSize })), empty, 'companies.read'),
+        load('Kontaklar', () => loadAllPaginated((page, pageSize) => contactService.list({ page, pageSize })), empty, 'contacts.read'),
+        load('Satış kartları', () => loadAllPaginated((page, pageSize) => opportunityService.list({ page, pageSize })), empty, 'opportunities.read'),
+        load('Ürünler', () => loadAllPaginated((page, pageSize) => productService.list({ page, pageSize })), empty, 'products.read'),
+        load('Stok', () => loadAllPaginated((page, pageSize) => inventoryService.list({ page, pageSize })), empty, 'inventory.read'),
+        load('Teklifler', () => loadAllPaginated((page, pageSize) => quoteService.list({ page, pageSize })), empty, 'quotes.read'),
+        load('Servis', () => loadAllPaginated((page, pageSize) => serviceService.tickets({ page, pageSize })), empty, 'service_tickets.read'),
+        load('Aktiviteler', () => loadAllPaginated((page, pageSize) => activityService.list({ page, pageSize })), empty, 'activities.read'),
         load('Kullanıcılar', () => adminService.users(), [] as any[], 'users.read'),
-        load('Makineler', () => inventoryService.customerDevices({ pageSize: 200 }), empty, 'customer_devices.read'),
-        load('Alacaklar', () => financeService.receivables({ pageSize: 200 }), empty, 'receivables.read'),
-        load('Ödemeler', () => financeService.payments({ pageSize: 200 }), empty, 'payments.read'),
-        load('Proformalar', () => documentService.proformas({ pageSize: 200 }), empty, 'proformas.read'),
-        load('Sözleşmeler', () => documentService.contracts({ pageSize: 200 }), empty, 'contracts.read'),
-        load('Faturalar', () => documentService.commercialInvoices({ pageSize: 200 }), empty, 'commercial_invoices.read'),
-        load('Not şablonları', () => noteTemplateService.list(), [] as any[]),
-        load('Sevkiyatlar', () => serviceService.shipments({ pageSize: 200 }), empty, 'shipments.read'),
-        load('Teslimatlar', () => serviceService.deliveries({ pageSize: 200 }), empty, 'shipments.read'),
-        load('Dosya bağlantıları', () => fileService.links({ pageSize: 200 }), empty, 'files.read'),
+        load('Makineler', () => loadAllPaginated((page, pageSize) => inventoryService.customerDevices({ page, pageSize })), empty, 'customer_devices.read'),
+        load('Alacaklar', () => loadAllPaginated((page, pageSize) => financeService.receivables({ page, pageSize })), empty, 'receivables.read'),
+        load('Ödemeler', () => loadAllPaginated((page, pageSize) => financeService.payments({ page, pageSize })), empty, 'payments.read'),
+        load('Proformalar', () => loadAllPaginated((page, pageSize) => documentService.proformas({ page, pageSize })), empty, 'proformas.read'),
+        load('Sözleşmeler', () => loadAllPaginated((page, pageSize) => documentService.contracts({ page, pageSize })), empty, 'contracts.read'),
+        load('Faturalar', () => loadAllPaginated((page, pageSize) => documentService.commercialInvoices({ page, pageSize })), empty, 'commercial_invoices.read'),
+        canAny('quotes.read', 'service_tickets.read') ? load('Not şablonları', () => noteTemplateService.list(), [] as any[]) : Promise.resolve([] as any[]),
+        load('Sevkiyatlar', () => loadAllPaginated((page, pageSize) => serviceService.shipments({ page, pageSize })), empty, 'shipments.read'),
+        load('Teslimatlar', () => loadAllPaginated((page, pageSize) => serviceService.deliveries({ page, pageSize })), empty, 'shipments.read'),
+        load('Kurulumlar', () => loadAllPaginated((page, pageSize) => serviceService.installations({ page, pageSize })), empty, 'installations.read'),
+        load('Dosya bağlantıları', () => loadAllPaginated((page, pageSize) => fileService.links({ page, pageSize })), empty, 'files.read'),
       ]);
+      // Kapatılan (arşiv/geçmiş) kartlar ayrı çekilir; aktif liste varsayılan view=active döner.
+      const closedOpps = await load(
+        'Geçmiş kartlar',
+        () => loadAllPaginated((page, pageSize) => opportunityService.list({ page, pageSize, view: 'closed' })),
+        empty,
+        'opportunities.read'
+      );
       setLoadErrors(errors);
       setLoadTruncated(truncated);
 
@@ -484,8 +636,13 @@ function StoreInner({ children }: { children: ReactNode }) {
           type: (c.companyType === 'person' ? 'person' : 'company') as 'person' | 'company',
           firmType: ((c.relationType?.code as FirmType) ?? 'customer') as FirmType,
           salesStatus: ((c.customerStatus?.code === 'active' ? 'active_customer' : 'potential') as CustomerSalesStatus),
-          companyGroupCode: c.companyGroup?.code ?? '',
-          companyGroupName: c.companyGroup?.name ?? '',
+          divisions: Array.isArray(c.divisions)
+            ? c.divisions.map((d: any) => ({ id: d.id, code: d.code ?? null, name: d.name ?? '' }))
+            : [],
+          companyGroupCode: c.companyGroups?.[0]?.code ?? c.companyGroup?.code ?? '',
+          companyGroupName: c.companyGroups?.[0]?.name ?? c.companyGroup?.name ?? '',
+          companyGroupCodes: (c.companyGroups ?? (c.companyGroup ? [c.companyGroup] : [])).map((g: any) => g.code).filter(Boolean),
+          companyGroupNames: (c.companyGroups ?? (c.companyGroup ? [c.companyGroup] : [])).map((g: any) => g.name).filter(Boolean),
           contactSourceCode: c.contactSource?.code ?? '',
           sector: c.sector ?? '',
           name: c.legalTitle ?? c.shortName ?? '—',
@@ -499,6 +656,21 @@ function StoreInner({ children }: { children: ReactNode }) {
           district: c.primaryAddress?.district ?? '',
           country: c.primaryAddress?.country ?? '',
           address: c.primaryAddress?.fullAddress ?? '',
+          addresses: (c.addresses ?? (c.primaryAddress ? [c.primaryAddress] : [])).map((a: any) => ({
+            id: a.id,
+            addressType: a.addressType ?? 'office',
+            country: a.country ?? 'Türkiye',
+            city: a.province ?? '',
+            district: a.district ?? '',
+            address: a.fullAddress ?? '',
+            latitude: a.latitude == null ? undefined : Number(a.latitude),
+            longitude: a.longitude == null ? undefined : Number(a.longitude),
+            locationSource: a.locationSource ?? undefined,
+            isDefault: Boolean(a.isDefault),
+          })),
+          latitude: c.primaryAddress?.latitude != null ? Number(c.primaryAddress.latitude) : undefined,
+          longitude: c.primaryAddress?.longitude != null ? Number(c.primaryAddress.longitude) : undefined,
+          locationSource: c.primaryAddress?.locationSource ?? undefined,
           taxOffice: c.taxOffice ?? '',
           taxNumber: c.taxNumber ?? '',
           website: c.website ?? '',
@@ -507,62 +679,36 @@ function StoreInner({ children }: { children: ReactNode }) {
           source: c.contactSource?.name ?? '',
           status: 'active',
           createdAt: (c.createdAt as string)?.slice(0, 10) ?? '',
+          createdByUserId: c.createdByUser?.id ?? c.createdBy ?? null,
+          createdByName: c.createdByUser?.fullName ?? c.createdByUser?.name ?? null,
+          createdByEmail: c.createdByUser?.email ?? null,
         }))
       );
 
       setContacts(
-        contactsR.data.map((k: any) => ({
-          id: k.id,
-          customerId: k.companyId,
-          name: k.fullName ?? '',
-          title: k.title ?? '',
-          department: k.department ?? '',
-          phone: k.workPhone ?? k.mobilePhone ?? '',
-          phoneExtension: k.phoneExtension ?? '',
-          mobilePhone: k.mobilePhone ?? '',
-          otherPhone: k.otherPhone ?? '',
-          email: k.workEmail ?? k.personalEmail ?? k.otherEmail ?? '',
-          personalEmail: k.personalEmail ?? '',
-          otherEmail: k.otherEmail ?? '',
-          gender: k.gender ?? '',
-          birthDate: (k.birthDate as string | undefined)?.slice(0, 10) ?? '',
-          decisionRoleCode: k.decisionRole?.code ?? '',
-          decisionRoleName: k.decisionRole?.name ?? '',
-          hometown: k.hometown ?? '',
-          favoriteTeam: k.favoriteTeam ?? '',
-          knownIllness: k.knownIllness ?? '',
-          favoriteColor: k.favoriteColor ?? '',
-          graduatedSchool: k.graduatedSchool ?? '',
-          politicalView: k.politicalView ?? '',
-          isPrimary: !!k.isPrimary,
-          note: k.notes ?? '',
-          isBlacklisted: !!k.isBlacklisted,
-          blacklistReason: k.blacklistReason ?? '',
-        }))
+        contactsR.data.map(normalizeContact)
       );
 
-      setCases(
-        opps.data.map((o: any) => {
-          const stageCode = o.stage?.code ?? '';
-          const hasQuote = qts.data.some((q: any) => q.opportunityId === o.id);
-          return {
-            id: o.id,
-            customerId: o.companyId,
-            assignedUserId: o.ownerUserId ?? '',
-            department: '',
-            requestedProduct: o.title ?? '',
-            requestedModel: o.title ?? '',
-            quantity: 1,
-            estimatedAmount: Number(o.estimatedValue ?? 0),
-            currency: (o.currency?.code as 'USD' | 'EUR' | 'TRY') ?? 'USD',
-            stage: STAGE_BY_CODE[stageCode] ?? 'lead',
-            isOfferPrepared: hasQuote,
-            isLost: stageCode === 'cancelled',
-            createdAt: (o.createdAt as string)?.slice(0, 10) ?? '',
-            closedAt: undefined,
-          } as SalesCase;
-        })
-      );
+      const mapCase = (o: any): SalesCase =>
+        ({
+          id: o.id,
+          customerId: o.companyId,
+          assignedUserId: o.ownerUserId ?? '',
+          department: '',
+          requestedProduct: o.title ?? '',
+          requestedModel: o.title ?? '',
+          quantity: 1,
+          estimatedAmount: Number(o.estimatedValue ?? 0),
+          currency: (o.currency?.code as 'USD' | 'EUR' | 'TRY') ?? 'USD',
+          stage: STAGE_BY_CODE[o.stage?.code ?? ''] ?? 'lead',
+          paymentTermDays: o.paymentTermDays === null || o.paymentTermDays === undefined ? undefined : Number(o.paymentTermDays),
+          isOfferPrepared: qts.data.some((q: any) => q.opportunityId === o.id),
+          isLost: (o.stage?.code ?? '') === 'cancelled',
+          createdAt: (o.createdAt as string)?.slice(0, 10) ?? '',
+          closedAt: o.closedAt ? (o.closedAt as string).slice(0, 10) : undefined,
+        }) as SalesCase;
+      setCases(opps.data.map(mapCase));
+      setClosedCases(closedOpps.data.map(mapCase));
 
       const apiProducts = prods.data.map((p: any) => ({
           id: p.id,
@@ -573,6 +719,7 @@ function StoreInner({ children }: { children: ReactNode }) {
           modelName: p.modelName ?? '',
           type: p.productType?.name ?? '',
           productTypeCode: p.productType?.code ?? '',
+          compatibleMachineTypeCode: p.compatibleMachineType?.code ?? undefined,
           controlPanel: p.modelName ?? '',
           category: p.category?.name ?? '',
           categoryCode: p.category?.code ?? '',
@@ -584,18 +731,39 @@ function StoreInner({ children }: { children: ReactNode }) {
           listPrice: Number(p.listPrice ?? 0),
           cashPrice: p.cashPrice === null || p.cashPrice === undefined ? undefined : Number(p.cashPrice),
           currency: (p.currency?.code as 'USD' | 'EUR' | 'TRY') ?? 'USD',
-          vatRate: p.vatRate === null || p.vatRate === undefined ? undefined : Number(p.vatRate),
+          vatRate: normalizeProductVatRate(p.vatRate),
           originCountry: p.originCountry ?? '',
           hsCode: p.hsCode ?? '',
           stockCode: p.stockCode ?? '',
+          supplierCompanyId: p.supplierCompanyId ?? null,
+          optionalCompatibilityGroupCodes: p.optionalCompatibilityGroupCodes ?? [],
+          optionalCompatibilityCategoryCodes: p.optionalCompatibilityCategoryCodes ?? [],
+          optionalCompatibilitySubcategoryCodes: p.optionalCompatibilitySubcategoryCodes ?? [],
+          optionalCompatibilityTypeCodes: p.optionalCompatibilityTypeCodes ?? [],
+          optionalCompatibilityBrandIds: p.optionalCompatibilityBrandIds ?? [],
           specs: (p.specs ?? []).map((s: any) => ({
             key: s.key ?? s.specKey ?? '',
-            value: s.unit ? `${s.value ?? s.specValue ?? ''} ${s.unit}` : s.value ?? s.specValue ?? '',
+            value: s.value ?? s.specValue ?? '',
+            unit: s.unit ?? s.specUnit ?? '',
+            groupCode: s.groupCode ?? s.specGroupCode ?? '',
+            groupName: s.groupName ?? s.group ?? '',
           })).filter((s: any) => s.key && s.value),
           standardEquipment: p.standardEquipment ?? [],
           optionalEquipment: p.optionalEquipment ?? [],
           muadilProductId: p.muadilProductId ?? undefined,
-          status: p.isActive ? 'active' : 'passive',
+          muadilProductIds: p.muadilProductIds ?? (p.muadilProductId ? [p.muadilProductId] : []),
+          muadilProducts: (p.muadilProducts ?? []).map((alt: any) => ({
+            id: alt.id,
+            brand: alt.brand?.name ?? '',
+            model: alt.modelCode ?? '',
+            shortDescription: alt.fullName ?? '',
+            category: alt.category?.name ?? '',
+            categoryCode: alt.category?.code ?? '',
+            type: alt.productType?.name ?? '',
+            listPrice: alt.listPrice == null ? undefined : Number(alt.listPrice),
+            currency: (alt.currency?.code as 'USD' | 'EUR' | 'TRY') ?? 'USD',
+          })),
+          status: (p.isActive ? 'active' : 'passive') as Product['status'],
         }));
       // Products (incl. the imported Haksan CNC catalogue) come from the DB API.
       // Blobs are served by the auth-gated public media endpoint, not bundled.
@@ -618,14 +786,20 @@ function StoreInner({ children }: { children: ReactNode }) {
             category: s.category?.name ?? STOCK_CATEGORY_LABELS[categoryCode],
             reservedCompanyId: s.reservedCompany?.id ?? s.reservedCompanyId ?? undefined,
             reservedCompanyName: s.reservedCompany?.shortName ?? s.reservedCompany?.legalTitle ?? undefined,
+            parentInventoryItemId: s.parentInventoryItemId ?? null,
+            loadingDate: (s.loadingDate as string | undefined)?.slice(0, 10) ?? undefined,
+            arrivalDate: (s.arrivalDate as string | undefined)?.slice(0, 10) ?? undefined,
+            locationStatus: s.locationStatus?.code ?? s.locationStatusCode ?? undefined,
             status:
               s.status?.code === 'available'
                 ? 'Available'
                 : s.status?.code === 'reserved'
                   ? 'Reserved'
-                  : s.status?.code === 'sold'
-                    ? 'Sold'
-                    : 'Inactive',
+                  : s.status?.code === 'in_transit'
+                    ? 'InTransit'
+                    : s.status?.code === 'sold'
+                      ? 'Sold'
+                      : 'Inactive',
           };
         })
       );
@@ -635,6 +809,10 @@ function StoreInner({ children }: { children: ReactNode }) {
           id: q.id,
           salesCaseId: q.opportunityId ?? '',
           companyId: q.companyId ?? '',
+          divisionId: q.divisionId ?? undefined,
+          divisionCode: q.division?.code ?? undefined,
+          divisionName: q.division?.name ?? undefined,
+          businessLine: q.businessLine ?? undefined,
           quoteNo: q.documentNo,
           revision: Number(q.revisionNo ?? 1),
           date: (q.quoteDate as string)?.slice(0, 10) ?? '',
@@ -643,8 +821,11 @@ function StoreInner({ children }: { children: ReactNode }) {
           subtotal: q.subtotal === null || q.subtotal === undefined ? undefined : Number(q.subtotal),
           vatTotal: q.vatAmount === null || q.vatAmount === undefined ? undefined : Number(q.vatAmount),
           currency: (q.currency?.code as 'USD' | 'EUR' | 'TRY') ?? 'USD',
+          priceApprovalStatus: q.priceApprovalStatus ?? 'not_required',
           status:
-            q.status?.code === 'approved'
+            q.priceApprovalStatus === 'pending' || q.status?.code === 'pending_super_admin_approval'
+              ? 'Pending Approval'
+              : q.status?.code === 'approved'
               ? 'Approved'
               : q.status?.code === 'sent'
                 ? 'Sent'
@@ -737,14 +918,19 @@ function StoreInner({ children }: { children: ReactNode }) {
           type: a.type?.name ?? '',
           title: a.subject ?? '',
           note: a.description ?? '',
+          result: a.result ?? '',
           date: (a.activityDate as string)?.slice(0, 10) ?? '',
           byUserId: a.createdBy ?? '',
+          createdByName: a.createdByUser?.fullName ?? a.createdByUser?.email ?? '',
+          files: Array.isArray(a.files) ? a.files : [],
         }))
       );
 
       setMachines(
         (devicesR.data ?? []).map((d: any) => ({
           id: d.id,
+          initialCustomerId: d.initialCompanyId ?? d.companyId ?? '',
+          userCompanyId: d.companyId ?? '',
           customerId: d.companyId ?? '',
           salesCaseId: d.opportunityId ?? '',
           stockItemId: d.inventoryItemId ?? '',
@@ -755,10 +941,13 @@ function StoreInner({ children }: { children: ReactNode }) {
           controlUnit: d.controlUnit ?? '',
           controlUnitSerial: d.controlUnitSerialNumber ?? '',
           productModelId: d.productModelId ?? '',
+          cashPrice: d.cashPrice === null || d.cashPrice === undefined ? undefined : Number(d.cashPrice),
+          currency: (d.currencyCode as 'USD' | 'EUR' | 'TRY') ?? 'USD',
           technicalSpecs: Array.isArray(d.technicalSpecs)
             ? d.technicalSpecs.map((spec: any) => ({
                 key: String(spec.key ?? ''),
-                value: [spec.value, spec.unit].filter(Boolean).join(' '),
+                value: String(spec.value ?? ''),
+                unit: spec.unit ?? spec.specUnit ?? '',
               }))
             : [],
           deliveryDate: (d.deliveryDate as string)?.slice(0, 10) ?? '',
@@ -814,6 +1003,7 @@ function StoreInner({ children }: { children: ReactNode }) {
         status: mapStatus(p.status?.code),
         note: p.notes ?? p.paymentMethod ?? '',
         invoiceNo: p.invoiceNo ?? undefined,
+        paymentMethod: p.paymentMethod ?? 'bank_transfer',
         source: 'payment',
       }));
       setPayments([...receivablePayments, ...completedPayments]);
@@ -856,6 +1046,7 @@ function StoreInner({ children }: { children: ReactNode }) {
         ...(contractsR.data ?? []).map((d: any) => ({
           id: d.id,
           salesCaseId: d.quote?.opportunityId ?? '',
+          quoteId: d.quoteId ?? d.quote?.id ?? undefined,
           companyId: docCompanyId(d),
           type: 'Contract' as const,
           fileName: d.contractNo ?? 'Sözleşme',
@@ -867,6 +1058,7 @@ function StoreInner({ children }: { children: ReactNode }) {
         ...(invoicesR.data ?? []).map((d: any) => ({
           id: d.id,
           salesCaseId: d.quote?.opportunityId ?? '',
+          quoteId: d.quoteId ?? d.quote?.id ?? undefined,
           companyId: docCompanyId(d),
           type: 'CommercialInvoice' as const,
           fileName: d.invoiceNo ?? 'Ticari Fatura',
@@ -874,6 +1066,29 @@ function StoreInner({ children }: { children: ReactNode }) {
           uploadedAt: (d.invoiceDate as string)?.slice(0, 10) ?? '',
           size: d.fileId ? 'Dosya bağlı' : 'Kayıt',
           fileId: d.fileId ?? undefined,
+        })),
+        ...(deliveriesR.data ?? []).map((d: any) => ({
+          id: `delivery-form-${d.id}`,
+          salesCaseId: d.opportunityId ?? '',
+          companyId: d.companyId ?? '',
+          deliveryId: d.id,
+          type: 'DeliveryForm' as const,
+          fileName: d.formData?.formNo ?? `Teslim Formu ${String(d.id ?? '').slice(0, 8).toUpperCase()}`,
+          uploadedBy: '',
+          uploadedAt: (d.deliveryDate as string)?.slice(0, 10) ?? (d.createdAt as string)?.slice(0, 10) ?? '',
+          size: 'Canlı form',
+        })),
+        ...(installationsR.data ?? []).map((d: any) => ({
+          id: `installation-form-${d.id}`,
+          salesCaseId: d.opportunityId ?? '',
+          companyId: d.companyId ?? '',
+          installationId: d.id,
+          installationData: d,
+          type: 'InstallationForm' as const,
+          fileName: d.formData?.formNo ?? `Kurulum Formu ${String(d.id ?? '').slice(0, 8).toUpperCase()}`,
+          uploadedBy: d.assignedTo?.id ?? d.assignedToUserId ?? '',
+          uploadedAt: (d.completedAt as string)?.slice(0, 10) ?? (d.scheduledDate as string)?.slice(0, 10) ?? (d.createdAt as string)?.slice(0, 10) ?? '',
+          size: 'Canlı form',
         })),
         ...(fileLinksR.data ?? []).map((row: any) => ({
           id: row.id ?? row.file?.id,
@@ -898,16 +1113,65 @@ function StoreInner({ children }: { children: ReactNode }) {
       });
       setDocuments(dedupedDocs);
 
+      setInstallations(
+        (installationsR.data ?? []).map((i: any) => {
+          const device = i.customerDevice ?? {};
+          const deviceLabel =
+            [device.brandName, device.model ?? device.productModelName].filter(Boolean).join(' ') ||
+            device.productModelName ||
+            'Cihaz seçilmedi';
+          return {
+            id: i.id,
+            salesCaseId: i.opportunityId ?? '',
+            customerId: i.companyId ?? '',
+            statusCode: i.status?.code ?? '',
+            statusName: i.status?.name ?? i.status?.code ?? 'Planlandı',
+            technician: i.assignedTo?.fullName ?? 'Atanmadı',
+            scheduledDate: (i.scheduledDate as string | undefined)?.slice(0, 10) ?? '',
+            completedDate: (i.completedAt as string | undefined)?.slice(0, 10) ?? '',
+            deviceLabel,
+            serialNumber: device.serialNumber ?? '',
+          };
+        })
+      );
+
       setShipments(
         (shipmentsR.data ?? []).map((s: any) => ({
           id: s.id,
           salesCaseId: s.opportunityId ?? '',
+          senderCompanyId: s.senderCompanyId ?? undefined,
+          senderCompanyName: s.senderCompany?.shortName ?? s.senderCompany?.legalTitle ?? undefined,
+          senderName: s.senderName ?? undefined,
+          carrierCompanyId: s.carrierCompanyId ?? undefined,
+          carrierCompanyName: s.carrierCompany?.shortName ?? s.carrierCompany?.legalTitle ?? undefined,
+          transportMode: s.transportMode ?? undefined,
+          productCategoryCode: s.productCategoryCode ?? undefined,
+          destinationWarehouseId: s.destinationWarehouseId ?? undefined,
+          destinationWarehouseName: s.destinationWarehouse?.name ?? undefined,
+          deliveryAddressId: s.deliveryAddressId ?? undefined,
+          deliveryAddressSnapshot: s.deliveryAddressSnapshot ?? undefined,
+          loadingDate: (s.loadingDate as string | undefined)?.slice(0, 10) ?? undefined,
           trackingNo: s.trackingNo ?? s.shipmentNo ?? s.id?.slice(0, 8) ?? '—',
-          carrier: s.carrier ?? '—',
+          carrier: s.carrierCompany?.shortName ?? s.carrierCompany?.legalTitle ?? s.carrier ?? '—',
           origin: s.origin ?? '',
           destination: s.destination ?? '',
           status: shipmentStatusFromCode(s.status?.code),
           eta: (s.eta as string | undefined)?.slice(0, 10) ?? (s.arrivedAt as string | undefined)?.slice(0, 10) ?? '',
+          items: (s.items ?? []).map((item: any) => ({
+            id: item.id,
+            productModelId: item.productModelId ?? undefined,
+            inventoryItemId: item.inventoryItemId ?? undefined,
+            description: item.description ?? '',
+            serialNumber: item.serialNumber ?? undefined,
+            quantity: item.quantity == null ? undefined : Number(item.quantity),
+            packageCount: item.packageCount == null ? undefined : Number(item.packageCount),
+            palletCount: item.palletCount == null ? undefined : Number(item.palletCount),
+            packageLengthCm: item.packageLengthCm == null ? undefined : Number(item.packageLengthCm),
+            packageWidthCm: item.packageWidthCm == null ? undefined : Number(item.packageWidthCm),
+            packageHeightCm: item.packageHeightCm == null ? undefined : Number(item.packageHeightCm),
+            grossWeightKg: item.grossWeightKg == null ? undefined : Number(item.grossWeightKg),
+            packageNotes: item.packageNotes ?? undefined,
+          })),
         }))
       );
 
@@ -929,6 +1193,7 @@ function StoreInner({ children }: { children: ReactNode }) {
                 cnc: d.formData.cnc,
                 ilgili: d.formData.ilgili,
                 kurulumuYapan: d.formData.kurulumuYapan,
+                technicalSpecs: d.formData.technicalSpecs,
               }
             : undefined,
         }))
@@ -936,17 +1201,36 @@ function StoreInner({ children }: { children: ReactNode }) {
     } finally {
       setLoading(false);
     }
-  }, [authed, sessionReady, user?.permissions]);
+  }, [authed, sessionReady, user?.permissions, activeDepartment, activeDivision]);
 
-  // Aktif bölüm değişince (CNC/Üniversal/Sac/Tümü) tüm veriyi yeni
-  // `X-Active-Division` başlığıyla yeniden çek.
+  const fetchAll = useCallback(async () => {
+    if (fetchAllInFlightRef.current) {
+      fetchAllQueuedRef.current = true;
+      return fetchAllInFlightRef.current;
+    }
+
+    const run = (async () => {
+      do {
+        fetchAllQueuedRef.current = false;
+        await fetchAllOnce();
+      } while (fetchAllQueuedRef.current);
+    })().finally(() => {
+      fetchAllInFlightRef.current = null;
+    });
+
+    fetchAllInFlightRef.current = run;
+    return run;
+  }, [fetchAllOnce]);
+
+  // Aktif bölüm/departman değişince tüm veriyi yeni scope başlıklarıyla yeniden çek.
   useEffect(() => {
     fetchAll();
-  }, [fetchAll, user?.id, sessionReady, activeDivision]);
+  }, [fetchAll, user?.id, sessionReady, activeDivision, activeDepartment]);
 
   const addCustomer: Store['addCustomer'] = async (c) => {
     const rawWebsite = c.website?.trim();
     const website = rawWebsite ? (/^https?:\/\//i.test(rawWebsite) ? rawWebsite : `https://${rawWebsite}`) : undefined;
+    const hasCoordinates = c.latitude != null && c.longitude != null;
     const created = await companyService.create({
       companyType: c.type === 'person' ? 'person' : 'company',
       legalTitle: c.name,
@@ -960,18 +1244,34 @@ function StoreInner({ children }: { children: ReactNode }) {
       fax: c.fax || undefined,
       primaryEmail: c.email || undefined,
       secondaryEmail: c.email2 || undefined,
-      address: c.address || c.city || c.district || c.country
+      addresses: c.addresses?.map((a) => ({
+        id: a.id,
+        addressType: a.addressType,
+        country: a.country || 'Türkiye',
+        province: a.city || undefined,
+        district: a.district || undefined,
+        fullAddress: a.address || undefined,
+        latitude: a.latitude,
+        longitude: a.longitude,
+        isDefault: Boolean(a.isDefault),
+      })),
+      address: !c.addresses?.length && (c.address || c.city || c.district || c.country || hasCoordinates)
         ? {
             country: c.country || 'Türkiye',
             province: c.city || undefined,
             district: c.district || undefined,
             fullAddress: c.address || undefined,
+            latitude: hasCoordinates ? c.latitude : undefined,
+            longitude: hasCoordinates ? c.longitude : undefined,
           }
         : undefined,
       notes: c.initialNote || undefined,
       relationTypeCode: c.firmType === 'supplier' ? 'supplier' : c.firmType === 'supplier_customer' ? 'supplier_customer' : 'customer',
       customerStatusCode: c.salesStatus === 'active_customer' ? 'active' : 'potential',
       companyGroupCode: c.companyGroupCode || undefined,
+      companyGroupCodes: c.companyGroupCodes?.length ? c.companyGroupCodes : undefined,
+      divisionId: c.divisionId || undefined,
+      divisionIds: c.divisionId ? [c.divisionId] : c.divisions?.map((division) => division.id),
       contactSourceCode: c.contactSourceCode || undefined,
     });
     await fetchAll();
@@ -982,6 +1282,8 @@ function StoreInner({ children }: { children: ReactNode }) {
       salesStatus: c.salesStatus,
       companyGroupCode: c.companyGroupCode,
       companyGroupName: c.companyGroupName,
+      companyGroupCodes: c.companyGroupCodes,
+      companyGroupNames: c.companyGroupNames,
       contactSourceCode: c.contactSourceCode,
       sector: c.sector,
       name: c.name,
@@ -995,6 +1297,10 @@ function StoreInner({ children }: { children: ReactNode }) {
       district: c.district ?? '',
       country: c.country ?? '',
       address: c.address ?? '',
+      addresses: c.addresses,
+      latitude: c.latitude,
+      longitude: c.longitude,
+      locationSource: c.locationSource ?? (hasCoordinates ? 'osm' : undefined),
       taxOffice: c.taxOffice ?? '',
       taxNumber: c.taxNumber,
       website: c.website ?? '',
@@ -1008,28 +1314,45 @@ function StoreInner({ children }: { children: ReactNode }) {
 
   const updateCustomer: Store['updateCustomer'] = async (id, patch) => {
     const rawWebsite = patch.website?.trim();
-    const website = rawWebsite ? (/^https?:\/\//i.test(rawWebsite) ? rawWebsite : `https://${rawWebsite}`) : undefined;
+    const website = rawWebsite ? (/^https?:\/\//i.test(rawWebsite) ? rawWebsite : `https://${rawWebsite}`) : null;
     const body: Record<string, unknown> = {};
     if (patch.name !== undefined) body.legalTitle = patch.name;
-    if (patch.sector !== undefined) body.sector = patch.sector || undefined;
-    if (patch.taxOffice !== undefined) body.taxOffice = patch.taxOffice || undefined;
-    if (patch.taxNumber !== undefined) body.taxNumber = patch.taxNumber || undefined;
+    if (patch.type !== undefined) body.companyType = patch.type;
+    if (patch.sector !== undefined) body.sector = patch.sector || null;
+    if (patch.taxOffice !== undefined) body.taxOffice = patch.taxOffice || null;
+    if (patch.taxNumber !== undefined) body.taxNumber = patch.taxNumber || null;
     if (patch.website !== undefined) body.website = website;
-    if (patch.phone !== undefined) body.primaryPhone = patch.phone || undefined;
-    if (patch.phone2 !== undefined) body.secondaryPhone = patch.phone2 || undefined;
-    if (patch.fax !== undefined) body.fax = patch.fax || undefined;
-    if (patch.email !== undefined) body.primaryEmail = patch.email || undefined;
-    if (patch.email2 !== undefined) body.secondaryEmail = patch.email2 || undefined;
+    if (patch.phone !== undefined) body.primaryPhone = patch.phone || null;
+    if (patch.phone2 !== undefined) body.secondaryPhone = patch.phone2 || null;
+    if (patch.fax !== undefined) body.fax = patch.fax || null;
+    if (patch.email !== undefined) body.primaryEmail = patch.email || null;
+    if (patch.email2 !== undefined) body.secondaryEmail = patch.email2 || null;
+    if (patch.initialNote !== undefined) body.notes = patch.initialNote || null;
+    if (patch.contactSourceCode !== undefined) body.contactSourceCode = patch.contactSourceCode || null;
+    if (patch.companyGroupCodes !== undefined) body.companyGroupCodes = patch.companyGroupCodes;
+    if (patch.divisions !== undefined) body.divisionIds = patch.divisions.map((division) => division.id);
     if (patch.firmType !== undefined)
       body.relationTypeCode = patch.firmType === 'supplier' ? 'supplier' : patch.firmType === 'supplier_customer' ? 'supplier_customer' : 'customer';
     if (patch.salesStatus !== undefined)
       body.customerStatusCode = patch.salesStatus === 'active_customer' ? 'active' : 'potential';
-    if (patch.city !== undefined || patch.district !== undefined || patch.country !== undefined || patch.address !== undefined) {
+    if (patch.addresses !== undefined) {
+      body.addresses = patch.addresses.map((address) => ({
+        id: address.id,
+        addressType: address.addressType,
+        country: address.country || 'Türkiye',
+        province: address.city || undefined,
+        district: address.district || undefined,
+        fullAddress: address.address || undefined,
+        latitude: address.latitude,
+        longitude: address.longitude,
+        isDefault: address.isDefault,
+      }));
+    } else if (patch.city !== undefined || patch.district !== undefined || patch.country !== undefined || patch.address !== undefined) {
       body.address = {
         country: patch.country ?? undefined,
         province: patch.city ?? undefined,
         district: patch.district ?? undefined,
-        street: patch.address ?? undefined,
+        fullAddress: patch.address ?? undefined,
       };
     }
     await companyService.update(id, body);
@@ -1055,21 +1378,19 @@ function StoreInner({ children }: { children: ReactNode }) {
       personalEmail: k.personalEmail,
       otherEmail: k.otherEmail,
       gender: k.gender,
-      birthDate: k.birthDate,
+      birthDate: k.birthDate ? new Date(k.birthDate) : undefined,
       decisionRoleCode: k.decisionRoleCode,
       hometown: k.hometown,
       favoriteTeam: k.favoriteTeam,
-      knownIllness: k.knownIllness,
       favoriteColor: k.favoriteColor,
       graduatedSchool: k.graduatedSchool,
-      politicalView: k.politicalView,
       isPrimary: k.isPrimary,
       notes: k.note,
-      isBlacklisted: k.isBlacklisted,
+      isBlacklisted: k.isBlacklisted ?? false,
       blacklistReason: k.blacklistReason,
     });
     await fetchAll();
-    return { id: created.id, ...k };
+    return normalizeContact(created);
   };
 
   const updateContact: Store['updateContact'] = async (id, patch) => {
@@ -1085,14 +1406,12 @@ function StoreInner({ children }: { children: ReactNode }) {
       personalEmail: patch.personalEmail,
       otherEmail: patch.otherEmail,
       gender: patch.gender,
-      birthDate: patch.birthDate,
+      birthDate: patch.birthDate ? new Date(patch.birthDate) : undefined,
       decisionRoleCode: patch.decisionRoleCode,
       hometown: patch.hometown,
       favoriteTeam: patch.favoriteTeam,
-      knownIllness: patch.knownIllness,
       favoriteColor: patch.favoriteColor,
       graduatedSchool: patch.graduatedSchool,
-      politicalView: patch.politicalView,
       isPrimary: patch.isPrimary,
       notes: patch.note,
       isBlacklisted: patch.isBlacklisted,
@@ -1114,10 +1433,30 @@ function StoreInner({ children }: { children: ReactNode }) {
       activityTypeCode,
       subject: a.title,
       description: a.note,
-      activityDate: a.date ?? new Date().toISOString().slice(0, 10),
+      activityDate: new Date(a.date ?? new Date().toISOString().slice(0, 10)),
+      result: a.result || undefined,
     });
     await fetchAll();
     return { ...a, id: created.id, date: a.date ?? new Date().toISOString().slice(0, 10) } as Activity;
+  };
+
+  const updateActivity: Store['updateActivity'] = async (id, patch) => {
+    const activityTypeCode = patch.type ? activityTypeCodeFromLabel(patch.type) ?? 'note' : undefined;
+    await activityService.update(id, {
+      opportunityId: patch.salesCaseId || undefined,
+      companyId: patch.customerId || undefined,
+      activityTypeCode,
+      subject: patch.title,
+      description: patch.note,
+      activityDate: patch.date ? new Date(patch.date) : undefined,
+      result: patch.result,
+    });
+    await fetchAll();
+  };
+
+  const deleteActivity: Store['deleteActivity'] = async (id) => {
+    await activityService.remove(id);
+    await fetchAll();
   };
 
   const addCase: Store['addCase'] = async (c) => {
@@ -1129,6 +1468,7 @@ function StoreInner({ children }: { children: ReactNode }) {
       estimatedValue: c.estimatedAmount,
       currencyCode: c.currency,
       probability: 50,
+      paymentTermDays: c.paymentTermDays ?? undefined,
       divisionId: c.divisionId || undefined,
     });
     const targetStage = c.stage ?? 'lead';
@@ -1147,6 +1487,14 @@ function StoreInner({ children }: { children: ReactNode }) {
       isOfferPrepared: false,
       createdAt: new Date().toISOString().slice(0, 10),
     } as SalesCase;
+  };
+
+  const updateCase: Store['updateCase'] = async (id, patch) => {
+    const body: Record<string, unknown> = {};
+    if (patch.assignedUserId !== undefined) body.ownerUserId = patch.assignedUserId || null;
+    if (patch.paymentTermDays !== undefined) body.paymentTermDays = patch.paymentTermDays ?? null;
+    await opportunityService.update(id, body);
+    await fetchAll();
   };
 
   const deleteCase: Store['deleteCase'] = async (id) => {
@@ -1171,6 +1519,19 @@ function StoreInner({ children }: { children: ReactNode }) {
     await fetchAll();
   };
 
+  // Mantıksal kapanış (Bitir): terminal kartı arşivler — silmez. Backend closedAt set eder,
+  // kart aktif listeden düşer (view=active), Geçmiş'te görünür. delivered ise servise devir korunur.
+  const closeCase: Store['closeCase'] = async (id, reason) => {
+    await opportunityService.close(id, reason ? { reason } : undefined);
+    await fetchAll();
+  };
+
+  // Geri Aç: kapanışı geri alır, kart aktif panoya döner.
+  const reopenCase: Store['reopenCase'] = async (id) => {
+    await opportunityService.reopen(id);
+    await fetchAll();
+  };
+
   // Fırsatı "Kaybedildi" (cancelled) olarak işaretler; gerçek ret nedeni ve
   // (varsa) tercih edilen rakip bilgisini backend'e geçirir.
   const markCaseLost: Store['markCaseLost'] = async (id, payload) => {
@@ -1189,7 +1550,7 @@ function StoreInner({ children }: { children: ReactNode }) {
     const created = await quoteService.create({
       opportunityId: o.salesCaseId,
       companyId: sc.customerId,
-      quoteDate: new Date().toISOString(),
+      quoteDate: new Date(),
       validityDays: 15,
       currencyCode: o.currency,
       paymentTerms: o.note,
@@ -1199,6 +1560,8 @@ function StoreInner({ children }: { children: ReactNode }) {
       id: created.id,
       salesCaseId: o.salesCaseId,
       quoteNo: created.documentNo,
+      divisionId: created.divisionId ?? undefined,
+      businessLine: created.businessLine ?? undefined,
       revision: o.revision ?? 1,
       date: new Date().toISOString().slice(0, 10),
       amount: o.amount,
@@ -1224,15 +1587,18 @@ function StoreInner({ children }: { children: ReactNode }) {
       opportunityId = opp.id;
       createdNewCase = true;
     }
+    if (!opportunityId) throw new Error('Teklif için satış kartı oluşturulamadı');
 
     const quote = await quoteService.create({
       opportunityId,
       companyId: p.companyId,
       contactId: p.contactId || undefined,
-      quoteDate: p.quoteDate,
+      quoteDate: new Date(p.quoteDate),
       validityDays: p.validityDays,
       documentNo: p.documentNo || undefined,
       currencyCode: p.currencyCode,
+      headerDiscountAmount: p.headerDiscountAmount ?? 0,
+      headerDiscountPercent: p.headerDiscountPercent ?? 0,
       projectOwnerUserId: p.projectOwnerUserId || undefined,
       notes: p.notes || undefined,
       paymentTerms: p.paymentTermsText || undefined,
@@ -1245,13 +1611,23 @@ function StoreInner({ children }: { children: ReactNode }) {
       const it = p.items[i];
       await quoteService.addItem(quote.id, {
         productModelId: it.productModelId || undefined,
+        stockCode: it.stockCode || undefined,
         description: it.description,
         quantity: it.quantity,
+        unitCode: 'adet',
         unitPrice: it.unitPrice,
         discountAmount: it.discountAmount,
         vatRate: it.vatRate,
         sortOrder: i,
-        compatibility: it.compatibility,
+        compatibility: it.compatibility
+          ? {
+              machineIds: it.compatibility.machineIds ?? [],
+              brands: it.compatibility.brands ?? [],
+              controlUnits: it.compatibility.controlUnits ?? [],
+              supplierIds: it.compatibility.supplierIds ?? [],
+              technicalSpecs: it.compatibility.technicalSpecs ?? [],
+            }
+          : undefined,
       });
     }
 
@@ -1277,7 +1653,7 @@ function StoreInner({ children }: { children: ReactNode }) {
         activityTypeCode: 'note',
         subject: 'Teklif oluşturuldu',
         description: quote.documentNo,
-        activityDate: new Date().toISOString().slice(0, 10),
+        activityDate: new Date(),
       })
       .catch(() => undefined);
 
@@ -1310,7 +1686,7 @@ function StoreInner({ children }: { children: ReactNode }) {
     const brands = await productService.listBrands();
     let brand = brands.find((b: any) => b.name?.toLocaleLowerCase('tr-TR') === p.brand.toLocaleLowerCase('tr-TR'));
     if (!brand) brand = await productService.createBrand({ name: p.brand || 'Generic' });
-    const created = await productService.create(productApiPayload(p, brand.id));
+    const created = await productService.create(productApiPayload(p, brand.id) as ProductCreateInput);
     await productService.replaceDetails(created.id, productDetailsPayload(p));
     await fetchAll();
     return { id: created.id, ...p, status: p.status ?? 'active' } as Product;
@@ -1325,8 +1701,56 @@ function StoreInner({ children }: { children: ReactNode }) {
       brandId = brand.id;
     }
     await productService.update(id, productApiPayload(patch, brandId));
-    await productService.replaceDetails(id, productDetailsPayload(patch));
+    const current = products.find((item) => item.id === id);
+    await productService.replaceDetails(id, productDetailsPayload({
+      productTypeCode: patch.productTypeCode ?? current?.productTypeCode,
+      specs: patch.specs ?? current?.specs ?? [],
+      standardEquipment: patch.standardEquipment ?? current?.standardEquipment ?? [],
+      optionalEquipment: patch.optionalEquipment ?? current?.optionalEquipment ?? [],
+    }));
     await fetchAll();
+  };
+
+  // Sadece verilen alanları PATCH'ler; specs/donanıma dokunmaz. API yalnızca
+  // `!== undefined` alanları yazdığı için kısmi gönderim güvenlidir.
+  const patchProduct: Store['patchProduct'] = async (id, fields) => {
+    const apiPatch: Record<string, unknown> = {};
+    const localPatch: Partial<Omit<Product, 'id'>> = { ...fields };
+    if (fields.listPrice !== undefined) apiPatch.listPrice = toOptionalNumber(fields.listPrice);
+    if (fields.cashPrice !== undefined) apiPatch.cashPrice = toOptionalNumber(fields.cashPrice);
+    if (fields.vatRate !== undefined) {
+      const vatRate = normalizeProductVatRate(fields.vatRate);
+      apiPatch.vatRate = vatRate;
+      localPatch.vatRate = vatRate;
+    }
+    if (fields.currency !== undefined) apiPatch.currencyCode = fields.currency;
+    if (fields.stockCode !== undefined) apiPatch.stockCode = cleanString(fields.stockCode);
+    if (fields.originCountry !== undefined) apiPatch.originCountry = cleanString(fields.originCountry);
+    if (fields.hsCode !== undefined) apiPatch.hsCode = cleanString(fields.hsCode);
+    if (fields.modelName !== undefined) apiPatch.modelName = cleanString(fields.modelName);
+    if (fields.description !== undefined) apiPatch.description = cleanString(fields.description);
+    if (fields.muadilProductIds !== undefined) {
+      const muadilProductIds = fields.muadilProductIds.filter(Boolean);
+      apiPatch.muadilProductIds = muadilProductIds;
+      apiPatch.muadilProductId = muadilProductIds[0] ?? null;
+      localPatch.muadilProductIds = muadilProductIds;
+      localPatch.muadilProductId = muadilProductIds[0] ?? null;
+      localPatch.muadilProducts = products
+        .filter((product) => muadilProductIds.includes(product.id))
+        .map((product) => ({
+          id: product.id,
+          brand: product.brand,
+          model: product.model,
+          shortDescription: product.shortDescription,
+          category: product.category,
+          categoryCode: product.categoryCode,
+          type: product.type,
+          listPrice: product.listPrice,
+          currency: product.currency,
+        }));
+    }
+    await productService.update(id, apiPatch);
+    setProducts((prev) => prev.map((p) => (p.id === id ? { ...p, ...localPatch } : p)));
   };
 
   const deleteProduct: Store['deleteProduct'] = async (id) => {
@@ -1351,12 +1775,22 @@ function StoreInner({ children }: { children: ReactNode }) {
       s.optionalHardware ? `Opsiyon Donanım: ${s.optionalHardware}` : '',
       s.spareParts ? `Yedek Parça: ${s.spareParts}` : '',
     ].filter(Boolean).join('\n');
+    const createStatusCodeMap: Record<StockItem['status'], string> = {
+      Available: 'available',
+      Reserved: 'reserved',
+      InTransit: 'in_transit',
+      Sold: 'sold',
+      Inactive: 'damaged',
+    };
 
     const created = await inventoryService.create({
       productModelId: product.id,
+      parentInventoryItemId: s.parentInventoryItemId ?? undefined,
       serialNumber: s.serialNumber,
       controlUnit: s.controlPanel,
-      stockStatusCode: 'available',
+      loadingDate: toOptionalDate(s.loadingDate),
+      arrivalDate: toOptionalDate(s.arrivalDate),
+      stockStatusCode: createStatusCodeMap[s.status] ?? 'available',
       notes: extraNotes || undefined,
     });
     await fetchAll();
@@ -1374,6 +1808,7 @@ function StoreInner({ children }: { children: ReactNode }) {
     const codeMap: Record<StockItem['status'], string> = {
       Available: 'available',
       Reserved: 'reserved',
+      InTransit: 'in_transit',
       Sold: 'sold',
       Inactive: 'damaged',
     };
@@ -1390,34 +1825,71 @@ function StoreInner({ children }: { children: ReactNode }) {
   const addShipment: Store['addShipment'] = async (s) => {
     const created = await serviceService.createShipment({
       opportunityId: s.salesCaseId || undefined,
+      senderCompanyId: s.senderCompanyId || undefined,
+      senderName: s.senderName || undefined,
+      carrierCompanyId: s.carrierCompanyId || undefined,
+      transportMode: s.transportMode || undefined,
+      productCategoryCode: s.productCategoryCode || undefined,
+      destinationWarehouseId: s.destinationWarehouseId || undefined,
+      deliveryAddressId: s.deliveryAddressId || undefined,
+      deliveryAddressSnapshot: s.deliveryAddressSnapshot || undefined,
+      loadingDate: toOptionalDate(s.loadingDate),
       trackingNo: s.trackingNo,
       carrier: s.carrier,
       origin: s.origin || undefined,
       destination: s.destination || undefined,
-      eta: s.eta || undefined,
+      eta: toOptionalDate(s.eta),
       statusCode: shipmentStatusToCode(s.status),
+      items: s.items?.map((item, index) => ({
+        inventoryItemId: item.inventoryItemId || undefined,
+        productModelId: item.productModelId || undefined,
+        description: item.description,
+        serialNumber: item.serialNumber || undefined,
+        quantity: item.quantity ?? 1,
+        unitCode: 'adet',
+        sortOrder: index,
+        packageCount: item.packageCount,
+        palletCount: item.palletCount,
+        packageLengthCm: item.packageLengthCm,
+        packageWidthCm: item.packageWidthCm,
+        packageHeightCm: item.packageHeightCm,
+        grossWeightKg: item.grossWeightKg,
+        packageNotes: item.packageNotes || undefined,
+      })),
     });
     await fetchAll();
     return { id: created.id, ...s };
   };
-  const updateShipmentStatus: Store['updateShipmentStatus'] = async (id, status) => {
-    await serviceService.updateShipmentStatus(id, shipmentStatusToCode(status));
-    setShipments((prev) => prev.map((s) => (s.id === id ? { ...s, status } : s)));
+  const startShipment: Store['startShipment'] = async (id, loadingDate) => {
+    await serviceService.startShipment(id, { loadingDate: toOptionalDate(loadingDate) });
+    await fetchAll();
+  };
+  const deleteShipment: Store['deleteShipment'] = async (id) => {
+    await serviceService.deleteShipment(id);
+    await fetchAll();
+  };
+  const deleteDelivery: Store['deleteDelivery'] = async (id) => {
+    await serviceService.deleteDelivery(id);
+    await fetchAll();
+  };
+  const updateShipmentStatus: Store['updateShipmentStatus'] = async (id, status, options) => {
+    await serviceService.updateShipmentStatus(id, {
+      statusCode: shipmentStatusToCode(status),
+      destinationWarehouseId: options?.destinationWarehouseId,
+      loadingDate: toOptionalDate(options?.loadingDate),
+      arrivedAt: toOptionalDate(options?.arrivedAt),
+    });
+    await fetchAll();
   };
   const addDelivery: Store['addDelivery'] = async (d) => {
     const created = await serviceService.createDelivery({
       companyId: d.customerId,
       opportunityId: d.salesCaseId || undefined,
       shipmentId: d.shipmentId || undefined,
-      deliveryDate: d.date,
+      deliveryDate: new Date(d.date),
       signedBy: d.signedBy === '—' ? undefined : d.signedBy,
       status: deliveryStatusToCode(d.status),
-      formData: d.formData
-        ? {
-            ...d.formData,
-            kurulumTarihi: d.formData.kurulumTarihi || undefined,
-          }
-        : undefined,
+      formData: deliveryFormDataPayload(d.formData),
     });
     await fetchAll();
     return {
@@ -1435,16 +1907,16 @@ function StoreInner({ children }: { children: ReactNode }) {
     }
     const serial = delivery.formData?.tezgah?.seriNo;
     if (serial && serial !== '—') {
-      const exists = machines.some(m => m.serialNumber === serial);
-      if (!exists) {
+      const existingMachine = machines.find(m => m.serialNumber === serial);
+      const cncMarka = delivery.formData?.cnc?.marka || '';
+      const cncModel = delivery.formData?.cnc?.model || '';
+      const controlUnit = [cncMarka, cncModel].filter(Boolean).join(' ');
+      const controlUnitSerial = delivery.formData?.cnc?.seriNo || '';
+      if (!existingMachine) {
         try {
           const brand = delivery.formData?.tezgah?.marka || '';
           const model = delivery.formData?.tezgah?.model || '—';
           const type = delivery.formData?.tezgah?.tip || '';
-          const cncMarka = delivery.formData?.cnc?.marka || '';
-          const cncModel = delivery.formData?.cnc?.model || '';
-          const controlUnit = [cncMarka, cncModel].filter(Boolean).join(' ');
-          const controlUnitSerial = delivery.formData?.cnc?.seriNo || '';
           await addMachine({
             customerId: delivery.customerId,
             salesCaseId: delivery.salesCaseId || '',
@@ -1467,6 +1939,22 @@ function StoreInner({ children }: { children: ReactNode }) {
           console.error('Failed to auto create machine on delivery completion', err);
         }
       }
+      // Kontrol ünitesi bilgisi customerDevices'ta değil, bağlı inventoryItem'da
+      // tutulur; teslimat tutanağında girilen değeri kurulum formunun ürün
+      // kaydından okuyabilmesi için oraya senkronize etmemiz gerekir.
+      const linkedMachine = existingMachine ?? machines.find(m => m.id === delivery.formData?.machineId);
+      const stockItemId = linkedMachine?.stockItemId;
+      if (stockItemId && controlUnit) {
+        try {
+          await inventoryService.update(stockItemId, {
+            controlUnit,
+            controlUnitSerialNumber: controlUnitSerial || undefined,
+          });
+          await fetchAll();
+        } catch (err) {
+          console.error('Failed to sync control unit info to inventory item', err);
+        }
+      }
     }
   };
 
@@ -1475,15 +1963,10 @@ function StoreInner({ children }: { children: ReactNode }) {
       companyId: d.customerId,
       opportunityId: d.salesCaseId,
       shipmentId: d.shipmentId,
-      deliveryDate: d.date,
+      deliveryDate: d.date ? new Date(d.date) : undefined,
       signedBy: d.signedBy === '—' ? undefined : d.signedBy,
       status: d.status ? deliveryStatusToCode(d.status) : undefined,
-      formData: d.formData
-        ? {
-            ...d.formData,
-            kurulumTarihi: d.formData.kurulumTarihi || undefined,
-          }
-        : undefined,
+      formData: deliveryFormDataPayload(d.formData),
     });
     await fetchAll();
 
@@ -1580,16 +2063,19 @@ function StoreInner({ children }: { children: ReactNode }) {
   const addMachine: Store['addMachine'] = async (m) => {
     const created = await inventoryService.createCustomerDevice({
       companyId: m.customerId,
+      initialCompanyId: m.initialCustomerId || m.customerId,
       inventoryItemId: m.stockItemId || undefined,
       opportunityId: m.salesCaseId || undefined,
-      installationDate: m.installationDate || undefined,
-      warrantyStartDate: m.warrantyStart || undefined,
-      warrantyEndDate: m.warrantyEnd || undefined,
+      installationDate: toOptionalDate(m.installationDate),
+      warrantyStartDate: toOptionalDate(m.warrantyStart),
+      warrantyEndDate: toOptionalDate(m.warrantyEnd),
       notes: [m.model, m.serialNumber].filter(Boolean).join(' · ') || undefined,
     });
     await fetchAll();
     const mapped: Machine = {
       id: created.id,
+      initialCustomerId: created.initialCompanyId ?? m.initialCustomerId ?? m.customerId,
+      userCompanyId: created.companyId ?? m.customerId,
       customerId: m.customerId,
       salesCaseId: m.salesCaseId ?? '',
       stockItemId: m.stockItemId ?? '',
@@ -1601,6 +2087,11 @@ function StoreInner({ children }: { children: ReactNode }) {
       status: m.status ?? 'Active',
     };
     return mapped;
+  };
+
+  const updateMachineCustomer: Store['updateMachineCustomer'] = async (id, customerId) => {
+    await inventoryService.updateCustomerDevice(id, { companyId: customerId });
+    await fetchAll();
   };
 
   const moveService: Store['moveService'] = async (id, to) => {
@@ -1646,23 +2137,34 @@ function StoreInner({ children }: { children: ReactNode }) {
   const updateService: Store['updateService'] = async (id, patch) => {
     const current = service.find((s) => s.id === id);
     if (!current) return;
-    const merged = { ...current, ...patch };
+    const nextPatch = { ...patch };
+    if (nextPatch.noteHistory !== undefined) {
+      nextPatch.serviceNote = (nextPatch.noteHistory ?? [])
+        .map((item) => item.text.trim())
+        .filter(Boolean)
+        .join('\n\n');
+    }
+    const merged = { ...current, ...nextPatch };
     const apiPatch: Record<string, unknown> = {};
-    if (patch.description !== undefined) apiPatch.description = patch.description;
-    if (patch.diagnosisNote !== undefined) {
+    if (nextPatch.description !== undefined) apiPatch.description = nextPatch.description;
+    if (nextPatch.diagnosisNote !== undefined) {
       const prev = current.diagnosisNote?.trim() ?? '';
-      apiPatch.description = prev ? `${prev}\n\n${patch.diagnosisNote}` : patch.diagnosisNote;
+      apiPatch.description = prev ? `${prev}\n\n${nextPatch.diagnosisNote}` : nextPatch.diagnosisNote;
     }
-    if (patch.serviceNote !== undefined) {
-      const prev = current.serviceNote?.trim() ?? '';
-      apiPatch.resolutionNote = prev ? `${prev}\n\n${patch.serviceNote}` : patch.serviceNote;
+    if (nextPatch.serviceNote !== undefined) {
+      if (nextPatch.noteHistory !== undefined) {
+        apiPatch.resolutionNote = nextPatch.serviceNote;
+      } else {
+        const prev = current.serviceNote?.trim() ?? '';
+        apiPatch.resolutionNote = prev ? `${prev}\n\n${nextPatch.serviceNote}` : nextPatch.serviceNote;
+      }
     }
-    if (patch.priority !== undefined) apiPatch.severity = patch.priority;
-    if (patch.assignedUserId !== undefined) apiPatch.assignedToUserId = patch.assignedUserId;
-    if (patch.ticketType !== undefined) apiPatch.ticketType = patch.ticketType;
+    if (nextPatch.priority !== undefined) apiPatch.severity = nextPatch.priority;
+    if (nextPatch.assignedUserId !== undefined) apiPatch.assignedToUserId = nextPatch.assignedUserId;
+    if (nextPatch.ticketType !== undefined) apiPatch.ticketType = nextPatch.ticketType;
 
     const metaKeys = ['quoteRequired', 'serviceQuote', 'completionForm', 'timerStatus', 'timerStartedAt', 'timerElapsedSeconds', 'serviceHourlyRate', 'serviceCurrency', 'noteHistory', 'complaints', 'activityHistory', 'operations'] as const;
-    if (metaKeys.some((k) => patch[k] !== undefined)) {
+    if (metaKeys.some((k) => nextPatch[k] !== undefined)) {
       apiPatch.metadata = {
         quoteRequired: merged.quoteRequired ?? false,
         serviceStage: merged.stage,
@@ -1683,7 +2185,7 @@ function StoreInner({ children }: { children: ReactNode }) {
     if (Object.keys(apiPatch).length) {
       await serviceService.update(id, apiPatch);
     }
-    setService((prev) => prev.map((s) => (s.id === id ? { ...s, ...patch } : s)));
+    setService((prev) => prev.map((s) => (s.id === id ? { ...s, ...nextPatch } : s)));
   };
 
   const setServiceWarranty = (id: string, claim: ServiceWarrantyClaim | null) => {
@@ -1772,13 +2274,13 @@ function StoreInner({ children }: { children: ReactNode }) {
     const needsQuoteRecord = d.type === 'Proforma' || d.type === 'Contract' || d.type === 'CommercialInvoice' || d.type === 'AccountingInvoice';
     if (d.type === 'Proforma') {
       if (!quoteId) throw new Error('Proforma için ilişkili teklif bulunamadı.');
-      await documentService.createProforma({ quoteId, documentNo: baseName, issueDate: today, fileId: d.fileId });
+      await documentService.createProforma({ quoteId, documentNo: baseName, issueDate: today, statusCode: 'draft', fileId: d.fileId });
     } else if (d.type === 'Contract') {
       if (!quoteId) throw new Error('Sözleşme için ilişkili teklif bulunamadı.');
-      await documentService.createContract({ quoteId, contractNo: baseName, signedDate: today, fileId: d.fileId });
+      await documentService.createContract({ quoteId, contractNo: baseName, signedDate: today, statusCode: 'draft', fileId: d.fileId });
     } else if (d.type === 'CommercialInvoice' || d.type === 'AccountingInvoice') {
       if (!quoteId) throw new Error('Fatura için ilişkili teklif bulunamadı.');
-      await documentService.createCommercialInvoice({ quoteId, invoiceNo: baseName, invoiceDate: today, fileId: d.fileId });
+      await documentService.createCommercialInvoice({ quoteId, invoiceNo: baseName, invoiceDate: today, statusCode: 'draft', fileId: d.fileId });
     }
 
     const row: DocumentItem = {
@@ -1806,6 +2308,7 @@ function StoreInner({ children }: { children: ReactNode }) {
     () => ({
       customers,
       cases,
+      closedCases,
       service,
       offers,
       noteTemplates,
@@ -1819,6 +2322,7 @@ function StoreInner({ children }: { children: ReactNode }) {
       documents,
       shipments,
       deliveries,
+      installations,
       loading,
       loadErrors,
       loadTruncated,
@@ -1827,13 +2331,17 @@ function StoreInner({ children }: { children: ReactNode }) {
       updateContact,
       deleteContact,
       addActivity,
+      updateActivity,
+      deleteActivity,
       addProduct,
       updateProduct,
+      patchProduct,
       deleteProduct,
       addCustomer,
       updateCustomer,
       deleteCustomer,
       addCase,
+      updateCase,
       deleteCase,
       addOffer,
       createQuoteFull,
@@ -1844,11 +2352,16 @@ function StoreInner({ children }: { children: ReactNode }) {
       updateStockStatus,
       reserveStock,
       addShipment,
+      startShipment,
       updateShipmentStatus,
+      deleteShipment,
       addDelivery,
       updateDelivery,
       updateDeliveryStatus,
+      deleteDelivery,
       moveCase,
+      closeCase,
+      reopenCase,
       markCaseLost,
       moveService,
       updateService,
@@ -1860,11 +2373,12 @@ function StoreInner({ children }: { children: ReactNode }) {
       rejectServiceWarranty,
       addService,
       addMachine,
+      updateMachineCustomer,
       addDocument,
       refresh: fetchAll,
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [customers, cases, service, offers, noteTemplates, stock, products, activities, contacts, users, machines, payments, documents, shipments, deliveries, loading, loadErrors, loadTruncated, clearLoadErrors]
+    [customers, cases, closedCases, service, offers, noteTemplates, stock, products, activities, contacts, users, machines, payments, documents, shipments, deliveries, installations, loading, loadErrors, loadTruncated, clearLoadErrors]
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

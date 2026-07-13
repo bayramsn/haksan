@@ -65,5 +65,4 @@ export function registerHealthRoutes(app: NestFastifyApplication, apiPrefix: str
 
   const rootPayload = { ok: true, service: 'haksan-api', api: apiPrefix, health: '/health', ready: '/health/ready' };
   adapter.get('/', (_req: unknown, res: { send: (body: unknown) => void }) => res.send(rootPayload));
-  adapter.head('/', (_req: unknown, res: { status: (code: number) => { send: () => void } }) => res.status(200).send());
 }

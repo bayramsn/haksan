@@ -7,11 +7,17 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from ".
 import {
   Phone, Smartphone, Mail, MapPin, Building2, Star, Globe, Hash, Briefcase,
   FileText, FileSignature, Receipt, Wallet, Cpu, Wrench, ChevronRight, User as UserIcon,
+  Plus, Pencil, Trash2,
 } from "lucide-react";
-import { Customer, Contact, FirmType, salesStageLabel } from "../../lib/mock";
+import {
+  Customer, Contact, FirmType, SalesCase, Offer, Machine, DocumentItem, ServiceRequest,
+  salesStageLabel,
+} from "../../lib/mock";
 import { useStore } from "../../lib/store";
 import { StatusBadge } from "../Layout";
 import { CompanyFinancePanel } from "../shared/CompanyFinancePanel";
+import { CreateContactDialog, EditContactDialog } from "./CreateDialogs";
+import { toast } from "sonner";
 
 // ───────────────────────── helpers ─────────────────────────
 
@@ -30,7 +36,22 @@ const FIRM_TYPE_COLOR: Record<FirmType, string> = {
   supplier: "bg-amber-50 text-amber-700 border-amber-200",
 };
 
+const ADDRESS_TYPE_LABELS: Record<string, string> = {
+  office: "Ofis",
+  factory: "Fabrika",
+  work_area: "Çalışma Alanı",
+  shipping: "Sevkiyat",
+  billing: "Fatura",
+  other: "Diğer",
+};
+
 const fmtMoney = (n: number, cur: string) => `${n.toLocaleString("tr-TR")} ${cur}`;
+
+const createdByLabel = (item: { createdByName?: string | null; createdByEmail?: string | null }) =>
+  item.createdByName || item.createdByEmail || "";
+
+const createdMeta = (item: { createdAt?: string; createdByName?: string | null; createdByEmail?: string | null }) =>
+  [createdByLabel(item), item.createdAt].filter(Boolean).join(" · ");
 
 /** Sum amounts grouped by currency, rendered as "170.000 USD · 50.000 EUR". */
 function sumByCurrency(items: Array<{ amount: number; currency: string }>): string {
@@ -40,14 +61,30 @@ function sumByCurrency(items: Array<{ amount: number; currency: string }>): stri
   return Array.from(totals.entries()).map(([cur, n]) => fmtMoney(n, cur)).join(" · ");
 }
 
-function Stat({ icon, label, value, accent }: { icon: React.ReactNode; label: string; value: React.ReactNode; accent?: string }) {
-  return (
-    <div className="rounded-lg border border-border/60 bg-white px-3 py-2.5">
+function Stat({ icon, label, value, accent, onClick }: { icon: React.ReactNode; label: string; value: React.ReactNode; accent?: string; onClick?: () => void }) {
+  const body = (
+    <>
       <div className="flex items-center gap-1.5 text-[11px] uppercase tracking-wide text-muted-foreground whitespace-nowrap">
         <span className={`shrink-0 ${accent ?? "text-muted-foreground"}`}>{icon}</span>
         {label}
       </div>
       <div className="mt-1 text-xl leading-none tabular-nums">{value}</div>
+    </>
+  );
+  if (onClick) {
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        className="group text-left rounded-lg border border-border/60 bg-white px-3 py-2.5 transition-colors hover:border-primary/40 hover:bg-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+      >
+        {body}
+      </button>
+    );
+  }
+  return (
+    <div className="rounded-lg border border-border/60 bg-white px-3 py-2.5">
+      {body}
     </div>
   );
 }
@@ -84,7 +121,9 @@ export function CompanyDetailDialog({
   onClose: () => void;
   onOpenContact?: (c: Contact) => void;
 }) {
-  const { contacts, cases, offers, documents, payments, machines, service } = useStore();
+  const { contacts, cases, offers, documents, payments, machines, service, deleteContact } = useStore();
+  const [editingContact, setEditingContact] = useState<Contact | null>(null);
+  const [breakdown, setBreakdown] = useState<BreakdownKey | null>(null);
   if (!customer) return null;
 
   const firmContacts = contacts.filter((k) => k.customerId === customer.id);
@@ -131,15 +170,18 @@ export function CompanyDetailDialog({
                 <span className={`inline-flex items-center px-2 py-0.5 rounded-full border text-[11px] ${FIRM_TYPE_COLOR[customer.firmType]}`}>
                   {FIRM_TYPE_LABEL[customer.firmType]}
                 </span>
-                {customer.firmType !== "supplier" && (
-                  <span className={`inline-flex px-2 py-0.5 rounded-full border text-[11px] ${
-                    customer.salesStatus === "active_customer"
-                      ? "bg-emerald-50 text-emerald-700 border-emerald-200"
-                      : "bg-zinc-100 text-zinc-700 border-zinc-200"
-                  }`}>
-                    {customer.salesStatus === "active_customer" ? "Cari Satış" : "Potansiyel"}
+                <span className={`inline-flex px-2 py-0.5 rounded-full border text-[11px] ${
+                  customer.salesStatus === "active_customer"
+                    ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                    : "bg-zinc-100 text-zinc-700 border-zinc-200"
+                }`}>
+                  {customer.salesStatus === "active_customer" ? "Cari" : "Potansiyel"}
+                </span>
+                {(customer.divisions ?? []).map((division) => (
+                  <span key={division.id} className="inline-flex rounded-full border border-primary/20 bg-primary/5 px-2 py-0.5 text-[11px] font-medium text-primary">
+                    {division.name}
                   </span>
-                )}
+                ))}
                 <span className="text-muted-foreground">{customer.type === "company" ? "Kurumsal" : "Bireysel"}</span>
               </DialogDescription>
             </div>
@@ -152,18 +194,30 @@ export function CompanyDetailDialog({
             <Field icon={<Mail className="size-4" />} label="E-posta" value={customer.email} />
             <Field icon={<MapPin className="size-4" />} label="Konum" value={[customer.city, customer.district].filter(Boolean).join(" / ")} />
             <Field icon={<Briefcase className="size-4" />} label="Sektör" value={customer.sector} />
+            <Field icon={<Building2 className="size-4" />} label="Firma Grubu" value={customer.companyGroupNames?.join(", ") || customer.companyGroupName} />
             <Field icon={<Globe className="size-4" />} label="Web" value={customer.website} />
+            <Field icon={<UserIcon className="size-4" />} label="Oluşturan" value={createdMeta(customer)} />
           </div>
+          {(customer.addresses?.length ?? 0) > 0 && (
+            <div className="mt-3 flex flex-wrap gap-2">
+              {customer.addresses!.map((address, index) => (
+                <div key={address.id ?? index} className="rounded-lg border border-border/60 bg-muted/30 px-3 py-2 text-xs">
+                  <span className="font-medium">{ADDRESS_TYPE_LABELS[address.addressType] ?? "Adres"}</span>
+                  <span className="ml-2 text-muted-foreground">{[address.address, address.district, address.city].filter(Boolean).join(", ") || "Adres bilgisi yok"}</span>
+                </div>
+              ))}
+            </div>
+          )}
         </DialogHeader>
 
-        {/* KPI tiles */}
+        {/* KPI tiles — her biri tıklanınca ilgili kayıtlar pop-up olarak açılır */}
         <div className="px-6 py-4 grid grid-cols-3 gap-2.5">
-          <Stat icon={<UserIcon className="size-3.5" />} label="Kontak" value={firmContacts.length} accent="text-indigo-600" />
-          <Stat icon={<Briefcase className="size-3.5" />} label="Satış Kartı" value={firmCases.length} accent="text-sky-600" />
-          <Stat icon={<FileText className="size-3.5" />} label="Teklif" value={firmOffers.length} accent="text-blue-600" />
-          <Stat icon={<FileSignature className="size-3.5" />} label="Proforma" value={firmProformas.length} accent="text-brand-blue" />
-          <Stat icon={<Cpu className="size-3.5" />} label="Makine" value={firmMachines.length} accent="text-amber-600" />
-          <Stat icon={<Wrench className="size-3.5" />} label="Servis" value={firmService.length} accent="text-rose-600" />
+          <Stat icon={<UserIcon className="size-3.5" />} label="Kontak" value={firmContacts.length} accent="text-indigo-600" onClick={() => setBreakdown("contacts")} />
+          <Stat icon={<Briefcase className="size-3.5" />} label="Satış Kartı" value={firmCases.length} accent="text-sky-600" onClick={() => setBreakdown("cases")} />
+          <Stat icon={<FileText className="size-3.5" />} label="Teklif" value={firmOffers.length} accent="text-blue-600" onClick={() => setBreakdown("offers")} />
+          <Stat icon={<FileSignature className="size-3.5" />} label="Proforma" value={firmProformas.length} accent="text-brand-blue" onClick={() => setBreakdown("proformas")} />
+          <Stat icon={<Cpu className="size-3.5" />} label="Makine" value={firmMachines.length} accent="text-amber-600" onClick={() => setBreakdown("machines")} />
+          <Stat icon={<Wrench className="size-3.5" />} label="Servis" value={firmService.length} accent="text-rose-600" onClick={() => setBreakdown("service")} />
         </div>
 
         <div className="px-6 pb-2">
@@ -192,6 +246,16 @@ export function CompanyDetailDialog({
 
             {/* contacts */}
             <TabsContent value="kontaklar" className="mt-3">
+              <div className="mb-2 flex justify-end">
+                <CreateContactDialog
+                  defaultCustomerId={customer.id}
+                  trigger={
+                    <Button type="button" size="sm" className="gap-1">
+                      <Plus className="size-4" /> Kontak Ekle
+                    </Button>
+                  }
+                />
+              </div>
               <div className="rounded-lg border border-border/60 overflow-hidden">
                 <Table>
                   <TableHeader>
@@ -199,7 +263,7 @@ export function CompanyDetailDialog({
                       <TableHead>Kişi</TableHead>
                       <TableHead>Ünvan</TableHead>
                       <TableHead>İletişim</TableHead>
-                      <TableHead className="w-8"></TableHead>
+                      <TableHead className="w-24 text-right">İşlem</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -228,7 +292,41 @@ export function CompanyDetailDialog({
                           <div className="text-xs flex items-center gap-1.5"><Phone className="size-3 text-muted-foreground" />{k.phone || "—"}</div>
                           <div className="text-xs flex items-center gap-1.5 mt-0.5"><Mail className="size-3 text-muted-foreground" />{k.email || "—"}</div>
                         </TableCell>
-                        <TableCell>{onOpenContact && <ChevronRight className="size-4 text-muted-foreground opacity-0 group-hover:opacity-100" />}</TableCell>
+                        <TableCell>
+                          <div className="flex justify-end gap-1">
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              className="size-8"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                setEditingContact(k);
+                              }}
+                            >
+                              <Pencil className="size-4" />
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              className="size-8 text-destructive"
+                              onClick={async (event) => {
+                                event.stopPropagation();
+                                if (!window.confirm(`${k.name} kontağı silinsin mi?`)) return;
+                                try {
+                                  await deleteContact(k.id);
+                                  toast.success("Kontak silindi");
+                                } catch (err: any) {
+                                  toast.error("Kontak silinemedi", { description: err?.message ?? "API isteği başarısız oldu." });
+                                }
+                              }}
+                            >
+                              <Trash2 className="size-4" />
+                            </Button>
+                            {onOpenContact && <ChevronRight className="size-4 text-muted-foreground opacity-0 group-hover:opacity-100 self-center" />}
+                          </div>
+                        </TableCell>
                       </TableRow>
                     ))}
                     {firmContacts.length === 0 && <EmptyRow cols={4} text="Bu firmaya bağlı kontak yok." />}
@@ -383,6 +481,264 @@ export function CompanyDetailDialog({
           </Tabs>
         </div>
       </DialogContent>
+      <EditContactDialog contact={editingContact} onClose={() => setEditingContact(null)} />
+      <CompanyBreakdownDialog
+        breakdown={breakdown}
+        onClose={() => setBreakdown(null)}
+        customerName={customer.name}
+        contacts={firmContacts}
+        cases={firmCases}
+        offers={firmOffers}
+        proformas={firmProformas}
+        machines={firmMachines}
+        service={firmService}
+        machineById={new Map(machines.map((m) => [m.id, m]))}
+        onOpenContact={onOpenContact}
+      />
+    </Dialog>
+  );
+}
+
+// ───────────────────── KPI breakdown popup ─────────────────────
+
+type BreakdownKey = "contacts" | "cases" | "offers" | "proformas" | "machines" | "service";
+
+const BREAKDOWN_META: Record<BreakdownKey, { title: string; icon: React.ReactNode; accent: string }> = {
+  contacts: { title: "Kontaklar", icon: <UserIcon className="size-4" />, accent: "text-indigo-600" },
+  cases: { title: "Satış Kartları", icon: <Briefcase className="size-4" />, accent: "text-sky-600" },
+  offers: { title: "Teklifler", icon: <FileText className="size-4" />, accent: "text-blue-600" },
+  proformas: { title: "Proformalar", icon: <FileSignature className="size-4" />, accent: "text-brand-blue" },
+  machines: { title: "Makineler", icon: <Cpu className="size-4" />, accent: "text-amber-600" },
+  service: { title: "Servis Talepleri", icon: <Wrench className="size-4" />, accent: "text-rose-600" },
+};
+
+/**
+ * Firma özet kartlarından (Kontak, Satış Kartı, Teklif …) tıklanınca açılan,
+ * yalnızca o kategorinin kayıtlarını gösteren odaklı pop-up.
+ */
+function CompanyBreakdownDialog({
+  breakdown,
+  onClose,
+  customerName,
+  contacts,
+  cases,
+  offers,
+  proformas,
+  machines,
+  service,
+  machineById,
+  onOpenContact,
+}: {
+  breakdown: BreakdownKey | null;
+  onClose: () => void;
+  customerName: string;
+  contacts: Contact[];
+  cases: SalesCase[];
+  offers: Offer[];
+  proformas: DocumentItem[];
+  machines: Machine[];
+  service: ServiceRequest[];
+  machineById: Map<string, Machine>;
+  onOpenContact?: (c: Contact) => void;
+}) {
+  if (!breakdown) return null;
+  const meta = BREAKDOWN_META[breakdown];
+
+  const count =
+    breakdown === "contacts" ? contacts.length
+    : breakdown === "cases" ? cases.length
+    : breakdown === "offers" ? offers.length
+    : breakdown === "proformas" ? proformas.length
+    : breakdown === "machines" ? machines.length
+    : service.length;
+
+  return (
+    <Dialog open={!!breakdown} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="sm:max-w-2xl max-h-[85vh] overflow-y-auto p-0 gap-0">
+        <DialogHeader className="px-6 pt-6 pb-4 border-b border-border/60">
+          <DialogTitle className="flex items-center gap-2 text-base">
+            <span className={meta.accent}>{meta.icon}</span>
+            {meta.title}
+            <span className="text-muted-foreground tabular-nums">({count})</span>
+          </DialogTitle>
+          <DialogDescription className="mt-0.5 truncate">{customerName}</DialogDescription>
+        </DialogHeader>
+
+        <div className="px-6 py-4">
+          <div className="rounded-lg border border-border/60 overflow-hidden">
+            {breakdown === "contacts" && (
+              <Table>
+                <TableHeader>
+                  <TableRow className="bg-muted/30 hover:bg-muted/30">
+                    <TableHead>Kişi</TableHead>
+                    <TableHead>Ünvan</TableHead>
+                    <TableHead>İletişim</TableHead>
+                    {onOpenContact && <TableHead className="w-8" />}
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {contacts.map((k) => (
+                    <TableRow
+                      key={k.id}
+                      className={onOpenContact ? "cursor-pointer group" : ""}
+                      onClick={() => onOpenContact?.(k)}
+                    >
+                      <TableCell>
+                        <div className="flex items-center gap-2.5">
+                          <Avatar className="size-8">
+                            <AvatarFallback className="bg-primary/15 text-primary text-[11px]">{initials(k.name)}</AvatarFallback>
+                          </Avatar>
+                          <span className="flex items-center gap-1.5 group-hover:text-primary transition-colors">
+                            {k.name}
+                            {k.isPrimary && <Star className="size-3 fill-amber-400 text-amber-400" />}
+                          </span>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="text-sm">{k.title || "—"}</div>
+                        <div className="text-[11px] text-muted-foreground">{k.department}</div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="text-xs flex items-center gap-1.5"><Phone className="size-3 text-muted-foreground" />{k.phone || "—"}</div>
+                        <div className="text-xs flex items-center gap-1.5 mt-0.5"><Mail className="size-3 text-muted-foreground" />{k.email || "—"}</div>
+                      </TableCell>
+                      {onOpenContact && (
+                        <TableCell><ChevronRight className="size-4 text-muted-foreground opacity-0 group-hover:opacity-100" /></TableCell>
+                      )}
+                    </TableRow>
+                  ))}
+                  {contacts.length === 0 && <EmptyRow cols={onOpenContact ? 4 : 3} text="Bu firmaya bağlı kontak yok." />}
+                </TableBody>
+              </Table>
+            )}
+
+            {breakdown === "cases" && (
+              <Table>
+                <TableHeader>
+                  <TableRow className="bg-muted/30 hover:bg-muted/30">
+                    <TableHead>Ürün / Model</TableHead>
+                    <TableHead>Tutar</TableHead>
+                    <TableHead>Aşama</TableHead>
+                    <TableHead>Tarih</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {cases.map((s) => (
+                    <TableRow key={s.id}>
+                      <TableCell>{s.requestedProduct}{s.requestedModel && s.requestedModel !== s.requestedProduct && <span className="text-muted-foreground"> · {s.requestedModel}</span>}</TableCell>
+                      <TableCell className="tabular-nums">{fmtMoney(s.estimatedAmount, s.currency)}</TableCell>
+                      <TableCell><StatusBadge status={salesStageLabel(s.stage)} /></TableCell>
+                      <TableCell className="text-muted-foreground tabular-nums">{s.createdAt}</TableCell>
+                    </TableRow>
+                  ))}
+                  {cases.length === 0 && <EmptyRow cols={4} text="Satış kartı yok." />}
+                </TableBody>
+              </Table>
+            )}
+
+            {breakdown === "offers" && (
+              <Table>
+                <TableHeader>
+                  <TableRow className="bg-muted/30 hover:bg-muted/30">
+                    <TableHead>Teklif No</TableHead>
+                    <TableHead>Tutar</TableHead>
+                    <TableHead>Durum</TableHead>
+                    <TableHead>Tarih</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {offers.map((o) => (
+                    <TableRow key={o.id}>
+                      <TableCell className="font-medium">{o.quoteNo}</TableCell>
+                      <TableCell className="tabular-nums">{fmtMoney(o.amount, o.currency)}</TableCell>
+                      <TableCell><StatusBadge status={o.status} /></TableCell>
+                      <TableCell className="text-muted-foreground tabular-nums">{o.date}</TableCell>
+                    </TableRow>
+                  ))}
+                  {offers.length === 0 && <EmptyRow cols={4} text="Teklif yok." />}
+                </TableBody>
+              </Table>
+            )}
+
+            {breakdown === "proformas" && (
+              <Table>
+                <TableHeader>
+                  <TableRow className="bg-muted/30 hover:bg-muted/30">
+                    <TableHead>Belge</TableHead>
+                    <TableHead>Tarih</TableHead>
+                    <TableHead>Boyut</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {proformas.map((d) => (
+                    <TableRow key={d.id}>
+                      <TableCell className="font-medium">
+                        <span className="inline-flex items-center gap-1.5">
+                          <FileSignature className="size-3.5 text-brand-blue" />
+                          {d.fileName}
+                        </span>
+                      </TableCell>
+                      <TableCell className="text-muted-foreground tabular-nums">{d.uploadedAt || "—"}</TableCell>
+                      <TableCell className="text-muted-foreground">{d.size}</TableCell>
+                    </TableRow>
+                  ))}
+                  {proformas.length === 0 && <EmptyRow cols={3} text="Proforma yok." />}
+                </TableBody>
+              </Table>
+            )}
+
+            {breakdown === "machines" && (
+              <Table>
+                <TableHeader>
+                  <TableRow className="bg-muted/30 hover:bg-muted/30">
+                    <TableHead>Seri No</TableHead>
+                    <TableHead>Model</TableHead>
+                    <TableHead>Kurulum</TableHead>
+                    <TableHead>Garanti Bitiş</TableHead>
+                    <TableHead>Durum</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {machines.map((m) => (
+                    <TableRow key={m.id}>
+                      <TableCell className="font-medium">{m.serialNumber}</TableCell>
+                      <TableCell>{m.model}</TableCell>
+                      <TableCell className="text-muted-foreground tabular-nums">{m.installationDate || "—"}</TableCell>
+                      <TableCell className="text-muted-foreground tabular-nums">{m.warrantyEnd || "—"}</TableCell>
+                      <TableCell><StatusBadge status={m.status} /></TableCell>
+                    </TableRow>
+                  ))}
+                  {machines.length === 0 && <EmptyRow cols={5} text="Kurulu makine yok." />}
+                </TableBody>
+              </Table>
+            )}
+
+            {breakdown === "service" && (
+              <Table>
+                <TableHeader>
+                  <TableRow className="bg-muted/30 hover:bg-muted/30">
+                    <TableHead>Talep No</TableHead>
+                    <TableHead>Makine</TableHead>
+                    <TableHead>Aşama</TableHead>
+                    <TableHead>Tarih</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {service.map((s) => (
+                    <TableRow key={s.id}>
+                      <TableCell className="font-medium">{s.ticketNo || s.id}</TableCell>
+                      <TableCell>{machineById.get(s.machineId)?.serialNumber || machineById.get(s.machineId)?.model || "—"}</TableCell>
+                      <TableCell><StatusBadge status={s.stage} /></TableCell>
+                      <TableCell className="text-muted-foreground tabular-nums">{s.createdAt}</TableCell>
+                    </TableRow>
+                  ))}
+                  {service.length === 0 && <EmptyRow cols={4} text="Servis talebi yok." />}
+                </TableBody>
+              </Table>
+            )}
+          </div>
+        </div>
+      </DialogContent>
     </Dialog>
   );
 }
@@ -411,8 +767,6 @@ export function ContactDetailDialog({
     ["Takım", contact.favoriteTeam],
     ["Renk", contact.favoriteColor],
     ["Mezun Okul", contact.graduatedSchool],
-    ["Bilinen Rahatsızlık", contact.knownIllness],
-    ["Görüş", contact.politicalView],
   ];
   const hasPersonal = personalFields.some(([, v]) => v && v !== "—");
 
@@ -452,6 +806,7 @@ export function ContactDetailDialog({
           <Field icon={<Mail className="size-4" />} label="Diğer E-posta" value={contact.otherEmail} />
           <Field label="Cinsiyet" value={contact.gender} />
           <Field label="Doğum Tarihi" value={contact.birthDate} />
+          <Field icon={<UserIcon className="size-4" />} label="Oluşturan" value={createdMeta(contact)} />
         </div>
 
         {contact.note && (

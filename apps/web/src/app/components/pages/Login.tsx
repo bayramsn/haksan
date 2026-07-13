@@ -19,16 +19,38 @@ const isProd = import.meta.env.PROD;
 // Backend OIDC/SAML hazır olduğunda VITE_SSO_ENABLED=true ile açılır.
 const ssoEnabled = import.meta.env.VITE_SSO_ENABLED === "true";
 const REMEMBER_KEY = "haksan:login-email";
+const TENANT_SLUG_PATTERN = /^[a-z0-9-]{2,64}$/;
 
-export function LoginPage({ onLogin }: { onLogin: (email: string, password: string) => Promise<void> | void }) {
+function readResetToken(): string {
+  if (typeof window === "undefined") return "";
+  return new URLSearchParams(window.location.search).get("resetToken")?.trim() ?? "";
+}
+
+function normalizeTenantSlug(value: string): string | undefined {
+  const normalized = value.trim().toLowerCase();
+  return normalized || undefined;
+}
+
+function isValidTenantSlug(value: string | undefined): boolean {
+  return !value || TENANT_SLUG_PATTERN.test(value);
+}
+
+export function LoginPage({ onLogin }: { onLogin: (email: string, password: string, tenantSlug?: string) => Promise<void> | void }) {
   const [show, setShow] = useState(false);
   const [email, setEmail] = useState(() => (typeof localStorage !== "undefined" ? localStorage.getItem(REMEMBER_KEY) ?? "" : ""));
+  const [tenantSlug, setTenantSlug] = useState("");
   const [password, setPassword] = useState("");
   const [remember, setRemember] = useState(() => !!(typeof localStorage !== "undefined" && localStorage.getItem(REMEMBER_KEY)));
   const [busy, setBusy] = useState(false);
   const [forgotOpen, setForgotOpen] = useState(false);
   const [forgotEmail, setForgotEmail] = useState("");
+  const [forgotTenantSlug, setForgotTenantSlug] = useState("");
   const [forgotBusy, setForgotBusy] = useState(false);
+  const [resetToken, setResetToken] = useState(readResetToken);
+  const [resetOpen, setResetOpen] = useState(() => Boolean(readResetToken()));
+  const [resetPassword, setResetPassword] = useState("");
+  const [resetPasswordConfirmation, setResetPasswordConfirmation] = useState("");
+  const [resetBusy, setResetBusy] = useState(false);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -38,11 +60,16 @@ export function LoginPage({ onLogin }: { onLogin: (email: string, password: stri
       toast.error("Geçerli bir e-posta adresi girin");
       return;
     }
+    const normalizedTenantSlug = normalizeTenantSlug(tenantSlug);
+    if (!isValidTenantSlug(normalizedTenantSlug)) {
+      toast.error("Tenant kodu yalnızca küçük harf, rakam ve tire içerebilir");
+      return;
+    }
     setBusy(true);
     try {
       if (remember) localStorage.setItem(REMEMBER_KEY, trimmedEmail);
       else localStorage.removeItem(REMEMBER_KEY);
-      await onLogin(trimmedEmail, password);
+      await onLogin(trimmedEmail, password, normalizedTenantSlug);
     } catch (err: any) {
       toast.error(err?.message ?? "Giriş başarısız");
     } finally {
@@ -55,15 +82,54 @@ export function LoginPage({ onLogin }: { onLogin: (email: string, password: stri
     const trimmedEmail = forgotEmail.trim();
     const parsed = emailSchema.safeParse(trimmedEmail);
     if (!parsed.success) return toast.error("Geçerli bir e-posta adresi girin");
+    const normalizedTenantSlug = normalizeTenantSlug(forgotTenantSlug);
+    if (!isValidTenantSlug(normalizedTenantSlug)) {
+      toast.error("Tenant kodu yalnızca küçük harf, rakam ve tire içerebilir");
+      return;
+    }
     setForgotBusy(true);
     try {
-      await authService.forgotPassword(parsed.data);
+      await authService.forgotPassword(parsed.data, normalizedTenantSlug);
       toast.success("Şifre sıfırlama bağlantısı gönderildi (varsa)");
       setForgotOpen(false);
     } catch (err: any) {
       toast.error(err?.message ?? "İstek başarısız");
     } finally {
       setForgotBusy(false);
+    }
+  };
+
+  const submitReset = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!resetToken) {
+      toast.error("Şifre sıfırlama bağlantısı geçersiz");
+      return;
+    }
+    if (resetPassword.length < 8 || resetPassword.length > 128) {
+      toast.error("Yeni şifre 8 ile 128 karakter arasında olmalıdır");
+      return;
+    }
+    if (resetPassword !== resetPasswordConfirmation) {
+      toast.error("Şifreler birbiriyle eşleşmiyor");
+      return;
+    }
+    setResetBusy(true);
+    try {
+      await authService.resetPassword(resetToken, resetPassword);
+      setResetPassword("");
+      setResetPasswordConfirmation("");
+      setResetToken("");
+      setResetOpen(false);
+      if (typeof window !== "undefined") {
+        const url = new URL(window.location.href);
+        url.searchParams.delete("resetToken");
+        window.history.replaceState({}, document.title, `${url.pathname}${url.search}${url.hash}`);
+      }
+      toast.success("Şifreniz güncellendi. Yeni şifrenizle giriş yapabilirsiniz.");
+    } catch (err: any) {
+      toast.error(err?.message ?? "Şifre sıfırlama bağlantısı geçersiz veya süresi dolmuş");
+    } finally {
+      setResetBusy(false);
     }
   };
 
@@ -153,6 +219,22 @@ export function LoginPage({ onLogin }: { onLogin: (email: string, password: stri
             <CardContent className="p-6">
               <form onSubmit={submit} className="space-y-4">
                 <div>
+                  <Label htmlFor="login-tenant-slug" className="text-xs text-foreground/80">Tenant kodu <span className="text-muted-foreground">(opsiyonel)</span></Label>
+                  <Input
+                    id="login-tenant-slug"
+                    name="tenantSlug"
+                    type="text"
+                    autoCapitalize="none"
+                    autoCorrect="off"
+                    spellCheck={false}
+                    value={tenantSlug}
+                    onChange={(e) => setTenantSlug(e.target.value)}
+                    className="mt-1.5 h-10"
+                    placeholder="tenant-kodu"
+                    autoComplete="organization"
+                  />
+                </div>
+                <div>
                   <Label htmlFor="login-email" className="text-xs text-foreground/80">E-posta</Label>
                   <Input
                     id="login-email"
@@ -175,7 +257,11 @@ export function LoginPage({ onLogin }: { onLogin: (email: string, password: stri
                     <button
                       type="button"
                       className="text-xs text-primary hover:underline"
-                      onClick={() => { setForgotEmail(email); setForgotOpen(true); }}
+                      onClick={() => {
+                        setForgotEmail(email);
+                        setForgotTenantSlug(tenantSlug);
+                        setForgotOpen(true);
+                      }}
                     >
                       Şifremi unuttum
                     </button>
@@ -264,6 +350,22 @@ export function LoginPage({ onLogin }: { onLogin: (email: string, password: stri
               </DialogHeader>
               <form onSubmit={submitForgot} className="space-y-3">
                 <div>
+                  <Label htmlFor="forgot-tenant-slug" className="text-xs">Tenant kodu <span className="text-muted-foreground">(opsiyonel)</span></Label>
+                  <Input
+                    id="forgot-tenant-slug"
+                    name="forgot-tenant-slug"
+                    type="text"
+                    autoCapitalize="none"
+                    autoCorrect="off"
+                    spellCheck={false}
+                    value={forgotTenantSlug}
+                    onChange={(e) => setForgotTenantSlug(e.target.value)}
+                    className="mt-1.5"
+                    placeholder="tenant-kodu"
+                    autoComplete="organization"
+                  />
+                </div>
+                <div>
                   <Label htmlFor="forgot-email" className="text-xs">E-posta</Label>
                   <Input
                     id="forgot-email"
@@ -283,6 +385,50 @@ export function LoginPage({ onLogin }: { onLogin: (email: string, password: stri
                 <DialogFooter>
                   <Button type="button" variant="outline" onClick={() => setForgotOpen(false)}>İptal</Button>
                   <Button type="submit" disabled={forgotBusy}>{forgotBusy ? "Gönderiliyor…" : "Gönder"}</Button>
+                </DialogFooter>
+              </form>
+            </DialogContent>
+          </Dialog>
+
+          <Dialog open={resetOpen} onOpenChange={setResetOpen}>
+            <DialogContent className="max-w-sm">
+              <DialogHeader>
+                <DialogTitle>Yeni şifre belirle</DialogTitle>
+                <DialogDescription>Yeni şifreniz 8 ile 128 karakter arasında olmalıdır.</DialogDescription>
+              </DialogHeader>
+              <form onSubmit={submitReset} className="space-y-3">
+                <div>
+                  <Label htmlFor="reset-password" className="text-xs">Yeni şifre</Label>
+                  <Input
+                    id="reset-password"
+                    name="reset-password"
+                    type="password"
+                    value={resetPassword}
+                    onChange={(e) => setResetPassword(e.target.value)}
+                    className="mt-1.5"
+                    autoComplete="new-password"
+                    minLength={8}
+                    maxLength={128}
+                    required
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="reset-password-confirmation" className="text-xs">Yeni şifre tekrarı</Label>
+                  <Input
+                    id="reset-password-confirmation"
+                    name="reset-password-confirmation"
+                    type="password"
+                    value={resetPasswordConfirmation}
+                    onChange={(e) => setResetPasswordConfirmation(e.target.value)}
+                    className="mt-1.5"
+                    autoComplete="new-password"
+                    minLength={8}
+                    maxLength={128}
+                    required
+                  />
+                </div>
+                <DialogFooter>
+                  <Button type="submit" disabled={resetBusy}>{resetBusy ? "Kaydediliyor…" : "Şifreyi güncelle"}</Button>
                 </DialogFooter>
               </form>
             </DialogContent>

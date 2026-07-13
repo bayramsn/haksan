@@ -4,10 +4,13 @@ import {
   opportunityCreateSchema,
   opportunityUpdateSchema,
   opportunityStageChangeSchema,
+  opportunityCloseSchema,
+  opportunityViewEnum,
   paginationSchema,
   type OpportunityCreateInput,
   type OpportunityUpdateInput,
   type OpportunityStageChangeInput,
+  type OpportunityCloseInput,
   type Pagination,
 } from '@haksan/shared';
 import { ZodValidationPipe } from '../../shared/utils/zod-pipe';
@@ -21,6 +24,8 @@ const listQuery = z.object({
   search: z.string().optional(),
   stageCode: z.string().optional(),
   companyId: z.string().optional(),
+  // active (varsayılan) | closed (Geçmiş/Arşiv) | all
+  view: opportunityViewEnum.optional(),
 });
 
 @UseGuards(AuthGuard, PermissionsGuard)
@@ -72,6 +77,22 @@ export class OpportunitiesController {
     @CurrentUser() user: AuthContext
   ) {
     return this.svc.changeStage(id, body, user);
+  }
+
+  @RequirePermissions('opportunities.update')
+  @Post(':id/close')
+  close(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(opportunityCloseSchema)) body: OpportunityCloseInput,
+    @CurrentUser() user: AuthContext
+  ) {
+    return this.svc.close(id, user, body.reason ?? null);
+  }
+
+  @RequirePermissions('opportunities.update')
+  @Post(':id/reopen')
+  reopen(@Param('id') id: string, @CurrentUser() user: AuthContext) {
+    return this.svc.reopen(id, user);
   }
 
   @RequirePermissions('opportunities.delete')

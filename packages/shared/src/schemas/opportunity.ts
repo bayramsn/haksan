@@ -16,6 +16,8 @@ export const opportunityCreateSchema = z.object({
   probability: z.coerce.number().int().min(0).max(100).default(50),
   expectedCloseDate: z.coerce.date().optional(),
   sourceCode: z.string().max(64).optional(),
+  // Makine satışında ödeme vadesi (gün). Sözleşme/ödeme planı için varsayılan.
+  paymentTermDays: z.coerce.number().int().min(0).max(3650).nullish(),
   // Kazanılan fırsat için kabul/kazanma nedeni (yıl sonu raporu).
   wonReason: z.string().max(255).nullish(),
 });
@@ -42,6 +44,16 @@ export const opportunityStageChangeSchema = z
     { message: 'Cancelled aşamasına geçerken cancellation_reason zorunludur.', path: ['cancellationReasonCode'] }
   );
 export type OpportunityStageChangeInput = z.infer<typeof opportunityStageChangeSchema>;
+
+// Mantıksal kapanış ("Bitir") — opsiyonel gerekçe. Yalnız terminal (delivered/cancelled) fırsatlar.
+export const opportunityCloseSchema = z.object({
+  reason: z.string().max(1000).optional(),
+});
+export type OpportunityCloseInput = z.infer<typeof opportunityCloseSchema>;
+
+// Liste görünümü: active (kapatılmamış, varsayılan) | closed (Geçmiş/Arşiv) | all
+export const opportunityViewEnum = z.enum(['active', 'closed', 'all']);
+export type OpportunityView = z.infer<typeof opportunityViewEnum>;
 
 export const visitCreateSchema = z.object({
   opportunityId: z.string().optional(),
@@ -77,6 +89,9 @@ export const activityCreateSchema = z.object({
   result: z.string().max(2000).optional(),
 });
 export type ActivityCreateInput = z.infer<typeof activityCreateSchema>;
+
+export const activityUpdateSchema = activityCreateSchema.partial();
+export type ActivityUpdateInput = z.infer<typeof activityUpdateSchema>;
 
 export const competitorCreateSchema = z.object({
   name: z.string().min(1).max(255),

@@ -7,20 +7,25 @@ import { Tabs, TabsList, TabsTrigger } from "../../ui/tabs";
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from "../../ui/dialog";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../../ui/table";
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
+} from "../../ui/dropdown-menu";
 import { StatusBadge } from "../../Layout";
 import { QuoteDialog } from "../../dialogs/QuoteDialog";
+import { CreateProformaDialog } from "../../dialogs/CreateProformaDialog";
+import { CreateContractDialog } from "../../dialogs/CreateContractDialog";
 import { MiniKpi } from "../../shared/MiniKpi";
 import { salesStageLabel } from "../../../lib/mock";
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, Legend,
 } from "recharts";
 import {
-  Plus, Search, CheckCircle2, TrendingUp, Mail, FileText, ClipboardCheck, Building2,
-  Wallet, Receipt, Calendar, Printer, Download, Eye, RotateCcw, XCircle,
+  Plus, Search, CheckCircle2, TrendingUp, Mail, FileText, FileSignature, ClipboardCheck, Building2,
+  Wallet, Receipt, Calendar, Printer, Download, Eye, RotateCcw, XCircle, Pencil, ChevronDown, Trash2,
 } from "lucide-react";
 import { useStore } from "../../../lib/store";
+import { useAuth } from "../../../../lib/auth";
 import { buildOfferTrend } from "../../../lib/chartAggregates";
 import { useFx } from "../../../lib/fx";
 import { Customer, Offer, SalesCase, User } from "../../../lib/mock";
@@ -29,10 +34,8 @@ import { salesOrderService, quoteService } from "../../../../lib/services";
 import { ExportExcelButton } from "../../ui/ExportExcelButton";
 import { CreateAccountingInvoiceDialog, type AccountingInvoicePrefill } from "../finance/CreateAccountingInvoiceDialog";
 import type { OperationFocus } from "../../../lib/operations";
-import {
-  printAssetBase, trShortDate, quoteDoc, QUOTE_NOTE_VARIANTS,
-} from "../../../lib/print";
-import { printOrWarn, splitVat, formatDate, formatCurrency } from "../../../lib/pageHelpers";
+import { loadQuotePrintData, printAssetBase, quoteDoc } from "../../../lib/print";
+import { downloadPrintOrWarn, previewPrintOrWarn, printOrWarn, splitVat, formatDate, formatCurrency } from "../../../lib/pageHelpers";
 
 function invoicePrefillFromOffer(offer: Offer, customer: Customer | null, order?: any): AccountingInvoicePrefill {
   const vat = splitVat(offer.amount, { subtotal: offer.subtotal, vatTotal: offer.vatTotal });
@@ -54,11 +57,15 @@ function invoicePrefillFromOffer(offer: Offer, customer: Customer | null, order?
 
 function invoicePrefillFromOrder(order: any): AccountingInvoicePrefill {
   const grandTotal = Number(order.grandTotal ?? 0);
+  const vatAmount = Number(order.vatAmount ?? order.vatTotal ?? 0);
+  const amount = Number(order.subtotal ?? Math.max(0, grandTotal - vatAmount) ?? grandTotal);
+  const vatRate = amount > 0 && vatAmount > 0 ? (vatAmount / amount) * 100 : 20;
   return {
     companyId: order.companyId ?? order.company?.id ?? "",
-    amount: grandTotal,
+    amount,
     grandTotal,
-    vatAmount: 0,
+    vatAmount,
+    vatRate,
     currencyCode: order.currency?.code ?? "USD",
     invoiceNo: `MF-${order.orderNo}`,
     quoteId: order.quoteId ?? order.quote?.id,
@@ -70,7 +77,9 @@ function invoicePrefillFromOrder(order: any): AccountingInvoicePrefill {
 
 export function OffersPage({ focus }: { focus?: OperationFocus }) {
   const { offers: rawOffers, cases, customers, users, moveCase, refresh } = useStore();
+  const { hasRole, user, activeDivision, setActiveDivision } = useAuth();
   const { convert } = useFx();
+  const isSuperAdmin = hasRole("super_admin");
   const customerName = (id: string) => customers.find((c) => c.id === id)?.name ?? "—";
   const backToSales = async (caseId: string) => {
     try {
@@ -82,6 +91,9 @@ export function OffersPage({ focus }: { focus?: OperationFocus }) {
   };
   const [q, setQ] = useState("");
   const [tab, setTab] = useState<"all" | "Draft" | "Sent" | "Approved" | "Rejected">("all");
+  const divisionOptions = user?.divisions ?? [];
+  const [divisionTab, setDivisionTab] = useState(activeDivision !== "all" ? activeDivision : "all");
+  useEffect(() => setDivisionTab(activeDivision !== "all" ? activeDivision : "all"), [activeDivision]);
   const [selectedOfferId, setSelectedOfferId] = useState<string | null>(null);
   const [salesOrders, setSalesOrders] = useState<any[]>([]);
   const [salesOrdersLoading, setSalesOrdersLoading] = useState(false);
@@ -115,6 +127,7 @@ export function OffersPage({ focus }: { focus?: OperationFocus }) {
     const sc = cases.find((s) => s.id === o.salesCaseId);
     return sc?.isLost ? { ...o, status: "Rejected" as const } : o;
   });
+  const divisionOffers = divisionTab === "all" ? offers : offers.filter((offer) => offer.divisionId === divisionTab);
 
   useEffect(() => {
     if (focus === "open" || focus === "pending" || focus === "expired") setTab("Sent");
@@ -122,24 +135,31 @@ export function OffersPage({ focus }: { focus?: OperationFocus }) {
     if (focus === "lost") setTab("Rejected");
   }, [focus]);
 
-  const total = offers.length;
-  const approved = offers.filter((o) => o.status === "Approved").length;
-  const sent = offers.filter((o) => o.status === "Sent").length;
+  const total = divisionOffers.length;
+  const approved = divisionOffers.filter((o) => o.status === "Approved").length;
+  const sent = divisionOffers.filter((o) => o.status === "Sent").length;
   // Farklı para birimleri USD bazına çevrilerek toplanır (baz birim USD).
-  const totalAmount = offers.reduce((a, o) => a + convert(o.amount, o.currency, "USD"), 0);
-  const approvedAmount = offers.filter((o) => o.status === "Approved").reduce((a, o) => a + convert(o.amount, o.currency, "USD"), 0);
+  const totalAmount = divisionOffers.reduce((a, o) => a + convert(o.amount, o.currency, "USD"), 0);
+  const approvedAmount = divisionOffers.filter((o) => o.status === "Approved").reduce((a, o) => a + convert(o.amount, o.currency, "USD"), 0);
   const winRate = total > 0 ? Math.round((approved / total) * 100) : 0;
 
-  const filtered = offers.filter((o) => {
-    if (focusExpired && !offerExpired(o)) return false;
-    if (tab !== "all" && o.status !== tab) return false;
-    if (q) {
-      const sc = cases.find((s) => s.id === o.salesCaseId);
-      const cName = sc ? customerName(sc.customerId) : "";
-      return o.quoteNo.toLowerCase().includes(q.toLowerCase()) || cName.toLowerCase().includes(q.toLowerCase());
-    }
-    return true;
-  });
+  const filtered = divisionOffers
+    .filter((o) => {
+      if (focusExpired && !offerExpired(o)) return false;
+      if (tab !== "all" && o.status !== tab) return false;
+      if (q) {
+        const sc = cases.find((s) => s.id === o.salesCaseId);
+        const cName = sc ? customerName(sc.customerId) : "";
+        return o.quoteNo.toLowerCase().includes(q.toLowerCase()) || cName.toLowerCase().includes(q.toLowerCase());
+      }
+      return true;
+    })
+    // Teklif no'ya göre azalan: yeni teklifler üstte; aynı no için revizyon büyükten küçüğe.
+    .sort((a, b) => {
+      const cmp = b.quoteNo.localeCompare(a.quoteNo, "tr", { numeric: true, sensitivity: "base" });
+      if (cmp !== 0) return cmp;
+      return (b.revision ?? 0) - (a.revision ?? 0);
+    });
   const offerExportParams = {
     ...(q ? { search: q } : {}),
     ...(tab !== "all" ? { statusCode: tab.toLowerCase() } : {}),
@@ -159,17 +179,41 @@ export function OffersPage({ focus }: { focus?: OperationFocus }) {
     ? salesOrders.find((order) => order.quoteId === selectedOffer.id || order.quote?.id === selectedOffer.id)
     : null;
 
-  const offerTrend = useMemo(() => buildOfferTrend(offers, 6), [offers]);
+  const offerTrend = useMemo(() => buildOfferTrend(divisionOffers, 6), [divisionOffers]);
 
-  const runQuoteAction = async (offerId: string, action: "send" | "approve" | "reject") => {
+  const runQuoteAction = async (offerId: string, action: "send" | "approve" | "reject" | "approve-price" | "reject-price") => {
     try {
       if (action === "send") await quoteService.send(offerId);
       else if (action === "approve") await quoteService.approve(offerId);
+      else if (action === "approve-price") await quoteService.approvePrice(offerId);
+      else if (action === "reject-price") await quoteService.rejectPrice(offerId);
       else await quoteService.reject(offerId);
-      toast.success(action === "send" ? "Teklif gönderildi" : action === "approve" ? "Teklif onaylandı" : "Teklif reddedildi");
+      toast.success(
+        action === "send"
+          ? "Teklif gönderildi"
+          : action === "approve"
+            ? "Teklif onaylandı"
+            : action === "approve-price"
+              ? "Fiyat onaylandı"
+              : action === "reject-price"
+                ? "Fiyat reddedildi"
+                : "Teklif reddedildi"
+      );
       await refresh();
     } catch (err: any) {
       toast.error("İşlem başarısız", { description: err?.message ?? "API isteği başarısız oldu." });
+    }
+  };
+
+  const deleteOffer = async (offer: Offer) => {
+    if (!window.confirm(`${offer.quoteNo} teklif kaydı silinsin mi?`)) return;
+    try {
+      await quoteService.remove(offer.id);
+      toast.success("Teklif silindi", { description: offer.quoteNo });
+      if (selectedOfferId === offer.id) setSelectedOfferId(null);
+      await refresh();
+    } catch (err: any) {
+      toast.error("Teklif silinemedi", { description: err?.message ?? "API isteği başarısız oldu." });
     }
   };
 
@@ -181,6 +225,25 @@ export function OffersPage({ focus }: { focus?: OperationFocus }) {
         <MiniKpi tone="blue" icon={<Mail className="size-[18px]" />} label="Gönderilen" value={sent} sub="cevap bekleniyor" />
         <MiniKpi tone="amber" icon={<TrendingUp className="size-[18px]" />} label="Kazanma Oranı" value={`%${winRate}`} sub={`hedef %50`} progress={winRate} />
       </div>
+
+      {divisionOptions.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-[11px] uppercase tracking-wider text-muted-foreground">İş alanı:</span>
+          {[{ id: "all", name: "Tümü" }, ...divisionOptions].map((division) => (
+            <button
+              key={division.id}
+              type="button"
+              onClick={() => {
+                setDivisionTab(division.id);
+                setActiveDivision(division.id);
+              }}
+              className={`rounded-full border px-2.5 py-1 text-xs transition-colors ${divisionTab === division.id ? "border-primary bg-primary text-primary-foreground shadow-xs" : "border-border bg-white text-foreground/70 hover:bg-muted"}`}
+            >
+              {division.name}
+            </button>
+          ))}
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <Card className="lg:col-span-2 border-border/60 shadow-sm">
@@ -210,7 +273,7 @@ export function OffersPage({ focus }: { focus?: OperationFocus }) {
           </CardHeader>
           <CardContent className="space-y-3 pt-2">
             {(["Draft", "Sent", "Approved", "Rejected"] as const).map((st) => {
-              const items = offers.filter((o) => o.status === st);
+              const items = divisionOffers.filter((o) => o.status === st);
               const pct = total > 0 ? (items.length / total) * 100 : 0;
               const color = st === "Approved" ? "#10b981" : st === "Sent" ? "#3b82f6" : st === "Rejected" ? "#ef4444" : "#9ca3af";
               return (
@@ -296,7 +359,10 @@ export function OffersPage({ focus }: { focus?: OperationFocus }) {
                         </div>
                         <div className="min-w-0">
                           <div className="text-sm leading-tight truncate">{o.quoteNo}</div>
-                          <div className="text-[11px] text-muted-foreground mt-0.5">#{sc ? sc.id.slice(0,8).toUpperCase() : "—"}</div>
+                          <div className="mt-0.5"><Badge variant="outline" className="h-4 px-1.5 text-[9px]">{o.businessLine ?? o.divisionName ?? "İş alanı yok"}</Badge></div>
+                          <div className="text-[11px] text-muted-foreground mt-0.5 truncate">
+                            {[sc?.requestedProduct, sc?.requestedModel].filter(Boolean).join(" · ") || (sc ? `#${sc.id.slice(0, 8).toUpperCase()}` : "—")}
+                          </div>
                         </div>
                       </div>
                     </TableCell>
@@ -350,6 +416,32 @@ export function OffersPage({ focus }: { focus?: OperationFocus }) {
                             </Button>
                           </>
                         )}
+                        {o.status === "Pending Approval" && isSuperAdmin && (
+                          <>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="h-7 gap-1 text-xs border-emerald-200 text-emerald-700"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                void runQuoteAction(o.id, "approve-price");
+                              }}
+                            >
+                              <CheckCircle2 className="size-3.5" /> Fiyat Onay
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="h-7 gap-1 text-xs border-red-200 text-red-600"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                void runQuoteAction(o.id, "reject-price");
+                              }}
+                            >
+                              <XCircle className="size-3.5" /> Red
+                            </Button>
+                          </>
+                        )}
                         {sc?.isLost && (
                           <Button
                             variant="outline"
@@ -376,6 +468,19 @@ export function OffersPage({ focus }: { focus?: OperationFocus }) {
                         >
                           <Eye className="size-4" />
                         </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="size-8 opacity-0 group-hover:opacity-100 sm:opacity-100"
+                          title="Teklifi sil"
+                          aria-label="Teklifi sil"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            void deleteOffer(o);
+                          }}
+                        >
+                          <Trash2 className="size-4 text-muted-foreground hover:text-destructive" />
+                        </Button>
                       </div>
                     </TableCell>
                   </TableRow>
@@ -400,6 +505,8 @@ export function OffersPage({ focus }: { focus?: OperationFocus }) {
         order={selectedOrder}
         onClose={() => setSelectedOfferId(null)}
         onQuoteAction={runQuoteAction}
+        canApprovePrice={isSuperAdmin}
+        onDeleteOffer={deleteOffer}
         onOrderCreated={refresh}
       />
 
@@ -487,7 +594,9 @@ export function OfferDetailDialog({
   order,
   onClose,
   onQuoteAction,
+  onDeleteOffer,
   onOrderCreated,
+  canApprovePrice = false,
 }: {
   offer: Offer | null;
   salesCase: SalesCase | null;
@@ -496,37 +605,14 @@ export function OfferDetailDialog({
   revisions: Offer[];
   order?: any;
   onClose: () => void;
-  onQuoteAction?: (offerId: string, action: "send" | "approve" | "reject") => Promise<void>;
+  onQuoteAction?: (offerId: string, action: "send" | "approve" | "reject" | "approve-price" | "reject-price") => Promise<void>;
+  onDeleteOffer?: (offer: Offer) => Promise<void>;
   onOrderCreated?: () => void;
+  canApprovePrice?: boolean;
 }) {
-  const { products } = useStore();
+  const { products, users, contacts } = useStore();
   const [creatingOrder, setCreatingOrder] = useState(false);
-  const [noteVariant, setNoteVariant] = useState(QUOTE_NOTE_VARIANTS[2].key);
-  // Bu teklife özel seçilen opsiyonel donanımlar (QuoteDialog'da "↳ Opsiyon:"
-  // önekiyle kaydedilen kalemler). Yazdırmada standart donanım gibi listelenir.
-  const [offerOptionEquip, setOfferOptionEquip] = useState<string[]>([]);
-  useEffect(() => {
-    if (!offer?.id) {
-      setOfferOptionEquip([]);
-      return;
-    }
-    let alive = true;
-    quoteService
-      .get(offer.id)
-      .then((full: any) => {
-        if (!alive) return;
-        const opts = (full?.items ?? [])
-          .map((it: any) => String(it?.description ?? ""))
-          .filter((d: string) => d.trimStart().startsWith("↳ Opsiyon:"))
-          .map((d: string) => d.replace(/^\s*↳\s*Opsiyon:\s*/, "").split(" — ")[0].trim())
-          .filter(Boolean);
-        setOfferOptionEquip([...new Set<string>(opts)]);
-      })
-      .catch(() => alive && setOfferOptionEquip([]));
-    return () => {
-      alive = false;
-    };
-  }, [offer?.id]);
+  const [editOpen, setEditOpen] = useState(false);
   if (!offer) return null;
 
   const productText = salesCase
@@ -535,59 +621,34 @@ export function OfferDetailDialog({
 
   // Teklif yazdırma: ürün kataloğundan model eşleşirse teknik bilgiler ve
   // donanım sayfaları da basılır; alt notlar seçilen teslim şekline göre gelir.
-  const handlePrint = () => {
-    const model = salesCase?.requestedModel ?? "";
-    const product = products.find(
-      (p) => p.model && model && (model.includes(p.model) || p.model.includes(model) || (p.modelName && model.includes(p.modelName)))
-    );
-    const variant = QUOTE_NOTE_VARIANTS.find((v) => v.key === noteVariant) ?? QUOTE_NOTE_VARIANTS[2];
-    // Brüt teklif tutarını net + KDV olarak ayrıştır (genel toplam = offer.amount kalır).
-    const vat = splitVat(offer.amount, { subtotal: offer.subtotal, vatTotal: offer.vatTotal });
-    printOrWarn(
-      quoteDoc(
-        {
-          firma: customer?.name ?? "",
-          ilgili: customer?.contactPerson,
-          mobil: customer?.phone2 ?? "",
-          adres: [customer?.address, customer?.district, customer?.city].filter(Boolean).join(" "),
-          tel: customer?.phone,
-          faks: customer?.fax,
-          email: customer?.email,
-          tarih: trShortDate(offer.date),
-          belgeNo: offer.quoteNo,
-          gecerlilik: offer.validityDays ? `${offer.validityDays} Gün` : "",
-          projeIlgilisi: assignee?.name,
-          projeIlgilisiUnvan: assignee?.department,
-          projeIlgilisiEmail: assignee?.email,
-          marka: product?.brand,
-          model: product?.model ?? salesCase?.requestedModel,
-          tip: product?.type ?? salesCase?.requestedProduct,
-          imageUrl: product?.imageUrl || undefined,
-          specs: product?.specs,
-          // Bu teklife özel seçilen opsiyonel donanım, müşteriye standart
-          // donanımmış gibi sunulur: standart listenin sonuna eklenir.
-          standartDonanim: [...(product?.standardEquipment ?? []), ...offerOptionEquip],
-          opsiyonelDonanim: product?.optionalEquipment,
-          items: [
-            {
-              urun: productText,
-              birim: `${salesCase?.quantity ?? 1} Adet`,
-              tutar: vat.net,
-            },
-          ],
-          kdvOran: vat.oran,
-          kdvTutar: vat.kdv,
-          currency: offer.currency,
-          notes: variant,
-        },
-        printAssetBase()
-      )
-    );
+  const loadQuoteDocument = async () => {
+    const data = await loadQuotePrintData({ offer, customer, salesCase, users, contacts, products });
+    return quoteDoc(data, printAssetBase());
   };
+
+  const runQuoteDocument = async (mode: "print" | "preview" | "download") => {
+    const loading = toast.loading("Teklif hazırlanıyor…");
+    try {
+      const doc = await loadQuoteDocument();
+      if (mode === "print") printOrWarn(doc);
+      else if (mode === "preview") previewPrintOrWarn(doc);
+      else downloadPrintOrWarn(doc, `Teklif-${offer.quoteNo}`, "Teklif");
+    } catch (error: unknown) {
+      toast.error("Teklif dosyası hazırlanamadı", {
+        description: error instanceof Error ? error.message : "Teklif ayrıntıları alınamadı.",
+      });
+    } finally {
+      toast.dismiss(loading);
+    }
+  };
+
+  const handlePrint = () => void runQuoteDocument("print");
+  const handlePreview = () => void runQuoteDocument("preview");
+  const handleDownload = () => void runQuoteDocument("download");
 
   return (
     <Dialog open={!!offer} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="w-[min(900px,calc(100vw-2rem))] max-w-none sm:max-w-none max-h-[88dvh] overflow-hidden p-0 gap-0">
+      <DialogContent className="w-[min(900px,calc(100vw-2rem))] max-w-none sm:max-w-none max-h-[88dvh] grid-rows-[auto_1fr_auto] overflow-hidden p-0 gap-0">
         <DialogHeader className="px-6 pt-6 pb-4 border-b border-border/60">
           <div className="flex items-start gap-3">
             <div className="size-11 rounded-xl bg-gradient-to-br from-primary/15 to-primary/5 text-primary grid place-items-center shrink-0">
@@ -605,7 +666,7 @@ export function OfferDetailDialog({
           </div>
         </DialogHeader>
 
-        <div className="min-h-0 max-h-[calc(88dvh-154px)] overflow-y-auto">
+        <div className="min-h-0 overflow-y-auto">
         <div className="px-6 py-4 grid grid-cols-2 md:grid-cols-4 gap-3">
           <OfferStat icon={<Wallet className="size-4" />} label="Tutar" value={formatCurrency(offer.amount, offer.currency)} accent="text-emerald-600" />
           <OfferStat icon={<Receipt className="size-4" />} label="Revizyon" value={`R${offer.revision}`} accent="text-primary" />
@@ -679,96 +740,123 @@ export function OfferDetailDialog({
         </div>
         </div>
 
-        <DialogFooter className="px-6 py-4 border-t border-border/60 bg-muted/20 gap-2 sm:items-center sm:justify-between">
-          <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
-            <Select value={noteVariant} onValueChange={setNoteVariant}>
-              <SelectTrigger className="h-9 w-full bg-white sm:w-56">
-                <SelectValue placeholder="Alt not seti" />
-              </SelectTrigger>
-              <SelectContent>
-                {QUOTE_NOTE_VARIANTS.map((v) => (
-                  <SelectItem key={v.key} value={v.key}>{v.label}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Button variant="outline" className="gap-1 sm:w-auto" onClick={handlePrint}>
-              <Printer className="size-4" /> Yazdır
+        <DialogFooter className="px-6 py-3 border-t border-border/60 bg-muted/20 flex-row flex-wrap items-center justify-end gap-2">
+          <Button variant="outline" size="sm" className="h-9 gap-1" onClick={() => setEditOpen(true)}>
+            <Pencil className="size-4" /> Düzenle
+          </Button>
+          <QuoteDialog
+            offerId={offer.id}
+            open={editOpen}
+            onOpenChange={(o) => {
+              setEditOpen(o);
+              if (!o) onOrderCreated?.();
+            }}
+          />
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="sm" className="h-9 gap-1">
+                <Printer className="size-4" /> Teklif Dosyası <ChevronDown className="size-3.5 opacity-60" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onClick={handlePrint}>
+                <Printer className="size-4" /> Yazdır / PDF Kaydet
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={handlePreview}>
+                <Eye className="size-4" /> Önizle
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={handleDownload}>
+                <Download className="size-4" /> HTML İndir
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+          <CreateProformaDialog
+            defaultQuoteId={offer.id}
+            onCreated={() => onOrderCreated?.()}
+            trigger={
+              <Button variant="outline" size="sm" className="h-9 gap-1">
+                <FileText className="size-4" /> Proforma
+              </Button>
+            }
+          />
+          <CreateContractDialog
+            defaultQuoteId={offer.id}
+            onCreated={() => onOrderCreated?.()}
+            trigger={
+              <Button variant="outline" size="sm" className="h-9 gap-1">
+                <FileSignature className="size-4" /> Sözleşme
+              </Button>
+            }
+          />
+          {offer.status === "Draft" && onQuoteAction && (
+            <Button size="sm" className="h-9 gap-1" onClick={() => onQuoteAction(offer.id, "send")}>
+              <Mail className="size-4" /> Gönder
             </Button>
+          )}
+          {offer.status === "Pending Approval" && canApprovePrice && onQuoteAction && (
+            <>
+              <Button variant="default" size="sm" className="h-9 gap-1 bg-emerald-600 hover:bg-emerald-700" onClick={() => onQuoteAction(offer.id, "approve-price")}>
+                <CheckCircle2 className="size-4" /> Fiyatı Onayla
+              </Button>
+              <Button variant="outline" size="sm" className="h-9 gap-1 border-red-200 text-red-600" onClick={() => onQuoteAction(offer.id, "reject-price")}>
+                <XCircle className="size-4" /> Fiyatı Reddet
+              </Button>
+            </>
+          )}
+          {offer.status === "Approved" && (
+            <CreateAccountingInvoiceDialog
+              prefill={invoicePrefillFromOffer(offer, customer, order)}
+              onCreated={onOrderCreated}
+              trigger={
+                <Button variant="outline" size="sm" className="h-9 gap-1">
+                  <Receipt className="size-4" /> Muhasebe Faturası
+                </Button>
+              }
+            />
+          )}
+          {offer.status === "Approved" && !order && (
             <Button
-              variant="outline"
-              className="gap-1 sm:w-auto"
+              variant="default"
+              size="sm"
+              className="h-9 gap-1"
+              disabled={creatingOrder}
               onClick={async () => {
+                setCreatingOrder(true);
                 try {
-                  await quoteService.openPdf(offer.id);
+                  await salesOrderService.createFromQuote(offer.id, { copyItems: true, reserveStock: false });
+                  toast.success("Satış siparişi oluşturuldu");
+                  onOrderCreated?.();
                 } catch (err: any) {
-                  toast.error("PDF açılamadı", { description: err?.message ?? "Sunucu hatası." });
+                  toast.error("Sipariş oluşturulamadı", { description: err?.message ?? "API isteği başarısız oldu." });
+                } finally {
+                  setCreatingOrder(false);
                 }
               }}
             >
-              <Eye className="size-4" /> PDF Aç
+              <ClipboardCheck className="size-4" /> {creatingOrder ? "Oluşturuluyor…" : "Sipariş Oluştur"}
             </Button>
+          )}
+          {offer.status === "Sent" && onQuoteAction && (
+            <>
+              <Button variant="default" size="sm" className="h-9 gap-1 bg-emerald-600 hover:bg-emerald-700" onClick={() => onQuoteAction(offer.id, "approve")}>
+                <CheckCircle2 className="size-4" /> Onayla
+              </Button>
+              <Button variant="outline" size="sm" className="h-9 gap-1 border-red-200 text-red-600" onClick={() => onQuoteAction(offer.id, "reject")}>
+                <XCircle className="size-4" /> Reddet
+              </Button>
+            </>
+          )}
+          {onDeleteOffer && (
             <Button
               variant="outline"
-              className="gap-1 sm:w-auto"
-              onClick={async () => {
-                try {
-                  await quoteService.downloadPdf(offer.id, offer.quoteNo);
-                } catch (err: any) {
-                  toast.error("PDF indirilemedi", { description: err?.message ?? "Sunucu hatası." });
-                }
-              }}
+              size="sm"
+              className="h-9 gap-1 border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700"
+              onClick={() => void onDeleteOffer(offer)}
             >
-              <Download className="size-4" /> PDF İndir
+              <Trash2 className="size-4" /> Sil
             </Button>
-            {offer.status === "Draft" && onQuoteAction && (
-              <Button className="gap-1 sm:w-auto" onClick={() => onQuoteAction(offer.id, "send")}>
-                <Mail className="size-4" /> Gönder
-              </Button>
-            )}
-            {offer.status === "Approved" && (
-              <CreateAccountingInvoiceDialog
-                prefill={invoicePrefillFromOffer(offer, customer, order)}
-                onCreated={onOrderCreated}
-                trigger={
-                  <Button variant="outline" className="gap-1 sm:w-auto">
-                    <Receipt className="size-4" /> Muhasebe Faturası Oluştur
-                  </Button>
-                }
-              />
-            )}
-            {offer.status === "Approved" && !order && (
-              <Button
-                variant="default"
-                className="gap-1 sm:w-auto"
-                disabled={creatingOrder}
-                onClick={async () => {
-                  setCreatingOrder(true);
-                  try {
-                    await salesOrderService.createFromQuote(offer.id, { copyItems: true, reserveStock: false });
-                    toast.success("Satış siparişi oluşturuldu");
-                    onOrderCreated?.();
-                  } catch (err: any) {
-                    toast.error("Sipariş oluşturulamadı", { description: err?.message ?? "API isteği başarısız oldu." });
-                  } finally {
-                    setCreatingOrder(false);
-                  }
-                }}
-              >
-                <ClipboardCheck className="size-4" /> {creatingOrder ? "Oluşturuluyor…" : "Sipariş Oluştur"}
-              </Button>
-            )}
-            {offer.status === "Sent" && onQuoteAction && (
-              <>
-                <Button variant="default" className="gap-1 sm:w-auto bg-emerald-600 hover:bg-emerald-700" onClick={() => onQuoteAction(offer.id, "approve")}>
-                  <CheckCircle2 className="size-4" /> Onayla
-                </Button>
-                <Button variant="outline" className="gap-1 sm:w-auto border-red-200 text-red-600" onClick={() => onQuoteAction(offer.id, "reject")}>
-                  <XCircle className="size-4" /> Reddet
-                </Button>
-              </>
-            )}
-          </div>
-          <Button variant="outline" onClick={onClose}>Kapat</Button>
+          )}
+          <Button variant="outline" size="sm" className="h-9 ml-auto sm:ml-2" onClick={onClose}>Kapat</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

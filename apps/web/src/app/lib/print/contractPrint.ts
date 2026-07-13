@@ -1,7 +1,21 @@
-import type { Customer, Offer, Payment, Product, SalesCase } from "../mock";
+import type { Customer, Offer, Payment, Product, SalesCase, ProductSpec } from "../mock";
 import { quoteService } from "../../../lib/services";
+import { specsForProductTypeStrict } from "../productSpecTemplates";
 import { trShortDate } from "./core";
 import type { ContractPrintData } from "./templates";
+
+// Tezgahın tam teknik özellik listesi (birim değere gömülür) — sözleşme eksik
+// değil bütün özellikleri basar.
+const contractSpecs = (product?: Product): { key: string; value: string }[] => {
+  if (!product) return [];
+  return specsForProductTypeStrict(product.productTypeCode, (product.specs ?? []) as ProductSpec[])
+    .map((s) => {
+      const unit = (s.unit ?? s.specUnit ?? "").trim();
+      const value = (s.value ?? "").trim();
+      return { key: s.key, value: unit && value && value !== "-" ? `${value} ${unit}` : value };
+    })
+    .filter((s) => s.key.trim());
+};
 
 export type ContractBuildInput = {
   customer: Customer | null;
@@ -50,6 +64,12 @@ export async function loadContractPrintData(input: ContractBuildInput): Promise<
     .sort((left, right) => left.dueDate.localeCompare(right.dueDate));
   const terms = quote?.terms ?? {};
   const address = customer ? [customer.address, customer.district, customer.city].filter(Boolean).join(" ") : "";
+  // Ürünün muadil (eşdeğer) ürünleri — sözleşmede ayrı madde olarak listelenir.
+  const muadiller = (product?.muadilProductIds ?? [])
+    .map((id) => products.find((p) => p.id === id))
+    .filter((p): p is Product => Boolean(p))
+    .map((p) => [p.brand, p.model].filter(Boolean).join(" ") || p.shortDescription)
+    .filter(Boolean);
 
   return {
     alici: {
@@ -64,8 +84,9 @@ export async function loadContractPrintData(input: ContractBuildInput): Promise<
     sozlesmeTarihi: contractDate,
     model,
     adet: quantity,
-    ozellikler: product?.specs?.slice(0, 14) ?? [],
+    ozellikler: contractSpecs(product),
     aksesuarlar: [...(product?.standardEquipment ?? []), ...selectedOptions],
+    muadiller,
     fiyat: subtotal,
     currency: offer?.currency ?? salesCase.currency,
     teslimSekli: terms.deliveryTermsText ?? quote?.deliveryTerms ?? undefined,

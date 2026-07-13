@@ -6,10 +6,11 @@ import { JwtTokenService } from '../../shared/security/jwt.service';
 import { AuditService } from '../../shared/database/audit.service';
 import { AuthGuard } from '../../shared/security/auth.guard';
 import { PermissionsGuard } from '../../shared/security/permissions.guard';
+import { MailerModule } from '../../shared/mailer/mailer.module';
 
 @Global()
 @Module({
-  imports: [JwtModule.register({})],
+  imports: [JwtModule.register({}), MailerModule],
   controllers: [AuthController],
   providers: [AuthService, JwtTokenService, AuditService, AuthGuard, PermissionsGuard],
   exports: [AuthService, JwtTokenService, AuthGuard, PermissionsGuard],

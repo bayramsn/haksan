@@ -4,11 +4,13 @@ import { emailSchema } from './common';
 export const loginSchema = z.object({
   email: emailSchema,
   password: z.string().min(8).max(128),
+  tenantSlug: z.string().trim().toLowerCase().regex(/^[a-z0-9-]{2,64}$/).optional(),
 });
 export type LoginInput = z.infer<typeof loginSchema>;
 
 export const forgotPasswordSchema = z.object({
   email: emailSchema,
+  tenantSlug: z.string().trim().toLowerCase().regex(/^[a-z0-9-]{2,64}$/).optional(),
 });
 export type ForgotPasswordInput = z.infer<typeof forgotPasswordSchema>;
 
@@ -41,6 +43,17 @@ export const meResponseSchema = z.object({
     permissions: z.array(z.string()),
     mfaEnabled: z.boolean(),
     divisions: z.array(z.object({ id: z.string(), code: z.string(), name: z.string(), isPrimary: z.boolean() })).default([]),
+    departments: z.array(z.object({ id: z.string(), code: z.string(), name: z.string(), isPrimary: z.boolean() })).default([]),
+    accessScopes: z
+      .array(
+        z.object({
+          resource: z.string(),
+          departmentId: z.string().nullable(),
+          divisionId: z.string().nullable(),
+          isPrimary: z.boolean(),
+        })
+      )
+      .default([]),
     canViewAllDivisions: z.boolean().default(false),
   }),
   tenant: z.object({

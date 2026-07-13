@@ -23,6 +23,7 @@ import { NoteTemplatesModule } from './modules/note-templates/note-templates.mod
 import { FxModule } from './modules/fx/fx.module';
 import { ChatModule } from './modules/chat/chat.module';
 import { CallAssistantModule } from './modules/call-assistant/call-assistant.module';
+import { AssistantModule } from './modules/assistant/assistant.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { CalendarModule } from './modules/calendar/calendar.module';
 import { loadEnv } from './config/env';
@@ -65,6 +66,7 @@ const env = loadEnv();
     FxModule,
     ChatModule,
     CallAssistantModule,
+    AssistantModule,
     NotificationsModule,
     CalendarModule,
   ],

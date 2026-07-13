@@ -29,16 +29,18 @@ import { S3StorageProvider } from '../../shared/storage/s3-storage.provider';
 import { buildObjectKey, sanitizeFilename } from '../../shared/storage/object-key';
 import { loadEnv } from '../../config/env';
 
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const fileType = require('file-type') as {
-  fromBuffer(buf: Buffer): Promise<{ ext: string; mime: string } | undefined>;
-};
-
 const dataDir = path.join(path.dirname(__filename), 'data', 'haksancnc');
 const IMAGE_BUCKET = 'erp-product-images';
 const DOC_BUCKET = 'erp-product-documents';
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
 const MAX_PDF_BYTES = 30 * 1024 * 1024;
+
+type DetectedFileType = { ext: string; mime: string } | undefined;
+
+async function detectFileType(buf: Buffer): Promise<DetectedFileType> {
+  const { fileTypeFromBuffer } = await import('file-type');
+  return fileTypeFromBuffer(buf);
+}
 
 interface ManifestProduct {
   id: string;
@@ -75,7 +77,7 @@ async function validateBlob(
   buf: Buffer,
   expectedKind: 'image' | 'pdf'
 ): Promise<{ mime: string; ext: string }> {
-  const detected = await fileType.fromBuffer(buf);
+  const detected = await detectFileType(buf);
   if (!detected) throw new Error('magic-byte tespiti başarısız');
   if (!ALLOWED_MIME_TYPES.includes(detected.mime as (typeof ALLOWED_MIME_TYPES)[number])) {
     throw new Error(`izin verilmeyen MIME: ${detected.mime}`);
@@ -285,6 +287,22 @@ export async function importHaksanCnc(): Promise<void> {
         );
       }
     } else {
+      const patch: Partial<typeof schema.productModels.$inferInsert> = {};
+      if (!product.productGroupId && cncGroup?.id) patch.productGroupId = cncGroup.id;
+      if (!product.categoryId && tezgahCat?.id) patch.categoryId = tezgahCat.id;
+      if (!product.subcategoryId && subId) patch.subcategoryId = subId;
+      if (!product.productTypeId && typeId) patch.productTypeId = typeId;
+      if (!product.currencyId && currencyId) patch.currencyId = currencyId;
+      if (!product.modelName && p.modelName) patch.modelName = p.modelName;
+      if (!product.fullName && (p.modelName || modelCode)) patch.fullName = p.modelName || modelCode;
+      if (!product.stockCode && p.stockCode) patch.stockCode = p.stockCode;
+      if (!product.description && (p.description || p.shortDescription)) {
+        patch.description = p.description || p.shortDescription;
+      }
+      if (Object.keys(patch).length) {
+        await db.update(schema.productModels).set(patch).where(eq(schema.productModels.id, product.id));
+        product = { ...product, ...patch };
+      }
       updated += 1;
     }
 

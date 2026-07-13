@@ -4,9 +4,11 @@ import {
   api,
   ApiError,
   getAccessToken,
+  getActiveDepartment,
   getActiveDivision,
   refreshSession,
   setAccessToken,
+  setActiveDepartment as setClientActiveDepartment,
   setActiveDivision as setClientActiveDivision,
   setSessionExpiredHandler,
 } from './apiClient';
@@ -15,6 +17,20 @@ export interface MeDivision {
   id: string;
   code: string;
   name: string;
+  isPrimary: boolean;
+}
+
+export interface MeDepartment {
+  id: string;
+  code: string;
+  name: string;
+  isPrimary: boolean;
+}
+
+export interface MeAccessScope {
+  resource: string;
+  departmentId: string | null;
+  divisionId: string | null;
   isPrimary: boolean;
 }
 
@@ -32,16 +48,24 @@ export interface MeUser {
   mfaEnabled: boolean;
   /** view_all kullanıcılarda tüm bölümler; aksi halde kullanıcının bölümleri. */
   divisions: MeDivision[];
+  departments: MeDepartment[];
+  accessScopes: MeAccessScope[];
   canViewAllDivisions: boolean;
 }
 
 /** Kullanıcı için varsayılan aktif bölümü seçer (kalıcı seçim geçerliyse onu korur). */
 function pickActiveDivision(user: MeUser, stored: string | null): ActiveDivision {
+  const canPickAll = user.canViewAllDivisions || user.accessScopes.some((scope) => scope.divisionId === null);
   const storedValid =
-    stored === 'all' ? user.canViewAllDivisions : !!stored && user.divisions.some((d) => d.id === stored);
+    stored === 'all' ? canPickAll : !!stored && user.divisions.some((d) => d.id === stored);
   if (storedValid) return stored as string;
-  if (user.canViewAllDivisions) return 'all';
+  if (canPickAll) return 'all';
   return user.divisions.find((d) => d.isPrimary)?.id ?? user.divisions[0]?.id ?? 'all';
+}
+
+function pickActiveDepartment(user: MeUser, stored: string | null): string | null {
+  if (stored && user.departments.some((department) => department.id === stored)) return stored;
+  return user.departments.find((department) => department.isPrimary)?.id ?? user.departments[0]?.id ?? user.departmentId ?? null;
 }
 
 export interface MeTenant {
@@ -62,7 +86,11 @@ interface AuthState {
   /** Aktif bölüm: bir bölüm id'si veya 'all'. API isteklerine başlık olarak gider. */
   activeDivision: ActiveDivision;
   setActiveDivision: (value: ActiveDivision) => void;
-  login: (email: string, password: string) => Promise<void>;
+  activeDepartment: string | null;
+  setActiveDepartment: (value: string | null) => void;
+  scopesForResource: (resource: string) => MeAccessScope[];
+  canUseAllDivisionsForResource: (resource: string) => boolean;
+  login: (email: string, password: string, tenantSlug?: string) => Promise<void>;
   logout: () => Promise<void>;
   refresh: () => Promise<void>;
 }
@@ -74,10 +102,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<MeUser | null>(null);
   const [tenant, setTenant] = useState<MeTenant | null>(null);
   const [activeDivision, setActiveDivisionState] = useState<ActiveDivision>(() => getActiveDivision() ?? 'all');
+  const [activeDepartment, setActiveDepartmentState] = useState<string | null>(() => getActiveDepartment());
 
   const applyActiveDivision = useCallback((value: ActiveDivision) => {
     setClientActiveDivision(value);
     setActiveDivisionState(value);
+  }, []);
+
+  const applyActiveDepartment = useCallback((value: string | null) => {
+    setClientActiveDepartment(value);
+    setActiveDepartmentState(value);
   }, []);
 
   const fetchMe = useCallback(async () => {
@@ -86,12 +120,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(res.user as MeUser);
       setTenant(res.tenant);
       applyActiveDivision(pickActiveDivision(res.user as MeUser, getActiveDivision()));
+      applyActiveDepartment(pickActiveDepartment(res.user as MeUser, getActiveDepartment()));
     } catch (err) {
       setUser(null);
       setTenant(null);
       if (!(err instanceof ApiError && err.status === 401)) throw err;
     }
-  }, [applyActiveDivision]);
+  }, [applyActiveDepartment, applyActiveDivision]);
 
   const refresh = useCallback(async () => {
     try {
@@ -111,10 +146,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [refresh]);
 
   const login = useCallback(
-    async (email: string, password: string) => {
+    async (email: string, password: string, tenantSlug?: string) => {
       const res = await api.post<{ accessToken: string; user: { id: string; email: string; fullName: string; tenantId: string; roles: string[] } }>(
         '/auth/login',
-        { email, password }
+        { email, password, tenantSlug: tenantSlug?.trim().toLowerCase() || undefined }
       );
       setAccessToken(res.accessToken);
       await fetchMe();
@@ -132,7 +167,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
     setTenant(null);
     setClientActiveDivision(null);
+    setClientActiveDepartment(null);
     setActiveDivisionState('all');
+    setActiveDepartmentState(null);
   }, []);
 
   const clearSession = useCallback(() => {
@@ -140,7 +177,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
     setTenant(null);
     setClientActiveDivision(null);
+    setClientActiveDepartment(null);
     setActiveDivisionState('all');
+    setActiveDepartmentState(null);
   }, []);
 
   useEffect(() => {
@@ -172,6 +211,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [user]
   );
 
+  const scopesForResource = useCallback(
+    (resource: string) => user?.accessScopes.filter((scope) => scope.resource === resource) ?? [],
+    [user]
+  );
+
+  const canUseAllDivisionsForResource = useCallback(
+    (resource: string) => scopesForResource(resource).some((scope) => scope.divisionId === null),
+    [scopesForResource]
+  );
+
   const value = useMemo<AuthState>(
     () => ({
       loading,
@@ -181,13 +230,33 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       tenant,
       activeDivision,
       setActiveDivision: applyActiveDivision,
+      activeDepartment,
+      setActiveDepartment: applyActiveDepartment,
+      scopesForResource,
+      canUseAllDivisionsForResource,
       login,
       logout,
       refresh,
       hasPermission,
       hasRole,
     }),
-    [loading, sessionReady, user, tenant, activeDivision, applyActiveDivision, login, logout, refresh, hasPermission, hasRole]
+    [
+      loading,
+      sessionReady,
+      user,
+      tenant,
+      activeDivision,
+      activeDepartment,
+      applyActiveDepartment,
+      applyActiveDivision,
+      scopesForResource,
+      canUseAllDivisionsForResource,
+      login,
+      logout,
+      refresh,
+      hasPermission,
+      hasRole,
+    ]
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

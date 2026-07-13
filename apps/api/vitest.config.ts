@@ -25,7 +25,7 @@ export default defineConfig({
       AUTH_DEV_RESET_TOKEN_RESPONSE: 'true',
     },
     pool: 'forks',
-    poolOptions: { forks: { singleFork: true } },
+    maxWorkers: 1,
     fileParallelism: false,
     silent: false,
     coverage: {

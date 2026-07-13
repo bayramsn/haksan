@@ -1,0 +1,38 @@
+.git
+.github
+.DS_Store
+.env
+.env.*
+!.env.example
+node_modules
+apps/*/node_modules
+packages/*/node_modules
+apps/mobile/**
+!apps/mobile/package.json
+dist
+build
+coverage
+.vite
+.playwright-cli
+.playwright-mcp
+.pnpm-store
+.stitch
+.tmp
+tmp
+output
+screenshots
+deploy/certbot
+*.log
+npm-debug.log*
+package-lock 2.json
+SECURITY-AUDIT 2.md
+crm app
+cnc özellikler
+ruvector.db
+final_fix.py
+fix_*.py
+robust_fix.py
+run_fix.py
+super_fix.py
+ultimate_fix.py
+update_*.py

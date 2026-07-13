@@ -1,4 +1,4 @@
-import type { Activity, Customer, Offer, Payment, ServiceRequest } from './mock';
+import type { Activity, Customer, Offer, ServiceRequest } from './mock';
 
 export type TargetAchievementItem = {
   targetType: 'sales' | 'service';

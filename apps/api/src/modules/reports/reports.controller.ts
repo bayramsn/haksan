@@ -20,6 +20,16 @@ const periodSchema = z.object({
   departmentId: z.string().uuid().optional(),
 });
 
+const targetProgressSchema = z.object({
+  period: z.string().regex(/^\d{4}-\d{2}$/),
+  scope: z.enum(['user', 'department', 'role', 'all-users']).default('all-users'),
+  id: z.string().uuid().optional(),
+});
+
+const targetPeriodOnlySchema = z.object({
+  period: z.string().regex(/^\d{4}-\d{2}$/),
+});
+
 @UseGuards(AuthGuard, PermissionsGuard)
 @Controller('reports')
 export class ReportsController {
@@ -124,6 +134,18 @@ export class ReportsController {
       ]),
       `karlilik-raporu-${q.year}.xlsx`
     );
+  }
+
+  @RequirePermissions('reports.read')
+  @Get('target-progress')
+  targetProgress(@Query(new ZodValidationPipe(targetProgressSchema)) q: z.infer<typeof targetProgressSchema>, @CurrentUser() u: AuthContext) {
+    return this.svc.targetProgress(u, q.period, { kind: q.scope, id: q.id });
+  }
+
+  /** Kullanıcının kendi hedef ilerlemesi — ek izin gerektirmez (Dashboard "Hedefler" sekmesi). */
+  @Get('my-target-progress')
+  myTargetProgress(@Query(new ZodValidationPipe(targetPeriodOnlySchema)) q: z.infer<typeof targetPeriodOnlySchema>, @CurrentUser() u: AuthContext) {
+    return this.svc.targetProgress(u, q.period, { kind: 'user', id: u.userId });
   }
 
   @RequirePermissions('reports.read')

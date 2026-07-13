@@ -10,15 +10,27 @@ export const KPI_TONES: Record<string, { bg: string; ic: string; ring: string }>
 };
 
 export function MiniKpi({
-  icon, label, value, sub, delta, tone = "violet", progress,
+  icon, label, value, sub, delta, tone = "violet", progress, onClick, active,
 }: {
   icon: React.ReactNode; label: string; value: number | string; sub?: string;
   delta?: number; tone?: keyof typeof KPI_TONES; progress?: number;
+  /** Verilirse kart tıklanabilir olur (ör. ilgili sekmeyi filtreler). */
+  onClick?: () => void;
+  /** Karta bağlı filtre/sekme aktifken vurgulu çerçeve. */
+  active?: boolean;
 }) {
   const t = KPI_TONES[tone];
   const positive = (delta ?? 0) >= 0;
   return (
-    <Card className="border-border/60 shadow-sm hover:shadow-md transition-shadow overflow-hidden">
+    <Card
+      role={onClick ? "button" : undefined}
+      tabIndex={onClick ? 0 : undefined}
+      onClick={onClick}
+      onKeyDown={onClick ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onClick(); } } : undefined}
+      className={`border-border/60 shadow-sm hover:shadow-md transition-shadow overflow-hidden ${
+        onClick ? "cursor-pointer select-none" : ""
+      } ${active ? "ring-2 ring-primary/30 border-primary/40" : ""}`}
+    >
       <CardContent className="p-4">
         <div className="flex items-start justify-between gap-2">
           <div className={`size-9 rounded-lg ${t.bg} ${t.ic} grid place-items-center shrink-0 ring-4 ${t.ring}`}>

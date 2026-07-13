@@ -12,6 +12,10 @@ describe('Personal calendar and device sync', () => {
   let companyId: string;
   let eventId: string;
   let deviceEventId: string;
+  const syncRunId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const deviceId = `calendar-test-device-${syncRunId}`;
+  const externalEventId = `device-event-${syncRunId}`;
+  const deviceEventTitle = `Telefondan toplantı ${syncRunId}`;
 
   const request = () => supertest(app.getHttpServer());
 
@@ -78,7 +82,6 @@ describe('Personal calendar and device sync', () => {
   });
 
   it('syncs a device event idempotently and applies last-write-wins', async () => {
-    const deviceId = 'calendar-test-device';
     const settings = await request()
       .put('/api/v1/calendar/sync-settings')
       .set('Authorization', `Bearer ${salesToken}`)
@@ -98,9 +101,9 @@ describe('Personal calendar and device sync', () => {
       observedAt: new Date().toISOString(),
       events: [{
         externalCalendarId: 'work',
-        externalEventId: 'device-event-1',
+        externalEventId,
         occurrenceId: '',
-        title: 'Telefondan toplantı',
+        title: deviceEventTitle,
         startsAt: new Date(Date.now() + 2 * 86_400_000).toISOString(),
         endsAt: new Date(Date.now() + 2 * 86_400_000 + 3_600_000).toISOString(),
         allDay: false,
@@ -117,7 +120,7 @@ describe('Personal calendar and device sync', () => {
     const from = new Date(Date.now() - 86_400_000).toISOString();
     const to = new Date(Date.now() + 7 * 86_400_000).toISOString();
     const list = await request().get(`/api/v1/calendar/events?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`).set('Authorization', `Bearer ${salesToken}`);
-    const deviceEvents = list.body.filter((event: { title: string }) => event.title === 'Telefondan toplantı');
+    const deviceEvents = list.body.filter((event: { title: string }) => event.title === deviceEventTitle);
     expect(deviceEvents).toHaveLength(1);
     deviceEventId = deviceEvents[0].id;
 
@@ -131,14 +134,14 @@ describe('Personal calendar and device sync', () => {
       });
     expect(stale.status).toBe(201);
     const afterStale = await request().get(`/api/v1/calendar/events?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`).set('Authorization', `Bearer ${salesToken}`);
-    expect(afterStale.body.find((event: { id: string }) => event.id === deviceEventId)?.title).toBe('Telefondan toplantı');
+    expect(afterStale.body.find((event: { id: string }) => event.id === deviceEventId)?.title).toBe(deviceEventTitle);
   });
 
   it('mirrors a missing device event as an archive and allows restore', async () => {
     const missing = await request()
       .post('/api/v1/mobile/calendar/sync')
       .set('Authorization', `Bearer ${salesToken}`)
-      .send({ deviceId: 'calendar-test-device', platform: 'android', observedAt: new Date(Date.now() + 120_000).toISOString(), events: [] });
+      .send({ deviceId, platform: 'android', observedAt: new Date(Date.now() + 120_000).toISOString(), events: [] });
     expect(missing.status).toBe(201);
 
     const from = new Date(Date.now() - 86_400_000).toISOString();

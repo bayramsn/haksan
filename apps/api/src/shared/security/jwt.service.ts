@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { JwtService as NestJwtService } from '@nestjs/jwt';
 import { createHash, randomBytes } from 'node:crypto';
+import type { StringValue } from 'ms';
 import { loadEnv } from '../../config/env';
 
 export interface AccessTokenPayload {
@@ -9,6 +10,7 @@ export interface AccessTokenPayload {
   email: string;
   roles: string[];
   sid: string;       // session id
+  ver: number;       // user auth/session version
 }
 
 @Injectable()
@@ -20,7 +22,7 @@ export class JwtTokenService {
   signAccess(payload: AccessTokenPayload): string {
     return this.nest.sign(payload, {
       secret: this.env.JWT_ACCESS_SECRET,
-      expiresIn: this.env.JWT_ACCESS_TTL,
+      expiresIn: this.env.JWT_ACCESS_TTL as StringValue,
     });
   }
 

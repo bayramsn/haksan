@@ -25,16 +25,18 @@ services:
     # /health/ready gates on DB connectivity AND applied-migration count, so a
     # deploy with pending/failed migrations will not start receiving traffic.
     healthCheckPath: /health/ready
-    buildCommand: NPM_CONFIG_PRODUCTION=false npm ci && npm run build:shared && npm run build:api
-    # Pre-deploy chain (compiled, no tsx/devDependency at deploy time):
+    buildCommand: NPM_CONFIG_PRODUCTION=false npm ci --workspace @haksan/shared --workspace @haksan/api --workspace @haksan/web --include-workspace-root && npm run build:shared && npm run build:api
+    # Free tier does not support preDeployCommand, so the compiled migration
+    # chain runs before the API process starts. Migration scripts are idempotent.
+    #
+    # Startup chain (compiled, no tsx/devDependency at deploy time):
     #   1) backup    — pg_dump -> R2 snapshot before any schema change (opt-in via
     #                  DB_BACKUP_ENABLED; no-op if pg_dump is unavailable unless
     #                  DB_BACKUP_REQUIRED=true).
     #   2) migrate   — schema migrations. SQL + journal are copied into dist via
     #                  nest-cli `assets`; path resolved from __dirname (cwd-safe).
     #   3) data-migrate — idempotent DML (e.g. new permissions -> existing roles).
-    preDeployCommand: node apps/api/dist/db/backup.js && node apps/api/dist/db/migrate.js && node apps/api/dist/db/data-migrate.js
-    startCommand: node apps/api/dist/main.js
+    startCommand: node apps/api/dist/db/backup.js && node apps/api/dist/db/migrate.js && node apps/api/dist/db/data-migrate.js && node apps/api/dist/main.js
     envVars:
       - key: NODE_ENV
         value: production
@@ -104,15 +106,23 @@ services:
         value: "587"
       - key: SMTP_FROM
         sync: false
+      # CRM Asistanı — sadece OpenRouter ücretsiz model yönlendirmesi.
+      # Secret değer dashboard/env üzerinden girilir; repo'ya yazılmaz.
+      - key: ASSISTANT_LLM_PROVIDER
+        value: openrouter
+      - key: ASSISTANT_MODEL
+        value: openrouter/free
+      - key: ASSISTANT_API_KEY
+        sync: false
+      - key: ASSISTANT_MAX_TOKENS
+        value: "700"
 
   - type: web
     name: haksan-web
     runtime: static
-    plan: free
-    region: frankfurt
     branch: main
     autoDeploy: true
-    buildCommand: NPM_CONFIG_PRODUCTION=false npm ci && npm run build:shared && npm run build:web
+    buildCommand: NPM_CONFIG_PRODUCTION=false npm ci --workspace @haksan/shared --workspace @haksan/api --workspace @haksan/web --include-workspace-root && npm run build:shared && npm run build:web
     staticPublishPath: ./apps/web/dist
     routes:
       - type: rewrite

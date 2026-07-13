@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import supertest from 'supertest';
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
 import { createTestApp } from './setup';
+import { INSTALLATION_FORM_DEFAULT_CHECKS } from '@haksan/shared';
 
 let app: NestFastifyApplication;
 let adminToken: string;
@@ -9,8 +10,25 @@ let salesToken: string;
 let companyId: string;
 let adminUserId: string;
 let customerDeviceId: string;
+let productModelId: string;
+let warehouseId: string;
 const auth = () => `Bearer ${adminToken}`;
 const now = () => new Date().toISOString();
+
+async function createInventoryItem(serialNumber: string, parentInventoryItemId?: string) {
+  const created = await supertest(app.getHttpServer())
+    .post('/api/v1/inventory')
+    .set('Authorization', auth())
+    .send({
+      productModelId,
+      parentInventoryItemId,
+      serialNumber,
+      stockStatusCode: 'available',
+      warehouseId,
+    });
+  expect(created.status).toBe(201);
+  return created.body;
+}
 
 beforeAll(async () => {
   app = await createTestApp();
@@ -26,6 +44,16 @@ beforeAll(async () => {
   adminUserId = me.body.user.id;
   const r = await supertest(app.getHttpServer()).get('/api/v1/companies').set('Authorization', auth());
   companyId = r.body.data[0].id;
+  const productList = await supertest(app.getHttpServer())
+    .get('/api/v1/products?pageSize=10&categoryCode=TEZGAH')
+    .set('Authorization', auth());
+  productModelId = productList.body.data[0]?.id;
+  if (!productModelId) {
+    const fallbackProducts = await supertest(app.getHttpServer()).get('/api/v1/products?pageSize=1').set('Authorization', auth());
+    productModelId = fallbackProducts.body.data[0].id;
+  }
+  const warehouses = await supertest(app.getHttpServer()).get('/api/v1/warehouses').set('Authorization', auth());
+  warehouseId = warehouses.body[0].id;
   const device = await supertest(app.getHttpServer())
     .post('/api/v1/customer-devices')
     .set('Authorization', auth())
@@ -59,6 +87,7 @@ describe('Service — kurulum / sevkiyat / teslimat', () => {
     expect(r.status).toBe(201);
     expect(r.body.companyId).toBe(companyId);
     expect(r.body.subject).toBe('Test servis talebi');
+    expect(r.body.ticketNo).toMatch(/^(CNC|UNI|SACISLE)-SRV-\d{4}\/\d{4}$/);
     expect(r.body.assignedToUserId).toBe(adminUserId);
     expect(r.body.metadata.quoteRequired).toBe(true);
   });
@@ -86,6 +115,59 @@ describe('Service — kurulum / sevkiyat / teslimat', () => {
       .set('Authorization', auth());
     expect(list.status).toBe(200);
     expect(list.body.data.some((row: any) => row.id === created.body.id)).toBe(false);
+  });
+
+  it('tamamlanan servis verilerini Doktor Makina servis formu PDF çıktısına dönüştürür', async () => {
+    const created = await supertest(app.getHttpServer())
+      .post('/api/v1/service-tickets')
+      .set('Authorization', auth())
+      .send({
+        companyId,
+        customerDeviceId,
+        subject: 'Spindle alarmı',
+        description: 'Makine çalışırken spindle alarmı veriyor.',
+        severity: 'high',
+        assignedToUserId: adminUserId,
+        metadata: {
+          serviceStage: 'Service Completed',
+          timerElapsedSeconds: 7200,
+          serviceHourlyRate: 150,
+          serviceCurrency: 'EUR',
+        },
+      });
+    expect(created.status).toBe(201);
+
+    const completionForm = {
+      formNo: created.body.ticketNo,
+      kurulumTarihi: '2026-07-10',
+      kullanici: { firma: 'PDF Test Firması', ilgili: 'Test Yetkilisi' },
+      musteriSikayeti: 'Spindle alarmı nedeniyle tezgah duruyor.',
+      serviceType: 'ariza',
+      responsibility: 'ucretli',
+      yapilanIsler: 'Spindle sürücüsü kontrol edildi ve alarm resetlendi.',
+      degisenParcalar: [{ id: 'part-1', description: 'Spindle fanı', quantity: 1, unitPrice: 75 }],
+      servisUcreti: 300,
+      ulasimUcreti: 40,
+      currency: 'EUR',
+      kurulumuYapan: 'Servis Teknisyeni',
+      teslimAlan: 'Test Yetkilisi',
+      checks: [],
+    };
+    const saved = await supertest(app.getHttpServer())
+      .patch(`/api/v1/service-tickets/${created.body.id}`)
+      .set('Authorization', auth())
+      .send({ metadata: { completionForm } });
+    expect(saved.status).toBe(200);
+
+    const pdf = await supertest(app.getHttpServer())
+      .get(`/api/v1/service-tickets/${created.body.id}/service-form.pdf`)
+      .set('Authorization', auth())
+      .buffer(true);
+    expect(pdf.status).toBe(200);
+    expect(pdf.headers['content-type']).toContain('application/pdf');
+    expect(pdf.headers['content-disposition']).toContain('inline');
+    expect(Buffer.isBuffer(pdf.body)).toBe(true);
+    expect(pdf.body.subarray(0, 4).toString()).toBe('%PDF');
   });
 
   it('servis teklif formu olmadan bakım/onarım aşamasına geçişi reddeder', async () => {
@@ -125,6 +207,7 @@ describe('Service — kurulum / sevkiyat / teslimat', () => {
       .set('Authorization', auth())
       .send({ metadata: { serviceQuote: quote } });
     expect(saved.status).toBe(200);
+    expect(saved.body.metadata.serviceQuote.quoteNo).toMatch(new RegExp(`^${created.body.businessLine}-`));
 
     const moved = await supertest(app.getHttpServer())
       .patch(`/api/v1/service-tickets/${created.body.id}/status`)
@@ -276,7 +359,7 @@ describe('Service — kurulum / sevkiyat / teslimat', () => {
     expect(converted.status).toBe(201);
     expect(converted.body.status).toBe('converted');
     expect(converted.body.serviceTicketId).toBeTruthy();
-    expect(converted.body.serviceTicket.ticketNo).toMatch(/^SVC-/);
+    expect(converted.body.serviceTicket.ticketNo).toMatch(/^[A-Z]+-SRV-\d{4}\/\d{4}$/);
 
     const duplicate = await supertest(app.getHttpServer())
       .post(`/api/v1/service-complaints/${created.body.id}/convert`)
@@ -351,6 +434,36 @@ describe('Service — kurulum / sevkiyat / teslimat', () => {
     expect(r.body.feeAmount).toBeNull();
   });
 
+  it('kurulum tamamlamadan önce tutanak kontrol ve problem alanlarını zorunlu tutar', async () => {
+    const created = await supertest(app.getHttpServer())
+      .post('/api/v1/installations')
+      .set('Authorization', auth())
+      .send({ companyId, locationType: 'istanbul_ici', durationMinutes: 90, scheduledDate: now() });
+    expect(created.status).toBe(201);
+
+    const denied = await supertest(app.getHttpServer())
+      .patch(`/api/v1/installations/${created.body.id}/status`)
+      .set('Authorization', auth())
+      .send({ statusCode: 'completed', installationDate: now() });
+    expect(denied.status).toBe(422);
+
+    const formData = {
+      formNo: 'KRL-TEST',
+      problem: { hasProblem: false },
+      checks: INSTALLATION_FORM_DEFAULT_CHECKS.map((check) => ({
+        id: check.id,
+        label: check.label,
+        status: 'done',
+      })),
+    };
+    const completed = await supertest(app.getHttpServer())
+      .patch(`/api/v1/installations/${created.body.id}/status`)
+      .set('Authorization', auth())
+      .send({ statusCode: 'completed', installationDate: now(), formData });
+    expect(completed.status).toBe(200);
+    expect(completed.body.completedAt).toBeTruthy();
+  });
+
   it('var olmayan companyId ile kurulum reddedilir (tenant izolasyonu)', async () => {
     const r = await supertest(app.getHttpServer())
       .post('/api/v1/installations')
@@ -359,17 +472,95 @@ describe('Service — kurulum / sevkiyat / teslimat', () => {
     expect([403, 404]).toContain(r.status);
   });
 
-  it('sevkiyat oluşturur ve durumunu günceller', async () => {
+  it('opsiyonel donanımı bağımsız ve tezgaha bağlı stoklar', async () => {
+    const machine = await createInventoryItem(`VITEST-MACHINE-${Date.now()}`);
+    const standaloneOption = await createInventoryItem(`VITEST-OPT-FREE-${Date.now()}`);
+    expect(standaloneOption.parentInventoryItemId).toBeNull();
+
+    const linkedOption = await createInventoryItem(`VITEST-OPT-LINK-${Date.now()}`, machine.id);
+    expect(linkedOption.parentInventoryItemId).toBe(machine.id);
+  });
+
+  it('seri no çözülmeden sevkiyat başlatmayı reddeder', async () => {
     const c = await supertest(app.getHttpServer())
       .post('/api/v1/shipments')
       .set('Authorization', auth())
-      .send({ carrier: 'DHL', trackingNo: 'TRK-TEST-1', origin: 'Hamburg', destination: 'İstanbul', statusCode: 'preparing' });
+      .send({
+        carrier: 'DHL',
+        trackingNo: `TRK-NOSERIAL-${Date.now()}`,
+        origin: 'Hamburg',
+        destinationWarehouseId: warehouseId,
+        statusCode: 'preparing',
+        items: [{ productModelId, description: 'Seri no bekleyen ürün', quantity: 1 }],
+      });
     expect(c.status).toBe(201);
-    const u = await supertest(app.getHttpServer())
+
+    const start = await supertest(app.getHttpServer())
+      .post(`/api/v1/shipments/${c.body.id}/start`)
+      .set('Authorization', auth())
+      .send({ loadingDate: now() });
+    expect(start.status).toBe(422);
+  });
+
+  it('sevkiyat başlatınca stokları yolda/on_road yapar ve tamamlayınca seçilen depoya alır', async () => {
+    const serialNumber = `VITEST-SHIP-${Date.now()}`;
+    const item = await createInventoryItem(serialNumber);
+    const c = await supertest(app.getHttpServer())
+      .post('/api/v1/shipments')
+      .set('Authorization', auth())
+      .send({
+        companyId,
+        carrier: 'DHL',
+        trackingNo: `TRK-TEST-${Date.now()}`,
+        origin: 'Hamburg',
+        destinationWarehouseId: warehouseId,
+        transportMode: 'road',
+        productCategoryCode: 'TEZGAH',
+        statusCode: 'preparing',
+        items: [
+          {
+            inventoryItemId: item.id,
+            productModelId,
+            description: 'CNC Torna Tezgahı',
+            serialNumber,
+            quantity: 1,
+            packageCount: 1,
+            palletCount: 1,
+            packageLengthCm: 120,
+            packageWidthCm: 80,
+            packageHeightCm: 160,
+            grossWeightKg: 900,
+          },
+        ],
+      });
+    expect(c.status).toBe(201);
+
+    const started = await supertest(app.getHttpServer())
+      .post(`/api/v1/shipments/${c.body.id}/start`)
+      .set('Authorization', auth())
+      .send({ loadingDate: now() });
+    expect(started.status).toBe(201);
+    expect(started.body.status.code).toBe('in_transit');
+
+    const inTransit = await supertest(app.getHttpServer())
+      .get(`/api/v1/inventory?search=${encodeURIComponent(serialNumber)}&pageSize=5`)
+      .set('Authorization', auth());
+    expect(inTransit.status).toBe(200);
+    expect(inTransit.body.data[0].status.code).toBe('in_transit');
+    expect(inTransit.body.data[0].locationStatus.code).toBe('on_road');
+
+    const delivered = await supertest(app.getHttpServer())
       .patch(`/api/v1/shipments/${c.body.id}/status`)
       .set('Authorization', auth())
-      .send({ statusCode: 'in_transit' });
-    expect(u.status).toBe(200);
+      .send({ statusCode: 'delivered', destinationWarehouseId: warehouseId, arrivedAt: now() });
+    expect(delivered.status).toBe(200);
+
+    const received = await supertest(app.getHttpServer())
+      .get(`/api/v1/inventory?search=${encodeURIComponent(serialNumber)}&pageSize=5`)
+      .set('Authorization', auth());
+    expect(received.body.data[0].status.code).toBe('available');
+    expect(received.body.data[0].locationStatus.code).toBe('at_warehouse');
+    expect(received.body.data[0].warehouse.id).toBe(warehouseId);
   });
 
   it('teslimat oluşturur ve durumunu günceller', async () => {
@@ -386,6 +577,8 @@ describe('Service — kurulum / sevkiyat / teslimat', () => {
   });
 
   it('sevkiyatı satır kalemleri (paketleme listesi) ile oluşturur ve detayda döndürür', async () => {
+    const itemA = await createInventoryItem(`VITEST-ITEM-A-${Date.now()}`);
+    const itemB = await createInventoryItem(`VITEST-ITEM-B-${Date.now()}`);
     const c = await supertest(app.getHttpServer())
       .post('/api/v1/shipments')
       .set('Authorization', auth())
@@ -398,8 +591,8 @@ describe('Service — kurulum / sevkiyat / teslimat', () => {
         incoterm: 'CIF',
         statusCode: 'preparing',
         items: [
-          { description: 'CNC Torna Tezgahı', serialNumber: 'SN-TEST-100', quantity: 1 },
-          { description: 'Kontrol Ünitesi', serialNumber: 'SN-TEST-101', quantity: 1 },
+          { inventoryItemId: itemA.id, productModelId, description: 'CNC Torna Tezgahı', serialNumber: itemA.serialNumber, quantity: 1, packageCount: 1 },
+          { inventoryItemId: itemB.id, productModelId, description: 'Kontrol Ünitesi', serialNumber: itemB.serialNumber, quantity: 1, packageCount: 1 },
         ],
       });
     expect(c.status).toBe(201);
@@ -411,6 +604,7 @@ describe('Service — kurulum / sevkiyat / teslimat', () => {
       .set('Authorization', auth());
     expect(detail.status).toBe(200);
     expect(detail.body.items).toHaveLength(2);
-    expect(detail.body.items.map((i: { serialNumber: string }) => i.serialNumber)).toContain('SN-TEST-100');
+    expect(detail.body.items.map((i: { serialNumber: string }) => i.serialNumber)).toContain(itemA.serialNumber);
+    expect(detail.body.items[0].packageCount).toBe(1);
   });
 });

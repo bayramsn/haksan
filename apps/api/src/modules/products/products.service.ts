@@ -2,7 +2,23 @@ import { Inject, Injectable } from '@nestjs/common';
 import { and, asc, desc, eq, ilike, inArray, isNull, sql } from 'drizzle-orm';
 import ExcelJS from 'exceljs';
 import type { DbClient } from '../../db/client';
-import { brands, priceListItems, priceLists, productModels, productSpecs, productEquipmentItems, productOptionSets, productOptionValues } from '../../db/schema/products';
+import {
+  brands,
+  priceListItems,
+  priceLists,
+  productAlternatives,
+  productOptionalEquipmentCompatibilities,
+  productModels,
+  productSpecs,
+  productSpecTemplates,
+  productEquipmentItems,
+  productOptionSets,
+  productOptionValues,
+  productMedia,
+} from '../../db/schema/products';
+import { files } from '../../db/schema/files';
+import { companies } from '../../db/schema/companies';
+import { divisions } from '../../db/schema/tenants';
 import {
   productGroups,
   productCategories,
@@ -11,6 +27,7 @@ import {
   productSpecGroups,
   equipmentTypes,
   currencies,
+  companyRelationTypes,
 } from '../../db/schema/lookup';
 import { DB } from '../../shared/database/database.module';
 import { ConflictError, NotFoundError, ValidationError } from '../../shared/utils/errors';
@@ -35,6 +52,11 @@ import type {
 import { productImportRowSchema } from '@haksan/shared';
 import { buildPaginated, pageOffset } from '../../shared/utils/pagination';
 import { lookupIdByCode } from '../../shared/utils/lookup.helper';
+import {
+  assertCanUseResourceDivision,
+  resourceDivisionFilterWithShared,
+  resolveAssignedResourceDivision,
+} from '../../shared/utils/division-scope';
 import { AuditService } from '../../shared/database/audit.service';
 
 type ImportStatus = 'create' | 'update' | 'error' | 'skip';
@@ -62,6 +84,9 @@ type ParsedImportFile = {
   headerRowNumber: number;
   rows: Array<Record<string, unknown> & { rowNumber: number }>;
 };
+
+const PRODUCT_MEDIA_PATH_RE =
+  /(?:^|\/)(?:api\/v\d+\/)?products\/media\/([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})(?:[?#].*)?$/i;
 
 const BASE_IMPORT_FIELD_ALIASES: Record<string, string[]> = {
   brandName: ['marka', 'brand', 'uretici', 'üretici'],
@@ -185,7 +210,6 @@ function inferProductTypeCode(...values: Array<unknown>): string | undefined {
   const text = normalizeText(values.filter(Boolean).join(' '));
   if (!text) return undefined;
   if (text.includes('kopru') || text.includes('gantry')) return 'KOPRU_TIPI_ISLEME_MERKEZI';
-  if (text.includes('yatay') || text.includes('hmc')) return 'YATAY_ISLEME_MERKEZI';
   if (text.includes('torna') || text.includes('lathe')) return 'CNC_TORNA';
   if (text.includes('dik') || text.includes('isleme') || text.includes('vmc')) return 'DIK_ISLEME_MERKEZI';
   return undefined;
@@ -274,6 +298,322 @@ export class ProductsService {
     return row;
   }
 
+  private uniqueAlternativeIds(input: Pick<ProductCreateInput, 'muadilProductId' | 'muadilProductIds'>, productId?: string) {
+    const ids = input.muadilProductIds !== undefined ? input.muadilProductIds : input.muadilProductId ? [input.muadilProductId] : [];
+    return [...new Set(ids.filter((id): id is string => !!id && id !== productId))];
+  }
+
+  private async assertAlternativeProducts(productId: string, tenantId: string, alternativeIds: string[]) {
+    if (!alternativeIds.length) return;
+    if (alternativeIds.includes(productId)) throw new ValidationError('Ürün kendi kendine muadil olamaz');
+    const rows = await this.db
+      .select({ id: productModels.id })
+      .from(productModels)
+      .where(and(eq(productModels.tenantId, tenantId), inArray(productModels.id, alternativeIds), isNull(productModels.deletedAt)));
+    if (rows.length !== alternativeIds.length) throw new ValidationError('Geçersiz muadil ürün seçimi');
+  }
+
+  private async replaceAlternatives(productId: string, tenantId: string, alternativeIds: string[]) {
+    const uniqueIds = [...new Set(alternativeIds)].filter((id) => id !== productId);
+    await this.assertAlternativeProducts(productId, tenantId, uniqueIds);
+    const desired = new Set(uniqueIds);
+    const current = await this.db.query.productAlternatives.findMany({
+      where: and(eq(productAlternatives.tenantId, tenantId), eq(productAlternatives.productModelId, productId)),
+    });
+    const seen = new Set<string>();
+    const now = new Date();
+
+    for (const row of current) {
+      if (desired.has(row.alternativeProductModelId)) {
+        seen.add(row.alternativeProductModelId);
+        if (row.deletedAt) {
+          await this.db.update(productAlternatives).set({ deletedAt: null }).where(eq(productAlternatives.id, row.id));
+        }
+      } else if (!row.deletedAt) {
+        await this.db.update(productAlternatives).set({ deletedAt: now }).where(eq(productAlternatives.id, row.id));
+      }
+    }
+
+    const missing = uniqueIds.filter((id) => !seen.has(id));
+    if (missing.length) {
+      await this.db.insert(productAlternatives).values(
+        missing.map((alternativeProductModelId) => ({
+          tenantId,
+          productModelId: productId,
+          alternativeProductModelId,
+        }))
+      );
+    }
+  }
+
+  private async alternativesByProduct(productIds: string[], tenantId: string) {
+    const out = new Map<string, any[]>();
+    if (!productIds.length) return out;
+    const rows = await this.db
+      .select({
+        productId: productAlternatives.productModelId,
+        product: productModels,
+        brand: { id: brands.id, name: brands.name },
+        currency: { id: currencies.id, code: currencies.code },
+        category: { id: productCategories.id, code: productCategories.code, name: productCategories.name },
+        productType: { id: productTypes.id, code: productTypes.code, name: productTypes.name },
+      })
+      .from(productAlternatives)
+      .innerJoin(productModels, eq(productAlternatives.alternativeProductModelId, productModels.id))
+      .leftJoin(brands, eq(productModels.brandId, brands.id))
+      .leftJoin(currencies, eq(productModels.currencyId, currencies.id))
+      .leftJoin(productCategories, eq(productModels.categoryId, productCategories.id))
+      .leftJoin(productTypes, eq(productModels.productTypeId, productTypes.id))
+      .where(
+        and(
+          eq(productAlternatives.tenantId, tenantId),
+          inArray(productAlternatives.productModelId, productIds),
+          isNull(productAlternatives.deletedAt),
+          isNull(productModels.deletedAt)
+        )
+      )
+      .orderBy(asc(productCategories.name), asc(productModels.fullName));
+    for (const row of rows) {
+      const list = out.get(row.productId) ?? [];
+      list.push({
+        ...row.product,
+        brand: row.brand,
+        currency: row.currency,
+        category: row.category,
+        productType: row.productType,
+      });
+      out.set(row.productId, list);
+    }
+    return out;
+  }
+
+  private async productTypesById(typeIds: string[]) {
+    const out = new Map<string, { id: string; code: string; name: string }>();
+    const ids = [...new Set(typeIds.filter(Boolean))];
+    if (!ids.length) return out;
+    const rows = await this.db
+      .select({ id: productTypes.id, code: productTypes.code, name: productTypes.name })
+      .from(productTypes)
+      .where(inArray(productTypes.id, ids));
+    for (const row of rows) out.set(row.id, row);
+    return out;
+  }
+
+  private optionalCompatibilityProvided(input: ProductCreateInput | ProductUpdateInput) {
+    return (
+      input.optionalCompatibilityGroupCodes !== undefined ||
+      input.optionalCompatibilityCategoryCodes !== undefined ||
+      input.optionalCompatibilitySubcategoryCodes !== undefined ||
+      input.optionalCompatibilityTypeCodes !== undefined ||
+      input.optionalCompatibilityBrandIds !== undefined
+    );
+  }
+
+  private async lookupIdsByCode(table: any, codes: string[] | undefined) {
+    const ids = await Promise.all([...new Set(codes ?? [])].filter(Boolean).map((code) => lookupIdByCode(this.db, table, code)));
+    return ids.filter((id): id is string => Boolean(id));
+  }
+
+  private async assertSupplierCompany(companyId: string | null | undefined, tenantId: string) {
+    if (!companyId) return;
+    const [company] = await this.db
+      .select({ id: companies.id, relationCode: companyRelationTypes.code })
+      .from(companies)
+      .leftJoin(companyRelationTypes, eq(companies.relationTypeId, companyRelationTypes.id))
+      .where(and(eq(companies.id, companyId), eq(companies.tenantId, tenantId), isNull(companies.deletedAt)))
+      .limit(1);
+    if (!company) throw new NotFoundError('Tedarikçi');
+    if (company.relationCode !== 'supplier' && company.relationCode !== 'supplier_customer') {
+      throw new ValidationError('Tedarikçi firma seçiniz');
+    }
+  }
+
+  private async defaultProductGroupCodeForActor(actor: AuthContext): Promise<string> {
+    const divisionId = resolveAssignedResourceDivision(actor, 'products', null);
+    if (!divisionId) {
+      throw new ValidationError('Ürün oluştururken somut bölüm seçimi zorunludur', { field: 'divisionId' });
+    }
+    const division = await this.db.query.divisions.findFirst({ where: eq(divisions.id, divisionId) });
+    const code = division?.code;
+    if (code === 'cnc') return 'CNC';
+    if (code === 'universal') return 'UNIVERSAL';
+    if (code === 'sac_isleme') return 'SAC_ISLEME';
+    throw new ValidationError('Aktif bölüm için varsayılan ürün grubu bulunamadı', { field: 'productGroupCode' });
+  }
+
+  private async assertProductGroupScope(productGroupId: string | null | undefined, actor: AuthContext) {
+    if (!productGroupId) return;
+    const group = await this.db.query.productGroups.findFirst({
+      where: eq(productGroups.id, productGroupId),
+    });
+    if (!group) throw new NotFoundError('Ürün grubu');
+    assertCanUseResourceDivision(actor, 'products', group.divisionId);
+  }
+
+  private productMediaFileId(imageUrl: string | null | undefined): string | null {
+    const clean = imageUrl?.trim();
+    if (!clean) return null;
+    return PRODUCT_MEDIA_PATH_RE.exec(clean)?.[1] ?? null;
+  }
+
+  private async resolveProductImageMediaFile(actor: AuthContext, imageUrl: string | null | undefined) {
+    const fileId = this.productMediaFileId(imageUrl);
+    if (!fileId) return null;
+
+    const file = await this.db.query.files.findFirst({
+      where: and(
+        eq(files.id, fileId),
+        eq(files.tenantId, actor.tenantId),
+        eq(files.bucket, 'erp-product-images'),
+        eq(files.visibility, 'public'),
+        inArray(files.uploadStatus, ['uploaded', 'linked']),
+        isNull(files.deletedAt)
+      ),
+    });
+    if (!file) throw new ValidationError('Ürün görsel dosyası bulunamadı veya public ürün görseli değil');
+    if (file.uploadedBy !== actor.userId) throw new ValidationError('Ürün görselini yalnızca yükleyen kullanıcı bağlayabilir');
+    if (!file.mimeType.startsWith('image/')) throw new ValidationError('Ürün görseli için yalnızca resim dosyası kullanılabilir');
+    return { fileId, file };
+  }
+
+  private async attachProductImageMedia(productId: string, actor: AuthContext, imageUrl: string | null | undefined) {
+    const resolved = await this.resolveProductImageMediaFile(actor, imageUrl);
+    if (!resolved) return;
+    const { fileId, file } = resolved;
+
+    const existing = await this.db.query.productMedia.findFirst({
+      where: and(
+        eq(productMedia.tenantId, actor.tenantId),
+        eq(productMedia.productModelId, productId),
+        eq(productMedia.fileId, fileId)
+      ),
+    });
+    if (existing) return;
+    if (file.uploadStatus !== 'uploaded') throw new ValidationError('Ürün görseli zaten başka bir kayda bağlanmış');
+
+    await this.db.transaction(async (tx) => {
+      const [claimed] = await tx
+        .update(files)
+        .set({ uploadStatus: 'linked' })
+        .where(and(eq(files.id, fileId), eq(files.tenantId, actor.tenantId), eq(files.uploadStatus, 'uploaded')))
+        .returning({ id: files.id });
+      if (!claimed) throw new ValidationError('Ürün görseli zaten başka bir kayda bağlanmış');
+      await tx.insert(productMedia).values({
+        tenantId: actor.tenantId,
+        productModelId: productId,
+        fileId,
+        mediaType: 'image',
+        title: file.originalFilename,
+        sortOrder: 0,
+      });
+    });
+  }
+
+  private async assertBrandIds(brandIds: string[] | undefined, tenantId: string) {
+    const ids = [...new Set(brandIds ?? [])].filter(Boolean);
+    if (!ids.length) return [];
+    const rows = await this.db.query.brands.findMany({
+      where: and(eq(brands.tenantId, tenantId), inArray(brands.id, ids), isNull(brands.deletedAt)),
+    });
+    if (rows.length !== ids.length) throw new NotFoundError('Marka');
+    return ids;
+  }
+
+  private async replaceOptionalCompatibilities(productId: string, tenantId: string, input: ProductCreateInput | ProductUpdateInput) {
+    const [groupIds, categoryIds, subcategoryIds, typeIds, brandIds] = await Promise.all([
+      this.lookupIdsByCode(productGroups, input.optionalCompatibilityGroupCodes),
+      this.lookupIdsByCode(productCategories, input.optionalCompatibilityCategoryCodes),
+      this.lookupIdsByCode(productSubcategories, input.optionalCompatibilitySubcategoryCodes),
+      this.lookupIdsByCode(productTypes, input.optionalCompatibilityTypeCodes),
+      this.assertBrandIds(input.optionalCompatibilityBrandIds, tenantId),
+    ]);
+
+    await this.db
+      .update(productOptionalEquipmentCompatibilities)
+      .set({ deletedAt: new Date() })
+      .where(and(eq(productOptionalEquipmentCompatibilities.tenantId, tenantId), eq(productOptionalEquipmentCompatibilities.productModelId, productId), isNull(productOptionalEquipmentCompatibilities.deletedAt)));
+
+    const rows = [
+      ...groupIds.map((productGroupId) => ({ productGroupId })),
+      ...categoryIds.map((categoryId) => ({ categoryId })),
+      ...subcategoryIds.map((subcategoryId) => ({ subcategoryId })),
+      ...typeIds.map((productTypeId) => ({ productTypeId })),
+      ...brandIds.map((brandId) => ({ brandId })),
+    ].map((row) => ({
+      tenantId,
+      productModelId: productId,
+      productGroupId: 'productGroupId' in row ? row.productGroupId : null,
+      categoryId: 'categoryId' in row ? row.categoryId : null,
+      subcategoryId: 'subcategoryId' in row ? row.subcategoryId : null,
+      productTypeId: 'productTypeId' in row ? row.productTypeId : null,
+      brandId: 'brandId' in row ? row.brandId : null,
+    }));
+
+    if (rows.length) {
+      await this.db.insert(productOptionalEquipmentCompatibilities).values(rows).onConflictDoNothing();
+    }
+  }
+
+  private async optionalCompatibilitiesByProduct(productIds: string[], tenantId: string) {
+    const out = new Map<string, {
+      groupCodes: string[];
+      categoryCodes: string[];
+      subcategoryCodes: string[];
+      typeCodes: string[];
+      brandIds: string[];
+      rows: Array<{
+        productGroupId: string | null;
+        categoryId: string | null;
+        subcategoryId: string | null;
+        productTypeId: string | null;
+        brandId: string | null;
+      }>;
+    }>();
+    const ids = [...new Set(productIds.filter(Boolean))];
+    if (!ids.length) return out;
+    const rows = await this.db
+      .select({
+        productId: productOptionalEquipmentCompatibilities.productModelId,
+        productGroupId: productOptionalEquipmentCompatibilities.productGroupId,
+        categoryId: productOptionalEquipmentCompatibilities.categoryId,
+        subcategoryId: productOptionalEquipmentCompatibilities.subcategoryId,
+        productTypeId: productOptionalEquipmentCompatibilities.productTypeId,
+        brandId: productOptionalEquipmentCompatibilities.brandId,
+        groupCode: productGroups.code,
+        categoryCode: productCategories.code,
+        subcategoryCode: productSubcategories.code,
+        typeCode: productTypes.code,
+      })
+      .from(productOptionalEquipmentCompatibilities)
+      .leftJoin(productGroups, eq(productOptionalEquipmentCompatibilities.productGroupId, productGroups.id))
+      .leftJoin(productCategories, eq(productOptionalEquipmentCompatibilities.categoryId, productCategories.id))
+      .leftJoin(productSubcategories, eq(productOptionalEquipmentCompatibilities.subcategoryId, productSubcategories.id))
+      .leftJoin(productTypes, eq(productOptionalEquipmentCompatibilities.productTypeId, productTypes.id))
+      .where(and(
+        eq(productOptionalEquipmentCompatibilities.tenantId, tenantId),
+        inArray(productOptionalEquipmentCompatibilities.productModelId, ids),
+        isNull(productOptionalEquipmentCompatibilities.deletedAt)
+      ));
+
+    for (const row of rows) {
+      const item = out.get(row.productId) ?? { groupCodes: [], categoryCodes: [], subcategoryCodes: [], typeCodes: [], brandIds: [], rows: [] };
+      if (row.groupCode) item.groupCodes.push(row.groupCode);
+      if (row.categoryCode) item.categoryCodes.push(row.categoryCode);
+      if (row.subcategoryCode) item.subcategoryCodes.push(row.subcategoryCode);
+      if (row.typeCode) item.typeCodes.push(row.typeCode);
+      if (row.brandId) item.brandIds.push(row.brandId);
+      item.rows.push({
+        productGroupId: row.productGroupId,
+        categoryId: row.categoryId,
+        subcategoryId: row.subcategoryId,
+        productTypeId: row.productTypeId,
+        brandId: row.brandId,
+      });
+      out.set(row.productId, item);
+    }
+    return out;
+  }
+
   // ────────── PRODUCTS ──────────
   async list(actor: AuthContext, query: { search?: string; brandId?: string; categoryCode?: string }, page: Pagination) {
     const { limit, offset } = pageOffset(page);
@@ -285,10 +625,13 @@ export class ProductsService {
       // Use a sentinel that matches nothing if the category code is unknown.
       filters.push(eq(productModels.categoryId, categoryId ?? '00000000-0000-0000-0000-000000000000'));
     }
+    const productScope = resourceDivisionFilterWithShared(actor, 'products', productGroups.divisionId);
+    if (productScope) filters.push(productScope);
     const where = and(...filters);
     const [{ count }] = await this.db
       .select({ count: sql<number>`count(*)::int` })
       .from(productModels)
+      .leftJoin(productGroups, eq(productModels.productGroupId, productGroups.id))
       .where(where);
     const rows = await this.db
       .select({
@@ -313,7 +656,7 @@ export class ProductsService {
       .offset(offset);
 
     const productIds = rows.map((r) => r.product.id);
-    const specsByProduct = new Map<string, Array<{ key: string; value: string; unit?: string | null; group?: string | null }>>();
+    const specsByProduct = new Map<string, Array<{ key: string; value: string; unit?: string | null; groupCode?: string | null; groupName?: string | null; group?: string | null }>>();
     const standardByProduct = new Map<string, string[]>();
     const optionalByProduct = new Map<string, string[]>();
 
@@ -324,7 +667,8 @@ export class ProductsService {
           key: productSpecs.specKey,
           value: productSpecs.specValue,
           unit: productSpecs.specUnit,
-          group: productSpecGroups.name,
+          groupCode: productSpecGroups.code,
+          groupName: productSpecGroups.name,
         })
         .from(productSpecs)
         .leftJoin(productSpecGroups, eq(productSpecs.specGroupId, productSpecGroups.id))
@@ -333,7 +677,7 @@ export class ProductsService {
 
       for (const spec of specRows) {
         const list = specsByProduct.get(spec.productId) ?? [];
-        list.push({ key: spec.key, value: spec.value, unit: spec.unit, group: spec.group });
+        list.push({ key: spec.key, value: spec.value, unit: spec.unit, groupCode: spec.groupCode, groupName: spec.groupName, group: spec.groupName });
         specsByProduct.set(spec.productId, list);
       }
 
@@ -355,35 +699,96 @@ export class ProductsService {
         target.set(item.productId, list);
       }
     }
+    const compatibleTypes = await this.productTypesById(
+      rows.map((r) => r.product.compatibleMachineTypeId).filter((id): id is string => !!id)
+    );
+    const [alternatives, optionalCompatibilities] = await Promise.all([
+      this.alternativesByProduct(productIds, actor.tenantId),
+      this.optionalCompatibilitiesByProduct(productIds, actor.tenantId),
+    ]);
 
     return buildPaginated(
-      rows.map((r) => ({
-        ...r.product,
-        brand: r.brand,
-        currency: r.currency,
-        productGroup: r.productGroup,
-        category: r.category,
-        subcategory: r.subcategory,
-        productType: r.productType,
-        specs: specsByProduct.get(r.product.id) ?? [],
-        standardEquipment: standardByProduct.get(r.product.id) ?? [],
-        optionalEquipment: optionalByProduct.get(r.product.id) ?? [],
-      })),
+      rows.map((r) => {
+        const muadilProducts = alternatives.get(r.product.id) ?? [];
+        const optionalCompatibility = optionalCompatibilities.get(r.product.id);
+        return {
+          ...r.product,
+          brand: r.brand,
+          currency: r.currency,
+          productGroup: r.productGroup,
+          category: r.category,
+          subcategory: r.subcategory,
+          productType: r.productType,
+          compatibleMachineType: r.product.compatibleMachineTypeId ? compatibleTypes.get(r.product.compatibleMachineTypeId) ?? null : null,
+          specs: specsByProduct.get(r.product.id) ?? [],
+          standardEquipment: standardByProduct.get(r.product.id) ?? [],
+          optionalEquipment: optionalByProduct.get(r.product.id) ?? [],
+          muadilProductIds: muadilProducts.map((p) => p.id),
+          muadilProducts,
+          optionalCompatibilityGroupCodes: optionalCompatibility?.groupCodes ?? [],
+          optionalCompatibilityCategoryCodes: optionalCompatibility?.categoryCodes ?? [],
+          optionalCompatibilitySubcategoryCodes: optionalCompatibility?.subcategoryCodes ?? [],
+          optionalCompatibilityTypeCodes: optionalCompatibility?.typeCodes ?? [],
+          optionalCompatibilityBrandIds: optionalCompatibility?.brandIds ?? [],
+        };
+      }),
       count,
       page
     );
   }
 
   async get(id: string, actor: AuthContext) {
-    const row = await this.db.query.productModels.findFirst({
-      where: and(
-        eq(productModels.id, id),
-        eq(productModels.tenantId, actor.tenantId),
-        isNull(productModels.deletedAt)
-      ),
-    });
+    const [row] = await this.db
+      .select({
+        product: productModels,
+        brand: { id: brands.id, name: brands.name },
+        currency: { id: currencies.id, code: currencies.code },
+        productGroup: { id: productGroups.id, code: productGroups.code, name: productGroups.name },
+        category: { id: productCategories.id, code: productCategories.code, name: productCategories.name },
+        subcategory: { id: productSubcategories.id, code: productSubcategories.code, name: productSubcategories.name },
+        productType: { id: productTypes.id, code: productTypes.code, name: productTypes.name },
+      })
+      .from(productModels)
+      .leftJoin(brands, eq(productModels.brandId, brands.id))
+      .leftJoin(currencies, eq(productModels.currencyId, currencies.id))
+      .leftJoin(productGroups, eq(productModels.productGroupId, productGroups.id))
+      .leftJoin(productCategories, eq(productModels.categoryId, productCategories.id))
+      .leftJoin(productSubcategories, eq(productModels.subcategoryId, productSubcategories.id))
+      .leftJoin(productTypes, eq(productModels.productTypeId, productTypes.id))
+      .where(
+        and(
+          eq(productModels.id, id),
+          eq(productModels.tenantId, actor.tenantId),
+          isNull(productModels.deletedAt),
+          resourceDivisionFilterWithShared(actor, 'products', productGroups.divisionId) ?? sql`true`
+        )
+      )
+      .limit(1);
     if (!row) throw new NotFoundError('Ürün');
-    return row;
+    const [compatibleTypes, alternatives, optionalCompatibilities] = await Promise.all([
+      this.productTypesById(row.product.compatibleMachineTypeId ? [row.product.compatibleMachineTypeId] : []),
+      this.alternativesByProduct([id], actor.tenantId),
+      this.optionalCompatibilitiesByProduct([id], actor.tenantId),
+    ]);
+    const muadilProducts = alternatives.get(id) ?? [];
+    const optionalCompatibility = optionalCompatibilities.get(id);
+    return {
+      ...row.product,
+      brand: row.brand,
+      currency: row.currency,
+      productGroup: row.productGroup,
+      category: row.category,
+      subcategory: row.subcategory,
+      productType: row.productType,
+      compatibleMachineType: row.product.compatibleMachineTypeId ? compatibleTypes.get(row.product.compatibleMachineTypeId) ?? null : null,
+      muadilProductIds: muadilProducts.map((p) => p.id),
+      muadilProducts,
+      optionalCompatibilityGroupCodes: optionalCompatibility?.groupCodes ?? [],
+      optionalCompatibilityCategoryCodes: optionalCompatibility?.categoryCodes ?? [],
+      optionalCompatibilitySubcategoryCodes: optionalCompatibility?.subcategoryCodes ?? [],
+      optionalCompatibilityTypeCodes: optionalCompatibility?.typeCodes ?? [],
+      optionalCompatibilityBrandIds: optionalCompatibility?.brandIds ?? [],
+    };
   }
 
   async create(input: ProductCreateInput, actor: AuthContext) {
@@ -392,38 +797,61 @@ export class ProductsService {
     });
     if (existing) throw new ConflictError('Bu model kodu zaten kayıtlı');
 
-    const [groupId, catId, subId, typeId, currencyId] = await Promise.all([
-      lookupIdByCode(this.db, productGroups, input.productGroupCode),
+    const productGroupCode = input.productGroupCode ?? (await this.defaultProductGroupCodeForActor(actor));
+    const [groupId, catId, subId, typeId, compatibleMachineTypeId, currencyId] = await Promise.all([
+      lookupIdByCode(this.db, productGroups, productGroupCode),
       lookupIdByCode(this.db, productCategories, input.categoryCode),
       lookupIdByCode(this.db, productSubcategories, input.subcategoryCode),
       lookupIdByCode(this.db, productTypes, input.productTypeCode),
+      input.compatibleMachineTypeCode ? lookupIdByCode(this.db, productTypes, input.compatibleMachineTypeCode) : Promise.resolve(null),
       lookupIdByCode(this.db, currencies, input.currencyCode),
     ]);
+    const alternativeIds = this.uniqueAlternativeIds(input);
+    await this.assertAlternativeProducts('', actor.tenantId, alternativeIds);
+    await this.assertSupplierCompany(input.supplierCompanyId, actor.tenantId);
+    if (!groupId) throw new ValidationError('Ürün grubu bulunamadı', { field: 'productGroupCode' });
+    await this.assertProductGroupScope(groupId, actor);
+    await this.resolveProductImageMediaFile(actor, input.imageUrl);
 
-    const [row] = await this.db
-      .insert(productModels)
-      .values({
-        tenantId: actor.tenantId,
-        brandId: input.brandId,
-        productGroupId: groupId,
-        categoryId: catId,
-        subcategoryId: subId,
-        productTypeId: typeId,
-        modelCode: input.modelCode,
-        modelName: input.modelName ?? null,
-        fullName: input.fullName,
-        currencyId,
-        listPrice: input.listPrice?.toString() ?? null,
-        cashPrice: input.cashPrice?.toString() ?? null,
-        vatRate: input.vatRate.toString(),
-        originCountry: input.originCountry ?? null,
-        hsCode: input.hsCode ?? null,
-        stockCode: input.stockCode ?? null,
-        imageUrl: input.imageUrl ?? null,
-        description: input.description ?? null,
-        muadilProductId: input.muadilProductId ?? null,
-      })
-      .returning();
+    let row: typeof productModels.$inferSelect;
+    try {
+      [row] = await this.db
+        .insert(productModels)
+        .values({
+          tenantId: actor.tenantId,
+          brandId: input.brandId,
+          productGroupId: groupId,
+          categoryId: catId,
+          subcategoryId: subId,
+          productTypeId: typeId,
+          compatibleMachineTypeId,
+          supplierCompanyId: input.supplierCompanyId ?? null,
+          modelCode: input.modelCode,
+          modelName: input.modelName ?? null,
+          fullName: input.fullName,
+          currencyId,
+          listPrice: input.listPrice?.toString() ?? null,
+          cashPrice: input.cashPrice?.toString() ?? null,
+          vatRate: input.vatRate.toString(),
+          originCountry: input.originCountry ?? null,
+          hsCode: input.hsCode ?? null,
+          stockCode: input.stockCode ?? null,
+          imageUrl: input.imageUrl ?? null,
+          description: input.description ?? null,
+          muadilProductId: alternativeIds[0] ?? input.muadilProductId ?? null,
+        })
+        .returning();
+    } catch (error: any) {
+      // Eşzamanlı (örn. çift tıklamayla gönderilen) istekler bu noktaya kadarki
+      // "existing" kontrolünü ikisi de geçebilir; DB'nin unique constraint'i
+      // ikinci isteği burada yakalar. Ham pg hatasını 500 olarak sızdırmak yerine
+      // aynı temiz ConflictError'a çeviriyoruz.
+      if ((error?.code ?? error?.cause?.code) === '23505') throw new ConflictError('Bu model kodu zaten kayıtlı');
+      throw error;
+    }
+    await this.replaceAlternatives(row.id, actor.tenantId, alternativeIds);
+    await this.replaceOptionalCompatibilities(row.id, actor.tenantId, input);
+    await this.attachProductImageMedia(row.id, actor, input.imageUrl);
     await this.audit.write({
       tenantId: actor.tenantId,
       actorUserId: actor.userId,
@@ -439,23 +867,44 @@ export class ProductsService {
     const existing = await this.get(id, actor);
     const patch: Record<string, unknown> = {};
     if (input.brandId !== undefined) patch.brandId = input.brandId;
-    if (input.productGroupCode !== undefined)
-      patch.productGroupId = await lookupIdByCode(this.db, productGroups, input.productGroupCode);
+    if (input.productGroupCode !== undefined) {
+      const groupId = await lookupIdByCode(this.db, productGroups, input.productGroupCode);
+      await this.assertProductGroupScope(groupId, actor);
+      patch.productGroupId = groupId;
+    }
     if (input.categoryCode !== undefined)
       patch.categoryId = await lookupIdByCode(this.db, productCategories, input.categoryCode);
     if (input.subcategoryCode !== undefined)
       patch.subcategoryId = await lookupIdByCode(this.db, productSubcategories, input.subcategoryCode);
     if (input.productTypeCode !== undefined)
       patch.productTypeId = await lookupIdByCode(this.db, productTypes, input.productTypeCode);
+    if (input.compatibleMachineTypeCode !== undefined)
+      patch.compatibleMachineTypeId = input.compatibleMachineTypeCode ? await lookupIdByCode(this.db, productTypes, input.compatibleMachineTypeCode) : null;
     if (input.currencyCode !== undefined)
       patch.currencyId = await lookupIdByCode(this.db, currencies, input.currencyCode);
-    for (const k of ['modelCode', 'modelName', 'fullName', 'originCountry', 'hsCode', 'stockCode', 'imageUrl', 'description', 'muadilProductId'] as const) {
+    if (input.supplierCompanyId !== undefined) {
+      await this.assertSupplierCompany(input.supplierCompanyId, actor.tenantId);
+      patch.supplierCompanyId = input.supplierCompanyId ?? null;
+    }
+    if (input.imageUrl !== undefined) await this.resolveProductImageMediaFile(actor, input.imageUrl);
+    const alternativesProvided = input.muadilProductIds !== undefined || input.muadilProductId !== undefined;
+    const alternativeIds = alternativesProvided ? this.uniqueAlternativeIds(input, id) : [];
+    if (alternativesProvided) patch.muadilProductId = alternativeIds[0] ?? null;
+    for (const k of ['modelCode', 'modelName', 'fullName', 'originCountry', 'hsCode', 'stockCode', 'imageUrl', 'description'] as const) {
       if ((input as any)[k] !== undefined) patch[k] = (input as any)[k] ?? null;
     }
     for (const k of ['listPrice', 'cashPrice', 'vatRate'] as const) {
       if ((input as any)[k] !== undefined) patch[k] = ((input as any)[k] as number | undefined)?.toString() ?? null;
     }
-    await this.db.update(productModels).set(patch).where(eq(productModels.id, id));
+    try {
+      await this.db.update(productModels).set(patch).where(eq(productModels.id, id));
+    } catch (error: any) {
+      if ((error?.code ?? error?.cause?.code) === '23505') throw new ConflictError('Bu model kodu zaten kayıtlı');
+      throw error;
+    }
+    if (alternativesProvided) await this.replaceAlternatives(id, actor.tenantId, alternativeIds);
+    if (this.optionalCompatibilityProvided(input)) await this.replaceOptionalCompatibilities(id, actor.tenantId, input);
+    if (input.imageUrl !== undefined) await this.attachProductImageMedia(id, actor, input.imageUrl);
     await this.audit.write({
       tenantId: actor.tenantId,
       actorUserId: actor.userId,
@@ -475,6 +924,21 @@ export class ProductsService {
   }
 
   // ────────── SPECS ──────────
+  async listSpecTemplates(productTypeCode?: string, actor?: AuthContext) {
+    const filters = [eq(productSpecTemplates.isActive, true)];
+    if (productTypeCode?.trim()) filters.push(eq(productSpecTemplates.productTypeCode, productTypeCode.trim()));
+    // Aktif bölüm kendi + paylaşılan ("Tümü") şablonları görür (teklif/ürün diyalogları).
+    if (actor) {
+      const divFilter = resourceDivisionFilterWithShared(actor, 'products', productSpecTemplates.divisionId);
+      if (divFilter) filters.push(divFilter);
+    }
+    return this.db
+      .select()
+      .from(productSpecTemplates)
+      .where(and(...filters))
+      .orderBy(asc(productSpecTemplates.productTypeCode), asc(productSpecTemplates.sortOrder), asc(productSpecTemplates.specKey));
+  }
+
   async listSpecs(productId: string, actor: AuthContext) {
     await this.get(productId, actor);
     return this.db
@@ -520,6 +984,51 @@ export class ProductsService {
       .leftJoin(currencies, eq(productEquipmentItems.currencyId, currencies.id))
       .where(and(eq(productEquipmentItems.productModelId, productId), isNull(productEquipmentItems.deletedAt)))
       .orderBy(asc(productEquipmentItems.sortOrder));
+  }
+
+  async listCompatibleOptionalEquipment(productId: string, actor: AuthContext) {
+    const machine = await this.get(productId, actor);
+    const optionalCategoryId = await lookupIdByCode(this.db, productCategories, 'OPSIYONEL_DONANIM');
+    if (!optionalCategoryId) return [];
+    const rows = await this.db
+      .select({
+        product: productModels,
+        brand: { id: brands.id, name: brands.name },
+        currency: { id: currencies.id, code: currencies.code },
+        productGroup: { id: productGroups.id, code: productGroups.code, name: productGroups.name },
+        category: { id: productCategories.id, code: productCategories.code, name: productCategories.name },
+        subcategory: { id: productSubcategories.id, code: productSubcategories.code, name: productSubcategories.name },
+        productType: { id: productTypes.id, code: productTypes.code, name: productTypes.name },
+      })
+      .from(productModels)
+      .leftJoin(brands, eq(productModels.brandId, brands.id))
+      .leftJoin(currencies, eq(productModels.currencyId, currencies.id))
+      .leftJoin(productGroups, eq(productModels.productGroupId, productGroups.id))
+      .leftJoin(productCategories, eq(productModels.categoryId, productCategories.id))
+      .leftJoin(productSubcategories, eq(productModels.subcategoryId, productSubcategories.id))
+      .leftJoin(productTypes, eq(productModels.productTypeId, productTypes.id))
+      .where(
+        and(
+          eq(productModels.tenantId, actor.tenantId),
+          eq(productModels.categoryId, optionalCategoryId),
+          isNull(productModels.deletedAt),
+          resourceDivisionFilterWithShared(actor, 'products', productGroups.divisionId) ?? sql`true`
+        )
+      )
+      .orderBy(asc(productModels.fullName));
+    const compatibilities = await this.optionalCompatibilitiesByProduct(rows.map((r) => r.product.id), actor.tenantId);
+    return rows.filter((row) => {
+      if (row.product.compatibleMachineTypeId && row.product.compatibleMachineTypeId === machine.productTypeId) return true;
+      const compatibility = compatibilities.get(row.product.id);
+      if (!compatibility) return false;
+      return compatibility.rows.some((item) =>
+        (item.productGroupId && item.productGroupId === machine.productGroupId) ||
+        (item.categoryId && item.categoryId === machine.categoryId) ||
+        (item.subcategoryId && item.subcategoryId === machine.subcategoryId) ||
+        (item.productTypeId && item.productTypeId === machine.productTypeId) ||
+        (item.brandId && item.brandId === machine.brandId)
+      );
+    });
   }
 
   async addEquipment(productId: string, input: ProductEquipmentCreateInput, actor: AuthContext) {
@@ -700,6 +1209,28 @@ export class ProductsService {
         lookupIdByCode(this.db, productTypes, normalized.productTypeCode),
         lookupIdByCode(this.db, currencies, normalized.currencyCode),
       ]);
+      if (!groupId) {
+        results.push({
+          rowNumber: normalized.rowNumber,
+          modelCode: normalized.modelCode,
+          status: 'error',
+          errors: ['Ürün grubu zorunlu'],
+        });
+        continue;
+      }
+      try {
+        await this.assertProductGroupScope(groupId, actor);
+        if (existing) await this.assertProductGroupScope(existing.productGroupId, actor);
+        await this.resolveProductImageMediaFile(actor, normalized.imageUrl);
+      } catch (error) {
+        results.push({
+          rowNumber: normalized.rowNumber,
+          modelCode: normalized.modelCode,
+          status: 'error',
+          errors: [error instanceof Error ? error.message : 'Ürün grubu yetkiniz dışında'],
+        });
+        continue;
+      }
 
       const values = {
         brandId: brand.id,
@@ -738,6 +1269,7 @@ export class ProductsService {
         productId = created.id;
         status = 'create';
       }
+      await this.attachProductImageMedia(productId, actor, normalized.imageUrl);
 
       const hasDetails = normalized.specs.length > 0 || normalized.equipment.length > 0;
       if (hasDetails && input.replaceDetails) {
@@ -803,7 +1335,11 @@ export class ProductsService {
   // ────────── PRICE LISTS ──────────
   async listPriceLists(actor: AuthContext, page: Pagination) {
     const { limit, offset } = pageOffset(page);
-    const where = and(eq(priceLists.tenantId, actor.tenantId), isNull(priceLists.deletedAt));
+    const where = and(
+      eq(priceLists.tenantId, actor.tenantId),
+      isNull(priceLists.deletedAt),
+      resourceDivisionFilterWithShared(actor, 'price_lists', priceLists.divisionId) ?? sql`true`
+    );
     const [{ count }] = await this.db.select({ count: sql<number>`count(*)::int` }).from(priceLists).where(where);
     const rows = await this.db
       .select({
@@ -825,10 +1361,13 @@ export class ProductsService {
     });
     if (existing) throw new ConflictError('Bu fiyat listesi kodu zaten kayıtlı');
     const currencyId = await lookupIdByCode(this.db, currencies, input.currencyCode);
+    const divisionId = resolveAssignedResourceDivision(actor, 'price_lists', input.divisionId ?? null);
+    if (!divisionId) throw new ValidationError('Fiyat listesi için somut bölüm seçimi zorunludur', { field: 'divisionId' });
     const [row] = await this.db
       .insert(priceLists)
       .values({
         tenantId: actor.tenantId,
+        divisionId,
         code: input.code,
         name: input.name,
         description: input.description ?? null,
@@ -853,6 +1392,7 @@ export class ProductsService {
     const existing = await this.getPriceList(id, actor);
     const patch: Record<string, unknown> = {};
     if (input.currencyCode !== undefined) patch.currencyId = await lookupIdByCode(this.db, currencies, input.currencyCode);
+    if (input.divisionId !== undefined) patch.divisionId = resolveAssignedResourceDivision(actor, 'price_lists', input.divisionId);
     for (const k of ['code', 'name', 'description', 'validFrom', 'validUntil', 'isActive'] as const) {
       if ((input as any)[k] !== undefined) patch[k] = (input as any)[k] ?? null;
     }
@@ -893,6 +1433,10 @@ export class ProductsService {
         productModelId: input.productModelId,
         listPrice: input.listPrice?.toString() ?? null,
         cashPrice: input.cashPrice?.toString() ?? null,
+        campaignPrice: input.campaignPrice?.toString() ?? null,
+        campaignValidFrom: input.campaignValidFrom ?? null,
+        campaignValidUntil: input.campaignValidUntil ?? null,
+        campaignIsActive: input.campaignIsActive ?? false,
         vatRate: input.vatRate?.toString() ?? null,
         notes: input.notes ?? null,
       })
@@ -919,9 +1463,13 @@ export class ProductsService {
       await this.get(input.productModelId, actor);
       patch.productModelId = input.productModelId;
     }
-    for (const k of ['listPrice', 'cashPrice', 'vatRate'] as const) {
+    for (const k of ['listPrice', 'cashPrice', 'campaignPrice', 'vatRate'] as const) {
       if ((input as any)[k] !== undefined) patch[k] = ((input as any)[k] as number | undefined)?.toString() ?? null;
     }
+    for (const k of ['campaignValidFrom', 'campaignValidUntil'] as const) {
+      if ((input as any)[k] !== undefined) patch[k] = (input as any)[k] ?? null;
+    }
+    if (input.campaignIsActive !== undefined) patch.campaignIsActive = input.campaignIsActive;
     if (input.notes !== undefined) patch.notes = input.notes ?? null;
     await this.db.update(priceListItems).set(patch).where(eq(priceListItems.id, itemId));
     return this.db.query.priceListItems.findFirst({ where: eq(priceListItems.id, itemId) });
@@ -929,7 +1477,12 @@ export class ProductsService {
 
   private async getPriceList(id: string, actor: AuthContext) {
     const row = await this.db.query.priceLists.findFirst({
-      where: and(eq(priceLists.id, id), eq(priceLists.tenantId, actor.tenantId), isNull(priceLists.deletedAt)),
+      where: and(
+        eq(priceLists.id, id),
+        eq(priceLists.tenantId, actor.tenantId),
+        isNull(priceLists.deletedAt),
+        resourceDivisionFilterWithShared(actor, 'price_lists', priceLists.divisionId) ?? sql`true`
+      ),
     });
     if (!row) throw new NotFoundError('Fiyat listesi');
     return row;
@@ -1120,7 +1673,17 @@ export class ProductsService {
     if (!fullName) errors.push('Ürün adı zorunlu');
 
     const inferredText = [raw.productTypeCode, raw.categoryCode, raw.subcategoryCode, fullName, modelName, raw.description];
-    const productGroupCode = this.resolveLookupCode(lookups.productGroups, cellToText(raw.productGroupCode), 'CNC', warnings, 'Ürün grubu');
+    const rawProductGroupCode = cellToText(raw.productGroupCode);
+    let fallbackProductGroupCode: string | undefined;
+    if (!rawProductGroupCode) {
+      try {
+        fallbackProductGroupCode = await this.defaultProductGroupCodeForActor(actor);
+      } catch (error) {
+        errors.push(error instanceof Error ? error.message : 'Ürün grubu için bölüm seçimi zorunludur');
+      }
+    }
+    const productGroupCode = this.resolveLookupCode(lookups.productGroups, rawProductGroupCode, fallbackProductGroupCode, warnings, 'Ürün grubu');
+    if (!productGroupCode) errors.push('Ürün grubu zorunlu');
     const categoryCode = this.resolveLookupCode(lookups.productCategories, cellToText(raw.categoryCode), 'TEZGAH', warnings, 'Kategori');
     const subcategoryCode = this.resolveLookupCode(
       lookups.productSubcategories,
@@ -1171,6 +1734,13 @@ export class ProductsService {
     }
 
     const existing = modelCode ? await this.findProductByModelCode(modelCode, actor) : null;
+    if (existing) {
+      try {
+        await this.assertProductGroupScope(existing.productGroupId, actor);
+      } catch {
+        errors.push('Bu model kodu başka bir ürün yetki alanında kayıtlı');
+      }
+    }
     const status: ImportStatus = errors.length ? 'error' : existing ? 'update' : 'create';
 
     return {

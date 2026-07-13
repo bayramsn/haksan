@@ -33,16 +33,18 @@ const findProduct = (
   if (hint) {
     return products.find(
       (p) =>
-        (p.model && (hint.includes(p.model) || p.model.includes(hint))) ||
-        (p.modelName && hint.includes(p.modelName)),
+        p.categoryCode !== "ISCILIK" &&
+        ((p.model && (hint.includes(p.model) || p.model.includes(hint))) ||
+          (p.modelName && hint.includes(p.modelName))),
     );
   }
   const desc = opts.description?.toLowerCase() ?? "";
   if (desc) {
     return products.find(
       (p) =>
-        (p.model && desc.includes(p.model.toLowerCase())) ||
-        (p.brand && desc.includes(p.brand.toLowerCase())),
+        p.categoryCode !== "ISCILIK" &&
+        ((p.model && desc.includes(p.model.toLowerCase())) ||
+          (p.brand && desc.includes(p.brand.toLowerCase()))),
     );
   }
   return undefined;
@@ -85,11 +87,12 @@ const itemsFromQuote = (quote: QuoteDetail, products: Product[], sc: SalesCase |
       description: it.description,
       modelHint: sc?.requestedModel,
     });
+    const isLabor = product?.categoryCode === "ISCILIK";
     return {
       aciklama: String(it.description ?? "").trim(),
-      marka: product?.brand,
-      mensei: product?.originCountry,
-      gtip: product?.hsCode,
+      marka: isLabor ? undefined : product?.brand,
+      mensei: isLabor ? undefined : product?.originCountry,
+      gtip: isLabor ? undefined : product?.hsCode,
       birim: formatBirim(qty, it.unit?.code ?? it.unitCode),
       birimFiyati: unitPrice,
       iskonto: Number(it.discountAmount ?? 0),
@@ -108,9 +111,9 @@ const fallbackItem = (
 ): ProformaItem[] => [
   {
     aciklama: ctx.urunAdi,
-    marka: ctx.product?.brand,
-    mensei: ctx.product?.originCountry,
-    gtip: ctx.product?.hsCode,
+    marka: ctx.product?.categoryCode === "ISCILIK" ? undefined : ctx.product?.brand,
+    mensei: ctx.product?.categoryCode === "ISCILIK" ? undefined : ctx.product?.originCountry,
+    gtip: ctx.product?.categoryCode === "ISCILIK" ? undefined : ctx.product?.hsCode,
     birim: `${ctx.qty} Adet`,
     birimFiyati: ctx.net,
     tutar: ctx.net,

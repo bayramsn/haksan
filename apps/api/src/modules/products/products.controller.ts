@@ -80,6 +80,12 @@ export class ProductsController {
   }
 
   @RequirePermissions('products.read')
+  @Get('product-spec-templates')
+  listSpecTemplates(@CurrentUser() user: AuthContext, @Query('productTypeCode') productTypeCode?: string) {
+    return this.svc.listSpecTemplates(productTypeCode, user);
+  }
+
+  @RequirePermissions('products.read')
   @Get('products/:id')
   get(@Param('id') id: string, @CurrentUser() user: AuthContext) {
     return this.svc.get(id, user);
@@ -88,7 +94,7 @@ export class ProductsController {
   @RequirePermissions('products.read')
   @Get('products/:id/media')
   async listMedia(@Param('id') id: string, @CurrentUser() user: AuthContext) {
-    await this.media.assertProductExists(id, user.tenantId);
+    await this.svc.get(id, user);
     return this.media.listForProduct(id, user.tenantId);
   }
 
@@ -181,6 +187,12 @@ export class ProductsController {
   @Get('products/:id/equipment')
   equipment(@Param('id') id: string, @CurrentUser() user: AuthContext) {
     return this.svc.listEquipment(id, user);
+  }
+
+  @RequirePermissions('products.read')
+  @Get('products/:id/compatible-optional-equipment')
+  compatibleOptionalEquipment(@Param('id') id: string, @CurrentUser() user: AuthContext) {
+    return this.svc.listCompatibleOptionalEquipment(id, user);
   }
 
   @RequirePermissions('products.update')

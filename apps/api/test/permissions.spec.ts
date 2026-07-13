@@ -129,6 +129,212 @@ describe('RBAC permissions', () => {
     expect(r.status).toBe(403);
   });
 
+  it('sales cannot delete users (admin scope)', async () => {
+    const users = await supertest(app.getHttpServer()).get('/api/v1/users').set('Authorization', `Bearer ${tokens.admin}`);
+    expect(users.status).toBe(200);
+    const target = users.body.find((row: any) => row.email === 'readonly@haksan.local') ?? users.body[0];
+    expect(target?.id).toBeTruthy();
+
+    const r = await supertest(app.getHttpServer())
+      .delete(`/api/v1/users/${target.id}`)
+      .set('Authorization', `Bearer ${tokens.sales}`);
+    expect(r.status).toBe(403);
+  });
+
+  it('admin (users.*) cannot delete users — deletion is super_admin only', async () => {
+    const server = app.getHttpServer();
+    const users = await supertest(server).get('/api/v1/users').set('Authorization', `Bearer ${tokens.admin}`);
+    expect(users.status).toBe(200);
+    const target = users.body.find((row: any) => row.email === 'readonly@haksan.local') ?? users.body[0];
+    expect(target?.id).toBeTruthy();
+
+    const r = await supertest(server)
+      .delete(`/api/v1/users/${target.id}`)
+      .set('Authorization', `Bearer ${tokens.admin}`);
+    expect(r.status).toBe(403);
+  });
+
+  it('admin can unlock a temporarily locked user account', async () => {
+    const server = app.getHttpServer();
+    const email = `locked-user-${Date.now()}@haksan.local`;
+    const password = 'lockedUser12345';
+
+    const created = await supertest(server)
+      .post('/api/v1/users')
+      .set('Authorization', `Bearer ${tokens.admin}`)
+      .send({ fullName: 'Locked User Test', email, password, roleCodes: ['readonly'], divisionIds: [] });
+    expect(created.status).toBe(201);
+    const userId = created.body.id;
+
+    const { getDb } = await import('../src/db/client');
+    const { users } = await import('../src/db/schema/users');
+    const { eq } = await import('drizzle-orm');
+    await getDb()
+      .update(users)
+      .set({ failedLoginAttempts: 9, lockedUntil: new Date(Date.now() + 10 * 60_000) })
+      .where(eq(users.id, userId));
+
+    const lockedLogin = await supertest(server).post('/api/v1/auth/login').send({ email, password });
+    expect(lockedLogin.status).toBe(423);
+
+    const listed = await supertest(server).get('/api/v1/users').set('Authorization', `Bearer ${tokens.admin}`);
+    expect(listed.status).toBe(200);
+    const lockedRow = listed.body.find((row: any) => row.id === userId);
+    expect(lockedRow.failedLoginAttempts).toBe(9);
+    expect(lockedRow.lockedUntil).toBeTruthy();
+
+    const salesUnlock = await supertest(server)
+      .post(`/api/v1/users/${userId}/unlock`)
+      .set('Authorization', `Bearer ${tokens.sales}`)
+      .send({});
+    expect(salesUnlock.status).toBe(403);
+
+    const unlocked = await supertest(server)
+      .post(`/api/v1/users/${userId}/unlock`)
+      .set('Authorization', `Bearer ${tokens.admin}`)
+      .send({});
+    expect(unlocked.status).toBe(201);
+    expect(unlocked.body).toMatchObject({ ok: true, id: userId, failedLoginAttempts: 0, lockedUntil: null });
+
+    const relogin = await supertest(server).post('/api/v1/auth/login').send({ email, password });
+    expect(relogin.status).toBe(201);
+    expect(relogin.body.accessToken).toBeTruthy();
+  });
+
+  it('super_admin can soft-delete a user, revoke refresh, and hide it from the user list', async () => {
+    const server = app.getHttpServer();
+    const email = `delete-user-${Date.now()}@haksan.local`;
+    const password = 'deleteUser12345';
+
+    const created = await supertest(server)
+      .post('/api/v1/users')
+      .set('Authorization', `Bearer ${tokens.admin}`)
+      .send({ fullName: 'Delete User Test', email, password, roleCodes: ['readonly'], divisionIds: [] });
+    expect(created.status).toBe(201);
+    const userId = created.body.id;
+    expect(userId).toBeTruthy();
+
+    const agent = supertest.agent(server);
+    const login = await agent.post('/api/v1/auth/login').send({ email, password });
+    expect(login.status).toBe(201);
+    expect(login.body.accessToken).toBeTruthy();
+
+    const removed = await supertest(server)
+      .delete(`/api/v1/users/${userId}`)
+      .set('Authorization', `Bearer ${tokens.superAdmin}`);
+    expect(removed.status).toBe(200);
+    expect(removed.body.ok).toBe(true);
+
+    const listed = await supertest(server).get('/api/v1/users').set('Authorization', `Bearer ${tokens.admin}`);
+    expect(listed.status).toBe(200);
+    expect(listed.body.some((row: any) => row.id === userId)).toBe(false);
+
+    const relogin = await supertest(server).post('/api/v1/auth/login').send({ email, password });
+    expect(relogin.status).toBe(401);
+
+    const refreshed = await agent.post('/api/v1/auth/refresh').send();
+    expect(refreshed.status).toBe(401);
+  });
+
+  it('admin (users.*) cannot escalate by assigning super_admin; super_admin can', async () => {
+    const server = app.getHttpServer();
+
+    // createUser: a non-super-admin minting a new super_admin is rejected.
+    const escalateCreate = await supertest(server)
+      .post('/api/v1/users')
+      .set('Authorization', `Bearer ${tokens.admin}`)
+      .send({
+        fullName: 'Escalation Attempt',
+        email: `escalate-${Date.now()}@haksan.local`,
+        password: 'escalate12345',
+        roleCodes: ['super_admin'],
+        divisionIds: [],
+      });
+    expect(escalateCreate.status).toBe(403);
+
+    // updateUser: a non-super-admin granting an existing user super_admin is rejected.
+    const list = await supertest(server).get('/api/v1/users').set('Authorization', `Bearer ${tokens.admin}`);
+    const target = list.body.find((row: any) => row.email === 'readonly@haksan.local') ?? list.body[0];
+    expect(target?.id).toBeTruthy();
+    const escalateUpdate = await supertest(server)
+      .patch(`/api/v1/users/${target.id}`)
+      .set('Authorization', `Bearer ${tokens.admin}`)
+      .send({ roleCodes: ['super_admin'] });
+    expect(escalateUpdate.status).toBe(403);
+
+    // Positive control: super_admin may legitimately create another super_admin.
+    const allowed = await supertest(server)
+      .post('/api/v1/users')
+      .set('Authorization', `Bearer ${tokens.superAdmin}`)
+      .send({
+        fullName: 'Legit Super Admin',
+        email: `legit-sa-${Date.now()}@haksan.local`,
+        password: 'legitsa12345',
+        roleCodes: ['super_admin'],
+        divisionIds: [],
+      });
+    expect(allowed.status).toBe(201);
+  });
+
+  it('super_admin cannot delete their own account', async () => {
+    const server = app.getHttpServer();
+    const me = await supertest(server).get('/api/v1/auth/me').set('Authorization', `Bearer ${tokens.superAdmin}`);
+    expect(me.status).toBe(200);
+
+    const selfDelete = await supertest(server)
+      .delete(`/api/v1/users/${me.body.user.id}`)
+      .set('Authorization', `Bearer ${tokens.superAdmin}`);
+    expect(selfDelete.status).toBe(403);
+  });
+
+  it('password & email changes are super_admin only; admin (users.*) is rejected', async () => {
+    const server = app.getHttpServer();
+    // Yan etki bırakmamak için bu teste özel atılabilir bir kullanıcı oluştur.
+    const email = `pw-email-target-${Date.now()}@haksan.local`;
+    const created = await supertest(server)
+      .post('/api/v1/users')
+      .set('Authorization', `Bearer ${tokens.admin}`)
+      .send({ fullName: 'PwEmail Target', email, password: 'initialPwd12345', roleCodes: ['readonly'], divisionIds: [] });
+    expect(created.status).toBe(201);
+    const targetId = created.body.id;
+
+    // admin: şifre değişimi yasak
+    const adminPw = await supertest(server)
+      .patch(`/api/v1/users/${targetId}`)
+      .set('Authorization', `Bearer ${tokens.admin}`)
+      .send({ password: 'newPassword12345' });
+    expect(adminPw.status).toBe(403);
+
+    // admin: e-posta değişimi yasak
+    const adminEmail = await supertest(server)
+      .patch(`/api/v1/users/${targetId}`)
+      .set('Authorization', `Bearer ${tokens.admin}`)
+      .send({ email: `changed-${Date.now()}@haksan.local` });
+    expect(adminEmail.status).toBe(403);
+
+    // admin: hassas olmayan alan (fullName) hâlâ güncellenebilir
+    const adminName = await supertest(server)
+      .patch(`/api/v1/users/${targetId}`)
+      .set('Authorization', `Bearer ${tokens.admin}`)
+      .send({ fullName: 'PwEmail Target 2' });
+    expect(adminName.status).toBe(200);
+
+    // super_admin: şifre değişimi serbest
+    const superPw = await supertest(server)
+      .patch(`/api/v1/users/${targetId}`)
+      .set('Authorization', `Bearer ${tokens.superAdmin}`)
+      .send({ password: 'superSetPwd12345' });
+    expect(superPw.status).toBe(200);
+
+    // super_admin: e-posta değişimi serbest
+    const newEmail = `pw-email-renamed-${Date.now()}@haksan.local`;
+    const superEmail = await supertest(server)
+      .patch(`/api/v1/users/${targetId}`)
+      .set('Authorization', `Bearer ${tokens.superAdmin}`)
+      .send({ email: newEmail });
+    expect(superEmail.status).toBe(200);
+  });
+
   it('sales can read companies', async () => {
     const r = await supertest(app.getHttpServer()).get('/api/v1/companies').set('Authorization', `Bearer ${tokens.sales}`);
     expect(r.status).toBe(200);

@@ -1,29 +1,89 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { and, between, desc, eq, gte, inArray, isNull, lte, sql } from 'drizzle-orm';
 import type { DbClient } from '../../db/client';
-import { visits as visitsTbl, calls as callsTbl } from '../../db/schema/crm';
+import { visits as visitsTbl, calls as callsTbl, leads } from '../../db/schema/crm';
 import { opportunities, cancellationReasons, competitors } from '../../db/schema/crm';
-import { users, userDivisions, userTargets, departmentTargets } from '../../db/schema/users';
+import { users, userDivisions, userRoles, roles, userTargets, departmentTargets } from '../../db/schema/users';
 import { departments } from '../../db/schema/tenants';
 import { quotes, quoteItems } from '../../db/schema/quotes';
 import { productModels, brands } from '../../db/schema/products';
-import { receivables, payments } from '../../db/schema/finance';
+import { receivables, payments, accountingInvoices } from '../../db/schema/finance';
 import { inventoryItems, customerDevices } from '../../db/schema/inventory';
-import { serviceComplaintIntakes } from '../../db/schema/service';
+import { serviceComplaintIntakes, serviceTickets, installationJobs } from '../../db/schema/service';
+import { salesOrders, purchaseOrders } from '../../db/schema/orders';
 import { pipelineStages, inventoryStatuses, paymentStatuses, warrantyStatuses, quoteStatuses } from '../../db/schema/lookup';
 import { companies } from '../../db/schema/companies';
 import { DB } from '../../shared/database/database.module';
 import type { AuthContext } from '../../shared/security/auth.types';
-import { divisionFilter, resolveActorDivisionScope } from '../../shared/utils/division-scope';
+import { resourceDivisionFilter, resolveResourceDivisionScope } from '../../shared/utils/division-scope';
 
 export type Granularity = 'weekly' | 'monthly' | 'yearly';
+
+export type TargetProgressScope = { kind: 'user' | 'department' | 'role' | 'all-users'; id?: string };
+
+/** Ölçülebilir hedef metrikleri; digitalConversionTarget/digitalBudget fiilîsi hesaplanamaz (manuel takip). */
+const MEASURED_METRICS = [
+  'salesAmount',
+  'salesNewCustomers',
+  'quoteTarget',
+  'visitTarget',
+  'callTarget',
+  'serviceCompleted',
+  'serviceAmount',
+  'digitalLeadTarget',
+  'paymentsInAmount',
+  'purchaseInvoiceAmount',
+  'purchaseOrderAmount',
+  'purchaseOrderCount',
+  'salesOrderAmount',
+  'salesOrderCount',
+  'installationCompleted',
+] as const;
+type MeasuredMetric = (typeof MEASURED_METRICS)[number];
+const MANUAL_METRICS = ['digitalConversionTarget', 'digitalBudget'] as const;
+type TargetMetricKey = MeasuredMetric | (typeof MANUAL_METRICS)[number];
+
+type MetricProgress = { target: number | null; actual: number | null; pct: number | null };
+type UserActuals = Record<MeasuredMetric, number>;
+type TargetItemLike = {
+  targetType?: string;
+  category?: string;
+  activity?: string;
+  description?: string;
+  unit?: string;
+  target?: string | number | null;
+  metricKey?: string | null;
+  trackingMode?: 'automatic' | 'manual' | string | null;
+};
+
+const emptyActuals = (): UserActuals => ({
+  salesAmount: 0,
+  salesNewCustomers: 0,
+  quoteTarget: 0,
+  visitTarget: 0,
+  callTarget: 0,
+  serviceCompleted: 0,
+  serviceAmount: 0,
+  digitalLeadTarget: 0,
+  paymentsInAmount: 0,
+  purchaseInvoiceAmount: 0,
+  purchaseOrderAmount: 0,
+  purchaseOrderCount: 0,
+  salesOrderAmount: 0,
+  salesOrderCount: 0,
+  installationCompleted: 0,
+});
+
+const measuredMetricSet = new Set<string>(MEASURED_METRICS);
+const manualMetricSet = new Set<string>(MANUAL_METRICS);
+const allMetricKeys = [...MEASURED_METRICS, ...MANUAL_METRICS] as TargetMetricKey[];
 
 @Injectable()
 export class ReportsService {
   constructor(@Inject(DB) private readonly db: DbClient) {}
 
   private activeDivisionFilter(actor: AuthContext, column: any) {
-    return divisionFilter(resolveActorDivisionScope(actor), column) ?? sql`true`;
+    return resourceDivisionFilter(actor, 'reports', column) ?? sql`true`;
   }
 
   private bucket(granularity: Granularity, col: any) {
@@ -139,6 +199,8 @@ export class ReportsService {
           eq(opportunities.currentStageId, pipelineStages.id),
           eq(opportunities.tenantId, actor.tenantId),
           isNull(opportunities.deletedAt),
+          // Mantıksal kapanış: kapatılan (arşivlenen) fırsatlar aktif pano sayımından düşer.
+          isNull(opportunities.closedAt),
           this.activeDivisionFilter(actor, opportunities.divisionId)
         )
       )
@@ -397,7 +459,7 @@ export class ReportsService {
 
     const isWon = sql`${pipelineStages.code} in ('contract','commercial_invoice','customs_approved','stock_picking','shipping','installation','delivered')`;
     const val = opportunities.estimatedValue;
-    const scope = resolveActorDivisionScope(actor);
+    const scope = resolveResourceDivisionScope(actor, 'reports');
 
     const rows = [];
     for (const dept of depts) {
@@ -518,5 +580,563 @@ export class ReportsService {
     }
 
     return { period, departments: rows };
+  }
+
+  /** Aktif kullanıcılar; bölüm kapsamı 'list' modundaysa yalnızca o bölümlere atanmış olanlar. */
+  private async scopedActiveUsers(actor: AuthContext) {
+    const scope = resolveResourceDivisionScope(actor, 'reports');
+    let rows = await this.db.query.users.findMany({
+      where: and(eq(users.tenantId, actor.tenantId), isNull(users.deletedAt), eq(users.status, 'active')),
+    });
+    if (scope.mode === 'list') {
+      if (scope.divisionIds.length === 0) return [];
+      const ids = rows.map((r) => r.id);
+      if (ids.length === 0) return [];
+      const assignments = await this.db
+        .select({ userId: userDivisions.userId })
+        .from(userDivisions)
+        .where(and(inArray(userDivisions.userId, ids), inArray(userDivisions.divisionId, scope.divisionIds)));
+      const allowed = new Set(assignments.map((row) => row.userId));
+      rows = rows.filter((row) => allowed.has(row.id));
+    }
+    return rows;
+  }
+
+  /** Kullanıcı başına dönem fiilîleri — tek seferde gruplu sorgularla. */
+  private async userActuals(actor: AuthContext, userIds: string[], from: Date, to: Date) {
+    const map = new Map<string, UserActuals>();
+    if (userIds.length === 0) return map;
+    const get = (id: string | null) => {
+      if (!id) return null;
+      let entry = map.get(id);
+      if (!entry) {
+        entry = emptyActuals();
+        map.set(id, entry);
+      }
+      return entry;
+    };
+
+    // Ciro: kesilen satış faturaları (kullanıcı kararı — fatura bazlı)
+    const invoiceRows = await this.db
+      .select({ userId: accountingInvoices.createdBy, total: sql<string>`coalesce(sum(${accountingInvoices.grandTotal}), 0)::text` })
+      .from(accountingInvoices)
+      .where(
+        and(
+          eq(accountingInvoices.tenantId, actor.tenantId),
+          isNull(accountingInvoices.deletedAt),
+          eq(accountingInvoices.type, 'sales'),
+          gte(accountingInvoices.invoiceDate, from),
+          lte(accountingInvoices.invoiceDate, to),
+          inArray(accountingInvoices.createdBy, userIds),
+          this.activeDivisionFilter(actor, accountingInvoices.divisionId)
+        )
+      )
+      .groupBy(accountingInvoices.createdBy);
+    for (const r of invoiceRows) {
+      const entry = get(r.userId);
+      if (entry) entry.salesAmount = Number(r.total ?? 0);
+    }
+
+    // Tahsilat: müşteriden gelen ödemeler
+    const paymentRows = await this.db
+      .select({ userId: payments.createdBy, total: sql<string>`coalesce(sum(${payments.amount}), 0)::text` })
+      .from(payments)
+      .where(
+        and(
+          eq(payments.tenantId, actor.tenantId),
+          isNull(payments.deletedAt),
+          eq(payments.direction, 'in'),
+          gte(payments.paymentDate, from),
+          lte(payments.paymentDate, to),
+          inArray(payments.createdBy, userIds),
+          this.activeDivisionFilter(actor, payments.divisionId)
+        )
+      )
+      .groupBy(payments.createdBy);
+    for (const r of paymentRows) {
+      const entry = get(r.userId);
+      if (entry) entry.paymentsInAmount = Number(r.total ?? 0);
+    }
+
+    // Alış faturası tutarı: finans/satınalma hedefleri için
+    const purchaseInvoiceRows = await this.db
+      .select({ userId: accountingInvoices.createdBy, total: sql<string>`coalesce(sum(${accountingInvoices.grandTotal}), 0)::text` })
+      .from(accountingInvoices)
+      .where(
+        and(
+          eq(accountingInvoices.tenantId, actor.tenantId),
+          isNull(accountingInvoices.deletedAt),
+          eq(accountingInvoices.type, 'purchase'),
+          gte(accountingInvoices.invoiceDate, from),
+          lte(accountingInvoices.invoiceDate, to),
+          inArray(accountingInvoices.createdBy, userIds),
+          this.activeDivisionFilter(actor, accountingInvoices.divisionId)
+        )
+      )
+      .groupBy(accountingInvoices.createdBy);
+    for (const r of purchaseInvoiceRows) {
+      const entry = get(r.userId);
+      if (entry) entry.purchaseInvoiceAmount = Number(r.total ?? 0);
+    }
+
+    // Yeni müşteri: kullanıcının oluşturduğu firmalar
+    const companyRows = await this.db
+      .select({ userId: companies.createdBy, count: sql<number>`count(*)::int` })
+      .from(companies)
+      .where(
+        and(
+          eq(companies.tenantId, actor.tenantId),
+          isNull(companies.deletedAt),
+          gte(companies.createdAt, from),
+          lte(companies.createdAt, to),
+          inArray(companies.createdBy, userIds)
+        )
+      )
+      .groupBy(companies.createdBy);
+    for (const r of companyRows) {
+      const entry = get(r.userId);
+      if (entry) entry.salesNewCustomers = r.count;
+    }
+
+    // Teklif sayısı (departman performans raporuyla aynı semantik)
+    const quoteRows = await this.db
+      .select({ userId: quotes.createdBy, count: sql<number>`count(*)::int` })
+      .from(quotes)
+      .where(
+        and(
+          eq(quotes.tenantId, actor.tenantId),
+          isNull(quotes.deletedAt),
+          gte(quotes.quoteDate, from),
+          lte(quotes.quoteDate, to),
+          inArray(quotes.createdBy, userIds),
+          this.activeDivisionFilter(actor, quotes.divisionId)
+        )
+      )
+      .groupBy(quotes.createdBy);
+    for (const r of quoteRows) {
+      const entry = get(r.userId);
+      if (entry) entry.quoteTarget = r.count;
+    }
+
+    // Satış siparişleri: operasyon/satış siparişleşme hedefleri
+    const salesOrderRows = await this.db
+      .select({
+        userId: salesOrders.createdBy,
+        count: sql<number>`count(*)::int`,
+        total: sql<string>`coalesce(sum(${salesOrders.grandTotal}), 0)::text`,
+      })
+      .from(salesOrders)
+      .where(
+        and(
+          eq(salesOrders.tenantId, actor.tenantId),
+          isNull(salesOrders.deletedAt),
+          gte(salesOrders.orderDate, from),
+          lte(salesOrders.orderDate, to),
+          inArray(salesOrders.createdBy, userIds),
+          this.activeDivisionFilter(actor, salesOrders.divisionId)
+        )
+      )
+      .groupBy(salesOrders.createdBy);
+    for (const r of salesOrderRows) {
+      const entry = get(r.userId);
+      if (entry) {
+        entry.salesOrderCount = r.count;
+        entry.salesOrderAmount = Number(r.total ?? 0);
+      }
+    }
+
+    // Satınalma siparişleri
+    const purchaseOrderRows = await this.db
+      .select({
+        userId: purchaseOrders.createdBy,
+        count: sql<number>`count(*)::int`,
+        total: sql<string>`coalesce(sum(${purchaseOrders.grandTotal}), 0)::text`,
+      })
+      .from(purchaseOrders)
+      .where(
+        and(
+          eq(purchaseOrders.tenantId, actor.tenantId),
+          isNull(purchaseOrders.deletedAt),
+          gte(purchaseOrders.orderDate, from),
+          lte(purchaseOrders.orderDate, to),
+          inArray(purchaseOrders.createdBy, userIds),
+          this.activeDivisionFilter(actor, purchaseOrders.divisionId)
+        )
+      )
+      .groupBy(purchaseOrders.createdBy);
+    for (const r of purchaseOrderRows) {
+      const entry = get(r.userId);
+      if (entry) {
+        entry.purchaseOrderCount = r.count;
+        entry.purchaseOrderAmount = Number(r.total ?? 0);
+      }
+    }
+
+    // Ziyaret
+    const visitRows = await this.db
+      .select({ userId: visitsTbl.createdBy, count: sql<number>`count(*)::int` })
+      .from(visitsTbl)
+      .where(
+        and(
+          eq(visitsTbl.tenantId, actor.tenantId),
+          isNull(visitsTbl.deletedAt),
+          gte(visitsTbl.visitDate, from),
+          lte(visitsTbl.visitDate, to),
+          inArray(visitsTbl.createdBy, userIds),
+          this.activeDivisionFilter(actor, visitsTbl.divisionId)
+        )
+      )
+      .groupBy(visitsTbl.createdBy);
+    for (const r of visitRows) {
+      const entry = get(r.userId);
+      if (entry) entry.visitTarget = r.count;
+    }
+
+    // Arama
+    const callRows = await this.db
+      .select({ userId: callsTbl.createdBy, count: sql<number>`count(*)::int` })
+      .from(callsTbl)
+      .where(
+        and(
+          eq(callsTbl.tenantId, actor.tenantId),
+          isNull(callsTbl.deletedAt),
+          gte(callsTbl.callDate, from),
+          lte(callsTbl.callDate, to),
+          inArray(callsTbl.createdBy, userIds),
+          this.activeDivisionFilter(actor, callsTbl.divisionId)
+        )
+      )
+      .groupBy(callsTbl.createdBy);
+    for (const r of callRows) {
+      const entry = get(r.userId);
+      if (entry) entry.callTarget = r.count;
+    }
+
+    // Tamamlanan servis: çözülen servis kayıtları (atanan teknisyene sayılır)
+    const ticketRows = await this.db
+      .select({ userId: serviceTickets.assignedToUserId, count: sql<number>`count(*)::int` })
+      .from(serviceTickets)
+      .where(
+        and(
+          eq(serviceTickets.tenantId, actor.tenantId),
+          isNull(serviceTickets.deletedAt),
+          gte(serviceTickets.resolvedAt, from),
+          lte(serviceTickets.resolvedAt, to),
+          inArray(serviceTickets.assignedToUserId, userIds),
+          this.activeDivisionFilter(actor, serviceTickets.divisionId)
+        )
+      )
+      .groupBy(serviceTickets.assignedToUserId);
+    for (const r of ticketRows) {
+      const entry = get(r.userId);
+      if (entry) entry.serviceCompleted = r.count;
+    }
+
+    // Servis cirosu ve kurulum sayısı: tamamlanan kurulum işleri
+    const installRows = await this.db
+      .select({
+        userId: installationJobs.assignedToUserId,
+        count: sql<number>`count(*)::int`,
+        total: sql<string>`coalesce(sum(${installationJobs.feeAmount}), 0)::text`,
+      })
+      .from(installationJobs)
+      .where(
+        and(
+          eq(installationJobs.tenantId, actor.tenantId),
+          isNull(installationJobs.deletedAt),
+          gte(installationJobs.completedAt, from),
+          lte(installationJobs.completedAt, to),
+          inArray(installationJobs.assignedToUserId, userIds),
+          this.activeDivisionFilter(actor, installationJobs.divisionId)
+        )
+      )
+      .groupBy(installationJobs.assignedToUserId);
+    for (const r of installRows) {
+      const entry = get(r.userId);
+      if (entry) {
+        entry.serviceAmount = Number(r.total ?? 0);
+        entry.installationCompleted = r.count;
+      }
+    }
+
+    // Dijital lead
+    const leadRows = await this.db
+      .select({ userId: leads.ownerUserId, count: sql<number>`count(*)::int` })
+      .from(leads)
+      .where(
+        and(
+          eq(leads.tenantId, actor.tenantId),
+          isNull(leads.deletedAt),
+          gte(leads.createdAt, from),
+          lte(leads.createdAt, to),
+          inArray(leads.ownerUserId, userIds),
+          this.activeDivisionFilter(actor, leads.divisionId)
+        )
+      )
+      .groupBy(leads.ownerUserId);
+    for (const r of leadRows) {
+      const entry = get(r.userId);
+      if (entry) entry.digitalLeadTarget = r.count;
+    }
+
+    return map;
+  }
+
+  private targetNumbers(row: typeof userTargets.$inferSelect | typeof departmentTargets.$inferSelect | null | undefined) {
+    if (!row) return null;
+    const values = Object.fromEntries(allMetricKeys.map((key) => [key, null])) as Record<TargetMetricKey, number | null>;
+    return {
+      ...values,
+      salesAmount: row.salesAmount == null ? null : Number(row.salesAmount),
+      salesNewCustomers: row.salesNewCustomers ?? null,
+      quoteTarget: row.quoteTarget ?? null,
+      visitTarget: row.visitTarget ?? null,
+      callTarget: row.callTarget ?? null,
+      serviceCompleted: row.serviceCompleted ?? null,
+      serviceAmount: row.serviceAmount == null ? null : Number(row.serviceAmount),
+      digitalLeadTarget: row.digitalLeadTarget ?? null,
+      digitalConversionTarget: row.digitalConversionTarget ?? null,
+      digitalBudget: row.digitalBudget == null ? null : Number(row.digitalBudget),
+    } as Record<TargetMetricKey, number | null>;
+  }
+
+  private buildMetrics(targets: Record<TargetMetricKey, number | null> | null, actuals: UserActuals | null) {
+    const metrics: Record<string, MetricProgress> = {};
+    for (const key of MEASURED_METRICS) {
+      const target = targets?.[key] ?? null;
+      const actual = actuals ? actuals[key] : null;
+      metrics[key] = {
+        target,
+        actual,
+        pct: target != null && target > 0 && actual != null ? Math.round((actual / target) * 100) : null,
+      };
+    }
+    for (const key of MANUAL_METRICS) {
+      metrics[key] = { target: targets?.[key] ?? null, actual: null, pct: null };
+    }
+    return metrics;
+  }
+
+  private sumActuals(items: (UserActuals | undefined)[]) {
+    const total = emptyActuals();
+    for (const item of items) {
+      if (!item) continue;
+      for (const key of MEASURED_METRICS) total[key] += item[key];
+    }
+    return total;
+  }
+
+  private parseTargetItemNumber(value: unknown) {
+    if (value === null || value === undefined) return null;
+    const compact = String(value).trim().replace(/\s/g, '');
+    if (!compact) return null;
+    const turkishThousands = /^\d{1,3}(\.\d{3})+(,\d+)?$/;
+    const plainNumber = /^\d+([.,]\d+)?$/;
+    if (!turkishThousands.test(compact) && !plainNumber.test(compact)) return null;
+    const normalized = turkishThousands.test(compact) ? compact.replace(/\./g, '').replace(',', '.') : compact.replace(',', '.');
+    const numeric = Number(normalized);
+    return Number.isFinite(numeric) ? numeric : null;
+  }
+
+  private targetItemMetricKey(item: TargetItemLike): TargetMetricKey | null {
+    if (item.trackingMode === 'manual') return null;
+    if (item.metricKey && (measuredMetricSet.has(item.metricKey) || manualMetricSet.has(item.metricKey))) {
+      return item.metricKey as TargetMetricKey;
+    }
+
+    const text = `${item.targetType ?? ''} ${item.category ?? ''} ${item.activity ?? ''}`.toLocaleUpperCase('tr-TR');
+    if (text.includes('TAHSİLAT')) return 'paymentsInAmount';
+    if (text.includes('SATIŞ SİPARİŞ') || text.includes('SİPARİŞLEŞ')) return 'salesOrderCount';
+    if (text.includes('SATIŞ HEDEF')) return 'salesOrderCount';
+    if (text.includes('SATIŞ') && item.unit === 'amount') return 'salesAmount';
+    if (text.includes('ALIŞ FATURA')) return 'purchaseInvoiceAmount';
+    if (text.includes('SATINALMA') || text.includes('SATIN ALMA') || text.includes('TEDARİK')) {
+      return item.unit === 'amount' ? 'purchaseOrderAmount' : 'purchaseOrderCount';
+    }
+    if (text.includes('KURULUM')) return 'installationCompleted';
+    if (text.includes('SERVİS') || text.includes('BAKIM')) return item.unit === 'amount' ? 'serviceAmount' : 'serviceCompleted';
+    if (text.includes('TEKLİF')) return 'quoteTarget';
+    if (text.includes('ZİYARET')) return 'visitTarget';
+    if (text.includes('ARAMA')) return 'callTarget';
+    if (text.includes('YENİ MÜŞTERİ')) return 'salesNewCustomers';
+    if (text.includes('DİJİTAL') || text.includes('LEAD')) return 'digitalLeadTarget';
+    return null;
+  }
+
+  private buildTargetItems(items: unknown, actuals: UserActuals | null) {
+    const rows = Array.isArray(items) ? (items as TargetItemLike[]) : [];
+    return rows.map((item) => {
+      const metricKey = this.targetItemMetricKey(item);
+      const measured = metricKey && measuredMetricSet.has(metricKey);
+      const target = this.parseTargetItemNumber(item.target);
+      const actual = measured && actuals ? actuals[metricKey as MeasuredMetric] : null;
+      return {
+        ...item,
+        metricKey,
+        trackingMode: item.trackingMode === 'manual' || !metricKey || manualMetricSet.has(metricKey) ? 'manual' : 'automatic',
+        actual,
+        pct: target != null && target > 0 && actual != null ? Math.round((actual / target) * 100) : null,
+      };
+    });
+  }
+
+  private sumTargetItems(rows: (typeof userTargets.$inferSelect | typeof departmentTargets.$inferSelect)[], actuals: UserActuals | null) {
+    const grouped = new Map<
+      string,
+      TargetItemLike & { numericTarget: number | null; fallbackTarget: string }
+    >();
+    for (const row of rows) {
+      const items = Array.isArray(row.targetItems) ? (row.targetItems as TargetItemLike[]) : [];
+      for (const item of items) {
+        if (!item?.targetType || !item.category || !item.activity) continue;
+        const metricKey = this.targetItemMetricKey(item);
+        const key = `${item.targetType}:${item.category}:${item.activity}:${metricKey ?? ''}`;
+        const existing =
+          grouped.get(key) ??
+          ({
+            ...item,
+            metricKey,
+            numericTarget: null,
+            fallbackTarget: item.target === null || item.target === undefined ? '' : String(item.target),
+          } as TargetItemLike & { numericTarget: number | null; fallbackTarget: string });
+        const numeric = this.parseTargetItemNumber(item.target);
+        if (numeric !== null) existing.numericTarget = (existing.numericTarget ?? 0) + numeric;
+        grouped.set(key, existing);
+      }
+    }
+    const items = [...grouped.values()].map(({ numericTarget, fallbackTarget, ...item }) => ({
+      ...item,
+      target: numericTarget === null ? fallbackTarget : String(numericTarget),
+    }));
+    return this.buildTargetItems(items, actuals);
+  }
+
+  /**
+   * Hedef-fiilî ilerlemesi. Ciro = kesilen satış faturaları; servis = çözülen kayıtlar +
+   * tamamlanan kurulum ücretleri. Rol hedefleri fan-out ile user_targets'a yazıldığından
+   * rol kapsamı üyelerin kişisel hedef/fiilî toplamıdır.
+   */
+  async targetProgress(actor: AuthContext, period: string, scope: TargetProgressScope) {
+    const [year, month] = period.split('-').map(Number);
+    const from = new Date(Date.UTC(year, month - 1, 1, 0, 0, 0));
+    const to = new Date(Date.UTC(year, month, 0, 23, 59, 59, 999));
+
+    const allUsers = await this.scopedActiveUsers(actor);
+    const userById = new Map(allUsers.map((u) => [u.id, u]));
+
+    if (scope.kind === 'user' || scope.kind === 'all-users') {
+      const subjectsUsers =
+        scope.kind === 'user' ? allUsers.filter((u) => u.id === scope.id) : allUsers;
+      const ids = subjectsUsers.map((u) => u.id);
+      const [actualsMap, targetRows] = await Promise.all([
+        this.userActuals(actor, ids, from, to),
+        ids.length
+          ? this.db.query.userTargets.findMany({
+              where: and(
+                eq(userTargets.tenantId, actor.tenantId),
+                eq(userTargets.period, period),
+                isNull(userTargets.deletedAt),
+                inArray(userTargets.userId, ids)
+              ),
+            })
+          : Promise.resolve([]),
+      ]);
+      const targetByUser = new Map(targetRows.map((t) => [t.userId, t]));
+      const subjects = subjectsUsers.map((u) => {
+        const targetRow = targetByUser.get(u.id) ?? null;
+        return {
+          subject: { kind: 'user' as const, id: u.id, name: u.fullName },
+          hasTarget: Boolean(targetRow),
+          note: targetRow?.note ?? null,
+          targetItems: this.buildTargetItems(targetRow?.targetItems ?? [], actualsMap.get(u.id) ?? emptyActuals()),
+          metrics: this.buildMetrics(this.targetNumbers(targetRow), actualsMap.get(u.id) ?? emptyActuals()),
+        };
+      });
+      return { period, scope: scope.kind, subjects };
+    }
+
+    if (scope.kind === 'department') {
+      const deptFilters = [eq(departments.tenantId, actor.tenantId)];
+      if (scope.id) deptFilters.push(eq(departments.id, scope.id));
+      const depts = await this.db.query.departments.findMany({ where: and(...deptFilters) });
+      const allMemberIds = allUsers.filter((u) => u.departmentId).map((u) => u.id);
+      const actualsMap = await this.userActuals(actor, allMemberIds, from, to);
+      const subjects = [];
+      for (const dept of depts) {
+        const members = allUsers.filter((u) => u.departmentId === dept.id);
+        const targetRow = await this.db.query.departmentTargets.findFirst({
+          where: and(
+            eq(departmentTargets.tenantId, actor.tenantId),
+            eq(departmentTargets.departmentId, dept.id),
+            eq(departmentTargets.period, period),
+            isNull(departmentTargets.deletedAt)
+          ),
+        });
+        const summed = this.sumActuals(members.map((m) => actualsMap.get(m.id)));
+        subjects.push({
+          subject: { kind: 'department' as const, id: dept.id, name: dept.name, memberCount: members.length },
+          hasTarget: Boolean(targetRow),
+          note: targetRow?.note ?? null,
+          targetItems: this.buildTargetItems(targetRow?.targetItems ?? [], summed),
+          metrics: this.buildMetrics(this.targetNumbers(targetRow), summed),
+        });
+      }
+      return { period, scope: scope.kind, subjects };
+    }
+
+    // scope.kind === 'role'
+    const roleFilters = [eq(roles.tenantId, actor.tenantId)];
+    if (scope.id) roleFilters.push(eq(roles.id, scope.id));
+    const roleRows = await this.db.query.roles.findMany({ where: and(...roleFilters) });
+    const roleIds = roleRows.map((r) => r.id);
+    const memberships = roleIds.length
+      ? await this.db
+          .select({ roleId: userRoles.roleId, userId: userRoles.userId })
+          .from(userRoles)
+          .where(inArray(userRoles.roleId, roleIds))
+      : [];
+    const memberIdsByRole = new Map<string, string[]>();
+    for (const m of memberships) {
+      if (!userById.has(m.userId)) continue; // pasif/silinmiş veya kapsam dışı
+      const list = memberIdsByRole.get(m.roleId) ?? [];
+      list.push(m.userId);
+      memberIdsByRole.set(m.roleId, list);
+    }
+    const allRoleMemberIds = [...new Set(memberships.map((m) => m.userId).filter((id) => userById.has(id)))];
+    const [actualsMap, targetRows] = await Promise.all([
+      this.userActuals(actor, allRoleMemberIds, from, to),
+      allRoleMemberIds.length
+        ? this.db.query.userTargets.findMany({
+            where: and(
+              eq(userTargets.tenantId, actor.tenantId),
+              eq(userTargets.period, period),
+              isNull(userTargets.deletedAt),
+              inArray(userTargets.userId, allRoleMemberIds)
+            ),
+          })
+        : Promise.resolve([]),
+    ]);
+    const targetByUser = new Map(targetRows.map((t) => [t.userId, t]));
+    const subjects = roleRows.map((role) => {
+      const memberIds = memberIdsByRole.get(role.id) ?? [];
+      // Rol hedefi = üyelerin kişisel hedef toplamı (fan-out sonrası)
+      const memberTargets = memberIds
+        .map((id) => this.targetNumbers(targetByUser.get(id)))
+        .filter((t): t is Record<TargetMetricKey, number | null> => t != null);
+      const summedTargets = {} as Record<TargetMetricKey, number | null>;
+      for (const key of [...MEASURED_METRICS, ...MANUAL_METRICS] as TargetMetricKey[]) {
+        const vals = memberTargets.map((t) => t[key]).filter((v): v is number => v != null);
+        summedTargets[key] = vals.length ? vals.reduce((a, b) => a + b, 0) : null;
+      }
+      const summedActuals = this.sumActuals(memberIds.map((id) => actualsMap.get(id)));
+      return {
+        subject: { kind: 'role' as const, id: role.id, name: role.name, code: role.code, memberCount: memberIds.length },
+        hasTarget: memberTargets.length > 0,
+        note: null,
+        targetItems: this.sumTargetItems(memberIds.map((id) => targetByUser.get(id)).filter((row): row is typeof userTargets.$inferSelect => Boolean(row)), summedActuals),
+        metrics: this.buildMetrics(memberTargets.length ? summedTargets : null, summedActuals),
+      };
+    });
+    return { period, scope: scope.kind, subjects };
   }
 }

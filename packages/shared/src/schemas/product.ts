@@ -1,19 +1,25 @@
 import { z } from 'zod';
 import { moneySchema, percentSchema } from './common';
 
+const productVatRateSchema = percentSchema.refine((rate) => rate !== 1, {
+  message: 'Ürün KDV oranı %1 olamaz',
+});
+
 export const productCreateSchema = z.object({
   brandId: z.string().min(1),
   productGroupCode: z.string().max(64).optional(),
   categoryCode: z.string().max(64).optional(),
   subcategoryCode: z.string().max(64).optional(),
   productTypeCode: z.string().max(64).optional(),
+  compatibleMachineTypeCode: z.string().max(64).nullish(),
+  supplierCompanyId: z.string().uuid().nullish(),
   modelCode: z.string().min(1).max(64),
   modelName: z.string().max(255).optional(),
   fullName: z.string().min(1).max(512),
   currencyCode: z.string().max(8).default('USD'),
   listPrice: moneySchema.optional(),
   cashPrice: moneySchema.optional(),
-  vatRate: percentSchema.default(20),
+  vatRate: productVatRateSchema.default(20),
   originCountry: z.string().max(64).optional(),
   hsCode: z.string().max(32).optional(),
   stockCode: z.string().max(64).optional(),
@@ -21,6 +27,13 @@ export const productCreateSchema = z.object({
   description: z.string().max(4000).optional(),
   // Muadil (eşdeğer) ürün modeli; boş/null ise muadil yok demektir.
   muadilProductId: z.string().uuid().nullish(),
+  // Çoklu muadil ürün modeli listesi. Eski muadilProductId geriye uyumluluk için korunur.
+  muadilProductIds: z.array(z.string().uuid()).max(50).optional(),
+  optionalCompatibilityGroupCodes: z.array(z.string().max(64)).max(50).optional(),
+  optionalCompatibilityCategoryCodes: z.array(z.string().max(64)).max(50).optional(),
+  optionalCompatibilitySubcategoryCodes: z.array(z.string().max(64)).max(50).optional(),
+  optionalCompatibilityTypeCodes: z.array(z.string().max(64)).max(50).optional(),
+  optionalCompatibilityBrandIds: z.array(z.string().uuid()).max(50).optional(),
 });
 export type ProductCreateInput = z.infer<typeof productCreateSchema>;
 
@@ -35,6 +48,27 @@ export const productSpecCreateSchema = z.object({
   sortOrder: z.coerce.number().int().default(0),
 });
 export type ProductSpecCreateInput = z.infer<typeof productSpecCreateSchema>;
+
+export const productSpecTemplateCreateSchema = z.object({
+  productTypeCode: z.string().min(1).max(64),
+  specKey: z.string().min(1).max(255),
+  specGroupCode: z.string().max(64).optional(),
+  defaultValue: z.string().max(2000).optional(),
+  specUnit: z.string().max(64).optional(),
+  // Bölüm (CNC / Üniversal / Sac İşleme). Boş/null → tüm bölümlerde ("Tümü").
+  divisionId: z.string().uuid().nullish(),
+  sortOrder: z.coerce.number().int().default(0),
+  isActive: z.boolean().default(true),
+});
+export type ProductSpecTemplateCreateInput = z.infer<typeof productSpecTemplateCreateSchema>;
+
+export const productSpecTemplateUpdateSchema = productSpecTemplateCreateSchema.partial();
+export type ProductSpecTemplateUpdateInput = z.infer<typeof productSpecTemplateUpdateSchema>;
+
+export const productSpecTemplateBulkCreateSchema = z.object({
+  items: z.array(productSpecTemplateCreateSchema).min(1).max(500),
+});
+export type ProductSpecTemplateBulkCreateInput = z.infer<typeof productSpecTemplateBulkCreateSchema>;
 
 export const productEquipmentCreateSchema = z.object({
   equipmentTypeCode: z.string().max(64),
@@ -63,6 +97,7 @@ export const priceListCreateSchema = z.object({
   code: z.string().min(1).max(64),
   name: z.string().min(1).max(255),
   description: z.string().max(4000).optional(),
+  divisionId: z.string().uuid().optional(),
   currencyCode: z.string().max(8).default('USD'),
   validFrom: z.coerce.date().optional(),
   validUntil: z.coerce.date().optional(),
@@ -77,9 +112,16 @@ export const priceListItemCreateSchema = z.object({
   productModelId: z.string().min(1),
   listPrice: moneySchema.optional(),
   cashPrice: moneySchema.optional(),
+  campaignPrice: moneySchema.optional(),
+  campaignValidFrom: z.coerce.date().optional(),
+  campaignValidUntil: z.coerce.date().optional(),
+  campaignIsActive: z.boolean().default(false),
   vatRate: percentSchema.optional(),
   notes: z.string().max(4000).optional(),
 });
+export type PriceListItemCreateRequest = Omit<z.infer<typeof priceListItemCreateSchema>, 'campaignIsActive'> & {
+  campaignIsActive?: boolean;
+};
 export type PriceListItemCreateInput = z.infer<typeof priceListItemCreateSchema>;
 
 export const priceListItemUpdateSchema = priceListItemCreateSchema.partial();
@@ -127,6 +169,7 @@ export const productImportRowSchema = z.object({
   categoryCode: z.string().max(64).optional(),
   subcategoryCode: z.string().max(64).optional(),
   productTypeCode: z.string().max(64).optional(),
+  compatibleMachineTypeCode: z.string().max(64).nullish(),
   currencyCode: z.string().max(8).default('USD'),
   listPrice: moneySchema.optional(),
   cashPrice: moneySchema.optional(),

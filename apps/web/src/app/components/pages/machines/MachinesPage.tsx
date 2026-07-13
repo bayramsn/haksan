@@ -1,17 +1,20 @@
-import { useState } from "react";
+import { useState, type MouseEvent } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "../../ui/card";
 import { Button } from "../../ui/button";
 import {
-  Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle,
+  Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from "../../ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../../ui/table";
 import { Badge } from "../../ui/badge";
 import { StatusBadge } from "../../Layout";
 import { CreateMachineDialog, CreateServiceRequestDialog } from "../../dialogs/CreateDialogs";
 import { useStore } from "../../../lib/store";
+import { inventoryService } from "../../../../lib/services";
 import type { Machine } from "../../../lib/mock";
 import { warrantyInfo, type WarrantyState } from "../../../lib/pageHelpers";
-import { Eye, Wrench, Cpu, ShieldCheck } from "lucide-react";
+import { toast } from "sonner";
+import { Eye, Wrench, Cpu, ShieldCheck, Trash2, Pencil } from "lucide-react";
 
 const WARRANTY_TONE: Record<WarrantyState, string> = {
   active: "border-emerald-200 bg-emerald-50 text-emerald-700",
@@ -33,6 +36,11 @@ function warrantyShortLabel(info: ReturnType<typeof warrantyInfo>) {
       return "Garanti yok";
   }
 }
+
+const formatMachinePrice = (machine: Machine) =>
+  machine.cashPrice == null
+    ? "—"
+    : `${machine.cashPrice.toLocaleString("tr-TR", { maximumFractionDigits: 2 })} ${machine.currency ?? "USD"}`;
 
 /** Makine garanti durumu rozeti (Aktif / Yaklaşıyor / Süresi doldu). */
 export function WarrantyBadge({ end }: { end?: string | null }) {
@@ -75,13 +83,20 @@ function WarrantyKpi({
 function MachineDetailDialog({
   machine,
   onClose,
+  onDelete,
+  onEditCustomer,
+  deleting,
 }: {
   machine: Machine | null;
   onClose: () => void;
+  onDelete: (machine: Machine) => void;
+  onEditCustomer: (machine: Machine) => void;
+  deleting?: boolean;
 }) {
   const { customers, service } = useStore();
   if (!machine) return null;
-  const customer = customers.find((c) => c.id === machine.customerId);
+  const userCompany = customers.find((c) => c.id === (machine.userCompanyId ?? machine.customerId));
+  const initialCustomer = customers.find((c) => c.id === (machine.initialCustomerId ?? machine.customerId));
   const tickets = service.filter((s) => s.machineId === machine.id);
 
   return (
@@ -92,11 +107,14 @@ function MachineDetailDialog({
             <Cpu className="size-5 text-primary" />
             {machine.serialNumber}
           </DialogTitle>
-          <DialogDescription>{machine.model} · {customer?.name ?? "—"}</DialogDescription>
+          <DialogDescription>{machine.model} · {userCompany?.name ?? "—"}</DialogDescription>
         </DialogHeader>
         <div className="grid grid-cols-2 gap-3 text-sm">
+          <div><span className="text-muted-foreground">Kullanıcı firma:</span> {userCompany?.name ?? "—"}</div>
+          <div><span className="text-muted-foreground">İlk müşteri:</span> {initialCustomer?.name ?? "—"}</div>
           <div><span className="text-muted-foreground">Marka:</span> {machine.brand || "—"}</div>
           <div><span className="text-muted-foreground">Tip:</span> {machine.type || "—"}</div>
+          <div><span className="text-muted-foreground">Peşin fiyat:</span> {formatMachinePrice(machine)}</div>
           <div><span className="text-muted-foreground">Kurulum:</span> {machine.installationDate || "—"}</div>
           <div className="flex items-center gap-2">
             <span className="text-muted-foreground">Garanti bitiş:</span> {machine.warrantyEnd || "—"}
@@ -107,14 +125,33 @@ function MachineDetailDialog({
         </div>
         <div className="flex items-center justify-between gap-2 pt-2">
           <StatusBadge status={machine.status} />
-          <CreateServiceRequestDialog
-            defaultMachineId={machine.id}
-            trigger={
-              <Button size="sm" className="gap-1">
-                <Wrench className="size-4" /> Servis talebi aç
-              </Button>
-            }
-          />
+          <div className="flex items-center gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              className="gap-1"
+              onClick={() => onEditCustomer(machine)}
+            >
+              <Pencil className="size-4" /> Kullanıcı firma
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              className="gap-1 text-red-600 hover:bg-red-50 hover:text-red-700"
+              disabled={deleting}
+              onClick={() => onDelete(machine)}
+            >
+              <Trash2 className="size-4" /> Sil
+            </Button>
+            <CreateServiceRequestDialog
+              defaultMachineId={machine.id}
+              trigger={
+                <Button size="sm" className="gap-1">
+                  <Wrench className="size-4" /> Servis talebi aç
+                </Button>
+              }
+            />
+          </div>
         </div>
         <Card className="border-border/60">
           <CardHeader className="pb-2">
@@ -141,9 +178,51 @@ function MachineDetailDialog({
 }
 
 export function MachinesPage() {
-  const { machines, service, customers } = useStore();
+  const { machines, service, customers, refresh, updateMachineCustomer } = useStore();
   const [selected, setSelected] = useState<Machine | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [editingCustomerMachine, setEditingCustomerMachine] = useState<Machine | null>(null);
+  const [editCustomerId, setEditCustomerId] = useState("");
+  const [updatingCustomer, setUpdatingCustomer] = useState(false);
   const customerName = (id: string) => customers.find((c) => c.id === id)?.name ?? "—";
+  const openCustomerEdit = (machine: Machine, event?: MouseEvent) => {
+    event?.stopPropagation();
+    setEditingCustomerMachine(machine);
+    setEditCustomerId(machine.userCompanyId ?? machine.customerId);
+  };
+
+  const deleteMachine = async (machine: Machine, event?: MouseEvent) => {
+    event?.stopPropagation();
+    const srCount = service.filter((s) => s.machineId === machine.id).length;
+    const suffix = srCount > 0 ? ` Bu makineye bağlı ${srCount} servis kaydı kalacak, sadece makine kartı arşivlenecek.` : "";
+    if (!window.confirm(`${machine.serialNumber} seri numaralı makineyi silmek istediğinize emin misiniz?${suffix}`)) return;
+    setDeletingId(machine.id);
+    try {
+      await inventoryService.deleteCustomerDevice(machine.id);
+      toast.success("Makine kaydı silindi");
+      if (selected?.id === machine.id) setSelected(null);
+      refresh();
+    } catch (err: any) {
+      toast.error("Makine silinemedi", { description: err?.message ?? "İstek başarısız oldu." });
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
+  const saveCustomerEdit = async () => {
+    if (!editingCustomerMachine || !editCustomerId) return;
+    setUpdatingCustomer(true);
+    try {
+      await updateMachineCustomer(editingCustomerMachine.id, editCustomerId);
+      toast.success("Kullanıcı firma güncellendi");
+      setEditingCustomerMachine(null);
+      setSelected((current) => current?.id === editingCustomerMachine.id ? { ...current, customerId: editCustomerId, userCompanyId: editCustomerId } : current);
+    } catch (err: any) {
+      toast.error("Kullanıcı firma güncellenemedi", { description: err?.message ?? "İstek başarısız oldu." });
+    } finally {
+      setUpdatingCustomer(false);
+    }
+  };
 
   const warrantyStats = machines.reduce(
     (acc, m) => {
@@ -190,14 +269,17 @@ export function MachinesPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Seri No</TableHead>
+                  <TableHead>Firma</TableHead>
+                  <TableHead>İlk Müşteri</TableHead>
                   <TableHead>Model</TableHead>
-                  <TableHead>Müşteri</TableHead>
+                  <TableHead>Seri No</TableHead>
+                  <TableHead>Kontrol Paneli</TableHead>
+                  <TableHead>Kontrol Paneli Seri No</TableHead>
+                  <TableHead>Peşin Fiyat</TableHead>
                   <TableHead>Kurulum</TableHead>
-                  <TableHead>Garanti Bitiş</TableHead>
                   <TableHead>Servis Sayısı</TableHead>
                   <TableHead>Durum</TableHead>
-                  <TableHead className="w-12" />
+                  <TableHead className="w-28 text-right">İşlem</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -216,31 +298,50 @@ export function MachinesPage() {
                         }
                       }}
                     >
-                      <TableCell>{m.serialNumber}</TableCell>
+                      <TableCell className="font-medium">{customerName(m.userCompanyId ?? m.customerId)}</TableCell>
+                      <TableCell className="text-muted-foreground">{customerName(m.initialCustomerId ?? m.customerId)}</TableCell>
                       <TableCell>{m.model}</TableCell>
-                      <TableCell>{customerName(m.customerId)}</TableCell>
+                      <TableCell className="tabular-nums">{m.serialNumber}</TableCell>
+                      <TableCell className="text-muted-foreground">{m.controlUnit || "—"}</TableCell>
+                      <TableCell className="text-muted-foreground tabular-nums">{m.controlUnitSerial || "—"}</TableCell>
+                      <TableCell className="tabular-nums">{formatMachinePrice(m)}</TableCell>
                       <TableCell className="text-muted-foreground">{m.installationDate}</TableCell>
-                      <TableCell>
-                        <div className="flex flex-col gap-1">
-                          <span className="text-muted-foreground">{m.warrantyEnd || "—"}</span>
-                          <WarrantyBadge end={m.warrantyEnd} />
-                        </div>
-                      </TableCell>
                       <TableCell className="tabular-nums">{srCount}</TableCell>
                       <TableCell><StatusBadge status={m.status} /></TableCell>
-                      <TableCell>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="size-8"
-                          aria-label="Makine detayı"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setSelected(m);
-                          }}
-                        >
-                          <Eye className="size-4" />
-                        </Button>
+                      <TableCell className="text-right">
+                        <div className="inline-flex items-center justify-end gap-1">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="size-8"
+                            aria-label="Kullanıcı firma düzenle"
+                            onClick={(e) => openCustomerEdit(m, e)}
+                          >
+                            <Pencil className="size-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="size-8"
+                            aria-label="Makine detayı"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setSelected(m);
+                            }}
+                          >
+                            <Eye className="size-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="size-8 text-muted-foreground hover:text-red-600"
+                            aria-label="Makine sil"
+                            disabled={deletingId === m.id}
+                            onClick={(e) => deleteMachine(m, e)}
+                          >
+                            <Trash2 className="size-4" />
+                          </Button>
+                        </div>
                       </TableCell>
                     </TableRow>
                   );
@@ -250,7 +351,43 @@ export function MachinesPage() {
           )}
         </div>
       </Card>
-      <MachineDetailDialog machine={selected} onClose={() => setSelected(null)} />
+      <MachineDetailDialog
+        machine={selected}
+        onClose={() => setSelected(null)}
+        onDelete={deleteMachine}
+        onEditCustomer={openCustomerEdit}
+        deleting={!!selected && deletingId === selected.id}
+      />
+      <Dialog open={!!editingCustomerMachine} onOpenChange={(open) => !open && setEditingCustomerMachine(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Kullanıcı Firma</DialogTitle>
+            <DialogDescription>
+              İlk müşteri korunur; sadece cihazı bugün kullanan firma değiştirilir.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="rounded-md border border-border/60 bg-muted/20 px-3 py-2 text-sm">
+              <span className="text-muted-foreground">İlk müşteri:</span>{" "}
+              {editingCustomerMachine ? customerName(editingCustomerMachine.initialCustomerId ?? editingCustomerMachine.customerId) : "—"}
+            </div>
+            <Select value={editCustomerId} onValueChange={setEditCustomerId}>
+              <SelectTrigger><SelectValue placeholder="Kullanıcı firma seçin" /></SelectTrigger>
+              <SelectContent>
+                {customers.map((c) => (
+                  <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditingCustomerMachine(null)} disabled={updatingCustomer}>Vazgeç</Button>
+            <Button onClick={saveCustomerEdit} disabled={!editCustomerId || updatingCustomer}>
+              {updatingCustomer ? "Kaydediliyor..." : "Kaydet"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }

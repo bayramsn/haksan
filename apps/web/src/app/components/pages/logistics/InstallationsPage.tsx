@@ -1,22 +1,186 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "../../ui/card";
 import { Button } from "../../ui/button";
+import { Input } from "../../ui/input";
+import { Label } from "../../ui/label";
+import { Textarea } from "../../ui/textarea";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../ui/select";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "../../ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../../ui/table";
+import { Tabs, TabsList, TabsTrigger } from "../../ui/tabs";
 import { StatusBadge } from "../../Layout";
 import { CreateInstallationDialog } from "../../dialogs/CreateDialogs";
 import { MiniKpi } from "../../shared/MiniKpi";
 import { useStore } from "../../../lib/store";
 import { serviceService } from "../../../../lib/services";
-import { INSTALLATION_LOCATION_LABELS, formatDuration, type InstallationLocationType } from "@haksan/shared";
+import {
+  INSTALLATION_FORM_DEFAULT_CHECKS,
+  INSTALLATION_LOCATION_LABELS,
+  formatDuration,
+  type InstallationCheckStatus,
+  type InstallationLocationType,
+} from "@haksan/shared";
 import { printOrWarn } from "../../../lib/pageHelpers";
 import { installationFormDoc, printAssetBase, trShortDate } from "../../../lib/print";
-import { Plus, Wrench, Calendar, CheckCircle2, TrendingUp, Building2, MapPin, Printer } from "lucide-react";
+import { relatedDeliveryFormNo, resolveServiceFormNo } from "../../../lib/serviceFormNo";
+import { Plus, Wrench, Calendar, CheckCircle2, TrendingUp, Building2, MapPin, Printer, FileText, Save, Lock, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
+type TechnicalSpec = { key: string; value: string; unit?: string; specUnit?: string };
+type CheckDraft = {
+  id: string;
+  label: string;
+  status: InstallationCheckStatus | "";
+  note: string;
+};
+type InstallationFormDraft = {
+  formNo: string;
+  teslimTarihi: string;
+  kurulumTarihi: string;
+  machineId: string;
+  tezgahMarka: string;
+  tezgahTip: string;
+  tezgahModel: string;
+  tezgahSeriNo: string;
+  cncMarka: string;
+  cncModel: string;
+  cncSeriNo: string;
+  cncMainSw: string;
+  firma: string;
+  ilgili: string;
+  adres: string;
+  telefon: string;
+  faks: string;
+  gsm: string;
+  eposta: string;
+  checks: CheckDraft[];
+  problemHasProblem: "" | "yes" | "no";
+  problemNote: string;
+  problemActionNote: string;
+  kurulumuYapan: string;
+  teslimAlan: string;
+  technicalSpecs: TechnicalSpec[];
+};
+
+type InstallationRow = {
+  id: string;
+  salesCaseId: string;
+  customerId: string;
+  customerName: string;
+  contactName: string;
+  deviceId: string;
+  device: any;
+  technician: string;
+  scheduledDate: string;
+  completedDate: string;
+  status: string;
+  statusCode: string;
+  location: string;
+  locationType: InstallationLocationType | null;
+  durationMinutes: number | null;
+  technicalSpecs: TechnicalSpec[];
+  notes: string;
+  formData?: any | null;
+};
+
+const toDateInput = (value?: unknown) => {
+  if (!value) return "";
+  const text = String(value);
+  return text.includes("T") ? text.slice(0, 10) : text.slice(0, 10);
+};
+
+const clean = (value: string) => value.trim() || undefined;
+
+const defaultChecks = (): CheckDraft[] =>
+  INSTALLATION_FORM_DEFAULT_CHECKS.map((check) => ({
+    id: check.id,
+    label: check.label,
+    status: "",
+    note: "",
+  }));
+
+const mapDeviceToMachine = (row: InstallationRow) =>
+  row.device
+    ? {
+        id: row.device.id,
+        customerId: row.customerId,
+        salesCaseId: row.salesCaseId,
+        stockItemId: "",
+        serialNumber: row.device.serialNumber ?? "—",
+        model: row.device.model ?? row.device.productModelName ?? "—",
+        brand: row.device.brandName ?? "",
+        type: row.device.productTypeName ?? "",
+        controlUnit: row.device.controlUnit ?? "",
+        controlUnitSerial: row.device.controlUnitSerialNumber ?? "",
+        technicalSpecs: row.technicalSpecs,
+        deliveryDate: toDateInput(row.device.deliveryDate),
+        cashPrice: row.device.cashPrice == null ? undefined : Number(row.device.cashPrice),
+        currency: row.device.currencyCode ?? "USD",
+        installationDate: row.completedDate,
+        warrantyStart: "",
+        warrantyEnd: "",
+        status: "Active" as const,
+      }
+    : null;
+
+function formToPayload(form: InstallationFormDraft): any {
+  return {
+    formNo: clean(form.formNo),
+    teslimTarihi: form.teslimTarihi || undefined,
+    kurulumTarihi: form.kurulumTarihi || undefined,
+    machineId: form.machineId || undefined,
+    tezgah: {
+      marka: clean(form.tezgahMarka),
+      tip: clean(form.tezgahTip),
+      model: clean(form.tezgahModel),
+      seriNo: clean(form.tezgahSeriNo),
+    },
+    cnc: {
+      marka: clean(form.cncMarka),
+      model: clean(form.cncModel),
+      seriNo: clean(form.cncSeriNo),
+      mainSw: clean(form.cncMainSw),
+    },
+    kullanici: {
+      firma: clean(form.firma),
+      ilgili: clean(form.ilgili),
+      adres: clean(form.adres),
+      telefon: clean(form.telefon),
+      faks: clean(form.faks),
+      gsm: clean(form.gsm),
+      eposta: clean(form.eposta),
+    },
+    checks: form.checks.map((check) => ({
+      id: check.id,
+      label: check.label,
+      status: check.status || undefined,
+      note: clean(check.note),
+    })),
+    problem: {
+      hasProblem: form.problemHasProblem ? form.problemHasProblem === "yes" : undefined,
+      note: clean(form.problemNote),
+      actionNote: clean(form.problemActionNote),
+    },
+    kurulumuYapan: clean(form.kurulumuYapan),
+    teslimAlan: clean(form.teslimAlan),
+    technicalSpecs: form.technicalSpecs
+      .filter((spec) => spec.key.trim() && spec.value.trim())
+      .map((spec) => ({
+        key: spec.key.trim(),
+        value: spec.value.trim(),
+        unit: (spec.unit ?? spec.specUnit ?? "").trim() || undefined,
+        specUnit: (spec.unit ?? spec.specUnit ?? "").trim() || undefined,
+      })),
+  };
+}
+
 export function InstallationsPage() {
-  const { customers, machines } = useStore();
+  const { customers, machines, deliveries } = useStore();
   const [rows, setRows] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [selectedRow, setSelectedRow] = useState<InstallationRow | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [tab, setTab] = useState<"open" | "history">("open");
 
   const loadInstallations = async () => {
     setLoading(true);
@@ -35,8 +199,9 @@ export function InstallationsPage() {
     loadInstallations();
   }, []);
 
-  const installationRows = rows.map((i) => ({
+  const installationRows: InstallationRow[] = rows.map((i) => ({
     id: i.id,
+    salesCaseId: i.opportunityId ?? "",
     customerId: i.companyId ?? "",
     customerName: i.company?.shortName || i.company?.legalTitle || customers.find((c) => c.id === i.companyId)?.name || "—",
     contactName: i.contact?.fullName ?? "",
@@ -46,88 +211,45 @@ export function InstallationsPage() {
     scheduledDate: (i.scheduledDate as string | undefined)?.slice(0, 10) ?? "—",
     completedDate: (i.completedAt as string | undefined)?.slice(0, 10) ?? "",
     status: i.status?.name ?? i.status?.code ?? "Planlandı",
+    statusCode: i.status?.code ?? "",
     location: i.location ?? "",
     locationType: (i.locationType as InstallationLocationType | null) ?? null,
     durationMinutes: i.durationMinutes != null ? Number(i.durationMinutes) : null,
     technicalSpecs: Array.isArray(i.customerDevice?.technicalSpecs)
       ? i.customerDevice.technicalSpecs.map((spec: any) => ({
           key: String(spec.key ?? ""),
-          value: [spec.value, spec.unit].filter(Boolean).join(" "),
+          value: String(spec.value ?? ""),
+          unit: spec.unit ?? spec.specUnit ?? "",
         }))
       : [],
     notes: i.notes ?? "",
+    formData: i.formData ?? null,
   }));
 
-  // Kurulum Tutanağı çıktısı — müşteri bilgileri CRM'den, tezgah/CNC bilgileri
-  // kuruluma bağlı makineden (yoksa müşterinin makinesinden) gelir; CRM'de
-  // olmayan alanlar sahada elle doldurulmak üzere boş basılır.
-  const printInstallationForm = (row: (typeof installationRows)[number], _index: number) => {
-    const cust = customers.find((c) => c.id === row.customerId);
-    const rowDevice = row.device
-      ? {
-          id: row.device.id,
-          customerId: row.customerId,
-          salesCaseId: "",
-          stockItemId: "",
-          serialNumber: row.device.serialNumber ?? "—",
-          model: row.device.model ?? row.device.productModelName ?? "—",
-          brand: row.device.brandName ?? "",
-          type: row.device.productTypeName ?? "",
-          controlUnit: row.device.controlUnit ?? "",
-          controlUnitSerial: row.device.controlUnitSerialNumber ?? "",
-          technicalSpecs: row.technicalSpecs,
-          deliveryDate: "",
-          installationDate: row.completedDate,
-          warrantyStart: "",
-          warrantyEnd: "",
-          status: "Active" as const,
-        }
-      : null;
-    const m =
-      machines.find((x) => x.id === row.deviceId) ??
-      rowDevice ??
-      machines.find((x) => x.customerId === row.customerId);
-    printOrWarn(
-      installationFormDoc(
-        {
-          teslimTarihi: m?.deliveryDate ? trShortDate(m.deliveryDate) : "",
-          kurulumTarihi: row.completedDate
-            ? trShortDate(row.completedDate)
-            : row.scheduledDate !== "—"
-              ? trShortDate(row.scheduledDate)
-              : "",
-          formNo: row.id,
-          tezgah: m ? { marka: m.brand, tip: m.type, model: m.model, seriNo: m.serialNumber } : undefined,
-          cnc: m?.controlUnit
-            ? {
-                marka: m.controlUnit.split(" ")[0],
-                model: m.controlUnit.split(" ").slice(1).join(" ") || undefined,
-                seriNo: m.controlUnitSerial,
-              }
-            : undefined,
-          firma: cust?.name ?? row.customerName,
-          ilgili: row.contactName || cust?.contactPerson,
-          adres: cust ? [cust.address, cust.district, cust.city].filter(Boolean).join(" ") : row.location,
-          telefon: cust?.phone,
-          faks: cust?.fax,
-          gsm: cust?.phone2,
-          eposta: cust?.email,
-          kurulumuYapan: row.technician !== "—" ? row.technician : "",
-          kurulumYeri: row.location,
-          sure: row.durationMinutes != null ? formatDuration(row.durationMinutes) : undefined,
-          technicalSpecs: row.technicalSpecs,
-          notlar: row.notes,
-        },
-        printAssetBase()
-      )
-    );
-  };
-
-  const planned = installationRows.filter((i) => ["Planlandı", "scheduled"].includes(i.status)).length;
-  const completed = installationRows.filter((i) => ["Tamamlandı", "completed"].includes(i.status)).length;
+  const planned = installationRows.filter((i) => ["Planlandı", "scheduled"].includes(i.status) || i.statusCode === "scheduled").length;
+  const completed = installationRows.filter((i) => ["Tamamlandı", "completed"].includes(i.status) || i.statusCode === "completed").length;
+  const openRows = installationRows.filter((i) => i.statusCode !== "completed");
+  const historyRows = installationRows.filter((i) => i.statusCode === "completed");
+  const visibleRows = tab === "history" ? historyRows : openRows;
   const upcoming = [...installationRows]
-    .filter((i) => ["Planlandı", "scheduled"].includes(i.status))
+    .filter((i) => ["Planlandı", "scheduled"].includes(i.status) || i.statusCode === "scheduled")
     .sort((a, b) => a.scheduledDate.localeCompare(b.scheduledDate));
+
+  const deleteInstallation = async (row: InstallationRow, event?: React.MouseEvent) => {
+    event?.stopPropagation();
+    if (!window.confirm(`${row.customerName} kurulum kaydını arşivlemek istediğinize emin misiniz?`)) return;
+    setDeletingId(row.id);
+    try {
+      await serviceService.deleteInstallation(row.id);
+      toast.success("Kurulum silindi");
+      if (selectedRow?.id === row.id) setSelectedRow(null);
+      await loadInstallations();
+    } catch (err: any) {
+      toast.error("Kurulum silinemedi", { description: err?.message ?? "İşlem başarısız oldu." });
+    } finally {
+      setDeletingId(null);
+    }
+  };
 
   return (
     <div className="space-y-5">
@@ -141,7 +263,15 @@ export function InstallationsPage() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <Card className="lg:col-span-2 border-border/60 shadow-sm overflow-hidden">
           <CardHeader className="flex flex-row items-center justify-between pb-3">
-            <CardTitle className="tracking-tight">Tüm Kurulumlar</CardTitle>
+            <div className="space-y-2">
+              <CardTitle className="tracking-tight">Kurulumlar</CardTitle>
+              <Tabs value={tab} onValueChange={(value) => setTab(value as "open" | "history")}>
+                <TabsList className="h-9 bg-muted/60">
+                  <TabsTrigger value="open">Açık ({openRows.length})</TabsTrigger>
+                  <TabsTrigger value="history">Geçmiş ({historyRows.length})</TabsTrigger>
+                </TabsList>
+              </Tabs>
+            </div>
             <CreateInstallationDialog
               onCreated={loadInstallations}
               trigger={<Button size="sm" className="h-9 gap-1"><Plus className="size-4" /> Yeni Kurulum</Button>}
@@ -156,11 +286,11 @@ export function InstallationsPage() {
                   <TableHead>Planlanan Tarih</TableHead>
                   <TableHead>Konum / Süre</TableHead>
                   <TableHead>Durum</TableHead>
-                  <TableHead className="w-16 text-right">İşlem</TableHead>
+                  <TableHead className="w-20 text-right">İşlem</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {installationRows.map((i, idx) => (
+                {visibleRows.map((i) => (
                   <TableRow key={i.id} className="group">
                     <TableCell>
                       <div className="flex items-center gap-2.5">
@@ -193,17 +323,29 @@ export function InstallationsPage() {
                     </TableCell>
                     <TableCell><StatusBadge status={i.status} /></TableCell>
                     <TableCell className="text-right">
-                      <Button variant="ghost" size="icon" className="size-7" title="Kurulum Tutanağı yazdır / PDF"
-                        onClick={() => printInstallationForm(i, idx)}>
-                        <Printer className="size-4 text-muted-foreground hover:text-primary" />
-                      </Button>
+                      <div className="flex items-center justify-end gap-1">
+                        <Button variant="ghost" size="icon" className="size-7" title="Kurulum tutanağını aç"
+                          onClick={() => setSelectedRow(i)}>
+                          <FileText className="size-4 text-muted-foreground hover:text-primary" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="size-7"
+                          title="Kurulumu sil"
+                          disabled={deletingId === i.id}
+                          onClick={(event) => deleteInstallation(i, event)}
+                        >
+                          <Trash2 className="size-4 text-muted-foreground hover:text-red-600" />
+                        </Button>
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))}
-                {!loading && installationRows.length === 0 && (
+                {!loading && visibleRows.length === 0 && (
                   <TableRow>
                     <TableCell colSpan={6} className="text-center py-12 text-sm text-muted-foreground">
-                      Henüz kurulum kaydı yok.
+                      {tab === "history" ? "Geçmiş kurulum kaydı yok." : "Açık kurulum kaydı yok."}
                     </TableCell>
                   </TableRow>
                 )}
@@ -241,6 +383,348 @@ export function InstallationsPage() {
           </CardContent>
         </Card>
       </div>
+
+      <InstallationFormDialog
+        row={selectedRow}
+        customers={customers}
+        machines={machines}
+        deliveries={deliveries}
+        onClose={() => setSelectedRow(null)}
+        onSaved={loadInstallations}
+      />
+    </div>
+  );
+}
+
+function InstallationFormDialog({
+  row,
+  customers,
+  machines,
+  deliveries,
+  onClose,
+  onSaved,
+}: {
+  row: InstallationRow | null;
+  customers: ReturnType<typeof useStore>["customers"];
+  machines: ReturnType<typeof useStore>["machines"];
+  deliveries: ReturnType<typeof useStore>["deliveries"];
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [form, setForm] = useState<InstallationFormDraft | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  const customer = useMemo(() => customers.find((c) => c.id === row?.customerId) ?? null, [customers, row?.customerId]);
+
+  useEffect(() => {
+    if (!row) {
+      setForm(null);
+      return;
+    }
+    const rowDevice = mapDeviceToMachine(row);
+    const machine =
+      machines.find((x) => x.id === row.deviceId) ??
+      rowDevice ??
+      machines.find((x) => x.customerId === row.customerId);
+    const fd = row.formData ?? {};
+    const cncParts = machine?.controlUnit?.split(" ") ?? [];
+    const existingChecks: CheckDraft[] = fd.checks?.length
+      ? fd.checks.map((check: { id?: string; label: string; status?: InstallationCheckStatus; note?: string }) => ({
+          id: check.id || `custom-${check.label}`,
+          label: check.label,
+          status: check.status ?? "",
+          note: check.note ?? "",
+        }))
+      : defaultChecks();
+    const checks = [
+      ...INSTALLATION_FORM_DEFAULT_CHECKS.map((required) => {
+        const existing = existingChecks.find((check) => check.id === required.id || check.label === required.label);
+        return existing ?? { id: required.id, label: required.label, status: "" as const, note: "" };
+      }),
+      ...existingChecks.filter((check) => !INSTALLATION_FORM_DEFAULT_CHECKS.some((required) => required.id === check.id || required.label === check.label)),
+    ];
+
+    setForm({
+      formNo: resolveServiceFormNo({
+        currentFormNo: fd.formNo,
+        relatedFormNo: relatedDeliveryFormNo(deliveries, {
+          salesCaseId: row.salesCaseId,
+          machineId: fd.machineId ?? machine?.id ?? row.deviceId,
+        }),
+        salesCaseId: row.salesCaseId,
+        machineId: fd.machineId ?? machine?.id ?? row.deviceId,
+        fallbackId: row.id,
+      }),
+      teslimTarihi: toDateInput(fd.teslimTarihi) || machine?.deliveryDate || "",
+      kurulumTarihi: toDateInput(fd.kurulumTarihi) || row.completedDate || (row.scheduledDate !== "—" ? row.scheduledDate : ""),
+      machineId: fd.machineId ?? machine?.id ?? "",
+      tezgahMarka: fd.tezgah?.marka ?? machine?.brand ?? "",
+      tezgahTip: fd.tezgah?.tip ?? machine?.type ?? "",
+      tezgahModel: fd.tezgah?.model ?? machine?.model ?? "",
+      tezgahSeriNo: fd.tezgah?.seriNo ?? machine?.serialNumber ?? "",
+      cncMarka: fd.cnc?.marka ?? cncParts[0] ?? "",
+      cncModel: fd.cnc?.model ?? cncParts.slice(1).join(" "),
+      cncSeriNo: fd.cnc?.seriNo ?? machine?.controlUnitSerial ?? "",
+      cncMainSw: fd.cnc?.mainSw ?? "",
+      firma: fd.kullanici?.firma ?? customer?.name ?? row.customerName,
+      ilgili: fd.kullanici?.ilgili ?? row.contactName ?? customer?.contactPerson ?? "",
+      adres: fd.kullanici?.adres ?? (customer ? [customer.address, customer.district, customer.city].filter(Boolean).join(" ") : row.location),
+      telefon: fd.kullanici?.telefon ?? customer?.phone ?? "",
+      faks: fd.kullanici?.faks ?? customer?.fax ?? "",
+      gsm: fd.kullanici?.gsm ?? customer?.phone2 ?? "",
+      eposta: fd.kullanici?.eposta ?? customer?.email ?? "",
+      checks,
+      problemHasProblem: typeof fd.problem?.hasProblem === "boolean" ? (fd.problem.hasProblem ? "yes" : "no") : "",
+      problemNote: fd.problem?.note ?? "",
+      problemActionNote: fd.problem?.actionNote ?? "",
+      kurulumuYapan: fd.kurulumuYapan ?? (row.technician !== "—" ? row.technician : ""),
+      teslimAlan: fd.teslimAlan ?? row.contactName ?? customer?.contactPerson ?? "",
+      technicalSpecs: fd.technicalSpecs?.length ? fd.technicalSpecs : row.technicalSpecs,
+    });
+  }, [row, machines, customer, deliveries]);
+
+  const update = <K extends keyof InstallationFormDraft>(key: K, value: InstallationFormDraft[K]) => {
+    setForm((current) => (current ? { ...current, [key]: value } : current));
+  };
+  const updateCheck = (id: string, patch: Partial<CheckDraft>) => {
+    setForm((current) => current
+      ? { ...current, checks: current.checks.map((check) => (check.id === id ? { ...check, ...patch } : check)) }
+      : current);
+  };
+
+  const printForm = () => {
+    if (!row || !form) return;
+    const payload = formToPayload(form);
+    printOrWarn(
+      installationFormDoc(
+        {
+          teslimTarihi: payload.teslimTarihi ? trShortDate(payload.teslimTarihi) : "",
+          kurulumTarihi: payload.kurulumTarihi ? trShortDate(payload.kurulumTarihi) : "",
+          formNo: payload.formNo || row.id.slice(0, 6).toUpperCase(),
+          tezgah: payload.tezgah,
+          cnc: payload.cnc,
+          firma: payload.kullanici?.firma,
+          ilgili: payload.kullanici?.ilgili,
+          adres: payload.kullanici?.adres,
+          telefon: payload.kullanici?.telefon,
+          faks: payload.kullanici?.faks,
+          gsm: payload.kullanici?.gsm,
+          eposta: payload.kullanici?.eposta,
+          kurulumuYapan: payload.kurulumuYapan,
+          teslimAlan: payload.teslimAlan,
+          kurulumYeri: row.location,
+          sure: row.durationMinutes != null ? formatDuration(row.durationMinutes) : undefined,
+          checks: payload.checks?.map((check: { label: string; status?: InstallationCheckStatus; note?: string }) => ({ label: check.label, status: check.status, note: check.note })),
+          problem: payload.problem,
+          notlar: row.notes,
+        },
+        printAssetBase(),
+      ),
+    );
+  };
+
+  const saveForm = async () => {
+    if (!row || !form) return;
+    setSaving(true);
+    try {
+      await serviceService.updateInstallation(row.id, { formData: formToPayload(form) });
+      toast.success("Kurulum tutanağı kaydedildi");
+      onSaved();
+    } catch (err: any) {
+      toast.error("Kurulum tutanağı kaydedilemedi", { description: err?.message ?? "API isteği başarısız oldu." });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const completeInstallation = async () => {
+    if (!row || !form) return;
+    setSaving(true);
+    try {
+      const payload = formToPayload(form);
+      const result = await serviceService.updateInstallationStatus(row.id, {
+        statusCode: "completed",
+        installationDate: payload.kurulumTarihi ? String(payload.kurulumTarihi) : new Date().toISOString(),
+        formData: payload,
+      });
+      toast.success("Kurulum tamamlandı", {
+        description: result?.opportunityStageChanged ? "Bağlı satış kartı Teslim Edildi aşamasına alındı." : undefined,
+      });
+      onSaved();
+      onClose();
+    } catch (err: any) {
+      toast.error("Kurulum tamamlanamadı", { description: err?.message ?? "Kontrol çizelgesi ve problem alanını kontrol edin." });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Dialog open={!!row} onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="w-[min(920px,calc(100vw-2rem))] max-w-none sm:max-w-none">
+        {row && form && (
+          <>
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2"><FileText className="size-5 text-primary" /> Kurulum Tutanağı</DialogTitle>
+              <DialogDescription>{row.customerName} · {row.scheduledDate}</DialogDescription>
+            </DialogHeader>
+
+            <div className="max-h-[min(68dvh,680px)] overflow-y-auto pr-1 space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <Field label="Form No" value={form.formNo} onChange={(value) => update("formNo", value)} />
+                <Field label="Tezgah Teslim Tarihi" type="date" value={form.teslimTarihi} onChange={(value) => update("teslimTarihi", value)} />
+                <Field label="Tezgah Kurulum Tarihi" type="date" value={form.kurulumTarihi} onChange={(value) => update("kurulumTarihi", value)} />
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+                <Card className="border-border/60">
+                  <CardHeader className="pb-3"><CardTitle className="text-base">Tezgah Bilgileri</CardTitle></CardHeader>
+                  <CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <Field label="Tezgah Markası" value={form.tezgahMarka} onChange={(value) => update("tezgahMarka", value)} />
+                    <Field label="Tezgah Tipi" value={form.tezgahTip} onChange={(value) => update("tezgahTip", value)} />
+                    <Field label="Tezgah Modeli" value={form.tezgahModel} onChange={(value) => update("tezgahModel", value)} />
+                    <Field label="Tezgah Seri No" value={form.tezgahSeriNo} onChange={(value) => update("tezgahSeriNo", value)} />
+                  </CardContent>
+                </Card>
+                <Card className="border-border/60">
+                  <CardHeader className="pb-3"><CardTitle className="text-base">Kontrol Ünitesi Bilgileri</CardTitle></CardHeader>
+                  <CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <Field label="Cnc Markası" value={form.cncMarka} onChange={(value) => update("cncMarka", value)} />
+                    <Field label="Cnc Modeli" value={form.cncModel} onChange={(value) => update("cncModel", value)} />
+                    <Field label="Cnc Seri No" value={form.cncSeriNo} onChange={(value) => update("cncSeriNo", value)} />
+                    <Field label="Cnc Main S/W" value={form.cncMainSw} onChange={(value) => update("cncMainSw", value)} />
+                  </CardContent>
+                </Card>
+              </div>
+
+              <Card className="border-border/60">
+                <CardHeader className="pb-3"><CardTitle className="text-base">Kullanıcı Bilgileri</CardTitle></CardHeader>
+                <CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="sm:col-span-2"><Field label="Firma" value={form.firma} onChange={(value) => update("firma", value)} /></div>
+                  <Field label="İlgili" value={form.ilgili} onChange={(value) => update("ilgili", value)} />
+                  <Field label="Telefon" value={form.telefon} onChange={(value) => update("telefon", value)} />
+                  <div className="sm:col-span-2">
+                    <Label className="text-xs">Adres</Label>
+                    <Textarea className="mt-1.5 min-h-20" value={form.adres} onChange={(event) => update("adres", event.target.value)} />
+                  </div>
+                  <Field label="Faks" value={form.faks} onChange={(value) => update("faks", value)} />
+                  <Field label="Gsm" value={form.gsm} onChange={(value) => update("gsm", value)} />
+                  <div className="sm:col-span-2"><Field label="E-Posta" type="email" value={form.eposta} onChange={(value) => update("eposta", value)} /></div>
+                </CardContent>
+              </Card>
+
+              <Card className="border-border/60">
+                <CardHeader className="pb-3"><CardTitle className="text-base">Tezgah Kontrol Çizelgesi</CardTitle></CardHeader>
+                <CardContent>
+                  <div className="rounded-lg border border-border/60 overflow-hidden">
+                    <Table className="min-w-[720px]">
+                      <TableHeader>
+                        <TableRow className="bg-muted/30 hover:bg-muted/30">
+                          <TableHead>Açıklama</TableHead>
+                          <TableHead className="w-40">Durum</TableHead>
+                          <TableHead>Not</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {form.checks.map((check) => (
+                          <TableRow key={check.id}>
+                            <TableCell className="font-medium">{check.label}</TableCell>
+                            <TableCell>
+                              <Select value={check.status || "unset"} onValueChange={(value) => updateCheck(check.id, { status: value === "unset" ? "" : value as InstallationCheckStatus })}>
+                                <SelectTrigger className="h-9 bg-white"><SelectValue /></SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="unset">Seçilmedi</SelectItem>
+                                  <SelectItem value="done">Tamamlandı</SelectItem>
+                                  <SelectItem value="not_done">Tamamlanmadı</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </TableCell>
+                            <TableCell>
+                              <Input value={check.note} onChange={(event) => updateCheck(check.id, { note: event.target.value })} placeholder="İsteğe bağlı" />
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card className="border-border/60">
+                <CardHeader className="pb-3"><CardTitle className="text-base">Kurulumda Problem Kontrolü</CardTitle></CardHeader>
+                <CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <Label className="text-xs">Problem var mı?</Label>
+                    <Select value={form.problemHasProblem || "unset"} onValueChange={(value) => update("problemHasProblem", value === "unset" ? "" : value as "yes" | "no")}>
+                      <SelectTrigger className="mt-1.5 bg-white"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="unset">Seçilmedi</SelectItem>
+                        <SelectItem value="no">Hayır</SelectItem>
+                        <SelectItem value="yes">Evet</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div />
+                  <div className="sm:col-span-2">
+                    <Label className="text-xs">Açıklama</Label>
+                    <Textarea className="mt-1.5 min-h-20" value={form.problemNote} onChange={(event) => update("problemNote", event.target.value)} />
+                  </div>
+                  <div className="sm:col-span-2">
+                    <Label className="text-xs">Yapılan İşlem</Label>
+                    <Textarea className="mt-1.5 min-h-20" value={form.problemActionNote} onChange={(event) => update("problemActionNote", event.target.value)} />
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card className="border-border/60">
+                <CardHeader className="pb-3"><CardTitle className="text-base">İmza Bilgileri</CardTitle></CardHeader>
+                <CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <Field label="Kurulumu Yapan" value={form.kurulumuYapan} onChange={(value) => update("kurulumuYapan", value)} />
+                  <Field label="Tezgahı Teslim Alan" value={form.teslimAlan} onChange={(value) => update("teslimAlan", value)} />
+                </CardContent>
+              </Card>
+            </div>
+
+            <DialogFooter className="gap-2 sm:justify-between">
+              <Button variant="outline" className="gap-1" onClick={printForm}>
+                <Printer className="size-4" /> Yazdır / PDF
+              </Button>
+              <div className="flex flex-wrap justify-end gap-2">
+                <Button variant="outline" onClick={onClose}>Kapat</Button>
+                <Button variant="outline" className="gap-1" disabled={saving} onClick={() => void saveForm()}>
+                  <Save className="size-4" /> Kaydet
+                </Button>
+                {row.statusCode !== "completed" && (
+                  <Button className="gap-1 bg-emerald-600 hover:bg-emerald-700" disabled={saving} onClick={() => void completeInstallation()}>
+                    <Lock className="size-4" /> Kaydet ve Tamamla
+                  </Button>
+                )}
+              </div>
+            </DialogFooter>
+          </>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function Field({
+  label,
+  value,
+  onChange,
+  type = "text",
+  placeholder,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  type?: string;
+  placeholder?: string;
+}) {
+  return (
+    <div>
+      <Label className="text-xs">{label}</Label>
+      <Input className="mt-1.5" type={type} value={value} placeholder={placeholder} onChange={(event) => onChange(event.target.value)} />
     </div>
   );
 }

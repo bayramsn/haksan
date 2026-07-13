@@ -8,15 +8,18 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from ".
 import { Textarea } from "../../ui/textarea";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../../ui/table";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "../../ui/dialog";
+import { Tabs, TabsList, TabsTrigger } from "../../ui/tabs";
 import { StatusBadge } from "../../Layout";
 import { MiniKpi } from "../../shared/MiniKpi";
+import { EmptyState } from "../../shared/EmptyState";
 import { FormField, SummaryLine } from "../shared/formFields";
+import { CreateAccountingInvoiceDialog, type AccountingInvoicePrefill } from "../finance/CreateAccountingInvoiceDialog";
 import { purchaseOrderService, companyService, productService } from "../../../../lib/services";
 import { useAuth } from "../../../../lib/auth";
 import { ExportExcelButton } from "../../ui/ExportExcelButton";
 import { formatCurrency, formatDate } from "../../../lib/pageHelpers";
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid } from "recharts";
-import { Plus, Search, ShoppingCart, Package, Receipt, Clock, Trash2 } from "lucide-react";
+import { CheckCircle2, ClipboardCheck, Eye, Mail, Plus, Search, ShoppingCart, Package, Receipt, Clock, Trash2, XCircle } from "lucide-react";
 import { toast } from "sonner";
 
 export function PurchaseOrdersPage() {
@@ -24,6 +27,10 @@ export function PurchaseOrdersPage() {
   const [orders, setOrders] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [q, setQ] = useState("");
+  const [tab, setTab] = useState<"all" | "draft" | "sent" | "pending_manager_approval" | "approved" | "received" | "cancelled">("all");
+  const [selectedOrder, setSelectedOrder] = useState<any | null>(null);
+  const [selectedDetail, setSelectedDetail] = useState<any | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
   const canApprovePurchaseOrders = hasRole("super_admin");
 
   const loadOrders = (cancelledRef?: { current: boolean }) => {
@@ -59,6 +66,7 @@ export function PurchaseOrdersPage() {
   const totalAmount = orders.reduce((a, p) => a + Number(p.grandTotal ?? 0), 0);
 
   const filtered = orders.filter((p) => {
+    if (tab !== "all" && p.status?.code !== tab) return false;
     const supplier = p.supplier?.shortName || p.supplier?.legalTitle || "";
     return [p.orderNo, p.invoiceNo, supplier].some((value) => String(value ?? "").toLowerCase().includes(q.toLowerCase()));
   });
@@ -72,14 +80,51 @@ export function PurchaseOrdersPage() {
     }));
 
   const poExportParams = q ? { search: q } : undefined;
+  const openOrderDetail = async (order: any) => {
+    setSelectedOrder(order);
+    setSelectedDetail(null);
+    setDetailLoading(true);
+    try {
+      const detail = await purchaseOrderService.get(order.id);
+      setSelectedDetail(detail);
+    } catch (err: any) {
+      toast.error("Satın alma detayı yüklenemedi", { description: err?.message ?? "API isteği başarısız oldu." });
+    } finally {
+      setDetailLoading(false);
+    }
+  };
+
+  const runPurchaseAction = async (order: any, action: "send" | "approve" | "received" | "cancelled") => {
+    try {
+      if (action === "send") await purchaseOrderService.send(order.id);
+      else if (action === "approve") await purchaseOrderService.approve(order.id);
+      else await purchaseOrderService.setStatus(order.id, { statusCode: action });
+      toast.success(
+        action === "send"
+          ? "Satın alma gönderildi"
+          : action === "approve"
+          ? "Satın alma onaylandı"
+          : action === "received"
+          ? "Teslim alındı"
+          : "Satın alma iptal edildi",
+      );
+      loadOrders();
+      if (selectedOrder?.id === order.id) {
+        const detail = await purchaseOrderService.get(order.id).catch(() => null);
+        if (detail) setSelectedDetail(detail);
+      }
+    } catch (err: any) {
+      toast.error("İşlem başarısız", { description: err?.message ?? "API isteği başarısız oldu." });
+    }
+  };
 
   return (
     <div className="space-y-5">
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <MiniKpi tone="violet" icon={<ShoppingCart className="size-[18px]" />} label="Toplam Sipariş" value={total} sub={formatCurrency(totalAmount, "USD")} delta={6} />
+        <MiniKpi tone="violet" icon={<ShoppingCart className="size-[18px]" />} label="Toplam Sipariş" value={total} sub={formatCurrency(totalAmount, "USD")} delta={6} onClick={() => setTab("all")} active={tab === "all"} />
         <MiniKpi tone="emerald" icon={<Package className="size-[18px]" />} label="Ticari" value={commercial} sub="mal/hizmet alımı" delta={3} />
         <MiniKpi tone="blue" icon={<Receipt className="size-[18px]" />} label="İdari" value={administrative} sub="genel gider" delta={2} />
-        <MiniKpi tone="amber" icon={<Clock className="size-[18px]" />} label="Bekleyen" value={pending} sub="onay bekliyor" delta={1} />
+        <MiniKpi tone="amber" icon={<Clock className="size-[18px]" />} label="Bekleyen" value={pending} sub="onay bekliyor" delta={1} onClick={() => setTab("pending_manager_approval")} active={tab === "pending_manager_approval"} />
       </div>
 
       <Card className="border-border/60 shadow-sm">
@@ -94,7 +139,7 @@ export function PurchaseOrdersPage() {
               <XAxis type="number" stroke="#9ca3af" fontSize={11} tickLine={false} axisLine={false} />
               <YAxis type="category" dataKey="name" stroke="#6b7280" fontSize={11} width={120} tickLine={false} axisLine={false} />
               <Tooltip contentStyle={{ borderRadius: 8, border: "1px solid #e5e7eb", fontSize: 12 }} />
-              <Bar dataKey="tutar" fill="#000c69" barSize={22} isAnimationActive={false} />
+              <Bar dataKey="tutar" fill="var(--brand-blue)" barSize={22} isAnimationActive={false} />
             </BarChart>
           </ResponsiveContainer>
         </CardContent>
@@ -102,7 +147,19 @@ export function PurchaseOrdersPage() {
 
       <Card className="border-border/60 shadow-sm overflow-hidden">
         <CardHeader className="flex flex-col gap-3 pb-3 lg:flex-row lg:items-center lg:justify-between">
-          <CardTitle className="tracking-tight">Satın Alma Siparişleri</CardTitle>
+          <div className="flex flex-wrap items-center gap-2">
+            <CardTitle className="tracking-tight mr-2">Satın Alma Siparişleri</CardTitle>
+            <Tabs value={tab} onValueChange={(v) => setTab(v as typeof tab)}>
+              <TabsList className="h-8 bg-muted/60">
+                <TabsTrigger value="all" className="text-xs">Tümü</TabsTrigger>
+                <TabsTrigger value="draft" className="text-xs">Taslak</TabsTrigger>
+                <TabsTrigger value="sent" className="text-xs">Gönderilen</TabsTrigger>
+                <TabsTrigger value="pending_manager_approval" className="text-xs">Onay</TabsTrigger>
+                <TabsTrigger value="approved" className="text-xs">Onaylı</TabsTrigger>
+                <TabsTrigger value="received" className="text-xs">Teslim</TabsTrigger>
+              </TabsList>
+            </Tabs>
+          </div>
           <div className="flex w-full flex-wrap items-center gap-2 lg:w-auto">
             <div className="relative w-full sm:w-64">
               <Search className="size-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
@@ -115,7 +172,7 @@ export function PurchaseOrdersPage() {
         <div className="overflow-x-auto">
           <Table>
             <TableHeader>
-              <TableRow className="bg-muted/30 hover:bg-muted/30">
+              <TableRow className="bg-muted/40 hover:bg-muted/40 [&_th]:text-[11px] [&_th]:uppercase [&_th]:tracking-wider [&_th]:text-muted-foreground">
                 <TableHead>Tedarikçi</TableHead>
                 <TableHead>Tip</TableHead>
                 <TableHead>Ödeme</TableHead>
@@ -130,7 +187,15 @@ export function PurchaseOrdersPage() {
             </TableHeader>
             <TableBody>
               {filtered.map((p) => (
-                <TableRow key={p.id} className="group">
+                <TableRow
+                  key={p.id}
+                  className="group cursor-pointer hover:bg-primary/[0.025]"
+                  onClick={() => openOrderDetail(p)}
+                  onKeyDown={(e) => e.key === "Enter" && openOrderDetail(p)}
+                  tabIndex={0}
+                  role="button"
+                  aria-label={`Satın alma ${p.orderNo ?? p.id}`}
+                >
                   <TableCell>
                     <div className="flex items-center gap-2.5">
                       <div className="size-8 rounded-md bg-gradient-to-br from-primary/15 to-primary/5 text-primary grid place-items-center shrink-0">
@@ -164,31 +229,54 @@ export function PurchaseOrdersPage() {
                         <Button 
                           size="sm" 
                           variant="outline" 
-                          className="h-6 px-2 text-[10px] uppercase tracking-wider font-semibold border-amber-200 text-amber-700 hover:bg-amber-50"
-                          onClick={async () => {
-                            try {
-                              await purchaseOrderService.approve(p.id);
-                              toast.success("Yönetici onayı verildi");
-                              loadOrders();
-                            } catch (err: unknown) {
-                              const msg = err instanceof Error ? err.message : "API isteği başarısız oldu.";
-                              toast.error("Onay başarısız", { description: msg });
-                            }
+                          className="h-6 px-2 text-[10px] uppercase tracking-wider font-semibold border-warning/30 text-warning hover:bg-warning-soft"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            void runPurchaseAction(p, "approve");
                           }}
                         >
                           Onayla
                         </Button>
                         )}
+                        {p.status?.code === "draft" && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-6 px-2 text-[10px] uppercase tracking-wider font-semibold"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              void runPurchaseAction(p, "send");
+                            }}
+                          >
+                            Gönder
+                          </Button>
+                        )}
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="size-7 opacity-0 group-hover:opacity-100 sm:opacity-100"
+                          title="Satın alma detayı"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            void openOrderDetail(p);
+                          }}
+                        >
+                          <Eye className="size-4" />
+                        </Button>
                       </div>
-                      {p.approvalReason && <span className="text-[11px] text-amber-700">{p.approvalReason}</span>}
+                      {p.approvalReason && <span className="text-[11px] text-warning">{p.approvalReason}</span>}
                     </div>
                   </TableCell>
                 </TableRow>
               ))}
               {!loading && filtered.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={10} className="text-center py-12 text-sm text-muted-foreground">
-                    Satın alma siparişi bulunamadı.
+                  <TableCell colSpan={10} className="py-4">
+                    <EmptyState
+                      icon={<ShoppingCart className="size-6" />}
+                      title="Satın alma siparişi bulunamadı"
+                      description="Arama terimini veya durum sekmesini değiştirerek tekrar deneyin."
+                    />
                   </TableCell>
                 </TableRow>
               )}
@@ -203,6 +291,218 @@ export function PurchaseOrdersPage() {
           </Table>
         </div>
       </Card>
+
+      <PurchaseOrderDetailDialog
+        order={selectedOrder}
+        detail={selectedDetail}
+        loading={detailLoading}
+        canApprove={canApprovePurchaseOrders}
+        onClose={() => {
+          setSelectedOrder(null);
+          setSelectedDetail(null);
+        }}
+        onAction={runPurchaseAction}
+        onInvoiceCreated={loadOrders}
+      />
+    </div>
+  );
+}
+
+function purchaseInvoicePrefill(order: any): AccountingInvoicePrefill {
+  const grandTotal = Number(order?.grandTotal ?? 0);
+  const vatAmount = Number(order?.vatAmount ?? 0);
+  const amount = Number(order?.subtotal ?? Math.max(0, grandTotal - vatAmount));
+  return {
+    companyId: order?.supplierCompanyId ?? order?.supplier?.id ?? "",
+    invoiceCategory: (order?.purchaseType ?? "commercial") === "administrative" ? "administrative" : "commercial",
+    type: "purchase",
+    invoiceNo: order?.invoiceNo || `MF-${order?.orderNo ?? "PO"}`,
+    invoiceDate: order?.orderDate,
+    amount,
+    vatAmount,
+    grandTotal,
+    vatRate: amount > 0 && vatAmount > 0 ? (vatAmount / amount) * 100 : 20,
+    currencyCode: order?.currency?.code ?? "USD",
+    paymentType: order?.paymentType,
+    paymentTermDays: order?.paymentTermDays,
+    previousPaymentTermDays: order?.previousPaymentTermDays,
+    termChangeReason: order?.termChangeReason,
+    incoterm: order?.incoterm,
+    shipmentReference: order?.shipmentReference,
+    orderNo: order?.orderNo,
+    expectedDate: order?.expectedDate,
+    firstDueDate: order?.expectedDate ?? order?.orderDate,
+    notes: `Satın alma siparişi ${order?.orderNo ?? ""} kaynaklı`,
+    commercialPurchaseLines: (order?.items ?? []).map((item: any) => ({
+      productModelId: item.productModelId,
+      description: item.description,
+      quantity: item.quantity,
+      listPrice: item.listPrice,
+      unitPrice: item.unitPrice,
+      discountAmount: item.discountAmount,
+      vatRate: item.vatRate,
+      expectedDate: item.expectedDate,
+    })),
+  };
+}
+
+function PurchaseOrderDetailDialog({
+  order,
+  detail,
+  loading,
+  canApprove,
+  onClose,
+  onAction,
+  onInvoiceCreated,
+}: {
+  order: any | null;
+  detail: any | null;
+  loading: boolean;
+  canApprove: boolean;
+  onClose: () => void;
+  onAction: (order: any, action: "send" | "approve" | "received" | "cancelled") => Promise<void>;
+  onInvoiceCreated: () => void;
+}) {
+  const current = order ? { ...order, ...(detail ?? {}), supplier: order.supplier, status: order.status, currency: order.currency } : null;
+  if (!order) return null;
+  const items = detail?.items ?? [];
+  const supplierName = current?.supplier?.shortName || current?.supplier?.legalTitle || "Firma seçilmemiş";
+  const canCreateInvoice = Boolean(current?.supplierCompanyId || current?.supplier?.id);
+
+  return (
+    <Dialog open={!!order} onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="w-[min(900px,calc(100vw-2rem))] max-w-none sm:max-w-none max-h-[88dvh] grid-rows-[auto_1fr_auto] overflow-hidden p-0 gap-0">
+        <DialogHeader className="px-6 pt-6 pb-4 border-b border-border/60">
+          <div className="flex items-start gap-3">
+            <div className="size-11 rounded-xl bg-gradient-to-br from-primary/15 to-primary/5 text-primary grid place-items-center shrink-0">
+              <ShoppingCart className="size-5" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <DialogTitle className="text-lg truncate">{current?.orderNo ?? "Satın alma"}</DialogTitle>
+              <DialogDescription className="mt-1 flex items-center gap-2 flex-wrap">
+                <StatusBadge status={current?.status?.name ?? current?.status?.code ?? "Taslak"} />
+                <span className="text-muted-foreground">{purchaseTypeLabel(current?.purchaseType)}</span>
+                <span className="text-muted-foreground">·</span>
+                <span className="text-muted-foreground tabular-nums">{formatDate(current?.orderDate)}</span>
+              </DialogDescription>
+            </div>
+          </div>
+        </DialogHeader>
+
+        <div className="min-h-0 overflow-y-auto">
+          <div className="px-6 py-4 grid grid-cols-2 md:grid-cols-4 gap-3">
+            <DetailStat icon={<Receipt className="size-4" />} label="Tutar" value={formatCurrency(Number(current?.grandTotal ?? 0), current?.currency?.code ?? "USD")} />
+            <DetailStat icon={<Package className="size-4" />} label="Kalem" value={loading ? "..." : items.length} />
+            <DetailStat icon={<Clock className="size-4" />} label="ETA" value={formatDate(current?.expectedDate)} />
+            <DetailStat icon={<ClipboardCheck className="size-4" />} label="Ödeme" value={paymentTypeLabel(current?.paymentType)} />
+          </div>
+
+          <div className="px-6 pb-5 grid gap-4 lg:grid-cols-2">
+            <div className="rounded-lg border border-border/60 bg-white p-4">
+              <div className="text-[11px] uppercase tracking-wider text-muted-foreground mb-3">Tedarikçi</div>
+              <div className="text-sm font-medium">{supplierName}</div>
+              <div className="mt-2 grid grid-cols-[96px_1fr] gap-2 text-sm">
+                <span className="text-muted-foreground">Fatura No</span><span>{current?.invoiceNo || "—"}</span>
+                <span className="text-muted-foreground">Referans</span><span>{current?.shipmentReference || "—"}</span>
+                <span className="text-muted-foreground">Incoterm</span><span>{current?.incoterm || "—"}</span>
+              </div>
+            </div>
+            <div className="rounded-lg border border-border/60 bg-white p-4">
+              <div className="text-[11px] uppercase tracking-wider text-muted-foreground mb-3">Onay Akışı</div>
+              <div className="space-y-2 text-sm">
+                <div className="flex items-center justify-between gap-2"><span className="text-muted-foreground">Durum</span><StatusBadge status={current?.status?.name ?? current?.status?.code ?? "Taslak"} /></div>
+                <div className="flex items-center justify-between gap-2"><span className="text-muted-foreground">Vade</span><span>{current?.paymentTermDays ?? 0} gün</span></div>
+                <div className="flex items-center justify-between gap-2"><span className="text-muted-foreground">Sebep</span><span className="text-right">{current?.approvalReason || "—"}</span></div>
+              </div>
+            </div>
+          </div>
+
+          <div className="px-6 pb-6">
+            <div className="rounded-lg border border-border/60 overflow-hidden">
+              <Table className="min-w-[720px]">
+                <TableHeader>
+                  <TableRow className="bg-muted/30 hover:bg-muted/30">
+                    <TableHead>Kalem</TableHead>
+                    <TableHead className="text-right">Adet</TableHead>
+                    <TableHead className="text-right">Birim</TableHead>
+                    <TableHead className="text-right">KDV</TableHead>
+                    <TableHead className="text-right">Toplam</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {items.map((item: any) => (
+                    <TableRow key={item.id}>
+                      <TableCell>
+                        <div className="text-sm">{item.description}</div>
+                        {item.expectedDate && <div className="text-[11px] text-muted-foreground">ETA {formatDate(item.expectedDate)}</div>}
+                      </TableCell>
+                      <TableCell className="text-right tabular-nums">{Number(item.quantity ?? 0).toLocaleString("tr-TR")}</TableCell>
+                      <TableCell className="text-right tabular-nums">{formatCurrency(Number(item.unitPrice ?? 0), current?.currency?.code ?? "USD")}</TableCell>
+                      <TableCell className="text-right tabular-nums">{formatCurrency(Number(item.vatAmount ?? 0), current?.currency?.code ?? "USD")}</TableCell>
+                      <TableCell className="text-right tabular-nums">{formatCurrency(Number(item.lineTotal ?? 0) + Number(item.vatAmount ?? 0), current?.currency?.code ?? "USD")}</TableCell>
+                    </TableRow>
+                  ))}
+                  {!loading && items.length === 0 && (
+                    <TableRow>
+                      <TableCell colSpan={5} className="text-center py-10 text-sm text-muted-foreground">Kalem yok.</TableCell>
+                    </TableRow>
+                  )}
+                  {loading && (
+                    <TableRow>
+                      <TableCell colSpan={5} className="text-center py-10 text-sm text-muted-foreground">Kalemler yükleniyor...</TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
+            </div>
+          </div>
+        </div>
+
+        <DialogFooter className="px-6 py-3 border-t border-border/60 bg-muted/20 flex-row flex-wrap items-center justify-end gap-2">
+          {current?.status?.code === "draft" && (
+            <Button variant="outline" size="sm" className="h-9 gap-1" onClick={() => onAction(current, "send")}>
+              <Mail className="size-4" /> Gönder
+            </Button>
+          )}
+          {current?.status?.code === "pending_manager_approval" && canApprove && (
+            <Button variant="default" size="sm" className="h-9 gap-1" onClick={() => onAction(current, "approve")}>
+              <CheckCircle2 className="size-4" /> Onayla
+            </Button>
+          )}
+          {current?.status?.code === "approved" && (
+            <Button variant="outline" size="sm" className="h-9 gap-1" onClick={() => onAction(current, "received")}>
+              <ClipboardCheck className="size-4" /> Teslim Al
+            </Button>
+          )}
+          <CreateAccountingInvoiceDialog
+            prefill={purchaseInvoicePrefill(current)}
+            onCreated={onInvoiceCreated}
+            trigger={
+              <Button variant="outline" size="sm" className="h-9 gap-1" disabled={!canCreateInvoice}>
+                <Receipt className="size-4" /> Alış Faturası
+              </Button>
+            }
+          />
+          {current?.status?.code !== "cancelled" && (
+            <Button variant="outline" size="sm" className="h-9 gap-1 border-destructive/30 text-destructive hover:bg-brand-red-soft hover:text-destructive" onClick={() => onAction(current, "cancelled")}>
+              <XCircle className="size-4" /> İptal
+            </Button>
+          )}
+          <Button variant="outline" size="sm" className="h-9 ml-auto sm:ml-2" onClick={onClose}>Kapat</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function DetailStat({ icon, label, value }: { icon: React.ReactNode; label: string; value: React.ReactNode }) {
+  return (
+    <div className="rounded-lg border border-border/60 bg-white px-3 py-2.5">
+      <div className="flex items-center gap-1.5 text-[11px] uppercase tracking-wide text-muted-foreground">
+        <span className="text-primary">{icon}</span>
+        {label}
+      </div>
+      <div className="mt-1 text-sm font-medium tabular-nums truncate">{value}</div>
     </div>
   );
 }
@@ -226,6 +526,7 @@ const paymentTypeLabel = (value?: string) => {
   return "Peşin";
 };
 const todayInput = () => new Date().toISOString().slice(0, 10);
+const VAT_OPTIONS = ["20", "18", "10", "8", "1", "0"] as const;
 const blankPurchaseLine = (type: PurchaseType): PurchaseLineForm => ({
   productModelId: "",
   description: type === "administrative" ? "İdari satın alma gideri" : "",
@@ -240,6 +541,9 @@ const toDecimal = (value: string | number | undefined) => {
   const number = Number(String(value ?? "").replace(",", "."));
   return Number.isFinite(number) ? number : 0;
 };
+const valueToInput = (value: unknown) => (value === null || value === undefined || value === "" ? "" : String(value));
+const productTitle = (product: any) =>
+  product?.fullName || [product?.brand?.name ?? product?.brandName ?? product?.brand, product?.modelCode ?? product?.model].filter(Boolean).join(" · ");
 const lineTotals = (line: PurchaseLineForm) => {
   const gross = toDecimal(line.quantity) * toDecimal(line.unitPrice);
   const discount = toDecimal(line.discountAmount);
@@ -344,12 +648,18 @@ function CreatePurchaseOrderDialog({ onCreated }: { onCreated: () => void }) {
     }
     const cleanLines = form.lines
       .map((line) => ({ ...line, description: line.description.trim() }))
-      .filter((line) => line.description && toDecimal(line.quantity) > 0 && toDecimal(line.unitPrice) >= 0);
+      .filter((line) => line.description && toDecimal(line.quantity) > 0 && toDecimal(line.unitPrice) > 0);
     if (!cleanLines.length) {
-      toast.error("En az bir satın alma kalemi girin");
+      toast.error("En az bir geçerli satın alma kalemi girin", { description: "Açıklama, adet ve olur fiyatı zorunludur." });
+      return;
+    }
+    const invalidDiscountLine = cleanLines.find((line) => toDecimal(line.discountAmount) > toDecimal(line.quantity) * toDecimal(line.unitPrice));
+    if (invalidDiscountLine) {
+      toast.error("İndirim kalem tutarını aşamaz", { description: invalidDiscountLine.description });
       return;
     }
     setSubmitting(true);
+    let createdOrderId: string | null = null;
     try {
       const created = await purchaseOrderService.create({
         supplierCompanyId: form.supplierCompanyId || undefined,
@@ -360,13 +670,14 @@ function CreatePurchaseOrderDialog({ onCreated }: { onCreated: () => void }) {
         termChangeReason: form.termChangeReason.trim() || undefined,
         invoiceNo: form.invoiceNo.trim() || undefined,
         orderNo: form.orderNo.trim() || undefined,
-        orderDate: form.orderDate,
-        expectedDate: form.expectedDate || undefined,
+        orderDate: new Date(form.orderDate),
+        expectedDate: form.expectedDate ? new Date(form.expectedDate) : undefined,
         currencyCode: form.currencyCode,
         incoterm: form.purchaseType === "commercial" ? form.incoterm.trim() || undefined : undefined,
         shipmentReference: form.shipmentReference.trim() || undefined,
         notes: form.notes.trim() || undefined,
       });
+      createdOrderId = created.id;
       for (const [index, line] of cleanLines.entries()) {
         const description = form.purchaseType === "administrative" && line.productModelId
           ? `${line.productModelId.trim()} - ${line.description}`
@@ -381,7 +692,7 @@ function CreatePurchaseOrderDialog({ onCreated }: { onCreated: () => void }) {
           approvedPrice: toDecimal(line.unitPrice),
           discountAmount: toDecimal(line.discountAmount),
           vatRate: toDecimal(line.vatRate),
-          expectedDate: line.expectedDate || form.expectedDate || undefined,
+          expectedDate: line.expectedDate || form.expectedDate ? new Date(line.expectedDate || form.expectedDate) : undefined,
           sortOrder: index + 1,
         });
       }
@@ -406,6 +717,9 @@ function CreatePurchaseOrderDialog({ onCreated }: { onCreated: () => void }) {
       });
       onCreated();
     } catch (err: any) {
+      if (createdOrderId) {
+        await purchaseOrderService.remove(createdOrderId).catch(() => undefined);
+      }
       toast.error("Satın alma siparişi oluşturulamadı", { description: err?.message ?? "API isteği başarısız oldu." });
     } finally {
       setSubmitting(false);
@@ -518,7 +832,7 @@ function CreatePurchaseOrderDialog({ onCreated }: { onCreated: () => void }) {
           </div>
 
           <div className="rounded-lg border border-border/60 overflow-x-auto">
-            <div className="grid min-w-[1020px] grid-cols-[1.1fr_1.7fr_90px_120px_120px_110px_90px_120px_40px] gap-2 bg-muted/30 px-3 py-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+            <div className="grid min-w-[1280px] grid-cols-[320px_280px_80px_120px_120px_105px_96px_130px_40px] gap-2 bg-muted/30 px-3 py-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
               <div>{form.purchaseType === "commercial" ? "Ürün" : "Gider Türü"}</div>
               <div>Açıklama</div>
               <div>Adet</div>
@@ -533,24 +847,30 @@ function CreatePurchaseOrderDialog({ onCreated }: { onCreated: () => void }) {
               {form.lines.map((line, index) => {
                 const t = lineTotals(line);
                 return (
-                  <div key={index} className="grid min-w-[1020px] grid-cols-[1.1fr_1.7fr_90px_120px_120px_110px_90px_120px_40px] gap-2 px-3 py-2 items-center">
+                  <div key={index} className="grid min-w-[1280px] grid-cols-[320px_280px_80px_120px_120px_105px_96px_130px_40px] gap-2 px-3 py-2 items-center">
                     {form.purchaseType === "commercial" ? (
                       <Select value={line.productModelId || "__none"} onValueChange={(value) => {
+                        if (value === "__none") {
+                          updateLine(index, { productModelId: "" });
+                          return;
+                        }
                         const product = products.find((p) => p.id === value);
-                        const productListPrice = product?.listPrice === null || product?.listPrice === undefined ? "" : String(product.listPrice);
+                        const productListPrice = valueToInput(product?.listPrice);
+                        const productUnitPrice = valueToInput(product?.cashPrice ?? product?.approvedPrice ?? product?.listPrice);
                         updateLine(index, {
-                          productModelId: value === "__none" ? "" : value,
-                          description: product ? product.fullName ?? product.modelCode ?? line.description : line.description,
+                          productModelId: value,
+                          description: product ? productTitle(product) || line.description : line.description,
                           listPrice: productListPrice || line.listPrice,
-                          unitPrice: productListPrice || line.unitPrice,
+                          unitPrice: productUnitPrice || line.unitPrice,
+                          vatRate: valueToInput(product?.vatRate) || line.vatRate,
                         });
                       }}>
-                        <SelectTrigger className="h-8"><SelectValue placeholder="Ürün seç" /></SelectTrigger>
+                        <SelectTrigger className="h-8 min-w-0"><SelectValue placeholder="Ürün seç" /></SelectTrigger>
                         <SelectContent>
                           <SelectItem value="__none">Ürün seçmeden</SelectItem>
                           {products.map((product) => (
                             <SelectItem key={product.id} value={product.id}>
-                              {[product.brand?.name, product.modelCode, product.fullName].filter(Boolean).join(" · ")}
+                              {productTitle(product)}
                             </SelectItem>
                           ))}
                         </SelectContent>
@@ -566,9 +886,10 @@ function CreatePurchaseOrderDialog({ onCreated }: { onCreated: () => void }) {
                     <Select value={line.vatRate} onValueChange={(vatRate) => updateLine(index, { vatRate })}>
                       <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="1">1%</SelectItem>
-                        <SelectItem value="10">10%</SelectItem>
-                        <SelectItem value="20">20%</SelectItem>
+                        {!VAT_OPTIONS.includes(line.vatRate as typeof VAT_OPTIONS[number]) && line.vatRate ? (
+                          <SelectItem value={line.vatRate}>%{line.vatRate}</SelectItem>
+                        ) : null}
+                        {VAT_OPTIONS.map((rate) => <SelectItem key={rate} value={rate}>%{rate}</SelectItem>)}
                       </SelectContent>
                     </Select>
                     <div className="text-right text-sm tabular-nums">{formatCurrency(t.total, form.currencyCode)}</div>

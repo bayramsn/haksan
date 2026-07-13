@@ -101,7 +101,11 @@ table.pf-addr td:first-child { width: 14mm; }
 table.pf-addr .b { font-weight: bold; font-size: 9pt; }
 `;
 
-export function proformaDoc(d: ProformaPrintData, assetBase: string): PrintDocument {
+export function proformaDoc(
+  d: ProformaPrintData,
+  assetBase: string,
+  opts?: { title?: string; headingHtml?: string },
+): PrintDocument {
   const araToplam = d.items.reduce((a, i) => a + i.tutar, 0);
   // Proformada KDV satırı genelde 0 gösterilir (fiyat KDV hariç); null ise oran üzerinden hesapla.
   const kdvTutar = d.kdvTutar != null ? d.kdvTutar : araToplam * (d.kdvOran / 100);
@@ -142,7 +146,7 @@ export function proformaDoc(d: ProformaPrintData, assetBase: string): PrintDocum
       </table>
     </div>
     <div class="pf-right">
-      <div class="pf-title">PROFORMA<br>FATURA</div>
+      <div class="pf-title">${opts?.headingHtml ?? "PROFORMA<br>FATURA"}</div>
       <table class="pf-info">
         <tr><td class="lbl" style="width:22mm">Tarih</td><td class="val c">${blank(d.tarih)}</td></tr>
         <tr><td class="lbl" style="width:22mm">Belge No</td><td class="val c">${blank(d.belgeNo)}</td></tr>
@@ -193,7 +197,11 @@ export function proformaDoc(d: ProformaPrintData, assetBase: string): PrintDocum
   </div>
 </div>`;
 
-  return { title: `Proforma Fatura ${d.belgeNo}`, css: PROFORMA_CSS, body };
+  return { title: `${opts?.title ?? "Proforma Fatura"} ${d.belgeNo}`, css: PROFORMA_CSS, body };
+}
+
+export function commercialInvoiceDoc(d: ProformaPrintData, assetBase: string): PrintDocument {
+  return proformaDoc(d, assetBase, { title: "Ticari Fatura", headingHtml: "TİCARİ<br>FATURA" });
 }
 
 // ── 2) FİYAT TEKLİFİ ────────────────────────────────────────────────────────
@@ -224,7 +232,7 @@ export interface QuotePrintData {
   model?: string;
   tip?: string;
   imageUrl?: string;
-  specs?: { key: string; value: string }[];
+  specs?: { key: string; value: string; unit?: string; specUnit?: string; groupCode?: string; groupName?: string; group?: string }[];
   standartDonanim?: string[];
   opsiyonelDonanim?: string[];
   items: QuoteItem[];
@@ -254,6 +262,7 @@ table.q-meta td.val { text-align: center; font-style: italic; font-weight: bold;
 .q-h1 { text-align: center; font-size: 14pt; font-weight: bold; margin: 5mm 0 5mm; }
 table.q-specs { width: 100%; }
 table.q-specs td { border: 1pt solid #000; font-size: 8.4pt; padding: .75mm 1.5mm; }
+table.q-specs td.g { width: 17mm; text-align: center; vertical-align: middle; font-weight: bold; writing-mode: vertical-rl; transform: rotate(180deg); letter-spacing: .2px; }
 table.q-specs td.k { width: 45%; text-align: center; }
 table.q-specs td.v { text-align: center; }
 .q-eq-h { font-weight: bold; text-decoration: underline; font-size: 11pt; margin: 4mm 0 2mm; }
@@ -286,6 +295,34 @@ table.q-tot td.tv { border: 1.4pt solid #000; text-align: right; font-style: ita
 export function quoteDoc(d: QuotePrintData, assetBase: string): PrintDocument {
   const pages: string[] = [];
   const hasSpecs = (d.specs?.length ?? 0) > 0;
+  const specValue = (spec: NonNullable<QuotePrintData["specs"]>[number]) => {
+    const value = spec.value?.trim() || "-";
+    const unit = (spec.unit ?? spec.specUnit ?? "").trim();
+    if (!unit || value === "-" || value.toLocaleLowerCase("tr-TR").includes(unit.toLocaleLowerCase("tr-TR"))) return value;
+    return `${value} ${unit}`;
+  };
+  const specGroupLabel = (spec: NonNullable<QuotePrintData["specs"]>[number]) =>
+    (spec.groupName || spec.group || spec.groupCode || "").trim();
+  const renderSpecs = () => {
+    const specs = d.specs ?? [];
+    const hasGroups = specs.some((spec) => specGroupLabel(spec));
+    if (!hasGroups) {
+      return specs.map((s) => `<tr><td class="k">${esc(s.key)}</td><td class="v">${esc(specValue(s))}</td></tr>`).join("");
+    }
+    const rows: string[] = [];
+    for (let i = 0; i < specs.length;) {
+      const label = specGroupLabel(specs[i]) || "GENEL";
+      let end = i + 1;
+      while (end < specs.length && (specGroupLabel(specs[end]) || "GENEL") === label) end += 1;
+      const groupSpecs = specs.slice(i, end);
+      for (let j = 0; j < groupSpecs.length; j++) {
+        const spec = groupSpecs[j];
+        rows.push(`<tr>${j === 0 ? `<td class="g" rowspan="${groupSpecs.length}">${esc(label.toLocaleUpperCase("tr-TR"))}</td>` : ""}<td class="k">${esc(spec.key)}</td><td class="v">${esc(specValue(spec))}</td></tr>`);
+      }
+      i = end;
+    }
+    return rows.join("");
+  };
   const hasEquip = (d.standartDonanim?.length ?? 0) + (d.opsiyonelDonanim?.length ?? 0) > 0;
   const pageCount = 2 + (hasSpecs ? 1 : 0) + (hasEquip ? 1 : 0);
   let pageNo = 0;
@@ -327,7 +364,7 @@ export function quoteDoc(d: QuotePrintData, assetBase: string): PrintDocument {
   ${haksanHeader(assetBase)}
   <div class="q-h1">TEKNİK BİLGİLER</div>
   <table class="q-specs">
-    ${d.specs!.map((s) => `<tr><td class="k">${esc(s.key)}</td><td class="v">${esc(s.value)}</td></tr>`).join("")}
+    ${renderSpecs()}
   </table>
   ${pn()}
 </div>`);
@@ -372,7 +409,7 @@ export function quoteDoc(d: QuotePrintData, assetBase: string): PrintDocument {
   const kdvTutar = Number.isFinite(d.kdvTutar) ? d.kdvTutar : toplam * (d.kdvOran / 100);
   const genel = toplam + kdvTutar;
 
-  const noteSection = (no: number, baslik: string, list: string[]) => `
+  const noteSection = (_no: number, baslik: string, list: string[]) => `
     <li><div class="sec">${esc(baslik)}</div>
       <ol class="alpha">${list.map((n) => `<li>${esc(n)}</li>`).join("")}</ol>
     </li>`;
@@ -555,6 +592,7 @@ export interface ContractPrintData {
   adet: number;
   ozellikler: { key: string; value: string }[];
   aksesuarlar: string[];
+  muadiller?: string[];
   teslimAyi?: string; // ör. "2026 TEMMUZ"
   fiyat: number;
   currency: CurrencyCode;
@@ -631,6 +669,11 @@ export function contractDoc(d: ContractPrintData, assetBase: string): PrintDocum
         <p class="b" style="margin-top:2mm">1.1.2. Tezgâhın Standart Aksesuarları;</p>
         <ul class="ct-acc">
           ${d.aksesuarlar.map((a) => `<li>${esc(a)}</li>`).join("")}
+        </ul>` : ""}
+        ${(d.muadiller?.length ?? 0) > 0 ? `
+        <p class="b" style="margin-top:2mm">1.1.3. Muadil Ürünler;</p>
+        <ul class="ct-acc">
+          ${d.muadiller!.map((m) => `<li>${esc(m)}</li>`).join("")}
         </ul>` : ""}
       </div>
     </li>
@@ -721,7 +764,103 @@ const ADET_YAZI: Record<number, string> = {
 const sayiAdet = (n: number) => ADET_YAZI[n] ?? String(n);
 const shortFirmName = (s: string) => s.split(" ").slice(0, 2).join(" ");
 
-// ── 5) KURULUM TUTANAĞI (DR.MAK) ────────────────────────────────────────────
+// ── 5) KUTU ADRES ETİKETİ ───────────────────────────────────────────────────
+
+export interface CargoLabelPrintData {
+  firma: string;
+  adres?: string;
+  ilce?: string;
+  sehir?: string;
+  tel?: string;
+}
+
+export function cargoLabelDoc(d: CargoLabelPrintData, assetBase: string): PrintDocument {
+  const brandAssetBase = assetBase.replace(/\/print\/?$/, "/brand");
+  const css = `
+    @page { size: A4 landscape; margin: 0; }
+    .lbl-page { 
+      width: 297mm; height: 210mm; 
+      padding: 15mm; 
+      font-family: Calibri, "Segoe UI", Arial, sans-serif; 
+      background: #fff;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      position: relative;
+    }
+    .lbl-haksan {
+      position: absolute;
+      top: 15mm;
+      left: 15mm;
+      width: 120mm;
+    }
+    .lbl-logo {
+      width: 90mm;
+      display: block;
+      margin-bottom: 2mm;
+    }
+    .lbl-motto {
+      font-size: 16pt;
+      font-weight: bold;
+      font-style: italic;
+      color: #2b3990;
+      margin-bottom: 5mm;
+      letter-spacing: 0.5px;
+    }
+    .lbl-haksan-address {
+      font-size: 14pt;
+      line-height: 1.4;
+    }
+    .lbl-haksan-tel {
+      margin-top: 1mm;
+      font-size: 14pt;
+    }
+    .lbl-customer {
+      position: absolute;
+      bottom: 25mm;
+      right: 25mm;
+      width: 150mm;
+      text-align: center;
+    }
+    .lbl-customer-name {
+      font-size: 26pt;
+      font-weight: 900;
+      line-height: 1.2;
+      margin-bottom: 3mm;
+    }
+    .lbl-customer-address {
+      font-size: 20pt;
+      line-height: 1.4;
+      margin-bottom: 2mm;
+    }
+    .lbl-customer-tel {
+      font-size: 18pt;
+    }
+  `;
+
+  const body = `
+<div class="lbl-page">
+  <div class="lbl-haksan">
+    <img class="lbl-logo" src="${brandAssetBase}/haksan-logo.png" alt="HAKSAN MAKİNA">
+    <div class="lbl-motto">" Makina Marketiniz "</div>
+    <div class="lbl-haksan-address">Yenidoğan Mah. Eyüp Sultan Cad. No:24<br>Bayrampaşa, İstanbul</div>
+    <div class="lbl-haksan-tel"><span style="text-decoration: underline;">Tel. :</span> 0(212) 567 33 31</div>
+  </div>
+  
+  <div class="lbl-customer">
+    <div class="lbl-customer-name">${esc(d.firma)}</div>
+    <div class="lbl-customer-address">
+      ${blank(d.adres)}<br>
+      ${blank(d.ilce)}${d.ilce && d.sehir ? '/' : ''}${blank(d.sehir)}
+    </div>
+    ${d.tel ? `<div class="lbl-customer-tel">Tel: ${esc(d.tel)}</div>` : ''}
+  </div>
+</div>`;
+
+  return { title: `Kargo Etiketi - ${d.firma}`, css, body };
+}
+
+// ── 6) KURULUM TUTANAĞI (DR.MAK) ────────────────────────────────────────────
 
 export interface MachineInfo {
   marka?: string;
@@ -754,7 +893,8 @@ export interface InstallationPrintData {
   teslimAlan?: string;
   kurulumYeri?: string;
   sure?: string;
-  technicalSpecs?: Array<{ key: string; value: string }>;
+  checks?: Array<{ label: string; status?: "done" | "not_done"; note?: string }>;
+  problem?: { hasProblem?: boolean; note?: string; actionNote?: string };
   notlar?: string;
 }
 
@@ -771,39 +911,41 @@ const INSTALL_CHECKS = [
 ];
 
 const FORM_CSS = `
-.f-sec { text-align: center; font-weight: bold; font-size: 10.5pt; margin: 2mm 0 .8mm; }
+.page { padding: 6mm 10mm 7mm; }
+.dm-logo { width: 58mm; margin-top: 1mm; }
+.dm-title { font-size: 15pt; padding: 1.2mm 2mm; }
+.dm-contact { font-size: 7.1pt; margin-top: 1mm; line-height: 1.35; }
+.f-sec { text-align: center; font-weight: bold; font-size: 10pt; margin: 1.1mm 0 .45mm; }
 table.f { width: 100%; }
-table.f td, table.f th { border: 1pt solid #000; font-size: 10pt; padding: 1mm 1.6mm; background: transparent; }
-table.f td.lbl { width: 30mm; }
+table.f td, table.f th { border: 1pt solid #000; font-size: 9.2pt; padding: .55mm 1mm; background: transparent; }
+table.f td.lbl { width: 28mm; }
 table.f td.val { font-style: italic; }
-.f-cols { display: flex; gap: 6mm; }
+.f-cols { display: flex; gap: 4mm; }
 .f-cols > div { flex: 1; }
-.f-boxes { display: flex; gap: 10mm; margin-top: 6mm; }
+.f-boxes { display: flex; gap: 7mm; margin-top: 3.5mm; }
 .f-box { flex: 1; }
-.f-box .cap { border: 1pt solid #000; text-align: center; font-weight: bold; font-size: 9.5pt; padding: 1.2mm; }
-.f-box .bod { border: 1pt solid #000; border-top: 0; height: 9mm; text-align: center; font-size: 11pt; padding-top: 1.6mm; }
+.f-box .cap { border: 1pt solid #000; text-align: center; font-weight: bold; font-size: 9pt; padding: .8mm; }
+.f-box .bod { border: 1pt solid #000; border-top: 0; height: 6.5mm; text-align: center; font-size: 10.2pt; padding-top: .9mm; }
 .f-box .red { color: #c00000; font-family: "Courier New", monospace; font-weight: bold; letter-spacing: 1px; }
-.cb { font-family: "Segoe UI Symbol", "Arial Unicode MS", sans-serif; font-size: 11pt; }
+.cb { font-family: "Segoe UI Symbol", "Arial Unicode MS", sans-serif; font-size: 9.8pt; }
 table.f-check th { font-weight: bold; }
-table.f-check td.c { text-align: center; width: 26mm; }
-table.f-check td.n { width: 60mm; }
-.f-spec td.lbl { width: 31mm; }
-.f-spec td.val { width: 55mm; }
-.f-sign { display: flex; gap: 6mm; margin-top: 2.5mm; }
-.f-sign > div { flex: 1; border: 1.4pt solid #000; padding: 1.4mm 2mm 3mm; }
-.f-sign .cap { font-weight: bold; font-size: 10.5pt; border-bottom: 1pt solid #000; margin: -1.6mm -2mm 2mm; padding: 1.2mm 2mm; }
-.f-sign .ln { display: grid; grid-template-columns: 24mm 4mm 1fr; font-size: 10pt; font-weight: bold; margin-top: 2mm; }
+table.f-check td.c { text-align: center; width: 23mm; }
+table.f-check td.n { width: 58mm; }
+.f-problem td.lbl { width: 34mm; }
+.f-problem td { font-size: 8.8pt; padding: .45mm 1mm; }
+.f-choice { display: inline-block; margin-right: 8mm; white-space: nowrap; }
+.f-sign { display: flex; gap: 4mm; margin-top: 1.5mm; }
+.f-sign > div { flex: 1; border: 1.4pt solid #000; padding: 1mm 1.5mm 1.8mm; }
+.f-sign .cap { font-weight: bold; font-size: 9.8pt; border-bottom: 1pt solid #000; margin: -1.2mm -1.5mm 1.2mm; padding: .8mm 1.5mm; }
+.f-sign .ln { display: grid; grid-template-columns: 23mm 4mm 1fr; font-size: 9.2pt; font-weight: bold; margin-top: 1.2mm; }
 .f-sign .ln .v { font-weight: normal; font-style: italic; }
 `;
 
 export function installationFormDoc(d: InstallationPrintData, assetBase: string): PrintDocument {
   const t = d.tezgah ?? {};
   const c = d.cnc ?? {};
-  const technicalSpecs = (d.technicalSpecs ?? []).filter((spec) => spec.key.trim() && spec.value.trim());
-  const technicalSpecRows = Array.from({ length: Math.ceil(technicalSpecs.length / 2) }, (_, index) => [
-    technicalSpecs[index * 2],
-    technicalSpecs[index * 2 + 1],
-  ]);
+  const cb = (on: boolean) => `<span class="cb">${on ? "&#9745;" : "&#9744;"}</span>`;
+  const checks: NonNullable<InstallationPrintData["checks"]> = d.checks?.length ? d.checks : INSTALL_CHECKS.map((label) => ({ label }));
   const body = `
 <div class="page">
   ${drmakHeader(assetBase, "KURULUM TUTANAĞI")}
@@ -815,7 +957,7 @@ export function installationFormDoc(d: InstallationPrintData, assetBase: string)
       <div class="f-box"><div class="cap">FORM NO</div><div class="bod red">${blank(d.formNo)}</div></div>
     </div>
 
-    <div class="f-cols" style="margin-top:6mm">
+    <div class="f-cols" style="margin-top:3mm">
       <div>
         <div class="f-sec">TEZGAH BİLGİLERİ</div>
         <table class="f">
@@ -836,19 +978,7 @@ export function installationFormDoc(d: InstallationPrintData, assetBase: string)
       </div>
     </div>
 
-    ${technicalSpecRows.length ? `
-    <div class="f-sec" style="margin-top:4mm">TEKNİK BİLGİLER</div>
-    <table class="f f-spec">
-      ${technicalSpecRows.map(([left, right]) => `
-      <tr>
-        <td class="lbl">${esc(left.key)}</td>
-        <td class="val">${blank(left.value)}</td>
-        <td class="lbl">${right ? esc(right.key) : ""}</td>
-        <td class="val">${right ? blank(right.value) : ""}</td>
-      </tr>`).join("")}
-    </table>` : ""}
-
-    <div class="f-sec" style="margin-top:4mm">KULLANICI BİLGİLERİ</div>
+    <div class="f-sec" style="margin-top:2mm">KULLANICI BİLGİLERİ</div>
     <table class="f">
       <tr><td class="lbl">Firma</td><td class="val">${blank(d.firma)}</td></tr>
       <tr><td class="lbl">İlgili</td><td class="val">${blank(d.ilgili)}</td></tr>
@@ -861,35 +991,49 @@ export function installationFormDoc(d: InstallationPrintData, assetBase: string)
     </table>
 
     ${(d.kurulumYeri || d.sure || d.notlar) ? `
-    <div class="f-sec" style="margin-top:4mm">KURULUM PLANI</div>
+    <div class="f-sec" style="margin-top:2mm">KURULUM PLANI</div>
     <table class="f">
       ${d.kurulumYeri ? `<tr><td class="lbl">Kurulum Yeri</td><td class="val">${blank(d.kurulumYeri)}</td></tr>` : ""}
       ${d.sure ? `<tr><td class="lbl">Süre</td><td class="val">${blank(d.sure)}</td></tr>` : ""}
       ${d.notlar ? `<tr><td class="lbl">Notlar</td><td class="val">${blank(d.notlar)}</td></tr>` : ""}
     </table>` : ""}
 
-    <div class="f-sec" style="margin-top:4mm">TEZGAH KONTROL ÇİZELGESİ</div>
+    <div class="f-sec" style="margin-top:2mm">TEZGAH KONTROL ÇİZELGESİ</div>
     <table class="f f-check">
       <tr><th>Açıklama</th><th style="width:26mm">Tamamlandı</th><th style="width:30mm">Tamamlanmadı</th><th class="n">Not</th></tr>
-      ${INSTALL_CHECKS.map((label) => `
+      ${checks.map((row) => `
       <tr>
-        <td>${esc(label)}</td>
-        <td class="c"><span class="cb">&#9744;</span></td>
-        <td class="c"><span class="cb">&#9744;</span></td>
-        <td class="n"></td>
+        <td>${esc(row.label)}</td>
+        <td class="c">${cb(row.status === "done")}</td>
+        <td class="c">${cb(row.status === "not_done")}</td>
+        <td class="n">${esc(row.note ?? "")}</td>
       </tr>`).join("")}
     </table>
+
+    ${d.problem ? `
+    <div class="f-sec" style="margin-top:1.5mm">KURULUMDA PROBLEM KONTROLÜ</div>
+    <table class="f f-problem">
+      <tr>
+        <td class="lbl">Problem var mı?</td>
+        <td>
+          <span class="f-choice">${cb(d.problem.hasProblem === true)} Evet</span>
+          <span class="f-choice">${cb(d.problem.hasProblem === false)} Hayır</span>
+        </td>
+      </tr>
+      <tr><td class="lbl">Açıklama</td><td>${blank(d.problem.note)}</td></tr>
+      <tr><td class="lbl">Yapılan İşlem</td><td>${blank(d.problem.actionNote)}</td></tr>
+    </table>` : ""}
 
     <div class="f-sign">
       <div>
         <div class="cap">KURULUMU YAPAN</div>
         <div class="ln"><span>Ad, Soyad</span><span>:</span><span class="v">${blank(d.kurulumuYapan)}</span></div>
-        <div class="ln" style="margin-top:6mm"><span>İmza</span><span>:</span><span class="v"></span></div>
+        <div class="ln" style="margin-top:3mm"><span>İmza</span><span>:</span><span class="v"></span></div>
       </div>
       <div>
         <div class="cap">TEZGAHI TESLİM ALAN</div>
         <div class="ln"><span>Ad, Soyad</span><span>:</span><span class="v">${blank(d.teslimAlan)}</span></div>
-        <div class="ln" style="margin-top:6mm"><span>İmza</span><span>:</span><span class="v"></span></div>
+        <div class="ln" style="margin-top:3mm"><span>İmza</span><span>:</span><span class="v"></span></div>
       </div>
     </div>
   </div>

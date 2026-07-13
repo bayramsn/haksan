@@ -8,6 +8,7 @@ export type User = {
   id: string;
   name: string;
   email: string;
+  phone?: string | null;
   role: Role;
   roleCodes?: string[];
   roleNames?: string[];
@@ -22,13 +23,31 @@ export type User = {
 export type FirmType = "customer" | "supplier_customer" | "supplier";
 export type CustomerSalesStatus = "potential" | "active_customer";
 
+export type CompanyAddress = {
+  id?: string;
+  addressType: "office" | "factory" | "work_area" | "shipping" | "billing" | "other";
+  country: string;
+  city?: string;
+  district?: string;
+  address?: string;
+  latitude?: number;
+  longitude?: number;
+  locationSource?: string;
+  isDefault?: boolean;
+};
+
 export type Customer = {
   id: string;
   type: "person" | "company";
   firmType: FirmType;
   salesStatus?: CustomerSalesStatus;
+  /** Firmanın portföyünde olduğu bölümler (CNC / Üniversal / Sac İşleme). */
+  divisions?: Array<{ id: string; code?: string | null; name: string }>;
+  divisionId?: string;
   companyGroupCode?: string;
   companyGroupName?: string;
+  companyGroupCodes?: string[];
+  companyGroupNames?: string[];
   contactSourceCode?: string;
   sector?: string;
   name: string;
@@ -42,6 +61,11 @@ export type Customer = {
   district?: string;
   country?: string;
   address: string;
+  addresses?: CompanyAddress[];
+  /** Kalıcı harita konumu (company_addresses.latitude/longitude) */
+  latitude?: number;
+  longitude?: number;
+  locationSource?: string;
   taxOffice?: string;
   taxNumber: string;
   website?: string;
@@ -50,11 +74,15 @@ export type Customer = {
   source: string;
   status: "active" | "passive";
   createdAt: string;
+  createdByUserId?: string | null;
+  createdByName?: string | null;
+  createdByEmail?: string | null;
 };
 
 export type Contact = {
   id: string;
   customerId: string;
+  companyIds?: string[];
   name: string;
   title: string;
   department: string;
@@ -71,14 +99,16 @@ export type Contact = {
   decisionRoleName?: string;
   hometown?: string;
   favoriteTeam?: string;
-  knownIllness?: string;
   favoriteColor?: string;
   graduatedSchool?: string;
-  politicalView?: string;
   isPrimary: boolean;
   note?: string;
   isBlacklisted?: boolean;
   blacklistReason?: string;
+  createdAt: string;
+  createdByUserId?: string | null;
+  createdByName?: string | null;
+  createdByEmail?: string | null;
 };
 
 export type SalesStage =
@@ -173,6 +203,8 @@ export type SalesCase = {
   estimatedAmount: number;
   currency: "USD" | "EUR" | "TRY";
   stage: SalesStage;
+  /** Makine satışında ödeme vadesi (gün); sözleşme/ödeme planı varsayılanı. */
+  paymentTermDays?: number;
   isOfferPrepared: boolean;
   isLost: boolean;
   lostReason?: string;
@@ -188,14 +220,21 @@ export type Activity = {
   type: string;
   title: string;
   note: string;
+  result?: string;
   date: string;
   byUserId: string;
+  createdByName?: string;
+  files?: any[];
 };
 
 export type Offer = {
   id: string;
   salesCaseId: string;
   companyId?: string;
+  divisionId?: string;
+  divisionCode?: string;
+  divisionName?: string;
+  businessLine?: "CNC" | "UNI" | "SACISLE";
   quoteNo: string;
   revision: number;
   date: string;
@@ -206,7 +245,8 @@ export type Offer = {
   /** Hesaplanan KDV tutarı. */
   vatTotal?: number;
   currency: "USD" | "EUR" | "TRY";
-  status: "Draft" | "Sent" | "Approved" | "Rejected";
+  status: "Draft" | "Sent" | "Approved" | "Rejected" | "Pending Approval";
+  priceApprovalStatus?: 'not_required' | 'pending' | 'approved' | 'rejected';
   note: string;
 };
 
@@ -218,6 +258,10 @@ export type DocumentItem = {
   companyId?: string;
   /** Servis talebine bağlı ek (service kanban kartı). */
   serviceRequestId?: string;
+  /** Canlı teslim/kurulum formu kayıtları için üretilmiş doküman referansları. */
+  deliveryId?: string;
+  installationId?: string;
+  installationData?: any;
   type:
     | "Proforma"
     | "Contract"
@@ -248,6 +292,7 @@ export type Payment = {
   status: "Pending" | "Paid" | "Overdue" | "Cancelled";
   note: string;
   invoiceNo?: string;
+  paymentMethod?: "bank_transfer" | "cash" | "credit_card" | "check" | "other";
   /** Durum güncellemesinin hangi backend tablosuna gideceğini belirler. */
   source?: "receivable" | "payment";
 };
@@ -261,18 +306,34 @@ export type StockItem = {
   controlPanel: string;
   stockCode: string;
   warehouse: string;
-  status: "Available" | "Reserved" | "Sold" | "Inactive";
-  /** TEZGAH = satış; YEDEK_PARCA / AKSESUAR = satış + servis */
-  categoryCode?: "TEZGAH" | "AKSESUAR" | "YEDEK_PARCA";
+  status: "Available" | "Reserved" | "InTransit" | "Sold" | "Inactive";
+  /** Seri no ile takip edilen CRM stok kategorisi. */
+  categoryCode?: "TEZGAH" | "OPSIYONEL_DONANIM" | "YEDEK_PARCA" | "AKSESUAR" | "EVRAK" | "IDARI_MALZEME";
   category?: string;
   reservedCompanyId?: string;
   reservedCompanyName?: string;
   optionalHardware?: string;
   spareParts?: string;
   productId?: string;
+  parentInventoryItemId?: string | null;
+  loadingDate?: string;
+  arrivalDate?: string;
+  locationStatus?: string;
 };
 
-export type ProductSpec = { key: string; value: string };
+export type ProductSpec = { key: string; value: string; unit?: string; specUnit?: string; groupCode?: string; groupName?: string };
+
+export type ProductAlternative = {
+  id: string;
+  brand: string;
+  model: string;
+  shortDescription: string;
+  category: string;
+  categoryCode?: string;
+  type?: string;
+  listPrice?: number;
+  currency?: "USD" | "EUR" | "TRY";
+};
 
 export type Product = {
   id: string;
@@ -283,6 +344,8 @@ export type Product = {
   modelName?: string;
   type: string;
   productTypeCode?: string;
+  compatibleMachineTypeCode?: string | null;
+  supplierCompanyId?: string | null;
   controlPanel: string;
   category: string;
   categoryCode?: string;
@@ -303,12 +366,23 @@ export type Product = {
   optionalEquipment: string[];
   // Bu ürünün muadili (eşdeğer) olarak işaretlenen başka bir ürünün id'si.
   muadilProductId?: string | null;
+  muadilProductIds?: string[];
+  muadilProducts?: ProductAlternative[];
+  optionalCompatibilityGroupCodes?: string[];
+  optionalCompatibilityCategoryCodes?: string[];
+  optionalCompatibilitySubcategoryCodes?: string[];
+  optionalCompatibilityTypeCodes?: string[];
+  optionalCompatibilityBrandIds?: string[];
   status: "active" | "passive";
   pdfUrl?: string;
 };
 
 export type Machine = {
   id: string;
+  /** Cihazın satıştaki ilk müşterisi. Firma el değiştirse de referans için korunur. */
+  initialCustomerId?: string;
+  /** Cihazı bugün kullanan firma. Varsayılan olarak ilk müşteriyle aynıdır. */
+  userCompanyId?: string;
   customerId: string;
   salesCaseId: string;
   stockItemId: string;
@@ -319,6 +393,10 @@ export type Machine = {
   type?: string;
   controlUnit?: string;
   controlUnitSerial?: string;
+  productModelId?: string;
+  technicalSpecs?: ProductSpec[];
+  cashPrice?: number;
+  currency?: "USD" | "EUR" | "TRY";
   deliveryDate?: string;
   installationDate: string;
   warrantyStart: string;
@@ -353,6 +431,7 @@ export type ServiceOperation = {
   quantity: number;
   unitPrice: number;
   currency: "USD" | "EUR" | "TRY";
+  kind?: "labor" | "part";
   createdAt?: string;
   byUserId?: string;
 };
@@ -420,6 +499,7 @@ export type ServiceComplaintLink = {
   notes?: string | null;
   isActive: boolean;
   revokedAt?: string | null;
+  accessTokenExpiresAt?: string | null;
   publicPath?: string;
   qrPublicPath?: string;
   token?: string;
@@ -471,6 +551,7 @@ export type ServiceWarrantyClaim = {
 
 export type ServiceRequest = {
   id: string;
+  ticketNo?: string;
   machineId: string;
   customerId: string;
   contactId?: string;
@@ -495,6 +576,8 @@ export type ServiceRequest = {
   serviceHourlyRate?: number;
   serviceCurrency?: "USD" | "EUR" | "TRY";
   serviceQuote?: ServiceQuoteForm | null;
+  completionForm?: ServiceCompletionForm | null;
+  closedAt?: string;
   warrantyClaim?: ServiceWarrantyClaim | null;
   sourceComplaint?: {
     id: string;
@@ -508,10 +591,77 @@ export type ServiceRequest = {
 
 export type ServiceQuoteItem = {
   id: string;
+  productModelId?: string | null;
+  stockCode?: string | null;
   description: string;
   quantity: number;
   unit: string;
   unitPrice: number;
+};
+
+export type ServiceCompletionCheckStatus = "done" | "not_done" | "na";
+
+export type ServiceCompletionCheckItem = {
+  id: string;
+  label: string;
+  status: ServiceCompletionCheckStatus;
+  note?: string;
+  custom?: boolean;
+};
+
+export type ServiceFormType = "montaj" | "ariza" | "periyodik";
+export type ServiceFormResponsibility = "ucretli" | "garanti" | "bakim";
+
+export type ServiceCompletionPart = {
+  id: string;
+  description: string;
+  quantity: number;
+  unitPrice: number;
+};
+
+export const SERVICE_COMPLETION_DEFAULT_CHECKS: { id: string; label: string }[] = [
+  { id: "tezgah-montaji", label: "Tezgah Montajı" },
+  { id: "tezgah-dengeye-alinmasi", label: "Tezgahın Dengeye Alınması" },
+  { id: "elektrik-baglantisi", label: "Elektrik Bağlantısı" },
+  { id: "yaglama-sistemi", label: "Yağlama Sistemi Kontrolü" },
+  { id: "sogutma-sistemi", label: "Soğutma Sistemi Kontrolü" },
+  { id: "hidrolik-sistemi", label: "Hidrolik Sistemi Kontrolü" },
+  { id: "cnc-parametreleri", label: "Cnc Parametreleri Kontrolü" },
+  { id: "ilk-calistirma", label: "Tezgahın İlk Çalıştırılması" },
+  { id: "parametre-yedek", label: "Parametrelerin Yedeklenmesi" },
+];
+
+export type ServiceCompletionForm = {
+  formNo?: string;
+  teslimTarihi?: string;       // Tezgah Teslim Tarihi
+  kurulumTarihi?: string;      // Tezgah Kurulum / Servis Tarihi
+  tezgah?: { marka?: string; tip?: string; model?: string; seriNo?: string };
+  cnc?: { marka?: string; model?: string; seriNo?: string; mainSw?: string };
+  kullanici?: {
+    firma?: string;
+    ilgili?: string;
+    adres?: string;
+    telefon?: string;
+    faks?: string;
+    gsm?: string;
+    eposta?: string;
+    vergiDairesi?: string;
+    vergiNo?: string;
+  };
+  checks: ServiceCompletionCheckItem[];
+  musteriSikayeti?: string;
+  serviceType?: ServiceFormType;
+  responsibility?: ServiceFormResponsibility;
+  yapilanIsler?: string;       // Serbest metin: yapılan işler özet
+  notlar?: string;
+  degisenParcalar?: ServiceCompletionPart[];
+  servisUcreti?: number;
+  ulasimUcreti?: number;
+  currency?: "USD" | "EUR" | "TRY";
+  kurulumuYapan?: string;      // Servisi yapan teknisyen
+  teslimAlan?: string;         // Tezgahı teslim alan / müşteri yetkilisi
+  signedAt?: string;           // İmzalandığı / kapatıldığı an
+  signedByUserId?: string;
 };
 
 export type ServiceQuoteForm = {
@@ -543,12 +693,40 @@ export const SHIPMENT_STATUSES: ShipmentStatus[] = ["Hazırlanıyor", "Yolda", "
 export type Shipment = {
   id: string;
   salesCaseId: string;
+  senderCompanyId?: string;
+  senderCompanyName?: string;
+  /** Kayıtlı olmayan gönderici için elle girilen serbest-metin ad. */
+  senderName?: string;
+  carrierCompanyId?: string;
+  carrierCompanyName?: string;
+  transportMode?: "road" | "air" | "sea" | "local_cargo";
+  productCategoryCode?: StockItem["categoryCode"];
+  destinationWarehouseId?: string;
+  destinationWarehouseName?: string;
+  deliveryAddressId?: string;
+  deliveryAddressSnapshot?: string;
+  loadingDate?: string;
   trackingNo: string;
   carrier: string;
   origin: string;
   destination: string;
   status: ShipmentStatus;
   eta: string;
+  items?: Array<{
+    id?: string;
+    productModelId?: string;
+    inventoryItemId?: string;
+    description: string;
+    serialNumber?: string;
+    quantity?: number;
+    packageCount?: number;
+    palletCount?: number;
+    packageLengthCm?: number;
+    packageWidthCm?: number;
+    packageHeightCm?: number;
+    grossWeightKg?: number;
+    packageNotes?: string;
+  }>;
 };
 
 export type DeliveryStatus = "Bekliyor" | "Tamamlandı";
@@ -562,6 +740,7 @@ export type DeliveryFormFields = {
   cnc?: { marka?: string; model?: string; seriNo?: string; mainSw?: string };
   ilgili?: string;
   kurulumuYapan?: string;
+  technicalSpecs?: ProductSpec[];
 };
 
 export type Delivery = {

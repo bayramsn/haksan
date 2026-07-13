@@ -57,7 +57,7 @@ export function buildPaymentMonthly(
   for (let i = months - 1; i >= 0; i--) {
     const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
     const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-    const inMonth = payments.filter((p) => String(p.paymentDate ?? p.dueDate).startsWith(key));
+    const inMonth = payments.filter((p) => String(p.paidDate ?? p.dueDate).startsWith(key));
     const paid = inMonth.filter((p) => p.status === 'Paid' && p.direction !== 'out');
     const pending = inMonth.filter((p) => p.status === 'Pending');
     const overdue = inMonth.filter((p) => p.status === 'Overdue');

@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState, type MouseEvent } from "react";
+import QRCode from "qrcode";
 import { Card, CardContent, CardHeader, CardTitle } from "../../ui/card";
 import { Button } from "../../ui/button";
 import { Input } from "../../ui/input";
@@ -28,12 +29,17 @@ import {
   Customer,
   Contact,
   Machine,
+  type User,
   type DocumentItem,
   type ServiceSource,
   type ServiceTicketType,
   type ServiceQuoteForm,
   type ServiceQuoteItem,
   type ServiceWarrantyPart,
+  type ServiceCompletionForm,
+  type ServiceCompletionPart,
+  type ServiceFormType,
+  type ServiceFormResponsibility,
 } from "../../../lib/mock";
 import { useAuth } from "../../../../lib/auth";
 import { isServiceQuoteComplete, serviceQuoteMissingFields } from "../../../lib/serviceQuote";
@@ -41,23 +47,25 @@ import { toast } from "sonner";
 import { fileService, inventoryService, serviceService } from "../../../../lib/services";
 import { exportService } from "../../../../lib/downloadExport";
 import { ExportExcelButton } from "../../ui/ExportExcelButton";
+import { KanbanDetailDialogShell } from "../../shared/KanbanDetailDialogShell";
 import type { OperationFocus } from "../../../lib/operations";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
 } from "../../ui/dropdown-menu";
 import {
-  printAssetBase, trLongDate, trShortDate, serviceFormDoc, serviceQuoteDoc, SERVICE_NOTE_VARIANTS,
+  printAssetBase, trLongDate, serviceQuoteDoc, SERVICE_NOTE_VARIANTS,
 } from "../../../lib/print";
-import { printOrWarn, openInMaps } from "../../../lib/pageHelpers";
-import { WarrantyBadge } from "../machines/MachinesPage";
+import { printOrWarn, openInMaps, warrantyInfo, type WarrantyState } from "../../../lib/pageHelpers";
 import {
   Plus, Printer, MapPin, Wrench, Building2, Lock, Play, Pause, Square, MessageSquare,
   ShieldCheck, Send, Check, X, Package, ClipboardCheck, Inbox, Link2, Copy, ExternalLink,
-  PhoneCall, Trash2,
+  PhoneCall, Trash2, ArrowRight, FileCheck2, History, FileText, Save, BookmarkPlus,
 } from "lucide-react";
 
 const SERVICE_CURRENCIES = ["USD", "EUR", "TRY"] as const;
 const NONE = "__none__";
+const SERVICE_QUOTE_NOTE_TEMPLATE_SCOPE = "service_quote";
+const NOTE_TEMPLATE_KEY_PREFIX = "note-template:";
 const COMPLAINT_EVIDENCE_ACCEPT = ".pdf,.docx,.xlsx,.png,.jpg,.jpeg,.webp";
 const COMPLAINT_EXT_TO_MIME: Record<string, string> = {
   pdf: "application/pdf",
@@ -71,11 +79,17 @@ const COMPLAINT_EXT_TO_MIME: Record<string, string> = {
 
 const newServiceQuoteItem = (): ServiceQuoteItem => ({
   id: `service-quote-item-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+  productModelId: null,
+  stockCode: null,
   description: "",
   quantity: 1,
   unit: "Ad.",
   unitPrice: 0,
 });
+
+const noteTemplateKey = (id: string) => `${NOTE_TEMPLATE_KEY_PREFIX}${id}`;
+const noteTemplateIdFromKey = (key: string) => key.startsWith(NOTE_TEMPLATE_KEY_PREFIX) ? key.slice(NOTE_TEMPLATE_KEY_PREFIX.length) : "";
+const noteLinesFromText = (value: string) => value.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
 
 const printServiceQuoteForm = (quote: ServiceQuoteForm) =>
   serviceQuoteDoc(
@@ -244,6 +258,24 @@ function WarrantyClaimBadge({ serviceRequest }: { serviceRequest: ServiceRequest
   );
 }
 
+const MACHINE_WARRANTY_TONE: Record<WarrantyState, string> = {
+  active: "border-emerald-200 bg-emerald-50 text-emerald-700",
+  expiring: "border-amber-200 bg-amber-50 text-amber-700",
+  expired: "border-red-200 bg-red-50 text-red-700",
+  unknown: "bg-muted/40 text-muted-foreground",
+};
+
+/** Servis kartı açıldığında bağlı makinenin garanti durumunu otomatik gösterir. */
+function MachineWarrantyBadge({ warrantyEnd }: { warrantyEnd?: string | null }) {
+  const info = warrantyInfo(warrantyEnd);
+  return (
+    <Badge variant="outline" className={`text-[11px] gap-1 ${MACHINE_WARRANTY_TONE[info.state]}`}>
+      <ShieldCheck className="size-3" />
+      {info.label}
+    </Badge>
+  );
+}
+
 const serviceNoteText = (s: ServiceRequest) =>
   s.serviceNote || s.diagnosisNote || s.description || s.issueType || "Not girilmedi";
 
@@ -281,10 +313,24 @@ const matchesServiceFocus = (s: ServiceRequest, focus?: OperationFocus) => {
   return true;
 };
 
-export function ServiceRequestsPage({ initialView = "list", focus, initialQuery }: { initialView?: "list" | "board"; focus?: OperationFocus; initialQuery?: string }) {
-  const { service, machines, customers, contacts, refresh } = useStore();
-  const [view, setView] = useState<"list" | "board" | "complaints">(initialView);
+type ServiceRequestsView = "list" | "board" | "complaints" | "history";
+
+export function ServiceRequestsPage({
+  initialView = "list",
+  focus,
+  initialQuery,
+  kanbanOnly = false,
+}: {
+  initialView?: "list" | "board";
+  focus?: OperationFocus;
+  initialQuery?: string;
+  kanbanOnly?: boolean;
+}) {
+  const { service, machines, customers, contacts, users, refresh } = useStore();
+  const [view, setView] = useState<ServiceRequestsView>(initialView);
+  const [historyQuery, setHistoryQuery] = useState("");
   const [selectedServiceId, setSelectedServiceId] = useState<string | null>(null);
+  const [selectedServiceInitialTab, setSelectedServiceInitialTab] = useState<ServiceDetailTab | undefined>();
   const [selectedComplaint, setSelectedComplaint] = useState<ServiceComplaintIntake | null>(null);
   const [complaints, setComplaints] = useState<ServiceComplaintIntake[]>([]);
   const [complaintLinks, setComplaintLinks] = useState<ServiceComplaintLink[]>([]);
@@ -297,12 +343,17 @@ export function ServiceRequestsPage({ initialView = "list", focus, initialQuery 
   const [ticketTypeFilter, setTicketTypeFilter] = useState("all");
   const [sourceFilter, setSourceFilter] = useState("all");
   const [warrantyFilter, setWarrantyFilter] = useState("all");
+  const [deletingServiceId, setDeletingServiceId] = useState<string | null>(null);
   const customerName = (id: string) => customers.find((c) => c.id === id)?.name ?? "—";
   const machineName = (id: string) => {
     const machine = machines.find((m) => m.id === id);
     return machine ? [machine.model, machine.serialNumber].filter(Boolean).join(" · ") : "—";
   };
   const selectedService = selectedServiceId ? service.find((s) => s.id === selectedServiceId) ?? null : null;
+  const openServiceDetail = (s: ServiceRequest, initialTab?: ServiceDetailTab) => {
+    setSelectedServiceId(s.id);
+    setSelectedServiceInitialTab(initialTab);
+  };
   const visibleService = service
     .filter((s) => matchesServiceFocus(s, focus))
     .filter((s) => ticketTypeFilter === "all" || (s.ticketType ?? "complaint") === ticketTypeFilter)
@@ -439,6 +490,17 @@ export function ServiceRequestsPage({ initialView = "list", focus, initialQuery 
     }
   };
 
+  const issueComplaintLink = async (link: ServiceComplaintLink) => {
+    try {
+      const credential = await serviceService.rotateComplaintLink(link.id);
+      await loadComplaints();
+      return credential as ServiceComplaintLink;
+    } catch (err: any) {
+      toast.error("Link yenilenemedi", { description: err?.message ?? "İşlem başarısız." });
+      throw err;
+    }
+  };
+
   const openSourceComplaint = (complaintId: string) => {
     const complaint = complaints.find((c) => c.id === complaintId);
     if (!complaint) {
@@ -451,64 +513,32 @@ export function ServiceRequestsPage({ initialView = "list", focus, initialQuery 
     setSelectedComplaint(complaint);
   };
 
-  // DR.MAK Servis Formu — müşteri ve makine bilgileri CRM'den, işlem/parça
-  // alanları sahada doldurulmak üzere boş basılır.
-  const printServiceForm = (s: ServiceRequest, index: number) => {
-    const cust = customers.find((c) => c.id === s.customerId);
-    const m = machines.find((x) => x.id === s.machineId);
-    const sikayet = s.description || s.diagnosisNote || s.issueType || "";
+  const deleteService = async (s: ServiceRequest, event?: MouseEvent) => {
+    event?.stopPropagation();
+    const label = s.ticketNo || s.id;
+    if (!window.confirm(`${label} servis talebini arşivlemek istediğinize emin misiniz?`)) return;
+    setDeletingServiceId(s.id);
+    try {
+      await serviceService.deleteTicket(s.id);
+      toast.success("Servis talebi silindi");
+      if (selectedServiceId === s.id) {
+        setSelectedServiceId(null);
+        setSelectedServiceInitialTab(undefined);
+      }
+      await refresh();
+    } catch (err: any) {
+      toast.error("Servis talebi silinemedi", { description: err?.message ?? "İşlem başarısız oldu." });
+    } finally {
+      setDeletingServiceId(null);
+    }
+  };
 
-    // Servis tamamlandığında form, sahada kaydedilen verilerle otomatik dolar:
-    // işlem kalemleri → parça/işçilik tablosu, aktivite geçmişi → yapılan
-    // işlemler listesi, sayaç süresi × saatlik ücret → servis ücreti.
-    const operations = s.operations ?? [];
-    const parcalar = operations.map((o) => ({
-      ad: o.description,
-      miktar: String(o.quantity),
-      birimFiyat: o.unitPrice,
-      tutar: o.quantity * o.unitPrice,
-    }));
-    const islemler = (s.activityHistory?.length
-      ? s.activityHistory.map((a) => a.text)
-      : operations.map((o) => o.description)
-    ).filter((t) => t && t.trim());
-    const serviceFee = ((s.timerElapsedSeconds ?? 0) / 3600) * (s.serviceHourlyRate ?? 0);
-    const inWarranty =
-      s.warrantyClaim?.coverageSuggestion === "in_warranty" || (m != null && m.status === "Active");
-
-    printOrWarn(
-      serviceFormDoc(
-        {
-          firma: cust?.name,
-          ilgili: cust?.contactPerson,
-          adres: cust ? [cust.address, cust.district, cust.city].filter(Boolean).join(" ") : "",
-          tel: cust?.phone,
-          faks: cust?.fax,
-          gsm: cust?.phone2,
-          eposta: cust?.email,
-          vergiDairesi: cust?.taxOffice,
-          vergiNo: cust?.taxNumber,
-          formNo: String(index + 1),
-          tarih: trShortDate(s.createdAt),
-          tezgah: m ? { marka: m.brand, tip: m.type, model: m.model, seriNo: m.serialNumber } : undefined,
-          cnc: m?.controlUnit
-            ? {
-                marka: m.controlUnit.split(" ")[0],
-                model: m.controlUnit.split(" ").slice(1).join(" ") || undefined,
-                seriNo: m.controlUnitSerial,
-              }
-            : undefined,
-          sikayet,
-          servisTipi: "ariza",
-          yukumluluk: inWarranty ? "garanti" : "ucretli",
-          islemler,
-          parcalar,
-          servisUcreti: serviceFee > 0 ? Math.round(serviceFee) : undefined,
-          currency: s.serviceCurrency ?? "TRY",
-        },
-        printAssetBase()
-      )
-    );
+  const openServiceFormPdf = async (s: ServiceRequest) => {
+    try {
+      await serviceService.openServiceFormPdf(s.id, s.ticketNo || s.id);
+    } catch (err: any) {
+      toast.error("Servis formu açılamadı", { description: err?.message ?? "PDF oluşturulamadı." });
+    }
   };
 
   const printServiceQuote = (s: ServiceRequest) => {
@@ -521,22 +551,88 @@ export function ServiceRequestsPage({ initialView = "list", focus, initialQuery 
     printOrWarn(printServiceQuoteForm(s.serviceQuote));
   };
 
+  const dialogs = (
+    <>
+      <ServiceDetailDialog
+        serviceRequest={selectedService}
+        initialTab={selectedServiceInitialTab}
+        onClose={() => {
+          setSelectedServiceId(null);
+          setSelectedServiceInitialTab(undefined);
+        }}
+        onSelectService={(id) => {
+          setSelectedServiceId(id);
+          setSelectedServiceInitialTab(undefined);
+        }}
+        onOpenComplaint={openSourceComplaint}
+        onDelete={deleteService}
+      />
+      <ComplaintDetailDialog
+        complaint={selectedComplaint}
+        customers={customers}
+        machines={machines}
+        onClose={() => setSelectedComplaint(null)}
+        onSaved={loadComplaints}
+        onConvert={convertComplaint}
+        onReject={rejectComplaint}
+      />
+      <CreateComplaintDialog
+        open={createComplaintOpen}
+        onOpenChange={setCreateComplaintOpen}
+        customers={customers}
+        contacts={contacts}
+        machines={machines}
+        onCreated={loadComplaints}
+      />
+      <CreateComplaintLinkDialog
+        open={createLinkOpen}
+        onOpenChange={setCreateLinkOpen}
+        customers={customers}
+        machines={machines}
+        onCreated={loadComplaints}
+      />
+    </>
+  );
+
+  if (kanbanOnly) {
+    return (
+      <>
+        <div className="space-y-4">
+          <div className="flex items-center justify-end gap-2">
+            <span className="text-sm text-muted-foreground tabular-nums">{visibleService.length} kayıt</span>
+            <FilterPopover filters={filterControls} />
+          </div>
+          <ServiceBoard items={visibleService} onOpen={openServiceDetail} onDelete={deleteService} deletingId={deletingServiceId} />
+        </div>
+        {dialogs}
+      </>
+    );
+  }
+
   return (
     <>
-    <Tabs value={view} onValueChange={(v) => setView(v as "list" | "board" | "complaints")}>
+    <Tabs value={view} onValueChange={(v) => setView(v as ServiceRequestsView)}>
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <TabsList>
           <TabsTrigger value="list">Liste</TabsTrigger>
-          <TabsTrigger value="board">Servis Akışı</TabsTrigger>
           <TabsTrigger value="complaints">
             <Inbox className="size-4" /> Şikayet Kutusu
+          </TabsTrigger>
+          <TabsTrigger value="history">
+            <History className="size-4" /> Servis Geçmişi
           </TabsTrigger>
         </TabsList>
         <div className="flex items-center justify-between gap-2 sm:justify-end">
           <span className="text-sm text-muted-foreground tabular-nums">
-            {view === "complaints" ? visibleComplaints.length : visibleService.length} kayıt
+            {view === "complaints"
+              ? visibleComplaints.length
+              : view === "history"
+                ? service.filter((s) => s.stage === "Closed").length
+                : visibleService.length} kayıt
           </span>
-          <FilterPopover filters={view === "complaints" ? complaintFilterControls : filterControls} />
+          {view !== "history" && (
+            <FilterPopover filters={view === "complaints" ? complaintFilterControls : filterControls} />
+          )}
         </div>
       </div>
       <TabsContent value="list" className="mt-4">
@@ -571,13 +667,13 @@ export function ServiceRequestsPage({ initialView = "list", focus, initialQuery 
                   </TableCell>
                 </TableRow>
               ) : (
-              visibleService.map((s, idx) => {
+              visibleService.map((s) => {
                 return (
                   <TableRow
                     key={s.id}
                     className="cursor-pointer group"
-                    onClick={() => setSelectedServiceId(s.id)}
-                    onKeyDown={(e) => e.key === "Enter" && setSelectedServiceId(s.id)}
+                    onClick={() => openServiceDetail(s)}
+                    onKeyDown={(e) => e.key === "Enter" && openServiceDetail(s)}
                     tabIndex={0}
                     role="button"
                     aria-label={`${customerName(s.customerId)} servis talebi, ${s.stage}`}
@@ -623,14 +719,24 @@ export function ServiceRequestsPage({ initialView = "list", focus, initialQuery 
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end" onClick={(event) => event.stopPropagation()}>
-                          <DropdownMenuItem onClick={() => printServiceForm(s, idx)}>
-                            Servis Formu yazdır
+                          <DropdownMenuItem onClick={() => openServiceFormPdf(s)}>
+                            Servis Formu PDF
                           </DropdownMenuItem>
                           <DropdownMenuItem onClick={() => printServiceQuote(s)}>
                             Servis Teklifi yazdır
                           </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="size-7"
+                        title="Servis talebini sil"
+                        disabled={deletingServiceId === s.id}
+                        onClick={(event) => deleteService(s, event)}
+                      >
+                        <Trash2 className="size-4 text-muted-foreground hover:text-red-600" />
+                      </Button>
                       </div>
                     </TableCell>
                   </TableRow>
@@ -640,9 +746,6 @@ export function ServiceRequestsPage({ initialView = "list", focus, initialQuery 
           </Table>
           </div>
         </Card>
-      </TabsContent>
-      <TabsContent value="board" className="mt-4">
-        <ServiceBoard items={visibleService} onOpen={(s) => setSelectedServiceId(s.id)} />
       </TabsContent>
       <TabsContent value="complaints" className="mt-4">
         <ComplaintInbox
@@ -658,40 +761,23 @@ export function ServiceRequestsPage({ initialView = "list", focus, initialQuery 
           onConvert={convertComplaint}
           onReject={(complaint) => rejectComplaint(complaint)}
           onRevokeLink={revokeComplaintLink}
+          onIssueLink={issueComplaintLink}
           onReload={loadComplaints}
         />
       </TabsContent>
+      <TabsContent value="history" className="mt-4">
+        <ServiceHistoryView
+          query={historyQuery}
+          onQueryChange={setHistoryQuery}
+          items={service}
+          customers={customers}
+          machines={machines}
+          users={users}
+          onOpen={(s) => openServiceDetail(s)}
+        />
+      </TabsContent>
     </Tabs>
-    <ServiceDetailDialog
-      serviceRequest={selectedService}
-      onClose={() => setSelectedServiceId(null)}
-      onSelectService={setSelectedServiceId}
-      onOpenComplaint={openSourceComplaint}
-    />
-    <ComplaintDetailDialog
-      complaint={selectedComplaint}
-      customers={customers}
-      machines={machines}
-      onClose={() => setSelectedComplaint(null)}
-      onSaved={loadComplaints}
-      onConvert={convertComplaint}
-      onReject={rejectComplaint}
-    />
-    <CreateComplaintDialog
-      open={createComplaintOpen}
-      onOpenChange={setCreateComplaintOpen}
-      customers={customers}
-      contacts={contacts}
-      machines={machines}
-      onCreated={loadComplaints}
-    />
-    <CreateComplaintLinkDialog
-      open={createLinkOpen}
-      onOpenChange={setCreateLinkOpen}
-      customers={customers}
-      machines={machines}
-      onCreated={loadComplaints}
-    />
+    {dialogs}
     </>
   );
 }
@@ -718,19 +804,142 @@ const STAGE_TO_COLUMN: Record<ServiceStage, ServiceColumnKey> = SERVICE_COLUMNS.
   return acc;
 }, {} as Record<ServiceStage, ServiceColumnKey>);
 
-type ServiceDetailTab = "summary" | "quote" | "machine" | "warranty" | "communication" | "notes" | "activities" | "operations";
+type ServiceDetailTab = "summary" | "quote" | "machine" | "warranty" | "communication" | "notes" | "activities" | "operations" | "completion";
 
 const SERVICE_ACTIVITY_ENABLED_STAGES = new Set<ServiceStage>(["Service In Progress", "Service Completed", "Signed Form", "Closed"]);
 const SERVICE_FEE_ENABLED_STAGES = new Set<ServiceStage>(["Service Completed", "Signed Form", "Closed"]);
+const SERVICE_COMPLETION_ENABLED_STAGES = new Set<ServiceStage>(["Service In Progress", "Service Completed", "Signed Form", "Closed"]);
 
 const isServiceDetailTabEnabled = (stage: ServiceStage, tab: ServiceDetailTab) => {
   if (tab === "activities") return SERVICE_ACTIVITY_ENABLED_STAGES.has(stage);
   if (tab === "operations") return SERVICE_FEE_ENABLED_STAGES.has(stage);
+  if (tab === "completion") return SERVICE_COMPLETION_ENABLED_STAGES.has(stage);
   return true;
 };
 
+const isPartOperation = (operation: NonNullable<ServiceRequest["operations"]>[number]) =>
+  operation.kind === "part"
+  || operation.id.startsWith("srv-part-")
+  || operation.description.trim().toLocaleLowerCase("tr-TR").startsWith("parça kullanımı:");
+
+const serviceFormTypeFromRequest = (serviceRequest: ServiceRequest): ServiceFormType => {
+  const source = [serviceRequest.issueType, serviceRequest.description, serviceRequest.diagnosisNote]
+    .filter(Boolean)
+    .join(" ")
+    .toLocaleLowerCase("tr-TR");
+  if (source.includes("montaj") || source.includes("kurulum")) return "montaj";
+  if (source.includes("periyodik") || source.includes("bakım")) return "periyodik";
+  return "ariza";
+};
+
+const serviceResponsibilityFromRequest = (serviceRequest: ServiceRequest): ServiceFormResponsibility => {
+  if (serviceRequest.warrantyClaim?.coverageDecision === "approved") return "garanti";
+  const source = [serviceRequest.issueType, serviceRequest.description, serviceRequest.diagnosisNote]
+    .filter(Boolean)
+    .join(" ")
+    .toLocaleLowerCase("tr-TR");
+  return source.includes("bakım anl") ? "bakim" : "ucretli";
+};
+
+const serviceCompletionPartsFromRequest = (serviceRequest: ServiceRequest): ServiceCompletionPart[] => {
+  const operationParts = (serviceRequest.operations ?? [])
+    .filter(isPartOperation)
+    .map((operation) => ({
+      id: operation.id,
+      description: operation.description.replace(/^Parça kullanımı:\s*/i, "").trim(),
+      quantity: Math.max(1, Number(operation.quantity) || 1),
+      unitPrice: Math.max(0, Number(operation.unitPrice) || 0),
+    }));
+  const warrantyParts = (serviceRequest.warrantyClaim?.parts ?? []).map((part, index) => ({
+    id: part.id ?? `warranty-part-${index}`,
+    description: part.description,
+    quantity: Math.max(1, Number(part.quantity) || 1),
+    unitPrice: Math.max(0, Number(part.unitCost) || 0),
+  }));
+  return [...operationParts, ...warrantyParts].slice(0, 6);
+};
+
+const buildDefaultCompletionForm = (params: {
+  s: ServiceRequest;
+  customer?: Customer | null;
+  contact?: Contact | null;
+  machine?: Machine | null;
+  assignee?: { name?: string } | null;
+}): ServiceCompletionForm => {
+  const { s, customer, contact, machine, assignee } = params;
+  const today = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Europe/Istanbul",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+  const workOperations = (s.operations ?? []).filter((operation) => !isPartOperation(operation));
+  const serviceFee = ((s.timerElapsedSeconds ?? 0) / 3600) * (s.serviceHourlyRate ?? 0);
+  return {
+    formNo: s.ticketNo || s.id,
+    teslimTarihi: machine?.deliveryDate ?? "",
+    kurulumTarihi: today,
+    tezgah: machine
+      ? { marka: machine.brand, tip: machine.type, model: machine.model, seriNo: machine.serialNumber }
+      : { marka: "", tip: "", model: "", seriNo: "" },
+    cnc: machine
+      ? {
+          marka: machine.controlUnit?.split(" ")[0] ?? "",
+          model: machine.controlUnit?.split(" ").slice(1).join(" ") ?? "",
+          seriNo: machine.controlUnitSerial ?? "",
+          mainSw: "",
+        }
+      : { marka: "", model: "", seriNo: "", mainSw: "" },
+    kullanici: {
+      firma: customer?.name ?? "",
+      ilgili: contact?.name ?? customer?.contactPerson ?? "",
+      adres: customer ? [customer.address, customer.district, customer.city].filter(Boolean).join(" ") : "",
+      telefon: customer?.phone ?? "",
+      faks: customer?.fax ?? "",
+      gsm: contact?.mobilePhone ?? customer?.phone2 ?? "",
+      eposta: contact?.email ?? customer?.email ?? "",
+      vergiDairesi: customer?.taxOffice ?? "",
+      vergiNo: customer?.taxNumber ?? "",
+    },
+    checks: [],
+    musteriSikayeti: (s.complaints ?? []).map((item) => item.text.trim()).filter(Boolean).join("\n")
+      || s.description
+      || s.diagnosisNote
+      || s.issueType
+      || "",
+    serviceType: serviceFormTypeFromRequest(s),
+    responsibility: serviceResponsibilityFromRequest(s),
+    yapilanIsler: workOperations.map((operation) => operation.description.trim()).filter(Boolean).join("\n")
+      || s.serviceNote
+      || "",
+    notlar: "",
+    degisenParcalar: serviceCompletionPartsFromRequest(s),
+    servisUcreti: Number(serviceFee.toFixed(2)),
+    ulasimUcreti: 0,
+    currency: s.serviceCurrency ?? "TRY",
+    kurulumuYapan: assignee?.name ?? "",
+    teslimAlan: contact?.name ?? customer?.contactPerson ?? "",
+  };
+};
+
+const mergeCompletionForm = (
+  existing: ServiceCompletionForm | null | undefined,
+  fallback: ServiceCompletionForm,
+): ServiceCompletionForm => {
+  if (!existing) return fallback;
+  return {
+    ...fallback,
+    ...existing,
+    tezgah: { ...fallback.tezgah, ...(existing.tezgah ?? {}) },
+    cnc: { ...fallback.cnc, ...(existing.cnc ?? {}) },
+    kullanici: { ...fallback.kullanici, ...(existing.kullanici ?? {}) },
+    checks: existing.checks ?? fallback.checks,
+    degisenParcalar: existing.degisenParcalar ?? fallback.degisenParcalar,
+  };
+};
+
 export function ServiceKanbanPage({ focus }: { focus?: OperationFocus }) {
-  return <ServiceRequestsPage initialView="board" focus={focus} />;
+  return <ServiceRequestsPage initialView="board" focus={focus} kanbanOnly />;
 }
 
 const complaintCompanyName = (complaint: ServiceComplaintIntake) =>
@@ -738,9 +947,6 @@ const complaintCompanyName = (complaint: ServiceComplaintIntake) =>
 
 const complaintMachineName = (complaint: ServiceComplaintIntake) =>
   [complaint.machine?.brand, complaint.machine?.model, complaint.machine?.serialNumber].filter(Boolean).join(" · ") || "Eşleşmemiş";
-
-const complaintQrUrl = (url: string) =>
-  `https://api.qrserver.com/v1/create-qr-code/?size=360x360&margin=16&data=${encodeURIComponent(url)}`;
 
 function ComplaintStatusBadge({ status }: { status: ServiceComplaintIntake["status"] }) {
   const className =
@@ -767,6 +973,7 @@ function ComplaintInbox({
   onConvert,
   onReject,
   onRevokeLink,
+  onIssueLink,
   onReload,
 }: {
   complaints: ServiceComplaintIntake[];
@@ -781,18 +988,20 @@ function ComplaintInbox({
   onConvert: (complaint: ServiceComplaintIntake) => void;
   onReject: (complaint: ServiceComplaintIntake) => void;
   onRevokeLink: (link: ServiceComplaintLink) => void;
+  onIssueLink: (link: ServiceComplaintLink) => Promise<ServiceComplaintLink>;
   onReload: () => void;
 }) {
   const [mode, setMode] = useState<"intakes" | "links">("intakes");
+  const [qrImage, setQrImage] = useState<string | null>(null);
   const absoluteUrl = (path?: string | null) => path ? `${window.location.origin}${path}` : "";
-  const copyUrl = async (path?: string | null, label = "Link") => {
-    const url = absoluteUrl(path);
-    if (!url) {
-      toast.error("Bu linkin token bilgisi yok");
-      return;
-    }
-    await navigator.clipboard?.writeText(url);
-    toast.success(`${label} panoya kopyalandı`);
+  const issueUrl = async (link: ServiceComplaintLink) => {
+    const credential = await onIssueLink(link);
+    const url = absoluteUrl(credential.publicPath);
+    if (!url) throw new Error("Link kimlik bilgisi alınamadı");
+    return url;
+  };
+  const showQr = async (url: string) => {
+    setQrImage(await QRCode.toDataURL(url, { width: 360, margin: 2, errorCorrectionLevel: "M" }));
   };
   return (
     <Card className="border-border/60 shadow-sm overflow-hidden">
@@ -852,8 +1061,6 @@ function ComplaintInbox({
                 </TableCell>
               </TableRow>
             ) : links.map((link) => {
-              const publicUrl = absoluteUrl(link.publicPath);
-              const qrUrl = absoluteUrl(link.qrPublicPath);
               return (
                 <TableRow key={link.id}>
                   <TableCell className="font-medium">{link.title || "Servis Şikayet Formu"}</TableCell>
@@ -867,9 +1074,30 @@ function ComplaintInbox({
                   <TableCell className="text-muted-foreground">{(link as any).createdAt?.slice(0, 10) ?? "—"}</TableCell>
                   <TableCell className="text-right">
                     <div className="flex justify-end gap-1">
-                      <Button variant="ghost" size="sm" onClick={() => copyUrl(link.publicPath, "Web link")}>Kopyala</Button>
-                      <Button variant="ghost" size="sm" onClick={() => publicUrl && window.open(publicUrl, "_blank", "noopener")}>Aç</Button>
-                      <Button variant="ghost" size="sm" onClick={() => qrUrl && window.open(complaintQrUrl(qrUrl), "_blank", "noopener")}>QR</Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        title="Yeni link üret ve kopyala"
+                        onClick={() => void issueUrl(link).then((url) => navigator.clipboard?.writeText(url)).catch(() => undefined)}
+                      >
+                        <Copy className="size-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        title="Yeni link üret ve aç"
+                        onClick={() => void issueUrl(link).then((url) => window.open(url, "_blank", "noopener")).catch(() => undefined)}
+                      >
+                        <ExternalLink className="size-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        title="Yeni link için QR kodu üret"
+                        onClick={() => void issueUrl(link).then(showQr).catch(() => undefined)}
+                      >
+                        <Link2 className="size-4" />
+                      </Button>
                       {link.isActive && !link.revokedAt && (
                         <Button variant="ghost" size="sm" className="text-red-600 hover:text-red-700" onClick={() => onRevokeLink(link)}>
                           İptal
@@ -947,6 +1175,12 @@ function ComplaintInbox({
         </Table>
         )}
       </div>
+      <Dialog open={!!qrImage} onOpenChange={(open) => !open && setQrImage(null)}>
+        <DialogContent className="w-fit max-w-[calc(100vw-2rem)]">
+          <DialogHeader><DialogTitle>QR Kod</DialogTitle></DialogHeader>
+          {qrImage && <img src={qrImage} alt="Şikayet formu QR kodu" width={360} height={360} className="max-w-full" />}
+        </DialogContent>
+      </Dialog>
     </Card>
   );
 }
@@ -1178,7 +1412,7 @@ function CreateComplaintLinkDialog({
   const [machineId, setMachineId] = useState(NONE);
   const [title, setTitle] = useState("");
   const [latestLink, setLatestLink] = useState("");
-  const [latestQrLink, setLatestQrLink] = useState("");
+  const [latestQrImage, setLatestQrImage] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const filteredMachines = companyId === NONE ? machines : machines.filter((m) => m.customerId === companyId);
 
@@ -1188,7 +1422,7 @@ function CreateComplaintLinkDialog({
     setMachineId(NONE);
     setTitle("");
     setLatestLink("");
-    setLatestQrLink("");
+    setLatestQrImage(null);
   }, [open]);
 
   const create = async () => {
@@ -1200,9 +1434,7 @@ function CreateComplaintLinkDialog({
         title,
       });
       const url = `${window.location.origin}${link.publicPath}`;
-      const qrUrl = `${window.location.origin}${link.qrPublicPath ?? link.publicPath}`;
       setLatestLink(url);
-      setLatestQrLink(qrUrl);
       await navigator.clipboard?.writeText(url);
       toast.success("Public şikayet linki oluşturuldu", { description: "Link panoya kopyalandı." });
       onCreated();
@@ -1257,7 +1489,12 @@ function CreateComplaintLinkDialog({
               <Button variant="outline" size="sm" className="gap-1" onClick={() => window.open(latestLink, "_blank", "noopener")}>
                 <ExternalLink className="size-4" /> Aç
               </Button>
-              <Button variant="outline" size="sm" className="gap-1" onClick={() => window.open(complaintQrUrl(latestQrLink || latestLink), "_blank", "noopener")}>
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-1"
+                onClick={async () => setLatestQrImage(await QRCode.toDataURL(latestLink, { width: 360, margin: 2, errorCorrectionLevel: "M" }))}
+              >
                 <Link2 className="size-4" /> QR Aç
               </Button>
             </div>
@@ -1267,6 +1504,12 @@ function CreateComplaintLinkDialog({
           <Button variant="outline" onClick={() => onOpenChange(false)}>Kapat</Button>
           <Button onClick={create} disabled={saving}>Link oluştur</Button>
         </div>
+        <Dialog open={!!latestQrImage} onOpenChange={(nextOpen) => !nextOpen && setLatestQrImage(null)}>
+          <DialogContent className="w-fit max-w-[calc(100vw-2rem)]">
+            <DialogHeader><DialogTitle>QR Kod</DialogTitle></DialogHeader>
+            {latestQrImage && <img src={latestQrImage} alt="Şikayet formu QR kodu" width={360} height={360} className="max-w-full" />}
+          </DialogContent>
+        </Dialog>
       </DialogContent>
     </Dialog>
   );
@@ -1545,10 +1788,51 @@ function ComplaintDetailDialog({
   );
 }
 
-function ServiceBoard({ items: visibleService, onOpen }: { items: ServiceRequest[]; onOpen?: (s: ServiceRequest) => void }) {
+function ServiceBoard({
+  items: visibleService,
+  onOpen,
+  onDelete,
+  deletingId,
+}: {
+  items: ServiceRequest[];
+  onOpen?: (s: ServiceRequest, initialTab?: ServiceDetailTab) => void;
+  onDelete?: (s: ServiceRequest, event?: MouseEvent) => void | Promise<void>;
+  deletingId?: string | null;
+}) {
   const { moveService, customers, machines, documents } = useStore();
   const [previewDoc, setPreviewDoc] = useState<DocumentItem | null>(null);
   const customerName = (id: string) => customers.find((c) => c.id === id)?.name ?? "—";
+  const moveToColumn = async (id: string, to: string) => {
+    const target = SERVICE_COLUMNS.find((c) => c.key === to);
+    if (!target) return;
+    if (target.key === "Servis Tamamlandı Formu") {
+      const serviceRequest = visibleService.find((item) => item.id === id);
+      if (serviceRequest) {
+        try {
+          if (serviceRequest.stage !== "Service Completed" && serviceRequest.stage !== "Signed Form" && serviceRequest.stage !== "Closed") {
+            await moveService(id, "Service Completed");
+          }
+          toast.message("Servis tamamlandı formu açıldı", {
+            description: "Kayıt bilgileri forma aktarıldı. Kontrol edip kaydedebilir veya servisi kapatabilirsiniz.",
+          });
+          onOpen?.({ ...serviceRequest, stage: "Service Completed" }, "completion");
+        } catch (err: any) {
+          toast.error("Servis tamamlandı aşamasına geçilemedi", { description: err?.message ?? "Aşama güncellenemedi." });
+        }
+      }
+      return;
+    }
+    try {
+      await moveService(id, target.primary);
+      toast.success("Servis kartı taşındı", { description: `Yeni aşama: ${target.key}` });
+    } catch (err: any) {
+      toast.error("Servis kartı taşınamadı", { description: err?.message ?? "Aşama geçişi reddedildi." });
+      if (target.primary === "Scheduled") {
+        const serviceRequest = visibleService.find((item) => item.id === id);
+        if (serviceRequest) onOpen?.(serviceRequest);
+      }
+    }
+  };
   const columns: KanbanColumn<ServiceRequest>[] = SERVICE_COLUMNS.map((col) => {
     const items = visibleService.filter((s) => STAGE_TO_COLUMN[s.stage] === col.key);
     return {
@@ -1570,28 +1854,21 @@ function ServiceBoard({ items: visibleService, onOpen }: { items: ServiceRequest
       columns={columns}
       fit={false}
       columnWidth={260}
-      onMove={async (id, _from, to) => {
-        const target = SERVICE_COLUMNS.find((c) => c.key === to);
-        if (!target) return;
-        try {
-          await moveService(id, target.primary);
-          toast.success("Servis kartı taşındı", { description: `Yeni aşama: ${target.key}` });
-        } catch (err: any) {
-          toast.error("Servis kartı taşınamadı", { description: err?.message ?? "Aşama geçişi reddedildi." });
-          if (target.primary === "Scheduled") {
-            const serviceRequest = visibleService.find((item) => item.id === id);
-            if (serviceRequest) onOpen?.(serviceRequest);
-          }
-        }
-      }}
+      onMove={(id, _from, to) => moveToColumn(id, to)}
       renderCard={(s) => {
         const c = customers.find((x) => x.id === s.customerId);
         const machine = machines.find((x) => x.id === s.machineId);
+        const initialTab = STAGE_TO_COLUMN[s.stage] === "Servis Tamamlandı Formu" ? "completion" : undefined;
         return (
           <Card
-            onClick={() => onOpen?.(s)}
-            className="p-3 hover:shadow-md hover:border-primary/40 transition-all border-border/60 group bg-white cursor-pointer"
+            data-testid={`service-kanban-card-${s.id}`}
+            onClick={() => onOpen?.(s, initialTab)}
+            className="group cursor-pointer rounded-lg border-transparent bg-white p-3 shadow-sm transition-all hover:-translate-y-px hover:shadow-md hover:ring-1 hover:ring-black/10"
           >
+            {/* Trello benzeri etiket şeridi: kolon rengi */}
+            <div className="mb-2 flex items-center gap-1">
+              <span className={`h-1.5 w-10 rounded-full ${SERVICE_COLUMNS.find((col) => col.key === STAGE_TO_COLUMN[s.stage])?.dot ?? "bg-zinc-300"}`} />
+            </div>
             <div className="flex items-start gap-2">
               <div className="size-8 rounded-md bg-gradient-to-br from-primary/15 to-primary/5 text-primary grid place-items-center text-[10px] shrink-0">
                 {c?.type === "company" ? <Building2 className="size-3.5" /> : <Wrench className="size-3.5" />}
@@ -1605,6 +1882,48 @@ function ServiceBoard({ items: visibleService, onOpen }: { items: ServiceRequest
                 )}
                 <div className="text-[11px] text-muted-foreground line-clamp-3 break-words mt-1.5">{serviceNoteText(s)}</div>
               </div>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="size-7 shrink-0 text-muted-foreground hover:text-red-600"
+                title="Servis talebini sil"
+                disabled={deletingId === s.id}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  void onDelete?.(s, event);
+                }}
+                onMouseDown={(event) => event.stopPropagation()}
+              >
+                <Trash2 className="size-3.5" />
+              </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="size-7 shrink-0"
+                    title="Aşamaya gönder"
+                    onClick={(event) => event.stopPropagation()}
+                    onMouseDown={(event) => event.stopPropagation()}
+                  >
+                    <ArrowRight className="size-3.5" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-48" onClick={(event) => event.stopPropagation()}>
+                  {SERVICE_COLUMNS.map((column) => (
+                    <DropdownMenuItem
+                      key={column.key}
+                      disabled={STAGE_TO_COLUMN[s.stage] === column.key}
+                      onSelect={() => void moveToColumn(s.id, column.key)}
+                    >
+                      <span className={`size-2 rounded-full shrink-0 ${column.dot}`} />
+                      <span>{column.key}</span>
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
             <div className="mt-3">
               <div className="flex flex-wrap gap-1.5">
@@ -1616,7 +1935,7 @@ function ServiceBoard({ items: visibleService, onOpen }: { items: ServiceRequest
               serviceRequestId={s.id}
               docs={documents.filter((d) => d.serviceRequestId === s.id)}
               onPreview={setPreviewDoc}
-              onOpenDetail={() => onOpen?.(s)}
+              onOpenDetail={() => onOpen?.(s, initialTab)}
             />
           </Card>
         );
@@ -1684,7 +2003,19 @@ function ServiceQuoteEditor({
   actor?: ServiceActor | null;
   onSave: (quote: ServiceQuoteForm) => Promise<void>;
 }) {
-  const defaultVariant = SERVICE_NOTE_VARIANTS[0];
+  const { products, noteTemplates, addNoteTemplate, updateNoteTemplate, deleteNoteTemplate } = useStore();
+  const serviceQuoteTemplates = useMemo(
+    () => noteTemplates.filter((template) => template.scope === SERVICE_QUOTE_NOTE_TEMPLATE_SCOPE),
+    [noteTemplates]
+  );
+  const quoteNoteTemplates = useMemo(
+    () => noteTemplates.filter((template) => (template.scope ?? "quote") === "quote"),
+    [noteTemplates]
+  );
+  const savedNoteTemplates = useMemo(
+    () => [...serviceQuoteTemplates, ...quoteNoteTemplates],
+    [serviceQuoteTemplates, quoteNoteTemplates]
+  );
   const buildDraft = (): ServiceQuoteForm => {
     if (serviceRequest.serviceQuote) {
       return {
@@ -1697,10 +2028,12 @@ function ServiceQuoteEditor({
     const serialPrefix = machine?.serialNumber ? `${machine.serialNumber} Seri Numaralı ` : "";
     const issue = serviceRequest.issueType?.trim() || serviceRequest.diagnosisNote?.trim();
     const subjectParts = [`Teklifimiz ${serialPrefix}${machineName}`.trim(), issue].filter(Boolean).join(" ");
+    const businessLine = serviceRequest.ticketNo?.match(/^(CNC|UNI|SACISLE)[-/]/)?.[1] ?? "CNC";
+    const ticketSequence = serviceRequest.ticketNo?.match(/(\d+)$/)?.[1] ?? "";
     return {
-      quoteNo: "",
+      quoteNo: `${businessLine}-SRVTEK-${new Date().getFullYear()}/${ticketSequence || "..."}`,
       date: new Date().toISOString().slice(0, 10),
-      validity: "5 İş Günü",
+      validity: "",
       writerName: actor?.name ?? "",
       writerTitle: actor?.department ?? "",
       writerEmail: actor?.email ?? "",
@@ -1712,16 +2045,19 @@ function ServiceQuoteEditor({
       email: customer?.email ?? "",
       subject: subjectParts ? `${subjectParts} kapsamaktadır.` : "",
       currency: serviceRequest.serviceCurrency ?? "USD",
-      vatRate: 20,
+      vatRate: 0,
       vatAmount: 0,
-      noteVariantKey: defaultVariant.key,
-      notes: [...defaultVariant.notlar],
+      noteVariantKey: "",
+      notes: [],
       items: [newServiceQuoteItem()],
     };
   };
 
   const [draft, setDraft] = useState<ServiceQuoteForm>(buildDraft);
   const [saving, setSaving] = useState(false);
+  const selectedNoteTemplateId = noteTemplateIdFromKey(draft.noteVariantKey);
+  const selectedSavedNoteTemplate = savedNoteTemplates.find((template) => template.id === selectedNoteTemplateId);
+  const noteTemplateBody = () => draft.notes.map((note) => note.trim()).filter(Boolean).join("\n");
 
   useEffect(() => {
     setDraft(buildDraft());
@@ -1733,11 +2069,31 @@ function ServiceQuoteEditor({
       items: current.items.map((item) => item.id === id ? { ...item, ...patch } : item),
     }));
   };
+  const serviceProducts = products.filter((product) => product.categoryCode !== "TEZGAH");
+  const pickProduct = (itemId: string, productId: string) => {
+    if (productId === NONE) {
+      updateItem(itemId, { productModelId: null, stockCode: null });
+      return;
+    }
+    const product = serviceProducts.find((item) => item.id === productId);
+    if (!product) return;
+    updateItem(itemId, {
+      productModelId: product.id,
+      stockCode: product.stockCode || null,
+      description: product.shortDescription || [product.brand, product.model].filter(Boolean).join(" ") || product.model,
+      unitPrice: product.cashPrice ?? product.listPrice ?? 0,
+    });
+    if (product.currency && product.currency !== draft.currency) {
+      setDraft((current) => ({ ...current, currency: product.currency }));
+    }
+  };
 
   const save = async (printAfterSave = false) => {
+    const businessLine = serviceRequest.ticketNo?.match(/^(CNC|UNI|SACISLE)[-/]/)?.[1] ?? "CNC";
+    const enteredQuoteNo = draft.quoteNo.trim();
     const normalized: ServiceQuoteForm = {
       ...draft,
-      quoteNo: draft.quoteNo.trim(),
+      quoteNo: enteredQuoteNo ? (/^(CNC|UNI|SACISLE)[-/]/.test(enteredQuoteNo) ? enteredQuoteNo : `${businessLine}-${enteredQuoteNo}`) : "",
       writerName: draft.writerName.trim(),
       company: draft.company.trim(),
       subject: draft.subject.trim(),
@@ -1745,6 +2101,8 @@ function ServiceQuoteEditor({
       items: draft.items
         .map((item) => ({
           ...item,
+          productModelId: item.productModelId ?? null,
+          stockCode: item.stockCode ?? null,
           description: item.description.trim(),
           unit: item.unit.trim(),
           quantity: Number(item.quantity) || 0,
@@ -1771,9 +2129,70 @@ function ServiceQuoteEditor({
     }
   };
 
-  const subtotal = draft.items.reduce((sum, item) => sum + (Number(item.quantity) || 0) * (Number(item.unitPrice) || 0), 0);
-  const selectedVariant = SERVICE_NOTE_VARIANTS.find((variant) => variant.key === draft.noteVariantKey) ?? defaultVariant;
+  const applyNoteTemplate = (key: string) => {
+    if (key === "ozel") {
+      setDraft((current) => ({ ...current, noteVariantKey: "" }));
+      return;
+    }
+    if (key.startsWith(NOTE_TEMPLATE_KEY_PREFIX)) {
+      const template = savedNoteTemplates.find((item) => noteTemplateKey(item.id) === key);
+      if (!template) return;
+      setDraft((current) => ({ ...current, noteVariantKey: key, notes: noteLinesFromText(template.body) }));
+      return;
+    }
+    const variant = SERVICE_NOTE_VARIANTS.find((item) => item.key === key);
+    if (variant) setDraft((current) => ({ ...current, noteVariantKey: key, notes: [...variant.notlar] }));
+  };
 
+  const saveNoteTemplate = async () => {
+    const body = noteTemplateBody();
+    if (!body) return toast.error("Önce teklif notu girin");
+    const title = window.prompt("Şablon başlığı:", selectedSavedNoteTemplate ? `${selectedSavedNoteTemplate.title} kopya` : "");
+    if (!title?.trim()) return;
+    try {
+      const created = await addNoteTemplate({
+        title: title.trim(),
+        body,
+        scope: SERVICE_QUOTE_NOTE_TEMPLATE_SCOPE,
+      });
+      setDraft((current) => ({ ...current, noteVariantKey: noteTemplateKey(created.id) }));
+      toast.success("Servis teklif notu şablonu kaydedildi");
+    } catch (err: any) {
+      toast.error("Şablon kaydedilemedi", { description: err?.message });
+    }
+  };
+
+  const updateSelectedNoteTemplate = async () => {
+    if (!selectedSavedNoteTemplate || selectedSavedNoteTemplate.scope !== SERVICE_QUOTE_NOTE_TEMPLATE_SCOPE) return;
+    const body = noteTemplateBody();
+    if (!body) return toast.error("Önce teklif notu girin");
+    const title = window.prompt("Şablon başlığı:", selectedSavedNoteTemplate.title);
+    if (!title?.trim()) return;
+    try {
+      await updateNoteTemplate(selectedSavedNoteTemplate.id, {
+        title: title.trim(),
+        body,
+        scope: SERVICE_QUOTE_NOTE_TEMPLATE_SCOPE,
+      });
+      toast.success("Servis teklif notu şablonu güncellendi");
+    } catch (err: any) {
+      toast.error("Şablon güncellenemedi", { description: err?.message });
+    }
+  };
+
+  const deleteSelectedNoteTemplate = async () => {
+    if (!selectedSavedNoteTemplate || selectedSavedNoteTemplate.scope !== SERVICE_QUOTE_NOTE_TEMPLATE_SCOPE) return;
+    if (!window.confirm(`"${selectedSavedNoteTemplate.title}" şablonu silinsin mi?`)) return;
+    try {
+      await deleteNoteTemplate(selectedSavedNoteTemplate.id);
+      setDraft((current) => ({ ...current, noteVariantKey: "" }));
+      toast.success("Servis teklif notu şablonu silindi");
+    } catch (err: any) {
+      toast.error("Şablon silinemedi", { description: err?.message });
+    }
+  };
+
+  const subtotal = draft.items.reduce((sum, item) => sum + (Number(item.quantity) || 0) * (Number(item.unitPrice) || 0), 0);
   return (
     <div className="space-y-4">
       <div className="rounded-lg border border-indigo-200 bg-indigo-50 px-4 py-3 text-sm text-indigo-900">
@@ -1783,7 +2202,7 @@ function ServiceQuoteEditor({
       <Card className="border-border/60">
         <CardHeader className="pb-3"><CardTitle className="text-base">Teklif ve müşteri bilgileri</CardTitle></CardHeader>
         <CardContent className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-4">
-          <div><Label>Teklif No. *</Label><Input className="mt-1" value={draft.quoteNo} onChange={(e) => setDraft({ ...draft, quoteNo: e.target.value })} placeholder="SRV-2026/010" /></div>
+          <div><Label>Teklif No. *</Label><Input className="mt-1" value={draft.quoteNo} onChange={(e) => setDraft({ ...draft, quoteNo: e.target.value })} placeholder="CNC-SRVTEK-2026/0010" /></div>
           <div><Label>Tarih *</Label><Input className="mt-1" type="date" value={draft.date} onChange={(e) => setDraft({ ...draft, date: e.target.value })} /></div>
           <div><Label>Geçerlilik Süresi *</Label><Input className="mt-1" value={draft.validity} onChange={(e) => setDraft({ ...draft, validity: e.target.value })} /></div>
           <div><Label>Para Birimi *</Label><Select value={draft.currency} onValueChange={(value) => setDraft({ ...draft, currency: value as ServiceQuoteForm["currency"] })}><SelectTrigger className="mt-1"><SelectValue /></SelectTrigger><SelectContent>{SERVICE_CURRENCIES.map((currency) => <SelectItem key={currency} value={currency}>{currency}</SelectItem>)}</SelectContent></Select></div>
@@ -1813,11 +2232,25 @@ function ServiceQuoteEditor({
         </CardHeader>
         <CardContent className="space-y-3">
           <div className="overflow-x-auto rounded-lg border border-border/60">
-            <Table className="min-w-[760px]">
-              <TableHeader><TableRow className="bg-muted/30"><TableHead>Açıklama *</TableHead><TableHead className="w-24">Miktar *</TableHead><TableHead className="w-24">Birim *</TableHead><TableHead className="w-36">Birim Fiyat *</TableHead><TableHead className="w-36 text-right">Tutar</TableHead><TableHead className="w-12" /></TableRow></TableHeader>
+            <Table className="min-w-[980px]">
+              <TableHeader><TableRow className="bg-muted/30"><TableHead className="w-64">Ürün</TableHead><TableHead>Açıklama *</TableHead><TableHead className="w-24">Miktar *</TableHead><TableHead className="w-24">Birim *</TableHead><TableHead className="w-36">Birim Fiyat *</TableHead><TableHead className="w-36 text-right">Tutar</TableHead><TableHead className="w-12" /></TableRow></TableHeader>
               <TableBody>
                 {draft.items.map((item) => (
                   <TableRow key={item.id}>
+                    <TableCell>
+                      <Select value={item.productModelId || NONE} onValueChange={(value) => pickProduct(item.id, value)}>
+                        <SelectTrigger><SelectValue placeholder="Ürün seç" /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value={NONE}>Serbest kalem</SelectItem>
+                          {serviceProducts.map((product) => (
+                            <SelectItem key={product.id} value={product.id}>
+                              {[product.stockCode, product.shortDescription || product.model].filter(Boolean).join(" · ")}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      {item.stockCode && <div className="mt-1 text-[11px] text-muted-foreground">Stok: {item.stockCode}</div>}
+                    </TableCell>
                     <TableCell><Input value={item.description} onChange={(e) => updateItem(item.id, { description: e.target.value })} placeholder="Ürün veya hizmet açıklaması" /></TableCell>
                     <TableCell><Input type="number" min="0" step="0.01" value={item.quantity} onChange={(e) => updateItem(item.id, { quantity: Number(e.target.value) })} /></TableCell>
                     <TableCell><Input value={item.unit} onChange={(e) => updateItem(item.id, { unit: e.target.value })} /></TableCell>
@@ -1841,7 +2274,49 @@ function ServiceQuoteEditor({
       <Card className="border-border/60">
         <CardHeader className="pb-3"><CardTitle className="text-base">Teklif notları</CardTitle></CardHeader>
         <CardContent className="space-y-3">
-          <div className="max-w-sm"><Label>Not taslağı</Label><Select value={draft.noteVariantKey} onValueChange={(key) => { const variant = SERVICE_NOTE_VARIANTS.find((item) => item.key === key) ?? selectedVariant; setDraft({ ...draft, noteVariantKey: key, notes: [...variant.notlar] }); }}><SelectTrigger className="mt-1"><SelectValue /></SelectTrigger><SelectContent>{SERVICE_NOTE_VARIANTS.map((variant) => <SelectItem key={variant.key} value={variant.key}>{variant.label}</SelectItem>)}</SelectContent></Select></div>
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+            <div className="max-w-sm flex-1">
+              <Label>Not şablonu</Label>
+              <Select value={draft.noteVariantKey || "ozel"} onValueChange={applyNoteTemplate}>
+                <SelectTrigger className="mt-1"><SelectValue placeholder="Şablon seçin..." /></SelectTrigger>
+                <SelectContent>
+                  <div className="px-2 py-1.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Hazır servis notları</div>
+                  {SERVICE_NOTE_VARIANTS.map((variant) => <SelectItem key={variant.key} value={variant.key}>{variant.label}</SelectItem>)}
+                  {serviceQuoteTemplates.length > 0 && (
+                    <div className="px-2 py-1.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Kayıtlı servis notları</div>
+                  )}
+                  {serviceQuoteTemplates.map((template) => (
+                    <SelectItem key={template.id} value={noteTemplateKey(template.id)}>{template.title}</SelectItem>
+                  ))}
+                  {quoteNoteTemplates.length > 0 && (
+                    <div className="px-2 py-1.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Teklif notları</div>
+                  )}
+                  {quoteNoteTemplates.map((template) => (
+                    <SelectItem key={template.id} value={noteTemplateKey(template.id)}>{template.title}</SelectItem>
+                  ))}
+                  <SelectItem value="ozel">Özel (manuel gir)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {selectedSavedNoteTemplate?.scope === SERVICE_QUOTE_NOTE_TEMPLATE_SCOPE && (
+                <>
+                  <Button type="button" variant="outline" size="sm" className="h-9" onClick={updateSelectedNoteTemplate}>Şablonu güncelle</Button>
+                  <Button type="button" variant="ghost" size="sm" className="h-9 text-destructive" onClick={deleteSelectedNoteTemplate}>Sil</Button>
+                </>
+              )}
+              <Button type="button" variant="outline" size="sm" className="h-9 gap-1" onClick={saveNoteTemplate}>
+                <BookmarkPlus className="size-3.5" /> Yeni şablon
+              </Button>
+            </div>
+          </div>
+          {selectedSavedNoteTemplate && (
+            <div className="rounded-md border border-border/60 bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+              {selectedSavedNoteTemplate.scope === SERVICE_QUOTE_NOTE_TEMPLATE_SCOPE
+                ? `Kayıtlı servis notu: ${selectedSavedNoteTemplate.title}`
+                : `Teklif notu kullanılıyor: ${selectedSavedNoteTemplate.title}`}
+            </div>
+          )}
           <div><Label>Notlar (her satır ayrı madde)</Label><Textarea className="mt-1 min-h-36" value={draft.notes.join("\n")} onChange={(e) => setDraft({ ...draft, notes: e.target.value.split("\n") })} /></div>
         </CardContent>
       </Card>
@@ -1856,17 +2331,22 @@ function ServiceQuoteEditor({
 
 function ServiceDetailDialog({
   serviceRequest,
+  initialTab,
   onClose,
   onSelectService,
   onOpenComplaint,
+  onDelete,
 }: {
   serviceRequest: ServiceRequest | null;
+  initialTab?: ServiceDetailTab;
   onClose: () => void;
   onSelectService?: (id: string) => void;
   onOpenComplaint?: (id: string) => void;
+  onDelete?: (serviceRequest: ServiceRequest) => Promise<void> | void;
 }) {
   const {
     updateService,
+    moveService,
     loadServiceWarranty,
     updateServiceWarranty,
     updateServiceWarrantyParts,
@@ -1874,6 +2354,7 @@ function ServiceDetailDialog({
     approveServiceWarranty,
     rejectServiceWarranty,
     customers,
+    contacts,
     machines,
     users,
     products,
@@ -1883,6 +2364,8 @@ function ServiceDetailDialog({
   const { user: authUser } = useAuth();
   const [nowMs, setNowMs] = useState(Date.now());
   const [note, setNote] = useState("");
+  const [editingNoteId, setEditingNoteId] = useState("");
+  const [editingNoteText, setEditingNoteText] = useState("");
   const [complaint, setComplaint] = useState("");
   const [warrantyAssessment, setWarrantyAssessment] = useState("");
   const [warrantyFailureCategory, setWarrantyFailureCategory] = useState("");
@@ -1909,10 +2392,13 @@ function ServiceDetailDialog({
   const [warrantyPartSource, setWarrantyPartSource] = useState<ServiceWarrantyPart["source"]>("stock");
   const [warrantyPartCharge, setWarrantyPartCharge] = useState(false);
   const [warrantyPreviewDoc, setWarrantyPreviewDoc] = useState<DocumentItem | null>(null);
+  const [quotePreviewDoc, setQuotePreviewDoc] = useState<DocumentItem | null>(null);
   const [consumingParts, setConsumingParts] = useState(false);
 
   useEffect(() => {
     setNote("");
+    setEditingNoteId("");
+    setEditingNoteText("");
     setComplaint("");
     setWarrantyAssessment(serviceRequest?.warrantyClaim?.technicianAssessment ?? "");
     setWarrantyFailureCategory(serviceRequest?.warrantyClaim?.failureCategory ?? "");
@@ -1927,7 +2413,7 @@ function ServiceDetailDialog({
     setOperationQty("1");
     setOperationPrice("0");
     setOperationCurrency(serviceRequest?.serviceCurrency ?? "USD");
-    setDetailTab("summary");
+    setDetailTab(initialTab ?? "summary");
     setPartProductId("");
     setPartQty("1");
     setPartNote("");
@@ -1939,6 +2425,7 @@ function ServiceDetailDialog({
     setWarrantyPartCharge(false);
   }, [
     serviceRequest?.id,
+    initialTab,
     serviceRequest?.serviceCurrency,
     serviceRequest?.stage,
     serviceRequest?.warrantyClaim?.id,
@@ -2034,10 +2521,19 @@ function ServiceDetailDialog({
     .reduce((sum, op) => sum + op.quantity * op.unitPrice, 0);
   const activityTabEnabled = isServiceDetailTabEnabled(serviceRequest.stage, "activities");
   const feeTabEnabled = isServiceDetailTabEnabled(serviceRequest.stage, "operations");
+  const completionTabEnabled = isServiceDetailTabEnabled(serviceRequest.stage, "completion");
+  const contact = contacts.find((item) => item.id === serviceRequest.contactId) ?? null;
   const setAllowedDetailTab = (value: string) => {
     const next = value as ServiceDetailTab;
     if (!isServiceDetailTabEnabled(serviceRequest.stage, next)) return;
     setDetailTab(next);
+  };
+  const openServiceFormPdf = async (_form?: ServiceCompletionForm, previewWindow?: Window | null) => {
+    try {
+      await serviceService.openServiceFormPdf(serviceRequest.id, serviceRequest.ticketNo || serviceRequest.id, previewWindow);
+    } catch (err: any) {
+      toast.error("Servis formu açılamadı", { description: err?.message ?? "PDF oluşturulamadı." });
+    }
   };
 
   const makeHistoryItem = (prefix: string, text: string) => ({
@@ -2102,6 +2598,29 @@ function ServiceDetailDialog({
     );
     setNote("");
   };
+  const saveEditedNote = async () => {
+    const text = editingNoteText.trim();
+    if (!editingNoteId || !text) return;
+    await updateService(
+      serviceRequest.id,
+      withActivity("Not düzenlendi.", {
+        serviceNote: text,
+        noteHistory: (serviceRequest.noteHistory ?? []).map((item) =>
+          item.id === editingNoteId ? { ...item, text, byUserId: currentActorId } : item
+        ),
+      })
+    );
+    setEditingNoteId("");
+    setEditingNoteText("");
+  };
+  const deleteNote = async (id: string) => {
+    await updateService(
+      serviceRequest.id,
+      withActivity("Not silindi.", {
+        noteHistory: (serviceRequest.noteHistory ?? []).filter((item) => item.id !== id),
+      })
+    );
+  };
 
   const addComplaint = async () => {
     const text = complaint.trim();
@@ -2135,6 +2654,7 @@ function ServiceDetailDialog({
             quantity,
             unitPrice,
             currency: operationCurrency,
+            kind: "labor",
             createdAt: timestamp(),
             byUserId: currentActorId,
           },
@@ -2276,6 +2796,7 @@ function ServiceDetailDialog({
               quantity: qty,
               unitPrice: 0,
               currency: serviceCurrency,
+              kind: "part",
               createdAt: timestamp(),
               byUserId: currentActorId,
             },
@@ -2293,21 +2814,117 @@ function ServiceDetailDialog({
     }
   };
 
+  const rightFeed = [
+    ...(serviceRequest.noteHistory ?? []).map((item) => ({ ...item, kind: "Not" })),
+    ...(serviceRequest.activityHistory ?? []).map((item) => ({ ...item, kind: "Aktivite" })),
+  ].sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? ""));
+
+  const serviceRightPanel = (
+    <div className="space-y-4">
+      <div className="rounded-lg border border-border/60 bg-white px-3 py-3">
+        <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Durum</div>
+        <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+          <StatusBadge status={serviceRequest.stage} />
+          {machine && <span>{machine.model} · {machine.serialNumber}</span>}
+          {machine && <MachineWarrantyBadge warrantyEnd={machine.warrantyEnd} />}
+          {assignee && <span>Atanan: {assignee.name}</span>}
+        </div>
+        <div className="mt-2">
+          <ServiceIntakeBadges serviceRequest={serviceRequest} />
+        </div>
+      </div>
+
+      <Card className="border-border/60 bg-white">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base">Saha Süresi</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="text-3xl tabular-nums tracking-tight">{formatElapsed(elapsed)}</div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button size="sm" className="gap-1" onClick={startTimer} disabled={serviceRequest.timerStatus === "running"}>
+              <Play className="size-4" /> Başlat
+            </Button>
+            <Button size="sm" variant="outline" className="gap-1 bg-white" onClick={pauseTimer} disabled={serviceRequest.timerStatus !== "running"}>
+              <Pause className="size-4" /> Beklet
+            </Button>
+            <Button size="sm" variant="outline" className="gap-1 bg-white" onClick={stopTimer} disabled={serviceRequest.timerStatus === "idle" || serviceRequest.timerStatus === "stopped"}>
+              <Square className="size-4" /> Durdur
+            </Button>
+          </div>
+          <div className="rounded-md border border-border/60 bg-primary/5 px-3 py-2 text-sm flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+            <span>Servis Ücreti Kalemi</span>
+            <b className="tabular-nums">{moneyText(serviceFee, serviceCurrency)}</b>
+          </div>
+        </CardContent>
+      </Card>
+
+      <div className="rounded-lg border border-border/60 bg-white p-3">
+        <Textarea
+          value={note}
+          onChange={(event) => setNote(event.target.value)}
+          placeholder="Servis notu yaz..."
+          className="min-h-20 resize-none border-border/70"
+        />
+        <div className="mt-2 flex justify-end">
+          <Button size="sm" className="gap-1" onClick={addNote} disabled={!note.trim()}>
+            <Plus className="size-4" /> Not ekle
+          </Button>
+        </div>
+      </div>
+
+      <div className="space-y-3">
+        {rightFeed.map((item) => (
+          <div key={`${item.kind}-${item.id}`} className="space-y-1">
+            <div className="flex items-center gap-2 px-1 text-[11px] text-muted-foreground">
+              <span className="rounded bg-white px-1.5 py-0.5">{item.kind}</span>
+              {item.createdAt && <span className="tabular-nums">{item.createdAt}</span>}
+            </div>
+            <ServiceHistoryCard
+              text={item.text}
+              createdAt={item.createdAt}
+              actor={actorFor(item.byUserId)}
+            />
+          </div>
+        ))}
+        {rightFeed.length === 0 && (
+          <div className="rounded-lg border border-dashed border-border bg-white px-3 py-8 text-center text-sm text-muted-foreground">
+            Not veya aktivite yok.
+          </div>
+        )}
+      </div>
+    </div>
+  );
+
   return (
     <Dialog open={!!serviceRequest} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="flex flex-col w-[min(1120px,calc(100vw-2rem))] max-w-none sm:max-w-none max-h-[90dvh] overflow-hidden p-0 gap-0">
-        <DialogHeader className="shrink-0 border-b border-border/60 px-5 pt-5 pb-4 pr-12">
-          <DialogTitle className="flex min-w-0 items-center gap-2">
-            <Wrench className="size-5 text-primary" />
-            <span className="min-w-0 truncate">{customer?.name ?? "Firma bulunamadı"}</span>
-          </DialogTitle>
-          <DialogDescription className="flex items-center gap-2 flex-wrap">
-            <StatusBadge status={serviceRequest.stage} />
-            {machine && <span>{machine.model} · {machine.serialNumber}</span>}
-            {machine && <WarrantyBadge end={machine.warrantyEnd} />}
-            {assignee && <span>Atanan: {assignee.name}</span>}
-          </DialogDescription>
-          <ServiceIntakeBadges serviceRequest={serviceRequest} />
+      <DialogContent className="w-[min(1280px,calc(100vw-2rem))] max-w-none sm:max-w-none max-h-[92dvh] overflow-hidden p-0 gap-0">
+        <DialogHeader className="sr-only">
+          <DialogTitle>{customer?.name ?? "Servis talebi detayı"}</DialogTitle>
+          <DialogDescription className="sr-only">Servis talebi detayı; durum ve makine bilgisi sağ paneldedir.</DialogDescription>
+        </DialogHeader>
+        <KanbanDetailDialogShell
+          accentClassName={SERVICE_COLUMNS.find((col) => col.key === STAGE_TO_COLUMN[serviceRequest.stage])?.dot ?? "bg-primary"}
+          title={customer?.name ?? "Firma bulunamadı"}
+          subtitle={[serviceRequest.ticketNo, machine?.model, machine?.serialNumber].filter(Boolean).join(" · ") || serviceNoteText(serviceRequest)}
+          meta={
+            <>
+              <StatusBadge status={serviceRequest.stage} />
+              <span className="rounded-md bg-muted px-2.5 py-1 text-xs text-muted-foreground">{SERVICE_TICKET_TYPE_LABELS[serviceRequest.ticketType ?? "complaint"]}</span>
+              <span className="rounded-md bg-muted px-2.5 py-1 text-xs text-muted-foreground">Kaynak: {serviceSourceLabel(serviceRequest.source)}</span>
+            </>
+          }
+          actions={onDelete ? (
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 shrink-0 gap-1 bg-white text-red-600 hover:bg-red-50 hover:text-red-700"
+              onClick={() => onDelete(serviceRequest)}
+            >
+              <Trash2 className="size-3.5" /> Sil
+            </Button>
+          ) : undefined}
+          right={serviceRightPanel}
+        >
           {serviceRequest.sourceComplaint && (
             <div className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
               <div className="min-w-0">
@@ -2332,9 +2949,10 @@ function ServiceDetailDialog({
           <p className="text-xs text-muted-foreground bg-muted/50 border border-border/60 rounded-md px-3 py-2 mt-2">
             Sayaç, işlemler ve aktivite geçmişi sunucuya kaydedilir; not ve şikayet kayıtları ayrıca metin alanlarına yazılır.
           </p>
-        </DialogHeader>
 
-        <Tabs value={detailTab} onValueChange={setAllowedDetailTab} className="flex flex-1 min-h-0 flex-col">
+        {/* Gövde: sol sekmeler + sağ sabit özet panel (mobilde panel üstte, kendi scroll'u ile) */}
+        <div className="mt-4 min-h-0">
+        <Tabs value={detailTab} onValueChange={setAllowedDetailTab} className="flex flex-1 min-h-0 flex-col min-w-0">
           <div className="shrink-0 border-b border-border/60 px-5 py-3">
             <TabsList className="h-auto w-full justify-start overflow-x-auto">
               <TabsTrigger value="summary">Özet</TabsTrigger>
@@ -2357,42 +2975,24 @@ function ServiceDetailDialog({
                 {!feeTabEnabled && <Lock className="size-3" />}
                 Ücret
               </TabsTrigger>
+              <TabsTrigger value="completion" disabled={!completionTabEnabled} title="Servis Devam Ediyor aşamasından sonra açılır">
+                {!completionTabEnabled && <Lock className="size-3" />}
+                <FileCheck2 className="size-3.5" />
+                Tamamlanma Formu
+              </TabsTrigger>
             </TabsList>
           </div>
 
           <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
 
           <TabsContent value="summary" className="m-0 space-y-4">
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
-              <Card className="lg:col-span-2 border-border/60">
+            <div className="grid grid-cols-1 gap-3">
+              <Card className="border-border/60">
                 <CardHeader className="pb-2">
                   <CardTitle className="text-base">Servis Notu</CardTitle>
                 </CardHeader>
                 <CardContent>
                   <p className="text-sm text-muted-foreground whitespace-pre-wrap">{serviceNoteText(serviceRequest)}</p>
-                </CardContent>
-              </Card>
-              <Card className="border-border/60">
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-base">Saha Süresi</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  <div className="text-3xl tabular-nums tracking-tight">{formatElapsed(elapsed)}</div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Button size="sm" className="gap-1" onClick={startTimer} disabled={serviceRequest.timerStatus === "running"}>
-                      <Play className="size-4" /> Başlat
-                    </Button>
-                    <Button size="sm" variant="outline" className="gap-1" onClick={pauseTimer} disabled={serviceRequest.timerStatus !== "running"}>
-                      <Pause className="size-4" /> Beklet
-                    </Button>
-                    <Button size="sm" variant="outline" className="gap-1" onClick={stopTimer} disabled={serviceRequest.timerStatus === "idle" || serviceRequest.timerStatus === "stopped"}>
-                      <Square className="size-4" /> Durdur
-                    </Button>
-                  </div>
-                  <div className="rounded-md border border-border/60 bg-primary/5 px-3 py-2 text-sm flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-                    <span>Servis Ücreti Kalemi</span>
-                    <b className="tabular-nums">{moneyText(serviceFee, serviceCurrency)}</b>
-                  </div>
                 </CardContent>
               </Card>
             </div>
@@ -2439,7 +3039,7 @@ function ServiceDetailDialog({
             </div>
           </TabsContent>
 
-          <TabsContent value="quote" className="m-0">
+          <TabsContent value="quote" className="m-0 space-y-4">
             <ServiceQuoteEditor
               key={serviceRequest.id}
               serviceRequest={serviceRequest}
@@ -2453,6 +3053,19 @@ function ServiceDetailDialog({
                 )
               }
             />
+
+            <Card className="border-border/60">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base">Teklif Ekleri</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <ServiceCardAttachments
+                  serviceRequestId={serviceRequest.id}
+                  docs={warrantyDocs}
+                  onPreview={setQuotePreviewDoc}
+                />
+              </CardContent>
+            </Card>
           </TabsContent>
 
           <TabsContent value="machine" className="m-0 space-y-4">
@@ -2837,12 +3450,33 @@ function ServiceDetailDialog({
                 </div>
                 <div className="space-y-2">
                   {(serviceRequest.noteHistory ?? []).map((item) => (
-                    <ServiceHistoryCard
-                      key={item.id}
-                      text={item.text}
-                      createdAt={item.createdAt}
-                      actor={actorFor(item.byUserId)}
-                    />
+                    <div key={item.id} className="rounded-lg border border-border/60 bg-white p-2">
+                      {editingNoteId === item.id ? (
+                        <div className="space-y-2">
+                          <Textarea value={editingNoteText} onChange={(e) => setEditingNoteText(e.target.value)} className="min-h-24" />
+                          <div className="flex justify-end gap-2">
+                            <Button size="sm" variant="outline" onClick={() => { setEditingNoteId(""); setEditingNoteText(""); }}>İptal</Button>
+                            <Button size="sm" className="gap-1" onClick={saveEditedNote}><Save className="size-3.5" /> Kaydet</Button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="space-y-2">
+                          <ServiceHistoryCard
+                            text={item.text}
+                            createdAt={item.createdAt}
+                            actor={actorFor(item.byUserId)}
+                          />
+                          <div className="flex justify-end gap-1">
+                            <Button size="sm" variant="ghost" className="h-7 px-2" onClick={() => { setEditingNoteId(item.id); setEditingNoteText(item.text); }}>
+                              Düzenle
+                            </Button>
+                            <Button size="sm" variant="ghost" className="h-7 px-2 text-red-600 hover:text-red-700" onClick={() => deleteNote(item.id)}>
+                              Sil
+                            </Button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
                   ))}
                   {(serviceRequest.noteHistory ?? []).length === 0 && <div className="text-sm text-muted-foreground">Not kaydı yok.</div>}
                 </div>
@@ -3028,10 +3662,531 @@ function ServiceDetailDialog({
               </CardContent>
             </Card>
           </TabsContent>
+
+          <TabsContent value="completion" className="m-0 space-y-4">
+            <ServiceCompletionEditor
+              key={`completion-${serviceRequest.id}`}
+              serviceRequest={serviceRequest}
+              customer={customer}
+              contact={contact}
+              machine={machine}
+              assigneeName={assignee?.name}
+              onSave={async (form, options) => {
+                const isClosing = Boolean(options?.closeAfterSave);
+                await updateService(
+                  serviceRequest.id,
+                  withActivity(isClosing ? "Servis tamamlama formu imzalandı ve servis kapatıldı." : "Servis tamamlama formu güncellendi.", {
+                    completionForm: form,
+                  }),
+                );
+                if (isClosing && serviceRequest.stage !== "Closed") {
+                  try {
+                    await moveService(serviceRequest.id, "Closed");
+                  } catch (err: any) {
+                    toast.error("Servis kapatılamadı", { description: err?.message ?? "Aşama güncellenemedi." });
+                    return;
+                  }
+                }
+                toast.success(isClosing ? "Servis kapatıldı" : "Tamamlama formu kaydedildi");
+              }}
+              onPrint={openServiceFormPdf}
+            />
+          </TabsContent>
           </div>
         </Tabs>
+        </div>
+      </KanbanDetailDialogShell>
       </DialogContent>
       <DocumentPreviewDialog doc={warrantyPreviewDoc} onClose={() => setWarrantyPreviewDoc(null)} />
+      <DocumentPreviewDialog doc={quotePreviewDoc} onClose={() => setQuotePreviewDoc(null)} />
     </Dialog>
+  );
+}
+
+function ServiceCompletionEditor({
+  serviceRequest,
+  customer,
+  contact,
+  machine,
+  assigneeName,
+  onSave,
+  onPrint,
+}: {
+  serviceRequest: ServiceRequest;
+  customer?: Customer | null;
+  contact?: Contact | null;
+  machine?: Machine | null;
+  assigneeName?: string;
+  onSave: (form: ServiceCompletionForm, options?: { closeAfterSave?: boolean }) => Promise<void>;
+  onPrint: (form: ServiceCompletionForm, previewWindow?: Window | null) => Promise<void> | void;
+}) {
+  const isClosed = serviceRequest.stage === "Closed";
+  const fallback = buildDefaultCompletionForm({ s: serviceRequest, customer, contact, machine, assignee: { name: assigneeName } });
+  const initial = mergeCompletionForm(serviceRequest.completionForm, fallback);
+  const [draft, setDraft] = useState<ServiceCompletionForm>(initial);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    setDraft(mergeCompletionForm(serviceRequest.completionForm, fallback));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [serviceRequest.id, serviceRequest.completionForm, serviceRequest.machineId, serviceRequest.customerId]);
+
+  const update = <K extends keyof ServiceCompletionForm>(key: K, value: ServiceCompletionForm[K]) => {
+    setDraft((prev) => ({ ...prev, [key]: value }));
+  };
+  const updateGroup = <G extends "tezgah" | "cnc" | "kullanici">(group: G, field: string, value: string) => {
+    setDraft((prev) => ({ ...prev, [group]: { ...(prev[group] ?? {}), [field]: value } }));
+  };
+  const updatePart = (id: string, patch: Partial<ServiceCompletionPart>) => {
+    setDraft((prev) => ({
+      ...prev,
+      degisenParcalar: (prev.degisenParcalar ?? []).map((part) => part.id === id ? { ...part, ...patch } : part),
+    }));
+  };
+  const addPart = () => {
+    if ((draft.degisenParcalar?.length ?? 0) >= 6) return;
+    setDraft((prev) => ({
+      ...prev,
+      degisenParcalar: [
+        ...(prev.degisenParcalar ?? []),
+        { id: `service-part-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, description: "", quantity: 1, unitPrice: 0 },
+      ],
+    }));
+  };
+  const removePart = (id: string) => {
+    setDraft((prev) => ({ ...prev, degisenParcalar: (prev.degisenParcalar ?? []).filter((part) => part.id !== id) }));
+  };
+
+  const buildPayload = (markSigned: boolean): ServiceCompletionForm => ({
+    ...draft,
+    degisenParcalar: (draft.degisenParcalar ?? [])
+      .map((part) => ({
+        ...part,
+        description: part.description.trim(),
+        quantity: Math.max(1, Number(part.quantity) || 1),
+        unitPrice: Math.max(0, Number(part.unitPrice) || 0),
+      }))
+      .filter((part) => part.description),
+    servisUcreti: Math.max(0, Number(draft.servisUcreti) || 0),
+    ulasimUcreti: Math.max(0, Number(draft.ulasimUcreti) || 0),
+    signedAt: markSigned ? new Date().toISOString() : draft.signedAt,
+  });
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      const payload = buildPayload(false);
+      await onSave(payload);
+      setDraft(payload);
+    } finally {
+      setSaving(false);
+    }
+  };
+  const handlePrint = async () => {
+    const previewWindow = window.open("", "_blank");
+    if (previewWindow) {
+      previewWindow.opener = null;
+      previewWindow.document.title = "Servis formu hazırlanıyor";
+      previewWindow.document.body.textContent = "Servis formu hazırlanıyor...";
+    }
+    setSaving(true);
+    try {
+      const payload = buildPayload(false);
+      if (!isClosed) {
+        await onSave(payload);
+        setDraft(payload);
+      }
+      await onPrint(payload, previewWindow);
+    } catch (error) {
+      previewWindow?.close();
+      throw error;
+    } finally {
+      setSaving(false);
+    }
+  };
+  const handleClose = async () => {
+    const missing = [
+      !draft.serviceType && "Servis tipi",
+      !draft.responsibility && "Yükümlülük",
+      !draft.yapilanIsler?.trim() && "Yapılan işlemler",
+      !draft.kurulumuYapan?.trim() && "Servis yetkilisi",
+      !draft.teslimAlan?.trim() && "Firma yetkilisi",
+    ].filter(Boolean);
+    if (missing.length) {
+      toast.error("Servis formu tamamlanmadı", { description: `Eksik alanlar: ${missing.join(", ")}.` });
+      return;
+    }
+    if (!window.confirm("Servisi kapatmak istediğinize emin misiniz? Form imzalandı olarak işaretlenecek ve servis aşaması Kapandı olacak.")) {
+      return;
+    }
+    setSaving(true);
+    try {
+      const payload = buildPayload(true);
+      await onSave(payload, { closeAfterSave: true });
+      setDraft(payload);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const partsTotal = (draft.degisenParcalar ?? []).reduce(
+    (sum, part) => sum + (Number(part.quantity) || 0) * (Number(part.unitPrice) || 0),
+    0,
+  );
+  const grandTotal = partsTotal + (Number(draft.servisUcreti) || 0) + (Number(draft.ulasimUcreti) || 0);
+
+  return (
+    <div className="space-y-4">
+      <div className="rounded-lg border border-border/60 bg-muted/30 px-3 py-2 text-sm flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <FileCheck2 className="size-4 text-primary" />
+          <span className="font-medium">Doktor Makina Servis Formu</span>
+          {draft.signedAt && (
+            <Badge variant="outline" className="border-emerald-200 bg-emerald-50 text-emerald-700">
+              İmzalandı · {draft.signedAt.slice(0, 16).replace("T", " ")}
+            </Badge>
+          )}
+          {isClosed && <Badge variant="outline" className="border-zinc-300 bg-zinc-50 text-zinc-700">Servis kapandı</Badge>}
+        </div>
+        <span className="text-xs text-muted-foreground">PDF: Doktor Makina Servis Formu şablonu ile oluşturulur.</span>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div>
+          <Label>Form No</Label>
+          <Input className="mt-1" value={draft.formNo ?? ""} onChange={(e) => update("formNo", e.target.value)} disabled={isClosed} />
+        </div>
+        <div>
+          <Label>Servis Tarihi</Label>
+          <Input className="mt-1" type="date" value={draft.kurulumTarihi ?? ""} onChange={(e) => update("kurulumTarihi", e.target.value)} disabled={isClosed} />
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+        <Card className="border-border/60">
+          <CardHeader className="pb-3"><CardTitle className="text-base">Tezgah Bilgileri</CardTitle></CardHeader>
+          <CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div><Label>Tezgah Markası</Label><Input className="mt-1" value={draft.tezgah?.marka ?? ""} onChange={(e) => updateGroup("tezgah", "marka", e.target.value)} disabled={isClosed} /></div>
+            <div><Label>Tezgah Tipi</Label><Input className="mt-1" value={draft.tezgah?.tip ?? ""} onChange={(e) => updateGroup("tezgah", "tip", e.target.value)} disabled={isClosed} /></div>
+            <div><Label>Tezgah Modeli</Label><Input className="mt-1" value={draft.tezgah?.model ?? ""} onChange={(e) => updateGroup("tezgah", "model", e.target.value)} disabled={isClosed} /></div>
+            <div><Label>Tezgah Seri No</Label><Input className="mt-1" value={draft.tezgah?.seriNo ?? ""} onChange={(e) => updateGroup("tezgah", "seriNo", e.target.value)} disabled={isClosed} /></div>
+          </CardContent>
+        </Card>
+        <Card className="border-border/60">
+          <CardHeader className="pb-3"><CardTitle className="text-base">Kontrol Ünitesi Bilgileri</CardTitle></CardHeader>
+          <CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div><Label>Cnc Markası</Label><Input className="mt-1" value={draft.cnc?.marka ?? ""} onChange={(e) => updateGroup("cnc", "marka", e.target.value)} disabled={isClosed} /></div>
+            <div><Label>Cnc Modeli</Label><Input className="mt-1" value={draft.cnc?.model ?? ""} onChange={(e) => updateGroup("cnc", "model", e.target.value)} disabled={isClosed} /></div>
+            <div><Label>Cnc Seri No</Label><Input className="mt-1" value={draft.cnc?.seriNo ?? ""} onChange={(e) => updateGroup("cnc", "seriNo", e.target.value)} disabled={isClosed} /></div>
+            <div><Label>Cnc Main S/W</Label><Input className="mt-1" value={draft.cnc?.mainSw ?? ""} onChange={(e) => updateGroup("cnc", "mainSw", e.target.value)} disabled={isClosed} /></div>
+          </CardContent>
+        </Card>
+      </div>
+
+      <Card className="border-border/60">
+        <CardHeader className="pb-3"><CardTitle className="text-base">Kullanıcı Bilgileri</CardTitle></CardHeader>
+        <CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className="sm:col-span-2"><Label>Firma</Label><Input className="mt-1" value={draft.kullanici?.firma ?? ""} onChange={(e) => updateGroup("kullanici", "firma", e.target.value)} disabled={isClosed} /></div>
+          <div><Label>İlgili</Label><Input className="mt-1" value={draft.kullanici?.ilgili ?? ""} onChange={(e) => updateGroup("kullanici", "ilgili", e.target.value)} disabled={isClosed} /></div>
+          <div><Label>Telefon</Label><Input className="mt-1" value={draft.kullanici?.telefon ?? ""} onChange={(e) => updateGroup("kullanici", "telefon", e.target.value)} disabled={isClosed} /></div>
+          <div className="sm:col-span-2"><Label>Adres</Label><Textarea className="mt-1 min-h-20" value={draft.kullanici?.adres ?? ""} onChange={(e) => updateGroup("kullanici", "adres", e.target.value)} disabled={isClosed} /></div>
+          <div><Label>Faks</Label><Input className="mt-1" value={draft.kullanici?.faks ?? ""} onChange={(e) => updateGroup("kullanici", "faks", e.target.value)} disabled={isClosed} /></div>
+          <div><Label>Gsm</Label><Input className="mt-1" value={draft.kullanici?.gsm ?? ""} onChange={(e) => updateGroup("kullanici", "gsm", e.target.value)} disabled={isClosed} /></div>
+          <div><Label>E-Posta</Label><Input className="mt-1" type="email" value={draft.kullanici?.eposta ?? ""} onChange={(e) => updateGroup("kullanici", "eposta", e.target.value)} disabled={isClosed} /></div>
+          <div><Label>Vergi Dairesi</Label><Input className="mt-1" value={draft.kullanici?.vergiDairesi ?? ""} onChange={(e) => updateGroup("kullanici", "vergiDairesi", e.target.value)} disabled={isClosed} /></div>
+          <div><Label>Vergi No</Label><Input className="mt-1" value={draft.kullanici?.vergiNo ?? ""} onChange={(e) => updateGroup("kullanici", "vergiNo", e.target.value)} disabled={isClosed} /></div>
+        </CardContent>
+      </Card>
+
+      <Card className="border-border/60">
+        <CardHeader className="pb-3"><CardTitle className="text-base">Servis Bilgileri</CardTitle></CardHeader>
+        <CardContent className="space-y-3">
+          <div>
+            <Label>Müşteri Şikayeti</Label>
+            <Textarea className="mt-1 min-h-24" value={draft.musteriSikayeti ?? ""} onChange={(e) => update("musteriSikayeti", e.target.value)} disabled={isClosed} placeholder="Servis talebindeki müşteri şikayeti..." />
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <Label>Servis Tipi</Label>
+              <Select value={draft.serviceType} onValueChange={(value) => update("serviceType", value as ServiceFormType)} disabled={isClosed}>
+                <SelectTrigger className="mt-1"><SelectValue placeholder="Servis tipi seçin" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="montaj">Montaj</SelectItem>
+                  <SelectItem value="ariza">Arıza</SelectItem>
+                  <SelectItem value="periyodik">Periyodik Bakım</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label>Yükümlülük</Label>
+              <Select value={draft.responsibility} onValueChange={(value) => update("responsibility", value as ServiceFormResponsibility)} disabled={isClosed}>
+                <SelectTrigger className="mt-1"><SelectValue placeholder="Yükümlülük seçin" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ucretli">Ücretli</SelectItem>
+                  <SelectItem value="garanti">Garanti</SelectItem>
+                  <SelectItem value="bakim">Bakım Anlaşması</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <div>
+            <Label>Yapılan İşlemler</Label>
+            <Textarea className="mt-1 min-h-28" value={draft.yapilanIsler ?? ""} onChange={(e) => update("yapilanIsler", e.target.value)} disabled={isClosed} placeholder="Sahada gerçekleştirilen işlemleri özetleyin..." />
+          </div>
+          <div>
+            <Label>Ek Notlar</Label>
+            <Textarea className="mt-1 min-h-20" value={draft.notlar ?? ""} onChange={(e) => update("notlar", e.target.value)} disabled={isClosed} placeholder="Varsa yapılan işlemler alanının devamına eklenir..." />
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card className="border-border/60">
+        <CardHeader className="flex flex-row items-center justify-between gap-3 pb-3">
+          <CardTitle className="text-base">Değişen Parçalar</CardTitle>
+          {!isClosed && (
+            <Button type="button" size="sm" variant="outline" className="gap-1" onClick={addPart} disabled={(draft.degisenParcalar?.length ?? 0) >= 6}>
+              <Plus className="size-4" /> Parça ekle
+            </Button>
+          )}
+        </CardHeader>
+        <CardContent>
+          <div className="overflow-x-auto rounded-lg border border-border/60">
+            <Table className="min-w-[720px]">
+              <TableHeader>
+                <TableRow className="bg-muted/30 hover:bg-muted/30">
+                  <TableHead>Parça Açıklaması</TableHead>
+                  <TableHead className="w-28">Miktar</TableHead>
+                  <TableHead className="w-40">Birim Fiyatı</TableHead>
+                  <TableHead className="w-40 text-right">Tutar</TableHead>
+                  <TableHead className="w-12" />
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {(draft.degisenParcalar ?? []).length === 0 ? (
+                  <TableRow><TableCell colSpan={5} className="h-16 text-center text-muted-foreground">Değişen parça yok.</TableCell></TableRow>
+                ) : (draft.degisenParcalar ?? []).map((part) => (
+                  <TableRow key={part.id}>
+                    <TableCell><Input value={part.description} onChange={(e) => updatePart(part.id, { description: e.target.value })} disabled={isClosed} /></TableCell>
+                    <TableCell><Input type="number" min="1" step="1" value={part.quantity} onChange={(e) => updatePart(part.id, { quantity: Math.max(1, Number(e.target.value) || 1) })} disabled={isClosed} /></TableCell>
+                    <TableCell><Input type="number" min="0" step="0.01" value={part.unitPrice} onChange={(e) => updatePart(part.id, { unitPrice: Math.max(0, Number(e.target.value) || 0) })} disabled={isClosed} /></TableCell>
+                    <TableCell className="text-right tabular-nums">{moneyText(part.quantity * part.unitPrice, draft.currency ?? "TRY")}</TableCell>
+                    <TableCell className="text-right">
+                      {!isClosed && <Button type="button" variant="ghost" size="icon" className="size-8" onClick={() => removePart(part.id)} title="Parçayı kaldır"><Trash2 className="size-4" /></Button>}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card className="border-border/60">
+        <CardHeader className="pb-3"><CardTitle className="text-base">Ücretler</CardTitle></CardHeader>
+        <CardContent className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          <div>
+            <Label>Para Birimi</Label>
+            <Select value={draft.currency ?? "TRY"} onValueChange={(value) => update("currency", value as ServiceCompletionForm["currency"])} disabled={isClosed}>
+              <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+              <SelectContent>{SERVICE_CURRENCIES.map((currency) => <SelectItem key={currency} value={currency}>{currency}</SelectItem>)}</SelectContent>
+            </Select>
+          </div>
+          <div><Label>Servis Ücreti (İşçilik)</Label><Input className="mt-1" type="number" min="0" step="0.01" value={draft.servisUcreti ?? 0} onChange={(e) => update("servisUcreti", Math.max(0, Number(e.target.value) || 0))} disabled={isClosed} /></div>
+          <div><Label>Ulaşım Ücreti</Label><Input className="mt-1" type="number" min="0" step="0.01" value={draft.ulasimUcreti ?? 0} onChange={(e) => update("ulasimUcreti", Math.max(0, Number(e.target.value) || 0))} disabled={isClosed} /></div>
+          <div><Label>Toplam (K.D.V. Hariç)</Label><div className="mt-1 flex h-9 items-center justify-end rounded-md border border-border bg-muted/30 px-3 font-semibold tabular-nums">{moneyText(grandTotal, draft.currency ?? "TRY")}</div></div>
+        </CardContent>
+      </Card>
+
+      <Card className="border-border/60">
+        <CardHeader className="pb-3"><CardTitle className="text-base">İmza Bilgileri</CardTitle></CardHeader>
+        <CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div><Label>Servisi Yapan (Ad, Soyad)</Label><Input className="mt-1" value={draft.kurulumuYapan ?? ""} onChange={(e) => update("kurulumuYapan", e.target.value)} disabled={isClosed} /></div>
+          <div><Label>Tezgahı Teslim Alan (Ad, Soyad)</Label><Input className="mt-1" value={draft.teslimAlan ?? ""} onChange={(e) => update("teslimAlan", e.target.value)} disabled={isClosed} /></div>
+        </CardContent>
+      </Card>
+
+      <div className="flex flex-wrap justify-end gap-2">
+        <Button variant="outline" className="gap-1" disabled={saving} onClick={handlePrint}>
+          <Printer className="size-4" /> Önizleme / PDF
+        </Button>
+        {!isClosed && (
+          <Button variant="outline" className="gap-1" disabled={saving} onClick={handleSave}>
+            <Check className="size-4" /> Kaydet
+          </Button>
+        )}
+        {!isClosed && (
+          <Button className="gap-1 bg-emerald-600 hover:bg-emerald-700" disabled={saving} onClick={handleClose}>
+            <Lock className="size-4" /> Servisi Kapat
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ServiceHistoryView({
+  query,
+  onQueryChange,
+  items,
+  customers,
+  machines,
+  users,
+  onOpen,
+}: {
+  query: string;
+  onQueryChange: (value: string) => void;
+  items: ServiceRequest[];
+  customers: Customer[];
+  machines: Machine[];
+  users: User[];
+  onOpen: (s: ServiceRequest) => void;
+}) {
+  const closed = items
+    .filter((s) => s.stage === "Closed")
+    .sort((a, b) => {
+      const aT = new Date(a.closedAt ?? a.createdAt).getTime();
+      const bT = new Date(b.closedAt ?? b.createdAt).getTime();
+      return bT - aT;
+    });
+
+  const q = query.trim().toLocaleLowerCase("tr-TR");
+  const filtered = q
+    ? closed.filter((s) => {
+        const cust = customers.find((c) => c.id === s.customerId);
+        const machine = machines.find((m) => m.id === s.machineId);
+        const hay = [
+          cust?.name,
+          machine?.model,
+          machine?.serialNumber,
+          s.ticketNo,
+          s.description,
+          s.serviceNote,
+          s.completionForm?.formNo,
+          s.completionForm?.yapilanIsler,
+          s.completionForm?.notlar,
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .toLocaleLowerCase("tr-TR");
+        return hay.includes(q);
+      })
+    : closed;
+
+  const handlePrint = async (s: ServiceRequest) => {
+    try {
+      await serviceService.openServiceFormPdf(s.id, s.ticketNo || s.id);
+    } catch (err: any) {
+      toast.error("Servis formu açılamadı", { description: err?.message ?? "PDF oluşturulamadı." });
+    }
+  };
+
+  return (
+    <Card className="border-border/60 shadow-sm overflow-hidden">
+      <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <CardTitle className="flex items-center gap-2"><History className="size-5" /> Servis Geçmişi</CardTitle>
+          <div className="mt-1 text-sm text-muted-foreground">
+            Kapatılmış servisler ve imzalanan tamamlama formları.
+          </div>
+        </div>
+        <div className="flex w-full max-w-sm items-center gap-2">
+          <Input
+            placeholder="Firma, makine, form no, not içinde ara..."
+            value={query}
+            onChange={(e) => onQueryChange(e.target.value)}
+          />
+        </div>
+      </CardHeader>
+      <div className="overflow-x-auto">
+        <Table className="min-w-[960px]">
+          <TableHeader>
+            <TableRow>
+              <TableHead>Firma</TableHead>
+              <TableHead>Makine</TableHead>
+              <TableHead>Form</TableHead>
+              <TableHead>Kontroller</TableHead>
+              <TableHead>Servisi Yapan</TableHead>
+              <TableHead>Kapanış</TableHead>
+              <TableHead className="w-28 text-right">İşlem</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {filtered.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={7} className="h-24 text-center text-muted-foreground">
+                  Henüz kapatılmış servis kaydı yok.
+                </TableCell>
+              </TableRow>
+            ) : (
+              filtered.map((s) => {
+                const customer = customers.find((c) => c.id === s.customerId);
+                const machine = machines.find((m) => m.id === s.machineId);
+                const assignee = users.find((u) => u.id === s.assignedUserId);
+                const cf = s.completionForm;
+                const total = cf?.checks?.length ?? 0;
+                const done = cf?.checks?.filter((c) => c.status === "done").length ?? 0;
+                const signed = cf?.signedAt ? cf.signedAt.slice(0, 16).replace("T", " ") : null;
+                return (
+                  <TableRow
+                    key={s.id}
+                    className="cursor-pointer"
+                    onClick={() => onOpen(s)}
+                  >
+                    <TableCell className="font-medium">{customer?.name ?? "—"}</TableCell>
+                    <TableCell className="text-muted-foreground">
+                      {machine ? `${machine.model ?? ""} · ${machine.serialNumber ?? ""}` : "—"}
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex flex-col">
+                        <span className="font-medium">{cf?.formNo || s.ticketNo || s.id}</span>
+                        {signed && <span className="text-xs text-emerald-700">İmzalandı · {signed}</span>}
+                        {!cf && <span className="text-xs text-muted-foreground">Form doldurulmamış</span>}
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      {total > 0 ? (
+                        <Badge variant="outline" className="bg-white">{done}/{total}</Badge>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">—</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-muted-foreground">{cf?.kurulumuYapan || assignee?.name || "—"}</TableCell>
+                    <TableCell className="text-muted-foreground tabular-nums">{s.closedAt ?? s.createdAt}</TableCell>
+                    <TableCell className="text-right">
+                      <div className="flex items-center justify-end gap-1">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="size-7"
+                          title="Servis formu PDF"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            handlePrint(s);
+                          }}
+                        >
+                          <FileText className="size-4 text-muted-foreground hover:text-primary" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="size-7"
+                          title="Kaydı aç"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            onOpen(s);
+                          }}
+                        >
+                          <ArrowRight className="size-4 text-muted-foreground hover:text-primary" />
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                );
+              })
+            )}
+          </TableBody>
+        </Table>
+      </div>
+    </Card>
   );
 }

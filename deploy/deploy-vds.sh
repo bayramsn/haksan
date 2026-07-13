@@ -7,7 +7,7 @@
 #   ./deploy/deploy-vds.sh --first-run  # ilk kurulum (bootstrap + systemd)
 #
 # Ortam değişkenleri:
-#   APP_ROOT, VITE_API_BASE_URL, SKIP_GIT_PULL=1, SKIP_BACKUP=1, SKIP_SMOKE=1
+#   APP_ROOT, VITE_API_BASE_URL, SKIP_GIT_PULL=1, SKIP_SMOKE=1
 set -euo pipefail
 
 APP_ROOT="${APP_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
@@ -29,7 +29,7 @@ die() { echo "[deploy] HATA: $*" >&2; exit 1; }
 
 # ── Ön kontroller ──
 NODE_MAJOR="$(node -v | sed 's/v//' | cut -d. -f1)"
-[[ "$NODE_MAJOR" == "20" ]] || die "Node 20 gerekli (mevcut: $(node -v))"
+[[ "$NODE_MAJOR" == "22" ]] || die "Node 22 gerekli (mevcut: $(node -v))"
 
 ENV_FILE="$APP_ROOT/apps/api/.env"
 [[ -f "$ENV_FILE" ]] || die "apps/api/.env yok — önce deploy/.env.production.example kopyalayın"
@@ -46,12 +46,9 @@ if [[ -z "${VITE_API_BASE_URL:-}" ]]; then
 fi
 
 # ── Yedek ──
-if [[ "${SKIP_BACKUP:-}" != "1" ]] && [[ "$FIRST_RUN" != "1" ]]; then
-  if command -v pg_dump >/dev/null 2>&1; then
-    APP_ROOT="$APP_ROOT" bash "$APP_ROOT/deploy/backup-db.sh"
-  else
-    log "pg_dump yok — yedek atlandı (postgresql-client kurun)"
-  fi
+if [[ "$FIRST_RUN" != "1" ]]; then
+  command -v pg_dump >/dev/null 2>&1 || die "pg_dump gerekli; doğrulanmış yedek olmadan deploy yapılamaz"
+  APP_ROOT="$APP_ROOT" bash "$APP_ROOT/deploy/backup-db.sh"
 fi
 
 # ── Kod güncelle ──
@@ -88,12 +85,7 @@ VITE_API_BASE_URL="$VITE_API_BASE_URL" npm run build:web
 # ── Offsite backup (R2/S3) — migrate öncesi, dist hazır olduktan sonra ──
 if grep -qE '^DB_BACKUP_ENABLED=true' "$ENV_FILE" 2>/dev/null; then
   log "db:backup (R2/S3 offsite)"
-  if ! node apps/api/dist/db/backup.js; then
-    if grep -qE '^DB_BACKUP_REQUIRED=true' "$ENV_FILE" 2>/dev/null; then
-      die "Offsite backup başarısız (DB_BACKUP_REQUIRED=true)"
-    fi
-    log "Offsite backup atlandı/başarısız — devam (DB_BACKUP_REQUIRED!=true)"
-  fi
+  node apps/api/dist/db/backup.js || die "Offsite backup başarısız; migration durduruldu"
 fi
 
 # ── Migrate (başarısızsa restart yok) ──

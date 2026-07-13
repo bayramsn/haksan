@@ -11,20 +11,31 @@ export const quoteCreateSchema = z.object({
   validityDays: z.coerce.number().int().min(1).max(365).default(30),
   projectOwnerUserId: z.string().optional(),
   currencyCode: z.string().max(8).default('USD'),
+  headerDiscountAmount: moneySchema.default(0),
+  headerDiscountPercent: percentSchema.default(0),
   paymentTerms: z.string().max(2000).optional(),
   deliveryTerms: z.string().max(2000).optional(),
   warrantyTerms: z.string().max(2000).optional(),
   notes: z.string().max(4000).optional(),
 });
-export type QuoteCreateInput = z.infer<typeof quoteCreateSchema>;
+type QuoteCreateParsed = z.infer<typeof quoteCreateSchema>;
+export type QuoteCreateInput = Omit<QuoteCreateParsed, 'headerDiscountAmount' | 'headerDiscountPercent'> & {
+  headerDiscountAmount?: number;
+  headerDiscountPercent?: number;
+};
 
 export const quoteUpdateSchema = quoteCreateSchema.partial();
-export type QuoteUpdateInput = z.infer<typeof quoteUpdateSchema>;
+export type QuoteUpdateInput = Partial<QuoteCreateInput>;
 
 // Opsiyonel donanım / yedek parça kalemleri için uyumluluk seçimleri (çoklu).
 export const quoteItemTechnicalSpecSchema = z.object({
   key: z.string().min(1).max(255),
   value: z.string().max(2000),
+  unit: z.string().max(64).optional(),
+  specUnit: z.string().max(64).optional(),
+  groupCode: z.string().max(64).optional(),
+  groupName: z.string().max(255).optional(),
+  group: z.string().max(255).optional(),
 });
 
 export const quoteItemCompatibilitySchema = z.object({
@@ -39,6 +50,7 @@ export type QuoteItemCompatibility = z.infer<typeof quoteItemCompatibilitySchema
 export const quoteItemCreateSchema = z.object({
   productModelId: z.string().optional(),
   inventoryItemId: z.string().optional(),
+  stockCode: z.string().max(64).optional(),
   description: z.string().min(1).max(2000),
   quantity: z.coerce.number().positive().multipleOf(0.001),
   unitCode: z.string().max(16).default('adet'),
@@ -66,7 +78,7 @@ export type QuoteTermsUpsertInput = z.infer<typeof quoteTermsUpsertSchema>;
 
 export const proformaCreateSchema = z.object({
   quoteId: z.string().min(1),
-  documentNo: z.string().min(1).max(64),
+  documentNo: z.string().trim().min(1).max(64).optional(),
   issueDate: z.coerce.date(),
   statusCode: z.string().max(64).default('draft'),
   fileId: z.string().optional(),
@@ -78,8 +90,9 @@ export type ProformaUpdateInput = z.infer<typeof proformaUpdateSchema>;
 
 export const contractCreateSchema = z.object({
   quoteId: z.string().min(1),
-  contractNo: z.string().min(1).max(64),
+  contractNo: z.string().trim().min(1).max(64).optional(),
   signedDate: z.coerce.date().optional(),
+  paymentTermDays: z.coerce.number().int().min(0).max(3650).optional(),
   statusCode: z.string().max(64).default('draft'),
   fileId: z.string().optional(),
 });
@@ -90,7 +103,7 @@ export type ContractUpdateInput = z.infer<typeof contractUpdateSchema>;
 
 export const commercialInvoiceCreateSchema = z.object({
   quoteId: z.string().min(1),
-  invoiceNo: z.string().min(1).max(64),
+  invoiceNo: z.string().trim().min(1).max(64).optional(),
   invoiceDate: z.coerce.date(),
   statusCode: z.string().max(64).default('draft'),
   fileId: z.string().optional(),

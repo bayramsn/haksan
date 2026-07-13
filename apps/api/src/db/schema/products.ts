@@ -1,6 +1,8 @@
 import { pgTable, uuid, varchar, text, boolean, integer, timestamp, index, uniqueIndex } from 'drizzle-orm/pg-core';
+import { sql } from 'drizzle-orm';
 import { auditColumns, money, percent } from './_helpers';
-import { tenants } from './tenants';
+import { tenants, divisions } from './tenants';
+import { companies } from './companies';
 import {
   productGroups,
   productCategories,
@@ -45,6 +47,8 @@ export const productModels = pgTable(
     categoryId: uuid('category_id').references(() => productCategories.id),
     subcategoryId: uuid('subcategory_id').references(() => productSubcategories.id),
     productTypeId: uuid('product_type_id').references(() => productTypes.id),
+    compatibleMachineTypeId: uuid('compatible_machine_type_id').references(() => productTypes.id),
+    supplierCompanyId: uuid('supplier_company_id').references(() => companies.id, { onDelete: 'set null' }),
     modelCode: varchar('model_code', { length: 128 }).notNull(),
     modelName: varchar('model_name', { length: 255 }),
     fullName: varchar('full_name', { length: 512 }).notNull(),
@@ -66,7 +70,60 @@ export const productModels = pgTable(
     tenantModelCodeUnique: uniqueIndex('product_models_tenant_model_code_unique').on(t.tenantId, t.modelCode),
     tenantIdx: index('product_models_tenant_idx').on(t.tenantId),
     brandIdx: index('product_models_brand_idx').on(t.brandId),
+    supplierIdx: index('product_models_supplier_idx').on(t.supplierCompanyId),
     fullNameIdx: index('product_models_full_name_idx').on(t.fullName),
+    compatibleMachineTypeIdx: index('product_models_compatible_machine_type_idx').on(t.tenantId, t.categoryId, t.compatibleMachineTypeId),
+  })
+);
+
+export const productAlternatives = pgTable(
+  'product_alternatives',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id')
+      .notNull()
+      .references(() => tenants.id, { onDelete: 'cascade' }),
+    productModelId: uuid('product_model_id')
+      .notNull()
+      .references(() => productModels.id, { onDelete: 'cascade' }),
+    alternativeProductModelId: uuid('alternative_product_model_id')
+      .notNull()
+      .references(() => productModels.id, { onDelete: 'cascade' }),
+    ...auditColumns,
+  },
+  (t) => ({
+    tenantIdx: index('product_alternatives_tenant_idx').on(t.tenantId),
+    productIdx: index('product_alternatives_product_idx').on(t.productModelId),
+    alternativeIdx: index('product_alternatives_alternative_idx').on(t.alternativeProductModelId),
+    productAlternativeUnique: uniqueIndex('product_alternatives_product_alternative_unique').on(t.productModelId, t.alternativeProductModelId),
+  })
+);
+
+export const productOptionalEquipmentCompatibilities = pgTable(
+  'product_optional_equipment_compatibilities',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id')
+      .notNull()
+      .references(() => tenants.id, { onDelete: 'cascade' }),
+    productModelId: uuid('product_model_id')
+      .notNull()
+      .references(() => productModels.id, { onDelete: 'cascade' }),
+    productGroupId: uuid('product_group_id').references(() => productGroups.id, { onDelete: 'cascade' }),
+    categoryId: uuid('category_id').references(() => productCategories.id, { onDelete: 'cascade' }),
+    subcategoryId: uuid('subcategory_id').references(() => productSubcategories.id, { onDelete: 'cascade' }),
+    productTypeId: uuid('product_type_id').references(() => productTypes.id, { onDelete: 'cascade' }),
+    brandId: uuid('brand_id').references(() => brands.id, { onDelete: 'cascade' }),
+    ...auditColumns,
+  },
+  (t) => ({
+    tenantIdx: index('product_optional_equipment_compat_tenant_idx').on(t.tenantId),
+    productIdx: index('product_optional_equipment_compat_product_idx').on(t.productModelId),
+    groupIdx: index('product_optional_equipment_compat_group_idx').on(t.productGroupId),
+    categoryIdx: index('product_optional_equipment_compat_category_idx').on(t.categoryId),
+    subcategoryIdx: index('product_optional_equipment_compat_subcategory_idx').on(t.subcategoryId),
+    typeIdx: index('product_optional_equipment_compat_type_idx').on(t.productTypeId),
+    brandIdx: index('product_optional_equipment_compat_brand_idx').on(t.brandId),
   })
 );
 
@@ -90,6 +147,36 @@ export const productSpecs = pgTable(
   (t) => ({
     productIdx: index('product_specs_product_idx').on(t.productModelId),
     groupIdx: index('product_specs_group_idx').on(t.specGroupId),
+  })
+);
+
+export const productSpecTemplates = pgTable(
+  'product_spec_templates',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    productTypeCode: varchar('product_type_code', { length: 64 }).notNull(),
+    specKey: varchar('spec_key', { length: 255 }).notNull(),
+    specGroupCode: varchar('spec_group_code', { length: 64 }),
+    defaultValue: text('default_value'),
+    specUnit: varchar('spec_unit', { length: 64 }),
+    // Bölüm (CNC / Üniversal / Sac İşleme). NULL → tüm bölümlerde ("Tümü") geçerli.
+    divisionId: uuid('division_id').references(() => divisions.id, { onDelete: 'set null' }),
+    sortOrder: integer('sort_order').notNull().default(0),
+    isActive: boolean('is_active').notNull().default(true),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true })
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (t) => ({
+    productTypeIdx: index('product_spec_templates_product_type_idx').on(t.productTypeCode),
+    // Teklik bölüm bazında: aynı (bölüm, tip, alan) tek kayıt. NULL bölümler coalesce ile tekil.
+    productTypeKeyUnique: uniqueIndex('product_spec_templates_division_type_key_unique').on(
+      sql`coalesce(division_id, '00000000-0000-0000-0000-000000000000'::uuid)`,
+      t.productTypeCode,
+      t.specKey,
+    ),
   })
 );
 
@@ -145,6 +232,7 @@ export const priceLists = pgTable(
     code: varchar('code', { length: 64 }).notNull(),
     name: varchar('name', { length: 255 }).notNull(),
     description: text('description'),
+    divisionId: uuid('division_id').references(() => divisions.id, { onDelete: 'set null' }),
     currencyId: uuid('currency_id').references(() => currencies.id),
     validFrom: timestamp('valid_from', { withTimezone: true }),
     validUntil: timestamp('valid_until', { withTimezone: true }),
@@ -171,6 +259,10 @@ export const priceListItems = pgTable(
       .references(() => productModels.id, { onDelete: 'cascade' }),
     listPrice: money('list_price'),
     cashPrice: money('cash_price'),
+    campaignPrice: money('campaign_price'),
+    campaignValidFrom: timestamp('campaign_valid_from', { withTimezone: true }),
+    campaignValidUntil: timestamp('campaign_valid_until', { withTimezone: true }),
+    campaignIsActive: boolean('campaign_is_active').notNull().default(false),
     vatRate: percent('vat_rate'),
     notes: text('notes'),
     ...auditColumns,

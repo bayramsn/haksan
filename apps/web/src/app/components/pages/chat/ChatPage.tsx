@@ -158,7 +158,7 @@ export function ChatPage({ onOpenRecord }: { onOpenRecord?: (card: ChatRefCard) 
     if (!ALLOWED_EXT.includes(ext)) { toast.error(`Desteklenmeyen tür: .${ext}`); return; }
     const up = await fileService.signedUpload({
       bucket: "erp-service-documents",
-      entityType: "chat-attachment",
+      entityType: "chat_conversation",
       entityId: id,
       filename: file.name,
       mimeType: file.type as SignedUploadUrlInput["mimeType"],
@@ -324,7 +324,7 @@ export function ChatPage({ onOpenRecord }: { onOpenRecord?: (card: ChatRefCard) 
               return (
                 <button
                   key={c.id} onClick={() => openConversation(c.id)}
-                  className={cn("flex w-full items-center gap-2.5 rounded-md px-2 py-2 text-left transition-colors", active ? "bg-primary/10" : "hover:bg-muted")}
+                  className={cn("flex w-full items-center gap-2.5 rounded-md px-2 py-2 text-left transition-colors", active ? "bg-primary/10 ring-1 ring-primary/20" : "hover:bg-muted")}
                 >
                   <span className={cn("grid size-9 shrink-0 place-items-center rounded-full text-xs font-medium", c.type === "group" ? "bg-primary/15 text-primary" : "bg-muted")}>
                     {c.type === "group" ? <Users className="size-4" /> : initials(name)}
@@ -336,7 +336,7 @@ export function ChatPage({ onOpenRecord }: { onOpenRecord?: (card: ChatRefCard) 
                     </span>
                     <span className="flex items-center justify-between gap-2">
                       <span className="truncate text-xs text-muted-foreground">{c.lastMessage?.preview ?? "Henüz mesaj yok"}</span>
-                      {c.unreadCount > 0 && <Badge className="h-5 min-w-5 shrink-0 justify-center rounded-full px-1.5 text-[10px]">{c.unreadCount}</Badge>}
+                      {c.unreadCount > 0 && <Badge className="h-5 min-w-5 shrink-0 justify-center rounded-full bg-brand-red px-1.5 text-[10px] text-white hover:bg-brand-red">{c.unreadCount}</Badge>}
                     </span>
                   </span>
                 </button>
@@ -402,8 +402,8 @@ export function ChatPage({ onOpenRecord }: { onOpenRecord?: (card: ChatRefCard) 
                   </div>
                 )}
                 {editing && (
-                  <div className="mb-2 flex items-center gap-2 rounded-md border-l-2 border-amber-500 bg-amber-500/10 px-2 py-1.5 text-xs">
-                    <Pencil className="size-3.5 shrink-0 text-amber-600" />
+                  <div className="mb-2 flex items-center gap-2 rounded-md border-l-2 border-warning bg-warning-soft px-2 py-1.5 text-xs">
+                    <Pencil className="size-3.5 shrink-0 text-warning" />
                     <span className="min-w-0 flex-1 truncate">Mesaj düzenleniyor</span>
                     <button onClick={cancelEdit}><X className="size-3.5" /></button>
                   </div>

@@ -83,6 +83,69 @@ export const QUOTE_NOTE_VARIANTS: QuoteNoteVariant[] = [
       "Tezgâhın ile eğitim ve demo çalışması 2 (iki) gün süre ile HAKSAN MAKİNA teknik personeli tarafından yapılacaktır.",
     ],
   },
+  {
+    key: "gumruk",
+    label: "Gümrük Teklif",
+    odeme: [
+      "Teklifimiz, tamamı nakit/leasing aracılığı ile ödemeye göre düzenlenmiştir,",
+      "Teklifimize tezgâhın cari orandaki %10 K.D.V.'si dahil edilmemiştir, Leasing aracılığı ile yapılan alımlarda K.D.V oranı %1 olarak tahakkuk ettirilir,",
+      "Teklifimiz Gümrük teslim şeklinde düzenlenmiş olup, tezgâhın ithalatı ile ilgili masraf ve vergiler (Gümrük Vergisi, Liman Masrafları, Ardiye Giderleri, Gümrükleme Ücreti, İlave Gümrük Vergisi) fiyat teklifimize dahil değildir; gümrükleme işlemleri alıcı firma tarafından yürütülecektir.",
+    ],
+    teslimat: [
+      "Tezgâhın teslimi kesin siparişten 90 (±10) gün sonra gerçekleştirilecektir,",
+      "Tezgâh İstanbul gümrüğünde teslim edilecek olup, gümrük sonrası karayolu taşıma ve sigortası alıcı firma tarafından karşılanacaktır,",
+      "Tezgâh palet üzerinde, yol şartlarına uygun olarak ambalajlanmış vaziyette sevk edilecektir,",
+    ],
+    garanti: [
+      "Tezgâhın güvenlik ve elektrik donanımı CE normlarına uygun olarak üretilmiştir,",
+      "Tezgâhın üretim hatalarına karşı mekanik aksam garantisi 1 (bir) yıldır,",
+      "Tezgâhın kontrol ünitesi 2(iki) yıl üretim hatalarına karşı FANUC/Türkiye garantisi kapsamındadır,",
+      "Tezgâhın garantisi kurulumuna müteakip başlayacaktır,",
+      "Tezgâhın teslimatından sonra en geç 2 (iki) gün içerisinde, HAKSAN MAKİNA teknik personeli tarafından tezgâhın kurulumu gerçekleştirilecektir,",
+      "Tezgâhın ile eğitim ve demo çalışması 2 (iki) gün süre ile HAKSAN MAKİNA teknik personeli tarafından yapılacaktır.",
+    ],
+  },
+  {
+    key: "isletme-teslim",
+    label: "İşletme Teslim",
+    odeme: [
+      "Teklifimiz, tamamı nakit/leasing aracılığı ile ödemeye göre düzenlenmiştir,",
+      "Teklifimize tezgâhın cari orandaki %10 K.D.V.'si dahil edilmemiştir, Leasing aracılığı ile yapılan alımlarda K.D.V oranı %1 olarak tahakkuk ettirilir,",
+      "Teklifimiz İşletme Teslim şeklinde düzenlenmiş olup, tezgâhın ithalatı ile ilgili masraf ve vergiler ile alıcı firma işletmesine kadar karayolu taşıma ve sigortası fiyat teklifimize dahil edilmiştir.",
+    ],
+    teslimat: [
+      "Tezgâhın teslimi kesin siparişten 90 (±10) gün sonra gerçekleştirilecektir,",
+      "Tezgâh alıcı firmanın işletmesinde kamyon üzeri teslim edilecektir; tezgâhın kamyondan indirilmesi ile ilgili vinç/forklift organizasyonu alıcı firma tarafından karşılanacaktır,",
+      "Tezgâh palet üzerinde, yol şartlarına uygun olarak ambalajlanmış vaziyette sevk edilecektir,",
+    ],
+    garanti: [
+      "Tezgâhın güvenlik ve elektrik donanımı CE normlarına uygun olarak üretilmiştir,",
+      "Tezgâhın üretim hatalarına karşı mekanik aksam garantisi 1 (bir) yıldır,",
+      "Tezgâhın kontrol ünitesi 2(iki) yıl üretim hatalarına karşı FANUC/Türkiye garantisi kapsamındadır,",
+      "Tezgâhın garantisi kurulumuna müteakip başlayacaktır,",
+      "Tezgâhın teslimatından sonra en geç 2 (iki) gün içerisinde, HAKSAN MAKİNA teknik personeli tarafından tezgâhın kurulumu gerçekleştirilecektir,",
+      "Tezgâhın ile eğitim ve demo çalışması 2 (iki) gün süre ile HAKSAN MAKİNA teknik personeli tarafından yapılacaktır.",
+    ],
+  },
+  {
+    key: "fob",
+    label: "F.O.B Teslim",
+    odeme: [
+      "Teklifimiz tamamı nakit ödemeye göre düzenlenmiştir,",
+      "Teklifimiz F.O.B teslim şeklinde düzenlenmiş olup, yükleme limanına kadar olan taşıma ve yükleme masrafları fiyatımıza dahildir; navlun, sigorta ve varış ülkesindeki gümrük vergileri fiyat teklifimize dahil edilmemiştir.",
+    ],
+    teslimat: [
+      "Tezgâhın teslimi kesin siparişten 90 (±10) gün sonra gerçekleştirilecektir,",
+      "Tezgâh yükleme limanında gemi üzerinde (F.O.B) teslim edilecektir,",
+      "Tezgâh palet üzerinde, yol şartlarına uygun olarak ambalajlanmış vaziyette sevk edilecektir,",
+    ],
+    garanti: [
+      "Tezgâhın güvenlik ve elektrik donanımı CE normlarına uygun olarak üretilmiştir,",
+      "Tezgâhın üretim hatalarına karşı mekanik aksam garantisi 1 (bir) yıldır,",
+      "Tezgâhın kontrol ünitesi 2(iki) yıl üretim hatalarına karşı üretici firma/Türkiye garantisi kapsamındadır,",
+      "Tezgâhın garantisi kurulumuna müteakip başlayacaktır,",
+    ],
+  },
 ];
 
 export const SERVICE_NOTE_VARIANTS: FlatNoteVariant[] = [

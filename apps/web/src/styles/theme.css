@@ -3,47 +3,60 @@
 :root {
   --font-size: 16px;
   --background: #ffffff;
-  --foreground: oklch(0.145 0 0);
+  --foreground: oklch(0.22 0.01 265);
   --card: #ffffff;
-  --card-foreground: oklch(0.145 0 0);
+  --card-foreground: oklch(0.22 0.01 265);
   --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
+  --popover-foreground: oklch(0.22 0.01 265);
   --brand-blue: #000c69;
   --brand-red: #cf060c;
   --brand-dark: #0a192f;
   --brand-blue-soft: #eef2ff;
   --brand-red-soft: #fef2f2;
-  --primary: #000c69;
+  --primary: oklch(0.30 0.15 268);
   --primary-foreground: #ffffff;
-  --secondary: #eef2ff;
+  --secondary: #eef1fb;
   --secondary-foreground: #000c69;
-  --muted: #ececf0;
-  --muted-foreground: #717182;
-  --accent: #e9ebef;
+  --muted: oklch(0.965 0.003 265);
+  --muted-foreground: oklch(0.54 0.02 265);
+  --accent: #eef0f4;
   --accent-foreground: #030213;
   --destructive: #cf060c;
   --destructive-foreground: #ffffff;
-  --border: rgba(0, 0, 0, 0.1);
+  --destructive-soft: #fef2f2;
+  /* Semantik durum renkleri — emerald-600/amber-600/blue-600 ve -50 tonlarına eşit,
+     böylece dönüştürülen ve dönüştürülmeyen dosyalar yan yana aynı görünür. */
+  --success: #059669;
+  --success-foreground: #ffffff;
+  --success-soft: #ecfdf5;
+  --warning: #d97706;
+  --warning-foreground: #ffffff;
+  --warning-soft: #fffbeb;
+  --info: #2563eb;
+  --info-foreground: #ffffff;
+  --info-soft: #eff6ff;
+  --border: rgba(13, 20, 68, 0.09);
   --input: transparent;
-  --input-background: #f3f3f5;
+  --input-background: #f6f7f9;
   --switch-background: #cbced4;
   --font-weight-medium: 500;
   --font-weight-normal: 400;
-  --ring: #3b82f6;
-  --chart-1: #000c69;
-  --chart-2: #cf060c;
-  --chart-3: #3b82f6;
-  --chart-4: #10b981;
-  --chart-5: #f59e0b;
-  --radius: 0.625rem;
+  --ring: oklch(0.51 0.17 270);
+  --canvas: #f8f8fb;
+  --chart-1: #2a3aa0;
+  --chart-2: #4e8df5;
+  --chart-3: #14b8a6;
+  --chart-4: #f59e0b;
+  --chart-5: #8b5cf6;
+  --radius: 0.5rem;
   --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
+  --sidebar-foreground: oklch(0.22 0.01 265);
   --sidebar-primary: #000c69;
   --sidebar-primary-foreground: oklch(0.985 0 0);
   --sidebar-accent: oklch(0.97 0 0);
   --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: #3b82f6;
+  --sidebar-border: rgba(13, 20, 68, 0.08);
+  --sidebar-ring: oklch(0.51 0.17 270);
 }
 
 .dark {
@@ -84,6 +97,7 @@
 }
 
 @theme inline {
+  --font-sans: 'Inter Variable', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
@@ -105,11 +119,22 @@
   --color-accent-foreground: var(--accent-foreground);
   --color-destructive: var(--destructive);
   --color-destructive-foreground: var(--destructive-foreground);
+  --color-destructive-soft: var(--destructive-soft);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-success-soft: var(--success-soft);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-warning-soft: var(--warning-soft);
+  --color-info: var(--info);
+  --color-info-foreground: var(--info-foreground);
+  --color-info-soft: var(--info-soft);
   --color-border: var(--border);
   --color-input: var(--input);
   --color-input-background: var(--input-background);
   --color-switch-background: var(--switch-background);
   --color-ring: var(--ring);
+  --color-canvas: var(--canvas);
   --color-chart-1: var(--chart-1);
   --color-chart-2: var(--chart-2);
   --color-chart-3: var(--chart-3);
@@ -119,6 +144,11 @@
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
+  --shadow-xs: 0 1px 2px 0 rgb(13 20 68 / 0.04);
+  --shadow-sm: 0 1px 2px 0 rgb(13 20 68 / 0.04), 0 1px 3px 0 rgb(13 20 68 / 0.05);
+  --shadow-md: 0 2px 4px -1px rgb(13 20 68 / 0.05), 0 4px 8px -2px rgb(13 20 68 / 0.06);
+  --shadow-lg: 0 4px 8px -2px rgb(13 20 68 / 0.06), 0 12px 24px -6px rgb(13 20 68 / 0.10);
+  --shadow-xl: 0 8px 16px -4px rgb(13 20 68 / 0.08), 0 20px 40px -8px rgb(13 20 68 / 0.12);
   --color-sidebar: var(--sidebar);
   --color-sidebar-foreground: var(--sidebar-foreground);
   --color-sidebar-primary: var(--sidebar-primary);
@@ -142,7 +172,7 @@
     margin: 0;
     overflow: hidden;
     overscroll-behavior: none;
-    background: #f7f7f8;
+    background: var(--canvas);
   }
 
   #root {
@@ -150,7 +180,7 @@
     height: 100dvh;
     min-height: 0;
     overflow: hidden;
-    background: #f7f7f8;
+    background: var(--canvas);
   }
 
   #root > * {
@@ -170,7 +200,14 @@
     height: 100dvh;
     overflow: hidden;
     overscroll-behavior: none;
-    background: #f7f7f8;
+    background: var(--canvas);
+    -webkit-font-smoothing: antialiased;
+    font-feature-settings: 'cv11';
+  }
+
+  /* Finansal rakam hizası: tüm tablolar eş genişlikli rakam kullanır. */
+  table {
+    font-variant-numeric: tabular-nums;
   }
 
   h1 {

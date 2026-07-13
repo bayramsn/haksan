@@ -26,11 +26,15 @@ export type DateRange = z.infer<typeof dateRangeSchema>;
 export const moneySchema = z.coerce.number().nonnegative().multipleOf(0.0001);
 export const percentSchema = z.coerce.number().min(0).max(100).multipleOf(0.01);
 
-export const phoneSchema = z.string().min(5).max(32).regex(/^[+0-9 ()\-]*$/, 'Geçersiz telefon');
+export const phoneSchema = z
+  .string()
+  .min(5, 'Telefon en az 5 karakter olmalı')
+  .max(32, 'Telefon en fazla 32 karakter olabilir')
+  .regex(/^[+0-9 ()\-]*$/, 'Geçersiz telefon (yalnızca rakam, boşluk, +, parantez ve tire kullanın)');
 /** ASCII-only Zod `.email()` rejects IDN/local parts (örn. ismailsomalı@…); basit unicode-safe kontrol. */
 export const emailSchema = z
   .string()
   .trim()
   .max(255)
   .refine((v) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/u.test(v), 'Geçersiz e-posta');
-export const urlSchema = z.string().url().max(512);
+export const urlSchema = z.string().url('Geçersiz web adresi (örn. https://site.com)').max(512);

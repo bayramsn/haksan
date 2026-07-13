@@ -18,6 +18,8 @@ export const COMPANY_SECTOR_OPTIONS = [
   'Tekstil',
   'Sac İşleme',
   'CNC Atölye',
+  'Yerel Kargo',
+  'Nakliye / Lojistik',
   'Diğer',
 ] as const;
 
@@ -127,7 +129,7 @@ export const ACTIVITY_TYPE_OPTIONS = [
   { code: 'email', label: 'E-posta / Mail' },
   { code: 'meeting', label: 'Toplantı' },
   { code: 'demo', label: 'Demo / Sunum' },
-  { code: 'note', label: 'Not' },
+  { code: 'note', label: 'Yorum' },
 ] as const;
 
 export type ActivityTypeCode = (typeof ACTIVITY_TYPE_OPTIONS)[number]['code'];
@@ -148,20 +150,26 @@ export const activityTypeCodeFromLabel = (label: string): ActivityTypeCode | und
   return legacy[label];
 };
 
-/** Stok / ürün kategorileri — tezgah yalnızca satış, yedek parça ve aksesuar satış + servis. */
-export const STOCK_CATEGORY_CODES = ['TEZGAH', 'AKSESUAR', 'YEDEK_PARCA'] as const;
+/** Stok / ürün kategorileri — seri no ile stok/sevkiyat takibi yapılan ana ürün sınıfları. */
+export const STOCK_CATEGORY_CODES = ['TEZGAH', 'OPSIYONEL_DONANIM', 'YEDEK_PARCA', 'AKSESUAR', 'EVRAK', 'IDARI_MALZEME'] as const;
 export type StockCategoryCode = (typeof STOCK_CATEGORY_CODES)[number];
 
 export const STOCK_CATEGORY_LABELS: Record<StockCategoryCode, string> = {
   TEZGAH: 'Tezgahlar',
-  AKSESUAR: 'Aksesuar',
+  OPSIYONEL_DONANIM: 'Opsiyonel Donanım',
   YEDEK_PARCA: 'Yedek Parça',
+  AKSESUAR: 'Aksesuar',
+  EVRAK: 'Evrak',
+  IDARI_MALZEME: 'İdari Malzeme',
 };
 
 export const STOCK_CATEGORY_USAGE: Record<StockCategoryCode, { sales: boolean; service: boolean }> = {
   TEZGAH: { sales: true, service: false },
-  AKSESUAR: { sales: true, service: true },
+  OPSIYONEL_DONANIM: { sales: true, service: true },
   YEDEK_PARCA: { sales: true, service: true },
+  AKSESUAR: { sales: true, service: true },
+  EVRAK: { sales: false, service: false },
+  IDARI_MALZEME: { sales: false, service: false },
 };
 
 export const stockCategoryForContext = (

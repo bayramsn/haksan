@@ -7,6 +7,7 @@
  */
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
 import { Counter, Histogram, Registry, collectDefaultMetrics } from 'prom-client';
+import { loadEnv } from '../../config/env';
 
 export const registry = new Registry();
 collectDefaultMetrics({ register: registry });
@@ -51,11 +52,11 @@ export const metricsContentType = registry.contentType;
 
 /**
  * Expose GET /metrics outside the Nest router (same pattern as health routes).
- * If METRICS_TOKEN is set, require `Authorization: Bearer <token>`; otherwise the
- * endpoint is open (typical when scraped over a private network/agent).
+ * Production startup requires METRICS_TOKEN; local/test can intentionally leave
+ * it blank when the endpoint is reachable only from a private network.
  */
 export function registerMetricsEndpoint(app: NestFastifyApplication): void {
-  const token = process.env.METRICS_TOKEN;
+  const token = loadEnv().METRICS_TOKEN;
   const adapter = app.getHttpAdapter();
 
   adapter.get(

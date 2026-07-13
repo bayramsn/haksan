@@ -1,4 +1,5 @@
 import { Body, Controller, Get, Post, Req, Res, UseGuards } from '@nestjs/common';
+import '@fastify/cookie';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { loginSchema, forgotPasswordSchema, resetPasswordSchema, type LoginInput, type ForgotPasswordInput, type ResetPasswordInput } from '@haksan/shared';
 import { AuthService } from './auth.service';
@@ -10,6 +11,18 @@ import { loadEnv } from '../../config/env';
 import { Throttle } from '@nestjs/throttler';
 
 const REFRESH_COOKIE = 'haksan_rt';
+type RefreshCookieOptions = {
+  httpOnly?: boolean;
+  secure?: boolean | 'auto';
+  sameSite?: 'lax' | 'none' | 'strict' | boolean;
+  domain?: string;
+  path?: string;
+  expires?: Date;
+};
+type RefreshCookieReply = FastifyReply & {
+  setCookie(name: string, value: string, options?: RefreshCookieOptions): FastifyReply;
+  clearCookie(name: string, options?: RefreshCookieOptions): FastifyReply;
+};
 // Login & şifre-sıfırlama için sıkı IP-bazlı limit (global 'default' throttler'ı
 // bu route'larda override eder). Brute-force / credential-stuffing koruması.
 const LOGIN_THROTTLE = { default: { limit: loadEnv().RATE_LIMIT_LOGIN, ttl: 60_000 } };
@@ -24,7 +37,8 @@ function cookieDomain(env: ReturnType<typeof loadEnv>): string | undefined {
 
 function setRefreshCookie(res: FastifyReply, token: string, expiresAt: Date): void {
   const env = loadEnv();
-  res.setCookie(REFRESH_COOKIE, token, {
+  const reply = res as RefreshCookieReply;
+  reply.setCookie(REFRESH_COOKIE, token, {
     httpOnly: true,
     secure: env.COOKIE_SECURE,
     sameSite: env.COOKIE_SAMESITE,
@@ -36,7 +50,8 @@ function setRefreshCookie(res: FastifyReply, token: string, expiresAt: Date): vo
 
 function clearRefreshCookie(res: FastifyReply): void {
   const env = loadEnv();
-  res.clearCookie(REFRESH_COOKIE, {
+  const reply = res as RefreshCookieReply;
+  reply.clearCookie(REFRESH_COOKIE, {
     path: '/api/v1/auth',
     secure: env.COOKIE_SECURE,
     sameSite: env.COOKIE_SAMESITE,
@@ -70,7 +85,13 @@ export class AuthController {
     @Res({ passthrough: true }) res: FastifyReply
   ) {
     const ua = req.headers['user-agent'];
-    const result = await this.auth.login(body.email, body.password, getIp(req), typeof ua === 'string' ? ua : undefined);
+    const result = await this.auth.login(
+      body.email,
+      body.password,
+      getIp(req),
+      typeof ua === 'string' ? ua : undefined,
+      body.tenantSlug
+    );
     setRefreshCookie(res, result.refreshToken, result.refreshTokenExpiresAt);
     return {
       accessToken: result.accessToken,
@@ -111,7 +132,7 @@ export class AuthController {
   @Throttle(LOGIN_THROTTLE)
   @Post('forgot-password')
   async forgot(@Body(new ZodValidationPipe(forgotPasswordSchema)) body: ForgotPasswordInput) {
-    const token = await this.auth.forgotPassword(body.email);
+    const token = await this.auth.forgotPassword(body.email, body.tenantSlug);
     const env = loadEnv();
     // Test/dev token echo is opt-in so accidental non-production NODE_ENV on a live server
     // does not expose reset tokens by default. Omit devToken when no user matched so

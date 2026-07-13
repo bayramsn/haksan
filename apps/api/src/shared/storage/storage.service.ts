@@ -1,14 +1,27 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { createHash } from 'node:crypto';
-// file-type v16 is CJS; default export is { fromBuffer, ... }
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const fileType = require('file-type') as { fromBuffer(buf: Buffer): Promise<{ ext: string; mime: string } | undefined> };
 import type { StorageProvider, SignedUrlOptions, UploadOptions } from './storage.types';
 import { STORAGE_PROVIDER } from './storage.types';
 import { ALLOWED_FILE_EXTENSIONS, ALLOWED_MIME_TYPES } from '@haksan/shared';
 import { ValidationError } from '../utils/errors';
 import { loadEnv } from '../../config/env';
 import { buildObjectKey, sanitizeFilename, tenantFromObjectKey } from './object-key';
+
+type DetectedFileType = { ext: string; mime: string } | undefined;
+
+const equivalentExtensions: Record<string, string[]> = {
+  jpg: ['jpg', 'jpeg'],
+  jpeg: ['jpg', 'jpeg'],
+};
+
+const equivalentMimes: Record<string, string[]> = {
+  'audio/mp4': ['audio/mp4', 'audio/x-m4a'],
+};
+
+async function detectFileType(buf: Buffer): Promise<DetectedFileType> {
+  const { fileTypeFromBuffer } = await import('file-type');
+  return fileTypeFromBuffer(buf);
+}
 
 /**
  * Façade over a StorageProvider. Centralizes:
@@ -40,11 +53,20 @@ export class StorageService {
     }
   }
 
-  async validateActualFile(buf: Buffer): Promise<void> {
-    const detected = await fileType.fromBuffer(buf);
+  async validateActualFile(buf: Buffer, expected: { mimeType: string; extension: string }): Promise<void> {
+    const detected = await detectFileType(buf);
     if (!detected) throw new ValidationError('Dosya türü tespit edilemedi (magic byte uyumsuz)');
     if (!ALLOWED_MIME_TYPES.includes(detected.mime as (typeof ALLOWED_MIME_TYPES)[number])) {
-      throw new ValidationError(`Magic-byte ile tespit edilen tür reddedildi: ${detected.mime}`);
+      const acceptedMimes = equivalentMimes[expected.mimeType] ?? [expected.mimeType];
+      if (!acceptedMimes.includes(detected.mime)) {
+        throw new ValidationError(`Magic-byte ile tespit edilen tür reddedildi: ${detected.mime}`);
+      }
+    }
+    const expectedExtension = expected.extension.toLowerCase();
+    const acceptedExtensions = equivalentExtensions[expectedExtension] ?? [expectedExtension];
+    const acceptedMimes = equivalentMimes[expected.mimeType] ?? [expected.mimeType];
+    if (!acceptedExtensions.includes(detected.ext.toLowerCase()) || !acceptedMimes.includes(detected.mime)) {
+      throw new ValidationError('Dosyanın gerçek türü beyan edilen MIME türü ve uzantıyla eşleşmiyor');
     }
   }
 

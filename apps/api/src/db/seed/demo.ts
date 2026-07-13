@@ -3,11 +3,16 @@
  * Canlı ortamda ÇALIŞTIRMAYIN. Production: db:seed + db:bootstrap (sıfır iş verisi).
  * Run AFTER seedLookups() because it joins on lookup codes.
  */
-import * as argon2 from 'argon2';
+import { hashPassword } from '../../shared/security/password';
 import { eq, and, isNull } from 'drizzle-orm';
 import { getDb, closeDb, schema } from '../client';
 import { allRoles, rolePermissionMatrix } from './_data';
 import { seedLookups } from './lookups';
+import { PERMISSION_RESOURCES } from '@haksan/shared';
+
+const DEFAULT_SCOPE_RESOURCES = PERMISSION_RESOURCES.filter(
+  (resource) => !['tenants', 'users', 'roles', 'departments', 'divisions', 'audit', 'files'].includes(resource)
+);
 
 async function getOrCreate<T extends { id: string }>(
   table: { findFirst?: never },
@@ -160,7 +165,7 @@ export async function seedDemo(): Promise<void> {
             departmentId: dept?.id ?? null,
             fullName: u.fullName,
             email: u.email,
-            passwordHash: await argon2.hash(u.password, { type: argon2.argon2id }),
+            passwordHash: await hashPassword(u.password),
           })
           .returning()
       )[0];
@@ -189,6 +194,37 @@ export async function seedDemo(): Promise<void> {
         .insert(schema.userDivisions)
         .values({ userId: user.id, divisionId: division.id, isPrimary: index === 0 })
         .onConflictDoNothing();
+    }
+    const canViewAll = u.roles.some((role) => role === 'super_admin' || role === 'admin');
+    const hasEveryDemoDivision = allDivisionCodes.every((code) => u.divisionCodes.includes(code));
+    const canUseAllDivisionScope = canViewAll || hasEveryDemoDivision;
+    const accessScopeRows = canUseAllDivisionScope
+      ? DEFAULT_SCOPE_RESOURCES.map((resource) => ({
+          tenantId: tenantRow.id,
+          userId: user.id,
+          resource,
+          departmentId: dept?.id ?? null,
+          divisionId: null,
+          isPrimary: true,
+        }))
+      : DEFAULT_SCOPE_RESOURCES.flatMap((resource) =>
+          u.divisionCodes
+            .map((code, index) => {
+              const division = divisionsByCode.get(code);
+              if (!division) return null;
+              return {
+                tenantId: tenantRow.id,
+                userId: user.id,
+                resource,
+                departmentId: dept?.id ?? null,
+                divisionId: division.id,
+                isPrimary: index === 0,
+              };
+            })
+            .filter((row): row is NonNullable<typeof row> => !!row)
+        );
+    if (accessScopeRows.length) {
+      await db.insert(schema.userAccessScopes).values(accessScopeRows).onConflictDoNothing();
     }
     if (!existing) console.log(`[demo] user: ${u.email} / ${u.password}`);
   }
@@ -1341,6 +1377,7 @@ export async function seedDemo(): Promise<void> {
       tenantId: tenantRow.id,
       divisionId: item.divisionId ?? defaultDivision?.id ?? null,
       companyId: def.companyId,
+      initialCompanyId: def.companyId,
       inventoryItemId: item.id,
       opportunityId: opportunity?.id ?? null,
       quoteId: quote?.id ?? null,
@@ -1394,15 +1431,14 @@ export async function seedDemo(): Promise<void> {
     location: string;
     locationType?: 'istanbul_ici' | 'istanbul_disi';
     durationMinutes?: number;
-    feeAmount?: string;
     notes: string;
   }> = [
-    { companyId: kilitsan?.id, divisionCode: 'cnc', statusId: scheduledId, scheduledDate: new Date('2026-06-20'), location: 'Hendek, Sakarya', locationType: 'istanbul_disi', durationMinutes: 480, feeAmount: '800.0000', notes: 'MANFORD DL-2112 köprü tipi işleme merkezi kurulumu ve devreye alma.' },
-    { companyId: contra?.id, divisionCode: 'cnc', statusId: inProgressId, scheduledDate: new Date('2026-06-05'), startedAt: new Date('2026-06-05'), location: 'İkitelli OSB, İstanbul', locationType: 'istanbul_ici', durationMinutes: 300, feeAmount: '350.0000', notes: 'LK MV-1050 dik işleme merkezi kurulumu — elektrik bağlantısı yapılıyor.' },
-    { companyId: alipler?.id, divisionCode: 'cnc', statusId: completedId, scheduledDate: new Date('2026-04-12'), startedAt: new Date('2026-04-12'), completedAt: new Date('2026-04-15'), location: 'Nilüfer OSB, Bursa', locationType: 'istanbul_disi', durationMinutes: 960, feeAmount: '1600.0000', notes: 'ECOCA MT-208/500 CNC torna kurulumu tamamlandı, operatör eğitimi verildi.' },
-    { companyId: unimak?.id, divisionCode: 'universal', statusId: scheduledId, scheduledDate: new Date('2026-06-24'), location: 'İvedik OSB, Ankara', locationType: 'istanbul_disi', durationMinutes: 360, feeAmount: '600.0000', notes: 'HAKSAN UF-560 üniversal freze kurulumu ve hassasiyet kontrolü.' },
-    { companyId: sactech?.id, divisionCode: 'sac_isleme', statusId: completedId, scheduledDate: new Date('2026-05-14'), startedAt: new Date('2026-05-14'), completedAt: new Date('2026-05-15'), location: 'Nilüfer OSB, Bursa', locationType: 'istanbul_disi', durationMinutes: 720, feeAmount: '1200.0000', notes: 'HAKSAN HPB-30135 abkant pres kurulum ve operatör eğitimi.' },
-    { companyId: kilitsan?.id, divisionCode: 'cnc', statusId: scheduledId, scheduledDate: new Date('2026-07-02'), location: 'Hendek, Sakarya', locationType: 'istanbul_disi', durationMinutes: 240, feeAmount: '400.0000', notes: 'Periyodik bakım ve kalibrasyon ziyareti.' },
+    { companyId: kilitsan?.id, divisionCode: 'cnc', statusId: scheduledId, scheduledDate: new Date('2026-06-20'), location: 'Hendek, Sakarya', locationType: 'istanbul_disi', durationMinutes: 480, notes: 'MANFORD DL-2112 köprü tipi işleme merkezi kurulumu ve devreye alma.' },
+    { companyId: contra?.id, divisionCode: 'cnc', statusId: inProgressId, scheduledDate: new Date('2026-06-05'), startedAt: new Date('2026-06-05'), location: 'İkitelli OSB, İstanbul', locationType: 'istanbul_ici', durationMinutes: 300, notes: 'LK MV-1050 dik işleme merkezi kurulumu — elektrik bağlantısı yapılıyor.' },
+    { companyId: alipler?.id, divisionCode: 'cnc', statusId: completedId, scheduledDate: new Date('2026-04-12'), startedAt: new Date('2026-04-12'), completedAt: new Date('2026-04-15'), location: 'Nilüfer OSB, Bursa', locationType: 'istanbul_disi', durationMinutes: 960, notes: 'ECOCA MT-208/500 CNC torna kurulumu tamamlandı, operatör eğitimi verildi.' },
+    { companyId: unimak?.id, divisionCode: 'universal', statusId: scheduledId, scheduledDate: new Date('2026-06-24'), location: 'İvedik OSB, Ankara', locationType: 'istanbul_disi', durationMinutes: 360, notes: 'HAKSAN UF-560 üniversal freze kurulumu ve hassasiyet kontrolü.' },
+    { companyId: sactech?.id, divisionCode: 'sac_isleme', statusId: completedId, scheduledDate: new Date('2026-05-14'), startedAt: new Date('2026-05-14'), completedAt: new Date('2026-05-15'), location: 'Nilüfer OSB, Bursa', locationType: 'istanbul_disi', durationMinutes: 720, notes: 'HAKSAN HPB-30135 abkant pres kurulum ve operatör eğitimi.' },
+    { companyId: kilitsan?.id, divisionCode: 'cnc', statusId: scheduledId, scheduledDate: new Date('2026-07-02'), location: 'Hendek, Sakarya', locationType: 'istanbul_disi', durationMinutes: 240, notes: 'Periyodik bakım ve kalibrasyon ziyareti.' },
   ];
 
   let createdInstallations = 0;
@@ -1424,7 +1460,6 @@ export async function seedDemo(): Promise<void> {
       location: inst.location,
       locationType: inst.locationType,
       durationMinutes: inst.durationMinutes,
-      feeAmount: inst.feeAmount,
       notes: inst.notes,
     });
     createdInstallations++;

@@ -7,7 +7,7 @@ import {
   LifeBuoy, BarChart3, ShieldCheck, Building2, Contact as ContactIcon, Settings as SettingsIcon,
   Search, Bell, ChevronDown, LogOut, Plus, HelpCircle, Menu,
   CheckCircle2, Clock, AlertTriangle, XCircle, ChevronRight, Tag, Receipt, Map as MapIcon, FileSignature, Wallet, Calendar, MessageCircle, MessageSquare,
-  PhoneCall,
+  PhoneCall, ListChecks,
 } from "lucide-react";
 import { callAssistantService, chatService, notificationService, type CallSuggestionDTO, type NotificationDTO } from "../../lib/services";
 import { useAuth } from "../../lib/auth";
@@ -33,8 +33,8 @@ import { AssistantPanel } from "./operations/AssistantPanel";
 import { buildAlerts, type OperationAction } from "../lib/operations";
 
 export type NavKey =
-  | "dashboard" | "chat" | "calendar" | "customers" | "contacts" | "sales-cases" | "kanban" | "sales-map" | "offers"
-  | "proformas" | "contracts" | "documents" | "payments" | "accounting-invoices" | "customer-balances" | "due-dates" | "sales-price-list" | "products"
+  | "dashboard" | "chat" | "calendar" | "call-assistant" | "customers" | "contacts" | "sales-cases" | "kanban" | "sales-map" | "offers"
+  | "proformas" | "contracts" | "documents" | "payments" | "accounting-invoices" | "customer-balances" | "due-dates" | "sales-price-list" | "references" | "products"
   | "stock" | "purchase-orders" | "shipments"
   | "installations" | "deliveries" | "machines" | "service-requests" | "service-kanban" | "service-price-list"
   | "reports" | "users" | "roles" | "departments" | "settings";
@@ -42,7 +42,54 @@ export type NavKey =
 type NavItem = { key: NavKey; label: string; icon: any; badge?: string; roles?: string[] };
 
 // Yönetim grubu sadece admin/super_admin'e açıktır (canSee bu set'i kullanır).
-const MGMT_KEYS = new Set<NavKey>(["users", "roles", "departments", "settings"]);
+export const MGMT_KEYS = new Set<NavKey>(["users", "roles", "departments", "settings"]);
+
+export const RESOURCE_BY_NAV: Partial<Record<NavKey, string>> = {
+  calendar: "calendar",
+  "call-assistant": "activities",
+  customers: "companies",
+  contacts: "contacts",
+  "sales-cases": "opportunities",
+  kanban: "opportunities",
+  "sales-map": "companies",
+  offers: "quotes",
+  proformas: "proformas",
+  contracts: "contracts",
+  documents: "files",
+  "sales-price-list": "price_lists",
+  references: "brands",
+  products: "products",
+  stock: "inventory",
+  "purchase-orders": "purchase_orders",
+  payments: "payments",
+  "accounting-invoices": "accounting_invoices",
+  "customer-balances": "receivables",
+  "due-dates": "payments",
+  shipments: "shipments",
+  deliveries: "shipments",
+  machines: "customer_devices",
+  installations: "installations",
+  "service-requests": "service_tickets",
+  "service-kanban": "service_tickets",
+  "service-price-list": "price_lists",
+  reports: "reports",
+  users: "users",
+  roles: "roles",
+  departments: "departments",
+  settings: "tenants",
+};
+
+export function canAccessNavKey(
+  key: NavKey,
+  hasPermission: (permission: string) => boolean,
+  hasRole: (role: string) => boolean
+) {
+  if (hasRole("admin") || hasRole("super_admin")) return true;
+  if (MGMT_KEYS.has(key)) return false;
+  const resource = RESOURCE_BY_NAV[key];
+  if (!resource) return true;
+  return hasPermission(`${resource}.read`);
+}
 
 // Her nav öğesinin `roles` listesi, backend izin matrisini (rolePermissionMatrix)
 // yansıtır. admin/super_admin her şeyi görür; readonly yönetim hariç her şeyi.
@@ -53,13 +100,14 @@ const NAV: { group: string; items: NavItem[] }[] = [
       { key: "dashboard", label: "Gösterge Paneli", icon: LayoutDashboard },
       { key: "chat", label: "Sohbet", icon: MessageCircle },
       { key: "calendar", label: "Takvim", icon: Calendar },
+      { key: "call-assistant", label: "Çağrı Asistanı", icon: PhoneCall, roles: ["sales", "service", "finance"] },
     ],
   },
   {
     group: "Satış",
     items: [
-      { key: "customers", label: "Firmalar", icon: Building2, roles: ["sales", "service", "finance"] },
-      { key: "contacts", label: "Kontaklar", icon: ContactIcon, roles: ["sales", "service"] },
+      { key: "customers", label: "Firmalar", icon: Building2, roles: ["sales", "finance"] },
+      { key: "contacts", label: "Kontaklar", icon: ContactIcon, roles: ["sales"] },
       { key: "sales-cases", label: "Satış Kartları", icon: Briefcase, roles: ["sales"] },
       { key: "sales-map", label: "Firma Haritası", icon: MapIcon, roles: ["sales", "service"] },
       { key: "offers", label: "Teklifler", icon: FileText, roles: ["sales", "finance"] },
@@ -67,6 +115,7 @@ const NAV: { group: string; items: NavItem[] }[] = [
       { key: "contracts", label: "Sözleşmeler", icon: FileSignature, roles: ["sales", "finance"] },
       { key: "documents", label: "Dokümanlar", icon: FolderOpen, roles: ["sales", "finance"] },
       { key: "sales-price-list", label: "Satış Fiyat Listesi", icon: Tag, roles: ["sales"] },
+      { key: "references", label: "Referanslar", icon: ListChecks, roles: ["sales"] },
     ],
   },
   {
@@ -111,27 +160,60 @@ type Props = {
 export function Layout({ current, onNavigate, onLogout, pageTitle, pageSubtitle, actions, children, onSelectFirm, onSelectCase, onOperationAction }: Props) {
   const store = useStore();
   const { customers, service } = store;
-  const { hasRole, hasPermission, user, activeDivision, setActiveDivision } = useAuth();
+  const {
+    activeDepartment,
+    activeDivision,
+    canUseAllDivisionsForResource,
+    hasPermission,
+    hasRole,
+    scopesForResource,
+    setActiveDepartment,
+    setActiveDivision,
+    user,
+  } = useAuth();
   const canApprove = hasPermission("companies.update") || hasRole("super_admin");
   const divisions = user?.divisions ?? [];
-  const canViewAllDivisions = user?.canViewAllDivisions ?? false;
+  const departments = user?.departments ?? [];
+  const currentResource = RESOURCE_BY_NAV[current] ?? "reports";
+  const currentScopes = scopesForResource(currentResource);
+  const canPickAllForResource = currentScopes.length === 0 ? (user?.canViewAllDivisions ?? false) : canUseAllDivisionsForResource(currentResource);
+  const scopedDivisionIds = new Set(currentScopes.map((scope) => scope.divisionId).filter((id): id is string => !!id));
+  const hasAllDepartmentScope = currentScopes.some((scope) => scope.departmentId === null);
+  const scopedDepartmentIds = new Set(currentScopes.map((scope) => scope.departmentId).filter((id): id is string => !!id));
+  const visibleDivisions =
+    currentScopes.length === 0 || canPickAllForResource ? divisions : divisions.filter((division) => scopedDivisionIds.has(division.id));
+  const visibleDepartments =
+    currentScopes.length === 0 || hasAllDepartmentScope ? departments : departments.filter((department) => scopedDepartmentIds.has(department.id));
+  const canPickDivision = visibleDivisions.length > 1 || canPickAllForResource;
+  const canPickDepartment = visibleDepartments.length > 1;
   const activeDivisionLabel =
     activeDivision === "all" ? "Tümü" : divisions.find((d) => d.id === activeDivision)?.name ?? "Bölüm";
+  const activeDepartmentLabel = departments.find((department) => department.id === activeDepartment)?.name ?? "Departman";
   const roleLabel = user?.roles?.[0] ? user.roles[0].replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()) : "Kullanıcı";
   const userInitials = (user?.fullName ?? "?").split(" ").slice(0, 2).map((p) => p[0]).join("").toUpperCase();
-  // Departman bazlı menü görünürlüğü:
-  // - admin / super_admin: her şeyi görür.
-  // - readonly: yönetim grubu hariç her şeyi (salt-okunur) görür.
-  // - departman rolleri (sales/service/finance/stock): yalnızca öğenin `roles`
-  //   listesinde kendi rolü varsa. `roles` taşımayan öğeler (Gösterge Paneli)
-  //   herkese açıktır.
+  useEffect(() => {
+    if (!user) return;
+    if (activeDivision === "all") {
+      if (!canPickAllForResource) {
+        const next = visibleDivisions.find((division) => division.isPrimary)?.id ?? visibleDivisions[0]?.id;
+        if (next) setActiveDivision(next);
+      }
+      return;
+    }
+    if (visibleDivisions.length > 0 && !visibleDivisions.some((division) => division.id === activeDivision)) {
+      setActiveDivision(visibleDivisions.find((division) => division.isPrimary)?.id ?? visibleDivisions[0].id);
+    }
+  }, [activeDivision, canPickAllForResource, currentResource, setActiveDivision, user?.id, visibleDivisions]);
+  useEffect(() => {
+    if (!user) return;
+    if (visibleDepartments.length > 0 && !visibleDepartments.some((department) => department.id === activeDepartment)) {
+      setActiveDepartment(visibleDepartments.find((department) => department.isPrimary)?.id ?? visibleDepartments[0].id);
+    }
+  }, [activeDepartment, currentResource, setActiveDepartment, user?.id, visibleDepartments]);
   const canSee = (item: NavItem) => {
-    if (hasRole("admin") || hasRole("super_admin")) return true;
-    if (hasRole("readonly")) return !MGMT_KEYS.has(item.key);
-    if (!item.roles) return true;
-    return item.roles.some((r) => hasRole(r));
+    return canAccessNavKey(item.key, hasPermission, hasRole);
   };
-  const canSeeReports = hasRole("admin") || hasRole("super_admin") || hasRole("readonly") || hasRole("sales") || hasRole("finance");
+  const canSeeReports = hasRole("admin") || hasRole("super_admin") || hasPermission("reports.read");
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [commandOpen, setCommandOpen] = useState(false);
   // Sohbet okunmamış rozeti — konuşmaları 15 sn'de bir özetleyip toplam okunmamışı gösterir.
@@ -268,7 +350,7 @@ export function Layout({ current, onNavigate, onLogout, pageTitle, pageSubtitle,
     }
   };
 
-  const renderSidebarContent = (onItemClick?: () => void, menuSide: "right" | "top" = "right") => (
+  const renderSidebarContent = (onItemClick?: () => void) => (
     <div className="flex h-full min-h-0 flex-col overflow-hidden">
       {/* Logo */}
       <div className="h-16 shrink-0 flex items-center gap-3 px-5 border-b border-border/60">
@@ -314,7 +396,11 @@ export function Layout({ current, onNavigate, onLogout, pageTitle, pageSubtitle,
                       )}
                       <Icon className={`size-[17px] shrink-0 ${active ? "text-primary" : "text-muted-foreground group-hover:text-foreground"}`} strokeWidth={1.8} />
                       <span className="truncate flex-1 text-left">{item.label}</span>
-                      {(item.key === "chat" && chatUnread > 0) ? (
+                      {(item.key === "call-assistant" && callSuggestions.length > 0) ? (
+                        <Badge variant="secondary" className={`h-5 px-1.5 text-[10px] ${active ? "bg-primary text-primary-foreground" : "bg-primary/10 text-primary"}`}>
+                          {callSuggestions.length}
+                        </Badge>
+                      ) : (item.key === "chat" && chatUnread > 0) ? (
                         <Badge variant="secondary" className={`h-5 px-1.5 text-[10px] ${active ? "bg-primary text-primary-foreground" : "bg-primary/10 text-primary"}`}>
                           {chatUnread}
                         </Badge>
@@ -341,7 +427,7 @@ export function Layout({ current, onNavigate, onLogout, pageTitle, pageSubtitle,
 
   return (
     <TooltipProvider delayDuration={150}>
-      <div className="flex h-full min-h-0 w-full overflow-hidden bg-[#f7f7f8] text-foreground">
+      <div className="flex h-full min-h-0 w-full overflow-hidden bg-canvas text-foreground">
         {mobileNavOpen && (
           <div className="fixed inset-0 z-50 lg:hidden">
             <button
@@ -351,7 +437,7 @@ export function Layout({ current, onNavigate, onLogout, pageTitle, pageSubtitle,
               onClick={() => setMobileNavOpen(false)}
             />
             <aside className="relative z-10 flex h-full min-h-0 w-[min(300px,calc(100vw-2rem))] flex-col overflow-hidden border-r border-border/60 bg-white shadow-xl">
-              {renderSidebarContent(() => setMobileNavOpen(false), "top")}
+              {renderSidebarContent(() => setMobileNavOpen(false))}
             </aside>
           </div>
         )}
@@ -392,11 +478,29 @@ export function Layout({ current, onNavigate, onLogout, pageTitle, pageSubtitle,
 
             <div className="flex-1" />
 
-            {/* Bölüm seçici (CNC/Üniversal/Sac/Tümü) — yalnızca 'tümünü gör'
-                yetkisi olan kullanıcılarda (süper admin / admin) görünür. Diğer
-                kullanıcılar zaten yalnızca kendi bölümlerini görür; başlık backend
-                tarafından yok sayıldığı için seçici de gösterilmez. */}
-            {canViewAllDivisions && divisions.length > 0 && (
+            {canPickDepartment && (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" size="sm" className="gap-1.5 h-9 px-2 sm:px-3" aria-label="Departman seç">
+                    <Briefcase className="size-4 text-muted-foreground" />
+                    <span className="hidden sm:inline max-w-[110px] truncate">{activeDepartmentLabel}</span>
+                    <ChevronDown className="size-3.5 text-muted-foreground" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-48">
+                  <DropdownMenuLabel>Departman</DropdownMenuLabel>
+                  <DropdownMenuSeparator />
+                  {visibleDepartments.map((department) => (
+                    <DropdownMenuItem key={department.id} className="justify-between" onClick={() => setActiveDepartment(department.id)}>
+                      {department.name}
+                      {activeDepartment === department.id && <CheckCircle2 className="size-4 text-primary" />}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
+
+            {canPickDivision && visibleDivisions.length > 0 && (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button variant="outline" size="sm" className="gap-1.5 h-9 px-2 sm:px-3" aria-label="Bölüm seç">
@@ -408,11 +512,13 @@ export function Layout({ current, onNavigate, onLogout, pageTitle, pageSubtitle,
                 <DropdownMenuContent align="end" className="w-48">
                   <DropdownMenuLabel>Bölüm</DropdownMenuLabel>
                   <DropdownMenuSeparator />
-                  <DropdownMenuItem className="justify-between" onClick={() => setActiveDivision("all")}>
-                    Tümü
-                    {activeDivision === "all" && <CheckCircle2 className="size-4 text-primary" />}
-                  </DropdownMenuItem>
-                  {divisions.map((d) => (
+                  {canPickAllForResource && (
+                    <DropdownMenuItem className="justify-between" onClick={() => setActiveDivision("all")}>
+                      Tümü
+                      {activeDivision === "all" && <CheckCircle2 className="size-4 text-primary" />}
+                    </DropdownMenuItem>
+                  )}
+                  {visibleDivisions.map((d) => (
                     <DropdownMenuItem key={d.id} className="justify-between" onClick={() => setActiveDivision(d.id)}>
                       {d.name}
                       {activeDivision === d.id && <CheckCircle2 className="size-4 text-primary" />}
@@ -532,12 +638,16 @@ export function Layout({ current, onNavigate, onLogout, pageTitle, pageSubtitle,
                 {canSeeReports && (
                   <DropdownMenuItem onClick={() => onNavigate("reports")}><BarChart3 className="size-4 mr-2 text-muted-foreground" /> Raporlar</DropdownMenuItem>
                 )}
-                <DropdownMenuSeparator />
-                <DropdownMenuLabel>Yönetim</DropdownMenuLabel>
-                <DropdownMenuItem onClick={() => onNavigate("users")}><Users className="size-4 mr-2 text-muted-foreground" /> Kullanıcılar</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => onNavigate("roles")}><ShieldCheck className="size-4 mr-2 text-muted-foreground" /> Roller & Yetkiler</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => onNavigate("departments")}><Building2 className="size-4 mr-2 text-muted-foreground" /> Departmanlar</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => onNavigate("settings")}><SettingsIcon className="size-4 mr-2 text-muted-foreground" /> Ayarlar</DropdownMenuItem>
+                {hasRole("super_admin") && (
+                  <>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuLabel>Yönetim</DropdownMenuLabel>
+                    <DropdownMenuItem onClick={() => onNavigate("users")}><Users className="size-4 mr-2 text-muted-foreground" /> Kullanıcılar</DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => onNavigate("roles")}><ShieldCheck className="size-4 mr-2 text-muted-foreground" /> Roller & Yetkiler</DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => onNavigate("departments")}><Building2 className="size-4 mr-2 text-muted-foreground" /> Departmanlar</DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => onNavigate("settings")}><SettingsIcon className="size-4 mr-2 text-muted-foreground" /> Ayarlar</DropdownMenuItem>
+                  </>
+                )}
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={onLogout} className="text-destructive focus:text-destructive">
                   <LogOut className="size-4 mr-2" /> Çıkış yap
@@ -563,7 +673,7 @@ export function Layout({ current, onNavigate, onLogout, pageTitle, pageSubtitle,
           </div>
 
           {/* Content */}
-          <main className="app-main flex-1 min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain p-4 md:p-6 min-w-0 bg-[#f7f7f8]">{children}</main>
+          <main className="app-main flex-1 min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain p-4 md:p-6 min-w-0 bg-canvas">{children}</main>
         </div>
         <CommandPalette
           open={commandOpen}
@@ -754,6 +864,7 @@ const STATUS_META: Record<string, { cls: string; icon?: ReactNode }> = {
   passive: { cls: "bg-zinc-100 text-zinc-600 border-zinc-200" },
   Available: { cls: "bg-emerald-50 text-emerald-700 border-emerald-200", icon: <CheckCircle2 className="size-3" /> },
   Reserved: { cls: "bg-amber-50 text-amber-700 border-amber-200", icon: <Clock className="size-3" /> },
+  InTransit: { cls: "bg-sky-50 text-sky-700 border-sky-200", icon: <Clock className="size-3" /> },
   Sold: { cls: "bg-blue-50 text-blue-700 border-blue-200" },
   Inactive: { cls: "bg-zinc-100 text-zinc-600 border-zinc-200" },
   Pending: { cls: "bg-amber-50 text-amber-700 border-amber-200", icon: <Clock className="size-3" /> },
@@ -785,6 +896,7 @@ const STATUS_LABELS: Record<string, string> = {
   passive: "Pasif",
   Available: "Hazır",
   Reserved: "Rezerve",
+  InTransit: "Yolda",
   Sold: "Satıldı",
   Inactive: "Pasif",
   Pending: "Bekliyor",

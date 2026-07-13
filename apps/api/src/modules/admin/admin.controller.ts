@@ -1,11 +1,12 @@
-import { Body, Controller, Get, Inject, Patch, Post, Param, Query, UseGuards } from '@nestjs/common';
-import * as argon2 from 'argon2';
-import { and, asc, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
+import { Body, Controller, Delete, Get, Inject, Patch, Post, Param, Query, UseGuards } from '@nestjs/common';
+import { hashPassword } from '../../shared/security/password';
+import { and, asc, desc, eq, inArray, isNull, ne, sql } from 'drizzle-orm';
 import type { DbClient } from '../../db/client';
-import { users, roles, permissions, userRoles, rolePermissions, userTargets, departmentTargets, userDivisions } from '../../db/schema/users';
+import { users, roles, permissions, userRoles, rolePermissions, userTargets, departmentTargets, userAccessScopes, userDivisions, loginSessions, refreshTokens } from '../../db/schema/users';
 import { departments, tenants, divisions } from '../../db/schema/tenants';
 import { auditLogs } from '../../db/schema/audit';
 import { DB } from '../../shared/database/database.module';
+import { AuditService } from '../../shared/database/audit.service';
 import { ZodValidationPipe } from '../../shared/utils/zod-pipe';
 import { AuthGuard } from '../../shared/security/auth.guard';
 import { PermissionsGuard, RequirePermissions } from '../../shared/security/permissions.guard';
@@ -25,10 +26,12 @@ import {
   targetPeriodQuerySchema,
   targetUpsertSchema,
   tenantUpdateSchema,
+  PERMISSION_RESOURCES,
   type TenantUpdateInput,
   type Pagination,
   type UserCreateInput,
   type UserUpdateInput,
+  type UserAccessScopeInput,
   type RoleCreateInput,
   type RoleUpdateInput,
   type DepartmentCreateInput,
@@ -39,15 +42,55 @@ import {
 } from '@haksan/shared';
 import { buildPaginated, pageOffset } from '../../shared/utils/pagination';
 
+const DEFAULT_ACCESS_SCOPE_RESOURCES = PERMISSION_RESOURCES.filter(
+  (resource) => !['tenants', 'users', 'roles', 'departments', 'divisions', 'audit', 'files'].includes(resource)
+);
+
 @UseGuards(AuthGuard, PermissionsGuard)
 @Controller()
 export class AdminController {
-  constructor(@Inject(DB) private readonly db: DbClient) {}
+  constructor(
+    @Inject(DB) private readonly db: DbClient,
+    private readonly audit: AuditService
+  ) {}
 
   private requireSuperAdmin(user: AuthContext) {
     if (!user.roles.includes('super_admin')) {
       throw new ForbiddenError('Rolleri yalnızca Süper Admin yönetebilir');
     }
+  }
+
+  private async ensureAnotherActiveSuperAdmin(tenantId: string, excludedUserId: string) {
+    const [{ count }] = await this.db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(userRoles)
+      .innerJoin(roles, eq(userRoles.roleId, roles.id))
+      .innerJoin(users, eq(userRoles.userId, users.id))
+      .where(
+        and(
+          eq(roles.tenantId, tenantId),
+          eq(roles.code, 'super_admin'),
+          eq(users.tenantId, tenantId),
+          eq(users.status, 'active'),
+          isNull(users.deletedAt),
+          ne(users.id, excludedUserId)
+        )
+      );
+    if ((count ?? 0) === 0) {
+      throw new ConflictError('Son aktif Süper Admin devre dışı bırakılamaz veya rolü kaldırılamaz');
+    }
+  }
+
+  private async revokeUserSessions(userId: string, now = new Date()) {
+    await this.db
+      .update(refreshTokens)
+      .set({ revokedAt: now })
+      .where(and(eq(refreshTokens.userId, userId), isNull(refreshTokens.revokedAt)));
+    await this.db
+      .update(loginSessions)
+      .set({ revokedAt: now })
+      .where(and(eq(loginSessions.userId, userId), isNull(loginSessions.revokedAt)));
+    invalidateRbacCache(userId);
   }
 
   /** Kullanıcının bölüm (CNC/Üniversal/Sac) üyeliklerini verilen listeyle değiştirir.
@@ -69,6 +112,84 @@ export class AdminController {
       await this.db
         .insert(userDivisions)
         .values({ userId, divisionId, isPrimary: index === 0 })
+        .onConflictDoNothing();
+    }
+    return valid;
+  }
+
+  private defaultAccessScopes(departmentId: string | null | undefined, divisionIds: string[], canViewAllDivisions: boolean): UserAccessScopeInput[] {
+    if (canViewAllDivisions) {
+      return DEFAULT_ACCESS_SCOPE_RESOURCES.map((resource) => ({
+        resource,
+        departmentId: departmentId ?? null,
+        divisionId: null,
+        isPrimary: true,
+      }));
+    }
+    return DEFAULT_ACCESS_SCOPE_RESOURCES.flatMap((resource) =>
+      divisionIds.map((divisionId, index) => ({
+        resource,
+        departmentId: departmentId ?? null,
+        divisionId,
+        isPrimary: index === 0,
+      }))
+    );
+  }
+
+  private async roleCodesCanViewAll(roleCodes: string[], tenantId: string): Promise<boolean> {
+    if (roleCodes.length === 0) return false;
+    const rows = await this.db
+      .select({ code: permissions.code })
+      .from(roles)
+      .innerJoin(rolePermissions, eq(rolePermissions.roleId, roles.id))
+      .innerJoin(permissions, eq(rolePermissions.permissionId, permissions.id))
+      .where(and(eq(roles.tenantId, tenantId), inArray(roles.code, roleCodes), eq(permissions.code, 'divisions.view_all')));
+    return rows.length > 0;
+  }
+
+  private async setUserAccessScopes(userId: string, tenantId: string, scopes: UserAccessScopeInput[]) {
+    const normalized = scopes.map((scope) => ({
+      resource: scope.resource,
+      departmentId: scope.departmentId ?? null,
+      divisionId: scope.divisionId ?? null,
+      isPrimary: !!scope.isPrimary,
+    }));
+    const departmentIds = [...new Set(normalized.map((scope) => scope.departmentId).filter((id): id is string => !!id))];
+    const divisionIds = [...new Set(normalized.map((scope) => scope.divisionId).filter((id): id is string => !!id))];
+    if (departmentIds.length) {
+      const rows = await this.db
+        .select({ id: departments.id })
+        .from(departments)
+        .where(and(eq(departments.tenantId, tenantId), inArray(departments.id, departmentIds)));
+      if (rows.length !== departmentIds.length) throw new NotFoundError('Departman');
+    }
+    if (divisionIds.length) {
+      const rows = await this.db
+        .select({ id: divisions.id })
+        .from(divisions)
+        .where(and(eq(divisions.tenantId, tenantId), inArray(divisions.id, divisionIds), eq(divisions.isActive, true)));
+      if (rows.length !== divisionIds.length) throw new NotFoundError('Bölüm');
+    }
+
+    const hasPrimaryByResource = new Set<string>();
+    for (const scope of normalized) {
+      if (scope.isPrimary) hasPrimaryByResource.add(scope.resource);
+    }
+    const firstByResource = new Set<string>();
+    const rows = normalized.map((scope) => {
+      const isFirst = !firstByResource.has(scope.resource);
+      firstByResource.add(scope.resource);
+      return {
+        ...scope,
+        isPrimary: scope.isPrimary || (isFirst && !hasPrimaryByResource.has(scope.resource)),
+      };
+    });
+
+    await this.db.delete(userAccessScopes).where(eq(userAccessScopes.userId, userId));
+    if (rows.length) {
+      await this.db
+        .insert(userAccessScopes)
+        .values(rows.map((scope) => ({ tenantId, userId, ...scope })))
         .onConflictDoNothing();
     }
   }
@@ -94,6 +215,16 @@ export class AdminController {
         .innerJoin(divisions, eq(userDivisions.divisionId, divisions.id))
         .where(eq(userDivisions.userId, u.id))
         .orderBy(desc(userDivisions.isPrimary), asc(divisions.sortOrder));
+      const accessScopeRows = await this.db
+        .select({
+          resource: userAccessScopes.resource,
+          departmentId: userAccessScopes.departmentId,
+          divisionId: userAccessScopes.divisionId,
+          isPrimary: userAccessScopes.isPrimary,
+        })
+        .from(userAccessScopes)
+        .where(eq(userAccessScopes.userId, u.id))
+        .orderBy(asc(userAccessScopes.resource), desc(userAccessScopes.isPrimary));
       const department = u.departmentId ? deptById.get(u.departmentId) : null;
       out.push({
         id: u.id,
@@ -106,9 +237,12 @@ export class AdminController {
         purchaseApprovalLimit: u.purchaseApprovalLimit,
         managerId: u.managerId,
         lastLoginAt: u.lastLoginAt,
+        failedLoginAttempts: u.failedLoginAttempts,
+        lockedUntil: u.lockedUntil,
         mfaEnabled: u.mfaEnabled,
         roles: userRoleRows,
         divisions: userDivisionRows,
+        accessScopes: accessScopeRows,
       });
     }
     return out;
@@ -117,11 +251,14 @@ export class AdminController {
   @RequirePermissions('users.create')
   @Post('users')
   async createUser(@Body(new ZodValidationPipe(userCreateSchema)) body: UserCreateInput, @CurrentUser() user: AuthContext) {
+    // Yetki yükseltmeyi önle: super_admin rolünü yalnızca super_admin atayabilir.
+    // (users.create izni tek başına yeni bir süper admin oluşturmaya yetmez.)
+    if (body.roleCodes.includes('super_admin')) this.requireSuperAdmin(user);
     const existing = await this.db.query.users.findFirst({
       where: and(eq(users.tenantId, user.tenantId), eq(users.email, body.email)),
     });
     if (existing) throw new ConflictError('Bu e-posta zaten kayıtlı');
-    const hash = await argon2.hash(body.password, { type: argon2.argon2id });
+    const hash = await hashPassword(body.password);
     const [created] = await this.db
       .insert(users)
       .values({
@@ -139,7 +276,13 @@ export class AdminController {
       });
       if (role) await this.db.insert(userRoles).values({ userId: created.id, roleId: role.id }).onConflictDoNothing();
     }
-    await this.setUserDivisions(created.id, user.tenantId, body.divisionIds);
+    const validDivisionIds = await this.setUserDivisions(created.id, user.tenantId, body.divisionIds);
+    const canViewAll = await this.roleCodesCanViewAll(body.roleCodes, user.tenantId);
+    await this.setUserAccessScopes(
+      created.id,
+      user.tenantId,
+      body.accessScopes ?? this.defaultAccessScopes(body.departmentId ?? null, validDivisionIds, canViewAll)
+    );
     return { id: created.id, email: created.email, fullName: created.fullName };
   }
 
@@ -150,12 +293,42 @@ export class AdminController {
       where: and(eq(users.id, id), eq(users.tenantId, user.tenantId), isNull(users.deletedAt)),
     });
     if (!existing) throw new NotFoundError('Kullanıcı');
+    const currentRoleRows = await this.db
+      .select({ code: roles.code })
+      .from(userRoles)
+      .innerJoin(roles, eq(userRoles.roleId, roles.id))
+      .where(eq(userRoles.userId, id));
+    const targetIsSuperAdmin = currentRoleRows.some((role) => role.code === 'super_admin');
+    let effectiveRoleCodes = currentRoleRows.map((role) => role.code);
+    let effectiveDivisionIds = (
+      await this.db
+        .select({ divisionId: userDivisions.divisionId, isPrimary: userDivisions.isPrimary })
+        .from(userDivisions)
+        .where(eq(userDivisions.userId, id))
+        .orderBy(desc(userDivisions.isPrimary))
+    ).map((row) => row.divisionId);
     const patch: Record<string, unknown> = {};
     for (const k of ['fullName', 'phone', 'departmentId', 'status'] as const) {
       if ((body as any)[k] !== undefined) patch[k] = (body as any)[k];
     }
+    // E-posta değişimi hassas bir işlemdir: yalnızca super_admin yapabilir ve
+    // tenant içinde benzersiz olmalıdır (silinmiş kullanıcılar dahil — uniq index).
+    if (body.email !== undefined && body.email !== existing.email) {
+      this.requireSuperAdmin(user);
+      const emailOwner = await this.db.query.users.findFirst({
+        where: and(eq(users.tenantId, user.tenantId), eq(users.email, body.email)),
+      });
+      if (emailOwner && emailOwner.id !== id) throw new ConflictError('Bu e-posta zaten kayıtlı');
+      patch.email = body.email;
+    }
     if (body.purchaseApprovalLimit !== undefined) {
       patch.purchaseApprovalLimit = body.purchaseApprovalLimit;
+    }
+    if (body.status !== undefined && body.status !== existing.status && targetIsSuperAdmin) {
+      this.requireSuperAdmin(user);
+      if (body.status !== 'active') {
+        await this.ensureAnotherActiveSuperAdmin(user.tenantId, id);
+      }
     }
     if (body.managerId !== undefined) {
       if (body.managerId === id) throw new ConflictError('Kullanıcı kendi yöneticisi olamaz');
@@ -167,9 +340,34 @@ export class AdminController {
       }
       patch.managerId = body.managerId;
     }
-    if (body.password) patch.passwordHash = await argon2.hash(body.password, { type: argon2.argon2id });
-    await this.db.update(users).set(patch).where(eq(users.id, id));
+    // Şifre değişimi yalnızca super_admin'e açık (kullanıcılar kendi şifrelerini
+    // "şifremi unuttum" e-posta akışıyla yeniler).
+    if (body.password) {
+      this.requireSuperAdmin(user);
+      patch.passwordHash = await hashPassword(body.password);
+    }
+    const invalidatesSessions =
+      Boolean(body.password) ||
+      body.roleCodes !== undefined ||
+      (body.status !== undefined && body.status !== existing.status) ||
+      (body.email !== undefined && body.email !== existing.email);
+    if (invalidatesSessions) {
+      patch.authVersion = sql`${users.authVersion} + 1`;
+    }
+    // Yalnızca rol/bölüm değişen PATCH'lerde `patch` boş kalır; boş `.set()` Drizzle'da
+    // "No values to set" ile 500 atar (krş. updateRole/updateTenant deseni).
+    if (Object.keys(patch).length > 0) {
+      await this.db.update(users).set(patch).where(eq(users.id, id));
+    }
     if (body.roleCodes) {
+      // Yetki yükseltme/indirme koruması: super_admin rolüne dokunan (atayan VEYA
+      // kaldıran) her değişiklik yalnızca super_admin tarafından yapılabilir.
+      const touchesSuperAdmin =
+        body.roleCodes.includes('super_admin') || currentRoleRows.some((r) => r.code === 'super_admin');
+      if (touchesSuperAdmin) this.requireSuperAdmin(user);
+      if (targetIsSuperAdmin && !body.roleCodes.includes('super_admin') && existing.status === 'active') {
+        await this.ensureAnotherActiveSuperAdmin(user.tenantId, id);
+      }
       // Replace user_roles
       const allRoles = await this.db.query.roles.findMany({ where: eq(roles.tenantId, user.tenantId) });
       const wantIds = allRoles.filter((r) => body.roleCodes!.includes(r.code)).map((r) => r.id);
@@ -177,12 +375,111 @@ export class AdminController {
       for (const roleId of wantIds) {
         await this.db.insert(userRoles).values({ userId: id, roleId }).onConflictDoNothing();
       }
+      effectiveRoleCodes = body.roleCodes;
       invalidateRbacCache(id);
     }
     if (body.divisionIds) {
-      await this.setUserDivisions(id, user.tenantId, body.divisionIds);
+      effectiveDivisionIds = await this.setUserDivisions(id, user.tenantId, body.divisionIds);
     }
+    if (body.accessScopes) {
+      await this.setUserAccessScopes(id, user.tenantId, body.accessScopes);
+    } else if (body.divisionIds || body.roleCodes || body.departmentId !== undefined) {
+      const canViewAll = await this.roleCodesCanViewAll(effectiveRoleCodes, user.tenantId);
+      const departmentId = body.departmentId !== undefined ? body.departmentId : existing.departmentId;
+      await this.setUserAccessScopes(id, user.tenantId, this.defaultAccessScopes(departmentId, effectiveDivisionIds, canViewAll));
+    }
+    if (invalidatesSessions) await this.revokeUserSessions(id);
     return { ok: true };
+  }
+
+  @RequirePermissions('users.delete')
+  @Delete('users/:id')
+  async deleteUser(@Param('id') id: string, @CurrentUser() user: AuthContext) {
+    // Kullanıcı silme yalnızca super_admin'e açık (users.delete izni tek başına yetmez).
+    this.requireSuperAdmin(user);
+    if (id === user.userId) {
+      throw new ForbiddenError('Kullanıcı kendi hesabını silemez');
+    }
+
+    const existing = await this.db.query.users.findFirst({
+      where: and(eq(users.id, id), eq(users.tenantId, user.tenantId), isNull(users.deletedAt)),
+    });
+    if (!existing) throw new NotFoundError('Kullanıcı');
+
+    const targetRoles = await this.db
+      .select({ code: roles.code })
+      .from(userRoles)
+      .innerJoin(roles, eq(userRoles.roleId, roles.id))
+      .where(eq(userRoles.userId, id));
+    const isSuperAdmin = targetRoles.some((role) => role.code === 'super_admin');
+
+    if (isSuperAdmin) {
+      const [{ count }] = await this.db
+        .select({ count: sql<number>`count(*)::int` })
+        .from(userRoles)
+        .innerJoin(roles, eq(userRoles.roleId, roles.id))
+        .innerJoin(users, eq(userRoles.userId, users.id))
+        .where(
+          and(
+            eq(roles.tenantId, user.tenantId),
+            eq(roles.code, 'super_admin'),
+            eq(users.tenantId, user.tenantId),
+            eq(users.status, 'active'),
+            isNull(users.deletedAt)
+          )
+        );
+      if ((count ?? 0) <= 1) {
+        throw new ConflictError('Son Süper Admin kullanıcısı silinemez');
+      }
+    }
+
+    const now = new Date();
+    await this.db
+      .update(users)
+      .set({ deletedAt: now, status: 'passive' })
+      .where(eq(users.id, id));
+    await this.revokeUserSessions(id, now);
+
+    await this.audit.write({
+      tenantId: user.tenantId,
+      actorUserId: user.userId,
+      action: 'user.deleted',
+      resourceType: 'user',
+      resourceId: id,
+      oldValues: existing,
+      newValues: { deletedAt: now, status: 'passive' },
+    });
+
+    return { ok: true };
+  }
+
+  @RequirePermissions('users.update')
+  @Post('users/:id/unlock')
+  async unlockUser(@Param('id') id: string, @CurrentUser() user: AuthContext) {
+    const existing = await this.db.query.users.findFirst({
+      where: and(eq(users.id, id), eq(users.tenantId, user.tenantId), isNull(users.deletedAt)),
+    });
+    if (!existing) throw new NotFoundError('Kullanıcı');
+
+    await this.db
+      .update(users)
+      .set({ failedLoginAttempts: 0, lockedUntil: null })
+      .where(eq(users.id, id));
+
+    await this.audit.write({
+      tenantId: user.tenantId,
+      actorUserId: user.userId,
+      action: 'user.unlocked',
+      resourceType: 'user',
+      resourceId: id,
+      oldValues: {
+        failedLoginAttempts: existing.failedLoginAttempts,
+        lockedUntil: existing.lockedUntil,
+      },
+      newValues: { failedLoginAttempts: 0, lockedUntil: null },
+    });
+
+    return { ok: true, id, failedLoginAttempts: 0, lockedUntil: null };
   }
 
   @RequirePermissions('users.read')
@@ -207,21 +504,10 @@ export class AdminController {
     });
   }
 
-  @RequirePermissions('users.update')
-  @Post('users/:id/targets')
-  async upsertUserTarget(
-    @Param('id') id: string,
-    @Body(new ZodValidationPipe(targetUpsertSchema)) body: TargetUpsertInput,
-    @CurrentUser() user: AuthContext
-  ) {
-    const targetUser = await this.db.query.users.findFirst({
-      where: and(eq(users.id, id), eq(users.tenantId, user.tenantId), isNull(users.deletedAt)),
-    });
-    if (!targetUser) throw new NotFoundError('Kullanıcı');
-
+  private async upsertUserTargetRow(userId: string, body: TargetUpsertInput, tenantId: string) {
     const values = {
-      tenantId: user.tenantId,
-      userId: id,
+      tenantId,
+      userId,
       period: body.period,
       currency: 'USD',
       salesAmount: body.salesAmount == null ? null : body.salesAmount.toString(),
@@ -239,7 +525,7 @@ export class AdminController {
     };
 
     const existing = await this.db.query.userTargets.findFirst({
-      where: and(eq(userTargets.tenantId, user.tenantId), eq(userTargets.userId, id), eq(userTargets.period, body.period)),
+      where: and(eq(userTargets.tenantId, tenantId), eq(userTargets.userId, userId), eq(userTargets.period, body.period)),
     });
     if (existing) {
       const [row] = await this.db.update(userTargets).set(values).where(eq(userTargets.id, existing.id)).returning();
@@ -247,6 +533,70 @@ export class AdminController {
     }
     const [row] = await this.db.insert(userTargets).values(values).returning();
     return row;
+  }
+
+  @RequirePermissions('users.update')
+  @Post('users/:id/targets')
+  async upsertUserTarget(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(targetUpsertSchema)) body: TargetUpsertInput,
+    @CurrentUser() user: AuthContext
+  ) {
+    const targetUser = await this.db.query.users.findFirst({
+      where: and(eq(users.id, id), eq(users.tenantId, user.tenantId), isNull(users.deletedAt)),
+    });
+    if (!targetUser) throw new NotFoundError('Kullanıcı');
+    return this.upsertUserTargetRow(id, body, user.tenantId);
+  }
+
+  /** Rol hedefi = toplu atama: roldeki tüm aktif kullanıcılara kişisel hedef olarak kopyalanır. */
+  @RequirePermissions('roles.update')
+  @Post('roles/:id/targets')
+  async upsertRoleTargets(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(targetUpsertSchema)) body: TargetUpsertInput,
+    @CurrentUser() user: AuthContext
+  ) {
+    const role = await this.db.query.roles.findFirst({
+      where: and(eq(roles.id, id), eq(roles.tenantId, user.tenantId)),
+    });
+    if (!role) throw new NotFoundError('Rol');
+
+    const members = await this.db
+      .select({ userId: users.id })
+      .from(userRoles)
+      .innerJoin(users, eq(userRoles.userId, users.id))
+      .where(and(eq(userRoles.roleId, id), eq(users.tenantId, user.tenantId), isNull(users.deletedAt), eq(users.status, 'active')));
+
+    for (const member of members) {
+      await this.upsertUserTargetRow(member.userId, body, user.tenantId);
+    }
+
+    await this.audit.write({
+      tenantId: user.tenantId,
+      actorUserId: user.userId,
+      action: 'role.targets_assigned',
+      resourceType: 'role',
+      resourceId: id,
+      newValues: { period: body.period, updatedUserCount: members.length },
+    });
+    return { ok: true, roleCode: role.code, period: body.period, updatedUserCount: members.length };
+  }
+
+  /** Rol hedefi atamadan önce etkilenecek kullanıcı sayısını döner (UI onayı için). */
+  @RequirePermissions('roles.read')
+  @Get('roles/:id/target-members')
+  async roleTargetMembers(@Param('id') id: string, @CurrentUser() user: AuthContext) {
+    const role = await this.db.query.roles.findFirst({
+      where: and(eq(roles.id, id), eq(roles.tenantId, user.tenantId)),
+    });
+    if (!role) throw new NotFoundError('Rol');
+    const members = await this.db
+      .select({ userId: users.id, fullName: users.fullName })
+      .from(userRoles)
+      .innerJoin(users, eq(userRoles.userId, users.id))
+      .where(and(eq(userRoles.roleId, id), eq(users.tenantId, user.tenantId), isNull(users.deletedAt), eq(users.status, 'active')));
+    return { roleCode: role.code, roleName: role.name, memberCount: members.length, members };
   }
 
   @RequirePermissions('users.read')
@@ -368,7 +718,14 @@ export class AdminController {
           .onConflictDoNothing();
       }
       const affectedUsers = await this.db.select({ userId: userRoles.userId }).from(userRoles).where(eq(userRoles.roleId, id));
-      for (const row of affectedUsers) invalidateRbacCache(row.userId);
+      const affectedUserIds = affectedUsers.map((row) => row.userId);
+      if (affectedUserIds.length) {
+        await this.db
+          .update(users)
+          .set({ authVersion: sql`${users.authVersion} + 1` })
+          .where(inArray(users.id, affectedUserIds));
+        for (const userId of affectedUserIds) await this.revokeUserSessions(userId);
+      }
     }
 
     return { ok: true };

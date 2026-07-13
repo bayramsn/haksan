@@ -18,10 +18,9 @@ import { SALES_STAGES, SALES_STAGE_LABELS, salesStageLabel } from "../../lib/moc
 import { StatusBadge } from "../Layout";
 import { useStore } from "../../lib/store";
 import { useAuth } from "../../../lib/auth";
-import { useFx } from "../../lib/fx";
+import { useFx, type FxCurrency } from "../../lib/fx";
 import { buildSalesMonthly, buildFunnelFromCases, buildPipelineFunnel, buildPipelineStagePie } from "../../lib/chartAggregates";
-import { computeTargetAchievement } from "../../lib/targetAchievement";
-import { adminService, reportService } from "../../../lib/services";
+import { reportService } from "../../../lib/services";
 import {
   buildManagementInsights,
   buildWorkItems,
@@ -31,20 +30,26 @@ import {
   type WorkItem,
 } from "../../lib/operations";
 
-const COLORS = ["#000c69", "#cf060c", "#3b82f6", "#10b981", "#f59e0b", "#64748b", "#0ea5e9", "#14b8a6", "#ef4444", "#334155", "#fbbf24", "#60a5fa"];
+const COLORS = ["var(--brand-blue)", "var(--brand-red)", "#3b82f6", "var(--success)", "var(--warning)", "#64748b", "#0ea5e9", "#14b8a6", "var(--destructive)", "#334155", "#fbbf24", "#60a5fa"];
 
 type AssignedTargetItem = {
-  targetType: "sales" | "service";
+  targetType: "sales" | "service" | "finance" | "purchase" | "operations" | "logistics" | "other";
   category: string;
   activity: string;
   description?: string;
   unit: "count" | "amount";
   target: string;
+  metricKey?: string | null;
+  trackingMode?: "automatic" | "manual";
+  actual?: number | null;
+  pct?: number | null;
 };
+type MetricProgress = { target: number | null; actual: number | null; pct: number | null };
 type AssignedTarget = {
   period: string;
   targetItems?: AssignedTargetItem[];
   note?: string | null;
+  metrics?: Record<string, MetricProgress>;
   // Özet sayısal alanlar (detaylı targetItems yoksa bunlardan hedef türetilir).
   salesAmount?: string | number | null;
   salesNewCustomers?: string | number | null;
@@ -56,6 +61,34 @@ type AssignedTarget = {
   digitalLeadTarget?: string | number | null;
   digitalConversionTarget?: string | number | null;
   digitalBudget?: string | number | null;
+};
+
+const TARGET_TYPE_ORDER: AssignedTargetItem["targetType"][] = ["sales", "service", "finance", "purchase", "operations", "logistics", "other"];
+const TARGET_TYPE_LABEL: Record<AssignedTargetItem["targetType"], string> = {
+  sales: "Satış",
+  service: "Servis",
+  finance: "Finans",
+  purchase: "Satınalma",
+  operations: "Operasyon",
+  logistics: "Lojistik",
+  other: "Diğer",
+};
+const METRIC_LABEL: Record<string, string> = {
+  salesAmount: "Satış Cirosu",
+  salesNewCustomers: "Yeni Müşteri",
+  quoteTarget: "Teklif",
+  visitTarget: "Ziyaret",
+  callTarget: "Arama",
+  serviceCompleted: "Tamamlanan Servis",
+  serviceAmount: "Servis Cirosu",
+  digitalLeadTarget: "Dijital Lead",
+  paymentsInAmount: "Tahsilat",
+  purchaseInvoiceAmount: "Alış Faturası",
+  purchaseOrderAmount: "Satınalma Tutarı",
+  purchaseOrderCount: "Satınalma Siparişi",
+  salesOrderAmount: "Satış Sipariş Tutarı",
+  salesOrderCount: "Satış Siparişi",
+  installationCompleted: "Kurulum",
 };
 
 /** Özet alanlardan hedef kalemleri türetir (targetItems boşken görünürlük için). */
@@ -86,7 +119,7 @@ const synthesizeTargetItems = (t: AssignedTarget | null): AssignedTargetItem[] =
 };
 
 const currentPeriod = () => new Date().toISOString().slice(0, 7);
-const targetTypeLabel = (type: AssignedTargetItem["targetType"]) => (type === "sales" ? "Satış" : "Servis");
+const targetTypeLabel = (type: AssignedTargetItem["targetType"]) => TARGET_TYPE_LABEL[type] ?? type;
 const formatTargetValue = (item: AssignedTargetItem) => {
   const value = item.target?.trim();
   if (!value) return "Belirlenmedi";
@@ -97,16 +130,11 @@ const formatTargetValue = (item: AssignedTargetItem) => {
   }
   return `${value} adet`;
 };
-const filledTargetCount = (items: AssignedTargetItem[], type: AssignedTargetItem["targetType"]) =>
-  items.filter((item) => item.targetType === type && !!item.target?.trim()).length;
-const totalTargetCount = (items: AssignedTargetItem[], type: AssignedTargetItem["targetType"]) =>
-  items.filter((item) => item.targetType === type).length;
-
 type DashboardSection = "ozet" | "operasyon" | "grafikler" | "hedefler";
 
 export function DashboardPage({ onAction }: { onAction?: (action: OperationAction) => void }) {
   const store = useStore();
-  const { customers, cases: salesCases, service: serviceRequests, machines, users, offers, activities } = store;
+  const { customers, cases: salesCases, service: serviceRequests, machines, users, offers } = store;
   const { user } = useAuth();
   const { convert } = useFx();
   const [targetPeriod, setTargetPeriod] = useState(currentPeriod());
@@ -118,7 +146,7 @@ export function DashboardPage({ onAction }: { onAction?: (action: OperationActio
   const [pipelineRows, setPipelineRows] = useState<Array<{ stageName?: string; count?: number; sortOrder?: number }>>([]);
   const monthCount = { "1A": 1, "3A": 3, "6A": 6, "1Y": 12 }[chartPeriod];
   const monthly = useMemo(
-    () => buildSalesMonthly(offers, salesCases, 12, (amount, currency) => convert(amount, currency, "USD")),
+    () => buildSalesMonthly(offers, salesCases, 12, (amount, currency) => convert(amount, currency as FxCurrency, "USD")),
     [offers, salesCases, convert],
   );
   const monthlyView = monthly.slice(-monthCount);
@@ -155,7 +183,8 @@ export function DashboardPage({ onAction }: { onAction?: (action: OperationActio
       { konu: "Teklif", deger: Math.min(100, Math.round((offers.length / Math.max(total, 1)) * 20)) },
       { konu: "Tahsilat", deger: Math.min(100, Math.max(0, 100 - overdue * 15)) },
       { konu: "Servis", deger: Math.min(100, openSvc * 12) },
-      { konu: "Stok", deger: Math.min(100, store.stock.filter((s) => s.quantity > 0).length * 8) },
+      // Stok seri no bazlı takip edilir (adet alanı yok); satılabilir gücü Available birim sayısı gösterir.
+      { konu: "Stok", deger: Math.min(100, store.stock.filter((s) => s.status === "Available").length * 8) },
       { konu: "Onay", deger: Math.min(100, approved * 10) },
     ];
   }, [customers.length, salesCases, offers, serviceRequests, store.stock, store.payments]);
@@ -185,21 +214,24 @@ export function DashboardPage({ onAction }: { onAction?: (action: OperationActio
     return items.length > 0 ? items : synthesizeTargetItems(myTarget);
   }, [myTarget]);
 
-  const targetAchievements = useMemo(
-    () =>
-      myTargetItems.slice(0, 4).map((item) => ({
-        label: item.activity,
-        ...computeTargetAchievement(item, {
-          period: targetPeriod,
-          offers,
-          customers,
-          activities,
-          service: serviceRequests,
-          convert: (amount, currency) => convert(amount, currency, 'USD'),
-        }),
-      })),
-    [myTargetItems, targetPeriod, offers, customers, activities, serviceRequests, convert],
-  );
+  const targetAchievements = useMemo(() => {
+    const metrics = myTarget?.metrics ?? {};
+    return Object.entries(metrics)
+      .filter(([, metric]) => metric.target != null && metric.target > 0)
+      .map(([key, metric]) => {
+        const pct = metric.pct ?? 0;
+        const target = metric.target ?? 0;
+        const actual = metric.actual ?? 0;
+        return {
+          label: METRIC_LABEL[key] ?? key,
+          pct,
+          hint: `${actual.toLocaleString("tr-TR")} / ${target.toLocaleString("tr-TR")}`,
+          tone: pct >= 100 ? ("ok" as const) : pct < 60 ? ("warn" as const) : undefined,
+        };
+      })
+      .sort((a, b) => b.pct - a.pct)
+      .slice(0, 8);
+  }, [myTarget]);
 
   useEffect(() => {
     let cancelled = false;
@@ -220,9 +252,16 @@ export function DashboardPage({ onAction }: { onAction?: (action: OperationActio
     let cancelled = false;
     setTargetLoading(true);
     setTargetError("");
-    adminService.myTargets({ period: targetPeriod })
-      .then((rows) => {
-        if (!cancelled) setMyTarget(rows[0] ?? null);
+    reportService.myTargetProgress({ period: targetPeriod })
+      .then((progress) => {
+        if (cancelled) return;
+        const subject = Array.isArray(progress?.subjects) ? progress.subjects[0] : null;
+        setMyTarget(subject ? {
+          period: targetPeriod,
+          targetItems: Array.isArray(subject.targetItems) ? subject.targetItems : [],
+          metrics: subject.metrics ?? {},
+          note: subject.note ?? "",
+        } : null);
       })
       .catch((err: any) => {
         if (!cancelled) {
@@ -333,20 +372,20 @@ export function DashboardPage({ onAction }: { onAction?: (action: OperationActio
                   <AreaChart data={monthlyView} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
                     <defs>
                       <linearGradient id="ozet-g1" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#000c69" stopOpacity={0.3} />
-                        <stop offset="95%" stopColor="#000c69" stopOpacity={0} />
+                        <stop offset="5%" stopColor="var(--brand-blue)" stopOpacity={0.3} />
+                        <stop offset="95%" stopColor="var(--brand-blue)" stopOpacity={0} />
                       </linearGradient>
                       <linearGradient id="ozet-g2" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#10b981" stopOpacity={0.3} />
-                        <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
+                        <stop offset="5%" stopColor="var(--success)" stopOpacity={0.3} />
+                        <stop offset="95%" stopColor="var(--success)" stopOpacity={0} />
                       </linearGradient>
                     </defs>
                     <CartesianGrid strokeDasharray="3 3" stroke="#eef0f3" vertical={false} />
                     <XAxis dataKey="ay" stroke="#9ca3af" fontSize={10} tickLine={false} axisLine={false} />
                     <YAxis stroke="#9ca3af" fontSize={10} tickLine={false} axisLine={false} width={28} />
                     <Tooltip contentStyle={{ borderRadius: 8, border: "1px solid #e5e7eb", fontSize: 11 }} />
-                    <Area type="monotone" dataKey="teklif" name="Teklif" stroke="#000c69" strokeWidth={2} fill="url(#ozet-g1)" isAnimationActive={false} />
-                    <Area type="monotone" dataKey="kazanan" name="Kazanan" stroke="#10b981" strokeWidth={2} fill="url(#ozet-g2)" isAnimationActive={false} />
+                    <Area type="monotone" dataKey="teklif" name="Teklif" stroke="var(--brand-blue)" strokeWidth={2} fill="url(#ozet-g1)" isAnimationActive={false} />
+                    <Area type="monotone" dataKey="kazanan" name="Kazanan" stroke="var(--success)" strokeWidth={2} fill="url(#ozet-g2)" isAnimationActive={false} />
                   </AreaChart>
                 </ResponsiveContainer>
               </CardContent>
@@ -467,12 +506,12 @@ export function DashboardPage({ onAction }: { onAction?: (action: OperationActio
               <AreaChart data={monthlyView} margin={{ top: 5, right: 12, left: 0, bottom: 0 }}>
                 <defs>
                   <linearGradient id="g1" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#000c69" stopOpacity={0.35} />
-                    <stop offset="95%" stopColor="#000c69" stopOpacity={0} />
+                    <stop offset="5%" stopColor="var(--brand-blue)" stopOpacity={0.35} />
+                    <stop offset="95%" stopColor="var(--brand-blue)" stopOpacity={0} />
                   </linearGradient>
                   <linearGradient id="g2" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#10b981" stopOpacity={0.35} />
-                    <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
+                    <stop offset="5%" stopColor="var(--success)" stopOpacity={0.35} />
+                    <stop offset="95%" stopColor="var(--success)" stopOpacity={0} />
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="#eef0f3" vertical={false} />
@@ -480,8 +519,8 @@ export function DashboardPage({ onAction }: { onAction?: (action: OperationActio
                 <YAxis stroke="#9ca3af" fontSize={11} tickLine={false} axisLine={false} />
                 <Tooltip contentStyle={{ borderRadius: 8, border: "1px solid #e5e7eb", fontSize: 12 }} />
                 <Legend iconType="circle" wrapperStyle={{ fontSize: 11 }} />
-                <Area type="monotone" dataKey="teklif" name="Teklif" stroke="#000c69" strokeWidth={2} fill="url(#g1)" isAnimationActive={false} />
-                <Area type="monotone" dataKey="kazanan" name="Kazanan" stroke="#10b981" strokeWidth={2} fill="url(#g2)" isAnimationActive={false} />
+                <Area type="monotone" dataKey="teklif" name="Teklif" stroke="var(--brand-blue)" strokeWidth={2} fill="url(#g1)" isAnimationActive={false} />
+                <Area type="monotone" dataKey="kazanan" name="Kazanan" stroke="var(--success)" strokeWidth={2} fill="url(#g2)" isAnimationActive={false} />
               </AreaChart>
             </ResponsiveContainer>
           </CardContent>
@@ -532,7 +571,7 @@ export function DashboardPage({ onAction }: { onAction?: (action: OperationActio
                 <XAxis type="number" stroke="#9ca3af" fontSize={11} tickLine={false} axisLine={false} />
                 <YAxis type="category" dataKey="name" stroke="#6b7280" fontSize={11} width={75} tickLine={false} axisLine={false} />
                 <Tooltip cursor={{ fill: "#f4f0f3" }} contentStyle={{ borderRadius: 8, border: "1px solid #e5e7eb", fontSize: 12 }} />
-                <Bar dataKey="value" barSize={22} fill="#000c69" isAnimationActive={false} />
+                <Bar dataKey="value" barSize={22} fill="var(--brand-blue)" isAnimationActive={false} />
               </BarChart>
             </ResponsiveContainer>
             )}
@@ -550,7 +589,7 @@ export function DashboardPage({ onAction }: { onAction?: (action: OperationActio
                 <PolarGrid stroke="#e5e7eb" />
                 <PolarAngleAxis dataKey="konu" fontSize={11} stroke="#6b7280" />
                 <PolarRadiusAxis angle={30} domain={[0, 100]} fontSize={9} stroke="#9ca3af" />
-                <Radar dataKey="deger" stroke="#000c69" fill="#000c69" fillOpacity={0.35} strokeWidth={2} />
+                <Radar dataKey="deger" stroke="var(--brand-blue)" fill="var(--brand-blue)" fillOpacity={0.35} strokeWidth={2} />
                 <Tooltip contentStyle={{ borderRadius: 8, border: "1px solid #e5e7eb", fontSize: 12 }} />
               </RadarChart>
             </ResponsiveContainer>
@@ -569,7 +608,7 @@ export function DashboardPage({ onAction }: { onAction?: (action: OperationActio
                 <XAxis dataKey="ay" stroke="#9ca3af" fontSize={11} tickLine={false} axisLine={false} />
                 <YAxis stroke="#9ca3af" fontSize={11} tickLine={false} axisLine={false} />
                 <Tooltip contentStyle={{ borderRadius: 8, border: "1px solid #e5e7eb", fontSize: 12 }} />
-                <Line type="monotone" dataKey="ciro" stroke="#000c69" strokeWidth={2.5} dot={{ r: 4, fill: "#000c69", strokeWidth: 2, stroke: "#fff" }} activeDot={{ r: 6 }} isAnimationActive={false} />
+                <Line type="monotone" dataKey="ciro" stroke="var(--brand-blue)" strokeWidth={2.5} dot={{ r: 4, fill: "var(--brand-blue)", strokeWidth: 2, stroke: "#fff" }} activeDot={{ r: 6 }} isAnimationActive={false} />
               </LineChart>
             </ResponsiveContainer>
           </CardContent>
@@ -590,8 +629,8 @@ export function DashboardPage({ onAction }: { onAction?: (action: OperationActio
               <YAxis stroke="#9ca3af" fontSize={11} tickLine={false} axisLine={false} />
               <Tooltip contentStyle={{ borderRadius: 8, border: "1px solid #e5e7eb", fontSize: 12 }} />
               <Legend iconType="circle" wrapperStyle={{ fontSize: 11 }} />
-              <Bar dataKey="kazanan" name="Kazanan" fill="#10b981" barSize={18} isAnimationActive={false} />
-              <Bar dataKey="kayip" name="Kaybedilen" fill="#ef4444" barSize={18} isAnimationActive={false} />
+              <Bar dataKey="kazanan" name="Kazanan" fill="var(--success)" barSize={18} isAnimationActive={false} />
+              <Bar dataKey="kayip" name="Kaybedilen" fill="var(--destructive)" barSize={18} isAnimationActive={false} />
             </BarChart>
           </ResponsiveContainer>
         </CardContent>
@@ -648,11 +687,11 @@ function OverviewPulseBar({
 }) {
   const pills = [
     { label: "Takip işi", value: workItems, tone: "bg-slate-100 text-slate-700" },
-    { label: "Kritik", value: criticalWork, tone: criticalWork > 0 ? "bg-red-50 text-red-700 ring-1 ring-red-100" : "bg-slate-50 text-slate-500" },
-    { label: "Yakın takip", value: warningWork, tone: warningWork > 0 ? "bg-amber-50 text-amber-700 ring-1 ring-amber-100" : "bg-slate-50 text-slate-500" },
-    { label: "Açık satış", value: openSales, tone: "bg-blue-50 text-blue-700 ring-1 ring-blue-100" },
-    { label: "Açık servis", value: openService, tone: "bg-amber-50/80 text-amber-800 ring-1 ring-amber-100" },
-    { label: "Geciken", value: overdue, tone: overdue > 0 ? "bg-red-50 text-red-700 ring-1 ring-red-100" : "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100" },
+    { label: "Kritik", value: criticalWork, tone: criticalWork > 0 ? "bg-destructive-soft text-destructive ring-1 ring-red-100" : "bg-slate-50 text-slate-500" },
+    { label: "Yakın takip", value: warningWork, tone: warningWork > 0 ? "bg-warning-soft text-warning ring-1 ring-amber-100" : "bg-slate-50 text-slate-500" },
+    { label: "Açık satış", value: openSales, tone: "bg-info-soft text-info ring-1 ring-blue-100" },
+    { label: "Açık servis", value: openService, tone: "bg-warning-soft/80 text-warning ring-1 ring-amber-100" },
+    { label: "Geciken", value: overdue, tone: overdue > 0 ? "bg-destructive-soft text-destructive ring-1 ring-red-100" : "bg-success-soft text-success ring-1 ring-emerald-100" },
   ];
 
   return (
@@ -694,7 +733,7 @@ function OverviewPriorityPanel({
         {items.length === 0 ? (
           <div className="grid min-h-36 place-items-center rounded-lg border border-dashed border-border/70 bg-muted/20 px-4 text-center">
             <div>
-              <CheckCircle2 className="mx-auto size-8 text-emerald-500" />
+              <CheckCircle2 className="mx-auto size-8 text-success" />
               <p className="mt-2 text-sm font-medium">Acil iş yok</p>
               <p className="mt-1 text-xs text-muted-foreground">Güncel kayıtlar burada listelenir.</p>
             </div>
@@ -770,10 +809,10 @@ function OverviewSignalsPanel({
                 type="button"
                 onClick={() => onAction?.(item.action)}
                 className={`flex items-start gap-2.5 rounded-lg border p-2.5 text-left transition-colors hover:bg-muted/30 ${
-                  item.kind === "risk" ? "border-red-100/80 bg-red-50/40" : "border-emerald-100/80 bg-emerald-50/40"
+                  item.kind === "risk" ? "border-red-100/80 bg-destructive-soft/40" : "border-emerald-100/80 bg-success-soft/40"
                 }`}
               >
-                <span className={`mt-0.5 text-[10px] font-semibold uppercase tracking-wide ${item.kind === "risk" ? "text-red-600" : "text-emerald-600"}`}>
+                <span className={`mt-0.5 text-[10px] font-semibold uppercase tracking-wide ${item.kind === "risk" ? "text-destructive" : "text-success"}`}>
                   {item.kind === "risk" ? "Risk" : "Fırsat"}
                 </span>
                 <span className="min-w-0 flex-1">
@@ -809,7 +848,7 @@ function QuickSectionCard({
 }) {
   const accents = {
     blue: "from-brand-blue/10 to-brand-blue/5 border-brand-blue/20 text-brand-blue",
-    emerald: "from-emerald-500/10 to-emerald-500/5 border-emerald-500/20 text-emerald-600",
+    emerald: "from-emerald-500/10 to-emerald-500/5 border-emerald-500/20 text-success",
     violet: "from-violet-500/10 to-violet-500/5 border-violet-500/20 text-violet-600",
   };
   const accentCls = accents[accent];
@@ -911,7 +950,7 @@ function OpenRecordsPanel({
           {openService === 0 ? (
             <div className="grid min-h-[180px] place-items-center rounded-lg border border-dashed border-border/70 bg-muted/20 px-5 py-8 text-center">
               <div>
-                <div className="mx-auto grid size-10 place-items-center rounded-lg bg-emerald-50 text-emerald-600">
+                <div className="mx-auto grid size-10 place-items-center rounded-lg bg-success-soft text-success">
                   <CheckCircle2 className="size-5" />
                 </div>
                 <div className="mt-3 text-sm font-medium">Açık servis talebi yok</div>
@@ -925,7 +964,7 @@ function OpenRecordsPanel({
                 const c = customers.find((x) => x.id === sr.customerId);
                 return (
                   <div key={sr.id} className="flex items-center justify-between gap-2.5 py-3">
-                    <div className="grid size-8 shrink-0 place-items-center rounded-md bg-amber-50 text-amber-600">
+                    <div className="grid size-8 shrink-0 place-items-center rounded-md bg-warning-soft text-warning">
                       <Wrench className="size-4" />
                     </div>
                     <div className="min-w-0 flex-1">
@@ -945,10 +984,10 @@ function OpenRecordsPanel({
 }
 
 const WORK_TONE: Record<WorkItem["severity"], { cls: string; icon: React.ReactNode; label: string }> = {
-  critical: { cls: "bg-red-50 text-red-700 border-red-100", icon: <AlertTriangle className="size-4" />, label: "Kritik" },
-  warning: { cls: "bg-amber-50 text-amber-700 border-amber-100", icon: <Clock className="size-4" />, label: "Takip" },
-  info: { cls: "bg-blue-50 text-blue-700 border-blue-100", icon: <Calendar className="size-4" />, label: "Bilgi" },
-  success: { cls: "bg-emerald-50 text-emerald-700 border-emerald-100", icon: <CheckCircle2 className="size-4" />, label: "Tamam" },
+  critical: { cls: "bg-destructive-soft text-destructive border-red-100", icon: <AlertTriangle className="size-4" />, label: "Kritik" },
+  warning: { cls: "bg-warning-soft text-warning border-amber-100", icon: <Clock className="size-4" />, label: "Takip" },
+  info: { cls: "bg-info-soft text-info border-blue-100", icon: <Calendar className="size-4" />, label: "Bilgi" },
+  success: { cls: "bg-success-soft text-success border-emerald-100", icon: <CheckCircle2 className="size-4" />, label: "Tamam" },
 };
 
 function KpiFromDrilldown({
@@ -1076,7 +1115,7 @@ function TodayWorkPanel({ items, onAction }: { items: WorkItem[]; onAction?: (ac
         {shown.length === 0 ? (
           <div className="grid min-h-28 place-items-center rounded-lg border border-dashed border-border/70 bg-muted/20 px-5 text-center">
             <div>
-              <div className="mx-auto grid size-9 place-items-center rounded-md bg-emerald-50 text-emerald-600">
+              <div className="mx-auto grid size-9 place-items-center rounded-md bg-success-soft text-success">
                 <CheckCircle2 className="size-5" />
               </div>
               <div className="mt-2 text-sm font-medium">Acil takip işi yok</div>
@@ -1132,8 +1171,12 @@ function MyTargetsPanel({
   error: string;
   note?: string | null;
 }) {
-  const salesItems = items.filter((item) => item.targetType === "sales");
-  const serviceItems = items.filter((item) => item.targetType === "service");
+  const groups = TARGET_TYPE_ORDER
+    .map((targetType) => ({
+      targetType,
+      items: items.filter((item) => item.targetType === targetType),
+    }))
+    .filter((group) => group.items.length > 0);
   const hasItems = items.length > 0;
 
   return (
@@ -1146,7 +1189,7 @@ function MyTargetsPanel({
             </span>
             Hedeflerim
           </CardTitle>
-          <p className="mt-1 text-xs text-muted-foreground">Size atanmış aylık satış ve servis hedefleri · USD sabit</p>
+          <p className="mt-1 text-xs text-muted-foreground">Size atanmış aylık hedefler · ölçülebilenler sistemden takip edilir</p>
         </div>
         <Input
           type="month"
@@ -1161,7 +1204,7 @@ function MyTargetsPanel({
             Hedefler yükleniyor…
           </div>
         ) : error ? (
-          <div className="rounded-lg border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
+          <div className="rounded-lg border border-red-100 bg-destructive-soft px-4 py-3 text-sm text-destructive">{error}</div>
         ) : !hasItems ? (
           <div className="grid min-h-32 place-items-center rounded-lg border border-dashed border-border/70 bg-muted/20 px-5 py-8 text-center">
             <div>
@@ -1175,13 +1218,14 @@ function MyTargetsPanel({
         ) : (
           <>
             <div className="grid gap-2 sm:grid-cols-3">
-              <TargetSummary label="Satış" value={`${filledTargetCount(items, "sales")}/${totalTargetCount(items, "sales")}`} />
-              <TargetSummary label="Servis" value={`${filledTargetCount(items, "service")}/${totalTargetCount(items, "service")}`} />
+              <TargetSummary label="Aktif Hedef" value={`${items.filter((item) => item.target?.trim()).length}/${items.length}`} />
+              <TargetSummary label="Otomatik Takip" value={`${items.filter((item) => item.trackingMode !== "manual" && item.metricKey).length}`} />
               <TargetSummary label="Para Birimi" value="USD" />
             </div>
             <div className="grid gap-3 lg:grid-cols-2">
-              <TargetList title="Satış Hedefleri" items={salesItems} />
-              <TargetList title="Servis Hedefleri" items={serviceItems} />
+              {groups.map((group) => (
+                <TargetList key={group.targetType} title={`${targetTypeLabel(group.targetType)} Hedefleri`} items={group.items} />
+              ))}
             </div>
             {note && <div className="rounded-md bg-muted/35 px-3 py-2 text-xs leading-relaxed text-muted-foreground">{note}</div>}
           </>
@@ -1218,6 +1262,15 @@ function TargetList({ title, items }: { title: string; items: AssignedTargetItem
                   <div className="text-[11px] font-semibold tracking-wide text-muted-foreground">{item.category} · {targetTypeLabel(item.targetType)}</div>
                   <div className="mt-0.5 text-sm font-medium leading-snug">{item.activity}</div>
                   {item.description && <div className="mt-1 text-xs leading-relaxed text-muted-foreground">{item.description}</div>}
+                  {item.actual != null && item.pct != null && (
+                    <div className="mt-2">
+                      <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+                        <span>Gerçekleşen: {item.actual.toLocaleString("tr-TR")}</span>
+                        <span>%{item.pct}</span>
+                      </div>
+                      <Progress value={Math.min(Math.max(item.pct, 0), 100)} className="mt-1 h-1.5" />
+                    </div>
+                  )}
                 </div>
                 <div className="shrink-0 rounded-md bg-brand-blue-soft px-2 py-1 text-right text-xs font-medium tabular-nums text-brand-blue">
                   {formatTargetValue(item)}
@@ -1233,11 +1286,11 @@ function TargetList({ title, items }: { title: string; items: AssignedTargetItem
 
 const TONES: Record<string, { bg: string; ic: string; ring: string }> = {
   violet: { bg: "bg-brand-blue-soft", ic: "text-brand-blue", ring: "ring-blue-100" },
-  blue: { bg: "bg-blue-50", ic: "text-blue-600", ring: "ring-blue-100" },
+  blue: { bg: "bg-info-soft", ic: "text-info", ring: "ring-blue-100" },
   indigo: { bg: "bg-indigo-50", ic: "text-indigo-600", ring: "ring-indigo-100" },
-  emerald: { bg: "bg-emerald-50", ic: "text-emerald-600", ring: "ring-emerald-100" },
-  amber: { bg: "bg-amber-50", ic: "text-amber-600", ring: "ring-amber-100" },
-  red: { bg: "bg-red-50", ic: "text-red-600", ring: "ring-red-100" },
+  emerald: { bg: "bg-success-soft", ic: "text-success", ring: "ring-emerald-100" },
+  amber: { bg: "bg-warning-soft", ic: "text-warning", ring: "ring-amber-100" },
+  red: { bg: "bg-destructive-soft", ic: "text-destructive", ring: "ring-red-100" },
 };
 
 function Kpi({
@@ -1268,9 +1321,9 @@ function Kpi({
           <span
             className={`inline-flex items-center gap-0.5 text-[11px] px-1.5 py-0.5 rounded-full ${
               alarm
-                ? "bg-red-50 text-red-700"
+                ? "bg-destructive-soft text-destructive"
                 : positive
-                ? "bg-emerald-50 text-emerald-700"
+                ? "bg-success-soft text-success"
                 : "bg-zinc-100 text-zinc-600"
             }`}
             aria-hidden
@@ -1291,7 +1344,7 @@ function Kpi({
 }
 
 function Goal({ label, value, hint, tone }: { label: string; value: number; hint: string; tone?: "warn" | "ok" }) {
-  const color = tone === "warn" ? "text-red-600" : tone === "ok" ? "text-emerald-600" : "text-foreground";
+  const color = tone === "warn" ? "text-destructive" : tone === "ok" ? "text-success" : "text-foreground";
   const Icon = tone === "warn" ? AlertTriangle : tone === "ok" ? CheckCircle2 : Clock;
   return (
     <div>

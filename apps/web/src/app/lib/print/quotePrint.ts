@@ -1,7 +1,24 @@
-import type { Contact, Customer, Offer, Product, SalesCase, User } from "../mock";
+import type { Contact, Customer, Offer, Product, SalesCase, User, ProductSpec } from "../mock";
 import { quoteService } from "../../../lib/services";
+import { specsForProductTypeStrict } from "../productSpecTemplates";
 import { trShortDate } from "./core";
 import type { QuotePrintData } from "./templates";
+
+// Seçilen tezgahın TAM teknik özellik listesi (tip şablonu + üründe girilen
+// değerler), teklifte kalem bazında girilen (customSpecs) değerlerle üzerine
+// yazılır. Böylece teklif PDF'i eksik değil tam özellik tablosu basar.
+const fullProductSpecs = (
+  product: Product | undefined,
+  customSpecs: Array<{ key: string; value: string; unit?: string; specUnit?: string; groupCode?: string; groupName?: string }>,
+): QuotePrintData["specs"] => {
+  const base = product ? specsForProductTypeStrict(product.productTypeCode, (product.specs ?? []) as ProductSpec[]) : [];
+  if (!base.length) return customSpecs.length ? customSpecs : product?.specs;
+  const overrides = new Map(customSpecs.map((s) => [s.key.trim().toLocaleLowerCase("tr-TR"), s]));
+  return base.map((s) => {
+    const ov = overrides.get(s.key.trim().toLocaleLowerCase("tr-TR"));
+    return ov && ov.value.trim() ? { ...s, value: ov.value } : s;
+  });
+};
 
 type QuoteDetail = Awaited<ReturnType<typeof quoteService.get>>;
 
@@ -25,9 +42,12 @@ const findProduct = (
   quote: QuoteDetail,
   salesCase: SalesCase | null,
 ): Product | undefined => {
+  const isLabor = (product?: Product) => product?.categoryCode === "ISCILIK";
   const firstProductId = quote.items?.find(
     (item: { productModelId?: string | null; description?: string | null }) =>
-      item.productModelId && !String(item.description ?? "").trimStart().startsWith("↳ Opsiyon:"),
+      item.productModelId &&
+      !String(item.description ?? "").trimStart().startsWith("↳ Opsiyon:") &&
+      !isLabor(products.find((product) => product.id === item.productModelId)),
   )?.productModelId;
   if (firstProductId) {
     const exact = products.find((product) => product.id === firstProductId);
@@ -36,7 +56,7 @@ const findProduct = (
 
   const model = salesCase?.requestedModel?.trim();
   return products.find(
-    (product) => product.model && model && (model.includes(product.model) || product.model.includes(model)),
+    (product) => !isLabor(product) && product.model && model && (model.includes(product.model) || product.model.includes(model)),
   );
 };
 
@@ -45,13 +65,18 @@ const numeric = (value: unknown): number => {
   return Number.isFinite(result) ? result : 0;
 };
 
-const quoteItemTechnicalSpecs = (item?: { compatibility?: unknown } | null): Array<{ key: string; value: string }> => {
+const quoteItemTechnicalSpecs = (item?: { compatibility?: unknown } | null): Array<{ key: string; value: string; unit?: string; specUnit?: string; groupCode?: string; groupName?: string; group?: string }> => {
   const specs = (item?.compatibility as { technicalSpecs?: unknown } | null | undefined)?.technicalSpecs;
   if (!Array.isArray(specs)) return [];
   return specs
     .map((spec) => ({
       key: String((spec as { key?: unknown }).key ?? "").trim(),
       value: String((spec as { value?: unknown }).value ?? "").trim(),
+      unit: String((spec as { unit?: unknown; specUnit?: unknown }).unit ?? (spec as { specUnit?: unknown }).specUnit ?? "").trim() || undefined,
+      specUnit: String((spec as { unit?: unknown; specUnit?: unknown }).unit ?? (spec as { specUnit?: unknown }).specUnit ?? "").trim() || undefined,
+      groupCode: String((spec as { groupCode?: unknown }).groupCode ?? "").trim() || undefined,
+      groupName: String((spec as { groupName?: unknown }).groupName ?? "").trim() || undefined,
+      group: String((spec as { group?: unknown; groupName?: unknown; groupCode?: unknown }).group ?? (spec as { groupName?: unknown }).groupName ?? (spec as { groupCode?: unknown }).groupCode ?? "").trim() || undefined,
     }))
     .filter((spec) => spec.key && spec.value);
 };
@@ -74,7 +99,9 @@ export function buildQuotePrintData(input: QuoteBuildInput, quote: QuoteDetail):
     .filter((description: string) => description.startsWith("↳ Opsiyon:"))
     .map((description: string) => description.replace(/^↳\s*Opsiyon:\s*/, ""));
   const mainProductItem = quoteItems.find((item: { description?: string | null; productModelId?: string | null }) =>
-    item.productModelId && !String(item.description ?? "").trimStart().startsWith("↳ Opsiyon:")
+    item.productModelId &&
+    !String(item.description ?? "").trimStart().startsWith("↳ Opsiyon:") &&
+    products.find((product) => product.id === item.productModelId)?.categoryCode !== "ISCILIK"
   );
   const customSpecs = quoteItemTechnicalSpecs(mainProductItem as { compatibility?: unknown } | undefined);
 
@@ -96,9 +123,10 @@ export function buildQuotePrintData(input: QuoteBuildInput, quote: QuoteDetail):
     model: product?.model ?? salesCase?.requestedModel,
     tip: product?.type ?? salesCase?.requestedProduct,
     imageUrl: product?.imageUrl || undefined,
-    specs: customSpecs.length ? customSpecs : product?.specs,
+    specs: fullProductSpecs(product, customSpecs),
     standartDonanim: product?.standardEquipment ?? [],
-    opsiyonelDonanim: selectedOptions,
+    // Teklifte seçilen opsiyonlar; yoksa ürünün tanımlı opsiyonel donanımı gelir.
+    opsiyonelDonanim: selectedOptions.length ? selectedOptions : (product?.optionalEquipment ?? []),
     items: quoteItems.map((item: {
       description?: string | null;
       quantity?: unknown;

@@ -4,7 +4,9 @@
  */
 import type {
   ActivityCreateInput,
+  ActivityUpdateInput,
   AccountingInvoiceCreateInput,
+  AccountingInvoiceUpdateInput,
   BrandCreateInput,
   CallCreateInput,
   ChatMemberRole,
@@ -14,6 +16,7 @@ import type {
   CommercialInvoiceCreateInput,
   CommercialInvoiceUpdateInput,
   CompanyCreateInput,
+  CompanyOsmSearchResult,
   CompanyUpdateInput,
   CompetitorCreateInput,
   CompetitorProductCreateInput,
@@ -23,6 +26,7 @@ import type {
   ContractCreateInput,
   ContractUpdateInput,
   CustomerDeviceCreateInput,
+  CustomerDeviceUpdateInput,
   DeliveryCreateInput,
   DeliveryUpdateInput,
   DepartmentCreateInput,
@@ -33,11 +37,13 @@ import type {
   InventoryReserveInput,
   InventorySellInput,
   NoteTemplateCreateInput,
+  NoteTemplateUpdateInput,
   OpportunityCreateInput,
   OpportunityStageChangeInput,
   OpportunityUpdateInput,
   OrderStatusUpdateInput,
   PaymentCreateInput,
+  PaymentUpdateInput,
   PriceListCreateInput,
   PriceListItemCreateInput,
   PriceListItemUpdateInput,
@@ -46,6 +52,9 @@ import type {
   ProductDetailsReplaceInput,
   ProductEquipmentCreateInput,
   ProductSpecCreateInput,
+  ProductSpecTemplateCreateInput,
+  ProductSpecTemplateUpdateInput,
+  ProductSpecTemplateBulkCreateInput,
   ProductUpdateInput,
   ProformaCreateInput,
   ProformaUpdateInput,
@@ -71,6 +80,8 @@ import type {
   ServiceComplaintRejectInput,
   ServiceComplaintUpdateInput,
   ShipmentCreateInput,
+  ShipmentStartInput,
+  ShipmentStatusUpdateInput,
   SignedUploadUrlInput,
   TargetUpsertInput,
   TenantUpdateInput,
@@ -81,8 +92,13 @@ import type {
   CallAssistantAction,
   CallSuggestionActionInput,
   ManualCallEventInput,
+  AssistantChatInput,
+  AssistantChatResponse,
+  AssistantExecuteActionInput,
+  AssistantExecuteActionResponse,
+  AssistantSuggestion,
 } from '@haksan/shared';
-import { API_BASE_URL, ApiError, api, getAccessToken, getActiveDivision } from './apiClient';
+import { API_BASE_URL, ApiError, api, getAccessToken, getActiveDepartment, getActiveDivision } from './apiClient';
 import { exportService } from './downloadExport';
 
 export interface Paginated<T> {
@@ -91,6 +107,9 @@ export interface Paginated<T> {
 }
 
 type SignedUploadResponse = { fileId: string; bucket: string; objectKey: string; uploadUrl: string; expiresInSeconds: number };
+type PriceListItemCreateRequest = Omit<PriceListItemCreateInput, 'campaignIsActive'> & {
+  campaignIsActive?: boolean;
+};
 
 export type ProductImportStatus = 'create' | 'update' | 'error' | 'skip';
 
@@ -137,6 +156,12 @@ export interface ProductImportPreview {
 }
 
 // ───── Companies ─────
+export interface AuditUserDTO {
+  id: string;
+  fullName?: string | null;
+  email?: string | null;
+}
+
 export interface CompanyDTO {
   id: string;
   legalTitle: string;
@@ -148,6 +173,8 @@ export interface CompanyDTO {
   notes?: string | null;
   relationTypeId?: string | null;
   customerStatusId?: string | null;
+  createdBy?: string | null;
+  createdByUser?: AuditUserDTO | null;
   createdAt: string;
 }
 
@@ -157,6 +184,11 @@ export const companyService = {
   get: (id: string) => api.get<CompanyDTO & { addresses: any[]; phones: any[]; emails: any[] }>(`/companies/${id}`),
   create: (body: CompanyCreateInput) => api.post<CompanyDTO>('/companies', body),
   update: (id: string, body: CompanyUpdateInput) => api.patch<CompanyDTO>(`/companies/${id}`, body),
+  osmSearch: (params: { q: string; address?: string; city?: string; district?: string }) =>
+    api.get<CompanyOsmSearchResult[]>(`/companies/osm-search${qs(params)}`),
+  /** Haritadaki manuel pin düzeltmesini kalıcı kaydeder; null'lar konumu temizler. */
+  setLocation: (id: string, body: { latitude: number | null; longitude: number | null }) =>
+    api.patch<CompanyDTO>(`/companies/${id}/location`, body),
   remove: (id: string) => api.delete(`/companies/${id}`),
   /** Başka bölümlerdeki açık alacak (borç) uyarısı. Tutar yalnızca süper yönetici/view_all için döner. */
   crossDivisionDebt: (id: string) =>
@@ -255,6 +287,13 @@ export const callAssistantService = {
     api.post<any>(`/call-assistant/suggestions/${id}/actions`, { action, ...body }),
 };
 
+export const assistantService = {
+  suggestions: () => api.get<AssistantSuggestion[]>('/assistant/suggestions'),
+  chat: (body: AssistantChatInput) => api.post<AssistantChatResponse>('/assistant/chat', body),
+  executeAction: (id: string, body: AssistantExecuteActionInput) =>
+    api.post<AssistantExecuteActionResponse>(`/assistant/actions/${encodeURIComponent(id)}/execute`, body),
+};
+
 // ───── Contacts ─────
 export const contactService = {
   list: (params?: Record<string, string | number | undefined>) => api.get<Paginated<any>>(`/contacts${qs(params)}`),
@@ -281,12 +320,18 @@ export const opportunityService = {
   update: (id: string, body: OpportunityUpdateInput) => api.patch<any>(`/opportunities/${id}`, body),
   remove: (id: string) => api.delete(`/opportunities/${id}`),
   changeStage: (id: string, body: OpportunityStageChangeInput) => api.patch<any>(`/opportunities/${id}/stage`, body),
+  // Mantıksal kapanış (Bitir/Arşiv) — silmez; closedAt set eder. Yalnız terminal (delivered/cancelled).
+  close: (id: string, body?: { reason?: string }) => api.post<any>(`/opportunities/${id}/close`, body ?? {}),
+  // Geri Aç — kapanışı geri alır, fırsatı aktif panoya döndürür.
+  reopen: (id: string) => api.post<any>(`/opportunities/${id}/reopen`, {}),
 };
 
 // ───── Activities ─────
 export const activityService = {
   list: (params?: Record<string, string | number | undefined>) => api.get<Paginated<any>>(`/activities${qs(params)}`),
   create: (body: ActivityCreateInput) => api.post<any>('/activities', body),
+  update: (id: string, body: ActivityUpdateInput) => api.patch<any>(`/activities/${id}`, body),
+  remove: (id: string) => api.delete(`/activities/${id}`),
   createVisit: (body: VisitCreateInput) => api.post<any>('/visits', body),
   createCall: (body: CallCreateInput) => api.post<any>('/calls', body),
 };
@@ -376,9 +421,11 @@ export const productService = {
   commitImport: (body: { rows: ProductImportRow[]; mode?: 'upsert' | 'create_only'; replaceDetails?: boolean }) =>
     api.post<{ rows: ProductImportRow[]; summary: ProductImportSummary }>('/products/import/commit', body),
   specs: (id: string) => api.get<any[]>(`/products/${id}/specs`),
+  specTemplates: (productTypeCode?: string) => api.get<any[]>(`/product-spec-templates${qs({ productTypeCode })}`),
   options: (id: string) => api.get<any[]>(`/products/${id}/options`),
   addSpec: (id: string, body: ProductSpecCreateInput) => api.post<any>(`/products/${id}/specs`, body),
   equipment: (id: string) => api.get<any[]>(`/products/${id}/equipment`),
+  compatibleOptionalEquipment: (id: string) => api.get<any[]>(`/products/${id}/compatible-optional-equipment`),
   media: (id: string) =>
     api.get<Array<{ fileId: string; mediaType: 'image' | 'document'; title: string | null; mimeType: string; sizeBytes: number; url: string }>>(
       `/products/${id}/media`
@@ -389,7 +436,7 @@ export const productService = {
   createPriceList: (body: PriceListCreateInput) => api.post<any>('/price-lists', body),
   updatePriceList: (id: string, body: PriceListUpdateInput) => api.patch<any>(`/price-lists/${id}`, body),
   listPriceListItems: (id: string) => api.get<any[]>(`/price-lists/${id}/items`),
-  createPriceListItem: (id: string, body: PriceListItemCreateInput) => api.post<any>(`/price-lists/${id}/items`, body),
+  createPriceListItem: (id: string, body: PriceListItemCreateRequest) => api.post<any>(`/price-lists/${id}/items`, body),
   updatePriceListItem: (id: string, itemId: string, body: PriceListItemUpdateInput) => api.patch<any>(`/price-lists/${id}/items/${itemId}`, body),
 };
 
@@ -416,6 +463,8 @@ export const inventoryService = {
   customerDevices: (params?: Record<string, string | number | undefined>) =>
     api.get<Paginated<any>>(`/customer-devices${qs(params)}`),
   createCustomerDevice: (body: CustomerDeviceCreateInput) => api.post<any>('/customer-devices', body),
+  updateCustomerDevice: (id: string, body: CustomerDeviceUpdateInput) => api.patch<any>(`/customer-devices/${id}`, body),
+  deleteCustomerDevice: (id: string) => api.delete<any>(`/customer-devices/${id}`),
   consumeServiceParts: (body: {
     serviceTicketId: string;
     companyId?: string;
@@ -436,6 +485,8 @@ export const quoteService = {
   deleteItem: (id: string, itemId: string) => api.delete(`/quotes/${id}/items/${itemId}`),
   terms: (id: string, body: QuoteTermsUpsertInput) => api.put<any>(`/quotes/${id}/terms`, body),
   approve: (id: string) => api.post(`/quotes/${id}/approve`),
+  approvePrice: (id: string, note?: string) => api.post<any>(`/quotes/${id}/price-approval/approve`, { note }),
+  rejectPrice: (id: string, note?: string) => api.post<any>(`/quotes/${id}/price-approval/reject`, { note }),
   reject: (id: string) => api.post(`/quotes/${id}/reject`),
   send: (id: string) => api.post(`/quotes/${id}/send`),
   /**
@@ -492,8 +543,9 @@ export const quoteService = {
 
 // ───── Note templates (reusable quote notes) ─────
 export const noteTemplateService = {
-  list: (scope = 'quote') => api.get<any[]>(`/note-templates${qs({ scope })}`),
+  list: (scope?: string) => api.get<any[]>(`/note-templates${qs(scope ? { scope } : undefined)}`),
   create: (body: NoteTemplateCreateInput) => api.post<any>('/note-templates', body),
+  update: (id: string, body: NoteTemplateUpdateInput) => api.patch<any>(`/note-templates/${id}`, body),
   remove: (id: string) => api.delete(`/note-templates/${id}`),
 };
 
@@ -524,7 +576,12 @@ export const purchaseOrderService = {
 };
 
 export const authService = {
-  forgotPassword: (email: string) => api.post<{ ok: boolean; token?: string }>('/auth/forgot-password', { email }),
+  forgotPassword: (email: string, tenantSlug?: string) =>
+    api.post<{ ok: boolean; devToken?: string }>('/auth/forgot-password', {
+      email,
+      tenantSlug: tenantSlug?.trim().toLowerCase() || undefined,
+    }),
+  resetPassword: (token: string, newPassword: string) => api.post<{ ok: boolean }>('/auth/reset-password', { token, newPassword }),
 };
 
 // ───── Commercial documents ─────
@@ -532,13 +589,16 @@ export const documentService = {
   proformas: (params?: Record<string, string | number | undefined>) => api.get<Paginated<any>>(`/proformas${qs(params)}`),
   createProforma: (body: ProformaCreateInput) => api.post<any>('/proformas', body),
   updateProforma: (id: string, body: ProformaUpdateInput) => api.patch<any>(`/proformas/${id}`, body),
+  deleteProforma: (id: string) => api.delete<any>(`/proformas/${id}`),
   contracts: (params?: Record<string, string | number | undefined>) => api.get<Paginated<any>>(`/contracts${qs(params)}`),
   createContract: (body: ContractCreateInput) => api.post<any>('/contracts', body),
   updateContract: (id: string, body: ContractUpdateInput) => api.patch<any>(`/contracts/${id}`, body),
+  deleteContract: (id: string) => api.delete<any>(`/contracts/${id}`),
   commercialInvoices: (params?: Record<string, string | number | undefined>) =>
     api.get<Paginated<any>>(`/commercial-invoices${qs(params)}`),
   createCommercialInvoice: (body: CommercialInvoiceCreateInput) => api.post<any>('/commercial-invoices', body),
   updateCommercialInvoice: (id: string, body: CommercialInvoiceUpdateInput) => api.patch<any>(`/commercial-invoices/${id}`, body),
+  deleteCommercialInvoice: (id: string) => api.delete<any>(`/commercial-invoices/${id}`),
 };
 
 // ───── Finance ─────
@@ -547,6 +607,8 @@ export const financeService = {
   createReceivable: (body: ReceivableCreateInput) => api.post<any>('/receivables', body),
   payments: (params?: Record<string, string | number | undefined>) => api.get<Paginated<any>>(`/payments${qs(params)}`),
   createPayment: (body: PaymentCreateInput) => api.post<any>('/payments', body),
+  updatePayment: (id: string, body: PaymentUpdateInput) => api.patch<any>(`/payments/${id}`, body),
+  deletePayment: (id: string) => api.delete<any>(`/payments/${id}`),
   updatePaymentStatus: (id: string, status: string) => api.patch<any>(`/payments/${id}/status`, { status }),
   updateReceivableStatus: (id: string, status: string) => api.patch<any>(`/receivables/${id}/status`, { status }),
   companySummary: (companyId: string) => api.get<any>(`/companies/${companyId}/finance-summary`),
@@ -557,7 +619,13 @@ export const financeService = {
   accountingInvoices: (params?: Record<string, string | number | undefined>) =>
     api.get<any>(`/accounting-invoices${qs(params)}`),
   accountingInvoice: (id: string) => api.get<any>(`/accounting-invoices/${id}`),
+  paymentTermSuggestion: (params: { companyId: string; quoteId?: string }) =>
+    api.get<{ paymentTermDays: number | null; contractNo: string | null; source: 'contract' | 'none' }>(
+      `/accounting-invoices/payment-term-suggestion${qs(params)}`
+    ),
   createAccountingInvoice: (body: AccountingInvoiceCreateInput) => api.post<any>('/accounting-invoices', body),
+  updateAccountingInvoice: (id: string, body: AccountingInvoiceUpdateInput) => api.patch<any>(`/accounting-invoices/${id}`, body),
+  deleteAccountingInvoice: (id: string) => api.delete<any>(`/accounting-invoices/${id}`),
 };
 
 // ───── Service / Installation / Shipment ─────
@@ -565,8 +633,49 @@ export const serviceService = {
   tickets: (params?: Record<string, string | number | undefined>) => api.get<Paginated<any>>(`/service-tickets${qs(params)}`),
   createTicket: (body: any) => api.post<any>('/service-tickets', body),
   update: (id: string, body: any) => api.patch<any>(`/service-tickets/${id}`, body),
+  deleteTicket: (id: string) => api.delete<any>(`/service-tickets/${id}`),
   updateTicketStatus: (id: string, statusCode: string, serviceStage?: string) =>
     api.patch<any>(`/service-tickets/${id}/status`, { statusCode, serviceStage }),
+  openServiceFormPdf: async (id: string, documentNo?: string, existingPreviewWindow?: Window | null): Promise<void> => {
+    const previewWindow = existingPreviewWindow === undefined ? window.open('', '_blank') : existingPreviewWindow;
+    if (previewWindow) {
+      previewWindow.opener = null;
+      previewWindow.document.title = 'Servis formu hazırlanıyor';
+      previewWindow.document.body.textContent = 'Servis formu hazırlanıyor...';
+    }
+    const token = getAccessToken();
+    try {
+      const res = await fetch(`${API_BASE_URL}/service-tickets/${encodeURIComponent(id)}/service-form.pdf`, {
+        method: 'GET',
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        credentials: 'include',
+      });
+      if (!res.ok) {
+        const contentType = res.headers.get('content-type') ?? '';
+        if (contentType.includes('application/json')) {
+          const json = (await res.json().catch(() => null)) as { error?: { message?: string } } | null;
+          throw new Error(json?.error?.message ?? `Servis formu oluşturulamadı (HTTP ${res.status})`);
+        }
+        throw new Error(`Servis formu oluşturulamadı (HTTP ${res.status})`);
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(new Blob([blob], { type: 'application/pdf' }));
+      if (previewWindow) {
+        previewWindow.location.replace(url);
+      } else {
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `servis-formu-${documentNo ?? id}.pdf`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+      }
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    } catch (error) {
+      previewWindow?.close();
+      throw error;
+    }
+  },
   complaints: (params?: Record<string, string | number | undefined>) => api.get<Paginated<any>>(`/service-complaints${qs(params)}`),
   createComplaint: (body: ServiceComplaintCreateInput) => api.post<any>('/service-complaints', body),
   updateComplaint: (id: string, body: ServiceComplaintUpdateInput) => api.patch<any>(`/service-complaints/${id}`, body),
@@ -574,6 +683,7 @@ export const serviceService = {
   rejectComplaint: (id: string, body: ServiceComplaintRejectInput = {}) => api.post<any>(`/service-complaints/${id}/reject`, body),
   complaintLinks: (params?: Record<string, string | number | undefined>) => api.get<Paginated<any>>(`/service-complaint-links${qs(params)}`),
   createComplaintLink: (body: ServiceComplaintLinkCreateInput) => api.post<any>('/service-complaint-links', body),
+  rotateComplaintLink: (id: string) => api.patch<any>(`/service-complaint-links/${id}/rotate`, {}),
   revokeComplaintLink: (id: string) => api.patch<any>(`/service-complaint-links/${id}/revoke`, {}),
   warranty: (id: string) => api.get<any | null>(`/service-tickets/${id}/warranty`),
   updateWarranty: (id: string, body: any) => api.put<any>(`/service-tickets/${id}/warranty`, body),
@@ -583,18 +693,25 @@ export const serviceService = {
   rejectWarranty: (id: string, decisionNote?: string) => api.post<any>(`/service-tickets/${id}/warranty/reject`, { decisionNote }),
   installations: (params?: Record<string, string | number | undefined>) => api.get<Paginated<any>>(`/installations${qs(params)}`),
   createInstallation: (body: any) => api.post<any>('/installations', body),
-  updateInstallationStatus: (id: string, body: { statusCode: string; installationDate?: string }) =>
+  updateInstallation: (id: string, body: any) => api.patch<any>(`/installations/${id}`, body),
+  deleteInstallation: (id: string) => api.delete<any>(`/installations/${id}`),
+  updateInstallationStatus: (id: string, body: { statusCode: string; installationDate?: string; formData?: any }) =>
     api.patch<any>(`/installations/${id}/status`, body),
   shipments: (params?: Record<string, string | number | undefined>) => api.get<Paginated<any>>(`/shipments${qs(params)}`),
   shipment: (id: string) => api.get<any>(`/shipments/${id}`),
+  shipmentCompanyOptions: (params?: { purpose?: 'sender' | 'carrier'; transportMode?: 'road' | 'air' | 'sea' | 'local_cargo'; search?: string }) =>
+    api.get<any[]>(`/shipments/company-options${qs(params as Record<string, string | number | undefined>)}`),
   createShipment: (body: ShipmentCreateInput) => api.post<any>('/shipments', body),
-  updateShipmentStatus: (id: string, statusCode: string) =>
-    api.patch<any>(`/shipments/${id}/status`, { statusCode }),
+  startShipment: (id: string, body: ShipmentStartInput = {}) => api.post<any>(`/shipments/${id}/start`, body),
+  updateShipmentStatus: (id: string, body: ShipmentStatusUpdateInput | string) =>
+    api.patch<any>(`/shipments/${id}/status`, typeof body === 'string' ? { statusCode: body } : body),
+  deleteShipment: (id: string) => api.delete<any>(`/shipments/${id}`),
   deliveries: (params?: Record<string, string | number | undefined>) => api.get<Paginated<any>>(`/deliveries${qs(params)}`),
   createDelivery: (body: DeliveryCreateInput) => api.post<any>('/deliveries', body),
   updateDelivery: (id: string, body: DeliveryUpdateInput) => api.patch<any>(`/deliveries/${id}`, body),
   updateDeliveryStatus: (id: string, status: 'pending' | 'completed') =>
     api.patch<any>(`/deliveries/${id}/status`, { status }),
+  deleteDelivery: (id: string) => api.delete<any>(`/deliveries/${id}`),
 };
 
 // ───── Public complaint intake ─────
@@ -610,19 +727,34 @@ export const publicComplaintService = {
       `/public/service-complaints/${encodeURIComponent(slug)}/${encodeURIComponent(token)}/files/signed-upload-url`,
       body
     ),
+  uploadBinary: async (slug: string, token: string, fileId: string, file: Blob, mimeType: string) => {
+    const res = await fetch(
+      `${API_BASE_URL}/public/service-complaints/${encodeURIComponent(slug)}/${encodeURIComponent(token)}/files/${encodeURIComponent(fileId)}/content`,
+      {
+        method: 'PUT',
+        headers: {
+          Accept: 'application/json',
+          'Content-Type': mimeType || 'application/octet-stream',
+        },
+        body: file,
+      }
+    );
+    if (res.ok) return;
+    const contentType = res.headers.get('content-type') ?? '';
+    if (contentType.includes('application/json')) {
+      const json = (await res.json().catch(() => null)) as { error?: { code?: string; message?: string; details?: unknown } } | null;
+      throw new ApiError(
+        res.status,
+        json?.error?.code ?? `HTTP_${res.status}`,
+        json?.error?.message ?? `Hata ${res.status}`,
+        json?.error?.details
+      );
+    }
+    throw new ApiError(res.status, `HTTP_${res.status}`, res.statusText || `Hata ${res.status}`);
+  },
   submit: (slug: string, token: string, body: PublicServiceComplaintInput) =>
     api.post<any>(`/public/service-complaints/${encodeURIComponent(slug)}/${encodeURIComponent(token)}`, body),
 };
-
-async function uploadViaSignedUrl(upload: SignedUploadResponse, file: Blob, mimeType: string): Promise<void> {
-  const res = await fetch(upload.uploadUrl, { method: 'PUT', body: file, headers: { 'Content-Type': mimeType } });
-  if (!res.ok) {
-    const body = await res.text().catch(() => '');
-    const snippet = body.replace(/\s+/g, ' ').trim().slice(0, 240);
-    const reason = snippet ? `${res.status} ${res.statusText} — ${snippet}` : `${res.status} ${res.statusText}`;
-    throw new Error(`Depoya yükleme başarısız: ${reason}`);
-  }
-}
 
 async function uploadViaApi(fileId: string, file: Blob, mimeType: string): Promise<void> {
   const headers: Record<string, string> = {
@@ -631,10 +763,13 @@ async function uploadViaApi(fileId: string, file: Blob, mimeType: string): Promi
   };
   const token = getAccessToken();
   const activeDivision = getActiveDivision();
+  const activeDepartment = getActiveDepartment();
   if (token) headers.Authorization = `Bearer ${token}`;
   if (activeDivision) {
     headers['X-Active-Division'] = activeDivision;
-    headers['X-Active-Department'] = activeDivision;
+  }
+  if (activeDepartment) {
+    headers['X-Active-Department'] = activeDepartment;
   }
 
   const res = await fetch(`${API_BASE_URL}/files/${encodeURIComponent(fileId)}/content`, {
@@ -663,17 +798,7 @@ export const fileService = {
   signedUpload: (body: SignedUploadUrlInput) =>
     api.post<SignedUploadResponse>('/files/signed-upload-url', body),
   uploadBinary: async (upload: SignedUploadResponse, file: Blob, mimeType: string) => {
-    try {
-      await uploadViaSignedUrl(upload, file, mimeType);
-    } catch (directErr: any) {
-      try {
-        await uploadViaApi(upload.fileId, file, mimeType);
-      } catch (apiErr: any) {
-        const directMessage = directErr?.message ?? 'İmzalı URL yükleme başarısız.';
-        const apiMessage = apiErr?.message ?? 'API üzerinden yükleme başarısız.';
-        throw new Error(`${directMessage} API fallback de başarısız: ${apiMessage}`);
-      }
-    }
+    await uploadViaApi(upload.fileId, file, mimeType);
   },
   signedDownload: (fileId: string) => api.post<{ downloadUrl: string; filename: string; mimeType: string }>('/files/signed-download-url', { fileId }),
   link: (body: FileLinkInput) => api.post('/files/link', body),
@@ -723,6 +848,9 @@ export const reportService = {
   warrantyExpiring: (params?: Record<string, string | number>) => api.get<any[]>(`/reports/warranty-expiring${qs(params)}`),
   serviceComplaintsSummary: () => api.get<any>('/reports/service-complaints-summary'),
   yearEnd: (year: number) => api.get<YearEndReport>(`/reports/year-end?year=${year}`),
+  targetProgress: (params: { period: string; scope?: 'user' | 'department' | 'role' | 'all-users'; id?: string }) =>
+    api.get<any>(`/reports/target-progress${qs(params)}`),
+  myTargetProgress: (params: { period: string }) => api.get<any>(`/reports/my-target-progress${qs(params)}`),
   downloadYearEnd: (year: number) => exportService.yearEnd(year),
 };
 
@@ -731,11 +859,18 @@ export const adminService = {
   users: () => api.get<any[]>('/users'),
   createUser: (body: UserCreateInput) => api.post<any>('/users', body),
   updateUser: (id: string, body: UserUpdateInput) => api.patch<any>(`/users/${id}`, body),
+  unlockUser: (id: string) => api.post<{ ok: true; id: string; failedLoginAttempts: number; lockedUntil: null }>(`/users/${id}/unlock`, {}),
+  deleteUser: (id: string) => api.delete(`/users/${id}`),
   userTargets: (params?: Record<string, string | number | undefined>) => api.get<any[]>(`/user-targets${qs(params)}`),
   myTargets: (params?: Record<string, string | number | undefined>) => api.get<any[]>(`/me/targets${qs(params)}`),
   saveUserTarget: (userId: string, body: TargetUpsertInput) => api.post<any>(`/users/${userId}/targets`, body),
   departmentTargets: (params?: Record<string, string | number | undefined>) => api.get<any[]>(`/department-targets${qs(params)}`),
   saveDepartmentTarget: (departmentId: string, body: TargetUpsertInput) => api.post<any>(`/departments/${departmentId}/targets`, body),
+  saveRoleTarget: (roleId: string, body: TargetUpsertInput) => api.post<any>(`/roles/${roleId}/targets`, body),
+  roleTargetMembers: (roleId: string) =>
+    api.get<{ roleCode: string; roleName: string; memberCount: number; members: { userId: string; fullName: string }[] }>(
+      `/roles/${roleId}/target-members`
+    ),
   updateDept: (id: string, body: DepartmentUpdateInput) => api.patch<any>(`/departments/${id}`, body),
   roles: () => api.get<any[]>('/roles'),
   createRole: (body: RoleCreateInput) => api.post<any>('/roles', body),
@@ -747,11 +882,32 @@ export const adminService = {
   auditLogs: (params?: Record<string, string | number | undefined>) => api.get<Paginated<any>>(`/audit-logs${qs(params)}`),
   tenant: () => api.get<any>('/tenant'),
   updateTenant: (body: TenantUpdateInput) => api.patch<any>('/tenant', body),
+  lookups: () => api.get<{ available: string[] }>('/admin/lookups'),
+  lookupRows: (name: string, params?: Record<string, string | number | undefined>) =>
+    api.get<any[]>(`/admin/lookups/${name}${qs(params)}`),
+  createLookup: (name: string, body: { code?: string; name: string; description?: string; sortOrder?: number; isActive?: boolean; province?: string; divisionId?: string | null }) =>
+    api.post<any>(`/admin/lookups/${name}`, body),
+  updateLookup: (
+    name: string,
+    id: string,
+    body: { code?: string; name?: string; description?: string; sortOrder?: number; isActive?: boolean; province?: string; divisionId?: string | null }
+  ) => api.patch<any>(`/admin/lookups/${name}/${id}`, body),
+  deleteLookup: (name: string, id: string) => api.delete<any>(`/admin/lookups/${name}/${id}`),
+  productSpecTemplates: (productTypeCode?: string, divisionId?: string, scope?: string) =>
+    api.get<any[]>(`/admin/product-spec-templates${qs({ productTypeCode, divisionId, scope })}`),
+  createProductSpecTemplate: (body: ProductSpecTemplateCreateInput) => api.post<any>('/admin/product-spec-templates', body),
+  bulkCreateProductSpecTemplates: (items: ProductSpecTemplateBulkCreateInput['items']) =>
+    api.post<{ ok: boolean; created: number; skipped: number; rows: any[] }>('/admin/product-spec-templates/bulk', { items }),
+  updateProductSpecTemplate: (id: string, body: ProductSpecTemplateUpdateInput) =>
+    api.patch<any>(`/admin/product-spec-templates/${id}`, body),
+  deleteProductSpecTemplate: (id: string) => api.delete<any>(`/admin/product-spec-templates/${id}`),
 };
 
 // ───── Lookups ─────
 export const lookupService = {
-  byName: (name: string) => api.get<any[]>(`/lookups/${name}`),
+  available: () => api.get<{ available: string[] }>('/lookups'),
+  byName: (name: string, params?: Record<string, string | number | undefined>) => api.get<any[]>(`/lookups/${name}${qs(params)}`),
+  taxOffices: (city?: string) => api.get<any[]>(`/lookups/tax-offices${qs({ city })}`),
 };
 
 // ───── Chat (kurum içi sohbet) ─────
@@ -855,7 +1011,7 @@ export const chatService = {
 };
 
 // ───── helpers ─────
-function qs(params?: Record<string, string | number | undefined>): string {
+function qs(params?: Record<string, string | number | boolean | undefined>): string {
   if (!params) return '';
   const usp = new URLSearchParams();
   for (const [k, v] of Object.entries(params)) {

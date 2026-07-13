@@ -1,7 +1,12 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import supertest from 'supertest';
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
+import { createHash } from 'node:crypto';
+import { eq } from 'drizzle-orm';
 import { createTestApp } from './setup';
+import { DB } from '../src/shared/database/database.module';
+import { refreshTokens } from '../src/db/schema/users';
+import type { DbClient } from '../src/db/client';
 
 let app: NestFastifyApplication;
 
@@ -70,6 +75,8 @@ describe('Auth', () => {
 });
 
 describe('Auth session lifecycle (refresh / logout)', () => {
+  const hashCookieToken = (cookie: string) => createHash('sha256').update(cookie.split('=')[1] ?? '').digest('hex');
+
   it('rotates the refresh cookie and issues a new access token on /auth/refresh', async () => {
     const agent = supertest.agent(app.getHttpServer());
     const login = await agent
@@ -102,6 +109,60 @@ describe('Auth session lifecycle (refresh / logout)', () => {
     const r = await supertest(app.getHttpServer()).post('/api/v1/auth/refresh').send();
     expect(r.status).toBe(201);
     expect(r.body.accessToken).toBeNull();
+  });
+
+  it('tolerates a near-concurrent refresh replay without revoking the session', async () => {
+    const agent = supertest.agent(app.getHttpServer());
+    const login = await agent.post('/api/v1/auth/login').send({ email: 'admin@haksan.local', password: 'admin12345' });
+    expect(login.status).toBe(201);
+
+    const rawSetCookie = login.headers['set-cookie'];
+    const cookieLine = (Array.isArray(rawSetCookie) ? rawSetCookie : [rawSetCookie]).find((c) => /haksan_rt=/.test(String(c)))!;
+    const t1 = String(cookieLine).split(';')[0];
+
+    const rotated = await supertest(app.getHttpServer()).post('/api/v1/auth/refresh').set('Cookie', t1).send();
+    expect(rotated.status).toBe(201);
+    const t2Line = (rotated.headers['set-cookie'] as string[]).find((c) => /haksan_rt=/.test(c))!;
+    const t2 = t2Line.split(';')[0];
+
+    const replay = await supertest(app.getHttpServer()).post('/api/v1/auth/refresh').set('Cookie', t1).send();
+    expect(replay.status).toBe(201);
+    expect(replay.body.accessToken).toBeTruthy();
+
+    const afterReplay = await supertest(app.getHttpServer()).post('/api/v1/auth/refresh').set('Cookie', t2).send();
+    expect(afterReplay.status).toBe(201);
+    expect(afterReplay.body.accessToken).toBeTruthy();
+  });
+
+  it('detects refresh-token reuse and revokes the whole session family', async () => {
+    const agent = supertest.agent(app.getHttpServer());
+    const login = await agent.post('/api/v1/auth/login').send({ email: 'admin@haksan.local', password: 'admin12345' });
+    expect(login.status).toBe(201);
+
+    // İlk refresh cookie'sini (T1) yakala — agent ikinci refresh'te onu T2 ile değiştirecek.
+    const rawSetCookie = login.headers['set-cookie'];
+    const cookieLine = (Array.isArray(rawSetCookie) ? rawSetCookie : [rawSetCookie]).find((c) => /haksan_rt=/.test(String(c)))!;
+    const t1 = String(cookieLine).split(';')[0]; // "haksan_rt=..."
+
+    // T1 ile bir kez dön → başarı, T2 üretilir, T1 artık revoked.
+    const rotated = await supertest(app.getHttpServer()).post('/api/v1/auth/refresh').set('Cookie', t1).send();
+    expect(rotated.status).toBe(201);
+    expect(rotated.body.accessToken).toBeTruthy();
+    const t2Line = (rotated.headers['set-cookie'] as string[]).find((c) => /haksan_rt=/.test(c))!;
+    const t2 = t2Line.split(';')[0];
+    const db = app.get<DbClient>(DB);
+    await db
+      .update(refreshTokens)
+      .set({ revokedAt: new Date(Date.now() - 60_000) })
+      .where(eq(refreshTokens.tokenHash, hashCookieToken(t1)));
+
+    // T1'i grace penceresinden sonra TEKRAR sun (reuse) → 401 ve oturum ailesi iptal edilir.
+    const reuse = await supertest(app.getHttpServer()).post('/api/v1/auth/refresh').set('Cookie', t1).send();
+    expect(reuse.status).toBe(401);
+
+    // T2 hâlâ "geçerli" görünse de aile iptal edildiği için artık çalışmamalı.
+    const t2AfterReuse = await supertest(app.getHttpServer()).post('/api/v1/auth/refresh').set('Cookie', t2).send();
+    expect(t2AfterReuse.status).toBe(401);
   });
 
   it('revokes the session on /auth/logout so a subsequent refresh yields no token', async () => {

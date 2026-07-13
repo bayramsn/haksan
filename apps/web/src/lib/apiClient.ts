@@ -53,13 +53,78 @@ export function resolveMediaUrl(ref?: string | null): string {
   return ref;
 }
 
-const ACCESS_TOKEN_STORAGE_KEY = 'haksan_access_token';
 const ACTIVE_DIVISION_STORAGE_KEY = 'haksan_active_division';
+const ACTIVE_DEPARTMENT_STORAGE_KEY = 'haksan_active_department';
 
-let accessToken: string | null = readStoredAccessToken();
+// Access token YALNIZCA bellekte tutulur (sessionStorage/localStorage DEĞİL) — XSS ile
+// sızdırılmasını önler. Sayfa yenilemede httpOnly refresh cookie'siyle /auth/refresh
+// üzerinden sessizce yeniden alınır (bkz. tryRefresh + 401 auto-retry). CLAUDE.md #4/#11.
+let accessToken: string | null = null;
 let activeDivision: string | null = readStoredActiveDivision();
+let activeDepartment: string | null = readStoredActiveDepartment();
 let refreshing: Promise<string | null> | null = null;
 let onSessionExpired: (() => void) | null = null;
+
+const API_MAX_CONCURRENT_REQUESTS = 4;
+const API_REQUEST_SPACING_MS = 120;
+const API_RATE_LIMIT_RETRIES = 2;
+
+let activeScheduledRequests = 0;
+let nextScheduledRequestAt = 0;
+const requestQueue: Array<() => void> = [];
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+function drainRequestQueue(): void {
+  while (activeScheduledRequests < API_MAX_CONCURRENT_REQUESTS && requestQueue.length > 0) {
+    const run = requestQueue.shift();
+    run?.();
+  }
+}
+
+function scheduleApiRequest<T>(task: () => Promise<T>): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    requestQueue.push(() => {
+      activeScheduledRequests += 1;
+      const now = Date.now();
+      const waitMs = Math.max(0, nextScheduledRequestAt - now);
+      nextScheduledRequestAt = Math.max(now, nextScheduledRequestAt) + API_REQUEST_SPACING_MS;
+
+      window.setTimeout(() => {
+        task()
+          .then(resolve, reject)
+          .finally(() => {
+            activeScheduledRequests -= 1;
+            drainRequestQueue();
+          });
+      }, waitMs);
+    });
+    drainRequestQueue();
+  });
+}
+
+function retryAfterMs(res: Response, attempt: number): number {
+  const header = res.headers.get('retry-after')?.trim();
+  if (header) {
+    const seconds = Number(header);
+    if (Number.isFinite(seconds) && seconds >= 0) return Math.min(Math.max(seconds * 1000, 250), 10_000);
+    const dateMs = Date.parse(header);
+    if (Number.isFinite(dateMs)) return Math.min(Math.max(250, dateMs - Date.now()), 10_000);
+  }
+  return Math.min(1_000 * 2 ** attempt, 5_000) + Math.floor(Math.random() * 400);
+}
+
+// Her deneme kuyruğa ayrı girer: 429 sonrası bekleme slot tutmaz, diğer
+// istekler retry beklemesi sırasında akmaya devam eder.
+async function fetchWithRateLimitRetry(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+  for (let attempt = 0; ; attempt += 1) {
+    const res = await scheduleApiRequest(() => fetch(input, init));
+    if (res.status !== 429 || attempt >= API_RATE_LIMIT_RETRIES) return res;
+    await sleep(retryAfterMs(res, attempt));
+  }
+}
 
 function readStoredActiveDivision(): string | null {
   try {
@@ -69,10 +134,17 @@ function readStoredActiveDivision(): string | null {
   }
 }
 
+function readStoredActiveDepartment(): string | null {
+  try {
+    return localStorage.getItem(ACTIVE_DEPARTMENT_STORAGE_KEY);
+  } catch {
+    return null;
+  }
+}
+
 /**
- * Aktif bölüm (CNC/Üniversal/Sac veya 'all'). Her istekte backend'in yeni
- * ve plan dokümanındaki eski adlarını anlayabilmesi için iki başlıkla gönderilir.
- * view_all kullanıcılar bu başlıkla tek bölüme daralır; localStorage'da kalıcıdır.
+ * Aktif bölüm (CNC/Üniversal/Sac veya 'all'). Her istekte backend'e
+ * X-Active-Division olarak gider; localStorage'da kalıcıdır.
  */
 export function setActiveDivision(value: string | null): void {
   activeDivision = value;
@@ -88,21 +160,18 @@ export function getActiveDivision(): string | null {
   return activeDivision;
 }
 
-function readStoredAccessToken(): string | null {
+export function setActiveDepartment(value: string | null): void {
+  activeDepartment = value;
   try {
-    return sessionStorage.getItem(ACCESS_TOKEN_STORAGE_KEY);
+    if (value) localStorage.setItem(ACTIVE_DEPARTMENT_STORAGE_KEY, value);
+    else localStorage.removeItem(ACTIVE_DEPARTMENT_STORAGE_KEY);
   } catch {
-    return null;
+    // storage unavailable — in-memory value still applies for this tab
   }
 }
 
-function persistAccessToken(token: string | null): void {
-  try {
-    if (token) sessionStorage.setItem(ACCESS_TOKEN_STORAGE_KEY, token);
-    else sessionStorage.removeItem(ACCESS_TOKEN_STORAGE_KEY);
-  } catch {
-    // private browsing / storage quota — in-memory token still works for this tab
-  }
+export function getActiveDepartment(): string | null {
+  return activeDepartment;
 }
 
 /** AuthProvider registers a handler so a hard 401 clears stale React session state. */
@@ -112,7 +181,6 @@ export function setSessionExpiredHandler(handler: (() => void) | null): void {
 
 export function setAccessToken(token: string | null): void {
   accessToken = token;
-  persistAccessToken(token);
 }
 /** Cookie tabanlı oturum yenileme — gövdesiz POST (Fastify boş JSON reddeder). */
 export async function refreshSession(): Promise<string | null> {
@@ -151,10 +219,12 @@ async function request<T>(method: string, path: string, body?: unknown, opts: Re
   if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
   if (activeDivision) {
     headers['X-Active-Division'] = activeDivision;
-    headers['X-Active-Department'] = activeDivision;
+  }
+  if (activeDepartment) {
+    headers['X-Active-Department'] = activeDepartment;
   }
 
-  let res = await fetch(url, {
+  let res = await fetchWithRateLimitRetry(url, {
     ...init,
     method,
     headers,
@@ -171,7 +241,7 @@ async function request<T>(method: string, path: string, body?: unknown, opts: Re
     const newToken = await tryRefresh();
     if (newToken) {
       const retryHeaders = { ...headers, Authorization: `Bearer ${newToken}` };
-      res = await fetch(url, {
+      res = await fetchWithRateLimitRetry(url, {
         ...init,
         method,
         headers: retryHeaders,

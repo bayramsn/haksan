@@ -13,10 +13,57 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "../ui/select";
 import { adminService } from "../../../lib/services";
+import { PERMISSION_RESOURCES, type PermissionResource } from "@haksan/shared";
 
 export type DeptOption = { id: string; name: string; code?: string };
 export type RoleOption = { id: string; code: string; name: string; description?: string | null; isSystemRole?: boolean };
 export type DivisionOption = { id: string; code: string; name: string };
+export type UserAccessScopeRow = { resource: PermissionResource; departmentId: string | null; divisionId: string | null; isPrimary: boolean };
+
+const PERMISSION_RESOURCE_LABELS: Record<PermissionResource, string> = {
+  tenants: "Kiracı / Kurum",
+  users: "Kullanıcılar",
+  roles: "Roller",
+  departments: "Departmanlar",
+  divisions: "Bölümler",
+  companies: "Firmalar / Cari Kart",
+  contacts: "Kontaklar",
+  leads: "Lead",
+  opportunities: "Satış Kartları",
+  activities: "Aktiviteler",
+  calendar: "Takvim",
+  competitors: "Rakipler",
+  brands: "Markalar / Referanslar",
+  products: "Ürünler",
+  product_specs: "Ürün Özellikleri",
+  price_lists: "Fiyat Listeleri",
+  warehouses: "Depolar",
+  inventory: "Stok",
+  customer_devices: "Müşteri Cihazları",
+  quotes: "Teklifler",
+  sales_orders: "Satış Siparişleri",
+  proformas: "Proformalar",
+  contracts: "Sözleşmeler",
+  commercial_invoices: "Ticari Faturalar",
+  accounting_invoices: "Muhasebe Faturaları",
+  purchase_orders: "Satın Alma",
+  shipments: "Sevkiyat / Teslimat",
+  installations: "Kurulumlar",
+  service_tickets: "Servis Talepleri",
+  receivables: "Cari Rapor / Alacaklar",
+  payments: "Ödemeler",
+  files: "Dokümanlar",
+  reports: "Raporlar",
+  audit: "Denetim Kayıtları",
+};
+
+const ACCESS_SCOPE_RESOURCES = PERMISSION_RESOURCES.map((code) => ({
+  code,
+  label: PERMISSION_RESOURCE_LABELS[code],
+}));
+
+const isPermissionResource = (value: string): value is PermissionResource =>
+  (PERMISSION_RESOURCES as readonly string[]).includes(value);
 
 export function CreateUserDialog({
   open,
@@ -176,6 +223,132 @@ export function CreateUserDialog({
   );
 }
 
+/**
+ * Süper admin için kullanıcı bilgilerini (ad, e-posta, telefon) düzenleme ve şifre
+ * sıfırlama dialogu. E-posta ve şifre değişimi backend'de yalnızca super_admin'e
+ * açıktır (admin.controller#updateUser → requireSuperAdmin), bu yüzden bu dialog
+ * UsersPage'de sadece super_admin'e gösterilir.
+ */
+export function UserEditDialog({
+  user,
+  saving,
+  onClose,
+  onSave,
+}: {
+  user: { id: string; name: string; email: string; phone?: string | null } | null;
+  saving: boolean;
+  onClose: () => void;
+  onSave: (
+    userId: string,
+    patch: { fullName: string; email: string; phone: string | null; password?: string }
+  ) => Promise<void>;
+}) {
+  const [fullName, setFullName] = useState("");
+  const [email, setEmail] = useState("");
+  const [phone, setPhone] = useState("");
+  const [password, setPassword] = useState("");
+  const [passwordConfirm, setPasswordConfirm] = useState("");
+
+  useEffect(() => {
+    if (user) {
+      setFullName(user.name ?? "");
+      setEmail(user.email ?? "");
+      setPhone(user.phone ?? "");
+      setPassword("");
+      setPasswordConfirm("");
+    }
+  }, [user]);
+
+  if (!user) return null;
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!fullName.trim()) {
+      toast.error("Ad Soyad zorunlu");
+      return;
+    }
+    if (!email.trim()) {
+      toast.error("E-posta zorunlu");
+      return;
+    }
+    if (password) {
+      if (password.length < 8) {
+        toast.error("Şifre en az 8 karakter olmalı");
+        return;
+      }
+      if (password !== passwordConfirm) {
+        toast.error("Şifreler eşleşmiyor");
+        return;
+      }
+    }
+    await onSave(user.id, {
+      fullName: fullName.trim(),
+      email: email.trim(),
+      phone: phone.trim() || null,
+      // Boş bırakılırsa mevcut şifre korunur.
+      ...(password ? { password } : {}),
+    });
+  };
+
+  return (
+    <Dialog open={!!user} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Kullanıcıyı Düzenle · {user.name}</DialogTitle>
+          <DialogDescription>Ad, e-posta ve telefonu güncelleyin veya şifreyi sıfırlayın.</DialogDescription>
+        </DialogHeader>
+        <form onSubmit={submit} className="space-y-3">
+          <div>
+            <Label className="text-xs">Ad Soyad *</Label>
+            <Input className="mt-1.5" value={fullName} onChange={(e) => setFullName(e.target.value)} disabled={saving} />
+          </div>
+          <div>
+            <Label className="text-xs">E-posta *</Label>
+            <Input type="email" className="mt-1.5" value={email} onChange={(e) => setEmail(e.target.value)} disabled={saving} />
+          </div>
+          <div>
+            <Label className="text-xs">Telefon</Label>
+            <Input className="mt-1.5" value={phone} onChange={(e) => setPhone(e.target.value)} disabled={saving} />
+          </div>
+          <div className="rounded-md border border-border/60 p-3 space-y-3">
+            <div className="text-xs font-medium text-muted-foreground">Şifre Sıfırla (isteğe bağlı)</div>
+            <div>
+              <Label className="text-xs">Yeni Şifre</Label>
+              <Input
+                type="password"
+                autoComplete="new-password"
+                placeholder="Değiştirmemek için boş bırakın"
+                className="mt-1.5"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                disabled={saving}
+              />
+            </div>
+            {password && (
+              <div>
+                <Label className="text-xs">Yeni Şifre (Tekrar)</Label>
+                <Input
+                  type="password"
+                  autoComplete="new-password"
+                  className="mt-1.5"
+                  value={passwordConfirm}
+                  onChange={(e) => setPasswordConfirm(e.target.value)}
+                  disabled={saving}
+                />
+                <p className="mt-1 text-[11px] text-muted-foreground">En az 8 karakter.</p>
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={onClose} disabled={saving}>İptal</Button>
+            <Button type="submit" disabled={saving}>{saving ? "Kaydediliyor..." : "Kaydet"}</Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export function UserDepartmentDialog({
   user,
   departments,
@@ -184,22 +357,41 @@ export function UserDepartmentDialog({
   onClose,
   onSave,
 }: {
-  user: { id: string; name: string; email: string; departmentId?: string | null; active: boolean; divisionIds?: string[] } | null;
+  user: {
+    id: string;
+    name: string;
+    email: string;
+    departmentId?: string | null;
+    active: boolean;
+    divisionIds?: string[];
+    accessScopes?: UserAccessScopeRow[];
+  } | null;
   departments: DeptOption[];
   divisions: DivisionOption[];
   saving: boolean;
   onClose: () => void;
-  onSave: (userId: string, departmentId: string | null, active: boolean, divisionIds: string[]) => Promise<void>;
+  onSave: (userId: string, departmentId: string | null, active: boolean, divisionIds: string[], accessScopes: UserAccessScopeRow[]) => Promise<void>;
 }) {
   const [departmentId, setDepartmentId] = useState<string>("");
   const [active, setActive] = useState(true);
   const [divisionIds, setDivisionIds] = useState<string[]>([]);
+  const [accessScopes, setAccessScopes] = useState<UserAccessScopeRow[]>([]);
 
   useEffect(() => {
     if (user) {
       setDepartmentId(user.departmentId ?? "");
       setActive(user.active);
       setDivisionIds(user.divisionIds ?? []);
+      setAccessScopes(
+        user.accessScopes?.length
+          ? user.accessScopes.map((scope) => ({ ...scope }))
+          : ACCESS_SCOPE_RESOURCES.map((resource) => ({
+              resource: resource.code,
+              departmentId: user.departmentId ?? null,
+              divisionId: user.divisionIds?.[0] ?? null,
+              isPrimary: true,
+            }))
+      );
     }
   }, [user]);
 
@@ -213,12 +405,39 @@ export function UserDepartmentDialog({
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    await onSave(user.id, departmentId || null, active, divisionIds);
+    await onSave(user.id, departmentId || null, active, divisionIds, accessScopes);
+  };
+
+  const updateScope = (index: number, patch: Partial<UserAccessScopeRow>) => {
+    setAccessScopes((rows) => {
+      const currentResource = patch.resource ?? rows[index]?.resource;
+      return rows.map((row, rowIndex) => {
+        if (rowIndex === index) return { ...row, ...patch };
+        if (patch.isPrimary === true && row.resource === currentResource) return { ...row, isPrimary: false };
+        return row;
+      });
+    });
+  };
+
+  const addScope = () => {
+    setAccessScopes((rows) => [
+      ...rows,
+      {
+        resource: ACCESS_SCOPE_RESOURCES[0].code,
+        departmentId: departmentId || null,
+        divisionId: divisionIds[0] ?? null,
+        isPrimary: false,
+      },
+    ]);
+  };
+
+  const removeScope = (index: number) => {
+    setAccessScopes((rows) => rows.filter((_, rowIndex) => rowIndex !== index));
   };
 
   return (
     <Dialog open={!!user} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-md">
+      <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Departman & Bölüm · {user.name}</DialogTitle>
           <DialogDescription>{user.email}</DialogDescription>
@@ -257,6 +476,72 @@ export function UserDepartmentDialog({
               </div>
             </div>
           )}
+          <div>
+            <div className="flex items-center justify-between gap-2">
+              <Label className="text-xs">Yetki Alanları</Label>
+              <Button type="button" size="sm" variant="outline" onClick={addScope} disabled={saving}>Kapsam Ekle</Button>
+            </div>
+            <div className="mt-2 overflow-hidden rounded-md border border-border/60">
+              <div className="grid grid-cols-[1fr_1fr_1fr_80px_72px] gap-2 border-b bg-muted/40 px-3 py-2 text-xs font-medium text-muted-foreground">
+                <span>Sayfa</span>
+                <span>Departman</span>
+                <span>Bölüm</span>
+                <span>Birincil</span>
+                <span></span>
+              </div>
+              <div className="divide-y">
+                {accessScopes.map((scope, index) => (
+                  <div key={`${scope.resource}-${index}`} className="grid grid-cols-[1fr_1fr_1fr_80px_72px] gap-2 px-3 py-2 text-sm">
+                    <Select
+                      value={scope.resource}
+                      onValueChange={(value) => {
+                        if (isPermissionResource(value)) updateScope(index, { resource: value });
+                      }}
+                    >
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        {ACCESS_SCOPE_RESOURCES.map((resource) => (
+                          <SelectItem key={resource.code} value={resource.code}>{resource.label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Select
+                      value={scope.departmentId ?? "__all__"}
+                      onValueChange={(value) => updateScope(index, { departmentId: value === "__all__" ? null : value })}
+                    >
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__all__">Tüm Departmanlar</SelectItem>
+                        {departments.map((department) => (
+                          <SelectItem key={department.id} value={department.id}>{department.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Select
+                      value={scope.divisionId ?? "__all__"}
+                      onValueChange={(value) => updateScope(index, { divisionId: value === "__all__" ? null : value })}
+                    >
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__all__">Tümü</SelectItem>
+                        {divisions.map((division) => (
+                          <SelectItem key={division.id} value={division.id}>{division.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <div className="flex items-center justify-center">
+                      <Checkbox
+                        checked={scope.isPrimary}
+                        onCheckedChange={(value) => updateScope(index, { isPrimary: value === true })}
+                        disabled={saving}
+                      />
+                    </div>
+                    <Button type="button" variant="ghost" size="sm" onClick={() => removeScope(index)} disabled={saving || accessScopes.length <= 1}>Sil</Button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
           <div className="flex items-center justify-between rounded-md border border-border/60 px-3 py-2">
             <div>
               <div className="text-sm font-medium">Aktif hesap</div>

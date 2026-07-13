@@ -5,7 +5,6 @@ import { Button } from "../ui/button";
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger,
 } from "../ui/dialog";
-import { Input } from "../ui/input";
 import { Label } from "../ui/label";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
@@ -43,7 +42,7 @@ const DOCUMENT_TYPE_OPTIONS: Array<{
   { value: "Other", label: "Diğer", bucket: "erp-quote-documents", documentTypeCode: "other" },
 ];
 
-const EXT_TO_MIME: Record<string, string> = {
+const EXT_TO_MIME = {
   pdf: "application/pdf",
   docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
   xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -51,7 +50,8 @@ const EXT_TO_MIME: Record<string, string> = {
   jpg: "image/jpeg",
   jpeg: "image/jpeg",
   webp: "image/webp",
-};
+} as const;
+type UploadExt = keyof typeof EXT_TO_MIME;
 
 const ALLOWED_EXTENSIONS = Object.keys(EXT_TO_MIME);
 const ACCEPT = ALLOWED_EXTENSIONS.map((ext) => `.${ext}`).join(",");
@@ -69,18 +69,27 @@ export function DocumentUploadDialog({
   defaultSalesCaseId,
   defaultCompanyId,
   defaultType,
+  open: controlledOpen,
+  onOpenChange,
   onUploaded,
 }: {
-  trigger: React.ReactNode;
+  trigger?: React.ReactNode;
   defaultSalesCaseId?: string;
   defaultCompanyId?: string;
   defaultType?: DocumentTypeValue;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
   onUploaded?: (document: DocumentItem) => void;
 }) {
   const { cases, customers, addDocument } = useStore();
   const inputRef = useRef<HTMLInputElement>(null);
   const initialScope = defaultSalesCaseId ? "case" : defaultCompanyId ? "company" : "case";
-  const [open, setOpen] = useState(false);
+  const [internalOpen, setInternalOpen] = useState(false);
+  const open = controlledOpen ?? internalOpen;
+  const setOpen = (next: boolean) => {
+    if (controlledOpen === undefined) setInternalOpen(next);
+    onOpenChange?.(next);
+  };
   const [scope, setScope] = useState<"case" | "company">(initialScope);
   const [type, setType] = useState<DocumentTypeValue>(defaultType ?? "Other");
   const [selectedCaseId, setSelectedCaseId] = useState(defaultSalesCaseId ?? "");
@@ -125,12 +134,13 @@ export function DocumentUploadDialog({
       toast.error("Dosya boyutu 25 MB'ı aşamaz");
       return;
     }
-    const extension = extensionFromName(file.name);
-    const mimeType = file.type || EXT_TO_MIME[extension];
-    if (!ALLOWED_EXTENSIONS.includes(extension) || !mimeType || !Object.values(EXT_TO_MIME).includes(mimeType)) {
+    const rawExtension = extensionFromName(file.name);
+    const extension = rawExtension in EXT_TO_MIME ? (rawExtension as UploadExt) : null;
+    if (!extension) {
       toast.error("Desteklenmeyen dosya tipi", { description: "PDF, DOCX, XLSX, PNG, JPG veya WEBP yükleyebilirsiniz." });
       return;
     }
+    const mimeType = EXT_TO_MIME[extension];
 
     setUploading(true);
     try {
@@ -176,7 +186,7 @@ export function DocumentUploadDialog({
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>{trigger}</DialogTrigger>
+      {trigger && <DialogTrigger asChild>{trigger}</DialogTrigger>}
       <DialogContent className="w-[min(620px,calc(100vw-2rem))] max-w-none sm:max-w-none max-h-[90dvh] overflow-hidden p-0 gap-0">
         <DialogHeader className="border-b border-border/60 px-5 pt-5 pb-4 pr-12">
           <DialogTitle className="flex items-center gap-2">

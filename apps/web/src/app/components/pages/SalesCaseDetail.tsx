@@ -2,20 +2,35 @@ import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
 import { Button } from "../ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../ui/tabs";
-import { ArrowLeft, Plus, Upload, X, XCircle, Eye, FileText, CreditCard, CheckCircle2 } from "lucide-react";
-import { SalesCase, SALES_STAGES, salesStageLabel } from "../../lib/mock";
+import { ArrowLeft, Plus, Upload, X, XCircle, Eye, FileText, CreditCard, CheckCircle2, Trash2, Wrench, Pencil } from "lucide-react";
+import { SalesCase, SALES_STAGES, salesStageLabel, type Activity, type Offer } from "../../lib/mock";
 import { StatusBadge } from "../Layout";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../ui/table";
 import { useStore } from "../../lib/store";
+import { useAuth } from "../../../lib/auth";
 import { AddActivityDialog } from "../dialogs/CreateDialogs";
 import { QuoteDialog } from "../dialogs/QuoteDialog";
 import { LostCaseDialog } from "../dialogs/LostCaseDialog";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "../ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "../ui/alert-dialog";
 import { Label } from "../ui/label";
 import { Input } from "../ui/input";
+import { Textarea } from "../ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
 import { DocumentUploadDialog } from "../dialogs/DocumentUploadDialog";
 import { OfferDetailDialog } from "./offers/OffersPage";
+import { STAGE_DOT } from "./Kanban";
+import { DialogSplitLayout, DialogSidebarSection } from "../shared/DialogSplitLayout";
+import { KanbanDetailDialogShell } from "../shared/KanbanDetailDialogShell";
 import { fileService, quoteService, salesOrderService, financeService } from "../../../lib/services";
 import { toast } from "sonner";
 
@@ -28,7 +43,7 @@ export function SalesCaseDetailDialog({
 }) {
   return (
     <Dialog open={!!sc} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="w-[min(1120px,calc(100vw-2rem))] max-w-none sm:max-w-none max-h-[90dvh] overflow-hidden p-0 gap-0">
+      <DialogContent className="w-[min(1240px,calc(100vw-2rem))] max-w-none sm:max-w-none max-h-[90dvh] overflow-hidden p-0 gap-0">
         <DialogHeader className="sr-only">
           <DialogTitle>{sc?.requestedProduct ?? "Satış kartı detayı"}</DialogTitle>
           <DialogDescription>Satış kartı, teklifler ve aktiviteler</DialogDescription>
@@ -48,9 +63,16 @@ export function SalesCaseDetailPage({
   onBack: () => void;
   mode?: "page" | "dialog";
 }) {
-  const { offers, activities, customers, users, documents, payments, refresh } = useStore();
+  const { offers, activities, customers, users, documents, payments, installations, refresh, deleteCase, updateCase, closeCase, updateActivity, deleteActivity } = useStore();
+  const { hasRole } = useAuth();
+  const isSuperAdmin = hasRole("super_admin");
   const [lostOpen, setLostOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleteSaving, setDeleteSaving] = useState(false);
+  const [closeSaving, setCloseSaving] = useState(false);
   const [selectedOfferId, setSelectedOfferId] = useState<string | null>(null);
+  const [editingActivity, setEditingActivity] = useState<Activity | null>(null);
+  const [activityForm, setActivityForm] = useState({ type: "", title: "", note: "", result: "", date: "" });
   const [salesOrders, setSalesOrders] = useState<any[]>([]);
   const canMarkLost = !sc.isLost && sc.stage !== "cancelled" && sc.stage !== "delivered";
   const c = customers.find((x) => x.id === sc.customerId);
@@ -59,9 +81,11 @@ export function SalesCaseDetailPage({
   const offs = offers.filter((o) => o.salesCaseId === sc.id);
   const docs = documents.filter((d) => d.salesCaseId === sc.id);
   const pays = payments.filter((p) => p.salesCaseId === sc.id);
+  const relatedInstallation = installations.find((item) => item.salesCaseId === sc.id);
   // Kart "Sözleşme" aşamasına ulaştıysa ticari fatura yükleme alanını aç.
   const reachedContract = SALES_STAGES.indexOf(sc.stage) >= SALES_STAGES.indexOf("contract");
   const reachedPaymentPlan = SALES_STAGES.indexOf(sc.stage) >= SALES_STAGES.indexOf("payment_plan");
+  const reachedInstallation = SALES_STAGES.indexOf(sc.stage) >= SALES_STAGES.indexOf("installation");
   const commercialInvoiceDoc = docs.find((d) => d.type === "CommercialInvoice");
   const selectedOffer = selectedOfferId ? offers.find((o) => o.id === selectedOfferId) ?? null : null;
   const selectedRevisions = selectedOffer
@@ -87,12 +111,24 @@ export function SalesCaseDetailPage({
     };
   }, [selectedOfferId]);
 
-  const runQuoteAction = async (offerId: string, action: "send" | "approve" | "reject") => {
+  const runQuoteAction = async (offerId: string, action: "send" | "approve" | "reject" | "approve-price" | "reject-price") => {
     try {
       if (action === "send") await quoteService.send(offerId);
       else if (action === "approve") await quoteService.approve(offerId);
+      else if (action === "approve-price") await quoteService.approvePrice(offerId);
+      else if (action === "reject-price") await quoteService.rejectPrice(offerId);
       else await quoteService.reject(offerId);
-      toast.success(action === "send" ? "Teklif gönderildi" : action === "approve" ? "Teklif onaylandı" : "Teklif reddedildi");
+      toast.success(
+        action === "send"
+          ? "Teklif gönderildi"
+          : action === "approve"
+            ? "Teklif onaylandı"
+            : action === "approve-price"
+              ? "Fiyat onaylandı"
+              : action === "reject-price"
+                ? "Fiyat reddedildi"
+                : "Teklif reddedildi"
+      );
       await refresh();
     } catch (err: any) {
       toast.error("İşlem başarısız", { description: err?.message ?? "API isteği başarısız oldu." });
@@ -116,47 +152,272 @@ export function SalesCaseDetailPage({
       toast.error("Doküman indirilemedi", { description: err?.message ?? "İstek başarısız oldu." });
     }
   };
-  const rootClass = mode === "dialog" ? "flex max-h-[90dvh] min-h-0 flex-col overflow-hidden" : "space-y-4";
+
+  const openActivityEdit = (activity: Activity) => {
+    setEditingActivity(activity);
+    setActivityForm({
+      type: activity.type,
+      title: activity.title,
+      note: activity.note,
+      result: activity.result ?? "",
+      date: activity.date,
+    });
+  };
+
+  const saveActivityEdit = async () => {
+    if (!editingActivity) return;
+    if (!activityForm.title.trim()) return toast.error("Aktivite başlığı zorunludur");
+    try {
+      await updateActivity(editingActivity.id, {
+        type: activityForm.type,
+        title: activityForm.title.trim(),
+        note: activityForm.note.trim(),
+        result: activityForm.result.trim(),
+        date: activityForm.date,
+      });
+      toast.success("Aktivite güncellendi");
+      setEditingActivity(null);
+    } catch (err: any) {
+      toast.error("Aktivite güncellenemedi", { description: err?.message ?? "API isteği başarısız oldu." });
+    }
+  };
+
+  const removeActivity = async (activity: Activity) => {
+    if (!window.confirm(`${activity.title} aktivitesi silinsin mi?`)) return;
+    try {
+      await deleteActivity(activity.id);
+      toast.success("Aktivite silindi");
+    } catch (err: any) {
+      toast.error("Aktivite silinemedi", { description: err?.message ?? "API isteği başarısız oldu." });
+    }
+  };
+
+  const handleCloseCase = async () => {
+    if (closeSaving) return;
+    if (!window.confirm("Bu kart 'Tamamlandı' olarak arşivlenecek (silinmez, Geçmiş'te kalır). Devam edilsin mi?")) return;
+    setCloseSaving(true);
+    try {
+      await closeCase(sc.id);
+      toast.success("Kart Geçmiş'e alındı", { description: c?.name ?? sc.requestedProduct });
+      onBack();
+    } catch (err: any) {
+      toast.error("Kart bitirilemedi", { description: err?.message ?? "Yalnız teslim edilen veya iptal edilen kartlar kapatılabilir." });
+    } finally {
+      setCloseSaving(false);
+    }
+  };
+
+  const handleDeleteCase = async () => {
+    if (deleteSaving) return;
+    setDeleteSaving(true);
+    try {
+      await deleteCase(sc.id);
+      toast.success("Satış kartı silindi", { description: c?.name ?? sc.requestedProduct });
+      setDeleteOpen(false);
+      onBack();
+    } catch (err: any) {
+      toast.error("Satış kartı silinemedi", { description: err?.message ?? "API isteği başarısız oldu." });
+    } finally {
+      setDeleteSaving(false);
+    }
+  };
+
+  const rootClass = "space-y-4";
   const toolbarClass =
     mode === "dialog"
-      ? "flex items-center justify-between gap-2 border-b border-border/60 px-5 py-4 pr-12"
+      ? "hidden"
       : "flex items-center justify-between gap-2";
-  const bodyClass = mode === "dialog" ? "min-h-0 overflow-y-auto px-5 py-4 space-y-4" : "space-y-4";
+  const bodyClass = "space-y-4";
+  const activityPanel = (
+    <div className="space-y-3">
+      <AddActivityDialog
+        salesCaseId={sc.id}
+        customerId={sc.customerId}
+        trigger={
+          <Button variant="outline" className="h-10 w-full justify-start rounded-lg bg-white text-left text-sm text-muted-foreground">
+            <Plus className="size-4" /> Yorum / aktivite ekle...
+          </Button>
+        }
+      />
+      <div className="space-y-3">
+        {acts.map((a) => (
+          <div key={a.id} className="flex items-start gap-3">
+            <div className="grid size-8 shrink-0 place-items-center rounded-full bg-primary text-[11px] font-semibold text-primary-foreground">
+              {(a.createdByName || users.find((u) => u.id === a.byUserId)?.name || "HS")
+                .split(" ")
+                .slice(0, 2)
+                .map((part) => part[0])
+                .join("")
+                .toLocaleUpperCase("tr-TR")}
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
+                <span className="font-semibold text-foreground">{a.createdByName || users.find((u) => u.id === a.byUserId)?.name || "Haksan Cnc Satış"}</span>
+                <span className="text-muted-foreground tabular-nums">{a.date}</span>
+                {a.type && <span className="rounded bg-white px-1.5 py-0.5 text-[11px] text-muted-foreground">{a.type}</span>}
+              </div>
+              <div className="mt-1 rounded-lg border border-border/70 bg-white px-3 py-2 text-sm leading-relaxed shadow-xs">
+                <div className="font-medium">{a.title}</div>
+                {a.note && <div className="mt-1 whitespace-pre-wrap text-muted-foreground">{a.note}</div>}
+                {a.result && <div className="mt-2 rounded-md bg-muted/60 px-2 py-1 text-xs">{a.result}</div>}
+                {Array.isArray(a.files) && a.files.length > 0 && (
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {a.files.map((file: any) => (
+                      <button
+                        key={file.id ?? file.fileId ?? file.linkId}
+                        type="button"
+                        className="inline-flex max-w-full items-center gap-1 rounded-md border border-border/60 px-2 py-1 text-xs text-muted-foreground hover:text-primary"
+                        onClick={() => downloadDocument(file.id ?? file.fileId, file.originalFilename ?? file.filename ?? "aktivite-dosyasi")}
+                      >
+                        <FileText className="size-3.5 shrink-0" />
+                        <span className="truncate">{file.originalFilename ?? file.filename ?? "Dosya"}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <div className="mt-1 flex items-center gap-2 px-1 text-[11px] text-muted-foreground">
+                <button type="button" className="underline-offset-2 hover:underline" onClick={() => openActivityEdit(a)}>Düzenle</button>
+                <span>·</span>
+                <button type="button" className="text-destructive underline-offset-2 hover:underline" onClick={() => removeActivity(a)}>Sil</button>
+              </div>
+            </div>
+          </div>
+        ))}
+        {acts.length === 0 && (
+          <div className="rounded-lg border border-dashed border-border bg-white px-3 py-8 text-center text-sm text-muted-foreground">
+            Aktivite yok.
+          </div>
+        )}
+      </div>
+    </div>
+  );
 
-  return (
-    <div className={rootClass}>
+  const content = (
+    <>
       <div className={toolbarClass}>
         <Button variant="ghost" size="sm" onClick={onBack} className="gap-1">
           {mode === "dialog" ? <X className="size-4" /> : <ArrowLeft className="size-4" />}
           {mode === "dialog" ? "Kapat" : "Listeye dön"}
         </Button>
-        {canMarkLost && (
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setLostOpen(true)}
-            className="gap-1 text-red-600 border-red-200 hover:bg-red-50 hover:text-red-700"
-          >
-            <XCircle className="size-4" /> Kaybedildi olarak işaretle
-          </Button>
-        )}
       </div>
 
       <LostCaseDialog open={lostOpen} onOpenChange={setLostOpen} caseId={sc.id} caseName={c?.name} />
+      <AlertDialog open={deleteOpen} onOpenChange={(open) => !deleteSaving && setDeleteOpen(open)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Satış kartını sil?</AlertDialogTitle>
+            <AlertDialogDescription>
+              <b>{c?.name ?? "Firma bulunamadı"}</b> için açılan <b>{sc.requestedProduct}</b> satış kartı silinecek.
+              Bağlı teklif, doküman veya ödeme varsa backend işlemi reddedebilir.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleteSaving}>Vazgeç</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive hover:bg-destructive/90"
+              disabled={deleteSaving}
+              onClick={(event) => {
+                event.preventDefault();
+                void handleDeleteCase();
+              }}
+            >
+              {deleteSaving ? "Siliniyor..." : "Sil"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <div className={bodyClass}>
+      <DialogSplitLayout
+        asideFirstOnMobile
+        className={mode === "page" ? "lg:[&>aside]:top-4" : undefined}
+        aside={
+          <>
+            <DialogSidebarSection title="Özet">
+              <div className="text-2xl font-semibold tabular-nums">{sc.estimatedAmount.toLocaleString()} {sc.currency}</div>
+              <div className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
+                <span>Vade:</span>
+                <input
+                  type="number"
+                  min={0}
+                  className="h-6 w-16 rounded border border-border/70 bg-card px-1.5 text-right text-xs tabular-nums outline-none focus:border-ring"
+                  defaultValue={sc.paymentTermDays ?? ""}
+                  placeholder="—"
+                  onBlur={async (e) => {
+                    const raw = e.target.value.trim();
+                    const next = raw === "" ? null : Math.max(0, Number(raw) || 0);
+                    if ((next ?? undefined) === sc.paymentTermDays) return;
+                    await updateCase(sc.id, { paymentTermDays: next });
+                  }}
+                />
+                <span>gün</span>
+              </div>
+              <div className="mt-2"><StatusBadge status={sc.stage} /></div>
+              {isSuperAdmin ? (
+                <Select
+                  value={sc.assignedUserId ?? '__none__'}
+                  onValueChange={async (v) => {
+                    await updateCase(sc.id, { assignedUserId: v === '__none__' ? '' : v });
+                  }}
+                >
+                  <SelectTrigger className="h-7 text-xs w-full mt-1">
+                    <SelectValue placeholder="Atanmadı" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">Atanmadı</SelectItem>
+                    {users.map((usr) => (
+                      <SelectItem key={usr.id} value={usr.id}>{usr.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              ) : (
+                <div className="h-7 text-xs mt-1 text-muted-foreground">
+                  {users.find((u) => u.id === sc.assignedUserId)?.name ?? "Atanmadı"}
+                </div>
+              )}
+            </DialogSidebarSection>
+            <DialogSidebarSection title="İşlemler">
+              {sc.stage === "delivered" && !sc.closedAt && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => void handleCloseCase()}
+                  disabled={closeSaving}
+                  className="w-full justify-start gap-2 rounded-md border-success/30 text-success hover:bg-success-soft hover:text-success"
+                >
+                  <CheckCircle2 className="size-4" /> Bitir
+                </Button>
+              )}
+              {canMarkLost && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setLostOpen(true)}
+                  className="w-full justify-start gap-2 rounded-md border-destructive/30 text-destructive hover:bg-destructive-soft hover:text-destructive"
+                >
+                  <XCircle className="size-4" /> Kaybedildi olarak işaretle
+                </Button>
+              )}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setDeleteOpen(true)}
+                className="w-full justify-start gap-2 rounded-md border-destructive/30 text-destructive hover:bg-destructive-soft hover:text-destructive"
+              >
+                <Trash2 className="size-4" /> Satış Kartını Sil
+              </Button>
+            </DialogSidebarSection>
+          </>
+        }
+      >
       <Card>
         <CardContent className="p-6">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
             <div className="min-w-0">
-              <div className="text-xs text-muted-foreground">SATIŞ KARTI · #{sc.id.toUpperCase()}</div>
-              <div className="text-xl mt-1 break-words">{c?.name ?? "Firma bulunamadı"}</div>
+              <div className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">SATIŞ KARTI · #{sc.id.toUpperCase()}</div>
+              <div className="text-xl font-semibold mt-1 break-words">{c?.name ?? "Firma bulunamadı"}</div>
               <div className="text-sm text-muted-foreground mt-0.5 break-words">{sc.requestedProduct} · {sc.requestedModel} · {sc.quantity} adet</div>
-            </div>
-            <div className="shrink-0 text-left lg:text-right">
-              <div className="text-2xl tabular-nums">{sc.estimatedAmount.toLocaleString()} {sc.currency}</div>
-              <div className="mt-2"><StatusBadge status={sc.stage} /></div>
-              <div className="text-xs text-muted-foreground mt-1">Atanan: {u?.name ?? "Atanmadı"}</div>
             </div>
           </div>
 
@@ -167,7 +428,7 @@ export function SalesCaseDetailPage({
               return (
                 <div
                   key={s}
-                  className={`px-2 py-1 text-xs rounded ${reached ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}
+                  className={`rounded-full px-2.5 py-1 text-xs ${reached ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}
                 >
                   {salesStageLabel(s)}
                 </div>
@@ -178,11 +439,11 @@ export function SalesCaseDetailPage({
       </Card>
 
       {sc.stage === "payment_plan" && pays.length === 0 && (
-        <Card className="border-emerald-300/70 bg-emerald-50/50">
+        <Card className="border-success/30 bg-success-soft/60">
           <CardContent className="p-4 sm:p-5">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex items-start gap-3 min-w-0">
-                <div className="size-10 rounded-lg bg-emerald-100 text-emerald-700 grid place-items-center shrink-0">
+                <div className="size-10 rounded-lg bg-success-soft text-success grid place-items-center shrink-0">
                   <CreditCard className="size-5" />
                 </div>
                 <div className="min-w-0">
@@ -199,7 +460,7 @@ export function SalesCaseDetailPage({
                   c={c ?? null}
                   onCreated={refresh}
                   trigger={
-                    <Button size="sm" className="gap-1 bg-emerald-600 hover:bg-emerald-700 text-white">
+                    <Button size="sm" className="gap-1 bg-success hover:bg-success/90 text-success-foreground">
                       <Plus className="size-4" /> Ödeme Planı Oluştur
                     </Button>
                   }
@@ -211,11 +472,11 @@ export function SalesCaseDetailPage({
       )}
 
       {reachedContract && (
-        <Card className="border-amber-300/70 bg-amber-50/50">
+        <Card className="border-warning/30 bg-warning-soft/60">
           <CardContent className="p-4 sm:p-5">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex items-start gap-3 min-w-0">
-                <div className="size-10 rounded-lg bg-amber-100 text-amber-700 grid place-items-center shrink-0">
+                <div className="size-10 rounded-lg bg-warning-soft text-warning grid place-items-center shrink-0">
                   <FileText className="size-5" />
                 </div>
                 <div className="min-w-0">
@@ -260,14 +521,55 @@ export function SalesCaseDetailPage({
         </Card>
       )}
 
-      <Tabs defaultValue="timeline">
-        <TabsList className="h-auto w-full justify-start overflow-x-auto">
-          <TabsTrigger value="timeline">Zaman Çizelgesi</TabsTrigger>
-          <TabsTrigger value="offers">Teklifler ({offs.length})</TabsTrigger>
-          <TabsTrigger value="documents">Dokümanlar ({docs.length})</TabsTrigger>
-          <TabsTrigger value="payments">Ödemeler ({pays.length})</TabsTrigger>
+      {(reachedInstallation || relatedInstallation) && (
+        <Card className="border-info/30 bg-info-soft/60">
+          <CardContent className="p-4 sm:p-5">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex items-start gap-3 min-w-0">
+                <div className="size-10 rounded-lg bg-info-soft text-info grid place-items-center shrink-0">
+                  <Wrench className="size-5" />
+                </div>
+                <div className="min-w-0">
+                  <div className="text-sm font-medium">Servis Kurulum</div>
+                  {relatedInstallation ? (
+                    <div className="mt-1 grid gap-1 text-xs text-muted-foreground sm:grid-cols-2">
+                      <span>Durum: <span className="text-foreground">{relatedInstallation.statusName}</span></span>
+                      <span>Teknisyen: <span className="text-foreground">{relatedInstallation.technician}</span></span>
+                      <span>Plan: <span className="text-foreground">{relatedInstallation.scheduledDate || "—"}</span></span>
+                      <span>Tamamlanma: <span className="text-foreground">{relatedInstallation.completedDate || "—"}</span></span>
+                      <span className="sm:col-span-2">
+                        Cihaz: <span className="text-foreground">{relatedInstallation.deviceLabel}</span>
+                        {relatedInstallation.serialNumber ? ` · ${relatedInstallation.serialNumber}` : ""}
+                      </span>
+                    </div>
+                  ) : (
+                    <div className="text-xs text-muted-foreground mt-0.5">
+                      Kart kurulum aşamasına geldi. Servis kurulum kaydı yüklenince durum burada görünecek.
+                    </div>
+                  )}
+                </div>
+              </div>
+              {relatedInstallation?.statusCode === "completed" && (
+                <div className="inline-flex h-8 items-center gap-1 rounded-md border border-success/30 bg-card px-2.5 text-xs text-success">
+                  <CheckCircle2 className="size-3.5" /> Kurulum tamamlandı
+                </div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      <Tabs defaultValue={mode === "dialog" ? "offers" : "timeline"}>
+        <TabsList className="h-auto w-full justify-start gap-1 overflow-x-auto rounded-none border-b border-border bg-transparent p-0">
+          {mode !== "dialog" && (
+            <TabsTrigger value="timeline" className="flex-none rounded-none border-0 border-b-2 border-transparent px-3 py-2 text-[13px] data-[state=active]:border-b-primary data-[state=active]:bg-transparent data-[state=active]:text-primary data-[state=active]:shadow-none">Zaman Çizelgesi</TabsTrigger>
+          )}
+          <TabsTrigger value="offers" className="flex-none rounded-none border-0 border-b-2 border-transparent px-3 py-2 text-[13px] data-[state=active]:border-b-primary data-[state=active]:bg-transparent data-[state=active]:text-primary data-[state=active]:shadow-none">Teklifler ({offs.length})</TabsTrigger>
+          <TabsTrigger value="documents" className="flex-none rounded-none border-0 border-b-2 border-transparent px-3 py-2 text-[13px] data-[state=active]:border-b-primary data-[state=active]:bg-transparent data-[state=active]:text-primary data-[state=active]:shadow-none">Dokümanlar ({docs.length})</TabsTrigger>
+          <TabsTrigger value="payments" className="flex-none rounded-none border-0 border-b-2 border-transparent px-3 py-2 text-[13px] data-[state=active]:border-b-primary data-[state=active]:bg-transparent data-[state=active]:text-primary data-[state=active]:shadow-none">Ödemeler ({pays.length})</TabsTrigger>
         </TabsList>
 
+        {mode !== "dialog" && (
         <TabsContent value="timeline" className="mt-4">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between">
@@ -279,13 +581,49 @@ export function SalesCaseDetailPage({
               />
             </CardHeader>
             <CardContent>
-              <ol className="relative border-l border-border ml-3 space-y-5">
+              <ol className="relative border-l border-border ml-3 space-y-4">
                 {acts.map((a) => (
                   <li key={a.id} className="ml-4">
-                    <span className="absolute -left-1.5 size-3 rounded-full bg-primary" />
-                    <div className="text-xs text-muted-foreground">{a.date}</div>
-                    <div className="text-sm">{a.title}</div>
-                    <div className="text-sm text-muted-foreground">{a.note}</div>
+                    <span className="absolute -left-[5px] size-2.5 rounded-full bg-primary ring-4 ring-background" />
+                    <div className="rounded-lg border border-border/60 bg-card p-3">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="text-xs text-muted-foreground">
+                            {[a.date, a.type, a.createdByName || users.find((u) => u.id === a.byUserId)?.name].filter(Boolean).join(" · ")}
+                          </div>
+                          <div className="mt-1 text-sm font-medium">{a.title}</div>
+                        </div>
+                        <div className="flex shrink-0 gap-1">
+                          <Button type="button" variant="ghost" size="icon" className="size-8" onClick={() => openActivityEdit(a)}>
+                            <Pencil className="size-4" />
+                          </Button>
+                          <Button type="button" variant="ghost" size="icon" className="size-8 text-destructive" onClick={() => removeActivity(a)}>
+                            <Trash2 className="size-4" />
+                          </Button>
+                        </div>
+                      </div>
+                      {a.note && <div className="mt-2 text-sm text-muted-foreground">{a.note}</div>}
+                      {a.result && (
+                        <div className="mt-2 rounded-md bg-muted/50 px-2.5 py-1.5 text-sm">
+                          {a.result}
+                        </div>
+                      )}
+                      {Array.isArray(a.files) && a.files.length > 0 && (
+                        <div className="mt-2 flex flex-wrap gap-1.5">
+                          {a.files.map((file: any) => (
+                            <button
+                              key={file.id ?? file.fileId ?? file.linkId}
+                              type="button"
+                              className="inline-flex items-center gap-1 rounded-md border border-border/60 px-2 py-1 text-xs text-muted-foreground hover:text-primary"
+                              onClick={() => downloadDocument(file.id ?? file.fileId, file.originalFilename ?? file.filename ?? "aktivite-dosyasi")}
+                            >
+                              <FileText className="size-3.5" />
+                              <span className="max-w-[180px] truncate">{file.originalFilename ?? file.filename ?? "Dosya"}</span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   </li>
                 ))}
                 {acts.length === 0 && <div className="text-sm text-muted-foreground">Aktivite yok.</div>}
@@ -293,6 +631,7 @@ export function SalesCaseDetailPage({
             </CardContent>
           </Card>
         </TabsContent>
+        )}
 
         <TabsContent value="offers" className="mt-4">
           <Card>
@@ -455,6 +794,7 @@ export function SalesCaseDetailPage({
           </Card>
         </TabsContent>
       </Tabs>
+      </DialogSplitLayout>
       </div>
 
       <OfferDetailDialog
@@ -466,8 +806,80 @@ export function SalesCaseDetailPage({
         order={selectedOrder}
         onClose={() => setSelectedOfferId(null)}
         onQuoteAction={runQuoteAction}
+        canApprovePrice={isSuperAdmin}
         onOrderCreated={refresh}
       />
+      <Dialog open={!!editingActivity} onOpenChange={(open) => !open && setEditingActivity(null)}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Aktivite Düzenle</DialogTitle>
+            <DialogDescription>Aktivite başlığı, notu, sonucu ve tarihini güncelleyin.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label className="text-xs">Tür</Label>
+                <Input className="mt-1.5" value={activityForm.type} onChange={(e) => setActivityForm({ ...activityForm, type: e.target.value })} />
+              </div>
+              <div>
+                <Label className="text-xs">Tarih</Label>
+                <Input type="date" className="mt-1.5" value={activityForm.date} onChange={(e) => setActivityForm({ ...activityForm, date: e.target.value })} />
+              </div>
+            </div>
+            <div>
+              <Label className="text-xs">Başlık *</Label>
+              <Input className="mt-1.5" value={activityForm.title} onChange={(e) => setActivityForm({ ...activityForm, title: e.target.value })} />
+            </div>
+            <div>
+              <Label className="text-xs">Not</Label>
+              <Textarea className="mt-1.5 min-h-[80px]" value={activityForm.note} onChange={(e) => setActivityForm({ ...activityForm, note: e.target.value })} />
+            </div>
+            <div>
+              <Label className="text-xs">Sonuç / Ne Yapıldı</Label>
+              <Textarea className="mt-1.5 min-h-[64px]" value={activityForm.result} onChange={(e) => setActivityForm({ ...activityForm, result: e.target.value })} />
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button type="button" variant="outline" onClick={() => setEditingActivity(null)}>Vazgeç</Button>
+              <Button type="button" onClick={saveActivityEdit}>Kaydet</Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+
+  if (mode === "dialog") {
+    return (
+      <KanbanDetailDialogShell
+        accentClassName={STAGE_DOT[sc.stage] ?? "bg-primary"}
+        title={c?.name ?? "Firma bulunamadı"}
+        subtitle={`${sc.requestedProduct} · ${sc.requestedModel} · ${sc.quantity} adet`}
+        meta={
+          <>
+            <StatusBadge status={sc.stage} />
+            <span className="rounded-md bg-muted px-2.5 py-1 text-xs tabular-nums text-muted-foreground">
+              {sc.estimatedAmount.toLocaleString()} {sc.currency}
+            </span>
+            <span className="rounded-md bg-muted px-2.5 py-1 text-xs text-muted-foreground">
+              Atanan: {u?.name ?? "Atanmadı"}
+            </span>
+          </>
+        }
+        actions={
+          <Button variant="outline" size="sm" onClick={onBack} className="gap-1 bg-white">
+            <X className="size-4" /> Kapat
+          </Button>
+        }
+        right={activityPanel}
+      >
+        {content}
+      </KanbanDetailDialogShell>
+    );
+  }
+
+  return (
+    <div className={rootClass}>
+      {content}
     </div>
   );
 }
@@ -490,6 +902,7 @@ export function CreatePaymentPlanDialog({
   const [amount, setAmount] = useState<number>(0);
   const [currency, setCurrency] = useState<string>("USD");
   const [installmentCount, setInstallmentCount] = useState<number>(3);
+  const [paymentTermDays, setPaymentTermDays] = useState<number>(30);
   const [installments, setInstallments] = useState<Array<{ amount: number; dueDate: string }>>([]);
   const [saving, setSaving] = useState(false);
 
@@ -506,12 +919,13 @@ export function CreatePaymentPlanDialog({
       setCurrency(initialQuote.currency);
     } else {
       setSelectedQuoteId("");
-      setAmount(sc.estimatedAmount);
+      setAmount(sc.estimatedAmount || 0);
       setCurrency(sc.currency || "USD");
     }
+    setPaymentTermDays(30);
   }, [open, offs, sc]);
 
-  // Recalculate installments when amount, count, or quote changes
+  // Recalculate installments when amount, count, term, or quote changes
   useEffect(() => {
     if (amount <= 0 || installmentCount <= 0) {
       setInstallments([]);
@@ -520,9 +934,10 @@ export function CreatePaymentPlanDialog({
     const val = Number((amount / installmentCount).toFixed(2));
     const list = [];
     const today = new Date();
+    const firstTermDays = Math.max(0, Math.trunc(paymentTermDays || 0));
     for (let i = 0; i < installmentCount; i++) {
       const date = new Date();
-      date.setDate(today.getDate() + 30 * (i + 1));
+      date.setDate(today.getDate() + firstTermDays + 30 * i);
       const dateStr = date.toISOString().slice(0, 10);
       list.push({
         amount: i === 0 ? Number((amount - val * (installmentCount - 1)).toFixed(2)) : val,
@@ -530,7 +945,7 @@ export function CreatePaymentPlanDialog({
       });
     }
     setInstallments(list);
-  }, [amount, installmentCount]);
+  }, [amount, installmentCount, paymentTermDays]);
 
   const handleEqualize = () => {
     if (amount <= 0 || installmentCount <= 0) return;
@@ -562,17 +977,18 @@ export function CreatePaymentPlanDialog({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!isMatch) return toast.error("Taksitlerin toplamı, plan toplam tutarı ile eşleşmelidir");
-    if (!selectedQuoteId) return toast.error("Lütfen ödeme planının bağlanacağı bir teklif seçin.");
+    if (amount <= 0 || installments.length === 0) return toast.error("Plan tutarı ve en az bir taksit girin.");
     setSaving(true);
     try {
       for (let i = 0; i < installments.length; i++) {
         const inst = installments[i];
         await financeService.createReceivable({
           companyId: sc.customerId,
-          quoteId: selectedQuoteId,
+          ...(selectedQuoteId ? { quoteId: selectedQuoteId } : {}),
           amount: inst.amount,
           currencyCode: currency,
           dueDate: new Date(inst.dueDate),
+          movementType: "manual",
           notes: `Taksit ${i + 1}/${installments.length} - ${sc.requestedProduct}`,
         });
       }
@@ -597,24 +1013,21 @@ export function CreatePaymentPlanDialog({
           </DialogDescription>
         </DialogHeader>
 
-        {offs.length === 0 ? (
-          <div className="p-4 bg-amber-50 border border-amber-200 rounded text-sm text-amber-700 space-y-2 mt-4">
-            <p className="font-semibold">Teklif Bulunamadı</p>
-            <p>
-              Ödeme planı oluşturabilmek için öncelikle bu satış kartı altında bir teklif oluşturulmuş olmalıdır.
-              Lütfen "Teklifler" sekmesinden yeni bir teklif ekleyin.
-            </p>
+        {offs.length === 0 && (
+          <div className="p-3 bg-warning-soft border border-warning/30 rounded text-xs text-warning mt-4">
+            Bu satış kartı altında bir teklif yok. Ödeme planını yine de oluşturabilirsiniz; sonradan teklif eklenirse manuel olarak bağlanabilir.
           </div>
-        ) : (
-          <form onSubmit={handleSubmit} className="space-y-4 mt-4">
+        )}
+        <form onSubmit={handleSubmit} className="space-y-4 mt-4">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-1.5">
-                <Label htmlFor="quote-select">İlişkili Teklif</Label>
-                <Select value={selectedQuoteId} onValueChange={setSelectedQuoteId}>
+                <Label htmlFor="quote-select">İlişkili Teklif {offs.length === 0 ? "(yok)" : "(opsiyonel)"}</Label>
+                <Select value={selectedQuoteId || "__none__"} onValueChange={(v) => setSelectedQuoteId(v === "__none__" ? "" : v)} disabled={offs.length === 0}>
                   <SelectTrigger id="quote-select" className="w-full">
-                    <SelectValue placeholder="Teklif seçin" />
+                    <SelectValue placeholder={offs.length === 0 ? "Teklif bulunamadı" : "Teklif seçin"} />
                   </SelectTrigger>
                   <SelectContent>
+                    <SelectItem value="__none__">Teklif bağlama</SelectItem>
                     {offs.map((o) => (
                       <SelectItem key={o.id} value={o.id}>
                         {o.quoteNo} (Rev. {o.revision}) · {o.amount.toLocaleString()} {o.currency} {o.status === "Approved" ? "· Onaylı" : ""}
@@ -638,6 +1051,19 @@ export function CreatePaymentPlanDialog({
                     ))}
                   </SelectContent>
                 </Select>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="payment-term-days">İlk Vade Günü</Label>
+                <Input
+                  id="payment-term-days"
+                  type="number"
+                  min={0}
+                  max={3650}
+                  value={paymentTermDays}
+                  onChange={(e) => setPaymentTermDays(Math.max(0, Math.trunc(Number(e.target.value) || 0)))}
+                  placeholder="Örn. 30"
+                />
               </div>
 
               <div className="space-y-1.5">
@@ -677,8 +1103,8 @@ export function CreatePaymentPlanDialog({
                   <span
                     className={`text-xs px-2 py-1 rounded font-medium border ${
                       isMatch
-                        ? "bg-emerald-50 text-emerald-700 border-emerald-200"
-                        : "bg-red-50 text-red-700 border-red-200"
+                        ? "bg-success-soft text-success border-success/30"
+                        : "bg-destructive-soft text-destructive border-destructive/30"
                     }`}
                   >
                     {isMatch ? "Tutar Uyumlu" : `Fark: ${diff.toLocaleString()} ${currency}`}
@@ -723,12 +1149,11 @@ export function CreatePaymentPlanDialog({
               <Button type="button" variant="ghost" onClick={() => setOpen(false)}>
                 Vazgeç
               </Button>
-              <Button type="submit" disabled={saving || !isMatch || !selectedQuoteId}>
+              <Button type="submit" disabled={saving || !isMatch || amount <= 0 || installments.length === 0}>
                 {saving ? "Kaydediliyor..." : "Planı Onayla ve Kaydet"}
               </Button>
             </div>
           </form>
-        )}
       </DialogContent>
     </Dialog>
   );

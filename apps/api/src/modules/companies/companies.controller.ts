@@ -4,6 +4,8 @@ import {
   companyAccessRequestDecisionSchema,
   companyAccessRequestSchema,
   companyCreateSchema,
+  companyLocationSchema,
+  companyOsmSearchQuerySchema,
   companyUpdateSchema,
   companyListQuerySchema,
   paginationSchema,
@@ -11,6 +13,8 @@ import {
   type CompanyAccessRequestDecisionInput,
   type CompanyAccessRequestInput,
   type CompanyCreateInput,
+  type CompanyLocationInput,
+  type CompanyOsmSearchQuery,
   type CompanyUpdateInput,
   type CompanyListQuery,
   type Pagination,
@@ -36,6 +40,16 @@ export class CompaniesController {
   ) {
     const { page, pageSize, sortBy, sortDir, ...query } = qp;
     return this.svc.list(user, query, { page, pageSize, sortBy, sortDir });
+  }
+
+  @RequirePermissions('companies.read')
+  @Get('osm-search')
+  osmSearch(
+    @Query(new ZodValidationPipe(companyOsmSearchQuerySchema))
+    query: CompanyOsmSearchQuery,
+    @CurrentUser() user: AuthContext
+  ) {
+    return this.svc.searchOpenStreetMap(query, user);
   }
 
   @RequirePermissions('companies.read')
@@ -67,6 +81,16 @@ export class CompaniesController {
     @CurrentUser() user: AuthContext
   ) {
     return this.svc.create(body, user);
+  }
+
+  @RequirePermissions('companies.update')
+  @Patch(':id/location')
+  setLocation(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(companyLocationSchema)) body: CompanyLocationInput,
+    @CurrentUser() user: AuthContext
+  ) {
+    return this.svc.setLocation(id, body, user);
   }
 
   @RequirePermissions('companies.update')

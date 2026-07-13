@@ -8,9 +8,9 @@ Tek sunucu (Ubuntu 22.04/24.04) üzerinde production kurulumu. Şablonlar:
 
 ## 0. Önkoşullar
 ```bash
-# Node 20+, Docker, nginx, certbot
+# Node 22+, Docker, nginx, certbot
 sudo apt update && sudo apt install -y nginx
-curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash - && sudo apt install -y nodejs
+curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash - && sudo apt install -y nodejs
 # Docker: https://docs.docker.com/engine/install/ubuntu/
 sudo apt install -y certbot python3-certbot-nginx
 ```
@@ -153,5 +153,5 @@ curl -s https://crm.alanadi.com/api/v1/auth/login -X POST \
 | Dosya yükleme/indirme 403/erişilemiyor | `S3_ENDPOINT` tarayıcıdan erişilemez (localhost/iç IP) | `S3_ENDPOINT=https://storage.alanadi.com` + nginx storage server bloğu |
 | Presigned URL "SignatureDoesNotMatch" | nginx storage proxy'sinde `Host` header değişmiş | `proxy_set_header Host $host` (değiştirme) |
 | Login sonrası hemen logout / 401 | Cookie `Secure` ama HTTP, ya da farklı domain + `SameSite=strict` | HTTPS + aynı-origin topoloji veya `SameSite=none`+`COOKIE_DOMAIN` |
-| Tüm kullanıcılar aynı anda rate-limit'e takılıyor | nginx `X-Forwarded-For` set etmiyor → herkes proxy IP'si | nginx `proxy_set_header X-Forwarded-For ...` (şablonda var) |
+| Tüm kullanıcılar aynı anda rate-limit'e takılıyor / login sonrası modüller `429` oluyor | AWS ALB/proxy IP'si rate-limit anahtarı oluyor veya SPA ilk yükleme fan-out'u tek `/api/` edge kotasını dolduruyor | Güncel `nginx.conf.template`/`nginx.conf.example` ile yeniden deploy et (`real_ip_*`, `api_per_ip rate=300r/m`, `burst=240`) |
 | API başlamıyor: "Invalid environment configuration" | Prod'da `COOKIE_SECURE!=true` / CORS localhost / dev reset token açık | env'i `.env.production.example`'a göre düzelt (fail-fast koruması) |

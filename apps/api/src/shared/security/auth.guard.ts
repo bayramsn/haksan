@@ -1,17 +1,17 @@
 import { CanActivate, ExecutionContext, Injectable, SetMetadata } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import type { FastifyRequest } from 'fastify';
-import { and, asc, eq } from 'drizzle-orm';
+import { and, asc, desc, eq, isNull } from 'drizzle-orm';
 import { JwtTokenService } from './jwt.service';
 import { DB } from '../database/database.module';
 import { Inject } from '@nestjs/common';
 import type { DbClient } from '../../db/client';
-import { users, userDivisions } from '../../db/schema/users';
-import { divisions } from '../../db/schema/tenants';
+import { loginSessions, users, userAccessScopes, userDepartmentAssignments, userDivisions } from '../../db/schema/users';
+import { departments, divisions } from '../../db/schema/tenants';
 import { UnauthorizedError } from '../utils/errors';
 import './auth.types';
 import { rolePermissionsCacheKey } from './rbac.cache';
-import { ACTIVE_DIVISION_HEADER } from '../utils/division-scope';
+import { ACTIVE_DEPARTMENT_HEADER, ACTIVE_DIVISION_HEADER } from '../utils/division-scope';
 
 export const IS_PUBLIC_KEY = 'isPublic';
 export const Public = () => SetMetadata(IS_PUBLIC_KEY, true);
@@ -49,6 +49,21 @@ export class AuthGuard implements CanActivate {
     if (!user || user.deletedAt || user.status !== 'active' || user.tenantId !== payload.tid) {
       throw new UnauthorizedError('Kullanıcı geçersiz');
     }
+    // Access tokens are bound to both an active login session and the user's
+    // auth version. Logout, password reset, role changes and deactivation take
+    // effect immediately rather than waiting for access-token expiry.
+    if (!payload.sid || !Number.isInteger(payload.ver) || payload.ver !== user.authVersion) {
+      throw new UnauthorizedError('Oturum geçersiz');
+    }
+    const session = await this.db.query.loginSessions.findFirst({
+      where: and(
+        eq(loginSessions.id, payload.sid),
+        eq(loginSessions.userId, user.id),
+        eq(loginSessions.tenantId, user.tenantId),
+        isNull(loginSessions.revokedAt)
+      ),
+    });
+    if (!session) throw new UnauthorizedError('Oturum sonlandırılmış');
 
     // Permissions are eagerly loaded by RbacService and cached; here we just attach what's in the token
     // plus a permission set the AuthService refreshes on login.
@@ -70,9 +85,38 @@ export class AuthGuard implements CanActivate {
     }
     const divisionIds = divisionRows.map((r) => r.divisionId);
     const primaryDivisionId = divisionRows.find((r) => r.isPrimary)?.divisionId ?? divisionIds[0] ?? null;
-    const activeHeader =
-      req.headers[ACTIVE_DIVISION_HEADER] ?? req.headers['x-active-department'];
+    const activeHeader = req.headers[ACTIVE_DIVISION_HEADER];
     const activeDivisionId = Array.isArray(activeHeader) ? activeHeader[0] : activeHeader ?? null;
+    const activeDepartmentHeader = req.headers[ACTIVE_DEPARTMENT_HEADER];
+    const activeDepartmentId = Array.isArray(activeDepartmentHeader) ? activeDepartmentHeader[0] : activeDepartmentHeader ?? null;
+
+    let departmentRows = await this.db
+      .select({ departmentId: userDepartmentAssignments.departmentId, isPrimary: userDepartmentAssignments.isPrimary })
+      .from(userDepartmentAssignments)
+      .where(eq(userDepartmentAssignments.userId, user.id));
+    if (departmentRows.length === 0 && user.departmentId) {
+      departmentRows = [{ departmentId: user.departmentId, isPrimary: true }];
+    }
+    if (departmentRows.length === 0 && canViewAllDivisions) {
+      const tenantDepartments = await this.db
+        .select({ departmentId: departments.id })
+        .from(departments)
+        .where(eq(departments.tenantId, user.tenantId))
+        .orderBy(asc(departments.name));
+      departmentRows = tenantDepartments.map((department, index) => ({ ...department, isPrimary: index === 0 }));
+    }
+    const departmentIds = departmentRows.map((r) => r.departmentId);
+    const primaryDepartmentId = departmentRows.find((r) => r.isPrimary)?.departmentId ?? departmentIds[0] ?? null;
+    const accessScopes = await this.db
+      .select({
+        resource: userAccessScopes.resource,
+        departmentId: userAccessScopes.departmentId,
+        divisionId: userAccessScopes.divisionId,
+        isPrimary: userAccessScopes.isPrimary,
+      })
+      .from(userAccessScopes)
+      .where(and(eq(userAccessScopes.userId, user.id), eq(userAccessScopes.tenantId, user.tenantId)))
+      .orderBy(asc(userAccessScopes.resource), desc(userAccessScopes.isPrimary));
 
     req.auth = {
       userId: user.id,
@@ -83,8 +127,12 @@ export class AuthGuard implements CanActivate {
       sessionId: payload.sid,
       divisionIds,
       primaryDivisionId,
+      departmentIds,
+      primaryDepartmentId,
       canViewAllDivisions,
       activeDivisionId,
+      activeDepartmentId,
+      accessScopes,
     };
     return true;
   }

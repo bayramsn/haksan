@@ -17,6 +17,7 @@ export const quotes = pgTable(
       .notNull()
       .references(() => tenants.id, { onDelete: 'cascade' }),
     divisionId: uuid('division_id').references(() => divisions.id, { onDelete: 'set null' }),
+    businessLine: varchar('business_line', { length: 16 }),
     opportunityId: uuid('opportunity_id').references(() => opportunities.id, { onDelete: 'set null' }),
     companyId: uuid('company_id')
       .notNull()
@@ -30,6 +31,8 @@ export const quotes = pgTable(
     currencyId: uuid('currency_id').references(() => currencies.id),
     subtotal: money('subtotal').notNull().default('0'),
     discountTotal: money('discount_total').notNull().default('0'),
+    headerDiscountAmount: money('header_discount_amount').notNull().default('0'),
+    headerDiscountPercent: percent('header_discount_percent').notNull().default('0'),
     vatRate: percent('vat_rate').notNull().default('20'),
     vatAmount: money('vat_amount').notNull().default('0'),
     grandTotal: money('grand_total').notNull().default('0'),
@@ -38,6 +41,14 @@ export const quotes = pgTable(
     warrantyTerms: text('warranty_terms'),
     notes: text('notes'),
     statusId: uuid('status_id').references(() => quoteStatuses.id),
+    priceApprovalStatus: varchar('price_approval_status', { length: 32 }).notNull().default('not_required'),
+    priceApprovalRequestedBy: uuid('price_approval_requested_by').references(() => users.id),
+    priceApprovalRequestedAt: timestamp('price_approval_requested_at', { withTimezone: true }),
+    priceApprovedBy: uuid('price_approved_by').references(() => users.id),
+    priceApprovedAt: timestamp('price_approved_at', { withTimezone: true }),
+    priceRejectedBy: uuid('price_rejected_by').references(() => users.id),
+    priceRejectedAt: timestamp('price_rejected_at', { withTimezone: true }),
+    priceApprovalNote: text('price_approval_note'),
     createdBy: uuid('created_by').references(() => users.id),
     approvedBy: uuid('approved_by').references(() => users.id),
     approvedAt: timestamp('approved_at', { withTimezone: true }),
@@ -49,6 +60,7 @@ export const quotes = pgTable(
     tenantDocumentNoUnique: uniqueIndex('quotes_tenant_document_no_unique').on(t.tenantId, t.documentNo),
     tenantIdx: index('quotes_tenant_idx').on(t.tenantId),
     tenantDivisionIdx: index('quotes_tenant_division_idx').on(t.tenantId, t.divisionId),
+    tenantBusinessLineIdx: index('quotes_tenant_business_line_idx').on(t.tenantId, t.businessLine),
     companyIdx: index('quotes_company_idx').on(t.companyId),
     opportunityIdx: index('quotes_opportunity_idx').on(t.opportunityId),
     quoteDateIdx: index('quotes_quote_date_idx').on(t.quoteDate),
@@ -69,6 +81,7 @@ export const quoteItems = pgTable(
       .references(() => quotes.id, { onDelete: 'cascade' }),
     productModelId: uuid('product_model_id').references(() => productModels.id),
     inventoryItemId: uuid('inventory_item_id').references(() => inventoryItems.id),
+    stockCode: varchar('stock_code', { length: 64 }),
     description: text('description').notNull(),
     quantity: money('quantity').notNull(),
     unitId: uuid('unit_id').references(() => units.id),
@@ -132,6 +145,7 @@ export const proformas = pgTable(
       .notNull()
       .references(() => tenants.id, { onDelete: 'cascade' }),
     divisionId: uuid('division_id').references(() => divisions.id, { onDelete: 'set null' }),
+    businessLine: varchar('business_line', { length: 16 }),
     quoteId: uuid('quote_id')
       .notNull()
       .references(() => quotes.id, { onDelete: 'restrict' }),
@@ -145,6 +159,7 @@ export const proformas = pgTable(
   (t) => ({
     tenantDocumentNoUnique: uniqueIndex('proformas_tenant_document_no_unique').on(t.tenantId, t.documentNo),
     tenantDivisionIdx: index('proformas_tenant_division_idx').on(t.tenantId, t.divisionId),
+    tenantBusinessLineIdx: index('proformas_tenant_business_line_idx').on(t.tenantId, t.businessLine),
     quoteIdx: index('proformas_quote_idx').on(t.quoteId),
   })
 );
@@ -157,11 +172,13 @@ export const contracts = pgTable(
       .notNull()
       .references(() => tenants.id, { onDelete: 'cascade' }),
     divisionId: uuid('division_id').references(() => divisions.id, { onDelete: 'set null' }),
+    businessLine: varchar('business_line', { length: 16 }),
     quoteId: uuid('quote_id')
       .notNull()
       .references(() => quotes.id, { onDelete: 'restrict' }),
     contractNo: varchar('contract_no', { length: 64 }).notNull(),
     signedDate: timestamp('signed_date', { withTimezone: true }),
+    paymentTermDays: integer('payment_term_days'),
     statusId: uuid('status_id').references(() => contractStatuses.id),
     fileId: uuid('file_id').references(() => files.id),
     createdBy: uuid('created_by').references(() => users.id),
@@ -170,6 +187,7 @@ export const contracts = pgTable(
   (t) => ({
     tenantContractNoUnique: uniqueIndex('contracts_tenant_contract_no_unique').on(t.tenantId, t.contractNo),
     tenantDivisionIdx: index('contracts_tenant_division_idx').on(t.tenantId, t.divisionId),
+    tenantBusinessLineIdx: index('contracts_tenant_business_line_idx').on(t.tenantId, t.businessLine),
     quoteIdx: index('contracts_quote_idx').on(t.quoteId),
   })
 );
@@ -182,6 +200,7 @@ export const commercialInvoices = pgTable(
       .notNull()
       .references(() => tenants.id, { onDelete: 'cascade' }),
     divisionId: uuid('division_id').references(() => divisions.id, { onDelete: 'set null' }),
+    businessLine: varchar('business_line', { length: 16 }),
     quoteId: uuid('quote_id')
       .notNull()
       .references(() => quotes.id, { onDelete: 'restrict' }),
@@ -195,6 +214,7 @@ export const commercialInvoices = pgTable(
   (t) => ({
     tenantInvoiceNoUnique: uniqueIndex('commercial_invoices_tenant_invoice_no_unique').on(t.tenantId, t.invoiceNo),
     tenantDivisionIdx: index('commercial_invoices_tenant_division_idx').on(t.tenantId, t.divisionId),
+    tenantBusinessLineIdx: index('commercial_invoices_tenant_business_line_idx').on(t.tenantId, t.businessLine),
     quoteIdx: index('commercial_invoices_quote_idx').on(t.quoteId),
   })
 );

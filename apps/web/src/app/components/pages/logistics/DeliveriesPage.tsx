@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "../../ui/card";
+import { Card, CardHeader, CardTitle } from "../../ui/card";
 import { Button } from "../../ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../../ui/table";
@@ -11,22 +11,42 @@ import { useStore } from "../../../lib/store";
 import { DELIVERY_STATUSES, type Delivery } from "../../../lib/mock";
 import { ExportExcelButton } from "../../ui/ExportExcelButton";
 import { printOrWarn } from "../../../lib/pageHelpers";
+import { resolveServiceFormNo } from "../../../lib/serviceFormNo";
 import { installationFormDoc, printAssetBase, trShortDate } from "../../../lib/print";
-import { Plus, ClipboardCheck, CheckCircle2, Clock, Building2, FileSignature, Printer } from "lucide-react";
+import { Plus, ClipboardCheck, CheckCircle2, Clock, Building2, FileSignature, Printer, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 export function DeliveriesPage() {
-  const { deliveries, updateDeliveryStatus, customers } = useStore();
+  const { deliveries, updateDeliveryStatus, deleteDelivery, customers } = useStore();
   const liveCustomerName = (id: string) => customers.find((c) => c.id === id)?.name ?? "—";
   const [selectedDelivery, setSelectedDelivery] = useState<(typeof deliveries)[number] | null>(null);
+  const [statusFilter, setStatusFilter] = useState<"all" | "Tamamlandı" | "Bekliyor">("all");
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const removeDelivery = async (d: (typeof deliveries)[number]) => {
+    if (deletingId) return;
+    if (!window.confirm(`${liveCustomerName(d.customerId)} için teslimat kaydını silmek istediğinize emin misiniz?`)) return;
+    setDeletingId(d.id);
+    try {
+      await deleteDelivery(d.id);
+      toast.success("Teslimat silindi");
+    } catch (err: any) {
+      toast.error("Teslimat silinemedi", { description: err?.message ?? "İstek başarısız oldu." });
+    } finally {
+      setDeletingId(null);
+    }
+  };
   const completed = deliveries.filter((d) => d.status === "Tamamlandı").length;
   const pending = deliveries.filter((d) => d.status === "Bekliyor").length;
+  const visibleDeliveries = statusFilter === "all" ? deliveries : deliveries.filter((d) => d.status === statusFilter);
+  // KPI kartı ikinci tıklamada filtreyi kaldırır.
+  const toggleStatus = (status: Exclude<typeof statusFilter, "all">) =>
+    setStatusFilter((current) => (current === status ? "all" : status));
   return (
     <div className="space-y-5">
       <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
-        <MiniKpi tone="violet" icon={<ClipboardCheck className="size-[18px]" />} label="Toplam Teslimat" value={deliveries.length} sub="kayıt" delta={3} />
-        <MiniKpi tone="emerald" icon={<CheckCircle2 className="size-[18px]" />} label="Tamamlandı" value={completed} sub="imzalı" delta={2} />
-        <MiniKpi tone="amber" icon={<Clock className="size-[18px]" />} label="Bekleyen" value={pending} sub="imza bekliyor" delta={1} />
+        <MiniKpi tone="violet" icon={<ClipboardCheck className="size-[18px]" />} label="Toplam Teslimat" value={deliveries.length} sub="kayıt" delta={3} onClick={() => setStatusFilter("all")} active={statusFilter === "all"} />
+        <MiniKpi tone="emerald" icon={<CheckCircle2 className="size-[18px]" />} label="Tamamlandı" value={completed} sub="imzalı" delta={2} onClick={() => toggleStatus("Tamamlandı")} active={statusFilter === "Tamamlandı"} />
+        <MiniKpi tone="amber" icon={<Clock className="size-[18px]" />} label="Bekleyen" value={pending} sub="imza bekliyor" delta={1} onClick={() => toggleStatus("Bekliyor")} active={statusFilter === "Bekliyor"} />
       </div>
 
       <Card className="border-border/60 shadow-sm overflow-hidden">
@@ -40,7 +60,7 @@ export function DeliveriesPage() {
         <div className="overflow-x-auto">
           <Table>
             <TableHeader>
-              <TableRow className="bg-muted/30 hover:bg-muted/30">
+              <TableRow className="bg-muted/40 hover:bg-muted/40 [&_th]:text-[11px] [&_th]:uppercase [&_th]:tracking-wider [&_th]:text-muted-foreground">
                 <TableHead>Müşteri</TableHead>
                 <TableHead>Tarih</TableHead>
                 <TableHead>Teslim Alan</TableHead>
@@ -49,8 +69,8 @@ export function DeliveriesPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {deliveries.map((d) => (
-                <TableRow key={d.id} className="group">
+              {visibleDeliveries.map((d) => (
+                <TableRow key={d.id} className="group hover:bg-primary/[0.025]">
                   <TableCell>
                     <div className="flex items-center gap-2.5">
                       <div className="size-8 rounded-md bg-gradient-to-br from-primary/15 to-primary/5 text-primary grid place-items-center shrink-0">
@@ -81,10 +101,20 @@ export function DeliveriesPage() {
                       onClick={() => setSelectedDelivery(d)}>
                       <FileSignature className="size-4" />
                     </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="size-8 text-muted-foreground opacity-0 group-hover:opacity-100 hover:text-destructive"
+                      title="Teslimatı sil"
+                      disabled={deletingId === d.id}
+                      onClick={() => removeDelivery(d)}
+                    >
+                      <Trash2 className="size-4" />
+                    </Button>
                   </TableCell>
                 </TableRow>
               ))}
-              {deliveries.length === 0 && (
+              {visibleDeliveries.length === 0 && (
                 <TableRow>
                   <TableCell colSpan={5}>
                     <EmptyState
@@ -119,7 +149,7 @@ function DeliveryDetailDialog({
   customerName: (id: string) => string;
   onClose: () => void;
 }) {
-  const { customers, cases, machines, updateDelivery } = useStore();
+  const { customers, cases, machines, deliveries, updateDelivery } = useStore();
   const [form, setForm] = useState<DeliveryFormState | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -158,9 +188,14 @@ function DeliveryDetailDialog({
   /** DR.MAK Kurulum Tutanağı — PDF şablonu ile aynı düzen. */
   const printForm = () => {
     if (!delivery || !form) return;
-    const cust = customers.find((c) => c.id === delivery.customerId);
+    const cust = customers.find((c) => c.id === form.customerId);
     const fd = deliveryFormToPayload(form);
-    const formNo = fd.formNo || String(delivery.id).slice(-5).padStart(5, "0");
+    const formNo = resolveServiceFormNo({
+      currentFormNo: fd.formNo,
+      salesCaseId: delivery.salesCaseId,
+      machineId: fd.machineId,
+      fallbackId: delivery.id,
+    });
     const doc = installationFormDoc(
       {
         teslimTarihi: form.date ? trShortDate(form.date) : "",
@@ -168,7 +203,7 @@ function DeliveryDetailDialog({
         formNo,
         tezgah: fd.tezgah,
         cnc: fd.cnc,
-        firma: cust?.name ?? customerName(delivery.customerId),
+        firma: cust?.name ?? customerName(form.customerId),
         ilgili: form.ilgili || cust?.contactPerson,
         adres: cust ? [cust.address, cust.district, cust.city].filter(Boolean).join(" ") : undefined,
         telefon: cust?.phone,
@@ -194,10 +229,15 @@ function DeliveryDetailDialog({
             </DialogHeader>
             <DeliveryFormFields
               form={form}
-              setForm={setForm}
+              setForm={(update) =>
+                setForm((prev) =>
+                  prev == null ? prev : typeof update === "function" ? (update as (p: DeliveryFormState) => DeliveryFormState)(prev) : update
+                )
+              }
               customers={customers}
               casesForCustomer={casesForCustomer}
               machinesForCustomer={machinesForCustomer}
+              relatedDeliveries={deliveries}
             />
             <DialogFooter className="gap-2 sm:justify-between">
               <Button variant="outline" className="gap-1" onClick={printForm}><Printer className="size-4" /> Formu Yazdır</Button>

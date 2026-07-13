@@ -10,11 +10,6 @@ import {
 } from "../ui/dialog";
 import { adminService } from "../../../lib/services";
 
-function currentPeriod() {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-}
-
 type DeptTarget = {
   salesAmount: string;
   quoteTarget: string;
@@ -75,6 +70,13 @@ export function DepartmentTargetDialog({
         salesAmount: numOrNull(form.salesAmount),
         quoteTarget: numOrNull(form.quoteTarget),
         visitTarget: numOrNull(form.visitTarget),
+        salesNewCustomers: null,
+        serviceAmount: null,
+        serviceCompleted: null,
+        digitalLeadTarget: null,
+        digitalConversionTarget: null,
+        digitalBudget: null,
+        callTarget: null,
         targetItems: [],
         note: form.note.trim() || undefined,
       });

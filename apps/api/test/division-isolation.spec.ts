@@ -149,6 +149,72 @@ describe('Bölüm izolasyonu — firmalar', () => {
   });
 });
 
+/**
+ * Rol bazlı firma görünürlüğü (bölüm izolasyonunun üstüne biner):
+ *  - sales  : saf tedarikçiyi HİÇ görmez; müşteri + müşteri/tedarikçinin hem
+ *             cari hem potansiyelini görür.
+ *  - service: saf tedarikçiyi HİÇ görmez; saf müşteriden YALNIZCA cari görür
+ *             (potansiyel müşteri gizli); müşteri/tedarikçinin cari+potansiyelini görür.
+ *  - admin / diğer roller: kısıt yok (her firmayı görür).
+ *
+ * Demo verisi: "Taiwan Machine Supply" = saf tedarikçi (active);
+ * potansiyel müşteriler = KİLİTSAN, SACTECH, BAYPA TEST KOCATEPE;
+ * cari müşteriler = Contra Makine, ALİŞLER, UNIMAK, BAYPA TEST İSMETPAŞA.
+ */
+describe('Rol bazlı firma görünürlüğü — sales/service', () => {
+  it('satışçı saf tedarikçiyi (Taiwan Machine Supply) listede görmez', async () => {
+    const rows = await listData(tokens.sales, '/api/v1/companies?page=1&pageSize=200');
+    const ids = rows.map((c) => c.id);
+    expect(companyIdByShort['Taiwan Machine Supply']).toBeTruthy();
+    expect(ids).not.toContain(companyIdByShort['Taiwan Machine Supply']);
+  });
+
+  it('satışçı müşterilerin hem cari hem potansiyelini görür', async () => {
+    const rows = await listData(tokens.sales, '/api/v1/companies?page=1&pageSize=200');
+    const ids = rows.map((c) => c.id);
+    expect(ids).toContain(companyIdByShort['KİLİTSAN']); // potansiyel müşteri
+    expect(ids).toContain(companyIdByShort['Contra Makine']); // cari müşteri
+  });
+
+  it('satışçı tedarikçiye id ile erişemez (404)', async () => {
+    const r = await supertest(server)
+      .get(`/api/v1/companies/${companyIdByShort['Taiwan Machine Supply']}`)
+      .set(auth(tokens.sales));
+    expect(r.status).toBe(404);
+  });
+
+  it('servis saf tedarikçiyi görmez ve potansiyel müşteriyi görmez, yalnızca cari müşteriyi görür', async () => {
+    const rows = await listData(tokens.service, '/api/v1/companies?page=1&pageSize=200');
+    const ids = rows.map((c) => c.id);
+    // Tedarikçi gizli
+    expect(ids).not.toContain(companyIdByShort['Taiwan Machine Supply']);
+    // Potansiyel müşteriler gizli
+    expect(ids).not.toContain(companyIdByShort['KİLİTSAN']);
+    expect(ids).not.toContain(companyIdByShort['SACTECH']);
+    expect(ids).not.toContain(companyIdByShort['BAYPA TEST KOCATEPE']);
+    // Cari müşteriler görünür
+    expect(ids).toContain(companyIdByShort['Contra Makine']);
+    expect(ids).toContain(companyIdByShort['UNIMAK']);
+  });
+
+  it('servis potansiyel müşteriye id ile erişemez (404), cari müşteriye erişebilir', async () => {
+    const denied = await supertest(server)
+      .get(`/api/v1/companies/${companyIdByShort['KİLİTSAN']}`)
+      .set(auth(tokens.service));
+    expect(denied.status).toBe(404);
+    const ok = await supertest(server)
+      .get(`/api/v1/companies/${companyIdByShort['Contra Makine']}`)
+      .set(auth(tokens.service));
+    expect(ok.status).toBe(200);
+  });
+
+  it('admin (kısıtsız) saf tedarikçiyi de görür', async () => {
+    const rows = await listData(tokens.admin, '/api/v1/companies?page=1&pageSize=200');
+    const ids = rows.map((c) => c.id);
+    expect(ids).toContain(companyIdByShort['Taiwan Machine Supply']);
+  });
+});
+
 describe('Bölüm izolasyonu — teklifler', () => {
   it('CNC satışçısının tüm teklifleri CNC bölümünde', async () => {
     const rows = await listData(tokens.salesCnc, '/api/v1/quotes?page=1&pageSize=200');
@@ -303,6 +369,7 @@ describe('Departman yetkileri — finance', () => {
 describe('Departman yetkileri — stock', () => {
   it('okuyabildikleri: warehouses, inventory, purchase-orders, products, sales-orders, shipments', async () => {
     for (const p of [
+      '/api/v1/companies',
       '/api/v1/warehouses',
       '/api/v1/inventory',
       '/api/v1/purchase-orders',
@@ -314,9 +381,8 @@ describe('Departman yetkileri — stock', () => {
       expect(r.status, `stock GET ${p}`).toBe(200);
     }
   });
-  it('okuyamadıkları: companies, quotes, payments, receivables, service-tickets, users', async () => {
+  it('okuyamadıkları: quotes, payments, receivables, service-tickets, users', async () => {
     for (const p of [
-      '/api/v1/companies',
       '/api/v1/quotes',
       '/api/v1/payments',
       '/api/v1/receivables',

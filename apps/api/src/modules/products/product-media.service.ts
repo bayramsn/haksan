@@ -110,18 +110,36 @@ export class ProductMediaService {
    */
   async resolvePublicMedia(fileId: string): Promise<ResolvedPublicMedia | null> {
     const file = await this.db.query.files.findFirst({
-      where: and(eq(files.id, fileId), eq(files.visibility, 'public'), isNull(files.deletedAt)),
+      where: and(
+        eq(files.id, fileId),
+        eq(files.visibility, 'public'),
+        eq(files.uploadStatus, 'linked'),
+        isNull(files.deletedAt)
+      ),
     });
     if (!file) return null;
 
-    // Confirm the file is genuinely a product asset (not just any public file).
-    const linkedAsMedia = await this.db.query.productMedia.findFirst({
-      where: eq(productMedia.fileId, fileId),
-    });
+    const [linkedAsMedia] = await this.db
+      .select({ id: productMedia.id })
+      .from(productMedia)
+      .innerJoin(productModels, eq(productMedia.productModelId, productModels.id))
+      .where(
+        and(
+          eq(productMedia.fileId, fileId),
+          eq(productMedia.tenantId, file.tenantId),
+          eq(productModels.tenantId, file.tenantId),
+          isNull(productModels.deletedAt)
+        )
+      )
+      .limit(1);
     let linkedAsDoc = false;
     if (!linkedAsMedia) {
       const docLink = await this.db.query.fileLinks.findFirst({
-        where: and(eq(fileLinks.fileId, fileId), eq(fileLinks.entityType, 'product_model')),
+        where: and(
+          eq(fileLinks.fileId, fileId),
+          eq(fileLinks.tenantId, file.tenantId),
+          eq(fileLinks.entityType, 'product_model')
+        ),
       });
       linkedAsDoc = Boolean(docLink);
     }

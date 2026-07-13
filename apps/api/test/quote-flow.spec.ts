@@ -7,6 +7,8 @@ let app: NestFastifyApplication;
 let adminToken: string;
 let companyId: string;
 let opportunityId: string;
+let quoteId: string;
+let quoteBusinessLine: string;
 
 beforeAll(async () => {
   app = await createTestApp();
@@ -56,7 +58,10 @@ describe('ERP flow', () => {
       .set('Authorization', `Bearer ${adminToken}`)
       .send({ companyId, opportunityId, quoteDate: new Date().toISOString(), currencyCode: 'USD' });
     expect(r.status).toBe(201);
-    const quoteId = r.body.id;
+    quoteId = r.body.id;
+    quoteBusinessLine = r.body.businessLine;
+    expect(['CNC', 'UNI', 'SACISLE']).toContain(quoteBusinessLine);
+    expect(r.body.documentNo).toMatch(new RegExp(`^${quoteBusinessLine}-\\d{4}/\\d{3}$`));
 
     const item = await supertest(app.getHttpServer())
       .post(`/api/v1/quotes/${quoteId}/items`)
@@ -72,6 +77,30 @@ describe('ERP flow', () => {
     expect(Number(got.body.subtotal)).toBe(95000);
     expect(Number(got.body.vatAmount)).toBe(19000);
     expect(Number(got.body.grandTotal)).toBe(114000);
+  });
+
+  it('creates proforma, contract and commercial invoice in the quote business line series', async () => {
+    const [proforma, contract, invoice] = await Promise.all([
+      supertest(app.getHttpServer())
+        .post('/api/v1/proformas')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ quoteId, issueDate: new Date().toISOString(), statusCode: 'draft' }),
+      supertest(app.getHttpServer())
+        .post('/api/v1/contracts')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ quoteId, signedDate: new Date().toISOString(), statusCode: 'draft' }),
+      supertest(app.getHttpServer())
+        .post('/api/v1/commercial-invoices')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ quoteId, invoiceDate: new Date().toISOString(), statusCode: 'draft' }),
+    ]);
+
+    expect(proforma.status).toBe(201);
+    expect(proforma.body.documentNo).toMatch(new RegExp(`^${quoteBusinessLine}-PRF-\\d{4}/\\d{3}$`));
+    expect(contract.status).toBe(201);
+    expect(contract.body.contractNo).toMatch(new RegExp(`^${quoteBusinessLine}-SOZ-\\d{4}/\\d{3}$`));
+    expect(invoice.status).toBe(201);
+    expect(invoice.body.invoiceNo).toMatch(new RegExp(`^${quoteBusinessLine}-FAT-\\d{4}/\\d{3}$`));
   });
 
   it('moves sales → quote (now that a quote exists)', async () => {
