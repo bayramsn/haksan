@@ -14,6 +14,11 @@ const envOptionalSecret = z.preprocess((value) => {
   return value;
 }, z.string().min(8).optional());
 
+const envOptionalText = z.preprocess((value) => {
+  if (typeof value === 'string' && value.trim() === '') return undefined;
+  return value;
+}, z.string().min(1).optional());
+
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   PORT: z.coerce.number().int().positive().default(3000),
@@ -134,8 +139,8 @@ const envSchema = z.object({
   // Mail
   SMTP_HOST: z.string().default('localhost'),
   SMTP_PORT: z.coerce.number().int().positive().default(1025),
-  SMTP_USER: z.string().min(1).optional(),
-  SMTP_PASSWORD: z.string().min(1).optional(),
+  SMTP_USER: envOptionalText,
+  SMTP_PASSWORD: envOptionalText,
   SMTP_SECURE: envBoolean.default(false),
   SMTP_FROM: z.string().default('noreply@haksan.local'),
   APP_PUBLIC_URL: z.string().url().optional(),
