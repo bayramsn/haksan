@@ -1,6 +1,6 @@
 import { Controller, Get, Param, Query, UseGuards } from '@nestjs/common';
 import { Inject } from '@nestjs/common';
-import { and, asc, eq, isNull, sql } from 'drizzle-orm';
+import { and, asc, eq, isNull, or, sql } from 'drizzle-orm';
 import type { DbClient } from '../../db/client';
 import * as schema from '../../db/schema';
 import { DB } from '../../shared/database/database.module';
@@ -21,6 +21,10 @@ export const DIVISION_SCOPED_LOOKUPS = new Set([
   'product-subcategories',
   'product-types',
   'product-spec-groups',
+  // `brands` ayrı tenant tablosundan yönetilir, ancak aynı bölüm kapsamı
+  // sözleşmesine ve brands.division_id kolonuna sahiptir. Burada bulunmazsa
+  // admin create/update akışı marka özel handler'ına ulaşmadan reddedilir.
+  'brands',
 ]);
 
 export const LOOKUP_TABLE_MAP: Record<string, keyof typeof schema> = {
@@ -60,6 +64,17 @@ export const LOOKUP_TABLE_MAP: Record<string, keyof typeof schema> = {
 export const BRAND_LOOKUP_NAME = 'brands';
 export const availableLookupNames = () => [...Object.keys(LOOKUP_TABLE_MAP), BRAND_LOOKUP_NAME];
 
+/**
+ * Ürün taksonomi zincirinin üst bağlantı kolonları:
+ * kategori → grup, alt kategori → kategori, tip → alt kategori.
+ * `parentId` NULL olan kayıtlar tüm üstlerde ("Tümü") geçerlidir.
+ */
+export const LOOKUP_PARENT_COLUMNS: Record<string, string> = {
+  'product-categories': 'productGroupId',
+  'product-subcategories': 'categoryId',
+  'product-types': 'subcategoryId',
+};
+
 @UseGuards(AuthGuard)
 @Controller('lookups')
 export class LookupsController {
@@ -76,21 +91,28 @@ export class LookupsController {
     @CurrentUser() user: AuthContext,
     @Query('city') city?: string,
     @Query('divisionId') _divisionId?: string,
-    @Query('scope') scope?: string
+    @Query('scope') scope?: string,
+    @Query('parentId') parentId?: string
   ) {
     if (name === BRAND_LOOKUP_NAME) {
+      // Markalar bölüme atanabilir; aktif bölüm kendi + paylaşılan ("Tümü")
+      // markaları görür. Bölümsüz eski kayıtlar her bölümde görünmeye devam eder.
+      const brandFilters = [eq(schema.brands.tenantId, user.tenantId), isNull(schema.brands.deletedAt)];
+      const brandDivisionFilter = resourceDivisionFilterWithShared(user, 'products', schema.brands.divisionId);
+      if (brandDivisionFilter) brandFilters.push(brandDivisionFilter);
       return this.db
         .select({
           id: schema.brands.id,
           code: schema.brands.name,
           name: schema.brands.name,
           description: schema.brands.notes,
-          sortOrder: sql<number>`0`,
+          sortOrder: schema.brands.sortOrder,
           isActive: sql<boolean>`true`,
+          divisionId: schema.brands.divisionId,
         })
         .from(schema.brands)
-        .where(and(eq(schema.brands.tenantId, user.tenantId), isNull(schema.brands.deletedAt)))
-        .orderBy(asc(schema.brands.name));
+        .where(and(...brandFilters))
+        .orderBy(asc(schema.brands.sortOrder), asc(schema.brands.name));
     }
     const tableKey = LOOKUP_TABLE_MAP[name];
     if (!tableKey) throw new NotFoundError('Lookup');
@@ -106,6 +128,12 @@ export class LookupsController {
           ? resourceDivisionFilter(user, 'products', table.divisionId)
           : resourceDivisionFilterWithShared(user, 'products', table.divisionId);
       if (divFilter) filters.push(divFilter);
+    }
+    // Üst bağlantı filtresi: seçilen üst kayda bağlı olanlar + paylaşılan
+    // ("Tümü", NULL bağlantı) kayıtlar döner (kaskad seçim listeleri için).
+    const parentColumn = LOOKUP_PARENT_COLUMNS[name];
+    if (parentColumn && parentId?.trim() && parentId !== 'all') {
+      filters.push(or(eq(table[parentColumn], parentId.trim()), isNull(table[parentColumn]))!);
     }
     return this.db
       .select()
