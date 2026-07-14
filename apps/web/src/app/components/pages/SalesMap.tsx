@@ -177,6 +177,7 @@ export function SalesMapPage({ initialQuery }: { initialQuery?: string }) {
   const [focusedId, setFocusedId] = useState<string | null>(null);
   const [selectionMode, setSelectionMode] = useState<SelectionMode>(null);
   const [osmSearchFirmId, setOsmSearchFirmId] = useState<string | null>(null);
+  const [tileLoadFailed, setTileLoadFailed] = useState(false);
   const watchdog = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
@@ -387,16 +388,18 @@ export function SalesMapPage({ initialQuery }: { initialQuery?: string }) {
   }, [customers, firmCoords, firmType, q]);
 
   const filtered = useMemo(() => {
-    const term = q.trim().toLowerCase();
+    const term = q.trim().toLocaleLowerCase("tr-TR");
     const maxKm = radius === "all" ? Infinity : Number(radius);
     return mapped
       .filter((f) => firmType === "all" || f.firmType === firmType)
-      .filter((f) => f.distanceKm == null || f.distanceKm <= maxKm)
+      // Firma adıyla arama, seçilmiş yakınlık filtresinden bağımsız olarak tüm
+      // kayıtları bulabilmeli. Aksi halde uzaktaki bir firma "yok" görünüyordu.
+      .filter((f) => Boolean(term) || f.distanceKm == null || f.distanceKm <= maxKm)
       .filter((f) =>
         !term ||
-        f.name.toLowerCase().includes(term) ||
-        (f.city ?? "").toLowerCase().includes(term) ||
-        (f.district ?? "").toLowerCase().includes(term)
+        f.name.toLocaleLowerCase("tr-TR").includes(term) ||
+        (f.city ?? "").toLocaleLowerCase("tr-TR").includes(term) ||
+        (f.district ?? "").toLocaleLowerCase("tr-TR").includes(term)
       )
       .sort((a, b) => {
         if (a.distanceKm != null && b.distanceKm != null) return a.distanceKm - b.distanceKm;
@@ -405,21 +408,38 @@ export function SalesMapPage({ initialQuery }: { initialQuery?: string }) {
   }, [mapped, firmType, radius, q]);
 
   const center: [number, number] = userPos ? [userPos.lat, userPos.lng] : [TURKEY_CENTER.lat, TURKEY_CENTER.lng];
+  const focusFirstSearchResult = () => {
+    if (!q.trim()) return;
+    const first = filtered[0];
+    if (first) setFocusedId(first.id);
+    else toast.info("Firma bulunamadı", { description: "Firma adı, şehir veya ilçe bilgisini kontrol edin." });
+  };
 
   return (
     <div className="grid gap-4 lg:grid-cols-[360px_1fr]">
       {/* Sol panel: kontroller + yakındaki firmalar */}
       <div className="flex flex-col gap-3 min-h-0">
         <Card className="border-border/60 p-3 space-y-2.5 shadow-sm">
-          <div className="relative">
-            <Search className="size-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+          <form
+            className="flex gap-2"
+            onSubmit={(event) => {
+              event.preventDefault();
+              focusFirstSearchResult();
+            }}
+          >
+            <div className="relative min-w-0 flex-1">
+              <Search className="size-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
             <Input
-              placeholder="Firma / şehir ara..."
+              placeholder="Firma adı / şehir ara..."
               className="pl-9 h-9 bg-white"
               value={q}
               onChange={(e) => setQ(e.target.value)}
             />
-          </div>
+            </div>
+            <Button type="submit" size="sm" className="h-9" disabled={!q.trim()}>
+              Haritada bul
+            </Button>
+          </form>
           <div className="flex gap-2">
             <Select value={firmType} onValueChange={(v) => setFirmType(v as any)}>
               <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
@@ -619,6 +639,12 @@ export function SalesMapPage({ initialQuery }: { initialQuery?: string }) {
       {/* Sağ panel: harita */}
       <Card className="border-border/60 shadow-sm overflow-hidden p-0">
         <div className="relative h-[72vh] min-h-[480px] w-full">
+          {tileLoadFailed && (
+            <div className="absolute inset-x-3 top-3 z-[600] rounded-md border border-amber-200 bg-amber-50/95 px-3 py-2 text-xs text-amber-800 shadow-lg backdrop-blur">
+              Harita zemini yüklenemedi. Firma pinleri çalışmaya devam eder; ağ güvenlik grubunda ve tarayıcıda
+              <b> tile.openstreetmap.org</b> HTTPS erişimini kontrol edin.
+            </div>
+          )}
           {selectionMode && (
             <div className="absolute left-3 top-3 z-[500] max-w-[320px] rounded-md border border-primary/20 bg-white/95 px-3 py-2 text-xs shadow-lg backdrop-blur">
               <div className="font-medium text-primary">
@@ -634,7 +660,13 @@ export function SalesMapPage({ initialQuery }: { initialQuery?: string }) {
           <MapContainer center={center} zoom={userPos ? 9 : 6} scrollWheelZoom style={{ height: "100%", width: "100%" }}>
             <TileLayer
               attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-              url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+              // Tek alan adı AWS/kurumsal DNS ve CSP ortamlarında a/b/c alt alan
+              // adlarına göre daha güvenilir; OSM'nin resmi tile adresidir.
+              url="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
+              eventHandlers={{
+                load: () => setTileLoadFailed(false),
+                tileerror: () => setTileLoadFailed(true),
+              }}
             />
             <MapSelectionHandler mode={selectionMode} onPick={handleMapPick} />
             <RecenterOnUser user={userPos} />

@@ -27,7 +27,13 @@ export interface ApiClient {
 }
 
 export class ApiError extends Error {
-  constructor(public readonly status: number, public readonly code: string, message: string, public readonly details?: unknown) {
+  constructor(
+    public readonly status: number,
+    public readonly code: string,
+    message: string,
+    public readonly details?: unknown,
+    public readonly requestId?: string
+  ) {
     super(message);
     this.name = 'ApiError';
   }
@@ -40,17 +46,28 @@ export const API_BASE_URL = BASE_URL;
 /** API host without `/api/v1` — health checks live at `/health/*` on the root. */
 export const API_ORIGIN = BASE_URL.replace(/\/api\/v\d+\/?$/, '');
 
+const VERSIONED_API_PATH_RE = /^\/api\/v\d+(?:\/|$)/i;
+
 /**
  * Resolve a stored media reference into a loadable URL.
  *  - Relative API paths (e.g. "/products/media/<id>") are served by the public
  *    streaming endpoint and need the API origin prefixed.
  *  - Absolute URLs (legacy imageUrl, unsplash, etc.) are returned unchanged.
  */
+export function resolveMediaUrlAgainstBase(ref: string | null | undefined, baseUrl: string): string {
+  const clean = ref?.trim();
+  if (!clean) return '';
+  if (/^https?:\/\//i.test(clean) || clean.startsWith('data:') || clean.startsWith('blob:')) return clean;
+
+  const normalizedBase = baseUrl.replace(/\/$/, '');
+  const apiOrigin = normalizedBase.replace(/\/api\/v\d+\/?$/i, '');
+  if (VERSIONED_API_PATH_RE.test(clean)) return `${apiOrigin}${clean}`;
+  if (clean.startsWith('/')) return `${normalizedBase}${clean}`;
+  return clean;
+}
+
 export function resolveMediaUrl(ref?: string | null): string {
-  if (!ref) return '';
-  if (/^https?:\/\//i.test(ref) || ref.startsWith('data:')) return ref;
-  if (ref.startsWith('/')) return `${BASE_URL}${ref}`;
-  return ref;
+  return resolveMediaUrlAgainstBase(ref, BASE_URL);
 }
 
 const ACTIVE_DIVISION_STORAGE_KEY = 'haksan_active_division';
@@ -224,13 +241,20 @@ async function request<T>(method: string, path: string, body?: unknown, opts: Re
     headers['X-Active-Department'] = activeDepartment;
   }
 
-  let res = await fetchWithRateLimitRetry(url, {
-    ...init,
-    method,
-    headers,
-    credentials: 'include',
-    body: body === undefined ? undefined : body instanceof FormData ? body : JSON.stringify(body),
-  });
+  let res: Response;
+  try {
+    res = await fetchWithRateLimitRetry(url, {
+      ...init,
+      method,
+      headers,
+      credentials: 'include',
+      body: body === undefined ? undefined : body instanceof FormData ? body : JSON.stringify(body),
+    });
+  } catch (cause) {
+    const error = new ApiError(0, 'NETWORK_ERROR', 'Sunucuya ulaşılamadı. İnternet bağlantınızı kontrol edip tekrar deneyin.');
+    error.cause = cause;
+    throw error;
+  }
 
   // Auto-refresh on 401, then retry once. We attempt the refresh even when the
   // in-memory access token is null — after a page reload the token is reset to
@@ -258,12 +282,19 @@ async function request<T>(method: string, path: string, body?: unknown, opts: Re
   const contentType = res.headers.get('content-type') ?? '';
   if (!res.ok) {
     if (contentType.includes('application/json')) {
-      const json = (await res.json().catch(() => null)) as { error?: { code?: string; message?: string; details?: unknown } } | null;
+      const json = (await res.json().catch(() => null)) as { error?: { code?: string; message?: string; details?: unknown; requestId?: string } } | null;
       const code = json?.error?.code ?? `HTTP_${res.status}`;
       const message = json?.error?.message ?? `Hata ${res.status}`;
-      throw new ApiError(res.status, code, message, json?.error?.details);
+      const requestId = json?.error?.requestId ?? res.headers.get('x-request-id') ?? undefined;
+      throw new ApiError(res.status, code, message, json?.error?.details, requestId);
     }
-    throw new ApiError(res.status, `HTTP_${res.status}`, res.statusText || `Hata ${res.status}`);
+    throw new ApiError(
+      res.status,
+      `HTTP_${res.status}`,
+      res.statusText || `Hata ${res.status}`,
+      undefined,
+      res.headers.get('x-request-id') ?? undefined
+    );
   }
 
   if (contentType.includes('application/json')) {

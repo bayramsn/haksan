@@ -11,6 +11,7 @@ interface ErrorBody {
     code: string;
     message: string;
     details?: unknown;
+    requestId?: string;
   };
 }
 
@@ -91,6 +92,10 @@ export class AllExceptionsFilter implements ExceptionFilter {
       userId: req.auth?.userId,
       sessionId: req.auth?.sessionId,
     };
+
+    // Destek ekibi tarayıcıdaki hata ile sunucu/Sentry kaydını tek değerle
+    // eşleştirebilsin. Stack trace veya iç sistem ayrıntısı açığa çıkarılmaz.
+    if (req.requestId) body.error.requestId = req.requestId;
 
     if (status >= 500) {
       incUnhandledException(body.error.code);
