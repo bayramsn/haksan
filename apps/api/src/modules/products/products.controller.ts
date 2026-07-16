@@ -48,6 +48,10 @@ const listQuery = z.object({
   categoryCode: z.string().optional(),
 });
 
+const brandListQuery = z.object({
+  divisionId: z.string().uuid().optional(),
+});
+
 @UseGuards(AuthGuard, PermissionsGuard)
 @Controller()
 export class ProductsController {
@@ -58,8 +62,11 @@ export class ProductsController {
 
   @RequirePermissions('brands.read')
   @Get('brands')
-  listBrands(@CurrentUser() user: AuthContext) {
-    return this.svc.listBrands(user);
+  listBrands(
+    @Query(new ZodValidationPipe(brandListQuery)) query: z.infer<typeof brandListQuery>,
+    @CurrentUser() user: AuthContext
+  ) {
+    return this.svc.listBrands(user, { divisionScoped: true, divisionId: query.divisionId });
   }
 
   @RequirePermissions('brands.create')

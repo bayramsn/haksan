@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent, type ReactNode } from "react";
-import type { AssistantOperationAction, AssistantSource, AssistantSuggestedAction, AssistantSuggestion } from "@haksan/shared";
+import type { AssistantApprovalCard, AssistantBriefingResponse, AssistantInboxItem, AssistantMode, AssistantOperationAction, AssistantSource, AssistantSuggestedAction, AssistantSuggestion } from "@haksan/shared";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Badge } from "../ui/badge";
@@ -23,18 +23,22 @@ import {
   CheckCircle2,
   ChevronDown,
   Clock,
+  CircleDollarSign,
+  Factory,
   GripVertical,
+  Inbox,
   Loader2,
   MessageSquareText,
   Phone,
   Route,
   Search,
   Send,
-  Sparkles,
+  ShieldCheck,
+  TrendingUp,
   X,
 } from "lucide-react";
 
-type PanelTab = "today" | "risks" | "calls" | "chat" | "actions";
+type PanelTab = "today" | "inbox" | "risks" | "calls" | "chat" | "actions";
 
 type PanelAction = {
   label: string;
@@ -49,6 +53,7 @@ type ChatMessage = {
   text: string;
   actions?: PanelAction[];
   results?: SearchResult[];
+  approvals?: AssistantApprovalCard[];
 };
 
 type FloatingPosition = { x: number; y: number };
@@ -61,7 +66,8 @@ const LAUNCHER_FALLBACK = { width: 132, height: 44 };
 const PANEL_FALLBACK = { width: 460, height: 740 };
 
 const TABS: Array<{ id: PanelTab; label: string }> = [
-  { id: "today", label: "Bugün" },
+  { id: "today", label: "Sekreter" },
+  { id: "inbox", label: "Gelen" },
   { id: "risks", label: "Riskler" },
   { id: "calls", label: "Çağrılar" },
   { id: "chat", label: "AI Sohbet" },
@@ -70,6 +76,7 @@ const TABS: Array<{ id: PanelTab; label: string }> = [
 
 const NAVS = new Set<OperationNav>([
   "dashboard",
+  "calendar",
   "call-assistant",
   "customers",
   "contacts",
@@ -182,8 +189,10 @@ function toOperationAction(action?: AssistantOperationAction): OperationAction |
 function sourceAction(source: AssistantSource): OperationAction {
   const query = source.label ?? source.id;
   if (source.type === "company") return { kind: "navigate", nav: "customers", query };
+  if (source.type === "contact") return { kind: "navigate", nav: "contacts", query };
   if (source.type === "quote") return { kind: "navigate", nav: "offers", query };
   if (source.type === "inventory_item") return { kind: "navigate", nav: "stock", query };
+  if (source.type === "product_model") return { kind: "navigate", nav: "products", query };
   if (source.type === "receivable") return { kind: "navigate", nav: "payments", focus: "overdue", query };
   if (source.type === "service_ticket") return { kind: "navigate", nav: "service-requests", query };
   if (source.type === "shipment") return { kind: "navigate", nav: "shipments", query };
@@ -218,16 +227,28 @@ function payloadSuggestionId(action: AssistantSuggestedAction): string | undefin
 export function AssistantPanel({
   onAction,
   canUseAction,
+  pageContext,
+  activeDivisionId,
 }: {
   onAction: (action: OperationAction) => void;
   canUseAction?: (action: OperationAction) => boolean;
+  pageContext?: string;
+  activeDivisionId?: string | null;
 }) {
   const store = useStore();
   const [open, setOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<PanelTab>("today");
   const [input, setInput] = useState("");
+  const [assistantMode, setAssistantMode] = useState<AssistantMode>("prepare");
   const [loadingChat, setLoadingChat] = useState(false);
   const [suggestions, setSuggestions] = useState<AssistantSuggestion[]>([]);
+  const [briefing, setBriefing] = useState<AssistantBriefingResponse | null>(null);
+  const [approvals, setApprovals] = useState<AssistantApprovalCard[]>([]);
+  const [inboxItems, setInboxItems] = useState<AssistantInboxItem[]>([]);
+  const [inboxBusyId, setInboxBusyId] = useState<string | null>(null);
+  const [approvalBusyId, setApprovalBusyId] = useState<string | null>(null);
+  const [suggestionApproval, setSuggestionApproval] = useState<{ suggestionId: string; action: AssistantSuggestedAction } | null>(null);
+  const [suggestionApprovalBusy, setSuggestionApprovalBusy] = useState(false);
   const [loadingSuggestions, setLoadingSuggestions] = useState(false);
   const [suggestionError, setSuggestionError] = useState<string | null>(null);
   const launcherRef = useRef<HTMLButtonElement | null>(null);
@@ -281,8 +302,19 @@ export function AssistantPanel({
     setLoadingSuggestions(true);
     setSuggestionError(null);
     try {
-      const rows = await assistantService.suggestions();
-      setSuggestions(rows);
+      const [dailyBriefing, pendingApprovals, pendingInbox] = await Promise.all([
+        assistantService.briefing(),
+        assistantService.approvals(),
+        assistantService.inbox(),
+      ]);
+      const byId = new Map<string, AssistantSuggestion>();
+      for (const lane of dailyBriefing.lanes) {
+        for (const item of lane.items) byId.set(item.id, item);
+      }
+      setBriefing(dailyBriefing);
+      setSuggestions([...byId.values()]);
+      setApprovals(pendingApprovals);
+      setInboxItems(pendingInbox);
     } catch (err) {
       setSuggestionError(err instanceof Error ? err.message : "Asistan önerileri alınamadı");
     } finally {
@@ -338,7 +370,8 @@ export function AssistantPanel({
   const callSuggestions = useMemo(() => suggestions.filter((item) => item.category === "call"), [suggestions]);
   const todaySuggestions = useMemo(() => suggestions.slice(0, 10), [suggestions]);
   const tabSuggestions = activeTab === "risks" ? riskSuggestions : activeTab === "calls" ? callSuggestions : activeTab === "actions" ? suggestions : todaySuggestions;
-  const badgeCount = Math.max(alerts.length, riskSuggestions.length + callSuggestions.length);
+  const inboxAttentionCount = inboxItems.filter((item) => item.status === "new" || item.priority === "critical").length;
+  const badgeCount = Math.max(alerts.length, riskSuggestions.length + callSuggestions.length + approvals.length + inboxAttentionCount + (suggestionApproval ? 1 : 0));
 
   const canRunOperation = (action?: OperationAction) => !!action && (!canUseAction || canUseAction(action));
 
@@ -347,32 +380,102 @@ export function AssistantPanel({
     setOpen(false);
   };
 
-  const executeAssistantAction = async (suggestionId: string, action: AssistantSuggestedAction) => {
+  const executeAssistantAction = async (suggestionId: string, action: AssistantSuggestedAction, confirmed = false) => {
     const operationAction = toOperationAction(action.operationAction);
     if (operationAction && !action.requiresConfirmation) {
       runAction(operationAction);
       return;
     }
-    const confirmed = !action.requiresConfirmation || window.confirm(`${action.label} işlemini onaylıyor musunuz?`);
-    if (!confirmed) return;
-    const response = await assistantService.executeAction(suggestionId, {
-      action: action.kind,
-      payload: action.payload,
-      confirm: true,
-    });
-    if (response.previewRequired) {
-      const secondConfirm = window.confirm(response.message);
-      if (!secondConfirm) return;
-      await assistantService.executeAction(suggestionId, {
+    if (action.requiresConfirmation && !confirmed) {
+      setSuggestionApproval({ suggestionId, action });
+      setActiveTab("actions");
+      return;
+    }
+    setSuggestionApprovalBusy(true);
+    try {
+      const response = await assistantService.executeAction(suggestionId, {
         action: action.kind,
         payload: action.payload,
         confirm: true,
       });
+      if (response.previewRequired) {
+        setSuggestionApproval({ suggestionId, action });
+        return;
+      }
+      setSuggestionApproval(null);
+      await refreshSuggestions();
+      if (response.operationAction) {
+        const next = toOperationAction(response.operationAction);
+        if (next && canRunOperation(next)) runAction(next);
+      }
+    } finally {
+      setSuggestionApprovalBusy(false);
     }
-    await refreshSuggestions();
-    if (response.operationAction) {
+  };
+
+  const decideApproval = async (card: AssistantApprovalCard, confirm: boolean) => {
+    if (approvalBusyId) return;
+    setApprovalBusyId(card.id);
+    try {
+      const response = await assistantService.decideApproval(card.id, confirm);
+      setApprovals((current) => current.filter((item) => item.id !== card.id));
+      setMessages((current) => [
+        ...current.map((message) => ({
+          ...message,
+          approvals: message.approvals?.map((item) => (item.id === card.id ? { ...item, status: response.status } : item)),
+        })),
+        { id: `approval-${Date.now()}`, from: "assistant", text: response.message },
+      ]);
+      await refreshSuggestions();
       const next = toOperationAction(response.operationAction);
-      if (next && canRunOperation(next)) runAction(next);
+      if (response.ok && next && canRunOperation(next)) runAction(next);
+    } catch (error) {
+      setMessages((current) => [
+        ...current,
+        {
+          id: `approval-error-${Date.now()}`,
+          from: "assistant",
+          text: error instanceof Error ? error.message : "Onay işlemi tamamlanamadı.",
+        },
+      ]);
+      await refreshSuggestions();
+    } finally {
+      setApprovalBusyId(null);
+    }
+  };
+
+  const updateInboxItem = async (item: AssistantInboxItem, status: "in_progress" | "resolved") => {
+    if (inboxBusyId) return;
+    setInboxBusyId(item.id);
+    try {
+      const updated = await assistantService.updateInbox(item.id, { status });
+      setInboxItems((current) => status === "resolved" ? current.filter((row) => row.id !== item.id) : current.map((row) => row.id === item.id ? updated : row));
+      await refreshSuggestions();
+    } finally {
+      setInboxBusyId(null);
+    }
+  };
+
+  const prepareInboxReply = async (item: AssistantInboxItem) => {
+    if (inboxBusyId) return;
+    setInboxBusyId(item.id);
+    try {
+      const approval = await assistantService.prepareInboxReply(item.id);
+      setApprovals((current) => [approval, ...current.filter((card) => card.id !== approval.id)]);
+      setActiveTab("actions");
+    } finally {
+      setInboxBusyId(null);
+    }
+  };
+
+  const capturePhoneNote = async (note: { senderName?: string; senderPhone?: string; subject?: string; body: string }) => {
+    if (inboxBusyId) return;
+    setInboxBusyId("capture");
+    try {
+      await assistantService.captureInbox({ channel: "phone_note", provider: "manual", ...note });
+      await refreshSuggestions();
+    } finally {
+      setInboxBusyId(null);
     }
   };
 
@@ -393,7 +496,14 @@ export function AssistantPanel({
     const userMessage: ChatMessage = { id: `u-${Date.now()}`, from: "user", text };
     setMessages((current) => [...current, userMessage]);
     try {
-      const response = await assistantService.chat({ message: text, context: { page: activeTab } });
+      const response = await assistantService.chat({
+        message: text,
+        mode: assistantMode,
+        context: {
+          page: pageContext ?? activeTab,
+          activeDivisionId: activeDivisionId && activeDivisionId !== "all" ? activeDivisionId : undefined,
+        },
+      });
       const backendActions: PanelAction[] = response.actions
         .map((action): PanelAction | null => {
           const suggestionId = payloadSuggestionId(action);
@@ -417,8 +527,16 @@ export function AssistantPanel({
           text: response.text,
           actions: backendActions,
           results,
+          approvals: response.approvals,
         },
       ]);
+      if (response.approvals.length > 0) {
+        setApprovals((current) => {
+          const byId = new Map(current.map((item) => [item.id, item]));
+          for (const approval of response.approvals) byId.set(approval.id, approval);
+          return [...byId.values()];
+        });
+      }
       await refreshSuggestions();
     } catch {
       const reply = answerAssistant(text, store, { pendingCallCount: callSuggestions.length });
@@ -520,7 +638,7 @@ export function AssistantPanel({
             style={{ left: panelPosition.x, top: panelPosition.y }}
           >
             <div
-              className="flex touch-none cursor-move select-none items-center justify-between gap-3 border-b border-border/60 px-4 py-3"
+              className="flex touch-none cursor-move select-none items-center justify-between gap-3 border-b border-slate-800 bg-slate-950 px-4 py-3 text-white"
               onPointerDown={(event) => beginDrag("panel", event)}
               onPointerMove={moveDrag}
               onPointerUp={endDrag}
@@ -528,28 +646,29 @@ export function AssistantPanel({
             >
               <div className="flex min-w-0 items-center gap-2">
                 <GripVertical className="size-4 shrink-0 text-muted-foreground" />
-                <div className="grid size-9 place-items-center rounded-md bg-primary/10 text-primary">
-                  <Sparkles className="size-4" />
+                <div className="grid size-9 place-items-center rounded-md border border-sky-400/30 bg-sky-400/10 text-sky-300">
+                  <Factory className="size-4" />
                 </div>
                 <div className="min-w-0">
-                  <div className="truncate text-sm font-medium">CRM Asistanı</div>
-                  <div className="truncate text-[11px] text-muted-foreground">Sohbet, çağrı ve aksiyon önerileri</div>
+                  <div className="truncate text-sm font-medium tracking-wide">SEKRETER MERKEZİ</div>
+                  <div className="truncate text-[11px] text-slate-400">Günlük iş emri ve onay hattı</div>
                 </div>
               </div>
               <div className="flex items-center gap-1" onPointerDown={(event) => event.stopPropagation()}>
-                <Button variant="ghost" size="icon" className="size-8" onClick={() => setMessages([initialMessage])}>
+                <Button variant="ghost" size="icon" className="size-8 text-slate-300 hover:bg-slate-800 hover:text-white" onClick={() => setMessages([initialMessage])}>
                   <ChevronDown className="size-4" />
                 </Button>
-                <Button variant="ghost" size="icon" className="size-8" onClick={() => setOpen(false)}>
+                <Button variant="ghost" size="icon" className="size-8 text-slate-300 hover:bg-slate-800 hover:text-white" onClick={() => setOpen(false)}>
                   <X className="size-4" />
                 </Button>
               </div>
             </div>
 
-            <div className="grid grid-cols-3 gap-2 border-b border-border/60 bg-muted/20 p-3">
-              <Metric icon={<Clock className="size-3.5" />} label="Bugün" value={todaySuggestions.length || workItems.length} />
-              <Metric icon={<AlertTriangle className="size-3.5" />} label="Risk" value={riskSuggestions.length || management.risks.length} tone="text-red-600" />
-              <Metric icon={<Phone className="size-3.5" />} label="Çağrı" value={callSuggestions.length} tone="text-sky-600" />
+            <div className="grid grid-cols-4 gap-1.5 border-b border-border/60 bg-slate-50 p-3">
+              <Metric icon={<Clock className="size-3.5" />} label="İş" value={briefing?.metrics.total ?? todaySuggestions.length ?? workItems.length} />
+              <Metric icon={<AlertTriangle className="size-3.5" />} label="Kritik" value={briefing?.metrics.critical ?? riskSuggestions.length} tone="text-red-600" />
+              <Metric icon={<Phone className="size-3.5" />} label="Çağrı" value={briefing?.metrics.calls ?? callSuggestions.length} tone="text-sky-600" />
+              <Metric icon={<TrendingUp className="size-3.5" />} label="Fırsat" value={briefing?.management.openPipelineCount ?? 0} tone="text-emerald-600" />
             </div>
 
             <div className="flex gap-1 overflow-x-auto border-b border-border/60 px-3 py-2">
@@ -569,7 +688,50 @@ export function AssistantPanel({
 
             <div className="min-h-0 flex-1 overflow-y-auto bg-canvas p-3">
               {activeTab === "chat" ? (
-                <ChatView messages={messages} loading={loadingChat} runPanelAction={runPanelAction} runAction={runAction} />
+                <ChatView
+                  messages={messages}
+                  loading={loadingChat}
+                  runPanelAction={runPanelAction}
+                  runAction={runAction}
+                  decideApproval={decideApproval}
+                  approvalBusyId={approvalBusyId}
+                />
+              ) : activeTab === "inbox" ? (
+                <InboxView
+                  items={inboxItems}
+                  loading={loadingSuggestions}
+                  error={suggestionError}
+                  busyId={inboxBusyId}
+                  runAction={runAction}
+                  onStart={(item) => void updateInboxItem(item, "in_progress")}
+                  onResolve={(item) => void updateInboxItem(item, "resolved")}
+                  onPrepareReply={(item) => void prepareInboxReply(item)}
+                  onCapturePhoneNote={capturePhoneNote}
+                  refresh={refreshSuggestions}
+                />
+              ) : activeTab === "actions" ? (
+                <ApprovalView
+                  approvals={approvals}
+                  suggestionApproval={suggestionApproval}
+                  suggestionBusy={suggestionApprovalBusy}
+                  approvalBusyId={approvalBusyId}
+                  decideApproval={decideApproval}
+                  confirmSuggestion={async () => {
+                    if (!suggestionApproval) return;
+                    await executeAssistantAction(suggestionApproval.suggestionId, suggestionApproval.action, true);
+                  }}
+                  cancelSuggestion={() => setSuggestionApproval(null)}
+                />
+              ) : activeTab === "today" ? (
+                <BriefingView
+                  briefing={briefing}
+                  loading={loadingSuggestions}
+                  error={suggestionError}
+                  refreshSuggestions={refreshSuggestions}
+                  executeAssistantAction={executeAssistantAction}
+                  canRunOperation={canRunOperation}
+                  runAction={runAction}
+                />
               ) : (
                 <SuggestionView
                   tab={activeTab}
@@ -585,8 +747,28 @@ export function AssistantPanel({
             </div>
 
             <div className="border-t border-border/60 bg-white p-3">
+              <div className="mb-2 grid grid-cols-3 rounded-md border border-slate-200 bg-slate-50 p-1" aria-label="Asistan çalışma modu">
+                {([
+                  { id: "ask", label: "Sor", title: "Yalnız bilgi getirir; kayıt değiştirmez." },
+                  { id: "prepare", label: "Hazırla", title: "Taslak ve onay kartı hazırlar." },
+                  { id: "execute", label: "Uygula", title: "Onayınızdan sonra işlemi çalıştırır." },
+                ] as Array<{ id: AssistantMode; label: string; title: string }>).map((mode) => (
+                  <button
+                    key={mode.id}
+                    type="button"
+                    title={mode.title}
+                    aria-pressed={assistantMode === mode.id}
+                    className={`rounded px-2 py-1.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${
+                      assistantMode === mode.id ? "bg-slate-950 text-white shadow-sm" : "text-slate-600 hover:bg-white hover:text-slate-950"
+                    }`}
+                    onClick={() => setAssistantMode(mode.id)}
+                  >
+                    {mode.label}
+                  </button>
+                ))}
+              </div>
               <div className="mb-2 flex flex-wrap gap-1.5">
-                {["Bugün kime dönmeliyim?", "Riskler", "Arayanlar", "VM-2 stokta var mı?", "Geciken ödemeler", "Açık servisler"].map((item) => (
+                {(briefing?.quickPrompts ?? ["Bugün kime dönmeliyim?", "Riskler", "Arayanlar", "Geciken ödemeler", "Açık servisler"]).map((item) => (
                   <Button key={item} type="button" size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={() => void submit(item)}>
                     {item}
                   </Button>
@@ -604,7 +786,7 @@ export function AssistantPanel({
                   <Input
                     value={input}
                     onChange={(e) => setInput(e.target.value)}
-                    placeholder="CRM'e sor..."
+                    placeholder={assistantMode === "ask" ? "CRM'e sor..." : assistantMode === "prepare" ? "Bir iş taslağı hazırla..." : "Onaylı bir işlem başlat..."}
                     className="h-10 pl-9"
                     disabled={loadingChat}
                   />
@@ -621,16 +803,196 @@ export function AssistantPanel({
   );
 }
 
+function InboxView({
+  items,
+  loading,
+  error,
+  busyId,
+  runAction,
+  onStart,
+  onResolve,
+  onPrepareReply,
+  onCapturePhoneNote,
+  refresh,
+}: {
+  items: AssistantInboxItem[];
+  loading: boolean;
+  error: string | null;
+  busyId: string | null;
+  runAction: (action: OperationAction) => void;
+  onStart: (item: AssistantInboxItem) => void;
+  onResolve: (item: AssistantInboxItem) => void;
+  onPrepareReply: (item: AssistantInboxItem) => void;
+  onCapturePhoneNote: (note: { senderName?: string; senderPhone?: string; subject?: string; body: string }) => Promise<void>;
+  refresh: () => Promise<void>;
+}) {
+  const [captureOpen, setCaptureOpen] = useState(false);
+  const [captureName, setCaptureName] = useState("");
+  const [capturePhone, setCapturePhone] = useState("");
+  const [captureSubject, setCaptureSubject] = useState("");
+  const [captureBody, setCaptureBody] = useState("");
+  const submitCapture = async () => {
+    const body = captureBody.trim();
+    if (!body || busyId) return;
+    await onCapturePhoneNote({
+      senderName: captureName.trim() || undefined,
+      senderPhone: capturePhone.trim() || undefined,
+      subject: captureSubject.trim() || undefined,
+      body,
+    });
+    setCaptureName("");
+    setCapturePhone("");
+    setCaptureSubject("");
+    setCaptureBody("");
+    setCaptureOpen(false);
+  };
+  if (loading && items.length === 0) {
+    return <div className="grid h-full place-items-center text-sm text-muted-foreground"><span className="inline-flex items-center gap-2"><Loader2 className="size-4 animate-spin" />Gelen ileti kuyruğu hazırlanıyor</span></div>;
+  }
+  if (error && items.length === 0) {
+    return (
+      <div className="space-y-3 rounded-lg border border-border/60 bg-white p-4 text-sm">
+        <div className="font-medium">Gelen kutusu alınamadı</div>
+        <div className="text-muted-foreground">{error}</div>
+        <Button size="sm" variant="outline" onClick={() => void refresh()}>Tekrar Dene</Button>
+      </div>
+    );
+  }
+  return (
+    <div className="space-y-2.5">
+      <div className="flex items-center justify-between rounded-md border border-slate-800 bg-slate-950 px-3 py-2 text-white">
+        <div>
+          <div className="text-xs font-semibold uppercase tracking-[0.14em]">Tek gelen kutusu</div>
+          <div className="text-[11px] text-slate-400">Eşleştirildi · sınıflandırıldı · takipte</div>
+        </div>
+        <div className="flex items-center gap-2">
+          <button type="button" className="rounded border border-slate-700 px-2 py-1 text-[11px] font-medium text-slate-200 hover:bg-slate-800" onClick={() => setCaptureOpen((value) => !value)}>
+            Telefon Notu
+          </button>
+          <Badge className="bg-sky-400 text-slate-950 hover:bg-sky-400">{items.length}</Badge>
+        </div>
+      </div>
+      {captureOpen && (
+        <div className="space-y-2 rounded-lg border border-sky-200 bg-sky-50/50 p-3">
+          <div className="text-xs font-semibold text-sky-900">Hızlı telefon notu</div>
+          <div className="grid grid-cols-2 gap-2">
+            <Input value={captureName} onChange={(event) => setCaptureName(event.target.value)} placeholder="Arayan kişi" className="h-8 text-xs" maxLength={255} />
+            <Input value={capturePhone} onChange={(event) => setCapturePhone(event.target.value)} placeholder="Telefon" className="h-8 text-xs" maxLength={64} />
+          </div>
+          <Input value={captureSubject} onChange={(event) => setCaptureSubject(event.target.value)} placeholder="Konu" className="h-8 text-xs" maxLength={255} />
+          <textarea
+            value={captureBody}
+            onChange={(event) => setCaptureBody(event.target.value)}
+            placeholder="Görüşme notu ve istenen aksiyon..."
+            rows={3}
+            maxLength={10_000}
+            className="w-full resize-none rounded-md border border-input bg-white px-3 py-2 text-xs outline-none focus-visible:ring-2 focus-visible:ring-primary"
+          />
+          <div className="flex justify-end gap-2">
+            <Button type="button" size="sm" variant="ghost" className="h-7 text-xs" onClick={() => setCaptureOpen(false)}>Vazgeç</Button>
+            <Button type="button" size="sm" className="h-7 text-xs" disabled={!captureBody.trim() || busyId === "capture"} onClick={() => void submitCapture()}>
+              {busyId === "capture" ? <Loader2 className="mr-1 size-3 animate-spin" /> : null}Kaydet ve Sınıflandır
+            </Button>
+          </div>
+        </div>
+      )}
+      {items.length === 0 && !captureOpen && (
+        <div className="grid min-h-48 place-items-center rounded-lg border border-dashed border-border/70 bg-white p-6 text-center">
+          <div>
+            <Inbox className="mx-auto size-6 text-emerald-600" />
+            <div className="mt-2 text-sm font-medium">Gelen kutusu temiz</div>
+            <div className="mt-1 text-xs text-muted-foreground">Takip veya yanıt bekleyen ileti bulunmuyor.</div>
+          </div>
+        </div>
+      )}
+      {items.map((item) => {
+        const busy = busyId === item.id;
+        const overdue = item.dueAt ? new Date(item.dueAt).getTime() < Date.now() : false;
+        const priorityClass = item.priority === "critical"
+          ? "border-red-300 bg-red-50 text-red-700"
+          : item.priority === "high"
+            ? "border-amber-300 bg-amber-50 text-amber-700"
+            : "border-slate-200 bg-slate-50 text-slate-600";
+        return (
+          <article key={item.id} className={`rounded-lg border bg-white p-3 shadow-sm ${item.priority === "critical" ? "border-red-200" : "border-border/60"}`}>
+            <div className="flex items-start justify-between gap-2">
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <Badge variant="outline" className={`h-5 px-1.5 text-[10px] ${priorityClass}`}>{inboxPriorityLabel(item.priority)}</Badge>
+                  <Badge variant="secondary" className="h-5 px-1.5 text-[10px]">{inboxCategoryLabel(item.category)}</Badge>
+                  <span className="text-[10px] uppercase tracking-wide text-muted-foreground">{inboxChannelLabel(item.channel)}</span>
+                </div>
+                <h3 className="mt-1.5 truncate text-sm font-semibold">{item.subject || item.senderName || "Konu belirtilmedi"}</h3>
+                <p className="mt-1 line-clamp-3 whitespace-pre-wrap text-xs leading-relaxed text-muted-foreground">{item.body}</p>
+              </div>
+              <Inbox className="size-4 shrink-0 text-sky-600" />
+            </div>
+            <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
+              <span>{item.senderName || item.senderEmail || item.senderPhone || "Gönderen bilinmiyor"}</span>
+              {item.companyName && (
+                <button type="button" className="font-medium text-primary hover:underline" onClick={() => runAction({ kind: "navigate", nav: "customers", query: item.companyName ?? undefined })}>
+                  {item.companyName}
+                </button>
+              )}
+              <span className={overdue ? "font-medium text-red-600" : ""}>{overdue ? "SLA gecikti" : formatInboxDue(item.dueAt)}</span>
+            </div>
+            {item.draftReply && item.channel === "email" && (
+              <div className="mt-2 rounded-md border border-sky-100 bg-sky-50/60 px-2.5 py-2 text-[11px] leading-relaxed text-slate-700">
+                <div className="mb-1 font-semibold text-sky-800">Hazır yanıt taslağı</div>
+                <div className="line-clamp-3 whitespace-pre-wrap">{item.draftReply}</div>
+              </div>
+            )}
+            <div className="mt-3 flex flex-wrap justify-end gap-1.5">
+              {item.status === "new" && (
+                <Button type="button" size="sm" variant="ghost" className="h-7 px-2 text-xs" disabled={busy} onClick={() => onStart(item)}>İşleme Al</Button>
+              )}
+              {item.channel === "email" && item.senderEmail && item.draftReply && (
+                <Button type="button" size="sm" variant="outline" className="h-7 gap-1 px-2 text-xs" disabled={busy} onClick={() => onPrepareReply(item)}>
+                  <ShieldCheck className="size-3" />Yanıtı Onaya Gönder
+                </Button>
+              )}
+              <Button type="button" size="sm" className="h-7 gap-1 px-2 text-xs" disabled={busy} onClick={() => onResolve(item)}>
+                {busy ? <Loader2 className="size-3 animate-spin" /> : <CheckCircle2 className="size-3" />}Çözüldü
+              </Button>
+            </div>
+          </article>
+        );
+      })}
+    </div>
+  );
+}
+
+function inboxPriorityLabel(priority: AssistantInboxItem["priority"]) {
+  return priority === "critical" ? "Kritik" : priority === "high" ? "Yüksek" : priority === "low" ? "Düşük" : "Normal";
+}
+
+function inboxCategoryLabel(category: AssistantInboxItem["category"]) {
+  return category === "sales" ? "Satış" : category === "service" ? "Servis" : category === "shipment" ? "Sevkiyat" : category === "finance" ? "Finans" : "Genel";
+}
+
+function inboxChannelLabel(channel: AssistantInboxItem["channel"]) {
+  return channel === "email" ? "E-posta" : channel === "whatsapp" ? "WhatsApp" : channel === "web_form" ? "Web Formu" : channel === "phone_note" ? "Telefon" : "CRM";
+}
+
+function formatInboxDue(value: string | null) {
+  if (!value) return "Takip tarihi yok";
+  return `SLA ${new Date(value).toLocaleString("tr-TR", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}`;
+}
+
 function ChatView({
   messages,
   loading,
   runPanelAction,
   runAction,
+  decideApproval,
+  approvalBusyId,
 }: {
   messages: ChatMessage[];
   loading: boolean;
   runPanelAction: (item: PanelAction) => void;
   runAction: (action: OperationAction) => void;
+  decideApproval: (card: AssistantApprovalCard, confirm: boolean) => Promise<void>;
+  approvalBusyId: string | null;
 }) {
   return (
     <div className="space-y-3">
@@ -679,6 +1041,19 @@ function ChatView({
                 ))}
               </div>
             )}
+            {message.approvals && message.approvals.length > 0 && (
+              <div className="mt-3 space-y-2">
+                {message.approvals.map((approval) => (
+                  <ApprovalCard
+                    key={approval.id}
+                    card={approval}
+                    busy={approvalBusyId === approval.id}
+                    onConfirm={() => void decideApproval(approval, true)}
+                    onCancel={() => void decideApproval(approval, false)}
+                  />
+                ))}
+              </div>
+            )}
           </div>
         </div>
       ))}
@@ -690,6 +1065,243 @@ function ChatView({
           </span>
         </div>
       )}
+    </div>
+  );
+}
+
+function ApprovalView({
+  approvals,
+  suggestionApproval,
+  suggestionBusy,
+  approvalBusyId,
+  decideApproval,
+  confirmSuggestion,
+  cancelSuggestion,
+}: {
+  approvals: AssistantApprovalCard[];
+  suggestionApproval: { suggestionId: string; action: AssistantSuggestedAction } | null;
+  suggestionBusy: boolean;
+  approvalBusyId: string | null;
+  decideApproval: (card: AssistantApprovalCard, confirm: boolean) => Promise<void>;
+  confirmSuggestion: () => Promise<void>;
+  cancelSuggestion: () => void;
+}) {
+  if (!suggestionApproval && approvals.length === 0) {
+    return (
+      <div className="grid h-full place-items-center rounded-lg border border-dashed border-border/70 bg-white p-6 text-center text-sm text-muted-foreground">
+        Bekleyen onay kartı yok.
+      </div>
+    );
+  }
+  return (
+    <div className="space-y-3">
+      {suggestionApproval && (
+        <SuggestionApprovalCard
+          action={suggestionApproval.action}
+          busy={suggestionBusy}
+          onConfirm={() => void confirmSuggestion()}
+          onCancel={cancelSuggestion}
+        />
+      )}
+      {approvals.map((approval) => (
+        <ApprovalCard
+          key={approval.id}
+          card={approval}
+          busy={approvalBusyId === approval.id}
+          onConfirm={() => void decideApproval(approval, true)}
+          onCancel={() => void decideApproval(approval, false)}
+        />
+      ))}
+    </div>
+  );
+}
+
+function ApprovalCard({
+  card,
+  busy,
+  onConfirm,
+  onCancel,
+}: {
+  card: AssistantApprovalCard;
+  busy: boolean;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  const pending = card.status === "pending";
+  const statusLabel: Record<AssistantApprovalCard["status"], string> = {
+    pending: "Onay bekliyor",
+    executed: "Tamamlandı",
+    cancelled: "İptal edildi",
+    failed: "Başarısız",
+    expired: "Süresi doldu",
+  };
+  return (
+    <div className={`rounded-lg border bg-white p-3 shadow-sm ${card.impact === "high" ? "border-amber-300" : "border-primary/20"}`}>
+      <div className="flex items-start gap-2">
+        <div className={`grid size-8 shrink-0 place-items-center rounded-md ${card.impact === "high" ? "bg-amber-100 text-amber-700" : "bg-primary/10 text-primary"}`}>
+          {card.impact === "high" ? <AlertTriangle className="size-4" /> : <ShieldCheck className="size-4" />}
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="text-sm font-medium">{card.title}</div>
+            <Badge variant="outline" className="h-5 px-1.5 text-[10px]">{statusLabel[card.status]}</Badge>
+          </div>
+          <div className="mt-1 text-xs leading-relaxed text-muted-foreground">{card.description}</div>
+        </div>
+      </div>
+      {card.fields.length > 0 && (
+        <dl className="mt-3 divide-y divide-border/50 rounded-md border border-border/60 bg-muted/15 px-2.5">
+          {card.fields.map((item, index) => (
+            <div key={`${card.id}-${item.label}-${index}`} className="grid grid-cols-[92px_1fr] gap-2 py-1.5 text-xs">
+              <dt className="text-muted-foreground">{item.label}</dt>
+              <dd className="break-words font-medium text-foreground">{item.value}</dd>
+            </div>
+          ))}
+        </dl>
+      )}
+      {pending && (
+        <div className="mt-3 flex items-center justify-end gap-2">
+          <Button type="button" size="sm" variant="ghost" className="h-8" disabled={busy} onClick={onCancel}>
+            Vazgeç
+          </Button>
+          <Button type="button" size="sm" className="h-8 gap-1.5" disabled={busy} onClick={onConfirm}>
+            {busy ? <Loader2 className="size-3.5 animate-spin" /> : <CheckCircle2 className="size-3.5" />}
+            Onayla ve Çalıştır
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SuggestionApprovalCard({
+  action,
+  busy,
+  onConfirm,
+  onCancel,
+}: {
+  action: AssistantSuggestedAction;
+  busy: boolean;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  const hiddenKeys = new Set(["assistantSuggestionId", "companyId", "contactId", "opportunityId"]);
+  const fields = Object.entries(action.payload ?? {})
+    .filter(([key, value]) => !hiddenKeys.has(key) && value !== undefined && value !== null && value !== "")
+    .slice(0, 8)
+    .map(([key, value]) => ({ label: approvalFieldLabel(key), value: String(value) }));
+  return (
+    <div className="rounded-lg border border-primary/20 bg-white p-3 shadow-sm">
+      <div className="flex items-start gap-2">
+        <div className="grid size-8 shrink-0 place-items-center rounded-md bg-primary/10 text-primary"><ShieldCheck className="size-4" /></div>
+        <div>
+          <div className="text-sm font-medium">{action.label}</div>
+          <div className="mt-1 text-xs text-muted-foreground">Bu CRM işlemi yalnız onayınızdan sonra çalıştırılacak.</div>
+        </div>
+      </div>
+      {fields.length > 0 && (
+        <dl className="mt-3 divide-y divide-border/50 rounded-md border border-border/60 bg-muted/15 px-2.5">
+          {fields.map((field) => (
+            <div key={field.label} className="grid grid-cols-[92px_1fr] gap-2 py-1.5 text-xs">
+              <dt className="text-muted-foreground">{field.label}</dt>
+              <dd className="break-words font-medium">{field.value}</dd>
+            </div>
+          ))}
+        </dl>
+      )}
+      <div className="mt-3 flex justify-end gap-2">
+        <Button type="button" size="sm" variant="ghost" className="h-8" disabled={busy} onClick={onCancel}>Vazgeç</Button>
+        <Button type="button" size="sm" className="h-8 gap-1.5" disabled={busy} onClick={onConfirm}>
+          {busy ? <Loader2 className="size-3.5 animate-spin" /> : <CheckCircle2 className="size-3.5" />}
+          Onayla ve Çalıştır
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function approvalFieldLabel(key: string) {
+  const labels: Record<string, string> = {
+    subject: "Konu",
+    description: "Açıklama",
+    notes: "Not",
+    companyName: "Firma",
+    activityTypeCode: "Aktivite",
+  };
+  return labels[key] ?? key;
+}
+
+function BriefingView({
+  briefing,
+  loading,
+  error,
+  refreshSuggestions,
+  executeAssistantAction,
+  canRunOperation,
+  runAction,
+}: {
+  briefing: AssistantBriefingResponse | null;
+  loading: boolean;
+  error: string | null;
+  refreshSuggestions: () => Promise<void>;
+  executeAssistantAction: (suggestionId: string, action: AssistantSuggestedAction) => Promise<void>;
+  canRunOperation: (action?: OperationAction) => boolean;
+  runAction: (action: OperationAction) => void;
+}) {
+  if (loading && !briefing) {
+    return <div className="grid h-full place-items-center text-sm text-muted-foreground"><span className="inline-flex items-center gap-2"><Loader2 className="size-4 animate-spin" />İş emri hattı hazırlanıyor</span></div>;
+  }
+  if (error && !briefing) {
+    return (
+      <div className="space-y-3 rounded-lg border border-border/60 bg-white p-4 text-sm">
+        <div className="font-medium">Günlük özet alınamadı</div>
+        <div className="text-muted-foreground">{error}</div>
+        <Button size="sm" variant="outline" onClick={() => void refreshSuggestions()}>Tekrar Dene</Button>
+      </div>
+    );
+  }
+  if (!briefing) return null;
+
+  return (
+    <div className="space-y-3">
+      <div className="overflow-hidden rounded-lg border border-slate-800 bg-slate-950 text-white shadow-sm">
+        <div className="border-l-4 border-sky-400 px-3 py-3">
+          <div className="text-[10px] font-semibold uppercase tracking-[0.2em] text-sky-300">{new Date(briefing.generatedAt).toLocaleString("tr-TR")}</div>
+          <div className="mt-1 text-base font-semibold">{briefing.headline}</div>
+          <p className="mt-1 text-xs leading-relaxed text-slate-300">{briefing.summary}</p>
+        </div>
+        <div className="grid grid-cols-3 border-t border-slate-800 bg-slate-900/70 text-center">
+          <div className="border-r border-slate-800 px-2 py-2"><div className="text-[10px] text-slate-400">Açık Fırsat</div><div className="text-sm font-semibold tabular-nums">{briefing.management.openPipelineCount}</div></div>
+          <div className="border-r border-slate-800 px-2 py-2"><div className="text-[10px] text-slate-400">Pipeline</div><div className="text-sm font-semibold tabular-nums">{new Intl.NumberFormat("tr-TR", { notation: "compact", maximumFractionDigits: 1 }).format(briefing.management.openPipelineValue)}</div></div>
+          <div className="px-2 py-2"><div className="text-[10px] text-slate-400">Onay</div><div className="text-sm font-semibold tabular-nums">Aktif</div></div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-3 gap-1.5">
+        <Metric icon={<CircleDollarSign className="size-3.5" />} label="Tahsilat" value={briefing.management.overdueReceivables} tone="text-amber-600" />
+        <Metric icon={<ShieldCheck className="size-3.5" />} label="Servis" value={briefing.management.openServiceItems} tone="text-violet-600" />
+        <Metric icon={<Route className="size-3.5" />} label="Sevkiyat" value={briefing.management.pendingShipments} tone="text-sky-600" />
+      </div>
+
+      <div className="space-y-3">
+        {briefing.lanes.map((lane, laneIndex) => (
+          <section key={lane.id} className="relative pl-5">
+            <div className={`absolute bottom-0 left-[7px] top-0 w-px ${laneIndex === briefing.lanes.length - 1 ? "bg-gradient-to-b from-slate-300 to-transparent" : "bg-slate-300"}`} />
+            <div className={`absolute left-0 top-1.5 size-[15px] rounded-full border-4 border-canvas ${lane.tone === "critical" ? "bg-red-500" : lane.tone === "warning" ? "bg-amber-500" : "bg-sky-500"}`} />
+            <div className="mb-2 flex items-end justify-between gap-2">
+              <div><h3 className="text-xs font-semibold uppercase tracking-wide text-slate-700">{lane.label}</h3><p className="text-[11px] text-muted-foreground">{lane.description}</p></div>
+              <Badge variant="secondary" className="h-5 text-[10px] tabular-nums">{lane.items.length}</Badge>
+            </div>
+            {lane.items.length ? (
+              <div className="space-y-2">
+                {lane.items.map((suggestion) => <SuggestionCard key={suggestion.id} suggestion={suggestion} executeAssistantAction={executeAssistantAction} canRunOperation={canRunOperation} runAction={runAction} />)}
+              </div>
+            ) : (
+              <div className="rounded-md border border-dashed border-border/70 bg-white px-3 py-2 text-xs text-muted-foreground">Bu hatta bekleyen iş yok.</div>
+            )}
+          </section>
+        ))}
+      </div>
     </div>
   );
 }

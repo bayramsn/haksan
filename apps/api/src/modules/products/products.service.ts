@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { and, asc, desc, eq, ilike, inArray, isNull, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, ilike, inArray, isNull, max, or, sql } from 'drizzle-orm';
 import ExcelJS from 'exceljs';
 import type { DbClient } from '../../db/client';
 import {
@@ -272,19 +272,56 @@ export class ProductsService {
   ) {}
 
   // ────────── BRANDS ──────────
-  async listBrands(actor: AuthContext) {
+  // divisionScoped: markalar bölüme (departmana) atanabilir; form listeleri aktif
+  // bölümün + paylaşılan ("Tümü") markaları görür. İçerideki kullanım (import
+  // sırasında ada göre eşleme) tüm markaları görmeye devam eder ki aynı ad iki
+  // kez oluşturulup tenant bazlı ad tekliğine takılmasın.
+  private async assertActiveDivision(divisionId: string, actor: AuthContext) {
+    assertCanUseResourceDivision(actor, 'products', divisionId);
+    const division = await this.db.query.divisions.findFirst({
+      where: and(
+        eq(divisions.id, divisionId),
+        eq(divisions.tenantId, actor.tenantId),
+        eq(divisions.isActive, true),
+        isNull(divisions.deletedAt)
+      ),
+    });
+    if (!division) throw new ValidationError('Seçilen ürün bölümü bulunamadı veya aktif değil', { field: 'divisionId' });
+    return division;
+  }
+
+  async listBrands(actor: AuthContext, options?: { divisionScoped?: boolean; divisionId?: string }) {
+    const filters = [eq(brands.tenantId, actor.tenantId), isNull(brands.deletedAt)];
+    if (options?.divisionId) {
+      await this.assertActiveDivision(options.divisionId, actor);
+      filters.push(or(eq(brands.divisionId, options.divisionId), isNull(brands.divisionId))!);
+    } else if (options?.divisionScoped) {
+      const divisionFilter = resourceDivisionFilterWithShared(actor, 'products', brands.divisionId);
+      if (divisionFilter) filters.push(divisionFilter);
+    }
     return this.db
       .select()
       .from(brands)
-      .where(and(eq(brands.tenantId, actor.tenantId), isNull(brands.deletedAt)))
-      .orderBy(asc(brands.name));
+      .where(and(...filters))
+      .orderBy(asc(brands.sortOrder), asc(brands.name));
   }
 
   async createBrand(input: BrandCreateInput, actor: AuthContext) {
+    if (input.divisionId) await this.assertActiveDivision(input.divisionId, actor);
     const existing = await this.db.query.brands.findFirst({
       where: and(eq(brands.tenantId, actor.tenantId), eq(brands.name, input.name)),
     });
-    if (existing) throw new ConflictError('Bu marka adı zaten kayıtlı');
+    if (existing) {
+      const sameScope = (existing.divisionId ?? null) === (input.divisionId ?? null);
+      throw new ConflictError(
+        sameScope
+          ? 'Bu marka seçilen ürün grubunda zaten kayıtlı'
+          : 'Bu marka başka bir ürün grubuna bağlı; CRM Alan Ayarları üzerinden bölümünü kontrol edin'
+      );
+    }
+    const orderFilters = [eq(brands.tenantId, actor.tenantId), isNull(brands.deletedAt)];
+    orderFilters.push(input.divisionId ? eq(brands.divisionId, input.divisionId) : isNull(brands.divisionId));
+    const [orderRow] = await this.db.select({ value: max(brands.sortOrder) }).from(brands).where(and(...orderFilters));
     const [row] = await this.db
       .insert(brands)
       .values({
@@ -293,9 +330,25 @@ export class ProductsService {
         country: input.country ?? null,
         website: input.website ?? null,
         notes: input.notes ?? null,
+        divisionId: input.divisionId ?? null,
+        sortOrder: Number(orderRow?.value ?? 0) + 10,
       })
       .returning();
     return row;
+  }
+
+  private async assertBrandMatchesProductGroup(brandId: string, productGroupId: string, actor: AuthContext) {
+    const [brand, group] = await Promise.all([
+      this.db.query.brands.findFirst({
+        where: and(eq(brands.id, brandId), eq(brands.tenantId, actor.tenantId), isNull(brands.deletedAt)),
+      }),
+      this.db.query.productGroups.findFirst({ where: eq(productGroups.id, productGroupId) }),
+    ]);
+    if (!brand) throw new NotFoundError('Marka');
+    if (!group) throw new NotFoundError('Ürün grubu');
+    if (brand.divisionId && brand.divisionId !== group.divisionId) {
+      throw new ValidationError('Seçilen marka bu ürün grubuna ait değil', { field: 'brandId' });
+    }
   }
 
   private uniqueAlternativeIds(input: Pick<ProductCreateInput, 'muadilProductId' | 'muadilProductIds'>, productId?: string) {
@@ -811,6 +864,7 @@ export class ProductsService {
     await this.assertSupplierCompany(input.supplierCompanyId, actor.tenantId);
     if (!groupId) throw new ValidationError('Ürün grubu bulunamadı', { field: 'productGroupCode' });
     await this.assertProductGroupScope(groupId, actor);
+    await this.assertBrandMatchesProductGroup(input.brandId, groupId, actor);
     await this.resolveProductImageMediaFile(actor, input.imageUrl);
 
     let row: typeof productModels.$inferSelect;
@@ -885,6 +939,11 @@ export class ProductsService {
     if (input.supplierCompanyId !== undefined) {
       await this.assertSupplierCompany(input.supplierCompanyId, actor.tenantId);
       patch.supplierCompanyId = input.supplierCompanyId ?? null;
+    }
+    const targetBrandId = input.brandId ?? existing.brandId;
+    const targetProductGroupId = (patch.productGroupId as string | undefined) ?? existing.productGroupId;
+    if (targetBrandId && targetProductGroupId) {
+      await this.assertBrandMatchesProductGroup(targetBrandId, targetProductGroupId, actor);
     }
     if (input.imageUrl !== undefined) await this.resolveProductImageMediaFile(actor, input.imageUrl);
     const alternativesProvided = input.muadilProductIds !== undefined || input.muadilProductId !== undefined;

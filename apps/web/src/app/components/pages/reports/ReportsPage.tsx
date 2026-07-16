@@ -520,7 +520,13 @@ function YearEndReportView() {
         th,td{border:1px solid #e5e7eb;padding:5px 8px;text-align:left} th{background:#f3f4f6;font-size:11px}
         td.r,th.r{text-align:right;font-variant-numeric:tabular-nums}
         .empty{text-align:center;color:#9ca3af}
-        @media print{body{margin:12mm}}
+        @media print{
+          @page{size:A4 landscape;margin:12mm}
+          body{margin:0}
+          thead{display:table-header-group}
+          tr,.kpi,h2{break-inside:avoid;page-break-inside:avoid}
+          h2{break-after:avoid;page-break-after:avoid}
+        }
       </style></head><body>
       <h1>Karlılık / Yıl Sonu Raporu</h1>
       <p class="sub">Yıl: ${year} · Haksan Makina · ${new Date().toLocaleDateString("tr-TR")}</p>

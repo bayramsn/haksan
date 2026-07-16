@@ -137,6 +137,18 @@ export function CompanyDetailDialog({
   const firmPayments = payments.filter((p) => p.customerId === customer.id);
   const firmMachines = machines.filter((m) => m.customerId === customer.id);
   const firmService = service.filter((s) => s.customerId === customer.id);
+  const companyAddresses = customer.addresses?.length
+    ? customer.addresses
+    : (customer.address || customer.city || customer.district || customer.country)
+      ? [{
+          addressType: "office" as const,
+          address: customer.address,
+          district: customer.district,
+          city: customer.city,
+          country: customer.country ?? "Türkiye",
+          isDefault: true,
+        }]
+      : [];
 
   // Total quoted value across all offers for this firm, grouped by currency.
   const totalQuoted = sumByCurrency(firmOffers.map((o) => ({ amount: o.amount, currency: o.currency })));
@@ -198,15 +210,38 @@ export function CompanyDetailDialog({
             <Field icon={<Globe className="size-4" />} label="Web" value={customer.website} />
             <Field icon={<UserIcon className="size-4" />} label="Oluşturan" value={createdMeta(customer)} />
           </div>
-          {(customer.addresses?.length ?? 0) > 0 && (
-            <div className="mt-3 flex flex-wrap gap-2">
-              {customer.addresses!.map((address, index) => (
-                <div key={address.id ?? index} className="rounded-lg border border-border/60 bg-muted/30 px-3 py-2 text-xs">
-                  <span className="font-medium">{ADDRESS_TYPE_LABELS[address.addressType] ?? "Adres"}</span>
-                  <span className="ml-2 text-muted-foreground">{[address.address, address.district, address.city].filter(Boolean).join(", ") || "Adres bilgisi yok"}</span>
+          {companyAddresses.length > 0 && (
+            <section className="mt-4 overflow-hidden rounded-lg border border-border/60 bg-white" aria-label="Firma adresleri">
+              <div className="flex items-center justify-between border-b border-border/60 bg-muted/30 px-3 py-2">
+                <div className="flex items-center gap-2 text-xs font-semibold text-foreground">
+                  <MapPin className="size-3.5 text-primary" />
+                  Adresler
                 </div>
-              ))}
-            </div>
+                <span className="text-[11px] tabular-nums text-muted-foreground">{companyAddresses.length} kayıt</span>
+              </div>
+              <ul className="divide-y divide-border/50">
+                {companyAddresses.map((address, index) => (
+                  <li key={address.id ?? index} className="grid grid-cols-[auto_1fr] gap-2.5 px-3 py-2.5 text-xs">
+                    <span className="mt-0.5 grid size-6 place-items-center rounded-md bg-primary/8 font-semibold tabular-nums text-primary">
+                      {index + 1}
+                    </span>
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <span className="font-medium text-foreground">{ADDRESS_TYPE_LABELS[address.addressType] ?? "Adres"}</span>
+                        {address.isDefault && (
+                          <span className="rounded-full border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700">
+                            Varsayılan sevkiyat
+                          </span>
+                        )}
+                      </div>
+                      <div className="mt-0.5 break-words leading-relaxed text-muted-foreground">
+                        {[address.address, address.district, address.city, address.country].filter(Boolean).join(", ") || "Adres bilgisi yok"}
+                      </div>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </section>
           )}
         </DialogHeader>
 

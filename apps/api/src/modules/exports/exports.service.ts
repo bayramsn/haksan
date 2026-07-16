@@ -425,6 +425,22 @@ export class ExportsService {
     }));
   }
 
+  async customerStatementCompanyLabel(actor: AuthContext, companyId: string): Promise<string> {
+    const visibility = await companyVisibilityFilter(this.db, actor);
+    const [row] = await this.db
+      .select({ legalTitle: companies.legalTitle, shortName: companies.shortName })
+      .from(companies)
+      .where(and(
+        eq(companies.id, companyId),
+        eq(companies.tenantId, actor.tenantId),
+        isNull(companies.deletedAt),
+        visibility ?? sql`true`,
+      ))
+      .limit(1);
+    if (!row) return companyId;
+    return row.shortName || row.legalTitle;
+  }
+
   async exportCustomerBalances(actor: AuthContext): Promise<ExportRow[]> {
     const rows = await this.finance.getCustomerBalances(actor);
     const showAlacak = this.finance.isFinanceAdmin(actor);

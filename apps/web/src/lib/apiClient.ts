@@ -27,6 +27,9 @@ export interface ApiClient {
 }
 
 export class ApiError extends Error {
+  // ES2022 Error.cause; tsconfig lib hedefi daha eski olduğundan açıkça bildirilir.
+  cause?: unknown;
+
   constructor(
     public readonly status: number,
     public readonly code: string,

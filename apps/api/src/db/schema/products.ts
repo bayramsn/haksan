@@ -25,11 +25,15 @@ export const brands = pgTable(
     country: varchar('country', { length: 64 }),
     website: varchar('website', { length: 512 }),
     notes: text('notes'),
+    sortOrder: integer('sort_order').notNull().default(0),
+    // Bölüm (departman) bazlı marka: NULL → tüm bölümlerde ("Tümü") geçerli.
+    divisionId: uuid('division_id').references(() => divisions.id, { onDelete: 'set null' }),
     ...auditColumns,
   },
   (t) => ({
     tenantNameUnique: uniqueIndex('brands_tenant_name_unique').on(t.tenantId, t.name),
     tenantIdx: index('brands_tenant_idx').on(t.tenantId),
+    divisionIdx: index('brands_division_idx').on(t.divisionId),
   })
 );
 

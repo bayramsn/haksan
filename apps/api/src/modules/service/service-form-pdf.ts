@@ -108,8 +108,6 @@ export async function buildServiceFormPdf(data: ServiceFormPdfData): Promise<Buf
   if (boldFontPath) doc.registerFont(boldFont, boldFontPath);
   const supportsTurkish = Boolean(regularFontPath);
 
-  doc.image(templatePath, 0, 0, { width: PAGE_WIDTH, height: PAGE_HEIGHT });
-
   const font = (bold = false) => (bold ? boldFont : regularFont);
 
   const truncateToWidth = (value: string, width: number, size: number, bold = false) => {
@@ -210,66 +208,98 @@ export async function buildServiceFormPdf(data: ServiceFormPdfData): Promise<Buf
   };
 
   const currency = data.currency ?? 'TRY';
-
-  // Top identity table. Uzun firma/ilgili adı kesilmek yerine küçülerek sığar.
-  fittedText(data.company, 92, 80.5, 170, { size: 8.2, minSize: 5.6, bold: true });
-  fittedText(data.contact, 323, 80.5, 176, { size: 8.2, minSize: 5.6, bold: true });
-  text(data.address, 92, 96, 405, { size: 7.8, maxLines: 2, lineHeight: 8.7 });
-  text(data.phone, 92, 126.3, 171, { size: 8.1 });
-  text(data.fax, 323, 126.3, 176, { size: 8.1 });
-  text(data.mobile, 92, 141.3, 171, { size: 8.1 });
-  text(data.email, 323, 141.3, 176, { size: 8.1 });
-  text(data.taxOffice, 92, 156.4, 171, { size: 8.1 });
-  text(data.taxNumber, 323, 156.4, 176, { size: 8.1 });
-  cover(506, 100.5, 54, 21);
-  fittedText(data.formNo, 504, 106.2, 58, { size: 8.2, minSize: 5.2, bold: true, align: 'center' });
-  text(data.date, 507, 148.5, 52, { size: 8.2, align: 'center' });
-
-  // Machine and CNC blocks.
-  text(data.machine?.brand, 129, 202.2, 166, { size: 8.4 });
-  text(data.machine?.type, 129, 217.3, 166, { size: 8.4 });
-  text(data.machine?.model, 129, 232.4, 166, { size: 8.4 });
-  text(data.machine?.serialNo, 129, 247.5, 166, { size: 8.4 });
-  text(data.cnc?.brand, 405, 202.2, 160, { size: 8.4 });
-  text(data.cnc?.model, 405, 217.3, 160, { size: 8.4 });
-  text(data.cnc?.serialNo, 405, 232.4, 160, { size: 8.4 });
-  text(data.cnc?.mainSw, 405, 247.5, 160, { size: 8.4 });
-
-  const complaintLines = wrapText(clean(data.complaint, supportsTurkish), 315, 8.2, false, 4);
-  complaintLines.forEach((line, index) => text(line, 43, 283.5 + index * 14.8, 315, { size: 8.2 }));
-
-  const serviceTypeY: Record<ServiceFormType, number> = { montaj: 283.5, ariza: 298.7, periyodik: 314.0 };
-  if (data.serviceType) check(379, serviceTypeY[data.serviceType]);
-  const responsibilityY: Record<ServiceResponsibility, number> = { ucretli: 283.5, garanti: 298.7, bakim: 314.0 };
-  if (data.responsibility) check(482.5, responsibilityY[data.responsibility]);
-
+  const complaintLines = wrapText(clean(data.complaint, supportsTurkish), 315, 8.2, false, Number.MAX_SAFE_INTEGER);
   const operationInput = (data.operations ?? []).flatMap((line) => cleanLines(line, supportsTurkish));
-  const operationLines = wrapText(operationInput.join('\n'), 520, 8.0, false, 10);
-  operationLines.forEach((line, index) => {
-    text(line, 42, 367.6 + index * 14.35, 520, { size: 8.0 });
+  const operationLines = wrapText(operationInput.join('\n'), 520, 8.0, false, Number.MAX_SAFE_INTEGER);
+  const numberValue = (value: string | null | undefined) => {
+    const parsed = Number(String(value ?? '').trim().replace(/\./g, '').replace(',', '.'));
+    return Number.isFinite(parsed) ? parsed : 0;
+  };
+  const normalizedParts = (data.parts ?? []).map((part) => {
+    const calculatedAmount = (part.unitPrice ?? 0) * numberValue(part.quantity);
+    return {
+      ...part,
+      amount: part.amount != null && Number.isFinite(part.amount) ? part.amount : calculatedAmount,
+    };
   });
-
-  const parts = [...(data.parts ?? [])].slice(0, 6);
-  while (parts.length < 6) parts.push({});
-  parts.forEach((part, index) => {
-    const y = 537.5 + index * 15.2;
-    text(part.name, 72, y, 236, { size: 7.7 });
-    text(part.quantity, 313, y, 54, { size: 7.7, align: 'center' });
-    text(formatMoney(part.unitPrice, currency), 370, y, 88, { size: 7.2, align: 'right' });
-    text(formatMoney(part.amount, currency), 464, y, 98, { size: 7.2, align: 'right' });
-  });
-
-  // 0 tutarlar basılmaz; TOPLAM ile aynı kural (0 ücret satırı + boş toplam tutarsızlığı olmasın).
+  const totalPages = Math.max(
+    1,
+    Math.ceil(complaintLines.length / 4),
+    Math.ceil(operationLines.length / 10),
+    Math.ceil(normalizedParts.length / 6),
+  );
   const serviceFee = data.serviceFee ?? null;
   const travelFee = data.travelFee ?? null;
-  const partsTotal = (data.parts ?? []).reduce((sum, part) => sum + (part.amount ?? 0), 0);
+  const partsTotal = normalizedParts.reduce((sum, part) => sum + (part.amount ?? 0), 0);
   const grandTotal = partsTotal + (serviceFee ?? 0) + (travelFee ?? 0);
-  text(serviceFee ? formatMoney(serviceFee, currency) : '', 464, 630.0, 98, { size: 7.4, align: 'right' });
-  text(travelFee ? formatMoney(travelFee, currency) : '', 464, 645.2, 98, { size: 7.4, align: 'right' });
-  text(grandTotal > 0 ? formatMoney(grandTotal, currency) : '', 464, 672.0, 98, { size: 7.5, bold: true, align: 'right' });
+  const serviceTypeY: Record<ServiceFormType, number> = { montaj: 283.5, ariza: 298.7, periyodik: 314.0 };
+  const responsibilityY: Record<ServiceResponsibility, number> = { ucretli: 283.5, garanti: 298.7, bakim: 314.0 };
 
-  text(data.serviceTechnician, 126, 724.8, 160, { size: 8.2, bold: true });
-  text(data.companyRepresentative, 390, 724.8, 160, { size: 8.2, bold: true });
+  for (let pageIndex = 0; pageIndex < totalPages; pageIndex += 1) {
+    if (pageIndex > 0) doc.addPage({ size: [PAGE_WIDTH, PAGE_HEIGHT], margin: 0 });
+    doc.image(templatePath, 0, 0, { width: PAGE_WIDTH, height: PAGE_HEIGHT });
+    const isFinalPage = pageIndex === totalPages - 1;
+
+    // Kimlik, makine ve işaretler her sayfada tekrar edilir; belge tek başına
+    // ayrıldığında da hangi servis kaydına ait olduğu anlaşılır.
+    fittedText(data.company, 92, 80.5, 170, { size: 8.2, minSize: 5.6, bold: true });
+    fittedText(data.contact, 323, 80.5, 176, { size: 8.2, minSize: 5.6, bold: true });
+    text(data.address, 92, 96, 405, { size: 7.8, maxLines: 3, lineHeight: 8.7 });
+    text(data.phone, 92, 126.3, 171, { size: 8.1 });
+    text(data.fax, 323, 126.3, 176, { size: 8.1 });
+    text(data.mobile, 92, 141.3, 171, { size: 8.1 });
+    text(data.email, 323, 141.3, 176, { size: 8.1 });
+    text(data.taxOffice, 92, 156.4, 171, { size: 8.1 });
+    text(data.taxNumber, 323, 156.4, 176, { size: 8.1 });
+    cover(506, 100.5, 54, 21);
+    fittedText(data.formNo, 504, 106.2, 58, { size: 8.2, minSize: 5.2, bold: true, align: 'center' });
+    text(data.date, 507, 148.5, 52, { size: 8.2, align: 'center' });
+    text(`Sayfa ${pageIndex + 1}/${totalPages}`, 504, 174.5, 58, { size: 6.6, bold: true, align: 'center' });
+
+    text(data.machine?.brand, 129, 202.2, 166, { size: 8.4 });
+    text(data.machine?.type, 129, 217.3, 166, { size: 8.4 });
+    text(data.machine?.model, 129, 232.4, 166, { size: 8.4 });
+    text(data.machine?.serialNo, 129, 247.5, 166, { size: 8.4 });
+    text(data.cnc?.brand, 405, 202.2, 160, { size: 8.4 });
+    text(data.cnc?.model, 405, 217.3, 160, { size: 8.4 });
+    text(data.cnc?.serialNo, 405, 232.4, 160, { size: 8.4 });
+    text(data.cnc?.mainSw, 405, 247.5, 160, { size: 8.4 });
+
+    complaintLines.slice(pageIndex * 4, pageIndex * 4 + 4).forEach((line, index) => {
+      text(line, 43, 283.5 + index * 14.8, 315, { size: 8.2 });
+    });
+    if (data.serviceType) check(379, serviceTypeY[data.serviceType]);
+    if (data.responsibility) check(482.5, responsibilityY[data.responsibility]);
+
+    operationLines.slice(pageIndex * 10, pageIndex * 10 + 10).forEach((line, index) => {
+      text(line, 42, 367.6 + index * 14.35, 520, { size: 8.0 });
+    });
+
+    const pageParts: ServiceFormPdfPart[] = normalizedParts.slice(pageIndex * 6, pageIndex * 6 + 6);
+    while (pageParts.length < 6) pageParts.push({});
+    pageParts.forEach((part, index) => {
+      const y = 537.5 + index * 15.2;
+      const globalRowNo = pageIndex * 6 + index + 1;
+      if (part.name || part.quantity || part.unitPrice != null || part.amount != null) {
+        cover(47, y - 1, 16, 10);
+        text(String(globalRowNo), 47, y, 16, { size: 7.7, align: 'center' });
+      }
+      text(part.name, 72, y, 236, { size: 7.7 });
+      text(part.quantity, 313, y, 54, { size: 7.7, align: 'center' });
+      text(formatMoney(part.unitPrice, currency), 370, y, 88, { size: 7.2, align: 'right' });
+      text(formatMoney(part.amount, currency), 464, y, 98, { size: 7.2, align: 'right' });
+    });
+
+    // Ara sayfalarda toplam alanı boş kalır. Son sayfadaki genel toplam, artık
+    // önceki sayfalarda görünür olan kalemlerin tamamıyla birebir uyuşur.
+    if (isFinalPage) {
+      text(serviceFee ? formatMoney(serviceFee, currency) : '', 464, 630.0, 98, { size: 7.4, align: 'right' });
+      text(travelFee ? formatMoney(travelFee, currency) : '', 464, 645.2, 98, { size: 7.4, align: 'right' });
+      text(grandTotal > 0 ? formatMoney(grandTotal, currency) : '', 464, 672.0, 98, { size: 7.5, bold: true, align: 'right' });
+      text(data.serviceTechnician, 126, 724.8, 160, { size: 8.2, bold: true });
+      text(data.companyRepresentative, 390, 724.8, 160, { size: 8.2, bold: true });
+    }
+  }
 
   doc.end();
   return done;

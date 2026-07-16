@@ -388,22 +388,6 @@ export function CreateCustomerDialog({ trigger, onCreated }: { trigger: React.Re
           </div>
 
           <div>
-            <Label className="text-xs">İş Alanı *</Label>
-            <div className="grid grid-cols-3 gap-2 mt-1.5">
-              {divisionOptions.map((division) => (
-                <button
-                  key={division.id}
-                  type="button"
-                  onClick={() => setForm({ ...form, divisionId: division.id })}
-                  className={`px-3 py-2 rounded-lg border text-xs ${selectedDivisionId === division.id ? "border-primary bg-primary/5 text-primary" : "border-border"}`}
-                >
-                  {division.name}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div>
               <Label className="text-xs">Firma Statüsü</Label>
               <div className="grid grid-cols-2 gap-2 mt-1.5">
                 {([
@@ -772,14 +756,12 @@ export function CreateContactDialog({
 /* ---------- Firma düzenleme (controlled) ---------- */
 export function EditCustomerDialog({ customer, onClose }: { customer: Customer | null; onClose: () => void }) {
   const { updateCustomer } = useStore();
-  const { user } = useAuth();
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState<any>({});
   const sectorRows = useLookupRows("company-sectors", COMPANY_SECTOR_OPTIONS.map((name, index) => ({ code: name, name, sortOrder: index })));
   const companyGroupRows = useLookupRows("company-groups", COMPANY_GROUP_OPTIONS.map((g) => ({ code: g.code, name: g.label })));
   const contactSourceRows = useLookupRows("contact-sources", CONTACT_SOURCE_OPTIONS.map((s) => ({ code: s.code, name: s.label })));
   const taxOfficeRows = useTaxOfficeRows();
-  const divisionOptions = user?.divisions ?? [];
 
   useEffect(() => {
     if (customer)
@@ -822,10 +804,8 @@ export function EditCustomerDialog({ customer, onClose }: { customer: Customer |
     if (!form.name.trim()) return toast.error("Firma ünvanı zorunludur");
     setSaving(true);
     try {
-      if (!form.divisionIds?.length) return toast.error("En az bir iş alanı seçin");
       await updateCustomer(customer.id, {
         ...form,
-        divisions: divisionOptions.filter((division) => form.divisionIds.includes(division.id)),
         companyGroupCodes: form.companyGroupCodes ?? [],
         addresses: (form.addresses ?? []).map((address: any, index: number) => ({ ...address, isDefault: address.isDefault || index === 0 })),
       });
@@ -843,7 +823,7 @@ export function EditCustomerDialog({ customer, onClose }: { customer: Customer |
       <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Firma Düzenle</DialogTitle>
-          <DialogDescription>Firma statüsü, iş alanları, iletişim ve adresler dahil tüm alanları güncelleyin.</DialogDescription>
+          <DialogDescription>Firma statüsü, iletişim bilgileri ve adresleri tek ekrandan güncelleyin.</DialogDescription>
         </DialogHeader>
         <form onSubmit={submit} className="space-y-5">
           <div className="grid grid-cols-2 gap-2">
@@ -867,11 +847,7 @@ export function EditCustomerDialog({ customer, onClose }: { customer: Customer |
               ))}
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <Label className="text-xs">İş Alanları *</Label>
-              <div className="mt-1.5"><MultiSelect options={divisionOptions.map((division) => ({ value: division.id, label: division.name }))} selected={form.divisionIds ?? []} onChange={(divisionIds) => setForm({ ...form, divisionIds })} /></div>
-            </div>
+          <div>
             <div>
               <Label className="text-xs">Firma Grupları</Label>
               <div className="mt-1.5"><MultiSelect options={lookupCodeOptions(companyGroupRows).map((group) => ({ value: group.code, label: group.label }))} selected={form.companyGroupCodes ?? []} onChange={(companyGroupCodes) => setForm({ ...form, companyGroupCodes })} /></div>
@@ -1934,7 +1910,6 @@ export function QuickCreateDialog({ trigger }: { trigger: React.ReactNode }) {
 type ProductOption = { code: string; label: string };
 type ProductTypeOption = ProductOption & { categoryCode?: string; subcategoryCode?: string; productGroupCode?: string };
 
-const PRODUCT_BRANDS = ["LK", "LK Machinery", "ECOCA", "MANFORD", "Manford", "MAXİMART", "Maximart"];
 const PRODUCT_GROUPS: ProductOption[] = [
   { code: "CNC", label: "CNC" },
   { code: "UNIVERSAL", label: "Üniversal" },
@@ -2258,6 +2233,16 @@ export function ProductDialog({
   const [form, setForm] = useState<ProductFormState>(
     mode === "edit" && product ? fromProduct(product) : emptyProduct(activeProductGroupCode)
   );
+  const selectedProductDivisionId = useMemo(() => {
+    const divisionCode = form.productGroupCode === "UNIVERSAL"
+      ? "universal"
+      : form.productGroupCode === "SAC_ISLEME"
+        ? "sac_isleme"
+        : form.productGroupCode === "CNC"
+          ? "cnc"
+          : null;
+    return divisionCode ? user?.divisions.find((division) => division.code === divisionCode)?.id : undefined;
+  }, [form.productGroupCode, user?.divisions]);
   const [stdInput, setStdInput] = useState("");
   const [optionalEquipmentDraft, setOptionalEquipmentDraft] = useState<OptionalEquipmentDraft>(emptyOptionalEquipmentDraft);
   const [brandRows, setBrandRows] = useState<Array<{ id: string; name: string }>>([]);
@@ -2324,10 +2309,10 @@ export function ProductDialog({
 
   useEffect(() => {
     if (!open) return;
-    void productService.listBrands()
+    void productService.listBrands(selectedProductDivisionId)
       .then((rows) => setBrandRows((rows ?? []).map((row: any) => ({ id: row.id, name: row.name })).filter((row: any) => row.id && row.name)))
       .catch(() => setBrandRows([]));
-  }, [open]);
+  }, [open, selectedProductDivisionId]);
 
   const reset = () => {
     setForm(mode === "edit" && product ? fromProduct(product) : emptyProduct(activeProductGroupCode));
@@ -2462,7 +2447,6 @@ export function ProductDialog({
       })
       .map((p) => p.brand),
     ...brandRows.map((row) => row.name),
-    ...PRODUCT_BRANDS,
     form.brand,
   ].filter(Boolean))).sort((a, b) => a.localeCompare(b, "tr-TR"));
   const canSelectProductBrand = Boolean(form.productTypeCode);
@@ -2798,7 +2782,7 @@ export function ProductDialog({
               </ProductSheetRow>
             )}
 
-            {isMachineProduct && (
+            {!isLaborProduct && (
               <ProductSheetRow label="Ürün Tedarikçisi">
                 <Select
                   value={form.supplierCompanyId || "__none"}

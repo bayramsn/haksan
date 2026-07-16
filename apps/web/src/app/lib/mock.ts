@@ -262,6 +262,8 @@ export type DocumentItem = {
   deliveryId?: string;
   installationId?: string;
   installationData?: any;
+  /** Kesinleşme anındaki firma, kontak, kalem ve şartların değişmez kopyası. */
+  documentSnapshot?: Record<string, any>;
   type:
     | "Proforma"
     | "Contract"

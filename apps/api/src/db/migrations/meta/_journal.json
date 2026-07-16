@@ -442,6 +442,55 @@
       "when": 1785350400000,
       "tag": "0063_security_hardening_reapply",
       "breakpoints": true
+    },
+    {
+      "idx": 64,
+      "version": "7",
+      "when": 1785436800000,
+      "tag": "0064_assistant_unified_inbox",
+      "breakpoints": true
+    },
+    {
+      "idx": 65,
+      "version": "7",
+      "when": 1785523200000,
+      "tag": "0065_restore_referenced_companies",
+      "breakpoints": true
+    },
+    {
+      "idx": 66,
+      "version": "7",
+      "when": 1785609600000,
+      "tag": "0066_document_snapshots",
+      "breakpoints": true
+    },
+    {
+      "idx": 67,
+      "version": "7",
+      "when": 1785696000000,
+      "tag": "0067_product_taxonomy_links",
+      "breakpoints": true
+    },
+    {
+      "idx": 68,
+      "version": "7",
+      "when": 1785782400000,
+      "tag": "0068_brand_division_backfill",
+      "breakpoints": true
+    },
+    {
+      "idx": 69,
+      "version": "7",
+      "when": 1785868800000,
+      "tag": "0069_brands_sort_order",
+      "breakpoints": true
+    },
+    {
+      "idx": 70,
+      "version": "7",
+      "when": 1785955200000,
+      "tag": "0070_reconcile_product_media_urls",
+      "breakpoints": true
     }
   ]
 }

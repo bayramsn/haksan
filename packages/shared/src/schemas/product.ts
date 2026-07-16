@@ -90,6 +90,9 @@ export const brandCreateSchema = z.object({
   country: z.string().max(64).optional(),
   website: z.string().url().max(512).optional(),
   notes: z.string().max(4000).optional(),
+  // Ürün formunda seçilen CNC / Üniversal / Sac İşleme grubunun bölümü.
+  // Boş bırakılırsa marka tüm bölümlerde kullanılabilen ortak kayıt olur.
+  divisionId: z.string().uuid().nullish(),
 });
 export type BrandCreateInput = z.infer<typeof brandCreateSchema>;
 

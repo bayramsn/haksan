@@ -190,7 +190,7 @@ export function OffersPage({ focus }: { focus?: OperationFocus }) {
       else await quoteService.reject(offerId);
       toast.success(
         action === "send"
-          ? "Teklif gönderildi"
+          ? "Teklif gönderildi olarak işaretlendi"
           : action === "approve"
             ? "Teklif onaylandı"
             : action === "approve-price"
@@ -387,7 +387,7 @@ export function OffersPage({ focus }: { focus?: OperationFocus }) {
                               void runQuoteAction(o.id, "send");
                             }}
                           >
-                            <Mail className="size-3.5" /> Gönder
+                            <Mail className="size-3.5" /> Gönderildi İşaretle
                           </Button>
                         )}
                         {o.status === "Sent" && (
@@ -790,7 +790,7 @@ export function OfferDetailDialog({
           />
           {offer.status === "Draft" && onQuoteAction && (
             <Button size="sm" className="h-9 gap-1" onClick={() => onQuoteAction(offer.id, "send")}>
-              <Mail className="size-4" /> Gönder
+              <Mail className="size-4" /> Gönderildi İşaretle
             </Button>
           )}
           {offer.status === "Pending Approval" && canApprovePrice && onQuoteAction && (

@@ -66,6 +66,7 @@ const SERVICE_CURRENCIES = ["USD", "EUR", "TRY"] as const;
 const NONE = "__none__";
 const SERVICE_QUOTE_NOTE_TEMPLATE_SCOPE = "service_quote";
 const NOTE_TEMPLATE_KEY_PREFIX = "note-template:";
+const DEFAULT_SERVICE_QUOTE_NOTES = SERVICE_NOTE_VARIANTS.find((variant) => variant.key === "teknik-servis")?.notlar ?? [];
 const COMPLAINT_EVIDENCE_ACCEPT = ".pdf,.docx,.xlsx,.png,.jpg,.jpeg,.webp";
 const COMPLAINT_EXT_TO_MIME: Record<string, string> = {
   pdf: "application/pdf",
@@ -2033,7 +2034,7 @@ function ServiceQuoteEditor({
     return {
       quoteNo: `${businessLine}-SRVTEK-${new Date().getFullYear()}/${ticketSequence || "..."}`,
       date: new Date().toISOString().slice(0, 10),
-      validity: "",
+      validity: "5 İş Günü",
       writerName: actor?.name ?? "",
       writerTitle: actor?.department ?? "",
       writerEmail: actor?.email ?? "",
@@ -2045,10 +2046,10 @@ function ServiceQuoteEditor({
       email: customer?.email ?? "",
       subject: subjectParts ? `${subjectParts} kapsamaktadır.` : "",
       currency: serviceRequest.serviceCurrency ?? "USD",
-      vatRate: 0,
+      vatRate: 20,
       vatAmount: 0,
-      noteVariantKey: "",
-      notes: [],
+      noteVariantKey: "teknik-servis",
+      notes: [...DEFAULT_SERVICE_QUOTE_NOTES],
       items: [newServiceQuoteItem()],
     };
   };

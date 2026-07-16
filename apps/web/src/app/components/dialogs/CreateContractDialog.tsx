@@ -19,6 +19,13 @@ import {
 
 const CONTRACT_TERMS_TEMPLATE_SCOPE = "contract_terms";
 
+type ContractTermsMetadata = {
+  importCostsExcluded: boolean;
+  deliveryLocation?: string;
+  estimatedDeliveryDaysMin?: number;
+  estimatedDeliveryDaysMax?: number;
+};
+
 /**
  * Yüklemesiz sözleşme kaydı oluşturur — teklife referans verir; çıktısı CRM
  * verisinden basılır.
@@ -55,6 +62,7 @@ export function CreateContractDialog({
   const [paymentTerms, setPaymentTerms] = useState("");
   const [deliveryTerms, setDeliveryTerms] = useState("");
   const [warrantyTerms, setWarrantyTerms] = useState("");
+  const [termsMetadata, setTermsMetadata] = useState<ContractTermsMetadata>({ importCostsExcluded: true });
   const [termsDirty, setTermsDirty] = useState(false);
   const [saving, setSaving] = useState(false);
 
@@ -70,6 +78,7 @@ export function CreateContractDialog({
     setPaymentTerms("");
     setDeliveryTerms("");
     setWarrantyTerms("");
+    setTermsMetadata({ importCostsExcluded: true });
     setTermsDirty(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, defaultQuoteId]);
@@ -87,6 +96,12 @@ export function CreateContractDialog({
         setPaymentTerms(loadedPayment);
         setDeliveryTerms(loadedDelivery);
         setWarrantyTerms(loadedWarranty);
+        setTermsMetadata({
+          importCostsExcluded: data.terms?.importCostsExcluded ?? true,
+          deliveryLocation: data.terms?.deliveryLocation ?? undefined,
+          estimatedDeliveryDaysMin: data.terms?.estimatedDeliveryDaysMin ?? undefined,
+          estimatedDeliveryDaysMax: data.terms?.estimatedDeliveryDaysMax ?? undefined,
+        });
         setTermsTemplateKey(matchSavedTermsTemplate(loadedPayment, loadedDelivery, loadedWarranty, savedTermsTemplates));
         setTermsDirty(false);
       } catch {
@@ -94,6 +109,7 @@ export function CreateContractDialog({
         setPaymentTerms("");
         setDeliveryTerms("");
         setWarrantyTerms("");
+        setTermsMetadata({ importCostsExcluded: true });
         setTermsTemplateKey("");
         setTermsDirty(false);
       }
@@ -139,7 +155,7 @@ export function CreateContractDialog({
           paymentTermsText: paymentTerms,
           deliveryTermsText: deliveryTerms,
           warrantyTermsText: warrantyTerms,
-          importCostsExcluded: true,
+          ...termsMetadata,
         });
       }
       const created = await documentService.createContract({

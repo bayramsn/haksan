@@ -104,6 +104,11 @@ export function buildQuotePrintData(input: QuoteBuildInput, quote: QuoteDetail):
     products.find((product) => product.id === item.productModelId)?.categoryCode !== "ISCILIK"
   );
   const customSpecs = quoteItemTechnicalSpecs(mainProductItem as { compatibility?: unknown } | undefined);
+  const lineDiscountTotal = quoteItems.reduce(
+    (sum: number, item: { discountAmount?: unknown }) => sum + numeric(item.discountAmount),
+    0,
+  );
+  const headerDiscount = Math.max(numeric(quote.discountTotal) - lineDiscountTotal, 0);
 
   return {
     firma: customer?.name ?? "",
@@ -115,9 +120,10 @@ export function buildQuotePrintData(input: QuoteBuildInput, quote: QuoteDetail):
     email: contact?.email || customer?.email,
     tarih: trShortDate(quote.quoteDate || offer.date),
     belgeNo: quote.documentNo || offer.quoteNo,
-    gecerlilik: quote.validityDays ? `${quote.validityDays} Gün` : "",
+    gecerlilik: quote.validityDays ? `${quote.validityDays} İş Günü` : "",
     projeIlgilisi: owner?.name,
     projeIlgilisiUnvan: owner?.department,
+    projeIlgilisiTelefon: owner?.phone || undefined,
     projeIlgilisiEmail: owner?.email,
     marka: product?.brand,
     model: product?.model ?? salesCase?.requestedModel,
@@ -148,6 +154,7 @@ export function buildQuotePrintData(input: QuoteBuildInput, quote: QuoteDetail):
         tutar: lineTotal,
       };
     }),
+    iskonto: headerDiscount,
     kdvOran: commonVatRate,
     kdvTutar: numeric(quote.vatAmount ?? offer.vatTotal),
     currency: offer.currency,

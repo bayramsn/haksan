@@ -18,6 +18,7 @@ import {
 
 export type OperationNav =
   | "dashboard"
+  | "calendar"
   | "call-assistant"
   | "customers"
   | "contacts"

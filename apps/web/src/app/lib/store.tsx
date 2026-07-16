@@ -317,6 +317,20 @@ const productApiPayload = (p: Partial<Product>, brandId?: string): ProductUpdate
   };
 };
 
+const productDivisionIdForGroup = (
+  productGroupCode: string | undefined,
+  divisions: Array<{ id: string; code?: string | null }> = [],
+) => {
+  const divisionCode = productGroupCode === 'UNIVERSAL'
+    ? 'universal'
+    : productGroupCode === 'SAC_ISLEME'
+      ? 'sac_isleme'
+      : productGroupCode === 'CNC'
+        ? 'cnc'
+        : null;
+  return divisionCode ? divisions.find((division) => division.code === divisionCode)?.id : undefined;
+};
+
 const productDetailsPayload = (p: Partial<Product>) => ({
   // Yalnızca ürünün kendi tipine ait teknik alanlar saklanır; başka tezgah
   // tiplerinin şablon alanları artık DB'ye "-" ile birlikte yazılmaz.
@@ -619,6 +633,7 @@ function StoreInner({ children }: { children: ReactNode }) {
           id: u.id,
           name: u.fullName ?? u.name ?? u.email ?? '—',
           email: u.email ?? '',
+          phone: u.phone ?? u.mobilePhone ?? u.workPhone ?? null,
           role: ((u.roles?.[0]?.name ?? u.roles?.[0]?.code ?? 'Admin') as User['role']) || 'Admin',
           roleCodes: (u.roles ?? []).map((role: any) => role.code).filter(Boolean),
           roleNames: (u.roles ?? []).map((role: any) => role.name ?? role.code).filter(Boolean),
@@ -1042,6 +1057,7 @@ function StoreInner({ children }: { children: ReactNode }) {
           uploadedAt: (d.issueDate as string)?.slice(0, 10) ?? '',
           size: d.fileId ? 'Dosya bağlı' : 'Kayıt',
           fileId: d.fileId ?? undefined,
+          documentSnapshot: d.documentSnapshot ?? undefined,
         })),
         ...(contractsR.data ?? []).map((d: any) => ({
           id: d.id,
@@ -1054,6 +1070,7 @@ function StoreInner({ children }: { children: ReactNode }) {
           uploadedAt: (d.signedDate as string)?.slice(0, 10) ?? (d.createdAt as string)?.slice(0, 10) ?? '',
           size: d.fileId ? 'Dosya bağlı' : 'Kayıt',
           fileId: d.fileId ?? undefined,
+          documentSnapshot: d.documentSnapshot ?? undefined,
         })),
         ...(invoicesR.data ?? []).map((d: any) => ({
           id: d.id,
@@ -1066,6 +1083,7 @@ function StoreInner({ children }: { children: ReactNode }) {
           uploadedAt: (d.invoiceDate as string)?.slice(0, 10) ?? '',
           size: d.fileId ? 'Dosya bağlı' : 'Kayıt',
           fileId: d.fileId ?? undefined,
+          documentSnapshot: d.documentSnapshot ?? undefined,
         })),
         ...(deliveriesR.data ?? []).map((d: any) => ({
           id: `delivery-form-${d.id}`,
@@ -1683,9 +1701,10 @@ function StoreInner({ children }: { children: ReactNode }) {
   };
 
   const addProduct: Store['addProduct'] = async (p) => {
-    const brands = await productService.listBrands();
+    const divisionId = productDivisionIdForGroup(p.productGroupCode, user?.divisions);
+    const brands = await productService.listBrands(divisionId);
     let brand = brands.find((b: any) => b.name?.toLocaleLowerCase('tr-TR') === p.brand.toLocaleLowerCase('tr-TR'));
-    if (!brand) brand = await productService.createBrand({ name: p.brand || 'Generic' });
+    if (!brand) brand = await productService.createBrand({ name: p.brand || 'Generic', divisionId });
     const created = await productService.create(productApiPayload(p, brand.id) as ProductCreateInput);
     await productService.replaceDetails(created.id, productDetailsPayload(p));
     await fetchAll();
@@ -1693,15 +1712,16 @@ function StoreInner({ children }: { children: ReactNode }) {
   };
 
   const updateProduct: Store['updateProduct'] = async (id, patch) => {
+    const current = products.find((item) => item.id === id);
     let brandId: string | undefined;
     if (patch.brand) {
-      const brands = await productService.listBrands();
+      const divisionId = productDivisionIdForGroup(patch.productGroupCode ?? current?.productGroupCode, user?.divisions);
+      const brands = await productService.listBrands(divisionId);
       let brand = brands.find((b: any) => b.name?.toLocaleLowerCase('tr-TR') === patch.brand?.toLocaleLowerCase('tr-TR'));
-      if (!brand) brand = await productService.createBrand({ name: patch.brand });
+      if (!brand) brand = await productService.createBrand({ name: patch.brand, divisionId });
       brandId = brand.id;
     }
     await productService.update(id, productApiPayload(patch, brandId));
-    const current = products.find((item) => item.id === id);
     await productService.replaceDetails(id, productDetailsPayload({
       productTypeCode: patch.productTypeCode ?? current?.productTypeCode,
       specs: patch.specs ?? current?.specs ?? [],

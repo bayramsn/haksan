@@ -213,6 +213,27 @@ const resolveRowGroupCode = (row: SpecTemplateRow): ProductSpecGroupCode => {
 const seedValueFromEntry = (value: string) => (value && value !== "-" ? value : undefined);
 
 type LookupRow = { code: string; name: string };
+
+// DB taksonomi bağları: tip→alt kategori→kategori→grup zinciri ve teknik bilgi
+// grubu atamaları. Kaskad seçimler, şablon metadata'sında olmayan (kullanıcı
+// tanımlı) kayıtlar için bu bağlardan beslenir.
+type TaxonomyRow = {
+  id: string;
+  code: string;
+  name: string;
+  subcategoryId?: string | null;
+  categoryId?: string | null;
+  productGroupId?: string | null;
+  productTypeIds?: string[];
+};
+type TaxonomyLinks = {
+  types: TaxonomyRow[];
+  subcategories: TaxonomyRow[];
+  categories: TaxonomyRow[];
+  groups: TaxonomyRow[];
+  specGroups: TaxonomyRow[];
+};
+const emptyTaxonomy: TaxonomyLinks = { types: [], subcategories: [], categories: [], groups: [], specGroups: [] };
 const fallbackLookupRows = (options: ProductOption[]): LookupRow[] => options.map((option) => ({ code: option.code, name: option.label }));
 const lookupCodeOptions = (rows: LookupRow[]) => rows.map((row) => ({ code: row.code, label: row.name }));
 
@@ -339,6 +360,52 @@ export function ProductSpecTemplatesCard() {
   const productGroupRows = useProductLookupRows("product-groups", templateGroupFallback, selectedDivisionId, selectedDivisionIncludesShared, mergeTemplateFallback);
   const productSubcategoryRows = useProductLookupRows("product-subcategories", templateSubcategoryFallback, selectedDivisionId, selectedDivisionIncludesShared, mergeTemplateFallback);
   const productTypeRows = useProductLookupRows("product-types", templateTypeFallback, selectedDivisionId, selectedDivisionIncludesShared, mergeTemplateFallback);
+  // DB'deki taksonomi bağlarını (üst kayıt id'leri + teknik grup atamaları) yükle.
+  const [taxonomy, setTaxonomy] = useState<TaxonomyLinks>(emptyTaxonomy);
+  useEffect(() => {
+    let alive = true;
+    const params = selectedDivisionId ? { divisionId: selectedDivisionId } : undefined;
+    Promise.all([
+      adminService.lookupRows("product-types", params),
+      adminService.lookupRows("product-subcategories", params),
+      adminService.lookupRows("product-categories", params),
+      adminService.lookupRows("product-groups", params),
+      adminService.lookupRows("product-spec-groups", params),
+    ])
+      .then(([types, subcategories, categories, groups, specGroups]) => {
+        if (!alive) return;
+        setTaxonomy({
+          types: types ?? [],
+          subcategories: subcategories ?? [],
+          categories: categories ?? [],
+          groups: groups ?? [],
+          specGroups: specGroups ?? [],
+        });
+      })
+      .catch(() => alive && setTaxonomy(emptyTaxonomy));
+    return () => {
+      alive = false;
+    };
+  }, [selectedDivisionId]);
+  // Tip kodu → DB bağlarından türetilen kategori/alt kategori/grup kodları.
+  const dbTypeMeta = useMemo(() => {
+    const subById = new Map(taxonomy.subcategories.map((row) => [row.id, row]));
+    const catById = new Map(taxonomy.categories.map((row) => [row.id, row]));
+    const groupById = new Map(taxonomy.groups.map((row) => [row.id, row]));
+    const meta = new Map<string, { subcategoryCode?: string; categoryCode?: string; productGroupCode?: string }>();
+    for (const type of taxonomy.types) {
+      if (!type.subcategoryId) continue;
+      const sub = subById.get(type.subcategoryId);
+      const cat = sub?.categoryId ? catById.get(sub.categoryId) : undefined;
+      const group = cat?.productGroupId ? groupById.get(cat.productGroupId) : undefined;
+      meta.set(foldCode(type.code), {
+        subcategoryCode: sub?.code,
+        categoryCode: cat?.code,
+        productGroupCode: group?.code,
+      });
+    }
+    return meta;
+  }, [taxonomy]);
   const productCategoryOptions = useMemo(() => lookupCodeOptions(productCategoryRows), [productCategoryRows]);
   const productGroupOptions = useMemo(() => lookupCodeOptions(productGroupRows), [productGroupRows]);
   const productSubcategoryOptions = useMemo(() => lookupCodeOptions(productSubcategoryRows), [productSubcategoryRows]);
@@ -377,12 +444,14 @@ export function ProductSpecTemplatesCard() {
     }
     productTypeRows.forEach((row) => {
       const template = templateByCode.get(canonicalProductTypeCode(row.code));
+      // Şablonda olmayan (kullanıcı tanımlı) tiplerin kaskadı DB bağlarından gelir.
+      const dbMeta = dbTypeMeta.get(foldCode(row.code));
       put({
         code: row.code,
         label: row.name,
-        categoryCode: template?.categoryCode,
-        subcategoryCode: template?.subcategoryCode,
-        productGroupCode: template?.productGroupCode,
+        categoryCode: template?.categoryCode ?? dbMeta?.categoryCode,
+        subcategoryCode: template?.subcategoryCode ?? dbMeta?.subcategoryCode,
+        productGroupCode: template?.productGroupCode ?? dbMeta?.productGroupCode,
       });
     });
     scopedProducts.forEach((product) => {
@@ -396,7 +465,7 @@ export function ProductSpecTemplatesCard() {
       });
     });
     return Array.from(byCode.values());
-  }, [productTypeRows, scopedProducts, selectedDivisionId]);
+  }, [dbTypeMeta, productTypeRows, scopedProducts, selectedDivisionId]);
 
   const availableSpecProducts = useMemo(
     () =>
@@ -409,10 +478,24 @@ export function ProductSpecTemplatesCard() {
         .sort((a, b) => a.label.localeCompare(b.label, "tr-TR", { numeric: true })),
     [scopedProducts, specScope.categoryCode],
   );
-  const availableSpecSubcategories = useMemo(
-    () => subcategoriesForCategory(specScope.categoryCode, productTypeOptions, productSubcategoryOptions),
-    [productSubcategoryOptions, productTypeOptions, specScope.categoryCode],
-  );
+  const availableSpecSubcategories = useMemo(() => {
+    const fromTypes = subcategoriesForCategory(specScope.categoryCode, productTypeOptions, productSubcategoryOptions);
+    // DB'de seçili kategoriye bağlanmış alt kategoriler de listelenir
+    // (henüz tip şablonu/ürünü olmasa bile).
+    const selectedCategoryIds = new Set(
+      taxonomy.categories.filter((row) => sameCode(row.code, specScope.categoryCode)).map((row) => row.id),
+    );
+    if (!selectedCategoryIds.size) return fromTypes;
+    const linkedCodes = new Set(
+      taxonomy.subcategories
+        .filter((row) => row.categoryId && selectedCategoryIds.has(row.categoryId))
+        .map((row) => foldCode(row.code)),
+    );
+    if (!linkedCodes.size) return fromTypes;
+    const seen = new Set(fromTypes.map((item) => foldCode(item.code)));
+    const extra = productSubcategoryOptions.filter((item) => linkedCodes.has(foldCode(item.code)) && !seen.has(foldCode(item.code)));
+    return extra.length ? [...fromTypes, ...extra] : fromTypes;
+  }, [productSubcategoryOptions, productTypeOptions, specScope.categoryCode, taxonomy]);
   const availableSpecProductGroups = useMemo(() => {
     const usedCodes = new Set(
       scopedProducts
@@ -580,6 +663,24 @@ export function ProductSpecTemplatesCard() {
       return !existing.has(norm);
     });
   }, [specFormCategoryCode, specForm.productTypeCode, specForm.specKey, typeDbRows, editingSpecId]);
+
+  // Seçili ürün tipine atanmış teknik bilgi grupları; atama yoksa tüm gruplar.
+  // (CRM Alan Ayarları → Teknik Bilgi Grupları ekranından tip bazlı atanır.)
+  const specGroupOptions = useMemo(() => {
+    const fallback = PRODUCT_SPEC_GROUPS.map((group) => ({ value: group.code as string, label: group.label }));
+    if (!specScope.productTypeCode) return fallback;
+    const typeIds = new Set(taxonomy.types.filter((row) => sameCode(row.code, specScope.productTypeCode)).map((row) => row.id));
+    if (!typeIds.size) return fallback;
+    const assigned = taxonomy.specGroups.filter((row) => (row.productTypeIds ?? []).some((id) => typeIds.has(id)));
+    if (!assigned.length) return fallback;
+    const options = assigned.map((row) => ({ value: row.code.toLocaleUpperCase("tr-TR"), label: row.name }));
+    // Düzenlenen kaydın mevcut grubu atamalar arasında yoksa seçimde kalabilsin.
+    if (specForm.specGroupCode && !options.some((option) => option.value === specForm.specGroupCode)) {
+      const current = PRODUCT_SPEC_GROUPS.find((group) => group.code === specForm.specGroupCode);
+      options.push({ value: specForm.specGroupCode, label: current?.label ?? specForm.specGroupCode });
+    }
+    return options;
+  }, [specForm.specGroupCode, specScope.productTypeCode, taxonomy]);
 
   const applySpecTemplateKey = (specKey: string) => {
     const item = specEntriesForType(specFormCategoryCode, specForm.productTypeCode).find((option) => option.key === specKey);
@@ -968,7 +1069,7 @@ export function ProductSpecTemplatesCard() {
                   onChange={(v) => setSpecForm({ ...specForm, specGroupCode: v })}
                   options={[
                     { value: "", label: "Otomatik" },
-                    ...PRODUCT_SPEC_GROUPS.map((group) => ({ value: group.code, label: group.label })),
+                    ...specGroupOptions,
                   ]}
                 />
                 <div className="flex items-end">

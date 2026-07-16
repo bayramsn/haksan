@@ -156,6 +156,7 @@ export class QuotesController {
     res
       .header('Content-Type', 'application/pdf')
       .header('Content-Disposition', `attachment; filename="${filename}"`)
+      .header('Cache-Control', 'private, no-store')
       .send(buffer);
   }
 }

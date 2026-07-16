@@ -12,6 +12,15 @@ import { buildCustomerTimeline, type OperationAction } from "../../lib/operation
 import { CompanyFinancePanel } from "../shared/CompanyFinancePanel";
 import { companyService } from "../../../lib/services";
 
+const ADDRESS_TYPE_LABELS: Record<string, string> = {
+  office: "Ofis",
+  factory: "Fabrika",
+  work_area: "Çalışma Alanı",
+  shipping: "Sevkiyat",
+  billing: "Fatura",
+  other: "Diğer",
+};
+
 /**
  * Ortak firmada başka bölüm(ler)e açık borç varsa kırmızı uyarı gösterir.
  * Tutar yalnızca süper yönetici/view_all için backend'den döner.
@@ -59,6 +68,18 @@ export function CustomerDetailPage({ customer, onBack, onAction }: { customer: C
   const pays = allPayments.filter((p) => p.customerId === customer.id);
   const mcs = allMachines.filter((m) => m.customerId === customer.id);
   const timeline = useMemo(() => buildCustomerTimeline(customer.id, store), [customer.id, store]);
+  const companyAddresses = customer.addresses?.length
+    ? customer.addresses
+    : (customer.address || customer.city || customer.district || customer.country)
+      ? [{
+          addressType: "office" as const,
+          address: customer.address,
+          district: customer.district,
+          city: customer.city,
+          country: customer.country ?? "Türkiye",
+          isDefault: true,
+        }]
+      : [];
 
   return (
     <div className="space-y-4">
@@ -83,7 +104,29 @@ export function CustomerDetailPage({ customer, onBack, onAction }: { customer: C
             <Row icon={<Building2 className="size-4" />} label="VKN" value={customer.taxNumber} />
             <Row icon={<Phone className="size-4" />} label="Telefon" value={customer.phone} />
             <Row icon={<Mail className="size-4" />} label="E-posta" value={customer.email} />
-            <Row icon={<MapPin className="size-4" />} label="Adres" value={`${customer.city} · ${customer.address}`} />
+            {companyAddresses.length > 0 && (
+              <section className="overflow-hidden rounded-lg border border-border/60" aria-label="Firma adresleri">
+                <div className="flex items-center justify-between border-b border-border/60 bg-muted/30 px-3 py-2">
+                  <div className="flex items-center gap-2 text-xs font-semibold">
+                    <MapPin className="size-3.5 text-primary" /> Adresler
+                  </div>
+                  <span className="text-[11px] tabular-nums text-muted-foreground">{companyAddresses.length} kayıt</span>
+                </div>
+                <ul className="divide-y divide-border/50">
+                  {companyAddresses.map((address, index) => (
+                    <li key={address.id ?? index} className="px-3 py-2.5">
+                      <div className="flex flex-wrap items-center gap-1.5 text-xs">
+                        <span className="font-medium">{ADDRESS_TYPE_LABELS[address.addressType] ?? "Adres"}</span>
+                        {address.isDefault && <span className="text-[10px] font-medium text-emerald-700">Varsayılan sevkiyat</span>}
+                      </div>
+                      <div className="mt-0.5 break-words text-xs leading-relaxed text-muted-foreground">
+                        {[address.address, address.district, address.city, address.country].filter(Boolean).join(", ") || "Adres bilgisi yok"}
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            )}
             <div className="pt-3 border-t">
               <div className="text-xs uppercase text-muted-foreground mb-1">İletişim Kişisi</div>
               <div>{customer.contactPerson}</div>

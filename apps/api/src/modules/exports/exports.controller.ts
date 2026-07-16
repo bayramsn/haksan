@@ -95,7 +95,15 @@ export class ExportsController {
     const rows = await this.svc.exportCustomerStatement(user, companyId, range);
     const baseName = `cari-ekstre-${companyId}`;
     if (range.format === 'pdf') {
-      const buffer = await rowsToPdfBuffer({ title: 'Cari Ekstre', rows });
+      const companyLabel = await this.svc.customerStatementCompanyLabel(user, companyId);
+      const dateLabel = [range.from?.toLocaleDateString('tr-TR'), range.to?.toLocaleDateString('tr-TR')]
+        .filter(Boolean)
+        .join(' – ');
+      const buffer = await rowsToPdfBuffer({
+        title: 'Cari Ekstre',
+        subtitle: [companyLabel, dateLabel ? `Dönem: ${dateLabel}` : 'Tüm hareketler'].join(' · '),
+        rows,
+      });
       return sendPdf(reply, buffer, `${baseName}.pdf`);
     }
     return sendXlsx(reply, await rowsToXlsxBuffer(rows, 'Cari Ekstre'), `${baseName}.xlsx`);

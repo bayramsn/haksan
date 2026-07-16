@@ -681,7 +681,12 @@ export function Layout({ current, onNavigate, onLogout, pageTitle, pageSubtitle,
           onAction={executeOperationAction}
           canUseAction={canUseAction}
         />
-        <AssistantPanel onAction={executeOperationAction} canUseAction={canUseAction} />
+        <AssistantPanel
+          onAction={executeOperationAction}
+          canUseAction={canUseAction}
+          pageContext={current}
+          activeDivisionId={activeDivision}
+        />
       </div>
     </TooltipProvider>
   );

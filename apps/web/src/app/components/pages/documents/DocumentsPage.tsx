@@ -140,6 +140,8 @@ export function DocumentsPage({
         products,
         payments,
         contractDate: d.uploadedAt || new Date().toISOString().slice(0, 10),
+        contractNo: d.fileName,
+        documentSnapshot: d.documentSnapshot,
       });
       const rendered = contractDoc(data, printAssetBase());
       if (mode === "print") printOrWarn(rendered);

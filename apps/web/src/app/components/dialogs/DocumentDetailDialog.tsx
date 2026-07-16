@@ -71,6 +71,8 @@ export function DocumentDetailDialog({
             products,
             payments,
             contractDate: doc.uploadedAt || new Date().toISOString().slice(0, 10),
+            contractNo: doc.fileName,
+            documentSnapshot: doc.documentSnapshot,
           });
           if (alive) setContract(data);
         } else {

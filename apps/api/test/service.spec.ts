@@ -144,8 +144,13 @@ describe('Service — kurulum / sevkiyat / teslimat', () => {
       musteriSikayeti: 'Spindle alarmı nedeniyle tezgah duruyor.',
       serviceType: 'ariza',
       responsibility: 'ucretli',
-      yapilanIsler: 'Spindle sürücüsü kontrol edildi ve alarm resetlendi.',
-      degisenParcalar: [{ id: 'part-1', description: 'Spindle fanı', quantity: 1, unitPrice: 75 }],
+      yapilanIsler: Array.from({ length: 13 }, (_, index) => `Servis işlemi ${index + 1}`).join('\n'),
+      degisenParcalar: Array.from({ length: 13 }, (_, index) => ({
+        id: `part-${index + 1}`,
+        description: `Servis parçası ${index + 1}`,
+        quantity: 1,
+        unitPrice: 75,
+      })),
       servisUcreti: 300,
       ulasimUcreti: 40,
       currency: 'EUR',
@@ -158,6 +163,7 @@ describe('Service — kurulum / sevkiyat / teslimat', () => {
       .set('Authorization', auth())
       .send({ metadata: { completionForm } });
     expect(saved.status).toBe(200);
+    expect(saved.body.metadata.completionForm.degisenParcalar).toHaveLength(13);
 
     const pdf = await supertest(app.getHttpServer())
       .get(`/api/v1/service-tickets/${created.body.id}/service-form.pdf`)
@@ -168,6 +174,7 @@ describe('Service — kurulum / sevkiyat / teslimat', () => {
     expect(pdf.headers['content-disposition']).toContain('inline');
     expect(Buffer.isBuffer(pdf.body)).toBe(true);
     expect(pdf.body.subarray(0, 4).toString()).toBe('%PDF');
+    expect(pdf.body.toString('latin1')).toMatch(/\/Count\s+3\b/);
   });
 
   it('servis teklif formu olmadan bakım/onarım aşamasına geçişi reddeder', async () => {

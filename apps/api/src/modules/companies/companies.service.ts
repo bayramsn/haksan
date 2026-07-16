@@ -9,9 +9,15 @@ import {
   companyGroupAssignments,
   companyPhones,
   companyEmails,
+  contacts,
   notifications,
 } from '../../db/schema/companies';
-import { receivables } from '../../db/schema/finance';
+import { accountingInvoices, payments, receivables } from '../../db/schema/finance';
+import { customerDevices } from '../../db/schema/inventory';
+import { salesOrders } from '../../db/schema/orders';
+import { quotes } from '../../db/schema/quotes';
+import { opportunities, salesActivities } from '../../db/schema/crm';
+import { deliveries, installationJobs, serviceTickets, shipments } from '../../db/schema/service';
 import { divisions } from '../../db/schema/tenants';
 import { users, userDivisions } from '../../db/schema/users';
 import { companyRelationTypes, companyStatuses, companyGroups, contactSources, paymentStatuses } from '../../db/schema/lookup';
@@ -1012,6 +1018,57 @@ export class CompaniesService {
 
   async delete(id: string, actor: AuthContext) {
     const existing = await this.get(id, actor);
+    const countFor = (value: unknown) => Number((value as { count?: number } | undefined)?.count ?? 0);
+    const [
+      contactRows,
+      opportunityRows,
+      activityRows,
+      quoteRows,
+      orderRows,
+      invoiceRows,
+      receivableRows,
+      paymentRows,
+      deviceRows,
+      installationRows,
+      serviceRows,
+      shipmentRows,
+      deliveryRows,
+    ] = await Promise.all([
+      this.db.select({ count: sql<number>`count(*)::int` }).from(contacts).where(and(eq(contacts.tenantId, actor.tenantId), eq(contacts.companyId, id), isNull(contacts.deletedAt))),
+      this.db.select({ count: sql<number>`count(*)::int` }).from(opportunities).where(and(eq(opportunities.tenantId, actor.tenantId), eq(opportunities.companyId, id), isNull(opportunities.deletedAt))),
+      this.db.select({ count: sql<number>`count(*)::int` }).from(salesActivities).where(and(eq(salesActivities.tenantId, actor.tenantId), eq(salesActivities.companyId, id), isNull(salesActivities.deletedAt))),
+      this.db.select({ count: sql<number>`count(*)::int` }).from(quotes).where(and(eq(quotes.tenantId, actor.tenantId), eq(quotes.companyId, id), isNull(quotes.deletedAt))),
+      this.db.select({ count: sql<number>`count(*)::int` }).from(salesOrders).where(and(eq(salesOrders.tenantId, actor.tenantId), eq(salesOrders.companyId, id), isNull(salesOrders.deletedAt))),
+      this.db.select({ count: sql<number>`count(*)::int` }).from(accountingInvoices).where(and(eq(accountingInvoices.tenantId, actor.tenantId), eq(accountingInvoices.companyId, id), isNull(accountingInvoices.deletedAt))),
+      this.db.select({ count: sql<number>`count(*)::int` }).from(receivables).where(and(eq(receivables.tenantId, actor.tenantId), eq(receivables.companyId, id), isNull(receivables.deletedAt))),
+      this.db.select({ count: sql<number>`count(*)::int` }).from(payments).where(and(eq(payments.tenantId, actor.tenantId), eq(payments.companyId, id), isNull(payments.deletedAt))),
+      this.db.select({ count: sql<number>`count(*)::int` }).from(customerDevices).where(and(eq(customerDevices.tenantId, actor.tenantId), eq(customerDevices.companyId, id), isNull(customerDevices.deletedAt))),
+      this.db.select({ count: sql<number>`count(*)::int` }).from(installationJobs).where(and(eq(installationJobs.tenantId, actor.tenantId), eq(installationJobs.companyId, id), isNull(installationJobs.deletedAt))),
+      this.db.select({ count: sql<number>`count(*)::int` }).from(serviceTickets).where(and(eq(serviceTickets.tenantId, actor.tenantId), eq(serviceTickets.companyId, id), isNull(serviceTickets.deletedAt))),
+      this.db.select({ count: sql<number>`count(*)::int` }).from(shipments).where(and(eq(shipments.tenantId, actor.tenantId), eq(shipments.companyId, id), isNull(shipments.deletedAt))),
+      this.db.select({ count: sql<number>`count(*)::int` }).from(deliveries).where(and(eq(deliveries.tenantId, actor.tenantId), eq(deliveries.companyId, id), isNull(deliveries.deletedAt))),
+    ]);
+    const dependencies = {
+      contacts: countFor(contactRows[0]),
+      opportunities: countFor(opportunityRows[0]),
+      activities: countFor(activityRows[0]),
+      quotes: countFor(quoteRows[0]),
+      salesOrders: countFor(orderRows[0]),
+      invoices: countFor(invoiceRows[0]),
+      receivables: countFor(receivableRows[0]),
+      payments: countFor(paymentRows[0]),
+      machines: countFor(deviceRows[0]),
+      installations: countFor(installationRows[0]),
+      serviceTickets: countFor(serviceRows[0]),
+      shipments: countFor(shipmentRows[0]),
+      deliveries: countFor(deliveryRows[0]),
+    };
+    if (Object.values(dependencies).some((count) => count > 0)) {
+      throw new ConflictError(
+        'Bu firma geçmiş CRM kayıtlarında kullanılıyor. Silmek yerine durumunu pasif yapın veya kayıtları başka firmayla birleştirin.',
+        { dependencies },
+      );
+    }
     await this.db.update(companies).set({ deletedAt: new Date() }).where(eq(companies.id, id));
     await this.audit.write({
       tenantId: actor.tenantId,

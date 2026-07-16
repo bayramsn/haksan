@@ -1,4 +1,4 @@
-import { index, pgTable, uniqueIndex, uuid, varchar } from 'drizzle-orm/pg-core';
+import { index, pgTable, timestamp, uniqueIndex, uuid, varchar } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 import { lookupColumns } from './_helpers';
 import { divisions } from './tenants';
@@ -53,10 +53,74 @@ export const companySectors = makeLookup('company_sectors');
 export const contactSources = makeLookup('contact_sources');
 export const decisionRoles = makeLookup('decision_roles');
 export const productGroups = makeDivisionLookup('product_groups');
-export const productCategories = makeDivisionLookup('product_categories');
-export const productSubcategories = makeDivisionLookup('product_subcategories');
-export const productTypes = makeDivisionLookup('product_types');
+
+/**
+ * Ürün taksonomi zinciri: grup → kategori → alt kategori → tip.
+ * Üst bağlantı (parent) NULL ise kayıt tüm üstlerde ("Tümü") geçerlidir;
+ * bölüm sentineli ile aynı mantık. Üst kayıt silinirse bağ "Tümü"ye düşer.
+ */
+export const productCategories = pgTable(
+  'product_categories',
+  {
+    ...lookupColumns,
+    divisionId: uuid('division_id').references(() => divisions.id, { onDelete: 'set null' }),
+    productGroupId: uuid('product_group_id').references(() => productGroups.id, { onDelete: 'set null' }),
+  },
+  (t) => ({
+    codeUnique: uniqueIndex('product_categories_division_code_unique').on(ALL_DIVISIONS_SENTINEL, t.code),
+    productGroupIdx: index('product_categories_product_group_idx').on(t.productGroupId),
+  })
+);
+
+export const productSubcategories = pgTable(
+  'product_subcategories',
+  {
+    ...lookupColumns,
+    divisionId: uuid('division_id').references(() => divisions.id, { onDelete: 'set null' }),
+    categoryId: uuid('category_id').references(() => productCategories.id, { onDelete: 'set null' }),
+  },
+  (t) => ({
+    codeUnique: uniqueIndex('product_subcategories_division_code_unique').on(ALL_DIVISIONS_SENTINEL, t.code),
+    categoryIdx: index('product_subcategories_category_idx').on(t.categoryId),
+  })
+);
+
+export const productTypes = pgTable(
+  'product_types',
+  {
+    ...lookupColumns,
+    divisionId: uuid('division_id').references(() => divisions.id, { onDelete: 'set null' }),
+    subcategoryId: uuid('subcategory_id').references(() => productSubcategories.id, { onDelete: 'set null' }),
+  },
+  (t) => ({
+    codeUnique: uniqueIndex('product_types_division_code_unique').on(ALL_DIVISIONS_SENTINEL, t.code),
+    subcategoryIdx: index('product_types_subcategory_idx').on(t.subcategoryId),
+  })
+);
+
 export const productSpecGroups = makeDivisionLookup('product_spec_groups');
+
+/**
+ * Teknik bilgi grubu ↔ ürün tipi ataması. Bir grup birden çok tipe atanabilir;
+ * hiç ataması olmayan grup tüm tiplerde ("Tümü") geçerli sayılır.
+ */
+export const productSpecGroupTypes = pgTable(
+  'product_spec_group_types',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    specGroupId: uuid('spec_group_id')
+      .notNull()
+      .references(() => productSpecGroups.id, { onDelete: 'cascade' }),
+    productTypeId: uuid('product_type_id')
+      .notNull()
+      .references(() => productTypes.id, { onDelete: 'cascade' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    pairUnique: uniqueIndex('product_spec_group_types_pair_unique').on(t.specGroupId, t.productTypeId),
+    typeIdx: index('product_spec_group_types_type_idx').on(t.productTypeId),
+  })
+);
 export const equipmentTypes = makeLookup('equipment_types');
 export const inventoryStatuses = makeLookup('inventory_statuses');
 export const stockLocationStatuses = makeLookup('stock_location_statuses');

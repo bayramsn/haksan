@@ -19,6 +19,8 @@
     "build": "npm run build:shared && npm run build:api && npm run build:web",
     "typecheck": "npm --workspace @haksan/api run typecheck",
     "audit:contracts": "npm --workspace @haksan/api run audit:contracts",
+    "verify:agent-skills": "node scripts/verify-agent-skills.mjs",
+    "scan:secrets": "node scripts/security-scan.mjs",
     "lint:migrations": "npm --workspace @haksan/api run db:lint:migrations",
     "test:coverage": "npm --workspace @haksan/api run test:coverage",
     "db:generate": "npm --workspace @haksan/api run db:generate",

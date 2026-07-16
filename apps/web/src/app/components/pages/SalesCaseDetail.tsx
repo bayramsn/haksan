@@ -120,7 +120,7 @@ export function SalesCaseDetailPage({
       else await quoteService.reject(offerId);
       toast.success(
         action === "send"
-          ? "Teklif gönderildi"
+          ? "Teklif gönderildi olarak işaretlendi"
           : action === "approve"
             ? "Teklif onaylandı"
             : action === "approve-price"

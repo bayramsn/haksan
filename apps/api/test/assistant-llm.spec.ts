@@ -15,7 +15,7 @@ async function buildService(env: Record<string, string>) {
     process.env[key] = value;
   }
   const { AssistantService } = await import('../src/modules/assistant/assistant.service');
-  return new AssistantService({} as never, {} as never, {} as never, {} as never);
+  return new AssistantService({} as never, {} as never, {} as never, {} as never, {} as never, {} as never, {} as never, {} as never);
 }
 
 afterEach(() => {
@@ -131,5 +131,141 @@ describe('Assistant LLM providers', () => {
     await expect(
       (service as never as { llmAnswer: (m: string, s: unknown[], src: unknown[]) => Promise<unknown> }).llmAnswer('soru', [], [])
     ).rejects.toThrow('LLM request failed: 429');
+  });
+
+  it('NVIDIA yanıtından yalnız izinli ve doğrulanabilir sekreter planı çıkarır', async () => {
+    const service = await buildService({
+      ASSISTANT_LLM_PROVIDER: 'nvidia',
+      ASSISTANT_MODEL: 'nvidia/nemotron-mini-4b-instruct',
+      ASSISTANT_API_KEY: 'test-nvidia-key-123456',
+      ASSISTANT_MAX_TOKENS: '700',
+    });
+    const companyId = '11111111-1111-4111-8111-111111111111';
+    const divisionId = '22222222-2222-4222-8222-222222222222';
+    const fetchMock = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                content: 'Teklif taslağını onaya hazırladım.',
+                tool_calls: [{
+                  function: {
+                    name: 'create_quote',
+                    arguments: JSON.stringify({ companyId, divisionId, currencyCode: 'USD', validityDays: 30 }),
+                  },
+                }],
+              },
+            },
+          ],
+          usage: { prompt_tokens: 80, completion_tokens: 30 },
+        }),
+        { status: 200 }
+      )
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const actor = {
+      userId: '33333333-3333-4333-8333-333333333333',
+      tenantId: '44444444-4444-4444-8444-444444444444',
+      email: 'user@example.com',
+      roles: ['sales'],
+      permissions: new Set(['companies.read', 'quotes.create']),
+      divisionIds: [divisionId],
+      primaryDivisionId: divisionId,
+      departmentIds: [],
+      primaryDepartmentId: null,
+      canViewAllDivisions: false,
+      activeDivisionId: divisionId,
+      activeDepartmentId: null,
+      accessScopes: [],
+    };
+
+    const result = await (service as never as {
+      llmSecretaryPlan: (...args: unknown[]) => Promise<any>;
+    }).llmSecretaryPlan(
+      'Acme için CNC teklif oluştur',
+      [{ type: 'company', id: companyId, label: 'Acme' }],
+      [{ id: divisionId, code: 'cnc', name: 'CNC' }],
+      { message: 'Acme için CNC teklif oluştur', context: { page: 'customers', activeDivisionId: divisionId } },
+      actor
+    );
+
+    expect(result.action).toEqual({
+      kind: 'create_quote',
+      arguments: { companyId, divisionId, currencyCode: 'USD', validityDays: 30 },
+    });
+    const [, init] = fetchMock.mock.calls[0] as [string, { body: string }];
+    const body = JSON.parse(init.body) as {
+      messages: Array<{ role: string; content: string }>;
+      tools: Array<{ function: { name: string; parameters: Record<string, unknown> } }>;
+      tool_choice: string;
+    };
+    expect(body.messages[0]?.content).toContain('yalnız kullanıcıya gösterilecek onay kartı');
+    expect(body.messages[1]?.content).toContain(companyId);
+    expect(body.tool_choice).toBe('auto');
+    expect(body.tools.some((tool) => tool.function.name === 'create_quote')).toBe(true);
+    expect(body.tools.some((tool) => tool.function.name === 'send_email')).toBe(false);
+  });
+
+  it('deterministik yedek plan iş alanını korur ve uydurma kaynak kimliğini reddeder', async () => {
+    const service = await buildService({ ASSISTANT_LLM_PROVIDER: 'none' });
+    const companyId = '11111111-1111-4111-8111-111111111111';
+    const divisionId = '22222222-2222-4222-8222-222222222222';
+    const actor = {
+      activeDivisionId: divisionId,
+      primaryDivisionId: divisionId,
+    };
+    const privateService = service as never as {
+      fallbackSecretaryPlan: (...args: unknown[]) => any;
+      planReferencesAreAllowed: (...args: unknown[]) => boolean;
+    };
+    const sources = [{ type: 'company', id: companyId, label: 'Acme' }];
+    const divisions = [{ id: divisionId, code: 'cnc', name: 'CNC' }];
+    const input = { message: 'Acme için CNC teklif oluştur', context: { page: 'customers', activeDivisionId: divisionId } };
+
+    const plan = privateService.fallbackSecretaryPlan(input.message, sources, divisions, input, actor);
+    expect(plan).toMatchObject({ kind: 'create_quote', arguments: { companyId, divisionId } });
+    expect(privateService.planReferencesAreAllowed(plan, sources, divisions, input)).toBe(true);
+    expect(
+      privateService.planReferencesAreAllowed(
+        { ...plan, arguments: { ...plan.arguments, companyId: '99999999-9999-4999-8999-999999999999' } },
+        sources,
+        divisions,
+        input
+      )
+    ).toBe(false);
+  });
+
+  it('ürün kodunu korur, miktarı çıkarır ve yalnız görünür katalog ürününü plana bağlar', async () => {
+    const service = await buildService({ ASSISTANT_LLM_PROVIDER: 'none' });
+    const companyId = '11111111-1111-4111-8111-111111111111';
+    const divisionId = '22222222-2222-4222-8222-222222222222';
+    const productModelId = '55555555-5555-4555-8555-555555555555';
+    const privateService = service as never as {
+      searchTerms: (message: string) => string[];
+      fallbackSecretaryPlan: (...args: unknown[]) => any;
+      planReferencesAreAllowed: (...args: unknown[]) => boolean;
+    };
+    const message = 'Acme için 2 adet VM-2 CNC teklif oluştur, yüzde 5 indirim';
+    const sources = [
+      { type: 'company', id: companyId, label: 'Acme' },
+      { type: 'product_model', id: productModelId, label: 'VM-2 Haksan CNC' },
+    ];
+    const divisions = [{ id: divisionId, code: 'cnc', name: 'CNC' }];
+    const input = { message, context: { page: 'customers', activeDivisionId: divisionId } };
+    const actor = { activeDivisionId: divisionId, primaryDivisionId: divisionId };
+
+    expect(privateService.searchTerms(message)).toContain('vm-2');
+    const plan = privateService.fallbackSecretaryPlan(message, sources, divisions, input, actor);
+    expect(plan.arguments.items).toEqual([{ productModelId, quantity: 2, discountPercent: 5 }]);
+    expect(privateService.planReferencesAreAllowed(plan, sources, divisions, input)).toBe(true);
+    expect(
+      privateService.planReferencesAreAllowed(
+        { ...plan, arguments: { ...plan.arguments, items: [{ productModelId: '99999999-9999-4999-8999-999999999999', quantity: 2 }] } },
+        sources,
+        divisions,
+        input
+      )
+    ).toBe(false);
   });
 });

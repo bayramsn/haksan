@@ -92,10 +92,18 @@ import type {
   CallAssistantAction,
   CallSuggestionActionInput,
   ManualCallEventInput,
+  AssistantApprovalCard,
+  AssistantApprovalDecisionResponse,
+  AssistantBriefingResponse,
   AssistantChatInput,
   AssistantChatResponse,
+  AssistantCompanyMemory,
   AssistantExecuteActionInput,
   AssistantExecuteActionResponse,
+  AssistantInboxCapture,
+  AssistantInboxItem,
+  AssistantInboxListQuery,
+  AssistantInboxUpdate,
   AssistantSuggestion,
 } from '@haksan/shared';
 import { API_BASE_URL, ApiError, api, getAccessToken, getActiveDepartment, getActiveDivision } from './apiClient';
@@ -289,7 +297,20 @@ export const callAssistantService = {
 
 export const assistantService = {
   suggestions: () => api.get<AssistantSuggestion[]>('/assistant/suggestions'),
+  briefing: () => api.get<AssistantBriefingResponse>('/assistant/briefing'),
+  companyMemory: (companyId: string) =>
+    api.get<AssistantCompanyMemory>(`/assistant/companies/${encodeURIComponent(companyId)}/memory`),
+  approvals: () => api.get<AssistantApprovalCard[]>('/assistant/approvals'),
+  inbox: (params: Partial<AssistantInboxListQuery> = {}) =>
+    api.get<AssistantInboxItem[]>(`/assistant/inbox${qs(params as Record<string, string | number | undefined>)}`),
+  captureInbox: (body: AssistantInboxCapture) => api.post<AssistantInboxItem>('/assistant/inbox', body),
+  updateInbox: (id: string, body: AssistantInboxUpdate) =>
+    api.patch<AssistantInboxItem>(`/assistant/inbox/${encodeURIComponent(id)}`, body),
+  prepareInboxReply: (id: string) =>
+    api.post<AssistantApprovalCard>(`/assistant/inbox/${encodeURIComponent(id)}/reply-approval`, {}),
   chat: (body: AssistantChatInput) => api.post<AssistantChatResponse>('/assistant/chat', body),
+  decideApproval: (id: string, confirm: boolean) =>
+    api.post<AssistantApprovalDecisionResponse>(`/assistant/approvals/${encodeURIComponent(id)}/decision`, { confirm }),
   executeAction: (id: string, body: AssistantExecuteActionInput) =>
     api.post<AssistantExecuteActionResponse>(`/assistant/actions/${encodeURIComponent(id)}/execute`, body),
 };
@@ -409,7 +430,7 @@ export const calendarService = {
 
 // ───── Products / Brands ─────
 export const productService = {
-  listBrands: () => api.get<any[]>('/brands'),
+  listBrands: (divisionId?: string) => api.get<any[]>(`/brands${qs({ divisionId })}`),
   createBrand: (body: BrandCreateInput) => api.post<any>('/brands', body),
   list: (params?: Record<string, string | number | undefined>) => api.get<Paginated<any>>(`/products${qs(params)}`),
   get: (id: string) => api.get<any>(`/products/${id}`),
@@ -885,13 +906,15 @@ export const adminService = {
   lookups: () => api.get<{ available: string[] }>('/admin/lookups'),
   lookupRows: (name: string, params?: Record<string, string | number | undefined>) =>
     api.get<any[]>(`/admin/lookups/${name}${qs(params)}`),
-  createLookup: (name: string, body: { code?: string; name: string; description?: string; sortOrder?: number; isActive?: boolean; province?: string; divisionId?: string | null }) =>
+  createLookup: (name: string, body: { code?: string; name: string; description?: string; sortOrder?: number; isActive?: boolean; province?: string; divisionId?: string | null; parentId?: string | null; productTypeIds?: string[] }) =>
     api.post<any>(`/admin/lookups/${name}`, body),
   updateLookup: (
     name: string,
     id: string,
-    body: { code?: string; name?: string; description?: string; sortOrder?: number; isActive?: boolean; province?: string; divisionId?: string | null }
+    body: { code?: string; name?: string; description?: string; sortOrder?: number; isActive?: boolean; province?: string; divisionId?: string | null; parentId?: string | null; productTypeIds?: string[] }
   ) => api.patch<any>(`/admin/lookups/${name}/${id}`, body),
+  reorderLookup: (name: string, items: Array<{ id: string; sortOrder: number }>) =>
+    api.patch<{ ok: true; items: Array<{ id: string; sortOrder: number }> }>(`/admin/lookups/${name}/reorder`, { items }),
   deleteLookup: (name: string, id: string) => api.delete<any>(`/admin/lookups/${name}/${id}`),
   productSpecTemplates: (productTypeCode?: string, divisionId?: string, scope?: string) =>
     api.get<any[]>(`/admin/product-spec-templates${qs({ productTypeCode, divisionId, scope })}`),
