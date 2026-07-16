@@ -1,14 +1,14 @@
-const { getDefaultConfig, mergeConfig } = require('@react-native/metro-config');
+const { getDefaultConfig } = require('expo/metro-config');
 const path = require('path');
 
-const root = path.resolve(__dirname, '../..');
+const projectRoot = __dirname;
+const workspaceRoot = path.resolve(projectRoot, '../..');
 
-module.exports = mergeConfig(getDefaultConfig(__dirname), {
-  watchFolders: [path.resolve(root, 'packages/shared')],
-  resolver: {
-    nodeModulesPaths: [
-      path.resolve(__dirname, 'node_modules'),
-      path.resolve(root, 'node_modules'),
-    ],
-  },
-});
+const config = getDefaultConfig(projectRoot);
+config.watchFolders = [workspaceRoot];
+config.resolver.nodeModulesPaths = [
+  path.resolve(projectRoot, 'node_modules'),
+  path.resolve(workspaceRoot, 'node_modules'),
+];
+
+module.exports = config;
