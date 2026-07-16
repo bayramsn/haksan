@@ -59,7 +59,9 @@ import {
 } from "@haksan/shared";
 import { provincesForCountry } from "../../lib/geoByCountry";
 import {
+  DIVISION_MACHINE_TYPES,
   allCatalogProductSpecs,
+  foldProductTypeCode,
   groupProductSpecsForType,
   normalizeProductSpecKey,
   productSpecDefaults,
@@ -169,7 +171,18 @@ const CONTACT_SOURCE_OPTIONS = [
   { code: "musiad", label: "MÜSİAD" },
 ];
 
-type LookupRow = { id?: string; code: string; name: string; province?: string; sortOrder?: number; isActive?: boolean };
+type LookupRow = {
+  id?: string;
+  code: string;
+  name: string;
+  province?: string;
+  sortOrder?: number;
+  isActive?: boolean;
+  // Ürün taksonomi zinciri üst bağları (kategori→grup, alt kategori→kategori, tip→alt kategori).
+  productGroupId?: string | null;
+  categoryId?: string | null;
+  subcategoryId?: string | null;
+};
 
 function useLookupRows(name: string, fallback: LookupRow[] = [], exactDivision = false) {
   const { activeDivision } = useAuth();
@@ -181,7 +194,17 @@ function useLookupRows(name: string, fallback: LookupRow[] = [], exactDivision =
       .then((items) => {
         if (!alive) return;
         const normalized = (items ?? [])
-          .map((item: any) => ({ id: item.id, code: item.code, name: item.name, province: item.province, sortOrder: item.sortOrder, isActive: item.isActive }))
+          .map((item: any) => ({
+            id: item.id,
+            code: item.code,
+            name: item.name,
+            province: item.province,
+            sortOrder: item.sortOrder,
+            isActive: item.isActive,
+            productGroupId: item.productGroupId ?? null,
+            categoryId: item.categoryId ?? null,
+            subcategoryId: item.subcategoryId ?? null,
+          }))
           .filter((item: LookupRow) => item.code && item.name);
         setRows(normalized.length ? normalized : fallback);
       })
@@ -1944,6 +1967,26 @@ const PRODUCT_TYPE_GROUPS: Array<{ label: string; options: ProductTypeOption[] }
     ],
   },
   {
+    label: "Üniversal Tezgahlar",
+    options: DIVISION_MACHINE_TYPES.filter((item) => item.productGroupCode === "UNIVERSAL").map((item) => ({
+      code: item.code,
+      label: item.label,
+      categoryCode: "TEZGAH",
+      subcategoryCode: item.subcategoryCode,
+      productGroupCode: item.productGroupCode,
+    })),
+  },
+  {
+    label: "Sac İşleme Tezgahları",
+    options: DIVISION_MACHINE_TYPES.filter((item) => item.productGroupCode === "SAC_ISLEME").map((item) => ({
+      code: item.code,
+      label: item.label,
+      categoryCode: "TEZGAH",
+      subcategoryCode: item.subcategoryCode,
+      productGroupCode: item.productGroupCode,
+    })),
+  },
+  {
     label: "Yedek Parça",
     options: [
       { code: "ELEKTRONIK", label: "Elektronik", categoryCode: "YEDEK_PARCA" },
@@ -1975,6 +2018,22 @@ const PRODUCT_TYPE_GROUPS: Array<{ label: string; options: ProductTypeOption[] }
 const PRODUCT_TYPE_OPTIONS = PRODUCT_TYPE_GROUPS.flatMap((g) => g.options);
 const PRODUCT_TYPE_META_BY_CODE = new Map(PRODUCT_TYPE_OPTIONS.map((option) => [option.code, option]));
 const PRODUCT_TYPE_GROUP_BY_CODE = new Map(PRODUCT_TYPE_GROUPS.flatMap((group) => group.options.map((option) => [option.code, group.label])));
+
+// Eski seed kodları güncel şablon kodlarına eşlenir; böylece aynı tezgah tipi
+// listede iki kez ("Diğer" altında bir kopya daha) görünmez.
+const LEGACY_PRODUCT_TYPE_ALIASES: Record<string, string> = {
+  DIK_ISLEME_MERKEZI: "CNC_DIK_ISLEME_MERKEZ",
+  KOPRU_TIPI_ISLEME_MERKEZI: "CNC_KOPRU_TIPI_ISLEME_MERKEZI",
+  CNC_TORNA: "CNC_YATAY_TORNA_TEZGAHI",
+};
+// Kod karşılaştırmaları harf/aksan duyarsız: seed kodları BÜYÜK, admin
+// ekranından eklenenler küçük harf üretilir ("abkant_pres" gibi).
+const canonicalProductTypeCode = (code?: string | null) => {
+  const folded = foldProductTypeCode(code);
+  return LEGACY_PRODUCT_TYPE_ALIASES[folded] ?? folded;
+};
+const productTypeMeta = (code?: string | null) => PRODUCT_TYPE_META_BY_CODE.get(canonicalProductTypeCode(code));
+const productTypeGroupLabel = (code?: string | null) => PRODUCT_TYPE_GROUP_BY_CODE.get(canonicalProductTypeCode(code));
 const PRODUCT_CURRENCIES: Array<{ code: "USD" | "TRY" | "EUR"; label: string }> = [
   { code: "USD", label: "USD" },
   { code: "TRY", label: "TL" },
@@ -2025,8 +2084,12 @@ const specsForSelectedProductType = (specs: ProductSpec[] = [], productTypeCode?
 // Alt kategori (İşleme Merkezi/Torna) her grupta geçerli olabilir (ör. Üniversal Torna, Sac İşleme
 // Tezgahı gerçek üründe de görülüyor); ürün tipi listesi katalogda tanımlı gruba göre daralır.
 // Tipin productGroupCode'u yoksa (Yedek Parça/Opsiyonel Donanım/İşçilik/Aksesuar gibi) her grupta geçerlidir.
+// Şablon kodları BÜYÜK, admin ekranından eklenen lookup kodları küçük harf
+// olabilir; kod eşleşmeleri bu yüzden harf/aksan duyarsızdır.
+const sameProductCode = (a?: string | null, b?: string | null) => foldProductTypeCode(a) === foldProductTypeCode(b);
+
 const typeMatchesGroup = (type: ProductTypeOption, groupCode?: string) =>
-  !type.productGroupCode || !groupCode || type.productGroupCode === groupCode;
+  !type.productGroupCode || !groupCode || sameProductCode(type.productGroupCode, groupCode);
 
 const fallbackLookupRows = (options: ProductOption[]): LookupRow[] =>
   options.map((option, index) => ({ code: option.code, name: option.label, sortOrder: index }));
@@ -2039,7 +2102,9 @@ const subcategoriesForProductCategory = (
   categoryCode === "TEZGAH"
     ? productSubcategoryOptions
     : productSubcategoryOptions.filter((subcategory) =>
-        productTypeOptions.some((type) => (!type.categoryCode || type.categoryCode === categoryCode) && type.subcategoryCode === subcategory.code),
+        productTypeOptions.some(
+          (type) => (!type.categoryCode || sameProductCode(type.categoryCode, categoryCode)) && sameProductCode(type.subcategoryCode, subcategory.code),
+        ),
       );
 
 type ProductFormState = {
@@ -2267,25 +2332,39 @@ export function ProductDialog({
   const productSubcategoryOptions = lookupCodeOptions(productSubcategoryRows);
   const productTypeOptions = useMemo<ProductTypeOption[]>(() => {
     const labelByCode = new Map(productTypeRows.map((row) => [row.code, row.name]));
+    // DB taksonomi bağları: tipin alt kategorisi ve alt kategorinin kategorisi.
+    const subcategoryById = new Map(productSubcategoryRows.filter((row) => row.id).map((row) => [row.id!, row]));
+    const categoryCodeById = new Map(productCategoryRows.filter((row) => row.id).map((row) => [row.id!, row.code]));
+    // Tekilleştirme kanonik koda göredir: eski seed kodu ve harf farkı olan
+    // kopyalar tek seçeneğe katlanır ("hepsinden birer tane").
     const byCode = new Map<string, ProductTypeOption>();
     const put = (option: ProductTypeOption) => {
       if (!option.code) return;
-      const current = byCode.get(option.code);
-      byCode.set(option.code, {
-        code: option.code,
-        label: option.label || current?.label || option.code,
-        categoryCode: option.categoryCode ?? current?.categoryCode,
-        subcategoryCode: option.subcategoryCode ?? current?.subcategoryCode,
-        productGroupCode: option.productGroupCode ?? current?.productGroupCode,
+      const key = canonicalProductTypeCode(option.code);
+      const current = byCode.get(key);
+      byCode.set(key, {
+        code: current?.code ?? option.code,
+        label: current?.label || option.label || option.code,
+        categoryCode: current?.categoryCode ?? option.categoryCode,
+        subcategoryCode: current?.subcategoryCode ?? option.subcategoryCode,
+        productGroupCode: current?.productGroupCode ?? option.productGroupCode,
       });
     };
     productTypeRows.forEach((row) => {
-      const meta = PRODUCT_TYPE_META_BY_CODE.get(row.code);
-      put({ ...(meta ?? {}), code: row.code, label: row.name });
+      const meta = productTypeMeta(row.code);
+      const linkedSubcategory = row.subcategoryId ? subcategoryById.get(row.subcategoryId) : undefined;
+      const linkedCategoryCode = linkedSubcategory?.categoryId ? categoryCodeById.get(linkedSubcategory.categoryId) : undefined;
+      put({
+        code: row.code,
+        label: row.name,
+        categoryCode: meta?.categoryCode ?? linkedCategoryCode ?? (linkedSubcategory ? "TEZGAH" : undefined),
+        subcategoryCode: meta?.subcategoryCode ?? linkedSubcategory?.code,
+        productGroupCode: meta?.productGroupCode,
+      });
     });
     products.forEach((product) => {
       if (!product.productTypeCode) return;
-      const meta = PRODUCT_TYPE_META_BY_CODE.get(product.productTypeCode);
+      const meta = productTypeMeta(product.productTypeCode);
       put({
         code: product.productTypeCode,
         label: labelByCode.get(product.productTypeCode) ?? product.type ?? product.productTypeCode,
@@ -2295,7 +2374,7 @@ export function ProductDialog({
       });
     });
     if (form.productTypeCode) {
-      const meta = PRODUCT_TYPE_META_BY_CODE.get(form.productTypeCode);
+      const meta = productTypeMeta(form.productTypeCode);
       put({
         code: form.productTypeCode,
         label: form.type || labelByCode.get(form.productTypeCode) || form.productTypeCode,
@@ -2303,9 +2382,14 @@ export function ProductDialog({
         subcategoryCode: form.subcategoryCode || meta?.subcategoryCode,
         productGroupCode: form.productGroupCode || meta?.productGroupCode,
       });
+      // Düzenlenen ürünün mevcut kodu kanonik ikizine katlandıysa seçili değer
+      // listede kalsın diye o seçeneğin kodu formdaki kodla hizalanır.
+      const key = canonicalProductTypeCode(form.productTypeCode);
+      const entry = byCode.get(key);
+      if (entry && entry.code !== form.productTypeCode) byCode.set(key, { ...entry, code: form.productTypeCode });
     }
     return Array.from(byCode.values());
-  }, [form.categoryCode, form.productGroupCode, form.productTypeCode, form.subcategoryCode, form.type, productTypeRows, products]);
+  }, [form.categoryCode, form.productGroupCode, form.productTypeCode, form.subcategoryCode, form.type, productCategoryRows, productSubcategoryRows, productTypeRows, products]);
 
   useEffect(() => {
     if (!open) return;
@@ -2401,9 +2485,9 @@ export function ProductDialog({
   // Ürün tipini seçili gruba, kategoriye ve (tezgahsa) alt kategoriye göre filtrele
   const typeMatches = (o: ProductTypeOption, categoryCode: string, subcategoryCode: string, groupCode?: string) => {
     if (!typeMatchesGroup(o, groupCode)) return false;
-    if (o.categoryCode && o.categoryCode !== categoryCode) return false;
+    if (o.categoryCode && !sameProductCode(o.categoryCode, categoryCode)) return false;
     if (subcategoriesForProductCategory(categoryCode, productTypeOptions, productSubcategoryOptions).length > 0) {
-      return !o.subcategoryCode || o.subcategoryCode === subcategoryCode;
+      return !o.subcategoryCode || sameProductCode(o.subcategoryCode, subcategoryCode);
     }
     return true;
   };
@@ -2411,12 +2495,22 @@ export function ProductDialog({
   const isTypeAllowed = (o: ProductTypeOption, categoryCode: string, subcategoryCode: string, groupCode?: string) =>
     typeMatches(o, categoryCode, subcategoryCode, groupCode);
 
+  // Grup başlığı: şablon grubu → alt kategori adı → kategori adı → CNC.
+  // "Diğer" kovası yoktur; eşleşmeyen tipler CNC altında listelenir.
+  const foldedOptionLabel = (options: ProductOption[], code?: string) => {
+    if (!code) return "";
+    const folded = foldProductTypeCode(code);
+    return options.find((option) => foldProductTypeCode(option.code) === folded)?.label ?? "";
+  };
   const typeGroups = Array.from(
     productTypeOptions
       .filter((o) => isTypeAllowed(o, form.categoryCode, form.subcategoryCode, form.productGroupCode))
       .reduce((groups, option) => {
-        const label = PRODUCT_TYPE_GROUP_BY_CODE.get(option.code) ??
-          (option.subcategoryCode ? findLabel(productSubcategoryOptions, option.subcategoryCode, "Diğer") : "Diğer");
+        const label =
+          productTypeGroupLabel(option.code) ??
+          (foldedOptionLabel(productSubcategoryOptions, option.subcategoryCode) ||
+            foldedOptionLabel(productCategoryOptions, option.categoryCode) ||
+            "CNC");
         groups.set(label, [...(groups.get(label) ?? []), option]);
         return groups;
       }, new Map<string, ProductTypeOption[]>()),
