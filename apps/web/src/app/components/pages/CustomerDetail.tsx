@@ -78,6 +78,8 @@ export function CustomerDetailPage({ customer, onBack, onAction }: { customer: C
           city: customer.city,
           country: customer.country ?? "Türkiye",
           isDefault: true,
+          isShipping: true,
+          isBilling: true,
         }]
       : [];
 
@@ -92,12 +94,12 @@ export function CustomerDetailPage({ customer, onBack, onAction }: { customer: C
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <Card className="lg:col-span-1">
           <CardHeader>
-            <div className="flex items-start justify-between">
-              <div>
-                <div className="text-xl">{customer.name}</div>
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="font-display text-2xl font-semibold leading-none tracking-tight">{customer.name}</div>
                 <div className="text-sm text-muted-foreground">{customer.type === "company" ? "Kurumsal Müşteri" : "Bireysel Müşteri"}</div>
               </div>
-              <StatusBadge status={customer.status} />
+              <div className="shrink-0"><StatusBadge status={customer.status} /></div>
             </div>
           </CardHeader>
           <CardContent className="space-y-3 text-sm">
@@ -117,7 +119,9 @@ export function CustomerDetailPage({ customer, onBack, onAction }: { customer: C
                     <li key={address.id ?? index} className="px-3 py-2.5">
                       <div className="flex flex-wrap items-center gap-1.5 text-xs">
                         <span className="font-medium">{ADDRESS_TYPE_LABELS[address.addressType] ?? "Adres"}</span>
-                        {address.isDefault && <span className="text-[10px] font-medium text-emerald-700">Varsayılan sevkiyat</span>}
+                        {address.isDefault && <span className="text-[10px] font-medium text-primary">Ana adres</span>}
+                        {address.isShipping && <span className="text-[10px] font-medium text-sky-700">Sevkiyat</span>}
+                        {address.isBilling && <span className="text-[10px] font-medium text-amber-700">Fatura</span>}
                       </div>
                       <div className="mt-0.5 break-words text-xs leading-relaxed text-muted-foreground">
                         {[address.address, address.district, address.city, address.country].filter(Boolean).join(", ") || "Adres bilgisi yok"}
@@ -200,8 +204,8 @@ export function CustomerDetailPage({ customer, onBack, onAction }: { customer: C
 
             <TabsContent value="cases" className="mt-4">
               <Card>
-                <CardHeader className="flex flex-row items-center justify-between">
-                  <CardTitle>Satış Kartları</CardTitle>
+                <CardHeader className="flex flex-col items-stretch justify-between gap-3 sm:flex-row sm:items-center">
+                  <CardTitle className="font-display text-xl font-semibold">Satış Kartları</CardTitle>
                   <CreateCaseDialog
                     defaultCustomerId={customer.id}
                     trigger={<Button size="sm" className="gap-1"><Plus className="size-4" /> Yeni Kart</Button>}
@@ -234,9 +238,9 @@ export function CustomerDetailPage({ customer, onBack, onAction }: { customer: C
 
             <TabsContent value="activity" className="mt-4">
               <Card>
-                <CardHeader className="flex flex-row items-center justify-between gap-3 pb-3">
-                  <CardTitle className="text-base">Aktiviteler</CardTitle>
-                  <div className="flex items-center gap-2">
+                <CardHeader className="flex flex-col items-stretch justify-between gap-3 pb-3 sm:flex-row sm:items-center">
+                  <CardTitle className="font-display text-xl font-semibold">Aktiviteler</CardTitle>
+                  <div className="flex flex-wrap items-center gap-2">
                     <LogActivityDialog
                       customerId={customer.id}
                       defaultKind="visit"

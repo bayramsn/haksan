@@ -47,6 +47,7 @@ export const productModels = pgTable(
     brandId: uuid('brand_id')
       .notNull()
       .references(() => brands.id, { onDelete: 'restrict' }),
+    series: varchar('series', { length: 128 }),
     productGroupId: uuid('product_group_id').references(() => productGroups.id),
     categoryId: uuid('category_id').references(() => productCategories.id),
     subcategoryId: uuid('subcategory_id').references(() => productSubcategories.id),

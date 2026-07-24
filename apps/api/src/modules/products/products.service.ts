@@ -30,7 +30,7 @@ import {
   companyRelationTypes,
 } from '../../db/schema/lookup';
 import { DB } from '../../shared/database/database.module';
-import { ConflictError, NotFoundError, ValidationError } from '../../shared/utils/errors';
+import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from '../../shared/utils/errors';
 import type { AuthContext } from '../../shared/security/auth.types';
 import type {
   ProductCreateInput,
@@ -90,6 +90,7 @@ const PRODUCT_MEDIA_PATH_RE =
 
 const BASE_IMPORT_FIELD_ALIASES: Record<string, string[]> = {
   brandName: ['marka', 'brand', 'uretici', 'üretici'],
+  series: ['seri', 'urun serisi', 'ürün serisi', 'series'],
   modelCode: ['model', 'model kodu', 'modelkodu', 'urun kodu', 'ürün kodu', 'stok kodu model', 'kod'],
   modelName: ['model adi', 'model adı', 'model name'],
   fullName: ['urun adi', 'ürün adı', 'urun', 'ürün', 'product name', 'full name', 'ad', 'adi', 'adı'],
@@ -874,6 +875,7 @@ export class ProductsService {
         .values({
           tenantId: actor.tenantId,
           brandId: input.brandId,
+          series: input.series ?? null,
           productGroupId: groupId,
           categoryId: catId,
           subcategoryId: subId,
@@ -949,7 +951,7 @@ export class ProductsService {
     const alternativesProvided = input.muadilProductIds !== undefined || input.muadilProductId !== undefined;
     const alternativeIds = alternativesProvided ? this.uniqueAlternativeIds(input, id) : [];
     if (alternativesProvided) patch.muadilProductId = alternativeIds[0] ?? null;
-    for (const k of ['modelCode', 'modelName', 'fullName', 'originCountry', 'hsCode', 'stockCode', 'imageUrl', 'description'] as const) {
+    for (const k of ['series', 'modelCode', 'modelName', 'fullName', 'originCountry', 'hsCode', 'stockCode', 'imageUrl', 'description'] as const) {
       if ((input as any)[k] !== undefined) patch[k] = (input as any)[k] ?? null;
     }
     for (const k of ['listPrice', 'cashPrice', 'vatRate'] as const) {
@@ -1293,6 +1295,7 @@ export class ProductsService {
 
       const values = {
         brandId: brand.id,
+        series: normalized.series ?? null,
         productGroupId: groupId,
         categoryId: catId,
         subcategoryId: subId,
@@ -1484,6 +1487,19 @@ export class ProductsService {
   async createPriceListItem(priceListId: string, input: PriceListItemCreateInput, actor: AuthContext) {
     await this.getPriceList(priceListId, actor);
     await this.get(input.productModelId, actor);
+    const campaignTouched = input.campaignIsActive === true
+      || input.campaignPrice !== undefined
+      || input.campaignValidFrom !== undefined
+      || input.campaignValidUntil !== undefined;
+    if (campaignTouched && !actor.roles.includes('super_admin')) {
+      throw new ForbiddenError('Kampanyayı yalnız Süper Admin yönetebilir');
+    }
+    if (input.campaignIsActive && (!input.campaignPrice || input.campaignPrice <= 0)) {
+      throw new ValidationError('Aktif kampanya için geçerli bir kampanya fiyatı zorunludur', { field: 'campaignPrice' });
+    }
+    if (input.campaignValidFrom && input.campaignValidUntil && input.campaignValidUntil < input.campaignValidFrom) {
+      throw new ValidationError('Kampanya bitiş tarihi başlangıçtan önce olamaz', { field: 'campaignValidUntil' });
+    }
     const [row] = await this.db
       .insert(priceListItems)
       .values({
@@ -1517,6 +1533,23 @@ export class ProductsService {
       where: and(eq(priceListItems.id, itemId), eq(priceListItems.priceListId, priceListId), eq(priceListItems.tenantId, actor.tenantId), isNull(priceListItems.deletedAt)),
     });
     if (!existing) throw new NotFoundError('Fiyat listesi kalemi');
+    const campaignTouched = input.campaignIsActive !== undefined
+      || input.campaignPrice !== undefined
+      || input.campaignValidFrom !== undefined
+      || input.campaignValidUntil !== undefined;
+    if (campaignTouched && !actor.roles.includes('super_admin')) {
+      throw new ForbiddenError('Kampanyayı yalnız Süper Admin yönetebilir');
+    }
+    const campaignWillBeActive = input.campaignIsActive ?? existing.campaignIsActive;
+    const campaignPrice = input.campaignPrice ?? (existing.campaignPrice == null ? undefined : Number(existing.campaignPrice));
+    if (campaignWillBeActive && (!campaignPrice || campaignPrice <= 0)) {
+      throw new ValidationError('Aktif kampanya için geçerli bir kampanya fiyatı zorunludur', { field: 'campaignPrice' });
+    }
+    const campaignValidFrom = input.campaignValidFrom ?? existing.campaignValidFrom ?? undefined;
+    const campaignValidUntil = input.campaignValidUntil ?? existing.campaignValidUntil ?? undefined;
+    if (campaignValidFrom && campaignValidUntil && campaignValidUntil < campaignValidFrom) {
+      throw new ValidationError('Kampanya bitiş tarihi başlangıçtan önce olamaz', { field: 'campaignValidUntil' });
+    }
     const patch: Record<string, unknown> = {};
     if (input.productModelId !== undefined) {
       await this.get(input.productModelId, actor);
@@ -1722,6 +1755,7 @@ export class ProductsService {
     const warnings: string[] = [];
     const errors: string[] = [];
     const brandName = cellToText(raw.brandName);
+    const series = cellToText(raw.series) || undefined;
     const modelCode = cellToText(raw.modelCode);
     const modelName = cellToText(raw.modelName) || undefined;
     const rawFullName = cellToText(raw.fullName);
@@ -1767,6 +1801,7 @@ export class ProductsService {
     const candidate = {
       rowNumber: raw.rowNumber,
       brandName,
+      series,
       modelCode,
       modelName,
       fullName,

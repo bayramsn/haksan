@@ -76,14 +76,38 @@ const envSchema = z.object({
   // istemcinin X-Forwarded-For ile IP sahtekarlığı yapıp limit/lockout atlatmasını önler.
   TRUST_PROXY_HOPS: z.coerce.number().int().nonnegative().default(1),
 
-  // Sohbet gerçek-zaman (Socket.IO). Varsayılan KAPALI — Render ücretsiz planda
-  // soketler uyku/yeniden başlatmada kopar; polling fallback çalışır. VDS'te
-  // CHAT_REALTIME_ENABLED=true yapılınca anlık iletim devreye girer.
-  CHAT_REALTIME_ENABLED: envBoolean.default(false),
+  // Sohbet gerçek-zaman (Socket.IO). Varsayılan AÇIK — soket kopması durumunda
+  // istemci polling fallback'e döner; Render ücretsiz plan gibi soket dostu
+  // olmayan ortamlarda CHAT_REALTIME_ENABLED=false ile kapatılabilir.
+  CHAT_REALTIME_ENABLED: envBoolean.default(true),
+
+  // Zamanlanmış otomasyon işleri: sabah brifingi, vadesi geçen tahsilat,
+  // garanti bitişi ve cevapsız teklif hatırlatmaları. Test ortamında ve
+  // AUTOMATION_ENABLED=false iken hiçbir iş çalışmaz. E-posta özeti yalnız
+  // SMTP yapılandırılmış VE AUTOMATION_DIGEST_EMAILS=true iken gönderilir.
+  AUTOMATION_ENABLED: envBoolean.default(true),
+  AUTOMATION_TIMEZONE: z.string().default('Europe/Istanbul'),
+  AUTOMATION_STALE_QUOTE_DAYS: z.coerce.number().int().positive().max(90).default(7),
+  AUTOMATION_WARRANTY_WINDOW_DAYS: z.coerce.number().int().positive().max(365).default(30),
+  AUTOMATION_DIGEST_EMAILS: envBoolean.default(false),
+  // Virgülle ayrılmış brifing e-posta alıcıları (örn. yonetim@firma.com,satis@firma.com).
+  AUTOMATION_DIGEST_TO: envOptionalText,
 
   // Santral/VoIP çağrı webhook doğrulaması. Production'da zorunlu; dev/test'te
   // boşsa varsayılan test sırrı `dev-call-secret` kabul edilir.
   CALL_WEBHOOK_SECRET: z.string().min(8).optional(),
+
+  // WhatsApp Business (Meta Cloud API). Tümü boşsa özellik KAPALI: giden mesaj
+  // gönderilmez, gelen webhook çağrıları 200 döner ama işlenmez. Anahtar
+  // sunucuda tutulur, istemciye asla dönülmez.
+  WHATSAPP_ENABLED: envBoolean.default(false),
+  WHATSAPP_PHONE_NUMBER_ID: envOptionalText,
+  WHATSAPP_ACCESS_TOKEN: envOptionalSecret,
+  WHATSAPP_API_VERSION: z.string().default('v21.0'),
+  // Meta webhook doğrulama (GET hub.verify_token) — abonelik el sıkışması için.
+  WHATSAPP_VERIFY_TOKEN: envOptionalText,
+  // Gelen mesajların hangi tenant'a düşeceği (tek tenant kurulumda zorunlu).
+  WHATSAPP_DEFAULT_TENANT_ID: z.string().uuid().optional(),
 
   // CRM Asistanı LLM ayarları. API key sadece backend ortamında tutulur; boşsa
   // asistan CRM verilerinden deterministik yanıt üretir. NVIDIA NIM hosted API
@@ -99,6 +123,13 @@ const envSchema = z.object({
   // Kullanıcı başına GÜNLÜK kümülatif LLM token tavanı (input+output). Aşınca
   // asistan chat LLM'i atlar, deterministik cevaba düşer. 0 = sınırsız (kapalı).
   ASSISTANT_DAILY_TOKEN_BUDGET: z.coerce.number().int().nonnegative().default(50_000),
+  // Kullanıcıya özel bir tutar atanmadığında uygulanacak günlük USD maliyet tavanı.
+  // 0, varsayılan kullanıcılar için LLM'i kapatır; kullanıcı bazlı limit yine atanabilir.
+  ASSISTANT_DEFAULT_DAILY_USD_LIMIT: z.coerce.number().min(0).max(1000).default(1),
+  // Sağlayıcının/modelin sözleşme fiyatı değişebileceği için fiyatlar kodda sabitlenmez;
+  // buradaki USD / 1M token oranları bütçe muhasebesinde kullanılır.
+  ASSISTANT_INPUT_USD_PER_MILLION_TOKENS: z.coerce.number().positive().max(10_000).default(0.1),
+  ASSISTANT_OUTPUT_USD_PER_MILLION_TOKENS: z.coerce.number().positive().max(10_000).default(0.4),
 
   // Prometheus endpoint'i production'da bearer token ile korunur. Boş değer
   // yalnız private local/test ağlarında kabul edilir.
@@ -108,8 +139,13 @@ const envSchema = z.object({
   S3_PROVIDER: z.enum(['minio', 'supabase', 's3', 'r2']).default('minio'),
   S3_ENDPOINT: z.string().optional(),
   S3_REGION: z.string().default('us-east-1'),
-  S3_ACCESS_KEY_ID: z.string().min(1),
-  S3_SECRET_ACCESS_KEY: z.string().min(1),
+  // AWS S3 production uses the EC2/ECS IAM role when these are empty. MinIO
+  // and R2 require an explicit application credential pair.
+  S3_ACCESS_KEY_ID: envOptionalText,
+  S3_SECRET_ACCESS_KEY: envOptionalText,
+  // AWS bucket names are global. Logical app buckets remain in the DB and are
+  // mapped to prefixes under this account-specific physical bucket.
+  S3_BUCKET_NAME: envOptionalText,
   S3_BUCKET_PREFIX: z.string().default('erp'),
   S3_FORCE_PATH_STYLE: envBoolean.default(true),
 
@@ -144,7 +180,32 @@ const envSchema = z.object({
   SMTP_SECURE: envBoolean.default(false),
   SMTP_FROM: z.string().default('noreply@haksan.local'),
   APP_PUBLIC_URL: z.string().url().optional(),
+  // Operasyon ekibi gerektiğinde uygulama güncellemeden uyumlu bir Nominatim
+  // sağlayıcısına geçebilsin. API çağrıları yalnız backend üzerinden yapılır.
+  OSM_NOMINATIM_URL: z.string().url().default('https://nominatim.openstreetmap.org/search'),
 }).superRefine((env, ctx) => {
+  if (!!env.S3_ACCESS_KEY_ID !== !!env.S3_SECRET_ACCESS_KEY) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['S3_ACCESS_KEY_ID'],
+      message: 'S3_ACCESS_KEY_ID and S3_SECRET_ACCESS_KEY must be configured together',
+    });
+  }
+  if (env.S3_PROVIDER === 's3' && !env.S3_BUCKET_NAME) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['S3_BUCKET_NAME'],
+      message: 'S3_BUCKET_NAME must be set when S3_PROVIDER=s3',
+    });
+  }
+  if (env.S3_PROVIDER !== 's3' && env.S3_PROVIDER !== 'supabase' && (!env.S3_ACCESS_KEY_ID || !env.S3_SECRET_ACCESS_KEY)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['S3_ACCESS_KEY_ID'],
+      message: 'S3-compatible providers other than AWS require an access-key pair',
+    });
+  }
+
   if (env.ASSISTANT_LLM_PROVIDER !== 'none' && !env.ASSISTANT_API_KEY) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,

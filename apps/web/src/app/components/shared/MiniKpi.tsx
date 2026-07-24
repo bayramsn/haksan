@@ -27,13 +27,13 @@ export function MiniKpi({
       tabIndex={onClick ? 0 : undefined}
       onClick={onClick}
       onKeyDown={onClick ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onClick(); } } : undefined}
-      className={`border-border/60 shadow-sm hover:shadow-md transition-shadow overflow-hidden ${
-        onClick ? "cursor-pointer select-none" : ""
+      className={`min-w-0 border-border/80 shadow-sm overflow-hidden transition-[border-color,box-shadow,transform] ${
+        onClick ? "cursor-pointer select-none hover:-translate-y-0.5 hover:border-primary/20 hover:shadow-md" : ""
       } ${active ? "ring-2 ring-primary/30 border-primary/40" : ""}`}
     >
       <CardContent className="p-4">
         <div className="flex items-start justify-between gap-2">
-          <div className={`size-9 rounded-lg ${t.bg} ${t.ic} grid place-items-center shrink-0 ring-4 ${t.ring}`}>
+          <div className={`size-9 rounded-md ${t.bg} ${t.ic} grid place-items-center shrink-0 ring-4 ${t.ring}`}>
             {icon}
           </div>
           {delta !== undefined && (
@@ -45,10 +45,10 @@ export function MiniKpi({
             </span>
           )}
         </div>
-        <div className="mt-3 text-[11px] uppercase tracking-wider text-muted-foreground truncate">{label}</div>
-        <div className="mt-1 flex items-baseline gap-1.5">
-          <div className="text-[22px] tabular-nums tracking-tight leading-none truncate">{value}</div>
-          {sub && <div className="text-[11px] text-muted-foreground truncate">{sub}</div>}
+        <div className="mt-3 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground truncate">{label}</div>
+        <div className="mt-1 flex min-w-0 flex-wrap items-baseline gap-x-1.5 gap-y-0.5">
+          <div className="font-display min-w-0 text-[26px] font-semibold tabular-nums tracking-tight leading-none">{value}</div>
+          {sub && <div className="min-w-0 text-[10px] text-muted-foreground">{sub}</div>}
         </div>
         {progress !== undefined && (
           <div className="mt-3 h-1.5 rounded-full bg-muted overflow-hidden">
@@ -69,10 +69,10 @@ export function PayKpi({
   const t = KPI_TONES[tone];
   const positive = (delta ?? 0) >= 0;
   return (
-    <Card className="border-border/60 shadow-sm hover:shadow-md transition-shadow overflow-hidden">
+    <Card className="min-w-0 border-border/80 shadow-sm overflow-hidden">
       <CardContent className="p-4">
         <div className="flex items-start justify-between gap-2">
-          <div className={`size-9 rounded-lg ${t.bg} ${t.ic} grid place-items-center shrink-0 ring-4 ${t.ring}`}>
+          <div className={`size-9 rounded-md ${t.bg} ${t.ic} grid place-items-center shrink-0 ring-4 ${t.ring}`}>
             {icon}
           </div>
           {delta !== undefined && (
@@ -84,10 +84,10 @@ export function PayKpi({
           </span>
           )}
         </div>
-        <div className="mt-3 text-[11px] uppercase tracking-wider text-muted-foreground truncate">{label}</div>
-        <div className="mt-1 flex items-baseline gap-1.5">
-          <div className="text-[22px] tabular-nums tracking-tight leading-none truncate">{value}</div>
-          <div className="text-[11px] text-muted-foreground truncate">{sub}</div>
+        <div className="mt-3 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground truncate">{label}</div>
+        <div className="mt-1 flex min-w-0 flex-wrap items-baseline gap-x-1.5 gap-y-0.5">
+          <div className="font-display min-w-0 text-[26px] font-semibold tabular-nums tracking-tight leading-none">{value}</div>
+          <div className="min-w-0 text-[10px] text-muted-foreground">{sub}</div>
         </div>
         {progress !== undefined && (
           <div className="mt-3 h-1.5 rounded-full bg-muted overflow-hidden">

@@ -40,6 +40,8 @@ export const userUpdateSchema = z.object({
   accessScopes: z.array(userAccessScopeSchema).optional(),
   password: z.string().min(8).max(128).optional(),
   purchaseApprovalLimit: z.coerce.number().int().min(0).optional(),
+  // null = sistem varsayılanı, 0 = kullanıcı için LLM kapalı.
+  assistantDailyUsdLimit: z.coerce.number().min(0).max(1000).multipleOf(0.01).nullable().optional(),
   managerId: z.string().uuid().nullable().optional(),
 });
 export type UserUpdateInput = z.infer<typeof userUpdateSchema>;

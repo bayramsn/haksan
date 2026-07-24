@@ -2,7 +2,7 @@ import type { Customer, Offer, Payment, Product, SalesCase, ProductSpec } from "
 import { quoteService } from "../../../lib/services";
 import { specsForProductTypeStrict } from "../productSpecTemplates";
 import { trShortDate } from "./core";
-import type { ContractPrintData } from "./templates";
+import type { ContractMachinePrintData, ContractPrintData } from "./templates";
 
 // Tezgahın tam teknik özellik listesi (birim değere gömülür) — sözleşme eksik
 // değil bütün özellikleri basar.
@@ -79,34 +79,129 @@ const inferControlUnitBrand = (
   return source.match(/MITSUBISHI|FANUC|SIEMENS|HEIDENHAIN|SYNTEC/i)?.[0]?.toUpperCase();
 };
 
+const recordValue = (record: any, ...keys: string[]) => {
+  for (const key of keys) if (record?.[key] !== undefined && record?.[key] !== null) return record[key];
+  return undefined;
+};
+
+const lineGroupKey = (item: any): string => {
+  const compatibility = recordValue(item, "compatibility") as { lineGroupKey?: unknown } | undefined;
+  return typeof compatibility?.lineGroupKey === "string" ? compatibility.lineGroupKey.trim() : "";
+};
+
+const groupContractItems = (items: any[]) => {
+  let currentLineGroupKey = "";
+  return items.map((item, index) => {
+    const description = String(recordValue(item, "description") ?? "").trim();
+    const isOption = description.startsWith("↳ Opsiyon:");
+    const storedLineGroupKey = lineGroupKey(item);
+    if (!isOption) currentLineGroupKey = storedLineGroupKey || `legacy-line-${index + 1}`;
+    return {
+      item,
+      isOption,
+      lineGroupKey: storedLineGroupKey || currentLineGroupKey || `legacy-line-${index + 1}`,
+    };
+  });
+};
+
+const rowNetTotal = (item: any): number => {
+  const quantity = asNumber(recordValue(item, "quantity") ?? 1);
+  const unitPrice = asNumber(recordValue(item, "unitPrice", "unit_price"));
+  const discountAmount = asNumber(recordValue(item, "discountAmount", "discount_amount"));
+  return Math.max(0, asNumber(recordValue(item, "lineTotal", "line_total") ?? quantity * unitPrice - discountAmount));
+};
+
+const quoteHeaderRatio = (quote: any, items: any[]): number => {
+  const lineDiscount = items.reduce(
+    (sum, item) => sum + asNumber(recordValue(item, "discountAmount", "discount_amount")),
+    0,
+  );
+  const headerDiscount = Math.max(
+    asNumber(recordValue(quote, "discountTotal", "discount_total")) - lineDiscount,
+    0,
+  );
+  const beforeHeader = items.reduce((sum, item) => sum + rowNetTotal(item), 0);
+  return beforeHeader > 0 ? Math.max(0, beforeHeader - headerDiscount) / beforeHeader : 1;
+};
+
+const productEquivalents = (product: Product | undefined, products: Product[]) =>
+  (product?.muadilProductIds ?? [])
+    .map((id) => products.find((candidate) => candidate.id === id))
+    .filter((candidate): candidate is Product => Boolean(candidate))
+    .map((candidate) => [candidate.brand, candidate.model].filter(Boolean).join(" ") || candidate.shortDescription)
+    .filter(Boolean);
+
+const reconcileMachinePrices = (machines: ContractMachinePrintData[], expectedTotal: number) => {
+  if (!machines.length) return machines;
+  const actualTotal = machines.reduce((sum, machine) => sum + machine.fiyat, 0);
+  const difference = expectedTotal - actualTotal;
+  if (Math.abs(difference) <= 0.0001) return machines;
+  return machines.map((machine, index) => index === machines.length - 1
+    ? { ...machine, fiyat: Math.max(0, machine.fiyat + difference) }
+    : machine);
+};
+
+const buildContractMachines = (
+  items: any[],
+  products: Product[],
+  quote: any,
+): ContractMachinePrintData[] => {
+  const grouped = groupContractItems(items);
+  const headerRatio = quoteHeaderRatio(quote, items);
+  const primaryRows = grouped.filter((row) => !row.isOption);
+  const machines = primaryRows.map((row) => {
+    const productModelId = String(recordValue(row.item, "productModelId", "product_model_id") ?? "");
+    const product = products.find((candidate) => candidate.id === productModelId);
+    const compatibility = recordValue(row.item, "compatibility") as { technicalSpecs?: any[] } | undefined;
+    const snapshotSpecs = (compatibility?.technicalSpecs ?? []).map((spec: any) => ({
+      key: String(recordValue(spec, "key", "specKey", "spec_key") ?? ""),
+      value: [
+        recordValue(spec, "value", "specValue", "spec_value"),
+        recordValue(spec, "unit", "specUnit", "spec_unit"),
+      ].filter(Boolean).join(" "),
+    })).filter((spec: { key: string }) => spec.key);
+    const specs = snapshotSpecs.length ? snapshotSpecs : contractSpecs(product);
+    const options = grouped.filter((candidate) => candidate.isOption && candidate.lineGroupKey === row.lineGroupKey);
+    const accessories = [
+      ...(product?.standardEquipment ?? []),
+      ...options.map((option) => String(recordValue(option.item, "description") ?? "").trim())
+        .filter(Boolean)
+        .map((description) => description.replace(/^↳\s*Opsiyon:\s*/, "")),
+    ];
+    const priceBeforeHeader = rowNetTotal(row.item) + options.reduce((sum, option) => sum + rowNetTotal(option.item), 0);
+    const warrantyTerms = recordValue(quote, "warrantyTerms", "warranty_terms");
+    return {
+      model: String(recordValue(row.item, "description") ?? product?.shortDescription ?? "").trim(),
+      adet: asNumber(recordValue(row.item, "quantity")) || 1,
+      ozellikler: specs,
+      aksesuarlar: accessories,
+      muadiller: productEquivalents(product, products),
+      fiyat: priceBeforeHeader * headerRatio,
+      kontrolUnitesiMarka: inferControlUnitBrand(specs, warrantyTerms),
+    };
+  });
+  return reconcileMachinePrices(machines, contractNetPrice(quote));
+};
+
 export async function loadContractPrintData(input: ContractBuildInput): Promise<ContractPrintData> {
   const { customer, salesCase, offer, products, payments, contractDate, contractNo, documentSnapshot } = input;
   if (documentSnapshot) {
-    const value = (record: any, ...keys: string[]) => {
-      for (const key of keys) if (record?.[key] !== undefined && record?.[key] !== null) return record[key];
-      return undefined;
-    };
+    const value = recordValue;
     const quote = documentSnapshot.quote ?? {};
     const company = documentSnapshot.company ?? {};
     const contact = documentSnapshot.contact ?? {};
     const address = (documentSnapshot.companyAddresses ?? [])[0] ?? {};
     const phones = Array.isArray(documentSnapshot.companyPhones) ? documentSnapshot.companyPhones : [];
     const items = Array.isArray(documentSnapshot.items) ? documentSnapshot.items : [];
-    const primaryItems = items.filter((item: any) => !String(value(item, "description") ?? "").trimStart().startsWith("↳ Opsiyon:"));
-    const mainItem = primaryItems[0] ?? {};
-    const product = products.find((item) => item.id === value(mainItem, "productModelId", "product_model_id"));
-    const technicalSpecs = (value(mainItem, "compatibility") as { technicalSpecs?: any[] } | undefined)?.technicalSpecs ?? [];
+    const machines = buildContractMachines(items, products, quote);
+    const mainMachine = machines[0];
     const terms = documentSnapshot.terms ?? {};
     const currency = String(value(documentSnapshot.currency, "code") ?? "USD") as ContractPrintData["currency"];
     const fullAddress = String(value(address, "fullAddress", "full_address") ?? [
       value(address, "street"), value(address, "buildingNumber", "building_number"), value(address, "district"), value(address, "province"), value(address, "country"),
     ].filter(Boolean).join(" "));
     const receivables = Array.isArray(documentSnapshot.receivables) ? documentSnapshot.receivables : [];
-    const snapshotSpecs = technicalSpecs.map((spec: any) => ({
-      key: String(value(spec, "key", "specKey", "spec_key") ?? ""),
-      value: [value(spec, "value", "specValue", "spec_value"), value(spec, "unit", "specUnit", "spec_unit")].filter(Boolean).join(" "),
-    })).filter((spec: { key: string }) => spec.key);
-    const mappedSpecs = snapshotSpecs.length ? snapshotSpecs : contractSpecs(product);
+    const mappedSpecs = mainMachine?.ozellikler ?? [];
     const deliveryTerms = value(terms, "deliveryTermsText", "delivery_terms_text") ?? value(quote, "deliveryTerms", "delivery_terms");
     const warrantyTerms = value(terms, "warrantyTermsText", "warranty_terms_text") ?? value(quote, "warrantyTerms", "warranty_terms");
     const companyPhone = phones.find((phone: any) => !/fax/i.test(String(value(phone, "phoneType", "phone_type") ?? ""))) ?? phones[0];
@@ -123,16 +218,11 @@ export async function loadContractPrintData(input: ContractBuildInput): Promise<
       },
       sozlesmeNo: contractNo,
       sozlesmeTarihi: contractDate,
-      model: primaryItems.map((item: any) => String(value(item, "description") ?? "").trim()).filter(Boolean).join(" / "),
-      adet: primaryItems.reduce((sum: number, item: any) => sum + asNumber(value(item, "quantity")), 0) || 1,
+      model: machines.map((machine) => machine.model).filter(Boolean).join(" / "),
+      adet: machines.reduce((sum, machine) => sum + machine.adet, 0) || 1,
       ozellikler: mappedSpecs,
-      aksesuarlar: [
-        ...(product?.standardEquipment ?? []),
-        ...items.map((item: any) => String(value(item, "description") ?? "").trim())
-          .filter((description: string) => description.startsWith("↳ Opsiyon:"))
-          .map((description: string) => description.replace(/^↳\s*Opsiyon:\s*/, "")),
-      ],
-      muadiller: [],
+      aksesuarlar: mainMachine?.aksesuarlar ?? [],
+      muadiller: mainMachine?.muadiller ?? [],
       fiyat: contractNetPrice(quote),
       currency,
       teslimAyi: inferredDeliveryMonth(
@@ -158,7 +248,9 @@ export async function loadContractPrintData(input: ContractBuildInput): Promise<
         tutar: asNumber(value(receivable, "amount")),
         senet: /senet/i.test(String(value(receivable, "notes") ?? "")),
       })),
-      kontrolUnitesiMarka: inferControlUnitBrand(mappedSpecs, warrantyTerms),
+      kontrolUnitesiMarka: [...new Set(machines.map((machine) => machine.kontrolUnitesiMarka).filter(Boolean))].join(" / ")
+        || inferControlUnitBrand(mappedSpecs, warrantyTerms),
+      machines,
     };
   }
   if (!offer) throw new Error("Sözleşme için ilişkili teklif bulunamadı.");
@@ -166,23 +258,21 @@ export async function loadContractPrintData(input: ContractBuildInput): Promise<
   const quoteItems = (quote?.items ?? []).filter((item: { description?: string | null }) =>
     String(item.description ?? "").trim(),
   );
+  const machines = buildContractMachines(quoteItems, products, quote);
+  const mainMachine = machines[0];
   const primaryItems = quoteItems.filter((item: { description?: string | null }) =>
     !String(item.description ?? "").trimStart().startsWith("↳ Opsiyon:"),
   );
   const mainItem = primaryItems[0];
-  const selectedOptions = quoteItems
-    .map((item: { description?: string | null }) => String(item.description ?? "").trim())
-    .filter((description: string) => description.startsWith("↳ Opsiyon:"))
-    .map((description: string) => description.replace(/^↳\s*Opsiyon:\s*/, ""));
   const product = products.find((item) => item.id === mainItem?.productModelId) ?? products.find(
     (item) => item.model && salesCase.requestedModel &&
       (salesCase.requestedModel.includes(item.model) || item.model.includes(salesCase.requestedModel)),
   );
-  const model = primaryItems.length
-    ? primaryItems.map((item: { description?: string | null }) => String(item.description ?? "").trim()).join(" / ")
+  const model = machines.length
+    ? machines.map((machine) => machine.model).join(" / ")
     : product?.shortDescription || [salesCase.requestedProduct, salesCase.requestedModel].filter(Boolean).join(" ");
-  const quantity = primaryItems.length
-    ? primaryItems.reduce((sum: number, item: { quantity?: unknown }) => sum + asNumber(item.quantity), 0)
+  const quantity = machines.length
+    ? machines.reduce((sum, machine) => sum + machine.adet, 0)
     : salesCase.quantity || 1;
   const subtotal = asNumber(quote?.subtotal ?? offer?.subtotal ?? salesCase.estimatedAmount);
   const vatRates = quoteItems.map((item: { vatRate?: unknown }) => asNumber(item.vatRate));
@@ -193,15 +283,14 @@ export async function loadContractPrintData(input: ContractBuildInput): Promise<
   const terms = quote?.terms ?? {};
   const deliveryTerms = terms.deliveryTermsText ?? quote?.deliveryTerms ?? undefined;
   const warrantyTerms = terms.warrantyTermsText ?? quote?.warrantyTerms ?? undefined;
-  const address = customer ? [customer.address, customer.district, customer.city].filter(Boolean).join(" ") : "";
-  // Ürünün muadil (eşdeğer) ürünleri — sözleşmede ayrı madde olarak listelenir.
-  const muadiller = (product?.muadilProductIds ?? [])
-    .map((id) => products.find((p) => p.id === id))
-    .filter((p): p is Product => Boolean(p))
-    .map((p) => [p.brand, p.model].filter(Boolean).join(" ") || p.shortDescription)
-    .filter(Boolean);
-
-  const specs = contractSpecs(product);
+  const pdfAddress = customer?.addresses?.find((address) => address.id === quote?.companyAddressId)
+    ?? customer?.addresses?.find((address) => address.isBilling)
+    ?? customer?.addresses?.find((address) => address.isDefault)
+    ?? customer?.addresses?.[0];
+  const address = pdfAddress
+    ? [pdfAddress.address, pdfAddress.district, pdfAddress.city, pdfAddress.country].filter(Boolean).join(" ")
+    : customer ? [customer.address, customer.district, customer.city, customer.country].filter(Boolean).join(" ") : "";
+  const specs = mainMachine?.ozellikler ?? contractSpecs(product);
   return {
     alici: {
       unvan: customer?.name ?? "",
@@ -217,8 +306,8 @@ export async function loadContractPrintData(input: ContractBuildInput): Promise<
     model,
     adet: quantity,
     ozellikler: specs,
-    aksesuarlar: [...(product?.standardEquipment ?? []), ...selectedOptions],
-    muadiller,
+    aksesuarlar: mainMachine?.aksesuarlar ?? product?.standardEquipment ?? [],
+    muadiller: mainMachine?.muadiller ?? productEquivalents(product, products),
     fiyat: contractNetPrice(quote, subtotal),
     currency: offer?.currency ?? salesCase.currency,
     teslimAyi: inferredDeliveryMonth(contractDate, terms.estimatedDeliveryDaysMin, terms.estimatedDeliveryDaysMax),
@@ -235,6 +324,8 @@ export async function loadContractPrintData(input: ContractBuildInput): Promise<
       tutar: payment.amount,
       senet: /senet/i.test(payment.note ?? ""),
     })),
-    kontrolUnitesiMarka: inferControlUnitBrand(specs, warrantyTerms),
+    kontrolUnitesiMarka: [...new Set(machines.map((machine) => machine.kontrolUnitesiMarka).filter(Boolean))].join(" / ")
+      || inferControlUnitBrand(specs, warrantyTerms),
+    machines,
   };
 }

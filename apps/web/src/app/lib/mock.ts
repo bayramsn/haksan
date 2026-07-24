@@ -17,10 +17,11 @@ export type User = {
   active: boolean;
   avatarUrl?: string;
   purchaseApprovalLimit?: number;
+  assistantDailyUsdLimit?: number | null;
   managerId?: string;
 };
 
-export type FirmType = "customer" | "supplier_customer" | "supplier";
+export type FirmType = "customer" | "supplier_customer" | "supplier" | "competitor";
 export type CustomerSalesStatus = "potential" | "active_customer";
 
 export type CompanyAddress = {
@@ -34,6 +35,8 @@ export type CompanyAddress = {
   longitude?: number;
   locationSource?: string;
   isDefault?: boolean;
+  isShipping?: boolean;
+  isBilling?: boolean;
 };
 
 export type Customer = {
@@ -50,6 +53,8 @@ export type Customer = {
   companyGroupNames?: string[];
   contactSourceCode?: string;
   sector?: string;
+  /** Tedarikçinin sevkiyat rolü; yalnızca tedarikçi ilişkili firmalarda kullanılır. */
+  supplierCategoryCode?: "transportation" | "logistics";
   name: string;
   contactPerson: string;
   phone: string;
@@ -192,6 +197,25 @@ export const SALES_STAGE_LABELS: Record<SalesStage, string> = {
 
 export const salesStageLabel = (stage: string) => SALES_STAGE_LABELS[stage as SalesStage] ?? stage;
 
+export type OpportunityPaymentMethod =
+  | "undecided"
+  | "cash"
+  | "term"
+  | "installment"
+  | "leasing"
+  | "letter_of_credit"
+  | "cheque";
+
+export const OPPORTUNITY_PAYMENT_METHOD_LABELS: Record<OpportunityPaymentMethod, string> = {
+  undecided: "Belirlenecek",
+  cash: "Peşin",
+  term: "Vadeli",
+  installment: "Taksitli",
+  leasing: "Leasing",
+  letter_of_credit: "Akreditif",
+  cheque: "Çek / Senet",
+};
+
 export type SalesCase = {
   id: string;
   customerId: string;
@@ -205,6 +229,8 @@ export type SalesCase = {
   stage: SalesStage;
   /** Makine satışında ödeme vadesi (gün); sözleşme/ödeme planı varsayılanı. */
   paymentTermDays?: number;
+  /** Lead aşamasında seçilen ticari ödeme yöntemi. */
+  paymentMethod?: OpportunityPaymentMethod;
   isOfferPrepared: boolean;
   isLost: boolean;
   lostReason?: string;
@@ -231,11 +257,14 @@ export type Offer = {
   id: string;
   salesCaseId: string;
   companyId?: string;
+  companyAddressId?: string;
   divisionId?: string;
   divisionCode?: string;
   divisionName?: string;
   businessLine?: "CNC" | "UNI" | "SACISLE";
   quoteNo: string;
+  /** Teklifin ilk ana kalemindeki ürün kartı adı. */
+  productName?: string;
   revision: number;
   date: string;
   validityDays?: number;
@@ -245,8 +274,20 @@ export type Offer = {
   /** Hesaplanan KDV tutarı. */
   vatTotal?: number;
   currency: "USD" | "EUR" | "TRY";
-  status: "Draft" | "Sent" | "Approved" | "Rejected" | "Pending Approval";
+  status:
+    | "Draft"
+    | "Sent"
+    | "Approved"
+    | "Rejected"
+    | "Pending Approval"
+    | "Cancelled"
+    | "Price Waiting"
+    | "Budget Waiting"
+    | "On Hold"
+    | "Postponed";
   priceApprovalStatus?: 'not_required' | 'pending' | 'approved' | 'rejected';
+  followUpAt?: string;
+  statusNote?: string;
   note: string;
 };
 
@@ -340,6 +381,7 @@ export type ProductAlternative = {
 export type Product = {
   id: string;
   brand: string;
+  series?: string;
   productGroup?: string;
   productGroupCode?: string;
   model: string;
@@ -695,6 +737,7 @@ export const SHIPMENT_STATUSES: ShipmentStatus[] = ["Hazırlanıyor", "Yolda", "
 export type Shipment = {
   id: string;
   salesCaseId: string;
+  direction: "incoming" | "outgoing";
   senderCompanyId?: string;
   senderCompanyName?: string;
   /** Kayıtlı olmayan gönderici için elle girilen serbest-metin ad. */
@@ -721,6 +764,8 @@ export type Shipment = {
     description: string;
     serialNumber?: string;
     quantity?: number;
+    packageQuantity?: number;
+    packageUnitCode?: string;
     packageCount?: number;
     palletCount?: number;
     packageLengthCm?: number;

@@ -26,6 +26,7 @@ import { S3Client, CreateBucketCommand } from '@aws-sdk/client-s3';
 import { ALLOWED_MIME_TYPES, ALLOWED_FILE_EXTENSIONS } from '@haksan/shared';
 import { getDb, schema, closeDb } from '../client';
 import { S3StorageProvider } from '../../shared/storage/s3-storage.provider';
+import { buildS3ClientConfig } from '../../shared/storage/s3-client-config';
 import { buildObjectKey, sanitizeFilename } from '../../shared/storage/object-key';
 import { loadEnv } from '../../config/env';
 
@@ -98,15 +99,11 @@ async function validateBlob(
 export async function importHaksanCnc(): Promise<void> {
   const db = getDb();
   const storage = new S3StorageProvider();
-  const s3 = new S3Client({
-    region: env.S3_REGION,
-    endpoint: env.S3_ENDPOINT,
-    forcePathStyle: env.S3_FORCE_PATH_STYLE,
-    credentials: { accessKeyId: env.S3_ACCESS_KEY_ID, secretAccessKey: env.S3_SECRET_ACCESS_KEY },
-  });
+  const s3 = new S3Client(buildS3ClientConfig(env));
 
-  await ensureBucket(s3, IMAGE_BUCKET);
-  await ensureBucket(s3, DOC_BUCKET);
+  for (const bucket of new Set(env.S3_PROVIDER === 's3' ? [env.S3_BUCKET_NAME!] : [IMAGE_BUCKET, DOC_BUCKET])) {
+    await ensureBucket(s3, bucket);
+  }
 
   const tenant = await db.query.tenants.findFirst({ where: eq(schema.tenants.slug, 'haksan') });
   if (!tenant) throw new Error('Tenant (slug=haksan) bulunamadı. Önce db:bootstrap veya db:seed:demo çalıştırın.');
@@ -117,7 +114,7 @@ export async function importHaksanCnc(): Promise<void> {
   });
   const uploadedBy = adminUser?.id ?? null;
 
-  const provider = await db.query.storageProviders.findFirst({ where: eq(schema.storageProviders.code, 'minio') });
+  const provider = await db.query.storageProviders.findFirst({ where: eq(schema.storageProviders.code, storage.providerCode) });
   const storageProviderId = provider?.id ?? null;
 
   // Lookups shared across all rows.

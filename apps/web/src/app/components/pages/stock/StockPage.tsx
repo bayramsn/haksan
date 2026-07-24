@@ -10,6 +10,7 @@ import { StatusBadge } from "../../Layout";
 import { CreateStockDialog } from "../../dialogs/CreateDialogs";
 import { MiniKpi } from "../../shared/MiniKpi";
 import { EmptyState } from "../../shared/EmptyState";
+import { EntityVisual } from "../../shared/PremiumPrimitives";
 import { useStore } from "../../../lib/store";
 import { toast } from "sonner";
 import { ExportExcelButton } from "../../ui/ExportExcelButton";
@@ -22,10 +23,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from ".
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger,
 } from "../../ui/dropdown-menu";
-import {
-  ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid,
-  PieChart, Pie, Cell, Legend,
-} from "recharts";
+import { ResponsiveContainer, Tooltip, PieChart, Pie, Cell, Legend } from "recharts";
 import {
   STOCK_CATEGORY_CODES,
   STOCK_CATEGORY_LABELS,
@@ -251,8 +249,8 @@ export function StockPage({ focus, initialQuery }: { focus?: OperationFocus; ini
   };
 
   return (
-    <div className="space-y-5">
-      <Tabs value={categoryTab} onValueChange={(v) => setCategoryTab(v as typeof categoryTab)}>
+    <div className="flex flex-col gap-5">
+      <Tabs className="order-1" value={categoryTab} onValueChange={(v) => setCategoryTab(v as typeof categoryTab)}>
         <TabsList className="h-9 bg-muted/60">
           <TabsTrigger value="all" className="text-xs">Tüm Stok</TabsTrigger>
           {STOCK_CATEGORY_CODES.map((code) => {
@@ -267,29 +265,34 @@ export function StockPage({ focus, initialQuery }: { focus?: OperationFocus; ini
         </TabsList>
       </Tabs>
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+      <div className="order-2 grid grid-cols-2 lg:grid-cols-4 gap-3">
         <MiniKpi tone="emerald" icon={<Package className="size-[18px]" />} label="Hazır Stok" value={counts.Available} sub="adet" delta={5} onClick={() => setTab("Available")} active={tab === "Available"} />
         <MiniKpi tone="amber" icon={<Clock className="size-[18px]" />} label="Rezerve" value={counts.Reserved} sub="bekleyen sipariş" delta={2} onClick={() => setTab("Reserved")} active={tab === "Reserved"} />
         <MiniKpi tone="violet" icon={<CheckCircle2 className="size-[18px]" />} label="Satılan" value={counts.Sold} sub="bu çeyrek" delta={9} onClick={() => setTab("Sold")} active={tab === "Sold"} />
         <MiniKpi tone="red" icon={<AlertTriangle className="size-[18px]" />} label="Pasif" value={counts.Inactive} sub="kullanım dışı" delta={0} onClick={() => setTab("Inactive")} active={tab === "Inactive"} />
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+      <div className="order-4 grid grid-cols-1 lg:grid-cols-3 gap-4">
         <Card className="lg:col-span-2 border-border/60 shadow-sm">
           <CardHeader className="pb-2">
             <CardTitle className="tracking-tight">Depo Bazında Stok</CardTitle>
             <p className="text-xs text-muted-foreground">Toplam {scopedStock.length} kalem</p>
           </CardHeader>
-          <CardContent className="h-56 pl-2">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={warehouses} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#eef0f3" vertical={false} />
-                <XAxis dataKey="name" stroke="#9ca3af" fontSize={11} tickLine={false} axisLine={false} />
-                <YAxis stroke="#9ca3af" fontSize={11} tickLine={false} axisLine={false} allowDecimals={false} />
-                <Tooltip contentStyle={{ borderRadius: 8, border: "1px solid #e5e7eb", fontSize: 12 }} />
-                <Bar dataKey="count" name="Kalem" fill="var(--brand-blue)" barSize={32} isAnimationActive={false} />
-              </BarChart>
-            </ResponsiveContainer>
+          <CardContent className="grid gap-2 pb-4 sm:grid-cols-2">
+            {warehouses.map((warehouse) => {
+              const maxCount = Math.max(1, ...warehouses.map((item) => item.count));
+              const occupied = Math.max(1, Math.round((warehouse.count / maxCount) * 12));
+              return (
+                <div key={warehouse.name} className="rounded-lg border border-border/60 bg-muted/15 p-3">
+                  <div className="flex items-center justify-between gap-2"><span className="truncate text-xs font-semibold">{warehouse.name || "Depo belirtilmemiş"}</span><Badge variant="outline" className="bg-white font-data text-[10px]">{warehouse.count} kalem</Badge></div>
+                  <div className="mt-3 grid grid-cols-6 gap-1" aria-label={`${warehouse.name} raf yoğunluğu`}>
+                    {Array.from({ length: 12 }, (_, index) => <span key={index} className={`h-4 rounded-sm border ${index < occupied ? index > 8 ? "border-warning/20 bg-warning/70" : "border-primary/10 bg-operation-blue/75" : "border-border/60 bg-white"}`} />)}
+                  </div>
+                  <div className="mt-2 flex justify-between text-[9px] uppercase tracking-wide text-muted-foreground"><span>Raf yoğunluğu</span><span>%{Math.round((warehouse.count / maxCount) * 100)}</span></div>
+                </div>
+              );
+            })}
+            {warehouses.length === 0 && <div className="col-span-full py-6 text-center text-xs text-muted-foreground">Depo dağılımı için stok kaydı bekleniyor.</div>}
           </CardContent>
         </Card>
 
@@ -298,7 +301,7 @@ export function StockPage({ focus, initialQuery }: { focus?: OperationFocus; ini
             <CardTitle className="tracking-tight">Marka Dağılımı</CardTitle>
             <p className="text-xs text-muted-foreground">Aktif kalemler</p>
           </CardHeader>
-          <CardContent className="h-56">
+          <CardContent className="h-48">
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
                 <Pie data={brandPie} dataKey="value" nameKey="name" outerRadius={70} innerRadius={42} paddingAngle={2} isAnimationActive={false}>
@@ -314,7 +317,7 @@ export function StockPage({ focus, initialQuery }: { focus?: OperationFocus; ini
         </Card>
       </div>
 
-      <Card className="border-border/60 shadow-sm overflow-hidden">
+      <Card className="order-3 border-warning/20 bg-gradient-to-br from-warning-soft/45 via-white to-white shadow-sm overflow-hidden">
         <CardHeader className="flex flex-row items-center justify-between gap-3 pb-3">
           <div>
             <CardTitle className="tracking-tight flex items-center gap-2">
@@ -345,9 +348,12 @@ export function StockPage({ focus, initialQuery }: { focus?: OperationFocus; ini
                     className="text-left rounded-lg border border-border/70 bg-white p-3 transition-colors hover:border-primary/40 hover:bg-muted/30"
                   >
                     <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0">
+                      <div className="flex min-w-0 items-center gap-2.5">
+                        <EntityVisual size="sm" title={row.product.model || row.product.shortDescription || "Tezgah"} imageUrl={row.product.imageUrl} icon={<Package className="size-4" />} />
+                        <div className="min-w-0">
                         <div className="truncate text-sm font-medium">{[row.product.brand, row.product.model].filter(Boolean).join(" ") || row.product.shortDescription || "Tezgah"}</div>
                         <div className="truncate text-[11px] text-muted-foreground">{row.product.type || row.product.modelName || "Tezgah"}</div>
+                        </div>
                       </div>
                       <Badge className={out ? "bg-brand-red-soft text-brand-red hover:bg-brand-red-soft" : "bg-warning-soft text-warning hover:bg-warning-soft"}>
                         {out ? "Tükendi" : "Düşük"}
@@ -366,7 +372,7 @@ export function StockPage({ focus, initialQuery }: { focus?: OperationFocus; ini
         </CardContent>
       </Card>
 
-      <Card className="border-border/60 shadow-sm overflow-hidden">
+      <Card className="order-5 border-border/60 shadow-sm overflow-hidden">
         <CardHeader className="flex flex-row items-center justify-between gap-3 flex-wrap pb-3">
           <div className="flex items-center gap-2 flex-wrap">
             <CardTitle className="tracking-tight mr-2">Stok Kalemleri</CardTitle>
@@ -438,10 +444,8 @@ export function StockPage({ focus, initialQuery }: { focus?: OperationFocus; ini
                           <ChevronDown className={`size-4 transition-transform ${isExpanded ? "" : "-rotate-90"}`} />
                         </Button>
                       )}
-                      <div className="size-8 rounded-md bg-gradient-to-br from-primary/15 to-primary/5 text-primary grid place-items-center shrink-0">
-                        <Package className="size-4" />
-                      </div>
-                      <div className="text-sm">{s.stockCode || s.counterModel || "—"}</div>
+                      <EntityVisual size="sm" className="size-9" title={s.counterModel || s.stockCode || "Stok kalemi"} imageUrl={product?.imageUrl} icon={<Package className="size-4" />} />
+                      <div className="min-w-0"><div className="text-sm font-medium">{s.stockCode || s.counterModel || "—"}</div><div className="mt-0.5 max-w-32 truncate text-[10px] text-muted-foreground">{s.counterModel}</div></div>
                     </div>
                   </TableCell>
                   <TableCell className="text-sm tabular-nums">{s.serialNumber}</TableCell>
@@ -539,7 +543,7 @@ export function StockPage({ focus, initialQuery }: { focus?: OperationFocus; ini
                 <TableRow>
                   <TableCell colSpan={15} className="py-4">
                     <EmptyState
-                      icon={<Package className="size-6" />}
+                      scene="search"
                       title="Kayıt bulunamadı"
                       description="Arama terimini veya durum/kategori sekmelerini değiştirerek tekrar deneyin."
                     />

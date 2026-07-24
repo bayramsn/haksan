@@ -1,4 +1,4 @@
-import { date, index, integer, jsonb, pgTable, text, timestamp, uniqueIndex, uuid, varchar } from 'drizzle-orm/pg-core';
+import { bigint, date, index, integer, jsonb, pgTable, text, timestamp, uniqueIndex, uuid, varchar } from 'drizzle-orm/pg-core';
 import { companies, contacts } from './companies';
 import { divisions, tenants } from './tenants';
 import { users } from './users';
@@ -43,6 +43,8 @@ export const assistantDailyTokenBudgets = pgTable(
       .references(() => users.id, { onDelete: 'cascade' }),
     usageDate: date('usage_date').notNull(),
     reservedTokens: integer('reserved_tokens').notNull().default(0),
+    // Mikro-dolar (1 USD = 1.000.000). Token fiyatlarındaki alt-cent hassasiyetini korur.
+    reservedCostMicros: bigint('reserved_cost_micros', { mode: 'number' }).notNull().default(0),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true })
       .notNull()

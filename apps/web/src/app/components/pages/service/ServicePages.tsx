@@ -8,8 +8,12 @@ import { Textarea } from "../../ui/textarea";
 import { Checkbox } from "../../ui/checkbox";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "../../ui/tabs";
 import {
-  Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle,
+  Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from "../../ui/dialog";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
+  AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "../../ui/alert-dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../../ui/table";
 import { Avatar, AvatarFallback, AvatarImage } from "../../ui/avatar";
@@ -48,6 +52,7 @@ import { fileService, inventoryService, serviceService } from "../../../../lib/s
 import { exportService } from "../../../../lib/downloadExport";
 import { ExportExcelButton } from "../../ui/ExportExcelButton";
 import { KanbanDetailDialogShell } from "../../shared/KanbanDetailDialogShell";
+import { EntityVisual, InsightStat, RecordIdentity } from "../../shared/PremiumPrimitives";
 import type { OperationFocus } from "../../../lib/operations";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
@@ -58,8 +63,9 @@ import {
 import { printOrWarn, openInMaps, warrantyInfo, type WarrantyState } from "../../../lib/pageHelpers";
 import {
   Plus, Printer, MapPin, Wrench, Building2, Lock, Play, Pause, Square, MessageSquare,
-  ShieldCheck, Send, Check, X, Package, ClipboardCheck, Inbox, Link2, Copy, ExternalLink,
+  ShieldCheck, Send, Check, CheckCircle2, X, Package, ClipboardCheck, Inbox, Link2, Copy, ExternalLink,
   PhoneCall, Trash2, ArrowRight, FileCheck2, History, FileText, Save, BookmarkPlus,
+  AlertTriangle, Clock3, UserRoundCheck, Workflow, Share2, Download,
 } from "lucide-react";
 
 const SERVICE_CURRENCIES = ["USD", "EUR", "TRY"] as const;
@@ -307,6 +313,49 @@ const serviceAgeDays = (s: ServiceRequest) => {
   return Math.max(0, Math.floor((Date.now() - time) / (24 * 60 * 60 * 1000)));
 };
 
+const SERVICE_SLA_DAYS: Record<NonNullable<ServiceRequest["priority"]>, number> = {
+  critical: 1,
+  high: 2,
+  normal: 7,
+  low: 14,
+};
+
+const SERVICE_NEXT_ACTION: Record<ServiceStage, string> = {
+  "Request Opened": "İlk değerlendirme",
+  Diagnosis: "Arıza teşhisi",
+  "Quote Needed": "Teklif hazırla",
+  "Quote Sent": "Müşteri takibi",
+  Approval: "Onay kararı",
+  Scheduled: "Saha planını başlat",
+  "Service In Progress": "İşi ve süreyi kaydet",
+  "Service Completed": "Tamamlama formu",
+  "Signed Form": "Kaydı kapat",
+  Closed: "Arşiv kaydı",
+};
+
+const serviceSlaInfo = (serviceRequest: ServiceRequest) => {
+  if (serviceRequest.stage === "Closed") return { label: "Kapandı", tone: "text-muted-foreground", overdue: false };
+  const target = SERVICE_SLA_DAYS[serviceRequest.priority ?? "normal"];
+  const remaining = target - serviceAgeDays(serviceRequest);
+  if (remaining < 0) return { label: `${Math.abs(remaining)}g aşıldı`, tone: "text-destructive", overdue: true };
+  if (remaining === 0) return { label: "Bugün", tone: "text-warning", overdue: false };
+  return { label: `${remaining}g kaldı`, tone: "text-success", overdue: false };
+};
+
+const SERVICE_PRIORITY_LABELS: Record<NonNullable<ServiceRequest["priority"]>, string> = {
+  critical: "Kritik",
+  high: "Yüksek",
+  normal: "Normal",
+  low: "Düşük",
+};
+
+const SERVICE_PRIORITY_CLASS: Record<NonNullable<ServiceRequest["priority"]>, string> = {
+  critical: "border-destructive/30 bg-destructive/5 text-destructive",
+  high: "border-warning/30 bg-warning/5 text-warning",
+  normal: "border-info/25 bg-info/5 text-info",
+  low: "border-border/70 bg-muted/30 text-muted-foreground",
+};
+
 const matchesServiceFocus = (s: ServiceRequest, focus?: OperationFocus) => {
   if (focus === "open") return s.stage !== "Closed";
   if (focus === "sla" || focus === "late") return s.stage !== "Closed" && serviceAgeDays(s) > 7;
@@ -328,6 +377,8 @@ export function ServiceRequestsPage({
   kanbanOnly?: boolean;
 }) {
   const { service, machines, customers, contacts, users, refresh } = useStore();
+  const { hasPermission } = useAuth();
+  const canCreateService = hasPermission("service_tickets.create");
   const [view, setView] = useState<ServiceRequestsView>(initialView);
   const [historyQuery, setHistoryQuery] = useState("");
   const [selectedServiceId, setSelectedServiceId] = useState<string | null>(null);
@@ -345,6 +396,7 @@ export function ServiceRequestsPage({
   const [sourceFilter, setSourceFilter] = useState("all");
   const [warrantyFilter, setWarrantyFilter] = useState("all");
   const [deletingServiceId, setDeletingServiceId] = useState<string | null>(null);
+  const [pendingDeleteService, setPendingDeleteService] = useState<ServiceRequest | null>(null);
   const customerName = (id: string) => customers.find((c) => c.id === id)?.name ?? "—";
   const machineName = (id: string) => {
     const machine = machines.find((m) => m.id === id);
@@ -364,6 +416,10 @@ export function ServiceRequestsPage({
     .filter((c) => complaintStatusFilter === "all" || c.status === complaintStatusFilter)
     .filter((c) => complaintSourceFilter === "all" || c.source === complaintSourceFilter)
     .filter((c) => complaintSeverityFilter === "all" || c.severity === complaintSeverityFilter);
+  const openServiceCount = visibleService.filter((item) => item.stage !== "Closed").length;
+  const urgentServiceCount = visibleService.filter((item) => item.stage !== "Closed" && (item.priority === "critical" || item.priority === "high")).length;
+  const overdueServiceCount = visibleService.filter((item) => serviceSlaInfo(item).overdue).length;
+  const assignedServiceCount = visibleService.filter((item) => item.assignedUserId).length;
   const complaintFilterControls = [
     {
       label: "Durum",
@@ -514,10 +570,14 @@ export function ServiceRequestsPage({
     setSelectedComplaint(complaint);
   };
 
-  const deleteService = async (s: ServiceRequest, event?: MouseEvent) => {
+  const deleteService = (s: ServiceRequest, event?: MouseEvent) => {
     event?.stopPropagation();
-    const label = s.ticketNo || s.id;
-    if (!window.confirm(`${label} servis talebini arşivlemek istediğinize emin misiniz?`)) return;
+    setPendingDeleteService(s);
+  };
+
+  const confirmDeleteService = async () => {
+    const s = pendingDeleteService;
+    if (!s) return;
     setDeletingServiceId(s.id);
     try {
       await serviceService.deleteTicket(s.id);
@@ -526,6 +586,7 @@ export function ServiceRequestsPage({
         setSelectedServiceId(null);
         setSelectedServiceInitialTab(undefined);
       }
+      setPendingDeleteService(null);
       await refresh();
     } catch (err: any) {
       toast.error("Servis talebi silinemedi", { description: err?.message ?? "İşlem başarısız oldu." });
@@ -533,6 +594,24 @@ export function ServiceRequestsPage({
       setDeletingServiceId(null);
     }
   };
+
+  const serviceOverview = (
+    <section className="premium-blueprint precision-corners overflow-hidden rounded-2xl border border-primary/20 bg-card p-4 shadow-sm sm:p-5">
+      <div className="relative flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
+        <div>
+          <p className="font-mono text-[10px] font-semibold tracking-[0.2em] text-primary">SAHA SERVİS KONTROLÜ</p>
+          <h2 className="mt-1 font-display text-2xl font-semibold tracking-tight sm:text-3xl">Servis operasyon hattı</h2>
+          <p className="mt-1 max-w-2xl text-sm text-muted-foreground">Öncelik, SLA, sorumlu ve sıradaki aksiyonu talep bağlamından kopmadan takip edin.</p>
+        </div>
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 xl:min-w-[610px]">
+          <InsightStat label="Açık" value={openServiceCount} icon={<Wrench />} />
+          <InsightStat label="Kritik / Yüksek" value={urgentServiceCount} icon={<AlertTriangle />} tone={urgentServiceCount ? "warning" : "success"} />
+          <InsightStat label="SLA Aşımı" value={overdueServiceCount} icon={<Clock3 />} tone={overdueServiceCount ? "danger" : "success"} />
+          <InsightStat label="Atanmış" value={`${assignedServiceCount}/${visibleService.length}`} icon={<UserRoundCheck />} tone="success" />
+        </div>
+      </div>
+    </section>
+  );
 
   const openServiceFormPdf = async (s: ServiceRequest) => {
     try {
@@ -592,6 +671,28 @@ export function ServiceRequestsPage({
         machines={machines}
         onCreated={loadComplaints}
       />
+      <AlertDialog open={!!pendingDeleteService} onOpenChange={(open) => !open && !deletingServiceId && setPendingDeleteService(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Servis talebini arşivle?</AlertDialogTitle>
+            <AlertDialogDescription>
+              <b>{pendingDeleteService?.ticketNo || "Servis kaydı"}</b> aktif listeden kaldırılacak. Firma, makine ve geçmiş servis kayıtları korunur; bu işlem yalnızca talep kaydını arşivler.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {pendingDeleteService && (
+            <div className="rounded-lg border border-border/60 bg-muted/25 p-3 text-sm">
+              <p className="font-medium">{customerName(pendingDeleteService.customerId)}</p>
+              <p className="mt-0.5 text-xs text-muted-foreground">{machineName(pendingDeleteService.machineId)} · {SERVICE_NEXT_ACTION[pendingDeleteService.stage]}</p>
+            </div>
+          )}
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={!!deletingServiceId}>Vazgeç</AlertDialogCancel>
+            <AlertDialogAction className="bg-destructive text-destructive-foreground hover:bg-destructive/90" disabled={!!deletingServiceId} onClick={(event) => { event.preventDefault(); void confirmDeleteService(); }}>
+              {deletingServiceId ? "Arşivleniyor..." : "Talebi Arşivle"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   );
 
@@ -599,6 +700,7 @@ export function ServiceRequestsPage({
     return (
       <>
         <div className="space-y-4">
+          {serviceOverview}
           <div className="flex items-center justify-end gap-2">
             <span className="text-sm text-muted-foreground tabular-nums">{visibleService.length} kayıt</span>
             <FilterPopover filters={filterControls} />
@@ -612,6 +714,8 @@ export function ServiceRequestsPage({
 
   return (
     <>
+    <div className="space-y-4">
+    {serviceOverview}
     <Tabs value={view} onValueChange={(v) => setView(v as ServiceRequestsView)}>
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <TabsList>
@@ -638,37 +742,44 @@ export function ServiceRequestsPage({
       </div>
       <TabsContent value="list" className="mt-4">
         <Card className="border-border/60 shadow-sm overflow-hidden">
-          <CardHeader className="flex flex-row items-center justify-between">
-            <CardTitle>Servis Talepleri</CardTitle>
+          <CardHeader className="flex flex-row items-center justify-between border-b border-border/60 bg-muted/10 p-4">
+            <div><CardTitle className="text-base">Servis Talepleri</CardTitle><p className="mt-0.5 text-xs text-muted-foreground">{visibleService.length} operasyon kaydı</p></div>
             <div className="flex items-center gap-2">
               <ExportExcelButton path="/exports/service-tickets" filename="servis-talepleri.xlsx" />
-              <CreateServiceRequestDialog
-                trigger={<Button className="gap-1"><Plus className="size-4" /> Yeni Talep</Button>}
-              />
+              {canCreateService && (
+                <CreateServiceRequestDialog
+                  trigger={<Button className="gap-1"><Plus className="size-4" /> Yeni Talep</Button>}
+                />
+              )}
             </div>
           </CardHeader>
           <div className="overflow-x-auto">
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Firma</TableHead>
+                <TableHead>Talep / Firma</TableHead>
                 <TableHead>Makine</TableHead>
-                <TableHead>Kayıt</TableHead>
-                <TableHead>Not</TableHead>
+                <TableHead>Öncelik / SLA</TableHead>
+                <TableHead>Sorumlu</TableHead>
+                <TableHead>Sonraki Adım</TableHead>
                 <TableHead>Aşama</TableHead>
-                <TableHead>Tarih</TableHead>
+                <TableHead>Açılış</TableHead>
                 <TableHead className="w-16 text-right">İşlem</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {visibleService.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={7} className="h-24 text-center text-muted-foreground">
+                  <TableCell colSpan={8} className="h-24 text-center text-muted-foreground">
                     Bu filtreye uyan servis talebi bulunmuyor.
                   </TableCell>
                 </TableRow>
               ) : (
               visibleService.map((s) => {
+                const machine = machines.find((item) => item.id === s.machineId);
+                const assignee = users.find((item) => item.id === s.assignedUserId);
+                const priority = s.priority ?? "normal";
+                const sla = serviceSlaInfo(s);
                 return (
                   <TableRow
                     key={s.id}
@@ -679,17 +790,25 @@ export function ServiceRequestsPage({
                     role="button"
                     aria-label={`${customerName(s.customerId)} servis talebi, ${s.stage}`}
                   >
-                    <TableCell className="font-medium">{customerName(s.customerId)}</TableCell>
-                    <TableCell className="text-muted-foreground">{machineName(s.machineId)}</TableCell>
                     <TableCell>
-                      <div className="flex flex-wrap gap-1.5">
-                        <ServiceIntakeBadges serviceRequest={s} />
-                        <WarrantyClaimBadge serviceRequest={s} />
-                      </div>
+                      <RecordIdentity
+                        eyebrow={s.ticketNo || "SERVİS KAYDI"}
+                        title={customerName(s.customerId)}
+                        description={serviceNoteText(s)}
+                        meta={<><ServiceIntakeBadges serviceRequest={s} /><WarrantyClaimBadge serviceRequest={s} /></>}
+                      />
                     </TableCell>
                     <TableCell>
-                      <span className="text-sm text-muted-foreground line-clamp-1">{serviceNoteText(s)}</span>
+                      <RecordIdentity
+                        visual={<EntityVisual title={machine?.model || "Makine"} overline={machine?.serialNumber} icon={<Wrench className="size-4" />} size="sm" />}
+                        eyebrow={machine?.brand || "MAKİNE"}
+                        title={machine?.model || "Makine eşleşmedi"}
+                        description={machine?.serialNumber || "Seri numarası yok"}
+                      />
                     </TableCell>
+                    <TableCell><div className="min-w-[110px]"><Badge variant="outline" className={SERVICE_PRIORITY_CLASS[priority]}>{SERVICE_PRIORITY_LABELS[priority]}</Badge><p className={`mt-1.5 text-[11px] font-medium ${sla.tone}`}>{sla.label}</p></div></TableCell>
+                    <TableCell><div className="flex min-w-[130px] items-center gap-2"><Avatar className="size-7 border border-border/60"><AvatarFallback className="bg-primary/10 text-[10px] text-primary">{initials(assignee?.name || "?")}</AvatarFallback></Avatar><div className="min-w-0"><p className="truncate text-xs font-medium">{assignee?.name || "Atanmadı"}</p><p className="truncate text-[10px] text-muted-foreground">{assignee?.department || "Servis ekibi"}</p></div></div></TableCell>
+                    <TableCell><div className="flex min-w-[150px] items-start gap-2"><Workflow className="mt-0.5 size-3.5 shrink-0 text-primary" /><div><p className="text-xs font-medium">{SERVICE_NEXT_ACTION[s.stage]}</p><p className="mt-0.5 text-[10px] text-muted-foreground">{STAGE_TO_COLUMN[s.stage]}</p></div></div></TableCell>
                     <TableCell><StatusBadge status={s.stage} /></TableCell>
                     <TableCell className="text-muted-foreground">{s.createdAt}</TableCell>
                     <TableCell className="text-right">
@@ -778,6 +897,7 @@ export function ServiceRequestsPage({
         />
       </TabsContent>
     </Tabs>
+    </div>
     {dialogs}
     </>
   );
@@ -992,6 +1112,8 @@ function ComplaintInbox({
   onIssueLink: (link: ServiceComplaintLink) => Promise<ServiceComplaintLink>;
   onReload: () => void;
 }) {
+  const { hasPermission } = useAuth();
+  const canCreateService = hasPermission("service_tickets.create");
   const [mode, setMode] = useState<"intakes" | "links">("intakes");
   const [qrImage, setQrImage] = useState<string | null>(null);
   const absoluteUrl = (path?: string | null) => path ? `${window.location.origin}${path}` : "";
@@ -1026,19 +1148,23 @@ function ComplaintInbox({
           <Button variant="outline" className="gap-1" onClick={onReload} disabled={loading}>
             Yenile
           </Button>
-          <Button variant="outline" className="gap-1" onClick={onCreateLink}>
-            <Link2 className="size-4" /> Public Link
-          </Button>
-          <CreateServiceRequestDialog
-            trigger={
-              <Button variant="outline" className="gap-1">
-                <Wrench className="size-4" /> Yeni Talep
+          {canCreateService && (
+            <>
+              <Button variant="outline" className="gap-1" onClick={onCreateLink}>
+                <Link2 className="size-4" /> Public Link
               </Button>
-            }
-          />
-          <Button className="gap-1" onClick={onCreateInternal}>
-            <Plus className="size-4" /> Yeni İç Kayıt
-          </Button>
+              <CreateServiceRequestDialog
+                trigger={
+                  <Button variant="outline" className="gap-1">
+                    <Wrench className="size-4" /> Yeni Talep
+                  </Button>
+                }
+              />
+              <Button className="gap-1" onClick={onCreateInternal}>
+                <Plus className="size-4" /> Yeni İç Kayıt
+              </Button>
+            </>
+          )}
         </div>
       </CardHeader>
       <div className="overflow-x-auto">
@@ -1413,9 +1539,12 @@ function CreateComplaintLinkDialog({
   const [machineId, setMachineId] = useState(NONE);
   const [title, setTitle] = useState("");
   const [latestLink, setLatestLink] = useState("");
+  const [latestExpiresAt, setLatestExpiresAt] = useState("");
   const [latestQrImage, setLatestQrImage] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const filteredMachines = companyId === NONE ? machines : machines.filter((m) => m.customerId === companyId);
+  const selectedCompany = customers.find((company) => company.id === companyId);
+  const selectedMachine = machines.find((machine) => machine.id === machineId);
 
   useEffect(() => {
     if (!open) return;
@@ -1423,8 +1552,30 @@ function CreateComplaintLinkDialog({
     setMachineId(NONE);
     setTitle("");
     setLatestLink("");
+    setLatestExpiresAt("");
     setLatestQrImage(null);
   }, [open]);
+
+  const copyLatestLink = async () => {
+    try {
+      await navigator.clipboard?.writeText(latestLink);
+      toast.success("Link panoya kopyalandı");
+    } catch {
+      toast.error("Link kopyalanamadı");
+    }
+  };
+
+  const shareLatestLink = async () => {
+    try {
+      if (navigator.share) {
+        await navigator.share({ title: title.trim() || "Servis Şikayet Formu", url: latestLink });
+        return;
+      }
+      await copyLatestLink();
+    } catch (err: any) {
+      if (err?.name !== "AbortError") toast.error("Link paylaşılamadı");
+    }
+  };
 
   const create = async () => {
     setSaving(true);
@@ -1436,6 +1587,7 @@ function CreateComplaintLinkDialog({
       });
       const url = `${window.location.origin}${link.publicPath}`;
       setLatestLink(url);
+      setLatestExpiresAt(String(link.accessTokenExpiresAt ?? ""));
       await navigator.clipboard?.writeText(url);
       toast.success("Public şikayet linki oluşturuldu", { description: "Link panoya kopyalandı." });
       onCreated();
@@ -1448,12 +1600,15 @@ function CreateComplaintLinkDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="w-[min(620px,calc(100vw-2rem))] max-w-none sm:max-w-none">
+      <DialogContent className="w-[min(680px,calc(100vw-2rem))] max-w-none overflow-hidden p-0 sm:max-w-none">
+        <div className="h-1 bg-brand-red" />
+        <div className="max-h-[calc(90dvh-4px)] overflow-y-auto p-5 sm:p-6">
         <DialogHeader>
-          <DialogTitle>Public Şikayet Linki</DialogTitle>
-          <DialogDescription>Firma veya makineye bağlı sade şikayet formu linki oluşturun.</DialogDescription>
+          <div className="mb-1 grid size-10 place-items-center rounded-xl border border-primary/15 bg-primary/5 text-primary"><Link2 className="size-5" /></div>
+          <DialogTitle>Herkese Açık Şikayet Linki</DialogTitle>
+          <DialogDescription>Linkin kapsamını belirleyin; müşteri giriş yapmadan güvenli servis bildirimi oluşturabilsin.</DialogDescription>
         </DialogHeader>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div className="mt-5 grid grid-cols-1 gap-3 md:grid-cols-2">
           <div>
             <Label>Firma</Label>
             <Select value={companyId} onValueChange={(v) => { setCompanyId(v); setMachineId(NONE); }}>
@@ -1479,21 +1634,45 @@ function CreateComplaintLinkDialog({
             <Input className="mt-1" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Servis Şikayet Formu" />
           </div>
         </div>
+        <div className="mt-4 grid gap-2 sm:grid-cols-2">
+          <div className="rounded-lg border border-border/60 bg-muted/25 p-3">
+            <div className="flex items-center gap-2 text-xs font-semibold"><Workflow className="size-4 text-primary" /> Link kapsamı</div>
+            <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">
+              {selectedMachine
+                ? `${selectedMachine.model} · ${selectedMachine.serialNumber}`
+                : selectedCompany
+                  ? `${selectedCompany.name} firmasındaki tüm makineler`
+                  : "Genel servis bildirim formu"}
+            </p>
+          </div>
+          <div className="rounded-lg border border-border/60 bg-muted/25 p-3">
+            <div className="flex items-center gap-2 text-xs font-semibold"><Clock3 className="size-4 text-primary" /> Geçerlilik</div>
+            <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">Link sunucuda tanımlı güvenli süre boyunca aktif kalır; gerektiğinde yenilenebilir veya iptal edilebilir.</p>
+          </div>
+        </div>
+        <div className="mt-3 flex items-start gap-2 rounded-lg border border-primary/15 bg-primary/[0.035] p-3 text-xs leading-relaxed text-muted-foreground">
+          <ShieldCheck className="mt-0.5 size-4 shrink-0 text-primary" />
+          <span>Bu linke sahip kişiler servis formunu görüntüleyebilir ve bildirim gönderebilir. Link yalnız hedef firma veya makine bağlamını paylaşır; iç CRM kayıtlarına erişim vermez.</span>
+        </div>
         {latestLink && (
-          <div className="rounded-md border border-border/60 bg-muted/30 p-3">
-            <div className="text-xs text-muted-foreground">Oluşturulan link</div>
-            <div className="mt-1 truncate text-sm">{latestLink}</div>
+          <div className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50/70 p-3">
+            <div className="flex items-center gap-2 text-xs font-semibold text-emerald-800"><CheckCircle2 className="size-4" /> Link kullanıma hazır</div>
+            <div className="mt-1.5 truncate font-data text-xs text-emerald-900">{latestLink}</div>
+            {latestExpiresAt && <div className="mt-1 text-[11px] text-emerald-800/75">Son geçerlilik: {new Date(latestExpiresAt).toLocaleString("tr-TR")}</div>}
             <div className="mt-3 flex flex-wrap gap-2">
-              <Button variant="outline" size="sm" className="gap-1" onClick={() => navigator.clipboard?.writeText(latestLink)}>
+              <Button variant="outline" size="sm" className="gap-1 bg-white" onClick={copyLatestLink}>
                 <Copy className="size-4" /> Kopyala
               </Button>
-              <Button variant="outline" size="sm" className="gap-1" onClick={() => window.open(latestLink, "_blank", "noopener")}>
+              <Button variant="outline" size="sm" className="gap-1 bg-white" onClick={shareLatestLink}>
+                <Share2 className="size-4" /> Paylaş
+              </Button>
+              <Button variant="outline" size="sm" className="gap-1 bg-white" onClick={() => window.open(latestLink, "_blank", "noopener")}>
                 <ExternalLink className="size-4" /> Aç
               </Button>
               <Button
                 variant="outline"
                 size="sm"
-                className="gap-1"
+                className="gap-1 bg-white"
                 onClick={async () => setLatestQrImage(await QRCode.toDataURL(latestLink, { width: 360, margin: 2, errorCorrectionLevel: "M" }))}
               >
                 <Link2 className="size-4" /> QR Aç
@@ -1501,16 +1680,18 @@ function CreateComplaintLinkDialog({
             </div>
           </div>
         )}
-        <div className="flex justify-end gap-2">
+        <div className="mt-5 flex justify-end gap-2 border-t pt-4">
           <Button variant="outline" onClick={() => onOpenChange(false)}>Kapat</Button>
           <Button onClick={create} disabled={saving}>Link oluştur</Button>
         </div>
         <Dialog open={!!latestQrImage} onOpenChange={(nextOpen) => !nextOpen && setLatestQrImage(null)}>
           <DialogContent className="w-fit max-w-[calc(100vw-2rem)]">
-            <DialogHeader><DialogTitle>QR Kod</DialogTitle></DialogHeader>
+            <DialogHeader><DialogTitle>Servis Formu QR Kodu</DialogTitle><DialogDescription>Müşteri etiketi veya servis alanı için güvenli link önizlemesi.</DialogDescription></DialogHeader>
             {latestQrImage && <img src={latestQrImage} alt="Şikayet formu QR kodu" width={360} height={360} className="max-w-full" />}
+            {latestQrImage && <Button variant="outline" asChild className="gap-1"><a href={latestQrImage} download="servis-sikayet-qr.png"><Download className="size-4" /> PNG indir</a></Button>}
           </DialogContent>
         </Dialog>
+        </div>
       </DialogContent>
     </Dialog>
   );
@@ -1800,7 +1981,7 @@ function ServiceBoard({
   onDelete?: (s: ServiceRequest, event?: MouseEvent) => void | Promise<void>;
   deletingId?: string | null;
 }) {
-  const { moveService, customers, machines, documents } = useStore();
+  const { moveService, customers, machines, documents, users } = useStore();
   const [previewDoc, setPreviewDoc] = useState<DocumentItem | null>(null);
   const customerName = (id: string) => customers.find((c) => c.id === id)?.name ?? "—";
   const moveToColumn = async (id: string, to: string) => {
@@ -1836,6 +2017,8 @@ function ServiceBoard({
   };
   const columns: KanbanColumn<ServiceRequest>[] = SERVICE_COLUMNS.map((col) => {
     const items = visibleService.filter((s) => STAGE_TO_COLUMN[s.stage] === col.key);
+    const overdueCount = items.filter((item) => serviceSlaInfo(item).overdue).length;
+    const averageAge = items.length ? Math.round(items.reduce((sum, item) => sum + serviceAgeDays(item), 0) / items.length) : 0;
     return {
       key: col.key,
       title: col.key,
@@ -1843,8 +2026,8 @@ function ServiceBoard({
       items,
       footer: (
         <div className="flex items-center justify-between">
-          <span>Toplam</span>
-          <span>{items.length} kayıt</span>
+          <span>Ort. yaş · {averageAge}g</span>
+          <span className={overdueCount ? "font-medium text-destructive" : ""}>{overdueCount} SLA aşımı</span>
         </div>
       ),
     };
@@ -1859,6 +2042,9 @@ function ServiceBoard({
       renderCard={(s) => {
         const c = customers.find((x) => x.id === s.customerId);
         const machine = machines.find((x) => x.id === s.machineId);
+        const assignee = users.find((x) => x.id === s.assignedUserId);
+        const priority = s.priority ?? "normal";
+        const sla = serviceSlaInfo(s);
         const initialTab = STAGE_TO_COLUMN[s.stage] === "Servis Tamamlandı Formu" ? "completion" : undefined;
         return (
           <Card
@@ -1867,8 +2053,9 @@ function ServiceBoard({
             className="group cursor-pointer rounded-lg border-transparent bg-white p-3 shadow-sm transition-all hover:-translate-y-px hover:shadow-md hover:ring-1 hover:ring-black/10"
           >
             {/* Trello benzeri etiket şeridi: kolon rengi */}
-            <div className="mb-2 flex items-center gap-1">
+            <div className="mb-2 flex items-center justify-between gap-2">
               <span className={`h-1.5 w-10 rounded-full ${SERVICE_COLUMNS.find((col) => col.key === STAGE_TO_COLUMN[s.stage])?.dot ?? "bg-zinc-300"}`} />
+              <span className="font-data text-[9px] font-semibold tracking-[0.08em] text-muted-foreground">{s.ticketNo || "SERVİS"}</span>
             </div>
             <div className="flex items-start gap-2">
               <div className="size-8 rounded-md bg-gradient-to-br from-primary/15 to-primary/5 text-primary grid place-items-center text-[10px] shrink-0">
@@ -1928,9 +2115,17 @@ function ServiceBoard({
             </div>
             <div className="mt-3">
               <div className="flex flex-wrap gap-1.5">
+                <Badge variant="outline" className={`text-[10px] ${SERVICE_PRIORITY_CLASS[priority]}`}>{SERVICE_PRIORITY_LABELS[priority]}</Badge>
                 <ServiceIntakeBadges serviceRequest={s} />
                 <WarrantyClaimBadge serviceRequest={s} />
               </div>
+            </div>
+            <div className="mt-3 flex items-center justify-between gap-2 border-t border-border/50 pt-2.5">
+              <div className="flex min-w-0 items-center gap-2">
+                <Avatar className="size-6 border border-border/60"><AvatarFallback className="bg-primary/10 text-[9px] text-primary">{initials(assignee?.name || "?")}</AvatarFallback></Avatar>
+                <span className="truncate text-[10px] text-muted-foreground">{assignee?.name || "Atanmadı"}</span>
+              </div>
+              <span className={`shrink-0 font-data text-[10px] font-semibold ${sla.tone}`}>{sla.label}</span>
             </div>
             <ServiceCardAttachments
               serviceRequestId={s.id}
@@ -2056,6 +2251,9 @@ function ServiceQuoteEditor({
 
   const [draft, setDraft] = useState<ServiceQuoteForm>(buildDraft);
   const [saving, setSaving] = useState(false);
+  const [noteTemplateMode, setNoteTemplateMode] = useState<"create" | "update" | "delete" | null>(null);
+  const [noteTemplateTitle, setNoteTemplateTitle] = useState("");
+  const [noteTemplateSaving, setNoteTemplateSaving] = useState(false);
   const selectedNoteTemplateId = noteTemplateIdFromKey(draft.noteVariantKey);
   const selectedSavedNoteTemplate = savedNoteTemplates.find((template) => template.id === selectedNoteTemplateId);
   const noteTemplateBody = () => draft.notes.map((note) => note.trim()).filter(Boolean).join("\n");
@@ -2145,51 +2343,47 @@ function ServiceQuoteEditor({
     if (variant) setDraft((current) => ({ ...current, noteVariantKey: key, notes: [...variant.notlar] }));
   };
 
-  const saveNoteTemplate = async () => {
+  const saveNoteTemplate = () => {
     const body = noteTemplateBody();
     if (!body) return toast.error("Önce teklif notu girin");
-    const title = window.prompt("Şablon başlığı:", selectedSavedNoteTemplate ? `${selectedSavedNoteTemplate.title} kopya` : "");
-    if (!title?.trim()) return;
-    try {
-      const created = await addNoteTemplate({
-        title: title.trim(),
-        body,
-        scope: SERVICE_QUOTE_NOTE_TEMPLATE_SCOPE,
-      });
-      setDraft((current) => ({ ...current, noteVariantKey: noteTemplateKey(created.id) }));
-      toast.success("Servis teklif notu şablonu kaydedildi");
-    } catch (err: any) {
-      toast.error("Şablon kaydedilemedi", { description: err?.message });
-    }
+    setNoteTemplateTitle(selectedSavedNoteTemplate ? `${selectedSavedNoteTemplate.title} kopya` : "");
+    setNoteTemplateMode("create");
   };
 
-  const updateSelectedNoteTemplate = async () => {
+  const updateSelectedNoteTemplate = () => {
     if (!selectedSavedNoteTemplate || selectedSavedNoteTemplate.scope !== SERVICE_QUOTE_NOTE_TEMPLATE_SCOPE) return;
+    if (!noteTemplateBody()) return toast.error("Önce teklif notu girin");
+    setNoteTemplateTitle(selectedSavedNoteTemplate.title);
+    setNoteTemplateMode("update");
+  };
+
+  const deleteSelectedNoteTemplate = () => {
+    if (!selectedSavedNoteTemplate || selectedSavedNoteTemplate.scope !== SERVICE_QUOTE_NOTE_TEMPLATE_SCOPE) return;
+    setNoteTemplateMode("delete");
+  };
+
+  const submitNoteTemplateAction = async () => {
     const body = noteTemplateBody();
-    if (!body) return toast.error("Önce teklif notu girin");
-    const title = window.prompt("Şablon başlığı:", selectedSavedNoteTemplate.title);
-    if (!title?.trim()) return;
+    if (!noteTemplateMode || noteTemplateMode !== "delete" && (!body || !noteTemplateTitle.trim())) return;
+    setNoteTemplateSaving(true);
     try {
-      await updateNoteTemplate(selectedSavedNoteTemplate.id, {
-        title: title.trim(),
-        body,
-        scope: SERVICE_QUOTE_NOTE_TEMPLATE_SCOPE,
-      });
-      toast.success("Servis teklif notu şablonu güncellendi");
+      if (noteTemplateMode === "create") {
+        const created = await addNoteTemplate({ title: noteTemplateTitle.trim(), body, scope: SERVICE_QUOTE_NOTE_TEMPLATE_SCOPE });
+        setDraft((current) => ({ ...current, noteVariantKey: noteTemplateKey(created.id) }));
+        toast.success("Servis teklif notu şablonu kaydedildi");
+      } else if (noteTemplateMode === "update" && selectedSavedNoteTemplate) {
+        await updateNoteTemplate(selectedSavedNoteTemplate.id, { title: noteTemplateTitle.trim(), body, scope: SERVICE_QUOTE_NOTE_TEMPLATE_SCOPE });
+        toast.success("Servis teklif notu şablonu güncellendi");
+      } else if (noteTemplateMode === "delete" && selectedSavedNoteTemplate) {
+        await deleteNoteTemplate(selectedSavedNoteTemplate.id);
+        setDraft((current) => ({ ...current, noteVariantKey: "" }));
+        toast.success("Servis teklif notu şablonu silindi");
+      }
+      setNoteTemplateMode(null);
     } catch (err: any) {
-      toast.error("Şablon güncellenemedi", { description: err?.message });
-    }
-  };
-
-  const deleteSelectedNoteTemplate = async () => {
-    if (!selectedSavedNoteTemplate || selectedSavedNoteTemplate.scope !== SERVICE_QUOTE_NOTE_TEMPLATE_SCOPE) return;
-    if (!window.confirm(`"${selectedSavedNoteTemplate.title}" şablonu silinsin mi?`)) return;
-    try {
-      await deleteNoteTemplate(selectedSavedNoteTemplate.id);
-      setDraft((current) => ({ ...current, noteVariantKey: "" }));
-      toast.success("Servis teklif notu şablonu silindi");
-    } catch (err: any) {
-      toast.error("Şablon silinemedi", { description: err?.message });
+      toast.error(noteTemplateMode === "delete" ? "Şablon silinemedi" : "Şablon kaydedilemedi", { description: err?.message });
+    } finally {
+      setNoteTemplateSaving(false);
     }
   };
 
@@ -2326,6 +2520,21 @@ function ServiceQuoteEditor({
         <Button variant="outline" className="gap-1" disabled={saving} onClick={() => save(true)}><Printer className="size-4" /> Kaydet ve yazdır</Button>
         <Button className="gap-1" disabled={saving} onClick={() => save(false)}><Check className="size-4" /> Servis teklifini kaydet</Button>
       </div>
+      <Dialog open={Boolean(noteTemplateMode)} onOpenChange={(open) => !open && !noteTemplateSaving && setNoteTemplateMode(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>{noteTemplateMode === "delete" ? "Servis notu şablonu silinsin mi?" : noteTemplateMode === "update" ? "Servis notu şablonunu güncelle" : "Yeni servis notu şablonu"}</DialogTitle>
+            <DialogDescription>{noteTemplateMode === "delete" ? `“${selectedSavedNoteTemplate?.title ?? "Seçili şablon"}” kaldırılacak; teklif üzerindeki notlar korunacak.` : "Mevcut teklif notları daha sonra yeniden kullanılmak üzere kaydedilecek."}</DialogDescription>
+          </DialogHeader>
+          {noteTemplateMode !== "delete" && (
+            <div><Label htmlFor="service-note-template-title">Şablon başlığı</Label><Input id="service-note-template-title" className="mt-1" value={noteTemplateTitle} onChange={(event) => setNoteTemplateTitle(event.target.value)} maxLength={120} autoFocus /></div>
+          )}
+          <DialogFooter>
+            <Button type="button" variant="outline" disabled={noteTemplateSaving} onClick={() => setNoteTemplateMode(null)}>Vazgeç</Button>
+            <Button type="button" variant={noteTemplateMode === "delete" ? "destructive" : "default"} disabled={noteTemplateSaving || (noteTemplateMode !== "delete" && !noteTemplateTitle.trim())} onClick={() => void submitNoteTemplateAction()}>{noteTemplateSaving ? "İşleniyor…" : noteTemplateMode === "delete" ? "Şablonu sil" : "Kaydet"}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -2819,19 +3028,25 @@ function ServiceDetailDialog({
     ...(serviceRequest.noteHistory ?? []).map((item) => ({ ...item, kind: "Not" })),
     ...(serviceRequest.activityHistory ?? []).map((item) => ({ ...item, kind: "Aktivite" })),
   ].sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? ""));
+  const detailPriority = serviceRequest.priority ?? "normal";
+  const detailSla = serviceSlaInfo(serviceRequest);
+  const currentJourneyIndex = Math.max(0, SERVICE_COLUMNS.findIndex((column) => column.key === STAGE_TO_COLUMN[serviceRequest.stage]));
 
   const serviceRightPanel = (
     <div className="space-y-4">
-      <div className="rounded-lg border border-border/60 bg-white px-3 py-3">
-        <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Durum</div>
-        <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
-          <StatusBadge status={serviceRequest.stage} />
-          {machine && <span>{machine.model} · {machine.serialNumber}</span>}
-          {machine && <MachineWarrantyBadge warrantyEnd={machine.warrantyEnd} />}
-          {assignee && <span>Atanan: {assignee.name}</span>}
+      <div className="premium-blueprint precision-corners rounded-xl border border-primary/15 bg-white p-3">
+        <div className="relative flex items-start gap-3">
+          <EntityVisual title={machine?.model || "Makine"} overline={machine?.serialNumber} icon={<Wrench className="size-4" />} size="md" />
+          <div className="min-w-0 flex-1">
+            <div className="font-data text-[9px] font-semibold uppercase tracking-[0.14em] text-operation-blue">BAĞLI MAKİNE</div>
+            <p className="mt-1 truncate text-sm font-semibold">{machine?.model || "Makine eşleşmedi"}</p>
+            <p className="mt-0.5 truncate text-[11px] text-muted-foreground">{[machine?.brand, machine?.serialNumber].filter(Boolean).join(" · ") || "Seri numarası yok"}</p>
+            {machine && <div className="mt-2"><MachineWarrantyBadge warrantyEnd={machine.warrantyEnd} /></div>}
+          </div>
         </div>
-        <div className="mt-2">
-          <ServiceIntakeBadges serviceRequest={serviceRequest} />
+        <div className="relative mt-3 grid grid-cols-2 gap-2 border-t border-border/50 pt-3">
+          <div><p className="text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">Sorumlu</p><p className="mt-1 truncate text-xs font-medium">{assignee?.name || "Atanmadı"}</p></div>
+          <div><p className="text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">Sıradaki adım</p><p className="mt-1 text-xs font-medium text-primary">{SERVICE_NEXT_ACTION[serviceRequest.stage]}</p></div>
         </div>
       </div>
 
@@ -2910,6 +3125,8 @@ function ServiceDetailDialog({
           meta={
             <>
               <StatusBadge status={serviceRequest.stage} />
+              <Badge variant="outline" className={SERVICE_PRIORITY_CLASS[detailPriority]}>{SERVICE_PRIORITY_LABELS[detailPriority]}</Badge>
+              <span className={`rounded-md border border-border/60 bg-card px-2.5 py-1 text-xs font-medium ${detailSla.tone}`}>SLA · {detailSla.label}</span>
               <span className="rounded-md bg-muted px-2.5 py-1 text-xs text-muted-foreground">{SERVICE_TICKET_TYPE_LABELS[serviceRequest.ticketType ?? "complaint"]}</span>
               <span className="rounded-md bg-muted px-2.5 py-1 text-xs text-muted-foreground">Kaynak: {serviceSourceLabel(serviceRequest.source)}</span>
             </>
@@ -2926,6 +3143,23 @@ function ServiceDetailDialog({
           ) : undefined}
           right={serviceRightPanel}
         >
+          <div className="overflow-x-auto rounded-xl border border-border/60 bg-muted/15 p-3">
+            <div className="flex min-w-[820px] items-start">
+              {SERVICE_COLUMNS.map((column, index) => {
+                const complete = index < currentJourneyIndex;
+                const active = index === currentJourneyIndex;
+                return (
+                  <div key={column.key} className="relative flex min-w-0 flex-1 flex-col items-center px-1 text-center">
+                    {index > 0 && <span className={`absolute right-1/2 top-3.5 h-0.5 w-full ${complete || active ? "bg-primary" : "bg-border"}`} aria-hidden="true" />}
+                    <span className={`relative z-[1] grid size-7 place-items-center rounded-full border text-[10px] font-semibold ${complete ? "border-primary bg-primary text-primary-foreground" : active ? "border-primary bg-card text-primary ring-4 ring-primary/10" : "border-border bg-card text-muted-foreground"}`}>
+                      {complete ? <Check className="size-3.5" /> : index + 1}
+                    </span>
+                    <span className={`mt-2 max-w-[120px] text-[10px] font-medium leading-tight ${active ? "text-primary" : complete ? "text-foreground" : "text-muted-foreground"}`}>{column.key}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
           {serviceRequest.sourceComplaint && (
             <div className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
               <div className="min-w-0">
@@ -3726,6 +3960,7 @@ function ServiceCompletionEditor({
   const initial = mergeCompletionForm(serviceRequest.completionForm, fallback);
   const [draft, setDraft] = useState<ServiceCompletionForm>(initial);
   const [saving, setSaving] = useState(false);
+  const [closeConfirmOpen, setCloseConfirmOpen] = useState(false);
 
   useEffect(() => {
     setDraft(mergeCompletionForm(serviceRequest.completionForm, fallback));
@@ -3817,14 +4052,12 @@ function ServiceCompletionEditor({
       toast.error("Servis formu tamamlanmadı", { description: `Eksik alanlar: ${missing.join(", ")}.` });
       return;
     }
-    if (!window.confirm("Servisi kapatmak istediğinize emin misiniz? Form imzalandı olarak işaretlenecek ve servis aşaması Kapandı olacak.")) {
-      return;
-    }
     setSaving(true);
     try {
       const payload = buildPayload(true);
       await onSave(payload, { closeAfterSave: true });
       setDraft(payload);
+      setCloseConfirmOpen(false);
     } finally {
       setSaving(false);
     }
@@ -4016,11 +4249,23 @@ function ServiceCompletionEditor({
           </Button>
         )}
         {!isClosed && (
-          <Button className="gap-1 bg-emerald-600 hover:bg-emerald-700" disabled={saving} onClick={handleClose}>
+          <Button className="gap-1 bg-emerald-600 hover:bg-emerald-700" disabled={saving} onClick={() => setCloseConfirmOpen(true)}>
             <Lock className="size-4" /> Servisi Kapat
           </Button>
         )}
       </div>
+      <AlertDialog open={closeConfirmOpen} onOpenChange={(open) => !saving && setCloseConfirmOpen(open)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Servis kaydı kapatılsın mı?</AlertDialogTitle>
+            <AlertDialogDescription>Form imzalandı olarak işaretlenecek ve servis aşaması “Kapandı” olacak. Tezgah, değişen parçalar ve ücret bilgileri servis geçmişinde korunur.</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={saving}>Vazgeç</AlertDialogCancel>
+            <AlertDialogAction className="bg-emerald-600 hover:bg-emerald-700" disabled={saving} onClick={(event) => { event.preventDefault(); void handleClose(); }}>{saving ? "Kapatılıyor…" : "Formu imzala ve kapat"}</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

@@ -1,5 +1,9 @@
 import { useState } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "../ui/dialog";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
+  AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "../ui/alert-dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../ui/tabs";
 import { Button } from "../ui/button";
 import { Avatar, AvatarFallback } from "../ui/avatar";
@@ -28,12 +32,14 @@ const FIRM_TYPE_LABEL: Record<FirmType, string> = {
   customer: "Müşteri",
   supplier_customer: "Tedarikçi + Müşteri",
   supplier: "Tedarikçi",
+  competitor: "Rakip",
 };
 
 const FIRM_TYPE_COLOR: Record<FirmType, string> = {
   customer: "bg-blue-50 text-blue-700 border-blue-200",
   supplier_customer: "bg-brand-blue-soft text-brand-blue border-blue-200",
   supplier: "bg-amber-50 text-amber-700 border-amber-200",
+  competitor: "bg-rose-50 text-rose-700 border-rose-200",
 };
 
 const ADDRESS_TYPE_LABELS: Record<string, string> = {
@@ -123,6 +129,7 @@ export function CompanyDetailDialog({
 }) {
   const { contacts, cases, offers, documents, payments, machines, service, deleteContact } = useStore();
   const [editingContact, setEditingContact] = useState<Contact | null>(null);
+  const [pendingContactDelete, setPendingContactDelete] = useState<Contact | null>(null);
   const [breakdown, setBreakdown] = useState<BreakdownKey | null>(null);
   if (!customer) return null;
 
@@ -147,6 +154,8 @@ export function CompanyDetailDialog({
           city: customer.city,
           country: customer.country ?? "Türkiye",
           isDefault: true,
+          isShipping: true,
+          isBilling: true,
         }]
       : [];
 
@@ -163,11 +172,22 @@ export function CompanyDetailDialog({
     Other: "Diğer",
   };
 
+  const removeContact = async () => {
+    if (!pendingContactDelete) return;
+    try {
+      await deleteContact(pendingContactDelete.id);
+      toast.success("Kontak silindi");
+      setPendingContactDelete(null);
+    } catch (err: any) {
+      toast.error("Kontak silinemedi", { description: err?.message ?? "API isteği başarısız oldu." });
+    }
+  };
+
   return (
     <Dialog open={!!customer} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="sm:max-w-3xl max-h-[88vh] overflow-y-auto p-0 gap-0">
         {/* header */}
-        <DialogHeader className="px-6 pt-6 pb-4 border-b border-border/60">
+        <DialogHeader className="border-b border-border/60 px-4 pb-4 pt-6 sm:px-6">
           <div className="flex items-start gap-3">
             <div className={`size-11 rounded-xl grid place-items-center shrink-0 ${
               customer.type === "company"
@@ -229,8 +249,18 @@ export function CompanyDetailDialog({
                       <div className="flex flex-wrap items-center gap-1.5">
                         <span className="font-medium text-foreground">{ADDRESS_TYPE_LABELS[address.addressType] ?? "Adres"}</span>
                         {address.isDefault && (
-                          <span className="rounded-full border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700">
-                            Varsayılan sevkiyat
+                          <span className="rounded-full border border-primary/20 bg-primary/5 px-1.5 py-0.5 text-[10px] font-medium text-primary">
+                            Ana adres
+                          </span>
+                        )}
+                        {address.isShipping && (
+                          <span className="rounded-full border border-sky-200 bg-sky-50 px-1.5 py-0.5 text-[10px] font-medium text-sky-700">
+                            Sevkiyat
+                          </span>
+                        )}
+                        {address.isBilling && (
+                          <span className="rounded-full border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-800">
+                            Fatura
                           </span>
                         )}
                       </div>
@@ -246,7 +276,7 @@ export function CompanyDetailDialog({
         </DialogHeader>
 
         {/* KPI tiles — her biri tıklanınca ilgili kayıtlar pop-up olarak açılır */}
-        <div className="px-6 py-4 grid grid-cols-3 gap-2.5">
+        <div className="grid grid-cols-3 gap-2.5 px-4 py-4 sm:px-6">
           <Stat icon={<UserIcon className="size-3.5" />} label="Kontak" value={firmContacts.length} accent="text-indigo-600" onClick={() => setBreakdown("contacts")} />
           <Stat icon={<Briefcase className="size-3.5" />} label="Satış Kartı" value={firmCases.length} accent="text-sky-600" onClick={() => setBreakdown("cases")} />
           <Stat icon={<FileText className="size-3.5" />} label="Teklif" value={firmOffers.length} accent="text-blue-600" onClick={() => setBreakdown("offers")} />
@@ -255,11 +285,11 @@ export function CompanyDetailDialog({
           <Stat icon={<Wrench className="size-3.5" />} label="Servis" value={firmService.length} accent="text-rose-600" onClick={() => setBreakdown("service")} />
         </div>
 
-        <div className="px-6 pb-2">
+        <div className="px-4 pb-2 sm:px-6">
           <CompanyFinancePanel companyId={customer.id} companyName={customer.name} />
         </div>
 
-        <div className="px-6 pb-2">
+        <div className="px-4 pb-2 sm:px-6">
           <div className="rounded-lg bg-muted/40 border border-border/60 px-3 py-2 text-sm flex items-center gap-2">
             <Wallet className="size-4 text-emerald-600" />
             <span className="text-muted-foreground">Toplam teklif tutarı:</span>
@@ -268,7 +298,7 @@ export function CompanyDetailDialog({
         </div>
 
         {/* tabs */}
-        <div className="px-6 pb-6">
+        <div className="px-4 pb-6 sm:px-6">
           <Tabs defaultValue="kontaklar">
             <TabsList className="h-auto flex-wrap justify-start bg-muted/60">
               <TabsTrigger value="kontaklar">Kontaklar ({firmContacts.length})</TabsTrigger>
@@ -333,6 +363,8 @@ export function CompanyDetailDialog({
                               type="button"
                               variant="ghost"
                               size="icon"
+                              aria-label={`${k.name} kontağını düzenle`}
+                              title="Kontağı düzenle"
                               className="size-8"
                               onClick={(event) => {
                                 event.stopPropagation();
@@ -345,16 +377,12 @@ export function CompanyDetailDialog({
                               type="button"
                               variant="ghost"
                               size="icon"
+                              aria-label={`${k.name} kontağını sil`}
+                              title="Kontağı sil"
                               className="size-8 text-destructive"
-                              onClick={async (event) => {
+                              onClick={(event) => {
                                 event.stopPropagation();
-                                if (!window.confirm(`${k.name} kontağı silinsin mi?`)) return;
-                                try {
-                                  await deleteContact(k.id);
-                                  toast.success("Kontak silindi");
-                                } catch (err: any) {
-                                  toast.error("Kontak silinemedi", { description: err?.message ?? "API isteği başarısız oldu." });
-                                }
+                                setPendingContactDelete(k);
                               }}
                             >
                               <Trash2 className="size-4" />
@@ -530,6 +558,19 @@ export function CompanyDetailDialog({
         machineById={new Map(machines.map((m) => [m.id, m]))}
         onOpenContact={onOpenContact}
       />
+      <AlertDialog open={Boolean(pendingContactDelete)} onOpenChange={(open) => !open && setPendingContactDelete(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Kontak silinsin mi?</AlertDialogTitle>
+            <AlertDialogDescription><b>{pendingContactDelete?.name}</b> kişisi <b>{customer.name}</b> firmasının kontak listesinden kalıcı olarak kaldırılacak.</AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="rounded-lg border border-destructive/15 bg-destructive/[0.04] p-3 text-xs text-muted-foreground">Firma ve satış kayıtları korunur; yalnız kişi kaydı ve hızlı iletişim bağlantısı kaldırılır.</div>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Vazgeç</AlertDialogCancel>
+            <AlertDialogAction className="bg-destructive hover:bg-destructive/90" onClick={(event) => { event.preventDefault(); void removeContact(); }}>Kontağı sil</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Dialog>
   );
 }

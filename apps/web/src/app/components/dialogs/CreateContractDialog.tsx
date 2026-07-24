@@ -243,19 +243,20 @@ export function CreateContractDialog({
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <Label className="text-xs">Sözleşme No</Label>
-              <Input className="mt-1.5" value={contractNo} onChange={(e) => setContractNo(e.target.value)} placeholder={`Otomatik: ${selectedOffer?.businessLine ?? "CNC"}-SOZ-${new Date().getFullYear()}/...`} />
+              <Label className="text-xs" htmlFor="create-contract-number">Sözleşme No</Label>
+              <Input id="create-contract-number" className="mt-1.5 font-data" value={contractNo} onChange={(e) => setContractNo(e.target.value)} placeholder={`Otomatik: ${selectedOffer?.businessLine ?? "CNC"}-SOZ-${new Date().getFullYear()}/...`} />
               <p className="mt-1 text-[10px] text-muted-foreground">Boş bırakılırsa teklifin iş alanına ait seri atanır.</p>
             </div>
             <div>
-              <Label className="text-xs">İmza Tarihi</Label>
-              <Input type="date" className="mt-1.5" value={signedDate} onChange={(e) => setSignedDate(e.target.value)} />
+              <Label className="text-xs" htmlFor="create-contract-date">İmza Tarihi</Label>
+              <Input id="create-contract-date" type="date" className="mt-1.5" value={signedDate} onChange={(e) => setSignedDate(e.target.value)} />
             </div>
           </div>
 
           <div>
-            <Label className="text-xs">Ödeme Vadesi (Gün)</Label>
+            <Label className="text-xs" htmlFor="create-contract-payment-days">Ödeme Vadesi (Gün)</Label>
             <Input
+              id="create-contract-payment-days"
               type="number"
               min={0}
               max={3650}

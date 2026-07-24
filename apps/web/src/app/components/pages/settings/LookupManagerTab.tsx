@@ -4,6 +4,10 @@ import { Input } from "../../ui/input";
 import { Badge } from "../../ui/badge";
 import { Switch } from "../../ui/switch";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "../../ui/dialog";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
+  AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "../../ui/alert-dialog";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../../ui/tooltip";
 import { Download, GripVertical, History, Info, Pencil, Plus, RotateCcw, Search, SlidersHorizontal, Sparkles, Trash2, Upload } from "lucide-react";
 import { toast } from "sonner";
@@ -154,6 +158,7 @@ export function LookupManagerTab() {
   const [editParentRows, setEditParentRows] = useState<LookupRow[]>([]);
   const [editProductTypeRows, setEditProductTypeRows] = useState<LookupRow[]>([]);
   const [editRow, setEditRow] = useState<LookupRow | null>(null);
+  const [pendingDeleteRow, setPendingDeleteRow] = useState<LookupRow | null>(null);
   const [editForm, setEditForm] = useState<EditForm>(emptyEditForm);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [lookupHistory, setLookupHistory] = useState<LookupAuditRow[]>([]);
@@ -619,7 +624,6 @@ export function LookupManagerTab() {
   };
 
   const deleteLookup = async (row: LookupRow) => {
-    if (!window.confirm(`${row.name} kaydı silinsin mi? Kullanılıyorsa pasifleştirilecek.`)) return;
     setLookupBusy(true);
     try {
       const result = await adminService.deleteLookup(selectedLookup, row.id);
@@ -630,6 +634,7 @@ export function LookupManagerTab() {
             : "Kullanımdaki kayıt pasifleştirilip listeden kaldırıldı"
           : "Kayıt silindi",
       );
+      setPendingDeleteRow(null);
       await refreshAfterMutation();
     } catch (err: any) {
       toast.error("Kayıt silinemedi", { description: err?.message ?? "API isteği başarısız oldu." });
@@ -1096,7 +1101,7 @@ export function LookupManagerTab() {
                           <Button type="button" variant="ghost" size="icon" className="size-8" onClick={() => openEdit(row)}>
                             <Pencil className="size-4" />
                           </Button>
-                          <Button type="button" variant="ghost" size="icon" className="size-8 text-destructive" onClick={() => deleteLookup(row)}>
+                          <Button type="button" variant="ghost" size="icon" className="size-8 text-destructive" aria-label={`${row.name} kaydını kaldır`} onClick={() => setPendingDeleteRow(row)}>
                             <Trash2 className="size-4" />
                           </Button>
                         </div>
@@ -1247,6 +1252,25 @@ export function LookupManagerTab() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      <AlertDialog open={Boolean(pendingDeleteRow)} onOpenChange={(open) => !open && !lookupBusy && setPendingDeleteRow(null)}>
+        <AlertDialogContent className="max-w-lg">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Alan değeri kaldırılsın mı?</AlertDialogTitle>
+            <AlertDialogDescription>
+              <strong className="text-foreground">{pendingDeleteRow?.name}</strong> değeri {selectedLookupLabel.toLocaleLowerCase("tr-TR")} listesinden kaldırılacak.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="rounded-lg border border-warning/20 bg-warning-soft/50 p-3 text-xs leading-relaxed text-muted-foreground">
+            Bu değer mevcut firma, ürün veya işlem kayıtlarında kullanılıyorsa veri bütünlüğünü korumak için silinmek yerine pasifleştirilir. Yeni formlarda seçilemez, geçmiş kayıtlarda görünmeye devam eder.
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Vazgeç</AlertDialogCancel>
+            <AlertDialogAction className="bg-destructive text-destructive-foreground hover:bg-destructive/90" disabled={lookupBusy} onClick={(event) => { event.preventDefault(); if (pendingDeleteRow) void deleteLookup(pendingDeleteRow); }}>
+              {lookupBusy ? "İşleniyor…" : "Kaldır / pasifleştir"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </SettingsSection>
   );
 }

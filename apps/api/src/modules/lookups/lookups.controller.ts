@@ -56,6 +56,7 @@ export const LOOKUP_TABLE_MAP: Record<string, keyof typeof schema> = {
   units: 'units',
   'warranty-statuses': 'warrantyStatuses',
   'shipment-statuses': 'shipmentStatuses',
+  'shipment-package-units': 'shipmentPackageUnits',
   'invoice-statuses': 'invoiceStatuses',
   'proforma-statuses': 'proformaStatuses',
   'contract-statuses': 'contractStatuses',

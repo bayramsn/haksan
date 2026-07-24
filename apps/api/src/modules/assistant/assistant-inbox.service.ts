@@ -160,6 +160,86 @@ export class AssistantInboxService {
     return this.get(created.id, actor);
   }
 
+  /**
+   * Sistem (webhook) kaynaklı gelen ileti yakalama — actor gerektirmez.
+   * WhatsApp/entegrasyon webhook'ları için: tenant-scoped basit telefon eşleştirme
+   * + sınıflandırma + yanıt taslağı. Aktivite/bildirim yan etkileri actor
+   * gerektirdiğinden burada üretilmez (gelen kutusunda görünür ve atanabilir).
+   */
+  async captureInbound(tenantId: string, input: AssistantInboxCapture): Promise<string | null> {
+    if (input.providerMessageId) {
+      const existing = await this.db.query.assistantInboxItems.findFirst({
+        where: and(
+          eq(assistantInboxItems.tenantId, tenantId),
+          eq(assistantInboxItems.provider, input.provider),
+          eq(assistantInboxItems.providerMessageId, input.providerMessageId),
+        ),
+        columns: { id: true },
+      });
+      if (existing) return existing.id;
+    }
+
+    // Basit telefon eşleştirme (son 10 hane) — firma ve kontak telefonları.
+    let companyId: string | null = null;
+    let contactId: string | null = null;
+    const digits = (input.senderPhone ?? '').replace(/\D/g, '');
+    if (digits.length >= 7) {
+      const last10 = digits.slice(-10);
+      const phoneMatch = await this.db
+        .select({ companyId: companyPhones.companyId })
+        .from(companyPhones)
+        .innerJoin(companies, eq(companyPhones.companyId, companies.id))
+        .where(and(eq(companies.tenantId, tenantId), isNull(companies.deletedAt), sql`right(regexp_replace(${companyPhones.phone}, '[^0-9]', '', 'g'), 10) = ${last10}`))
+        .limit(1);
+      companyId = phoneMatch[0]?.companyId ?? null;
+    }
+
+    const classification = this.classify(`${input.subject ?? ''}\n${input.body}`);
+    const receivedAt = input.receivedAt ?? new Date();
+    const [created] = await this.db
+      .insert(assistantInboxItems)
+      .values({
+        tenantId,
+        divisionId: null,
+        channel: input.channel,
+        provider: input.provider,
+        providerMessageId: input.providerMessageId ?? null,
+        senderName: input.senderName ?? null,
+        senderEmail: input.senderEmail?.toLowerCase() ?? null,
+        senderPhone: input.senderPhone ?? null,
+        subject: input.subject ?? null,
+        body: input.body,
+        category: classification.category,
+        priority: classification.priority,
+        companyId,
+        contactId,
+        assignedToUserId: null,
+        receivedAt,
+        dueAt: new Date(receivedAt.getTime() + this.dueWindowMs(classification.priority)),
+        nextFollowUpAt: new Date(receivedAt.getTime() + this.followUpWindowMs(classification.category)),
+        draftReply: this.buildDraftReply(input, classification.category),
+        classificationConfidence: classification.confidence,
+        metadata: { classificationVersion: 1, autoMatched: Boolean(companyId), inboundWebhook: true },
+        createdBy: null,
+      })
+      .onConflictDoNothing()
+      .returning({ id: assistantInboxItems.id });
+
+    if (created && classification.priority === 'critical') {
+      await this.db.insert(notifications).values({
+        tenantId,
+        userId: null,
+        divisionId: null,
+        type: 'assistant_inbox_critical',
+        title: 'Kritik gelen ileti',
+        body: this.cleanSubject(input.subject || input.body.slice(0, 180)),
+        entityType: 'assistant_inbox',
+        entityId: created.id,
+      });
+    }
+    return created?.id ?? null;
+  }
+
   async update(id: string, input: AssistantInboxUpdate, actor: AuthContext): Promise<AssistantInboxItem> {
     const current = await this.assertItem(id, actor);
     if (!actor.roles.includes('super_admin') && current.assignedToUserId && current.assignedToUserId !== actor.userId) {

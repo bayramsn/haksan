@@ -6,12 +6,14 @@ import {
   quoteUpdateSchema,
   quoteItemCreateSchema,
   quoteItemUpdateSchema,
+  quoteStatusChangeSchema,
   quoteTermsUpsertSchema,
   paginationSchema,
   type QuoteCreateInput,
   type QuoteUpdateInput,
   type QuoteItemCreateInput,
   type QuoteItemUpdateInput,
+  type QuoteStatusChangeInput,
   type QuoteTermsUpsertInput,
   type Pagination,
 } from '@haksan/shared';
@@ -141,6 +143,16 @@ export class QuotesController {
   @Post(':id/reject')
   reject(@Param('id') id: string, @CurrentUser() user: AuthContext) {
     return this.svc.reject(id, user);
+  }
+
+  @RequirePermissions('quotes.update')
+  @Post(':id/status')
+  changeStatus(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(quoteStatusChangeSchema)) body: QuoteStatusChangeInput,
+    @CurrentUser() user: AuthContext
+  ) {
+    return this.svc.changeStatus(id, body, user);
   }
 
   @RequirePermissions('quotes.update')

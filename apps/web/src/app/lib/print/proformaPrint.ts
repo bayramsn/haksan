@@ -43,11 +43,25 @@ const proformaFromSnapshot = (
   const companyPhone = companyPhones.find((phone: any) => !isFaxPhone(phone)) ?? {};
   const companyFax = companyPhones.find((phone: any) => isFaxPhone(phone)) ?? {};
   const rows = Array.isArray(snapshot.items) ? snapshot.items : [];
+  const lineDiscount = rows.reduce(
+    (sum: number, item: any) => sum + Number(snapshotValue(item, "discountAmount", "discount_amount") ?? 0),
+    0,
+  );
+  const headerDiscount = Math.max(Number(snapshotValue(quote, "discountTotal", "discount_total") ?? 0) - lineDiscount, 0);
+  const taxableBeforeHeader = rows.reduce((sum: number, item: any) => {
+    const qty = Number(snapshotValue(item, "quantity") ?? 1);
+    const unitPrice = Number(snapshotValue(item, "unitPrice", "unit_price") ?? 0);
+    const discount = Number(snapshotValue(item, "discountAmount", "discount_amount") ?? 0);
+    return sum + Number(snapshotValue(item, "lineTotal", "line_total") ?? qty * unitPrice - discount);
+  }, 0);
+  const headerRatio = taxableBeforeHeader > 0
+    ? Math.max(0, taxableBeforeHeader - headerDiscount) / taxableBeforeHeader
+    : 1;
   const items: ProformaItem[] = rows.map((item: any) => {
     const qty = Number(snapshotValue(item, "quantity") ?? 1);
     const unitPrice = Number(snapshotValue(item, "unitPrice", "unit_price") ?? 0);
     const discount = Number(snapshotValue(item, "discountAmount", "discount_amount") ?? 0);
-    const lineTotal = Number(snapshotValue(item, "lineTotal", "line_total") ?? qty * unitPrice - discount);
+    const lineTotal = Number(snapshotValue(item, "lineTotal", "line_total") ?? qty * unitPrice - discount) * headerRatio;
     const productSnapshot = snapshotValue(item, "product") ?? {};
     const productModelId = String(snapshotValue(item, "productModelId", "product_model_id") ?? "");
     // Şema v1 anlık görüntülerinde ürün kimliği var ancak ürün bilgisi yoktu.
@@ -64,16 +78,10 @@ const proformaFromSnapshot = (
       mensei: snapshotValue(productSnapshot, "originCountry", "origin_country") ?? catalogProduct?.originCountry,
       gtip: snapshotValue(productSnapshot, "hsCode", "hs_code") ?? catalogProduct?.hsCode,
       birim: formatBirim(qty, snapshotValue(item, "unitCode", "unit_code") ?? "Adet"),
-      birimFiyati: unitPrice,
-      iskonto: discount,
+      birimFiyati: qty > 0 ? lineTotal / qty : 0,
       tutar: lineTotal,
     };
   });
-  const lineDiscount = rows.reduce(
-    (sum: number, item: any) => sum + Number(snapshotValue(item, "discountAmount", "discount_amount") ?? 0),
-    0,
-  );
-  const headerDiscount = Math.max(Number(snapshotValue(quote, "discountTotal", "discount_total") ?? 0) - lineDiscount, 0);
   const vatRates = rows.map((item: any) => Number(snapshotValue(item, "vatRate", "vat_rate") ?? 0));
   const kdvOran = vatRates.length && vatRates.every((rate: number) => rate === vatRates[0]) ? vatRates[0] : 0;
   const companyName = String(snapshotValue(company, "legalTitle", "legal_title", "shortName", "short_name") ?? "");
@@ -104,7 +112,7 @@ const proformaFromSnapshot = (
     tarih: trLongDate(doc.uploadedAt || snapshot.capturedAt) || trLongDate(new Date()),
     belgeNo: doc.fileName,
     items,
-    headerDiscount,
+    headerDiscount: 0,
     kdvOran,
     kdvTutar: Number(snapshotValue(quote, "vatAmount", "vat_amount") ?? 0),
     currency: String(snapshotValue(snapshot.currency, "code") ?? "USD") as ProformaPrintData["currency"],
@@ -172,10 +180,21 @@ const itemsFromQuote = (quote: QuoteDetail, products: Product[], sc: SalesCase |
   const rows = (quote.items ?? []).filter((it: any) => String(it?.description ?? "").trim());
   if (!rows.length) return [];
 
+  const lineDiscount = rows.reduce((sum: number, item: any) => sum + Number(item.discountAmount ?? 0), 0);
+  const headerDiscount = Math.max(Number(quote.discountTotal ?? 0) - lineDiscount, 0);
+  const taxableBeforeHeader = rows.reduce((sum: number, item: any) => {
+    const qty = Number(item.quantity ?? 1);
+    const unitPrice = Number(item.unitPrice ?? 0);
+    return sum + Number(item.lineTotal ?? qty * unitPrice - Number(item.discountAmount ?? 0));
+  }, 0);
+  const headerRatio = taxableBeforeHeader > 0
+    ? Math.max(0, taxableBeforeHeader - headerDiscount) / taxableBeforeHeader
+    : 1;
+
   return rows.map((it: any) => {
     const qty = Number(it.quantity ?? 1);
     const unitPrice = Number(it.unitPrice ?? 0);
-    const lineTotal = Number(it.lineTotal ?? qty * unitPrice - Number(it.discountAmount ?? 0));
+    const lineTotal = Number(it.lineTotal ?? qty * unitPrice - Number(it.discountAmount ?? 0)) * headerRatio;
     const product = findProduct(products, {
       productModelId: it.productModelId ?? undefined,
       description: it.description,
@@ -188,8 +207,7 @@ const itemsFromQuote = (quote: QuoteDetail, products: Product[], sc: SalesCase |
       mensei: isLabor ? undefined : product?.originCountry,
       gtip: isLabor ? undefined : product?.hsCode,
       birim: formatBirim(qty, it.unit?.code ?? it.unitCode),
-      birimFiyati: unitPrice,
-      iskonto: Number(it.discountAmount ?? 0),
+      birimFiyati: qty > 0 ? lineTotal / qty : 0,
       tutar: lineTotal,
     };
   });
@@ -247,17 +265,19 @@ export function buildProformaPrintData(
       ? Math.round(enteredVatRates[0])
       : 0
     : vat.oran;
-  const lineDiscountTotal = (quoteDetail?.items ?? []).reduce(
-    (sum: number, item: { discountAmount?: unknown }) => sum + Number(item.discountAmount ?? 0),
-    0,
-  );
-  const headerDiscount = Math.max(Number(quoteDetail?.discountTotal ?? 0) - lineDiscountTotal, 0);
+  const pdfAddress = cust?.addresses?.find((address) => address.id === quoteDetail?.companyAddressId)
+    ?? cust?.addresses?.find((address) => address.isBilling)
+    ?? cust?.addresses?.find((address) => address.isDefault)
+    ?? cust?.addresses?.[0];
+  const printableAddress = pdfAddress
+    ? [pdfAddress.address, pdfAddress.district, pdfAddress.city, pdfAddress.country].filter(Boolean).join(" ")
+    : cust ? [cust.address, cust.district, cust.city, cust.country].filter(Boolean).join(" ") : "";
 
   return {
     firma: cust?.name ?? "",
     ilgili: contact?.name || cust?.contactPerson,
     mobil: contact?.mobilePhone || cust?.phone2,
-    adres: cust ? [cust.address, cust.district, cust.city].filter(Boolean).join(" ") : "",
+    adres: printableAddress,
     tel: contact?.phone || cust?.phone,
     faks: cust?.fax,
     vergiDairesi: cust?.taxOffice,
@@ -265,7 +285,7 @@ export function buildProformaPrintData(
     tarih: trLongDate(doc.uploadedAt) || trLongDate(new Date()),
     belgeNo: doc.fileName,
     items,
-    headerDiscount,
+    headerDiscount: 0,
     kdvOran,
     kdvTutar: Number(
       quoteDetail?.vatAmount ??

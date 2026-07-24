@@ -18,6 +18,8 @@ export const companies = pgTable(
     companyGroupId: uuid('company_group_id').references(() => companyGroups.id),
     contactSourceId: uuid('contact_source_id').references(() => contactSources.id),
     sector: varchar('sector', { length: 128 }),
+    // Tedarikçileri sevkiyat seçiminde işlevine göre ayırır; sektör bilgisinden bağımsızdır.
+    supplierCategoryCode: varchar('supplier_category_code', { length: 32 }),
     legalTitle: varchar('legal_title', { length: 255 }).notNull(),
     shortName: varchar('short_name', { length: 128 }),
     taxOffice: varchar('tax_office', { length: 128 }),
@@ -35,6 +37,7 @@ export const companies = pgTable(
     tenantIdx: index('companies_tenant_idx').on(t.tenantId),
     legalTitleIdx: index('companies_legal_title_idx').on(t.legalTitle),
     relationTypeIdx: index('companies_relation_type_idx').on(t.relationTypeId),
+    supplierCategoryIdx: index('companies_supplier_category_idx').on(t.supplierCategoryCode),
   })
 );
 
@@ -61,6 +64,8 @@ export const companyAddresses = pgTable(
     longitude: numeric('longitude', { precision: 10, scale: 7 }),
     locationSource: varchar('location_source', { length: 16 }),
     isDefault: boolean('is_default').notNull().default(false),
+    isShipping: boolean('is_shipping').notNull().default(false),
+    isBilling: boolean('is_billing').notNull().default(false),
     ...auditColumns,
   },
   (t) => ({

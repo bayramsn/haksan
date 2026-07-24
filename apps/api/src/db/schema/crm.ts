@@ -117,6 +117,8 @@ export const opportunities = pgTable(
     lostCompetitorProductModel: varchar('lost_competitor_product_model', { length: 255 }),
     // Makine satışında ödeme vadesi (gün); sözleşme/ödeme planı varsayılanı.
     paymentTermDays: integer('payment_term_days'),
+    // Lead kartında seçilen ödeme yöntemi (cash, term, leasing vb.).
+    paymentMethod: varchar('payment_method', { length: 32 }),
     // Kazanılan fırsatlarda kabul/kazanma nedeni (yıl sonu raporu için).
     wonReason: varchar('won_reason', { length: 255 }),
     // Mantıksal kapanış (arşiv) — `deletedAt` (silme) DEĞİL. Terminal aşamadaki

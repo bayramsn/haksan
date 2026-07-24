@@ -133,6 +133,7 @@ export const currencies = makeLookup('currencies');
 export const units = makeLookup('units');
 export const warrantyStatuses = makeLookup('warranty_statuses');
 export const shipmentStatuses = makeLookup('shipment_statuses');
+export const shipmentPackageUnits = makeLookup('shipment_package_units');
 export const invoiceStatuses = makeLookup('invoice_statuses');
 export const proformaStatuses = makeLookup('proforma_statuses');
 export const contractStatuses = makeLookup('contract_statuses');

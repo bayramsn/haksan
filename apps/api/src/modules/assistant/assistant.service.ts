@@ -28,6 +28,7 @@ import { productModels } from '../../db/schema/products';
 import { quotes } from '../../db/schema/quotes';
 import { serviceTickets, shipments } from '../../db/schema/service';
 import { divisions } from '../../db/schema/tenants';
+import { users } from '../../db/schema/users';
 import { DB } from '../../shared/database/database.module';
 import type { AuthContext } from '../../shared/security/auth.types';
 import { AppError, ForbiddenError, NotFoundError, ValidationError } from '../../shared/utils/errors';
@@ -403,16 +404,15 @@ export class AssistantService {
     // toplamak eşzamanlı chat isteklerinde bütçenin aşılmasına yol açıyordu.
     const env = loadEnv();
     const llmEnabled = !memory && !modeNotice && env.ASSISTANT_LLM_PROVIDER !== 'none' && Boolean(env.ASSISTANT_API_KEY);
-    const reservedTokens =
-      llmEnabled && env.ASSISTANT_DAILY_TOKEN_BUDGET > 0
-        ? await this.reserveDailyTokenBudget(
-            actor,
-            secretaryActionRequested
-              ? this.estimateSecretaryReservation(message, sources, visibleDivisions, input, actor)
-              : this.estimateLlmReservation(message, suggestions, sources)
-          )
-        : 0;
-    const overBudget = llmEnabled && env.ASSISTANT_DAILY_TOKEN_BUDGET > 0 && reservedTokens === null;
+    const reservation = llmEnabled
+      ? await this.reserveDailyBudget(
+          actor,
+          secretaryActionRequested
+            ? this.estimateSecretaryReservation(message, sources, visibleDivisions, input, actor)
+            : this.estimateLlmReservation(message, suggestions, sources)
+        )
+      : null;
+    const overBudget = llmEnabled && reservation === null;
     let llm: { text: string; usage?: { inputTokens?: number; outputTokens?: number } } | null = null;
     let approval: AssistantApprovalCard | null = null;
     let secretaryMessage: string | null = null;
@@ -444,7 +444,7 @@ export class AssistantService {
       } else {
         secretaryMessage = 'İşlemdeki firma, kontak, teklif veya bölüm güvenli CRM bağlamıyla eşleşmedi. Kaydı daha açık belirtin.';
       }
-      if (planned?.usage) llm = { text: secretaryMessage ?? planned.message, usage: planned.usage };
+      if (planned) llm = { text: secretaryMessage ?? planned.message, usage: planned.usage };
     } else if (llmEnabled && !overBudget) {
       llm = await this.llmAnswer(message, suggestions, sources).catch(async (err) => {
         await this.writeLog(actor, {
@@ -457,8 +457,14 @@ export class AssistantService {
       });
     }
 
+    if (reservation) {
+      await this.finalizeDailyBudget(actor, reservation, llm?.usage, Boolean(llm));
+    }
+    const budgetNotice = overBudget
+      ? `${deterministic.text}\n\nGünlük asistan bütçeniz dolduğu için bu yanıt CRM verilerinden yerel olarak hazırlandı.`
+      : null;
     const response: AssistantChatResponse = {
-      text: this.safeText(modeNotice || secretaryMessage || llm?.text || deterministic.text, 4000),
+      text: this.safeText(modeNotice || secretaryMessage || llm?.text || budgetNotice || deterministic.text, 4000),
       sources: this.dedupeSources([...deterministic.sources, ...sources]).slice(0, 12),
       actions: approval ? [] : deterministic.actions.slice(0, 8),
       approvals: approval ? [approval] : [],
@@ -477,7 +483,8 @@ export class AssistantService {
         inputTokens: llm?.usage?.inputTokens ?? null,
         outputTokens: llm?.usage?.outputTokens ?? null,
         budgetExceeded: overBudget,
-        budgetReservedTokens: reservedTokens,
+        budgetReservedTokens: reservation?.tokens ?? null,
+        budgetReservedUsd: reservation ? reservation.costMicros / 1_000_000 : null,
       },
     });
     return response;
@@ -1819,9 +1826,34 @@ export class AssistantService {
     return Buffer.byteLength(systemPrompt, 'utf8') + Buffer.byteLength(userContent, 'utf8') + loadEnv().ASSISTANT_MAX_TOKENS;
   }
 
-  private async reserveDailyTokenBudget(actor: AuthContext, requestedTokens: number): Promise<number | null> {
-    const budget = loadEnv().ASSISTANT_DAILY_TOKEN_BUDGET;
-    if (requestedTokens <= 0 || requestedTokens > budget) return null;
+  private async reserveDailyBudget(
+    actor: AuthContext,
+    requestedTokens: number
+  ): Promise<{ usageDate: string; tokens: number; costMicros: number } | null> {
+    const env = loadEnv();
+    const tokenBudget = env.ASSISTANT_DAILY_TOKEN_BUDGET;
+    const owner = await this.db.query.users.findFirst({
+      where: and(eq(users.id, actor.userId), eq(users.tenantId, actor.tenantId), isNull(users.deletedAt)),
+      columns: { assistantDailyUsdLimitCents: true },
+    });
+    if (!owner) return null;
+    const usdLimitCents =
+      owner.assistantDailyUsdLimitCents ?? Math.round(env.ASSISTANT_DEFAULT_DAILY_USD_LIMIT * 100);
+    const usdBudgetMicros = usdLimitCents * 10_000;
+    // Rezervasyon, giriş/çıkış oranlarının pahalı olanıyla yapılır. Böylece gerçek
+    // token dağılımı ne olursa olsun sağlayıcı maliyeti bütçeyi aşamaz.
+    const requestedCostMicros = Math.ceil(
+      requestedTokens * Math.max(env.ASSISTANT_INPUT_USD_PER_MILLION_TOKENS, env.ASSISTANT_OUTPUT_USD_PER_MILLION_TOKENS)
+    );
+    if (
+      requestedTokens <= 0 ||
+      requestedCostMicros <= 0 ||
+      usdBudgetMicros <= 0 ||
+      (tokenBudget > 0 && requestedTokens > tokenBudget) ||
+      requestedCostMicros > usdBudgetMicros
+    ) {
+      return null;
+    }
     const usageDate = new Date().toISOString().slice(0, 10);
     const [reservation] = await this.db
       .insert(assistantDailyTokenBudgets)
@@ -1830,6 +1862,7 @@ export class AssistantService {
         userId: actor.userId,
         usageDate,
         reservedTokens: requestedTokens,
+        reservedCostMicros: requestedCostMicros,
       })
       .onConflictDoUpdate({
         target: [
@@ -1837,11 +1870,52 @@ export class AssistantService {
           assistantDailyTokenBudgets.userId,
           assistantDailyTokenBudgets.usageDate,
         ],
-        set: { reservedTokens: sql`${assistantDailyTokenBudgets.reservedTokens} + ${requestedTokens}` },
-        where: sql`${assistantDailyTokenBudgets.reservedTokens} + ${requestedTokens} <= ${budget}`,
+        set: {
+          reservedTokens: sql`${assistantDailyTokenBudgets.reservedTokens} + ${requestedTokens}`,
+          reservedCostMicros: sql`${assistantDailyTokenBudgets.reservedCostMicros} + ${requestedCostMicros}`,
+        },
+        where: sql`
+          (${tokenBudget} = 0 or ${assistantDailyTokenBudgets.reservedTokens} + ${requestedTokens} <= ${tokenBudget})
+          and ${assistantDailyTokenBudgets.reservedCostMicros} + ${requestedCostMicros} <= ${usdBudgetMicros}
+        `,
       })
-      .returning({ reservedTokens: assistantDailyTokenBudgets.reservedTokens });
-    return reservation ? requestedTokens : null;
+      .returning({ id: assistantDailyTokenBudgets.id });
+    return reservation ? { usageDate, tokens: requestedTokens, costMicros: requestedCostMicros } : null;
+  }
+
+  private async finalizeDailyBudget(
+    actor: AuthContext,
+    reservation: { usageDate: string; tokens: number; costMicros: number },
+    usage: { inputTokens?: number; outputTokens?: number } | undefined,
+    completed: boolean
+  ) {
+    // Sağlayıcı başarılı yanıt verip usage alanını göndermediyse güvenli tarafta
+    // kalıp maksimum rezervasyonu koru. Başarısız çağrıda rezervasyonun tamamını iade et.
+    if (completed && (!Number.isFinite(usage?.inputTokens) || !Number.isFinite(usage?.outputTokens))) return;
+    const env = loadEnv();
+    const inputTokens = completed ? Math.max(0, Math.trunc(usage?.inputTokens ?? 0)) : 0;
+    const outputTokens = completed ? Math.max(0, Math.trunc(usage?.outputTokens ?? 0)) : 0;
+    const actualTokens = Math.min(reservation.tokens, inputTokens + outputTokens);
+    const actualCostMicros = Math.min(
+      reservation.costMicros,
+      Math.ceil(
+        inputTokens * env.ASSISTANT_INPUT_USD_PER_MILLION_TOKENS +
+          outputTokens * env.ASSISTANT_OUTPUT_USD_PER_MILLION_TOKENS
+      )
+    );
+    await this.db
+      .update(assistantDailyTokenBudgets)
+      .set({
+        reservedTokens: sql`greatest(0, ${assistantDailyTokenBudgets.reservedTokens} - ${reservation.tokens} + ${actualTokens})`,
+        reservedCostMicros: sql`greatest(0, ${assistantDailyTokenBudgets.reservedCostMicros} - ${reservation.costMicros} + ${actualCostMicros})`,
+      })
+      .where(
+        and(
+          eq(assistantDailyTokenBudgets.tenantId, actor.tenantId),
+          eq(assistantDailyTokenBudgets.userId, actor.userId),
+          eq(assistantDailyTokenBudgets.usageDate, reservation.usageDate)
+        )
+      );
   }
 
   private async dismissedSuggestionIds(actor: AuthContext): Promise<Set<string>> {

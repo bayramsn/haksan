@@ -138,6 +138,7 @@ export class ProductsController {
     const rows = [
       {
         Marka: 'Ecoca',
+        Seri: 'MT',
         Model: 'MT-208/500',
         'Ürün Adı': 'Ecoca MT-208/500 CNC Torna Tezgahı',
         'Ürün Tipi': 'CNC Torna Tezgahı',

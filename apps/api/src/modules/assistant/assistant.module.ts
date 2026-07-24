@@ -16,5 +16,6 @@ import { AssistantService } from './assistant.service';
   imports: [ActivitiesModule, CalendarModule, CallAssistantModule, CompaniesModule, ContactsModule, MailerModule, QuotesModule, ReportsModule],
   controllers: [AssistantController],
   providers: [AssistantApprovalService, AssistantInboxService, AssistantService],
+  exports: [AssistantInboxService],
 })
 export class AssistantModule {}

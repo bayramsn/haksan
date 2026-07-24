@@ -23,10 +23,12 @@ import {
 } from '@aws-sdk/client-s3';
 import { loadEnv } from '../../config/env';
 import { logger } from '../utils/logger';
+import { buildS3ClientConfig } from './s3-client-config';
 
 /** Canonical bucket set used across the app (mirrors docker-compose minio-init). */
 const BUCKETS = [
   'erp-product-images',
+  'erp-product-documents',
   'erp-quote-documents',
   'erp-proforma-documents',
   'erp-contract-documents',
@@ -44,15 +46,8 @@ async function setup(): Promise<void> {
     return;
   }
 
-  const client = new S3Client({
-    region: env.S3_REGION,
-    endpoint: env.S3_ENDPOINT,
-    forcePathStyle: env.S3_FORCE_PATH_STYLE,
-    credentials: {
-      accessKeyId: env.S3_ACCESS_KEY_ID,
-      secretAccessKey: env.S3_SECRET_ACCESS_KEY,
-    },
-  });
+  const client = new S3Client(buildS3ClientConfig(env));
+  const targetBuckets = env.S3_PROVIDER === 's3' ? [env.S3_BUCKET_NAME!] : BUCKETS;
 
   // Browser-direct upload needs PUT; downloads/thumbnails need GET/HEAD.
   const corsRules = [
@@ -66,15 +61,30 @@ async function setup(): Promise<void> {
   ];
 
   logger.info(
-    { provider: env.S3_PROVIDER, endpoint: env.S3_ENDPOINT, origins: env.CORS_ORIGINS, buckets: BUCKETS.length },
+    { provider: env.S3_PROVIDER, endpoint: env.S3_ENDPOINT, origins: env.CORS_ORIGINS, buckets: targetBuckets.length },
     '[storage:setup] başlıyor'
   );
 
   let created = 0;
+  let verified = 0;
   let corsApplied = 0;
   const failures: string[] = [];
 
-  for (const Bucket of BUCKETS) {
+  for (const Bucket of targetBuckets) {
+    // AWS production bucket security/CORS is infrastructure configuration and
+    // must not require bucket-admin permissions on the application role.
+    if (env.S3_PROVIDER === 's3') {
+      try {
+        await client.send(new HeadBucketCommand({ Bucket }));
+        verified += 1;
+        logger.info({ Bucket }, '[storage:setup] AWS bucket doğrulandı; yönetim ayarları değiştirilmedi');
+      } catch (err: any) {
+        failures.push(`${Bucket}: ${err?.message ?? 'bucket erişim hatası'}`);
+        logger.error({ Bucket, err: err?.message }, '[storage:setup] AWS bucket doğrulanamadı');
+      }
+      continue;
+    }
+
     // 1) Ensure the bucket exists.
     let exists = false;
     try {
@@ -106,7 +116,7 @@ async function setup(): Promise<void> {
     }
   }
 
-  logger.info({ created, corsApplied, total: BUCKETS.length }, '[storage:setup] tamamlandı');
+  logger.info({ created, verified, corsApplied, total: targetBuckets.length }, '[storage:setup] tamamlandı');
   if (failures.length) {
     logger.error({ failures }, '[storage:setup] bazı bucket’larda CORS uygulanamadı');
     process.exitCode = 1;

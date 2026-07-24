@@ -42,7 +42,15 @@ export class ApiError extends Error {
   }
 }
 
-const BASE_URL = (import.meta.env.VITE_API_BASE_URL as string) ?? 'http://localhost:3000/api/v1';
+const configuredBaseUrl = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.trim();
+const productionBaseUrlPointsToLocalhost =
+  import.meta.env.PROD && /^https?:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?(?:\/|$)/i.test(configuredBaseUrl ?? '');
+
+// A local .env is useful during development, but it must never leak into a
+// production bundle: in a customer's browser "localhost" is their own device.
+// Production is served through nginx, so the same-origin API path is the safe
+// fallback and keeps cookies/CORS on one origin.
+const BASE_URL = (productionBaseUrlPointsToLocalhost ? '/api/v1' : configuredBaseUrl || '/api/v1').replace(/\/$/, '');
 
 export const API_BASE_URL = BASE_URL;
 

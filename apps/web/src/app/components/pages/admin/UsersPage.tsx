@@ -3,6 +3,7 @@ import { Card, CardHeader, CardTitle } from "../../ui/card";
 import { Button } from "../../ui/button";
 import { Input } from "../../ui/input";
 import { Badge } from "../../ui/badge";
+import { Avatar, AvatarFallback, AvatarImage } from "../../ui/avatar";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "../../ui/dialog";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
@@ -25,9 +26,10 @@ import { useAuth } from "../../../../lib/auth";
 import { adminService } from "../../../../lib/services";
 import type { User } from "../../../lib/mock";
 import { PERMISSION_RESOURCES, type PermissionResource } from "@haksan/shared";
+import { InsightStat } from "../../shared/PremiumPrimitives";
 import {
   AlertTriangle, Building2, LockKeyhole, Pencil, Plus, RotateCcw,
-  Settings, ShieldCheck, Trash2, TrendingUp, Unlock,
+  Search, Settings, ShieldCheck, Trash2, TrendingUp, Unlock, UserCheck, UserRoundX, UsersRound,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -119,6 +121,10 @@ const normalizeAdminUser = (user: any, fallback?: User): AdminUserRow => {
     active: user.status ? user.status !== "passive" : fallback?.active ?? true,
     avatarUrl: user.avatarUrl ?? user.photoUrl ?? fallback?.avatarUrl,
     purchaseApprovalLimit: user.purchaseApprovalLimit ? Number(user.purchaseApprovalLimit) : fallback?.purchaseApprovalLimit,
+    assistantDailyUsdLimit:
+      user.assistantDailyUsdLimit == null
+        ? fallback?.assistantDailyUsdLimit ?? null
+        : Number(user.assistantDailyUsdLimit),
     managerId: user.managerId ?? fallback?.managerId,
     roleCodes: roleCodes.length ? roleCodes : [FALLBACK_ROLE_CODES[fallbackRole] ?? fallbackRole],
     roleNames: roleNames.length ? roleNames : [fallbackRole],
@@ -165,6 +171,8 @@ export function UsersPage() {
   const [savingEdit, setSavingEdit] = useState(false);
   const [unlockSaving, setUnlockSaving] = useState(false);
   const [deletingSaving, setDeletingSaving] = useState(false);
+  const [query, setQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState<"all" | "active" | "passive" | "locked">("all");
 
   const loadAdminUsers = useCallback(async () => {
     setAdminLoading(true);
@@ -209,6 +217,20 @@ export function UsersPage() {
 
   const displayUsers = adminUsers.length ? adminUsers : users.map(normalizeStoreUser);
   const lockedUsers = useMemo(() => displayUsers.filter(isUserLocked), [displayUsers]);
+  const activeUsers = useMemo(() => displayUsers.filter((user) => user.active && !isUserLocked(user)), [displayUsers]);
+  const filteredUsers = useMemo(() => {
+    const term = query.trim().toLocaleLowerCase("tr-TR");
+    return displayUsers.filter((user) => {
+      const matchesTerm = !term || [user.name, user.email, user.department, ...user.roleNames, ...user.divisionNames]
+        .filter(Boolean)
+        .some((value) => String(value).toLocaleLowerCase("tr-TR").includes(term));
+      const matchesStatus = statusFilter === "all"
+        || (statusFilter === "locked" && isUserLocked(user))
+        || (statusFilter === "active" && user.active && !isUserLocked(user))
+        || (statusFilter === "passive" && !user.active);
+      return matchesTerm && matchesStatus;
+    });
+  }, [displayUsers, query, statusFilter]);
 
   const fetchTargets = useCallback(async () => {
     if (!canSetTargets) return;
@@ -233,11 +255,17 @@ export function UsersPage() {
     setTargets((prev) => ({ ...prev, [userId]: targetFromApi(saved) }));
   };
 
-  const handleSaveLimit = async (userId: string, limit: number | undefined, managerId: string | undefined) => {
+  const handleSaveLimit = async (
+    userId: string,
+    purchaseLimit: number | undefined,
+    assistantDailyUsdLimit: number | null,
+    managerId: string | undefined
+  ) => {
     setSavingLimit(true);
     try {
       await adminService.updateUser(userId, {
-        purchaseApprovalLimit: limit ?? 0,
+        purchaseApprovalLimit: purchaseLimit ?? 0,
+        assistantDailyUsdLimit,
         managerId: managerId ?? null,
       });
       toast.success("Kullanıcı limitleri güncellendi");
@@ -338,11 +366,43 @@ export function UsersPage() {
   };
 
   return (
-    <>
+    <div className="space-y-4">
+      <section className="premium-blueprint precision-corners overflow-hidden rounded-2xl border border-primary/20 bg-card p-5 shadow-sm">
+        <div className="relative flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
+          <div>
+            <p className="font-mono text-[10px] font-semibold tracking-[0.2em] text-primary">ERİŞİM ENVANTERİ</p>
+            <h2 className="mt-1 font-display text-2xl font-semibold tracking-tight sm:text-3xl">Kullanıcı kimlikleri</h2>
+            <p className="mt-1 max-w-2xl text-sm text-muted-foreground">Kimlik, organizasyon kapsamı, roller ve hesap güvenliğini birlikte yönetin.</p>
+          </div>
+          <div className="grid grid-cols-3 gap-2 sm:min-w-[480px]">
+            <InsightStat label="Toplam" value={displayUsers.length} icon={<UsersRound />} />
+            <InsightStat label="Aktif" value={activeUsers.length} icon={<UserCheck />} tone="success" />
+            <InsightStat label="Kilitli" value={lockedUsers.length} icon={<LockKeyhole />} tone={lockedUsers.length ? "warning" : "success"} />
+          </div>
+        </div>
+      </section>
+
       <Card className="border-border/60 shadow-sm overflow-hidden">
-        <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <CardTitle>Kullanıcılar</CardTitle>
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+        <CardHeader className="gap-4 border-b border-border/60 bg-muted/10 p-4">
+          <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+            <div>
+              <CardTitle className="text-base">Erişim kayıtları</CardTitle>
+              <p className="mt-0.5 text-xs text-muted-foreground">{filteredUsers.length} / {displayUsers.length} kullanıcı gösteriliyor</p>
+            </div>
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+              <div className="relative sm:w-[270px]">
+                <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Ad, e-posta, rol veya ekip ara..." className="h-9 bg-card pl-9" />
+              </div>
+              <Select value={statusFilter} onValueChange={(value) => setStatusFilter(value as typeof statusFilter)}>
+                <SelectTrigger className="h-9 w-full bg-card sm:w-[135px]" aria-label="Hesap durumu filtresi"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Tüm durumlar</SelectItem>
+                  <SelectItem value="active">Aktif</SelectItem>
+                  <SelectItem value="passive">Pasif</SelectItem>
+                  <SelectItem value="locked">Kilitli</SelectItem>
+                </SelectContent>
+              </Select>
             {canSetTargets && (
               <Input
                 type="month"
@@ -354,6 +414,7 @@ export function UsersPage() {
             {canCreateUser && (
               <Button className="gap-1" onClick={() => setCreateUserOpen(true)}><Plus className="size-4" /> Kullanıcı Ekle</Button>
             )}
+            </div>
           </div>
         </CardHeader>
         {adminError && (
@@ -362,34 +423,30 @@ export function UsersPage() {
           </div>
         )}
         {canUpdateUser && (
-          <div className="mx-4 mb-4 rounded-md border border-amber-200 bg-amber-50/70 p-3 text-sm">
+          <div className={`mx-4 mb-4 mt-4 rounded-lg border p-3 text-sm ${lockedUsers.length ? "border-warning/30 bg-warning/5" : "border-success/25 bg-success/5"}`}>
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-              <div className="flex items-center gap-2 font-medium text-amber-950">
-                <LockKeyhole className="size-4 text-amber-700" />
-                <span>Kilitli Hesaplar</span>
-                <Badge variant="outline" className="border-amber-300 bg-white/70 text-amber-900">{lockedUsers.length}</Badge>
+              <div className={`flex items-center gap-2 font-medium ${lockedUsers.length ? "text-warning" : "text-success"}`}>
+                {lockedUsers.length ? <LockKeyhole className="size-4" /> : <ShieldCheck className="size-4" />}
+                <span>{lockedUsers.length ? "Kilitli hesap müdahalesi gerekiyor" : "Hesap güvenliği normal"}</span>
+                <Badge variant="outline" className="bg-card/70">{lockedUsers.length}</Badge>
               </div>
-              <Button variant="outline" size="sm" className="h-8 gap-1 bg-white/70" onClick={() => void loadAdminUsers()} disabled={adminLoading}>
+              <Button variant="outline" size="sm" className="h-8 gap-1 bg-card/70" onClick={() => void loadAdminUsers()} disabled={adminLoading}>
                 <RotateCcw className="size-3.5" /> Yenile
               </Button>
             </div>
-            {lockedUsers.length === 0 ? (
-              <div className="mt-3 rounded-md border border-dashed border-amber-200 bg-white/50 px-3 py-2 text-xs text-amber-900">
-                Geçici olarak kilitli hesap yok.
-              </div>
-            ) : (
+            {lockedUsers.length > 0 && (
               <div className="mt-3 grid gap-2">
                 {lockedUsers.map((user) => (
                   <div
                     key={user.id}
-                    className="flex flex-col gap-3 rounded-md border border-amber-200 bg-white/80 px-3 py-2 sm:flex-row sm:items-center sm:justify-between"
+                    className="flex flex-col gap-3 rounded-md border border-warning/25 bg-card/80 px-3 py-2 sm:flex-row sm:items-center sm:justify-between"
                   >
                     <div className="min-w-0">
-                      <div className="truncate font-medium text-amber-950">{user.name}</div>
-                      <div className="mt-0.5 truncate text-xs text-amber-900/80">{user.email}</div>
+                      <div className="truncate font-medium">{user.name}</div>
+                      <div className="mt-0.5 truncate text-xs text-muted-foreground">{user.email}</div>
                     </div>
                     <div className="flex flex-col gap-2 sm:items-end">
-                      <div className="text-xs text-amber-950">
+                      <div className="text-xs text-muted-foreground">
                         {user.failedLoginAttempts} hatalı deneme · {formatDateTime(user.lockedUntil)} tarihine kadar
                       </div>
                       <Button size="sm" className="h-8 gap-1" onClick={() => setUnlockUser(user)}>
@@ -406,15 +463,14 @@ export function UsersPage() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Ad Soyad</TableHead>
-                <TableHead>E-posta</TableHead>
+                <TableHead>Kullanıcı Kimliği</TableHead>
                 <TableHead>Rol</TableHead>
                 <TableHead>Departman</TableHead>
                 <TableHead>Bölüm</TableHead>
                 <TableHead>Hedef</TableHead>
-                <TableHead>Onay Limiti</TableHead>
+                <TableHead>Limitler (USD)</TableHead>
                 <TableHead>Yönetici</TableHead>
-                <TableHead>Aktif</TableHead>
+                <TableHead>Durum</TableHead>
                 {canShowActions && <TableHead className="w-10" />}
               </TableRow>
             </TableHeader>
@@ -422,12 +478,12 @@ export function UsersPage() {
               {adminLoading && displayUsers.length === 0 ? (
                 Array.from({ length: 4 }).map((_, index) => (
                   <TableRow key={`users-loading-${index}`}>
-                    {Array.from({ length: canShowActions ? 10 : 9 }).map((__, cellIndex) => (
+                    {Array.from({ length: canShowActions ? 9 : 8 }).map((__, cellIndex) => (
                       <TableCell key={cellIndex}><Skeleton className="h-5 w-full" /></TableCell>
                     ))}
                   </TableRow>
                 ))
-              ) : displayUsers.map((u) => {
+              ) : filteredUsers.map((u) => {
                 const t = targets[u.id];
                 const targetSummaries = t
                   ? TARGET_TYPE_ORDER.map((targetType) => ({
@@ -439,16 +495,23 @@ export function UsersPage() {
                 return (
                   <TableRow key={u.id}>
                     <TableCell>
-                      <div className="flex min-w-[160px] flex-col gap-1">
-                        <span>{u.name}</span>
-                        {isUserLocked(u) && (
-                          <Badge variant="outline" className="w-fit border-amber-300 bg-amber-50 text-[10px] text-amber-900">
-                            <LockKeyhole className="mr-1 size-3" /> Kilitli
-                          </Badge>
-                        )}
+                      <div className="flex min-w-[220px] items-center gap-3">
+                        <div className="relative shrink-0">
+                          <Avatar className="size-9 border border-border/70">
+                            {u.avatarUrl && <AvatarImage src={u.avatarUrl} alt="" />}
+                            <AvatarFallback className="bg-primary/10 text-xs font-semibold text-primary">{u.name.split(" ").slice(0, 2).map((part) => part[0]).join("").toUpperCase()}</AvatarFallback>
+                          </Avatar>
+                          <span className={`absolute -bottom-0.5 -right-0.5 size-2.5 rounded-full border-2 border-card ${isUserLocked(u) ? "bg-warning" : u.active ? "bg-success" : "bg-muted-foreground"}`} />
+                        </div>
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="truncate text-sm font-medium">{u.name}</span>
+                            {isUserLocked(u) && <LockKeyhole className="size-3.5 shrink-0 text-warning" aria-label="Hesap kilitli" />}
+                          </div>
+                          <p className="mt-0.5 truncate text-xs text-muted-foreground">{u.email}</p>
+                        </div>
                       </div>
                     </TableCell>
-                    <TableCell className="text-muted-foreground">{u.email}</TableCell>
                     <TableCell>
                       <div className="flex max-w-[260px] flex-wrap gap-1">
                         {u.roleNames.map((role) => (
@@ -459,7 +522,7 @@ export function UsersPage() {
                     <TableCell>
                       {canUpdateUser ? (
                         <Button variant="link" className="h-auto p-0 text-sm" onClick={() => setDeptUser(u)}>
-                          {u.department || "— Atanmadı —"}
+                          <Badge variant="outline" className="font-normal">{u.department || "Atanmadı"}</Badge>
                         </Button>
                       ) : (
                         u.department || "—"
@@ -493,17 +556,31 @@ export function UsersPage() {
                       )}
                     </TableCell>
                     <TableCell>
-                      {u.purchaseApprovalLimit ? `${u.purchaseApprovalLimit.toLocaleString("tr-TR")} ₺` : <span className="text-muted-foreground text-xs">Limitsiz</span>}
+                      <div className="min-w-[132px] space-y-0.5 text-xs">
+                        <div>
+                          <span className="text-muted-foreground">Onay:</span>{" "}
+                          {u.purchaseApprovalLimit
+                            ? `$${u.purchaseApprovalLimit.toLocaleString("tr-TR")}`
+                            : <span className="text-muted-foreground">Limitsiz</span>}
+                        </div>
+                        <div>
+                          <span className="text-muted-foreground">Asistan:</span>{" "}
+                          {u.assistantDailyUsdLimit == null
+                            ? <span className="text-muted-foreground">Varsayılan</span>
+                            : u.assistantDailyUsdLimit === 0
+                            ? <span className="text-red-600">Kapalı</span>
+                            : `$${u.assistantDailyUsdLimit.toLocaleString("tr-TR", { minimumFractionDigits: 2 })}/gün`}
+                        </div>
+                      </div>
                     </TableCell>
                     <TableCell>
                       {u.managerId ? displayUsers.find((x) => x.id === u.managerId)?.name : <span className="text-muted-foreground text-xs">—</span>}
                     </TableCell>
                     <TableCell>
-                      <Switch
-                        checked={u.active}
-                        disabled={!canUpdateUser}
-                        onCheckedChange={canUpdateUser ? (checked) => void handleSaveDepartment(u.id, u.departmentId ?? null, checked) : undefined}
-                      />
+                      <div className="flex min-w-[86px] items-center gap-2">
+                        <Switch checked={u.active} disabled={!canUpdateUser} onCheckedChange={canUpdateUser ? (checked) => void handleSaveDepartment(u.id, u.departmentId ?? null, checked) : undefined} aria-label={`${u.name} hesabını ${u.active ? "pasif" : "aktif"} yap`} />
+                        <span className={`text-xs font-medium ${u.active ? "text-success" : "text-muted-foreground"}`}>{u.active ? "Aktif" : "Pasif"}</span>
+                      </div>
                     </TableCell>
                     {canShowActions && (
                       <TableCell className="text-right whitespace-nowrap">
@@ -554,6 +631,9 @@ export function UsersPage() {
                   </TableRow>
                 );
               })}
+              {!adminLoading && filteredUsers.length === 0 && (
+                <TableRow><TableCell colSpan={canShowActions ? 9 : 8} className="py-10 text-center"><UserRoundX className="mx-auto size-6 text-muted-foreground" /><p className="mt-2 text-sm font-medium">Eşleşen kullanıcı yok</p><p className="mt-1 text-xs text-muted-foreground">Arama metnini veya durum filtresini değiştirin.</p></TableCell></TableRow>
+              )}
             </TableBody>
           </Table>
         </div>
@@ -665,7 +745,7 @@ export function UsersPage() {
           </AlertDialogContent>
         </AlertDialog>
       )}
-    </>
+    </div>
   );
 }
 function UserRoleDialog({ user, roles, saving, onClose, onSave }: {
@@ -759,14 +839,23 @@ function UserLimitDialog({ user, users, saving, onClose, onSave }: {
   users: User[];
   saving: boolean;
   onClose: () => void;
-  onSave: (userId: string, limit: number | undefined, managerId: string | undefined) => Promise<void>;
+  onSave: (
+    userId: string,
+    purchaseLimit: number | undefined,
+    assistantDailyUsdLimit: number | null,
+    managerId: string | undefined
+  ) => Promise<void>;
 }) {
   const [limit, setLimit] = useState<string>(user?.purchaseApprovalLimit?.toString() || "");
+  const [assistantLimit, setAssistantLimit] = useState<string>(
+    user?.assistantDailyUsdLimit == null ? "" : user.assistantDailyUsdLimit.toString()
+  );
   const [managerId, setManagerId] = useState<string>(user?.managerId || "none");
 
   useEffect(() => {
     if (user) {
       setLimit(user.purchaseApprovalLimit?.toString() || "");
+      setAssistantLimit(user.assistantDailyUsdLimit == null ? "" : user.assistantDailyUsdLimit.toString());
       setManagerId(user.managerId || "none");
     }
   }, [user]);
@@ -775,20 +864,39 @@ function UserLimitDialog({ user, users, saving, onClose, onSave }: {
 
   return (
     <Dialog open={!!user} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="sm:max-w-[400px]">
+      <DialogContent className="sm:max-w-[460px]">
         <DialogHeader>
-          <DialogTitle>Satınalma Limit & Onay Yetkisi</DialogTitle>
-          <DialogDescription>{user.name} için satınalma onay limitini ve yöneticisini ayarlayın.</DialogDescription>
+          <DialogTitle>Kullanıcı Limitleri · {user.name}</DialogTitle>
+          <DialogDescription>Satınalma onay yetkisini ve günlük asistan maliyet tavanını USD olarak ayarlayın.</DialogDescription>
         </DialogHeader>
         <div className="space-y-4 py-4">
           <div className="space-y-2">
-            <Label>Onay Limiti (₺)</Label>
+            <Label>Satınalma Onay Limiti (USD)</Label>
             <Input
               type="number"
+              min="0"
+              step="1"
               placeholder="Limitsiz için boş bırakın"
               value={limit}
               onChange={(e) => setLimit(e.target.value)}
             />
+            <p className="text-[11px] text-muted-foreground">Limit aşıldığında sipariş seçilen yöneticinin onayına düşer.</p>
+          </div>
+          <div className="space-y-2 rounded-md border border-brand-blue/15 bg-brand-blue-soft/40 p-3">
+            <Label>Günlük Asistan Bütçesi (USD)</Label>
+            <Input
+              type="number"
+              min="0"
+              max="1000"
+              step="0.01"
+              placeholder="Sistem varsayılanını kullan"
+              value={assistantLimit}
+              onChange={(e) => setAssistantLimit(e.target.value)}
+            />
+            <p className="text-[11px] leading-relaxed text-muted-foreground">
+              Boş bırakılırsa sistem varsayılanı uygulanır. <b>0</b> girilirse bu kullanıcı için ücretli LLM çağrıları kapatılır;
+              asistan güvenli yerel cevaba düşer.
+            </p>
           </div>
           <div className="space-y-2">
             <Label>Bağlı Olduğu Yönetici</Label>
@@ -803,7 +911,6 @@ function UserLimitDialog({ user, users, saving, onClose, onSave }: {
                 ))}
               </SelectContent>
             </Select>
-            <p className="text-[11px] text-muted-foreground mt-1">Limit aşıldığında sipariş bu yöneticinin onayına sunulur.</p>
           </div>
         </div>
         <DialogFooter>
@@ -811,7 +918,12 @@ function UserLimitDialog({ user, users, saving, onClose, onSave }: {
           <Button
             disabled={saving}
             onClick={async () => {
-              await onSave(user.id, limit ? Number(limit) : undefined, managerId === "none" ? undefined : managerId);
+              await onSave(
+                user.id,
+                limit ? Number(limit) : undefined,
+                assistantLimit === "" ? null : Number(assistantLimit),
+                managerId === "none" ? undefined : managerId
+              );
             }}
           >
             {saving ? "Kaydediliyor…" : "Kaydet"}

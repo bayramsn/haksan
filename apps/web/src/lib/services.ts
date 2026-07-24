@@ -17,6 +17,8 @@ import type {
   CommercialInvoiceUpdateInput,
   CompanyCreateInput,
   CompanyOsmSearchResult,
+  CompanyWebsiteLookupInput,
+  CompanyWebsiteLookupResult,
   CompanyUpdateInput,
   CompetitorCreateInput,
   CompetitorProductCreateInput,
@@ -65,6 +67,7 @@ import type {
   QuoteCreateInput,
   QuoteItemCreateInput,
   QuoteItemUpdateInput,
+  QuoteStatusChangeInput,
   QuoteTermsUpsertInput,
   QuoteUpdateInput,
   ReceivableCreateInput,
@@ -124,6 +127,7 @@ export type ProductImportStatus = 'create' | 'update' | 'error' | 'skip';
 export interface ProductImportRow {
   rowNumber: number;
   brandName: string;
+  series?: string;
   modelCode: string;
   modelName?: string;
   fullName: string;
@@ -175,6 +179,7 @@ export interface CompanyDTO {
   legalTitle: string;
   shortName?: string | null;
   sector?: string | null;
+  supplierCategoryCode?: 'transportation' | 'logistics' | null;
   taxNumber?: string | null;
   taxOffice?: string | null;
   website?: string | null;
@@ -192,10 +197,16 @@ export const companyService = {
   get: (id: string) => api.get<CompanyDTO & { addresses: any[]; phones: any[]; emails: any[] }>(`/companies/${id}`),
   create: (body: CompanyCreateInput) => api.post<CompanyDTO>('/companies', body),
   update: (id: string, body: CompanyUpdateInput) => api.patch<CompanyDTO>(`/companies/${id}`, body),
-  osmSearch: (params: { q: string; address?: string; city?: string; district?: string }) =>
+  osmSearch: (params: { q: string; address?: string; city?: string; district?: string; country?: string }) =>
     api.get<CompanyOsmSearchResult[]>(`/companies/osm-search${qs(params)}`),
-  /** Haritadaki manuel pin düzeltmesini kalıcı kaydeder; null'lar konumu temizler. */
-  setLocation: (id: string, body: { latitude: number | null; longitude: number | null }) =>
+  websiteLookup: (body: CompanyWebsiteLookupInput) =>
+    api.post<CompanyWebsiteLookupResult>('/companies/website-lookup', body),
+  /** Doğruluk kaynağıyla birlikte firma konumunu kalıcı kaydeder; null'lar konumu temizler. */
+  setLocation: (id: string, body: {
+    latitude: number | null;
+    longitude: number | null;
+    source?: 'manual' | 'verified' | 'osm_exact' | 'osm_street' | 'osm_area';
+  }) =>
     api.patch<CompanyDTO>(`/companies/${id}/location`, body),
   remove: (id: string) => api.delete(`/companies/${id}`),
   /** Başka bölümlerdeki açık alacak (borç) uyarısı. Tutar yalnızca süper yönetici/view_all için döner. */
@@ -509,6 +520,7 @@ export const quoteService = {
   approvePrice: (id: string, note?: string) => api.post<any>(`/quotes/${id}/price-approval/approve`, { note }),
   rejectPrice: (id: string, note?: string) => api.post<any>(`/quotes/${id}/price-approval/reject`, { note }),
   reject: (id: string) => api.post(`/quotes/${id}/reject`),
+  changeStatus: (id: string, body: QuoteStatusChangeInput) => api.post<any>(`/quotes/${id}/status`, body),
   send: (id: string) => api.post(`/quotes/${id}/send`),
   /**
    * Teklif PDF'ini backend'den (PDFKit) indirir. Endpoint binary döndürdüğü için
@@ -597,10 +609,9 @@ export const purchaseOrderService = {
 };
 
 export const authService = {
-  forgotPassword: (email: string, tenantSlug?: string) =>
+  forgotPassword: (email: string) =>
     api.post<{ ok: boolean; devToken?: string }>('/auth/forgot-password', {
       email,
-      tenantSlug: tenantSlug?.trim().toLowerCase() || undefined,
     }),
   resetPassword: (token: string, newPassword: string) => api.post<{ ok: boolean }>('/auth/reset-password', { token, newPassword }),
 };
@@ -702,6 +713,12 @@ export const serviceService = {
   updateComplaint: (id: string, body: ServiceComplaintUpdateInput) => api.patch<any>(`/service-complaints/${id}`, body),
   convertComplaint: (id: string, body: ServiceComplaintConvertInput = {}) => api.post<any>(`/service-complaints/${id}/convert`, body),
   rejectComplaint: (id: string, body: ServiceComplaintRejectInput = {}) => api.post<any>(`/service-complaints/${id}/reject`, body),
+  maintenancePlans: (params?: Record<string, string | number | boolean | undefined>) => api.get<Paginated<any>>(`/maintenance-plans${qs(params)}`),
+  createMaintenancePlan: (body: { customerDeviceId: string; title?: string; intervalDays?: number; nextDueDate?: string; reminderLeadDays?: number; autoCreateTicket?: boolean; notes?: string | null }) =>
+    api.post<any>('/maintenance-plans', body),
+  updateMaintenancePlan: (id: string, body: Record<string, unknown>) => api.patch<any>(`/maintenance-plans/${id}`, body),
+  completeMaintenancePlan: (id: string, servicedAt?: string) => api.post<any>(`/maintenance-plans/${id}/complete`, servicedAt ? { servicedAt } : {}),
+  deleteMaintenancePlan: (id: string) => api.delete<any>(`/maintenance-plans/${id}`),
   complaintLinks: (params?: Record<string, string | number | undefined>) => api.get<Paginated<any>>(`/service-complaint-links${qs(params)}`),
   createComplaintLink: (body: ServiceComplaintLinkCreateInput) => api.post<any>('/service-complaint-links', body),
   rotateComplaintLink: (id: string) => api.patch<any>(`/service-complaint-links/${id}/rotate`, {}),

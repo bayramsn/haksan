@@ -4,6 +4,7 @@ import { moneySchema, percentSchema } from './common';
 export const quoteCreateSchema = z.object({
   opportunityId: z.string().optional(),
   companyId: z.string().min(1),
+  companyAddressId: z.string().uuid().optional(),
   divisionId: z.string().uuid().optional(),
   contactId: z.string().optional(),
   documentNo: z.string().max(64).optional(),
@@ -27,6 +28,32 @@ export type QuoteCreateInput = Omit<QuoteCreateParsed, 'headerDiscountAmount' | 
 export const quoteUpdateSchema = quoteCreateSchema.partial();
 export type QuoteUpdateInput = Partial<QuoteCreateInput>;
 
+export const quoteWorkflowStatusEnum = z.enum([
+  'cancelled',
+  'price_waiting',
+  'budget_waiting',
+  'on_hold',
+  'postponed',
+]);
+export type QuoteWorkflowStatus = z.infer<typeof quoteWorkflowStatusEnum>;
+
+export const quoteStatusChangeSchema = z
+  .object({
+    statusCode: quoteWorkflowStatusEnum,
+    followUpAt: z.coerce.date().nullish(),
+    note: z.string().trim().max(2000).nullish(),
+  })
+  .superRefine((value, context) => {
+    if (value.statusCode !== 'cancelled' && !value.followUpAt) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Bu durum için hatırlatma tarihi zorunludur.',
+        path: ['followUpAt'],
+      });
+    }
+  });
+export type QuoteStatusChangeInput = z.infer<typeof quoteStatusChangeSchema>;
+
 // Opsiyonel donanım / yedek parça kalemleri için uyumluluk seçimleri (çoklu).
 export const quoteItemTechnicalSpecSchema = z.object({
   key: z.string().min(1).max(255),
@@ -39,6 +66,9 @@ export const quoteItemTechnicalSpecSchema = z.object({
 });
 
 export const quoteItemCompatibilitySchema = z.object({
+  // Aynı teklif içindeki ana ürün ile ona bağlı opsiyonları PDF çıktılarında
+  // güvenilir biçimde eşleştirmek için kullanılan, kullanıcıya gösterilmeyen anahtar.
+  lineGroupKey: z.string().min(1).max(64).optional(),
   machineIds: z.array(z.string()).default([]),
   brands: z.array(z.string()).default([]),
   controlUnits: z.array(z.string()).default([]),
@@ -59,6 +89,8 @@ export const quoteItemCreateSchema = z.object({
   vatRate: percentSchema.default(20),
   sortOrder: z.coerce.number().int().default(0),
   compatibility: quoteItemCompatibilitySchema.nullish(),
+  // Millileştirilmiş ithal işleme merkezi (otomatik gümrük/vergi).
+  nationalized: z.boolean().optional(),
 });
 export type QuoteItemCreateInput = z.infer<typeof quoteItemCreateSchema>;
 
@@ -76,12 +108,37 @@ export const quoteTermsUpsertSchema = z.object({
 });
 export type QuoteTermsUpsertInput = z.infer<typeof quoteTermsUpsertSchema>;
 
+export const proformaPriceItemSchema = z.object({
+  quoteItemId: z.string().uuid(),
+  unitPrice: moneySchema,
+});
+export type ProformaPriceItemInput = z.infer<typeof proformaPriceItemSchema>;
+
 export const proformaCreateSchema = z.object({
   quoteId: z.string().min(1),
   documentNo: z.string().trim().min(1).max(64).optional(),
   issueDate: z.coerce.date(),
   statusCode: z.string().max(64).default('draft'),
   fileId: z.string().optional(),
+  // Proforma teklifi değiştirmeden kendi net fiyatlarını saklar. Bilerek
+  // iskonto alanı kabul edilmez; proforma satırları her zaman iskontosuzdur.
+  items: z
+    .array(proformaPriceItemSchema)
+    .max(200)
+    .superRefine((items, context) => {
+      const seen = new Set<string>();
+      items.forEach((item, index) => {
+        if (seen.has(item.quoteItemId)) {
+          context.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: 'Aynı teklif kalemi proformaya birden fazla kez eklenemez.',
+            path: [index, 'quoteItemId'],
+          });
+        }
+        seen.add(item.quoteItemId);
+      });
+    })
+    .optional(),
 });
 export type ProformaCreateInput = z.infer<typeof proformaCreateSchema>;
 

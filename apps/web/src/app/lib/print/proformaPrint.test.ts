@@ -103,4 +103,44 @@ describe("proforma print data", () => {
 
     expect(result.items[0]).toMatchObject({ marka: "ECOCA", mensei: "Tayvan", gtip: "8458.11" });
   });
+
+  it("bakes line and special discounts into proforma item prices without exposing discount fields", () => {
+    const result = build(baseDoc({
+      schemaVersion: 2,
+      company: { legalTitle: "İskontolu Müşteri" },
+      quote: { vatAmount: 0, discountTotal: 300 },
+      currency: { code: "USD" },
+      items: [{
+        description: "VM-2 CNC Dik İşleme Merkezi",
+        quantity: 2,
+        unitPrice: 1_000,
+        discountAmount: 200,
+        vatRate: 0,
+        lineTotal: 1_800,
+      }],
+    }));
+
+    expect(result.headerDiscount).toBe(0);
+    expect(result.items[0]).toMatchObject({ birimFiyati: 850, tutar: 1_700 });
+    expect(result.items[0].iskonto).toBeUndefined();
+  });
+
+  it("prints every machine as a separate net-priced proforma row", () => {
+    const result = build(baseDoc({
+      schemaVersion: 2,
+      company: { legalTitle: "Çoklu Makine Müşterisi" },
+      quote: { vatAmount: 0, discountTotal: 300 },
+      currency: { code: "USD" },
+      items: [
+        { description: "ECOCA MT-208 CNC Torna", quantity: 1, unitPrice: 1_000, discountAmount: 100, vatRate: 0, lineTotal: 900 },
+        { description: "LK VM-2 CNC Dik İşleme Merkezi", quantity: 2, unitPrice: 500, discountAmount: 100, vatRate: 0, lineTotal: 900 },
+      ],
+    }));
+
+    expect(result.items).toHaveLength(2);
+    expect(result.items[0]).toMatchObject({ aciklama: "ECOCA MT-208 CNC Torna", birimFiyati: 850, tutar: 850 });
+    expect(result.items[1]).toMatchObject({ aciklama: "LK VM-2 CNC Dik İşleme Merkezi", birimFiyati: 425, tutar: 850 });
+    expect(result.items.reduce((sum, item) => sum + item.tutar, 0)).toBe(1_700);
+    expect(result.items.every((item) => item.iskonto === undefined)).toBe(true);
+  });
 });

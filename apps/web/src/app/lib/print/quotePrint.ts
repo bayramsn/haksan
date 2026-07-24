@@ -81,6 +81,11 @@ const quoteItemTechnicalSpecs = (item?: { compatibility?: unknown } | null): Arr
     .filter((spec) => spec.key && spec.value);
 };
 
+const quoteItemLineGroupKey = (item?: { compatibility?: unknown } | null): string => {
+  const value = (item?.compatibility as { lineGroupKey?: unknown } | null | undefined)?.lineGroupKey;
+  return typeof value === "string" ? value.trim() : "";
+};
+
 export function buildQuotePrintData(input: QuoteBuildInput, quote: QuoteDetail): QuotePrintData {
   const { offer, customer, salesCase, users, contacts, products } = input;
   const contact = contacts.find((item) => item.id === quote.contactId);
@@ -94,27 +99,70 @@ export function buildQuotePrintData(input: QuoteBuildInput, quote: QuoteDetail):
     ? vatRates[0]
     : 0;
   const terms = quote.terms ?? {};
-  const selectedOptions = quoteItems
-    .map((item: { description?: string | null }) => String(item.description ?? "").trim())
-    .filter((description: string) => description.startsWith("↳ Opsiyon:"))
-    .map((description: string) => description.replace(/^↳\s*Opsiyon:\s*/, ""));
-  const mainProductItem = quoteItems.find((item: { description?: string | null; productModelId?: string | null }) =>
-    item.productModelId &&
-    !String(item.description ?? "").trimStart().startsWith("↳ Opsiyon:") &&
-    products.find((product) => product.id === item.productModelId)?.categoryCode !== "ISCILIK"
-  );
-  const customSpecs = quoteItemTechnicalSpecs(mainProductItem as { compatibility?: unknown } | undefined);
+  type PrintableQuoteItem = (typeof quoteItems)[number];
+  type GroupedItem = { item: PrintableQuoteItem; index: number; lineGroupKey: string; isOption: boolean };
+  let currentLineGroupKey = "";
+  const groupedItems: GroupedItem[] = quoteItems.map((item: PrintableQuoteItem, index: number) => {
+    const enteredDescription = String(item.description ?? "").trim();
+    const isOption = enteredDescription.startsWith("↳ Opsiyon:");
+    const storedLineGroupKey = quoteItemLineGroupKey(item as { compatibility?: unknown });
+    if (!isOption) currentLineGroupKey = storedLineGroupKey || `legacy-line-${index + 1}`;
+    return {
+      item,
+      index,
+      lineGroupKey: storedLineGroupKey || currentLineGroupKey || `legacy-line-${index + 1}`,
+      isOption,
+    };
+  });
+  const primaryRows = groupedItems.filter(({ item, isOption }) => {
+    if (isOption || !item.productModelId) return false;
+    return products.find((candidate) => candidate.id === item.productModelId)?.categoryCode !== "ISCILIK";
+  });
+  const machineRows = primaryRows.some(({ item }) =>
+    products.find((candidate) => candidate.id === item.productModelId)?.categoryCode === "TEZGAH")
+    ? primaryRows.filter(({ item }) =>
+        products.find((candidate) => candidate.id === item.productModelId)?.categoryCode === "TEZGAH")
+    : primaryRows;
+  const machines: NonNullable<QuotePrintData["machines"]> = machineRows.map(({ item, lineGroupKey }) => {
+    const catalogProduct = products.find((candidate) => candidate.id === item.productModelId);
+    const selectedOptions = groupedItems
+      .filter((grouped) => grouped.isOption && grouped.lineGroupKey === lineGroupKey)
+      .map((grouped) => String(grouped.item.description ?? "").trim().replace(/^↳\s*Opsiyon:\s*/, ""))
+      .filter(Boolean);
+    return {
+      lineGroupKey,
+      urun: catalogProduct?.shortDescription?.trim() || String(item.description ?? "").trim(),
+      marka: catalogProduct?.brand,
+      model: catalogProduct?.model,
+      tip: catalogProduct?.type,
+      imageUrl: catalogProduct?.imageUrl || undefined,
+      specs: fullProductSpecs(catalogProduct, quoteItemTechnicalSpecs(item as { compatibility?: unknown })),
+      standartDonanim: catalogProduct?.standardEquipment ?? [],
+      opsiyonelDonanim: selectedOptions.length ? selectedOptions : (catalogProduct?.optionalEquipment ?? []),
+    };
+  });
+  const firstMachine = machines[0];
   const lineDiscountTotal = quoteItems.reduce(
     (sum: number, item: { discountAmount?: unknown }) => sum + numeric(item.discountAmount),
     0,
   );
   const headerDiscount = Math.max(numeric(quote.discountTotal) - lineDiscountTotal, 0);
+  const snapshotAddress = (quote as any).documentSnapshot?.companyAddresses?.[0];
+  const pdfAddress = customer?.addresses?.find((address) => address.id === quote.companyAddressId)
+    ?? customer?.addresses?.find((address) => address.isBilling)
+    ?? customer?.addresses?.find((address) => address.isDefault)
+    ?? customer?.addresses?.[0];
+  const printableAddress = snapshotAddress
+    ? String(snapshotAddress.fullAddress ?? [snapshotAddress.street, snapshotAddress.buildingNumber, snapshotAddress.district, snapshotAddress.province, snapshotAddress.country].filter(Boolean).join(" "))
+    : pdfAddress
+    ? [pdfAddress.address, pdfAddress.district, pdfAddress.city, pdfAddress.country].filter(Boolean).join(" ")
+    : customer ? [customer.address, customer.district, customer.city, customer.country].filter(Boolean).join(" ") : "";
 
   return {
     firma: customer?.name ?? "",
     ilgili: contact?.name || customer?.contactPerson,
     mobil: contact?.mobilePhone || customer?.phone2,
-    adres: customer ? [customer.address, customer.district, customer.city].filter(Boolean).join(" ") : "",
+    adres: printableAddress,
     tel: contact?.phone || customer?.phone,
     faks: customer?.fax,
     email: contact?.email || customer?.email,
@@ -125,15 +173,16 @@ export function buildQuotePrintData(input: QuoteBuildInput, quote: QuoteDetail):
     projeIlgilisiUnvan: owner?.department,
     projeIlgilisiTelefon: owner?.phone || undefined,
     projeIlgilisiEmail: owner?.email,
-    marka: product?.brand,
-    model: product?.model ?? salesCase?.requestedModel,
-    tip: product?.type ?? salesCase?.requestedProduct,
-    imageUrl: product?.imageUrl || undefined,
-    specs: fullProductSpecs(product, customSpecs),
-    standartDonanim: product?.standardEquipment ?? [],
-    // Teklifte seçilen opsiyonlar; yoksa ürünün tanımlı opsiyonel donanımı gelir.
-    opsiyonelDonanim: selectedOptions.length ? selectedOptions : (product?.optionalEquipment ?? []),
+    marka: firstMachine?.marka ?? product?.brand,
+    model: firstMachine?.model ?? product?.model ?? salesCase?.requestedModel,
+    tip: firstMachine?.tip ?? product?.type ?? salesCase?.requestedProduct,
+    imageUrl: firstMachine?.imageUrl ?? product?.imageUrl ?? undefined,
+    specs: firstMachine?.specs ?? fullProductSpecs(product, []),
+    standartDonanim: firstMachine?.standartDonanim ?? product?.standardEquipment ?? [],
+    opsiyonelDonanim: firstMachine?.opsiyonelDonanim ?? product?.optionalEquipment ?? [],
+    machines,
     items: quoteItems.map((item: {
+      productModelId?: string | null;
       description?: string | null;
       quantity?: unknown;
       unitCode?: string | null;
@@ -143,11 +192,18 @@ export function buildQuotePrintData(input: QuoteBuildInput, quote: QuoteDetail):
     }) => {
       const quantity = numeric(item.quantity) || 1;
       const unitPrice = numeric(item.unitPrice);
+      const catalogProduct = item.productModelId
+        ? products.find((candidate) => candidate.id === item.productModelId)
+        : undefined;
+      const enteredDescription = String(item.description ?? "").trim();
+      const isOption = enteredDescription.startsWith("↳ Opsiyon:");
       const lineTotal = item.lineTotal == null
         ? quantity * unitPrice - numeric(item.discountAmount)
         : numeric(item.lineTotal);
       return {
-        urun: String(item.description ?? "").trim(),
+        urun: isOption
+          ? enteredDescription
+          : catalogProduct?.shortDescription?.trim() || enteredDescription,
         birim: `${new Intl.NumberFormat("tr-TR", { maximumFractionDigits: 3 }).format(quantity)} ${item.unitCode || "Adet"}`,
         fiyat: unitPrice,
         indirim: numeric(item.discountAmount),
@@ -171,5 +227,42 @@ export function buildQuotePrintData(input: QuoteBuildInput, quote: QuoteDetail):
 
 export async function loadQuotePrintData(input: QuoteBuildInput): Promise<QuotePrintData> {
   const quote = await quoteService.get(input.offer.id);
-  return buildQuotePrintData(input, quote);
+  const data = buildQuotePrintData(input, quote);
+  const imageUrls = [...new Set([
+    data.imageUrl,
+    ...(data.machines ?? []).map((machine) => machine.imageUrl),
+  ].filter((value): value is string => Boolean(value)))];
+  if (!imageUrls.length) return data;
+
+  // Yazdırma penceresi blob: URL ile açıldığı için tüm makine görsellerini
+  // belge HTML'ine gömeriz. Tek bir görselin başarısız olması diğer ürünlerin
+  // kapaklarını veya belgenin tamamını engellemez.
+  const embeddedByUrl = new Map<string, string>();
+  await Promise.all(imageUrls.map(async (imageUrl) => {
+    if (imageUrl.startsWith("data:image/")) {
+      embeddedByUrl.set(imageUrl, imageUrl);
+      return;
+    }
+    try {
+      const response = await fetch(imageUrl, { credentials: "include" });
+      if (!response.ok) return;
+      const blob = await response.blob();
+      if (!blob.type.startsWith("image/") || blob.size > 10 * 1024 * 1024) return;
+      const embedded = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(typeof reader.result === "string" ? reader.result : "");
+        reader.onerror = () => reject(reader.error ?? new Error("Ürün görseli okunamadı"));
+        reader.readAsDataURL(blob);
+      });
+      if (embedded) embeddedByUrl.set(imageUrl, embedded);
+    } catch {
+      // Harici sunucu CORS izni vermiyorsa özgün URL ile devam edilir.
+    }
+  }));
+  const imageUrl = data.imageUrl ? embeddedByUrl.get(data.imageUrl) ?? data.imageUrl : undefined;
+  const machines = data.machines?.map((machine) => ({
+    ...machine,
+    imageUrl: machine.imageUrl ? embeddedByUrl.get(machine.imageUrl) ?? machine.imageUrl : undefined,
+  }));
+  return { ...data, imageUrl, machines };
 }

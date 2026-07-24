@@ -3,14 +3,37 @@ import { io, type Socket } from "socket.io-client";
 import { API_ORIGIN, getAccessToken } from "./apiClient";
 
 /**
- * Sohbet gerçek-zaman istemcisi. VARSAYILAN KAPALI — yalnızca VITE_CHAT_REALTIME=true
- * ile derlendiğinde bağlanır. Kapalıyken hook tamamen no-op'tur ve ChatPage'in
- * polling'i devrede kalır. VDS'te (kalıcı sunucu) bayrak açılınca anlık iletim eklenir.
+ * Sohbet gerçek-zaman istemcisi. VARSAYILAN AÇIK — VITE_CHAT_REALTIME=false ile
+ * derlenirse kapanır. Soket bağlanamazsa ChatPage'in polling'i zaten devrede
+ * kalır; bayrak yalnız soket denemesini tamamen kapatmak içindir.
  */
-const ENABLED = import.meta.env.VITE_CHAT_REALTIME === "true";
+const ENABLED = import.meta.env.VITE_CHAT_REALTIME !== "false";
 
 export function chatRealtimeEnabled(): boolean {
   return ENABLED;
+}
+
+/**
+ * Tek paylaşılan soket: hem sohbet olayları hem sesli arama sinyalleşmesi
+ * bu bağlantıyı kullanır. ChatPage kapanınca bağlantı KAPANMAZ — gelen
+ * aramalar uygulamanın her yerinde çalabilsin diye oturum boyunca yaşar.
+ * Oturum kapanışında `disconnectChatSocket()` çağrılır.
+ */
+let sharedSocket: Socket | null = null;
+
+export function getChatSocket(): Socket | null {
+  if (!ENABLED) return null;
+  const token = getAccessToken();
+  if (!token) return null;
+  if (!sharedSocket) {
+    sharedSocket = io(API_ORIGIN, { auth: { token }, transports: ["websocket"] });
+  }
+  return sharedSocket;
+}
+
+export function disconnectChatSocket(): void {
+  sharedSocket?.disconnect();
+  sharedSocket = null;
 }
 
 export function useChatRealtime(params: {
@@ -22,15 +45,23 @@ export function useChatRealtime(params: {
   cbRef.current = params;
   const socketRef = useRef<Socket | null>(null);
 
-  // Tek bağlantı (mount'ta). El sıkışmada access token gönderilir.
+  // Paylaşılan sokete abone ol; unmount'ta yalnız kendi dinleyicilerini kaldır.
   useEffect(() => {
     if (!ENABLED) return;
-    const socket = io(API_ORIGIN, { auth: { token: getAccessToken() }, transports: ["websocket"] });
+    const socket = getChatSocket();
+    if (!socket) return;
     socketRef.current = socket;
-    socket.on("message:new", () => cbRef.current.onMessageEvent());
-    socket.on("message:updated", () => cbRef.current.onMessageEvent());
-    socket.on("conversation:updated", () => cbRef.current.onConversationEvent());
-    return () => { socket.disconnect(); socketRef.current = null; };
+    const onMessage = () => cbRef.current.onMessageEvent();
+    const onConversation = () => cbRef.current.onConversationEvent();
+    socket.on("message:new", onMessage);
+    socket.on("message:updated", onMessage);
+    socket.on("conversation:updated", onConversation);
+    return () => {
+      socket.off("message:new", onMessage);
+      socket.off("message:updated", onMessage);
+      socket.off("conversation:updated", onConversation);
+      socketRef.current = null;
+    };
   }, []);
 
   // Açık konuşmanın odasına gir/çık.

@@ -18,8 +18,7 @@ import { purchaseOrderService, companyService, productService } from "../../../.
 import { useAuth } from "../../../../lib/auth";
 import { ExportExcelButton } from "../../ui/ExportExcelButton";
 import { formatCurrency, formatDate } from "../../../lib/pageHelpers";
-import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid } from "recharts";
-import { CheckCircle2, ClipboardCheck, Eye, Mail, Plus, Search, ShoppingCart, Package, Receipt, Clock, Trash2, XCircle } from "lucide-react";
+import { CheckCircle2, ClipboardCheck, Eye, Mail, Plus, Search, ShoppingCart, Package, Receipt, Clock, Trash2, XCircle, Building2 } from "lucide-react";
 import { toast } from "sonner";
 
 export function PurchaseOrdersPage() {
@@ -74,10 +73,31 @@ export function PurchaseOrdersPage() {
   const supplierStats = Array.from(new Set(filtered.map((p) => p.supplier?.shortName || p.supplier?.legalTitle || "—")))
     .map((s) => ({
       name: s,
+      count: filtered.filter((p) => (p.supplier?.shortName || p.supplier?.legalTitle || "—") === s).length,
+      pending: filtered.filter((p) => (p.supplier?.shortName || p.supplier?.legalTitle || "—") === s && !["received", "cancelled"].includes(p.status?.code)).length,
       tutar: filtered
         .filter((p) => (p.supplier?.shortName || p.supplier?.legalTitle || "—") === s)
         .reduce((a, p) => a + Number(p.grandTotal ?? 0), 0),
-    }));
+    }))
+    .sort((a, b) => b.count - a.count);
+
+  const purchaseStep = (code?: string) => {
+    if (code === "received") return 4;
+    if (code === "approved") return 3;
+    if (code === "pending_manager_approval") return 2;
+    if (code === "sent") return 1;
+    return 0;
+  };
+
+  const etaState = (value?: string | null) => {
+    if (!value) return { label: "ETA yok", className: "border-border bg-muted text-muted-foreground" };
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return { label: formatDate(value), className: "border-border bg-muted text-muted-foreground" };
+    const days = Math.ceil((date.getTime() - Date.now()) / 86_400_000);
+    if (days < 0) return { label: `${Math.abs(days)} gün gecikmiş`, className: "border-destructive/20 bg-destructive-soft text-destructive" };
+    if (days <= 7) return { label: days === 0 ? "Bugün" : `${days} gün kaldı`, className: "border-warning/20 bg-warning-soft text-warning" };
+    return { label: `${days} gün kaldı`, className: "border-success/20 bg-success-soft text-success" };
+  };
 
   const poExportParams = q ? { search: q } : undefined;
   const openOrderDetail = async (order: any) => {
@@ -127,30 +147,28 @@ export function PurchaseOrdersPage() {
         <MiniKpi tone="amber" icon={<Clock className="size-[18px]" />} label="Bekleyen" value={pending} sub="onay bekliyor" delta={1} onClick={() => setTab("pending_manager_approval")} active={tab === "pending_manager_approval"} />
       </div>
 
-      <Card className="border-border/60 shadow-sm">
-        <CardHeader className="pb-2">
-          <CardTitle className="tracking-tight">Tedarikçi Yüküne Göre</CardTitle>
-          <p className="text-xs text-muted-foreground">Açık siparişlerdeki adet</p>
+      <Card className="border-border/60 shadow-sm overflow-hidden">
+        <CardHeader className="flex flex-row items-center justify-between gap-3 pb-2">
+          <div><CardTitle className="tracking-tight">Tedarikçi İçgörüsü</CardTitle><p className="text-xs text-muted-foreground">Sipariş hacmi ve açık teslim yükü</p></div>
+          <Badge variant="outline" className="bg-white">{supplierStats.length} tedarikçi</Badge>
         </CardHeader>
-        <CardContent className="h-56 pl-2">
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={supplierStats} layout="vertical" margin={{ top: 8, right: 16, left: 8, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#eef0f3" horizontal={false} />
-              <XAxis type="number" stroke="#9ca3af" fontSize={11} tickLine={false} axisLine={false} />
-              <YAxis type="category" dataKey="name" stroke="#6b7280" fontSize={11} width={120} tickLine={false} axisLine={false} />
-              <Tooltip contentStyle={{ borderRadius: 8, border: "1px solid #e5e7eb", fontSize: 12 }} />
-              <Bar dataKey="tutar" fill="var(--brand-blue)" barSize={22} isAnimationActive={false} />
-            </BarChart>
-          </ResponsiveContainer>
+        <CardContent className="grid gap-2 pt-2 sm:grid-cols-2 xl:grid-cols-4">
+          {supplierStats.slice(0, 4).map((supplier) => (
+            <div key={supplier.name} className="rounded-lg border border-border/60 bg-muted/15 p-3">
+              <div className="flex items-center gap-2"><span className="grid size-8 place-items-center rounded-md bg-brand-blue-soft text-primary"><Building2 className="size-4" /></span><div className="min-w-0"><div className="truncate text-xs font-semibold">{supplier.name}</div><div className="text-[10px] text-muted-foreground">{supplier.count} sipariş</div></div></div>
+              <div className="mt-3 flex items-center justify-between border-t border-dashed border-border pt-2 text-[10px]"><span className="text-muted-foreground">Açık teslim</span><Badge variant="outline" className={supplier.pending ? "border-warning/20 bg-warning-soft text-warning" : "border-success/20 bg-success-soft text-success"}>{supplier.pending}</Badge></div>
+            </div>
+          ))}
+          {supplierStats.length === 0 && <div className="col-span-full py-5 text-center text-xs text-muted-foreground">Tedarikçi içgörüsü için sipariş bekleniyor.</div>}
         </CardContent>
       </Card>
 
       <Card className="border-border/60 shadow-sm overflow-hidden">
         <CardHeader className="flex flex-col gap-3 pb-3 lg:flex-row lg:items-center lg:justify-between">
-          <div className="flex flex-wrap items-center gap-2">
-            <CardTitle className="tracking-tight mr-2">Satın Alma Siparişleri</CardTitle>
-            <Tabs value={tab} onValueChange={(v) => setTab(v as typeof tab)}>
-              <TabsList className="h-8 bg-muted/60">
+          <div className="flex min-w-0 flex-col items-start gap-2 lg:flex-row lg:flex-wrap lg:items-center">
+            <CardTitle className="tracking-tight lg:mr-2">Satın Alma Siparişleri</CardTitle>
+            <Tabs value={tab} onValueChange={(v) => setTab(v as typeof tab)} className="w-full lg:w-auto">
+              <TabsList className="h-8 w-full justify-start bg-muted/60 lg:w-fit">
                 <TabsTrigger value="all" className="text-xs">Tümü</TabsTrigger>
                 <TabsTrigger value="draft" className="text-xs">Taslak</TabsTrigger>
                 <TabsTrigger value="sent" className="text-xs">Gönderilen</TabsTrigger>
@@ -214,15 +232,28 @@ export function PurchaseOrdersPage() {
                   <TableCell className="text-sm tabular-nums">{p.orderNo}</TableCell>
                   <TableCell className="text-sm tabular-nums text-muted-foreground">{p.invoiceNo || "—"}</TableCell>
                   <TableCell className="text-sm tabular-nums text-muted-foreground">{formatDate(p.orderDate)}</TableCell>
-                  <TableCell className="text-sm tabular-nums text-muted-foreground">{formatDate(p.expectedDate)}</TableCell>
+                  <TableCell className="text-sm tabular-nums text-muted-foreground">
+                    <div>{formatDate(p.expectedDate)}</div>
+                    <Badge variant="outline" className={`mt-1 h-5 px-1.5 text-[9px] ${etaState(p.expectedDate).className}`}>{etaState(p.expectedDate).label}</Badge>
+                  </TableCell>
                   <TableCell className="text-right tabular-nums text-sm text-muted-foreground">
                     {formatCurrency(Number(p.vatAmount ?? 0), p.currency?.code ?? "USD")}
                   </TableCell>
                   <TableCell className="text-right tabular-nums text-sm">
                     {formatCurrency(Number(p.grandTotal ?? 0), p.currency?.code ?? "USD")}
                   </TableCell>
-                  <TableCell>
-                    <div className="flex flex-col gap-1">
+                  <TableCell className="min-w-[270px]">
+                    <div className="flex flex-col gap-2">
+                      {p.status?.code !== "cancelled" ? (
+                        <div>
+                          <div className="flex items-center" aria-label={`Sipariş yolculuğu: ${p.status?.name ?? p.status?.code}`}>
+                            {["Taslak", "Gönderildi", "Onay", "Hazır", "Teslim"].map((label, index) => (
+                              <div key={label} className="flex flex-1 items-center last:flex-none"><span className={`grid size-4 place-items-center rounded-full border text-[7px] font-bold ${index <= purchaseStep(p.status?.code) ? "border-primary bg-primary text-white" : "border-border bg-white text-muted-foreground"}`}>{index + 1}</span>{index < 4 && <span className={`h-px flex-1 ${index < purchaseStep(p.status?.code) ? "bg-primary" : "bg-border"}`} />}</div>
+                            ))}
+                          </div>
+                          <div className="mt-1 flex justify-between text-[7px] uppercase tracking-wide text-muted-foreground"><span>Taslak</span><span>Gönder</span><span>Onay</span><span>Hazır</span><span>Teslim</span></div>
+                        </div>
+                      ) : <Badge variant="outline" className="w-fit border-destructive/20 bg-destructive-soft text-destructive">İptal edildi</Badge>}
                       <div className="flex items-center gap-2">
                         <StatusBadge status={p.status?.name ?? p.status?.code ?? "Taslak"} />
                         {p.status?.code === "pending_manager_approval" && canApprovePurchaseOrders && (
@@ -273,7 +304,7 @@ export function PurchaseOrdersPage() {
                 <TableRow>
                   <TableCell colSpan={10} className="py-4">
                     <EmptyState
-                      icon={<ShoppingCart className="size-6" />}
+                      scene="search"
                       title="Satın alma siparişi bulunamadı"
                       description="Arama terimini veya durum sekmesini değiştirerek tekrar deneyin."
                     />
@@ -761,7 +792,7 @@ function CreatePurchaseOrderDialog({ onCreated }: { onCreated: () => void }) {
                   value={form.supplierCompanyId || "__none"}
                   onValueChange={(v) => setForm({ ...form, supplierCompanyId: v === "__none" ? "" : v })}
                 >
-                  <SelectTrigger className="h-9"><SelectValue placeholder="Firma seçin" /></SelectTrigger>
+                  <SelectTrigger className="h-9" aria-label="Firma veya müşteri seçin"><SelectValue placeholder="Firma seçin" /></SelectTrigger>
                   <SelectContent>
                     {form.purchaseType === "administrative" && <SelectItem value="__none">Firma seçmeden</SelectItem>}
                     {companies.map((company) => (
@@ -876,13 +907,13 @@ function CreatePurchaseOrderDialog({ onCreated }: { onCreated: () => void }) {
                         </SelectContent>
                       </Select>
                     ) : (
-                      <Input className="h-8" value={line.productModelId} onChange={(e) => updateLine(index, { productModelId: e.target.value })} placeholder="Ofis, bakım..." />
+                      <Input aria-label={`Kalem ${index + 1} gider türü`} className="h-8" value={line.productModelId} onChange={(e) => updateLine(index, { productModelId: e.target.value })} placeholder="Ofis, bakım..." />
                     )}
-                    <Input className="h-8" value={line.description} onChange={(e) => updateLine(index, { description: e.target.value })} placeholder="Kalem açıklaması" />
-                    <Input className="h-8 text-right" inputMode="decimal" value={line.quantity} onChange={(e) => updateLine(index, { quantity: e.target.value })} />
-                    <Input className="h-8 text-right" inputMode="decimal" value={line.listPrice} onChange={(e) => updateLine(index, { listPrice: e.target.value })} placeholder="0" />
-                    <Input className="h-8 text-right" inputMode="decimal" value={line.unitPrice} onChange={(e) => updateLine(index, { unitPrice: e.target.value })} placeholder="0" />
-                    <Input className="h-8 text-right" inputMode="decimal" value={line.discountAmount} onChange={(e) => updateLine(index, { discountAmount: e.target.value })} />
+                    <Input aria-label={`Kalem ${index + 1} açıklaması`} className="h-8" value={line.description} onChange={(e) => updateLine(index, { description: e.target.value })} placeholder="Kalem açıklaması" />
+                    <Input aria-label={`Kalem ${index + 1} adedi`} className="h-8 text-right font-data" inputMode="decimal" value={line.quantity} onChange={(e) => updateLine(index, { quantity: e.target.value })} />
+                    <Input aria-label={`Kalem ${index + 1} liste fiyatı`} className="h-8 text-right font-data" inputMode="decimal" value={line.listPrice} onChange={(e) => updateLine(index, { listPrice: e.target.value })} placeholder="0" />
+                    <Input aria-label={`Kalem ${index + 1} olur fiyatı`} className="h-8 text-right font-data" inputMode="decimal" value={line.unitPrice} onChange={(e) => updateLine(index, { unitPrice: e.target.value })} placeholder="0" />
+                    <Input aria-label={`Kalem ${index + 1} indirimi`} className="h-8 text-right font-data" inputMode="decimal" value={line.discountAmount} onChange={(e) => updateLine(index, { discountAmount: e.target.value })} />
                     <Select value={line.vatRate} onValueChange={(vatRate) => updateLine(index, { vatRate })}>
                       <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
                       <SelectContent>
@@ -893,7 +924,7 @@ function CreatePurchaseOrderDialog({ onCreated }: { onCreated: () => void }) {
                       </SelectContent>
                     </Select>
                     <div className="text-right text-sm tabular-nums">{formatCurrency(t.total, form.currencyCode)}</div>
-                    <Button type="button" variant="ghost" size="icon" className="size-8" onClick={() => removeLine(index)}>
+                    <Button type="button" variant="ghost" size="icon" aria-label={`Kalem ${index + 1} satırını sil`} title="Kalemi sil" className="size-8" onClick={() => removeLine(index)}>
                       <Trash2 className="size-4" />
                     </Button>
                   </div>

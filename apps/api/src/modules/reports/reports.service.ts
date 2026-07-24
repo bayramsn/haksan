@@ -3,7 +3,7 @@ import { and, between, desc, eq, gte, inArray, isNull, lte, sql } from 'drizzle-
 import type { DbClient } from '../../db/client';
 import { visits as visitsTbl, calls as callsTbl, leads } from '../../db/schema/crm';
 import { opportunities, cancellationReasons, competitors } from '../../db/schema/crm';
-import { users, userDivisions, userRoles, roles, userTargets, departmentTargets } from '../../db/schema/users';
+import { users, userDepartmentAssignments, userDivisions, userRoles, roles, userTargets, departmentTargets } from '../../db/schema/users';
 import { departments } from '../../db/schema/tenants';
 import { quotes, quoteItems } from '../../db/schema/quotes';
 import { productModels, brands } from '../../db/schema/products';
@@ -11,11 +11,12 @@ import { receivables, payments, accountingInvoices } from '../../db/schema/finan
 import { inventoryItems, customerDevices } from '../../db/schema/inventory';
 import { serviceComplaintIntakes, serviceTickets, installationJobs } from '../../db/schema/service';
 import { salesOrders, purchaseOrders } from '../../db/schema/orders';
-import { pipelineStages, inventoryStatuses, paymentStatuses, warrantyStatuses, quoteStatuses } from '../../db/schema/lookup';
+import { currencies, pipelineStages, inventoryStatuses, paymentStatuses, warrantyStatuses, quoteStatuses } from '../../db/schema/lookup';
 import { companies } from '../../db/schema/companies';
 import { DB } from '../../shared/database/database.module';
 import type { AuthContext } from '../../shared/security/auth.types';
 import { resourceDivisionFilter, resolveResourceDivisionScope } from '../../shared/utils/division-scope';
+import { amountToUsd, FxService, type FxRates, type FxSnapshot } from '../fx/fx.service';
 
 export type Granularity = 'weekly' | 'monthly' | 'yearly';
 
@@ -74,16 +75,53 @@ const emptyActuals = (): UserActuals => ({
   installationCompleted: 0,
 });
 
+const expectedPeriodProgressPct = (period: string, now = new Date()) => {
+  const currentPeriod = now.toISOString().slice(0, 7);
+  if (period < currentPeriod) return 100;
+  if (period > currentPeriod) return 0;
+  const [year, month] = period.split('-').map(Number);
+  const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  return Math.min(100, Math.max(0, Math.round((now.getUTCDate() / daysInMonth) * 100)));
+};
+
 const measuredMetricSet = new Set<string>(MEASURED_METRICS);
 const manualMetricSet = new Set<string>(MANUAL_METRICS);
 const allMetricKeys = [...MEASURED_METRICS, ...MANUAL_METRICS] as TargetMetricKey[];
 
 @Injectable()
 export class ReportsService {
-  constructor(@Inject(DB) private readonly db: DbClient) {}
+  constructor(@Inject(DB) private readonly db: DbClient, private readonly fx: FxService) {}
 
   private activeDivisionFilter(actor: AuthContext, column: any) {
     return resourceDivisionFilter(actor, 'reports', column) ?? sql`true`;
+  }
+
+  private addUsdAmount(
+    entry: UserActuals | null,
+    key: MeasuredMetric,
+    rawAmount: string | number | null | undefined,
+    currencyCode: string | null | undefined,
+    rates: FxRates,
+    unsupportedCurrencies: Set<string>,
+  ) {
+    if (!entry) return;
+    const code = (currencyCode || 'USD').trim().toUpperCase();
+    const usd = amountToUsd(Number(rawAmount ?? 0), code, rates);
+    if (usd == null) {
+      unsupportedCurrencies.add(code || 'BİLİNMİYOR');
+      return;
+    }
+    entry[key] += usd;
+  }
+
+  private currencyNormalization(snapshot: FxSnapshot, unsupportedCurrencies: Set<string>) {
+    return {
+      base: snapshot.base,
+      rateDate: snapshot.date,
+      source: snapshot.source,
+      live: snapshot.live,
+      unsupportedCurrencies: [...unsupportedCurrencies].sort(),
+    };
   }
 
   private bucket(granularity: Granularity, col: any) {
@@ -459,29 +497,13 @@ export class ReportsService {
 
     const isWon = sql`${pipelineStages.code} in ('contract','commercial_invoice','customs_approved','stock_picking','shipping','installation','delivered')`;
     const val = opportunities.estimatedValue;
-    const scope = resolveResourceDivisionScope(actor, 'reports');
+    const scopedUsers = await this.scopedActiveUsers(actor);
+    const departmentMemberships = await this.departmentMembershipMap(actor, scopedUsers);
 
     const rows = [];
     for (const dept of depts) {
-      const members = await this.db.query.users.findMany({
-        where: and(eq(users.tenantId, actor.tenantId), eq(users.departmentId, dept.id), isNull(users.deletedAt)),
-      });
-      let scopedMembers = members;
-      let memberIds = scopedMembers.map((m) => m.id);
-      if (scope.mode === 'list') {
-        if (memberIds.length === 0 || scope.divisionIds.length === 0) {
-          scopedMembers = [];
-          memberIds = [];
-        } else {
-          const assignments = await this.db
-            .select({ userId: userDivisions.userId })
-            .from(userDivisions)
-            .where(and(inArray(userDivisions.userId, memberIds), inArray(userDivisions.divisionId, scope.divisionIds)));
-          const allowedUserIds = new Set(assignments.map((row) => row.userId));
-          scopedMembers = scopedMembers.filter((member) => allowedUserIds.has(member.id));
-          memberIds = scopedMembers.map((m) => m.id);
-        }
-      }
+      const scopedMembers = scopedUsers.filter((member) => departmentMemberships.get(member.id)?.has(dept.id));
+      const memberIds = scopedMembers.map((member) => member.id);
 
       const deptTarget = await this.db.query.departmentTargets.findFirst({
         where: and(
@@ -602,8 +624,42 @@ export class ReportsService {
     return rows;
   }
 
+  /** Ana departman ile çoklu/ikincil departman atamalarını tek üyelik haritasında birleştirir. */
+  private async departmentMembershipMap(
+    actor: AuthContext,
+    userRows: Array<{ id: string; departmentId: string | null }>,
+  ) {
+    const map = new Map<string, Set<string>>();
+    for (const user of userRows) {
+      const ids = new Set<string>();
+      if (user.departmentId) ids.add(user.departmentId);
+      map.set(user.id, ids);
+    }
+    const userIds = userRows.map((user) => user.id);
+    if (!userIds.length) return map;
+
+    const assignments = await this.db
+      .select({ userId: userDepartmentAssignments.userId, departmentId: userDepartmentAssignments.departmentId })
+      .from(userDepartmentAssignments)
+      .innerJoin(departments, eq(userDepartmentAssignments.departmentId, departments.id))
+      .where(and(eq(departments.tenantId, actor.tenantId), inArray(userDepartmentAssignments.userId, userIds)));
+    for (const assignment of assignments) {
+      const ids = map.get(assignment.userId) ?? new Set<string>();
+      ids.add(assignment.departmentId);
+      map.set(assignment.userId, ids);
+    }
+    return map;
+  }
+
   /** Kullanıcı başına dönem fiilîleri — tek seferde gruplu sorgularla. */
-  private async userActuals(actor: AuthContext, userIds: string[], from: Date, to: Date) {
+  private async userActuals(
+    actor: AuthContext,
+    userIds: string[],
+    from: Date,
+    to: Date,
+    rates: FxRates,
+    unsupportedCurrencies: Set<string>,
+  ) {
     const map = new Map<string, UserActuals>();
     if (userIds.length === 0) return map;
     const get = (id: string | null) => {
@@ -616,10 +672,20 @@ export class ReportsService {
       return entry;
     };
 
-    // Ciro: kesilen satış faturaları (kullanıcı kararı — fatura bazlı)
+    // Ciro: kesilen satış faturaları. Proje/fırsat sorumlusu varsa ona,
+    // bağlantı yoksa faturayı oluşturan kullanıcıya yazılır.
+    const invoiceResponsibleUserId = sql<string | null>`coalesce(${quotes.projectOwnerUserId}, ${opportunities.ownerUserId}, ${accountingInvoices.createdBy})`;
     const invoiceRows = await this.db
-      .select({ userId: accountingInvoices.createdBy, total: sql<string>`coalesce(sum(${accountingInvoices.grandTotal}), 0)::text` })
+      .select({
+        userId: invoiceResponsibleUserId,
+        currencyCode: currencies.code,
+        total: sql<string>`coalesce(sum(${accountingInvoices.grandTotal}), 0)::text`,
+      })
       .from(accountingInvoices)
+      .leftJoin(salesOrders, eq(accountingInvoices.salesOrderId, salesOrders.id))
+      .leftJoin(quotes, eq(accountingInvoices.quoteId, quotes.id))
+      .leftJoin(opportunities, sql`${opportunities.id} = coalesce(${salesOrders.opportunityId}, ${quotes.opportunityId})`)
+      .leftJoin(currencies, eq(accountingInvoices.currencyId, currencies.id))
       .where(
         and(
           eq(accountingInvoices.tenantId, actor.tenantId),
@@ -627,20 +693,24 @@ export class ReportsService {
           eq(accountingInvoices.type, 'sales'),
           gte(accountingInvoices.invoiceDate, from),
           lte(accountingInvoices.invoiceDate, to),
-          inArray(accountingInvoices.createdBy, userIds),
+          inArray(invoiceResponsibleUserId, userIds),
           this.activeDivisionFilter(actor, accountingInvoices.divisionId)
         )
       )
-      .groupBy(accountingInvoices.createdBy);
+      .groupBy(invoiceResponsibleUserId, currencies.code);
     for (const r of invoiceRows) {
-      const entry = get(r.userId);
-      if (entry) entry.salesAmount = Number(r.total ?? 0);
+      this.addUsdAmount(get(r.userId), 'salesAmount', r.total, r.currencyCode, rates, unsupportedCurrencies);
     }
 
     // Tahsilat: müşteriden gelen ödemeler
     const paymentRows = await this.db
-      .select({ userId: payments.createdBy, total: sql<string>`coalesce(sum(${payments.amount}), 0)::text` })
+      .select({
+        userId: payments.createdBy,
+        currencyCode: currencies.code,
+        total: sql<string>`coalesce(sum(${payments.amount}), 0)::text`,
+      })
       .from(payments)
+      .leftJoin(currencies, eq(payments.currencyId, currencies.id))
       .where(
         and(
           eq(payments.tenantId, actor.tenantId),
@@ -652,16 +722,20 @@ export class ReportsService {
           this.activeDivisionFilter(actor, payments.divisionId)
         )
       )
-      .groupBy(payments.createdBy);
+      .groupBy(payments.createdBy, currencies.code);
     for (const r of paymentRows) {
-      const entry = get(r.userId);
-      if (entry) entry.paymentsInAmount = Number(r.total ?? 0);
+      this.addUsdAmount(get(r.userId), 'paymentsInAmount', r.total, r.currencyCode, rates, unsupportedCurrencies);
     }
 
     // Alış faturası tutarı: finans/satınalma hedefleri için
     const purchaseInvoiceRows = await this.db
-      .select({ userId: accountingInvoices.createdBy, total: sql<string>`coalesce(sum(${accountingInvoices.grandTotal}), 0)::text` })
+      .select({
+        userId: accountingInvoices.createdBy,
+        currencyCode: currencies.code,
+        total: sql<string>`coalesce(sum(${accountingInvoices.grandTotal}), 0)::text`,
+      })
       .from(accountingInvoices)
+      .leftJoin(currencies, eq(accountingInvoices.currencyId, currencies.id))
       .where(
         and(
           eq(accountingInvoices.tenantId, actor.tenantId),
@@ -673,10 +747,9 @@ export class ReportsService {
           this.activeDivisionFilter(actor, accountingInvoices.divisionId)
         )
       )
-      .groupBy(accountingInvoices.createdBy);
+      .groupBy(accountingInvoices.createdBy, currencies.code);
     for (const r of purchaseInvoiceRows) {
-      const entry = get(r.userId);
-      if (entry) entry.purchaseInvoiceAmount = Number(r.total ?? 0);
+      this.addUsdAmount(get(r.userId), 'purchaseInvoiceAmount', r.total, r.currencyCode, rates, unsupportedCurrencies);
     }
 
     // Yeni müşteri: kullanıcının oluşturduğu firmalar
@@ -699,49 +772,55 @@ export class ReportsService {
     }
 
     // Teklif sayısı (departman performans raporuyla aynı semantik)
+    const quoteResponsibleUserId = sql<string | null>`coalesce(${quotes.projectOwnerUserId}, ${opportunities.ownerUserId}, ${quotes.createdBy})`;
     const quoteRows = await this.db
-      .select({ userId: quotes.createdBy, count: sql<number>`count(*)::int` })
+      .select({ userId: quoteResponsibleUserId, count: sql<number>`count(*)::int` })
       .from(quotes)
+      .leftJoin(opportunities, eq(quotes.opportunityId, opportunities.id))
       .where(
         and(
           eq(quotes.tenantId, actor.tenantId),
           isNull(quotes.deletedAt),
           gte(quotes.quoteDate, from),
           lte(quotes.quoteDate, to),
-          inArray(quotes.createdBy, userIds),
+          inArray(quoteResponsibleUserId, userIds),
           this.activeDivisionFilter(actor, quotes.divisionId)
         )
       )
-      .groupBy(quotes.createdBy);
+      .groupBy(quoteResponsibleUserId);
     for (const r of quoteRows) {
       const entry = get(r.userId);
       if (entry) entry.quoteTarget = r.count;
     }
 
     // Satış siparişleri: operasyon/satış siparişleşme hedefleri
+    const salesOrderResponsibleUserId = sql<string | null>`coalesce(${opportunities.ownerUserId}, ${salesOrders.createdBy})`;
     const salesOrderRows = await this.db
       .select({
-        userId: salesOrders.createdBy,
+        userId: salesOrderResponsibleUserId,
+        currencyCode: currencies.code,
         count: sql<number>`count(*)::int`,
         total: sql<string>`coalesce(sum(${salesOrders.grandTotal}), 0)::text`,
       })
       .from(salesOrders)
+      .leftJoin(opportunities, eq(salesOrders.opportunityId, opportunities.id))
+      .leftJoin(currencies, eq(salesOrders.currencyId, currencies.id))
       .where(
         and(
           eq(salesOrders.tenantId, actor.tenantId),
           isNull(salesOrders.deletedAt),
           gte(salesOrders.orderDate, from),
           lte(salesOrders.orderDate, to),
-          inArray(salesOrders.createdBy, userIds),
+          inArray(salesOrderResponsibleUserId, userIds),
           this.activeDivisionFilter(actor, salesOrders.divisionId)
         )
       )
-      .groupBy(salesOrders.createdBy);
+      .groupBy(salesOrderResponsibleUserId, currencies.code);
     for (const r of salesOrderRows) {
       const entry = get(r.userId);
       if (entry) {
-        entry.salesOrderCount = r.count;
-        entry.salesOrderAmount = Number(r.total ?? 0);
+        entry.salesOrderCount += r.count;
+        this.addUsdAmount(entry, 'salesOrderAmount', r.total, r.currencyCode, rates, unsupportedCurrencies);
       }
     }
 
@@ -749,10 +828,12 @@ export class ReportsService {
     const purchaseOrderRows = await this.db
       .select({
         userId: purchaseOrders.createdBy,
+        currencyCode: currencies.code,
         count: sql<number>`count(*)::int`,
         total: sql<string>`coalesce(sum(${purchaseOrders.grandTotal}), 0)::text`,
       })
       .from(purchaseOrders)
+      .leftJoin(currencies, eq(purchaseOrders.currencyId, currencies.id))
       .where(
         and(
           eq(purchaseOrders.tenantId, actor.tenantId),
@@ -763,12 +844,12 @@ export class ReportsService {
           this.activeDivisionFilter(actor, purchaseOrders.divisionId)
         )
       )
-      .groupBy(purchaseOrders.createdBy);
+      .groupBy(purchaseOrders.createdBy, currencies.code);
     for (const r of purchaseOrderRows) {
       const entry = get(r.userId);
       if (entry) {
-        entry.purchaseOrderCount = r.count;
-        entry.purchaseOrderAmount = Number(r.total ?? 0);
+        entry.purchaseOrderCount += r.count;
+        this.addUsdAmount(entry, 'purchaseOrderAmount', r.total, r.currencyCode, rates, unsupportedCurrencies);
       }
     }
 
@@ -1020,8 +1101,14 @@ export class ReportsService {
     const [year, month] = period.split('-').map(Number);
     const from = new Date(Date.UTC(year, month - 1, 1, 0, 0, 0));
     const to = new Date(Date.UTC(year, month, 0, 23, 59, 59, 999));
+    const expectedProgressPct = expectedPeriodProgressPct(period);
 
-    const allUsers = await this.scopedActiveUsers(actor);
+    const unsupportedCurrencies = new Set<string>();
+    const [allUsers, fxSnapshot] = await Promise.all([
+      this.scopedActiveUsers(actor),
+      this.fx.ratesForPeriod(period),
+    ]);
+    const departmentMemberships = await this.departmentMembershipMap(actor, allUsers);
     const userById = new Map(allUsers.map((u) => [u.id, u]));
 
     if (scope.kind === 'user' || scope.kind === 'all-users') {
@@ -1029,7 +1116,7 @@ export class ReportsService {
         scope.kind === 'user' ? allUsers.filter((u) => u.id === scope.id) : allUsers;
       const ids = subjectsUsers.map((u) => u.id);
       const [actualsMap, targetRows] = await Promise.all([
-        this.userActuals(actor, ids, from, to),
+        this.userActuals(actor, ids, from, to, fxSnapshot.rates, unsupportedCurrencies),
         ids.length
           ? this.db.query.userTargets.findMany({
               where: and(
@@ -1042,28 +1129,62 @@ export class ReportsService {
           : Promise.resolve([]),
       ]);
       const targetByUser = new Map(targetRows.map((t) => [t.userId, t]));
+      const departmentIds = [
+        ...new Set(subjectsUsers.flatMap((user) => [...(departmentMemberships.get(user.id) ?? [])])),
+      ];
+      const departmentRows = departmentIds.length
+        ? await this.db.query.departments.findMany({
+            where: and(eq(departments.tenantId, actor.tenantId), inArray(departments.id, departmentIds)),
+          })
+        : [];
+      const departmentById = new Map(departmentRows.map((department) => [department.id, department]));
       const subjects = subjectsUsers.map((u) => {
         const targetRow = targetByUser.get(u.id) ?? null;
+        const department = u.departmentId ? departmentById.get(u.departmentId) : null;
+        const assignedDepartments = [...(departmentMemberships.get(u.id) ?? [])]
+          .map((id) => departmentById.get(id))
+          .filter((row): row is typeof departments.$inferSelect => Boolean(row));
         return {
-          subject: { kind: 'user' as const, id: u.id, name: u.fullName },
+          subject: {
+            kind: 'user' as const,
+            id: u.id,
+            name: u.fullName,
+            departmentId: department?.id ?? null,
+            departmentName: department?.name ?? null,
+            departmentIds: assignedDepartments.map((row) => row.id),
+            departmentNames: assignedDepartments.map((row) => row.name),
+          },
           hasTarget: Boolean(targetRow),
           note: targetRow?.note ?? null,
           targetItems: this.buildTargetItems(targetRow?.targetItems ?? [], actualsMap.get(u.id) ?? emptyActuals()),
           metrics: this.buildMetrics(this.targetNumbers(targetRow), actualsMap.get(u.id) ?? emptyActuals()),
         };
       });
-      return { period, scope: scope.kind, subjects };
+      return {
+        period,
+        scope: scope.kind,
+        expectedProgressPct,
+        currencyNormalization: this.currencyNormalization(fxSnapshot, unsupportedCurrencies),
+        subjects,
+      };
     }
 
     if (scope.kind === 'department') {
       const deptFilters = [eq(departments.tenantId, actor.tenantId)];
       if (scope.id) deptFilters.push(eq(departments.id, scope.id));
       const depts = await this.db.query.departments.findMany({ where: and(...deptFilters) });
-      const allMemberIds = allUsers.filter((u) => u.departmentId).map((u) => u.id);
-      const actualsMap = await this.userActuals(actor, allMemberIds, from, to);
+      const allMemberIds = allUsers.filter((u) => (departmentMemberships.get(u.id)?.size ?? 0) > 0).map((u) => u.id);
+      const actualsMap = await this.userActuals(
+        actor,
+        allMemberIds,
+        from,
+        to,
+        fxSnapshot.rates,
+        unsupportedCurrencies,
+      );
       const subjects = [];
       for (const dept of depts) {
-        const members = allUsers.filter((u) => u.departmentId === dept.id);
+        const members = allUsers.filter((u) => departmentMemberships.get(u.id)?.has(dept.id));
         const targetRow = await this.db.query.departmentTargets.findFirst({
           where: and(
             eq(departmentTargets.tenantId, actor.tenantId),
@@ -1081,7 +1202,13 @@ export class ReportsService {
           metrics: this.buildMetrics(this.targetNumbers(targetRow), summed),
         });
       }
-      return { period, scope: scope.kind, subjects };
+      return {
+        period,
+        scope: scope.kind,
+        expectedProgressPct,
+        currencyNormalization: this.currencyNormalization(fxSnapshot, unsupportedCurrencies),
+        subjects,
+      };
     }
 
     // scope.kind === 'role'
@@ -1104,7 +1231,7 @@ export class ReportsService {
     }
     const allRoleMemberIds = [...new Set(memberships.map((m) => m.userId).filter((id) => userById.has(id)))];
     const [actualsMap, targetRows] = await Promise.all([
-      this.userActuals(actor, allRoleMemberIds, from, to),
+      this.userActuals(actor, allRoleMemberIds, from, to, fxSnapshot.rates, unsupportedCurrencies),
       allRoleMemberIds.length
         ? this.db.query.userTargets.findMany({
             where: and(
@@ -1137,6 +1264,12 @@ export class ReportsService {
         metrics: this.buildMetrics(memberTargets.length ? summedTargets : null, summedActuals),
       };
     });
-    return { period, scope: scope.kind, subjects };
+    return {
+      period,
+      scope: scope.kind,
+      expectedProgressPct,
+      currencyNormalization: this.currencyNormalization(fxSnapshot, unsupportedCurrencies),
+      subjects,
+    };
   }
 }

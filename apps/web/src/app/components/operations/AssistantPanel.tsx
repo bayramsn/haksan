@@ -91,7 +91,6 @@ const NAVS = new Set<OperationNav>([
   "sales-price-list",
   "products",
   "stock",
-  "purchase-orders",
   "shipments",
   "installations",
   "deliveries",
@@ -599,24 +598,27 @@ export function AssistantPanel({
     }, 0);
   };
 
+  const compactLauncher = viewportSize().width < 640;
+
   return (
     <>
       <Button
         ref={launcherRef}
         type="button"
-        className="fixed z-40 h-11 touch-none gap-2 rounded-full border border-primary/15 bg-primary px-4 text-primary-foreground shadow-lg shadow-primary/20 hover:bg-primary/90"
-        style={{ left: launcherPosition.x, top: launcherPosition.y }}
-        onPointerDown={(event) => beginDrag("launcher", event)}
-        onPointerMove={moveDrag}
-        onPointerUp={endDrag}
-        onPointerCancel={endDrag}
+        className="fixed z-40 h-11 touch-none gap-2 rounded-full border border-primary/15 bg-primary px-3 text-primary-foreground shadow-lg shadow-primary/20 hover:bg-primary/90 sm:px-4"
+        style={compactLauncher ? { right: VIEWPORT_GAP, bottom: VIEWPORT_GAP } : { left: launcherPosition.x, top: launcherPosition.y }}
+        onPointerDown={compactLauncher ? undefined : (event) => beginDrag("launcher", event)}
+        onPointerMove={compactLauncher ? undefined : moveDrag}
+        onPointerUp={compactLauncher ? undefined : endDrag}
+        onPointerCancel={compactLauncher ? undefined : endDrag}
+        aria-label="Asistanı aç"
         onClick={() => {
           if (skipLauncherClickRef.current) return;
           setOpen(true);
         }}
       >
         <Bot className="size-4" />
-        Asistan
+        <span className="hidden sm:inline">Asistan</span>
         {badgeCount > 0 && (
           <span className="ml-0.5 grid min-w-5 place-items-center rounded-full bg-white px-1.5 text-[10px] text-primary">
             {badgeCount}

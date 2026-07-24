@@ -31,6 +31,9 @@ import {
 } from "lucide-react";
 import { MiniKpi } from "../shared/MiniKpi";
 import { EmptyState } from "../shared/EmptyState";
+import { EntityVisual } from "../shared/PremiumPrimitives";
+import { ViewToggle, type ListView } from "../ui/list-controls";
+import { usePersistentState } from "../../lib/persist";
 
 type Stage = "Stokta" | "Rezerve" | "Sevkiyatta" | "Kuruldu" | "Servis" | "Hizmet Dışı";
 
@@ -96,6 +99,8 @@ const SERIES_ORDER = ["VM", "MV", "VC", "SL", "MT", "SJ", "TC", "HT", "LH", "D",
 const SERIES_PREFIX_RE = /^(DL|VM|MV|VC|SL|MT|SJ|TC|HT|LH|D|C)(?=[-\d\s/]|$)/i;
 
 function productSeriesCode(product: Product) {
+  const persisted = (product.series ?? "").trim().replace(/\s+serisi$/i, "");
+  if (persisted) return persisted.toLocaleUpperCase("tr-TR");
   const model = (product.model || product.modelName || "").trim().toLocaleUpperCase("tr-TR");
   return model.match(SERIES_PREFIX_RE)?.[1]?.toLocaleUpperCase("tr-TR") ?? "";
 }
@@ -138,6 +143,7 @@ export function ProductsPage({ initialQuery }: { initialQuery?: string }) {
   const [editing, setEditing] = useState<Product | null>(null);
   const [deleting, setDeleting] = useState<Product | null>(null);
   const [deleteSaving, setDeleteSaving] = useState(false);
+  const [view, setView] = usePersistentState<ListView>("products.view", "cards");
   const canCreateProducts = hasPermission("products.create");
   const canEditProducts = hasPermission("products.update");
   const canDeleteProducts = hasPermission("products.delete");
@@ -194,7 +200,7 @@ export function ProductsPage({ initialQuery }: { initialQuery?: string }) {
     if (series !== "all" && productSeriesLabel(p) !== series) return false;
     if (!q) return true;
     const s = q.toLocaleLowerCase("tr-TR");
-    return [p.model, p.brand, p.type, p.shortDescription, p.stockCode, p.category, productSeriesLabel(p), productFamilyLabel(p)].some(
+    return [p.model, p.brand, p.series, p.type, p.shortDescription, p.stockCode, p.category, productSeriesLabel(p), productFamilyLabel(p)].some(
       (v) => (v ?? "").toLocaleLowerCase("tr-TR").includes(s)
     );
   });
@@ -262,6 +268,7 @@ export function ProductsPage({ initialQuery }: { initialQuery?: string }) {
             />
           </div>
           <div className="flex shrink-0 items-center gap-2">
+            <ViewToggle view={view} onChange={setView} />
             {canCreateProducts && (
               <ProductImportDialog
                 trigger={<Button size="sm" variant="outline" className="h-9 gap-1 whitespace-nowrap"><Upload className="size-4" /> İçe Aktar</Button>}
@@ -305,7 +312,99 @@ export function ProductsPage({ initialQuery }: { initialQuery?: string }) {
         </div>
       )}
 
-      <Card className="border-border/60 shadow-sm overflow-hidden">
+      {view === "cards" ? (
+        filtered.length > 0 ? (
+          <div className="surface-enter grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+            {filtered.map((p) => (
+              <Card
+                key={p.id}
+                role="button"
+                tabIndex={0}
+                className="group relative cursor-pointer overflow-hidden border-border/75 bg-white transition-[transform,border-color,box-shadow] hover:-translate-y-0.5 hover:border-primary/25 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
+                onClick={() => setSelected(p)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    setSelected(p);
+                  }
+                }}
+              >
+                <EntityVisual
+                  imageUrl={p.imageUrl}
+                  title={`${p.brand} ${p.model}`.trim()}
+                  overline={productSeriesLabel(p)}
+                  icon={<Cpu className="size-7" />}
+                  size="lg"
+                  className="m-3 mb-0 h-40 w-auto bg-[#f8fafc]"
+                  imageClassName="p-3 transition-transform duration-300 group-hover:scale-[1.025]"
+                />
+                <CardContent className="space-y-3 p-4 pt-0">
+                  <div className="min-w-0">
+                    <div className="font-data text-[9px] font-semibold uppercase tracking-[0.13em] text-operation-blue">
+                      {p.brand || "Haksan ürün"}
+                    </div>
+                    <div className="mt-1 truncate font-display text-xl font-semibold leading-none tracking-tight text-foreground">
+                      {p.model}
+                    </div>
+                    <div className="mt-1.5 line-clamp-2 min-h-8 text-[11px] leading-4 text-muted-foreground">
+                      {p.shortDescription || productSubtitle(p) || productFamilyLabel(p)}
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <Badge variant="secondary" className="h-5 max-w-full truncate text-[9px]">{productFamilyLabel(p)}</Badge>
+                    {p.stockCode && <Badge variant="outline" className="h-5 font-data text-[9px]">{p.stockCode}</Badge>}
+                  </div>
+                  <div className="grid grid-cols-2 gap-3 border-t border-border/70 pt-3">
+                    <div>
+                      <div className="text-[9px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">Liste</div>
+                      <div className="mt-1 font-data text-[12px] font-semibold text-foreground">{fmtMoney(p.listPrice, p.currency)}</div>
+                    </div>
+                    <div className="border-l border-border/70 pl-3">
+                      <div className="text-[9px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">Peşin</div>
+                      <div className="mt-1 font-data text-[12px] font-semibold text-success">{fmtMoney(p.cashPrice, p.currency)}</div>
+                    </div>
+                  </div>
+                  {(canEditProducts || canDeleteProducts) && (
+                    <div className="flex items-center justify-end gap-1 border-t border-border/60 pt-2 opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100">
+                      {canEditProducts && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="h-8"
+                          onClick={(event) => { event.stopPropagation(); setEditing(p); }}
+                        >
+                          <Pencil className="size-3.5" /> Düzenle
+                        </Button>
+                      )}
+                      {canDeleteProducts && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="h-8 text-destructive hover:bg-destructive-soft hover:text-destructive"
+                          onClick={(event) => { event.stopPropagation(); setDeleting(p); }}
+                        >
+                          <Trash2 className="size-3.5" /> Sil
+                        </Button>
+                      )}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        ) : (
+          <Card className="overflow-hidden border-border/70">
+            <EmptyState
+              scene="search"
+              title="Bu filtreye uyan ürün bulunamadı"
+              description="Arama terimini veya kategori/seri filtrelerini değiştirerek tekrar deneyin."
+            />
+          </Card>
+        )
+      ) : (
+      <Card className="surface-enter border-border/60 shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
           <Table>
             <TableHeader>
@@ -397,7 +496,7 @@ export function ProductsPage({ initialQuery }: { initialQuery?: string }) {
                 <TableRow>
                   <TableCell colSpan={7} className="py-4">
                     <EmptyState
-                      icon={<Package className="size-6" />}
+                      scene="search"
                       title="Bu filtreye uyan ürün bulunamadı"
                       description="Arama terimini veya kategori/seri filtrelerini değiştirerek tekrar deneyin."
                     />
@@ -413,6 +512,7 @@ export function ProductsPage({ initialQuery }: { initialQuery?: string }) {
           </div>
         </div>
       </Card>
+      )}
 
       <ProductDetailDialog
         product={selected}

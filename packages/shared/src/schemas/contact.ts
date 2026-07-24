@@ -6,6 +6,11 @@ const optionalText = (max: number) => z.preprocess(emptyToUndefined, z.string().
 const optionalPhone = z.preprocess(emptyToUndefined, phoneSchema.optional());
 const optionalEmail = z.preprocess(emptyToUndefined, emailSchema.optional());
 const optionalDate = z.preprocess(emptyToUndefined, z.coerce.date().optional());
+const emptyToNull = (value: unknown) => (typeof value === 'string' && value.trim() === '' ? null : value);
+const clearableText = (max: number) => z.preprocess(emptyToNull, z.string().max(max).nullable().optional());
+const clearablePhone = z.preprocess(emptyToNull, phoneSchema.nullable().optional());
+const clearableEmail = z.preprocess(emptyToNull, emailSchema.nullable().optional());
+const clearableDate = z.preprocess(emptyToNull, z.coerce.date().nullable().optional());
 
 export const contactCreateSchema = z.object({
   companyId: z.string().min(1),
@@ -33,5 +38,24 @@ export const contactCreateSchema = z.object({
 });
 export type ContactCreateInput = z.infer<typeof contactCreateSchema>;
 
-export const contactUpdateSchema = contactCreateSchema.partial();
+export const contactUpdateSchema = contactCreateSchema.partial().extend({
+  title: clearableText(128),
+  department: clearableText(128),
+  decisionRoleCode: clearableText(64),
+  workPhone: clearablePhone,
+  phoneExtension: clearableText(16),
+  mobilePhone: clearablePhone,
+  otherPhone: clearablePhone,
+  workEmail: clearableEmail,
+  personalEmail: clearableEmail,
+  otherEmail: clearableEmail,
+  gender: clearableText(32),
+  birthDate: clearableDate,
+  hometown: clearableText(64),
+  favoriteTeam: clearableText(64),
+  favoriteColor: clearableText(32),
+  graduatedSchool: clearableText(128),
+  notes: clearableText(4000),
+  blacklistReason: clearableText(2000),
+});
 export type ContactUpdateInput = z.infer<typeof contactUpdateSchema>;

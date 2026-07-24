@@ -12,6 +12,7 @@ import {
   setActiveDivision as setClientActiveDivision,
   setSessionExpiredHandler,
 } from './apiClient';
+import { disconnectChatSocket } from './chatRealtime';
 
 export interface MeDivision {
   id: string;
@@ -90,7 +91,7 @@ interface AuthState {
   setActiveDepartment: (value: string | null) => void;
   scopesForResource: (resource: string) => MeAccessScope[];
   canUseAllDivisionsForResource: (resource: string) => boolean;
-  login: (email: string, password: string, tenantSlug?: string) => Promise<void>;
+  login: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   refresh: () => Promise<void>;
 }
@@ -146,10 +147,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [refresh]);
 
   const login = useCallback(
-    async (email: string, password: string, tenantSlug?: string) => {
+    async (email: string, password: string) => {
       const res = await api.post<{ accessToken: string; user: { id: string; email: string; fullName: string; tenantId: string; roles: string[] } }>(
         '/auth/login',
-        { email, password, tenantSlug: tenantSlug?.trim().toLowerCase() || undefined }
+        { email, password }
       );
       setAccessToken(res.accessToken);
       await fetchMe();
@@ -163,6 +164,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } catch {
       // ignore
     }
+    disconnectChatSocket();
     setAccessToken(null);
     setUser(null);
     setTenant(null);
@@ -173,6 +175,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const clearSession = useCallback(() => {
+    disconnectChatSocket();
     setAccessToken(null);
     setUser(null);
     setTenant(null);

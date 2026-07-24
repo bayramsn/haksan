@@ -1,5 +1,9 @@
 .git
 .github
+.agents
+.claude
+**/.agents
+**/.claude
 .DS_Store
 .env
 .env.*
@@ -22,6 +26,8 @@ tmp
 output
 screenshots
 deploy/certbot
+deploy/keys
+apps/mobile-ios
 *.log
 npm-debug.log*
 package-lock 2.json

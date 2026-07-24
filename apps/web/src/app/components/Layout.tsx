@@ -1,13 +1,14 @@
-import { ReactNode, useMemo, useState, useEffect } from "react";
+import { ReactNode, useMemo, useState, useEffect, useRef } from "react";
 import { useStore } from "../lib/store";
 import { SALES_STAGE_LABELS, type Customer } from "../lib/mock";
 import {
   LayoutDashboard, Users, Briefcase, KanbanSquare, FileText, FolderOpen,
-  CreditCard, Boxes, ShoppingCart, Truck, Wrench, PackageCheck, Cpu,
+  CreditCard, Boxes, Truck, Wrench, Cpu,
   LifeBuoy, BarChart3, ShieldCheck, Building2, Contact as ContactIcon, Settings as SettingsIcon,
-  Search, Bell, ChevronDown, LogOut, Plus, HelpCircle, Menu,
+  Search, Bell, ChevronDown, LogOut, Plus, HelpCircle, Menu, PanelLeftClose, PanelLeftOpen,
   CheckCircle2, Clock, AlertTriangle, XCircle, ChevronRight, Tag, Receipt, Map as MapIcon, FileSignature, Wallet, Calendar, MessageCircle, MessageSquare,
   PhoneCall, ListChecks,
+  Star, Rows3,
 } from "lucide-react";
 import { callAssistantService, chatService, notificationService, type CallSuggestionDTO, type NotificationDTO } from "../../lib/services";
 import { useAuth } from "../../lib/auth";
@@ -26,6 +27,7 @@ import {
 import { ScrollArea } from "./ui/scroll-area";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "./ui/tooltip";
 import { QuickCreateDialog } from "./dialogs/CreateDialogs";
+import { BrandIllustration } from "./brand";
 import { HelpCenterDialog } from "./HelpCenterDialog";
 import { ApprovalsDialog } from "./ApprovalsDialog";
 import { CommandPalette } from "./operations/CommandPalette";
@@ -66,7 +68,6 @@ export const RESOURCE_BY_NAV: Partial<Record<NavKey, string>> = {
   "customer-balances": "receivables",
   "due-dates": "payments",
   shipments: "shipments",
-  deliveries: "shipments",
   machines: "customer_devices",
   installations: "installations",
   "service-requests": "service_tickets",
@@ -123,13 +124,11 @@ const NAV: { group: string; items: NavItem[] }[] = [
     items: [
       { key: "products", label: "Ürünler", icon: Cpu, roles: ["sales", "service", "stock"] },
       { key: "stock", label: "Stok", icon: Boxes, roles: ["stock"] },
-      { key: "purchase-orders", label: "Satın Alma", icon: ShoppingCart, roles: ["stock", "finance"] },
       { key: "payments", label: "Ödemeler & Kasa", icon: CreditCard, roles: ["finance"] },
       { key: "accounting-invoices", label: "Muhasebe Faturaları", icon: Receipt, roles: ["finance", "sales"] },
       { key: "customer-balances", label: "Cari Rapor", icon: Wallet, roles: ["finance"] },
       { key: "due-dates", label: "Vade Takvimi", icon: Calendar, roles: ["finance"] },
       { key: "shipments", label: "Sevkiyat", icon: Truck, roles: ["stock"] },
-      { key: "deliveries", label: "Teslimat", icon: PackageCheck, roles: ["stock", "service"] },
     ],
   },
   {
@@ -158,6 +157,7 @@ type Props = {
 };
 
 export function Layout({ current, onNavigate, onLogout, pageTitle, pageSubtitle, actions, children, onSelectFirm, onSelectCase, onOperationAction }: Props) {
+  const mainScrollRef = useRef<HTMLElement | null>(null);
   const store = useStore();
   const { customers, service } = store;
   const {
@@ -180,6 +180,10 @@ export function Layout({ current, onNavigate, onLogout, pageTitle, pageSubtitle,
   const scopedDivisionIds = new Set(currentScopes.map((scope) => scope.divisionId).filter((id): id is string => !!id));
   const hasAllDepartmentScope = currentScopes.some((scope) => scope.departmentId === null);
   const scopedDepartmentIds = new Set(currentScopes.map((scope) => scope.departmentId).filter((id): id is string => !!id));
+
+  useEffect(() => {
+    mainScrollRef.current?.scrollTo({ top: 0, left: 0, behavior: "auto" });
+  }, [current]);
   const visibleDivisions =
     currentScopes.length === 0 || canPickAllForResource ? divisions : divisions.filter((division) => scopedDivisionIds.has(division.id));
   const visibleDepartments =
@@ -215,7 +219,60 @@ export function Layout({ current, onNavigate, onLogout, pageTitle, pageSubtitle,
   };
   const canSeeReports = hasRole("admin") || hasRole("super_admin") || hasPermission("reports.read");
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return window.localStorage.getItem("haksan:sidebar-collapsed") === "true";
+  });
+  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>(() => {
+    if (typeof window === "undefined") return {};
+    try {
+      return JSON.parse(window.localStorage.getItem("haksan:sidebar-groups") ?? "{}") as Record<string, boolean>;
+    } catch {
+      return {};
+    }
+  });
+  const [pinnedNav, setPinnedNav] = useState<NavKey[]>(() => {
+    if (typeof window === "undefined") return [];
+    try {
+      return (JSON.parse(window.localStorage.getItem("haksan:pinned-nav") ?? "[]") as NavKey[]).filter((key) => NAV.some((group) => group.items.some((item) => item.key === key)));
+    } catch {
+      return [];
+    }
+  });
+  const [recentNav, setRecentNav] = useState<NavKey[]>(() => {
+    if (typeof window === "undefined") return [];
+    try {
+      return JSON.parse(window.localStorage.getItem("haksan:recent-nav") ?? "[]") as NavKey[];
+    } catch {
+      return [];
+    }
+  });
+  const [density, setDensity] = useState<"comfortable" | "compact">(() => {
+    if (typeof window === "undefined") return "comfortable";
+    return window.localStorage.getItem("haksan:density") === "compact" ? "compact" : "comfortable";
+  });
   const [commandOpen, setCommandOpen] = useState(false);
+  useEffect(() => {
+    window.localStorage.setItem("haksan:sidebar-collapsed", String(sidebarCollapsed));
+  }, [sidebarCollapsed]);
+  useEffect(() => {
+    window.localStorage.setItem("haksan:sidebar-groups", JSON.stringify(expandedGroups));
+  }, [expandedGroups]);
+  useEffect(() => {
+    window.localStorage.setItem("haksan:pinned-nav", JSON.stringify(pinnedNav));
+  }, [pinnedNav]);
+  useEffect(() => {
+    setRecentNav((items) => {
+      const next = [current, ...items.filter((key) => key !== current)].slice(0, 5);
+      window.localStorage.setItem("haksan:recent-nav", JSON.stringify(next));
+      return next;
+    });
+    const activeGroup = NAV.find((group) => group.items.some((item) => item.key === current));
+    if (activeGroup) setExpandedGroups((groups) => ({ ...groups, [activeGroup.group]: true }));
+  }, [current]);
+  useEffect(() => {
+    window.localStorage.setItem("haksan:density", density);
+  }, [density]);
   // Sohbet okunmamış rozeti — konuşmaları 15 sn'de bir özetleyip toplam okunmamışı gösterir.
   const [chatUnread, setChatUnread] = useState(0);
   const [callSuggestions, setCallSuggestions] = useState<CallSuggestionDTO[]>([]);
@@ -282,6 +339,15 @@ export function Layout({ current, onNavigate, onLogout, pageTitle, pageSubtitle,
   }, []);
 
   const navItems = useMemo(() => NAV.flatMap((group) => group.items), []);
+  const pinnedItems = navItems.filter((item) => pinnedNav.includes(item.key) && canSee(item));
+  const recentItems = recentNav
+    .filter((key) => key !== current && !pinnedNav.includes(key))
+    .map((key) => navItems.find((item) => item.key === key))
+    .filter((item): item is NavItem => !!item && canSee(item))
+    .slice(0, 3);
+  const toggleCurrentPin = () => {
+    setPinnedNav((items) => items.includes(current) ? items.filter((key) => key !== current) : [...items, current]);
+  };
   const canSeeNav = (key: string) => {
     const item = navItems.find((x) => x.key === key);
     return item ? canSee(item) : true;
@@ -350,70 +416,149 @@ export function Layout({ current, onNavigate, onLogout, pageTitle, pageSubtitle,
     }
   };
 
-  const renderSidebarContent = (onItemClick?: () => void) => (
-    <div className="flex h-full min-h-0 flex-col overflow-hidden">
+  const renderSidebarContent = (onItemClick?: () => void, collapsed = false, onToggle?: () => void) => (
+    <div className="flex h-full min-h-0 flex-col overflow-visible">
       {/* Logo */}
-      <div className="h-16 shrink-0 flex items-center gap-3 px-5 border-b border-border/60">
+      <div className={`h-[60px] shrink-0 flex items-center gap-2 border-b border-border/70 ${collapsed ? "justify-center px-2" : "px-4"}`}>
         <img
-          src="/brand/haksan-logo.png"
+          src={collapsed ? "/brand/haksan-wlogo.gif" : "/brand/haksan-logo.png"}
           alt="Haksan Makina"
-          className="h-10 w-auto max-w-[138px] shrink-0 object-contain"
+          className={`w-auto shrink-0 object-contain transition-all ${collapsed ? "size-8" : "h-9 max-w-[108px]"}`}
         />
-        <div className="min-w-0 flex-1">
-          <div className="text-[11px] text-muted-foreground leading-tight truncate uppercase tracking-wider">CRM · Operasyon · Servis</div>
-        </div>
+        {!collapsed && (
+          <div className="min-w-0 flex-1 border-l border-border pl-2.5">
+            <div className="text-[9px] text-muted-foreground leading-[1.35] uppercase tracking-[0.14em]">CRM · Operasyon<br />Servis · Stok</div>
+          </div>
+        )}
+        {onToggle && (
+          <Button
+            variant="ghost"
+            size="icon"
+            className={`size-8 shrink-0 text-muted-foreground hover:text-primary ${collapsed ? "absolute left-[58px] top-3.5 z-10 border bg-white shadow-sm" : ""}`}
+            aria-label={collapsed ? "Menüyü genişlet" : "Menüyü daralt"}
+            onClick={onToggle}
+          >
+            {collapsed ? <PanelLeftOpen className="size-4" /> : <PanelLeftClose className="size-4" />}
+          </Button>
+        )}
       </div>
 
       {/* Nav */}
       <ScrollArea className="min-h-0 flex-1 overflow-hidden">
-        <nav className="px-3 py-4 space-y-5">
-          {NAV.map((group) => {
-            const items = group.items.filter(canSee);
-            if (!items.length) return null;
-            return (
-            <div key={group.group}>
-              <div className="px-3 mb-1.5 text-[10px] uppercase tracking-[0.08em] text-muted-foreground/70">{group.group}</div>
+        <nav className={`${collapsed ? "px-2" : "px-3"} py-3.5 space-y-4`}>
+          {!collapsed && pinnedItems.length > 0 && (
+            <div>
+              <div className="mb-1.5 flex items-center gap-1.5 px-3 text-[9px] font-semibold uppercase tracking-[0.14em] text-operation-blue">
+                <Star className="size-3 fill-current" /> Sabitlenenler
+              </div>
               <div className="space-y-0.5">
-                {items.map((item) => {
+                {pinnedItems.map((item) => {
                   const Icon = item.icon;
                   const active = current === item.key;
                   return (
                     <button
-                      key={item.key}
+                      key={`pin-${item.key}`}
+                      type="button"
+                      onClick={() => { onNavigate(item.key); onItemClick?.(); }}
+                      aria-current={active ? "page" : undefined}
+                      className={`relative flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-sm transition-colors ${active ? "bg-primary text-white shadow-sm" : "bg-brand-blue-soft/65 text-primary hover:bg-brand-blue-soft"}`}
+                    >
+                      <Icon className="size-[17px] shrink-0" strokeWidth={1.8} />
+                      <span className="min-w-0 flex-1 truncate text-left">{item.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+          {!collapsed && recentItems.length > 0 && (
+            <div>
+              <div className="mb-1.5 px-3 text-[9px] font-semibold uppercase tracking-[0.14em] text-muted-foreground/75">Son kullanılan</div>
+              <div className="space-y-0.5">
+                {recentItems.map((item) => {
+                  const Icon = item.icon;
+                  return (
+                    <button
+                      key={`recent-${item.key}`}
+                      type="button"
+                      onClick={() => { onNavigate(item.key); onItemClick?.(); }}
+                      className="flex w-full items-center gap-2.5 rounded-md px-3 py-1.5 text-[13px] text-foreground/65 transition-colors hover:bg-muted hover:text-foreground"
+                    >
+                      <Icon className="size-4 shrink-0 text-muted-foreground" strokeWidth={1.8} />
+                      <span className="min-w-0 flex-1 truncate text-left">{item.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+          {NAV.map((group) => {
+            const items = group.items.filter(canSee);
+            if (!items.length) return null;
+            const expanded = expandedGroups[group.group] !== false;
+            return (
+            <div key={group.group}>
+              {collapsed ? (
+                <div className="mx-2 mb-1.5 h-px bg-border" aria-hidden />
+              ) : (
+                <button
+                  type="button"
+                  aria-expanded={expanded}
+                  onClick={() => setExpandedGroups((groups) => ({ ...groups, [group.group]: !expanded }))}
+                  className="mb-1.5 flex w-full items-center justify-between rounded px-3 py-0.5 text-[9px] font-semibold uppercase tracking-[0.14em] text-muted-foreground/75 transition-colors hover:bg-muted hover:text-foreground"
+                >
+                  {group.group}
+                  <ChevronDown className={`size-3 transition-transform ${expanded ? "rotate-0" : "-rotate-90"}`} />
+                </button>
+              )}
+              <div className={`${!collapsed && !expanded ? "hidden" : "space-y-0.5"}`}>
+                {items.map((item) => {
+                  const Icon = item.icon;
+                  const active = current === item.key;
+                  const navButton = (
+                    <button
                       onClick={() => {
                         onNavigate(item.key);
                         onItemClick?.();
                       }}
                       aria-current={active ? "page" : undefined}
-                      className={`group w-full flex items-center gap-2.5 px-3 py-2 rounded-md text-sm transition-all relative ${
+                      aria-label={collapsed ? item.label : undefined}
+                      className={`group w-full flex items-center rounded-md text-sm transition-all relative ${collapsed ? "justify-center px-2 py-2.5" : "gap-2.5 px-3 py-2"} ${
                         active
-                          ? "bg-primary/10 text-primary"
+                          ? "bg-primary text-primary-foreground shadow-sm"
                           : "text-foreground/75 hover:bg-muted hover:text-foreground"
                       }`}
                     >
                       {active && (
-                        <span className="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-r-full bg-primary" />
+                        <span className={`absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-r-full ${collapsed ? "bg-brand-red" : "bg-white/80"}`} />
                       )}
-                      <Icon className={`size-[17px] shrink-0 ${active ? "text-primary" : "text-muted-foreground group-hover:text-foreground"}`} strokeWidth={1.8} />
-                      <span className="truncate flex-1 text-left">{item.label}</span>
+                      <Icon className={`size-[17px] shrink-0 ${active ? "text-primary-foreground" : "text-muted-foreground group-hover:text-foreground"}`} strokeWidth={1.8} />
+                      {!collapsed && <span className="truncate flex-1 text-left">{item.label}</span>}
                       {(item.key === "call-assistant" && callSuggestions.length > 0) ? (
-                        <Badge variant="secondary" className={`h-5 px-1.5 text-[10px] ${active ? "bg-primary text-primary-foreground" : "bg-primary/10 text-primary"}`}>
+                        <Badge variant="secondary" className={`${collapsed ? "absolute -right-0.5 -top-0.5 size-4 p-0 text-[8px]" : "h-5 px-1.5 text-[10px]"} ${active ? "bg-white text-primary" : "bg-primary/10 text-primary"}`}>
                           {callSuggestions.length}
                         </Badge>
                       ) : (item.key === "chat" && chatUnread > 0) ? (
-                        <Badge variant="secondary" className={`h-5 px-1.5 text-[10px] ${active ? "bg-primary text-primary-foreground" : "bg-primary/10 text-primary"}`}>
+                        <Badge variant="secondary" className={`${collapsed ? "absolute -right-0.5 -top-0.5 size-4 p-0 text-[8px]" : "h-5 px-1.5 text-[10px]"} ${active ? "bg-white text-primary" : "bg-primary/10 text-primary"}`}>
                           {chatUnread}
                         </Badge>
                       ) : (item.key === "service-requests" && service.length > 0) ? (
-                        <Badge variant="secondary" className={`h-5 px-1.5 text-[10px] ${active ? "bg-primary text-primary-foreground" : "bg-primary/10 text-primary"}`}>
+                        <Badge variant="secondary" className={`${collapsed ? "absolute -right-0.5 -top-0.5 size-4 p-0 text-[8px]" : "h-5 px-1.5 text-[10px]"} ${active ? "bg-white text-primary" : "bg-primary/10 text-primary"}`}>
                           {service.length}
                         </Badge>
                       ) : item.key === "service-kanban" && openServiceCount > 0 ? (
-                        <Badge variant="secondary" className={`h-5 px-1.5 text-[10px] ${active ? "bg-primary text-primary-foreground" : "bg-primary/10 text-primary"}`}>
+                        <Badge variant="secondary" className={`${collapsed ? "absolute -right-0.5 -top-0.5 size-4 p-0 text-[8px]" : "h-5 px-1.5 text-[10px]"} ${active ? "bg-white text-primary" : "bg-primary/10 text-primary"}`}>
                           {openServiceCount}
                         </Badge>
                       ) : null}
                     </button>
+                  );
+                  if (!collapsed) return <div key={item.key}>{navButton}</div>;
+                  return (
+                    <Tooltip key={item.key}>
+                      <TooltipTrigger asChild>{navButton}</TooltipTrigger>
+                      <TooltipContent side="right">{item.label}</TooltipContent>
+                    </Tooltip>
                   );
                 })}
               </div>
@@ -422,12 +567,67 @@ export function Layout({ current, onNavigate, onLogout, pageTitle, pageSubtitle,
           })}
         </nav>
       </ScrollArea>
+      {onItemClick && (canPickDepartment || (canPickDivision && visibleDivisions.length > 0)) && (
+        <div className="shrink-0 border-t border-border/70 bg-canvas/60 p-3">
+          <div className="mb-2 px-1 text-[9px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+            Çalışma alanı
+          </div>
+          <div className={`grid gap-2 ${canPickDepartment && canPickDivision ? "grid-cols-2" : "grid-cols-1"}`}>
+            {canPickDepartment && (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" size="sm" className="min-w-0 justify-start gap-1.5 bg-white px-2" aria-label="Departman seç">
+                    <Briefcase className="size-4 shrink-0 text-muted-foreground" />
+                    <span className="truncate">{activeDepartmentLabel}</span>
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="w-56">
+                  <DropdownMenuLabel>Departman</DropdownMenuLabel>
+                  <DropdownMenuSeparator />
+                  {visibleDepartments.map((department) => (
+                    <DropdownMenuItem key={department.id} className="justify-between" onClick={() => setActiveDepartment(department.id)}>
+                      {department.name}
+                      {activeDepartment === department.id && <CheckCircle2 className="size-4 text-primary" />}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
+            {canPickDivision && visibleDivisions.length > 0 && (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" size="sm" className="min-w-0 justify-start gap-1.5 bg-white px-2" aria-label="Bölüm seç">
+                    <Building2 className="size-4 shrink-0 text-muted-foreground" />
+                    <span className="truncate">{activeDivisionLabel}</span>
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="w-56">
+                  <DropdownMenuLabel>Bölüm</DropdownMenuLabel>
+                  <DropdownMenuSeparator />
+                  {canPickAllForResource && (
+                    <DropdownMenuItem className="justify-between" onClick={() => setActiveDivision("all")}>
+                      Tümü
+                      {activeDivision === "all" && <CheckCircle2 className="size-4 text-primary" />}
+                    </DropdownMenuItem>
+                  )}
+                  {visibleDivisions.map((division) => (
+                    <DropdownMenuItem key={division.id} className="justify-between" onClick={() => setActiveDivision(division.id)}>
+                      {division.name}
+                      {activeDivision === division.id && <CheckCircle2 className="size-4 text-primary" />}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 
   return (
     <TooltipProvider delayDuration={150}>
-      <div className="flex h-full min-h-0 w-full overflow-hidden bg-canvas text-foreground">
+      <div data-density={density} className="flex h-full min-h-0 w-full overflow-hidden bg-canvas text-foreground">
         {mobileNavOpen && (
           <div className="fixed inset-0 z-50 lg:hidden">
             <button
@@ -443,30 +643,30 @@ export function Layout({ current, onNavigate, onLogout, pageTitle, pageSubtitle,
         )}
 
         {/* SIDEBAR */}
-        <aside className="hidden lg:flex h-full min-h-0 w-[260px] shrink-0 flex-col overflow-hidden border-r border-border/60 bg-white">
-          {renderSidebarContent()}
+        <aside className={`relative hidden lg:flex h-full min-h-0 shrink-0 flex-col overflow-visible border-r border-border/70 bg-sidebar transition-[width] duration-200 ${sidebarCollapsed ? "w-[76px]" : "w-[244px]"}`}>
+          {renderSidebarContent(undefined, sidebarCollapsed, () => setSidebarCollapsed((value) => !value))}
         </aside>
 
         {/* MAIN */}
         <div className="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden">
           {/* Topbar */}
-          <header className="h-16 border-b border-border/60 bg-white flex items-center gap-3 px-3 md:px-6 shrink-0">
+          <header className="h-[60px] shrink-0 flex items-center gap-1.5 overflow-hidden border-b border-border/70 bg-white/95 px-3 backdrop-blur sm:gap-2.5 md:px-5">
             <Button variant="ghost" size="icon" className="lg:hidden size-9" aria-label="Menüyü aç" onClick={() => setMobileNavOpen(true)}>
               <Menu className="size-[18px]" />
             </Button>
             <img
               src="/brand/haksan-logo.png"
               alt="Haksan Makina"
-              className="lg:hidden h-8 w-auto max-w-[120px] object-contain"
+              className="h-8 w-auto max-w-[90px] object-contain lg:hidden sm:max-w-[120px]"
             />
             <Button variant="ghost" size="icon" className="md:hidden size-9" aria-label="Global arama" onClick={() => setCommandOpen(true)}>
               <Search className="size-[18px] text-muted-foreground" />
             </Button>
-            <div className="relative hidden md:block w-[420px] max-w-[40%]">
+            <div className="relative hidden md:block w-[390px] max-w-[38%]">
               <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
               <button
                 type="button"
-                className="h-9 w-full rounded-md border border-transparent bg-muted/40 pl-9 pr-16 text-left text-sm text-muted-foreground transition-colors hover:bg-muted/70 focus-visible:border-border focus-visible:bg-white focus-visible:outline-none"
+                className="h-9 w-full rounded-lg border border-border/70 bg-canvas/70 pl-9 pr-16 text-left text-sm text-muted-foreground shadow-xs transition-colors hover:border-primary/20 hover:bg-white focus-visible:border-ring focus-visible:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20"
                 onClick={() => setCommandOpen(true)}
               >
                 Firma, teklif, stok, servis ara...
@@ -479,11 +679,12 @@ export function Layout({ current, onNavigate, onLogout, pageTitle, pageSubtitle,
             <div className="flex-1" />
 
             {canPickDepartment && (
-              <DropdownMenu>
+              <div className="hidden lg:block">
+                <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button variant="outline" size="sm" className="gap-1.5 h-9 px-2 sm:px-3" aria-label="Departman seç">
                     <Briefcase className="size-4 text-muted-foreground" />
-                    <span className="hidden sm:inline max-w-[110px] truncate">{activeDepartmentLabel}</span>
+                    <span className="hidden max-w-[110px] truncate 2xl:inline">{activeDepartmentLabel}</span>
                     <ChevronDown className="size-3.5 text-muted-foreground" />
                   </Button>
                 </DropdownMenuTrigger>
@@ -497,15 +698,17 @@ export function Layout({ current, onNavigate, onLogout, pageTitle, pageSubtitle,
                     </DropdownMenuItem>
                   ))}
                 </DropdownMenuContent>
-              </DropdownMenu>
+                </DropdownMenu>
+              </div>
             )}
 
             {canPickDivision && visibleDivisions.length > 0 && (
-              <DropdownMenu>
+              <div className="hidden lg:block">
+                <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button variant="outline" size="sm" className="gap-1.5 h-9 px-2 sm:px-3" aria-label="Bölüm seç">
                     <Building2 className="size-4 text-muted-foreground" />
-                    <span className="hidden sm:inline max-w-[110px] truncate">{activeDivisionLabel}</span>
+                    <span className="hidden max-w-[110px] truncate 2xl:inline">{activeDivisionLabel}</span>
                     <ChevronDown className="size-3.5 text-muted-foreground" />
                   </Button>
                 </DropdownMenuTrigger>
@@ -525,64 +728,75 @@ export function Layout({ current, onNavigate, onLogout, pageTitle, pageSubtitle,
                     </DropdownMenuItem>
                   ))}
                 </DropdownMenuContent>
-              </DropdownMenu>
+                </DropdownMenu>
+              </div>
             )}
 
             {canApprove && (
-              <ApprovalsDialog
-                trigger={
-                  <Button variant="ghost" size="icon" className="relative size-9" aria-label="Onay bekleyen firma talepleri">
-                    <ShieldCheck className="size-[18px] text-muted-foreground" />
-                  </Button>
-                }
-              />
+              <div className="hidden lg:block">
+                <ApprovalsDialog
+                  trigger={
+                    <Button variant="ghost" size="icon" className="relative size-9" aria-label="Onay bekleyen firma talepleri">
+                      <ShieldCheck className="size-[18px] text-muted-foreground" />
+                    </Button>
+                  }
+                />
+              </div>
             )}
 
             <QuickCreateDialog
               trigger={
-                <Button variant="outline" size="sm" className="gap-1.5 h-9 px-2 sm:px-3">
+                <Button variant="outline" size="sm" className="gap-1.5 h-9 px-2 sm:px-3" aria-label="Hızlı Oluştur">
                   <Plus className="size-4" />
-                  <span className="hidden sm:inline">Hızlı Oluştur</span>
+                  <span className="hidden xl:inline">Hızlı Oluştur</span>
                 </Button>
               }
             />
 
             {hasPermission("companies.read") && (
-              <ManualSantralDialog onCreated={refreshCallSuggestions} />
+              <div className="hidden 2xl:block">
+                <ManualSantralDialog onCreated={refreshCallSuggestions} />
+              </div>
             )}
 
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <HelpCenterDialog
-                  trigger={
-                    <Button variant="ghost" size="icon" className="relative size-9" aria-label="Yardım Merkezi">
-                      <HelpCircle className="size-[18px] text-muted-foreground" />
-                    </Button>
-                  }
-                />
-              </TooltipTrigger>
-              <TooltipContent>Yardım Merkezi</TooltipContent>
-            </Tooltip>
+            <div className="hidden xl:block">
+              <HelpCenterDialog
+                trigger={
+                  <Button variant="ghost" size="icon" className="relative size-9" aria-label="Yardım Merkezi" title="Yardım Merkezi">
+                    <HelpCircle className="size-[18px] text-muted-foreground" />
+                  </Button>
+                }
+              />
+            </div>
 
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" size="icon" className="relative size-9" aria-label="Bildirimler">
                   <Bell className="size-[18px] text-muted-foreground" />
                   {notificationCount > 0 && (
-                    <span className="absolute top-1.5 right-1.5 size-2 rounded-full bg-red-500 ring-2 ring-white" aria-hidden />
+                    <span className="absolute -right-0.5 -top-0.5 grid min-w-4 place-items-center rounded-full bg-destructive px-1 font-data text-[8px] font-semibold leading-4 text-white ring-2 ring-white" aria-hidden>
+                      {notificationCount > 99 ? "99+" : notificationCount}
+                    </span>
                   )}
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-80">
+              <DropdownMenuContent align="end" className="max-h-[min(640px,calc(100dvh-5rem))] w-[min(390px,calc(100vw-1rem))] overflow-y-auto p-1.5">
                 <DropdownMenuLabel className="flex items-center justify-between">
-                  <span>Bildirimler</span>
+                  <span>
+                    <span className="block font-display text-lg leading-none text-foreground">Bildirim Merkezi</span>
+                    <span className="mt-1 block text-[10px] font-normal text-muted-foreground">Çağrı, kayıt ve operasyon uyarıları</span>
+                  </span>
                   <Badge variant="secondary" className="text-[10px]">{notificationCount} yeni</Badge>
                 </DropdownMenuLabel>
                 <DropdownMenuSeparator />
                 {notificationCount === 0 ? (
-                  <div className="px-3 py-8 text-center text-sm text-muted-foreground">Aktif uyarı yok.</div>
+                  <div className="flex flex-col items-center px-3 py-6 text-center text-sm text-muted-foreground">
+                    <BrandIllustration scene="notifications" size="sm" className="mb-1" />
+                    Aktif uyarı yok.
+                  </div>
                 ) : (
                   <>
+                    {callSuggestions.length > 0 && <div className="px-2.5 pb-1 pt-2 font-data text-[9px] font-semibold uppercase tracking-[0.13em] text-operation-blue">Çağrı asistanı · {callSuggestions.length}</div>}
                     {callSuggestions.map((suggestion) => (
                       <CallSuggestionItem
                         key={suggestion.id}
@@ -590,6 +804,7 @@ export function Layout({ current, onNavigate, onLogout, pageTitle, pageSubtitle,
                         onAction={(action) => runCallSuggestionAction(suggestion, action)}
                       />
                     ))}
+                    {dbNotifications.length > 0 && <div className="px-2.5 pb-1 pt-2 font-data text-[9px] font-semibold uppercase tracking-[0.13em] text-operation-blue">CRM bildirimleri · {dbNotifications.length}</div>}
                     {dbNotifications.map((notification) => (
                       <NotifItem
                         key={notification.id}
@@ -601,6 +816,7 @@ export function Layout({ current, onNavigate, onLogout, pageTitle, pageSubtitle,
                       />
                     ))}
                     {(callSuggestions.length > 0 || dbNotifications.length > 0) && alerts.length > 0 && <DropdownMenuSeparator />}
+                    {alerts.length > 0 && <div className="px-2.5 pb-1 pt-2 font-data text-[9px] font-semibold uppercase tracking-[0.13em] text-operation-blue">Operasyon takibi · {alerts.length}</div>}
                     {alerts.map((alert) => (
                       <NotifItem
                         key={alert.id}
@@ -616,11 +832,11 @@ export function Layout({ current, onNavigate, onLogout, pageTitle, pageSubtitle,
               </DropdownMenuContent>
             </DropdownMenu>
 
-            <div className="h-6 w-px bg-border mx-1" />
+            <div className="mx-1 hidden h-6 w-px bg-border sm:block" />
 
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" className="gap-2 px-2 h-9">
+                <Button variant="ghost" className="h-9 gap-2 px-1.5 sm:px-2" aria-label="Hesap menüsü">
                   <Avatar className="size-7">
                     <AvatarFallback className="bg-primary text-primary-foreground text-xs">{userInitials}</AvatarFallback>
                   </Avatar>
@@ -628,17 +844,25 @@ export function Layout({ current, onNavigate, onLogout, pageTitle, pageSubtitle,
                     <div className="text-[13px] leading-tight">{user?.fullName ?? "Kullanıcı"}</div>
                     <div className="text-[10px] text-muted-foreground leading-tight uppercase tracking-wide">{roleLabel}</div>
                   </div>
-                  <ChevronDown className="size-3.5 text-muted-foreground" />
+                  <ChevronDown className="hidden size-3.5 text-muted-foreground sm:block" />
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-56">
                 <DropdownMenuLabel>Hesabım & Analiz</DropdownMenuLabel>
+                <DropdownMenuItem onClick={toggleCurrentPin}>
+                  <Star className={`size-4 mr-2 text-muted-foreground ${pinnedNav.includes(current) ? "fill-current text-operation-blue" : ""}`} />
+                  {pinnedNav.includes(current) ? "Bu sayfanın sabitini kaldır" : "Bu sayfayı sabitle"}
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setDensity((value) => value === "compact" ? "comfortable" : "compact")}>
+                  <Rows3 className="size-4 mr-2 text-muted-foreground" />
+                  {density === "compact" ? "Rahat görünüm" : "Kompakt görünüm"}
+                </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => onNavigate("settings")}><ContactIcon className="size-4 mr-2 text-muted-foreground" /> Profil & Ayarlar</DropdownMenuItem>
                 <DropdownMenuItem onClick={() => toast.message("Klavye Kısayolları", { description: "⌘K komut paleti · / arama" })}><HelpCircle className="size-4 mr-2 text-muted-foreground" /> Klavye Kısayolları</DropdownMenuItem>
                 {canSeeReports && (
                   <DropdownMenuItem onClick={() => onNavigate("reports")}><BarChart3 className="size-4 mr-2 text-muted-foreground" /> Raporlar</DropdownMenuItem>
                 )}
-                {hasRole("super_admin") && (
+                {(hasRole("admin") || hasRole("super_admin")) && (
                   <>
                     <DropdownMenuSeparator />
                     <DropdownMenuLabel>Yönetim</DropdownMenuLabel>
@@ -657,23 +881,26 @@ export function Layout({ current, onNavigate, onLogout, pageTitle, pageSubtitle,
           </header>
 
           {/* Page header */}
-          <div className="flex items-end justify-between gap-4 px-4 md:px-6 pt-5 pb-4 border-b border-border/60 bg-white shrink-0">
-            <div className="min-w-0">
-              <nav className="flex items-center gap-1 text-[11px] text-muted-foreground uppercase tracking-wider">
+          <div className="relative flex min-h-[86px] shrink-0 flex-col items-start justify-center gap-3 overflow-hidden border-b border-border/70 bg-white px-4 py-3.5 sm:flex-row sm:items-center sm:justify-between md:px-6">
+            <div className="datum-rail absolute inset-x-0 top-0 h-[5px]" aria-hidden />
+            <div className="min-w-0 pt-1">
+              <nav className="flex items-center gap-1 text-[9px] font-semibold uppercase tracking-[0.15em] text-muted-foreground">
                 <span>Haksan</span>
                 <ChevronRight className="size-3" />
-                <span className="text-foreground/70">{pageTitle}</span>
+                <span>{activeDivisionLabel}</span>
+                <ChevronRight className="hidden size-3 sm:block" />
+                <span className="hidden text-foreground/70 sm:block">{pageTitle}</span>
               </nav>
-              <h1 className="text-[22px] leading-tight mt-1.5 tracking-tight truncate">{pageTitle}</h1>
+              <h1 className="font-display mt-1 text-[28px] font-bold leading-none tracking-[-0.01em] truncate">{pageTitle}</h1>
               {pageSubtitle && (
-                <p className="text-sm text-muted-foreground mt-0.5 truncate">{pageSubtitle}</p>
+                <p className="mt-1 text-[13px] leading-tight text-muted-foreground truncate">{pageSubtitle}</p>
               )}
             </div>
-            <div className="flex items-center gap-2 shrink-0">{actions}</div>
+            {actions && <div className="flex max-w-full shrink-0 items-center gap-2 overflow-x-auto pb-0.5 sm:pb-0">{actions}</div>}
           </div>
 
           {/* Content */}
-          <main className="app-main flex-1 min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain p-4 md:p-6 min-w-0 bg-canvas">{children}</main>
+          <main ref={mainScrollRef} className="app-main flex-1 min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain p-3 sm:p-4 lg:p-5 xl:p-6 min-w-0 bg-canvas">{children}</main>
         </div>
         <CommandPalette
           open={commandOpen}
@@ -734,7 +961,7 @@ function ManualSantralDialog({ onCreated }: { onCreated: () => void }) {
       <DialogTrigger asChild>
         <Button variant="outline" size="sm" className="gap-1.5 h-9 px-2 sm:px-3">
           <PhoneCall className="size-4" />
-          <span className="hidden sm:inline">Manuel santral</span>
+          <span className="hidden xl:inline">Manuel santral</span>
         </Button>
       </DialogTrigger>
       <DialogContent className="w-[min(420px,calc(100vw-2rem))]">
@@ -890,6 +1117,10 @@ const STATUS_META: Record<string, { cls: string; icon?: ReactNode }> = {
   Sent: { cls: "bg-blue-50 text-blue-700 border-blue-200" },
   Draft: { cls: "bg-zinc-100 text-zinc-600 border-zinc-200" },
   Rejected: { cls: "bg-red-50 text-red-700 border-red-200", icon: <XCircle className="size-3" /> },
+  "Price Waiting": { cls: "bg-amber-50 text-amber-800 border-amber-200", icon: <Clock className="size-3" /> },
+  "Budget Waiting": { cls: "bg-amber-50 text-amber-800 border-amber-200", icon: <Clock className="size-3" /> },
+  "On Hold": { cls: "bg-zinc-100 text-zinc-700 border-zinc-200", icon: <Clock className="size-3" /> },
+  Postponed: { cls: "bg-blue-50 text-blue-700 border-blue-200", icon: <Clock className="size-3" /> },
   Active: { cls: "bg-emerald-50 text-emerald-700 border-emerald-200", icon: <CheckCircle2 className="size-3" /> },
   "Out of Warranty": { cls: "bg-amber-50 text-amber-700 border-amber-200" },
   Decommissioned: { cls: "bg-zinc-100 text-zinc-600 border-zinc-200" },
@@ -922,6 +1153,10 @@ const STATUS_LABELS: Record<string, string> = {
   Sent: "Gönderildi",
   Draft: "Taslak",
   Rejected: "Reddedildi",
+  "Price Waiting": "Fiyat Bekleniyor",
+  "Budget Waiting": "Bütçe Bekleniyor",
+  "On Hold": "Askıya Alındı",
+  Postponed: "Ertelendi",
   Active: "Aktif",
   "Out of Warranty": "Garanti Dışı",
   Decommissioned: "Devre Dışı",

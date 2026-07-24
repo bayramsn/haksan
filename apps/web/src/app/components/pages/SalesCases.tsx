@@ -3,7 +3,7 @@ import { Avatar, AvatarFallback } from "../ui/avatar";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../ui/table";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
-import { Search, ArrowUpDown, Building2, MoreHorizontal, CheckCircle2, RotateCcw } from "lucide-react";
+import { Search, ArrowUpDown, Building2, MoreHorizontal, CheckCircle2, RotateCcw, AlertTriangle, CalendarClock, Cpu } from "lucide-react";
 import { SalesCase, salesStageLabel } from "../../lib/mock";
 import { StatusBadge } from "../Layout";
 import { useEffect, useMemo, useState } from "react";
@@ -12,7 +12,14 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "../ui/tabs";
 import { KanbanPage } from "./Kanban";
 import { FilterPopover, usePaged, Pager } from "../ui/list-controls";
 import { ExportExcelButton } from "../ui/ExportExcelButton";
+import { LeadCaptureDialog } from "../dialogs/LeadCaptureDialog";
 import { type OperationFocus } from "../../lib/operations";
+import { EntityVisual } from "../shared/PremiumPrimitives";
+import { EmptyState } from "../shared/EmptyState";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
+  AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "../ui/alert-dialog";
 
 const initials = (n: string) => (n || "—").split(" ").slice(0, 2).map((p) => p[0]).join("").toUpperCase();
 
@@ -25,16 +32,17 @@ export function SalesCasesPage({
   initialView?: "list" | "kanban";
   focus?: OperationFocus;
 }) {
-  const { cases: salesCases, closedCases, customers, users, closeCase, reopenCase } = useStore();
+  const { cases: salesCases, closedCases, customers, users, activities, products, closeCase, reopenCase } = useStore();
   const [view, setView] = useState<"list" | "kanban" | "archive">(initialView);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [pendingClose, setPendingClose] = useState<SalesCase | null>(null);
 
   const onClose = async (id: string) => {
     if (busyId) return;
-    if (!window.confirm("Bu kart 'Tamamlandı' olarak arşivlenecek (silinmez, Geçmiş'te kalır). Devam edilsin mi?")) return;
     setBusyId(id);
     try {
       await closeCase(id);
+      setPendingClose(null);
     } finally {
       setBusyId(null);
     }
@@ -94,6 +102,17 @@ export function SalesCasesPage({
     ...(q ? { search: q } : {}),
     ...(stage !== "all" ? { stageCode: stage } : {}),
   };
+  const nextActivityFor = (salesCaseId: string) => activities
+    .filter((activity) => activity.salesCaseId === salesCaseId && new Date(activity.date).getTime() >= Date.now() - 86_400_000)
+    .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())[0];
+  const riskFor = (salesCase: SalesCase) => {
+    if (salesCase.isLost || String(salesCase.stage) === "Lost") return { label: "Kaybedildi", className: "border-destructive/20 bg-destructive-soft text-destructive" };
+    const age = Math.floor((Date.now() - new Date(salesCase.createdAt).getTime()) / 86_400_000);
+    if (!salesCase.assignedUserId) return { label: "Sahipsiz", className: "border-destructive/20 bg-destructive-soft text-destructive" };
+    if (!nextActivityFor(salesCase.id) && age > 30) return { label: "Takipsiz", className: "border-warning/20 bg-warning-soft text-warning" };
+    if (!salesCase.isOfferPrepared && age > 14) return { label: "Teklif bekliyor", className: "border-warning/20 bg-warning-soft text-warning" };
+    return { label: "Akışta", className: "border-success/20 bg-success-soft text-success" };
+  };
 
   return (
     <Tabs value={view} onValueChange={(v) => setView(v as "list" | "kanban" | "archive")} className="space-y-4">
@@ -135,7 +154,10 @@ export function SalesCasesPage({
             </span>
           )}
         </div>
-        <ExportExcelButton path="/exports/opportunities" filename="satis-kartlari.xlsx" params={exportParams} className="h-9" />
+        <div className="flex items-center gap-2">
+          <LeadCaptureDialog />
+          <ExportExcelButton path="/exports/opportunities" filename="satis-kartlari.xlsx" params={exportParams} className="h-9" />
+        </div>
       </div>
 
       <TabsContent value="kanban" className="mt-0">
@@ -145,10 +167,10 @@ export function SalesCasesPage({
 
       <Card className="border-border/60 shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
-          <Table>
+          <Table className="min-w-[980px]">
             <TableHeader>
               <TableRow className="bg-muted/30 hover:bg-muted/30">
-                <TableHead className="w-[280px]">
+                <TableHead className="sticky left-0 z-20 w-[320px] min-w-[320px] bg-muted">
                   <button
                     type="button"
                     className="inline-flex items-center gap-1 hover:text-foreground"
@@ -158,10 +180,9 @@ export function SalesCasesPage({
                     Müşteri <ArrowUpDown className="size-3" />
                   </button>
                 </TableHead>
-                <TableHead className="hidden sm:table-cell">Ürün / Model</TableHead>
-                <TableHead className="hidden md:table-cell text-right">Adet</TableHead>
                 <TableHead className="text-right">Tutar</TableHead>
                 <TableHead>Aşama</TableHead>
+                <TableHead>Risk / Sıradaki</TableHead>
                 <TableHead className="hidden sm:table-cell">Atanan</TableHead>
                 <TableHead className="hidden md:table-cell">Açılış</TableHead>
                 <TableHead className="w-12"></TableHead>
@@ -171,29 +192,29 @@ export function SalesCasesPage({
               {pageItems.map((s) => {
                 const c = customers.find((x) => x.id === s.customerId);
                 const u = users.find((x) => x.id === s.assignedUserId);
+                const product = products.find((item) => item.model === s.requestedModel || item.modelName === s.requestedModel);
+                const nextActivity = nextActivityFor(s.id);
+                const risk = riskFor(s);
                 return (
                   <TableRow key={s.id} className="cursor-pointer group" onClick={() => onSelect(s)}>
-                    <TableCell>
+                    <TableCell className="sticky left-0 z-10 border-r border-border/60 bg-white group-hover:bg-[#f8f9fc]">
                       <div className="flex items-center gap-3 min-w-0">
-                        <div className="size-8 rounded-md bg-gradient-to-br from-primary/15 to-primary/5 text-primary grid place-items-center shrink-0">
-                          <Building2 className="size-4" />
-                        </div>
+                        <EntityVisual size="sm" title={s.requestedModel || s.requestedProduct} imageUrl={product?.imageUrl} icon={<Cpu className="size-4" />} />
                         <div className="min-w-0">
-                          <div className="text-sm leading-tight truncate group-hover:text-primary transition-colors">{c?.name ?? "Firma bulunamadı"}</div>
-                          <div className="text-[11px] text-muted-foreground truncate mt-0.5">#{s.id.toUpperCase()} · {c?.city ?? "—"}</div>
+                          <div className="text-sm font-semibold leading-tight truncate group-hover:text-primary transition-colors">{c?.name ?? "Firma bulunamadı"}</div>
+                          <div className="text-[11px] text-muted-foreground truncate mt-0.5">{s.requestedProduct} · {s.requestedModel} · {s.quantity} adet</div>
+                          <div className="font-data text-[9px] uppercase tracking-wide text-muted-foreground/80">#{s.id.toUpperCase()}</div>
                         </div>
                       </div>
                     </TableCell>
-                    <TableCell className="hidden sm:table-cell">
-                      <div className="text-sm">{s.requestedProduct}</div>
-                      <div className="text-[11px] text-muted-foreground mt-0.5">{s.requestedModel}</div>
-                    </TableCell>
-                    <TableCell className="hidden md:table-cell text-right tabular-nums">{s.quantity}</TableCell>
                     <TableCell className="text-right tabular-nums">
-                      <span className="text-sm">{s.estimatedAmount.toLocaleString()}</span>{" "}
+                      <span className="font-display text-lg font-semibold text-primary">{s.estimatedAmount.toLocaleString("tr-TR")}</span>{" "}
                       <span className="text-[11px] text-muted-foreground">{s.currency}</span>
                     </TableCell>
                     <TableCell><StatusBadge status={s.stage} /></TableCell>
+                    <TableCell>
+                      <div className="min-w-[160px]"><span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] ${risk.className}`}><AlertTriangle className="mr-1 size-3" />{risk.label}</span><div className="mt-1.5 flex items-center gap-1 text-[10px] text-muted-foreground"><CalendarClock className="size-3.5" />{nextActivity ? `${nextActivity.title} · ${new Date(nextActivity.date).toLocaleDateString("tr-TR")}` : "Sonraki aktivite planlanmamış"}</div></div>
+                    </TableCell>
                     <TableCell className="hidden sm:table-cell">
                       <div className="flex items-center gap-2">
                         <Avatar className="size-6">
@@ -212,12 +233,12 @@ export function SalesCasesPage({
                             className="h-8 gap-1 text-xs text-success hover:text-emerald-800 hover:bg-success-soft"
                             disabled={busyId === s.id}
                             title="Tamamla / Arşivle (silmez, Geçmiş'te kalır)"
-                            onClick={() => onClose(s.id)}
+                            onClick={() => setPendingClose(s)}
                           >
                             <CheckCircle2 className="size-3.5" /> Bitir
                           </Button>
                         )}
-                        <Button variant="ghost" size="icon" className="size-8 opacity-0 group-hover:opacity-100" title="Detay" onClick={() => onSelect(s)}>
+                        <Button variant="ghost" size="icon" className="size-8 opacity-100 sm:opacity-0 sm:group-hover:opacity-100" title="Detay" onClick={() => onSelect(s)}>
                           <MoreHorizontal className="size-4" />
                         </Button>
                       </div>
@@ -225,6 +246,7 @@ export function SalesCasesPage({
                   </TableRow>
                 );
               })}
+              {pageItems.length === 0 && <TableRow><TableCell colSpan={7} className="py-4"><EmptyState scene="search" title="Satış kartı bulunamadı" description="Arama veya filtreleri değiştirerek tekrar deneyin." /></TableCell></TableRow>}
             </TableBody>
           </Table>
         </div>
@@ -303,6 +325,10 @@ export function SalesCasesPage({
           </div>
         </Card>
       </TabsContent>
+
+      <AlertDialog open={!!pendingClose} onOpenChange={(open) => !open && !busyId && setPendingClose(null)}>
+        <AlertDialogContent className="max-w-lg"><AlertDialogHeader><AlertDialogTitle>Satış kartı tamamlanıp arşivlensin mi?</AlertDialogTitle><AlertDialogDescription><span className="block font-medium text-foreground">{pendingClose ? customers.find((customer) => customer.id === pendingClose.customerId)?.name : "Satış kartı"} · {pendingClose?.requestedModel || pendingClose?.requestedProduct}</span>Kart silinmez; “Geçmiş” görünümüne taşınır. Teklif, proforma, sözleşme ve aktiviteler korunur.</AlertDialogDescription></AlertDialogHeader>{pendingClose && <div className="rounded-lg border border-primary/10 bg-brand-blue-soft/50 p-3 text-xs"><div className="font-display text-lg font-semibold text-primary">{pendingClose.estimatedAmount.toLocaleString("tr-TR")} {pendingClose.currency}</div><div className="mt-1 text-muted-foreground">Aşama: {salesStageLabel(pendingClose.stage)}</div></div>}<AlertDialogFooter><AlertDialogCancel>Vazgeç</AlertDialogCancel><AlertDialogAction disabled={!!busyId} onClick={(event) => { event.preventDefault(); if (pendingClose) void onClose(pendingClose.id); }}>{busyId ? "Arşivleniyor…" : "Tamamla ve Arşivle"}</AlertDialogAction></AlertDialogFooter></AlertDialogContent>
+      </AlertDialog>
     </Tabs>
   );
 }

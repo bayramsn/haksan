@@ -156,25 +156,38 @@ export function proformaDoc(
   opts?: { title?: string; headingHtml?: string },
 ): PrintDocument {
   const kalemlerToplami = d.items.reduce((a, i) => a + i.tutar, 0);
-  const headerDiscount = Math.min(Math.max(d.headerDiscount ?? 0, 0), kalemlerToplami);
-  const araToplam = kalemlerToplami - headerDiscount;
-  // Proformada KDV satırı genelde 0 gösterilir (fiyat KDV hariç); null ise oran üzerinden hesapla.
-  const kdvTutar = d.kdvTutar != null ? d.kdvTutar : araToplam * (d.kdvOran / 100);
-  const genelToplam = araToplam + kdvTutar;
+  const silentDiscount = Math.min(Math.max(d.headerDiscount ?? 0, 0), kalemlerToplami);
+  const netRatio = kalemlerToplami > 0 ? (kalemlerToplami - silentDiscount) / kalemlerToplami : 1;
+  const printableItems = d.items.map((item) => {
+    const quantityText = item.birim.match(/[\d.,]+/)?.[0] ?? "";
+    const quantity = Number(quantityText.replace(/\./g, "").replace(",", "."));
+    const tutar = item.tutar * netRatio;
+    return {
+      ...item,
+      birimFiyati: Number.isFinite(quantity) && quantity > 0
+        ? tutar / quantity
+        : item.birimFiyati != null ? item.birimFiyati * netRatio : item.birimFiyati,
+      tutar,
+    };
+  });
+  const netKalemlerToplami = printableItems.reduce((a, i) => a + i.tutar, 0);
+  // Proforma satırları iskonto uygulanmış net fiyatlarla gelir. İskonto ayrıca
+  // adlandırılmaz; belge yalnızca net genel toplamı gösterir.
+  const kdvTutar = d.kdvTutar != null ? d.kdvTutar : netKalemlerToplami * (d.kdvOran / 100);
+  const genelToplam = netKalemlerToplami + kdvTutar;
   const meta = (i: ProformaItem) => {
     const rows: string[] = [];
     if (i.marka) rows.push(`<tr><td>Markası</td><td>${esc(i.marka)}</td></tr>`);
     if (i.mensei) rows.push(`<tr><td>Menşei</td><td>${esc(i.mensei)}</td></tr>`);
     if (i.gtip) rows.push(`<tr><td>G.T.İ.P.</td><td>${esc(i.gtip)}</td></tr>`);
-    if (i.iskonto != null && i.iskonto > 0) rows.push(`<tr><td>İskonto</td><td>${fmtMoney(i.iskonto, d.currency)}</td></tr>`);
     return rows.length ? `<table class="meta">${rows.join("")}</table>` : "";
   };
   const yalniz = tutarYaziylaProforma(genelToplam, d.currency);
   const metaRowCount = (item: ProformaItem) =>
-    [item.marka, item.mensei, item.gtip, item.iskonto != null && item.iskonto > 0 ? item.iskonto : null]
+    [item.marka, item.mensei, item.gtip]
       .filter((value) => value !== undefined && value !== null && value !== "").length;
-  const itemMinHeightMm = Math.max(7, 34.4 / Math.max(1, d.items.length));
-  const estimatedItemHeightMm = d.items.reduce((total, item) => {
+  const itemMinHeightMm = Math.max(7, 34.4 / Math.max(1, printableItems.length));
+  const estimatedItemHeightMm = printableItems.reduce((total, item) => {
     const descriptionLines = Math.max(1, Math.ceil(item.aciklama.length / 65));
     const contentHeight = descriptionLines * 4.3 + metaRowCount(item) * 3.7 + 12;
     return total + Math.max(itemMinHeightMm, contentHeight);
@@ -186,7 +199,7 @@ export function proformaDoc(
   const estimatedInfoOverflowMm =
     Math.max(0, Math.ceil(d.firma.length / 70) - 1) * 4.3 +
     Math.max(0, Math.ceil((d.adres?.length ?? 0) / 72) - 1) * 4.3;
-  const estimatedTotalsHeightMm = headerDiscount > 0 ? 39 : 24;
+  const estimatedTotalsHeightMm = 10;
   const estimatedNotesBlockHeightMm = d.notlar.length > 0 ? 10.5 + estimatedNoteHeightMm : 0;
   const estimatedMainHeightMm = 12.5 + estimatedItemHeightMm + estimatedTotalsHeightMm + estimatedNotesBlockHeightMm;
   const availableMainHeightMm = Math.max(42, 155 - estimatedInfoOverflowMm);
@@ -241,11 +254,6 @@ export function proformaDoc(
   <div class="pf-sum">
     <div class="pf-yalniz">${esc(yalniz)}</div>
     <table class="pf-tot">
-      ${headerDiscount > 0 ? `<tr><td class="tl">KALEM TOPLAMI</td><td class="tv">${fmtMoney(kalemlerToplami, d.currency)}</td></tr><tr class="sp"><td colspan="2"></td></tr><tr><td class="tl">ÖZEL İSKONTO</td><td class="tv">-${fmtMoney(headerDiscount, d.currency)}</td></tr><tr class="sp"><td colspan="2"></td></tr>` : ""}
-      <tr><td class="tl">ARA TOPLAM</td><td class="tv">${fmtMoney(araToplam, d.currency)}</td></tr>
-      <tr class="sp"><td colspan="2"></td></tr>
-      <tr><td class="tl">K.D.V.${d.kdvOran > 0 ? ` (%${esc(d.kdvOran)})` : ""}</td><td class="tv">${fmtMoney(kdvTutar, d.currency)}</td></tr>
-      <tr class="sp"><td colspan="2"></td></tr>
       <tr><td class="tl">GENEL TOPLAM</td><td class="tv">${fmtMoney(genelToplam, d.currency)}</td></tr>
     </table>
   </div>`;
@@ -266,7 +274,7 @@ export function proformaDoc(
       <table class="pf-items pf-items-body">
         ${itemColumns}
         <tbody>
-          ${d.items.map((item) => `
+          ${printableItems.map((item) => `
           <tr class="itemrow">
             <td class="desc"><div class="d1">${esc(item.aciklama)}</div>${meta(item)}</td>
             <td class="c">${esc(item.birim)}</td>
@@ -302,6 +310,20 @@ export interface QuoteItem {
   tutar?: number | null;
 }
 
+export type QuoteTechnicalSpec = { key: string; value: string; unit?: string; specUnit?: string; groupCode?: string; groupName?: string; group?: string };
+
+export interface QuoteMachinePrintData {
+  lineGroupKey?: string;
+  urun: string;
+  marka?: string;
+  model?: string;
+  tip?: string;
+  imageUrl?: string;
+  specs?: QuoteTechnicalSpec[];
+  standartDonanim?: string[];
+  opsiyonelDonanim?: string[];
+}
+
 export interface QuotePrintData {
   firma: string;
   ilgili?: string;
@@ -321,9 +343,10 @@ export interface QuotePrintData {
   model?: string;
   tip?: string;
   imageUrl?: string;
-  specs?: { key: string; value: string; unit?: string; specUnit?: string; groupCode?: string; groupName?: string; group?: string }[];
+  specs?: QuoteTechnicalSpec[];
   standartDonanim?: string[];
   opsiyonelDonanim?: string[];
+  machines?: QuoteMachinePrintData[];
   items: QuoteItem[];
   iskonto?: number;
   kdvOran: number;
@@ -344,6 +367,8 @@ table.q-meta td { border: 1.4pt solid #000; font-size: 9.5pt; padding: 1.4mm 1.8
 table.q-meta td.lbl { font-weight: bold; white-space: nowrap; }
 table.q-meta td.val { text-align: center; font-style: italic; font-weight: bold; }
 .q-machine { text-align: center; margin-top: 7mm; }
+.q-machine-index { margin-top: 1mm; font-size: 9pt; font-weight: bold; letter-spacing: .35px; }
+.q-machine-ref { margin: -4mm 0 4mm; text-align: center; font-size: 9pt; font-weight: bold; font-style: italic; }
 .q-brand { font-size: 30pt; font-weight: 900; letter-spacing: 1px; }
 .q-model { font-size: 24pt; font-weight: bold; margin-top: 3mm; }
 .q-type { font-size: 16pt; margin-top: 1mm; }
@@ -427,17 +452,35 @@ export function quoteDoc(d: QuotePrintData, assetBase: string): PrintDocument {
   // Chromium bazı sürümlerde tekrarlanan büyük PNG'yi PDF'e gömerken siyah
   // raster üretebildiği için satış teklifinde baskıya özel JPEG antet kullanılır.
   const quoteHeader = () => `<img class="letterhead" src="${assetBase}/haksan-letterhead.jpg" alt="HAKSAN MAKİNA">`;
-  const imageUrl = d.imageUrl?.trim();
-  const safeImageUrl = imageUrl && (imageUrl.startsWith("/") || /^https?:\/\//i.test(imageUrl)) ? esc(imageUrl) : "";
-  const specValue = (spec: NonNullable<QuotePrintData["specs"]>[number]) => {
+  const safeImageUrl = (value?: string) => {
+    const imageUrl = value?.trim();
+    return imageUrl && (
+      imageUrl.startsWith("/")
+      || /^https?:\/\//i.test(imageUrl)
+      || /^data:image\/(?:png|jpeg|webp|gif);base64,/i.test(imageUrl)
+    ) ? esc(imageUrl) : "";
+  };
+  const machines: QuoteMachinePrintData[] = d.machines?.length
+    ? d.machines
+    : [{
+        urun: [d.marka, d.model, d.tip].filter(Boolean).join(" "),
+        marka: d.marka,
+        model: d.model,
+        tip: d.tip,
+        imageUrl: d.imageUrl,
+        specs: d.specs,
+        standartDonanim: d.standartDonanim,
+        opsiyonelDonanim: d.opsiyonelDonanim,
+      }];
+  const specValue = (spec: QuoteTechnicalSpec) => {
     const value = spec.value?.trim() || "-";
     const unit = (spec.unit ?? spec.specUnit ?? "").trim();
     if (!unit || value === "-" || value.toLocaleLowerCase("tr-TR").includes(unit.toLocaleLowerCase("tr-TR"))) return value;
     return `${value} ${unit}`;
   };
-  const specGroupLabel = (spec: NonNullable<QuotePrintData["specs"]>[number]) =>
+  const specGroupLabel = (spec: QuoteTechnicalSpec) =>
     (spec.groupName || spec.group || spec.groupCode || "").trim();
-  const renderSpecs = (specs: NonNullable<QuotePrintData["specs"]>) => {
+  const renderSpecs = (specs: QuoteTechnicalSpec[]) => {
     const hasGroups = specs.some((spec) => specGroupLabel(spec));
     if (!hasGroups) {
       return specs.map((s) => `<tr><td class="k">${esc(s.key)}</td><td class="v">${esc(specValue(s))}</td></tr>`).join("");
@@ -456,17 +499,21 @@ export function quoteDoc(d: QuotePrintData, assetBase: string): PrintDocument {
     }
     return rows.join("");
   };
-  const specChunks = (d.specs?.length ?? 0) > 0
-    ? chunkByWeight(d.specs ?? [], 35, (spec) => Math.max(1, `${spec.key} ${specValue(spec)}`.length / 90))
-    : [[]];
-  const equipmentRows = [
-    ...(d.standartDonanim ?? []).map((value) => ({ kind: "standard" as const, value })),
-    ...(d.opsiyonelDonanim ?? []).map((value) => ({ kind: "optional" as const, value })),
-  ];
-  const equipmentChunks = equipmentRows.length
-    ? chunkByWeight(equipmentRows, 32, (entry) => Math.max(1, entry.value.length / 115))
-    : [[]];
-  const itemChunks = chunkByWeight(d.items, 5, (item) => Math.max(1, item.urun.length / 180));
+  const machineSections = machines.map((machine) => {
+    const specChunks = (machine.specs?.length ?? 0) > 0
+      ? chunkByWeight(machine.specs ?? [], 35, (spec) => Math.max(1, `${spec.key} ${specValue(spec)}`.length / 90))
+      : [[]];
+    const equipmentRows = [
+      ...(machine.standartDonanim ?? []).map((value) => ({ kind: "standard" as const, value })),
+      ...(machine.opsiyonelDonanim ?? []).map((value) => ({ kind: "optional" as const, value })),
+    ];
+    const equipmentChunks = equipmentRows.length
+      ? chunkByWeight(equipmentRows, 32, (entry) => Math.max(1, entry.value.length / 115))
+      : [[]];
+    return { machine, specChunks, equipmentChunks };
+  });
+  // Beş satırlık fiyat kutusunda 4. satır daima özel iskonto, son satır boş kalır.
+  const itemChunks = chunkByWeight(d.items, 3, (item) => Math.max(1, item.urun.length / 180));
   const addressChunks = chunkText(d.adres, 420);
   const splitNotes = (notes: string[]) => notes.flatMap((note) => chunkText(note, 1200));
   const notePages = [
@@ -486,19 +533,17 @@ export function quoteDoc(d: QuotePrintData, assetBase: string): PrintDocument {
     + [d.notes.odeme, d.notes.teslimat, d.notes.garanti, d.genelNotlar ?? [], addressChunks.slice(1)]
       .filter((section) => section.length > 0).length * 1.25;
   const referencePricePage = itemChunks.length === 1
-    && (itemChunks[0]?.length ?? 0) + ((d.iskonto ?? 0) > 0 ? 1 : 0) <= 5
+    && (itemChunks[0]?.length ?? 0) <= 3
     && referenceNoteWeight <= 27;
   const pricePageCount = referencePricePage ? 1 : itemChunks.length + 1 + notePages.length;
-  const pageCount = 1 + specChunks.length + equipmentChunks.length + pricePageCount;
+  const machinePageCount = machineSections.reduce(
+    (total, section) => total + 1 + section.specChunks.length + section.equipmentChunks.length,
+    0,
+  );
+  const pageCount = machinePageCount + pricePageCount;
   let pageNo = 0;
   const pn = () => `<div class="pageno">Sayfa <b>${++pageNo}</b> / <b>${pageCount}</b></div>`;
-
-  // Sayfa 1 — kapak
-  pages.push(`
-<div class="page">
-  ${quoteHeader()}
-  <div class="q-title">FİYAT TEKLİFİ</div>
-  <div class="q-top">
+  const customerMetaBlock = `<div class="q-top">
     <div class="q-cust">
       <div class="b">${blank(d.firma)}</div>
       <div class="row"><span class="b">${blank(d.ilgili)}</span><span class="b">${blank(d.mobil)}</span></div>
@@ -512,37 +557,49 @@ export function quoteDoc(d: QuotePrintData, assetBase: string): PrintDocument {
       <tr><td class="lbl">GEÇERLİLİK SÜRESİ</td><td class="val">${blank(d.gecerlilik)}</td></tr>
       <tr><td class="lbl">PROJE İLGİLİSİ</td><td class="val">${blank(d.projeIlgilisi)}</td></tr>
     </table>
-  </div>
+  </div>`;
+
+  // Her seçili makine, mevcut kapak + teknik bilgiler + donanım üçlüsünü
+  // aynen kullanır. Böylece ikinci ürün ilk makinenin altında sıkışmaz ve
+  // referans PDF şablonunun ölçüleri korunur.
+  machineSections.forEach(({ machine, specChunks, equipmentChunks }, machineIndex) => {
+    const machineImageUrl = safeImageUrl(machine.imageUrl);
+    const machineLabel = machine.urun || [machine.marka, machine.model, machine.tip].filter(Boolean).join(" ");
+    pages.push(`
+<div class="page">
+  ${quoteHeader()}
+  <div class="q-title">FİYAT TEKLİFİ${machines.length > 1 ? `<div class="q-machine-index">MAKİNE ${machineIndex + 1} / ${machines.length}</div>` : ""}</div>
+  ${machineIndex === 0 ? customerMetaBlock : ""}
   <div class="q-machine">
-    ${d.marka ? `<div class="q-brand">${esc(d.marka)}</div>` : ""}
-    ${d.model ? `<div class="q-model">${esc(d.model)}</div>` : ""}
-    ${d.tip ? `<div class="q-type">${esc(d.tip)}</div>` : ""}
-    ${safeImageUrl ? `<img class="q-photo" src="${safeImageUrl}" alt="">` : `<div class="q-photo-placeholder"></div>`}
+    ${machine.marka ? `<div class="q-brand">${esc(machine.marka)}</div>` : ""}
+    ${machine.model ? `<div class="q-model">${esc(machine.model)}</div>` : ""}
+    ${machine.tip ? `<div class="q-type">${esc(machine.tip)}</div>` : ""}
+    ${machineImageUrl ? `<img class="q-photo" src="${machineImageUrl}" alt="${esc(machineLabel)}">` : `<div class="q-photo-placeholder"></div>`}
   </div>
   ${pn()}
 </div>`);
 
-  // Sayfa 2 — teknik bilgiler (ürün spec'i varsa)
-  specChunks.forEach((specChunk, chunkIndex) => {
-    pages.push(`
+    specChunks.forEach((specChunk, chunkIndex) => {
+      pages.push(`
 <div class="page">
   ${quoteHeader()}
   <div class="q-h1">TEKNİK BİLGİLER${chunkIndex > 0 ? " — DEVAM" : ""}</div>
+  ${machines.length > 1 ? `<div class="q-machine-ref">${esc(machineLabel)}</div>` : ""}
   <table class="q-specs">
     ${specChunk.length ? renderSpecs(specChunk) : `<tr><td class="q-empty">Bu ürün için teknik bilgi girilmemiştir.</td></tr>`}
   </table>
   ${pn()}
 </div>`);
-  });
+    });
 
-  // Sayfa 3 — tezgah donanımı
-  equipmentChunks.forEach((equipmentChunk, chunkIndex) => {
-    const standard = equipmentChunk.filter((entry) => entry.kind === "standard");
-    const optional = equipmentChunk.filter((entry) => entry.kind === "optional");
-    pages.push(`
+    equipmentChunks.forEach((equipmentChunk, chunkIndex) => {
+      const standard = equipmentChunk.filter((entry) => entry.kind === "standard");
+      const optional = equipmentChunk.filter((entry) => entry.kind === "optional");
+      pages.push(`
 <div class="page">
   ${quoteHeader()}
   <div class="q-h1">TEZGAH DONANIMI${chunkIndex > 0 ? " — DEVAM" : ""}</div>
+  ${machines.length > 1 ? `<div class="q-machine-ref">${esc(machineLabel)}</div>` : ""}
   ${standard.length > 0 ? `
   <div class="q-eq-h">STANDART DONANIM</div>
   <ul class="q-eq">${standard.map((entry) => `<li>${esc(entry.value)}</li>`).join("")}</ul>` : chunkIndex === 0 ? `<div class="q-eq-h">STANDART DONANIM</div>` : ""}
@@ -551,14 +608,25 @@ export function quoteDoc(d: QuotePrintData, assetBase: string): PrintDocument {
   <ul class="q-eq opt">${optional.map((entry) => `<li>${esc(entry.value)}</li>`).join("")}</ul>` : chunkIndex === equipmentChunks.length - 1 ? `<div class="q-eq-h">OPSİYONEL DONANIM</div>` : ""}
   ${pn()}
 </div>`);
+    });
   });
 
   // Referans hacimde tablo, toplamlar ve koşullar aynı dördüncü sayfadadır;
   // yalnızca gerçek taşma halinde devam ve toplam özeti sayfaları açılır.
   const items = [...d.items];
-  const iskonto = d.iskonto ?? 0;
+  const satirIskontoToplami = items.reduce((sum, item) => {
+    const indirim = item.indirim ?? 0;
+    return sum + (Number.isFinite(indirim) ? Math.max(0, indirim) : 0);
+  }, 0);
+  const teklifGeneliIskonto = Number.isFinite(d.iskonto) ? Math.max(0, d.iskonto ?? 0) : 0;
+  const ozelIskontoToplami = satirIskontoToplami + teklifGeneliIskonto;
+  const iskontoTutar = ozelIskontoToplami > 0
+    ? `-${fmtMoney(ozelIskontoToplami, d.currency)}`
+    : fmtMoney(0, d.currency);
   const kalemToplami = items.reduce((a, i) => a + (i.tutar ?? 0), 0);
-  const toplam = Math.max(0, kalemToplami - iskonto);
+  // Satır tutarları makine iskontoları düşülmüş olarak gelir. Bu nedenle
+  // toplamdan yalnız teklif geneli iskontosu bir kez daha düşülür.
+  const toplam = Math.max(0, kalemToplami - teklifGeneliIskonto);
   // KDV tutarı açıkça verilmediyse toplam × oran üzerinden hesapla.
   const kdvTutar = Number.isFinite(d.kdvTutar) ? d.kdvTutar : toplam * (d.kdvOran / 100);
   const genel = toplam + kdvTutar;
@@ -585,15 +653,13 @@ export function quoteDoc(d: QuotePrintData, assetBase: string): PrintDocument {
   if (referencePricePage) {
     const rows = itemChunks[0].map((item) => `<tr>
       <td class="no">${d.items.indexOf(item) + 1}</td>
-      <td class="urun">${esc(item.urun)}</td>
+      <td class="urun">${esc(item.urun)}${item.indirim != null && item.indirim > 0 ? `<div class="disc" style="margin-top:.8mm">Ürüne özel iskonto: ${fmtMoney(item.indirim, d.currency)}</div>` : ""}</td>
       <td class="c" style="width:20mm">${item.birim ? esc(item.birim) : ""}</td>
       <td class="c" style="width:31mm">${item.fiyat != null ? fmtMoney(item.fiyat, d.currency) : ""}</td>
       <td class="r" style="width:33mm">${item.tutar != null ? fmtMoney(item.tutar, d.currency) : ""}</td>
     </tr>`);
-    if (iskonto > 0) {
-      while (rows.length < 3) rows.push(`<tr><td class="no"></td><td></td><td></td><td></td><td></td></tr>`);
-      rows.push(`<tr><td class="no"></td><td></td><td></td><td class="r disc">ÖZEL İSKONTO</td><td class="r disc">${fmtMoney(iskonto, d.currency)}</td></tr>`);
-    }
+    while (rows.length < 3) rows.push(`<tr><td class="no"></td><td></td><td></td><td></td><td></td></tr>`);
+    rows.push(`<tr><td class="no"></td><td></td><td></td><td class="r disc">ÖZEL İSKONTO</td><td class="r disc">${iskontoTutar}</td></tr>`);
     while (rows.length < 5) rows.push(`<tr><td class="no"></td><td></td><td></td><td></td><td></td></tr>`);
     pages.push(`
 <div class="page q-price-page">
@@ -616,11 +682,15 @@ export function quoteDoc(d: QuotePrintData, assetBase: string): PrintDocument {
   itemChunks.forEach((itemChunk, chunkIndex) => {
     const rows = itemChunk.map((it) => `<tr>
       <td class="no">${d.items.indexOf(it) + 1}</td>
-      <td class="urun">${esc(it.urun)}${it.indirim != null && it.indirim > 0 ? `<div class="disc" style="margin-top:.8mm">Kalem indirimi: ${fmtMoney(it.indirim, d.currency)}</div>` : ""}</td>
+      <td class="urun">${esc(it.urun)}${it.indirim != null && it.indirim > 0 ? `<div class="disc" style="margin-top:.8mm">Ürüne özel iskonto: ${fmtMoney(it.indirim, d.currency)}</div>` : ""}</td>
       <td class="c" style="width:18mm">${it.birim ? esc(it.birim) : ""}</td>
       <td class="c" style="width:32mm">${it.fiyat != null ? fmtMoney(it.fiyat, d.currency) : ""}</td>
       <td class="r" style="width:36mm">${it.tutar != null ? fmtMoney(it.tutar, d.currency) : ""}</td>
     </tr>`);
+    if (chunkIndex === itemChunks.length - 1) {
+      while (rows.length < 3) rows.push(`<tr><td class="no"></td><td></td><td></td><td></td><td></td></tr>`);
+      rows.push(`<tr><td class="no"></td><td></td><td></td><td class="r disc">ÖZEL İSKONTO</td><td class="r disc">${iskontoTutar}</td></tr>`);
+    }
     while (rows.length < 5) rows.push(`<tr><td class="no"></td><td></td><td></td><td></td><td></td></tr>`);
     pages.push(`
 <div class="page">
@@ -638,9 +708,7 @@ export function quoteDoc(d: QuotePrintData, assetBase: string): PrintDocument {
 <div class="page">
   ${quoteHeader()}
   <div class="q-h1">FİYAT ve KOŞULLAR — TOPLAM ÖZETİ</div>
-  ${iskonto > 0 ? `<table class="q-items"><tr><th>İNDİRİM</th><th style="width:36mm">TUTAR</th></tr><tr><td class="urun disc">ÖZEL İSKONTO</td><td class="r disc">-${fmtMoney(iskonto, d.currency)}</td></tr></table>` : ""}
   <table class="q-tot" style="margin-top:6mm">
-    ${iskonto > 0 ? `<tr><td class="tl">KALEM TOPLAMI</td><td class="tv">${fmtMoney(kalemToplami, d.currency)}</td></tr><tr><td class="tl">ÖZEL İSKONTO</td><td class="tv">-${fmtMoney(iskonto, d.currency)}</td></tr>` : ""}
     <tr><td class="tl">NET ARA TOPLAM</td><td class="tv">${fmtMoney(toplam, d.currency)}</td></tr>
     <tr><td class="tl">K.D.V.${d.kdvOran > 0 ? ` (%${esc(d.kdvOran)})` : ""}</td><td class="tv">${fmtMoney(kdvTutar, d.currency)}</td></tr>
     <tr><td class="tl">GENEL TOPLAM</td><td class="tv">${fmtMoney(genel, d.currency)}</td></tr>
@@ -875,6 +943,16 @@ export function serviceQuoteDoc(d: ServiceQuotePrintData, assetBase: string): Pr
 
 // ── 4) SATIŞ SÖZLEŞMESİ ─────────────────────────────────────────────────────
 
+export interface ContractMachinePrintData {
+  model: string;
+  adet: number;
+  ozellikler: { key: string; value: string }[];
+  aksesuarlar: string[];
+  muadiller?: string[];
+  fiyat: number;
+  kontrolUnitesiMarka?: string;
+}
+
 export interface ContractPrintData {
   alici: {
     unvan: string;
@@ -905,6 +983,7 @@ export interface ContractPrintData {
   kdvOran: number;
   odemePlani: { label: string; tutar: number; senet?: boolean }[];
   kontrolUnitesiMarka?: string;
+  machines?: ContractMachinePrintData[];
 }
 
 const CONTRACT_CSS = `
@@ -966,20 +1045,32 @@ const contractLineCount = (value: string, charsPerLine = 96): number => {
   return lines.reduce((total, line) => total + Math.max(1, Math.ceil(line.length / charsPerLine)), 0);
 };
 
-const contractTechnicalChunks = (d: ContractPrintData): ContractTechnicalEntry[][] => {
+const contractMachines = (d: ContractPrintData): ContractMachinePrintData[] => d.machines?.length
+  ? d.machines
+  : [{
+      model: d.model,
+      adet: d.adet,
+      ozellikler: d.ozellikler,
+      aksesuarlar: d.aksesuarlar,
+      muadiller: d.muadiller,
+      fiyat: d.fiyat,
+      kontrolUnitesiMarka: d.kontrolUnitesiMarka,
+    }];
+
+const contractTechnicalChunks = (machine: ContractMachinePrintData): ContractTechnicalEntry[][] => {
   const entries: ContractTechnicalEntry[] = [
-    ...d.ozellikler.map((feature) => ({
+    ...machine.ozellikler.map((feature) => ({
       kind: "spec" as const,
       key: feature.key,
       value: feature.value,
       weight: Math.max(contractLineCount(feature.key, 44), contractLineCount(feature.value, 60)),
     })),
-    ...d.aksesuarlar.map((value) => ({
+    ...machine.aksesuarlar.map((value) => ({
       kind: "standard" as const,
       value,
       weight: contractLineCount(value, 90),
     })),
-    ...(d.muadiller ?? []).map((value) => ({
+    ...(machine.muadiller ?? []).map((value) => ({
       kind: "equivalent" as const,
       value,
       weight: contractLineCount(value, 90),
@@ -1030,15 +1121,19 @@ export function contractDoc(d: ContractPrintData, assetBase: string): PrintDocum
   const aliciKisaRaw = shortFirmName(d.alici.unvan);
   const aliciKisa = esc(aliciKisaRaw);
   const A = `<span class="b">${aliciKisa}</span>`;
-  const technicalEntries = [
-    ...d.ozellikler.map((feature) => ({ kind: "spec" as const, key: feature.key, value: feature.value })),
-    ...d.aksesuarlar.map((value) => ({ kind: "standard" as const, value })),
-    ...(d.muadiller ?? []).map((value) => ({ kind: "equivalent" as const, value })),
-  ];
-  const technicalChunks = contractTechnicalChunks(d);
-  const firstIndexForKind = (kind: ContractTechnicalEntry["kind"]) => technicalEntries.findIndex((entry) => entry.kind === kind);
+  const machines = contractMachines(d);
+  const technicalSections = machines.flatMap((machine, machineIndex) =>
+    contractTechnicalChunks(machine).map((chunk, chunkIndex) => ({ machine, machineIndex, chunk, chunkIndex }))
+  );
+  const machineNumber = (machineIndex: number) => `1.${machineIndex + 1}.`;
+  const machineHeading = (machine: ContractMachinePrintData, machineIndex: number) =>
+    `<div class="ct-machine"><span>${machineNumber(machineIndex)}</span><span>${esc(machine.model)}</span><span class="qty">${esc(machine.adet)} (${esc(sayiAdet(machine.adet))}) Set</span></div>`;
 
-  const renderTechnicalChunk = (chunk: ContractTechnicalEntry[]) => {
+  const renderTechnicalChunk = (
+    machineIndex: number,
+    chunkIndex: number,
+    chunk: ContractTechnicalEntry[],
+  ) => {
     const groups: ContractTechnicalEntry[][] = [];
     for (const entry of chunk) {
       const last = groups[groups.length - 1];
@@ -1046,21 +1141,15 @@ export function contractDoc(d: ContractPrintData, assetBase: string): PrintDocum
       else last.push(entry);
     }
     return groups.map((group) => {
-      const groupFirst = group[0];
-      const kind = groupFirst.kind;
-      const firstEntryIndex = technicalEntries.findIndex((entry) => {
-        if (entry === groupFirst) return true;
-        if (entry.kind !== groupFirst.kind || entry.value !== groupFirst.value) return false;
-        return entry.kind !== "spec" || (groupFirst.kind === "spec" && entry.key === groupFirst.key);
-      });
-      const continuation = firstEntryIndex > firstIndexForKind(kind) ? " — DEVAM" : "";
+      const kind = group[0].kind;
+      const continuation = chunkIndex > 0 ? " — DEVAM" : "";
       if (kind === "spec") {
         return `<div class="ct-tech-group">
-          <div class="ct-tech-heading"><span>1.1.1.</span><span>Tezgahın Karakteristik Özellikleri;${continuation}</span></div>
+          <div class="ct-tech-heading"><span>${machineNumber(machineIndex)}1.</span><span>Tezgahın Karakteristik Özellikleri;${continuation}</span></div>
           <table class="ct-kv">${group.map((entry) => `<tr><td>${esc(entry.key)}</td><td>${esc(entry.value)}</td></tr>`).join("")}</table>
         </div>`;
       }
-      const number = kind === "standard" ? "1.1.2." : "1.1.3.";
+      const number = `${machineNumber(machineIndex)}${kind === "standard" ? "2" : "3"}.`;
       const title = kind === "standard" ? "Tezgahın Standart Aksesuarları;" : "Muadil Ürünler;";
       return `<div class="ct-tech-group">
         <div class="ct-tech-heading"><span>${number}</span><span>${title}${continuation}</span></div>
@@ -1112,19 +1201,26 @@ export function contractDoc(d: ContractPrintData, assetBase: string): PrintDocum
 
   const hasImportCostStatement = Boolean(d.teslimSekli) || d.ithalatMasraflariDahil !== undefined;
   const importCostsIncluded = d.ithalatMasraflariDahil ?? /millileştiril/i.test(d.teslimSekli ?? "");
-  const priceBasisPlain = `Sözleşmeye konu ${d.model} ${d.teslimSekli ? `${d.teslimSekli} şeklinde` : "yukarıdaki şekilde"} fiyatlandırılmıştır.${hasImportCostStatement ? ` Tezgahın fiyatına, tezgahın ithalatı ile ilgili masraf ve vergiler (Gümrük Vergisi, Liman Masrafları, Ardiye Giderleri, Gümrükleme Ücreti, İlave Gümrük Vergisi) ${importCostsIncluded ? "dahildir" : "dahil değildir"}.` : ""}`;
-  const priceBasisHtml = `Sözleşmeye konu <span class="b">${esc(d.model)}</span> ${d.teslimSekli ? `<span class="b">${esc(d.teslimSekli)}</span> şeklinde` : "yukarıdaki şekilde"} fiyatlandırılmıştır.${hasImportCostStatement ? ` Tezgahın fiyatına, tezgahın ithalatı ile ilgili masraf ve vergiler (Gümrük Vergisi, Liman Masrafları, Ardiye Giderleri, Gümrükleme Ücreti, İlave Gümrük Vergisi) ${importCostsIncluded ? "dahildir" : "dahil değildir"}.` : ""}`;
+  const modelSummary = machines.map((machine) => machine.model).filter(Boolean).join(" / ") || d.model;
+  const priceBasisPlain = `Sözleşmeye konu ${modelSummary} ${d.teslimSekli ? `${d.teslimSekli} şeklinde` : "yukarıdaki şekilde"} fiyatlandırılmıştır.${hasImportCostStatement ? ` Tezgahın fiyatına, tezgahın ithalatı ile ilgili masraf ve vergiler (Gümrük Vergisi, Liman Masrafları, Ardiye Giderleri, Gümrükleme Ücreti, İlave Gümrük Vergisi) ${importCostsIncluded ? "dahildir" : "dahil değildir"}.` : ""}`;
+  const priceBasisHtml = `Sözleşmeye konu <span class="b">${esc(modelSummary)}</span> ${d.teslimSekli ? `<span class="b">${esc(d.teslimSekli)}</span> şeklinde` : "yukarıdaki şekilde"} fiyatlandırılmıştır.${hasImportCostStatement ? ` Tezgahın fiyatına, tezgahın ithalatı ile ilgili masraf ve vergiler (Gümrük Vergisi, Liman Masrafları, Ardiye Giderleri, Gümrükleme Ücreti, İlave Gümrük Vergisi) ${importCostsIncluded ? "dahildir" : "dahil değildir"}.` : ""}`;
+  const machinePriceRows = machines.map((machine) =>
+    `<tr><td class="qty">${esc(machine.adet)} Adet</td><td>${esc(machine.model)}</td><td class="amount">${esc(fmtMoney(machine.fiyat, d.currency))}</td></tr>`
+  ).join("");
+  const priceIntro = machines.length > 1
+    ? "1. bölümde belirtilen tezgahların ilgili maddelerde belirtilmiş olan karakteristik özellikleri ve donanımları ile birlikte fiyatları aşağıdaki gibidir,"
+    : "1.1. no'lu maddede belirtilen tezgahın karakteristik özellikleri ve donanımları ile birlikte fiyatı aşağıdaki gibidir,";
   const priceBlock: ContractLegalEntry = {
-    html: `<div class="ct-clause"><span class="no">3.1.</span><span class="text">1.1. no'lu maddede belirtilen tezgah ilgili maddelerde belirtilmiş olan karakteristik özellikleri ve ilgili maddelerdeki donanımları ile birlikte fiyatı aşağıdaki gibidir,
+    html: `<div class="ct-clause"><span class="no">3.1.</span><span class="text">${esc(priceIntro)}
       <div class="ct-price">
         <table class="ct-price-table">
-          <tr><td class="qty">${esc(d.adet)} Adet</td><td>${esc(d.model)}</td><td class="amount">${esc(fmtMoney(d.fiyat, d.currency))}</td></tr>
+          ${machinePriceRows}
           <tr><td colspan="2" class="total-label">TOPLAM</td><td class="amount">${esc(fmtMoney(d.fiyat, d.currency))}</td></tr>
         </table>
         <div class="ct-price-words">${esc(tutarYaziyla(d.fiyat, d.currency))}</div>
       </div>
     </span></div>`,
-    weight: 5,
+    weight: 4 + machines.length,
   };
   const paymentPlanHtml = d.odemePlani.length ? `<table class="ct-pay">${d.odemePlani.map((payment) =>
     `<tr><td>${esc(payment.label)}</td><td class="amt">${esc(fmtMoney(payment.tutar, d.currency))}${payment.senet ? " (Senet)" : ""}</td></tr>`
@@ -1159,8 +1255,12 @@ export function contractDoc(d: ContractPrintData, assetBase: string): PrintDocum
     ...(d.notlar?.trim() ? [clause("3.10.", d.notlar.trim())] : []),
   ];
   const legalChunks = chunkContractLegalEntries([...sectionTwo, ...sectionThree]);
-  const totalPages = technicalChunks.length + legalChunks.length + 1;
+  const totalPages = technicalSections.length + legalChunks.length + 1;
   const pn = (page: number) => pageNo(page, totalPages);
+  const firstTechnicalSection = technicalSections[0];
+  const subjectTitle = machines.length > 1
+    ? "Sözleşmeye Konu Olan Tezgahlar ve Özellikleri"
+    : "Sözleşmeye Konu Olan Tezgah ve Özellikleri";
 
   const firstPage = `<div class="page ct">
     ${haksanHeader(assetBase)}
@@ -1174,29 +1274,29 @@ export function contractDoc(d: ContractPrintData, assetBase: string): PrintDocum
       <p class="ctr">${blank(d.alici.adres)} adresinde sabit,</p>
       <p class="ctr b">${esc(d.alici.unvan)}</p>
       <p class="ind" style="margin-top:3mm">arasında ${esc(tarihUzun)} tarihinde kaleme alınmış toplam ${totalPages} (${esc(sayiAdet(totalPages))}) sayfadan oluşan satış sözleşmesidir.</p>
-      <div class="ct-section-title"><span>1.</span><span>Sözleşmeye Konu Olan Tezgah ve Özellikleri</span></div>
-      <div class="ct-machine"><span>1.1.</span><span>${esc(d.model)}</span><span class="qty">${esc(d.adet)} (${esc(sayiAdet(d.adet))}) Set</span></div>
-      ${renderTechnicalChunk(technicalChunks[0])}
+      <div class="ct-section-title"><span>1.</span><span>${subjectTitle}</span></div>
+      ${machineHeading(firstTechnicalSection.machine, firstTechnicalSection.machineIndex)}
+      ${renderTechnicalChunk(firstTechnicalSection.machineIndex, firstTechnicalSection.chunkIndex, firstTechnicalSection.chunk)}
     </div>
     ${pn(1)}
   </div>`;
 
-  const technicalPages = technicalChunks.slice(1).map((chunk, index) => {
+  const technicalPages = technicalSections.slice(1).map((section, index) => {
     const page = index + 2;
     return `<div class="page ct">
       ${haksanHeader(assetBase)}
       <div class="ct-body">
         <div class="ct-continuation-title">SATIŞ SÖZLEŞMESİ — DEVAM</div>
-        <div class="ct-section-title"><span>1.</span><span>Sözleşmeye Konu Olan Tezgah ve Özellikleri</span></div>
-        <div class="ct-machine"><span>1.1.</span><span>${esc(d.model)}</span><span class="qty">${esc(d.adet)} (${esc(sayiAdet(d.adet))}) Set</span></div>
-        ${renderTechnicalChunk(chunk)}
+        <div class="ct-section-title"><span>1.</span><span>${subjectTitle}</span></div>
+        ${machineHeading(section.machine, section.machineIndex)}
+        ${renderTechnicalChunk(section.machineIndex, section.chunkIndex, section.chunk)}
       </div>
       ${pn(page)}
     </div>`;
   });
 
   const legalPages = legalChunks.map((chunk, index) => {
-    const page = technicalChunks.length + index + 1;
+    const page = technicalSections.length + index + 1;
     return `<div class="page ct">
       ${haksanHeader(assetBase)}
       <div class="ct-body">
@@ -1259,6 +1359,11 @@ export function cargoLabelDoc(d: CargoLabelPrintData, assetBase: string): PrintD
   const customerNameSize = d.firma.length > 90 ? 14 : d.firma.length > 55 ? 18 : 26;
   const addressLength = [d.adres, d.ilce, d.sehir].filter(Boolean).join(" ").length;
   const customerAddressSize = addressLength > 700 ? 7.5 : addressLength > 400 ? 9 : addressLength > 220 ? 12 : addressLength > 120 ? 15 : 20;
+  const customerAddress = [d.adres, [d.ilce, d.sehir].filter(Boolean).join(" / ")]
+    .map((line) => line?.trim())
+    .filter(Boolean)
+    .map((line) => esc(line))
+    .join("<br>");
   const css = `
     @page { size: A4 landscape; margin: 0; }
     .lbl-page { 
@@ -1282,14 +1387,6 @@ export function cargoLabelDoc(d: CargoLabelPrintData, assetBase: string): PrintD
       display: block;
       margin-bottom: 2mm;
     }
-    .lbl-motto {
-      font-size: 16pt;
-      font-weight: bold;
-      font-style: italic;
-      color: #2b3990;
-      margin-bottom: 5mm;
-      letter-spacing: 0.5px;
-    }
     .lbl-haksan-address {
       font-size: 14pt;
       line-height: 1.4;
@@ -1307,18 +1404,20 @@ export function cargoLabelDoc(d: CargoLabelPrintData, assetBase: string): PrintD
       text-align: center;
       overflow-wrap: anywhere;
       word-break: break-word;
+      display: flex;
+      flex-direction: column;
+      gap: 1.5mm;
     }
     .lbl-customer-name {
       font-size: ${customerNameSize}pt;
       font-weight: 900;
       line-height: 1.2;
-      margin-bottom: 3mm;
+      margin: 0;
     }
     .lbl-customer-address {
       font-size: ${customerAddressSize}pt;
       line-height: 1.25;
-      margin-bottom: 2mm;
-      white-space: pre-wrap;
+      margin: 0;
     }
     .lbl-customer-tel {
       font-size: ${Math.max(9, Math.min(18, customerAddressSize + 2))}pt;
@@ -1329,17 +1428,13 @@ export function cargoLabelDoc(d: CargoLabelPrintData, assetBase: string): PrintD
 <div class="lbl-page">
   <div class="lbl-haksan">
     <img class="lbl-logo" src="${brandAssetBase}/haksan-logo.png" alt="HAKSAN MAKİNA">
-    <div class="lbl-motto">" Makina Marketiniz "</div>
     <div class="lbl-haksan-address">Yenidoğan Mah. Eyüp Sultan Cad. No:24<br>Bayrampaşa, İstanbul</div>
     <div class="lbl-haksan-tel"><span style="text-decoration: underline;">Tel. :</span> 0(212) 567 33 31</div>
   </div>
   
   <div class="lbl-customer">
     <div class="lbl-customer-name">${esc(d.firma)}</div>
-    <div class="lbl-customer-address">
-      ${blank(d.adres)}<br>
-      ${blank(d.ilce)}${d.ilce && d.sehir ? '/' : ''}${blank(d.sehir)}
-    </div>
+    ${customerAddress ? `<div class="lbl-customer-address">${customerAddress}</div>` : ''}
     ${d.tel ? `<div class="lbl-customer-tel">Tel: ${esc(d.tel)}</div>` : ''}
   </div>
 </div>`;

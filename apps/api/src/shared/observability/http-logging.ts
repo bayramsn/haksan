@@ -11,12 +11,13 @@ import { recordHttpMetric } from './metrics';
 import { redactRequestPath } from './redact-request-path';
 
 export const REQUEST_ID_HEADER = 'x-request-id';
+const REQUEST_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 
-/** Read an incoming X-Request-Id (trusting upstream proxy) or mint a new one. */
-function resolveRequestId(req: FastifyRequest): string {
+/** Reuse a safe incoming correlation id or mint a UUID for untrusted input. */
+export function resolveRequestId(req: FastifyRequest): string {
   const incoming = req.headers[REQUEST_ID_HEADER];
   const value = (Array.isArray(incoming) ? incoming[0] : incoming)?.trim();
-  return value && value.length > 0 && value.length <= 200 ? value : randomUUID();
+  return value && REQUEST_ID_PATTERN.test(value) ? value : randomUUID();
 }
 
 function isLowSignalRoute(route: string): boolean {
@@ -47,11 +48,11 @@ export function registerHttpObservability(app: NestFastifyApplication): void {
     recordHttpMetric(req.method, template ?? 'unmatched', reply.statusCode, reply.elapsedTime);
 
     const payload = {
-      reqId: req.requestId,
+      requestId: req.requestId,
       method: req.method,
       route,
       status: reply.statusCode,
-      ms,
+      durationMs: ms,
       tenantId: req.auth?.tenantId,
       userId: req.auth?.userId,
     };

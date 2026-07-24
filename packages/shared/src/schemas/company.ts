@@ -2,6 +2,8 @@ import { z } from 'zod';
 import { emailSchema, phoneSchema, urlSchema } from './common';
 
 export const companyTypeEnum = z.enum(['person', 'company']);
+export const supplierCategoryCodeSchema = z.enum(['transportation', 'logistics']);
+export type SupplierCategoryCode = z.infer<typeof supplierCategoryCodeSchema>;
 export const companyAddressTypeEnum = z.enum(['office', 'factory', 'work_area', 'shipping', 'billing', 'other']);
 
 const emptyToUndefined = (value: unknown) => {
@@ -35,17 +37,20 @@ export const companyAddressSchema = z.object({
   latitude: optionalCoordinate(-90, 90),
   longitude: optionalCoordinate(-180, 180),
   isDefault: z.boolean().default(false),
+  isShipping: z.boolean().default(false),
+  isBilling: z.boolean().default(false),
 });
 export type CompanyAddressInput = z.infer<typeof companyAddressSchema>;
 
 export const companyCreateSchema = z.object({
   companyType: companyTypeEnum.default('company'),
-  relationTypeCode: z.enum(['customer', 'supplier', 'supplier_customer']).default('customer'),
+  relationTypeCode: z.enum(['customer', 'supplier', 'supplier_customer', 'competitor']).default('customer'),
   customerStatusCode: z.enum(['potential', 'active', 'passive', 'blacklist']).default('potential'),
   companyGroupCode: optionalText(64),
   companyGroupCodes: z.array(z.string().trim().min(1).max(64)).max(32).optional(),
   contactSourceCode: optionalText(64),
   sector: optionalText(128),
+  supplierCategoryCode: supplierCategoryCodeSchema.optional(),
   legalTitle: z.string().min(1).max(255),
   shortName: optionalText(128),
   taxOffice: optionalText(128),
@@ -82,6 +87,7 @@ export const companyUpdateSchema = companyCreateSchema.partial().extend({
   companyGroupCode: z.string().trim().max(64).nullable().optional(),
   contactSourceCode: z.string().trim().max(64).nullable().optional(),
   sector: z.string().trim().max(128).nullable().optional(),
+  supplierCategoryCode: supplierCategoryCodeSchema.nullable().optional(),
   shortName: z.string().trim().max(128).nullable().optional(),
   taxOffice: z.string().trim().max(128).nullable().optional(),
   taxNumber: z.string().trim().max(32).nullable().optional(),
@@ -102,7 +108,7 @@ export type CompanyUpdateInput = z.infer<typeof companyUpdateSchema>;
 
 export const companyListQuerySchema = z.object({
   search: z.string().max(128).optional(),
-  relationTypeCode: z.enum(['customer', 'supplier', 'supplier_customer']).optional(),
+  relationTypeCode: z.enum(['customer', 'supplier', 'supplier_customer', 'competitor']).optional(),
   customerStatusCode: z.enum(['potential', 'active', 'passive', 'blacklist']).optional(),
   divisionId: z.string().uuid().optional(),
 });
@@ -113,6 +119,7 @@ export const companyOsmSearchQuerySchema = z.object({
   address: z.string().trim().max(240).optional(),
   city: z.string().trim().max(64).optional(),
   district: z.string().trim().max(64).optional(),
+  country: z.string().trim().max(64).optional(),
 });
 export type CompanyOsmSearchQuery = z.infer<typeof companyOsmSearchQuerySchema>;
 
@@ -124,13 +131,52 @@ export const companyOsmSearchResultSchema = z.object({
   type: z.string().nullable(),
   category: z.string().nullable(),
   importance: z.number().nullable(),
+  matchQuality: z.enum(['exact', 'street', 'area']),
+  matchScore: z.number().min(0).max(100),
+  matchReason: z.string(),
+  website: z.string().url().optional(),
+  phone: z.string().max(64).optional(),
+  email: z.string().email().max(254).optional(),
   address: z.record(z.unknown()).optional(),
 });
 export type CompanyOsmSearchResult = z.infer<typeof companyOsmSearchResultSchema>;
 
+/**
+ * Yeni firma ekranındaki resmî site incelemesi. Site URL'si boş bırakılırsa
+ * sunucu, doğrulanmış OSM firma kaydındaki web sitesi alanını kullanmayı dener.
+ */
+export const companyWebsiteLookupSchema = companyOsmSearchQuerySchema.extend({
+  website: optionalUrl,
+});
+export type CompanyWebsiteLookupInput = z.infer<typeof companyWebsiteLookupSchema>;
+
+export const companyWebsiteLookupResultSchema = z.object({
+  officialWebsite: z.string().url(),
+  siteName: z.string().max(255).optional(),
+  confidence: z.enum(['high', 'medium', 'low']),
+  confidenceScore: z.number().int().min(0).max(100),
+  matchReason: z.string().max(500),
+  sourceUrls: z.array(z.string().url()).min(1).max(4),
+  suggestion: z.object({
+    website: z.string().url(),
+    address: z.string().max(1000).optional(),
+    city: z.string().max(64).optional(),
+    district: z.string().max(64).optional(),
+    country: z.string().max(64).optional(),
+    zipCode: z.string().max(16).optional(),
+    phone: z.string().max(64).optional(),
+    email: z.string().email().max(254).optional(),
+    latitude: z.number().min(-90).max(90).optional(),
+    longitude: z.number().min(-180).max(180).optional(),
+  }),
+  warnings: z.array(z.string().max(500)).max(8),
+});
+export type CompanyWebsiteLookupResult = z.infer<typeof companyWebsiteLookupResultSchema>;
+
 export const companyLocationSchema = z.object({
   latitude: z.coerce.number().min(-90).max(90).nullable(),
   longitude: z.coerce.number().min(-180).max(180).nullable(),
+  source: z.enum(['manual', 'verified', 'osm_exact', 'osm_street', 'osm_area']).default('manual'),
 });
 export type CompanyLocationInput = z.infer<typeof companyLocationSchema>;
 

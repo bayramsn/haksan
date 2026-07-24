@@ -3,6 +3,10 @@ import { Button } from "../../ui/button";
 import { Badge } from "../../ui/badge";
 import { Input } from "../../ui/input";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "../../ui/accordion";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
+  AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "../../ui/alert-dialog";
 import { Layers, Pencil, Plus, Search, Sparkles, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { adminService, lookupService } from "../../../../lib/services";
@@ -325,6 +329,7 @@ export function ProductSpecTemplatesCard() {
   const [specForm, setSpecForm] = useState(emptySpecForm);
   const [editingSpecId, setEditingSpecId] = useState<string | null>(null);
   const [specBusy, setSpecBusy] = useState(false);
+  const [pendingDeleteSpec, setPendingDeleteSpec] = useState<SpecTemplateRow | null>(null);
   const [search, setSearch] = useState("");
   // Yeni teknik alanın uygulanacağı ürün tipleri (çoklu seçim). Düzenlemede tek tip.
   const [specTargetTypes, setSpecTargetTypes] = useState<string[]>([]);
@@ -913,11 +918,11 @@ export function ProductSpecTemplatesCard() {
   };
 
   const deleteSpecTemplate = async (row: SpecTemplateRow) => {
-    if (!window.confirm(`${row.specKey} teknik alanı pasifleştirilsin mi?`)) return;
     setSpecBusy(true);
     try {
       await adminService.deleteProductSpecTemplate(row.id);
       toast.success("Teknik alan pasifleştirildi");
+      setPendingDeleteSpec(null);
       await loadSpecTemplates();
     } catch (err: any) {
       toast.error("Teknik alan pasifleştirilemedi", { description: err?.message ?? "API isteği başarısız oldu." });
@@ -1139,7 +1144,7 @@ export function ProductSpecTemplatesCard() {
                         </div>
                       </AccordionTrigger>
                       <AccordionContent className="px-0">
-                        <SpecGroupTable rows={rows} onAdd={addCatalogEntry} onEdit={editSpecTemplate} onDelete={deleteSpecTemplate} disabled={specBusy} divisionLabel={divisionLabel} />
+                        <SpecGroupTable rows={rows} onAdd={addCatalogEntry} onEdit={editSpecTemplate} onDelete={setPendingDeleteSpec} disabled={specBusy} divisionLabel={divisionLabel} />
                       </AccordionContent>
                     </AccordionItem>
                   );
@@ -1163,6 +1168,25 @@ export function ProductSpecTemplatesCard() {
             )}
           </>
         )}
+      <AlertDialog open={Boolean(pendingDeleteSpec)} onOpenChange={(open) => !open && !specBusy && setPendingDeleteSpec(null)}>
+        <AlertDialogContent className="max-w-lg">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Teknik alan pasifleştirilsin mi?</AlertDialogTitle>
+            <AlertDialogDescription>
+              <strong className="text-foreground">{pendingDeleteSpec?.specKey}</strong> alanı {selectedSpecProductTypeLabel} kapsamındaki yeni ürün formlarından kaldırılacak.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="rounded-lg border border-warning/20 bg-warning-soft/50 p-3 text-xs leading-relaxed text-muted-foreground">
+            Mevcut ürünlerde saklanan teknik değerler korunur. Alan katalog şablonunda bulunuyorsa “kayıtlı değil” olarak önizlenmeye devam eder ve daha sonra tekrar eklenebilir.
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Vazgeç</AlertDialogCancel>
+            <AlertDialogAction className="bg-destructive text-destructive-foreground hover:bg-destructive/90" disabled={specBusy} onClick={(event) => { event.preventDefault(); if (pendingDeleteSpec) void deleteSpecTemplate(pendingDeleteSpec); }}>
+              {specBusy ? "İşleniyor…" : "Alanı pasifleştir"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </SettingsSection>
   );
 }

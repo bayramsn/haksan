@@ -288,6 +288,7 @@ const productApiPayload = (p: Partial<Product>, brandId?: string): ProductUpdate
   const fullName = cleanString(p.shortDescription) ?? [p.brand, modelCode].filter(Boolean).join(' ');
   return {
     ...(brandId ? { brandId } : {}),
+    series: cleanString(p.series),
     productGroupCode: cleanString(p.productGroupCode),
     categoryCode: cleanString(p.categoryCode),
     subcategoryCode: cleanString(p.subcategoryCode),
@@ -362,6 +363,7 @@ const productDetailsPayload = (p: Partial<Product>) => ({
 export type NoteTemplate = { id: string; title: string; body: string; scope: string };
 
 export type QuoteLineCompatibility = {
+  lineGroupKey?: string;
   machineIds: string[];
   brands: string[];
   controlUnits: string[];
@@ -383,6 +385,7 @@ export type QuoteLineInput = {
 export type CreateQuotePayload = {
   opportunityId?: string;
   companyId: string;
+  companyAddressId?: string;
   contactId?: string;
   quoteDate: string;
   validityDays: number;
@@ -457,7 +460,7 @@ type Store = {
   updateCustomer: (id: string, patch: Partial<Omit<Customer, 'id' | 'createdAt'>>) => Promise<void>;
   deleteCustomer: (id: string) => Promise<void>;
   addCase: (c: Omit<SalesCase, 'id' | 'createdAt' | 'stage' | 'isLost' | 'isOfferPrepared'> & { stage?: SalesStage; divisionId?: string }) => Promise<SalesCase>;
-  updateCase: (id: string, patch: { assignedUserId?: string; paymentTermDays?: number | null }) => Promise<void>;
+  updateCase: (id: string, patch: { assignedUserId?: string; paymentTermDays?: number | null; paymentMethod?: SalesCase['paymentMethod'] }) => Promise<void>;
   deleteCase: (id: string) => Promise<void>;
   addOffer: (o: Omit<Offer, 'id' | 'date' | 'revision'> & { revision?: number }) => Promise<Offer>;
   createQuoteFull: (payload: CreateQuotePayload) => Promise<{ quoteId: string; documentNo: string; opportunityId: string }>;
@@ -641,6 +644,8 @@ function StoreInner({ children }: { children: ReactNode }) {
           active: u.status !== 'passive',
           avatarUrl: u.avatarUrl ?? u.photoUrl ?? undefined,
           purchaseApprovalLimit: u.purchaseApprovalLimit ? Number(u.purchaseApprovalLimit) : undefined,
+          assistantDailyUsdLimit:
+            u.assistantDailyUsdLimit == null ? null : Number(u.assistantDailyUsdLimit),
           managerId: u.managerId ?? undefined,
         }))
       );
@@ -660,6 +665,7 @@ function StoreInner({ children }: { children: ReactNode }) {
           companyGroupNames: (c.companyGroups ?? (c.companyGroup ? [c.companyGroup] : [])).map((g: any) => g.name).filter(Boolean),
           contactSourceCode: c.contactSource?.code ?? '',
           sector: c.sector ?? '',
+          supplierCategoryCode: c.supplierCategoryCode ?? undefined,
           name: c.legalTitle ?? c.shortName ?? '—',
           contactPerson: '',
           phone: c.primaryPhone ?? '',
@@ -682,6 +688,8 @@ function StoreInner({ children }: { children: ReactNode }) {
             longitude: a.longitude == null ? undefined : Number(a.longitude),
             locationSource: a.locationSource ?? undefined,
             isDefault: Boolean(a.isDefault),
+            isShipping: Boolean(a.isShipping),
+            isBilling: Boolean(a.isBilling),
           })),
           latitude: c.primaryAddress?.latitude != null ? Number(c.primaryAddress.latitude) : undefined,
           longitude: c.primaryAddress?.longitude != null ? Number(c.primaryAddress.longitude) : undefined,
@@ -717,6 +725,7 @@ function StoreInner({ children }: { children: ReactNode }) {
           currency: (o.currency?.code as 'USD' | 'EUR' | 'TRY') ?? 'USD',
           stage: STAGE_BY_CODE[o.stage?.code ?? ''] ?? 'lead',
           paymentTermDays: o.paymentTermDays === null || o.paymentTermDays === undefined ? undefined : Number(o.paymentTermDays),
+          paymentMethod: o.paymentMethod ?? 'undecided',
           isOfferPrepared: qts.data.some((q: any) => q.opportunityId === o.id),
           isLost: (o.stage?.code ?? '') === 'cancelled',
           createdAt: (o.createdAt as string)?.slice(0, 10) ?? '',
@@ -728,6 +737,7 @@ function StoreInner({ children }: { children: ReactNode }) {
       const apiProducts = prods.data.map((p: any) => ({
           id: p.id,
           brand: p.brand?.name ?? '',
+          series: p.series ?? '',
           productGroup: p.productGroup?.name ?? '',
           productGroupCode: p.productGroup?.code ?? '',
           model: p.modelCode ?? '',
@@ -824,11 +834,13 @@ function StoreInner({ children }: { children: ReactNode }) {
           id: q.id,
           salesCaseId: q.opportunityId ?? '',
           companyId: q.companyId ?? '',
+          companyAddressId: q.companyAddressId ?? undefined,
           divisionId: q.divisionId ?? undefined,
           divisionCode: q.division?.code ?? undefined,
           divisionName: q.division?.name ?? undefined,
           businessLine: q.businessLine ?? undefined,
           quoteNo: q.documentNo,
+          productName: q.productName ?? undefined,
           revision: Number(q.revisionNo ?? 1),
           date: (q.quoteDate as string)?.slice(0, 10) ?? '',
           validityDays: q.validityDays === null || q.validityDays === undefined ? undefined : Number(q.validityDays),
@@ -846,7 +858,19 @@ function StoreInner({ children }: { children: ReactNode }) {
                 ? 'Sent'
                 : q.status?.code === 'rejected'
                   ? 'Rejected'
+                  : q.status?.code === 'cancelled'
+                    ? 'Cancelled'
+                    : q.status?.code === 'price_waiting'
+                      ? 'Price Waiting'
+                      : q.status?.code === 'budget_waiting'
+                        ? 'Budget Waiting'
+                        : q.status?.code === 'on_hold'
+                          ? 'On Hold'
+                          : q.status?.code === 'postponed'
+                            ? 'Postponed'
                   : 'Draft',
+          followUpAt: q.followUpAt ?? undefined,
+          statusNote: q.statusNote ?? undefined,
           note: q.notes ?? '',
         }))
       );
@@ -1157,6 +1181,7 @@ function StoreInner({ children }: { children: ReactNode }) {
         (shipmentsR.data ?? []).map((s: any) => ({
           id: s.id,
           salesCaseId: s.opportunityId ?? '',
+          direction: s.direction === 'outgoing' ? 'outgoing' : 'incoming',
           senderCompanyId: s.senderCompanyId ?? undefined,
           senderCompanyName: s.senderCompany?.shortName ?? s.senderCompany?.legalTitle ?? undefined,
           senderName: s.senderName ?? undefined,
@@ -1182,6 +1207,8 @@ function StoreInner({ children }: { children: ReactNode }) {
             description: item.description ?? '',
             serialNumber: item.serialNumber ?? undefined,
             quantity: item.quantity == null ? undefined : Number(item.quantity),
+            packageQuantity: item.packageQuantity == null ? undefined : Number(item.packageQuantity),
+            packageUnitCode: item.packageUnitCode ?? undefined,
             packageCount: item.packageCount == null ? undefined : Number(item.packageCount),
             palletCount: item.palletCount == null ? undefined : Number(item.palletCount),
             packageLengthCm: item.packageLengthCm == null ? undefined : Number(item.packageLengthCm),
@@ -1254,6 +1281,7 @@ function StoreInner({ children }: { children: ReactNode }) {
       legalTitle: c.name,
       shortName: c.type === 'person' ? c.name : undefined,
       sector: c.sector || undefined,
+      supplierCategoryCode: c.supplierCategoryCode || undefined,
       taxOffice: c.taxOffice || undefined,
       taxNumber: c.taxNumber || undefined,
       website,
@@ -1272,6 +1300,8 @@ function StoreInner({ children }: { children: ReactNode }) {
         latitude: a.latitude,
         longitude: a.longitude,
         isDefault: Boolean(a.isDefault),
+        isShipping: Boolean(a.isShipping),
+        isBilling: Boolean(a.isBilling),
       })),
       address: !c.addresses?.length && (c.address || c.city || c.district || c.country || hasCoordinates)
         ? {
@@ -1284,7 +1314,7 @@ function StoreInner({ children }: { children: ReactNode }) {
           }
         : undefined,
       notes: c.initialNote || undefined,
-      relationTypeCode: c.firmType === 'supplier' ? 'supplier' : c.firmType === 'supplier_customer' ? 'supplier_customer' : 'customer',
+      relationTypeCode: c.firmType,
       customerStatusCode: c.salesStatus === 'active_customer' ? 'active' : 'potential',
       companyGroupCode: c.companyGroupCode || undefined,
       companyGroupCodes: c.companyGroupCodes?.length ? c.companyGroupCodes : undefined,
@@ -1304,7 +1334,8 @@ function StoreInner({ children }: { children: ReactNode }) {
       companyGroupNames: c.companyGroupNames,
       contactSourceCode: c.contactSourceCode,
       sector: c.sector,
-      name: c.name,
+      supplierCategoryCode: c.supplierCategoryCode,
+      name: created.legalTitle ?? c.name,
       contactPerson: c.contactPerson ?? '',
       phone: c.phone ?? '',
       phone2: c.phone2 ?? '',
@@ -1337,6 +1368,7 @@ function StoreInner({ children }: { children: ReactNode }) {
     if (patch.name !== undefined) body.legalTitle = patch.name;
     if (patch.type !== undefined) body.companyType = patch.type;
     if (patch.sector !== undefined) body.sector = patch.sector || null;
+    if (patch.supplierCategoryCode !== undefined) body.supplierCategoryCode = patch.supplierCategoryCode || null;
     if (patch.taxOffice !== undefined) body.taxOffice = patch.taxOffice || null;
     if (patch.taxNumber !== undefined) body.taxNumber = patch.taxNumber || null;
     if (patch.website !== undefined) body.website = website;
@@ -1349,8 +1381,7 @@ function StoreInner({ children }: { children: ReactNode }) {
     if (patch.contactSourceCode !== undefined) body.contactSourceCode = patch.contactSourceCode || null;
     if (patch.companyGroupCodes !== undefined) body.companyGroupCodes = patch.companyGroupCodes;
     if (patch.divisions !== undefined) body.divisionIds = patch.divisions.map((division) => division.id);
-    if (patch.firmType !== undefined)
-      body.relationTypeCode = patch.firmType === 'supplier' ? 'supplier' : patch.firmType === 'supplier_customer' ? 'supplier_customer' : 'customer';
+    if (patch.firmType !== undefined) body.relationTypeCode = patch.firmType;
     if (patch.salesStatus !== undefined)
       body.customerStatusCode = patch.salesStatus === 'active_customer' ? 'active' : 'potential';
     if (patch.addresses !== undefined) {
@@ -1364,6 +1395,8 @@ function StoreInner({ children }: { children: ReactNode }) {
         latitude: address.latitude,
         longitude: address.longitude,
         isDefault: address.isDefault,
+        isShipping: address.isShipping,
+        isBilling: address.isBilling,
       }));
     } else if (patch.city !== undefined || patch.district !== undefined || patch.country !== undefined || patch.address !== undefined) {
       body.address = {
@@ -1413,6 +1446,7 @@ function StoreInner({ children }: { children: ReactNode }) {
 
   const updateContact: Store['updateContact'] = async (id, patch) => {
     await contactService.update(id, {
+      companyId: patch.customerId,
       fullName: patch.name,
       title: patch.title,
       department: patch.department,
@@ -1424,7 +1458,7 @@ function StoreInner({ children }: { children: ReactNode }) {
       personalEmail: patch.personalEmail,
       otherEmail: patch.otherEmail,
       gender: patch.gender,
-      birthDate: patch.birthDate ? new Date(patch.birthDate) : undefined,
+      birthDate: patch.birthDate === undefined ? undefined : patch.birthDate ? new Date(patch.birthDate) : null,
       decisionRoleCode: patch.decisionRoleCode,
       hometown: patch.hometown,
       favoriteTeam: patch.favoriteTeam,
@@ -1511,6 +1545,7 @@ function StoreInner({ children }: { children: ReactNode }) {
     const body: Record<string, unknown> = {};
     if (patch.assignedUserId !== undefined) body.ownerUserId = patch.assignedUserId || null;
     if (patch.paymentTermDays !== undefined) body.paymentTermDays = patch.paymentTermDays ?? null;
+    if (patch.paymentMethod !== undefined) body.paymentMethod = patch.paymentMethod;
     await opportunityService.update(id, body);
     await fetchAll();
   };
@@ -1610,6 +1645,7 @@ function StoreInner({ children }: { children: ReactNode }) {
     const quote = await quoteService.create({
       opportunityId,
       companyId: p.companyId,
+      companyAddressId: p.companyAddressId || undefined,
       contactId: p.contactId || undefined,
       quoteDate: new Date(p.quoteDate),
       validityDays: p.validityDays,
@@ -1639,6 +1675,7 @@ function StoreInner({ children }: { children: ReactNode }) {
         sortOrder: i,
         compatibility: it.compatibility
           ? {
+              lineGroupKey: it.compatibility.lineGroupKey,
               machineIds: it.compatibility.machineIds ?? [],
               brands: it.compatibility.brands ?? [],
               controlUnits: it.compatibility.controlUnits ?? [],
@@ -1748,6 +1785,7 @@ function StoreInner({ children }: { children: ReactNode }) {
     if (fields.originCountry !== undefined) apiPatch.originCountry = cleanString(fields.originCountry);
     if (fields.hsCode !== undefined) apiPatch.hsCode = cleanString(fields.hsCode);
     if (fields.modelName !== undefined) apiPatch.modelName = cleanString(fields.modelName);
+    if (fields.series !== undefined) apiPatch.series = cleanString(fields.series);
     if (fields.description !== undefined) apiPatch.description = cleanString(fields.description);
     if (fields.muadilProductIds !== undefined) {
       const muadilProductIds = fields.muadilProductIds.filter(Boolean);
@@ -1845,6 +1883,7 @@ function StoreInner({ children }: { children: ReactNode }) {
   const addShipment: Store['addShipment'] = async (s) => {
     const created = await serviceService.createShipment({
       opportunityId: s.salesCaseId || undefined,
+      direction: s.direction,
       senderCompanyId: s.senderCompanyId || undefined,
       senderName: s.senderName || undefined,
       carrierCompanyId: s.carrierCompanyId || undefined,
@@ -1868,6 +1907,8 @@ function StoreInner({ children }: { children: ReactNode }) {
         quantity: item.quantity ?? 1,
         unitCode: 'adet',
         sortOrder: index,
+        packageQuantity: item.packageQuantity,
+        packageUnitCode: item.packageUnitCode || undefined,
         packageCount: item.packageCount,
         palletCount: item.palletCount,
         packageLengthCm: item.packageLengthCm,

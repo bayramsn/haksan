@@ -1,7 +1,25 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Button } from "../../ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../../ui/tabs";
-import { Bell, Briefcase, Building2, Clock, Database, FileCheck2, Globe, Layers, Save, Settings2, SlidersHorizontal, Wrench } from "lucide-react";
+import {
+  AlertCircle,
+  Bell,
+  Briefcase,
+  Building2,
+  CheckCircle2,
+  Clock,
+  Database,
+  FileCheck2,
+  Globe,
+  Layers,
+  Mail,
+  RotateCcw,
+  Save,
+  Settings2,
+  ShieldCheck,
+  SlidersHorizontal,
+  Wrench,
+} from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "../../../../lib/auth";
 import { adminService } from "../../../../lib/services";
@@ -59,9 +77,11 @@ export function SettingsPage() {
       return prefDefaults;
     }
   });
+  const [prefsBaseline, setPrefsBaseline] = useState<Preferences>(prefs);
   const [prefsSaved, setPrefsSaved] = useState(false);
 
   const [company, setCompany] = useState<CompanyInfo>(companyDefaults);
+  const [companyBaseline, setCompanyBaseline] = useState<CompanyInfo>(companyDefaults);
   const [companyLoading, setCompanyLoading] = useState(canReadTenant);
   const [companySaving, setCompanySaving] = useState(false);
   const [tab, setTab] = useState("genel");
@@ -74,12 +94,14 @@ export function SettingsPage() {
       .tenant()
       .then((t) => {
         if (cancelled) return;
-        setCompany({
+        const nextCompany = {
           companyName: t.name ?? "",
           taxId: t.taxNumber ?? "",
           email: t.email ?? "",
           phone: t.phone ?? "",
-        });
+        };
+        setCompany(nextCompany);
+        setCompanyBaseline(nextCompany);
       })
       .catch(() => {
         if (!cancelled) toast.error("Şirket bilgileri yüklenemedi");
@@ -94,6 +116,7 @@ export function SettingsPage() {
 
   const savePrefs = () => {
     localStorage.setItem(storageKey(user?.id), JSON.stringify(prefs));
+    setPrefsBaseline(prefs);
     setPrefsSaved(true);
     toast.success("Tercihler kaydedildi", {
       description: user ? "Bu kullanıcı için bu cihazda saklandı." : "Bu cihazda saklandı.",
@@ -111,12 +134,14 @@ export function SettingsPage() {
         email: company.email || null,
         phone: company.phone || null,
       });
-      setCompany({
+      const nextCompany = {
         companyName: updated.name ?? "",
         taxId: updated.taxNumber ?? "",
         email: updated.email ?? "",
         phone: updated.phone ?? "",
-      });
+      };
+      setCompany(nextCompany);
+      setCompanyBaseline(nextCompany);
       toast.success("Şirket bilgileri kaydedildi");
     } catch (err: any) {
       toast.error("Şirket bilgileri kaydedilemedi", { description: err?.message ?? "API isteği başarısız oldu." });
@@ -125,14 +150,58 @@ export function SettingsPage() {
     }
   };
 
+  const prefsDirty = useMemo(() => JSON.stringify(prefs) !== JSON.stringify(prefsBaseline), [prefs, prefsBaseline]);
+  const companyDirty = useMemo(() => JSON.stringify(company) !== JSON.stringify(companyBaseline), [company, companyBaseline]);
+  const hasPendingChanges = (tab === "genel" || tab === "bildirimler") ? prefsDirty : tab === "sirket" ? companyDirty : false;
+  const canSavePending = tab !== "sirket" || canEditTenant;
+
+  const resetPendingChanges = () => {
+    if (tab === "sirket") setCompany(companyBaseline);
+    else setPrefs(prefsBaseline);
+  };
+
+  const savePendingChanges = () => {
+    if (tab === "sirket") void saveCompany();
+    else savePrefs();
+  };
+
+  const activeSection = {
+    genel: { eyebrow: "KİŞİSEL ÇALIŞMA ALANI", title: "Genel tercihler", description: "Bölge, para birimi ve kullanıcıya özel davranışlar." },
+    sirket: { eyebrow: "KURUMSAL KİMLİK", title: "Şirket profili", description: "Tüm kullanıcıların gördüğü doğrulanmış şirket bilgileri." },
+    bildirimler: { eyebrow: "OLAY AKIŞI", title: "Bildirim merkezi", description: "Kritik operasyon olaylarının kişisel teslim tercihleri." },
+    "crm-alan": { eyebrow: "VERİ MODELİ", title: "CRM alan yöneticisi", description: "Kayıt formlarının alan yapısı ve seçim sözlükleri." },
+    "teknik-bilgi": { eyebrow: "ÜRÜN ŞEMASI", title: "Teknik bilgi şablonları", description: "Ürün ailelerine göre teknik bilgi kapsamı." },
+  }[tab] ?? { eyebrow: "SİSTEM", title: "Ayarlar", description: "Çalışma alanı ayarlarını yönetin." };
+
   const tabTriggerClass =
-    "flex-none gap-2 rounded-lg px-3.5 py-2 text-muted-foreground data-[state=active]:text-foreground data-[state=active]:ring-1 data-[state=active]:ring-border/70";
+    "h-10 flex-none justify-start gap-2 rounded-lg px-3.5 py-2 text-muted-foreground data-[state=active]:text-foreground data-[state=active]:ring-1 data-[state=active]:ring-border/70 lg:w-full lg:flex-none";
 
   return (
-    <div className="max-w-6xl">
-      <Tabs value={tab} onValueChange={setTab} className="gap-4">
-        <div className="rounded-xl border border-border/60 bg-gradient-to-br from-primary/8 via-card to-info/8 p-1.5 shadow-sm">
-          <TabsList className="flex h-auto w-full flex-wrap justify-start gap-1 bg-transparent p-0">
+    <div className="mx-auto max-w-[1480px] space-y-5 pb-20">
+      <section className="premium-blueprint precision-corners overflow-hidden rounded-2xl border border-primary/20 bg-[linear-gradient(135deg,var(--card),color-mix(in_srgb,var(--primary)_7%,var(--card)))] px-5 py-5 shadow-sm sm:px-6">
+        <div className="relative flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="font-mono text-[10px] font-semibold tracking-[0.2em] text-primary">{activeSection.eyebrow}</p>
+            <h2 className="mt-1 font-display text-2xl font-semibold tracking-tight sm:text-3xl">{activeSection.title}</h2>
+            <p className="mt-1 max-w-2xl text-sm text-muted-foreground">{activeSection.description}</p>
+          </div>
+          <div className="flex items-center gap-3 rounded-xl border border-border/70 bg-card/85 px-4 py-3 backdrop-blur">
+            <span className="flex size-10 items-center justify-center rounded-lg bg-success/10 text-success"><ShieldCheck className="size-5" /></span>
+            <div>
+              <p className="text-xs font-medium">Yetki kapsamı</p>
+              <p className="text-[11px] text-muted-foreground">{canManageLookups ? "Sistem yöneticisi" : canEditTenant ? "Şirket yöneticisi" : "Kişisel tercihler"}</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <Tabs value={tab} onValueChange={setTab} className="gap-5 lg:grid lg:grid-cols-[250px_minmax(0,1fr)] lg:items-start lg:gap-6">
+        <aside className="rounded-xl border border-border/60 bg-card p-2 shadow-sm lg:sticky lg:top-4">
+          <div className="hidden px-3 pb-2 pt-2 lg:block">
+            <p className="font-mono text-[9px] font-semibold tracking-[0.18em] text-muted-foreground">AYAR BÖLÜMLERİ</p>
+            <p className="mt-1 text-xs text-muted-foreground">Bir bölüm seçerek yapılandırın.</p>
+          </div>
+          <TabsList className="flex h-auto w-full justify-start gap-1 overflow-x-auto border-0 bg-transparent p-0 lg:flex-col lg:overflow-visible">
             <TabsTrigger value="genel" className={tabTriggerClass}>
               <Settings2 className="size-4" /> Genel
             </TabsTrigger>
@@ -153,7 +222,15 @@ export function SettingsPage() {
               </TabsTrigger>
             )}
           </TabsList>
-        </div>
+          <div className="mt-2 hidden border-t border-border/60 px-3 pb-2 pt-3 lg:block">
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <span className="size-1.5 rounded-full bg-success" />
+              Değişiklik takibi aktif
+            </div>
+          </div>
+        </aside>
+
+        <main className="min-w-0 space-y-4">
 
         {/* Genel */}
         <TabsContent value="genel" className="space-y-4">
@@ -171,11 +248,6 @@ export function SettingsPage() {
               Dosya yüklemeleri S3 uyumlu depolamada tutulur. Bucket ve sağlayıcı yapılandırması sunucu tarafından yönetilir.
             </p>
           </SettingsSection>
-          <div className="flex justify-end">
-            <Button onClick={savePrefs} className="gap-1">
-              <Save className="size-4" /> {prefsSaved ? "Tercihler Kaydedildi" : "Tercihleri Kaydet"}
-            </Button>
-          </div>
         </TabsContent>
 
         {/* Şirket */}
@@ -185,13 +257,6 @@ export function SettingsPage() {
             tone="primary"
             title="Şirket Bilgileri"
             description="Tenant kaydından yönetilir; tüm kullanıcılarda ortaktır."
-            action={
-              canEditTenant ? (
-                <Button size="sm" onClick={saveCompany} disabled={companyLoading || companySaving} className="gap-1">
-                  <Save className="size-4" /> {companySaving ? "Kaydediliyor" : "Kaydet"}
-                </Button>
-              ) : undefined
-            }
           >
             {!canReadTenant ? (
               <p className="text-sm text-muted-foreground">Şirket bilgilerini görüntüleme yetkiniz yok.</p>
@@ -207,11 +272,38 @@ export function SettingsPage() {
               </div>
             )}
           </SettingsSection>
+
+          {canReadTenant && !companyLoading && (
+            <SettingsSection icon={<Globe />} tone="info" title="Canlı Kurumsal Önizleme" description="Kaydetmeden önce şirket kimliğinin çalışma alanında nasıl görüneceğini kontrol edin.">
+              <div className="premium-blueprint precision-corners overflow-hidden rounded-xl border border-primary/15 bg-[linear-gradient(135deg,#07113f,#101b55)] p-5 text-white">
+                <div className="relative flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="rounded-lg bg-white px-3 py-2 shadow-lg shadow-black/15">
+                    <img src="/brand/haksan-logo.png" alt="Haksan Makina" className="h-8 w-auto max-w-[170px] object-contain" />
+                  </div>
+                  <div className="min-w-0 text-left sm:text-right">
+                    <p className="font-display text-xl font-semibold tracking-tight">{company.companyName || "Şirket adını girin"}</p>
+                    <p className="mt-1 text-xs text-white/65">VKN {company.taxId || "—"} · {company.phone || "Telefon bilgisi yok"}</p>
+                    <p className="mt-0.5 truncate text-xs text-white/65">{company.email || "E-posta bilgisi yok"}</p>
+                  </div>
+                </div>
+              </div>
+            </SettingsSection>
+          )}
         </TabsContent>
 
         {/* Bildirimler */}
         <TabsContent value="bildirimler" className="space-y-4">
           <SettingsSection icon={<Bell />} tone="warning" title="Bildirim Tercihleri" description="Hangi olaylarda bildirim almak istediğinizi seçin." bodyClassName="py-1">
+            <div className="mx-4 mt-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border/60 bg-muted/25 px-3 py-2.5">
+              <div>
+                <p className="text-xs font-medium">Etkin olaylar</p>
+                <p className="text-[11px] text-muted-foreground">{Object.entries(prefs).filter(([key, value]) => key.startsWith("notify") && value).length} / 4 olay türü</p>
+              </div>
+              <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+                <span className="inline-flex items-center gap-1 rounded-md border border-border/70 bg-card px-2 py-1"><Bell className="size-3" /> Uygulama içi</span>
+                <span className="inline-flex items-center gap-1 rounded-md border border-border/70 bg-card px-2 py-1"><Mail className="size-3" /> Olay e-postası</span>
+              </div>
+            </div>
             <div className="divide-y divide-border/60">
               <SettingsToggle
                 icon={<Briefcase />}
@@ -243,11 +335,6 @@ export function SettingsPage() {
               />
             </div>
           </SettingsSection>
-          <div className="flex justify-end">
-            <Button onClick={savePrefs} className="gap-1">
-              <Save className="size-4" /> {prefsSaved ? "Tercihler Kaydedildi" : "Tercihleri Kaydet"}
-            </Button>
-          </div>
         </TabsContent>
 
         {/* CRM Alan Ayarları (super_admin) */}
@@ -263,7 +350,32 @@ export function SettingsPage() {
             <ProductSpecTemplatesCard />
           </TabsContent>
         )}
+        </main>
       </Tabs>
+
+      {hasPendingChanges && canSavePending && (
+        <div className="fixed bottom-4 left-1/2 z-40 w-[min(720px,calc(100%-2rem))] -translate-x-1/2 rounded-xl border border-warning/30 bg-card/95 p-3 shadow-2xl shadow-black/15 backdrop-blur-xl surface-enter lg:left-[calc(50%+8rem)]">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center gap-3">
+              <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-warning/10 text-warning"><AlertCircle className="size-4" /></span>
+              <div>
+                <p className="text-sm font-medium">Kaydedilmemiş değişiklikler var</p>
+                <p className="text-xs text-muted-foreground">{tab === "sirket" ? "Kurumsal profil henüz tüm kullanıcılara yansıtılmadı." : "Bu cihazdaki tercihlerinizi kaydetmeyi unutmayın."}</p>
+              </div>
+            </div>
+            <div className="flex shrink-0 items-center justify-end gap-2">
+              <Button variant="outline" size="sm" onClick={resetPendingChanges} disabled={companySaving} className="gap-1.5"><RotateCcw className="size-3.5" /> Geri Al</Button>
+              <Button size="sm" onClick={savePendingChanges} disabled={companySaving} className="gap-1.5"><Save className="size-3.5" /> {companySaving ? "Kaydediliyor" : "Değişiklikleri Kaydet"}</Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {prefsSaved && !hasPendingChanges && (
+        <div className="pointer-events-none fixed bottom-4 left-1/2 z-40 flex -translate-x-1/2 items-center gap-2 rounded-lg border border-success/25 bg-card/95 px-4 py-2 text-sm shadow-xl backdrop-blur surface-enter">
+          <CheckCircle2 className="size-4 text-success" /> Tercihler kaydedildi
+        </div>
+      )}
     </div>
   );
 }

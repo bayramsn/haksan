@@ -209,6 +209,7 @@ export class OpportunitiesService {
         probability: input.probability,
         expectedCloseDate: input.expectedCloseDate ?? null,
         paymentTermDays: input.paymentTermDays ?? null,
+        paymentMethod: input.paymentMethod ?? 'undecided',
         sourceId,
         statusId: openStatus?.id ?? null,
         createdBy: actor.userId,
@@ -252,7 +253,7 @@ export class OpportunitiesService {
     if (input.currencyCode !== undefined) patch.currencyId = await lookupIdByCode(this.db, currencies, input.currencyCode);
     if (input.sourceCode !== undefined) patch.sourceId = await lookupIdByCode(this.db, contactSources, input.sourceCode);
     if (input.estimatedValue !== undefined) patch.estimatedValue = input.estimatedValue?.toString() ?? null;
-    for (const k of ['companyId', 'primaryContactId', 'ownerUserId', 'title', 'description', 'probability', 'expectedCloseDate', 'paymentTermDays', 'wonReason'] as const) {
+    for (const k of ['companyId', 'primaryContactId', 'ownerUserId', 'title', 'description', 'probability', 'expectedCloseDate', 'paymentTermDays', 'paymentMethod', 'wonReason'] as const) {
       if ((input as any)[k] !== undefined) patch[k] = (input as any)[k] ?? null;
     }
     await this.db.update(opportunities).set(patch).where(eq(opportunities.id, id));

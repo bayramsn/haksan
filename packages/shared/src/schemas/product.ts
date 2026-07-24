@@ -7,6 +7,7 @@ const productVatRateSchema = percentSchema.refine((rate) => rate !== 1, {
 
 export const productCreateSchema = z.object({
   brandId: z.string().min(1),
+  series: z.string().trim().max(128).optional(),
   productGroupCode: z.string().max(64).optional(),
   categoryCode: z.string().max(64).optional(),
   subcategoryCode: z.string().max(64).optional(),
@@ -165,6 +166,7 @@ export type ProductImportEquipmentInput = z.infer<typeof productImportEquipmentS
 export const productImportRowSchema = z.object({
   rowNumber: z.coerce.number().int().positive(),
   brandName: z.string().min(1).max(128),
+  series: z.string().trim().max(128).optional(),
   modelCode: z.string().min(1).max(64),
   modelName: z.string().max(255).optional(),
   fullName: z.string().min(1).max(512),

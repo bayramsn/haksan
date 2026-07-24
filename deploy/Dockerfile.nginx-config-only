@@ -1,0 +1,4 @@
+ARG BASE_IMAGE
+FROM ${BASE_IMAGE}
+
+COPY deploy/nginx.conf.template /etc/nginx/templates/default.conf.template

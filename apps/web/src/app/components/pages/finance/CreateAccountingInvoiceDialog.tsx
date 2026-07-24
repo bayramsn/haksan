@@ -573,11 +573,11 @@ export function CreateAccountingInvoiceDialog({
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>{trigger}</DialogTrigger>
       <DialogContent className={`${gridVisible ? "w-[min(1280px,calc(100vw-1rem))] max-w-none sm:max-w-none" : "w-[min(820px,calc(100vw-1rem))] max-w-none sm:max-w-none"} max-h-[94dvh] gap-0 overflow-hidden p-0`}>
-        <DialogHeader className="border-b border-border/60 px-4 py-4 pr-11 sm:px-5">
+        <DialogHeader className="min-w-0 border-b border-border/60 px-4 py-4 pr-11 sm:px-5">
           <DialogTitle className="flex items-center gap-2"><Receipt className="size-5" /> {isEditing ? "Faturayı Düzenle" : "Muhasebe Faturası"}</DialogTitle>
           <DialogDescription>{isEditing ? "Fatura bilgileri ve vade planını güncelleyin." : "Satış veya alış faturası ile vade planı oluşturun; cari hareketler otomatik açılır."}</DialogDescription>
         </DialogHeader>
-        <form onSubmit={submit} className="flex max-h-[calc(94dvh-86px)] min-h-0 flex-col">
+        <form onSubmit={submit} className="flex min-w-0 max-h-[calc(94dvh-86px)] min-h-0 flex-col">
           <div className="min-w-0 flex-1 space-y-4 overflow-y-auto px-4 py-4 sm:px-5">
           <div className="grid gap-3 md:grid-cols-2">
             <div className="rounded-lg border border-border/60 bg-muted/20 p-3">
@@ -652,11 +652,11 @@ export function CreateAccountingInvoiceDialog({
             </div>
             <div>
               <Label className="text-xs">Fatura No *</Label>
-              <Input className="mt-1 h-9" value={form.invoiceNo} onChange={(e) => setForm({ ...form, invoiceNo: e.target.value })} />
+              <Input aria-label="Fatura numarası" className="mt-1 h-9 font-data" value={form.invoiceNo} onChange={(e) => setForm({ ...form, invoiceNo: e.target.value })} />
             </div>
             <div>
               <Label className="text-xs">Sipariş No</Label>
-              <Input className="mt-1 h-9" value={form.orderNo} onChange={(e) => setForm({ ...form, orderNo: e.target.value })} placeholder="Opsiyonel" />
+              <Input aria-label="Sipariş numarası" className="mt-1 h-9 font-data" value={form.orderNo} onChange={(e) => setForm({ ...form, orderNo: e.target.value })} placeholder="Opsiyonel" />
             </div>
             <div>
               <Label className="text-xs">Para Birimi</Label>
@@ -669,15 +669,16 @@ export function CreateAccountingInvoiceDialog({
             </div>
             <div>
               <Label className="text-xs">Fatura Tarihi</Label>
-              <Input className="mt-1 h-9" type="date" value={form.invoiceDate} onChange={(e) => setForm({ ...form, invoiceDate: e.target.value })} />
+              <Input aria-label="Fatura tarihi" className="mt-1 h-9" type="date" value={form.invoiceDate} onChange={(e) => setForm({ ...form, invoiceDate: e.target.value })} />
             </div>
             <div>
               <Label className="text-xs">Beklenen Tarih</Label>
-              <Input className="mt-1 h-9" type="date" value={form.expectedDate} onChange={(e) => setForm({ ...form, expectedDate: e.target.value })} />
+              <Input aria-label="Beklenen tarih" className="mt-1 h-9" type="date" value={form.expectedDate} onChange={(e) => setForm({ ...form, expectedDate: e.target.value })} />
             </div>
             <div>
               <Label className="text-xs">Yeni Vade (Gün)</Label>
               <Input
+                aria-label="Yeni vade günü"
                 className="mt-1 h-9"
                 inputMode="numeric"
                 value={form.paymentTermDays}
@@ -700,27 +701,28 @@ export function CreateAccountingInvoiceDialog({
             </div>
             <div>
               <Label className="text-xs">Önceki Vade (Gün)</Label>
-              <Input className="mt-1 h-9" inputMode="numeric" value={form.previousPaymentTermDays} onChange={(e) => setForm({ ...form, previousPaymentTermDays: e.target.value })} placeholder="Opsiyonel" />
+              <Input aria-label="Önceki vade günü" className="mt-1 h-9 font-data" inputMode="numeric" value={form.previousPaymentTermDays} onChange={(e) => setForm({ ...form, previousPaymentTermDays: e.target.value })} placeholder="Opsiyonel" />
             </div>
             {!isAdministrative && (
               <div>
                 <Label className="text-xs">Incoterm</Label>
-                <Input className="mt-1 h-9" value={form.incoterm} onChange={(e) => setForm({ ...form, incoterm: e.target.value })} placeholder="EXW / FOB / CIF" />
+                <Input aria-label="Incoterm" className="mt-1 h-9 font-data" value={form.incoterm} onChange={(e) => setForm({ ...form, incoterm: e.target.value })} placeholder="EXW / FOB / CIF" />
               </div>
             )}
             <div>
               <Label className="text-xs">Referans</Label>
-              <Input className="mt-1 h-9" value={form.shipmentReference} onChange={(e) => setForm({ ...form, shipmentReference: e.target.value })} placeholder="İrsaliye / talep no" />
+              <Input aria-label="İrsaliye veya talep referansı" className="mt-1 h-9 font-data" value={form.shipmentReference} onChange={(e) => setForm({ ...form, shipmentReference: e.target.value })} placeholder="İrsaliye / talep no" />
             </div>
             <div>
               <Label className="text-xs">Vade Notu</Label>
-              <Input className="mt-1 h-9" value={form.termChangeReason} onChange={(e) => setForm({ ...form, termChangeReason: e.target.value })} placeholder="Opsiyonel" />
+              <Input aria-label="Vade notu" className="mt-1 h-9" value={form.termChangeReason} onChange={(e) => setForm({ ...form, termChangeReason: e.target.value })} placeholder="Opsiyonel" />
             </div>
           </div>
           <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
             <div>
               <Label className="text-xs">Matrah</Label>
               <Input
+                aria-label="Fatura matrahı"
                 className={`mt-1 h-9 ${gridDrivesTotals ? "bg-muted/40 font-medium" : ""}`}
                 type="number"
                 min="0"
@@ -752,6 +754,7 @@ export function CreateAccountingInvoiceDialog({
             <div>
               <Label className="text-xs">KDV Tutarı</Label>
               <Input
+                aria-label="KDV tutarı"
                 className={`mt-1 h-9 ${gridDrivesTotals ? "bg-muted/40 font-medium" : ""}`}
                 type="number"
                 min="0"
@@ -763,7 +766,7 @@ export function CreateAccountingInvoiceDialog({
             </div>
             <div>
               <Label className="text-xs">Genel Toplam *</Label>
-              <Input className="mt-1 h-9 bg-muted/40 font-medium" readOnly value={invoiceTotals.grandTotal.toLocaleString("tr-TR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} />
+              <Input aria-label="Fatura genel toplamı" className="mt-1 h-9 bg-muted/40 font-data font-medium" readOnly value={invoiceTotals.grandTotal.toLocaleString("tr-TR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} />
             </div>
           </div>
           {gridVisible && (
@@ -799,12 +802,13 @@ export function CreateAccountingInvoiceDialog({
                   <div />
                 </div>
                 <div className="divide-y divide-border/60">
-                  {lines.map((line) => {
+                  {lines.map((line, lineIndex) => {
                     const totals = lineTotals(line);
                     return (
                       <div key={line.id} className="grid min-w-[1060px] grid-cols-[260px_260px_76px_112px_112px_96px_92px_120px_40px] gap-2 px-3 py-2 items-center">
                         {isAdministrative ? (
                           <Input
+                            aria-label={`Fatura kalemi ${lineIndex + 1} gider türü`}
                             className="h-8"
                             maxLength={64}
                             value={line.categoryCode ?? ""}
@@ -837,17 +841,18 @@ export function CreateAccountingInvoiceDialog({
                             </SelectContent>
                           </Select>
                         )}
-                        <Input className="h-8" value={line.description} onChange={(e) => updateLine(line.id, { description: e.target.value })} placeholder="Kalem açıklaması" />
+                        <Input aria-label={`Fatura kalemi ${lineIndex + 1} açıklaması`} className="h-8" value={line.description} onChange={(e) => updateLine(line.id, { description: e.target.value })} placeholder="Kalem açıklaması" />
                         <Input
-                          className="h-8 text-right"
+                          aria-label={`Fatura kalemi ${lineIndex + 1} adedi`}
+                          className="h-8 text-right font-data"
                           inputMode="decimal"
                           readOnly={line.kind === "stock"}
                           value={line.quantity}
                           onChange={(e) => updateLine(line.id, { quantity: e.target.value })}
                         />
-                        <Input className="h-8 text-right" inputMode="decimal" value={line.listPrice} onChange={(e) => updateLine(line.id, { listPrice: e.target.value })} placeholder="0" />
-                        <Input className="h-8 text-right" inputMode="decimal" value={line.unitPrice} onChange={(e) => updateLine(line.id, { unitPrice: e.target.value })} placeholder="0" />
-                        <Input className="h-8 text-right" inputMode="decimal" value={line.discountAmount} onChange={(e) => updateLine(line.id, { discountAmount: e.target.value })} />
+                        <Input aria-label={`Fatura kalemi ${lineIndex + 1} liste fiyatı`} className="h-8 text-right font-data" inputMode="decimal" value={line.listPrice} onChange={(e) => updateLine(line.id, { listPrice: e.target.value })} placeholder="0" />
+                        <Input aria-label={`Fatura kalemi ${lineIndex + 1} olur fiyatı`} className="h-8 text-right font-data" inputMode="decimal" value={line.unitPrice} onChange={(e) => updateLine(line.id, { unitPrice: e.target.value })} placeholder="0" />
+                        <Input aria-label={`Fatura kalemi ${lineIndex + 1} indirimi`} className="h-8 text-right font-data" inputMode="decimal" value={line.discountAmount} onChange={(e) => updateLine(line.id, { discountAmount: e.target.value })} />
                         <Select value={line.vatRate} onValueChange={(vatRate) => updateLine(line.id, { vatRate })}>
                           <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
                           <SelectContent>
@@ -860,7 +865,7 @@ export function CreateAccountingInvoiceDialog({
                         <div className="text-right text-sm tabular-nums">
                           {roundMoney(totals.total).toLocaleString("tr-TR")} {form.currencyCode}
                         </div>
-                        <Button type="button" variant="ghost" size="icon" className="size-8" onClick={() => removeLine(line.id)}>
+                        <Button type="button" variant="ghost" size="icon" aria-label={`Fatura kalemi ${lineIndex + 1} satırını sil`} title="Kalemi sil" className="size-8" onClick={() => removeLine(line.id)}>
                           <Trash2 className="size-4 text-muted-foreground" />
                         </Button>
                       </div>
@@ -887,6 +892,7 @@ export function CreateAccountingInvoiceDialog({
               <div>
                 <Label className="text-xs">İlk Vade</Label>
                 <Input
+                  aria-label="İlk vade tarihi"
                   className="mt-1 h-9"
                   type="date"
                   value={form.firstDueDate}
@@ -898,11 +904,11 @@ export function CreateAccountingInvoiceDialog({
               </div>
               <div>
                 <Label className="text-xs">Son Vade</Label>
-                <Input className="mt-1 h-9" type="date" value={form.lastDueDate} onChange={(e) => setForm({ ...form, lastDueDate: e.target.value })} />
+                <Input aria-label="Son vade tarihi" className="mt-1 h-9" type="date" value={form.lastDueDate} onChange={(e) => setForm({ ...form, lastDueDate: e.target.value })} />
               </div>
               <div>
                 <Label className="text-xs">Vade Sayısı</Label>
-                <Input className="mt-1 h-9" type="number" min={1} value={form.installmentCount} onChange={(e) => setForm({ ...form, installmentCount: e.target.value })} />
+                <Input aria-label="Vade sayısı" className="mt-1 h-9 font-data" type="number" min={1} value={form.installmentCount} onChange={(e) => setForm({ ...form, installmentCount: e.target.value })} />
               </div>
             </div>
             {installments.length > 0 && (
@@ -928,10 +934,10 @@ export function CreateAccountingInvoiceDialog({
           </div>
           <div>
             <Label className="text-xs">Notlar</Label>
-            <Textarea className="mt-1" rows={2} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
+            <Textarea aria-label="Fatura notları" className="mt-1" rows={2} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
           </div>
           </div>
-          <DialogFooter className="sticky bottom-0 z-10 border-t border-border/60 bg-background px-4 py-3 sm:px-5">
+          <DialogFooter className="sticky bottom-0 z-10 min-w-0 border-t border-border/60 bg-background px-4 py-3 sm:px-5">
             <Button type="button" variant="outline" onClick={() => setOpen(false)}>Vazgeç</Button>
             <Button type="submit" disabled={saving}>{saving ? "Kaydediliyor…" : isEditing ? "Güncelle" : "Faturayı Kaydet"}</Button>
           </DialogFooter>

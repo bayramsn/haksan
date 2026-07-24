@@ -1,4 +1,5 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import {
   accessRequestListQuerySchema,
   companyAccessRequestDecisionSchema,
@@ -6,6 +7,7 @@ import {
   companyCreateSchema,
   companyLocationSchema,
   companyOsmSearchQuerySchema,
+  companyWebsiteLookupSchema,
   companyUpdateSchema,
   companyListQuerySchema,
   paginationSchema,
@@ -15,6 +17,7 @@ import {
   type CompanyCreateInput,
   type CompanyLocationInput,
   type CompanyOsmSearchQuery,
+  type CompanyWebsiteLookupInput,
   type CompanyUpdateInput,
   type CompanyListQuery,
   type Pagination,
@@ -50,6 +53,16 @@ export class CompaniesController {
     @CurrentUser() user: AuthContext
   ) {
     return this.svc.searchOpenStreetMap(query, user);
+  }
+
+  @RequirePermissions('companies.create')
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @Post('website-lookup')
+  websiteLookup(
+    @Body(new ZodValidationPipe(companyWebsiteLookupSchema)) body: CompanyWebsiteLookupInput,
+    @CurrentUser() user: AuthContext
+  ) {
+    return this.svc.lookupCompanyWebsite(body, user);
   }
 
   @RequirePermissions('companies.read')

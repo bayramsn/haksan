@@ -1,7 +1,16 @@
 import { useMemo, useState, type MouseEvent } from "react";
 import { Card } from "../ui/card";
 import { Avatar, AvatarFallback } from "../ui/avatar";
-import { SALES_STAGES, SalesCase, SalesStage, salesStageLabel, DocumentItem, type Machine } from "../../lib/mock";
+import {
+  SALES_STAGES,
+  SalesCase,
+  SalesStage,
+  salesStageLabel,
+  DocumentItem,
+  OPPORTUNITY_PAYMENT_METHOD_LABELS,
+  type Machine,
+  type OpportunityPaymentMethod,
+} from "../../lib/mock";
 import { ArrowRight, Building2, Calendar, CheckCircle2, FileSignature, FileText, MapPin, Printer } from "lucide-react";
 import { KanbanBoard, KanbanColumn } from "../KanbanBoard";
 import { KanbanCardAttachments } from "../KanbanCardAttachments";
@@ -16,7 +25,12 @@ import { toast } from "sonner";
 import { Button } from "../ui/button";
 import { Checkbox } from "../ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "../ui/dialog";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
+  AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "../ui/alert-dialog";
 import { Label } from "../ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -63,7 +77,7 @@ export const STAGE_DOT: Record<string, string> = {
 const initials = (n: string) => (n || "—").split(" ").slice(0, 2).map((p) => p[0]).join("").toUpperCase();
 
 export function KanbanPage({ onSelect, items }: { onSelect: (s: SalesCase) => void; items?: SalesCase[] }) {
-  const { cases: storeCases, moveCase, closeCase, customers, users, documents, offers, machines, stock, deliveries } = useStore();
+  const { cases: storeCases, moveCase, updateCase, closeCase, customers, users, documents, offers, machines, stock, deliveries } = useStore();
   const cases = items ?? storeCases;
   const [lostId, setLostId] = useState<string | null>(null);
   const [previewDoc, setPreviewDoc] = useState<DocumentItem | null>(null);
@@ -72,6 +86,8 @@ export function KanbanPage({ onSelect, items }: { onSelect: (s: SalesCase) => vo
   const [stockPickSaving, setStockPickSaving] = useState(false);
   const [invoiceUploadCase, setInvoiceUploadCase] = useState<SalesCase | null>(null);
   const [closingCaseId, setClosingCaseId] = useState<string | null>(null);
+  const [pendingCloseCase, setPendingCloseCase] = useState<SalesCase | null>(null);
+  const [paymentMethodSavingId, setPaymentMethodSavingId] = useState<string | null>(null);
   const lostCustomer = lostId ? customers.find((x) => x.id === cases.find((s) => s.id === lostId)?.customerId)?.name : undefined;
   const stockPickCase = stockPickCaseId ? storeCases.find((s) => s.id === stockPickCaseId) ?? cases.find((s) => s.id === stockPickCaseId) : null;
   const stockPickCustomer = stockPickCase ? customers.find((x) => x.id === stockPickCase.customerId) : undefined;
@@ -271,15 +287,30 @@ export function KanbanPage({ onSelect, items }: { onSelect: (s: SalesCase) => vo
 
   const finishDeliveredCase = async (sc: SalesCase) => {
     if (closingCaseId) return;
-    if (!window.confirm("Bu kart 'Tamamlandı' olarak arşivlenecek (silinmez, Geçmiş'te kalır). Devam edilsin mi?")) return;
     setClosingCaseId(sc.id);
     try {
       await closeCase(sc.id);
       toast.success("Kart Geçmiş'e alındı", { description: salesStageLabel(sc.stage) });
+      setPendingCloseCase(null);
     } catch (err: any) {
       toast.error("Kart bitirilemedi", { description: err?.message ?? "Yalnız teslim edilen veya iptal edilen kartlar kapatılabilir." });
     } finally {
       setClosingCaseId(null);
+    }
+  };
+
+  const setPaymentMethod = async (salesCase: SalesCase, paymentMethod: OpportunityPaymentMethod) => {
+    if (paymentMethodSavingId) return;
+    setPaymentMethodSavingId(salesCase.id);
+    try {
+      await updateCase(salesCase.id, { paymentMethod });
+      toast.success("Ödeme şekli kaydedildi", {
+        description: OPPORTUNITY_PAYMENT_METHOD_LABELS[paymentMethod],
+      });
+    } catch (err: any) {
+      toast.error("Ödeme şekli kaydedilemedi", { description: err?.message ?? "API isteği başarısız oldu." });
+    } finally {
+      setPaymentMethodSavingId(null);
     }
   };
 
@@ -304,6 +335,22 @@ export function KanbanPage({ onSelect, items }: { onSelect: (s: SalesCase) => vo
     <>
     <LostCaseDialog open={!!lostId} onOpenChange={(o) => !o && setLostId(null)} caseId={lostId} caseName={lostCustomer} />
     <DocumentPreviewDialog doc={previewDoc} onClose={() => setPreviewDoc(null)} />
+    <AlertDialog open={Boolean(pendingCloseCase)} onOpenChange={(open) => !open && !closingCaseId && setPendingCloseCase(null)}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Satış kartı tamamlansın mı?</AlertDialogTitle>
+          <AlertDialogDescription>
+            <b>{pendingCloseCase ? customers.find((item) => item.id === pendingCloseCase.customerId)?.name ?? "Firma bulunamadı" : "Seçili kart"}</b> kartı silinmeden Geçmiş görünümüne taşınacak. Bağlı belgeler ve aktiviteler korunur.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Vazgeç</AlertDialogCancel>
+          <AlertDialogAction disabled={Boolean(closingCaseId)} onClick={(event) => { event.preventDefault(); if (pendingCloseCase) void finishDeliveredCase(pendingCloseCase); }}>
+            {closingCaseId ? "Tamamlanıyor…" : "Tamamla ve arşivle"}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
     <DocumentUploadDialog
       open={!!invoiceUploadCase}
       onOpenChange={(open) => {
@@ -487,6 +534,32 @@ export function KanbanPage({ onSelect, items }: { onSelect: (s: SalesCase) => vo
               )}
             </div>
 
+            {s.stage === "lead" && (
+              <div
+                className="mt-2.5 rounded-md border border-border/60 bg-muted/30 p-2"
+                onClick={stopCardClick}
+                onMouseDown={stopCardClick}
+              >
+                <Label className="mb-1.5 block text-[10px] uppercase tracking-wide text-muted-foreground">
+                  Ödeme şekli
+                </Label>
+                <Select
+                  value={s.paymentMethod ?? "undecided"}
+                  disabled={paymentMethodSavingId === s.id}
+                  onValueChange={(value) => void setPaymentMethod(s, value as OpportunityPaymentMethod)}
+                >
+                  <SelectTrigger className="h-8 bg-white text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(Object.entries(OPPORTUNITY_PAYMENT_METHOD_LABELS) as Array<[OpportunityPaymentMethod, string]>).map(([code, label]) => (
+                      <SelectItem key={code} value={code}>{label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
             <KanbanCardAttachments
               caseId={s.id}
               companyId={s.customerId}
@@ -615,7 +688,7 @@ export function KanbanPage({ onSelect, items }: { onSelect: (s: SalesCase) => vo
                     title="Tamamla / Geçmiş'e al"
                     onClick={(event) => {
                       event.stopPropagation();
-                      void finishDeliveredCase(s);
+                      setPendingCloseCase(s);
                     }}
                     onMouseDown={(event) => event.stopPropagation()}
                   >

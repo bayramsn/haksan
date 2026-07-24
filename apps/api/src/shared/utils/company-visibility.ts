@@ -10,10 +10,10 @@ import type { AuthContext } from '../security/auth.types';
  * Kural — yalnızca `sales` ve `service` rollerine uygulanır; super_admin/admin
  * ve finance/stock/readonly gibi diğer tüm roller her firmayı görür:
  *
- *   | Rol     | müşteri (customer)        | müşteri+tedarikçi          | tedarikçi (supplier) |
- *   |---------|---------------------------|----------------------------|----------------------|
- *   | sales   | Cari + Potansiyel + Kara  | Cari + Potansiyel + Kara   | Hiç göremez          |
- *   | service | Cari + Kara (potansiyel ✗)| Cari + Potansiyel + Kara   | Hiç göremez          |
+ *   | Rol     | müşteri (customer)        | müşteri+tedarikçi          | rakip                 | tedarikçi (supplier) |
+ *   |---------|---------------------------|----------------------------|-----------------------|----------------------|
+ *   | sales   | Cari + Potansiyel + Kara  | Cari + Potansiyel + Kara   | Tüm durumlar          | Hiç göremez          |
+ *   | service | Cari + Kara (potansiyel ✗)| Cari + Potansiyel + Kara   | Hiç göremez           | Hiç göremez          |
  *
  * "Cari" = `active` + `passive`; "Potansiyel" = `potential`; "Kara liste" =
  * `blacklist`. Kara liste, kısıtlı rollerin görebildiği ilişki tiplerinde
@@ -39,6 +39,7 @@ const ROLE_COMPANY_MATRIX: Record<'sales' | 'service', Record<string, string[]>>
   sales: {
     customer: ALL_VISIBLE_STATUSES,
     supplier_customer: ALL_VISIBLE_STATUSES,
+    competitor: ALL_VISIBLE_STATUSES,
   },
   service: {
     customer: CARI_AND_BLACKLIST, // cari + kara liste, potansiyel hariç

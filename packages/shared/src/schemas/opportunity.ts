@@ -4,6 +4,17 @@ import { PIPELINE_STAGES } from '../constants';
 
 export const pipelineStageEnum = z.enum(PIPELINE_STAGES);
 
+export const opportunityPaymentMethodEnum = z.enum([
+  'undecided',
+  'cash',
+  'term',
+  'installment',
+  'leasing',
+  'letter_of_credit',
+  'cheque',
+]);
+export type OpportunityPaymentMethod = z.infer<typeof opportunityPaymentMethodEnum>;
+
 export const opportunityCreateSchema = z.object({
   companyId: z.string().min(1),
   divisionId: z.string().uuid().optional(),
@@ -18,6 +29,8 @@ export const opportunityCreateSchema = z.object({
   sourceCode: z.string().max(64).optional(),
   // Makine satışında ödeme vadesi (gün). Sözleşme/ödeme planı için varsayılan.
   paymentTermDays: z.coerce.number().int().min(0).max(3650).nullish(),
+  // Lead kartında seçilen ticari ödeme yöntemi.
+  paymentMethod: opportunityPaymentMethodEnum.nullish(),
   // Kazanılan fırsat için kabul/kazanma nedeni (yıl sonu raporu).
   wonReason: z.string().max(255).nullish(),
 });

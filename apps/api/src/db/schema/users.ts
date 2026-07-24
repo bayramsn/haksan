@@ -23,6 +23,8 @@ export const users = pgTable(
     mfaEnabled: boolean('mfa_enabled').notNull().default(false),
     mfaSecret: varchar('mfa_secret', { length: 128 }),
     purchaseApprovalLimit: integer('purchase_approval_limit').notNull().default(0),
+    // Null = ortam değişkenindeki günlük varsayılan; 0 = bu kullanıcı için LLM kapalı.
+    assistantDailyUsdLimitCents: integer('assistant_daily_usd_limit_cents'),
     managerId: uuid('manager_id'),
     ...auditColumns,
   },
@@ -321,5 +323,31 @@ export const passwordResetTokens = pgTable(
   },
   (t) => ({
     tokenHashUnique: uniqueIndex('password_reset_tokens_token_hash_unique').on(t.tokenHash),
+  })
+);
+
+/**
+ * Mobil push bildirim token'ları (Expo push token). Bir kullanıcının birden
+ * çok cihazı olabilir; token cihaz başına tekildir. Bildirim üretiminde ilgili
+ * kullanıcının aktif token'larına Expo push gönderilir.
+ */
+export const pushTokens = pgTable(
+  'push_tokens',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id')
+      .notNull()
+      .references(() => tenants.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    token: varchar('token', { length: 255 }).notNull(),
+    platform: varchar('platform', { length: 16 }).notNull().default('expo'),
+    lastSeenAt: timestamp('last_seen_at', { withTimezone: true }).notNull().defaultNow(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    tokenUnique: uniqueIndex('push_tokens_token_unique').on(t.token),
+    userIdx: index('push_tokens_user_idx').on(t.userId),
   })
 );

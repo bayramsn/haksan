@@ -5,6 +5,7 @@ import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import type { StorageProvider, SignedUrlOptions, StoredFileMetadata, UploadOptions } from './storage.types';
 import { loadEnv } from '../../config/env';
 import { logger } from '../utils/logger';
+import { buildS3ClientConfig, resolveStorageTarget } from './s3-client-config';
 
 /**
  * Unified S3-compatible provider. Used for:
@@ -20,23 +21,23 @@ export class S3StorageProvider implements StorageProvider {
 
   constructor() {
     this.providerCode = this.env.S3_PROVIDER === 'supabase' ? 's3' : (this.env.S3_PROVIDER as 'minio' | 's3' | 'r2');
-    this.client = new S3Client({
-      region: this.env.S3_REGION,
-      endpoint: this.env.S3_ENDPOINT,
-      forcePathStyle: this.env.S3_FORCE_PATH_STYLE,
-      credentials: {
-        accessKeyId: this.env.S3_ACCESS_KEY_ID,
-        secretAccessKey: this.env.S3_SECRET_ACCESS_KEY,
-      },
-    });
-    logger.info({ provider: this.env.S3_PROVIDER, endpoint: this.env.S3_ENDPOINT }, '[storage] initialized');
+    this.client = new S3Client(buildS3ClientConfig(this.env));
+    logger.info(
+      { provider: this.env.S3_PROVIDER, endpoint: this.env.S3_ENDPOINT, bucket: this.env.S3_BUCKET_NAME },
+      '[storage] initialized'
+    );
+  }
+
+  private target(bucket: string, objectKey: string) {
+    return resolveStorageTarget(this.env.S3_PROVIDER, this.env.S3_BUCKET_NAME, bucket, objectKey);
   }
 
   async uploadFile(opts: UploadOptions): Promise<void> {
+    const target = this.target(opts.bucket, opts.objectKey);
     await this.client.send(
       new PutObjectCommand({
-        Bucket: opts.bucket,
-        Key: opts.objectKey,
+        Bucket: target.bucket,
+        Key: target.objectKey,
         Body: opts.body,
         ContentType: opts.mimeType,
         ContentLength: opts.contentLength,
@@ -47,7 +48,8 @@ export class S3StorageProvider implements StorageProvider {
 
   async getObject(bucket: string, objectKey: string): Promise<Buffer | null> {
     try {
-      const res = await this.client.send(new GetObjectCommand({ Bucket: bucket, Key: objectKey })) as GetObjectCommandOutput;
+      const target = this.target(bucket, objectKey);
+      const res = await this.client.send(new GetObjectCommand({ Bucket: target.bucket, Key: target.objectKey })) as GetObjectCommandOutput;
       const bytes = await res.Body?.transformToByteArray();
       return bytes ? Buffer.from(bytes) : null;
     } catch {
@@ -56,9 +58,10 @@ export class S3StorageProvider implements StorageProvider {
   }
 
   async getSignedUploadUrl(opts: SignedUrlOptions): Promise<string> {
+    const target = this.target(opts.bucket, opts.objectKey);
     const cmd = new PutObjectCommand({
-      Bucket: opts.bucket,
-      Key: opts.objectKey,
+      Bucket: target.bucket,
+      Key: target.objectKey,
       ContentType: opts.mimeType,
       ContentLength: opts.contentLength,
     });
@@ -66,20 +69,23 @@ export class S3StorageProvider implements StorageProvider {
   }
 
   async getSignedDownloadUrl(opts: SignedUrlOptions): Promise<string> {
+    const target = this.target(opts.bucket, opts.objectKey);
     const cmd = new GetObjectCommand({
-      Bucket: opts.bucket,
-      Key: opts.objectKey,
+      Bucket: target.bucket,
+      Key: target.objectKey,
     });
     return getSignedUrl(this.client, cmd, { expiresIn: opts.expiresInSeconds ?? this.env.SIGNED_URL_EXPIRE_SECONDS });
   }
 
   async deleteFile(bucket: string, objectKey: string): Promise<void> {
-    await this.client.send(new DeleteObjectCommand({ Bucket: bucket, Key: objectKey }));
+    const target = this.target(bucket, objectKey);
+    await this.client.send(new DeleteObjectCommand({ Bucket: target.bucket, Key: target.objectKey }));
   }
 
   async getFileMetadata(bucket: string, objectKey: string): Promise<StoredFileMetadata | null> {
     try {
-      const head = await this.client.send(new HeadObjectCommand({ Bucket: bucket, Key: objectKey })) as HeadObjectCommandOutput;
+      const target = this.target(bucket, objectKey);
+      const head = await this.client.send(new HeadObjectCommand({ Bucket: target.bucket, Key: target.objectKey })) as HeadObjectCommandOutput;
       return {
         bucket,
         objectKey,

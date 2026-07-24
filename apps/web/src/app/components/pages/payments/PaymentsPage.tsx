@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "../../ui/card";
 import { Button } from "../../ui/button";
 import { Input } from "../../ui/input";
@@ -6,6 +6,10 @@ import { Tabs, TabsList, TabsTrigger } from "../../ui/tabs";
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from "../../ui/dialog";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
+  AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "../../ui/alert-dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../../ui/table";
 import { Label } from "../../ui/label";
@@ -68,6 +72,7 @@ export function PaymentsPage({ focus }: { focus?: OperationFocus }) {
   // Tıklanan kasa hareketi → detay + fiş/fatura pop-up'ı
   const [selectedPayment, setSelectedPayment] = useState<Payment | null>(null);
   const [deletingPaymentId, setDeletingPaymentId] = useState<string | null>(null);
+  const [pendingDeletePayment, setPendingDeletePayment] = useState<Payment | null>(null);
 
   useEffect(() => {
     if (focus === "overdue") setStatusFilter("Overdue");
@@ -132,18 +137,17 @@ export function PaymentsPage({ focus }: { focus?: OperationFocus }) {
   });
   const { page, setPage, totalPages, pageItems } = usePaged(filtered, 12);
 
-  const deletePayment = async (payment: Payment, event?: MouseEvent) => {
-    event?.stopPropagation();
+  const deletePayment = async (payment: Payment) => {
     if (payment.source !== "payment") {
       toast.error("Bu satır ödeme kaydı değil", { description: "Bekleyen alacak/vade satırları kasa hareketi olarak silinemez." });
       return;
     }
-    if (!window.confirm(`${customerName(payment.customerId)} için ${payment.amount.toLocaleString("tr-TR")} ${payment.currency} kasa hareketini silmek istediğinize emin misiniz?`)) return;
     setDeletingPaymentId(payment.id);
     try {
       await financeService.deletePayment(payment.id);
       toast.success("Kasa hareketi silindi");
       if (selectedPayment?.id === payment.id) setSelectedPayment(null);
+      setPendingDeletePayment(null);
       refresh();
     } catch (err: any) {
       toast.error("Kasa hareketi silinemedi", { description: err?.message ?? "İstek başarısız oldu." });
@@ -608,7 +612,10 @@ export function PaymentsPage({ focus }: { focus?: OperationFocus }) {
                             className="size-8 text-muted-foreground hover:text-destructive"
                             title="Kasa hareketini sil"
                             disabled={deletingPaymentId === p.id}
-                            onClick={(event) => deletePayment(p, event)}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              setPendingDeletePayment(p);
+                            }}
                           >
                             <Trash2 className="size-4" />
                           </Button>
@@ -643,6 +650,34 @@ export function PaymentsPage({ focus }: { focus?: OperationFocus }) {
         customerName={customerName}
         onClose={() => setSelectedPayment(null)}
       />
+      <AlertDialog open={!!pendingDeletePayment} onOpenChange={(open) => !open && !deletingPaymentId && setPendingDeletePayment(null)}>
+        <AlertDialogContent className="max-w-lg">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Kasa hareketi silinsin mi?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {pendingDeletePayment
+                ? `${customerName(pendingDeletePayment.customerId)} için ${pendingDeletePayment.amount.toLocaleString("tr-TR")} ${pendingDeletePayment.currency} tutarındaki hareket kalıcı olarak silinecek. Rapor ve kasa bakiyesi yeniden hesaplanacak.`
+                : "Seçili kasa hareketi kalıcı olarak silinecek."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="rounded-lg border border-destructive/15 bg-destructive/[0.04] p-3 text-xs text-muted-foreground">
+            Bağlı fiş ve faturalar silinmez; yalnız kasa hareketi kaldırılır.
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Vazgeç</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={!!deletingPaymentId}
+              onClick={(event) => {
+                event.preventDefault();
+                if (pendingDeletePayment) void deletePayment(pendingDeletePayment);
+              }}
+            >
+              {deletingPaymentId ? "Siliniyor…" : "Hareketi sil"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
@@ -705,6 +740,7 @@ function PaymentDetailDialog({
   const [savingStatus, setSavingStatus] = useState(false);
   const [savingPayment, setSavingPayment] = useState(false);
   const [deletingPayment, setDeletingPayment] = useState(false);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [editForm, setEditForm] = useState({
     amount: "",
     paymentDate: "",
@@ -783,11 +819,11 @@ function PaymentDetailDialog({
 
   const deletePayment = async () => {
     if (!payment || payment.source !== "payment") return;
-    if (!window.confirm(`${customerName(payment.customerId)} için ${payment.amount.toLocaleString("tr-TR")} ${payment.currency} kasa hareketini silmek istediğinize emin misiniz?`)) return;
     setDeletingPayment(true);
     try {
       await financeService.deletePayment(payment.id);
       toast.success("Kasa hareketi silindi");
+      setDeleteConfirmOpen(false);
       refresh();
       onClose();
     } catch (err: any) {
@@ -865,6 +901,7 @@ function PaymentDetailDialog({
   };
 
   return (
+    <>
     <Dialog open={!!payment} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="w-[min(620px,calc(100vw-2rem))] max-w-none sm:max-w-none max-h-[90dvh] overflow-hidden p-0 gap-0">
         {payment && (
@@ -1040,7 +1077,7 @@ function PaymentDetailDialog({
                   variant="outline"
                   className="mr-auto gap-1 text-destructive hover:bg-destructive-soft hover:text-destructive"
                   disabled={deletingPayment}
-                  onClick={deletePayment}
+                  onClick={() => setDeleteConfirmOpen(true)}
                 >
                   <Trash2 className="size-4" /> Sil
                 </Button>
@@ -1051,5 +1088,27 @@ function PaymentDetailDialog({
         )}
       </DialogContent>
     </Dialog>
+    <AlertDialog open={deleteConfirmOpen} onOpenChange={(open) => !open && !deletingPayment && setDeleteConfirmOpen(false)}>
+      <AlertDialogContent className="max-w-lg">
+        <AlertDialogHeader>
+          <AlertDialogTitle>Kasa hareketi silinsin mi?</AlertDialogTitle>
+          <AlertDialogDescription>
+            {payment
+              ? `${customerName(payment.customerId)} için ${payment.amount.toLocaleString("tr-TR")} ${payment.currency} tutarındaki hareket kalıcı olarak silinecek.`
+              : "Seçili kasa hareketi kalıcı olarak silinecek."}
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <div className="rounded-lg border border-destructive/15 bg-destructive/[0.04] p-3 text-xs text-muted-foreground">
+          Bağlı fiş ve faturalar korunur. Kasa bakiyesi ve finans raporları bu hareket olmadan yeniden hesaplanır.
+        </div>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Vazgeç</AlertDialogCancel>
+          <AlertDialogAction className="bg-destructive text-destructive-foreground hover:bg-destructive/90" disabled={deletingPayment} onClick={(event) => { event.preventDefault(); void deletePayment(); }}>
+            {deletingPayment ? "Siliniyor…" : "Hareketi sil"}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+    </>
   );
 }

@@ -68,6 +68,8 @@ export function SalesCaseDetailPage({
   const isSuperAdmin = hasRole("super_admin");
   const [lostOpen, setLostOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [closeOpen, setCloseOpen] = useState(false);
+  const [pendingActivityDelete, setPendingActivityDelete] = useState<Activity | null>(null);
   const [deleteSaving, setDeleteSaving] = useState(false);
   const [closeSaving, setCloseSaving] = useState(false);
   const [selectedOfferId, setSelectedOfferId] = useState<string | null>(null);
@@ -183,10 +185,10 @@ export function SalesCaseDetailPage({
   };
 
   const removeActivity = async (activity: Activity) => {
-    if (!window.confirm(`${activity.title} aktivitesi silinsin mi?`)) return;
     try {
       await deleteActivity(activity.id);
       toast.success("Aktivite silindi");
+      setPendingActivityDelete(null);
     } catch (err: any) {
       toast.error("Aktivite silinemedi", { description: err?.message ?? "API isteği başarısız oldu." });
     }
@@ -194,11 +196,11 @@ export function SalesCaseDetailPage({
 
   const handleCloseCase = async () => {
     if (closeSaving) return;
-    if (!window.confirm("Bu kart 'Tamamlandı' olarak arşivlenecek (silinmez, Geçmiş'te kalır). Devam edilsin mi?")) return;
     setCloseSaving(true);
     try {
       await closeCase(sc.id);
       toast.success("Kart Geçmiş'e alındı", { description: c?.name ?? sc.requestedProduct });
+      setCloseOpen(false);
       onBack();
     } catch (err: any) {
       toast.error("Kart bitirilemedi", { description: err?.message ?? "Yalnız teslim edilen veya iptal edilen kartlar kapatılabilir." });
@@ -279,7 +281,7 @@ export function SalesCaseDetailPage({
               <div className="mt-1 flex items-center gap-2 px-1 text-[11px] text-muted-foreground">
                 <button type="button" className="underline-offset-2 hover:underline" onClick={() => openActivityEdit(a)}>Düzenle</button>
                 <span>·</span>
-                <button type="button" className="text-destructive underline-offset-2 hover:underline" onClick={() => removeActivity(a)}>Sil</button>
+                <button type="button" className="text-destructive underline-offset-2 hover:underline" onClick={() => setPendingActivityDelete(a)}>Sil</button>
               </div>
             </div>
           </div>
@@ -323,6 +325,38 @@ export function SalesCaseDetailPage({
               }}
             >
               {deleteSaving ? "Siliniyor..." : "Sil"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      <AlertDialog open={closeOpen} onOpenChange={(open) => !closeSaving && setCloseOpen(open)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Satış kartı tamamlansın mı?</AlertDialogTitle>
+            <AlertDialogDescription>
+              <b>{c?.name ?? "Firma bulunamadı"}</b> · <b>{sc.requestedProduct}</b> kartı silinmeden Geçmiş görünümüne taşınacak. Teklif, belge ve aktivite bağlantıları korunur.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={closeSaving}>Vazgeç</AlertDialogCancel>
+            <AlertDialogAction disabled={closeSaving} onClick={(event) => { event.preventDefault(); void handleCloseCase(); }}>
+              {closeSaving ? "Tamamlanıyor…" : "Tamamla ve arşivle"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      <AlertDialog open={Boolean(pendingActivityDelete)} onOpenChange={(open) => !open && setPendingActivityDelete(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Aktivite silinsin mi?</AlertDialogTitle>
+            <AlertDialogDescription>
+              <b>{pendingActivityDelete?.title}</b> aktivitesi satış kartı zaman çizelgesinden kalıcı olarak kaldırılacak.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Vazgeç</AlertDialogCancel>
+            <AlertDialogAction className="bg-destructive hover:bg-destructive/90" onClick={(event) => { event.preventDefault(); if (pendingActivityDelete) void removeActivity(pendingActivityDelete); }}>
+              Aktiviteyi sil
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -382,7 +416,7 @@ export function SalesCaseDetailPage({
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => void handleCloseCase()}
+                  onClick={() => setCloseOpen(true)}
                   disabled={closeSaving}
                   className="w-full justify-start gap-2 rounded-md border-success/30 text-success hover:bg-success-soft hover:text-success"
                 >
@@ -421,19 +455,38 @@ export function SalesCaseDetailPage({
             </div>
           </div>
 
-          <div className="mt-5 flex flex-wrap gap-1">
-            {SALES_STAGES.filter((s) => s !== "cancelled").map((s, i) => {
-              const idx = SALES_STAGES.indexOf(sc.stage);
-              const reached = i <= idx;
-              return (
-                <div
-                  key={s}
-                  className={`rounded-full px-2.5 py-1 text-xs ${reached ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}
-                >
-                  {salesStageLabel(s)}
-                </div>
-              );
-            })}
+          <div className="mt-5 overflow-x-auto rounded-xl border border-border/70 bg-muted/15 px-3 py-3">
+            <ol className="flex min-w-max items-start" aria-label="Satış aşamaları">
+              {SALES_STAGES.filter((s) => s !== "cancelled").map((s, i, stages) => {
+                const currentIndex = sc.stage === "cancelled" ? -1 : stages.indexOf(sc.stage);
+                const complete = currentIndex >= 0 && i < currentIndex;
+                const active = s === sc.stage;
+                return (
+                  <li key={s} className="flex items-start">
+                    <div className="flex w-[112px] flex-col items-center text-center">
+                      <span
+                        aria-current={active ? "step" : undefined}
+                        className={`grid size-7 place-items-center rounded-full border text-[10px] font-semibold transition-colors ${
+                          complete
+                            ? "border-success bg-success text-white"
+                            : active
+                              ? "border-primary bg-primary text-white ring-4 ring-primary/10"
+                              : "border-border bg-white text-muted-foreground"
+                        }`}
+                      >
+                        {complete ? <CheckCircle2 className="size-4" /> : i + 1}
+                      </span>
+                      <span className={`mt-1.5 max-w-[108px] text-[10px] leading-tight ${active ? "font-semibold text-primary" : complete ? "text-success" : "text-muted-foreground"}`}>
+                        {salesStageLabel(s)}
+                      </span>
+                    </div>
+                    {i < stages.length - 1 && (
+                      <span className={`mt-3.5 h-px w-6 shrink-0 ${complete ? "bg-success" : "bg-border"}`} aria-hidden />
+                    )}
+                  </li>
+                );
+              })}
+            </ol>
           </div>
         </CardContent>
       </Card>
@@ -594,10 +647,26 @@ export function SalesCaseDetailPage({
                           <div className="mt-1 text-sm font-medium">{a.title}</div>
                         </div>
                         <div className="flex shrink-0 gap-1">
-                          <Button type="button" variant="ghost" size="icon" className="size-8" onClick={() => openActivityEdit(a)}>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            aria-label={`${a.title} aktivitesini düzenle`}
+                            title="Aktiviteyi düzenle"
+                            className="size-8"
+                            onClick={() => openActivityEdit(a)}
+                          >
                             <Pencil className="size-4" />
                           </Button>
-                          <Button type="button" variant="ghost" size="icon" className="size-8 text-destructive" onClick={() => removeActivity(a)}>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            aria-label={`${a.title} aktivitesini sil`}
+                            title="Aktiviteyi sil"
+                            className="size-8 text-destructive"
+                            onClick={() => setPendingActivityDelete(a)}
+                          >
                             <Trash2 className="size-4" />
                           </Button>
                         </div>

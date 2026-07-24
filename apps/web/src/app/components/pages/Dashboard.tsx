@@ -8,6 +8,7 @@ import {
   Users, Briefcase, FileText, AlertTriangle, TrendingUp, TrendingDown,
   Package, Wrench, Target, ArrowUpRight, Calendar,
   CheckCircle2, Clock, Wallet, Truck, BarChart3, LayoutDashboard, ListTodo, LineChart as LineChartIcon,
+  Cpu, Factory,
 } from "lucide-react";
 import {
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid,
@@ -280,14 +281,17 @@ export function DashboardPage({ onAction }: { onAction?: (action: OperationActio
   return (
     <div className="space-y-5">
       {/* Welcome strip */}
-      <div className="rounded-xl border-t-2 border-brand-red bg-gradient-to-br from-brand-dark via-brand-blue to-[#0a1440] text-white p-5 flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-sm">
+      <div className="relative isolate overflow-hidden rounded-xl border-t-2 border-brand-red bg-gradient-to-br from-brand-dark via-brand-blue to-[#0a1440] p-4 text-white shadow-sm sm:p-5">
+        <div className="pointer-events-none absolute inset-0 -z-10 opacity-[0.06] [background-image:linear-gradient(to_right,#fff_1px,transparent_1px),linear-gradient(to_bottom,#fff_1px,transparent_1px)] [background-size:28px_28px]" />
+        <div className="flex flex-col justify-between gap-4 md:flex-row md:items-center">
         <div className="flex items-center gap-4 min-w-0">
-          <div className="h-16 w-[196px] rounded-lg bg-white/10 backdrop-blur grid place-items-center shrink-0 border border-white/10">
-            <img src="/brand/haksan-logo-white.png" alt="Haksan Makina" className="h-12 w-auto max-w-[166px] object-contain" />
+          <div className="grid size-12 shrink-0 place-items-center rounded-xl border border-white/15 bg-white/10 text-white shadow-inner backdrop-blur">
+            <Factory className="size-5" />
           </div>
           <div className="min-w-0">
-            <div className="text-[15px] tracking-tight">Hoş geldin {user?.fullName?.split(" ")[0] ?? "ekip"} 👋</div>
-            <div className="text-[13px] text-white/75 mt-0.5">
+            <div className="font-data text-[9px] font-semibold uppercase tracking-[0.16em] text-blue-200">Günlük operasyon brifingi</div>
+            <div className="mt-1 font-display text-xl font-semibold leading-none tracking-tight">Hoş geldin {user?.fullName?.split(" ")[0] ?? "ekip"}</div>
+            <div className="mt-1.5 text-[12px] text-white/72">
               Bugün <b className="text-white">{workItems.length}</b> takip işi var; <b className="text-white">{criticalWork}</b> kritik, <b className="text-white">{warningWork}</b> yakın takip.
             </div>
           </div>
@@ -309,6 +313,7 @@ export function DashboardPage({ onAction }: { onAction?: (action: OperationActio
             Gecikenler
             <ArrowUpRight className="size-4" />
           </Button>
+        </div>
         </div>
       </div>
 
@@ -344,7 +349,7 @@ export function DashboardPage({ onAction }: { onAction?: (action: OperationActio
             <Kpi icon={<Briefcase className="size-[18px]" />} tone="blue" label="Pipeline" value={`$${(totalPipeline / 1000).toFixed(0)}K`} sub="açık" onClick={() => onAction?.({ kind: "navigate", nav: "sales-cases", focus: "open" })} />
             <KpiFromDrilldown icon={<AlertTriangle className="size-[18px]" />} tone="red" item={drilldown("kpi:overdue")} alarm onAction={onAction} />
             <KpiFromDrilldown icon={<Wrench className="size-[18px]" />} tone="amber" item={drilldown("kpi:service-open")} onAction={onAction} />
-            <Kpi icon={<Wrench className="size-[18px]" />} tone="amber" label="Aktif Makine" value={installedMachines} sub="garantili" onClick={() => onAction?.({ kind: "navigate", nav: "machines" })} />
+            <Kpi icon={<Cpu className="size-[18px]" />} tone="amber" label="Aktif Makine" value={installedMachines} sub="garantili" onClick={() => onAction?.({ kind: "navigate", nav: "machines" })} />
           </div>
 
           <OverviewPulseBar
@@ -1333,10 +1338,10 @@ function Kpi({
           </span>
           )}
         </div>
-        <div className="mt-3 text-[11px] uppercase tracking-wider text-muted-foreground truncate">{label}</div>
-        <div className="mt-1 flex items-baseline gap-1.5">
-          <div className="text-[22px] tabular-nums tracking-tight leading-none truncate">{value}</div>
-          <div className="text-[11px] text-muted-foreground truncate">{sub}</div>
+        <div className="mt-3 truncate text-[10px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">{label}</div>
+        <div className="mt-1 flex min-w-0 flex-wrap items-baseline gap-x-1.5 gap-y-0.5">
+          <div className="font-display min-w-0 text-[clamp(1.15rem,1.65vw,1.55rem)] font-semibold tabular-nums tracking-tight leading-none" title={String(value)}>{value}</div>
+          <div className="text-[10px] text-muted-foreground">{sub}</div>
         </div>
       </CardContent>
     </Card>

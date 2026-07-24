@@ -1,10 +1,15 @@
+import { cloneElement, isValidElement, useId } from "react";
 import { Label } from "../../ui/label";
 
 export function FormField({ label, children }: { label: string; children: React.ReactNode }) {
+  const fieldId = useId();
+  const control = isValidElement(children)
+    ? cloneElement(children as React.ReactElement<any>, { id: (children.props as { id?: string }).id ?? fieldId })
+    : children;
   return (
     <div>
-      <Label className="text-xs">{label}</Label>
-      <div className="mt-1.5">{children}</div>
+      <Label className="text-xs" htmlFor={fieldId}>{label}</Label>
+      <div className="mt-1.5">{control}</div>
     </div>
   );
 }

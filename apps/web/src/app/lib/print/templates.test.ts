@@ -125,7 +125,8 @@ describe("print templates", () => {
     expect(pages(document.body)).toBe(1);
     expect(document.body).toContain("PROFORMA-KALEM-9");
     expect(document.body).toContain("PROFORMA-NOT-9");
-    expect(document.body).toContain("ÖZEL İSKONTO");
+    expect(document.body).not.toContain("ÖZEL İSKONTO");
+    expect(document.body).not.toContain(">İskonto<");
     expect(document.body).toContain("1.020,00");
     expect(document.body).not.toContain("<script>");
     expect(document.body).toContain("&lt;script&gt;");
@@ -220,6 +221,106 @@ describe("print templates", () => {
     expect(document.body).toContain("+90 534 234 11 68");
     expect(document.body).not.toContain("TOPLAM ÖZETİ");
     expect(document.body).toContain("Sayfa <b>4</b> / <b>4</b>");
+  });
+
+  it("always reserves the special-discount row in the offer price box", () => {
+    const document = quoteDoc({
+      firma: "İskontosuz Müşteri",
+      tarih: "20.07.2026",
+      belgeNo: "CNC-2026/002",
+      items: [{ urun: "VM-2 CNC Dik İşleme Merkezi", birim: "1 Adet", fiyat: 10_000, tutar: 10_000 }],
+      iskonto: 0,
+      kdvOran: 0,
+      kdvTutar: 0,
+      currency: "USD",
+      notes: { key: "entered", label: "Girilen şartlar", odeme: [], teslimat: [], garanti: [] },
+    }, assetBase);
+
+    expect(document.body).toContain("ÖZEL İSKONTO");
+    expect(document.body).toContain("0,00 USD");
+    expect(document.body.indexOf("ÖZEL İSKONTO")).toBeLessThan(document.body.indexOf("GENEL TOPLAM"));
+  });
+
+  it("embeds a raster product photo and rejects executable image URLs", () => {
+    const base = {
+      firma: "Görselli Teklif",
+      tarih: "20.07.2026",
+      belgeNo: "CNC-2026/003",
+      items: [{ urun: "VM-2 CNC Dik İşleme Merkezi", birim: "1 Adet", fiyat: 10_000, tutar: 10_000 }],
+      kdvOran: 0,
+      kdvTutar: 0,
+      currency: "USD" as const,
+      notes: { key: "entered", label: "Girilen şartlar", odeme: [], teslimat: [], garanti: [] },
+    };
+    const embedded = quoteDoc({ ...base, imageUrl: "data:image/png;base64,aW1hZ2U=" }, assetBase);
+    const unsafe = quoteDoc({ ...base, imageUrl: "javascript:alert(1)" }, assetBase);
+
+    expect(embedded.body).toContain('src="data:image/png;base64,aW1hZ2U="');
+    expect(unsafe.body).not.toContain("javascript:alert(1)");
+    expect(unsafe.body).toContain("q-photo-placeholder");
+  });
+
+  it("keeps the offer template intact while rendering every selected machine", () => {
+    const document = quoteDoc({
+      firma: "İki Makineli Teklif",
+      tarih: "21.07.2026",
+      belgeNo: "CNC-2026/010",
+      machines: [
+        {
+          lineGroupKey: "a",
+          urun: "ECOCA MT-208 CNC Torna",
+          marka: "ECOCA",
+          model: "MT-208",
+          tip: "CNC Torna",
+          imageUrl: "data:image/png;base64,bWFjaGluZTE=",
+          specs: [{ key: "Çevirme Çapı", value: "550", unit: "mm" }],
+          standartDonanim: ["Torna standart paketi"],
+          opsiyonelDonanim: ["Talaş konveyörü"],
+        },
+        {
+          lineGroupKey: "b",
+          urun: "LK VM-2 CNC Dik İşleme Merkezi",
+          marka: "LK",
+          model: "VM-2",
+          tip: "CNC Dik İşleme Merkezi",
+          imageUrl: "data:image/png;base64,bWFjaGluZTI=",
+          specs: [{ key: "X Ekseni", value: "800", unit: "mm" }],
+          standartDonanim: ["İşleme merkezi standart paketi"],
+          opsiyonelDonanim: ["Takım ölçme"],
+        },
+      ],
+      items: [
+        { urun: "ECOCA MT-208 CNC Torna", birim: "1 Adet", fiyat: 100_000, indirim: 10_000, tutar: 90_000 },
+        { urun: "LK VM-2 CNC Dik İşleme Merkezi", birim: "2 Adet", fiyat: 75_000, indirim: 5_000, tutar: 145_000 },
+      ],
+      iskonto: 0,
+      kdvOran: 0,
+      kdvTutar: 0,
+      currency: "USD",
+      notes: { key: "entered", label: "Girilen şartlar", odeme: [], teslimat: [], garanti: [] },
+    }, assetBase);
+
+    expect(pages(document.body)).toBe(7);
+    expect(document.body).toContain("MAKİNE 1 / 2");
+    expect(document.body).toContain("MAKİNE 2 / 2");
+    expect(document.body).toContain("MT-208");
+    expect(document.body).toContain("VM-2");
+    expect(document.body).toContain("Çevirme Çapı");
+    expect(document.body).toContain("X Ekseni");
+    expect(document.body).toContain("Talaş konveyörü");
+    expect(document.body).toContain("Takım ölçme");
+    expect(document.body).toContain("Ürüne özel iskonto: 10.000,00 USD");
+    const firstPageStart = document.body.indexOf('<div class="page">');
+    const secondPageStart = document.body.indexOf('<div class="page">', firstPageStart + 1);
+    const customerMetaBlock = document.body.indexOf('class="q-top"');
+    expect(customerMetaBlock).toBeGreaterThan(firstPageStart);
+    expect(customerMetaBlock).toBeLessThan(secondPageStart);
+    expect(document.body.slice(secondPageStart)).not.toContain('class="q-top"');
+    expect(document.body.match(/class="q-top"/g) ?? []).toHaveLength(1);
+    expect(document.body.match(/CNC-2026\/010/g) ?? []).toHaveLength(1);
+    expect(document.body).toContain("-15.000,00 USD");
+    expect(document.body).toContain("235.000,00 USD");
+    expect(document.body).toContain("Sayfa <b>7</b> / <b>7</b>");
   });
 
   it("keeps all service quote rows and notes", () => {
@@ -358,6 +459,36 @@ describe("print templates", () => {
     expect(document.body).not.toContain("Sözleşme No:");
   });
 
+  it("renders each contracted machine in its own numbered technical section and price row", () => {
+    const document = contractDoc({
+      alici: { unvan: "ÇOKLU MAKİNE A.Ş." },
+      sozlesmeNo: "CNC-SOZ-2026/010",
+      sozlesmeTarihi: "2026-07-21",
+      model: "ECOCA MT-208 / LK VM-2",
+      adet: 3,
+      ozellikler: [],
+      aksesuarlar: [],
+      fiyat: 235_000,
+      currency: "USD",
+      kdvOran: 20,
+      odemePlani: [],
+      machines: [
+        { model: "ECOCA MT-208 CNC Torna", adet: 1, ozellikler: [{ key: "Çevirme Çapı", value: "550 mm" }], aksesuarlar: ["Talaş konveyörü"], fiyat: 90_000 },
+        { model: "LK VM-2 CNC Dik İşleme Merkezi", adet: 2, ozellikler: [{ key: "X Ekseni", value: "800 mm" }], aksesuarlar: ["Takım ölçme"], fiyat: 145_000 },
+      ],
+    }, assetBase);
+
+    expect(pages(document.body)).toBeGreaterThanOrEqual(4);
+    expect(document.body).toContain("Sözleşmeye Konu Olan Tezgahlar ve Özellikleri");
+    expect(document.body).toContain("1.1.1.");
+    expect(document.body).toContain("1.2.1.");
+    expect(document.body).toContain("ECOCA MT-208 CNC Torna");
+    expect(document.body).toContain("LK VM-2 CNC Dik İşleme Merkezi");
+    expect(document.body).toContain("90.000,00 USD");
+    expect(document.body).toContain("145.000,00 USD");
+    expect(document.body).toContain("235.000,00 USD");
+  });
+
   it("paginates dispatch and delivery rows with continuous numbering", () => {
     const items = Array.from({ length: 25 }, (_, index) => ({ description: `SEVKIYAT-${index + 1}`, quantity: 1 }));
     const dispatch = dispatchNoteDoc({ irsaliyeNo: "IRS-001", items }, assetBase);
@@ -422,6 +553,22 @@ describe("print templates", () => {
     expect(document.body).toContain("&lt;img src=x onerror=alert(1)&gt;");
     expect(document.css).toContain("font-size: 7.5pt");
     expect(document.css).toContain("overflow-wrap: anywhere");
+  });
+
+  it("keeps cargo recipient lines compact and prints the brand slogan at most once", () => {
+    const document = cargoLabelDoc({
+      firma: "Örnek Makina Sanayi A.Ş.",
+      adres: "Organize Sanayi Bölgesi 10. Cadde No:4",
+      ilce: "Nilüfer",
+      sehir: "Bursa",
+      tel: "0 (224) 000 00 00",
+    }, assetBase);
+
+    expect(document.body).toContain("Organize Sanayi Bölgesi 10. Cadde No:4<br>Nilüfer / Bursa");
+    expect(document.body).toContain("Tel: 0 (224) 000 00 00");
+    expect(document.body).not.toContain("Makina Marketiniz");
+    expect(document.css).toContain("gap: 1.5mm");
+    expect(document.css).not.toContain("white-space: pre-wrap");
   });
 
   it("moves long contract and transport text to numbered continuation pages", () => {

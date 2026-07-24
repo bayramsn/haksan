@@ -44,6 +44,7 @@ export function MultiSelect({
             type="button"
             variant="outline"
             role="combobox"
+            aria-label={placeholder}
             className="h-8 w-full justify-between gap-2 px-2 font-normal"
           >
             <span className={`truncate text-xs ${selected.length ? "text-foreground" : "text-muted-foreground"}`}>
@@ -98,7 +99,13 @@ export function MultiSelect({
           {selected.map((v) => (
             <span key={v} className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[10px]">
               {labelOf(v)}
-              <button type="button" onClick={() => toggle(v)} className="hover:text-destructive">
+              <button
+                type="button"
+                aria-label={`${labelOf(v)} seçimini kaldır`}
+                title="Seçimi kaldır"
+                onClick={() => toggle(v)}
+                className="hover:text-destructive"
+              >
                 <X className="size-2.5" />
               </button>
             </span>

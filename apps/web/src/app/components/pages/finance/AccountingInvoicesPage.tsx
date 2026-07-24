@@ -7,11 +7,15 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from ".
 import {
   Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle,
 } from "../../ui/dialog";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
+  AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "../../ui/alert-dialog";
 import { Tabs, TabsList, TabsTrigger } from "../../ui/tabs";
 import { financeService } from "../../../../lib/services";
 import { CreateAccountingInvoiceDialog } from "./CreateAccountingInvoiceDialog";
 import { toast } from "sonner";
-import { ArrowDownLeft, ArrowUpRight, Building2, Layers, Pencil, Plus, Receipt, Search, Trash2 } from "lucide-react";
+import { ArrowDownLeft, ArrowUpRight, Building2, CalendarClock, Clock3, Layers, Pencil, Plus, Receipt, Search, Trash2 } from "lucide-react";
 import { MiniKpi } from "../../shared/MiniKpi";
 import { EmptyState } from "../../shared/EmptyState";
 
@@ -80,6 +84,47 @@ const paymentTypeLabel = (value?: string | null) => {
   return "Peşin";
 };
 
+function dueState(invoice: Pick<InvoiceRow, "firstDueDate" | "installmentCount">) {
+  if (!invoice.firstDueDate) return { label: "Vade yok", tone: "neutral" as const, detail: "Peşin / tanımsız" };
+  const due = new Date(invoice.firstDueDate);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  due.setHours(0, 0, 0, 0);
+  const days = Math.ceil((due.getTime() - today.getTime()) / 86_400_000);
+  if (days < 0) return { label: `${Math.abs(days)} gün gecikmiş`, tone: "danger" as const, detail: "Takip gerekli" };
+  if (days === 0) return { label: "Bugün vadeli", tone: "warning" as const, detail: "Gün içi aksiyon" };
+  if (days <= 7) return { label: `${days} gün kaldı`, tone: "warning" as const, detail: "Yaklaşan vade" };
+  return { label: `${days} gün kaldı`, tone: "success" as const, detail: invoice.installmentCount > 1 ? "Taksit planı" : "Planlı" };
+}
+
+function InvoiceSheet({ invoice, compact = false }: { invoice: InvoiceRow; compact?: boolean }) {
+  return (
+    <div className={`relative shrink-0 overflow-hidden rounded-md border border-primary/10 bg-white shadow-xs ${compact ? "h-12 w-9" : "h-40 w-28"}`} aria-hidden="true">
+      <div className="h-1.5 bg-primary" />
+      <div className={compact ? "space-y-1 p-1" : "space-y-2 p-3"}>
+        <div className="flex items-center justify-between gap-1">
+          <span className={`${compact ? "text-[5px]" : "text-[8px]"} font-bold uppercase tracking-wider text-primary`}>Fatura</span>
+          {!compact && <span className="font-data text-[7px] text-muted-foreground">{invoice.invoiceNo}</span>}
+        </div>
+        <div className="h-px bg-border" />
+        {[78, 58, 88, 66].map((width) => <div key={width} className="h-0.5 rounded-full bg-slate-200" style={{ width: `${width}%` }} />)}
+        {!compact && (
+          <>
+            <div className="mt-4 grid grid-cols-3 gap-1">
+              <span className="h-5 rounded-sm bg-brand-blue-soft" />
+              <span className="h-5 rounded-sm bg-muted" />
+              <span className="h-5 rounded-sm bg-muted" />
+            </div>
+            <div className="absolute inset-x-3 bottom-3 border-t border-border pt-2 text-right font-data text-[9px] font-bold text-primary">
+              {Number(invoice.grandTotal).toLocaleString("tr-TR")} {invoice.currency?.code ?? ""}
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function invoicePrefill(invoice: InvoiceDetail) {
   const amount = Number(invoice.amount ?? invoice.grandTotal ?? 0);
   const vatAmount = Number(invoice.vatAmount ?? 0);
@@ -122,6 +167,7 @@ export function AccountingInvoicesPage() {
   const [loading, setLoading] = useState(true);
   const [detail, setDetail] = useState<InvoiceDetail | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<InvoiceRow | null>(null);
 
   const load = () => {
     setLoading(true);
@@ -169,14 +215,18 @@ export function AccountingInvoicesPage() {
     }
   };
 
-  const deleteInvoice = async (row: InvoiceRow, event?: MouseEvent) => {
+  const requestDeleteInvoice = (row: InvoiceRow, event?: MouseEvent) => {
     event?.stopPropagation();
-    if (!window.confirm(`${row.invoiceNo} numaralı faturayı arşivlemek istediğinize emin misiniz?`)) return;
+    setPendingDelete(row);
+  };
+
+  const deleteInvoice = async (row: InvoiceRow) => {
     setDeletingId(row.id);
     try {
       await financeService.deleteAccountingInvoice(row.id);
       toast.success("Fatura silindi");
       if (detail?.id === row.id) setDetail(null);
+      setPendingDelete(null);
       load();
     } catch (err: any) {
       toast.error("Fatura silinemedi", { description: err?.message ?? "Aktif ödeme veya yetki kontrolü nedeniyle işlem tamamlanamadı." });
@@ -266,14 +316,14 @@ export function AccountingInvoicesPage() {
           <Table>
             <TableHeader>
               <TableRow className="bg-muted/40 hover:bg-muted/40 [&_th]:text-[11px] [&_th]:uppercase [&_th]:tracking-wider [&_th]:text-muted-foreground">
-                <TableHead>Fatura No</TableHead>
+                  <TableHead>Belge / Fatura No</TableHead>
                 {typeFilter === "all" && <TableHead>Tür</TableHead>}
                 <TableHead>Sınıf</TableHead>
                 <TableHead>{typeFilter === "purchase" ? "Tedarikçi" : typeFilter === "sales" ? "Müşteri" : "Firma"}</TableHead>
                 <TableHead>Tarih</TableHead>
                 <TableHead className="text-right">Tutar</TableHead>
                 <TableHead>Taksit</TableHead>
-                <TableHead>Vade Aralığı</TableHead>
+                  <TableHead>Vade / Aging</TableHead>
                 <TableHead className="w-12 text-right">İşlem</TableHead>
               </TableRow>
             </TableHeader>
@@ -283,7 +333,15 @@ export function AccountingInvoicesPage() {
               )}
               {!loading && filtered.map((r) => (
                 <TableRow key={r.id} className="cursor-pointer hover:bg-primary/[0.025]" onClick={() => openDetail(r)}>
-                  <TableCell className="font-medium tabular-nums">{r.invoiceNo}</TableCell>
+                  <TableCell>
+                    <div className="flex items-center gap-2.5">
+                      <InvoiceSheet invoice={r} compact />
+                      <div className="min-w-0">
+                        <div className="font-medium tabular-nums">{r.invoiceNo}</div>
+                        <div className="mt-0.5 text-[10px] text-muted-foreground">{r.type === "sales" ? "Satış belgesi" : "Alış belgesi"}</div>
+                      </div>
+                    </div>
+                  </TableCell>
                   {typeFilter === "all" && (
                     <TableCell>
                       <Badge variant="outline" className={r.type === "sales" ? "text-success border-success/20 bg-success-soft" : "text-info border-info/20 bg-info-soft"}>
@@ -302,9 +360,20 @@ export function AccountingInvoicesPage() {
                     {Number(r.grandTotal).toLocaleString("tr-TR")} {r.currency?.code ?? ""}
                   </TableCell>
                   <TableCell className="text-sm">{r.installmentCount}</TableCell>
-                  <TableCell className="text-xs text-muted-foreground">
-                    {r.firstDueDate ? new Date(r.firstDueDate).toLocaleDateString("tr-TR") : "—"}
-                    {r.lastDueDate && r.installmentCount > 1 ? ` – ${new Date(r.lastDueDate).toLocaleDateString("tr-TR")}` : ""}
+                  <TableCell className="text-xs">
+                    {(() => {
+                      const state = dueState(r);
+                      const tone = state.tone === "danger" ? "border-destructive/20 bg-destructive-soft text-destructive" : state.tone === "warning" ? "border-warning/20 bg-warning-soft text-warning" : state.tone === "success" ? "border-success/20 bg-success-soft text-success" : "border-border bg-muted text-muted-foreground";
+                      return (
+                        <div>
+                          <Badge variant="outline" className={`h-5 px-1.5 text-[10px] ${tone}`}>{state.label}</Badge>
+                          <div className="mt-1 text-[10px] text-muted-foreground">
+                            {r.firstDueDate ? new Date(r.firstDueDate).toLocaleDateString("tr-TR") : "Vade tanımlı değil"}
+                            {r.lastDueDate && r.installmentCount > 1 ? ` – ${new Date(r.lastDueDate).toLocaleDateString("tr-TR")}` : ""}
+                          </div>
+                        </div>
+                      );
+                    })()}
                   </TableCell>
                   <TableCell className="text-right">
                     <Button
@@ -313,7 +382,7 @@ export function AccountingInvoicesPage() {
                       className="size-8 text-muted-foreground hover:text-destructive"
                       title="Faturayı sil"
                       disabled={deletingId === r.id}
-                      onClick={(event) => deleteInvoice(r, event)}
+                      onClick={(event) => requestDeleteInvoice(r, event)}
                     >
                       <Trash2 className="size-4" />
                     </Button>
@@ -324,7 +393,7 @@ export function AccountingInvoicesPage() {
                 <TableRow>
                   <TableCell colSpan={typeFilter === "all" ? 9 : 8} className="py-4">
                     <EmptyState
-                      icon={<Receipt className="size-6" />}
+                      scene="documents"
                       title="Fatura bulunamadı"
                       description="Arama terimini veya tür/sınıf sekmelerini değiştirerek tekrar deneyin."
                     />
@@ -337,7 +406,7 @@ export function AccountingInvoicesPage() {
       </Card>
 
       <Dialog open={!!detail} onOpenChange={(o) => !o && setDetail(null)}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-w-4xl max-h-[88vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Fatura {detail?.invoiceNo}</DialogTitle>
             <DialogDescription className="sr-only">
@@ -345,8 +414,11 @@ export function AccountingInvoicesPage() {
             </DialogDescription>
           </DialogHeader>
           {detail && (
-            <div className="space-y-3 text-sm">
-              <div className="rounded-lg border border-border/60 bg-muted/30 p-3">
+            <div className="space-y-4 text-sm">
+              <div className="grid gap-4 rounded-xl border border-primary/10 bg-gradient-to-br from-brand-blue-soft/70 via-white to-white p-4 sm:grid-cols-[auto_1fr]">
+                <InvoiceSheet invoice={detail} />
+                <div className="min-w-0 space-y-3">
+              <div className="rounded-lg border border-border/60 bg-white/80 p-3">
                 <div className="mb-1 flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
                   <Building2 className="size-3.5" />
                   {detail.type === "sales" ? "Müşteri / Firma" : "Tedarikçi / Firma"}
@@ -362,7 +434,7 @@ export function AccountingInvoicesPage() {
                   </div>
                 )}
               </div>
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-2 gap-2 rounded-lg border border-border/60 bg-white/80 p-3">
                 <div><span className="text-muted-foreground">Tür:</span> {detail.type === "sales" ? "Satış" : "Alış"}</div>
                 <div><span className="text-muted-foreground">Sınıf:</span> {invoiceCategoryLabel(detail.invoiceCategory)}</div>
                 <div><span className="text-muted-foreground">Tarih:</span> {new Date(detail.invoiceDate).toLocaleDateString("tr-TR")}</div>
@@ -383,6 +455,20 @@ export function AccountingInvoicesPage() {
                 {detail.termChangeReason && (
                   <div className="col-span-2"><span className="text-muted-foreground">Vade Notu:</span> {detail.termChangeReason}</div>
                 )}
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div className="rounded-lg border border-border/60 bg-white/80 p-3">
+                  <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground"><CalendarClock className="size-3.5" /> Vade durumu</div>
+                  <div className="mt-1 font-semibold">{dueState(detail).label}</div>
+                  <div className="mt-0.5 text-[10px] text-muted-foreground">{dueState(detail).detail}</div>
+                </div>
+                <div className="rounded-lg border border-border/60 bg-white/80 p-3">
+                  <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground"><Clock3 className="size-3.5" /> Vade planı</div>
+                  <div className="mt-1 font-semibold">{detail.installmentCount} ödeme adımı</div>
+                  <div className="mt-0.5 text-[10px] text-muted-foreground">{detail.firstDueDate ? new Date(detail.firstDueDate).toLocaleDateString("tr-TR") : "Tarih tanımlı değil"}</div>
+                </div>
+              </div>
+                </div>
               </div>
               {(detail.installments?.length ?? 0) > 0 && (
                 <Table>
@@ -432,7 +518,12 @@ export function AccountingInvoicesPage() {
                   </Table>
                 </div>
               )}
-              <div className="flex justify-end gap-2 pt-2">
+              <div className="sticky bottom-0 -mx-1 flex flex-col gap-3 rounded-xl border border-primary/10 bg-white/95 p-3 shadow-lg backdrop-blur sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">Belge toplamı</div>
+                  <div className="font-display text-xl font-semibold tabular-nums text-primary">{Number(detail.grandTotal).toLocaleString("tr-TR")} {detail.currency?.code ?? ""}</div>
+                </div>
+                <div className="flex justify-end gap-2">
                 <CreateAccountingInvoiceDialog
                   invoiceId={detail.id}
                   prefill={invoicePrefill(detail)}
@@ -450,15 +541,40 @@ export function AccountingInvoicesPage() {
                   variant="outline"
                   className="gap-1 text-destructive hover:bg-brand-red-soft hover:text-destructive"
                   disabled={deletingId === detail.id}
-                  onClick={() => deleteInvoice(detail)}
+                  onClick={() => requestDeleteInvoice(detail)}
                 >
                   <Trash2 className="size-4" /> Sil
                 </Button>
+                </div>
               </div>
             </div>
           )}
         </DialogContent>
       </Dialog>
+
+      <AlertDialog open={!!pendingDelete} onOpenChange={(open) => !open && !deletingId && setPendingDelete(null)}>
+        <AlertDialogContent className="max-w-lg">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Fatura arşivlensin mi?</AlertDialogTitle>
+            <AlertDialogDescription>
+              <span className="block font-medium text-foreground">{pendingDelete?.invoiceNo} · {pendingDelete ? companyName(pendingDelete.company) : ""}</span>
+              Bu belge listeden kaldırılır. Aktif ödeme veya cari hareket bağlantısı varsa sistem işlemi güvenli biçimde engeller.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {pendingDelete && (
+            <div className="rounded-lg border border-destructive/15 bg-destructive-soft/60 p-3 text-sm">
+              <div className="font-medium text-destructive">{Number(pendingDelete.grandTotal).toLocaleString("tr-TR")} {pendingDelete.currency?.code ?? ""}</div>
+              <div className="mt-1 text-xs text-muted-foreground">{new Date(pendingDelete.invoiceDate).toLocaleDateString("tr-TR")} tarihli {pendingDelete.type === "sales" ? "satış" : "alış"} faturası</div>
+            </div>
+          )}
+          <AlertDialogFooter>
+            <AlertDialogCancel>Vazgeç</AlertDialogCancel>
+            <AlertDialogAction className="bg-destructive text-destructive-foreground hover:bg-destructive/90" disabled={!!deletingId} onClick={(event) => { event.preventDefault(); if (pendingDelete) void deleteInvoice(pendingDelete); }}>
+              {deletingId ? "Arşivleniyor…" : "Faturayı Arşivle"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

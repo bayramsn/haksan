@@ -389,7 +389,7 @@ export async function seedDemo(): Promise<void> {
   ];
 
   const relTypeMap = new Map<string, string>();
-  for (const c of ['customer', 'supplier', 'supplier_customer']) {
+  for (const c of ['customer', 'supplier', 'supplier_customer', 'competitor']) {
     const id = await lookupId('companyRelationTypes', c);
     if (id) relTypeMap.set(c, id);
   }

@@ -6,7 +6,7 @@ import { Button } from "../ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../ui/table";
 import {
   Search, MoreHorizontal, Eye, Pencil, Phone, Mail, MapPin, Building2, User as UserIcon, ArrowUpDown, Trash2,
-  Handshake, Factory, Wallet,
+  Handshake, Factory,
 } from "lucide-react";
 import { toast } from "sonner";
 import { EditCustomerDialog } from "../dialogs/CreateDialogs";
@@ -19,7 +19,6 @@ import { useStore } from "../../lib/store";
 import { useDetailDialogs } from "../dialogs/DetailDialogs";
 import { FilterPopover, usePaged, Pager, ViewToggle, type ListView } from "../ui/list-controls";
 import { ExportExcelButton } from "../ui/ExportExcelButton";
-import { financeService } from "../../../lib/services";
 import { useAuth } from "../../../lib/auth";
 import { usePersistentState } from "../../lib/persist";
 import { MiniKpi } from "../shared/MiniKpi";
@@ -35,22 +34,28 @@ const FIRM_TYPE_LABEL: Record<FirmType, string> = {
   customer: "Müşteri",
   supplier_customer: "Tedarikçi + Müşteri",
   supplier: "Tedarikçi",
+  competitor: "Rakip",
 };
 
 const FIRM_TYPE_COLOR: Record<FirmType, string> = {
   customer: "bg-info-soft text-info border-info/20",
   supplier_customer: "bg-brand-blue-soft text-brand-blue border-brand-blue/20",
   supplier: "bg-warning-soft text-warning border-warning/20",
+  competitor: "bg-rose-50 text-rose-700 border-rose-200",
 };
 
 const FIRM_TYPE_ACCENT: Record<FirmType, string> = {
   customer: "bg-info",
   supplier_customer: "bg-brand-blue",
   supplier: "bg-warning",
+  competitor: "bg-rose-500",
 };
 
 const createdByLabel = (item: Pick<Customer, "createdByName" | "createdByEmail">) =>
   item.createdByName || item.createdByEmail || "—";
+
+const companyInitials = (name: string) => name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join("").toLocaleUpperCase("tr-TR");
+const supplierCategoryLabel = (code?: Customer["supplierCategoryCode"]) => code === "transportation" ? "Nakliye" : code === "logistics" ? "Lojistik" : "";
 
 export function CustomersPage(_props: { onSelect?: (c: Customer) => void } = {}) {
   const { customers, deleteCustomer } = useStore();
@@ -62,6 +67,7 @@ export function CustomersPage(_props: { onSelect?: (c: Customer) => void } = {})
   const roles = user?.roles ?? [];
   const restricted = roles.length > 0 && roles.every((r) => r === "sales" || r === "service");
   const canSeeSuppliers = !restricted;
+  const canSeeCompetitors = !restricted || roles.includes("sales");
   const canSeePotential = !restricted || roles.includes("sales");
   const [editing, setEditing] = useState<Customer | null>(null);
   const [deleting, setDeleting] = useState<Customer | null>(null);
@@ -78,20 +84,9 @@ export function CustomersPage(_props: { onSelect?: (c: Customer) => void } = {})
   }, [activeDivision]);
   const [city, setCity] = useState("all");
   const [sector, setSector] = useState("all");
+  const [supplierCategory, setSupplierCategory] = useState<"all" | "transportation" | "logistics">("all");
   const [nameSort, setNameSort] = useState<"asc" | "desc" | null>(null);
-  const [balanceMap, setBalanceMap] = useState<Record<string, number>>({});
   const [view, setView] = usePersistentState<ListView>("customersView", "table");
-
-  useEffect(() => {
-    financeService
-      .customerBalances()
-      .then((rows) => {
-        const map: Record<string, number> = {};
-        for (const r of rows ?? []) map[r.companyId] = r.borc ?? 0;
-        setBalanceMap(map);
-      })
-      .catch(() => setBalanceMap({}));
-  }, [customers.length]);
 
   const filtered = customers.filter((c) => {
     if (tab !== "all" && c.firmType !== tab) return false;
@@ -100,6 +95,7 @@ export function CustomersPage(_props: { onSelect?: (c: Customer) => void } = {})
     if (divisionTab !== "all" && !(c.divisions ?? []).some((d) => d.id === divisionTab)) return false;
     if (city !== "all" && c.city !== city) return false;
     if (sector !== "all" && (c.sector ?? "") !== sector) return false;
+    if (supplierCategory !== "all" && c.supplierCategoryCode !== supplierCategory) return false;
     const t = q.toLowerCase();
     return (
       c.name.toLowerCase().includes(t) ||
@@ -110,7 +106,8 @@ export function CustomersPage(_props: { onSelect?: (c: Customer) => void } = {})
       c.phone.toLowerCase().includes(t) ||
       (c.phone2 ?? "").toLowerCase().includes(t) ||
       (c.taxNumber ?? "").toLowerCase().includes(t) ||
-      (c.sector ?? "").toLowerCase().includes(t)
+      (c.sector ?? "").toLowerCase().includes(t) ||
+      supplierCategoryLabel(c.supplierCategoryCode).toLocaleLowerCase("tr-TR").includes(t)
     );
   });
 
@@ -134,18 +131,9 @@ export function CustomersPage(_props: { onSelect?: (c: Customer) => void } = {})
 
   const countBy = (ft: FirmType) => customers.filter((c) => c.firmType === ft).length;
 
-  const totalDebt = useMemo(
-    () => Object.values(balanceMap).reduce((sum, v) => sum + (v > 0 ? v : 0), 0),
-    [balanceMap],
-  );
-  const debtorCount = useMemo(
-    () => Object.values(balanceMap).filter((v) => v > 0).length,
-    [balanceMap],
-  );
-
   const emptyState = (
     <EmptyState
-      icon={<Building2 className="size-6" />}
+      scene="search"
       title="Bu filtreye uyan firma bulunamadı"
       description="Arama terimini veya filtreleri değiştirerek tekrar deneyin."
     />
@@ -153,7 +141,7 @@ export function CustomersPage(_props: { onSelect?: (c: Customer) => void } = {})
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
         <MiniKpi
           icon={<Building2 className="size-4" />}
           label="Toplam Firma"
@@ -182,16 +170,11 @@ export function CustomersPage(_props: { onSelect?: (c: Customer) => void } = {})
             active={tab === "supplier"}
           />
         )}
-        <MiniKpi
-          icon={<Wallet className="size-4" />}
-          label="Toplam Borç"
-          value={totalDebt.toLocaleString("tr-TR")}
-          sub={debtorCount > 0 ? `${debtorCount} borçlu firma` : "borçlu firma yok"}
-          tone="red"
-        />
       </div>
 
+      <div className="premium-blueprint precision-corners space-y-3 rounded-xl border border-primary/10 bg-white p-3 shadow-sm">
       <div className="flex items-center justify-between gap-3 flex-wrap">
+        <span className="font-data text-[9px] font-semibold uppercase tracking-[0.14em] text-operation-blue">Kayıtlı görünüm</span>
         <Tabs value={tab} onValueChange={(v) => setTab(v as any)}>
           <TabsList className="h-9 bg-muted/60">
             <TabsTrigger value="all" className="gap-1.5">
@@ -220,6 +203,14 @@ export function CustomersPage(_props: { onSelect?: (c: Customer) => void } = {})
                 </span>
               </TabsTrigger>
             )}
+            {canSeeCompetitors && (
+              <TabsTrigger value="competitor" className="gap-1.5">
+                Rakip
+                <span className="ml-0.5 inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-rose-50 px-1 text-[10px] text-rose-700">
+                  {countBy("competitor")}
+                </span>
+              </TabsTrigger>
+            )}
           </TabsList>
         </Tabs>
 
@@ -237,6 +228,7 @@ export function CustomersPage(_props: { onSelect?: (c: Customer) => void } = {})
             filters={[
               { label: "Şehir", value: city, onChange: setCity, options: uniqueSorted(customers.map((c) => c.city)).map((v) => ({ value: v, label: v })) },
               { label: "Sektör", value: sector, onChange: setSector, options: uniqueSorted(customers.map((c) => c.sector)).map((v) => ({ value: v, label: v })) },
+              { label: "Tedarikçi Türü", value: supplierCategory, onChange: (value) => setSupplierCategory(value as typeof supplierCategory), options: [{ value: "transportation", label: "Nakliye" }, { value: "logistics", label: "Lojistik" }] },
             ]}
           />
           <ExportExcelButton path="/exports/companies" filename="firmalar.xlsx" params={exportParams} className="h-9" />
@@ -286,6 +278,7 @@ export function CustomersPage(_props: { onSelect?: (c: Customer) => void } = {})
           </button>
         ))}
       </div>
+      </div>
 
       {view === "cards" ? (
         <>
@@ -302,14 +295,8 @@ export function CustomersPage(_props: { onSelect?: (c: Customer) => void } = {})
                   <div className={`absolute inset-x-0 top-0 h-0.5 ${FIRM_TYPE_ACCENT[c.firmType]}`} />
                   <div className="p-4 space-y-3">
                     <div className="flex items-start gap-3">
-                      <div
-                        className={`size-10 rounded-lg grid place-items-center shrink-0 shadow-xs ring-1 ring-border/50 ${
-                          c.type === "company"
-                            ? "bg-gradient-to-br from-primary/15 to-primary/5 text-primary"
-                            : "bg-gradient-to-br from-info-soft to-info-soft/40 text-info"
-                        }`}
-                      >
-                        {c.type === "company" ? <Building2 className="size-4.5" /> : <UserIcon className="size-4.5" />}
+                      <div className={`grid size-11 shrink-0 place-items-center rounded-xl border font-display text-sm font-semibold shadow-xs ${c.type === "company" ? "border-primary/10 bg-brand-blue-soft text-primary" : "border-info/10 bg-info-soft text-info"}`}>
+                        {companyInitials(c.name) || (c.type === "company" ? <Building2 className="size-4.5" /> : <UserIcon className="size-4.5" />)}
                       </div>
                       <div className="min-w-0 flex-1">
                         <div className="text-sm font-medium leading-tight truncate group-hover:text-primary transition-colors">
@@ -319,6 +306,9 @@ export function CustomersPage(_props: { onSelect?: (c: Customer) => void } = {})
                           <span className={`inline-flex items-center px-2 py-0.5 rounded-full border text-[10px] whitespace-nowrap ${FIRM_TYPE_COLOR[c.firmType]}`}>
                             {FIRM_TYPE_LABEL[c.firmType]}
                           </span>
+                          {supplierCategoryLabel(c.supplierCategoryCode) && (
+                            <span className="inline-flex rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 text-[10px] text-sky-700">{supplierCategoryLabel(c.supplierCategoryCode)}</span>
+                          )}
                           {c.salesStatus === "active_customer" ? (
                             <span className="inline-flex px-2 py-0.5 rounded-full border text-[10px] bg-success-soft text-success border-success/20">
                               Cari Satış
@@ -337,7 +327,12 @@ export function CustomersPage(_props: { onSelect?: (c: Customer) => void } = {})
                       </div>
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
-                          <Button variant="ghost" size="icon" className="size-7 -mr-1 -mt-1 opacity-0 group-hover:opacity-100 shrink-0">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="size-7 -mr-1 -mt-1 shrink-0 opacity-100 sm:opacity-0 sm:group-hover:opacity-100"
+                            aria-label={`${c.name} işlem menüsü`}
+                          >
                             <MoreHorizontal className="size-4" />
                           </Button>
                         </DropdownMenuTrigger>
@@ -370,25 +365,10 @@ export function CustomersPage(_props: { onSelect?: (c: Customer) => void } = {})
                       </div>
                     </div>
 
-                    <div className="flex items-center justify-between gap-2 pt-2 border-t border-border/50">
-                      <div className="min-w-0">
-                        <div className="text-[11px] text-muted-foreground truncate">
-                          {c.companyGroupNames?.join(", ") || c.companyGroupName || c.source || "Grup / kaynak yok"}
-                        </div>
-                        <div className="text-[11px] text-muted-foreground/80 truncate">
-                          Oluşturan: {createdByLabel(c)} · {c.createdAt || "—"}
-                        </div>
+                    <div className="border-t border-border/50 pt-2">
+                      <div className="text-[11px] text-muted-foreground/80 truncate">
+                        Oluşturan: {createdByLabel(c)} · {c.createdAt || "—"}
                       </div>
-                      {(balanceMap[c.id] ?? 0) > 0 ? (
-                        <div className="text-right shrink-0">
-                          <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Borç</div>
-                          <div className="text-sm tabular-nums text-warning font-medium">
-                            {balanceMap[c.id].toLocaleString("tr-TR")}
-                          </div>
-                        </div>
-                      ) : (
-                        <span className="text-[11px] text-muted-foreground shrink-0">Borç yok</span>
-                      )}
                     </div>
                   </div>
                 </Card>
@@ -408,7 +388,7 @@ export function CustomersPage(_props: { onSelect?: (c: Customer) => void } = {})
           <Table>
             <TableHeader>
               <TableRow className="bg-muted/40 hover:bg-muted/40">
-                <TableHead className="w-[300px] text-[11px] uppercase tracking-wider text-muted-foreground">
+                <TableHead className="sticky left-0 z-20 w-[300px] bg-muted text-[11px] uppercase tracking-wider text-muted-foreground">
                   <button
                     type="button"
                     className="inline-flex items-center gap-1 uppercase tracking-wider hover:text-foreground"
@@ -419,11 +399,8 @@ export function CustomersPage(_props: { onSelect?: (c: Customer) => void } = {})
                   </button>
                 </TableHead>
                 <TableHead className="text-[11px] uppercase tracking-wider text-muted-foreground">Firma Tipi</TableHead>
-                <TableHead className="text-[11px] uppercase tracking-wider text-muted-foreground">Müşteri Statüsü</TableHead>
                 <TableHead className="text-[11px] uppercase tracking-wider text-muted-foreground">İletişim</TableHead>
                 <TableHead className="text-[11px] uppercase tracking-wider text-muted-foreground">Konum</TableHead>
-                <TableHead className="text-[11px] uppercase tracking-wider text-muted-foreground">Grup / Kaynak</TableHead>
-                <TableHead className="text-right text-[11px] uppercase tracking-wider text-muted-foreground">Borç</TableHead>
                 <TableHead className="text-[11px] uppercase tracking-wider text-muted-foreground">Oluşturma</TableHead>
                 <TableHead className="text-right w-12"></TableHead>
               </TableRow>
@@ -431,17 +408,9 @@ export function CustomersPage(_props: { onSelect?: (c: Customer) => void } = {})
             <TableBody>
               {pageItems.map((c) => (
                 <TableRow key={c.id} className="cursor-pointer group hover:bg-primary/[0.025]" onClick={() => openCompany(c)}>
-                  <TableCell>
+                  <TableCell className="sticky left-0 z-10 border-r border-border/60 bg-white group-hover:bg-[#f8f9fc]">
                     <div className="flex items-center gap-3 min-w-0">
-                      <div
-                        className={`size-9 rounded-lg grid place-items-center text-xs shrink-0 shadow-xs ring-1 ring-border/50 ${
-                          c.type === "company"
-                            ? "bg-gradient-to-br from-primary/15 to-primary/5 text-primary"
-                            : "bg-gradient-to-br from-info-soft to-info-soft/40 text-info"
-                        }`}
-                      >
-                        {c.type === "company" ? <Building2 className="size-4" /> : <UserIcon className="size-4" />}
-                      </div>
+                      <div className={`grid size-10 shrink-0 place-items-center rounded-xl border font-display text-xs font-semibold shadow-xs ${c.type === "company" ? "border-primary/10 bg-brand-blue-soft text-primary" : "border-info/10 bg-info-soft text-info"}`}>{companyInitials(c.name)}</div>
                       <div className="min-w-0">
                         <div className="text-sm leading-tight truncate group-hover:text-primary transition-colors">{c.name}</div>
                         <div className="text-xs text-muted-foreground mt-0.5 truncate">
@@ -457,22 +426,21 @@ export function CustomersPage(_props: { onSelect?: (c: Customer) => void } = {})
                     <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[11px] whitespace-nowrap ${FIRM_TYPE_COLOR[c.firmType]}`}>
                       {FIRM_TYPE_LABEL[c.firmType]}
                     </span>
+                    {supplierCategoryLabel(c.supplierCategoryCode) && (
+                      <span className="ml-1 inline-flex rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 text-[10px] text-sky-700">{supplierCategoryLabel(c.supplierCategoryCode)}</span>
+                    )}
+                    <div className="mt-1">
+                      {c.salesStatus === "active_customer" ? (
+                        <span className="inline-flex px-2 py-0.5 rounded-full border text-[10px] bg-success-soft text-success border-success/20">Cari Satış</span>
+                      ) : (
+                        <span className="inline-flex px-2 py-0.5 rounded-full border text-[10px] bg-muted text-muted-foreground border-border">Potansiyel</span>
+                      )}
+                    </div>
                     <div className="mt-1 flex flex-wrap gap-1">
                       {(c.divisions ?? []).map((division) => (
                         <span key={division.id} className="rounded-full border border-primary/20 bg-primary/5 px-1.5 py-0.5 text-[10px] text-primary">{division.name}</span>
                       ))}
                     </div>
-                  </TableCell>
-                  <TableCell>
-                    {c.salesStatus === "active_customer" ? (
-                      <span className="inline-flex px-2 py-0.5 rounded-full border text-[11px] bg-success-soft text-success border-success/20">
-                        Cari Satış
-                      </span>
-                    ) : (
-                      <span className="inline-flex px-2 py-0.5 rounded-full border text-[11px] bg-muted text-muted-foreground border-border">
-                        Potansiyel
-                      </span>
-                    )}
                   </TableCell>
                   <TableCell>
                     <div className="text-sm leading-tight">{c.contactPerson}</div>
@@ -487,17 +455,6 @@ export function CustomersPage(_props: { onSelect?: (c: Customer) => void } = {})
                     </div>
                   </TableCell>
                   <TableCell>
-                    <div className="text-xs leading-tight">{c.companyGroupNames?.join(", ") || c.companyGroupName || "—"}</div>
-                    <div className="text-[11px] text-muted-foreground mt-0.5">{c.source || "Kaynak yok"}</div>
-                  </TableCell>
-                  <TableCell className="text-right tabular-nums text-sm">
-                    {(balanceMap[c.id] ?? 0) > 0 ? (
-                      <span className="text-warning font-medium">{balanceMap[c.id].toLocaleString("tr-TR")}</span>
-                    ) : (
-                      <span className="text-muted-foreground">—</span>
-                    )}
-                  </TableCell>
-                  <TableCell>
                     <div className="text-xs text-muted-foreground tabular-nums">{c.createdAt || "—"}</div>
                     <div className="mt-0.5 max-w-[150px] truncate text-[11px] text-muted-foreground/80">
                       {createdByLabel(c)}
@@ -506,7 +463,12 @@ export function CustomersPage(_props: { onSelect?: (c: Customer) => void } = {})
                   <TableCell className="text-right">
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
-                        <Button variant="ghost" size="icon" className="size-8 opacity-0 group-hover:opacity-100">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="size-8 opacity-100 sm:opacity-0 sm:group-hover:opacity-100"
+                          aria-label={`${c.name} işlem menüsü`}
+                        >
                           <MoreHorizontal className="size-4" />
                         </Button>
                       </DropdownMenuTrigger>
@@ -526,7 +488,7 @@ export function CustomersPage(_props: { onSelect?: (c: Customer) => void } = {})
               ))}
               {filtered.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={9} className="py-4">
+                  <TableCell colSpan={6} className="py-4">
                     {emptyState}
                   </TableCell>
                 </TableRow>
@@ -549,11 +511,12 @@ export function CustomersPage(_props: { onSelect?: (c: Customer) => void } = {})
       <EditCustomerDialog customer={editing} onClose={() => setEditing(null)} />
 
       <AlertDialog open={!!deleting} onOpenChange={(o) => !o && setDeleting(null)}>
-        <AlertDialogContent>
+        <AlertDialogContent className="max-w-lg">
           <AlertDialogHeader>
             <AlertDialogTitle>Firmayı sil?</AlertDialogTitle>
             <AlertDialogDescription>
-              <b>{deleting?.name}</b> silinecek. Bağlı kayıtlar varsa işlem reddedilebilir.
+              <span className="block font-medium text-foreground">{deleting?.name}</span>
+              Firma kimliği silinir. Bağlı kişi, satış kartı, makine, servis veya finans kaydı varsa sistem işlemi güvenli biçimde reddeder.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -572,7 +535,7 @@ export function CustomersPage(_props: { onSelect?: (c: Customer) => void } = {})
                 }
               }}
             >
-              Sil
+              Firmayı Sil
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

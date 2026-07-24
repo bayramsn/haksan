@@ -13,6 +13,9 @@ export type ShipmentStatusCode = z.infer<typeof shipmentStatusCodeSchema>;
 export const shipmentTransportModeSchema = z.enum(['road', 'air', 'sea', 'local_cargo']);
 export type ShipmentTransportMode = z.infer<typeof shipmentTransportModeSchema>;
 
+export const shipmentDirectionSchema = z.enum(['incoming', 'outgoing']);
+export type ShipmentDirection = z.infer<typeof shipmentDirectionSchema>;
+
 const optionalUuidSchema = z.string().uuid().optional();
 
 /** Sevkiyat satır kalemi (paketleme listesi); bir seri-numaralı stok kalemine bağlanabilir. */
@@ -27,6 +30,8 @@ export const shipmentItemInputSchema = z.object({
   sortOrder: z.coerce.number().int().default(0),
   packageCount: z.coerce.number().int().min(0).optional(),
   palletCount: z.coerce.number().int().min(0).optional(),
+  packageQuantity: z.coerce.number().int().min(0).optional(),
+  packageUnitCode: z.string().trim().min(1).max(64).optional(),
   packageLengthCm: moneySchema.optional(),
   packageWidthCm: moneySchema.optional(),
   packageHeightCm: moneySchema.optional(),
@@ -47,6 +52,7 @@ export const shipmentCreateSchema = z.object({
   // Kayıtlı olmayan gönderici için serbest-metin ad (senderCompanyId yerine elle giriş).
   senderName: z.string().max(255).optional(),
   carrierCompanyId: optionalUuidSchema,
+  direction: shipmentDirectionSchema.default('outgoing'),
   transportMode: shipmentTransportModeSchema.optional(),
   productCategoryCode: z.string().max(64).optional(),
   destinationWarehouseId: optionalUuidSchema,

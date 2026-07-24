@@ -3,6 +3,7 @@ import { canAccessNavKey, Layout, NavKey } from "./components/Layout";
 import { Button } from "./components/ui/button";
 import { Plus } from "lucide-react";
 import { LoginPage } from "./components/pages/Login";
+import { markOnboardingSeen, OnboardingPage, shouldShowOnboarding } from "./components/pages/Onboarding";
 import { DashboardPage } from "./components/pages/Dashboard";
 import { CustomersPage } from "./components/pages/Customers";
 import { ContactsPage } from "./components/pages/Contacts";
@@ -18,10 +19,8 @@ const AccountingInvoicesPage = lazy(() => import("./components/pages/finance/Acc
 const CustomerBalancesPage = lazy(() => import("./components/pages/finance/CustomerBalancesPage").then((m) => ({ default: m.CustomerBalancesPage })));
 const DueDatesCalendarPage = lazy(() => import("./components/pages/finance/DueDatesCalendarPage").then((m) => ({ default: m.DueDatesCalendarPage })));
 const StockPage = lazy(() => import("./components/pages/stock/StockPage").then((m) => ({ default: m.StockPage })));
-const PurchaseOrdersPage = lazy(() => import("./components/pages/purchase/PurchaseOrdersPage").then((m) => ({ default: m.PurchaseOrdersPage })));
 const ShipmentsPage = lazy(() => import("./components/pages/logistics/ShipmentsPage").then((m) => ({ default: m.ShipmentsPage })));
 const InstallationsPage = lazy(() => import("./components/pages/logistics/InstallationsPage").then((m) => ({ default: m.InstallationsPage })));
-const DeliveriesPage = lazy(() => import("./components/pages/logistics/DeliveriesPage").then((m) => ({ default: m.DeliveriesPage })));
 const MachinesPage = lazy(() => import("./components/pages/machines/MachinesPage").then((m) => ({ default: m.MachinesPage })));
 const ServiceRequestsPage = lazy(() => import("./components/pages/service/ServicePages").then((m) => ({ default: m.ServiceRequestsPage })));
 const ServiceKanbanPage = lazy(() => import("./components/pages/service/ServicePages").then((m) => ({ default: m.ServiceKanbanPage })));
@@ -37,6 +36,7 @@ import { Customer, SalesCase } from "./lib/mock";
 import { StoreProvider, useStore } from "./lib/store";
 import { clearDrafts, usePersistentState } from "./lib/persist";
 import { Toaster } from "./components/ui/sonner";
+import { VoiceCallProvider } from "../lib/voiceCall";
 import { CreateCustomerDialog, CreateCaseDialog, CreateContactDialog, CreateServiceRequestDialog } from "./components/dialogs/CreateDialogs";
 import { ProductsPage } from "./components/pages/Operations";
 import { SalesPriceListPage, ServicePriceListPage } from "./components/pages/PriceLists";
@@ -51,7 +51,7 @@ import { PageLoadingSkeleton } from "./components/shared/PageLoadingSkeleton";
 import type { OperationAction, OperationFocus } from "./lib/operations";
 
 const TITLES: Record<NavKey, { title: string; subtitle?: string }> = {
-  dashboard: { title: "Dashboard", subtitle: "Genel performans ve KPI özeti" },
+  dashboard: { title: "Gösterge Paneli", subtitle: "Genel performans ve KPI özeti" },
   chat: { title: "Sohbet", subtitle: "Çalışanlarla özel ve grup mesajlaşma" },
   calendar: { title: "Takvim", subtitle: "Kişisel planlar, toplantılar ve müşteri ziyaretleri" },
   "call-assistant": { title: "Çağrı Asistanı", subtitle: "Gelen aramalardan teklif, servis ve görüşme kaydı önerileri" },
@@ -72,10 +72,9 @@ const TITLES: Record<NavKey, { title: string; subtitle?: string }> = {
   references: { title: "Referanslar", subtitle: "Satış için firma ve teslim edilen tezgah referansları" },
   products: { title: "Ürünler", subtitle: "Makine modeline göre ürün kataloğu" },
   stock: { title: "Stok", subtitle: "Seri numarası bazlı stok yönetimi" },
-  "purchase-orders": { title: "Satın Alma", subtitle: "Tedarikçi siparişleri" },
   shipments: { title: "Sevkiyat & Lojistik", subtitle: "Gümrük ve nakliye takibi" },
   installations: { title: "Kurulumlar", subtitle: "Saha kurulum operasyonları" },
-  deliveries: { title: "Teslimatlar", subtitle: "Müşteri teslim formları" },
+  deliveries: { title: "Kurulumlar", subtitle: "Teslim, kurulum ve kurulum tutanakları" },
   machines: { title: "Makineler / Varlıklar", subtitle: "Müşteriye kurulu makineler ve garanti" },
   "service-requests": { title: "Servis Talepleri", subtitle: "Talep listesi, şikayet kutusu ve servis geçmişi" },
   "service-kanban": { title: "Servis Kanban", subtitle: "Servis süreç akışı: talep → form" },
@@ -96,6 +95,7 @@ function isNavKey(value: unknown): value is NavKey {
 function AppShell() {
   const { authed, loading, login, logout, hasPermission, hasRole } = useAuth();
   const { customers, cases, loading: storeLoading } = useStore();
+  const [showOnboarding, setShowOnboarding] = useState(shouldShowOnboarding);
   // Yenilemede kullanıcının kaldığı yer korunur (sayfa + seçili firma/satış kartı).
   const [nav, setNav] = usePersistentState<NavKey>("nav", "dashboard");
   const [selectedCustomerId, setSelectedCustomerId] = usePersistentState<string | null>("selectedCustomerId", null);
@@ -129,7 +129,22 @@ function AppShell() {
   }
 
   if (!authed) {
-    return <LoginPage onLogin={async (email, password, tenantSlug) => { await login(email, password, tenantSlug); }} />;
+    if (showOnboarding) {
+      return (
+        <OnboardingPage
+          onFinish={() => {
+            markOnboardingSeen();
+            setShowOnboarding(false);
+          }}
+        />
+      );
+    }
+    return (
+      <LoginPage
+        onLogin={async (email, password) => { await login(email, password); }}
+        onReplayIntro={() => setShowOnboarding(true)}
+      />
+    );
   }
 
   // Seçili kayıtlar id ile saklanıp store yüklendiğinde yeniden çözülür.
@@ -145,11 +160,12 @@ function AppShell() {
 
   const runOperationAction = (action: OperationAction) => {
     if (action.kind === "navigate") {
-      if (!canAccessNavKey(action.nav as NavKey, hasPermission, hasRole)) return;
+      const targetNav = action.nav === "deliveries" ? "installations" : action.nav as NavKey;
+      if (!canAccessNavKey(targetNav, hasPermission, hasRole)) return;
       setSelectedCustomerId(null);
       setSelectedCaseId(null);
-      setNav(action.nav as NavKey);
-      setFocus({ nav: action.nav as NavKey, focus: action.focus, query: action.query });
+      setNav(targetNav);
+      setFocus({ nav: targetNav, focus: action.focus, query: action.query });
       return;
     }
     if (action.kind === "customer") {
@@ -235,17 +251,11 @@ function AppShell() {
       case "references": content = <ReferencesPage />; break;
       case "products": content = <ProductsPage initialQuery={focus?.nav === "products" ? focus.query : undefined} />; break;
       case "stock": content = <StockPage focus={focus?.nav === "stock" ? focus.focus : undefined} initialQuery={focus?.nav === "stock" ? focus.query : undefined} />; break;
-      case "purchase-orders": content = <PurchaseOrdersPage />; break;
       case "shipments": content = <ShipmentsPage focus={focus?.nav === "shipments" ? focus.focus : undefined} />; break;
       case "installations": content = <InstallationsPage />; break;
-      case "deliveries": content = <DeliveriesPage />; break;
+      case "deliveries": content = <InstallationsPage />; break;
       case "machines": content = <MachinesPage />; break;
       case "service-requests":
-        actions = canCreate("service_tickets.create") ? (
-          <CreateServiceRequestDialog
-            trigger={<Button className="gap-1"><Plus className="size-4" /> Yeni Talep</Button>}
-          />
-        ) : null;
         content = (
           <ServiceRequestsPage
             focus={focus?.nav === "service-requests" ? focus.focus : undefined}
@@ -273,6 +283,7 @@ function AppShell() {
   const t = titleOverride ?? TITLES[currentNav] ?? TITLES[DEFAULT_NAV];
 
   return (
+    <VoiceCallProvider>
     <Layout
       current={currentNav}
       onNavigate={goto}
@@ -299,6 +310,7 @@ function AppShell() {
       </PageShell>
       <SalesCaseDetailDialog sc={selectedCase} onClose={() => setSelectedCaseId(null)} />
     </Layout>
+    </VoiceCallProvider>
   );
 }
 

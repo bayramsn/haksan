@@ -86,6 +86,33 @@ export class ChatService {
     return !!member;
   }
 
+  /**
+   * Sesli arama sinyalleşmesi: arayanın üyeliğini doğrular, karşı üyeleri ve
+   * arayan adını döner. Şimdilik yalnız birebir (dm) konuşmalarda arama var.
+   */
+  async voiceCallContext(
+    userId: string,
+    conversationId: string,
+  ): Promise<{ peerIds: string[]; callerName: string } | null> {
+    if (!(await this.isMember(userId, conversationId))) return null;
+    const [conv] = await this.db
+      .select({ type: conversations.type })
+      .from(conversations)
+      .where(eq(conversations.id, conversationId));
+    if (!conv || conv.type !== 'dm') return null;
+    const members = await this.db
+      .select({ userId: conversationMembers.userId })
+      .from(conversationMembers)
+      .where(eq(conversationMembers.conversationId, conversationId));
+    const peerIds = members.map((m) => m.userId).filter((id) => id !== userId);
+    if (peerIds.length === 0) return null;
+    const [caller] = await this.db
+      .select({ fullName: users.fullName })
+      .from(users)
+      .where(eq(users.id, userId));
+    return { peerIds, callerName: caller?.fullName ?? 'Bilinmeyen kullanıcı' };
+  }
+
   private isSuperAdmin(actor: AuthContext): boolean {
     return actor.roles.includes('super_admin');
   }

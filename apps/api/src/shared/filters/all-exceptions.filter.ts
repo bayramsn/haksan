@@ -85,9 +85,11 @@ export class AllExceptionsFilter implements ExceptionFilter {
     // Correlation + auth context so 4xx/5xx logs can be tied to a single request
     // and the acting tenant/user/session during incident triage.
     const context = {
-      reqId: req.requestId,
+      requestId: req.requestId,
       path: redactRequestPath(req.url),
       method: req.method,
+      status,
+      errorCode: body.error.code,
       tenantId: req.auth?.tenantId,
       userId: req.auth?.userId,
       sessionId: req.auth?.sessionId,
@@ -108,7 +110,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
       logger.error({ err: exception, ...context }, 'Unhandled exception');
     } else {
       logger.warn(
-        { status, code: body.error.code, ...(body.error.details ? { details: body.error.details } : {}), ...context },
+        { ...(body.error.details ? { details: body.error.details } : {}), ...context },
         'Request error'
       );
     }

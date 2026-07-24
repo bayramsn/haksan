@@ -28,6 +28,11 @@ export const lookupRows = {
     { code: 'rejected', name: 'Reddedildi', sortOrder: 40 },
     { code: 'expired', name: 'Süresi Doldu', sortOrder: 50 },
     { code: 'pending_super_admin_approval', name: 'Süper Admin Onayı Bekliyor', sortOrder: 60 },
+    { code: 'cancelled', name: 'İptal', sortOrder: 70 },
+    { code: 'price_waiting', name: 'Fiyat Bekleniyor', sortOrder: 80 },
+    { code: 'budget_waiting', name: 'Bütçe Bekleniyor', sortOrder: 90 },
+    { code: 'on_hold', name: 'Askıya Alındı', sortOrder: 100 },
+    { code: 'postponed', name: 'Ertelendi', sortOrder: 110 },
   ],
   sales_order_statuses: [
     { code: 'draft', name: 'Taslak', sortOrder: 10 },
@@ -63,6 +68,7 @@ export const lookupRows = {
     { code: 'customer', name: 'Müşteri', sortOrder: 10 },
     { code: 'supplier', name: 'Tedarikçi', sortOrder: 20 },
     { code: 'supplier_customer', name: 'Tedarikçi + Müşteri', sortOrder: 30 },
+    { code: 'competitor', name: 'Rakip', sortOrder: 40 },
   ],
   company_statuses: [
     { code: 'potential', name: 'Potansiyel', sortOrder: 10 },
@@ -262,6 +268,13 @@ export const lookupRows = {
     { code: 'at_customs', name: 'Gümrükte', sortOrder: 30 },
     { code: 'cleared', name: 'Gümrük Onaylı', sortOrder: 40 },
     { code: 'delivered', name: 'Teslim Edildi', sortOrder: 50 },
+  ],
+  shipment_package_units: [
+    { code: 'package', name: 'Paket', sortOrder: 10 },
+    { code: 'pallet', name: 'Palet', sortOrder: 20 },
+    { code: 'crate', name: 'Sandık', sortOrder: 30 },
+    { code: 'box', name: 'Koli', sortOrder: 40 },
+    { code: 'piece', name: 'Adet', sortOrder: 50 },
   ],
   invoice_statuses: [
     { code: 'draft', name: 'Taslak', sortOrder: 10 },

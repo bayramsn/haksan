@@ -13,6 +13,7 @@ import { lookupIdByCode } from '../../shared/utils/lookup.helper';
 import { AuditService } from '../../shared/database/audit.service';
 import { resourceCompanyPortfolioFilter, resolveResourceDivisionScope } from '../../shared/utils/division-scope';
 import { companyVisibilityFilter } from '../../shared/utils/company-visibility';
+import { normalizePersonName } from '../../shared/utils/text-normalization';
 
 @Injectable()
 export class ContactsService {
@@ -289,7 +290,7 @@ export class ContactsService {
       .values({
         tenantId: actor.tenantId,
         companyId: input.companyId,
-        fullName: input.fullName,
+        fullName: normalizePersonName(input.fullName),
         title: input.title ?? null,
         department: input.department ?? null,
         decisionRoleId: decisionId,
@@ -365,7 +366,9 @@ export class ContactsService {
       'isPrimary',
       'companyId',
     ] as const) {
-      if ((input as any)[k] !== undefined) patch[k] = (input as any)[k] ?? null;
+      if ((input as any)[k] === undefined) continue;
+      const value = (input as any)[k];
+      patch[k] = k === 'fullName' && value ? normalizePersonName(value) : value ?? null;
     }
     await this.db.update(contacts).set(patch).where(eq(contacts.id, id));
     if (input.companyId !== undefined) {

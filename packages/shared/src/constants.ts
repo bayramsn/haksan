@@ -75,7 +75,7 @@ export type PermissionAction = (typeof PERMISSION_ACTIONS)[number];
 export const CURRENCIES = ['USD', 'EUR', 'TRY', 'GBP'] as const;
 export type CurrencyCode = (typeof CURRENCIES)[number];
 
-export const COMPANY_RELATION_TYPES = ['customer', 'supplier', 'supplier_customer'] as const;
+export const COMPANY_RELATION_TYPES = ['customer', 'supplier', 'supplier_customer', 'competitor'] as const;
 export type CompanyRelationType = (typeof COMPANY_RELATION_TYPES)[number];
 
 export const COMPANY_STATUSES = ['potential', 'active', 'passive', 'blacklist'] as const;

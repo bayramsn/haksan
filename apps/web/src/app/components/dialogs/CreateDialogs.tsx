@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { cloneElement, isValidElement, useEffect, useId, useMemo, useRef, useState } from "react";
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger,
 } from "../ui/dialog";
@@ -14,7 +14,7 @@ import { MultiSelect } from "../ui/multi-select";
 import { Checkbox } from "../ui/checkbox";
 import { useStore } from "../../lib/store";
 import { usePersistentState } from "../../lib/persist";
-import { SALES_STAGES, salesStageLabel, SHIPMENT_STATUSES, DELIVERY_STATUSES, type ShipmentStatus, type DeliveryStatus, type Delivery, type Customer, type Contact, type Machine, type Product, type ProductSpec, type ServiceTicketType, type StockItem } from "../../lib/mock";
+import { SALES_STAGES, salesStageLabel, SHIPMENT_STATUSES, DELIVERY_STATUSES, type ShipmentStatus, type DeliveryStatus, type Delivery, type Customer, type Contact, type FirmType, type Machine, type Product, type ProductSpec, type ServiceTicketType, type StockItem } from "../../lib/mock";
 
 const SERVICE_TICKET_TYPE_OPTIONS: { value: ServiceTicketType; label: string }[] = [
   { value: "complaint", label: "Şikayet" },
@@ -57,7 +57,7 @@ import {
   type AllowedFileExtension,
   type AllowedMimeType,
 } from "@haksan/shared";
-import { provincesForCountry } from "../../lib/geoByCountry";
+import { districtsForCountry, provincesForCountry } from "../../lib/geoByCountry";
 import {
   DIVISION_MACHINE_TYPES,
   allCatalogProductSpecs,
@@ -70,6 +70,7 @@ import {
 import { QuoteDialog } from "./QuoteDialog";
 import { ProductSpecsTable } from "../shared/ProductSpecsTable";
 import { OsmCompanySearch } from "../company/OsmCompanySearch";
+import { CompanyWebsiteLookup } from "../company/CompanyWebsiteLookup";
 import { relatedDeliveryFormNo, resolveServiceFormNo } from "../../lib/serviceFormNo";
 
 /* ---------- Customer ---------- */
@@ -99,12 +100,19 @@ function LookupCombobox({
   allowCustom?: boolean;
   className?: string;
 }) {
+  const visibleOptions = useMemo(
+    () => value && !options.some((option) => option.value === value)
+      ? [{ value, label: value }, ...options]
+      : options,
+    [options, value],
+  );
+
   return (
     <div className={className}>
       <Label className="text-xs">{label}</Label>
       <div className="mt-1.5">
         <Combobox
-          options={options}
+          options={visibleOptions}
           value={value}
           onChange={onChange}
           placeholder={placeholder ?? "Seçin..."}
@@ -255,17 +263,102 @@ const ADDRESS_TYPE_OPTIONS = [
   { value: "other", label: "Diğer" },
 ] as const;
 
+type AddressRoleKey = "isDefault" | "isShipping" | "isBilling";
+type AddressRoleState = {
+  addressType?: string;
+  isDefault?: boolean;
+  isShipping?: boolean;
+  isBilling?: boolean;
+};
+
+const normalizeAddressRoles = <T extends AddressRoleState>(addresses: T[]) => {
+  if (!addresses.length) return addresses;
+  const defaultIndex = Math.max(0, addresses.findIndex((address) => address.isDefault));
+  const shippingRoleIndex = addresses.findIndex((address) => address.isShipping);
+  const billingRoleIndex = addresses.findIndex((address) => address.isBilling);
+  const shippingTypeIndex = addresses.findIndex((address) => address.addressType === "shipping");
+  const billingTypeIndex = addresses.findIndex((address) => address.addressType === "billing");
+  const shippingIndex = shippingRoleIndex >= 0 ? shippingRoleIndex : shippingTypeIndex >= 0 ? shippingTypeIndex : defaultIndex;
+  const billingIndex = billingRoleIndex >= 0 ? billingRoleIndex : billingTypeIndex >= 0 ? billingTypeIndex : defaultIndex;
+
+  return addresses.map((address, index) => ({
+    ...address,
+    isDefault: index === defaultIndex,
+    isShipping: index === shippingIndex,
+    isBilling: index === billingIndex,
+  }));
+};
+
+function AddressRoleSelector({
+  address,
+  onSelect,
+  className = "",
+}: {
+  address: AddressRoleState;
+  onSelect: (role: AddressRoleKey) => void;
+  className?: string;
+}) {
+  const roles = [
+    {
+      key: "isDefault" as const,
+      label: "Ana adres",
+      icon: Building2,
+      activeClass: "border-primary/40 bg-primary/8 text-primary",
+    },
+    {
+      key: "isShipping" as const,
+      label: "Sevkiyat adresi",
+      icon: Truck,
+      activeClass: "border-sky-300 bg-sky-50 text-sky-700",
+    },
+    {
+      key: "isBilling" as const,
+      label: "Fatura adresi",
+      icon: Receipt,
+      activeClass: "border-amber-300 bg-amber-50 text-amber-800",
+    },
+  ];
+
+  return (
+    <div className={className}>
+      <div className="mb-1.5 text-[11px] font-medium text-muted-foreground">Adres kullanımı</div>
+      <div className="grid grid-cols-3 gap-1.5">
+        {roles.map(({ key, label, icon: Icon, activeClass }) => {
+          const selected = Boolean(address[key]);
+          return (
+            <button
+              key={key}
+              type="button"
+              aria-pressed={selected}
+              onClick={() => onSelect(key)}
+              className={`flex min-h-9 items-center justify-center gap-1.5 rounded-md border px-2 py-1.5 text-[11px] font-medium transition-colors ${selected ? activeClass : "border-border bg-background text-muted-foreground hover:bg-muted/50"}`}
+            >
+              <Icon className="size-3.5 shrink-0" />
+              <span>{label}</span>
+              {selected && <Check className="size-3.5 shrink-0" />}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 const emptyAdditionalAddress = () => ({
   addressType: "factory" as const,
   country: "Türkiye",
   city: "",
   district: "",
   address: "",
+  isDefault: false,
+  isShipping: false,
+  isBilling: false,
 });
 
 const emptyCompanyForm = () => ({
   name: "",
   sector: "",
+  supplierCategoryCode: "" as "" | "transportation" | "logistics",
   phone: "",
   phone2: "",
   fax: "",
@@ -285,6 +378,9 @@ const emptyCompanyForm = () => ({
   companyGroupCodes: ["cnc"],
   divisionId: "",
   addressType: "office" as const,
+  isDefault: true,
+  isShipping: true,
+  isBilling: true,
   additionalAddresses: [] as ReturnType<typeof emptyAdditionalAddress>[],
   contactSourceCode: "email",
 });
@@ -295,11 +391,16 @@ export function CreateCustomerDialog({ trigger, onCreated }: { trigger: React.Re
   const [open, setOpen] = useState(false);
   // Taslaklar yenilemede korunur; başarılı kayıtta temizlenir.
   const [type, setType] = usePersistentState<"company" | "person">("draft.customer.type", "company");
-  const [firmType, setFirmType] = usePersistentState<"customer" | "supplier_customer" | "supplier">("draft.customer.firmType", "customer");
+  const [firmType, setFirmType] = usePersistentState<FirmType>("draft.customer.firmType", "customer");
   const [salesStatus, setSalesStatus] = usePersistentState<"potential" | "active_customer">("draft.customer.salesStatus", "potential");
   const [form, setForm] = usePersistentState("draft.customer.form", emptyCompanyForm());
 
-  const provinceOptions = useMemo(() => toComboboxOptions(provincesForCountry(form.country)), [form.country]);
+  const selectedCountry = form.country || "Türkiye";
+  const provinceOptions = useMemo(() => toComboboxOptions(provincesForCountry(selectedCountry)), [selectedCountry]);
+  const districtOptions = useMemo(
+    () => toComboboxOptions(districtsForCountry(selectedCountry, form.city)),
+    [selectedCountry, form.city],
+  );
   const companyGroupRows = useLookupRows("company-groups", COMPANY_GROUP_OPTIONS.map((g) => ({ code: g.code, name: g.label })));
   const contactSourceRows = useLookupRows("contact-sources", CONTACT_SOURCE_OPTIONS.map((s) => ({ code: s.code, name: s.label })));
   const sectorRows = useLookupRows("company-sectors", COMPANY_SECTOR_OPTIONS.map((name, index) => ({ code: name, name, sortOrder: index })));
@@ -314,14 +415,51 @@ export function CreateCustomerDialog({ trigger, onCreated }: { trigger: React.Re
     setSalesStatus("potential");
   };
 
+  const selectCreateAddressRole = (role: AddressRoleKey, additionalIndex: number | null) => {
+    setForm((current) => ({
+      ...current,
+      [role]: additionalIndex === null,
+      additionalAddresses: (current.additionalAddresses ?? []).map((address, index) => ({
+        ...address,
+        [role]: index === additionalIndex,
+      })),
+    }));
+  };
+
+  const removeAdditionalAddress = (removeIndex: number) => {
+    setForm((current) => {
+      const removed = current.additionalAddresses?.[removeIndex];
+      return {
+        ...current,
+        isDefault: current.isDefault || Boolean(removed?.isDefault),
+        isShipping: current.isShipping || Boolean(removed?.isShipping),
+        isBilling: current.isBilling || Boolean(removed?.isBilling),
+        additionalAddresses: (current.additionalAddresses ?? []).filter((_, index) => index !== removeIndex),
+      };
+    });
+  };
+
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!form.name.trim()) {
       toast.error("Firma ünvanı zorunludur");
       return;
     }
+    if ((firmType === "supplier" || firmType === "supplier_customer") && !form.supplierCategoryCode) {
+      toast.error("Tedarikçi türü seçiniz", { description: "Nakliye veya Lojistik seçimi zorunludur." });
+      return;
+    }
     try {
-      const { latitude: latitudeRaw, longitude: longitudeRaw, additionalAddresses, addressType, ...companyForm } = form;
+      const {
+        latitude: latitudeRaw,
+        longitude: longitudeRaw,
+        additionalAddresses,
+        addressType,
+        isDefault,
+        isShipping,
+        isBilling,
+        ...companyForm
+      } = form;
       const latitude = latitudeRaw ? Number(latitudeRaw) : undefined;
       const longitude = longitudeRaw ? Number(longitudeRaw) : undefined;
       const addresses = [
@@ -333,9 +471,11 @@ export function CreateCustomerDialog({ trigger, onCreated }: { trigger: React.Re
           address: form.address,
           latitude: Number.isFinite(latitude) ? latitude : undefined,
           longitude: Number.isFinite(longitude) ? longitude : undefined,
-          isDefault: true,
+          isDefault,
+          isShipping,
+          isBilling,
         },
-        ...(additionalAddresses ?? []).map((item) => ({ ...item, isDefault: false })),
+        ...(additionalAddresses ?? []),
       ].filter((item) => item.address || item.city || item.district);
       const c = await addCustomer({
         ...companyForm,
@@ -397,6 +537,7 @@ export function CreateCustomerDialog({ trigger, onCreated }: { trigger: React.Re
                 { k: "customer", l: "Müşteri" },
                 { k: "supplier", l: "Tedarikçi" },
                 { k: "supplier_customer", l: "Müşteri + Tedarikçi" },
+                { k: "competitor", l: "Rakip" },
               ] as const).map((opt) => (
                 <button
                   key={opt.k}
@@ -409,6 +550,28 @@ export function CreateCustomerDialog({ trigger, onCreated }: { trigger: React.Re
               ))}
             </div>
           </div>
+
+          {(firmType === "supplier" || firmType === "supplier_customer") && (
+            <div>
+              <Label className="text-xs">Tedarikçi Türü *</Label>
+              <div className="mt-1.5 grid grid-cols-2 gap-2">
+                {([
+                  { value: "transportation", label: "Nakliye", helper: "Karayolu, deniz veya hava taşımacılığı" },
+                  { value: "logistics", label: "Lojistik", helper: "Kargo, depolama ve dağıtım hizmeti" },
+                ] as const).map((option) => (
+                  <button
+                    key={option.value}
+                    type="button"
+                    onClick={() => setForm({ ...form, supplierCategoryCode: option.value })}
+                    className={`rounded-lg border px-3 py-2.5 text-left transition-colors ${form.supplierCategoryCode === option.value ? "border-primary bg-primary/5 text-primary" : "border-border hover:bg-muted/40"}`}
+                  >
+                    <span className="block text-xs font-semibold">{option.label}</span>
+                    <span className="mt-0.5 block text-[10px] text-muted-foreground">{option.helper}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
 
           <div>
               <Label className="text-xs">Firma Statüsü</Label>
@@ -473,11 +636,36 @@ export function CreateCustomerDialog({ trigger, onCreated }: { trigger: React.Re
                 <SelectContent>{ADDRESS_TYPE_OPTIONS.map((option) => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}</SelectContent>
               </Select>
             </div>
+            {type === "company" && (
+              <CompanyWebsiteLookup
+                query={form.name}
+                website={form.website}
+                address={form.address}
+                city={form.city}
+                district={form.district}
+                country={form.country}
+                onApply={(suggestion) => {
+                  setForm((current) => ({
+                    ...current,
+                    website: current.website.trim() || suggestion.website,
+                    address: current.address.trim() || suggestion.address || "",
+                    city: current.city.trim() || suggestion.city || "",
+                    district: current.district.trim() || suggestion.district || "",
+                    country: current.country.trim() || suggestion.country || "Türkiye",
+                    phone: current.phone.trim() || suggestion.phone || "",
+                    email: current.email.trim() || suggestion.email || "",
+                    latitude: current.latitude || (suggestion.latitude != null ? String(suggestion.latitude) : ""),
+                    longitude: current.longitude || (suggestion.longitude != null ? String(suggestion.longitude) : ""),
+                  }));
+                  toast.success("Site önerileri forma uygulandı");
+                }}
+              />
+            )}
             <Field label="Açık Adres" value={form.address} onChange={(v) => setForm({ ...form, address: v })} />
             <LookupCombobox
               label="Ülke"
               options={toComboboxOptions(COUNTRY_OPTIONS)}
-              value={form.country}
+              value={selectedCountry}
               onChange={(v) => setForm({ ...form, country: v, city: "", district: "" })}
               placeholder="Ülke seçin..."
             />
@@ -488,7 +676,18 @@ export function CreateCustomerDialog({ trigger, onCreated }: { trigger: React.Re
               onChange={(v) => setForm({ ...form, city: v, district: "" })}
               placeholder={provinceOptions.length ? "İl seçin veya yazın..." : "İl yazın..."}
             />
-            <Field label="İlçe" value={form.district} onChange={(v) => setForm({ ...form, district: v })} placeholder="İlçeyi yazın" />
+            <LookupCombobox
+              label="İlçe"
+              options={districtOptions}
+              value={form.district}
+              onChange={(v) => setForm({ ...form, district: v })}
+              placeholder={!form.city ? "Önce il seçin..." : districtOptions.length ? "İlçe seçin veya yazın..." : "İlçe yazın..."}
+            />
+            <AddressRoleSelector
+              className="col-span-2 rounded-md border border-border/60 bg-muted/20 p-2.5"
+              address={form}
+              onSelect={(role) => selectCreateAddressRole(role, null)}
+            />
             <div className="col-span-2">
               <OsmCompanySearch
                 query={form.name}
@@ -522,19 +721,51 @@ export function CreateCustomerDialog({ trigger, onCreated }: { trigger: React.Re
                   <Plus className="mr-1 size-3.5" /> Adres Ekle
                 </Button>
               </div>
-              {(form.additionalAddresses ?? []).map((item, index) => (
-                <div key={index} className="grid grid-cols-2 gap-2 rounded-md bg-muted/30 p-3">
-                  <Select value={item.addressType} onValueChange={(value) => setForm({ ...form, additionalAddresses: form.additionalAddresses.map((row, i) => i === index ? { ...row, addressType: value as typeof row.addressType } : row) })}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>{ADDRESS_TYPE_OPTIONS.map((option) => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}</SelectContent>
-                  </Select>
-                  <div className="flex justify-end"><Button type="button" size="icon" variant="ghost" onClick={() => setForm({ ...form, additionalAddresses: form.additionalAddresses.filter((_, i) => i !== index) })}><Trash2 className="size-4" /></Button></div>
-                  <Input placeholder="Ülke" value={item.country} onChange={(e) => setForm({ ...form, additionalAddresses: form.additionalAddresses.map((row, i) => i === index ? { ...row, country: e.target.value } : row) })} />
-                  <Input placeholder="İl" value={item.city} onChange={(e) => setForm({ ...form, additionalAddresses: form.additionalAddresses.map((row, i) => i === index ? { ...row, city: e.target.value } : row) })} />
-                  <Input placeholder="İlçe" value={item.district} onChange={(e) => setForm({ ...form, additionalAddresses: form.additionalAddresses.map((row, i) => i === index ? { ...row, district: e.target.value } : row) })} />
-                  <Input placeholder="Açık adres" value={item.address} onChange={(e) => setForm({ ...form, additionalAddresses: form.additionalAddresses.map((row, i) => i === index ? { ...row, address: e.target.value } : row) })} />
-                </div>
-              ))}
+              {(form.additionalAddresses ?? []).map((item, index) => {
+                const additionalCountry = item.country || "Türkiye";
+                const additionalProvinceOptions = toComboboxOptions(provincesForCountry(additionalCountry));
+                const additionalDistrictOptions = toComboboxOptions(districtsForCountry(additionalCountry, item.city));
+                return (
+                  <div key={index} className="grid grid-cols-2 gap-2 rounded-md bg-muted/30 p-3">
+                    <Select value={item.addressType} onValueChange={(value) => setForm({ ...form, additionalAddresses: form.additionalAddresses.map((row, i) => i === index ? { ...row, addressType: value as typeof row.addressType } : row) })}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>{ADDRESS_TYPE_OPTIONS.map((option) => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}</SelectContent>
+                    </Select>
+                    <div className="flex justify-end"><Button type="button" size="icon" variant="ghost" onClick={() => removeAdditionalAddress(index)}><Trash2 className="size-4" /></Button></div>
+                    <AddressRoleSelector
+                      className="col-span-2"
+                      address={item}
+                      onSelect={(role) => selectCreateAddressRole(role, index)}
+                    />
+                    <LookupCombobox
+                      label="Ülke"
+                      options={toComboboxOptions(COUNTRY_OPTIONS)}
+                      value={additionalCountry}
+                      onChange={(value) => setForm({ ...form, additionalAddresses: form.additionalAddresses.map((row, i) => i === index ? { ...row, country: value, city: "", district: "" } : row) })}
+                      placeholder="Ülke seçin..."
+                    />
+                    <LookupCombobox
+                      label="İl"
+                      options={additionalProvinceOptions}
+                      value={item.city}
+                      onChange={(value) => setForm({ ...form, additionalAddresses: form.additionalAddresses.map((row, i) => i === index ? { ...row, city: value, district: "" } : row) })}
+                      placeholder={additionalProvinceOptions.length ? "İl seçin veya yazın..." : "İl yazın..."}
+                    />
+                    <LookupCombobox
+                      label="İlçe"
+                      options={additionalDistrictOptions}
+                      value={item.district}
+                      onChange={(value) => setForm({ ...form, additionalAddresses: form.additionalAddresses.map((row, i) => i === index ? { ...row, district: value } : row) })}
+                      placeholder={!item.city ? "Önce il seçin..." : additionalDistrictOptions.length ? "İlçe seçin veya yazın..." : "İlçe yazın..."}
+                    />
+                    <Field
+                      label="Açık Adres"
+                      value={item.address}
+                      onChange={(value) => setForm({ ...form, additionalAddresses: form.additionalAddresses.map((row, i) => i === index ? { ...row, address: value } : row) })}
+                    />
+                  </div>
+                );
+              })}
             </div>
             <LookupCombobox
               label="Vergi Dairesi"
@@ -545,8 +776,8 @@ export function CreateCustomerDialog({ trigger, onCreated }: { trigger: React.Re
             />
             <Field label="T.C. / Vergi Kimlik Numarası" value={form.taxNumber} onChange={(v) => setForm({ ...form, taxNumber: v })} />
             <div className="col-span-2">
-              <Label className="text-xs">Notlar</Label>
-              <Textarea className="mt-1.5" rows={3} value={form.initialNote} onChange={(e) => setForm({ ...form, initialNote: e.target.value })} />
+              <Label className="text-xs" htmlFor="create-company-notes">Notlar</Label>
+              <Textarea id="create-company-notes" className="mt-1.5" rows={3} value={form.initialNote} onChange={(e) => setForm({ ...form, initialNote: e.target.value })} />
             </div>
           </div>
 
@@ -732,12 +963,13 @@ export function CreateContactDialog({
             <Field label="Sevdiği Renk" value={form.favoriteColor} onChange={(v) => setForm({ ...form, favoriteColor: v })} />
             <Field label="Mezun Olduğu Okul" value={form.graduatedSchool} onChange={(v) => setForm({ ...form, graduatedSchool: v })} />
             <div className="col-span-2">
-              <Label className="text-xs">Not</Label>
-              <Textarea className="mt-1.5" rows={3} value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} />
+              <Label className="text-xs" htmlFor="create-contact-note">Not</Label>
+              <Textarea id="create-contact-note" className="mt-1.5" rows={3} value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} />
             </div>
             <label className="col-span-2 flex items-center gap-2 text-sm">
               <input
                 type="checkbox"
+                aria-label="Birincil kontak"
                 checked={form.isPrimary}
                 onChange={(e) => setForm({ ...form, isPrimary: e.target.checked })}
               />
@@ -746,6 +978,7 @@ export function CreateContactDialog({
             <label className="col-span-2 flex items-center gap-2 text-sm text-red-700">
               <input
                 type="checkbox"
+                aria-label="Kara listeye al"
                 checked={form.isBlacklisted}
                 onChange={(e) => setForm({ ...form, isBlacklisted: e.target.checked })}
               />
@@ -753,8 +986,9 @@ export function CreateContactDialog({
             </label>
             {form.isBlacklisted && (
               <div className="col-span-2">
-                <Label className="text-xs">Kara Liste Sebebi</Label>
+                <Label className="text-xs" htmlFor="create-contact-blacklist-reason">Kara Liste Sebebi</Label>
                 <Textarea
+                  id="create-contact-blacklist-reason"
                   className="mt-1.5"
                   rows={2}
                   value={form.blacklistReason}
@@ -787,50 +1021,76 @@ export function EditCustomerDialog({ customer, onClose }: { customer: Customer |
   const taxOfficeRows = useTaxOfficeRows();
 
   useEffect(() => {
-    if (customer)
-      setForm({
-        type: customer.type ?? "company",
-        firmType: customer.firmType ?? "customer",
-        salesStatus: customer.salesStatus ?? "potential",
-        divisionIds: customer.divisions?.map((division) => division.id) ?? [],
-        companyGroupCodes: customer.companyGroupCodes ?? (customer.companyGroupCode ? [customer.companyGroupCode] : []),
-        contactSourceCode: customer.contactSourceCode ?? "",
-        name: customer.name ?? "",
-        sector: customer.sector ?? "",
-        phone: customer.phone ?? "",
-        phone2: customer.phone2 ?? "",
-        fax: customer.fax ?? "",
-        email: customer.email ?? "",
-        email2: customer.email2 ?? "",
-        taxNumber: customer.taxNumber ?? "",
-        taxOffice: customer.taxOffice ?? "",
-        website: customer.website ?? "",
-        initialNote: customer.initialNote ?? "",
-        addresses: customer.addresses?.length
-          ? customer.addresses.map((address) => ({ ...address }))
-          : [{
-              addressType: "office",
-              country: customer.country ?? "Türkiye",
-              city: customer.city ?? "",
-              district: customer.district ?? "",
-              address: customer.address ?? "",
-              latitude: customer.latitude,
-              longitude: customer.longitude,
-              isDefault: true,
-            }],
-      });
+    if (!customer) return;
+    const addresses = customer.addresses?.length
+      ? customer.addresses.map((address) => ({ ...address }))
+      : [{
+          addressType: "office" as const,
+          country: customer.country ?? "Türkiye",
+          city: customer.city ?? "",
+          district: customer.district ?? "",
+          address: customer.address ?? "",
+          latitude: customer.latitude,
+          longitude: customer.longitude,
+          isDefault: true,
+          isShipping: true,
+          isBilling: true,
+        }];
+    setForm({
+      type: customer.type ?? "company",
+      firmType: customer.firmType ?? "customer",
+      salesStatus: customer.salesStatus ?? "potential",
+      divisionIds: customer.divisions?.map((division) => division.id) ?? [],
+      companyGroupCodes: customer.companyGroupCodes ?? (customer.companyGroupCode ? [customer.companyGroupCode] : []),
+      contactSourceCode: customer.contactSourceCode ?? "",
+      name: customer.name ?? "",
+      sector: customer.sector ?? "",
+      supplierCategoryCode: customer.supplierCategoryCode ?? "",
+      phone: customer.phone ?? "",
+      phone2: customer.phone2 ?? "",
+      fax: customer.fax ?? "",
+      email: customer.email ?? "",
+      email2: customer.email2 ?? "",
+      taxNumber: customer.taxNumber ?? "",
+      taxOffice: customer.taxOffice ?? "",
+      website: customer.website ?? "",
+      initialNote: customer.initialNote ?? "",
+      addresses: normalizeAddressRoles(addresses),
+    });
   }, [customer]);
+
+  const selectEditAddressRole = (role: AddressRoleKey, selectedIndex: number) => {
+    setForm((current: any) => ({
+      ...current,
+      addresses: (current.addresses ?? []).map((address: any, index: number) => ({
+        ...address,
+        [role]: index === selectedIndex,
+      })),
+    }));
+  };
+
+  const removeEditAddress = (removeIndex: number) => {
+    setForm((current: any) => ({
+      ...current,
+      addresses: normalizeAddressRoles(
+        (current.addresses ?? []).filter((_: unknown, index: number) => index !== removeIndex),
+      ),
+    }));
+  };
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!customer) return;
     if (!form.name.trim()) return toast.error("Firma ünvanı zorunludur");
+    if ((form.firmType === "supplier" || form.firmType === "supplier_customer") && !form.supplierCategoryCode) {
+      return toast.error("Tedarikçi türü seçiniz", { description: "Nakliye veya Lojistik seçimi zorunludur." });
+    }
     setSaving(true);
     try {
       await updateCustomer(customer.id, {
         ...form,
         companyGroupCodes: form.companyGroupCodes ?? [],
-        addresses: (form.addresses ?? []).map((address: any, index: number) => ({ ...address, isDefault: address.isDefault || index === 0 })),
+        addresses: normalizeAddressRoles(form.addresses ?? []),
       });
       toast.success("Firma güncellendi", { description: form.name });
       onClose();
@@ -857,7 +1117,7 @@ export function EditCustomerDialog({ customer, onClose }: { customer: Customer |
           <div>
             <Label className="text-xs">Firma Tipi *</Label>
             <div className="mt-1.5 grid grid-cols-3 gap-2">
-              {([{ value: "customer", label: "Müşteri" }, { value: "supplier", label: "Tedarikçi" }, { value: "supplier_customer", label: "Müşteri + Tedarikçi" }] as const).map((option) => (
+              {([{ value: "customer", label: "Müşteri" }, { value: "supplier", label: "Tedarikçi" }, { value: "supplier_customer", label: "Müşteri + Tedarikçi" }, { value: "competitor", label: "Rakip" }] as const).map((option) => (
                 <button key={option.value} type="button" onClick={() => setForm({ ...form, firmType: option.value })} className={`rounded-lg border px-3 py-2 text-xs ${form.firmType === option.value ? "border-primary bg-primary/5 text-primary" : "border-border"}`}>{option.label}</button>
               ))}
             </div>
@@ -870,6 +1130,16 @@ export function EditCustomerDialog({ customer, onClose }: { customer: Customer |
               ))}
             </div>
           </div>
+          {(form.firmType === "supplier" || form.firmType === "supplier_customer") && (
+            <div>
+              <Label className="text-xs">Tedarikçi Türü *</Label>
+              <div className="mt-1.5 grid grid-cols-2 gap-2">
+                {([{ value: "transportation", label: "Nakliye" }, { value: "logistics", label: "Lojistik" }] as const).map((option) => (
+                  <button key={option.value} type="button" onClick={() => setForm({ ...form, supplierCategoryCode: option.value })} className={`rounded-lg border px-3 py-2 text-xs ${form.supplierCategoryCode === option.value ? "border-primary bg-primary/5 text-primary" : "border-border"}`}>{option.label}</button>
+                ))}
+              </div>
+            </div>
+          )}
           <div>
             <div>
               <Label className="text-xs">Firma Grupları</Label>
@@ -908,7 +1178,7 @@ export function EditCustomerDialog({ customer, onClose }: { customer: Customer |
           </div>
           <div className="space-y-3 rounded-lg border p-3">
             <div className="flex items-center justify-between">
-              <div><div className="text-sm font-medium">Firma Adresleri</div><div className="text-xs text-muted-foreground">İlk adres varsayılan sevkiyat adresidir.</div></div>
+              <div><div className="text-sm font-medium">Firma Adresleri</div><div className="text-xs text-muted-foreground">Ana, sevkiyat ve fatura adresini ayrı ayrı seçin.</div></div>
               <Button type="button" size="sm" variant="outline" onClick={() => setForm({ ...form, addresses: [...(form.addresses ?? []), emptyAdditionalAddress()] })}><Plus className="mr-1 size-3.5" /> Adres Ekle</Button>
             </div>
             {(form.addresses ?? []).map((address: any, index: number) => {
@@ -918,11 +1188,16 @@ export function EditCustomerDialog({ customer, onClose }: { customer: Customer |
                   <Select value={address.addressType ?? "office"} onValueChange={(value) => updateAddress({ addressType: value })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{ADDRESS_TYPE_OPTIONS.map((option) => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}</SelectContent></Select>
                   <div className="flex items-center justify-end gap-2">
                     {index === 0 && <Badge variant="secondary">Varsayılan</Badge>}
-                    <Button type="button" variant="ghost" size="icon" disabled={(form.addresses?.length ?? 0) <= 1} onClick={() => setForm({ ...form, addresses: form.addresses.filter((_: any, rowIndex: number) => rowIndex !== index) })}><Trash2 className="size-4" /></Button>
+                    <Button type="button" variant="ghost" size="icon" disabled={(form.addresses?.length ?? 0) <= 1} onClick={() => removeEditAddress(index)}><Trash2 className="size-4" /></Button>
                   </div>
-                  <LookupCombobox label="Ülke" options={toComboboxOptions(COUNTRY_OPTIONS)} value={address.country ?? "Türkiye"} onChange={(value) => updateAddress({ country: value, city: "", district: "" })} />
-                  <LookupCombobox label="İl" options={toComboboxOptions(provincesForCountry(address.country ?? "Türkiye"))} value={address.city ?? ""} onChange={(value) => updateAddress({ city: value })} />
-                  <Field label="İlçe" value={address.district ?? ""} onChange={(value) => updateAddress({ district: value })} placeholder="İlçeyi yazın" />
+                  <AddressRoleSelector
+                    className="col-span-2"
+                    address={address}
+                    onSelect={(role) => selectEditAddressRole(role, index)}
+                  />
+                  <LookupCombobox label="Ülke" options={toComboboxOptions(COUNTRY_OPTIONS)} value={address.country ?? "Türkiye"} onChange={(value) => updateAddress({ country: value, city: "", district: "" })} placeholder="Ülke seçin..." />
+                  <LookupCombobox label="İl" options={toComboboxOptions(provincesForCountry(address.country ?? "Türkiye"))} value={address.city ?? ""} onChange={(value) => updateAddress({ city: value, district: "" })} placeholder={provincesForCountry(address.country ?? "Türkiye").length ? "İl seçin veya yazın..." : "İl yazın..."} />
+                  <LookupCombobox label="İlçe" options={toComboboxOptions(districtsForCountry(address.country ?? "Türkiye", address.city ?? ""))} value={address.district ?? ""} onChange={(value) => updateAddress({ district: value })} placeholder={!address.city ? "Önce il seçin..." : districtsForCountry(address.country ?? "Türkiye", address.city ?? "").length ? "İlçe seçin veya yazın..." : "İlçe yazın..."} />
                   <Field label="Açık Adres" value={address.address ?? ""} onChange={(value) => updateAddress({ address: value })} />
                 </div>
               );
@@ -940,9 +1215,9 @@ export function EditCustomerDialog({ customer, onClose }: { customer: Customer |
 
 /* ---------- Kontak düzenleme (controlled) ---------- */
 export function EditContactDialog({ contact, onClose }: { contact: Contact | null; onClose: () => void }) {
-  const { updateContact } = useStore();
+  const { customers, updateContact, addCustomer } = useStore();
   const [saving, setSaving] = useState(false);
-  const [form, setForm] = useState({ name: "", title: "", department: "", phone: "", mobilePhone: "", email: "", isBlacklisted: false, blacklistReason: "" });
+  const [form, setForm] = useState(emptyContactForm());
   const [linkedCompanies, setLinkedCompanies] = useState<{ id: string; legalTitle: string; shortName: string | null; isPrimary: boolean }[]>([]);
   const [companyBusy, setCompanyBusy] = useState<string | null>(null);
 
@@ -950,7 +1225,9 @@ export function EditContactDialog({ contact, onClose }: { contact: Contact | nul
     if (!contact) return;
     setCompanyBusy(companyId);
     try {
-      setLinkedCompanies(await contactService.setPrimaryCompany(contact.id, companyId));
+      const rows = await contactService.setPrimaryCompany(contact.id, companyId);
+      setLinkedCompanies(rows);
+      setForm((current) => ({ ...current, customerId: companyId }));
       toast.success("Birincil firma güncellendi");
     } catch (err: any) {
       toast.error("Güncellenemedi", { description: err?.message ?? "İşlem başarısız." });
@@ -962,7 +1239,14 @@ export function EditContactDialog({ contact, onClose }: { contact: Contact | nul
     if (!contact) return;
     setCompanyBusy(companyId);
     try {
-      setLinkedCompanies(await contactService.unlinkCompany(contact.id, companyId));
+      const rows = await contactService.unlinkCompany(contact.id, companyId);
+      setLinkedCompanies(rows);
+      setForm((current) => ({
+        ...current,
+        customerId: current.customerId === companyId
+          ? rows.find((company) => company.isPrimary)?.id ?? rows[0]?.id ?? ""
+          : current.customerId,
+      }));
       toast.success("Firma bağı kaldırıldı");
     } catch (err: any) {
       toast.error("Kaldırılamadı", { description: err?.message ?? "İşlem başarısız." });
@@ -989,12 +1273,26 @@ export function EditContactDialog({ contact, onClose }: { contact: Contact | nul
   useEffect(() => {
     if (contact)
       setForm({
+        customerId: contact.customerId ?? "",
         name: contact.name ?? "",
         title: contact.title ?? "",
         department: contact.department ?? "",
         phone: contact.phone ?? "",
+        phoneExtension: contact.phoneExtension ?? "",
         mobilePhone: contact.mobilePhone ?? "",
+        otherPhone: contact.otherPhone ?? "",
         email: contact.email ?? "",
+        personalEmail: contact.personalEmail ?? "",
+        otherEmail: contact.otherEmail ?? "",
+        gender: contact.gender ?? "",
+        birthDate: contact.birthDate ?? "",
+        decisionRoleCode: contact.decisionRoleCode ?? "",
+        favoriteTeam: contact.favoriteTeam ?? "",
+        hometown: contact.hometown ?? "",
+        favoriteColor: contact.favoriteColor ?? "",
+        graduatedSchool: contact.graduatedSchool ?? "",
+        isPrimary: contact.isPrimary ?? false,
+        note: contact.note ?? "",
         isBlacklisted: contact.isBlacklisted ?? false,
         blacklistReason: contact.blacklistReason ?? "",
       });
@@ -1003,16 +1301,31 @@ export function EditContactDialog({ contact, onClose }: { contact: Contact | nul
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!contact) return;
+    if (!form.customerId) return toast.error("Firma seçiniz");
     if (!form.name.trim()) return toast.error("Adı soyadı zorunludur");
     setSaving(true);
     try {
       await updateContact(contact.id, {
+        customerId: form.customerId,
         name: form.name.trim(),
         title: form.title.trim(),
         department: form.department.trim(),
         phone: form.phone.trim(),
+        phoneExtension: form.phoneExtension.trim(),
         mobilePhone: form.mobilePhone.trim(),
+        otherPhone: form.otherPhone.trim(),
         email: form.email.trim(),
+        personalEmail: form.personalEmail.trim(),
+        otherEmail: form.otherEmail.trim(),
+        gender: form.gender,
+        birthDate: form.birthDate,
+        decisionRoleCode: form.decisionRoleCode,
+        favoriteTeam: form.favoriteTeam.trim(),
+        hometown: form.hometown.trim(),
+        favoriteColor: form.favoriteColor.trim(),
+        graduatedSchool: form.graduatedSchool.trim(),
+        isPrimary: form.isPrimary,
+        note: form.note.trim(),
         isBlacklisted: form.isBlacklisted,
         blacklistReason: form.isBlacklisted ? form.blacklistReason.trim() : "",
       });
@@ -1027,22 +1340,73 @@ export function EditContactDialog({ contact, onClose }: { contact: Contact | nul
 
   return (
     <Dialog open={!!contact} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-lg">
+      <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Kontak Düzenle</DialogTitle>
-          <DialogDescription>Kontak bilgilerini güncelleyin.</DialogDescription>
+          <DialogDescription>Yeni kontak ekranındaki tüm kişi ve iletişim bilgilerini güncelleyin.</DialogDescription>
         </DialogHeader>
-        <form onSubmit={submit} className="space-y-3">
-          <Field label="Ad Soyad *" value={form.name} onChange={(v) => setForm({ ...form, name: v })} />
+        <form onSubmit={submit} className="space-y-5">
           <div className="grid grid-cols-2 gap-3">
+            <div className="col-span-2">
+              <Label className="text-xs">Firma *</Label>
+              <div className="mt-1.5">
+                <Combobox
+                  options={customers.map((customer) => ({ value: customer.id, label: customer.name, hint: customer.city }))}
+                  value={form.customerId}
+                  onChange={(value) => setForm({ ...form, customerId: value })}
+                  placeholder="Firma seçin veya adını yazın..."
+                  searchPlaceholder="Firma adı / şehir ara..."
+                  emptyText="Firma bulunamadı."
+                  onCreate={async (label) => {
+                    try {
+                      const created = await addCustomer({
+                        type: "company", firmType: "customer", name: label,
+                        contactPerson: "", phone: "", email: "", city: "", address: "",
+                        taxNumber: "", wantedProduct: "", initialNote: "", source: "Kontak",
+                      } as any);
+                      setForm((current) => ({ ...current, customerId: created.id }));
+                      toast.success("Firma oluşturuldu", { description: label });
+                    } catch (err: any) {
+                      toast.error("Firma oluşturulamadı", { description: err?.message ?? "İstek başarısız oldu." });
+                    }
+                  }}
+                  createLabel={(query) => `"${query}" adıyla yeni firma oluştur`}
+                />
+              </div>
+              <p className="mt-1 text-[11px] text-muted-foreground">Kaydettiğinizde seçilen firma kontağın birincil firma bağlantısı olur.</p>
+            </div>
+
+            <Field label="Adı Soyadı *" value={form.name} onChange={(value) => setForm({ ...form, name: value })} />
             <Field label="Ünvan" value={form.title} onChange={(v) => setForm({ ...form, title: v })} />
             <Field label="Departman" value={form.department} onChange={(v) => setForm({ ...form, department: v })} />
-            <Field label="İş Telefonu" value={form.phone} onChange={(v) => setForm({ ...form, phone: v })} />
-            <Field label="Cep Telefonu" value={form.mobilePhone} onChange={(v) => setForm({ ...form, mobilePhone: v })} />
-          </div>
-          <Field label="E-posta" value={form.email} onChange={(v) => setForm({ ...form, email: v })} />
-          {linkedCompanies.length > 0 && (
             <div>
+              <Label className="text-xs">Karar Yetkisi</Label>
+              <Select
+                value={form.decisionRoleCode || "none"}
+                onValueChange={(value) => setForm({ ...form, decisionRoleCode: value === "none" ? "" : value })}
+              >
+                <SelectTrigger className="mt-1.5"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Belirtilmedi</SelectItem>
+                  <SelectItem value="owner">Karar Verici</SelectItem>
+                  <SelectItem value="influencer">Karar Verici Yardımcısı</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="İş Telefonu" value={form.phone} onChange={(v) => setForm({ ...form, phone: v })} placeholder="+90 ..." />
+            <Field label="Dahili Numarası" value={form.phoneExtension} onChange={(v) => setForm({ ...form, phoneExtension: v })} placeholder="Örn: 112" />
+            <Field label="Cep Telefonu" value={form.mobilePhone} onChange={(v) => setForm({ ...form, mobilePhone: v })} placeholder="+90 ..." />
+            <Field label="Diğer Telefon" value={form.otherPhone} onChange={(v) => setForm({ ...form, otherPhone: v })} placeholder="+90 ..." />
+            <Field label="İş E-posta" value={form.email} onChange={(v) => setForm({ ...form, email: v })} type="email" />
+            <Field label="Kişisel E-posta" value={form.personalEmail} onChange={(v) => setForm({ ...form, personalEmail: v })} type="email" />
+            <Field label="Diğer E-posta" value={form.otherEmail} onChange={(v) => setForm({ ...form, otherEmail: v })} type="email" />
+          </div>
+
+          {linkedCompanies.length > 0 && (
+            <div className="rounded-lg border border-border/70 bg-muted/20 p-3">
               <Label className="text-xs">Bağlı Firmalar {linkedCompanies.length > 1 && `(${linkedCompanies.length})`}</Label>
               <div className="mt-1.5 space-y-1">
                 {linkedCompanies.map((c) => {
@@ -1084,29 +1448,62 @@ export function EditContactDialog({ contact, onClose }: { contact: Contact | nul
               <p className="mt-1 text-[11px] text-muted-foreground">Aynı kişi birden çok firmada yetkili olabilir. "Birincil yap" ile varsayılan firmayı değiştir, çöp kutusuyla bağı kaldır.</p>
             </div>
           )}
-          <label className="flex items-center gap-2 text-sm text-red-700">
-            <input
-              type="checkbox"
-              checked={form.isBlacklisted}
-              onChange={(e) => setForm({ ...form, isBlacklisted: e.target.checked })}
-            />
-            Kara listeye al
-          </label>
-          {form.isBlacklisted && (
+
+          <div className="grid grid-cols-2 gap-3">
             <div>
-              <Label className="text-xs">Kara Liste Sebebi</Label>
-              <Textarea
-                className="mt-1.5"
-                rows={2}
-                value={form.blacklistReason}
-                onChange={(e) => setForm({ ...form, blacklistReason: e.target.value })}
-                placeholder="Neden kara listeye alındığını yazın"
-              />
+              <Label className="text-xs">Cinsiyet</Label>
+              <Select value={form.gender || "none"} onValueChange={(value) => setForm({ ...form, gender: value === "none" ? "" : value })}>
+                <SelectTrigger className="mt-1.5"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Belirtilmedi</SelectItem>
+                  <SelectItem value="Kadın">Kadın</SelectItem>
+                  <SelectItem value="Erkek">Erkek</SelectItem>
+                  <SelectItem value="Diğer">Diğer</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
-          )}
+            <Field label="Doğum Tarihi" type="date" value={form.birthDate} onChange={(value) => setForm({ ...form, birthDate: value })} />
+            <Field label="Tuttuğu Takım" value={form.favoriteTeam} onChange={(value) => setForm({ ...form, favoriteTeam: value })} />
+            <Field label="Memleketi" value={form.hometown} onChange={(value) => setForm({ ...form, hometown: value })} />
+            <Field label="Sevdiği Renk" value={form.favoriteColor} onChange={(value) => setForm({ ...form, favoriteColor: value })} />
+            <Field label="Mezun Olduğu Okul" value={form.graduatedSchool} onChange={(value) => setForm({ ...form, graduatedSchool: value })} />
+            <div className="col-span-2">
+              <Label className="text-xs">Not</Label>
+              <Textarea className="mt-1.5" rows={3} value={form.note} onChange={(event) => setForm({ ...form, note: event.target.value })} />
+            </div>
+            <label className="col-span-2 flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={form.isPrimary}
+                onChange={(event) => setForm({ ...form, isPrimary: event.target.checked })}
+              />
+              Birincil kontak
+            </label>
+            <label className="col-span-2 flex items-center gap-2 text-sm text-red-700">
+              <input
+                type="checkbox"
+                checked={form.isBlacklisted}
+                onChange={(event) => setForm({ ...form, isBlacklisted: event.target.checked })}
+              />
+              Kara listeye al
+            </label>
+            {form.isBlacklisted && (
+              <div className="col-span-2">
+                <Label className="text-xs">Kara Liste Sebebi</Label>
+                <Textarea
+                  className="mt-1.5"
+                  rows={2}
+                  value={form.blacklistReason}
+                  onChange={(event) => setForm({ ...form, blacklistReason: event.target.value })}
+                  placeholder="Neden kara listeye alındığını yazın"
+                />
+              </div>
+            )}
+          </div>
+
           <DialogFooter>
             <Button type="button" variant="outline" onClick={onClose}>Vazgeç</Button>
-            <Button type="submit" disabled={saving}>{saving ? "Kaydediliyor..." : "Kaydet"}</Button>
+            <Button type="submit" disabled={saving}>{saving ? "Kaydediliyor..." : "Değişiklikleri Kaydet"}</Button>
           </DialogFooter>
         </form>
       </DialogContent>
@@ -1338,13 +1735,14 @@ export function CreateOfferDialog({ trigger, defaultCaseId }: { trigger: React.R
   );
 }
 
-function AutocompleteInput({ value, onChange, options, placeholder }: { value: string, onChange: (v: string) => void, options: string[], placeholder?: string }) {
+function AutocompleteInput({ value, onChange, options, placeholder, ariaLabel }: { value: string, onChange: (v: string) => void, options: string[], placeholder?: string, ariaLabel?: string }) {
   const [open, setOpen] = useState(false);
   const filtered = options.filter(o => o.toLocaleLowerCase("tr-TR").includes(value.toLocaleLowerCase("tr-TR")));
 
   return (
     <div className="relative mt-1.5">
       <Input
+        aria-label={ariaLabel}
         value={value}
         onChange={(e) => {
           onChange(e.target.value);
@@ -1621,6 +2019,7 @@ export function CreateStockDialog({ trigger }: { trigger: React.ReactNode }) {
             <div>
               <Label className="text-xs">Marka</Label>
               <AutocompleteInput
+                ariaLabel="Marka"
                 options={allBrands}
                 value={form.brand}
                 onChange={(v) => setForm({ ...form, brand: v })}
@@ -1630,6 +2029,7 @@ export function CreateStockDialog({ trigger }: { trigger: React.ReactNode }) {
             <div>
               <Label className="text-xs">Sayaç Tipi</Label>
               <AutocompleteInput
+                ariaLabel="Sayaç tipi"
                 options={allTypes}
                 value={form.counterType}
                 onChange={(v) => setForm({ ...form, counterType: v })}
@@ -1648,6 +2048,7 @@ export function CreateStockDialog({ trigger }: { trigger: React.ReactNode }) {
             <div>
               <Label className="text-xs">Kontrol Paneli</Label>
               <AutocompleteInput
+                ariaLabel="Kontrol paneli"
                 options={allPanels}
                 value={form.controlPanel}
                 onChange={(v) => setForm({ ...form, controlPanel: v })}
@@ -1655,9 +2056,9 @@ export function CreateStockDialog({ trigger }: { trigger: React.ReactNode }) {
               />
             </div>
             <div>
-              <Label className="text-xs">Stok Kodu *</Label>
+              <Label className="text-xs" htmlFor="stock-code">Stok Kodu *</Label>
               <div className="flex gap-1.5 mt-1.5">
-                <Input value={form.stockCode} onChange={(e) => setForm({ ...form, stockCode: e.target.value })} placeholder="ACM-X200-001" />
+                <Input id="stock-code" className="font-data" value={form.stockCode} onChange={(e) => setForm({ ...form, stockCode: e.target.value })} placeholder="ACM-X200-001" />
                 <Button type="button" variant="outline" size="sm" onClick={autoStockCode}>Otomatik</Button>
               </div>
             </div>
@@ -2109,6 +2510,7 @@ const subcategoriesForProductCategory = (
 
 type ProductFormState = {
   brand: string;
+  series: string;
   productGroupCode: string; productGroup: string;
   categoryCode: string; category: string;
   subcategoryCode: string; subcategory: string;
@@ -2220,6 +2622,7 @@ const parseOptionalEquipment = (value: string): OptionalEquipmentDraft => {
 
 const emptyProduct = (productGroupCode = ""): ProductFormState => ({
   brand: "",
+  series: "",
   productGroupCode, productGroup: findLabel(PRODUCT_GROUPS, productGroupCode, productGroupCode),
   categoryCode: "TEZGAH", category: "Tezgah",
   subcategoryCode: "ISLEME_MERKEZI", subcategory: "İşleme Merkezi",
@@ -2242,6 +2645,7 @@ const emptyProduct = (productGroupCode = ""): ProductFormState => ({
 
 const fromProduct = (p: Product): ProductFormState => ({
   brand: p.brand,
+  series: p.series ?? "",
   productGroupCode: p.productGroupCode || codeFromLabel(PRODUCT_GROUPS, p.productGroup ?? "", "CNC"),
   productGroup: p.productGroup || findLabel(PRODUCT_GROUPS, p.productGroupCode ?? "CNC", "CNC"),
   categoryCode: p.categoryCode || codeFromLabel(PRODUCT_CATEGORIES, p.category || "", "TEZGAH"),
@@ -2722,6 +3126,7 @@ export function ProductDialog({
     const modelCode = form.stockCode.trim() || form.model.trim() || compactProductCode(form.shortDescription) || "URUN";
     const payload = {
       brand: isLaborProduct ? (form.brand.trim() || "Haksan") : form.brand.trim(),
+      series: isMachineProduct ? form.series.trim() : "",
       productGroup: form.productGroup,
       productGroupCode: form.productGroupCode,
       model: modelCode,
@@ -2789,31 +3194,7 @@ export function ProductDialog({
 
         <form onSubmit={submit} className="space-y-4">
           <div className="overflow-hidden rounded-lg border border-border/70 bg-white">
-            <ProductSheetRow label="Ürün Kategorisi">
-              <Select value={form.categoryCode} onValueChange={onCategoryChange}>
-                <SelectTrigger className="h-8 max-w-xs"><SelectValue placeholder="Kategori seçin" /></SelectTrigger>
-                <SelectContent>
-                  {productCategoryOptions.map((o) => <SelectItem key={o.code} value={o.code}>{o.label}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </ProductSheetRow>
-
-            <ProductSheetRow label="Ürün">
-              <Input className="h-8" value={form.shortDescription} onChange={(e) => setForm({ ...form, shortDescription: e.target.value })} placeholder="Ürün adı" />
-            </ProductSheetRow>
-
-            {categoryUsesSubcategory && (
-              <ProductSheetRow label="Ürün Alt Kategorisi">
-                <Select value={form.subcategoryCode} onValueChange={onSubcategoryChange}>
-                  <SelectTrigger className="h-8 max-w-xs"><SelectValue placeholder="Alt kategori seçin" /></SelectTrigger>
-                  <SelectContent>
-                    {availableProductSubcategories.map((o) => <SelectItem key={o.code} value={o.code}>{o.label}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </ProductSheetRow>
-            )}
-
-            <ProductSheetRow label="Ürün Grubu">
+            <ProductSheetRow label="1. Ürün Grubu">
               <Select
                 value={form.productGroupCode}
                 onValueChange={onProductGroupChange}
@@ -2825,7 +3206,27 @@ export function ProductDialog({
               </Select>
             </ProductSheetRow>
 
-            <ProductSheetRow label="Ürün Tipi">
+            <ProductSheetRow label="2. Ürün Kategorisi">
+              <Select value={form.categoryCode} onValueChange={onCategoryChange}>
+                <SelectTrigger className="h-8 max-w-xs"><SelectValue placeholder="Kategori seçin" /></SelectTrigger>
+                <SelectContent>
+                  {productCategoryOptions.map((o) => <SelectItem key={o.code} value={o.code}>{o.label}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </ProductSheetRow>
+
+            {categoryUsesSubcategory && (
+              <ProductSheetRow label="3. Ürün Alt Kategorisi">
+                <Select value={form.subcategoryCode} onValueChange={onSubcategoryChange}>
+                  <SelectTrigger className="h-8 max-w-xs"><SelectValue placeholder="Alt kategori seçin" /></SelectTrigger>
+                  <SelectContent>
+                    {availableProductSubcategories.map((o) => <SelectItem key={o.code} value={o.code}>{o.label}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </ProductSheetRow>
+            )}
+
+            <ProductSheetRow label="4. Ürün Tipi">
               <Select value={form.productTypeCode} onValueChange={onTypeChange}>
                 <SelectTrigger className="h-8 max-w-md">
                   <SelectValue placeholder={typeGroups.length ? "Ürün tipi seçin" : "Önce kategori seçin"} />
@@ -2850,8 +3251,9 @@ export function ProductDialog({
             </ProductSheetRow>
 
             {!isLaborProduct && (
-              <ProductSheetRow label="Ürün Markası">
+              <ProductSheetRow label="5. Ürün Markası">
                 <Input
+                  aria-label="Ürün markası"
                   className="h-8 max-w-xs"
                   list={canSelectProductBrand ? productBrandDatalistId : undefined}
                   value={form.brand}
@@ -2864,6 +3266,23 @@ export function ProductDialog({
                 </datalist>
               </ProductSheetRow>
             )}
+
+            {isMachineProduct && (
+              <ProductSheetRow label="6. Ürün Serisi">
+                <Input
+                  aria-label="Ürün serisi"
+                  className="h-8 max-w-xs"
+                  value={form.series}
+                  onChange={(e) => setForm({ ...form, series: e.target.value })}
+                  placeholder="örn. VM"
+                  maxLength={128}
+                />
+              </ProductSheetRow>
+            )}
+
+            <ProductSheetRow label={isMachineProduct ? "7. Ürün Adı" : "Ürün Adı"}>
+              <Input className="h-8" value={form.shortDescription} onChange={(e) => setForm({ ...form, shortDescription: e.target.value })} placeholder="Ürün adı" />
+            </ProductSheetRow>
 
             {isMachineProduct && (
               <ProductSheetRow label="Kontrol Ünitesi">
@@ -2984,6 +3403,7 @@ export function ProductDialog({
                 <div className="space-y-1.5">
                   <div className="flex gap-2">
                     <Input
+                      aria-label="Ürün fotoğrafı adresi"
                       className="h-8"
                       value={form.imageUrl}
                       onChange={(e) => setForm({ ...form, imageUrl: e.target.value })}
@@ -3012,6 +3432,8 @@ export function ProductDialog({
                         type="button"
                         variant="ghost"
                         size="icon"
+                        aria-label="Ürün fotoğrafını kaldır"
+                        title="Ürün fotoğrafını kaldır"
                         className="h-8 w-8 shrink-0"
                         onClick={() => setForm({ ...form, imageUrl: "" })}
                       >
@@ -3258,8 +3680,9 @@ export function ProductDialog({
           )}
 
           <div>
-            <Label className="text-xs">Notlar</Label>
+            <Label className="text-xs" htmlFor="product-notes">Notlar</Label>
             <Textarea
+              id="product-notes"
               className="mt-1.5 min-h-[72px]"
               value={form.description}
               onChange={(e) => setForm({ ...form, description: e.target.value })}
@@ -3391,12 +3814,16 @@ export function OptionalEquipmentDialog({ trigger }: { trigger: React.ReactNode 
 }
 
 function ProductSheetRow({ label, children, className = "" }: { label: string; children: React.ReactNode; className?: string }) {
+  const fieldId = useId();
+  const control = isValidElement(children)
+    ? cloneElement(children as React.ReactElement<any>, { id: (children.props as { id?: string }).id ?? fieldId })
+    : children;
   return (
     <div className={`grid grid-cols-1 border-b border-border/60 last:border-b-0 md:grid-cols-[220px_minmax(0,1fr)] ${className}`}>
-      <div className="bg-muted/35 px-3 py-2 text-[12px] font-semibold uppercase tracking-wide text-foreground md:border-r md:border-border/60">
+      <Label htmlFor={fieldId} className="bg-muted/35 px-3 py-2 text-[12px] font-semibold uppercase tracking-wide text-foreground md:border-r md:border-border/60">
         {label}
-      </div>
-      <div className="min-w-0 px-3 py-2">{children}</div>
+      </Label>
+      <div className="min-w-0 px-3 py-2">{control}</div>
     </div>
   );
 }
@@ -3430,6 +3857,7 @@ function ChipField({ label, chips, input, setInput, onAdd, onRemove, onEdit, onR
   onReorder?: (from: number, to: number) => void;
   placeholder?: string;
 }) {
+  const inputId = useId();
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const [editValue, setEditValue] = useState("");
   const [dragIndex, setDragIndex] = useState<number | null>(null);
@@ -3445,15 +3873,16 @@ function ChipField({ label, chips, input, setInput, onAdd, onRemove, onEdit, onR
 
   return (
     <div>
-      <Label className="text-xs">{label}</Label>
+      <Label className="text-xs" htmlFor={inputId}>{label}</Label>
       <div className="mt-1.5 flex gap-2">
         <Input
+          id={inputId}
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); onAdd(); } }}
           placeholder={placeholder}
         />
-        <Button type="button" variant="outline" size="icon" className="h-9 w-9 shrink-0" onClick={onAdd}>
+        <Button type="button" variant="outline" size="icon" aria-label={`${label} ekle`} title={`${label} ekle`} className="h-9 w-9 shrink-0" onClick={onAdd}>
           <Plus className="size-4" />
         </Button>
       </div>
@@ -3495,6 +3924,7 @@ function ChipField({ label, chips, input, setInput, onAdd, onRemove, onEdit, onR
                 </span>
                 {editingIndex === i ? (
                   <Input
+                    aria-label={`${c} donanımını düzenle`}
                     autoFocus
                     className="h-7 flex-1 text-sm"
                     value={editValue}
@@ -3687,17 +4117,20 @@ function OptionalEquipmentField({
 function Field({ label, value, onChange, type = "text", placeholder, className = "", name }: {
   label: string; value: string; onChange: (v: string) => void; type?: string; placeholder?: string; className?: string; name?: string;
 }) {
-  // name verilirse id/name olarak uygulanır → tarayıcı autofill uyarısını giderir.
+  const generatedId = useId();
+  const fieldId = name ?? `field-${generatedId.replace(/:/g, "")}`;
+  // name verilirse form/autofill anahtarı korunur; id her durumda label ile eşleşir.
   return (
     <div className={className}>
-      <Label className="text-xs" htmlFor={name}>{label}</Label>
-      <Input className="mt-1.5" id={name} name={name} type={type} value={value} placeholder={placeholder} onChange={(e) => onChange(e.target.value)} />
+      <Label className="text-xs" htmlFor={fieldId}>{label}</Label>
+      <Input className="mt-1.5" id={fieldId} name={name} type={type} value={value} placeholder={placeholder} onChange={(e) => onChange(e.target.value)} />
     </div>
   );
 }
 
 /* ---------- Sevkiyat ---------- */
 type ShipmentTransportMode = "road" | "air" | "sea" | "local_cargo";
+type ShipmentDirection = "incoming" | "outgoing";
 const TRANSPORT_MODE_LABELS: Record<ShipmentTransportMode, string> = {
   road: "Karayolu",
   air: "Havayolu",
@@ -3712,8 +4145,8 @@ type ShipmentLineForm = {
   description: string;
   serialNumber: string;
   quantity: string;
-  packageCount: string;
-  palletCount: string;
+  packageQuantity: string;
+  packageUnitCode: string;
   packageLengthCm: string;
   packageWidthCm: string;
   packageHeightCm: string;
@@ -3728,8 +4161,8 @@ const emptyShipmentLine = (): ShipmentLineForm => ({
   description: "",
   serialNumber: "",
   quantity: "1",
-  packageCount: "1",
-  palletCount: "0",
+  packageQuantity: "1",
+  packageUnitCode: "package",
   packageLengthCm: "",
   packageWidthCm: "",
   packageHeightCm: "",
@@ -3747,18 +4180,28 @@ export function CreateShipmentDialog({ trigger, onCreated }: { trigger: React.Re
   const [open, setOpen] = useState(false);
   const [warehouses, setWarehouses] = useState<Array<{ id: string; name: string }>>([]);
   const [senderCompanies, setSenderCompanies] = useState<Array<{ id: string; legalTitle: string; shortName?: string | null }>>([]);
-  const [carrierCompanies, setCarrierCompanies] = useState<Array<{ id: string; legalTitle: string; shortName?: string | null }>>([]);
+  const [carrierCompanies, setCarrierCompanies] = useState<Array<{ id: string; legalTitle: string; shortName?: string | null; supplierCategoryCode?: "transportation" | "logistics" | null }>>([]);
+  const packageUnitRows = useLookupRows("shipment-package-units", [
+    { code: "package", name: "Paket" },
+    { code: "pallet", name: "Palet" },
+    { code: "crate", name: "Sandık" },
+    { code: "box", name: "Koli" },
+    { code: "piece", name: "Adet" },
+  ]);
   // Satır bazında, seçilen tezgahla uyumlu opsiyonel donanım önerileri (ürün-id → sonuç önbelleği).
   const [optionalByLine, setOptionalByLine] = useState<Record<string, Array<{ id: string; label: string }>>>({});
   const optionalCache = useRef<Record<string, Array<{ id: string; label: string }>>>({});
   const emptyForm = () => {
     const initialCase = cases[0];
     const initialCustomer = initialCase ? customers.find((customer) => customer.id === initialCase.customerId) : undefined;
-    const initialAddress = initialCustomer?.addresses?.find((address) => address.isDefault) ?? initialCustomer?.addresses?.[0];
+    const initialAddress = initialCustomer?.addresses?.find((address) => address.isShipping)
+      ?? initialCustomer?.addresses?.find((address) => address.isDefault)
+      ?? initialCustomer?.addresses?.[0];
     const initialSnapshot = initialAddress
       ? [initialAddress.address, initialAddress.district, initialAddress.city, initialAddress.country].filter(Boolean).join(", ")
       : "";
     return {
+    direction: "outgoing" as ShipmentDirection,
     salesCaseId: initialCase?.id ?? "",
     senderCompanyId: "",
     senderName: "",
@@ -3874,6 +4317,7 @@ export function CreateShipmentDialog({ trigger, onCreated }: { trigger: React.Re
       const carrier = carrierCompanies.find((c) => c.id === form.carrierCompanyId);
       const destinationWarehouse = warehouses.find((w) => w.id === form.destinationWarehouseId);
       await addShipment({
+        direction: form.direction,
         salesCaseId: form.salesCaseId,
         senderCompanyId: form.senderCompanyId || undefined,
         senderName: form.senderName.trim() || undefined,
@@ -3897,8 +4341,8 @@ export function CreateShipmentDialog({ trigger, onCreated }: { trigger: React.Re
           description: line.description.trim(),
           serialNumber: line.serialNumber || undefined,
           quantity: Number(line.quantity || 1),
-          packageCount: line.packageCount ? Number(line.packageCount) : undefined,
-          palletCount: line.palletCount ? Number(line.palletCount) : undefined,
+          packageQuantity: line.packageQuantity ? Number(line.packageQuantity) : undefined,
+          packageUnitCode: line.packageUnitCode || undefined,
           packageLengthCm: line.packageLengthCm ? Number(line.packageLengthCm) : undefined,
           packageWidthCm: line.packageWidthCm ? Number(line.packageWidthCm) : undefined,
           packageHeightCm: line.packageHeightCm ? Number(line.packageHeightCm) : undefined,
@@ -3921,17 +4365,36 @@ export function CreateShipmentDialog({ trigger, onCreated }: { trigger: React.Re
       <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2"><Truck className="size-5 text-primary" /> Yeni Sevkiyat</DialogTitle>
-          <DialogDescription>Seri no, paket ve palet bilgileriyle sevkiyat kaydı oluşturun.</DialogDescription>
+          <DialogDescription>Gelen veya giden sevkiyatı; seri no, paket adedi ve paket birimiyle kaydedin.</DialogDescription>
         </DialogHeader>
         <form onSubmit={submit} className="space-y-4">
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-2 gap-2 rounded-xl border border-border/70 bg-muted/20 p-1.5" aria-label="Sevkiyat yönü">
+            {([
+              { value: "incoming", label: "Gelen Sevkiyat", helper: "Tedarikçiden depoya", icon: "↓" },
+              { value: "outgoing", label: "Giden Sevkiyat", helper: "Depodan müşteriye", icon: "↑" },
+            ] as const).map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                aria-pressed={form.direction === option.value}
+                onClick={() => setForm((current) => ({ ...current, direction: option.value }))}
+                className={`flex items-center gap-3 rounded-lg border px-3 py-2.5 text-left transition-all ${form.direction === option.value ? "border-primary bg-background text-primary shadow-sm" : "border-transparent text-muted-foreground hover:bg-background/70"}`}
+              >
+                <span className={`grid size-8 shrink-0 place-items-center rounded-full font-data text-base font-bold ${form.direction === option.value ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}>{option.icon}</span>
+                <span><span className="block text-xs font-semibold">{option.label}</span><span className="block text-[10px] text-muted-foreground">{option.helper}</span></span>
+              </button>
+            ))}
+          </div>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
             <div>
               <Label className="text-xs" htmlFor="ship-case">Satış Kartı / Müşteri</Label>
               <Select value={form.salesCaseId || "none"} onValueChange={(value) => {
                 const salesCaseId = value === "none" ? "" : value;
                 const selectedCase = cases.find((item) => item.id === salesCaseId);
                 const selectedCustomer = customers.find((customer) => customer.id === selectedCase?.customerId);
-                const selectedAddress = selectedCustomer?.addresses?.find((address) => address.isDefault) ?? selectedCustomer?.addresses?.[0];
+                const selectedAddress = selectedCustomer?.addresses?.find((address) => address.isShipping)
+                  ?? selectedCustomer?.addresses?.find((address) => address.isDefault)
+                  ?? selectedCustomer?.addresses?.[0];
                 const snapshot = selectedAddress ? [selectedAddress.address, selectedAddress.district, selectedAddress.city, selectedAddress.country].filter(Boolean).join(", ") : "";
                 setForm({ ...form, salesCaseId, deliveryAddressId: selectedAddress?.id ?? "", deliveryAddressSnapshot: snapshot, destinationWarehouseId: "", destination: snapshot });
               }}>
@@ -3972,7 +4435,7 @@ export function CreateShipmentDialog({ trigger, onCreated }: { trigger: React.Re
                 <FreeTextCombobox
                   idValue={form.carrierCompanyId}
                   textValue={form.carrier}
-                  options={carrierCompanies.map((c) => ({ value: c.id, label: c.shortName ?? c.legalTitle }))}
+                  options={carrierCompanies.map((c) => ({ value: c.id, label: c.shortName ?? c.legalTitle, hint: c.supplierCategoryCode === "transportation" ? "Nakliye" : "Lojistik" }))}
                   onPick={(id) => setForm({ ...form, carrierCompanyId: id, carrier: "" })}
                   onFreeText={(t) => setForm({ ...form, carrierCompanyId: "", carrier: t })}
                   placeholder="Firma seçin veya yazın"
@@ -4058,8 +4521,8 @@ export function CreateShipmentDialog({ trigger, onCreated }: { trigger: React.Re
               );
               return (
                 <div key={line.id} className="rounded-lg border border-border/70 p-3 space-y-3">
-                  <div className="grid grid-cols-12 gap-2">
-                    <div className="col-span-4">
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-12">
+                    <div className="sm:col-span-4">
                       <Label className="text-xs">Ürün *</Label>
                       <div className="mt-1.5">
                         <FreeTextCombobox
@@ -4083,7 +4546,7 @@ export function CreateShipmentDialog({ trigger, onCreated }: { trigger: React.Re
                         />
                       </div>
                     </div>
-                    <div className="col-span-3">
+                    <div className="sm:col-span-3">
                       <Label className="text-xs">Seri No</Label>
                       <div className="mt-1.5">
                         <FreeTextCombobox
@@ -4104,11 +4567,11 @@ export function CreateShipmentDialog({ trigger, onCreated }: { trigger: React.Re
                         />
                       </div>
                     </div>
-                    <Field className="col-span-3" label="Açıklama *" value={line.description} onChange={(v) => updateLine(line.id, { description: v })} placeholder="Ürün açıklaması" />
-                    <div className="col-span-1">
+                    <Field className="sm:col-span-3" label="Açıklama *" value={line.description} onChange={(v) => updateLine(line.id, { description: v })} placeholder="Ürün açıklaması" />
+                    <div className="sm:col-span-1">
                       <Field label="Adet" type="number" value={line.quantity} onChange={(v) => updateLine(line.id, { quantity: v })} />
                     </div>
-                    <div className="col-span-1 flex items-end justify-end">
+                    <div className="flex items-end justify-end sm:col-span-1">
                       <Button
                         type="button"
                         variant="ghost"
@@ -4121,9 +4584,15 @@ export function CreateShipmentDialog({ trigger, onCreated }: { trigger: React.Re
                       </Button>
                     </div>
                   </div>
-                  <div className="grid grid-cols-6 gap-2">
-                    <Field label="Paket" type="number" value={line.packageCount} onChange={(v) => updateLine(line.id, { packageCount: v })} />
-                    <Field label="Palet" type="number" value={line.palletCount} onChange={(v) => updateLine(line.id, { palletCount: v })} />
+                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
+                    <Field label="Paket Adedi" type="number" value={line.packageQuantity} onChange={(v) => updateLine(line.id, { packageQuantity: v })} />
+                    <div>
+                      <Label className="text-xs">Paket Birimi</Label>
+                      <Select value={line.packageUnitCode} onValueChange={(value) => updateLine(line.id, { packageUnitCode: value })}>
+                        <SelectTrigger className="mt-1.5"><SelectValue placeholder="Birim seçin" /></SelectTrigger>
+                        <SelectContent>{lookupCodeOptions(packageUnitRows).map((unit) => <SelectItem key={unit.code} value={unit.code}>{unit.label}</SelectItem>)}</SelectContent>
+                      </Select>
+                    </div>
                     <Field label="Uzunluk cm" type="number" value={line.packageLengthCm} onChange={(v) => updateLine(line.id, { packageLengthCm: v })} />
                     <Field label="Genişlik cm" type="number" value={line.packageWidthCm} onChange={(v) => updateLine(line.id, { packageWidthCm: v })} />
                     <Field label="Yükseklik cm" type="number" value={line.packageHeightCm} onChange={(v) => updateLine(line.id, { packageHeightCm: v })} />
@@ -4325,8 +4794,8 @@ export function DeliveryFormFields({
 
   return (
     <div className="space-y-4 max-h-[min(62dvh,560px)] overflow-y-auto pr-1">
-      <div className="grid grid-cols-2 gap-3">
-        <div className="col-span-2">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <div className="sm:col-span-2">
           <Label className="text-xs" htmlFor="del-customer">Müşteri *</Label>
           <Select
             value={form.customerId}
@@ -4398,14 +4867,14 @@ export function DeliveryFormFields({
 
       <div className="rounded-lg border border-border/60 bg-muted/20 p-3 space-y-3">
         <div className="text-xs font-medium text-foreground/80">Tarihler & Form</div>
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           <Field label="Tezgah Teslim Tarihi" type="date" value={form.date} onChange={(v) => setForm({ ...form, date: v })} />
           <Field label="Tezgah Kurulum Tarihi" type="date" value={form.kurulumTarihi} onChange={(v) => setForm({ ...form, kurulumTarihi: v })} />
           <Field label="Form No" value={form.formNo} onChange={(v) => setForm({ ...form, formNo: v })} placeholder="00001" />
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <div className="rounded-lg border border-border/60 p-3 space-y-2">
           <div className="text-xs font-medium text-center">Tezgah Bilgileri</div>
           <Field label="Tezgah Markası" value={form.tezgahMarka} onChange={(v) => setForm({ ...form, tezgahMarka: v })} />
@@ -4429,7 +4898,7 @@ export function DeliveryFormFields({
 
       <div className="rounded-lg border border-border/60 p-3 space-y-2">
         <div className="text-xs font-medium text-center">İmza Bilgileri</div>
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <Field label="İlgili Kişi" value={form.ilgili} onChange={(v) => setForm({ ...form, ilgili: v })} />
           <Field label="Kurulumu Yapan" value={form.kurulumuYapan} onChange={(v) => setForm({ ...form, kurulumuYapan: v })} />
           <Field label="Tezgahı Teslim Alan" value={form.signedBy} onChange={(v) => setForm({ ...form, signedBy: v })} placeholder="Ad Soyad" />
@@ -4788,8 +5257,8 @@ export function CreatePaymentDialog({
           </div>
 
           <div>
-            <Label className="text-xs">Notlar</Label>
-            <Textarea className="mt-1.5" rows={2} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
+            <Label className="text-xs" htmlFor="create-payment-notes">Notlar</Label>
+            <Textarea id="create-payment-notes" className="mt-1.5" rows={2} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
           </div>
 
           <div className="rounded-lg border border-border/60 p-3 space-y-2">
@@ -5220,8 +5689,9 @@ export function CreateServiceRequestDialog({ trigger, defaultMachineId }: { trig
                 </div>
 
                 <div>
-                  <Label className="text-xs">Arıza / Talep Açıklaması</Label>
+                  <Label className="text-xs" htmlFor="create-service-diagnosis">Arıza / Talep Açıklaması</Label>
                   <Textarea
+                    id="create-service-diagnosis"
                     className="mt-1.5 min-h-24"
                     rows={4}
                     placeholder="Müşterinin bildirdiği problem..."
@@ -5231,8 +5701,9 @@ export function CreateServiceRequestDialog({ trigger, defaultMachineId }: { trig
                 </div>
 
                 <div>
-                  <Label className="text-xs">Servis Notu</Label>
+                  <Label className="text-xs" htmlFor="create-service-note">Servis Notu</Label>
                   <Textarea
+                    id="create-service-note"
                     className="mt-1.5 min-h-20"
                     rows={3}
                     placeholder="İç not / planlama..."
@@ -5282,6 +5753,7 @@ export function CreateServiceRequestDialog({ trigger, defaultMachineId }: { trig
                 <label className="flex items-start gap-2 rounded-lg border border-border/60 bg-white p-3 text-sm cursor-pointer">
                   <input
                     type="checkbox"
+                    aria-label="Servis teklifi gerekli"
                     className="mt-0.5 size-4 rounded border-border accent-primary"
                     checked={form.quoteRequired}
                     onChange={(e) => setForm({ ...form, quoteRequired: e.target.checked })}
@@ -5316,10 +5788,11 @@ export function CreateInstallationDialog({
   const [open, setOpen] = useState(false);
   const emptyForm = () => {
     const companyId = customers[0]?.id ?? "";
+    const initialMachineId = machines.find((m) => m.customerId === companyId || m.userCompanyId === companyId)?.id;
     return {
     companyId,
     contactId: contacts.find((c) => c.customerId === companyId)?.id ?? "",
-    customerDeviceId: machines.find((m) => m.customerId === companyId || m.userCompanyId === companyId)?.id ?? "",
+    customerDeviceIds: initialMachineId ? [initialMachineId] : [] as string[],
     scheduledDate: new Date().toISOString().slice(0, 10),
     assignedToUserId: users.find((u) => u.role === "Service" || u.department === "Servis")?.id ?? users[0]?.id ?? "",
     location: "",
@@ -5337,42 +5810,40 @@ export function CreateInstallationDialog({
   const totalMinutes = (parseInt(form.durationHours || "0", 10) || 0) * 60 + (parseInt(form.durationMinutes || "0", 10) || 0);
 
   const selectedContacts = contacts.filter((c) => c.customerId === form.companyId);
-  // Kurulum tutanağındaki tezgah/CNC alanları bu makineden doldurulur.
-  const selectedMachines = machines.filter((m) => m.customerId === form.companyId || m.userCompanyId === form.companyId);
-  const selectedMachine = selectedMachines.find((m) => m.id === form.customerDeviceId) ?? null;
+  // Seçilen her makine için ayrı kurulum işi ve eksiksiz kurulum tutanağı oluşturulur.
+  const companyMachines = machines.filter((m) => m.customerId === form.companyId || m.userCompanyId === form.companyId);
+  const selectedMachines = companyMachines.filter((m) => form.customerDeviceIds.includes(m.id));
   const serviceUsers = users.filter((u) => u.role === "Service" || u.department === "Servis");
   const onCompanyChange = (companyId: string) => {
     const contactId = contacts.find((c) => c.customerId === companyId)?.id ?? "";
-    const customerDeviceId = machines.find((m) => m.customerId === companyId || m.userCompanyId === companyId)?.id ?? "";
-    setForm({ ...form, companyId, contactId, customerDeviceId });
+    const customerDeviceId = machines.find((m) => m.customerId === companyId || m.userCompanyId === companyId)?.id;
+    setForm({ ...form, companyId, contactId, customerDeviceIds: customerDeviceId ? [customerDeviceId] : [] });
   };
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!form.companyId) return toast.error("Firma seçiniz");
     try {
-      const formNo = resolveServiceFormNo({
-        relatedFormNo: relatedDeliveryFormNo(deliveries, { machineId: form.customerDeviceId }),
-        machineId: form.customerDeviceId,
-      });
-      await serviceService.createInstallation({
-        companyId: form.companyId,
-        contactId: form.contactId || undefined,
-        customerDeviceId: form.customerDeviceId || undefined,
-        scheduledDate: form.scheduledDate || undefined,
-        assignedToUserId: form.assignedToUserId || undefined,
-        location: form.location || undefined,
-        locationType: form.locationType,
-        durationMinutes: totalMinutes > 0 ? totalMinutes : undefined,
-        notes: form.notes || undefined,
-        formData: formNo
-          ? {
-              formNo,
-              machineId: form.customerDeviceId || undefined,
-            }
-          : undefined,
-      });
-      toast.success("Kurulum oluşturuldu");
+      const deviceIds: Array<string | undefined> = form.customerDeviceIds.length ? form.customerDeviceIds : [undefined];
+      await Promise.all(deviceIds.map((customerDeviceId) => {
+        const formNo = resolveServiceFormNo({
+          relatedFormNo: relatedDeliveryFormNo(deliveries, { machineId: customerDeviceId }),
+          machineId: customerDeviceId,
+        });
+        return serviceService.createInstallation({
+          companyId: form.companyId,
+          contactId: form.contactId || undefined,
+          customerDeviceId,
+          scheduledDate: form.scheduledDate || undefined,
+          assignedToUserId: form.assignedToUserId || undefined,
+          location: form.location || undefined,
+          locationType: form.locationType,
+          durationMinutes: totalMinutes > 0 ? totalMinutes : undefined,
+          notes: form.notes || undefined,
+          formData: formNo ? { formNo, machineId: customerDeviceId } : undefined,
+        });
+      }));
+      toast.success(deviceIds.length > 1 ? `${deviceIds.length} makine için kurulum oluşturuldu` : "Kurulum oluşturuldu");
       setOpen(false);
       reset();
       onCreated?.();
@@ -5422,29 +5893,28 @@ export function CreateInstallationDialog({
               </Select>
             </div>
             <div>
-              <Label className="text-xs">Makine</Label>
-              <Select
-                value={form.customerDeviceId || "none"}
-                onValueChange={(v) => setForm({ ...form, customerDeviceId: v === "none" ? "" : v })}
-              >
-                <SelectTrigger className="mt-1.5"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">Belirtilmedi</SelectItem>
-                  {selectedMachines.map((m) => (
-                    <SelectItem key={m.id} value={m.id}>
-                      {[m.brand, m.model].filter(Boolean).join(" ")} · {m.serialNumber}
-                    </SelectItem>
+              <Label className="text-xs">Makineler</Label>
+              <div className="mt-1.5">
+                <MultiSelect
+                  options={companyMachines.map((machine) => ({ value: machine.id, label: `${[machine.brand, machine.model].filter(Boolean).join(" ") || machine.model} · ${machine.serialNumber || "Seri no yok"}` }))}
+                  selected={form.customerDeviceIds}
+                  onChange={(customerDeviceIds) => setForm({ ...form, customerDeviceIds })}
+                  placeholder="Kurulacak makineleri seçin"
+                  emptyText="Bu firmaya bağlı makine yok"
+                />
+              </div>
+              {selectedMachines.length > 0 && (
+                <div className="mt-2 divide-y divide-border/60 overflow-hidden rounded-md border border-border/60 bg-muted/20">
+                  {selectedMachines.map((machine, index) => (
+                    <div key={machine.id} className="px-3 py-2 text-xs text-muted-foreground">
+                      <div className="font-medium text-foreground">{index + 1}. {[machine.brand, machine.model].filter(Boolean).join(" ") || machine.model}</div>
+                      <div className="mt-0.5 grid gap-1 sm:grid-cols-3">
+                        <span>Seri No: {machine.serialNumber || "—"}</span>
+                        <span>CNC: {machine.controlUnit || "—"}</span>
+                        <span>Teslim: {machine.deliveryDate || "—"}</span>
+                      </div>
+                    </div>
                   ))}
-                </SelectContent>
-              </Select>
-              {selectedMachine && (
-                <div className="mt-2 rounded-md border border-border/60 bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
-                  <div className="font-medium text-foreground">{[selectedMachine.brand, selectedMachine.model].filter(Boolean).join(" ") || selectedMachine.model}</div>
-                  <div className="mt-0.5 grid gap-1 sm:grid-cols-3">
-                    <span>Seri No: {selectedMachine.serialNumber || "—"}</span>
-                    <span>CNC: {selectedMachine.controlUnit || "—"}</span>
-                    <span>Teslim: {selectedMachine.deliveryDate || "—"}</span>
-                  </div>
                 </div>
               )}
             </div>
@@ -5479,17 +5949,17 @@ export function CreateInstallationDialog({
               <div>
                 <Label className="text-xs">Süre (saat / dk)</Label>
                 <div className="mt-1.5 flex items-center gap-2">
-                  <Input type="number" min={0} className="bg-white" value={form.durationHours} onChange={(e) => setForm({ ...form, durationHours: e.target.value })} />
+                  <Input aria-label="Kurulum süresi saat" type="number" min={0} className="bg-white font-data" value={form.durationHours} onChange={(e) => setForm({ ...form, durationHours: e.target.value })} />
                   <span className="text-muted-foreground text-sm">saat</span>
-                  <Input type="number" min={0} max={59} className="bg-white" value={form.durationMinutes} onChange={(e) => setForm({ ...form, durationMinutes: e.target.value })} />
+                  <Input aria-label="Kurulum süresi dakika" type="number" min={0} max={59} className="bg-white font-data" value={form.durationMinutes} onChange={(e) => setForm({ ...form, durationMinutes: e.target.value })} />
                   <span className="text-muted-foreground text-sm">dk</span>
                 </div>
               </div>
             </div>
 
             <div className="col-span-2">
-              <Label className="text-xs">Notlar</Label>
-              <Textarea className="mt-1.5" rows={3} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
+              <Label className="text-xs" htmlFor="create-installation-notes">Notlar</Label>
+              <Textarea id="create-installation-notes" className="mt-1.5" rows={3} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
             </div>
           </div>
 

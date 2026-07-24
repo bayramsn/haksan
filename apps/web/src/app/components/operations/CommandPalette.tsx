@@ -28,6 +28,25 @@ const TYPE_ICON: Record<string, ReactNode> = {
   Rapor: <BarChart3 className="size-4" />,
 };
 
+const TYPE_LABEL: Record<string, string> = {
+  customer: "Firma",
+  company: "Firma",
+  contact: "Kontak",
+  opportunity: "Satış",
+  quote: "Teklif",
+  inventory_item: "Stok",
+  product_model: "Ürün",
+  service_ticket: "Servis",
+  receivable: "Ödeme",
+  machine: "Makine",
+  file: "Doküman",
+  shipment: "Sevkiyat",
+  delivery: "Teslimat",
+  report: "Rapor",
+};
+
+const localTypeLabel = (value: string) => TYPE_LABEL[value] ?? value;
+
 export function CommandPalette({
   open,
   onOpenChange,
@@ -83,20 +102,22 @@ export function CommandPalette({
             </div>
           ) : (
             <div className="space-y-1">
-              {results.map((result) => (
+              {results.map((result) => {
+                const typeLabel = localTypeLabel(result.type);
+                return (
                 <button
                   key={result.id}
                   className="group flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-left hover:bg-muted"
                   onClick={() => run(result)}
                 >
                   <div className="grid size-9 shrink-0 place-items-center rounded-md bg-primary/10 text-primary">
-                    {TYPE_ICON[result.type] ?? <Search className="size-4" />}
+                    {TYPE_ICON[typeLabel] ?? <Search className="size-4" />}
                   </div>
                   <div className="min-w-0 flex-1">
                     <div className="flex min-w-0 items-center gap-2">
                       <div className="truncate text-sm font-medium group-hover:text-primary">{result.title}</div>
                       <Badge variant="secondary" className="h-5 shrink-0 px-1.5 text-[10px]">
-                        {result.type}
+                        {typeLabel}
                       </Badge>
                     </div>
                     <div className="mt-0.5 truncate text-xs text-muted-foreground">{result.subtitle}</div>
@@ -106,7 +127,7 @@ export function CommandPalette({
                     <ArrowRight className="size-3.5" />
                   </div>
                 </button>
-              ))}
+              );})}
             </div>
           )}
         </div>

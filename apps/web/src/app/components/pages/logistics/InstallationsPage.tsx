@@ -10,7 +10,13 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from ".
 import { Tabs, TabsList, TabsTrigger } from "../../ui/tabs";
 import { StatusBadge } from "../../Layout";
 import { CreateInstallationDialog } from "../../dialogs/CreateDialogs";
+import { DeliveryDetailDialog } from "./DeliveriesPage";
 import { MiniKpi } from "../../shared/MiniKpi";
+import { EntityVisual } from "../../shared/PremiumPrimitives";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
+  AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "../../ui/alert-dialog";
 import { useStore } from "../../../lib/store";
 import { serviceService } from "../../../../lib/services";
 import {
@@ -23,7 +29,7 @@ import {
 import { printOrWarn } from "../../../lib/pageHelpers";
 import { installationFormDoc, printAssetBase, trShortDate } from "../../../lib/print";
 import { relatedDeliveryFormNo, resolveServiceFormNo } from "../../../lib/serviceFormNo";
-import { Plus, Wrench, Calendar, CheckCircle2, TrendingUp, Building2, MapPin, Printer, FileText, Save, Lock, Trash2 } from "lucide-react";
+import { Plus, Wrench, Calendar, CheckCircle2, Building2, MapPin, Printer, FileText, Save, Lock, Trash2, Cpu, UserRound } from "lucide-react";
 import { toast } from "sonner";
 
 type TechnicalSpec = { key: string; value: string; unit?: string; specUnit?: string };
@@ -175,12 +181,14 @@ function formToPayload(form: InstallationFormDraft): any {
 }
 
 export function InstallationsPage() {
-  const { customers, machines, deliveries } = useStore();
+  const { customers, machines, deliveries, products } = useStore();
   const [rows, setRows] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedRow, setSelectedRow] = useState<InstallationRow | null>(null);
+  const [selectedLegacyDelivery, setSelectedLegacyDelivery] = useState<(typeof deliveries)[number] | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
-  const [tab, setTab] = useState<"open" | "history">("open");
+  const [pendingDelete, setPendingDelete] = useState<InstallationRow | null>(null);
+  const [tab, setTab] = useState<"open" | "delivered" | "forms">("open");
 
   const loadInstallations = async () => {
     setLoading(true);
@@ -229,26 +237,34 @@ export function InstallationsPage() {
   const planned = installationRows.filter((i) => ["Planlandı", "scheduled"].includes(i.status) || i.statusCode === "scheduled").length;
   const completed = installationRows.filter((i) => ["Tamamlandı", "completed"].includes(i.status) || i.statusCode === "completed").length;
   const openRows = installationRows.filter((i) => i.statusCode !== "completed");
-  const historyRows = installationRows.filter((i) => i.statusCode === "completed");
-  const visibleRows = tab === "history" ? historyRows : openRows;
+  const deliveredRows = installationRows.filter((i) => i.statusCode === "completed");
+  const formRows = installationRows.filter((i) => Boolean(i.formData));
+  const visibleRows = tab === "delivered" ? deliveredRows : tab === "forms" ? formRows : openRows;
   const upcoming = [...installationRows]
     .filter((i) => ["Planlandı", "scheduled"].includes(i.status) || i.statusCode === "scheduled")
     .sort((a, b) => a.scheduledDate.localeCompare(b.scheduledDate));
 
   const deleteInstallation = async (row: InstallationRow, event?: React.MouseEvent) => {
     event?.stopPropagation();
-    if (!window.confirm(`${row.customerName} kurulum kaydını arşivlemek istediğinize emin misiniz?`)) return;
     setDeletingId(row.id);
     try {
       await serviceService.deleteInstallation(row.id);
       toast.success("Kurulum silindi");
       if (selectedRow?.id === row.id) setSelectedRow(null);
+      setPendingDelete(null);
       await loadInstallations();
     } catch (err: any) {
       toast.error("Kurulum silinemedi", { description: err?.message ?? "İşlem başarısız oldu." });
     } finally {
       setDeletingId(null);
     }
+  };
+  const installationStep = (row: InstallationRow) => row.statusCode === "completed" && row.formData ? 4 : row.statusCode === "completed" ? 3 : ["in_progress", "started", "installation"].includes(row.statusCode) ? 2 : row.technician !== "—" ? 1 : 0;
+  const rowMachine = (row: InstallationRow) => machines.find((machine) => machine.id === row.deviceId) ?? machines.find((machine) => machine.salesCaseId === row.salesCaseId);
+  const rowProduct = (row: InstallationRow) => {
+    const machine = rowMachine(row);
+    const productId = machine?.productModelId ?? row.device?.productModelId;
+    return products.find((product) => product.id === productId);
   };
 
   return (
@@ -257,7 +273,7 @@ export function InstallationsPage() {
         <MiniKpi tone="violet" icon={<Wrench className="size-[18px]" />} label="Toplam Kurulum" value={installationRows.length} sub="tüm zamanlar" delta={6} />
         <MiniKpi tone="amber" icon={<Calendar className="size-[18px]" />} label="Planlı" value={planned} sub="gelecek" delta={2} />
         <MiniKpi tone="emerald" icon={<CheckCircle2 className="size-[18px]" />} label="Tamamlandı" value={completed} sub="bu çeyrek" delta={4} />
-        <MiniKpi tone="blue" icon={<TrendingUp className="size-[18px]" />} label="Başarı" value={`%${installationRows.length ? Math.round((completed / installationRows.length) * 100) : 0}`} sub="ilk seferde" delta={1} />
+        <MiniKpi tone="blue" icon={<FileText className="size-[18px]" />} label="Kurulum Tutanağı" value={formRows.length + deliveries.length} sub="son adım" delta={1} onClick={() => setTab("forms")} active={tab === "forms"} />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
@@ -265,10 +281,11 @@ export function InstallationsPage() {
           <CardHeader className="flex flex-row items-center justify-between pb-3">
             <div className="space-y-2">
               <CardTitle className="tracking-tight">Kurulumlar</CardTitle>
-              <Tabs value={tab} onValueChange={(value) => setTab(value as "open" | "history")}>
+              <Tabs value={tab} onValueChange={(value) => setTab(value as typeof tab)}>
                 <TabsList className="h-9 bg-muted/60">
                   <TabsTrigger value="open">Açık ({openRows.length})</TabsTrigger>
-                  <TabsTrigger value="history">Geçmiş ({historyRows.length})</TabsTrigger>
+                  <TabsTrigger value="delivered">Teslim Edildi ({deliveredRows.length})</TabsTrigger>
+                  <TabsTrigger value="forms">Kurulum Tutanakları ({formRows.length + deliveries.length})</TabsTrigger>
                 </TabsList>
               </Tabs>
             </div>
@@ -281,30 +298,37 @@ export function InstallationsPage() {
             <Table>
               <TableHeader>
                 <TableRow className="bg-muted/30 hover:bg-muted/30">
-                  <TableHead>Müşteri</TableHead>
-                  <TableHead>Teknisyen</TableHead>
-                  <TableHead>Planlanan Tarih</TableHead>
+                  <TableHead>Makine / Müşteri</TableHead>
+                  <TableHead>Teknisyen / Tarih</TableHead>
+                  <TableHead>Kurulum Yolculuğu</TableHead>
                   <TableHead>Konum / Süre</TableHead>
                   <TableHead>Durum</TableHead>
                   <TableHead className="w-20 text-right">İşlem</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {visibleRows.map((i) => (
+                {visibleRows.map((i) => {
+                  const machine = rowMachine(i);
+                  const product = rowProduct(i);
+                  const step = installationStep(i);
+                  return (
                   <TableRow key={i.id} className="group">
                     <TableCell>
-                      <div className="flex items-center gap-2.5">
-                        <div className="size-8 rounded-md bg-gradient-to-br from-primary/15 to-primary/5 text-primary grid place-items-center shrink-0">
-                          <Building2 className="size-4" />
-                        </div>
-                        <div>
-                          <div className="text-sm leading-tight">{i.customerName}</div>
-                          <div className="text-[11px] text-muted-foreground mt-0.5">#{i.id.toUpperCase()}</div>
+                      <div className="flex items-center gap-3">
+                        <EntityVisual size="sm" title={machine?.model || i.device?.model || i.customerName} imageUrl={product?.imageUrl} icon={<Cpu className="size-4" />} />
+                        <div className="min-w-0">
+                          <div className="truncate text-sm font-semibold">{machine ? `${machine.brand || ""} ${machine.model}`.trim() : i.device?.model || "Kurulum kaydı"}</div>
+                          <div className="mt-0.5 flex items-center gap-1 text-[11px] text-muted-foreground"><Building2 className="size-3" /><span className="truncate">{i.customerName}</span>{machine?.serialNumber && <span className="font-data">· {machine.serialNumber}</span>}</div>
                         </div>
                       </div>
                     </TableCell>
-                    <TableCell className="text-sm">{i.technician}</TableCell>
-                    <TableCell className="text-sm tabular-nums text-muted-foreground">{i.scheduledDate}</TableCell>
+                    <TableCell className="text-sm"><div className="flex items-center gap-1.5"><UserRound className="size-3.5 text-muted-foreground" />{i.technician}</div><div className="mt-1 flex items-center gap-1.5 font-data text-[10px] text-muted-foreground"><Calendar className="size-3" />{i.scheduledDate}</div></TableCell>
+                    <TableCell className="min-w-[300px]">
+                      <div className="flex items-center" aria-label={`Kurulum yolculuğu ${step}/4`}>
+                        {["Plan", "Atama", "Kurulum", "Teslim", "Tutanak"].map((label, index) => <div key={label} className="flex flex-1 items-center last:flex-none"><span className={`grid size-5 place-items-center rounded-full border text-[8px] font-bold ${index <= step ? "border-primary bg-primary text-white" : "border-border bg-white text-muted-foreground"}`}>{index + 1}</span>{index < 4 && <span className={`h-px flex-1 ${index < step ? "bg-primary" : "bg-border"}`} />}</div>)}
+                      </div>
+                      <div className="mt-1 grid grid-cols-5 text-center text-[7px] uppercase tracking-wide text-muted-foreground"><span>Plan</span><span>Atama</span><span>Kurulum</span><span>Teslim</span><span>Tutanak</span></div>
+                    </TableCell>
                     <TableCell>
                       {i.locationType ? (
                         <div className="flex flex-col gap-0.5">
@@ -324,7 +348,7 @@ export function InstallationsPage() {
                     <TableCell><StatusBadge status={i.status} /></TableCell>
                     <TableCell className="text-right">
                       <div className="flex items-center justify-end gap-1">
-                        <Button variant="ghost" size="icon" className="size-7" title="Kurulum tutanağını aç"
+                        <Button variant="ghost" size="icon" className="size-7" title="Son adım: Kurulum tutanağını aç"
                           onClick={() => setSelectedRow(i)}>
                           <FileText className="size-4 text-muted-foreground hover:text-primary" />
                         </Button>
@@ -334,18 +358,18 @@ export function InstallationsPage() {
                           className="size-7"
                           title="Kurulumu sil"
                           disabled={deletingId === i.id}
-                          onClick={(event) => deleteInstallation(i, event)}
+                          onClick={(event) => { event.stopPropagation(); setPendingDelete(i); }}
                         >
                           <Trash2 className="size-4 text-muted-foreground hover:text-red-600" />
                         </Button>
                       </div>
                     </TableCell>
                   </TableRow>
-                ))}
+                );})}
                 {!loading && visibleRows.length === 0 && (
                   <TableRow>
                     <TableCell colSpan={6} className="text-center py-12 text-sm text-muted-foreground">
-                      {tab === "history" ? "Geçmiş kurulum kaydı yok." : "Açık kurulum kaydı yok."}
+                      {tab === "delivered" ? "Teslim edilmiş kurulum kaydı yok." : tab === "forms" ? "Kurulum tutanağı henüz oluşturulmadı." : "Açık kurulum kaydı yok."}
                     </TableCell>
                   </TableRow>
                 )}
@@ -384,6 +408,35 @@ export function InstallationsPage() {
         </Card>
       </div>
 
+      {tab === "forms" && deliveries.length > 0 && (
+        <Card className="border-border/60 shadow-sm overflow-hidden">
+          <CardHeader className="pb-3">
+            <CardTitle className="tracking-tight">Aktarılan Kurulum Tutanakları</CardTitle>
+            <p className="text-xs text-muted-foreground">Eski Teslimat bölümündeki kayıtlar kurulum akışının son adımı olarak burada korunur.</p>
+          </CardHeader>
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader><TableRow className="bg-muted/30 hover:bg-muted/30"><TableHead>Firma / Makine</TableHead><TableHead>Teslim Tarihi</TableHead><TableHead>Teslim Alan</TableHead><TableHead>Durum</TableHead><TableHead className="text-right">Kurulum Tutanağı</TableHead></TableRow></TableHeader>
+              <TableBody>
+                {deliveries.map((delivery) => {
+                  const customer = customers.find((item) => item.id === delivery.customerId);
+                  const machine = machines.find((item) => item.id === delivery.formData?.machineId) ?? machines.find((item) => item.salesCaseId === delivery.salesCaseId);
+                  return (
+                    <TableRow key={delivery.id}>
+                      <TableCell><div className="text-sm font-medium">{customer?.name ?? "Firma"}</div><div className="mt-0.5 text-xs text-muted-foreground">{machine ? `${[machine.brand, machine.model].filter(Boolean).join(" ")} · ${machine.serialNumber || "Seri no yok"}` : "Makine bilgisi yok"}</div></TableCell>
+                      <TableCell className="font-data text-xs">{delivery.date || "—"}</TableCell>
+                      <TableCell className="text-sm">{delivery.signedBy || "—"}</TableCell>
+                      <TableCell><StatusBadge status={delivery.status === "Tamamlandı" ? "Kurulum Tutanağı" : "Tutanak Bekliyor"} /></TableCell>
+                      <TableCell className="text-right"><Button size="sm" variant="outline" className="gap-1" onClick={() => setSelectedLegacyDelivery(delivery)}><FileText className="size-3.5" /> Tutanağı Aç</Button></TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          </div>
+        </Card>
+      )}
+
       <InstallationFormDialog
         row={selectedRow}
         customers={customers}
@@ -392,6 +445,19 @@ export function InstallationsPage() {
         onClose={() => setSelectedRow(null)}
         onSaved={loadInstallations}
       />
+      <DeliveryDetailDialog
+        delivery={selectedLegacyDelivery}
+        customerName={(id) => customers.find((customer) => customer.id === id)?.name ?? "—"}
+        onClose={() => setSelectedLegacyDelivery(null)}
+      />
+
+      <AlertDialog open={!!pendingDelete} onOpenChange={(open) => !open && !deletingId && setPendingDelete(null)}>
+        <AlertDialogContent className="max-w-lg">
+          <AlertDialogHeader><AlertDialogTitle>Kurulum kaydı arşivlensin mi?</AlertDialogTitle><AlertDialogDescription><span className="block font-medium text-foreground">{pendingDelete?.customerName}</span>Kurulum planı, teknisyen ataması ve form bağlantısı arşivlenir; firma ve makine kaydı korunur.</AlertDialogDescription></AlertDialogHeader>
+          {pendingDelete && <div className="rounded-lg border border-destructive/15 bg-destructive-soft/50 p-3 text-xs"><div className="font-medium text-foreground">{rowMachine(pendingDelete)?.model || pendingDelete.device?.model || "Makine bilgisi yok"}</div><div className="mt-1 text-muted-foreground">{pendingDelete.scheduledDate} · {pendingDelete.technician}</div></div>}
+          <AlertDialogFooter><AlertDialogCancel>Vazgeç</AlertDialogCancel><AlertDialogAction className="bg-destructive text-destructive-foreground hover:bg-destructive/90" disabled={!!deletingId} onClick={(event) => { event.preventDefault(); if (pendingDelete) void deleteInstallation(pendingDelete); }}>{deletingId ? "Arşivleniyor…" : "Kurulumu Arşivle"}</AlertDialogAction></AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

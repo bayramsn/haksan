@@ -1,8 +1,10 @@
 import { Module } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
+import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { DatabaseModule } from './shared/database/database.module';
 import { StorageModule } from './shared/storage/storage.module';
+import { PushModule } from './shared/push/push.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { CompaniesModule } from './modules/companies/companies.module';
 import { ContactsModule } from './modules/contacts/contacts.module';
@@ -26,6 +28,8 @@ import { CallAssistantModule } from './modules/call-assistant/call-assistant.mod
 import { AssistantModule } from './modules/assistant/assistant.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { CalendarModule } from './modules/calendar/calendar.module';
+import { AutomationModule } from './modules/automation/automation.module';
+import { WhatsAppIntegrationModule } from './modules/whatsapp/whatsapp-integration.module';
 import { loadEnv } from './config/env';
 
 const env = loadEnv();
@@ -44,8 +48,11 @@ const env = loadEnv();
       // process.env kullan — loadEnv() cache'i vitest env'inden önce dolmuş olabilir.
       skipIf: () => process.env.NODE_ENV === 'test',
     }),
+    // Zamanlanmış otomasyon işleri (sabah brifingi, hatırlatmalar) için cron kaydı.
+    ScheduleModule.forRoot(),
     DatabaseModule,
     StorageModule,
+    PushModule,
     AuthModule,
     LookupsModule,
     CompaniesModule,
@@ -69,6 +76,8 @@ const env = loadEnv();
     AssistantModule,
     NotificationsModule,
     CalendarModule,
+    AutomationModule,
+    WhatsAppIntegrationModule,
   ],
   providers: [
     // Rate limiting'i tüm route'lara uygular. Bu guard global bağlanmadan

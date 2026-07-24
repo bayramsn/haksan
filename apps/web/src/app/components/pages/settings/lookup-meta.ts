@@ -51,6 +51,7 @@ export const lookupLabels: Record<string, string> = {
   "service-ticket-statuses": "Servis Talebi Durumları",
   "installation-statuses": "Kurulum Durumları",
   "shipment-statuses": "Sevkiyat Durumları",
+  "shipment-package-units": "Sevkiyat Paket Birimleri",
   "payment-statuses": "Ödeme Durumları",
   "invoice-statuses": "Fatura Durumları",
   "currencies": "Para Birimleri",
@@ -86,6 +87,7 @@ export const lookupUsage: Record<string, string[]> = {
   "service-ticket-statuses": ["Servis talepleri", "servis panosu"],
   "installation-statuses": ["Kurulum kayıtları", "operasyon filtreleri"],
   "shipment-statuses": ["Sevkiyat listesi", "operasyon filtreleri"],
+  "shipment-package-units": ["Sevkiyat formu", "paket/palet birimi", "irsaliye paket bilgisi"],
   "payment-statuses": ["Ödeme listesi", "finans raporları"],
   "invoice-statuses": ["Fatura listesi", "finans raporları"],
   currencies: ["Teklif", "fatura", "rapor para birimi"],
@@ -110,7 +112,7 @@ export const LOOKUP_MENU_GROUPS: Array<{ label: string; names: string[] }> = [
   },
   {
     label: "Stok & Servis",
-    names: ["inventory-statuses", "stock-location-statuses", "warranty-statuses", "service-ticket-statuses", "installation-statuses", "shipment-statuses"],
+    names: ["inventory-statuses", "stock-location-statuses", "warranty-statuses", "service-ticket-statuses", "installation-statuses", "shipment-statuses", "shipment-package-units"],
   },
   {
     label: "Finans",
