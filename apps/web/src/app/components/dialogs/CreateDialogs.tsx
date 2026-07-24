@@ -2489,6 +2489,13 @@ const specsForSelectedProductType = (specs: ProductSpec[] = [], productTypeCode?
 // olabilir; kod eşleşmeleri bu yüzden harf/aksan duyarsızdır.
 const sameProductCode = (a?: string | null, b?: string | null) => foldProductTypeCode(a) === foldProductTypeCode(b);
 
+// Şablon kodunu (BÜYÜK) gerçek seçenek listesindeki birebir koda çözer; Select
+// value eşleşmesi TAM eşitlik istediği için fold-eşleşen seçeneğin kodu döner.
+const resolveOptionCode = (options: ProductOption[], code?: string | null) => {
+  if (!code) return "";
+  return options.find((option) => sameProductCode(option.code, code))?.code ?? code;
+};
+
 const typeMatchesGroup = (type: ProductTypeOption, groupCode?: string) =>
   !type.productGroupCode || !groupCode || sameProductCode(type.productGroupCode, groupCode);
 
@@ -2500,7 +2507,7 @@ const subcategoriesForProductCategory = (
   productTypeOptions: ProductTypeOption[] = PRODUCT_TYPE_OPTIONS,
   productSubcategoryOptions: ProductOption[] = PRODUCT_SUBCATEGORIES,
 ) =>
-  categoryCode === "TEZGAH"
+  sameProductCode(categoryCode, "TEZGAH")
     ? productSubcategoryOptions
     : productSubcategoryOptions.filter((subcategory) =>
         productTypeOptions.some(
@@ -3073,8 +3080,10 @@ export function ProductDialog({
   const onTypeChange = (code: string) => {
     const opt = productTypeOptions.find((item) => item.code === code);
     if (!opt) return;
-    const categoryCode = opt.categoryCode ?? form.categoryCode;
-    const subcategoryCode = opt.subcategoryCode ?? form.subcategoryCode;
+    // Şablon meta kodları (BÜYÜK) DB lookup kodlarıyla birebir eşleşmeyebilir;
+    // Select value TAM eşitlik istediği için gerçek seçenek koduna çöz.
+    const categoryCode = resolveOptionCode(productCategoryOptions, opt.categoryCode ?? form.categoryCode);
+    const subcategoryCode = resolveOptionCode(productSubcategoryOptions, opt.subcategoryCode ?? form.subcategoryCode);
     setForm({
       ...form,
       productTypeCode: opt.code,
@@ -3207,7 +3216,9 @@ export function ProductDialog({
             </ProductSheetRow>
 
             <ProductSheetRow label="2. Ürün Kategorisi">
-              <Select value={form.categoryCode} onValueChange={onCategoryChange}>
+              {/* Eski kayıtlar/şablon varsayılanları farklı yazımda kod taşıyabilir;
+                  value'yu listedeki birebir koda çöz ki seçim kaybolmasın. */}
+              <Select value={resolveOptionCode(productCategoryOptions, form.categoryCode)} onValueChange={onCategoryChange}>
                 <SelectTrigger className="h-8 max-w-xs"><SelectValue placeholder="Kategori seçin" /></SelectTrigger>
                 <SelectContent>
                   {productCategoryOptions.map((o) => <SelectItem key={o.code} value={o.code}>{o.label}</SelectItem>)}
@@ -3217,7 +3228,7 @@ export function ProductDialog({
 
             {categoryUsesSubcategory && (
               <ProductSheetRow label="3. Ürün Alt Kategorisi">
-                <Select value={form.subcategoryCode} onValueChange={onSubcategoryChange}>
+                <Select value={resolveOptionCode(availableProductSubcategories, form.subcategoryCode)} onValueChange={onSubcategoryChange}>
                   <SelectTrigger className="h-8 max-w-xs"><SelectValue placeholder="Alt kategori seçin" /></SelectTrigger>
                   <SelectContent>
                     {availableProductSubcategories.map((o) => <SelectItem key={o.code} value={o.code}>{o.label}</SelectItem>)}
