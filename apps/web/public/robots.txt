@@ -1,0 +1,37 @@
+# Private, authenticated CRM. Not intended for public indexing or AI crawling.
+# See also the X-Robots-Tag: noindex, nofollow header on every response.
+
+User-agent: *
+Content-Signal: ai-train=no, search=no, ai-input=no
+Disallow: /
+
+# Explicit opt-out for named AI / search crawlers
+User-agent: GPTBot
+Disallow: /
+
+User-agent: OAI-SearchBot
+Disallow: /
+
+User-agent: ChatGPT-User
+Disallow: /
+
+User-agent: ClaudeBot
+Disallow: /
+
+User-agent: Claude-Web
+Disallow: /
+
+User-agent: anthropic-ai
+Disallow: /
+
+User-agent: Google-Extended
+Disallow: /
+
+User-agent: CCBot
+Disallow: /
+
+User-agent: PerplexityBot
+Disallow: /
+
+User-agent: Bytespider
+Disallow: /
