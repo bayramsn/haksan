@@ -43,7 +43,7 @@ ARG BUILD_TIME=unknown
 ENV API_RELEASE_ID=${API_RELEASE_ID}
 ENV IMAGE_BUILD_TIME=${BUILD_TIME}
 
-RUN apk add --no-cache font-dejavu
+RUN apk add --no-cache font-dejavu postgresql-client
 
 COPY --from=build --chown=node:node /app/package.json /app/package-lock.json ./
 COPY --from=build --chown=node:node /app/node_modules ./node_modules
