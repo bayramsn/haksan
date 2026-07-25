@@ -6,7 +6,7 @@ import { Badge } from "../ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../ui/table";
 import { useStore } from "../../lib/store";
 import { EmptyState } from "../shared/EmptyState";
-import { EntityVisual, InsightStat, RecordIdentity } from "../shared/PremiumPrimitives";
+import { EntityVisual, InsightStat } from "../shared/PremiumPrimitives";
 import { ViewToggle, type ListView } from "../ui/list-controls";
 import { usePersistentState } from "../../lib/persist";
 import { cncReferences } from "../../lib/referenceData";
@@ -27,9 +27,11 @@ export function ReferencesPage() {
     const imageByModel = new Map(
       products.map((product) => [product.model.toLocaleLowerCase("tr-TR"), product.imageUrl]),
     );
+    // Kaynak PDF ile birebir aynı sıra: sıra no (1 → 200, teslim tarihine göre artan).
     return [...cncReferences]
       .map((entry) => ({
         id: `ref-${entry.no}`,
+        no: entry.no,
         firm: entry.firm || "—",
         contact: entry.contact || "—",
         district: entry.district || "—",
@@ -39,7 +41,7 @@ export function ReferencesPage() {
         imageUrl: imageByModel.get(entry.model.toLocaleLowerCase("tr-TR")),
         deliveryDate: entry.deliveryDate,
       }))
-      .sort((a, b) => (b.deliveryDate || "").localeCompare(a.deliveryDate || ""));
+      .sort((a, b) => a.no - b.no);
   }, [products]);
 
   const filtered = rows.filter((row) => {
@@ -118,33 +120,31 @@ export function ReferencesPage() {
             <TableHeader>
               <TableRow className="bg-muted/30 hover:bg-muted/30">
                 <TableHead className="w-16">No</TableHead>
-                <TableHead className="min-w-[280px]">Makine</TableHead>
-                <TableHead>Firma</TableHead>
+                <TableHead className="min-w-[220px]">Firma</TableHead>
                 <TableHead>İlgili</TableHead>
-                <TableHead>Konum</TableHead>
+                <TableHead>İlçe</TableHead>
+                <TableHead>İl</TableHead>
+                <TableHead>Tezgah Markası</TableHead>
+                <TableHead>Tezgah Modeli</TableHead>
                 <TableHead>Teslim Tarihi</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filtered.map((row, index) => (
+              {filtered.map((row) => (
                 <TableRow key={row.id}>
-                  <TableCell className="tabular-nums text-muted-foreground">{index + 1}</TableCell>
-                  <TableCell>
-                    <RecordIdentity
-                      visual={<EntityVisual imageUrl={row.imageUrl} title={`${row.brand} ${row.model}`} icon={<Cpu className="size-4" />} size="sm" />}
-                      eyebrow={row.brand}
-                      title={row.model}
-                    />
-                  </TableCell>
+                  <TableCell className="tabular-nums text-muted-foreground">{row.no}</TableCell>
                   <TableCell className="font-medium">{row.firm}</TableCell>
                   <TableCell>{row.contact}</TableCell>
-                  <TableCell className="text-muted-foreground">{[row.district, row.city].filter((value) => value !== "—").join(" / ") || "—"}</TableCell>
+                  <TableCell className="text-muted-foreground">{row.district}</TableCell>
+                  <TableCell className="text-muted-foreground">{row.city}</TableCell>
+                  <TableCell>{row.brand}</TableCell>
+                  <TableCell className="font-data">{row.model}</TableCell>
                   <TableCell className="text-muted-foreground">{formatDate(row.deliveryDate)}</TableCell>
                 </TableRow>
               ))}
               {filtered.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={6} className="text-center py-12 text-sm text-muted-foreground">
+                  <TableCell colSpan={8} className="text-center py-12 text-sm text-muted-foreground">
                     Referans kaydı bulunamadı.
                   </TableCell>
                 </TableRow>
