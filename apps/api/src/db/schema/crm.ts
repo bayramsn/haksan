@@ -1,4 +1,5 @@
-import { pgTable, uuid, varchar, text, integer, timestamp, index, uniqueIndex } from 'drizzle-orm/pg-core';
+import { sql } from 'drizzle-orm';
+import { pgTable, uuid, varchar, text, integer, timestamp, jsonb, index, uniqueIndex } from 'drizzle-orm/pg-core';
 import { auditColumns, ownerColumns, money } from './_helpers';
 import { tenants, divisions } from './tenants';
 import { users } from './users';
@@ -95,14 +96,28 @@ export const opportunities = pgTable(
     tenantId: uuid('tenant_id')
       .notNull()
       .references(() => tenants.id, { onDelete: 'cascade' }),
-    companyId: uuid('company_id')
-      .notNull()
-      .references(() => companies.id, { onDelete: 'restrict' }),
+    // Hızlı lead aşamasında firma henüz bilinmeyebilir. Teklif oluşturulmadan
+    // önce gerçek bir firma kaydı bağlanır.
+    companyId: uuid('company_id').references(() => companies.id, { onDelete: 'restrict' }),
     divisionId: uuid('division_id').references(() => divisions.id, { onDelete: 'set null' }),
     primaryContactId: uuid('primary_contact_id').references(() => contacts.id, { onDelete: 'set null' }),
     ownerUserId: uuid('owner_user_id').references(() => users.id),
     title: varchar('title', { length: 255 }).notNull(),
     description: text('description'),
+    leadContactName: varchar('lead_contact_name', { length: 255 }),
+    leadCompanyTitle: varchar('lead_company_title', { length: 255 }),
+    leadContactValue: varchar('lead_contact_value', { length: 320 }),
+    leadCity: varchar('lead_city', { length: 120 }),
+    leadPhone: varchar('lead_phone', { length: 64 }),
+    leadEmail: varchar('lead_email', { length: 254 }),
+    // Firmanın alım niyeti: hot (sıcak) | waiting (beklemede) | cold (soğuk).
+    leadTemperature: varchar('lead_temperature', { length: 16 }),
+    // Harici sistem kimliği lead/kontak alanlarından ayrı tutulur. Böylece
+    // Trello pano adı, üyesi ve URL'si CRM firma bilgisi gibi davranmaz.
+    externalSource: varchar('external_source', { length: 32 }),
+    externalKey: varchar('external_key', { length: 320 }),
+    externalUrl: varchar('external_url', { length: 512 }),
+    externalMetadata: jsonb('external_metadata').$type<Record<string, unknown>>(),
     currentStageId: uuid('current_stage_id')
       .notNull()
       .references(() => pipelineStages.id),
@@ -137,6 +152,9 @@ export const opportunities = pgTable(
     expectedCloseDateIdx: index('opportunities_expected_close_date_idx').on(t.expectedCloseDate),
     ownerIdx: index('opportunities_owner_idx').on(t.ownerUserId),
     closedAtIdx: index('opportunities_closed_at_idx').on(t.closedAt),
+    externalAliveUnique: uniqueIndex('opportunities_tenant_external_alive_unique')
+      .on(t.tenantId, t.externalSource, t.externalKey)
+      .where(sql`${t.deletedAt} is null and ${t.externalSource} is not null and ${t.externalKey} is not null`),
   })
 );
 

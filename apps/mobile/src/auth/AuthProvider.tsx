@@ -14,6 +14,7 @@ import {
 import { authService } from '../api/services';
 import { loadApiBaseUrlFromStorage } from '../api/config';
 import { clearOfflineQueue, flushOfflineQueue, setOfflineQueueScope } from '../offline/queue';
+import { usePushRegistration } from '../push/usePushRegistration';
 
 type MeUser = MeResponse['user'];
 type MeTenant = MeResponse['tenant'];
@@ -23,7 +24,7 @@ type AuthState = {
   authed: boolean;
   user: MeUser | null;
   tenant: MeTenant | null;
-  login: (email: string, password: string, tenantSlug?: string) => Promise<void>;
+  login: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   hasRole: (code: string) => boolean;
 };
@@ -87,9 +88,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     })();
   }, [refresh]);
 
+  // Giriş yapılınca cihaz push token'ını backend'e kaydet.
+  usePushRegistration(Boolean(user));
+
   const login = useCallback(
-    async (email: string, password: string, tenantSlug?: string) => {
-      await authService.login(email, password, tenantSlug);
+    async (email: string, password: string) => {
+      await authService.login(email, password);
       await fetchMe();
       void flushOfflineQueue();
       router.replace('/(tabs)');

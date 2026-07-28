@@ -1,4 +1,6 @@
-import { Body, Controller, Delete, Get, Inject, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Inject, Param, Patch, Post, Put, Query, Res, UseGuards } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
+import type { FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { and, asc, eq, inArray, isNull, max, or } from 'drizzle-orm';
 import type { DbClient } from '../../db/client';
@@ -14,12 +16,20 @@ import { AuditService } from '../../shared/database/audit.service';
 import { availableLookupNames, BRAND_LOOKUP_NAME, DIVISION_SCOPED_LOOKUPS, LOOKUP_PARENT_COLUMNS, LOOKUP_TABLE_MAP } from '../lookups/lookups.controller';
 import {
   productSpecTemplateBulkCreateSchema,
+  productSpecTemplateBatchSchema,
   productSpecTemplateCreateSchema,
   productSpecTemplateUpdateSchema,
+  technicalImportCommitRequestSchema,
+  technicalImportPreviewRequestSchema,
+  type ProductSpecTemplateBatchInput,
   type ProductSpecTemplateBulkCreateInput,
   type ProductSpecTemplateCreateInput,
   type ProductSpecTemplateUpdateInput,
+  type TechnicalImportCommitRequest,
+  type TechnicalImportPreviewRequest,
 } from '@haksan/shared';
+import { rowsToXlsxBuffer, sendXlsx } from '../../shared/utils/excel-export';
+import { TechnicalImportService } from './technical-import.service';
 
 const lookupCreateSchema = z.object({
   code: z.string().trim().min(1).max(64).optional(),
@@ -85,7 +95,8 @@ function databaseErrorCode(error: unknown): string | undefined {
 export class AdminLookupsController {
   constructor(
     @Inject(DB) private readonly db: DbClient,
-    private readonly audit: AuditService
+    private readonly audit: AuditService,
+    private readonly technicalImport: TechnicalImportService
   ) {}
 
   private requireSuperAdmin(user: AuthContext) {
@@ -564,6 +575,75 @@ export class AdminLookupsController {
       .onConflictDoNothing()
       .returning();
     return { ok: true, created: rows.length, skipped: body.items.length - rows.length, rows };
+  }
+
+  @Put('product-spec-templates/batch')
+  async batchSaveProductSpecTemplates(
+    @Body(new ZodValidationPipe(productSpecTemplateBatchSchema)) body: ProductSpecTemplateBatchInput,
+    @CurrentUser() user: AuthContext
+  ) {
+    this.requireSuperAdmin(user);
+    try {
+      const rows = await this.db.transaction(async (tx) => {
+        const saved = [];
+        for (const item of body.items) {
+          const { id, ...values } = item;
+          if (id) {
+            const [row] = await tx.update(productSpecTemplates).set(values).where(eq(productSpecTemplates.id, id)).returning();
+            if (!row) throw new NotFoundError('Teknik bilgi şablonu');
+            saved.push(row);
+          } else {
+            const [row] = await tx.insert(productSpecTemplates).values(values).returning();
+            saved.push(row);
+          }
+        }
+        return saved;
+      });
+      await this.audit.write({
+        tenantId: user.tenantId,
+        actorUserId: user.userId,
+        action: 'product_spec_template.batch_updated',
+        resourceType: 'product_spec_template',
+        resourceId: body.items[0]?.productTypeCode ?? 'batch',
+        newValues: { count: rows.length },
+      });
+      return { ok: true, rows };
+    } catch (error: any) {
+      if (databaseErrorCode(error) === '23505') throw new ConflictError('Bu ürün tipi için aynı teknik alan birden fazla kez kullanılamaz');
+      throw error;
+    }
+  }
+
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  @Post('technical-import/preview')
+  previewTechnicalImport(
+    @Body(new ZodValidationPipe(technicalImportPreviewRequestSchema)) body: TechnicalImportPreviewRequest,
+    @CurrentUser() user: AuthContext
+  ) {
+    this.requireSuperAdmin(user);
+    return this.technicalImport.preview(body, user);
+  }
+
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  @Post('technical-import/commit')
+  commitTechnicalImport(
+    @Body(new ZodValidationPipe(technicalImportCommitRequestSchema)) body: TechnicalImportCommitRequest,
+    @CurrentUser() user: AuthContext
+  ) {
+    this.requireSuperAdmin(user);
+    return this.technicalImport.commit(body, user);
+  }
+
+  @Get('technical-import/template')
+  async technicalImportTemplate(@Res({ passthrough: true }) reply: FastifyReply, @CurrentUser() user: AuthContext) {
+    this.requireSuperAdmin(user);
+    const rows = [
+      { Bölüm: 'TABLA', 'Teknik Bilgi': 'Tablo Ölçüsü', Değer: '850 × 600', Birim: 'mm' },
+      { Bölüm: 'TABLA', 'Teknik Bilgi': 'Tablo Yükleme Kapasitesi', Değer: '500', Birim: 'kg' },
+      { Bölüm: 'EKSENLER', 'Teknik Bilgi': 'X Ekseni Hareketi', Değer: '650', Birim: 'mm' },
+      { Bölüm: 'FENER MİLİ', 'Teknik Bilgi': 'Fener Mili Devri', Değer: '12.000', Birim: 'dev/dk' },
+    ];
+    return sendXlsx(reply, await rowsToXlsxBuffer(rows, 'Teknik Bilgiler'), 'teknik-bilgi-import-sablonu.xlsx');
   }
 
   @Patch('product-spec-templates/:id')

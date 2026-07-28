@@ -22,7 +22,6 @@ const PRIMARY = '#000c69';
 export function LoginScreen() {
   const { login } = useAuth();
   const [email, setEmail] = useState('');
-  const [tenantSlug, setTenantSlug] = useState('');
   const [password, setPassword] = useState('');
   const [showPass, setShowPass] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -43,7 +42,7 @@ export function LoginScreen() {
     setError('');
     setLoading(true);
     try {
-      await login(parsed.data, password, tenantSlug.trim() || undefined);
+      await login(parsed.data, password);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Giriş başarısız');
     } finally {
@@ -60,7 +59,7 @@ export function LoginScreen() {
     setError('');
     setLoading(true);
     try {
-      await authService.forgotPassword(parsed.data, tenantSlug.trim() || undefined);
+      await authService.forgotPassword(parsed.data);
       setLoading(false);
       setForgotSent(true);
     } catch (error) {
@@ -104,20 +103,6 @@ export function LoginScreen() {
                     <Text style={styles.errorText}>{error}</Text>
                   </View>
                 )}
-
-                <View style={styles.inputWrapper}>
-                  <Text style={styles.inputLabel}>Tenant Kodu</Text>
-                  <TextInput
-                    style={styles.input}
-                    value={tenantSlug}
-                    onChangeText={setTenantSlug}
-                    placeholder="tenant-kodu"
-                    placeholderTextColor="#9ca3af"
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                    returnKeyType="next"
-                  />
-                </View>
 
                 {/* Email */}
                 <View style={styles.inputWrapper}>
@@ -203,18 +188,6 @@ export function LoginScreen() {
                         <Text style={styles.errorText}>{error}</Text>
                       </View>
                     )}
-                    <View style={styles.inputWrapper}>
-                      <Text style={styles.inputLabel}>Tenant Kodu</Text>
-                      <TextInput
-                        style={styles.input}
-                        value={tenantSlug}
-                        onChangeText={setTenantSlug}
-                        placeholder="tenant-kodu"
-                        placeholderTextColor="#9ca3af"
-                        autoCapitalize="none"
-                        autoCorrect={false}
-                      />
-                    </View>
                     <View style={styles.inputWrapper}>
                       <Text style={styles.inputLabel}>E-posta</Text>
                       <TextInput

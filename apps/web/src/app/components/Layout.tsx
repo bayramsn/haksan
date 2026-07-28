@@ -10,7 +10,7 @@ import {
   PhoneCall, ListChecks,
   Star, Rows3,
 } from "lucide-react";
-import { callAssistantService, chatService, notificationService, type CallSuggestionDTO, type NotificationDTO } from "../../lib/services";
+import { callAssistantService, chatService, notificationService, type CallSuggestionDTO, type NotificationDTO, type NotificationTarget } from "../../lib/services";
 import { useAuth } from "../../lib/auth";
 import { toast } from "sonner";
 import { Button } from "./ui/button";
@@ -32,7 +32,7 @@ import { HelpCenterDialog } from "./HelpCenterDialog";
 import { ApprovalsDialog } from "./ApprovalsDialog";
 import { CommandPalette } from "./operations/CommandPalette";
 import { AssistantPanel } from "./operations/AssistantPanel";
-import { buildAlerts, type OperationAction } from "../lib/operations";
+import { buildAlerts, type OperationAction, type OperationNav } from "../lib/operations";
 
 export type NavKey =
   | "dashboard" | "chat" | "calendar" | "call-assistant" | "customers" | "contacts" | "sales-cases" | "kanban" | "sales-map" | "offers"
@@ -385,12 +385,24 @@ export function Layout({ current, onNavigate, onLogout, pageTitle, pageSubtitle,
     } catch {
       // Bildirim okunma kaydı başarısız olsa da yönlendirme çalışsın.
     }
-    if (notification.entityType === "service_complaint_intake" && notification.entityId) {
-      const action: OperationAction = { kind: "navigate", nav: "service-requests", query: `complaint:${notification.entityId}` };
-      if (onOperationAction) onOperationAction(action);
-      else onNavigate("service-requests");
+    // Hedef API'de çözülür (ör. bahsedilen aktivite → bağlı satış kartı/firma).
+    // Eski sürüm yanıtları için şikayet bildirimi yerel olarak da ele alınır.
+    const target: NotificationTarget | null =
+      notification.target ??
+      (notification.entityType === "service_complaint_intake" && notification.entityId
+        ? { kind: "navigate", nav: "service-requests", query: `complaint:${notification.entityId}` }
+        : null);
+    if (!target) {
+      toast.message(notification.title, { description: notification.body ?? "Bu bildirim için açılacak kayıt yok." });
       return;
     }
+    const action: OperationAction =
+      target.kind === "company"
+        ? { kind: "customer", customerId: target.companyId }
+        : target.kind === "opportunity"
+          ? { kind: "salesCase", salesCaseId: target.opportunityId }
+          : { kind: "navigate", nav: target.nav as OperationNav, query: target.query };
+    executeOperationAction(action);
   };
   const runCallSuggestionAction = async (
     suggestion: CallSuggestionDTO,

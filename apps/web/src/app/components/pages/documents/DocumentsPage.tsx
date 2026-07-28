@@ -346,6 +346,7 @@ export function DocumentsPage({
   const [previewDoc, setPreviewDoc] = useState<(typeof documents)[number] | null>(null);
   const [detailDoc, setDetailDoc] = useState<(typeof documents)[number] | null>(null);
   const [pendingDeleteDoc, setPendingDeleteDoc] = useState<(typeof documents)[number] | null>(null);
+  const [deletingDocumentId, setDeletingDocumentId] = useState<string | null>(null);
   // Proforma / sözleşme / ticari fatura kayıtları için içerik pop-up'ını açar.
   const CONTENT_TYPES: DocumentItem["type"][] = ["Proforma", "Contract", "CommercialInvoice"];
   const detailPrint = (d: (typeof documents)[number]) => {
@@ -448,21 +449,27 @@ export function DocumentsPage({
   };
 
   const deleteDocumentRecord = async (d: (typeof documents)[number]) => {
+    if (deletingDocumentId) return;
+    setDeletingDocumentId(d.id);
     try {
-      if (d.type === "Proforma") {
+      if (d.source === "uploaded_file" && d.fileId) {
+        await fileService.remove(d.fileId);
+      } else if (d.type === "Proforma") {
         await documentService.deleteProforma(d.id);
       } else if (d.type === "Contract") {
         await documentService.deleteContract(d.id);
       } else if (d.type === "CommercialInvoice") {
         await documentService.deleteCommercialInvoice(d.id);
       } else {
-        return;
+        throw new Error("Bu belge türü bu ekrandan silinemez.");
       }
       toast.success(`${DOC_TYPE_LABELS[d.type]} silindi`, { description: d.fileName });
       setPendingDeleteDoc(null);
       await refresh();
     } catch (err: any) {
       toast.error(`${DOC_TYPE_LABELS[d.type]} silinemedi`, { description: err?.message ?? "API isteği başarısız oldu." });
+    } finally {
+      setDeletingDocumentId(null);
     }
   };
 
@@ -704,7 +711,7 @@ export function DocumentsPage({
                             <Download className="size-4 text-muted-foreground hover:text-primary" />
                           </Button>
                         )}
-                        {(d.type === "Proforma" || d.type === "Contract" || d.type === "CommercialInvoice") && (
+                        {(d.source === "uploaded_file" || d.type === "Proforma" || d.type === "Contract" || d.type === "CommercialInvoice") && !(d.deliveryId || d.installationId) && (
                           <Button
                             variant="ghost"
                             size="icon"
@@ -740,14 +747,14 @@ export function DocumentsPage({
         onDownload={detailDownload}
         onOpenFile={(d) => { setDetailDoc(null); setPreviewDoc(d); }}
       />
-      <AlertDialog open={!!pendingDeleteDoc} onOpenChange={(open) => !open && setPendingDeleteDoc(null)}>
+      <AlertDialog open={!!pendingDeleteDoc} onOpenChange={(open) => !open && !deletingDocumentId && setPendingDeleteDoc(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>{pendingDeleteDoc ? `${DOC_TYPE_LABELS[pendingDeleteDoc.type]} kaydını sil?` : "Belge kaydını sil?"}</AlertDialogTitle>
-            <AlertDialogDescription><b>{pendingDeleteDoc?.fileName}</b> belge envanterinden kaldırılacak. Bağlı firma ve satış kartı kayıtları etkilenmez; yüklenmiş dosya varsa depolama politikası ayrı uygulanır.</AlertDialogDescription>
+            <AlertDialogTitle>{pendingDeleteDoc?.source === "uploaded_file" ? "Yüklenen dosyayı sil?" : pendingDeleteDoc ? `${DOC_TYPE_LABELS[pendingDeleteDoc.type]} kaydını sil?` : "Belge kaydını sil?"}</AlertDialogTitle>
+            <AlertDialogDescription><b>{pendingDeleteDoc?.fileName}</b> doküman listesinden kaldırılacak ve artık indirilemeyecek. Bağlı firma ve satış kartı kayıtları etkilenmez.</AlertDialogDescription>
           </AlertDialogHeader>
           {pendingDeleteDoc && <div className="rounded-lg border border-border/60 bg-muted/25 p-3 text-sm"><p className="font-medium">{DOC_TYPE_LABELS[pendingDeleteDoc.type]}</p><p className="mt-0.5 text-xs text-muted-foreground">{pendingDeleteDoc.uploadedAt} · {pendingDeleteDoc.size || "Boyut bilgisi yok"}</p></div>}
-          <AlertDialogFooter><AlertDialogCancel>Vazgeç</AlertDialogCancel><AlertDialogAction className="bg-destructive text-destructive-foreground hover:bg-destructive/90" onClick={(event) => { event.preventDefault(); if (pendingDeleteDoc) void deleteDocumentRecord(pendingDeleteDoc); }}>Belgeyi Sil</AlertDialogAction></AlertDialogFooter>
+          <AlertDialogFooter><AlertDialogCancel disabled={Boolean(deletingDocumentId)}>Vazgeç</AlertDialogCancel><AlertDialogAction disabled={Boolean(deletingDocumentId)} className="bg-destructive text-destructive-foreground hover:bg-destructive/90" onClick={(event) => { event.preventDefault(); if (pendingDeleteDoc) void deleteDocumentRecord(pendingDeleteDoc); }}>{deletingDocumentId ? "Siliniyor…" : "Belgeyi Sil"}</AlertDialogAction></AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
     </div>

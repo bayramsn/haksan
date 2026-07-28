@@ -20,6 +20,14 @@ describe('Health endpoints', () => {
     expect(r.body.ok).toBe(true);
   });
 
+  it('GET /health/live returns liveness and release metadata', async () => {
+    const r = await supertest(app.getHttpServer()).get('/health/live');
+    expect(r.status).toBe(200);
+    expect(r.body.ok).toBe(true);
+    expect(r.body.service).toBe('haksan-api');
+    expect(r.body.apiPrefix).toBeTruthy();
+  });
+
   it('GET /health/ready returns 200 when DB and migrations are current', async () => {
     const r = await supertest(app.getHttpServer()).get('/health/ready');
     expect(r.status).toBe(200);
@@ -32,5 +40,15 @@ describe('Health endpoints', () => {
     expect(r.status).toBe(200);
     expect(r.body.service).toBe('haksan-api');
     expect(r.body.apiPrefix).toBeTruthy();
+  });
+
+  it('GET /health/dependencies returns bounded dependency statuses', async () => {
+    const r = await supertest(app.getHttpServer()).get('/health/dependencies');
+    expect([200, 503]).toContain(r.status);
+    expect(typeof r.body.ok).toBe('boolean');
+    expect(['ok', 'error']).toContain(r.body.dependencies.database.status);
+    expect(['ok', 'error']).toContain(r.body.dependencies.objectStorage.status);
+    expect(['ok', 'error']).toContain(r.body.dependencies.tempSpace.status);
+    expect(r.body.dependencies.configuration.status).toBe('ok');
   });
 });

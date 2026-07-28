@@ -11,7 +11,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from ".
 import {
   Phone, Smartphone, Mail, MapPin, Building2, Star, Globe, Hash, Briefcase,
   FileText, FileSignature, Receipt, Wallet, Cpu, Wrench, ChevronRight, User as UserIcon,
-  Plus, Pencil, Trash2,
+  Plus, Pencil, Trash2, NotebookText,
 } from "lucide-react";
 import {
   Customer, Contact, FirmType, SalesCase, Offer, Machine, DocumentItem, ServiceRequest,
@@ -273,6 +273,22 @@ export function CompanyDetailDialog({
               </ul>
             </section>
           )}
+          <section
+            className="mt-4 overflow-hidden rounded-lg border border-amber-200/80 bg-amber-50/45"
+            aria-label="Firma notları"
+          >
+            <div className="flex items-center gap-2 border-b border-amber-200/70 bg-amber-50/70 px-3 py-2 text-xs font-semibold text-amber-950">
+              <NotebookText className="size-3.5 text-amber-700" />
+              Firma Notları
+            </div>
+            <div
+              className={`max-h-40 overflow-y-auto whitespace-pre-wrap break-words px-3 py-2.5 text-sm leading-relaxed ${
+                customer.initialNote?.trim() ? "text-foreground" : "text-muted-foreground"
+              }`}
+            >
+              {customer.initialNote?.trim() || "Bu firma için henüz not eklenmemiş."}
+            </div>
+          </section>
         </DialogHeader>
 
         {/* KPI tiles — her biri tıklanınca ilgili kayıtlar pop-up olarak açılır */}

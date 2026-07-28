@@ -14,7 +14,11 @@ import { ChatRealtimeService } from './chat.realtime';
 import { ForbiddenError, NotFoundError, ValidationError } from '../../shared/utils/errors';
 import type { AuthContext } from '../../shared/security/auth.types';
 import { resourceCompanyPortfolioFilter, resourceDivisionFilter } from '../../shared/utils/division-scope';
-import { companyVisibilityExistsFilter, companyVisibilityFilter } from '../../shared/utils/company-visibility';
+import {
+  allowUnlinkedCompanyRecords,
+  companyVisibilityExistsFilter,
+  companyVisibilityFilter,
+} from '../../shared/utils/company-visibility';
 import type {
   CreateGroupInput,
   UpdateGroupInput,
@@ -733,7 +737,7 @@ export class ChatService {
             eq(quotes.tenantId, actor.tenantId),
             isNull(quotes.deletedAt),
             resourceDivisionFilter(actor, 'quotes', quotes.divisionId) ?? sql`true`,
-            visibility ?? sql`true`,
+            allowUnlinkedCompanyRecords(opportunities.companyId, visibility),
             inArray(quotes.id, idsByType.quote)
           )
         );

@@ -216,13 +216,71 @@ export const OPPORTUNITY_PAYMENT_METHOD_LABELS: Record<OpportunityPaymentMethod,
   cheque: "Çek / Senet",
 };
 
+/** Lead sıcaklığı — firmanın alım niyeti. */
+export type LeadTemperature = "hot" | "waiting" | "cold" | "unknown";
+
+export const LEAD_TEMPERATURE_LABELS: Record<LeadTemperature, string> = {
+  hot: "Sıcak",
+  waiting: "Beklemede",
+  cold: "Soğuk",
+  unknown: "Belirsiz",
+};
+
+export const LEAD_TEMPERATURE_HINTS: Record<LeadTemperature, string> = {
+  hot: "Almaya niyetli",
+  waiting: "Karar bekliyor",
+  cold: "Almaya niyetli değil",
+  unknown: "Henüz değerlendirilmedi",
+};
+
+/** Rozet/nokta renkleri — sıcaklık kartta bir bakışta okunsun. */
+export const LEAD_TEMPERATURE_STYLES: Record<LeadTemperature, { badge: string; dot: string }> = {
+  hot: { badge: "bg-destructive/10 text-destructive", dot: "bg-destructive" },
+  waiting: { badge: "bg-warning-soft text-warning", dot: "bg-warning" },
+  cold: { badge: "bg-info-soft text-info", dot: "bg-info" },
+  unknown: { badge: "bg-muted text-muted-foreground", dot: "bg-muted-foreground/50" },
+};
+
+export const LEAD_TEMPERATURE_ORDER: LeadTemperature[] = ["hot", "waiting", "cold", "unknown"];
+
 export type SalesCase = {
   id: string;
+  /** Firma henüz bağlanmadıysa hızlı lead kartlarında boş string olur. */
   customerId: string;
+  primaryContactId?: string;
+  /** Firma ana kaydı oluşmadan önce satış kartında tutulan lead bağlamı. */
+  leadContactName?: string;
+  leadCompanyTitle?: string;
+  leadContactValue?: string;
+  leadContactMethodCode?: string;
+  leadContactMethodName?: string;
+  leadCity?: string;
+  leadPhone?: string;
+  leadEmail?: string;
+  /** Firmanın alım niyeti — sıcak / beklemede / soğuk. */
+  leadTemperature?: LeadTemperature;
+  externalSource?: string;
+  externalKey?: string;
+  externalUrl?: string;
+  externalMetadata?: {
+    boardName?: string | null;
+    listName?: string | null;
+    labels?: string | null;
+    members?: string | null;
+    trelloCardId?: string | null;
+    candidate?: {
+      companyTitle?: string;
+      locationHint?: string;
+      contactName?: string;
+      phone?: string;
+      email?: string;
+    };
+  };
   assignedUserId: string;
   department: string;
   requestedProduct: string;
   requestedModel: string;
+  description?: string;
   quantity: number;
   estimatedAmount: number;
   currency: "USD" | "EUR" | "TRY";
@@ -294,6 +352,8 @@ export type Offer = {
 export type DocumentItem = {
   id: string;
   salesCaseId: string;
+  /** Belgenin silme/güncelleme akışını belirleyen kalıcı kaynak türü. */
+  source?: "uploaded_file" | "commercial_record" | "live_form";
   /** Proforma / sözleşme / fatura kaydının bağlı olduğu teklif. */
   quoteId?: string;
   companyId?: string;

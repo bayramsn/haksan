@@ -460,7 +460,7 @@ type Store = {
   updateCustomer: (id: string, patch: Partial<Omit<Customer, 'id' | 'createdAt'>>) => Promise<void>;
   deleteCustomer: (id: string) => Promise<void>;
   addCase: (c: Omit<SalesCase, 'id' | 'createdAt' | 'stage' | 'isLost' | 'isOfferPrepared'> & { stage?: SalesStage; divisionId?: string }) => Promise<SalesCase>;
-  updateCase: (id: string, patch: { assignedUserId?: string; paymentTermDays?: number | null; paymentMethod?: SalesCase['paymentMethod'] }) => Promise<void>;
+  updateCase: (id: string, patch: { assignedUserId?: string; paymentTermDays?: number | null; paymentMethod?: SalesCase['paymentMethod']; leadTemperature?: SalesCase['leadTemperature'] }) => Promise<void>;
   deleteCase: (id: string) => Promise<void>;
   addOffer: (o: Omit<Offer, 'id' | 'date' | 'revision'> & { revision?: number }) => Promise<Offer>;
   createQuoteFull: (payload: CreateQuotePayload) => Promise<{ quoteId: string; documentNo: string; opportunityId: string }>;
@@ -715,11 +715,26 @@ function StoreInner({ children }: { children: ReactNode }) {
       const mapCase = (o: any): SalesCase =>
         ({
           id: o.id,
-          customerId: o.companyId,
+          customerId: o.companyId ?? '',
+          primaryContactId: o.primaryContactId ?? undefined,
+          leadContactName: o.leadContactName ?? undefined,
+          leadCompanyTitle: o.leadCompanyTitle ?? undefined,
+          leadContactValue: o.leadContactValue ?? undefined,
+          leadContactMethodCode: o.source?.code ?? undefined,
+          leadContactMethodName: o.source?.name ?? undefined,
+          leadCity: o.leadCity ?? undefined,
+          leadPhone: o.leadPhone ?? undefined,
+          leadEmail: o.leadEmail ?? undefined,
+          leadTemperature: o.leadTemperature ?? 'unknown',
+          externalSource: o.externalSource ?? undefined,
+          externalKey: o.externalKey ?? undefined,
+          externalUrl: o.externalUrl ?? undefined,
+          externalMetadata: o.externalMetadata ?? undefined,
           assignedUserId: o.ownerUserId ?? '',
           department: '',
           requestedProduct: o.title ?? '',
-          requestedModel: o.title ?? '',
+          requestedModel: o.externalSource === 'trello' ? '' : o.description ?? o.title ?? '',
+          description: o.description ?? undefined,
           quantity: 1,
           estimatedAmount: Number(o.estimatedValue ?? 0),
           currency: (o.currency?.code as 'USD' | 'EUR' | 'TRY') ?? 'USD',
@@ -1073,6 +1088,7 @@ function StoreInner({ children }: { children: ReactNode }) {
         ...(proformasR.data ?? []).map((d: any) => ({
           id: d.id,
           salesCaseId: d.quote?.opportunityId ?? '',
+          source: 'commercial_record' as const,
           quoteId: d.quoteId ?? d.quote?.id ?? undefined,
           companyId: docCompanyId(d),
           type: 'Proforma' as const,
@@ -1086,6 +1102,7 @@ function StoreInner({ children }: { children: ReactNode }) {
         ...(contractsR.data ?? []).map((d: any) => ({
           id: d.id,
           salesCaseId: d.quote?.opportunityId ?? '',
+          source: 'commercial_record' as const,
           quoteId: d.quoteId ?? d.quote?.id ?? undefined,
           companyId: docCompanyId(d),
           type: 'Contract' as const,
@@ -1099,6 +1116,7 @@ function StoreInner({ children }: { children: ReactNode }) {
         ...(invoicesR.data ?? []).map((d: any) => ({
           id: d.id,
           salesCaseId: d.quote?.opportunityId ?? '',
+          source: 'commercial_record' as const,
           quoteId: d.quoteId ?? d.quote?.id ?? undefined,
           companyId: docCompanyId(d),
           type: 'CommercialInvoice' as const,
@@ -1112,6 +1130,7 @@ function StoreInner({ children }: { children: ReactNode }) {
         ...(deliveriesR.data ?? []).map((d: any) => ({
           id: `delivery-form-${d.id}`,
           salesCaseId: d.opportunityId ?? '',
+          source: 'live_form' as const,
           companyId: d.companyId ?? '',
           deliveryId: d.id,
           type: 'DeliveryForm' as const,
@@ -1123,6 +1142,7 @@ function StoreInner({ children }: { children: ReactNode }) {
         ...(installationsR.data ?? []).map((d: any) => ({
           id: `installation-form-${d.id}`,
           salesCaseId: d.opportunityId ?? '',
+          source: 'live_form' as const,
           companyId: d.companyId ?? '',
           installationId: d.id,
           installationData: d,
@@ -1135,6 +1155,7 @@ function StoreInner({ children }: { children: ReactNode }) {
         ...(fileLinksR.data ?? []).map((row: any) => ({
           id: row.id ?? row.file?.id,
           salesCaseId: row.entityType === 'opportunity' ? row.entityId : '',
+          source: 'uploaded_file' as const,
           companyId: row.entityType === 'company' ? row.entityId : '',
           serviceRequestId: row.entityType === 'service_ticket' || row.entityType === 'service_request' ? row.entityId : undefined,
           type: mapLinkDocType(row.documentType?.code),
@@ -1481,7 +1502,7 @@ function StoreInner({ children }: { children: ReactNode }) {
     const activityTypeCode = activityTypeCodeFromLabel(a.type) ?? 'note';
     const created = await activityService.create({
       opportunityId: a.salesCaseId || undefined,
-      companyId: a.customerId,
+      companyId: a.customerId || undefined,
       activityTypeCode,
       subject: a.title,
       description: a.note,
@@ -1546,6 +1567,7 @@ function StoreInner({ children }: { children: ReactNode }) {
     if (patch.assignedUserId !== undefined) body.ownerUserId = patch.assignedUserId || null;
     if (patch.paymentTermDays !== undefined) body.paymentTermDays = patch.paymentTermDays ?? null;
     if (patch.paymentMethod !== undefined) body.paymentMethod = patch.paymentMethod;
+    if (patch.leadTemperature !== undefined) body.leadTemperature = patch.leadTemperature;
     await opportunityService.update(id, body);
     await fetchAll();
   };
@@ -2326,27 +2348,10 @@ function StoreInner({ children }: { children: ReactNode }) {
   };
 
   const addDocument: Store['addDocument'] = async (d) => {
-    const quoteId =
-      offers.find((o) => d.salesCaseId && o.salesCaseId === d.salesCaseId)?.id
-      ?? offers.find((o) => d.companyId && o.companyId === d.companyId)?.id;
-    const baseName = d.fileName.replace(/\.[^/.]+$/, '') || `DOC-${Date.now()}`;
-    const today = new Date();
-
-    const needsQuoteRecord = d.type === 'Proforma' || d.type === 'Contract' || d.type === 'CommercialInvoice' || d.type === 'AccountingInvoice';
-    if (d.type === 'Proforma') {
-      if (!quoteId) throw new Error('Proforma için ilişkili teklif bulunamadı.');
-      await documentService.createProforma({ quoteId, documentNo: baseName, issueDate: today, statusCode: 'draft', fileId: d.fileId });
-    } else if (d.type === 'Contract') {
-      if (!quoteId) throw new Error('Sözleşme için ilişkili teklif bulunamadı.');
-      await documentService.createContract({ quoteId, contractNo: baseName, signedDate: today, statusCode: 'draft', fileId: d.fileId });
-    } else if (d.type === 'CommercialInvoice' || d.type === 'AccountingInvoice') {
-      if (!quoteId) throw new Error('Fatura için ilişkili teklif bulunamadı.');
-      await documentService.createCommercialInvoice({ quoteId, invoiceNo: baseName, invoiceDate: today, statusCode: 'draft', fileId: d.fileId });
-    }
-
     const row: DocumentItem = {
       id: d.id ?? `doc-${Date.now()}`,
       salesCaseId: d.salesCaseId,
+      source: d.source ?? (d.fileId ? 'uploaded_file' : undefined),
       companyId: d.companyId,
       serviceRequestId: d.serviceRequestId,
       type: d.type,
@@ -2357,11 +2362,10 @@ function StoreInner({ children }: { children: ReactNode }) {
       fileId: d.fileId,
       mimeType: d.mimeType,
     };
-    if (needsQuoteRecord) {
-      await fetchAll();
-    } else {
-      setDocuments((prev) => [...prev.filter((x) => x.id !== row.id), row]);
-    }
+    // Dosya bağlantısı /files/link ile zaten kalıcılaştırılır. Burada
+    // ikinci bir proforma/sözleşme/fatura kaydı oluşturmak hem mükerrer kayda
+    // hem de gereksiz teklif/satış kartı zorunluluğuna yol açıyordu.
+    setDocuments((prev) => [...prev.filter((x) => x.id !== row.id && x.fileId !== row.fileId), row]);
     return row;
   };
 

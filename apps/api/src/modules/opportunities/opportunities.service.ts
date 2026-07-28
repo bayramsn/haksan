@@ -1,38 +1,219 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { and, desc, eq, ilike, isNotNull, isNull, or, sql } from 'drizzle-orm';
+import { and, desc, eq, ilike, inArray, isNotNull, isNull, or, sql } from 'drizzle-orm';
 import type { DbClient } from '../../db/client';
 import { opportunities, opportunityStageHistory, salesActivities, visits, calls } from '../../db/schema/crm';
-import { companies, contactCompanies, contacts } from '../../db/schema/companies';
+import {
+  companies,
+  companyAddresses,
+  companyDivisions,
+  companyEmails,
+  companyPhones,
+  contactCompanies,
+  contacts,
+} from '../../db/schema/companies';
 import { users } from '../../db/schema/users';
 import { quotes } from '../../db/schema/quotes';
 import { inventoryItems, inventoryMovements, customerDevices } from '../../db/schema/inventory';
 import { installationJobs } from '../../db/schema/service';
 import { divisions } from '../../db/schema/tenants';
-import { pipelineStages, currencies, opportunityStatuses, contactSources, inventoryStatuses, warrantyStatuses, installationStatuses } from '../../db/schema/lookup';
+import {
+  pipelineStages,
+  currencies,
+  opportunityStatuses,
+  contactSources,
+  inventoryStatuses,
+  warrantyStatuses,
+  installationStatuses,
+  companyRelationTypes,
+  companyStatuses,
+} from '../../db/schema/lookup';
 import { cancellationReasons } from '../../db/schema/crm';
 import { commercialInvoices, contracts } from '../../db/schema/quotes';
 import { receivables } from '../../db/schema/finance';
 import { DB } from '../../shared/database/database.module';
 import { ForbiddenError, NotFoundError, ValidationError } from '../../shared/utils/errors';
 import type { AuthContext } from '../../shared/security/auth.types';
-import type { OpportunityCreateInput, OpportunityUpdateInput, OpportunityStageChangeInput, Pagination } from '@haksan/shared';
-import { PIPELINE_STAGES, STAGE_TRANSITIONS, type PipelineStageCode } from '@haksan/shared';
+import type {
+  OpportunityCompanyLinkInput,
+  OpportunityCreateInput,
+  OpportunityUpdateInput,
+  OpportunityStageChangeInput,
+  TrelloImportCommitRequest,
+  TrelloImportPreviewRequest,
+  TrelloImportRowInput,
+  TrelloCompanyCandidate,
+  Pagination,
+} from '@haksan/shared';
+import {
+  PIPELINE_STAGES,
+  STAGE_TRANSITIONS,
+  trelloImportRowSchema,
+  trelloResolvedImportRowSchema,
+  type PipelineStageCode,
+} from '@haksan/shared';
 import { buildPaginated, pageOffset } from '../../shared/utils/pagination';
 import { lookupIdByCode } from '../../shared/utils/lookup.helper';
 import { AuditService } from '../../shared/database/audit.service';
-import { inArray } from 'drizzle-orm';
 import {
   resourceCompanyPortfolioFilter,
   resourceDivisionFilter,
   resolveAssignedResourceDivision,
 } from '../../shared/utils/division-scope';
-import { companyVisibilityFilter, companyVisibilityExistsFilter } from '../../shared/utils/company-visibility';
+import {
+  allowUnlinkedCompanyRecords,
+  companyVisibilityFilter,
+  companyVisibilityExistsFilter,
+} from '../../shared/utils/company-visibility';
+import { ContactsService } from '../contacts/contacts.service';
+import { normalizeCompanyName, normalizePersonName } from '../../shared/utils/text-normalization';
+import {
+  extractTrelloCompanyCandidate,
+  normalizeTrelloMatchText,
+  normalizeTrelloPhone,
+  scoreTrelloCompanyCandidate,
+  type TrelloCompanyMatch,
+} from '../../shared/utils/trello-company-resolution';
+
+type TrelloImportStatus = 'create' | 'skip' | 'error';
+
+type TrelloImportPreviewRow = TrelloImportRowInput & {
+  candidate: TrelloCompanyCandidate;
+  matches: Array<
+    TrelloCompanyMatch & {
+      contactMatch?: { id: string; fullName: string; reason: string };
+    }
+  >;
+  status: TrelloImportStatus;
+  errors: string[];
+  warnings: string[];
+};
+
+const TRELLO_IMPORT_MAX_BYTES = 2 * 1024 * 1024;
+const TRELLO_IMPORT_MAX_ROWS = 500;
+
+const TRELLO_FIELD_ALIASES: Record<string, string[]> = {
+  trelloCardId: ['card id', 'card id long', 'id', 'kart id', 'kart kimligi', 'kart kimliği'],
+  title: ['card name', 'name', 'title', 'kart adi', 'kart adı', 'baslik', 'başlık'],
+  description: ['card description', 'description', 'desc', 'kart aciklamasi', 'kart açıklaması', 'aciklama', 'açıklama'],
+  boardName: ['board name', 'board', 'pano adi', 'pano adı', 'pano'],
+  listName: ['list name', 'list', 'liste adi', 'liste adı', 'liste'],
+  cardUrl: ['card url', 'url', 'card link', 'link', 'kart url', 'kart baglantisi', 'kart bağlantısı'],
+  labels: ['labels', 'label', 'etiketler', 'etiket'],
+  members: ['members', 'member', 'uyeler', 'üyeler', 'uye', 'üye'],
+  dueAt: ['due date', 'due', 'deadline', 'son tarih', 'bitis tarihi', 'bitiş tarihi'],
+  trelloCreatedAt: ['created date', 'date created', 'created at', 'olusturma tarihi', 'oluşturma tarihi'],
+  archived: ['archived', 'is archived', 'arsivlenmis', 'arşivlenmiş'],
+};
+
+function normalizeTrelloHeader(value: unknown): string {
+  return String(value ?? '')
+    .trim()
+    .toLocaleLowerCase('tr-TR')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/ı/g, 'i')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+    .replace(/\s+/g, ' ');
+}
+
+const TRELLO_HEADER_MAP = Object.entries(TRELLO_FIELD_ALIASES).reduce<Record<string, string>>(
+  (map, [field, aliases]) => {
+    for (const alias of aliases) map[normalizeTrelloHeader(alias)] = field;
+    return map;
+  },
+  {}
+);
+
+function parseTrelloCsv(text: string, delimiter: ',' | ';'): string[][] {
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let cell = '';
+  let quoted = false;
+
+  for (let index = 0; index < text.length; index += 1) {
+    const character = text[index];
+    const next = text[index + 1];
+    if (quoted) {
+      if (character === '"' && next === '"') {
+        cell += '"';
+        index += 1;
+      } else if (character === '"') {
+        quoted = false;
+      } else {
+        cell += character;
+      }
+      continue;
+    }
+    if (character === '"') quoted = true;
+    else if (character === delimiter) {
+      row.push(cell);
+      cell = '';
+    } else if (character === '\n') {
+      row.push(cell);
+      if (row.some((value) => value.trim())) rows.push(row);
+      row = [];
+      cell = '';
+    } else if (character !== '\r') {
+      cell += character;
+    }
+  }
+  row.push(cell);
+  if (row.some((value) => value.trim())) rows.push(row);
+  return rows;
+}
+
+function cleanTrelloCell(value: unknown): string {
+  return String(value ?? '').replace(/\0/g, '').trim();
+}
+
+function parseTrelloDate(value: string): string | undefined {
+  if (!value) return undefined;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? undefined : date.toISOString();
+}
+
+function parseTrelloBoolean(value: string): boolean {
+  return ['1', 'true', 'yes', 'evet', 'x'].includes(normalizeTrelloHeader(value));
+}
+
+function safeTrelloUrl(value: string): string | undefined {
+  if (!value) return undefined;
+  try {
+    const url = new URL(value);
+    return url.protocol === 'http:' || url.protocol === 'https:' ? url.toString() : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function suggestedStageForTrelloList(listName: string): PipelineStageCode {
+  const value = normalizeTrelloHeader(listName);
+  const rules: Array<[PipelineStageCode, string[]]> = [
+    ['cancelled', ['iptal', 'kaybedildi', 'lost', 'cancelled', 'vazgecildi']],
+    ['delivered', ['teslim', 'tamamlandi', 'done', 'completed', 'complete']],
+    ['installation', ['kurulum', 'montaj', 'installation']],
+    ['shipping', ['sevkiyat', 'kargo', 'shipping', 'shipment']],
+    ['stock_picking', ['stok', 'depo', 'stock']],
+    ['customs_approved', ['gumruk', 'customs']],
+    ['commercial_invoice', ['ticari fatura', 'commercial invoice']],
+    ['payment_plan', ['odeme plani', 'payment plan']],
+    ['contract', ['sozlesme', 'contract']],
+    ['proforma', ['proforma']],
+    ['quote', ['teklif', 'offer', 'proposal', 'quotation']],
+    ['visit', ['ziyaret', 'visit']],
+    ['call', ['arama', 'telefon', 'call']],
+    ['sales', ['satis', 'sales', 'gorusme', 'temas']],
+  ];
+  return rules.find(([, keywords]) => keywords.some((keyword) => value.includes(keyword)))?.[0] ?? 'lead';
+}
 
 @Injectable()
 export class OpportunitiesService {
   constructor(
     @Inject(DB) private readonly db: DbClient,
-    private readonly audit: AuditService
+    private readonly audit: AuditService,
+    private readonly contactsService: ContactsService
   ) {}
 
   private async stageRowByCode(code: string) {
@@ -69,6 +250,196 @@ export class OpportunitiesService {
     return contact;
   }
 
+  private hasPermission(actor: AuthContext, permission: string): boolean {
+    return actor.roles.includes('super_admin') || actor.permissions.has(permission);
+  }
+
+  private async trelloMatchCatalog(actor: AuthContext) {
+    const visibility = await companyVisibilityFilter(this.db, actor);
+    const filters = [
+      eq(companies.tenantId, actor.tenantId),
+      isNull(companies.deletedAt),
+      resourceCompanyPortfolioFilter(actor, 'companies', companies.id) ?? sql`true`,
+      visibility ?? sql`true`,
+    ];
+    const companyRows = await this.db
+      .select({
+        id: companies.id,
+        legalTitle: companies.legalTitle,
+        shortName: companies.shortName,
+        taxNumber: companies.taxNumber,
+        website: companies.website,
+      })
+      .from(companies)
+      .where(and(...filters));
+    const ids = companyRows.map((row) => row.id);
+    if (!ids.length) return [];
+    const [phones, emails, addresses, contactRows] = await Promise.all([
+      this.db
+        .select()
+        .from(companyPhones)
+        .where(and(inArray(companyPhones.companyId, ids), isNull(companyPhones.deletedAt))),
+      this.db
+        .select()
+        .from(companyEmails)
+        .where(and(inArray(companyEmails.companyId, ids), isNull(companyEmails.deletedAt))),
+      this.db
+        .select()
+        .from(companyAddresses)
+        .where(and(inArray(companyAddresses.companyId, ids), isNull(companyAddresses.deletedAt))),
+      this.db
+        .select({
+          id: contacts.id,
+          companyId: contacts.companyId,
+          fullName: contacts.fullName,
+          workPhone: contacts.workPhone,
+          mobilePhone: contacts.mobilePhone,
+          workEmail: contacts.workEmail,
+          personalEmail: contacts.personalEmail,
+        })
+        .from(contacts)
+        .where(and(inArray(contacts.companyId, ids), isNull(contacts.deletedAt))),
+    ]);
+
+    return companyRows.map((company) => {
+      const rowPhones = phones.filter((row) => row.companyId === company.id);
+      const rowEmails = emails.filter((row) => row.companyId === company.id);
+      const rowAddresses = addresses.filter((row) => row.companyId === company.id);
+      const primaryAddress =
+        rowAddresses.find((row) => row.isDefault) ??
+        rowAddresses.find((row) => row.addressType === 'office') ??
+        rowAddresses[0];
+      return {
+        ...company,
+        primaryPhone:
+          rowPhones.find((row) => row.phoneType === 'main')?.phone ??
+          rowPhones.find((row) => row.isDefault)?.phone ??
+          null,
+        secondaryPhone: rowPhones.find((row) => row.phoneType === 'secondary')?.phone ?? null,
+        primaryEmail:
+          rowEmails.find((row) => row.emailType === 'main')?.email ??
+          rowEmails.find((row) => row.isDefault)?.email ??
+          null,
+        secondaryEmail: rowEmails.find((row) => row.emailType === 'secondary')?.email ?? null,
+        province: primaryAddress?.province ?? null,
+        district: primaryAddress?.district ?? null,
+        contacts: contactRows.filter((row) => row.companyId === company.id),
+      };
+    });
+  }
+
+  private matchTrelloCandidate(
+    candidate: TrelloCompanyCandidate,
+    catalog: Awaited<ReturnType<OpportunitiesService['trelloMatchCatalog']>>
+  ): TrelloImportPreviewRow['matches'] {
+    const candidatePhone = normalizeTrelloPhone(candidate.phone);
+    const candidateEmail = candidate.email?.toLocaleLowerCase('en-US') ?? '';
+    return catalog
+      .map((company) => {
+        const match = scoreTrelloCompanyCandidate(candidate, company);
+        if (!match) return null;
+        const contactMatch = company.contacts.find((contact) => {
+          const phones = [contact.workPhone, contact.mobilePhone].map(normalizeTrelloPhone).filter(Boolean);
+          const emails = [contact.workEmail, contact.personalEmail]
+            .map((value) => value?.toLocaleLowerCase('en-US') ?? '')
+            .filter(Boolean);
+          return Boolean(
+            (candidatePhone && phones.includes(candidatePhone)) ||
+              (candidateEmail && emails.includes(candidateEmail))
+          );
+        });
+        return {
+          ...match,
+          ...(contactMatch
+            ? {
+                contactMatch: {
+                  id: contactMatch.id,
+                  fullName: contactMatch.fullName,
+                  reason:
+                    candidateEmail &&
+                    [contactMatch.workEmail, contactMatch.personalEmail]
+                      .map((value) => value?.toLocaleLowerCase('en-US') ?? '')
+                      .includes(candidateEmail)
+                      ? 'E-posta aynı'
+                      : 'Telefon aynı',
+                },
+              }
+            : {}),
+        };
+      })
+      .filter((match): match is NonNullable<typeof match> => Boolean(match))
+      .sort((left, right) => right.score - left.score || left.legalTitle.localeCompare(right.legalTitle, 'tr'))
+      .slice(0, 3);
+  }
+
+  private async createTrelloContact(
+    tx: any,
+    actor: AuthContext,
+    companyId: string,
+    candidate: TrelloCompanyCandidate
+  ): Promise<string | null> {
+    if (!candidate.contactName?.trim()) return null;
+    if (!this.hasPermission(actor, 'contacts.create')) {
+      throw new ForbiddenError('Kontak oluşturmak için contacts.create yetkisi gerekli');
+    }
+    const normalizedPhone = normalizeTrelloPhone(candidate.phone);
+    const normalizedEmail = candidate.email?.toLocaleLowerCase('en-US') ?? '';
+    const existing = await tx
+      .select({
+        id: contacts.id,
+        workPhone: contacts.workPhone,
+        mobilePhone: contacts.mobilePhone,
+        workEmail: contacts.workEmail,
+        personalEmail: contacts.personalEmail,
+      })
+      .from(contacts)
+      .where(
+        and(
+          eq(contacts.tenantId, actor.tenantId),
+          eq(contacts.companyId, companyId),
+          isNull(contacts.deletedAt)
+        )
+      );
+    const duplicate = existing.find((contact: any) => {
+      const phoneMatches =
+        normalizedPhone &&
+        [contact.workPhone, contact.mobilePhone].some(
+          (value) => normalizeTrelloPhone(value) === normalizedPhone
+        );
+      const emailMatches =
+        normalizedEmail &&
+        [contact.workEmail, contact.personalEmail].some(
+          (value) => value?.toLocaleLowerCase('en-US') === normalizedEmail
+        );
+      return phoneMatches || emailMatches;
+    });
+    if (duplicate) return duplicate.id;
+
+    const [created] = await tx
+      .insert(contacts)
+      .values({
+        tenantId: actor.tenantId,
+        companyId,
+        fullName: normalizePersonName(candidate.contactName),
+        mobilePhone: candidate.phone ?? null,
+        workEmail: candidate.email ?? null,
+        isPrimary: true,
+        createdBy: actor.userId,
+        updatedBy: actor.userId,
+      })
+      .returning({ id: contacts.id });
+    await tx
+      .insert(contactCompanies)
+      .values({
+        tenantId: actor.tenantId,
+        contactId: created.id,
+        companyId,
+        isPrimary: true,
+      })
+      .onConflictDoNothing();
+    return created.id;
+  }
+
   private async assertUser(userId: string, actor: AuthContext) {
     const user = await this.db.query.users.findFirst({
       where: and(eq(users.id, userId), eq(users.tenantId, actor.tenantId), isNull(users.deletedAt)),
@@ -103,7 +474,15 @@ export class OpportunitiesService {
     const view = query.view ?? 'active';
     if (view === 'active') filters.push(isNull(opportunities.closedAt));
     else if (view === 'closed') filters.push(isNotNull(opportunities.closedAt));
-    if (query.search) filters.push(ilike(opportunities.title, `%${query.search}%`));
+    if (query.search) {
+      filters.push(
+        or(
+          ilike(opportunities.title, `%${query.search}%`),
+          ilike(opportunities.leadContactName, `%${query.search}%`),
+          ilike(opportunities.leadCompanyTitle, `%${query.search}%`)
+        )!
+      );
+    }
     if (query.companyId) filters.push(eq(opportunities.companyId, query.companyId));
     if (query.stageCode) {
       const stage = await this.stageRowByCode(query.stageCode);
@@ -112,7 +491,7 @@ export class OpportunitiesService {
     const scoped = resourceDivisionFilter(actor, 'opportunities', opportunities.divisionId);
     if (scoped) filters.push(scoped);
     const visibility = await companyVisibilityExistsFilter(this.db, actor, opportunities.companyId);
-    if (visibility) filters.push(visibility);
+    filters.push(allowUnlinkedCompanyRecords(opportunities.companyId, visibility));
     const where = and(...filters);
     const [{ count }] = await this.db
       .select({ count: sql<number>`count(*)::int` })
@@ -124,17 +503,25 @@ export class OpportunitiesService {
         company: { id: companies.id, legalTitle: companies.legalTitle, shortName: companies.shortName },
         stage: { id: pipelineStages.id, code: pipelineStages.code, name: pipelineStages.name },
         currency: { id: currencies.id, code: currencies.code },
+        source: { id: contactSources.id, code: contactSources.code, name: contactSources.name },
       })
       .from(opportunities)
       .leftJoin(companies, eq(opportunities.companyId, companies.id))
       .leftJoin(pipelineStages, eq(opportunities.currentStageId, pipelineStages.id))
       .leftJoin(currencies, eq(opportunities.currencyId, currencies.id))
+      .leftJoin(contactSources, eq(opportunities.sourceId, contactSources.id))
       .where(where)
       .orderBy(desc(opportunities.createdAt))
       .limit(limit)
       .offset(offset);
     return buildPaginated(
-      rows.map((r) => ({ ...r.opp, company: r.company, stage: r.stage, currency: r.currency })),
+      rows.map((r) => ({
+        ...r.opp,
+        company: r.company?.id ? r.company : null,
+        stage: r.stage,
+        currency: r.currency,
+        source: r.source?.id ? r.source : null,
+      })),
       count,
       page
     );
@@ -148,18 +535,20 @@ export class OpportunitiesService {
         company: { id: companies.id, legalTitle: companies.legalTitle, shortName: companies.shortName },
         stage: { id: pipelineStages.id, code: pipelineStages.code, name: pipelineStages.name },
         currency: { id: currencies.id, code: currencies.code },
+        source: { id: contactSources.id, code: contactSources.code, name: contactSources.name },
       })
       .from(opportunities)
       .leftJoin(companies, eq(opportunities.companyId, companies.id))
       .leftJoin(pipelineStages, eq(opportunities.currentStageId, pipelineStages.id))
       .leftJoin(currencies, eq(opportunities.currencyId, currencies.id))
+      .leftJoin(contactSources, eq(opportunities.sourceId, contactSources.id))
       .where(
         and(
           eq(opportunities.id, id),
           eq(opportunities.tenantId, actor.tenantId),
           isNull(opportunities.deletedAt),
           resourceDivisionFilter(actor, 'opportunities', opportunities.divisionId) ?? sql`true`,
-          visibility ?? sql`true`
+          allowUnlinkedCompanyRecords(opportunities.companyId, visibility)
         )
       )
       .limit(1);
@@ -171,12 +560,22 @@ export class OpportunitiesService {
       .from(opportunityStageHistory)
       .where(eq(opportunityStageHistory.opportunityId, id))
       .orderBy(desc(opportunityStageHistory.createdAt));
-    return { ...r.opp, company: r.company, stage: r.stage, currency: r.currency, history };
+    return {
+      ...r.opp,
+      company: r.company?.id ? r.company : null,
+      stage: r.stage,
+      currency: r.currency,
+      source: r.source?.id ? r.source : null,
+      history,
+    };
   }
 
   async create(input: OpportunityCreateInput, actor: AuthContext) {
-    await this.assertCompany(input.companyId, actor);
-    if (input.primaryContactId) await this.assertContact(input.primaryContactId, actor, input.companyId);
+    if (input.companyId) await this.assertCompany(input.companyId, actor);
+    if (input.primaryContactId) {
+      if (!input.companyId) throw new ValidationError('Kontak bağlamak için önce firma seçilmelidir');
+      await this.assertContact(input.primaryContactId, actor, input.companyId);
+    }
     // super_admin olmayan kullanıcılar sadece kendilerine lead açabilir.
     const isSuperAdmin = actor.roles.includes('super_admin');
     if (!isSuperAdmin && input.ownerUserId && input.ownerUserId !== actor.userId) {
@@ -198,11 +597,18 @@ export class OpportunitiesService {
       .values({
         tenantId: actor.tenantId,
         divisionId,
-        companyId: input.companyId,
+        companyId: input.companyId ?? null,
         primaryContactId: input.primaryContactId ?? null,
         ownerUserId: input.ownerUserId ?? actor.userId,
         title: input.title,
         description: input.description ?? null,
+        leadContactName: input.leadContactName?.trim() || null,
+        leadCompanyTitle: input.leadCompanyTitle?.trim() || null,
+        leadContactValue: input.leadContactValue?.trim() || null,
+        leadCity: input.leadCity?.trim() || null,
+        leadPhone: input.leadPhone?.trim() || null,
+        leadEmail: input.leadEmail?.trim() || null,
+        leadTemperature: input.leadTemperature ?? 'unknown',
         currentStageId: leadStage.id,
         estimatedValue: input.estimatedValue?.toString() ?? null,
         currencyId,
@@ -235,14 +641,675 @@ export class OpportunitiesService {
     return this.get(row.id, actor);
   }
 
+  async previewTrelloImport(input: TrelloImportPreviewRequest, actor: AuthContext) {
+    const cleanBase64 = input.fileBase64.includes(',') ? input.fileBase64.split(',').pop() ?? '' : input.fileBase64;
+    if (!/^[A-Za-z0-9+/]*={0,2}$/.test(cleanBase64)) {
+      throw new ValidationError('CSV dosyası geçerli Base64 biçiminde değil');
+    }
+    const buffer = Buffer.from(cleanBase64, 'base64');
+    if (!buffer.length) throw new ValidationError('CSV dosyası okunamadı');
+    if (buffer.length > TRELLO_IMPORT_MAX_BYTES) {
+      throw new ValidationError('Trello CSV dosyası en fazla 2 MB olabilir');
+    }
+
+    const text = buffer.toString('utf8').replace(/^\uFEFF/, '');
+    const firstLine = text.split(/\r?\n/, 1)[0] ?? '';
+    const delimiter: ',' | ';' =
+      (firstLine.match(/;/g)?.length ?? 0) > (firstLine.match(/,/g)?.length ?? 0) ? ';' : ',';
+    const matrix = parseTrelloCsv(text, delimiter);
+    const headerRowIndex = matrix
+      .slice(0, 10)
+      .findIndex((row) => row.some((cell) => TRELLO_HEADER_MAP[normalizeTrelloHeader(cell)] === 'title'));
+    if (headerRowIndex < 0) {
+      throw new ValidationError('CSV içinde "Card Name" / "Kart Adı" kolonu bulunamadı');
+    }
+
+    const headers = matrix[headerRowIndex].map((header) => TRELLO_HEADER_MAP[normalizeTrelloHeader(header)]);
+    const rawRows = matrix.slice(headerRowIndex + 1).filter((row) => row.some((cell) => cleanTrelloCell(cell)));
+    if (!rawRows.length) throw new ValidationError('CSV dosyasında aktarılacak Trello kartı bulunamadı');
+    if (rawRows.length > TRELLO_IMPORT_MAX_ROWS) {
+      throw new ValidationError(`Tek aktarımda en fazla ${TRELLO_IMPORT_MAX_ROWS} Trello kartı yüklenebilir`);
+    }
+
+    const matchCatalog = await this.trelloMatchCatalog(actor);
+    const rows: TrelloImportPreviewRow[] = rawRows.map((rawRow, rawIndex) => {
+      const source: Record<string, string> = {};
+      headers.forEach((field, columnIndex) => {
+        if (field && source[field] === undefined) source[field] = cleanTrelloCell(rawRow[columnIndex]);
+      });
+
+      const warnings: string[] = [];
+      const errors: string[] = [];
+      const rawTitle = source.title ?? '';
+      const rawDescription = source.description ?? '';
+      const rawCardUrl = source.cardUrl ?? '';
+      const cardUrl = safeTrelloUrl(rawCardUrl);
+      const trelloCardId = source.trelloCardId?.slice(0, 128) || undefined;
+      if (!rawTitle) errors.push('Kart adı boş');
+      if (!trelloCardId && !cardUrl) errors.push('Kart kimliği veya bağlantısı yok');
+      if (rawTitle.length > 255) warnings.push('Kart adı 255 karaktere kısaltıldı');
+      if (rawDescription.length > 3200) warnings.push('Açıklama 3200 karaktere kısaltıldı');
+      if (rawCardUrl && !cardUrl) warnings.push('Geçersiz kart bağlantısı yok sayıldı');
+      if (source.dueAt && !parseTrelloDate(source.dueAt)) warnings.push('Geçersiz son tarih yok sayıldı');
+      if (source.trelloCreatedAt && !parseTrelloDate(source.trelloCreatedAt)) {
+        warnings.push('Geçersiz oluşturma tarihi yok sayıldı');
+      }
+
+      const externalReference = (
+        trelloCardId
+          ? `trello:${trelloCardId}`
+          : cardUrl
+            ? `trello:url:${cardUrl}`
+            : `trello:satir:${rawIndex + headerRowIndex + 2}`
+      ).slice(0, 320);
+      const parsed = trelloImportRowSchema.safeParse({
+        rowNumber: rawIndex + headerRowIndex + 2,
+        trelloCardId,
+        externalReference,
+        title: rawTitle.slice(0, 255),
+        description: rawDescription.slice(0, 3200) || undefined,
+        boardName: source.boardName?.slice(0, 255) || undefined,
+        listName: source.listName?.slice(0, 255) || undefined,
+        cardUrl,
+        labels: source.labels?.slice(0, 1000) || undefined,
+        members: source.members?.slice(0, 1000) || undefined,
+        dueAt: parseTrelloDate(source.dueAt ?? ''),
+        trelloCreatedAt: parseTrelloDate(source.trelloCreatedAt ?? ''),
+        archived: parseTrelloBoolean(source.archived ?? ''),
+        stageCode: suggestedStageForTrelloList(source.listName ?? ''),
+      });
+      if (!parsed.success) {
+        errors.push(...parsed.error.issues.map((issue) => issue.message));
+      }
+      const fallback = {
+        rowNumber: rawIndex + headerRowIndex + 2,
+        trelloCardId,
+        externalReference,
+        title: rawTitle.slice(0, 255) || '(Adsız Trello kartı)',
+        description: rawDescription.slice(0, 3200) || undefined,
+        boardName: source.boardName?.slice(0, 255) || undefined,
+        listName: source.listName?.slice(0, 255) || undefined,
+        cardUrl,
+        labels: source.labels?.slice(0, 1000) || undefined,
+        members: source.members?.slice(0, 1000) || undefined,
+        dueAt: parseTrelloDate(source.dueAt ?? ''),
+        trelloCreatedAt: parseTrelloDate(source.trelloCreatedAt ?? ''),
+        archived: parseTrelloBoolean(source.archived ?? ''),
+        stageCode: suggestedStageForTrelloList(source.listName ?? ''),
+      } satisfies TrelloImportRowInput;
+      const row = parsed.success ? parsed.data : fallback;
+      const candidate = extractTrelloCompanyCandidate(row.title, row.description);
+      if (row.archived) warnings.push('Arşivlenmiş Trello kartı');
+      return {
+        ...row,
+        candidate,
+        matches: this.matchTrelloCandidate(candidate, matchCatalog),
+        status: errors.length ? 'error' : 'create',
+        errors: Array.from(new Set(errors)),
+        warnings: Array.from(new Set(warnings)),
+      };
+    });
+
+    const candidateReferences = Array.from(
+      new Set(rows.filter((row) => row.status === 'create').map((row) => row.externalReference))
+    );
+    const legacyReferences = rows
+      .filter((row) => row.status === 'create')
+      .flatMap((row) => [row.cardUrl, row.trelloCardId ? `trello:${row.trelloCardId}` : undefined])
+      .filter((value): value is string => Boolean(value));
+    const existingReferences = candidateReferences.length
+      ? await this.db
+          .select({
+            externalReference: opportunities.externalKey,
+            legacyReference: opportunities.leadContactValue,
+          })
+          .from(opportunities)
+          .where(
+            and(
+              eq(opportunities.tenantId, actor.tenantId),
+              isNull(opportunities.deletedAt),
+              or(
+                inArray(opportunities.externalKey, candidateReferences),
+                legacyReferences.length
+                  ? inArray(opportunities.leadContactValue, legacyReferences)
+                  : sql`false`
+              )
+            )
+          )
+      : [];
+    const duplicates = new Set(
+      existingReferences
+        .flatMap((row) => [row.externalReference, row.legacyReference])
+        .filter((value): value is string => Boolean(value))
+    );
+    const seen = new Set<string>();
+    for (const row of rows) {
+      if (row.status !== 'create') continue;
+      const legacyDuplicate = Boolean(
+        (row.cardUrl && duplicates.has(row.cardUrl)) ||
+          (row.trelloCardId && duplicates.has(`trello:${row.trelloCardId}`))
+      );
+      if (duplicates.has(row.externalReference) || legacyDuplicate || seen.has(row.externalReference)) {
+        row.status = 'skip';
+        row.warnings.push(
+          duplicates.has(row.externalReference) || legacyDuplicate
+            ? 'Bu Trello kartı daha önce aktarıldı'
+            : 'Dosyada aynı kart birden fazla kez var'
+        );
+      }
+      seen.add(row.externalReference);
+    }
+
+    const summary = {
+      total: rows.length,
+      create: rows.filter((row) => row.status === 'create').length,
+      skip: rows.filter((row) => row.status === 'skip').length,
+      error: rows.filter((row) => row.status === 'error').length,
+    };
+    return {
+      fileName: input.fileName,
+      headerRowNumber: headerRowIndex + 1,
+      rows,
+      summary,
+      capabilities: {
+        canCreateCompany: this.hasPermission(actor, 'companies.create'),
+        canUpdateCompany: this.hasPermission(actor, 'companies.update'),
+        canCreateContact: this.hasPermission(actor, 'contacts.create'),
+      },
+    };
+  }
+
+  async commitTrelloImport(input: TrelloImportCommitRequest, actor: AuthContext) {
+    const divisionId = resolveAssignedResourceDivision(actor, 'opportunities', input.divisionId);
+    if (!divisionId) throw new ValidationError('Trello kartları için bölüm seçimi zorunludur', { field: 'divisionId' });
+    const [currencyId, customerRelationId, potentialStatusId] = await Promise.all([
+      lookupIdByCode(this.db, currencies, input.currencyCode),
+      lookupIdByCode(this.db, companyRelationTypes, 'customer'),
+      lookupIdByCode(this.db, companyStatuses, 'potential'),
+    ]);
+    const openStatus = await this.db.query.opportunityStatuses.findFirst({
+      where: eq(opportunityStatuses.code, 'open'),
+    });
+    const candidateReferences = Array.from(new Set(input.rows.map((row) => row.externalReference)));
+    const existingRows = await this.db
+      .select({
+        externalReference: opportunities.externalKey,
+        legacyReference: opportunities.leadContactValue,
+      })
+      .from(opportunities)
+      .where(
+        and(
+          eq(opportunities.tenantId, actor.tenantId),
+          isNull(opportunities.deletedAt),
+          or(
+            inArray(opportunities.externalKey, candidateReferences),
+            inArray(opportunities.leadContactValue, candidateReferences)
+          )
+        )
+      );
+    const seen = new Set(
+      existingRows
+        .flatMap((row) => [row.externalReference, row.legacyReference])
+        .filter((value): value is string => Boolean(value))
+    );
+    const stageCache = new Map<PipelineStageCode, Awaited<ReturnType<OpportunitiesService['stageRowByCode']>>>();
+    const results: Array<{
+      rowNumber: number;
+      trelloCardId?: string;
+      title: string;
+      status: TrelloImportStatus;
+      opportunityId?: string;
+      errors: string[];
+    }> = [];
+
+    for (const candidate of input.rows) {
+      const parsed = trelloResolvedImportRowSchema.safeParse(candidate);
+      if (!parsed.success) {
+        results.push({
+          rowNumber: candidate.rowNumber,
+          trelloCardId: candidate.trelloCardId,
+          title: candidate.title,
+          status: 'error',
+          errors: parsed.error.issues.map((issue) => issue.message),
+        });
+        continue;
+      }
+      const row = parsed.data;
+      if (row.resolution.action === 'skip') {
+        await this.audit.write({
+          tenantId: actor.tenantId,
+          actorUserId: actor.userId,
+          action: 'opportunity.trello_import_skipped',
+          resourceType: 'trello_import',
+          newValues: {
+            externalKey: row.externalReference,
+            trelloCardId: row.trelloCardId ?? null,
+            trelloCardUrl: row.cardUrl ?? null,
+            candidate: row.candidate,
+            decision: 'skip',
+          },
+        });
+        results.push({
+          rowNumber: row.rowNumber,
+          trelloCardId: row.trelloCardId,
+          title: row.title,
+          status: 'skip',
+          errors: [],
+        });
+        continue;
+      }
+      const resolution = row.resolution;
+      if (seen.has(row.externalReference)) {
+        results.push({
+          rowNumber: row.rowNumber,
+          trelloCardId: row.trelloCardId,
+          title: row.title,
+          status: 'skip',
+          errors: [],
+        });
+        continue;
+      }
+
+      try {
+        let selectedCompany: typeof companies.$inferSelect | null = null;
+        let stage = stageCache.get(row.stageCode);
+        if (!stage) {
+          stage = await this.stageRowByCode(row.stageCode);
+          stageCache.set(row.stageCode, stage);
+        }
+        if (resolution.action === 'existing') {
+          selectedCompany = await this.assertCompany(resolution.companyId, actor);
+          if (resolution.primaryContactId) {
+            await this.assertContact(resolution.primaryContactId, actor, resolution.companyId);
+          }
+          if (
+            (resolution.addSecondaryPhone || resolution.addSecondaryEmail) &&
+            !this.hasPermission(actor, 'companies.update')
+          ) {
+            throw new ForbiddenError('Firma iletişim bilgisini güncellemek için companies.update yetkisi gerekli');
+          }
+        } else if (!this.hasPermission(actor, 'companies.create')) {
+          throw new ForbiddenError('Yeni firma oluşturmak için companies.create yetkisi gerekli');
+        }
+
+        let createdCompanyId: string | null = null;
+        let addedSecondaryPhone = false;
+        let addedSecondaryEmail = false;
+        let acceptedPhoneAction: 'filled_primary' | 'added_secondary' | null = null;
+        let acceptedEmailAction: 'filled_primary' | 'added_secondary' | null = null;
+        let phoneDifference = false;
+        let emailDifference = false;
+        let locationDifference = false;
+        let existingPhones: string[] = [];
+        let existingEmails: string[] = [];
+        let existingLocations: Array<{ province: string | null; district: string | null }> = [];
+        const created = await this.db.transaction(async (tx) => {
+          let companyId: string;
+          let primaryContactId =
+            resolution.action === 'existing' ? resolution.primaryContactId ?? null : null;
+
+          if (resolution.action === 'create') {
+            const [company] = await tx
+              .insert(companies)
+              .values({
+                tenantId: actor.tenantId,
+                companyType: 'company',
+                relationTypeId: customerRelationId,
+                customerStatusId: potentialStatusId,
+                legalTitle: normalizeCompanyName(row.candidate.companyTitle),
+                website: row.candidate.website ?? null,
+                taxNumber: row.candidate.taxNumber ?? null,
+                notes: 'Trello CSV aktarımından Potansiyel firma olarak oluşturuldu.',
+                createdBy: actor.userId,
+                updatedBy: actor.userId,
+              })
+              .returning({ id: companies.id });
+            companyId = company.id;
+            createdCompanyId = company.id;
+            await tx.insert(companyDivisions).values({
+              tenantId: actor.tenantId,
+              companyId,
+              divisionId,
+              addedByUserId: actor.userId,
+            });
+            if (row.candidate.phone) {
+              await tx.insert(companyPhones).values({
+                tenantId: actor.tenantId,
+                companyId,
+                phoneType: 'main',
+                phone: row.candidate.phone,
+                isDefault: true,
+              });
+            }
+            if (row.candidate.email) {
+              await tx.insert(companyEmails).values({
+                tenantId: actor.tenantId,
+                companyId,
+                emailType: 'main',
+                email: row.candidate.email,
+                isDefault: true,
+              });
+            }
+            if (row.candidate.province || row.candidate.district) {
+              await tx.insert(companyAddresses).values({
+                tenantId: actor.tenantId,
+                companyId,
+                addressType: 'office',
+                country: 'Türkiye',
+                province: row.candidate.province ?? null,
+                district: row.candidate.district ?? null,
+                fullAddress: row.candidate.locationHint ?? null,
+                isDefault: true,
+                isShipping: false,
+                isBilling: false,
+              });
+            }
+            if (resolution.createContact) {
+              primaryContactId = await this.createTrelloContact(tx, actor, companyId, row.candidate);
+            }
+          } else {
+            companyId = resolution.companyId;
+            if (row.candidate.phone) {
+              const storedPhones = await tx
+                .select({ phone: companyPhones.phone })
+                .from(companyPhones)
+                .where(
+                  and(
+                    eq(companyPhones.companyId, companyId),
+                    isNull(companyPhones.deletedAt)
+                  )
+                );
+              existingPhones = storedPhones.map((item: any) => item.phone).filter(Boolean);
+              const normalized = normalizeTrelloPhone(row.candidate.phone);
+              phoneDifference = !storedPhones.some(
+                (item: any) => normalizeTrelloPhone(item.phone) === normalized
+              );
+              if (resolution.addSecondaryPhone && phoneDifference) {
+                const fillPrimary = storedPhones.length === 0;
+                await tx.insert(companyPhones).values({
+                  tenantId: actor.tenantId,
+                  companyId,
+                  phoneType: fillPrimary ? 'main' : 'secondary',
+                  phone: row.candidate.phone,
+                  isDefault: fillPrimary,
+                });
+                acceptedPhoneAction = fillPrimary ? 'filled_primary' : 'added_secondary';
+                addedSecondaryPhone = !fillPrimary;
+              }
+            }
+            if (row.candidate.email) {
+              const storedEmails = await tx
+                .select({ email: companyEmails.email })
+                .from(companyEmails)
+                .where(
+                  and(
+                    eq(companyEmails.companyId, companyId),
+                    isNull(companyEmails.deletedAt)
+                  )
+                );
+              existingEmails = storedEmails.map((item: any) => item.email).filter(Boolean);
+              emailDifference = !storedEmails.some(
+                (item: any) =>
+                  item.email.toLocaleLowerCase('en-US') ===
+                  row.candidate.email?.toLocaleLowerCase('en-US')
+              );
+              if (resolution.addSecondaryEmail && emailDifference) {
+                const fillPrimary = storedEmails.length === 0;
+                await tx.insert(companyEmails).values({
+                  tenantId: actor.tenantId,
+                  companyId,
+                  emailType: fillPrimary ? 'main' : 'secondary',
+                  email: row.candidate.email,
+                  isDefault: fillPrimary,
+                });
+                acceptedEmailAction = fillPrimary ? 'filled_primary' : 'added_secondary';
+                addedSecondaryEmail = !fillPrimary;
+              }
+            }
+            if (row.candidate.province || row.candidate.district) {
+              existingLocations = await tx
+                .select({
+                  province: companyAddresses.province,
+                  district: companyAddresses.district,
+                })
+                .from(companyAddresses)
+                .where(
+                  and(
+                    eq(companyAddresses.companyId, companyId),
+                    isNull(companyAddresses.deletedAt)
+                  )
+                );
+              locationDifference = !existingLocations.some((address) => {
+                const provinceMatches =
+                  !row.candidate.province ||
+                  normalizeTrelloMatchText(address.province) ===
+                    normalizeTrelloMatchText(row.candidate.province);
+                const districtMatches =
+                  !row.candidate.district ||
+                  normalizeTrelloMatchText(address.district) ===
+                    normalizeTrelloMatchText(row.candidate.district);
+                return provinceMatches && districtMatches;
+              });
+            }
+            if (!primaryContactId && resolution.createContact) {
+              primaryContactId = await this.createTrelloContact(tx, actor, companyId, row.candidate);
+            }
+          }
+
+          const [opportunity] = await tx
+            .insert(opportunities)
+            .values({
+              tenantId: actor.tenantId,
+              divisionId,
+              companyId,
+              primaryContactId,
+              ownerUserId: actor.userId,
+              title: row.title,
+              description: row.description?.trim() || null,
+              leadContactName: null,
+              leadCompanyTitle: null,
+              leadContactValue: null,
+              externalSource: 'trello',
+              externalKey: row.externalReference,
+              externalUrl: row.cardUrl ?? null,
+              externalMetadata: {
+                boardName: row.boardName ?? null,
+                listName: row.listName ?? null,
+                labels: row.labels ?? null,
+                members: row.members ?? null,
+                trelloCardId: row.trelloCardId ?? null,
+                candidate: row.candidate,
+                resolution: resolution.action,
+              },
+              currentStageId: stage.id,
+              currencyId,
+              probability: 50,
+              expectedCloseDate: row.dueAt ? new Date(row.dueAt) : null,
+              statusId: openStatus?.id ?? null,
+              createdBy: actor.userId,
+              updatedBy: actor.userId,
+              ...(row.trelloCreatedAt ? { createdAt: new Date(row.trelloCreatedAt) } : {}),
+            })
+            .returning();
+          await tx.insert(opportunityStageHistory).values({
+            tenantId: actor.tenantId,
+            opportunityId: opportunity.id,
+            fromStageId: null,
+            toStageId: stage.id,
+            changedBy: actor.userId,
+            changeReason: row.listName
+              ? `Trello CSV aktarımı · Liste: ${row.listName}`
+              : 'Trello CSV aktarımı',
+          });
+          return opportunity;
+        });
+
+        if (createdCompanyId) {
+          await this.audit.write({
+            tenantId: actor.tenantId,
+            actorUserId: actor.userId,
+            action: 'company.created',
+            resourceType: 'company',
+            resourceId: createdCompanyId,
+            newValues: {
+              legalTitle: row.candidate.companyTitle,
+              customerStatusCode: 'potential',
+              source: 'trello',
+            },
+          });
+        }
+        if (acceptedPhoneAction || acceptedEmailAction) {
+          await this.audit.write({
+            tenantId: actor.tenantId,
+            actorUserId: actor.userId,
+            action: 'company.trello_contact_data_accepted',
+            resourceType: 'company',
+            resourceId:
+              resolution.action === 'existing'
+                ? resolution.companyId
+                : createdCompanyId,
+            newValues: {
+              phoneAction: acceptedPhoneAction,
+              emailAction: acceptedEmailAction,
+              addedSecondaryPhone,
+              addedSecondaryEmail,
+              trelloCardId: row.trelloCardId,
+            },
+          });
+        }
+        if (resolution.action === 'existing' && selectedCompany) {
+          const titleDifference =
+            normalizeTrelloMatchText(selectedCompany.legalTitle) !==
+            normalizeTrelloMatchText(row.candidate.companyTitle);
+          const differences: Record<string, unknown> = {};
+          if (titleDifference) {
+            differences.title = {
+              crm: selectedCompany.legalTitle,
+              trello: row.candidate.companyTitle,
+              decision: 'crm_preserved',
+            };
+          }
+          if (phoneDifference) {
+            differences.phone = {
+              crm: existingPhones,
+              trello: row.candidate.phone,
+              decision: acceptedPhoneAction ?? 'rejected',
+            };
+          }
+          if (emailDifference) {
+            differences.email = {
+              crm: existingEmails,
+              trello: row.candidate.email,
+              decision: acceptedEmailAction ?? 'rejected',
+            };
+          }
+          if (locationDifference) {
+            differences.location = {
+              crm: existingLocations,
+              trello: {
+                province: row.candidate.province ?? null,
+                district: row.candidate.district ?? null,
+              },
+              decision: 'crm_preserved',
+            };
+          }
+          if (row.candidate.contactName) {
+            differences.contact = {
+              trello: row.candidate.contactName,
+              decision: resolution.primaryContactId
+                ? 'linked_existing'
+                : resolution.createContact
+                  ? 'create_or_reuse_approved'
+                  : 'rejected',
+              contactId: created.primaryContactId ?? null,
+            };
+          }
+          if (Object.keys(differences).length) {
+            await this.audit.write({
+              tenantId: actor.tenantId,
+              actorUserId: actor.userId,
+              action: 'company.trello_differences_resolved',
+              resourceType: 'company',
+              resourceId: resolution.companyId,
+              oldValues: { crmMasterRecord: true },
+              newValues: {
+                externalKey: row.externalReference,
+                trelloCardId: row.trelloCardId ?? null,
+                differences,
+              },
+            });
+          }
+        }
+        await this.audit.write({
+          tenantId: actor.tenantId,
+          actorUserId: actor.userId,
+          action: 'opportunity.trello_imported',
+          resourceType: 'opportunity',
+          resourceId: created.id,
+          newValues: {
+            title: created.title,
+            trelloCardId: row.trelloCardId,
+            trelloCardUrl: row.cardUrl,
+            trelloBoard: row.boardName,
+            trelloList: row.listName,
+            candidate: row.candidate,
+            companyResolution: resolution,
+          },
+        });
+        seen.add(row.externalReference);
+        results.push({
+          rowNumber: row.rowNumber,
+          trelloCardId: row.trelloCardId,
+          title: row.title,
+          status: 'create',
+          opportunityId: created.id,
+          errors: [],
+        });
+      } catch (error: any) {
+        const isDuplicate = (error?.code ?? error?.cause?.code) === '23505';
+        results.push({
+          rowNumber: row.rowNumber,
+          trelloCardId: row.trelloCardId,
+          title: row.title,
+          status: isDuplicate ? 'skip' : 'error',
+          errors: isDuplicate
+            ? []
+            : [
+                error instanceof ValidationError ||
+                error instanceof ForbiddenError ||
+                error instanceof NotFoundError
+                  ? error.message
+                  : 'Satış kartı oluşturulamadı',
+              ],
+        });
+      }
+    }
+
+    return {
+      rows: results,
+      summary: {
+        total: results.length,
+        create: results.filter((row) => row.status === 'create').length,
+        skip: results.filter((row) => row.status === 'skip').length,
+        error: results.filter((row) => row.status === 'error').length,
+      },
+    };
+  }
+
   async update(id: string, input: OpportunityUpdateInput, actor: AuthContext) {
     const existing = await this.get(id, actor);
-    const companyId = input.companyId ?? existing.companyId;
-    if (input.companyId !== undefined) await this.assertCompany(input.companyId, actor);
+    if (input.companyId === null && existing.companyId) {
+      throw new ValidationError('Satış kartına bağlanan firma kaldırılamaz; gerekirse başka bir firma bağlayın');
+    }
+    const companyId = input.companyId !== undefined ? input.companyId : existing.companyId;
+    if (input.companyId) await this.assertCompany(input.companyId, actor);
     if (input.primaryContactId !== undefined) {
-      if (input.primaryContactId) await this.assertContact(input.primaryContactId, actor, companyId);
+      if (input.primaryContactId) {
+        if (!companyId) throw new ValidationError('Kontak bağlamak için önce firma seçilmelidir');
+        await this.assertContact(input.primaryContactId, actor, companyId);
+      }
     } else if (input.companyId !== undefined && existing.primaryContactId) {
-      await this.assertContact(existing.primaryContactId, actor, companyId);
+      if (companyId) await this.assertContact(existing.primaryContactId, actor, companyId);
     }
     const isSuperAdmin = actor.roles.includes('super_admin');
     if (input.ownerUserId !== undefined && !isSuperAdmin) {
@@ -253,10 +1320,112 @@ export class OpportunitiesService {
     if (input.currencyCode !== undefined) patch.currencyId = await lookupIdByCode(this.db, currencies, input.currencyCode);
     if (input.sourceCode !== undefined) patch.sourceId = await lookupIdByCode(this.db, contactSources, input.sourceCode);
     if (input.estimatedValue !== undefined) patch.estimatedValue = input.estimatedValue?.toString() ?? null;
-    for (const k of ['companyId', 'primaryContactId', 'ownerUserId', 'title', 'description', 'probability', 'expectedCloseDate', 'paymentTermDays', 'paymentMethod', 'wonReason'] as const) {
+    for (const k of [
+      'companyId',
+      'primaryContactId',
+      'ownerUserId',
+      'title',
+      'description',
+      'leadContactName',
+      'leadCompanyTitle',
+      'leadContactValue',
+      'leadCity',
+      'leadPhone',
+      'leadEmail',
+      'leadTemperature',
+      'probability',
+      'expectedCloseDate',
+      'paymentTermDays',
+      'paymentMethod',
+      'wonReason',
+    ] as const) {
       if ((input as any)[k] !== undefined) patch[k] = (input as any)[k] ?? null;
     }
+    if (input.companyId === null && input.primaryContactId === undefined) patch.primaryContactId = null;
     await this.db.update(opportunities).set(patch).where(eq(opportunities.id, id));
+    return this.get(id, actor);
+  }
+
+  async linkCompany(
+    id: string,
+    input: OpportunityCompanyLinkInput,
+    actor: AuthContext
+  ) {
+    const existing = await this.findScopedOpp(id, actor);
+    await this.assertCompany(input.companyId, actor);
+
+    let primaryContactId =
+      existing.companyId === input.companyId ? existing.primaryContactId : null;
+    if (
+      !primaryContactId &&
+      input.createContact &&
+      actor.permissions.has('contacts.create') &&
+      existing.leadContactName?.trim()
+    ) {
+      const source = existing.sourceId
+        ? await this.db.query.contactSources.findFirst({
+            where: eq(contactSources.id, existing.sourceId),
+          })
+        : null;
+      const contactValue = existing.leadContactValue?.trim() ?? '';
+      // Hızlı lead artık telefon/e-postayı ayrı kolonlarda tutar; eski kayıtlarda
+      // tek alanda geldiği için irtibat şekline bakarak ayrıştırılır.
+      const isEmail = source?.code === 'email' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contactValue);
+      const isPhone = source?.code === 'phone' && contactValue.length > 0 && contactValue.length <= 32;
+      const phone = existing.leadPhone?.trim() || (isPhone ? contactValue : '');
+      const email = existing.leadEmail?.trim() || (isEmail ? contactValue : '');
+      const contact = await this.contactsService.create(
+        {
+          companyId: input.companyId,
+          fullName: existing.leadContactName,
+          mobilePhone: phone || undefined,
+          workEmail: email || undefined,
+          notes: [
+            'Hızlı lead satış kartından firma kaydına aktarıldı.',
+            contactValue && contactValue !== phone && contactValue !== email
+              ? `İrtibat bilgisi${source?.name ? ` (${source.name})` : ''}: ${contactValue}`
+              : null,
+            existing.leadCity?.trim() ? `Şehir: ${existing.leadCity.trim()}` : null,
+          ]
+            .filter(Boolean)
+            .join('\n'),
+          isPrimary: true,
+          isBlacklisted: false,
+        },
+        actor
+      );
+      primaryContactId = contact.id;
+    }
+
+    await this.db
+      .update(opportunities)
+      .set({
+        companyId: input.companyId,
+        primaryContactId,
+        updatedBy: actor.userId,
+        updatedAt: new Date(),
+      })
+      .where(eq(opportunities.id, id));
+    // Firma oluşturulmadan önce karta eklenen aktiviteleri de yeni firmaya bağla.
+    await this.db
+      .update(salesActivities)
+      .set({ companyId: input.companyId, updatedAt: new Date() })
+      .where(
+        and(
+          eq(salesActivities.opportunityId, id),
+          eq(salesActivities.tenantId, actor.tenantId),
+          isNull(salesActivities.companyId)
+        )
+      );
+    await this.audit.write({
+      tenantId: actor.tenantId,
+      actorUserId: actor.userId,
+      action: 'opportunity.company_linked',
+      resourceType: 'opportunity',
+      resourceId: id,
+      oldValues: { companyId: existing.companyId },
+      newValues: { companyId: input.companyId, primaryContactId },
+    });
     return this.get(id, actor);
   }
 
@@ -274,7 +1443,7 @@ export class OpportunitiesService {
         eq(opportunities.tenantId, actor.tenantId),
         isNull(opportunities.deletedAt),
         resourceDivisionFilter(actor, 'opportunities', opportunities.divisionId) ?? sql`true`,
-        visibility ?? sql`true`
+        allowUnlinkedCompanyRecords(opportunities.companyId, visibility)
       ),
     });
     if (!opp) throw new NotFoundError('Fırsat');
@@ -359,6 +1528,13 @@ export class OpportunitiesService {
     if (!fromStage) throw new ValidationError('Mevcut aşama bulunamadı');
 
     const toStage = await this.stageRowByCode(input.toStage);
+
+    if (input.toStage === 'quote' && !opp.companyId) {
+      throw new ValidationError(
+        'Teklif aşamasına geçmeden önce firma kaydı oluşturup satış kartına bağlayın',
+        { field: 'companyId' }
+      );
+    }
 
     if (!PIPELINE_STAGES.includes(input.toStage)) {
       throw new ValidationError(`Bilinmeyen aşama: ${input.toStage}`);
@@ -515,10 +1691,13 @@ export class OpportunitiesService {
   }
 
   private async resolveStockPickingItemIds(
-    opp: { id: string; companyId: string; divisionId: string | null },
+    opp: { id: string; companyId: string | null; divisionId: string | null },
     actor: AuthContext,
     inventoryItemIds?: string[],
   ) {
+    if (!opp.companyId) {
+      throw new ValidationError('Stok seçimi için önce firma satış kartına bağlanmalıdır');
+    }
     const explicitIds = [...new Set(inventoryItemIds ?? [])];
     if (explicitIds.length) return explicitIds;
 
@@ -576,10 +1755,13 @@ export class OpportunitiesService {
    * kayıt oluşmaz.
    */
   private async ensureWarrantyDevices(
-    opp: { id: string; companyId: string; divisionId: string | null },
+    opp: { id: string; companyId: string | null; divisionId: string | null },
     actor: AuthContext,
     inventoryItemIds?: string[],
   ) {
+    if (!opp.companyId) {
+      throw new ValidationError('Kurulum için önce firma satış kartına bağlanmalıdır');
+    }
     const reservedStatus = await this.db.query.inventoryStatuses.findFirst({ where: eq(inventoryStatuses.code, 'reserved') });
     const soldStatus = await this.db.query.inventoryStatuses.findFirst({ where: eq(inventoryStatuses.code, 'sold') });
     const activeWarranty = await this.db.query.warrantyStatuses.findFirst({ where: eq(warrantyStatuses.code, 'active') });
@@ -677,9 +1859,12 @@ export class OpportunitiesService {
    * zaten kurulum kaydı varsa yenisini oluşturmaz.
    */
   private async ensureInstallationJob(
-    opp: { id: string; companyId: string; divisionId: string | null; primaryContactId?: string | null; ownerUserId?: string | null },
+    opp: { id: string; companyId: string | null; divisionId: string | null; primaryContactId?: string | null; ownerUserId?: string | null },
     actor: AuthContext,
   ) {
+    if (!opp.companyId) {
+      throw new ValidationError('Kurulum için önce firma satış kartına bağlanmalıdır');
+    }
     const existing = await this.db
       .select({ id: installationJobs.id })
       .from(installationJobs)

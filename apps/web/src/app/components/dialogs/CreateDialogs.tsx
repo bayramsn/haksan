@@ -14,6 +14,12 @@ import { MultiSelect } from "../ui/multi-select";
 import { Checkbox } from "../ui/checkbox";
 import { useStore } from "../../lib/store";
 import { usePersistentState } from "../../lib/persist";
+import {
+  normalizeAddressRoles,
+  toggleAddressRole,
+  type AddressRoleKey,
+  type AddressRoleState,
+} from "../../lib/addressRoles";
 import { SALES_STAGES, salesStageLabel, SHIPMENT_STATUSES, DELIVERY_STATUSES, type ShipmentStatus, type DeliveryStatus, type Delivery, type Customer, type Contact, type FirmType, type Machine, type Product, type ProductSpec, type ServiceTicketType, type StockItem } from "../../lib/mock";
 
 const SERVICE_TICKET_TYPE_OPTIONS: { value: ServiceTicketType; label: string }[] = [
@@ -29,6 +35,31 @@ const contactBelongsToCustomer = (contact: Contact, customerId: string) =>
   Boolean(customerId && contactCompanyIds(contact).includes(customerId));
 const machineCustomerId = (machine?: Machine | null) =>
   machine?.customerId || machine?.userCompanyId || "";
+
+/**
+ * React state'i ikinci tıklamadan önce render edilmese bile aynı formun iki kez
+ * çalışmasını engeller. `locked` buton geri bildirimi, ref ise eşzamanlı
+ * güvenlik kilidi için kullanılır.
+ */
+function useSubmissionLock() {
+  const inFlightRef = useRef(false);
+  const [locked, setLocked] = useState(false);
+
+  return {
+    locked,
+    begin() {
+      if (inFlightRef.current) return false;
+      inFlightRef.current = true;
+      setLocked(true);
+      return true;
+    },
+    end() {
+      inFlightRef.current = false;
+      setLocked(false);
+    },
+  };
+}
+
 const preferredServiceContact = (items: Contact[], customerId: string) => {
   const matches = items.filter((contact) => contactBelongsToCustomer(contact, customerId));
   return matches.find((contact) => contact.isPrimary && contact.customerId === customerId) ??
@@ -68,6 +99,7 @@ import {
   specsForProductTypeStrict,
 } from "../../lib/productSpecTemplates";
 import { QuoteDialog } from "./QuoteDialog";
+import { ProductSpecGroupManagerDialog } from "./ProductSpecGroupManagerDialog";
 import { ProductSpecsTable } from "../shared/ProductSpecsTable";
 import { OsmCompanySearch } from "../company/OsmCompanySearch";
 import { CompanyWebsiteLookup } from "../company/CompanyWebsiteLookup";
@@ -263,32 +295,6 @@ const ADDRESS_TYPE_OPTIONS = [
   { value: "other", label: "Diğer" },
 ] as const;
 
-type AddressRoleKey = "isDefault" | "isShipping" | "isBilling";
-type AddressRoleState = {
-  addressType?: string;
-  isDefault?: boolean;
-  isShipping?: boolean;
-  isBilling?: boolean;
-};
-
-const normalizeAddressRoles = <T extends AddressRoleState>(addresses: T[]) => {
-  if (!addresses.length) return addresses;
-  const defaultIndex = Math.max(0, addresses.findIndex((address) => address.isDefault));
-  const shippingRoleIndex = addresses.findIndex((address) => address.isShipping);
-  const billingRoleIndex = addresses.findIndex((address) => address.isBilling);
-  const shippingTypeIndex = addresses.findIndex((address) => address.addressType === "shipping");
-  const billingTypeIndex = addresses.findIndex((address) => address.addressType === "billing");
-  const shippingIndex = shippingRoleIndex >= 0 ? shippingRoleIndex : shippingTypeIndex >= 0 ? shippingTypeIndex : defaultIndex;
-  const billingIndex = billingRoleIndex >= 0 ? billingRoleIndex : billingTypeIndex >= 0 ? billingTypeIndex : defaultIndex;
-
-  return addresses.map((address, index) => ({
-    ...address,
-    isDefault: index === defaultIndex,
-    isShipping: index === shippingIndex,
-    isBilling: index === billingIndex,
-  }));
-};
-
 function AddressRoleSelector({
   address,
   onSelect,
@@ -385,15 +391,28 @@ const emptyCompanyForm = () => ({
   contactSourceCode: "email",
 });
 
-export function CreateCustomerDialog({ trigger, onCreated }: { trigger: React.ReactNode; onCreated?: (id: string) => void }) {
+type CompanyFormDraft = ReturnType<typeof emptyCompanyForm>;
+
+export function CreateCustomerDialog({
+  trigger,
+  onCreated,
+  initialValues,
+  draftKey = "draft.customer",
+}: {
+  trigger: React.ReactNode;
+  onCreated?: (id: string) => void | Promise<void>;
+  initialValues?: Partial<CompanyFormDraft>;
+  draftKey?: string;
+}) {
   const { addCustomer } = useStore();
   const { user, activeDivision } = useAuth();
   const [open, setOpen] = useState(false);
+  const submission = useSubmissionLock();
   // Taslaklar yenilemede korunur; başarılı kayıtta temizlenir.
-  const [type, setType] = usePersistentState<"company" | "person">("draft.customer.type", "company");
-  const [firmType, setFirmType] = usePersistentState<FirmType>("draft.customer.firmType", "customer");
-  const [salesStatus, setSalesStatus] = usePersistentState<"potential" | "active_customer">("draft.customer.salesStatus", "potential");
-  const [form, setForm] = usePersistentState("draft.customer.form", emptyCompanyForm());
+  const [type, setType] = usePersistentState<"company" | "person">(`${draftKey}.type`, "company");
+  const [firmType, setFirmType] = usePersistentState<FirmType>(`${draftKey}.firmType`, "customer");
+  const [salesStatus, setSalesStatus] = usePersistentState<"potential" | "active_customer">(`${draftKey}.salesStatus`, "potential");
+  const [form, setForm] = usePersistentState(`${draftKey}.form`, emptyCompanyForm());
 
   const selectedCountry = form.country || "Türkiye";
   const provinceOptions = useMemo(() => toComboboxOptions(provincesForCountry(selectedCountry)), [selectedCountry]);
@@ -416,27 +435,28 @@ export function CreateCustomerDialog({ trigger, onCreated }: { trigger: React.Re
   };
 
   const selectCreateAddressRole = (role: AddressRoleKey, additionalIndex: number | null) => {
-    setForm((current) => ({
-      ...current,
-      [role]: additionalIndex === null,
-      additionalAddresses: (current.additionalAddresses ?? []).map((address, index) => ({
-        ...address,
-        [role]: index === additionalIndex,
-      })),
-    }));
+    setForm((current) => {
+      const currentlySelected = additionalIndex === null
+        ? Boolean(current[role])
+        : Boolean(current.additionalAddresses?.[additionalIndex]?.[role]);
+      const shouldSelect = !currentlySelected;
+
+      return {
+        ...current,
+        [role]: shouldSelect && additionalIndex === null,
+        additionalAddresses: (current.additionalAddresses ?? []).map((address, index) => ({
+          ...address,
+          [role]: shouldSelect && index === additionalIndex,
+        })),
+      };
+    });
   };
 
   const removeAdditionalAddress = (removeIndex: number) => {
-    setForm((current) => {
-      const removed = current.additionalAddresses?.[removeIndex];
-      return {
-        ...current,
-        isDefault: current.isDefault || Boolean(removed?.isDefault),
-        isShipping: current.isShipping || Boolean(removed?.isShipping),
-        isBilling: current.isBilling || Boolean(removed?.isBilling),
-        additionalAddresses: (current.additionalAddresses ?? []).filter((_, index) => index !== removeIndex),
-      };
-    });
+    setForm((current) => ({
+      ...current,
+      additionalAddresses: (current.additionalAddresses ?? []).filter((_, index) => index !== removeIndex),
+    }));
   };
 
   const submit = async (e: React.FormEvent) => {
@@ -449,6 +469,7 @@ export function CreateCustomerDialog({ trigger, onCreated }: { trigger: React.Re
       toast.error("Tedarikçi türü seçiniz", { description: "Nakliye veya Lojistik seçimi zorunludur." });
       return;
     }
+    if (!submission.begin()) return;
     try {
       const {
         latitude: latitudeRaw,
@@ -462,7 +483,7 @@ export function CreateCustomerDialog({ trigger, onCreated }: { trigger: React.Re
       } = form;
       const latitude = latitudeRaw ? Number(latitudeRaw) : undefined;
       const longitude = longitudeRaw ? Number(longitudeRaw) : undefined;
-      const addresses = [
+      const addresses = normalizeAddressRoles([
         {
           addressType,
           country: form.country || "Türkiye",
@@ -476,7 +497,7 @@ export function CreateCustomerDialog({ trigger, onCreated }: { trigger: React.Re
           isBilling,
         },
         ...(additionalAddresses ?? []),
-      ].filter((item) => item.address || item.city || item.district);
+      ].filter((item) => item.address || item.city || item.district));
       const c = await addCustomer({
         ...companyForm,
         type,
@@ -495,16 +516,26 @@ export function CreateCustomerDialog({ trigger, onCreated }: { trigger: React.Re
         companyGroupName: companyGroupRows.find((g) => g.code === form.companyGroupCodes?.[0])?.name ?? "",
       });
       toast.success("Firma oluşturuldu", { description: c.name });
+      await onCreated?.(c.id);
       reset();
       setOpen(false);
-      onCreated?.(c.id);
     } catch (err: any) {
       toast.error("Firma oluşturulamadı", { description: err?.message ?? "API isteği başarısız oldu." });
+    } finally {
+      submission.end();
     }
   };
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        if (next && initialValues) {
+          setForm((current) => current.name.trim() ? current : { ...current, ...initialValues });
+        }
+        setOpen(next);
+      }}
+    >
       <DialogTrigger asChild>{trigger}</DialogTrigger>
       <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
@@ -694,14 +725,15 @@ export function CreateCustomerDialog({ trigger, onCreated }: { trigger: React.Re
                 address={form.address}
                 city={form.city}
                 district={form.district}
+                country={form.country}
                 onSelect={(result) => {
-                  setForm({
-                    ...form,
+                  setForm((current) => ({
+                    ...current,
                     latitude: String(result.latitude),
                     longitude: String(result.longitude),
                     osmDisplayName: result.displayName,
-                    address: form.address.trim() ? form.address : result.displayName,
-                  });
+                    address: current.address.trim() ? current.address : result.displayName,
+                  }));
                   toast.success("Konum seçildi", { description: `${result.latitude.toFixed(5)}, ${result.longitude.toFixed(5)}` });
                 }}
               />
@@ -782,8 +814,11 @@ export function CreateCustomerDialog({ trigger, onCreated }: { trigger: React.Re
           </div>
 
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => setOpen(false)}>Vazgeç</Button>
-            <Button type="submit">Firmayı Oluştur</Button>
+            <Button type="button" variant="outline" onClick={() => setOpen(false)} disabled={submission.locked}>Vazgeç</Button>
+            <Button type="submit" disabled={submission.locked} aria-busy={submission.locked}>
+              {submission.locked && <Loader2 className="size-4 animate-spin" />}
+              {submission.locked ? "Oluşturuluyor..." : "Firmayı Oluştur"}
+            </Button>
           </DialogFooter>
         </form>
       </DialogContent>
@@ -828,6 +863,7 @@ export function CreateContactDialog({
 }) {
   const { customers, addContact, addCustomer } = useStore();
   const [open, setOpen] = useState(false);
+  const submission = useSubmissionLock();
   // Taslak yenilemede korunur; açılışta sıfırlanmaz, yalnızca başarılı kayıtta temizlenir.
   const [form, setForm] = usePersistentState("draft.contact.form", emptyContactForm(defaultCustomerId));
 
@@ -838,6 +874,7 @@ export function CreateContactDialog({
     if (!form.customerId) return toast.error("Firma seçiniz");
     if (!form.name.trim()) return toast.error("Adı soyadı zorunludur");
 
+    if (!submission.begin()) return;
     try {
       const contact = await addContact({
         customerId: form.customerId,
@@ -869,6 +906,8 @@ export function CreateContactDialog({
       onCreated?.(contact.id);
     } catch (err: any) {
       toast.error("Kontak oluşturulamadı", { description: err?.message ?? "API isteği başarısız oldu." });
+    } finally {
+      submission.end();
     }
   };
 
@@ -1000,8 +1039,11 @@ export function CreateContactDialog({
           </div>
 
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => setOpen(false)}>Vazgeç</Button>
-            <Button type="submit">Kontak Oluştur</Button>
+            <Button type="button" variant="outline" onClick={() => setOpen(false)} disabled={submission.locked}>Vazgeç</Button>
+            <Button type="submit" disabled={submission.locked} aria-busy={submission.locked}>
+              {submission.locked && <Loader2 className="size-4 animate-spin" />}
+              {submission.locked ? "Oluşturuluyor..." : "Kontak Oluştur"}
+            </Button>
           </DialogFooter>
         </form>
       </DialogContent>
@@ -1062,10 +1104,7 @@ export function EditCustomerDialog({ customer, onClose }: { customer: Customer |
   const selectEditAddressRole = (role: AddressRoleKey, selectedIndex: number) => {
     setForm((current: any) => ({
       ...current,
-      addresses: (current.addresses ?? []).map((address: any, index: number) => ({
-        ...address,
-        [role]: index === selectedIndex,
-      })),
+      addresses: toggleAddressRole(current.addresses ?? [], role, selectedIndex),
     }));
   };
 
@@ -2132,6 +2171,7 @@ export function AddActivityDialog({
   });
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
   const activityFileRef = useRef<HTMLInputElement>(null);
+  const submission = useSubmissionLock();
 
   const reset = () => {
     setForm({
@@ -2188,6 +2228,7 @@ export function AddActivityDialog({
       toast.error("Başlık zorunludur");
       return;
     }
+    if (!submission.begin()) return;
     try {
       const created = await addActivity({
         salesCaseId,
@@ -2205,6 +2246,8 @@ export function AddActivityDialog({
       setOpen(false);
     } catch (err: any) {
       toast.error("Aktivite eklenemedi", { description: err?.message ?? "API isteği başarısız oldu." });
+    } finally {
+      submission.end();
     }
   };
 
@@ -2275,8 +2318,11 @@ export function AddActivityDialog({
             </Select>
           </div>
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => setOpen(false)}>İptal</Button>
-            <Button type="submit">Ekle</Button>
+            <Button type="button" variant="outline" onClick={() => setOpen(false)} disabled={submission.locked}>İptal</Button>
+            <Button type="submit" disabled={submission.locked} aria-busy={submission.locked}>
+              {submission.locked && <Loader2 className="size-4 animate-spin" />}
+              {submission.locked ? "Ekleniyor..." : "Ekle"}
+            </Button>
           </DialogFooter>
         </form>
       </DialogContent>
@@ -2725,10 +2771,14 @@ export function ProductDialog({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploadingImage, setUploadingImage] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [specGroupNameOverrides, setSpecGroupNameOverrides] = useState<Record<string, string>>({});
   const productGroupRows = useLookupRows("product-groups", [], true);
   const productCategoryRows = useLookupRows("product-categories", fallbackLookupRows(PRODUCT_CATEGORIES), true);
   const productSubcategoryRows = useLookupRows("product-subcategories", [], true);
   const productTypeRows = useLookupRows("product-types", [], true);
+  useEffect(() => {
+    setSpecGroupNameOverrides({});
+  }, [selectedProductDivisionId]);
   // Ürün grubu = bölüm (CNC / Üniversal / Sac İşleme); "Diğer" gibi bölüm dışı
   // gruplar seçilemez — ürün hangi bölüme eklendiyse onun altında görünür.
   const DIVISION_GROUP_CODES = useMemo(() => new Set(PRODUCT_GROUPS.map((g) => g.code)), []);
@@ -3577,6 +3627,16 @@ export function ProductDialog({
                         <span>Etiket ve birim sabittir; sadece değer girilir.</span>
                       </div>
                       <div className="flex flex-wrap justify-end gap-1.5">
+                        <ProductSpecGroupManagerDialog
+                          divisionId={selectedProductDivisionId}
+                          productTypeCode={form.productTypeCode}
+                          productTypeLabel={selectedProductTypeLabel}
+                          onGroupsChange={(groups) =>
+                            setSpecGroupNameOverrides(
+                              Object.fromEntries(groups.map((group) => [group.code, group.name]))
+                            )
+                          }
+                        />
                         <Button
                           type="button"
                           variant="outline"
@@ -3597,7 +3657,7 @@ export function ProductDialog({
                           <div key={group.code} className="grid grid-cols-[48px_minmax(0,1fr)] overflow-hidden rounded-md border border-border/60 bg-white">
                             <div className="flex items-center justify-center border-r border-border/60 bg-muted/50 px-1 py-2">
                               <div className="rotate-180 text-center text-[10px] font-semibold uppercase tracking-[0.16em] text-foreground/80 [writing-mode:vertical-rl]">
-                                {group.label}
+                                {specGroupNameOverrides[group.code] ?? group.label}
                               </div>
                             </div>
                             <div className="min-w-0 divide-y divide-dotted divide-foreground/30">
@@ -4189,6 +4249,7 @@ export function CreateShipmentDialog({ trigger, onCreated }: { trigger: React.Re
       .filter(Boolean)
       .join(" · ");
   const [open, setOpen] = useState(false);
+  const submission = useSubmissionLock();
   const [warehouses, setWarehouses] = useState<Array<{ id: string; name: string }>>([]);
   const [senderCompanies, setSenderCompanies] = useState<Array<{ id: string; legalTitle: string; shortName?: string | null }>>([]);
   const [carrierCompanies, setCarrierCompanies] = useState<Array<{ id: string; legalTitle: string; shortName?: string | null; supplierCategoryCode?: "transportation" | "logistics" | null }>>([]);
@@ -4324,6 +4385,7 @@ export function CreateShipmentDialog({ trigger, onCreated }: { trigger: React.Re
     if (!form.items.length || form.items.some((line) => !line.productModelId && !line.description.trim())) {
       return toast.error("Ürün satırlarını tamamlayınız");
     }
+    if (!submission.begin()) return;
     try {
       const carrier = carrierCompanies.find((c) => c.id === form.carrierCompanyId);
       const destinationWarehouse = warehouses.find((w) => w.id === form.destinationWarehouseId);
@@ -4367,6 +4429,8 @@ export function CreateShipmentDialog({ trigger, onCreated }: { trigger: React.Re
       onCreated?.();
     } catch (err: any) {
       toast.error("Sevkiyat oluşturulamadı", { description: err?.message ?? "API isteği başarısız oldu." });
+    } finally {
+      submission.end();
     }
   };
 
@@ -4641,8 +4705,11 @@ export function CreateShipmentDialog({ trigger, onCreated }: { trigger: React.Re
             })}
           </div>
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => setOpen(false)}>Vazgeç</Button>
-            <Button type="submit">Sevkiyatı Kaydet</Button>
+            <Button type="button" variant="outline" onClick={() => setOpen(false)} disabled={submission.locked}>Vazgeç</Button>
+            <Button type="submit" disabled={submission.locked} aria-busy={submission.locked}>
+              {submission.locked && <Loader2 className="size-4 animate-spin" />}
+              {submission.locked ? "Kaydediliyor..." : "Sevkiyatı Kaydet"}
+            </Button>
           </DialogFooter>
         </form>
       </DialogContent>
@@ -5797,6 +5864,7 @@ export function CreateInstallationDialog({
 }) {
   const { customers, contacts, users, machines, deliveries } = useStore();
   const [open, setOpen] = useState(false);
+  const submission = useSubmissionLock();
   const emptyForm = () => {
     const companyId = customers[0]?.id ?? "";
     const initialMachineId = machines.find((m) => m.customerId === companyId || m.userCompanyId === companyId)?.id;
@@ -5834,6 +5902,7 @@ export function CreateInstallationDialog({
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!form.companyId) return toast.error("Firma seçiniz");
+    if (!submission.begin()) return;
     try {
       const deviceIds: Array<string | undefined> = form.customerDeviceIds.length ? form.customerDeviceIds : [undefined];
       await Promise.all(deviceIds.map((customerDeviceId) => {
@@ -5860,6 +5929,8 @@ export function CreateInstallationDialog({
       onCreated?.();
     } catch (err: any) {
       toast.error("Kurulum oluşturulamadı", { description: err?.message ?? "API isteği başarısız oldu." });
+    } finally {
+      submission.end();
     }
   };
 
@@ -5975,8 +6046,11 @@ export function CreateInstallationDialog({
           </div>
 
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => setOpen(false)}>Vazgeç</Button>
-            <Button type="submit">Kurulumu Oluştur</Button>
+            <Button type="button" variant="outline" onClick={() => setOpen(false)} disabled={submission.locked}>Vazgeç</Button>
+            <Button type="submit" disabled={submission.locked} aria-busy={submission.locked}>
+              {submission.locked && <Loader2 className="size-4 animate-spin" />}
+              {submission.locked ? "Oluşturuluyor..." : "Kurulumu Oluştur"}
+            </Button>
           </DialogFooter>
         </form>
       </DialogContent>
@@ -5986,6 +6060,7 @@ export function CreateInstallationDialog({
 
 export function CreateMachineDialog({ children }: { children: React.ReactNode }) {
   const [open, setOpen] = useState(false);
+  const submission = useSubmissionLock();
   const { customers, stock, machines, products, addMachine } = useStore();
   const [form, setForm] = useState({
     customerId: "",
@@ -6087,6 +6162,7 @@ export function CreateMachineDialog({ children }: { children: React.ReactNode })
       toast.error("Lütfen gerekli alanları doldurun.");
       return;
     }
+    if (!submission.begin()) return;
     try {
       await addMachine({
         ...form,
@@ -6097,6 +6173,8 @@ export function CreateMachineDialog({ children }: { children: React.ReactNode })
       resetForm();
     } catch (err) {
       toast.error("Makine eklenirken hata oluştu.");
+    } finally {
+      submission.end();
     }
   };
 
@@ -6189,8 +6267,11 @@ export function CreateMachineDialog({ children }: { children: React.ReactNode })
             );
           })()}
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => setOpen(false)}>Vazgeç</Button>
-            <Button type="submit">Kaydet</Button>
+            <Button type="button" variant="outline" onClick={() => setOpen(false)} disabled={submission.locked}>Vazgeç</Button>
+            <Button type="submit" disabled={submission.locked} aria-busy={submission.locked}>
+              {submission.locked && <Loader2 className="size-4 animate-spin" />}
+              {submission.locked ? "Kaydediliyor..." : "Kaydet"}
+            </Button>
           </DialogFooter>
         </form>
       </DialogContent>

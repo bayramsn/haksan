@@ -12,6 +12,8 @@ interface MoreMenuItem {
   label: string;
   icon: IonIcon;
   adminBadge?: boolean;
+  /** Modül dışı özel rota (ör. /scan). Verilirse /modules/<key> yerine buna gidilir. */
+  route?: string;
 }
 
 interface MoreMenuSection {
@@ -46,6 +48,7 @@ const MORE_MENU_SECTIONS: MoreMenuSection[] = [
     items: [
       { key: 'service-requests', label: 'Servis Talepleri', icon: 'medkit-outline' },
       { key: 'machines', label: 'Makineler', icon: 'hardware-chip-outline' },
+      { key: 'scan', label: 'QR / Barkod Tara', icon: 'scan-outline', route: '/scan' },
       { key: 'service-kanban', label: 'Servis Kanban', icon: 'albums-outline' },
     ],
   },
@@ -113,7 +116,7 @@ export function MoreTabScreen() {
                 <View key={item.key}>
                   <TouchableOpacity
                     style={styles.menuRow}
-                    onPress={() => router.push(`/modules/${item.key}` as any)}
+                    onPress={() => router.push((item.route ?? `/modules/${item.key}`) as any)}
                     activeOpacity={0.7}
                   >
                     <Ionicons name={item.icon} size={22} color="#4b5563" style={styles.menuIcon} />

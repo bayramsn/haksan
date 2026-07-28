@@ -8,7 +8,16 @@ import { purchaseOrderItems, purchaseOrders, salesOrderItems, salesOrders } from
 import { shipments, shipmentItems } from '../../db/schema/service';
 import { quoteItems, quotes } from '../../db/schema/quotes';
 import { productModels } from '../../db/schema/products';
-import { currencies, inventoryStatuses, productGroups, purchaseOrderStatuses, salesOrderStatuses, shipmentStatuses, units } from '../../db/schema/lookup';
+import {
+  companyStatuses,
+  currencies,
+  inventoryStatuses,
+  productGroups,
+  purchaseOrderStatuses,
+  salesOrderStatuses,
+  shipmentStatuses,
+  units,
+} from '../../db/schema/lookup';
 import { DB } from '../../shared/database/database.module';
 import { AuditService } from '../../shared/database/audit.service';
 import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from '../../shared/utils/errors';
@@ -306,6 +315,44 @@ export class OrdersService {
         createdBy: actor.userId,
       })
       .returning();
+    const [potentialStatusId, activeStatusId] = await Promise.all([
+      lookupIdByCode(this.db, companyStatuses, 'potential'),
+      lookupIdByCode(this.db, companyStatuses, 'active'),
+    ]);
+    const promoted =
+      potentialStatusId && activeStatusId
+        ? await this.db
+            .update(companies)
+            .set({
+              customerStatusId: activeStatusId,
+              updatedBy: actor.userId,
+              updatedAt: new Date(),
+            })
+            .where(
+              and(
+                eq(companies.id, input.companyId),
+                eq(companies.tenantId, actor.tenantId),
+                eq(companies.customerStatusId, potentialStatusId),
+                isNull(companies.deletedAt)
+              )
+            )
+            .returning({ id: companies.id })
+        : [];
+    if (promoted.length) {
+      await this.audit.write({
+        tenantId: actor.tenantId,
+        actorUserId: actor.userId,
+        action: 'company.status_auto_promoted',
+        resourceType: 'company',
+        resourceId: input.companyId,
+        oldValues: { customerStatusCode: 'potential' },
+        newValues: {
+          customerStatusCode: 'active',
+          reason: 'first_sales_order',
+          salesOrderId: row.id,
+        },
+      });
+    }
     await this.audit.write({
       tenantId: actor.tenantId,
       actorUserId: actor.userId,

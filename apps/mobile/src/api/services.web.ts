@@ -255,6 +255,8 @@ export const notificationService = {
       pageSize: params?.pageSize,
     })}`),
   markRead: (id: string) => api.patch<NotificationDTO>(`/notifications/${id}/read`, {}),
+  registerPushToken: (token: string, platform: 'expo' | 'ios' | 'android' = 'expo') =>
+    api.post<{ ok: boolean }>('/notifications/push-token', { token, platform }),
 };
 
 export const callAssistantService = {

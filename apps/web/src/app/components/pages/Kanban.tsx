@@ -8,10 +8,16 @@ import {
   salesStageLabel,
   DocumentItem,
   OPPORTUNITY_PAYMENT_METHOD_LABELS,
+  LEAD_TEMPERATURE_HINTS,
+  LEAD_TEMPERATURE_LABELS,
+  LEAD_TEMPERATURE_ORDER,
+  LEAD_TEMPERATURE_STYLES,
+  type LeadTemperature,
   type Machine,
   type OpportunityPaymentMethod,
 } from "../../lib/mock";
-import { ArrowRight, Building2, Calendar, CheckCircle2, FileSignature, FileText, MapPin, Printer } from "lucide-react";
+import { ArrowRight, Building2, Calendar, CheckCircle2, FileSignature, FileText, MapPin, Printer, UserRound, Wrench } from "lucide-react";
+import type { OperationAction } from "../../lib/operations";
 import { KanbanBoard, KanbanColumn } from "../KanbanBoard";
 import { KanbanCardAttachments } from "../KanbanCardAttachments";
 import { DocumentPreviewDialog } from "../dialogs/DocumentPreviewDialog";
@@ -76,8 +82,20 @@ export const STAGE_DOT: Record<string, string> = {
 
 const initials = (n: string) => (n || "—").split(" ").slice(0, 2).map((p) => p[0]).join("").toUpperCase();
 
-export function KanbanPage({ onSelect, items }: { onSelect: (s: SalesCase) => void; items?: SalesCase[] }) {
-  const { cases: storeCases, moveCase, updateCase, closeCase, customers, users, documents, offers, machines, stock, deliveries } = useStore();
+// Alım niyeti satışın erken adımlarında takip edilir; teklif sonrası kartın
+// durumu zaten aşamadan okunur.
+const TEMPERATURE_STAGES: SalesStage[] = ["lead", "call", "visit"];
+
+export function KanbanPage({
+  onSelect,
+  items,
+  onAction,
+}: {
+  onSelect: (s: SalesCase) => void;
+  items?: SalesCase[];
+  onAction?: (action: OperationAction) => void;
+}) {
+  const { cases: storeCases, moveCase, updateCase, closeCase, customers, users, documents, offers, machines, stock, deliveries, addService } = useStore();
   const cases = items ?? storeCases;
   const [lostId, setLostId] = useState<string | null>(null);
   const [previewDoc, setPreviewDoc] = useState<DocumentItem | null>(null);
@@ -88,7 +106,12 @@ export function KanbanPage({ onSelect, items }: { onSelect: (s: SalesCase) => vo
   const [closingCaseId, setClosingCaseId] = useState<string | null>(null);
   const [pendingCloseCase, setPendingCloseCase] = useState<SalesCase | null>(null);
   const [paymentMethodSavingId, setPaymentMethodSavingId] = useState<string | null>(null);
-  const lostCustomer = lostId ? customers.find((x) => x.id === cases.find((s) => s.id === lostId)?.customerId)?.name : undefined;
+  const [temperatureSavingId, setTemperatureSavingId] = useState<string | null>(null);
+  const [serviceQuoteCaseId, setServiceQuoteCaseId] = useState<string | null>(null);
+  const lostCase = lostId ? cases.find((s) => s.id === lostId) : undefined;
+  const lostCustomer = lostCase
+    ? customers.find((x) => x.id === lostCase.customerId)?.name ?? lostCase.leadCompanyTitle ?? lostCase.leadContactName
+    : undefined;
   const stockPickCase = stockPickCaseId ? storeCases.find((s) => s.id === stockPickCaseId) ?? cases.find((s) => s.id === stockPickCaseId) : null;
   const stockPickCustomer = stockPickCase ? customers.find((x) => x.id === stockPickCase.customerId) : undefined;
   const stockPickTargetQty = Math.max(1, Number(stockPickCase?.quantity) || 1);
@@ -234,6 +257,14 @@ export function KanbanPage({ onSelect, items }: { onSelect: (s: SalesCase) => vo
     }
     const sc = storeCases.find((s) => s.id === id);
 
+    if (to === "quote" && sc && !sc.customerId) {
+      toast.error("Tekliften önce firma kaydı gerekli", {
+        description: "Kartı açıp mevcut bir firmayı bağlayın veya yeni firma oluşturun.",
+      });
+      onSelect(sc);
+      return;
+    }
+
     if (to === "stock_picking") {
       if (from !== "customs_approved") {
         toast.error("Stok seçimine geçmek için kart önce Gümrük Onayı aşamasında olmalı");
@@ -314,6 +345,56 @@ export function KanbanPage({ onSelect, items }: { onSelect: (s: SalesCase) => vo
     }
   };
 
+  // Satış kartından servis teklifi: karta bağlı firma/makine ile bir servis
+  // kaydı açılır ve kullanıcı doğrudan teklif formuna götürülür.
+  const openServiceQuote = async (sc: SalesCase) => {
+    if (!sc.customerId) {
+      toast.error("Servis teklifi için firma kaydı gerekli", {
+        description: "Kartı açıp mevcut bir firmayı bağlayın veya yeni firma oluşturun.",
+      });
+      onSelect(sc);
+      return;
+    }
+    if (serviceQuoteCaseId) return;
+    setServiceQuoteCaseId(sc.id);
+    try {
+      const machine = localMachineForCase(sc);
+      const created = await addService({
+        machineId: machine?.id ?? "",
+        customerId: sc.customerId,
+        assignedUserId: sc.assignedUserId ?? "",
+        diagnosisNote: "",
+        quoteRequired: true,
+        serviceNote: `Satış kartından açıldı: ${[sc.requestedProduct, sc.requestedModel].filter(Boolean).join(" · ") || sc.id}`,
+        issueType: "Servis teklifi",
+        ticketType: "request",
+        source: "manual",
+        stage: "Quote Needed",
+      } as any);
+      toast.success("Servis kaydı açıldı", { description: "Servis teklifi formu açılıyor." });
+      onAction?.({ kind: "navigate", nav: "service-requests", query: `ticket:${created.id}:quote` });
+    } catch (err: any) {
+      toast.error("Servis teklifi açılamadı", { description: err?.message ?? "Servis kaydı oluşturulamadı." });
+    } finally {
+      setServiceQuoteCaseId(null);
+    }
+  };
+
+  const setLeadTemperature = async (salesCase: SalesCase, leadTemperature: LeadTemperature) => {
+    if (temperatureSavingId) return;
+    setTemperatureSavingId(salesCase.id);
+    try {
+      await updateCase(salesCase.id, { leadTemperature });
+      toast.success("Lead sıcaklığı güncellendi", {
+        description: `${LEAD_TEMPERATURE_LABELS[leadTemperature]} · ${LEAD_TEMPERATURE_HINTS[leadTemperature]}`,
+      });
+    } catch (err: any) {
+      toast.error("Lead sıcaklığı kaydedilemedi", { description: err?.message ?? "API isteği başarısız oldu." });
+    } finally {
+      setTemperatureSavingId(null);
+    }
+  };
+
   const columns: KanbanColumn<SalesCase>[] = SALES_STAGES.map((stage) => {
     const items = cases.filter((s) => s.stage === stage);
     const total = items.reduce((a, s) => a + s.estimatedAmount, 0);
@@ -340,7 +421,7 @@ export function KanbanPage({ onSelect, items }: { onSelect: (s: SalesCase) => vo
         <AlertDialogHeader>
           <AlertDialogTitle>Satış kartı tamamlansın mı?</AlertDialogTitle>
           <AlertDialogDescription>
-            <b>{pendingCloseCase ? customers.find((item) => item.id === pendingCloseCase.customerId)?.name ?? "Firma bulunamadı" : "Seçili kart"}</b> kartı silinmeden Geçmiş görünümüne taşınacak. Bağlı belgeler ve aktiviteler korunur.
+            <b>{pendingCloseCase ? customers.find((item) => item.id === pendingCloseCase.customerId)?.name ?? pendingCloseCase.leadCompanyTitle ?? pendingCloseCase.leadContactName ?? "Firma kaydı bekleyen lead" : "Seçili kart"}</b> kartı silinmeden Geçmiş görünümüne taşınacak. Bağlı belgeler ve aktiviteler korunur.
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
@@ -460,16 +541,24 @@ export function KanbanPage({ onSelect, items }: { onSelect: (s: SalesCase) => vo
     <KanbanBoard<SalesCase>
       columns={columns}
       fit={false}
+      storageKey="sales"
       columnWidth={typeof window !== 'undefined' && window.innerWidth < 640 ? 240 : 292}
       onMove={(id, from, to) => moveToStage(id, from as SalesStage, to as SalesStage)}
       renderCard={(s) => {
         const c = customers.find((x) => x.id === s.customerId);
+        const partyName = c?.name || s.leadCompanyTitle || s.leadContactName || "Firma kaydı bekliyor";
         const u = users.find((x) => x.id === s.assignedUserId);
         const caseDocs = documents.filter((d) => d.salesCaseId === s.id);
         const latestOffer = latestOfferForCase(s);
         const hasProforma = caseDocs.some((d) => d.type === "Proforma");
         const hasContract = caseDocs.some((d) => d.type === "Contract");
         const stopCardClick = (event: MouseEvent) => event.stopPropagation();
+        const temperature: LeadTemperature = s.leadTemperature ?? "unknown";
+        const temperatureStyle = LEAD_TEMPERATURE_STYLES[temperature];
+        const locationText = [c?.district, c?.city].filter(Boolean).join(" / ") || s.leadCity || "";
+        const contactLine = [s.leadContactMethodName, s.leadPhone, s.leadEmail]
+          .filter(Boolean)
+          .join(" · ") || [s.leadContactMethodName, s.leadContactValue].filter(Boolean).join(" · ");
         return (
           <Card
             data-testid={`sales-kanban-card-${s.id}`}
@@ -483,17 +572,26 @@ export function KanbanPage({ onSelect, items }: { onSelect: (s: SalesCase) => vo
             </div>
             <div className="flex items-start gap-2">
               <div className="size-8 rounded-md bg-gradient-to-br from-primary/15 to-primary/5 text-primary grid place-items-center text-[10px] shrink-0">
-                {c?.type !== "person" ? <Building2 className="size-3.5" /> : initials(c.name)}
+                {c ? (c.type !== "person" ? <Building2 className="size-3.5" /> : initials(c.name)) : <UserRound className="size-3.5" />}
               </div>
               <div className="min-w-0 flex-1">
-                <div className="text-[13px] font-medium leading-tight truncate group-hover:text-primary transition-colors">{c?.name ?? "Firma bulunamadı"}</div>
-                {(c?.city || c?.district) && (
+                <div className="flex min-w-0 items-center gap-1.5">
+                  <div className="truncate text-[13px] font-medium leading-tight transition-colors group-hover:text-primary">{partyName}</div>
+                  {!c && <span className="shrink-0 rounded bg-warning-soft px-1 py-0.5 text-[9px] text-warning">Lead</span>}
+                </div>
+                {s.leadContactName && s.leadContactName !== partyName && (
+                  <div className="mt-0.5 truncate text-[11px] text-muted-foreground">{s.leadContactName}</div>
+                )}
+                {locationText && (
                   <div className="mt-0.5 flex items-center gap-1 text-[11px] text-muted-foreground">
                     <MapPin className="size-3 shrink-0" />
-                    <span className="truncate">{[c?.district, c?.city].filter(Boolean).join(" / ")}</span>
+                    <span className="truncate">{locationText}</span>
                   </div>
                 )}
                 <div className="text-[11px] text-muted-foreground line-clamp-2 break-words mt-0.5">{s.requestedProduct}</div>
+                {contactLine && (
+                  <div className="mt-0.5 truncate text-[10px] text-muted-foreground">{contactLine}</div>
+                )}
               </div>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
@@ -532,31 +630,69 @@ export function KanbanPage({ onSelect, items }: { onSelect: (s: SalesCase) => vo
               {s.isOfferPrepared && (
                 <span className="inline-flex px-1.5 py-0.5 rounded text-[10px] bg-success-soft text-success">Teklif</span>
               )}
+              <span
+                className={`inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-medium ${temperatureStyle.badge}`}
+                title={`Alım niyeti: ${LEAD_TEMPERATURE_HINTS[temperature]}`}
+              >
+                <span className={`size-1.5 rounded-full ${temperatureStyle.dot}`} />
+                {LEAD_TEMPERATURE_LABELS[temperature]}
+              </span>
             </div>
 
-            {s.stage === "lead" && (
+            {TEMPERATURE_STAGES.includes(s.stage) && (
               <div
-                className="mt-2.5 rounded-md border border-border/60 bg-muted/30 p-2"
+                className="mt-2.5 space-y-2 rounded-md border border-border/60 bg-muted/30 p-2"
                 onClick={stopCardClick}
                 onMouseDown={stopCardClick}
               >
-                <Label className="mb-1.5 block text-[10px] uppercase tracking-wide text-muted-foreground">
-                  Ödeme şekli
-                </Label>
-                <Select
-                  value={s.paymentMethod ?? "undecided"}
-                  disabled={paymentMethodSavingId === s.id}
-                  onValueChange={(value) => void setPaymentMethod(s, value as OpportunityPaymentMethod)}
-                >
-                  <SelectTrigger className="h-8 bg-white text-xs">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {(Object.entries(OPPORTUNITY_PAYMENT_METHOD_LABELS) as Array<[OpportunityPaymentMethod, string]>).map(([code, label]) => (
-                      <SelectItem key={code} value={code}>{label}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <div>
+                  <Label className="mb-1.5 block text-[10px] uppercase tracking-wide text-muted-foreground">
+                    Alım niyeti
+                  </Label>
+                  <div className="grid grid-cols-3 gap-1">
+                    {LEAD_TEMPERATURE_ORDER.filter((code) => code !== "unknown").map((code) => {
+                      const active = temperature === code;
+                      const style = LEAD_TEMPERATURE_STYLES[code];
+                      return (
+                        <button
+                          key={code}
+                          type="button"
+                          disabled={temperatureSavingId === s.id}
+                          title={LEAD_TEMPERATURE_HINTS[code]}
+                          aria-pressed={active}
+                          className={`flex h-7 items-center justify-center gap-1 rounded-md border text-[10px] font-medium transition-colors disabled:opacity-60 ${
+                            active ? `${style.badge} border-transparent` : "border-border/60 bg-white text-muted-foreground hover:bg-muted"
+                          }`}
+                          onClick={() => void setLeadTemperature(s, active ? "unknown" : code)}
+                        >
+                          <span className={`size-1.5 rounded-full ${active ? style.dot : "bg-muted-foreground/40"}`} />
+                          {LEAD_TEMPERATURE_LABELS[code]}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+                {s.stage === "lead" && (
+                  <div>
+                    <Label className="mb-1.5 block text-[10px] uppercase tracking-wide text-muted-foreground">
+                      Ödeme şekli
+                    </Label>
+                    <Select
+                      value={s.paymentMethod ?? "undecided"}
+                      disabled={paymentMethodSavingId === s.id}
+                      onValueChange={(value) => void setPaymentMethod(s, value as OpportunityPaymentMethod)}
+                    >
+                      <SelectTrigger className="h-8 bg-white text-xs">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {(Object.entries(OPPORTUNITY_PAYMENT_METHOD_LABELS) as Array<[OpportunityPaymentMethod, string]>).map(([code, label]) => (
+                          <SelectItem key={code} value={code}>{label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
               </div>
             )}
 
@@ -655,6 +791,21 @@ export function KanbanPage({ onSelect, items }: { onSelect: (s: SalesCase) => vo
                   <FileText className="size-3" /> Fatura
                 </Button>
               )}
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-7 gap-1 rounded-md px-2 text-[10px] font-medium"
+                title="Servis kaydı açıp servis teklifi formunu doldur"
+                disabled={serviceQuoteCaseId === s.id}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  void openServiceQuote(s);
+                }}
+                onMouseDown={stopCardClick}
+              >
+                <Wrench className="size-3" /> {serviceQuoteCaseId === s.id ? "Açılıyor…" : "Servis Teklifi"}
+              </Button>
               {(s.stage === "installation" || s.stage === "delivered") && (
                 <Button
                   type="button"

@@ -8,6 +8,7 @@ describe('Company profile', () => {
   let token: string;
   let divisionId: string;
   let companyId: string | undefined;
+  let contactId: string | undefined;
 
   beforeAll(async () => {
     app = await createTestApp();
@@ -26,6 +27,11 @@ describe('Company profile', () => {
   });
 
   afterAll(async () => {
+    if (contactId) {
+      await request(app.getHttpServer())
+        .delete(`/api/v1/contacts/${contactId}`)
+        .set('Authorization', `Bearer ${token}`);
+    }
     if (companyId) {
       await request(app.getHttpServer())
         .delete(`/api/v1/companies/${companyId}`)
@@ -34,7 +40,7 @@ describe('Company profile', () => {
     await app.close();
   });
 
-  it('persists multiple groups and addresses while supplier status remains editable', async () => {
+  it('persists company details, uppercases its name and allows the competitor type', async () => {
     const groupsResponse = await request(app.getHttpServer())
       .get('/api/v1/lookups/company-groups')
       .set('Authorization', `Bearer ${token}`)
@@ -45,7 +51,8 @@ describe('Company profile', () => {
       .map((group: { code: string }) => group.code);
     expect(groupCodes).toHaveLength(2);
 
-    const uniqueTitle = `Profil Test ${Date.now()}`;
+    const uniqueTitle = `ışık profil test ${Date.now()}`;
+    const normalizedTitle = uniqueTitle.toLocaleUpperCase('tr-TR');
     const created = await request(app.getHttpServer())
       .post('/api/v1/companies')
       .set('Authorization', `Bearer ${token}`)
@@ -63,6 +70,8 @@ describe('Company profile', () => {
             district: 'Ataşehir',
             fullAddress: 'Örnek Ofis Adresi No: 1',
             isDefault: true,
+            isShipping: true,
+            isBilling: false,
           },
           {
             addressType: 'factory',
@@ -71,6 +80,8 @@ describe('Company profile', () => {
             district: 'Gebze',
             fullAddress: 'Örnek Fabrika Adresi No: 2',
             isDefault: false,
+            isShipping: false,
+            isBilling: true,
           },
         ],
       })
@@ -81,7 +92,7 @@ describe('Company profile', () => {
     const findCompany = async () => {
       const response = await request(app.getHttpServer())
         .get('/api/v1/companies')
-        .query({ search: uniqueTitle, divisionId, pageSize: 20 })
+        .query({ search: normalizedTitle, divisionId, pageSize: 20 })
         .set('Authorization', `Bearer ${token}`)
         .expect(200);
 
@@ -89,17 +100,21 @@ describe('Company profile', () => {
     };
 
     const firstVersion = await findCompany();
+    expect(firstVersion.legalTitle).toBe(normalizedTitle);
     expect(firstVersion.relationType.code).toBe('supplier');
     expect(firstVersion.customerStatus.code).toBe('active');
     expect(firstVersion.companyGroups.map((group: { code: string }) => group.code).sort()).toEqual(
       [...groupCodes].sort(),
     );
     expect(firstVersion.addresses).toHaveLength(2);
+    expect(firstVersion.addresses.find((address: { isShipping: boolean }) => address.isShipping).district).toBe('Ataşehir');
+    expect(firstVersion.addresses.find((address: { isBilling: boolean }) => address.isBilling).district).toBe('Gebze');
 
     await request(app.getHttpServer())
       .patch(`/api/v1/companies/${companyId}`)
       .set('Authorization', `Bearer ${token}`)
       .send({
+        relationTypeCode: 'competitor',
         customerStatusCode: 'potential',
         companyGroupCodes: [groupCodes[0]],
         addresses: firstVersion.addresses.map(
@@ -111,31 +126,175 @@ describe('Company profile', () => {
             district: string;
             fullAddress: string;
             isDefault: boolean;
+            isShipping: boolean;
+            isBilling: boolean;
           }) => ({
             id: address.id,
             addressType: address.addressType,
             country: address.country || 'Türkiye',
             province: address.province || undefined,
             district: address.district || undefined,
-            fullAddress: address.isDefault ? 'Güncellenmiş Ofis Adresi No: 3' : address.fullAddress,
-            isDefault: address.isDefault,
+            fullAddress: address.district === 'Gebze' ? 'Güncellenmiş Fabrika Adresi No: 3' : address.fullAddress,
+            isDefault: address.district === 'Gebze',
+            isShipping: address.district === 'Gebze',
+            isBilling: address.district === 'Ataşehir',
           }),
         ),
       })
       .expect(200);
 
     const updatedVersion = await findCompany();
+    expect(updatedVersion.relationType.code).toBe('competitor');
     expect(updatedVersion.customerStatus.code).toBe('potential');
     expect(updatedVersion.companyGroups.map((group: { code: string }) => group.code)).toEqual([
       groupCodes[0],
     ]);
     expect(updatedVersion.addresses).toHaveLength(2);
     expect(updatedVersion.addresses.find((address: { isDefault: boolean }) => address.isDefault).fullAddress)
-      .toBe('Güncellenmiş Ofis Adresi No: 3');
+      .toBe('Güncellenmiş Fabrika Adresi No: 3');
+    expect(updatedVersion.addresses.find((address: { isShipping: boolean }) => address.isShipping).district).toBe('Gebze');
+    expect(updatedVersion.addresses.find((address: { isBilling: boolean }) => address.isBilling).district).toBe('Ataşehir');
     expect(
       updatedVersion.addresses.every(
         (address: { latitude: number | null; longitude: number | null }) => address.latitude === null && address.longitude === null
       )
     ).toBe(true);
+  });
+
+  it('updates and clears every optional contact detail', async () => {
+    if (!companyId) throw new Error('Kontak testi için firma oluşturulamadı');
+
+    const created = await request(app.getHttpServer())
+      .post('/api/v1/contacts')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        companyId,
+        fullName: 'ışık ipek şen',
+        title: 'Satın Alma Uzmanı',
+        department: 'Satın Alma',
+        decisionRoleCode: 'owner',
+        workPhone: '+90 212 555 10 10',
+        phoneExtension: '112',
+        mobilePhone: '+90 532 555 20 20',
+        otherPhone: '+90 216 555 30 30',
+        workEmail: 'is@example.com',
+        personalEmail: 'kisisel@example.com',
+        otherEmail: 'diger@example.com',
+        gender: 'Kadın',
+        birthDate: '1990-05-12',
+        hometown: 'Bursa',
+        favoriteTeam: 'Bursaspor',
+        favoriteColor: 'Yeşil',
+        graduatedSchool: 'Uludağ Üniversitesi',
+        notes: 'İlk kontak notu',
+        isPrimary: true,
+        isBlacklisted: false,
+      })
+      .expect(201);
+
+    contactId = created.body.id;
+    expect(created.body.fullName).toBe('IŞIK İPEK ŞEN');
+
+    const updated = await request(app.getHttpServer())
+      .patch(`/api/v1/contacts/${contactId}`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        companyId,
+        fullName: "şule ışık o'connor",
+        title: 'Satın Alma Müdürü',
+        department: 'Tedarik Zinciri',
+        decisionRoleCode: 'influencer',
+        workPhone: '+90 212 555 11 11',
+        phoneExtension: '214',
+        mobilePhone: '+90 532 555 22 22',
+        otherPhone: '+90 216 555 33 33',
+        workEmail: 'guncel.is@example.com',
+        personalEmail: 'guncel.kisisel@example.com',
+        otherEmail: 'guncel.diger@example.com',
+        gender: 'Diğer',
+        birthDate: '1992-08-20',
+        hometown: 'İzmir',
+        favoriteTeam: 'Göztepe',
+        favoriteColor: 'Kırmızı',
+        graduatedSchool: 'Ege Üniversitesi',
+        notes: 'Güncellenmiş kontak notu',
+        isPrimary: false,
+        isBlacklisted: true,
+        blacklistReason: 'Test sebebi',
+      })
+      .expect(200);
+
+    expect(updated.body).toMatchObject({
+      companyId,
+      fullName: "ŞULE IŞIK O'CONNOR",
+      title: 'Satın Alma Müdürü',
+      department: 'Tedarik Zinciri',
+      workPhone: '+90 212 555 11 11',
+      phoneExtension: '214',
+      mobilePhone: '+90 532 555 22 22',
+      otherPhone: '+90 216 555 33 33',
+      workEmail: 'guncel.is@example.com',
+      personalEmail: 'guncel.kisisel@example.com',
+      otherEmail: 'guncel.diger@example.com',
+      gender: 'Diğer',
+      hometown: 'İzmir',
+      favoriteTeam: 'Göztepe',
+      favoriteColor: 'Kırmızı',
+      graduatedSchool: 'Ege Üniversitesi',
+      notes: 'Güncellenmiş kontak notu',
+      isPrimary: false,
+      isBlacklisted: true,
+      blacklistReason: 'Test sebebi',
+    });
+    expect(updated.body.decisionRoleId).toBeTruthy();
+    expect(String(updated.body.birthDate)).toContain('1992-08-20');
+
+    const cleared = await request(app.getHttpServer())
+      .patch(`/api/v1/contacts/${contactId}`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        title: '',
+        department: '',
+        decisionRoleCode: '',
+        workPhone: '',
+        phoneExtension: '',
+        mobilePhone: '',
+        otherPhone: '',
+        workEmail: '',
+        personalEmail: '',
+        otherEmail: '',
+        gender: '',
+        birthDate: '',
+        hometown: '',
+        favoriteTeam: '',
+        favoriteColor: '',
+        graduatedSchool: '',
+        notes: '',
+        isBlacklisted: false,
+        blacklistReason: '',
+      })
+      .expect(200);
+
+    expect(cleared.body).toMatchObject({
+      title: null,
+      department: null,
+      decisionRoleId: null,
+      workPhone: null,
+      phoneExtension: null,
+      mobilePhone: null,
+      otherPhone: null,
+      workEmail: null,
+      personalEmail: null,
+      otherEmail: null,
+      gender: null,
+      birthDate: null,
+      hometown: null,
+      favoriteTeam: null,
+      favoriteColor: null,
+      graduatedSchool: null,
+      notes: null,
+      isBlacklisted: false,
+      blacklistReason: null,
+    });
   });
 });

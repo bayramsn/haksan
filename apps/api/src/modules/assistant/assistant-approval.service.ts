@@ -586,6 +586,9 @@ export class AssistantApprovalService {
       const parsedActivity = action === 'create_activity' ? activityCreateSchema.parse(args) : null;
       const parsedFollowUp = action === 'create_follow_up' ? followUpArgumentsSchema.parse(args) : null;
       const parsed = parsedActivity ?? parsedFollowUp!;
+      if (!parsed.companyId) {
+        throw new ValidationError('Asistan aktivitesi için firma zorunludur');
+      }
       const company = await this.companies.get(parsed.companyId, actor);
       const dateValue = parsedActivity?.activityDate ?? parsedFollowUp!.nextFollowUpAt;
       return {

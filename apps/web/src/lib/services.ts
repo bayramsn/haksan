@@ -41,8 +41,13 @@ import type {
   NoteTemplateCreateInput,
   NoteTemplateUpdateInput,
   OpportunityCreateInput,
+  OpportunityCompanyLinkInput,
   OpportunityStageChangeInput,
   OpportunityUpdateInput,
+  TrelloImportCommitRequest,
+  TrelloImportPreviewRequest,
+  TrelloImportRowInput,
+  TrelloCompanyCandidate,
   OrderStatusUpdateInput,
   PaymentCreateInput,
   PaymentUpdateInput,
@@ -57,6 +62,10 @@ import type {
   ProductSpecTemplateCreateInput,
   ProductSpecTemplateUpdateInput,
   ProductSpecTemplateBulkCreateInput,
+  ProductSpecTemplateBatchInput,
+  TechnicalImportCommitRequest,
+  TechnicalImportPreviewRequest,
+  TechnicalImportRowInput,
   ProductUpdateInput,
   ProformaCreateInput,
   ProformaUpdateInput,
@@ -117,6 +126,56 @@ export interface Paginated<T> {
   meta: { page: number; pageSize: number; total: number; totalPages: number };
 }
 
+export type TrelloImportStatus = 'create' | 'skip' | 'error';
+
+export interface TrelloImportPreviewRow extends TrelloImportRowInput {
+  candidate: TrelloCompanyCandidate;
+  matches: Array<{
+    id: string;
+    legalTitle: string;
+    shortName?: string | null;
+    taxNumber?: string | null;
+    website?: string | null;
+    primaryPhone?: string | null;
+    secondaryPhone?: string | null;
+    primaryEmail?: string | null;
+    secondaryEmail?: string | null;
+    province?: string | null;
+    district?: string | null;
+    score: number;
+    confidence: 'strong' | 'possible';
+    reasons: string[];
+    contactMatch?: { id: string; fullName: string; reason: string };
+  }>;
+  status: TrelloImportStatus;
+  errors: string[];
+  warnings: string[];
+}
+
+export interface TrelloImportPreview {
+  fileName: string;
+  headerRowNumber: number;
+  rows: TrelloImportPreviewRow[];
+  summary: { total: number; create: number; skip: number; error: number };
+  capabilities: {
+    canCreateCompany: boolean;
+    canUpdateCompany: boolean;
+    canCreateContact: boolean;
+  };
+}
+
+export interface TrelloImportCommitResult {
+  rows: Array<{
+    rowNumber: number;
+    trelloCardId?: string;
+    title: string;
+    status: TrelloImportStatus;
+    opportunityId?: string;
+    errors: string[];
+  }>;
+  summary: { total: number; create: number; skip: number; error: number };
+}
+
 type SignedUploadResponse = { fileId: string; bucket: string; objectKey: string; uploadUrl: string; expiresInSeconds: number };
 type PriceListItemCreateRequest = Omit<PriceListItemCreateInput, 'campaignIsActive'> & {
   campaignIsActive?: boolean;
@@ -165,6 +224,28 @@ export interface ProductImportPreview {
   totalRows: number;
   rows: ProductImportRow[];
   summary: ProductImportSummary;
+}
+
+export interface TechnicalImportPreview {
+  file: { name: string; sheetNames: string[]; rowCount: number };
+  rows: TechnicalImportRowInput[];
+  summary: {
+    total: number;
+    exact: number;
+    normalized: number;
+    review: number;
+    unmatched: number;
+    ready: number;
+  };
+  suggestedProducts: Array<{
+    id: string;
+    modelCode: string;
+    fullName: string;
+    brandName?: string | null;
+    productTypeCode?: string | null;
+    label: string;
+    score: number;
+  }>;
 }
 
 // ───── Companies ─────
@@ -277,6 +358,11 @@ export interface CallEventIngestResponse {
   idempotent?: boolean;
 }
 
+export type NotificationTarget =
+  | { kind: 'company'; companyId: string }
+  | { kind: 'opportunity'; opportunityId: string }
+  | { kind: 'navigate'; nav: string; query?: string };
+
 export interface NotificationDTO {
   id: string;
   type: string;
@@ -284,6 +370,8 @@ export interface NotificationDTO {
   body?: string | null;
   entityType?: string | null;
   entityId?: string | null;
+  /** Tıklanınca açılacak kayıt/ekran — API tarafında çözülür. */
+  target?: NotificationTarget | null;
   readAt?: string | null;
   createdAt: string;
 }
@@ -349,7 +437,13 @@ export const opportunityService = {
   list: (params?: Record<string, string | number | undefined>) => api.get<Paginated<any>>(`/opportunities${qs(params)}`),
   get: (id: string) => api.get<any>(`/opportunities/${id}`),
   create: (body: OpportunityCreateInput) => api.post<any>('/opportunities', body),
+  previewTrelloImport: (body: TrelloImportPreviewRequest) =>
+    api.post<TrelloImportPreview>('/opportunities/imports/trello/preview', body),
+  commitTrelloImport: (body: TrelloImportCommitRequest) =>
+    api.post<TrelloImportCommitResult>('/opportunities/imports/trello/commit', body),
   update: (id: string, body: OpportunityUpdateInput) => api.patch<any>(`/opportunities/${id}`, body),
+  linkCompany: (id: string, body: OpportunityCompanyLinkInput) =>
+    api.post<any>(`/opportunities/${id}/company`, body),
   remove: (id: string) => api.delete(`/opportunities/${id}`),
   changeStage: (id: string, body: OpportunityStageChangeInput) => api.patch<any>(`/opportunities/${id}/stage`, body),
   // Mantıksal kapanış (Bitir/Arşiv) — silmez; closedAt set eder. Yalnız terminal (delivered/cancelled).
@@ -938,9 +1032,18 @@ export const adminService = {
   createProductSpecTemplate: (body: ProductSpecTemplateCreateInput) => api.post<any>('/admin/product-spec-templates', body),
   bulkCreateProductSpecTemplates: (items: ProductSpecTemplateBulkCreateInput['items']) =>
     api.post<{ ok: boolean; created: number; skipped: number; rows: any[] }>('/admin/product-spec-templates/bulk', { items }),
+  batchSaveProductSpecTemplates: (items: ProductSpecTemplateBatchInput['items']) =>
+    api.put<{ ok: boolean; rows: any[] }>('/admin/product-spec-templates/batch', { items }),
   updateProductSpecTemplate: (id: string, body: ProductSpecTemplateUpdateInput) =>
     api.patch<any>(`/admin/product-spec-templates/${id}`, body),
   deleteProductSpecTemplate: (id: string) => api.delete<any>(`/admin/product-spec-templates/${id}`),
+  previewTechnicalImport: (body: TechnicalImportPreviewRequest) =>
+    api.post<TechnicalImportPreview>('/admin/technical-import/preview', body),
+  commitTechnicalImport: (body: TechnicalImportCommitRequest) =>
+    api.post<{ ok: boolean; created: number; updated: number; imported: number; productId?: string }>(
+      '/admin/technical-import/commit',
+      body
+    ),
 };
 
 // ───── Lookups ─────

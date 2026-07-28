@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type KeyboardEvent } from "react";
 import type { CompanyOsmSearchResult } from "@haksan/shared";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
@@ -91,27 +91,42 @@ export function OsmCompanySearch({
     await onSelect(result);
   };
 
+  const handleSearchInputKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key !== "Enter" || event.nativeEvent.isComposing) return;
+
+    // Bu bileşen çoğunlukla firma oluşturma/düzenleme formunun içinde kullanılır.
+    // Arama Enter'ı üst formun submit olayına ulaşmamalıdır.
+    event.preventDefault();
+    event.stopPropagation();
+    if (!loading) void runSearch();
+  };
+
   return (
     <div className={cn("rounded-md border border-border/60 bg-muted/10 p-3", className)}>
-      <form
+      <div
+        role="search"
+        aria-busy={loading}
         className="flex flex-col gap-2 sm:flex-row"
-        onSubmit={(event) => {
-          event.preventDefault();
-          void runSearch();
-        }}
       >
         <div className="relative min-w-0 flex-1">
           <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             value={term}
             onChange={(event) => setTerm(event.target.value)}
+            onKeyDown={handleSearchInputKeyDown}
             className="h-9 bg-background pl-9"
             placeholder="Firma adını OpenStreetMap'te ara"
             aria-label="OpenStreetMap firma araması"
             maxLength={160}
           />
         </div>
-        <Button type="submit" variant="outline" className="h-9 gap-1.5" disabled={loading}>
+        <Button
+          type="button"
+          variant="outline"
+          className="h-9 gap-1.5"
+          disabled={loading}
+          onClick={() => void runSearch()}
+        >
           {loading ? <Loader2 className="size-4 animate-spin" /> : <MapPin className="size-4" />}
           {buttonLabel}
         </Button>
@@ -121,7 +136,7 @@ export function OsmCompanySearch({
             Haritadan seç
           </Button>
         )}
-      </form>
+      </div>
 
       {searchStatus && (
         <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground" role="status" aria-live="polite">

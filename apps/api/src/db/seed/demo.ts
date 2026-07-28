@@ -9,6 +9,7 @@ import { getDb, closeDb, schema } from '../client';
 import { allRoles, rolePermissionMatrix } from './_data';
 import { seedLookups } from './lookups';
 import { PERMISSION_RESOURCES } from '@haksan/shared';
+import { normalizeCompanyName } from '../../shared/utils/text-normalization';
 
 const DEFAULT_SCOPE_RESOURCES = PERMISSION_RESOURCES.filter(
   (resource) => !['tenants', 'users', 'roles', 'departments', 'divisions', 'audit', 'files'].includes(resource)
@@ -400,8 +401,14 @@ export async function seedDemo(): Promise<void> {
   }
 
   for (const c of companyDefs) {
+    const legalTitle = normalizeCompanyName(c.legalTitle);
+    const shortName = normalizeCompanyName(c.shortName);
     const existing = await db.query.companies.findFirst({
-      where: and(eq(schema.companies.tenantId, tenantRow.id), eq(schema.companies.legalTitle, c.legalTitle)),
+      where: and(
+        eq(schema.companies.tenantId, tenantRow.id),
+        eq(schema.companies.taxNumber, c.taxNumber),
+        isNull(schema.companies.deletedAt)
+      ),
     });
     const company =
       existing ??
@@ -414,8 +421,8 @@ export async function seedDemo(): Promise<void> {
             companyType: 'company',
             relationTypeId: relTypeMap.get(c.relationCode),
             customerStatusId: statusMap.get(c.statusCode),
-            legalTitle: c.legalTitle,
-            shortName: c.shortName,
+            legalTitle,
+            shortName,
             sector: c.sector,
             taxNumber: c.taxNumber,
           })
@@ -477,7 +484,7 @@ export async function seedDemo(): Promise<void> {
   const contra = await db.query.companies.findFirst({
     where: and(
       eq(schema.companies.tenantId, tenantRow.id),
-      eq(schema.companies.legalTitle, 'Contra Makine San. ve Tic. Ltd. Şti.')
+      eq(schema.companies.legalTitle, 'CONTRA MAKİNE SAN. VE TİC. LTD. ŞTİ.')
     ),
   });
   const alipler = await db.query.companies.findFirst({

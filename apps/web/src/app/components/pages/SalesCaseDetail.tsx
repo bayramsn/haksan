@@ -2,13 +2,25 @@ import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
 import { Button } from "../ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../ui/tabs";
-import { ArrowLeft, Plus, Upload, X, XCircle, Eye, FileText, CreditCard, CheckCircle2, Trash2, Wrench, Pencil } from "lucide-react";
-import { SalesCase, SALES_STAGES, salesStageLabel, type Activity, type Offer } from "../../lib/mock";
+import { ArrowLeft, Plus, Upload, X, XCircle, Eye, FileText, CreditCard, CheckCircle2, Trash2, Wrench, Pencil, Building2, UserRound } from "lucide-react";
+import {
+  SalesCase,
+  SALES_STAGES,
+  salesStageLabel,
+  LEAD_TEMPERATURE_HINTS,
+  LEAD_TEMPERATURE_LABELS,
+  LEAD_TEMPERATURE_ORDER,
+  LEAD_TEMPERATURE_STYLES,
+  type Activity,
+  type DocumentItem,
+  type LeadTemperature,
+  type Offer,
+} from "../../lib/mock";
 import { StatusBadge } from "../Layout";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../ui/table";
 import { useStore } from "../../lib/store";
 import { useAuth } from "../../../lib/auth";
-import { AddActivityDialog } from "../dialogs/CreateDialogs";
+import { AddActivityDialog, CreateCustomerDialog } from "../dialogs/CreateDialogs";
 import { QuoteDialog } from "../dialogs/QuoteDialog";
 import { LostCaseDialog } from "../dialogs/LostCaseDialog";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "../ui/dialog";
@@ -31,7 +43,7 @@ import { OfferDetailDialog } from "./offers/OffersPage";
 import { STAGE_DOT } from "./Kanban";
 import { DialogSplitLayout, DialogSidebarSection } from "../shared/DialogSplitLayout";
 import { KanbanDetailDialogShell } from "../shared/KanbanDetailDialogShell";
-import { fileService, quoteService, salesOrderService, financeService } from "../../../lib/services";
+import { fileService, opportunityService, quoteService, salesOrderService, financeService } from "../../../lib/services";
 import { toast } from "sonner";
 
 export function SalesCaseDetailDialog({
@@ -43,7 +55,7 @@ export function SalesCaseDetailDialog({
 }) {
   return (
     <Dialog open={!!sc} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="w-[min(1240px,calc(100vw-2rem))] max-w-none sm:max-w-none max-h-[90dvh] overflow-hidden p-0 gap-0">
+      <DialogContent className="w-[min(1240px,calc(100vw-2rem))] max-w-none sm:max-w-none max-h-[90dvh] overflow-x-hidden overflow-y-hidden p-0 gap-0">
         <DialogHeader className="sr-only">
           <DialogTitle>{sc?.requestedProduct ?? "Satış kartı detayı"}</DialogTitle>
           <DialogDescription>Satış kartı, teklifler ve aktiviteler</DialogDescription>
@@ -70,14 +82,30 @@ export function SalesCaseDetailPage({
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [closeOpen, setCloseOpen] = useState(false);
   const [pendingActivityDelete, setPendingActivityDelete] = useState<Activity | null>(null);
+  const [pendingDocumentDelete, setPendingDocumentDelete] = useState<DocumentItem | null>(null);
+  const [deletingDocumentId, setDeletingDocumentId] = useState<string | null>(null);
   const [deleteSaving, setDeleteSaving] = useState(false);
   const [closeSaving, setCloseSaving] = useState(false);
   const [selectedOfferId, setSelectedOfferId] = useState<string | null>(null);
   const [editingActivity, setEditingActivity] = useState<Activity | null>(null);
   const [activityForm, setActivityForm] = useState({ type: "", title: "", note: "", result: "", date: "" });
   const [salesOrders, setSalesOrders] = useState<any[]>([]);
+  const [companyLinking, setCompanyLinking] = useState(false);
   const canMarkLost = !sc.isLost && sc.stage !== "cancelled" && sc.stage !== "delivered";
   const c = customers.find((x) => x.id === sc.customerId);
+  const hasCompany = Boolean(sc.customerId && c);
+  const trelloCandidate = sc.externalMetadata?.candidate;
+  const partyName =
+    c?.name ??
+    trelloCandidate?.companyTitle ??
+    sc.leadCompanyTitle ??
+    sc.leadContactName ??
+    "Firma kaydı bekliyor";
+  const compactSubtitle = [
+    sc.requestedProduct,
+    sc.externalSource === "trello" ? null : sc.requestedModel,
+    `${sc.quantity} adet`,
+  ].filter(Boolean).join(" · ");
   const u = users.find((x) => x.id === sc.assignedUserId);
   const acts = activities.filter((a) => a.salesCaseId === sc.id);
   const offs = offers.filter((o) => o.salesCaseId === sc.id);
@@ -96,6 +124,24 @@ export function SalesCaseDetailPage({
   const selectedOrder = selectedOffer
     ? salesOrders.find((order) => order.quoteId === selectedOffer.id || order.quote?.id === selectedOffer.id)
     : null;
+
+  const linkCompany = async (companyId: string) => {
+    if (companyLinking) return;
+    setCompanyLinking(true);
+    try {
+      await opportunityService.linkCompany(sc.id, { companyId, createContact: true });
+      await refresh();
+      toast.success("Firma satış kartına bağlandı", {
+        description: customers.find((customer) => customer.id === companyId)?.name ?? sc.leadCompanyTitle,
+      });
+    } catch (err: any) {
+      toast.error("Firma satış kartına bağlanamadı", {
+        description: err?.message ?? "API isteği başarısız oldu.",
+      });
+    } finally {
+      setCompanyLinking(false);
+    }
+  };
 
   useEffect(() => {
     if (!selectedOfferId) return;
@@ -155,6 +201,21 @@ export function SalesCaseDetailPage({
     }
   };
 
+  const deleteUploadedDocument = async (documentItem: DocumentItem) => {
+    if (!documentItem.fileId || documentItem.source !== "uploaded_file" || deletingDocumentId) return;
+    setDeletingDocumentId(documentItem.id);
+    try {
+      await fileService.remove(documentItem.fileId);
+      await refresh();
+      setPendingDocumentDelete(null);
+      toast.success("Doküman silindi", { description: documentItem.fileName });
+    } catch (err: any) {
+      toast.error("Doküman silinemedi", { description: err?.message ?? "API isteği başarısız oldu." });
+    } finally {
+      setDeletingDocumentId(null);
+    }
+  };
+
   const openActivityEdit = (activity: Activity) => {
     setEditingActivity(activity);
     setActivityForm({
@@ -199,7 +260,7 @@ export function SalesCaseDetailPage({
     setCloseSaving(true);
     try {
       await closeCase(sc.id);
-      toast.success("Kart Geçmiş'e alındı", { description: c?.name ?? sc.requestedProduct });
+      toast.success("Kart Geçmiş'e alındı", { description: partyName });
       setCloseOpen(false);
       onBack();
     } catch (err: any) {
@@ -214,7 +275,7 @@ export function SalesCaseDetailPage({
     setDeleteSaving(true);
     try {
       await deleteCase(sc.id);
-      toast.success("Satış kartı silindi", { description: c?.name ?? sc.requestedProduct });
+      toast.success("Satış kartı silindi", { description: partyName });
       setDeleteOpen(false);
       onBack();
     } catch (err: any) {
@@ -304,13 +365,13 @@ export function SalesCaseDetailPage({
         </Button>
       </div>
 
-      <LostCaseDialog open={lostOpen} onOpenChange={setLostOpen} caseId={sc.id} caseName={c?.name} />
+      <LostCaseDialog open={lostOpen} onOpenChange={setLostOpen} caseId={sc.id} caseName={partyName} />
       <AlertDialog open={deleteOpen} onOpenChange={(open) => !deleteSaving && setDeleteOpen(open)}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Satış kartını sil?</AlertDialogTitle>
             <AlertDialogDescription>
-              <b>{c?.name ?? "Firma bulunamadı"}</b> için açılan <b>{sc.requestedProduct}</b> satış kartı silinecek.
+              <b>{partyName}</b> için açılan <b>{sc.requestedProduct}</b> satış kartı silinecek.
               Bağlı teklif, doküman veya ödeme varsa backend işlemi reddedebilir.
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -334,7 +395,7 @@ export function SalesCaseDetailPage({
           <AlertDialogHeader>
             <AlertDialogTitle>Satış kartı tamamlansın mı?</AlertDialogTitle>
             <AlertDialogDescription>
-              <b>{c?.name ?? "Firma bulunamadı"}</b> · <b>{sc.requestedProduct}</b> kartı silinmeden Geçmiş görünümüne taşınacak. Teklif, belge ve aktivite bağlantıları korunur.
+              <b>{partyName}</b> · <b>{sc.requestedProduct}</b> kartı silinmeden Geçmiş görünümüne taşınacak. Teklif, belge ve aktivite bağlantıları korunur.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -361,11 +422,42 @@ export function SalesCaseDetailPage({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      <AlertDialog
+        open={Boolean(pendingDocumentDelete)}
+        onOpenChange={(open) => !open && !deletingDocumentId && setPendingDocumentDelete(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Yüklenen dosyayı sil?</AlertDialogTitle>
+            <AlertDialogDescription>
+              <b>{pendingDocumentDelete?.fileName}</b> doküman listesinden kaldırılacak ve artık indirilemeyecek.
+              Firma ve satış kartı kayıtları etkilenmez.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={Boolean(deletingDocumentId)}>Vazgeç</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={Boolean(deletingDocumentId)}
+              onClick={(event) => {
+                event.preventDefault();
+                if (pendingDocumentDelete) void deleteUploadedDocument(pendingDocumentDelete);
+              }}
+            >
+              {deletingDocumentId ? "Siliniyor…" : "Dosyayı sil"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <div className={bodyClass}>
       <DialogSplitLayout
         asideFirstOnMobile
-        className={mode === "page" ? "lg:[&>aside]:top-4" : undefined}
+        className={
+          mode === "page"
+            ? "lg:[&>aside]:top-4"
+            : "lg:grid-cols-[minmax(0,1fr)_360px]"
+        }
         aside={
           <>
             <DialogSidebarSection title="Özet">
@@ -388,6 +480,30 @@ export function SalesCaseDetailPage({
                 <span>gün</span>
               </div>
               <div className="mt-2"><StatusBadge status={sc.stage} /></div>
+              <div className="mt-2">
+                <div className="mb-1 text-[10px] uppercase tracking-wide text-muted-foreground">Alım niyeti</div>
+                <Select
+                  value={sc.leadTemperature ?? "unknown"}
+                  onValueChange={async (value) => {
+                    await updateCase(sc.id, { leadTemperature: value as LeadTemperature });
+                  }}
+                >
+                  <SelectTrigger className="h-7 w-full text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {LEAD_TEMPERATURE_ORDER.map((code) => (
+                      <SelectItem key={code} value={code}>
+                        <span className="flex items-center gap-1.5">
+                          <span className={`size-1.5 rounded-full ${LEAD_TEMPERATURE_STYLES[code].dot}`} />
+                          {LEAD_TEMPERATURE_LABELS[code]}
+                          <span className="text-muted-foreground">· {LEAD_TEMPERATURE_HINTS[code]}</span>
+                        </span>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
               {isSuperAdmin ? (
                 <Select
                   value={sc.assignedUserId ?? '__none__'}
@@ -411,6 +527,77 @@ export function SalesCaseDetailPage({
                 </div>
               )}
             </DialogSidebarSection>
+            {sc.leadContactName && (
+              <DialogSidebarSection title="Lead Bilgisi">
+                <div className="space-y-2 text-xs">
+                  <div className="flex items-start gap-2">
+                    <UserRound className="mt-0.5 size-3.5 shrink-0 text-primary" />
+                    <div>
+                      <div className="text-muted-foreground">Kontak</div>
+                      <div className="font-medium text-foreground">{sc.leadContactName}</div>
+                    </div>
+                  </div>
+                  {sc.leadCompanyTitle && (
+                    <div className="flex items-start gap-2">
+                      <Building2 className="mt-0.5 size-3.5 shrink-0 text-primary" />
+                      <div>
+                        <div className="text-muted-foreground">Girilen firma ünvanı</div>
+                        <div className="font-medium text-foreground">{sc.leadCompanyTitle}</div>
+                      </div>
+                    </div>
+                  )}
+                  {(sc.leadContactMethodName || sc.leadPhone || sc.leadEmail || sc.leadContactValue) && (
+                    <div>
+                      <div className="text-muted-foreground">İrtibat</div>
+                      <div className="font-medium text-foreground">
+                        {[sc.leadContactMethodName, sc.leadPhone, sc.leadEmail].filter(Boolean).join(" · ") ||
+                          [sc.leadContactMethodName, sc.leadContactValue].filter(Boolean).join(" · ")}
+                      </div>
+                    </div>
+                  )}
+                  {sc.leadCity && (
+                    <div>
+                      <div className="text-muted-foreground">Şehir</div>
+                      <div className="font-medium text-foreground">{sc.leadCity}</div>
+                    </div>
+                  )}
+                </div>
+              </DialogSidebarSection>
+            )}
+            {sc.externalSource === "trello" && (
+              <DialogSidebarSection title="Trello Kaynağı">
+                <div className="min-w-0 space-y-2 text-xs">
+                  <div className="grid grid-cols-[72px_minmax(0,1fr)] gap-x-2 gap-y-1">
+                    <span className="text-muted-foreground">Pano</span>
+                    <span className="min-w-0 break-words font-medium">{sc.externalMetadata?.boardName || "—"}</span>
+                    <span className="text-muted-foreground">Liste</span>
+                    <span className="min-w-0 break-words font-medium">{sc.externalMetadata?.listName || "—"}</span>
+                    {sc.externalMetadata?.labels && (
+                      <>
+                        <span className="text-muted-foreground">Etiket</span>
+                        <span className="min-w-0 break-words font-medium">{sc.externalMetadata.labels}</span>
+                      </>
+                    )}
+                    {sc.externalMetadata?.members && (
+                      <>
+                        <span className="text-muted-foreground">Üyeler</span>
+                        <span className="min-w-0 break-words font-medium">{sc.externalMetadata.members}</span>
+                      </>
+                    )}
+                  </div>
+                  {sc.externalUrl && (
+                    <a
+                      href={sc.externalUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="block min-w-0 break-all rounded-md border border-border/60 bg-white px-2.5 py-2 text-primary hover:underline"
+                    >
+                      {sc.externalUrl}
+                    </a>
+                  )}
+                </div>
+              </DialogSidebarSection>
+            )}
             <DialogSidebarSection title="İşlemler">
               {sc.stage === "delivered" && !sc.closedAt && (
                 <Button
@@ -442,6 +629,11 @@ export function SalesCaseDetailPage({
                 <Trash2 className="size-4" /> Satış Kartını Sil
               </Button>
             </DialogSidebarSection>
+            {mode === "dialog" && (
+              <DialogSidebarSection title="Yorumlar ve Aktivite">
+                {activityPanel}
+              </DialogSidebarSection>
+            )}
           </>
         }
       >
@@ -450,8 +642,27 @@ export function SalesCaseDetailPage({
           <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
             <div className="min-w-0">
               <div className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">SATIŞ KARTI · #{sc.id.toUpperCase()}</div>
-              <div className="text-xl font-semibold mt-1 break-words">{c?.name ?? "Firma bulunamadı"}</div>
-              <div className="text-sm text-muted-foreground mt-0.5 break-words">{sc.requestedProduct} · {sc.requestedModel} · {sc.quantity} adet</div>
+              <div className="mt-1 flex flex-wrap items-center gap-2">
+                <div className="text-xl font-semibold break-words">{partyName}</div>
+                {!hasCompany && (
+                  <span className="rounded-full border border-warning/25 bg-warning-soft px-2 py-0.5 text-[10px] font-medium text-warning">
+                    Firma kaydı bekliyor
+                  </span>
+                )}
+              </div>
+              <div className="mt-0.5 min-w-0 break-words text-sm text-muted-foreground">{compactSubtitle}</div>
+              {sc.externalSource === "trello" && sc.description && (
+                <div className="mt-2 line-clamp-3 max-w-3xl whitespace-pre-wrap break-words text-xs leading-relaxed text-muted-foreground">
+                  {sc.description}
+                </div>
+              )}
+              {sc.leadContactName && (
+                <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                  <span>Kontak: <b className="font-medium text-foreground">{sc.leadContactName}</b></span>
+                  {sc.leadContactMethodName && <span>İrtibat: <b className="font-medium text-foreground">{sc.leadContactMethodName}</b></span>}
+                  {sc.leadContactValue && <span><b className="font-medium text-foreground">{sc.leadContactValue}</b></span>}
+                </div>
+              )}
             </div>
           </div>
 
@@ -490,6 +701,62 @@ export function SalesCaseDetailPage({
           </div>
         </CardContent>
       </Card>
+
+      {!hasCompany && (
+        <Card className="border-warning/30 bg-warning-soft/55">
+          <CardContent className="p-4 sm:p-5">
+            <div className="min-w-0 space-y-4">
+              <div className="flex min-w-0 items-start gap-3">
+                <div className="grid size-10 shrink-0 place-items-center rounded-lg bg-white text-warning shadow-xs">
+                  <Building2 className="size-5" />
+                </div>
+                <div className="min-w-0">
+                  <div className="text-sm font-semibold">Tekliften önce firma kaydı gerekli</div>
+                  <div className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
+                    Lead bilgileri satış kartında kalır. Mevcut bir firmayı bağlayın veya bu karttan yeni firma kaydını açın.
+                  </div>
+                </div>
+              </div>
+              <div className="grid w-full min-w-0 gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+                <Select disabled={companyLinking} onValueChange={(companyId) => void linkCompany(companyId)}>
+                  <SelectTrigger className="w-full min-w-0 bg-white">
+                    <SelectValue placeholder={companyLinking ? "Firma bağlanıyor…" : "Mevcut firma bağla"} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {customers.map((customer) => (
+                      <SelectItem key={customer.id} value={customer.id}>{customer.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <CreateCustomerDialog
+                  draftKey={`draft.customer.sales-case.${sc.id}`}
+                  initialValues={{
+                    name: trelloCandidate?.companyTitle ?? sc.leadCompanyTitle ?? "",
+                    contactSourceCode: sc.leadContactMethodCode ?? "",
+                    phone: trelloCandidate?.phone ?? (sc.leadContactMethodCode === "phone" ? sc.leadContactValue ?? "" : ""),
+                    email: trelloCandidate?.email ?? (sc.leadContactMethodCode === "email" ? sc.leadContactValue ?? "" : ""),
+                    initialNote: [
+                      sc.externalSource === "trello"
+                        ? "Trello satış kartından Potansiyel firma olarak oluşturuldu."
+                        : "Hızlı lead satış kartından oluşturuldu.",
+                      trelloCandidate?.contactName || sc.leadContactName
+                        ? `Kontak: ${trelloCandidate?.contactName ?? sc.leadContactName}`
+                        : null,
+                      sc.leadContactMethodName ? `İrtibat şekli: ${sc.leadContactMethodName}` : null,
+                    ].filter(Boolean).join("\n"),
+                  }}
+                  onCreated={linkCompany}
+                  trigger={
+                    <Button type="button" className="w-full gap-1.5 whitespace-nowrap sm:w-auto" disabled={companyLinking}>
+                      <Plus className="size-4" /> Yeni Firma Oluştur
+                    </Button>
+                  }
+                />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {sc.stage === "payment_plan" && pays.length === 0 && (
         <Card className="border-success/30 bg-success-soft/60">
@@ -706,12 +973,30 @@ export function SalesCaseDetailPage({
           <Card>
             <CardHeader className="flex flex-row items-center justify-between">
               <CardTitle>Teklifler</CardTitle>
-              <QuoteDialog
-                defaultCaseId={sc.id}
-                defaultCustomerId={sc.customerId}
-                trigger={<Button size="sm" className="gap-1"><Plus className="size-4" /> Yeni Teklif</Button>}
-              />
+              {hasCompany ? (
+                <QuoteDialog
+                  defaultCaseId={sc.id}
+                  defaultCustomerId={sc.customerId}
+                  trigger={<Button size="sm" className="gap-1"><Plus className="size-4" /> Yeni Teklif</Button>}
+                />
+              ) : (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="gap-1 border-warning/30 text-warning"
+                  onClick={() => toast.error("Firma kaydı gerekli", {
+                    description: "Yeni teklif açmadan önce yukarıdaki alandan firma oluşturun veya mevcut firmayı bağlayın.",
+                  })}
+                >
+                  <Building2 className="size-4" /> Önce Firma Bağlayın
+                </Button>
+              )}
             </CardHeader>
+            {!hasCompany && (
+              <div className="mx-5 mb-4 rounded-lg border border-warning/25 bg-warning-soft/60 px-3 py-2 text-xs text-muted-foreground">
+                Teklif ekranı, firma kartı bağlandıktan sonra açılır. Lead bilgileri kaybolmadan firma ve kontak kaydına aktarılır.
+              </div>
+            )}
             <div className="overflow-x-auto">
               <Table className="min-w-[620px]">
                 <TableHeader>
@@ -784,6 +1069,7 @@ export function SalesCaseDetailPage({
                     <TableHead>Dosya</TableHead>
                     <TableHead>Boyut</TableHead>
                     <TableHead>Tarih</TableHead>
+                    <TableHead className="w-14 text-right">İşlem</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -794,7 +1080,7 @@ export function SalesCaseDetailPage({
                       tabIndex={d.fileId ? 0 : undefined}
                       onClick={() => d.fileId && downloadDocument(d.fileId, d.fileName)}
                       onKeyDown={(e) => {
-                        if (!d.fileId) return;
+                        if (!d.fileId || e.target !== e.currentTarget) return;
                         if (e.key === "Enter" || e.key === " ") {
                           e.preventDefault();
                           downloadDocument(d.fileId, d.fileName);
@@ -805,11 +1091,30 @@ export function SalesCaseDetailPage({
                       <TableCell className="max-w-[320px] truncate">{d.fileName}</TableCell>
                       <TableCell className="text-muted-foreground">{d.size}</TableCell>
                       <TableCell className="text-muted-foreground">{d.uploadedAt}</TableCell>
+                      <TableCell
+                        className="text-right"
+                        onClick={(event) => event.stopPropagation()}
+                        onKeyDown={(event) => event.stopPropagation()}
+                      >
+                        {d.source === "uploaded_file" && d.fileId && (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="size-8 text-muted-foreground hover:text-destructive"
+                            aria-label={`${d.fileName} dosyasını sil`}
+                            title="Dosyayı sil"
+                            onClick={() => setPendingDocumentDelete(d)}
+                          >
+                            <Trash2 className="size-4" />
+                          </Button>
+                        )}
+                      </TableCell>
                     </TableRow>
                   ))}
                   {docs.length === 0 && (
                     <TableRow>
-                      <TableCell colSpan={4} className="text-center py-8 text-sm text-muted-foreground">Doküman yok.</TableCell>
+                      <TableCell colSpan={5} className="text-center py-8 text-sm text-muted-foreground">Doküman yok.</TableCell>
                     </TableRow>
                   )}
                 </TableBody>
@@ -921,8 +1226,10 @@ export function SalesCaseDetailPage({
     return (
       <KanbanDetailDialogShell
         accentClassName={STAGE_DOT[sc.stage] ?? "bg-primary"}
-        title={c?.name ?? "Firma bulunamadı"}
-        subtitle={`${sc.requestedProduct} · ${sc.requestedModel} · ${sc.quantity} adet`}
+        title={partyName}
+        subtitle={compactSubtitle}
+        bodyClassName="lg:grid-cols-1"
+        activityClassName="hidden"
         meta={
           <>
             <StatusBadge status={sc.stage} />

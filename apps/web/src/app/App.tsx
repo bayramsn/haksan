@@ -228,7 +228,7 @@ function AppShell() {
             trigger={<Button className="gap-1"><Plus className="size-4" /> Yeni Satış Kartı</Button>}
           />
         ) : null;
-        content = <SalesCasesPage onSelect={(s) => setSelectedCaseId(s.id)} focus={focus?.nav === "sales-cases" ? focus.focus : undefined} />;
+        content = <SalesCasesPage onSelect={(s) => setSelectedCaseId(s.id)} focus={focus?.nav === "sales-cases" ? focus.focus : undefined} onAction={runOperationAction} />;
         break;
       case "kanban":
         actions = canCreate("opportunities.create") ? (
@@ -236,7 +236,7 @@ function AppShell() {
             trigger={<Button className="gap-1"><Plus className="size-4" /> Yeni Kart</Button>}
           />
         ) : null;
-        content = <SalesCasesPage onSelect={(s) => setSelectedCaseId(s.id)} initialView="kanban" focus={focus?.nav === "kanban" ? focus.focus : undefined} />;
+        content = <SalesCasesPage onSelect={(s) => setSelectedCaseId(s.id)} initialView="kanban" focus={focus?.nav === "kanban" ? focus.focus : undefined} onAction={runOperationAction} />;
         break;
       case "sales-map": content = <SalesMapPage initialQuery={focus?.nav === "sales-map" ? focus.query : undefined} />; break;
       case "offers": content = <OffersPage focus={focus?.nav === "offers" ? focus.focus : undefined} />; break;

@@ -47,8 +47,36 @@ export type CurrencyBalance = {
   totalBalance: number;
 };
 
+// Yaşlandırma kovaları — açık alacakların vade gününe göre tutar bazlı dağılımı.
+// "current" vadesi henüz gelmemiş bakiyedir; kalanlar gecikme gün aralıklarıdır.
+export const AGING_BUCKETS = ['current', 'd1_30', 'd31_60', 'd61_90', 'd90_plus'] as const;
+export type AgingBucketCode = (typeof AGING_BUCKETS)[number];
+
+export type CurrencyAging = {
+  currencyCode: string;
+  current: number;
+  d1_30: number;
+  d31_60: number;
+  d61_90: number;
+  d90_plus: number;
+  overdueTotal: number;
+  openTotal: number;
+  maxOverdueDays: number;
+  oldestOverdueDate: string | null;
+};
+
+export type AgingSummary = {
+  byCurrency: CurrencyAging[];
+  // Tutarı sıfırdan büyük olan en kötü kova — kart/kolon rengini bu belirler.
+  worstBucket: AgingBucketCode;
+  maxOverdueDays: number;
+  oldestOverdueDate: string | null;
+  overdueTotal: Array<{ currencyCode: string; amount: number }>;
+};
+
 export type FinanceSummary = {
   byCurrency: CurrencyBalance[];
+  aging: AgingSummary;
   nearestDueDate: string | null;
   nearestDueAmount: number | null;
   nearestDueCurrency: string | null;
@@ -116,6 +144,91 @@ export class FinanceService {
 
   private num(v: string | number | null | undefined): number {
     return Number(v ?? 0);
+  }
+
+  /** Saat/zaman dilimi kaymasının gün sayısını bozmaması için UTC gün başlangıcı. */
+  private startOfUtcDay(value: Date): number {
+    return Date.UTC(value.getUTCFullYear(), value.getUTCMonth(), value.getUTCDate());
+  }
+
+  private agingBucketOf(overdueDays: number): AgingBucketCode {
+    if (overdueDays <= 0) return 'current';
+    if (overdueDays <= 30) return 'd1_30';
+    if (overdueDays <= 60) return 'd31_60';
+    if (overdueDays <= 90) return 'd61_90';
+    return 'd90_plus';
+  }
+
+  /**
+   * Açık alacakları (vadesi geçmiş + gelecek) para birimi bazında yaşlandırma
+   * kovalarına dağıtır. Tek bir "en yakın vade" tarihine bakmaz; bu yüzden
+   * ileri tarihli açık bir fatura, geçmiş gecikmeyi maskeleyemez.
+   */
+  private buildAging(
+    rows: Array<{ amount: string | number | null; currencyId: string | null; dueDate: Date | string }>,
+    curMap: Map<string, string>,
+    now: Date,
+  ): AgingSummary {
+    const today = this.startOfUtcDay(now);
+    const buckets = new Map<string, CurrencyAging>();
+    const touch = (code: string): CurrencyAging => {
+      if (!buckets.has(code)) {
+        buckets.set(code, {
+          currencyCode: code,
+          current: 0,
+          d1_30: 0,
+          d31_60: 0,
+          d61_90: 0,
+          d90_plus: 0,
+          overdueTotal: 0,
+          openTotal: 0,
+          maxOverdueDays: 0,
+          oldestOverdueDate: null,
+        });
+      }
+      return buckets.get(code)!;
+    };
+
+    let maxOverdueDays = 0;
+    let oldestOverdueAt: number | null = null;
+
+    for (const row of rows) {
+      const amount = this.num(row.amount);
+      if (amount <= 0) continue;
+      const code = curMap.get(row.currencyId ?? '') ?? 'USD';
+      const due = new Date(row.dueDate);
+      if (Number.isNaN(due.getTime())) continue;
+      const days = Math.floor((today - this.startOfUtcDay(due)) / 86_400_000);
+      const bucket = this.agingBucketOf(days);
+      const entry = touch(code);
+      entry[bucket] += amount;
+      entry.openTotal += amount;
+      if (days > 0) {
+        entry.overdueTotal += amount;
+        if (days > entry.maxOverdueDays) {
+          entry.maxOverdueDays = days;
+          entry.oldestOverdueDate = due.toISOString();
+        }
+        if (days > maxOverdueDays) maxOverdueDays = days;
+        const dueAt = due.getTime();
+        if (oldestOverdueAt === null || dueAt < oldestOverdueAt) oldestOverdueAt = dueAt;
+      }
+    }
+
+    const byCurrency = [...buckets.values()].sort((a, b) => b.openTotal - a.openTotal);
+    const worstBucket = [...AGING_BUCKETS]
+      .reverse()
+      .find((code) => byCurrency.some((entry) => entry[code] > 0)) ?? 'current';
+
+    return {
+      byCurrency,
+      worstBucket,
+      maxOverdueDays,
+      oldestOverdueDate: oldestOverdueAt === null ? null : new Date(oldestOverdueAt).toISOString(),
+      overdueTotal: byCurrency
+        .filter((entry) => entry.overdueTotal > 0)
+        .map((entry) => ({ currencyCode: entry.currencyCode, amount: entry.overdueTotal })),
+    };
   }
 
   private roundMoney(value: number): number {
@@ -239,6 +352,8 @@ export class FinanceService {
     });
 
     const openStatuses = [st.pending, st.partial, st.overdue].filter(Boolean) as string[];
+    const isOpen = (statusId: string | null) =>
+      !statusId || !openStatuses.length || openStatuses.includes(statusId);
     const dueCandidates: { date: Date; amount: number; currency: string; type: 'borc' | 'alacak' }[] = [];
 
     for (const r of recRows) {
@@ -264,10 +379,18 @@ export class FinanceService {
 
     const now = new Date();
     dueCandidates.sort((a, b) => a.date.getTime() - b.date.getTime());
+    // "En Yakın Vade" kolonu bir sonraki ödeme gününü gösterir; yaşlandırma ise
+    // aşağıda tüm açık alacaklardan ayrıca hesaplanır.
     const nearest = dueCandidates.find((d) => d.date >= now) ?? dueCandidates[0] ?? null;
+    const aging = this.buildAging(
+      recRows.filter((r) => isOpen(r.statusId)),
+      curMap,
+      now,
+    );
 
     return {
       byCurrency,
+      aging,
       nearestDueDate: nearest ? nearest.date.toISOString() : null,
       nearestDueAmount: nearest?.amount ?? null,
       nearestDueCurrency: nearest?.currency ?? null,
@@ -423,6 +546,7 @@ export class FinanceService {
           netBorc: primary?.net ?? 0,
           totalBalance: primary?.totalBalance ?? primary?.net ?? 0,
           primaryCurrency: primary?.currencyCode ?? null,
+          aging: summary.aging,
           nearestDueDate: summary.nearestDueDate,
           nearestDueAmount: summary.nearestDueAmount,
           nearestDueCurrency: summary.nearestDueCurrency,

@@ -16,6 +16,12 @@ import type { ZodType } from 'zod';
  */
 export interface RequestOpts<T = unknown> extends RequestInit {
   schema?: ZodType<T>;
+  /**
+   * Aynı yazma isteğinin çift tıklama nedeniyle eşzamanlı gönderilmesini önler.
+   * Yalnızca gerçekten art arda aynı isteğin ayrı ayrı çalışması gereken özel
+   * uçlarda `false` yapılmalıdır.
+   */
+  dedupe?: boolean;
 }
 
 export interface ApiClient {
@@ -92,6 +98,7 @@ let activeDivision: string | null = readStoredActiveDivision();
 let activeDepartment: string | null = readStoredActiveDepartment();
 let refreshing: Promise<string | null> | null = null;
 let onSessionExpired: (() => void) | null = null;
+let sessionGeneration = 0;
 
 const API_MAX_CONCURRENT_REQUESTS = 4;
 const API_REQUEST_SPACING_MS = 120;
@@ -208,6 +215,7 @@ export function setSessionExpiredHandler(handler: (() => void) | null): void {
 }
 
 export function setAccessToken(token: string | null): void {
+  if (accessToken !== token) sessionGeneration += 1;
   accessToken = token;
 }
 /** Cookie tabanlı oturum yenileme — gövdesiz POST (Fastify boş JSON reddeder). */
@@ -239,8 +247,116 @@ async function tryRefresh(): Promise<string | null> {
   return refreshing;
 }
 
-async function request<T>(method: string, path: string, body?: unknown, opts: RequestOpts<T> = {}): Promise<T> {
-  const { schema, ...init } = opts;
+const DEDUPED_MUTATION_METHODS = new Set(['POST', 'PATCH', 'PUT', 'DELETE']);
+const MUTATION_SUCCESS_RETENTION_MS = 1_000;
+
+/**
+ * Eşzamanlı aynı işi tek Promise altında birleştirir. Başarılı sonuç kısa bir
+ * süre tutulur; böylece çok hızlı yanıtlanan bir isteğin hemen arkasından gelen
+ * ikinci çift-tıklama da sunucuya ulaşmaz. Hatalar bekletilmez ve kullanıcı
+ * anında yeniden deneyebilir.
+ */
+export class SingleFlightRequestStore {
+  private readonly requests = new Map<string, Promise<unknown>>();
+
+  constructor(private readonly successRetentionMs = 0) {}
+
+  run<T>(key: string, task: () => Promise<T>): Promise<T> {
+    const existing = this.requests.get(key);
+    if (existing) return existing as Promise<T>;
+
+    let pending: Promise<T>;
+    try {
+      pending = task();
+    } catch (error) {
+      return Promise.reject(error);
+    }
+
+    this.requests.set(key, pending);
+    pending.then(
+      () => {
+        if (this.successRetentionMs <= 0) {
+          if (this.requests.get(key) === pending) this.requests.delete(key);
+          return;
+        }
+        globalThis.setTimeout(() => {
+          if (this.requests.get(key) === pending) this.requests.delete(key);
+        }, this.successRetentionMs);
+      },
+      () => {
+        if (this.requests.get(key) === pending) this.requests.delete(key);
+      },
+    );
+    return pending;
+  }
+}
+
+function stableJsonValue(value: unknown, ancestors = new WeakSet<object>()): unknown {
+  if (value instanceof Date) return value.toJSON();
+  if (Array.isArray(value)) {
+    if (ancestors.has(value)) throw new TypeError('Döngüsel istek gövdesi tekilleştirilemez');
+    ancestors.add(value);
+    const normalized = value.map((item) => stableJsonValue(item, ancestors));
+    ancestors.delete(value);
+    return normalized;
+  }
+  if (value && typeof value === 'object' && (Object.getPrototypeOf(value) === Object.prototype || Object.getPrototypeOf(value) === null)) {
+    if (ancestors.has(value)) throw new TypeError('Döngüsel istek gövdesi tekilleştirilemez');
+    ancestors.add(value);
+    const normalized = Object.keys(value)
+      .sort()
+      .reduce<Record<string, unknown>>((result, key) => {
+        const item = (value as Record<string, unknown>)[key];
+        if (item !== undefined) result[key] = stableJsonValue(item, ancestors);
+        return result;
+      }, {});
+    ancestors.delete(value);
+    return normalized;
+  }
+  return value;
+}
+
+function normalizedHeaders(headers?: HeadersInit): Array<[string, string]> {
+  if (!headers) return [];
+  return Array.from(new Headers(headers).entries()).sort(([a], [b]) => a.localeCompare(b));
+}
+
+export function buildMutationDedupeKey({
+  method,
+  url,
+  body,
+  headers,
+  scope,
+}: {
+  method: string;
+  url: string;
+  body?: unknown;
+  headers?: HeadersInit;
+  scope: string;
+}): string | null {
+  const normalizedMethod = method.toUpperCase();
+  if (!DEDUPED_MUTATION_METHODS.has(normalizedMethod)) return null;
+  if (typeof FormData !== 'undefined' && body instanceof FormData) return null;
+
+  try {
+    return JSON.stringify([
+      normalizedMethod,
+      url,
+      scope,
+      normalizedHeaders(headers),
+      body === undefined ? { __requestBody: 'undefined' } : stableJsonValue(body),
+    ]);
+  } catch {
+    // Döngüsel/özel gövdelerde mevcut davranışı koru; fetch yine normal hata
+    // yönetiminden geçer, yalnızca tekilleştirme uygulanmaz.
+    return null;
+  }
+}
+
+const mutationRequests = new SingleFlightRequestStore(MUTATION_SUCCESS_RETENTION_MS);
+
+async function executeRequest<T>(method: string, path: string, body?: unknown, opts: RequestOpts<T> = {}): Promise<T> {
+  const { schema, dedupe: _dedupe, ...init } = opts;
   const url = path.startsWith('http') ? path : `${BASE_URL}${path}`;
   const headers: Record<string, string> = { Accept: 'application/json', ...(init.headers as Record<string, string>) };
   if (body !== undefined && !(body instanceof FormData)) headers['Content-Type'] = 'application/json';
@@ -319,6 +435,22 @@ async function request<T>(method: string, path: string, body?: unknown, opts: Re
     throw new ApiError(res.status, 'CONTRACT_VIOLATION', 'Sunucu yanıtı beklenen biçimde değil', parsed.error.issues);
   }
   return (await res.text()) as T;
+}
+
+function request<T>(method: string, path: string, body?: unknown, opts: RequestOpts<T> = {}): Promise<T> {
+  const url = path.startsWith('http') ? path : `${BASE_URL}${path}`;
+  const dedupeKey = opts.dedupe === false || opts.signal
+    ? null
+    : buildMutationDedupeKey({
+        method,
+        url,
+        body,
+        headers: opts.headers,
+        scope: `${sessionGeneration}:${activeDivision ?? ''}:${activeDepartment ?? ''}`,
+      });
+
+  if (!dedupeKey) return executeRequest(method, path, body, opts);
+  return mutationRequests.run(dedupeKey, () => executeRequest(method, path, body, opts));
 }
 
 export const api: ApiClient = {

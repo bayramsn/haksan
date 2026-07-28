@@ -4,6 +4,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const agentAssetSegments = new Set(['.agents', '.claude']);
 const files = execFileSync(
   'git',
   ['ls-files', '-co', '--exclude-standard', '-z'],
@@ -11,7 +12,11 @@ const files = execFileSync(
 )
   .toString('utf8')
   .split('\0')
-  .filter(Boolean);
+  .filter(Boolean)
+  // Local agent skill bundles contain adversarial credential-shaped fixtures
+  // and are excluded from every production Docker context. Scan application
+  // sources and deploy artifacts, not the agent runtime's own test corpus.
+  .filter((path) => !path.split('/').some((segment) => agentAssetSegments.has(segment)));
 
 const patterns = [
   { label: 'private key', expression: /-----BEGIN (?:[A-Z ]+ )?PRIVATE KEY-----/ },

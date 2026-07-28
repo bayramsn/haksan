@@ -50,6 +50,12 @@
     "@nestjs/websockets": "^11.1.27"
   },
   "overrides": {
-    "vite": "6.4.3"
+    "vite": "6.4.3",
+    "find-my-way": "9.7.0",
+    "gaxios": "7.3.0",
+    "exceljs": {
+      "archiver": "8.0.0",
+      "unzipper": "0.12.5"
+    }
   }
 }

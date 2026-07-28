@@ -26,6 +26,12 @@ afterAll(async () => {
 });
 
 describe('File upload', () => {
+  it('lets document images load without a bearer token while hiding unknown media', async () => {
+    const response = await supertest(app.getHttpServer())
+      .get('/api/v1/products/media/00000000-0000-4000-8000-000000000000');
+    expect(response.status).toBe(404);
+  });
+
   it('rejects an EXE upload intent', async () => {
     const r = await supertest(app.getHttpServer())
       .post('/api/v1/files/signed-upload-url')

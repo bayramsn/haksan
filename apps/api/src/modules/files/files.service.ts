@@ -25,7 +25,11 @@ import {
   resourceDivisionFilter,
   resourceDivisionFilterWithShared,
 } from '../../shared/utils/division-scope';
-import { companyVisibilityExistsFilter, companyVisibilityFilter } from '../../shared/utils/company-visibility';
+import {
+  allowUnlinkedCompanyRecords,
+  companyVisibilityExistsFilter,
+  companyVisibilityFilter,
+} from '../../shared/utils/company-visibility';
 
 @Injectable()
 export class FilesService {
@@ -50,7 +54,7 @@ export class FilesService {
               eq(companies.tenantId, actor.tenantId),
               isNull(companies.deletedAt),
               resourceCompanyPortfolioFilter(actor, 'companies', companies.id) ?? sql`true`,
-              visibility ?? sql`true`
+              allowUnlinkedCompanyRecords(opportunities.companyId, visibility)
             )
           )
           .limit(1);

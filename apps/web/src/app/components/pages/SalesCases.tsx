@@ -13,7 +13,14 @@ import { KanbanPage } from "./Kanban";
 import { FilterPopover, usePaged, Pager } from "../ui/list-controls";
 import { ExportExcelButton } from "../ui/ExportExcelButton";
 import { LeadCaptureDialog } from "../dialogs/LeadCaptureDialog";
-import { type OperationFocus } from "../../lib/operations";
+import { TrelloCsvImportDialog } from "../dialogs/TrelloCsvImportDialog";
+import { type OperationAction, type OperationFocus } from "../../lib/operations";
+import {
+  LEAD_TEMPERATURE_HINTS,
+  LEAD_TEMPERATURE_LABELS,
+  LEAD_TEMPERATURE_ORDER,
+  LEAD_TEMPERATURE_STYLES,
+} from "../../lib/mock";
 import { EntityVisual } from "../shared/PremiumPrimitives";
 import { EmptyState } from "../shared/EmptyState";
 import {
@@ -22,15 +29,23 @@ import {
 } from "../ui/alert-dialog";
 
 const initials = (n: string) => (n || "—").split(" ").slice(0, 2).map((p) => p[0]).join("").toUpperCase();
+const salesCasePartyName = (salesCase: SalesCase, company?: { name?: string } | null) =>
+  company?.name ||
+  salesCase.externalMetadata?.candidate?.companyTitle ||
+  salesCase.leadCompanyTitle ||
+  salesCase.leadContactName ||
+  "Firma kaydı bekliyor";
 
 export function SalesCasesPage({
   onSelect,
-  initialView = "kanban",
+  initialView = "list",
   focus,
+  onAction,
 }: {
   onSelect: (s: SalesCase) => void;
   initialView?: "list" | "kanban";
   focus?: OperationFocus;
+  onAction?: (action: OperationAction) => void;
 }) {
   const { cases: salesCases, closedCases, customers, users, activities, products, closeCase, reopenCase } = useStore();
   const [view, setView] = useState<"list" | "kanban" | "archive">(initialView);
@@ -59,6 +74,8 @@ export function SalesCasesPage({
   const [q, setQ] = useState("");
   const [stage, setStage] = useState("all");
   const [currency, setCurrency] = useState("all");
+  const [companyResolution, setCompanyResolution] = useState("all");
+  const [temperature, setTemperature] = useState("all");
   const [nameSort, setNameSort] = useState<"asc" | "desc" | null>(null);
 
   const focusOpen = focus === "open" || focus === "today";
@@ -70,15 +87,29 @@ export function SalesCasesPage({
     if (focusLost && !(s.isLost || String(s.stage) === "Lost")) return false;
     if (stage !== "all" && s.stage !== stage) return false;
     if (currency !== "all" && s.currency !== currency) return false;
+    if (companyResolution === "pending" && s.customerId) return false;
+    if (companyResolution === "resolved" && !s.customerId) return false;
+    if (temperature !== "all" && (s.leadTemperature ?? "unknown") !== temperature) return false;
     const c = customers.find((x) => x.id === s.customerId);
-    return (c?.name ?? "").toLowerCase().includes(q.toLowerCase()) || s.requestedProduct.toLowerCase().includes(q.toLowerCase());
+    const query = q.toLocaleLowerCase("tr-TR");
+    return [
+      c?.name,
+      s.leadCompanyTitle,
+      s.leadContactName,
+      s.leadContactValue,
+      s.leadPhone,
+      s.leadEmail,
+      s.leadCity,
+      s.externalMetadata?.candidate?.companyTitle,
+      s.requestedProduct,
+    ].some((value) => (value ?? "").toLocaleLowerCase("tr-TR").includes(query));
   });
 
   const sorted = useMemo(() => {
     if (!nameSort) return filtered;
     return [...filtered].sort((a, b) => {
-      const an = (customers.find((x) => x.id === a.customerId)?.name ?? "").localeCompare(
-        customers.find((x) => x.id === b.customerId)?.name ?? "",
+      const an = salesCasePartyName(a, customers.find((x) => x.id === a.customerId)).localeCompare(
+        salesCasePartyName(b, customers.find((x) => x.id === b.customerId)),
         "tr"
       );
       return nameSort === "asc" ? an : -an;
@@ -117,8 +148,8 @@ export function SalesCasesPage({
   return (
     <Tabs value={view} onValueChange={(v) => setView(v as "list" | "kanban" | "archive")} className="space-y-4">
       <TabsList>
-        <TabsTrigger value="kanban">Kanban</TabsTrigger>
         <TabsTrigger value="list">Liste</TabsTrigger>
+        <TabsTrigger value="kanban">Kanban</TabsTrigger>
         <TabsTrigger value="archive">Geçmiş{closedCases.length ? ` (${closedCases.length})` : ""}</TabsTrigger>
       </TabsList>
       <div className="flex items-center justify-between gap-3 flex-wrap">
@@ -126,7 +157,7 @@ export function SalesCasesPage({
           <div className="relative w-full sm:w-72">
             <Search className="size-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
             <Input
-              placeholder="Müşteri / ürün ara..."
+              placeholder="Firma / kontak / ürün ara..."
               className="pl-9 h-9 bg-white"
               value={q}
               onChange={(e) => setQ(e.target.value)}
@@ -136,6 +167,24 @@ export function SalesCasesPage({
             filters={[
               { label: "Aşama", value: stage, onChange: setStage, options: stageOptions },
               { label: "Para Birimi", value: currency, onChange: setCurrency, options: currencyOptions },
+              {
+                label: "Firma Kararı",
+                value: companyResolution,
+                onChange: setCompanyResolution,
+                options: [
+                  { value: "pending", label: "Firma kararı bekliyor" },
+                  { value: "resolved", label: "Firma bağlı" },
+                ],
+              },
+              {
+                label: "Alım Niyeti",
+                value: temperature,
+                onChange: setTemperature,
+                options: LEAD_TEMPERATURE_ORDER.map((code) => ({
+                  value: code,
+                  label: `${LEAD_TEMPERATURE_LABELS[code]} · ${LEAD_TEMPERATURE_HINTS[code]}`,
+                })),
+              },
             ]}
           />
           {focusOpen && (
@@ -156,12 +205,13 @@ export function SalesCasesPage({
         </div>
         <div className="flex items-center gap-2">
           <LeadCaptureDialog />
+          <TrelloCsvImportDialog />
           <ExportExcelButton path="/exports/opportunities" filename="satis-kartlari.xlsx" params={exportParams} className="h-9" />
         </div>
       </div>
 
       <TabsContent value="kanban" className="mt-0">
-        <KanbanPage onSelect={onSelect} items={sorted} />
+        <KanbanPage onSelect={onSelect} items={sorted} onAction={onAction} />
       </TabsContent>
       <TabsContent value="list" className="mt-0 space-y-4">
 
@@ -175,9 +225,9 @@ export function SalesCasesPage({
                     type="button"
                     className="inline-flex items-center gap-1 hover:text-foreground"
                     onClick={() => setNameSort((s) => (s === "asc" ? "desc" : "asc"))}
-                    aria-label="Müşteriye göre sırala"
+                    aria-label="Firma veya kontağa göre sırala"
                   >
-                    Müşteri <ArrowUpDown className="size-3" />
+                    Firma / Kontak <ArrowUpDown className="size-3" />
                   </button>
                 </TableHead>
                 <TableHead className="text-right">Tutar</TableHead>
@@ -195,14 +245,38 @@ export function SalesCasesPage({
                 const product = products.find((item) => item.model === s.requestedModel || item.modelName === s.requestedModel);
                 const nextActivity = nextActivityFor(s.id);
                 const risk = riskFor(s);
+                const partyName = salesCasePartyName(s, c);
+                const temp = s.leadTemperature ?? "unknown";
+                const contactLine =
+                  [s.leadContactMethodName, s.leadPhone, s.leadEmail].filter(Boolean).join(" · ") ||
+                  [s.leadContactMethodName, s.leadContactValue].filter(Boolean).join(" · ");
                 return (
                   <TableRow key={s.id} className="cursor-pointer group" onClick={() => onSelect(s)}>
                     <TableCell className="sticky left-0 z-10 border-r border-border/60 bg-white group-hover:bg-[#f8f9fc]">
                       <div className="flex items-center gap-3 min-w-0">
                         <EntityVisual size="sm" title={s.requestedModel || s.requestedProduct} imageUrl={product?.imageUrl} icon={<Cpu className="size-4" />} />
                         <div className="min-w-0">
-                          <div className="text-sm font-semibold leading-tight truncate group-hover:text-primary transition-colors">{c?.name ?? "Firma bulunamadı"}</div>
-                          <div className="text-[11px] text-muted-foreground truncate mt-0.5">{s.requestedProduct} · {s.requestedModel} · {s.quantity} adet</div>
+                          <div className="flex min-w-0 items-center gap-1.5">
+                            <div className="truncate text-sm font-semibold leading-tight transition-colors group-hover:text-primary">{partyName}</div>
+                            {!c && <span className="shrink-0 rounded bg-warning-soft px-1.5 py-0.5 text-[9px] text-warning">Lead</span>}
+                            <span
+                              className={`inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-[9px] font-medium ${LEAD_TEMPERATURE_STYLES[temp].badge}`}
+                              title={`Alım niyeti: ${LEAD_TEMPERATURE_HINTS[temp]}`}
+                            >
+                              <span className={`size-1.5 rounded-full ${LEAD_TEMPERATURE_STYLES[temp].dot}`} />
+                              {LEAD_TEMPERATURE_LABELS[temp]}
+                            </span>
+                          </div>
+                          <div className="mt-0.5 truncate text-[11px] text-muted-foreground">
+                            {s.leadContactName && s.leadContactName !== partyName ? `${s.leadContactName} · ` : ""}
+                            {s.requestedProduct} · {s.requestedModel} · {s.quantity} adet
+                          </div>
+                          {contactLine && (
+                            <div className="mt-0.5 truncate text-[10px] text-muted-foreground">{contactLine}</div>
+                          )}
+                          {(s.leadCity || c?.city) && (
+                            <div className="mt-0.5 truncate text-[10px] text-muted-foreground">{c?.city ?? s.leadCity}</div>
+                          )}
                           <div className="font-data text-[9px] uppercase tracking-wide text-muted-foreground/80">#{s.id.toUpperCase()}</div>
                         </div>
                       </div>
@@ -291,7 +365,7 @@ export function SalesCasesPage({
                               <Building2 className="size-4" />
                             </div>
                             <div className="min-w-0">
-                              <div className="text-sm leading-tight truncate group-hover:text-primary transition-colors">{c?.name ?? "Firma bulunamadı"}</div>
+                              <div className="text-sm leading-tight truncate group-hover:text-primary transition-colors">{salesCasePartyName(s, c)}</div>
                               <div className="text-[11px] text-muted-foreground truncate mt-0.5">#{s.id.toUpperCase()}</div>
                             </div>
                           </div>
@@ -327,7 +401,7 @@ export function SalesCasesPage({
       </TabsContent>
 
       <AlertDialog open={!!pendingClose} onOpenChange={(open) => !open && !busyId && setPendingClose(null)}>
-        <AlertDialogContent className="max-w-lg"><AlertDialogHeader><AlertDialogTitle>Satış kartı tamamlanıp arşivlensin mi?</AlertDialogTitle><AlertDialogDescription><span className="block font-medium text-foreground">{pendingClose ? customers.find((customer) => customer.id === pendingClose.customerId)?.name : "Satış kartı"} · {pendingClose?.requestedModel || pendingClose?.requestedProduct}</span>Kart silinmez; “Geçmiş” görünümüne taşınır. Teklif, proforma, sözleşme ve aktiviteler korunur.</AlertDialogDescription></AlertDialogHeader>{pendingClose && <div className="rounded-lg border border-primary/10 bg-brand-blue-soft/50 p-3 text-xs"><div className="font-display text-lg font-semibold text-primary">{pendingClose.estimatedAmount.toLocaleString("tr-TR")} {pendingClose.currency}</div><div className="mt-1 text-muted-foreground">Aşama: {salesStageLabel(pendingClose.stage)}</div></div>}<AlertDialogFooter><AlertDialogCancel>Vazgeç</AlertDialogCancel><AlertDialogAction disabled={!!busyId} onClick={(event) => { event.preventDefault(); if (pendingClose) void onClose(pendingClose.id); }}>{busyId ? "Arşivleniyor…" : "Tamamla ve Arşivle"}</AlertDialogAction></AlertDialogFooter></AlertDialogContent>
+        <AlertDialogContent className="max-w-lg"><AlertDialogHeader><AlertDialogTitle>Satış kartı tamamlanıp arşivlensin mi?</AlertDialogTitle><AlertDialogDescription><span className="block font-medium text-foreground">{pendingClose ? salesCasePartyName(pendingClose, customers.find((customer) => customer.id === pendingClose.customerId)) : "Satış kartı"} · {pendingClose?.requestedModel || pendingClose?.requestedProduct}</span>Kart silinmez; “Geçmiş” görünümüne taşınır. Teklif, proforma, sözleşme ve aktiviteler korunur.</AlertDialogDescription></AlertDialogHeader>{pendingClose && <div className="rounded-lg border border-primary/10 bg-brand-blue-soft/50 p-3 text-xs"><div className="font-display text-lg font-semibold text-primary">{pendingClose.estimatedAmount.toLocaleString("tr-TR")} {pendingClose.currency}</div><div className="mt-1 text-muted-foreground">Aşama: {salesStageLabel(pendingClose.stage)}</div></div>}<AlertDialogFooter><AlertDialogCancel>Vazgeç</AlertDialogCancel><AlertDialogAction disabled={!!busyId} onClick={(event) => { event.preventDefault(); if (pendingClose) void onClose(pendingClose.id); }}>{busyId ? "Arşivleniyor…" : "Tamamla ve Arşivle"}</AlertDialogAction></AlertDialogFooter></AlertDialogContent>
       </AlertDialog>
     </Tabs>
   );

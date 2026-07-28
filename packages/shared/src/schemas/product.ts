@@ -71,6 +71,82 @@ export const productSpecTemplateBulkCreateSchema = z.object({
 });
 export type ProductSpecTemplateBulkCreateInput = z.infer<typeof productSpecTemplateBulkCreateSchema>;
 
+export const productSpecTemplateBatchItemSchema = productSpecTemplateCreateSchema.extend({
+  id: z.string().uuid().optional(),
+});
+
+export const productSpecTemplateBatchSchema = z.object({
+  items: z.array(productSpecTemplateBatchItemSchema).min(1).max(1000),
+});
+export type ProductSpecTemplateBatchInput = z.infer<typeof productSpecTemplateBatchSchema>;
+
+export const technicalImportModeSchema = z.enum(['template_fields', 'machine_data']);
+export type TechnicalImportMode = z.infer<typeof technicalImportModeSchema>;
+
+export const technicalImportAvailableFieldSchema = z.object({
+  key: z.string().trim().min(1).max(255),
+  groupCode: z.string().trim().max(64).optional(),
+  unit: z.string().trim().max(64).optional(),
+});
+export type TechnicalImportAvailableField = z.infer<typeof technicalImportAvailableFieldSchema>;
+
+export const technicalImportPreviewRequestSchema = z.object({
+  fileName: z.string().trim().min(1).max(255),
+  mimeType: z.string().trim().max(128).optional(),
+  // 10 MB ham dosya, base64 kodlamasında yaklaşık 13,4 MB olur.
+  fileBase64: z.string().min(1).max(15_000_000),
+  mode: technicalImportModeSchema,
+  productTypeCode: z.string().trim().min(1).max(64),
+  divisionId: z.string().uuid().nullish(),
+  availableFields: z.array(technicalImportAvailableFieldSchema).min(1).max(1000),
+});
+export type TechnicalImportPreviewRequest = z.infer<typeof technicalImportPreviewRequestSchema>;
+
+export const technicalImportMatchStatusSchema = z.enum(['exact', 'normalized', 'review', 'unmatched']);
+export type TechnicalImportMatchStatus = z.infer<typeof technicalImportMatchStatusSchema>;
+
+export const technicalImportRowSchema = z.object({
+  rowNumber: z.coerce.number().int().positive(),
+  sheetName: z.string().trim().min(1).max(31),
+  section: z.string().trim().max(128).default('GENEL'),
+  sourceKey: z.string().trim().min(1).max(255),
+  sourceValue: z.string().trim().max(2000).default(''),
+  sourceUnit: z.string().trim().max(64).default(''),
+  targetKey: z.string().trim().max(255).default(''),
+  targetGroupCode: z.string().trim().max(64).default('GENEL'),
+  targetUnit: z.string().trim().max(64).default(''),
+  matchStatus: technicalImportMatchStatusSchema,
+  include: z.boolean().default(true),
+});
+export type TechnicalImportRowInput = z.infer<typeof technicalImportRowSchema>;
+
+export const technicalImportCommitRequestSchema = z
+  .object({
+    mode: technicalImportModeSchema,
+    productTypeCode: z.string().trim().min(1).max(64),
+    divisionId: z.string().uuid().nullish(),
+    targetProductId: z.string().uuid().nullish(),
+    confirmedTarget: z.boolean().default(false),
+    rows: z.array(technicalImportRowSchema).min(1).max(5000),
+  })
+  .superRefine((value, ctx) => {
+    if (value.mode === 'machine_data' && (!value.targetProductId || !value.confirmedTarget)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['targetProductId'],
+        message: 'Makine verisi aktarımında hedef makine kullanıcı tarafından onaylanmalıdır',
+      });
+    }
+    if (!value.rows.some((row) => row.include && row.targetKey)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['rows'],
+        message: 'Aktarılacak en az bir eşleşmiş teknik satır olmalıdır',
+      });
+    }
+  });
+export type TechnicalImportCommitRequest = z.infer<typeof technicalImportCommitRequestSchema>;
+
 export const productEquipmentCreateSchema = z.object({
   equipmentTypeCode: z.string().max(64),
   title: z.string().min(1).max(255),

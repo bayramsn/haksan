@@ -15,13 +15,26 @@ export const opportunityPaymentMethodEnum = z.enum([
 ]);
 export type OpportunityPaymentMethod = z.infer<typeof opportunityPaymentMethodEnum>;
 
-export const opportunityCreateSchema = z.object({
-  companyId: z.string().min(1),
+// Lead sıcaklığı — firmanın alım niyeti. Satış ekibi kartı açmadan önceliklendirir.
+export const leadTemperatureEnum = z.enum(['hot', 'waiting', 'cold', 'unknown']);
+export type LeadTemperature = z.infer<typeof leadTemperatureEnum>;
+
+const opportunityInputSchema = z.object({
+  companyId: z.string().min(1).nullish(),
   divisionId: z.string().uuid().optional(),
-  primaryContactId: z.string().min(1).optional(),
+  primaryContactId: z.string().min(1).nullish(),
   ownerUserId: z.string().min(1).optional(),
   title: z.string().min(1).max(255),
   description: z.string().max(4000).optional(),
+  // Firma kaydı henüz açılmamış hızlı lead bilgileri. Firma bağlandıktan sonra
+  // geçmiş/bağlam olarak satış kartında korunur.
+  leadContactName: z.string().trim().min(1).max(255).nullish(),
+  leadCompanyTitle: z.string().trim().max(255).nullish(),
+  leadContactValue: z.string().trim().max(320).nullish(),
+  leadCity: z.string().trim().max(120).nullish(),
+  leadPhone: z.string().trim().max(64).nullish(),
+  leadEmail: z.string().trim().max(254).nullish(),
+  leadTemperature: leadTemperatureEnum.nullish(),
   estimatedValue: moneySchema.optional(),
   currencyCode: z.string().max(8).default('USD'),
   probability: z.coerce.number().int().min(0).max(100).default(50),
@@ -34,10 +47,118 @@ export const opportunityCreateSchema = z.object({
   // Kazanılan fırsat için kabul/kazanma nedeni (yıl sonu raporu).
   wonReason: z.string().max(255).nullish(),
 });
+
+export const opportunityCreateSchema = opportunityInputSchema.superRefine((value, context) => {
+  if (!value.companyId && !value.leadContactName?.trim()) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'Firma seçilmediyse kontak ismi zorunludur.',
+      path: ['leadContactName'],
+    });
+  }
+});
 export type OpportunityCreateInput = z.infer<typeof opportunityCreateSchema>;
 
-export const opportunityUpdateSchema = opportunityCreateSchema.partial();
+export const trelloImportPreviewRequestSchema = z.object({
+  fileName: z
+    .string()
+    .trim()
+    .min(1)
+    .max(255)
+    .refine((value) => value.toLocaleLowerCase('tr-TR').endsWith('.csv'), 'Yalnızca .csv dosyası desteklenir'),
+  // 2 MB ham dosyanın Base64 karşılığı için güvenli üst sınır.
+  fileBase64: z.string().min(1).max(3_000_000),
+});
+export type TrelloImportPreviewRequest = z.infer<typeof trelloImportPreviewRequestSchema>;
+
+export const trelloImportRowSchema = z
+  .object({
+    rowNumber: z.coerce.number().int().positive(),
+    trelloCardId: z.string().trim().max(128).optional(),
+    externalReference: z.string().trim().min(1).max(320),
+    title: z.string().trim().min(1).max(255),
+    description: z.string().trim().max(3200).optional(),
+    boardName: z.string().trim().max(255).optional(),
+    listName: z.string().trim().max(255).optional(),
+    cardUrl: z.string().url().max(512).optional(),
+    labels: z.string().trim().max(1000).optional(),
+    members: z.string().trim().max(1000).optional(),
+    dueAt: z.string().datetime().optional(),
+    trelloCreatedAt: z.string().datetime().optional(),
+    archived: z.boolean().default(false),
+    stageCode: pipelineStageEnum.default('lead'),
+  })
+  .superRefine((value, context) => {
+    if (!value.trelloCardId && !value.cardUrl) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Trello kart kimliği veya kart bağlantısı zorunludur.',
+        path: ['trelloCardId'],
+      });
+    }
+  });
+export type TrelloImportRowInput = z.infer<typeof trelloImportRowSchema>;
+
+export const trelloCompanyCandidateSchema = z.object({
+  companyTitle: z.string().trim().min(1).max(255),
+  locationHint: z.string().trim().max(160).optional(),
+  province: z.string().trim().max(64).optional(),
+  district: z.string().trim().max(64).optional(),
+  contactName: z.string().trim().max(255).optional(),
+  phone: z
+    .string()
+    .trim()
+    .max(32)
+    .refine((value) => value.replace(/\D/g, '').length >= 7, 'Telefon en az 7 rakam içermelidir')
+    .optional(),
+  email: z.string().trim().email().max(254).optional(),
+  website: z.string().trim().url().max(512).optional(),
+  taxNumber: z.string().trim().max(32).optional(),
+});
+export type TrelloCompanyCandidate = z.infer<typeof trelloCompanyCandidateSchema>;
+
+export const trelloCompanyResolutionSchema = z.discriminatedUnion('action', [
+  z.object({
+    action: z.literal('existing'),
+    companyId: z.string().uuid(),
+    primaryContactId: z.string().uuid().optional(),
+    createContact: z.boolean().default(false),
+    addSecondaryPhone: z.boolean().default(false),
+    addSecondaryEmail: z.boolean().default(false),
+  }),
+  z.object({
+    action: z.literal('create'),
+    createContact: z.boolean().default(false),
+  }),
+  z.object({
+    action: z.literal('skip'),
+  }),
+]);
+export type TrelloCompanyResolution = z.infer<typeof trelloCompanyResolutionSchema>;
+
+export const trelloResolvedImportRowSchema = trelloImportRowSchema.and(
+  z.object({
+    candidate: trelloCompanyCandidateSchema,
+    resolution: trelloCompanyResolutionSchema,
+  })
+);
+export type TrelloResolvedImportRowInput = z.infer<typeof trelloResolvedImportRowSchema>;
+
+export const trelloImportCommitRequestSchema = z.object({
+  divisionId: z.string().uuid(),
+  currencyCode: z.enum(['USD', 'EUR', 'TRY', 'GBP']).default('EUR'),
+  rows: z.array(trelloResolvedImportRowSchema).min(1).max(500),
+});
+export type TrelloImportCommitRequest = z.infer<typeof trelloImportCommitRequestSchema>;
+
+export const opportunityUpdateSchema = opportunityInputSchema.partial();
 export type OpportunityUpdateInput = z.infer<typeof opportunityUpdateSchema>;
+
+export const opportunityCompanyLinkSchema = z.object({
+  companyId: z.string().uuid(),
+  createContact: z.boolean().default(true),
+});
+export type OpportunityCompanyLinkInput = z.infer<typeof opportunityCompanyLinkSchema>;
 
 export const opportunityStageChangeSchema = z
   .object({
@@ -92,7 +213,7 @@ export type CallCreateInput = z.infer<typeof callCreateSchema>;
 
 export const activityCreateSchema = z.object({
   opportunityId: z.string().optional(),
-  companyId: z.string().min(1),
+  companyId: z.string().min(1).optional(),
   contactId: z.string().optional(),
   activityTypeCode: z.string().max(64),
   subject: z.string().min(1).max(255),

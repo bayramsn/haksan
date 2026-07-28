@@ -8,14 +8,14 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
  */
 const touchedEnvKeys = new Map<string, string | undefined>();
 
-async function buildService(env: Record<string, string>) {
+async function buildService(env: Record<string, string>, db: unknown = {}) {
   vi.resetModules();
   for (const [key, value] of Object.entries(env)) {
     if (!touchedEnvKeys.has(key)) touchedEnvKeys.set(key, process.env[key]);
     process.env[key] = value;
   }
   const { AssistantService } = await import('../src/modules/assistant/assistant.service');
-  return new AssistantService({} as never, {} as never, {} as never, {} as never, {} as never, {} as never, {} as never, {} as never);
+  return new AssistantService(db as never, {} as never, {} as never, {} as never, {} as never, {} as never, {} as never, {} as never);
 }
 
 afterEach(() => {
@@ -28,6 +28,66 @@ afterEach(() => {
 });
 
 describe('Assistant LLM providers', () => {
+  it('kullanıcıya özel günlük USD bütçesinde üst maliyeti çağrıdan önce rezerve eder', async () => {
+    let inserted: Record<string, unknown> | undefined;
+    const returning = vi.fn(async () => [{ id: 'reservation-id' }]);
+    const onConflictDoUpdate = vi.fn(() => ({ returning }));
+    const values = vi.fn((row: Record<string, unknown>) => {
+      inserted = row;
+      return { onConflictDoUpdate };
+    });
+    const db = {
+      query: { users: { findFirst: vi.fn(async () => ({ assistantDailyUsdLimitCents: 50 })) } },
+      insert: vi.fn(() => ({ values })),
+    };
+    const service = await buildService(
+      {
+        ASSISTANT_LLM_PROVIDER: 'nvidia',
+        ASSISTANT_MODEL: 'qwen/qwen3-next-80b-a3b-instruct',
+        ASSISTANT_API_KEY: 'test-nvidia-key-123456',
+        ASSISTANT_DAILY_TOKEN_BUDGET: '50000',
+        ASSISTANT_INPUT_USD_PER_MILLION_TOKENS: '0.10',
+        ASSISTANT_OUTPUT_USD_PER_MILLION_TOKENS: '0.40',
+      },
+      db
+    );
+    const actor = {
+      tenantId: '11111111-1111-4111-8111-111111111111',
+      userId: '22222222-2222-4222-8222-222222222222',
+    };
+
+    const reservation = await (service as never as {
+      reserveDailyBudget: (actor: unknown, tokens: number) => Promise<{ tokens: number; costMicros: number } | null>;
+    }).reserveDailyBudget(actor, 1_000);
+
+    expect(reservation).toMatchObject({ tokens: 1_000, costMicros: 400 });
+    expect(inserted).toMatchObject({ reservedTokens: 1_000, reservedCostMicros: 400 });
+    expect(onConflictDoUpdate).toHaveBeenCalledTimes(1);
+  });
+
+  it('kullanıcının USD limiti 0 ise ücretli LLM rezervasyonunu reddeder', async () => {
+    const insert = vi.fn();
+    const db = {
+      query: { users: { findFirst: vi.fn(async () => ({ assistantDailyUsdLimitCents: 0 })) } },
+      insert,
+    };
+    const service = await buildService(
+      {
+        ASSISTANT_LLM_PROVIDER: 'nvidia',
+        ASSISTANT_MODEL: 'qwen/qwen3-next-80b-a3b-instruct',
+        ASSISTANT_API_KEY: 'test-nvidia-key-123456',
+      },
+      db
+    );
+
+    const reservation = await (service as never as {
+      reserveDailyBudget: (actor: unknown, tokens: number) => Promise<unknown>;
+    }).reserveDailyBudget({ tenantId: 'tenant', userId: 'user' }, 1_000);
+
+    expect(reservation).toBeNull();
+    expect(insert).not.toHaveBeenCalled();
+  });
+
   it('NVIDIA NIM OpenAI uyumlu endpointini güvenli CRM ayarlarıyla çağırır', async () => {
     const service = await buildService({
       ASSISTANT_LLM_PROVIDER: 'nvidia',

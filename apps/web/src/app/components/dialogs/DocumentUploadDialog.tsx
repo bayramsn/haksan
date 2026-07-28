@@ -83,7 +83,7 @@ export function DocumentUploadDialog({
 }) {
   const { cases, customers, addDocument } = useStore();
   const inputRef = useRef<HTMLInputElement>(null);
-  const initialScope = defaultSalesCaseId ? "case" : defaultCompanyId ? "company" : "case";
+  const initialScope = defaultSalesCaseId ? "case" : "company";
   const [internalOpen, setInternalOpen] = useState(false);
   const open = controlledOpen ?? internalOpen;
   const setOpen = (next: boolean) => {
@@ -127,7 +127,11 @@ export function DocumentUploadDialog({
       return;
     }
     if (!entityId) {
-      toast.error("Bağlantı seçin", { description: "Dokümanı bir satış kartına veya firmaya bağlayın." });
+      toast.error(scope === "company" ? "Firma seçin" : "Satış kartı seçin", {
+        description: scope === "company"
+          ? "Doküman eklemek için satış kartı gerekmez; yalnızca ilgili firmayı seçin."
+          : "Satış kartı bağlantısı isteğe bağlıdır; dilerseniz Firma sekmesini kullanın.",
+      });
       return;
     }
     if (file.size > 25 * 1024 * 1024) {
@@ -193,18 +197,18 @@ export function DocumentUploadDialog({
             <Upload className="size-5 text-primary" />
             Doküman Yükle
           </DialogTitle>
-          <DialogDescription>Dosyayı satış kartına veya firmaya bağlayın.</DialogDescription>
+          <DialogDescription>Dosyayı doğrudan firmaya ekleyin; satış kartı isteğe bağlıdır.</DialogDescription>
         </DialogHeader>
 
         <form onSubmit={submit} className="flex min-h-0 flex-col">
           <div className="max-h-[calc(90dvh-150px)] overflow-y-auto px-5 py-4 space-y-4">
             {!lockedRelation && (
               <div className="grid grid-cols-2 gap-2">
-                <Button type="button" variant={scope === "case" ? "default" : "outline"} onClick={() => setScope("case")}>
-                  Satış kartı
-                </Button>
                 <Button type="button" variant={scope === "company" ? "default" : "outline"} onClick={() => setScope("company")}>
                   Firma
+                </Button>
+                <Button type="button" variant={scope === "case" ? "default" : "outline"} onClick={() => setScope("case")}>
+                  Satış kartı (opsiyonel)
                 </Button>
               </div>
             )}

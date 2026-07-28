@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type MouseEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import QRCode from "qrcode";
 import { Card, CardContent, CardHeader, CardTitle } from "../../ui/card";
 import { Button } from "../../ui/button";
@@ -383,6 +383,8 @@ export function ServiceRequestsPage({
   const [historyQuery, setHistoryQuery] = useState("");
   const [selectedServiceId, setSelectedServiceId] = useState<string | null>(null);
   const [selectedServiceInitialTab, setSelectedServiceInitialTab] = useState<ServiceDetailTab | undefined>();
+  // Aynı derin bağlantı, liste her yenilendiğinde kaydı tekrar açmasın.
+  const handledTicketQuery = useRef<string | null>(null);
   const [selectedComplaint, setSelectedComplaint] = useState<ServiceComplaintIntake | null>(null);
   const [complaints, setComplaints] = useState<ServiceComplaintIntake[]>([]);
   const [complaintLinks, setComplaintLinks] = useState<ServiceComplaintLink[]>([]);
@@ -490,6 +492,20 @@ export function ServiceRequestsPage({
   useEffect(() => {
     loadComplaints();
   }, []);
+
+  // Satış kartından "Servis Teklifi" ile gelindiğinde ilgili servis kaydı
+  // doğrudan teklif sekmesinde açılır.
+  useEffect(() => {
+    if (!initialQuery?.startsWith("ticket:")) return;
+    if (handledTicketQuery.current === initialQuery) return;
+    const [, ticketId, tab] = initialQuery.split(":");
+    if (!ticketId) return;
+    const target = service.find((s) => s.id === ticketId);
+    if (!target) return;
+    handledTicketQuery.current = initialQuery;
+    setView("list");
+    openServiceDetail(target, (tab as ServiceDetailTab | undefined) ?? undefined);
+  }, [service, initialQuery]);
 
   useEffect(() => {
     if (!complaints.length) return;
@@ -2037,6 +2053,7 @@ function ServiceBoard({
     <KanbanBoard<ServiceRequest>
       columns={columns}
       fit={false}
+      storageKey="service"
       columnWidth={260}
       onMove={(id, _from, to) => moveToColumn(id, to)}
       renderCard={(s) => {

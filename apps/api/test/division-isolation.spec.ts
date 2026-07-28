@@ -23,6 +23,7 @@ const tokens: Record<string, string> = {};
 const divisionIdByCode: Record<string, string> = {};
 const departmentIdByCode: Record<string, string> = {};
 const companyIdByShort: Record<string, string> = {};
+const TAIWAN_SHORT_NAME = 'Taiwan Machine Supply'.toLocaleUpperCase('tr-TR');
 
 const auth = (token: string) => ({ Authorization: `Bearer ${token}` });
 
@@ -157,28 +158,28 @@ describe('Bölüm izolasyonu — firmalar', () => {
  *             (potansiyel müşteri gizli); müşteri/tedarikçinin cari+potansiyelini görür.
  *  - admin / diğer roller: kısıt yok (her firmayı görür).
  *
- * Demo verisi: "Taiwan Machine Supply" = saf tedarikçi (active);
+ * Demo verisi: "TAIWAN MACHINE SUPPLY" = saf tedarikçi (active);
  * potansiyel müşteriler = KİLİTSAN, SACTECH, BAYPA TEST KOCATEPE;
- * cari müşteriler = Contra Makine, ALİŞLER, UNIMAK, BAYPA TEST İSMETPAŞA.
+ * cari müşteriler = CONTRA MAKİNE, ALİŞLER, UNIMAK, BAYPA TEST İSMETPAŞA.
  */
 describe('Rol bazlı firma görünürlüğü — sales/service', () => {
   it('satışçı saf tedarikçiyi (Taiwan Machine Supply) listede görmez', async () => {
     const rows = await listData(tokens.sales, '/api/v1/companies?page=1&pageSize=200');
     const ids = rows.map((c) => c.id);
-    expect(companyIdByShort['Taiwan Machine Supply']).toBeTruthy();
-    expect(ids).not.toContain(companyIdByShort['Taiwan Machine Supply']);
+    expect(companyIdByShort[TAIWAN_SHORT_NAME]).toBeTruthy();
+    expect(ids).not.toContain(companyIdByShort[TAIWAN_SHORT_NAME]);
   });
 
   it('satışçı müşterilerin hem cari hem potansiyelini görür', async () => {
     const rows = await listData(tokens.sales, '/api/v1/companies?page=1&pageSize=200');
     const ids = rows.map((c) => c.id);
     expect(ids).toContain(companyIdByShort['KİLİTSAN']); // potansiyel müşteri
-    expect(ids).toContain(companyIdByShort['Contra Makine']); // cari müşteri
+    expect(ids).toContain(companyIdByShort['CONTRA MAKİNE']); // cari müşteri
   });
 
   it('satışçı tedarikçiye id ile erişemez (404)', async () => {
     const r = await supertest(server)
-      .get(`/api/v1/companies/${companyIdByShort['Taiwan Machine Supply']}`)
+      .get(`/api/v1/companies/${companyIdByShort[TAIWAN_SHORT_NAME]}`)
       .set(auth(tokens.sales));
     expect(r.status).toBe(404);
   });
@@ -187,13 +188,13 @@ describe('Rol bazlı firma görünürlüğü — sales/service', () => {
     const rows = await listData(tokens.service, '/api/v1/companies?page=1&pageSize=200');
     const ids = rows.map((c) => c.id);
     // Tedarikçi gizli
-    expect(ids).not.toContain(companyIdByShort['Taiwan Machine Supply']);
+    expect(ids).not.toContain(companyIdByShort[TAIWAN_SHORT_NAME]);
     // Potansiyel müşteriler gizli
     expect(ids).not.toContain(companyIdByShort['KİLİTSAN']);
     expect(ids).not.toContain(companyIdByShort['SACTECH']);
     expect(ids).not.toContain(companyIdByShort['BAYPA TEST KOCATEPE']);
     // Cari müşteriler görünür
-    expect(ids).toContain(companyIdByShort['Contra Makine']);
+    expect(ids).toContain(companyIdByShort['CONTRA MAKİNE']);
     expect(ids).toContain(companyIdByShort['UNIMAK']);
   });
 
@@ -203,7 +204,7 @@ describe('Rol bazlı firma görünürlüğü — sales/service', () => {
       .set(auth(tokens.service));
     expect(denied.status).toBe(404);
     const ok = await supertest(server)
-      .get(`/api/v1/companies/${companyIdByShort['Contra Makine']}`)
+      .get(`/api/v1/companies/${companyIdByShort['CONTRA MAKİNE']}`)
       .set(auth(tokens.service));
     expect(ok.status).toBe(200);
   });
@@ -211,7 +212,7 @@ describe('Rol bazlı firma görünürlüğü — sales/service', () => {
   it('admin (kısıtsız) saf tedarikçiyi de görür', async () => {
     const rows = await listData(tokens.admin, '/api/v1/companies?page=1&pageSize=200');
     const ids = rows.map((c) => c.id);
-    expect(ids).toContain(companyIdByShort['Taiwan Machine Supply']);
+    expect(ids).toContain(companyIdByShort[TAIWAN_SHORT_NAME]);
   });
 });
 

@@ -517,6 +517,7 @@ describe('Service — kurulum / sevkiyat / teslimat', () => {
       .set('Authorization', auth())
       .send({
         companyId,
+        direction: 'incoming',
         carrier: 'DHL',
         trackingNo: `TRK-TEST-${Date.now()}`,
         origin: 'Hamburg',

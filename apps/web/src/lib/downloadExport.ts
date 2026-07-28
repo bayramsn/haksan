@@ -86,4 +86,5 @@ export const exportService = {
   pipelineSummary: () => downloadExport('/reports/export/pipeline-summary', 'pipeline-summary.xlsx'),
   stockSummary: () => downloadExport('/reports/export/stock-summary', 'stock-summary.xlsx'),
   productImportTemplate: () => downloadExport('/products/import/template', 'urun-import-sablonu.xlsx'),
+  technicalImportTemplate: () => downloadExport('/admin/technical-import/template', 'teknik-bilgi-import-sablonu.xlsx'),
 };

@@ -15,9 +15,28 @@ import { exportService } from "../../../../lib/downloadExport";
 import { Wallet, Search, Download, FileText, Building2, CalendarClock, CircleDollarSign } from "lucide-react";
 import { toast } from "sonner";
 
+type AgingBucketKey = "current" | "d1_30" | "d31_60" | "d61_90" | "d90_plus";
+
+type CurrencyAging = Record<AgingBucketKey, number> & {
+  currencyCode: string;
+  overdueTotal: number;
+  openTotal: number;
+  maxOverdueDays: number;
+  oldestOverdueDate: string | null;
+};
+
+type Aging = {
+  byCurrency: CurrencyAging[];
+  worstBucket: AgingBucketKey;
+  maxOverdueDays: number;
+  oldestOverdueDate: string | null;
+  overdueTotal: Array<{ currencyCode: string; amount: number }>;
+};
+
 type BalanceRow = {
   companyId: string;
   companyName: string;
+  aging?: Aging;
   salesTotal: number;
   collections: number;
   borc: number;
@@ -58,30 +77,79 @@ const balanceTone = (amount: number) => amount >= 0 ? "text-warning" : "text-inf
 const openDebtForRow = (row: BalanceRow) =>
   (row.currencies ?? []).reduce((sum, item) => sum + Math.max(0, Number(item.borc ?? 0)), 0) || Number(row.borc ?? 0);
 
+const AGING_BUCKETS: Array<{ key: AgingBucketKey; short: string; label: string; tone: "success" | "warning" | "danger" }> = [
+  { key: "current", short: "Güncel", label: "Vadesi gelmemiş", tone: "success" },
+  { key: "d1_30", short: "1–30", label: "1–30 gün gecikmiş", tone: "warning" },
+  { key: "d31_60", short: "31–60", label: "31–60 gün gecikmiş", tone: "danger" },
+  { key: "d61_90", short: "61–90", label: "61–90 gün gecikmiş", tone: "danger" },
+  { key: "d90_plus", short: "90+", label: "90+ gün gecikmiş", tone: "danger" },
+];
+
+const bucketTotal = (aging: Aging | undefined, key: AgingBucketKey) =>
+  (aging?.byCurrency ?? []).reduce((sum, item) => sum + Number(item[key] ?? 0), 0);
+
+/**
+ * Yaşlandırma, açık alacakların vade gününe göre tutar bazlı dağılımıdır (API'den gelir).
+ * Tek bir "en yakın vade" tarihine bakmaz; ileri tarihli açık fatura geçmiş gecikmeyi gizlemez.
+ */
 function agingState(row: BalanceRow) {
-  if (!row.nearestDueDate || openDebtForRow(row) <= 0) return { index: 0, label: "Güncel", tone: "success" as const };
-  const due = new Date(row.nearestDueDate);
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  due.setHours(0, 0, 0, 0);
-  const days = Math.floor((today.getTime() - due.getTime()) / 86_400_000);
-  if (days <= 0) return { index: 0, label: days === 0 ? "Bugün vadeli" : `${Math.abs(days)} gün var`, tone: days === 0 ? "warning" as const : "success" as const };
-  if (days <= 30) return { index: 1, label: `${days} gün gecikmiş`, tone: "warning" as const };
-  if (days <= 60) return { index: 2, label: `${days} gün gecikmiş`, tone: "danger" as const };
-  return { index: 3, label: `${days}+ gün gecikmiş`, tone: "danger" as const };
+  const aging = row.aging;
+  const openTotal = (aging?.byCurrency ?? []).reduce((sum, item) => sum + Number(item.openTotal ?? 0), 0);
+  if (!aging || openTotal <= 0) {
+    return { index: 0, label: "Açık alacak yok", tone: "success" as const, overdueDays: 0 };
+  }
+  const index = Math.max(0, AGING_BUCKETS.findIndex((bucket) => bucket.key === aging.worstBucket));
+  const bucket = AGING_BUCKETS[index];
+  if (bucket.key === "current") {
+    return { index, label: "Güncel", tone: "success" as const, overdueDays: 0 };
+  }
+  return {
+    index,
+    label: `${aging.maxOverdueDays} gün gecikmiş`,
+    tone: bucket.tone,
+    overdueDays: aging.maxOverdueDays,
+  };
 }
 
 function AgingHeatmap({ row }: { row: BalanceRow }) {
   const state = agingState(row);
-  const activeClass = state.tone === "danger" ? "bg-destructive" : state.tone === "warning" ? "bg-warning" : "bg-success";
+  const aging = row.aging;
+  const toneBar = { success: "bg-success", warning: "bg-warning", danger: "bg-destructive" } as const;
+  const toneText = { success: "text-success", warning: "text-warning", danger: "text-destructive" } as const;
+  // Tüm kovaların tutarları ipucu olarak verilir; kolon dar kalırken detay kaybolmasın.
+  const tooltip = AGING_BUCKETS.map((bucket) => {
+    const perCurrency = (aging?.byCurrency ?? [])
+      .filter((item) => Number(item[bucket.key] ?? 0) > 0)
+      .map((item) => formatMoney(Number(item[bucket.key]), item.currencyCode))
+      .join(" + ");
+    return `${bucket.label}: ${perCurrency || "—"}`;
+  }).join("\n");
+  const overdueAmounts = aging?.overdueTotal ?? [];
+
   return (
-    <div className="min-w-[116px]" aria-label={`Yaşlandırma durumu: ${state.label}`}>
+    <div className="min-w-[132px]" title={tooltip} aria-label={`Yaşlandırma durumu: ${state.label}`}>
       <div className="mb-1 flex gap-1" aria-hidden="true">
-        {["Güncel", "1–30", "31–60", "60+"].map((label, index) => (
-          <span key={label} className={`h-1.5 flex-1 rounded-full ${index === state.index ? activeClass : "bg-muted"}`} />
-        ))}
+        {AGING_BUCKETS.map((bucket, index) => {
+          const amount = bucketTotal(aging, bucket.key);
+          const filled = amount > 0;
+          return (
+            <span
+              key={bucket.key}
+              className={`h-1.5 flex-1 rounded-full ${
+                filled ? toneBar[bucket.tone] : "bg-muted"
+              } ${index === state.index && filled ? "ring-1 ring-offset-1 ring-current" : ""}`}
+            />
+          );
+        })}
       </div>
-      <div className={`text-[10px] font-medium ${state.tone === "danger" ? "text-destructive" : state.tone === "warning" ? "text-warning" : "text-success"}`}>{state.label}</div>
+      <div className={`text-[10px] font-medium ${toneText[state.tone]}`}>{state.label}</div>
+      {overdueAmounts.length > 0 && (
+        <div className="mt-0.5 space-y-0.5 font-data text-[9px] tabular-nums text-muted-foreground">
+          {overdueAmounts.map((item) => (
+            <div key={item.currencyCode}>{formatMoney(item.amount, item.currencyCode)} gecikmiş</div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -179,7 +247,16 @@ export function CustomerBalancesPage() {
     }
     return [...totals.entries()].sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]));
   }, [filtered]);
-  const overdueCount = filtered.filter((row) => agingState(row).index > 0).length;
+  const overdueCount = filtered.filter((row) => (row.aging?.maxOverdueDays ?? 0) > 0).length;
+  const overdueTotals = useMemo(() => {
+    const totals = new Map<string, number>();
+    for (const row of filtered) {
+      for (const item of row.aging?.overdueTotal ?? []) {
+        totals.set(item.currencyCode, (totals.get(item.currencyCode) ?? 0) + Number(item.amount ?? 0));
+      }
+    }
+    return [...totals.entries()].sort((a, b) => b[1] - a[1]);
+  }, [filtered]);
   const dueSoonCount = filtered.filter((row) => {
     if (!row.nearestDueDate) return false;
     const days = Math.ceil((new Date(row.nearestDueDate).getTime() - Date.now()) / 86_400_000);
@@ -197,7 +274,13 @@ export function CustomerBalancesPage() {
           value={debtTotals[0] ? formatMoney(debtTotals[0][1], debtTotals[0][0]) : "0"}
           sub={debtTotals.length > 1 ? `+${debtTotals.length - 1} para birimi` : "tahsilat sonrası"}
         />
-        <MiniKpi tone="red" icon={<CalendarClock className="size-[18px]" />} label="Gecikmiş" value={overdueCount} sub="aksiyon gerekli" />
+        <MiniKpi
+          tone="red"
+          icon={<CalendarClock className="size-[18px]" />}
+          label="Gecikmiş"
+          value={overdueCount}
+          sub={overdueTotals[0] ? `${formatMoney(overdueTotals[0][1], overdueTotals[0][0])} vadesi geçti` : "aksiyon gerekli"}
+        />
         <MiniKpi tone="blue" icon={<CircleDollarSign className="size-[18px]" />} label="7 Gün İçinde" value={dueSoonCount} sub="yaklaşan vade" />
       </div>
 

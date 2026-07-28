@@ -48,7 +48,15 @@
           "photosPermission": "Servis ve kurulum fotoğrafları için galeri erişimi gerekir.",
           "cameraPermission": "Saha fotoğrafları için kamera erişimi gerekir."
         }
-      ]
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Makine QR etiketi ve stok barkodu okumak için kamera erişimi gerekir."
+        }
+      ],
+      "expo-notifications",
+      "expo-audio"
     ],
     "experiments": {
       "typedRoutes": true

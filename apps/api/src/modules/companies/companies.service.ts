@@ -145,6 +145,32 @@ const includesOsmScope = (haystack: string, value?: string | null) => {
   return !needle || haystack.includes(needle);
 };
 
+const osmAddressScopeMatches = (
+  address: Record<string, unknown>,
+  keys: string[],
+  value?: string | null,
+) => {
+  const needle = normalizeOsmMatchText(value);
+  if (!needle) return false;
+  return keys.some((key) => {
+    const raw = address[key];
+    if (typeof raw !== 'string') return false;
+    const candidate = normalizeOsmMatchText(raw);
+    return candidate === needle || ` ${candidate} `.includes(` ${needle} `);
+  });
+};
+
+const OSM_CITY_ADDRESS_KEYS = ['city', 'province', 'state', 'state_district'];
+const OSM_DISTRICT_ADDRESS_KEYS = [
+  'city_district',
+  'district',
+  'county',
+  'municipality',
+  'town',
+  'borough',
+  'suburb',
+];
+
 const osmCountryMatches = (
   country: string | null | undefined,
   resultText: string,
@@ -181,6 +207,8 @@ export const scoreOsmResult = (query: CompanyOsmSearchQuery, row: OsmRawResult) 
   const addressCoverage = tokenCoverage(addressTokens, resultTokens);
   const cityMatches = includesOsmScope(resultText, query.city);
   const districtMatches = includesOsmScope(resultText, query.district);
+  const cityAddressMatches = osmAddressScopeMatches(address, OSM_CITY_ADDRESS_KEYS, query.city);
+  const districtAddressMatches = osmAddressScopeMatches(address, OSM_DISTRICT_ADDRESS_KEYS, query.district);
   const countryMatches = osmCountryMatches(query.country, resultText, address);
   const expectedNumbers = normalizeOsmMatchText(query.address).match(/\b\d+[a-z]?\b/g) ?? [];
   const resultNumbers = new Set(resultText.match(/\b\d+[a-z]?\b/g) ?? []);
@@ -215,11 +243,31 @@ export const scoreOsmResult = (query: CompanyOsmSearchQuery, row: OsmRawResult) 
     };
   }
 
+  const hasCity = Boolean(compactOsmPart(query.city));
+  const hasDistrict = Boolean(compactOsmPart(query.district));
+  const areaScore = Math.min(
+    79,
+    25
+      + (hasCity ? (cityAddressMatches ? 15 : cityMatches ? 8 : 0) : 5)
+      + (hasDistrict && districtMatches ? (districtAddressMatches ? 20 : 12) : 0)
+      + (countryMatches ? 5 : 0)
+      + (cityAddressMatches && districtAddressMatches ? 10 : 0)
+      + Math.min(3, Math.round(nameCoverage * 3))
+      + Math.min(2, Math.round(addressCoverage * 2)),
+  );
+  const areaReason = hasDistrict && districtMatches
+    ? cityAddressMatches && districtAddressMatches
+      ? 'İl ve ilçe eşleşti; koordinat ilçe merkezi düzeyinde'
+      : 'İlçe eşleşti; koordinat yaklaşık bölge merkezidir'
+    : hasCity && cityMatches
+      ? 'İl eşleşti; koordinat şehir merkezi düzeyinde'
+      : 'Yaklaşık bölge merkezi sonucu';
+
   return {
     eligible: scopeMatches,
     matchQuality: 'area' as const,
-    matchScore: scopeMatches ? Math.round(20 + (districtMatches ? 15 : 0) + Math.min(10, nameCoverage * 10)) : 0,
-    matchReason: districtMatches ? 'İlçe/mahalle düzeyinde yaklaşık sonuç' : 'Şehir düzeyinde yaklaşık sonuç',
+    matchScore: scopeMatches ? areaScore : 0,
+    matchReason: areaReason,
   };
 };
 
@@ -383,10 +431,7 @@ export class CompaniesService {
   private addressRoleIndexes(addresses: CompanyAddressInput[]) {
     if (!addresses.length) return { defaultIndex: -1, shippingIndex: -1, billingIndex: -1 };
 
-    const selectedIndex = (
-      role: 'isDefault' | 'isShipping' | 'isBilling',
-      fallbackIndex: number,
-    ) => {
+    const selectedIndex = (role: 'isDefault' | 'isShipping' | 'isBilling') => {
       const selected = addresses
         .map((address, index) => address[role] ? index : -1)
         .filter((index) => index >= 0);
@@ -395,16 +440,13 @@ export class CompaniesService {
           field: `addresses.${role}`,
         });
       }
-      return selected[0] ?? fallbackIndex;
+      return selected[0] ?? -1;
     };
 
-    const defaultIndex = selectedIndex('isDefault', 0);
-    const shippingTypeIndex = addresses.findIndex((address) => address.addressType === 'shipping');
-    const billingTypeIndex = addresses.findIndex((address) => address.addressType === 'billing');
     return {
-      defaultIndex,
-      shippingIndex: selectedIndex('isShipping', shippingTypeIndex >= 0 ? shippingTypeIndex : defaultIndex),
-      billingIndex: selectedIndex('isBilling', billingTypeIndex >= 0 ? billingTypeIndex : defaultIndex),
+      defaultIndex: selectedIndex('isDefault'),
+      shippingIndex: selectedIndex('isShipping'),
+      billingIndex: selectedIndex('isBilling'),
     };
   }
 

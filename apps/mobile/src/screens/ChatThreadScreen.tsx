@@ -13,7 +13,16 @@ import {
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { chatService } from '@/src/api/services';
+import {
+  AudioModule,
+  RecordingPresets,
+  setAudioModeAsync,
+  useAudioPlayer,
+  useAudioPlayerStatus,
+  useAudioRecorder,
+  useAudioRecorderState,
+} from 'expo-audio';
+import { chatService, fileService, type ChatAttachment } from '@/src/api/services';
 import { PageHeader } from '@/src/ui/PageHeader';
 import { Screen } from '@/src/ui/Screen';
 import { colors, fonts, layout, radius, spacing, typography } from '@/src/theme/tokens';
@@ -23,11 +32,35 @@ type Props = { conversationId: string };
 
 type Msg = {
   id: string;
-  body: string;
+  body: string | null;
   createdAt: string;
+  kind?: string;
+  attachments?: ChatAttachment[];
   sender?: { fullName?: string };
+  senderName?: string;
   isMine?: boolean;
 };
+
+/** Sesli mesaj balonu — expo-audio ile oynat/duraklat. */
+function VoiceBubble({ url }: { url: string }) {
+  const player = useAudioPlayer(url);
+  const status = useAudioPlayerStatus(player);
+  const toggle = () => {
+    if (status.playing) {
+      player.pause();
+      return;
+    }
+    if (status.didJustFinish) player.seekTo(0);
+    player.play();
+  };
+  const seconds = Math.max(0, Math.round((status.duration || 0) - (status.currentTime || 0)));
+  return (
+    <Pressable onPress={toggle} style={({ pressed }) => [styles.voiceChip, pressFade(pressed)]}>
+      <Ionicons name={status.playing ? 'pause' : 'play'} size={18} color={colors.primary} />
+      <Text style={styles.voiceLabel}>Sesli mesaj{status.duration ? ` · ${seconds}sn` : ''}</Text>
+    </Pressable>
+  );
+}
 
 /** Stitch #11 Sohbet — mesaj thread */
 export function ChatThreadScreen({ conversationId }: Props) {
@@ -37,7 +70,11 @@ export function ChatThreadScreen({ conversationId }: Props) {
   const [text, setText] = useState('');
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
+  const [uploadingVoice, setUploadingVoice] = useState(false);
   const listRef = useRef<FlatList>(null);
+
+  const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
+  const recorderState = useAudioRecorderState(recorder);
 
   const load = useCallback(async () => {
     const [conv, msgRes] = await Promise.all([
@@ -74,6 +111,40 @@ export function ChatThreadScreen({ conversationId }: Props) {
     }
   };
 
+  // ── Sesli mesaj: kaydet → yükle → gönder ──
+  const startRecording = async () => {
+    const perm = await AudioModule.requestRecordingPermissionsAsync();
+    if (!perm.granted) return;
+    await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
+    await recorder.prepareToRecordAsync();
+    recorder.record();
+  };
+
+  const stopAndSendRecording = async () => {
+    await recorder.stop();
+    const uri = recorder.uri;
+    if (!uri) return;
+    setUploadingVoice(true);
+    try {
+      const blob = await (await fetch(uri)).blob();
+      const up = await fileService.signedUpload({
+        bucket: 'erp-service-documents',
+        entityType: 'chat_conversation',
+        entityId: conversationId,
+        filename: `voice-${Date.now()}.m4a`,
+        mimeType: 'audio/mp4',
+        extension: 'm4a',
+        sizeBytes: blob.size,
+      });
+      await fileService.uploadBinary(up, blob, 'audio/mp4');
+      const msg = (await chatService.sendMessage(conversationId, { attachmentFileIds: [up.fileId] })) as Msg;
+      setMessages((prev) => [...prev, msg]);
+      setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 100);
+    } finally {
+      setUploadingVoice(false);
+    }
+  };
+
   if (loading) return <ActivityIndicator style={{ marginTop: 40 }} color={colors.primary} />;
 
   return (
@@ -101,11 +172,27 @@ export function ChatThreadScreen({ conversationId }: Props) {
               {!item.isMine && item.sender?.fullName ? (
                 <Text style={styles.sender}>{item.sender.fullName}</Text>
               ) : null}
-              <Text style={styles.body}>{item.body}</Text>
+              {item.body ? <Text style={styles.body}>{item.body}</Text> : null}
+              {(item.attachments ?? []).map((a: ChatAttachment) =>
+                a.mimeType.startsWith('audio/') ? (
+                  <VoiceBubble key={a.fileId} url={a.url} />
+                ) : (
+                  <View key={a.fileId} style={styles.fileChip}>
+                    <Ionicons name={a.isImage ? 'image' : 'document'} size={16} color={colors.primary} />
+                    <Text style={styles.fileName} numberOfLines={1}>{a.filename}</Text>
+                  </View>
+                ),
+              )}
               <Text style={styles.time}>{formatTime(item.createdAt)}</Text>
             </View>
           )}
         />
+        {recorderState.isRecording && (
+          <View style={styles.recordingBar}>
+            <View style={styles.recordingDot} />
+            <Text style={styles.recordingText}>Kayıt yapılıyor… {Math.round((recorderState.durationMillis ?? 0) / 1000)}sn</Text>
+          </View>
+        )}
         <View style={[styles.composer, { paddingBottom: Math.max(insets.bottom, spacing.sm) }]}>
           <TextInput
             style={styles.input}
@@ -115,6 +202,23 @@ export function ChatThreadScreen({ conversationId }: Props) {
             onChangeText={setText}
             multiline
           />
+          {recorderState.isRecording ? (
+            <Pressable onPress={() => void stopAndSendRecording()} style={[styles.send, styles.recording]}>
+              <Ionicons name="stop" size={20} color="#fff" />
+            </Pressable>
+          ) : (
+            <Pressable
+              onPress={() => void startRecording()}
+              style={[styles.mic, uploadingVoice && styles.sendDisabled]}
+              disabled={uploadingVoice}
+            >
+              {uploadingVoice ? (
+                <ActivityIndicator size="small" color={colors.primary} />
+              ) : (
+                <Ionicons name="mic" size={20} color={colors.primary} />
+              )}
+            </Pressable>
+          )}
           <Pressable onPress={() => void send()} style={[styles.send, sending && styles.sendDisabled]} disabled={sending}>
             <Ionicons name="send" size={20} color="#fff" />
           </Pressable>
@@ -143,6 +247,43 @@ const styles = StyleSheet.create({
   sender: { ...typography.caption, color: colors.primary, marginBottom: 4 },
   body: { ...typography.body, color: colors.textPrimary },
   time: { ...typography.caption, color: colors.textMuted, marginTop: 4, alignSelf: 'flex-end' },
+  voiceChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    marginTop: 4,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.inputBg,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 8,
+  },
+  voiceLabel: { ...typography.caption, color: colors.textPrimary },
+  fileChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    marginTop: 4,
+    borderRadius: radius.sm,
+    backgroundColor: colors.inputBg,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 6,
+    maxWidth: 220,
+  },
+  fileName: { ...typography.caption, color: colors.textPrimary, flexShrink: 1 },
+  recordingBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingHorizontal: layout.screenPadding,
+    paddingVertical: 6,
+    backgroundColor: colors.card,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+  },
+  recordingDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#cf060c' },
+  recordingText: { ...typography.caption, color: colors.textMuted },
   composer: {
     flexDirection: 'row',
     alignItems: 'flex-end',
@@ -166,6 +307,16 @@ const styles = StyleSheet.create({
     ...typography.body,
     color: colors.textPrimary,
   },
+  mic: {
+    width: layout.touchMin,
+    height: layout.touchMin,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.inputBg,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   send: {
     width: layout.touchMin,
     height: layout.touchMin,
@@ -174,5 +325,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  recording: { backgroundColor: '#cf060c' },
   sendDisabled: { opacity: 0.6 },
 });

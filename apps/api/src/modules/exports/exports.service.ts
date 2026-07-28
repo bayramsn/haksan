@@ -44,7 +44,11 @@ import { lookupIdByCode } from '../../shared/utils/lookup.helper';
 import { FinanceService } from '../finance/finance.service';
 import type { DateRange } from '@haksan/shared';
 import { resourceCompanyPortfolioFilter, resourceDivisionFilter, resourceDivisionFilterWithShared } from '../../shared/utils/division-scope';
-import { companyVisibilityExistsFilter, companyVisibilityFilter } from '../../shared/utils/company-visibility';
+import {
+  allowUnlinkedCompanyRecords,
+  companyVisibilityExistsFilter,
+  companyVisibilityFilter,
+} from '../../shared/utils/company-visibility';
 
 const EXPORT_LIMIT = 15_000;
 
@@ -82,7 +86,7 @@ export class ExportsService {
             eq(opportunities.tenantId, actor.tenantId),
             isNull(opportunities.deletedAt),
             resourceDivisionFilter(actor, 'opportunities', opportunities.divisionId) ?? sql`true`,
-            visibility ?? sql`true`
+            allowUnlinkedCompanyRecords(opportunities.companyId, visibility)
           ))
           .limit(1);
         return Boolean(row);
@@ -262,14 +266,27 @@ export class ExportsService {
     query: { search?: string; stageCode?: string; companyId?: string }
   ): Promise<ExportRow[]> {
     const filters = [eq(opportunities.tenantId, actor.tenantId), isNull(opportunities.deletedAt)];
-    if (query.search) filters.push(ilike(opportunities.title, `%${query.search}%`));
+    if (query.search) {
+      filters.push(
+        or(
+          ilike(opportunities.title, `%${query.search}%`),
+          ilike(opportunities.leadContactName, `%${query.search}%`),
+          ilike(opportunities.leadCompanyTitle, `%${query.search}%`)
+        )!
+      );
+    }
     if (query.companyId) filters.push(eq(opportunities.companyId, query.companyId));
     if (query.stageCode) {
       const stage = await this.db.query.pipelineStages.findFirst({ where: eq(pipelineStages.code, query.stageCode) });
       if (stage) filters.push(eq(opportunities.currentStageId, stage.id));
     }
     filters.push(resourceDivisionFilter(actor, 'opportunities', opportunities.divisionId) ?? sql`true`);
-    filters.push((await companyVisibilityExistsFilter(this.db, actor, opportunities.companyId)) ?? sql`true`);
+    filters.push(
+      allowUnlinkedCompanyRecords(
+        opportunities.companyId,
+        await companyVisibilityExistsFilter(this.db, actor, opportunities.companyId)
+      )
+    );
 
     const rows = await this.db
       .select({
@@ -290,7 +307,9 @@ export class ExportsService {
 
     return rows.map((r) => ({
       No: r.opp.id,
-      Müşteri: r.company?.legalTitle ?? '',
+      Müşteri: r.company?.legalTitle ?? r.opp.leadCompanyTitle ?? '',
+      Kontak: r.opp.leadContactName ?? '',
+      'İrtibat Bilgisi': r.opp.leadContactValue ?? '',
       Başlık: r.opp.title,
       Tutar: r.opp.estimatedValue ?? '',
       'Para Birimi': r.currency?.code ?? '',
@@ -446,12 +465,24 @@ export class ExportsService {
     const showAlacak = this.finance.isFinanceAdmin(actor);
     return rows.map((r) => {
       const cur = r.currencies[0];
+      const currencyCode = cur?.currencyCode ?? r.primaryCurrency ?? '';
+      // Yaşlandırma kovaları para birimi bazında tutulur; satırın para birimine
+      // karşılık geleni yazılır (yoksa ilk kayıt).
+      const aging = r.aging.byCurrency.find((item) => item.currencyCode === currencyCode) ?? r.aging.byCurrency[0];
       const base: ExportRow = {
         Firma: r.companyName,
         Satış: cur?.salesTotal ?? r.salesTotal ?? 0,
         Tahsilat: cur?.collections ?? r.collections ?? 0,
         Borç: cur?.borc ?? r.borc,
-        'Para Birimi': cur?.currencyCode ?? r.primaryCurrency ?? '',
+        'Para Birimi': currencyCode,
+        'Vadesi Gelmemiş': aging?.current ?? 0,
+        '1-30 Gün': aging?.d1_30 ?? 0,
+        '31-60 Gün': aging?.d31_60 ?? 0,
+        '61-90 Gün': aging?.d61_90 ?? 0,
+        '90+ Gün': aging?.d90_plus ?? 0,
+        'Gecikmiş Toplam': aging?.overdueTotal ?? 0,
+        'Gecikme (gün)': r.aging.maxOverdueDays || '',
+        'En Eski Gecikme': r.aging.oldestOverdueDate ? isoDate(r.aging.oldestOverdueDate) : '',
         'En Yakın Vade': r.nearestDueDate ? isoDate(r.nearestDueDate) : '',
         'Vade Tutarı': r.nearestDueAmount ?? '',
       };

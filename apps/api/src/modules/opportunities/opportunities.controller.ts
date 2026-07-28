@@ -1,16 +1,23 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { z } from 'zod';
 import {
   opportunityCreateSchema,
   opportunityUpdateSchema,
   opportunityStageChangeSchema,
+  opportunityCompanyLinkSchema,
   opportunityCloseSchema,
+  trelloImportCommitRequestSchema,
+  trelloImportPreviewRequestSchema,
   opportunityViewEnum,
   paginationSchema,
   type OpportunityCreateInput,
   type OpportunityUpdateInput,
   type OpportunityStageChangeInput,
+  type OpportunityCompanyLinkInput,
   type OpportunityCloseInput,
+  type TrelloImportCommitRequest,
+  type TrelloImportPreviewRequest,
   type Pagination,
 } from '@haksan/shared';
 import { ZodValidationPipe } from '../../shared/utils/zod-pipe';
@@ -27,6 +34,8 @@ const listQuery = z.object({
   // active (varsayılan) | closed (Geçmiş/Arşiv) | all
   view: opportunityViewEnum.optional(),
 });
+
+const TRELLO_IMPORT_THROTTLE = { default: { limit: 5, ttl: 60_000 } };
 
 @UseGuards(AuthGuard, PermissionsGuard)
 @Controller('opportunities')
@@ -59,6 +68,26 @@ export class OpportunitiesController {
     return this.svc.create(body, user);
   }
 
+  @RequirePermissions('opportunities.create')
+  @Throttle(TRELLO_IMPORT_THROTTLE)
+  @Post('imports/trello/preview')
+  previewTrelloImport(
+    @Body(new ZodValidationPipe(trelloImportPreviewRequestSchema)) body: TrelloImportPreviewRequest,
+    @CurrentUser() user: AuthContext
+  ) {
+    return this.svc.previewTrelloImport(body, user);
+  }
+
+  @RequirePermissions('opportunities.create')
+  @Throttle(TRELLO_IMPORT_THROTTLE)
+  @Post('imports/trello/commit')
+  commitTrelloImport(
+    @Body(new ZodValidationPipe(trelloImportCommitRequestSchema)) body: TrelloImportCommitRequest,
+    @CurrentUser() user: AuthContext
+  ) {
+    return this.svc.commitTrelloImport(body, user);
+  }
+
   @RequirePermissions('opportunities.update')
   @Patch(':id')
   update(
@@ -67,6 +96,16 @@ export class OpportunitiesController {
     @CurrentUser() user: AuthContext
   ) {
     return this.svc.update(id, body, user);
+  }
+
+  @RequirePermissions('opportunities.update', 'companies.read')
+  @Post(':id/company')
+  linkCompany(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(opportunityCompanyLinkSchema)) body: OpportunityCompanyLinkInput,
+    @CurrentUser() user: AuthContext
+  ) {
+    return this.svc.linkCompany(id, body, user);
   }
 
   @RequirePermissions('opportunities.update')

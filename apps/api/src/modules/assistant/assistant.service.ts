@@ -1004,7 +1004,7 @@ export class AssistantService {
             kind: 'create_quote',
             payload: { companyId: row.opportunity.companyId, companyName, opportunityId: row.opportunity.id, notes: `${row.opportunity.title} için teklif taslağı.` },
           }),
-          this.followUpAction(row.opportunity.companyId, companyName, 'Satış kartı takibi', row.opportunity.title, row.opportunity.id),
+          this.followUpAction(row.opportunity.companyId!, companyName, 'Satış kartı takibi', row.opportunity.title, row.opportunity.id),
           this.action({ id: 'dismiss', label: 'Yoksay', kind: 'dismiss', requiresConfirmation: false }),
         ],
         createdAt: row.opportunity.createdAt?.toISOString?.() ?? undefined,

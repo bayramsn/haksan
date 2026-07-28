@@ -1,4 +1,4 @@
-import { and, eq, inArray, or, sql, type AnyColumn, type SQL } from 'drizzle-orm';
+import { and, eq, inArray, isNull, or, sql, type AnyColumn, type SQL } from 'drizzle-orm';
 import type { DbClient } from '../../db/client';
 import { companies } from '../../db/schema/companies';
 import { companyRelationTypes, companyStatuses } from '../../db/schema/lookup';
@@ -158,4 +158,15 @@ export async function companyVisibilityExistsFilter(
   );
   const matrix = sql.join(groupSqls, sql` or `);
   return sql`exists (select 1 from companies cv where cv.id = ${companyIdColumn} and (${matrix}))`;
+}
+
+/**
+ * Firma bağlantısı henüz kurulmamış lead/fırsat kayıtlarını görünür tutarken,
+ * firma bağlandıktan sonra normal rol bazlı firma görünürlüğünü uygular.
+ */
+export function allowUnlinkedCompanyRecords(
+  companyIdColumn: AnyColumn,
+  visibility: SQL | undefined
+): SQL {
+  return visibility ? (or(isNull(companyIdColumn), visibility) ?? sql`true`) : sql`true`;
 }

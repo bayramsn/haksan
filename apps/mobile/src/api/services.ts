@@ -22,11 +22,11 @@ async function persistLoginCookies(headers: Headers): Promise<void> {
 }
 
 export const authService = {
-  login: async (email: string, password: string, tenantSlug?: string) => {
+  login: async (email: string, password: string) => {
     const response = await fetch(`${getApiBaseUrl()}/auth/login`, {
       method: 'POST',
       headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password, tenantSlug: tenantSlug?.trim().toLowerCase() || undefined }),
+      body: JSON.stringify({ email, password }),
     });
     await persistLoginCookies(response.headers);
     if (!response.ok) {
@@ -42,10 +42,9 @@ export const authService = {
     return meResponseSchema.parse(json);
   },
   logout: () => api.post('/auth/logout'),
-  forgotPassword: (email: string, tenantSlug?: string) =>
+  forgotPassword: (email: string) =>
     api.post<{ ok: boolean; token?: string }>('/auth/forgot-password', {
       email,
-      tenantSlug: tenantSlug?.trim().toLowerCase() || undefined,
     }),
   resetPassword: (token: string, newPassword: string) => api.post<{ ok: boolean }>('/auth/reset-password', { token, newPassword }),
 };

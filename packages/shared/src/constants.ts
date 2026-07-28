@@ -133,7 +133,8 @@ export type AllowedFileExtension = (typeof ALLOWED_FILE_EXTENSIONS)[number];
 // Stage transition rules (bölüm 3 mega prompt'tan)
 // Maps each stage to the stages it can transition FROM
 export const STAGE_TRANSITIONS: Record<PipelineStageCode, PipelineStageCode[]> = {
-  lead: [],
+  // Görüşme sonrası "henüz erken" çıkan kart lead havuzuna geri çekilebilir.
+  lead: ['call'],
   sales: ['lead'],
   call: ['lead', 'sales', 'visit'],
   visit: ['lead', 'sales', 'call'],
