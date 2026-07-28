@@ -2,12 +2,11 @@ import { useEffect, useMemo, useState } from "react";
 import {
   ArrowLeft,
   ArrowRight,
-  Check,
   CheckCircle2,
   ChevronDown,
   CircleAlert,
   Download,
-  FileSpreadsheet,
+  EyeOff,
   Grid3X3,
   ListFilter,
   Plus,
@@ -35,6 +34,10 @@ import {
   productSpecGroupForTypeKey,
 } from "../../../lib/productSpecTemplates";
 import { TechnicalImportDialog } from "../../dialogs/TechnicalImportDialog";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
+  AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "../../ui/alert-dialog";
 import { Badge } from "../../ui/badge";
 import { Button } from "../../ui/button";
 import { Input } from "../../ui/input";
@@ -77,6 +80,12 @@ type DraftRow = {
   unit: string;
   isActive: boolean;
   catalogOnly: boolean;
+  /**
+   * Alan, makine tipinin katalog şablonunda tanımlı mı. Katalog alanları silinse
+   * bile çalışma sayfası yeniden kurulduğunda öneri olarak geri gelir; bu yüzden
+   * kalıcı silme yalnız katalog dışı (kullanıcı/aktarım kaynaklı) alanlarda açıktır.
+   */
+  inCatalog: boolean;
 };
 
 const FAMILIES: Array<{ code: FamilyCode; label: string }> = [
@@ -142,6 +151,7 @@ function buildDraftRows(typeCode: string, specRows: SpecTemplateRow[]): DraftRow
       unit: row?.specUnit ?? entry.unit,
       isActive: row?.isActive !== false,
       catalogOnly: !row,
+      inCatalog: true,
     });
   });
 
@@ -160,6 +170,7 @@ function buildDraftRows(typeCode: string, specRows: SpecTemplateRow[]): DraftRow
         unit: row.specUnit ?? "",
         isActive: row.isActive !== false,
         catalogOnly: false,
+        inCatalog: false,
       });
     });
 
@@ -329,6 +340,7 @@ export function ProductSpecTemplatesCard() {
       unit: "",
       isActive: true,
       catalogOnly: true,
+      inCatalog: false,
     };
     const lastGroupIndex = draftRows.reduce((last, item, index) => (item.groupCode === targetGroup ? index : last), -1);
     applyDraft((current) => {
@@ -337,6 +349,24 @@ export function ProductSpecTemplatesCard() {
       return next;
     });
     setSelectedRowId(row.clientId);
+  };
+
+  /**
+   * Alanı çalışma sayfasından çıkarır. Sunucudaki karşılığı (varsa) Kaydet ile
+   * birlikte silinir; böylece geri al (undo) ile karar değiştirilebilir.
+   */
+  const removeField = (clientId: string) => {
+    const target = draftRows.find((row) => row.clientId === clientId);
+    if (!target) return;
+    if (target.inCatalog) {
+      toast.error("Katalog alanı silinemez", { description: "Bu alan makine tipinin şablonunda tanımlı; gizlemek için pasifleştirin." });
+      return;
+    }
+    applyDraft((current) => current.filter((row) => row.clientId !== clientId));
+    setSelectedRowId((current) => (current === clientId ? null : current));
+    toast.success("Alan çalışma sayfasından kaldırıldı", {
+      description: target.id ? "Kaydet'e bastığınızda sunucudan da silinecek." : "Kaydedilmemiş alan olduğu için doğrudan kaldırıldı.",
+    });
   };
 
   const addSection = () => {
@@ -379,8 +409,15 @@ export function ProductSpecTemplatesCard() {
     const activeNames = draftRows.filter((row) => row.isActive).map((row) => normalizeProductSpecKey(row.specKey.trim()));
     if (activeNames.some((name) => !name)) return toast.error("Teknik bilgi adı boş bırakılamaz");
     if (new Set(activeNames).size !== activeNames.length) return toast.error("Aynı teknik bilgi adı birden fazla kez kullanılamaz");
+    // Çalışma sayfasından çıkarılan sunucu kayıtları önce silinir: aynı alan adı
+    // silinen satırdan devralınıyorsa toplu kayıt teklik hatasına düşmesin.
+    const keptIds = new Set(draftRows.map((row) => row.id).filter(Boolean) as string[]);
+    const removedIds = specRows
+      .filter((row) => sameType(row.productTypeCode, selectedType.code) && !keptIds.has(row.id))
+      .map((row) => row.id);
     setBusy(true);
     try {
+      for (const id of removedIds) await adminService.deleteProductSpecTemplate(id);
       const result = await adminService.batchSaveProductSpecTemplates(
         draftRows.map((row, index) => ({
           id: row.id,
@@ -399,7 +436,11 @@ export function ProductSpecTemplatesCard() {
       setSpecRows(nextRows);
       localStorage.removeItem(localDraftKey(selectedType.code));
       prepareWorkbook(selectedType.code, nextRows, false);
-      toast.success("Teknik çalışma sayfası kaydedildi", { description: `${result.rows.length} alan güncellendi.` });
+      toast.success("Teknik çalışma sayfası kaydedildi", {
+        description: [`${result.rows.length} alan güncellendi.`, removedIds.length ? `${removedIds.length} alan silindi.` : null]
+          .filter(Boolean)
+          .join(" "),
+      });
     } catch (error: any) {
       toast.error("Değişiklikler kaydedilemedi", { description: error?.message ?? "API isteği başarısız oldu." });
     } finally {
@@ -521,6 +562,7 @@ export function ProductSpecTemplatesCard() {
           setSelectedRowId={setSelectedRowId}
           updateRow={updateDraftRow}
           addField={addField}
+          removeField={removeField}
           addSection={addSection}
           moveRow={moveRow}
           pasteValues={pasteValues}
@@ -668,6 +710,7 @@ type EditorViewProps = {
   setSelectedRowId: (id: string) => void;
   updateRow: (id: string, patch: Partial<DraftRow>) => void;
   addField: (groupCode?: string) => void;
+  removeField: (id: string) => void;
   addSection: () => void;
   moveRow: (id: string, direction: -1 | 1) => void;
   pasteValues: (id: string, text: string) => boolean;
@@ -685,7 +728,8 @@ type EditorViewProps = {
   openImport: () => void;
 };
 
-function EditorView({ type, search, setSearch, rows, displayRows, selectedRow, selectedRowId, setSelectedRowId, updateRow, addField, addSection, moveRow, pasteValues, undo, redo, canUndo, canRedo, completion, activeCount, groupCount, dirty, lastDraftSave, busy, save, openImport }: EditorViewProps) {
+function EditorView({ type, search, setSearch, rows, displayRows, selectedRow, selectedRowId, setSelectedRowId, updateRow, addField, removeField, addSection, moveRow, pasteValues, undo, redo, canUndo, canRedo, completion, activeCount, groupCount, dirty, lastDraftSave, busy, save, openImport }: EditorViewProps) {
+  const [pendingDelete, setPendingDelete] = useState<DraftRow | null>(null);
   return (
     <div className="bg-[#f8fafc]">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-white px-4 py-3">
@@ -717,8 +761,8 @@ function EditorView({ type, search, setSearch, rows, displayRows, selectedRow, s
         <div className="min-w-0 overflow-auto bg-white">
           <table className="w-full min-w-[760px] border-collapse text-xs">
             <thead className="sticky top-0 z-10 bg-slate-100 text-slate-600 shadow-[0_1px_0_#cbd5e1]">
-              <tr className="h-6 border-b border-slate-300 text-[10px]"><th className="w-11 border-r border-slate-300">#</th>{["A", "B", "C", "D", "E"].map((letter) => <th key={letter} className="border-r border-slate-300 font-medium">{letter}</th>)}</tr>
-              <tr className="h-8"><th className="border-r border-slate-300">#</th><th className="w-24 border-r border-slate-300">Bölüm</th><th className="border-r border-slate-300">Teknik Bilgi</th><th className="border-r border-slate-300">Başlangıç Değeri</th><th className="w-28 border-r border-slate-300">Birim</th><th className="w-32">Durum</th></tr>
+              <tr className="h-6 border-b border-slate-300 text-[10px]"><th className="w-11 border-r border-slate-300">#</th>{["A", "B", "C", "D", "E"].map((letter) => <th key={letter} className="border-r border-slate-300 font-medium">{letter}</th>)}<th className="w-10" /></tr>
+              <tr className="h-8"><th className="border-r border-slate-300">#</th><th className="w-24 border-r border-slate-300">Bölüm</th><th className="border-r border-slate-300">Teknik Bilgi</th><th className="border-r border-slate-300">Başlangıç Değeri</th><th className="w-28 border-r border-slate-300">Birim</th><th className="w-32 border-r border-slate-300">Durum</th><th className="w-10"><span className="sr-only">Sil</span></th></tr>
             </thead>
             <tbody>
               {displayRows.map(({ row, rowSpan }, index) => {
@@ -730,7 +774,19 @@ function EditorView({ type, search, setSearch, rows, displayRows, selectedRow, s
                     <td className="border-r border-slate-200 p-0"><input value={row.specKey} onFocus={() => setSelectedRowId(row.clientId)} onChange={(event) => updateRow(row.clientId, { specKey: event.target.value })} className="h-8 w-full border-0 bg-transparent px-3 outline-none focus:bg-white focus:ring-2 focus:ring-inset focus:ring-blue-500" /></td>
                     <td className="border-r border-slate-200 p-0"><input value={row.defaultValue} onFocus={() => setSelectedRowId(row.clientId)} onPaste={(event) => { if (pasteValues(row.clientId, event.clipboardData.getData("text"))) event.preventDefault(); }} onChange={(event) => updateRow(row.clientId, { defaultValue: event.target.value })} className="h-8 w-full border-0 bg-transparent px-3 font-medium outline-none focus:bg-white focus:ring-2 focus:ring-inset focus:ring-blue-500" /></td>
                     <td className="border-r border-slate-200 p-0"><input value={row.unit} onFocus={() => setSelectedRowId(row.clientId)} onChange={(event) => updateRow(row.clientId, { unit: event.target.value })} className="h-8 w-full border-0 bg-transparent px-3 outline-none focus:bg-white focus:ring-2 focus:ring-inset focus:ring-blue-500" /></td>
-                    <td className="p-0"><select value={row.isActive ? "active" : "inactive"} onChange={(event) => updateRow(row.clientId, { isActive: event.target.value === "active" })} className="h-8 w-full border-0 bg-transparent px-2 text-[11px] outline-none focus:ring-2 focus:ring-inset focus:ring-blue-500"><option value="active">● Aktif</option><option value="inactive">○ Pasif</option></select></td>
+                    <td className="border-r border-slate-200 p-0"><select value={row.isActive ? "active" : "inactive"} onChange={(event) => updateRow(row.clientId, { isActive: event.target.value === "active" })} className="h-8 w-full border-0 bg-transparent px-2 text-[11px] outline-none focus:ring-2 focus:ring-inset focus:ring-blue-500"><option value="active">● Aktif</option><option value="inactive">○ Pasif</option></select></td>
+                    <td className="p-0 text-center">
+                      <button
+                        type="button"
+                        disabled={row.inCatalog}
+                        title={row.inCatalog ? "Katalog alanı silinemez; pasifleştirin." : "Alanı sil"}
+                        aria-label={`${row.specKey} alanını sil`}
+                        onClick={(event) => { event.stopPropagation(); setPendingDelete(row); }}
+                        className="grid size-8 place-items-center text-slate-400 transition-colors hover:text-rose-600 disabled:cursor-not-allowed disabled:text-slate-200"
+                      >
+                        <Trash2 className="size-3.5" />
+                      </button>
+                    </td>
                   </tr>
                 );
               })}
@@ -748,7 +804,22 @@ function EditorView({ type, search, setSearch, rows, displayRows, selectedRow, s
               <InspectorField label="Birim" value={selectedRow.unit} onChange={(value) => updateRow(selectedRow.clientId, { unit: value })} />
               <div className="flex items-center justify-between rounded-md border border-slate-200 bg-slate-50 px-3 py-2.5"><div><p className="text-xs font-medium text-slate-800">Aktif alan</p><p className="text-[10px] text-slate-500">Yeni makinelerde gösterilir</p></div><Switch checked={selectedRow.isActive} onCheckedChange={(checked) => updateRow(selectedRow.clientId, { isActive: checked })} /></div>
               <div className="grid grid-cols-2 gap-2"><Button variant="outline" size="sm" onClick={() => moveRow(selectedRow.clientId, -1)}>Yukarı</Button><Button variant="outline" size="sm" onClick={() => moveRow(selectedRow.clientId, 1)}>Aşağı</Button></div>
-              <Button variant="outline" size="sm" className="w-full border-rose-200 text-rose-700 hover:bg-rose-50" onClick={() => updateRow(selectedRow.clientId, { isActive: false })}><Trash2 className="mr-1.5 size-4" />Alanı pasifleştir</Button>
+              <Button variant="outline" size="sm" className="w-full border-amber-200 text-amber-700 hover:bg-amber-50" disabled={!selectedRow.isActive} onClick={() => updateRow(selectedRow.clientId, { isActive: false })}><EyeOff className="mr-1.5 size-4" />Alanı pasifleştir</Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-full border-rose-200 text-rose-700 hover:bg-rose-50 disabled:text-slate-400"
+                disabled={selectedRow.inCatalog}
+                title={selectedRow.inCatalog ? "Katalog şablonundaki alan silinemez; gizlemek için pasifleştirin." : "Alanı kalıcı olarak sil"}
+                onClick={() => setPendingDelete(selectedRow)}
+              >
+                <Trash2 className="mr-1.5 size-4" />Alanı sil
+              </Button>
+              <p className="text-[10px] leading-relaxed text-slate-500">
+                {selectedRow.inCatalog
+                  ? "Bu alan makine tipinin katalog şablonunda tanımlı. Silinse bile şablon yeniden kurulduğunda öneri olarak geri gelir; kullanım dışı bırakmak için pasifleştirin."
+                  : "Pasifleştirme alanı listede tutar, yeni makinelerde göstermez. Silme kaydı kalıcı kaldırır ve aynı alan adı yeniden kullanılabilir."}
+              </p>
             </div>
           ) : <div className="p-6 text-center text-xs text-slate-500">Ayarlarını düzenlemek için bir satır seçin.</div>}
         </aside>
@@ -758,6 +829,34 @@ function EditorView({ type, search, setSearch, rows, displayRows, selectedRow, s
         <div className="flex items-center gap-4"><span>{rows.length} teknik alan</span><span>{groupCount} bölüm</span><span className={cn("flex items-center gap-1", dirty ? "text-amber-700" : "text-emerald-700")}>{dirty ? <CircleAlert className="size-3.5" /> : <CheckCircle2 className="size-3.5" />}{dirty ? lastDraftSave ? `Taslak kaydedildi ${lastDraftSave.toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" })}` : "Kaydedilmemiş değişiklikler" : "Tüm değişiklikler kayıtlı"}</span></div>
         <div className="flex items-center"><button type="button" className="border-b-2 border-blue-600 px-5 py-2 font-medium text-blue-700">Şablon Alanları</button><button type="button" onClick={openImport} className="border-b-2 border-transparent px-5 py-2 text-slate-600 hover:text-slate-900">Makine Verileri</button><button type="button" onClick={() => addField()} className="ml-2 grid size-8 place-items-center rounded border border-slate-200 hover:bg-slate-50"><Plus className="size-4" /></button></div>
       </div>
+
+      <AlertDialog open={Boolean(pendingDelete)} onOpenChange={(open) => !open && setPendingDelete(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Teknik alan silinsin mi?</AlertDialogTitle>
+            <AlertDialogDescription>
+              <b>{pendingDelete?.specKey}</b> alanı {type.label} şablonundan kaldırılacak.
+              {pendingDelete?.id
+                ? " Kaydet'e bastığınızda sunucudan da kalıcı olarak silinir; mevcut makinelerin girilmiş değerleri korunur."
+                : " Alan henüz kaydedilmediği için doğrudan kaldırılır."}
+              {" "}Yalnızca gizlemek istiyorsanız pasifleştirmeyi kullanın.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Vazgeç</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-rose-600 hover:bg-rose-700"
+              onClick={(event) => {
+                event.preventDefault();
+                if (pendingDelete) removeField(pendingDelete.clientId);
+                setPendingDelete(null);
+              }}
+            >
+              Alanı sil
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
