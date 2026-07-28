@@ -102,6 +102,28 @@ export const technicalImportPreviewRequestSchema = z.object({
 });
 export type TechnicalImportPreviewRequest = z.infer<typeof technicalImportPreviewRequestSchema>;
 
+/**
+ * Şablon indirme isteği. Alanlar istemciden gelir çünkü çalışma sayfasındaki liste
+ * katalog şablonu ile veritabanı kayıtlarının birleşimidir; böylece indirilen dosya
+ * kullanıcının ekranda gördüğü alanlarla birebir aynı olur.
+ */
+export const technicalImportTemplateRequestSchema = z.object({
+  productTypeCode: z.string().trim().min(1).max(64),
+  productTypeLabel: z.string().trim().max(255).optional(),
+  format: z.enum(['xlsx', 'csv']).default('xlsx'),
+  includeValues: z.boolean().default(true),
+  fields: z
+    .array(
+      technicalImportAvailableFieldSchema.extend({
+        section: z.string().trim().max(128).optional(),
+        value: z.string().trim().max(2000).optional(),
+      })
+    )
+    .max(1000)
+    .default([]),
+});
+export type TechnicalImportTemplateRequest = z.infer<typeof technicalImportTemplateRequestSchema>;
+
 export const technicalImportMatchStatusSchema = z.enum(['exact', 'normalized', 'review', 'unmatched']);
 export type TechnicalImportMatchStatus = z.infer<typeof technicalImportMatchStatusSchema>;
 

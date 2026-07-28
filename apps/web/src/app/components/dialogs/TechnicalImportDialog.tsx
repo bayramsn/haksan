@@ -6,6 +6,7 @@ import {
   Check,
   CheckCircle2,
   ChevronDown,
+  Download,
   FileSpreadsheet,
   RefreshCw,
   Search,
@@ -14,6 +15,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { adminService, type TechnicalImportPreview } from "../../../lib/services";
+import { exportService } from "../../../lib/downloadExport";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Checkbox } from "../ui/checkbox";
@@ -86,6 +88,27 @@ export function TechnicalImportDialog({
   const [committing, setCommitting] = useState(false);
   const [filter, setFilter] = useState<"all" | "review" | "unmatched">("all");
   const [search, setSearch] = useState("");
+  const [downloading, setDownloading] = useState(false);
+
+  const downloadTemplate = async (format: "xlsx" | "csv") => {
+    setDownloading(true);
+    try {
+      await exportService.technicalImportTemplate({
+        productTypeCode,
+        productTypeLabel,
+        format,
+        // Makine verisi aktarımında dosya tek bir makine için doldurulur; şablon
+        // alanlarının kendi başlangıç değerleri hedefi yanıltmasın diye boş gelir.
+        includeValues: mode === "template_fields",
+        fields: availableFields.map((field) => ({ key: field.key, groupCode: field.groupCode, section: field.groupCode, unit: field.unit })),
+      });
+      toast.success(`${format.toLocaleUpperCase("tr-TR")} şablonu indirildi`, { description: `${productTypeLabel} · ${availableFields.length} alan` });
+    } catch (error: any) {
+      toast.error("Şablon indirilemedi", { description: error?.message ?? "Sunucu isteği başarısız oldu." });
+    } finally {
+      setDownloading(false);
+    }
+  };
 
   const resetPreview = () => {
     setPreview(null);
@@ -266,7 +289,7 @@ export function TechnicalImportDialog({
                   <p className="truncate text-sm font-medium text-slate-900">{file?.name ?? "Excel veya CSV dosyası seçin"}</p>
                   <p className="mt-0.5 text-xs text-slate-500">{file ? `${(file.size / 1024).toFixed(0)} KB` : "XLSX / CSV · en fazla 10 MB"}{preview ? ` · ${preview.file.sheetNames.length} çalışma sayfası · ${preview.file.rowCount} teknik satır` : ""}</p>
                 </div>
-                <input ref={fileRef} type="file" accept=".xlsx,.csv" className="hidden" onChange={(event) => selectFile(event.target.files?.[0])} />
+                <input ref={fileRef} type="file" accept=".xlsx,.csv,text/csv" className="hidden" onChange={(event) => selectFile(event.target.files?.[0])} />
                 <Button variant="outline" size="sm" onClick={() => fileRef.current?.click()}><Upload className="mr-1.5 size-4" />{file ? "Değiştir" : "Dosya seç"}</Button>
                 <Button size="sm" disabled={!file || loading} onClick={createPreview}>{loading ? <RefreshCw className="mr-1.5 size-4 animate-spin" /> : <Search className="mr-1.5 size-4" />}İncele</Button>
               </div>
@@ -303,6 +326,21 @@ export function TechnicalImportDialog({
                 <span className="mx-auto flex size-14 items-center justify-center rounded-xl border border-dashed border-blue-300 bg-blue-50 text-blue-700"><Upload className="size-6" /></span>
                 <h3 className="mt-4 text-sm font-semibold text-slate-900">Teknik föyü çalışma sayfasına dönüştürün</h3>
                 <p className="mt-1 text-xs leading-5 text-slate-500">Bölüm, teknik bilgi, değer ve birim kolonlarını otomatik tanır. Hiçbir veri önizleme ve kullanıcı onayı olmadan kaydedilmez.</p>
+                <div className="mt-5 rounded-lg border border-slate-200 bg-white p-4 text-left">
+                  <p className="text-xs font-semibold text-slate-800">Elinizde uygun dosya yok mu?</p>
+                  <p className="mt-1 text-[11px] leading-5 text-slate-500">
+                    <strong>{productTypeLabel}</strong> alanlarıyla hazırlanmış şablonu indirin, Değer kolonunu doldurup geri yükleyin.
+                    CSV'yi Excel'de açıp kaydederseniz noktalı virgül ayracı ve Türkçe karakterler korunur.
+                  </p>
+                  <div className="mt-3 flex items-center gap-2">
+                    <Button variant="outline" size="sm" disabled={downloading} onClick={() => void downloadTemplate("xlsx")}>
+                      {downloading ? <RefreshCw className="mr-1.5 size-4 animate-spin" /> : <Download className="mr-1.5 size-4" />}XLSX şablonu
+                    </Button>
+                    <Button variant="outline" size="sm" disabled={downloading} onClick={() => void downloadTemplate("csv")}>
+                      <Download className="mr-1.5 size-4" />CSV şablonu
+                    </Button>
+                  </div>
+                </div>
               </div>
             </div>
           ) : (

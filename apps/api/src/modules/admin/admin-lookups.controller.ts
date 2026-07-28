@@ -21,14 +21,16 @@ import {
   productSpecTemplateUpdateSchema,
   technicalImportCommitRequestSchema,
   technicalImportPreviewRequestSchema,
+  technicalImportTemplateRequestSchema,
   type ProductSpecTemplateBatchInput,
   type ProductSpecTemplateBulkCreateInput,
   type ProductSpecTemplateCreateInput,
   type ProductSpecTemplateUpdateInput,
   type TechnicalImportCommitRequest,
   type TechnicalImportPreviewRequest,
+  type TechnicalImportTemplateRequest,
 } from '@haksan/shared';
-import { rowsToXlsxBuffer, sendXlsx } from '../../shared/utils/excel-export';
+import { rowsToCsvBuffer, rowsToXlsxBuffer, sendCsv, sendXlsx } from '../../shared/utils/excel-export';
 import { TechnicalImportService } from './technical-import.service';
 
 const lookupCreateSchema = z.object({
@@ -634,16 +636,45 @@ export class AdminLookupsController {
     return this.technicalImport.commit(body, user);
   }
 
-  @Get('technical-import/template')
-  async technicalImportTemplate(@Res({ passthrough: true }) reply: FastifyReply, @CurrentUser() user: AuthContext) {
+  /**
+   * Seçili makine tipinin kendi alanlarından doldurulmaya hazır şablon üretir.
+   * Alanlar istemciden gelir: çalışma sayfasındaki liste katalog şablonu ile kayıtlı
+   * satırların birleşimidir, dolayısıyla dosya kullanıcının gördüğüyle birebir aynı olur.
+   * Alan gönderilmezse genel örnek satırlara düşer.
+   */
+  @Post('technical-import/template')
+  async technicalImportTemplate(
+    @Body(new ZodValidationPipe(technicalImportTemplateRequestSchema)) body: TechnicalImportTemplateRequest,
+    @Res({ passthrough: true }) reply: FastifyReply,
+    @CurrentUser() user: AuthContext
+  ) {
     this.requireSuperAdmin(user);
-    const rows = [
-      { Bölüm: 'TABLA', 'Teknik Bilgi': 'Tablo Ölçüsü', Değer: '850 × 600', Birim: 'mm' },
-      { Bölüm: 'TABLA', 'Teknik Bilgi': 'Tablo Yükleme Kapasitesi', Değer: '500', Birim: 'kg' },
-      { Bölüm: 'EKSENLER', 'Teknik Bilgi': 'X Ekseni Hareketi', Değer: '650', Birim: 'mm' },
-      { Bölüm: 'FENER MİLİ', 'Teknik Bilgi': 'Fener Mili Devri', Değer: '12.000', Birim: 'dev/dk' },
-    ];
-    return sendXlsx(reply, await rowsToXlsxBuffer(rows, 'Teknik Bilgiler'), 'teknik-bilgi-import-sablonu.xlsx');
+    const rows = body.fields.length
+      ? body.fields.map((field) => ({
+          Bölüm: field.section || field.groupCode || 'GENEL',
+          'Teknik Bilgi': field.key,
+          Değer: body.includeValues ? field.value ?? '' : '',
+          Birim: field.unit ?? '',
+        }))
+      : [
+          { Bölüm: 'TABLA', 'Teknik Bilgi': 'Tablo Ölçüsü', Değer: '850 × 600', Birim: 'mm' },
+          { Bölüm: 'TABLA', 'Teknik Bilgi': 'Tablo Yükleme Kapasitesi', Değer: '500', Birim: 'kg' },
+          { Bölüm: 'EKSENLER', 'Teknik Bilgi': 'X Ekseni Hareketi', Değer: '650', Birim: 'mm' },
+          { Bölüm: 'FENER MİLİ', 'Teknik Bilgi': 'Fener Mili Devri', Değer: '12.000', Birim: 'dev/dk' },
+        ];
+    // Dosya adı header'a yazıldığı için yalnız güvenli karakterlere indirgenir.
+    const slug = (body.productTypeLabel || body.productTypeCode)
+      .toLocaleLowerCase('tr-TR')
+      .replace(/ı/g, 'i')
+      .normalize('NFD')
+      .replace(/[̀-ͯ]/g, '')
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 60) || 'teknik-bilgi';
+    if (body.format === 'csv') {
+      return sendCsv(reply, rowsToCsvBuffer(rows), `${slug}-teknik-sablon.csv`);
+    }
+    return sendXlsx(reply, await rowsToXlsxBuffer(rows, 'Teknik Bilgiler'), `${slug}-teknik-sablon.xlsx`);
   }
 
   @Patch('product-spec-templates/:id')

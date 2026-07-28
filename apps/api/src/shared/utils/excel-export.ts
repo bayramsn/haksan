@@ -46,6 +46,31 @@ export async function sheetsToXlsxBuffer(
   return Buffer.from(buf);
 }
 
+/**
+ * Türkçe Excel uyumlu CSV üretir: UTF-8 BOM + noktalı virgül ayracı. Ondalık ayracı
+ * virgül olan değerler (1.250,5) bu sayede tek hücrede kalır.
+ */
+export function rowsToCsvBuffer(rows: ExportRow[], delimiter = ';'): Buffer {
+  if (!rows.length) return Buffer.from('﻿', 'utf8');
+  const headers = Object.keys(rows[0]);
+  const cell = (value: ExportRow[string]) => {
+    const text = value === null || value === undefined ? '' : String(safeCellValue(value));
+    return /["\n\r]|[;,\t]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+  };
+  const lines = [
+    headers.join(delimiter),
+    ...rows.map((row) => headers.map((header) => cell(row[header])).join(delimiter)),
+  ];
+  return Buffer.from(`﻿${lines.join('\r\n')}\r\n`, 'utf8');
+}
+
+export async function sendCsv(reply: FastifyReply, buffer: Buffer, filename: string): Promise<Buffer> {
+  reply
+    .header('Content-Disposition', `attachment; filename="${filename}"`)
+    .header('Content-Type', 'text/csv; charset=utf-8');
+  return buffer;
+}
+
 export async function sendXlsx(reply: FastifyReply, buffer: Buffer, filename: string): Promise<Buffer> {
   reply
     .header('Content-Disposition', `attachment; filename="${filename}"`)

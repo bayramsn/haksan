@@ -47,6 +47,51 @@ export async function downloadExport(
   URL.revokeObjectURL(url);
 }
 
+/**
+ * Gövde gerektiren export uçları için POST varyantı: indirilen dosya istemcideki
+ * duruma (ör. ekrandaki alan listesi) göre üretiliyorsa query string yetmez.
+ */
+export async function downloadExportPost(path: string, filename: string, body: unknown): Promise<void> {
+  const token = getAccessToken();
+  const res = await fetch(`${API_BASE_URL}${path}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    credentials: 'include',
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    let message = `İndirme başarısız (HTTP ${res.status})`;
+    try {
+      const payload = await res.json();
+      if (payload?.error?.message) message = payload.error.message;
+      else if (payload?.message) message = payload.message;
+    } catch {
+      // binary response
+    }
+    throw new Error(message);
+  }
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+export type TechnicalTemplateField = {
+  key: string;
+  groupCode?: string;
+  unit?: string;
+  section?: string;
+  value?: string;
+};
+
 export const exportService = {
   companies: (params?: Record<string, string | undefined>) =>
     downloadExport('/exports/companies', 'firmalar.xlsx', params),
@@ -86,5 +131,27 @@ export const exportService = {
   pipelineSummary: () => downloadExport('/reports/export/pipeline-summary', 'pipeline-summary.xlsx'),
   stockSummary: () => downloadExport('/reports/export/stock-summary', 'stock-summary.xlsx'),
   productImportTemplate: () => downloadExport('/products/import/template', 'urun-import-sablonu.xlsx'),
-  technicalImportTemplate: () => downloadExport('/admin/technical-import/template', 'teknik-bilgi-import-sablonu.xlsx'),
+  technicalImportTemplate: (options: {
+    productTypeCode: string;
+    productTypeLabel?: string;
+    format?: 'xlsx' | 'csv';
+    includeValues?: boolean;
+    fields?: TechnicalTemplateField[];
+  }) => {
+    const format = options.format ?? 'xlsx';
+    const slug = (options.productTypeLabel || options.productTypeCode)
+      .toLocaleLowerCase('tr-TR')
+      .replace(/ı/g, 'i')
+      .normalize('NFD')
+      .replace(/[̀-ͯ]/g, '')
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '') || 'teknik-bilgi';
+    return downloadExportPost('/admin/technical-import/template', `${slug}-teknik-sablon.${format}`, {
+      productTypeCode: options.productTypeCode,
+      productTypeLabel: options.productTypeLabel,
+      format,
+      includeValues: options.includeValues ?? true,
+      fields: options.fields ?? [],
+    });
+  },
 };

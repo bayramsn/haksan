@@ -35,6 +35,28 @@ const TECHNICAL_ALIASES: Record<string, string> = {
   'machine weight': 'tezgah agirligi',
 };
 
+/**
+ * Şablon tablosunda aynı makine tipi hem güncel hem eski kodla kayıtlı olabilir
+ * (ör. KOPRU_TIPI_ISLEME_MERKEZI ↔ CNC_KOPRU_TIPI_ISLEME_MERKEZI). Web tarafı okurken
+ * bunları eşitliyor; içe aktarma da eşitlemezse var olan satırı bulamaz ve aynı alanı
+ * ikinci kez, paralel bir kodla yazar — kullanıcı aktarımı başarılı görür ama değer
+ * çalışma sayfasına yansımaz.
+ */
+const TYPE_CODE_ALIASES: Record<string, string> = {
+  DIK_ISLEME_MERKEZI: 'CNC_DIK_ISLEME_MERKEZ',
+  KOPRU_TIPI_ISLEME_MERKEZI: 'CNC_KOPRU_TIPI_ISLEME_MERKEZI',
+  CNC_TORNA: 'CNC_YATAY_TORNA_TEZGAHI',
+};
+
+export function productTypeCodeVariants(code: string): string[] {
+  const upper = code.toLocaleUpperCase('tr-TR').normalize('NFD').replace(/[̀-ͯ]/g, '');
+  const canonical = TYPE_CODE_ALIASES[upper] ?? upper;
+  const legacy = Object.entries(TYPE_CODE_ALIASES)
+    .filter(([, target]) => target === canonical)
+    .map(([source]) => source);
+  return [...new Set([code, upper, canonical, ...legacy])];
+}
+
 const HEADER_WORDS = {
   section: ['bolum', 'grup', 'section'],
   key: ['teknik bilgi', 'alan', 'ozellik', 'specification', 'feature'],
@@ -67,10 +89,22 @@ function safeCellText(value: ExcelJS.CellValue): string {
   return '';
 }
 
-function parseCsv(text: string): string[][] {
-  const source = text.replace(/^\uFEFF/, '');
-  const sample = source.split(/\r?\n/, 5).join('\n');
-  const delimiter = (sample.match(/;/g)?.length ?? 0) > (sample.match(/,/g)?.length ?? 0) ? ';' : ',';
+export function parseCsv(text: string): string[][] {
+  let source = text.replace(/^\uFEFF/, '');
+  // Excel "CSV (ayra\u00E7l\u0131)" \u00E7\u0131kt\u0131s\u0131n\u0131n ilk sat\u0131r\u0131na yazd\u0131\u011F\u0131 `sep=;` y\u00F6nergesi. Veri sat\u0131r\u0131
+  // de\u011Fildir; ayrac\u0131 buradan okuyup sat\u0131r\u0131 atmazsak t\u00FCm kolonlar bir kay\u0131yor.
+  const separatorDirective = source.match(/^sep=(.)\r?\n/i);
+  let delimiter: string;
+  if (separatorDirective) {
+    delimiter = separatorDirective[1];
+    source = source.slice(separatorDirective[0].length);
+  } else {
+    const sample = source.split(/\r?\n/, 5).join('\n');
+    const count = (char: string) => sample.split(char).length - 1;
+    const candidates: Array<[string, number]> = [[';', count(';')], ['\t', count('\t')], [',', count(',')]];
+    const [best] = candidates.sort((a, b) => b[1] - a[1]);
+    delimiter = best[1] > 0 ? best[0] : ',';
+  }
   const rows: string[][] = [];
   let row: string[] = [];
   let cell = '';
@@ -123,7 +157,9 @@ export function rowsToTechnicalRows(rows: string[][], sheetName: string): Array<
   const keyHeader = headerIndex(first, HEADER_WORDS.key);
   const valueHeader = headerIndex(first, HEADER_WORDS.value);
   const hasHeader = keyHeader >= 0 && valueHeader >= 0;
-  const sectionColumn = hasHeader ? headerIndex(first, HEADER_WORDS.section) : 0;
+  // Başlıksız dosyada bölüm kolonu ancak 3+ kolon varsa vardır; iki kolonlu dosyada
+  // 0. kolon alan adının kendisidir, bölüm sanılırsa her satır kendi bölümü olur.
+  const sectionColumn = hasHeader ? headerIndex(first, HEADER_WORDS.section) : first.length >= 3 ? 0 : -1;
   const keyColumn = hasHeader ? keyHeader : first.length >= 3 ? 1 : 0;
   const valueColumn = hasHeader ? valueHeader : first.length >= 3 ? 2 : 1;
   const unitColumn = hasHeader ? headerIndex(first, HEADER_WORDS.unit) : first.length >= 4 ? 3 : -1;
@@ -327,7 +363,7 @@ export class TechnicalImportService {
         const [existing] = await tx
           .select({ id: productSpecTemplates.id })
           .from(productSpecTemplates)
-          .where(and(eq(productSpecTemplates.productTypeCode, body.productTypeCode), eq(productSpecTemplates.specKey, row.targetKey), divisionFilter))
+          .where(and(inArray(productSpecTemplates.productTypeCode, productTypeCodeVariants(body.productTypeCode)), eq(productSpecTemplates.specKey, row.targetKey), divisionFilter))
           .limit(1);
         const values = {
           specGroupCode: row.targetGroupCode || 'GENEL',

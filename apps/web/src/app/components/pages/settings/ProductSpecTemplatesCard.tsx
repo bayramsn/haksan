@@ -11,6 +11,7 @@ import {
   ListFilter,
   Plus,
   Redo2,
+  RefreshCw,
   Save,
   Search,
   Settings2,
@@ -730,6 +731,26 @@ type EditorViewProps = {
 
 function EditorView({ type, search, setSearch, rows, displayRows, selectedRow, selectedRowId, setSelectedRowId, updateRow, addField, removeField, addSection, moveRow, pasteValues, undo, redo, canUndo, canRedo, completion, activeCount, groupCount, dirty, lastDraftSave, busy, save, openImport }: EditorViewProps) {
   const [pendingDelete, setPendingDelete] = useState<DraftRow | null>(null);
+  const [downloading, setDownloading] = useState(false);
+
+  // Şablon ekrandaki alanlardan üretilir: kullanıcı ne görüyorsa dosyada o var.
+  const downloadTemplate = async (format: "xlsx" | "csv") => {
+    setDownloading(true);
+    try {
+      await exportService.technicalImportTemplate({
+        productTypeCode: type.code,
+        productTypeLabel: type.label,
+        format,
+        fields: rows.map((row) => ({ key: row.specKey, groupCode: row.groupCode, section: groupLabel(row.groupCode), unit: row.unit, value: row.defaultValue })),
+      });
+      toast.success(`${format.toLocaleUpperCase("tr-TR")} şablonu indirildi`, { description: `${type.label} · ${rows.length} alan` });
+    } catch (error: any) {
+      toast.error("Şablon indirilemedi", { description: error?.message ?? "Sunucu isteği başarısız oldu." });
+    } finally {
+      setDownloading(false);
+    }
+  };
+
   return (
     <div className="bg-[#f8fafc]">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-white px-4 py-3">
@@ -740,7 +761,12 @@ function EditorView({ type, search, setSearch, rows, displayRows, selectedRow, s
         <Button variant="outline" size="sm" onClick={() => addField()}><Plus className="mr-1.5 size-4" />Alan ekle</Button>
         <Button variant="outline" size="sm" onClick={addSection}><Plus className="mr-1.5 size-4" />Bölüm ekle</Button>
         <Button variant="outline" size="sm" onClick={openImport}><Upload className="mr-1.5 size-4" />Excel / CSV yükle</Button>
-        <Button variant="outline" size="sm" onClick={() => void exportService.technicalImportTemplate()}><Download className="mr-1.5 size-4" />Şablon indir</Button>
+        <div className="flex items-center">
+          <Button variant="outline" size="sm" className="rounded-r-none" disabled={downloading} onClick={() => void downloadTemplate("xlsx")}>
+            {downloading ? <RefreshCw className="mr-1.5 size-4 animate-spin" /> : <Download className="mr-1.5 size-4" />}Şablon indir
+          </Button>
+          <Button variant="outline" size="sm" className="-ml-px rounded-l-none px-2 text-[10px] font-medium" disabled={downloading} title="Şablonu CSV olarak indir" onClick={() => void downloadTemplate("csv")}>CSV</Button>
+        </div>
         <div className="ml-auto flex min-w-64 flex-1 items-center justify-end gap-2">
           <div className="relative w-full max-w-sm"><Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" /><Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Teknik bilgide ara" className="h-8 border-slate-300 pl-9 text-xs" /></div>
           <Button variant="outline" size="icon" className="size-8" disabled={!canUndo} onClick={undo}><Undo2 className="size-4" /></Button>
