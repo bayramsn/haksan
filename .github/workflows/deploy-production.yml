@@ -174,11 +174,17 @@ jobs:
             --query 'Command.CommandId' \
             --output text)"
 
+          echo "SSM command id: $command_id"
+          set +e
           aws ssm wait command-executed --command-id "$command_id" --instance-id "$INSTANCE_ID"
-          status="$(aws ssm get-command-invocation --command-id "$command_id" --instance-id "$INSTANCE_ID" --query Status --output text)"
-          aws ssm get-command-invocation \
+          waiter_status="$?"
+          set -e
+
+          invocation="$(aws ssm get-command-invocation \
             --command-id "$command_id" \
             --instance-id "$INSTANCE_ID" \
             --query '{Status:Status,Output:StandardOutputContent,Error:StandardErrorContent}' \
-            --output json
-          [[ "$status" == "Success" ]]
+            --output json)"
+          jq . <<<"$invocation"
+          status="$(jq -r '.Status' <<<"$invocation")"
+          [[ "$waiter_status" == "0" && "$status" == "Success" ]]
