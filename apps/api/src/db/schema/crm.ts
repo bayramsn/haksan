@@ -136,6 +136,16 @@ export const opportunities = pgTable(
     paymentMethod: varchar('payment_method', { length: 32 }),
     // Lead'in günlük takip durumu, satış derecesinden (Lead/C/B/A/...) bağımsızdır.
     leadFollowUpStatus: varchar('lead_follow_up_status', { length: 24 }).notNull().default('new'),
+    // Takip durumuna giriş anı — lead SLA sayacı buradan işler.
+    leadStatusUpdatedAt: timestamp('lead_status_updated_at', { withTimezone: true }),
+    // Kaç kez temas denendi; üst sınır aşılınca kart beklemeye düşürülür.
+    contactAttemptCount: integer('contact_attempt_count').notNull().default(0),
+    // İlk başarılı temas anı — "speed-to-lead" ölçümünün paydası.
+    firstContactAt: timestamp('first_contact_at', { withTimezone: true }),
+    // Lead elendiğinde nedeni; LOST nedeniyle aynı lookup tablosunu paylaşır.
+    disqualifyReasonId: uuid('disqualify_reason_id').references(() => cancellationReasons.id, {
+      onDelete: 'set null',
+    }),
     // Satışçının kartı yeniden açmadan göreceği bir sonraki somut aksiyon.
     nextAction: text('next_action'),
     nextActionAt: timestamp('next_action_at', { withTimezone: true }),
@@ -163,6 +173,16 @@ export const opportunities = pgTable(
     stageIdx: index('opportunities_stage_idx').on(t.currentStageId),
     qualificationStageIdx: index('opportunities_qualification_stage_idx').on(t.tenantId, t.qualificationStage),
     leadFollowUpStatusIdx: index('opportunities_lead_follow_up_status_idx').on(t.tenantId, t.leadFollowUpStatus),
+    qualificationAgeIdx: index('opportunities_qualification_age_idx').on(
+      t.tenantId,
+      t.qualificationStage,
+      t.qualificationUpdatedAt
+    ),
+    leadStatusAgeIdx: index('opportunities_lead_status_age_idx').on(
+      t.tenantId,
+      t.leadFollowUpStatus,
+      t.leadStatusUpdatedAt
+    ),
     nextActionAtIdx: index('opportunities_next_action_at_idx').on(t.tenantId, t.nextActionAt),
     expectedCloseDateIdx: index('opportunities_expected_close_date_idx').on(t.expectedCloseDate),
     ownerIdx: index('opportunities_owner_idx').on(t.ownerUserId),

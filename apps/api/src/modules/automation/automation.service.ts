@@ -1,6 +1,12 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
-import { and, asc, eq, gte, isNull, lte, sql } from 'drizzle-orm';
+import { and, asc, eq, gte, inArray, isNotNull, isNull, lte, or, sql } from 'drizzle-orm';
+import {
+  LEAD_FOLLOW_UP_SLA_HOURS,
+  LEAD_MAX_CONTACT_ATTEMPTS,
+  QUALIFICATION_STAGE_AGE_LIMIT_DAYS,
+  type QualificationStageCode,
+} from '@haksan/shared';
 import type { DbClient } from '../../db/client';
 import { DB } from '../../shared/database/database.module';
 import { MailerService } from '../../shared/mailer/mailer.service';
@@ -13,6 +19,7 @@ import { customerDevices, inventoryItems } from '../../db/schema/inventory';
 import { productModels } from '../../db/schema/products';
 import { quotes } from '../../db/schema/quotes';
 import { maintenancePlans, serviceTickets } from '../../db/schema/service';
+import { opportunities } from '../../db/schema/crm';
 import { paymentStatuses, quoteStatuses, serviceTicketStatuses } from '../../db/schema/lookup';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -22,6 +29,15 @@ const DEDUPE_WINDOW_MS = 20 * 60 * 60 * 1000;
 const TZ = loadEnv().AUTOMATION_TIMEZONE;
 
 type TenantRow = { id: string; name: string };
+
+/** Bildirim metinlerinde kullanılan lead takip durumu etiketleri. */
+const LEAD_STATUS_LABELS: Record<string, string> = {
+  new: 'Yeni',
+  attempting: 'Deneniyor',
+  contacted: 'Görüşüldü',
+  waiting: 'Beklemede',
+  disqualified: 'Elendi',
+};
 
 /**
  * Zamanlanmış otomasyon işleri — vadesi geçen tahsilat, garanti bitişi,
@@ -151,6 +167,157 @@ export class AutomationService {
       .limit(50);
   }
 
+  /** Aktif (silinmemiş, arşivlenmemiş) satış kartlarını kapsayan ortak koşul. */
+  private aliveOpportunity(tenantId: string) {
+    return and(
+      eq(opportunities.tenantId, tenantId),
+      isNull(opportunities.deletedAt),
+      isNull(opportunities.closedAt),
+    );
+  }
+
+  private opportunityLabel() {
+    return sql<string>`coalesce(
+      nullif(${companies.shortName}, ''),
+      ${companies.legalTitle},
+      nullif(${opportunities.leadCompanyTitle}, ''),
+      nullif(${opportunities.leadContactName}, ''),
+      ${opportunities.title}
+    )`;
+  }
+
+  /**
+   * Takip durumunun izin verilen yanıt süresini aşmış Lead'ler. Eşikler
+   * LEAD_FOLLOW_UP_SLA_HOURS'tan gelir; süresi null olan durumlar (beklemede,
+   * elenmiş) sayaç tutmaz ve buraya girmez.
+   */
+  private async leadSlaBreaches(tenantId: string) {
+    const timed = Object.entries(LEAD_FOLLOW_UP_SLA_HOURS).filter(
+      (entry): entry is [string, number] => entry[1] !== null,
+    );
+    if (timed.length === 0) return [];
+    return this.db
+      .select({
+        id: opportunities.id,
+        title: opportunities.title,
+        status: opportunities.leadFollowUpStatus,
+        since: sql<Date>`coalesce(${opportunities.leadStatusUpdatedAt}, ${opportunities.createdAt})`,
+        label: this.opportunityLabel(),
+      })
+      .from(opportunities)
+      .leftJoin(companies, eq(opportunities.companyId, companies.id))
+      .where(
+        and(
+          this.aliveOpportunity(tenantId),
+          eq(opportunities.qualificationStage, 'lead'),
+          or(
+            ...timed.map(([status, hours]) =>
+              and(
+                eq(opportunities.leadFollowUpStatus, status),
+                sql`coalesce(${opportunities.leadStatusUpdatedAt}, ${opportunities.createdAt}) < now() - (${hours} || ' hours')::interval`,
+              ),
+            ),
+          ),
+        ),
+      )
+      .orderBy(asc(sql`coalesce(${opportunities.leadStatusUpdatedAt}, ${opportunities.createdAt})`))
+      .limit(50);
+  }
+
+  /** Deneme üst sınırına ulaşmış ama hâlâ "deneniyor" durumunda bekleyen Lead'ler. */
+  private async exhaustedLeads(tenantId: string) {
+    return this.db
+      .select({ id: opportunities.id, label: this.opportunityLabel(), attempts: opportunities.contactAttemptCount })
+      .from(opportunities)
+      .leftJoin(companies, eq(opportunities.companyId, companies.id))
+      .where(
+        and(
+          this.aliveOpportunity(tenantId),
+          eq(opportunities.qualificationStage, 'lead'),
+          eq(opportunities.leadFollowUpStatus, 'attempting'),
+          gte(opportunities.contactAttemptCount, LEAD_MAX_CONTACT_ATTEMPTS),
+        ),
+      )
+      .limit(50);
+  }
+
+  /**
+   * Aşamada izin verilen süreyi aşmış ("çürüyen") satış kartları. Aşama yaşı
+   * qualification_updated_at üzerinden ölçülür; bu kolon yalnız satış derecesi
+   * değişince yazıldığı için aşamaya giriş anını verir.
+   */
+  private async rottingOpportunities(tenantId: string) {
+    const limited = Object.entries(QUALIFICATION_STAGE_AGE_LIMIT_DAYS).filter(
+      (entry): entry is [QualificationStageCode, number] => entry[1] !== null,
+    );
+    if (limited.length === 0) return [];
+    return this.db
+      .select({
+        id: opportunities.id,
+        stage: opportunities.qualificationStage,
+        since: sql<Date>`coalesce(${opportunities.qualificationUpdatedAt}, ${opportunities.createdAt})`,
+        label: this.opportunityLabel(),
+      })
+      .from(opportunities)
+      .leftJoin(companies, eq(opportunities.companyId, companies.id))
+      .where(
+        and(
+          this.aliveOpportunity(tenantId),
+          or(
+            ...limited.map(([stage, days]) =>
+              and(
+                eq(opportunities.qualificationStage, stage),
+                sql`coalesce(${opportunities.qualificationUpdatedAt}, ${opportunities.createdAt}) < now() - (${days} || ' days')::interval`,
+              ),
+            ),
+          ),
+        ),
+      )
+      .orderBy(asc(sql`coalesce(${opportunities.qualificationUpdatedAt}, ${opportunities.createdAt})`))
+      .limit(50);
+  }
+
+  /**
+   * Takip tarihi geçmiş kartlar. Planlanmış bir aksiyonun tarihi geldiği hâlde
+   * kart hareket etmemişse satışçının radarından düşmüş demektir.
+   */
+  private async overdueActionOpportunities(tenantId: string) {
+    return this.db
+      .select({
+        id: opportunities.id,
+        nextAction: opportunities.nextAction,
+        nextActionAt: opportunities.nextActionAt,
+        label: this.opportunityLabel(),
+      })
+      .from(opportunities)
+      .leftJoin(companies, eq(opportunities.companyId, companies.id))
+      .where(
+        and(
+          this.aliveOpportunity(tenantId),
+          isNotNull(opportunities.nextActionAt),
+          lte(opportunities.nextActionAt, new Date()),
+          sql`${opportunities.qualificationStage} not in ('win', 'lost')`,
+        ),
+      )
+      .orderBy(asc(opportunities.nextActionAt))
+      .limit(50);
+  }
+
+  /** Açık ama bir sonraki adımı planlanmamış satış kartları. */
+  private async actionlessOpportunityCount(tenantId: string): Promise<number> {
+    const [row] = await this.db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(opportunities)
+      .where(
+        and(
+          this.aliveOpportunity(tenantId),
+          isNull(opportunities.nextActionAt),
+          inArray(opportunities.qualificationStage, ['c', 'b', 'a', 'a_plus']),
+        ),
+      );
+    return row?.count ?? 0;
+  }
+
   private async openServiceTicketCount(tenantId: string): Promise<number> {
     const [row] = await this.db
       .select({ count: sql<number>`count(*)::int` })
@@ -175,13 +342,19 @@ export class AutomationService {
     try {
       for (const tenant of await this.listTenants()) {
         if (await this.alreadyNotified(tenant.id, 'daily_briefing')) continue;
-        const [overdue, warranties, stale, openTickets] = await Promise.all([
+        const [overdue, warranties, stale, openTickets, leadBreaches, rotting, overdueActions] = await Promise.all([
           this.overdueReceivableStats(tenant.id),
           this.expiringWarranties(tenant.id, this.env.AUTOMATION_WARRANTY_WINDOW_DAYS),
           this.staleQuotes(tenant.id, this.env.AUTOMATION_STALE_QUOTE_DAYS),
           this.openServiceTicketCount(tenant.id),
+          this.leadSlaBreaches(tenant.id),
+          this.rottingOpportunities(tenant.id),
+          this.overdueActionOpportunities(tenant.id),
         ]);
         const lines = [
+          leadBreaches.length > 0 ? `• ${leadBreaches.length} lead yanıt süresini aştı` : null,
+          overdueActions.length > 0 ? `• ${overdueActions.length} satış kartında takip tarihi geçti` : null,
+          rotting.length > 0 ? `• ${rotting.length} satış kartı aşamasında bekliyor` : null,
           overdue.count > 0 ? `• ${overdue.count} geciken tahsilat (toplam ${this.money(overdue.total)})` : null,
           stale.length > 0 ? `• ${stale.length} teklif ${this.env.AUTOMATION_STALE_QUOTE_DAYS}+ gündür cevapsız` : null,
           openTickets > 0 ? `• ${openTickets} açık servis kaydı` : null,
@@ -321,6 +494,101 @@ export class AutomationService {
       }
     } catch (error) {
       logger.error({ action: 'automation_maintenance_failed' }, String(error));
+    }
+  }
+
+  /**
+   * Her gün: yanıt süresi aşılmış Lead'ler ve deneme sınırına dayanmış kartlar.
+   * "Speed-to-lead" disiplinini ayakta tutan iş.
+   */
+  @Cron('15 9 * * *', { timeZone: TZ })
+  async leadSlaJob(): Promise<void> {
+    if (!this.active || !this.env.AUTOMATION_LEAD_SLA_ENABLED) return;
+    try {
+      for (const tenant of await this.listTenants()) {
+        if (await this.alreadyNotified(tenant.id, 'lead_sla_breach')) continue;
+        const [breaches, exhausted] = await Promise.all([
+          this.leadSlaBreaches(tenant.id),
+          this.exhaustedLeads(tenant.id),
+        ]);
+        if (breaches.length === 0 && exhausted.length === 0) continue;
+
+        const lines: string[] = [];
+        if (breaches.length > 0) {
+          const preview = breaches
+            .slice(0, 3)
+            .map((row) => `${row.label} (${LEAD_STATUS_LABELS[row.status] ?? row.status})`)
+            .join(', ');
+          lines.push(
+            `• ${breaches.length} lead yanıt süresini aştı: ${preview}${breaches.length > 3 ? '…' : ''}`,
+          );
+        }
+        if (exhausted.length > 0) {
+          const preview = exhausted.slice(0, 3).map((row) => row.label).join(', ');
+          lines.push(
+            `• ${exhausted.length} lead ${LEAD_MAX_CONTACT_ATTEMPTS} denemeye ulaştı; beklemeye alın veya eleyin: ${preview}${exhausted.length > 3 ? '…' : ''}`,
+          );
+        }
+        await this.notify(
+          tenant.id,
+          'lead_sla_breach',
+          `${breaches.length + exhausted.length} lead takip bekliyor`,
+          lines.join('\n'),
+        );
+      }
+    } catch (error) {
+      logger.error({ action: 'automation_lead_sla_failed' }, String(error));
+    }
+  }
+
+  /**
+   * Her gün: aşamada çürüyen, takibi gecikmiş veya sonraki adımı planlanmamış
+   * satış kartları. Hiçbir kaydı değiştirmez; yalnız görünür kılar.
+   */
+  @Cron('30 9 * * *', { timeZone: TZ })
+  async rottingOpportunitiesJob(): Promise<void> {
+    if (!this.active || !this.env.AUTOMATION_ROTTING_ENABLED) return;
+    try {
+      for (const tenant of await this.listTenants()) {
+        if (await this.alreadyNotified(tenant.id, 'opportunity_rotting')) continue;
+        const [rotting, overdue, actionless] = await Promise.all([
+          this.rottingOpportunities(tenant.id),
+          this.overdueActionOpportunities(tenant.id),
+          this.actionlessOpportunityCount(tenant.id),
+        ]);
+        if (rotting.length === 0 && overdue.length === 0 && actionless === 0) continue;
+
+        const lines: string[] = [];
+        if (rotting.length > 0) {
+          const preview = rotting
+            .slice(0, 3)
+            .map((row) => `${row.label} (${row.stage.toUpperCase()}, ${this.date(row.since)}'ten beri)`)
+            .join(', ');
+          lines.push(
+            `• ${rotting.length} kart aşamasında beklemede: ${preview}${rotting.length > 3 ? '…' : ''}`,
+          );
+        }
+        if (overdue.length > 0) {
+          const preview = overdue
+            .slice(0, 3)
+            .map((row) => `${row.label} (${this.date(row.nextActionAt)})`)
+            .join(', ');
+          lines.push(
+            `• ${overdue.length} kartta takip tarihi geçti: ${preview}${overdue.length > 3 ? '…' : ''}`,
+          );
+        }
+        if (actionless > 0) {
+          lines.push(`• ${actionless} açık kartta bir sonraki aksiyon planlanmamış`);
+        }
+        await this.notify(
+          tenant.id,
+          'opportunity_rotting',
+          `${rotting.length + overdue.length} satış kartı ilgi bekliyor`,
+          lines.join('\n'),
+        );
+      }
+    } catch (error) {
+      logger.error({ action: 'automation_rotting_failed' }, String(error));
     }
   }
 

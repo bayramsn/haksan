@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { moneySchema } from './common';
 import {
+  LEAD_FOLLOW_UP_STATUSES,
   OPPORTUNITY_APPROVAL_STATUSES,
   OPPORTUNITY_APPROVAL_TYPES,
   PIPELINE_STAGES,
@@ -27,13 +28,7 @@ export const leadTemperatureEnum = z.enum(['hot', 'waiting', 'cold', 'unknown'])
 export type LeadTemperature = z.infer<typeof leadTemperatureEnum>;
 
 // Lead takip durumu, lead'in satış derecesinden bağımsız günlük çalışma durumudur.
-export const leadFollowUpStatusEnum = z.enum([
-  'new',
-  'attempting',
-  'contacted',
-  'waiting',
-  'disqualified',
-]);
+export const leadFollowUpStatusEnum = z.enum(LEAD_FOLLOW_UP_STATUSES);
 export type LeadFollowUpStatus = z.infer<typeof leadFollowUpStatusEnum>;
 
 const opportunityInputSchema = z.object({
@@ -53,6 +48,11 @@ const opportunityInputSchema = z.object({
   leadEmail: z.string().trim().max(254).nullish(),
   leadTemperature: leadTemperatureEnum.nullish(),
   leadFollowUpStatus: leadFollowUpStatusEnum.nullish(),
+  // Lead "disqualified" durumuna alınırken zorunlu; LOST nedenleriyle aynı
+  // lookup tablosuna yazılır, kod yoksa backend satırı kendisi açar.
+  disqualifyReasonCode: z.string().trim().max(64).nullish(),
+  // Satış derecesi/eleme kararının serbest metin gerekçesi.
+  qualificationNote: z.string().trim().max(1000).nullish(),
   // Lead ve fırsat kartlarında ekibin bir sonraki somut işi.
   nextAction: z.string().trim().max(1000).nullish(),
   nextActionAt: z.coerce.date().nullish(),
@@ -73,6 +73,20 @@ const opportunityInputSchema = z.object({
   wonReason: z.string().max(255).nullish(),
 });
 
+/** Lead elenirken neden kodu zorunludur; create ve update aynı kuralı paylaşır. */
+const requireDisqualifyReason = (
+  value: { leadFollowUpStatus?: LeadFollowUpStatus | null; disqualifyReasonCode?: string | null },
+  context: z.RefinementCtx
+) => {
+  if (value.leadFollowUpStatus === 'disqualified' && !value.disqualifyReasonCode?.trim()) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'Lead elenirken eleme nedeni zorunludur.',
+      path: ['disqualifyReasonCode'],
+    });
+  }
+};
+
 export const opportunityCreateSchema = opportunityInputSchema.superRefine((value, context) => {
   if (!value.companyId && !value.leadContactName?.trim()) {
     context.addIssue({
@@ -88,6 +102,7 @@ export const opportunityCreateSchema = opportunityInputSchema.superRefine((value
       path: ['nextAction'],
     });
   }
+  requireDisqualifyReason(value, context);
 });
 export type OpportunityCreateInput = z.infer<typeof opportunityCreateSchema>;
 
@@ -183,7 +198,7 @@ export const trelloImportCommitRequestSchema = z.object({
 });
 export type TrelloImportCommitRequest = z.infer<typeof trelloImportCommitRequestSchema>;
 
-export const opportunityUpdateSchema = opportunityInputSchema.partial();
+export const opportunityUpdateSchema = opportunityInputSchema.partial().superRefine(requireDisqualifyReason);
 export type OpportunityUpdateInput = z.infer<typeof opportunityUpdateSchema>;
 
 export const opportunityQualificationStageEnum = z.enum(QUALIFICATION_STAGES);

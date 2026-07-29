@@ -56,11 +56,18 @@ import type {
   Pagination,
 } from '@haksan/shared';
 import {
+  LEAD_DISQUALIFY_REASONS,
+  LEAD_FOLLOW_UP_SLA_HOURS,
+  LEAD_MAX_CONTACT_ATTEMPTS,
+  PIPELINE_STAGE_QUALIFICATION,
   PIPELINE_STAGES,
+  QUALIFICATION_STAGE_ENTRY,
+  QUALIFICATION_STAGE_AGE_LIMIT_DAYS,
   QUALIFICATION_STAGES,
   STAGE_TRANSITIONS,
   trelloImportRowSchema,
   trelloResolvedImportRowSchema,
+  type LeadFollowUpStatusCode,
   type PipelineStageCode,
   type OpportunityApprovalType,
   type QualificationStageCode,
@@ -106,6 +113,8 @@ const TRELLO_IMPORT_MAX_BYTES = 2 * 1024 * 1024;
 const TRELLO_IMPORT_MAX_ROWS = 500;
 
 const QUALIFICATION_SEQUENCE: QualificationStageCode[] = ['lead', 'c', 'b', 'a', 'a_plus', 'win'];
+const HOUR_MS = 60 * 60 * 1000;
+const DAY_MS = 24 * HOUR_MS;
 const APPROVAL_LABELS: Record<OpportunityApprovalType, string> = {
   payment: 'Ödeme onayı',
   customs: 'Gümrük onayı',
@@ -446,6 +455,55 @@ export class OpportunitiesService {
       blockers,
       checks,
       approvals: context.approvals,
+      health: this.processHealth(row, stage),
+    };
+  }
+
+  /**
+   * Kartın süreç sağlığı: aşamada ne kadar beklediği, lead SLA'sını aşıp aşmadığı
+   * ve takip aksiyonunun durumu. Hiçbiri geçişi engellemez; pano ve bildirimler
+   * bu alanlara bakar. Aşama yaşı `qualificationUpdatedAt` üzerinden hesaplanır —
+   * bu kolon yalnız satış derecesi değiştiğinde yazıldığı için aşamaya giriş anıdır.
+   */
+  private processHealth(row: typeof opportunities.$inferSelect, stage: QualificationStageCode) {
+    const now = Date.now();
+    const days = (value: Date | null | undefined) =>
+      value ? Math.floor((now - new Date(value).getTime()) / DAY_MS) : null;
+
+    const stageAgeDays = days(row.qualificationUpdatedAt ?? row.createdAt);
+    const stageAgeLimitDays = QUALIFICATION_STAGE_AGE_LIMIT_DAYS[stage];
+    const terminal = stage === 'win' || stage === 'lost';
+
+    const leadStatus = (row.leadFollowUpStatus ?? 'new') as LeadFollowUpStatusCode;
+    const leadSlaHours = stage === 'lead' ? LEAD_FOLLOW_UP_SLA_HOURS[leadStatus] : null;
+    const leadStatusSince = row.leadStatusUpdatedAt ?? row.createdAt;
+    const leadStatusAgeHours = leadStatusSince
+      ? Math.floor((now - new Date(leadStatusSince).getTime()) / HOUR_MS)
+      : null;
+
+    const nextActionAt = row.nextActionAt ? new Date(row.nextActionAt).getTime() : null;
+
+    return {
+      stageAgeDays,
+      stageAgeLimitDays,
+      // Çürüyen kart: aşamada izin verilen süreyi aşmış, kapanmamış kart.
+      rotting:
+        !terminal &&
+        !row.closedAt &&
+        stageAgeLimitDays !== null &&
+        stageAgeDays !== null &&
+        stageAgeDays > stageAgeLimitDays,
+      leadStatus,
+      leadSlaHours,
+      leadStatusAgeHours,
+      leadSlaBreached:
+        leadSlaHours !== null && leadStatusAgeHours !== null && leadStatusAgeHours > leadSlaHours,
+      contactAttemptCount: row.contactAttemptCount ?? 0,
+      attemptLimitReached: (row.contactAttemptCount ?? 0) >= LEAD_MAX_CONTACT_ATTEMPTS,
+      firstContactAt: row.firstContactAt ?? null,
+      // Takip tarihi geçmiş ya da hiç planlanmamış açık kart.
+      actionOverdue: !terminal && !row.closedAt && nextActionAt !== null && nextActionAt < now,
+      actionMissing: !terminal && !row.closedAt && !row.nextActionAt,
     };
   }
 
@@ -881,6 +939,11 @@ export class OpportunitiesService {
         leadEmail: input.leadEmail?.trim() || null,
         leadTemperature: input.leadTemperature ?? 'unknown',
         leadFollowUpStatus: input.leadFollowUpStatus ?? 'new',
+        // SLA saati kartın havuza düştüğü andan itibaren işler.
+        leadStatusUpdatedAt: new Date(),
+        disqualifyReasonId: input.disqualifyReasonCode
+          ? (await this.resolveCancellationReason(input.disqualifyReasonCode.trim(), actor)).id
+          : null,
         nextAction: input.nextAction?.trim() || null,
         nextActionAt: input.nextActionAt ?? null,
         currentStageId: leadStage.id,
@@ -891,6 +954,7 @@ export class OpportunitiesService {
         paymentTermDays: input.paymentTermDays ?? null,
         paymentMethod: input.paymentMethod ?? 'undecided',
         qualificationStage: 'lead',
+        qualificationNote: input.qualificationNote?.trim() || null,
         qualificationUpdatedAt: new Date(),
         requestedMachine: input.requestedMachine?.trim() || null,
         contractTerms: input.contractTerms?.trim() || null,
@@ -1583,6 +1647,66 @@ export class OpportunitiesService {
     };
   }
 
+  /**
+   * Lead takip durumu değiştiğinde SLA sayaçlarını yürütür: duruma giriş anı,
+   * temas deneme sayısı, ilk temas anı ve eleme nedeni. Durum yalnız kart hâlâ
+   * Lead havuzundayken değiştirilebilir; fırsata çevrilmiş kartta bu alanlar
+   * geçmiş kaydı olarak dondurulur.
+   */
+  private async applyLeadFollowUpTransition(
+    patch: Record<string, unknown>,
+    existing: { qualificationStage?: string | null; leadFollowUpStatus?: string | null; contactAttemptCount?: number | null; firstContactAt?: Date | null },
+    input: OpportunityUpdateInput,
+    actor: AuthContext
+  ) {
+    const nextStatus = input.leadFollowUpStatus ?? undefined;
+    if (nextStatus === undefined) {
+      // Durum değişmiyorsa yalnız neden kodu güncellemesi anlamsızdır.
+      if (input.disqualifyReasonCode !== undefined && existing.leadFollowUpStatus !== 'disqualified') {
+        throw new ValidationError('Eleme nedeni yalnız lead elenirken girilebilir', {
+          field: 'disqualifyReasonCode',
+        });
+      }
+      if (input.disqualifyReasonCode) {
+        patch.disqualifyReasonId = (await this.resolveCancellationReason(input.disqualifyReasonCode, actor)).id;
+      }
+      return;
+    }
+
+    const currentStatus = (existing.leadFollowUpStatus ?? 'new') as LeadFollowUpStatusCode;
+    if (nextStatus === currentStatus) return;
+    if (this.qualificationStage(existing.qualificationStage) !== 'lead') {
+      throw new ValidationError('Fırsata çevrilmiş kartta lead takip durumu değiştirilemez', {
+        field: 'leadFollowUpStatus',
+      });
+    }
+
+    const now = new Date();
+    patch.leadStatusUpdatedAt = now;
+
+    if (nextStatus === 'disqualified') {
+      if (!input.disqualifyReasonCode?.trim()) {
+        throw new ValidationError('Lead elenirken eleme nedeni zorunludur', {
+          field: 'disqualifyReasonCode',
+        });
+      }
+      patch.disqualifyReasonId = (await this.resolveCancellationReason(input.disqualifyReasonCode.trim(), actor)).id;
+    } else if (currentStatus === 'disqualified') {
+      // Lead geri açılıyor; eski eleme nedeni artık geçerli değil.
+      patch.disqualifyReasonId = null;
+    }
+
+    // "Deneniyor" her seçilişinde bir temas denemesi sayılır.
+    if (nextStatus === 'attempting') {
+      patch.contactAttemptCount = (existing.contactAttemptCount ?? 0) + 1;
+    }
+    // Temas kurulduysa ilk temas anı bir kez yazılır (speed-to-lead ölçümü).
+    if (nextStatus === 'contacted') {
+      if (!existing.firstContactAt) patch.firstContactAt = now;
+      if ((existing.contactAttemptCount ?? 0) === 0) patch.contactAttemptCount = 1;
+    }
+  }
+
   async update(id: string, input: OpportunityUpdateInput, actor: AuthContext) {
     const existing = await this.get(id, actor);
     const resultingNextAction =
@@ -1611,6 +1735,7 @@ export class OpportunitiesService {
     }
     if (input.ownerUserId) await this.assertUser(input.ownerUserId, actor);
     const patch: Record<string, unknown> = { updatedBy: actor.userId };
+    await this.applyLeadFollowUpTransition(patch, existing, input, actor);
     if (input.currencyCode !== undefined) patch.currencyId = await lookupIdByCode(this.db, currencies, input.currencyCode);
     if (input.sourceCode !== undefined) patch.sourceId = await lookupIdByCode(this.db, contactSources, input.sourceCode);
     if (input.estimatedValue !== undefined) patch.estimatedValue = input.estimatedValue?.toString() ?? null;
@@ -1637,6 +1762,7 @@ export class OpportunitiesService {
       'requestedMachine',
       'contractTerms',
       'paymentTerms',
+      'qualificationNote',
       'wonReason',
     ] as const) {
       if ((input as any)[k] !== undefined) patch[k] = (input as any)[k] ?? null;
@@ -1804,16 +1930,30 @@ export class OpportunitiesService {
     if (!opp.ownerUserId) throw new ValidationError('Fırsata çevirmeden önce sorumlu kullanıcı atanmalıdır');
     if (!opp.title?.trim()) throw new ValidationError('Fırsata çevirmeden önce konu girilmelidir');
     const now = new Date();
+    // Fırsata çevrilen kart C alanının giriş aşamasına ("Satış") taşınır;
+    // aksi hâlde derece C olurken operasyon ekseni lead'de takılı kalır.
+    const entryStage = await this.pipelineStageForQualification(opp, 'c');
     await this.db
       .update(opportunities)
       .set({
         qualificationStage: 'c',
         qualificationNote: input.note?.trim() || opp.qualificationNote,
         qualificationUpdatedAt: now,
+        ...(entryStage ? { currentStageId: entryStage.id } : {}),
         updatedAt: now,
         updatedBy: actor.userId,
       })
       .where(eq(opportunities.id, id));
+    if (entryStage) {
+      await this.db.insert(opportunityStageHistory).values({
+        tenantId: actor.tenantId,
+        opportunityId: id,
+        fromStageId: opp.currentStageId,
+        toStageId: entryStage.id,
+        changedBy: actor.userId,
+        changeReason: 'Fırsata çevrildi (C alanı)',
+      });
+    }
     await this.recordQualificationChange(id, actor.tenantId, actor.userId, fromStage, 'c', input.note ?? 'Fırsata çevrildi');
     await this.audit.write({
       tenantId: actor.tenantId,
@@ -1827,6 +1967,27 @@ export class OpportunitiesService {
     return this.get(id, actor);
   }
 
+  /**
+   * Neden kodunu tenant içinde bulur, yoksa açar. LOST nedeni ile lead eleme
+   * nedeni aynı lookup tablosunu paylaştığı için iki akış da buradan geçer.
+   */
+  private async resolveCancellationReason(code: string, actor: AuthContext) {
+    const existing = await this.db.query.cancellationReasons.findFirst({
+      where: and(eq(cancellationReasons.tenantId, actor.tenantId), eq(cancellationReasons.code, code)),
+    });
+    if (existing) return existing;
+    const [created] = await this.db
+      .insert(cancellationReasons)
+      .values({
+        tenantId: actor.tenantId,
+        code,
+        // Kod bilinen bir lead eleme nedeniyse Türkçe etiketini kullan.
+        name: LEAD_DISQUALIFY_REASONS.find((reason) => reason.code === code)?.name ?? code,
+      })
+      .returning();
+    return created;
+  }
+
   private async setLostQualification(
     opp: typeof opportunities.$inferSelect,
     input: OpportunityQualificationChangeInput,
@@ -1837,22 +1998,7 @@ export class OpportunitiesService {
         field: 'cancellationReasonCode',
       });
     }
-    let reason = await this.db.query.cancellationReasons.findFirst({
-      where: and(
-        eq(cancellationReasons.tenantId, actor.tenantId),
-        eq(cancellationReasons.code, input.cancellationReasonCode)
-      ),
-    });
-    if (!reason) {
-      [reason] = await this.db
-        .insert(cancellationReasons)
-        .values({
-          tenantId: actor.tenantId,
-          code: input.cancellationReasonCode,
-          name: input.cancellationReasonCode,
-        })
-        .returning();
-    }
+    const reason = await this.resolveCancellationReason(input.cancellationReasonCode, actor);
     const lostStatus = await this.db.query.opportunityStatuses.findFirst({
       where: eq(opportunityStatuses.code, 'lost'),
     });
@@ -1923,6 +2069,10 @@ export class OpportunitiesService {
         updatedAt: new Date(),
         updatedBy: actor.userId,
       };
+      // Derece yeni bir alana geçtiyse operasyon aşaması da o alanın giriş
+      // noktasına çekilir; iki eksen böylece kopmaz.
+      const entryStage = await this.pipelineStageForQualification(opp, toStage);
+      if (entryStage) patch.currentStageId = entryStage.id;
       if (toStage === 'win') {
         const wonStatus = await this.db.query.opportunityStatuses.findFirst({
           where: eq(opportunityStatuses.code, 'won'),
@@ -1930,6 +2080,16 @@ export class OpportunitiesService {
         if (wonStatus) patch.statusId = wonStatus.id;
       }
       await this.db.update(opportunities).set(patch).where(eq(opportunities.id, id));
+      if (entryStage) {
+        await this.db.insert(opportunityStageHistory).values({
+          tenantId: actor.tenantId,
+          opportunityId: id,
+          fromStageId: opp.currentStageId,
+          toStageId: entryStage.id,
+          changedBy: actor.userId,
+          changeReason: `Satış derecesi ${toStage.toUpperCase()} alanına taşındı`,
+        });
+      }
 
       if (!movingForward) {
         await this.db
@@ -2202,6 +2362,58 @@ export class OpportunitiesService {
    *  - stock_picking → customs_approved'tan sonra; inventory_item seçilmeli (reserved'a alınır)
    *  - delivered → customer_device kaydı oluşturulur
    */
+  /**
+   * Derece ilerlediğinde kartı o derecenin giriş aşamasına taşır (ters yön
+   * senkron). Kapılı giriş aşamaları (teklif, ticari fatura) atlanır: oralara
+   * yalnız changeStage üzerinden, kanıt üretilerek girilir. Kart zaten yeni
+   * derecenin alanında ya da ilerisindeyse dokunulmaz.
+   */
+  private async pipelineStageForQualification(
+    opp: typeof opportunities.$inferSelect,
+    toStage: QualificationStageCode
+  ): Promise<{ id: string; code: PipelineStageCode } | null> {
+    const entry = QUALIFICATION_STAGE_ENTRY[toStage];
+    if (entry.gated) return null;
+
+    const currentStage = await this.db.query.pipelineStages.findFirst({
+      where: eq(pipelineStages.id, opp.currentStageId),
+    });
+    const currentCode = (currentStage?.code ?? 'lead') as PipelineStageCode;
+    // Kartın bulunduğu aşama zaten bu dereceye ya da ilerisine aitse taşıma.
+    const currentGrade = PIPELINE_STAGE_QUALIFICATION[currentCode];
+    if (currentGrade === toStage) return null;
+    if (toStage !== 'lost') {
+      const currentIndex = QUALIFICATION_SEQUENCE.indexOf(currentGrade);
+      const targetIndex = QUALIFICATION_SEQUENCE.indexOf(toStage);
+      if (currentIndex >= 0 && targetIndex >= 0 && currentIndex > targetIndex) return null;
+    }
+
+    const row = await this.stageRowByCode(entry.stage);
+    return { id: row.id, code: entry.stage };
+  }
+
+  /**
+   * Operasyon aşamasının karşılık geldiği satış derecesini döndürür — yalnız
+   * kartın bulunduğu dereceden İLERİdeyse. Aynı ya da geride ise null döner ve
+   * derece olduğu gibi kalır, böylece operasyonda geri adım atmak satış
+   * derecesini düşürmez. WIN/LOST kartlar bu senkrondan muaftır.
+   */
+  private syncQualificationForPipeline(
+    opp: typeof opportunities.$inferSelect,
+    toStage: PipelineStageCode
+  ): QualificationStageCode | null {
+    const current = this.qualificationStage(opp.qualificationStage);
+    if (current === 'win' || current === 'lost') return null;
+    const mapped = PIPELINE_STAGE_QUALIFICATION[toStage];
+    if (mapped === current) return null;
+    // LOST tek başına kayıp nedeni ister; iptal akışı zaten onu yazıyor.
+    if (mapped === 'lost') return 'lost';
+    const currentIndex = QUALIFICATION_SEQUENCE.indexOf(current);
+    const mappedIndex = QUALIFICATION_SEQUENCE.indexOf(mapped);
+    if (currentIndex < 0 || mappedIndex < 0) return null;
+    return mappedIndex > currentIndex ? mapped : null;
+  }
+
   async changeStage(id: string, input: OpportunityStageChangeInput, actor: AuthContext) {
     const opp = await this.db.query.opportunities.findFirst({
       where: and(
@@ -2360,6 +2572,15 @@ export class OpportunitiesService {
       if (won) patch.statusId = won.id;
     }
 
+    // Operasyon aşaması, satış derecesinin alt adımıdır: teklif/sözleşme/fatura
+    // gibi somut kanıtlar üretildiğinde derece kendiliğinden yükselir. Yalnız
+    // ileri yönde çalışır; geri alma satış ekibinin açık kararıdır.
+    const syncedQualification = this.syncQualificationForPipeline(opp, input.toStage as PipelineStageCode);
+    if (syncedQualification) {
+      patch.qualificationStage = syncedQualification;
+      patch.qualificationUpdatedAt = new Date();
+    }
+
     await this.db.update(opportunities).set(patch).where(eq(opportunities.id, id));
     await this.db.insert(opportunityStageHistory).values({
       tenantId: actor.tenantId,
@@ -2369,6 +2590,16 @@ export class OpportunitiesService {
       changedBy: actor.userId,
       changeReason: input.changeReason ?? null,
     });
+    if (syncedQualification) {
+      await this.recordQualificationChange(
+        id,
+        actor.tenantId,
+        actor.userId,
+        this.qualificationStage(opp.qualificationStage),
+        syncedQualification,
+        `Operasyon aşaması ilerledi: ${toStage.code}`
+      );
+    }
     await this.audit.write({
       tenantId: actor.tenantId,
       actorUserId: actor.userId,

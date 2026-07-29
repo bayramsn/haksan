@@ -350,6 +350,21 @@ export type SalesCase = {
     blockers: string[];
     checks: Array<{ key: string; label: string; complete: boolean }>;
     approvals: Partial<Record<OpportunityApprovalType, OpportunityApprovalStatus>>;
+    /** Süreç sağlığı: aşamada bekleme, lead SLA aşımı ve takip aksiyonu durumu. */
+    health?: {
+      stageAgeDays: number | null;
+      stageAgeLimitDays: number | null;
+      rotting: boolean;
+      leadStatus: LeadFollowUpStatus;
+      leadSlaHours: number | null;
+      leadStatusAgeHours: number | null;
+      leadSlaBreached: boolean;
+      contactAttemptCount: number;
+      attemptLimitReached: boolean;
+      firstContactAt: string | null;
+      actionOverdue: boolean;
+      actionMissing: boolean;
+    };
   };
   /** Makine satışında ödeme vadesi (gün); sözleşme/ödeme planı varsayılanı. */
   paymentTermDays?: number;

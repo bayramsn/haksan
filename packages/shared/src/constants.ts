@@ -27,6 +27,195 @@ export type PipelineStageCode = (typeof PIPELINE_STAGES)[number];
 export const QUALIFICATION_STAGES = ['lead', 'c', 'b', 'a', 'a_plus', 'win', 'lost'] as const;
 export type QualificationStageCode = (typeof QUALIFICATION_STAGES)[number];
 
+/**
+ * 14 operasyon aşamasının hangi satış derecesine karşılık geldiği. Operasyon
+ * aşamaları derecelerin ALT ADIMLARIdır: pano kolonları derece (7 kolon),
+ * kartın içindeki ilerleme çubuğu operasyon aşamasıdır.
+ *
+ * Kaynak: 0087_opportunity_qualification_pipeline.sql içindeki tek seferlik
+ * geri doldurma eşlemesi; oradaki mantık burada kalıcı hâle getirildi.
+ *
+ * NOT: `sales` dizide 5. sırada görünse de STAGE_TRANSITIONS'a göre yalnız
+ * `lead`den gelir ve `call`/`visit`/`quote` ondan beslenir — yani huninin
+ * BAŞINDA yer alır. Bu yüzden C derecesine eşlenir, teklif sonrasına değil.
+ */
+export const PIPELINE_STAGE_QUALIFICATION: Record<PipelineStageCode, QualificationStageCode> = {
+  lead: 'lead',
+  sales: 'c',
+  call: 'b',
+  visit: 'b',
+  quote: 'a',
+  proforma: 'a',
+  contract: 'a',
+  payment_plan: 'a',
+  commercial_invoice: 'a_plus',
+  customs_approved: 'a_plus',
+  stock_picking: 'a_plus',
+  shipping: 'a_plus',
+  installation: 'a_plus',
+  delivered: 'win',
+  cancelled: 'lost',
+};
+
+/**
+ * Her operasyon aşamasının backend'de gerçekten zorunlu tuttuğu ön koşul ve
+ * tetiklediği yan etki. Metinler opportunities.service.ts#changeStage içindeki
+ * kontrollerin birebir karşılığıdır — UI bu listeyi gösterirken kullanıcıya
+ * olmayan bir kural vaat etmez.
+ */
+export const PIPELINE_STAGE_REQUIREMENTS: Record<
+  PipelineStageCode,
+  { requires: string | null; effect: string | null }
+> = {
+  lead: { requires: null, effect: 'Satış kartı lead havuzunda açılır.' },
+  call: { requires: null, effect: null },
+  visit: { requires: null, effect: null },
+  quote: { requires: 'Firma bağlı olmalı ve en az bir teklif kaydı bulunmalı', effect: null },
+  sales: { requires: null, effect: null },
+  proforma: { requires: null, effect: null },
+  contract: { requires: 'Sözleşme dosyası yüklenmiş olmalı', effect: null },
+  payment_plan: { requires: null, effect: null },
+  commercial_invoice: {
+    requires: 'Ödeme planı oluşturulmuş ve ticari fatura dosyası yüklenmiş olmalı',
+    effect: null,
+  },
+  customs_approved: { requires: null, effect: null },
+  stock_picking: {
+    requires: 'En az bir seri no seçilmeli (tek uygun stok varsa otomatik seçilir)',
+    effect: 'Seçilen seri nolar firmaya rezerve edilir ve stok hareketi yazılır.',
+  },
+  shipping: { requires: null, effect: null },
+  installation: {
+    requires: null,
+    effect: 'Garanti/müşteri cihaz kaydı ve servis ekibine kurulum işi açılır.',
+  },
+  delivered: { requires: null, effect: 'Fırsat kazanıldı sayılır ve garanti kayıtları tamamlanır.' },
+  cancelled: { requires: 'İptal nedeni zorunlu', effect: 'Kart LOST derecesine düşer.' },
+};
+
+/**
+ * Bir satış derecesine geçildiğinde kartın düşeceği operasyon aşaması — o
+ * derecenin "alanına" giriş noktası. Derece ile aşamanın birbirinden kopmaması
+ * için iki eksen bu tablo üzerinden çekilir.
+ *
+ * `gated: true` olan giriş aşamaları somut kanıt ister (teklif kaydı, fatura
+ * dosyası vb.). Bu aşamalara YALNIZ changeStage üzerinden, kapıdan geçerek
+ * girilir; derece ilerletmesi kartı oraya kendiliğinden taşımaz — aksi hâlde
+ * "Ticari Fatura aşamasında ama faturası yok" gibi yalan bir kayıt doğar.
+ */
+export const QUALIFICATION_STAGE_ENTRY: Record<
+  QualificationStageCode,
+  { stage: PipelineStageCode; gated: boolean }
+> = {
+  lead: { stage: 'lead', gated: false },
+  c: { stage: 'sales', gated: false },
+  b: { stage: 'call', gated: false },
+  a: { stage: 'quote', gated: true },
+  a_plus: { stage: 'commercial_invoice', gated: true },
+  win: { stage: 'delivered', gated: false },
+  lost: { stage: 'cancelled', gated: false },
+};
+
+/** Derecelerin ilerleyiş sırası; kapanış dereceleri sona eklenir. */
+const GRADE_FLOW_ORDER: QualificationStageCode[] = ['lead', 'c', 'b', 'a', 'a_plus', 'win'];
+
+/**
+ * 14 operasyon aşamasının SÜREÇ sırası — derece alanlarına göre gruplanmış hâli.
+ *
+ * PIPELINE_STAGES dizisi bildirim sırasıdır, süreç sırası değil: `sales` orada
+ * `quote` ile `proforma` arasında durur, oysa C alanına aittir. Ham diziyi
+ * ilerleme çubuğunda kullanmak bantları "… A → C → A …" diye zikzak yaptırır.
+ * Bu liste aşamaları derece alanlarına göre sıralar, böylece çubuk tek yönlü
+ * ilerler. `cancelled` akış dışıdır ve listede yer almaz.
+ */
+export const PIPELINE_STAGE_FLOW: PipelineStageCode[] = GRADE_FLOW_ORDER.flatMap((grade) =>
+  PIPELINE_STAGES.filter(
+    (stage) => stage !== 'cancelled' && PIPELINE_STAGE_QUALIFICATION[stage] === grade
+  )
+);
+
+/** Bir satış derecesinin kapsadığı operasyon aşamaları (kart içi ilerleme çubuğu). */
+export const QUALIFICATION_STAGE_PIPELINE_STEPS: Record<QualificationStageCode, PipelineStageCode[]> =
+  PIPELINE_STAGES.reduce(
+    (acc, stage) => {
+      acc[PIPELINE_STAGE_QUALIFICATION[stage]].push(stage);
+      return acc;
+    },
+    {
+      lead: [] as PipelineStageCode[],
+      c: [] as PipelineStageCode[],
+      b: [] as PipelineStageCode[],
+      a: [] as PipelineStageCode[],
+      a_plus: [] as PipelineStageCode[],
+      win: [] as PipelineStageCode[],
+      lost: [] as PipelineStageCode[],
+    } as Record<QualificationStageCode, PipelineStageCode[]>
+  );
+
+/**
+ * Bir kartın aşamada takılı kalabileceği üst süre (gün). Aşılan kart "çürüyen"
+ * sayılır: engelleyici değildir, yalnız panoda işaretlenir ve bildirim üretir.
+ * Aşama yaşı `qualificationUpdatedAt` üzerinden hesaplanır.
+ */
+export const QUALIFICATION_STAGE_AGE_LIMIT_DAYS: Record<QualificationStageCode, number | null> = {
+  lead: 7,
+  c: 14,
+  b: 30,
+  a: 30,
+  a_plus: 45,
+  win: null,
+  lost: null,
+};
+
+/** Aşamaya karşılık gelen varsayılan kazanma olasılığı (%). */
+export const QUALIFICATION_STAGE_PROBABILITY: Record<QualificationStageCode, number> = {
+  lead: 5,
+  c: 10,
+  b: 30,
+  a: 60,
+  a_plus: 85,
+  win: 100,
+  lost: 0,
+};
+
+/**
+ * Lead takip durumlarının yanıt süresi (saat). Süre `leadStatusUpdatedAt`
+ * üzerinden işler; null olan durumlar (elenmiş) sayaç tutmaz.
+ * `waiting` durumunda saat yerine kartın kendi `nextActionAt` tarihi geçerlidir.
+ */
+export const LEAD_FOLLOW_UP_SLA_HOURS: Record<LeadFollowUpStatusCode, number | null> = {
+  new: 4,
+  attempting: 24 * 7,
+  contacted: 48,
+  waiting: null,
+  disqualified: null,
+};
+
+export const LEAD_FOLLOW_UP_STATUSES = ['new', 'attempting', 'contacted', 'waiting', 'disqualified'] as const;
+export type LeadFollowUpStatusCode = (typeof LEAD_FOLLOW_UP_STATUSES)[number];
+
+/** Bu sayıya ulaşan denemeden sonra kart beklemeye alınmalıdır. */
+export const LEAD_MAX_CONTACT_ATTEMPTS = 3;
+
+/** Hareketsiz `waiting` lead'in nurture arşivine düşmesi için gün sayısı. */
+export const LEAD_NURTURE_AFTER_DAYS = 90;
+
+/**
+ * Lead eleme nedenleri. LOST nedenleriyle aynı `cancellation_reasons` tablosunu
+ * paylaşır; backend kodu bulamazsa satırı kendisi açar (LostCaseDialog ile aynı desen).
+ */
+export const LEAD_DISQUALIFY_REASONS = [
+  { code: 'lead_no_budget', name: 'Bütçe yok' },
+  { code: 'lead_no_authority', name: 'Karar verici değil' },
+  { code: 'lead_no_need', name: 'Şu an ihtiyaç yok' },
+  { code: 'lead_bought_competitor', name: 'Rakipten aldı' },
+  { code: 'lead_unreachable', name: 'Ulaşılamadı' },
+  { code: 'lead_wrong_contact', name: 'Hatalı iletişim bilgisi' },
+  { code: 'lead_duplicate', name: 'Mükerrer kayıt' },
+  { code: 'lead_not_relevant', name: 'İlgisiz / spam' },
+] as const;
+export type LeadDisqualifyReasonCode = (typeof LEAD_DISQUALIFY_REASONS)[number]['code'];
+
 export const OPPORTUNITY_APPROVAL_TYPES = ['payment', 'customs', 'invoice', 'installation', 'win'] as const;
 export type OpportunityApprovalType = (typeof OPPORTUNITY_APPROVAL_TYPES)[number];
 

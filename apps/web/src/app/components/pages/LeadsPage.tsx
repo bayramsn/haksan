@@ -23,6 +23,7 @@ import {
   type SalesCase,
 } from "../../lib/mock";
 import { LeadCaptureDialog } from "../dialogs/LeadCaptureDialog";
+import { LeadDisqualifyDialog } from "../dialogs/LeadDisqualifyDialog";
 import { TrelloCsvImportDialog } from "../dialogs/TrelloCsvImportDialog";
 import { EmptyState } from "../shared/EmptyState";
 import { NextActionDialog, actionDateLabel, isActionOverdue } from "../shared/NextActionDialog";
@@ -120,11 +121,19 @@ export function LeadsPage({ onSelect }: { onSelect: (lead: SalesCase) => void })
     }
   };
 
-  const updateStatus = async (lead: SalesCase, nextStatus: LeadFollowUpStatus) => {
+  // Eleme nedeni zorunlu olduğu için "Uygun değil" seçimi doğrudan yazılmaz;
+  // önce neden diyaloğu açılır.
+  const [disqualifying, setDisqualifying] = useState<SalesCase | null>(null);
+
+  const updateStatus = async (
+    lead: SalesCase,
+    nextStatus: LeadFollowUpStatus,
+    extra?: { disqualifyReasonCode?: string; qualificationNote?: string }
+  ) => {
     if (busyId) return;
     setBusyId(lead.id);
     try {
-      await updateCase(lead.id, { leadFollowUpStatus: nextStatus });
+      await updateCase(lead.id, { leadFollowUpStatus: nextStatus, ...extra });
       toast.success("Lead durumu güncellendi", {
         description: `${leadName(lead)} · ${LEAD_FOLLOW_UP_STATUS_LABELS[nextStatus]}`,
       });
@@ -216,6 +225,7 @@ export function LeadsPage({ onSelect }: { onSelect: (lead: SalesCase) => void })
             const missing = missingLeadFields(lead);
             const leadStatus = lead.leadFollowUpStatus ?? "new";
             const overdue = isActionOverdue(lead.nextActionAt);
+            const health = lead.qualificationReadiness?.health;
             return (
               <Card
                 key={lead.id}
@@ -234,6 +244,24 @@ export function LeadsPage({ onSelect }: { onSelect: (lead: SalesCase) => void })
                           <Badge variant="outline" className={`h-5 text-[9px] ${LEAD_FOLLOW_UP_STATUS_STYLES[leadStatus]}`}>
                             {LEAD_FOLLOW_UP_STATUS_LABELS[leadStatus]}
                           </Badge>
+                          {health?.leadSlaBreached && (
+                            <Badge
+                              variant="outline"
+                              className="h-5 shrink-0 border-red-200 bg-red-50 text-[9px] text-red-700"
+                              title={`Bu durumda ${health.leadStatusAgeHours} saattir bekliyor (hedef ${health.leadSlaHours} saat)`}
+                            >
+                              SLA aşıldı
+                            </Badge>
+                          )}
+                          {health?.attemptLimitReached && (
+                            <Badge
+                              variant="outline"
+                              className="h-5 shrink-0 border-amber-200 bg-amber-50 text-[9px] text-amber-700"
+                              title="Temas deneme sınırına ulaşıldı; beklemeye alın veya eleyin"
+                            >
+                              {health.contactAttemptCount} deneme
+                            </Badge>
+                          )}
                         </div>
                         <div className="mt-1 truncate text-xs text-muted-foreground">
                           {lead.leadContactName || "Kontak belirtilmedi"} · {lead.requestedProduct || "Konu bekleniyor"}
@@ -306,7 +334,13 @@ export function LeadsPage({ onSelect }: { onSelect: (lead: SalesCase) => void })
                       <Select
                         value={leadStatus}
                         disabled={busyId === lead.id}
-                        onValueChange={(value) => void updateStatus(lead, value as LeadFollowUpStatus)}
+                        onValueChange={(value) => {
+                          if (value === "disqualified") {
+                            setDisqualifying(lead);
+                            return;
+                          }
+                          void updateStatus(lead, value as LeadFollowUpStatus);
+                        }}
                       >
                         <SelectTrigger size="sm" className="h-8 w-[154px] bg-white text-[9px]">
                           <SelectValue />
@@ -348,6 +382,20 @@ export function LeadsPage({ onSelect }: { onSelect: (lead: SalesCase) => void })
           })}
         </div>
       )}
+
+      <LeadDisqualifyDialog
+        open={Boolean(disqualifying)}
+        onOpenChange={(next) => { if (!next) setDisqualifying(null); }}
+        leadName={disqualifying ? leadName(disqualifying) : ""}
+        onConfirm={async ({ reasonCode, note }) => {
+          if (!disqualifying) return;
+          await updateStatus(disqualifying, "disqualified", {
+            disqualifyReasonCode: reasonCode,
+            qualificationNote: note,
+          });
+          setDisqualifying(null);
+        }}
+      />
     </div>
   );
 }

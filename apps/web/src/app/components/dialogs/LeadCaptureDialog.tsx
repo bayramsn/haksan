@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { CalendarClock, UserPlus } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { Building2, CalendarClock, UserPlus } from "lucide-react";
 import { toast } from "sonner";
 import { useStore } from "../../lib/store";
 import { useAuth } from "../../../lib/auth";
@@ -12,6 +12,7 @@ import {
   type LeadTemperature,
 } from "../../lib/mock";
 import { Button } from "../ui/button";
+import { Combobox } from "../ui/combobox";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "../ui/dialog";
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
@@ -23,7 +24,7 @@ import { Textarea } from "../ui/textarea";
  * doğrudan lead aşamasında bir satış kartına dönüştürür.
  */
 export function LeadCaptureDialog({ trigger }: { trigger?: React.ReactNode }) {
-  const { refresh } = useStore();
+  const { refresh, customers, contacts } = useStore();
   const { user, activeDivision } = useAuth();
   const divisions = user?.divisions ?? [];
   const defaultDivision = activeDivision && activeDivision !== "all"
@@ -31,6 +32,10 @@ export function LeadCaptureDialog({ trigger }: { trigger?: React.ReactNode }) {
     : divisions.find((d) => d.isPrimary)?.id ?? divisions[0]?.id ?? "";
 
   const [open, setOpen] = useState(false);
+  // Kayıtlı firma/kontak seçildiyse dolu; elle yazıldığında boş kalır ve talep
+  // eskisi gibi firma ana kaydı açmadan lead alanlarına yazılır.
+  const [companyId, setCompanyId] = useState("");
+  const [contactId, setContactId] = useState("");
   const [contactName, setContactName] = useState("");
   const [contactMethod, setContactMethod] = useState("");
   const [phone, setPhone] = useState("");
@@ -69,7 +74,58 @@ export function LeadCaptureDialog({ trigger }: { trigger?: React.ReactNode }) {
     };
   }, []);
 
+  const companyOptions = useMemo(
+    () =>
+      customers
+        .filter((customer) => customer.status !== "passive")
+        .map((customer) => ({
+          value: customer.id,
+          label: customer.name,
+          hint: [customer.city, customer.sector].filter(Boolean).join(" · "),
+        }))
+        .sort((a, b) => a.label.localeCompare(b.label, "tr-TR")),
+    [customers]
+  );
+
+  // Kontak listesi yalnız seçili firmaya daralır; firma seçilmediyse elle giriş kalır.
+  const contactOptions = useMemo(() => {
+    if (!companyId) return [];
+    return contacts
+      .filter((contact) => contact.customerId === companyId || contact.companyIds?.includes(companyId))
+      .map((contact) => ({
+        value: contact.id,
+        label: contact.name,
+        hint: [contact.title, contact.department].filter(Boolean).join(" · "),
+      }))
+      .sort((a, b) => a.label.localeCompare(b.label, "tr-TR"));
+  }, [contacts, companyId]);
+
+  /** Kayıtlı firma seçildiğinde boş alanları firma kaydından doldurur. */
+  const pickCompany = (id: string) => {
+    const customer = customers.find((item) => item.id === id);
+    if (!customer) return;
+    setCompanyId(id);
+    setCompanyTitle(customer.name);
+    setContactId("");
+    if (!city.trim() && customer.city) setCity(customer.city);
+    if (!phone.trim() && customer.phone) setPhone(customer.phone);
+    if (!email.trim() && customer.email) setEmail(customer.email);
+    if (!contactName.trim() && customer.contactPerson) setContactName(customer.contactPerson);
+  };
+
+  /** Kayıtlı kontak seçildiğinde iletişim alanlarını kontaktan doldurur. */
+  const pickContact = (id: string) => {
+    const contact = contacts.find((item) => item.id === id);
+    if (!contact) return;
+    setContactId(id);
+    setContactName(contact.name);
+    if (contact.mobilePhone || contact.phone) setPhone(contact.mobilePhone || contact.phone);
+    if (contact.email) setEmail(contact.email);
+  };
+
   const reset = () => {
+    setCompanyId("");
+    setContactId("");
     setContactName("");
     setContactMethod("");
     setPhone("");
@@ -92,8 +148,11 @@ export function LeadCaptureDialog({ trigger }: { trigger?: React.ReactNode }) {
   const emailValid = !emailFilled || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
   const phoneValid = !phoneFilled || phone.replace(/\D/g, "").length >= 7;
   const actionPlanValid = !nextActionAt || nextAction.trim().length > 0;
+  // Kayıtlı firma bağlandıysa kontak ismi zorunlu değildir; aksi halde kartın
+  // kime ait olduğu belirsiz kalmasın diye istenir.
+  const partyIdentified = contactName.trim().length > 0 || companyId.length > 0;
   const canSubmit =
-    contactName.trim().length > 0 &&
+    partyIdentified &&
     product.trim().length > 0 &&
     city.trim().length > 0 &&
     hasContactChannel &&
@@ -113,7 +172,9 @@ export function LeadCaptureDialog({ trigger }: { trigger?: React.ReactNode }) {
               ? "Takip zamanı seçtiyseniz ilk takip aksiyonunu da yazın."
             : !emailValid
               ? "Geçerli bir e-posta adresi girin."
-              : "Kontak ismi, şehir ve istenen ürün zorunludur.",
+              : !partyIdentified
+                ? "Kayıtlı bir firma seçin ya da kontak ismini yazın."
+                : "Şehir ve istenen ürün zorunludur.",
       });
       return;
     }
@@ -122,7 +183,10 @@ export function LeadCaptureDialog({ trigger }: { trigger?: React.ReactNode }) {
       const divisionArg = divisionId || undefined;
       const title = qtyNum > 0 ? `${product.trim()} (${qtyNum} adet)` : product.trim();
       await opportunityService.create({
-        leadContactName: contactName.trim(),
+        // Kayıtlı seçim varsa gerçek ilişki kurulur; yoksa lead alanlarında kalır.
+        companyId: companyId || undefined,
+        primaryContactId: companyId && contactId ? contactId : undefined,
+        leadContactName: contactName.trim() || undefined,
         leadCompanyTitle: companyTitle.trim() || undefined,
         // Eski kayıtlarla uyum için birincil irtibat tek alanda da tutulur.
         leadContactValue: (phone.trim() || email.trim()) || undefined,
@@ -146,7 +210,9 @@ export function LeadCaptureDialog({ trigger }: { trigger?: React.ReactNode }) {
       } as any);
 
       await refresh();
-      toast.success("Lead satış kartı oluşturuldu", { description: `${contactName.trim()} · ${title}` });
+      toast.success("Lead satış kartı oluşturuldu", {
+        description: `${companyTitle.trim() || contactName.trim()} · ${title}`,
+      });
       reset();
       setOpen(false);
     } catch (error: unknown) {
@@ -179,14 +245,64 @@ export function LeadCaptureDialog({ trigger }: { trigger?: React.ReactNode }) {
 
         <div className="grid gap-3">
           <div>
-            <Label htmlFor="lead-contact">Kontak ismi *</Label>
-            <Input
-              id="lead-contact"
-              value={contactName}
-              onChange={(e) => setContactName(e.target.value)}
-              placeholder="Ahmet Yılmaz"
-              autoFocus
+            <Label className="inline-flex items-center gap-1.5">
+              <Building2 className="size-3.5" /> Firma{" "}
+              <span className="font-normal text-muted-foreground">(kayıtlıysa seçin, değilse yazın)</span>
+            </Label>
+            <Combobox
+              className="mt-1.5"
+              options={companyOptions}
+              value={companyId}
+              onChange={pickCompany}
+              placeholder={companyTitle || "Kayıtlı firmadan seçin veya yazın"}
+              searchPlaceholder="Firma ara…"
+              emptyText="Kayıtlı firma bulunamadı"
+              onCreate={(label) => {
+                // Kayıt yoksa firma ana kaydı açılmaz; ünvan lead alanında kalır.
+                setCompanyId("");
+                setContactId("");
+                setCompanyTitle(label);
+              }}
+              createLabel={(query) => `"${query}" firmasını lead olarak yaz`}
             />
+            {companyId ? (
+              <p className="mt-1.5 text-[11px] text-muted-foreground">
+                Kayıtlı firma bağlandı; kart doğrudan C aşamasına hazır açılır.
+              </p>
+            ) : companyTitle.trim() ? (
+              <p className="mt-1.5 text-[11px] text-muted-foreground">
+                Elle giriş: “{companyTitle.trim()}” yalnız lead alanına yazılır, firma kaydı oluşturulmaz.
+              </p>
+            ) : null}
+          </div>
+          <div>
+            <Label htmlFor="lead-contact">
+              Kontak ismi {companyId ? <span className="font-normal text-muted-foreground">(opsiyonel)</span> : "*"}
+            </Label>
+            {contactOptions.length > 0 ? (
+              <Combobox
+                className="mt-1.5"
+                options={contactOptions}
+                value={contactId}
+                onChange={pickContact}
+                placeholder={contactName || "Firmanın kontağını seçin veya yazın"}
+                searchPlaceholder="Kontak ara…"
+                emptyText="Bu firmada kayıtlı kontak yok"
+                onCreate={(label) => {
+                  setContactId("");
+                  setContactName(label);
+                }}
+                createLabel={(query) => `"${query}" kişisini lead olarak yaz`}
+              />
+            ) : (
+              <Input
+                id="lead-contact"
+                value={contactName}
+                onChange={(e) => setContactName(e.target.value)}
+                placeholder="Ahmet Yılmaz"
+                autoFocus
+              />
+            )}
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
@@ -244,15 +360,6 @@ export function LeadCaptureDialog({ trigger }: { trigger?: React.ReactNode }) {
                 </SelectContent>
               </Select>
             </div>
-          </div>
-          <div>
-            <Label htmlFor="lead-company">Firma ünvanı <span className="font-normal text-muted-foreground">(opsiyonel)</span></Label>
-            <Input
-              id="lead-company"
-              value={companyTitle}
-              onChange={(e) => setCompanyTitle(e.target.value)}
-              placeholder="Biliniyorsa yazın"
-            />
           </div>
           <div>
             <Label>Alım niyeti</Label>

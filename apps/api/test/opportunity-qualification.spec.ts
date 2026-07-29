@@ -100,11 +100,18 @@ describe('Opportunity qualification pipeline', () => {
       .send({ nextAction: null, nextActionAt });
     expect(dateWithoutAction.status).toBe(422);
 
-    const disqualified = await supertest(server)
+    // Eleme nedeni zorunludur: nedensiz eleme reddedilir.
+    const reasonless = await supertest(server)
       .patch(`/api/v1/opportunities/${opportunityId}`)
       .set('Authorization', `Bearer ${token}`)
       .send({ leadFollowUpStatus: 'disqualified' });
-    expect(disqualified.status).toBe(200);
+    expect(reasonless.status).toBe(422);
+
+    const disqualified = await supertest(server)
+      .patch(`/api/v1/opportunities/${opportunityId}`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ leadFollowUpStatus: 'disqualified', disqualifyReasonCode: 'lead_no_budget' });
+    expect(disqualified.status, JSON.stringify(disqualified.body)).toBe(200);
     const blockedConversion = await supertest(server)
       .post(`/api/v1/opportunities/${opportunityId}/convert`)
       .set('Authorization', `Bearer ${token}`)
@@ -116,6 +123,134 @@ describe('Opportunity qualification pipeline', () => {
       .set('Authorization', `Bearer ${token}`)
       .send({ leadFollowUpStatus: 'attempting' });
     expect(restored.status).toBe(200);
+    // Geri açılan lead'de eleme nedeni temizlenir.
+    const restoredRow = await db.query.opportunities.findFirst({ where: eq(opportunities.id, opportunityId) });
+    expect(restoredRow?.disqualifyReasonId).toBeNull();
+  });
+
+  it('keeps the operation stage inside the qualification grade area', async () => {
+    const server = app.getHttpServer();
+    const created = await supertest(server)
+      .post('/api/v1/opportunities')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ companyId, title: `Hizalama test ${suffix}`, currencyCode: 'EUR' });
+    expect(created.status, JSON.stringify(created.body)).toBe(201);
+    const alignId = created.body.id;
+    expect(created.body.stage.code).toBe('lead');
+
+    // Fırsata çevrilince kart C alanının giriş aşamasına ("Satış") taşınır.
+    const converted = await supertest(server)
+      .post(`/api/v1/opportunities/${alignId}/convert`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ note: 'Hizalama testi' });
+    expect(converted.status, JSON.stringify(converted.body)).toBe(201);
+    expect(converted.body.qualificationStage).toBe('c');
+    expect(converted.body.stage.code).toBe('sales');
+
+    // Operasyon aşamasını B alanının içinde ilerletmek dereceyi B'ye çeker.
+    const toCall = await supertest(server)
+      .patch(`/api/v1/opportunities/${alignId}/stage`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ toStage: 'call' });
+    expect(toCall.status, JSON.stringify(toCall.body)).toBe(200);
+    expect(toCall.body.stage.code).toBe('call');
+    expect(toCall.body.qualificationStage).toBe('b');
+
+    // B alanı içinde ilerlemek (Arama → Ziyaret) dereceyi değiştirmez ve
+    // kartı alanın giriş aşamasına geri çekmez.
+    const toVisit = await supertest(server)
+      .patch(`/api/v1/opportunities/${alignId}/stage`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ toStage: 'visit' });
+    expect(toVisit.status, JSON.stringify(toVisit.body)).toBe(200);
+    expect(toVisit.body.stage.code).toBe('visit');
+    expect(toVisit.body.qualificationStage).toBe('b');
+
+    // A alanının girişi kapılıdır (teklif kaydı ister): derece ilerletmesi
+    // kartı "quote" aşamasına kendiliğinden taşımaz, aşama olduğu yerde kalır.
+    const toA = await supertest(server)
+      .patch(`/api/v1/opportunities/${alignId}/qualification-stage`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ toStage: 'a' });
+    if (toA.status === 200) {
+      expect(toA.body.qualificationStage).toBe('a');
+      expect(toA.body.stage.code).toBe('visit');
+    } else {
+      // Eksik bilgi varsa geçiş engellenir; bu da geçerli bir sonuçtur.
+      expect(toA.status).toBe(422);
+    }
+  });
+
+  it('tracks lead SLA counters and exposes process health', async () => {
+    const server = app.getHttpServer();
+    const created = await supertest(server)
+      .post('/api/v1/opportunities')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ companyId, title: `SLA test ${suffix}`, currencyCode: 'EUR' });
+    expect(created.status, JSON.stringify(created.body)).toBe(201);
+    const slaId = created.body.id;
+
+    // Yeni lead: sayaç sıfır, SLA saati işlemeye başlamış olmalı.
+    expect(created.body.qualificationReadiness.health).toMatchObject({
+      leadStatus: 'new',
+      leadSlaHours: 4,
+      leadSlaBreached: false,
+      contactAttemptCount: 0,
+      attemptLimitReached: false,
+      actionMissing: true,
+      rotting: false,
+    });
+
+    // Her "deneniyor" seçimi bir temas denemesi sayılır.
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      const attempting = await supertest(server)
+        .patch(`/api/v1/opportunities/${slaId}`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ leadFollowUpStatus: 'attempting' });
+      expect(attempting.status, JSON.stringify(attempting.body)).toBe(200);
+      expect(attempting.body.qualificationReadiness.health.contactAttemptCount).toBe(attempt);
+
+      if (attempt < 3) {
+        // Aynı duruma tekrar geçebilmek için araya farklı bir durum konur.
+        const waiting = await supertest(server)
+          .patch(`/api/v1/opportunities/${slaId}`)
+          .set('Authorization', `Bearer ${token}`)
+          .send({ leadFollowUpStatus: 'waiting' });
+        expect(waiting.status).toBe(200);
+      }
+    }
+    const exhausted = await supertest(server)
+      .get(`/api/v1/opportunities/${slaId}`)
+      .set('Authorization', `Bearer ${token}`);
+    expect(exhausted.body.qualificationReadiness.health.attemptLimitReached).toBe(true);
+
+    // İlk temas anı bir kez yazılır ve sonraki geçişlerde değişmez.
+    const contacted = await supertest(server)
+      .patch(`/api/v1/opportunities/${slaId}`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ leadFollowUpStatus: 'contacted' });
+    expect(contacted.status).toBe(200);
+    const firstContactAt = contacted.body.qualificationReadiness.health.firstContactAt;
+    expect(firstContactAt).toBeTruthy();
+
+    const reContacted = await supertest(server)
+      .patch(`/api/v1/opportunities/${slaId}`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ leadFollowUpStatus: 'waiting' });
+    expect(reContacted.status).toBe(200);
+    expect(reContacted.body.qualificationReadiness.health.firstContactAt).toBe(firstContactAt);
+
+    // Fırsata çevrilmiş kartta lead takip durumu dondurulur.
+    const converted = await supertest(server)
+      .post(`/api/v1/opportunities/${slaId}/convert`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ note: 'SLA testi' });
+    expect(converted.status, JSON.stringify(converted.body)).toBe(201);
+    const frozen = await supertest(server)
+      .patch(`/api/v1/opportunities/${slaId}`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ leadFollowUpStatus: 'new' });
+    expect(frozen.status).toBe(422);
   });
 
   it('converts a Lead to C and removes it from the Leadler pool', async () => {

@@ -480,6 +480,11 @@ type Store = {
       requestedMachine?: string | null;
       contractTerms?: string | null;
       paymentTerms?: string | null;
+      title?: string;
+      primaryContactId?: string | null;
+      /** Lead "uygun değil" durumuna alınırken zorunlu. */
+      disqualifyReasonCode?: string | null;
+      qualificationNote?: string | null;
     }
   ) => Promise<void>;
   deleteCase: (id: string) => Promise<void>;
@@ -1629,6 +1634,10 @@ function StoreInner({ children }: { children: ReactNode }) {
     if (patch.requestedMachine !== undefined) body.requestedMachine = patch.requestedMachine;
     if (patch.contractTerms !== undefined) body.contractTerms = patch.contractTerms;
     if (patch.paymentTerms !== undefined) body.paymentTerms = patch.paymentTerms;
+    if (patch.title !== undefined) body.title = patch.title;
+    if (patch.primaryContactId !== undefined) body.primaryContactId = patch.primaryContactId;
+    if (patch.disqualifyReasonCode !== undefined) body.disqualifyReasonCode = patch.disqualifyReasonCode;
+    if (patch.qualificationNote !== undefined) body.qualificationNote = patch.qualificationNote;
     await opportunityService.update(id, body);
     await fetchAll();
   };

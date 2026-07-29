@@ -20,6 +20,15 @@ import {
   type LeadTemperature,
   type Offer,
 } from "../../lib/mock";
+import {
+  PIPELINE_STAGE_FLOW,
+  PIPELINE_STAGE_QUALIFICATION,
+  PIPELINE_STAGE_REQUIREMENTS,
+  STAGE_TRANSITIONS,
+  type PipelineStageCode,
+} from "@haksan/shared";
+import { QUALIFICATION_STAGE_LABELS } from "../../lib/mock";
+import { ProcessChecklistPanel } from "./ProcessChecklistPanel";
 import { StatusBadge } from "../Layout";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../ui/table";
 import { useStore } from "../../lib/store";
@@ -60,7 +69,7 @@ export function SalesCaseDetailDialog({
 }) {
   return (
     <Dialog open={!!sc} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="w-[min(1240px,calc(100vw-2rem))] max-w-none sm:max-w-none max-h-[90dvh] overflow-x-hidden overflow-y-hidden p-0 gap-0">
+      <DialogContent className="w-[min(1240px,calc(100vw-2rem))] max-w-none sm:max-w-none max-h-[90dvh] overflow-x-hidden overflow-y-hidden p-0 gap-0 [&>[data-slot=dialog-close]]:hidden">
         <DialogHeader className="sr-only">
           <DialogTitle>{sc?.requestedProduct ?? "Satış kartı detayı"}</DialogTitle>
           <DialogDescription>Satış kartı, teklifler ve aktiviteler</DialogDescription>
@@ -80,7 +89,8 @@ export function SalesCaseDetailPage({
   onBack: () => void;
   mode?: "page" | "dialog";
 }) {
-  const { offers, activities, customers, users, documents, payments, installations, refresh, deleteCase, updateCase, closeCase, updateActivity, deleteActivity } = useStore();
+  const { offers, activities, customers, users, documents, payments, installations, refresh, deleteCase, updateCase, closeCase, updateActivity, deleteActivity, moveCase } = useStore();
+  const [advancing, setAdvancing] = useState<string | null>(null);
   const { hasRole, hasPermission } = useAuth();
   const isSuperAdmin = hasRole("super_admin");
   const canUpdate = hasPermission("opportunities.update");
@@ -722,40 +732,153 @@ export function SalesCaseDetailPage({
           </div>
 
           <div className="mt-5 overflow-x-auto rounded-xl border border-border/70 bg-muted/15 px-3 py-3">
-            <ol className="flex min-w-max items-start" aria-label="Satış aşamaları">
-              {SALES_STAGES.filter((s) => s !== "cancelled").map((s, i, stages) => {
-                const currentIndex = sc.stage === "cancelled" ? -1 : stages.indexOf(sc.stage);
-                const complete = currentIndex >= 0 && i < currentIndex;
-                const active = s === sc.stage;
-                return (
-                  <li key={s} className="flex items-start">
-                    <div className="flex w-[112px] flex-col items-center text-center">
-                      <span
-                        aria-current={active ? "step" : undefined}
-                        className={`grid size-7 place-items-center rounded-full border text-[10px] font-semibold transition-colors ${
-                          complete
-                            ? "border-success bg-success text-white"
-                            : active
-                              ? "border-primary bg-primary text-white ring-4 ring-primary/10"
-                              : "border-border bg-white text-muted-foreground"
-                        }`}
+            {(() => {
+              // Süreç sırası derece alanlarına göre gruplanmış listeden gelir;
+              // ham SALES_STAGES dizisi bildirim sırası olduğu için bantları
+              // "… A → C → A …" diye zikzak yaptırırdı.
+              const steps = PIPELINE_STAGE_FLOW as unknown as typeof SALES_STAGES;
+              const currentIndex = sc.stage === "cancelled" ? -1 : steps.indexOf(sc.stage);
+              // Operasyon adımları satış derecelerinin alt adımlarıdır; adımların
+              // üstünde hangi dereceye ait olduklarını gösteren bant çizilir.
+              const bands: Array<{ grade: string; span: number }> = [];
+              for (const step of steps) {
+                const grade = PIPELINE_STAGE_QUALIFICATION[step as PipelineStageCode];
+                const last = bands[bands.length - 1];
+                if (last && last.grade === grade) last.span += 1;
+                else bands.push({ grade, span: 1 });
+              }
+              const activeGrade = sc.qualificationStage ?? "lead";
+              return (
+                <div className="min-w-max">
+                  <div className="mb-1.5 flex" aria-hidden>
+                    {bands.map((band, index) => (
+                      <div
+                        key={`${band.grade}-${index}`}
+                        className="pr-6 last:pr-0"
+                        style={{ width: band.span * 112 + (band.span - 1) * 24 }}
                       >
-                        {complete ? <CheckCircle2 className="size-4" /> : i + 1}
-                      </span>
-                      <span className={`mt-1.5 max-w-[108px] text-[10px] leading-tight ${active ? "font-semibold text-primary" : complete ? "text-success" : "text-muted-foreground"}`}>
-                        {salesStageLabel(s)}
-                      </span>
-                    </div>
-                    {i < stages.length - 1 && (
-                      <span className={`mt-3.5 h-px w-6 shrink-0 ${complete ? "bg-success" : "bg-border"}`} aria-hidden />
-                    )}
-                  </li>
-                );
-              })}
-            </ol>
+                        <div
+                          className={`rounded-md px-2 py-0.5 text-center text-[10px] font-semibold ${
+                            band.grade === activeGrade
+                              ? "bg-primary/10 text-primary"
+                              : "bg-muted text-muted-foreground"
+                          }`}
+                        >
+                          {QUALIFICATION_STAGE_LABELS[band.grade as keyof typeof QUALIFICATION_STAGE_LABELS] ?? band.grade}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <ol className="flex items-start" aria-label="Satış aşamaları">
+                    {steps.map((s, i) => {
+                      const complete = currentIndex >= 0 && i < currentIndex;
+                      const active = s === sc.stage;
+                      return (
+                        <li key={s} className="flex items-start">
+                          <div className="flex w-[112px] flex-col items-center text-center">
+                            <span
+                              aria-current={active ? "step" : undefined}
+                              className={`grid size-7 place-items-center rounded-full border text-[10px] font-semibold transition-colors ${
+                                complete
+                                  ? "border-success bg-success text-white"
+                                  : active
+                                    ? "border-primary bg-primary text-white ring-4 ring-primary/10"
+                                    : "border-border bg-white text-muted-foreground"
+                              }`}
+                            >
+                              {complete ? <CheckCircle2 className="size-4" /> : i + 1}
+                            </span>
+                            <span className={`mt-1.5 max-w-[108px] text-[10px] leading-tight ${active ? "font-semibold text-primary" : complete ? "text-success" : "text-muted-foreground"}`}>
+                              {salesStageLabel(s)}
+                            </span>
+                          </div>
+                          {i < steps.length - 1 && (
+                            <span className={`mt-3.5 h-px w-6 shrink-0 ${complete ? "bg-success" : "bg-border"}`} aria-hidden />
+                          )}
+                        </li>
+                      );
+                    })}
+                  </ol>
+                </div>
+              );
+            })()}
           </div>
+
+          {(() => {
+            // Bir sonraki operasyon adımları: hedef aşamanın izin verdiği
+            // kaynaklar arasında mevcut aşama varsa oraya geçilebilir.
+            const current = sc.stage as PipelineStageCode;
+            if (current === "delivered" || current === "cancelled" || sc.closedAt) return null;
+            const nextStages = (Object.keys(STAGE_TRANSITIONS) as PipelineStageCode[]).filter(
+              (target) =>
+                target !== "cancelled" &&
+                target !== current &&
+                STAGE_TRANSITIONS[target].includes(current) &&
+                PIPELINE_STAGE_FLOW.indexOf(target) > PIPELINE_STAGE_FLOW.indexOf(current)
+            );
+            if (nextStages.length === 0) return null;
+
+            const advance = async (target: PipelineStageCode) => {
+              setAdvancing(target);
+              try {
+                await moveCase(sc.id, target);
+                toast.success("Operasyon adımı ilerledi", { description: salesStageLabel(target) });
+              } catch (error: any) {
+                toast.error("Adım ilerletilemedi", {
+                  description: error?.message ?? "Ön koşullar tamamlanmamış olabilir.",
+                });
+              } finally {
+                setAdvancing(null);
+              }
+            };
+
+            return (
+              <div className="mt-3 rounded-xl border border-primary/15 bg-blue-50/40 p-3">
+                <div className="font-data text-[9px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                  Sonraki operasyon adımı
+                </div>
+                <div className="mt-2 grid gap-2">
+                  {nextStages.map((target) => {
+                    const rule = PIPELINE_STAGE_REQUIREMENTS[target];
+                    return (
+                      <div
+                        key={target}
+                        className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border/60 bg-white px-3 py-2"
+                      >
+                        <div className="min-w-0">
+                          <div className="text-xs font-semibold">
+                            {PIPELINE_STAGE_FLOW.indexOf(target) + 1}. {salesStageLabel(target)}
+                          </div>
+                          {rule.requires && (
+                            <div className="mt-0.5 text-[10px] leading-4 text-amber-700">
+                              Ön koşul: {rule.requires}
+                            </div>
+                          )}
+                          {rule.effect && (
+                            <div className="mt-0.5 text-[10px] leading-4 text-muted-foreground">
+                              {rule.effect}
+                            </div>
+                          )}
+                        </div>
+                        <Button
+                          size="sm"
+                          className="h-8 shrink-0"
+                          disabled={advancing !== null}
+                          onClick={() => void advance(target)}
+                        >
+                          {advancing === target ? "İlerletiliyor…" : "Bu adıma geç"}
+                        </Button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })()}
         </CardContent>
       </Card>
+
+      <ProcessChecklistPanel sc={sc} />
 
       {!hasCompany && (
         <Card className="border-warning/30 bg-warning-soft/55">

@@ -92,6 +92,10 @@ const envSchema = z.object({
   AUTOMATION_DIGEST_EMAILS: envBoolean.default(false),
   // Virgülle ayrılmış brifing e-posta alıcıları (örn. yonetim@firma.com,satis@firma.com).
   AUTOMATION_DIGEST_TO: envOptionalText,
+  // Lead/fırsat süreç takibi. Eşikler paylaşılan sabitlerden gelir; buradaki
+  // anahtarlar yalnız bildirim üretimini açıp kapatır ve listeyi sınırlar.
+  AUTOMATION_LEAD_SLA_ENABLED: envBoolean.default(true),
+  AUTOMATION_ROTTING_ENABLED: envBoolean.default(true),
 
   // Santral/VoIP çağrı webhook doğrulaması. Production'da zorunlu; dev/test'te
   // boşsa varsayılan test sırrı `dev-call-secret` kabul edilir.
