@@ -7,6 +7,7 @@ import {
   CircleAlert,
   Download,
   EyeOff,
+  GripVertical,
   Grid3X3,
   ListFilter,
   Plus,
@@ -54,6 +55,7 @@ import { cn } from "../../ui/utils";
 
 type FamilyCode = "CNC" | "SAC_ISLEME" | "UNIVERSAL";
 type WorkspaceView = "library" | "editor";
+type DragEdge = "before" | "after";
 
 type MachineTypeOption = {
   code: string;
@@ -206,6 +208,25 @@ function groupRows(rows: DraftRow[]) {
   });
 }
 
+function reorderDraftRow(rows: DraftRow[], sourceId: string, targetId: string, edge: DragEdge) {
+  const sourceIndex = rows.findIndex((row) => row.clientId === sourceId);
+  const target = rows.find((row) => row.clientId === targetId);
+  if (sourceIndex < 0 || !target || sourceId === targetId) return rows;
+
+  const next = [...rows];
+  const [source] = next.splice(sourceIndex, 1);
+  const targetIndex = next.findIndex((row) => row.clientId === targetId);
+  if (targetIndex < 0) return rows;
+
+  const insertionIndex = targetIndex + (edge === "after" ? 1 : 0);
+  next.splice(insertionIndex, 0, { ...source, groupCode: target.groupCode });
+
+  const unchanged = next.every((row, index) => (
+    row.clientId === rows[index]?.clientId && row.groupCode === rows[index]?.groupCode
+  ));
+  return unchanged ? rows : next;
+}
+
 function completionFor(typeCode: string, rows: SpecTemplateRow[]) {
   const typeRows = rows.filter((row) => sameType(row.productTypeCode, typeCode));
   const deletedKeys = new Set(
@@ -315,7 +336,12 @@ export function ProductSpecTemplatesCard() {
 
   const dirty = JSON.stringify(draftRows) !== baseline;
   useEffect(() => {
-    if (view !== "editor" || !selectedType || !dirty) return;
+    if (view !== "editor" || !selectedType) return;
+    if (!dirty) {
+      localStorage.removeItem(localDraftKey(selectedType.code));
+      setLastDraftSave(null);
+      return;
+    }
     const timer = window.setTimeout(() => {
       localStorage.setItem(localDraftKey(selectedType.code), JSON.stringify({ savedAt: new Date().toISOString(), rows: draftRows }));
       setLastDraftSave(new Date());
@@ -450,6 +476,23 @@ export function ProductSpecTemplatesCard() {
     const groupRows = draftRows.filter((row) => !row.isDeleted && row.groupCode === source.groupCode);
     const position = groupRows.findIndex((row) => row.clientId === clientId);
     moveRowToPosition(clientId, position + direction);
+  };
+
+  const moveRowByDrag = (sourceId: string, targetId: string, edge: DragEdge) => {
+    const preview = reorderDraftRow(draftRows, sourceId, targetId, edge);
+    if (preview === draftRows) return;
+
+    const moved = preview.find((row) => row.clientId === sourceId);
+    if (!moved) return;
+    const position = preview
+      .filter((row) => !row.isDeleted && row.groupCode === moved.groupCode)
+      .findIndex((row) => row.clientId === sourceId);
+
+    applyDraft(preview);
+    setSelectedRowId(sourceId);
+    toast.success("Alan taşındı", {
+      description: `${moved.specKey} · ${groupLabel(moved.groupCode)} · ${position + 1}. sıra`,
+    });
   };
 
   const pasteValues = (clientId: string, text: string) => {
@@ -642,6 +685,7 @@ export function ProductSpecTemplatesCard() {
           addSection={addSection}
           moveRow={moveRow}
           moveRowToPosition={moveRowToPosition}
+          moveRowByDrag={moveRowByDrag}
           pasteValues={pasteValues}
           undo={undo}
           redo={redo}
@@ -796,6 +840,7 @@ type EditorViewProps = {
   addSection: () => void;
   moveRow: (id: string, direction: -1 | 1) => void;
   moveRowToPosition: (id: string, position: number) => void;
+  moveRowByDrag: (sourceId: string, targetId: string, edge: DragEdge) => void;
   pasteValues: (id: string, text: string) => boolean;
   undo: () => void;
   redo: () => void;
@@ -811,10 +856,20 @@ type EditorViewProps = {
   openImport: () => void;
 };
 
-function EditorView({ type, search, setSearch, rows, displayRows, selectedRow, selectedRowId, setSelectedRowId, updateRow, changeRowGroup, addField, removeField, addSection, moveRow, moveRowToPosition, pasteValues, undo, redo, canUndo, canRedo, completion, activeCount, groupCount, dirty, lastDraftSave, busy, save, openImport }: EditorViewProps) {
+function EditorView({ type, search, setSearch, rows, displayRows, selectedRow, selectedRowId, setSelectedRowId, updateRow, changeRowGroup, addField, removeField, addSection, moveRow, moveRowToPosition, moveRowByDrag, pasteValues, undo, redo, canUndo, canRedo, completion, activeCount, groupCount, dirty, lastDraftSave, busy, save, openImport }: EditorViewProps) {
   const [pendingDelete, setPendingDelete] = useState<DraftRow | null>(null);
   const [inspectorOpen, setInspectorOpen] = useState(false);
   const [downloading, setDownloading] = useState(false);
+  const [draggedRowId, setDraggedRowId] = useState<string | null>(null);
+  const [dragTarget, setDragTarget] = useState<{ clientId: string; edge: DragEdge } | null>(null);
+  const dragDisabled = busy || rows.length < 2 || Boolean(search.trim());
+  const draggedRow = rows.find((row) => row.clientId === draggedRowId) ?? null;
+  const dragTargetRow = rows.find((row) => row.clientId === dragTarget?.clientId) ?? null;
+  const dragTargetPosition = dragTarget && dragTargetRow
+    ? rows
+      .filter((row) => row.clientId !== draggedRowId && row.groupCode === dragTargetRow.groupCode)
+      .findIndex((row) => row.clientId === dragTargetRow.clientId) + (dragTarget.edge === "after" ? 2 : 1)
+    : null;
 
   // Şablon ekrandaki alanlardan üretilir: kullanıcı ne görüyorsa dosyada o var.
   const downloadTemplate = async (format: "xlsx" | "csv") => {
@@ -877,6 +932,10 @@ function EditorView({ type, search, setSearch, rows, displayRows, selectedRow, s
         </aside>
 
         <div className="min-w-0 overflow-auto bg-white">
+          <p id="spec-drag-instructions" className="sr-only">
+            Alanı tutup istediğiniz bölümdeki sıraya bırakın. Klavye kullanıyorsanız yukarı ve aşağı ok tuşlarıyla
+            bölüm içinde taşıyabilir, bölüm değişikliğini Alan ayarlarından yapabilirsiniz.
+          </p>
           <table className="w-full min-w-[760px] border-collapse text-xs">
             <thead className="sticky top-0 z-10 bg-slate-100 text-slate-600 shadow-[0_1px_0_#cbd5e1]">
               <tr className="h-6 border-b border-slate-300 text-[10px]"><th className="w-11 border-r border-slate-300">#</th>{["A", "B", "C", "D", "E"].map((letter) => <th key={letter} className="border-r border-slate-300 font-medium">{letter}</th>)}<th className="w-10" /></tr>
@@ -885,9 +944,89 @@ function EditorView({ type, search, setSearch, rows, displayRows, selectedRow, s
             <tbody>
               {displayRows.map(({ row, rowSpan }, index) => {
                 const selected = selectedRowId === row.clientId;
+                const isDragged = draggedRowId === row.clientId;
+                const isDropTarget = dragTarget?.clientId === row.clientId;
+                const isTargetSection = Boolean(
+                  draggedRow
+                  && dragTargetRow
+                  && draggedRow.groupCode !== dragTargetRow.groupCode
+                  && row.groupCode === dragTargetRow.groupCode
+                );
                 return (
-                  <tr key={row.clientId} onClick={() => setSelectedRowId(row.clientId)} className={cn("h-8 border-b border-dotted border-slate-300", selected && "bg-blue-50/60", !row.isActive && "text-slate-400")}>
-                    <td className="border-r border-slate-200 text-center tabular-nums text-slate-500">{index + 1}</td>
+                  <tr
+                    key={row.clientId}
+                    onClick={() => setSelectedRowId(row.clientId)}
+                    onDragOver={(event) => {
+                      if (!draggedRowId || draggedRowId === row.clientId) return;
+                      event.preventDefault();
+                      event.dataTransfer.dropEffect = "move";
+                      const bounds = event.currentTarget.getBoundingClientRect();
+                      setDragTarget({
+                        clientId: row.clientId,
+                        edge: event.clientY < bounds.top + bounds.height / 2 ? "before" : "after",
+                      });
+                    }}
+                    onDrop={(event) => {
+                      event.preventDefault();
+                      const sourceId = draggedRowId || event.dataTransfer.getData("text/plain");
+                      if (sourceId && sourceId !== row.clientId) {
+                        const bounds = event.currentTarget.getBoundingClientRect();
+                        const edge = event.clientY < bounds.top + bounds.height / 2 ? "before" : "after";
+                        moveRowByDrag(sourceId, row.clientId, edge);
+                      }
+                      setDraggedRowId(null);
+                      setDragTarget(null);
+                    }}
+                    className={cn(
+                      "h-8 border-b border-dotted border-slate-300 transition-[background-color,box-shadow,opacity] motion-reduce:transition-none",
+                      selected && "bg-blue-50/60",
+                      isTargetSection && "bg-blue-50/50",
+                      isDragged && "opacity-35",
+                      isDropTarget && dragTarget?.edge === "before" && "shadow-[inset_0_2px_0_#2563eb]",
+                      isDropTarget && dragTarget?.edge === "after" && "shadow-[inset_0_-2px_0_#2563eb]",
+                      !row.isActive && "text-slate-400",
+                    )}
+                  >
+                    <td className="border-r border-slate-200 p-0 text-slate-500">
+                      <div className="flex h-8 items-center justify-center gap-0.5">
+                        <button
+                          type="button"
+                          draggable={!dragDisabled}
+                          disabled={dragDisabled}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            setSelectedRowId(row.clientId);
+                          }}
+                          onDragStart={(event) => {
+                            setDraggedRowId(row.clientId);
+                            setDragTarget(null);
+                            event.dataTransfer.effectAllowed = "move";
+                            event.dataTransfer.setData("text/plain", row.clientId);
+                          }}
+                          onDragEnd={() => {
+                            setDraggedRowId(null);
+                            setDragTarget(null);
+                          }}
+                          onKeyDown={(event) => {
+                            if (event.key === "ArrowUp") {
+                              event.preventDefault();
+                              moveRow(row.clientId, -1);
+                            }
+                            if (event.key === "ArrowDown") {
+                              event.preventDefault();
+                              moveRow(row.clientId, 1);
+                            }
+                          }}
+                          aria-describedby="spec-drag-instructions"
+                          aria-label={`${row.specKey} alanını taşı; sürükleyin veya bölüm içinde yukarı aşağı ok tuşlarını kullanın`}
+                          title={search.trim() ? "Sürüklemek için aramayı temizleyin" : "Bölüm ve sırayı değiştirmek için sürükleyin"}
+                          className="grid size-7 cursor-grab place-items-center rounded text-slate-400 transition-colors hover:bg-blue-100 hover:text-blue-700 active:cursor-grabbing disabled:cursor-not-allowed disabled:opacity-30"
+                        >
+                          <GripVertical className="size-3.5" />
+                        </button>
+                        <span className="min-w-4 text-center tabular-nums">{index + 1}</span>
+                      </div>
+                    </td>
                     {rowSpan > 0 && <td rowSpan={rowSpan} className="border-r border-slate-300 bg-slate-50 p-0 text-center"><span style={{ writingMode: "vertical-rl", transform: "rotate(180deg)" }} className="inline-block py-2 font-display text-sm font-bold tracking-[0.08em] text-slate-700">{groupLabel(row.groupCode)}</span></td>}
                     <td className="border-r border-slate-200 p-0"><input value={row.specKey} onFocus={() => setSelectedRowId(row.clientId)} onChange={(event) => updateRow(row.clientId, { specKey: event.target.value })} className="h-8 w-full border-0 bg-transparent px-3 outline-none focus:bg-white focus:ring-2 focus:ring-inset focus:ring-blue-500" /></td>
                     <td className="border-r border-slate-200 p-0"><input value={row.defaultValue} onFocus={() => setSelectedRowId(row.clientId)} onPaste={(event) => { if (pasteValues(row.clientId, event.clipboardData.getData("text"))) event.preventDefault(); }} onChange={(event) => updateRow(row.clientId, { defaultValue: event.target.value })} className="h-8 w-full border-0 bg-transparent px-3 font-medium outline-none focus:bg-white focus:ring-2 focus:ring-inset focus:ring-blue-500" /></td>
@@ -941,7 +1080,7 @@ function EditorView({ type, search, setSearch, rows, displayRows, selectedRow, s
       </div>
 
       <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-300 bg-white px-4 py-2.5 text-[11px]">
-        <div className="flex items-center gap-4"><span>{rows.length} teknik alan</span><span>{groupCount} bölüm</span><span className={cn("flex items-center gap-1", dirty ? "text-amber-700" : "text-emerald-700")}>{dirty ? <CircleAlert className="size-3.5" /> : <CheckCircle2 className="size-3.5" />}{dirty ? lastDraftSave ? `Taslak kaydedildi ${lastDraftSave.toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" })}` : "Kaydedilmemiş değişiklikler" : "Tüm değişiklikler kayıtlı"}</span></div>
+        <div className="flex items-center gap-4"><span>{rows.length} teknik alan</span><span>{groupCount} bölüm</span>{search.trim() && <span className="text-amber-700">Sürüklemek için aramayı temizleyin</span>}<span className={cn("flex items-center gap-1", dirty ? "text-amber-700" : "text-emerald-700")}>{dirty ? <CircleAlert className="size-3.5" /> : <CheckCircle2 className="size-3.5" />}{dirty ? lastDraftSave ? `Taslak kaydedildi ${lastDraftSave.toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" })}` : "Kaydedilmemiş değişiklikler" : "Tüm değişiklikler kayıtlı"}</span></div>
         <div className="flex items-center"><button type="button" className="border-b-2 border-blue-600 px-5 py-2 font-medium text-blue-700">Şablon Alanları</button><button type="button" onClick={openImport} className="border-b-2 border-transparent px-5 py-2 text-slate-600 hover:text-slate-900">Makine Verileri</button><button type="button" onClick={() => addField()} className="ml-2 grid size-8 place-items-center rounded border border-slate-200 hover:bg-slate-50"><Plus className="size-4" /></button></div>
       </div>
 
@@ -995,6 +1134,18 @@ function EditorView({ type, search, setSearch, rows, displayRows, selectedRow, s
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {draggedRow && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="pointer-events-none fixed bottom-5 left-1/2 z-50 -translate-x-1/2 rounded-lg border border-blue-200 bg-[#071c54] px-4 py-2 text-[11px] font-medium text-white shadow-xl"
+        >
+          {dragTargetRow && dragTargetPosition
+            ? `${draggedRow.specKey} → ${groupLabel(dragTargetRow.groupCode)} · ${dragTargetPosition}. sıra`
+            : `${draggedRow.specKey} taşınıyor`}
+        </div>
+      )}
     </div>
   );
 }
