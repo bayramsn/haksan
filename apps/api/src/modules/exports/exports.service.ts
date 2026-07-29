@@ -263,7 +263,7 @@ export class ExportsService {
 
   async exportOpportunities(
     actor: AuthContext,
-    query: { search?: string; stageCode?: string; companyId?: string }
+    query: { search?: string; stageCode?: string; qualificationStage?: string; companyId?: string }
   ): Promise<ExportRow[]> {
     const filters = [eq(opportunities.tenantId, actor.tenantId), isNull(opportunities.deletedAt)];
     if (query.search) {
@@ -276,6 +276,9 @@ export class ExportsService {
       );
     }
     if (query.companyId) filters.push(eq(opportunities.companyId, query.companyId));
+    if (query.qualificationStage) {
+      filters.push(eq(opportunities.qualificationStage, query.qualificationStage));
+    }
     if (query.stageCode) {
       const stage = await this.db.query.pipelineStages.findFirst({ where: eq(pipelineStages.code, query.stageCode) });
       if (stage) filters.push(eq(opportunities.currentStageId, stage.id));
@@ -313,7 +316,8 @@ export class ExportsService {
       Başlık: r.opp.title,
       Tutar: r.opp.estimatedValue ?? '',
       'Para Birimi': r.currency?.code ?? '',
-      Aşama: r.stage?.name ?? '',
+      Derece: r.opp.qualificationStage?.toLocaleUpperCase('tr-TR').replace('_PLUS', '+') ?? '',
+      'Operasyon Aşaması': r.stage?.name ?? '',
       Atanan: r.owner?.fullName ?? '',
       Açılış: isoDate(r.opp.createdAt),
     }));

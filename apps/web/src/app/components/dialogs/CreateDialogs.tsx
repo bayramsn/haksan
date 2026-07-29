@@ -500,6 +500,7 @@ export function CreateCustomerDialog({
       ].filter((item) => item.address || item.city || item.district));
       const c = await addCustomer({
         ...companyForm,
+        supplierCategoryCode: companyForm.supplierCategoryCode || undefined,
         type,
         firmType,
         salesStatus,
@@ -1550,8 +1551,16 @@ export function EditContactDialog({ contact, onClose }: { contact: Contact | nul
   );
 }
 
-export function CreateCaseDialog({ trigger, defaultCustomerId }: { trigger: React.ReactNode; defaultCustomerId?: string }) {
-  const { customers, addCase, addCustomer, users, products } = useStore();
+export function CreateCaseDialog({
+  trigger,
+  defaultCustomerId,
+  createAsOpportunity = true,
+}: {
+  trigger: React.ReactNode;
+  defaultCustomerId?: string;
+  createAsOpportunity?: boolean;
+}) {
+  const { customers, addCase, convertCase, addCustomer, users, products } = useStore();
   const { user, activeDivision, canUseAllDivisionsForResource, hasRole, scopesForResource } = useAuth();
   const isSuperAdmin = hasRole("super_admin");
   const divisions = user?.divisions ?? [];
@@ -1570,6 +1579,7 @@ export function CreateCaseDialog({ trigger, defaultCustomerId }: { trigger: Reac
     assignedUserId: user?.id ?? users.find((u) => u.role === "Sales" || u.role === "Admin")?.id ?? users[0]?.id ?? "",
     requestedProduct: "",
     requestedModel: "",
+    requestedMachine: "",
     quantity: 1,
     estimatedAmount: 0,
     paymentTermDays: undefined as number | undefined,
@@ -1607,7 +1617,8 @@ export function CreateCaseDialog({ trigger, defaultCustomerId }: { trigger: Reac
     setSaving(true);
     try {
       const sc = await addCase(form as any);
-      toast.success("Satış kartı oluşturuldu", { description: `#${sc.id.toUpperCase()}` });
+      if (createAsOpportunity) await convertCase(sc.id, "Firma üzerinden fırsat oluşturuldu");
+      toast.success(createAsOpportunity ? "Fırsat oluşturuldu" : "Lead oluşturuldu", { description: `#${sc.id.toUpperCase()}` });
       setForm(makeEmptyCase());
       setSelectedProductId("");
       setOpen(false);
@@ -1619,12 +1630,24 @@ export function CreateCaseDialog({ trigger, defaultCustomerId }: { trigger: Reac
   };
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (nextOpen && defaultCustomerId) {
+          setForm((current) => ({ ...current, customerId: defaultCustomerId }));
+        }
+        setOpen(nextOpen);
+      }}
+    >
       <DialogTrigger asChild>{trigger}</DialogTrigger>
       <DialogContent className="max-w-2xl">
         <DialogHeader>
-          <DialogTitle>Yeni Satış Kartı</DialogTitle>
-          <DialogDescription>Bir müşteri için satış fırsatı (kanban kartı) oluşturun.</DialogDescription>
+          <DialogTitle>{createAsOpportunity ? "Yeni Fırsat" : "Yeni Lead"}</DialogTitle>
+          <DialogDescription>
+            {createAsOpportunity
+              ? "Seçilen firma için C aşamasında bir satış fırsatı oluşturun."
+              : "Satış ekibinin değerlendireceği yeni bir lead oluşturun."}
+          </DialogDescription>
         </DialogHeader>
 
         <form onSubmit={submit} className="space-y-4">
@@ -1673,6 +1696,7 @@ export function CreateCaseDialog({ trigger, defaultCustomerId }: { trigger: Reac
                         ...f,
                         requestedProduct: p.brand || p.type || p.model,
                         requestedModel: p.model ?? "",
+                        requestedMachine: [p.brand, p.model].filter(Boolean).join(" "),
                         estimatedAmount: unit ? unit * (Number(f.quantity) || 1) : f.estimatedAmount,
                         currency: (p.currency as typeof f.currency) ?? f.currency,
                       }));
@@ -1683,7 +1707,7 @@ export function CreateCaseDialog({ trigger, defaultCustomerId }: { trigger: Reac
                   emptyText="Tezgah bulunamadı."
                   onCreate={(label) => {
                     setSelectedProductId("");
-                    setForm((f) => ({ ...f, requestedProduct: label }));
+                    setForm((f) => ({ ...f, requestedProduct: label, requestedMachine: label }));
                   }}
                   createLabel={(q) => `"${q}" serbest ürün olarak ekle`}
                 />
@@ -1736,7 +1760,7 @@ export function CreateCaseDialog({ trigger, defaultCustomerId }: { trigger: Reac
                 </Select>
               </div>
             )}
-            <div className="col-span-2">
+            {!createAsOpportunity && <div className="col-span-2">
               <Label className="text-xs">Başlangıç Aşaması</Label>
               <Select value={form.stage} onValueChange={(v: any) => setForm({ ...form, stage: v })}>
                 <SelectTrigger className="mt-1.5"><SelectValue /></SelectTrigger>
@@ -1746,13 +1770,13 @@ export function CreateCaseDialog({ trigger, defaultCustomerId }: { trigger: Reac
                   ))}
                 </SelectContent>
               </Select>
-            </div>
+            </div>}
           </div>
 
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => setOpen(false)} disabled={saving}>Vazgeç</Button>
             <Button type="submit" disabled={saving}>
-              {saving ? "Oluşturuluyor..." : "Satış Kartını Oluştur"}
+              {saving ? "Oluşturuluyor..." : createAsOpportunity ? "Fırsatı Oluştur" : "Lead Oluştur"}
             </Button>
           </DialogFooter>
         </form>
@@ -6282,11 +6306,13 @@ export function CreateMachineDialog({ children }: { children: React.ReactNode })
 /** Müşteri aktivite kaydı (ziyaret, telefon, mail, toplantı vb.). */
 export function LogActivityDialog({
   customerId,
+  opportunityId,
   trigger,
   defaultKind = "visit",
   onLogged,
 }: {
   customerId: string;
+  opportunityId?: string;
   trigger: React.ReactNode;
   defaultKind?: (typeof ACTIVITY_TYPE_OPTIONS)[number]["code"];
   onLogged?: () => void;
@@ -6321,6 +6347,7 @@ export function LogActivityDialog({
       const base = {
         companyId: customerId,
         contactId: contactId || undefined,
+        opportunityId,
       };
       if (kind === "visit") {
         await activityService.createVisit({

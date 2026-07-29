@@ -6,7 +6,12 @@ import {
   opportunityUpdateSchema,
   opportunityStageChangeSchema,
   opportunityCompanyLinkSchema,
+  opportunityApprovalDecisionSchema,
+  opportunityApprovalTypeEnum,
   opportunityCloseSchema,
+  opportunityConvertSchema,
+  opportunityQualificationChangeSchema,
+  opportunityQualificationStageEnum,
   trelloImportCommitRequestSchema,
   trelloImportPreviewRequestSchema,
   opportunityViewEnum,
@@ -15,7 +20,11 @@ import {
   type OpportunityUpdateInput,
   type OpportunityStageChangeInput,
   type OpportunityCompanyLinkInput,
+  type OpportunityApprovalDecisionInput,
   type OpportunityCloseInput,
+  type OpportunityConvertInput,
+  type OpportunityQualificationChangeInput,
+  type OpportunityApprovalType,
   type TrelloImportCommitRequest,
   type TrelloImportPreviewRequest,
   type Pagination,
@@ -30,6 +39,8 @@ import { OpportunitiesService } from './opportunities.service';
 const listQuery = z.object({
   search: z.string().optional(),
   stageCode: z.string().optional(),
+  qualificationStage: opportunityQualificationStageEnum.optional(),
+  lifecycle: z.enum(['lead', 'opportunity']).optional(),
   companyId: z.string().optional(),
   // active (varsayılan) | closed (Geçmiş/Arşiv) | all
   view: opportunityViewEnum.optional(),
@@ -106,6 +117,37 @@ export class OpportunitiesController {
     @CurrentUser() user: AuthContext
   ) {
     return this.svc.linkCompany(id, body, user);
+  }
+
+  @RequirePermissions('opportunities.update')
+  @Post(':id/convert')
+  convertLead(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(opportunityConvertSchema)) body: OpportunityConvertInput,
+    @CurrentUser() user: AuthContext
+  ) {
+    return this.svc.convertLead(id, body, user);
+  }
+
+  @RequirePermissions('opportunities.update')
+  @Patch(':id/qualification-stage')
+  changeQualificationStage(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(opportunityQualificationChangeSchema)) body: OpportunityQualificationChangeInput,
+    @CurrentUser() user: AuthContext
+  ) {
+    return this.svc.changeQualificationStage(id, body, user);
+  }
+
+  @RequirePermissions('opportunities.approve')
+  @Post(':id/approvals/:type')
+  decideQualificationApproval(
+    @Param('id') id: string,
+    @Param('type', new ZodValidationPipe(opportunityApprovalTypeEnum)) type: OpportunityApprovalType,
+    @Body(new ZodValidationPipe(opportunityApprovalDecisionSchema)) body: OpportunityApprovalDecisionInput,
+    @CurrentUser() user: AuthContext
+  ) {
+    return this.svc.decideQualificationApproval(id, type, body, user);
   }
 
   @RequirePermissions('opportunities.update')

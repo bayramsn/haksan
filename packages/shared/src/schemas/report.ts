@@ -1,8 +1,10 @@
 import { z } from 'zod';
+import { QUALIFICATION_STAGES } from '../constants';
 
 export const exportOpportunityQuerySchema = z.object({
   search: z.string().optional(),
   stageCode: z.string().optional(),
+  qualificationStage: z.enum(QUALIFICATION_STAGES).optional(),
   companyId: z.string().uuid().optional(),
 });
 export type ExportOpportunityQuery = z.infer<typeof exportOpportunityQuerySchema>;

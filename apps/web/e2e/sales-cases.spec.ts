@@ -1,9 +1,9 @@
 import { test, expect } from "@playwright/test";
 import { login, navigateTo } from "./helpers";
 
-test("satış kartları listelenir ve detay açılır", async ({ page }) => {
+test("fırsatlar listelenir ve detay açılır", async ({ page }) => {
   await login(page);
-  await navigateTo(page, "Satış Kartları");
+  await navigateTo(page, "Fırsatlar");
 
   // Sayfa varsayılan olarak Kanban açılır; liste görünümünü açıkça seç.
   await page.getByRole("tab", { name: "Liste" }).click();
@@ -23,7 +23,7 @@ test("satış kartları listelenir ve detay açılır", async ({ page }) => {
 
 test("liste filtresi kanban görünümüne de uygulanır", async ({ page }) => {
   await login(page);
-  await navigateTo(page, "Satış Kartları");
+  await navigateTo(page, "Fırsatlar");
 
   const search = page.getByPlaceholder("Firma / kontak / ürün ara...");
   await expect(search).toBeVisible();
@@ -34,7 +34,7 @@ test("liste filtresi kanban görünümüne de uygulanır", async ({ page }) => {
   await expect(page.locator('[data-testid^="sales-kanban-card-"]')).toHaveCount(0);
 });
 
-test("satış kartından yeni firma OSM araması üst formu göndermeden açık kalır", async ({ page }) => {
+test("lead kartından yeni firma OSM araması üst formu göndermeden açık kalır", async ({ page }) => {
   const suffix = Date.now().toString(36);
   const companyTitle = `OSM Form Regresyon ${suffix}`;
   const product = `Test Makinesi ${suffix}`;
@@ -68,19 +68,20 @@ test("satış kartından yeni firma OSM araması üst formu göndermeden açık 
   });
 
   await login(page);
-  await navigateTo(page, "Satış Kartları");
-  await page.getByRole("button", { name: "Hızlı Lead" }).click();
+  await navigateTo(page, "Leadler");
+  await page.getByRole("button", { name: "Hızlı Lead", exact: true }).click();
   await page.getByLabel("Kontak ismi *").fill(`OSM Test ${suffix}`);
+  await page.locator("#lead-phone").fill("05325551212");
+  await page.locator("#lead-city").fill("İstanbul");
   await page.getByLabel("Firma ünvanı").fill(companyTitle);
   await page.getByLabel("İstenen ürün *").fill(product);
   await page.getByRole("button", { name: "Lead Kartı Oluştur" }).click();
 
-  await page.getByRole("tab", { name: "Liste" }).click();
-  const search = page.getByPlaceholder("Firma / kontak / ürün ara...");
+  const search = page.getByPlaceholder("Firma, kontak, telefon veya ürün ara...");
   await search.fill(companyTitle);
-  const row = page.locator("tbody tr").filter({ hasText: companyTitle }).first();
-  await expect(row).toBeVisible();
-  await row.click();
+  const card = page.locator("button").filter({ hasText: companyTitle }).first();
+  await expect(card).toBeVisible();
+  await card.click();
 
   await page.getByRole("button", { name: "Yeni Firma Oluştur" }).click();
   const companyDialog = page.getByRole("dialog", { name: "Yeni Firma" });

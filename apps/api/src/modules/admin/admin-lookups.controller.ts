@@ -695,15 +695,18 @@ export class AdminLookupsController {
   }
 
   /**
-   * Şablon alanını kalıcı siler. Pasifleştirme ayrı bir işlemdir (PATCH isActive:false)
-   * ve alanı listede tutar; silme, aynı alan adının yeniden kullanılabilmesi için
-   * teklik indeksindeki yeri de boşaltır. Tablo başka kayıtlardan referans almaz,
-   * ürünlerin kendi teknik değerleri bu satırdan bağımsız saklanır.
+   * Şablon alanını görünür şablondan kalıcı olarak çıkarır. Katalog varsayılanları
+   * koddan yeniden kurulabildiği için kayıt fiziksel silinmez; tombstone bırakılır.
+   * Ürünlerin kendi teknik değerleri bu kayıttan bağımsızdır ve korunur.
    */
   @Delete('product-spec-templates/:id')
   async deleteProductSpecTemplate(@Param('id') id: string, @CurrentUser() user: AuthContext) {
     this.requireSuperAdmin(user);
-    const [row] = await this.db.delete(productSpecTemplates).where(eq(productSpecTemplates.id, id)).returning();
+    const [row] = await this.db
+      .update(productSpecTemplates)
+      .set({ isDeleted: true, isActive: false })
+      .where(eq(productSpecTemplates.id, id))
+      .returning();
     if (!row) throw new NotFoundError('Teknik bilgi şablonu');
     await this.audit.write({
       tenantId: user.tenantId,

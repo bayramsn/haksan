@@ -986,7 +986,10 @@ export class ProductsService {
 
   // ────────── SPECS ──────────
   async listSpecTemplates(productTypeCode?: string, actor?: AuthContext) {
-    const filters = [eq(productSpecTemplates.isActive, true)];
+    const filters = [
+      eq(productSpecTemplates.isActive, true),
+      eq(productSpecTemplates.isDeleted, false),
+    ];
     if (productTypeCode?.trim()) filters.push(eq(productSpecTemplates.productTypeCode, productTypeCode.trim()));
     // Aktif bölüm kendi + paylaşılan ("Tümü") şablonları görür (teklif/ürün diyalogları).
     if (actor) {

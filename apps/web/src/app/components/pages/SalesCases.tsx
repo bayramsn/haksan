@@ -2,18 +2,22 @@ import { Card } from "../ui/card";
 import { Avatar, AvatarFallback } from "../ui/avatar";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../ui/table";
 import { Button } from "../ui/button";
+import { Badge } from "../ui/badge";
 import { Input } from "../ui/input";
 import { Search, ArrowUpDown, Building2, MoreHorizontal, CheckCircle2, RotateCcw, AlertTriangle, CalendarClock, Cpu } from "lucide-react";
-import { SalesCase, salesStageLabel } from "../../lib/mock";
-import { StatusBadge } from "../Layout";
+import {
+  QUALIFICATION_STAGE_LABELS,
+  QUALIFICATION_STAGES,
+  SalesCase,
+  salesStageLabel,
+  type QualificationStage,
+} from "../../lib/mock";
 import { useEffect, useMemo, useState } from "react";
 import { useStore } from "../../lib/store";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../ui/tabs";
-import { KanbanPage } from "./Kanban";
+import { QualificationKanban } from "./QualificationKanban";
 import { FilterPopover, usePaged, Pager } from "../ui/list-controls";
 import { ExportExcelButton } from "../ui/ExportExcelButton";
-import { LeadCaptureDialog } from "../dialogs/LeadCaptureDialog";
-import { TrelloCsvImportDialog } from "../dialogs/TrelloCsvImportDialog";
 import { type OperationAction, type OperationFocus } from "../../lib/operations";
 import {
   LEAD_TEMPERATURE_HINTS,
@@ -36,11 +40,26 @@ const salesCasePartyName = (salesCase: SalesCase, company?: { name?: string } | 
   salesCase.leadContactName ||
   "Firma kaydı bekliyor";
 
+const qualificationStyle: Record<QualificationStage, string> = {
+  lead: "border-slate-200 bg-slate-50 text-slate-700",
+  c: "border-slate-200 bg-slate-50 text-slate-700",
+  b: "border-blue-200 bg-blue-50 text-blue-700",
+  a: "border-indigo-200 bg-indigo-50 text-indigo-700",
+  a_plus: "border-amber-200 bg-amber-50 text-amber-700",
+  win: "border-emerald-200 bg-emerald-50 text-emerald-700",
+  lost: "border-red-200 bg-red-50 text-red-700",
+};
+
+const QualificationBadge = ({ stage }: { stage: QualificationStage }) => (
+  <Badge variant="outline" className={`font-data text-[10px] ${qualificationStyle[stage]}`}>
+    {QUALIFICATION_STAGE_LABELS[stage]}
+  </Badge>
+);
+
 export function SalesCasesPage({
   onSelect,
   initialView = "list",
   focus,
-  onAction,
 }: {
   onSelect: (s: SalesCase) => void;
   initialView?: "list" | "kanban";
@@ -82,10 +101,12 @@ export function SalesCasesPage({
   const focusWon = focus === "won";
   const focusLost = focus === "lost";
   const filtered = salesCases.filter((s) => {
-    if (focusOpen && (s.isLost || ["Completed", "Lost", "delivered"].includes(String(s.stage)))) return false;
-    if (focusWon && !["Completed", "delivered"].includes(String(s.stage))) return false;
-    if (focusLost && !(s.isLost || String(s.stage) === "Lost")) return false;
-    if (stage !== "all" && s.stage !== stage) return false;
+    const qualification = s.qualificationStage ?? "lead";
+    if (qualification === "lead") return false;
+    if (focusOpen && (qualification === "win" || qualification === "lost")) return false;
+    if (focusWon && qualification !== "win") return false;
+    if (focusLost && qualification !== "lost") return false;
+    if (stage !== "all" && qualification !== stage) return false;
     if (currency !== "all" && s.currency !== currency) return false;
     if (companyResolution === "pending" && s.customerId) return false;
     if (companyResolution === "resolved" && !s.customerId) return false;
@@ -118,7 +139,10 @@ export function SalesCasesPage({
 
   const { page, setPage, totalPages, pageItems } = usePaged(sorted, 12);
 
-  const stageOptions = Array.from(new Set(salesCases.map((s) => s.stage))).map((v) => ({ value: v, label: salesStageLabel(v) }));
+  const stageOptions = QUALIFICATION_STAGES.map((value) => ({
+    value,
+    label: QUALIFICATION_STAGE_LABELS[value],
+  }));
   const currencyOptions = Array.from(new Set(salesCases.map((s) => s.currency))).map((v) => ({ value: v, label: v }));
 
   useEffect(() => {
@@ -131,13 +155,13 @@ export function SalesCasesPage({
 
   const exportParams = {
     ...(q ? { search: q } : {}),
-    ...(stage !== "all" ? { stageCode: stage } : {}),
+    ...(stage !== "all" ? { qualificationStage: stage } : {}),
   };
   const nextActivityFor = (salesCaseId: string) => activities
     .filter((activity) => activity.salesCaseId === salesCaseId && new Date(activity.date).getTime() >= Date.now() - 86_400_000)
     .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())[0];
   const riskFor = (salesCase: SalesCase) => {
-    if (salesCase.isLost || String(salesCase.stage) === "Lost") return { label: "Kaybedildi", className: "border-destructive/20 bg-destructive-soft text-destructive" };
+    if (salesCase.qualificationStage === "lost") return { label: "Kaybedildi", className: "border-destructive/20 bg-destructive-soft text-destructive" };
     const age = Math.floor((Date.now() - new Date(salesCase.createdAt).getTime()) / 86_400_000);
     if (!salesCase.assignedUserId) return { label: "Sahipsiz", className: "border-destructive/20 bg-destructive-soft text-destructive" };
     if (!nextActivityFor(salesCase.id) && age > 30) return { label: "Takipsiz", className: "border-warning/20 bg-warning-soft text-warning" };
@@ -204,14 +228,12 @@ export function SalesCasesPage({
           )}
         </div>
         <div className="flex items-center gap-2">
-          <LeadCaptureDialog />
-          <TrelloCsvImportDialog />
-          <ExportExcelButton path="/exports/opportunities" filename="satis-kartlari.xlsx" params={exportParams} className="h-9" />
+          <ExportExcelButton path="/exports/opportunities" filename="firsatlar.xlsx" params={exportParams} className="h-9" />
         </div>
       </div>
 
       <TabsContent value="kanban" className="mt-0">
-        <KanbanPage onSelect={onSelect} items={sorted} onAction={onAction} />
+        <QualificationKanban onSelect={onSelect} items={sorted} />
       </TabsContent>
       <TabsContent value="list" className="mt-0 space-y-4">
 
@@ -285,7 +307,12 @@ export function SalesCasesPage({
                       <span className="font-display text-lg font-semibold text-primary">{s.estimatedAmount.toLocaleString("tr-TR")}</span>{" "}
                       <span className="text-[11px] text-muted-foreground">{s.currency}</span>
                     </TableCell>
-                    <TableCell><StatusBadge status={s.stage} /></TableCell>
+                    <TableCell>
+                      <div className="space-y-1">
+                        <QualificationBadge stage={s.qualificationStage} />
+                        <div className="text-[9px] text-muted-foreground">Operasyon: {salesStageLabel(s.stage)}</div>
+                      </div>
+                    </TableCell>
                     <TableCell>
                       <div className="min-w-[160px]"><span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] ${risk.className}`}><AlertTriangle className="mr-1 size-3" />{risk.label}</span><div className="mt-1.5 flex items-center gap-1 text-[10px] text-muted-foreground"><CalendarClock className="size-3.5" />{nextActivity ? `${nextActivity.title} · ${new Date(nextActivity.date).toLocaleDateString("tr-TR")}` : "Sonraki aktivite planlanmamış"}</div></div>
                     </TableCell>
@@ -300,7 +327,7 @@ export function SalesCasesPage({
                     <TableCell className="hidden md:table-cell text-xs text-muted-foreground tabular-nums">{s.createdAt}</TableCell>
                     <TableCell onClick={(e) => e.stopPropagation()}>
                       <div className="flex items-center justify-end gap-1">
-                        {(s.stage === "delivered" || s.isLost) && (
+                        {(s.qualificationStage === "win" || s.qualificationStage === "lost") && (
                           <Button
                             variant="ghost"
                             size="sm"
@@ -320,14 +347,14 @@ export function SalesCasesPage({
                   </TableRow>
                 );
               })}
-              {pageItems.length === 0 && <TableRow><TableCell colSpan={7} className="py-4"><EmptyState scene="search" title="Satış kartı bulunamadı" description="Arama veya filtreleri değiştirerek tekrar deneyin." /></TableCell></TableRow>}
+              {pageItems.length === 0 && <TableRow><TableCell colSpan={7} className="py-4"><EmptyState scene="search" title="Fırsat bulunamadı" description="Arama veya filtreleri değiştirerek tekrar deneyin." /></TableCell></TableRow>}
             </TableBody>
           </Table>
         </div>
 
         <div className="flex items-center justify-between gap-3 px-4 py-3 border-t border-border/60 bg-muted/20">
           <div className="text-xs text-muted-foreground">
-            Toplam <b className="text-foreground">{filtered.length}</b> satış kartı
+            Toplam <b className="text-foreground">{filtered.length}</b> fırsat
           </div>
           <Pager page={page} totalPages={totalPages} setPage={setPage} />
         </div>
@@ -371,7 +398,7 @@ export function SalesCasesPage({
                           </div>
                         </TableCell>
                         <TableCell><div className="text-sm">{s.requestedProduct}</div></TableCell>
-                        <TableCell><StatusBadge status={s.stage} /></TableCell>
+                        <TableCell><QualificationBadge stage={s.qualificationStage} /></TableCell>
                         <TableCell className="text-xs text-muted-foreground tabular-nums">{s.closedAt ?? "—"}</TableCell>
                         <TableCell onClick={(e) => e.stopPropagation()}>
                           <Button
@@ -394,14 +421,14 @@ export function SalesCasesPage({
           </div>
           <div className="flex items-center justify-between gap-3 px-4 py-3 border-t border-border/60 bg-muted/20">
             <div className="text-xs text-muted-foreground">
-              Toplam <b className="text-foreground">{closedCases.length}</b> arşiv kartı (teslim + iptal) · silinmedi, DB'de duruyor
+              Toplam <b className="text-foreground">{closedCases.length}</b> arşiv fırsatı (WIN + LOST) · silinmedi, DB'de duruyor
             </div>
           </div>
         </Card>
       </TabsContent>
 
       <AlertDialog open={!!pendingClose} onOpenChange={(open) => !open && !busyId && setPendingClose(null)}>
-        <AlertDialogContent className="max-w-lg"><AlertDialogHeader><AlertDialogTitle>Satış kartı tamamlanıp arşivlensin mi?</AlertDialogTitle><AlertDialogDescription><span className="block font-medium text-foreground">{pendingClose ? salesCasePartyName(pendingClose, customers.find((customer) => customer.id === pendingClose.customerId)) : "Satış kartı"} · {pendingClose?.requestedModel || pendingClose?.requestedProduct}</span>Kart silinmez; “Geçmiş” görünümüne taşınır. Teklif, proforma, sözleşme ve aktiviteler korunur.</AlertDialogDescription></AlertDialogHeader>{pendingClose && <div className="rounded-lg border border-primary/10 bg-brand-blue-soft/50 p-3 text-xs"><div className="font-display text-lg font-semibold text-primary">{pendingClose.estimatedAmount.toLocaleString("tr-TR")} {pendingClose.currency}</div><div className="mt-1 text-muted-foreground">Aşama: {salesStageLabel(pendingClose.stage)}</div></div>}<AlertDialogFooter><AlertDialogCancel>Vazgeç</AlertDialogCancel><AlertDialogAction disabled={!!busyId} onClick={(event) => { event.preventDefault(); if (pendingClose) void onClose(pendingClose.id); }}>{busyId ? "Arşivleniyor…" : "Tamamla ve Arşivle"}</AlertDialogAction></AlertDialogFooter></AlertDialogContent>
+        <AlertDialogContent className="max-w-lg"><AlertDialogHeader><AlertDialogTitle>Fırsat tamamlanıp arşivlensin mi?</AlertDialogTitle><AlertDialogDescription><span className="block font-medium text-foreground">{pendingClose ? salesCasePartyName(pendingClose, customers.find((customer) => customer.id === pendingClose.customerId)) : "Fırsat"} · {pendingClose?.requestedModel || pendingClose?.requestedProduct}</span>Kart silinmez; “Geçmiş” görünümüne taşınır. Teklif, proforma, sözleşme ve aktiviteler korunur.</AlertDialogDescription></AlertDialogHeader>{pendingClose && <div className="rounded-lg border border-primary/10 bg-brand-blue-soft/50 p-3 text-xs"><div className="font-display text-lg font-semibold text-primary">{pendingClose.estimatedAmount.toLocaleString("tr-TR")} {pendingClose.currency}</div><div className="mt-1 text-muted-foreground">Derece: {QUALIFICATION_STAGE_LABELS[pendingClose.qualificationStage]}</div></div>}<AlertDialogFooter><AlertDialogCancel>Vazgeç</AlertDialogCancel><AlertDialogAction disabled={!!busyId} onClick={(event) => { event.preventDefault(); if (pendingClose) void onClose(pendingClose.id); }}>{busyId ? "Arşivleniyor…" : "Tamamla ve Arşivle"}</AlertDialogAction></AlertDialogFooter></AlertDialogContent>
       </AlertDialog>
     </Tabs>
   );

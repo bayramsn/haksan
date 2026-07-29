@@ -1,7 +1,15 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { and, desc, eq, ilike, inArray, isNotNull, isNull, or, sql } from 'drizzle-orm';
 import type { DbClient } from '../../db/client';
-import { opportunities, opportunityStageHistory, salesActivities, visits, calls } from '../../db/schema/crm';
+import {
+  opportunities,
+  opportunityApprovals,
+  opportunityQualificationHistory,
+  opportunityStageHistory,
+  salesActivities,
+  visits,
+  calls,
+} from '../../db/schema/crm';
 import {
   companies,
   companyAddresses,
@@ -36,6 +44,9 @@ import type { AuthContext } from '../../shared/security/auth.types';
 import type {
   OpportunityCompanyLinkInput,
   OpportunityCreateInput,
+  OpportunityApprovalDecisionInput,
+  OpportunityConvertInput,
+  OpportunityQualificationChangeInput,
   OpportunityUpdateInput,
   OpportunityStageChangeInput,
   TrelloImportCommitRequest,
@@ -46,10 +57,13 @@ import type {
 } from '@haksan/shared';
 import {
   PIPELINE_STAGES,
+  QUALIFICATION_STAGES,
   STAGE_TRANSITIONS,
   trelloImportRowSchema,
   trelloResolvedImportRowSchema,
   type PipelineStageCode,
+  type OpportunityApprovalType,
+  type QualificationStageCode,
 } from '@haksan/shared';
 import { buildPaginated, pageOffset } from '../../shared/utils/pagination';
 import { lookupIdByCode } from '../../shared/utils/lookup.helper';
@@ -90,6 +104,26 @@ type TrelloImportPreviewRow = TrelloImportRowInput & {
 
 const TRELLO_IMPORT_MAX_BYTES = 2 * 1024 * 1024;
 const TRELLO_IMPORT_MAX_ROWS = 500;
+
+const QUALIFICATION_SEQUENCE: QualificationStageCode[] = ['lead', 'c', 'b', 'a', 'a_plus', 'win'];
+const APPROVAL_LABELS: Record<OpportunityApprovalType, string> = {
+  payment: 'Ödeme onayı',
+  customs: 'Gümrük onayı',
+  invoice: 'Fatura onayı',
+  installation: 'Kurulum onayı',
+  win: 'Nihai WIN onayı',
+};
+
+type QualificationContext = {
+  company: { id: string; sector: string | null } | null;
+  hasLocation: boolean;
+  hasAddress: boolean;
+  hasPhone: boolean;
+  hasEmail: boolean;
+  hasCall: boolean;
+  hasVisit: boolean;
+  approvals: Partial<Record<OpportunityApprovalType, 'pending' | 'approved' | 'rejected'>>;
+};
 
 const TRELLO_FIELD_ALIASES: Record<string, string[]> = {
   trelloCardId: ['card id', 'card id long', 'id', 'kart id', 'kart kimligi', 'kart kimliği'],
@@ -220,6 +254,199 @@ export class OpportunitiesService {
     const row = await this.db.query.pipelineStages.findFirst({ where: eq(pipelineStages.code, code) });
     if (!row) throw new ValidationError(`Bilinmeyen aşama: ${code}`);
     return row;
+  }
+
+  private qualificationStage(value: string | null | undefined): QualificationStageCode {
+    return QUALIFICATION_STAGES.includes(value as QualificationStageCode)
+      ? (value as QualificationStageCode)
+      : 'lead';
+  }
+
+  private async qualificationContexts(rows: Array<typeof opportunities.$inferSelect>) {
+    const opportunityIds = rows.map((row) => row.id);
+    const companyIds = [...new Set(rows.map((row) => row.companyId).filter((id): id is string => Boolean(id)))];
+    if (!opportunityIds.length) return new Map<string, QualificationContext>();
+
+    const [companyRows, addressRows, phoneRows, emailRows, callRows, visitRows, approvalRows] = await Promise.all([
+      companyIds.length
+        ? this.db
+            .select({ id: companies.id, sector: companies.sector })
+            .from(companies)
+            .where(
+              and(
+                eq(companies.tenantId, rows[0].tenantId),
+                inArray(companies.id, companyIds),
+                isNull(companies.deletedAt)
+              )
+            )
+        : Promise.resolve([]),
+      companyIds.length
+        ? this.db
+            .select({
+              companyId: companyAddresses.companyId,
+              province: companyAddresses.province,
+              district: companyAddresses.district,
+              fullAddress: companyAddresses.fullAddress,
+            })
+            .from(companyAddresses)
+            .where(
+              and(
+                eq(companyAddresses.tenantId, rows[0].tenantId),
+                inArray(companyAddresses.companyId, companyIds),
+                isNull(companyAddresses.deletedAt)
+              )
+            )
+        : Promise.resolve([]),
+      companyIds.length
+        ? this.db
+            .select({ companyId: companyPhones.companyId })
+            .from(companyPhones)
+            .where(
+              and(
+                eq(companyPhones.tenantId, rows[0].tenantId),
+                inArray(companyPhones.companyId, companyIds),
+                isNull(companyPhones.deletedAt)
+              )
+            )
+        : Promise.resolve([]),
+      companyIds.length
+        ? this.db
+            .select({ companyId: companyEmails.companyId })
+            .from(companyEmails)
+            .where(
+              and(
+                eq(companyEmails.tenantId, rows[0].tenantId),
+                inArray(companyEmails.companyId, companyIds),
+                isNull(companyEmails.deletedAt)
+              )
+            )
+        : Promise.resolve([]),
+      this.db
+        .select({ opportunityId: calls.opportunityId })
+        .from(calls)
+        .where(and(eq(calls.tenantId, rows[0].tenantId), inArray(calls.opportunityId, opportunityIds), isNull(calls.deletedAt))),
+      this.db
+        .select({ opportunityId: visits.opportunityId })
+        .from(visits)
+        .where(and(eq(visits.tenantId, rows[0].tenantId), inArray(visits.opportunityId, opportunityIds), isNull(visits.deletedAt))),
+      this.db
+        .select({
+          opportunityId: opportunityApprovals.opportunityId,
+          approvalType: opportunityApprovals.approvalType,
+          status: opportunityApprovals.status,
+        })
+        .from(opportunityApprovals)
+        .where(
+          and(
+            eq(opportunityApprovals.tenantId, rows[0].tenantId),
+            inArray(opportunityApprovals.opportunityId, opportunityIds),
+            isNull(opportunityApprovals.deletedAt)
+          )
+        ),
+    ]);
+
+    const companiesById = new Map(companyRows.map((row) => [row.id, row]));
+    const addressesByCompany = new Map<string, typeof addressRows>();
+    for (const row of addressRows) {
+      const items = addressesByCompany.get(row.companyId) ?? [];
+      items.push(row);
+      addressesByCompany.set(row.companyId, items);
+    }
+    const phones = new Set(phoneRows.map((row) => row.companyId));
+    const emails = new Set(emailRows.map((row) => row.companyId));
+    const callsByOpportunity = new Set(callRows.map((row) => row.opportunityId).filter(Boolean));
+    const visitsByOpportunity = new Set(visitRows.map((row) => row.opportunityId).filter(Boolean));
+    const approvalsByOpportunity = new Map<
+      string,
+      Partial<Record<OpportunityApprovalType, 'pending' | 'approved' | 'rejected'>>
+    >();
+    for (const row of approvalRows) {
+      const approvals = approvalsByOpportunity.get(row.opportunityId) ?? {};
+      approvals[row.approvalType as OpportunityApprovalType] = row.status as 'pending' | 'approved' | 'rejected';
+      approvalsByOpportunity.set(row.opportunityId, approvals);
+    }
+
+    return new Map(
+      rows.map((row) => {
+        const companyId = row.companyId;
+        const addresses = companyId ? addressesByCompany.get(companyId) ?? [] : [];
+        return [
+          row.id,
+          {
+            company: companyId ? companiesById.get(companyId) ?? null : null,
+            hasLocation: addresses.some((address) => Boolean(address.province?.trim() && address.district?.trim())),
+            hasAddress: addresses.some((address) => Boolean(address.fullAddress?.trim())),
+            hasPhone: Boolean(companyId && phones.has(companyId)),
+            hasEmail: Boolean(companyId && emails.has(companyId)),
+            hasCall: callsByOpportunity.has(row.id),
+            hasVisit: visitsByOpportunity.has(row.id),
+            approvals: approvalsByOpportunity.get(row.id) ?? {},
+          } satisfies QualificationContext,
+        ] as const;
+      })
+    );
+  }
+
+  private qualificationReadiness(
+    row: typeof opportunities.$inferSelect,
+    context: QualificationContext
+  ) {
+    const stage = this.qualificationStage(row.qualificationStage);
+    const nextStage =
+      stage === 'lost' || stage === 'win'
+        ? null
+        : QUALIFICATION_SEQUENCE[QUALIFICATION_SEQUENCE.indexOf(stage) + 1] ?? null;
+    const checks: Array<{ key: string; label: string; complete: boolean }> = [];
+    if (stage === 'lead') {
+      checks.push(
+        { key: 'owner', label: 'Sorumlu atandı', complete: Boolean(row.ownerUserId) },
+        { key: 'subject', label: 'Konu girildi', complete: Boolean(row.title?.trim()) }
+      );
+    } else if (stage === 'c') {
+      checks.push(
+        { key: 'company', label: 'Firma bağlı', complete: Boolean(context.company) },
+        { key: 'contact', label: 'Kontak bağlı', complete: Boolean(row.primaryContactId) },
+        { key: 'location', label: 'İl ve ilçe girildi', complete: context.hasLocation },
+        { key: 'address', label: 'Açık adres girildi', complete: context.hasAddress },
+        { key: 'email', label: 'E-posta girildi', complete: context.hasEmail },
+        { key: 'sector', label: 'Sektör girildi', complete: Boolean(context.company?.sector?.trim()) },
+        { key: 'phone', label: 'Telefon girildi', complete: context.hasPhone },
+        { key: 'subject', label: 'Konu girildi', complete: Boolean(row.title?.trim()) }
+      );
+    } else if (stage === 'b') {
+      checks.push(
+        { key: 'call', label: 'Arama yapıldı', complete: context.hasCall },
+        { key: 'visit', label: 'Ziyaret yapıldı', complete: context.hasVisit },
+        { key: 'machine', label: 'İstenen makine belirlendi', complete: Boolean(row.requestedMachine?.trim()) },
+        {
+          key: 'payment_method',
+          label: 'Ödeme biçimi belirlendi',
+          complete: Boolean(row.paymentMethod && row.paymentMethod !== 'undecided'),
+        }
+      );
+    } else if (stage === 'a') {
+      checks.push(
+        { key: 'contract_terms', label: 'Sözleşme şartları girildi', complete: Boolean(row.contractTerms?.trim()) },
+        { key: 'payment_terms', label: 'Ödeme koşulları girildi', complete: Boolean(row.paymentTerms?.trim()) }
+      );
+    } else if (stage === 'a_plus') {
+      for (const approvalType of ['payment', 'customs', 'invoice', 'installation', 'win'] as OpportunityApprovalType[]) {
+        checks.push({
+          key: approvalType,
+          label: APPROVAL_LABELS[approvalType],
+          complete: context.approvals[approvalType] === 'approved',
+        });
+      }
+    }
+    const blockers = checks.filter((check) => !check.complete).map((check) => check.label);
+    return {
+      stage,
+      nextStage,
+      ready: blockers.length === 0,
+      blockers,
+      checks,
+      approvals: context.approvals,
+    };
   }
 
   private async assertCompany(companyId: string, actor: AuthContext) {
@@ -464,7 +691,14 @@ export class OpportunitiesService {
 
   async list(
     actor: AuthContext,
-    query: { search?: string; stageCode?: string; companyId?: string; view?: 'active' | 'closed' | 'all' },
+    query: {
+      search?: string;
+      stageCode?: string;
+      qualificationStage?: QualificationStageCode;
+      lifecycle?: 'lead' | 'opportunity';
+      companyId?: string;
+      view?: 'active' | 'closed' | 'all';
+    },
     page: Pagination
   ) {
     const { limit, offset } = pageOffset(page);
@@ -484,6 +718,9 @@ export class OpportunitiesService {
       );
     }
     if (query.companyId) filters.push(eq(opportunities.companyId, query.companyId));
+    if (query.qualificationStage) filters.push(eq(opportunities.qualificationStage, query.qualificationStage));
+    if (query.lifecycle === 'lead') filters.push(eq(opportunities.qualificationStage, 'lead'));
+    if (query.lifecycle === 'opportunity') filters.push(sql`${opportunities.qualificationStage} <> 'lead'`);
     if (query.stageCode) {
       const stage = await this.stageRowByCode(query.stageCode);
       filters.push(eq(opportunities.currentStageId, stage.id));
@@ -514,6 +751,7 @@ export class OpportunitiesService {
       .orderBy(desc(opportunities.createdAt))
       .limit(limit)
       .offset(offset);
+    const contexts = await this.qualificationContexts(rows.map((row) => row.opp));
     return buildPaginated(
       rows.map((r) => ({
         ...r.opp,
@@ -521,6 +759,7 @@ export class OpportunitiesService {
         stage: r.stage,
         currency: r.currency,
         source: r.source?.id ? r.source : null,
+        qualificationReadiness: this.qualificationReadiness(r.opp, contexts.get(r.opp.id)!),
       })),
       count,
       page
@@ -560,6 +799,32 @@ export class OpportunitiesService {
       .from(opportunityStageHistory)
       .where(eq(opportunityStageHistory.opportunityId, id))
       .orderBy(desc(opportunityStageHistory.createdAt));
+    const qualificationHistory = await this.db
+      .select()
+      .from(opportunityQualificationHistory)
+      .where(
+        and(
+          eq(opportunityQualificationHistory.tenantId, actor.tenantId),
+          eq(opportunityQualificationHistory.opportunityId, id)
+        )
+      )
+      .orderBy(desc(opportunityQualificationHistory.createdAt));
+    const approvalRows = await this.db
+      .select({
+        approval: opportunityApprovals,
+        decidedByUser: { id: users.id, fullName: users.fullName, email: users.email },
+      })
+      .from(opportunityApprovals)
+      .leftJoin(users, eq(opportunityApprovals.decidedBy, users.id))
+      .where(
+        and(
+          eq(opportunityApprovals.tenantId, actor.tenantId),
+          eq(opportunityApprovals.opportunityId, id),
+          isNull(opportunityApprovals.deletedAt)
+        )
+      )
+      .orderBy(opportunityApprovals.approvalType);
+    const contexts = await this.qualificationContexts([r.opp]);
     return {
       ...r.opp,
       company: r.company?.id ? r.company : null,
@@ -567,6 +832,12 @@ export class OpportunitiesService {
       currency: r.currency,
       source: r.source?.id ? r.source : null,
       history,
+      qualificationHistory,
+      approvals: approvalRows.map((approval) => ({
+        ...approval.approval,
+        decidedByUser: approval.decidedByUser?.id ? approval.decidedByUser : null,
+      })),
+      qualificationReadiness: this.qualificationReadiness(r.opp, contexts.get(r.opp.id)!),
     };
   }
 
@@ -616,6 +887,11 @@ export class OpportunitiesService {
         expectedCloseDate: input.expectedCloseDate ?? null,
         paymentTermDays: input.paymentTermDays ?? null,
         paymentMethod: input.paymentMethod ?? 'undecided',
+        qualificationStage: 'lead',
+        qualificationUpdatedAt: new Date(),
+        requestedMachine: input.requestedMachine?.trim() || null,
+        contractTerms: input.contractTerms?.trim() || null,
+        paymentTerms: input.paymentTerms?.trim() || null,
         sourceId,
         statusId: openStatus?.id ?? null,
         createdBy: actor.userId,
@@ -629,6 +905,14 @@ export class OpportunitiesService {
       toStageId: leadStage.id,
       changedBy: actor.userId,
       changeReason: 'Initial lead',
+    });
+    await this.db.insert(opportunityQualificationHistory).values({
+      tenantId: actor.tenantId,
+      opportunityId: row.id,
+      fromStage: null,
+      toStage: 'lead',
+      changedBy: actor.userId,
+      changeReason: 'Lead oluşturuldu',
     });
     await this.audit.write({
       tenantId: actor.tenantId,
@@ -1337,6 +1621,9 @@ export class OpportunitiesService {
       'expectedCloseDate',
       'paymentTermDays',
       'paymentMethod',
+      'requestedMachine',
+      'contractTerms',
+      'paymentTerms',
       'wonReason',
     ] as const) {
       if ((input as any)[k] !== undefined) patch[k] = (input as any)[k] ?? null;
@@ -1450,8 +1737,287 @@ export class OpportunitiesService {
     return opp;
   }
 
+  private async recordQualificationChange(
+    opportunityId: string,
+    tenantId: string,
+    actorUserId: string,
+    fromStage: QualificationStageCode,
+    toStage: QualificationStageCode,
+    note?: string
+  ) {
+    await this.db.insert(opportunityQualificationHistory).values({
+      tenantId,
+      opportunityId,
+      fromStage,
+      toStage,
+      changedBy: actorUserId,
+      changeReason: note?.trim() || null,
+    });
+  }
+
+  async convertLead(id: string, input: OpportunityConvertInput, actor: AuthContext) {
+    const opp = await this.findScopedOpp(id, actor);
+    if (opp.closedAt) throw new ValidationError('Arşivlenmiş lead fırsata çevrilemez');
+    const fromStage = this.qualificationStage(opp.qualificationStage);
+    if (fromStage !== 'lead') throw new ValidationError('Kayıt zaten fırsata çevrilmiş');
+    if (!opp.ownerUserId) throw new ValidationError('Fırsata çevirmeden önce sorumlu kullanıcı atanmalıdır');
+    if (!opp.title?.trim()) throw new ValidationError('Fırsata çevirmeden önce konu girilmelidir');
+    const now = new Date();
+    await this.db
+      .update(opportunities)
+      .set({
+        qualificationStage: 'c',
+        qualificationNote: input.note?.trim() || opp.qualificationNote,
+        qualificationUpdatedAt: now,
+        updatedAt: now,
+        updatedBy: actor.userId,
+      })
+      .where(eq(opportunities.id, id));
+    await this.recordQualificationChange(id, actor.tenantId, actor.userId, fromStage, 'c', input.note ?? 'Fırsata çevrildi');
+    await this.audit.write({
+      tenantId: actor.tenantId,
+      actorUserId: actor.userId,
+      action: 'opportunity.converted',
+      resourceType: 'opportunity',
+      resourceId: id,
+      oldValues: { qualificationStage: fromStage },
+      newValues: { qualificationStage: 'c' },
+    });
+    return this.get(id, actor);
+  }
+
+  private async setLostQualification(
+    opp: typeof opportunities.$inferSelect,
+    input: OpportunityQualificationChangeInput,
+    actor: AuthContext
+  ) {
+    if (!input.cancellationReasonCode) {
+      throw new ValidationError('LOST aşamasına geçerken kayıp nedeni zorunludur', {
+        field: 'cancellationReasonCode',
+      });
+    }
+    let reason = await this.db.query.cancellationReasons.findFirst({
+      where: and(
+        eq(cancellationReasons.tenantId, actor.tenantId),
+        eq(cancellationReasons.code, input.cancellationReasonCode)
+      ),
+    });
+    if (!reason) {
+      [reason] = await this.db
+        .insert(cancellationReasons)
+        .values({
+          tenantId: actor.tenantId,
+          code: input.cancellationReasonCode,
+          name: input.cancellationReasonCode,
+        })
+        .returning();
+    }
+    const lostStatus = await this.db.query.opportunityStatuses.findFirst({
+      where: eq(opportunityStatuses.code, 'lost'),
+    });
+    await this.db
+      .update(opportunities)
+      .set({
+        qualificationStage: 'lost',
+        qualificationNote: input.note?.trim() || null,
+        qualificationUpdatedAt: new Date(),
+        lostReasonId: reason.id,
+        lostCompetitorId: input.lostCompetitorId ?? null,
+        lostCompetitorProductModel: input.lostCompetitorProductModel?.trim() || null,
+        statusId: lostStatus?.id ?? opp.statusId,
+        updatedAt: new Date(),
+        updatedBy: actor.userId,
+      })
+      .where(eq(opportunities.id, opp.id));
+  }
+
+  async changeQualificationStage(
+    id: string,
+    input: OpportunityQualificationChangeInput,
+    actor: AuthContext
+  ) {
+    const opp = await this.findScopedOpp(id, actor);
+    if (opp.closedAt) throw new ValidationError('Arşivlenmiş fırsat taşınamaz; önce geri açın');
+    const fromStage = this.qualificationStage(opp.qualificationStage);
+    const toStage = input.toStage;
+    if (fromStage === toStage) return this.get(id, actor);
+    if (fromStage === 'win' || fromStage === 'lost') {
+      throw new ValidationError('WIN veya LOST kartı taşımak için önce Geçmiş ekranından geri açın');
+    }
+    if (toStage === 'lead') throw new ValidationError('Fırsat yeniden Leadler havuzuna taşınamaz');
+    if (toStage === 'c' && fromStage === 'lead') return this.convertLead(id, { note: input.note }, actor);
+
+    if (toStage === 'lost') {
+      await this.setLostQualification(opp, input, actor);
+    } else {
+      const fromIndex = QUALIFICATION_SEQUENCE.indexOf(fromStage);
+      const toIndex = QUALIFICATION_SEQUENCE.indexOf(toStage);
+      if (toIndex < 0 || fromIndex < 0) throw new ValidationError('Geçersiz satış derecesi');
+      const movingForward = toIndex > fromIndex;
+      if (movingForward && toIndex !== fromIndex + 1) {
+        throw new ValidationError('Satış dereceleri sırayla ilerletilmelidir');
+      }
+      if (!movingForward && toIndex !== fromIndex - 1) {
+        throw new ValidationError('Kart yalnızca bir önceki satış derecesine geri alınabilir');
+      }
+      if (!movingForward && !input.note?.trim()) {
+        throw new ValidationError('Geri geçişte gerekçe zorunludur', { field: 'note' });
+      }
+      if (movingForward) {
+        const contexts = await this.qualificationContexts([opp]);
+        const readiness = this.qualificationReadiness(opp, contexts.get(opp.id)!);
+        if (!readiness.ready) {
+          throw new ValidationError('Bir sonraki aşama için eksik bilgiler var', {
+            blockers: readiness.blockers,
+            fromStage,
+            toStage,
+          });
+        }
+      }
+
+      const patch: Record<string, unknown> = {
+        qualificationStage: toStage,
+        qualificationNote: input.note?.trim() || opp.qualificationNote,
+        qualificationUpdatedAt: new Date(),
+        updatedAt: new Date(),
+        updatedBy: actor.userId,
+      };
+      if (toStage === 'win') {
+        const wonStatus = await this.db.query.opportunityStatuses.findFirst({
+          where: eq(opportunityStatuses.code, 'won'),
+        });
+        if (wonStatus) patch.statusId = wonStatus.id;
+      }
+      await this.db.update(opportunities).set(patch).where(eq(opportunities.id, id));
+
+      if (!movingForward) {
+        await this.db
+          .update(opportunityApprovals)
+          .set({
+            status: 'pending',
+            decidedBy: null,
+            decidedAt: null,
+            note: null,
+            updatedAt: new Date(),
+          })
+          .where(and(eq(opportunityApprovals.opportunityId, id), isNull(opportunityApprovals.deletedAt)));
+      }
+    }
+
+    await this.recordQualificationChange(id, actor.tenantId, actor.userId, fromStage, toStage, input.note);
+    await this.audit.write({
+      tenantId: actor.tenantId,
+      actorUserId: actor.userId,
+      action: 'opportunity.qualification.changed',
+      resourceType: 'opportunity',
+      resourceId: id,
+      oldValues: { qualificationStage: fromStage },
+      newValues: { qualificationStage: toStage, note: input.note ?? null },
+    });
+    return this.get(id, actor);
+  }
+
+  private async assertApprovalEvidence(
+    opp: typeof opportunities.$inferSelect,
+    approvalType: OpportunityApprovalType,
+    actor: AuthContext
+  ) {
+    if (approvalType === 'payment') {
+      if (!opp.paymentMethod || opp.paymentMethod === 'undecided' || !opp.paymentTerms?.trim()) {
+        throw new ValidationError('Ödeme onayı için ödeme biçimi ve koşulları tamamlanmalıdır');
+      }
+      return;
+    }
+    if (approvalType === 'customs') {
+      const stage = await this.db.query.pipelineStages.findFirst({ where: eq(pipelineStages.id, opp.currentStageId) });
+      const currentIndex = PIPELINE_STAGES.indexOf((stage?.code ?? 'lead') as PipelineStageCode);
+      if (currentIndex < PIPELINE_STAGES.indexOf('customs_approved')) {
+        throw new ValidationError('Gümrük onayı için operasyon aşaması Gümrük Onayı veya sonrasında olmalıdır');
+      }
+      return;
+    }
+    if (approvalType === 'invoice') {
+      const [row] = await this.db
+        .select({ count: sql<number>`count(*)::int` })
+        .from(commercialInvoices)
+        .innerJoin(quotes, eq(commercialInvoices.quoteId, quotes.id))
+        .where(and(eq(quotes.tenantId, actor.tenantId), eq(quotes.opportunityId, opp.id)));
+      if (!row?.count) throw new ValidationError('Fatura onayı için satış kartına bağlı ticari fatura gereklidir');
+      return;
+    }
+    if (approvalType === 'installation') {
+      const [row] = await this.db
+        .select({ count: sql<number>`count(*)::int` })
+        .from(installationJobs)
+        .where(
+          and(
+            eq(installationJobs.tenantId, actor.tenantId),
+            eq(installationJobs.opportunityId, opp.id),
+            isNotNull(installationJobs.completedAt),
+            isNull(installationJobs.deletedAt)
+          )
+        );
+      if (!row?.count) throw new ValidationError('Kurulum onayı için tamamlanmış kurulum kaydı gereklidir');
+      return;
+    }
+    const contexts = await this.qualificationContexts([opp]);
+    const approvals = contexts.get(opp.id)!.approvals;
+    const blockers = (['payment', 'customs', 'invoice', 'installation'] as OpportunityApprovalType[])
+      .filter((type) => approvals[type] !== 'approved')
+      .map((type) => APPROVAL_LABELS[type]);
+    if (blockers.length) {
+      throw new ValidationError('Nihai WIN onayı için önce operasyon onayları tamamlanmalıdır', { blockers });
+    }
+  }
+
+  async decideQualificationApproval(
+    id: string,
+    approvalType: OpportunityApprovalType,
+    input: OpportunityApprovalDecisionInput,
+    actor: AuthContext
+  ) {
+    const opp = await this.findScopedOpp(id, actor);
+    if (this.qualificationStage(opp.qualificationStage) !== 'a_plus') {
+      throw new ValidationError('Onaylar yalnız A+ aşamasındaki fırsatlar için verilebilir');
+    }
+    if (input.decision === 'approved') await this.assertApprovalEvidence(opp, approvalType, actor);
+    const now = new Date();
+    await this.db
+      .insert(opportunityApprovals)
+      .values({
+        tenantId: actor.tenantId,
+        opportunityId: id,
+        approvalType,
+        status: input.decision,
+        decidedBy: actor.userId,
+        decidedAt: now,
+        note: input.note?.trim() || null,
+      })
+      .onConflictDoUpdate({
+        target: [opportunityApprovals.opportunityId, opportunityApprovals.approvalType],
+        set: {
+          status: input.decision,
+          decidedBy: actor.userId,
+          decidedAt: now,
+          note: input.note?.trim() || null,
+          deletedAt: null,
+          updatedAt: now,
+        },
+      });
+    await this.audit.write({
+      tenantId: actor.tenantId,
+      actorUserId: actor.userId,
+      action: input.decision === 'approved' ? 'opportunity.approval.approved' : 'opportunity.approval.rejected',
+      resourceType: 'opportunity',
+      resourceId: id,
+      newValues: { approvalType, decision: input.decision, note: input.note ?? null },
+    });
+    return this.get(id, actor);
+  }
+
   /**
-   * Mantıksal kapanış ("Bitir"): terminal aşamadaki (delivered/cancelled) fırsatı arşivler.
+   * Mantıksal kapanış ("Bitir"): WIN/LOST veya eski terminal operasyon aşamasındaki
+   * fırsatı arşivler.
    * SİLMEZ — `closedAt` set edilir; aktif panodan düşer ama rapor/geçmiş/servis erişimi için
    * DB'de kalır (krş. `deletedAt`). delivered ise servise devir (customer_devices) idempotent
    * olarak garanti edilir. Yanlış kapanış `reopen` ile geri alınır.
@@ -1460,10 +2026,13 @@ export class OpportunitiesService {
     const opp = await this.findScopedOpp(id, actor);
     if (opp.closedAt) throw new ValidationError('Fırsat zaten kapatılmış');
     const stage = await this.db.query.pipelineStages.findFirst({ where: eq(pipelineStages.id, opp.currentStageId) });
-    if (!stage || (stage.code !== 'delivered' && stage.code !== 'cancelled')) {
-      throw new ValidationError('Yalnız teslim edilen veya iptal edilen fırsatlar kapatılabilir');
+    const qualificationStage = this.qualificationStage(opp.qualificationStage);
+    const qualificationTerminal = qualificationStage === 'win' || qualificationStage === 'lost';
+    const legacyTerminal = stage?.code === 'delivered' || stage?.code === 'cancelled';
+    if (!qualificationTerminal && !legacyTerminal) {
+      throw new ValidationError('Yalnız WIN veya LOST durumundaki fırsatlar kapatılabilir');
     }
-    if (stage.code === 'delivered') {
+    if (qualificationStage === 'win' || stage?.code === 'delivered') {
       // Cihaz/garanti kayıtları teslim aşamasında oluşmuş olmalı; oluşmadıysa (stok yok vb.)
       // kapanışı bloke etme — kurulu cihaz envanteri ayrıca düzeltilebilir.
       try {
@@ -1480,7 +2049,7 @@ export class OpportunitiesService {
       action: 'opportunity.closed',
       resourceType: 'opportunity',
       resourceId: id,
-      oldValues: { stage: stage.code },
+      oldValues: { stage: stage?.code ?? null, qualificationStage },
       newValues: { closedAt: now, reason: reason ?? null },
     });
     return this.get(id, actor);

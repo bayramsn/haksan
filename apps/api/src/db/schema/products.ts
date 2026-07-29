@@ -168,6 +168,9 @@ export const productSpecTemplates = pgTable(
     divisionId: uuid('division_id').references(() => divisions.id, { onDelete: 'set null' }),
     sortOrder: integer('sort_order').notNull().default(0),
     isActive: boolean('is_active').notNull().default(true),
+    // Katalogdaki varsayılan alanlar koddan yeniden üretildiği için fiziksel silme
+    // yerine tombstone tutulur; böylece yönetici tarafından silinen alan geri gelmez.
+    isDeleted: boolean('is_deleted').notNull().default(false),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true })
       .notNull()

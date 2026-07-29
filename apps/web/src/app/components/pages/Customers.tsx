@@ -6,10 +6,10 @@ import { Button } from "../ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../ui/table";
 import {
   Search, MoreHorizontal, Eye, Pencil, Phone, Mail, MapPin, Building2, User as UserIcon, ArrowUpDown, Trash2,
-  Handshake, Factory,
+  Handshake, Factory, TrendingUp,
 } from "lucide-react";
 import { toast } from "sonner";
-import { EditCustomerDialog } from "../dialogs/CreateDialogs";
+import { CreateCaseDialog, EditCustomerDialog } from "../dialogs/CreateDialogs";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
@@ -325,6 +325,22 @@ export function CustomersPage(_props: { onSelect?: (c: Customer) => void } = {})
                           ))}
                         </div>
                       </div>
+                      <CreateCaseDialog
+                        defaultCustomerId={c.id}
+                        createAsOpportunity
+                        trigger={
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="size-7 shrink-0 text-primary"
+                            aria-label={`${c.name} için fırsat oluştur`}
+                            title="Fırsat oluştur"
+                            onClick={(event) => event.stopPropagation()}
+                          >
+                            <TrendingUp className="size-4" />
+                          </Button>
+                        }
+                      />
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
                           <Button
@@ -461,6 +477,23 @@ export function CustomersPage(_props: { onSelect?: (c: Customer) => void } = {})
                     </div>
                   </TableCell>
                   <TableCell className="text-right">
+                    <div className="flex items-center justify-end gap-1">
+                    <CreateCaseDialog
+                      defaultCustomerId={c.id}
+                      createAsOpportunity
+                      trigger={
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="size-8 text-primary"
+                          aria-label={`${c.name} için fırsat oluştur`}
+                          title="Fırsat oluştur"
+                          onClick={(event) => event.stopPropagation()}
+                        >
+                          <TrendingUp className="size-4" />
+                        </Button>
+                      }
+                    />
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
                         <Button
@@ -483,6 +516,7 @@ export function CustomersPage(_props: { onSelect?: (c: Customer) => void } = {})
                         </DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
+                    </div>
                   </TableCell>
                 </TableRow>
               ))}

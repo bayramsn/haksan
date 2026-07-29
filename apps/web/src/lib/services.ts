@@ -41,7 +41,11 @@ import type {
   NoteTemplateCreateInput,
   NoteTemplateUpdateInput,
   OpportunityCreateInput,
+  OpportunityApprovalDecisionInput,
+  OpportunityApprovalType,
   OpportunityCompanyLinkInput,
+  OpportunityConvertInput,
+  OpportunityQualificationChangeInput,
   OpportunityStageChangeInput,
   OpportunityUpdateInput,
   TrelloImportCommitRequest,
@@ -444,6 +448,12 @@ export const opportunityService = {
   update: (id: string, body: OpportunityUpdateInput) => api.patch<any>(`/opportunities/${id}`, body),
   linkCompany: (id: string, body: OpportunityCompanyLinkInput) =>
     api.post<any>(`/opportunities/${id}/company`, body),
+  convert: (id: string, body: OpportunityConvertInput = {}) =>
+    api.post<any>(`/opportunities/${id}/convert`, body),
+  changeQualificationStage: (id: string, body: OpportunityQualificationChangeInput) =>
+    api.patch<any>(`/opportunities/${id}/qualification-stage`, body),
+  decideApproval: (id: string, type: OpportunityApprovalType, body: OpportunityApprovalDecisionInput) =>
+    api.post<any>(`/opportunities/${id}/approvals/${type}`, body),
   remove: (id: string) => api.delete(`/opportunities/${id}`),
   changeStage: (id: string, body: OpportunityStageChangeInput) => api.patch<any>(`/opportunities/${id}/stage`, body),
   // Mantıksal kapanış (Bitir/Arşiv) — silmez; closedAt set eder. Yalnız terminal (delivered/cancelled).

@@ -603,6 +603,27 @@
       "when": 1787337600000,
       "tag": "0086_lead_temperature_contact",
       "breakpoints": true
+    },
+    {
+      "idx": 87,
+      "version": "7",
+      "when": 1787424000000,
+      "tag": "0087_opportunity_qualification_pipeline",
+      "breakpoints": true
+    },
+    {
+      "idx": 88,
+      "version": "7",
+      "when": 1787510400000,
+      "tag": "0088_restrict_sales_opportunity_approvals",
+      "breakpoints": true
+    },
+    {
+      "idx": 89,
+      "version": "7",
+      "when": 1787596800000,
+      "tag": "0089_product_spec_template_soft_delete",
+      "breakpoints": true
     }
   ]
 }

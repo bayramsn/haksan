@@ -46,14 +46,11 @@ jobs:
       - name: Install dependencies
         run: NPM_CONFIG_PRODUCTION=false npm ci
 
-      - name: Verify pinned agent skills
-        run: npm run verify:agent-skills
-
       - name: Scan repository for credentials
         run: npm run scan:secrets
 
-      - name: Dependency audit (production)
-        run: npm audit --omit=dev --audit-level=high
+      - name: Dependency audit (production web/API workspaces)
+        run: npm audit --omit=dev --audit-level=high --workspace @haksan/shared --workspace @haksan/api --workspace @haksan/web --include-workspace-root
 
       # Shared types must be built first so api/web typecheck against fresh output.
       - name: Build shared

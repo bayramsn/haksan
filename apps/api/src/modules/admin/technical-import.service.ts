@@ -371,6 +371,7 @@ export class TechnicalImportService {
           specUnit: row.targetUnit || row.sourceUnit || null,
           sortOrder: index,
           isActive: true,
+          isDeleted: false,
         };
         if (existing) {
           await tx.update(productSpecTemplates).set(values).where(eq(productSpecTemplates.id, existing.id));

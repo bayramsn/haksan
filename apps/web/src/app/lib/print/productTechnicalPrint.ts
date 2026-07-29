@@ -60,7 +60,8 @@ export const productTechnicalDoc = (
   const specs = (product.specs ?? []).filter((spec) => spec.key?.trim() && spec.value?.trim());
   const specPages = chunk(specs, 25);
   const standardEquipment = (input.standardEquipment ?? product.standardEquipment ?? []).filter(Boolean);
-  const optionalEquipment = (input.optionalEquipment ?? (product.optionalEquipment ?? []).map((title) => ({ title })))
+  const optionalEquipment: Array<{ title: string; description?: string | null }> =
+    (input.optionalEquipment ?? (product.optionalEquipment ?? []).map((title) => ({ title })))
     .filter((item) => item.title?.trim());
   const hasEquipmentPage = standardEquipment.length > 0 || optionalEquipment.length > 0;
   const totalPages = 1 + specPages.length + Number(hasEquipmentPage);

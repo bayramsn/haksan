@@ -1,12 +1,19 @@
 import { z } from 'zod';
 import { moneySchema } from './common';
-import { PIPELINE_STAGES } from '../constants';
+import {
+  OPPORTUNITY_APPROVAL_STATUSES,
+  OPPORTUNITY_APPROVAL_TYPES,
+  PIPELINE_STAGES,
+  QUALIFICATION_STAGES,
+} from '../constants';
 
 export const pipelineStageEnum = z.enum(PIPELINE_STAGES);
 
 export const opportunityPaymentMethodEnum = z.enum([
   'undecided',
   'cash',
+  'wire_transfer',
+  'promissory_note',
   'term',
   'installment',
   'leasing',
@@ -44,6 +51,10 @@ const opportunityInputSchema = z.object({
   paymentTermDays: z.coerce.number().int().min(0).max(3650).nullish(),
   // Lead kartında seçilen ticari ödeme yöntemi.
   paymentMethod: opportunityPaymentMethodEnum.nullish(),
+  // Yeni C/B/A satış derecelendirmesinde ayrı takip edilen ticari alanlar.
+  requestedMachine: z.string().trim().max(255).nullish(),
+  contractTerms: z.string().trim().max(4000).nullish(),
+  paymentTerms: z.string().trim().max(4000).nullish(),
   // Kazanılan fırsat için kabul/kazanma nedeni (yıl sonu raporu).
   wonReason: z.string().max(255).nullish(),
 });
@@ -153,6 +164,32 @@ export type TrelloImportCommitRequest = z.infer<typeof trelloImportCommitRequest
 
 export const opportunityUpdateSchema = opportunityInputSchema.partial();
 export type OpportunityUpdateInput = z.infer<typeof opportunityUpdateSchema>;
+
+export const opportunityQualificationStageEnum = z.enum(QUALIFICATION_STAGES);
+export type OpportunityQualificationStage = z.infer<typeof opportunityQualificationStageEnum>;
+
+export const opportunityConvertSchema = z.object({
+  note: z.string().trim().max(1000).optional(),
+});
+export type OpportunityConvertInput = z.infer<typeof opportunityConvertSchema>;
+
+export const opportunityQualificationChangeSchema = z.object({
+  toStage: opportunityQualificationStageEnum,
+  note: z.string().trim().max(1000).optional(),
+  cancellationReasonCode: z.string().trim().max(64).optional(),
+  lostCompetitorId: z.string().uuid().optional(),
+  lostCompetitorProductModel: z.string().trim().max(255).optional(),
+});
+export type OpportunityQualificationChangeInput = z.infer<typeof opportunityQualificationChangeSchema>;
+
+export const opportunityApprovalTypeEnum = z.enum(OPPORTUNITY_APPROVAL_TYPES);
+export const opportunityApprovalStatusEnum = z.enum(OPPORTUNITY_APPROVAL_STATUSES);
+
+export const opportunityApprovalDecisionSchema = z.object({
+  decision: z.enum(['approved', 'rejected']),
+  note: z.string().trim().max(1000).optional(),
+});
+export type OpportunityApprovalDecisionInput = z.infer<typeof opportunityApprovalDecisionSchema>;
 
 export const opportunityCompanyLinkSchema = z.object({
   companyId: z.string().uuid(),

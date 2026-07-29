@@ -60,6 +60,7 @@ export const productSpecTemplateCreateSchema = z.object({
   divisionId: z.string().uuid().nullish(),
   sortOrder: z.coerce.number().int().default(0),
   isActive: z.boolean().default(true),
+  isDeleted: z.boolean().default(false),
 });
 export type ProductSpecTemplateCreateInput = z.infer<typeof productSpecTemplateCreateSchema>;
 

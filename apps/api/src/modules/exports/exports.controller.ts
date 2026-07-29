@@ -63,7 +63,7 @@ export class ExportsController {
     @Res({ passthrough: true }) reply: FastifyReply
   ) {
     const rows = await this.svc.exportOpportunities(user, q);
-    return sendXlsx(reply, await rowsToXlsxBuffer(rows, 'Satış Kartları'), 'satis-kartlari.xlsx');
+    return sendXlsx(reply, await rowsToXlsxBuffer(rows, 'Fırsatlar'), 'firsatlar.xlsx');
   }
 
   @RequirePermissions('reports.export', 'quotes.read')

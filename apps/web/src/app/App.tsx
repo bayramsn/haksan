@@ -9,6 +9,7 @@ import { CustomersPage } from "./components/pages/Customers";
 import { ContactsPage } from "./components/pages/Contacts";
 import { CustomerDetailPage } from "./components/pages/CustomerDetail";
 import { SalesCasesPage } from "./components/pages/SalesCases";
+import { LeadsPage } from "./components/pages/LeadsPage";
 import { SalesCaseDetailDialog } from "./components/pages/SalesCaseDetail";
 // Harita (leaflet) ve büyük modüller ilk yükte gerekmediklerinden route bazlı lazy sınıra taşınır.
 const SalesMapPage = lazy(() => import("./components/pages/SalesMap").then((m) => ({ default: m.SalesMapPage })));
@@ -50,15 +51,16 @@ import { PageShell } from "./components/shared/PageShell";
 import { PageLoadingSkeleton } from "./components/shared/PageLoadingSkeleton";
 import type { OperationAction, OperationFocus } from "./lib/operations";
 
-const TITLES: Record<NavKey, { title: string; subtitle?: string }> = {
+const TITLES: Partial<Record<NavKey, { title: string; subtitle?: string }>> = {
   dashboard: { title: "Gösterge Paneli", subtitle: "Genel performans ve KPI özeti" },
   chat: { title: "Sohbet", subtitle: "Çalışanlarla özel ve grup mesajlaşma" },
   calendar: { title: "Takvim", subtitle: "Kişisel planlar, toplantılar ve müşteri ziyaretleri" },
   "call-assistant": { title: "Çağrı Asistanı", subtitle: "Gelen aramalardan teklif, servis ve görüşme kaydı önerileri" },
   customers: { title: "Firmalar", subtitle: "Müşteri, tedarikçi+müşteri ve tedarikçi kayıtları" },
   contacts: { title: "Kontaklar", subtitle: "Firmalara bağlı kişiler" },
-  "sales-cases": { title: "Satış Kartları", subtitle: "Tüm satış fırsatları" },
-  kanban: { title: "Satış Kartları", subtitle: "Kanban görünümü" },
+  leads: { title: "Leadler", subtitle: "Tüm kanallardan gelen satış sinyalleri" },
+  "sales-cases": { title: "Fırsatlar", subtitle: "C / B / A / A+ satış akışı" },
+  kanban: { title: "Fırsatlar", subtitle: "C / B / A / A+ satış akışı" },
   "sales-map": { title: "Firma Haritası", subtitle: "Yakındaki firmaları haritada görün" },
   offers: { title: "Teklifler", subtitle: "Hazırlanmış ve gönderilmiş teklifler" },
   proformas: { title: "Proformalar", subtitle: "Satış proforma dokümanları ve PDF çıktıları" },
@@ -222,13 +224,17 @@ function AppShell() {
         ) : null;
         content = <ContactsPage />;
         break;
+      case "leads":
+        content = <LeadsPage onSelect={(lead) => setSelectedCaseId(lead.id)} />;
+        break;
       case "sales-cases":
         actions = canCreate("opportunities.create") ? (
           <CreateCaseDialog
-            trigger={<Button className="gap-1"><Plus className="size-4" /> Yeni Satış Kartı</Button>}
+            trigger={<Button className="gap-1"><Plus className="size-4" /> Yeni Fırsat</Button>}
+            createAsOpportunity
           />
         ) : null;
-        content = <SalesCasesPage onSelect={(s) => setSelectedCaseId(s.id)} focus={focus?.nav === "sales-cases" ? focus.focus : undefined} onAction={runOperationAction} />;
+        content = <SalesCasesPage onSelect={(s) => setSelectedCaseId(s.id)} initialView="kanban" focus={focus?.nav === "sales-cases" ? focus.focus : undefined} onAction={runOperationAction} />;
         break;
       case "kanban":
         actions = canCreate("opportunities.create") ? (
@@ -280,7 +286,7 @@ function AppShell() {
     }
   }
 
-  const t = titleOverride ?? TITLES[currentNav] ?? TITLES[DEFAULT_NAV];
+  const t = titleOverride ?? TITLES[currentNav] ?? TITLES[DEFAULT_NAV]!;
 
   return (
     <VoiceCallProvider>

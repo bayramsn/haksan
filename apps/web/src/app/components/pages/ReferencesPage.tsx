@@ -19,7 +19,7 @@ const formatDate = (value?: string) => {
 };
 
 export function ReferencesPage() {
-  const { products } = useStore();
+  const { products, machines, customers, closedCases } = useStore();
   const [q, setQ] = useState("");
   const [view, setView] = usePersistentState<ListView>("references.view", "cards");
 
@@ -27,8 +27,7 @@ export function ReferencesPage() {
     const imageByModel = new Map(
       products.map((product) => [product.model.toLocaleLowerCase("tr-TR"), product.imageUrl]),
     );
-    // Kaynak PDF ile birebir aynı sıra: sıra no (1 → 200, teslim tarihine göre artan).
-    return [...cncReferences]
+    const catalogRows = [...cncReferences]
       .map((entry) => ({
         id: `ref-${entry.no}`,
         no: entry.no,
@@ -42,7 +41,35 @@ export function ReferencesPage() {
         deliveryDate: entry.deliveryDate,
       }))
       .sort((a, b) => a.no - b.no);
-  }, [products]);
+
+    const nextNo = catalogRows.reduce((max, row) => Math.max(max, row.no), 0);
+    const wonOpportunityIds = new Set(
+      closedCases
+        .filter((salesCase) => salesCase.qualificationStage === "win")
+        .map((salesCase) => salesCase.id),
+    );
+    const liveRows = machines
+      .filter((machine) => wonOpportunityIds.has(machine.salesCaseId))
+      .map((machine, index) => {
+        const company = customers.find(
+          (item) => item.id === (machine.initialCustomerId || machine.customerId),
+        );
+        return {
+          id: `device-${machine.id}`,
+          no: nextNo + index + 1,
+          firm: company?.name || "—",
+          contact: company?.contactPerson || "—",
+          district: company?.district || "—",
+          city: company?.city || "—",
+          brand: machine.brand || "—",
+          model: machine.model || "—",
+          imageUrl: imageByModel.get(machine.model.toLocaleLowerCase("tr-TR")),
+          deliveryDate: machine.deliveryDate || machine.installationDate,
+        };
+      });
+
+    return [...catalogRows, ...liveRows];
+  }, [closedCases, customers, machines, products]);
 
   const filtered = rows.filter((row) => {
     const needle = q.toLocaleLowerCase("tr-TR");

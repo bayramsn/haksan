@@ -58,6 +58,8 @@ import {
   User,
   Shipment,
   Delivery,
+  QualificationStage,
+  OpportunityApprovalType,
 } from './mock';
 import { productSpecGroupForTypeKey, specsForProductTypeStrict } from './productSpecTemplates';
 import { isServiceQuoteComplete, serviceQuoteMissingFields } from './serviceQuote';
@@ -459,8 +461,24 @@ type Store = {
   addCustomer: (c: Omit<Customer, 'id' | 'createdAt' | 'status'> & { status?: 'active' | 'passive' }) => Promise<Customer>;
   updateCustomer: (id: string, patch: Partial<Omit<Customer, 'id' | 'createdAt'>>) => Promise<void>;
   deleteCustomer: (id: string) => Promise<void>;
-  addCase: (c: Omit<SalesCase, 'id' | 'createdAt' | 'stage' | 'isLost' | 'isOfferPrepared'> & { stage?: SalesStage; divisionId?: string }) => Promise<SalesCase>;
-  updateCase: (id: string, patch: { assignedUserId?: string; paymentTermDays?: number | null; paymentMethod?: SalesCase['paymentMethod']; leadTemperature?: SalesCase['leadTemperature'] }) => Promise<void>;
+  addCase: (
+    c: Omit<
+      SalesCase,
+      'id' | 'createdAt' | 'stage' | 'qualificationStage' | 'qualificationNote' | 'qualificationReadiness' | 'isLost' | 'isOfferPrepared'
+    > & { stage?: SalesStage; divisionId?: string }
+  ) => Promise<SalesCase>;
+  updateCase: (
+    id: string,
+    patch: {
+      assignedUserId?: string;
+      paymentTermDays?: number | null;
+      paymentMethod?: SalesCase['paymentMethod'];
+      leadTemperature?: SalesCase['leadTemperature'];
+      requestedMachine?: string | null;
+      contractTerms?: string | null;
+      paymentTerms?: string | null;
+    }
+  ) => Promise<void>;
   deleteCase: (id: string) => Promise<void>;
   addOffer: (o: Omit<Offer, 'id' | 'date' | 'revision'> & { revision?: number }) => Promise<Offer>;
   createQuoteFull: (payload: CreateQuotePayload) => Promise<{ quoteId: string; documentNo: string; opportunityId: string }>;
@@ -483,6 +501,23 @@ type Store = {
   updateDeliveryStatus: (id: string, status: Delivery['status']) => Promise<void>;
   deleteDelivery: (id: string) => Promise<void>;
   moveCase: (id: string, to: SalesStage, options?: { inventoryItemIds?: string[]; changeReason?: string }) => Promise<void>;
+  convertCase: (id: string, note?: string) => Promise<void>;
+  moveQualification: (
+    id: string,
+    to: QualificationStage,
+    options?: {
+      note?: string;
+      cancellationReasonCode?: string;
+      lostCompetitorId?: string;
+      lostCompetitorProductModel?: string;
+    }
+  ) => Promise<void>;
+  decideCaseApproval: (
+    id: string,
+    type: OpportunityApprovalType,
+    decision: 'approved' | 'rejected',
+    note?: string
+  ) => Promise<void>;
   // Mantıksal kapanış (Bitir) ve geri alma (Geri Aç) — silmez, closedAt set/sıfırlar.
   closeCase: (id: string, reason?: string) => Promise<void>;
   reopenCase: (id: string) => Promise<void>;
@@ -739,10 +774,16 @@ function StoreInner({ children }: { children: ReactNode }) {
           estimatedAmount: Number(o.estimatedValue ?? 0),
           currency: (o.currency?.code as 'USD' | 'EUR' | 'TRY') ?? 'USD',
           stage: STAGE_BY_CODE[o.stage?.code ?? ''] ?? 'lead',
+          qualificationStage: (o.qualificationStage ?? 'lead') as QualificationStage,
+          qualificationNote: o.qualificationNote ?? undefined,
+          qualificationReadiness: o.qualificationReadiness ?? undefined,
+          requestedMachine: o.requestedMachine ?? undefined,
+          contractTerms: o.contractTerms ?? undefined,
+          paymentTerms: o.paymentTerms ?? undefined,
           paymentTermDays: o.paymentTermDays === null || o.paymentTermDays === undefined ? undefined : Number(o.paymentTermDays),
           paymentMethod: o.paymentMethod ?? 'undecided',
           isOfferPrepared: qts.data.some((q: any) => q.opportunityId === o.id),
-          isLost: (o.stage?.code ?? '') === 'cancelled',
+          isLost: (o.qualificationStage ?? '') === 'lost' || (o.stage?.code ?? '') === 'cancelled',
           createdAt: (o.createdAt as string)?.slice(0, 10) ?? '',
           closedAt: o.closedAt ? (o.closedAt as string).slice(0, 10) : undefined,
         }) as SalesCase;
@@ -1542,6 +1583,10 @@ function StoreInner({ children }: { children: ReactNode }) {
       currencyCode: c.currency,
       probability: 50,
       paymentTermDays: c.paymentTermDays ?? undefined,
+      paymentMethod: c.paymentMethod ?? undefined,
+      requestedMachine: c.requestedMachine ?? c.requestedModel ?? undefined,
+      contractTerms: c.contractTerms ?? undefined,
+      paymentTerms: c.paymentTerms ?? undefined,
       divisionId: c.divisionId || undefined,
     });
     const targetStage = c.stage ?? 'lead';
@@ -1556,6 +1601,7 @@ function StoreInner({ children }: { children: ReactNode }) {
       id: created.id,
       ...c,
       stage: targetStage,
+      qualificationStage: 'lead',
       isLost: false,
       isOfferPrepared: false,
       createdAt: new Date().toISOString().slice(0, 10),
@@ -1568,6 +1614,9 @@ function StoreInner({ children }: { children: ReactNode }) {
     if (patch.paymentTermDays !== undefined) body.paymentTermDays = patch.paymentTermDays ?? null;
     if (patch.paymentMethod !== undefined) body.paymentMethod = patch.paymentMethod;
     if (patch.leadTemperature !== undefined) body.leadTemperature = patch.leadTemperature;
+    if (patch.requestedMachine !== undefined) body.requestedMachine = patch.requestedMachine;
+    if (patch.contractTerms !== undefined) body.contractTerms = patch.contractTerms;
+    if (patch.paymentTerms !== undefined) body.paymentTerms = patch.paymentTerms;
     await opportunityService.update(id, body);
     await fetchAll();
   };
@@ -1594,6 +1643,30 @@ function StoreInner({ children }: { children: ReactNode }) {
     await fetchAll();
   };
 
+  const convertCase: Store['convertCase'] = async (id, note) => {
+    await opportunityService.convert(id, note?.trim() ? { note: note.trim() } : {});
+    await fetchAll();
+  };
+
+  const moveQualification: Store['moveQualification'] = async (id, to, options) => {
+    await opportunityService.changeQualificationStage(id, {
+      toStage: to,
+      note: options?.note?.trim() || undefined,
+      cancellationReasonCode: options?.cancellationReasonCode,
+      lostCompetitorId: options?.lostCompetitorId,
+      lostCompetitorProductModel: options?.lostCompetitorProductModel,
+    });
+    await fetchAll();
+  };
+
+  const decideCaseApproval: Store['decideCaseApproval'] = async (id, type, decision, note) => {
+    await opportunityService.decideApproval(id, type, {
+      decision,
+      note: note?.trim() || undefined,
+    });
+    await fetchAll();
+  };
+
   // Mantıksal kapanış (Bitir): terminal kartı arşivler — silmez. Backend closedAt set eder,
   // kart aktif listeden düşer (view=active), Geçmiş'te görünür. delivered ise servise devir korunur.
   const closeCase: Store['closeCase'] = async (id, reason) => {
@@ -1610,8 +1683,8 @@ function StoreInner({ children }: { children: ReactNode }) {
   // Fırsatı "Kaybedildi" (cancelled) olarak işaretler; gerçek ret nedeni ve
   // (varsa) tercih edilen rakip bilgisini backend'e geçirir.
   const markCaseLost: Store['markCaseLost'] = async (id, payload) => {
-    await opportunityService.changeStage(id, {
-      toStage: 'cancelled',
+    await opportunityService.changeQualificationStage(id, {
+      toStage: 'lost',
       cancellationReasonCode: payload.reasonCode,
       lostCompetitorId: payload.competitorId || undefined,
       lostCompetitorProductModel: payload.competitorProductModel || undefined,
@@ -2425,6 +2498,9 @@ function StoreInner({ children }: { children: ReactNode }) {
       updateDeliveryStatus,
       deleteDelivery,
       moveCase,
+      convertCase,
+      moveQualification,
+      decideCaseApproval,
       closeCase,
       reopenCase,
       markCaseLost,

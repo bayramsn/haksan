@@ -197,9 +197,28 @@ export const SALES_STAGE_LABELS: Record<SalesStage, string> = {
 
 export const salesStageLabel = (stage: string) => SALES_STAGE_LABELS[stage as SalesStage] ?? stage;
 
+export type QualificationStage = "lead" | "c" | "b" | "a" | "a_plus" | "win" | "lost";
+
+export const QUALIFICATION_STAGES: QualificationStage[] = ["c", "b", "a", "a_plus", "win", "lost"];
+
+export const QUALIFICATION_STAGE_LABELS: Record<QualificationStage, string> = {
+  lead: "Lead",
+  c: "C",
+  b: "B",
+  a: "A",
+  a_plus: "A+",
+  win: "WIN",
+  lost: "LOST",
+};
+
+export type OpportunityApprovalType = "payment" | "customs" | "invoice" | "installation" | "win";
+export type OpportunityApprovalStatus = "pending" | "approved" | "rejected";
+
 export type OpportunityPaymentMethod =
   | "undecided"
   | "cash"
+  | "wire_transfer"
+  | "promissory_note"
   | "term"
   | "installment"
   | "leasing"
@@ -209,11 +228,13 @@ export type OpportunityPaymentMethod =
 export const OPPORTUNITY_PAYMENT_METHOD_LABELS: Record<OpportunityPaymentMethod, string> = {
   undecided: "Belirlenecek",
   cash: "Peşin",
+  wire_transfer: "Havale",
+  promissory_note: "Senet",
   term: "Vadeli",
   installment: "Taksitli",
   leasing: "Leasing",
   letter_of_credit: "Akreditif",
-  cheque: "Çek / Senet",
+  cheque: "Çek",
 };
 
 /** Lead sıcaklığı — firmanın alım niyeti. */
@@ -285,6 +306,19 @@ export type SalesCase = {
   estimatedAmount: number;
   currency: "USD" | "EUR" | "TRY";
   stage: SalesStage;
+  qualificationStage: QualificationStage;
+  qualificationNote?: string;
+  requestedMachine?: string;
+  contractTerms?: string;
+  paymentTerms?: string;
+  qualificationReadiness?: {
+    stage: QualificationStage;
+    nextStage: QualificationStage | null;
+    ready: boolean;
+    blockers: string[];
+    checks: Array<{ key: string; label: string; complete: boolean }>;
+    approvals: Partial<Record<OpportunityApprovalType, OpportunityApprovalStatus>>;
+  };
   /** Makine satışında ödeme vadesi (gün); sözleşme/ödeme planı varsayılanı. */
   paymentTermDays?: number;
   /** Lead aşamasında seçilen ticari ödeme yöntemi. */

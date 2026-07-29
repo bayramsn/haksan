@@ -42,6 +42,13 @@ import {
 import { Badge } from "../../ui/badge";
 import { Button } from "../../ui/button";
 import { Input } from "../../ui/input";
+import {
+  Sheet as SideSheet,
+  SheetContent as SideSheetContent,
+  SheetDescription as SideSheetDescription,
+  SheetHeader as SideSheetHeader,
+  SheetTitle as SideSheetTitle,
+} from "../../ui/sheet";
 import { Switch } from "../../ui/switch";
 import { cn } from "../../ui/utils";
 
@@ -68,6 +75,7 @@ type SpecTemplateRow = {
   divisionId?: string | null;
   sortOrder?: number;
   isActive?: boolean;
+  isDeleted?: boolean;
   updatedAt?: string;
 };
 
@@ -80,6 +88,7 @@ type DraftRow = {
   defaultValue: string;
   unit: string;
   isActive: boolean;
+  isDeleted: boolean;
   catalogOnly: boolean;
   /**
    * Alan, makine tipinin katalog şablonunda tanımlı mı. Katalog alanları silinse
@@ -134,7 +143,14 @@ const localDraftKey = (typeCode: string) => `haksan:technical-workbook:${canonic
 
 function buildDraftRows(typeCode: string, specRows: SpecTemplateRow[]): DraftRow[] {
   const dbRows = specRows.filter((row) => sameType(row.productTypeCode, typeCode));
-  const dbByKey = new Map(dbRows.map((row) => [normalizeProductSpecKey(row.specKey), row]));
+  // Liste seçili bölüm kayıtlarıyla paylaşılan kayıtları birlikte içerir. Aynı
+  // teknik alan iki kapsamda da varsa bölüm-özel kayıt paylaşılan kaydı ezer.
+  const dbByKey = new Map<string, SpecTemplateRow>();
+  dbRows.forEach((row) => {
+    const key = normalizeProductSpecKey(row.specKey);
+    const existing = dbByKey.get(key);
+    if (!existing || (!existing.divisionId && row.divisionId)) dbByKey.set(key, row);
+  });
   const used = new Set<string>();
   const draft: DraftRow[] = [];
 
@@ -151,6 +167,7 @@ function buildDraftRows(typeCode: string, specRows: SpecTemplateRow[]): DraftRow
       defaultValue: row?.defaultValue ?? (entry.value === "-" ? "" : entry.value),
       unit: row?.specUnit ?? entry.unit,
       isActive: row?.isActive !== false,
+      isDeleted: row?.isDeleted === true,
       catalogOnly: !row,
       inCatalog: true,
     });
@@ -170,6 +187,7 @@ function buildDraftRows(typeCode: string, specRows: SpecTemplateRow[]): DraftRow
         defaultValue: row.defaultValue ?? "",
         unit: row.specUnit ?? "",
         isActive: row.isActive !== false,
+        isDeleted: row.isDeleted === true,
         catalogOnly: false,
         inCatalog: false,
       });
@@ -189,8 +207,16 @@ function groupRows(rows: DraftRow[]) {
 }
 
 function completionFor(typeCode: string, rows: SpecTemplateRow[]) {
-  const registered = rows.filter((row) => sameType(row.productTypeCode, typeCode) && row.isActive !== false);
-  const expected = machineSpecTemplateEntries(typeCode).length;
+  const typeRows = rows.filter((row) => sameType(row.productTypeCode, typeCode));
+  const deletedKeys = new Set(
+    typeRows
+      .filter((row) => row.isDeleted)
+      .map((row) => normalizeProductSpecKey(row.specKey)),
+  );
+  const registered = typeRows.filter((row) => row.isActive !== false && !row.isDeleted);
+  const expected = machineSpecTemplateEntries(typeCode)
+    .filter((entry) => !deletedKeys.has(normalizeProductSpecKey(entry.key)))
+    .length;
   const percent = expected ? Math.min(100, Math.round((registered.length / expected) * 100)) : registered.length ? 100 : 0;
   return { registered: registered.length, expected, percent, missing: Math.max(0, expected - registered.length) };
 }
@@ -340,6 +366,7 @@ export function ProductSpecTemplatesCard() {
       defaultValue: "",
       unit: "",
       isActive: true,
+      isDeleted: false,
       catalogOnly: true,
       inCatalog: false,
     };
@@ -353,40 +380,76 @@ export function ProductSpecTemplatesCard() {
   };
 
   /**
-   * Alanı çalışma sayfasından çıkarır. Sunucudaki karşılığı (varsa) Kaydet ile
-   * birlikte silinir; böylece geri al (undo) ile karar değiştirilebilir.
+   * Alanı çalışma sayfasından çıkarır. Katalog ve kayıtlı alanlarda tombstone
+   * bırakılır; böylece kod tabanlı katalog yeniden kurulduğunda alan geri gelmez.
+   * Henüz kaydedilmemiş kullanıcı alanları taslaktan tamamen çıkarılabilir.
    */
   const removeField = (clientId: string) => {
     const target = draftRows.find((row) => row.clientId === clientId);
     if (!target) return;
-    if (target.inCatalog) {
-      toast.error("Katalog alanı silinemez", { description: "Bu alan makine tipinin şablonunda tanımlı; gizlemek için pasifleştirin." });
-      return;
-    }
-    applyDraft((current) => current.filter((row) => row.clientId !== clientId));
+    applyDraft((current) => (!target.id && !target.inCatalog
+      ? current.filter((row) => row.clientId !== clientId)
+      : current.map((row) => (row.clientId === clientId
+        ? { ...row, isDeleted: true, isActive: false }
+        : row))));
     setSelectedRowId((current) => (current === clientId ? null : current));
     toast.success("Alan çalışma sayfasından kaldırıldı", {
-      description: target.id ? "Kaydet'e bastığınızda sunucudan da silinecek." : "Kaydedilmemiş alan olduğu için doğrudan kaldırıldı.",
+      description: target.id || target.inCatalog
+        ? "Kaydet'e bastığınızda şablondan kalıcı olarak kaldırılacak."
+        : "Kaydedilmemiş alan olduğu için taslaktan kaldırıldı.",
     });
   };
 
   const addSection = () => {
-    const used = new Set(draftRows.map((row) => row.groupCode));
+    const used = new Set(draftRows.filter((row) => !row.isDeleted).map((row) => row.groupCode));
     const nextGroup = PRODUCT_SPEC_GROUPS.find((group) => !used.has(group.code));
     if (!nextGroup) return toast.info("Tüm teknik bölümler çalışma sayfasında bulunuyor");
     addField(nextGroup.code);
     toast.success(`${nextGroup.label} bölümü eklendi`);
   };
 
-  const moveRow = (clientId: string, direction: -1 | 1) => {
+  const changeRowGroup = (clientId: string, groupCode: string) => {
     applyDraft((current) => {
       const index = current.findIndex((row) => row.clientId === clientId);
-      const target = index + direction;
-      if (index < 0 || target < 0 || target >= current.length || current[target].groupCode !== current[index].groupCode) return current;
+      if (index < 0 || current[index].groupCode === groupCode) return current;
       const next = [...current];
-      [next[index], next[target]] = [next[target], next[index]];
+      const [row] = next.splice(index, 1);
+      const changed = { ...row, groupCode };
+      const lastGroupIndex = next.reduce(
+        (last, item, itemIndex) => (!item.isDeleted && item.groupCode === groupCode ? itemIndex : last),
+        -1,
+      );
+      next.splice(lastGroupIndex >= 0 ? lastGroupIndex + 1 : next.length, 0, changed);
       return next;
     });
+  };
+
+  const moveRowToPosition = (clientId: string, position: number) => {
+    applyDraft((current) => {
+      const source = current.find((row) => row.clientId === clientId);
+      if (!source || source.isDeleted) return current;
+      const groupRows = current.filter((row) => !row.isDeleted && row.groupCode === source.groupCode);
+      const from = groupRows.findIndex((row) => row.clientId === clientId);
+      const to = Math.max(0, Math.min(groupRows.length - 1, position));
+      if (from < 0 || from === to) return current;
+      const reordered = [...groupRows];
+      const [moved] = reordered.splice(from, 1);
+      reordered.splice(to, 0, moved);
+      let cursor = 0;
+      return current.map((row) => (
+        !row.isDeleted && row.groupCode === source.groupCode
+          ? reordered[cursor++]
+          : row
+      ));
+    });
+  };
+
+  const moveRow = (clientId: string, direction: -1 | 1) => {
+    const source = draftRows.find((row) => row.clientId === clientId);
+    if (!source) return;
+    const groupRows = draftRows.filter((row) => !row.isDeleted && row.groupCode === source.groupCode);
+    const position = groupRows.findIndex((row) => row.clientId === clientId);
+    moveRowToPosition(clientId, position + direction);
   };
 
   const pasteValues = (clientId: string, text: string) => {
@@ -407,14 +470,20 @@ export function ProductSpecTemplatesCard() {
 
   const saveWorkbook = async () => {
     if (!selectedType || !draftRows.length) return;
-    const activeNames = draftRows.filter((row) => row.isActive).map((row) => normalizeProductSpecKey(row.specKey.trim()));
+    const activeNames = draftRows
+      .filter((row) => row.isActive && !row.isDeleted)
+      .map((row) => normalizeProductSpecKey(row.specKey.trim()));
     if (activeNames.some((name) => !name)) return toast.error("Teknik bilgi adı boş bırakılamaz");
     if (new Set(activeNames).size !== activeNames.length) return toast.error("Aynı teknik bilgi adı birden fazla kez kullanılamaz");
     // Çalışma sayfasından çıkarılan sunucu kayıtları önce silinir: aynı alan adı
     // silinen satırdan devralınıyorsa toplu kayıt teklik hatasına düşmesin.
     const keptIds = new Set(draftRows.map((row) => row.id).filter(Boolean) as string[]);
     const removedIds = specRows
-      .filter((row) => sameType(row.productTypeCode, selectedType.code) && !keptIds.has(row.id))
+      .filter((row) => (
+        sameType(row.productTypeCode, selectedType.code)
+        && (row.divisionId ?? null) === (familyDivisionId ?? null)
+        && !keptIds.has(row.id)
+      ))
       .map((row) => row.id);
     setBusy(true);
     try {
@@ -430,10 +499,14 @@ export function ProductSpecTemplatesCard() {
           divisionId: row.divisionId ?? familyDivisionId ?? null,
           sortOrder: index,
           isActive: row.isActive,
+          isDeleted: row.isDeleted,
         }))
       );
-      const otherRows = specRows.filter((row) => !sameType(row.productTypeCode, selectedType.code));
-      const nextRows = [...otherRows, ...(result.rows as SpecTemplateRow[])];
+      const savedRows = result.rows as SpecTemplateRow[];
+      const savedIds = new Set(savedRows.map((row) => row.id));
+      const removedIdSet = new Set(removedIds);
+      const untouchedRows = specRows.filter((row) => !savedIds.has(row.id) && !removedIdSet.has(row.id));
+      const nextRows = [...untouchedRows, ...savedRows];
       setSpecRows(nextRows);
       localStorage.removeItem(localDraftKey(selectedType.code));
       prepareWorkbook(selectedType.code, nextRows, false);
@@ -465,15 +538,16 @@ export function ProductSpecTemplatesCard() {
     return () => window.removeEventListener("keydown", listener);
   });
 
+  const visibleDraftRows = useMemo(() => draftRows.filter((row) => !row.isDeleted), [draftRows]);
   const filteredDraftRows = useMemo(() => {
     const query = normalizeProductSpecKey(search);
-    return query ? draftRows.filter((row) => normalizeProductSpecKey(`${row.specKey} ${groupLabel(row.groupCode)} ${row.defaultValue}`).includes(query)) : draftRows;
-  }, [draftRows, search]);
+    return query ? visibleDraftRows.filter((row) => normalizeProductSpecKey(`${row.specKey} ${groupLabel(row.groupCode)} ${row.defaultValue}`).includes(query)) : visibleDraftRows;
+  }, [search, visibleDraftRows]);
   const displayDraftRows = useMemo(() => groupRows(filteredDraftRows), [filteredDraftRows]);
-  const selectedDraftRow = draftRows.find((row) => row.clientId === selectedRowId) ?? null;
+  const selectedDraftRow = visibleDraftRows.find((row) => row.clientId === selectedRowId) ?? null;
   const selectedCompletion = selectedType ? completionFor(selectedType.code, specRows) : { registered: 0, expected: 0, percent: 0, missing: 0 };
-  const activeCount = draftRows.filter((row) => row.isActive).length;
-  const uniqueGroupCount = new Set(draftRows.map((row) => row.groupCode)).size;
+  const activeCount = visibleDraftRows.filter((row) => row.isActive).length;
+  const uniqueGroupCount = new Set(visibleDraftRows.map((row) => row.groupCode)).size;
 
   const librarySearch = normalizeProductSpecKey(search);
   const libraryTypes = familyTypes.filter((type) => {
@@ -556,16 +630,18 @@ export function ProductSpecTemplatesCard() {
           type={selectedType}
           search={search}
           setSearch={setSearch}
-          rows={draftRows}
+          rows={visibleDraftRows}
           displayRows={displayDraftRows}
           selectedRow={selectedDraftRow}
           selectedRowId={selectedRowId}
           setSelectedRowId={setSelectedRowId}
           updateRow={updateDraftRow}
+          changeRowGroup={changeRowGroup}
           addField={addField}
           removeField={removeField}
           addSection={addSection}
           moveRow={moveRow}
+          moveRowToPosition={moveRowToPosition}
           pasteValues={pasteValues}
           undo={undo}
           redo={redo}
@@ -590,7 +666,11 @@ export function ProductSpecTemplatesCard() {
           productTypeLabel={selectedType.label}
           hierarchyLabel={hierarchyLabel}
           divisionId={familyDivisionId}
-          availableFields={draftRows.length ? draftRows.map((row) => ({ key: row.specKey, groupCode: row.groupCode, unit: row.unit })) : buildDraftRows(selectedType.code, specRows).map((row) => ({ key: row.specKey, groupCode: row.groupCode, unit: row.unit }))}
+          availableFields={visibleDraftRows.length
+            ? visibleDraftRows.map((row) => ({ key: row.specKey, groupCode: row.groupCode, unit: row.unit }))
+            : buildDraftRows(selectedType.code, specRows)
+              .filter((row) => !row.isDeleted)
+              .map((row) => ({ key: row.specKey, groupCode: row.groupCode, unit: row.unit }))}
           machines={machines}
           onImported={async (importMode) => {
             if (importMode === "machine_data") return;
@@ -710,10 +790,12 @@ type EditorViewProps = {
   selectedRowId: string | null;
   setSelectedRowId: (id: string) => void;
   updateRow: (id: string, patch: Partial<DraftRow>) => void;
+  changeRowGroup: (id: string, groupCode: string) => void;
   addField: (groupCode?: string) => void;
   removeField: (id: string) => void;
   addSection: () => void;
   moveRow: (id: string, direction: -1 | 1) => void;
+  moveRowToPosition: (id: string, position: number) => void;
   pasteValues: (id: string, text: string) => boolean;
   undo: () => void;
   redo: () => void;
@@ -729,8 +811,9 @@ type EditorViewProps = {
   openImport: () => void;
 };
 
-function EditorView({ type, search, setSearch, rows, displayRows, selectedRow, selectedRowId, setSelectedRowId, updateRow, addField, removeField, addSection, moveRow, pasteValues, undo, redo, canUndo, canRedo, completion, activeCount, groupCount, dirty, lastDraftSave, busy, save, openImport }: EditorViewProps) {
+function EditorView({ type, search, setSearch, rows, displayRows, selectedRow, selectedRowId, setSelectedRowId, updateRow, changeRowGroup, addField, removeField, addSection, moveRow, moveRowToPosition, pasteValues, undo, redo, canUndo, canRedo, completion, activeCount, groupCount, dirty, lastDraftSave, busy, save, openImport }: EditorViewProps) {
   const [pendingDelete, setPendingDelete] = useState<DraftRow | null>(null);
+  const [inspectorOpen, setInspectorOpen] = useState(false);
   const [downloading, setDownloading] = useState(false);
 
   // Şablon ekrandaki alanlardan üretilir: kullanıcı ne görüyorsa dosyada o var.
@@ -769,6 +852,15 @@ function EditorView({ type, search, setSearch, rows, displayRows, selectedRow, s
         </div>
         <div className="ml-auto flex min-w-64 flex-1 items-center justify-end gap-2">
           <div className="relative w-full max-w-sm"><Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" /><Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Teknik bilgide ara" className="h-8 border-slate-300 pl-9 text-xs" /></div>
+          <Button
+            variant="outline"
+            size="sm"
+            className="xl:hidden"
+            disabled={!selectedRow}
+            onClick={() => setInspectorOpen(true)}
+          >
+            <Settings2 className="mr-1.5 size-4" />Alan ayarları
+          </Button>
           <Button variant="outline" size="icon" className="size-8" disabled={!canUndo} onClick={undo}><Undo2 className="size-4" /></Button>
           <Button variant="outline" size="icon" className="size-8" disabled={!canRedo} onClick={redo}><Redo2 className="size-4" /></Button>
           <Button size="sm" disabled={!dirty || busy} onClick={save} className="bg-blue-600 hover:bg-blue-700"><Save className="mr-1.5 size-4" />Kaydet</Button>
@@ -788,7 +880,7 @@ function EditorView({ type, search, setSearch, rows, displayRows, selectedRow, s
           <table className="w-full min-w-[760px] border-collapse text-xs">
             <thead className="sticky top-0 z-10 bg-slate-100 text-slate-600 shadow-[0_1px_0_#cbd5e1]">
               <tr className="h-6 border-b border-slate-300 text-[10px]"><th className="w-11 border-r border-slate-300">#</th>{["A", "B", "C", "D", "E"].map((letter) => <th key={letter} className="border-r border-slate-300 font-medium">{letter}</th>)}<th className="w-10" /></tr>
-              <tr className="h-8"><th className="border-r border-slate-300">#</th><th className="w-24 border-r border-slate-300">Bölüm</th><th className="border-r border-slate-300">Teknik Bilgi</th><th className="border-r border-slate-300">Başlangıç Değeri</th><th className="w-28 border-r border-slate-300">Birim</th><th className="w-32 border-r border-slate-300">Durum</th><th className="w-10"><span className="sr-only">Sil</span></th></tr>
+              <tr className="h-8"><th className="border-r border-slate-300">#</th><th className="w-24 border-r border-slate-300">Bölüm</th><th className="border-r border-slate-300">Teknik Bilgi</th><th className="border-r border-slate-300">Başlangıç Değeri</th><th className="w-28 border-r border-slate-300">Birim</th><th className="w-32 border-r border-slate-300">Durum</th><th className="w-16"><span className="sr-only">Alan işlemleri</span></th></tr>
             </thead>
             <tbody>
               {displayRows.map(({ row, rowSpan }, index) => {
@@ -804,11 +896,23 @@ function EditorView({ type, search, setSearch, rows, displayRows, selectedRow, s
                     <td className="p-0 text-center">
                       <button
                         type="button"
-                        disabled={row.inCatalog}
-                        title={row.inCatalog ? "Katalog alanı silinemez; pasifleştirin." : "Alanı sil"}
+                        title="Bölüm, sıra ve alan ayarları"
+                        aria-label={`${row.specKey} alanının ayarlarını aç`}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          setSelectedRowId(row.clientId);
+                          setInspectorOpen(true);
+                        }}
+                        className="inline-grid size-8 place-items-center text-slate-400 transition-colors hover:bg-blue-50 hover:text-blue-700 xl:hidden"
+                      >
+                        <Settings2 className="size-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        title="Alanı sil"
                         aria-label={`${row.specKey} alanını sil`}
                         onClick={(event) => { event.stopPropagation(); setPendingDelete(row); }}
-                        className="grid size-8 place-items-center text-slate-400 transition-colors hover:text-rose-600 disabled:cursor-not-allowed disabled:text-slate-200"
+                        className="inline-grid size-8 place-items-center text-slate-400 transition-colors hover:bg-rose-50 hover:text-rose-600"
                       >
                         <Trash2 className="size-3.5" />
                       </button>
@@ -820,33 +924,18 @@ function EditorView({ type, search, setSearch, rows, displayRows, selectedRow, s
           </table>
         </div>
 
-        <aside className="border-l border-slate-300 bg-white">
+        <aside className="hidden border-l border-slate-300 bg-white xl:block">
           <div className="flex h-11 items-center justify-between border-b border-slate-200 px-4"><h3 className="text-xs font-semibold text-slate-800">Alan ayarları</h3><Settings2 className="size-4 text-slate-400" /></div>
           {selectedRow ? (
-            <div className="space-y-4 p-4">
-              <InspectorField label="Teknik bilgi adı" value={selectedRow.specKey} onChange={(value) => updateRow(selectedRow.clientId, { specKey: value })} />
-              <InspectorField label="Başlangıç değeri" value={selectedRow.defaultValue} onChange={(value) => updateRow(selectedRow.clientId, { defaultValue: value })} />
-              <div><label className="text-[10px] font-medium text-slate-500">Bölüm</label><select value={selectedRow.groupCode} onChange={(event) => updateRow(selectedRow.clientId, { groupCode: event.target.value })} className="mt-1 h-9 w-full rounded-md border border-slate-300 bg-white px-2 text-xs outline-none focus:border-blue-600">{PRODUCT_SPEC_GROUPS.map((group) => <option key={group.code} value={group.code}>{group.label}</option>)}</select></div>
-              <InspectorField label="Birim" value={selectedRow.unit} onChange={(value) => updateRow(selectedRow.clientId, { unit: value })} />
-              <div className="flex items-center justify-between rounded-md border border-slate-200 bg-slate-50 px-3 py-2.5"><div><p className="text-xs font-medium text-slate-800">Aktif alan</p><p className="text-[10px] text-slate-500">Yeni makinelerde gösterilir</p></div><Switch checked={selectedRow.isActive} onCheckedChange={(checked) => updateRow(selectedRow.clientId, { isActive: checked })} /></div>
-              <div className="grid grid-cols-2 gap-2"><Button variant="outline" size="sm" onClick={() => moveRow(selectedRow.clientId, -1)}>Yukarı</Button><Button variant="outline" size="sm" onClick={() => moveRow(selectedRow.clientId, 1)}>Aşağı</Button></div>
-              <Button variant="outline" size="sm" className="w-full border-amber-200 text-amber-700 hover:bg-amber-50" disabled={!selectedRow.isActive} onClick={() => updateRow(selectedRow.clientId, { isActive: false })}><EyeOff className="mr-1.5 size-4" />Alanı pasifleştir</Button>
-              <Button
-                variant="outline"
-                size="sm"
-                className="w-full border-rose-200 text-rose-700 hover:bg-rose-50 disabled:text-slate-400"
-                disabled={selectedRow.inCatalog}
-                title={selectedRow.inCatalog ? "Katalog şablonundaki alan silinemez; gizlemek için pasifleştirin." : "Alanı kalıcı olarak sil"}
-                onClick={() => setPendingDelete(selectedRow)}
-              >
-                <Trash2 className="mr-1.5 size-4" />Alanı sil
-              </Button>
-              <p className="text-[10px] leading-relaxed text-slate-500">
-                {selectedRow.inCatalog
-                  ? "Bu alan makine tipinin katalog şablonunda tanımlı. Silinse bile şablon yeniden kurulduğunda öneri olarak geri gelir; kullanım dışı bırakmak için pasifleştirin."
-                  : "Pasifleştirme alanı listede tutar, yeni makinelerde göstermez. Silme kaydı kalıcı kaldırır ve aynı alan adı yeniden kullanılabilir."}
-              </p>
-            </div>
+            <FieldInspector
+              row={selectedRow}
+              rows={rows}
+              updateRow={updateRow}
+              changeRowGroup={changeRowGroup}
+              moveRow={moveRow}
+              moveRowToPosition={moveRowToPosition}
+              requestDelete={setPendingDelete}
+            />
           ) : <div className="p-6 text-center text-xs text-slate-500">Ayarlarını düzenlemek için bir satır seçin.</div>}
         </aside>
       </div>
@@ -856,16 +945,39 @@ function EditorView({ type, search, setSearch, rows, displayRows, selectedRow, s
         <div className="flex items-center"><button type="button" className="border-b-2 border-blue-600 px-5 py-2 font-medium text-blue-700">Şablon Alanları</button><button type="button" onClick={openImport} className="border-b-2 border-transparent px-5 py-2 text-slate-600 hover:text-slate-900">Makine Verileri</button><button type="button" onClick={() => addField()} className="ml-2 grid size-8 place-items-center rounded border border-slate-200 hover:bg-slate-50"><Plus className="size-4" /></button></div>
       </div>
 
+      <SideSheet open={inspectorOpen && Boolean(selectedRow)} onOpenChange={setInspectorOpen}>
+        <SideSheetContent className="w-[min(420px,92vw)] gap-0 overflow-y-auto sm:max-w-[420px]">
+          <SideSheetHeader className="border-b border-slate-200">
+            <SideSheetTitle>Alan ayarları</SideSheetTitle>
+            <SideSheetDescription>
+              Bölümü, bölüm içindeki sırası ve görünürlüğü buradan değiştirin.
+            </SideSheetDescription>
+          </SideSheetHeader>
+          {selectedRow && (
+            <FieldInspector
+              row={selectedRow}
+              rows={rows}
+              updateRow={updateRow}
+              changeRowGroup={changeRowGroup}
+              moveRow={moveRow}
+              moveRowToPosition={moveRowToPosition}
+              requestDelete={(row) => {
+                setInspectorOpen(false);
+                setPendingDelete(row);
+              }}
+            />
+          )}
+        </SideSheetContent>
+      </SideSheet>
+
       <AlertDialog open={Boolean(pendingDelete)} onOpenChange={(open) => !open && setPendingDelete(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Teknik alan silinsin mi?</AlertDialogTitle>
             <AlertDialogDescription>
               <b>{pendingDelete?.specKey}</b> alanı {type.label} şablonundan kaldırılacak.
-              {pendingDelete?.id
-                ? " Kaydet'e bastığınızda sunucudan da kalıcı olarak silinir; mevcut makinelerin girilmiş değerleri korunur."
-                : " Alan henüz kaydedilmediği için doğrudan kaldırılır."}
-              {" "}Yalnızca gizlemek istiyorsanız pasifleştirmeyi kullanın.
+              {" "}Kaydet'e bastığınızda değişiklik kalıcı olur; mevcut makinelerde girilmiş teknik değerler korunur.
+              Yalnızca yeni makinelerde göstermemek istiyorsanız pasifleştirmeyi kullanın.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -883,6 +995,112 @@ function EditorView({ type, search, setSearch, rows, displayRows, selectedRow, s
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+    </div>
+  );
+}
+
+type FieldInspectorProps = {
+  row: DraftRow;
+  rows: DraftRow[];
+  updateRow: (id: string, patch: Partial<DraftRow>) => void;
+  changeRowGroup: (id: string, groupCode: string) => void;
+  moveRow: (id: string, direction: -1 | 1) => void;
+  moveRowToPosition: (id: string, position: number) => void;
+  requestDelete: (row: DraftRow) => void;
+};
+
+function FieldInspector({
+  row,
+  rows,
+  updateRow,
+  changeRowGroup,
+  moveRow,
+  moveRowToPosition,
+  requestDelete,
+}: FieldInspectorProps) {
+  const sectionRows = rows.filter((item) => item.groupCode === row.groupCode);
+  const sectionPosition = Math.max(0, sectionRows.findIndex((item) => item.clientId === row.clientId));
+
+  return (
+    <div className="space-y-4 p-4">
+      <InspectorField label="Teknik bilgi adı" value={row.specKey} onChange={(value) => updateRow(row.clientId, { specKey: value })} />
+      <InspectorField label="Başlangıç değeri" value={row.defaultValue} onChange={(value) => updateRow(row.clientId, { defaultValue: value })} />
+
+      <div>
+        <label className="text-[10px] font-medium text-slate-500">Bölüm</label>
+        <select
+          value={row.groupCode}
+          onChange={(event) => changeRowGroup(row.clientId, event.target.value)}
+          className="mt-1 h-9 w-full rounded-md border border-slate-300 bg-white px-2 text-xs outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100"
+        >
+          {PRODUCT_SPEC_GROUPS.map((group) => <option key={group.code} value={group.code}>{group.label}</option>)}
+        </select>
+        <p className="mt-1 text-[10px] text-slate-500">Bölüm değiştiğinde alan yeni bölümün sonuna taşınır.</p>
+      </div>
+
+      <div>
+        <label className="text-[10px] font-medium text-slate-500">Bölüm içindeki sıra</label>
+        <select
+          value={sectionPosition}
+          onChange={(event) => moveRowToPosition(row.clientId, Number(event.target.value))}
+          className="mt-1 h-9 w-full rounded-md border border-slate-300 bg-white px-2 text-xs outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100"
+        >
+          {sectionRows.map((item, index) => (
+            <option key={item.clientId} value={index}>
+              {index + 1}. sıra{item.clientId === row.clientId ? " — mevcut" : ""}
+            </option>
+          ))}
+        </select>
+        <div className="mt-2 grid grid-cols-2 gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={sectionPosition === 0}
+            onClick={() => moveRow(row.clientId, -1)}
+          >
+            Yukarı taşı
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={sectionPosition >= sectionRows.length - 1}
+            onClick={() => moveRow(row.clientId, 1)}
+          >
+            Aşağı taşı
+          </Button>
+        </div>
+      </div>
+
+      <InspectorField label="Birim" value={row.unit} onChange={(value) => updateRow(row.clientId, { unit: value })} />
+      <div className="flex items-center justify-between rounded-md border border-slate-200 bg-slate-50 px-3 py-2.5">
+        <div>
+          <p className="text-xs font-medium text-slate-800">Aktif alan</p>
+          <p className="text-[10px] text-slate-500">Yeni makinelerde gösterilir</p>
+        </div>
+        <Switch checked={row.isActive} onCheckedChange={(checked) => updateRow(row.clientId, { isActive: checked })} />
+      </div>
+      <Button
+        variant="outline"
+        size="sm"
+        className="w-full border-amber-200 text-amber-700 hover:bg-amber-50"
+        disabled={!row.isActive}
+        onClick={() => updateRow(row.clientId, { isActive: false })}
+      >
+        <EyeOff className="mr-1.5 size-4" />Alanı pasifleştir
+      </Button>
+      <Button
+        variant="outline"
+        size="sm"
+        className="w-full border-rose-200 text-rose-700 hover:bg-rose-50"
+        title="Alanı şablondan kalıcı olarak kaldır"
+        onClick={() => requestDelete(row)}
+      >
+        <Trash2 className="mr-1.5 size-4" />Alanı sil
+      </Button>
+      <p className="text-[10px] leading-relaxed text-slate-500">
+        Pasifleştirme alanı listede tutar ve yeni makinelerde göstermez. Silme alanı şablondan kaldırır;
+        mevcut makinelerde daha önce girilmiş değerleri silmez.
+      </p>
     </div>
   );
 }

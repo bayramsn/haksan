@@ -343,7 +343,9 @@ export const rolePermissionMatrix: Record<string, Record<string, string[] | '*'>
     companies: '*',
     contacts: '*',
     leads: '*',
-    opportunities: '*',
+    // A+ onayları ayrı bir rol/yetkiyle kullanıcıya atanır; standart satış
+    // rolü tüm fırsatları yönetebilir ancak onay veremez/reddedemez.
+    opportunities: ['read', 'create', 'update', 'delete', 'export'],
     activities: '*',
     competitors: ['read', 'create'],
     brands: ['read'],

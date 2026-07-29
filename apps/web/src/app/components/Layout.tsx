@@ -35,7 +35,7 @@ import { AssistantPanel } from "./operations/AssistantPanel";
 import { buildAlerts, type OperationAction, type OperationNav } from "../lib/operations";
 
 export type NavKey =
-  | "dashboard" | "chat" | "calendar" | "call-assistant" | "customers" | "contacts" | "sales-cases" | "kanban" | "sales-map" | "offers"
+  | "dashboard" | "chat" | "calendar" | "call-assistant" | "customers" | "contacts" | "leads" | "sales-cases" | "kanban" | "sales-map" | "offers"
   | "proformas" | "contracts" | "documents" | "payments" | "accounting-invoices" | "customer-balances" | "due-dates" | "sales-price-list" | "references" | "products"
   | "stock" | "purchase-orders" | "shipments"
   | "installations" | "deliveries" | "machines" | "service-requests" | "service-kanban" | "service-price-list"
@@ -51,6 +51,7 @@ export const RESOURCE_BY_NAV: Partial<Record<NavKey, string>> = {
   "call-assistant": "activities",
   customers: "companies",
   contacts: "contacts",
+  leads: "opportunities",
   "sales-cases": "opportunities",
   kanban: "opportunities",
   "sales-map": "companies",
@@ -108,15 +109,21 @@ const NAV: { group: string; items: NavItem[] }[] = [
     group: "Satış",
     items: [
       { key: "customers", label: "Firmalar", icon: Building2, roles: ["sales", "finance"] },
+      { key: "leads", label: "Leadler", icon: Rows3, roles: ["sales"] },
+      { key: "sales-cases", label: "Fırsatlar", icon: Briefcase, roles: ["sales"] },
+      { key: "references", label: "Referanslar", icon: ListChecks, roles: ["sales"] },
+    ],
+  },
+  {
+    group: "Satış Operasyonu",
+    items: [
       { key: "contacts", label: "Kontaklar", icon: ContactIcon, roles: ["sales"] },
-      { key: "sales-cases", label: "Satış Kartları", icon: Briefcase, roles: ["sales"] },
       { key: "sales-map", label: "Firma Haritası", icon: MapIcon, roles: ["sales", "service"] },
       { key: "offers", label: "Teklifler", icon: FileText, roles: ["sales", "finance"] },
       { key: "proformas", label: "Proformalar", icon: FileText, roles: ["sales", "finance"] },
       { key: "contracts", label: "Sözleşmeler", icon: FileSignature, roles: ["sales", "finance"] },
       { key: "documents", label: "Dokümanlar", icon: FolderOpen, roles: ["sales", "finance"] },
       { key: "sales-price-list", label: "Satış Fiyat Listesi", icon: Tag, roles: ["sales"] },
-      { key: "references", label: "Referanslar", icon: ListChecks, roles: ["sales"] },
     ],
   },
   {
