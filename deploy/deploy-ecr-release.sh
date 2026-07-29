@@ -65,6 +65,37 @@ if [[ "$(basename -- "$0")" == "aws-backup-postgres.sh" || "${1:-}" == "--backup
   exit
 fi
 
+capture_rollback_image() {
+  local container="$1" rollback_tag="$2"
+  local current_image entrypoint command workdir user path_env stop_signal
+  local -a import_args=()
+
+  current_image="$(docker inspect -f '{{.Image}}' "$container")"
+  if docker image inspect "$current_image" >/dev/null 2>&1; then
+    docker tag "$current_image" "$rollback_tag"
+    return
+  fi
+
+  # A running container can outlive a pruned source-image record. Export its
+  # merged root filesystem and restore only the non-secret runtime metadata
+  # required by Compose to recreate it.
+  entrypoint="$(docker inspect -f '{{json .Config.Entrypoint}}' "$container")"
+  command="$(docker inspect -f '{{json .Config.Cmd}}' "$container")"
+  workdir="$(docker inspect -f '{{.Config.WorkingDir}}' "$container")"
+  user="$(docker inspect -f '{{.Config.User}}' "$container")"
+  stop_signal="$(docker inspect -f '{{.Config.StopSignal}}' "$container")"
+  path_env="$(docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$container" | awk -F= '$1 == "PATH" { print; exit }')"
+
+  [[ "$entrypoint" == "null" || "$entrypoint" == "[]" ]] || import_args+=(--change "ENTRYPOINT $entrypoint")
+  [[ "$command" == "null" || "$command" == "[]" ]] || import_args+=(--change "CMD $command")
+  [[ -z "$workdir" ]] || import_args+=(--change "WORKDIR $workdir")
+  [[ -z "$user" ]] || import_args+=(--change "USER $user")
+  [[ -z "$stop_signal" ]] || import_args+=(--change "STOPSIGNAL $stop_signal")
+  [[ -z "$path_env" ]] || import_args+=(--change "ENV $path_env")
+
+  docker export "$container" | docker import "${import_args[@]}" - "$rollback_tag" >/dev/null
+}
+
 : "${RELEASE_ID:?RELEASE_ID is required}"
 : "${API_IMAGE_URI:?API_IMAGE_URI is required}"
 : "${WEB_IMAGE_URI:?WEB_IMAGE_URI is required}"
@@ -88,8 +119,8 @@ trap cleanup EXIT
 
 # Capture the actual running containers so rollback remains available even when
 # Docker's original source-image record was pruned by an earlier host cleanup.
-docker commit --pause=false "$API_CONTAINER" "$API_ROLLBACK_TAG" >/dev/null
-docker commit --pause=false "$NGINX_CONTAINER" "$NGINX_ROLLBACK_TAG" >/dev/null
+capture_rollback_image "$API_CONTAINER" "$API_ROLLBACK_TAG"
+capture_rollback_image "$NGINX_CONTAINER" "$NGINX_ROLLBACK_TAG"
 docker image inspect "$API_ROLLBACK_TAG" "$NGINX_ROLLBACK_TAG" >/dev/null
 
 # Keep the freshly captured rollback pair, remove older rollback snapshots, and
