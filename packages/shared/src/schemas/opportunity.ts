@@ -26,6 +26,16 @@ export type OpportunityPaymentMethod = z.infer<typeof opportunityPaymentMethodEn
 export const leadTemperatureEnum = z.enum(['hot', 'waiting', 'cold', 'unknown']);
 export type LeadTemperature = z.infer<typeof leadTemperatureEnum>;
 
+// Lead takip durumu, lead'in satış derecesinden bağımsız günlük çalışma durumudur.
+export const leadFollowUpStatusEnum = z.enum([
+  'new',
+  'attempting',
+  'contacted',
+  'waiting',
+  'disqualified',
+]);
+export type LeadFollowUpStatus = z.infer<typeof leadFollowUpStatusEnum>;
+
 const opportunityInputSchema = z.object({
   companyId: z.string().min(1).nullish(),
   divisionId: z.string().uuid().optional(),
@@ -42,6 +52,10 @@ const opportunityInputSchema = z.object({
   leadPhone: z.string().trim().max(64).nullish(),
   leadEmail: z.string().trim().max(254).nullish(),
   leadTemperature: leadTemperatureEnum.nullish(),
+  leadFollowUpStatus: leadFollowUpStatusEnum.nullish(),
+  // Lead ve fırsat kartlarında ekibin bir sonraki somut işi.
+  nextAction: z.string().trim().max(1000).nullish(),
+  nextActionAt: z.coerce.date().nullish(),
   estimatedValue: moneySchema.optional(),
   currencyCode: z.string().max(8).default('USD'),
   probability: z.coerce.number().int().min(0).max(100).default(50),
@@ -65,6 +79,13 @@ export const opportunityCreateSchema = opportunityInputSchema.superRefine((value
       code: z.ZodIssueCode.custom,
       message: 'Firma seçilmediyse kontak ismi zorunludur.',
       path: ['leadContactName'],
+    });
+  }
+  if (value.nextActionAt && !value.nextAction?.trim()) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'Takip zamanı için sonraki aksiyon zorunludur.',
+      path: ['nextAction'],
     });
   }
 });

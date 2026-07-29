@@ -880,6 +880,9 @@ export class OpportunitiesService {
         leadPhone: input.leadPhone?.trim() || null,
         leadEmail: input.leadEmail?.trim() || null,
         leadTemperature: input.leadTemperature ?? 'unknown',
+        leadFollowUpStatus: input.leadFollowUpStatus ?? 'new',
+        nextAction: input.nextAction?.trim() || null,
+        nextActionAt: input.nextActionAt ?? null,
         currentStageId: leadStage.id,
         estimatedValue: input.estimatedValue?.toString() ?? null,
         currencyId,
@@ -1582,6 +1585,13 @@ export class OpportunitiesService {
 
   async update(id: string, input: OpportunityUpdateInput, actor: AuthContext) {
     const existing = await this.get(id, actor);
+    const resultingNextAction =
+      input.nextAction !== undefined ? input.nextAction?.trim() || null : existing.nextAction?.trim() || null;
+    const resultingNextActionAt =
+      input.nextActionAt !== undefined ? input.nextActionAt : existing.nextActionAt;
+    if (resultingNextActionAt && !resultingNextAction) {
+      throw new ValidationError('Takip zamanı için sonraki aksiyon zorunludur', { field: 'nextAction' });
+    }
     if (input.companyId === null && existing.companyId) {
       throw new ValidationError('Satış kartına bağlanan firma kaldırılamaz; gerekirse başka bir firma bağlayın');
     }
@@ -1617,6 +1627,9 @@ export class OpportunitiesService {
       'leadPhone',
       'leadEmail',
       'leadTemperature',
+      'leadFollowUpStatus',
+      'nextAction',
+      'nextActionAt',
       'probability',
       'expectedCloseDate',
       'paymentTermDays',
@@ -1785,6 +1798,9 @@ export class OpportunitiesService {
     if (opp.closedAt) throw new ValidationError('Arşivlenmiş lead fırsata çevrilemez');
     const fromStage = this.qualificationStage(opp.qualificationStage);
     if (fromStage !== 'lead') throw new ValidationError('Kayıt zaten fırsata çevrilmiş');
+    if (opp.leadFollowUpStatus === 'disqualified') {
+      throw new ValidationError('Uygun değil durumundaki Lead fırsata çevrilemez; önce Lead durumunu değiştirin');
+    }
     if (!opp.ownerUserId) throw new ValidationError('Fırsata çevirmeden önce sorumlu kullanıcı atanmalıdır');
     if (!opp.title?.trim()) throw new ValidationError('Fırsata çevirmeden önce konu girilmelidir');
     const now = new Date();

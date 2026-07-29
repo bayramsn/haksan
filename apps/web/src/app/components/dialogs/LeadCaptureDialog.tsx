@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { UserPlus } from "lucide-react";
+import { CalendarClock, UserPlus } from "lucide-react";
 import { toast } from "sonner";
 import { useStore } from "../../lib/store";
 import { useAuth } from "../../../lib/auth";
@@ -16,6 +16,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
+import { Textarea } from "../ui/textarea";
 
 /**
  * Firma bilgisi henüz kesinleşmemiş talebi, firma/kontak ana kayıtlarını kirletmeden
@@ -39,6 +40,8 @@ export function LeadCaptureDialog({ trigger }: { trigger?: React.ReactNode }) {
   const [product, setProduct] = useState("");
   const [quantity, setQuantity] = useState("1");
   const [temperature, setTemperature] = useState<LeadTemperature>("unknown");
+  const [nextAction, setNextAction] = useState("");
+  const [nextActionAt, setNextActionAt] = useState("");
   const [divisionId, setDivisionId] = useState(defaultDivision);
   const [saving, setSaving] = useState(false);
   const [contactMethods, setContactMethods] = useState<Array<{ code: string; name: string }>>([
@@ -76,6 +79,8 @@ export function LeadCaptureDialog({ trigger }: { trigger?: React.ReactNode }) {
     setProduct("");
     setQuantity("1");
     setTemperature("unknown");
+    setNextAction("");
+    setNextActionAt("");
     setDivisionId(defaultDivision);
   };
 
@@ -86,6 +91,7 @@ export function LeadCaptureDialog({ trigger }: { trigger?: React.ReactNode }) {
   const hasContactChannel = phoneFilled || emailFilled;
   const emailValid = !emailFilled || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
   const phoneValid = !phoneFilled || phone.replace(/\D/g, "").length >= 7;
+  const actionPlanValid = !nextActionAt || nextAction.trim().length > 0;
   const canSubmit =
     contactName.trim().length > 0 &&
     product.trim().length > 0 &&
@@ -93,6 +99,7 @@ export function LeadCaptureDialog({ trigger }: { trigger?: React.ReactNode }) {
     hasContactChannel &&
     emailValid &&
     phoneValid &&
+    actionPlanValid &&
     (divisions.length === 0 || !!divisionId);
 
   const submit = async () => {
@@ -102,6 +109,8 @@ export function LeadCaptureDialog({ trigger }: { trigger?: React.ReactNode }) {
           ? "Telefon veya e-postadan en az biri zorunludur."
           : !phoneValid
             ? "Telefon en az 7 rakam içermelidir."
+            : !actionPlanValid
+              ? "Takip zamanı seçtiyseniz ilk takip aksiyonunu da yazın."
             : !emailValid
               ? "Geçerli bir e-posta adresi girin."
               : "Kontak ismi, şehir ve istenen ürün zorunludur.",
@@ -121,6 +130,9 @@ export function LeadCaptureDialog({ trigger }: { trigger?: React.ReactNode }) {
         leadEmail: email.trim() || undefined,
         leadCity: city.trim(),
         leadTemperature: temperature,
+        leadFollowUpStatus: "new",
+        nextAction: nextAction.trim() || undefined,
+        nextActionAt: nextActionAt ? new Date(nextActionAt) : undefined,
         sourceCode: contactMethod || undefined,
         title,
         description: [
@@ -274,6 +286,36 @@ export function LeadCaptureDialog({ trigger }: { trigger?: React.ReactNode }) {
             <div>
               <Label htmlFor="lead-qty">Adet</Label>
               <Input id="lead-qty" inputMode="numeric" value={quantity} onChange={(e) => setQuantity(e.target.value)} placeholder="1" />
+            </div>
+          </div>
+          <div className="rounded-lg border border-primary/15 bg-blue-50/55 p-3">
+            <div className="grid gap-3 sm:grid-cols-[1fr_190px]">
+              <div>
+                <Label htmlFor="lead-next-action">İlk takip aksiyonu</Label>
+                <Textarea
+                  id="lead-next-action"
+                  className="mt-1.5 min-h-16 bg-white"
+                  maxLength={1000}
+                  value={nextAction}
+                  onChange={(event) => setNextAction(event.target.value)}
+                  placeholder="Örn. Teknik ihtiyaç için satın alma müdürünü ara"
+                />
+              </div>
+              <div>
+                <Label htmlFor="lead-next-action-at" className="inline-flex items-center gap-1.5">
+                  <CalendarClock className="size-3.5" /> Takip zamanı
+                </Label>
+                <Input
+                  id="lead-next-action-at"
+                  className="mt-1.5 bg-white"
+                  type="datetime-local"
+                  value={nextActionAt}
+                  onChange={(event) => setNextActionAt(event.target.value)}
+                />
+                <p className="mt-1.5 text-[10px] leading-4 text-muted-foreground">
+                  Kart, zamanı gelince aksiyon listesinde öne çıkar.
+                </p>
+              </div>
             </div>
           </div>
           {divisions.length > 1 && (

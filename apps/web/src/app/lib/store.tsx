@@ -474,6 +474,9 @@ type Store = {
       paymentTermDays?: number | null;
       paymentMethod?: SalesCase['paymentMethod'];
       leadTemperature?: SalesCase['leadTemperature'];
+      leadFollowUpStatus?: SalesCase['leadFollowUpStatus'];
+      nextAction?: string | null;
+      nextActionAt?: string | null;
       requestedMachine?: string | null;
       contractTerms?: string | null;
       paymentTerms?: string | null;
@@ -761,6 +764,9 @@ function StoreInner({ children }: { children: ReactNode }) {
           leadPhone: o.leadPhone ?? undefined,
           leadEmail: o.leadEmail ?? undefined,
           leadTemperature: o.leadTemperature ?? 'unknown',
+          leadFollowUpStatus: o.leadFollowUpStatus ?? 'new',
+          nextAction: o.nextAction ?? undefined,
+          nextActionAt: o.nextActionAt ?? undefined,
           externalSource: o.externalSource ?? undefined,
           externalKey: o.externalKey ?? undefined,
           externalUrl: o.externalUrl ?? undefined,
@@ -1584,6 +1590,9 @@ function StoreInner({ children }: { children: ReactNode }) {
       probability: 50,
       paymentTermDays: c.paymentTermDays ?? undefined,
       paymentMethod: c.paymentMethod ?? undefined,
+      leadFollowUpStatus: c.leadFollowUpStatus ?? undefined,
+      nextAction: c.nextAction ?? undefined,
+      nextActionAt: c.nextActionAt ? new Date(c.nextActionAt) : undefined,
       requestedMachine: c.requestedMachine ?? c.requestedModel ?? undefined,
       contractTerms: c.contractTerms ?? undefined,
       paymentTerms: c.paymentTerms ?? undefined,
@@ -1614,6 +1623,9 @@ function StoreInner({ children }: { children: ReactNode }) {
     if (patch.paymentTermDays !== undefined) body.paymentTermDays = patch.paymentTermDays ?? null;
     if (patch.paymentMethod !== undefined) body.paymentMethod = patch.paymentMethod;
     if (patch.leadTemperature !== undefined) body.leadTemperature = patch.leadTemperature;
+    if (patch.leadFollowUpStatus !== undefined) body.leadFollowUpStatus = patch.leadFollowUpStatus;
+    if (patch.nextAction !== undefined) body.nextAction = patch.nextAction;
+    if (patch.nextActionAt !== undefined) body.nextActionAt = patch.nextActionAt;
     if (patch.requestedMachine !== undefined) body.requestedMachine = patch.requestedMachine;
     if (patch.contractTerms !== undefined) body.contractTerms = patch.contractTerms;
     if (patch.paymentTerms !== undefined) body.paymentTerms = patch.paymentTerms;

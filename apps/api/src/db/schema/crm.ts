@@ -134,6 +134,11 @@ export const opportunities = pgTable(
     paymentTermDays: integer('payment_term_days'),
     // Lead kartında seçilen ödeme yöntemi (cash, term, leasing vb.).
     paymentMethod: varchar('payment_method', { length: 32 }),
+    // Lead'in günlük takip durumu, satış derecesinden (Lead/C/B/A/...) bağımsızdır.
+    leadFollowUpStatus: varchar('lead_follow_up_status', { length: 24 }).notNull().default('new'),
+    // Satışçının kartı yeniden açmadan göreceği bir sonraki somut aksiyon.
+    nextAction: text('next_action'),
+    nextActionAt: timestamp('next_action_at', { withTimezone: true }),
     // Lead havuzu ile C/B/A/A+/WIN/LOST satış derecesi, operasyon aşamasından ayrıdır.
     qualificationStage: varchar('qualification_stage', { length: 16 }).notNull().default('lead'),
     qualificationNote: text('qualification_note'),
@@ -157,6 +162,8 @@ export const opportunities = pgTable(
     companyIdx: index('opportunities_company_idx').on(t.companyId),
     stageIdx: index('opportunities_stage_idx').on(t.currentStageId),
     qualificationStageIdx: index('opportunities_qualification_stage_idx').on(t.tenantId, t.qualificationStage),
+    leadFollowUpStatusIdx: index('opportunities_lead_follow_up_status_idx').on(t.tenantId, t.leadFollowUpStatus),
+    nextActionAtIdx: index('opportunities_next_action_at_idx').on(t.tenantId, t.nextActionAt),
     expectedCloseDateIdx: index('opportunities_expected_close_date_idx').on(t.expectedCloseDate),
     ownerIdx: index('opportunities_owner_idx').on(t.ownerUserId),
     closedAtIdx: index('opportunities_closed_at_idx').on(t.closedAt),

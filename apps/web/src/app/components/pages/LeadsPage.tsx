@@ -1,7 +1,9 @@
 import { useMemo, useState } from "react";
 import {
+  AlarmClock,
   ArrowRight,
   Building2,
+  CalendarClock,
   CheckCircle2,
   CircleAlert,
   Mail,
@@ -13,15 +15,23 @@ import {
 import { toast } from "sonner";
 import { useAuth } from "../../../lib/auth";
 import { useStore } from "../../lib/store";
-import type { SalesCase } from "../../lib/mock";
+import {
+  LEAD_FOLLOW_UP_STATUS_LABELS,
+  LEAD_FOLLOW_UP_STATUS_ORDER,
+  LEAD_FOLLOW_UP_STATUS_STYLES,
+  type LeadFollowUpStatus,
+  type SalesCase,
+} from "../../lib/mock";
 import { LeadCaptureDialog } from "../dialogs/LeadCaptureDialog";
 import { TrelloCsvImportDialog } from "../dialogs/TrelloCsvImportDialog";
 import { EmptyState } from "../shared/EmptyState";
+import { NextActionDialog, actionDateLabel, isActionOverdue } from "../shared/NextActionDialog";
 import { Avatar, AvatarFallback } from "../ui/avatar";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Card, CardContent } from "../ui/card";
 import { Input } from "../ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
 
 const initials = (value: string) =>
   (value || "—")
@@ -50,15 +60,23 @@ function missingLeadFields(lead: SalesCase) {
 }
 
 export function LeadsPage({ onSelect }: { onSelect: (lead: SalesCase) => void }) {
-  const { cases, users, convertCase } = useStore();
+  const { cases, users, convertCase, updateCase } = useStore();
   const { hasPermission } = useAuth();
   const canConvert = hasPermission("opportunities.update");
   const [query, setQuery] = useState("");
+  const [status, setStatus] = useState<LeadFollowUpStatus | "all">("all");
   const [busyId, setBusyId] = useState<string | null>(null);
-  const leads = useMemo(
+  const allLeads = useMemo(
     () =>
       cases
         .filter((item) => (item.qualificationStage ?? "lead") === "lead")
+        .sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
+    [cases]
+  );
+  const leads = useMemo(
+    () =>
+      allLeads
+        .filter((item) => status === "all" || (item.leadFollowUpStatus ?? "new") === status)
         .filter((item) => {
           const needle = query.trim().toLocaleLowerCase("tr-TR");
           if (!needle) return true;
@@ -71,9 +89,18 @@ export function LeadsPage({ onSelect }: { onSelect: (lead: SalesCase) => void })
             item.requestedProduct,
             item.externalMetadata?.boardName,
           ].some((value) => (value ?? "").toLocaleLowerCase("tr-TR").includes(needle));
-        })
-        .sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
-    [cases, query]
+        }),
+    [allLeads, query, status]
+  );
+  const statusCounts = useMemo(
+    () =>
+      Object.fromEntries(
+        LEAD_FOLLOW_UP_STATUS_ORDER.map((item) => [
+          item,
+          allLeads.filter((lead) => (lead.leadFollowUpStatus ?? "new") === item).length,
+        ])
+      ) as Record<LeadFollowUpStatus, number>,
+    [allLeads]
   );
 
   const convert = async (lead: SalesCase) => {
@@ -93,6 +120,23 @@ export function LeadsPage({ onSelect }: { onSelect: (lead: SalesCase) => void })
     }
   };
 
+  const updateStatus = async (lead: SalesCase, nextStatus: LeadFollowUpStatus) => {
+    if (busyId) return;
+    setBusyId(lead.id);
+    try {
+      await updateCase(lead.id, { leadFollowUpStatus: nextStatus });
+      toast.success("Lead durumu güncellendi", {
+        description: `${leadName(lead)} · ${LEAD_FOLLOW_UP_STATUS_LABELS[nextStatus]}`,
+      });
+    } catch (error: any) {
+      toast.error("Lead durumu güncellenemedi", {
+        description: error?.message ?? "API isteği başarısız oldu.",
+      });
+    } finally {
+      setBusyId(null);
+    }
+  };
+
   return (
     <div className="space-y-4">
       <Card className="overflow-hidden border-primary/15 bg-[linear-gradient(105deg,#000c69_0%,#10298f_62%,#d71920_160%)] text-white shadow-sm">
@@ -101,7 +145,7 @@ export function LeadsPage({ onSelect }: { onSelect: (lead: SalesCase) => void })
             <div className="font-data text-[10px] font-semibold uppercase tracking-[0.18em] text-blue-100">
               Gelen satış sinyalleri
             </div>
-            <div className="mt-1 font-display text-3xl font-semibold leading-none">{leads.length} lead</div>
+            <div className="mt-1 font-display text-3xl font-semibold leading-none">{allLeads.length} lead</div>
             <p className="mt-2 max-w-xl text-sm leading-5 text-blue-100/90">
               Telefon, e-posta, dijital pazar ve aktarımlardan gelen tüm kayıtlar burada toplanır.
               Değerlendirdiğiniz kayıt C aşamasında bir fırsata dönüşür.
@@ -116,19 +160,44 @@ export function LeadsPage({ onSelect }: { onSelect: (lead: SalesCase) => void })
         </CardContent>
       </Card>
 
-      <div className="flex items-center justify-between gap-3 rounded-xl border border-border/70 bg-white p-3 shadow-xs">
-        <div className="relative w-full max-w-md">
-          <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="Firma, kontak, telefon veya ürün ara..."
-            className="h-9 bg-white pl-9"
-          />
+      <div className="space-y-3 rounded-xl border border-border/70 bg-white p-3 shadow-xs">
+        <div className="flex items-center justify-between gap-3">
+          <div className="relative w-full max-w-md">
+            <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Firma, kontak, telefon veya ürün ara..."
+              className="h-9 bg-white pl-9"
+            />
+          </div>
+          <Badge variant="outline" className="hidden h-7 shrink-0 sm:inline-flex">
+            {leads.length} kayıt
+          </Badge>
         </div>
-        <Badge variant="outline" className="hidden h-7 shrink-0 sm:inline-flex">
-          {leads.length} açık kayıt
-        </Badge>
+        <div className="flex gap-1.5 overflow-x-auto pb-0.5" aria-label="Lead durumu filtresi">
+          <Button
+            type="button"
+            size="sm"
+            variant={status === "all" ? "default" : "outline"}
+            className="h-7 shrink-0 px-2.5 text-[10px]"
+            onClick={() => setStatus("all")}
+          >
+            Tümü <span className="font-data opacity-75">{allLeads.length}</span>
+          </Button>
+          {LEAD_FOLLOW_UP_STATUS_ORDER.map((item) => (
+            <Button
+              key={item}
+              type="button"
+              size="sm"
+              variant="outline"
+              className={`h-7 shrink-0 px-2.5 text-[10px] ${status === item ? LEAD_FOLLOW_UP_STATUS_STYLES[item] : ""}`}
+              onClick={() => setStatus(item)}
+            >
+              {LEAD_FOLLOW_UP_STATUS_LABELS[item]} <span className="font-data opacity-70">{statusCounts[item]}</span>
+            </Button>
+          ))}
+        </div>
       </div>
 
       {leads.length === 0 ? (
@@ -145,6 +214,8 @@ export function LeadsPage({ onSelect }: { onSelect: (lead: SalesCase) => void })
           {leads.map((lead) => {
             const owner = users.find((user) => user.id === lead.assignedUserId);
             const missing = missingLeadFields(lead);
+            const leadStatus = lead.leadFollowUpStatus ?? "new";
+            const overdue = isActionOverdue(lead.nextActionAt);
             return (
               <Card
                 key={lead.id}
@@ -160,8 +231,8 @@ export function LeadsPage({ onSelect }: { onSelect: (lead: SalesCase) => void })
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2">
                           <h3 className="truncate text-sm font-semibold group-hover:text-primary">{leadName(lead)}</h3>
-                          <Badge variant="secondary" className="h-5 text-[9px]">
-                            {lead.leadContactMethodName || lead.externalSource || "Manuel"}
+                          <Badge variant="outline" className={`h-5 text-[9px] ${LEAD_FOLLOW_UP_STATUS_STYLES[leadStatus]}`}>
+                            {LEAD_FOLLOW_UP_STATUS_LABELS[leadStatus]}
                           </Badge>
                         </div>
                         <div className="mt-1 truncate text-xs text-muted-foreground">
@@ -193,6 +264,21 @@ export function LeadsPage({ onSelect }: { onSelect: (lead: SalesCase) => void })
                       </span>
                     </div>
 
+                    <div className={`rounded-r-lg border-l-[3px] px-3 py-2.5 ${overdue ? "border-red-500 bg-red-50/70" : "border-primary bg-blue-50/65"}`}>
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="inline-flex items-center gap-1 font-data text-[9px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                          <AlarmClock className="size-3.5 text-primary" /> Sonraki aksiyon
+                        </span>
+                        <span className={`inline-flex items-center gap-1 text-[9px] ${overdue ? "font-semibold text-red-700" : "text-muted-foreground"}`}>
+                          <CalendarClock className="size-3" />
+                          {overdue ? "Gecikti · " : ""}{actionDateLabel(lead.nextActionAt)}
+                        </span>
+                      </div>
+                      <div className={`mt-1 line-clamp-2 text-[11px] ${lead.nextAction ? "font-medium text-foreground" : "text-muted-foreground"}`}>
+                        {lead.nextAction || "İlk temas için yapılacak işi planlayın."}
+                      </div>
+                    </div>
+
                     <div className="flex min-h-7 flex-wrap items-center gap-1.5 border-t border-border/60 pt-3">
                       {missing.length ? (
                         <>
@@ -211,11 +297,40 @@ export function LeadsPage({ onSelect }: { onSelect: (lead: SalesCase) => void })
                     </div>
                   </CardContent>
                 </button>
-                <div className="flex items-center justify-between border-t border-border/60 bg-muted/20 px-4 py-2.5">
+                <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border/60 bg-muted/20 px-4 py-2.5">
                   <span className="font-data text-[9px] uppercase tracking-wide text-muted-foreground">
-                    {lead.createdAt} · #{lead.id.slice(0, 8).toUpperCase()}
+                    {lead.leadContactMethodName || lead.externalSource || "Manuel"} · {lead.createdAt}
                   </span>
-                  {canConvert && (
+                  <div className="flex min-w-0 flex-1 items-center justify-end gap-1.5">
+                    {canConvert && (
+                      <Select
+                        value={leadStatus}
+                        disabled={busyId === lead.id}
+                        onValueChange={(value) => void updateStatus(lead, value as LeadFollowUpStatus)}
+                      >
+                        <SelectTrigger size="sm" className="h-8 w-[154px] bg-white text-[9px]">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {LEAD_FOLLOW_UP_STATUS_ORDER.map((item) => (
+                            <SelectItem key={item} value={item}>{LEAD_FOLLOW_UP_STATUS_LABELS[item]}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
+                    {canConvert && (
+                      <NextActionDialog
+                        salesCase={lead}
+                        onSave={(patch) => updateCase(lead.id, patch)}
+                        trigger={
+                          <Button type="button" variant="outline" size="icon" className="size-8 bg-white" title="Sonraki aksiyonu planla">
+                            <AlarmClock className="size-3.5" />
+                            <span className="sr-only">Sonraki aksiyonu planla</span>
+                          </Button>
+                        }
+                      />
+                    )}
+                    {canConvert && leadStatus !== "disqualified" && (
                     <Button
                       size="sm"
                       className="h-8 gap-1.5"
@@ -225,7 +340,8 @@ export function LeadsPage({ onSelect }: { onSelect: (lead: SalesCase) => void })
                       {busyId === lead.id ? "Çevriliyor…" : "Fırsata çevir"}
                       <ArrowRight className="size-3.5" />
                     </Button>
-                  )}
+                    )}
+                  </div>
                 </div>
               </Card>
             );

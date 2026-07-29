@@ -1,8 +1,10 @@
 import { useState, type MouseEvent } from "react";
 import {
+  AlarmClock,
   ArrowRight,
   Building2,
   Calendar,
+  CalendarClock,
   Check,
   CheckCircle2,
   CircleAlert,
@@ -28,6 +30,7 @@ import {
 import { KanbanBoard, type KanbanColumn } from "../KanbanBoard";
 import { LogActivityDialog } from "../dialogs/CreateDialogs";
 import { LostCaseDialog } from "../dialogs/LostCaseDialog";
+import { NextActionDialog, actionDateLabel, isActionOverdue } from "../shared/NextActionDialog";
 import { Avatar, AvatarFallback } from "../ui/avatar";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
@@ -106,6 +109,15 @@ const APPROVALS: Array<{ type: OpportunityApprovalType; label: string }> = [
   { type: "win", label: "WIN onayı" },
 ];
 
+const STAGE_ACTION_HINTS: Record<ActiveQualificationStage, string> = {
+  c: "Firma, konum ve karar verici bilgisini tamamlayın.",
+  b: "İhtiyacı ve istenen makineyi müşteriyle netleştirin.",
+  a: "Teklif, sözleşme ve ödeme şartlarında sıradaki işi belirleyin.",
+  a_plus: "Bekleyen operasyon onayını sonuçlandırın.",
+  win: "Teslimat ve kurulum devrindeki sıradaki işi belirleyin.",
+  lost: "Kaybın ardından yapılacak kapanış veya yeniden temas işini belirleyin.",
+};
+
 const initials = (value: string) =>
   (value || "—")
     .split(" ")
@@ -131,6 +143,7 @@ export function QualificationKanban({
   } = useStore();
   const { hasPermission } = useAuth();
   const canApprove = hasPermission("opportunities.approve");
+  const canUpdate = hasPermission("opportunities.update");
   const [lostId, setLostId] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [pendingBackMove, setPendingBackMove] = useState<{
@@ -287,6 +300,7 @@ export function QualificationKanban({
           const meta = STAGE_META[stage];
           const readiness = salesCase.qualificationReadiness;
           const checks = readiness?.checks ?? [];
+          const actionOverdue = isActionOverdue(salesCase.nextActionAt);
           const stopCardClick = (event: MouseEvent) => event.stopPropagation();
           const partyName =
             company?.name ||
@@ -377,6 +391,37 @@ export function QualificationKanban({
                   <div className="mt-1 line-clamp-2 text-[11px] font-medium">
                     {salesCase.requestedMachine || salesCase.requestedModel || salesCase.requestedProduct}
                   </div>
+                </div>
+
+                <div
+                  className={`rounded-r-lg border-l-[3px] px-2.5 py-2 ${actionOverdue ? "border-red-500 bg-red-50/75" : "border-primary bg-blue-50/70"}`}
+                  onClick={stopCardClick}
+                  onMouseDown={stopCardClick}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="inline-flex items-center gap-1 font-data text-[8px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                      <AlarmClock className="size-3 text-primary" /> Sonraki aksiyon
+                    </span>
+                    <span className={`inline-flex shrink-0 items-center gap-1 text-[8px] ${actionOverdue ? "font-semibold text-red-700" : "text-muted-foreground"}`}>
+                      <CalendarClock className="size-3" />
+                      {actionOverdue ? "Gecikti · " : ""}{actionDateLabel(salesCase.nextActionAt)}
+                    </span>
+                  </div>
+                  <div className={`mt-1 line-clamp-2 text-[10px] leading-4 ${salesCase.nextAction ? "font-medium text-foreground" : "text-muted-foreground"}`}>
+                    {salesCase.nextAction || STAGE_ACTION_HINTS[stage]}
+                  </div>
+                  {canUpdate && (
+                    <NextActionDialog
+                      salesCase={salesCase}
+                      onSave={(patch) => updateCase(salesCase.id, patch)}
+                      trigger={
+                        <Button type="button" variant="ghost" size="sm" className="mt-1 h-6 gap-1 px-1.5 text-[8px] text-primary">
+                          <AlarmClock className="size-3" />
+                          {salesCase.nextAction ? "Düzenle" : "Aksiyon planla"}
+                        </Button>
+                      }
+                    />
+                  )}
                 </div>
 
                 {stage === "b" && (

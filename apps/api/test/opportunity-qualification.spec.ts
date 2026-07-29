@@ -53,6 +53,8 @@ describe('Opportunity qualification pipeline', () => {
 
     expect(created.status, JSON.stringify(created.body)).toBe(201);
     expect(created.body.qualificationStage).toBe('lead');
+    expect(created.body.leadFollowUpStatus).toBe('new');
+    expect(created.body.nextAction).toBeNull();
     expect(created.body.qualificationReadiness).toMatchObject({
       stage: 'lead',
       nextStage: 'c',
@@ -65,6 +67,55 @@ describe('Opportunity qualification pipeline', () => {
       .set('Authorization', `Bearer ${token}`);
     expect(leads.status).toBe(200);
     expect(leads.body.data.some((row: { id: string }) => row.id === opportunityId)).toBe(true);
+  });
+
+  it('stores the Lead follow-up status and shared next action safely', async () => {
+    const server = app.getHttpServer();
+    const invalid = await supertest(server)
+      .patch(`/api/v1/opportunities/${opportunityId}`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ leadFollowUpStatus: 'not-a-status' });
+    expect(invalid.status).toBe(422);
+
+    const nextActionAt = '2030-01-15T09:30:00.000Z';
+    const updated = await supertest(server)
+      .patch(`/api/v1/opportunities/${opportunityId}`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        leadFollowUpStatus: 'attempting',
+        nextAction: 'Teknik ihtiyaç listesini teyit etmek için satın alma müdürünü ara',
+        nextActionAt,
+      });
+
+    expect(updated.status, JSON.stringify(updated.body)).toBe(200);
+    expect(updated.body).toMatchObject({
+      leadFollowUpStatus: 'attempting',
+      nextAction: 'Teknik ihtiyaç listesini teyit etmek için satın alma müdürünü ara',
+      nextActionAt,
+    });
+
+    const dateWithoutAction = await supertest(server)
+      .patch(`/api/v1/opportunities/${opportunityId}`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ nextAction: null, nextActionAt });
+    expect(dateWithoutAction.status).toBe(422);
+
+    const disqualified = await supertest(server)
+      .patch(`/api/v1/opportunities/${opportunityId}`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ leadFollowUpStatus: 'disqualified' });
+    expect(disqualified.status).toBe(200);
+    const blockedConversion = await supertest(server)
+      .post(`/api/v1/opportunities/${opportunityId}/convert`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ note: 'Uygun değilken çevrilmemeli' });
+    expect(blockedConversion.status).toBe(422);
+
+    const restored = await supertest(server)
+      .patch(`/api/v1/opportunities/${opportunityId}`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ leadFollowUpStatus: 'attempting' });
+    expect(restored.status).toBe(200);
   });
 
   it('converts a Lead to C and removes it from the Leadler pool', async () => {

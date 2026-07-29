@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
 import { Button } from "../ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../ui/tabs";
-import { ArrowLeft, Plus, Upload, X, XCircle, Eye, FileText, CreditCard, CheckCircle2, Trash2, Wrench, Pencil, Building2, UserRound } from "lucide-react";
+import { AlarmClock, ArrowLeft, CalendarClock, Plus, Upload, X, XCircle, Eye, FileText, CreditCard, CheckCircle2, Trash2, Wrench, Pencil, Building2, UserRound } from "lucide-react";
 import {
   SalesCase,
   SALES_STAGES,
@@ -11,8 +11,12 @@ import {
   LEAD_TEMPERATURE_LABELS,
   LEAD_TEMPERATURE_ORDER,
   LEAD_TEMPERATURE_STYLES,
+  LEAD_FOLLOW_UP_STATUS_LABELS,
+  LEAD_FOLLOW_UP_STATUS_ORDER,
+  LEAD_FOLLOW_UP_STATUS_STYLES,
   type Activity,
   type DocumentItem,
+  type LeadFollowUpStatus,
   type LeadTemperature,
   type Offer,
 } from "../../lib/mock";
@@ -42,6 +46,7 @@ import { DocumentUploadDialog } from "../dialogs/DocumentUploadDialog";
 import { OfferDetailDialog } from "./offers/OffersPage";
 import { STAGE_DOT } from "./Kanban";
 import { DialogSplitLayout, DialogSidebarSection } from "../shared/DialogSplitLayout";
+import { NextActionDialog, actionDateLabel, isActionOverdue } from "../shared/NextActionDialog";
 import { KanbanDetailDialogShell } from "../shared/KanbanDetailDialogShell";
 import { fileService, opportunityService, quoteService, salesOrderService, financeService } from "../../../lib/services";
 import { toast } from "sonner";
@@ -76,8 +81,9 @@ export function SalesCaseDetailPage({
   mode?: "page" | "dialog";
 }) {
   const { offers, activities, customers, users, documents, payments, installations, refresh, deleteCase, updateCase, closeCase, updateActivity, deleteActivity } = useStore();
-  const { hasRole } = useAuth();
+  const { hasRole, hasPermission } = useAuth();
   const isSuperAdmin = hasRole("super_admin");
+  const canUpdate = hasPermission("opportunities.update");
   const [lostOpen, setLostOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [closeOpen, setCloseOpen] = useState(false);
@@ -525,6 +531,55 @@ export function SalesCaseDetailPage({
                 <div className="h-7 text-xs mt-1 text-muted-foreground">
                   {users.find((u) => u.id === sc.assignedUserId)?.name ?? "Atanmadı"}
                 </div>
+              )}
+            </DialogSidebarSection>
+            <DialogSidebarSection title="Takip Planı">
+              <div className={`rounded-r-lg border-l-[3px] px-3 py-2.5 ${isActionOverdue(sc.nextActionAt) ? "border-red-500 bg-red-50/75" : "border-primary bg-blue-50/70"}`}>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-primary">
+                    <AlarmClock className="size-3.5" /> Sonraki aksiyon
+                  </span>
+                  <span className={`inline-flex items-center gap-1 text-[9px] ${isActionOverdue(sc.nextActionAt) ? "font-semibold text-red-700" : "text-muted-foreground"}`}>
+                    <CalendarClock className="size-3" />
+                    {isActionOverdue(sc.nextActionAt) ? "Gecikti · " : ""}{actionDateLabel(sc.nextActionAt)}
+                  </span>
+                </div>
+                <div className={`mt-1.5 text-xs leading-5 ${sc.nextAction ? "font-medium" : "text-muted-foreground"}`}>
+                  {sc.nextAction || "Henüz bir sonraki aksiyon planlanmadı."}
+                </div>
+              </div>
+              {sc.qualificationStage === "lead" && (
+                <div className="mt-2">
+                  <div className="mb-1 text-[10px] uppercase tracking-wide text-muted-foreground">Lead durumu</div>
+                  <Select
+                    value={sc.leadFollowUpStatus ?? "new"}
+                    disabled={!canUpdate}
+                    onValueChange={(value) =>
+                      void updateCase(sc.id, { leadFollowUpStatus: value as LeadFollowUpStatus })
+                    }
+                  >
+                    <SelectTrigger className={`h-8 w-full text-xs ${LEAD_FOLLOW_UP_STATUS_STYLES[sc.leadFollowUpStatus ?? "new"]}`}>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {LEAD_FOLLOW_UP_STATUS_ORDER.map((status) => (
+                        <SelectItem key={status} value={status}>{LEAD_FOLLOW_UP_STATUS_LABELS[status]}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+              {canUpdate && (
+                <NextActionDialog
+                  salesCase={sc}
+                  onSave={(patch) => updateCase(sc.id, patch)}
+                  trigger={
+                    <Button type="button" variant="outline" size="sm" className="mt-2 h-8 w-full gap-1.5 text-[10px]">
+                      <AlarmClock className="size-3.5" />
+                      {sc.nextAction ? "Aksiyonu düzenle" : "Aksiyon planla"}
+                    </Button>
+                  }
+                />
               )}
             </DialogSidebarSection>
             {sc.leadContactName && (

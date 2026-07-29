@@ -264,6 +264,33 @@ export const LEAD_TEMPERATURE_STYLES: Record<LeadTemperature, { badge: string; d
 
 export const LEAD_TEMPERATURE_ORDER: LeadTemperature[] = ["hot", "waiting", "cold", "unknown"];
 
+/** Lead'in günlük çalışma durumu — satış derecesinden bağımsızdır. */
+export type LeadFollowUpStatus = "new" | "attempting" | "contacted" | "waiting" | "disqualified";
+
+export const LEAD_FOLLOW_UP_STATUS_LABELS: Record<LeadFollowUpStatus, string> = {
+  new: "Yeni",
+  attempting: "Ulaşılmaya çalışılıyor",
+  contacted: "Görüşüldü",
+  waiting: "Beklemede",
+  disqualified: "Uygun değil",
+};
+
+export const LEAD_FOLLOW_UP_STATUS_ORDER: LeadFollowUpStatus[] = [
+  "new",
+  "attempting",
+  "contacted",
+  "waiting",
+  "disqualified",
+];
+
+export const LEAD_FOLLOW_UP_STATUS_STYLES: Record<LeadFollowUpStatus, string> = {
+  new: "border-blue-200 bg-blue-50 text-blue-700",
+  attempting: "border-violet-200 bg-violet-50 text-violet-700",
+  contacted: "border-emerald-200 bg-emerald-50 text-emerald-700",
+  waiting: "border-amber-200 bg-amber-50 text-amber-700",
+  disqualified: "border-slate-200 bg-slate-100 text-slate-600",
+};
+
 export type SalesCase = {
   id: string;
   /** Firma henüz bağlanmadıysa hızlı lead kartlarında boş string olur. */
@@ -280,6 +307,11 @@ export type SalesCase = {
   leadEmail?: string;
   /** Firmanın alım niyeti — sıcak / beklemede / soğuk. */
   leadTemperature?: LeadTemperature;
+  /** Lead havuzundaki günlük takip durumu. */
+  leadFollowUpStatus?: LeadFollowUpStatus;
+  /** Satış ekibinin bir sonraki somut aksiyonu ve hedef zamanı. */
+  nextAction?: string;
+  nextActionAt?: string;
   externalSource?: string;
   externalKey?: string;
   externalUrl?: string;
