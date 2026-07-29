@@ -1,9 +1,15 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import supertest from 'supertest';
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
+import { eq } from 'drizzle-orm';
 import { createTestApp } from './setup';
+import type { DbClient } from '../src/db/client';
+import { opportunities, opportunityApprovals } from '../src/db/schema/crm';
+import { opportunityStatuses } from '../src/db/schema/lookup';
+import { DB } from '../src/shared/database/database.module';
 
 let app: NestFastifyApplication;
+let db: DbClient;
 let token = '';
 let readonlyToken = '';
 let companyId = '';
@@ -12,6 +18,7 @@ const suffix = Date.now();
 
 beforeAll(async () => {
   app = await createTestApp();
+  db = app.get<DbClient>(DB);
   const server = app.getHttpServer();
   const login = await supertest(server)
     .post('/api/v1/auth/login')
@@ -121,6 +128,63 @@ describe('Opportunity qualification pipeline', () => {
     expect(wrongStage.body.error?.message).toContain('A+');
   });
 
+  it('invalidates payment and WIN approvals when payment evidence changes', async () => {
+    const server = app.getHttpServer();
+    const opportunity = await db.query.opportunities.findFirst({
+      where: eq(opportunities.id, opportunityId),
+    });
+    expect(opportunity).toBeTruthy();
+
+    await db
+      .update(opportunities)
+      .set({
+        qualificationStage: 'a_plus',
+        paymentMethod: 'wire_transfer',
+        paymentTerms: '30 gün vadeli',
+      })
+      .where(eq(opportunities.id, opportunityId));
+    await db
+      .insert(opportunityApprovals)
+      .values([
+        {
+          tenantId: opportunity!.tenantId,
+          opportunityId,
+          approvalType: 'payment',
+          status: 'approved',
+          decidedBy: opportunity!.ownerUserId,
+          decidedAt: new Date(),
+        },
+        {
+          tenantId: opportunity!.tenantId,
+          opportunityId,
+          approvalType: 'win',
+          status: 'approved',
+          decidedBy: opportunity!.ownerUserId,
+          decidedAt: new Date(),
+        },
+      ])
+      .onConflictDoUpdate({
+        target: [opportunityApprovals.opportunityId, opportunityApprovals.approvalType],
+        set: {
+          status: 'approved',
+          decidedBy: opportunity!.ownerUserId,
+          decidedAt: new Date(),
+          deletedAt: null,
+        },
+      });
+
+    const changed = await supertest(server)
+      .patch(`/api/v1/opportunities/${opportunityId}`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ paymentTerms: '60 gün vadeli' });
+
+    expect(changed.status, JSON.stringify(changed.body)).toBe(200);
+    expect(changed.body.qualificationReadiness.approvals).toMatchObject({
+      payment: 'pending',
+      win: 'pending',
+    });
+  });
+
   it('requires a LOST reason, then archives the terminal opportunity without deleting it', async () => {
     const server = app.getHttpServer();
     const missingReason = await supertest(server)
@@ -157,5 +221,21 @@ describe('Opportunity qualification pipeline', () => {
       .get(`/api/v1/opportunities/${opportunityId}`)
       .set('Authorization', `Bearer ${token}`);
     expect(direct.status).toBe(200);
+
+    const reopened = await supertest(server)
+      .post(`/api/v1/opportunities/${opportunityId}/reopen`)
+      .set('Authorization', `Bearer ${token}`);
+    expect(reopened.status, JSON.stringify(reopened.body)).toBe(201);
+    expect(reopened.body.closedAt).toBeNull();
+    expect(reopened.body.qualificationStage).toBe('a_plus');
+    expect(reopened.body.qualificationHistory[0]).toMatchObject({
+      fromStage: 'lost',
+      toStage: 'a_plus',
+    });
+    const [reopenedRow, openStatus] = await Promise.all([
+      db.query.opportunities.findFirst({ where: eq(opportunities.id, opportunityId) }),
+      db.query.opportunityStatuses.findFirst({ where: eq(opportunityStatuses.code, 'open') }),
+    ]);
+    expect(reopenedRow?.statusId).toBe(openStatus?.id);
   });
 });

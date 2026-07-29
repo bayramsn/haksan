@@ -1629,7 +1629,32 @@ export class OpportunitiesService {
       if ((input as any)[k] !== undefined) patch[k] = (input as any)[k] ?? null;
     }
     if (input.companyId === null && input.primaryContactId === undefined) patch.primaryContactId = null;
-    await this.db.update(opportunities).set(patch).where(eq(opportunities.id, id));
+    const paymentEvidenceChanged =
+      (input.paymentMethod !== undefined && (input.paymentMethod ?? null) !== (existing.paymentMethod ?? null)) ||
+      (input.paymentTerms !== undefined && (input.paymentTerms?.trim() || null) !== (existing.paymentTerms?.trim() || null)) ||
+      (input.paymentTermDays !== undefined && (input.paymentTermDays ?? null) !== (existing.paymentTermDays ?? null));
+
+    await this.db.transaction(async (tx) => {
+      await tx.update(opportunities).set(patch).where(eq(opportunities.id, id));
+      if (paymentEvidenceChanged) {
+        await tx
+          .update(opportunityApprovals)
+          .set({
+            status: 'pending',
+            decidedBy: null,
+            decidedAt: null,
+            note: null,
+            updatedAt: new Date(),
+          })
+          .where(
+            and(
+              eq(opportunityApprovals.opportunityId, id),
+              inArray(opportunityApprovals.approvalType, ['payment', 'win']),
+              isNull(opportunityApprovals.deletedAt)
+            )
+          );
+      }
+    });
     return this.get(id, actor);
   }
 
@@ -1960,6 +1985,9 @@ export class OpportunitiesService {
       if (!row?.count) throw new ValidationError('Kurulum onayı için tamamlanmış kurulum kaydı gereklidir');
       return;
     }
+    for (const evidenceType of ['payment', 'customs', 'invoice', 'installation'] as OpportunityApprovalType[]) {
+      await this.assertApprovalEvidence(opp, evidenceType, actor);
+    }
     const contexts = await this.qualificationContexts([opp]);
     const approvals = contexts.get(opp.id)!.approvals;
     const blockers = (['payment', 'customs', 'invoice', 'installation'] as OpportunityApprovalType[])
@@ -2055,17 +2083,95 @@ export class OpportunitiesService {
     return this.get(id, actor);
   }
 
-  /** Geri Aç: yanlış kapatmayı geri alır — `closedAt` sıfırlanır, fırsat aktif panoya döner. */
+  /** Geri Aç: yanlış kapatmayı geri alır ve terminal satış derecesini önceki aktif dereceye taşır. */
   async reopen(id: string, actor: AuthContext) {
     const opp = await this.findScopedOpp(id, actor);
     if (!opp.closedAt) throw new ValidationError('Fırsat zaten açık');
-    await this.db.update(opportunities).set({ closedAt: null, closedBy: null }).where(eq(opportunities.id, id));
+    const terminalStage = this.qualificationStage(opp.qualificationStage);
+    const isQualificationTerminal = terminalStage === 'win' || terminalStage === 'lost';
+    let reopenedStage: QualificationStageCode | null = null;
+    let openStatusId: string | null = null;
+
+    if (isQualificationTerminal) {
+      const previousChange = await this.db.query.opportunityQualificationHistory.findFirst({
+        where: and(
+          eq(opportunityQualificationHistory.tenantId, actor.tenantId),
+          eq(opportunityQualificationHistory.opportunityId, id),
+          eq(opportunityQualificationHistory.toStage, terminalStage)
+        ),
+        orderBy: desc(opportunityQualificationHistory.createdAt),
+      });
+      const previousStage = previousChange?.fromStage as QualificationStageCode | null | undefined;
+      reopenedStage =
+        previousStage &&
+        QUALIFICATION_STAGES.includes(previousStage) &&
+        previousStage !== 'win' &&
+        previousStage !== 'lost'
+          ? previousStage
+          : terminalStage === 'win'
+            ? 'a_plus'
+            : 'c';
+      const openStatus = await this.db.query.opportunityStatuses.findFirst({
+        where: eq(opportunityStatuses.code, 'open'),
+      });
+      openStatusId = openStatus?.id ?? null;
+    }
+
+    const now = new Date();
+    await this.db.transaction(async (tx) => {
+      await tx
+        .update(opportunities)
+        .set({
+          closedAt: null,
+          closedBy: null,
+          ...(reopenedStage
+            ? {
+                qualificationStage: reopenedStage,
+                qualificationNote: 'Geçmişten geri açıldı',
+                qualificationUpdatedAt: now,
+                statusId: openStatusId ?? opp.statusId,
+              }
+            : {}),
+          updatedAt: now,
+          updatedBy: actor.userId,
+        })
+        .where(eq(opportunities.id, id));
+
+      if (reopenedStage) {
+        await tx
+          .update(opportunityApprovals)
+          .set({
+            status: 'pending',
+            decidedBy: null,
+            decidedAt: null,
+            note: null,
+            updatedAt: now,
+          })
+          .where(
+            and(
+              eq(opportunityApprovals.opportunityId, id),
+              eq(opportunityApprovals.approvalType, 'win'),
+              isNull(opportunityApprovals.deletedAt)
+            )
+          );
+        await tx.insert(opportunityQualificationHistory).values({
+          tenantId: actor.tenantId,
+          opportunityId: id,
+          fromStage: terminalStage,
+          toStage: reopenedStage,
+          changedBy: actor.userId,
+          changeReason: 'Geçmişten geri açıldı',
+        });
+      }
+    });
     await this.audit.write({
       tenantId: actor.tenantId,
       actorUserId: actor.userId,
       action: 'opportunity.reopened',
       resourceType: 'opportunity',
       resourceId: id,
+      oldValues: { qualificationStage: terminalStage, closedAt: opp.closedAt },
+      newValues: { qualificationStage: reopenedStage ?? terminalStage, closedAt: null },
     });
     return this.get(id, actor);
   }
