@@ -55,8 +55,19 @@ docker tag "$WEB_IMAGE_URI" haksan-nginx:latest
 [[ "$(docker image inspect -f '{{.Architecture}}' haksan-nginx:latest)" == "amd64" ]]
 
 # A verified offsite backup is mandatory immediately before migrations.
-systemctl start haksan-aws-backup.service
-[[ "$(systemctl show haksan-aws-backup.service -p Result --value)" == "success" ]]
+if ! systemctl start haksan-aws-backup.service; then
+  echo "ECR_DEPLOY_BACKUP_FAILED" >&2
+  systemctl --no-pager --full status haksan-aws-backup.service >&2 || true
+  journalctl --no-pager -u haksan-aws-backup.service -n 100 >&2 || true
+  false
+fi
+backup_result="$(systemctl show haksan-aws-backup.service -p Result --value)"
+if [[ "$backup_result" != "success" ]]; then
+  echo "ECR_DEPLOY_BACKUP_FAILED result=$backup_result" >&2
+  systemctl --no-pager --full status haksan-aws-backup.service >&2 || true
+  journalctl --no-pager -u haksan-aws-backup.service -n 100 >&2 || true
+  false
+fi
 
 cd "$APP_ROOT"
 docker compose --env-file .env config --quiet
