@@ -2,6 +2,67 @@
 set -Eeuo pipefail
 umask 077
 
+run_verified_offsite_backup() {
+  local app_root="${APP_ROOT:-/opt/haksan}"
+  local aws_region="${AWS_REGION:-eu-central-1}"
+  local backup_bucket="${AWS_BACKUP_BUCKET:-haksan-prod-backups-866490183348-eu-central-1}"
+  local instance_id="${INSTANCE_ID:-i-0fac9a4d4eca0cf13}"
+  local backup_dir="${LOCAL_BACKUP_DIR:-$app_root/backups/postgres}"
+  local latest checksum object_key remote_checksum
+
+  report_backup_metric() {
+    local exit_code=$? success=0
+    [[ "$exit_code" -eq 0 ]] && success=1
+    aws cloudwatch put-metric-data \
+      --region "$aws_region" \
+      --namespace Haksan/Production \
+      --metric-data "MetricName=DatabaseBackupSuccess,Dimensions=[{Name=InstanceId,Value=$instance_id}],Value=$success,Unit=Count" \
+      >/dev/null 2>&1 || true
+    exit "$exit_code"
+  }
+  trap report_backup_metric EXIT
+
+  [[ -x "$app_root/deploy/backup-postgres.sh" ]] || {
+    echo "[aws-backup] local backup runner missing or not executable." >&2
+    return 1
+  }
+  cd "$app_root"
+  "$app_root/deploy/backup-postgres.sh"
+
+  latest="$(find "$backup_dir" -maxdepth 1 -type f -name 'haksan_*.sql.gz' -print | sort | tail -1)"
+  [[ -n "$latest" && -f "$latest" ]] || {
+    printf '[aws-backup] verified local backup not found in %s\n' "$backup_dir" >&2
+    return 1
+  }
+
+  gzip -t "$latest"
+  checksum="$(sha256sum "$latest" | awk '{ print $1 }')"
+  object_key="postgres/$(basename "$latest")"
+  aws s3 cp "$latest" "s3://$backup_bucket/$object_key" \
+    --region "$aws_region" \
+    --only-show-errors \
+    --sse AES256 \
+    --metadata "sha256=$checksum"
+
+  remote_checksum="$(aws s3api head-object \
+    --region "$aws_region" \
+    --bucket "$backup_bucket" \
+    --key "$object_key" \
+    --query 'Metadata.sha256' \
+    --output text)"
+  [[ "$remote_checksum" == "$checksum" ]] || {
+    printf '[aws-backup] checksum mismatch for s3://%s/%s\n' "$backup_bucket" "$object_key" >&2
+    return 1
+  }
+
+  printf '[aws-backup] verified s3://%s/%s sha256=%s\n' "$backup_bucket" "$object_key" "$checksum"
+}
+
+if [[ "$(basename -- "$0")" == "aws-backup-postgres.sh" || "${1:-}" == "--backup-only" ]]; then
+  run_verified_offsite_backup
+  exit
+fi
+
 : "${RELEASE_ID:?RELEASE_ID is required}"
 : "${API_IMAGE_URI:?API_IMAGE_URI is required}"
 : "${WEB_IMAGE_URI:?WEB_IMAGE_URI is required}"
@@ -55,13 +116,12 @@ docker tag "$WEB_IMAGE_URI" haksan-nginx:latest
 [[ "$(docker image inspect -f '{{.Architecture}}' haksan-nginx:latest)" == "amd64" ]]
 
 # A verified offsite backup is mandatory immediately before migrations.
+managed_runner="$APP_ROOT/deploy/deploy-ecr-release.sh"
 backup_script="$APP_ROOT/deploy/aws-backup-postgres.sh"
-[[ -f "$backup_script" ]] || {
-  echo "ECR_DEPLOY_BACKUP_SCRIPT_MISSING path=$backup_script" >&2
-  false
-}
-bash -n "$backup_script"
-chmod 0750 "$backup_script"
+[[ -x "$APP_ROOT/deploy/backup-postgres.sh" ]]
+install -m 0750 "$0" "$managed_runner"
+ln -sfn "$(basename "$managed_runner")" "$backup_script"
+bash -n "$managed_runner"
 if ! systemctl start haksan-aws-backup.service; then
   echo "ECR_DEPLOY_BACKUP_FAILED" >&2
   systemctl --no-pager --full status haksan-aws-backup.service >&2 || true
