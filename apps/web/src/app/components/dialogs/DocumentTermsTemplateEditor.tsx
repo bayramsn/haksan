@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useId, useMemo, useState } from "react";
 import { BookmarkPlus } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "../ui/button";
@@ -7,6 +7,8 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "../ui/select";
 import { Textarea } from "../ui/textarea";
+import { Input } from "../ui/input";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "../ui/dialog";
 import type { NoteTemplate } from "../../lib/store";
 import { QUOTE_NOTE_VARIANTS } from "../../lib/print";
 
@@ -109,6 +111,10 @@ export function DocumentTermsTemplateEditor({
   includeBuiltInVariants = true,
   onBuiltInTemplateSelected,
 }: Props) {
+  const fieldId = useId();
+  const [templateDialogMode, setTemplateDialogMode] = useState<"create" | "update" | "delete" | null>(null);
+  const [templateTitle, setTemplateTitle] = useState("");
+  const [templateBusy, setTemplateBusy] = useState(false);
   const savedTemplates = useTermsTemplates(noteTemplates, templateScope);
   const selectedSavedTemplate = savedTemplates.find((template) => template.selectKey === selectedTemplateKey);
 
@@ -139,50 +145,47 @@ export function DocumentTermsTemplateEditor({
     });
   };
 
-  const saveAsNewTemplate = async () => {
+  const saveAsNewTemplate = () => {
     if (!value.paymentTerms.trim() && !value.deliveryTerms.trim() && !value.warrantyTerms.trim()) {
       return toast.error("Önce belge şartı girin");
     }
-    const titleInput = window.prompt("Yeni şablon başlığı:", selectedSavedTemplate ? `${selectedSavedTemplate.title} kopya` : "");
-    if (!titleInput?.trim()) return;
-    try {
-      const created = await addNoteTemplate({
-        title: titleInput.trim(),
-        body: currentBody(),
-        scope: templateScope,
-      });
-      onSelectedTemplateKeyChange(termsTemplateKey(created.id));
-      toast.success("Belge şartları yeni şablon olarak kaydedildi");
-    } catch (err: any) {
-      toast.error("Şablon kaydedilemedi", { description: err?.message });
-    }
+    setTemplateTitle(selectedSavedTemplate ? `${selectedSavedTemplate.title} kopya` : "");
+    setTemplateDialogMode("create");
   };
 
-  const updateSelectedTemplate = async () => {
+  const updateSelectedTemplate = () => {
     if (!selectedSavedTemplate) return;
-    const titleInput = window.prompt("Şablon başlığı:", selectedSavedTemplate.title);
-    if (!titleInput?.trim()) return;
-    try {
-      await updateNoteTemplate(selectedSavedTemplate.id, {
-        title: titleInput.trim(),
-        body: currentBody(),
-        scope: templateScope,
-      });
-      toast.success("Belge şartları şablonu güncellendi");
-    } catch (err: any) {
-      toast.error("Şablon güncellenemedi", { description: err?.message });
-    }
+    setTemplateTitle(selectedSavedTemplate.title);
+    setTemplateDialogMode("update");
   };
 
-  const deleteSelectedTemplate = async () => {
+  const deleteSelectedTemplate = () => {
     if (!selectedSavedTemplate) return;
-    if (!window.confirm(`"${selectedSavedTemplate.title}" şablonu silinsin mi?`)) return;
+    setTemplateDialogMode("delete");
+  };
+
+  const submitTemplateAction = async () => {
+    if (!templateDialogMode || !selectedSavedTemplate && templateDialogMode !== "create") return;
+    if (templateDialogMode !== "delete" && !templateTitle.trim()) return;
+    setTemplateBusy(true);
     try {
-      await deleteNoteTemplate(selectedSavedTemplate.id);
-      onSelectedTemplateKeyChange("");
-      toast.success("Belge şartları şablonu silindi");
+      if (templateDialogMode === "create") {
+        const created = await addNoteTemplate({ title: templateTitle.trim(), body: currentBody(), scope: templateScope });
+        onSelectedTemplateKeyChange(termsTemplateKey(created.id));
+        toast.success("Belge şartları yeni şablon olarak kaydedildi");
+      } else if (templateDialogMode === "update" && selectedSavedTemplate) {
+        await updateNoteTemplate(selectedSavedTemplate.id, { title: templateTitle.trim(), body: currentBody(), scope: templateScope });
+        toast.success("Belge şartları şablonu güncellendi");
+      } else if (templateDialogMode === "delete" && selectedSavedTemplate) {
+        await deleteNoteTemplate(selectedSavedTemplate.id);
+        onSelectedTemplateKeyChange("");
+        toast.success("Belge şartları şablonu silindi");
+      }
+      setTemplateDialogMode(null);
     } catch (err: any) {
-      toast.error("Şablon silinemedi", { description: err?.message });
+      toast.error(templateDialogMode === "delete" ? "Şablon silinemedi" : "Şablon kaydedilemedi", { description: err?.message });
+    } finally {
+      setTemplateBusy(false);
     }
   };
 
@@ -228,8 +231,9 @@ export function DocumentTermsTemplateEditor({
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3 p-3">
         <div>
-          <Label className="text-xs">Ödeme Şartları</Label>
+          <Label className="text-xs" htmlFor={`${fieldId}-payment`}>Ödeme Şartları</Label>
           <Textarea
+            id={`${fieldId}-payment`}
             className="mt-1.5 min-h-28"
             value={value.paymentTerms}
             onChange={(event) => updateValue({ paymentTerms: event.target.value })}
@@ -237,8 +241,9 @@ export function DocumentTermsTemplateEditor({
           />
         </div>
         <div>
-          <Label className="text-xs">Teslimat Şartları</Label>
+          <Label className="text-xs" htmlFor={`${fieldId}-delivery`}>Teslimat Şartları</Label>
           <Textarea
+            id={`${fieldId}-delivery`}
             className="mt-1.5 min-h-28"
             value={value.deliveryTerms}
             onChange={(event) => updateValue({ deliveryTerms: event.target.value })}
@@ -246,8 +251,9 @@ export function DocumentTermsTemplateEditor({
           />
         </div>
         <div>
-          <Label className="text-xs">Garanti Şartları</Label>
+          <Label className="text-xs" htmlFor={`${fieldId}-warranty`}>Garanti Şartları</Label>
           <Textarea
+            id={`${fieldId}-warranty`}
             className="mt-1.5 min-h-28"
             value={value.warrantyTerms}
             onChange={(event) => updateValue({ warrantyTerms: event.target.value })}
@@ -255,6 +261,30 @@ export function DocumentTermsTemplateEditor({
           />
         </div>
       </div>
+      <Dialog open={Boolean(templateDialogMode)} onOpenChange={(open) => !open && !templateBusy && setTemplateDialogMode(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>{templateDialogMode === "delete" ? "Şablon silinsin mi?" : templateDialogMode === "update" ? "Şablonu güncelle" : "Yeni belge şartları şablonu"}</DialogTitle>
+            <DialogDescription>
+              {templateDialogMode === "delete"
+                ? `“${selectedSavedTemplate?.title ?? "Seçili şablon"}” kayıtlı şablonlardan kaldırılacak; mevcut belge metni değişmeyecek.`
+                : "Ödeme, teslimat ve garanti metinlerinin mevcut hali bu başlıkla kaydedilecek."}
+            </DialogDescription>
+          </DialogHeader>
+          {templateDialogMode !== "delete" && (
+            <div>
+              <Label htmlFor={`${fieldId}-template-title`} className="text-xs">Şablon başlığı</Label>
+              <Input id={`${fieldId}-template-title`} className="mt-1.5" value={templateTitle} onChange={(event) => setTemplateTitle(event.target.value)} autoFocus maxLength={120} />
+            </div>
+          )}
+          <DialogFooter>
+            <Button type="button" variant="outline" disabled={templateBusy} onClick={() => setTemplateDialogMode(null)}>Vazgeç</Button>
+            <Button type="button" variant={templateDialogMode === "delete" ? "destructive" : "default"} disabled={templateBusy || (templateDialogMode !== "delete" && !templateTitle.trim())} onClick={() => void submitTemplateAction()}>
+              {templateBusy ? "İşleniyor…" : templateDialogMode === "delete" ? "Şablonu sil" : templateDialogMode === "update" ? "Güncelle" : "Şablonu kaydet"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

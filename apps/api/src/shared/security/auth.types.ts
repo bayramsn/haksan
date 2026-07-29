@@ -36,5 +36,7 @@ declare module 'fastify' {
   interface FastifyRequest {
     auth?: AuthContext;
     requestId?: string;
+    /** İmzalı webhook doğrulaması için JSON ayrıştırılmadan önceki UTF-8 gövde. */
+    rawBody?: string;
   }
 }

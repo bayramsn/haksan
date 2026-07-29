@@ -6,12 +6,14 @@ import {
   quoteUpdateSchema,
   quoteItemCreateSchema,
   quoteItemUpdateSchema,
+  quoteStatusChangeSchema,
   quoteTermsUpsertSchema,
   paginationSchema,
   type QuoteCreateInput,
   type QuoteUpdateInput,
   type QuoteItemCreateInput,
   type QuoteItemUpdateInput,
+  type QuoteStatusChangeInput,
   type QuoteTermsUpsertInput,
   type Pagination,
 } from '@haksan/shared';
@@ -144,6 +146,16 @@ export class QuotesController {
   }
 
   @RequirePermissions('quotes.update')
+  @Post(':id/status')
+  changeStatus(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(quoteStatusChangeSchema)) body: QuoteStatusChangeInput,
+    @CurrentUser() user: AuthContext
+  ) {
+    return this.svc.changeStatus(id, body, user);
+  }
+
+  @RequirePermissions('quotes.update')
   @Post(':id/send')
   send(@Param('id') id: string, @CurrentUser() user: AuthContext) {
     return this.svc.send(id, user);
@@ -156,6 +168,7 @@ export class QuotesController {
     res
       .header('Content-Type', 'application/pdf')
       .header('Content-Disposition', `attachment; filename="${filename}"`)
+      .header('Cache-Control', 'private, no-store')
       .send(buffer);
   }
 }

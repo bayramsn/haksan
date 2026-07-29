@@ -442,6 +442,188 @@
       "when": 1785350400000,
       "tag": "0063_security_hardening_reapply",
       "breakpoints": true
+    },
+    {
+      "idx": 64,
+      "version": "7",
+      "when": 1785436800000,
+      "tag": "0064_assistant_unified_inbox",
+      "breakpoints": true
+    },
+    {
+      "idx": 65,
+      "version": "7",
+      "when": 1785523200000,
+      "tag": "0065_restore_referenced_companies",
+      "breakpoints": true
+    },
+    {
+      "idx": 66,
+      "version": "7",
+      "when": 1785609600000,
+      "tag": "0066_document_snapshots",
+      "breakpoints": true
+    },
+    {
+      "idx": 67,
+      "version": "7",
+      "when": 1785696000000,
+      "tag": "0067_product_taxonomy_links",
+      "breakpoints": true
+    },
+    {
+      "idx": 68,
+      "version": "7",
+      "when": 1785782400000,
+      "tag": "0068_brand_division_backfill",
+      "breakpoints": true
+    },
+    {
+      "idx": 69,
+      "version": "7",
+      "when": 1785868800000,
+      "tag": "0069_brands_sort_order",
+      "breakpoints": true
+    },
+    {
+      "idx": 70,
+      "version": "7",
+      "when": 1785955200000,
+      "tag": "0070_reconcile_product_media_urls",
+      "breakpoints": true
+    },
+    {
+      "idx": 71,
+      "version": "7",
+      "when": 1786041600000,
+      "tag": "0071_assistant_usd_budgets",
+      "breakpoints": true
+    },
+    {
+      "idx": 72,
+      "version": "7",
+      "when": 1786128000000,
+      "tag": "0072_company_address_roles",
+      "breakpoints": true
+    },
+    {
+      "idx": 73,
+      "version": "7",
+      "when": 1786214400000,
+      "tag": "0073_quote_pdf_address",
+      "breakpoints": true
+    },
+    {
+      "idx": 74,
+      "version": "7",
+      "when": 1786300800000,
+      "tag": "0074_competitor_company_type",
+      "breakpoints": true
+    },
+    {
+      "idx": 75,
+      "version": "7",
+      "when": 1786387200000,
+      "tag": "0075_maintenance_plans",
+      "breakpoints": true
+    },
+    {
+      "idx": 76,
+      "version": "7",
+      "when": 1786473600000,
+      "tag": "0076_product_series",
+      "breakpoints": true
+    },
+    {
+      "idx": 77,
+      "version": "7",
+      "when": 1786560000000,
+      "tag": "0077_push_tokens",
+      "breakpoints": true
+    },
+    {
+      "idx": 78,
+      "version": "7",
+      "when": 1786646400000,
+      "tag": "0078_logistics_workflow",
+      "breakpoints": true
+    },
+    {
+      "idx": 79,
+      "version": "7",
+      "when": 1786732800000,
+      "tag": "0079_shipment_direction_backfill",
+      "breakpoints": true
+    },
+    {
+      "idx": 80,
+      "version": "7",
+      "when": 1786819200000,
+      "tag": "0080_legacy_shipments_outgoing",
+      "breakpoints": true
+    },
+    {
+      "idx": 81,
+      "version": "7",
+      "when": 1786905600000,
+      "tag": "0081_legacy_incoming_shipments",
+      "breakpoints": true
+    },
+    {
+      "idx": 82,
+      "version": "7",
+      "when": 1786992000000,
+      "tag": "0082_quote_followups_payment_method",
+      "breakpoints": true
+    },
+    {
+      "idx": 83,
+      "version": "7",
+      "when": 1787078400000,
+      "tag": "0083_quote_item_nationalized",
+      "breakpoints": true
+    },
+    {
+      "idx": 84,
+      "version": "7",
+      "when": 1787164800000,
+      "tag": "0084_companyless_quick_leads",
+      "breakpoints": true
+    },
+    {
+      "idx": 85,
+      "version": "7",
+      "when": 1787251200000,
+      "tag": "0085_trello_company_resolution",
+      "breakpoints": true
+    },
+    {
+      "idx": 86,
+      "version": "7",
+      "when": 1787337600000,
+      "tag": "0086_lead_temperature_contact",
+      "breakpoints": true
+    },
+    {
+      "idx": 87,
+      "version": "7",
+      "when": 1787424000000,
+      "tag": "0087_opportunity_qualification_pipeline",
+      "breakpoints": true
+    },
+    {
+      "idx": 88,
+      "version": "7",
+      "when": 1787510400000,
+      "tag": "0088_restrict_sales_opportunity_approvals",
+      "breakpoints": true
+    },
+    {
+      "idx": 89,
+      "version": "7",
+      "when": 1787596800000,
+      "tag": "0089_product_spec_template_soft_delete",
+      "breakpoints": true
     }
   ]
 }

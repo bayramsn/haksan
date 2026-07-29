@@ -17,6 +17,8 @@ import type {
   CommercialInvoiceUpdateInput,
   CompanyCreateInput,
   CompanyOsmSearchResult,
+  CompanyWebsiteLookupInput,
+  CompanyWebsiteLookupResult,
   CompanyUpdateInput,
   CompetitorCreateInput,
   CompetitorProductCreateInput,
@@ -39,8 +41,17 @@ import type {
   NoteTemplateCreateInput,
   NoteTemplateUpdateInput,
   OpportunityCreateInput,
+  OpportunityApprovalDecisionInput,
+  OpportunityApprovalType,
+  OpportunityCompanyLinkInput,
+  OpportunityConvertInput,
+  OpportunityQualificationChangeInput,
   OpportunityStageChangeInput,
   OpportunityUpdateInput,
+  TrelloImportCommitRequest,
+  TrelloImportPreviewRequest,
+  TrelloImportRowInput,
+  TrelloCompanyCandidate,
   OrderStatusUpdateInput,
   PaymentCreateInput,
   PaymentUpdateInput,
@@ -55,6 +66,10 @@ import type {
   ProductSpecTemplateCreateInput,
   ProductSpecTemplateUpdateInput,
   ProductSpecTemplateBulkCreateInput,
+  ProductSpecTemplateBatchInput,
+  TechnicalImportCommitRequest,
+  TechnicalImportPreviewRequest,
+  TechnicalImportRowInput,
   ProductUpdateInput,
   ProformaCreateInput,
   ProformaUpdateInput,
@@ -65,6 +80,7 @@ import type {
   QuoteCreateInput,
   QuoteItemCreateInput,
   QuoteItemUpdateInput,
+  QuoteStatusChangeInput,
   QuoteTermsUpsertInput,
   QuoteUpdateInput,
   ReceivableCreateInput,
@@ -92,10 +108,18 @@ import type {
   CallAssistantAction,
   CallSuggestionActionInput,
   ManualCallEventInput,
+  AssistantApprovalCard,
+  AssistantApprovalDecisionResponse,
+  AssistantBriefingResponse,
   AssistantChatInput,
   AssistantChatResponse,
+  AssistantCompanyMemory,
   AssistantExecuteActionInput,
   AssistantExecuteActionResponse,
+  AssistantInboxCapture,
+  AssistantInboxItem,
+  AssistantInboxListQuery,
+  AssistantInboxUpdate,
   AssistantSuggestion,
 } from '@haksan/shared';
 import { API_BASE_URL, ApiError, api, getAccessToken, getActiveDepartment, getActiveDivision } from './apiClient';
@@ -104,6 +128,56 @@ import { exportService } from './downloadExport';
 export interface Paginated<T> {
   data: T[];
   meta: { page: number; pageSize: number; total: number; totalPages: number };
+}
+
+export type TrelloImportStatus = 'create' | 'skip' | 'error';
+
+export interface TrelloImportPreviewRow extends TrelloImportRowInput {
+  candidate: TrelloCompanyCandidate;
+  matches: Array<{
+    id: string;
+    legalTitle: string;
+    shortName?: string | null;
+    taxNumber?: string | null;
+    website?: string | null;
+    primaryPhone?: string | null;
+    secondaryPhone?: string | null;
+    primaryEmail?: string | null;
+    secondaryEmail?: string | null;
+    province?: string | null;
+    district?: string | null;
+    score: number;
+    confidence: 'strong' | 'possible';
+    reasons: string[];
+    contactMatch?: { id: string; fullName: string; reason: string };
+  }>;
+  status: TrelloImportStatus;
+  errors: string[];
+  warnings: string[];
+}
+
+export interface TrelloImportPreview {
+  fileName: string;
+  headerRowNumber: number;
+  rows: TrelloImportPreviewRow[];
+  summary: { total: number; create: number; skip: number; error: number };
+  capabilities: {
+    canCreateCompany: boolean;
+    canUpdateCompany: boolean;
+    canCreateContact: boolean;
+  };
+}
+
+export interface TrelloImportCommitResult {
+  rows: Array<{
+    rowNumber: number;
+    trelloCardId?: string;
+    title: string;
+    status: TrelloImportStatus;
+    opportunityId?: string;
+    errors: string[];
+  }>;
+  summary: { total: number; create: number; skip: number; error: number };
 }
 
 type SignedUploadResponse = { fileId: string; bucket: string; objectKey: string; uploadUrl: string; expiresInSeconds: number };
@@ -116,6 +190,7 @@ export type ProductImportStatus = 'create' | 'update' | 'error' | 'skip';
 export interface ProductImportRow {
   rowNumber: number;
   brandName: string;
+  series?: string;
   modelCode: string;
   modelName?: string;
   fullName: string;
@@ -155,6 +230,28 @@ export interface ProductImportPreview {
   summary: ProductImportSummary;
 }
 
+export interface TechnicalImportPreview {
+  file: { name: string; sheetNames: string[]; rowCount: number };
+  rows: TechnicalImportRowInput[];
+  summary: {
+    total: number;
+    exact: number;
+    normalized: number;
+    review: number;
+    unmatched: number;
+    ready: number;
+  };
+  suggestedProducts: Array<{
+    id: string;
+    modelCode: string;
+    fullName: string;
+    brandName?: string | null;
+    productTypeCode?: string | null;
+    label: string;
+    score: number;
+  }>;
+}
+
 // ───── Companies ─────
 export interface AuditUserDTO {
   id: string;
@@ -167,6 +264,7 @@ export interface CompanyDTO {
   legalTitle: string;
   shortName?: string | null;
   sector?: string | null;
+  supplierCategoryCode?: 'transportation' | 'logistics' | null;
   taxNumber?: string | null;
   taxOffice?: string | null;
   website?: string | null;
@@ -184,10 +282,16 @@ export const companyService = {
   get: (id: string) => api.get<CompanyDTO & { addresses: any[]; phones: any[]; emails: any[] }>(`/companies/${id}`),
   create: (body: CompanyCreateInput) => api.post<CompanyDTO>('/companies', body),
   update: (id: string, body: CompanyUpdateInput) => api.patch<CompanyDTO>(`/companies/${id}`, body),
-  osmSearch: (params: { q: string; address?: string; city?: string; district?: string }) =>
+  osmSearch: (params: { q: string; address?: string; city?: string; district?: string; country?: string }) =>
     api.get<CompanyOsmSearchResult[]>(`/companies/osm-search${qs(params)}`),
-  /** Haritadaki manuel pin düzeltmesini kalıcı kaydeder; null'lar konumu temizler. */
-  setLocation: (id: string, body: { latitude: number | null; longitude: number | null }) =>
+  websiteLookup: (body: CompanyWebsiteLookupInput) =>
+    api.post<CompanyWebsiteLookupResult>('/companies/website-lookup', body),
+  /** Doğruluk kaynağıyla birlikte firma konumunu kalıcı kaydeder; null'lar konumu temizler. */
+  setLocation: (id: string, body: {
+    latitude: number | null;
+    longitude: number | null;
+    source?: 'manual' | 'verified' | 'osm_exact' | 'osm_street' | 'osm_area';
+  }) =>
     api.patch<CompanyDTO>(`/companies/${id}/location`, body),
   remove: (id: string) => api.delete(`/companies/${id}`),
   /** Başka bölümlerdeki açık alacak (borç) uyarısı. Tutar yalnızca süper yönetici/view_all için döner. */
@@ -258,6 +362,11 @@ export interface CallEventIngestResponse {
   idempotent?: boolean;
 }
 
+export type NotificationTarget =
+  | { kind: 'company'; companyId: string }
+  | { kind: 'opportunity'; opportunityId: string }
+  | { kind: 'navigate'; nav: string; query?: string };
+
 export interface NotificationDTO {
   id: string;
   type: string;
@@ -265,6 +374,8 @@ export interface NotificationDTO {
   body?: string | null;
   entityType?: string | null;
   entityId?: string | null;
+  /** Tıklanınca açılacak kayıt/ekran — API tarafında çözülür. */
+  target?: NotificationTarget | null;
   readAt?: string | null;
   createdAt: string;
 }
@@ -289,7 +400,20 @@ export const callAssistantService = {
 
 export const assistantService = {
   suggestions: () => api.get<AssistantSuggestion[]>('/assistant/suggestions'),
+  briefing: () => api.get<AssistantBriefingResponse>('/assistant/briefing'),
+  companyMemory: (companyId: string) =>
+    api.get<AssistantCompanyMemory>(`/assistant/companies/${encodeURIComponent(companyId)}/memory`),
+  approvals: () => api.get<AssistantApprovalCard[]>('/assistant/approvals'),
+  inbox: (params: Partial<AssistantInboxListQuery> = {}) =>
+    api.get<AssistantInboxItem[]>(`/assistant/inbox${qs(params as Record<string, string | number | undefined>)}`),
+  captureInbox: (body: AssistantInboxCapture) => api.post<AssistantInboxItem>('/assistant/inbox', body),
+  updateInbox: (id: string, body: AssistantInboxUpdate) =>
+    api.patch<AssistantInboxItem>(`/assistant/inbox/${encodeURIComponent(id)}`, body),
+  prepareInboxReply: (id: string) =>
+    api.post<AssistantApprovalCard>(`/assistant/inbox/${encodeURIComponent(id)}/reply-approval`, {}),
   chat: (body: AssistantChatInput) => api.post<AssistantChatResponse>('/assistant/chat', body),
+  decideApproval: (id: string, confirm: boolean) =>
+    api.post<AssistantApprovalDecisionResponse>(`/assistant/approvals/${encodeURIComponent(id)}/decision`, { confirm }),
   executeAction: (id: string, body: AssistantExecuteActionInput) =>
     api.post<AssistantExecuteActionResponse>(`/assistant/actions/${encodeURIComponent(id)}/execute`, body),
 };
@@ -317,7 +441,19 @@ export const opportunityService = {
   list: (params?: Record<string, string | number | undefined>) => api.get<Paginated<any>>(`/opportunities${qs(params)}`),
   get: (id: string) => api.get<any>(`/opportunities/${id}`),
   create: (body: OpportunityCreateInput) => api.post<any>('/opportunities', body),
+  previewTrelloImport: (body: TrelloImportPreviewRequest) =>
+    api.post<TrelloImportPreview>('/opportunities/imports/trello/preview', body),
+  commitTrelloImport: (body: TrelloImportCommitRequest) =>
+    api.post<TrelloImportCommitResult>('/opportunities/imports/trello/commit', body),
   update: (id: string, body: OpportunityUpdateInput) => api.patch<any>(`/opportunities/${id}`, body),
+  linkCompany: (id: string, body: OpportunityCompanyLinkInput) =>
+    api.post<any>(`/opportunities/${id}/company`, body),
+  convert: (id: string, body: OpportunityConvertInput = {}) =>
+    api.post<any>(`/opportunities/${id}/convert`, body),
+  changeQualificationStage: (id: string, body: OpportunityQualificationChangeInput) =>
+    api.patch<any>(`/opportunities/${id}/qualification-stage`, body),
+  decideApproval: (id: string, type: OpportunityApprovalType, body: OpportunityApprovalDecisionInput) =>
+    api.post<any>(`/opportunities/${id}/approvals/${type}`, body),
   remove: (id: string) => api.delete(`/opportunities/${id}`),
   changeStage: (id: string, body: OpportunityStageChangeInput) => api.patch<any>(`/opportunities/${id}/stage`, body),
   // Mantıksal kapanış (Bitir/Arşiv) — silmez; closedAt set eder. Yalnız terminal (delivered/cancelled).
@@ -409,7 +545,7 @@ export const calendarService = {
 
 // ───── Products / Brands ─────
 export const productService = {
-  listBrands: () => api.get<any[]>('/brands'),
+  listBrands: (divisionId?: string) => api.get<any[]>(`/brands${qs({ divisionId })}`),
   createBrand: (body: BrandCreateInput) => api.post<any>('/brands', body),
   list: (params?: Record<string, string | number | undefined>) => api.get<Paginated<any>>(`/products${qs(params)}`),
   get: (id: string) => api.get<any>(`/products/${id}`),
@@ -488,6 +624,7 @@ export const quoteService = {
   approvePrice: (id: string, note?: string) => api.post<any>(`/quotes/${id}/price-approval/approve`, { note }),
   rejectPrice: (id: string, note?: string) => api.post<any>(`/quotes/${id}/price-approval/reject`, { note }),
   reject: (id: string) => api.post(`/quotes/${id}/reject`),
+  changeStatus: (id: string, body: QuoteStatusChangeInput) => api.post<any>(`/quotes/${id}/status`, body),
   send: (id: string) => api.post(`/quotes/${id}/send`),
   /**
    * Teklif PDF'ini backend'den (PDFKit) indirir. Endpoint binary döndürdüğü için
@@ -576,10 +713,9 @@ export const purchaseOrderService = {
 };
 
 export const authService = {
-  forgotPassword: (email: string, tenantSlug?: string) =>
+  forgotPassword: (email: string) =>
     api.post<{ ok: boolean; devToken?: string }>('/auth/forgot-password', {
       email,
-      tenantSlug: tenantSlug?.trim().toLowerCase() || undefined,
     }),
   resetPassword: (token: string, newPassword: string) => api.post<{ ok: boolean }>('/auth/reset-password', { token, newPassword }),
 };
@@ -681,6 +817,12 @@ export const serviceService = {
   updateComplaint: (id: string, body: ServiceComplaintUpdateInput) => api.patch<any>(`/service-complaints/${id}`, body),
   convertComplaint: (id: string, body: ServiceComplaintConvertInput = {}) => api.post<any>(`/service-complaints/${id}/convert`, body),
   rejectComplaint: (id: string, body: ServiceComplaintRejectInput = {}) => api.post<any>(`/service-complaints/${id}/reject`, body),
+  maintenancePlans: (params?: Record<string, string | number | boolean | undefined>) => api.get<Paginated<any>>(`/maintenance-plans${qs(params)}`),
+  createMaintenancePlan: (body: { customerDeviceId: string; title?: string; intervalDays?: number; nextDueDate?: string; reminderLeadDays?: number; autoCreateTicket?: boolean; notes?: string | null }) =>
+    api.post<any>('/maintenance-plans', body),
+  updateMaintenancePlan: (id: string, body: Record<string, unknown>) => api.patch<any>(`/maintenance-plans/${id}`, body),
+  completeMaintenancePlan: (id: string, servicedAt?: string) => api.post<any>(`/maintenance-plans/${id}/complete`, servicedAt ? { servicedAt } : {}),
+  deleteMaintenancePlan: (id: string) => api.delete<any>(`/maintenance-plans/${id}`),
   complaintLinks: (params?: Record<string, string | number | undefined>) => api.get<Paginated<any>>(`/service-complaint-links${qs(params)}`),
   createComplaintLink: (body: ServiceComplaintLinkCreateInput) => api.post<any>('/service-complaint-links', body),
   rotateComplaintLink: (id: string) => api.patch<any>(`/service-complaint-links/${id}/rotate`, {}),
@@ -885,22 +1027,33 @@ export const adminService = {
   lookups: () => api.get<{ available: string[] }>('/admin/lookups'),
   lookupRows: (name: string, params?: Record<string, string | number | undefined>) =>
     api.get<any[]>(`/admin/lookups/${name}${qs(params)}`),
-  createLookup: (name: string, body: { code?: string; name: string; description?: string; sortOrder?: number; isActive?: boolean; province?: string; divisionId?: string | null }) =>
+  createLookup: (name: string, body: { code?: string; name: string; description?: string; sortOrder?: number; isActive?: boolean; province?: string; divisionId?: string | null; parentId?: string | null; productTypeIds?: string[] }) =>
     api.post<any>(`/admin/lookups/${name}`, body),
   updateLookup: (
     name: string,
     id: string,
-    body: { code?: string; name?: string; description?: string; sortOrder?: number; isActive?: boolean; province?: string; divisionId?: string | null }
+    body: { code?: string; name?: string; description?: string; sortOrder?: number; isActive?: boolean; province?: string; divisionId?: string | null; parentId?: string | null; productTypeIds?: string[] }
   ) => api.patch<any>(`/admin/lookups/${name}/${id}`, body),
+  reorderLookup: (name: string, items: Array<{ id: string; sortOrder: number }>) =>
+    api.patch<{ ok: true; items: Array<{ id: string; sortOrder: number }> }>(`/admin/lookups/${name}/reorder`, { items }),
   deleteLookup: (name: string, id: string) => api.delete<any>(`/admin/lookups/${name}/${id}`),
   productSpecTemplates: (productTypeCode?: string, divisionId?: string, scope?: string) =>
     api.get<any[]>(`/admin/product-spec-templates${qs({ productTypeCode, divisionId, scope })}`),
   createProductSpecTemplate: (body: ProductSpecTemplateCreateInput) => api.post<any>('/admin/product-spec-templates', body),
   bulkCreateProductSpecTemplates: (items: ProductSpecTemplateBulkCreateInput['items']) =>
     api.post<{ ok: boolean; created: number; skipped: number; rows: any[] }>('/admin/product-spec-templates/bulk', { items }),
+  batchSaveProductSpecTemplates: (items: ProductSpecTemplateBatchInput['items']) =>
+    api.put<{ ok: boolean; rows: any[] }>('/admin/product-spec-templates/batch', { items }),
   updateProductSpecTemplate: (id: string, body: ProductSpecTemplateUpdateInput) =>
     api.patch<any>(`/admin/product-spec-templates/${id}`, body),
   deleteProductSpecTemplate: (id: string) => api.delete<any>(`/admin/product-spec-templates/${id}`),
+  previewTechnicalImport: (body: TechnicalImportPreviewRequest) =>
+    api.post<TechnicalImportPreview>('/admin/technical-import/preview', body),
+  commitTechnicalImport: (body: TechnicalImportCommitRequest) =>
+    api.post<{ ok: boolean; created: number; updated: number; imported: number; productId?: string }>(
+      '/admin/technical-import/commit',
+      body
+    ),
 };
 
 // ───── Lookups ─────

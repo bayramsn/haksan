@@ -1,81 +1,109 @@
-# Haksan Mobil Sekreter
+# Haksan Mobil — Expo (React Native)
 
-Android/iOS companion app for the Haksan CRM call assistant and personal calendar.
+Native Kotlin/Swift yerine **Expo + expo-router** ile web paritesi hedeflenen mobil uygulama.
 
-## What It Does
+**Stitch tasarım:** [Haksan CRM Mobile — Premium](https://stitch.withgoogle.com/projects/5470261679107716920) (`5470261679107716920`)  
+**Design system:** `.stitch/DESIGN.md` · ekran envanteri: `docs/stitch-screens.md`
 
-- Logs into the existing CRM API with the same user account.
-- Requests Android phone/call-log/notification permissions.
-- Listens for incoming call state changes on Android.
-- Sends completed or missed calls to `POST /api/v1/mobile/calls/events`.
-- Shows Android notifications with CRM actions:
-  - Teklif
-  - Servis
-  - Arama kaydı
-  - Yoksay
-- Lists pending call suggestions inside the app.
-- Includes a manual phone-number test form for quick validation.
-- Reads selected device calendars and synchronizes a rolling six-month past/future window with CRM.
-- Writes CRM-created events back to the user's selected writable calendar.
-- Keeps customer-visit calendar entries linked to CRM visit reporting.
+## Stack
 
-## API URL
+- Expo SDK 56 · expo-router · TypeScript
+- `@haksan/shared` (Zod şemaları)
+- `expo-secure-store` (token + refresh cookie)
+- `react-native-maps` · `react-native-webview` · `expo-location` (harita + PDF önizleme)
+- Industrial Authority token'ları (`src/theme/tokens.ts`)
 
-Use the same backend that the web app uses.
-
-Android emulator:
-
-```text
-http://10.0.2.2:3000/api/v1
-```
-
-Physical Android phone on the same Wi-Fi as the Mac:
-
-```text
-http://YOUR_MAC_LAN_IP:3000/api/v1
-```
-
-Example from the current local run:
-
-```text
-http://192.168.2.98:3000/api/v1
-```
-
-## Run
-
-From the repo root:
+## Kurulum
 
 ```bash
+# Monorepo kökünden
 npm install
-npm run dev:api
-npm run dev:mobile
-npm run android:mobile
+npm run build:shared
+
+cd apps/mobile
+npm install
 ```
 
-iOS requires CocoaPods and Xcode:
+## API adresi
+
+| Ortam | Varsayılan |
+|-------|------------|
+| Android emülatör | `http://10.0.2.2:3000/api/v1` |
+| iOS simülatör | `http://localhost:3000/api/v1` |
+| Fiziksel cihaz | `EXPO_PUBLIC_API_HOST=192.168.x.x` (Mac LAN IP) |
+
+İsteğe bağlı tam URL:
 
 ```bash
-cd apps/mobile/ios
-pod install
-cd ../../..
-npm --workspace @haksan/mobile run ios
+EXPO_PUBLIC_API_BASE_URL=http://192.168.1.10:3000/api/v1 npm run start
 ```
 
-Then open the app, set the API URL, log in, and enable `Otomatik arama yakalama`.
+## Expo Go ile çalıştırma
 
-## Android Permissions
+```bash
+# API'yi ayrı terminalde başlatın
+npm run dev:api
 
-This app uses:
+# Mobil
+npm run dev:mobile
+# veya
+cd apps/mobile && npx expo start
+```
 
-- `READ_PHONE_STATE`
-- `READ_CALL_LOG`
-- `READ_PHONE_NUMBERS`
-- `POST_NOTIFICATIONS`
-- `READ_CALENDAR`
-- `WRITE_CALENDAR`
+Sonra:
 
-For internal APK testing this is fine. Google Play distribution may reject broad Call Log access unless the app qualifies under Play's restricted permission policy. Treat this as an internal companion app unless the policy path is reviewed separately.
+1. **Android emülatör:** Terminalde `a` tuşu veya `npx expo start --android`
+2. **iOS simülatör (macOS):** `i` tuşu veya `npx expo start --ios`
+3. **Fiziksel telefon:** Expo Go uygulamasını indirin, aynı Wi‑Fi'da QR kodu tarayın
 
-## iPhone
+> Fiziksel cihazda `localhost` çalışmaz — `EXPO_PUBLIC_API_HOST` ile bilgisayarınızın IP'sini verin.
 
-iPhone cannot expose normal GSM incoming call numbers to a third-party app in the same way. Call capture remains Android-only. Calendar synchronization is supported on iOS through EventKit full calendar access.
+## Sekmeler (Stitch shell)
+
+| Sekme | İçerik |
+|-------|--------|
+| Ana | Gösterge Paneli (Stitch #91f83c94…) |
+| Satış | Firmalar, Kontaklar, Teklifler, … |
+| Operasyon | Stok, Ödemeler, Sevkiyat, … |
+| Servis | Makineler, Servis talepleri, … |
+| Daha Fazla | Profil, Ayarlar, Yönetim |
+
+Modül rotaları: `/modules/[navKey]` — Stitch screen ID'leri `src/navigation/modules.ts` içinde.
+
+## Modül kapsamı (Stitch 5470261679107716920)
+
+| Kategori | Durum |
+|----------|--------|
+| API servisleri | Web `services.ts` ile parite (`services.web.ts`) |
+| 32 modül rotası | `/modules/[key]` + `/modules/[key]/[id]` |
+| Zengin detay ekranları | `DetailRouter` → hero, sekmeler, aksiyonlar (`src/screens/details/`) |
+| Formlar / sheet'ler | `/forms/visit`, `/machine`, `/purchase-order`, `/service-complete`, `/installation-checklist`, `/maintenance` |
+| Sohbet thread | `ChatThreadScreen` — mesaj listesi + gönder |
+| Firma haritası | Ücretsiz **OpenStreetMap** + Nominatim geocoding (API key yok) |
+| Offline kuyruk | Servis tamamlama — `src/offline/queue.ts` + Ayarlar senkron |
+| useAction | RBAC görünürlük — `src/actions/useAction.ts` |
+| Özel ekranlar | Kanban, Takvim, Sohbet, Bildirimler, Harita, Raporlar, Ayarlar, Cari, Vade, Fiyat listesi |
+| Onboarding | `/onboarding` (karşılama + izinler) |
+| Hızlı Oluştur | `/quick-create` modal |
+
+### Form rotaları (Stitch premium tur)
+
+| Rota | Stitch ekranı |
+|------|----------------|
+| `/forms/visit` | Yeni Ziyaret (#7456e3b6…) |
+| `/forms/machine` | Yeni Makine (#702840f0…) |
+| `/forms/purchase-order` | Satın Alma (#9a1c4dcd…) |
+| `/forms/service-complete` | Servis İmza (#15a25afe…) |
+| `/forms/installation-checklist` | Kurulum Checklist (#f7746fe9…) |
+| `/forms/maintenance` | Bakım Planı (#4811cbc6…) |
+| `/forms/offer` | Yeni Teklif |
+| `/forms/service-ticket` | Yeni Servis Talebi (#7bae69e3…) |
+| `/forms/opportunity` | Yeni Satış Kartı |
+| `/forms/payment` | Tahsilat Kaydet (#a9aceb55…) |
+| `/forms/company` | Yeni Firma |
+| `/forms/contact` | Yeni Kontak |
+| `/forms/calendar-event` | Takvim etkinliği |
+
+Liste ve kanban ekranlarında **+** FAB ile ilgili oluşturma formu açılır. Formlarda **CompanyPicker** ile firma arama/seçim yapılır.
+
+> **Harita:** Ücretsiz **OpenStreetMap** karoları + Nominatim geocoding. Google Maps API key gerekmez. `eas build --profile preview` ile native APK/IPA alınabilir (`eas.json`).

@@ -2,7 +2,7 @@ import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
 import { Button } from "../ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../ui/tabs";
-import { ArrowLeft, Phone, Mail, MapPin, Building2, Plus, ArrowUpRight, Clock, AlertTriangle } from "lucide-react";
+import { ArrowLeft, Phone, Mail, MapPin, Building2, Plus, ArrowUpRight, Clock, AlertTriangle, NotebookText } from "lucide-react";
 import { Customer } from "../../lib/mock";
 import { useStore } from "../../lib/store";
 import { StatusBadge } from "../Layout";
@@ -11,6 +11,15 @@ import { CreateCaseDialog, LogActivityDialog } from "../dialogs/CreateDialogs";
 import { buildCustomerTimeline, type OperationAction } from "../../lib/operations";
 import { CompanyFinancePanel } from "../shared/CompanyFinancePanel";
 import { companyService } from "../../../lib/services";
+
+const ADDRESS_TYPE_LABELS: Record<string, string> = {
+  office: "Ofis",
+  factory: "Fabrika",
+  work_area: "Çalışma Alanı",
+  shipping: "Sevkiyat",
+  billing: "Fatura",
+  other: "Diğer",
+};
 
 /**
  * Ortak firmada başka bölüm(ler)e açık borç varsa kırmızı uyarı gösterir.
@@ -59,6 +68,20 @@ export function CustomerDetailPage({ customer, onBack, onAction }: { customer: C
   const pays = allPayments.filter((p) => p.customerId === customer.id);
   const mcs = allMachines.filter((m) => m.customerId === customer.id);
   const timeline = useMemo(() => buildCustomerTimeline(customer.id, store), [customer.id, store]);
+  const companyAddresses = customer.addresses?.length
+    ? customer.addresses
+    : (customer.address || customer.city || customer.district || customer.country)
+      ? [{
+          addressType: "office" as const,
+          address: customer.address,
+          district: customer.district,
+          city: customer.city,
+          country: customer.country ?? "Türkiye",
+          isDefault: true,
+          isShipping: true,
+          isBilling: true,
+        }]
+      : [];
 
   return (
     <div className="space-y-4">
@@ -71,19 +94,43 @@ export function CustomerDetailPage({ customer, onBack, onAction }: { customer: C
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <Card className="lg:col-span-1">
           <CardHeader>
-            <div className="flex items-start justify-between">
-              <div>
-                <div className="text-xl">{customer.name}</div>
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="font-display text-2xl font-semibold leading-none tracking-tight">{customer.name}</div>
                 <div className="text-sm text-muted-foreground">{customer.type === "company" ? "Kurumsal Müşteri" : "Bireysel Müşteri"}</div>
               </div>
-              <StatusBadge status={customer.status} />
+              <div className="shrink-0"><StatusBadge status={customer.status} /></div>
             </div>
           </CardHeader>
           <CardContent className="space-y-3 text-sm">
             <Row icon={<Building2 className="size-4" />} label="VKN" value={customer.taxNumber} />
             <Row icon={<Phone className="size-4" />} label="Telefon" value={customer.phone} />
             <Row icon={<Mail className="size-4" />} label="E-posta" value={customer.email} />
-            <Row icon={<MapPin className="size-4" />} label="Adres" value={`${customer.city} · ${customer.address}`} />
+            {companyAddresses.length > 0 && (
+              <section className="overflow-hidden rounded-lg border border-border/60" aria-label="Firma adresleri">
+                <div className="flex items-center justify-between border-b border-border/60 bg-muted/30 px-3 py-2">
+                  <div className="flex items-center gap-2 text-xs font-semibold">
+                    <MapPin className="size-3.5 text-primary" /> Adresler
+                  </div>
+                  <span className="text-[11px] tabular-nums text-muted-foreground">{companyAddresses.length} kayıt</span>
+                </div>
+                <ul className="divide-y divide-border/50">
+                  {companyAddresses.map((address, index) => (
+                    <li key={address.id ?? index} className="px-3 py-2.5">
+                      <div className="flex flex-wrap items-center gap-1.5 text-xs">
+                        <span className="font-medium">{ADDRESS_TYPE_LABELS[address.addressType] ?? "Adres"}</span>
+                        {address.isDefault && <span className="text-[10px] font-medium text-primary">Ana adres</span>}
+                        {address.isShipping && <span className="text-[10px] font-medium text-sky-700">Sevkiyat</span>}
+                        {address.isBilling && <span className="text-[10px] font-medium text-amber-700">Fatura</span>}
+                      </div>
+                      <div className="mt-0.5 break-words text-xs leading-relaxed text-muted-foreground">
+                        {[address.address, address.district, address.city, address.country].filter(Boolean).join(", ") || "Adres bilgisi yok"}
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            )}
             <div className="pt-3 border-t">
               <div className="text-xs uppercase text-muted-foreground mb-1">İletişim Kişisi</div>
               <div>{customer.contactPerson}</div>
@@ -92,10 +139,15 @@ export function CustomerDetailPage({ customer, onBack, onAction }: { customer: C
               <div className="text-xs uppercase text-muted-foreground mb-1">Talep Edilen Ürün</div>
               <div>{customer.wantedProduct}</div>
             </div>
-            <div>
-              <div className="text-xs uppercase text-muted-foreground mb-1">İlk Not</div>
-              <div className="text-muted-foreground">{customer.initialNote}</div>
-            </div>
+            <section className="overflow-hidden rounded-lg border border-amber-200/80 bg-amber-50/45" aria-label="Firma notları">
+              <div className="flex items-center gap-2 border-b border-amber-200/70 bg-amber-50/70 px-3 py-2 text-xs font-semibold text-amber-950">
+                <NotebookText className="size-3.5 text-amber-700" />
+                Firma Notları
+              </div>
+              <div className={`max-h-40 overflow-y-auto whitespace-pre-wrap break-words px-3 py-2.5 text-sm leading-relaxed ${customer.initialNote?.trim() ? "text-foreground" : "text-muted-foreground"}`}>
+                {customer.initialNote?.trim() || "Bu firma için henüz not eklenmemiş."}
+              </div>
+            </section>
             <CompanyFinancePanel companyId={customer.id} companyName={customer.name} />
           </CardContent>
         </Card>
@@ -157,8 +209,8 @@ export function CustomerDetailPage({ customer, onBack, onAction }: { customer: C
 
             <TabsContent value="cases" className="mt-4">
               <Card>
-                <CardHeader className="flex flex-row items-center justify-between">
-                  <CardTitle>Satış Kartları</CardTitle>
+                <CardHeader className="flex flex-col items-stretch justify-between gap-3 sm:flex-row sm:items-center">
+                  <CardTitle className="font-display text-xl font-semibold">Satış Kartları</CardTitle>
                   <CreateCaseDialog
                     defaultCustomerId={customer.id}
                     trigger={<Button size="sm" className="gap-1"><Plus className="size-4" /> Yeni Kart</Button>}
@@ -191,9 +243,9 @@ export function CustomerDetailPage({ customer, onBack, onAction }: { customer: C
 
             <TabsContent value="activity" className="mt-4">
               <Card>
-                <CardHeader className="flex flex-row items-center justify-between gap-3 pb-3">
-                  <CardTitle className="text-base">Aktiviteler</CardTitle>
-                  <div className="flex items-center gap-2">
+                <CardHeader className="flex flex-col items-stretch justify-between gap-3 pb-3 sm:flex-row sm:items-center">
+                  <CardTitle className="font-display text-xl font-semibold">Aktiviteler</CardTitle>
+                  <div className="flex flex-wrap items-center gap-2">
                     <LogActivityDialog
                       customerId={customer.id}
                       defaultKind="visit"

@@ -30,6 +30,131 @@ const targetPeriodOnlySchema = z.object({
   period: z.string().regex(/^\d{4}-\d{2}$/),
 });
 
+type TargetExportMetric = { target: number | null; actual: number | null; pct: number | null };
+type TargetExportItem = {
+  targetType?: string;
+  category?: string;
+  activity?: string;
+  description?: string;
+  unit?: string;
+  target?: string | number | null;
+  actual?: number | null;
+  pct?: number | null;
+  metricKey?: string | null;
+  trackingMode?: string | null;
+};
+type TargetExportSubject = {
+  subject: {
+    kind: 'user' | 'department' | 'role';
+    id: string;
+    name: string;
+    departmentName?: string | null;
+    departmentNames?: string[];
+    memberCount?: number;
+  };
+  hasTarget: boolean;
+  note?: string | null;
+  metrics: Record<string, TargetExportMetric>;
+  targetItems: TargetExportItem[];
+};
+type TargetExportReport = {
+  period: string;
+  expectedProgressPct: number;
+  currencyNormalization: {
+    base: string;
+    rateDate: string;
+    source: string;
+    unsupportedCurrencies: string[];
+  };
+  subjects: TargetExportSubject[];
+};
+
+const TARGET_EXPORT_METRIC_LABELS: Record<string, string> = {
+  salesAmount: 'Satış cirosu',
+  salesNewCustomers: 'Yeni müşteri',
+  quoteTarget: 'Teklif',
+  visitTarget: 'Ziyaret',
+  callTarget: 'Arama',
+  serviceCompleted: 'Tamamlanan servis',
+  serviceAmount: 'Servis cirosu',
+  digitalLeadTarget: 'Dijital lead',
+  digitalConversionTarget: 'Dijital dönüşüm',
+  digitalBudget: 'Dijital bütçe',
+  paymentsInAmount: 'Tahsilat',
+  purchaseInvoiceAmount: 'Alış faturası',
+  purchaseOrderAmount: 'Satınalma tutarı',
+  purchaseOrderCount: 'Satınalma siparişi',
+  salesOrderAmount: 'Satış siparişi tutarı',
+  salesOrderCount: 'Satış siparişi',
+  installationCompleted: 'Kurulum',
+};
+
+const configuredTargetCount = (row: TargetExportSubject) =>
+  Object.values(row.metrics).filter((metric) => metric.target != null).length +
+  row.targetItems.filter((item) => String(item.target ?? '').trim()).length;
+
+const averageTargetProgress = (row: TargetExportSubject) => {
+  const percentages = [
+    ...Object.values(row.metrics).map((metric) => metric.pct),
+    ...row.targetItems.map((item) => item.pct),
+  ].filter((value): value is number => typeof value === 'number' && Number.isFinite(value));
+  return percentages.length
+    ? Math.round(percentages.reduce((sum, value) => sum + Math.min(100, Math.max(0, value)), 0) / percentages.length)
+    : null;
+};
+
+const targetSubjectSummaryRows = (report: TargetExportReport) =>
+  report.subjects.map((row) => ({
+    Dönem: report.period,
+    Kapsam: row.subject.kind === 'user' ? 'Kullanıcı' : row.subject.kind === 'department' ? 'Departman' : 'Rol',
+    Ad: row.subject.name,
+    Departman: row.subject.departmentNames?.join(', ') || row.subject.departmentName || '',
+    'Üye Sayısı': row.subject.memberCount ?? null,
+    'Hedef Durumu': row.hasTarget ? 'Hedef atandı' : 'Hedef yok',
+    'Hedef Kalemi': configuredTargetCount(row),
+    'Ortalama Gerçekleşme (%)': averageTargetProgress(row),
+    Not: row.note ?? '',
+  }));
+
+const targetDetailRows = (report: TargetExportReport) =>
+  report.subjects.flatMap((row) => {
+    const common = {
+      Dönem: report.period,
+      Kapsam: row.subject.kind === 'user' ? 'Kullanıcı' : row.subject.kind === 'department' ? 'Departman' : 'Rol',
+      Ad: row.subject.name,
+      Departman: row.subject.departmentNames?.join(', ') || row.subject.departmentName || '',
+    };
+    const metrics = Object.entries(row.metrics)
+      .filter(([, metric]) => metric.target != null)
+      .map(([key, metric]) => ({
+        ...common,
+        'Kalem Türü': 'Ana metrik',
+        Kategori: '',
+        Hedef: TARGET_EXPORT_METRIC_LABELS[key] ?? key,
+        Açıklama: '',
+        Birim: key.toLowerCase().includes('amount') || key.toLowerCase().includes('budget') ? 'USD' : 'Adet',
+        'Takip Türü': metric.actual == null ? 'Manuel' : 'Otomatik',
+        'Hedef Değer': metric.target,
+        Gerçekleşen: metric.actual,
+        'Gerçekleşme (%)': metric.pct,
+      }));
+    const items = row.targetItems
+      .filter((item) => String(item.target ?? '').trim())
+      .map((item) => ({
+        ...common,
+        'Kalem Türü': item.targetType || 'Özel hedef',
+        Kategori: item.category ?? '',
+        Hedef: item.activity ?? '',
+        Açıklama: item.description ?? '',
+        Birim: item.unit === 'amount' ? 'USD' : item.unit ?? '',
+        'Takip Türü': item.trackingMode === 'automatic' ? 'Otomatik' : 'Manuel',
+        'Hedef Değer': item.target ?? '',
+        Gerçekleşen: item.actual ?? null,
+        'Gerçekleşme (%)': item.pct ?? null,
+      }));
+    return [...metrics, ...items];
+  });
+
 @UseGuards(AuthGuard, PermissionsGuard)
 @Controller('reports')
 export class ReportsController {
@@ -140,6 +265,48 @@ export class ReportsController {
   @Get('target-progress')
   targetProgress(@Query(new ZodValidationPipe(targetProgressSchema)) q: z.infer<typeof targetProgressSchema>, @CurrentUser() u: AuthContext) {
     return this.svc.targetProgress(u, q.period, { kind: q.scope, id: q.id });
+  }
+
+  @RequirePermissions('reports.export', 'reports.read')
+  @Get('export/target-progress')
+  async exportTargetProgress(
+    @Query(new ZodValidationPipe(targetPeriodOnlySchema)) q: z.infer<typeof targetPeriodOnlySchema>,
+    @CurrentUser() u: AuthContext,
+    @Res({ passthrough: true }) reply: FastifyReply
+  ) {
+    const [users, departments] = await Promise.all([
+      this.svc.targetProgress(u, q.period, { kind: 'all-users' }),
+      this.svc.targetProgress(u, q.period, { kind: 'department' }),
+    ]);
+    const userReport = users as TargetExportReport;
+    const departmentReport = departments as TargetExportReport;
+    const detailRows = [...targetDetailRows(departmentReport), ...targetDetailRows(userReport)];
+    const normalization = userReport.currencyNormalization ?? departmentReport.currencyNormalization;
+
+    return sendXlsx(
+      reply,
+      await sheetsToXlsxBuffer([
+        {
+          name: 'Genel Özet',
+          rows: [{
+            Dönem: q.period,
+            'Beklenen İlerleme (%)': userReport.expectedProgressPct,
+            'Hedef Atanan Kişi': userReport.subjects.filter((row) => row.hasTarget).length,
+            'Toplam Kullanıcı': userReport.subjects.length,
+            'Hedef Atanan Departman': departmentReport.subjects.filter((row) => row.hasTarget).length,
+            'Toplam Departman': departmentReport.subjects.length,
+            'Kur Bazı': normalization.base,
+            'Kur Tarihi': normalization.rateDate,
+            'Kur Kaynağı': normalization.source,
+            'Dönüştürülemeyen Para Birimleri': normalization.unsupportedCurrencies.join(', '),
+          }],
+        },
+        { name: 'Departmanlar', rows: targetSubjectSummaryRows(departmentReport) },
+        { name: 'Kullanıcılar', rows: targetSubjectSummaryRows(userReport) },
+        { name: 'Hedef Detayları', rows: detailRows },
+      ]),
+      `hedef-gerceklesme-${q.period}.xlsx`
+    );
   }
 
   /** Kullanıcının kendi hedef ilerlemesi — ek izin gerektirmez (Dashboard "Hedefler" sekmesi). */

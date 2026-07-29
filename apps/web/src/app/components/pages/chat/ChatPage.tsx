@@ -4,6 +4,7 @@ import { Input } from "../../ui/input";
 import { Textarea } from "../../ui/textarea";
 import { ScrollArea } from "../../ui/scroll-area";
 import { Badge } from "../../ui/badge";
+import { BrandIllustration } from "../../brand";
 import {
   Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger,
 } from "../../ui/dialog";
@@ -19,7 +20,9 @@ import { cn } from "../../ui/utils";
 import {
   MessageCircle, Send, Paperclip, Search, Plus, Trash2, FileText, X, Loader2, Users,
   Smile, CornerUpLeft, Pencil, Check, CheckCheck, Mic, Square, FileText as FileIcon, Building2, Briefcase, LifeBuoy,
+  ChevronLeft, Sparkles, Phone,
 } from "lucide-react";
+import { useVoiceCall } from "../../../../lib/voiceCall";
 import { NewGroupDialog, GroupSettingsDialog } from "./GroupDialogs";
 import { ShareRecordDialog } from "./ShareRecordDialog";
 
@@ -30,6 +33,16 @@ const REF_ICON: Record<string, any> = { company: Building2, quote: FileText, opp
 
 function initials(name: string): string {
   return name.split(" ").slice(0, 2).map((p) => p[0]).join("").toUpperCase();
+}
+const AVATAR_TONES = [
+  "bg-brand-blue-soft text-primary border-primary/10",
+  "bg-success-soft text-success border-success/10",
+  "bg-warning-soft text-warning border-warning/10",
+  "bg-info-soft text-info border-info/10",
+];
+function avatarTone(name: string) {
+  const score = [...name].reduce((sum, char) => sum + char.charCodeAt(0), 0);
+  return AVATAR_TONES[score % AVATAR_TONES.length];
 }
 function fmtTime(iso: string): string {
   return new Date(iso).toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" });
@@ -48,6 +61,7 @@ export function ChatPage({ onOpenRecord }: { onOpenRecord?: (card: ChatRefCard) 
   const { user, hasRole } = useAuth();
   const meId = user?.id ?? "";
   const isSuper = hasRole("super_admin");
+  const voiceCall = useVoiceCall();
 
   const [conversations, setConversations] = useState<ChatConversationSummary[]>([]);
   const [directory, setDirectory] = useState<ChatDirectoryUser[]>([]);
@@ -272,15 +286,22 @@ export function ChatPage({ onOpenRecord }: { onOpenRecord?: (card: ChatRefCard) 
   };
 
   const filtered = conversations.filter((c) => convDisplay(c, meId).toLowerCase().includes(search.toLowerCase()));
+  const conversationGroups = [
+    { label: "Okunmamış", items: filtered.filter((conversation) => conversation.unreadCount > 0) },
+    { label: "Tüm Sohbetler", items: filtered.filter((conversation) => conversation.unreadCount === 0) },
+  ].filter((group) => group.items.length > 0);
 
   return (
-    <div className="flex h-[calc(100vh-13rem)] min-h-[460px] overflow-hidden rounded-xl border border-border/60 bg-card">
+    <div className="surface-enter flex h-[calc(100vh-13rem)] min-h-[520px] overflow-hidden rounded-xl border border-primary/10 bg-card shadow-sm">
       {/* Sol pano */}
-      <div className="flex w-72 shrink-0 flex-col border-r border-border/60">
-        <div className="flex items-center gap-2 border-b border-border/60 p-3">
+      <div className={cn("w-full shrink-0 flex-col border-r border-border/60 bg-muted/10 md:flex md:w-80", selectedId ? "hidden" : "flex")}>
+        <div className="premium-blueprint border-b border-border/60 p-3">
+          <div className="mb-2 flex items-center justify-between"><div><div className="font-data text-[9px] font-semibold uppercase tracking-[0.14em] text-operation-blue">Kurum içi iletişim</div><div className="mt-0.5 text-sm font-semibold">Sohbetler</div></div>{conversations.some((conversation) => conversation.unreadCount > 0) && <Badge className="bg-brand-red text-white">{conversations.reduce((sum, conversation) => sum + conversation.unreadCount, 0)} yeni</Badge>}</div>
+          <div className="flex items-center gap-2">
           <div className="relative flex-1">
             <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-            <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Ara…" className="pl-8" />
+            <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Kişi veya grup ara…" className="bg-white pl-8" />
+          </div>
           </div>
         </div>
         <div className="flex items-center gap-2 border-b border-border/60 px-3 py-2">
@@ -300,10 +321,11 @@ export function ChatPage({ onOpenRecord }: { onOpenRecord?: (card: ChatRefCard) 
                       key={u.id} type="button" onClick={() => startDm(u.id)}
                       className="flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted"
                     >
-                      <span className="grid size-8 shrink-0 place-items-center rounded-full bg-muted text-xs font-medium">{initials(u.fullName)}</span>
+                      <span className={cn("grid size-9 shrink-0 place-items-center rounded-full border text-xs font-semibold", avatarTone(u.fullName))}>{initials(u.fullName)}</span>
                       <span className="min-w-0 flex-1">
                         <span className="block truncate">{u.fullName}</span>
                         <span className="block truncate text-xs text-muted-foreground">{u.email}</span>
+                        <span className="mt-0.5 inline-flex items-center gap-1 text-[9px] uppercase tracking-wide text-success"><span className="size-1.5 rounded-full bg-success" />{u.status === "active" ? "Aktif" : u.status}</span>
                       </span>
                     </button>
                   ))}
@@ -318,7 +340,7 @@ export function ChatPage({ onOpenRecord }: { onOpenRecord?: (card: ChatRefCard) 
         </div>
         <ScrollArea className="min-h-0 flex-1">
           <div className="p-1.5">
-            {filtered.map((c) => {
+            {conversationGroups.map((group) => <div key={group.label} className="mb-2"><div className="px-2 pb-1 pt-2 font-data text-[9px] font-semibold uppercase tracking-[0.13em] text-muted-foreground">{group.label}</div>{group.items.map((c) => {
               const name = convDisplay(c, meId);
               const active = c.id === selectedId;
               return (
@@ -326,7 +348,7 @@ export function ChatPage({ onOpenRecord }: { onOpenRecord?: (card: ChatRefCard) 
                   key={c.id} onClick={() => openConversation(c.id)}
                   className={cn("flex w-full items-center gap-2.5 rounded-md px-2 py-2 text-left transition-colors", active ? "bg-primary/10 ring-1 ring-primary/20" : "hover:bg-muted")}
                 >
-                  <span className={cn("grid size-9 shrink-0 place-items-center rounded-full text-xs font-medium", c.type === "group" ? "bg-primary/15 text-primary" : "bg-muted")}>
+                  <span className={cn("grid size-10 shrink-0 place-items-center rounded-full border text-xs font-semibold", c.type === "group" ? "border-primary/10 bg-primary/15 text-primary" : avatarTone(name))}>
                     {c.type === "group" ? <Users className="size-4" /> : initials(name)}
                   </span>
                   <span className="min-w-0 flex-1">
@@ -341,25 +363,28 @@ export function ChatPage({ onOpenRecord }: { onOpenRecord?: (card: ChatRefCard) 
                   </span>
                 </button>
               );
-            })}
-            {filtered.length === 0 && <div className="px-3 py-10 text-center text-sm text-muted-foreground">Sohbet yok. "Yeni Sohbet" ile başlayın.</div>}
+            })}</div>)}
+            {filtered.length === 0 && <div className="px-3 py-6 text-center"><BrandIllustration scene={search ? "search" : "calls"} size="sm" className="mx-auto" /><div className="mt-1 text-sm font-semibold">{search ? "Eşleşen sohbet yok" : "İlk sohbetinizi başlatın"}</div><p className="mt-1 text-xs text-muted-foreground">{search ? "Arama ifadesini değiştirin." : "Ekip arkadaşlarıyla kayıt ve dosya paylaşın."}</p>{!search && <Button size="sm" className="mt-3" onClick={() => setNewOpen(true)}><Plus className="size-4" /> Yeni Sohbet</Button>}</div>}
           </div>
         </ScrollArea>
       </div>
 
       {/* Sağ pano */}
-      <div className="flex min-w-0 flex-1 flex-col">
+      <div className={cn("min-w-0 flex-1 flex-col bg-white md:flex", selectedId ? "flex" : "hidden")}>
         {!detail ? (
-          <div className="grid flex-1 place-items-center text-muted-foreground">
-            <div className="text-center">
-              <MessageCircle className="mx-auto mb-3 size-10 opacity-40" />
-              <p className="text-sm">Bir sohbet seçin veya yeni bir sohbet başlatın.</p>
+          <div className="premium-blueprint grid flex-1 place-items-center p-6">
+            <div className="max-w-sm text-center">
+              <BrandIllustration scene="calls" className="mx-auto" />
+              <div className="mt-2 font-display text-xl font-semibold">Takım iletişimini tek yerde tutun</div>
+              <p className="mt-2 text-sm leading-relaxed text-muted-foreground">Firma, satış kartı ve servis kaydı paylaşın; kararların bağlamını sohbet içinde koruyun.</p>
+              <Button className="mt-4 gap-2" onClick={() => setNewOpen(true)}><Sparkles className="size-4" /> Yeni Sohbet Başlat</Button>
             </div>
           </div>
         ) : (
           <>
             <div className="flex items-center gap-3 border-b border-border/60 px-4 py-3">
-              <span className={cn("grid size-9 shrink-0 place-items-center rounded-full text-xs font-medium", detail.type === "group" ? "bg-primary/15 text-primary" : "bg-muted")}>
+              <Button variant="ghost" size="icon" className="size-8 md:hidden" aria-label="Sohbet listesine dön" onClick={() => { setSelectedId(null); setDetail(null); }}><ChevronLeft className="size-4" /></Button>
+              <span className={cn("grid size-10 shrink-0 place-items-center rounded-full border text-xs font-semibold", detail.type === "group" ? "border-primary/10 bg-primary/15 text-primary" : avatarTone(convDisplay(detail, meId)))}>
                 {detail.type === "group" ? <Users className="size-4" /> : initials(convDisplay(detail, meId))}
               </span>
               <div className="min-w-0 flex-1">
@@ -370,6 +395,18 @@ export function ChatPage({ onOpenRecord }: { onOpenRecord?: (card: ChatRefCard) 
                     : detail.members.find((m) => m.userId !== meId)?.email}
                 </div>
               </div>
+              {detail.type === "dm" && voiceCall.supported && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  title="Sesli arama"
+                  aria-label="Sesli arama başlat"
+                  disabled={voiceCall.phase !== "idle"}
+                  onClick={() => void voiceCall.startCall(detail.id, convDisplay(detail, meId))}
+                >
+                  <Phone className="size-4" />
+                </Button>
+              )}
               {detail.type === "group" && (
                 <GroupSettingsDialog detail={detail} directory={directory} isManager={!!isManager} currentUserId={meId} onChanged={reloadDetail} />
               )}
@@ -387,7 +424,7 @@ export function ChatPage({ onOpenRecord }: { onOpenRecord?: (card: ChatRefCard) 
                     onOpenRecord={onOpenRecord}
                   />
                 ))}
-                {messages.length === 0 && <div className="py-10 text-center text-sm text-muted-foreground">Henüz mesaj yok. İlk mesajı gönderin.</div>}
+                {messages.length === 0 && <div className="premium-blueprint mx-auto my-8 max-w-sm rounded-xl border border-dashed border-primary/15 px-6 py-8 text-center"><MessageCircle className="mx-auto size-7 text-primary" /><div className="mt-3 text-sm font-semibold">Sohbet hazır</div><p className="mt-1 text-xs text-muted-foreground">İlk mesajı gönderin veya firma, teklif ve servis kaydı paylaşın.</p></div>}
               </div>
             </ScrollArea>
 

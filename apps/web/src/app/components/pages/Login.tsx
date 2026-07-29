@@ -3,8 +3,8 @@ import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
 import {
-  ArrowRight, ShieldCheck, BarChart3, Wrench, Building2,
-  CheckCircle2, Eye, EyeOff,
+  ArrowRight, ShieldCheck,
+  CheckCircle2, Eye, EyeOff, KeyRound, MailCheck, PlayCircle,
 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -19,38 +19,42 @@ const isProd = import.meta.env.PROD;
 // Backend OIDC/SAML hazır olduğunda VITE_SSO_ENABLED=true ile açılır.
 const ssoEnabled = import.meta.env.VITE_SSO_ENABLED === "true";
 const REMEMBER_KEY = "haksan:login-email";
-const TENANT_SLUG_PATTERN = /^[a-z0-9-]{2,64}$/;
 
 function readResetToken(): string {
   if (typeof window === "undefined") return "";
   return new URLSearchParams(window.location.search).get("resetToken")?.trim() ?? "";
 }
 
-function normalizeTenantSlug(value: string): string | undefined {
-  const normalized = value.trim().toLowerCase();
-  return normalized || undefined;
-}
-
-function isValidTenantSlug(value: string | undefined): boolean {
-  return !value || TENANT_SLUG_PATTERN.test(value);
-}
-
-export function LoginPage({ onLogin }: { onLogin: (email: string, password: string, tenantSlug?: string) => Promise<void> | void }) {
+export function LoginPage({
+  onLogin,
+  onReplayIntro,
+}: {
+  onLogin: (email: string, password: string) => Promise<void> | void;
+  onReplayIntro?: () => void;
+}) {
   const [show, setShow] = useState(false);
   const [email, setEmail] = useState(() => (typeof localStorage !== "undefined" ? localStorage.getItem(REMEMBER_KEY) ?? "" : ""));
-  const [tenantSlug, setTenantSlug] = useState("");
   const [password, setPassword] = useState("");
   const [remember, setRemember] = useState(() => !!(typeof localStorage !== "undefined" && localStorage.getItem(REMEMBER_KEY)));
   const [busy, setBusy] = useState(false);
   const [forgotOpen, setForgotOpen] = useState(false);
   const [forgotEmail, setForgotEmail] = useState("");
-  const [forgotTenantSlug, setForgotTenantSlug] = useState("");
   const [forgotBusy, setForgotBusy] = useState(false);
+  const [forgotSent, setForgotSent] = useState(false);
   const [resetToken, setResetToken] = useState(readResetToken);
   const [resetOpen, setResetOpen] = useState(() => Boolean(readResetToken()));
   const [resetPassword, setResetPassword] = useState("");
   const [resetPasswordConfirmation, setResetPasswordConfirmation] = useState("");
   const [resetBusy, setResetBusy] = useState(false);
+  const [resetSuccess, setResetSuccess] = useState(false);
+
+  const passwordStrength = [
+    resetPassword.length >= 8,
+    /[a-z]/.test(resetPassword) && /[A-Z]/.test(resetPassword),
+    /\d/.test(resetPassword),
+    /[^A-Za-z0-9]/.test(resetPassword),
+  ].filter(Boolean).length;
+  const passwordStrengthLabel = passwordStrength <= 1 ? "Başlangıç" : passwordStrength <= 2 ? "Orta" : passwordStrength === 3 ? "Güçlü" : "Çok güçlü";
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -60,16 +64,11 @@ export function LoginPage({ onLogin }: { onLogin: (email: string, password: stri
       toast.error("Geçerli bir e-posta adresi girin");
       return;
     }
-    const normalizedTenantSlug = normalizeTenantSlug(tenantSlug);
-    if (!isValidTenantSlug(normalizedTenantSlug)) {
-      toast.error("Tenant kodu yalnızca küçük harf, rakam ve tire içerebilir");
-      return;
-    }
     setBusy(true);
     try {
       if (remember) localStorage.setItem(REMEMBER_KEY, trimmedEmail);
       else localStorage.removeItem(REMEMBER_KEY);
-      await onLogin(trimmedEmail, password, normalizedTenantSlug);
+      await onLogin(trimmedEmail, password);
     } catch (err: any) {
       toast.error(err?.message ?? "Giriş başarısız");
     } finally {
@@ -82,16 +81,11 @@ export function LoginPage({ onLogin }: { onLogin: (email: string, password: stri
     const trimmedEmail = forgotEmail.trim();
     const parsed = emailSchema.safeParse(trimmedEmail);
     if (!parsed.success) return toast.error("Geçerli bir e-posta adresi girin");
-    const normalizedTenantSlug = normalizeTenantSlug(forgotTenantSlug);
-    if (!isValidTenantSlug(normalizedTenantSlug)) {
-      toast.error("Tenant kodu yalnızca küçük harf, rakam ve tire içerebilir");
-      return;
-    }
     setForgotBusy(true);
     try {
-      await authService.forgotPassword(parsed.data, normalizedTenantSlug);
+      await authService.forgotPassword(parsed.data);
       toast.success("Şifre sıfırlama bağlantısı gönderildi (varsa)");
-      setForgotOpen(false);
+      setForgotSent(true);
     } catch (err: any) {
       toast.error(err?.message ?? "İstek başarısız");
     } finally {
@@ -119,7 +113,7 @@ export function LoginPage({ onLogin }: { onLogin: (email: string, password: stri
       setResetPassword("");
       setResetPasswordConfirmation("");
       setResetToken("");
-      setResetOpen(false);
+      setResetSuccess(true);
       if (typeof window !== "undefined") {
         const url = new URL(window.location.href);
         url.searchParams.delete("resetToken");
@@ -134,108 +128,67 @@ export function LoginPage({ onLogin }: { onLogin: (email: string, password: stri
   };
 
   return (
-    <div className="grid h-full min-h-0 w-full grid-cols-1 overflow-hidden bg-[#f4f6f9] text-foreground lg:grid-cols-[1.08fr_1fr]">
-      {/* Left brand panel */}
-      <div className="relative hidden min-h-0 flex-col justify-between overflow-hidden bg-[linear-gradient(135deg,#0a192f_0%,#000c69_54%,#0a1440_100%)] p-10 text-white lg:flex xl:p-12">
-        <div className="absolute inset-x-0 top-0 h-1 bg-brand-red" />
-        <div className="absolute right-0 top-0 h-full w-px bg-white/10" />
-        <div className="absolute inset-0 opacity-[0.08] [background-image:linear-gradient(to_right,#fff_1px,transparent_1px),linear-gradient(to_bottom,#fff_1px,transparent_1px)] [background-size:44px_44px]" />
-
-        <div className="relative flex flex-col items-start gap-2">
-          <img
-            src="/brand/haksan-logo-white.png"
-            alt="Haksan Makina"
-            className="h-16 w-auto max-w-[230px] object-contain"
-          />
-          <div className="text-xs text-white/70 uppercase tracking-wider">CRM · Operasyon · Servis · Stok</div>
-        </div>
-
-        <div className="relative max-w-xl">
-          <div className="mb-4 inline-flex items-center gap-2 rounded-md border border-white/15 bg-white/10 px-3 py-1.5 text-xs text-white/80">
-            <ShieldCheck className="size-3.5" />
-            Haksan Makina kurumsal erişim paneli
-          </div>
-          <h2 className="max-w-[620px] text-[36px] leading-[1.08] tracking-tight xl:text-[42px]">
-            Satış, saha servis ve operasyon tek ekranda.
-          </h2>
-          <p className="mt-5 max-w-[560px] text-[15px] leading-7 text-white/78">
-            Haksan Makina ekipleri için müşteri yönetimi, kanban satış akışı, teklif & sözleşme,
-            stok takibi ve saha servis süreçlerini bütünleşik şekilde yönetin.
-          </p>
-
-          <div className="mt-8 grid grid-cols-3 gap-3">
-            <BrandMetric value="24/7" label="Operasyon izleme" />
-            <BrandMetric value="ERP" label="Merkezi kayıt" />
-            <BrandMetric value="ISO" label="Süreç disiplini" />
-          </div>
-
-          <div className="mt-4 grid grid-cols-2 gap-3">
-            <Feature icon={<BarChart3 className="size-4" />} title="Pipeline & Raporlar" desc="Anlık görünürlük" />
-            <Feature icon={<Wrench className="size-4" />} title="Servis Yönetimi" desc="Saha + Garanti" />
-            <Feature icon={<Building2 className="size-4" />} title="Çok Şubeli" desc="Şehirler arası erişim" />
-            <Feature icon={<ShieldCheck className="size-4" />} title="Yetki & Rol" desc="Kurumsal güvenlik" />
-          </div>
-        </div>
-
-        <div className="relative flex items-center justify-between gap-4 text-xs text-white/70">
-          <div>© {new Date().getFullYear()} Haksan Makina A.Ş.</div>
-          <div className="flex items-center gap-4 text-white/65">
-            <span>Gizlilik</span>
-            <span>Şartlar</span>
-            <span>Yardım</span>
-          </div>
-        </div>
+    <div className="grid h-full min-h-0 w-full grid-cols-1 overflow-hidden bg-[#0a0d12] text-foreground lg:grid-cols-[minmax(0,1fr)_530px] xl:grid-cols-[minmax(0,1fr)_590px]">
+      {/* Left video panel */}
+      <div className="relative hidden min-h-0 overflow-hidden bg-[#020b2b] lg:block">
+        <video
+          autoPlay
+          loop
+          muted
+          playsInline
+          preload="metadata"
+          poster="/brand/login-hero-2026-07-21-poster.jpg"
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0 h-full w-full object-cover object-center motion-reduce:hidden"
+        >
+          <source src="/brand/login-hero-2026-07-21.mp4" type="video/mp4" />
+        </video>
+        <img
+          src="/brand/login-hero-2026-07-21-poster.jpg"
+          alt=""
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0 hidden h-full w-full object-cover object-center motion-reduce:block"
+        />
+        <img
+          src="/brand/haksan-logo-white.png"
+          alt="Haksan Makina"
+          className="absolute left-8 top-8 z-10 h-16 w-auto max-w-[230px] object-contain drop-shadow-[0_3px_14px_rgba(0,0,0,0.55)] xl:left-10 xl:top-10"
+        />
       </div>
 
       {/* Right form panel */}
-      <div className="flex min-h-0 items-center justify-center overflow-y-auto p-6 lg:p-10">
-        <div className="w-full max-w-[440px]">
-          <div className="mb-8 flex items-center gap-3 lg:hidden">
+      <div className="flex min-h-0 items-center justify-center overflow-y-auto border-l border-white/10 bg-black/50 p-5 backdrop-blur-3xl backdrop-saturate-150 lg:px-7 lg:py-8 xl:px-9">
+        <div className="w-full max-w-[470px]">
+          <div className="mb-6 flex items-center gap-3 lg:hidden">
             <img
-              src="/brand/haksan-logo.png"
+              src="/brand/haksan-logo-white.png"
               alt="Haksan Makina"
               className="h-11 w-auto max-w-[165px] object-contain"
             />
-            <div className="text-[11px] text-muted-foreground uppercase tracking-wider">CRM · Operasyon · Servis</div>
+            <div className="text-[11px] uppercase tracking-wider text-white/50">CRM · Operasyon · Servis</div>
           </div>
 
-          <div className="mb-7 hidden items-center gap-3 lg:flex">
-            <img src="/brand/haksan-logo.png" alt="Haksan Makina" className="h-12 w-auto max-w-[180px] object-contain" />
-            <div className="h-8 w-px bg-border" />
-            <div className="text-[11px] uppercase tracking-wider text-muted-foreground">Kurumsal panel</div>
+          <div className="mb-5 hidden items-center gap-2.5 lg:flex">
+            <img src="/brand/haksan-logo-white.png" alt="Haksan Makina" className="h-10 w-auto max-w-[150px] object-contain" />
+            <div className="h-7 w-px bg-white/15" />
+            <div className="text-[11px] uppercase tracking-wider text-white/55">Kurumsal panel</div>
           </div>
 
-          <div className="mb-6">
-            <div className="text-[11px] uppercase tracking-wider text-primary mb-1.5">Güvenli giriş</div>
-            <h1 className="text-[26px] leading-tight tracking-tight">Hesabınıza giriş yapın</h1>
-            <p className="text-sm text-muted-foreground mt-1.5">
+          <div className="mb-4">
+            <div className="mb-1.5 text-[11px] uppercase tracking-wider text-white/70">Güvenli giriş</div>
+            <h1 className="text-2xl leading-tight tracking-tight text-white">Hesabınıza giriş yapın</h1>
+            <p className="mt-1 text-xs leading-relaxed text-white/50">
               Henüz hesabınız yok mu?{" "}
-              <span className="text-primary">Sistem yöneticinizle iletişime geçin</span>
+              <span className="text-white/85">Sistem yöneticinizle iletişime geçin</span>
             </p>
           </div>
 
-          <Card className="overflow-hidden border-border/70 bg-white shadow-[0_24px_70px_rgba(15,23,42,0.10)]">
+          <Card className="overflow-hidden border-white/15 bg-black/50 text-white shadow-[0_24px_70px_rgba(0,0,0,0.28)] backdrop-blur-2xl backdrop-saturate-150">
             <div className="h-1 bg-brand-red" />
-            <CardContent className="p-6">
-              <form onSubmit={submit} className="space-y-4">
+            <CardContent className="p-5">
+              <form onSubmit={submit} className="space-y-3.5">
                 <div>
-                  <Label htmlFor="login-tenant-slug" className="text-xs text-foreground/80">Tenant kodu <span className="text-muted-foreground">(opsiyonel)</span></Label>
-                  <Input
-                    id="login-tenant-slug"
-                    name="tenantSlug"
-                    type="text"
-                    autoCapitalize="none"
-                    autoCorrect="off"
-                    spellCheck={false}
-                    value={tenantSlug}
-                    onChange={(e) => setTenantSlug(e.target.value)}
-                    className="mt-1.5 h-10"
-                    placeholder="tenant-kodu"
-                    autoComplete="organization"
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="login-email" className="text-xs text-foreground/80">E-posta</Label>
+                  <Label htmlFor="login-email" className="text-xs text-white/75">E-posta</Label>
                   <Input
                     id="login-email"
                     name="email"
@@ -246,20 +199,19 @@ export function LoginPage({ onLogin }: { onLogin: (email: string, password: stri
                     spellCheck={false}
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    className="mt-1.5 h-10"
+                    className="mt-1.5 h-10 border-white/15 bg-black/30 text-white shadow-inner shadow-black/10 placeholder:text-white/35 hover:border-white/25 focus-visible:border-white/35 focus-visible:ring-white/10"
                     autoComplete="username"
                     required
                   />
                 </div>
                 <div>
                   <div className="flex items-center justify-between mb-1.5">
-                    <Label htmlFor="login-password" className="text-xs text-foreground/80">Şifre</Label>
+                    <Label htmlFor="login-password" className="text-xs text-white/75">Şifre</Label>
                     <button
                       type="button"
-                      className="text-xs text-primary hover:underline"
+                      className="text-xs text-white/70 hover:text-white hover:underline"
                       onClick={() => {
                         setForgotEmail(email);
-                        setForgotTenantSlug(tenantSlug);
                         setForgotOpen(true);
                       }}
                     >
@@ -273,14 +225,14 @@ export function LoginPage({ onLogin }: { onLogin: (email: string, password: stri
                       type={show ? "text" : "password"}
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
-                      className="h-10 pr-10"
+                      className="h-10 border-white/15 bg-black/30 pr-10 text-white shadow-inner shadow-black/10 hover:border-white/25 focus-visible:border-white/35 focus-visible:ring-white/10"
                       autoComplete="current-password"
                       required
                     />
                     <button
                       type="button"
                       onClick={() => setShow((s) => !s)}
-                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-white/45 hover:text-white"
                       aria-label={show ? "Şifreyi gizle" : "Şifreyi göster"}
                     >
                       {show ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
@@ -288,12 +240,12 @@ export function LoginPage({ onLogin }: { onLogin: (email: string, password: stri
                   </div>
                 </div>
 
-                <label htmlFor="login-remember" className="flex items-center gap-2 text-sm cursor-pointer select-none">
+                <label htmlFor="login-remember" className="flex cursor-pointer select-none items-center gap-2 text-sm text-white/80">
                   <input
                     id="login-remember"
                     name="remember"
                     type="checkbox"
-                    className="size-4 rounded border-border accent-primary"
+                    className="size-4 rounded border-white/25 accent-brand-red"
                     checked={remember}
                     onChange={(e) => setRemember(e.target.checked)}
                   />
@@ -309,14 +261,14 @@ export function LoginPage({ onLogin }: { onLogin: (email: string, password: stri
                   <>
                     <div className="relative my-2">
                       <div className="absolute inset-0 flex items-center">
-                        <span className="w-full border-t border-border/60" />
+                        <span className="w-full border-t border-white/15" />
                       </div>
                       <div className="relative flex justify-center text-xs">
-                        <span className="bg-card px-2 text-muted-foreground">veya</span>
+                        <span className="bg-black/50 px-2 text-white/45">veya</span>
                       </div>
                     </div>
 
-                    <Button type="button" variant="outline" className="w-full h-10">
+                    <Button type="button" variant="outline" className="h-10 w-full border-white/15 bg-white/5 text-white hover:bg-white/10 hover:text-white">
                       <ShieldCheck className="size-4" />
                       SSO ile devam et
                     </Button>
@@ -326,10 +278,21 @@ export function LoginPage({ onLogin }: { onLogin: (email: string, password: stri
             </CardContent>
           </Card>
 
+          {onReplayIntro && (
+            <button
+              type="button"
+              data-testid="onboarding-replay"
+              onClick={onReplayIntro}
+              className="mx-auto mt-4 flex items-center gap-2 rounded-md px-3 py-2 text-xs font-medium text-white/60 transition-colors hover:bg-white/5 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70"
+            >
+              <PlayCircle className="size-4" /> Tanıtımı izle
+            </button>
+          )}
+
           {!isProd && (
-          <div className="mt-5 rounded-lg border border-border/70 bg-white p-3 text-xs text-muted-foreground shadow-sm">
+          <div className="mt-5 rounded-lg border border-white/15 bg-black/50 p-3 text-xs text-white/55 shadow-[0_18px_50px_rgba(0,0,0,0.2)] backdrop-blur-2xl backdrop-saturate-150">
             <div className="flex items-center gap-2">
-              <CheckCircle2 className="size-3.5 text-emerald-600" />
+              <CheckCircle2 className="size-3.5 text-emerald-300" />
               Demo kullanıcılar (yalnızca geliştirme):
             </div>
             <ul className="mt-2 ml-5 list-disc space-y-0.5">
@@ -342,29 +305,37 @@ export function LoginPage({ onLogin }: { onLogin: (email: string, password: stri
           </div>
           )}
 
-          <Dialog open={forgotOpen} onOpenChange={setForgotOpen}>
-            <DialogContent className="max-w-sm">
+          <Dialog
+            open={forgotOpen}
+            onOpenChange={(next) => {
+              setForgotOpen(next);
+              if (!next) setForgotSent(false);
+            }}
+          >
+            <DialogContent className="max-w-sm overflow-hidden p-0">
+              <div className="h-1 bg-brand-red" />
+              <div className="p-6 pt-5">
               <DialogHeader>
-                <DialogTitle>Şifremi unuttum</DialogTitle>
-                <DialogDescription>Kayıtlı e-posta adresinize sıfırlama bağlantısı gönderilir.</DialogDescription>
-              </DialogHeader>
-              <form onSubmit={submitForgot} className="space-y-3">
-                <div>
-                  <Label htmlFor="forgot-tenant-slug" className="text-xs">Tenant kodu <span className="text-muted-foreground">(opsiyonel)</span></Label>
-                  <Input
-                    id="forgot-tenant-slug"
-                    name="forgot-tenant-slug"
-                    type="text"
-                    autoCapitalize="none"
-                    autoCorrect="off"
-                    spellCheck={false}
-                    value={forgotTenantSlug}
-                    onChange={(e) => setForgotTenantSlug(e.target.value)}
-                    className="mt-1.5"
-                    placeholder="tenant-kodu"
-                    autoComplete="organization"
-                  />
+                <div className="mb-2 grid size-11 place-items-center rounded-xl border border-primary/15 bg-primary/5 text-primary">
+                  {forgotSent ? <MailCheck className="size-5" /> : <KeyRound className="size-5" />}
                 </div>
+                <DialogTitle>{forgotSent ? "E-postanızı kontrol edin" : "Şifremi unuttum"}</DialogTitle>
+                <DialogDescription>
+                  {forgotSent
+                    ? `${forgotEmail.trim()} adresi sistemde kayıtlıysa güvenli sıfırlama bağlantısı gönderildi.`
+                    : "Kayıtlı e-posta adresinize güvenli bir sıfırlama bağlantısı gönderilir."}
+                </DialogDescription>
+              </DialogHeader>
+              {forgotSent ? (
+                <div className="mt-5 space-y-4">
+                  <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs leading-relaxed text-emerald-800">
+                    <div className="flex items-center gap-2 font-medium"><CheckCircle2 className="size-4" /> İstek güvenle alındı</div>
+                    <p className="mt-1.5 text-emerald-700">Bağlantı kısa süre içinde ulaşır. Gelen kutunuzda yoksa spam klasörünü kontrol edin.</p>
+                  </div>
+                  <Button type="button" className="w-full" onClick={() => setForgotOpen(false)}>Giriş ekranına dön</Button>
+                </div>
+              ) : (
+              <form onSubmit={submitForgot} className="mt-5 space-y-3">
                 <div>
                   <Label htmlFor="forgot-email" className="text-xs">E-posta</Label>
                   <Input
@@ -387,16 +358,40 @@ export function LoginPage({ onLogin }: { onLogin: (email: string, password: stri
                   <Button type="submit" disabled={forgotBusy}>{forgotBusy ? "Gönderiliyor…" : "Gönder"}</Button>
                 </DialogFooter>
               </form>
+              )}
+              </div>
             </DialogContent>
           </Dialog>
 
-          <Dialog open={resetOpen} onOpenChange={setResetOpen}>
-            <DialogContent className="max-w-sm">
+          <Dialog
+            open={resetOpen}
+            onOpenChange={(next) => {
+              setResetOpen(next);
+              if (!next) setResetSuccess(false);
+            }}
+          >
+            <DialogContent className="max-w-sm overflow-hidden p-0">
+              <div className="h-1 bg-brand-red" />
+              <div className="p-6 pt-5">
               <DialogHeader>
-                <DialogTitle>Yeni şifre belirle</DialogTitle>
-                <DialogDescription>Yeni şifreniz 8 ile 128 karakter arasında olmalıdır.</DialogDescription>
+                <div className="mb-2 grid size-11 place-items-center rounded-xl border border-primary/15 bg-primary/5 text-primary">
+                  {resetSuccess ? <CheckCircle2 className="size-5" /> : <ShieldCheck className="size-5" />}
+                </div>
+                <DialogTitle>{resetSuccess ? "Şifreniz güncellendi" : "Yeni şifre belirle"}</DialogTitle>
+                <DialogDescription>
+                  {resetSuccess ? "Hesabınız yeni şifrenizle giriş yapmaya hazır." : "En az 8 karakter kullanın; farklı karakter türleri şifrenizi güçlendirir."}
+                </DialogDescription>
               </DialogHeader>
-              <form onSubmit={submitReset} className="space-y-3">
+              {resetSuccess ? (
+                <div className="mt-5 space-y-4">
+                  <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs leading-relaxed text-emerald-800">
+                    <div className="flex items-center gap-2 font-medium"><CheckCircle2 className="size-4" /> Güvenlik bilgisi kaydedildi</div>
+                    <p className="mt-1.5 text-emerald-700">Şimdi yeni şifrenizi kullanarak oturum açabilirsiniz.</p>
+                  </div>
+                  <Button type="button" className="w-full" onClick={() => setResetOpen(false)}>Giriş yap</Button>
+                </div>
+              ) : (
+              <form onSubmit={submitReset} className="mt-5 space-y-3">
                 <div>
                   <Label htmlFor="reset-password" className="text-xs">Yeni şifre</Label>
                   <Input
@@ -411,6 +406,16 @@ export function LoginPage({ onLogin }: { onLogin: (email: string, password: stri
                     maxLength={128}
                     required
                   />
+                  <div className="mt-2">
+                    <div className="flex gap-1" aria-label={`Şifre gücü: ${passwordStrengthLabel}`}>
+                      {[0, 1, 2, 3].map((level) => (
+                        <span key={level} className={`h-1.5 flex-1 rounded-full ${level < passwordStrength ? passwordStrength >= 3 ? "bg-emerald-500" : "bg-amber-500" : "bg-muted"}`} />
+                      ))}
+                    </div>
+                    <div className="mt-1.5 flex items-center justify-between text-[11px] text-muted-foreground">
+                      <span>Şifre gücü</span><span className="font-medium text-foreground">{resetPassword ? passwordStrengthLabel : "Bekleniyor"}</span>
+                    </div>
+                  </div>
                 </div>
                 <div>
                   <Label htmlFor="reset-password-confirmation" className="text-xs">Yeni şifre tekrarı</Label>
@@ -427,10 +432,17 @@ export function LoginPage({ onLogin }: { onLogin: (email: string, password: stri
                     required
                   />
                 </div>
+                <div className="grid gap-1.5 rounded-xl border border-border/70 bg-muted/25 p-3 text-xs">
+                  <PasswordRule met={resetPassword.length >= 8 && resetPassword.length <= 128} label="8–128 karakter" />
+                  <PasswordRule met={Boolean(resetPassword) && resetPassword === resetPasswordConfirmation} label="Şifreler eşleşiyor" />
+                  <p className="pt-1 text-[10px] leading-relaxed text-muted-foreground">Büyük/küçük harf, rakam ve sembol kullanımı güç seviyesini artırır.</p>
+                </div>
                 <DialogFooter>
-                  <Button type="submit" disabled={resetBusy}>{resetBusy ? "Kaydediliyor…" : "Şifreyi güncelle"}</Button>
+                  <Button type="submit" disabled={resetBusy || resetPassword.length < 8 || resetPassword !== resetPasswordConfirmation}>{resetBusy ? "Kaydediliyor…" : "Şifreyi güncelle"}</Button>
                 </DialogFooter>
               </form>
+              )}
+              </div>
             </DialogContent>
           </Dialog>
         </div>
@@ -439,23 +451,13 @@ export function LoginPage({ onLogin }: { onLogin: (email: string, password: stri
   );
 }
 
-function BrandMetric({ value, label }: { value: string; label: string }) {
+function PasswordRule({ met, label }: { met: boolean; label: string }) {
   return (
-    <div className="rounded-lg border border-white/10 bg-white/[0.07] px-3 py-3">
-      <div className="text-lg leading-none tracking-tight">{value}</div>
-      <div className="mt-1 text-[11px] leading-tight text-white/65">{label}</div>
-    </div>
-  );
-}
-
-function Feature({ icon, title, desc }: { icon: React.ReactNode; title: string; desc: string }) {
-  return (
-    <div className="flex items-start gap-2.5 p-3 rounded-lg bg-white/[0.07] backdrop-blur border border-white/10">
-      <div className="size-8 rounded-md bg-white/12 grid place-items-center shrink-0">{icon}</div>
-      <div className="min-w-0">
-        <div className="text-sm leading-tight">{title}</div>
-        <div className="text-[11px] opacity-75 mt-0.5">{desc}</div>
-      </div>
+    <div className={`flex items-center gap-2 ${met ? "text-emerald-700" : "text-muted-foreground"}`}>
+      <span className={`grid size-4 place-items-center rounded-full border ${met ? "border-emerald-200 bg-emerald-50" : "border-border bg-white"}`}>
+        {met ? <CheckCircle2 className="size-3" /> : <span className="size-1 rounded-full bg-current opacity-50" />}
+      </span>
+      {label}
     </div>
   );
 }

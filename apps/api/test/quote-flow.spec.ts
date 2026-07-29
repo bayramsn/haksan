@@ -6,9 +6,15 @@ import { createTestApp } from './setup';
 let app: NestFastifyApplication;
 let adminToken: string;
 let companyId: string;
+let companyAddressId: string;
 let opportunityId: string;
 let quoteId: string;
 let quoteBusinessLine: string;
+let proformaId: string;
+let quoteItemId: string;
+let productModelId: string;
+let productFullName: string;
+let productBasePrice: number;
 
 beforeAll(async () => {
   app = await createTestApp();
@@ -16,8 +22,22 @@ beforeAll(async () => {
     .post('/api/v1/auth/login')
     .send({ email: 'admin@haksan.local', password: 'admin12345' });
   adminToken = login.body.accessToken;
-  const r = await supertest(app.getHttpServer()).get('/api/v1/companies').set('Authorization', `Bearer ${adminToken}`);
-  companyId = r.body.data[0].id;
+  const r = await supertest(app.getHttpServer()).get('/api/v1/companies?pageSize=100').set('Authorization', `Bearer ${adminToken}`);
+  const company = r.body.data.find((item: { addresses?: unknown[] }) => (item.addresses?.length ?? 0) > 0);
+  if (!company) throw new Error('PDF adresi testi için adresi olan firma bulunamadı');
+  companyId = company.id;
+  companyAddressId = company.addresses.find((address: { isBilling?: boolean }) => address.isBilling)?.id
+    ?? company.addresses[0].id;
+  const productList = await supertest(app.getHttpServer())
+    .get('/api/v1/products?pageSize=100')
+    .set('Authorization', `Bearer ${adminToken}`);
+  const pricedProduct = productList.body.data.find((product: { cashPrice?: unknown; listPrice?: unknown }) =>
+    Number(product.cashPrice ?? product.listPrice ?? 0) > 0
+  );
+  if (!pricedProduct) throw new Error('Fiyat onayı testi için fiyatlı ürün bulunamadı');
+  productModelId = pricedProduct.id;
+  productFullName = pricedProduct.fullName;
+  productBasePrice = Number(pricedProduct.cashPrice ?? pricedProduct.listPrice);
 });
 
 afterAll(async () => {
@@ -29,9 +49,17 @@ describe('ERP flow', () => {
     const r = await supertest(app.getHttpServer())
       .post('/api/v1/opportunities')
       .set('Authorization', `Bearer ${adminToken}`)
-      .send({ companyId, title: 'Test opp', estimatedValue: 100000, currencyCode: 'USD', probability: 50 });
+      .send({
+        companyId,
+        title: 'Test opp',
+        estimatedValue: 100000,
+        currencyCode: 'USD',
+        probability: 50,
+        paymentMethod: 'leasing',
+      });
     expect(r.status).toBe(201);
     expect(r.body.stage?.code).toBe('lead');
+    expect(r.body.paymentMethod).toBe('leasing');
     opportunityId = r.body.id;
   });
 
@@ -56,18 +84,28 @@ describe('ERP flow', () => {
     const r = await supertest(app.getHttpServer())
       .post('/api/v1/quotes')
       .set('Authorization', `Bearer ${adminToken}`)
-      .send({ companyId, opportunityId, quoteDate: new Date().toISOString(), currencyCode: 'USD' });
+      .send({ companyId, companyAddressId, opportunityId, quoteDate: new Date().toISOString(), currencyCode: 'USD' });
     expect(r.status).toBe(201);
     quoteId = r.body.id;
     quoteBusinessLine = r.body.businessLine;
     expect(['CNC', 'UNI', 'SACISLE']).toContain(quoteBusinessLine);
+    expect(r.body.companyAddressId).toBe(companyAddressId);
     expect(r.body.documentNo).toMatch(new RegExp(`^${quoteBusinessLine}-\\d{4}/\\d{3}$`));
 
     const item = await supertest(app.getHttpServer())
       .post(`/api/v1/quotes/${quoteId}/items`)
       .set('Authorization', `Bearer ${adminToken}`)
-      .send({ description: 'CNC tezgah', quantity: 1, unitPrice: 100000, discountAmount: 5000, vatRate: 20, sortOrder: 0 });
+      .send({
+        productModelId,
+        description: `CNC-${'UZUNOZELLIK'.repeat(175)}`,
+        quantity: 1,
+        unitPrice: 100000,
+        discountAmount: 5000,
+        vatRate: 20,
+        sortOrder: 0,
+    });
     expect(item.status).toBe(201);
+    quoteItemId = item.body.id;
 
     const got = await supertest(app.getHttpServer())
       .get(`/api/v1/quotes/${quoteId}`)
@@ -84,7 +122,12 @@ describe('ERP flow', () => {
       supertest(app.getHttpServer())
         .post('/api/v1/proformas')
         .set('Authorization', `Bearer ${adminToken}`)
-        .send({ quoteId, issueDate: new Date().toISOString(), statusCode: 'draft' }),
+        .send({
+          quoteId,
+          issueDate: new Date().toISOString(),
+          statusCode: 'draft',
+          items: [{ quoteItemId, unitPrice: 90_000 }],
+        }),
       supertest(app.getHttpServer())
         .post('/api/v1/contracts')
         .set('Authorization', `Bearer ${adminToken}`)
@@ -96,11 +139,284 @@ describe('ERP flow', () => {
     ]);
 
     expect(proforma.status).toBe(201);
+    proformaId = proforma.body.id;
     expect(proforma.body.documentNo).toMatch(new RegExp(`^${quoteBusinessLine}-PRF-\\d{4}/\\d{3}$`));
+    expect(proforma.body.documentSnapshot?.schemaVersion).toBe(3);
+    expect(proforma.body.documentSnapshot?.items[0]).toMatchObject({
+      id: quoteItemId,
+      unitPrice: 90_000,
+      discountAmount: 0,
+      lineTotal: 90_000,
+      vatAmount: 18_000,
+    });
+    expect(proforma.body.documentSnapshot?.quote).toMatchObject({
+      discountTotal: 0,
+      subtotal: 90_000,
+      vatAmount: 18_000,
+      grandTotal: 108_000,
+    });
     expect(contract.status).toBe(201);
     expect(contract.body.contractNo).toMatch(new RegExp(`^${quoteBusinessLine}-SOZ-\\d{4}/\\d{3}$`));
     expect(invoice.status).toBe(201);
     expect(invoice.body.invoiceNo).toMatch(new RegExp(`^${quoteBusinessLine}-FAT-\\d{4}/\\d{3}$`));
+  });
+
+  it('shows the product name and restores the quote to draft after price approval', async () => {
+    const created = await supertest(app.getHttpServer())
+      .post('/api/v1/quotes')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ companyId, companyAddressId, quoteDate: new Date().toISOString(), currencyCode: 'USD' });
+    expect(created.status).toBe(201);
+
+    const item = await supertest(app.getHttpServer())
+      .post(`/api/v1/quotes/${created.body.id}/items`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({
+        productModelId,
+        stockCode: 'LISTEDE-GORUNMEMELI',
+        description: 'Eski stok kodu yerine ürün adı kullanılmalı',
+        quantity: 1,
+        unitPrice: Math.max(0.01, productBasePrice / 2),
+        discountAmount: 0,
+        vatRate: 20,
+        sortOrder: 0,
+      });
+    expect(item.status).toBe(201);
+
+    const pendingList = await supertest(app.getHttpServer())
+      .get(`/api/v1/quotes?search=${encodeURIComponent(created.body.documentNo)}&pageSize=10`)
+      .set('Authorization', `Bearer ${adminToken}`);
+    const pendingQuote = pendingList.body.data.find((quote: { id: string }) => quote.id === created.body.id);
+    expect(pendingQuote?.status?.code).toBe('pending_super_admin_approval');
+    expect(pendingQuote?.priceApprovalStatus).toBe('pending');
+    expect(pendingQuote?.productName).toBe(productFullName);
+    expect(pendingQuote?.productName).not.toBe('LISTEDE-GORUNMEMELI');
+
+    const approved = await supertest(app.getHttpServer())
+      .post(`/api/v1/quotes/${created.body.id}/price-approval/approve`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ note: 'Test fiyat onayı' });
+    expect(approved.status).toBe(201);
+    expect(approved.body.priceApprovalStatus).toBe('approved');
+
+    const approvedList = await supertest(app.getHttpServer())
+      .get(`/api/v1/quotes?search=${encodeURIComponent(created.body.documentNo)}&pageSize=10`)
+      .set('Authorization', `Bearer ${adminToken}`);
+    const approvedQuote = approvedList.body.data.find((quote: { id: string }) => quote.id === created.body.id);
+    expect(approvedQuote?.status?.code).toBe('draft');
+    expect(approvedQuote?.priceApprovalStatus).toBe('approved');
+  });
+
+  it('keeps multiple products in print order and rejects an excessive product discount', async () => {
+    const created = await supertest(app.getHttpServer())
+      .post('/api/v1/quotes')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ companyId, companyAddressId, quoteDate: new Date().toISOString(), currencyCode: 'USD' });
+    expect(created.status).toBe(201);
+
+    const excessiveDiscount = await supertest(app.getHttpServer())
+      .post(`/api/v1/quotes/${created.body.id}/items`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({
+        productModelId,
+        description: 'İskontosu geçersiz ürün',
+        quantity: 1,
+        unitPrice: 1_000,
+        discountAmount: 1_001,
+        vatRate: 0,
+        sortOrder: 0,
+      });
+    expect([400, 422]).toContain(excessiveDiscount.status);
+
+    const second = await supertest(app.getHttpServer())
+      .post(`/api/v1/quotes/${created.body.id}/items`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({
+        description: 'İkinci makine',
+        quantity: 1,
+        unitPrice: productBasePrice,
+        discountAmount: 100,
+        vatRate: 0,
+        sortOrder: 10,
+        compatibility: { lineGroupKey: 'machine-b' },
+      });
+    expect(second.status).toBe(201);
+
+    const first = await supertest(app.getHttpServer())
+      .post(`/api/v1/quotes/${created.body.id}/items`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({
+        productModelId,
+        description: 'Birinci makine',
+        quantity: 2,
+        unitPrice: productBasePrice,
+        discountAmount: 200,
+        vatRate: 0,
+        sortOrder: 0,
+        compatibility: { lineGroupKey: 'machine-a' },
+      });
+    expect(first.status).toBe(201);
+
+    const got = await supertest(app.getHttpServer())
+      .get(`/api/v1/quotes/${created.body.id}`)
+      .set('Authorization', `Bearer ${adminToken}`);
+    expect(got.status).toBe(200);
+    expect(got.body.items.map((item: { description: string }) => item.description)).toEqual([
+      'Birinci makine',
+      'İkinci makine',
+    ]);
+    expect(got.body.items.map((item: { compatibility?: { lineGroupKey?: string } }) => item.compatibility?.lineGroupKey)).toEqual([
+      'machine-a',
+      'machine-b',
+    ]);
+    const listed = await supertest(app.getHttpServer())
+      .get(`/api/v1/quotes?search=${encodeURIComponent(created.body.documentNo)}&pageSize=10`)
+      .set('Authorization', `Bearer ${adminToken}`);
+    const listedQuote = listed.body.data.find((quote: { id: string }) => quote.id === created.body.id);
+    expect(listedQuote?.productName).toContain(productFullName);
+    expect(listedQuote?.productName).toContain('İkinci makine');
+  });
+
+  it('refuses to send an itemless quote', async () => {
+    const draft = await supertest(app.getHttpServer())
+      .post('/api/v1/quotes')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ companyId, quoteDate: new Date().toISOString(), currencyCode: 'USD' });
+    expect(draft.status).toBe(201);
+
+    const sent = await supertest(app.getHttpServer())
+      .post(`/api/v1/quotes/${draft.body.id}/send`)
+      .set('Authorization', `Bearer ${adminToken}`);
+    expect([400, 422]).toContain(sent.status);
+  });
+
+  it('stores quote waiting status and its follow-up reminder', async () => {
+    const draft = await supertest(app.getHttpServer())
+      .post('/api/v1/quotes')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ companyId, quoteDate: new Date().toISOString(), currencyCode: 'USD' });
+    expect(draft.status).toBe(201);
+
+    const missingReminder = await supertest(app.getHttpServer())
+      .post(`/api/v1/quotes/${draft.body.id}/status`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ statusCode: 'budget_waiting' });
+    expect([400, 422]).toContain(missingReminder.status);
+
+    const followUpAt = new Date(Date.now() + 86_400_000).toISOString();
+    const waiting = await supertest(app.getHttpServer())
+      .post(`/api/v1/quotes/${draft.body.id}/status`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ statusCode: 'budget_waiting', followUpAt, note: 'Müşteri bütçe onayı verecek' });
+    expect(waiting.status).toBe(201);
+    expect(new Date(waiting.body.followUpAt).toISOString()).toBe(followUpAt);
+    expect(waiting.body.statusNote).toBe('Müşteri bütçe onayı verecek');
+
+    const listed = await supertest(app.getHttpServer())
+      .get(`/api/v1/quotes?search=${encodeURIComponent(draft.body.documentNo)}&pageSize=10`)
+      .set('Authorization', `Bearer ${adminToken}`);
+    const listedQuote = listed.body.data.find((quote: { id: string }) => quote.id === draft.body.id);
+    expect(listedQuote?.status?.code).toBe('budget_waiting');
+  });
+
+  it('snapshots sent commercial documents and prevents later mutation or deletion', async () => {
+    const repriced = await supertest(app.getHttpServer())
+      .patch(`/api/v1/proformas/${proformaId}`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ items: [{ quoteItemId, unitPrice: 88_000 }] });
+    expect(repriced.status).toBe(200);
+    expect(repriced.body.documentSnapshot?.items[0]).toMatchObject({
+      unitPrice: 88_000,
+      discountAmount: 0,
+      lineTotal: 88_000,
+    });
+
+    const finalized = await supertest(app.getHttpServer())
+      .patch(`/api/v1/proformas/${proformaId}`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ statusCode: 'sent' });
+    expect(finalized.status).toBe(200);
+    expect(finalized.body.finalizedAt).toBeTruthy();
+    expect(finalized.body.documentSnapshot?.company).toBeTruthy();
+    expect(finalized.body.documentSnapshot?.companyAddresses?.[0]?.id).toBe(companyAddressId);
+    expect(finalized.body.documentSnapshot?.items).toHaveLength(1);
+    expect(finalized.body.documentSnapshot?.schemaVersion).toBe(3);
+    expect(finalized.body.documentSnapshot?.items[0]?.unitCode).toBe('adet');
+    expect(finalized.body.documentSnapshot?.items[0]?.product?.id).toBe(productModelId);
+    expect(finalized.body.documentSnapshot?.items[0]?.product?.brandName).toBeTruthy();
+
+    const changed = await supertest(app.getHttpServer())
+      .patch(`/api/v1/proformas/${proformaId}`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ issueDate: new Date(Date.now() + 86_400_000).toISOString() });
+    expect(changed.status).toBe(409);
+
+    const removed = await supertest(app.getHttpServer())
+      .delete(`/api/v1/proformas/${proformaId}`)
+      .set('Authorization', `Bearer ${adminToken}`);
+    expect(removed.status).toBe(409);
+  });
+
+  it('snapshots sent quotes and requires a new revision for changes', async () => {
+    const sent = await supertest(app.getHttpServer())
+      .post(`/api/v1/quotes/${quoteId}/send`)
+      .set('Authorization', `Bearer ${adminToken}`);
+    expect(sent.status).toBe(201);
+
+    const got = await supertest(app.getHttpServer())
+      .get(`/api/v1/quotes/${quoteId}`)
+      .set('Authorization', `Bearer ${adminToken}`);
+    expect(got.status).toBe(200);
+    expect(got.body.finalizedAt).toBeTruthy();
+    expect(got.body.documentSnapshot?.items).toHaveLength(1);
+    expect(got.body.documentSnapshot?.companyAddresses?.[0]?.id).toBe(companyAddressId);
+
+    const pdf = await supertest(app.getHttpServer())
+      .post(`/api/v1/quotes/${quoteId}/generate-pdf`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .buffer(true)
+      .parse((response, callback) => {
+        const chunks: Buffer[] = [];
+        response.on('data', (chunk) => chunks.push(Buffer.from(chunk)));
+        response.on('end', () => callback(null, Buffer.concat(chunks)));
+      });
+    expect(pdf.status).toBe(201);
+    expect(pdf.headers['content-type']).toContain('application/pdf');
+    expect(pdf.body.subarray(0, 4).toString()).toBe('%PDF');
+    expect((pdf.body.toString('latin1').match(/\/Type\s*\/Page\b/g) ?? []).length).toBeGreaterThanOrEqual(2);
+
+    const changed = await supertest(app.getHttpServer())
+      .patch(`/api/v1/quotes/${quoteId}`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ notes: 'Bu değişiklik kesinleşmiş teklife uygulanmamalı' });
+    expect(changed.status).toBe(409);
+
+    const approved = await supertest(app.getHttpServer())
+      .post(`/api/v1/quotes/${quoteId}/approve`)
+      .set('Authorization', `Bearer ${adminToken}`);
+    expect(approved.status).toBe(201);
+
+    const approvedAgain = await supertest(app.getHttpServer())
+      .post(`/api/v1/quotes/${quoteId}/approve`)
+      .set('Authorization', `Bearer ${adminToken}`);
+    expect(approvedAgain.status).toBe(201);
+
+    const listed = await supertest(app.getHttpServer())
+      .get(`/api/v1/quotes?search=${encodeURIComponent(got.body.documentNo)}&pageSize=10`)
+      .set('Authorization', `Bearer ${adminToken}`);
+    const listedQuote = listed.body.data.find((quote: { id: string }) => quote.id === quoteId);
+    expect(listedQuote?.status?.code).toBe('approved');
+  });
+
+  it('does not soft-delete a company that has historical documents', async () => {
+    const removed = await supertest(app.getHttpServer())
+      .delete(`/api/v1/companies/${companyId}`)
+      .set('Authorization', `Bearer ${adminToken}`);
+    expect(removed.status).toBe(409);
+    const companies = await supertest(app.getHttpServer())
+      .get('/api/v1/companies?pageSize=100')
+      .set('Authorization', `Bearer ${adminToken}`);
+    expect(companies.body.data.some((company: { id: string }) => company.id === companyId)).toBe(true);
   });
 
   it('moves sales → quote (now that a quote exists)', async () => {

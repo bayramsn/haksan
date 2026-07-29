@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Upload, FileText, Link as LinkIcon } from "lucide-react";
+import { FileCheck2, Upload, FileText, Link as LinkIcon, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "../ui/button";
 import {
@@ -83,7 +83,7 @@ export function DocumentUploadDialog({
 }) {
   const { cases, customers, addDocument } = useStore();
   const inputRef = useRef<HTMLInputElement>(null);
-  const initialScope = defaultSalesCaseId ? "case" : defaultCompanyId ? "company" : "case";
+  const initialScope = defaultSalesCaseId ? "case" : "company";
   const [internalOpen, setInternalOpen] = useState(false);
   const open = controlledOpen ?? internalOpen;
   const setOpen = (next: boolean) => {
@@ -127,7 +127,11 @@ export function DocumentUploadDialog({
       return;
     }
     if (!entityId) {
-      toast.error("Bağlantı seçin", { description: "Dokümanı bir satış kartına veya firmaya bağlayın." });
+      toast.error(scope === "company" ? "Firma seçin" : "Satış kartı seçin", {
+        description: scope === "company"
+          ? "Doküman eklemek için satış kartı gerekmez; yalnızca ilgili firmayı seçin."
+          : "Satış kartı bağlantısı isteğe bağlıdır; dilerseniz Firma sekmesini kullanın.",
+      });
       return;
     }
     if (file.size > 25 * 1024 * 1024) {
@@ -193,18 +197,18 @@ export function DocumentUploadDialog({
             <Upload className="size-5 text-primary" />
             Doküman Yükle
           </DialogTitle>
-          <DialogDescription>Dosyayı satış kartına veya firmaya bağlayın.</DialogDescription>
+          <DialogDescription>Dosyayı doğrudan firmaya ekleyin; satış kartı isteğe bağlıdır.</DialogDescription>
         </DialogHeader>
 
         <form onSubmit={submit} className="flex min-h-0 flex-col">
           <div className="max-h-[calc(90dvh-150px)] overflow-y-auto px-5 py-4 space-y-4">
             {!lockedRelation && (
               <div className="grid grid-cols-2 gap-2">
-                <Button type="button" variant={scope === "case" ? "default" : "outline"} onClick={() => setScope("case")}>
-                  Satış kartı
-                </Button>
                 <Button type="button" variant={scope === "company" ? "default" : "outline"} onClick={() => setScope("company")}>
                   Firma
+                </Button>
+                <Button type="button" variant={scope === "case" ? "default" : "outline"} onClick={() => setScope("case")}>
+                  Satış kartı (opsiyonel)
                 </Button>
               </div>
             )}
@@ -276,15 +280,24 @@ export function DocumentUploadDialog({
                 <div className="min-w-0">
                   <div className="text-sm font-medium break-words">{file?.name ?? "Dosya seç"}</div>
                   <div className="text-xs text-muted-foreground mt-1">
-                    {file ? `${formatFileSize(file.size)} · ${file.type || extensionFromName(file.name).toLocaleUpperCase("tr-TR")}` : "PDF, DOCX, XLSX, PNG, JPG, WEBP"}
+                    {file ? `${formatFileSize(file.size)} · ${file.type || extensionFromName(file.name).toLocaleUpperCase("tr-TR")}` : "PDF, DOCX, XLSX, PNG, JPG, WEBP · en fazla 25 MB"}
                   </div>
+                  {file && <div className="mt-1.5 inline-flex items-center gap-1 text-[11px] font-medium text-emerald-700"><FileCheck2 className="size-3.5" /> Güvenli yükleme için hazır</div>}
                 </div>
               </div>
             </button>
 
+            {uploading && (
+              <div className="rounded-lg border border-primary/15 bg-primary/[0.035] p-3" aria-live="polite">
+                <div className="flex items-center justify-between gap-3 text-xs"><span className="font-medium">Dosya güvenli depoya aktarılıyor</span><span className="font-data text-primary">İşleniyor</span></div>
+                <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-primary/10"><div className="h-full w-2/3 animate-pulse rounded-full bg-primary" /></div>
+              </div>
+            )}
+
             <div>
-              <Label>Açıklama</Label>
+              <Label htmlFor="document-upload-description">Açıklama</Label>
               <Textarea
+                id="document-upload-description"
                 className="mt-1 min-h-20 resize-none"
                 value={description}
                 onChange={(event) => setDescription(event.target.value)}
@@ -297,6 +310,9 @@ export function DocumentUploadDialog({
               <span className="min-w-0 break-words">
                 {entityId ? `${scope === "case" ? "Satış kartı" : "Firma"} bağlantısı: ${selectedCompany?.name ?? entityId}` : "Henüz bağlantı seçilmedi."}
               </span>
+            </div>
+            <div className="flex items-start gap-2 text-[11px] leading-relaxed text-muted-foreground">
+              <ShieldCheck className="mt-0.5 size-3.5 shrink-0 text-primary" /> Dosya tipi ve boyutu gönderimden önce doğrulanır; kayıt seçtiğiniz firma veya satış kartıyla güvenli biçimde ilişkilendirilir.
             </div>
           </div>
 

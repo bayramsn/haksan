@@ -4,3 +4,4 @@ export * from "./templates";
 export * from "./proformaPrint";
 export * from "./quotePrint";
 export * from "./contractPrint";
+export * from "./productTechnicalPrint";

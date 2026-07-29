@@ -1,15 +1,26 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { existsSync } from 'node:fs';
-import { and, desc, eq, ilike, isNull, sql } from 'drizzle-orm';
+import { and, desc, eq, ilike, inArray, isNull, sql } from 'drizzle-orm';
 import type { DbClient } from '../../db/client';
 import { quotes, quoteItems, quoteTerms, proformas, contracts, commercialInvoices } from '../../db/schema/quotes';
-import { companies, contactCompanies, contacts } from '../../db/schema/companies';
-import { opportunities } from '../../db/schema/crm';
+import { companies, companyAddresses, companyEmails, companyPhones, contactCompanies, contacts } from '../../db/schema/companies';
+import { opportunities, salesActivities } from '../../db/schema/crm';
+import { receivables } from '../../db/schema/finance';
 import { inventoryItems } from '../../db/schema/inventory';
-import { productModels } from '../../db/schema/products';
+import { brands, productModels } from '../../db/schema/products';
 import { divisions } from '../../db/schema/tenants';
 import { users } from '../../db/schema/users';
-import { currencies, units, quoteStatuses, proformaStatuses, contractStatuses, invoiceStatuses, productGroups } from '../../db/schema/lookup';
+import {
+  activityTypes,
+  currencies,
+  units,
+  quoteStatuses,
+  proformaStatuses,
+  contractStatuses,
+  invoiceStatuses,
+  productGroups,
+  productTypes,
+} from '../../db/schema/lookup';
 import { DB } from '../../shared/database/database.module';
 import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from '../../shared/utils/errors';
 import type { AuthContext } from '../../shared/security/auth.types';
@@ -20,13 +31,17 @@ import type {
   ContractUpdateInput,
   Pagination,
   ProformaCreateInput,
+  ProformaPriceItemInput,
   ProformaUpdateInput,
   QuoteCreateInput,
   QuoteItemCreateInput,
   QuoteItemUpdateInput,
+  QuoteStatusChangeInput,
   QuoteTermsUpsertInput,
   QuoteUpdateInput,
 } from '@haksan/shared';
+import { computeCustomsCharges, isMachiningCenterTypeCode } from '@haksan/shared';
+import { FxService } from '../fx/fx.service';
 import { buildPaginated, pageOffset } from '../../shared/utils/pagination';
 import { lookupIdByCode } from '../../shared/utils/lookup.helper';
 import { AuditService } from '../../shared/database/audit.service';
@@ -52,6 +67,23 @@ interface ItemTotals {
   total: number;
 }
 
+export type CatalogQuoteItemRequest = {
+  productModelId: string;
+  quantity: number;
+  discountPercent?: number;
+};
+
+export type CatalogQuoteItemPreview = {
+  productModelId: string;
+  description: string;
+  stockCode?: string;
+  quantity: number;
+  unitPrice: number;
+  discountPercent: number;
+  discountAmount: number;
+  vatRate: number;
+};
+
 const PDF_REGULAR_FONT_CANDIDATES = [
   '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
   '/System/Library/Fonts/Supplemental/Arial.ttf',
@@ -70,8 +102,18 @@ const firstExistingPath = (paths: string[]) => paths.find((p) => existsSync(p));
 export class QuotesService {
   constructor(
     @Inject(DB) private readonly db: DbClient,
-    private readonly audit: AuditService
+    private readonly audit: AuditService,
+    private readonly fx: FxService
   ) {}
+
+  /** 1 USD karşılığı teklif para birimi tutarı (USD teklif için 1). */
+  private async usdToQuoteRate(currencyCode: string | null | undefined): Promise<number> {
+    const code = (currencyCode || 'USD').toUpperCase();
+    if (code === 'USD') return 1;
+    const snapshot = await this.fx.rates();
+    const rate = (snapshot.rates as Record<string, number>)[code];
+    return Number.isFinite(rate) && rate > 0 ? rate : 1;
+  }
 
   private calcItem(qty: number, unitPrice: number, discount: number, vatRate: number): ItemTotals & { lineTotal: number; vatAmount: number } {
     const gross = qty * unitPrice;
@@ -79,6 +121,18 @@ export class QuotesService {
     const vat = subtotal * (vatRate / 100);
     const total = subtotal + vat;
     return { subtotal, discount, vat, total, lineTotal: subtotal, vatAmount: vat };
+  }
+
+  private assertItemDiscount(quantity: number, unitPrice: number, discountAmount: number) {
+    const gross = quantity * unitPrice;
+    if (!Number.isFinite(gross) || gross < 0 || !Number.isFinite(discountAmount) || discountAmount < 0) {
+      throw new ValidationError('Ürün fiyatı ve iskontosu geçerli bir tutar olmalı');
+    }
+    if (discountAmount > gross + 0.0001) {
+      throw new ValidationError('Ürüne özel iskonto satırın brüt tutarını aşamaz', {
+        field: 'discountAmount',
+      });
+    }
   }
 
   private async recalcQuoteTotals(quoteId: string) {
@@ -105,16 +159,58 @@ export class QuotesService {
     const ratio = taxableBeforeHeader > 0 ? (taxableBeforeHeader - headerDiscount) / taxableBeforeHeader : 1;
     const vat = taxableRows.reduce((sum, row) => sum + (row.amount * ratio * (row.vatRate / 100)), 0);
     const discount = lineDiscount + headerDiscount;
-    const grand = subtotal - discount + vat;
+    const customsTotal = await this.calcCustomsTotal(quote?.currencyId ?? null, items);
+    const grand = subtotal - discount + vat + customsTotal;
     await this.db
       .update(quotes)
       .set({
         subtotal: (subtotal - discount).toFixed(4),
         discountTotal: discount.toFixed(4),
         vatAmount: vat.toFixed(4),
+        customsTotal: customsTotal.toFixed(4),
         grandTotal: grand.toFixed(4),
       })
       .where(eq(quotes.id, quoteId));
+  }
+
+  /**
+   * Millileştirilmiş işleme merkezi satırları için otomatik gümrük/vergi toplamı.
+   * Yalnız ürün tipi işleme merkezi VE `nationalized` işaretli satırlar dahildir.
+   * Sabit USD ücretler teklif para birimine güncel kur ile çevrilir.
+   */
+  private async calcCustomsTotal(
+    currencyId: string | null,
+    items: Array<typeof quoteItems.$inferSelect>
+  ): Promise<number> {
+    const nationalized = items.filter((it) => it.nationalized);
+    if (!nationalized.length) return 0;
+
+    const modelIds = [...new Set(nationalized.map((it) => it.productModelId).filter((id): id is string => Boolean(id)))];
+    if (!modelIds.length) return 0;
+    const typeRows = await this.db
+      .select({ id: productModels.id, code: productTypes.code })
+      .from(productModels)
+      .leftJoin(productTypes, eq(productModels.productTypeId, productTypes.id))
+      .where(inArray(productModels.id, modelIds));
+    const typeByModel = new Map(typeRows.map((row) => [row.id, row.code ?? null]));
+
+    const machining = nationalized.filter(
+      (it) => it.productModelId && isMachiningCenterTypeCode(typeByModel.get(it.productModelId))
+    );
+    if (!machining.length) return 0;
+
+    const currencyCode = currencyId
+      ? (await this.db.query.currencies.findFirst({ where: eq(currencies.id, currencyId) }))?.code ?? 'USD'
+      : 'USD';
+    const usdToQuoteRate = await this.usdToQuoteRate(currencyCode);
+
+    let total = 0;
+    for (const it of machining) {
+      const gross = Number(it.quantity) * Number(it.unitPrice);
+      const charges = computeCustomsCharges({ lineTotal: gross, quantity: Number(it.quantity), usdToQuoteRate });
+      total += charges.total;
+    }
+    return Number(total.toFixed(4));
   }
 
   private async tenantHasActiveDivisions(actor: AuthContext): Promise<boolean> {
@@ -144,6 +240,30 @@ export class QuotesService {
     });
     if (!company) throw new NotFoundError('Firma');
     return company;
+  }
+
+  private async resolveCompanyAddress(
+    companyId: string,
+    companyAddressId: string | undefined,
+    actor: AuthContext,
+  ) {
+    const rows = await this.db
+      .select()
+      .from(companyAddresses)
+      .where(and(
+        eq(companyAddresses.companyId, companyId),
+        eq(companyAddresses.tenantId, actor.tenantId),
+        isNull(companyAddresses.deletedAt),
+      ))
+      .orderBy(desc(companyAddresses.isBilling), desc(companyAddresses.isDefault), companyAddresses.createdAt);
+    if (!companyAddressId) return rows[0] ?? null;
+    const selected = rows.find((address) => address.id === companyAddressId);
+    if (!selected) {
+      throw new ValidationError('PDF için seçilen adres bu firmaya ait değil', {
+        field: 'companyAddressId',
+      });
+    }
+    return selected;
   }
 
   private async assertContact(contactId: string, actor: AuthContext, companyId: string) {
@@ -204,6 +324,54 @@ export class QuotesService {
     return row.product;
   }
 
+  /**
+   * Asistan teklifleri fiyatı hiçbir zaman LLM'den almaz. Ürün kimliği, bölüm
+   * görünürlüğü, para birimi ve fiyat burada sunucu tarafında doğrulanır.
+   */
+  async previewCatalogItems(
+    items: CatalogQuoteItemRequest[],
+    actor: AuthContext,
+    quoteDivisionId?: string | null,
+    currencyCode = 'USD'
+  ): Promise<CatalogQuoteItemPreview[]> {
+    const currency = await this.db.query.currencies.findFirst({ where: eq(currencies.code, currencyCode) });
+    if (!currency) throw new ValidationError('Geçersiz para birimi');
+
+    const previews: CatalogQuoteItemPreview[] = [];
+    for (const item of items) {
+      if (!Number.isFinite(item.quantity) || item.quantity <= 0 || item.quantity > 100_000) {
+        throw new ValidationError('Ürün miktarı 0 ile 100.000 arasında olmalı');
+      }
+      const discountPercent = item.discountPercent ?? 0;
+      if (!Number.isFinite(discountPercent) || discountPercent < 0 || discountPercent > 100) {
+        throw new ValidationError('İndirim oranı 0 ile 100 arasında olmalı');
+      }
+      const product = await this.assertProductModel(item.productModelId, actor, quoteDivisionId);
+      if (!product.isActive) throw new ValidationError(`${product.modelCode} ürünü aktif değil`);
+      if (product.currencyId && product.currencyId !== currency.id) {
+        throw new ValidationError(`${product.modelCode} ürününün para birimi teklif para birimiyle uyuşmuyor`);
+      }
+      const listPrice = Number(product.listPrice ?? 0);
+      const cashPrice = Number(product.cashPrice ?? 0);
+      const unitPrice = listPrice > 0 ? listPrice : cashPrice;
+      if (!Number.isFinite(unitPrice) || unitPrice <= 0) {
+        throw new ValidationError(`${product.modelCode} için katalog fiyatı tanımlı değil`);
+      }
+      const discountAmount = Number((item.quantity * unitPrice * (discountPercent / 100)).toFixed(4));
+      previews.push({
+        productModelId: product.id,
+        description: product.fullName,
+        stockCode: product.stockCode ?? undefined,
+        quantity: item.quantity,
+        unitPrice,
+        discountPercent,
+        discountAmount,
+        vatRate: Number(product.vatRate ?? 20),
+      });
+    }
+    return previews;
+  }
+
   private async assertInventoryItem(inventoryItemId: string, actor: AuthContext, quoteDivisionId?: string | null) {
     const [item] = await this.db
       .select()
@@ -228,10 +396,16 @@ export class QuotesService {
     return actor.roles.includes('super_admin');
   }
 
-  private assertQuoteMutable(quote: { approvedAt: Date | null }) {
-    if (quote.approvedAt) {
-      throw new ConflictError('Onaylı teklif değiştirilemez; yeni bir revizyon oluşturun');
+  private assertQuoteMutable(quote: { approvedAt: Date | null; finalizedAt?: Date | null }) {
+    if (quote.approvedAt || quote.finalizedAt) {
+      throw new ConflictError('Kesinleşmiş teklif değiştirilemez; yeni bir revizyon oluşturun');
     }
+  }
+
+  private async quoteStatusCode(statusId: string | null | undefined) {
+    if (!statusId) return null;
+    const status = await this.db.query.quoteStatuses.findFirst({ where: eq(quoteStatuses.id, statusId) });
+    return status?.code ?? null;
   }
 
   private async quotePriceCheck(quoteId: string) {
@@ -273,9 +447,15 @@ export class QuotesService {
   private async refreshPriceApprovalStatus(quoteId: string, actor: AuthContext) {
     const check = await this.quotePriceCheck(quoteId);
     if (!check.needsApproval) {
+      const [quote, pendingStatusId, draftStatusId] = await Promise.all([
+        this.db.query.quotes.findFirst({ where: eq(quotes.id, quoteId) }),
+        lookupIdByCode(this.db, quoteStatuses, 'pending_super_admin_approval'),
+        lookupIdByCode(this.db, quoteStatuses, 'draft'),
+      ]);
       await this.db
         .update(quotes)
         .set({
+          ...(quote?.statusId === pendingStatusId && draftStatusId ? { statusId: draftStatusId } : {}),
           priceApprovalStatus: 'not_required',
           priceApprovalRequestedBy: null,
           priceApprovalRequestedAt: null,
@@ -359,8 +539,43 @@ export class QuotesService {
       .orderBy(desc(quotes.quoteDate))
       .limit(limit)
       .offset(offset);
+    const quoteIds = rows.map((row) => row.quote.id);
+    const quoteProductRows = quoteIds.length
+      ? await this.db
+          .select({
+            quoteId: quoteItems.quoteId,
+            description: quoteItems.description,
+            productName: productModels.fullName,
+            sortOrder: quoteItems.sortOrder,
+          })
+          .from(quoteItems)
+          .leftJoin(productModels, eq(quoteItems.productModelId, productModels.id))
+          .where(and(
+            eq(quoteItems.tenantId, actor.tenantId),
+            inArray(quoteItems.quoteId, quoteIds),
+            isNull(quoteItems.deletedAt),
+          ))
+          .orderBy(quoteItems.sortOrder)
+      : [];
+    const productNamesByQuoteId = new Map<string, string[]>();
+    for (const item of quoteProductRows) {
+      const description = item.description.trim();
+      if (description.startsWith('↳ Opsiyon:')) continue;
+      const productName = item.productName?.trim() || description;
+      if (!productName) continue;
+      const names = productNamesByQuoteId.get(item.quoteId) ?? [];
+      if (!names.includes(productName)) names.push(productName);
+      productNamesByQuoteId.set(item.quoteId, names);
+    }
     return buildPaginated(
-      rows.map((r) => ({ ...r.quote, company: r.company, status: r.status, currency: r.currency, division: r.division })),
+      rows.map((r) => ({
+        ...r.quote,
+        company: r.company,
+        status: r.status,
+        currency: r.currency,
+        division: r.division,
+        productName: productNamesByQuoteId.get(r.quote.id)?.join(' / ') ?? null,
+      })),
       count,
       page
     );
@@ -378,9 +593,159 @@ export class QuotesService {
       ),
     });
     if (!quote) throw new NotFoundError('Teklif');
-    const items = await this.db.select().from(quoteItems).where(and(eq(quoteItems.quoteId, id), isNull(quoteItems.deletedAt)));
+    const items = await this.db
+      .select()
+      .from(quoteItems)
+      .where(and(eq(quoteItems.quoteId, id), isNull(quoteItems.deletedAt)))
+      .orderBy(quoteItems.sortOrder, quoteItems.createdAt);
     const terms = await this.db.query.quoteTerms.findFirst({ where: eq(quoteTerms.quoteId, id) });
     return { ...quote, items, terms };
+  }
+
+  private async buildDocumentSnapshot(quoteId: string, actor: AuthContext) {
+    const quote = await this.get(quoteId, actor);
+    const { items, terms, documentSnapshot: _documentSnapshot, ...quoteHeader } = quote;
+    const productModelIds = [...new Set(items.map((item) => item.productModelId).filter((id): id is string => Boolean(id)))];
+    const unitIds = [...new Set(items.map((item) => item.unitId).filter((id): id is string => Boolean(id)))];
+    const [company, contact, currency, addresses, phones, emails, quoteReceivables, productRows, unitRows] = await Promise.all([
+      this.db.query.companies.findFirst({ where: eq(companies.id, quote.companyId) }),
+      quote.contactId ? this.db.query.contacts.findFirst({ where: eq(contacts.id, quote.contactId) }) : null,
+      quote.currencyId ? this.db.query.currencies.findFirst({ where: eq(currencies.id, quote.currencyId) }) : null,
+      this.db.select().from(companyAddresses).where(and(eq(companyAddresses.companyId, quote.companyId), isNull(companyAddresses.deletedAt))).orderBy(desc(companyAddresses.isBilling), desc(companyAddresses.isDefault), companyAddresses.createdAt),
+      this.db.select().from(companyPhones).where(and(eq(companyPhones.companyId, quote.companyId), isNull(companyPhones.deletedAt))).orderBy(desc(companyPhones.isDefault), companyPhones.createdAt),
+      this.db.select().from(companyEmails).where(and(eq(companyEmails.companyId, quote.companyId), isNull(companyEmails.deletedAt))).orderBy(desc(companyEmails.isDefault), companyEmails.createdAt),
+      this.db.select().from(receivables).where(and(eq(receivables.quoteId, quoteId), isNull(receivables.deletedAt))).orderBy(receivables.dueDate),
+      productModelIds.length
+        ? this.db
+            .select({
+              id: productModels.id,
+              brandName: brands.name,
+              modelCode: productModels.modelCode,
+              modelName: productModels.modelName,
+              fullName: productModels.fullName,
+              originCountry: productModels.originCountry,
+              hsCode: productModels.hsCode,
+              stockCode: productModels.stockCode,
+            })
+            .from(productModels)
+            .leftJoin(brands, eq(productModels.brandId, brands.id))
+            .where(and(eq(productModels.tenantId, actor.tenantId), inArray(productModels.id, productModelIds)))
+        : Promise.resolve([]),
+      unitIds.length
+        ? this.db.select({ id: units.id, code: units.code }).from(units).where(inArray(units.id, unitIds))
+        : Promise.resolve([]),
+    ]);
+    const productsById = new Map(productRows.map((product) => [product.id, product]));
+    const unitsById = new Map(unitRows.map((unit) => [unit.id, unit.code]));
+    const orderedAddresses = quote.companyAddressId
+      ? [
+          ...addresses.filter((address) => address.id === quote.companyAddressId),
+          ...addresses.filter((address) => address.id !== quote.companyAddressId),
+        ]
+      : addresses;
+    const snapshotItems = items.map((item) => ({
+      ...item,
+      unitCode: item.unitId ? unitsById.get(item.unitId) ?? null : null,
+      product: item.productModelId ? productsById.get(item.productModelId) ?? null : null,
+    }));
+    return {
+      schemaVersion: 2,
+      capturedAt: new Date().toISOString(),
+      quote: quoteHeader,
+      company: company ?? null,
+      companyAddresses: orderedAddresses,
+      companyPhones: phones,
+      companyEmails: emails,
+      receivables: quoteReceivables,
+      contact: contact ?? null,
+      currency: currency ?? null,
+      items: snapshotItems,
+      terms: terms ?? null,
+    };
+  }
+
+  private async buildCommercialDocumentSnapshot(
+    document: Record<string, unknown>,
+    quoteId: string,
+    actor: AuthContext
+  ) {
+    const snapshot = await this.buildDocumentSnapshot(quoteId, actor);
+    return { ...snapshot, document };
+  }
+
+  private async buildProformaDocumentSnapshot(
+    document: Record<string, unknown>,
+    quoteId: string,
+    actor: AuthContext,
+    priceItems?: ProformaPriceItemInput[]
+  ) {
+    const snapshot = await this.buildDocumentSnapshot(quoteId, actor);
+    const overrides = new Map((priceItems ?? []).map((item) => [item.quoteItemId, Number(item.unitPrice)]));
+    const quoteItemIds = new Set(snapshot.items.map((item) => item.id));
+    const unknownItemId = [...overrides.keys()].find((id) => !quoteItemIds.has(id));
+    if (unknownItemId) {
+      throw new ValidationError('Proforma fiyat kalemi bağlı teklife ait değil', {
+        field: 'items',
+        quoteItemId: unknownItemId,
+      });
+    }
+
+    const lineDiscount = snapshot.items.reduce(
+      (sum, item) => sum + Number(item.discountAmount ?? 0),
+      0
+    );
+    const headerDiscount = Math.max(Number(snapshot.quote.discountTotal ?? 0) - lineDiscount, 0);
+    const taxableBeforeHeader = snapshot.items.reduce((sum, item) => {
+      const quantity = Number(item.quantity ?? 0);
+      const unitPrice = Number(item.unitPrice ?? 0);
+      return sum + Number(item.lineTotal ?? quantity * unitPrice - Number(item.discountAmount ?? 0));
+    }, 0);
+    const headerRatio = taxableBeforeHeader > 0
+      ? Math.max(0, taxableBeforeHeader - headerDiscount) / taxableBeforeHeader
+      : 1;
+    const roundMoney = (value: number) => Number(value.toFixed(4));
+
+    const items = snapshot.items.map((item) => {
+      const quantity = Number(item.quantity ?? 0);
+      const originalLineTotal = Number(
+        item.lineTotal ?? quantity * Number(item.unitPrice ?? 0) - Number(item.discountAmount ?? 0)
+      );
+      const defaultNetUnitPrice = quantity > 0 ? (originalLineTotal * headerRatio) / quantity : 0;
+      const unitPrice = overrides.get(item.id) ?? defaultNetUnitPrice;
+      const lineTotal = roundMoney(quantity * unitPrice);
+      const vatAmount = roundMoney(lineTotal * (Number(item.vatRate ?? 0) / 100));
+      return {
+        ...item,
+        unitPrice: roundMoney(unitPrice),
+        discountAmount: 0,
+        lineTotal,
+        vatAmount,
+      };
+    });
+    const subtotal = roundMoney(items.reduce((sum, item) => sum + Number(item.lineTotal), 0));
+    const vatAmount = roundMoney(items.reduce((sum, item) => sum + Number(item.vatAmount), 0));
+
+    return {
+      ...snapshot,
+      schemaVersion: 3,
+      quote: {
+        ...snapshot.quote,
+        subtotal,
+        discountTotal: 0,
+        headerDiscountAmount: 0,
+        headerDiscountPercent: 0,
+        vatAmount,
+        grandTotal: roundMoney(subtotal + vatAmount),
+      },
+      items,
+      document,
+    };
+  }
+
+  private assertCommercialDocumentMutable(document: { finalizedAt?: Date | null }, label: string) {
+    if (document.finalizedAt) {
+      throw new ConflictError(`${label} kesinleşmiş; içerik değiştirilemez veya silinemez`);
+    }
   }
 
   /**
@@ -391,7 +756,7 @@ export class QuotesService {
    */
   async generatePdf(id: string, actor: AuthContext): Promise<{ buffer: Buffer; filename: string }> {
     const visibility = await companyVisibilityExistsFilter(this.db, actor, quotes.companyId);
-    const quote = await this.db.query.quotes.findFirst({
+    const storedQuote = await this.db.query.quotes.findFirst({
       where: and(
         eq(quotes.id, id),
         eq(quotes.tenantId, actor.tenantId),
@@ -400,19 +765,48 @@ export class QuotesService {
         visibility ?? sql`true`
       ),
     });
-    if (!quote) throw new NotFoundError('Teklif');
-    const items = await this.db
+    if (!storedQuote) throw new NotFoundError('Teklif');
+    const snapshot = storedQuote.documentSnapshot as undefined | {
+      quote?: typeof storedQuote;
+      items?: Array<typeof quoteItems.$inferSelect & { product?: { fullName?: string | null } | null }>;
+      terms?: typeof quoteTerms.$inferSelect | null;
+      company?: typeof companies.$inferSelect | null;
+      companyAddresses?: Array<typeof companyAddresses.$inferSelect>;
+      contact?: typeof contacts.$inferSelect | null;
+      currency?: typeof currencies.$inferSelect | null;
+    };
+    const quote = snapshot?.quote ? { ...storedQuote, ...snapshot.quote } : storedQuote;
+    const items = snapshot?.items ?? await this.db
       .select()
       .from(quoteItems)
       .where(and(eq(quoteItems.quoteId, id), isNull(quoteItems.deletedAt)))
       .orderBy(quoteItems.sortOrder);
-    const terms = await this.db.query.quoteTerms.findFirst({ where: eq(quoteTerms.quoteId, id) });
-    const company = await this.db.query.companies.findFirst({ where: eq(companies.id, quote.companyId) });
-    const contact = quote.contactId
+    const itemProductIds = [...new Set(items.map((item) => item.productModelId).filter((value): value is string => Boolean(value)))];
+    const itemProducts = itemProductIds.length
+      ? await this.db
+          .select({ id: productModels.id, fullName: productModels.fullName })
+          .from(productModels)
+          .where(and(eq(productModels.tenantId, actor.tenantId), inArray(productModels.id, itemProductIds), isNull(productModels.deletedAt)))
+      : [];
+    const itemProductNames = new Map(itemProducts.map((product) => [product.id, product.fullName]));
+    const terms = snapshot ? (snapshot.terms ?? null) : await this.db.query.quoteTerms.findFirst({ where: eq(quoteTerms.quoteId, id) });
+    const company = snapshot ? (snapshot.company ?? null) : await this.db.query.companies.findFirst({ where: eq(companies.id, quote.companyId) });
+    const liveCompanyAddresses = snapshot
+      ? []
+      : await this.db.select().from(companyAddresses)
+          .where(and(eq(companyAddresses.companyId, quote.companyId), isNull(companyAddresses.deletedAt)))
+          .orderBy(desc(companyAddresses.isBilling), desc(companyAddresses.isDefault), companyAddresses.createdAt);
+    const companyAddress = snapshot
+      ? (snapshot.companyAddresses?.[0] ?? null)
+      : liveCompanyAddresses.find((address) => address.id === quote.companyAddressId) ?? liveCompanyAddresses[0] ?? null;
+    const contact = snapshot ? (snapshot.contact ?? null) : (quote.contactId
       ? await this.db.query.contacts.findFirst({ where: eq(contacts.id, quote.contactId) })
-      : null;
-    const currency = quote.currencyId
+      : null);
+    const currency = snapshot ? (snapshot.currency ?? null) : (quote.currencyId
       ? await this.db.query.currencies.findFirst({ where: eq(currencies.id, quote.currencyId) })
+      : null);
+    const status = storedQuote.statusId
+      ? await this.db.query.quoteStatuses.findFirst({ where: eq(quoteStatuses.id, storedQuote.statusId) })
       : null;
     const cur = currency?.code ?? '';
 
@@ -433,6 +827,21 @@ export class QuotesService {
     const boldFont = boldFontPath ? 'HaksanBold' : 'Helvetica-Bold';
     if (regularFontPath) doc.registerFont(regularFont, regularFontPath);
     if (boldFontPath) doc.registerFont(boldFont, boldFontPath);
+
+    const drawDraftWatermark = () => {
+      doc.save();
+      doc.opacity(0.08);
+      doc.fillColor('#6b7280');
+      doc.font(boldFont).fontSize(72);
+      doc.rotate(-35, { origin: [doc.page.width / 2, doc.page.height / 2] });
+      doc.text('TASLAK', 95, doc.page.height / 2 - 35, { width: 405, align: 'center' });
+      doc.restore();
+    };
+    const isFinalDocument = !!storedQuote.finalizedAt || status?.code === 'sent' || status?.code === 'approved';
+    if (!isFinalDocument) {
+      drawDraftWatermark();
+      doc.on('pageAdded', drawDraftWatermark);
+    }
 
     const supportsTurkish = !!regularFontPath;
     const tr = (s: string | null | undefined): string => {
@@ -467,6 +876,16 @@ export class QuotesService {
     doc.moveDown(1.5);
     doc.fontSize(11).font(boldFont).text('Müşteri', 50);
     doc.font(regularFont).fontSize(11).text(tr(company?.legalTitle ?? '-'), 50);
+    if (companyAddress) {
+      const addressText = companyAddress.fullAddress || [
+        companyAddress.street,
+        companyAddress.buildingNumber,
+        companyAddress.district,
+        companyAddress.province,
+        companyAddress.country,
+      ].filter(Boolean).join(' ');
+      if (addressText) doc.text(`Adres: ${tr(addressText)}`, 50);
+    }
     if (contact?.fullName) doc.text(`İlgili: ${tr(contact.fullName)}`, 50);
     if (contact?.workPhone || contact?.mobilePhone) {
       doc.text(`Tel: ${tr([contact.workPhone, contact.mobilePhone].filter(Boolean).join(' / '))}`, 50);
@@ -478,10 +897,11 @@ export class QuotesService {
 
     // Kalemler tablosu
     doc.moveDown(1.5);
-    const x = { no: 50, stock: 75, desc: 145, qty: 340, price: 400, total: 480 };
-    const colW = { stock: 65, desc: 190, qty: 55, price: 75, total: 65 };
+    const x = { no: 50, stock: 75, desc: 240, qty: 340, price: 400, total: 480 };
+    const colW = { stock: 160, desc: 95, qty: 55, price: 75, total: 65 };
 
-    // Metni kolon genişliğine sığdırır: önce yazı küçülür, yine sığmazsa "..." ile kesilir.
+    // Tek satırlık parasal alanları kolona sığdırır. Açıklama alanları aşağıda
+    // satırlara bölünerek eksiksiz yazılır; belge verisi hiçbir zaman kesilmez.
     const fitCell = (
       value: string,
       cx: number,
@@ -505,11 +925,51 @@ export class QuotesService {
       doc.text(shown, cx, cy, { width, align: opts.align ?? 'left', lineBreak: false });
     };
 
+    const wrapCellLines = (value: string, width: number, font = regularFont, size = 9): string[] => {
+      doc.font(font).fontSize(size);
+      const lines: string[] = [];
+      const paragraphs = value.replace(/\r\n?/g, '\n').split('\n');
+      const splitLongToken = (token: string) => {
+        const parts: string[] = [];
+        let current = '';
+        for (const char of token) {
+          if (current && doc.widthOfString(current + char) > width) {
+            parts.push(current);
+            current = char;
+          } else {
+            current += char;
+          }
+        }
+        if (current) parts.push(current);
+        return parts;
+      };
+      paragraphs.forEach((paragraph) => {
+        if (!paragraph.trim()) {
+          lines.push('');
+          return;
+        }
+        let current = '';
+        const tokens = paragraph.trim().split(/\s+/).flatMap((token) =>
+          doc.widthOfString(token) <= width ? [token] : splitLongToken(token));
+        tokens.forEach((token) => {
+          const candidate = current ? `${current} ${token}` : token;
+          if (current && doc.widthOfString(candidate) > width) {
+            lines.push(current);
+            current = token;
+          } else {
+            current = candidate;
+          }
+        });
+        lines.push(current);
+      });
+      return lines.length ? lines : [''];
+    };
+
     // Tablo başlığı her sayfada yeniden çizilir.
     const drawTableHeader = (headerY: number) => {
       doc.fontSize(9).font(boldFont);
       doc.text('#', x.no, headerY, { lineBreak: false });
-      doc.text('Stok Kodu', x.stock, headerY, { lineBreak: false });
+      doc.text(tr('Ürün Adı'), x.stock, headerY, { lineBreak: false });
       doc.text(tr('Açıklama'), x.desc, headerY, { lineBreak: false });
       doc.text('Miktar', x.qty, headerY, { width: colW.qty, align: 'right', lineBreak: false });
       doc.text('B.Fiyat', x.price, headerY, { width: colW.price, align: 'right', lineBreak: false });
@@ -519,36 +979,68 @@ export class QuotesService {
     };
 
     let y = drawTableHeader(doc.y);
-    const rowH = 16;
+    const lineHeight = 10.5;
     for (let i = 0; i < items.length; i++) {
-      if (y > 770) {
-        doc.addPage();
-        y = drawTableHeader(50);
-      }
       const it = items[i];
-      doc.font(regularFont).fontSize(9);
-      doc.text(String(i + 1), x.no, y, { lineBreak: false });
-      fitCell(tr(it.stockCode ?? ''), x.stock, y, colW.stock);
-      fitCell(tr(it.description), x.desc, y, colW.desc, { minSize: 7 });
-      fitCell(Number(it.quantity).toLocaleString('tr-TR'), x.qty, y, colW.qty, { align: 'right' });
-      fitCell(money(it.unitPrice), x.price, y, colW.price, { align: 'right' });
-      fitCell(money(it.lineTotal), x.total, y, colW.total, { align: 'right' });
-      y += rowH;
+      const productName = (it as typeof it & { product?: { fullName?: string | null } | null }).product?.fullName
+        ?? (it.productModelId ? itemProductNames.get(it.productModelId) : undefined)
+        ?? it.description;
+      const description = String(it.description ?? '').trim() === String(productName ?? '').trim()
+        ? ''
+        : it.description;
+      const stockLines = wrapCellLines(tr(productName), colW.stock);
+      const descriptionLines = wrapCellLines(tr(description), colW.desc);
+      const totalLines = Math.max(stockLines.length, descriptionLines.length, 1);
+      let lineOffset = 0;
+      while (lineOffset < totalLines) {
+        if (y > 760) {
+          doc.addPage();
+          y = drawTableHeader(50);
+        }
+        const availableLines = Math.max(1, Math.floor((770 - y - 4) / lineHeight));
+        const linesOnPage = Math.min(totalLines - lineOffset, availableLines);
+        const rowHeight = Math.max(18, linesOnPage * lineHeight + 4);
+        const stockFragment = stockLines.slice(lineOffset, lineOffset + linesOnPage).join('\n');
+        const descriptionFragment = descriptionLines.slice(lineOffset, lineOffset + linesOnPage).join('\n');
+        doc.font(regularFont).fontSize(9);
+        doc.text(lineOffset === 0 ? String(i + 1) : '', x.no, y + 2, { lineBreak: false });
+        doc.text(stockFragment, x.stock, y + 2, { width: colW.stock, lineGap: 0 });
+        doc.text(descriptionFragment, x.desc, y + 2, { width: colW.desc, lineGap: 0 });
+        if (lineOffset === 0) {
+          fitCell(Number(it.quantity).toLocaleString('tr-TR'), x.qty, y + 2, colW.qty, { align: 'right' });
+          fitCell(money(it.unitPrice), x.price, y + 2, colW.price, { align: 'right' });
+          fitCell(money(it.lineTotal), x.total, y + 2, colW.total, { align: 'right' });
+        }
+        y += rowHeight;
+        doc.moveTo(50, y).lineTo(545, y).lineWidth(0.35).strokeColor('#d1d5db').stroke();
+        lineOffset += linesOnPage;
+      }
     }
     doc.moveTo(50, y).lineTo(545, y).stroke();
 
     // Toplamlar
     y += 12;
     const totalLine = (label: string, val: string, bold = false) => {
+      if (y + (bold ? 20 : 15) > 780) {
+        doc.addPage();
+        y = 50;
+      }
       doc.font(bold ? boldFont : regularFont).fontSize(bold ? 11 : 9);
       doc.text(label, 340, y, { width: 110, align: 'right', lineBreak: false });
       fitCell(val, 455, y, 90, { align: 'right', bold, size: bold ? 11 : 9, minSize: 7.5 });
       y += bold ? 20 : 15;
     };
-    totalLine('Ara Toplam', money(quote.subtotal));
-    if (Number(quote.discountTotal) > 0) totalLine('Indirim', `-${money(quote.discountTotal)}`);
+    const grossTotal = items.reduce((sum, item) => sum + Number(item.quantity) * Number(item.unitPrice), 0);
+    const lineDiscountTotal = items.reduce((sum, item) => sum + Number(item.discountAmount ?? 0), 0);
+    const headerDiscountTotal = Math.max(Number(quote.discountTotal ?? 0) - lineDiscountTotal, 0);
+    totalLine('Brüt Toplam', money(grossTotal));
+    if (lineDiscountTotal > 0) totalLine('Kalem İndirimi', `-${money(lineDiscountTotal)}`);
+    totalLine('Özel İskonto', headerDiscountTotal > 0 ? `-${money(headerDiscountTotal)}` : money(0));
+    totalLine('Net Ara Toplam', money(quote.subtotal));
     totalLine('KDV', money(quote.vatAmount));
+    if (Number(quote.customsTotal ?? 0) > 0) totalLine('Millileştirme / Gümrük', money(quote.customsTotal));
     totalLine('GENEL TOPLAM', money(quote.grandTotal), true);
+    doc.y = y;
 
     // Şartlar — örnek formdaki gibi 1/2/3 ve a/b/c maddeleri.
     const termSections = ([
@@ -587,6 +1079,7 @@ export class QuotesService {
 
   async create(input: QuoteCreateInput, actor: AuthContext) {
     await this.assertCompany(input.companyId, actor);
+    const companyAddress = await this.resolveCompanyAddress(input.companyId, input.companyAddressId, actor);
     if (input.contactId) await this.assertContact(input.contactId, actor, input.companyId);
     if (input.opportunityId) await this.assertOpportunity(input.opportunityId, actor, input.companyId);
     if (input.projectOwnerUserId) await this.assertUser(input.projectOwnerUserId, actor);
@@ -622,6 +1115,7 @@ export class QuotesService {
         businessLine,
         opportunityId: input.opportunityId ?? null,
         companyId: input.companyId,
+        companyAddressId: companyAddress?.id ?? null,
         contactId: input.contactId ?? null,
         documentNo,
         revisionNo,
@@ -667,6 +1161,10 @@ export class QuotesService {
     }
     if (input.projectOwnerUserId) await this.assertUser(input.projectOwnerUserId, actor);
     const patch: Record<string, unknown> = {};
+    if (input.companyAddressId !== undefined || (input.companyId !== undefined && input.companyId !== existingQuote.companyId)) {
+      const companyAddress = await this.resolveCompanyAddress(companyId, input.companyAddressId, actor);
+      patch.companyAddressId = companyAddress?.id ?? null;
+    }
     const targetDivisionId = input.divisionId !== undefined
       ? resolveAssignedResourceDivision(actor, 'quotes', input.divisionId)
       : existingQuote.divisionId;
@@ -722,6 +1220,7 @@ export class QuotesService {
     this.assertQuoteMutable(quote);
     if (input.productModelId) await this.assertProductModel(input.productModelId, actor, quote.divisionId);
     if (input.inventoryItemId) await this.assertInventoryItem(input.inventoryItemId, actor, quote.divisionId);
+    this.assertItemDiscount(input.quantity, input.unitPrice, input.discountAmount);
     const t = this.calcItem(input.quantity, input.unitPrice, input.discountAmount, input.vatRate);
     const unitId = await lookupIdByCode(this.db, units, input.unitCode);
     const [row] = await this.db
@@ -743,6 +1242,7 @@ export class QuotesService {
         lineTotal: t.lineTotal.toFixed(4),
         sortOrder: input.sortOrder,
         compatibility: input.compatibility ?? null,
+        nationalized: input.nationalized ?? false,
       })
       .returning();
     await this.recalcQuoteTotals(quoteId);
@@ -767,6 +1267,7 @@ export class QuotesService {
       if ((input as any)[k] !== undefined) patch[k] = ((input as any)[k] as number | undefined)?.toString();
     }
     if (input.compatibility !== undefined) patch.compatibility = input.compatibility ?? null;
+    if (input.nationalized !== undefined) patch.nationalized = input.nationalized;
     if (input.unitCode !== undefined) patch.unitId = await lookupIdByCode(this.db, units, input.unitCode);
 
     // Recalc line totals
@@ -774,6 +1275,7 @@ export class QuotesService {
     const unitPrice = Number(patch.unitPrice ?? existing.unitPrice);
     const discountAmount = Number(patch.discountAmount ?? existing.discountAmount);
     const vatRate = Number(patch.vatRate ?? existing.vatRate);
+    this.assertItemDiscount(quantity, unitPrice, discountAmount);
     const t = this.calcItem(quantity, unitPrice, discountAmount, vatRate);
     patch.lineTotal = t.lineTotal.toFixed(4);
     patch.vatAmount = t.vatAmount.toFixed(4);
@@ -834,15 +1336,20 @@ export class QuotesService {
   // ────────── APPROVE / REJECT / SEND ──────────
   async approvePrice(quoteId: string, actor: AuthContext, note?: string) {
     if (!actor.permissions.has('quotes.approve')) throw new ForbiddenError('Liste altı teklif fiyatını onaylama yetkiniz yok');
-    await this.get(quoteId, actor);
+    const quote = await this.get(quoteId, actor);
     const check = await this.quotePriceCheck(quoteId);
     if (!check.needsApproval) {
       await this.refreshPriceApprovalStatus(quoteId, actor);
       return this.get(quoteId, actor);
     }
+    const [pendingStatusId, draftStatusId] = await Promise.all([
+      lookupIdByCode(this.db, quoteStatuses, 'pending_super_admin_approval'),
+      lookupIdByCode(this.db, quoteStatuses, 'draft'),
+    ]);
     await this.db
       .update(quotes)
       .set({
+        ...(quote.statusId === pendingStatusId && draftStatusId ? { statusId: draftStatusId } : {}),
         priceApprovalStatus: 'approved',
         priceApprovedBy: actor.userId,
         priceApprovedAt: new Date(),
@@ -890,11 +1397,28 @@ export class QuotesService {
 
   async approve(quoteId: string, actor: AuthContext) {
     const quote = await this.get(quoteId, actor);
+    const currentStatus = await this.quoteStatusCode(quote.statusId);
+    if (currentStatus === 'approved') return { ok: true };
+    if (currentStatus === 'rejected' || currentStatus === 'cancelled') {
+      throw new ConflictError('Reddedilmiş veya iptal edilmiş teklif onaylanamaz');
+    }
     await this.ensurePriceApprovalAllowsAction(quoteId, actor);
     const status = await this.db.query.quoteStatuses.findFirst({ where: eq(quoteStatuses.code, 'approved') });
+    const finalizedAt = new Date();
+    const documentSnapshot = quote.documentSnapshot ?? await this.buildDocumentSnapshot(quoteId, actor);
     await this.db
       .update(quotes)
-      .set({ statusId: status?.id ?? null, approvedBy: actor.userId, approvedAt: new Date() })
+      .set({
+        statusId: status?.id ?? null,
+        approvedBy: actor.userId,
+        approvedAt: finalizedAt,
+        finalizedAt,
+        documentSnapshot,
+        followUpAt: null,
+        statusNote: null,
+        statusChangedAt: finalizedAt,
+        statusChangedBy: actor.userId,
+      })
       .where(eq(quotes.id, quoteId));
     await this.audit.write({
       tenantId: actor.tenantId,
@@ -907,21 +1431,144 @@ export class QuotesService {
   }
 
   async reject(quoteId: string, actor: AuthContext) {
-    await this.get(quoteId, actor);
+    const quote = await this.get(quoteId, actor);
+    const currentStatus = await this.quoteStatusCode(quote.statusId);
+    if (currentStatus === 'rejected') return { ok: true };
+    if (currentStatus === 'approved' || currentStatus === 'cancelled') {
+      throw new ConflictError('Onaylanmış veya iptal edilmiş teklif reddedilemez');
+    }
     const status = await this.db.query.quoteStatuses.findFirst({ where: eq(quoteStatuses.code, 'rejected') });
+    const rejectedAt = new Date();
+    const documentSnapshot = quote.documentSnapshot ?? await this.buildDocumentSnapshot(quoteId, actor);
     await this.db
       .update(quotes)
-      .set({ statusId: status?.id ?? null, rejectedAt: new Date() })
+      .set({
+        statusId: status?.id ?? null,
+        rejectedAt,
+        finalizedAt: quote.finalizedAt ?? rejectedAt,
+        documentSnapshot,
+        followUpAt: null,
+        statusNote: null,
+        statusChangedAt: rejectedAt,
+        statusChangedBy: actor.userId,
+      })
       .where(eq(quotes.id, quoteId));
+    await this.audit.write({
+      tenantId: actor.tenantId,
+      actorUserId: actor.userId,
+      action: 'quote.rejected',
+      resourceType: 'quote',
+      resourceId: quoteId,
+    });
     return { ok: true };
   }
 
   async send(quoteId: string, actor: AuthContext) {
-    await this.get(quoteId, actor);
-    await this.ensurePriceApprovalAllowsAction(quoteId, actor);
+    const quote = await this.assertCanSend(quoteId, actor);
+    const currentStatus = await this.quoteStatusCode(quote.statusId);
+    if (currentStatus === 'sent') return { ok: true };
+    if (currentStatus === 'approved' || currentStatus === 'rejected' || currentStatus === 'cancelled') {
+      throw new ConflictError('Sonuçlanmış teklif yeniden gönderilemez');
+    }
     const status = await this.db.query.quoteStatuses.findFirst({ where: eq(quoteStatuses.code, 'sent') });
-    await this.db.update(quotes).set({ statusId: status?.id ?? null, sentAt: new Date() }).where(eq(quotes.id, quoteId));
+    const finalizedAt = new Date();
+    const documentSnapshot = quote.documentSnapshot ?? await this.buildDocumentSnapshot(quoteId, actor);
+    await this.db
+      .update(quotes)
+      .set({
+        statusId: status?.id ?? null,
+        sentAt: finalizedAt,
+        finalizedAt,
+        documentSnapshot,
+        followUpAt: null,
+        statusNote: null,
+        statusChangedAt: finalizedAt,
+        statusChangedBy: actor.userId,
+      })
+      .where(eq(quotes.id, quoteId));
     return { ok: true };
+  }
+
+  async changeStatus(quoteId: string, input: QuoteStatusChangeInput, actor: AuthContext) {
+    const quote = await this.get(quoteId, actor);
+    const currentStatus = await this.quoteStatusCode(quote.statusId);
+    if (currentStatus === input.statusCode) return this.get(quoteId, actor);
+    if (currentStatus === 'approved' || currentStatus === 'rejected' || currentStatus === 'cancelled') {
+      throw new ConflictError('Sonuçlanmış teklifin durumu değiştirilemez');
+    }
+
+    const statusId = await lookupIdByCode(this.db, quoteStatuses, input.statusCode);
+    if (!statusId) throw new ValidationError('Geçersiz teklif durumu', { field: 'statusCode' });
+
+    const changedAt = new Date();
+    const isCancelled = input.statusCode === 'cancelled';
+    const documentSnapshot = isCancelled
+      ? quote.documentSnapshot ?? await this.buildDocumentSnapshot(quoteId, actor)
+      : quote.documentSnapshot;
+    await this.db
+      .update(quotes)
+      .set({
+        statusId,
+        followUpAt: isCancelled ? null : input.followUpAt ?? null,
+        statusNote: input.note ?? null,
+        statusChangedAt: changedAt,
+        statusChangedBy: actor.userId,
+        ...(isCancelled
+          ? {
+              finalizedAt: quote.finalizedAt ?? changedAt,
+              documentSnapshot,
+            }
+          : {}),
+      })
+      .where(eq(quotes.id, quoteId));
+
+    if (!isCancelled && input.followUpAt) {
+      const activityTypeId = await lookupIdByCode(this.db, activityTypes, 'note');
+      if (activityTypeId) {
+        const statusLabels: Record<Exclude<QuoteStatusChangeInput['statusCode'], 'cancelled'>, string> = {
+          price_waiting: 'Fiyat Bekleniyor',
+          budget_waiting: 'Bütçe Bekleniyor',
+          on_hold: 'Askıya Alındı',
+          postponed: 'Ertelendi',
+        };
+        await this.db.insert(salesActivities).values({
+          tenantId: actor.tenantId,
+          divisionId: quote.divisionId,
+          opportunityId: quote.opportunityId,
+          companyId: quote.companyId,
+          contactId: quote.contactId,
+          activityTypeId,
+          subject: `${quote.documentNo} teklif takibi — ${statusLabels[input.statusCode as keyof typeof statusLabels]}`,
+          description: input.note ?? null,
+          activityDate: changedAt,
+          nextFollowUpAt: input.followUpAt,
+          createdBy: actor.userId,
+        });
+      }
+    }
+
+    await this.audit.write({
+      tenantId: actor.tenantId,
+      actorUserId: actor.userId,
+      action: isCancelled ? 'quote.cancelled' : 'quote.follow_up_scheduled',
+      resourceType: 'quote',
+      resourceId: quoteId,
+      oldValues: { statusCode: currentStatus },
+      newValues: {
+        statusCode: input.statusCode,
+        followUpAt: input.followUpAt ?? null,
+        note: input.note ?? null,
+      },
+    });
+    return this.get(quoteId, actor);
+  }
+
+  async assertCanSend(quoteId: string, actor: AuthContext) {
+    const quote = await this.get(quoteId, actor);
+    await this.ensurePriceApprovalAllowsAction(quoteId, actor);
+    if (!quote.items.length) throw new ValidationError('Kalemsiz teklif gönderilemez');
+    if (Number(quote.grandTotal ?? 0) <= 0) throw new ValidationError('Toplamı sıfır olan teklif gönderilemez');
+    return quote;
   }
 
   // ────────── PROFORMA / CONTRACT / COMMERCIAL INVOICE ──────────
@@ -965,6 +1612,22 @@ export class QuotesService {
       (await nextSeriesDocumentNo(this.db, actor.tenantId, businessLine, 'proforma', input.issueDate));
     const statusId = await lookupIdByCode(this.db, proformaStatuses, input.statusCode);
     if (!statusId) throw new ValidationError('Geçersiz proforma durumu', { field: 'statusCode' });
+    const finalizedAt = input.statusCode !== 'draft' ? new Date() : null;
+    const documentSnapshot = await this.buildProformaDocumentSnapshot(
+      {
+        businessLine,
+        quoteId: input.quoteId,
+        documentNo,
+        issueDate: input.issueDate,
+        statusId,
+        fileId: input.fileId ?? null,
+        finalizedAt,
+        createdBy: actor.userId,
+      },
+      input.quoteId,
+      actor,
+      input.items
+    );
     const [row] = await this.db
       .insert(proformas)
       .values({
@@ -976,6 +1639,8 @@ export class QuotesService {
         issueDate: input.issueDate,
         statusId,
         fileId: input.fileId ?? null,
+        documentSnapshot,
+        finalizedAt,
         createdBy: actor.userId,
       })
       .returning();
@@ -985,13 +1650,14 @@ export class QuotesService {
       action: 'proforma.created',
       resourceType: 'proforma',
       resourceId: row.id,
-      newValues: { documentNo: row.documentNo, quoteId: row.quoteId },
+      newValues: { documentNo: row.documentNo, quoteId: row.quoteId, priceItemCount: input.items?.length ?? 0 },
     });
-    return row;
+    return this.getProforma(row.id, actor);
   }
 
   async updateProforma(id: string, input: ProformaUpdateInput, actor: AuthContext) {
     const existing = await this.getProforma(id, actor);
+    this.assertCommercialDocumentMutable(existing, 'Proforma');
     const patch: Record<string, unknown> = {};
     let quote = await this.get(existing.quoteId, actor);
     if (input.quoteId !== undefined) {
@@ -1013,6 +1679,29 @@ export class QuotesService {
     else if (input.quoteId !== undefined && businessLine !== existing.businessLine) {
       patch.documentNo = await nextSeriesDocumentNo(this.db, actor.tenantId, businessLine, 'proforma', input.issueDate ?? existing.issueDate);
     }
+    const snapshotDocument = { ...existing, ...patch };
+    if (input.items !== undefined || input.quoteId !== undefined || !existing.documentSnapshot) {
+      patch.documentSnapshot = await this.buildProformaDocumentSnapshot(
+        snapshotDocument,
+        String(patch.quoteId ?? existing.quoteId),
+        actor,
+        input.items
+      );
+    }
+    if (input.statusCode !== undefined && input.statusCode !== 'draft') {
+      patch.finalizedAt = new Date();
+      if (!patch.documentSnapshot) {
+        const currentSnapshot = existing.documentSnapshot as Record<string, unknown> | null;
+        patch.documentSnapshot = currentSnapshot
+          ? { ...currentSnapshot, document: { ...snapshotDocument, finalizedAt: patch.finalizedAt } }
+          : await this.buildProformaDocumentSnapshot(
+              { ...snapshotDocument, finalizedAt: patch.finalizedAt },
+              String(patch.quoteId ?? existing.quoteId),
+              actor,
+              input.items
+            );
+      }
+    }
     await this.db.update(proformas).set(patch).where(eq(proformas.id, id));
     await this.audit.write({
       tenantId: actor.tenantId,
@@ -1028,6 +1717,7 @@ export class QuotesService {
 
   async deleteProforma(id: string, actor: AuthContext) {
     const existing = await this.getProforma(id, actor);
+    this.assertCommercialDocumentMutable(existing, 'Proforma');
     const now = new Date();
     await this.db.update(proformas).set({ deletedAt: now }).where(eq(proformas.id, id));
     await this.audit.write({
@@ -1097,6 +1787,11 @@ export class QuotesService {
         createdBy: actor.userId,
       })
       .returning();
+    if (input.statusCode !== 'draft') {
+      const finalizedAt = new Date();
+      const documentSnapshot = await this.buildCommercialDocumentSnapshot(row as unknown as Record<string, unknown>, row.quoteId, actor);
+      await this.db.update(contracts).set({ finalizedAt, documentSnapshot }).where(eq(contracts.id, row.id));
+    }
     await this.audit.write({
       tenantId: actor.tenantId,
       actorUserId: actor.userId,
@@ -1105,11 +1800,12 @@ export class QuotesService {
       resourceId: row.id,
       newValues: { contractNo: row.contractNo, quoteId: row.quoteId },
     });
-    return row;
+    return this.getContract(row.id, actor);
   }
 
   async updateContract(id: string, input: ContractUpdateInput, actor: AuthContext) {
     const existing = await this.getContract(id, actor);
+    this.assertCommercialDocumentMutable(existing, 'Sözleşme');
     const patch: Record<string, unknown> = {};
     let quote = await this.get(existing.quoteId, actor);
     if (input.quoteId !== undefined) {
@@ -1131,6 +1827,14 @@ export class QuotesService {
     else if (input.quoteId !== undefined && businessLine !== existing.businessLine) {
       patch.contractNo = await nextSeriesDocumentNo(this.db, actor.tenantId, businessLine, 'contract', input.signedDate ?? existing.signedDate ?? new Date());
     }
+    if (input.statusCode !== undefined && input.statusCode !== 'draft') {
+      patch.finalizedAt = new Date();
+      patch.documentSnapshot = await this.buildCommercialDocumentSnapshot(
+        { ...existing, ...patch },
+        String(patch.quoteId ?? existing.quoteId),
+        actor
+      );
+    }
     await this.db.update(contracts).set(patch).where(eq(contracts.id, id));
     await this.audit.write({
       tenantId: actor.tenantId,
@@ -1146,6 +1850,7 @@ export class QuotesService {
 
   async deleteContract(id: string, actor: AuthContext) {
     const existing = await this.getContract(id, actor);
+    this.assertCommercialDocumentMutable(existing, 'Sözleşme');
     const now = new Date();
     await this.db.update(contracts).set({ deletedAt: now }).where(eq(contracts.id, id));
     await this.audit.write({
@@ -1206,6 +1911,11 @@ export class QuotesService {
         createdBy: actor.userId,
       })
       .returning();
+    if (input.statusCode !== 'draft') {
+      const finalizedAt = new Date();
+      const documentSnapshot = await this.buildCommercialDocumentSnapshot(row as unknown as Record<string, unknown>, row.quoteId, actor);
+      await this.db.update(commercialInvoices).set({ finalizedAt, documentSnapshot }).where(eq(commercialInvoices.id, row.id));
+    }
     await this.audit.write({
       tenantId: actor.tenantId,
       actorUserId: actor.userId,
@@ -1214,11 +1924,12 @@ export class QuotesService {
       resourceId: row.id,
       newValues: { invoiceNo: row.invoiceNo, quoteId: row.quoteId },
     });
-    return row;
+    return this.getCommercialInvoice(row.id, actor);
   }
 
   async updateCommercialInvoice(id: string, input: CommercialInvoiceUpdateInput, actor: AuthContext) {
     const existing = await this.getCommercialInvoice(id, actor);
+    this.assertCommercialDocumentMutable(existing, 'Ticari fatura');
     const patch: Record<string, unknown> = {};
     let quote = await this.get(existing.quoteId, actor);
     if (input.quoteId !== undefined) {
@@ -1240,6 +1951,14 @@ export class QuotesService {
     else if (input.quoteId !== undefined && businessLine !== existing.businessLine) {
       patch.invoiceNo = await nextSeriesDocumentNo(this.db, actor.tenantId, businessLine, 'commercial_invoice', input.invoiceDate ?? existing.invoiceDate);
     }
+    if (input.statusCode !== undefined && input.statusCode !== 'draft') {
+      patch.finalizedAt = new Date();
+      patch.documentSnapshot = await this.buildCommercialDocumentSnapshot(
+        { ...existing, ...patch },
+        String(patch.quoteId ?? existing.quoteId),
+        actor
+      );
+    }
     await this.db.update(commercialInvoices).set(patch).where(eq(commercialInvoices.id, id));
     await this.audit.write({
       tenantId: actor.tenantId,
@@ -1255,6 +1974,7 @@ export class QuotesService {
 
   async deleteCommercialInvoice(id: string, actor: AuthContext) {
     const existing = await this.getCommercialInvoice(id, actor);
+    this.assertCommercialDocumentMutable(existing, 'Ticari fatura');
     await this.db.update(commercialInvoices).set({ deletedAt: new Date() }).where(eq(commercialInvoices.id, id));
     await this.audit.write({
       tenantId: actor.tenantId,

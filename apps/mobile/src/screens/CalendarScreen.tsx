@@ -1,225 +1,336 @@
-import React, { useEffect, useLayoutEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Alert, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
-import { calendarService, companyService, type CalendarEventDTO, type CalendarEventType } from '../api/services';
-import { runCalendarSync } from '../calendarSync';
+import { useState } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { Ionicons } from '@expo/vector-icons';
+import { router } from 'expo-router';
+import { format, startOfMonth, endOfMonth, eachDayOfInterval, getDay, isSameDay, isSameMonth, addMonths, subMonths } from 'date-fns';
+import { tr } from 'date-fns/locale';
 
-const LABELS: Record<CalendarEventType, string> = {
-  customer_visit: 'Ziyaret',
+const PRIMARY = '#000c69';
+
+const calendarEvents = [
+  { id: '1', title: 'Aylık Değerlendirme Toplantısı', type: 'meeting', date: '2026-06-30T10:00:00', time: '10:00 - 11:30', color: '#000c69' },
+  { id: '2', title: 'Haksan Makina Ziyareti', type: 'visit', date: '2026-06-30T14:00:00', time: '14:00 - 16:00', color: '#10B981' },
+  { id: '3', title: 'Teklif Revizyonu', type: 'task', date: '2026-06-30T16:30:00', color: '#F59E0B' },
+  { id: '4', title: 'Asil Çelik Ödeme Hatırlatması', type: 'reminder', date: '2026-07-01T09:00:00', color: '#EF4444' },
+];
+
+const DAY_LABELS = ['Pt', 'Sa', 'Çr', 'Pe', 'Cu', 'Ct', 'Pz'];
+
+const TYPE_LABELS: Record<string, string> = {
   meeting: 'Toplantı',
-  call: 'Arama',
+  visit: 'Ziyaret',
   task: 'Görev',
-  other: 'Diğer',
+  reminder: 'Hatırlatma',
 };
 
-export function CalendarScreen({ navigation }: { navigation: any }) {
-  const [events, setEvents] = useState<CalendarEventDTO[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [syncing, setSyncing] = useState(false);
-  const [formOpen, setFormOpen] = useState(false);
-  const [title, setTitle] = useState('');
-  const [type, setType] = useState<CalendarEventType>('customer_visit');
-  const [companies, setCompanies] = useState<Array<{ id: string; legalTitle: string; shortName?: string | null }>>([]);
-  const [companyId, setCompanyId] = useState<string | null>(null);
-  const range = useMemo(() => {
-    const now = new Date();
-    const from = new Date(now);
-    from.setMonth(from.getMonth() - 6);
-    const to = new Date(now);
-    to.setMonth(to.getMonth() + 6);
-    return { from, to };
-  }, []);
+export function CalendarScreen() {
+  const [currentMonth, setCurrentMonth] = useState(new Date(2026, 5, 30));
+  const [selectedDate, setSelectedDate] = useState<Date>(new Date(2026, 5, 30));
 
-  useLayoutEffect(() => {
-    navigation?.setOptions?.({
-      headerLeft: () => (
-        <TouchableOpacity onPress={() => navigation.navigate('CalendarSettings')} style={{ paddingHorizontal: 4 }}>
-          <Text style={{ fontSize: 18 }}>⚙️</Text>
+  const monthStart = startOfMonth(currentMonth);
+  const monthEnd = endOfMonth(currentMonth);
+  const days = eachDayOfInterval({ start: monthStart, end: monthEnd });
+
+  // Pad start (Mon=0)
+  let startPad = getDay(monthStart) - 1;
+  if (startPad < 0) startPad = 6;
+
+  const selectedEvents = calendarEvents.filter(e => {
+    const evDate = new Date(e.date);
+    return isSameDay(evDate, selectedDate);
+  });
+
+  const getEventsForDay = (day: Date) =>
+    calendarEvents.filter(e => isSameDay(new Date(e.date), day));
+
+  const today = new Date(2026, 5, 30);
+
+  return (
+    <SafeAreaView style={styles.root} edges={['top', 'left', 'right']}>
+      <View style={styles.header}>
+        <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+          <Ionicons name="arrow-back" size={24} color="#1a1c1d" />
         </TouchableOpacity>
-      ),
-    });
-  }, [navigation]);
-
-  const load = async () => {
-    setLoading(true);
-    try {
-      const [rows, companyRows] = await Promise.all([
-        calendarService.events({ from: range.from.toISOString(), to: range.to.toISOString() }),
-        companyService.list({ pageSize: 200 }),
-      ]);
-      setEvents(rows);
-      setCompanies(companyRows.data);
-    } catch (error) {
-      Alert.alert('Takvim yüklenemedi', message(error));
-    } finally {
-      setLoading(false);
-    }
-  };
-  useEffect(() => {
-    void load();
-  }, []);
-
-  const sync = async () => {
-    setSyncing(true);
-    try {
-      await runCalendarSync(true);
-      await load();
-      Alert.alert('Senkron tamamlandı', 'Telefon ve CRM takvimi güncellendi.');
-    } catch (error) {
-      Alert.alert('Senkron başarısız', message(error));
-    } finally {
-      setSyncing(false);
-    }
-  };
-  const create = async () => {
-    if (!title.trim()) return Alert.alert('Başlık gerekli');
-    if (type === 'customer_visit' && !companyId) return Alert.alert('Müşteri ziyareti için firma seçin');
-    const start = new Date();
-    start.setMinutes(Math.ceil(start.getMinutes() / 30) * 30, 0, 0);
-    const end = new Date(start.getTime() + 3_600_000);
-    try {
-      await calendarService.create({
-        eventType: type,
-        title: title.trim(),
-        startsAt: start.toISOString(),
-        endsAt: end.toISOString(),
-        allDay: false,
-        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'Europe/Istanbul',
-        companyId,
-      });
-      setTitle('');
-      setCompanyId(null);
-      setFormOpen(false);
-      await load();
-    } catch (error) {
-      Alert.alert('Etkinlik kaydedilemedi', message(error));
-    }
-  };
-
-  return (
-    <View style={styles.content}>
-      <View style={styles.hero}>
-        <Text style={styles.eyebrow}>12 AYLIK AJANDA</Text>
-        <Text style={styles.heroTitle}>Kişisel Takvim</Text>
-        <Text style={styles.heroText}>Geçmiş 6 ay ve gelecek 6 ay, telefon takviminle birlikte.</Text>
-        <View style={styles.actions}>
-          <Action label="Şimdi senkronla" onPress={sync} busy={syncing} />
-          <Action label={formOpen ? 'Formu kapat' : 'Yeni etkinlik'} onPress={() => setFormOpen((value) => !value)} secondary />
-        </View>
+        <Text style={styles.headerTitle}>Takvim</Text>
+        <View style={{ width: 40 }} />
       </View>
-      {formOpen && (
-        <View style={styles.card}>
-          <Text style={styles.title}>Hızlı etkinlik</Text>
-          <View style={styles.chips}>
-            {(Object.keys(LABELS) as CalendarEventType[]).map((item) => (
-              <TouchableOpacity
-                key={item}
-                style={[styles.chip, type === item && styles.chipActive]}
-                onPress={() => {
-                  setType(item);
-                  if (item !== 'customer_visit') setCompanyId(null);
-                }}
-              >
-                <Text style={[styles.chipText, type === item && styles.chipTextActive]}>{LABELS[item]}</Text>
-              </TouchableOpacity>
-            ))}
+
+      {/* Month Navigation */}
+      <View style={styles.monthNav}>
+        <TouchableOpacity onPress={() => setCurrentMonth(prev => subMonths(prev, 1))} style={styles.navBtn}>
+          <Ionicons name="chevron-back" size={20} color="#4b5563" />
+        </TouchableOpacity>
+        <Text style={styles.monthText}>
+          {format(currentMonth, 'MMMM yyyy', { locale: tr })}
+        </Text>
+        <TouchableOpacity onPress={() => setCurrentMonth(prev => addMonths(prev, 1))} style={styles.navBtn}>
+          <Ionicons name="chevron-forward" size={20} color="#4b5563" />
+        </TouchableOpacity>
+      </View>
+
+      {/* Day Headers */}
+      <View style={styles.dayHeaders}>
+        {DAY_LABELS.map(d => (
+          <Text key={d} style={styles.dayHeaderText}>{d}</Text>
+        ))}
+      </View>
+
+      {/* Calendar Grid */}
+      <View style={styles.gridContainer}>
+        {/* Padding cells */}
+        {Array.from({ length: startPad }).map((_, i) => (
+          <View key={`pad-${i}`} style={styles.gridCell} />
+        ))}
+        {days.map((day) => {
+          const events = getEventsForDay(day);
+          const isSelected = isSameDay(day, selectedDate);
+          const isToday = isSameDay(day, today);
+          const isCurrentMonth = isSameMonth(day, currentMonth);
+
+          return (
+            <TouchableOpacity
+              key={day.toISOString()}
+              onPress={() => setSelectedDate(day)}
+              style={[
+                styles.gridCell,
+                isSelected ? styles.cellSelected : isToday ? styles.cellToday : null
+              ]}
+            >
+              <Text style={[
+                styles.cellText,
+                isSelected ? styles.cellTextSelected : isToday ? styles.cellTextToday : isCurrentMonth ? styles.cellTextCurrent : styles.cellTextMuted
+              ]}>
+                {format(day, 'd')}
+              </Text>
+              {events.length > 0 && (
+                <View style={styles.eventDotsRow}>
+                  {events.slice(0, 2).map((e, idx) => (
+                    <View
+                      key={e.id || idx}
+                      style={[
+                        styles.eventDot,
+                        { backgroundColor: isSelected ? 'rgba(255,255,255,0.8)' : e.color }
+                      ]}
+                    />
+                  ))}
+                  {events.length > 2 && (
+                    <Text style={[styles.eventMoreText, { color: isSelected ? 'rgba(255,255,255,0.7)' : '#9ca3af' }]}>
+                      +{events.length - 2}
+                    </Text>
+                  )}
+                </View>
+              )}
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+
+      <View style={styles.divider} />
+
+      {/* Selected Day Events */}
+      <View style={styles.eventsHeader}>
+        <Text style={styles.eventsHeaderText}>
+          {format(selectedDate, 'd MMMM', { locale: tr })} — {selectedEvents.length === 0 ? 'Etkinlik yok' : `${selectedEvents.length} etkinlik`}
+        </Text>
+      </View>
+
+      <ScrollView style={styles.list} contentContainerStyle={styles.listContent} showsVerticalScrollIndicator={false}>
+        {selectedEvents.length === 0 ? (
+          <View style={styles.emptyState}>
+            <View style={styles.emptyIconBox}>
+              <Ionicons name="time-outline" size={24} color="#9ca3af" />
+            </View>
+            <Text style={styles.emptyText}>Bu gün için etkinlik yok</Text>
+            <Text style={styles.emptySubText}>Yeni etkinlik eklemek için + tuşuna basın</Text>
           </View>
-          <TextInput style={styles.input} value={title} onChangeText={setTitle} placeholder="Etkinlik başlığı" />
-          {type === 'customer_visit' && (
-            <View style={styles.companyList}>
-              {companies.slice(0, 30).map((company) => (
-                <TouchableOpacity
-                  key={company.id}
-                  style={[styles.company, companyId === company.id && styles.companyActive]}
-                  onPress={() => setCompanyId(company.id)}
-                >
-                  <Text numberOfLines={1} style={styles.companyText}>
-                    {company.shortName || company.legalTitle}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-          )}
-          <Action label="Şimdi için oluştur" onPress={create} />
-        </View>
-      )}
-      {loading ? (
-        <ActivityIndicator style={{ marginTop: 30 }} />
-      ) : events.length === 0 ? (
-        <View style={styles.empty}>
-          <Text style={styles.title}>Etkinlik yok</Text>
-          <Text style={styles.muted}>Takvimlerini ⚙️ Ayarlar'dan bağlayabilirsin.</Text>
-        </View>
-      ) : (
-        <View style={styles.list}>
-          {events.map((event) => (
-            <View key={event.id} style={styles.event}>
-              <View style={styles.date}>
-                <Text style={styles.day}>{new Date(event.startsAt).getDate()}</Text>
-                <Text style={styles.month}>
-                  {new Date(event.startsAt).toLocaleDateString('tr-TR', { month: 'short' }).toUpperCase()}
-                </Text>
-              </View>
-              <View style={styles.flex}>
+        ) : (
+          selectedEvents.map((event) => (
+            <View key={event.id} style={styles.eventCard}>
+              <View style={[styles.eventBar, { backgroundColor: event.color }]} />
+              <View style={styles.eventInfo}>
                 <Text style={styles.eventTitle}>{event.title}</Text>
-                <Text style={styles.muted}>
-                  {new Date(event.startsAt).toLocaleString('tr-TR', { weekday: 'short', hour: '2-digit', minute: '2-digit' })} ·{' '}
-                  {LABELS[event.eventType]}
-                </Text>
-                {event.company && <Text style={styles.companyLabel}>{event.company.shortName || event.company.legalTitle}</Text>}
+                <View style={styles.eventMetaRow}>
+                  {event.time && (
+                    <View style={styles.eventTimeRow}>
+                      <Ionicons name="time-outline" size={12} color="#6b7280" />
+                      <Text style={styles.eventTimeText}>{event.time}</Text>
+                    </View>
+                  )}
+                  <View style={[styles.typeBadge, { backgroundColor: `${event.color}20` }]}>
+                    <Text style={[styles.typeBadgeText, { color: event.color }]}>
+                      {TYPE_LABELS[event.type]}
+                    </Text>
+                  </View>
+                </View>
               </View>
             </View>
-          ))}
-        </View>
-      )}
-    </View>
+          ))
+        )}
+      </ScrollView>
+
+      {/* FAB */}
+      <TouchableOpacity style={styles.fab} activeOpacity={0.8} onPress={() => router.push('/forms/calendar-event')}>
+        <Ionicons name="add" size={24} color="#ffffff" />
+      </TouchableOpacity>
+    </SafeAreaView>
   );
 }
 
-function Action({ label, onPress, busy, secondary }: { label: string; onPress: () => void; busy?: boolean; secondary?: boolean }) {
-  return (
-    <TouchableOpacity disabled={busy} onPress={onPress} style={[styles.button, secondary && styles.buttonSecondary]}>
-      {busy ? (
-        <ActivityIndicator color={secondary ? '#0f172a' : '#fff'} />
-      ) : (
-        <Text style={[styles.buttonText, secondary && styles.buttonTextSecondary]}>{label}</Text>
-      )}
-    </TouchableOpacity>
-  );
-}
-function message(error: unknown) {
-  return error instanceof Error ? error.message : 'Beklenmeyen hata';
-}
 const styles = StyleSheet.create({
-  content: { padding: 18, gap: 14 },
-  hero: { backgroundColor: '#07131f', borderRadius: 18, padding: 20, gap: 6 },
-  eyebrow: { color: '#34d399', fontSize: 11, fontWeight: '900', letterSpacing: 2 },
-  heroTitle: { color: '#fff', fontSize: 27, fontWeight: '900' },
-  heroText: { color: '#cbd5e1', lineHeight: 20 },
-  actions: { flexDirection: 'row', gap: 8, marginTop: 10 },
-  card: { backgroundColor: '#fff', borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 14, padding: 14, gap: 12 },
-  title: { color: '#0f172a', fontSize: 17, fontWeight: '900' },
-  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
-  chip: { backgroundColor: '#f1f5f9', borderRadius: 999, paddingHorizontal: 10, paddingVertical: 7 },
-  chipActive: { backgroundColor: '#0f172a' },
-  chipText: { color: '#475569', fontSize: 11, fontWeight: '800' },
-  chipTextActive: { color: '#fff' },
-  input: { minHeight: 44, borderWidth: 1, borderColor: '#cbd5e1', borderRadius: 9, paddingHorizontal: 12, color: '#0f172a' },
-  companyList: { maxHeight: 150, gap: 5 },
-  company: { padding: 9, borderRadius: 7, backgroundColor: '#f8fafc' },
-  companyActive: { backgroundColor: '#d1fae5', borderWidth: 1, borderColor: '#6ee7b7' },
-  companyText: { color: '#334155', fontWeight: '700' },
-  button: { minHeight: 42, paddingHorizontal: 13, borderRadius: 9, backgroundColor: '#0f172a', alignItems: 'center', justifyContent: 'center', flex: 1 },
-  buttonSecondary: { backgroundColor: '#fff' },
-  buttonText: { color: '#fff', fontWeight: '900' },
-  buttonTextSecondary: { color: '#0f172a' },
-  empty: { borderWidth: 1, borderStyle: 'dashed', borderColor: '#cbd5e1', borderRadius: 14, padding: 24, alignItems: 'center', gap: 5 },
-  muted: { color: '#64748b', fontSize: 12, lineHeight: 17 },
-  list: { gap: 9 },
-  event: { flexDirection: 'row', gap: 12, backgroundColor: '#fff', borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 12, padding: 12 },
-  date: { width: 46, height: 50, borderRadius: 9, backgroundColor: '#ecfdf5', alignItems: 'center', justifyContent: 'center' },
-  day: { color: '#065f46', fontSize: 19, fontWeight: '900' },
-  month: { color: '#059669', fontSize: 9, fontWeight: '900' },
-  flex: { flex: 1 },
-  eventTitle: { color: '#0f172a', fontSize: 15, fontWeight: '900' },
-  companyLabel: { color: '#047857', fontSize: 12, fontWeight: '800', marginTop: 3 },
+  root: { flex: 1, backgroundColor: '#ffffff' },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 8,
+    height: 56,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f3f4f6',
+  },
+  backButton: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
+  headerTitle: { fontSize: 17, fontWeight: '700', color: '#1a1c1d' },
+
+  monthNav: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f3f4f6',
+  },
+  navBtn: { padding: 8, borderRadius: 12, backgroundColor: '#f9fafb' },
+  monthText: { fontSize: 14, fontWeight: '700', color: '#111827', textTransform: 'capitalize' },
+
+  dayHeaders: {
+    flexDirection: 'row',
+    backgroundColor: '#f9fafb',
+    paddingVertical: 4,
+  },
+  dayHeaderText: {
+    flex: 1,
+    textAlign: 'center',
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#9ca3af',
+  },
+
+  gridContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    paddingHorizontal: 8,
+    paddingTop: 8,
+    paddingBottom: 4,
+  },
+  gridCell: {
+    width: `${100 / 7}%`,
+    aspectRatio: 1,
+    alignItems: 'center',
+    paddingTop: 4,
+    borderRadius: 12,
+  },
+  cellSelected: { backgroundColor: PRIMARY },
+  cellToday: { backgroundColor: '#EEF2FF' },
+  cellText: { fontSize: 12, fontWeight: '500' },
+  cellTextSelected: { color: '#ffffff' },
+  cellTextToday: { color: PRIMARY, fontWeight: '700' },
+  cellTextCurrent: { color: '#374151' },
+  cellTextMuted: { color: '#d1d5db' },
+
+  eventDotsRow: {
+    flexDirection: 'row',
+    gap: 2,
+    marginTop: 2,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  eventDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  eventMoreText: {
+    fontSize: 8,
+  },
+
+  divider: {
+    height: 1,
+    backgroundColor: '#f3f4f6',
+    marginHorizontal: 16,
+    marginVertical: 8,
+  },
+
+  eventsHeader: {
+    paddingHorizontal: 16,
+    paddingBottom: 8,
+  },
+  eventsHeaderText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#111827',
+  },
+
+  list: { flex: 1, backgroundColor: '#f9fafb' },
+  listContent: { paddingHorizontal: 16, paddingTop: 8, paddingBottom: 100, gap: 8 },
+  
+  emptyState: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 32,
+  },
+  emptyIconBox: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: '#f3f4f6',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 8,
+  },
+  emptyText: { fontSize: 14, color: '#6b7280' },
+  emptySubText: { fontSize: 12, color: '#9ca3af', marginTop: 4 },
+
+  eventCard: {
+    flexDirection: 'row',
+    backgroundColor: '#ffffff',
+    borderRadius: 16,
+    padding: 16,
+    gap: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 2,
+    borderWidth: 1,
+    borderColor: '#f3f4f6',
+  },
+  eventBar: {
+    width: 4,
+    borderRadius: 2,
+  },
+  eventInfo: { flex: 1 },
+  eventTitle: { fontSize: 14, fontWeight: '600', color: '#111827' },
+  eventMetaRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 4 },
+  eventTimeRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  eventTimeText: { fontSize: 11, color: '#6b7280' },
+  typeBadge: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: 999 },
+  typeBadgeText: { fontSize: 10, fontWeight: '500' },
+
+  fab: {
+    position: 'absolute',
+    bottom: 88,
+    right: 16,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: PRIMARY,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: PRIMARY,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.3,
+    shadowRadius: 12,
+    elevation: 8,
+  },
 });

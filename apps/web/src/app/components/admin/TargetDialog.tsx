@@ -3,7 +3,6 @@ import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
 import { Textarea } from "../ui/textarea";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "../ui/tabs";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "../ui/dialog";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger,
@@ -11,11 +10,12 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip";
 import { cn } from "../ui/utils";
 import {
-  AlertTriangle, BriefcaseBusiness, CheckCircle2, ChevronDown, CircleDollarSign, Eraser, ListChecks, PackageCheck,
-  RotateCcw, Settings2, Trash2, TrendingUp, Truck, Users, Wrench,
+  AlertTriangle, BriefcaseBusiness, ChevronDown, CircleDollarSign, Eraser, LayoutDashboard, ListChecks, PackageCheck,
+  PenLine, RotateCcw, Settings2, Target, Trash2, TrendingUp, Truck, Users, Wrench, Zap,
   type LucideIcon,
 } from "lucide-react";
 import { toast } from "sonner";
+import { reportService } from "../../../lib/services";
 
 /**
  * Kullanıcı / departman / rol için ortak hedef belirleme diyaloğu ve hedef form
@@ -79,6 +79,16 @@ export type UserTarget = {
 };
 
 export const currentPeriod = () => new Date().toISOString().slice(0, 7);
+
+const expectedPeriodPct = (period: string) => {
+  const now = new Date();
+  const current = now.toISOString().slice(0, 7);
+  if (period < current) return 100;
+  if (period > current) return 0;
+  const [year, month] = period.split("-").map(Number);
+  const days = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  return Math.round((now.getUTCDate() / days) * 100);
+};
 
 export const TARGET_TYPE_ORDER: UserTargetType[] = ["sales", "service", "finance", "purchase", "operations", "logistics", "other"];
 
@@ -628,49 +638,90 @@ export function TargetPill({ label, value }: { label: string; value: string }) {
   );
 }
 
+/* ─────────────────────────── Otomatik takip altyapısı ─────────────────────────── */
+
+/** Backend'in sistem verisinden ölçtüğü metrikler (reports.service MEASURED_METRICS aynası). */
+const MEASURED_METRIC_KEYS: TargetMetricKey[] = [
+  "salesAmount", "salesNewCustomers", "quoteTarget", "visitTarget", "callTarget", "serviceCompleted", "serviceAmount",
+  "digitalLeadTarget", "paymentsInAmount", "purchaseInvoiceAmount", "purchaseOrderAmount", "purchaseOrderCount",
+  "salesOrderAmount", "salesOrderCount", "installationCompleted",
+];
+const measuredMetricSet = new Set<TargetMetricKey>(MEASURED_METRIC_KEYS);
+const isAutoTracked = (item: Pick<UserTargetItem, "metricKey" | "trackingMode">) =>
+  item.trackingMode !== "manual" && !!item.metricKey && measuredMetricSet.has(item.metricKey);
+
+type LiveMetric = { target: number | null; actual: number | null; pct: number | null };
+type LiveProgress = { metrics: Record<string, LiveMetric>; hasTarget: boolean };
+type LiveState = "idle" | "loading" | "ready" | "error";
+
+/** Ana metrik alanları: form alanı ↔ ölçüm anahtarı eşleşmesi. */
+const MAIN_METRIC_FIELDS: { key: Extract<keyof UserTarget, string>; label: string; unit: "USD" | "adet"; metricKey: TargetMetricKey }[] = [
+  { key: "salesAmount", label: "Satış Cirosu", unit: "USD", metricKey: "salesAmount" },
+  { key: "salesNewCustomers", label: "Yeni Müşteri", unit: "adet", metricKey: "salesNewCustomers" },
+  { key: "quoteTarget", label: "Teklif", unit: "adet", metricKey: "quoteTarget" },
+  { key: "visitTarget", label: "Ziyaret", unit: "adet", metricKey: "visitTarget" },
+  { key: "callTarget", label: "Arama", unit: "adet", metricKey: "callTarget" },
+  { key: "serviceAmount", label: "Servis Cirosu", unit: "USD", metricKey: "serviceAmount" },
+  { key: "serviceCompleted", label: "Tamamlanan Servis", unit: "adet", metricKey: "serviceCompleted" },
+  { key: "digitalLeadTarget", label: "Dijital Lead", unit: "adet", metricKey: "digitalLeadTarget" },
+  { key: "digitalConversionTarget", label: "Dijital Dönüşüm", unit: "adet", metricKey: "digitalConversionTarget" },
+  { key: "digitalBudget", label: "Dijital Bütçe", unit: "USD", metricKey: "digitalBudget" },
+];
+
+const progressPct = (actual: number | null, target: number | null) =>
+  actual != null && target != null && target > 0 ? Math.round((actual / target) * 100) : null;
+
+const pctToneClass = (pct: number) => (pct >= 100 ? "text-success" : pct >= 60 ? "text-foreground" : "text-warning");
+const pctBarClass = (pct: number) => (pct >= 100 ? "bg-success" : "bg-brand-blue");
+
+function TrackingBadge({ auto }: { auto: boolean }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        {auto ? (
+          <span className="inline-flex shrink-0 cursor-default items-center gap-1 rounded-full border border-success/25 bg-success-soft px-1.5 py-0.5 text-[10px] font-semibold text-success">
+            <Zap className="size-3" /> Otomatik
+          </span>
+        ) : (
+          <span className="inline-flex shrink-0 cursor-default items-center gap-1 rounded-full border border-border/60 bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+            <PenLine className="size-3" /> Manuel
+          </span>
+        )}
+      </TooltipTrigger>
+      <TooltipContent side="top" className="max-w-[280px] leading-relaxed">
+        {auto
+          ? "Gerçekleşme; fatura, teklif, ziyaret, arama, servis ve sipariş kayıtlarından sistemce otomatik ölçülür."
+          : "Bu hedef sistem verisinden ölçülemez; gerçekleşme manuel değerlendirilir."}
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
+function LiveProgressBar({ actual, pct, label }: { actual: number; pct: number | null; label: string }) {
+  return (
+    <div className="mt-1.5">
+      <div className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
+        <span className="truncate">
+          {label}: <span className="font-semibold tabular-nums text-foreground">{formatTargetNumber(actual)}</span>
+        </span>
+        {pct != null && <span className={cn("shrink-0 font-semibold tabular-nums", pctToneClass(pct))}>%{pct}</span>}
+      </div>
+      <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-muted">
+        <div
+          className={cn("h-full rounded-full transition-[width]", pctBarClass(pct ?? 0))}
+          style={{ width: `${Math.min(Math.max(pct ?? 0, 0), 100)}%` }}
+        />
+      </div>
+    </div>
+  );
+}
+
 function ReadonlyTargetField({ label, value }: { label: string; value: string }) {
   return (
     <div className="space-y-1.5">
       <Label className="text-xs font-semibold text-foreground">{label}</Label>
       <div className="flex h-10 items-center rounded-md border border-border/60 bg-muted/35 px-3 text-sm font-medium text-foreground">
         {value}
-      </div>
-    </div>
-  );
-}
-
-function TargetSummaryMetric({
-  icon: Icon,
-  label,
-  value,
-  helper,
-  progress,
-  tone = "default",
-}: {
-  icon: LucideIcon;
-  label: string;
-  value: string;
-  helper: string;
-  progress?: number;
-  tone?: "default" | "danger";
-}) {
-  const danger = tone === "danger";
-  return (
-    <div className={cn("rounded-md border px-3 py-2.5", danger ? "border-destructive/30 bg-destructive/5" : "border-border/60 bg-muted/20")}>
-      <div className="flex items-start gap-3">
-        <span className={cn("grid size-8 shrink-0 place-items-center rounded-md", danger ? "bg-destructive/10 text-destructive" : "bg-background text-muted-foreground")}>
-          <Icon className="size-4" />
-        </span>
-        <div className="min-w-0 flex-1">
-          <div className="text-[11px] font-medium text-muted-foreground">{label}</div>
-          <div className="mt-0.5 truncate text-base font-semibold tabular-nums text-foreground">{value}</div>
-          <div className={cn("mt-0.5 text-[11px]", danger ? "text-destructive" : "text-muted-foreground")}>{helper}</div>
-          {typeof progress === "number" && (
-            <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-muted">
-              <div className="h-full rounded-full bg-primary transition-[width]" style={{ width: `${Math.min(Math.max(progress, 0), 100)}%` }} />
-            </div>
-          )}
-        </div>
       </div>
     </div>
   );
@@ -734,102 +785,61 @@ function TargetValueControl({ item, onTargetChange, className }: {
   );
 }
 
-function TargetTemplateTable({ items, onTargetChange }: {
-  items: UserTargetItem[];
+function TargetItemRow({ item, onTargetChange, actual, factor, actualLabel }: {
+  item: UserTargetItem;
   onTargetChange: (key: string, value: string) => void;
+  actual: number | null;
+  factor: number | null;
+  actualLabel: string;
 }) {
-  const groups = groupTargetItems(items);
+  const auto = isAutoTracked(item);
+  const typed = parseTargetNumber(item.target);
+  const effectiveTarget = typed != null && factor != null ? typed * factor : null;
+  const pct = auto ? progressPct(actual, effectiveTarget) : null;
   return (
-    <div className="space-y-3">
-      <div className="space-y-3 md:hidden">
-        {groups.map((group) => (
-          <section key={group.category} className="overflow-hidden rounded-md border border-border/60 bg-background">
-            <div className="flex items-center justify-between gap-2 border-b border-border/60 bg-muted/30 px-3 py-2">
-              <TargetCategoryBadge category={group.category} />
-              <span className="shrink-0 text-[11px] text-muted-foreground">{group.items.length} aktivite</span>
-            </div>
-            <div className="divide-y divide-border/60">
-              {group.items.map((item) => (
-                <div key={targetItemKey(item)} className={cn("p-3", isInvalidTargetItem(item) && "bg-destructive/5")}>
-                  <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_170px]">
-                    <div className="min-w-0">
-                      <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Aktivite</div>
-                      <div className="mt-1 text-sm font-semibold leading-snug text-foreground">{item.activity}</div>
-                    </div>
-                    <TargetValueControl item={item} onTargetChange={onTargetChange} className="sm:w-[170px]" />
-                  </div>
-                  <div className="mt-2">
-                    <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Aktivite Açıklaması</div>
-                    <TargetDescription description={item.description} />
-                  </div>
-                </div>
-              ))}
-            </div>
-          </section>
-        ))}
-      </div>
-      <div className="hidden overflow-hidden rounded-md border border-border/60 bg-background md:block">
-        <div className="overflow-x-auto">
-          <div className="min-w-[980px]">
-            <div className="grid grid-cols-[160px_260px_1fr_210px] border-b border-border/60 bg-muted/35 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-              <div className="border-r border-border/60 px-4 py-3">Kategori</div>
-              <div className="border-r border-border/60 px-4 py-3">Aktivite</div>
-              <div className="border-r border-border/60 px-4 py-3">Aktivite Açıklaması</div>
-              <div className="px-4 py-3 text-right">Aylık Hedef</div>
-            </div>
-            <div className="max-h-[48vh] overflow-y-auto">
-              {groups.map((group) => (
-                <div key={group.category} className="grid grid-cols-[160px_1fr] border-b border-border/60 last:border-b-0">
-                  <div className="flex flex-col gap-2 border-r border-border/60 bg-muted/15 px-4 py-3">
-                    <TargetCategoryBadge category={group.category} />
-                    <span className="text-[11px] text-muted-foreground">{group.items.length} aktivite</span>
-                  </div>
-                  <div className="min-w-0">
-                    {group.items.map((item) => (
-                      <div
-                        key={targetItemKey(item)}
-                        className={cn(
-                          "grid min-h-[72px] grid-cols-[260px_1fr_210px] border-b border-border/60 last:border-b-0",
-                          isInvalidTargetItem(item) && "bg-destructive/5"
-                        )}
-                      >
-                        <div className="flex min-w-0 items-center border-r border-border/60 px-4 py-3">
-                          <div className="min-w-0 text-sm font-semibold leading-snug text-foreground">{item.activity}</div>
-                        </div>
-                        <div className="flex min-w-0 items-center border-r border-border/60 px-4 py-3">
-                          <TargetDescription description={item.description} />
-                        </div>
-                        <div className="flex items-center justify-end px-4 py-3">
-                          <TargetValueControl item={item} onTargetChange={onTargetChange} className="w-[170px]" />
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
+    <div className={cn("grid gap-3 p-3 sm:grid-cols-[minmax(0,1fr)_190px] sm:gap-4", isInvalidTargetItem(item) && "bg-destructive/5")}>
+      <div className="min-w-0">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+          <span className="text-sm font-semibold leading-snug text-foreground">{item.activity}</span>
+          <TrackingBadge auto={auto} />
         </div>
+        <div className="mt-1">
+          <TargetDescription description={item.description} />
+        </div>
+      </div>
+      <div className="w-full sm:justify-self-end">
+        <TargetValueControl item={item} onTargetChange={onTargetChange} />
+        {auto && actual != null && <LiveProgressBar actual={actual} pct={pct} label={actualLabel} />}
       </div>
     </div>
   );
 }
 
-/** Otomatik ölçülen ana metrik alanı (Hedefler sayfası ilerlemesini besler). */
-function MeasuredField({ label, unit, value, onChange }: {
+function MainMetricCard({ label, unit, value, onChange, actual, tracked, factor, actualLabel }: {
   label: string;
   unit: "USD" | "adet";
   value: string;
   onChange: (value: string) => void;
+  actual: number | null;
+  tracked: boolean;
+  factor: number | null;
+  actualLabel: string;
 }) {
-  const invalid = !!value.trim() && parseTargetNumber(value) === null;
+  const typed = parseTargetNumber(value);
+  const invalid = !!value.trim() && typed === null;
+  const effectiveTarget = typed != null && factor != null ? typed * factor : null;
+  const pct = tracked ? progressPct(actual, effectiveTarget) : null;
   return (
-    <div className="space-y-1">
-      <Label className="text-[11px] font-medium text-muted-foreground">{label}</Label>
-      <div className={cn("flex h-9 overflow-hidden rounded-md border bg-background", invalid ? "border-destructive" : "border-input")}>
+    <div className={cn("rounded-lg border bg-background p-3", invalid ? "border-destructive/50" : "border-border/60")}>
+      <div className="flex items-center justify-between gap-2">
+        <Label className="min-w-0 truncate text-xs font-semibold text-foreground">{label}</Label>
+        <TrackingBadge auto={tracked} />
+      </div>
+      <div className={cn("mt-2 flex h-9 overflow-hidden rounded-md border bg-background", invalid ? "border-destructive ring-1 ring-destructive/20" : "border-input")}>
         <Input
           className="h-9 rounded-none border-0 bg-transparent px-2 text-right tabular-nums shadow-none focus-visible:border-transparent focus-visible:ring-0"
           inputMode={unit === "USD" ? "decimal" : "numeric"}
+          aria-invalid={invalid}
           value={value}
           onChange={(e) => onChange(e.target.value)}
           placeholder={unit === "USD" ? "tutar" : "0"}
@@ -838,7 +848,56 @@ function MeasuredField({ label, unit, value, onChange }: {
           {unit}
         </span>
       </div>
+      <div className="mt-1 min-h-[34px]">
+        {invalid ? (
+          <div className="flex items-center gap-1 text-[11px] text-destructive">
+            <AlertTriangle className="size-3" /> Geçersiz değer
+          </div>
+        ) : tracked && actual != null ? (
+          <LiveProgressBar actual={actual} pct={pct} label={actualLabel} />
+        ) : (
+          <div className="pt-1 text-[11px] text-muted-foreground">
+            {tracked ? "Gerçekleşme sistemden ölçülür" : "Manuel takip edilir"}
+          </div>
+        )}
+      </div>
     </div>
+  );
+}
+
+type SectionKey = "overview" | UserTargetType;
+
+function SectionNavButton({ active, onClick, icon: Icon, label, meta, progress }: {
+  active: boolean;
+  onClick: () => void;
+  icon: LucideIcon;
+  label: string;
+  meta?: string;
+  progress?: number;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "w-full rounded-md px-3 py-2 text-left transition-colors",
+        active ? "bg-brand-blue-soft text-brand-blue" : "text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+      )}
+    >
+      <span className="flex items-center gap-2">
+        <Icon className="size-4 shrink-0" />
+        <span className="min-w-0 flex-1 truncate text-sm font-medium">{label}</span>
+        {meta && <span className="shrink-0 text-[11px] tabular-nums opacity-80">{meta}</span>}
+      </span>
+      {typeof progress === "number" && (
+        <span className="mt-1.5 block h-1 overflow-hidden rounded-full bg-muted">
+          <span
+            className={cn("block h-full rounded-full transition-[width]", active ? "bg-brand-blue" : "bg-brand-blue/40")}
+            style={{ width: `${Math.min(Math.max(progress, 0), 100)}%` }}
+          />
+        </span>
+      )}
+    </button>
   );
 }
 
@@ -862,14 +921,53 @@ export function TargetDialog({ scope, target, period, onClose, onSave }: {
   onSave: (scope: TargetScope, target: UserTarget) => Promise<void>;
 }) {
   const [form, setForm] = useState<UserTarget>(emptyTarget());
-  const [activeTargetType, setActiveTargetType] = useState<UserTargetType>("sales");
+  const [activeSection, setActiveSection] = useState<SectionKey>("overview");
   const [saving, setSaving] = useState(false);
+  const [live, setLive] = useState<LiveProgress | null>(null);
+  const [liveState, setLiveState] = useState<LiveState>("idle");
+  const [liveRefreshKey, setLiveRefreshKey] = useState(0);
+
+  const scopeKind = scope?.kind;
+  const scopeId = scope?.id;
 
   useEffect(() => {
     if (!scope) return;
     setForm(target ? { ...emptyTarget(), ...target, period, targetItems: mergeTargetItems(target.targetItems) } : { ...emptyTarget(), period });
-    setActiveTargetType("sales");
+    setActiveSection("overview");
   }, [scope, target, period]);
+
+  useEffect(() => {
+    if (!scopeKind || !scopeId) return;
+    const timer = window.setInterval(() => setLiveRefreshKey((value) => value + 1), 60_000);
+    return () => window.clearInterval(timer);
+  }, [scopeKind, scopeId]);
+
+  // Canlı gerçekleşme: diyalog açılınca ve her 60 saniyede dönem fiilîleri sistemden okunur.
+  useEffect(() => {
+    if (!scopeKind || !scopeId) {
+      setLive(null);
+      setLiveState("idle");
+      return;
+    }
+    let cancelled = false;
+    setLiveState("loading");
+    reportService
+      .targetProgress({ period, scope: scopeKind, id: scopeId })
+      .then((res: any) => {
+        if (cancelled) return;
+        const subject = Array.isArray(res?.subjects) ? res.subjects[0] : null;
+        setLive(subject ? { metrics: subject.metrics ?? {}, hasTarget: !!subject.hasTarget } : null);
+        setLiveState("ready");
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setLive(null);
+        setLiveState("error");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [scopeKind, scopeId, period, liveRefreshKey]);
 
   const itemsByType = useMemo(
     () =>
@@ -888,13 +986,47 @@ export function TargetDialog({ scope, target, period, onClose, onSave }: {
     [itemsByType]
   );
   const allStats = useMemo(() => summarizeTargetItems(form.targetItems), [form.targetItems]);
-  const activeStats = statsByType[activeTargetType] ?? summarizeTargetItems([]);
-  const invalidCount = allStats.invalid;
+  const autoItemCount = useMemo(() => form.targetItems.filter(isAutoTracked).length, [form.targetItems]);
+  const autoMainCount = MAIN_METRIC_FIELDS.filter((f) => measuredMetricSet.has(f.metricKey)).length;
+  const invalidMainCount = MAIN_METRIC_FIELDS.filter((f) => {
+    const value = (form[f.key] as string) ?? "";
+    return !!value.trim() && parseTargetNumber(value) === null;
+  }).length;
+  const invalidCount = allStats.invalid + invalidMainCount;
   const hasInvalidTargets = invalidCount > 0;
-  const activeCompletion = activeStats.total ? Math.round((activeStats.filled / activeStats.total) * 100) : 0;
-  const activeLabel = targetTypeLabel(activeTargetType);
 
   if (!scope) return null;
+
+  // Rol hedefi kişi başına yazılır; ekip gerçekleşmesi üye sayısıyla çarpılan hedefe oranlanır.
+  const factor = scope.kind === "role" ? (scope.memberCount && scope.memberCount > 0 ? scope.memberCount : null) : 1;
+  const actualLabel = scope.kind === "user" ? "Gerçekleşen" : "Ekip gerçekleşen";
+  const liveActualFor = (metricKey: TargetMetricKey | null | undefined) => {
+    if (!live || !metricKey) return null;
+    return live.metrics[metricKey]?.actual ?? null;
+  };
+  const periodPace = expectedPeriodPct(period);
+  const configuredByMetric = new Map<TargetMetricKey, number>();
+  const mainConfiguredMetrics = new Set<TargetMetricKey>();
+  for (const field of MAIN_METRIC_FIELDS) {
+    if (!measuredMetricSet.has(field.metricKey)) continue;
+    const targetValue = parseTargetNumber(String(form[field.key] ?? ""));
+    if (targetValue != null && targetValue > 0) {
+      configuredByMetric.set(field.metricKey, targetValue * (factor ?? 1));
+      mainConfiguredMetrics.add(field.metricKey);
+    }
+  }
+  for (const item of form.targetItems) {
+    if (!isAutoTracked(item) || !item.metricKey || mainConfiguredMetrics.has(item.metricKey)) continue;
+    const targetValue = parseTargetNumber(item.target);
+    if (targetValue == null || targetValue <= 0) continue;
+    configuredByMetric.set(item.metricKey, (configuredByMetric.get(item.metricKey) ?? 0) + targetValue * (factor ?? 1));
+  }
+  const paceValues = [...configuredByMetric.entries()]
+    .map(([metricKey, targetValue]) => progressPct(liveActualFor(metricKey), targetValue))
+    .filter((value): value is number => value != null);
+  const livePace = paceValues.length
+    ? Math.round(paceValues.reduce((sum, value) => sum + Math.min(100, Math.max(0, value)), 0) / paceValues.length)
+    : null;
 
   const updateField = (key: keyof UserTarget, value: string) => setForm((prev) => ({ ...prev, [key]: value }));
   const updateItemTarget = (key: string, value: string) => {
@@ -949,140 +1081,261 @@ export function TargetDialog({ scope, target, period, onClose, onSave }: {
     }
   };
 
+  const templateMenu = (targetType: UserTargetType) => (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button type="button" variant="outline" size="sm" className="h-8 gap-1.5">
+          <RotateCcw className="size-3.5" /> Şablon
+          <ChevronDown className="size-3.5 text-muted-foreground" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-64">
+        <DropdownMenuLabel>{targetTypeTitle(targetType)}</DropdownMenuLabel>
+        <DropdownMenuItem onClick={() => applyTemplateTargets(targetType)}>
+          <RotateCcw className="size-4" /> Bu bölümü şablondan doldur
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={() => applyTemplateTargets()}>
+          <ListChecks className="size-4" /> Tüm hedefleri şablondan doldur
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem onClick={() => clearTargets(targetType)}>
+          <Eraser className="size-4" /> Bu bölümü temizle
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={() => clearTargets()} variant="destructive">
+          <Trash2 className="size-4" /> Tüm hedefleri temizle
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+
+  const sections: { key: SectionKey; label: string; icon: LucideIcon; meta?: string; progress?: number }[] = [
+    { key: "overview", label: "Genel & Ana Metrikler", icon: LayoutDashboard },
+    ...TARGET_TYPE_ORDER.map((targetType) => {
+      const stats = statsByType[targetType];
+      return {
+        key: targetType as SectionKey,
+        label: targetTypeLabel(targetType),
+        icon: TARGET_TYPE_META[targetType].icon,
+        meta: `${stats.filled}/${stats.total}`,
+        progress: stats.total ? Math.round((stats.filled / stats.total) * 100) : 0,
+      };
+    }),
+  ];
+
+  const activeType = activeSection === "overview" ? null : activeSection;
+  const activeStats = activeType ? statsByType[activeType] : null;
+  const ActiveIcon = activeType ? TARGET_TYPE_META[activeType].icon : LayoutDashboard;
+
   return (
     <Dialog open={!!scope} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-h-[92dvh] w-[calc(100vw-1rem)] max-w-none gap-0 overflow-hidden p-0 sm:w-[min(1220px,calc(100vw-2rem))] sm:max-w-none">
         <form onSubmit={submit} className="flex max-h-[92dvh] min-h-0 flex-col">
-          <DialogHeader className="border-b border-border/60 bg-background px-4 py-4 pr-11 sm:px-5">
-            <DialogTitle className="leading-snug">Hedef Belirle · {scope.name}</DialogTitle>
-            <DialogDescription>
-              {scopeKindLabel(scope.kind)}{scope.subtitle ? ` · ${scope.subtitle}` : ""} · {formatPeriodLabel(period)} dönemi aylık hedefleri.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="flex-1 space-y-4 overflow-y-auto px-4 py-4 sm:px-5">
-            {scope.kind === "role" && (
-              <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
-                <Users className="mt-0.5 size-4 shrink-0 text-amber-700" />
-                <span>
-                  Kaydedildiğinde bu roldeki <b>{scope.memberCount ?? "tüm"}</b> aktif kullanıcıya {formatPeriodLabel(period)} dönemi için
-                  kişisel hedef olarak uygulanır; kullanıcıların mevcut dönem hedefleri bu değerlerle değiştirilir.
+          <DialogHeader className="border-b border-border/60 bg-muted/20 px-4 py-4 pr-12 sm:px-5">
+            <div className="flex flex-wrap items-center gap-3">
+              <span className="grid size-10 shrink-0 place-items-center rounded-lg bg-brand-blue text-white">
+                <Target className="size-5" />
+              </span>
+              <div className="min-w-0 flex-1">
+                <DialogTitle className="leading-snug">Hedef Belirle · {scope.name}</DialogTitle>
+                <DialogDescription className="mt-0.5">
+                  {scopeKindLabel(scope.kind)}{scope.subtitle ? ` · ${scope.subtitle}` : ""} · {formatPeriodLabel(period)} dönemi aylık hedefleri
+                </DialogDescription>
+              </div>
+              <div className="hidden shrink-0 items-center gap-2 md:flex">
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-background px-2.5 py-1 text-[11px] font-medium text-muted-foreground">
+                  <ListChecks className="size-3.5" /> {allStats.filled}/{allStats.total} dolu
                 </span>
-              </div>
-            )}
-            <div className="grid gap-3 lg:grid-cols-[170px_130px_minmax(0,1fr)]">
-              <ReadonlyTargetField label="Dönem" value={formatPeriodLabel(period)} />
-              <ReadonlyTargetField label="Para Birimi" value="USD" />
-              <div className="space-y-1.5">
-                <Label className="text-xs font-semibold text-foreground">Not</Label>
-                <Textarea
-                  className="min-h-10 resize-y rounded-md bg-background text-sm"
-                  value={form.note}
-                  onChange={(e) => updateField("note", e.target.value)}
-                  placeholder="Hedef dönemi notu"
-                  maxLength={500}
-                />
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span className="inline-flex cursor-default items-center gap-1.5 rounded-full border border-success/25 bg-success-soft px-2.5 py-1 text-[11px] font-semibold text-success">
+                      <Zap className="size-3.5" /> {autoItemCount + autoMainCount} hedef otomatik takipte
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom" className="max-w-[300px] leading-relaxed">
+                    Gerçekleşmeler fatura, teklif, ziyaret, arama, servis ve sipariş kayıtlarından sistemce otomatik ölçülür; Dashboard ve raporlara anlık yansır.
+                  </TooltipContent>
+                </Tooltip>
               </div>
             </div>
+          </DialogHeader>
 
-            <section className="rounded-md border border-border/60 bg-muted/10 p-3">
-              <div className="mb-2 flex items-center gap-2">
-                <TrendingUp className="size-4 text-primary" />
-                <span className="text-sm font-semibold">Ana Hedefler</span>
-                <span className="text-[11px] text-muted-foreground">— gerçekleşmeler sistemden otomatik ölçülür (fatura, teklif, ziyaret, arama, servis)</span>
-              </div>
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-                <MeasuredField label="Satış Cirosu" unit="USD" value={form.salesAmount} onChange={(v) => updateField("salesAmount", v)} />
-                <MeasuredField label="Yeni Müşteri" unit="adet" value={form.salesNewCustomers} onChange={(v) => updateField("salesNewCustomers", v)} />
-                <MeasuredField label="Teklif" unit="adet" value={form.quoteTarget} onChange={(v) => updateField("quoteTarget", v)} />
-                <MeasuredField label="Ziyaret" unit="adet" value={form.visitTarget} onChange={(v) => updateField("visitTarget", v)} />
-                <MeasuredField label="Arama" unit="adet" value={form.callTarget} onChange={(v) => updateField("callTarget", v)} />
-                <MeasuredField label="Servis Cirosu" unit="USD" value={form.serviceAmount} onChange={(v) => updateField("serviceAmount", v)} />
-                <MeasuredField label="Tamamlanan Servis" unit="adet" value={form.serviceCompleted} onChange={(v) => updateField("serviceCompleted", v)} />
-                <MeasuredField label="Dijital Lead" unit="adet" value={form.digitalLeadTarget} onChange={(v) => updateField("digitalLeadTarget", v)} />
-                <MeasuredField label="Dijital Dönüşüm" unit="adet" value={form.digitalConversionTarget} onChange={(v) => updateField("digitalConversionTarget", v)} />
-                <MeasuredField label="Dijital Bütçe" unit="USD" value={form.digitalBudget} onChange={(v) => updateField("digitalBudget", v)} />
-              </div>
-            </section>
-
-            <div className="grid gap-2 md:grid-cols-3">
-              <TargetSummaryMetric
-                icon={CheckCircle2}
-                label={`${activeLabel} doluluk`}
-                value={`${activeStats.filled}/${activeStats.total}`}
-                helper={`%${activeCompletion} tamamlandı`}
-                progress={activeCompletion}
+          <div className="flex min-h-0 flex-1">
+            <aside className="hidden w-56 shrink-0 flex-col gap-1 overflow-y-auto border-r border-border/60 bg-muted/15 p-2.5 lg:flex">
+              <SectionNavButton
+                active={activeSection === "overview"}
+                onClick={() => setActiveSection("overview")}
+                icon={LayoutDashboard}
+                label="Genel & Ana Metrikler"
               />
-              <TargetSummaryMetric
-                icon={ListChecks}
-                label="Adet hedefi"
-                value={`${formatTargetNumber(activeStats.countTotal)} adet`}
-                helper={`${activeLabel} sekmesi`}
-              />
-              <TargetSummaryMetric
-                icon={CircleDollarSign}
-                label="Tutar hedefi"
-                value={`${targetCurrencyLabel()} ${formatTargetNumber(activeStats.amountTotal)}`}
-                helper={activeStats.invalid ? `${activeStats.invalid} değer kontrol edilmeli` : `${activeLabel} sekmesi`}
-                tone={activeStats.invalid ? "danger" : "default"}
-              />
-            </div>
-
-            <Tabs value={activeTargetType} onValueChange={(value) => setActiveTargetType(value as UserTargetType)}>
-              <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                <div className="w-full overflow-x-auto lg:max-w-[860px]">
-                  <TabsList className="grid h-auto min-w-[760px] grid-cols-7 bg-muted/60 p-1">
-                    {TARGET_TYPE_ORDER.map((targetType) => {
-                      const Icon = TARGET_TYPE_META[targetType].icon;
-                      const stats = statsByType[targetType];
-                      return (
-                        <TabsTrigger key={targetType} value={targetType} className="h-10 min-w-0 gap-1.5 whitespace-nowrap px-2">
-                          <Icon className="size-3.5 shrink-0" />
-                          <span className="truncate">{targetTypeLabel(targetType)}</span>
-                          <span className="ml-auto rounded bg-background/80 px-1.5 py-0.5 text-[11px] tabular-nums text-muted-foreground">
-                            {stats.filled}/{stats.total}
-                          </span>
-                        </TabsTrigger>
-                      );
-                    })}
-                  </TabsList>
-                </div>
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button type="button" variant="outline" size="sm" className="h-9 w-full justify-between gap-2 sm:w-auto">
-                      <span className="inline-flex items-center gap-1.5">
-                        <RotateCcw className="size-3.5" /> Şablon İşlemleri
-                      </span>
-                      <ChevronDown className="size-3.5 text-muted-foreground" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" className="w-64">
-                    <DropdownMenuLabel>{targetTypeTitle(activeTargetType)}</DropdownMenuLabel>
-                    <DropdownMenuItem onClick={() => applyTemplateTargets(activeTargetType)}>
-                      <RotateCcw className="size-4" /> Aktif sekmeyi şablondan doldur
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => applyTemplateTargets()}>
-                      <ListChecks className="size-4" /> Tüm hedefleri şablondan doldur
-                    </DropdownMenuItem>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem onClick={() => clearTargets(activeTargetType)}>
-                      <Eraser className="size-4" /> Aktif sekmeyi temizle
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => clearTargets()} variant="destructive">
-                      <Trash2 className="size-4" /> Tüm hedefleri temizle
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
+              <div className="mt-2 px-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                Hedef Grupları
               </div>
-              {TARGET_TYPE_ORDER.map((targetType) => (
-                <TabsContent key={targetType} value={targetType} className="mt-3">
-                  <TargetTemplateTable
-                    items={itemsByType[targetType]}
-                    onTargetChange={updateItemTarget}
+              {sections
+                .filter((s) => s.key !== "overview")
+                .map((section) => (
+                  <SectionNavButton
+                    key={section.key}
+                    active={activeSection === section.key}
+                    onClick={() => setActiveSection(section.key)}
+                    icon={section.icon}
+                    label={section.label}
+                    meta={section.meta}
+                    progress={section.progress}
                   />
-                </TabsContent>
-              ))}
-            </Tabs>
+                ))}
+            </aside>
+
+            <div className="min-w-0 flex-1 overflow-y-auto px-4 py-4 sm:px-5">
+              <div className="mb-3 flex gap-1.5 overflow-x-auto pb-1 lg:hidden">
+                {sections.map((section) => (
+                  <button
+                    key={section.key}
+                    type="button"
+                    onClick={() => setActiveSection(section.key)}
+                    className={cn(
+                      "inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-3 py-1.5 text-xs font-medium transition-colors",
+                      activeSection === section.key
+                        ? "border-brand-blue/30 bg-brand-blue-soft text-brand-blue"
+                        : "border-border/60 bg-background text-muted-foreground"
+                    )}
+                  >
+                    <section.icon className="size-3.5" />
+                    {section.label}
+                    {section.meta && <span className="tabular-nums opacity-75">{section.meta}</span>}
+                  </button>
+                ))}
+              </div>
+
+              {activeSection === "overview" ? (
+                <div className="space-y-4">
+                  {scope.kind === "role" && (
+                    <div className="flex items-start gap-2 rounded-md border border-warning/30 bg-warning-soft px-3 py-2 text-xs text-amber-900">
+                      <Users className="mt-0.5 size-4 shrink-0 text-warning" />
+                      <span>
+                        Kaydedildiğinde bu roldeki <b>{scope.memberCount ?? "tüm"}</b> aktif kullanıcıya {formatPeriodLabel(period)} dönemi için
+                        kişisel hedef olarak uygulanır; kullanıcıların mevcut dönem hedefleri bu değerlerle değiştirilir.
+                      </span>
+                    </div>
+                  )}
+                  <div className="rounded-lg border border-brand-blue/15 bg-brand-blue-soft/35 p-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div>
+                        <div className="text-xs font-semibold text-foreground">Dönem temposu</div>
+                        <div className="mt-0.5 text-[11px] text-muted-foreground">
+                          Program kayıtları hedeflerle otomatik karşılaştırılır
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-4 text-[11px] tabular-nums">
+                        <span>Beklenen <b>%{periodPace}</b></span>
+                        <span>
+                          Gerçekleşen <b>{liveState === "loading" ? "hesaplanıyor" : livePace == null ? "—" : `%${livePace}`}</b>
+                        </span>
+                      </div>
+                    </div>
+                    <div className="relative mt-2.5 h-2 overflow-hidden rounded-full bg-background">
+                      <div
+                        className={cn("h-full rounded-full", livePace != null && livePace + 10 < periodPace ? "bg-warning" : "bg-brand-blue")}
+                        style={{ width: `${Math.min(100, Math.max(0, livePace ?? 0))}%` }}
+                      />
+                      <span className="absolute inset-y-0 w-px bg-foreground/60" style={{ left: `${Math.min(99, Math.max(0, periodPace))}%` }} />
+                    </div>
+                  </div>
+                  <div className="grid gap-3 lg:grid-cols-[170px_130px_minmax(0,1fr)]">
+                    <ReadonlyTargetField label="Dönem" value={formatPeriodLabel(period)} />
+                    <ReadonlyTargetField label="Para Birimi" value="USD" />
+                    <div className="space-y-1.5">
+                      <Label className="text-xs font-semibold text-foreground">Not</Label>
+                      <Textarea
+                        className="min-h-10 resize-y rounded-md bg-background text-sm"
+                        value={form.note}
+                        onChange={(e) => updateField("note", e.target.value)}
+                        placeholder="Hedef dönemi notu"
+                        maxLength={500}
+                      />
+                    </div>
+                  </div>
+
+                  <section>
+                    <div className="mb-2 flex flex-wrap items-center gap-2">
+                      <TrendingUp className="size-4 text-brand-blue" />
+                      <span className="text-sm font-semibold">Ana Metrik Hedefleri</span>
+                      <span className="text-[11px] text-muted-foreground">
+                        — gerçekleşmeler sistemden otomatik ölçülür ve Dashboard'a yansır
+                      </span>
+                    </div>
+                    {liveState === "error" && (
+                      <div className="mb-3 rounded-md border border-border/60 bg-muted/25 px-3 py-2 text-xs text-muted-foreground">
+                        Gerçekleşme verisi şu an alınamadı; hedefler yine de kaydedilebilir.
+                      </div>
+                    )}
+                    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                      {MAIN_METRIC_FIELDS.map((field) => (
+                        <MainMetricCard
+                          key={field.key}
+                          label={field.label}
+                          unit={field.unit}
+                          value={(form[field.key] as string) ?? ""}
+                          onChange={(v) => updateField(field.key as keyof UserTarget, v)}
+                          actual={liveActualFor(field.metricKey)}
+                          tracked={measuredMetricSet.has(field.metricKey)}
+                          factor={factor}
+                          actualLabel={actualLabel}
+                        />
+                      ))}
+                    </div>
+                  </section>
+                </div>
+              ) : activeType && activeStats ? (
+                <div className="space-y-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex min-w-0 items-center gap-2.5">
+                      <span className="grid size-9 shrink-0 place-items-center rounded-md bg-brand-blue-soft text-brand-blue">
+                        <ActiveIcon className="size-4" />
+                      </span>
+                      <div className="min-w-0">
+                        <div className="text-sm font-semibold leading-tight">{targetTypeTitle(activeType)}</div>
+                        <div className="text-[11px] text-muted-foreground">
+                          {activeStats.filled}/{activeStats.total} dolu
+                          {activeStats.countTotal > 0 && <> · {formatTargetNumber(activeStats.countTotal)} adet</>}
+                          {activeStats.amountTotal > 0 && <> · USD {formatTargetNumber(activeStats.amountTotal)}</>}
+                          {activeStats.invalid > 0 && (
+                            <span className="text-destructive"> · {activeStats.invalid} geçersiz değer</span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                    {templateMenu(activeType)}
+                  </div>
+                  {groupTargetItems(itemsByType[activeType]).map((group) => {
+                    const filled = group.items.filter((item) => !!item.target.trim()).length;
+                    return (
+                      <section key={group.category} className="overflow-hidden rounded-lg border border-border/60 bg-background">
+                        <header className="flex items-center justify-between gap-2 border-b border-border/60 bg-muted/30 px-3 py-2">
+                          <TargetCategoryBadge category={group.category} />
+                          <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">
+                            {filled}/{group.items.length} dolu
+                          </span>
+                        </header>
+                        <div className="divide-y divide-border/60">
+                          {group.items.map((item) => (
+                            <TargetItemRow
+                              key={targetItemKey(item)}
+                              item={item}
+                              onTargetChange={updateItemTarget}
+                              actual={isAutoTracked(item) ? liveActualFor(item.metricKey) : null}
+                              factor={factor}
+                              actualLabel={actualLabel}
+                            />
+                          ))}
+                        </div>
+                      </section>
+                    );
+                  })}
+                </div>
+              ) : null}
+            </div>
           </div>
+
           <DialogFooter className="border-t border-border/60 px-4 py-3 sm:items-center sm:justify-between sm:px-5 sm:py-4">
             <div className={cn("min-h-5 text-xs", hasInvalidTargets ? "text-destructive" : "text-muted-foreground")}>
               {hasInvalidTargets ? (
@@ -1090,7 +1343,7 @@ export function TargetDialog({ scope, target, period, onClose, onSave }: {
                   <AlertTriangle className="size-3.5" /> {invalidCount} hedef değeri kontrol edilmeli
                 </span>
               ) : (
-                <span>{allStats.filled}/{allStats.total} hedef dolu</span>
+                <span>{allStats.filled}/{allStats.total} hedef dolu · {autoItemCount + autoMainCount} hedef otomatik takipte</span>
               )}
             </div>
             <div className="flex flex-col-reverse gap-2 sm:flex-row">

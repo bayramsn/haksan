@@ -18,7 +18,11 @@ import {
   resourceDivisionFilter,
   resolveAssignedResourceDivision,
 } from '../../shared/utils/division-scope';
-import { companyVisibilityExistsFilter, companyVisibilityFilter } from '../../shared/utils/company-visibility';
+import {
+  allowUnlinkedCompanyRecords,
+  companyVisibilityExistsFilter,
+  companyVisibilityFilter,
+} from '../../shared/utils/company-visibility';
 
 @Injectable()
 export class ActivitiesService {
@@ -52,25 +56,42 @@ export class ActivitiesService {
     return contact;
   }
 
-  private async assertOpportunity(opportunityId: string, actor: AuthContext, companyId: string) {
+  private async assertOpportunity(opportunityId: string, actor: AuthContext, companyId?: string | null) {
+    const visibility = await companyVisibilityExistsFilter(this.db, actor, opportunities.companyId);
     const opportunity = await this.db.query.opportunities.findFirst({
       where: and(
         eq(opportunities.id, opportunityId),
         eq(opportunities.tenantId, actor.tenantId),
         isNull(opportunities.deletedAt),
         resourceDivisionFilter(actor, 'opportunities', opportunities.divisionId) ?? sql`true`,
-        (await companyVisibilityExistsFilter(this.db, actor, opportunities.companyId)) ?? sql`true`
+        allowUnlinkedCompanyRecords(opportunities.companyId, visibility)
       ),
     });
     if (!opportunity) throw new NotFoundError('Fırsat');
-    if (opportunity.companyId !== companyId) throw new ValidationError('Fırsat seçilen firmaya ait değil');
+    if (companyId && opportunity.companyId !== companyId) {
+      throw new ValidationError('Fırsat seçilen firmaya ait değil');
+    }
     return opportunity;
   }
 
-  private async assertReferences(input: { companyId: string; contactId?: string; opportunityId?: string }, actor: AuthContext) {
-    await this.assertCompany(input.companyId, actor);
-    if (input.contactId) await this.assertContact(input.contactId, actor, input.companyId);
-    if (input.opportunityId) await this.assertOpportunity(input.opportunityId, actor, input.companyId);
+  private async assertReferences(
+    input: { companyId?: string; contactId?: string; opportunityId?: string },
+    actor: AuthContext
+  ): Promise<string | null> {
+    let companyId = input.companyId ?? null;
+    if (companyId) await this.assertCompany(companyId, actor);
+    if (input.opportunityId) {
+      const opportunity = await this.assertOpportunity(input.opportunityId, actor, companyId);
+      companyId = companyId ?? opportunity.companyId;
+    }
+    if (!companyId && !input.opportunityId) {
+      throw new ValidationError('Aktivite için firma veya satış kartı zorunludur');
+    }
+    if (input.contactId) {
+      if (!companyId) throw new ValidationError('Kontak bağlamak için önce firma kaydı oluşturulmalıdır');
+      await this.assertContact(input.contactId, actor, companyId);
+    }
+    return companyId;
   }
 
   private async assertActivity(activityId: string, actor: AuthContext) {
@@ -78,7 +99,7 @@ export class ActivitiesService {
     const scoped = resourceDivisionFilter(actor, 'activities', salesActivities.divisionId);
     if (scoped) filters.push(scoped);
     const visibility = await companyVisibilityExistsFilter(this.db, actor, salesActivities.companyId);
-    if (visibility) filters.push(visibility);
+    filters.push(allowUnlinkedCompanyRecords(salesActivities.companyId, visibility));
     const [row] = await this.db.select().from(salesActivities).where(and(...filters)).limit(1);
     if (!row) throw new NotFoundError('Aktivite');
     return row;
@@ -111,7 +132,7 @@ export class ActivitiesService {
     const scoped = resourceDivisionFilter(actor, 'activities', salesActivities.divisionId);
     if (scoped) filters.push(scoped);
     const visibility = await companyVisibilityExistsFilter(this.db, actor, salesActivities.companyId);
-    if (visibility) filters.push(visibility);
+    filters.push(allowUnlinkedCompanyRecords(salesActivities.companyId, visibility));
     const where = and(...filters);
     const [{ count }] = await this.db
       .select({ count: sql<number>`count(*)::int` })
@@ -174,7 +195,7 @@ export class ActivitiesService {
   }
 
   async createActivity(input: ActivityCreateInput, actor: AuthContext) {
-    await this.assertReferences(input, actor);
+    const companyId = await this.assertReferences(input, actor);
     const typeId = await lookupIdByCode(this.db, activityTypes, input.activityTypeCode);
     if (!typeId) throw new ValidationError(`Bilinmeyen aktivite türü: ${input.activityTypeCode}`);
     const divisionId = await this.resolveActivityDivision(input, actor);
@@ -185,7 +206,7 @@ export class ActivitiesService {
         tenantId: actor.tenantId,
         divisionId,
         opportunityId: input.opportunityId ?? null,
-        companyId: input.companyId,
+        companyId,
         contactId: input.contactId ?? null,
         activityTypeId: typeId,
         subject: input.subject,
@@ -270,11 +291,9 @@ export class ActivitiesService {
 
   async updateActivity(activityId: string, input: ActivityUpdateInput, actor: AuthContext) {
     const existing = await this.assertActivity(activityId, actor);
-    const companyId = input.companyId ?? existing.companyId;
-    if (!companyId) throw new ValidationError('Aktivite için firma zorunlu');
-    await this.assertReferences(
+    const companyId = await this.assertReferences(
       {
-        companyId,
+        companyId: input.companyId ?? existing.companyId ?? undefined,
         contactId: input.contactId ?? existing.contactId ?? undefined,
         opportunityId: input.opportunityId ?? existing.opportunityId ?? undefined,
       },
@@ -282,7 +301,7 @@ export class ActivitiesService {
     );
 
     const patch: Record<string, unknown> = {};
-    if (input.companyId !== undefined) patch.companyId = input.companyId;
+    if (input.companyId !== undefined) patch.companyId = companyId;
     if (input.contactId !== undefined) patch.contactId = input.contactId || null;
     if (input.opportunityId !== undefined) patch.opportunityId = input.opportunityId || null;
     if (input.activityTypeCode !== undefined) {

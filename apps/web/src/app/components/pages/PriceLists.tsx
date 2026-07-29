@@ -1,16 +1,18 @@
 import { useState, useMemo, useEffect } from "react";
 import { Card } from "../ui/card";
+import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Tabs, TabsList, TabsTrigger } from "../ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../ui/table";
-import { Search, ChevronRight, Lock, Wrench, Package, Pencil, Check, X } from "lucide-react";
+import { Search, ChevronRight, Lock, Wrench, Package, Pencil, Check, X, BadgeCheck, Boxes, Factory, Tags, Plus } from "lucide-react";
 import { toast } from "sonner";
 import { Product } from "../../lib/mock";
 import { useStore } from "../../lib/store";
 import { useAuth } from "../../../lib/auth";
 import { ProductDetailDialog, ProductThumb } from "../dialogs/ProductDetailDialog";
 import { productService } from "../../../lib/services";
+import { InsightStat } from "../shared/PremiumPrimitives";
 
 const CURRENCY_LABEL: Record<string, string> = { USD: "USD", EUR: "EUR", TRY: "TL" };
 const fmtMoney = (n?: number | null, cur = "USD") =>
@@ -163,6 +165,8 @@ function CampaignPriceCell({
     event.stopPropagation();
     const parsed = Number(price.replace(/\./g, "").replace(",", "."));
     if (price.trim() && Number.isNaN(parsed)) return toast.error("Kampanya fiyatı geçersiz");
+    if (active && (!price.trim() || parsed <= 0)) return toast.error("Aktif kampanya için fiyat girin");
+    if (from && until && until < from) return toast.error("Kampanya bitiş tarihi başlangıçtan önce olamaz");
     setBusy(true);
     try {
       await onSave({
@@ -179,8 +183,9 @@ function CampaignPriceCell({
   if (!editable) {
     return (
       <TableCell className="text-right">
-        {value?.campaignIsActive && value.campaignPrice != null ? (
-          <div className="inline-flex flex-col items-end gap-1">
+        <div className="inline-flex items-center justify-end">
+          {value?.campaignIsActive && value.campaignPrice != null ? (
+            <div className="inline-flex flex-col items-end gap-1">
             <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700">
               {fmtMoney(value.campaignPrice, currency)}
             </span>
@@ -189,8 +194,9 @@ function CampaignPriceCell({
                 {dateInput(value.campaignValidFrom) || "..."} - {dateInput(value.campaignValidUntil) || "..."}
               </span>
             )}
-          </div>
-        ) : "—"}
+            </div>
+          ) : <span className="text-muted-foreground">—</span>}
+        </div>
       </TableCell>
     );
   }
@@ -201,13 +207,13 @@ function CampaignPriceCell({
         <Input
           inputMode="decimal"
           value={price}
-          disabled={busy || disabled}
+          disabled={busy || disabled || !active}
           onChange={(e) => setPrice(e.target.value)}
           placeholder="Kamp."
           className="h-8 bg-white text-right tabular-nums"
         />
-        <Input type="date" value={from} disabled={busy || disabled} onChange={(e) => setFrom(e.target.value)} className="h-8 bg-white text-xs" />
-        <Input type="date" value={until} disabled={busy || disabled} onChange={(e) => setUntil(e.target.value)} className="h-8 bg-white text-xs" />
+        <Input type="date" value={from} disabled={busy || disabled || !active} onChange={(e) => setFrom(e.target.value)} className="h-8 bg-white text-xs" />
+        <Input type="date" value={until} disabled={busy || disabled || !active} onChange={(e) => setUntil(e.target.value)} className="h-8 bg-white text-xs" />
         <div className="flex items-center gap-1.5">
           <input
             type="checkbox"
@@ -246,13 +252,14 @@ function SearchBox({ q, setQ, placeholder }: { q: string; setQ: (v: string) => v
    ========================================================================= */
 export function SalesPriceListPage() {
   const { products } = useStore();
-  const { hasPermission } = useAuth();
-  const canEdit = hasPermission("price_lists.update") || hasPermission("price_lists.create");
+  const { hasPermission, hasRole } = useAuth();
+  const canManageCampaign = hasRole("super_admin") && (hasPermission("price_lists.update") || hasPermission("price_lists.create"));
   const [q, setQ] = useState("");
   const [selected, setSelected] = useState<Product | null>(null);
   const [priceLists, setPriceLists] = useState<Array<{ id: string; name: string; code: string; isActive?: boolean; currency?: { code?: string } }>>([]);
   const [selectedListId, setSelectedListId] = useState("");
   const [priceOverrides, setPriceOverrides] = useState<Record<string, PriceOverride>>({});
+  const [campaignManagementOpen, setCampaignManagementOpen] = useState(false);
 
   useEffect(() => {
     productService
@@ -267,6 +274,7 @@ export function SalesPriceListPage() {
   }, []);
 
   useEffect(() => {
+    setCampaignManagementOpen(false);
     if (!selectedListId) {
       setPriceOverrides({});
       return;
@@ -298,24 +306,10 @@ export function SalesPriceListPage() {
 
   const machines = useMemo(() => products.filter((p) => p.categoryCode === "TEZGAH"), [products]);
   const filtered = machines.filter((p) => matches(p, q));
+  const pricedMachineCount = machines.filter((product) => (priceOverrides[product.id]?.listPrice ?? product.listPrice) > 0).length;
+  const campaignMachineCount = machines.filter((product) => priceOverrides[product.id]?.campaignIsActive && priceOverrides[product.id]?.campaignPrice != null).length;
+  const campaignColumnVisible = campaignMachineCount > 0 || (canManageCampaign && campaignManagementOpen);
 
-  const savePrice = async (p: Product, field: "cashPrice" | "listPrice", next: number) => {
-    if (!selectedListId) {
-      toast.error("Önce fiyat listesi seçin");
-      return;
-    }
-    const current = priceOverrides[p.id];
-    const payload = { productModelId: p.id, [field]: next };
-    try {
-      const saved = current?.itemId
-        ? await productService.updatePriceListItem(selectedListId, current.itemId, payload)
-        : await productService.createPriceListItem(selectedListId, payload);
-      setPriceOverrides((prev) => ({ ...prev, [p.id]: { ...prev[p.id], itemId: saved?.id ?? prev[p.id]?.itemId, [field]: next } }));
-      toast.success("Fiyat güncellendi");
-    } catch (err: any) {
-      toast.error("Fiyat güncellenemedi", { description: err?.message ?? "API isteği başarısız oldu." });
-    }
-  };
   const saveCampaign = async (
     p: Product,
     next: Required<Pick<PriceOverride, "campaignIsActive">> & Pick<PriceOverride, "campaignPrice" | "campaignValidFrom" | "campaignValidUntil">,
@@ -355,14 +349,47 @@ export function SalesPriceListPage() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between gap-3 flex-wrap">
-        {canEdit ? (
-          <div className="flex items-center gap-2 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-xs text-primary">
-            <Pencil className="size-3.5 shrink-0" />
-            <span>Fiyat listesi yetkisi: Peşin ve Liste fiyatlarına tıklayarak seçili liste kalemini düzenleyebilirsiniz.</span>
+      <section className="premium-blueprint precision-corners overflow-hidden rounded-2xl border border-primary/20 bg-card p-5 shadow-sm">
+        <div className="relative flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
+          <div>
+            <p className="font-mono text-[10px] font-semibold tracking-[0.2em] text-primary">MAKİNE FİYAT KATALOĞU</p>
+            <h2 className="mt-1 font-display text-2xl font-semibold tracking-tight sm:text-3xl">Satış fiyat mimarisi</h2>
+            <p className="mt-1 max-w-2xl text-sm text-muted-foreground">Ürün adı, sabit satış fiyatları ve aktif kampanya bağlamını tek satırda karşılaştırın.</p>
+          </div>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 xl:min-w-[610px]">
+            <InsightStat label="Tezgah" value={machines.length} icon={<Factory />} />
+            <InsightStat label="Fiyatlı" value={pricedMachineCount} icon={<BadgeCheck />} tone="success" />
+            <InsightStat label="Kampanya" value={campaignMachineCount} icon={<Tags />} tone={campaignMachineCount ? "warning" : "default"} />
+            <InsightStat label="Liste" value={selectedList?.code || "—"} detail={listCurrency || "Para birimi yok"} icon={<BadgeCheck />} />
+          </div>
+        </div>
+      </section>
+
+      <div className="flex items-center justify-between gap-3 flex-wrap rounded-xl border border-border/60 bg-card p-3 shadow-sm">
+        {canManageCampaign ? (
+          <div className="flex flex-wrap items-center gap-2">
+            {campaignManagementOpen ? (
+              <div className="flex items-center gap-2 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-xs text-primary">
+                <Tags className="size-3.5 shrink-0" />
+                <span>Kampanya fiyatını, tarihlerini ve aktiflik durumunu satırdan kaydedin.</span>
+              </div>
+            ) : (
+              <ReadOnlyNote text={campaignMachineCount > 0 ? "Aktif kampanyalar ayrı fiyat sütununda gösteriliyor." : "Kampanya alanı kapalıdır."} />
+            )}
+            <Button
+              type="button"
+              size="sm"
+              variant={campaignManagementOpen ? "outline" : "default"}
+              className="h-9 gap-1.5"
+              disabled={!selectedListId}
+              onClick={() => setCampaignManagementOpen((open) => !open)}
+            >
+              {campaignManagementOpen ? <X className="size-4" /> : <Plus className="size-4" />}
+              {campaignManagementOpen ? "Kampanya Düzenlemeyi Kapat" : "Kampanya Oluştur"}
+            </Button>
           </div>
         ) : (
-          <ReadOnlyNote text="Fiyat listesi salt-okunur. Tezgaha tıklayarak uyumlu opsiyonel donanımları ve fiyatlarını görebilirsiniz." />
+          <ReadOnlyNote text={campaignMachineCount > 0 ? "Peşin, liste ve kampanyalı fiyatlar salt okunurdur." : "Peşin ve liste fiyatları salt okunurdur. Kampanyayı yalnız Süper Admin oluşturabilir."} />
         )}
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full sm:w-auto">
           {priceLists.length > 0 && (
@@ -386,12 +413,12 @@ export function SalesPriceListPage() {
           <Table>
             <TableHeader>
               <TableRow className="bg-muted/30 hover:bg-muted/30">
-                <TableHead className="w-[380px]">Tezgah</TableHead>
+                <TableHead className="w-[380px]">Ürün Adı</TableHead>
                 <TableHead>Marka</TableHead>
                 <TableHead>Tip</TableHead>
                 <TableHead className="text-right">Peşin Fiyat</TableHead>
                 <TableHead className="text-right">Liste Fiyatı</TableHead>
-                <TableHead className="text-right">Kampanya</TableHead>
+                {campaignColumnVisible && <TableHead className="text-right">Kampanyalı Fiyat</TableHead>}
                 <TableHead className="w-10"></TableHead>
               </TableRow>
             </TableHeader>
@@ -407,39 +434,30 @@ export function SalesPriceListPage() {
                     <div className="flex items-center gap-3 min-w-0">
                       <ProductThumb product={p} />
                       <div className="min-w-0">
-                        <div className="text-sm leading-tight truncate group-hover:text-primary transition-colors">{p.brand} {p.model}</div>
-                        <div className="text-[11px] text-muted-foreground mt-0.5 truncate">{p.shortDescription || "—"}</div>
+                        <div className="text-sm leading-tight truncate group-hover:text-primary transition-colors">{p.shortDescription || `${p.brand} ${p.model}`.trim()}</div>
+                        <div className="text-[11px] text-muted-foreground mt-0.5 truncate">{[p.brand, p.series, p.model].filter(Boolean).join(" · ") || "—"}</div>
                       </div>
                     </div>
                   </TableCell>
                   <TableCell className="text-sm">{p.brand}</TableCell>
                   <TableCell className="text-sm text-muted-foreground">{p.type || "—"}</TableCell>
-                  <EditablePriceCell
-                    value={cash}
-                    currency={cur}
-                    editable={canEdit}
-                    className="text-emerald-600"
-                    onSave={(next) => savePrice(p, "cashPrice", next)}
-                  />
-                  <EditablePriceCell
-                    value={list}
-                    currency={cur}
-                    editable={canEdit}
-                    onSave={(next) => savePrice(p, "listPrice", next)}
-                  />
-                  <CampaignPriceCell
-                    value={override}
-                    currency={cur}
-                    editable={canEdit}
-                    disabled={!selectedListId}
-                    onSave={(next) => saveCampaign(p, next)}
-                  />
+                  <TableCell className="text-right tabular-nums text-emerald-600">{fmtMoney(cash, cur)}</TableCell>
+                  <TableCell className="text-right tabular-nums">{fmtMoney(list, cur)}</TableCell>
+                  {campaignColumnVisible && (
+                    <CampaignPriceCell
+                      value={override}
+                      currency={cur}
+                      editable={canManageCampaign && campaignManagementOpen}
+                      disabled={!selectedListId}
+                      onSave={(next) => saveCampaign(p, next)}
+                    />
+                  )}
                   <TableCell><ChevronRight className="size-4 text-muted-foreground opacity-0 group-hover:opacity-100" /></TableCell>
                 </TableRow>
               );})}
               {filtered.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={7} className="text-center py-16 text-sm text-muted-foreground">Tezgah bulunamadı.</TableCell>
+                  <TableCell colSpan={campaignColumnVisible ? 7 : 6} className="text-center py-16 text-sm text-muted-foreground">Tezgah bulunamadı.</TableCell>
                 </TableRow>
               )}
             </TableBody>
@@ -450,7 +468,7 @@ export function SalesPriceListPage() {
         </div>
       </Card>
 
-      <ProductDetailDialog product={selected} onClose={() => setSelected(null)} highlightOptional />
+      <ProductDetailDialog product={selected} onClose={() => setSelected(null)} highlightOptional readOnly />
     </div>
   );
 }
@@ -537,6 +555,12 @@ export function ServicePriceListPage() {
 
   return (
     <div className="space-y-4">
+      <section className="premium-blueprint precision-corners overflow-hidden rounded-2xl border border-primary/20 bg-card p-5 shadow-sm">
+        <div className="relative flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
+          <div><p className="font-mono text-[10px] font-semibold tracking-[0.2em] text-primary">PARÇA & İŞÇİLİK KATALOĞU</p><h2 className="mt-1 font-display text-2xl font-semibold tracking-tight sm:text-3xl">Servis fiyat mimarisi</h2><p className="mt-1 max-w-2xl text-sm text-muted-foreground">Üretici, uyumluluk ve seçili fiyat listesi bağlamını kaybetmeden servis kalemlerini karşılaştırın.</p></div>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 xl:min-w-[610px]"><InsightStat label="Toplam Kalem" value={Object.values(categoryCounts).reduce((sum, count) => sum + count, 0)} icon={<Boxes />} /><InsightStat label="Kategori" value={SERVICE_PRICE_CATEGORIES.length} icon={<Tags />} /><InsightStat label="Görünen" value={list.length} icon={<Package />} tone="success" /><InsightStat label="Liste" value={selectedList?.code || "—"} detail={listCurrency || "Para birimi yok"} icon={<BadgeCheck />} /></div>
+        </div>
+      </section>
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <Tabs value={tab} onValueChange={(v) => setTab(v as ServicePriceTab)}>
           <TabsList className="h-9 bg-muted/60">
@@ -583,8 +607,8 @@ export function ServicePriceListPage() {
             <Table>
               <TableHeader>
                 <TableRow className="bg-muted/30 hover:bg-muted/30">
-                  <TableHead className="w-[380px]">{activeCategory.label}</TableHead>
-                  <TableHead>Marka</TableHead>
+                  <TableHead className="w-[410px]">{activeCategory.label} / Üretici</TableHead>
+                  <TableHead>Uyumluluk</TableHead>
                   <TableHead className="text-right">Peşin</TableHead>
                   <TableHead className="text-right">Liste Fiyatı</TableHead>
                   <TableHead className="w-10"></TableHead>
@@ -600,14 +624,15 @@ export function ServicePriceListPage() {
                   <TableRow key={p.id} className="cursor-pointer group" onClick={() => setSelected(p)}>
                     <TableCell>
                       <div className="flex items-center gap-3 min-w-0">
-                        <ProductThumb product={p} fallback={<Package className="size-4" />} />
+                        <ProductThumb product={p} fallback={<Package className="size-4" />} size="md" />
                         <div className="min-w-0">
-                          <div className="text-sm leading-tight truncate group-hover:text-primary transition-colors">{p.shortDescription || p.model}</div>
-                          <div className="text-[11px] text-muted-foreground mt-0.5 truncate">{p.stockCode || p.model}</div>
+                          <div className="font-data text-[9px] font-semibold uppercase tracking-[0.12em] text-operation-blue">{p.stockCode || "STOK KODU YOK"}</div>
+                          <div className="mt-1 truncate text-sm font-medium leading-tight transition-colors group-hover:text-primary">{p.shortDescription || p.model}</div>
+                          <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground"><span className="inline-flex items-center gap-1"><Factory className="size-3" /> {p.brand || "Üretici yok"}</span>{p.originCountry && <span>· {p.originCountry}</span>}</div>
                         </div>
                       </div>
                     </TableCell>
-                    <TableCell className="text-sm">{p.brand}</TableCell>
+                    <TableCell><div className="flex max-w-[220px] flex-wrap gap-1.5"><span className="chip chip-info">{p.compatibleMachineTypeCode || p.type || "Genel uyum"}</span>{p.subcategory && <span className="chip chip-neutral">{p.subcategory}</span>}</div></TableCell>
                     <EditablePriceCell
                       value={cash}
                       currency={cur}

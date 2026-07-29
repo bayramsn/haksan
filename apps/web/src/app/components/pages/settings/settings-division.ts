@@ -1,9 +1,7 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback } from "react";
+import { useAuth } from "../../../../lib/auth";
 
 export const ALL_DIVISIONS = "all";
-
-const SETTINGS_DIVISION_STORAGE_KEY = "haksan:settings:product-division";
-const SETTINGS_DIVISION_EVENT = "haksan:settings-product-division";
 
 type DivisionLike = { id: string; code?: string | null; name?: string | null };
 
@@ -44,35 +42,21 @@ export function divisionCatalogGroupCode(
   return undefined;
 }
 
-function readStoredDivision() {
-  if (typeof window === "undefined") return ALL_DIVISIONS;
-  return localStorage.getItem(SETTINGS_DIVISION_STORAGE_KEY) || ALL_DIVISIONS;
-}
-
+/**
+ * Ayar ekranlarının bölüm filtresi = uygulama genelindeki aktif bölüm
+ * (üst bardaki "Bölüm seç"). Ayrı bir ayar-bölümü saklanmaz; ayarlardan
+ * bölüm değiştirmek üst barı da değiştirir, böylece "CNC'deyim ama Tümü'ne
+ * ekledi" tutarsızlığı oluşmaz.
+ */
 export function usePersistedSettingsDivision() {
-  const [divisionId, setDivisionIdState] = useState(readStoredDivision);
+  const { activeDivision, setActiveDivision } = useAuth();
 
-  const setDivisionId = useCallback((nextDivisionId: string) => {
-    const value = nextDivisionId || ALL_DIVISIONS;
-    setDivisionIdState(value);
-    localStorage.setItem(SETTINGS_DIVISION_STORAGE_KEY, value);
-    window.dispatchEvent(new CustomEvent(SETTINGS_DIVISION_EVENT, { detail: value }));
-  }, []);
+  const setDivisionId = useCallback(
+    (nextDivisionId: string) => {
+      setActiveDivision(nextDivisionId || ALL_DIVISIONS);
+    },
+    [setActiveDivision],
+  );
 
-  useEffect(() => {
-    const handleStorage = (event: StorageEvent) => {
-      if (event.key === SETTINGS_DIVISION_STORAGE_KEY) setDivisionIdState(event.newValue || ALL_DIVISIONS);
-    };
-    const handleLocalChange = (event: Event) => {
-      setDivisionIdState((event as CustomEvent<string>).detail || ALL_DIVISIONS);
-    };
-    window.addEventListener("storage", handleStorage);
-    window.addEventListener(SETTINGS_DIVISION_EVENT, handleLocalChange);
-    return () => {
-      window.removeEventListener("storage", handleStorage);
-      window.removeEventListener(SETTINGS_DIVISION_EVENT, handleLocalChange);
-    };
-  }, []);
-
-  return [divisionId, setDivisionId] as const;
+  return [activeDivision || ALL_DIVISIONS, setDivisionId] as const;
 }

@@ -128,10 +128,13 @@ table { border-collapse: collapse; }
 .page {
   width: 210mm; min-height: 296mm; padding: 8mm 11mm 9mm;
   margin: 0 auto; position: relative; background: #fff;
-  display: flex; flex-direction: column; overflow: hidden;
+  display: flex; flex-direction: column; overflow: visible;
   page-break-after: always;
 }
 .page:last-child { page-break-after: auto; }
+thead { display: table-header-group; }
+tfoot { display: table-footer-group; }
+tr, img, .avoid-break { break-inside: avoid; page-break-inside: avoid; }
 img.letterhead { width: 100%; display: block; }
 .link { color: #0563c1; text-decoration: underline; }
 .pageno { text-align: center; font-size: 10pt; margin-top: auto; padding-top: 4mm; }

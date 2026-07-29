@@ -45,7 +45,6 @@ export default defineConfig({
         manualChunks: {
           'vendor-charts': ['recharts'],
           'vendor-maps': ['leaflet', 'react-leaflet'],
-          'vendor-mui': ['@mui/material', '@mui/icons-material', '@emotion/react', '@emotion/styled'],
         },
       },
     },

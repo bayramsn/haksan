@@ -66,3 +66,32 @@ export const publicServiceComplaintSchema = z.object({
   attachmentFileIds: z.array(z.string().uuid()).max(10).optional(),
 });
 export type PublicServiceComplaintInput = z.infer<typeof publicServiceComplaintSchema>;
+
+// ── Önleyici bakım planı ──
+export const maintenancePlanCreateSchema = z.object({
+  customerDeviceId: z.string().uuid(),
+  title: z.string().min(1).max(255).optional(),
+  intervalDays: z.coerce.number().int().min(1).max(3650).default(180),
+  nextDueDate: z.string().datetime().optional(),
+  reminderLeadDays: z.coerce.number().int().min(0).max(365).default(14),
+  autoCreateTicket: z.boolean().default(false),
+  notes: z.string().max(4000).optional().nullable(),
+});
+export type MaintenancePlanCreateInput = z.infer<typeof maintenancePlanCreateSchema>;
+
+export const maintenancePlanUpdateSchema = z.object({
+  title: z.string().min(1).max(255).optional(),
+  intervalDays: z.coerce.number().int().min(1).max(3650).optional(),
+  nextDueDate: z.string().datetime().optional(),
+  reminderLeadDays: z.coerce.number().int().min(0).max(365).optional(),
+  autoCreateTicket: z.boolean().optional(),
+  isActive: z.boolean().optional(),
+  notes: z.string().max(4000).optional().nullable(),
+});
+export type MaintenancePlanUpdateInput = z.infer<typeof maintenancePlanUpdateSchema>;
+
+/** Planı "yapıldı" işaretle: son bakım tarihini ayarlar, sonraki vadeyi ileri alır. */
+export const maintenancePlanCompleteSchema = z.object({
+  servicedAt: z.string().datetime().optional(),
+});
+export type MaintenancePlanCompleteInput = z.infer<typeof maintenancePlanCompleteSchema>;

@@ -16,6 +16,7 @@ import {
   matchSavedTermsTemplate,
   useTermsTemplates,
 } from "./DocumentTermsTemplateEditor";
+import { quoteToProformaPriceRows, type ProformaPriceRow } from "../../lib/proformaPricing";
 
 const PROFORMA_TERMS_TEMPLATE_SCOPE = "proforma_terms";
 
@@ -56,6 +57,8 @@ export function CreateProformaDialog({
   const [deliveryTerms, setDeliveryTerms] = useState("");
   const [warrantyTerms, setWarrantyTerms] = useState("");
   const [termsDirty, setTermsDirty] = useState(false);
+  const [priceRows, setPriceRows] = useState<ProformaPriceRow[]>([]);
+  const [pricesLoading, setPricesLoading] = useState(false);
   const [saving, setSaving] = useState(false);
 
   const savedTermsTemplates = useTermsTemplates(noteTemplates, PROFORMA_TERMS_TEMPLATE_SCOPE);
@@ -70,6 +73,8 @@ export function CreateProformaDialog({
     setDeliveryTerms("");
     setWarrantyTerms("");
     setTermsDirty(false);
+    setPriceRows([]);
+    setPricesLoading(false);
     // suggestNo, today: stable per open
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, defaultQuoteId]);
@@ -77,6 +82,7 @@ export function CreateProformaDialog({
   useEffect(() => {
     if (!open || !quoteId) return;
     let cancelled = false;
+    setPricesLoading(true);
     void (async () => {
       try {
         const data: any = await quoteService.get(quoteId);
@@ -89,6 +95,7 @@ export function CreateProformaDialog({
         setWarrantyTerms(loadedWarranty);
         setTermsTemplateKey(matchSavedTermsTemplate(loadedPayment, loadedDelivery, loadedWarranty, savedTermsTemplates));
         setTermsDirty(false);
+        setPriceRows(quoteToProformaPriceRows(data));
       } catch {
         if (cancelled) return;
         setPaymentTerms("");
@@ -96,6 +103,9 @@ export function CreateProformaDialog({
         setWarrantyTerms("");
         setTermsTemplateKey("");
         setTermsDirty(false);
+        setPriceRows([]);
+      } finally {
+        if (!cancelled) setPricesLoading(false);
       }
     })();
     return () => {
@@ -127,6 +137,10 @@ export function CreateProformaDialog({
   const selectedCustomer = selectedOffer
     ? customers.find((c) => c.id === (selectedOffer.companyId || selectedCase?.customerId))
     : null;
+  const proformaSubtotal = useMemo(
+    () => priceRows.reduce((sum, row) => sum + row.quantity * row.unitPrice, 0),
+    [priceRows],
+  );
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -146,6 +160,10 @@ export function CreateProformaDialog({
         documentNo: documentNo.trim() || undefined,
         issueDate: new Date(issueDate),
         statusCode: "draft",
+        items: priceRows.map((row) => ({
+          quoteItemId: row.quoteItemId,
+          unitPrice: row.unitPrice,
+        })),
       });
       toast.success("Proforma oluşturuldu", { description: created?.documentNo ?? documentNo.trim() });
       await refresh();
@@ -225,15 +243,71 @@ export function CreateProformaDialog({
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <Label className="text-xs">Proforma No</Label>
-              <Input className="mt-1.5" value={documentNo} onChange={(e) => setDocumentNo(e.target.value)} placeholder={`Otomatik: ${selectedOffer?.businessLine ?? "CNC"}-PRF-${new Date().getFullYear()}/...`} />
+              <Label className="text-xs" htmlFor="create-proforma-number">Proforma No</Label>
+              <Input id="create-proforma-number" className="mt-1.5 font-data" value={documentNo} onChange={(e) => setDocumentNo(e.target.value)} placeholder={`Otomatik: ${selectedOffer?.businessLine ?? "CNC"}-PRF-${new Date().getFullYear()}/...`} />
               <p className="mt-1 text-[10px] text-muted-foreground">Boş bırakılırsa teklifin iş alanına ait seri atanır.</p>
             </div>
             <div>
-              <Label className="text-xs">Tarih</Label>
-              <Input type="date" className="mt-1.5" value={issueDate} onChange={(e) => setIssueDate(e.target.value)} />
+              <Label className="text-xs" htmlFor="create-proforma-date">Tarih</Label>
+              <Input id="create-proforma-date" type="date" className="mt-1.5" value={issueDate} onChange={(e) => setIssueDate(e.target.value)} />
             </div>
           </div>
+
+          <section className="overflow-hidden rounded-xl border border-border/70 bg-card">
+            <div className="flex items-center justify-between gap-3 border-b border-border/60 bg-muted/20 px-3 py-2.5">
+              <div>
+                <p className="text-xs font-semibold">Proforma Fiyatları</p>
+                <p className="mt-0.5 text-[10px] text-muted-foreground">Net birim fiyatları düzenleyebilirsiniz; değişiklik bağlı teklifi etkilemez.</p>
+              </div>
+              <span className="shrink-0 font-data text-xs font-semibold text-emerald-600">
+                {proformaSubtotal.toLocaleString("tr-TR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {selectedOffer?.currency ?? ""}
+              </span>
+            </div>
+            {pricesLoading ? (
+              <p className="px-3 py-5 text-center text-xs text-muted-foreground">Fiyatlar yükleniyor…</p>
+            ) : priceRows.length > 0 ? (
+              <div className="divide-y divide-border/60">
+                {priceRows.map((row, index) => (
+                  <div key={row.quoteItemId} className="grid gap-2 px-3 py-2.5 sm:grid-cols-[minmax(0,1fr)_70px_180px] sm:items-center">
+                    <div className="min-w-0">
+                      <p className="truncate text-xs font-medium">{row.description || `Ürün ${index + 1}`}</p>
+                      <p className="mt-0.5 text-[10px] text-muted-foreground">KDV %{row.vatRate}</p>
+                    </div>
+                    <div className="text-xs text-muted-foreground sm:text-center">{row.quantity.toLocaleString("tr-TR")} adet</div>
+                    <div>
+                      <Label className="sr-only" htmlFor={`proforma-price-${row.quoteItemId}`}>Net birim fiyat</Label>
+                      <div className="relative">
+                        <Input
+                          id={`proforma-price-${row.quoteItemId}`}
+                          type="number"
+                          min="0"
+                          step="0.0001"
+                          inputMode="decimal"
+                          className="h-9 pr-12 text-right font-data"
+                          value={row.unitPrice}
+                          onChange={(event) => {
+                            const unitPrice = Number(event.target.value);
+                            setPriceRows((current) => current.map((item) =>
+                              item.quoteItemId === row.quoteItemId
+                                ? { ...item, unitPrice: Number.isFinite(unitPrice) ? Math.max(0, unitPrice) : 0 }
+                                : item
+                            ));
+                          }}
+                        />
+                        <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground">
+                          {selectedOffer?.currency ?? ""}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="px-3 py-5 text-center text-xs text-muted-foreground">
+                Seçilen teklifte fiyatlandırılacak ürün kalemi bulunamadı.
+              </p>
+            )}
+          </section>
 
           <DocumentTermsTemplateEditor
             title="Proforma Şartları"

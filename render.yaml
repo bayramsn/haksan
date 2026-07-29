@@ -30,18 +30,17 @@ services:
     # chain runs before the API process starts. Migration scripts are idempotent.
     #
     # Startup chain (compiled, no tsx/devDependency at deploy time):
-    #   1) backup    — pg_dump -> R2 snapshot before any schema change (opt-in via
-    #                  DB_BACKUP_ENABLED; no-op if pg_dump is unavailable unless
-    #                  DB_BACKUP_REQUIRED=true).
-    #   2) migrate   — schema migrations. SQL + journal are copied into dist via
+    #   1) migrate   — schema migrations. SQL + journal are copied into dist via
     #                  nest-cli `assets`; path resolved from __dirname (cwd-safe).
     #   3) data-migrate — idempotent DML (e.g. new permissions -> existing roles).
-    startCommand: node apps/api/dist/db/backup.js && node apps/api/dist/db/migrate.js && node apps/api/dist/db/data-migrate.js && node apps/api/dist/main.js
+    # Render free staging runtime does not ship pg_dump. Customer-data production
+    # deployments use the VDS pipeline, which requires verified local/offsite backups.
+    startCommand: node apps/api/dist/db/migrate.js && node apps/api/dist/db/data-migrate.js && node apps/api/dist/main.js
     envVars:
       - key: NODE_ENV
         value: production
       - key: NODE_VERSION
-        value: "20"
+        value: "22"
       - key: DB_PROVIDER
         value: postgres
       - key: DATABASE_URL
@@ -50,9 +49,13 @@ services:
           property: connectionString
       - key: DATABASE_SSL
         value: "true"
+      - key: DATABASE_SSL_REJECT_UNAUTHORIZED
+        value: "true"
       - key: JWT_ACCESS_SECRET
         generateValue: true
       - key: JWT_REFRESH_SECRET
+        generateValue: true
+      - key: COOKIE_SECRET
         generateValue: true
       # Host-only cookie (Domain yok) — çapraz-origin refresh için api alt alanında bırakılır.
       - key: COOKIE_DOMAIN
@@ -65,14 +68,14 @@ services:
         value: https://haksan-web.onrender.com
       - key: AUTH_DEV_RESET_TOKEN_RESPONSE
         value: "false"
-      # Pre-deploy DB backup to R2 (gzip pg_dump). Render Node runtime'da pg_dump
-      # yoksa no-op olur; DB_BACKUP_REQUIRED=true yapmayın ta ki pg_dump doğrulanana kadar.
+      - key: CALL_WEBHOOK_SECRET
+        sync: false
+      # Render blueprint is staging-only. Production backups are performed by the
+      # VDS deployment pipeline before migrations, rather than silently skipped.
       - key: DB_BACKUP_ENABLED
-        value: "true"
+        value: "false"
       - key: DB_BACKUP_REQUIRED
         value: "false"
-      - key: S3_BACKUP_BUCKET
-        value: erp-backups
       - key: S3_BUCKET_PREFIX
         value: erp
       # Gözlemlenebilirlik — Dashboard'dan secret değerleri girin (sync: false).
@@ -85,7 +88,7 @@ services:
         sync: false
       - key: OTEL_SERVICE_NAME
         value: haksan-api
-      # Prometheus scrape koruması (opsiyonel). Boş bırakılırsa /metrics herkese açık.
+      # Prometheus scrape koruması (production startup requires this secret).
       - key: METRICS_TOKEN
         sync: false
       - key: S3_PROVIDER
@@ -104,18 +107,32 @@ services:
         sync: false
       - key: SMTP_PORT
         value: "587"
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASSWORD
+        sync: false
+      - key: SMTP_SECURE
+        value: "false"
       - key: SMTP_FROM
         sync: false
-      # CRM Asistanı — sadece OpenRouter ücretsiz model yönlendirmesi.
-      # Secret değer dashboard/env üzerinden girilir; repo'ya yazılmaz.
+      - key: APP_PUBLIC_URL
+        value: https://haksan-web.onrender.com
+      # NVIDIA NIM integration is ready, but kept disabled until a fresh API key
+      # and tenant-level data-processing approval are configured in Render.
       - key: ASSISTANT_LLM_PROVIDER
-        value: openrouter
+        value: none
       - key: ASSISTANT_MODEL
-        value: openrouter/free
+        value: qwen/qwen3-next-80b-a3b-instruct
       - key: ASSISTANT_API_KEY
         sync: false
       - key: ASSISTANT_MAX_TOKENS
         value: "700"
+      - key: ASSISTANT_TEMPERATURE
+        value: "0.2"
+      - key: ASSISTANT_TOP_P
+        value: "0.8"
+      - key: ASSISTANT_DAILY_TOKEN_BUDGET
+        value: "50000"
 
   - type: web
     name: haksan-web
@@ -129,6 +146,27 @@ services:
         source: /*
         destination: /index.html
     headers:
+      - path: /*
+        name: Content-Security-Policy
+        value: "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://haksan-api.onrender.com https://tile.openstreetmap.org https://*.tile.openstreetmap.org; font-src 'self' data:; connect-src 'self' https://haksan-api.onrender.com wss://haksan-api.onrender.com; frame-src 'self' https://haksan-api.onrender.com https://*.r2.cloudflarestorage.com; media-src 'self' blob: https://haksan-api.onrender.com https://*.r2.cloudflarestorage.com; form-action 'self'; upgrade-insecure-requests"
+      - path: /*
+        name: X-Frame-Options
+        value: DENY
+      - path: /*
+        name: X-Content-Type-Options
+        value: nosniff
+      - path: /*
+        name: Referrer-Policy
+        value: strict-origin-when-cross-origin
+      - path: /*
+        name: Permissions-Policy
+        value: "camera=(), microphone=(), geolocation=(self)"
+      - path: /*
+        name: Cross-Origin-Opener-Policy
+        value: same-origin
+      - path: /*
+        name: Strict-Transport-Security
+        value: "max-age=63072000; includeSubDomains; preload"
       - path: /assets/*
         name: Cache-Control
         value: public, max-age=31536000, immutable

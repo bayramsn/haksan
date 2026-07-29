@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import {
-  ArrowDownLeft, ArrowUpRight, CheckCircle2, Loader2, PhoneCall, PhoneMissed, Plus, RefreshCw, X,
+  AlertTriangle, ArrowDownLeft, ArrowUpRight, CheckCircle2, Clock3, Loader2, MoreHorizontal, PhoneCall, PhoneMissed, Plus, RefreshCw, Sparkles, X,
 } from "lucide-react";
 import { callAssistantService, type CallSuggestionDTO } from "../../../lib/services";
 import type { OperationAction } from "../../lib/operations";
@@ -12,6 +12,8 @@ import { Input } from "../ui/input";
 import { Textarea } from "../ui/textarea";
 import { Tabs, TabsList, TabsTrigger } from "../ui/tabs";
 import { EmptyState } from "../shared/EmptyState";
+import { InsightStat } from "../shared/PremiumPrimitives";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "../ui/dropdown-menu";
 import {
   Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle,
 } from "../ui/dialog";
@@ -35,6 +37,30 @@ function formatDateTime(iso: string) {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return iso;
   return new Intl.DateTimeFormat("tr-TR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" }).format(date);
+}
+
+function callDuration(suggestion: CallSuggestionDTO) {
+  if (suggestion.event.eventType === "missed") return "Yanıtsız";
+  const started = suggestion.event.startedAt ? new Date(suggestion.event.startedAt).getTime() : NaN;
+  const ended = suggestion.event.endedAt ? new Date(suggestion.event.endedAt).getTime() : NaN;
+  if (!Number.isFinite(started) || !Number.isFinite(ended) || ended < started) return "Süre yok";
+  const seconds = Math.max(0, Math.round((ended - started) / 1000));
+  const minutes = Math.floor(seconds / 60);
+  return minutes ? `${minutes} dk ${seconds % 60} sn` : `${seconds} sn`;
+}
+
+function intentMeta(suggestion: CallSuggestionDTO) {
+  if (suggestion.availableActions.createServiceTicket) return { label: "Servis ihtiyacı", tone: "border-warning/30 bg-warning/5 text-warning" };
+  if (suggestion.availableActions.createQuote) return { label: "Satış fırsatı", tone: "border-info/30 bg-info/5 text-info" };
+  return { label: "Görüşme takibi", tone: "border-border/70 bg-muted/35 text-muted-foreground" };
+}
+
+function suggestionActions(suggestion: CallSuggestionDTO): Array<{ action: Exclude<SuggestionAction, "dismiss">; label: string }> {
+  const actions: Array<{ action: Exclude<SuggestionAction, "dismiss">; label: string }> = [];
+  if (suggestion.availableActions.createServiceTicket) actions.push({ action: "create_service_ticket", label: "Servis Kaydı Aç" });
+  if (suggestion.availableActions.createQuote) actions.push({ action: "create_quote", label: "Teklif Oluştur" });
+  if (suggestion.availableActions.logCall) actions.push({ action: "log_call", label: "Görüşme Notu" });
+  return actions;
 }
 
 export function CallAssistantPage({ onAction }: { onAction?: (action: OperationAction) => void }) {
@@ -93,6 +119,20 @@ export function CallAssistantPage({ onAction }: { onAction?: (action: OperationA
 
   return (
     <div className="space-y-4">
+      <section className="premium-blueprint precision-corners overflow-hidden rounded-2xl border border-primary/20 bg-card p-5 shadow-sm">
+        <div className="relative flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
+          <div>
+            <p className="font-mono text-[10px] font-semibold tracking-[0.2em] text-primary">ÇAĞRI İÇGÖRÜ AKIŞI</p>
+            <h2 className="mt-1 font-display text-2xl font-semibold tracking-tight sm:text-3xl">Sıradaki görüşme aksiyonu</h2>
+            <p className="mt-1 max-w-2xl text-sm text-muted-foreground">Firma eşleşmesi, çağrı yönü, niyet ve tek önerilen eylemi aynı kartta değerlendirin.</p>
+          </div>
+          <div className="grid grid-cols-3 gap-2 sm:min-w-[460px]">
+            <InsightStat label={STATUS_TABS.find((tab) => tab.id === status)?.label || "Kayıt"} value={suggestions.length} icon={<PhoneCall />} />
+            <InsightStat label="Cevapsız" value={suggestions.filter((item) => item.event.eventType === "missed").length} icon={<PhoneMissed />} tone={suggestions.some((item) => item.event.eventType === "missed") ? "warning" : "success"} />
+            <InsightStat label="Servis Niyeti" value={suggestions.filter((item) => item.availableActions.createServiceTicket).length} icon={<AlertTriangle />} tone="warning" />
+          </div>
+        </div>
+      </section>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <Tabs value={status} onValueChange={(v) => setStatus(v as SuggestionStatus)}>
           <TabsList className="h-9 bg-muted/60">
@@ -135,7 +175,7 @@ export function CallAssistantPage({ onAction }: { onAction?: (action: OperationA
       ) : suggestions.length === 0 ? (
         <div className="rounded-lg border border-dashed border-border/70 bg-white">
           <EmptyState
-            icon={<PhoneCall className="size-6" />}
+            scene="calls"
             title={
               status === "pending"
                 ? "Bekleyen çağrı önerisi yok"
@@ -190,6 +230,10 @@ function SuggestionCard({
   const companyName = suggestion.company.shortName || suggestion.company.legalTitle;
   const missed = suggestion.event.eventType === "missed";
   const inbound = suggestion.event.direction === "inbound";
+  const intent = intentMeta(suggestion);
+  const actions = suggestionActions(suggestion);
+  const primaryAction = actions[0];
+  const secondaryActions = actions.slice(1);
   return (
     <Card className="group relative overflow-hidden border-border/60 shadow-sm hover:shadow-md transition-shadow">
       <div className={`absolute inset-x-0 top-0 h-0.5 ${missed ? "bg-brand-red" : "bg-success"}`} />
@@ -222,34 +266,28 @@ function SuggestionCard({
               {" · "}
               {formatDateTime(suggestion.createdAt)}
             </div>
+            <div className="mt-2 flex flex-wrap items-center gap-1.5">
+              <Badge variant="outline" className={`h-5 gap-1 px-1.5 text-[10px] ${intent.tone}`}><Sparkles className="size-3" /> {intent.label}</Badge>
+              <Badge variant="outline" className="h-5 gap-1 px-1.5 text-[10px] text-muted-foreground"><Clock3 className="size-3" /> {callDuration(suggestion)}</Badge>
+              {missed && <Badge variant="outline" className="h-5 border-destructive/25 bg-destructive/5 px-1.5 text-[10px] text-destructive">Yüksek öncelik</Badge>}
+            </div>
           </div>
         </div>
         <div className="text-sm leading-relaxed">{suggestion.title}</div>
         {suggestion.body && <div className="text-xs leading-relaxed text-muted-foreground">{suggestion.body}</div>}
         {showActions && (
-          <div className="flex flex-wrap gap-1.5 pt-1">
-            {suggestion.availableActions.createQuote && (
-              <Button type="button" size="sm" variant="outline" className="h-7 gap-1 px-2 text-xs" onClick={() => onRunAction("create_quote")}>
-                <CheckCircle2 className="size-3" />
-                Teklif Oluştur
-              </Button>
-            )}
-            {suggestion.availableActions.createServiceTicket && (
-              <Button type="button" size="sm" variant="outline" className="h-7 gap-1 px-2 text-xs" onClick={() => onRunAction("create_service_ticket")}>
-                <CheckCircle2 className="size-3" />
-                Servis Kaydı
-              </Button>
-            )}
-            {suggestion.availableActions.logCall && (
-              <Button type="button" size="sm" variant="outline" className="h-7 gap-1 px-2 text-xs" onClick={() => onRunAction("log_call")}>
-                <CheckCircle2 className="size-3" />
-                Görüşme Notu
-              </Button>
-            )}
-            <Button type="button" size="sm" variant="ghost" className="h-7 gap-1 px-2 text-xs" onClick={onDismiss}>
-              <X className="size-3" />
-              Yoksay
-            </Button>
+          <div className="flex items-center justify-between gap-2 border-t border-border/50 pt-3">
+            <span className="text-[10px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">Önerilen sonraki adım</span>
+            <div className="flex items-center gap-1.5">
+              {primaryAction && <Button type="button" size="sm" className="h-8 gap-1.5 px-3 text-xs" onClick={() => onRunAction(primaryAction.action)}><CheckCircle2 className="size-3.5" /> {primaryAction.label}</Button>}
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild><Button type="button" size="icon" variant="outline" className="size-8" aria-label="Diğer çağrı işlemleri"><MoreHorizontal className="size-4" /></Button></DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  {secondaryActions.map((item) => <DropdownMenuItem key={item.action} onClick={() => onRunAction(item.action)}>{item.label}</DropdownMenuItem>)}
+                  <DropdownMenuItem className="text-muted-foreground" onClick={onDismiss}><X className="size-3.5" /> Yoksay</DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
           </div>
         )}
       </CardContent>
@@ -355,6 +393,7 @@ function ManualCallDialog({ onCreated }: { onCreated: () => void }) {
           <Input
             autoFocus
             inputMode="tel"
+            aria-label="Telefon numarası"
             value={phoneNumber}
             onChange={(e) => setPhoneNumber(e.target.value)}
             placeholder="0532 111 22 33"

@@ -15,10 +15,16 @@ import { useFx, FxRateBadge } from "../../lib/fx";
 import { useAuth } from "../../../lib/auth";
 import { lookupService, quoteService, productService } from "../../../lib/services";
 import { toast } from "sonner";
-import { Plus, Trash2, Save, BookmarkPlus, Bold } from "lucide-react";
-import type { Product, ProductSpec } from "../../lib/mock";
+import { Plus, Trash2, Save, BookmarkPlus, Bold, MapPin } from "lucide-react";
+import type { CompanyAddress, Customer, Product, ProductSpec } from "../../lib/mock";
 import { normalizeProductSpecKey, productSpecDefaults, specsForProductTypeStrict } from "../../lib/productSpecTemplates";
+import { computeCustomsCharges, isMachiningCenterTypeCode } from "@haksan/shared";
 import { quoteDefaultsFromCase } from "../../lib/workflow";
+import {
+  calculateProductDiscountAmount,
+  isProductDiscountValid,
+  type ProductDiscountType,
+} from "../../lib/quoteDiscount";
 import { matchQuoteNoteVariantKey, QUOTE_NOTE_VARIANTS } from "../../lib/print";
 import { DialogSplitLayout, DialogSidebarSection } from "../shared/DialogSplitLayout";
 import {
@@ -108,7 +114,7 @@ const CONTROL_UNITS = [
 // Uyumluluk kategorileri: yalnızca opsiyonel donanım ve yedek parça satırlarında gösterilir
 const COMPAT_CATEGORIES = ["OPSIYONEL_DONANIM", "YEDEK_PARCA"];
 
-type PricedRow = { unitPrice: string; vatRate: string };
+type PricedRow = { quantity: string; unitPrice: string; discount: string; discountType: ProductDiscountType; vatRate: string };
 
 // Teklife özel opsiyonel donanım — açıklaması (teknik bilgi) yalnızca bu teklif için düzenlenir
 type OptionInput = {
@@ -117,6 +123,7 @@ type OptionInput = {
   quantity: string;
   unitPrice: string;
   discount: string;
+  discountType: ProductDiscountType;
   vatRate: string;
 };
 
@@ -128,6 +135,7 @@ type LineCompatibility = {
 };
 
 type LineState = {
+  lineGroupKey: string;
   groupCode: string;
   categoryCode: string;
   subcategoryCode: string;
@@ -139,17 +147,21 @@ type LineState = {
   quantity: string;
   unitPrice: string;
   discount: string;
+  discountType: ProductDiscountType;
   vatRate: string;
   options: OptionInput[];
   compatibility: LineCompatibility;
+  // Millileştirilmiş ithal işleme merkezi — otomatik gümrük/vergi tetikler.
+  nationalized: boolean;
 };
 
 const emptyCompatibility = (): LineCompatibility => ({ machineIds: [], brands: [], controlUnits: [], supplierIds: [] });
 const hasCompatibility = (c: LineCompatibility) =>
   c.machineIds.length > 0 || c.brands.length > 0 || c.controlUnits.length > 0 || c.supplierIds.length > 0;
 
-const emptyLine = (): LineState => ({ groupCode: "", categoryCode: "", subcategoryCode: "", productTypeCode: "", productId: "", stockCode: "", description: "", technicalSpecs: [], quantity: "1", unitPrice: "", discount: "0", vatRate: "20", options: [], compatibility: emptyCompatibility() });
-const emptyOption = (vatRate = "20"): OptionInput => ({ productId: "", description: "", quantity: "1", unitPrice: "0", discount: "0", vatRate });
+const newLineGroupKey = () => `quote-line-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+const emptyLine = (): LineState => ({ lineGroupKey: newLineGroupKey(), groupCode: "", categoryCode: "", subcategoryCode: "", productTypeCode: "", productId: "", stockCode: "", description: "", technicalSpecs: [], quantity: "1", unitPrice: "", discount: "0", discountType: "percent", vatRate: "20", options: [], compatibility: emptyCompatibility(), nationalized: false });
+const emptyOption = (vatRate = "20"): OptionInput => ({ productId: "", description: "", quantity: "1", unitPrice: "0", discount: "0", discountType: "percent", vatRate });
 
 const cleanTechnicalSpecs = (specs: ProductSpec[] = []) =>
   specs
@@ -176,6 +188,27 @@ const num = (s: string) => {
 };
 const money = (n: number, c: Currency) =>
   `${n.toLocaleString("tr-TR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${c === "TRY" ? "TL" : c}`;
+
+const ADDRESS_TYPE_LABELS: Record<CompanyAddress["addressType"], string> = {
+  office: "Ofis",
+  factory: "Fabrika",
+  work_area: "Çalışma Alanı",
+  shipping: "Sevkiyat",
+  billing: "Fatura",
+  other: "Diğer",
+};
+
+const preferredPdfAddressId = (customer?: Customer) =>
+  customer?.addresses?.find((address) => address.isBilling && address.id)?.id
+  ?? customer?.addresses?.find((address) => address.isDefault && address.id)?.id
+  ?? customer?.addresses?.find((address) => address.id)?.id
+  ?? "";
+
+const pdfAddressLabel = (address: CompanyAddress) => {
+  const type = ADDRESS_TYPE_LABELS[address.addressType] ?? "Adres";
+  const value = [address.address, address.district, address.city, address.country].filter(Boolean).join(", ");
+  return `${type} · ${value || "Adres bilgisi yok"}`;
+};
 
 export function QuoteDialog({
   trigger, defaultCustomerId, defaultCaseId, offerId,
@@ -207,6 +240,9 @@ export function QuoteDialog({
 
   const today = new Date().toISOString().slice(0, 10);
   const [companyId, setCompanyId] = useState(defaultCustomerId ?? "");
+  const [companyAddressId, setCompanyAddressId] = useState(
+    preferredPdfAddressId(customers.find((customer) => customer.id === defaultCustomerId)),
+  );
   const [contactId, setContactId] = useState("");
   const [caseId, setCaseId] = useState(defaultCaseId ?? "");
   const [divisionId, setDivisionId] = useState(canPickDivision ? defaultDivisionId : "");
@@ -227,6 +263,9 @@ export function QuoteDialog({
   const [note, setNote] = useState("");
   const [noteFontSize, setNoteFontSize] = useState("14");
   const [noteBold, setNoteBold] = useState(false);
+  const [noteTemplateOpen, setNoteTemplateOpen] = useState(false);
+  const [noteTemplateTitle, setNoteTemplateTitle] = useState("");
+  const [noteTemplateSaving, setNoteTemplateSaving] = useState(false);
   const noteSnippetTemplates = useMemo(
     () => noteTemplates.filter((template) => (template.scope ?? "quote") === "quote"),
     [noteTemplates]
@@ -279,6 +318,7 @@ export function QuoteDialog({
 
   const reset = () => {
     setCompanyId(defaultCustomerId ?? "");
+    setCompanyAddressId(preferredPdfAddressId(customers.find((customer) => customer.id === defaultCustomerId)));
     setContactId("");
     setCaseId(defaultCaseId ?? "");
     setDivisionId(canPickDivision ? defaultDivisionId : "");
@@ -320,6 +360,7 @@ export function QuoteDialog({
     try {
       const data: any = await quoteService.get(id);
       setCompanyId(data.companyId ?? "");
+      setCompanyAddressId(data.companyAddressId ?? "");
       setContactId(data.contactId ?? "");
       setCaseId(data.opportunityId ?? "");
       setDivisionId(data.divisionId ?? defaultDivisionId);
@@ -366,6 +407,7 @@ export function QuoteDialog({
         const stockCode = it.stockCode ?? (dashIdx > -1 ? desc.slice(0, dashIdx) : product?.stockCode ?? "");
         const description = it.stockCode ? desc : dashIdx > -1 ? desc.slice(dashIdx + 3) : desc;
         return {
+          lineGroupKey: String(it.compatibility?.lineGroupKey ?? newLineGroupKey()),
           groupCode: product?.productGroupCode ?? "",
           categoryCode: product?.categoryCode ?? "",
           subcategoryCode: product?.subcategoryCode ?? "",
@@ -377,8 +419,10 @@ export function QuoteDialog({
           quantity: String(it.quantity ?? "1"),
           unitPrice: String(it.unitPrice ?? "0"),
           discount: String(it.discountAmount ?? "0"),
+          discountType: "amount",
           vatRate: String(it.vatRate ?? "20"),
           options: [],
+          nationalized: Boolean(it.nationalized),
           compatibility: it.compatibility
             ? {
                 machineIds: it.compatibility.machineIds ?? [],
@@ -389,21 +433,29 @@ export function QuoteDialog({
             : emptyCompatibility(),
         };
       });
-      // Opsiyonları ilk Tezgah satırına ata (mümkünse) — basit ama edit/print için yeterli.
+      // Yeni kayıtlarda gizli satır grup anahtarıyla her opsiyonu kendi
+      // makinesine döndür; eski kayıtlarda sıralamadaki ilk tezgahı kullan.
       if (optionItems.length && mapped.length) {
-        const target = mapped.findIndex((l) => l.categoryCode === "TEZGAH");
-        const idx = target >= 0 ? target : 0;
-        mapped[idx] = {
-          ...mapped[idx],
-          options: optionItems.map((it) => ({
+        for (const it of optionItems) {
+          const lineGroupKey = String(it.compatibility?.lineGroupKey ?? "");
+          const groupedTarget = lineGroupKey
+            ? mapped.findIndex((line) => line.lineGroupKey === lineGroupKey)
+            : -1;
+          const legacyTarget = mapped.findIndex((line) => line.categoryCode === "TEZGAH");
+          const idx = groupedTarget >= 0 ? groupedTarget : legacyTarget >= 0 ? legacyTarget : 0;
+          mapped[idx] = {
+            ...mapped[idx],
+            options: [...mapped[idx].options, {
             productId: it.productModelId ?? "",
             description: String(it.description ?? "").replace(/^↳ Opsiyon:\s*/, ""),
             quantity: String(it.quantity ?? "1"),
             unitPrice: String(it.unitPrice ?? "0"),
             discount: String(it.discountAmount ?? "0"),
+            discountType: "amount",
             vatRate: String(it.vatRate ?? "20"),
-          })),
-        };
+            }],
+          };
+        }
       }
       setLines(mapped.length ? mapped : [emptyLine()]);
     } catch (err: any) {
@@ -455,6 +507,24 @@ export function QuoteDialog({
 
   const companyContacts = contacts.filter((c) => c.customerId === companyId);
   const companyCases = cases.filter((c) => c.customerId === companyId);
+  const selectedCompany = useMemo(
+    () => customers.find((customer) => customer.id === companyId),
+    [companyId, customers],
+  );
+  const companyAddresses = useMemo(
+    () => (selectedCompany?.addresses ?? []).filter((address) => Boolean(address.id)),
+    [selectedCompany],
+  );
+  const selectedPdfAddress = companyAddresses.find((address) => address.id === companyAddressId);
+
+  useEffect(() => {
+    if (!companyId) {
+      if (companyAddressId) setCompanyAddressId("");
+      return;
+    }
+    if (companyAddresses.some((address) => address.id === companyAddressId)) return;
+    setCompanyAddressId(preferredPdfAddressId(selectedCompany));
+  }, [companyAddressId, companyId, companyAddresses, selectedCompany]);
 
   const onTermsBuiltInSelected = (key: string) => {
     if (key && NOTE_VARIANT_DELIVERY[key]) setDeliveryCode(NOTE_VARIANT_DELIVERY[key]);
@@ -509,7 +579,7 @@ export function QuoteDialog({
       subcategoryCode: p.subcategoryCode || "",
       productTypeCode: p.productTypeCode || "",
       stockCode: p.stockCode || p.model || "",
-      description: p.shortDescription?.trim() || [p.brand, p.model].filter(Boolean).join(" "),
+      description: p.shortDescription?.trim() || [p.brand, p.series, p.model].filter(Boolean).join(" "),
       technicalSpecs: technicalSpecsFromProduct(p),
       unitPrice: p.listPrice ? String(p.listPrice) : "",
       vatRate: String(p.vatRate ?? 20),
@@ -671,8 +741,17 @@ export function QuoteDialog({
   const netUnitPrice = (r: PricedRow) => num(r.unitPrice);
   const effVatRate = (r: PricedRow) => (vatEnabled ? num(r.vatRate) : 0);
 
-  const lineTotalNet = (r: { quantity: string; unitPrice: string; discount: string; vatRate: string }) =>
-    num(r.quantity) * netUnitPrice(r) - num(r.discount);
+  const productDiscountAmount = (r: PricedRow) => {
+    return calculateProductDiscountAmount({
+      quantity: num(r.quantity),
+      unitPrice: netUnitPrice(r),
+      discountValue: num(r.discount),
+      discountType: r.discountType,
+    });
+  };
+
+  const lineTotalNet = (r: PricedRow) =>
+    num(r.quantity) * netUnitPrice(r) - productDiscountAmount(r);
 
   const totals = useMemo(() => {
     let subtotal = 0, lineDiscount = 0;
@@ -681,7 +760,7 @@ export function QuoteDialog({
     for (const r of rows) {
       const net = netUnitPrice(r);
       const qty = num(r.quantity);
-      const disc = num(r.discount);
+      const disc = productDiscountAmount(r);
       const rowNet = Math.max(0, qty * net - disc);
       subtotal += qty * net;
       lineDiscount += Math.max(0, disc);
@@ -695,17 +774,40 @@ export function QuoteDialog({
     const ratio = taxableBeforeHeader > 0 ? (taxableBeforeHeader - headerDiscount) / taxableBeforeHeader : 1;
     const vat = vatRows.reduce((sum, row) => sum + (row.netBeforeHeader * ratio * (row.vatRate / 100)), 0);
     const discount = lineDiscount + headerDiscount;
-    const grand = taxableBeforeHeader - headerDiscount + vat;
-    return { subtotal, lineDiscount, headerDiscount, discount, vat, grand };
-  }, [lines, vatEnabled, headerDiscountType, headerDiscountValue]);
+    // Millileştirilmiş işleme merkezi satırları için otomatik gümrük/vergi.
+    // Sabit USD ücretler teklif para birimine güncel kur ile çevrilir.
+    const usdToQuoteRate = convert(1, "USD", currency);
+    let customs = 0;
+    for (const l of lines) {
+      if (!l.nationalized || !isMachiningCenterTypeCode(l.productTypeCode)) continue;
+      const gross = num(l.quantity) * netUnitPrice(l);
+      customs += computeCustomsCharges({ lineTotal: gross, quantity: num(l.quantity), usdToQuoteRate }).total;
+    }
+    const grand = taxableBeforeHeader - headerDiscount + vat + customs;
+    return { subtotal, lineDiscount, headerDiscount, discount, vat, customs, grand };
+  }, [lines, vatEnabled, headerDiscountType, headerDiscountValue, convert, currency]);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!companyId) return toast.error("Firma seçiniz");
+    if (companyAddresses.length > 0 && !companyAddressId) return toast.error("PDF'de kullanılacak adresi seçiniz");
     if (num(validityDays) < 1) return toast.error("Geçerlilik süresini giriniz");
     if (canPickDivision && !divisionId) return toast.error("Bölüm seçiniz", { description: "Teklifi CNC / Üniversal / Sac bölümlerinden birine atayın." });
     const valid = lines.filter((l) => (l.productId || l.description.trim() || l.stockCode.trim()) && num(l.quantity) > 0);
     if (valid.length === 0) return toast.error("En az bir ürün satırı ekleyin");
+    const invalidDiscount = valid.flatMap((line) => [line, ...line.options]).find((row) => !isProductDiscountValid({
+      quantity: num(row.quantity),
+      unitPrice: num(row.unitPrice),
+      discountValue: num(row.discount),
+      discountType: row.discountType,
+    }));
+    if (invalidDiscount) {
+      return toast.error("Ürüne özel iskonto geçersiz", {
+        description: invalidDiscount.discountType === "percent"
+          ? "İskonto oranı %0 ile %100 arasında olmalı."
+          : "İskonto tutarı ürünün brüt satır tutarını aşamaz.",
+      });
+    }
 
     const preset = DELIVERY_TERMS.find((d) => d.code === deliveryCode);
     const headerDiscountAmount = headerDiscountType === "amount" ? totals.headerDiscount : 0;
@@ -716,19 +818,20 @@ export function QuoteDialog({
       const mainName = l.description.trim() || "Ürün";
       const technicalSpecs = cleanTechnicalSpecs(l.technicalSpecs);
       const lineCompatibility = {
+        lineGroupKey: l.lineGroupKey,
         ...(COMPAT_CATEGORIES.includes(l.categoryCode) && hasCompatibility(l.compatibility) ? l.compatibility : emptyCompatibility()),
         ...(technicalSpecs.length ? { technicalSpecs } : {}),
       };
-      const hasLineCompatibility = hasCompatibility(lineCompatibility) || technicalSpecs.length > 0;
       const main = {
         productModelId: l.productId || undefined,
         stockCode: l.stockCode.trim() || undefined,
         description: mainName,
         quantity: num(l.quantity),
         unitPrice: Number(netUnitPrice(l).toFixed(4)),
-        discountAmount: num(l.discount),
+        discountAmount: Number(productDiscountAmount(l).toFixed(4)),
         vatRate: effVatRate(l),
-        compatibility: hasLineCompatibility ? lineCompatibility : undefined,
+        compatibility: lineCompatibility,
+        nationalized: isMachiningCenterTypeCode(l.productTypeCode) ? l.nationalized : false,
       };
       const opts = (l.categoryCode === "TEZGAH" ? l.options : [])
         .filter((o) => o.productId || o.description.trim())
@@ -737,8 +840,12 @@ export function QuoteDialog({
           description: `↳ Opsiyon: ${o.description.trim() || "Opsiyonel donanım"}`,
           quantity: num(o.quantity) || 1,
           unitPrice: Number(netUnitPrice(o).toFixed(4)),
-          discountAmount: num(o.discount),
+          discountAmount: Number(productDiscountAmount(o).toFixed(4)),
           vatRate: effVatRate(o),
+          compatibility: {
+            lineGroupKey: l.lineGroupKey,
+            ...emptyCompatibility(),
+          },
         }));
       return [main, ...opts];
     });
@@ -748,6 +855,7 @@ export function QuoteDialog({
       if (editing && offerId) {
         await quoteService.update(offerId, {
           companyId,
+          companyAddressId: companyAddressId || undefined,
           contactId: contactId || undefined,
           opportunityId: caseId || undefined,
           divisionId: quoteDivisionId || undefined,
@@ -783,6 +891,7 @@ export function QuoteDialog({
         const res = await createQuoteFull({
           opportunityId: caseId || undefined,
           companyId,
+          companyAddressId: companyAddressId || undefined,
           divisionId: canPickDivision ? divisionId || undefined : undefined,
           contactId: contactId || undefined,
           quoteDate: new Date(quoteDate).toISOString(),
@@ -816,20 +925,30 @@ export function QuoteDialog({
     setNote((n) => (n.trim() ? `${n}\n${t.body}` : t.body));
   };
 
-  const saveTemplate = async () => {
+  const saveTemplate = () => {
     const body = note.trim();
     if (!body) return toast.error("Önce not yazın");
-    const title = window.prompt("Şablon başlığı:");
-    if (!title?.trim()) return;
+    setNoteTemplateTitle("");
+    setNoteTemplateOpen(true);
+  };
+
+  const submitNoteTemplate = async () => {
+    const body = note.trim();
+    if (!body || !noteTemplateTitle.trim()) return;
+    setNoteTemplateSaving(true);
     try {
-      await addNoteTemplate({ title: title.trim(), body, scope: "quote" });
+      await addNoteTemplate({ title: noteTemplateTitle.trim(), body, scope: "quote" });
       toast.success("Not şablonu kaydedildi");
+      setNoteTemplateOpen(false);
     } catch (err: any) {
       toast.error("Şablon kaydedilemedi", { description: err?.message });
+    } finally {
+      setNoteTemplateSaving(false);
     }
   };
 
   return (
+    <>
     <Dialog open={open} onOpenChange={handleOpen}>
       {trigger && <DialogTrigger asChild>{trigger}</DialogTrigger>}
       <DialogContent className="w-[95vw] sm:max-w-[1180px] max-h-[92vh] overflow-y-auto">
@@ -875,7 +994,7 @@ export function QuoteDialog({
                     <div className="flex justify-between"><span className="text-muted-foreground">Satır İndirimi</span><span className="tabular-nums">-{money(totals.lineDiscount, currency)}</span></div>
                   )}
                   <div className="flex items-center justify-between gap-2 flex-wrap">
-                    <span className="text-muted-foreground">Teklif İskontosu</span>
+                    <span className="text-muted-foreground">Özel İskonto</span>
                     <div className="flex items-center gap-1.5 flex-wrap">
                       <Select value={headerDiscountType} onValueChange={(value) => setHeaderDiscountType(value as "amount" | "percent")}>
                         <SelectTrigger className="h-7 w-[88px] text-xs"><SelectValue /></SelectTrigger>
@@ -887,6 +1006,7 @@ export function QuoteDialog({
                       <Input
                         className="h-7 w-24 text-right"
                         inputMode="decimal"
+                        aria-label="Teklif iskontosu değeri"
                         value={headerDiscountValue}
                         onChange={(event) => setHeaderDiscountValue(event.target.value)}
                         placeholder={headerDiscountType === "percent" ? "0" : "0,00"}
@@ -895,6 +1015,9 @@ export function QuoteDialog({
                     </div>
                   </div>
                   <div className="flex justify-between"><span className="text-muted-foreground">KDV</span><span className="tabular-nums">{money(totals.vat, currency)}</span></div>
+                  {totals.customs > 0 && (
+                    <div className="flex justify-between"><span className="text-muted-foreground">Millileştirme / Gümrük Vergileri</span><span className="tabular-nums">{money(totals.customs, currency)}</span></div>
+                  )}
                   <div className="flex justify-between border-t border-border/60 pt-1 font-medium"><span>Genel Toplam</span><span className="tabular-nums">{money(totals.grand, currency)}</span></div>
                   <div className="flex justify-between items-center gap-2 pt-1.5 mt-1 border-t border-dashed border-border/60 flex-wrap">
                     <FxRateBadge />
@@ -919,7 +1042,7 @@ export function QuoteDialog({
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             <div className="md:col-span-1">
               <Label className="text-xs">Firma *</Label>
-              <Select value={companyId} onValueChange={(v) => { setCompanyId(v); setContactId(""); setCaseId(""); }}>
+              <Select value={companyId} onValueChange={(v) => { setCompanyId(v); setCompanyAddressId(preferredPdfAddressId(customers.find((customer) => customer.id === v))); setContactId(""); setCaseId(""); }}>
                 <SelectTrigger className="mt-1.5"><SelectValue placeholder="Firma seçin..." /></SelectTrigger>
                 <SelectContent>
                   {customers.map((c) => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
@@ -946,19 +1069,44 @@ export function QuoteDialog({
                 </SelectContent>
               </Select>
             </div>
+            <div className="md:col-span-3 rounded-lg border border-border/70 bg-muted/20 p-3">
+              <Label className="flex items-center gap-1.5 text-xs">
+                <MapPin className="size-3.5 text-primary" /> PDF'de Kullanılacak Firma Adresi
+              </Label>
+              <Select
+                value={companyAddressId || undefined}
+                onValueChange={setCompanyAddressId}
+                disabled={!companyId || companyAddresses.length === 0}
+              >
+                <SelectTrigger className="mt-1.5 bg-background">
+                  <SelectValue placeholder={companyId ? "Firma adresi bulunamadı" : "Önce firma seçin"} />
+                </SelectTrigger>
+                <SelectContent>
+                  {companyAddresses.map((address) => (
+                    <SelectItem key={address.id} value={address.id!}>{pdfAddressLabel(address)}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="mt-1.5 text-[11px] leading-relaxed text-muted-foreground">
+                {selectedPdfAddress
+                  ? `Seçilen adres teklif PDF'ine yazılacak: ${[selectedPdfAddress.address, selectedPdfAddress.district, selectedPdfAddress.city, selectedPdfAddress.country].filter(Boolean).join(", ")}`
+                  : "Seçilen firmanın kayıtlı adreslerinden biri PDF üzerinde gösterilir."}
+              </p>
+            </div>
 
             <div>
-              <Label className="text-xs">Teklif Tarihi</Label>
-              <Input type="date" className="mt-1.5" value={quoteDate} onChange={(e) => setQuoteDate(e.target.value)} />
+              <Label className="text-xs" htmlFor="quote-date">Teklif Tarihi</Label>
+              <Input id="quote-date" type="date" className="mt-1.5" value={quoteDate} onChange={(e) => setQuoteDate(e.target.value)} />
             </div>
             <div>
-              <Label className="text-xs">Teklif No</Label>
-              <Input className="mt-1.5" value={documentNo} onChange={(e) => setDocumentNo(e.target.value)} placeholder={`Otomatik: ${quotePrefix}-${new Date().getFullYear()}/...`} />
+              <Label className="text-xs" htmlFor="quote-document-no">Teklif No</Label>
+              <Input id="quote-document-no" className="mt-1.5 font-data" value={documentNo} onChange={(e) => setDocumentNo(e.target.value)} placeholder={`Otomatik: ${quotePrefix}-${new Date().getFullYear()}/...`} />
               <p className="mt-1 text-[10px] text-muted-foreground">Boş bırakılırsa iş alanına ait sıra numarası güvenli biçimde atanır.</p>
             </div>
             <div>
-              <Label className="text-xs">Geçerlilik Süresi (Gün) *</Label>
+              <Label className="text-xs" htmlFor="quote-validity-days">Geçerlilik Süresi (Gün) *</Label>
               <Input
+                id="quote-validity-days"
                 type="number"
                 min={1}
                 max={365}
@@ -996,7 +1144,7 @@ export function QuoteDialog({
               <div className="text-sm font-medium">Ürünler</div>
               <div className="flex items-center gap-3">
                 <label className="flex items-center gap-1.5 text-xs">
-                  <input type="checkbox" checked={vatEnabled} onChange={(e) => setVatEnabled(e.target.checked)} />
+                  <input type="checkbox" aria-label="KDV hesapla" checked={vatEnabled} onChange={(e) => setVatEnabled(e.target.checked)} />
                   KDV Hesapla
                 </label>
                 <Select value={currency} onValueChange={(v: Currency) => setCurrency(v)}>
@@ -1034,6 +1182,9 @@ export function QuoteDialog({
                 return (
                   <div key={i} className="p-3 space-y-2">
                     <div className="flex flex-wrap items-center gap-2">
+                      <span className="inline-flex h-8 shrink-0 items-center rounded-md border border-primary/15 bg-primary/[0.04] px-2 text-[10px] font-semibold uppercase tracking-wide text-primary">
+                        {i + 1}. ürün
+                      </span>
                       <Select value={l.categoryCode || "all"} onValueChange={(v) => onPickCategory(i, v === "all" ? "" : v)}>
                         <SelectTrigger className="h-8 w-full sm:w-36"><SelectValue placeholder="Kategori" /></SelectTrigger>
                         <SelectContent>
@@ -1046,7 +1197,7 @@ export function QuoteDialog({
                         <SelectContent>
                           <SelectItem value="custom">Serbest kalem</SelectItem>
                           {lineProducts.map((p: Product) => (
-                            <SelectItem key={p.id} value={p.id}>{p.brand} {p.model}</SelectItem>
+                            <SelectItem key={p.id} value={p.id}>{p.shortDescription?.trim() || [p.brand, p.series, p.model].filter(Boolean).join(" ")}</SelectItem>
                           ))}
                         </SelectContent>
                       </Select>
@@ -1077,38 +1228,72 @@ export function QuoteDialog({
                           </SelectContent>
                         </Select>
                       )}
-                      <Button type="button" variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={() => rmLine(i)}>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        aria-label={`Teklif satırı ${i + 1} sil`}
+                        title="Teklif satırını sil"
+                        className="h-8 w-8 shrink-0"
+                        onClick={() => rmLine(i)}
+                      >
                         <Trash2 className="size-4 text-muted-foreground" />
                       </Button>
                     </div>
-                    <div className={isLaborLine ? "grid grid-cols-1 gap-2" : "grid grid-cols-1 md:grid-cols-[220px_1fr] gap-2"}>
-                      {!isLaborLine && (
-                        <Input className="h-8" value={l.stockCode} onChange={(e) => setLine(i, { stockCode: e.target.value })} placeholder="Stok Kodu" />
-                      )}
-                      <Input className="h-8" value={l.description} onChange={(e) => setLine(i, { description: e.target.value })} placeholder="Ürün adı / modeli" />
+                    <div className="grid grid-cols-1 gap-2">
+                      <Input aria-label={`Teklif satırı ${i + 1} ürün adı`} className="h-8" value={l.description} onChange={(e) => setLine(i, { description: e.target.value })} placeholder={isLaborLine ? "İşçilik adı" : "Ürün adı"} />
                     </div>
                     <div className="grid grid-cols-2 md:grid-cols-5 gap-2 items-end">
                       <div>
                         <Label className="text-[10px] uppercase text-muted-foreground">Adet</Label>
-                        <Input className="h-8" inputMode="decimal" value={l.quantity} onChange={(e) => setLine(i, { quantity: e.target.value })} />
+                        <Input aria-label={`Teklif satırı ${i + 1} adet`} className="h-8 font-data" inputMode="decimal" value={l.quantity} onChange={(e) => setLine(i, { quantity: e.target.value })} />
                       </div>
                       <div>
                         <Label className="text-[10px] uppercase text-muted-foreground">Liste Fiyatı</Label>
-                        <Input className="h-8" inputMode="decimal" value={l.unitPrice} onChange={(e) => setLine(i, { unitPrice: e.target.value })} placeholder="0" />
+                        <Input aria-label={`Teklif satırı ${i + 1} liste fiyatı`} className="h-8 font-data" inputMode="decimal" value={l.unitPrice} onChange={(e) => setLine(i, { unitPrice: e.target.value })} placeholder="0" />
                       </div>
                       <div>
-                        <Label className="text-[10px] uppercase text-muted-foreground">İndirim</Label>
-                        <Input className="h-8" inputMode="decimal" value={l.discount} onChange={(e) => setLine(i, { discount: e.target.value })} placeholder="0" />
+                        <div className="flex items-center justify-between gap-1">
+                          <Label className="text-[10px] uppercase text-muted-foreground">Ürüne Özel İskonto</Label>
+                          <Select value={l.discountType} onValueChange={(value: ProductDiscountType) => setLine(i, { discountType: value })}>
+                            <SelectTrigger aria-label={`Teklif satırı ${i + 1} iskonto türü`} className="h-5 w-[58px] border-0 px-1 text-[10px] shadow-none"><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="percent">%</SelectItem>
+                              <SelectItem value="amount">Tutar</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <Input aria-label={`Teklif satırı ${i + 1} indirim`} className="h-8 font-data" inputMode="decimal" value={l.discount} onChange={(e) => setLine(i, { discount: e.target.value })} placeholder="0" />
+                        {productDiscountAmount(l) > 0 && (
+                          <div className="mt-1 text-[10px] text-muted-foreground tabular-nums">−{money(productDiscountAmount(l), currency)}</div>
+                        )}
                       </div>
                       <div>
                         <Label className="text-[10px] uppercase text-muted-foreground">KDV %</Label>
-                        <Input className="h-8" inputMode="decimal" value={l.vatRate} disabled={!vatEnabled} onChange={(e) => setLine(i, { vatRate: e.target.value })} />
+                        <Input aria-label={`Teklif satırı ${i + 1} KDV oranı`} className="h-8 font-data" inputMode="decimal" value={l.vatRate} disabled={!vatEnabled} onChange={(e) => setLine(i, { vatRate: e.target.value })} />
                       </div>
                       <div className="text-right">
                         <Label className="text-[10px] uppercase text-muted-foreground">Satır (net)</Label>
                         <div className="h-8 flex items-center justify-end text-sm tabular-nums">{money(lineTotal, currency)}</div>
                       </div>
                     </div>
+
+                    {isMachiningCenterTypeCode(l.productTypeCode) && (
+                      <label className="flex items-center gap-2 rounded-md border border-dashed border-border/70 bg-muted/20 px-2.5 py-1.5 text-[11px] font-medium text-foreground cursor-pointer">
+                        <input
+                          type="checkbox"
+                          className="size-3.5 accent-primary"
+                          checked={l.nationalized}
+                          onChange={(e) => setLine(i, { nationalized: e.target.checked })}
+                        />
+                        Millileştirilmiş (ithal) — otomatik gümrük/vergi ekle (%2,7 + %10 + adet başına $1600 TSE + $1000 gümrük)
+                        {l.nationalized && num(l.quantity) > 0 && num(l.unitPrice) > 0 && (
+                          <span className="ml-auto shrink-0 text-[10px] text-muted-foreground tabular-nums">
+                            +{money(computeCustomsCharges({ lineTotal: num(l.quantity) * netUnitPrice(l), quantity: num(l.quantity), usdToQuoteRate: convert(1, "USD", currency) }).total, currency)}
+                          </span>
+                        )}
+                      </label>
+                    )}
 
                     {l.categoryCode === "TEZGAH" && (
                       <details className="rounded-md border border-dashed border-border/70 bg-muted/20 p-2">
@@ -1147,13 +1332,14 @@ export function QuoteDialog({
                                 const lockedTemplateRow = isProductTypeTemplateSpec(product, spec);
                                 const unit = spec.unit ?? spec.specUnit ?? "";
                                 return (
-                                  <div key={specIndex} className="grid grid-cols-[minmax(150px,1fr)_minmax(150px,1.2fr)_72px_32px] gap-1.5">
+                                  <div key={specIndex} className="grid grid-cols-1 gap-1.5 sm:grid-cols-[minmax(150px,1fr)_minmax(150px,1.2fr)_72px_32px]">
                                     {lockedTemplateRow ? (
                                       <div className="flex h-8 min-w-0 items-center rounded-md border border-border/70 bg-muted/30 px-2 text-xs font-medium text-foreground" title={spec.key}>
                                         <span className="truncate">{spec.key}</span>
                                       </div>
                                     ) : (
                                       <Input
+                                        aria-label={`Teklif satırı ${i + 1}, teknik özellik ${specIndex + 1} adı`}
                                         className="h-8 bg-white"
                                         value={spec.key}
                                         onChange={(event) => setTechnicalSpec(i, specIndex, { key: event.target.value })}
@@ -1161,6 +1347,7 @@ export function QuoteDialog({
                                       />
                                     )}
                                     <Input
+                                      aria-label={`Teklif satırı ${i + 1}, teknik özellik ${specIndex + 1} değeri`}
                                       className="h-8 bg-white"
                                       value={spec.value}
                                       onChange={(event) => setTechnicalSpec(i, specIndex, { value: event.target.value })}
@@ -1174,6 +1361,7 @@ export function QuoteDialog({
                                       variant="ghost"
                                       size="icon"
                                       className="h-8 w-8"
+                                      aria-label={lockedTemplateRow ? "Şablon teknik özellik satırı silinemez" : `Teknik özellik ${specIndex + 1} satırını kaldır`}
                                       disabled={lockedTemplateRow}
                                       title={lockedTemplateRow ? "Şablon satırı silinemez" : "Satırı kaldır"}
                                       onClick={() => rmTechnicalSpec(i, specIndex)}
@@ -1226,27 +1414,47 @@ export function QuoteDialog({
                                 ))}
                               </SelectContent>
                             </Select>
-                            <Button type="button" variant="ghost" size="icon" className="h-8 w-8 justify-self-end" onClick={() => rmOption(i, j)}>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              aria-label={`Teklif satırı ${i + 1}, opsiyon ${j + 1} sil`}
+                              title="Opsiyonu sil"
+                              className="h-8 w-8 justify-self-end"
+                              onClick={() => rmOption(i, j)}
+                            >
                               <Trash2 className="size-4 text-muted-foreground" />
                             </Button>
                           </div>
-                          <Input className="h-8" value={o.description} onChange={(e) => setOption(i, j, { description: e.target.value })} placeholder="Teknik bilgi / açıklama (yalnızca bu teklif)" />
+                          <Input aria-label={`Teklif satırı ${i + 1}, opsiyon ${j + 1} açıklaması`} className="h-8" value={o.description} onChange={(e) => setOption(i, j, { description: e.target.value })} placeholder="Teknik bilgi / açıklama (yalnızca bu teklif)" />
                           <div className="grid grid-cols-2 md:grid-cols-5 gap-2 items-end">
                             <div>
                               <Label className="text-[10px] uppercase text-muted-foreground">Adet</Label>
-                              <Input className="h-8" inputMode="decimal" value={o.quantity} onChange={(e) => setOption(i, j, { quantity: e.target.value })} />
+                              <Input aria-label={`Teklif satırı ${i + 1}, opsiyon ${j + 1} adet`} className="h-8 font-data" inputMode="decimal" value={o.quantity} onChange={(e) => setOption(i, j, { quantity: e.target.value })} />
                             </div>
                             <div>
                               <Label className="text-[10px] uppercase text-muted-foreground">Fiyat</Label>
-                              <Input className="h-8" inputMode="decimal" value={o.unitPrice} onChange={(e) => setOption(i, j, { unitPrice: e.target.value })} placeholder="0" />
+                              <Input aria-label={`Teklif satırı ${i + 1}, opsiyon ${j + 1} fiyat`} className="h-8 font-data" inputMode="decimal" value={o.unitPrice} onChange={(e) => setOption(i, j, { unitPrice: e.target.value })} placeholder="0" />
                             </div>
                             <div>
-                              <Label className="text-[10px] uppercase text-muted-foreground">İndirim</Label>
-                              <Input className="h-8" inputMode="decimal" value={o.discount} onChange={(e) => setOption(i, j, { discount: e.target.value })} placeholder="0" />
+                              <div className="flex items-center justify-between gap-1">
+                                <Label className="text-[10px] uppercase text-muted-foreground">Ürüne Özel İskonto</Label>
+                                <Select value={o.discountType} onValueChange={(value: ProductDiscountType) => setOption(i, j, { discountType: value })}>
+                                  <SelectTrigger aria-label={`Teklif satırı ${i + 1}, opsiyon ${j + 1} iskonto türü`} className="h-5 w-[58px] border-0 px-1 text-[10px] shadow-none"><SelectValue /></SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="percent">%</SelectItem>
+                                    <SelectItem value="amount">Tutar</SelectItem>
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                              <Input aria-label={`Teklif satırı ${i + 1}, opsiyon ${j + 1} indirim`} className="h-8 font-data" inputMode="decimal" value={o.discount} onChange={(e) => setOption(i, j, { discount: e.target.value })} placeholder="0" />
+                              {productDiscountAmount(o) > 0 && (
+                                <div className="mt-1 text-[10px] text-muted-foreground tabular-nums">−{money(productDiscountAmount(o), currency)}</div>
+                              )}
                             </div>
                             <div>
                               <Label className="text-[10px] uppercase text-muted-foreground">KDV %</Label>
-                              <Input className="h-8" inputMode="decimal" value={o.vatRate} onChange={(e) => setOption(i, j, { vatRate: e.target.value })} />
+                              <Input aria-label={`Teklif satırı ${i + 1}, opsiyon ${j + 1} KDV oranı`} className="h-8 font-data" inputMode="decimal" value={o.vatRate} onChange={(e) => setOption(i, j, { vatRate: e.target.value })} />
                             </div>
                             <div className="text-right">
                               <Label className="text-[10px] uppercase text-muted-foreground">Satır (net)</Label>
@@ -1289,7 +1497,7 @@ export function QuoteDialog({
 
             <div className="px-3 py-2 border-t border-border/60">
               <Button type="button" variant="outline" size="sm" className="h-8 gap-1" onClick={addLine}>
-                <Plus className="size-3.5" /> Satır Ekle
+                <Plus className="size-3.5" /> Ürün / Makine Ekle
               </Button>
             </div>
           </div>
@@ -1315,7 +1523,7 @@ export function QuoteDialog({
           {/* NOTES */}
           <div>
             <div className="flex items-center justify-between gap-2 flex-wrap">
-              <Label className="text-xs">Notlar</Label>
+              <Label className="text-xs" htmlFor="quote-notes">Notlar</Label>
               <div className="flex items-center gap-2 flex-wrap">
                 {/* Yazı puntosu */}
                 <Select value={noteFontSize} onValueChange={setNoteFontSize}>
@@ -1350,6 +1558,7 @@ export function QuoteDialog({
               </div>
             </div>
             <Textarea
+              id="quote-notes"
               className="mt-1.5"
               rows={3}
               value={note}
@@ -1363,5 +1572,22 @@ export function QuoteDialog({
         </form>
       </DialogContent>
     </Dialog>
+    <Dialog open={noteTemplateOpen} onOpenChange={(next) => !noteTemplateSaving && setNoteTemplateOpen(next)}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Not şablonu kaydet</DialogTitle>
+          <DialogDescription>Teklif notunun mevcut hali daha sonra yeniden kullanılmak üzere kaydedilecek.</DialogDescription>
+        </DialogHeader>
+        <div>
+          <Label htmlFor="quote-note-template-title" className="text-xs">Şablon başlığı</Label>
+          <Input id="quote-note-template-title" className="mt-1.5" value={noteTemplateTitle} onChange={(event) => setNoteTemplateTitle(event.target.value)} maxLength={120} autoFocus />
+        </div>
+        <DialogFooter>
+          <Button type="button" variant="outline" disabled={noteTemplateSaving} onClick={() => setNoteTemplateOpen(false)}>Vazgeç</Button>
+          <Button type="button" disabled={noteTemplateSaving || !noteTemplateTitle.trim()} onClick={() => void submitNoteTemplate()}>{noteTemplateSaving ? "Kaydediliyor…" : "Şablonu kaydet"}</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+    </>
   );
 }

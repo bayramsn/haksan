@@ -13,6 +13,8 @@
  * giving logs <-> traces correlation.
  */
 
+import { logger } from '../utils/logger';
+
 function release(): string | undefined {
   return process.env.GIT_COMMIT || process.env.RENDER_GIT_COMMIT || undefined;
 }
@@ -31,7 +33,7 @@ function initSentry(): void {
     tracesSampleRate: 0,
     skipOpenTelemetrySetup: true,
   });
-  console.log('[telemetry] Sentry error reporting initialized');
+  logger.info({ component: 'telemetry', provider: 'sentry' }, 'Sentry error reporting initialized');
 }
 
 // Holds the started SDK so main.ts can flush spans during graceful shutdown.
@@ -59,7 +61,10 @@ function initTracing(): void {
 
   sdk.start();
   sdkRef = sdk;
-  console.log('[telemetry] OpenTelemetry tracing started (http + pg)');
+  logger.info(
+    { component: 'telemetry', provider: 'opentelemetry', instrumentations: ['http', 'pg'] },
+    'OpenTelemetry tracing started'
+  );
 }
 
 /** Flush and stop the tracing SDK. Safe no-op when tracing is disabled. */

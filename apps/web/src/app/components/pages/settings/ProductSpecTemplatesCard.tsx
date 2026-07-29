@@ -1,50 +1,68 @@
 import { useEffect, useMemo, useState } from "react";
-import { Button } from "../../ui/button";
-import { Badge } from "../../ui/badge";
-import { Input } from "../../ui/input";
-import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "../../ui/accordion";
-import { Layers, Pencil, Plus, Search, Sparkles, Trash2 } from "lucide-react";
+import {
+  ArrowLeft,
+  ArrowRight,
+  CheckCircle2,
+  ChevronDown,
+  CircleAlert,
+  Download,
+  EyeOff,
+  Grid3X3,
+  ListFilter,
+  Plus,
+  Redo2,
+  RefreshCw,
+  Save,
+  Search,
+  Settings2,
+  Sheet,
+  Trash2,
+  Undo2,
+  Upload,
+  Wrench,
+} from "lucide-react";
 import { toast } from "sonner";
-import { adminService, lookupService } from "../../../../lib/services";
+import { adminService } from "../../../../lib/services";
+import { exportService } from "../../../../lib/downloadExport";
+import { useAuth } from "../../../../lib/auth";
+import { useStore } from "../../../lib/store";
 import {
   DIVISION_MACHINE_TYPES,
-  HAKSAN_CNC_SPEC_KEYS,
   PRODUCT_SPEC_GROUPS,
   foldProductTypeCode,
   machineSpecTemplateEntries,
   normalizeProductSpecKey,
-  productSpecGroupForKey,
   productSpecGroupForTypeKey,
-  specUnitForKey,
-  type MachineSpecTemplateEntry,
-  type MachineTypeTemplate,
-  type ProductSpecGroup,
-  type ProductSpecGroupCode,
 } from "../../../lib/productSpecTemplates";
-import { MultiSelect } from "../../ui/multi-select";
-import { SettingsField, SettingsSection, SettingsSelect } from "./settings-controls";
-import { useAuth } from "../../../../lib/auth";
-import { useStore } from "../../../lib/store";
-import { ALL_DIVISIONS, divisionCatalogGroupCode, isCncDivision, usePersistedSettingsDivision } from "./settings-division";
+import { TechnicalImportDialog } from "../../dialogs/TechnicalImportDialog";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
+  AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "../../ui/alert-dialog";
+import { Badge } from "../../ui/badge";
+import { Button } from "../../ui/button";
+import { Input } from "../../ui/input";
+import {
+  Sheet as SideSheet,
+  SheetContent as SideSheetContent,
+  SheetDescription as SideSheetDescription,
+  SheetHeader as SideSheetHeader,
+  SheetTitle as SideSheetTitle,
+} from "../../ui/sheet";
+import { Switch } from "../../ui/switch";
+import { cn } from "../../ui/utils";
 
-// Opsiyonel donanım tipleri için katalog şablonu yoktur; bu tiplerin "etkilediği"
-// teknik alan, tüm tezgah teknik anahtarlarının birleşik listesinden seçilir
-// (örn. Spindle → "Fener Mili Devri"). Böylece anahtar tezgah alanıyla birebir eşleşir.
-const optionalEquipmentSpecEntries = (): MachineSpecTemplateEntry[] =>
-  HAKSAN_CNC_SPEC_KEYS.map((key) => ({
-    group: productSpecGroupForKey(key).code,
-    key,
-    value: "",
-    unit: specUnitForKey(key),
-  }));
+type FamilyCode = "CNC" | "SAC_ISLEME" | "UNIVERSAL";
+type WorkspaceView = "library" | "editor";
 
-// Bir ürün tipinin seçilebilir teknik alan (etiket) kaynağı: tezgahsa katalog
-// şablonu; opsiyonel donanımsa tezgah anahtarları birleşik listesi.
-const specEntriesForType = (categoryCode: string, productTypeCode: string): MachineSpecTemplateEntry[] => {
-  const catalog = machineSpecTemplateEntries(productTypeCode);
-  if (catalog.length) return [...catalog];
-  if (foldProductTypeCode(categoryCode) === "OPSIYONEL_DONANIM") return optionalEquipmentSpecEntries();
-  return [];
+type MachineTypeOption = {
+  code: string;
+  label: string;
+  familyCode: FamilyCode;
+  categoryCode: "TEZGAH";
+  categoryLabel: "Tezgah";
+  subcategoryCode: string;
+  subcategoryLabel: string;
 };
 
 type SpecTemplateRow = {
@@ -57,1104 +75,1036 @@ type SpecTemplateRow = {
   divisionId?: string | null;
   sortOrder?: number;
   isActive?: boolean;
+  isDeleted?: boolean;
+  updatedAt?: string;
 };
 
-type ProductOption = { code: string; label: string };
-type ProductTypeOption = ProductOption & { categoryCode?: string; subcategoryCode?: string; productGroupCode?: string };
-
-type SpecTemplateScope = {
-  productId: string;
-  categoryCode: string;
-  productGroupCode: string;
-  subcategoryCode: string;
-  productTypeCode: string;
-};
-
-// Katalog (şablon) alanı ile DB'ye kayıtlı alanı tek satır modelinde birleştirir.
-type SpecDisplayRow = {
-  reactKey: string;
-  specKey: string;
-  specUnit: string;
-  defaultValue: string;
-  sortOrder: number;
-  groupCode: ProductSpecGroupCode;
-  isActive: boolean;
+type DraftRow = {
+  clientId: string;
+  id?: string;
   divisionId?: string | null;
-  dbRow?: SpecTemplateRow;
-  catalogEntry?: MachineSpecTemplateEntry;
-  catalogIndex: number;
+  specKey: string;
+  groupCode: string;
+  defaultValue: string;
+  unit: string;
+  isActive: boolean;
+  isDeleted: boolean;
+  catalogOnly: boolean;
+  /**
+   * Alan, makine tipinin katalog şablonunda tanımlı mı. Katalog alanları silinse
+   * bile çalışma sayfası yeniden kurulduğunda öneri olarak geri gelir; bu yüzden
+   * kalıcı silme yalnız katalog dışı (kullanıcı/aktarım kaynaklı) alanlarda açıktır.
+   */
+  inCatalog: boolean;
 };
 
-type SpecDisplayGroup = { group: ProductSpecGroup; rows: SpecDisplayRow[] };
-
-const TEMPLATE_PRODUCT_CATEGORIES: ProductOption[] = [
-  { code: "TEZGAH", label: "Tezgah" },
-  { code: "YEDEK_PARCA", label: "Yedek Parça" },
-  { code: "OPSIYONEL_DONANIM", label: "Opsiyonel Donanım" },
-  { code: "ISCILIK", label: "İşçilik" },
-  { code: "AKSESUAR", label: "Aksesuar" },
-];
-
-const TEMPLATE_PRODUCT_GROUPS: ProductOption[] = [
+const FAMILIES: Array<{ code: FamilyCode; label: string }> = [
   { code: "CNC", label: "CNC" },
-  { code: "UNIVERSAL", label: "Üniversal" },
   { code: "SAC_ISLEME", label: "Sac İşleme" },
+  { code: "UNIVERSAL", label: "Üniversal" },
 ];
 
-const TEMPLATE_PRODUCT_SUBCATEGORIES: ProductOption[] = [
-  { code: "ISLEME_MERKEZI", label: "İşleme Merkezi" },
-  { code: "TORNA", label: "Torna" },
-  { code: "FREZE", label: "Freze" },
-  { code: "MATKAP", label: "Matkap" },
-  { code: "TASLAMA", label: "Taşlama" },
-  { code: "SAC_BUKME", label: "Bükme" },
-  { code: "SAC_KESME", label: "Kesme" },
+const CNC_MACHINE_TYPES: MachineTypeOption[] = [
+  { code: "CNC_DIK_ISLEME_MERKEZ", label: "CNC Dik İşleme Merkezi", familyCode: "CNC", categoryCode: "TEZGAH", categoryLabel: "Tezgah", subcategoryCode: "ISLEME_MERKEZI", subcategoryLabel: "İşleme Merkezi" },
+  { code: "CNC_KOPRU_TIPI_ISLEME_MERKEZI", label: "CNC Köprü Tipi İşleme Merkezi", familyCode: "CNC", categoryCode: "TEZGAH", categoryLabel: "Tezgah", subcategoryCode: "ISLEME_MERKEZI", subcategoryLabel: "İşleme Merkezi" },
+  { code: "CNC_5_EKSEN_ISLEME_MERKEZI", label: "5 Eksen İşleme Merkezi", familyCode: "CNC", categoryCode: "TEZGAH", categoryLabel: "Tezgah", subcategoryCode: "ISLEME_MERKEZI", subcategoryLabel: "İşleme Merkezi" },
+  { code: "CNC_TAPPING_CENTER", label: "CNC Tapping Center", familyCode: "CNC", categoryCode: "TEZGAH", categoryLabel: "Tezgah", subcategoryCode: "ISLEME_MERKEZI", subcategoryLabel: "İşleme Merkezi" },
+  { code: "CNC_YATAY_TORNA_TEZGAHI", label: "CNC Yatay Torna", familyCode: "CNC", categoryCode: "TEZGAH", categoryLabel: "Tezgah", subcategoryCode: "TORNA", subcategoryLabel: "Torna" },
+  { code: "CNC_DIK_TORNA_TEZGAHI", label: "CNC Dik Torna", familyCode: "CNC", categoryCode: "TEZGAH", categoryLabel: "Tezgah", subcategoryCode: "TORNA", subcategoryLabel: "Torna" },
 ];
 
-const machineTypeOption = (item: MachineTypeTemplate): ProductTypeOption => ({
-  code: item.code,
-  label: item.label,
-  categoryCode: "TEZGAH",
-  subcategoryCode: item.subcategoryCode,
-  productGroupCode: item.productGroupCode,
-});
-
-const TEMPLATE_PRODUCT_TYPE_GROUPS: Array<{ label: string; options: ProductTypeOption[] }> = [
-  {
-    label: "İşleme Merkezi",
-    options: [
-      { code: "CNC_DIK_ISLEME_MERKEZ", label: "CNC Dik İşleme Merkezi", categoryCode: "TEZGAH", subcategoryCode: "ISLEME_MERKEZI", productGroupCode: "CNC" },
-      { code: "CNC_KOPRU_TIPI_ISLEME_MERKEZI", label: "CNC Köprü Tipi İşleme Merkezi", categoryCode: "TEZGAH", subcategoryCode: "ISLEME_MERKEZI", productGroupCode: "CNC" },
-      { code: "CNC_5_EKSEN_ISLEME_MERKEZI", label: "CNC 5 Eksen İşleme Merkezi", categoryCode: "TEZGAH", subcategoryCode: "ISLEME_MERKEZI", productGroupCode: "CNC" },
-      { code: "CNC_TAPPING_CENTER", label: "CNC Tapping Center", categoryCode: "TEZGAH", subcategoryCode: "ISLEME_MERKEZI", productGroupCode: "CNC" },
-    ],
-  },
-  {
-    label: "Torna",
-    options: [
-      { code: "CNC_YATAY_TORNA_TEZGAHI", label: "CNC Yatay Torna Tezgahı", categoryCode: "TEZGAH", subcategoryCode: "TORNA", productGroupCode: "CNC" },
-      { code: "CNC_DIK_TORNA_TEZGAHI", label: "CNC Dik Torna Tezgahı", categoryCode: "TEZGAH", subcategoryCode: "TORNA", productGroupCode: "CNC" },
-    ],
-  },
-  {
-    label: "Üniversal Tezgahlar",
-    options: DIVISION_MACHINE_TYPES.filter((item) => item.productGroupCode === "UNIVERSAL").map(machineTypeOption),
-  },
-  {
-    label: "Sac İşleme Tezgahları",
-    options: DIVISION_MACHINE_TYPES.filter((item) => item.productGroupCode === "SAC_ISLEME").map(machineTypeOption),
-  },
-  {
-    label: "Yedek Parça",
-    options: [
-      { code: "ELEKTRONIK", label: "Elektronik", categoryCode: "YEDEK_PARCA" },
-      { code: "ELEKTRIK", label: "Elektrik", categoryCode: "YEDEK_PARCA" },
-      { code: "MEKANIK", label: "Mekanik", categoryCode: "YEDEK_PARCA" },
-    ],
-  },
-  {
-    label: "Opsiyonel Donanım",
-    options: [
-      { code: "KONTROL_UNITESI", label: "Kontrol Ünitesi", categoryCode: "OPSIYONEL_DONANIM" },
-      { code: "SPINDLE", label: "Spindle", categoryCode: "OPSIYONEL_DONANIM" },
-    ],
-  },
-  {
-    label: "İşçilik",
-    options: [{ code: "ISCILIK", label: "İşçilik", categoryCode: "ISCILIK" }],
-  },
-  {
-    label: "Aksesuar",
-    options: [
-      { code: "YAG_SIYIRICI", label: "Yağ Sıyırıcı", categoryCode: "AKSESUAR" },
-      { code: "TUTUCU_TAKIMLAR", label: "Tutucu & Takımlar", categoryCode: "AKSESUAR" },
-      { code: "DIVIZOR", label: "Divizör", categoryCode: "AKSESUAR" },
-      { code: "REGULATOR", label: "Regülatör", categoryCode: "AKSESUAR" },
-    ],
-  },
+const MACHINE_TYPES: MachineTypeOption[] = [
+  ...CNC_MACHINE_TYPES,
+  ...DIVISION_MACHINE_TYPES.map((type) => ({
+    code: type.code,
+    label: type.label,
+    familyCode: type.productGroupCode as FamilyCode,
+    categoryCode: "TEZGAH" as const,
+    categoryLabel: "Tezgah" as const,
+    subcategoryCode: type.subcategoryCode,
+    subcategoryLabel: type.subcategoryLabel,
+  })),
 ];
 
-const TEMPLATE_PRODUCT_TYPES = TEMPLATE_PRODUCT_TYPE_GROUPS.flatMap((group) => group.options);
-
-const emptySpecForm = { productTypeCode: "", specKey: "", specGroupCode: "", defaultValue: "", specUnit: "", divisionId: "", sortOrder: "0", isActive: true };
-const emptySpecScope: SpecTemplateScope = { productId: "", categoryCode: "TEZGAH", productGroupCode: "CNC", subcategoryCode: "ISLEME_MERKEZI", productTypeCode: "" };
-
-// Eski şablon kayıtları bu ürün tipi kodlarıyla saklanmış olabilir; güncel kodlara eşlenir.
-const LEGACY_PRODUCT_TYPE_ALIASES: Record<string, string> = {
+const LEGACY_TYPE_CODES: Record<string, string> = {
   DIK_ISLEME_MERKEZI: "CNC_DIK_ISLEME_MERKEZ",
   KOPRU_TIPI_ISLEME_MERKEZI: "CNC_KOPRU_TIPI_ISLEME_MERKEZI",
   CNC_TORNA: "CNC_YATAY_TORNA_TEZGAHI",
 };
 
-// Kod karşılaştırmaları harf/aksan duyarsız: seed kodları BÜYÜK, admin
-// ekranından eklenenler küçük harf üretilir ("cnc_fiber_lazer_kesim" gibi).
-const foldCode = foldProductTypeCode;
-const sameCode = (a?: string | null, b?: string | null) => foldCode(a) === foldCode(b);
-const canonicalProductTypeCode = (code: string) => {
-  const folded = foldCode(code);
-  return LEGACY_PRODUCT_TYPE_ALIASES[folded] ?? folded;
-};
-const productTypeLabel = (code: string) =>
-  TEMPLATE_PRODUCT_TYPES.find((item) => item.code === canonicalProductTypeCode(code))?.label ?? code;
-const productTypeByCode = (code: string) => TEMPLATE_PRODUCT_TYPES.find((item) => item.code === canonicalProductTypeCode(code));
-
-const GROUP_BY_CODE = new Map(PRODUCT_SPEC_GROUPS.map((group) => [group.code, group]));
-
-// Grup ataması: kalıcı specGroupCode öncelikli, yoksa katalog/anahtar sezgisi.
-const resolveRowGroupCode = (row: SpecTemplateRow): ProductSpecGroupCode => {
-  const persisted = row.specGroupCode ? (row.specGroupCode.toLocaleUpperCase("tr-TR") as ProductSpecGroupCode) : undefined;
-  if (persisted && GROUP_BY_CODE.has(persisted)) return persisted;
-  return productSpecGroupForTypeKey(canonicalProductTypeCode(row.productTypeCode), {
-    key: row.specKey,
-    value: row.defaultValue ?? "",
-  }).code;
+const canonicalTypeCode = (code?: string | null) => {
+  const folded = foldProductTypeCode(code);
+  return LEGACY_TYPE_CODES[folded] ?? folded;
 };
 
-const seedValueFromEntry = (value: string) => (value && value !== "-" ? value : undefined);
+const sameType = (left?: string | null, right?: string | null) => canonicalTypeCode(left) === canonicalTypeCode(right);
+const groupLabel = (code: string) => PRODUCT_SPEC_GROUPS.find((group) => group.code === code)?.label ?? code.replaceAll("_", " ");
+const localDraftKey = (typeCode: string) => `haksan:technical-workbook:${canonicalTypeCode(typeCode)}`;
 
-type LookupRow = { code: string; name: string };
-const fallbackLookupRows = (options: ProductOption[]): LookupRow[] => options.map((option) => ({ code: option.code, name: option.label }));
-const lookupCodeOptions = (rows: LookupRow[]) => rows.map((row) => ({ code: row.code, label: row.name }));
+function buildDraftRows(typeCode: string, specRows: SpecTemplateRow[]): DraftRow[] {
+  const dbRows = specRows.filter((row) => sameType(row.productTypeCode, typeCode));
+  // Liste seçili bölüm kayıtlarıyla paylaşılan kayıtları birlikte içerir. Aynı
+  // teknik alan iki kapsamda da varsa bölüm-özel kayıt paylaşılan kaydı ezer.
+  const dbByKey = new Map<string, SpecTemplateRow>();
+  dbRows.forEach((row) => {
+    const key = normalizeProductSpecKey(row.specKey);
+    const existing = dbByKey.get(key);
+    if (!existing || (!existing.divisionId && row.divisionId)) dbByKey.set(key, row);
+  });
+  const used = new Set<string>();
+  const draft: DraftRow[] = [];
 
-function useProductLookupRows(
-  name: string,
-  fallback: ProductOption[],
-  divisionId?: string,
-  includeShared = false,
-  mergeFallback = false,
-) {
-  // DB kaydı varsa DB kazanır; kayıt yoksa şablon (fallback) listesi gösterilir.
-  // mergeFallback: bölümün DB kayıtları eksik kalsa da şablon tipleri listede kalır
-  // (Üniversal / Sac İşleme kurulumu tamamlanana kadar ekran boş kalmasın diye).
-  const [rows, setRows] = useState<LookupRow[]>(() => fallbackLookupRows(fallback));
-  useEffect(() => {
-    let alive = true;
-    const fallbackRows = fallbackLookupRows(fallback);
-    const applyRows = (dbRows: LookupRow[]) => {
-      if (!mergeFallback) return dbRows.length ? dbRows : fallbackRows;
-      // Harf duyarsız birleşim: DB kaydı şablonla aynı koda sahipse DB kazanır.
-      const byCode = new Map<string, LookupRow>();
-      for (const row of fallbackRows) byCode.set(foldCode(row.code), row);
-      for (const row of dbRows) byCode.set(foldCode(row.code), row);
-      return Array.from(byCode.values());
-    };
-    lookupService
-      .byName(name, divisionId ? { divisionId, scope: includeShared ? undefined : "exact" } : undefined)
-      .then((items) => {
-        if (!alive) return;
-        const normalized = (items ?? [])
-          .map((item: any) => ({ code: String(item.code ?? ""), name: String(item.name ?? "") }))
-          .filter((item: LookupRow) => item.code && item.name);
-        setRows(applyRows(normalized));
-      })
-      .catch(() => alive && setRows(fallbackRows));
-    return () => {
-      alive = false;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [name, divisionId, includeShared, mergeFallback]);
-  return rows;
+  machineSpecTemplateEntries(typeCode).forEach((entry) => {
+    const key = normalizeProductSpecKey(entry.key);
+    const row = dbByKey.get(key);
+    used.add(key);
+    draft.push({
+      clientId: row?.id ?? `catalog-${entry.group}-${key}`,
+      id: row?.id,
+      divisionId: row?.divisionId,
+      specKey: row?.specKey ?? entry.key,
+      groupCode: row?.specGroupCode ?? entry.group,
+      defaultValue: row?.defaultValue ?? (entry.value === "-" ? "" : entry.value),
+      unit: row?.specUnit ?? entry.unit,
+      isActive: row?.isActive !== false,
+      isDeleted: row?.isDeleted === true,
+      catalogOnly: !row,
+      inCatalog: true,
+    });
+  });
+
+  dbRows
+    .filter((row) => !used.has(normalizeProductSpecKey(row.specKey)))
+    .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0))
+    .forEach((row) => {
+      const inferred = productSpecGroupForTypeKey(typeCode, { key: row.specKey, value: row.defaultValue ?? "" }).code;
+      draft.push({
+        clientId: row.id,
+        id: row.id,
+        divisionId: row.divisionId,
+        specKey: row.specKey,
+        groupCode: row.specGroupCode ?? inferred,
+        defaultValue: row.defaultValue ?? "",
+        unit: row.specUnit ?? "",
+        isActive: row.isActive !== false,
+        isDeleted: row.isDeleted === true,
+        catalogOnly: false,
+        inCatalog: false,
+      });
+    });
+
+  return draft;
 }
 
-const subcategoriesForCategory = (
-  categoryCode: string,
-  productTypeOptions: ProductTypeOption[] = TEMPLATE_PRODUCT_TYPES,
-  productSubcategoryOptions: ProductOption[] = TEMPLATE_PRODUCT_SUBCATEGORIES,
-) => {
-  const subcategoryCodes = new Set(
-    productTypeOptions
-      .filter((item) => (!item.categoryCode || sameCode(item.categoryCode, categoryCode)) && item.subcategoryCode)
-      .map((item) => foldCode(item.subcategoryCode)),
-  );
-  return productSubcategoryOptions.filter((item) => subcategoryCodes.has(foldCode(item.code)));
-};
-
-const productTypesForScope = (
-  categoryCode: string,
-  subcategoryCode: string,
-  productGroupCode: string,
-  productTypeOptions: ProductTypeOption[] = TEMPLATE_PRODUCT_TYPES,
-  productSubcategoryOptions: ProductOption[] = TEMPLATE_PRODUCT_SUBCATEGORIES,
-) => {
-  const categorySubcategories = subcategoriesForCategory(categoryCode, productTypeOptions, productSubcategoryOptions);
-  return productTypeOptions.filter((item) => {
-    if (item.categoryCode && !sameCode(item.categoryCode, categoryCode)) return false;
-    // Alt kategori seçilmemişken (boş) alt kategorili tipler elenmez; tümü listelenir.
-    if (subcategoryCode && categorySubcategories.length && item.subcategoryCode && !sameCode(item.subcategoryCode, subcategoryCode)) return false;
-    if (item.productGroupCode && productGroupCode && !sameCode(item.productGroupCode, productGroupCode)) return false;
-    return true;
+function groupRows(rows: DraftRow[]) {
+  return rows.map((row, index) => {
+    const previous = rows[index - 1];
+    if (previous?.groupCode === row.groupCode) return { row, rowSpan: 0 };
+    let rowSpan = 1;
+    while (rows[index + rowSpan]?.groupCode === row.groupCode) rowSpan += 1;
+    return { row, rowSpan };
   });
-};
+}
 
-const scopeForProductType = (productTypeCode: string): SpecTemplateScope => {
-  const productType = productTypeByCode(productTypeCode);
-  if (!productType) return emptySpecScope;
-  return {
-    productId: "",
-    categoryCode: productType.categoryCode ?? emptySpecScope.categoryCode,
-    productGroupCode: productType.productGroupCode ?? "",
-    subcategoryCode: productType.subcategoryCode ?? "",
-    productTypeCode: productType.code,
-  };
-};
+function completionFor(typeCode: string, rows: SpecTemplateRow[]) {
+  const typeRows = rows.filter((row) => sameType(row.productTypeCode, typeCode));
+  const deletedKeys = new Set(
+    typeRows
+      .filter((row) => row.isDeleted)
+      .map((row) => normalizeProductSpecKey(row.specKey)),
+  );
+  const registered = typeRows.filter((row) => row.isActive !== false && !row.isDeleted);
+  const expected = machineSpecTemplateEntries(typeCode)
+    .filter((entry) => !deletedKeys.has(normalizeProductSpecKey(entry.key)))
+    .length;
+  const percent = expected ? Math.min(100, Math.round((registered.length / expected) * 100)) : registered.length ? 100 : 0;
+  return { registered: registered.length, expected, percent, missing: Math.max(0, expected - registered.length) };
+}
 
 export function ProductSpecTemplatesCard() {
-  const [specRows, setSpecRows] = useState<SpecTemplateRow[]>([]);
-  const [specScope, setSpecScope] = useState<SpecTemplateScope>(emptySpecScope);
-  const [specForm, setSpecForm] = useState(emptySpecForm);
-  const [editingSpecId, setEditingSpecId] = useState<string | null>(null);
-  const [specBusy, setSpecBusy] = useState(false);
-  const [search, setSearch] = useState("");
-  // Yeni teknik alanın uygulanacağı ürün tipleri (çoklu seçim). Düzenlemede tek tip.
-  const [specTargetTypes, setSpecTargetTypes] = useState<string[]>([]);
-  // Bölüm (CNC / Üniversal / Sac İşleme) filtresi. "all" → Tümü (paylaşılan dahil hepsi).
   const { user } = useAuth();
   const { products } = useStore();
-  const divisions = user?.divisions ?? [];
-  const [specDivisionId, setSpecDivisionId] = usePersistedSettingsDivision();
-  const selectedDivisionId = specDivisionId === ALL_DIVISIONS ? undefined : specDivisionId;
-  const selectedDivisionIncludesShared = isCncDivision(divisions, specDivisionId);
-  const divisionLabel = (id?: string | null) => (id ? divisions.find((d) => d.id === id)?.name ?? "Bölüm" : "Tümü");
-  const divisionOptions = [{ value: ALL_DIVISIONS, label: "Tümü" }, ...divisions.map((d) => ({ value: d.id, label: d.name }))];
-  // Seçili bölüme uygun şablon fallback'leri: Üniversal / Sac İşleme seçilince
-  // DB'de kayıt olmasa bile o bölümün tezgah tipleri ve taksonomisi hazır gelir.
-  const divisionGroupCode = divisionCatalogGroupCode(divisions, specDivisionId);
-  const mergeTemplateFallback = Boolean(divisionGroupCode && divisionGroupCode !== "CNC");
-  const templateTypeFallback = useMemo(
-    () =>
-      divisionGroupCode
-        ? TEMPLATE_PRODUCT_TYPES.filter((item) => !item.productGroupCode || item.productGroupCode === divisionGroupCode)
-        : TEMPLATE_PRODUCT_TYPES,
-    [divisionGroupCode],
-  );
-  const templateGroupFallback = useMemo(
-    () => (divisionGroupCode ? TEMPLATE_PRODUCT_GROUPS.filter((item) => item.code === divisionGroupCode) : TEMPLATE_PRODUCT_GROUPS),
-    [divisionGroupCode],
-  );
-  const templateSubcategoryFallback = useMemo(() => {
-    const used = new Set(templateTypeFallback.map((item) => item.subcategoryCode).filter(Boolean));
-    return used.size ? TEMPLATE_PRODUCT_SUBCATEGORIES.filter((item) => used.has(item.code)) : TEMPLATE_PRODUCT_SUBCATEGORIES;
-  }, [templateTypeFallback]);
-  const productCategoryRows = useProductLookupRows("product-categories", TEMPLATE_PRODUCT_CATEGORIES, selectedDivisionId, selectedDivisionIncludesShared, mergeTemplateFallback);
-  const productGroupRows = useProductLookupRows("product-groups", templateGroupFallback, selectedDivisionId, selectedDivisionIncludesShared, mergeTemplateFallback);
-  const productSubcategoryRows = useProductLookupRows("product-subcategories", templateSubcategoryFallback, selectedDivisionId, selectedDivisionIncludesShared, mergeTemplateFallback);
-  const productTypeRows = useProductLookupRows("product-types", templateTypeFallback, selectedDivisionId, selectedDivisionIncludesShared, mergeTemplateFallback);
-  const productCategoryOptions = useMemo(() => lookupCodeOptions(productCategoryRows), [productCategoryRows]);
-  const productGroupOptions = useMemo(() => lookupCodeOptions(productGroupRows), [productGroupRows]);
-  const productSubcategoryOptions = useMemo(() => lookupCodeOptions(productSubcategoryRows), [productSubcategoryRows]);
-  const scopedProducts = useMemo(() => {
-    if (!selectedDivisionId) return products;
-    const categoryCodes = new Set(productCategoryRows.map((row) => foldCode(row.code)));
-    const groupCodes = new Set(productGroupRows.map((row) => foldCode(row.code)));
-    const subcategoryCodes = new Set(productSubcategoryRows.map((row) => foldCode(row.code)));
-    const typeCodes = new Set(productTypeRows.map((row) => foldCode(row.code)));
-    const hasScopedRows = categoryCodes.size || groupCodes.size || subcategoryCodes.size || typeCodes.size;
-    if (!hasScopedRows) return [];
-    return products.filter((product) => {
-      if (categoryCodes.size && (!product.categoryCode || !categoryCodes.has(foldCode(product.categoryCode)))) return false;
-      if (groupCodes.size && (!product.productGroupCode || !groupCodes.has(foldCode(product.productGroupCode)))) return false;
-      if (subcategoryCodes.size && (!product.subcategoryCode || !subcategoryCodes.has(foldCode(product.subcategoryCode)))) return false;
-      if (typeCodes.size && (!product.productTypeCode || !typeCodes.has(foldCode(product.productTypeCode)))) return false;
-      return true;
-    });
-  }, [productCategoryRows, productGroupRows, productSubcategoryRows, productTypeRows, products, selectedDivisionId]);
-  const productTypeOptions = useMemo<ProductTypeOption[]>(() => {
-    const templateByCode = new Map(TEMPLATE_PRODUCT_TYPES.map((option) => [option.code, option]));
-    const byCode = new Map<string, ProductTypeOption>();
-    const put = (option: ProductTypeOption) => {
-      if (!option.code) return;
-      const current = byCode.get(option.code);
-      byCode.set(option.code, {
-        code: option.code,
-        label: option.label || current?.label || option.code,
-        categoryCode: option.categoryCode ?? current?.categoryCode,
-        subcategoryCode: option.subcategoryCode ?? current?.subcategoryCode,
-        productGroupCode: option.productGroupCode ?? current?.productGroupCode,
-      });
-    };
-    if (!selectedDivisionId) {
-      TEMPLATE_PRODUCT_TYPES.forEach((option) => put(option));
-    }
-    productTypeRows.forEach((row) => {
-      const template = templateByCode.get(canonicalProductTypeCode(row.code));
-      put({
-        code: row.code,
-        label: row.name,
-        categoryCode: template?.categoryCode,
-        subcategoryCode: template?.subcategoryCode,
-        productGroupCode: template?.productGroupCode,
-      });
-    });
-    scopedProducts.forEach((product) => {
-      if (!product.productTypeCode) return;
-      put({
-        code: product.productTypeCode,
-        label: productTypeRows.find((row) => row.code === product.productTypeCode)?.name ?? product.type ?? product.productTypeCode,
-        categoryCode: product.categoryCode,
-        subcategoryCode: product.subcategoryCode,
-        productGroupCode: product.productGroupCode,
-      });
-    });
-    return Array.from(byCode.values());
-  }, [productTypeRows, scopedProducts, selectedDivisionId]);
+  const [view, setView] = useState<WorkspaceView>("library");
+  const [familyCode, setFamilyCode] = useState<FamilyCode>("CNC");
+  const [subcategoryCode, setSubcategoryCode] = useState("ISLEME_MERKEZI");
+  const [typeCode, setTypeCode] = useState("CNC_DIK_ISLEME_MERKEZ");
+  const [specRows, setSpecRows] = useState<SpecTemplateRow[]>([]);
+  const [draftRows, setDraftRows] = useState<DraftRow[]>([]);
+  const [baseline, setBaseline] = useState("[]");
+  const [undoStack, setUndoStack] = useState<DraftRow[][]>([]);
+  const [redoStack, setRedoStack] = useState<DraftRow[][]>([]);
+  const [selectedRowId, setSelectedRowId] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [importOpen, setImportOpen] = useState(false);
+  const [lastDraftSave, setLastDraftSave] = useState<Date | null>(null);
 
-  const availableSpecProducts = useMemo(
-    () =>
-      scopedProducts
-        .filter((product) => !specScope.categoryCode || sameCode(product.categoryCode, specScope.categoryCode))
-        .map((product) => ({
-          value: product.id,
-          label: [product.brand, product.model].filter(Boolean).join(" ").trim() || product.shortDescription || product.stockCode || "Ürün",
-        }))
-        .sort((a, b) => a.label.localeCompare(b.label, "tr-TR", { numeric: true })),
-    [scopedProducts, specScope.categoryCode],
-  );
-  const availableSpecSubcategories = useMemo(
-    () => subcategoriesForCategory(specScope.categoryCode, productTypeOptions, productSubcategoryOptions),
-    [productSubcategoryOptions, productTypeOptions, specScope.categoryCode],
-  );
-  const availableSpecProductGroups = useMemo(() => {
-    const usedCodes = new Set(
-      scopedProducts
-        .filter((product) => (!specScope.categoryCode || sameCode(product.categoryCode, specScope.categoryCode)) && (!specScope.subcategoryCode || sameCode(product.subcategoryCode, specScope.subcategoryCode)))
-        .map((product) => foldCode(product.productGroupCode))
-        .filter(Boolean),
-    );
-    const options = productGroupOptions.filter((option) => !usedCodes.size || usedCodes.has(foldCode(option.code)));
-    return options.length ? options : productGroupOptions;
-  }, [productGroupOptions, scopedProducts, specScope.categoryCode, specScope.subcategoryCode]);
-  const availableSpecProductTypes = useMemo(
-    () => productTypesForScope(specScope.categoryCode, specScope.subcategoryCode, specScope.productGroupCode, productTypeOptions, productSubcategoryOptions),
-    [productSubcategoryOptions, productTypeOptions, specScope.categoryCode, specScope.productGroupCode, specScope.subcategoryCode],
-  );
+  const divisions = user?.divisions ?? [];
+  const familyDivisionId = useMemo(() => {
+    const wanted = familyCode === "SAC_ISLEME" ? "SAC_ISLEME" : familyCode;
+    return divisions.find((division) => foldProductTypeCode(division.code) === wanted)?.id;
+  }, [divisions, familyCode]);
+
+  const familyTypes = useMemo(() => MACHINE_TYPES.filter((type) => type.familyCode === familyCode), [familyCode]);
+  const subcategories = useMemo(() => {
+    const map = new Map<string, string>();
+    familyTypes.forEach((type) => map.set(type.subcategoryCode, type.subcategoryLabel));
+    return [...map.entries()].map(([code, label]) => ({ code, label }));
+  }, [familyTypes]);
+  const scopedTypes = useMemo(() => familyTypes.filter((type) => type.subcategoryCode === subcategoryCode), [familyTypes, subcategoryCode]);
+  const selectedType = MACHINE_TYPES.find((type) => sameType(type.code, typeCode)) ?? scopedTypes[0] ?? familyTypes[0];
+
+  useEffect(() => {
+    const nextSubcategory = familyTypes.find((type) => type.subcategoryCode === subcategoryCode)?.subcategoryCode ?? familyTypes[0]?.subcategoryCode ?? "";
+    const nextType = familyTypes.find((type) => type.subcategoryCode === nextSubcategory && sameType(type.code, typeCode)) ?? familyTypes.find((type) => type.subcategoryCode === nextSubcategory);
+    setSubcategoryCode(nextSubcategory);
+    if (nextType) setTypeCode(nextType.code);
+    setSearch("");
+  }, [familyCode]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    const nextType = familyTypes.find((type) => type.subcategoryCode === subcategoryCode && sameType(type.code, typeCode)) ?? familyTypes.find((type) => type.subcategoryCode === subcategoryCode);
+    if (nextType) setTypeCode(nextType.code);
+    setSearch("");
+  }, [subcategoryCode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const loadSpecTemplates = async () => {
-    setSpecBusy(true);
+    setLoading(true);
     try {
-      setSpecRows(await adminService.productSpecTemplates(undefined, selectedDivisionId, selectedDivisionId && !selectedDivisionIncludesShared ? "exact" : undefined));
-    } catch (err: any) {
-      toast.error("Teknik bilgi şablonları yüklenemedi", { description: err?.message ?? "API isteği başarısız oldu." });
+      const rows = await adminService.productSpecTemplates(undefined, familyDivisionId);
+      setSpecRows(rows ?? []);
+      return rows ?? [];
+    } catch (error: any) {
+      toast.error("Teknik şablonlar yüklenemedi", { description: error?.message ?? "API isteği başarısız oldu." });
+      return [];
     } finally {
-      setSpecBusy(false);
+      setLoading(false);
     }
   };
 
   useEffect(() => {
     void loadSpecTemplates();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [specDivisionId, selectedDivisionIncludesShared]);
+  }, [familyDivisionId]);
+
+  const prepareWorkbook = (nextTypeCode: string, sourceRows = specRows, allowLocalDraft = true) => {
+    const serverDraft = buildDraftRows(nextTypeCode, sourceRows);
+    let nextDraft = serverDraft;
+    if (allowLocalDraft) {
+      try {
+        const cached = JSON.parse(localStorage.getItem(localDraftKey(nextTypeCode)) ?? "null");
+        if (cached?.rows?.length && Array.isArray(cached.rows)) nextDraft = cached.rows;
+      } catch {
+        // Bozuk yerel taslak sessizce yok sayılır; sunucu verisi güvenli kaynaktır.
+      }
+    }
+    setDraftRows(nextDraft);
+    setBaseline(JSON.stringify(serverDraft));
+    setUndoStack([]);
+    setRedoStack([]);
+    setSelectedRowId(nextDraft[0]?.clientId ?? null);
+    setLastDraftSave(null);
+  };
 
   useEffect(() => {
-    setSpecScope((current) => {
-      const categoryCode = current.categoryCode && productCategoryOptions.some((item) => item.code === current.categoryCode)
-        ? current.categoryCode
-        : productCategoryOptions[0]?.code ?? "";
-      const subcategoryCode = current.subcategoryCode && productSubcategoryOptions.some((item) => item.code === current.subcategoryCode)
-        ? current.subcategoryCode
-        : "";
-      const productGroupCode = current.productGroupCode && productGroupOptions.some((item) => item.code === current.productGroupCode)
-        ? current.productGroupCode
-        : "";
-      const productTypeCode = current.productTypeCode && productTypeOptions.some((item) => item.code === current.productTypeCode)
-        ? current.productTypeCode
-        : "";
-      const productId = current.productId && scopedProducts.some((item) => item.id === current.productId) ? current.productId : "";
-      if (
-        categoryCode === current.categoryCode &&
-        subcategoryCode === current.subcategoryCode &&
-        productGroupCode === current.productGroupCode &&
-        productTypeCode === current.productTypeCode &&
-        productId === current.productId
-      ) {
-        return current;
-      }
-      setSearch("");
-      setEditingSpecId(null);
-      setSpecTargetTypes(productTypeCode ? [productTypeCode] : []);
-      setSpecForm({ ...emptySpecForm, productTypeCode, divisionId: selectedDivisionId ?? "" });
-      return { productId, categoryCode, productGroupCode, subcategoryCode, productTypeCode };
+    if (view === "editor" && selectedType) prepareWorkbook(selectedType.code);
+    // Only reset when the selected product type or server source changes deliberately.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [view, typeCode]);
+
+  const dirty = JSON.stringify(draftRows) !== baseline;
+  useEffect(() => {
+    if (view !== "editor" || !selectedType || !dirty) return;
+    const timer = window.setTimeout(() => {
+      localStorage.setItem(localDraftKey(selectedType.code), JSON.stringify({ savedAt: new Date().toISOString(), rows: draftRows }));
+      setLastDraftSave(new Date());
+    }, 500);
+    return () => window.clearTimeout(timer);
+  }, [dirty, draftRows, selectedType, view]);
+
+  const applyDraft = (updater: DraftRow[] | ((current: DraftRow[]) => DraftRow[])) => {
+    setDraftRows((current) => {
+      const next = typeof updater === "function" ? updater(current) : updater;
+      if (JSON.stringify(next) === JSON.stringify(current)) return current;
+      setUndoStack((stack) => [...stack.slice(-39), current]);
+      setRedoStack([]);
+      return next;
     });
-  }, [productCategoryOptions, productGroupOptions, productSubcategoryOptions, productTypeOptions, scopedProducts, selectedDivisionId]);
-
-  // Seçili ürün tipinin DB satırları (kod eşleşmesi harf duyarsız).
-  const typeDbRows = useMemo(
-    () =>
-      specScope.productTypeCode
-        ? specRows.filter((row) => canonicalProductTypeCode(row.productTypeCode) === canonicalProductTypeCode(specScope.productTypeCode))
-        : [],
-    [specRows, specScope.productTypeCode],
-  );
-
-  const catalogEntries = useMemo(
-    () => [...machineSpecTemplateEntries(specScope.productTypeCode)],
-    [specScope.productTypeCode],
-  );
-
-  // DB satırları + katalogda olup DB'de olmayan alanlar tek listede birleşir.
-  const mergedRows = useMemo<SpecDisplayRow[]>(() => {
-    const dbKeys = new Set(typeDbRows.map((row) => normalizeProductSpecKey(row.specKey)));
-    const catalogIndexByKey = new Map<string, number>();
-    catalogEntries.forEach((entry, index) => {
-      const norm = normalizeProductSpecKey(entry.key);
-      if (!catalogIndexByKey.has(norm)) catalogIndexByKey.set(norm, index);
-    });
-
-    const dbDisplay: SpecDisplayRow[] = typeDbRows.map((row) => ({
-      reactKey: `db-${row.id}`,
-      specKey: row.specKey,
-      specUnit: row.specUnit ?? "",
-      defaultValue: row.defaultValue ?? "",
-      sortOrder: row.sortOrder ?? 0,
-      groupCode: resolveRowGroupCode(row),
-      isActive: row.isActive !== false,
-      divisionId: row.divisionId ?? null,
-      dbRow: row,
-      catalogIndex: catalogIndexByKey.get(normalizeProductSpecKey(row.specKey)) ?? Number.MAX_SAFE_INTEGER,
-    }));
-
-    const catalogOnly: SpecDisplayRow[] = catalogEntries
-      .filter((entry) => !dbKeys.has(normalizeProductSpecKey(entry.key)))
-      .map((entry, index) => ({
-        reactKey: `catalog-${entry.group}-${entry.key}`,
-        specKey: entry.key,
-        specUnit: entry.unit,
-        defaultValue: entry.value,
-        sortOrder: index,
-        groupCode: entry.group,
-        isActive: true,
-        catalogEntry: entry,
-        catalogIndex: catalogIndexByKey.get(normalizeProductSpecKey(entry.key)) ?? Number.MAX_SAFE_INTEGER,
-      }));
-
-    return [...dbDisplay, ...catalogOnly];
-  }, [typeDbRows, catalogEntries]);
-
-  const searchNorm = normalizeProductSpecKey(search);
-  const filteredMergedRows = useMemo(
-    () => (searchNorm ? mergedRows.filter((row) => normalizeProductSpecKey(row.specKey).includes(searchNorm)) : mergedRows),
-    [mergedRows, searchNorm],
-  );
-
-  // Grup sırası: önce katalog şablonundaki sıra, sonra kalan gruplar.
-  const groupedDisplay = useMemo<SpecDisplayGroup[]>(() => {
-    const orderedCodes: ProductSpecGroupCode[] = [];
-    for (const entry of catalogEntries) {
-      if (!orderedCodes.includes(entry.group)) orderedCodes.push(entry.group);
-    }
-    for (const group of PRODUCT_SPEC_GROUPS) {
-      if (!orderedCodes.includes(group.code)) orderedCodes.push(group.code);
-    }
-    const buckets = new Map<ProductSpecGroupCode, SpecDisplayRow[]>();
-    for (const row of filteredMergedRows) {
-      buckets.set(row.groupCode, [...(buckets.get(row.groupCode) ?? []), row]);
-    }
-    return orderedCodes
-      .map((code) => ({
-        group: GROUP_BY_CODE.get(code)!,
-        rows: (buckets.get(code) ?? []).sort(
-          (a, b) => a.catalogIndex - b.catalogIndex || a.sortOrder - b.sortOrder || a.specKey.localeCompare(b.specKey, "tr-TR"),
-        ),
-      }))
-      .filter((item) => item.rows.length > 0);
-  }, [catalogEntries, filteredMergedRows]);
-
-  const missingCatalogEntries = useMemo(() => {
-    const dbKeys = new Set(typeDbRows.map((row) => normalizeProductSpecKey(row.specKey)));
-    return catalogEntries.filter((entry) => !dbKeys.has(normalizeProductSpecKey(entry.key)));
-  }, [catalogEntries, typeDbRows]);
-
-  // Şablonu olan tezgahlarda alan etiketi katalogdan seçilir; birim sabit gelir.
-  const specFormCategoryCode = useMemo(
-    () => productTypeOptions.find((item) => item.code === specForm.productTypeCode)?.categoryCode ?? "",
-    [productTypeOptions, specForm.productTypeCode],
-  );
-  const specTemplateOptions = useMemo(() => {
-    const entries = specEntriesForType(specFormCategoryCode, specForm.productTypeCode);
-    if (!entries.length) return [] as MachineSpecTemplateEntry[];
-    // Ekleme sırasında zaten kayıtlı alanlar gizlenir; düzenlemede mevcut alan dahil edilir.
-    const existing = new Set(typeDbRows.map((row) => normalizeProductSpecKey(row.specKey)));
-    const currentNorm = normalizeProductSpecKey(specForm.specKey);
-    return entries.filter((entry) => {
-      const norm = normalizeProductSpecKey(entry.key);
-      if (editingSpecId && norm === currentNorm) return true;
-      return !existing.has(norm);
-    });
-  }, [specFormCategoryCode, specForm.productTypeCode, specForm.specKey, typeDbRows, editingSpecId]);
-
-  const applySpecTemplateKey = (specKey: string) => {
-    const item = specEntriesForType(specFormCategoryCode, specForm.productTypeCode).find((option) => option.key === specKey);
-    setSpecForm((current) => ({
-      ...current,
-      specKey,
-      specGroupCode: item ? item.group : current.specGroupCode,
-      specUnit: item ? item.unit : current.specUnit,
-      defaultValue: current.defaultValue || (item ? seedValueFromEntry(item.value) ?? "" : ""),
-    }));
   };
 
-  const resetSpecTemplateForm = (productTypeCode = specScope.productTypeCode) => {
-    setEditingSpecId(null);
-    // Yeni alan varsayılan olarak filtrede seçili bölüme atanır (Tümü → boş).
-    setSpecForm({ ...emptySpecForm, productTypeCode, divisionId: selectedDivisionId ?? "" });
-    setSpecTargetTypes(productTypeCode ? [productTypeCode] : []);
+  const undo = () => {
+    const previous = undoStack.at(-1);
+    if (!previous) return;
+    setRedoStack((stack) => [draftRows, ...stack].slice(0, 40));
+    setDraftRows(previous);
+    setUndoStack((stack) => stack.slice(0, -1));
   };
 
-  const changeSpecCategory = (categoryCode: string) => {
-    if (!categoryCode) {
-      setSpecScope({ productId: "", categoryCode: "", productGroupCode: "", subcategoryCode: "", productTypeCode: "" });
-      resetSpecTemplateForm("");
-      setSearch("");
-      return;
-    }
-    const [firstSubcategory] = subcategoriesForCategory(categoryCode, productTypeOptions, productSubcategoryOptions);
-    setSpecScope({ productId: "", categoryCode, productGroupCode: "", subcategoryCode: firstSubcategory?.code ?? "", productTypeCode: "" });
-    resetSpecTemplateForm("");
-    setSearch("");
+  const redo = () => {
+    const next = redoStack[0];
+    if (!next) return;
+    setUndoStack((stack) => [...stack.slice(-39), draftRows]);
+    setDraftRows(next);
+    setRedoStack((stack) => stack.slice(1));
   };
 
-  const changeSpecProduct = (productId: string) => {
-    const product = scopedProducts.find((item) => item.id === productId);
-    if (!product) {
-      setSpecScope((current) => ({ ...current, productId: "", productTypeCode: "" }));
-      resetSpecTemplateForm("");
-      setSearch("");
-      return;
-    }
-    const productTypeCode = product.productTypeCode ?? "";
-    setSpecScope({
-      productId,
-      categoryCode: product.categoryCode || specScope.categoryCode,
-      productGroupCode: product.productGroupCode || "",
-      subcategoryCode: product.subcategoryCode || "",
-      productTypeCode,
-    });
-    resetSpecTemplateForm(productTypeCode);
-    setSearch("");
+  const updateDraftRow = (clientId: string, patch: Partial<DraftRow>) => {
+    applyDraft((current) => current.map((row) => (row.clientId === clientId ? { ...row, ...patch, catalogOnly: row.catalogOnly && !row.id } : row)));
   };
 
-  const changeSpecSubcategory = (subcategoryCode: string) => {
-    const selectedProduct = scopedProducts.find((item) => item.id === specScope.productId);
-    const keepProduct = selectedProduct && sameCode(selectedProduct.subcategoryCode || "", subcategoryCode);
-    const productTypeCode = keepProduct ? specScope.productTypeCode : "";
-    setSpecScope({
-      ...specScope,
-      productId: keepProduct ? specScope.productId : "",
-      subcategoryCode,
-      productGroupCode: keepProduct ? specScope.productGroupCode : "",
-      productTypeCode,
-    });
-    resetSpecTemplateForm(productTypeCode);
-    setSearch("");
-  };
-
-  const changeSpecProductGroup = (productGroupCode: string) => {
-    const selectedProduct = scopedProducts.find((item) => item.id === specScope.productId);
-    const keepProduct = selectedProduct && sameCode(selectedProduct.productGroupCode || "", productGroupCode);
-    const currentType = productTypeOptions.find((item) => item.code === specScope.productTypeCode);
-    const keepType = currentType && (!currentType.productGroupCode || sameCode(currentType.productGroupCode, productGroupCode));
-    const productTypeCode = keepProduct ? specScope.productTypeCode : keepType ? specScope.productTypeCode : "";
-    setSpecScope({ ...specScope, productId: keepProduct ? specScope.productId : "", productGroupCode, productTypeCode });
-    resetSpecTemplateForm(productTypeCode);
-    setSearch("");
-  };
-
-  const changeSpecDivision = (divisionId: string) => {
-    const nextDivisionId = divisionId === ALL_DIVISIONS ? undefined : divisionId;
-    setSpecDivisionId(divisionId);
-    setSpecScope({ productId: "", categoryCode: "", productGroupCode: "", subcategoryCode: "", productTypeCode: "" });
-    setSpecForm({ ...emptySpecForm, divisionId: nextDivisionId ?? "" });
-    setSpecTargetTypes([]);
-    setEditingSpecId(null);
-    setSearch("");
-  };
-
-  const changeSpecProductType = (productTypeCode: string) => {
-    const productType = productTypeOptions.find((item) => item.code === productTypeCode);
-    setSpecScope(
-      productTypeCode && productType
-        ? {
-            productId: "",
-            categoryCode: productType.categoryCode || specScope.categoryCode,
-            productGroupCode: productType.productGroupCode || specScope.productGroupCode,
-            subcategoryCode: productType.subcategoryCode || specScope.subcategoryCode,
-            productTypeCode: productType.code,
-          }
-        : { ...specScope, productId: "", productTypeCode: "" },
-    );
-    resetSpecTemplateForm(productTypeCode);
-    setSearch("");
-  };
-
-  const submitSpecTemplate = async () => {
-    const productTypeCode = specForm.productTypeCode.trim();
-    if (!productTypeCode || !specForm.specKey.trim()) return toast.error("Ürün tipi ve teknik alan zorunludur");
-    const formDivisionId = selectedDivisionId ?? (specForm.divisionId || null);
-    const body = {
-      productTypeCode,
-      specKey: specForm.specKey.trim(),
-      specGroupCode: specForm.specGroupCode || undefined,
-      defaultValue: specForm.defaultValue || undefined,
-      specUnit: specForm.specUnit || undefined,
-      divisionId: formDivisionId,
-      sortOrder: Number(specForm.sortOrder || 0),
-      isActive: specForm.isActive,
+  const addField = (groupCode?: string) => {
+    const selected = draftRows.find((row) => row.clientId === selectedRowId);
+    const targetGroup = groupCode ?? selected?.groupCode ?? draftRows.at(-1)?.groupCode ?? "GENEL";
+    const existingNames = new Set(draftRows.map((row) => normalizeProductSpecKey(row.specKey)));
+    let number = 1;
+    while (existingNames.has(normalizeProductSpecKey(`Yeni Teknik Bilgi ${number}`))) number += 1;
+    const row: DraftRow = {
+      clientId: `new-${crypto.randomUUID()}`,
+      specKey: `Yeni Teknik Bilgi ${number}`,
+      groupCode: targetGroup,
+      defaultValue: "",
+      unit: "",
+      isActive: true,
+      isDeleted: false,
+      catalogOnly: true,
+      inCatalog: false,
     };
-    setSpecBusy(true);
+    const lastGroupIndex = draftRows.reduce((last, item, index) => (item.groupCode === targetGroup ? index : last), -1);
+    applyDraft((current) => {
+      const next = [...current];
+      next.splice(lastGroupIndex >= 0 ? lastGroupIndex + 1 : next.length, 0, row);
+      return next;
+    });
+    setSelectedRowId(row.clientId);
+  };
+
+  /**
+   * Alanı çalışma sayfasından çıkarır. Katalog ve kayıtlı alanlarda tombstone
+   * bırakılır; böylece kod tabanlı katalog yeniden kurulduğunda alan geri gelmez.
+   * Henüz kaydedilmemiş kullanıcı alanları taslaktan tamamen çıkarılabilir.
+   */
+  const removeField = (clientId: string) => {
+    const target = draftRows.find((row) => row.clientId === clientId);
+    if (!target) return;
+    applyDraft((current) => (!target.id && !target.inCatalog
+      ? current.filter((row) => row.clientId !== clientId)
+      : current.map((row) => (row.clientId === clientId
+        ? { ...row, isDeleted: true, isActive: false }
+        : row))));
+    setSelectedRowId((current) => (current === clientId ? null : current));
+    toast.success("Alan çalışma sayfasından kaldırıldı", {
+      description: target.id || target.inCatalog
+        ? "Kaydet'e bastığınızda şablondan kalıcı olarak kaldırılacak."
+        : "Kaydedilmemiş alan olduğu için taslaktan kaldırıldı.",
+    });
+  };
+
+  const addSection = () => {
+    const used = new Set(draftRows.filter((row) => !row.isDeleted).map((row) => row.groupCode));
+    const nextGroup = PRODUCT_SPEC_GROUPS.find((group) => !used.has(group.code));
+    if (!nextGroup) return toast.info("Tüm teknik bölümler çalışma sayfasında bulunuyor");
+    addField(nextGroup.code);
+    toast.success(`${nextGroup.label} bölümü eklendi`);
+  };
+
+  const changeRowGroup = (clientId: string, groupCode: string) => {
+    applyDraft((current) => {
+      const index = current.findIndex((row) => row.clientId === clientId);
+      if (index < 0 || current[index].groupCode === groupCode) return current;
+      const next = [...current];
+      const [row] = next.splice(index, 1);
+      const changed = { ...row, groupCode };
+      const lastGroupIndex = next.reduce(
+        (last, item, itemIndex) => (!item.isDeleted && item.groupCode === groupCode ? itemIndex : last),
+        -1,
+      );
+      next.splice(lastGroupIndex >= 0 ? lastGroupIndex + 1 : next.length, 0, changed);
+      return next;
+    });
+  };
+
+  const moveRowToPosition = (clientId: string, position: number) => {
+    applyDraft((current) => {
+      const source = current.find((row) => row.clientId === clientId);
+      if (!source || source.isDeleted) return current;
+      const groupRows = current.filter((row) => !row.isDeleted && row.groupCode === source.groupCode);
+      const from = groupRows.findIndex((row) => row.clientId === clientId);
+      const to = Math.max(0, Math.min(groupRows.length - 1, position));
+      if (from < 0 || from === to) return current;
+      const reordered = [...groupRows];
+      const [moved] = reordered.splice(from, 1);
+      reordered.splice(to, 0, moved);
+      let cursor = 0;
+      return current.map((row) => (
+        !row.isDeleted && row.groupCode === source.groupCode
+          ? reordered[cursor++]
+          : row
+      ));
+    });
+  };
+
+  const moveRow = (clientId: string, direction: -1 | 1) => {
+    const source = draftRows.find((row) => row.clientId === clientId);
+    if (!source) return;
+    const groupRows = draftRows.filter((row) => !row.isDeleted && row.groupCode === source.groupCode);
+    const position = groupRows.findIndex((row) => row.clientId === clientId);
+    moveRowToPosition(clientId, position + direction);
+  };
+
+  const pasteValues = (clientId: string, text: string) => {
+    const matrix = text.replace(/\r/g, "").split("\n").filter(Boolean).map((line) => line.split("\t"));
+    if (matrix.length <= 1 && matrix[0]?.length <= 1) return false;
+    applyDraft((current) => {
+      const start = current.findIndex((row) => row.clientId === clientId);
+      if (start < 0) return current;
+      return current.map((row, index) => {
+        const values = matrix[index - start];
+        if (!values) return row;
+        return { ...row, defaultValue: values[0] ?? row.defaultValue, unit: values[1] ?? row.unit };
+      });
+    });
+    toast.success(`${matrix.length} satıra değer yapıştırıldı`);
+    return true;
+  };
+
+  const saveWorkbook = async () => {
+    if (!selectedType || !draftRows.length) return;
+    const activeNames = draftRows
+      .filter((row) => row.isActive && !row.isDeleted)
+      .map((row) => normalizeProductSpecKey(row.specKey.trim()));
+    if (activeNames.some((name) => !name)) return toast.error("Teknik bilgi adı boş bırakılamaz");
+    if (new Set(activeNames).size !== activeNames.length) return toast.error("Aynı teknik bilgi adı birden fazla kez kullanılamaz");
+    // Çalışma sayfasından çıkarılan sunucu kayıtları önce silinir: aynı alan adı
+    // silinen satırdan devralınıyorsa toplu kayıt teklik hatasına düşmesin.
+    const keptIds = new Set(draftRows.map((row) => row.id).filter(Boolean) as string[]);
+    const removedIds = specRows
+      .filter((row) => (
+        sameType(row.productTypeCode, selectedType.code)
+        && (row.divisionId ?? null) === (familyDivisionId ?? null)
+        && !keptIds.has(row.id)
+      ))
+      .map((row) => row.id);
+    setBusy(true);
     try {
-      if (editingSpecId) {
-        await adminService.updateProductSpecTemplate(editingSpecId, body);
-        toast.success("Teknik alan güncellendi");
-      } else {
-        // Çoklu ürün tipi: seçilen her tipe aynı alan eklenir (birincil tip dahil).
-        const targets = Array.from(new Set([productTypeCode, ...specTargetTypes])).filter(Boolean);
-        if (targets.length > 1) {
-          const res = await adminService.bulkCreateProductSpecTemplates(targets.map((t) => ({ ...body, productTypeCode: t })));
-          toast.success(`${res.created} ürün tipine eklendi`, {
-            description: res.skipped ? `${res.skipped} tip için alan zaten kayıtlıydı, atlandı.` : undefined,
-          });
-        } else {
-          await adminService.createProductSpecTemplate(body);
-          toast.success("Teknik alan eklendi");
-        }
+      for (const id of removedIds) await adminService.deleteProductSpecTemplate(id);
+      const result = await adminService.batchSaveProductSpecTemplates(
+        draftRows.map((row, index) => ({
+          id: row.id,
+          productTypeCode: selectedType.code,
+          specKey: row.specKey.trim(),
+          specGroupCode: row.groupCode,
+          defaultValue: row.defaultValue || undefined,
+          specUnit: row.unit || undefined,
+          divisionId: row.divisionId ?? familyDivisionId ?? null,
+          sortOrder: index,
+          isActive: row.isActive,
+          isDeleted: row.isDeleted,
+        }))
+      );
+      const savedRows = result.rows as SpecTemplateRow[];
+      const savedIds = new Set(savedRows.map((row) => row.id));
+      const removedIdSet = new Set(removedIds);
+      const untouchedRows = specRows.filter((row) => !savedIds.has(row.id) && !removedIdSet.has(row.id));
+      const nextRows = [...untouchedRows, ...savedRows];
+      setSpecRows(nextRows);
+      localStorage.removeItem(localDraftKey(selectedType.code));
+      prepareWorkbook(selectedType.code, nextRows, false);
+      toast.success("Teknik çalışma sayfası kaydedildi", {
+        description: [`${result.rows.length} alan güncellendi.`, removedIds.length ? `${removedIds.length} alan silindi.` : null]
+          .filter(Boolean)
+          .join(" "),
+      });
+    } catch (error: any) {
+      toast.error("Değişiklikler kaydedilemedi", { description: error?.message ?? "API isteği başarısız oldu." });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  useEffect(() => {
+    if (view !== "editor") return;
+    const listener = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLocaleLowerCase("tr-TR") === "s") {
+        event.preventDefault();
+        if (dirty && !busy) void saveWorkbook();
       }
-      setSpecForm({ ...emptySpecForm, productTypeCode, divisionId: formDivisionId ?? "" });
-      setSpecTargetTypes(productTypeCode ? [productTypeCode] : []);
-      setEditingSpecId(null);
-      await loadSpecTemplates();
-    } catch (err: any) {
-      toast.error("Teknik alan kaydedilemedi", { description: err?.message ?? "API isteği başarısız oldu." });
-    } finally {
-      setSpecBusy(false);
+      if ((event.metaKey || event.ctrlKey) && event.key.toLocaleLowerCase("tr-TR") === "z") {
+        event.preventDefault();
+        event.shiftKey ? redo() : undo();
+      }
+    };
+    window.addEventListener("keydown", listener);
+    return () => window.removeEventListener("keydown", listener);
+  });
+
+  const visibleDraftRows = useMemo(() => draftRows.filter((row) => !row.isDeleted), [draftRows]);
+  const filteredDraftRows = useMemo(() => {
+    const query = normalizeProductSpecKey(search);
+    return query ? visibleDraftRows.filter((row) => normalizeProductSpecKey(`${row.specKey} ${groupLabel(row.groupCode)} ${row.defaultValue}`).includes(query)) : visibleDraftRows;
+  }, [search, visibleDraftRows]);
+  const displayDraftRows = useMemo(() => groupRows(filteredDraftRows), [filteredDraftRows]);
+  const selectedDraftRow = visibleDraftRows.find((row) => row.clientId === selectedRowId) ?? null;
+  const selectedCompletion = selectedType ? completionFor(selectedType.code, specRows) : { registered: 0, expected: 0, percent: 0, missing: 0 };
+  const activeCount = visibleDraftRows.filter((row) => row.isActive).length;
+  const uniqueGroupCount = new Set(visibleDraftRows.map((row) => row.groupCode)).size;
+
+  const librarySearch = normalizeProductSpecKey(search);
+  const libraryTypes = familyTypes.filter((type) => {
+    if (subcategoryCode && type.subcategoryCode !== subcategoryCode) return false;
+    return !librarySearch || normalizeProductSpecKey(`${type.label} ${type.code}`).includes(librarySearch);
+  });
+
+  const machines = useMemo(() => (products as any[])
+    .filter((product) => sameType(product.productTypeCode, selectedType?.code))
+    .map((product) => ({
+      id: product.id,
+      modelCode: product.modelCode ?? product.model ?? product.stockCode,
+      productTypeCode: product.productTypeCode,
+      label: [typeof product.brand === "string" ? product.brand : product.brand?.name, product.modelCode ?? product.model, product.fullName ?? product.shortDescription].filter(Boolean).join(" • "),
+    })), [products, selectedType?.code]);
+
+  const openWorkbook = (nextTypeCode: string) => {
+    const type = MACHINE_TYPES.find((item) => sameType(item.code, nextTypeCode));
+    if (type) {
+      setFamilyCode(type.familyCode);
+      setSubcategoryCode(type.subcategoryCode);
+      setTypeCode(type.code);
     }
+    setSearch("");
+    setView("editor");
   };
 
-  const addCatalogEntry = async (row: SpecDisplayRow) => {
-    const entry = row.catalogEntry;
-    if (!entry || !specScope.productTypeCode) return;
-    setSpecBusy(true);
-    try {
-      await adminService.createProductSpecTemplate({
-        productTypeCode: specScope.productTypeCode,
-        specKey: entry.key,
-        specGroupCode: entry.group,
-        defaultValue: seedValueFromEntry(entry.value),
-        specUnit: entry.unit || undefined,
-        divisionId: specDivisionId === ALL_DIVISIONS ? null : specDivisionId,
-        sortOrder: row.catalogIndex === Number.MAX_SAFE_INTEGER ? 0 : row.catalogIndex,
-        isActive: true,
-      });
-      toast.success(`"${entry.key}" eklendi`);
-      await loadSpecTemplates();
-    } catch (err: any) {
-      toast.error("Teknik alan eklenemedi", { description: err?.message ?? "API isteği başarısız oldu." });
-    } finally {
-      setSpecBusy(false);
-    }
-  };
-
-  const seedMissingFromCatalog = async () => {
-    if (!specScope.productTypeCode || !missingCatalogEntries.length) return;
-    const items = missingCatalogEntries.map((entry) => {
-      const index = catalogEntries.indexOf(entry);
-      return {
-        productTypeCode: specScope.productTypeCode,
-        specKey: entry.key,
-        specGroupCode: entry.group,
-        defaultValue: seedValueFromEntry(entry.value),
-        specUnit: entry.unit || undefined,
-        divisionId: specDivisionId === ALL_DIVISIONS ? null : specDivisionId,
-        sortOrder: index < 0 ? 0 : index,
-        isActive: true,
-      };
-    });
-    setSpecBusy(true);
-    try {
-      const res = await adminService.bulkCreateProductSpecTemplates(items);
-      toast.success(`${res.created} teknik alan eklendi`, {
-        description: res.skipped ? `${res.skipped} alan zaten kayıtlı olduğu için atlandı (mevcut değerler korundu).` : undefined,
-      });
-      await loadSpecTemplates();
-    } catch (err: any) {
-      toast.error("Şablon yüklenemedi", { description: err?.message ?? "API isteği başarısız oldu." });
-    } finally {
-      setSpecBusy(false);
-    }
-  };
-
-  const editSpecTemplate = (row: SpecTemplateRow) => {
-    const canonicalCode = canonicalProductTypeCode(row.productTypeCode);
-    const productType = productTypeOptions.find((item) => sameCode(item.code, canonicalCode));
-    // Listedeki gerçek kod (küçük harfli DB kodu olabilir) korunur; yoksa canonical kullanılır.
-    const productTypeCode = productType?.code ?? canonicalCode;
-    setEditingSpecId(row.id);
-    setSpecTargetTypes([productTypeCode]);
-    setSpecScope(
-      productType
-        ? {
-            productId: "",
-            categoryCode: productType.categoryCode || specScope.categoryCode,
-            productGroupCode: productType.productGroupCode || specScope.productGroupCode,
-            subcategoryCode: productType.subcategoryCode || specScope.subcategoryCode,
-            productTypeCode,
-          }
-        : scopeForProductType(row.productTypeCode),
-    );
-    setSpecForm({
-      productTypeCode,
-      specKey: row.specKey,
-      specGroupCode: row.specGroupCode ?? "",
-      defaultValue: row.defaultValue ?? "",
-      specUnit: row.specUnit ?? "",
-      divisionId: row.divisionId ?? "",
-      sortOrder: String(row.sortOrder ?? 0),
-      isActive: row.isActive !== false,
-    });
-  };
-
-  const deleteSpecTemplate = async (row: SpecTemplateRow) => {
-    if (!window.confirm(`${row.specKey} teknik alanı pasifleştirilsin mi?`)) return;
-    setSpecBusy(true);
-    try {
-      await adminService.deleteProductSpecTemplate(row.id);
-      toast.success("Teknik alan pasifleştirildi");
-      await loadSpecTemplates();
-    } catch (err: any) {
-      toast.error("Teknik alan pasifleştirilemedi", { description: err?.message ?? "API isteği başarısız oldu." });
-    } finally {
-      setSpecBusy(false);
-    }
-  };
-
-  const hasTypeSelected = Boolean(specScope.productTypeCode);
-  const hasCatalog = catalogEntries.length > 0;
-  const registeredCount = typeDbRows.length;
-  const openGroupValues = groupedDisplay.map((item) => item.group.code);
-  const selectedSpecProductTypeLabel = productTypeOptions.find((item) => item.code === specScope.productTypeCode)?.label ?? productTypeLabel(specScope.productTypeCode);
+  const hierarchyLabel = selectedType ? `${selectedType.familyCode === "SAC_ISLEME" ? "Sac İşleme" : selectedType.familyCode === "UNIVERSAL" ? "Üniversal" : "CNC"} › ${selectedType.categoryLabel} › ${selectedType.subcategoryLabel} › ${selectedType.label}` : "";
 
   return (
-    <SettingsSection
-      icon={<Layers />}
-      tone="primary"
-      title="Ürün Teknik Bilgi Şablonları"
-      description="Ürün tipine göre teknik alanları ve varsayılan değerleri yönetin."
-      bodyClassName="space-y-3"
-    >
-        {/* Yapışkan filtre çubuğu: kaydırırken kapsam seçimi görünür kalır. */}
-        <div className="sticky top-0 z-10 -mx-5 border-b border-border/60 bg-card/95 px-5 py-3 backdrop-blur supports-[backdrop-filter]:bg-card/80">
-          <div className="grid grid-cols-1 md:grid-cols-6 gap-2">
-            <SettingsSelect
-              label="Bölüm"
-              value={specDivisionId}
-              onChange={changeSpecDivision}
-              options={divisionOptions}
-            />
-            <SettingsSelect
-              label="Ürün Kategorisi"
-              value={specScope.categoryCode}
-              onChange={changeSpecCategory}
-              options={[
-                { value: "", label: "Kategori seçin" },
-                ...productCategoryOptions.map((item) => ({ value: item.code, label: item.label })),
-              ]}
-            />
-            <SettingsSelect
-              label="Ürün"
-              value={specScope.productId}
-              onChange={changeSpecProduct}
-              options={[
-                { value: "", label: "Tüm ürünler" },
-                ...availableSpecProducts,
-              ]}
-            />
-            <SettingsSelect
-              label="Ürün Alt Kategorisi"
-              value={specScope.subcategoryCode}
-              onChange={changeSpecSubcategory}
-              disabled={!availableSpecSubcategories.length}
-              options={
-                availableSpecSubcategories.length
-                  ? [
-                      { value: "", label: "Tüm alt kategoriler" },
-                      ...availableSpecSubcategories.map((item) => ({ value: item.code, label: item.label })),
-                    ]
-                  : [{ value: "", label: "Alt grup yok" }]
-              }
-            />
-            <SettingsSelect
-              label="Ürün Grupları"
-              value={specScope.productGroupCode}
-              onChange={changeSpecProductGroup}
-              options={[
-                { value: "", label: "Tüm gruplar" },
-                ...availableSpecProductGroups.map((item) => ({ value: item.code, label: item.label })),
-              ]}
-            />
-            <SettingsSelect
-              label="Ürün Tipleri"
-              value={specScope.productTypeCode}
-              onChange={changeSpecProductType}
-              options={[
-                { value: "", label: "Ürün tipi seçin" },
-                ...availableSpecProductTypes.map((item) => ({ value: item.code, label: item.label })),
-              ]}
-            />
+    <div className="overflow-hidden rounded-xl border border-slate-300 bg-white shadow-sm">
+      <div className="flex min-h-14 items-center justify-between gap-4 bg-[#071c54] px-4 text-white sm:px-5">
+        <div className="flex min-w-0 items-center gap-3">
+          <span className="font-display text-xl font-bold tracking-[0.08em]">HAKSAN</span>
+          <span className="h-6 w-px bg-white/25" />
+          <div className="min-w-0">
+            <p className="truncate text-sm font-semibold">Teknik Bilgi Merkezi</p>
+            <p className="truncate text-[10px] text-white/60">Şablon kütüphanesi ve makine çalışma sayfaları</p>
           </div>
         </div>
-
-        {!hasTypeSelected ? (
-          <div className="rounded-lg border border-dashed border-border/70 px-4 py-10 text-center">
-            <div className="text-sm font-medium">Teknik bilgileri görmek için bir ürün tipi seçin</div>
-            <p className="mx-auto mt-1 max-w-md text-xs text-muted-foreground">
-              Ürün tipi seçildiğinde o tipe ait tüm teknik alanlar (kayıtlı olanlar ve katalog şablonundakiler) gruplar halinde listelenir.
-            </p>
+        {view === "editor" ? (
+          <div className="flex items-center gap-2">
+            <Button size="sm" variant="ghost" className="border border-white/25 text-white hover:bg-white/10 hover:text-white" onClick={() => setView("library")}><ArrowLeft className="mr-1.5 size-4" />Kütüphaneye dön</Button>
+            <Button size="sm" className="bg-blue-600 text-white hover:bg-blue-500" disabled={!dirty || busy} onClick={() => void saveWorkbook()}><Save className="mr-1.5 size-4" />{busy ? "Kaydediliyor" : "Değişiklikleri kaydet"}</Button>
           </div>
         ) : (
-          <>
-            {/* Seçili tip başlığı + özet + toplu şablon aksiyonu */}
-            <div className="flex flex-col gap-3 rounded-lg border border-border/60 bg-muted/20 p-3 sm:flex-row sm:items-center sm:justify-between">
-              <div className="min-w-0">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-sm font-semibold">{selectedSpecProductTypeLabel}</span>
-                  <Badge variant="secondary">{registeredCount} kayıtlı</Badge>
-                  {hasCatalog && missingCatalogEntries.length > 0 && (
-                    <Badge variant="outline" className="border-warning/40 bg-warning-soft text-warning">
-                      {missingCatalogEntries.length} katalog alanı eksik
-                    </Badge>
-                  )}
-                </div>
-                <div className="mt-0.5 font-mono text-[11px] text-muted-foreground">{specScope.productTypeCode}</div>
-              </div>
-              {hasCatalog && missingCatalogEntries.length > 0 && (
-                <Button type="button" size="sm" variant="outline" className="gap-1 shrink-0" disabled={specBusy} onClick={seedMissingFromCatalog}>
-                  <Sparkles className="size-4" /> Eksik Alanları Şablondan Ekle
-                </Button>
-              )}
-            </div>
-
-            {/* Ekleme / düzenleme formu */}
-            <div className="rounded-lg border border-border/60 p-3">
-              <div className="grid grid-cols-1 md:grid-cols-6 gap-2">
-                {!editingSpecId && availableSpecProductTypes.length > 1 && (
-                  <div className="md:col-span-6">
-                    <label className="mb-1 block text-xs font-medium text-muted-foreground">Uygulanacak Ürün Tipleri</label>
-                    <MultiSelect
-                      options={availableSpecProductTypes.map((item) => ({ value: item.code, label: item.label }))}
-                      selected={specTargetTypes}
-                      onChange={setSpecTargetTypes}
-                      placeholder="Ürün tipi seçin"
-                      emptyText="Ürün tipi yok"
-                    />
-                    <p className="mt-1 text-[11px] text-muted-foreground">Bu teknik alan seçilen tüm ürün tiplerine tek seferde eklenir.</p>
-                  </div>
-                )}
-                <div className="md:col-span-2">
-                  {specTemplateOptions.length ? (
-                    <SettingsSelect
-                      label="Alan Etiketi"
-                      value={specForm.specKey}
-                      onChange={applySpecTemplateKey}
-                      options={[
-                        { value: "", label: "Alan seçin" },
-                        ...specTemplateOptions.map((item) => ({ value: item.key, label: item.key })),
-                      ]}
-                    />
-                  ) : (
-                    <SettingsField label="Alan Etiketi" value={specForm.specKey} onChange={(v) => setSpecForm({ ...specForm, specKey: v })} />
-                  )}
-                </div>
-                <SettingsSelect
-                  label="Grup"
-                  value={specForm.specGroupCode}
-                  onChange={(v) => setSpecForm({ ...specForm, specGroupCode: v })}
-                  options={[
-                    { value: "", label: "Otomatik" },
-                    ...PRODUCT_SPEC_GROUPS.map((group) => ({ value: group.code, label: group.label })),
-                  ]}
-                />
-                <div className="flex items-end">
-                  <div className="w-full rounded-md border border-border/60 bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
-                    Teknik alan <span className="font-medium text-foreground">{divisionLabel(selectedDivisionId)}</span> seçimine göre kaydedilecek.
-                  </div>
-                </div>
-                <SettingsField label="Başlangıç Değeri" value={specForm.defaultValue} onChange={(v) => setSpecForm({ ...specForm, defaultValue: v })} />
-                <SettingsField
-                  label="Birim"
-                  value={specForm.specUnit}
-                  disabled={Boolean(specTemplateOptions.length && specForm.specKey && specEntriesForType(specFormCategoryCode, specForm.productTypeCode).some((e) => e.key === specForm.specKey))}
-                  onChange={(v) => setSpecForm({ ...specForm, specUnit: v })}
-                />
-                <SettingsField label="Sıra" value={specForm.sortOrder} onChange={(v) => setSpecForm({ ...specForm, sortOrder: v })} />
-                <label className="flex items-end gap-2 pb-2 text-sm">
-                  <input
-                    type="checkbox"
-                    checked={specForm.isActive}
-                    onChange={(e) => setSpecForm({ ...specForm, isActive: e.target.checked })}
-                  />
-                  Aktif
-                </label>
-                <div className="md:col-span-6 rounded-md bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
-                  Başlangıç değeri, yeni ürün oluşturulurken bu teknik bilgi alanına otomatik gelen değerdir. Boş bırakılırsa alan boş gelir.
-                </div>
-                <div className="md:col-span-6 flex justify-end gap-2">
-                  {editingSpecId && (
-                    <Button type="button" variant="outline" onClick={() => resetSpecTemplateForm()}>
-                      Temizle
-                    </Button>
-                  )}
-                  <Button type="button" onClick={submitSpecTemplate} disabled={specBusy} className="gap-1">
-                    <Plus className="size-4" /> {editingSpecId ? "Güncelle" : "Ekle"}
-                  </Button>
-                </div>
-              </div>
-            </div>
-
-            {/* Arama */}
-            <div className="relative">
-              <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Teknik alanlarda ara…"
-                className="pl-9"
-              />
-            </div>
-
-            {/* Grup akordeonları */}
-            {groupedDisplay.length ? (
-              <Accordion type="multiple" value={openGroupValues} className="rounded-lg border border-border/60 bg-card">
-                {groupedDisplay.map(({ group, rows }) => {
-                  const inactive = rows.filter((row) => row.dbRow && !row.isActive).length;
-                  const catalogOnly = rows.filter((row) => !row.dbRow).length;
-                  return (
-                    <AccordionItem key={group.code} value={group.code} className="border-border/60 px-3">
-                      <AccordionTrigger className="hover:no-underline">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="text-xs font-semibold uppercase tracking-[0.12em] text-foreground/80">{group.label}</span>
-                          <Badge variant="secondary">{rows.length}</Badge>
-                          {catalogOnly > 0 && (
-                            <Badge variant="outline" className="border-warning/40 bg-warning-soft text-warning">{catalogOnly} eksik</Badge>
-                          )}
-                          {inactive > 0 && <Badge variant="outline" className="text-muted-foreground">{inactive} pasif</Badge>}
-                        </div>
-                      </AccordionTrigger>
-                      <AccordionContent className="px-0">
-                        <SpecGroupTable rows={rows} onAdd={addCatalogEntry} onEdit={editSpecTemplate} onDelete={deleteSpecTemplate} disabled={specBusy} divisionLabel={divisionLabel} />
-                      </AccordionContent>
-                    </AccordionItem>
-                  );
-                })}
-              </Accordion>
-            ) : (
-              <div className="rounded-lg border border-border/60 px-3 py-8 text-center text-sm text-muted-foreground">
-                {search ? (
-                  "Aramanızla eşleşen teknik alan yok."
-                ) : hasCatalog ? (
-                  <div className="space-y-2">
-                    <p>Bu ürün tipi için henüz kayıtlı teknik alan yok.</p>
-                    <Button type="button" size="sm" variant="outline" className="gap-1" disabled={specBusy} onClick={seedMissingFromCatalog}>
-                      <Sparkles className="size-4" /> Şablondan Doldur
-                    </Button>
-                  </div>
-                ) : (
-                  "Bu ürün tipi için katalog şablonu yok, alanları elle ekleyin."
-                )}
-              </div>
-            )}
-          </>
+          <Button size="sm" className="bg-blue-600 text-white hover:bg-blue-500" onClick={() => selectedType && openWorkbook(selectedType.code)}><Plus className="mr-1.5 size-4" />Yeni şablon</Button>
         )}
-    </SettingsSection>
+      </div>
+
+      <div className="flex border-b border-slate-300 bg-white">
+        {FAMILIES.map((family) => (
+          <button key={family.code} type="button" onClick={() => { setFamilyCode(family.code); setView("library"); }} className={cn("relative flex h-12 min-w-36 items-center justify-center gap-2 border-r border-slate-200 px-5 text-xs font-medium transition-colors", familyCode === family.code ? "bg-blue-50 text-blue-800" : "text-slate-600 hover:bg-slate-50")}>
+            {family.code === "CNC" ? <Settings2 className="size-4" /> : family.code === "SAC_ISLEME" ? <Sheet className="size-4" /> : <Wrench className="size-4" />}
+            {family.label}
+            {familyCode === family.code && <span className="absolute inset-x-0 bottom-0 h-0.5 bg-blue-600" />}
+          </button>
+        ))}
+      </div>
+
+      {view === "library" ? (
+        <LibraryView
+          familyCode={familyCode}
+          subcategories={subcategories}
+          subcategoryCode={subcategoryCode}
+          setSubcategoryCode={setSubcategoryCode}
+          scopedTypes={scopedTypes}
+          typeCode={typeCode}
+          setTypeCode={setTypeCode}
+          search={search}
+          setSearch={setSearch}
+          types={libraryTypes}
+          specRows={specRows}
+          loading={loading}
+          openWorkbook={openWorkbook}
+          onImport={() => setImportOpen(true)}
+        />
+      ) : selectedType ? (
+        <EditorView
+          type={selectedType}
+          search={search}
+          setSearch={setSearch}
+          rows={visibleDraftRows}
+          displayRows={displayDraftRows}
+          selectedRow={selectedDraftRow}
+          selectedRowId={selectedRowId}
+          setSelectedRowId={setSelectedRowId}
+          updateRow={updateDraftRow}
+          changeRowGroup={changeRowGroup}
+          addField={addField}
+          removeField={removeField}
+          addSection={addSection}
+          moveRow={moveRow}
+          moveRowToPosition={moveRowToPosition}
+          pasteValues={pasteValues}
+          undo={undo}
+          redo={redo}
+          canUndo={undoStack.length > 0}
+          canRedo={redoStack.length > 0}
+          completion={selectedCompletion.percent}
+          activeCount={activeCount}
+          groupCount={uniqueGroupCount}
+          dirty={dirty}
+          lastDraftSave={lastDraftSave}
+          busy={busy}
+          save={() => void saveWorkbook()}
+          openImport={() => setImportOpen(true)}
+        />
+      ) : null}
+
+      {selectedType && (
+        <TechnicalImportDialog
+          open={importOpen}
+          onOpenChange={setImportOpen}
+          productTypeCode={selectedType.code}
+          productTypeLabel={selectedType.label}
+          hierarchyLabel={hierarchyLabel}
+          divisionId={familyDivisionId}
+          availableFields={visibleDraftRows.length
+            ? visibleDraftRows.map((row) => ({ key: row.specKey, groupCode: row.groupCode, unit: row.unit }))
+            : buildDraftRows(selectedType.code, specRows)
+              .filter((row) => !row.isDeleted)
+              .map((row) => ({ key: row.specKey, groupCode: row.groupCode, unit: row.unit }))}
+          machines={machines}
+          onImported={async (importMode) => {
+            if (importMode === "machine_data") return;
+            const nextRows = await loadSpecTemplates();
+            if (view === "editor") prepareWorkbook(selectedType.code, nextRows, false);
+          }}
+        />
+      )}
+    </div>
   );
 }
 
-function SpecGroupTable({
-  rows,
-  onAdd,
-  onEdit,
-  onDelete,
-  disabled,
-  divisionLabel,
-}: {
-  rows: SpecDisplayRow[];
-  onAdd: (row: SpecDisplayRow) => void;
-  onEdit: (row: SpecTemplateRow) => void;
-  onDelete: (row: SpecTemplateRow) => void;
-  disabled: boolean;
-  divisionLabel: (id?: string | null) => string;
-}) {
+type LibraryViewProps = {
+  familyCode: FamilyCode;
+  subcategories: Array<{ code: string; label: string }>;
+  subcategoryCode: string;
+  setSubcategoryCode: (code: string) => void;
+  scopedTypes: MachineTypeOption[];
+  typeCode: string;
+  setTypeCode: (code: string) => void;
+  search: string;
+  setSearch: (value: string) => void;
+  types: MachineTypeOption[];
+  specRows: SpecTemplateRow[];
+  loading: boolean;
+  openWorkbook: (typeCode: string) => void;
+  onImport: () => void;
+};
+
+function LibraryView({ familyCode, subcategories, subcategoryCode, setSubcategoryCode, scopedTypes, typeCode, setTypeCode, search, setSearch, types, specRows, loading, openWorkbook, onImport }: LibraryViewProps) {
+  const familyLabel = FAMILIES.find((family) => family.code === familyCode)?.label ?? familyCode;
+  const recent = [...specRows].filter((row) => MACHINE_TYPES.some((type) => type.familyCode === familyCode && sameType(type.code, row.productTypeCode))).sort((a, b) => String(b.updatedAt ?? "").localeCompare(String(a.updatedAt ?? ""))).slice(0, 4);
   return (
-    <div className="min-w-0 overflow-x-auto pb-2">
-      <table className="w-full min-w-[720px] text-sm">
-        <thead className="bg-muted/20 text-left text-[11px] uppercase text-muted-foreground">
-          <tr>
-            <th className="px-3 py-2">Alan</th>
-            <th className="px-3 py-2">Başlangıç Değeri</th>
-            <th className="px-3 py-2">Birim</th>
-            <th className="px-3 py-2">Bölüm</th>
-            <th className="px-3 py-2">Sıra</th>
-            <th className="px-3 py-2">Durum</th>
-            <th className="px-3 py-2 text-right">İşlem</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row) => {
-            const isCatalogOnly = !row.dbRow;
-            return (
-              <tr
-                key={row.reactKey}
-                className={`border-t border-dotted border-foreground/20 ${isCatalogOnly ? "bg-muted/20 text-muted-foreground" : ""}`}
-              >
-                <td className="px-3 py-2">
-                  <div className="flex items-center gap-2">
-                    <span className={isCatalogOnly ? "" : "font-medium text-foreground"}>{row.specKey}</span>
-                    {isCatalogOnly && (
-                      <Badge variant="outline" className="border-warning/40 bg-warning-soft text-warning">Katalogda</Badge>
-                    )}
-                  </div>
-                </td>
-                <td className="px-3 py-2">{row.defaultValue && row.defaultValue !== "-" ? row.defaultValue : "-"}</td>
-                <td className="px-3 py-2">{row.specUnit || "-"}</td>
-                <td className="px-3 py-2">
-                  {isCatalogOnly ? (
-                    "-"
-                  ) : (
-                    <Badge variant={row.divisionId ? "secondary" : "outline"} className={row.divisionId ? "" : "text-muted-foreground"}>
-                      {divisionLabel(row.divisionId)}
-                    </Badge>
-                  )}
-                </td>
-                <td className="px-3 py-2 tabular-nums">{isCatalogOnly ? "-" : row.sortOrder}</td>
-                <td className="px-3 py-2">
-                  {isCatalogOnly ? (
-                    <Badge variant="outline" className="text-muted-foreground">Kayıtlı değil</Badge>
-                  ) : row.isActive ? (
-                    <Badge variant="outline" className="border-success/40 bg-success-soft text-success">Aktif</Badge>
-                  ) : (
-                    <Badge variant="outline" className="text-muted-foreground">Pasif</Badge>
-                  )}
-                </td>
-                <td className="px-3 py-2">
-                  <div className="flex justify-end gap-1">
-                    {isCatalogOnly ? (
-                      <Button type="button" size="sm" variant="outline" className="h-8 gap-1" disabled={disabled} onClick={() => onAdd(row)}>
-                        <Plus className="size-4" /> Ekle
-                      </Button>
-                    ) : (
-                      <>
-                        <Button type="button" variant="ghost" size="icon" className="size-8" onClick={() => onEdit(row.dbRow!)}>
-                          <Pencil className="size-4" />
-                        </Button>
-                        <Button type="button" variant="ghost" size="icon" className="size-8 text-destructive" onClick={() => onDelete(row.dbRow!)}>
-                          <Trash2 className="size-4" />
-                        </Button>
-                      </>
-                    )}
-                  </div>
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
+    <div className="bg-[#f8fafc]">
+      <div className="border-b border-slate-200 bg-white p-4">
+        <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.15fr)_minmax(240px,.9fr)]">
+          <HierarchySelect index="01" label="Ürün Kategorisi" value="TEZGAH" options={[{ code: "TEZGAH", label: "Tezgah" }]} onChange={() => undefined} />
+          <HierarchySelect index="02" label="Ürün Alt Kategorisi" value={subcategoryCode} options={subcategories} onChange={setSubcategoryCode} />
+          <HierarchySelect index="03" label="Ürün Tipi" value={typeCode} options={scopedTypes.map((type) => ({ code: type.code, label: type.label }))} onChange={setTypeCode} />
+          <div className="relative self-end">
+            <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
+            <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Makine veya şablon ara" className="h-10 border-slate-300 bg-white pl-9 text-xs" />
+          </div>
+        </div>
+        <div className="mt-2 flex items-center gap-1 text-[10px] text-slate-500"><span className="font-semibold text-blue-700">{familyLabel}</span><ArrowRight className="size-3" /><span>Tezgah</span><ArrowRight className="size-3" /><span>{subcategories.find((item) => item.code === subcategoryCode)?.label}</span></div>
+      </div>
+
+      <div className="p-4">
+        <div className="mb-3 flex items-center justify-between">
+          <div><h3 className="text-sm font-semibold text-slate-900">Makine şablonları</h3><p className="mt-0.5 text-[11px] text-slate-500">Teknik alan kapsamını kontrol edin veya çalışma sayfasını açın.</p></div>
+          <Button variant="outline" size="sm" onClick={onImport}><Upload className="mr-1.5 size-4" />Excel / CSV ile aktar</Button>
+        </div>
+        {loading ? (
+          <div className="grid min-h-64 place-items-center text-xs text-slate-500">Teknik şablonlar yükleniyor…</div>
+        ) : types.length ? (
+          <div className="grid gap-3 md:grid-cols-2 2xl:grid-cols-3">
+            {types.map((type) => <TemplateCard key={type.code} type={type} specRows={specRows} selected={sameType(type.code, typeCode)} onSelect={() => setTypeCode(type.code)} onOpen={() => openWorkbook(type.code)} />)}
+          </div>
+        ) : (
+          <div className="grid min-h-64 place-items-center rounded-lg border border-dashed border-slate-300 bg-white text-center"><div><ListFilter className="mx-auto size-7 text-slate-400" /><p className="mt-2 text-sm font-medium">Bu filtrede şablon bulunamadı</p><button type="button" className="mt-1 text-xs text-blue-700" onClick={() => setSearch("")}>Aramayı temizle</button></div></div>
+        )}
+
+        <div className="mt-4 rounded-lg border border-slate-200 bg-white">
+          <div className="flex items-center justify-between border-b border-slate-200 px-4 py-2.5"><h4 className="text-xs font-semibold text-slate-800">Son teknik hareketler</h4><span className="text-[10px] text-slate-500">{specRows.length} toplam kayıt</span></div>
+          <div className="grid divide-y divide-slate-200 md:grid-cols-2 md:divide-x md:divide-y-0 xl:grid-cols-4">
+            {recent.length ? recent.map((row) => <div key={row.id} className="flex items-start gap-2 px-4 py-3"><CheckCircle2 className="mt-0.5 size-4 shrink-0 text-emerald-600" /><div className="min-w-0"><p className="truncate text-[11px] font-medium text-slate-800">{row.specKey}</p><p className="mt-0.5 truncate text-[10px] text-slate-500">{MACHINE_TYPES.find((type) => sameType(type.code, row.productTypeCode))?.label ?? row.productTypeCode}</p></div></div>) : <div className="col-span-full px-4 py-5 text-center text-xs text-slate-500">Henüz kayıtlı teknik hareket yok.</div>}
+          </div>
+        </div>
+      </div>
     </div>
   );
+}
+
+function HierarchySelect({ index, label, value, options, onChange }: { index: string; label: string; value: string; options: Array<{ code: string; label: string }>; onChange: (value: string) => void }) {
+  return (
+    <div className="relative">
+      <label className="mb-1 flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500"><span className="font-mono text-blue-700">{index}</span>{label}</label>
+      <div className="relative">
+        <select value={value} onChange={(event) => onChange(event.target.value)} className="h-10 w-full appearance-none rounded-md border border-slate-300 bg-white px-3 pr-9 text-xs font-medium text-slate-800 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100">{options.map((option) => <option key={option.code} value={option.code}>{option.label}</option>)}</select>
+        <ChevronDown className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-slate-500" />
+      </div>
+    </div>
+  );
+}
+
+function TemplateCard({ type, specRows, selected, onSelect, onOpen }: { type: MachineTypeOption; specRows: SpecTemplateRow[]; selected: boolean; onSelect: () => void; onOpen: () => void }) {
+  const completion = completionFor(type.code, specRows);
+  const modelCode = type.code.replace(/^CNC_/, "HKM-").replaceAll("_", "-").slice(0, 18);
+  return (
+    <article onClick={onSelect} className={cn("group relative grid min-h-56 cursor-pointer grid-cols-[74px_minmax(0,1fr)] overflow-hidden rounded-lg border bg-white transition-all", selected ? "border-blue-600 shadow-[0_0_0_1px_#2563eb]" : "border-slate-300 hover:-translate-y-0.5 hover:border-slate-400 hover:shadow-md")}>
+      <div className="relative flex flex-col items-center bg-[linear-gradient(180deg,#071c54,#0a2b59)] px-2 py-3 text-white">
+        <span className="text-[8px] font-semibold tracking-[0.1em] text-white/60">TAMAMLIK</span><strong className="mt-1 font-display text-2xl">{completion.percent}%</strong>
+        <div className="mt-2 flex h-24 w-3 flex-col-reverse gap-0.5">{Array.from({ length: 10 }).map((_, index) => <span key={index} className={cn("flex-1 border border-white/10", index < Math.round(completion.percent / 10) ? "bg-blue-500" : "bg-white/25")} />)}</div>
+        <span className="mt-auto grid size-7 place-items-center rounded-full border border-white/40"><Grid3X3 className="size-3.5" /></span>
+      </div>
+      <div className="relative flex min-w-0 flex-col p-4">
+        <span className="absolute left-2 top-2 size-2 rounded-full border border-slate-400 bg-slate-200" /><span className="absolute right-2 top-2 size-2 rounded-full border border-slate-400 bg-slate-200" />
+        <p className="pl-2 font-mono text-[9px] tracking-[0.22em] text-slate-500">{modelCode}</p>
+        <h3 className="mt-3 max-w-[18rem] font-display text-[25px] font-bold uppercase leading-[0.96] tracking-tight text-[#0b1f44]">{type.label}</h3>
+        <div className="mt-4 border-t border-slate-200 pt-3 text-[11px]">
+          <div className="flex items-center justify-between text-slate-600"><span>{completion.registered} teknik alan</span><span>{new Set(machineSpecTemplateEntries(type.code).map((entry) => entry.group)).size} bölüm</span></div>
+          <div className={cn("mt-2 flex items-center gap-1.5", completion.missing ? "text-rose-600" : "text-emerald-700")}>{completion.missing ? <CircleAlert className="size-3.5" /> : <CheckCircle2 className="size-3.5" />}{completion.missing ? `${completion.missing} alan eksik` : "Şablon hazır"}</div>
+        </div>
+        <Button size="sm" className="mt-auto self-end bg-blue-600 text-white hover:bg-blue-700" onClick={(event) => { event.stopPropagation(); onOpen(); }}>Çalışma sayfasını aç<ArrowRight className="ml-1.5 size-4" /></Button>
+      </div>
+    </article>
+  );
+}
+
+type EditorViewProps = {
+  type: MachineTypeOption;
+  search: string;
+  setSearch: (value: string) => void;
+  rows: DraftRow[];
+  displayRows: Array<{ row: DraftRow; rowSpan: number }>;
+  selectedRow: DraftRow | null;
+  selectedRowId: string | null;
+  setSelectedRowId: (id: string) => void;
+  updateRow: (id: string, patch: Partial<DraftRow>) => void;
+  changeRowGroup: (id: string, groupCode: string) => void;
+  addField: (groupCode?: string) => void;
+  removeField: (id: string) => void;
+  addSection: () => void;
+  moveRow: (id: string, direction: -1 | 1) => void;
+  moveRowToPosition: (id: string, position: number) => void;
+  pasteValues: (id: string, text: string) => boolean;
+  undo: () => void;
+  redo: () => void;
+  canUndo: boolean;
+  canRedo: boolean;
+  completion: number;
+  activeCount: number;
+  groupCount: number;
+  dirty: boolean;
+  lastDraftSave: Date | null;
+  busy: boolean;
+  save: () => void;
+  openImport: () => void;
+};
+
+function EditorView({ type, search, setSearch, rows, displayRows, selectedRow, selectedRowId, setSelectedRowId, updateRow, changeRowGroup, addField, removeField, addSection, moveRow, moveRowToPosition, pasteValues, undo, redo, canUndo, canRedo, completion, activeCount, groupCount, dirty, lastDraftSave, busy, save, openImport }: EditorViewProps) {
+  const [pendingDelete, setPendingDelete] = useState<DraftRow | null>(null);
+  const [inspectorOpen, setInspectorOpen] = useState(false);
+  const [downloading, setDownloading] = useState(false);
+
+  // Şablon ekrandaki alanlardan üretilir: kullanıcı ne görüyorsa dosyada o var.
+  const downloadTemplate = async (format: "xlsx" | "csv") => {
+    setDownloading(true);
+    try {
+      await exportService.technicalImportTemplate({
+        productTypeCode: type.code,
+        productTypeLabel: type.label,
+        format,
+        fields: rows.map((row) => ({ key: row.specKey, groupCode: row.groupCode, section: groupLabel(row.groupCode), unit: row.unit, value: row.defaultValue })),
+      });
+      toast.success(`${format.toLocaleUpperCase("tr-TR")} şablonu indirildi`, { description: `${type.label} · ${rows.length} alan` });
+    } catch (error: any) {
+      toast.error("Şablon indirilemedi", { description: error?.message ?? "Sunucu isteği başarısız oldu." });
+    } finally {
+      setDownloading(false);
+    }
+  };
+
+  return (
+    <div className="bg-[#f8fafc]">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-white px-4 py-3">
+        <div className="min-w-0"><h2 className="truncate font-display text-2xl font-bold text-[#0b1f44]">{type.label}</h2><p className="font-mono text-[9px] tracking-[0.22em] text-slate-500">{type.code}</p></div>
+        <div className="flex items-center gap-2 text-[10px] text-slate-500"><Badge variant="outline" className="border-slate-300 bg-white">{type.familyCode === "SAC_ISLEME" ? "Sac İşleme" : type.familyCode === "UNIVERSAL" ? "Üniversal" : "CNC"}</Badge><ArrowRight className="size-3" /><span>Tezgah</span><ArrowRight className="size-3" /><span>{type.subcategoryLabel}</span></div>
+      </div>
+      <div className="flex flex-wrap items-center gap-2 border-b border-slate-300 bg-white px-3 py-2">
+        <Button variant="outline" size="sm" onClick={() => addField()}><Plus className="mr-1.5 size-4" />Alan ekle</Button>
+        <Button variant="outline" size="sm" onClick={addSection}><Plus className="mr-1.5 size-4" />Bölüm ekle</Button>
+        <Button variant="outline" size="sm" onClick={openImport}><Upload className="mr-1.5 size-4" />Excel / CSV yükle</Button>
+        <div className="flex items-center">
+          <Button variant="outline" size="sm" className="rounded-r-none" disabled={downloading} onClick={() => void downloadTemplate("xlsx")}>
+            {downloading ? <RefreshCw className="mr-1.5 size-4 animate-spin" /> : <Download className="mr-1.5 size-4" />}Şablon indir
+          </Button>
+          <Button variant="outline" size="sm" className="-ml-px rounded-l-none px-2 text-[10px] font-medium" disabled={downloading} title="Şablonu CSV olarak indir" onClick={() => void downloadTemplate("csv")}>CSV</Button>
+        </div>
+        <div className="ml-auto flex min-w-64 flex-1 items-center justify-end gap-2">
+          <div className="relative w-full max-w-sm"><Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" /><Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Teknik bilgide ara" className="h-8 border-slate-300 pl-9 text-xs" /></div>
+          <Button
+            variant="outline"
+            size="sm"
+            className="xl:hidden"
+            disabled={!selectedRow}
+            onClick={() => setInspectorOpen(true)}
+          >
+            <Settings2 className="mr-1.5 size-4" />Alan ayarları
+          </Button>
+          <Button variant="outline" size="icon" className="size-8" disabled={!canUndo} onClick={undo}><Undo2 className="size-4" /></Button>
+          <Button variant="outline" size="icon" className="size-8" disabled={!canRedo} onClick={redo}><Redo2 className="size-4" /></Button>
+          <Button size="sm" disabled={!dirty || busy} onClick={save} className="bg-blue-600 hover:bg-blue-700"><Save className="mr-1.5 size-4" />Kaydet</Button>
+        </div>
+      </div>
+
+      <div className="grid min-h-[620px] xl:grid-cols-[104px_minmax(680px,1fr)_264px]">
+        <aside className="hidden border-r border-slate-300 bg-white p-3 xl:flex xl:flex-col">
+          <p className="font-display text-[11px] font-bold tracking-wide text-slate-700">ŞABLON TAMLIĞI</p><strong className="mt-1 font-display text-3xl text-blue-700">{completion}%</strong>
+          <div className="mt-3 flex h-44 w-5 flex-col-reverse gap-0.5">{Array.from({ length: 12 }).map((_, index) => <span key={index} className={cn("flex-1 border border-slate-200", index < Math.round((completion / 100) * 12) ? "bg-blue-600" : "bg-slate-200")} />)}</div>
+          <div className="mt-5 border-t border-slate-200 pt-4"><p className="font-mono text-[8px] tracking-[0.14em] text-slate-500">MODEL KODU</p><p className="mt-1 break-words font-display text-base font-bold text-[#0b1f44]">{type.code.replaceAll("_", "-")}</p></div>
+          <div className="mt-4 space-y-2 text-[10px] text-slate-600"><div>{activeCount} teknik alan</div><div>{groupCount} bölüm</div><div className="flex items-center gap-1 text-emerald-700"><CheckCircle2 className="size-3" />Aktif</div></div>
+          <Grid3X3 className="mt-auto size-7 text-slate-400" />
+        </aside>
+
+        <div className="min-w-0 overflow-auto bg-white">
+          <table className="w-full min-w-[760px] border-collapse text-xs">
+            <thead className="sticky top-0 z-10 bg-slate-100 text-slate-600 shadow-[0_1px_0_#cbd5e1]">
+              <tr className="h-6 border-b border-slate-300 text-[10px]"><th className="w-11 border-r border-slate-300">#</th>{["A", "B", "C", "D", "E"].map((letter) => <th key={letter} className="border-r border-slate-300 font-medium">{letter}</th>)}<th className="w-10" /></tr>
+              <tr className="h-8"><th className="border-r border-slate-300">#</th><th className="w-24 border-r border-slate-300">Bölüm</th><th className="border-r border-slate-300">Teknik Bilgi</th><th className="border-r border-slate-300">Başlangıç Değeri</th><th className="w-28 border-r border-slate-300">Birim</th><th className="w-32 border-r border-slate-300">Durum</th><th className="w-16"><span className="sr-only">Alan işlemleri</span></th></tr>
+            </thead>
+            <tbody>
+              {displayRows.map(({ row, rowSpan }, index) => {
+                const selected = selectedRowId === row.clientId;
+                return (
+                  <tr key={row.clientId} onClick={() => setSelectedRowId(row.clientId)} className={cn("h-8 border-b border-dotted border-slate-300", selected && "bg-blue-50/60", !row.isActive && "text-slate-400")}>
+                    <td className="border-r border-slate-200 text-center tabular-nums text-slate-500">{index + 1}</td>
+                    {rowSpan > 0 && <td rowSpan={rowSpan} className="border-r border-slate-300 bg-slate-50 p-0 text-center"><span style={{ writingMode: "vertical-rl", transform: "rotate(180deg)" }} className="inline-block py-2 font-display text-sm font-bold tracking-[0.08em] text-slate-700">{groupLabel(row.groupCode)}</span></td>}
+                    <td className="border-r border-slate-200 p-0"><input value={row.specKey} onFocus={() => setSelectedRowId(row.clientId)} onChange={(event) => updateRow(row.clientId, { specKey: event.target.value })} className="h-8 w-full border-0 bg-transparent px-3 outline-none focus:bg-white focus:ring-2 focus:ring-inset focus:ring-blue-500" /></td>
+                    <td className="border-r border-slate-200 p-0"><input value={row.defaultValue} onFocus={() => setSelectedRowId(row.clientId)} onPaste={(event) => { if (pasteValues(row.clientId, event.clipboardData.getData("text"))) event.preventDefault(); }} onChange={(event) => updateRow(row.clientId, { defaultValue: event.target.value })} className="h-8 w-full border-0 bg-transparent px-3 font-medium outline-none focus:bg-white focus:ring-2 focus:ring-inset focus:ring-blue-500" /></td>
+                    <td className="border-r border-slate-200 p-0"><input value={row.unit} onFocus={() => setSelectedRowId(row.clientId)} onChange={(event) => updateRow(row.clientId, { unit: event.target.value })} className="h-8 w-full border-0 bg-transparent px-3 outline-none focus:bg-white focus:ring-2 focus:ring-inset focus:ring-blue-500" /></td>
+                    <td className="border-r border-slate-200 p-0"><select value={row.isActive ? "active" : "inactive"} onChange={(event) => updateRow(row.clientId, { isActive: event.target.value === "active" })} className="h-8 w-full border-0 bg-transparent px-2 text-[11px] outline-none focus:ring-2 focus:ring-inset focus:ring-blue-500"><option value="active">● Aktif</option><option value="inactive">○ Pasif</option></select></td>
+                    <td className="p-0 text-center">
+                      <button
+                        type="button"
+                        title="Bölüm, sıra ve alan ayarları"
+                        aria-label={`${row.specKey} alanının ayarlarını aç`}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          setSelectedRowId(row.clientId);
+                          setInspectorOpen(true);
+                        }}
+                        className="inline-grid size-8 place-items-center text-slate-400 transition-colors hover:bg-blue-50 hover:text-blue-700 xl:hidden"
+                      >
+                        <Settings2 className="size-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        title="Alanı sil"
+                        aria-label={`${row.specKey} alanını sil`}
+                        onClick={(event) => { event.stopPropagation(); setPendingDelete(row); }}
+                        className="inline-grid size-8 place-items-center text-slate-400 transition-colors hover:bg-rose-50 hover:text-rose-600"
+                      >
+                        <Trash2 className="size-3.5" />
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+
+        <aside className="hidden border-l border-slate-300 bg-white xl:block">
+          <div className="flex h-11 items-center justify-between border-b border-slate-200 px-4"><h3 className="text-xs font-semibold text-slate-800">Alan ayarları</h3><Settings2 className="size-4 text-slate-400" /></div>
+          {selectedRow ? (
+            <FieldInspector
+              row={selectedRow}
+              rows={rows}
+              updateRow={updateRow}
+              changeRowGroup={changeRowGroup}
+              moveRow={moveRow}
+              moveRowToPosition={moveRowToPosition}
+              requestDelete={setPendingDelete}
+            />
+          ) : <div className="p-6 text-center text-xs text-slate-500">Ayarlarını düzenlemek için bir satır seçin.</div>}
+        </aside>
+      </div>
+
+      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-300 bg-white px-4 py-2.5 text-[11px]">
+        <div className="flex items-center gap-4"><span>{rows.length} teknik alan</span><span>{groupCount} bölüm</span><span className={cn("flex items-center gap-1", dirty ? "text-amber-700" : "text-emerald-700")}>{dirty ? <CircleAlert className="size-3.5" /> : <CheckCircle2 className="size-3.5" />}{dirty ? lastDraftSave ? `Taslak kaydedildi ${lastDraftSave.toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" })}` : "Kaydedilmemiş değişiklikler" : "Tüm değişiklikler kayıtlı"}</span></div>
+        <div className="flex items-center"><button type="button" className="border-b-2 border-blue-600 px-5 py-2 font-medium text-blue-700">Şablon Alanları</button><button type="button" onClick={openImport} className="border-b-2 border-transparent px-5 py-2 text-slate-600 hover:text-slate-900">Makine Verileri</button><button type="button" onClick={() => addField()} className="ml-2 grid size-8 place-items-center rounded border border-slate-200 hover:bg-slate-50"><Plus className="size-4" /></button></div>
+      </div>
+
+      <SideSheet open={inspectorOpen && Boolean(selectedRow)} onOpenChange={setInspectorOpen}>
+        <SideSheetContent className="w-[min(420px,92vw)] gap-0 overflow-y-auto sm:max-w-[420px]">
+          <SideSheetHeader className="border-b border-slate-200">
+            <SideSheetTitle>Alan ayarları</SideSheetTitle>
+            <SideSheetDescription>
+              Bölümü, bölüm içindeki sırası ve görünürlüğü buradan değiştirin.
+            </SideSheetDescription>
+          </SideSheetHeader>
+          {selectedRow && (
+            <FieldInspector
+              row={selectedRow}
+              rows={rows}
+              updateRow={updateRow}
+              changeRowGroup={changeRowGroup}
+              moveRow={moveRow}
+              moveRowToPosition={moveRowToPosition}
+              requestDelete={(row) => {
+                setInspectorOpen(false);
+                setPendingDelete(row);
+              }}
+            />
+          )}
+        </SideSheetContent>
+      </SideSheet>
+
+      <AlertDialog open={Boolean(pendingDelete)} onOpenChange={(open) => !open && setPendingDelete(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Teknik alan silinsin mi?</AlertDialogTitle>
+            <AlertDialogDescription>
+              <b>{pendingDelete?.specKey}</b> alanı {type.label} şablonundan kaldırılacak.
+              {" "}Kaydet'e bastığınızda değişiklik kalıcı olur; mevcut makinelerde girilmiş teknik değerler korunur.
+              Yalnızca yeni makinelerde göstermemek istiyorsanız pasifleştirmeyi kullanın.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Vazgeç</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-rose-600 hover:bg-rose-700"
+              onClick={(event) => {
+                event.preventDefault();
+                if (pendingDelete) removeField(pendingDelete.clientId);
+                setPendingDelete(null);
+              }}
+            >
+              Alanı sil
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </div>
+  );
+}
+
+type FieldInspectorProps = {
+  row: DraftRow;
+  rows: DraftRow[];
+  updateRow: (id: string, patch: Partial<DraftRow>) => void;
+  changeRowGroup: (id: string, groupCode: string) => void;
+  moveRow: (id: string, direction: -1 | 1) => void;
+  moveRowToPosition: (id: string, position: number) => void;
+  requestDelete: (row: DraftRow) => void;
+};
+
+function FieldInspector({
+  row,
+  rows,
+  updateRow,
+  changeRowGroup,
+  moveRow,
+  moveRowToPosition,
+  requestDelete,
+}: FieldInspectorProps) {
+  const sectionRows = rows.filter((item) => item.groupCode === row.groupCode);
+  const sectionPosition = Math.max(0, sectionRows.findIndex((item) => item.clientId === row.clientId));
+
+  return (
+    <div className="space-y-4 p-4">
+      <InspectorField label="Teknik bilgi adı" value={row.specKey} onChange={(value) => updateRow(row.clientId, { specKey: value })} />
+      <InspectorField label="Başlangıç değeri" value={row.defaultValue} onChange={(value) => updateRow(row.clientId, { defaultValue: value })} />
+
+      <div>
+        <label className="text-[10px] font-medium text-slate-500">Bölüm</label>
+        <select
+          value={row.groupCode}
+          onChange={(event) => changeRowGroup(row.clientId, event.target.value)}
+          className="mt-1 h-9 w-full rounded-md border border-slate-300 bg-white px-2 text-xs outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100"
+        >
+          {PRODUCT_SPEC_GROUPS.map((group) => <option key={group.code} value={group.code}>{group.label}</option>)}
+        </select>
+        <p className="mt-1 text-[10px] text-slate-500">Bölüm değiştiğinde alan yeni bölümün sonuna taşınır.</p>
+      </div>
+
+      <div>
+        <label className="text-[10px] font-medium text-slate-500">Bölüm içindeki sıra</label>
+        <select
+          value={sectionPosition}
+          onChange={(event) => moveRowToPosition(row.clientId, Number(event.target.value))}
+          className="mt-1 h-9 w-full rounded-md border border-slate-300 bg-white px-2 text-xs outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100"
+        >
+          {sectionRows.map((item, index) => (
+            <option key={item.clientId} value={index}>
+              {index + 1}. sıra{item.clientId === row.clientId ? " — mevcut" : ""}
+            </option>
+          ))}
+        </select>
+        <div className="mt-2 grid grid-cols-2 gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={sectionPosition === 0}
+            onClick={() => moveRow(row.clientId, -1)}
+          >
+            Yukarı taşı
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={sectionPosition >= sectionRows.length - 1}
+            onClick={() => moveRow(row.clientId, 1)}
+          >
+            Aşağı taşı
+          </Button>
+        </div>
+      </div>
+
+      <InspectorField label="Birim" value={row.unit} onChange={(value) => updateRow(row.clientId, { unit: value })} />
+      <div className="flex items-center justify-between rounded-md border border-slate-200 bg-slate-50 px-3 py-2.5">
+        <div>
+          <p className="text-xs font-medium text-slate-800">Aktif alan</p>
+          <p className="text-[10px] text-slate-500">Yeni makinelerde gösterilir</p>
+        </div>
+        <Switch checked={row.isActive} onCheckedChange={(checked) => updateRow(row.clientId, { isActive: checked })} />
+      </div>
+      <Button
+        variant="outline"
+        size="sm"
+        className="w-full border-amber-200 text-amber-700 hover:bg-amber-50"
+        disabled={!row.isActive}
+        onClick={() => updateRow(row.clientId, { isActive: false })}
+      >
+        <EyeOff className="mr-1.5 size-4" />Alanı pasifleştir
+      </Button>
+      <Button
+        variant="outline"
+        size="sm"
+        className="w-full border-rose-200 text-rose-700 hover:bg-rose-50"
+        title="Alanı şablondan kalıcı olarak kaldır"
+        onClick={() => requestDelete(row)}
+      >
+        <Trash2 className="mr-1.5 size-4" />Alanı sil
+      </Button>
+      <p className="text-[10px] leading-relaxed text-slate-500">
+        Pasifleştirme alanı listede tutar ve yeni makinelerde göstermez. Silme alanı şablondan kaldırır;
+        mevcut makinelerde daha önce girilmiş değerleri silmez.
+      </p>
+    </div>
+  );
+}
+
+function InspectorField({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
+  return <div><label className="text-[10px] font-medium text-slate-500">{label}</label><Input value={value} onChange={(event) => onChange(event.target.value)} className="mt-1 h-9 border-slate-300 text-xs" /></div>;
 }

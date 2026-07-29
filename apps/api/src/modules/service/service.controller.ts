@@ -76,21 +76,34 @@ const serviceStageSchema = z.enum([
   'Closed',
 ]);
 const serviceQuoteSchema = z.object({
-  quoteNo: z.string().trim().min(1),
-  date: z.string().trim().min(1),
-  validity: z.string().trim().min(1),
-  writerName: z.string().trim().min(1),
-  company: z.string().trim().min(1),
-  subject: z.string().trim().min(1),
+  quoteNo: z.string().trim().min(1).max(128),
+  date: z.string().trim().min(1).max(32),
+  validity: z.string().trim().min(1).max(64),
+  writerName: z.string().trim().min(1).max(255),
+  writerTitle: z.string().trim().max(255).optional(),
+  writerEmail: z.string().trim().max(320).optional(),
+  company: z.string().trim().min(1).max(500),
+  contact: z.string().trim().max(255).optional(),
+  mobile: z.string().trim().max(64).optional(),
+  phone: z.string().trim().max(64).optional(),
+  address: z.string().trim().max(1000).optional(),
+  email: z.string().trim().max(320).optional(),
+  subject: z.string().trim().min(1).max(4000),
   currency: z.enum(['USD', 'EUR', 'TRY']),
+  vatRate: z.coerce.number().min(0).max(100).optional(),
+  vatAmount: z.coerce.number().min(0).max(1_000_000_000).optional(),
+  noteVariantKey: z.string().trim().max(128).optional(),
+  notes: z.array(z.string().trim().max(2000)).max(50).optional(),
   items: z.array(z.object({
+    id: z.string().trim().max(128).optional(),
     productModelId: z.string().uuid().optional().nullable(),
     stockCode: z.string().trim().max(64).optional().nullable(),
-    description: z.string().trim().min(1),
-    quantity: z.coerce.number().positive(),
-    unit: z.string().trim().min(1),
-    unitPrice: z.coerce.number().min(0),
-  })).min(1),
+    description: z.string().trim().min(1).max(1000),
+    quantity: z.coerce.number().positive().max(100_000),
+    unit: z.string().trim().min(1).max(32),
+    unitPrice: z.coerce.number().min(0).max(1_000_000_000),
+  })).min(1).max(60),
+  savedAt: z.string().trim().max(64).optional(),
 }).passthrough();
 const serviceCompletionPartSchema = z.object({
   id: z.string().trim().min(1).max(128),
@@ -137,7 +150,7 @@ const serviceCompletionFormSchema = z.object({
   responsibility: z.enum(['ucretli', 'garanti', 'bakim']).optional(),
   yapilanIsler: z.string().trim().max(8000).optional(),
   notlar: z.string().trim().max(4000).optional(),
-  degisenParcalar: z.array(serviceCompletionPartSchema).max(6).optional(),
+  degisenParcalar: z.array(serviceCompletionPartSchema).max(60).optional(),
   servisUcreti: z.coerce.number().min(0).max(1_000_000_000).optional(),
   ulasimUcreti: z.coerce.number().min(0).max(1_000_000_000).optional(),
   currency: z.enum(['USD', 'EUR', 'TRY']).optional(),
@@ -411,16 +424,11 @@ export class ServiceController {
     return company;
   }
 
-  private expectedCarrierSector(transportMode?: string | null) {
-    if (!transportMode) return null;
-    return transportMode === 'local_cargo' ? 'Yerel Kargo' : 'Nakliye / Lojistik';
-  }
-
-  private async assertCarrierCompany(companyId: string, tenantId: string, transportMode?: string | null) {
+  private async assertCarrierCompany(companyId: string, tenantId: string, _transportMode?: string | null) {
     const company = await this.assertCompany(companyId, tenantId);
-    const expectedSector = this.expectedCarrierSector(transportMode);
-    if (expectedSector && company.sector !== expectedSector) {
-      throw new ValidationError(`Taşıyıcı firma sektörü "${expectedSector}" olmalıdır`, { field: 'carrierCompanyId' });
+    const isLegacyCarrier = ['Yerel Kargo', 'Nakliye / Lojistik'].includes(company.sector ?? '');
+    if (!company.supplierCategoryCode && !isLegacyCarrier) {
+      throw new ValidationError('Taşıyıcı firma, Tedarikçiler bölümünde Nakliye veya Lojistik olarak işaretlenmelidir', { field: 'carrierCompanyId' });
     }
     return company;
   }
@@ -742,7 +750,7 @@ export class ServiceController {
       serviceType,
       responsibility,
       operations: operationLines,
-      parts: parts.slice(0, 6),
+      parts,
       serviceFee,
       travelFee,
       currency,
@@ -888,6 +896,73 @@ export class ServiceController {
     return rows.map(({ line, item }) => ({ line, item: item! }));
   }
 
+  /** Gelen sevkiyatta serbest girilen seri numaralarını yoldaki stok kayıtlarına dönüştürür. */
+  private async prepareIncomingShipmentItems(
+    shipment: typeof shipments.$inferSelect,
+    tenantId: string,
+    loadingDate: Date,
+  ) {
+    const rows = await this.db
+      .select({ line: shipmentItems, item: inventoryItems })
+      .from(shipmentItems)
+      .leftJoin(inventoryItems, eq(shipmentItems.inventoryItemId, inventoryItems.id))
+      .where(and(eq(shipmentItems.shipmentId, shipment.id), eq(shipmentItems.tenantId, tenantId), isNull(shipmentItems.deletedAt)))
+      .orderBy(shipmentItems.sortOrder);
+    if (!rows.length) {
+      throw new ValidationError('Sevkiyatı başlatmak için en az bir ürün satırı gerekir', { field: 'items' });
+    }
+    const inTransitId = await lookupIdByCode(this.db, inventoryStatuses, 'in_transit');
+    const onRoadId = await lookupIdByCode(this.db, stockLocationStatuses, 'on_road');
+    for (const { line, item } of rows) {
+      if (!line.productModelId) {
+        throw new ValidationError('Gelen sevkiyattaki her satırda kayıtlı bir ürün seçilmelidir', { field: 'items' });
+      }
+      if (!line.serialNumber?.trim()) {
+        throw new ValidationError('Gelen sevkiyat başlatılmadan önce tüm ürünlerde seri no girilmelidir', { field: 'items' });
+      }
+      if (item) {
+        if (item.tenantId !== tenantId || item.deletedAt || item.productModelId !== line.productModelId || item.serialNumber !== line.serialNumber) {
+          throw new ValidationError('Sevkiyat satırındaki ürün ve seri no stok kaydıyla eşleşmiyor', { field: 'items' });
+        }
+        continue;
+      }
+      const existing = await this.db.query.inventoryItems.findFirst({
+        where: and(eq(inventoryItems.tenantId, tenantId), eq(inventoryItems.serialNumber, line.serialNumber), isNull(inventoryItems.deletedAt)),
+      });
+      if (existing && existing.productModelId !== line.productModelId) {
+        throw new ValidationError('Bu seri numarası başka bir üründe kayıtlı', { field: 'items' });
+      }
+      const inventoryItem = existing ?? (await this.db
+        .insert(inventoryItems)
+        .values({
+          tenantId,
+          divisionId: shipment.divisionId,
+          productModelId: line.productModelId,
+          serialNumber: line.serialNumber,
+          stockStatusId: inTransitId,
+          locationStatusId: onRoadId,
+          loadingDate,
+          notes: `Gelen sevkiyat: ${shipment.shipmentNo ?? shipment.trackingNo ?? shipment.id}`,
+        })
+        .returning())[0];
+      await this.db
+        .update(shipmentItems)
+        .set({ inventoryItemId: inventoryItem.id, serialNumber: inventoryItem.serialNumber })
+        .where(eq(shipmentItems.id, line.id));
+    }
+    return this.assertShipmentItemsResolved(shipment.id, tenantId);
+  }
+
+  private async prepareShipmentForTransit(
+    shipment: typeof shipments.$inferSelect,
+    tenantId: string,
+    loadingDate: Date,
+  ) {
+    return shipment.direction === 'outgoing'
+      ? this.assertShipmentItemsResolved(shipment.id, tenantId)
+      : this.prepareIncomingShipmentItems(shipment, tenantId, loadingDate);
+  }
+
   /** Sevkiyata çıkan seri-numaralı kalemleri `in_transit/on_road` yapar + `ship` hareketi yazar (idempotent). */
   private async markInventoryInTransit(shipmentId: string, tenantId: string, actorUserId: string, loadingDate: Date) {
     const inTransitId = await lookupIdByCode(this.db, inventoryStatuses, 'in_transit');
@@ -1021,6 +1096,8 @@ export class ServiceController {
         sortOrder: item.sortOrder,
         packageCount: item.packageCount ?? null,
         palletCount: item.palletCount ?? null,
+        packageQuantity: item.packageQuantity ?? item.palletCount ?? item.packageCount ?? null,
+        packageUnitCode: item.packageUnitCode ?? (item.palletCount ? 'pallet' : item.packageCount ? 'package' : null),
         packageLengthCm: this.moneyValue(item.packageLengthCm),
         packageWidthCm: this.moneyValue(item.packageWidthCm),
         packageHeightCm: this.moneyValue(item.packageHeightCm),
@@ -1982,8 +2059,12 @@ export class ServiceController {
     @CurrentUser() user: AuthContext,
   ) {
     const filters = [eq(companies.tenantId, user.tenantId), isNull(companies.deletedAt)];
-    const sector = query.purpose === 'carrier' ? this.expectedCarrierSector(query.transportMode) : null;
-    if (sector) filters.push(eq(companies.sector, sector));
+    if (query.purpose === 'carrier') {
+      filters.push(or(
+        inArray(companies.supplierCategoryCode, ['transportation', 'logistics']),
+        inArray(companies.sector, ['Yerel Kargo', 'Nakliye / Lojistik'])
+      ) ?? sql`false`);
+    }
     if (query.search?.trim()) {
       const search = `%${query.search.trim()}%`;
       filters.push(or(ilike(companies.legalTitle, search), ilike(companies.shortName, search)) ?? sql`true`);
@@ -1994,6 +2075,7 @@ export class ServiceController {
         legalTitle: companies.legalTitle,
         shortName: companies.shortName,
         sector: companies.sector,
+        supplierCategoryCode: companies.supplierCategoryCode,
       })
       .from(companies)
       .where(and(...filters))
@@ -2064,6 +2146,7 @@ export class ServiceController {
         senderCompanyId: body.senderCompanyId ?? null,
         senderName: body.senderName ?? null,
         carrierCompanyId: body.carrierCompanyId ?? null,
+        direction: body.direction,
         transportMode: body.transportMode ?? null,
         productCategoryCode: body.productCategoryCode ?? null,
         destinationWarehouseId: body.destinationWarehouseId ?? null,
@@ -2082,6 +2165,7 @@ export class ServiceController {
     if (body.items?.length) await this.insertShipmentItems(row.id, user.tenantId, companyId, body.items);
     if (body.statusCode === 'in_transit') {
       const loadingDate = body.loadingDate ?? new Date();
+      await this.prepareShipmentForTransit(row, user.tenantId, loadingDate);
       await this.markInventoryInTransit(row.id, user.tenantId, user.userId, loadingDate);
       const [updated] = await this.db
         .update(shipments)
@@ -2101,9 +2185,9 @@ export class ServiceController {
     @CurrentUser() user: AuthContext,
   ) {
     const shipment = await this.assertShipment(id, user.tenantId, user);
-    await this.assertShipmentItemsResolved(id, user.tenantId);
     const statusId = await lookupIdByCode(this.db, shipmentStatuses, 'in_transit');
     const loadingDate = body.loadingDate ?? shipment.loadingDate ?? new Date();
+    await this.prepareShipmentForTransit(shipment, user.tenantId, loadingDate);
     const [updated] = await this.db
       .update(shipments)
       .set({ statusId, shippedAt: shipment.shippedAt ?? loadingDate, loadingDate })
@@ -2129,11 +2213,13 @@ export class ServiceController {
     let destinationWarehouseId = body.destinationWarehouseId ?? shipment.destinationWarehouseId ?? null;
     let arrivalDate = body.arrivedAt ?? now;
     if (body.statusCode === 'delivered') {
-      if (!destinationWarehouseId) {
+      if (shipment.direction !== 'outgoing' && !destinationWarehouseId) {
         throw new ValidationError('Sevkiyat tamamlanmadan önce varış deposu seçilmelidir', { field: 'destinationWarehouseId' });
       }
-      await this.assertWarehouse(destinationWarehouseId, user.tenantId);
-      patch.destinationWarehouseId = destinationWarehouseId;
+      if (destinationWarehouseId) {
+        await this.assertWarehouse(destinationWarehouseId, user.tenantId);
+        patch.destinationWarehouseId = destinationWarehouseId;
+      }
       patch.arrivedAt = shipment.arrivedAt ?? arrivalDate;
       arrivalDate = patch.arrivedAt as Date;
     }
@@ -2141,9 +2227,14 @@ export class ServiceController {
 
     // Durum geçişlerinde seri-numaralı stoğu senkronla.
     if (body.statusCode === 'in_transit') {
+      await this.prepareShipmentForTransit(shipment, user.tenantId, (patch.loadingDate as Date) ?? now);
       await this.markInventoryInTransit(shipment.id, user.tenantId, user.userId, (patch.loadingDate as Date) ?? now);
     } else if (body.statusCode === 'delivered') {
-      await this.receiveShipmentInventory(shipment.id, user.tenantId, destinationWarehouseId!, arrivalDate, user.userId);
+      if (shipment.direction === 'outgoing') {
+        await this.markInventoryDelivered(shipment.id, user.tenantId, shipment.companyId, arrivalDate, 'shipment', shipment.id, user.userId);
+      } else {
+        await this.receiveShipmentInventory(shipment.id, user.tenantId, destinationWarehouseId!, arrivalDate, user.userId);
+      }
     }
     return { ok: true };
   }

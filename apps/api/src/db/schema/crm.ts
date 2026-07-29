@@ -1,4 +1,5 @@
-import { pgTable, uuid, varchar, text, integer, timestamp, index, uniqueIndex } from 'drizzle-orm/pg-core';
+import { sql } from 'drizzle-orm';
+import { pgTable, uuid, varchar, text, integer, timestamp, jsonb, index, uniqueIndex } from 'drizzle-orm/pg-core';
 import { auditColumns, ownerColumns, money } from './_helpers';
 import { tenants, divisions } from './tenants';
 import { users } from './users';
@@ -95,14 +96,28 @@ export const opportunities = pgTable(
     tenantId: uuid('tenant_id')
       .notNull()
       .references(() => tenants.id, { onDelete: 'cascade' }),
-    companyId: uuid('company_id')
-      .notNull()
-      .references(() => companies.id, { onDelete: 'restrict' }),
+    // Hızlı lead aşamasında firma henüz bilinmeyebilir. Teklif oluşturulmadan
+    // önce gerçek bir firma kaydı bağlanır.
+    companyId: uuid('company_id').references(() => companies.id, { onDelete: 'restrict' }),
     divisionId: uuid('division_id').references(() => divisions.id, { onDelete: 'set null' }),
     primaryContactId: uuid('primary_contact_id').references(() => contacts.id, { onDelete: 'set null' }),
     ownerUserId: uuid('owner_user_id').references(() => users.id),
     title: varchar('title', { length: 255 }).notNull(),
     description: text('description'),
+    leadContactName: varchar('lead_contact_name', { length: 255 }),
+    leadCompanyTitle: varchar('lead_company_title', { length: 255 }),
+    leadContactValue: varchar('lead_contact_value', { length: 320 }),
+    leadCity: varchar('lead_city', { length: 120 }),
+    leadPhone: varchar('lead_phone', { length: 64 }),
+    leadEmail: varchar('lead_email', { length: 254 }),
+    // Firmanın alım niyeti: hot (sıcak) | waiting (beklemede) | cold (soğuk).
+    leadTemperature: varchar('lead_temperature', { length: 16 }),
+    // Harici sistem kimliği lead/kontak alanlarından ayrı tutulur. Böylece
+    // Trello pano adı, üyesi ve URL'si CRM firma bilgisi gibi davranmaz.
+    externalSource: varchar('external_source', { length: 32 }),
+    externalKey: varchar('external_key', { length: 320 }),
+    externalUrl: varchar('external_url', { length: 512 }),
+    externalMetadata: jsonb('external_metadata').$type<Record<string, unknown>>(),
     currentStageId: uuid('current_stage_id')
       .notNull()
       .references(() => pipelineStages.id),
@@ -117,6 +132,15 @@ export const opportunities = pgTable(
     lostCompetitorProductModel: varchar('lost_competitor_product_model', { length: 255 }),
     // Makine satışında ödeme vadesi (gün); sözleşme/ödeme planı varsayılanı.
     paymentTermDays: integer('payment_term_days'),
+    // Lead kartında seçilen ödeme yöntemi (cash, term, leasing vb.).
+    paymentMethod: varchar('payment_method', { length: 32 }),
+    // Lead havuzu ile C/B/A/A+/WIN/LOST satış derecesi, operasyon aşamasından ayrıdır.
+    qualificationStage: varchar('qualification_stage', { length: 16 }).notNull().default('lead'),
+    qualificationNote: text('qualification_note'),
+    qualificationUpdatedAt: timestamp('qualification_updated_at', { withTimezone: true }),
+    requestedMachine: varchar('requested_machine', { length: 255 }),
+    contractTerms: text('contract_terms'),
+    paymentTerms: text('payment_terms'),
     // Kazanılan fırsatlarda kabul/kazanma nedeni (yıl sonu raporu için).
     wonReason: varchar('won_reason', { length: 255 }),
     // Mantıksal kapanış (arşiv) — `deletedAt` (silme) DEĞİL. Terminal aşamadaki
@@ -132,9 +156,59 @@ export const opportunities = pgTable(
     tenantDivisionIdx: index('opportunities_tenant_division_idx').on(t.tenantId, t.divisionId),
     companyIdx: index('opportunities_company_idx').on(t.companyId),
     stageIdx: index('opportunities_stage_idx').on(t.currentStageId),
+    qualificationStageIdx: index('opportunities_qualification_stage_idx').on(t.tenantId, t.qualificationStage),
     expectedCloseDateIdx: index('opportunities_expected_close_date_idx').on(t.expectedCloseDate),
     ownerIdx: index('opportunities_owner_idx').on(t.ownerUserId),
     closedAtIdx: index('opportunities_closed_at_idx').on(t.closedAt),
+    externalAliveUnique: uniqueIndex('opportunities_tenant_external_alive_unique')
+      .on(t.tenantId, t.externalSource, t.externalKey)
+      .where(sql`${t.deletedAt} is null and ${t.externalSource} is not null and ${t.externalKey} is not null`),
+  })
+);
+
+export const opportunityQualificationHistory = pgTable(
+  'opportunity_qualification_history',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id')
+      .notNull()
+      .references(() => tenants.id, { onDelete: 'cascade' }),
+    opportunityId: uuid('opportunity_id')
+      .notNull()
+      .references(() => opportunities.id, { onDelete: 'cascade' }),
+    fromStage: varchar('from_stage', { length: 16 }),
+    toStage: varchar('to_stage', { length: 16 }).notNull(),
+    changedBy: uuid('changed_by').references(() => users.id, { onDelete: 'set null' }),
+    changeReason: text('change_reason'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    opportunityIdx: index('opportunity_qualification_history_opportunity_idx').on(t.opportunityId),
+    tenantIdx: index('opportunity_qualification_history_tenant_idx').on(t.tenantId),
+  })
+);
+
+export const opportunityApprovals = pgTable(
+  'opportunity_approvals',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id')
+      .notNull()
+      .references(() => tenants.id, { onDelete: 'cascade' }),
+    opportunityId: uuid('opportunity_id')
+      .notNull()
+      .references(() => opportunities.id, { onDelete: 'cascade' }),
+    approvalType: varchar('approval_type', { length: 32 }).notNull(),
+    status: varchar('status', { length: 16 }).notNull().default('pending'),
+    decidedBy: uuid('decided_by').references(() => users.id, { onDelete: 'set null' }),
+    decidedAt: timestamp('decided_at', { withTimezone: true }),
+    note: text('note'),
+    ...auditColumns,
+  },
+  (t) => ({
+    tenantIdx: index('opportunity_approvals_tenant_idx').on(t.tenantId),
+    opportunityIdx: index('opportunity_approvals_opportunity_idx').on(t.opportunityId),
+    opportunityTypeUnique: uniqueIndex('opportunity_approvals_opportunity_type_unique').on(t.opportunityId, t.approvalType),
   })
 );
 

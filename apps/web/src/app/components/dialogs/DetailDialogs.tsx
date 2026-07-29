@@ -1,5 +1,9 @@
 import { useState } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "../ui/dialog";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
+  AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "../ui/alert-dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../ui/tabs";
 import { Button } from "../ui/button";
 import { Avatar, AvatarFallback } from "../ui/avatar";
@@ -7,7 +11,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from ".
 import {
   Phone, Smartphone, Mail, MapPin, Building2, Star, Globe, Hash, Briefcase,
   FileText, FileSignature, Receipt, Wallet, Cpu, Wrench, ChevronRight, User as UserIcon,
-  Plus, Pencil, Trash2,
+  Plus, Pencil, Trash2, NotebookText,
 } from "lucide-react";
 import {
   Customer, Contact, FirmType, SalesCase, Offer, Machine, DocumentItem, ServiceRequest,
@@ -28,12 +32,14 @@ const FIRM_TYPE_LABEL: Record<FirmType, string> = {
   customer: "Müşteri",
   supplier_customer: "Tedarikçi + Müşteri",
   supplier: "Tedarikçi",
+  competitor: "Rakip",
 };
 
 const FIRM_TYPE_COLOR: Record<FirmType, string> = {
   customer: "bg-blue-50 text-blue-700 border-blue-200",
   supplier_customer: "bg-brand-blue-soft text-brand-blue border-blue-200",
   supplier: "bg-amber-50 text-amber-700 border-amber-200",
+  competitor: "bg-rose-50 text-rose-700 border-rose-200",
 };
 
 const ADDRESS_TYPE_LABELS: Record<string, string> = {
@@ -123,6 +129,7 @@ export function CompanyDetailDialog({
 }) {
   const { contacts, cases, offers, documents, payments, machines, service, deleteContact } = useStore();
   const [editingContact, setEditingContact] = useState<Contact | null>(null);
+  const [pendingContactDelete, setPendingContactDelete] = useState<Contact | null>(null);
   const [breakdown, setBreakdown] = useState<BreakdownKey | null>(null);
   if (!customer) return null;
 
@@ -137,6 +144,20 @@ export function CompanyDetailDialog({
   const firmPayments = payments.filter((p) => p.customerId === customer.id);
   const firmMachines = machines.filter((m) => m.customerId === customer.id);
   const firmService = service.filter((s) => s.customerId === customer.id);
+  const companyAddresses = customer.addresses?.length
+    ? customer.addresses
+    : (customer.address || customer.city || customer.district || customer.country)
+      ? [{
+          addressType: "office" as const,
+          address: customer.address,
+          district: customer.district,
+          city: customer.city,
+          country: customer.country ?? "Türkiye",
+          isDefault: true,
+          isShipping: true,
+          isBilling: true,
+        }]
+      : [];
 
   // Total quoted value across all offers for this firm, grouped by currency.
   const totalQuoted = sumByCurrency(firmOffers.map((o) => ({ amount: o.amount, currency: o.currency })));
@@ -151,11 +172,22 @@ export function CompanyDetailDialog({
     Other: "Diğer",
   };
 
+  const removeContact = async () => {
+    if (!pendingContactDelete) return;
+    try {
+      await deleteContact(pendingContactDelete.id);
+      toast.success("Kontak silindi");
+      setPendingContactDelete(null);
+    } catch (err: any) {
+      toast.error("Kontak silinemedi", { description: err?.message ?? "API isteği başarısız oldu." });
+    }
+  };
+
   return (
     <Dialog open={!!customer} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="sm:max-w-3xl max-h-[88vh] overflow-y-auto p-0 gap-0">
         {/* header */}
-        <DialogHeader className="px-6 pt-6 pb-4 border-b border-border/60">
+        <DialogHeader className="border-b border-border/60 px-4 pb-4 pt-6 sm:px-6">
           <div className="flex items-start gap-3">
             <div className={`size-11 rounded-xl grid place-items-center shrink-0 ${
               customer.type === "company"
@@ -198,20 +230,69 @@ export function CompanyDetailDialog({
             <Field icon={<Globe className="size-4" />} label="Web" value={customer.website} />
             <Field icon={<UserIcon className="size-4" />} label="Oluşturan" value={createdMeta(customer)} />
           </div>
-          {(customer.addresses?.length ?? 0) > 0 && (
-            <div className="mt-3 flex flex-wrap gap-2">
-              {customer.addresses!.map((address, index) => (
-                <div key={address.id ?? index} className="rounded-lg border border-border/60 bg-muted/30 px-3 py-2 text-xs">
-                  <span className="font-medium">{ADDRESS_TYPE_LABELS[address.addressType] ?? "Adres"}</span>
-                  <span className="ml-2 text-muted-foreground">{[address.address, address.district, address.city].filter(Boolean).join(", ") || "Adres bilgisi yok"}</span>
+          {companyAddresses.length > 0 && (
+            <section className="mt-4 overflow-hidden rounded-lg border border-border/60 bg-white" aria-label="Firma adresleri">
+              <div className="flex items-center justify-between border-b border-border/60 bg-muted/30 px-3 py-2">
+                <div className="flex items-center gap-2 text-xs font-semibold text-foreground">
+                  <MapPin className="size-3.5 text-primary" />
+                  Adresler
                 </div>
-              ))}
-            </div>
+                <span className="text-[11px] tabular-nums text-muted-foreground">{companyAddresses.length} kayıt</span>
+              </div>
+              <ul className="divide-y divide-border/50">
+                {companyAddresses.map((address, index) => (
+                  <li key={address.id ?? index} className="grid grid-cols-[auto_1fr] gap-2.5 px-3 py-2.5 text-xs">
+                    <span className="mt-0.5 grid size-6 place-items-center rounded-md bg-primary/8 font-semibold tabular-nums text-primary">
+                      {index + 1}
+                    </span>
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <span className="font-medium text-foreground">{ADDRESS_TYPE_LABELS[address.addressType] ?? "Adres"}</span>
+                        {address.isDefault && (
+                          <span className="rounded-full border border-primary/20 bg-primary/5 px-1.5 py-0.5 text-[10px] font-medium text-primary">
+                            Ana adres
+                          </span>
+                        )}
+                        {address.isShipping && (
+                          <span className="rounded-full border border-sky-200 bg-sky-50 px-1.5 py-0.5 text-[10px] font-medium text-sky-700">
+                            Sevkiyat
+                          </span>
+                        )}
+                        {address.isBilling && (
+                          <span className="rounded-full border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-800">
+                            Fatura
+                          </span>
+                        )}
+                      </div>
+                      <div className="mt-0.5 break-words leading-relaxed text-muted-foreground">
+                        {[address.address, address.district, address.city, address.country].filter(Boolean).join(", ") || "Adres bilgisi yok"}
+                      </div>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </section>
           )}
+          <section
+            className="mt-4 overflow-hidden rounded-lg border border-amber-200/80 bg-amber-50/45"
+            aria-label="Firma notları"
+          >
+            <div className="flex items-center gap-2 border-b border-amber-200/70 bg-amber-50/70 px-3 py-2 text-xs font-semibold text-amber-950">
+              <NotebookText className="size-3.5 text-amber-700" />
+              Firma Notları
+            </div>
+            <div
+              className={`max-h-40 overflow-y-auto whitespace-pre-wrap break-words px-3 py-2.5 text-sm leading-relaxed ${
+                customer.initialNote?.trim() ? "text-foreground" : "text-muted-foreground"
+              }`}
+            >
+              {customer.initialNote?.trim() || "Bu firma için henüz not eklenmemiş."}
+            </div>
+          </section>
         </DialogHeader>
 
         {/* KPI tiles — her biri tıklanınca ilgili kayıtlar pop-up olarak açılır */}
-        <div className="px-6 py-4 grid grid-cols-3 gap-2.5">
+        <div className="grid grid-cols-3 gap-2.5 px-4 py-4 sm:px-6">
           <Stat icon={<UserIcon className="size-3.5" />} label="Kontak" value={firmContacts.length} accent="text-indigo-600" onClick={() => setBreakdown("contacts")} />
           <Stat icon={<Briefcase className="size-3.5" />} label="Satış Kartı" value={firmCases.length} accent="text-sky-600" onClick={() => setBreakdown("cases")} />
           <Stat icon={<FileText className="size-3.5" />} label="Teklif" value={firmOffers.length} accent="text-blue-600" onClick={() => setBreakdown("offers")} />
@@ -220,11 +301,11 @@ export function CompanyDetailDialog({
           <Stat icon={<Wrench className="size-3.5" />} label="Servis" value={firmService.length} accent="text-rose-600" onClick={() => setBreakdown("service")} />
         </div>
 
-        <div className="px-6 pb-2">
+        <div className="px-4 pb-2 sm:px-6">
           <CompanyFinancePanel companyId={customer.id} companyName={customer.name} />
         </div>
 
-        <div className="px-6 pb-2">
+        <div className="px-4 pb-2 sm:px-6">
           <div className="rounded-lg bg-muted/40 border border-border/60 px-3 py-2 text-sm flex items-center gap-2">
             <Wallet className="size-4 text-emerald-600" />
             <span className="text-muted-foreground">Toplam teklif tutarı:</span>
@@ -233,7 +314,7 @@ export function CompanyDetailDialog({
         </div>
 
         {/* tabs */}
-        <div className="px-6 pb-6">
+        <div className="px-4 pb-6 sm:px-6">
           <Tabs defaultValue="kontaklar">
             <TabsList className="h-auto flex-wrap justify-start bg-muted/60">
               <TabsTrigger value="kontaklar">Kontaklar ({firmContacts.length})</TabsTrigger>
@@ -298,6 +379,8 @@ export function CompanyDetailDialog({
                               type="button"
                               variant="ghost"
                               size="icon"
+                              aria-label={`${k.name} kontağını düzenle`}
+                              title="Kontağı düzenle"
                               className="size-8"
                               onClick={(event) => {
                                 event.stopPropagation();
@@ -310,16 +393,12 @@ export function CompanyDetailDialog({
                               type="button"
                               variant="ghost"
                               size="icon"
+                              aria-label={`${k.name} kontağını sil`}
+                              title="Kontağı sil"
                               className="size-8 text-destructive"
-                              onClick={async (event) => {
+                              onClick={(event) => {
                                 event.stopPropagation();
-                                if (!window.confirm(`${k.name} kontağı silinsin mi?`)) return;
-                                try {
-                                  await deleteContact(k.id);
-                                  toast.success("Kontak silindi");
-                                } catch (err: any) {
-                                  toast.error("Kontak silinemedi", { description: err?.message ?? "API isteği başarısız oldu." });
-                                }
+                                setPendingContactDelete(k);
                               }}
                             >
                               <Trash2 className="size-4" />
@@ -495,6 +574,19 @@ export function CompanyDetailDialog({
         machineById={new Map(machines.map((m) => [m.id, m]))}
         onOpenContact={onOpenContact}
       />
+      <AlertDialog open={Boolean(pendingContactDelete)} onOpenChange={(open) => !open && setPendingContactDelete(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Kontak silinsin mi?</AlertDialogTitle>
+            <AlertDialogDescription><b>{pendingContactDelete?.name}</b> kişisi <b>{customer.name}</b> firmasının kontak listesinden kalıcı olarak kaldırılacak.</AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="rounded-lg border border-destructive/15 bg-destructive/[0.04] p-3 text-xs text-muted-foreground">Firma ve satış kayıtları korunur; yalnız kişi kaydı ve hızlı iletişim bağlantısı kaldırılır.</div>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Vazgeç</AlertDialogCancel>
+            <AlertDialogAction className="bg-destructive hover:bg-destructive/90" onClick={(event) => { event.preventDefault(); void removeContact(); }}>Kontağı sil</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Dialog>
   );
 }

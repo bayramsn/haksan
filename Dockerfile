@@ -1,14 +1,12 @@
 # syntax=docker/dockerfile:1.7
 
-FROM node:22-bookworm-slim AS build
+FROM node:22-alpine@sha256:16e22a550f3863206a3f701448c45f7912c6896a62de43add43bb9c86130c3e2 AS build
 
 WORKDIR /app
 ENV CI=true
 ENV NODE_OPTIONS=--max_old_space_size=1536
 
-RUN apt-get update \
-  && apt-get install -y --no-install-recommends ca-certificates python3 make g++ \
-  && rm -rf /var/lib/apt/lists/*
+RUN apk add --no-cache python3 make g++
 
 COPY package.json package-lock.json ./
 COPY apps/api/package.json apps/api/package.json
@@ -35,23 +33,17 @@ RUN npm run build:shared \
     --workspace @haksan/api \
     --include-workspace-root
 
-FROM node:22-bookworm-slim AS api
+FROM node:22-alpine@sha256:16e22a550f3863206a3f701448c45f7912c6896a62de43add43bb9c86130c3e2 AS api
 
 WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=3000
+ARG API_RELEASE_ID=unknown
+ARG BUILD_TIME=unknown
+ENV API_RELEASE_ID=${API_RELEASE_ID}
+ENV IMAGE_BUILD_TIME=${BUILD_TIME}
 
-RUN apt-get update \
-  && apt-get install -y --no-install-recommends ca-certificates curl fonts-dejavu-core \
-  && install -d /usr/share/postgresql-common/pgdg \
-  && curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc \
-    -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
-  && echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt bookworm-pgdg main" \
-    > /etc/apt/sources.list.d/pgdg.list \
-  && apt-get update \
-  && apt-get install -y --no-install-recommends postgresql-client-16 \
-  && apt-get purge -y --auto-remove curl \
-  && rm -rf /var/lib/apt/lists/*
+RUN apk add --no-cache font-dejavu postgresql-client
 
 COPY --from=build --chown=node:node /app/package.json /app/package-lock.json ./
 COPY --from=build --chown=node:node /app/node_modules ./node_modules
@@ -70,7 +62,7 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
 
 CMD ["npm", "--workspace", "@haksan/api", "run", "start"]
 
-FROM nginx:1.27-alpine AS nginx
+FROM nginx:stable-alpine-slim@sha256:ddde39c6e51f02fde7410c2e9c234cf2d0a4c7bdbbe176aeb37d8ad7ab4eb58c AS nginx
 
 COPY deploy/nginx.conf.template /etc/nginx/templates/default.conf.template
 COPY --from=build /app/apps/web/dist /usr/share/nginx/html

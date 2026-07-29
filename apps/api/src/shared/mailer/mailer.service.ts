@@ -3,6 +3,12 @@ import nodemailer, { type Transporter } from 'nodemailer';
 import { loadEnv } from '../../config/env';
 import { logger } from '../utils/logger';
 
+type TextMailAttachment = {
+  filename: string;
+  content: Buffer;
+  contentType: string;
+};
+
 @Injectable()
 export class MailerService {
   private readonly env = loadEnv();
@@ -24,6 +30,32 @@ export class MailerService {
       });
     }
     return this.transporter;
+  }
+
+  isConfigured(): boolean {
+    return this.getTransporter() !== null;
+  }
+
+  async sendTextEmail(input: {
+    to: string;
+    subject: string;
+    text: string;
+    attachments?: TextMailAttachment[];
+  }): Promise<boolean> {
+    const transporter = this.getTransporter();
+    if (!transporter) return false;
+    await transporter.sendMail({
+      from: this.env.SMTP_FROM,
+      to: input.to,
+      subject: input.subject,
+      text: input.text,
+      attachments: input.attachments,
+    });
+    logger.info(
+      { action: 'assistant_mail_sent', attachmentCount: input.attachments?.length ?? 0 },
+      '[mailer] assistant mail delivered'
+    );
+    return true;
   }
 
   async sendPasswordReset(to: string, token: string): Promise<boolean> {

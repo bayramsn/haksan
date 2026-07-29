@@ -58,6 +58,8 @@ import {
   User,
   Shipment,
   Delivery,
+  QualificationStage,
+  OpportunityApprovalType,
 } from './mock';
 import { productSpecGroupForTypeKey, specsForProductTypeStrict } from './productSpecTemplates';
 import { isServiceQuoteComplete, serviceQuoteMissingFields } from './serviceQuote';
@@ -288,6 +290,7 @@ const productApiPayload = (p: Partial<Product>, brandId?: string): ProductUpdate
   const fullName = cleanString(p.shortDescription) ?? [p.brand, modelCode].filter(Boolean).join(' ');
   return {
     ...(brandId ? { brandId } : {}),
+    series: cleanString(p.series),
     productGroupCode: cleanString(p.productGroupCode),
     categoryCode: cleanString(p.categoryCode),
     subcategoryCode: cleanString(p.subcategoryCode),
@@ -315,6 +318,20 @@ const productApiPayload = (p: Partial<Product>, brandId?: string): ProductUpdate
     muadilProductId: p.muadilProductIds?.[0] ?? p.muadilProductId ?? null,
     muadilProductIds: p.muadilProductIds ?? (p.muadilProductId ? [p.muadilProductId] : []),
   };
+};
+
+const productDivisionIdForGroup = (
+  productGroupCode: string | undefined,
+  divisions: Array<{ id: string; code?: string | null }> = [],
+) => {
+  const divisionCode = productGroupCode === 'UNIVERSAL'
+    ? 'universal'
+    : productGroupCode === 'SAC_ISLEME'
+      ? 'sac_isleme'
+      : productGroupCode === 'CNC'
+        ? 'cnc'
+        : null;
+  return divisionCode ? divisions.find((division) => division.code === divisionCode)?.id : undefined;
 };
 
 const productDetailsPayload = (p: Partial<Product>) => ({
@@ -348,6 +365,7 @@ const productDetailsPayload = (p: Partial<Product>) => ({
 export type NoteTemplate = { id: string; title: string; body: string; scope: string };
 
 export type QuoteLineCompatibility = {
+  lineGroupKey?: string;
   machineIds: string[];
   brands: string[];
   controlUnits: string[];
@@ -369,6 +387,7 @@ export type QuoteLineInput = {
 export type CreateQuotePayload = {
   opportunityId?: string;
   companyId: string;
+  companyAddressId?: string;
   contactId?: string;
   quoteDate: string;
   validityDays: number;
@@ -442,8 +461,24 @@ type Store = {
   addCustomer: (c: Omit<Customer, 'id' | 'createdAt' | 'status'> & { status?: 'active' | 'passive' }) => Promise<Customer>;
   updateCustomer: (id: string, patch: Partial<Omit<Customer, 'id' | 'createdAt'>>) => Promise<void>;
   deleteCustomer: (id: string) => Promise<void>;
-  addCase: (c: Omit<SalesCase, 'id' | 'createdAt' | 'stage' | 'isLost' | 'isOfferPrepared'> & { stage?: SalesStage; divisionId?: string }) => Promise<SalesCase>;
-  updateCase: (id: string, patch: { assignedUserId?: string; paymentTermDays?: number | null }) => Promise<void>;
+  addCase: (
+    c: Omit<
+      SalesCase,
+      'id' | 'createdAt' | 'stage' | 'qualificationStage' | 'qualificationNote' | 'qualificationReadiness' | 'isLost' | 'isOfferPrepared'
+    > & { stage?: SalesStage; divisionId?: string }
+  ) => Promise<SalesCase>;
+  updateCase: (
+    id: string,
+    patch: {
+      assignedUserId?: string;
+      paymentTermDays?: number | null;
+      paymentMethod?: SalesCase['paymentMethod'];
+      leadTemperature?: SalesCase['leadTemperature'];
+      requestedMachine?: string | null;
+      contractTerms?: string | null;
+      paymentTerms?: string | null;
+    }
+  ) => Promise<void>;
   deleteCase: (id: string) => Promise<void>;
   addOffer: (o: Omit<Offer, 'id' | 'date' | 'revision'> & { revision?: number }) => Promise<Offer>;
   createQuoteFull: (payload: CreateQuotePayload) => Promise<{ quoteId: string; documentNo: string; opportunityId: string }>;
@@ -466,6 +501,23 @@ type Store = {
   updateDeliveryStatus: (id: string, status: Delivery['status']) => Promise<void>;
   deleteDelivery: (id: string) => Promise<void>;
   moveCase: (id: string, to: SalesStage, options?: { inventoryItemIds?: string[]; changeReason?: string }) => Promise<void>;
+  convertCase: (id: string, note?: string) => Promise<void>;
+  moveQualification: (
+    id: string,
+    to: QualificationStage,
+    options?: {
+      note?: string;
+      cancellationReasonCode?: string;
+      lostCompetitorId?: string;
+      lostCompetitorProductModel?: string;
+    }
+  ) => Promise<void>;
+  decideCaseApproval: (
+    id: string,
+    type: OpportunityApprovalType,
+    decision: 'approved' | 'rejected',
+    note?: string
+  ) => Promise<void>;
   // Mantıksal kapanış (Bitir) ve geri alma (Geri Aç) — silmez, closedAt set/sıfırlar.
   closeCase: (id: string, reason?: string) => Promise<void>;
   reopenCase: (id: string) => Promise<void>;
@@ -619,6 +671,7 @@ function StoreInner({ children }: { children: ReactNode }) {
           id: u.id,
           name: u.fullName ?? u.name ?? u.email ?? '—',
           email: u.email ?? '',
+          phone: u.phone ?? u.mobilePhone ?? u.workPhone ?? null,
           role: ((u.roles?.[0]?.name ?? u.roles?.[0]?.code ?? 'Admin') as User['role']) || 'Admin',
           roleCodes: (u.roles ?? []).map((role: any) => role.code).filter(Boolean),
           roleNames: (u.roles ?? []).map((role: any) => role.name ?? role.code).filter(Boolean),
@@ -626,6 +679,8 @@ function StoreInner({ children }: { children: ReactNode }) {
           active: u.status !== 'passive',
           avatarUrl: u.avatarUrl ?? u.photoUrl ?? undefined,
           purchaseApprovalLimit: u.purchaseApprovalLimit ? Number(u.purchaseApprovalLimit) : undefined,
+          assistantDailyUsdLimit:
+            u.assistantDailyUsdLimit == null ? null : Number(u.assistantDailyUsdLimit),
           managerId: u.managerId ?? undefined,
         }))
       );
@@ -645,6 +700,7 @@ function StoreInner({ children }: { children: ReactNode }) {
           companyGroupNames: (c.companyGroups ?? (c.companyGroup ? [c.companyGroup] : [])).map((g: any) => g.name).filter(Boolean),
           contactSourceCode: c.contactSource?.code ?? '',
           sector: c.sector ?? '',
+          supplierCategoryCode: c.supplierCategoryCode ?? undefined,
           name: c.legalTitle ?? c.shortName ?? '—',
           contactPerson: '',
           phone: c.primaryPhone ?? '',
@@ -667,6 +723,8 @@ function StoreInner({ children }: { children: ReactNode }) {
             longitude: a.longitude == null ? undefined : Number(a.longitude),
             locationSource: a.locationSource ?? undefined,
             isDefault: Boolean(a.isDefault),
+            isShipping: Boolean(a.isShipping),
+            isBilling: Boolean(a.isBilling),
           })),
           latitude: c.primaryAddress?.latitude != null ? Number(c.primaryAddress.latitude) : undefined,
           longitude: c.primaryAddress?.longitude != null ? Number(c.primaryAddress.longitude) : undefined,
@@ -692,18 +750,40 @@ function StoreInner({ children }: { children: ReactNode }) {
       const mapCase = (o: any): SalesCase =>
         ({
           id: o.id,
-          customerId: o.companyId,
+          customerId: o.companyId ?? '',
+          primaryContactId: o.primaryContactId ?? undefined,
+          leadContactName: o.leadContactName ?? undefined,
+          leadCompanyTitle: o.leadCompanyTitle ?? undefined,
+          leadContactValue: o.leadContactValue ?? undefined,
+          leadContactMethodCode: o.source?.code ?? undefined,
+          leadContactMethodName: o.source?.name ?? undefined,
+          leadCity: o.leadCity ?? undefined,
+          leadPhone: o.leadPhone ?? undefined,
+          leadEmail: o.leadEmail ?? undefined,
+          leadTemperature: o.leadTemperature ?? 'unknown',
+          externalSource: o.externalSource ?? undefined,
+          externalKey: o.externalKey ?? undefined,
+          externalUrl: o.externalUrl ?? undefined,
+          externalMetadata: o.externalMetadata ?? undefined,
           assignedUserId: o.ownerUserId ?? '',
           department: '',
           requestedProduct: o.title ?? '',
-          requestedModel: o.title ?? '',
+          requestedModel: o.externalSource === 'trello' ? '' : o.description ?? o.title ?? '',
+          description: o.description ?? undefined,
           quantity: 1,
           estimatedAmount: Number(o.estimatedValue ?? 0),
           currency: (o.currency?.code as 'USD' | 'EUR' | 'TRY') ?? 'USD',
           stage: STAGE_BY_CODE[o.stage?.code ?? ''] ?? 'lead',
+          qualificationStage: (o.qualificationStage ?? 'lead') as QualificationStage,
+          qualificationNote: o.qualificationNote ?? undefined,
+          qualificationReadiness: o.qualificationReadiness ?? undefined,
+          requestedMachine: o.requestedMachine ?? undefined,
+          contractTerms: o.contractTerms ?? undefined,
+          paymentTerms: o.paymentTerms ?? undefined,
           paymentTermDays: o.paymentTermDays === null || o.paymentTermDays === undefined ? undefined : Number(o.paymentTermDays),
+          paymentMethod: o.paymentMethod ?? 'undecided',
           isOfferPrepared: qts.data.some((q: any) => q.opportunityId === o.id),
-          isLost: (o.stage?.code ?? '') === 'cancelled',
+          isLost: (o.qualificationStage ?? '') === 'lost' || (o.stage?.code ?? '') === 'cancelled',
           createdAt: (o.createdAt as string)?.slice(0, 10) ?? '',
           closedAt: o.closedAt ? (o.closedAt as string).slice(0, 10) : undefined,
         }) as SalesCase;
@@ -713,6 +793,7 @@ function StoreInner({ children }: { children: ReactNode }) {
       const apiProducts = prods.data.map((p: any) => ({
           id: p.id,
           brand: p.brand?.name ?? '',
+          series: p.series ?? '',
           productGroup: p.productGroup?.name ?? '',
           productGroupCode: p.productGroup?.code ?? '',
           model: p.modelCode ?? '',
@@ -809,11 +890,13 @@ function StoreInner({ children }: { children: ReactNode }) {
           id: q.id,
           salesCaseId: q.opportunityId ?? '',
           companyId: q.companyId ?? '',
+          companyAddressId: q.companyAddressId ?? undefined,
           divisionId: q.divisionId ?? undefined,
           divisionCode: q.division?.code ?? undefined,
           divisionName: q.division?.name ?? undefined,
           businessLine: q.businessLine ?? undefined,
           quoteNo: q.documentNo,
+          productName: q.productName ?? undefined,
           revision: Number(q.revisionNo ?? 1),
           date: (q.quoteDate as string)?.slice(0, 10) ?? '',
           validityDays: q.validityDays === null || q.validityDays === undefined ? undefined : Number(q.validityDays),
@@ -831,7 +914,19 @@ function StoreInner({ children }: { children: ReactNode }) {
                 ? 'Sent'
                 : q.status?.code === 'rejected'
                   ? 'Rejected'
+                  : q.status?.code === 'cancelled'
+                    ? 'Cancelled'
+                    : q.status?.code === 'price_waiting'
+                      ? 'Price Waiting'
+                      : q.status?.code === 'budget_waiting'
+                        ? 'Budget Waiting'
+                        : q.status?.code === 'on_hold'
+                          ? 'On Hold'
+                          : q.status?.code === 'postponed'
+                            ? 'Postponed'
                   : 'Draft',
+          followUpAt: q.followUpAt ?? undefined,
+          statusNote: q.statusNote ?? undefined,
           note: q.notes ?? '',
         }))
       );
@@ -1034,6 +1129,7 @@ function StoreInner({ children }: { children: ReactNode }) {
         ...(proformasR.data ?? []).map((d: any) => ({
           id: d.id,
           salesCaseId: d.quote?.opportunityId ?? '',
+          source: 'commercial_record' as const,
           quoteId: d.quoteId ?? d.quote?.id ?? undefined,
           companyId: docCompanyId(d),
           type: 'Proforma' as const,
@@ -1042,10 +1138,12 @@ function StoreInner({ children }: { children: ReactNode }) {
           uploadedAt: (d.issueDate as string)?.slice(0, 10) ?? '',
           size: d.fileId ? 'Dosya bağlı' : 'Kayıt',
           fileId: d.fileId ?? undefined,
+          documentSnapshot: d.documentSnapshot ?? undefined,
         })),
         ...(contractsR.data ?? []).map((d: any) => ({
           id: d.id,
           salesCaseId: d.quote?.opportunityId ?? '',
+          source: 'commercial_record' as const,
           quoteId: d.quoteId ?? d.quote?.id ?? undefined,
           companyId: docCompanyId(d),
           type: 'Contract' as const,
@@ -1054,10 +1152,12 @@ function StoreInner({ children }: { children: ReactNode }) {
           uploadedAt: (d.signedDate as string)?.slice(0, 10) ?? (d.createdAt as string)?.slice(0, 10) ?? '',
           size: d.fileId ? 'Dosya bağlı' : 'Kayıt',
           fileId: d.fileId ?? undefined,
+          documentSnapshot: d.documentSnapshot ?? undefined,
         })),
         ...(invoicesR.data ?? []).map((d: any) => ({
           id: d.id,
           salesCaseId: d.quote?.opportunityId ?? '',
+          source: 'commercial_record' as const,
           quoteId: d.quoteId ?? d.quote?.id ?? undefined,
           companyId: docCompanyId(d),
           type: 'CommercialInvoice' as const,
@@ -1066,10 +1166,12 @@ function StoreInner({ children }: { children: ReactNode }) {
           uploadedAt: (d.invoiceDate as string)?.slice(0, 10) ?? '',
           size: d.fileId ? 'Dosya bağlı' : 'Kayıt',
           fileId: d.fileId ?? undefined,
+          documentSnapshot: d.documentSnapshot ?? undefined,
         })),
         ...(deliveriesR.data ?? []).map((d: any) => ({
           id: `delivery-form-${d.id}`,
           salesCaseId: d.opportunityId ?? '',
+          source: 'live_form' as const,
           companyId: d.companyId ?? '',
           deliveryId: d.id,
           type: 'DeliveryForm' as const,
@@ -1081,6 +1183,7 @@ function StoreInner({ children }: { children: ReactNode }) {
         ...(installationsR.data ?? []).map((d: any) => ({
           id: `installation-form-${d.id}`,
           salesCaseId: d.opportunityId ?? '',
+          source: 'live_form' as const,
           companyId: d.companyId ?? '',
           installationId: d.id,
           installationData: d,
@@ -1093,6 +1196,7 @@ function StoreInner({ children }: { children: ReactNode }) {
         ...(fileLinksR.data ?? []).map((row: any) => ({
           id: row.id ?? row.file?.id,
           salesCaseId: row.entityType === 'opportunity' ? row.entityId : '',
+          source: 'uploaded_file' as const,
           companyId: row.entityType === 'company' ? row.entityId : '',
           serviceRequestId: row.entityType === 'service_ticket' || row.entityType === 'service_request' ? row.entityId : undefined,
           type: mapLinkDocType(row.documentType?.code),
@@ -1139,6 +1243,7 @@ function StoreInner({ children }: { children: ReactNode }) {
         (shipmentsR.data ?? []).map((s: any) => ({
           id: s.id,
           salesCaseId: s.opportunityId ?? '',
+          direction: s.direction === 'outgoing' ? 'outgoing' : 'incoming',
           senderCompanyId: s.senderCompanyId ?? undefined,
           senderCompanyName: s.senderCompany?.shortName ?? s.senderCompany?.legalTitle ?? undefined,
           senderName: s.senderName ?? undefined,
@@ -1164,6 +1269,8 @@ function StoreInner({ children }: { children: ReactNode }) {
             description: item.description ?? '',
             serialNumber: item.serialNumber ?? undefined,
             quantity: item.quantity == null ? undefined : Number(item.quantity),
+            packageQuantity: item.packageQuantity == null ? undefined : Number(item.packageQuantity),
+            packageUnitCode: item.packageUnitCode ?? undefined,
             packageCount: item.packageCount == null ? undefined : Number(item.packageCount),
             palletCount: item.palletCount == null ? undefined : Number(item.palletCount),
             packageLengthCm: item.packageLengthCm == null ? undefined : Number(item.packageLengthCm),
@@ -1236,6 +1343,7 @@ function StoreInner({ children }: { children: ReactNode }) {
       legalTitle: c.name,
       shortName: c.type === 'person' ? c.name : undefined,
       sector: c.sector || undefined,
+      supplierCategoryCode: c.supplierCategoryCode || undefined,
       taxOffice: c.taxOffice || undefined,
       taxNumber: c.taxNumber || undefined,
       website,
@@ -1254,6 +1362,8 @@ function StoreInner({ children }: { children: ReactNode }) {
         latitude: a.latitude,
         longitude: a.longitude,
         isDefault: Boolean(a.isDefault),
+        isShipping: Boolean(a.isShipping),
+        isBilling: Boolean(a.isBilling),
       })),
       address: !c.addresses?.length && (c.address || c.city || c.district || c.country || hasCoordinates)
         ? {
@@ -1266,7 +1376,7 @@ function StoreInner({ children }: { children: ReactNode }) {
           }
         : undefined,
       notes: c.initialNote || undefined,
-      relationTypeCode: c.firmType === 'supplier' ? 'supplier' : c.firmType === 'supplier_customer' ? 'supplier_customer' : 'customer',
+      relationTypeCode: c.firmType,
       customerStatusCode: c.salesStatus === 'active_customer' ? 'active' : 'potential',
       companyGroupCode: c.companyGroupCode || undefined,
       companyGroupCodes: c.companyGroupCodes?.length ? c.companyGroupCodes : undefined,
@@ -1286,7 +1396,8 @@ function StoreInner({ children }: { children: ReactNode }) {
       companyGroupNames: c.companyGroupNames,
       contactSourceCode: c.contactSourceCode,
       sector: c.sector,
-      name: c.name,
+      supplierCategoryCode: c.supplierCategoryCode,
+      name: created.legalTitle ?? c.name,
       contactPerson: c.contactPerson ?? '',
       phone: c.phone ?? '',
       phone2: c.phone2 ?? '',
@@ -1319,6 +1430,7 @@ function StoreInner({ children }: { children: ReactNode }) {
     if (patch.name !== undefined) body.legalTitle = patch.name;
     if (patch.type !== undefined) body.companyType = patch.type;
     if (patch.sector !== undefined) body.sector = patch.sector || null;
+    if (patch.supplierCategoryCode !== undefined) body.supplierCategoryCode = patch.supplierCategoryCode || null;
     if (patch.taxOffice !== undefined) body.taxOffice = patch.taxOffice || null;
     if (patch.taxNumber !== undefined) body.taxNumber = patch.taxNumber || null;
     if (patch.website !== undefined) body.website = website;
@@ -1331,8 +1443,7 @@ function StoreInner({ children }: { children: ReactNode }) {
     if (patch.contactSourceCode !== undefined) body.contactSourceCode = patch.contactSourceCode || null;
     if (patch.companyGroupCodes !== undefined) body.companyGroupCodes = patch.companyGroupCodes;
     if (patch.divisions !== undefined) body.divisionIds = patch.divisions.map((division) => division.id);
-    if (patch.firmType !== undefined)
-      body.relationTypeCode = patch.firmType === 'supplier' ? 'supplier' : patch.firmType === 'supplier_customer' ? 'supplier_customer' : 'customer';
+    if (patch.firmType !== undefined) body.relationTypeCode = patch.firmType;
     if (patch.salesStatus !== undefined)
       body.customerStatusCode = patch.salesStatus === 'active_customer' ? 'active' : 'potential';
     if (patch.addresses !== undefined) {
@@ -1346,6 +1457,8 @@ function StoreInner({ children }: { children: ReactNode }) {
         latitude: address.latitude,
         longitude: address.longitude,
         isDefault: address.isDefault,
+        isShipping: address.isShipping,
+        isBilling: address.isBilling,
       }));
     } else if (patch.city !== undefined || patch.district !== undefined || patch.country !== undefined || patch.address !== undefined) {
       body.address = {
@@ -1395,6 +1508,7 @@ function StoreInner({ children }: { children: ReactNode }) {
 
   const updateContact: Store['updateContact'] = async (id, patch) => {
     await contactService.update(id, {
+      companyId: patch.customerId,
       fullName: patch.name,
       title: patch.title,
       department: patch.department,
@@ -1406,7 +1520,7 @@ function StoreInner({ children }: { children: ReactNode }) {
       personalEmail: patch.personalEmail,
       otherEmail: patch.otherEmail,
       gender: patch.gender,
-      birthDate: patch.birthDate ? new Date(patch.birthDate) : undefined,
+      birthDate: patch.birthDate === undefined ? undefined : patch.birthDate ? new Date(patch.birthDate) : null,
       decisionRoleCode: patch.decisionRoleCode,
       hometown: patch.hometown,
       favoriteTeam: patch.favoriteTeam,
@@ -1429,7 +1543,7 @@ function StoreInner({ children }: { children: ReactNode }) {
     const activityTypeCode = activityTypeCodeFromLabel(a.type) ?? 'note';
     const created = await activityService.create({
       opportunityId: a.salesCaseId || undefined,
-      companyId: a.customerId,
+      companyId: a.customerId || undefined,
       activityTypeCode,
       subject: a.title,
       description: a.note,
@@ -1469,6 +1583,10 @@ function StoreInner({ children }: { children: ReactNode }) {
       currencyCode: c.currency,
       probability: 50,
       paymentTermDays: c.paymentTermDays ?? undefined,
+      paymentMethod: c.paymentMethod ?? undefined,
+      requestedMachine: c.requestedMachine ?? c.requestedModel ?? undefined,
+      contractTerms: c.contractTerms ?? undefined,
+      paymentTerms: c.paymentTerms ?? undefined,
       divisionId: c.divisionId || undefined,
     });
     const targetStage = c.stage ?? 'lead';
@@ -1483,6 +1601,7 @@ function StoreInner({ children }: { children: ReactNode }) {
       id: created.id,
       ...c,
       stage: targetStage,
+      qualificationStage: 'lead',
       isLost: false,
       isOfferPrepared: false,
       createdAt: new Date().toISOString().slice(0, 10),
@@ -1493,6 +1612,11 @@ function StoreInner({ children }: { children: ReactNode }) {
     const body: Record<string, unknown> = {};
     if (patch.assignedUserId !== undefined) body.ownerUserId = patch.assignedUserId || null;
     if (patch.paymentTermDays !== undefined) body.paymentTermDays = patch.paymentTermDays ?? null;
+    if (patch.paymentMethod !== undefined) body.paymentMethod = patch.paymentMethod;
+    if (patch.leadTemperature !== undefined) body.leadTemperature = patch.leadTemperature;
+    if (patch.requestedMachine !== undefined) body.requestedMachine = patch.requestedMachine;
+    if (patch.contractTerms !== undefined) body.contractTerms = patch.contractTerms;
+    if (patch.paymentTerms !== undefined) body.paymentTerms = patch.paymentTerms;
     await opportunityService.update(id, body);
     await fetchAll();
   };
@@ -1519,6 +1643,30 @@ function StoreInner({ children }: { children: ReactNode }) {
     await fetchAll();
   };
 
+  const convertCase: Store['convertCase'] = async (id, note) => {
+    await opportunityService.convert(id, note?.trim() ? { note: note.trim() } : {});
+    await fetchAll();
+  };
+
+  const moveQualification: Store['moveQualification'] = async (id, to, options) => {
+    await opportunityService.changeQualificationStage(id, {
+      toStage: to,
+      note: options?.note?.trim() || undefined,
+      cancellationReasonCode: options?.cancellationReasonCode,
+      lostCompetitorId: options?.lostCompetitorId,
+      lostCompetitorProductModel: options?.lostCompetitorProductModel,
+    });
+    await fetchAll();
+  };
+
+  const decideCaseApproval: Store['decideCaseApproval'] = async (id, type, decision, note) => {
+    await opportunityService.decideApproval(id, type, {
+      decision,
+      note: note?.trim() || undefined,
+    });
+    await fetchAll();
+  };
+
   // Mantıksal kapanış (Bitir): terminal kartı arşivler — silmez. Backend closedAt set eder,
   // kart aktif listeden düşer (view=active), Geçmiş'te görünür. delivered ise servise devir korunur.
   const closeCase: Store['closeCase'] = async (id, reason) => {
@@ -1535,8 +1683,8 @@ function StoreInner({ children }: { children: ReactNode }) {
   // Fırsatı "Kaybedildi" (cancelled) olarak işaretler; gerçek ret nedeni ve
   // (varsa) tercih edilen rakip bilgisini backend'e geçirir.
   const markCaseLost: Store['markCaseLost'] = async (id, payload) => {
-    await opportunityService.changeStage(id, {
-      toStage: 'cancelled',
+    await opportunityService.changeQualificationStage(id, {
+      toStage: 'lost',
       cancellationReasonCode: payload.reasonCode,
       lostCompetitorId: payload.competitorId || undefined,
       lostCompetitorProductModel: payload.competitorProductModel || undefined,
@@ -1592,6 +1740,7 @@ function StoreInner({ children }: { children: ReactNode }) {
     const quote = await quoteService.create({
       opportunityId,
       companyId: p.companyId,
+      companyAddressId: p.companyAddressId || undefined,
       contactId: p.contactId || undefined,
       quoteDate: new Date(p.quoteDate),
       validityDays: p.validityDays,
@@ -1621,6 +1770,7 @@ function StoreInner({ children }: { children: ReactNode }) {
         sortOrder: i,
         compatibility: it.compatibility
           ? {
+              lineGroupKey: it.compatibility.lineGroupKey,
               machineIds: it.compatibility.machineIds ?? [],
               brands: it.compatibility.brands ?? [],
               controlUnits: it.compatibility.controlUnits ?? [],
@@ -1683,9 +1833,10 @@ function StoreInner({ children }: { children: ReactNode }) {
   };
 
   const addProduct: Store['addProduct'] = async (p) => {
-    const brands = await productService.listBrands();
+    const divisionId = productDivisionIdForGroup(p.productGroupCode, user?.divisions);
+    const brands = await productService.listBrands(divisionId);
     let brand = brands.find((b: any) => b.name?.toLocaleLowerCase('tr-TR') === p.brand.toLocaleLowerCase('tr-TR'));
-    if (!brand) brand = await productService.createBrand({ name: p.brand || 'Generic' });
+    if (!brand) brand = await productService.createBrand({ name: p.brand || 'Generic', divisionId });
     const created = await productService.create(productApiPayload(p, brand.id) as ProductCreateInput);
     await productService.replaceDetails(created.id, productDetailsPayload(p));
     await fetchAll();
@@ -1693,15 +1844,16 @@ function StoreInner({ children }: { children: ReactNode }) {
   };
 
   const updateProduct: Store['updateProduct'] = async (id, patch) => {
+    const current = products.find((item) => item.id === id);
     let brandId: string | undefined;
     if (patch.brand) {
-      const brands = await productService.listBrands();
+      const divisionId = productDivisionIdForGroup(patch.productGroupCode ?? current?.productGroupCode, user?.divisions);
+      const brands = await productService.listBrands(divisionId);
       let brand = brands.find((b: any) => b.name?.toLocaleLowerCase('tr-TR') === patch.brand?.toLocaleLowerCase('tr-TR'));
-      if (!brand) brand = await productService.createBrand({ name: patch.brand });
+      if (!brand) brand = await productService.createBrand({ name: patch.brand, divisionId });
       brandId = brand.id;
     }
     await productService.update(id, productApiPayload(patch, brandId));
-    const current = products.find((item) => item.id === id);
     await productService.replaceDetails(id, productDetailsPayload({
       productTypeCode: patch.productTypeCode ?? current?.productTypeCode,
       specs: patch.specs ?? current?.specs ?? [],
@@ -1728,6 +1880,7 @@ function StoreInner({ children }: { children: ReactNode }) {
     if (fields.originCountry !== undefined) apiPatch.originCountry = cleanString(fields.originCountry);
     if (fields.hsCode !== undefined) apiPatch.hsCode = cleanString(fields.hsCode);
     if (fields.modelName !== undefined) apiPatch.modelName = cleanString(fields.modelName);
+    if (fields.series !== undefined) apiPatch.series = cleanString(fields.series);
     if (fields.description !== undefined) apiPatch.description = cleanString(fields.description);
     if (fields.muadilProductIds !== undefined) {
       const muadilProductIds = fields.muadilProductIds.filter(Boolean);
@@ -1825,6 +1978,7 @@ function StoreInner({ children }: { children: ReactNode }) {
   const addShipment: Store['addShipment'] = async (s) => {
     const created = await serviceService.createShipment({
       opportunityId: s.salesCaseId || undefined,
+      direction: s.direction,
       senderCompanyId: s.senderCompanyId || undefined,
       senderName: s.senderName || undefined,
       carrierCompanyId: s.carrierCompanyId || undefined,
@@ -1848,6 +2002,8 @@ function StoreInner({ children }: { children: ReactNode }) {
         quantity: item.quantity ?? 1,
         unitCode: 'adet',
         sortOrder: index,
+        packageQuantity: item.packageQuantity,
+        packageUnitCode: item.packageUnitCode || undefined,
         packageCount: item.packageCount,
         palletCount: item.palletCount,
         packageLengthCm: item.packageLengthCm,
@@ -2265,27 +2421,10 @@ function StoreInner({ children }: { children: ReactNode }) {
   };
 
   const addDocument: Store['addDocument'] = async (d) => {
-    const quoteId =
-      offers.find((o) => d.salesCaseId && o.salesCaseId === d.salesCaseId)?.id
-      ?? offers.find((o) => d.companyId && o.companyId === d.companyId)?.id;
-    const baseName = d.fileName.replace(/\.[^/.]+$/, '') || `DOC-${Date.now()}`;
-    const today = new Date();
-
-    const needsQuoteRecord = d.type === 'Proforma' || d.type === 'Contract' || d.type === 'CommercialInvoice' || d.type === 'AccountingInvoice';
-    if (d.type === 'Proforma') {
-      if (!quoteId) throw new Error('Proforma için ilişkili teklif bulunamadı.');
-      await documentService.createProforma({ quoteId, documentNo: baseName, issueDate: today, statusCode: 'draft', fileId: d.fileId });
-    } else if (d.type === 'Contract') {
-      if (!quoteId) throw new Error('Sözleşme için ilişkili teklif bulunamadı.');
-      await documentService.createContract({ quoteId, contractNo: baseName, signedDate: today, statusCode: 'draft', fileId: d.fileId });
-    } else if (d.type === 'CommercialInvoice' || d.type === 'AccountingInvoice') {
-      if (!quoteId) throw new Error('Fatura için ilişkili teklif bulunamadı.');
-      await documentService.createCommercialInvoice({ quoteId, invoiceNo: baseName, invoiceDate: today, statusCode: 'draft', fileId: d.fileId });
-    }
-
     const row: DocumentItem = {
       id: d.id ?? `doc-${Date.now()}`,
       salesCaseId: d.salesCaseId,
+      source: d.source ?? (d.fileId ? 'uploaded_file' : undefined),
       companyId: d.companyId,
       serviceRequestId: d.serviceRequestId,
       type: d.type,
@@ -2296,11 +2435,10 @@ function StoreInner({ children }: { children: ReactNode }) {
       fileId: d.fileId,
       mimeType: d.mimeType,
     };
-    if (needsQuoteRecord) {
-      await fetchAll();
-    } else {
-      setDocuments((prev) => [...prev.filter((x) => x.id !== row.id), row]);
-    }
+    // Dosya bağlantısı /files/link ile zaten kalıcılaştırılır. Burada
+    // ikinci bir proforma/sözleşme/fatura kaydı oluşturmak hem mükerrer kayda
+    // hem de gereksiz teklif/satış kartı zorunluluğuna yol açıyordu.
+    setDocuments((prev) => [...prev.filter((x) => x.id !== row.id && x.fileId !== row.fileId), row]);
     return row;
   };
 
@@ -2360,6 +2498,9 @@ function StoreInner({ children }: { children: ReactNode }) {
       updateDeliveryStatus,
       deleteDelivery,
       moveCase,
+      convertCase,
+      moveQualification,
+      decideCaseApproval,
       closeCase,
       reopenCase,
       markCaseLost,

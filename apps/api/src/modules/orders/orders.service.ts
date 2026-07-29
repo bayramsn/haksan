@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { and, desc, eq, ilike, isNull, sql } from 'drizzle-orm';
+import { and, desc, eq, ilike, inArray, isNull, sql } from 'drizzle-orm';
 import type { DbClient } from '../../db/client';
 import { companies, companyAddresses, contacts } from '../../db/schema/companies';
 import { opportunities } from '../../db/schema/crm';
@@ -8,7 +8,16 @@ import { purchaseOrderItems, purchaseOrders, salesOrderItems, salesOrders } from
 import { shipments, shipmentItems } from '../../db/schema/service';
 import { quoteItems, quotes } from '../../db/schema/quotes';
 import { productModels } from '../../db/schema/products';
-import { currencies, inventoryStatuses, productGroups, purchaseOrderStatuses, salesOrderStatuses, shipmentStatuses, units } from '../../db/schema/lookup';
+import {
+  companyStatuses,
+  currencies,
+  inventoryStatuses,
+  productGroups,
+  purchaseOrderStatuses,
+  salesOrderStatuses,
+  shipmentStatuses,
+  units,
+} from '../../db/schema/lookup';
 import { DB } from '../../shared/database/database.module';
 import { AuditService } from '../../shared/database/audit.service';
 import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from '../../shared/utils/errors';
@@ -223,7 +232,41 @@ export class OrdersService {
       .orderBy(desc(salesOrders.orderDate))
       .limit(limit)
       .offset(offset);
-    return buildPaginated(rows.map((r) => ({ ...r.order, company: r.company, status: r.status, currency: r.currency })), count, page);
+    const orderIds = rows.map((row) => row.order.id);
+    const itemRows = orderIds.length
+      ? await this.db
+          .select({
+            salesOrderId: salesOrderItems.salesOrderId,
+            description: salesOrderItems.description,
+            productName: productModels.fullName,
+            sortOrder: salesOrderItems.sortOrder,
+          })
+          .from(salesOrderItems)
+          .leftJoin(productModels, eq(salesOrderItems.productModelId, productModels.id))
+          .where(and(inArray(salesOrderItems.salesOrderId, orderIds), isNull(salesOrderItems.deletedAt)))
+          .orderBy(salesOrderItems.sortOrder)
+      : [];
+    const productNamesByOrderId = new Map<string, string[]>();
+    for (const item of itemRows) {
+      const description = item.description.trim();
+      if (description.startsWith('↳ Opsiyon:')) continue;
+      const name = item.productName?.trim() || description;
+      if (!name) continue;
+      const names = productNamesByOrderId.get(item.salesOrderId) ?? [];
+      if (!names.includes(name)) names.push(name);
+      productNamesByOrderId.set(item.salesOrderId, names);
+    }
+    return buildPaginated(
+      rows.map((r) => ({
+        ...r.order,
+        company: r.company,
+        status: r.status,
+        currency: r.currency,
+        productName: productNamesByOrderId.get(r.order.id)?.join(' / ') ?? null,
+      })),
+      count,
+      page
+    );
   }
 
   async getSalesOrder(id: string, actor: AuthContext) {
@@ -272,6 +315,44 @@ export class OrdersService {
         createdBy: actor.userId,
       })
       .returning();
+    const [potentialStatusId, activeStatusId] = await Promise.all([
+      lookupIdByCode(this.db, companyStatuses, 'potential'),
+      lookupIdByCode(this.db, companyStatuses, 'active'),
+    ]);
+    const promoted =
+      potentialStatusId && activeStatusId
+        ? await this.db
+            .update(companies)
+            .set({
+              customerStatusId: activeStatusId,
+              updatedBy: actor.userId,
+              updatedAt: new Date(),
+            })
+            .where(
+              and(
+                eq(companies.id, input.companyId),
+                eq(companies.tenantId, actor.tenantId),
+                eq(companies.customerStatusId, potentialStatusId),
+                isNull(companies.deletedAt)
+              )
+            )
+            .returning({ id: companies.id })
+        : [];
+    if (promoted.length) {
+      await this.audit.write({
+        tenantId: actor.tenantId,
+        actorUserId: actor.userId,
+        action: 'company.status_auto_promoted',
+        resourceType: 'company',
+        resourceId: input.companyId,
+        oldValues: { customerStatusCode: 'potential' },
+        newValues: {
+          customerStatusCode: 'active',
+          reason: 'first_sales_order',
+          salesOrderId: row.id,
+        },
+      });
+    }
     await this.audit.write({
       tenantId: actor.tenantId,
       actorUserId: actor.userId,
@@ -517,7 +598,7 @@ export class OrdersService {
           isNull(companyAddresses.deletedAt)
         )
       )
-      .orderBy(desc(companyAddresses.isDefault), desc(companyAddresses.createdAt))
+      .orderBy(desc(companyAddresses.isShipping), desc(companyAddresses.isDefault), desc(companyAddresses.createdAt))
       .limit(1);
     const deliveryAddressSnapshot = deliveryAddress
       ? [deliveryAddress.fullAddress, deliveryAddress.district, deliveryAddress.province, deliveryAddress.country]

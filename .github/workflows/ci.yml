@@ -46,6 +46,9 @@ jobs:
       - name: Install dependencies
         run: NPM_CONFIG_PRODUCTION=false npm ci
 
+      - name: Scan repository for credentials
+        run: npm run scan:secrets
+
       - name: Dependency audit (production web/API workspaces)
         run: npm audit --omit=dev --audit-level=high --workspace @haksan/shared --workspace @haksan/api --workspace @haksan/web --include-workspace-root
 

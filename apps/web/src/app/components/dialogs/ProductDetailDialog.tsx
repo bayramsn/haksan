@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from ".
 import { Checkbox } from "../ui/checkbox";
 import {
   ImageIcon, ListChecks, CheckCircle2, Sparkles, Tag, Cpu, Package, Wrench, Settings2, FileText,
-  Pencil, Save, X,
+  Pencil, Save, X, FileDown,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Product } from "../../lib/mock";
@@ -18,6 +18,9 @@ import { useAuth } from "../../../lib/auth";
 import { productService } from "../../../lib/services";
 import { resolveMediaUrl } from "../../../lib/apiClient";
 import { ProductSpecsTable } from "../shared/ProductSpecsTable";
+import { EntityVisual } from "../shared/PremiumPrimitives";
+import { printAssetBase, productTechnicalDoc } from "../../lib/print";
+import { printOrWarn } from "../../lib/pageHelpers";
 
 type MediaItem = { fileId: string; mediaType: "image" | "document"; title: string | null; mimeType: string; url: string };
 
@@ -79,6 +82,7 @@ export function ProductDetailDialog({
   onEdit,
   highlightOptional = false,
   hideOptionalEquipment = false,
+  readOnly = false,
 }: {
   product: Product | null;
   onClose: () => void;
@@ -86,6 +90,8 @@ export function ProductDetailDialog({
   onEdit?: (product: Product) => void;
   highlightOptional?: boolean;
   hideOptionalEquipment?: boolean;
+  /** Fiyat listesi gibi salt-okunur bağlamlarda ürün düzenleme eylemlerini gizler. */
+  readOnly?: boolean;
 }) {
   const [equipment, setEquipment] = useState<EquipmentRow[]>([]);
   const [compatibleOptionalEquipment, setCompatibleOptionalEquipment] = useState<CompatibleOptionalRow[]>([]);
@@ -96,7 +102,7 @@ export function ProductDetailDialog({
 
   const { patchProduct, products } = useStore();
   const { hasRole, hasPermission } = useAuth();
-  const canEdit = hasRole("super_admin") || hasPermission("products.update");
+  const canEdit = !readOnly && (hasRole("super_admin") || hasPermission("products.update"));
   // Yalnızca düzenlenen alanların yereldeki gösterimini tutar (kayıttan sonra
   // dialog'un anlık güncel kalması için). Tablo zaten store'dan tazelenir.
   const [overrides, setOverrides] = useState<Partial<Product>>({});
@@ -189,6 +195,7 @@ export function ProductDetailDialog({
       originCountry: view.originCountry,
       hsCode: view.hsCode,
       modelName: view.modelName,
+      series: view.series,
       description: view.description,
       muadilProductIds: currentMuadilIds,
     });
@@ -287,6 +294,17 @@ export function ProductDetailDialog({
     return acc;
   }, {});
   const muadilCount = Object.values(muadilGroups).reduce((sum, items) => sum + items.length, 0);
+  const createTechnicalPdf = () => {
+    printOrWarn(productTechnicalDoc({
+      product: view,
+      standardEquipment: standardTitles,
+      optionalEquipment: optional.map((item) => ({
+        title: item.item.title,
+        description: item.item.description,
+      })),
+      documents: documents.map((document) => ({ title: document.title })),
+    }, printAssetBase()));
+  };
 
   return (
     <Dialog open={!!product} onOpenChange={(o) => !o && onClose()}>
@@ -304,8 +322,17 @@ export function ProductDetailDialog({
                 {product.type && <span className="text-muted-foreground">{product.type}</span>}
               </DialogDescription>
             </div>
-            {canEdit && (
-              <div className="shrink-0 flex items-center gap-1.5">
+            <div className="shrink-0 flex items-center gap-1.5">
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-8 gap-1.5"
+                onClick={createTechnicalPdf}
+              >
+                <FileDown className="size-3.5" /> PDF Oluştur
+              </Button>
+              {canEdit && (
+                <>
                 {editing ? (
                   <>
                     <Button size="sm" className="h-8 gap-1.5" onClick={saveEdit} disabled={saving}>
@@ -325,8 +352,9 @@ export function ProductDetailDialog({
                     <Pencil className="size-3.5" /> Düzenle
                   </Button>
                 )}
-              </div>
-            )}
+                </>
+              )}
+            </div>
           </div>
         </DialogHeader>
 
@@ -398,6 +426,13 @@ export function ProductDetailDialog({
                       className="h-8 bg-white"
                       defaultValue={draft.modelName ?? ""}
                       onChange={(e) => setDraft((d) => ({ ...d, modelName: e.target.value }))}
+                    />
+                  </EditField>
+                  <EditField label="Ürün Serisi">
+                    <Input
+                      className="h-8 bg-white"
+                      defaultValue={draft.series ?? ""}
+                      onChange={(e) => setDraft((d) => ({ ...d, series: e.target.value }))}
                     />
                   </EditField>
                   <EditField label="Menşei">
@@ -500,6 +535,7 @@ export function ProductDetailDialog({
             </div>
             <div className="grid grid-cols-2 gap-2 text-xs">
               <Meta label="Marka" value={view.brand} />
+              <Meta label="Seri" value={view.series} />
               <Meta label="Model" value={view.modelName || view.model} />
               <Meta label="Stok Kodu" value={view.stockCode || view.model} />
               <Meta label="KDV" value={`%${normalizeProductVatRate(view.vatRate)}`} />
@@ -708,18 +744,14 @@ function SectionTitle({ icon, text, count }: { icon: React.ReactNode; text: stri
 }
 
 /** Small left icon-photo used in product list rows (firma listesi gibi). */
-export function ProductThumb({ product, fallback }: { product: Pick<Product, "imageUrl" | "model">; fallback?: React.ReactNode }) {
-  if (product.imageUrl) {
-    return (
-      <div className="size-9 rounded-lg overflow-hidden bg-muted/40 shrink-0">
-        <img src={product.imageUrl} alt={product.model} className="w-full h-full object-cover" />
-      </div>
-    );
-  }
+export function ProductThumb({ product, fallback, size = "sm" }: { product: Pick<Product, "imageUrl" | "model">; fallback?: React.ReactNode; size?: "sm" | "md" | "lg" }) {
   return (
-    <div className="size-9 rounded-lg bg-gradient-to-br from-primary/15 to-primary/5 text-primary grid place-items-center shrink-0">
-      {fallback ?? <Cpu className="size-4" />}
-    </div>
+    <EntityVisual
+      imageUrl={product.imageUrl}
+      title={product.model}
+      icon={fallback ?? <Cpu className="size-4" />}
+      size={size}
+    />
   );
 }
 

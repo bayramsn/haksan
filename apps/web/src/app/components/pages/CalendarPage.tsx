@@ -6,6 +6,7 @@ import { useAuth } from '../../../lib/auth';
 import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
 import { Card, CardContent } from '../ui/card';
+import { BrandIllustration } from '../brand';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../ui/dialog';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
@@ -172,21 +173,63 @@ export function CalendarPage() {
   const periodLabel = view === 'day' ? cursor.toLocaleDateString('tr-TR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
     : view === 'week' ? `${range.from.toLocaleDateString('tr-TR', { day: 'numeric', month: 'short' })} — ${range.to.toLocaleDateString('tr-TR', { day: 'numeric', month: 'short', year: 'numeric' })}`
     : view === 'list' ? 'Geçmiş 6 ay · Gelecek 6 ay' : cursor.toLocaleDateString('tr-TR', { month: 'long', year: 'numeric' });
+  const upcomingEvents = [...events]
+    .filter((event) => !event.deletedAt && new Date(event.endsAt).getTime() >= Date.now())
+    .sort((a, b) => new Date(a.startsAt).getTime() - new Date(b.startsAt).getTime())
+    .slice(0, 8);
+  const todayEventCount = events.filter((event) => dateKey(new Date(event.startsAt)) === dateKey(new Date()) && !event.deletedAt).length;
 
   return <div className="space-y-4">
-    <section className="relative overflow-hidden rounded-2xl border border-slate-800 bg-slate-950 px-5 py-5 text-white shadow-xl">
-      <div className="pointer-events-none absolute inset-0 opacity-20 [background-image:linear-gradient(rgba(255,255,255,.08)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,.08)_1px,transparent_1px)] [background-size:28px_28px]" />
-      <div className="relative flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between"><div><div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.22em] text-emerald-300"><span className="size-2 rounded-full bg-emerald-400 shadow-[0_0_14px_rgba(52,211,153,.8)]" /> Operasyon ajandası</div><h2 className="text-2xl font-semibold tracking-tight">{periodLabel}</h2><p className="mt-1 text-sm text-slate-300">Telefon takvimleri, toplantılar ve müşteri ziyaretleri tek akışta.</p></div>
-        <div className="flex flex-wrap items-center gap-2">{isSuperAdmin && <label className="flex h-9 items-center gap-2 rounded-lg border border-white/15 bg-white/10 px-3 text-xs"><Users className="size-4 text-emerald-300" /><select value={ownerUserId} onChange={(event) => setOwnerUserId(event.target.value)} className="bg-transparent outline-none"><option className="text-slate-950" value="all">Tüm kullanıcılar</option>{owners.map((owner) => <option className="text-slate-950" key={owner.id} value={owner.id}>{owner.fullName}</option>)}</select></label>}<Button variant="secondary" className="gap-2" onClick={openImport}><Upload className="size-4" /> İçe aktar</Button><Button variant="secondary" className="gap-2" onClick={() => openCreate()}><Plus className="size-4" /> Yeni etkinlik</Button></div>
+    <section className="premium-blueprint precision-corners relative overflow-hidden rounded-xl border border-primary/10 bg-white px-4 py-4 shadow-sm">
+      <div className="relative flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between"><div><div className="mb-1 font-data text-[9px] font-semibold uppercase tracking-[0.17em] text-operation-blue">Operasyon ajandası</div><h2 className="font-display text-2xl font-semibold tracking-tight">{periodLabel}</h2><p className="mt-1 text-xs text-muted-foreground">Telefon takvimleri, toplantılar ve müşteri ziyaretleri tek akışta.</p><div className="mt-3 flex flex-wrap items-center gap-2 text-[10px]"><Badge variant="outline" className="bg-white"><Clock3 className="mr-1 size-3" />Bugün {todayEventCount}</Badge><Badge variant="outline" className="bg-white">Bu görünümde {events.filter((event) => !event.deletedAt).length}</Badge><span className="text-muted-foreground">Hücreye çift tıklayarak hızlı etkinlik ekleyin</span></div></div>
+        <div className="flex flex-wrap items-center gap-2">{isSuperAdmin && <label className="flex h-9 items-center gap-2 rounded-lg border border-border bg-white px-3 text-xs"><Users className="size-4 text-primary" /><select value={ownerUserId} onChange={(event) => setOwnerUserId(event.target.value)} className="bg-transparent outline-none"><option value="all">Tüm kullanıcılar</option>{owners.map((owner) => <option key={owner.id} value={owner.id}>{owner.fullName}</option>)}</select></label>}<Button variant="outline" className="gap-2" onClick={openImport}><Upload className="size-4" /> İçe aktar</Button><Button className="gap-2" onClick={() => openCreate()}><Plus className="size-4" /> Yeni etkinlik</Button></div>
       </div>
     </section>
-    <Card className="overflow-hidden border-border/70 shadow-sm"><div className="flex flex-col gap-3 border-b bg-muted/20 p-3 lg:flex-row lg:items-center lg:justify-between"><div className="flex items-center gap-1"><Button size="icon" variant="outline" onClick={() => move(-1)}><ChevronLeft className="size-4" /></Button><Button variant="outline" onClick={() => setCursor(new Date())}>Bugün</Button><Button size="icon" variant="outline" onClick={() => move(1)}><ChevronRight className="size-4" /></Button><Button size="icon" variant="ghost" onClick={load} disabled={loading}><RefreshCw className={`size-4 ${loading ? 'animate-spin' : ''}`} /></Button></div><div className="flex flex-wrap items-center gap-2"><label className="flex items-center gap-2 text-xs text-muted-foreground"><Switch checked={includeArchived} onCheckedChange={setIncludeArchived} /> Arşivi göster</label><div className="flex rounded-lg border bg-background p-1">{(Object.keys(VIEW_LABELS) as CalendarView[]).map((key) => <button key={key} onClick={() => setView(key)} className={`rounded-md px-3 py-1.5 text-xs font-medium transition ${view === key ? 'bg-primary text-primary-foreground shadow-sm' : 'text-muted-foreground hover:bg-muted'}`}>{VIEW_LABELS[key]}</button>)}</div></div></div>
+    <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_300px]">
+    <Card className="min-w-0 overflow-hidden border-border/70 shadow-sm">
+      <div className="flex flex-col gap-3 border-b bg-muted/20 p-3 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex items-center gap-1">
+          <Button size="icon" variant="outline" aria-label="Önceki dönem" onClick={() => move(-1)}><ChevronLeft className="size-4" /></Button>
+          <Button variant="outline" onClick={() => setCursor(new Date())}>Bugün</Button>
+          <Button size="icon" variant="outline" aria-label="Sonraki dönem" onClick={() => move(1)}><ChevronRight className="size-4" /></Button>
+          <Button size="icon" variant="ghost" aria-label="Takvimi yenile" onClick={load} disabled={loading}><RefreshCw className={`size-4 ${loading ? 'animate-spin' : ''}`} /></Button>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="hidden flex-wrap items-center gap-2 border-r border-border pr-2 2xl:flex">
+            {(Object.keys(TYPE_LABELS) as CalendarEventType[]).map((type) => <span key={type} className="inline-flex items-center gap-1 text-[9px] text-muted-foreground"><span className={`size-2 rounded-full border ${TYPE_STYLES[type]}`} />{TYPE_LABELS[type]}</span>)}
+          </div>
+          <label className="flex items-center gap-2 text-xs text-muted-foreground">
+            <Switch aria-label="Arşivlenmiş etkinlikleri göster" checked={includeArchived} onCheckedChange={setIncludeArchived} /> Arşivi göster
+          </label>
+          <div className="flex rounded-lg border bg-background p-1">
+            {(Object.keys(VIEW_LABELS) as CalendarView[]).map((key) => (
+              <button
+                key={key}
+                type="button"
+                aria-pressed={view === key}
+                onClick={() => setView(key)}
+                className={`rounded-md px-3 py-1.5 text-xs font-medium transition ${view === key ? 'bg-primary text-primary-foreground shadow-sm' : 'text-muted-foreground hover:bg-muted'}`}
+              >
+                {VIEW_LABELS[key]}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
       <CardContent className="p-0">{view === 'month' ? <MonthGrid cursor={cursor} rangeStart={range.from} byDay={byDay} onCreate={openCreate} onOpen={openEdit} /> : <AgendaView view={view} events={events} range={range} onOpen={openEdit} />}</CardContent>
     </Card>
+    <aside className="self-start overflow-hidden rounded-xl border border-primary/10 bg-brand-blue-soft/25 shadow-sm xl:sticky xl:top-3">
+      <div className="border-b border-primary/10 bg-white/75 p-4"><div className="font-data text-[9px] font-semibold uppercase tracking-[0.15em] text-operation-blue">Yaklaşanlar</div><div className="mt-1 font-display text-lg font-semibold">Sıradaki operasyonlar</div><p className="mt-1 text-xs text-muted-foreground">Zaman, firma ve konum bağlamıyla.</p></div>
+      <div className="max-h-[620px] space-y-2 overflow-y-auto p-3">
+        {upcomingEvents.map((event) => <button key={event.id} type="button" onClick={() => openEdit(event)} className="w-full rounded-lg border border-border/60 bg-white p-3 text-left shadow-xs transition hover:border-primary/25 hover:shadow-sm"><div className="flex items-start justify-between gap-2"><div className="min-w-0"><div className="truncate text-xs font-semibold">{event.title}</div><div className="mt-1 font-data text-[10px] text-muted-foreground">{new Date(event.startsAt).toLocaleDateString('tr-TR', { day: '2-digit', month: 'short' })} · {event.allDay ? 'Tüm gün' : new Date(event.startsAt).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}</div></div><span className={`size-2 shrink-0 rounded-full border ${TYPE_STYLES[event.eventType]}`} /></div><div className="mt-2 flex flex-wrap gap-1.5 text-[10px] text-muted-foreground">{event.company && <span className="rounded bg-muted px-1.5 py-0.5">{event.company.shortName || event.company.legalTitle}</span>}{event.location && <span className="inline-flex items-center gap-1 truncate"><MapPin className="size-3" />{event.location}</span>}</div></button>)}
+        {upcomingEvents.length === 0 && <div className="py-4 text-center"><BrandIllustration scene="calendar" size="sm" className="mx-auto" /><div className="mt-1 text-sm font-semibold">Yaklaşan etkinlik yok</div><p className="mt-1 text-xs text-muted-foreground">Yeni etkinlik oluşturarak operasyon akışını planlayın.</p><Button size="sm" className="mt-3" onClick={() => openCreate()}><Plus className="size-4" /> Etkinlik oluştur</Button></div>}
+      </div>
+    </aside>
+    </div>
     <Dialog open={editorOpen} onOpenChange={setEditorOpen}><DialogContent className="max-w-2xl"><form onSubmit={save} className="space-y-4"><DialogHeader><DialogTitle>{editing ? 'Etkinliği düzenle' : 'Yeni etkinlik'}</DialogTitle><DialogDescription>{editing?.source === 'device' ? 'Değişiklik bir sonraki senkronda telefona yazılır.' : 'Kişisel takvimine yeni bir kayıt ekle.'}</DialogDescription></DialogHeader>
       <div className="grid gap-4 sm:grid-cols-2"><Field label="Etkinlik türü"><select className="h-9 w-full rounded-md border bg-background px-3 text-sm" value={draft.eventType} onChange={(event) => setDraft((value) => ({ ...value, eventType: event.target.value as CalendarEventType, companyId: event.target.value === 'customer_visit' ? value.companyId : null }))}>{Object.entries(TYPE_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></Field>
       {draft.eventType === 'customer_visit' && <Field label="Firma"><select required className="h-9 w-full rounded-md border bg-background px-3 text-sm" value={draft.companyId ?? ''} onChange={(event) => setDraft((value) => ({ ...value, companyId: event.target.value || null }))}><option value="">Firma seçin</option>{companies.map((company) => <option key={company.id} value={company.id}>{company.shortName || company.legalTitle}</option>)}</select></Field>}
-      <Field label="Başlık" className="sm:col-span-2"><Input required maxLength={255} value={draft.title} onChange={(event) => setDraft((value) => ({ ...value, title: event.target.value }))} placeholder="Örn. Haksan CNC fabrika ziyareti" /></Field><Field label="Başlangıç"><Input required type="datetime-local" value={draft.startsAt} onChange={(event) => setDraft((value) => ({ ...value, startsAt: event.target.value }))} /></Field><Field label="Bitiş"><Input required type="datetime-local" value={draft.endsAt} onChange={(event) => setDraft((value) => ({ ...value, endsAt: event.target.value }))} /></Field><Field label="Konum" className="sm:col-span-2"><Input value={draft.location ?? ''} onChange={(event) => setDraft((value) => ({ ...value, location: event.target.value }))} /></Field><Field label="Not" className="sm:col-span-2"><Textarea value={draft.description ?? ''} onChange={(event) => setDraft((value) => ({ ...value, description: event.target.value }))} /></Field><label className="flex items-center gap-2 text-sm"><Switch checked={draft.allDay} onCheckedChange={(checked) => setDraft((value) => ({ ...value, allDay: checked }))} /> Tüm gün</label></div>
+      <Field label="Başlık" className="sm:col-span-2"><Input required maxLength={255} value={draft.title} onChange={(event) => setDraft((value) => ({ ...value, title: event.target.value }))} placeholder="Örn. Haksan CNC fabrika ziyareti" /></Field><Field label="Başlangıç"><Input required type="datetime-local" value={draft.startsAt} onChange={(event) => setDraft((value) => ({ ...value, startsAt: event.target.value }))} /></Field><Field label="Bitiş"><Input required type="datetime-local" value={draft.endsAt} onChange={(event) => setDraft((value) => ({ ...value, endsAt: event.target.value }))} /></Field><Field label="Konum" className="sm:col-span-2"><Input value={draft.location ?? ''} onChange={(event) => setDraft((value) => ({ ...value, location: event.target.value }))} /></Field><Field label="Not" className="sm:col-span-2"><Textarea value={draft.description ?? ''} onChange={(event) => setDraft((value) => ({ ...value, description: event.target.value }))} /></Field><label className="flex items-center gap-2 text-sm"><Switch aria-label="Tüm gün" checked={draft.allDay} onCheckedChange={(checked) => setDraft((value) => ({ ...value, allDay: checked }))} /> Tüm gün</label></div>
       <DialogFooter className="items-center sm:justify-between"><div className="flex gap-2">{editing && !editing.deletedAt && <Button type="button" variant="destructive" size="sm" onClick={remove}><Trash2 className="size-4" /> Arşive al</Button>}{editing?.deletedAt && <Button type="button" variant="outline" size="sm" onClick={restore}><ArchiveRestore className="size-4" /> Geri al</Button>}</div><div className="flex gap-2"><Button type="button" variant="outline" onClick={() => setEditorOpen(false)}>Vazgeç</Button><Button disabled={saving || !!editing?.deletedAt}>{saving ? 'Kaydediliyor…' : 'Kaydet'}</Button></div></DialogFooter>
     </form></DialogContent></Dialog>
     <Dialog open={importOpen} onOpenChange={(next) => { if (!importBusy) setImportOpen(next); }}><DialogContent className="max-w-2xl">
@@ -227,7 +270,9 @@ function ImportRow({ event }: { event: CalendarImportEvent }) {
   </div>;
 }
 
-function Field({ label, children, className = '' }: { label: string; children: ReactNode; className?: string }) { return <div className={`space-y-1.5 ${className}`}><Label>{label}</Label>{children}</div>; }
+function Field({ label, children, className = '' }: { label: string; children: ReactNode; className?: string }) {
+  return <div className={className}><Label className="block space-y-1.5"><span className="block">{label}</span>{children}</Label></div>;
+}
 
 function MonthGrid({ cursor, rangeStart, byDay, onCreate, onOpen }: { cursor: Date; rangeStart: Date; byDay: Map<string, CalendarEventDTO[]>; onCreate: (date: Date) => void; onOpen: (event: CalendarEventDTO) => void }) {
   return <div><div className="grid grid-cols-7 border-b bg-muted/20 text-center text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{['Pzt', 'Sal', 'Çar', 'Per', 'Cum', 'Cmt', 'Paz'].map((day) => <div key={day} className="py-2">{day}</div>)}</div><div className="grid grid-cols-7">{Array.from({ length: 42 }, (_, index) => addDays(rangeStart, index)).map((day) => { const rows = byDay.get(dateKey(day)) ?? []; const outside = day.getMonth() !== cursor.getMonth(); const today = dateKey(day) === dateKey(new Date()); return <div key={dateKey(day)} onDoubleClick={() => onCreate(day)} className={`min-h-28 border-b border-r p-1.5 transition hover:bg-muted/40 ${outside ? 'bg-muted/20 text-muted-foreground' : 'bg-background'}`}><div className={`mb-1 grid size-6 place-items-center rounded-full text-xs font-semibold ${today ? 'bg-success text-success-foreground' : ''}`}>{day.getDate()}</div><div className="space-y-1">{rows.slice(0, 4).map((event) => <EventChip key={event.id} event={event} onOpen={onOpen} />)}{rows.length > 4 && <div className="px-1 text-[10px] text-muted-foreground">+{rows.length - 4} daha</div>}</div></div>; })}</div></div>;

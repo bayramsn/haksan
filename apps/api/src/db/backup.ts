@@ -28,6 +28,7 @@ import { finished } from 'node:stream/promises';
 import { createGzip } from 'node:zlib';
 import { CopyObjectCommand, DeleteObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { loadEnv } from '../config/env';
+import { buildS3ClientConfig } from '../shared/storage/s3-client-config';
 
 function timestamp(): string {
   return new Date().toISOString().replace(/[:.]/g, '-');
@@ -92,9 +93,7 @@ async function main(): Promise<void> {
   const bucket = env.S3_BACKUP_BUCKET ?? `${env.S3_BUCKET_PREFIX}-backups`;
   const key = `db-backups/haksan_${timestamp()}.sql.gz`;
   const s3 = new S3Client({
-    region: env.S3_REGION,
-    endpoint: env.S3_ENDPOINT,
-    forcePathStyle: env.S3_FORCE_PATH_STYLE,
+    ...buildS3ClientConfig(env),
     // MinIO accepts the signed streaming upload, but not the optional flexible
     // checksum trailer that recent AWS SDK releases enable by default. With an
     // unknown-length pg_dump stream that trailer can also produce an undefined
@@ -102,7 +101,6 @@ async function main(): Promise<void> {
     // optional checksum for PutObject, so only calculate one when an operation
     // explicitly requires it.
     requestChecksumCalculation: 'WHEN_REQUIRED',
-    credentials: { accessKeyId: env.S3_ACCESS_KEY_ID, secretAccessKey: env.S3_SECRET_ACCESS_KEY },
   });
   const pgpass = await createPgpass(env.DATABASE_URL);
   const temporaryKey = `${key}.partial-${randomUUID()}`;

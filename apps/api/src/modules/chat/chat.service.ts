@@ -14,7 +14,11 @@ import { ChatRealtimeService } from './chat.realtime';
 import { ForbiddenError, NotFoundError, ValidationError } from '../../shared/utils/errors';
 import type { AuthContext } from '../../shared/security/auth.types';
 import { resourceCompanyPortfolioFilter, resourceDivisionFilter } from '../../shared/utils/division-scope';
-import { companyVisibilityExistsFilter, companyVisibilityFilter } from '../../shared/utils/company-visibility';
+import {
+  allowUnlinkedCompanyRecords,
+  companyVisibilityExistsFilter,
+  companyVisibilityFilter,
+} from '../../shared/utils/company-visibility';
 import type {
   CreateGroupInput,
   UpdateGroupInput,
@@ -84,6 +88,33 @@ export class ChatService {
   async isMember(userId: string, conversationId: string): Promise<boolean> {
     const member = await this.getMember(userId, conversationId);
     return !!member;
+  }
+
+  /**
+   * Sesli arama sinyalleşmesi: arayanın üyeliğini doğrular, karşı üyeleri ve
+   * arayan adını döner. Şimdilik yalnız birebir (dm) konuşmalarda arama var.
+   */
+  async voiceCallContext(
+    userId: string,
+    conversationId: string,
+  ): Promise<{ peerIds: string[]; callerName: string } | null> {
+    if (!(await this.isMember(userId, conversationId))) return null;
+    const [conv] = await this.db
+      .select({ type: conversations.type })
+      .from(conversations)
+      .where(eq(conversations.id, conversationId));
+    if (!conv || conv.type !== 'dm') return null;
+    const members = await this.db
+      .select({ userId: conversationMembers.userId })
+      .from(conversationMembers)
+      .where(eq(conversationMembers.conversationId, conversationId));
+    const peerIds = members.map((m) => m.userId).filter((id) => id !== userId);
+    if (peerIds.length === 0) return null;
+    const [caller] = await this.db
+      .select({ fullName: users.fullName })
+      .from(users)
+      .where(eq(users.id, userId));
+    return { peerIds, callerName: caller?.fullName ?? 'Bilinmeyen kullanıcı' };
   }
 
   private isSuperAdmin(actor: AuthContext): boolean {
@@ -706,7 +737,7 @@ export class ChatService {
             eq(quotes.tenantId, actor.tenantId),
             isNull(quotes.deletedAt),
             resourceDivisionFilter(actor, 'quotes', quotes.divisionId) ?? sql`true`,
-            visibility ?? sql`true`,
+            allowUnlinkedCompanyRecords(opportunities.companyId, visibility),
             inArray(quotes.id, idsByType.quote)
           )
         );

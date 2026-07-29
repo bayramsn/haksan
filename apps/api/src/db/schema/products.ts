@@ -25,11 +25,15 @@ export const brands = pgTable(
     country: varchar('country', { length: 64 }),
     website: varchar('website', { length: 512 }),
     notes: text('notes'),
+    sortOrder: integer('sort_order').notNull().default(0),
+    // Bölüm (departman) bazlı marka: NULL → tüm bölümlerde ("Tümü") geçerli.
+    divisionId: uuid('division_id').references(() => divisions.id, { onDelete: 'set null' }),
     ...auditColumns,
   },
   (t) => ({
     tenantNameUnique: uniqueIndex('brands_tenant_name_unique').on(t.tenantId, t.name),
     tenantIdx: index('brands_tenant_idx').on(t.tenantId),
+    divisionIdx: index('brands_division_idx').on(t.divisionId),
   })
 );
 
@@ -43,6 +47,7 @@ export const productModels = pgTable(
     brandId: uuid('brand_id')
       .notNull()
       .references(() => brands.id, { onDelete: 'restrict' }),
+    series: varchar('series', { length: 128 }),
     productGroupId: uuid('product_group_id').references(() => productGroups.id),
     categoryId: uuid('category_id').references(() => productCategories.id),
     subcategoryId: uuid('subcategory_id').references(() => productSubcategories.id),
@@ -163,6 +168,9 @@ export const productSpecTemplates = pgTable(
     divisionId: uuid('division_id').references(() => divisions.id, { onDelete: 'set null' }),
     sortOrder: integer('sort_order').notNull().default(0),
     isActive: boolean('is_active').notNull().default(true),
+    // Katalogdaki varsayılan alanlar koddan yeniden üretildiği için fiziksel silme
+    // yerine tombstone tutulur; böylece yönetici tarafından silinen alan geri gelmez.
+    isDeleted: boolean('is_deleted').notNull().default(false),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true })
       .notNull()

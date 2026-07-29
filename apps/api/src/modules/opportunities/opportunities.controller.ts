@@ -1,16 +1,32 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { z } from 'zod';
 import {
   opportunityCreateSchema,
   opportunityUpdateSchema,
   opportunityStageChangeSchema,
+  opportunityCompanyLinkSchema,
+  opportunityApprovalDecisionSchema,
+  opportunityApprovalTypeEnum,
   opportunityCloseSchema,
+  opportunityConvertSchema,
+  opportunityQualificationChangeSchema,
+  opportunityQualificationStageEnum,
+  trelloImportCommitRequestSchema,
+  trelloImportPreviewRequestSchema,
   opportunityViewEnum,
   paginationSchema,
   type OpportunityCreateInput,
   type OpportunityUpdateInput,
   type OpportunityStageChangeInput,
+  type OpportunityCompanyLinkInput,
+  type OpportunityApprovalDecisionInput,
   type OpportunityCloseInput,
+  type OpportunityConvertInput,
+  type OpportunityQualificationChangeInput,
+  type OpportunityApprovalType,
+  type TrelloImportCommitRequest,
+  type TrelloImportPreviewRequest,
   type Pagination,
 } from '@haksan/shared';
 import { ZodValidationPipe } from '../../shared/utils/zod-pipe';
@@ -23,10 +39,14 @@ import { OpportunitiesService } from './opportunities.service';
 const listQuery = z.object({
   search: z.string().optional(),
   stageCode: z.string().optional(),
+  qualificationStage: opportunityQualificationStageEnum.optional(),
+  lifecycle: z.enum(['lead', 'opportunity']).optional(),
   companyId: z.string().optional(),
   // active (varsayılan) | closed (Geçmiş/Arşiv) | all
   view: opportunityViewEnum.optional(),
 });
+
+const TRELLO_IMPORT_THROTTLE = { default: { limit: 5, ttl: 60_000 } };
 
 @UseGuards(AuthGuard, PermissionsGuard)
 @Controller('opportunities')
@@ -59,6 +79,26 @@ export class OpportunitiesController {
     return this.svc.create(body, user);
   }
 
+  @RequirePermissions('opportunities.create')
+  @Throttle(TRELLO_IMPORT_THROTTLE)
+  @Post('imports/trello/preview')
+  previewTrelloImport(
+    @Body(new ZodValidationPipe(trelloImportPreviewRequestSchema)) body: TrelloImportPreviewRequest,
+    @CurrentUser() user: AuthContext
+  ) {
+    return this.svc.previewTrelloImport(body, user);
+  }
+
+  @RequirePermissions('opportunities.create')
+  @Throttle(TRELLO_IMPORT_THROTTLE)
+  @Post('imports/trello/commit')
+  commitTrelloImport(
+    @Body(new ZodValidationPipe(trelloImportCommitRequestSchema)) body: TrelloImportCommitRequest,
+    @CurrentUser() user: AuthContext
+  ) {
+    return this.svc.commitTrelloImport(body, user);
+  }
+
   @RequirePermissions('opportunities.update')
   @Patch(':id')
   update(
@@ -67,6 +107,47 @@ export class OpportunitiesController {
     @CurrentUser() user: AuthContext
   ) {
     return this.svc.update(id, body, user);
+  }
+
+  @RequirePermissions('opportunities.update', 'companies.read')
+  @Post(':id/company')
+  linkCompany(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(opportunityCompanyLinkSchema)) body: OpportunityCompanyLinkInput,
+    @CurrentUser() user: AuthContext
+  ) {
+    return this.svc.linkCompany(id, body, user);
+  }
+
+  @RequirePermissions('opportunities.update')
+  @Post(':id/convert')
+  convertLead(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(opportunityConvertSchema)) body: OpportunityConvertInput,
+    @CurrentUser() user: AuthContext
+  ) {
+    return this.svc.convertLead(id, body, user);
+  }
+
+  @RequirePermissions('opportunities.update')
+  @Patch(':id/qualification-stage')
+  changeQualificationStage(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(opportunityQualificationChangeSchema)) body: OpportunityQualificationChangeInput,
+    @CurrentUser() user: AuthContext
+  ) {
+    return this.svc.changeQualificationStage(id, body, user);
+  }
+
+  @RequirePermissions('opportunities.approve')
+  @Post(':id/approvals/:type')
+  decideQualificationApproval(
+    @Param('id') id: string,
+    @Param('type', new ZodValidationPipe(opportunityApprovalTypeEnum)) type: OpportunityApprovalType,
+    @Body(new ZodValidationPipe(opportunityApprovalDecisionSchema)) body: OpportunityApprovalDecisionInput,
+    @CurrentUser() user: AuthContext
+  ) {
+    return this.svc.decideQualificationApproval(id, type, body, user);
   }
 
   @RequirePermissions('opportunities.update')

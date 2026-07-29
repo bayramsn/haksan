@@ -16,6 +16,12 @@ import type { ZodType } from 'zod';
  */
 export interface RequestOpts<T = unknown> extends RequestInit {
   schema?: ZodType<T>;
+  /**
+   * Aynı yazma isteğinin çift tıklama nedeniyle eşzamanlı gönderilmesini önler.
+   * Yalnızca gerçekten art arda aynı isteğin ayrı ayrı çalışması gereken özel
+   * uçlarda `false` yapılmalıdır.
+   */
+  dedupe?: boolean;
 }
 
 export interface ApiClient {
@@ -27,18 +33,37 @@ export interface ApiClient {
 }
 
 export class ApiError extends Error {
-  constructor(public readonly status: number, public readonly code: string, message: string, public readonly details?: unknown) {
+  // ES2022 Error.cause; tsconfig lib hedefi daha eski olduğundan açıkça bildirilir.
+  cause?: unknown;
+
+  constructor(
+    public readonly status: number,
+    public readonly code: string,
+    message: string,
+    public readonly details?: unknown,
+    public readonly requestId?: string
+  ) {
     super(message);
     this.name = 'ApiError';
   }
 }
 
-const BASE_URL = (import.meta.env.VITE_API_BASE_URL as string) ?? 'http://localhost:3000/api/v1';
+const configuredBaseUrl = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.trim();
+const productionBaseUrlPointsToLocalhost =
+  import.meta.env.PROD && /^https?:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?(?:\/|$)/i.test(configuredBaseUrl ?? '');
+
+// A local .env is useful during development, but it must never leak into a
+// production bundle: in a customer's browser "localhost" is their own device.
+// Production is served through nginx, so the same-origin API path is the safe
+// fallback and keeps cookies/CORS on one origin.
+const BASE_URL = (productionBaseUrlPointsToLocalhost ? '/api/v1' : configuredBaseUrl || '/api/v1').replace(/\/$/, '');
 
 export const API_BASE_URL = BASE_URL;
 
 /** API host without `/api/v1` — health checks live at `/health/*` on the root. */
 export const API_ORIGIN = BASE_URL.replace(/\/api\/v\d+\/?$/, '');
+
+const VERSIONED_API_PATH_RE = /^\/api\/v\d+(?:\/|$)/i;
 
 /**
  * Resolve a stored media reference into a loadable URL.
@@ -46,11 +71,20 @@ export const API_ORIGIN = BASE_URL.replace(/\/api\/v\d+\/?$/, '');
  *    streaming endpoint and need the API origin prefixed.
  *  - Absolute URLs (legacy imageUrl, unsplash, etc.) are returned unchanged.
  */
+export function resolveMediaUrlAgainstBase(ref: string | null | undefined, baseUrl: string): string {
+  const clean = ref?.trim();
+  if (!clean) return '';
+  if (/^https?:\/\//i.test(clean) || clean.startsWith('data:') || clean.startsWith('blob:')) return clean;
+
+  const normalizedBase = baseUrl.replace(/\/$/, '');
+  const apiOrigin = normalizedBase.replace(/\/api\/v\d+\/?$/i, '');
+  if (VERSIONED_API_PATH_RE.test(clean)) return `${apiOrigin}${clean}`;
+  if (clean.startsWith('/')) return `${normalizedBase}${clean}`;
+  return clean;
+}
+
 export function resolveMediaUrl(ref?: string | null): string {
-  if (!ref) return '';
-  if (/^https?:\/\//i.test(ref) || ref.startsWith('data:')) return ref;
-  if (ref.startsWith('/')) return `${BASE_URL}${ref}`;
-  return ref;
+  return resolveMediaUrlAgainstBase(ref, BASE_URL);
 }
 
 const ACTIVE_DIVISION_STORAGE_KEY = 'haksan_active_division';
@@ -64,6 +98,7 @@ let activeDivision: string | null = readStoredActiveDivision();
 let activeDepartment: string | null = readStoredActiveDepartment();
 let refreshing: Promise<string | null> | null = null;
 let onSessionExpired: (() => void) | null = null;
+let sessionGeneration = 0;
 
 const API_MAX_CONCURRENT_REQUESTS = 4;
 const API_REQUEST_SPACING_MS = 120;
@@ -180,6 +215,7 @@ export function setSessionExpiredHandler(handler: (() => void) | null): void {
 }
 
 export function setAccessToken(token: string | null): void {
+  if (accessToken !== token) sessionGeneration += 1;
   accessToken = token;
 }
 /** Cookie tabanlı oturum yenileme — gövdesiz POST (Fastify boş JSON reddeder). */
@@ -211,8 +247,116 @@ async function tryRefresh(): Promise<string | null> {
   return refreshing;
 }
 
-async function request<T>(method: string, path: string, body?: unknown, opts: RequestOpts<T> = {}): Promise<T> {
-  const { schema, ...init } = opts;
+const DEDUPED_MUTATION_METHODS = new Set(['POST', 'PATCH', 'PUT', 'DELETE']);
+const MUTATION_SUCCESS_RETENTION_MS = 1_000;
+
+/**
+ * Eşzamanlı aynı işi tek Promise altında birleştirir. Başarılı sonuç kısa bir
+ * süre tutulur; böylece çok hızlı yanıtlanan bir isteğin hemen arkasından gelen
+ * ikinci çift-tıklama da sunucuya ulaşmaz. Hatalar bekletilmez ve kullanıcı
+ * anında yeniden deneyebilir.
+ */
+export class SingleFlightRequestStore {
+  private readonly requests = new Map<string, Promise<unknown>>();
+
+  constructor(private readonly successRetentionMs = 0) {}
+
+  run<T>(key: string, task: () => Promise<T>): Promise<T> {
+    const existing = this.requests.get(key);
+    if (existing) return existing as Promise<T>;
+
+    let pending: Promise<T>;
+    try {
+      pending = task();
+    } catch (error) {
+      return Promise.reject(error);
+    }
+
+    this.requests.set(key, pending);
+    pending.then(
+      () => {
+        if (this.successRetentionMs <= 0) {
+          if (this.requests.get(key) === pending) this.requests.delete(key);
+          return;
+        }
+        globalThis.setTimeout(() => {
+          if (this.requests.get(key) === pending) this.requests.delete(key);
+        }, this.successRetentionMs);
+      },
+      () => {
+        if (this.requests.get(key) === pending) this.requests.delete(key);
+      },
+    );
+    return pending;
+  }
+}
+
+function stableJsonValue(value: unknown, ancestors = new WeakSet<object>()): unknown {
+  if (value instanceof Date) return value.toJSON();
+  if (Array.isArray(value)) {
+    if (ancestors.has(value)) throw new TypeError('Döngüsel istek gövdesi tekilleştirilemez');
+    ancestors.add(value);
+    const normalized = value.map((item) => stableJsonValue(item, ancestors));
+    ancestors.delete(value);
+    return normalized;
+  }
+  if (value && typeof value === 'object' && (Object.getPrototypeOf(value) === Object.prototype || Object.getPrototypeOf(value) === null)) {
+    if (ancestors.has(value)) throw new TypeError('Döngüsel istek gövdesi tekilleştirilemez');
+    ancestors.add(value);
+    const normalized = Object.keys(value)
+      .sort()
+      .reduce<Record<string, unknown>>((result, key) => {
+        const item = (value as Record<string, unknown>)[key];
+        if (item !== undefined) result[key] = stableJsonValue(item, ancestors);
+        return result;
+      }, {});
+    ancestors.delete(value);
+    return normalized;
+  }
+  return value;
+}
+
+function normalizedHeaders(headers?: HeadersInit): Array<[string, string]> {
+  if (!headers) return [];
+  return Array.from(new Headers(headers).entries()).sort(([a], [b]) => a.localeCompare(b));
+}
+
+export function buildMutationDedupeKey({
+  method,
+  url,
+  body,
+  headers,
+  scope,
+}: {
+  method: string;
+  url: string;
+  body?: unknown;
+  headers?: HeadersInit;
+  scope: string;
+}): string | null {
+  const normalizedMethod = method.toUpperCase();
+  if (!DEDUPED_MUTATION_METHODS.has(normalizedMethod)) return null;
+  if (typeof FormData !== 'undefined' && body instanceof FormData) return null;
+
+  try {
+    return JSON.stringify([
+      normalizedMethod,
+      url,
+      scope,
+      normalizedHeaders(headers),
+      body === undefined ? { __requestBody: 'undefined' } : stableJsonValue(body),
+    ]);
+  } catch {
+    // Döngüsel/özel gövdelerde mevcut davranışı koru; fetch yine normal hata
+    // yönetiminden geçer, yalnızca tekilleştirme uygulanmaz.
+    return null;
+  }
+}
+
+const mutationRequests = new SingleFlightRequestStore(MUTATION_SUCCESS_RETENTION_MS);
+
+async function executeRequest<T>(method: string, path: string, body?: unknown, opts: RequestOpts<T> = {}): Promise<T> {
+  const { schema, dedupe: _dedupe, ...init } = opts;
   const url = path.startsWith('http') ? path : `${BASE_URL}${path}`;
   const headers: Record<string, string> = { Accept: 'application/json', ...(init.headers as Record<string, string>) };
   if (body !== undefined && !(body instanceof FormData)) headers['Content-Type'] = 'application/json';
@@ -224,13 +368,20 @@ async function request<T>(method: string, path: string, body?: unknown, opts: Re
     headers['X-Active-Department'] = activeDepartment;
   }
 
-  let res = await fetchWithRateLimitRetry(url, {
-    ...init,
-    method,
-    headers,
-    credentials: 'include',
-    body: body === undefined ? undefined : body instanceof FormData ? body : JSON.stringify(body),
-  });
+  let res: Response;
+  try {
+    res = await fetchWithRateLimitRetry(url, {
+      ...init,
+      method,
+      headers,
+      credentials: 'include',
+      body: body === undefined ? undefined : body instanceof FormData ? body : JSON.stringify(body),
+    });
+  } catch (cause) {
+    const error = new ApiError(0, 'NETWORK_ERROR', 'Sunucuya ulaşılamadı. İnternet bağlantınızı kontrol edip tekrar deneyin.');
+    error.cause = cause;
+    throw error;
+  }
 
   // Auto-refresh on 401, then retry once. We attempt the refresh even when the
   // in-memory access token is null — after a page reload the token is reset to
@@ -258,12 +409,19 @@ async function request<T>(method: string, path: string, body?: unknown, opts: Re
   const contentType = res.headers.get('content-type') ?? '';
   if (!res.ok) {
     if (contentType.includes('application/json')) {
-      const json = (await res.json().catch(() => null)) as { error?: { code?: string; message?: string; details?: unknown } } | null;
+      const json = (await res.json().catch(() => null)) as { error?: { code?: string; message?: string; details?: unknown; requestId?: string } } | null;
       const code = json?.error?.code ?? `HTTP_${res.status}`;
       const message = json?.error?.message ?? `Hata ${res.status}`;
-      throw new ApiError(res.status, code, message, json?.error?.details);
+      const requestId = json?.error?.requestId ?? res.headers.get('x-request-id') ?? undefined;
+      throw new ApiError(res.status, code, message, json?.error?.details, requestId);
     }
-    throw new ApiError(res.status, `HTTP_${res.status}`, res.statusText || `Hata ${res.status}`);
+    throw new ApiError(
+      res.status,
+      `HTTP_${res.status}`,
+      res.statusText || `Hata ${res.status}`,
+      undefined,
+      res.headers.get('x-request-id') ?? undefined
+    );
   }
 
   if (contentType.includes('application/json')) {
@@ -277,6 +435,22 @@ async function request<T>(method: string, path: string, body?: unknown, opts: Re
     throw new ApiError(res.status, 'CONTRACT_VIOLATION', 'Sunucu yanıtı beklenen biçimde değil', parsed.error.issues);
   }
   return (await res.text()) as T;
+}
+
+function request<T>(method: string, path: string, body?: unknown, opts: RequestOpts<T> = {}): Promise<T> {
+  const url = path.startsWith('http') ? path : `${BASE_URL}${path}`;
+  const dedupeKey = opts.dedupe === false || opts.signal
+    ? null
+    : buildMutationDedupeKey({
+        method,
+        url,
+        body,
+        headers: opts.headers,
+        scope: `${sessionGeneration}:${activeDivision ?? ''}:${activeDepartment ?? ''}`,
+      });
+
+  if (!dedupeKey) return executeRequest(method, path, body, opts);
+  return mutationRequests.run(dedupeKey, () => executeRequest(method, path, body, opts));
 }
 
 export const api: ApiClient = {

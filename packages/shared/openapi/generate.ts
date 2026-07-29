@@ -107,9 +107,15 @@ const opportunityDto = registry.register(
   'OpportunityDTO',
   z.object({
     id: z.string(),
-    companyId: z.string(),
+    companyId: z.string().nullable(),
     title: z.string(),
     description: z.string().nullable(),
+    qualificationStage: ref('opportunityQualificationStageEnum'),
+    qualificationNote: z.string().nullable(),
+    requestedMachine: z.string().nullable(),
+    contractTerms: z.string().nullable(),
+    paymentTerms: z.string().nullable(),
+    paymentMethod: ref('opportunityPaymentMethodEnum').nullable(),
     estimatedValue: z.string().nullable(),
     probability: z.number().int(),
     expectedCloseDate: z.string().nullable(),
@@ -124,6 +130,20 @@ const opportunityDto = registry.register(
     currency: z
       .object({ id: z.string(), code: z.string() })
       .nullable(),
+    qualificationReadiness: z.object({
+      stage: ref('opportunityQualificationStageEnum'),
+      nextStage: ref('opportunityQualificationStageEnum').nullable(),
+      ready: z.boolean(),
+      blockers: z.array(z.string()),
+      checks: z.array(
+        z.object({
+          key: z.string(),
+          label: z.string(),
+          complete: z.boolean(),
+        }),
+      ),
+      approvals: z.record(ref('opportunityApprovalStatusEnum')).optional(),
+    }),
   })
 );
 
@@ -211,10 +231,12 @@ registry.registerPath({
     query: z.object({
       page: z.coerce.number().int().optional(),
       pageSize: z.coerce.number().int().optional(),
-      stage: z.string().optional(),
+      search: z.string().optional(),
+      stageCode: z.string().optional(),
+      qualificationStage: ref('opportunityQualificationStageEnum').optional(),
+      lifecycle: z.enum(['lead', 'opportunity']).optional(),
       companyId: z.string().optional(),
-      ownerUserId: z.string().optional(),
-      q: z.string().optional(),
+      view: z.enum(['active', 'closed', 'all']).optional(),
     }),
   },
   responses: { 200: { description: 'Sayfalı liste', ...json(paginated(opportunityDto)) } },
@@ -251,6 +273,55 @@ registry.registerPath({
   security: SECURED,
   request: { params: idParam, body: json(ref('opportunityUpdateSchema')) },
   responses: { 200: { description: 'Güncellendi', ...json(opportunityDto) } },
+});
+
+registry.registerPath({
+  method: 'post',
+  path: '/opportunities/{id}/convert',
+  operationId: 'convertOpportunityLead',
+  tags: ['opportunities'],
+  summary: 'Lead kaydını C derecesinde fırsata dönüştürür.',
+  security: SECURED,
+  request: { params: idParam, body: json(ref('opportunityConvertSchema')) },
+  responses: {
+    201: { description: 'Fırsata dönüştürüldü', ...json(opportunityDto) },
+    422: { description: 'Dönüşüm koşulları eksik', ...json(errorEnvelope) },
+  },
+});
+
+registry.registerPath({
+  method: 'patch',
+  path: '/opportunities/{id}/qualification-stage',
+  operationId: 'changeOpportunityQualificationStage',
+  tags: ['opportunities'],
+  summary: 'C / B / A / A+ / WIN / LOST yeterlilik derecesini kurallı olarak değiştirir.',
+  security: SECURED,
+  request: { params: idParam, body: json(ref('opportunityQualificationChangeSchema')) },
+  responses: {
+    200: { description: 'Yeterlilik derecesi güncellendi', ...json(opportunityDto) },
+    422: { description: 'Geçiş sırası veya hazırlık koşulları sağlanmadı', ...json(errorEnvelope) },
+  },
+});
+
+registry.registerPath({
+  method: 'post',
+  path: '/opportunities/{id}/approvals/{type}',
+  operationId: 'decideOpportunityApproval',
+  tags: ['opportunities'],
+  summary: 'A+ operasyon onayını yetkili kullanıcı adına kaydeder.',
+  security: SECURED,
+  request: {
+    params: z.object({
+      id: z.string(),
+      type: ref('opportunityApprovalTypeEnum'),
+    }),
+    body: json(ref('opportunityApprovalDecisionSchema')),
+  },
+  responses: {
+    201: { description: 'Onay kararı kaydedildi', ...json(opportunityDto) },
+    403: { description: 'opportunities.approve yetkisi gerekli', ...json(errorEnvelope) },
+    422: { description: 'Onay kanıtı eksik', ...json(errorEnvelope) },
+  },
 });
 
 registry.registerPath({

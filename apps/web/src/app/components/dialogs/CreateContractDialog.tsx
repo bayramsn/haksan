@@ -19,6 +19,13 @@ import {
 
 const CONTRACT_TERMS_TEMPLATE_SCOPE = "contract_terms";
 
+type ContractTermsMetadata = {
+  importCostsExcluded: boolean;
+  deliveryLocation?: string;
+  estimatedDeliveryDaysMin?: number;
+  estimatedDeliveryDaysMax?: number;
+};
+
 /**
  * Yüklemesiz sözleşme kaydı oluşturur — teklife referans verir; çıktısı CRM
  * verisinden basılır.
@@ -55,6 +62,7 @@ export function CreateContractDialog({
   const [paymentTerms, setPaymentTerms] = useState("");
   const [deliveryTerms, setDeliveryTerms] = useState("");
   const [warrantyTerms, setWarrantyTerms] = useState("");
+  const [termsMetadata, setTermsMetadata] = useState<ContractTermsMetadata>({ importCostsExcluded: true });
   const [termsDirty, setTermsDirty] = useState(false);
   const [saving, setSaving] = useState(false);
 
@@ -70,6 +78,7 @@ export function CreateContractDialog({
     setPaymentTerms("");
     setDeliveryTerms("");
     setWarrantyTerms("");
+    setTermsMetadata({ importCostsExcluded: true });
     setTermsDirty(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, defaultQuoteId]);
@@ -87,6 +96,12 @@ export function CreateContractDialog({
         setPaymentTerms(loadedPayment);
         setDeliveryTerms(loadedDelivery);
         setWarrantyTerms(loadedWarranty);
+        setTermsMetadata({
+          importCostsExcluded: data.terms?.importCostsExcluded ?? true,
+          deliveryLocation: data.terms?.deliveryLocation ?? undefined,
+          estimatedDeliveryDaysMin: data.terms?.estimatedDeliveryDaysMin ?? undefined,
+          estimatedDeliveryDaysMax: data.terms?.estimatedDeliveryDaysMax ?? undefined,
+        });
         setTermsTemplateKey(matchSavedTermsTemplate(loadedPayment, loadedDelivery, loadedWarranty, savedTermsTemplates));
         setTermsDirty(false);
       } catch {
@@ -94,6 +109,7 @@ export function CreateContractDialog({
         setPaymentTerms("");
         setDeliveryTerms("");
         setWarrantyTerms("");
+        setTermsMetadata({ importCostsExcluded: true });
         setTermsTemplateKey("");
         setTermsDirty(false);
       }
@@ -139,7 +155,7 @@ export function CreateContractDialog({
           paymentTermsText: paymentTerms,
           deliveryTermsText: deliveryTerms,
           warrantyTermsText: warrantyTerms,
-          importCostsExcluded: true,
+          ...termsMetadata,
         });
       }
       const created = await documentService.createContract({
@@ -227,19 +243,20 @@ export function CreateContractDialog({
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <Label className="text-xs">Sözleşme No</Label>
-              <Input className="mt-1.5" value={contractNo} onChange={(e) => setContractNo(e.target.value)} placeholder={`Otomatik: ${selectedOffer?.businessLine ?? "CNC"}-SOZ-${new Date().getFullYear()}/...`} />
+              <Label className="text-xs" htmlFor="create-contract-number">Sözleşme No</Label>
+              <Input id="create-contract-number" className="mt-1.5 font-data" value={contractNo} onChange={(e) => setContractNo(e.target.value)} placeholder={`Otomatik: ${selectedOffer?.businessLine ?? "CNC"}-SOZ-${new Date().getFullYear()}/...`} />
               <p className="mt-1 text-[10px] text-muted-foreground">Boş bırakılırsa teklifin iş alanına ait seri atanır.</p>
             </div>
             <div>
-              <Label className="text-xs">İmza Tarihi</Label>
-              <Input type="date" className="mt-1.5" value={signedDate} onChange={(e) => setSignedDate(e.target.value)} />
+              <Label className="text-xs" htmlFor="create-contract-date">İmza Tarihi</Label>
+              <Input id="create-contract-date" type="date" className="mt-1.5" value={signedDate} onChange={(e) => setSignedDate(e.target.value)} />
             </div>
           </div>
 
           <div>
-            <Label className="text-xs">Ödeme Vadesi (Gün)</Label>
+            <Label className="text-xs" htmlFor="create-contract-payment-days">Ödeme Vadesi (Gün)</Label>
             <Input
+              id="create-contract-payment-days"
               type="number"
               min={0}
               max={3650}

@@ -23,6 +23,9 @@ import { up as syncFilePermissions } from './014_sync_file_permissions';
 import { up as seedFilePermissionCatalog } from './015_seed_file_permission_catalog';
 import { up as syncStockVisibilityPermissions } from './016_sync_stock_visibility_permissions';
 import { up as dedupeProductGroupLookups } from './017_dedupe_product_group_lookups';
+import { up as linkProductTaxonomy } from './018_link_product_taxonomy';
+import { up as uppercaseCompanyContactNames } from './019_uppercase_company_contact_names';
+import { up as backfillTrelloCompanyResolution } from './020_backfill_trello_company_resolution';
 
 export interface DataMigration {
   id: string;
@@ -47,4 +50,7 @@ export const dataMigrations: DataMigration[] = [
   { id: '015_seed_file_permission_catalog', up: seedFilePermissionCatalog },
   { id: '016_sync_stock_visibility_permissions', up: syncStockVisibilityPermissions },
   { id: '017_dedupe_product_group_lookups', up: dedupeProductGroupLookups },
+  { id: '018_link_product_taxonomy', up: linkProductTaxonomy },
+  { id: '019_uppercase_company_contact_names', up: uppercaseCompanyContactNames },
+  { id: '020_backfill_trello_company_resolution', up: backfillTrelloCompanyResolution },
 ];

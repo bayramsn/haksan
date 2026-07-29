@@ -21,6 +21,7 @@ import { roles, userDivisions, userRoles, users } from '../../db/schema/users';
 import { calls } from '../../db/schema/crm';
 import { serviceComplaintIntakes } from '../../db/schema/service';
 import { QuotesService } from '../quotes/quotes.service';
+import { PushService } from '../../shared/push/push.service';
 import { ForbiddenError, NotFoundError, UnauthorizedError, ValidationError } from '../../shared/utils/errors';
 import type { AuthContext } from '../../shared/security/auth.types';
 import {
@@ -70,7 +71,8 @@ type CanonicalCallInput = {
 export class CallAssistantService {
   constructor(
     @Inject(DB) private readonly db: DbClient,
-    private readonly quotes: QuotesService
+    private readonly quotes: QuotesService,
+    private readonly push: PushService
   ) {}
 
   verifyWebhookSecret(headerValue: string | string[] | undefined, configuredSecret?: string | null) {
@@ -532,6 +534,14 @@ export class CallAssistantService {
       entityType: 'call_assistant_suggestion',
       entityId: suggestion.id,
     });
+    // Kullanıcıya atanmış öneri ise cihazına push gönder (token yoksa no-op).
+    if (event.userId) {
+      await this.push.sendToUser(event.userId, {
+        title,
+        body,
+        data: { type: 'call_assistant_suggestion', suggestionId: suggestion.id, deepLink },
+      });
+    }
     return suggestion;
   }
 

@@ -1,2 +1,6 @@
-/* Inter Variable — self-hosted (@fontsource), latin + latin-ext (Türkçe karakterler dahil). */
+/* Self-hosted type system; both families include latin-ext for Turkish UI copy. */
 @import '@fontsource-variable/inter';
+@import '@fontsource/barlow-condensed/latin-600.css';
+@import '@fontsource/barlow-condensed/latin-ext-600.css';
+@import '@fontsource/barlow-condensed/latin-700.css';
+@import '@fontsource/barlow-condensed/latin-ext-700.css';

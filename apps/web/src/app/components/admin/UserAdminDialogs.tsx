@@ -148,25 +148,25 @@ export function CreateUserDialog({
         </DialogHeader>
         <form onSubmit={submit} className="space-y-3">
           <div>
-            <Label className="text-xs">Ad Soyad *</Label>
-            <Input className="mt-1.5" value={form.fullName} onChange={(e) => setForm({ ...form, fullName: e.target.value })} />
+            <Label className="text-xs" htmlFor="new-user-name">Ad Soyad *</Label>
+            <Input id="new-user-name" autoComplete="name" className="mt-1.5" value={form.fullName} onChange={(e) => setForm({ ...form, fullName: e.target.value })} />
           </div>
           <div>
-            <Label className="text-xs">E-posta *</Label>
-            <Input type="email" className="mt-1.5" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
+            <Label className="text-xs" htmlFor="new-user-email">E-posta *</Label>
+            <Input id="new-user-email" type="email" autoComplete="email" className="mt-1.5" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
           </div>
           <div>
-            <Label className="text-xs">Şifre *</Label>
-            <Input type="password" className="mt-1.5" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
+            <Label className="text-xs" htmlFor="new-user-password">Şifre *</Label>
+            <Input id="new-user-password" type="password" autoComplete="new-password" className="mt-1.5" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
           </div>
           <div>
-            <Label className="text-xs">Telefon</Label>
-            <Input className="mt-1.5" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
+            <Label className="text-xs" htmlFor="new-user-phone">Telefon</Label>
+            <Input id="new-user-phone" type="tel" autoComplete="tel" className="mt-1.5" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
           </div>
           <div>
-            <Label className="text-xs">Departman</Label>
+            <Label className="text-xs" htmlFor="new-user-department">Departman</Label>
             <Select value={form.departmentId || "__none__"} onValueChange={(v) => setForm({ ...form, departmentId: v === "__none__" ? "" : v })}>
-              <SelectTrigger className="mt-1.5"><SelectValue placeholder="Seçin" /></SelectTrigger>
+              <SelectTrigger id="new-user-department" className="mt-1.5"><SelectValue placeholder="Seçin" /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="__none__">— Atanmadı —</SelectItem>
                 {departments.map((d) => (
@@ -187,7 +187,7 @@ export function CreateUserDialog({
                   const primary = checked && form.divisionIds[0] === d.id;
                   return (
                     <label key={d.id} className="flex items-center gap-2 rounded border border-border/60 p-2 text-sm">
-                      <Checkbox checked={checked} onCheckedChange={(v) => toggleDivision(d.id, v === true)} />
+                      <Checkbox aria-label={`${d.name} bölüm erişimi`} checked={checked} onCheckedChange={(v) => toggleDivision(d.id, v === true)} />
                       <span className="min-w-0 truncate">{d.name}</span>
                       {primary && <Badge variant="secondary" className="ml-auto text-[10px]">Birincil</Badge>}
                     </label>
@@ -203,6 +203,7 @@ export function CreateUserDialog({
                 {roles.map((role) => (
                   <label key={role.id} className="flex items-center gap-2 rounded border border-border/60 p-2 text-sm">
                     <Checkbox
+                      aria-label={`${role.name} rolünü ata`}
                       checked={form.roleCodes.includes(role.code)}
                       onCheckedChange={(v) => toggleRole(role.code, v === true)}
                     />

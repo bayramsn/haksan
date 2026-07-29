@@ -21,6 +21,108 @@ export type ProformaBuildInput = {
 
 type QuoteDetail = Awaited<ReturnType<typeof quoteService.get>>;
 
+const snapshotValue = (value: any, ...keys: string[]) => {
+  for (const key of keys) {
+    if (value?.[key] !== undefined && value?.[key] !== null) return value[key];
+  }
+  return undefined;
+};
+
+const proformaFromSnapshot = (
+  doc: DocumentItem,
+  snapshot: Record<string, any>,
+  products: Product[],
+  variantKey?: string,
+): ProformaPrintData => {
+  const quote = snapshot.quote ?? {};
+  const company = snapshot.company ?? {};
+  const contact = snapshot.contact ?? {};
+  const address = (snapshot.companyAddresses ?? [])[0] ?? {};
+  const companyPhones = Array.isArray(snapshot.companyPhones) ? snapshot.companyPhones : [];
+  const isFaxPhone = (phone: any) => /^(fax|faks)$/i.test(String(snapshotValue(phone, "phoneType", "phone_type") ?? ""));
+  const companyPhone = companyPhones.find((phone: any) => !isFaxPhone(phone)) ?? {};
+  const companyFax = companyPhones.find((phone: any) => isFaxPhone(phone)) ?? {};
+  const rows = Array.isArray(snapshot.items) ? snapshot.items : [];
+  const lineDiscount = rows.reduce(
+    (sum: number, item: any) => sum + Number(snapshotValue(item, "discountAmount", "discount_amount") ?? 0),
+    0,
+  );
+  const headerDiscount = Math.max(Number(snapshotValue(quote, "discountTotal", "discount_total") ?? 0) - lineDiscount, 0);
+  const taxableBeforeHeader = rows.reduce((sum: number, item: any) => {
+    const qty = Number(snapshotValue(item, "quantity") ?? 1);
+    const unitPrice = Number(snapshotValue(item, "unitPrice", "unit_price") ?? 0);
+    const discount = Number(snapshotValue(item, "discountAmount", "discount_amount") ?? 0);
+    return sum + Number(snapshotValue(item, "lineTotal", "line_total") ?? qty * unitPrice - discount);
+  }, 0);
+  const headerRatio = taxableBeforeHeader > 0
+    ? Math.max(0, taxableBeforeHeader - headerDiscount) / taxableBeforeHeader
+    : 1;
+  const items: ProformaItem[] = rows.map((item: any) => {
+    const qty = Number(snapshotValue(item, "quantity") ?? 1);
+    const unitPrice = Number(snapshotValue(item, "unitPrice", "unit_price") ?? 0);
+    const discount = Number(snapshotValue(item, "discountAmount", "discount_amount") ?? 0);
+    const lineTotal = Number(snapshotValue(item, "lineTotal", "line_total") ?? qty * unitPrice - discount) * headerRatio;
+    const productSnapshot = snapshotValue(item, "product") ?? {};
+    const productModelId = String(snapshotValue(item, "productModelId", "product_model_id") ?? "");
+    // Şema v1 anlık görüntülerinde ürün kimliği var ancak ürün bilgisi yoktu.
+    // Eski belgelerde katalog yalnızca eksik meta alanlarını tamamlamak için kullanılır.
+    const catalogProduct = products.find((product) => product.id === productModelId);
+    return {
+      aciklama: String(
+        snapshotValue(item, "description") ??
+        snapshotValue(productSnapshot, "fullName", "full_name") ??
+        catalogProduct?.shortDescription ??
+        "",
+      ).trim(),
+      marka: snapshotValue(productSnapshot, "brandName", "brand_name", "brand") ?? catalogProduct?.brand,
+      mensei: snapshotValue(productSnapshot, "originCountry", "origin_country") ?? catalogProduct?.originCountry,
+      gtip: snapshotValue(productSnapshot, "hsCode", "hs_code") ?? catalogProduct?.hsCode,
+      birim: formatBirim(qty, snapshotValue(item, "unitCode", "unit_code") ?? "Adet"),
+      birimFiyati: qty > 0 ? lineTotal / qty : 0,
+      tutar: lineTotal,
+    };
+  });
+  const vatRates = rows.map((item: any) => Number(snapshotValue(item, "vatRate", "vat_rate") ?? 0));
+  const kdvOran = vatRates.length && vatRates.every((rate: number) => rate === vatRates[0]) ? vatRates[0] : 0;
+  const companyName = String(snapshotValue(company, "legalTitle", "legal_title", "shortName", "short_name") ?? "");
+  const fullAddress = String(snapshotValue(address, "fullAddress", "full_address") ?? [
+    snapshotValue(address, "street"),
+    snapshotValue(address, "buildingNumber", "building_number"),
+    snapshotValue(address, "district"),
+    snapshotValue(address, "province"),
+    snapshotValue(address, "country"),
+  ].filter(Boolean).join(" "));
+  const terms = snapshot.terms ?? {};
+  const payment = String(snapshotValue(terms, "paymentTermsText", "payment_terms_text") ?? snapshotValue(quote, "paymentTerms", "payment_terms") ?? "");
+  const delivery = String(snapshotValue(terms, "deliveryTermsText", "delivery_terms_text") ?? snapshotValue(quote, "deliveryTerms", "delivery_terms") ?? "");
+  const warranty = String(snapshotValue(terms, "warrantyTermsText", "warranty_terms_text") ?? snapshotValue(quote, "warrantyTerms", "warranty_terms") ?? "");
+  const variant = resolveProformaNotes(variantKey, {
+    alici: companyName,
+    yil: new Date(doc.uploadedAt || snapshot.capturedAt || Date.now()).getFullYear(),
+  });
+  return {
+    firma: companyName,
+    ilgili: snapshotValue(contact, "fullName", "full_name"),
+    mobil: snapshotValue(contact, "mobilePhone", "mobile_phone"),
+    adres: fullAddress,
+    tel: snapshotValue(contact, "workPhone", "work_phone") ?? snapshotValue(companyPhone, "phone"),
+    faks: snapshotValue(companyFax, "phone"),
+    vergiDairesi: snapshotValue(company, "taxOffice", "tax_office"),
+    vergiNo: snapshotValue(company, "taxNumber", "tax_number"),
+    tarih: trLongDate(doc.uploadedAt || snapshot.capturedAt) || trLongDate(new Date()),
+    belgeNo: doc.fileName,
+    items,
+    headerDiscount: 0,
+    kdvOran,
+    kdvTutar: Number(snapshotValue(quote, "vatAmount", "vat_amount") ?? 0),
+    currency: String(snapshotValue(snapshot.currency, "code") ?? "USD") as ProformaPrintData["currency"],
+    notlar: variant ?? [payment, delivery, warranty, snapshotValue(quote, "notes")]
+      .flatMap((value) => String(value ?? "").split(/\r?\n/))
+      .map((value) => value.trim())
+      .filter(Boolean),
+  };
+};
+
 const findProduct = (
   products: Product[],
   opts: { productModelId?: string; modelHint?: string; description?: string },
@@ -78,10 +180,21 @@ const itemsFromQuote = (quote: QuoteDetail, products: Product[], sc: SalesCase |
   const rows = (quote.items ?? []).filter((it: any) => String(it?.description ?? "").trim());
   if (!rows.length) return [];
 
+  const lineDiscount = rows.reduce((sum: number, item: any) => sum + Number(item.discountAmount ?? 0), 0);
+  const headerDiscount = Math.max(Number(quote.discountTotal ?? 0) - lineDiscount, 0);
+  const taxableBeforeHeader = rows.reduce((sum: number, item: any) => {
+    const qty = Number(item.quantity ?? 1);
+    const unitPrice = Number(item.unitPrice ?? 0);
+    return sum + Number(item.lineTotal ?? qty * unitPrice - Number(item.discountAmount ?? 0));
+  }, 0);
+  const headerRatio = taxableBeforeHeader > 0
+    ? Math.max(0, taxableBeforeHeader - headerDiscount) / taxableBeforeHeader
+    : 1;
+
   return rows.map((it: any) => {
     const qty = Number(it.quantity ?? 1);
     const unitPrice = Number(it.unitPrice ?? 0);
-    const lineTotal = Number(it.lineTotal ?? qty * unitPrice - Number(it.discountAmount ?? 0));
+    const lineTotal = Number(it.lineTotal ?? qty * unitPrice - Number(it.discountAmount ?? 0)) * headerRatio;
     const product = findProduct(products, {
       productModelId: it.productModelId ?? undefined,
       description: it.description,
@@ -94,8 +207,7 @@ const itemsFromQuote = (quote: QuoteDetail, products: Product[], sc: SalesCase |
       mensei: isLabor ? undefined : product?.originCountry,
       gtip: isLabor ? undefined : product?.hsCode,
       birim: formatBirim(qty, it.unit?.code ?? it.unitCode),
-      birimFiyati: unitPrice,
-      iskonto: Number(it.discountAmount ?? 0),
+      birimFiyati: qty > 0 ? lineTotal / qty : 0,
       tutar: lineTotal,
     };
   });
@@ -126,6 +238,7 @@ export function buildProformaPrintData(
   quoteDetail?: QuoteDetail | null,
 ): ProformaPrintData {
   const { doc, customers, cases, offers, products, contacts = [], variantKey } = input;
+  if (doc.documentSnapshot) return proformaFromSnapshot(doc, doc.documentSnapshot, products, variantKey);
   const offer = resolveQuote(doc, offers);
   const sc = cases.find((s) => s.id === (doc.salesCaseId || offer?.salesCaseId)) ?? null;
   const cust =
@@ -152,12 +265,19 @@ export function buildProformaPrintData(
       ? Math.round(enteredVatRates[0])
       : 0
     : vat.oran;
+  const pdfAddress = cust?.addresses?.find((address) => address.id === quoteDetail?.companyAddressId)
+    ?? cust?.addresses?.find((address) => address.isBilling)
+    ?? cust?.addresses?.find((address) => address.isDefault)
+    ?? cust?.addresses?.[0];
+  const printableAddress = pdfAddress
+    ? [pdfAddress.address, pdfAddress.district, pdfAddress.city, pdfAddress.country].filter(Boolean).join(" ")
+    : cust ? [cust.address, cust.district, cust.city, cust.country].filter(Boolean).join(" ") : "";
 
   return {
     firma: cust?.name ?? "",
     ilgili: contact?.name || cust?.contactPerson,
     mobil: contact?.mobilePhone || cust?.phone2,
-    adres: cust ? [cust.address, cust.district, cust.city].filter(Boolean).join(" ") : "",
+    adres: printableAddress,
     tel: contact?.phone || cust?.phone,
     faks: cust?.fax,
     vergiDairesi: cust?.taxOffice,
@@ -165,6 +285,7 @@ export function buildProformaPrintData(
     tarih: trLongDate(doc.uploadedAt) || trLongDate(new Date()),
     belgeNo: doc.fileName,
     items,
+    headerDiscount: 0,
     kdvOran,
     kdvTutar: Number(
       quoteDetail?.vatAmount ??
@@ -205,6 +326,9 @@ export function buildProformaPrintData(
 
 /** İlişkili teklif kalemleri API'den çekilerek proforma verisi üretir. */
 export async function loadProformaPrintData(input: ProformaBuildInput): Promise<ProformaPrintData> {
+  if (input.doc.documentSnapshot) {
+    return proformaFromSnapshot(input.doc, input.doc.documentSnapshot, input.products, input.variantKey);
+  }
   const offer = resolveQuote(input.doc, input.offers);
   const quoteId = input.doc.quoteId ?? offer?.id;
   if (!quoteId) throw new Error("Proforma için ilişkili teklif bulunamadı.");

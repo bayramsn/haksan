@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from "react";
-import { AlertTriangle, CheckCircle2, Download, FileSpreadsheet, RefreshCw, Upload } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Columns3, Download, FileCheck2, FileSpreadsheet, RefreshCw, ShieldCheck, Upload } from "lucide-react";
 import { toast } from "sonner";
 import { productService, type ProductImportPreview, type ProductImportRow } from "../../../lib/services";
 import { exportService } from "../../../lib/downloadExport";
@@ -16,6 +16,7 @@ import {
 
 const TEMPLATE_HEADERS = [
   "Marka",
+  "Seri",
   "Model",
   "Ürün Adı",
   "Ürün Tipi",
@@ -36,6 +37,7 @@ const TEMPLATE_HEADERS = [
 const TEMPLATE_ROWS = [
   [
     "Ecoca",
+    "MT",
     "MT-208/500",
     "Ecoca MT-208/500 CNC Torna Tezgahı",
     "CNC Torna Tezgahı",
@@ -169,10 +171,22 @@ export function ProductImportDialog({ trigger }: { trigger: React.ReactNode }) {
         </DialogHeader>
 
         <div className="space-y-4">
+          <div className="grid gap-2 sm:grid-cols-3">
+            {[
+              [FileSpreadsheet, "Dosya gereksinimi", "XLSX veya CSV · İlk satır kolon başlığı"],
+              [Columns3, "Otomatik eşleme", "Şablon başlıkları güvenli alanlarla eşleşir"],
+              [ShieldCheck, "Önce önizleme", "Onay vermeden hiçbir kayıt yazılmaz"],
+            ].map(([Icon, title, text]) => (
+              <div key={String(title)} className="flex items-start gap-2.5 rounded-lg border border-border/60 bg-muted/20 p-3">
+                <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary"><Icon className="size-4" /></span>
+                <span className="min-w-0"><span className="block text-xs font-semibold">{String(title)}</span><span className="mt-0.5 block text-[11px] leading-relaxed text-muted-foreground">{String(text)}</span></span>
+              </div>
+            ))}
+          </div>
           <div className="flex flex-col gap-3 rounded-lg border border-border/60 bg-muted/20 p-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="min-w-0">
               <div className="text-sm tracking-tight">{file?.name ?? "Dosya seçilmedi"}</div>
-              <div className="text-xs text-muted-foreground">.xlsx veya .csv</div>
+              <div className="text-xs text-muted-foreground">{file ? `${(file.size / 1024).toLocaleString("tr-TR", { maximumFractionDigits: 1 })} KB · ${file.name.split(".").pop()?.toLocaleUpperCase("tr-TR")}` : ".xlsx veya .csv"}</div>
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <Input
@@ -202,6 +216,15 @@ export function ProductImportDialog({ trigger }: { trigger: React.ReactNode }) {
 
           {preview && (
             <>
+              <div className="flex flex-col gap-3 rounded-lg border border-primary/15 bg-primary/[0.035] p-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex items-start gap-2.5">
+                  <FileCheck2 className="mt-0.5 size-4 shrink-0 text-primary" />
+                  <div><p className="text-xs font-semibold">Kolon eşlemesi tamamlandı</p><p className="mt-0.5 text-[11px] text-muted-foreground">Dosya şablonu ürün kimliği, fiyat ve teknik alanlarla eşleştirildi.</p></div>
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {["Marka", "Model", "Ürün", "Fiyat", "Teknik"].map((label) => <Badge key={label} variant="outline" className="bg-white text-[10px]">{label}</Badge>)}
+                </div>
+              </div>
               <div className="grid grid-cols-2 gap-2 md:grid-cols-5">
                 <Summary label="Satır" value={preview.summary.total} />
                 <Summary label="Yeni" value={preview.summary.create} />

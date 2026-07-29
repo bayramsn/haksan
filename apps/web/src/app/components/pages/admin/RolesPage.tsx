@@ -12,7 +12,7 @@ import { Skeleton } from "../../ui/skeleton";
 import { useAuth } from "../../../../lib/auth";
 import { adminService } from "../../../../lib/services";
 import { TargetDialog, currentPeriod, targetToApi, type TargetScope, type UserTarget } from "../../admin/TargetDialog";
-import { Plus, Search, ShieldCheck, Lock, Save, X, RotateCcw, AlertTriangle, TrendingUp } from "lucide-react";
+import { BookOpenCheck, Plus, Search, ShieldCheck, Lock, Save, X, RotateCcw, AlertTriangle, TrendingUp, Workflow } from "lucide-react";
 import { toast } from "sonner";
 
 type PermissionAction = "read" | "create" | "update" | "delete" | "approve" | "reject" | "export";
@@ -125,25 +125,66 @@ function PermissionMatrix({
   maxHeight?: string;
 }) {
   const rows = useMemo(() => buildPermissionRows(permissions), [permissions]);
+  const allCodes = permissions.map((permission) => permission.code);
+  const toggleGroup = (codes: string[]) => {
+    if (!editable || codes.length === 0) return;
+    const allSelected = codes.every((code) => selectedCodes.has(code));
+    codes.forEach((code) => {
+      if (allSelected ? selectedCodes.has(code) : !selectedCodes.has(code)) onToggle(code);
+    });
+  };
   return (
-    <div className={`overflow-auto rounded-md border border-border/60 bg-white ${maxHeight}`}>
+    <div className={`overflow-auto rounded-lg border border-border/60 bg-card ${maxHeight}`}>
       <table className="w-full min-w-[760px] border-collapse text-sm">
-        <thead className="sticky top-0 z-10 bg-muted/40 backdrop-blur">
+        <thead className="sticky top-0 z-20 bg-muted/90 backdrop-blur">
           <tr className="border-b border-border/60">
-            <th className="w-[230px] px-3 py-2.5 text-left text-[11px] uppercase tracking-wider text-muted-foreground">Modül</th>
-            {PERMISSION_ACTIONS.map((action) => (
-              <th key={action} className="px-2 py-2.5 text-center text-[11px] uppercase tracking-wider text-muted-foreground">
-                {ACTION_LABEL[action]}
-              </th>
-            ))}
+            <th className="sticky left-0 z-30 w-[250px] border-r border-border/60 bg-muted px-3 py-2.5 text-left">
+              <label className="flex items-center gap-2 text-[11px] uppercase tracking-wider text-muted-foreground">
+                <Checkbox
+                  checked={allCodes.every((code) => selectedCodes.has(code)) ? true : allCodes.some((code) => selectedCodes.has(code)) ? "indeterminate" : false}
+                  disabled={!editable}
+                  onCheckedChange={() => toggleGroup(allCodes)}
+                  aria-label="Tüm yetkileri seç"
+                />
+                Modül
+              </label>
+            </th>
+            {PERMISSION_ACTIONS.map((action) => {
+              const actionCodes = permissions.filter((permission) => permission.action === action).map((permission) => permission.code);
+              return (
+                <th key={action} className="px-2 py-2 text-center text-[11px] uppercase tracking-wider text-muted-foreground">
+                  <label className="flex cursor-pointer flex-col items-center gap-1">
+                    <Checkbox
+                      checked={actionCodes.every((code) => selectedCodes.has(code)) ? true : actionCodes.some((code) => selectedCodes.has(code)) ? "indeterminate" : false}
+                      disabled={!editable || actionCodes.length === 0}
+                      onCheckedChange={() => toggleGroup(actionCodes)}
+                      aria-label={`Tüm ${ACTION_LABEL[action]} yetkilerini seç`}
+                    />
+                    <span>{ACTION_LABEL[action]}</span>
+                  </label>
+                </th>
+              );
+            })}
           </tr>
         </thead>
         <tbody>
-          {rows.map((row) => (
-            <tr key={row.resource} className="border-b border-border/40 last:border-0 hover:bg-muted/25">
-              <td className="px-3 py-2.5">
-                <div className="font-medium leading-tight">{RESOURCE_LABEL[row.resource] ?? row.resource}</div>
-                <div className="mt-0.5 text-[11px] text-muted-foreground">{row.resource}</div>
+          {rows.map((row) => {
+            const rowCodes = Object.values(row.actions).filter(Boolean).map((permission) => permission!.code);
+            return (
+            <tr key={row.resource} className="group border-b border-border/40 last:border-0 hover:bg-muted/25">
+              <td className="sticky left-0 z-10 border-r border-border/50 bg-card px-3 py-2.5 group-hover:bg-muted">
+                <div className="flex items-center gap-2.5">
+                  <Checkbox
+                    checked={rowCodes.every((code) => selectedCodes.has(code)) ? true : rowCodes.some((code) => selectedCodes.has(code)) ? "indeterminate" : false}
+                    disabled={!editable}
+                    onCheckedChange={() => toggleGroup(rowCodes)}
+                    aria-label={`${RESOURCE_LABEL[row.resource] ?? row.resource} modülünün tüm yetkilerini seç`}
+                  />
+                  <div>
+                    <div className="font-medium leading-tight">{RESOURCE_LABEL[row.resource] ?? row.resource}</div>
+                    <div className="mt-0.5 font-data text-[10px] text-muted-foreground">{row.resource}</div>
+                  </div>
+                </div>
               </td>
               {PERMISSION_ACTIONS.map((action) => {
                 const permission = row.actions[action];
@@ -165,7 +206,7 @@ function PermissionMatrix({
                 );
               })}
             </tr>
-          ))}
+          )})}
         </tbody>
       </table>
     </div>
@@ -236,6 +277,13 @@ export function RolesPage() {
     const permissionByCode = new Map(permissions.map((permission) => [permission.code, permission]));
     return new Set(draftCodes.map((code) => permissionByCode.get(code)?.resource).filter(Boolean)).size;
   }, [draftCodes, permissions]);
+  const effectiveActionCounts = useMemo(() => {
+    const selected = new Set(draftCodes);
+    return PERMISSION_ACTIONS.reduce((result, action) => {
+      result[action] = permissions.filter((permission) => permission.action === action && selected.has(permission.code)).length;
+      return result;
+    }, {} as Record<PermissionAction, number>);
+  }, [draftCodes, permissions]);
   const dirty =
     !!selectedRole &&
     (draftName.trim() !== selectedRole.name ||
@@ -261,6 +309,18 @@ export function RolesPage() {
       permissionCodes: current.permissionCodes.includes(code)
         ? current.permissionCodes.filter((item) => item !== code)
         : [...current.permissionCodes, code].sort(),
+    }));
+  };
+
+  const applyRoleTemplate = (template: "readonly" | "operator" | "approver") => {
+    const allowedActions: PermissionAction[] = template === "readonly"
+      ? ["read", "export"]
+      : template === "operator"
+        ? ["read", "create", "update", "export"]
+        : ["read", "update", "approve", "reject", "export"];
+    setNewRole((current) => ({
+      ...current,
+      permissionCodes: permissions.filter((permission) => allowedActions.includes(permission.action)).map((permission) => permission.code).sort(),
     }));
   };
 
@@ -409,8 +469,9 @@ export function RolesPage() {
                   <form className="space-y-4" onSubmit={createRole}>
                     <div className="grid gap-3 md:grid-cols-2">
                       <div className="space-y-1.5">
-                        <Label className="text-xs">Rol Adı</Label>
+                        <Label className="text-xs" htmlFor="new-role-name">Rol Adı</Label>
                         <Input
+                          id="new-role-name"
                           value={newRole.name}
                           onChange={(event) => {
                             const name = event.target.value;
@@ -420,8 +481,10 @@ export function RolesPage() {
                         />
                       </div>
                       <div className="space-y-1.5">
-                        <Label className="text-xs">Rol Kodu</Label>
+                        <Label className="text-xs" htmlFor="new-role-code">Rol Kodu</Label>
                         <Input
+                          id="new-role-code"
+                          className="font-data"
                           value={newRole.code}
                           onChange={(event) => setNewRole((current) => ({ ...current, code: roleCodeFromName(event.target.value) }))}
                           placeholder="bolge_muduru"
@@ -429,12 +492,31 @@ export function RolesPage() {
                       </div>
                     </div>
                     <div className="space-y-1.5">
-                      <Label className="text-xs">Açıklama</Label>
+                      <Label className="text-xs" htmlFor="new-role-description">Açıklama</Label>
                       <Textarea
+                        id="new-role-description"
                         value={newRole.description}
                         onChange={(event) => setNewRole((current) => ({ ...current, description: event.target.value }))}
                         placeholder="Bu rolün hangi ekip veya süreç için kullanılacağını yazın."
                       />
+                    </div>
+                    <div className="rounded-xl border border-border/60 bg-muted/20 p-3">
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                        <div>
+                          <p className="text-sm font-medium">Başlangıç yetki şablonu</p>
+                          <p className="mt-0.5 text-xs text-muted-foreground">Şablon yalnızca matrisi doldurur; kaydetmeden önce her yetkiyi değiştirebilirsiniz.</p>
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          <Button type="button" variant="outline" size="sm" className="gap-1.5" onClick={() => applyRoleTemplate("readonly")}><BookOpenCheck className="size-3.5" /> Salt Okuma</Button>
+                          <Button type="button" variant="outline" size="sm" className="gap-1.5" onClick={() => applyRoleTemplate("operator")}><Workflow className="size-3.5" /> Operasyon</Button>
+                          <Button type="button" variant="outline" size="sm" className="gap-1.5" onClick={() => applyRoleTemplate("approver")}><ShieldCheck className="size-3.5" /> Onaylayıcı</Button>
+                        </div>
+                      </div>
+                      <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-border/50 pt-3 text-xs text-muted-foreground">
+                        <span className="font-medium text-foreground">{newRole.permissionCodes.length} yetki seçili</span>
+                        <span>·</span>
+                        <span>{new Set(permissions.filter((permission) => newRole.permissionCodes.includes(permission.code)).map((permission) => permission.resource)).size} modül</span>
+                      </div>
                     </div>
                     <PermissionMatrix
                       permissions={permissions}
@@ -581,6 +663,14 @@ export function RolesPage() {
                     <div className="text-xs text-muted-foreground">Kaynak bazında aksiyon yetkileri</div>
                   </div>
                   {dirty && <Badge variant="secondary" className="bg-primary/10 text-primary">Kaydedilmemiş değişiklik</Badge>}
+                </div>
+                <div className="mb-3 grid grid-cols-4 gap-2 sm:grid-cols-7" aria-label="Efektif yetki özeti">
+                  {PERMISSION_ACTIONS.map((action) => (
+                    <div key={action} className="rounded-lg border border-border/60 bg-muted/20 px-2.5 py-2 text-center">
+                      <p className="font-display text-lg font-semibold leading-none tabular-nums">{effectiveActionCounts[action]}</p>
+                      <p className="mt-1 truncate text-[9px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">{ACTION_LABEL[action]}</p>
+                    </div>
+                  ))}
                 </div>
                 <PermissionMatrix permissions={permissions} selectedCodes={selectedCodes} editable={canManageRoles} onToggle={toggleDraftPermission} />
               </div>

@@ -57,12 +57,15 @@ trap 'rm -f "$tmp"' EXIT
 run_dump() {
   local -a command=("${COMPOSE_CMD[@]}" --env-file "$ENV_FILE" exec -T postgres pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" --no-owner --no-privileges)
   if command -v timeout >/dev/null 2>&1; then
-    timeout "$DUMP_TIMEOUT_SECONDS" "${command[@]}"
+    # A non-interactive backup must never inherit an SSH/CI terminal. In a
+    # pipeline, timeout creates a separate process group; reading that terminal
+    # would stop the dump with SIGTTIN and leave the deployment waiting.
+    timeout "$DUMP_TIMEOUT_SECONDS" "${command[@]}" </dev/null
     return
   fi
 
   # macOS does not ship GNU timeout. Keep the compose-based dump bounded there.
-  "${command[@]}" &
+  "${command[@]}" </dev/null &
   local dump_pid=$!
   ( sleep "$DUMP_TIMEOUT_SECONDS"; kill -TERM "$dump_pid" 2>/dev/null || true ) &
   local watchdog_pid=$!

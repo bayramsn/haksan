@@ -17,10 +17,11 @@ export type User = {
   active: boolean;
   avatarUrl?: string;
   purchaseApprovalLimit?: number;
+  assistantDailyUsdLimit?: number | null;
   managerId?: string;
 };
 
-export type FirmType = "customer" | "supplier_customer" | "supplier";
+export type FirmType = "customer" | "supplier_customer" | "supplier" | "competitor";
 export type CustomerSalesStatus = "potential" | "active_customer";
 
 export type CompanyAddress = {
@@ -34,6 +35,8 @@ export type CompanyAddress = {
   longitude?: number;
   locationSource?: string;
   isDefault?: boolean;
+  isShipping?: boolean;
+  isBilling?: boolean;
 };
 
 export type Customer = {
@@ -50,6 +53,8 @@ export type Customer = {
   companyGroupNames?: string[];
   contactSourceCode?: string;
   sector?: string;
+  /** Tedarikçinin sevkiyat rolü; yalnızca tedarikçi ilişkili firmalarda kullanılır. */
+  supplierCategoryCode?: "transportation" | "logistics";
   name: string;
   contactPerson: string;
   phone: string;
@@ -192,19 +197,132 @@ export const SALES_STAGE_LABELS: Record<SalesStage, string> = {
 
 export const salesStageLabel = (stage: string) => SALES_STAGE_LABELS[stage as SalesStage] ?? stage;
 
+export type QualificationStage = "lead" | "c" | "b" | "a" | "a_plus" | "win" | "lost";
+
+export const QUALIFICATION_STAGES: QualificationStage[] = ["c", "b", "a", "a_plus", "win", "lost"];
+
+export const QUALIFICATION_STAGE_LABELS: Record<QualificationStage, string> = {
+  lead: "Lead",
+  c: "C",
+  b: "B",
+  a: "A",
+  a_plus: "A+",
+  win: "WIN",
+  lost: "LOST",
+};
+
+export type OpportunityApprovalType = "payment" | "customs" | "invoice" | "installation" | "win";
+export type OpportunityApprovalStatus = "pending" | "approved" | "rejected";
+
+export type OpportunityPaymentMethod =
+  | "undecided"
+  | "cash"
+  | "wire_transfer"
+  | "promissory_note"
+  | "term"
+  | "installment"
+  | "leasing"
+  | "letter_of_credit"
+  | "cheque";
+
+export const OPPORTUNITY_PAYMENT_METHOD_LABELS: Record<OpportunityPaymentMethod, string> = {
+  undecided: "Belirlenecek",
+  cash: "Peşin",
+  wire_transfer: "Havale",
+  promissory_note: "Senet",
+  term: "Vadeli",
+  installment: "Taksitli",
+  leasing: "Leasing",
+  letter_of_credit: "Akreditif",
+  cheque: "Çek",
+};
+
+/** Lead sıcaklığı — firmanın alım niyeti. */
+export type LeadTemperature = "hot" | "waiting" | "cold" | "unknown";
+
+export const LEAD_TEMPERATURE_LABELS: Record<LeadTemperature, string> = {
+  hot: "Sıcak",
+  waiting: "Beklemede",
+  cold: "Soğuk",
+  unknown: "Belirsiz",
+};
+
+export const LEAD_TEMPERATURE_HINTS: Record<LeadTemperature, string> = {
+  hot: "Almaya niyetli",
+  waiting: "Karar bekliyor",
+  cold: "Almaya niyetli değil",
+  unknown: "Henüz değerlendirilmedi",
+};
+
+/** Rozet/nokta renkleri — sıcaklık kartta bir bakışta okunsun. */
+export const LEAD_TEMPERATURE_STYLES: Record<LeadTemperature, { badge: string; dot: string }> = {
+  hot: { badge: "bg-destructive/10 text-destructive", dot: "bg-destructive" },
+  waiting: { badge: "bg-warning-soft text-warning", dot: "bg-warning" },
+  cold: { badge: "bg-info-soft text-info", dot: "bg-info" },
+  unknown: { badge: "bg-muted text-muted-foreground", dot: "bg-muted-foreground/50" },
+};
+
+export const LEAD_TEMPERATURE_ORDER: LeadTemperature[] = ["hot", "waiting", "cold", "unknown"];
+
 export type SalesCase = {
   id: string;
+  /** Firma henüz bağlanmadıysa hızlı lead kartlarında boş string olur. */
   customerId: string;
+  primaryContactId?: string;
+  /** Firma ana kaydı oluşmadan önce satış kartında tutulan lead bağlamı. */
+  leadContactName?: string;
+  leadCompanyTitle?: string;
+  leadContactValue?: string;
+  leadContactMethodCode?: string;
+  leadContactMethodName?: string;
+  leadCity?: string;
+  leadPhone?: string;
+  leadEmail?: string;
+  /** Firmanın alım niyeti — sıcak / beklemede / soğuk. */
+  leadTemperature?: LeadTemperature;
+  externalSource?: string;
+  externalKey?: string;
+  externalUrl?: string;
+  externalMetadata?: {
+    boardName?: string | null;
+    listName?: string | null;
+    labels?: string | null;
+    members?: string | null;
+    trelloCardId?: string | null;
+    candidate?: {
+      companyTitle?: string;
+      locationHint?: string;
+      contactName?: string;
+      phone?: string;
+      email?: string;
+    };
+  };
   assignedUserId: string;
   department: string;
   requestedProduct: string;
   requestedModel: string;
+  description?: string;
   quantity: number;
   estimatedAmount: number;
   currency: "USD" | "EUR" | "TRY";
   stage: SalesStage;
+  qualificationStage: QualificationStage;
+  qualificationNote?: string;
+  requestedMachine?: string;
+  contractTerms?: string;
+  paymentTerms?: string;
+  qualificationReadiness?: {
+    stage: QualificationStage;
+    nextStage: QualificationStage | null;
+    ready: boolean;
+    blockers: string[];
+    checks: Array<{ key: string; label: string; complete: boolean }>;
+    approvals: Partial<Record<OpportunityApprovalType, OpportunityApprovalStatus>>;
+  };
   /** Makine satışında ödeme vadesi (gün); sözleşme/ödeme planı varsayılanı. */
   paymentTermDays?: number;
+  /** Lead aşamasında seçilen ticari ödeme yöntemi. */
+  paymentMethod?: OpportunityPaymentMethod;
   isOfferPrepared: boolean;
   isLost: boolean;
   lostReason?: string;
@@ -231,11 +349,14 @@ export type Offer = {
   id: string;
   salesCaseId: string;
   companyId?: string;
+  companyAddressId?: string;
   divisionId?: string;
   divisionCode?: string;
   divisionName?: string;
   businessLine?: "CNC" | "UNI" | "SACISLE";
   quoteNo: string;
+  /** Teklifin ilk ana kalemindeki ürün kartı adı. */
+  productName?: string;
   revision: number;
   date: string;
   validityDays?: number;
@@ -245,14 +366,28 @@ export type Offer = {
   /** Hesaplanan KDV tutarı. */
   vatTotal?: number;
   currency: "USD" | "EUR" | "TRY";
-  status: "Draft" | "Sent" | "Approved" | "Rejected" | "Pending Approval";
+  status:
+    | "Draft"
+    | "Sent"
+    | "Approved"
+    | "Rejected"
+    | "Pending Approval"
+    | "Cancelled"
+    | "Price Waiting"
+    | "Budget Waiting"
+    | "On Hold"
+    | "Postponed";
   priceApprovalStatus?: 'not_required' | 'pending' | 'approved' | 'rejected';
+  followUpAt?: string;
+  statusNote?: string;
   note: string;
 };
 
 export type DocumentItem = {
   id: string;
   salesCaseId: string;
+  /** Belgenin silme/güncelleme akışını belirleyen kalıcı kaynak türü. */
+  source?: "uploaded_file" | "commercial_record" | "live_form";
   /** Proforma / sözleşme / fatura kaydının bağlı olduğu teklif. */
   quoteId?: string;
   companyId?: string;
@@ -262,6 +397,8 @@ export type DocumentItem = {
   deliveryId?: string;
   installationId?: string;
   installationData?: any;
+  /** Kesinleşme anındaki firma, kontak, kalem ve şartların değişmez kopyası. */
+  documentSnapshot?: Record<string, any>;
   type:
     | "Proforma"
     | "Contract"
@@ -338,6 +475,7 @@ export type ProductAlternative = {
 export type Product = {
   id: string;
   brand: string;
+  series?: string;
   productGroup?: string;
   productGroupCode?: string;
   model: string;
@@ -693,6 +831,7 @@ export const SHIPMENT_STATUSES: ShipmentStatus[] = ["Hazırlanıyor", "Yolda", "
 export type Shipment = {
   id: string;
   salesCaseId: string;
+  direction: "incoming" | "outgoing";
   senderCompanyId?: string;
   senderCompanyName?: string;
   /** Kayıtlı olmayan gönderici için elle girilen serbest-metin ad. */
@@ -719,6 +858,8 @@ export type Shipment = {
     description: string;
     serialNumber?: string;
     quantity?: number;
+    packageQuantity?: number;
+    packageUnitCode?: string;
     packageCount?: number;
     palletCount?: number;
     packageLengthCm?: number;

@@ -15,6 +15,7 @@ import { closeDb } from './db/client';
 import { registerHealthRoutes } from './health.routes';
 import { registerHttpObservability } from './shared/observability/http-logging';
 import { registerMetricsEndpoint } from './shared/observability/metrics';
+import { StructuredNestLogger } from './shared/observability/nest-logger';
 import { registerLenientJsonBodyParser } from './shared/http/fastify-json-body';
 
 async function bootstrap() {
@@ -28,7 +29,7 @@ async function bootstrap() {
       trustProxy: env.TRUST_PROXY_HOPS,
       bodyLimit: env.MAX_UPLOAD_SIZE_MB * 1024 * 1024,
     }),
-    { bufferLogs: true }
+    { logger: new StructuredNestLogger() }
   );
 
   await app.register(helmet as any, {

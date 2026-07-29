@@ -24,6 +24,18 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["--workspace", "@haksan/web", "exec", "--", "vite", "preview", "--host", "127.0.0.1", "--port", "4173", "--strictPort"],
       "port": 4173
+    },
+    {
+      "name": "api-verify",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": ["-lc", "cd apps/api && PORT=3001 node dist/main.js"],
+      "port": 3001
+    },
+    {
+      "name": "web-verify-api3001",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": ["-lc", "cd apps/web && VITE_API_BASE_URL=http://localhost:3001/api/v1 npx vite --host 127.0.0.1 --port 4173 --strictPort"],
+      "port": 4173
     }
   ]
 }

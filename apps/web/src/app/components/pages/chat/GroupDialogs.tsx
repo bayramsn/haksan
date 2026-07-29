@@ -81,19 +81,19 @@ export function NewGroupDialog({
         </DialogHeader>
         <div className="space-y-4">
           <div className="space-y-1.5">
-            <Label>Grup adı</Label>
-            <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Örn. Satış Ekibi" />
+            <Label htmlFor="new-chat-group-title">Grup adı</Label>
+            <Input id="new-chat-group-title" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Örn. Satış Ekibi" />
           </div>
           <div className="space-y-1.5">
-            <Label>Açıklama (opsiyonel)</Label>
-            <Textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={2} />
+            <Label htmlFor="new-chat-group-description">Açıklama (opsiyonel)</Label>
+            <Textarea id="new-chat-group-description" value={description} onChange={(e) => setDescription(e.target.value)} rows={2} />
           </div>
           <div className="flex items-center justify-between rounded-md border border-border/60 px-3 py-2">
             <div>
               <div className="text-sm font-medium">Yalnızca yöneticiler yazabilir</div>
               <div className="text-xs text-muted-foreground">Duyuru grubu modu (WhatsApp benzeri)</div>
             </div>
-            <Switch checked={onlyAdminsCanPost} onCheckedChange={setOnlyAdmins} />
+            <Switch aria-label="Yalnızca yöneticiler yazabilir" checked={onlyAdminsCanPost} onCheckedChange={setOnlyAdmins} />
           </div>
           <div className="space-y-1.5">
             <Label>Üyeler ({selected.size})</Label>

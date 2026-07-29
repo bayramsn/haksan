@@ -88,6 +88,48 @@ export const serviceTickets = pgTable(
   })
 );
 
+/**
+ * Önleyici (periyodik) bakım planı — bir müşteri makinesine bağlanır.
+ * Cron işi vadesi yaklaşan planları tarayıp bildirim üretir ve isteğe bağlı
+ * olarak otomatik servis talebi açar. `nextDueDate` her tamamlamadan sonra
+ * `intervalDays` kadar ileri alınır.
+ */
+export const maintenancePlans = pgTable(
+  'maintenance_plans',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id')
+      .notNull()
+      .references(() => tenants.id, { onDelete: 'cascade' }),
+    divisionId: uuid('division_id').references(() => divisions.id, { onDelete: 'set null' }),
+    customerDeviceId: uuid('customer_device_id')
+      .notNull()
+      .references(() => customerDevices.id, { onDelete: 'cascade' }),
+    companyId: uuid('company_id')
+      .notNull()
+      .references(() => companies.id, { onDelete: 'restrict' }),
+    title: varchar('title', { length: 255 }).notNull(),
+    intervalDays: integer('interval_days').notNull().default(180),
+    lastServiceDate: timestamp('last_service_date', { withTimezone: true }),
+    nextDueDate: timestamp('next_due_date', { withTimezone: true }).notNull(),
+    /** Vade öncesi kaç gün hatırlatılsın. */
+    reminderLeadDays: integer('reminder_lead_days').notNull().default(14),
+    /** true ise cron vade gününde otomatik servis talebi açar. */
+    autoCreateTicket: boolean('auto_create_ticket').notNull().default(false),
+    isActive: boolean('is_active').notNull().default(true),
+    notes: text('notes'),
+    /** Son hatırlatma bildiriminin üretildiği an — tekrarı önlemek için. */
+    lastRemindedAt: timestamp('last_reminded_at', { withTimezone: true }),
+    ...auditColumns,
+  },
+  (t) => ({
+    tenantIdx: index('maintenance_plans_tenant_idx').on(t.tenantId),
+    tenantDivisionIdx: index('maintenance_plans_tenant_division_idx').on(t.tenantId, t.divisionId),
+    deviceIdx: index('maintenance_plans_device_idx').on(t.customerDeviceId),
+    nextDueIdx: index('maintenance_plans_next_due_idx').on(t.nextDueDate),
+  })
+);
+
 export const serviceComplaintLinks = pgTable(
   'service_complaint_links',
   {
@@ -252,6 +294,8 @@ export const shipments = pgTable(
     // Kayıtlı olmayan gönderici için serbest-metin adı (senderCompanyId FK yerine elle giriş).
     senderName: varchar('sender_name', { length: 255 }),
     carrierCompanyId: uuid('carrier_company_id').references(() => companies.id, { onDelete: 'set null' }),
+    // incoming: tedarikçiden/depo yönüne; outgoing: depodan müşteriye.
+    direction: varchar('direction', { length: 16 }).notNull().default('outgoing'),
     transportMode: varchar('transport_mode', { length: 32 }),
     productCategoryCode: varchar('product_category_code', { length: 64 }),
     destinationWarehouseId: uuid('destination_warehouse_id').references(() => warehouses.id, { onDelete: 'set null' }),
@@ -309,6 +353,9 @@ export const shipmentItems = pgTable(
     sortOrder: integer('sort_order').notNull().default(0),
     packageCount: integer('package_count'),
     palletCount: integer('pallet_count'),
+    // Paket/palet ikilisi yerine tek miktar + CRM'den yönetilen ambalaj birimi.
+    packageQuantity: integer('package_quantity'),
+    packageUnitCode: varchar('package_unit_code', { length: 64 }),
     packageLengthCm: money('package_length_cm'),
     packageWidthCm: money('package_width_cm'),
     packageHeightCm: money('package_height_cm'),

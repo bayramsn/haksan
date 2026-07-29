@@ -20,6 +20,19 @@ export const PIPELINE_STAGES = [
 ] as const;
 export type PipelineStageCode = (typeof PIPELINE_STAGES)[number];
 
+/**
+ * Satış ekibinin müşteri niyetini ve kart olgunluğunu takip ettiği yalın akış.
+ * Operasyonel PIPELINE_STAGES (teklif, fatura, sevkiyat, kurulum...) ayrı kalır.
+ */
+export const QUALIFICATION_STAGES = ['lead', 'c', 'b', 'a', 'a_plus', 'win', 'lost'] as const;
+export type QualificationStageCode = (typeof QUALIFICATION_STAGES)[number];
+
+export const OPPORTUNITY_APPROVAL_TYPES = ['payment', 'customs', 'invoice', 'installation', 'win'] as const;
+export type OpportunityApprovalType = (typeof OPPORTUNITY_APPROVAL_TYPES)[number];
+
+export const OPPORTUNITY_APPROVAL_STATUSES = ['pending', 'approved', 'rejected'] as const;
+export type OpportunityApprovalStatus = (typeof OPPORTUNITY_APPROVAL_STATUSES)[number];
+
 export const ROLE_CODES = [
   'super_admin',
   'admin',
@@ -75,7 +88,7 @@ export type PermissionAction = (typeof PERMISSION_ACTIONS)[number];
 export const CURRENCIES = ['USD', 'EUR', 'TRY', 'GBP'] as const;
 export type CurrencyCode = (typeof CURRENCIES)[number];
 
-export const COMPANY_RELATION_TYPES = ['customer', 'supplier', 'supplier_customer'] as const;
+export const COMPANY_RELATION_TYPES = ['customer', 'supplier', 'supplier_customer', 'competitor'] as const;
 export type CompanyRelationType = (typeof COMPANY_RELATION_TYPES)[number];
 
 export const COMPANY_STATUSES = ['potential', 'active', 'passive', 'blacklist'] as const;
@@ -133,7 +146,8 @@ export type AllowedFileExtension = (typeof ALLOWED_FILE_EXTENSIONS)[number];
 // Stage transition rules (bölüm 3 mega prompt'tan)
 // Maps each stage to the stages it can transition FROM
 export const STAGE_TRANSITIONS: Record<PipelineStageCode, PipelineStageCode[]> = {
-  lead: [],
+  // Görüşme sonrası "henüz erken" çıkan kart lead havuzuna geri çekilebilir.
+  lead: ['call'],
   sales: ['lead'],
   call: ['lead', 'sales', 'visit'],
   visit: ['lead', 'sales', 'call'],

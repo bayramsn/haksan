@@ -2,7 +2,7 @@ import { pgTable, uuid, varchar, text, integer, timestamp, boolean, jsonb, index
 import { auditColumns, money, percent } from './_helpers';
 import { tenants, divisions } from './tenants';
 import { users } from './users';
-import { companies, contacts } from './companies';
+import { companies, companyAddresses, contacts } from './companies';
 import { opportunities } from './crm';
 import { productModels } from './products';
 import { inventoryItems } from './inventory';
@@ -22,6 +22,7 @@ export const quotes = pgTable(
     companyId: uuid('company_id')
       .notNull()
       .references(() => companies.id, { onDelete: 'restrict' }),
+    companyAddressId: uuid('company_address_id').references(() => companyAddresses.id, { onDelete: 'set null' }),
     contactId: uuid('contact_id').references(() => contacts.id, { onDelete: 'set null' }),
     documentNo: varchar('document_no', { length: 64 }).notNull(),
     revisionNo: integer('revision_no').notNull().default(1),
@@ -35,6 +36,7 @@ export const quotes = pgTable(
     headerDiscountPercent: percent('header_discount_percent').notNull().default('0'),
     vatRate: percent('vat_rate').notNull().default('20'),
     vatAmount: money('vat_amount').notNull().default('0'),
+    customsTotal: money('customs_total').notNull().default('0'),
     grandTotal: money('grand_total').notNull().default('0'),
     paymentTerms: text('payment_terms'),
     deliveryTerms: text('delivery_terms'),
@@ -54,6 +56,12 @@ export const quotes = pgTable(
     approvedAt: timestamp('approved_at', { withTimezone: true }),
     rejectedAt: timestamp('rejected_at', { withTimezone: true }),
     sentAt: timestamp('sent_at', { withTimezone: true }),
+    followUpAt: timestamp('follow_up_at', { withTimezone: true }),
+    statusNote: text('status_note'),
+    statusChangedAt: timestamp('status_changed_at', { withTimezone: true }),
+    statusChangedBy: uuid('status_changed_by').references(() => users.id, { onDelete: 'set null' }),
+    documentSnapshot: jsonb('document_snapshot'),
+    finalizedAt: timestamp('finalized_at', { withTimezone: true }),
     ...auditColumns,
   },
   (t) => ({
@@ -62,6 +70,7 @@ export const quotes = pgTable(
     tenantDivisionIdx: index('quotes_tenant_division_idx').on(t.tenantId, t.divisionId),
     tenantBusinessLineIdx: index('quotes_tenant_business_line_idx').on(t.tenantId, t.businessLine),
     companyIdx: index('quotes_company_idx').on(t.companyId),
+    companyAddressIdx: index('quotes_company_address_idx').on(t.companyAddressId),
     opportunityIdx: index('quotes_opportunity_idx').on(t.opportunityId),
     quoteDateIdx: index('quotes_quote_date_idx').on(t.quoteDate),
     statusIdx: index('quotes_status_idx').on(t.statusId),
@@ -93,6 +102,8 @@ export const quoteItems = pgTable(
     sortOrder: integer('sort_order').notNull().default(0),
     // Opsiyonel donanım / yedek parça için uyumluluk seçimleri.
     compatibility: jsonb('compatibility'),
+    // Millileştirilmiş ithal işleme merkezi — otomatik gümrük/vergi tetikler.
+    nationalized: boolean('nationalized').notNull().default(false),
     ...auditColumns,
   },
   (t) => ({
@@ -153,6 +164,8 @@ export const proformas = pgTable(
     issueDate: timestamp('issue_date', { withTimezone: true }).notNull(),
     statusId: uuid('status_id').references(() => proformaStatuses.id),
     fileId: uuid('file_id').references(() => files.id),
+    documentSnapshot: jsonb('document_snapshot'),
+    finalizedAt: timestamp('finalized_at', { withTimezone: true }),
     createdBy: uuid('created_by').references(() => users.id),
     ...auditColumns,
   },
@@ -181,6 +194,8 @@ export const contracts = pgTable(
     paymentTermDays: integer('payment_term_days'),
     statusId: uuid('status_id').references(() => contractStatuses.id),
     fileId: uuid('file_id').references(() => files.id),
+    documentSnapshot: jsonb('document_snapshot'),
+    finalizedAt: timestamp('finalized_at', { withTimezone: true }),
     createdBy: uuid('created_by').references(() => users.id),
     ...auditColumns,
   },
@@ -208,6 +223,8 @@ export const commercialInvoices = pgTable(
     invoiceDate: timestamp('invoice_date', { withTimezone: true }).notNull(),
     statusId: uuid('status_id').references(() => invoiceStatuses.id),
     fileId: uuid('file_id').references(() => files.id),
+    documentSnapshot: jsonb('document_snapshot'),
+    finalizedAt: timestamp('finalized_at', { withTimezone: true }),
     createdBy: uuid('created_by').references(() => users.id),
     ...auditColumns,
   },

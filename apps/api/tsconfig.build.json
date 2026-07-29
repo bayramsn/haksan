@@ -5,6 +5,8 @@
     "node_modules",
     "dist",
     "test",
+    "src/**/* 2.ts",
+    "src/**/* 3.ts",
     "src/audit-contracts.ts",
     "src/db/seed/index.ts",
     "src/db/seed/demo.ts",

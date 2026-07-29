@@ -80,7 +80,7 @@ export function ContactsPage() {
 
   const emptyState = (
     <EmptyState
-      icon={<Users className="size-6" />}
+      scene="search"
       title="Bu filtreye uyan kontak bulunamadı"
       description="Arama terimini veya filtreleri değiştirerek tekrar deneyin."
     />
@@ -97,7 +97,7 @@ export function ContactsPage() {
 
   const quickActions = (k: (typeof enriched)[number], visible = false) => (
     <div
-      className={`flex items-center gap-1 ${visible ? "" : "justify-end opacity-0 group-hover:opacity-100"}`}
+      className={`flex items-center gap-1 ${visible ? "" : "justify-end opacity-100 sm:opacity-0 sm:group-hover:opacity-100"}`}
       onClick={(e) => e.stopPropagation()}
     >
       <Button asChild variant="ghost" size="icon" className="size-7" disabled={!(k.mobilePhone || k.phone)} title="Ara">
@@ -372,11 +372,12 @@ export function ContactsPage() {
       <EditContactDialog contact={editing} onClose={() => setEditing(null)} />
 
       <AlertDialog open={!!deleting} onOpenChange={(o) => !o && setDeleting(null)}>
-        <AlertDialogContent>
+        <AlertDialogContent className="max-w-lg">
           <AlertDialogHeader>
             <AlertDialogTitle>Kontağı sil?</AlertDialogTitle>
             <AlertDialogDescription>
-              <b>{deleting?.name}</b> kalıcı olarak silinecek.
+              <span className="block font-medium text-foreground">{deleting?.name}</span>
+              {deleting ? customers.find((customer) => customer.id === deleting.customerId)?.name || "Firma bağlantısı yok" : ""} kişisi kalıcı olarak silinir. Aktivite, teklif veya servis ilişkisi varsa sistem işlemi güvenli biçimde engelleyebilir.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -395,7 +396,7 @@ export function ContactsPage() {
                 }
               }}
             >
-              Sil
+              Kişiyi Sil
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

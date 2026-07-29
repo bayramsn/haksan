@@ -9,14 +9,20 @@ import {
   companyGroupAssignments,
   companyPhones,
   companyEmails,
+  contacts,
   notifications,
 } from '../../db/schema/companies';
-import { receivables } from '../../db/schema/finance';
+import { accountingInvoices, payments, receivables } from '../../db/schema/finance';
+import { customerDevices } from '../../db/schema/inventory';
+import { salesOrders } from '../../db/schema/orders';
+import { quotes } from '../../db/schema/quotes';
+import { opportunities, salesActivities } from '../../db/schema/crm';
+import { deliveries, installationJobs, serviceTickets, shipments } from '../../db/schema/service';
 import { divisions } from '../../db/schema/tenants';
 import { users, userDivisions } from '../../db/schema/users';
 import { companyRelationTypes, companyStatuses, companyGroups, contactSources, paymentStatuses } from '../../db/schema/lookup';
 import { DB } from '../../shared/database/database.module';
-import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from '../../shared/utils/errors';
+import { CompanyWebsiteLookupError, ConflictError, ForbiddenError, NotFoundError, ValidationError } from '../../shared/utils/errors';
 import type { AuthContext } from '../../shared/security/auth.types';
 import type {
   CompanyAccessRequestInput,
@@ -26,6 +32,8 @@ import type {
   CompanyLocationInput,
   CompanyOsmSearchQuery,
   CompanyOsmSearchResult,
+  CompanyWebsiteLookupInput,
+  CompanyWebsiteLookupResult,
   CompanyUpdateInput,
   CompanyListQuery,
   Pagination,
@@ -42,6 +50,8 @@ import {
   type DivisionScope,
 } from '../../shared/utils/division-scope';
 import { companyVisibilityFilter } from '../../shared/utils/company-visibility';
+import { normalizeCompanyName } from '../../shared/utils/text-normalization';
+import { inspectOfficialCompanyWebsite } from './company-website-lookup';
 
 const TURKISH_FOLD_MAP: Record<string, string> = {
   ç: 'c',
@@ -98,31 +108,231 @@ const uniqueTexts = (values: string[]) => {
 const joinOsmParts = (parts: Array<string | undefined | null>) =>
   uniqueTexts(parts.map(compactOsmPart)).join(', ');
 
-const buildOsmSearchCandidates = (query: CompanyOsmSearchQuery) => {
+const normalizeCountryForOsm = (value?: string | null) =>
+  foldTurkishForOsm(compactOsmPart(value))
+    .toLocaleLowerCase('en-US')
+    .replace(/[^a-z]/g, '');
+
+const OSM_MATCH_STOP_WORDS = new Set([
+  'mah', 'mahalle', 'mahallesi', 'cad', 'cadde', 'caddesi', 'sok', 'sokak', 'sokagi',
+  'no', 'numara', 'kat', 'blok', 'ic', 'kapi', 'san', 'sanayi', 'sitesi', 'site', 'the',
+  'and', 'road', 'street', 'district', 'city', 'village',
+]);
+
+const normalizeOsmMatchText = (value?: string | null) =>
+  foldTurkishForOsm(compactOsmPart(value))
+    .toLocaleLowerCase('en-US')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+const osmMatchTokens = (value?: string | null) =>
+  new Set(
+    normalizeOsmMatchText(value)
+      .split(' ')
+      .filter((token) => token.length >= 2 && !OSM_MATCH_STOP_WORDS.has(token)),
+  );
+
+const tokenCoverage = (expected: Set<string>, actual: Set<string>) => {
+  if (!expected.size) return 0;
+  let matched = 0;
+  for (const token of expected) if (actual.has(token)) matched += 1;
+  return matched / expected.size;
+};
+
+const includesOsmScope = (haystack: string, value?: string | null) => {
+  const needle = normalizeOsmMatchText(value);
+  return !needle || haystack.includes(needle);
+};
+
+const osmAddressScopeMatches = (
+  address: Record<string, unknown>,
+  keys: string[],
+  value?: string | null,
+) => {
+  const needle = normalizeOsmMatchText(value);
+  if (!needle) return false;
+  return keys.some((key) => {
+    const raw = address[key];
+    if (typeof raw !== 'string') return false;
+    const candidate = normalizeOsmMatchText(raw);
+    return candidate === needle || ` ${candidate} `.includes(` ${needle} `);
+  });
+};
+
+const OSM_CITY_ADDRESS_KEYS = ['city', 'province', 'state', 'state_district'];
+const OSM_DISTRICT_ADDRESS_KEYS = [
+  'city_district',
+  'district',
+  'county',
+  'municipality',
+  'town',
+  'borough',
+  'suburb',
+];
+
+const osmCountryMatches = (
+  country: string | null | undefined,
+  resultText: string,
+  address: Record<string, unknown>,
+) => {
+  const normalized = normalizeCountryForOsm(country || 'Türkiye');
+  const resultCode = typeof address.country_code === 'string' ? address.country_code.toLowerCase() : '';
+  if (['turkiye', 'turkey', 'turkei'].includes(normalized)) {
+    return resultCode ? resultCode === 'tr' : /\b(turkiye|turkey|turkei)\b/.test(resultText);
+  }
+  if (['taiwan', 'republicofchina'].includes(normalized)) {
+    return resultCode ? resultCode === 'tw' : /\b(taiwan|republic of china)\b/.test(resultText);
+  }
+  return includesOsmScope(resultText, country);
+};
+
+type OsmRawResult = {
+  displayName: string;
+  type: string | null;
+  category: string | null;
+  address?: Record<string, unknown>;
+};
+
+export const scoreOsmResult = (query: CompanyOsmSearchQuery, row: OsmRawResult) => {
+  const address = row.address ?? {};
+  const addressText = Object.values(address)
+    .filter((value): value is string => typeof value === 'string')
+    .join(' ');
+  const resultText = normalizeOsmMatchText(`${row.displayName} ${addressText}`);
+  const resultTokens = osmMatchTokens(resultText);
+  const nameTokens = osmMatchTokens(stripCompanySuffixes(query.q));
+  const addressTokens = osmMatchTokens(query.address);
+  const nameCoverage = tokenCoverage(nameTokens, resultTokens);
+  const addressCoverage = tokenCoverage(addressTokens, resultTokens);
+  const cityMatches = includesOsmScope(resultText, query.city);
+  const districtMatches = includesOsmScope(resultText, query.district);
+  const cityAddressMatches = osmAddressScopeMatches(address, OSM_CITY_ADDRESS_KEYS, query.city);
+  const districtAddressMatches = osmAddressScopeMatches(address, OSM_DISTRICT_ADDRESS_KEYS, query.district);
+  const countryMatches = osmCountryMatches(query.country, resultText, address);
+  const expectedNumbers = normalizeOsmMatchText(query.address).match(/\b\d+[a-z]?\b/g) ?? [];
+  const resultNumbers = new Set(resultText.match(/\b\d+[a-z]?\b/g) ?? []);
+  const numberMatches = expectedNumbers.length > 0 && expectedNumbers.some((number) => resultNumbers.has(number));
+  const nonPoiCategories = new Set(['boundary', 'highway', 'place']);
+  const nonPoiTypes = new Set([
+    'administrative', 'city', 'town', 'village', 'municipality', 'county', 'state',
+    'suburb', 'neighbourhood', 'quarter', 'residential', 'road', 'unclassified',
+  ]);
+  const isPoi = !nonPoiCategories.has(row.category ?? '') && !nonPoiTypes.has(row.type ?? '');
+  const scopeMatches = cityMatches && countryMatches;
+  const exactByPoi = scopeMatches && isPoi && nameCoverage >= 0.5 && (districtMatches || addressCoverage >= 0.2);
+  const exactByAddress = scopeMatches && numberMatches && addressCoverage >= 0.4 && (districtMatches || cityMatches);
+
+  if (exactByPoi || exactByAddress) {
+    const score = Math.min(100, Math.round(72 + nameCoverage * 12 + addressCoverage * 10 + (numberMatches ? 6 : 0)));
+    return {
+      eligible: true,
+      matchQuality: 'exact' as const,
+      matchScore: score,
+      matchReason: exactByPoi ? 'Firma adı ve adres bölgesi eşleşiyor' : 'Kapı numarası ve adres bileşenleri eşleşiyor',
+    };
+  }
+
+  const streetLike = ['road', 'residential', 'unclassified', 'service'].includes(row.type ?? '') || row.category === 'highway';
+  if (scopeMatches && (addressCoverage >= 0.2 || streetLike) && (districtMatches || addressCoverage >= 0.45)) {
+    return {
+      eligible: true,
+      matchQuality: 'street' as const,
+      matchScore: Math.min(79, Math.round(45 + addressCoverage * 25 + (districtMatches ? 8 : 0))),
+      matchReason: 'Sokak/cadde bulundu; bina veya firma girişi doğrulanamadı',
+    };
+  }
+
+  const hasCity = Boolean(compactOsmPart(query.city));
+  const hasDistrict = Boolean(compactOsmPart(query.district));
+  const areaScore = Math.min(
+    79,
+    25
+      + (hasCity ? (cityAddressMatches ? 15 : cityMatches ? 8 : 0) : 5)
+      + (hasDistrict && districtMatches ? (districtAddressMatches ? 20 : 12) : 0)
+      + (countryMatches ? 5 : 0)
+      + (cityAddressMatches && districtAddressMatches ? 10 : 0)
+      + Math.min(3, Math.round(nameCoverage * 3))
+      + Math.min(2, Math.round(addressCoverage * 2)),
+  );
+  const areaReason = hasDistrict && districtMatches
+    ? cityAddressMatches && districtAddressMatches
+      ? 'İl ve ilçe eşleşti; koordinat ilçe merkezi düzeyinde'
+      : 'İlçe eşleşti; koordinat yaklaşık bölge merkezidir'
+    : hasCity && cityMatches
+      ? 'İl eşleşti; koordinat şehir merkezi düzeyinde'
+      : 'Yaklaşık bölge merkezi sonucu';
+
+  return {
+    eligible: scopeMatches,
+    matchQuality: 'area' as const,
+    matchScore: scopeMatches ? areaScore : 0,
+    matchReason: areaReason,
+  };
+};
+
+export const osmCountryCodeFilter = (country?: string | null) => {
+  const normalized = normalizeCountryForOsm(country || 'Türkiye');
+  return ['turkiye', 'turkey', 'turkei'].includes(normalized) ? 'tr' : null;
+};
+
+export const buildOsmSearchCandidates = (query: CompanyOsmSearchQuery) => {
   const q = compactOsmPart(query.q);
   const stripped = stripCompanySuffixes(q);
-  const folded = foldTurkishForOsm(q);
   const foldedStripped = stripCompanySuffixes(foldTurkishForOsm(q));
-  const names = uniqueTexts([q, stripped, folded, foldedStripped]);
+  const names = uniqueTexts([q, stripped, foldedStripped]).slice(0, 3);
   const address = compactOsmPart(query.address);
   const district = compactOsmPart(query.district);
   const city = compactOsmPart(query.city);
-  const scoped = [address, district, city].filter(Boolean);
+  const country = compactOsmPart(query.country) || 'Türkiye';
   const candidates: string[] = [];
 
   for (const name of names) {
-    if (scoped.length) candidates.push(joinOsmParts([name, address, district, city, 'Türkiye']));
-    if (district || city) candidates.push(joinOsmParts([name, district, city, 'Türkiye']));
-    candidates.push(joinOsmParts([name, 'Türkiye']));
+    candidates.push(joinOsmParts([name, address, district, city, country]));
   }
-  if (address) candidates.push(joinOsmParts([address, district, city, 'Türkiye']));
+
+  // Firma/POI adı OSM'de kayıtlı olmayabilir. Tam adres ve son olarak ilçe/il
+  // merkezi geri dönüşleri sayesinde kullanıcı yine doğrulanabilir bir pin seçer.
+  if (address) candidates.push(joinOsmParts([address, district, city, country]));
+  if (district || city) candidates.push(joinOsmParts([district, city, country]));
+  if (city) candidates.push(joinOsmParts([city, country]));
 
   return uniqueTexts(candidates).slice(0, 6);
+};
+
+const nominatimEndpoint = () => {
+  const configured = process.env.OSM_NOMINATIM_URL?.trim();
+  const url = new URL(configured || 'https://nominatim.openstreetmap.org/search');
+  if (url.protocol !== 'https:') throw new Error('OSM_NOMINATIM_URL must use HTTPS');
+  return url;
+};
+
+const osmRequestIdentity = () => {
+  const appUrl = process.env.APP_PUBLIC_URL?.trim() || 'http://localhost:5173';
+  return {
+    Referer: appUrl,
+    'User-Agent': `Haksan-CRM-ERP/1.0 (+${appUrl})`,
+  };
+};
+
+const normalizedOsmWebsite = (value: unknown) => {
+  if (typeof value !== 'string' || !value.trim()) return undefined;
+  try {
+    const withScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(value.trim()) ? value.trim() : `https://${value.trim()}`;
+    const url = new URL(withScheme);
+    if (url.protocol === 'http:') url.protocol = 'https:';
+    if (url.protocol !== 'https:' || !url.hostname.includes('.')) return undefined;
+    url.hash = '';
+    return url.toString();
+  } catch {
+    return undefined;
+  }
 };
 
 @Injectable()
 export class CompaniesService {
   private readonly osmCache = new Map<string, { expiresAt: number; results: CompanyOsmSearchResult[] }>();
+  private readonly websiteLookupCache = new Map<string, { expiresAt: number; result: CompanyWebsiteLookupResult }>();
   private osmLastRequestAt = 0;
 
   constructor(
@@ -218,7 +428,34 @@ export class CompaniesService {
     return uniqueCodes.map((code) => byCode.get(code)!);
   }
 
-  private addressValues(companyId: string, tenantId: string, address: CompanyAddressInput, isDefault: boolean) {
+  private addressRoleIndexes(addresses: CompanyAddressInput[]) {
+    if (!addresses.length) return { defaultIndex: -1, shippingIndex: -1, billingIndex: -1 };
+
+    const selectedIndex = (role: 'isDefault' | 'isShipping' | 'isBilling') => {
+      const selected = addresses
+        .map((address, index) => address[role] ? index : -1)
+        .filter((index) => index >= 0);
+      if (selected.length > 1) {
+        throw new ValidationError('Her adres rolü için yalnızca bir adres seçilebilir', {
+          field: `addresses.${role}`,
+        });
+      }
+      return selected[0] ?? -1;
+    };
+
+    return {
+      defaultIndex: selectedIndex('isDefault'),
+      shippingIndex: selectedIndex('isShipping'),
+      billingIndex: selectedIndex('isBilling'),
+    };
+  }
+
+  private addressValues(
+    companyId: string,
+    tenantId: string,
+    address: CompanyAddressInput,
+    roles: { isDefault: boolean; isShipping: boolean; isBilling: boolean },
+  ) {
     return {
       tenantId,
       companyId,
@@ -234,7 +471,7 @@ export class CompaniesService {
       latitude: address.latitude != null ? String(address.latitude) : null,
       longitude: address.longitude != null ? String(address.longitude) : null,
       locationSource: address.latitude != null && address.longitude != null ? 'manual' : null,
-      isDefault,
+      ...roles,
       deletedAt: null,
     };
   }
@@ -385,20 +622,21 @@ export class CompaniesService {
         if (waitMs > 0) await new Promise((resolve) => setTimeout(resolve, waitMs));
         this.osmLastRequestAt = Date.now();
 
-        const url = new URL('https://nominatim.openstreetmap.org/search');
+        const url = nominatimEndpoint();
         url.searchParams.set('q', searchText);
         url.searchParams.set('format', 'jsonv2');
         url.searchParams.set('addressdetails', '1');
+        url.searchParams.set('extratags', '1');
         url.searchParams.set('limit', '5');
-        url.searchParams.set('countrycodes', 'tr');
         url.searchParams.set('accept-language', 'tr');
+        const countryCode = osmCountryCodeFilter(query.country);
+        if (countryCode) url.searchParams.set('countrycodes', countryCode);
 
         const response = await fetch(url, {
           signal: controller.signal,
           headers: {
             Accept: 'application/json',
-            Referer: 'https://haksan.local',
-            'User-Agent': 'Haksan-CRM-ERP/0.1 (company map search; contact: admin@haksan.local)',
+            ...osmRequestIdentity(),
           },
         });
         if (!response.ok) {
@@ -411,24 +649,49 @@ export class CompaniesService {
             const longitude = Number(row.lon);
             const displayName = typeof row.display_name === 'string' ? row.display_name : '';
             if (!Number.isFinite(latitude) || !Number.isFinite(longitude) || !displayName) return null;
+            const type = typeof row.type === 'string' ? row.type : null;
+            const category = typeof row.category === 'string' ? row.category : null;
+            const address = row.address && typeof row.address === 'object' ? (row.address as Record<string, unknown>) : undefined;
+            const extraTags = row.extratags && typeof row.extratags === 'object' ? row.extratags as Record<string, unknown> : {};
+            const website = normalizedOsmWebsite(extraTags.website ?? extraTags['contact:website'] ?? extraTags.url);
+            const phone = compactOsmPart(typeof extraTags.phone === 'string' ? extraTags.phone : typeof extraTags['contact:phone'] === 'string' ? extraTags['contact:phone'] : '').slice(0, 64) || undefined;
+            const rawEmail = compactOsmPart(typeof extraTags.email === 'string' ? extraTags.email : typeof extraTags['contact:email'] === 'string' ? extraTags['contact:email'] : '').slice(0, 254);
+            const email = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(rawEmail) ? rawEmail : undefined;
+            const match = scoreOsmResult(query, { displayName, type, category, address });
+            if (!match.eligible) return null;
             return {
               id: String(row.place_id ?? `${cacheKey}:${index}`),
               displayName,
               latitude,
               longitude,
-              type: typeof row.type === 'string' ? row.type : null,
-              category: typeof row.category === 'string' ? row.category : null,
+              type,
+              category,
               importance: Number.isFinite(Number(row.importance)) ? Number(row.importance) : null,
-              address: row.address && typeof row.address === 'object' ? (row.address as Record<string, unknown>) : undefined,
+              matchQuality: match.matchQuality,
+              matchScore: match.matchScore,
+              matchReason: match.matchReason,
+              website,
+              phone,
+              email,
+              address,
             };
           })
           .filter((row): row is CompanyOsmSearchResult => row != null);
 
-        for (const result of results) byId.set(result.id, result);
-        if (byId.size > 0) break;
+        for (const result of results) {
+          const current = byId.get(result.id);
+          if (!current || result.matchScore > current.matchScore) byId.set(result.id, result);
+        }
+        if (Array.from(byId.values()).filter((result) => result.matchQuality === 'exact').length >= 3) break;
       }
-      const results = Array.from(byId.values()).slice(0, 5);
-      this.osmCache.set(cacheKey, { expiresAt: Date.now() + 10 * 60 * 1000, results });
+      const qualityRank = { exact: 0, street: 1, area: 2 } as const;
+      const results = Array.from(byId.values())
+        .sort((a, b) => qualityRank[a.matchQuality] - qualityRank[b.matchQuality] || b.matchScore - a.matchScore)
+        .slice(0, 5);
+      // Başarılı sonuçları uzun, boş sonuçları kısa tut. Böylece geçici OSM veri/ağ
+      // durumları kullanıcıyı on dakika boyunca yanlış bir boş sonuca kilitlemez.
+      const ttlMs = results.length > 0 ? 10 * 60 * 1000 : 60 * 1000;
+      this.osmCache.set(cacheKey, { expiresAt: Date.now() + ttlMs, results });
       return results;
     } catch (err) {
       if (err instanceof ValidationError) throw err;
@@ -436,6 +699,57 @@ export class CompaniesService {
     } finally {
       clearTimeout(timeout);
     }
+  }
+
+  async lookupCompanyWebsite(query: CompanyWebsiteLookupInput, actor: AuthContext): Promise<CompanyWebsiteLookupResult> {
+    const cacheKey = JSON.stringify({
+      q: query.q.toLocaleLowerCase('tr-TR'),
+      website: query.website?.toLocaleLowerCase('en-US') ?? '',
+      city: query.city?.toLocaleLowerCase('tr-TR') ?? '',
+      district: query.district?.toLocaleLowerCase('tr-TR') ?? '',
+      country: query.country?.toLocaleLowerCase('tr-TR') ?? '',
+    });
+    const cached = this.websiteLookupCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) return cached.result;
+
+    let website = query.website;
+    let discoveredViaOsm = false;
+    let exactOsmResult: CompanyOsmSearchResult | undefined;
+    if (!website) {
+      const osmResults = await this.searchOpenStreetMap(query, actor);
+      exactOsmResult = osmResults.find((result) => result.matchQuality === 'exact' && result.website);
+      website = exactOsmResult?.website;
+      discoveredViaOsm = Boolean(website);
+    }
+    if (!website) {
+      throw new CompanyWebsiteLookupError(
+        'Resmî site otomatik bulunamadı. Web sitesi alanını yazıp tekrar deneyin.',
+        { reason: 'WEBSITE_NOT_FOUND' },
+      );
+    }
+
+    const result = await inspectOfficialCompanyWebsite(query, website, discoveredViaOsm);
+    if (result.suggestion.latitude == null || result.suggestion.longitude == null) {
+      if (!exactOsmResult && result.suggestion.address) {
+        const geocoded = await this.searchOpenStreetMap({
+          ...query,
+          address: result.suggestion.address,
+          city: result.suggestion.city ?? query.city,
+          district: result.suggestion.district ?? query.district,
+          country: result.suggestion.country ?? query.country,
+        }, actor);
+        exactOsmResult = geocoded.find((row) => row.matchQuality === 'exact');
+      }
+      if (exactOsmResult) {
+        result.suggestion.latitude = exactOsmResult.latitude;
+        result.suggestion.longitude = exactOsmResult.longitude;
+        result.warnings = result.warnings.filter((warning) => !warning.includes('kesin koordinat'));
+        result.matchReason += ' Konum, resmî adresle eşleşen doğrulanmış harita kaydından alındı.';
+      }
+    }
+
+    this.websiteLookupCache.set(cacheKey, { expiresAt: Date.now() + 10 * 60 * 1000, result });
+    return result;
   }
 
   async create(input: CompanyCreateInput, actor: AuthContext) {
@@ -484,8 +798,9 @@ export class CompaniesService {
             companyGroupId: selectedGroups[0]?.id ?? null,
             contactSourceId: sourceId,
             sector: input.sector ?? null,
-            legalTitle: input.legalTitle,
-            shortName: input.shortName ?? null,
+            supplierCategoryCode: input.supplierCategoryCode ?? null,
+            legalTitle: normalizeCompanyName(input.legalTitle),
+            shortName: input.shortName ? normalizeCompanyName(input.shortName) : null,
             taxOffice: input.taxOffice ?? null,
             taxNumber: input.taxNumber ?? null,
             website: input.website ?? null,
@@ -518,12 +833,16 @@ export class CompaniesService {
         const addresses: CompanyAddressInput[] = input.addresses?.length
           ? input.addresses
           : input.address
-            ? [{ ...input.address, addressType: 'office', isDefault: true }]
+            ? [{ ...input.address, addressType: 'office', isDefault: true, isShipping: true, isBilling: true }]
             : [];
         if (addresses.length) {
-          const defaultIndex = Math.max(0, addresses.findIndex((address) => address.isDefault));
+          const { defaultIndex, shippingIndex, billingIndex } = this.addressRoleIndexes(addresses);
           await tx.insert(companyAddresses).values(
-            addresses.map((address, index) => this.addressValues(company.id, actor.tenantId, address, index === defaultIndex))
+            addresses.map((address, index) => this.addressValues(company.id, actor.tenantId, address, {
+              isDefault: index === defaultIndex,
+              isShipping: index === shippingIndex,
+              isBilling: index === billingIndex,
+            }))
           );
         }
         if (input.primaryPhone) {
@@ -624,8 +943,12 @@ export class CompaniesService {
     if (input.customerStatusCode !== undefined) patch.customerStatusId = statusId;
     if (groupSelectionProvided) patch.companyGroupId = selectedGroups[0]?.id ?? null;
     if (input.contactSourceCode !== undefined) patch.contactSourceId = sourceId;
-    for (const k of ['sector', 'legalTitle', 'shortName', 'taxOffice', 'taxNumber', 'website', 'notes'] as const) {
-      if ((input as any)[k] !== undefined) patch[k] = (input as any)[k] ?? null;
+    for (const k of ['sector', 'supplierCategoryCode', 'legalTitle', 'shortName', 'taxOffice', 'taxNumber', 'website', 'notes'] as const) {
+      if ((input as any)[k] === undefined) continue;
+      const value = (input as any)[k];
+      patch[k] = (k === 'legalTitle' || k === 'shortName') && value
+        ? normalizeCompanyName(value)
+        : value ?? null;
     }
 
     await this.db.transaction(async (tx) => {
@@ -670,12 +993,18 @@ export class CompaniesService {
           .where(and(eq(companyAddresses.companyId, id), isNull(companyAddresses.deletedAt)));
         const currentById = new Map(currentAddresses.map((address) => [address.id, address]));
         const submittedIds = new Set(input.addresses.map((address) => address.id).filter((value): value is string => !!value));
-        const defaultIndex = input.addresses.length
-          ? Math.max(0, input.addresses.findIndex((address) => address.isDefault))
-          : -1;
+        const { defaultIndex, shippingIndex, billingIndex } = this.addressRoleIndexes(input.addresses);
+        await tx
+          .update(companyAddresses)
+          .set({ isDefault: false, isShipping: false, isBilling: false })
+          .where(and(eq(companyAddresses.companyId, id), isNull(companyAddresses.deletedAt)));
         for (let index = 0; index < input.addresses.length; index++) {
           const address = input.addresses[index];
-          const values = this.addressValues(id, actor.tenantId, address, index === defaultIndex);
+          const values = this.addressValues(id, actor.tenantId, address, {
+            isDefault: index === defaultIndex,
+            isShipping: index === shippingIndex,
+            isBilling: index === billingIndex,
+          });
           if (address.id) {
             if (!currentById.has(address.id)) throw new ValidationError('Firma adresi bulunamadı', { field: 'addresses' });
             await tx.update(companyAddresses).set(values).where(eq(companyAddresses.id, address.id));
@@ -693,8 +1022,18 @@ export class CompaniesService {
           .from(companyAddresses)
           .where(and(eq(companyAddresses.companyId, id), isNull(companyAddresses.deletedAt)));
         const current = currentAddresses.find((address) => address.isDefault) ?? currentAddresses[0];
-        const address: CompanyAddressInput = { ...input.address, addressType: current?.addressType as CompanyAddressInput['addressType'] ?? 'office', isDefault: true };
-        const values = this.addressValues(id, actor.tenantId, address, true);
+        const address: CompanyAddressInput = {
+          ...input.address,
+          addressType: current?.addressType as CompanyAddressInput['addressType'] ?? 'office',
+          isDefault: true,
+          isShipping: current?.isShipping ?? true,
+          isBilling: current?.isBilling ?? true,
+        };
+        const values = this.addressValues(id, actor.tenantId, address, {
+          isDefault: true,
+          isShipping: address.isShipping,
+          isBilling: address.isBilling,
+        });
         if (current) await tx.update(companyAddresses).set(values).where(eq(companyAddresses.id, current.id));
         else await tx.insert(companyAddresses).values(values);
       }
@@ -750,7 +1089,7 @@ export class CompaniesService {
     const patch = {
       latitude: input.latitude != null ? String(input.latitude) : null,
       longitude: input.longitude != null ? String(input.longitude) : null,
-      locationSource: hasCoords ? 'manual' : null,
+      locationSource: hasCoords ? input.source : null,
       updatedAt: new Date(),
     };
 
@@ -769,6 +1108,8 @@ export class CompaniesService {
         addressType: 'billing',
         country: 'Türkiye',
         isDefault: true,
+        isShipping: true,
+        isBilling: true,
         latitude: patch.latitude,
         longitude: patch.longitude,
         locationSource: patch.locationSource,
@@ -781,7 +1122,7 @@ export class CompaniesService {
       action: 'company.location_updated',
       resourceType: 'company',
       resourceId: id,
-      newValues: { latitude: patch.latitude, longitude: patch.longitude },
+      newValues: { latitude: patch.latitude, longitude: patch.longitude, locationSource: patch.locationSource },
     });
     return this.get(id, actor);
   }
@@ -1012,6 +1353,57 @@ export class CompaniesService {
 
   async delete(id: string, actor: AuthContext) {
     const existing = await this.get(id, actor);
+    const countFor = (value: unknown) => Number((value as { count?: number } | undefined)?.count ?? 0);
+    const [
+      contactRows,
+      opportunityRows,
+      activityRows,
+      quoteRows,
+      orderRows,
+      invoiceRows,
+      receivableRows,
+      paymentRows,
+      deviceRows,
+      installationRows,
+      serviceRows,
+      shipmentRows,
+      deliveryRows,
+    ] = await Promise.all([
+      this.db.select({ count: sql<number>`count(*)::int` }).from(contacts).where(and(eq(contacts.tenantId, actor.tenantId), eq(contacts.companyId, id), isNull(contacts.deletedAt))),
+      this.db.select({ count: sql<number>`count(*)::int` }).from(opportunities).where(and(eq(opportunities.tenantId, actor.tenantId), eq(opportunities.companyId, id), isNull(opportunities.deletedAt))),
+      this.db.select({ count: sql<number>`count(*)::int` }).from(salesActivities).where(and(eq(salesActivities.tenantId, actor.tenantId), eq(salesActivities.companyId, id), isNull(salesActivities.deletedAt))),
+      this.db.select({ count: sql<number>`count(*)::int` }).from(quotes).where(and(eq(quotes.tenantId, actor.tenantId), eq(quotes.companyId, id), isNull(quotes.deletedAt))),
+      this.db.select({ count: sql<number>`count(*)::int` }).from(salesOrders).where(and(eq(salesOrders.tenantId, actor.tenantId), eq(salesOrders.companyId, id), isNull(salesOrders.deletedAt))),
+      this.db.select({ count: sql<number>`count(*)::int` }).from(accountingInvoices).where(and(eq(accountingInvoices.tenantId, actor.tenantId), eq(accountingInvoices.companyId, id), isNull(accountingInvoices.deletedAt))),
+      this.db.select({ count: sql<number>`count(*)::int` }).from(receivables).where(and(eq(receivables.tenantId, actor.tenantId), eq(receivables.companyId, id), isNull(receivables.deletedAt))),
+      this.db.select({ count: sql<number>`count(*)::int` }).from(payments).where(and(eq(payments.tenantId, actor.tenantId), eq(payments.companyId, id), isNull(payments.deletedAt))),
+      this.db.select({ count: sql<number>`count(*)::int` }).from(customerDevices).where(and(eq(customerDevices.tenantId, actor.tenantId), eq(customerDevices.companyId, id), isNull(customerDevices.deletedAt))),
+      this.db.select({ count: sql<number>`count(*)::int` }).from(installationJobs).where(and(eq(installationJobs.tenantId, actor.tenantId), eq(installationJobs.companyId, id), isNull(installationJobs.deletedAt))),
+      this.db.select({ count: sql<number>`count(*)::int` }).from(serviceTickets).where(and(eq(serviceTickets.tenantId, actor.tenantId), eq(serviceTickets.companyId, id), isNull(serviceTickets.deletedAt))),
+      this.db.select({ count: sql<number>`count(*)::int` }).from(shipments).where(and(eq(shipments.tenantId, actor.tenantId), eq(shipments.companyId, id), isNull(shipments.deletedAt))),
+      this.db.select({ count: sql<number>`count(*)::int` }).from(deliveries).where(and(eq(deliveries.tenantId, actor.tenantId), eq(deliveries.companyId, id), isNull(deliveries.deletedAt))),
+    ]);
+    const dependencies = {
+      contacts: countFor(contactRows[0]),
+      opportunities: countFor(opportunityRows[0]),
+      activities: countFor(activityRows[0]),
+      quotes: countFor(quoteRows[0]),
+      salesOrders: countFor(orderRows[0]),
+      invoices: countFor(invoiceRows[0]),
+      receivables: countFor(receivableRows[0]),
+      payments: countFor(paymentRows[0]),
+      machines: countFor(deviceRows[0]),
+      installations: countFor(installationRows[0]),
+      serviceTickets: countFor(serviceRows[0]),
+      shipments: countFor(shipmentRows[0]),
+      deliveries: countFor(deliveryRows[0]),
+    };
+    if (Object.values(dependencies).some((count) => count > 0)) {
+      throw new ConflictError(
+        'Bu firma geçmiş CRM kayıtlarında kullanılıyor. Silmek yerine durumunu pasif yapın veya kayıtları başka firmayla birleştirin.',
+        { dependencies },
+      );
+    }
     await this.db.update(companies).set({ deletedAt: new Date() }).where(eq(companies.id, id));
     await this.audit.write({
       tenantId: actor.tenantId,

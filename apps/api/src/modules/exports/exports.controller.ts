@@ -63,7 +63,7 @@ export class ExportsController {
     @Res({ passthrough: true }) reply: FastifyReply
   ) {
     const rows = await this.svc.exportOpportunities(user, q);
-    return sendXlsx(reply, await rowsToXlsxBuffer(rows, 'Satış Kartları'), 'satis-kartlari.xlsx');
+    return sendXlsx(reply, await rowsToXlsxBuffer(rows, 'Fırsatlar'), 'firsatlar.xlsx');
   }
 
   @RequirePermissions('reports.export', 'quotes.read')
@@ -95,7 +95,15 @@ export class ExportsController {
     const rows = await this.svc.exportCustomerStatement(user, companyId, range);
     const baseName = `cari-ekstre-${companyId}`;
     if (range.format === 'pdf') {
-      const buffer = await rowsToPdfBuffer({ title: 'Cari Ekstre', rows });
+      const companyLabel = await this.svc.customerStatementCompanyLabel(user, companyId);
+      const dateLabel = [range.from?.toLocaleDateString('tr-TR'), range.to?.toLocaleDateString('tr-TR')]
+        .filter(Boolean)
+        .join(' – ');
+      const buffer = await rowsToPdfBuffer({
+        title: 'Cari Ekstre',
+        subtitle: [companyLabel, dateLabel ? `Dönem: ${dateLabel}` : 'Tüm hareketler'].join(' · '),
+        rows,
+      });
       return sendPdf(reply, buffer, `${baseName}.pdf`);
     }
     return sendXlsx(reply, await rowsToXlsxBuffer(rows, 'Cari Ekstre'), `${baseName}.xlsx`);

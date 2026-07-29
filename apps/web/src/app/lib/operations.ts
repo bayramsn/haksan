@@ -18,6 +18,7 @@ import {
 
 export type OperationNav =
   | "dashboard"
+  | "calendar"
   | "call-assistant"
   | "customers"
   | "contacts"
@@ -483,12 +484,12 @@ export function buildAlerts(data: OperationStoreSnapshot): OperationAlert[] {
       : null,
     pendingDeliveries.length
       ? {
-          id: "alert:deliveries",
-          title: `${pendingDeliveries.length} teslimat bekliyor`,
-          description: "Müşteri teslim formlarında imza veya tamamlanma bekleyen kayıt var",
+          id: "alert:installation-forms",
+          title: `${pendingDeliveries.length} kurulum tutanağı bekliyor`,
+          description: "Kurulum akışında imza veya tutanak tamamlanması bekleyen kayıt var",
           severity: "warning" as const,
-          module: "deliveries" as const,
-          action: { kind: "navigate", nav: "deliveries" } as OperationAction,
+          module: "installations" as const,
+          action: { kind: "navigate", nav: "installations" } as OperationAction,
         }
       : null,
     reservedStock.length
@@ -677,12 +678,12 @@ export function buildGlobalSearchIndex(data: OperationStoreSnapshot): SearchResu
     const salesCase = data.cases.find((s) => s.id === d.salesCaseId);
     results.push({
       id: `delivery:${d.id}`,
-      type: "Teslimat",
-      title: `${customer?.name ?? "Firma"} teslimat`,
+      type: "Kurulum Tutanağı",
+      title: `${customer?.name ?? "Firma"} kurulum tutanağı`,
       subtitle: `${d.date} · ${d.signedBy || "İmza bekliyor"}`,
       badge: d.status,
       keywords: [customer?.name, salesCase?.requestedModel, d.signedBy, d.status, d.date].join(" "),
-      action: { kind: "navigate", nav: "deliveries", query: customer?.name },
+      action: { kind: "navigate", nav: "installations", query: customer?.name },
     });
   });
 
@@ -1054,10 +1055,10 @@ export function buildCustomerTimeline(customerId: string, data: OperationStoreSn
     items.push({
       id: `delivery:${d.id}`,
       date: d.date,
-      type: "Teslimat",
+      type: "Kurulum Tutanağı",
       title: `Teslimat · ${d.status}`,
       description: `İmzalayan: ${d.signedBy || "—"}`,
-      action: { kind: "navigate", nav: "deliveries", query: customer?.name },
+      action: { kind: "navigate", nav: "installations", query: customer?.name },
     })
   );
 
@@ -1457,10 +1458,10 @@ export function answerAssistant(input: string, data: OperationStoreSnapshot, ext
 
   if (includesAny(text, ["teslim", "teslimat", "imza", "form"])) {
     const waiting = data.deliveries.filter((d) => d.status === "Bekliyor");
-    const results = byType(index, "Teslimat", query, ["teslim", "teslimat", "imza", "form"], 6);
+    const results = byType(index, "Kurulum Tutanağı", query, ["teslim", "teslimat", "imza", "form", "kurulum"], 6);
     return {
       text: `${data.deliveries.length} teslimat kaydı var; ${waiting.length} tanesi bekliyor.`,
-      actions: [{ label: "Teslimatlar", action: { kind: "navigate", nav: "deliveries" } }],
+      actions: [{ label: "Kurulum Tutanakları", action: { kind: "navigate", nav: "installations" } }],
       results,
     };
   }
@@ -1472,17 +1473,17 @@ export function answerAssistant(input: string, data: OperationStoreSnapshot, ext
       text: `${waitingDeliveries.length} teslimat bekliyor, ${pendingShipments} sevkiyat yolda. Kurulum planı ve formlar için saha operasyonu ekranına geçebilirsiniz.`,
       actions: [
         { label: "Kurulumlar", action: { kind: "navigate", nav: "installations" } },
-        { label: "Teslimatlar", action: { kind: "navigate", nav: "deliveries" } },
+        { label: "Kurulum Tutanakları", action: { kind: "navigate", nav: "installations" } },
         { label: "Sevkiyatlar", action: { kind: "navigate", nav: "shipments", focus: "pending" } },
       ],
       results: waitingDeliveries.slice(0, 5).map((d) => ({
         id: `delivery:${d.id}`,
-        type: "Teslimat",
+        type: "Kurulum Tutanağı",
         title: customerName(data, d.customerId),
         subtitle: `Planlanan: ${d.date}`,
         badge: d.status,
         keywords: customerName(data, d.customerId),
-        action: { kind: "navigate", nav: "deliveries" },
+        action: { kind: "navigate", nav: "installations" },
       })),
     };
   }
@@ -1520,13 +1521,6 @@ export function answerAssistant(input: string, data: OperationStoreSnapshot, ext
         { label: "Dashboard", action: { kind: "navigate", nav: "dashboard" } },
         { label: "Raporlar", action: { kind: "navigate", nav: "reports" } },
       ],
-    };
-  }
-
-  if (includesAny(text, ["satinalma", "satınalma", "satın alma", "tedarik", "siparis", "sipariş"])) {
-    return {
-      text: "Satın alma ve tedarikçi siparişleri satın alma ekranında takip ediliyor.",
-      actions: [{ label: "Satın Alma", action: { kind: "navigate", nav: "purchase-orders" } }],
     };
   }
 

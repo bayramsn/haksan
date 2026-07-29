@@ -56,3 +56,13 @@ export class RateLimitedError extends AppError {
     super('RATE_LIMITED', message, 429);
   }
 }
+
+/**
+ * Dış firma sitesi/rehber incelemelerindeki güvenli ve kullanıcıya gösterilebilir
+ * başarısızlıklar. İç ağ/DNS/HTML ayrıntıları özellikle response'a taşınmaz.
+ */
+export class CompanyWebsiteLookupError extends AppError {
+  constructor(message = 'Resmî site bilgileri alınamadı', details?: Record<string, unknown>) {
+    super('COMPANY_WEBSITE_LOOKUP_FAILED', message, 422, details);
+  }
+}

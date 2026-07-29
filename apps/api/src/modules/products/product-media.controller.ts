@@ -1,5 +1,6 @@
 import { Controller, Get, Param, Res } from '@nestjs/common';
 import type { FastifyReply } from 'fastify';
+import { Public } from '../../shared/security/auth.guard';
 import { ProductMediaService } from './product-media.service';
 
 /**
@@ -16,6 +17,7 @@ import { ProductMediaService } from './product-media.service';
 export class ProductMediaController {
   constructor(private readonly media: ProductMediaService) {}
 
+  @Public()
   @Get(':fileId')
   async stream(@Param('fileId') fileId: string, @Res() reply: FastifyReply): Promise<void> {
     const resolved = await this.media.resolvePublicMedia(fileId);
