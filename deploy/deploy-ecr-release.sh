@@ -55,6 +55,13 @@ docker tag "$WEB_IMAGE_URI" haksan-nginx:latest
 [[ "$(docker image inspect -f '{{.Architecture}}' haksan-nginx:latest)" == "amd64" ]]
 
 # A verified offsite backup is mandatory immediately before migrations.
+backup_script="$APP_ROOT/deploy/aws-backup-postgres.sh"
+[[ -f "$backup_script" ]] || {
+  echo "ECR_DEPLOY_BACKUP_SCRIPT_MISSING path=$backup_script" >&2
+  false
+}
+bash -n "$backup_script"
+chmod 0750 "$backup_script"
 if ! systemctl start haksan-aws-backup.service; then
   echo "ECR_DEPLOY_BACKUP_FAILED" >&2
   systemctl --no-pager --full status haksan-aws-backup.service >&2 || true
