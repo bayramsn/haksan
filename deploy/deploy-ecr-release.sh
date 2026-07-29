@@ -90,6 +90,15 @@ CURRENT_NGINX_IMAGE="$(docker inspect -f '{{.Image}}' "$NGINX_CONTAINER")"
 docker tag "$CURRENT_API_IMAGE" "$API_ROLLBACK_TAG"
 docker tag "$CURRENT_NGINX_IMAGE" "$NGINX_ROLLBACK_TAG"
 
+# Repeated immutable releases can leave unreferenced layers on the host. Keep
+# every image used by a container (including the live rollback images) and
+# reclaim only images that Docker confirms are unused before pulling.
+echo "ECR_DEPLOY_DISK_BEFORE"
+df -h /var/lib/docker 2>/dev/null || df -h /
+docker image prune --all --force
+echo "ECR_DEPLOY_DISK_AFTER"
+df -h /var/lib/docker 2>/dev/null || df -h /
+
 rollback() {
   local code=$?
   trap - ERR
