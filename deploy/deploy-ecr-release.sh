@@ -2,25 +2,26 @@
 set -Eeuo pipefail
 umask 077
 
+report_backup_metric() {
+  local exit_code=$? success=0
+  local aws_region="${AWS_REGION:-eu-central-1}"
+  local instance_id="${INSTANCE_ID:-i-0fac9a4d4eca0cf13}"
+  [[ "$exit_code" -eq 0 ]] && success=1
+  trap - EXIT
+  aws cloudwatch put-metric-data \
+    --region "$aws_region" \
+    --namespace Haksan/Production \
+    --metric-data "MetricName=DatabaseBackupSuccess,Dimensions=[{Name=InstanceId,Value=$instance_id}],Value=$success,Unit=Count" \
+    >/dev/null 2>&1 || true
+  exit "$exit_code"
+}
+
 run_verified_offsite_backup() {
   local app_root="${APP_ROOT:-/opt/haksan}"
   local aws_region="${AWS_REGION:-eu-central-1}"
   local backup_bucket="${AWS_BACKUP_BUCKET:-haksan-prod-backups-866490183348-eu-central-1}"
-  local instance_id="${INSTANCE_ID:-i-0fac9a4d4eca0cf13}"
   local backup_dir="${LOCAL_BACKUP_DIR:-$app_root/backups/postgres}"
   local latest checksum object_key remote_checksum
-
-  report_backup_metric() {
-    local exit_code=$? success=0
-    [[ "$exit_code" -eq 0 ]] && success=1
-    aws cloudwatch put-metric-data \
-      --region "$aws_region" \
-      --namespace Haksan/Production \
-      --metric-data "MetricName=DatabaseBackupSuccess,Dimensions=[{Name=InstanceId,Value=$instance_id}],Value=$success,Unit=Count" \
-      >/dev/null 2>&1 || true
-    exit "$exit_code"
-  }
-  trap report_backup_metric EXIT
 
   [[ -x "$app_root/deploy/backup-postgres.sh" ]] || {
     echo "[aws-backup] local backup runner missing or not executable." >&2
@@ -59,6 +60,7 @@ run_verified_offsite_backup() {
 }
 
 if [[ "$(basename -- "$0")" == "aws-backup-postgres.sh" || "${1:-}" == "--backup-only" ]]; then
+  trap report_backup_metric EXIT
   run_verified_offsite_backup
   exit
 fi
@@ -71,10 +73,9 @@ AWS_REGION="${AWS_REGION:-eu-central-1}"
 APP_ROOT="${APP_ROOT:-/opt/haksan}"
 API_CONTAINER="${API_CONTAINER:-haksan-api-1}"
 NGINX_CONTAINER="${NGINX_CONTAINER:-haksan-nginx-1}"
-SHORT="${RELEASE_ID:0:12}"
 REGISTRY="${API_IMAGE_URI%%/*}"
-API_ROLLBACK_TAG="haksan-api:ecr-rollback-${SHORT}"
-NGINX_ROLLBACK_TAG="haksan-nginx:ecr-rollback-${SHORT}"
+API_ROLLBACK_TAG="haksan-api:ecr-rollback-${RELEASE_ID}"
+NGINX_ROLLBACK_TAG="haksan-nginx:ecr-rollback-${RELEASE_ID}"
 SWITCH_STARTED=false
 
 cleanup() {
@@ -87,17 +88,19 @@ trap cleanup EXIT
 
 CURRENT_API_IMAGE="$(docker inspect -f '{{.Image}}' "$API_CONTAINER")"
 CURRENT_NGINX_IMAGE="$(docker inspect -f '{{.Image}}' "$NGINX_CONTAINER")"
-docker tag "$CURRENT_API_IMAGE" "$API_ROLLBACK_TAG"
-docker tag "$CURRENT_NGINX_IMAGE" "$NGINX_ROLLBACK_TAG"
 
 # Repeated immutable releases can leave unreferenced layers on the host. Keep
-# every image used by a container (including the live rollback images) and
-# reclaim only images that Docker confirms are unused before pulling.
+# every image used by a container and reclaim only images that Docker confirms
+# are unused before creating this release's immutable rollback tags.
 echo "ECR_DEPLOY_DISK_BEFORE"
 df -h /var/lib/docker 2>/dev/null || df -h /
 docker image prune --all --force
 echo "ECR_DEPLOY_DISK_AFTER"
 df -h /var/lib/docker 2>/dev/null || df -h /
+
+docker tag "$CURRENT_API_IMAGE" "$API_ROLLBACK_TAG"
+docker tag "$CURRENT_NGINX_IMAGE" "$NGINX_ROLLBACK_TAG"
+docker image inspect "$API_ROLLBACK_TAG" "$NGINX_ROLLBACK_TAG" >/dev/null
 
 rollback() {
   local code=$?
