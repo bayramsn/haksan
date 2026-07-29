@@ -86,21 +86,25 @@ trap cleanup EXIT
 [[ -f "$APP_ROOT/.env" ]] || { echo "ECR_DEPLOY_ERROR production env missing" >&2; exit 1; }
 [[ -f "$APP_ROOT/docker-compose.yml" ]] || { echo "ECR_DEPLOY_ERROR compose file missing" >&2; exit 1; }
 
-CURRENT_API_IMAGE="$(docker inspect -f '{{.Image}}' "$API_CONTAINER")"
-CURRENT_NGINX_IMAGE="$(docker inspect -f '{{.Image}}' "$NGINX_CONTAINER")"
+# Capture the actual running containers so rollback remains available even when
+# Docker's original source-image record was pruned by an earlier host cleanup.
+docker commit --pause=false "$API_CONTAINER" "$API_ROLLBACK_TAG" >/dev/null
+docker commit --pause=false "$NGINX_CONTAINER" "$NGINX_ROLLBACK_TAG" >/dev/null
+docker image inspect "$API_ROLLBACK_TAG" "$NGINX_ROLLBACK_TAG" >/dev/null
 
-# Repeated immutable releases can leave unreferenced layers on the host. Keep
-# every image used by a container and reclaim only images that Docker confirms
-# are unused before creating this release's immutable rollback tags.
+# Keep the freshly captured rollback pair, remove older rollback snapshots, and
+# reclaim only dangling layers. Never run an all-images prune on production.
 echo "ECR_DEPLOY_DISK_BEFORE"
 df -h /var/lib/docker 2>/dev/null || df -h /
-docker image prune --all --force
+for repository in haksan-api haksan-nginx; do
+  while IFS= read -r image; do
+    [[ -z "$image" || "$image" == "$API_ROLLBACK_TAG" || "$image" == "$NGINX_ROLLBACK_TAG" ]] && continue
+    docker image rm "$image" >/dev/null || true
+  done < <(docker image ls --filter "reference=${repository}:ecr-rollback-*" --format '{{.Repository}}:{{.Tag}}')
+done
+docker image prune --force
 echo "ECR_DEPLOY_DISK_AFTER"
 df -h /var/lib/docker 2>/dev/null || df -h /
-
-docker tag "$CURRENT_API_IMAGE" "$API_ROLLBACK_TAG"
-docker tag "$CURRENT_NGINX_IMAGE" "$NGINX_ROLLBACK_TAG"
-docker image inspect "$API_ROLLBACK_TAG" "$NGINX_ROLLBACK_TAG" >/dev/null
 
 rollback() {
   local code=$?
