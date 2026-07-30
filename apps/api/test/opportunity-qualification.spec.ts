@@ -11,6 +11,7 @@ import { DB } from '../src/shared/database/database.module';
 let app: NestFastifyApplication;
 let db: DbClient;
 let token = '';
+let adminToken = '';
 let readonlyToken = '';
 let companyId = '';
 let opportunityId = '';
@@ -24,6 +25,10 @@ beforeAll(async () => {
     .post('/api/v1/auth/login')
     .send({ email: 'superadmin@haksan.local', password: 'superadmin12345' });
   token = login.body.accessToken;
+  const adminLogin = await supertest(server)
+    .post('/api/v1/auth/login')
+    .send({ email: 'admin@haksan.local', password: 'admin12345' });
+  adminToken = adminLogin.body.accessToken;
   const readonlyLogin = await supertest(server)
     .post('/api/v1/auth/login')
     .send({ email: 'readonly@haksan.local', password: 'readonly12345' });
@@ -308,6 +313,16 @@ describe('Opportunity qualification pipeline', () => {
       .send({ decision: 'approved' });
     expect(wrongStage.status).toBe(422);
     expect(wrongStage.body.error?.message).toContain('A+');
+  });
+
+  it('reserves the final WIN decision for superadmin even when the actor has approval permission', async () => {
+    const forbidden = await supertest(app.getHttpServer())
+      .post(`/api/v1/opportunities/${opportunityId}/approvals/win`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ decision: 'rejected', note: 'Admin rolü nihai kararı verememeli' });
+
+    expect(forbidden.status, JSON.stringify(forbidden.body)).toBe(403);
+    expect(forbidden.body.error?.message).toContain('Süperadmin');
   });
 
   it('invalidates payment and WIN approvals when payment evidence changes', async () => {

@@ -19,7 +19,7 @@ import { customerDevices, inventoryItems } from '../../db/schema/inventory';
 import { productModels } from '../../db/schema/products';
 import { quotes } from '../../db/schema/quotes';
 import { maintenancePlans, serviceTickets } from '../../db/schema/service';
-import { opportunities } from '../../db/schema/crm';
+import { opportunities, salesActivities } from '../../db/schema/crm';
 import { paymentStatuses, quoteStatuses, serviceTicketStatuses } from '../../db/schema/lookup';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -29,6 +29,42 @@ const DEDUPE_WINDOW_MS = 20 * 60 * 60 * 1000;
 const TZ = loadEnv().AUTOMATION_TIMEZONE;
 
 type TenantRow = { id: string; name: string };
+
+export type WeeklySalesReportStats = {
+  createdOpportunities: number;
+  wonOpportunities: number;
+  lostOpportunities: number;
+  openPipeline: number;
+  createdQuotes: number;
+  sentQuotes: number;
+  approvedQuotes: number;
+  pendingDiscountApprovals: number;
+  activities: number;
+  overdueActions: number;
+};
+
+export function formatWeeklySalesReport(
+  stats: WeeklySalesReportStats,
+  period: { from: Date; to: Date },
+): string {
+  const date = (value: Date) => value.toLocaleDateString('tr-TR');
+  const decisions = stats.wonOpportunities + stats.lostOpportunities;
+  const winRate = decisions > 0 ? Math.round((stats.wonOpportunities / decisions) * 100) : 0;
+  return [
+    `Dönem: ${date(period.from)} – ${date(period.to)}`,
+    `• ${stats.createdOpportunities} yeni fırsat`,
+    `• ${stats.wonOpportunities} kazanılan, ${stats.lostOpportunities} kaybedilen (kazanma oranı %${winRate})`,
+    `• ${stats.openPipeline} açık fırsat`,
+    `• ${stats.createdQuotes} yeni teklif; ${stats.sentQuotes} gönderildi, ${stats.approvedQuotes} onaylandı`,
+    `• ${stats.activities} satış aktivitesi`,
+    stats.pendingDiscountApprovals > 0
+      ? `• ${stats.pendingDiscountApprovals} indirim onayı bekliyor`
+      : '• Bekleyen indirim onayı yok',
+    stats.overdueActions > 0
+      ? `• ${stats.overdueActions} fırsatta takip tarihi geçti`
+      : '• Gecikmiş fırsat takibi yok',
+  ].join('\n');
+}
 
 /** Bildirim metinlerinde kullanılan lead takip durumu etiketleri. */
 const LEAD_STATUS_LABELS: Record<string, string> = {
@@ -85,8 +121,23 @@ export class AutomationService {
     return Boolean(row);
   }
 
-  private async notify(tenantId: string, type: string, title: string, body: string): Promise<void> {
-    await this.db.insert(notifications).values({ tenantId, userId: null, divisionId: null, type, title, body });
+  private async notify(
+    tenantId: string,
+    type: string,
+    title: string,
+    body: string,
+    target?: { entityType: string; entityId?: string },
+  ): Promise<void> {
+    await this.db.insert(notifications).values({
+      tenantId,
+      userId: null,
+      divisionId: null,
+      type,
+      title,
+      body,
+      entityType: target?.entityType ?? null,
+      entityId: target?.entityId ?? null,
+    });
   }
 
   private async sendDigestEmail(subject: string, text: string): Promise<void> {
@@ -333,7 +384,93 @@ export class AutomationService {
     return row?.count ?? 0;
   }
 
+  private async weeklySalesStats(tenantId: string, from: Date, to: Date): Promise<WeeklySalesReportStats> {
+    const [opportunityStats, openPipeline, quoteStats, pendingDiscountApprovals, activityStats, overdueActions] = await Promise.all([
+      this.db
+        .select({
+          created: sql<number>`count(*) filter (where ${opportunities.createdAt} >= ${from} and ${opportunities.createdAt} <= ${to})::int`,
+          won: sql<number>`count(*) filter (where ${opportunities.qualificationStage} = 'win' and ${opportunities.updatedAt} >= ${from} and ${opportunities.updatedAt} <= ${to})::int`,
+          lost: sql<number>`count(*) filter (where ${opportunities.qualificationStage} = 'lost' and ${opportunities.updatedAt} >= ${from} and ${opportunities.updatedAt} <= ${to})::int`,
+        })
+        .from(opportunities)
+        .where(and(eq(opportunities.tenantId, tenantId), isNull(opportunities.deletedAt))),
+      this.db
+        .select({ count: sql<number>`count(*)::int` })
+        .from(opportunities)
+        .where(this.aliveOpportunity(tenantId)),
+      this.db
+        .select({
+          created: sql<number>`count(*) filter (where ${quotes.createdAt} >= ${from} and ${quotes.createdAt} <= ${to})::int`,
+          sent: sql<number>`count(*) filter (where ${quoteStatuses.code} = 'sent' and ${quotes.statusChangedAt} >= ${from} and ${quotes.statusChangedAt} <= ${to})::int`,
+          approved: sql<number>`count(*) filter (where ${quoteStatuses.code} = 'approved' and ${quotes.approvedAt} >= ${from} and ${quotes.approvedAt} <= ${to})::int`,
+        })
+        .from(quotes)
+        .leftJoin(quoteStatuses, eq(quotes.statusId, quoteStatuses.id))
+        .where(and(eq(quotes.tenantId, tenantId), isNull(quotes.deletedAt))),
+      this.db
+        .select({ count: sql<number>`count(*)::int` })
+        .from(quotes)
+        .where(
+          and(
+            eq(quotes.tenantId, tenantId),
+            isNull(quotes.deletedAt),
+            eq(quotes.priceApprovalStatus, 'pending'),
+          ),
+        ),
+      this.db
+        .select({ count: sql<number>`count(*)::int` })
+        .from(salesActivities)
+        .where(
+          and(
+            eq(salesActivities.tenantId, tenantId),
+            isNull(salesActivities.deletedAt),
+            gte(salesActivities.activityDate, from),
+            lte(salesActivities.activityDate, to),
+          ),
+        ),
+      this.overdueActionOpportunities(tenantId),
+    ]);
+    return {
+      createdOpportunities: opportunityStats[0]?.created ?? 0,
+      wonOpportunities: opportunityStats[0]?.won ?? 0,
+      lostOpportunities: opportunityStats[0]?.lost ?? 0,
+      openPipeline: openPipeline[0]?.count ?? 0,
+      createdQuotes: quoteStats[0]?.created ?? 0,
+      sentQuotes: quoteStats[0]?.sent ?? 0,
+      approvedQuotes: quoteStats[0]?.approved ?? 0,
+      pendingDiscountApprovals: pendingDiscountApprovals[0]?.count ?? 0,
+      activities: activityStats[0]?.count ?? 0,
+      overdueActions: overdueActions.length,
+    };
+  }
+
   // ---- Zamanlanmış işler -------------------------------------------------
+
+  /** Her pazartesi: önceki yedi günün satış ve teklif yönetim özeti. */
+  @Cron('30 7 * * 1', { timeZone: TZ })
+  async weeklySalesReportJob(): Promise<void> {
+    if (!this.active) return;
+    try {
+      const to = new Date();
+      const from = new Date(to.getTime() - 7 * DAY_MS);
+      for (const tenant of await this.listTenants()) {
+        if (await this.alreadyNotified(tenant.id, 'weekly_sales_report')) continue;
+        const stats = await this.weeklySalesStats(tenant.id, from, to);
+        const body = formatWeeklySalesReport(stats, { from, to });
+        await this.notify(
+          tenant.id,
+          'weekly_sales_report',
+          'Haftalık satış ve fırsat raporu',
+          body,
+          { entityType: 'weekly_sales_report' },
+        );
+        await this.sendDigestEmail(`Haksan CRM haftalık rapor — ${tenant.name}`, body);
+      }
+      logger.info({ action: 'automation_weekly_sales_report' }, '[automation] weekly sales report done');
+    } catch (error) {
+      logger.error({ action: 'automation_weekly_sales_report_failed' }, String(error));
+    }
+  }
 
   /** Hafta içi her sabah: günün özeti (tek bildirim + opsiyonel e-posta). */
   @Cron('0 8 * * 1-5', { timeZone: TZ })

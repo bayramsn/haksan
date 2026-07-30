@@ -207,6 +207,54 @@ describe('ERP flow', () => {
     expect(approvedQuote?.priceApprovalStatus).toBe('approved');
   });
 
+  it('automatically routes only discounts above 10 percent to approval', async () => {
+    const created = await supertest(app.getHttpServer())
+      .post('/api/v1/quotes')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ companyId, companyAddressId, quoteDate: new Date().toISOString(), currencyCode: 'USD' });
+    expect(created.status).toBe(201);
+
+    const item = await supertest(app.getHttpServer())
+      .post(`/api/v1/quotes/${created.body.id}/items`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({
+        description: 'İndirim eşiği kontrol kalemi',
+        quantity: 1,
+        unitPrice: 1_000,
+        discountAmount: 100,
+        vatRate: 0,
+        sortOrder: 0,
+      });
+    expect(item.status).toBe(201);
+
+    const exactThreshold = await supertest(app.getHttpServer())
+      .get(`/api/v1/quotes/${created.body.id}`)
+      .set('Authorization', `Bearer ${adminToken}`);
+    expect(exactThreshold.body.priceApprovalStatus).toBe('not_required');
+
+    const aboveThreshold = await supertest(app.getHttpServer())
+      .patch(`/api/v1/quotes/${created.body.id}/items/${item.body.id}`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ discountAmount: 100.01 });
+    expect(aboveThreshold.status).toBe(200);
+
+    const pending = await supertest(app.getHttpServer())
+      .get(`/api/v1/quotes/${created.body.id}`)
+      .set('Authorization', `Bearer ${adminToken}`);
+    expect(pending.body.priceApprovalStatus).toBe('pending');
+
+    const restored = await supertest(app.getHttpServer())
+      .patch(`/api/v1/quotes/${created.body.id}/items/${item.body.id}`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ discountAmount: 100 });
+    expect(restored.status).toBe(200);
+
+    const noLongerPending = await supertest(app.getHttpServer())
+      .get(`/api/v1/quotes/${created.body.id}`)
+      .set('Authorization', `Bearer ${adminToken}`);
+    expect(noLongerPending.body.priceApprovalStatus).toBe('not_required');
+  });
+
   it('keeps multiple products in print order and rejects an excessive product discount', async () => {
     const created = await supertest(app.getHttpServer())
       .post('/api/v1/quotes')

@@ -289,7 +289,7 @@ export type InventoryStatusCode = (typeof INVENTORY_STATUSES)[number];
 export const QUOTE_STATUSES = ['draft', 'sent', 'approved', 'rejected', 'expired', 'pending_super_admin_approval'] as const;
 export type QuoteStatusCode = (typeof QUOTE_STATUSES)[number];
 
-export const SALES_ORDER_STATUSES = ['draft', 'confirmed', 'reserved', 'fulfilled', 'cancelled'] as const;
+export const SALES_ORDER_STATUSES = ['draft', 'pending_super_admin_approval', 'confirmed', 'reserved', 'fulfilled', 'cancelled'] as const;
 export type SalesOrderStatusCode = (typeof SALES_ORDER_STATUSES)[number];
 
 export const PURCHASE_ORDER_STATUSES = ['draft', 'pending_manager_approval', 'sent', 'approved', 'in_transit', 'received', 'cancelled'] as const;

@@ -199,6 +199,28 @@ export function OpportunityWorkspace({
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [aiState, setAiState] = useState<"idle" | "loading" | "error">("idle");
   const [summary, setSummary] = useState<AssistantOpportunitySummary | null>(null);
+  const [focusedActivityId, setFocusedActivityId] = useState<string | null>(null);
+
+  useEffect(() => {
+    const syncFocusFromLocation = () => {
+      const url = new URL(window.location.href);
+      const opportunityId = url.searchParams.get("opportunity");
+      const activityId = url.searchParams.get("activity");
+      if (opportunityId === sc.id && activityId) {
+        setFocusedActivityId(activityId);
+        setTab("activity");
+      } else {
+        setFocusedActivityId(null);
+      }
+    };
+    syncFocusFromLocation();
+    window.addEventListener("popstate", syncFocusFromLocation);
+    window.addEventListener("haksan:opportunity-focus", syncFocusFromLocation);
+    return () => {
+      window.removeEventListener("popstate", syncFocusFromLocation);
+      window.removeEventListener("haksan:opportunity-focus", syncFocusFromLocation);
+    };
+  }, [sc.id]);
 
   const loadDetail = useCallback(async () => {
     setDetailLoading(true);
@@ -352,6 +374,17 @@ export function OpportunityWorkspace({
     return items.sort((a, b) => timelineTime(b.date) - timelineTime(a.date));
   }, [detail, opportunityActivities, opportunityDocuments, opportunityOffers, opportunityPayments, users]);
 
+  useEffect(() => {
+    if (!focusedActivityId || tab !== "activity") return;
+    const timer = window.setTimeout(() => {
+      const target = document.getElementById(`activity-${focusedActivityId}`);
+      if (!target) return;
+      target.scrollIntoView({ behavior: "smooth", block: "center" });
+      target.focus({ preventScroll: true });
+    }, 120);
+    return () => window.clearTimeout(timer);
+  }, [focusedActivityId, tab, timeline.length]);
+
   const padding = preferences.density === "compact" ? "p-3 sm:p-4" : "p-4 sm:p-5";
 
   return (
@@ -494,7 +527,7 @@ export function OpportunityWorkspace({
 
         <TabsContent value="activity" className="mt-4 space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-3"><div><h3 className="font-display text-lg font-semibold text-[#0b1739]">Birleşik zaman çizelgesi</h3><p className="text-xs text-muted-foreground">Aktivite, süreç, onay, teklif, ödeme ve dosyalar tek akışta.</p></div><AddActivityDialog salesCaseId={sc.id} customerId={sc.customerId} trigger={<Button size="sm" className="gap-1.5"><ActivityIcon className="size-4" /> Aktivite ekle</Button>} /></div>
-          <Card><CardContent className={padding}>{detailLoading && <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" /> Geçmiş yükleniyor…</div>}{detailError && <div className="flex items-center justify-between gap-3 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800"><span>{detailError}</span><Button variant="outline" size="sm" onClick={() => void loadDetail()}><RefreshCw className="size-4" /></Button></div>}<ol className="relative ml-2 space-y-4 border-l border-slate-200">{timeline.map((item) => <li key={item.id} className="relative ml-5"><span className="absolute -left-[25px] top-1.5 size-2.5 rounded-full bg-[#163b75] ring-4 ring-white" /><div className="flex flex-wrap items-center gap-2 text-[10px] text-muted-foreground"><Badge variant="outline" className="px-1.5 py-0 text-[9px]">{categoryLabel[item.category]}</Badge><span>{formatDate(item.date, true)}</span>{item.actor && <span>· {item.actor}</span>}</div><div className="mt-1 text-sm font-medium">{item.title}</div>{item.detail && <div className="mt-1 whitespace-pre-wrap text-xs leading-5 text-muted-foreground">{item.detail}</div>}</li>)}{!detailLoading && timeline.length === 0 && <EmptyState>Bu fırsat için zaman çizelgesi kaydı yok.</EmptyState>}</ol></CardContent></Card>
+          <Card><CardContent className={padding}>{detailLoading && <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" /> Geçmiş yükleniyor…</div>}{detailError && <div className="flex items-center justify-between gap-3 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800"><span>{detailError}</span><Button variant="outline" size="sm" onClick={() => void loadDetail()}><RefreshCw className="size-4" /></Button></div>}<ol className="relative ml-2 space-y-4 border-l border-slate-200">{timeline.map((item) => { const focused = item.id === `activity-${focusedActivityId}`; return <li id={item.id} key={item.id} tabIndex={focused ? -1 : undefined} className={`relative ml-5 scroll-mt-24 rounded-lg outline-none transition ${focused ? "bg-amber-50 px-3 py-2 ring-2 ring-amber-300" : ""}`}><span className="absolute -left-[25px] top-1.5 size-2.5 rounded-full bg-[#163b75] ring-4 ring-white" /><div className="flex flex-wrap items-center gap-2 text-[10px] text-muted-foreground"><Badge variant="outline" className="px-1.5 py-0 text-[9px]">{categoryLabel[item.category]}</Badge><span>{formatDate(item.date, true)}</span>{item.actor && <span>· {item.actor}</span>}{focused && <Badge className="bg-amber-600 px-1.5 py-0 text-[9px]">Bahsetme</Badge>}</div><div className="mt-1 text-sm font-medium">{item.title}</div>{item.detail && <div className="mt-1 whitespace-pre-wrap text-xs leading-5 text-muted-foreground">{item.detail}</div>}</li>; })}{!detailLoading && timeline.length === 0 && <EmptyState>Bu fırsat için zaman çizelgesi kaydı yok.</EmptyState>}</ol></CardContent></Card>
         </TabsContent>
 
         <TabsContent value="commercial" className="mt-4 space-y-4">

@@ -369,7 +369,7 @@ export interface CallEventIngestResponse {
 
 export type NotificationTarget =
   | { kind: 'company'; companyId: string }
-  | { kind: 'opportunity'; opportunityId: string }
+  | { kind: 'opportunity'; opportunityId: string; activityId?: string }
   | { kind: 'navigate'; nav: string; query?: string };
 
 export interface NotificationDTO {

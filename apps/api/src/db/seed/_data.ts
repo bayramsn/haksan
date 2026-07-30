@@ -36,6 +36,7 @@ export const lookupRows = {
   ],
   sales_order_statuses: [
     { code: 'draft', name: 'Taslak', sortOrder: 10 },
+    { code: 'pending_super_admin_approval', name: 'Süper Admin Onayı Bekliyor', sortOrder: 15 },
     { code: 'confirmed', name: 'Onaylandı', sortOrder: 20 },
     { code: 'reserved', name: 'Stok Rezerve', sortOrder: 30 },
     { code: 'fulfilled', name: 'Tamamlandı', sortOrder: 40 },

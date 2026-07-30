@@ -128,7 +128,10 @@ function AppShell() {
     if (!deepLinkReady) return;
     const url = new URL(window.location.href);
     if (selectedCaseId) url.searchParams.set("opportunity", selectedCaseId);
-    else url.searchParams.delete("opportunity");
+    else {
+      url.searchParams.delete("opportunity");
+      url.searchParams.delete("activity");
+    }
     window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
   }, [deepLinkReady, selectedCaseId]);
 
@@ -177,6 +180,18 @@ function AppShell() {
   const selectedCustomer: Customer | null = selectedCustomerId ? customers.find((c) => c.id === selectedCustomerId) ?? null : null;
   const selectedCase: SalesCase | null = selectedCaseId ? cases.find((s) => s.id === selectedCaseId) ?? null : null;
 
+  const selectOpportunity = (opportunityId: string, activityId?: string) => {
+    const url = new URL(window.location.href);
+    url.searchParams.set("opportunity", opportunityId);
+    if (activityId) url.searchParams.set("activity", activityId);
+    else url.searchParams.delete("activity");
+    window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
+    setSelectedCustomerId(null);
+    setNav("sales-cases");
+    setSelectedCaseId(opportunityId);
+    requestAnimationFrame(() => window.dispatchEvent(new Event("haksan:opportunity-focus")));
+  };
+
   const goto = (k: NavKey) => {
     setSelectedCustomerId(null);
     setSelectedCaseId(null);
@@ -201,10 +216,8 @@ function AppShell() {
       return;
     }
     if (action.kind === "salesCase") {
-      setSelectedCustomerId(null);
       setFocus(null);
-      setNav("sales-cases");
-      setSelectedCaseId(action.salesCaseId);
+      selectOpportunity(action.salesCaseId);
     }
   };
 
@@ -249,7 +262,7 @@ function AppShell() {
         content = <ContactsPage />;
         break;
       case "leads":
-        content = <LeadsPage onSelect={(lead) => setSelectedCaseId(lead.id)} />;
+        content = <LeadsPage onSelect={(lead) => selectOpportunity(lead.id)} />;
         break;
       case "sales-cases":
         actions = canCreate("opportunities.create") ? (
@@ -258,7 +271,7 @@ function AppShell() {
             createAsOpportunity
           />
         ) : null;
-        content = <SalesCasesPage onSelect={(s) => setSelectedCaseId(s.id)} initialView="kanban" focus={focus?.nav === "sales-cases" ? focus.focus : undefined} onAction={runOperationAction} />;
+        content = <SalesCasesPage onSelect={(s) => selectOpportunity(s.id)} initialView="kanban" focus={focus?.nav === "sales-cases" ? focus.focus : undefined} onAction={runOperationAction} />;
         break;
       case "kanban":
         actions = canCreate("opportunities.create") ? (
@@ -266,7 +279,7 @@ function AppShell() {
             trigger={<Button className="gap-1"><Plus className="size-4" /> Yeni Kart</Button>}
           />
         ) : null;
-        content = <SalesCasesPage onSelect={(s) => setSelectedCaseId(s.id)} initialView="kanban" focus={focus?.nav === "kanban" ? focus.focus : undefined} onAction={runOperationAction} />;
+        content = <SalesCasesPage onSelect={(s) => selectOpportunity(s.id)} initialView="kanban" focus={focus?.nav === "kanban" ? focus.focus : undefined} onAction={runOperationAction} />;
         break;
       case "sales-map": content = <SalesMapPage initialQuery={focus?.nav === "sales-map" ? focus.query : undefined} />; break;
       case "offers": content = <OffersPage focus={focus?.nav === "offers" ? focus.focus : undefined} />; break;
@@ -322,7 +335,7 @@ function AppShell() {
         void logout();
       }}
       onSelectFirm={(c) => { setSelectedCaseId(null); setSelectedCustomerId(c.id); }}
-      onSelectCase={(id) => setSelectedCaseId(id)}
+      onSelectCase={(id, target) => selectOpportunity(id, target?.activityId)}
       onOperationAction={runOperationAction}
       pageTitle={t.title}
       pageSubtitle={t.subtitle}
@@ -341,7 +354,7 @@ function AppShell() {
       <SalesCaseDetailDialog
         sc={selectedCase}
         onClose={() => setSelectedCaseId(null)}
-        onNavigate={(opportunityId) => setSelectedCaseId(opportunityId)}
+        onNavigate={(opportunityId) => selectOpportunity(opportunityId)}
       />
     </Layout>
     </VoiceCallProvider>

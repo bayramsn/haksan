@@ -126,7 +126,7 @@ const APPROVAL_LABELS: Record<OpportunityApprovalType, string> = {
   customs: 'Gümrük onayı',
   invoice: 'Fatura onayı',
   installation: 'Kurulum onayı',
-  win: 'Nihai WIN onayı',
+  win: 'Süperadmin nihai WIN onayı',
 };
 
 type QualificationContext = {
@@ -2690,6 +2690,9 @@ export class OpportunitiesService {
     actor: AuthContext
   ) {
     const opp = await this.findScopedOpp(id, actor);
+    if (approvalType === 'win' && !actor.roles.includes('super_admin')) {
+      throw new ForbiddenError('Nihai WIN kararını yalnızca Süperadmin verebilir');
+    }
     if (this.qualificationStage(opp.qualificationStage) !== 'a_plus') {
       throw new ValidationError('Onaylar yalnız A+ aşamasındaki fırsatlar için verilebilir');
     }

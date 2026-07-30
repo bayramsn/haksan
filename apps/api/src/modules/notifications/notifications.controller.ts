@@ -20,7 +20,7 @@ const notificationListQuery = paginationSchema.extend({
 
 export type NotificationTarget =
   | { kind: 'company'; companyId: string }
-  | { kind: 'opportunity'; opportunityId: string }
+  | { kind: 'opportunity'; opportunityId: string; activityId?: string }
   | { kind: 'navigate'; nav: string; query?: string };
 
 const pushTokenSchema = z.object({
@@ -78,7 +78,13 @@ export class NotificationsController {
         .from(salesActivities)
         .where(and(eq(salesActivities.tenantId, tenantId), inArray(salesActivities.id, activityIds)));
       for (const row of activityRows) {
-        if (row.opportunityId) targets.set(`activity:${row.id}`, { kind: 'opportunity', opportunityId: row.opportunityId });
+        if (row.opportunityId) {
+          targets.set(`activity:${row.id}`, {
+            kind: 'opportunity',
+            opportunityId: row.opportunityId,
+            activityId: row.id,
+          });
+        }
         else if (row.companyId) targets.set(`activity:${row.id}`, { kind: 'company', companyId: row.companyId });
       }
     }
@@ -113,6 +119,8 @@ export class NotificationsController {
         return { kind: 'navigate', nav: 'call-assistant' };
       case 'assistant_inbox':
         return { kind: 'navigate', nav: 'dashboard' };
+      case 'weekly_sales_report':
+        return { kind: 'navigate', nav: 'reports', query: 'weekly-sales' };
       case 'company':
         return row.entityId ? { kind: 'company', companyId: row.entityId } : null;
       case 'opportunity':

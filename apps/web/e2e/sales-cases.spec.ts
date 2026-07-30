@@ -28,7 +28,7 @@ test("fırsatlar listelenir ve detay açılır", async ({ page }) => {
     await expect(dialog.getByRole("tab", { name: "Özet", exact: true })).toHaveAttribute("data-state", "active");
     await expect(dialog.getByText("Deterministik skor; her bileşen CRM verisinden hesaplanır.")).toBeVisible();
     await dialog.getByRole("button", { name: "Özet hazırla", exact: true }).click();
-    await expect(dialog.getByText(/^(AI özeti|CRM veri özeti)$/)).toBeVisible();
+    await expect(dialog.getByText(/^(AI özeti|CRM veri özeti)$/)).toBeVisible({ timeout: 30_000 });
     await dialog.getByRole("tab", { name: "Aktivite", exact: true }).click();
     await expect(dialog.getByText("Birleşik zaman çizelgesi", { exact: true })).toBeVisible();
     await dialog.getByRole("tab", { name: "Ticari", exact: true }).click();

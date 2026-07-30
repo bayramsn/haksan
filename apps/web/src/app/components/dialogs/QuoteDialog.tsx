@@ -15,10 +15,16 @@ import { useFx, FxRateBadge } from "../../lib/fx";
 import { useAuth } from "../../../lib/auth";
 import { lookupService, quoteService, productService } from "../../../lib/services";
 import { toast } from "sonner";
-import { Plus, Trash2, Save, BookmarkPlus, Bold, MapPin } from "lucide-react";
+import { AlertTriangle, Plus, Trash2, Save, BookmarkPlus, Bold, MapPin } from "lucide-react";
 import type { CompanyAddress, Customer, Product, ProductSpec } from "../../lib/mock";
 import { normalizeProductSpecKey, productSpecDefaults, specsForProductTypeStrict } from "../../lib/productSpecTemplates";
-import { computeCustomsCharges, isMachiningCenterTypeCode } from "@haksan/shared";
+import {
+  DISCOUNT_APPROVAL_THRESHOLD_PERCENT,
+  computeCustomsCharges,
+  discountPercent,
+  isMachiningCenterTypeCode,
+  requiresDiscountApproval,
+} from "@haksan/shared";
 import { quoteDefaultsFromCase } from "../../lib/workflow";
 import {
   calculateProductDiscountAmount,
@@ -786,6 +792,8 @@ export function QuoteDialog({
     const grand = taxableBeforeHeader - headerDiscount + vat + customs;
     return { subtotal, lineDiscount, headerDiscount, discount, vat, customs, grand };
   }, [lines, vatEnabled, headerDiscountType, headerDiscountValue, convert, currency]);
+  const totalDiscountPercent = discountPercent(totals.subtotal, totals.discount);
+  const discountNeedsApproval = requiresDiscountApproval(totals.subtotal, totals.discount);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1019,6 +1027,14 @@ export function QuoteDialog({
                     <div className="flex justify-between"><span className="text-muted-foreground">Millileştirme / Gümrük Vergileri</span><span className="tabular-nums">{money(totals.customs, currency)}</span></div>
                   )}
                   <div className="flex justify-between border-t border-border/60 pt-1 font-medium"><span>Genel Toplam</span><span className="tabular-nums">{money(totals.grand, currency)}</span></div>
+                  {discountNeedsApproval && (
+                    <div className="mt-2 flex gap-2 rounded-md border border-amber-300 bg-amber-50 p-2 text-[11px] leading-4 text-amber-900">
+                      <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
+                      <span>
+                        Toplam indirim %{totalDiscountPercent.toFixed(2)}. %{DISCOUNT_APPROVAL_THRESHOLD_PERCENT} üzeri teklifler kaydedildiğinde otomatik onaya düşer.
+                      </span>
+                    </div>
+                  )}
                   <div className="flex justify-between items-center gap-2 pt-1.5 mt-1 border-t border-dashed border-border/60 flex-wrap">
                     <FxRateBadge />
                     <span className="tabular-nums text-xs text-muted-foreground">

@@ -233,7 +233,13 @@ export class ActivitiesService {
    * gelen harf/rakamla devam eden token'lar (kısmi eşleşme) elenir.
    */
   private async notifyActivityMentions(
-    activity: { id: string; divisionId: string | null; subject: string; description: string | null },
+    activity: {
+      id: string;
+      divisionId: string | null;
+      subject: string;
+      description: string | null;
+      previousText?: string;
+    },
     actor: AuthContext,
   ) {
     const text = [activity.subject, activity.description].filter(Boolean).join(' ');
@@ -251,7 +257,10 @@ export class ActivitiesService {
       const emailLocal = (u.email ?? '').split('@')[0] ?? '';
       const handles = [full, first, emailLocal].filter((h) => h.length >= 2);
       const hit = handles.some((h) => new RegExp('@' + escape(h) + '(?![\\p{L}\\p{N}])', 'iu').test(text));
-      if (hit) mentioned.add(u.id);
+      const existedBefore = activity.previousText
+        ? handles.some((h) => new RegExp('@' + escape(h) + '(?![\\p{L}\\p{N}])', 'iu').test(activity.previousText!))
+        : false;
+      if (hit && !existedBefore) mentioned.add(u.id);
     }
     if (!mentioned.size) return;
     let mentionedIds = [...mentioned];
@@ -317,6 +326,16 @@ export class ActivitiesService {
     patch.updatedAt = new Date();
 
     const [row] = await this.db.update(salesActivities).set(patch).where(eq(salesActivities.id, activityId)).returning();
+    await this.notifyActivityMentions(
+      {
+        id: row.id,
+        divisionId: row.divisionId,
+        subject: row.subject,
+        description: row.description,
+        previousText: [existing.subject, existing.description].filter(Boolean).join(' '),
+      },
+      actor,
+    ).catch(() => undefined);
     return row;
   }
 

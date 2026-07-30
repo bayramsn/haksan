@@ -40,7 +40,15 @@ import type {
   QuoteTermsUpsertInput,
   QuoteUpdateInput,
 } from '@haksan/shared';
-import { computeCustomsCharges, isMachiningCenterTypeCode } from '@haksan/shared';
+import {
+  DISCOUNT_APPROVAL_THRESHOLD_PERCENT,
+  computeCustomsCharges,
+  discountPercent,
+  isMachiningCenterTypeCode,
+  referencePriceDiscountPercent,
+  requiresDiscountApproval,
+  requiresReferencePriceApproval,
+} from '@haksan/shared';
 import { FxService } from '../fx/fx.service';
 import { buildPaginated, pageOffset } from '../../shared/utils/pagination';
 import { lookupIdByCode } from '../../shared/utils/lookup.helper';
@@ -456,11 +464,14 @@ export class QuotesService {
   }
 
   private async quotePriceCheck(quoteId: string) {
-    const rows = await this.db
-      .select({ item: quoteItems, product: productModels })
-      .from(quoteItems)
-      .leftJoin(productModels, eq(quoteItems.productModelId, productModels.id))
-      .where(and(eq(quoteItems.quoteId, quoteId), isNull(quoteItems.deletedAt)));
+    const [rows, quote] = await Promise.all([
+      this.db
+        .select({ item: quoteItems, product: productModels })
+        .from(quoteItems)
+        .leftJoin(productModels, eq(quoteItems.productModelId, productModels.id))
+        .where(and(eq(quoteItems.quoteId, quoteId), isNull(quoteItems.deletedAt))),
+      this.db.query.quotes.findFirst({ where: eq(quotes.id, quoteId) }),
+    ]);
     const belowItems = rows
       .map((row) => {
         const product = row.product;
@@ -470,7 +481,7 @@ export class QuotesService {
         const quantity = Number(row.item.quantity);
         if (!Number.isFinite(quantity) || quantity <= 0) return null;
         const netUnitPrice = Math.max((quantity * Number(row.item.unitPrice) - Number(row.item.discountAmount ?? 0)) / quantity, 0);
-        if (netUnitPrice + 0.0001 >= basePrice) return null;
+        if (!requiresReferencePriceApproval(basePrice, netUnitPrice)) return null;
         return {
           itemId: row.item.id,
           productModelId: product.id,
@@ -478,6 +489,7 @@ export class QuotesService {
           stockCode: row.item.stockCode ?? product.stockCode,
           basePrice,
           netUnitPrice,
+          discountPercent: referencePriceDiscountPercent(basePrice, netUnitPrice),
         };
       })
       .filter(Boolean) as Array<{
@@ -487,8 +499,29 @@ export class QuotesService {
       stockCode: string | null;
       basePrice: number;
       netUnitPrice: number;
+      discountPercent: number;
     }>;
-    return { needsApproval: belowItems.length > 0, belowItems };
+    const grossTotal = rows.reduce(
+      (sum, row) => sum + Number(row.item.quantity) * Number(row.item.unitPrice),
+      0,
+    );
+    const lineDiscountTotal = rows.reduce(
+      (sum, row) => sum + Number(row.item.discountAmount ?? 0),
+      0,
+    );
+    const totalDiscount = Math.max(Number(quote?.discountTotal ?? 0), lineDiscountTotal);
+    const totalDiscountPercent = discountPercent(grossTotal, totalDiscount);
+    const documentDiscountNeedsApproval = requiresDiscountApproval(grossTotal, totalDiscount);
+    return {
+      needsApproval: belowItems.length > 0 || documentDiscountNeedsApproval,
+      belowItems,
+      discountSummary: {
+        thresholdPercent: DISCOUNT_APPROVAL_THRESHOLD_PERCENT,
+        grossTotal,
+        discountTotal: totalDiscount,
+        discountPercent: totalDiscountPercent,
+      },
+    };
   }
 
   private async refreshPriceApprovalStatus(quoteId: string, actor: AuthContext) {
@@ -548,8 +581,9 @@ export class QuotesService {
       return;
     }
     await this.refreshPriceApprovalStatus(quoteId, actor);
-    throw new ConflictError('Peşin/liste fiyatının altındaki teklif için Süper Admin onayı gerekiyor', {
+    throw new ConflictError(`%${DISCOUNT_APPROVAL_THRESHOLD_PERCENT} üzeri indirim için onay gerekiyor`, {
       belowItems: check.belowItems,
+      discountSummary: check.discountSummary,
     });
   }
 
@@ -1411,7 +1445,7 @@ export class QuotesService {
       action: 'quote.price_approved',
       resourceType: 'quote',
       resourceId: quoteId,
-      newValues: { belowItems: check.belowItems, note },
+      newValues: { belowItems: check.belowItems, discountSummary: check.discountSummary, note },
     });
     return this.get(quoteId, actor);
   }

@@ -389,6 +389,7 @@ export function SalesCaseDetailPage({
   const canPerformProcessAction = (actionKey: OpportunityProcessActionKey) => {
     if (actionKey.startsWith("approve_")) {
       if (actionKey === "approve_quote") return hasPermission("quotes.approve");
+      if (actionKey === "approve_win") return isSuperAdmin;
       return hasPermission("opportunities.approve");
     }
     if (actionKey === "create_quote") return hasPermission("quotes.create");

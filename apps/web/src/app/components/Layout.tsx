@@ -159,7 +159,7 @@ type Props = {
   actions?: ReactNode;
   children: ReactNode;
   onSelectFirm?: (c: Customer) => void;
-  onSelectCase?: (id: string) => void;
+  onSelectCase?: (id: string, focus?: { activityId?: string }) => void;
   onOperationAction?: (action: OperationAction) => void;
 };
 
@@ -403,12 +403,15 @@ export function Layout({ current, onNavigate, onLogout, pageTitle, pageSubtitle,
       toast.message(notification.title, { description: notification.body ?? "Bu bildirim için açılacak kayıt yok." });
       return;
     }
+    if (target.kind === "opportunity") {
+      onNavigate("sales-cases");
+      onSelectCase?.(target.opportunityId, { activityId: target.activityId });
+      return;
+    }
     const action: OperationAction =
       target.kind === "company"
         ? { kind: "customer", customerId: target.companyId }
-        : target.kind === "opportunity"
-          ? { kind: "salesCase", salesCaseId: target.opportunityId }
-          : { kind: "navigate", nav: target.nav as OperationNav, query: target.query };
+        : { kind: "navigate", nav: target.nav as OperationNav, query: target.query };
     executeOperationAction(action);
   };
   const runCallSuggestionAction = async (
