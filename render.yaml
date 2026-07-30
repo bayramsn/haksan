@@ -117,6 +117,18 @@ services:
         sync: false
       - key: APP_PUBLIC_URL
         value: https://haksan-web.onrender.com
+      - key: USER_MAIL_ENABLED
+        value: "true"
+      - key: USER_MAIL_SMTP_HOST
+        value: mail.haksancnc.com.tr
+      - key: USER_MAIL_SMTP_PORT
+        value: "587"
+      - key: USER_MAIL_SMTP_SECURE
+        value: "false"
+      - key: USER_MAIL_ALLOWED_EMAIL_DOMAINS
+        value: haksancnc.com.tr
+      - key: USER_MAIL_CREDENTIAL_ENCRYPTION_KEY
+        sync: false
       # NVIDIA NIM integration is ready, but kept disabled until a fresh API key
       # and tenant-level data-processing approval are configured in Render.
       - key: ASSISTANT_LLM_PROVIDER

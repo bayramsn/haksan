@@ -119,7 +119,7 @@ export class AssistantApprovalService {
     const action = assistantSecretaryActionKindSchema.parse(plan.kind);
     const parsedArguments = this.parseArguments(action, plan.arguments);
     this.requirePermissionForAction(actor, action, parsedArguments);
-    if ((action === 'send_email' || action === 'send_quote_email') && !this.mailer.isConfigured()) {
+    if ((action === 'send_email' || action === 'send_quote_email') && !(await this.mailer.canSendFor(actor))) {
       throw new ValidationError('E-posta gönderimi için SMTP ayarları tamamlanmamış');
     }
 
@@ -408,7 +408,7 @@ export class AssistantApprovalService {
       }
       case 'send_email': {
         const parsed = sendEmailArgumentsSchema.parse(args);
-        const delivered = await this.mailer.sendTextEmail({ to: parsed.to, subject: parsed.subject, text: parsed.body });
+        const delivered = await this.mailer.sendTextEmail({ to: parsed.to, subject: parsed.subject, text: parsed.body, actor });
         if (!delivered) throw new ValidationError('E-posta gönderimi için SMTP ayarları tamamlanmamış');
         return { message: 'E-posta gönderildi.', result: { delivered: true } };
       }
@@ -421,6 +421,7 @@ export class AssistantApprovalService {
           subject: parsed.subject,
           text: parsed.body,
           attachments: [{ filename: attachment.filename, content: attachment.buffer, contentType: 'application/pdf' }],
+          actor,
         });
         if (!delivered) throw new ValidationError('E-posta gönderimi için SMTP ayarları tamamlanmamış');
         await this.quotes.send(parsed.quoteId, actor);

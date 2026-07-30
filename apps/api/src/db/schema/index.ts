@@ -17,3 +17,4 @@ export * from './assistant';
 export * from './chat';
 export * from './call-assistant';
 export * from './calendar';
+export * from './mail';

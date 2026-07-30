@@ -30,6 +30,7 @@ import { NotificationsModule } from './modules/notifications/notifications.modul
 import { CalendarModule } from './modules/calendar/calendar.module';
 import { AutomationModule } from './modules/automation/automation.module';
 import { WhatsAppIntegrationModule } from './modules/whatsapp/whatsapp-integration.module';
+import { MailModule } from './modules/mail/mail.module';
 import { loadEnv } from './config/env';
 
 const env = loadEnv();
@@ -78,6 +79,7 @@ const env = loadEnv();
     CalendarModule,
     AutomationModule,
     WhatsAppIntegrationModule,
+    MailModule,
   ],
   providers: [
     // Rate limiting'i tüm route'lara uygular. Bu guard global bağlanmadan

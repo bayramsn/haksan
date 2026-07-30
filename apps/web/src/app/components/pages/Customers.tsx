@@ -26,6 +26,7 @@ import { EmptyState } from "../shared/EmptyState";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
 } from "../ui/dropdown-menu";
+import { ComposeMailDialog, type MailRecipient } from "../mail/ComposeMailDialog";
 
 const uniqueSorted = (values: (string | undefined)[]) =>
   Array.from(new Set(values.map((v) => (v ?? "").trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b, "tr"));
@@ -71,6 +72,7 @@ export function CustomersPage(_props: { onSelect?: (c: Customer) => void } = {})
   const canSeePotential = !restricted || roles.includes("sales");
   const [editing, setEditing] = useState<Customer | null>(null);
   const [deleting, setDeleting] = useState<Customer | null>(null);
+  const [mailRecipient, setMailRecipient] = useState<MailRecipient | null>(null);
   const [q, setQ] = useState("");
   const [tab, setTab] = useState<"all" | FirmType>("all");
   const [salesTab, setSalesTab] = useState<"all" | "potential" | "active_customer">("all");
@@ -355,7 +357,7 @@ export function CustomersPage(_props: { onSelect?: (c: Customer) => void } = {})
                         <DropdownMenuContent align="end">
                           <DropdownMenuItem onClick={() => openCompany(c)}><Eye className="size-4 mr-2" /> Görüntüle</DropdownMenuItem>
                           <DropdownMenuItem onClick={() => setEditing(c)}><Pencil className="size-4 mr-2" /> Düzenle</DropdownMenuItem>
-                          <DropdownMenuItem disabled={!c.email} onClick={() => c.email && (window.location.href = `mailto:${c.email}`)}>
+                          <DropdownMenuItem disabled={!c.email} onClick={() => c.email && setMailRecipient({ email: c.email, name: c.contactPerson || c.name, companyId: c.id })}>
                             <Mail className="size-4 mr-2" /> E-posta gönder
                           </DropdownMenuItem>
                           <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={() => setDeleting(c)}>
@@ -508,7 +510,7 @@ export function CustomersPage(_props: { onSelect?: (c: Customer) => void } = {})
                       <DropdownMenuContent align="end">
                         <DropdownMenuItem onClick={() => openCompany(c)}><Eye className="size-4 mr-2" /> Görüntüle</DropdownMenuItem>
                         <DropdownMenuItem onClick={() => setEditing(c)}><Pencil className="size-4 mr-2" /> Düzenle</DropdownMenuItem>
-                        <DropdownMenuItem disabled={!c.email} onClick={() => c.email && (window.location.href = `mailto:${c.email}`)}>
+                        <DropdownMenuItem disabled={!c.email} onClick={() => c.email && setMailRecipient({ email: c.email, name: c.contactPerson || c.name, companyId: c.id })}>
                           <Mail className="size-4 mr-2" /> E-posta gönder
                         </DropdownMenuItem>
                         <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={() => setDeleting(c)}>
@@ -541,6 +543,8 @@ export function CustomersPage(_props: { onSelect?: (c: Customer) => void } = {})
       )}
 
       {dialogs}
+
+      <ComposeMailDialog recipient={mailRecipient} onOpenChange={(open) => !open && setMailRecipient(null)} />
 
       <EditCustomerDialog customer={editing} onClose={() => setEditing(null)} />
 

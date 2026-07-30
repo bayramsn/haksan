@@ -121,6 +121,10 @@ import type {
   AssistantInboxListQuery,
   AssistantInboxUpdate,
   AssistantSuggestion,
+  MailSendInput,
+  MailSendResult,
+  UserMailAccountStatus,
+  UserMailAccountUpsertInput,
 } from '@haksan/shared';
 import { API_BASE_URL, ApiError, api, getAccessToken, getActiveDepartment, getActiveDivision } from './apiClient';
 import { exportService } from './downloadExport';
@@ -416,6 +420,13 @@ export const assistantService = {
     api.post<AssistantApprovalDecisionResponse>(`/assistant/approvals/${encodeURIComponent(id)}/decision`, { confirm }),
   executeAction: (id: string, body: AssistantExecuteActionInput) =>
     api.post<AssistantExecuteActionResponse>(`/assistant/actions/${encodeURIComponent(id)}/execute`, body),
+};
+
+export const mailService = {
+  account: () => api.get<UserMailAccountStatus>('/mail/account'),
+  connect: (body: UserMailAccountUpsertInput) => api.put<UserMailAccountStatus>('/mail/account', body),
+  disconnect: () => api.delete<{ ok: true }>('/mail/account'),
+  send: (body: MailSendInput) => api.post<MailSendResult>('/mail/send', body),
 };
 
 // ───── Contacts ─────

@@ -129,6 +129,12 @@ services:
       SMTP_SECURE: ${SMTP_SECURE:?SMTP_SECURE is required}
       SMTP_FROM: ${SMTP_FROM:?SMTP_FROM is required}
       APP_PUBLIC_URL: ${APP_PUBLIC_URL:?APP_PUBLIC_URL is required}
+      USER_MAIL_ENABLED: ${USER_MAIL_ENABLED:-false}
+      USER_MAIL_SMTP_HOST: ${USER_MAIL_SMTP_HOST:-mail.haksancnc.com.tr}
+      USER_MAIL_SMTP_PORT: ${USER_MAIL_SMTP_PORT:-587}
+      USER_MAIL_SMTP_SECURE: ${USER_MAIL_SMTP_SECURE:-false}
+      USER_MAIL_ALLOWED_EMAIL_DOMAINS: ${USER_MAIL_ALLOWED_EMAIL_DOMAINS:-haksancnc.com.tr}
+      USER_MAIL_CREDENTIAL_ENCRYPTION_KEY: ${USER_MAIL_CREDENTIAL_ENCRYPTION_KEY:-}
     depends_on:
       postgres:
         condition: service_healthy

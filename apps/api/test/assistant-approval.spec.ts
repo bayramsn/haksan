@@ -27,7 +27,10 @@ function buildService(options: { mailConfigured?: boolean; catalogItems?: Array<
       shortName: 'Acme',
     })),
   };
-  const mailer = { isConfigured: vi.fn(() => options.mailConfigured ?? true) };
+  const mailer = {
+    isConfigured: vi.fn(() => options.mailConfigured ?? true),
+    canSendFor: vi.fn(async () => options.mailConfigured ?? true),
+  };
   const quotes = {
     previewCatalogItems: vi.fn(async () => options.catalogItems ?? []),
   };

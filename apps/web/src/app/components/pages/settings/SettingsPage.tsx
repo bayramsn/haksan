@@ -13,6 +13,7 @@ import {
   Globe,
   Layers,
   Mail,
+  MailCheck,
   RotateCcw,
   Save,
   Settings2,
@@ -26,6 +27,7 @@ import { adminService } from "../../../../lib/services";
 import { ProductSpecTemplatesCard } from "./ProductSpecTemplatesCard";
 import { LookupManagerTab } from "./LookupManagerTab";
 import { InfoCallout, SettingsField, SettingsSection, SettingsToggle } from "./settings-controls";
+import { MailAccountSettings } from "./MailAccountSettings";
 
 type Preferences = {
   notifyNewCase: boolean;
@@ -169,6 +171,7 @@ export function SettingsPage() {
     genel: { eyebrow: "KİŞİSEL ÇALIŞMA ALANI", title: "Genel tercihler", description: "Bölge, para birimi ve kullanıcıya özel davranışlar." },
     sirket: { eyebrow: "KURUMSAL KİMLİK", title: "Şirket profili", description: "Tüm kullanıcıların gördüğü doğrulanmış şirket bilgileri." },
     bildirimler: { eyebrow: "OLAY AKIŞI", title: "Bildirim merkezi", description: "Kritik operasyon olaylarının kişisel teslim tercihleri." },
+    webmail: { eyebrow: "GÜVENLİ GÖNDERİCİ", title: "Webmail bağlantısı", description: "CRM e-postalarını kendi kurumsal adresinizden gönderin." },
     "crm-alan": { eyebrow: "VERİ MODELİ", title: "CRM alan yöneticisi", description: "Kayıt formlarının alan yapısı ve seçim sözlükleri." },
     "teknik-bilgi": { eyebrow: "ÜRÜN ŞEMASI", title: "Teknik bilgi şablonları", description: "Ürün ailelerine göre teknik bilgi kapsamı." },
   }[tab] ?? { eyebrow: "SİSTEM", title: "Ayarlar", description: "Çalışma alanı ayarlarını yönetin." };
@@ -210,6 +213,9 @@ export function SettingsPage() {
             </TabsTrigger>
             <TabsTrigger value="bildirimler" className={tabTriggerClass}>
               <Bell className="size-4" /> Bildirimler
+            </TabsTrigger>
+            <TabsTrigger value="webmail" className={tabTriggerClass}>
+              <MailCheck className="size-4" /> Webmail
             </TabsTrigger>
             {canManageLookups && (
               <TabsTrigger value="crm-alan" className={tabTriggerClass}>
@@ -335,6 +341,10 @@ export function SettingsPage() {
               />
             </div>
           </SettingsSection>
+        </TabsContent>
+
+        <TabsContent value="webmail" className="space-y-4">
+          <MailAccountSettings />
         </TabsContent>
 
         {/* CRM Alan Ayarları (super_admin) */}

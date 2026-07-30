@@ -184,6 +184,15 @@ const envSchema = z.object({
   SMTP_SECURE: envBoolean.default(false),
   SMTP_FROM: z.string().default('noreply@haksan.local'),
   APP_PUBLIC_URL: z.string().url().optional(),
+  // Kullanıcının kendi kurumsal webmail hesabıyla gönderim yapması. SMTP hostu
+  // istemciden alınmaz; SSRF riskini önlemek için deployment config'inde sabittir.
+  USER_MAIL_ENABLED: envBoolean.default(false),
+  USER_MAIL_SMTP_HOST: envOptionalText,
+  USER_MAIL_SMTP_PORT: z.coerce.number().int().min(1).max(65_535).default(465),
+  USER_MAIL_SMTP_SECURE: envBoolean.default(true),
+  USER_MAIL_ALLOWED_EMAIL_DOMAINS: envOptionalText,
+  // `openssl rand -base64 32` ile üretilmiş 32-byte AES anahtarı.
+  USER_MAIL_CREDENTIAL_ENCRYPTION_KEY: envOptionalSecret,
   // Operasyon ekibi gerektiğinde uygulama güncellemeden uyumlu bir Nominatim
   // sağlayıcısına geçebilsin. API çağrıları yalnız backend üzerinden yapılır.
   OSM_NOMINATIM_URL: z.string().url().default('https://nominatim.openstreetmap.org/search'),
@@ -216,6 +225,31 @@ const envSchema = z.object({
       path: ['ASSISTANT_API_KEY'],
       message: 'ASSISTANT_API_KEY must be set when ASSISTANT_LLM_PROVIDER is enabled',
     });
+  }
+
+  if (env.USER_MAIL_ENABLED) {
+    if (!env.USER_MAIL_SMTP_HOST) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['USER_MAIL_SMTP_HOST'],
+        message: 'USER_MAIL_SMTP_HOST must be set when personal webmail is enabled',
+      });
+    }
+    if (!env.USER_MAIL_ALLOWED_EMAIL_DOMAINS) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['USER_MAIL_ALLOWED_EMAIL_DOMAINS'],
+        message: 'At least one allowed corporate email domain is required',
+      });
+    }
+    const key = env.USER_MAIL_CREDENTIAL_ENCRYPTION_KEY;
+    if (!key || !/^[A-Za-z0-9+/]{43}=$/.test(key) || Buffer.from(key, 'base64').length !== 32) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['USER_MAIL_CREDENTIAL_ENCRYPTION_KEY'],
+        message: 'USER_MAIL_CREDENTIAL_ENCRYPTION_KEY must be a base64-encoded 32-byte key',
+      });
+    }
   }
   if (
     env.ASSISTANT_LLM_PROVIDER === 'openrouter' &&

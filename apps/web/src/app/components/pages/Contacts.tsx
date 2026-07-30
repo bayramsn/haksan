@@ -21,6 +21,7 @@ import { usePersistentState } from "../../lib/persist";
 import { MiniKpi } from "../shared/MiniKpi";
 import { EmptyState } from "../shared/EmptyState";
 import { useAuth } from "../../../lib/auth";
+import { ComposeMailDialog, type MailRecipient } from "../mail/ComposeMailDialog";
 
 const initials = (n: string) => n.split(" ").slice(0, 2).map((p) => p[0]).join("").toUpperCase();
 const uniqueSorted = (values: (string | undefined)[]) =>
@@ -34,6 +35,7 @@ export function ContactsPage() {
   const { openContact, dialogs } = useDetailDialogs();
   const [editing, setEditing] = useState<Contact | null>(null);
   const [deleting, setDeleting] = useState<Contact | null>(null);
+  const [mailRecipient, setMailRecipient] = useState<MailRecipient | null>(null);
   const [q, setQ] = useState("");
   const [tab, setTab] = useState<"all" | "primary">("all");
   const [dept, setDept] = useState("all");
@@ -104,8 +106,8 @@ export function ContactsPage() {
         <a href={`tel:${(k.mobilePhone || k.phone || "").replace(/\s/g, "")}`}><Phone className="size-3.5" /></a>
       </Button>
       {k.email && (
-        <Button asChild variant="ghost" size="icon" className="size-7" title="E-posta">
-          <a href={`mailto:${k.email}`}><Mail className="size-3.5" /></a>
+        <Button variant="ghost" size="icon" className="size-7" title="E-posta" onClick={() => setMailRecipient({ email: k.email, name: k.name, companyId: k.customerId, contactId: k.id })}>
+          <Mail className="size-3.5" />
         </Button>
       )}
       <Button variant="ghost" size="icon" className="size-7" title="Düzenle" onClick={() => setEditing(k)}>
@@ -368,6 +370,8 @@ export function ContactsPage() {
       )}
 
       {dialogs}
+
+      <ComposeMailDialog recipient={mailRecipient} onOpenChange={(open) => !open && setMailRecipient(null)} />
 
       <EditContactDialog contact={editing} onClose={() => setEditing(null)} />
 
