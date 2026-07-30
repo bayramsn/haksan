@@ -51,6 +51,15 @@ export class AssistantController {
     return this.assistant.companyMemory(companyId, user);
   }
 
+  @RequirePermissions('opportunities.read')
+  @Post('opportunities/:opportunityId/summary')
+  opportunitySummary(
+    @Param('opportunityId', new ParseUUIDPipe()) opportunityId: string,
+    @CurrentUser() user: AuthContext
+  ) {
+    return this.assistant.opportunitySummary(opportunityId, user);
+  }
+
   @Post('chat')
   chat(@Body(new ZodValidationPipe(assistantChatInputSchema)) body: AssistantChatInput, @CurrentUser() user: AuthContext) {
     return this.assistant.chat(body, user);

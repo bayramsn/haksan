@@ -856,19 +856,24 @@ const emptyContactForm = (defaultCustomerId?: string) => ({
 export function CreateContactDialog({
   trigger,
   defaultCustomerId,
+  initialValues,
+  draftKey,
   onCreated,
 }: {
   trigger: React.ReactNode;
   defaultCustomerId?: string;
+  initialValues?: Partial<ReturnType<typeof emptyContactForm>>;
+  draftKey?: string;
   onCreated?: (id: string) => void;
 }) {
   const { customers, addContact, addCustomer } = useStore();
   const [open, setOpen] = useState(false);
   const submission = useSubmissionLock();
+  const initialForm = () => ({ ...emptyContactForm(defaultCustomerId), ...initialValues });
   // Taslak yenilemede korunur; açılışta sıfırlanmaz, yalnızca başarılı kayıtta temizlenir.
-  const [form, setForm] = usePersistentState("draft.contact.form", emptyContactForm(defaultCustomerId));
+  const [form, setForm] = usePersistentState(draftKey ?? "draft.contact.form", initialForm());
 
-  const reset = () => setForm(emptyContactForm(defaultCustomerId));
+  const reset = () => setForm(initialForm());
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -2518,10 +2523,25 @@ const normalizeProductVatRate = (value: string | number | null | undefined) => {
   return PRODUCT_VAT_RATES.includes(rate) ? rate : DEFAULT_PRODUCT_VAT_RATE;
 };
 
+const DIAMETER_SYMBOL = "Ø";
+const DIAMETER_SYMBOL_RE = /^\s*[Ø⌀]\s*/u;
+const isDiameterSpec = (key: string) => normalizeProductSpecKey(key).includes("cap");
+const diameterInputValue = (key: string, value: string) => {
+  if (!isDiameterSpec(key)) return value;
+  const cleanValue = value.replace(DIAMETER_SYMBOL_RE, "");
+  return cleanValue.trim() === "-" ? "" : cleanValue;
+};
+const technicalSpecValue = (key: string, value: string) => {
+  if (!isDiameterSpec(key)) return value;
+  const cleanValue = value.replace(DIAMETER_SYMBOL_RE, "").trim();
+  if (!cleanValue || cleanValue === "-") return cleanValue;
+  return `${DIAMETER_SYMBOL} ${cleanValue}`;
+};
+
 const catalogSpecs = (specs: ProductSpec[] = [], emptyValue = "", productTypeCode?: string) =>
   (productTypeCode ? specsForProductTypeStrict(productTypeCode, specs) : specs).map((spec) => ({
     key: spec.key,
-    value: spec.value?.trim() ? spec.value : emptyValue,
+    value: technicalSpecValue(spec.key, spec.value?.trim() ? spec.value : emptyValue),
     unit: spec.unit ?? spec.specUnit ?? "",
     specUnit: spec.unit ?? spec.specUnit ?? "",
     groupCode: spec.groupCode,
@@ -3029,33 +3049,6 @@ export function ProductDialog({
     form.brand,
   ].filter(Boolean))).sort((a, b) => a.localeCompare(b, "tr-TR"));
   const canSelectProductBrand = Boolean(form.productTypeCode);
-  const specValueOptionsByKey = useMemo(() => {
-    const valuesByKey = new Map<string, Set<string>>();
-    const addValue = (key?: string, value?: string) => {
-      const cleanKey = key?.trim();
-      const cleanValue = value?.trim();
-      if (!cleanKey || !cleanValue) return;
-      const values = valuesByKey.get(cleanKey) ?? new Set<string>();
-      values.add(cleanValue);
-      valuesByKey.set(cleanKey, values);
-    };
-
-    for (const item of products) {
-      for (const spec of item.specs ?? []) addValue(spec.key, spec.value);
-    }
-    for (const spec of form.specs) addValue(spec.key, spec.value);
-
-    return valuesByKey;
-  }, [products, form.specs]);
-  const specValueOptionsFor = (spec: ProductSpec) => {
-    const values = new Set(specValueOptionsByKey.get(spec.key.trim()) ?? []);
-    if (spec.value.trim()) values.add(spec.value.trim());
-    values.add("-");
-    return [...values]
-      .sort((a, b) => a.localeCompare(b, "tr-TR", { numeric: true }))
-      .map((value) => ({ value, label: value }));
-  };
-
   const muadilOptions = products.filter((p) => p.id !== product?.id && p.categoryCode !== OPTIONAL_EQUIPMENT_CATEGORY_CODE);
   const validMuadilIds = new Set(muadilOptions.map((p) => p.id));
   const selectedMuadilIds = form.muadilProductIds.filter((id) => validMuadilIds.has(id));
@@ -3648,7 +3641,7 @@ export function ProductDialog({
                       <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
                         <Badge variant="secondary">{selectedProductTypeLabel}</Badge>
                         <span>{selectedProductTypeTemplateCount || form.specs.length} teknik alan</span>
-                        <span>Etiket ve birim sabittir; sadece değer girilir.</span>
+                        <span>Teknik değerleri kutulara doğrudan yazabilirsiniz.</span>
                       </div>
                       <div className="flex flex-wrap justify-end gap-1.5">
                         <ProductSpecGroupManagerDialog
@@ -3691,17 +3684,25 @@ export function ProductDialog({
                                     <div className="min-w-0 truncate text-xs font-medium text-foreground" title={s.key}>
                                       {s.key}
                                     </div>
-                                    <Combobox
-                                      className="h-8 bg-white"
-                                      options={specValueOptionsFor(s)}
-                                      value={s.value}
-                                      onChange={(value) => updSpec(s.index, { value })}
-                                      placeholder="Boş / -"
-                                      searchPlaceholder="Değer ara..."
-                                      emptyText="Değer bulunamadı"
-                                      onCreate={(value) => updSpec(s.index, { value })}
-                                      createLabel={(query) => `"${query}" kullan`}
-                                    />
+                                    <div className="relative">
+                                      {isDiameterSpec(s.key) && (
+                                        <span
+                                          aria-hidden="true"
+                                          className="pointer-events-none absolute inset-y-0 left-2.5 z-10 flex items-center text-sm font-semibold text-foreground"
+                                        >
+                                          {DIAMETER_SYMBOL}
+                                        </span>
+                                      )}
+                                      <Input
+                                        aria-label={`${s.key} değeri`}
+                                        className={`h-8 bg-white ${isDiameterSpec(s.key) ? "pl-8" : ""}`}
+                                        value={diameterInputValue(s.key, s.value)}
+                                        onChange={(event) => updSpec(s.index, {
+                                          value: technicalSpecValue(s.key, event.target.value),
+                                        })}
+                                        placeholder={isDiameterSpec(s.key) ? "Ölçü girin" : "Değer girin"}
+                                      />
+                                    </div>
                                     <div className="h-8 rounded-md border border-border/70 bg-muted/30 px-2 text-center text-xs leading-8 text-muted-foreground" title={s.unit ?? s.specUnit ?? ""}>
                                       {s.unit || s.specUnit || "-"}
                                     </div>
@@ -4265,14 +4266,31 @@ const emptyShipmentLine = (): ShipmentLineForm => ({
   packageNotes: "",
 });
 
-export function CreateShipmentDialog({ trigger, onCreated }: { trigger: React.ReactNode; onCreated?: () => void }) {
+export function CreateShipmentDialog({
+  trigger,
+  onCreated,
+  defaultSalesCaseId,
+  open: controlledOpen,
+  onOpenChange,
+}: {
+  trigger?: React.ReactNode;
+  onCreated?: () => void;
+  defaultSalesCaseId?: string;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+}) {
   const { addShipment, cases, customers, products, stock } = useStore();
   const customerName = (id: string) => customers.find((c) => c.id === id)?.name ?? "—";
   const addressLabel = (address: NonNullable<Customer["addresses"]>[number]) =>
     [ADDRESS_TYPE_OPTIONS.find((option) => option.value === address.addressType)?.label, address.address, address.district, address.city]
       .filter(Boolean)
       .join(" · ");
-  const [open, setOpen] = useState(false);
+  const [internalOpen, setInternalOpen] = useState(false);
+  const open = controlledOpen ?? internalOpen;
+  const setOpen = (next: boolean) => {
+    if (controlledOpen === undefined) setInternalOpen(next);
+    onOpenChange?.(next);
+  };
   const submission = useSubmissionLock();
   const [warehouses, setWarehouses] = useState<Array<{ id: string; name: string }>>([]);
   const [senderCompanies, setSenderCompanies] = useState<Array<{ id: string; legalTitle: string; shortName?: string | null }>>([]);
@@ -4288,7 +4306,7 @@ export function CreateShipmentDialog({ trigger, onCreated }: { trigger: React.Re
   const [optionalByLine, setOptionalByLine] = useState<Record<string, Array<{ id: string; label: string }>>>({});
   const optionalCache = useRef<Record<string, Array<{ id: string; label: string }>>>({});
   const emptyForm = () => {
-    const initialCase = cases[0];
+    const initialCase = cases.find((item) => item.id === defaultSalesCaseId) ?? cases[0];
     const initialCustomer = initialCase ? customers.find((customer) => customer.id === initialCase.customerId) : undefined;
     const initialAddress = initialCustomer?.addresses?.find((address) => address.isShipping)
       ?? initialCustomer?.addresses?.find((address) => address.isDefault)
@@ -4460,7 +4478,7 @@ export function CreateShipmentDialog({ trigger, onCreated }: { trigger: React.Re
 
   return (
     <Dialog open={open} onOpenChange={(o) => { setOpen(o); if (o) reset(); }}>
-      <DialogTrigger asChild>{trigger}</DialogTrigger>
+      {trigger && <DialogTrigger asChild>{trigger}</DialogTrigger>}
       <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2"><Truck className="size-5 text-primary" /> Yeni Sevkiyat</DialogTitle>

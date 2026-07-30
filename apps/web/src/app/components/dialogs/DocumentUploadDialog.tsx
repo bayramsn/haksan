@@ -79,7 +79,7 @@ export function DocumentUploadDialog({
   defaultType?: DocumentTypeValue;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
-  onUploaded?: (document: DocumentItem) => void;
+  onUploaded?: (document: DocumentItem) => void | Promise<void>;
 }) {
   const { cases, customers, addDocument } = useStore();
   const inputRef = useRef<HTMLInputElement>(null);
@@ -178,7 +178,7 @@ export function DocumentUploadDialog({
         mimeType,
       });
       toast.success("Doküman yüklendi", { description: file.name });
-      onUploaded?.(row);
+      await onUploaded?.(row);
       setOpen(false);
     } catch (err: any) {
       toast.error("Doküman yüklenemedi", { description: err?.message ?? "İstek başarısız oldu." });

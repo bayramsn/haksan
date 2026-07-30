@@ -419,13 +419,17 @@ describe('ERP flow', () => {
     expect(companies.body.data.some((company: { id: string }) => company.id === companyId)).toBe(true);
   });
 
-  it('moves sales → quote (now that a quote exists)', async () => {
+  it('keeps sales → quote gated when discovery evidence is still missing', async () => {
     const r = await supertest(app.getHttpServer())
       .patch(`/api/v1/opportunities/${opportunityId}/stage`)
       .set('Authorization', `Bearer ${adminToken}`)
       .send({ toStage: 'quote' });
-    expect(r.status).toBe(200);
-    expect(r.body.stage?.code).toBe('quote');
+    expect(r.status).toBe(422);
+    const unchanged = await supertest(app.getHttpServer())
+      .get(`/api/v1/opportunities/${opportunityId}`)
+      .set('Authorization', `Bearer ${adminToken}`);
+    expect(unchanged.status).toBe(200);
+    expect(unchanged.body.stage?.code).toBe('sales');
   });
 
   it('cancels opportunity with required reason', async () => {

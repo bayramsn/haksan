@@ -5,7 +5,7 @@ import { eq } from 'drizzle-orm';
 import { createTestApp } from './setup';
 import type { DbClient } from '../src/db/client';
 import { opportunities, opportunityApprovals } from '../src/db/schema/crm';
-import { opportunityStatuses } from '../src/db/schema/lookup';
+import { opportunityStatuses, pipelineStages } from '../src/db/schema/lookup';
 import { DB } from '../src/shared/database/database.module';
 
 let app: NestFastifyApplication;
@@ -128,7 +128,7 @@ describe('Opportunity qualification pipeline', () => {
     expect(restoredRow?.disqualifyReasonId).toBeNull();
   });
 
-  it('keeps the operation stage inside the qualification grade area', async () => {
+  it('does not let the operation endpoint bypass qualification requirements', async () => {
     const server = app.getHttpServer();
     const created = await supertest(server)
       .post('/api/v1/opportunities')
@@ -147,38 +147,26 @@ describe('Opportunity qualification pipeline', () => {
     expect(converted.body.qualificationStage).toBe('c');
     expect(converted.body.stage.code).toBe('sales');
 
-    // Operasyon aşamasını B alanının içinde ilerletmek dereceyi B'ye çeker.
+    // C gereklilikleri tamamlanmadan operasyon endpoint'i üzerinden B'ye
+    // geçilemez. Bu, UI dışında doğrudan API çağrısındaki atlamayı da kapatır.
     const toCall = await supertest(server)
       .patch(`/api/v1/opportunities/${alignId}/stage`)
       .set('Authorization', `Bearer ${token}`)
       .send({ toStage: 'call' });
-    expect(toCall.status, JSON.stringify(toCall.body)).toBe(200);
-    expect(toCall.body.stage.code).toBe('call');
-    expect(toCall.body.qualificationStage).toBe('b');
+    expect(toCall.status, JSON.stringify(toCall.body)).toBe(422);
+    expect(toCall.body.error?.details?.blockerLabels).toEqual(
+      expect.arrayContaining(['Kontak bağlı', 'İl ve ilçe girildi'])
+    );
+    expect(toCall.body.error?.details?.blockers?.[0]).toMatchObject({
+      complete: false,
+      actionKey: expect.any(String),
+    });
 
-    // B alanı içinde ilerlemek (Arama → Ziyaret) dereceyi değiştirmez ve
-    // kartı alanın giriş aşamasına geri çekmez.
-    const toVisit = await supertest(server)
-      .patch(`/api/v1/opportunities/${alignId}/stage`)
-      .set('Authorization', `Bearer ${token}`)
-      .send({ toStage: 'visit' });
-    expect(toVisit.status, JSON.stringify(toVisit.body)).toBe(200);
-    expect(toVisit.body.stage.code).toBe('visit');
-    expect(toVisit.body.qualificationStage).toBe('b');
-
-    // A alanının girişi kapılıdır (teklif kaydı ister): derece ilerletmesi
-    // kartı "quote" aşamasına kendiliğinden taşımaz, aşama olduğu yerde kalır.
-    const toA = await supertest(server)
-      .patch(`/api/v1/opportunities/${alignId}/qualification-stage`)
-      .set('Authorization', `Bearer ${token}`)
-      .send({ toStage: 'a' });
-    if (toA.status === 200) {
-      expect(toA.body.qualificationStage).toBe('a');
-      expect(toA.body.stage.code).toBe('visit');
-    } else {
-      // Eksik bilgi varsa geçiş engellenir; bu da geçerli bir sonuçtur.
-      expect(toA.status).toBe(422);
-    }
+    const unchanged = await supertest(server)
+      .get(`/api/v1/opportunities/${alignId}`)
+      .set('Authorization', `Bearer ${token}`);
+    expect(unchanged.body.stage.code).toBe('sales');
+    expect(unchanged.body.qualificationStage).toBe('c');
   });
 
   it('tracks lead SLA counters and exposes process health', async () => {
@@ -280,14 +268,22 @@ describe('Opportunity qualification pipeline', () => {
     expect(opportunities.body.data.some((row: { id: string }) => row.id === opportunityId)).toBe(true);
   });
 
-  it('enforces ordered transitions and returns field-level blockers', async () => {
+  it('returns every intermediate blocker for a distant direct target', async () => {
     const server = app.getHttpServer();
     const skipped = await supertest(server)
       .patch(`/api/v1/opportunities/${opportunityId}/qualification-stage`)
       .set('Authorization', `Bearer ${token}`)
       .send({ toStage: 'a' });
     expect(skipped.status).toBe(422);
-    expect(skipped.body.error?.message).toContain('sırayla');
+    expect(skipped.body.error?.message).toContain('eksik');
+    expect(skipped.body.error?.details?.blockerLabels).toEqual(
+      expect.arrayContaining([
+        'Kontak bağlı',
+        'Arama kaydı oluşturuldu',
+        'Ziyaret kaydı oluşturuldu',
+        'Teklif oluşturuldu',
+      ])
+    );
 
     const blocked = await supertest(server)
       .patch(`/api/v1/opportunities/${opportunityId}/qualification-stage`)
@@ -295,7 +291,7 @@ describe('Opportunity qualification pipeline', () => {
       .send({ toStage: 'b' });
     expect(blocked.status).toBe(422);
     expect(blocked.body.error?.message).toContain('eksik');
-    expect(blocked.body.error?.details?.blockers).toEqual(expect.arrayContaining(['Kontak bağlı']));
+    expect(blocked.body.error?.details?.blockerLabels).toEqual(expect.arrayContaining(['Kontak bağlı']));
   });
 
   it('protects operational approvals with opportunities.approve', async () => {
@@ -367,6 +363,64 @@ describe('Opportunity qualification pipeline', () => {
     expect(changed.status, JSON.stringify(changed.body)).toBe(200);
     expect(changed.body.qualificationReadiness.approvals).toMatchObject({
       payment: 'pending',
+      win: 'pending',
+    });
+  });
+
+  it('allows an active WIN card to move backward with a reason and renews affected approvals', async () => {
+    const server = app.getHttpServer();
+    const created = await supertest(server)
+      .post('/api/v1/opportunities')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ companyId, title: `WIN geri dönüş ${suffix}`, currencyCode: 'EUR' });
+    expect(created.status, JSON.stringify(created.body)).toBe(201);
+
+    const deliveredStage = await db.query.pipelineStages.findFirst({ where: eq(pipelineStages.code, 'delivered') });
+    const wonStatus = await db.query.opportunityStatuses.findFirst({ where: eq(opportunityStatuses.code, 'won') });
+    expect(deliveredStage).toBeTruthy();
+    await db
+      .update(opportunities)
+      .set({
+        currentStageId: deliveredStage!.id,
+        qualificationStage: 'win',
+        statusId: wonStatus?.id ?? null,
+        closedAt: null,
+      })
+      .where(eq(opportunities.id, created.body.id));
+    await db
+      .insert(opportunityApprovals)
+      .values(
+        ['payment', 'customs', 'invoice', 'installation', 'win'].map((approvalType) => ({
+          tenantId: created.body.tenantId,
+          opportunityId: created.body.id,
+          approvalType,
+          status: 'approved',
+          decidedAt: new Date(),
+        }))
+      )
+      .onConflictDoNothing();
+
+    const missingReason = await supertest(server)
+      .patch(`/api/v1/opportunities/${created.body.id}/stage`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ toStage: 'quote' });
+    expect(missingReason.status).toBe(422);
+    expect(missingReason.body.error?.details?.field).toBe('changeReason');
+
+    const moved = await supertest(server)
+      .patch(`/api/v1/opportunities/${created.body.id}/stage`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ toStage: 'quote', changeReason: 'Teklif kapsamı yeniden değerlendirilecek' });
+    expect(moved.status, JSON.stringify(moved.body)).toBe(200);
+    expect(moved.body.stage.code).toBe('quote');
+    expect(moved.body.qualificationStage).toBe('a');
+    expect(moved.body.closedAt).toBeNull();
+    expect(moved.body.processReadiness.currentOperationStage).toBe('quote');
+    expect(moved.body.qualificationReadiness.approvals).toMatchObject({
+      payment: 'pending',
+      customs: 'pending',
+      invoice: 'pending',
+      installation: 'pending',
       win: 'pending',
     });
   });

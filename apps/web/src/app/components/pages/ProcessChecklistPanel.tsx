@@ -1,7 +1,7 @@
-import { useMemo, useState, type ReactNode } from "react";
-import { CheckCircle2, Circle, ListChecks, Loader2 } from "lucide-react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { CheckCircle2, Circle, ListChecks, Loader2, Pencil } from "lucide-react";
 import { toast } from "sonner";
-import { QUALIFICATION_STAGE_PIPELINE_STEPS } from "@haksan/shared";
+import { QUALIFICATION_STAGE_PIPELINE_STEPS, type OpportunityProcessActionKey } from "@haksan/shared";
 import { activityService } from "../../../lib/services";
 import { useAuth } from "../../../lib/auth";
 import { useStore } from "../../lib/store";
@@ -20,6 +20,8 @@ import { Combobox } from "../ui/combobox";
 import { Input } from "../ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
 import { Textarea } from "../ui/textarea";
+import { CreateContactDialog } from "../dialogs/CreateDialogs";
+import { RequestedMachineCombobox } from "../shared/RequestedMachineCombobox";
 
 /**
  * Kartın bulunduğu satış derecesini geçmek için tamamlanması gereken alanları
@@ -28,18 +30,55 @@ import { Textarea } from "../ui/textarea";
  * yalnız her `key` için doğru düzenleyici eşlenir. Böylece UI, backend'in
  * gerçekten aradığı koşulun dışına çıkıp olmayan bir kural vaat etmez.
  */
-export function ProcessChecklistPanel({ sc }: { sc: SalesCase }) {
-  const { customers, contacts, users, updateCase, updateCustomer, moveQualification, decideCaseApproval, refresh } =
+export function ProcessChecklistPanel({
+  sc,
+  requestedAction,
+  onActionHandled,
+}: {
+  sc: SalesCase;
+  requestedAction?: OpportunityProcessActionKey | null;
+  onActionHandled?: () => void;
+}) {
+  const { customers, contacts, users, products, updateCase, updateCustomer, moveQualification, decideCaseApproval, refresh } =
     useStore();
   const { hasRole } = useAuth();
   const isSuperAdmin = hasRole("super_admin");
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [advancing, setAdvancing] = useState(false);
+  const [editingKeys, setEditingKeys] = useState<Set<string>>(new Set());
 
   const readiness = sc.qualificationReadiness;
   const company = customers.find((item) => item.id === sc.customerId);
   const grade = (sc.qualificationStage ?? "lead") as QualificationStage;
   const areaSteps = QUALIFICATION_STAGE_PIPELINE_STEPS[grade] ?? [];
+  const checkByAction: Partial<Record<OpportunityProcessActionKey, string>> = {
+    assign_owner: "owner",
+    edit_subject: "subject",
+    link_company: "company",
+    edit_company: "location",
+    link_contact: "contact",
+    create_contact: "contact",
+    record_call: "call",
+    record_visit: "visit",
+    edit_machine: "machine",
+    edit_payment_method: "payment_method",
+    edit_contract_terms: "contract_terms",
+    edit_payment_terms: "payment_terms",
+    approve_payment: "payment",
+    approve_customs: "customs",
+    approve_invoice: "invoice",
+    approve_installation: "installation",
+    approve_win: "win",
+  };
+  const requestedCheckKey = requestedAction ? checkByAction[requestedAction] : undefined;
+
+  useEffect(() => {
+    if (!requestedAction) return;
+    const key = checkByAction[requestedAction];
+    if (!key || !readiness?.checks.some((item) => item.key === key)) return;
+    setEditingKeys((current) => new Set(current).add(key));
+    onActionHandled?.();
+  }, [requestedAction, readiness?.checks, onActionHandled]);
 
   const companyContacts = useMemo(
     () =>
@@ -64,6 +103,7 @@ export function ProcessChecklistPanel({ sc }: { sc: SalesCase }) {
     try {
       await action();
       toast.success(successMessage);
+      if (requestedAction) onActionHandled?.();
     } catch (error: any) {
       toast.error("Kaydedilemedi", { description: error?.message ?? "İstek başarısız oldu." });
     } finally {
@@ -111,6 +151,27 @@ export function ProcessChecklistPanel({ sc }: { sc: SalesCase }) {
           </p>
         )}
 
+        {requestedCheckKey && !readiness.checks.some((item) => item.key === requestedCheckKey) && (
+          <div className="rounded-lg border border-primary/20 bg-primary/5 p-3">
+            <div className="mb-2 text-xs font-semibold">Seçilen hızlı işlem</div>
+            <CheckEditor
+              checkKey={requestedCheckKey}
+              sc={sc}
+              company={company}
+              companyContacts={companyContacts}
+              users={users}
+              products={products}
+              isSuperAdmin={isSuperAdmin}
+              disabled={busyKey !== null}
+              run={run}
+              updateCase={updateCase}
+              updateCustomer={updateCustomer}
+              decideCaseApproval={decideCaseApproval}
+              refresh={refresh}
+            />
+          </div>
+        )}
+
         {readiness.checks.length === 0 ? (
           <p className="text-xs text-muted-foreground">Bu aşamada tamamlanacak alan yok.</p>
         ) : (
@@ -123,19 +184,39 @@ export function ProcessChecklistPanel({ sc }: { sc: SalesCase }) {
                   ) : (
                     <Circle className="size-4 shrink-0 text-muted-foreground" />
                   )}
-                  <span className={`text-xs ${check.complete ? "text-muted-foreground line-through" : "font-medium"}`}>
+                  <span className={`min-w-0 flex-1 text-xs ${check.complete ? "text-muted-foreground" : "font-medium"}`}>
                     {check.label}
                   </span>
                   {busyKey === check.key && <Loader2 className="size-3.5 animate-spin text-muted-foreground" />}
+                  {check.complete && (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      className="h-7 shrink-0 gap-1 px-2 text-[10px]"
+                      onClick={() =>
+                        setEditingKeys((current) => {
+                          const next = new Set(current);
+                          if (next.has(check.key)) next.delete(check.key);
+                          else next.add(check.key);
+                          return next;
+                        })
+                      }
+                    >
+                      <Pencil className="size-3" />
+                      {editingKeys.has(check.key) ? "Kapat" : "Düzenle"}
+                    </Button>
+                  )}
                 </div>
-                {!check.complete && (
+                {(!check.complete || editingKeys.has(check.key)) && (
                   <CheckEditor
                     checkKey={check.key}
                     sc={sc}
                     company={company}
                     companyContacts={companyContacts}
-                    users={users}
-                    isSuperAdmin={isSuperAdmin}
+                      users={users}
+                      products={products}
+                      isSuperAdmin={isSuperAdmin}
                     disabled={busyKey !== null}
                     run={run}
                     updateCase={updateCase}
@@ -174,6 +255,7 @@ type EditorProps = {
   company: ReturnType<typeof useStore>["customers"][number] | undefined;
   companyContacts: { value: string; label: string; hint?: string }[];
   users: ReturnType<typeof useStore>["users"];
+  products: ReturnType<typeof useStore>["products"];
   isSuperAdmin: boolean;
   disabled: boolean;
   run: (key: string, action: () => Promise<unknown>, successMessage: string) => Promise<void>;
@@ -185,7 +267,7 @@ type EditorProps = {
 
 /** Tek bir kontrol satırının düzenleyicisi; `checkKey` backend'in ürettiği anahtardır. */
 function CheckEditor(props: EditorProps) {
-  const { checkKey, sc, company, companyContacts, users, isSuperAdmin, disabled, run } = props;
+  const { checkKey, sc, company, companyContacts, users, products, isSuperAdmin, disabled, run } = props;
   const [draft, setDraft] = useState("");
   const [draft2, setDraft2] = useState("");
 
@@ -271,21 +353,37 @@ function CheckEditor(props: EditorProps) {
         return wrap(<p className="text-[10px] text-muted-foreground">Önce firma bağlanmalı.</p>);
       }
       return wrap(
-        companyContacts.length > 0 ? (
-          <Combobox
-            className="h-8 w-full text-xs sm:w-72"
-            options={companyContacts}
-            value=""
-            onChange={(value) => void saveCase({ primaryContactId: value }, "Kontak bağlandı")}
-            placeholder="Firmanın kontağını seçin"
-            searchPlaceholder="Kontak ara…"
-            emptyText="Kontak bulunamadı"
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+          {companyContacts.length > 0 && (
+            <Combobox
+              className="h-8 w-full text-xs sm:w-72"
+              options={companyContacts}
+              value={sc.primaryContactId ?? ""}
+              onChange={(value) => void saveCase({ primaryContactId: value }, "Kontak bağlandı")}
+              placeholder="Firmanın kontağını seçin"
+              searchPlaceholder="Kontak ara…"
+              emptyText="Kontak bulunamadı"
+            />
+          )}
+          <CreateContactDialog
+            defaultCustomerId={sc.customerId}
+            draftKey={`draft.opportunity.${sc.id}.contact`}
+            initialValues={{
+              name: sc.leadContactName ?? "",
+              phone: sc.leadPhone ?? "",
+              email: sc.leadEmail ?? "",
+              note: `${sc.requestedProduct} fırsat kartından oluşturuldu.`,
+            }}
+            onCreated={(contactId) => {
+              void saveCase({ primaryContactId: contactId }, "Kontak oluşturuldu ve fırsata bağlandı");
+            }}
+            trigger={
+              <Button type="button" size="sm" variant="outline" className="h-8 shrink-0">
+                Yeni kontak oluştur
+              </Button>
+            }
           />
-        ) : (
-          <p className="text-[10px] text-muted-foreground">
-            Bu firmada kayıtlı kontak yok — Kontaklar ekranından ekleyip buraya dönün.
-          </p>
-        )
+        </div>
       );
 
     case "location":
@@ -397,8 +495,16 @@ function CheckEditor(props: EditorProps) {
       );
 
     case "machine":
-      return textRow("Örn. MT210-1000 İşleme Merkezi", (value) =>
-        void saveCase({ requestedMachine: value }, "İstenen makine kaydedildi")
+      return wrap(
+        <RequestedMachineCombobox
+          className="h-8 w-full bg-white text-xs sm:w-96"
+          products={products}
+          value={sc.requestedMachine}
+          disabled={disabled}
+          onValueChange={(value) =>
+            saveCase({ requestedMachine: value }, "İstenen makine kaydedildi")
+          }
+        />
       );
 
     case "payment_method":

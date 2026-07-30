@@ -15,6 +15,7 @@ export function KanbanDetailDialogShell({
   contentClassName,
   activityClassName,
   bodyClassName,
+  mobileFooter,
 }: {
   accentClassName?: string;
   title: ReactNode;
@@ -29,6 +30,7 @@ export function KanbanDetailDialogShell({
   contentClassName?: string;
   activityClassName?: string;
   bodyClassName?: string;
+  mobileFooter?: ReactNode;
 }) {
   return (
     <div className={cn("flex max-h-[92dvh] min-h-0 flex-col overflow-hidden bg-[#f7f8fa]", className)}>
@@ -61,6 +63,11 @@ export function KanbanDetailDialogShell({
           {right}
         </aside>
       </div>
+      {mobileFooter && (
+        <div className="shrink-0 border-t border-slate-200 bg-white px-3 py-2 sm:hidden">
+          {mobileFooter}
+        </div>
+      )}
     </div>
   );
 }

@@ -16,8 +16,45 @@ test("fırsatlar listelenir ve detay açılır", async ({ page }) => {
     await firstRow.click();
     const dialog = page.getByRole("dialog");
     await expect(dialog).toBeVisible();
+    await expect(dialog.getByText("Fırsat nabzı", { exact: true })).toBeVisible();
+    await expect(dialog.getByRole("button", { name: "Tam çalışma alanını aç" })).toBeVisible();
+    await expect(page).toHaveURL(/[?&]opportunity=[^&]+/);
+
+    await page.reload();
+    await expect(dialog.getByText("Fırsat nabzı", { exact: true })).toBeVisible();
+
+    await dialog.getByRole("button", { name: "Tam çalışma alanını aç" }).click();
+    await expect(dialog.getByText("Kayıt çalışma alanı", { exact: true })).toBeVisible();
+    await expect(dialog.getByRole("tab", { name: "Özet", exact: true })).toHaveAttribute("data-state", "active");
+    await expect(dialog.getByText("Deterministik skor; her bileşen CRM verisinden hesaplanır.")).toBeVisible();
+    await dialog.getByRole("button", { name: "Özet hazırla", exact: true }).click();
+    await expect(dialog.getByText(/^(AI özeti|CRM veri özeti)$/)).toBeVisible();
+    await dialog.getByRole("tab", { name: "Aktivite", exact: true }).click();
+    await expect(dialog.getByText("Birleşik zaman çizelgesi", { exact: true })).toBeVisible();
+    await dialog.getByRole("tab", { name: "Ticari", exact: true }).click();
+    await expect(dialog.getByText("Ödeme ve tahsilat", { exact: true })).toBeVisible();
+    await dialog.getByRole("tab", { name: "Operasyon", exact: true }).click();
+    await expect(dialog.getByText("Birleşik süreç merkezi", { exact: true })).toBeVisible();
+    await dialog.getByRole("tab", { name: "Dosya & Geçmiş", exact: true }).click();
+    await expect(dialog.getByText("Değişiklik günlüğü", { exact: true })).toBeVisible();
+    await dialog.getByRole("button", { name: "Hızlı özete dön", exact: true }).first().click();
+    await expect(dialog.getByText("Fırsat nabzı", { exact: true })).toBeVisible();
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect.poll(async () => (await dialog.boundingBox())?.width).toBeLessThanOrEqual(390);
+    const mobileBounds = await dialog.boundingBox();
+    expect(mobileBounds?.x).toBeGreaterThanOrEqual(0);
+    await expect(dialog.getByRole("button", { name: "Tam çalışma alanını aç" })).toBeVisible();
+    await dialog.getByRole("button", { name: "Tam çalışma alanını aç" }).click();
+    const mobileWorkspaceBounds = await dialog.boundingBox();
+    expect(mobileWorkspaceBounds?.x).toBeGreaterThanOrEqual(-0.5);
+    expect(mobileWorkspaceBounds?.width).toBeLessThanOrEqual(390.5);
+    expect(mobileWorkspaceBounds?.height).toBeLessThanOrEqual(844);
+    await expect(dialog.getByRole("button", { name: "Hızlı özete dön", exact: true }).last()).toBeVisible();
+
     await page.keyboard.press("Escape");
     await expect(dialog).toBeHidden();
+    await expect(page).not.toHaveURL(/[?&]opportunity=/);
   }
 });
 
@@ -73,16 +110,21 @@ test("lead kartından yeni firma OSM araması üst formu göndermeden açık kal
   await page.getByLabel("Kontak ismi *").fill(`OSM Test ${suffix}`);
   await page.locator("#lead-phone").fill("05325551212");
   await page.locator("#lead-city").fill("İstanbul");
-  await page.getByLabel("Firma ünvanı").fill(companyTitle);
+  await page.getByText("Kayıtlı firmadan seçin veya yazın", { exact: true }).click();
+  await page.getByPlaceholder("Firma ara…").fill(companyTitle);
+  await page.getByRole("option", { name: `"${companyTitle}" firmasını lead olarak yaz` }).click();
   await page.getByLabel("İstenen ürün *").fill(product);
   await page.getByRole("button", { name: "Lead Kartı Oluştur" }).click();
 
   const search = page.getByPlaceholder("Firma, kontak, telefon veya ürün ara...");
   await search.fill(companyTitle);
-  const card = page.locator("button").filter({ hasText: companyTitle }).first();
+  const card = page.locator("button.w-full.text-left").filter({ hasText: companyTitle }).first();
   await expect(card).toBeVisible();
   await card.click();
 
+  const opportunityDialog = page.getByRole("dialog");
+  await expect(opportunityDialog.getByText("Fırsat nabzı", { exact: true })).toBeVisible();
+  await opportunityDialog.getByRole("button", { name: "Tam çalışma alanını aç" }).click();
   await page.getByRole("button", { name: "Yeni Firma Oluştur" }).click();
   const companyDialog = page.getByRole("dialog", { name: "Yeni Firma" });
   await expect(companyDialog).toBeVisible();

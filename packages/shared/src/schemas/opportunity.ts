@@ -6,6 +6,8 @@ import {
   OPPORTUNITY_APPROVAL_TYPES,
   PIPELINE_STAGES,
   QUALIFICATION_STAGES,
+  type OpportunityApprovalType,
+  type PipelineStageCode,
 } from '../constants';
 
 export const pipelineStageEnum = z.enum(PIPELINE_STAGES);
@@ -217,6 +219,66 @@ export const opportunityQualificationChangeSchema = z.object({
   lostCompetitorProductModel: z.string().trim().max(255).optional(),
 });
 export type OpportunityQualificationChangeInput = z.infer<typeof opportunityQualificationChangeSchema>;
+
+export const opportunityProcessActionKeys = [
+  'assign_owner',
+  'edit_subject',
+  'link_company',
+  'edit_company',
+  'link_contact',
+  'create_contact',
+  'record_call',
+  'record_visit',
+  'edit_machine',
+  'edit_payment_method',
+  'edit_contract_terms',
+  'edit_payment_terms',
+  'create_quote',
+  'approve_quote',
+  'create_proforma',
+  'create_contract',
+  'create_payment_plan',
+  'create_commercial_invoice',
+  'approve_customs',
+  'reserve_stock',
+  'create_shipment',
+  'complete_shipment',
+  'open_installation',
+  'complete_installation',
+  'approve_payment',
+  'approve_invoice',
+  'approve_installation',
+  'approve_win',
+] as const;
+export type OpportunityProcessActionKey = (typeof opportunityProcessActionKeys)[number];
+
+export type ProcessCheck = {
+  key: string;
+  label: string;
+  complete: boolean;
+  actionKey: OpportunityProcessActionKey;
+  stageCode?: PipelineStageCode;
+  qualificationStage?: OpportunityQualificationStage;
+};
+
+export type ProcessTarget = {
+  axis: 'qualification' | 'operation';
+  code: OpportunityQualificationStage | PipelineStageCode;
+  direction: 'current' | 'forward' | 'backward';
+  selectable: boolean;
+  canTransition: boolean;
+  requiresReason: boolean;
+  blockers: ProcessCheck[];
+  invalidatedApprovals: OpportunityApprovalType[];
+};
+
+export type OpportunityProcessReadiness = {
+  currentQualificationStage: OpportunityQualificationStage;
+  currentOperationStage: PipelineStageCode;
+  closed: boolean;
+  targets: ProcessTarget[];
+  checks: ProcessCheck[];
+};
 
 export const opportunityApprovalTypeEnum = z.enum(OPPORTUNITY_APPROVAL_TYPES);
 export const opportunityApprovalStatusEnum = z.enum(OPPORTUNITY_APPROVAL_STATUSES);

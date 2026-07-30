@@ -114,6 +114,7 @@ import type {
   AssistantChatInput,
   AssistantChatResponse,
   AssistantCompanyMemory,
+  AssistantOpportunitySummary,
   AssistantExecuteActionInput,
   AssistantExecuteActionResponse,
   AssistantInboxCapture,
@@ -407,6 +408,11 @@ export const assistantService = {
   briefing: () => api.get<AssistantBriefingResponse>('/assistant/briefing'),
   companyMemory: (companyId: string) =>
     api.get<AssistantCompanyMemory>(`/assistant/companies/${encodeURIComponent(companyId)}/memory`),
+  opportunitySummary: (opportunityId: string) =>
+    api.post<AssistantOpportunitySummary>(
+      `/assistant/opportunities/${encodeURIComponent(opportunityId)}/summary`,
+      {},
+    ),
   approvals: () => api.get<AssistantApprovalCard[]>('/assistant/approvals'),
   inbox: (params: Partial<AssistantInboxListQuery> = {}) =>
     api.get<AssistantInboxItem[]>(`/assistant/inbox${qs(params as Record<string, string | number | undefined>)}`),

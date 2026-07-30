@@ -4,7 +4,7 @@ import { and, desc, eq, ilike, inArray, isNull, sql } from 'drizzle-orm';
 import type { DbClient } from '../../db/client';
 import { quotes, quoteItems, quoteTerms, proformas, contracts, commercialInvoices } from '../../db/schema/quotes';
 import { companies, companyAddresses, companyEmails, companyPhones, contactCompanies, contacts } from '../../db/schema/companies';
-import { opportunities, salesActivities } from '../../db/schema/crm';
+import { opportunities, opportunityApprovals, salesActivities } from '../../db/schema/crm';
 import { receivables } from '../../db/schema/finance';
 import { inventoryItems } from '../../db/schema/inventory';
 import { brands, productModels } from '../../db/schema/products';
@@ -105,6 +105,53 @@ export class QuotesService {
     private readonly audit: AuditService,
     private readonly fx: FxService
   ) {}
+
+  private async invalidateInvoiceApprovals(quoteIds: string[], actor: AuthContext, reason: string) {
+    const ids = [...new Set(quoteIds.filter(Boolean))];
+    if (!ids.length) return;
+    const rows = await this.db
+      .select({ opportunityId: quotes.opportunityId })
+      .from(quotes)
+      .where(
+        and(
+          eq(quotes.tenantId, actor.tenantId),
+          inArray(quotes.id, ids),
+          isNull(quotes.deletedAt)
+        )
+      );
+    const opportunityIds = [
+      ...new Set(rows.map((row) => row.opportunityId).filter((id): id is string => Boolean(id))),
+    ];
+    if (!opportunityIds.length) return;
+    await this.db
+      .update(opportunityApprovals)
+      .set({
+        status: 'pending',
+        decidedBy: null,
+        decidedAt: null,
+        note: null,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(opportunityApprovals.tenantId, actor.tenantId),
+          inArray(opportunityApprovals.opportunityId, opportunityIds),
+          inArray(opportunityApprovals.approvalType, ['invoice', 'win']),
+          isNull(opportunityApprovals.deletedAt)
+        )
+      );
+    for (const opportunityId of opportunityIds) {
+      await this.audit.write({
+        tenantId: actor.tenantId,
+        actorUserId: actor.userId,
+        action: 'opportunity.approvals.invalidated',
+        resourceType: 'opportunity',
+        resourceId: opportunityId,
+        oldValues: { approvalTypes: ['invoice', 'win'] },
+        newValues: { status: 'pending', reason },
+      });
+    }
+  }
 
   /** 1 USD karşılığı teklif para birimi tutarı (USD teklif için 1). */
   private async usdToQuoteRate(currencyCode: string | null | undefined): Promise<number> {
@@ -1916,6 +1963,7 @@ export class QuotesService {
       const documentSnapshot = await this.buildCommercialDocumentSnapshot(row as unknown as Record<string, unknown>, row.quoteId, actor);
       await this.db.update(commercialInvoices).set({ finalizedAt, documentSnapshot }).where(eq(commercialInvoices.id, row.id));
     }
+    await this.invalidateInvoiceApprovals([row.quoteId], actor, 'Ticari fatura oluşturuldu');
     await this.audit.write({
       tenantId: actor.tenantId,
       actorUserId: actor.userId,
@@ -1960,6 +2008,11 @@ export class QuotesService {
       );
     }
     await this.db.update(commercialInvoices).set(patch).where(eq(commercialInvoices.id, id));
+    await this.invalidateInvoiceApprovals(
+      [existing.quoteId, String(patch.quoteId ?? existing.quoteId)],
+      actor,
+      'Ticari fatura değiştirildi'
+    );
     await this.audit.write({
       tenantId: actor.tenantId,
       actorUserId: actor.userId,
@@ -1976,6 +2029,7 @@ export class QuotesService {
     const existing = await this.getCommercialInvoice(id, actor);
     this.assertCommercialDocumentMutable(existing, 'Ticari fatura');
     await this.db.update(commercialInvoices).set({ deletedAt: new Date() }).where(eq(commercialInvoices.id, id));
+    await this.invalidateInvoiceApprovals([existing.quoteId], actor, 'Ticari fatura silindi');
     await this.audit.write({
       tenantId: actor.tenantId,
       actorUserId: actor.userId,

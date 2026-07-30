@@ -31,6 +31,7 @@ import { KanbanBoard, type KanbanColumn } from "../KanbanBoard";
 import { LogActivityDialog } from "../dialogs/CreateDialogs";
 import { LostCaseDialog } from "../dialogs/LostCaseDialog";
 import { NextActionDialog, actionDateLabel, isActionOverdue } from "../shared/NextActionDialog";
+import { RequestedMachineCombobox } from "../shared/RequestedMachineCombobox";
 import { Avatar, AvatarFallback } from "../ui/avatar";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
@@ -136,6 +137,7 @@ export function QualificationKanban({
   const {
     customers,
     users,
+    products,
     moveQualification,
     decideCaseApproval,
     updateCase,
@@ -450,14 +452,23 @@ export function QualificationKanban({
                         />
                       </div>
                     )}
-                    <Input
+                    <RequestedMachineCombobox
                       className="h-8 bg-white text-[11px]"
-                      defaultValue={salesCase.requestedMachine ?? ""}
-                      placeholder="İstenen makine"
-                      onBlur={(event) => {
-                        const value = event.target.value.trim();
-                        if (value !== (salesCase.requestedMachine ?? "")) {
-                          void updateCase(salesCase.id, { requestedMachine: value || null });
+                      products={products}
+                      value={salesCase.requestedMachine}
+                      disabled={!canUpdate || busyId === salesCase.id}
+                      onValueChange={async (value) => {
+                        if (value === (salesCase.requestedMachine ?? "")) return;
+                        setBusyId(salesCase.id);
+                        try {
+                          await updateCase(salesCase.id, { requestedMachine: value });
+                          toast.success("İstenen makine kaydedildi");
+                        } catch (error: any) {
+                          toast.error("Makine kaydedilemedi", {
+                            description: error?.message ?? "İstek başarısız oldu.",
+                          });
+                        } finally {
+                          setBusyId(null);
                         }
                       }}
                     />

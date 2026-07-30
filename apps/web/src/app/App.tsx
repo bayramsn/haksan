@@ -102,11 +102,35 @@ function AppShell() {
   const [nav, setNav] = usePersistentState<NavKey>("nav", "dashboard");
   const [selectedCustomerId, setSelectedCustomerId] = usePersistentState<string | null>("selectedCustomerId", null);
   const [selectedCaseId, setSelectedCaseId] = usePersistentState<string | null>("selectedCaseId", null);
+  const [deepLinkReady, setDeepLinkReady] = useState(false);
   const [focus, setFocus] = useState<{ nav: NavKey; focus?: OperationFocus; query?: string } | null>(null);
   const requestedNav = isNavKey(nav) ? nav : DEFAULT_NAV;
   const currentNav = !authed || canAccessNavKey(requestedNav, hasPermission, hasRole) ? requestedNav : DEFAULT_NAV;
   const previousNavRef = useRef<NavKey | null>(null);
   const previousAuthedRef = useRef<boolean | null>(null);
+
+  useEffect(() => {
+    const applyLocation = () => {
+      const opportunityId = new URL(window.location.href).searchParams.get("opportunity");
+      if (opportunityId) {
+        setSelectedCustomerId(null);
+        setSelectedCaseId(opportunityId);
+        setNav("sales-cases");
+      }
+      setDeepLinkReady(true);
+    };
+    applyLocation();
+    window.addEventListener("popstate", applyLocation);
+    return () => window.removeEventListener("popstate", applyLocation);
+  }, [setNav, setSelectedCaseId, setSelectedCustomerId]);
+
+  useEffect(() => {
+    if (!deepLinkReady) return;
+    const url = new URL(window.location.href);
+    if (selectedCaseId) url.searchParams.set("opportunity", selectedCaseId);
+    else url.searchParams.delete("opportunity");
+    window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
+  }, [deepLinkReady, selectedCaseId]);
 
   useEffect(() => {
     if (currentNav !== nav) setNav(currentNav);
@@ -314,7 +338,11 @@ function AppShell() {
         </ErrorBoundary>
       )}
       </PageShell>
-      <SalesCaseDetailDialog sc={selectedCase} onClose={() => setSelectedCaseId(null)} />
+      <SalesCaseDetailDialog
+        sc={selectedCase}
+        onClose={() => setSelectedCaseId(null)}
+        onNavigate={(opportunityId) => setSelectedCaseId(opportunityId)}
+      />
     </Layout>
     </VoiceCallProvider>
   );

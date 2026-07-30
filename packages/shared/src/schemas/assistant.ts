@@ -149,6 +149,25 @@ export const assistantCompanyMemorySchema = z.object({
 });
 export type AssistantCompanyMemory = z.infer<typeof assistantCompanyMemorySchema>;
 
+/**
+ * Fırsat çalışma alanındaki kontrollü özet. `mode`, gerçek bir model çağrısı
+ * ile CRM verilerinden üretilen yerel özeti kullanıcıya açıkça ayırır.
+ */
+export const assistantOpportunitySummarySchema = z.object({
+  generatedAt: z.string().datetime(),
+  mode: z.enum(['ai', 'deterministic']),
+  summary: z.string().min(1).max(2000),
+  risks: z.array(z.string().min(1).max(500)).max(8),
+  nextActions: z.array(z.string().min(1).max(500)).max(8),
+  dataCoverage: z.number().int().min(0).max(100),
+  source: z.object({
+    type: z.literal('opportunity'),
+    id: z.string().uuid(),
+    label: z.string().min(1).max(255),
+  }),
+});
+export type AssistantOpportunitySummary = z.infer<typeof assistantOpportunitySummarySchema>;
+
 export const assistantChatContextSchema = z.object({
   page: optionalText(80),
   recordId: optionalText(128),

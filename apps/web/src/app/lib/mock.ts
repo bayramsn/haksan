@@ -337,6 +337,10 @@ export type SalesCase = {
   quantity: number;
   estimatedAmount: number;
   currency: "USD" | "EUR" | "TRY";
+  /** CRM tahmin olasılığı; 0–100 aralığında yüzde. */
+  probability?: number;
+  /** Satış ekibinin hedeflediği kapanış tarihi. */
+  expectedCloseDate?: string;
   stage: SalesStage;
   qualificationStage: QualificationStage;
   qualificationNote?: string;

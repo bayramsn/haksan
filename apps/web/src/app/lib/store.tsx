@@ -473,6 +473,10 @@ type Store = {
       assignedUserId?: string;
       paymentTermDays?: number | null;
       paymentMethod?: SalesCase['paymentMethod'];
+      estimatedAmount?: number;
+      currency?: SalesCase['currency'];
+      probability?: number;
+      expectedCloseDate?: string | null;
       leadTemperature?: SalesCase['leadTemperature'];
       leadFollowUpStatus?: SalesCase['leadFollowUpStatus'];
       nextAction?: string | null;
@@ -784,6 +788,8 @@ function StoreInner({ children }: { children: ReactNode }) {
           quantity: 1,
           estimatedAmount: Number(o.estimatedValue ?? 0),
           currency: (o.currency?.code as 'USD' | 'EUR' | 'TRY') ?? 'USD',
+          probability: Math.min(100, Math.max(0, Number(o.probability ?? 50))),
+          expectedCloseDate: o.expectedCloseDate ? (o.expectedCloseDate as string).slice(0, 10) : undefined,
           stage: STAGE_BY_CODE[o.stage?.code ?? ''] ?? 'lead',
           qualificationStage: (o.qualificationStage ?? 'lead') as QualificationStage,
           qualificationNote: o.qualificationNote ?? undefined,
@@ -1627,6 +1633,10 @@ function StoreInner({ children }: { children: ReactNode }) {
     if (patch.assignedUserId !== undefined) body.ownerUserId = patch.assignedUserId || null;
     if (patch.paymentTermDays !== undefined) body.paymentTermDays = patch.paymentTermDays ?? null;
     if (patch.paymentMethod !== undefined) body.paymentMethod = patch.paymentMethod;
+    if (patch.estimatedAmount !== undefined) body.estimatedValue = patch.estimatedAmount;
+    if (patch.currency !== undefined) body.currencyCode = patch.currency;
+    if (patch.probability !== undefined) body.probability = patch.probability;
+    if (patch.expectedCloseDate !== undefined) body.expectedCloseDate = patch.expectedCloseDate;
     if (patch.leadTemperature !== undefined) body.leadTemperature = patch.leadTemperature;
     if (patch.leadFollowUpStatus !== undefined) body.leadFollowUpStatus = patch.leadFollowUpStatus;
     if (patch.nextAction !== undefined) body.nextAction = patch.nextAction;

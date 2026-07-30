@@ -2,11 +2,9 @@ import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
 import { Button } from "../ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../ui/tabs";
-import { AlarmClock, ArrowLeft, CalendarClock, Plus, Upload, X, XCircle, Eye, FileText, CreditCard, CheckCircle2, Trash2, Wrench, Pencil, Building2, UserRound } from "lucide-react";
+import { AlarmClock, ArrowLeft, CalendarClock, ChevronLeft, ChevronRight, Plus, Upload, X, XCircle, Eye, FileText, CreditCard, CheckCircle2, Trash2, Wrench, Pencil, Building2, UserRound } from "lucide-react";
 import {
   SalesCase,
-  SALES_STAGES,
-  salesStageLabel,
   LEAD_TEMPERATURE_HINTS,
   LEAD_TEMPERATURE_LABELS,
   LEAD_TEMPERATURE_ORDER,
@@ -22,18 +20,15 @@ import {
 } from "../../lib/mock";
 import {
   PIPELINE_STAGE_FLOW,
-  PIPELINE_STAGE_QUALIFICATION,
-  PIPELINE_STAGE_REQUIREMENTS,
-  STAGE_TRANSITIONS,
-  type PipelineStageCode,
+  type OpportunityProcessActionKey,
 } from "@haksan/shared";
-import { QUALIFICATION_STAGE_LABELS } from "../../lib/mock";
 import { ProcessChecklistPanel } from "./ProcessChecklistPanel";
+import { OpportunityProcessCenter } from "./OpportunityProcessCenter";
 import { StatusBadge } from "../Layout";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../ui/table";
 import { useStore } from "../../lib/store";
 import { useAuth } from "../../../lib/auth";
-import { AddActivityDialog, CreateCustomerDialog } from "../dialogs/CreateDialogs";
+import { AddActivityDialog, CreateCustomerDialog, CreateShipmentDialog } from "../dialogs/CreateDialogs";
 import { QuoteDialog } from "../dialogs/QuoteDialog";
 import { LostCaseDialog } from "../dialogs/LostCaseDialog";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "../ui/dialog";
@@ -52,29 +47,79 @@ import { Input } from "../ui/input";
 import { Textarea } from "../ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
 import { DocumentUploadDialog } from "../dialogs/DocumentUploadDialog";
+import { CreateProformaDialog } from "../dialogs/CreateProformaDialog";
+import { CreateContractDialog } from "../dialogs/CreateContractDialog";
+import { OpportunityStockPickerDialog } from "../dialogs/OpportunityStockPickerDialog";
 import { OfferDetailDialog } from "./offers/OffersPage";
 import { STAGE_DOT } from "./Kanban";
 import { DialogSplitLayout, DialogSidebarSection } from "../shared/DialogSplitLayout";
 import { NextActionDialog, actionDateLabel, isActionOverdue } from "../shared/NextActionDialog";
 import { KanbanDetailDialogShell } from "../shared/KanbanDetailDialogShell";
-import { fileService, opportunityService, quoteService, salesOrderService, financeService } from "../../../lib/services";
+import { documentService, fileService, opportunityService, quoteService, salesOrderService, financeService } from "../../../lib/services";
 import { toast } from "sonner";
+import { OpportunityQuickPanel } from "./OpportunityQuickPanel";
+import { OpportunityWorkspace } from "./OpportunityWorkspace";
 
 export function SalesCaseDetailDialog({
   sc,
   onClose,
+  onNavigate,
 }: {
   sc: SalesCase | null;
   onClose: () => void;
+  onNavigate: (opportunityId: string) => void;
 }) {
+  const { cases } = useStore();
+  const [workspaceOpen, setWorkspaceOpen] = useState(false);
+  const currentIndex = sc ? cases.findIndex((item) => item.id === sc.id) : -1;
+  const previous = currentIndex > 0 ? cases[currentIndex - 1] : null;
+  const next = currentIndex >= 0 && currentIndex < cases.length - 1 ? cases[currentIndex + 1] : null;
+
+  useEffect(() => {
+    if (!sc) setWorkspaceOpen(false);
+  }, [sc]);
+
   return (
     <Dialog open={!!sc} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="w-[min(1240px,calc(100vw-2rem))] max-w-none sm:max-w-none max-h-[90dvh] overflow-x-hidden overflow-y-hidden p-0 gap-0 [&>[data-slot=dialog-close]]:hidden">
+      <DialogContent
+        style={workspaceOpen ? undefined : {
+          left: "auto",
+          right: 0,
+          top: 0,
+          width: "min(620px, 100vw)",
+          minWidth: 0,
+          maxWidth: "100vw",
+          transform: "none",
+        }}
+        className={
+          workspaceOpen
+            ? "left-0 top-0 h-dvh max-h-dvh w-screen max-w-none translate-x-0 translate-y-0 overflow-x-hidden overflow-y-hidden rounded-none p-0 gap-0 sm:left-1/2 sm:top-1/2 sm:h-auto sm:max-h-[90dvh] sm:w-[min(1240px,calc(100vw-2rem))] sm:max-w-none sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-lg [&>[data-slot=dialog-close]]:hidden"
+            : "inset-y-0 left-auto right-0 top-0 h-dvh max-h-dvh w-[min(620px,100vw)] max-w-none translate-x-0 translate-y-0 overflow-hidden rounded-none border-y-0 border-r-0 p-0 gap-0 sm:max-w-none data-[state=open]:slide-in-from-right-full data-[state=closed]:slide-out-to-right-full data-[state=open]:zoom-in-100 data-[state=closed]:zoom-out-100 [&>[data-slot=dialog-close]]:hidden"
+        }
+      >
         <DialogHeader className="sr-only">
           <DialogTitle>{sc?.requestedProduct ?? "Satış kartı detayı"}</DialogTitle>
           <DialogDescription>Satış kartı, teklifler ve aktiviteler</DialogDescription>
         </DialogHeader>
-        {sc && <SalesCaseDetailPage sc={sc} onBack={onClose} mode="dialog" />}
+        {sc && (workspaceOpen ? (
+          <SalesCaseDetailPage
+            sc={sc}
+            onBack={() => setWorkspaceOpen(false)}
+            mode="dialog"
+            previous={previous}
+            next={next}
+            onNavigate={onNavigate}
+          />
+        ) : (
+          <OpportunityQuickPanel
+            salesCase={sc}
+            onClose={onClose}
+            onOpenWorkspace={() => setWorkspaceOpen(true)}
+            previous={previous}
+            next={next}
+            onNavigate={onNavigate}
+          />
+        ))}
       </DialogContent>
     </Dialog>
   );
@@ -84,16 +129,22 @@ export function SalesCaseDetailPage({
   sc,
   onBack,
   mode = "page",
+  previous = null,
+  next = null,
+  onNavigate,
 }: {
   sc: SalesCase;
   onBack: () => void;
   mode?: "page" | "dialog";
+  previous?: SalesCase | null;
+  next?: SalesCase | null;
+  onNavigate?: (opportunityId: string) => void;
 }) {
-  const { offers, activities, customers, users, documents, payments, installations, refresh, deleteCase, updateCase, closeCase, updateActivity, deleteActivity, moveCase } = useStore();
-  const [advancing, setAdvancing] = useState<string | null>(null);
+  const { offers, activities, customers, users, documents, payments, installations, refresh, deleteCase, updateCase, closeCase, updateActivity, deleteActivity } = useStore();
   const { hasRole, hasPermission } = useAuth();
   const isSuperAdmin = hasRole("super_admin");
   const canUpdate = hasPermission("opportunities.update");
+  const canDelete = hasPermission("opportunities.delete");
   const [lostOpen, setLostOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [closeOpen, setCloseOpen] = useState(false);
@@ -107,7 +158,8 @@ export function SalesCaseDetailPage({
   const [activityForm, setActivityForm] = useState({ type: "", title: "", note: "", result: "", date: "" });
   const [salesOrders, setSalesOrders] = useState<any[]>([]);
   const [companyLinking, setCompanyLinking] = useState(false);
-  const canMarkLost = !sc.isLost && sc.stage !== "cancelled" && sc.stage !== "delivered";
+  const [requestedProcessAction, setRequestedProcessAction] = useState<OpportunityProcessActionKey | null>(null);
+  const canMarkLost = canUpdate && !sc.isLost && sc.stage !== "cancelled" && sc.stage !== "delivered";
   const c = customers.find((x) => x.id === sc.customerId);
   const hasCompany = Boolean(sc.customerId && c);
   const trelloCandidate = sc.externalMetadata?.candidate;
@@ -125,13 +177,15 @@ export function SalesCaseDetailPage({
   const u = users.find((x) => x.id === sc.assignedUserId);
   const acts = activities.filter((a) => a.salesCaseId === sc.id);
   const offs = offers.filter((o) => o.salesCaseId === sc.id);
+  const latestOffer = offs.slice().sort((a, b) => b.revision - a.revision)[0];
   const docs = documents.filter((d) => d.salesCaseId === sc.id);
   const pays = payments.filter((p) => p.salesCaseId === sc.id);
   const relatedInstallation = installations.find((item) => item.salesCaseId === sc.id);
   // Kart "Sözleşme" aşamasına ulaştıysa ticari fatura yükleme alanını aç.
-  const reachedContract = SALES_STAGES.indexOf(sc.stage) >= SALES_STAGES.indexOf("contract");
-  const reachedPaymentPlan = SALES_STAGES.indexOf(sc.stage) >= SALES_STAGES.indexOf("payment_plan");
-  const reachedInstallation = SALES_STAGES.indexOf(sc.stage) >= SALES_STAGES.indexOf("installation");
+  const currentOperationIndex = PIPELINE_STAGE_FLOW.indexOf(sc.stage as any);
+  const reachedContract = currentOperationIndex >= PIPELINE_STAGE_FLOW.indexOf("contract");
+  const reachedPaymentPlan = currentOperationIndex >= PIPELINE_STAGE_FLOW.indexOf("payment_plan");
+  const reachedInstallation = currentOperationIndex >= PIPELINE_STAGE_FLOW.indexOf("installation");
   const commercialInvoiceDoc = docs.find((d) => d.type === "CommercialInvoice");
   const selectedOffer = selectedOfferId ? offers.find((o) => o.id === selectedOfferId) ?? null : null;
   const selectedRevisions = selectedOffer
@@ -217,6 +271,21 @@ export function SalesCaseDetailPage({
     }
   };
 
+  const registerCommercialInvoice = async (document: DocumentItem) => {
+    if (!latestOffer?.id || !document.fileId) {
+      throw new Error("Ticari fatura için önce teklif ve yüklenen dosya gereklidir.");
+    }
+    await documentService.createCommercialInvoice({
+      quoteId: latestOffer.id,
+      invoiceNo: `TF-${new Date().toISOString().replace(/\D/g, "").slice(0, 14)}`,
+      invoiceDate: new Date(),
+      statusCode: "draft",
+      fileId: document.fileId,
+    });
+    await refresh();
+    toast.success("Ticari fatura kaydı ve dosyası oluşturuldu");
+  };
+
   const deleteUploadedDocument = async (documentItem: DocumentItem) => {
     if (!documentItem.fileId || documentItem.source !== "uploaded_file" || deletingDocumentId) return;
     setDeletingDocumentId(documentItem.id);
@@ -269,6 +338,71 @@ export function SalesCaseDetailPage({
     } catch (err: any) {
       toast.error("Aktivite silinemedi", { description: err?.message ?? "API isteği başarısız oldu." });
     }
+  };
+
+  const handleProcessAction = async (actionKey: OpportunityProcessActionKey) => {
+    const approvalByAction: Partial<Record<OpportunityProcessActionKey, "payment" | "customs" | "invoice" | "installation" | "win">> = {
+      approve_payment: "payment",
+      approve_customs: "customs",
+      approve_invoice: "invoice",
+      approve_installation: "installation",
+      approve_win: "win",
+    };
+    const approvalType = approvalByAction[actionKey];
+    if (approvalType) {
+      try {
+        await opportunityService.decideApproval(sc.id, approvalType, { decision: "approved" });
+        await refresh();
+        toast.success("Onay verildi");
+      } catch (error: any) {
+        toast.error("Onay verilemedi", { description: error?.message ?? "Gerekli kanıtları kontrol edin." });
+      }
+      return;
+    }
+    if (actionKey === "approve_quote") {
+      const candidate = offs.find((offer) => offer.status !== "Approved") ?? offs[0];
+      if (candidate) {
+        await runQuoteAction(candidate.id, "approve");
+        return;
+      }
+    }
+    if (actionKey === "complete_shipment") {
+      setRequestedProcessAction("create_shipment");
+      return;
+    }
+    if (actionKey === "open_installation" || actionKey === "complete_installation") {
+      document.getElementById("opportunity-installation")?.scrollIntoView({ behavior: "smooth", block: "center" });
+      setRequestedProcessAction(null);
+      toast.message("Kurulum kaydı servis bölümünden açılabilir", {
+        description: relatedInstallation
+          ? "Mevcut kurulum kaydı aşağıda gösteriliyor."
+          : "Önce Kurulum operasyon adımına geçerek servis kaydını oluşturun.",
+      });
+      return;
+    }
+    setRequestedProcessAction(actionKey);
+    requestAnimationFrame(() => {
+      document.getElementById("opportunity-process-actions")?.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+  };
+
+  const canPerformProcessAction = (actionKey: OpportunityProcessActionKey) => {
+    if (actionKey.startsWith("approve_")) {
+      if (actionKey === "approve_quote") return hasPermission("quotes.approve");
+      return hasPermission("opportunities.approve");
+    }
+    if (actionKey === "create_quote") return hasPermission("quotes.create");
+    if (actionKey === "create_proforma") return hasPermission("proformas.create");
+    if (actionKey === "create_contract") return hasPermission("contracts.create");
+    if (actionKey === "create_commercial_invoice") return hasPermission("commercial_invoices.create");
+    if (actionKey === "reserve_stock") return hasPermission("inventory.update");
+    if (actionKey === "create_shipment" || actionKey === "complete_shipment") {
+      return hasPermission("shipments.create") || hasPermission("shipments.update");
+    }
+    if (actionKey === "open_installation" || actionKey === "complete_installation") {
+      return hasPermission("installations.create") || hasPermission("installations.update");
+    }
+    return canUpdate;
   };
 
   const handleCloseCase = async () => {
@@ -372,6 +506,62 @@ export function SalesCaseDetailPage({
     </div>
   );
 
+  const companyLinkingPanel = !hasCompany ? (
+    <Card className="border-warning/30 bg-warning-soft/55">
+      <CardContent className="p-4 sm:p-5">
+        <div className="min-w-0 space-y-4">
+          <div className="flex min-w-0 items-start gap-3">
+            <div className="grid size-10 shrink-0 place-items-center rounded-lg bg-white text-warning shadow-xs">
+              <Building2 className="size-5" />
+            </div>
+            <div className="min-w-0">
+              <div className="text-sm font-semibold">Tekliften önce firma kaydı gerekli</div>
+              <div className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
+                Lead bilgileri satış kartında kalır. Mevcut bir firmayı bağlayın veya bu karttan yeni firma kaydını açın.
+              </div>
+            </div>
+          </div>
+          <div className="grid w-full min-w-0 gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+            <Select disabled={companyLinking} onValueChange={(companyId) => void linkCompany(companyId)}>
+              <SelectTrigger className="w-full min-w-0 bg-white">
+                <SelectValue placeholder={companyLinking ? "Firma bağlanıyor…" : "Mevcut firma bağla"} />
+              </SelectTrigger>
+              <SelectContent>
+                {customers.map((customer) => (
+                  <SelectItem key={customer.id} value={customer.id}>{customer.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <CreateCustomerDialog
+              draftKey={`draft.customer.sales-case.${sc.id}`}
+              initialValues={{
+                name: trelloCandidate?.companyTitle ?? sc.leadCompanyTitle ?? "",
+                contactSourceCode: sc.leadContactMethodCode ?? "",
+                phone: trelloCandidate?.phone ?? (sc.leadContactMethodCode === "phone" ? sc.leadContactValue ?? "" : ""),
+                email: trelloCandidate?.email ?? (sc.leadContactMethodCode === "email" ? sc.leadContactValue ?? "" : ""),
+                initialNote: [
+                  sc.externalSource === "trello"
+                    ? "Trello satış kartından Potansiyel firma olarak oluşturuldu."
+                    : "Hızlı lead satış kartından oluşturuldu.",
+                  trelloCandidate?.contactName || sc.leadContactName
+                    ? `Kontak: ${trelloCandidate?.contactName ?? sc.leadContactName}`
+                    : null,
+                  sc.leadContactMethodName ? `İrtibat şekli: ${sc.leadContactMethodName}` : null,
+                ].filter(Boolean).join("\n"),
+              }}
+              onCreated={linkCompany}
+              trigger={
+                <Button type="button" className="w-full gap-1.5 whitespace-nowrap sm:w-auto" disabled={companyLinking}>
+                  <Plus className="size-4" /> Yeni Firma Oluştur
+                </Button>
+              }
+            />
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  ) : null;
+
   const content = (
     <>
       <div className={toolbarClass}>
@@ -382,6 +572,70 @@ export function SalesCaseDetailPage({
       </div>
 
       <LostCaseDialog open={lostOpen} onOpenChange={setLostOpen} caseId={sc.id} caseName={partyName} />
+      <QuoteDialog
+        open={requestedProcessAction === "create_quote"}
+        onOpenChange={(open) => !open && setRequestedProcessAction(null)}
+        defaultCustomerId={sc.customerId || undefined}
+        defaultCaseId={sc.id}
+      />
+      <CreateProformaDialog
+        open={requestedProcessAction === "create_proforma"}
+        onOpenChange={(open) => !open && setRequestedProcessAction(null)}
+        defaultQuoteId={latestOffer?.id}
+        onCreated={() => {
+          setRequestedProcessAction(null);
+          void refresh();
+        }}
+      />
+      <CreateContractDialog
+        open={requestedProcessAction === "create_contract"}
+        onOpenChange={(open) => !open && setRequestedProcessAction(null)}
+        defaultQuoteId={latestOffer?.id}
+        onCreated={() => {
+          setRequestedProcessAction(null);
+          void refresh();
+        }}
+      />
+      <CreatePaymentPlanDialog
+        sc={sc}
+        offs={offs}
+        c={c}
+        open={requestedProcessAction === "create_payment_plan"}
+        onOpenChange={(open) => !open && setRequestedProcessAction(null)}
+        onCreated={() => {
+          setRequestedProcessAction(null);
+          void refresh();
+        }}
+      />
+      <DocumentUploadDialog
+        open={requestedProcessAction === "create_commercial_invoice"}
+        onOpenChange={(open) => !open && setRequestedProcessAction(null)}
+        defaultSalesCaseId={sc.id}
+        defaultCompanyId={sc.customerId || undefined}
+        defaultType="CommercialInvoice"
+        onUploaded={async (document) => {
+          await registerCommercialInvoice(document);
+          setRequestedProcessAction(null);
+        }}
+      />
+      <CreateShipmentDialog
+        open={requestedProcessAction === "create_shipment"}
+        onOpenChange={(open) => !open && setRequestedProcessAction(null)}
+        defaultSalesCaseId={sc.id}
+        onCreated={() => {
+          setRequestedProcessAction(null);
+          void refresh();
+        }}
+      />
+      <OpportunityStockPickerDialog
+        open={requestedProcessAction === "reserve_stock"}
+        onOpenChange={(open) => !open && setRequestedProcessAction(null)}
+        salesCase={sc}
+        onCompleted={async () => {
+          setRequestedProcessAction(null);
+          await refresh();
+        }}
+      />
       <AlertDialog open={deleteOpen} onOpenChange={(open) => !deleteSaving && setDeleteOpen(open)}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -472,7 +726,7 @@ export function SalesCaseDetailPage({
         className={
           mode === "page"
             ? "lg:[&>aside]:top-4"
-            : "lg:grid-cols-[minmax(0,1fr)_360px]"
+            : "lg:grid-cols-1 [&>aside]:hidden"
         }
         aside={
           <>
@@ -486,6 +740,7 @@ export function SalesCaseDetailPage({
                   className="h-6 w-16 rounded border border-border/70 bg-card px-1.5 text-right text-xs tabular-nums outline-none focus:border-ring"
                   defaultValue={sc.paymentTermDays ?? ""}
                   placeholder="—"
+                  disabled={!canUpdate}
                   onBlur={async (e) => {
                     const raw = e.target.value.trim();
                     const next = raw === "" ? null : Math.max(0, Number(raw) || 0);
@@ -500,6 +755,7 @@ export function SalesCaseDetailPage({
                 <div className="mb-1 text-[10px] uppercase tracking-wide text-muted-foreground">Alım niyeti</div>
                 <Select
                   value={sc.leadTemperature ?? "unknown"}
+                  disabled={!canUpdate}
                   onValueChange={async (value) => {
                     await updateCase(sc.id, { leadTemperature: value as LeadTemperature });
                   }}
@@ -664,7 +920,7 @@ export function SalesCaseDetailPage({
               </DialogSidebarSection>
             )}
             <DialogSidebarSection title="İşlemler">
-              {sc.stage === "delivered" && !sc.closedAt && (
+              {canUpdate && sc.stage === "delivered" && !sc.closedAt && (
                 <Button
                   variant="outline"
                   size="sm"
@@ -685,14 +941,16 @@ export function SalesCaseDetailPage({
                   <XCircle className="size-4" /> Kaybedildi olarak işaretle
                 </Button>
               )}
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setDeleteOpen(true)}
-                className="w-full justify-start gap-2 rounded-md border-destructive/30 text-destructive hover:bg-destructive-soft hover:text-destructive"
-              >
-                <Trash2 className="size-4" /> Satış Kartını Sil
-              </Button>
+              {canDelete && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setDeleteOpen(true)}
+                  className="w-full justify-start gap-2 rounded-md border-destructive/30 text-destructive hover:bg-destructive-soft hover:text-destructive"
+                >
+                  <Trash2 className="size-4" /> Satış Kartını Sil
+                </Button>
+              )}
             </DialogSidebarSection>
             {mode === "dialog" && (
               <DialogSidebarSection title="Yorumlar ve Aktivite">
@@ -702,183 +960,40 @@ export function SalesCaseDetailPage({
           </>
         }
       >
-      <Card>
-        <CardContent className="p-6">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-            <div className="min-w-0">
-              <div className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">SATIŞ KARTI · #{sc.id.toUpperCase()}</div>
-              <div className="mt-1 flex flex-wrap items-center gap-2">
-                <div className="text-xl font-semibold break-words">{partyName}</div>
-                {!hasCompany && (
-                  <span className="rounded-full border border-warning/25 bg-warning-soft px-2 py-0.5 text-[10px] font-medium text-warning">
-                    Firma kaydı bekliyor
-                  </span>
-                )}
-              </div>
-              <div className="mt-0.5 min-w-0 break-words text-sm text-muted-foreground">{compactSubtitle}</div>
-              {sc.externalSource === "trello" && sc.description && (
-                <div className="mt-2 line-clamp-3 max-w-3xl whitespace-pre-wrap break-words text-xs leading-relaxed text-muted-foreground">
-                  {sc.description}
-                </div>
-              )}
-              {sc.leadContactName && (
-                <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
-                  <span>Kontak: <b className="font-medium text-foreground">{sc.leadContactName}</b></span>
-                  {sc.leadContactMethodName && <span>İrtibat: <b className="font-medium text-foreground">{sc.leadContactMethodName}</b></span>}
-                  {sc.leadContactValue && <span><b className="font-medium text-foreground">{sc.leadContactValue}</b></span>}
-                </div>
-              )}
+      {mode === "dialog" ? (
+        <OpportunityWorkspace
+          salesCase={sc}
+          processCenter={
+            <OpportunityProcessCenter
+              salesCase={sc}
+              canUpdate={canUpdate}
+              canPerformAction={canPerformProcessAction}
+              onRefresh={refresh}
+              onAction={(actionKey) => void handleProcessAction(actionKey)}
+            />
+          }
+          processChecklist={
+            <div id="opportunity-process-actions" className="scroll-mt-24">
+              <ProcessChecklistPanel sc={sc} requestedAction={requestedProcessAction} onActionHandled={() => setRequestedProcessAction(null)} />
             </div>
-          </div>
+          }
+          companyLinkingPanel={companyLinkingPanel}
+          onOpenOffer={setSelectedOfferId}
+          onDownloadDocument={(document) => void downloadDocument(document.fileId, document.fileName)}
+        />
+      ) : (
+      <>
+      <OpportunityProcessCenter
+        salesCase={sc}
+        canUpdate={canUpdate}
+        canPerformAction={canPerformProcessAction}
+        onRefresh={refresh}
+        onAction={(actionKey) => void handleProcessAction(actionKey)}
+      />
 
-          <div className="mt-5 overflow-x-auto rounded-xl border border-border/70 bg-muted/15 px-3 py-3">
-            {(() => {
-              // Süreç sırası derece alanlarına göre gruplanmış listeden gelir;
-              // ham SALES_STAGES dizisi bildirim sırası olduğu için bantları
-              // "… A → C → A …" diye zikzak yaptırırdı.
-              const steps = PIPELINE_STAGE_FLOW as unknown as typeof SALES_STAGES;
-              const currentIndex = sc.stage === "cancelled" ? -1 : steps.indexOf(sc.stage);
-              // Operasyon adımları satış derecelerinin alt adımlarıdır; adımların
-              // üstünde hangi dereceye ait olduklarını gösteren bant çizilir.
-              const bands: Array<{ grade: string; span: number }> = [];
-              for (const step of steps) {
-                const grade = PIPELINE_STAGE_QUALIFICATION[step as PipelineStageCode];
-                const last = bands[bands.length - 1];
-                if (last && last.grade === grade) last.span += 1;
-                else bands.push({ grade, span: 1 });
-              }
-              const activeGrade = sc.qualificationStage ?? "lead";
-              return (
-                <div className="min-w-max">
-                  <div className="mb-1.5 flex" aria-hidden>
-                    {bands.map((band, index) => (
-                      <div
-                        key={`${band.grade}-${index}`}
-                        className="pr-6 last:pr-0"
-                        style={{ width: band.span * 112 + (band.span - 1) * 24 }}
-                      >
-                        <div
-                          className={`rounded-md px-2 py-0.5 text-center text-[10px] font-semibold ${
-                            band.grade === activeGrade
-                              ? "bg-primary/10 text-primary"
-                              : "bg-muted text-muted-foreground"
-                          }`}
-                        >
-                          {QUALIFICATION_STAGE_LABELS[band.grade as keyof typeof QUALIFICATION_STAGE_LABELS] ?? band.grade}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                  <ol className="flex items-start" aria-label="Satış aşamaları">
-                    {steps.map((s, i) => {
-                      const complete = currentIndex >= 0 && i < currentIndex;
-                      const active = s === sc.stage;
-                      return (
-                        <li key={s} className="flex items-start">
-                          <div className="flex w-[112px] flex-col items-center text-center">
-                            <span
-                              aria-current={active ? "step" : undefined}
-                              className={`grid size-7 place-items-center rounded-full border text-[10px] font-semibold transition-colors ${
-                                complete
-                                  ? "border-success bg-success text-white"
-                                  : active
-                                    ? "border-primary bg-primary text-white ring-4 ring-primary/10"
-                                    : "border-border bg-white text-muted-foreground"
-                              }`}
-                            >
-                              {complete ? <CheckCircle2 className="size-4" /> : i + 1}
-                            </span>
-                            <span className={`mt-1.5 max-w-[108px] text-[10px] leading-tight ${active ? "font-semibold text-primary" : complete ? "text-success" : "text-muted-foreground"}`}>
-                              {salesStageLabel(s)}
-                            </span>
-                          </div>
-                          {i < steps.length - 1 && (
-                            <span className={`mt-3.5 h-px w-6 shrink-0 ${complete ? "bg-success" : "bg-border"}`} aria-hidden />
-                          )}
-                        </li>
-                      );
-                    })}
-                  </ol>
-                </div>
-              );
-            })()}
-          </div>
-
-          {(() => {
-            // Bir sonraki operasyon adımları: hedef aşamanın izin verdiği
-            // kaynaklar arasında mevcut aşama varsa oraya geçilebilir.
-            const current = sc.stage as PipelineStageCode;
-            if (current === "delivered" || current === "cancelled" || sc.closedAt) return null;
-            const nextStages = (Object.keys(STAGE_TRANSITIONS) as PipelineStageCode[]).filter(
-              (target) =>
-                target !== "cancelled" &&
-                target !== current &&
-                STAGE_TRANSITIONS[target].includes(current) &&
-                PIPELINE_STAGE_FLOW.indexOf(target) > PIPELINE_STAGE_FLOW.indexOf(current)
-            );
-            if (nextStages.length === 0) return null;
-
-            const advance = async (target: PipelineStageCode) => {
-              setAdvancing(target);
-              try {
-                await moveCase(sc.id, target);
-                toast.success("Operasyon adımı ilerledi", { description: salesStageLabel(target) });
-              } catch (error: any) {
-                toast.error("Adım ilerletilemedi", {
-                  description: error?.message ?? "Ön koşullar tamamlanmamış olabilir.",
-                });
-              } finally {
-                setAdvancing(null);
-              }
-            };
-
-            return (
-              <div className="mt-3 rounded-xl border border-primary/15 bg-blue-50/40 p-3">
-                <div className="font-data text-[9px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-                  Sonraki operasyon adımı
-                </div>
-                <div className="mt-2 grid gap-2">
-                  {nextStages.map((target) => {
-                    const rule = PIPELINE_STAGE_REQUIREMENTS[target];
-                    return (
-                      <div
-                        key={target}
-                        className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border/60 bg-white px-3 py-2"
-                      >
-                        <div className="min-w-0">
-                          <div className="text-xs font-semibold">
-                            {PIPELINE_STAGE_FLOW.indexOf(target) + 1}. {salesStageLabel(target)}
-                          </div>
-                          {rule.requires && (
-                            <div className="mt-0.5 text-[10px] leading-4 text-amber-700">
-                              Ön koşul: {rule.requires}
-                            </div>
-                          )}
-                          {rule.effect && (
-                            <div className="mt-0.5 text-[10px] leading-4 text-muted-foreground">
-                              {rule.effect}
-                            </div>
-                          )}
-                        </div>
-                        <Button
-                          size="sm"
-                          className="h-8 shrink-0"
-                          disabled={advancing !== null}
-                          onClick={() => void advance(target)}
-                        >
-                          {advancing === target ? "İlerletiliyor…" : "Bu adıma geç"}
-                        </Button>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            );
-          })()}
-        </CardContent>
-      </Card>
-
-      <ProcessChecklistPanel sc={sc} />
+      <div id="opportunity-process-actions" className="scroll-mt-24">
+        <ProcessChecklistPanel sc={sc} requestedAction={requestedProcessAction} onActionHandled={() => setRequestedProcessAction(null)} />
+      </div>
 
       {!hasCompany && (
         <Card className="border-warning/30 bg-warning-soft/55">
@@ -1006,6 +1121,7 @@ export function SalesCaseDetailPage({
                   defaultSalesCaseId={sc.id}
                   defaultCompanyId={sc.customerId}
                   defaultType="CommercialInvoice"
+                  onUploaded={registerCommercialInvoice}
                   trigger={
                     <Button size="sm" className="gap-1">
                       <Upload className="size-4" />
@@ -1020,7 +1136,7 @@ export function SalesCaseDetailPage({
       )}
 
       {(reachedInstallation || relatedInstallation) && (
-        <Card className="border-info/30 bg-info-soft/60">
+        <Card id="opportunity-installation" className="scroll-mt-24 border-info/30 bg-info-soft/60">
           <CardContent className="p-4 sm:p-5">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex items-start gap-3 min-w-0">
@@ -1346,6 +1462,8 @@ export function SalesCaseDetailPage({
           </Card>
         </TabsContent>
       </Tabs>
+      </>
+      )}
       </DialogSplitLayout>
       </div>
 
@@ -1406,6 +1524,7 @@ export function SalesCaseDetailPage({
         accentClassName={STAGE_DOT[sc.stage] ?? "bg-primary"}
         title={partyName}
         subtitle={compactSubtitle}
+        className="h-dvh max-h-dvh sm:h-auto sm:max-h-[92dvh]"
         bodyClassName="lg:grid-cols-1"
         activityClassName="hidden"
         meta={
@@ -1420,11 +1539,30 @@ export function SalesCaseDetailPage({
           </>
         }
         actions={
-          <Button variant="outline" size="sm" onClick={onBack} className="gap-1 bg-white">
-            <X className="size-4" /> Kapat
-          </Button>
+          <>
+            {onNavigate && (
+              <div className="flex items-center rounded-md border border-slate-200 bg-white">
+                <Button type="button" variant="ghost" size="icon" className="size-8 rounded-r-none" disabled={!previous} onClick={() => previous && onNavigate(previous.id)} aria-label="Önceki fırsat" title="Önceki fırsat"><ChevronLeft className="size-4" /></Button>
+                <Button type="button" variant="ghost" size="icon" className="size-8 rounded-l-none border-l border-slate-200" disabled={!next} onClick={() => next && onNavigate(next.id)} aria-label="Sonraki fırsat" title="Sonraki fırsat"><ChevronRight className="size-4" /></Button>
+              </div>
+            )}
+            <Button variant="outline" size="sm" onClick={onBack} className="gap-1 bg-white">
+              <ArrowLeft className="size-4" /> Hızlı özete dön
+            </Button>
+          </>
         }
         right={activityPanel}
+        mobileFooter={
+          <div className="grid grid-cols-[auto_1fr] gap-2">
+            {onNavigate && (
+              <div className="flex rounded-md border border-slate-200">
+                <Button type="button" variant="ghost" size="icon" className="size-9 rounded-r-none" disabled={!previous} onClick={() => previous && onNavigate(previous.id)} aria-label="Önceki fırsat"><ChevronLeft className="size-4" /></Button>
+                <Button type="button" variant="ghost" size="icon" className="size-9 rounded-l-none border-l border-slate-200" disabled={!next} onClick={() => next && onNavigate(next.id)} aria-label="Sonraki fırsat"><ChevronRight className="size-4" /></Button>
+              </div>
+            )}
+            <Button type="button" className="h-9 gap-1.5 bg-[#0b2453]" onClick={onBack}><ArrowLeft className="size-4" /> Hızlı özete dön</Button>
+          </div>
+        }
       >
         {content}
       </KanbanDetailDialogShell>
@@ -1444,14 +1582,23 @@ export function CreatePaymentPlanDialog({
   c,
   onCreated,
   trigger,
+  open: controlledOpen,
+  onOpenChange,
 }: {
   sc: SalesCase;
   offs: Offer[];
   c: any;
   onCreated?: () => void;
-  trigger: React.ReactNode;
+  trigger?: React.ReactNode;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }) {
-  const [open, setOpen] = useState(false);
+  const [internalOpen, setInternalOpen] = useState(false);
+  const open = controlledOpen ?? internalOpen;
+  const setOpen = (next: boolean) => {
+    if (controlledOpen === undefined) setInternalOpen(next);
+    onOpenChange?.(next);
+  };
   const [selectedQuoteId, setSelectedQuoteId] = useState<string>("");
   const [amount, setAmount] = useState<number>(0);
   const [currency, setCurrency] = useState<string>("USD");
@@ -1558,7 +1705,7 @@ export function CreatePaymentPlanDialog({
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>{trigger}</DialogTrigger>
+      {trigger && <DialogTrigger asChild>{trigger}</DialogTrigger>}
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Ödeme Planı Oluştur</DialogTitle>
