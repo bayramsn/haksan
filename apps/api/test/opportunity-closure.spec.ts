@@ -89,8 +89,9 @@ describe('Opportunity logical closure (Bitir / Arşiv / Geri Aç)', () => {
       .send();
     expect(reopen.status).toBe(201);
     expect(reopen.body.closedAt).toBeNull();
-    expect(reopen.body.qualificationStage).toBe('lead');
-    expect(reopen.body.stage.code).toBe('lead');
+    expect(reopen.body.qualificationStage).toBe('c');
+    expect(reopen.body.stage.code).toBe('sales');
+    expect(reopen.body.lostReason).toMatchObject({ code: 'test_price' });
 
     const active2 = await supertest(server)
       .get(`/api/v1/opportunities?companyId=${companyId}`)
@@ -117,7 +118,7 @@ describe('Opportunity logical closure (Bitir / Arşiv / Geri Aç)', () => {
     expect(second.status).toBe(422);
   });
 
-  it('returns an open LOST card directly to Lead and rejects a non-sales admin', async () => {
+  it('returns an open LOST card to its previous opportunity grade without clearing loss details', async () => {
     const server = app.getHttpServer();
     const id = await createOpp(server, `lost-direct-reopen-${Date.now()}`);
     const lost = await supertest(server)
@@ -141,12 +142,51 @@ describe('Opportunity logical closure (Bitir / Arşiv / Geri Aç)', () => {
       .set('Authorization', `Bearer ${token}`);
     expect(reopened.status, JSON.stringify(reopened.body)).toBe(201);
     expect(reopened.body).toMatchObject({
-      qualificationStage: 'lead',
+      qualificationStage: 'c',
       closedAt: null,
-      lostReason: null,
-      lostProductName: null,
-      lostUnmetConditions: null,
+      lostProductName: 'Test tezgahı',
+      lostUnmetConditions: 'Termin uygun değildi',
     });
-    expect(reopened.body.stage.code).toBe('lead');
+    expect(reopened.body.lostReason).toMatchObject({ code: 'test_timing' });
+    expect(reopened.body.stage.code).toBe('sales');
+  });
+
+  it('moves an open LOST card to the exact selected grade and preserves its data', async () => {
+    const server = app.getHttpServer();
+    const id = await createOpp(server, `lost-direct-target-${Date.now()}`);
+    const lost = await supertest(server)
+      .patch(`/api/v1/opportunities/${id}/qualification-stage`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        toStage: 'lost',
+        cancellationReasonCode: 'test_competitor',
+        note: 'Rakip ürün tercih edildi',
+        lostProductName: 'Korunacak CNC tezgahı',
+        lostUnmetConditions: 'Fiyat ve termin beklentisi karşılanmadı',
+      });
+    expect(lost.status, JSON.stringify(lost.body)).toBe(200);
+
+    const moved = await supertest(server)
+      .patch(`/api/v1/opportunities/${id}/qualification-stage`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        toStage: 'b',
+        note: 'Müşteri yeniden değerlendirme istedi',
+      });
+    expect(moved.status, JSON.stringify(moved.body)).toBe(200);
+    expect(moved.body).toMatchObject({
+      qualificationStage: 'b',
+      closedAt: null,
+      qualificationNote: 'Rakip ürün tercih edildi',
+      lostProductName: 'Korunacak CNC tezgahı',
+      lostUnmetConditions: 'Fiyat ve termin beklentisi karşılanmadı',
+    });
+    expect(moved.body.lostReason).toMatchObject({ code: 'test_competitor' });
+    expect(moved.body.stage.code).toBe('call');
+    expect(moved.body.qualificationHistory[0]).toMatchObject({
+      fromStage: 'lost',
+      toStage: 'b',
+      changeReason: 'Müşteri yeniden değerlendirme istedi',
+    });
   });
 });

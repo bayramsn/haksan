@@ -95,7 +95,9 @@ export function SalesCasesPage({
     setBusyId(id);
     try {
       await reopenCase(id);
-      toast.success("Fırsat Lead havuzuna geri açıldı");
+      toast.success("Fırsat önceki derecesine geri açıldı", {
+        description: "Kart ve kayıp bilgileri korunarak fırsat panosuna alındı.",
+      });
     } catch (error: any) {
       toast.error("Fırsat geri açılamadı", {
         description: error?.message ?? "İstek başarısız oldu.",
@@ -418,10 +420,10 @@ export function SalesCasesPage({
                             size="sm"
                             className="h-8 gap-1 text-xs"
                             disabled={busyId === s.id}
-                            title="LOST fırsatı Lead havuzuna döndür"
+                            title="LOST fırsatı önceki derecesine döndür"
                             onClick={() => void onReopen(s.id)}
                           >
-                            <RotateCcw className="size-3.5" /> Lead'e Geri Aç
+                            <RotateCcw className="size-3.5" /> Önceki Dereceye Aç
                           </Button>
                         )}
                         {(s.qualificationStage === "win" || s.qualificationStage === "lost") && (
@@ -529,10 +531,10 @@ export function SalesCasesPage({
                               size="sm"
                               className="h-8 gap-1 text-xs"
                               disabled={busyId === s.id}
-                              title={s.qualificationStage === "lost" ? "Lead havuzuna geri aç" : "Aktif panoya geri aç"}
+                              title={s.qualificationStage === "lost" ? "Önceki fırsat derecesine geri aç" : "Aktif panoya geri aç"}
                               onClick={() => onReopen(s.id)}
                             >
-                              <RotateCcw className="size-3.5" /> {s.qualificationStage === "lost" ? "Lead'e Geri Aç" : "Geri Aç"}
+                              <RotateCcw className="size-3.5" /> {s.qualificationStage === "lost" ? "Önceki Dereceye Aç" : "Geri Aç"}
                             </Button>}
                             {canDelete && (
                               <Button

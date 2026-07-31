@@ -3389,17 +3389,17 @@ export class OpportunitiesService {
     const fromStage = this.qualificationStage(opp.qualificationStage);
     const toStage = input.toStage;
     if (fromStage === toStage) return this.get(id, actor);
-    if (fromStage === 'lost') {
-      throw new ValidationError('LOST kaydı yalnız Lead havuzuna geri açılabilir; "Lead’e Geri Aç" işlemini kullanın');
-    }
+    const reopeningLost = fromStage === 'lost';
 
     if (toStage === 'lost') {
       await this.setLostQualification(opp, input, actor);
     } else {
-      const fromIndex = QUALIFICATION_SEQUENCE.indexOf(fromStage);
+      // LOST satış derecesi dizisinin terminal ucudur. LOST'tan yapılan seçimler
+      // hedef dereceye doğrudan geri geçiştir; kart Lead havuzuna düşürülmez.
+      const fromIndex = reopeningLost ? QUALIFICATION_SEQUENCE.length : QUALIFICATION_SEQUENCE.indexOf(fromStage);
       const toIndex = QUALIFICATION_SEQUENCE.indexOf(toStage);
       if (toIndex < 0 || fromIndex < 0) throw new ValidationError('Geçersiz satış derecesi');
-      const movingForward = toIndex > fromIndex;
+      const movingForward = !reopeningLost && toIndex > fromIndex;
       if (!movingForward && !input.note?.trim()) {
         throw new ValidationError('Geri geçişte gerekçe zorunludur', { field: 'note' });
       }
@@ -3431,7 +3431,9 @@ export class OpportunitiesService {
       const entryStage = await this.stageRowByCode(entry.stage);
       const patch: Record<string, unknown> = {
         qualificationStage: toStage,
-        qualificationNote: input.note?.trim() || opp.qualificationNote,
+        // LOST'tan çıkış gerekçesi geçmişe yazılır; kayıp anındaki kart notu
+        // ayrı bir kayıt bilgisi olarak korunur.
+        qualificationNote: reopeningLost ? opp.qualificationNote : input.note?.trim() || opp.qualificationNote,
         qualificationUpdatedAt: new Date(),
         currentStageId: entryStage.id,
         updatedAt: new Date(),
@@ -3442,7 +3444,7 @@ export class OpportunitiesService {
           where: eq(opportunityStatuses.code, 'won'),
         });
         if (wonStatus) patch.statusId = wonStatus.id;
-      } else if (fromStage === 'win') {
+      } else if (fromStage === 'win' || reopeningLost) {
         const openStatus = await this.db.query.opportunityStatuses.findFirst({
           where: eq(opportunityStatuses.code, 'open'),
         });
@@ -3635,9 +3637,10 @@ export class OpportunitiesService {
 
   /**
    * Geri Aç:
-   * - LOST kartını satış/süper admin için doğrudan Lead havuzuna döndürür
-   *   (kartın ayrıca arşivlenmiş olması gerekmez).
-   * - WIN arşivini önceki aktif dereceye döndüren eski davranışı korur.
+   * - LOST kartını satış/süper admin için önceki fırsat derecesine döndürür.
+   *   Önceki derece bulunamazsa C kullanılır; kart Lead havuzuna düşmez.
+   * - Kayıp snapshot alanları korunur; yalnız terminal durum kaldırılır.
+   * - WIN arşivini önceki aktif dereceye döndüren davranışı korur.
    */
   async reopen(id: string, actor: AuthContext) {
     const opp = await this.findScopedOpp(id, actor);
@@ -3649,38 +3652,42 @@ export class OpportunitiesService {
     if (!reopeningLost && !opp.closedAt) throw new ValidationError('Fırsat zaten açık');
     const isQualificationTerminal = terminalStage === 'win' || terminalStage === 'lost';
     let reopenedStage: QualificationStageCode | null = null;
-    let openStatusId: string | null = null;
+    let reopenedStatusId: string | null = null;
     let entryStage: { id: string } | null = null;
 
     if (isQualificationTerminal) {
-      if (reopeningLost) {
-        reopenedStage = 'lead';
-      } else {
-        const previousChange = await this.db.query.opportunityQualificationHistory.findFirst({
-          where: and(
-            eq(opportunityQualificationHistory.tenantId, actor.tenantId),
-            eq(opportunityQualificationHistory.opportunityId, id),
-            eq(opportunityQualificationHistory.toStage, terminalStage)
-          ),
-          orderBy: desc(opportunityQualificationHistory.createdAt),
-        });
-        const previousStage = previousChange?.fromStage as QualificationStageCode | null | undefined;
-        reopenedStage =
-          previousStage &&
-          QUALIFICATION_STAGES.includes(previousStage) &&
-          previousStage !== 'win' &&
-          previousStage !== 'lost'
-            ? previousStage
-            : 'a_plus';
-      }
-      entryStage = await this.stageRowByCode(QUALIFICATION_STAGE_ENTRY[reopenedStage].stage);
-      const openStatus = await this.db.query.opportunityStatuses.findFirst({
-        where: eq(opportunityStatuses.code, 'open'),
+      const previousChange = await this.db.query.opportunityQualificationHistory.findFirst({
+        where: and(
+          eq(opportunityQualificationHistory.tenantId, actor.tenantId),
+          eq(opportunityQualificationHistory.opportunityId, id),
+          eq(opportunityQualificationHistory.toStage, terminalStage)
+        ),
+        orderBy: desc(opportunityQualificationHistory.createdAt),
       });
-      openStatusId = openStatus?.id ?? null;
+      const previousStage = previousChange?.fromStage as QualificationStageCode | null | undefined;
+      const validPreviousOpportunityStage =
+        previousStage &&
+        QUALIFICATION_STAGES.includes(previousStage) &&
+        previousStage !== 'lead' &&
+        previousStage !== 'lost' &&
+        previousStage !== terminalStage;
+      reopenedStage = validPreviousOpportunityStage
+        ? previousStage
+        : reopeningLost
+          ? 'c'
+          : 'a_plus';
+      entryStage = await this.stageRowByCode(QUALIFICATION_STAGE_ENTRY[reopenedStage].stage);
+      const reopenedStatus = await this.db.query.opportunityStatuses.findFirst({
+        where: eq(opportunityStatuses.code, reopenedStage === 'win' ? 'won' : 'open'),
+      });
+      reopenedStatusId = reopenedStatus?.id ?? null;
     }
 
     const now = new Date();
+    const reopenedStageLabel = reopenedStage === 'a_plus' ? 'A+' : reopenedStage?.toUpperCase();
+    const reopenReason = reopeningLost
+      ? `LOST kaydından ${reopenedStageLabel ?? 'önceki'} derecesine geri açıldı`
+      : 'Geçmişten geri açıldı';
     await this.db.transaction(async (tx) => {
       await tx
         .update(opportunities)
@@ -3690,24 +3697,10 @@ export class OpportunitiesService {
           ...(reopenedStage
             ? {
                 qualificationStage: reopenedStage,
-                qualificationNote: reopeningLost ? 'LOST kaydından Lead havuzuna geri açıldı' : 'Geçmişten geri açıldı',
+                qualificationNote: reopeningLost ? opp.qualificationNote : reopenReason,
                 qualificationUpdatedAt: now,
-                statusId: openStatusId ?? opp.statusId,
+                statusId: reopenedStatusId ?? opp.statusId,
                 ...(entryStage ? { currentStageId: entryStage.id } : {}),
-                ...(reopeningLost
-                  ? {
-                      leadFollowUpStatus: 'new',
-                      leadStatusUpdatedAt: now,
-                      disqualifyReasonId: null,
-                      lostReasonId: null,
-                      lostCompetitorId: null,
-                      lostCompetitorProductModel: null,
-                      lostCompanyName: null,
-                      lostProductName: null,
-                      lostCompetitorName: null,
-                      lostUnmetConditions: null,
-                    }
-                  : {}),
               }
             : {}),
           updatedAt: now,
@@ -3739,7 +3732,7 @@ export class OpportunitiesService {
             fromStageId: opp.currentStageId,
             toStageId: entryStage.id,
             changedBy: actor.userId,
-            changeReason: reopeningLost ? 'LOST kaydından Lead havuzuna geri açıldı' : 'Geçmişten geri açıldı',
+            changeReason: reopenReason,
           });
         }
         await tx.insert(opportunityQualificationHistory).values({
@@ -3748,7 +3741,7 @@ export class OpportunitiesService {
           fromStage: terminalStage,
           toStage: reopenedStage,
           changedBy: actor.userId,
-          changeReason: reopeningLost ? 'LOST kaydından Lead havuzuna geri açıldı' : 'Geçmişten geri açıldı',
+          changeReason: reopenReason,
         });
       }
     });
@@ -3842,7 +3835,7 @@ export class OpportunitiesService {
     if (!opp) throw new NotFoundError('Fırsat');
     if (opp.closedAt) throw new ValidationError('Arşivlenmiş fırsat taşınamaz; önce geri açın');
     if (this.qualificationStage(opp.qualificationStage) === 'lost') {
-      throw new ValidationError('LOST kaydı yalnız Lead havuzuna geri açılabilir; "Lead’e Geri Aç" işlemini kullanın');
+      throw new ValidationError('LOST kaydını operasyon rayından değil, fırsat derecesi panosundan hedef dereceye taşıyın');
     }
 
     const fromStage = await this.db.query.pipelineStages.findFirst({

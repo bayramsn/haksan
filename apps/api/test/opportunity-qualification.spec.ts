@@ -639,14 +639,15 @@ describe('Opportunity qualification pipeline', () => {
       .set('Authorization', `Bearer ${token}`);
     expect(reopened.status, JSON.stringify(reopened.body)).toBe(201);
     expect(reopened.body.closedAt).toBeNull();
-    expect(reopened.body.qualificationStage).toBe('lead');
-    expect(reopened.body.stage.code).toBe('lead');
-    expect(reopened.body.lostReason).toBeNull();
-    expect(reopened.body.lostProductName).toBeNull();
-    expect(reopened.body.lostUnmetConditions).toBeNull();
+    expect(reopened.body.qualificationStage).toBe('a_plus');
+    expect(reopened.body.stage.code).toBe('commercial_invoice');
+    expect(reopened.body.lostReason).toMatchObject({ code: 'qualification_test' });
+    expect(reopened.body.lostProductName).toBe('Test CNC ürünü');
+    expect(reopened.body.lostUnmetConditions).toBe('Teslim süresi ve ödeme şartı müşteriye uymadı');
+    expect(reopened.body.qualificationNote).toBe('Test kayıp gerekçesi');
     expect(reopened.body.qualificationHistory[0]).toMatchObject({
       fromStage: 'lost',
-      toStage: 'lead',
+      toStage: 'a_plus',
     });
     const [reopenedRow, openStatus] = await Promise.all([
       db.query.opportunities.findFirst({ where: eq(opportunities.id, opportunityId) }),
