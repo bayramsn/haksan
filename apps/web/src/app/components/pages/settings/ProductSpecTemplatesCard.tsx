@@ -421,11 +421,6 @@ export function ProductSpecTemplatesCard() {
     return [...map.entries()].map(([code, label]) => ({ code, label }));
   }, [familyCategories, familyTypes]);
 
-  const creatableCategories = useMemo(
-    () => familyCategories.filter((category) => familySubcategories.some((subcategory) => subcategory.categoryId === category.id)),
-    [familyCategories, familySubcategories],
-  );
-
   const subcategories = useMemo(() => {
     const map = new Map<string, string>();
     familySubcategories
@@ -1002,7 +997,7 @@ export function ProductSpecTemplatesCard() {
         familyCode={familyCode}
         familyLabel={FAMILIES.find((family) => family.code === familyCode)?.label ?? familyCode}
         divisionReady={Boolean(familyDivisionId)}
-        categories={creatableCategories}
+        categories={familyCategories}
         subcategories={familySubcategories}
         selectedCategoryCode={categoryCode}
         selectedSubcategoryCode={subcategoryCode}

@@ -118,12 +118,14 @@ test("CRM kategori zinciri Teknik Bilgi ve yeni şablon seçimleriyle eşleşir"
   const groupId = "10000000-0000-4000-8000-000000000001";
   const categoryId = "10000000-0000-4000-8000-000000000002";
   const subcategoryId = "10000000-0000-4000-8000-000000000003";
+  const emptyCategoryId = "10000000-0000-4000-8000-000000000005";
   await mockApi(page, () => undefined, {
     "/admin/lookups/product-groups": [
       { id: groupId, code: "CNC", name: "CNC", divisionId, isActive: true },
     ],
     "/admin/lookups/product-categories": [
       { id: categoryId, code: "YEDEK_PARCA", name: "Yedek Parça", divisionId, productGroupId: groupId, isActive: true },
+      { id: emptyCategoryId, code: "AKSESUAR", name: "Aksesuar", divisionId, productGroupId: groupId, isActive: true },
     ],
     "/admin/lookups/product-subcategories": [
       { id: subcategoryId, code: "LINEER_SISTEM", name: "Lineer Sistem", divisionId, categoryId, isActive: true },
@@ -152,6 +154,7 @@ test("CRM kategori zinciri Teknik Bilgi ve yeni şablon seçimleriyle eşleşir"
 
   await page.getByRole("button", { name: "Yeni şablon aç" }).click();
   const dialog = page.getByRole("dialog", { name: "Ürün şablonu aç" });
+  await expect(dialog.getByLabel("Ürün kategorisi").locator("option")).toHaveText(["Yedek Parça", "Aksesuar"]);
   await expect(dialog.getByLabel("Ürün kategorisi")).toHaveValue(categoryId);
   await expect(dialog.getByLabel("Ürün alt kategorisi")).toHaveValue(subcategoryId);
   await expect(dialog.getByLabel("Ürün tipi")).toHaveValue("LINEER_KIZAK");

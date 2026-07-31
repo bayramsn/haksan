@@ -17,6 +17,11 @@ describe("teknik bilgi yeni şablon akışı", () => {
     expect(source).not.toContain('value="TEZGAH" options={[{ code: "TEZGAH", label: "Tezgah" }]}');
   });
 
+  it("yeni şablonda alt kaydı olmasa da bütün aktif kategorileri listeler", () => {
+    expect(source).toContain("categories={familyCategories}");
+    expect(source).not.toContain("categories={creatableCategories}");
+  });
+
   it("henüz kaydedilmemiş katalog satırlarını kaydedilecek değişiklik sayar", () => {
     expect(source).toContain("draftRows.some((row) => row.catalogOnly && !row.isDeleted)");
     expect(source).toContain('selectedTemplateExists ? "Seçili şablonu aç" : "Seçili taslağı aç"');
