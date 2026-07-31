@@ -116,9 +116,18 @@ jobs:
         run: |
           set -euo pipefail
           for repository in "$API_REPOSITORY" "$WEB_REPOSITORY"; do
-            aws ecr wait image-scan-complete \
+            if ! aws ecr wait image-scan-complete \
               --repository-name "$repository" \
-              --image-id "imageTag=${RELEASE_ID}"
+              --image-id "imageTag=${RELEASE_ID}"; then
+              echo "$repository scan record missing; starting an explicit ECR image scan"
+              aws ecr start-image-scan \
+                --repository-name "$repository" \
+                --image-id "imageTag=${RELEASE_ID}" \
+                --no-cli-pager >/dev/null
+              aws ecr wait image-scan-complete \
+                --repository-name "$repository" \
+                --image-id "imageTag=${RELEASE_ID}"
+            fi
             findings="$(aws ecr describe-image-scan-findings \
               --repository-name "$repository" \
               --image-id "imageTag=${RELEASE_ID}" \
