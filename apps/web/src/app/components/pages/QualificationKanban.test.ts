@@ -19,10 +19,17 @@ describe("QualificationKanban LOST yeniden açma akışı", () => {
 });
 
 describe("QualificationKanban firma ve kart detayı", () => {
-  it("firma ünvanını kısaltmadan gösterir ve kartı klavyeyle açılabilir yapar", () => {
+  it("firma ünvanını iki satırda kompakt gösterir ve kartı klavyeyle açılabilir yapar", () => {
     expect(source).toContain('aria-label={`${partyName} fırsat detayını aç`}');
-    expect(source).toContain("whitespace-normal break-words [overflow-wrap:anywhere]");
+    expect(source).toContain("line-clamp-2 whitespace-normal break-words [overflow-wrap:anywhere]");
     expect(source).toContain('event.key !== "Enter" && event.key !== " "');
+  });
+
+  it("firma kimliğini kompakt tutar ve dikey ayraç kullanmaz", () => {
+    expect(source).toContain("grid size-8 shrink-0 place-items-center rounded-md");
+    expect(source).toContain("text-[15px] font-semibold leading-[1.25]");
+    expect(source).not.toContain("border-l-2 border-[#0b2453]/10 pl-3");
+    expect(source).not.toContain("group-hover:text-[#2457D6]");
   });
 
   it("konu, makina ve aksiyonu kart detayları bölümünde gösterir", () => {

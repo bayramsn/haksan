@@ -1,13 +1,10 @@
 import { useState, type KeyboardEvent, type MouseEvent } from "react";
 import {
-  AlarmClock,
   Building2,
   Check,
-  ClipboardList,
   MoreHorizontal,
   Trash2,
   UserRound,
-  Wrench,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useStore } from "../../lib/store";
@@ -272,126 +269,109 @@ export function QualificationKanban({
               className="group cursor-pointer gap-0 overflow-hidden rounded-xl border border-[#0b2453]/15 bg-white p-0 shadow-xs outline-none transition-[border-color,box-shadow,transform] hover:-translate-y-px hover:border-[#2457D6]/40 hover:shadow-md focus-visible:ring-2 focus-visible:ring-[#2457D6] focus-visible:ring-offset-2"
             >
               <div className="h-1.5" style={{ backgroundColor: meta.color }} />
-              <div className="flex min-h-24 items-start gap-3 p-3.5">
-                <div className={`grid size-10 shrink-0 place-items-center rounded-lg ${meta.surface}`} aria-hidden="true">
-                  {company ? <Building2 className="size-[18px]" /> : <UserRound className="size-[18px]" />}
-                </div>
-                <div className="min-w-0 flex-1 border-l-2 border-[#0b2453]/10 pl-3">
-                  <div className="font-data text-[9px] font-semibold uppercase tracking-[0.14em] text-[#0b2453]/55">
-                    Firma
+              <div className="p-3">
+                <div className="flex items-start gap-2.5">
+                  <div className={`grid size-8 shrink-0 place-items-center rounded-md ${meta.surface}`} aria-hidden="true">
+                    {company ? <Building2 className="size-4" /> : <UserRound className="size-4" />}
                   </div>
-                  <div className="mt-1 whitespace-normal break-words [overflow-wrap:anywhere] font-display text-[17px] font-semibold leading-[1.18] text-[#0b1739] transition-colors group-hover:text-[#2457D6]">
-                    {partyName}
-                  </div>
-                  {company?.companyNo && (
-                    <div className="mt-2 font-data text-[9px] font-medium uppercase tracking-[0.1em] text-muted-foreground">
-                      Firma no · {company.companyNo}
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-x-1.5 font-data text-[9px] font-semibold uppercase tracking-[0.12em] text-[#0b2453]/55">
+                      <span>Firma</span>
+                      {company?.companyNo && <span>· No {company.companyNo}</span>}
                     </div>
-                  )}
+                    <div className="mt-0.5 line-clamp-2 whitespace-normal break-words [overflow-wrap:anywhere] font-display text-[15px] font-semibold leading-[1.25] text-[#0b1739]">
+                      {partyName}
+                    </div>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-0.5">
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="size-7 shrink-0"
+                          title="Kart işlemleri"
+                          aria-label={`${partyName} kart işlemleri`}
+                          onClick={stopCardClick}
+                          onMouseDown={stopCardClick}
+                        >
+                          <MoreHorizontal className="size-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" className="w-52" onClick={stopCardClick}>
+                        <DropdownMenuLabel>Kart işlemleri</DropdownMenuLabel>
+                        {stage !== "win" && (
+                          <>
+                            <DropdownMenuSeparator />
+                            {ACTIVE_QUALIFICATION_STAGES.map((target) => {
+                              const currentIndex = ACTIVE_QUALIFICATION_STAGES.indexOf(stage);
+                              const targetIndex = ACTIVE_QUALIFICATION_STAGES.indexOf(target);
+                              const adjacent = Math.abs(targetIndex - currentIndex) === 1;
+                              const allowed = stage === "lost" || target === "lost" || adjacent;
+                              return (
+                                <DropdownMenuItem
+                                  key={target}
+                                  disabled={target === stage || !allowed}
+                                  onSelect={() => void move(salesCase.id, stage, target)}
+                                >
+                                  <span className={`size-2 rounded-full ${STAGE_META[target].dot}`} />
+                                  {QUALIFICATION_STAGE_LABELS[target]}
+                                </DropdownMenuItem>
+                              );
+                            })}
+                          </>
+                        )}
+                        {(stage === "win" || stage === "lost") && (
+                          <>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem
+                              disabled={busyId === salesCase.id}
+                              onSelect={() => void archive(salesCase)}
+                            >
+                              <Check className="size-3.5" /> Tamamla ve Geçmiş'e al
+                            </DropdownMenuItem>
+                          </>
+                        )}
+                        {onRequestDelete && (
+                          <>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem
+                              className="text-destructive focus:bg-destructive/10 focus:text-destructive"
+                              disabled={busyId === salesCase.id}
+                              onSelect={() => onRequestDelete(salesCase)}
+                            >
+                              <Trash2 className="size-3.5" /> Fırsat kartını sil
+                            </DropdownMenuItem>
+                          </>
+                        )}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </div>
                 </div>
-                <div className="flex shrink-0 items-center gap-0.5">
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="size-7 shrink-0"
-                        title="Kart işlemleri"
-                        aria-label={`${partyName} kart işlemleri`}
-                        onClick={stopCardClick}
-                        onMouseDown={stopCardClick}
-                      >
-                        <MoreHorizontal className="size-4" />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end" className="w-52" onClick={stopCardClick}>
-                      <DropdownMenuLabel>Kart işlemleri</DropdownMenuLabel>
-                      {stage !== "win" && (
-                        <>
-                          <DropdownMenuSeparator />
-                          {ACTIVE_QUALIFICATION_STAGES.map((target) => {
-                            const currentIndex = ACTIVE_QUALIFICATION_STAGES.indexOf(stage);
-                            const targetIndex = ACTIVE_QUALIFICATION_STAGES.indexOf(target);
-                            const adjacent = Math.abs(targetIndex - currentIndex) === 1;
-                            const allowed = stage === "lost" || target === "lost" || adjacent;
-                            return (
-                              <DropdownMenuItem
-                                key={target}
-                                disabled={target === stage || !allowed}
-                                onSelect={() => void move(salesCase.id, stage, target)}
-                              >
-                                <span className={`size-2 rounded-full ${STAGE_META[target].dot}`} />
-                                {QUALIFICATION_STAGE_LABELS[target]}
-                              </DropdownMenuItem>
-                            );
-                          })}
-                        </>
-                      )}
-                      {(stage === "win" || stage === "lost") && (
-                        <>
-                          <DropdownMenuSeparator />
-                          <DropdownMenuItem
-                            disabled={busyId === salesCase.id}
-                            onSelect={() => void archive(salesCase)}
-                          >
-                            <Check className="size-3.5" /> Tamamla ve Geçmiş'e al
-                          </DropdownMenuItem>
-                        </>
-                      )}
-                      {onRequestDelete && (
-                        <>
-                          <DropdownMenuSeparator />
-                          <DropdownMenuItem
-                            className="text-destructive focus:bg-destructive/10 focus:text-destructive"
-                            disabled={busyId === salesCase.id}
-                            onSelect={() => onRequestDelete(salesCase)}
-                          >
-                            <Trash2 className="size-3.5" /> Fırsat kartını sil
-                          </DropdownMenuItem>
-                        </>
-                      )}
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </div>
-              </div>
-              <div className="border-t border-[#0b2453]/10 bg-slate-50/75 px-3.5 pb-3.5 pt-3">
-                <div className="font-data text-[9px] font-semibold uppercase tracking-[0.14em] text-[#0b2453]/55">
+                <div className="mt-3 border-t border-[#0b2453]/10 pt-2.5">
+                  <div className="font-data text-[8px] font-semibold uppercase tracking-[0.13em] text-[#0b2453]/45">
                   Kart detayları
+                  </div>
+                  <dl className="mt-1 divide-y divide-slate-200/70">
+                    <div className="grid grid-cols-[52px_minmax(0,1fr)] gap-2 py-1.5">
+                      <dt className="font-data text-[9px] font-medium uppercase tracking-[0.08em] text-muted-foreground">Konu</dt>
+                      <dd className="min-w-0 line-clamp-2 break-words text-[11px] font-medium leading-4 text-[#0b1739]">{subject}</dd>
+                    </div>
+                    <div className="grid grid-cols-[52px_minmax(0,1fr)] gap-2 py-1.5">
+                      <dt className="font-data text-[9px] font-medium uppercase tracking-[0.08em] text-muted-foreground">Makina</dt>
+                      <dd className="min-w-0 line-clamp-2 break-words text-[11px] font-medium leading-4 text-[#0b1739]">{machine}</dd>
+                    </div>
+                    <div className="grid grid-cols-[52px_minmax(0,1fr)] gap-2 py-1.5">
+                      <dt className={`font-data text-[9px] font-medium uppercase tracking-[0.08em] ${actionOverdue ? "text-red-700" : "text-muted-foreground"}`}>Aksiyon</dt>
+                      <dd className="min-w-0">
+                        <div className={`line-clamp-2 break-words text-[11px] font-medium leading-4 ${salesCase.nextAction ? "text-[#0b1739]" : "text-muted-foreground"}`}>{action}</div>
+                        <div className={`mt-0.5 font-data text-[8px] ${actionOverdue ? "font-semibold text-red-700" : "text-muted-foreground"}`}>
+                          {actionOverdue ? "Gecikti · " : ""}{actionDateLabel(salesCase.nextActionAt)}
+                        </div>
+                      </dd>
+                    </div>
+                  </dl>
                 </div>
-                <dl className="mt-2 divide-y divide-slate-200/80 rounded-lg border border-slate-200/90 bg-white px-3">
-                  <div className="grid grid-cols-[70px_minmax(0,1fr)] gap-2 py-2">
-                    <dt className="flex items-start gap-1.5 text-[10px] font-medium text-muted-foreground">
-                      <ClipboardList className="mt-0.5 size-3 shrink-0 text-[#2457D6]" aria-hidden="true" />
-                      Konu
-                    </dt>
-                    <dd className="min-w-0 break-words text-[11px] font-medium leading-4 text-[#0b1739]">
-                      {subject}
-                    </dd>
-                  </div>
-                  <div className="grid grid-cols-[70px_minmax(0,1fr)] gap-2 py-2">
-                    <dt className="flex items-start gap-1.5 text-[10px] font-medium text-muted-foreground">
-                      <Wrench className="mt-0.5 size-3 shrink-0 text-[#2457D6]" aria-hidden="true" />
-                      Makina
-                    </dt>
-                    <dd className="min-w-0 break-words text-[11px] font-medium leading-4 text-[#0b1739]">
-                      {machine}
-                    </dd>
-                  </div>
-                  <div className="grid grid-cols-[70px_minmax(0,1fr)] gap-2 py-2">
-                    <dt className={`flex items-start gap-1.5 text-[10px] font-medium ${actionOverdue ? "text-red-700" : "text-muted-foreground"}`}>
-                      <AlarmClock className="mt-0.5 size-3 shrink-0" aria-hidden="true" />
-                      Aksiyon
-                    </dt>
-                    <dd className="min-w-0">
-                      <div className={`break-words text-[11px] font-medium leading-4 ${salesCase.nextAction ? "text-[#0b1739]" : "text-muted-foreground"}`}>
-                        {action}
-                      </div>
-                      <div className={`mt-1 font-data text-[9px] ${actionOverdue ? "font-semibold text-red-700" : "text-muted-foreground"}`}>
-                        {actionOverdue ? "Gecikti · " : ""}{actionDateLabel(salesCase.nextActionAt)}
-                      </div>
-                    </dd>
-                  </div>
-                </dl>
               </div>
             </Card>
           );
