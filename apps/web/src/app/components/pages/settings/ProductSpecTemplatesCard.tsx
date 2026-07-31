@@ -73,8 +73,8 @@ type MachineTypeOption = {
   code: string;
   label: string;
   familyCode: FamilyCode;
-  categoryCode: "TEZGAH";
-  categoryLabel: "Tezgah";
+  categoryCode: string;
+  categoryLabel: string;
   subcategoryCode: string;
   subcategoryLabel: string;
 };
@@ -104,16 +104,23 @@ type TaxonomyLookupRow = {
   isActive?: boolean;
 };
 
-type MachineSubcategoryOption = {
+type ProductCategoryOption = {
   id: string;
   code: string;
   label: string;
 };
 
-type NewMachineTemplateDraft = {
-  name: string;
+type ProductSubcategoryOption = {
+  id: string;
   code: string;
-  subcategoryId: string;
+  label: string;
+  categoryId: string;
+  categoryCode: string;
+  categoryLabel: string;
+};
+
+type NewMachineTemplateDraft = {
+  productTypeCode: string;
   startMode: TemplateStartMode;
   sourceTypeCode?: string;
 };
@@ -179,17 +186,6 @@ const canonicalTypeCode = (code?: string | null) => {
 const sameType = (left?: string | null, right?: string | null) => canonicalTypeCode(left) === canonicalTypeCode(right);
 const groupLabel = (code: string) => PRODUCT_SPEC_GROUPS.find((group) => group.code === code)?.label ?? code.replaceAll("_", " ");
 const localDraftKey = (typeCode: string) => `haksan:technical-workbook:${canonicalTypeCode(typeCode)}`;
-const machineTemplateCode = (value: string) =>
-  value
-    .trim()
-    .toLocaleUpperCase("tr-TR")
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/İ/g, "I")
-    .replace(/[^A-Z0-9]+/g, "_")
-    .replace(/^_+|_+$/g, "")
-    .slice(0, 64);
-
 function buildDraftRows(typeCode: string, specRows: SpecTemplateRow[]): DraftRow[] {
   const dbRows = specRows.filter((row) => sameType(row.productTypeCode, typeCode));
   // Liste seçili bölüm kayıtlarıyla paylaşılan kayıtları birlikte içerir. Aynı
@@ -294,6 +290,7 @@ export function ProductSpecTemplatesCard() {
   const { products } = useStore();
   const [view, setView] = useState<WorkspaceView>("library");
   const [familyCode, setFamilyCode] = useState<FamilyCode>("CNC");
+  const [categoryCode, setCategoryCode] = useState("TEZGAH");
   const [subcategoryCode, setSubcategoryCode] = useState("ISLEME_MERKEZI");
   const [typeCode, setTypeCode] = useState("CNC_DIK_ISLEME_MERKEZ");
   const [specRows, setSpecRows] = useState<SpecTemplateRow[]>([]);
@@ -344,7 +341,7 @@ export function ProductSpecTemplatesCard() {
         setProductCategoryRows([]);
         setProductSubcategoryRows([]);
         setProductTypeRows([]);
-        toast.error("Makine tipleri yüklenemedi", {
+        toast.error("Ürün taksonomisi yüklenemedi", {
           description: error?.message ?? "Yeni şablon seçenekleri alınamadı.",
         });
       })
@@ -355,6 +352,35 @@ export function ProductSpecTemplatesCard() {
       cancelled = true;
     };
   }, [familyDivisionId]);
+
+  const familyCategories = useMemo<ProductCategoryOption[]>(() => {
+    const groupById = new Map(productGroupRows.map((row) => [row.id, row]));
+    return productCategoryRows
+      .filter((category) => {
+        if (category.isActive === false) return false;
+        if (!category.productGroupId) return true;
+        const group = groupById.get(category.productGroupId);
+        return group?.isActive !== false && foldProductTypeCode(group?.code) === familyCode;
+      })
+      .map((category) => ({ id: category.id, code: category.code, label: category.name }));
+  }, [familyCode, productCategoryRows, productGroupRows]);
+
+  const familySubcategories = useMemo<ProductSubcategoryOption[]>(() => {
+    const categoryById = new Map(familyCategories.map((category) => [category.id, category]));
+    return productSubcategoryRows
+      .filter((subcategory) => subcategory.isActive !== false && Boolean(subcategory.categoryId) && categoryById.has(subcategory.categoryId!))
+      .map((subcategory) => {
+        const category = categoryById.get(subcategory.categoryId!)!;
+        return {
+          id: subcategory.id,
+          code: subcategory.code,
+          label: subcategory.name,
+          categoryId: category.id,
+          categoryCode: category.code,
+          categoryLabel: category.label,
+        };
+      });
+  }, [familyCategories, productSubcategoryRows]);
 
   const familyTypes = useMemo(() => {
     const merged = new Map<string, MachineTypeOption>();
@@ -372,13 +398,14 @@ export function ProductSpecTemplatesCard() {
         const category = subcategory?.categoryId ? categoryById.get(subcategory.categoryId) : undefined;
         const group = category?.productGroupId ? groupById.get(category.productGroupId) : undefined;
         const rowFamily = foldProductTypeCode(group?.code);
-        if (!subcategory || foldProductTypeCode(category?.code) !== "TEZGAH" || rowFamily !== familyCode) return;
+        if (!subcategory || subcategory.isActive === false || !category || category.isActive === false) return;
+        if (category.productGroupId && (group?.isActive === false || rowFamily !== familyCode)) return;
         const option: MachineTypeOption = {
           code: row.code,
           label: row.name,
           familyCode,
-          categoryCode: "TEZGAH",
-          categoryLabel: "Tezgah",
+          categoryCode: category.code,
+          categoryLabel: category.name,
           subcategoryCode: subcategory.code,
           subcategoryLabel: subcategory.name,
         };
@@ -387,48 +414,60 @@ export function ProductSpecTemplatesCard() {
     return [...merged.values()];
   }, [familyCode, productCategoryRows, productGroupRows, productSubcategoryRows, productTypeRows]);
 
-  const creatableSubcategories = useMemo(() => {
-    const groupById = new Map(productGroupRows.map((row) => [row.id, row]));
-    const categoryById = new Map(productCategoryRows.map((row) => [row.id, row]));
-    return productSubcategoryRows
-      .filter((subcategory) => {
-        if (subcategory.isActive === false || !subcategory.categoryId) return false;
-        const category = categoryById.get(subcategory.categoryId);
-        const group = category?.productGroupId ? groupById.get(category.productGroupId) : undefined;
-        return foldProductTypeCode(category?.code) === "TEZGAH"
-          && foldProductTypeCode(group?.code) === familyCode;
-      })
-      .map((subcategory) => ({
-        id: subcategory.id,
-        code: subcategory.code,
-        label: subcategory.name,
-      }));
-  }, [familyCode, productCategoryRows, productGroupRows, productSubcategoryRows]);
+  const categoryOptions = useMemo(() => {
+    const map = new Map<string, string>();
+    familyCategories.forEach((category) => map.set(category.code, category.label));
+    familyTypes.forEach((type) => map.set(type.categoryCode, type.categoryLabel));
+    return [...map.entries()].map(([code, label]) => ({ code, label }));
+  }, [familyCategories, familyTypes]);
+
+  const creatableCategories = useMemo(
+    () => familyCategories.filter((category) => familySubcategories.some((subcategory) => subcategory.categoryId === category.id)),
+    [familyCategories, familySubcategories],
+  );
 
   const subcategories = useMemo(() => {
     const map = new Map<string, string>();
-    familyTypes.forEach((type) => map.set(type.subcategoryCode, type.subcategoryLabel));
+    familySubcategories
+      .filter((subcategory) => subcategory.categoryCode === categoryCode)
+      .forEach((subcategory) => map.set(subcategory.code, subcategory.label));
+    familyTypes
+      .filter((type) => type.categoryCode === categoryCode)
+      .forEach((type) => map.set(type.subcategoryCode, type.subcategoryLabel));
     return [...map.entries()].map(([code, label]) => ({ code, label }));
-  }, [familyTypes]);
-  const scopedTypes = useMemo(() => familyTypes.filter((type) => type.subcategoryCode === subcategoryCode), [familyTypes, subcategoryCode]);
-  // Seçim her zaman aktif aile/alt kategori içinde kalmalı. Aile değişimindeki
-  // bir render boyunca önceki ailenin tipi seçili kalırsa "Yeni şablon" yanlış
-  // çalışma sayfasını açıyordu.
-  const selectedType = scopedTypes.find((type) => sameType(type.code, typeCode)) ?? scopedTypes[0] ?? familyTypes[0];
+  }, [categoryCode, familySubcategories, familyTypes]);
+  const scopedTypes = useMemo(
+    () => familyTypes.filter((type) => type.categoryCode === categoryCode && type.subcategoryCode === subcategoryCode),
+    [categoryCode, familyTypes, subcategoryCode],
+  );
+  // Seçim her zaman aktif aile/kategori/alt kategori zincirinde kalmalı.
+  const selectedType = scopedTypes.find((type) => sameType(type.code, typeCode)) ?? scopedTypes[0];
 
   useEffect(() => {
-    const nextSubcategory = familyTypes.find((type) => type.subcategoryCode === subcategoryCode)?.subcategoryCode ?? familyTypes[0]?.subcategoryCode ?? "";
-    const nextType = familyTypes.find((type) => type.subcategoryCode === nextSubcategory && sameType(type.code, typeCode)) ?? familyTypes.find((type) => type.subcategoryCode === nextSubcategory);
+    const nextCategory = categoryOptions.some((category) => category.code === categoryCode)
+      ? categoryCode
+      : categoryOptions[0]?.code ?? "";
+    setCategoryCode(nextCategory);
+    setSearch("");
+  }, [categoryCode, categoryOptions, familyCode]);
+
+  useEffect(() => {
+    const nextSubcategory = subcategories.some((subcategory) => subcategory.code === subcategoryCode)
+      ? subcategoryCode
+      : subcategories[0]?.code ?? "";
     setSubcategoryCode(nextSubcategory);
+    const nextType = familyTypes.find((type) => type.categoryCode === categoryCode && type.subcategoryCode === nextSubcategory && sameType(type.code, typeCode))
+      ?? familyTypes.find((type) => type.categoryCode === categoryCode && type.subcategoryCode === nextSubcategory);
     if (nextType) setTypeCode(nextType.code);
     setSearch("");
-  }, [familyCode]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [categoryCode, subcategories]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    const nextType = familyTypes.find((type) => type.subcategoryCode === subcategoryCode && sameType(type.code, typeCode)) ?? familyTypes.find((type) => type.subcategoryCode === subcategoryCode);
+    const nextType = familyTypes.find((type) => type.categoryCode === categoryCode && type.subcategoryCode === subcategoryCode && sameType(type.code, typeCode))
+      ?? familyTypes.find((type) => type.categoryCode === categoryCode && type.subcategoryCode === subcategoryCode);
     if (nextType) setTypeCode(nextType.code);
     setSearch("");
-  }, [subcategoryCode]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [categoryCode, subcategoryCode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const loadSpecTemplates = async () => {
     setLoading(true);
@@ -743,6 +782,7 @@ export function ProductSpecTemplatesCard() {
 
   const librarySearch = normalizeProductSpecKey(search);
   const libraryTypes = familyTypes.filter((type) => {
+    if (categoryCode && type.categoryCode !== categoryCode) return false;
     if (subcategoryCode && type.subcategoryCode !== subcategoryCode) return false;
     return !librarySearch || normalizeProductSpecKey(`${type.label} ${type.code}`).includes(librarySearch);
   });
@@ -761,6 +801,7 @@ export function ProductSpecTemplatesCard() {
       ?? MACHINE_TYPES.find((item) => sameType(item.code, nextTypeCode));
     if (type) {
       setFamilyCode(type.familyCode);
+      setCategoryCode(type.categoryCode);
       setSubcategoryCode(type.subcategoryCode);
       setTypeCode(type.code);
     }
@@ -768,16 +809,16 @@ export function ProductSpecTemplatesCard() {
     setView("editor");
   };
 
-  const createMachineTemplate = async (draft: NewMachineTemplateDraft) => {
+  const openNewTemplate = async (draft: NewMachineTemplateDraft) => {
     if (!familyDivisionId) {
       toast.error("Bölüm bağlantısı bulunamadı", {
-        description: "Yeni makine şablonu açmak için seçili ürün ailesinin aktif bir bölümü olmalıdır.",
+        description: "Yeni ürün şablonu açmak için seçili ürün ailesinin aktif bir bölümü olmalıdır.",
       });
       return;
     }
-    const subcategory = creatableSubcategories.find((item) => item.id === draft.subcategoryId);
-    if (!subcategory) {
-      toast.error("Alt kategori seçimi geçersiz");
+    const targetType = familyTypes.find((item) => sameType(item.code, draft.productTypeCode));
+    if (!targetType) {
+      toast.error("Ürün tipi seçimi geçersiz");
       return;
     }
     const sourceRows = draft.startMode === "copy" && draft.sourceTypeCode
@@ -785,41 +826,35 @@ export function ProductSpecTemplatesCard() {
       : [];
     setCreatingTemplate(true);
     try {
-      const result = await adminService.createMachineTemplate({
-        name: draft.name.trim(),
-        code: draft.code,
-        divisionId: familyDivisionId,
-        subcategoryId: draft.subcategoryId,
-        fields: sourceRows.map((row, index) => ({
+      let copiedCount = 0;
+      if (sourceRows.length) {
+        const result = await adminService.bulkCreateProductSpecTemplates(sourceRows.map((row, index) => ({
+          productTypeCode: targetType.code,
           specKey: row.specKey.trim(),
           specGroupCode: row.groupCode || undefined,
           defaultValue: row.defaultValue || undefined,
           specUnit: row.unit || undefined,
+          divisionId: familyDivisionId,
           sortOrder: index,
           isActive: true,
           isDeleted: false,
-        })),
-      });
-      setProductTypeRows((current) => [
-        ...current.filter((row) => !sameType(row.code, result.type.code)),
-        result.type,
-      ]);
-      setSpecRows((current) => [
-        ...current.filter((row) => !sameType(row.productTypeCode, result.type.code)),
-        ...(result.specs as SpecTemplateRow[]),
-      ]);
-      setSubcategoryCode(subcategory.code);
-      setTypeCode(result.type.code);
+        })));
+        copiedCount = result.created;
+        await loadSpecTemplates();
+      }
+      setCategoryCode(targetType.categoryCode);
+      setSubcategoryCode(targetType.subcategoryCode);
+      setTypeCode(targetType.code);
       setSearch("");
       setNewTemplateOpen(false);
       setView("editor");
-      toast.success("Yeni makine şablonu açıldı", {
+      toast.success("Ürün şablonu açıldı", {
         description: sourceRows.length
-          ? `${draft.name} · ${sourceRows.length} teknik alan kopyalandı.`
-          : `${draft.name} · boş çalışma sayfası hazır.`,
+          ? `${targetType.label} · ${copiedCount} teknik alan kopyalandı.`
+          : `${targetType.label} · çalışma sayfası hazır.`,
       });
     } catch (error: any) {
-      toast.error("Makine şablonu oluşturulamadı", {
+      toast.error("Ürün şablonu oluşturulamadı", {
         description: error?.message ?? "API isteği başarısız oldu.",
       });
     } finally {
@@ -837,7 +872,7 @@ export function ProductSpecTemplatesCard() {
           <span className="h-6 w-px bg-white/25" />
           <div className="min-w-0">
             <p className="truncate text-sm font-semibold">Teknik Bilgi Merkezi</p>
-            <p className="truncate text-[10px] text-white/60">Şablon kütüphanesi ve makine çalışma sayfaları</p>
+            <p className="truncate text-[10px] text-white/60">Şablon kütüphanesi ve ürün çalışma sayfaları</p>
           </div>
         </div>
         {view === "editor" ? (
@@ -858,12 +893,28 @@ export function ProductSpecTemplatesCard() {
         )}
       </div>
 
-      <div className="flex border-b border-slate-300 bg-white">
+      <div className="flex overflow-x-auto border-b border-slate-300 bg-white" aria-label="Ürün grubu ve kategori seçimi">
         {FAMILIES.map((family) => (
-          <button key={family.code} type="button" onClick={() => { setFamilyCode(family.code); setView("library"); }} className={cn("relative flex h-12 min-w-36 items-center justify-center gap-2 border-r border-slate-200 px-5 text-xs font-medium transition-colors", familyCode === family.code ? "bg-blue-50 text-blue-800" : "text-slate-600 hover:bg-slate-50")}>
+          <button key={family.code} type="button" onClick={() => { setFamilyCode(family.code); setView("library"); }} className={cn("relative flex h-12 min-w-36 shrink-0 items-center justify-center gap-2 border-r border-slate-200 px-5 text-xs font-medium transition-colors", familyCode === family.code ? "bg-blue-50 text-blue-800" : "text-slate-600 hover:bg-slate-50")}>
             {family.code === "CNC" ? <Settings2 className="size-4" /> : family.code === "SAC_ISLEME" ? <Sheet className="size-4" /> : <Wrench className="size-4" />}
             {family.label}
             {familyCode === family.code && <span className="absolute inset-x-0 bottom-0 h-0.5 bg-blue-600" />}
+          </button>
+        ))}
+        {categoryOptions.length > 0 && <span className="mx-2 my-3 w-px shrink-0 bg-slate-300" aria-hidden="true" />}
+        {categoryOptions.map((category) => (
+          <button
+            key={category.code}
+            type="button"
+            onClick={() => { setCategoryCode(category.code); setView("library"); }}
+            className={cn(
+              "relative flex h-12 shrink-0 items-center justify-center gap-2 border-r border-slate-200 px-4 text-xs font-medium transition-colors",
+              categoryCode === category.code ? "bg-slate-900 text-white" : "text-slate-600 hover:bg-slate-50",
+            )}
+          >
+            <Grid3X3 className="size-3.5" />
+            {category.label}
+            {categoryCode === category.code && <span className="absolute inset-x-0 bottom-0 h-0.5 bg-[#cf060c]" />}
           </button>
         ))}
       </div>
@@ -871,6 +922,9 @@ export function ProductSpecTemplatesCard() {
       {view === "library" ? (
         <LibraryView
           familyCode={familyCode}
+          categories={categoryOptions}
+          categoryCode={categoryCode}
+          setCategoryCode={setCategoryCode}
           subcategories={subcategories}
           subcategoryCode={subcategoryCode}
           setSubcategoryCode={setSubcategoryCode}
@@ -948,14 +1002,16 @@ export function ProductSpecTemplatesCard() {
         familyCode={familyCode}
         familyLabel={FAMILIES.find((family) => family.code === familyCode)?.label ?? familyCode}
         divisionReady={Boolean(familyDivisionId)}
-        subcategories={creatableSubcategories}
+        categories={creatableCategories}
+        subcategories={familySubcategories}
+        selectedCategoryCode={categoryCode}
+        selectedSubcategoryCode={subcategoryCode}
         sourceTypes={familyTypes}
         selectedTypeCode={selectedType?.code}
         specRows={specRows}
-        existingCodes={familyTypes.map((type) => type.code)}
         loading={taxonomyLoading}
         busy={creatingTemplate}
-        onCreate={createMachineTemplate}
+        onCreate={openNewTemplate}
       />
     </div>
   );
@@ -963,6 +1019,9 @@ export function ProductSpecTemplatesCard() {
 
 type LibraryViewProps = {
   familyCode: FamilyCode;
+  categories: Array<{ code: string; label: string }>;
+  categoryCode: string;
+  setCategoryCode: (code: string) => void;
   subcategories: Array<{ code: string; label: string }>;
   subcategoryCode: string;
   setSubcategoryCode: (code: string) => void;
@@ -980,22 +1039,23 @@ type LibraryViewProps = {
   onCreateTemplate: () => void;
 };
 
-function LibraryView({ familyCode, subcategories, subcategoryCode, setSubcategoryCode, scopedTypes, typeCode, setTypeCode, search, setSearch, types, allTypes, specRows, loading, openWorkbook, onImport, onCreateTemplate }: LibraryViewProps) {
+function LibraryView({ familyCode, categories, categoryCode, setCategoryCode, subcategories, subcategoryCode, setSubcategoryCode, scopedTypes, typeCode, setTypeCode, search, setSearch, types, allTypes, specRows, loading, openWorkbook, onImport, onCreateTemplate }: LibraryViewProps) {
   const familyLabel = FAMILIES.find((family) => family.code === familyCode)?.label ?? familyCode;
+  const categoryLabel = categories.find((category) => category.code === categoryCode)?.label ?? categoryCode;
   const recent = [...specRows].filter((row) => allTypes.some((type) => sameType(type.code, row.productTypeCode))).sort((a, b) => String(b.updatedAt ?? "").localeCompare(String(a.updatedAt ?? ""))).slice(0, 4);
   return (
     <div className="bg-[#f8fafc]">
       <div className="border-b border-slate-200 bg-white p-4">
         <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.15fr)_minmax(240px,.9fr)]">
-          <HierarchySelect index="01" label="Ürün Kategorisi" value="TEZGAH" options={[{ code: "TEZGAH", label: "Tezgah" }]} onChange={() => undefined} />
+          <HierarchySelect index="01" label="Ürün Kategorisi" value={categoryCode} options={categories} onChange={setCategoryCode} />
           <HierarchySelect index="02" label="Ürün Alt Kategorisi" value={subcategoryCode} options={subcategories} onChange={setSubcategoryCode} />
           <HierarchySelect index="03" label="Ürün Tipi" value={typeCode} options={scopedTypes.map((type) => ({ code: type.code, label: type.label }))} onChange={setTypeCode} />
           <div className="relative self-end">
             <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
-            <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Makine veya şablon ara" className="h-10 border-slate-300 bg-white pl-9 text-xs" />
+            <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Ürün tipi veya şablon ara" className="h-10 border-slate-300 bg-white pl-9 text-xs" />
           </div>
         </div>
-        <div className="mt-2 flex items-center gap-1 text-[10px] text-slate-500"><span className="font-semibold text-blue-700">{familyLabel}</span><ArrowRight className="size-3" /><span>Tezgah</span><ArrowRight className="size-3" /><span>{subcategories.find((item) => item.code === subcategoryCode)?.label}</span></div>
+        <div className="mt-2 flex items-center gap-1 text-[10px] text-slate-500"><span className="font-semibold text-blue-700">{familyLabel}</span><ArrowRight className="size-3" /><span>{categoryLabel || "Kategori seçin"}</span><ArrowRight className="size-3" /><span>{subcategories.find((item) => item.code === subcategoryCode)?.label ?? "Alt kategori seçin"}</span></div>
       </div>
 
       <div className="p-4">
@@ -1010,11 +1070,11 @@ function LibraryView({ familyCode, subcategories, subcategoryCode, setSubcategor
             <div className="min-w-0">
               <p className="font-mono text-[9px] font-semibold tracking-[0.22em] text-blue-200">00 / ŞABLON AÇMA İSTASYONU</p>
               <div className="mt-2 flex flex-wrap items-end gap-x-4 gap-y-1">
-                <h3 className="font-display text-2xl font-bold uppercase leading-none tracking-tight">Yeni makine şablonu</h3>
-                <span className="font-mono text-[10px] text-white/55">{familyLabel} · TEZGAH</span>
+                <h3 className="font-display text-2xl font-bold uppercase leading-none tracking-tight">Yeni ürün şablonu</h3>
+                <span className="font-mono text-[10px] text-white/55">{familyLabel} · {categoryLabel || "KATEGORİ"}</span>
               </div>
               <p className="mt-2 max-w-2xl text-xs leading-5 text-blue-100/80">
-                Makine kimliğini oluşturun; boş bir çalışma sayfasıyla başlayın veya yakın bir makinenin teknik alanlarını kopyalayın.
+                CRM ürün hiyerarşisiyle eşleştirin; boş başlayın veya yakın bir ürün tipinin teknik alanlarını kopyalayın.
               </p>
               <div className="mt-3 flex flex-wrap gap-1.5 text-[9px] font-semibold uppercase tracking-[0.08em] text-white/70">
                 <span className="border border-white/20 bg-white/5 px-2 py-1">01 Kimlik</span>
@@ -1034,7 +1094,7 @@ function LibraryView({ familyCode, subcategories, subcategoryCode, setSubcategor
         </section>
 
         <div className="mb-3 flex items-center justify-between">
-          <div><h3 className="text-sm font-semibold text-slate-900">Makine şablonları</h3><p className="mt-0.5 text-[11px] text-slate-500">Teknik alan kapsamını kontrol edin veya çalışma sayfasını açın.</p></div>
+          <div><h3 className="text-sm font-semibold text-slate-900">Ürün şablonları</h3><p className="mt-0.5 text-[11px] text-slate-500">Teknik alan kapsamını kontrol edin veya çalışma sayfasını açın.</p></div>
           <Button variant="outline" size="sm" onClick={onImport}><Upload className="mr-1.5 size-4" />Excel / CSV ile aktar</Button>
         </div>
         {loading ? (
@@ -1064,11 +1124,13 @@ type NewMachineTemplateDialogProps = {
   familyCode: FamilyCode;
   familyLabel: string;
   divisionReady: boolean;
-  subcategories: MachineSubcategoryOption[];
+  categories: ProductCategoryOption[];
+  subcategories: ProductSubcategoryOption[];
+  selectedCategoryCode?: string;
+  selectedSubcategoryCode?: string;
   sourceTypes: MachineTypeOption[];
   selectedTypeCode?: string;
   specRows: SpecTemplateRow[];
-  existingCodes: string[];
   loading: boolean;
   busy: boolean;
   onCreate: (draft: NewMachineTemplateDraft) => Promise<void>;
@@ -1080,63 +1142,72 @@ function NewMachineTemplateDialog({
   familyCode,
   familyLabel,
   divisionReady,
+  categories,
   subcategories,
+  selectedCategoryCode,
+  selectedSubcategoryCode,
   sourceTypes,
   selectedTypeCode,
   specRows,
-  existingCodes,
   loading,
   busy,
   onCreate,
 }: NewMachineTemplateDialogProps) {
-  const [name, setName] = useState("");
-  const [code, setCode] = useState("");
-  const [codeTouched, setCodeTouched] = useState(false);
+  const [categoryId, setCategoryId] = useState("");
   const [subcategoryId, setSubcategoryId] = useState("");
+  const [targetTypeCode, setTargetTypeCode] = useState("");
   const [startMode, setStartMode] = useState<TemplateStartMode>("blank");
   const [sourceTypeCode, setSourceTypeCode] = useState("");
 
   useEffect(() => {
     if (!open) return;
     const source = sourceTypes.find((type) => sameType(type.code, selectedTypeCode)) ?? sourceTypes[0];
-    const matchingSubcategory = subcategories.find((item) => item.code === source?.subcategoryCode) ?? subcategories[0];
-    setName("");
-    setCode("");
-    setCodeTouched(false);
+    const matchingCategory = categories.find((item) => item.code === selectedCategoryCode)
+      ?? categories.find((item) => item.code === source?.categoryCode)
+      ?? categories[0];
+    const matchingSubcategory = subcategories.find((item) => item.categoryId === matchingCategory?.id && item.code === selectedSubcategoryCode)
+      ?? subcategories.find((item) => item.categoryId === matchingCategory?.id && item.code === source?.subcategoryCode)
+      ?? subcategories.find((item) => item.categoryId === matchingCategory?.id);
+    const matchingType = sourceTypes.find((type) => type.categoryCode === matchingCategory?.code && type.subcategoryCode === matchingSubcategory?.code && sameType(type.code, selectedTypeCode))
+      ?? sourceTypes.find((type) => type.categoryCode === matchingCategory?.code && type.subcategoryCode === matchingSubcategory?.code);
+    setCategoryId(matchingCategory?.id ?? "");
     setSubcategoryId(matchingSubcategory?.id ?? "");
+    setTargetTypeCode(matchingType?.code ?? "");
     setStartMode("blank");
-    setSourceTypeCode(source?.code ?? "");
-  }, [familyCode, open]); // eslint-disable-line react-hooks/exhaustive-deps
+    setSourceTypeCode(sourceTypes.find((type) => !sameType(type.code, matchingType?.code))?.code ?? "");
+  }, [categories, familyCode, open, selectedCategoryCode, selectedSubcategoryCode, selectedTypeCode, sourceTypes, subcategories]);
 
-  const normalizedCode = machineTemplateCode(code);
-  const duplicateCode = Boolean(normalizedCode && existingCodes.some((item) => sameType(item, normalizedCode)));
+  const selectedCategory = categories.find((item) => item.id === categoryId);
+  const scopedSubcategories = subcategories.filter((item) => item.categoryId === categoryId);
+  const selectedSubcategory = scopedSubcategories.find((item) => item.id === subcategoryId);
+  const scopedProductTypes = sourceTypes.filter((type) => (
+    type.categoryCode === selectedCategory?.code && type.subcategoryCode === selectedSubcategory?.code
+  ));
+  const selectedTargetType = scopedProductTypes.find((type) => sameType(type.code, targetTypeCode));
+  const copySourceTypes = sourceTypes.filter((type) => !sameType(type.code, targetTypeCode));
   const sourceRows = sourceTypeCode
     ? buildDraftRows(sourceTypeCode, specRows).filter((row) => row.isActive && !row.isDeleted)
     : [];
-  const previewFieldCount = startMode === "copy" ? sourceRows.length : 0;
-  const selectedSubcategory = subcategories.find((item) => item.id === subcategoryId);
+  const targetRows = targetTypeCode
+    ? buildDraftRows(targetTypeCode, specRows).filter((row) => row.isActive && !row.isDeleted)
+    : [];
+  const previewFieldCount = startMode === "copy" ? sourceRows.length : targetRows.length;
   const canCreate = !loading
     && !busy
     && divisionReady
-    && name.trim().length >= 2
-    && normalizedCode.length >= 2
+    && Boolean(categoryId)
     && Boolean(subcategoryId)
-    && !duplicateCode
-    && (startMode === "blank" || Boolean(sourceTypeCode));
-
-  const handleNameChange = (value: string) => {
-    setName(value);
-    if (!codeTouched) setCode(machineTemplateCode(value));
-  };
+    && Boolean(targetTypeCode)
+    && (startMode === "blank" || Boolean(sourceTypeCode && copySourceTypes.length));
 
   return (
     <Dialog open={open} onOpenChange={(next) => !busy && onOpenChange(next)}>
       <DialogContent className="max-w-3xl gap-0 overflow-hidden p-0 motion-reduce:animate-none">
         <DialogHeader className="bg-[#081f4d] px-6 py-5 pr-12 text-white">
           <p className="font-mono text-[9px] font-semibold tracking-[0.22em] text-blue-200">TMPL / YENİ KAYIT</p>
-          <DialogTitle className="mt-1 text-2xl uppercase text-white">Makine şablonu aç</DialogTitle>
+          <DialogTitle className="mt-1 text-2xl uppercase text-white">Ürün şablonu aç</DialogTitle>
           <DialogDescription className="text-xs leading-5 text-blue-100/75">
-            {familyLabel} ürün ailesine yeni bir makine tipi ve ona bağlı teknik çalışma sayfası ekleyin.
+            Ürün kategorisi, alt kategorisi ve tipini eşleştirerek {familyLabel} için teknik çalışma sayfası ekleyin.
           </DialogDescription>
         </DialogHeader>
 
@@ -1145,9 +1216,7 @@ function NewMachineTemplateDialog({
             event.preventDefault();
             if (!canCreate) return;
             void onCreate({
-              name: name.trim(),
-              code: normalizedCode,
-              subcategoryId,
+              productTypeCode: targetTypeCode,
               startMode,
               sourceTypeCode: startMode === "copy" ? sourceTypeCode : undefined,
             });
@@ -1158,35 +1227,35 @@ function NewMachineTemplateDialog({
               <section aria-labelledby="machine-template-identity-title">
                 <div className="mb-3 flex items-center gap-2">
                   <span className="font-mono text-[10px] font-bold text-blue-700">01</span>
-                  <h3 id="machine-template-identity-title" className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-700">Makine kimliği</h3>
+                  <h3 id="machine-template-identity-title" className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-700">Ürün eşleşmesi</h3>
                 </div>
                 <div className="grid gap-3 sm:grid-cols-2">
-                  <div className="space-y-1.5 sm:col-span-2">
-                    <Label htmlFor="machine-template-name">Şablon / makine tipi adı</Label>
-                    <Input
-                      id="machine-template-name"
-                      autoFocus
-                      value={name}
-                      maxLength={255}
-                      placeholder="Örn. CNC Portal Freze"
-                      onChange={(event) => handleNameChange(event.target.value)}
-                    />
-                  </div>
                   <div className="space-y-1.5">
-                    <Label htmlFor="machine-template-code">Makine kodu</Label>
-                    <Input
-                      id="machine-template-code"
-                      className="font-mono uppercase"
-                      value={code}
-                      maxLength={64}
-                      placeholder="CNC_PORTAL_FREZE"
-                      aria-invalid={duplicateCode}
-                      onChange={(event) => {
-                        setCodeTouched(true);
-                        setCode(machineTemplateCode(event.target.value));
-                      }}
-                    />
-                    {duplicateCode && <p className="text-[11px] text-rose-600">Bu kod mevcut bir makine şablonunda kullanılıyor.</p>}
+                    <Label htmlFor="machine-template-category">Ürün kategorisi</Label>
+                    <div className="relative">
+                      <select
+                        id="machine-template-category"
+                        value={categoryId}
+                        disabled={loading || !categories.length}
+                        onChange={(event) => {
+                          const nextCategoryId = event.target.value;
+                          const nextCategory = categories.find((item) => item.id === nextCategoryId);
+                          const nextSubcategory = subcategories.find((item) => item.categoryId === nextCategoryId);
+                          const nextType = sourceTypes.find((type) => type.categoryCode === nextCategory?.code && type.subcategoryCode === nextSubcategory?.code);
+                          setCategoryId(nextCategoryId);
+                          setSubcategoryId(nextSubcategory?.id ?? "");
+                          setTargetTypeCode(nextType?.code ?? "");
+                          if (sameType(sourceTypeCode, nextType?.code)) {
+                            setSourceTypeCode(sourceTypes.find((type) => !sameType(type.code, nextType?.code))?.code ?? "");
+                          }
+                        }}
+                        className="h-10 w-full appearance-none rounded-md border border-slate-300 bg-white px-3 pr-9 text-xs font-medium text-slate-800 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100 disabled:opacity-60"
+                      >
+                        {!categories.length && <option value="">Kategori bulunamadı</option>}
+                        {categories.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
+                      </select>
+                      <ChevronDown className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-slate-500" />
+                    </div>
                   </div>
                   <div className="space-y-1.5">
                     <Label htmlFor="machine-template-subcategory">Ürün alt kategorisi</Label>
@@ -1194,12 +1263,44 @@ function NewMachineTemplateDialog({
                       <select
                         id="machine-template-subcategory"
                         value={subcategoryId}
-                        disabled={loading || !subcategories.length}
-                        onChange={(event) => setSubcategoryId(event.target.value)}
+                        disabled={loading || !scopedSubcategories.length}
+                        onChange={(event) => {
+                          const nextSubcategoryId = event.target.value;
+                          const nextSubcategory = subcategories.find((item) => item.id === nextSubcategoryId);
+                          const nextType = sourceTypes.find((type) => type.categoryCode === selectedCategory?.code && type.subcategoryCode === nextSubcategory?.code);
+                          setSubcategoryId(nextSubcategoryId);
+                          setTargetTypeCode(nextType?.code ?? "");
+                          if (sameType(sourceTypeCode, nextType?.code)) {
+                            setSourceTypeCode(sourceTypes.find((type) => !sameType(type.code, nextType?.code))?.code ?? "");
+                          }
+                        }}
                         className="h-10 w-full appearance-none rounded-md border border-slate-300 bg-white px-3 pr-9 text-xs font-medium text-slate-800 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100 disabled:opacity-60"
                       >
-                        {!subcategories.length && <option value="">Alt kategori bulunamadı</option>}
-                        {subcategories.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
+                        {!scopedSubcategories.length && <option value="">Alt kategori bulunamadı</option>}
+                        {scopedSubcategories.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
+                      </select>
+                      <ChevronDown className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-slate-500" />
+                    </div>
+                  </div>
+                  <div className="space-y-1.5 sm:col-span-2">
+                    <Label htmlFor="machine-template-product-type">Ürün tipi</Label>
+                    <div className="relative">
+                      <select
+                        id="machine-template-product-type"
+                        autoFocus
+                        value={targetTypeCode}
+                        disabled={loading || !scopedProductTypes.length}
+                        onChange={(event) => {
+                          const nextTypeCode = event.target.value;
+                          setTargetTypeCode(nextTypeCode);
+                          if (sameType(sourceTypeCode, nextTypeCode)) {
+                            setSourceTypeCode(sourceTypes.find((type) => !sameType(type.code, nextTypeCode))?.code ?? "");
+                          }
+                        }}
+                        className="h-10 w-full appearance-none rounded-md border border-slate-300 bg-white px-3 pr-9 text-xs font-medium text-slate-800 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100 disabled:opacity-60"
+                      >
+                        {!scopedProductTypes.length && <option value="">Ürün tipi bulunamadı</option>}
+                        {scopedProductTypes.map((type) => <option key={type.code} value={type.code}>{type.label}</option>)}
                       </select>
                       <ChevronDown className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-slate-500" />
                     </div>
@@ -1224,7 +1325,7 @@ function NewMachineTemplateDialog({
                     )}
                   >
                     <FilePlus2 className={cn("mt-0.5 size-4 shrink-0", startMode === "blank" ? "text-blue-700" : "text-slate-500")} />
-                    <span><strong className="block text-xs text-slate-900">Boş çalışma sayfası</strong><span className="mt-1 block text-[11px] leading-4 text-slate-500">Teknik bölümleri ve alanları sıfırdan kurun.</span></span>
+                    <span><strong className="block text-xs text-slate-900">Seçili düzenle aç</strong><span className="mt-1 block text-[11px] leading-4 text-slate-500">Kayıtlı alanları açın; alan yoksa boş çalışma sayfasıyla başlayın.</span></span>
                   </button>
                   <button
                     type="button"
@@ -1242,15 +1343,17 @@ function NewMachineTemplateDialog({
                 </div>
                 {startMode === "copy" && (
                   <div className="mt-3 space-y-1.5">
-                    <Label htmlFor="machine-template-source">Kaynak makine şablonu</Label>
+                    <Label htmlFor="machine-template-source">Kaynak ürün şablonu</Label>
                     <div className="relative">
                       <select
                         id="machine-template-source"
                         value={sourceTypeCode}
+                        disabled={!copySourceTypes.length}
                         onChange={(event) => setSourceTypeCode(event.target.value)}
                         className="h-10 w-full appearance-none rounded-md border border-slate-300 bg-white px-3 pr-9 text-xs font-medium text-slate-800 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100"
                       >
-                        {sourceTypes.map((type) => <option key={type.code} value={type.code}>{type.label}</option>)}
+                        {!copySourceTypes.length && <option value="">Kopyalanabilecek başka şablon yok</option>}
+                        {copySourceTypes.map((type) => <option key={type.code} value={type.code}>{type.label}</option>)}
                       </select>
                       <ChevronDown className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-slate-500" />
                     </div>
@@ -1258,13 +1361,13 @@ function NewMachineTemplateDialog({
                 )}
               </section>
 
-              {!loading && (!divisionReady || !subcategories.length) && (
+              {!loading && (!divisionReady || !categories.length || !scopedSubcategories.length || !scopedProductTypes.length) && (
                 <div role="alert" className="flex gap-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-[11px] leading-4 text-amber-900">
                   <CircleAlert className="mt-0.5 size-4 shrink-0" />
                   <span>
                     {!divisionReady
                       ? "Bu ürün ailesine bağlı aktif bölüm bulunamadı. Önce bölüm erişimini ve ürün kapsamını kontrol edin."
-                      : "Bu ürün ailesinde Tezgah alt kategorisi bulunamadı. Önce CRM Alan Ayarları bölümünde ürün taksonomisini kurun."}
+                      : "Bu ürün ailesinde kategori, alt kategori ve ürün tipi zinciri tamamlanmamış. Önce CRM Alan Ayarları bölümünde ürün taksonomisini kurun."}
                   </span>
                 </div>
               )}
@@ -1277,10 +1380,11 @@ function NewMachineTemplateDialog({
                   <strong className="font-display text-xl tracking-[0.08em] text-[#071c54]">HAKSAN</strong>
                   <span className="size-2 rounded-full border border-slate-500 bg-slate-200" />
                 </div>
-                <p className="mt-4 font-mono text-[9px] tracking-[0.16em] text-slate-500">{normalizedCode || "MAKINE_KODU"}</p>
-                <p className="mt-1 min-h-14 font-display text-2xl font-bold uppercase leading-none text-[#0b1f44]">{name.trim() || "Yeni makine şablonu"}</p>
+                <p className="mt-4 font-mono text-[9px] tracking-[0.16em] text-slate-500">{selectedTargetType?.code ?? "URUN_TIPI_KODU"}</p>
+                <p className="mt-1 min-h-14 font-display text-2xl font-bold uppercase leading-none text-[#0b1f44]">{selectedTargetType?.label ?? "Ürün tipi seçin"}</p>
                 <dl className="mt-4 grid gap-2 border-t border-slate-200 pt-3 text-[10px]">
                   <div className="flex justify-between gap-3"><dt className="text-slate-500">Ürün ailesi</dt><dd className="font-semibold text-slate-800">{familyLabel}</dd></div>
+                  <div className="flex justify-between gap-3"><dt className="text-slate-500">Kategori</dt><dd className="truncate font-semibold text-slate-800">{selectedCategory?.label ?? "—"}</dd></div>
                   <div className="flex justify-between gap-3"><dt className="text-slate-500">Alt kategori</dt><dd className="truncate font-semibold text-slate-800">{selectedSubcategory?.label ?? "—"}</dd></div>
                   <div className="flex justify-between gap-3"><dt className="text-slate-500">Başlangıç alanı</dt><dd className="font-mono font-semibold text-blue-700">{previewFieldCount}</dd></div>
                 </dl>
@@ -1289,7 +1393,7 @@ function NewMachineTemplateDialog({
                 </div>
               </div>
               <p className="mt-3 text-[10px] leading-4 text-slate-500">
-                Kayıt tamamlandığında teknik çalışma sayfası otomatik açılır. Sonraki adımda alanları düzenleyip kaydedebilirsiniz.
+                Seçim tamamlandığında eşleşen teknik çalışma sayfası açılır. Sonraki adımda alanları düzenleyip kaydedebilirsiniz.
               </p>
             </aside>
           </div>
@@ -1298,7 +1402,7 @@ function NewMachineTemplateDialog({
             <Button type="button" variant="outline" disabled={busy} onClick={() => onOpenChange(false)}>Vazgeç</Button>
             <Button type="submit" disabled={!canCreate} className="bg-blue-700 text-white hover:bg-blue-800">
               {busy ? <RefreshCw className="mr-2 size-4 animate-spin motion-reduce:animate-none" /> : <FilePlus2 className="mr-2 size-4" />}
-              {busy ? "Şablon açılıyor" : "Şablonu oluştur ve aç"}
+              {busy ? "Şablon açılıyor" : "Şablonu aç"}
             </Button>
           </DialogFooter>
         </form>
@@ -1308,11 +1412,15 @@ function NewMachineTemplateDialog({
 }
 
 function HierarchySelect({ index, label, value, options, onChange }: { index: string; label: string; value: string; options: Array<{ code: string; label: string }>; onChange: (value: string) => void }) {
+  const selectId = `technical-hierarchy-${index}`;
   return (
     <div className="relative">
-      <label className="mb-1 flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500"><span className="font-mono text-blue-700">{index}</span>{label}</label>
+      <label htmlFor={selectId} className="mb-1 flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500"><span className="font-mono text-blue-700">{index}</span>{label}</label>
       <div className="relative">
-        <select value={value} onChange={(event) => onChange(event.target.value)} className="h-10 w-full appearance-none rounded-md border border-slate-300 bg-white px-3 pr-9 text-xs font-medium text-slate-800 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100">{options.map((option) => <option key={option.code} value={option.code}>{option.label}</option>)}</select>
+        <select id={selectId} value={value} disabled={!options.length} onChange={(event) => onChange(event.target.value)} className="h-10 w-full appearance-none rounded-md border border-slate-300 bg-white px-3 pr-9 text-xs font-medium text-slate-800 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100 disabled:bg-slate-100 disabled:text-slate-500">
+          {!options.length && <option value="">Seçenek bulunamadı</option>}
+          {options.map((option) => <option key={option.code} value={option.code}>{option.label}</option>)}
+        </select>
         <ChevronDown className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-slate-500" />
       </div>
     </div>
@@ -1412,7 +1520,7 @@ function EditorView({ type, search, setSearch, rows, displayRows, selectedRow, s
     <div className="bg-[#f8fafc]">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-white px-4 py-3">
         <div className="min-w-0"><h2 className="truncate font-display text-2xl font-bold text-[#0b1f44]">{type.label}</h2><p className="font-mono text-[9px] tracking-[0.22em] text-slate-500">{type.code}</p></div>
-        <div className="flex items-center gap-2 text-[10px] text-slate-500"><Badge variant="outline" className="border-slate-300 bg-white">{type.familyCode === "SAC_ISLEME" ? "Sac İşleme" : type.familyCode === "UNIVERSAL" ? "Üniversal" : "CNC"}</Badge><ArrowRight className="size-3" /><span>Tezgah</span><ArrowRight className="size-3" /><span>{type.subcategoryLabel}</span></div>
+        <div className="flex items-center gap-2 text-[10px] text-slate-500"><Badge variant="outline" className="border-slate-300 bg-white">{type.familyCode === "SAC_ISLEME" ? "Sac İşleme" : type.familyCode === "UNIVERSAL" ? "Üniversal" : "CNC"}</Badge><ArrowRight className="size-3" /><span>{type.categoryLabel}</span><ArrowRight className="size-3" /><span>{type.subcategoryLabel}</span></div>
       </div>
       <div className="flex flex-wrap items-center gap-2 border-b border-slate-300 bg-white px-3 py-2">
         <Button variant="outline" size="sm" onClick={() => addField()}><Plus className="mr-1.5 size-4" />Alan ekle</Button>

@@ -668,7 +668,7 @@ export class AdminLookupsController {
   /**
    * Ürün tipi ile ilk teknik alanlarını aynı transaction içinde oluşturur.
    * Böylece kopyalama sırasında alan kaydı başarısız olursa sahipsiz/yarım bir
-   * makine tipi bırakılmaz.
+   * ürün tipi bırakılmaz.
    */
   @Throttle({ default: { limit: 60, ttl: 60_000 } })
   @Post('machine-templates')
@@ -707,14 +707,14 @@ export class AdminLookupsController {
     if (taxonomyDivisionIds.some((divisionId) => divisionId !== body.divisionId)) {
       throw new ValidationError('Ürün alt kategorisi seçilen bölüme ait değil', { field: 'subcategoryId' });
     }
-    if (toLookupCode(subcategory.categoryCode ?? '') !== 'tezgah') {
-      throw new ValidationError('Makine şablonu yalnız Tezgah kategorisinde oluşturulabilir', {
+    if (!subcategory.categoryCode) {
+      throw new ValidationError('Ürün alt kategorisi bir ürün kategorisine bağlı olmalıdır', {
         field: 'subcategoryId',
       });
     }
 
     const code = toLookupCode(body.code);
-    if (!code) throw new ValidationError('Makine şablonu kodu geçersiz', { field: 'code' });
+    if (!code) throw new ValidationError('Ürün şablonu kodu geçersiz', { field: 'code' });
     const sortOrder = await this.nextLookupSortOrder(
       'product-types',
       schema.productTypes,
@@ -770,7 +770,7 @@ export class AdminLookupsController {
       return result;
     } catch (error: any) {
       if (databaseErrorCode(error) === '23505') {
-        throw new ConflictError('Bu makine şablonu kodu seçilen bölümde zaten kullanılıyor');
+        throw new ConflictError('Bu ürün şablonu kodu seçilen bölümde zaten kullanılıyor');
       }
       throw error;
     }
