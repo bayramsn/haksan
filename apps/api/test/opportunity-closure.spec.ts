@@ -5,6 +5,7 @@ import { createTestApp } from './setup';
 
 let app: NestFastifyApplication;
 let token = '';
+let adminToken = '';
 let companyId = '';
 
 async function login(server: any, email: string, password: string) {
@@ -16,6 +17,7 @@ beforeAll(async () => {
   app = await createTestApp();
   const server = app.getHttpServer();
   token = await login(server, 'superadmin@haksan.local', 'superadmin12345');
+  adminToken = await login(server, 'admin@haksan.local', 'admin12345');
   const companies = await supertest(server).get('/api/v1/companies').set('Authorization', `Bearer ${token}`);
   companyId = companies.body.data[0].id;
 });
@@ -87,6 +89,8 @@ describe('Opportunity logical closure (Bitir / Arşiv / Geri Aç)', () => {
       .send();
     expect(reopen.status).toBe(201);
     expect(reopen.body.closedAt).toBeNull();
+    expect(reopen.body.qualificationStage).toBe('lead');
+    expect(reopen.body.stage.code).toBe('lead');
 
     const active2 = await supertest(server)
       .get(`/api/v1/opportunities?companyId=${companyId}`)
@@ -111,5 +115,38 @@ describe('Opportunity logical closure (Bitir / Arşiv / Geri Aç)', () => {
       .set('Authorization', `Bearer ${token}`)
       .send({});
     expect(second.status).toBe(422);
+  });
+
+  it('returns an open LOST card directly to Lead and rejects a non-sales admin', async () => {
+    const server = app.getHttpServer();
+    const id = await createOpp(server, `lost-direct-reopen-${Date.now()}`);
+    const lost = await supertest(server)
+      .patch(`/api/v1/opportunities/${id}/qualification-stage`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        toStage: 'lost',
+        cancellationReasonCode: 'test_timing',
+        lostProductName: 'Test tezgahı',
+        lostUnmetConditions: 'Termin uygun değildi',
+      });
+    expect(lost.status, JSON.stringify(lost.body)).toBe(200);
+
+    const forbidden = await supertest(server)
+      .post(`/api/v1/opportunities/${id}/reopen`)
+      .set('Authorization', `Bearer ${adminToken}`);
+    expect(forbidden.status).toBe(403);
+
+    const reopened = await supertest(server)
+      .post(`/api/v1/opportunities/${id}/reopen`)
+      .set('Authorization', `Bearer ${token}`);
+    expect(reopened.status, JSON.stringify(reopened.body)).toBe(201);
+    expect(reopened.body).toMatchObject({
+      qualificationStage: 'lead',
+      closedAt: null,
+      lostReason: null,
+      lostProductName: null,
+      lostUnmetConditions: null,
+    });
+    expect(reopened.body.stage.code).toBe('lead');
   });
 });

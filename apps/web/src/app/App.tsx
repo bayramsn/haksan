@@ -262,7 +262,7 @@ function AppShell() {
         content = <ContactsPage />;
         break;
       case "leads":
-        content = <LeadsPage onSelect={(lead) => selectOpportunity(lead.id)} />;
+        content = <LeadsPage onSelect={(lead) => selectOpportunity(lead.id)} focus={focus?.nav === "leads" ? focus.focus : undefined} />;
         break;
       case "sales-cases":
         actions = canCreate("opportunities.create") ? (

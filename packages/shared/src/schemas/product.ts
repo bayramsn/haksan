@@ -81,6 +81,33 @@ export const productSpecTemplateBatchSchema = z.object({
 });
 export type ProductSpecTemplateBatchInput = z.infer<typeof productSpecTemplateBatchSchema>;
 
+export const machineTemplateFieldSchema = productSpecTemplateCreateSchema.omit({
+  productTypeCode: true,
+  divisionId: true,
+});
+
+export const machineTemplateCreateSchema = z
+  .object({
+    name: z.string().trim().min(2).max(255),
+    code: z.string().trim().min(2).max(64),
+    divisionId: z.string().uuid(),
+    subcategoryId: z.string().uuid(),
+    fields: z.array(machineTemplateFieldSchema).max(1000).default([]),
+  })
+  .superRefine((value, ctx) => {
+    const normalizedKeys = value.fields.map((field) =>
+      field.specKey.trim().toLocaleLowerCase('tr-TR'),
+    );
+    if (new Set(normalizedKeys).size !== normalizedKeys.length) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['fields'],
+        message: 'Aynı teknik bilgi adı birden fazla kez kullanılamaz',
+      });
+    }
+  });
+export type MachineTemplateCreateInput = z.infer<typeof machineTemplateCreateSchema>;
+
 export const technicalImportModeSchema = z.enum(['template_fields', 'machine_data']);
 export type TechnicalImportMode = z.infer<typeof technicalImportModeSchema>;
 
@@ -190,6 +217,9 @@ export const brandCreateSchema = z.object({
   country: z.string().max(64).optional(),
   website: z.string().url().max(512).optional(),
   notes: z.string().max(4000).optional(),
+  companyId: z.string().uuid().nullish(),
+  isOwned: z.boolean().default(false),
+  logoFileId: z.string().uuid().nullish(),
   // Ürün formunda seçilen CNC / Üniversal / Sac İşleme grubunun bölümü.
   // Boş bırakılırsa marka tüm bölümlerde kullanılabilen ortak kayıt olur.
   divisionId: z.string().uuid().nullish(),

@@ -1,5 +1,9 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import type { AssistantOpportunitySummary } from "@haksan/shared";
+import {
+  PIPELINE_STAGE_FLOW,
+  type AssistantOpportunitySummary,
+  type OpportunityProcessReadiness,
+} from "@haksan/shared";
 import {
   Activity as ActivityIcon,
   AlertTriangle,
@@ -7,10 +11,8 @@ import {
   Building2,
   Check,
   ChevronRight,
-  CircleDollarSign,
   Clock3,
   FileClock,
-  FileText,
   Loader2,
   RefreshCw,
   Save,
@@ -22,7 +24,7 @@ import {
   UsersRound,
   Wrench,
 } from "lucide-react";
-import { assistantService, opportunityService } from "../../../lib/services";
+import { assistantService, fileService, opportunityService } from "../../../lib/services";
 import { useAuth } from "../../../lib/auth";
 import { usePersistentState } from "../../lib/persist";
 import { useStore } from "../../lib/store";
@@ -45,8 +47,15 @@ import { Label } from "../ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../ui/tabs";
 import { toast } from "sonner";
+import { DecisionRail, LeadQualificationPanel } from "./LeadWorkspaceControls";
+import {
+  DocumentPanel,
+  HealthStrip,
+  RecordWorkspaceShell,
+  UnifiedTimeline,
+} from "../shared/RecordWorkspace";
 
-type WorkspaceTab = "summary" | "activity" | "commercial" | "operations" | "files";
+type WorkspaceTab = "summary" | "contact" | "qualification" | "activity" | "commercial" | "operations" | "files";
 type WorkspacePreferences = {
   defaultTab: WorkspaceTab;
   density: "comfortable" | "compact";
@@ -60,7 +69,7 @@ type OpportunityDetail = {
   qualificationHistory?: Array<Record<string, any>>;
   approvals?: Array<Record<string, any>>;
   auditHistory?: Array<Record<string, any>>;
-  processReadiness?: { completionPercent?: number };
+  processReadiness?: OpportunityProcessReadiness;
 };
 
 type TimelineItem = {
@@ -74,6 +83,8 @@ type TimelineItem = {
 
 const TAB_LABELS: Record<WorkspaceTab, string> = {
   summary: "Özet",
+  contact: "Temas",
+  qualification: "Nitelendirme",
   activity: "Aktivite",
   commercial: "Ticari",
   operations: "Operasyon",
@@ -123,8 +134,49 @@ const roleDefaultTab = (roles: string[] | undefined): WorkspaceTab => {
   return "summary";
 };
 
-const auditDetail = (oldValues: unknown, newValues: unknown) => {
-  const pairs = [oldValues ? `Önce: ${JSON.stringify(oldValues)}` : "", newValues ? `Sonra: ${JSON.stringify(newValues)}` : ""]
+const AUDIT_FIELD_LABELS: Record<string, string> = {
+  qualificationStage: "Nitelik aşaması",
+  leadFollowUpStatus: "Lead durumu",
+  contactAttemptCount: "Temas denemesi",
+  nextAction: "Sonraki aksiyon",
+  nextActionAt: "Aksiyon zamanı",
+  ownerUserId: "Sorumlu",
+  estimatedValue: "Tahmini tutar",
+  probability: "Olasılık",
+  expectedCloseDate: "Kapanış tarihi",
+  fitScore: "Uyum skoru",
+  engagementScore: "Etkileşim skoru",
+  priorityScore: "Öncelik skoru",
+  overrideReason: "Dönüşüm gerekçesi",
+};
+
+const AUDIT_ACTION_LABELS: Record<string, string> = {
+  "opportunity.created": "Kayıt oluşturuldu",
+  "opportunity.converted": "Lead fırsata dönüştürüldü",
+  "opportunity.owner_changed": "Sorumlu değiştirildi",
+  "lead.contact_recorded": "Temas sonucu kaydedildi",
+  "opportunity.approvals.invalidated": "Onaylar yeniden değerlendirmeye alındı",
+};
+
+const auditValue = (key: string, value: unknown, userNames?: ReadonlyMap<string, string>) => {
+  if (/password|token|secret|hash/i.test(key)) return "••••••";
+  if (value === null || value === undefined || value === "") return "Boş";
+  if (key === "ownerUserId" && typeof value === "string") return userNames?.get(value) ?? value;
+  if (typeof value === "boolean") return value ? "Evet" : "Hayır";
+  if (typeof value === "object") return Array.isArray(value) ? value.join(", ") : "Yapılandırılmış veri";
+  return String(value);
+};
+
+const auditSide = (label: string, values: unknown, userNames?: ReadonlyMap<string, string>) => {
+  if (!values || typeof values !== "object" || Array.isArray(values)) return "";
+  const entries = Object.entries(values as Record<string, unknown>)
+    .map(([key, value]) => `${AUDIT_FIELD_LABELS[key] ?? key}: ${auditValue(key, value, userNames)}`)
+    .join(" | ");
+  return entries ? `${label} — ${entries}` : "";
+};
+
+const auditDetail = (oldValues: unknown, newValues: unknown, userNames?: ReadonlyMap<string, string>) => {
+  const pairs = [auditSide("Önce", oldValues, userNames), auditSide("Sonra", newValues, userNames)]
     .filter(Boolean)
     .join(" · ");
   return pairs.length > 500 ? `${pairs.slice(0, 497)}…` : pairs;
@@ -174,12 +226,17 @@ export function OpportunityWorkspace({
     installations,
     updateCase,
   } = useStore();
-  const { user, hasPermission } = useAuth();
+  const { user, hasPermission, hasRole } = useAuth();
   const canUpdate = hasPermission("opportunities.update");
+  const canAssignOwner = canUpdate && (hasRole("sales") || hasRole("super_admin"));
+  const isLead = sc.qualificationStage === "lead";
+  const activeTabs: WorkspaceTab[] = isLead
+    ? ["summary", "contact", "qualification", "files"]
+    : ["summary", "activity", "commercial", "operations", "files"];
   const initialPreferences: WorkspacePreferences = {
-    defaultTab: roleDefaultTab(user?.roles),
+    defaultTab: isLead ? "summary" : roleDefaultTab(user?.roles),
     density: "comfortable",
-    showAi: true,
+    showAi: false,
     showSimilar: true,
     showStakeholders: true,
   };
@@ -200,6 +257,15 @@ export function OpportunityWorkspace({
   const [aiState, setAiState] = useState<"idle" | "loading" | "error">("idle");
   const [summary, setSummary] = useState<AssistantOpportunitySummary | null>(null);
   const [focusedActivityId, setFocusedActivityId] = useState<string | null>(null);
+  const [operationsExpanded, setOperationsExpanded] = useState(false);
+
+  useEffect(() => {
+    if (!activeTabs.includes(tab)) setTab("summary");
+  }, [activeTabs, tab]);
+
+  useEffect(() => {
+    setOperationsExpanded(false);
+  }, [sc.id]);
 
   useEffect(() => {
     const syncFocusFromLocation = () => {
@@ -208,7 +274,7 @@ export function OpportunityWorkspace({
       const activityId = url.searchParams.get("activity");
       if (opportunityId === sc.id && activityId) {
         setFocusedActivityId(activityId);
-        setTab("activity");
+        setTab(isLead ? "contact" : "activity");
       } else {
         setFocusedActivityId(null);
       }
@@ -220,7 +286,7 @@ export function OpportunityWorkspace({
       window.removeEventListener("popstate", syncFocusFromLocation);
       window.removeEventListener("haksan:opportunity-focus", syncFocusFromLocation);
     };
-  }, [sc.id]);
+  }, [isLead, sc.id]);
 
   const loadDetail = useCallback(async () => {
     setDetailLoading(true);
@@ -252,6 +318,7 @@ export function OpportunityWorkspace({
 
   const customer = customers.find((item) => item.id === sc.customerId);
   const owner = users.find((item) => item.id === sc.assignedUserId);
+  const userNames = useMemo(() => new Map(users.map((item) => [item.id, item.name])), [users]);
   const opportunityActivities = activities.filter((item) => item.salesCaseId === sc.id);
   const opportunityOffers = offers.filter((item) => item.salesCaseId === sc.id);
   const opportunityPayments = payments.filter((item) => item.salesCaseId === sc.id);
@@ -273,6 +340,20 @@ export function OpportunityWorkspace({
   const probabilityNumber = Math.min(100, Math.max(0, Number(probability) || 0));
   const amountNumber = Math.max(0, Number(amount) || 0);
   const weightedValue = amountNumber * (probabilityNumber / 100);
+
+  const previewDocument = async (document: DocumentItem) => {
+    if (!document.fileId) return;
+    try {
+      const signed = await fileService.signedDownload(document.fileId);
+      if (signed.mimeType !== "application/pdf" && !signed.mimeType.startsWith("image/")) {
+        toast.message("Bu dosya türü güvenli önizlemeyi desteklemiyor", { description: "Dosyayı indirebilirsiniz." });
+        return;
+      }
+      window.open(signed.downloadUrl, "_blank", "noopener,noreferrer");
+    } catch (error: any) {
+      toast.error("Dosya önizlenemedi", { description: error?.message ?? "Yetki veya dosya durumunu kontrol edin." });
+    }
+  };
 
   const saveCommercial = async () => {
     if (!canUpdate || saveState === "saving") return;
@@ -367,34 +448,57 @@ export function OpportunityWorkspace({
       id: `audit-${audit.id}`,
       date: audit.createdAt,
       category: "process",
-      title: audit.action,
-      detail: auditDetail(audit.oldValues, audit.newValues),
+      title: AUDIT_ACTION_LABELS[audit.action] ?? audit.action,
+      detail: auditDetail(audit.oldValues, audit.newValues, userNames),
       actor: audit.actor?.fullName ?? audit.actor?.email,
     }));
     return items.sort((a, b) => timelineTime(b.date) - timelineTime(a.date));
-  }, [detail, opportunityActivities, opportunityDocuments, opportunityOffers, opportunityPayments, users]);
+  }, [detail, opportunityActivities, opportunityDocuments, opportunityOffers, opportunityPayments, userNames, users]);
 
   useEffect(() => {
-    if (!focusedActivityId || tab !== "activity") return;
+    if (!focusedActivityId || (tab !== "activity" && tab !== "contact")) return;
     const timer = window.setTimeout(() => {
       const target = document.getElementById(`activity-${focusedActivityId}`);
       if (!target) return;
-      target.scrollIntoView({ behavior: "smooth", block: "center" });
+      const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      target.scrollIntoView({ behavior: reducedMotion ? "auto" : "smooth", block: "center" });
       target.focus({ preventScroll: true });
     }, 120);
     return () => window.clearTimeout(timer);
   }, [focusedActivityId, tab, timeline.length]);
 
   const padding = preferences.density === "compact" ? "p-3 sm:p-4" : "p-4 sm:p-5";
+  const operationReadiness = detail?.processReadiness;
+  const nextOperationTarget = operationReadiness?.targets
+    .filter((target) => target.axis === "operation" && target.direction === "forward")
+    .sort(
+      (left, right) =>
+        PIPELINE_STAGE_FLOW.indexOf(left.code as (typeof PIPELINE_STAGE_FLOW)[number]) -
+        PIPELINE_STAGE_FLOW.indexOf(right.code as (typeof PIPELINE_STAGE_FLOW)[number]),
+    )[0];
+  const revealProcessActions = () => {
+    setOperationsExpanded(true);
+    window.setTimeout(() => {
+      const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      document.getElementById("opportunity-process-actions")?.scrollIntoView({
+        behavior: reducedMotion ? "auto" : "smooth",
+        block: "start",
+      });
+    }, 80);
+  };
 
   return (
-    <div className="min-w-0 space-y-4">
+    <div className="min-w-0 space-y-4 pb-24 lg:pb-0">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 pb-3">
         <div>
-          <div className="font-data text-[10px] font-semibold uppercase tracking-[0.15em] text-[#536178]">Ortak fırsat görünümü</div>
-          <div className="mt-1 text-sm text-muted-foreground">Satış, ticari ve operasyon ekipleri için tek görünüm</div>
+          <div className="font-data text-[10px] font-semibold uppercase tracking-[0.15em] text-[#536178]">
+            {isLead ? "Lead çalışma alanı" : "Ortak fırsat görünümü"}
+          </div>
+          <div className="mt-1 text-sm text-muted-foreground">
+            {isLead ? "Temas, nitelendirme ve dönüşüm kararı için tek yüzey" : "Satış, ticari ve operasyon ekipleri için tek görünüm"}
+          </div>
         </div>
-        <Button type="button" variant="outline" size="sm" className="gap-1.5 bg-white" onClick={() => setSettingsOpen((value) => !value)} aria-expanded={settingsOpen}>
+        <Button type="button" variant="outline" size="sm" className="min-h-11 gap-1.5 bg-white sm:min-h-8" onClick={() => setSettingsOpen((value) => !value)} aria-expanded={settingsOpen}>
           <Settings2 className="size-4" /> Görünümü ayarla
         </Button>
       </div>
@@ -406,16 +510,16 @@ export function OpportunityWorkspace({
               <Label className="text-xs">Varsayılan sekme</Label>
               <Select value={preferences.defaultTab} onValueChange={(value) => setPreferences((current) => ({ ...current, defaultTab: value as WorkspaceTab }))}>
                 <SelectTrigger className="mt-1.5 bg-white"><SelectValue /></SelectTrigger>
-                <SelectContent>{(Object.keys(TAB_LABELS) as WorkspaceTab[]).map((key) => <SelectItem key={key} value={key}>{TAB_LABELS[key]}</SelectItem>)}</SelectContent>
+                <SelectContent>{activeTabs.map((key) => <SelectItem key={key} value={key}>{TAB_LABELS[key]}</SelectItem>)}</SelectContent>
               </Select>
             </div>
-            <div>
+            {!isLead && <div>
               <Label className="text-xs">Bilgi yoğunluğu</Label>
               <Select value={preferences.density} onValueChange={(value) => setPreferences((current) => ({ ...current, density: value as WorkspacePreferences["density"] }))}>
                 <SelectTrigger className="mt-1.5 bg-white"><SelectValue /></SelectTrigger>
                 <SelectContent><SelectItem value="comfortable">Rahat</SelectItem><SelectItem value="compact">Kompakt</SelectItem></SelectContent>
               </Select>
-            </div>
+            </div>}
             <div>
               <Label className="text-xs">Özet modülleri</Label>
               <div className="mt-1.5 flex flex-wrap gap-2">
@@ -424,7 +528,7 @@ export function OpportunityWorkspace({
                   ["showSimilar", "Benzer kazanımlar"],
                   ["showStakeholders", "Paydaşlar"],
                 ] as const).map(([key, label]) => (
-                  <Button key={key} type="button" size="sm" variant={preferences[key] ? "default" : "outline"} className="h-8 text-xs" onClick={() => setPreferences((current) => ({ ...current, [key]: !current[key] }))} aria-pressed={preferences[key]}>
+                  <Button key={key} type="button" size="sm" variant={preferences[key] ? "default" : "outline"} className="h-11 text-xs sm:h-8" onClick={() => setPreferences((current) => ({ ...current, [key]: !current[key] }))} aria-pressed={preferences[key]}>
                     {preferences[key] && <Check className="size-3.5" />} {label}
                   </Button>
                 ))}
@@ -434,10 +538,11 @@ export function OpportunityWorkspace({
         </Card>
       )}
 
+      <RecordWorkspaceShell rail={<DecisionRail salesCase={sc} ownerName={owner?.name} users={users} canUpdate={canUpdate} canAssignOwner={canAssignOwner} onOwnerChanged={loadDetail} />}>
       <Tabs value={tab} onValueChange={(value) => setTab(value as WorkspaceTab)}>
         <TabsList className="h-auto w-full justify-start gap-0 overflow-x-auto rounded-none border-b border-slate-200 bg-transparent p-0">
-          {(Object.keys(TAB_LABELS) as WorkspaceTab[]).map((key) => (
-            <TabsTrigger key={key} value={key} className="flex-none rounded-none border-0 border-b-2 border-transparent px-3 py-2.5 text-[12px] data-[state=active]:border-b-[#163b75] data-[state=active]:bg-transparent data-[state=active]:text-[#163b75] data-[state=active]:shadow-none sm:text-[13px]">
+          {activeTabs.map((key) => (
+            <TabsTrigger key={key} value={key} className="min-h-11 flex-none rounded-none border-0 border-b-2 border-transparent px-3 py-2.5 text-[12px] data-[state=active]:border-b-[#163b75] data-[state=active]:bg-transparent data-[state=active]:text-[#163b75] data-[state=active]:shadow-none sm:min-h-0 sm:text-[13px]">
               {TAB_LABELS[key]}
             </TabsTrigger>
           ))}
@@ -445,7 +550,67 @@ export function OpportunityWorkspace({
 
         <TabsContent value="summary" className="mt-4 space-y-4">
           {companyLinkingPanel}
-          <section className="overflow-hidden rounded-xl border border-slate-200 bg-white" aria-labelledby="workspace-pulse-title">
+          {isLead && (
+            <>
+              <section className="overflow-hidden rounded-xl border border-[#0b2453]/15 bg-white" aria-labelledby="lead-priority-title">
+                <div className="h-1 bg-[linear-gradient(90deg,#0b2453_0%,#2457D6_72%,#CF060C_72%)]" />
+                <div className={padding}>
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <h3 id="lead-priority-title" className="font-display text-xl font-semibold text-[#0b1739]">Lead önceliği</h3>
+                      <p className="mt-0.5 text-xs text-muted-foreground">Uyum ve etkileşim ayrı hesaplanır; SLA ihlali skora gizlice eklenmez.</p>
+                    </div>
+                    <div className="text-right">
+                      <div className="font-data text-3xl font-semibold tabular-nums text-[#0b1739]">{sc.leadInsights?.priorityScore ?? 0}</div>
+                      <Badge className={
+                        sc.leadInsights?.priorityBand === "high"
+                          ? "bg-red-700"
+                          : sc.leadInsights?.priorityBand === "medium"
+                            ? "bg-amber-600"
+                            : "bg-slate-600"
+                      }>
+                        {sc.leadInsights?.priorityBand === "high" ? "Yüksek" : sc.leadInsights?.priorityBand === "medium" ? "Orta" : "Düşük"}
+                      </Badge>
+                    </div>
+                  </div>
+                  <div className="mt-5 grid grid-cols-2 gap-4 sm:grid-cols-4">
+                    <Metric label="Uyum" value={`%${sc.leadInsights?.fitScore ?? 0}`} hint="5 × 20 puan" />
+                    <Metric label="Etkileşim" value={`%${sc.leadInsights?.engagementScore ?? 0}`} hint="Temas ve aksiyon" />
+                    <Metric
+                      label="SLA"
+                      value={sc.qualificationReadiness?.health?.leadSlaBreached ? "İhlal" : "İçinde"}
+                      hint={`${sc.qualificationReadiness?.health?.leadStatusAgeHours ?? 0} saat`}
+                    />
+                    <Metric label="Kaynak" value={sc.leadContactMethodName || sc.externalSource || "Manuel"} />
+                  </div>
+                  <div className="mt-5 rounded-r-lg border-l-[3px] border-[#2457D6] bg-blue-50 px-3 py-2.5">
+                    <div className="font-data text-[9px] font-semibold uppercase tracking-[0.13em] text-[#0b2453]">Önerilen sonraki işlem</div>
+                    <div className="mt-1 text-sm font-medium">{sc.leadInsights?.recommendedAction ?? "İlk teması planlayın"}</div>
+                  </div>
+                </div>
+              </section>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Card>
+                  <CardHeader className="pb-3"><CardTitle className="text-base">Eksik bilgiler</CardTitle></CardHeader>
+                  <CardContent className="flex flex-wrap gap-2">
+                    {(sc.leadInsights?.softBlockers ?? []).map((blocker) => (
+                      <Badge key={blocker} variant="outline" className="border-amber-200 bg-amber-50 text-amber-800">{blocker}</Badge>
+                    ))}
+                    {!sc.leadInsights?.softBlockers.length && <span className="inline-flex items-center gap-1.5 text-sm text-emerald-700"><Check className="size-4" /> Beşli nitelendirme tamamlandı</span>}
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardHeader className="pb-3"><CardTitle className="text-base">Kayıt bağlamı</CardTitle></CardHeader>
+                  <CardContent className="space-y-3 text-sm">
+                    <div className="flex items-start gap-2"><Building2 className="mt-0.5 size-4 text-[#2457D6]" /><div><div className="text-xs text-muted-foreground">Firma bağlama</div><div className="font-medium">{customer ? customer.name : "Firma henüz bağlanmadı"}</div></div></div>
+                    <div className="flex items-start gap-2"><UserRound className="mt-0.5 size-4 text-[#2457D6]" /><div><div className="text-xs text-muted-foreground">Kontak</div><div className="font-medium">{sc.leadContactName || "Kontak belirtilmedi"}</div></div></div>
+                    <div className="flex items-start gap-2"><Wrench className="mt-0.5 size-4 text-[#2457D6]" /><div><div className="text-xs text-muted-foreground">Ürün / makine</div><div className="font-medium">{sc.requestedMachine || sc.requestedProduct || "Belirlenmedi"}</div></div></div>
+                  </CardContent>
+                </Card>
+              </div>
+            </>
+          )}
+          <section className={`${isLead ? "hidden" : ""} overflow-hidden rounded-xl border border-slate-200 bg-white`} aria-labelledby="workspace-pulse-title">
             <div className="h-1 bg-[#163b75]" />
             <div className={padding}>
               <div className="flex flex-wrap items-start justify-between gap-3">
@@ -467,7 +632,7 @@ export function OpportunityWorkspace({
             </div>
           </section>
 
-          <div className="grid gap-4 lg:grid-cols-[1.25fr_.75fr]">
+          <div className={`${isLead ? "hidden" : "grid"} gap-4 lg:grid-cols-[1.25fr_.75fr]`}>
             <Card>
               <CardHeader className="flex-row items-start justify-between gap-3 pb-3">
                 <div><CardTitle className="text-base">Ticari görünüm</CardTitle><p className="mt-1 text-xs text-muted-foreground">Tutar, olasılık ve hedef kapanış birlikte yönetilir.</p></div>
@@ -505,7 +670,7 @@ export function OpportunityWorkspace({
             </Card>
           </div>
 
-          {preferences.showAi && (
+          {!isLead && preferences.showAi && (
             <Card className="border-violet-200/80">
               <CardHeader className="flex-row items-start justify-between gap-3 pb-3">
                 <div><CardTitle className="inline-flex items-center gap-2 text-base"><Bot className="size-4 text-violet-700" /> Kontrollü fırsat özeti</CardTitle><p className="mt-1 text-xs text-muted-foreground">Yalnız CRM verisini kullanır; kayıt değiştirmez. Maliyetli çağrı yalnız düğmeye basıldığında yapılır.</p></div>
@@ -519,15 +684,53 @@ export function OpportunityWorkspace({
             </Card>
           )}
 
-          <div className="grid gap-4 lg:grid-cols-2">
+          <div className={`${isLead ? "hidden" : "grid"} gap-4 lg:grid-cols-2`}>
             {preferences.showStakeholders && <Card><CardHeader className="pb-3"><CardTitle className="inline-flex items-center gap-2 text-base"><UsersRound className="size-4" /> Paydaşlar</CardTitle></CardHeader><CardContent className="space-y-2">{owner && <div className="flex items-center justify-between rounded-lg border border-slate-200 px-3 py-2"><div><div className="text-sm font-medium">{owner.name}</div><div className="text-[10px] text-muted-foreground">Fırsat sahibi · {owner.department}</div></div><Badge variant="outline">İç paydaş</Badge></div>}{companyContacts.map((contact) => <div key={contact.id} className="flex items-center justify-between rounded-lg border border-slate-200 px-3 py-2"><div className="min-w-0"><div className="truncate text-sm font-medium">{contact.name}</div><div className="truncate text-[10px] text-muted-foreground">{contact.decisionRoleName || contact.title || contact.department || "Firma kontağı"}</div></div><Badge variant="outline">{contact.isPrimary ? "Ana kontak" : "Paydaş"}</Badge></div>)}{!owner && companyContacts.length === 0 && <EmptyState>Henüz paydaş tanımlanmadı.</EmptyState>}</CardContent></Card>}
             {preferences.showSimilar && <Card><CardHeader className="pb-3"><CardTitle className="inline-flex items-center gap-2 text-base"><ShieldCheck className="size-4" /> Benzer kazanılan fırsatlar</CardTitle></CardHeader><CardContent className="space-y-2">{similarWins.map((item) => <div key={item.opportunity.id} className="rounded-lg border border-slate-200 px-3 py-2"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><div className="truncate text-sm font-medium">{item.opportunity.requestedMachine || item.opportunity.requestedProduct}</div><div className="mt-0.5 truncate text-[10px] text-muted-foreground">{item.reasons.join(" · ") || "Kazanılmış fırsat"}</div></div><span className="font-data text-xs font-semibold text-[#163b75]">%{item.similarity}</span></div><div className="mt-2 text-xs tabular-nums text-muted-foreground">{formatMoney(item.opportunity.estimatedAmount, item.opportunity.currency)} · {formatDate(item.opportunity.closedAt)}</div></div>)}{similarWins.length === 0 && <EmptyState>Karşılaştırma için yeterli benzer kazanılmış fırsat yok.</EmptyState>}</CardContent></Card>}
           </div>
         </TabsContent>
 
-        <TabsContent value="activity" className="mt-4 space-y-4">
-          <div className="flex flex-wrap items-center justify-between gap-3"><div><h3 className="font-display text-lg font-semibold text-[#0b1739]">Birleşik zaman çizelgesi</h3><p className="text-xs text-muted-foreground">Aktivite, süreç, onay, teklif, ödeme ve dosyalar tek akışta.</p></div><AddActivityDialog salesCaseId={sc.id} customerId={sc.customerId} trigger={<Button size="sm" className="gap-1.5"><ActivityIcon className="size-4" /> Aktivite ekle</Button>} /></div>
-          <Card><CardContent className={padding}>{detailLoading && <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" /> Geçmiş yükleniyor…</div>}{detailError && <div className="flex items-center justify-between gap-3 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800"><span>{detailError}</span><Button variant="outline" size="sm" onClick={() => void loadDetail()}><RefreshCw className="size-4" /></Button></div>}<ol className="relative ml-2 space-y-4 border-l border-slate-200">{timeline.map((item) => { const focused = item.id === `activity-${focusedActivityId}`; return <li id={item.id} key={item.id} tabIndex={focused ? -1 : undefined} className={`relative ml-5 scroll-mt-24 rounded-lg outline-none transition ${focused ? "bg-amber-50 px-3 py-2 ring-2 ring-amber-300" : ""}`}><span className="absolute -left-[25px] top-1.5 size-2.5 rounded-full bg-[#163b75] ring-4 ring-white" /><div className="flex flex-wrap items-center gap-2 text-[10px] text-muted-foreground"><Badge variant="outline" className="px-1.5 py-0 text-[9px]">{categoryLabel[item.category]}</Badge><span>{formatDate(item.date, true)}</span>{item.actor && <span>· {item.actor}</span>}{focused && <Badge className="bg-amber-600 px-1.5 py-0 text-[9px]">Bahsetme</Badge>}</div><div className="mt-1 text-sm font-medium">{item.title}</div>{item.detail && <div className="mt-1 whitespace-pre-wrap text-xs leading-5 text-muted-foreground">{item.detail}</div>}</li>; })}{!detailLoading && timeline.length === 0 && <EmptyState>Bu fırsat için zaman çizelgesi kaydı yok.</EmptyState>}</ol></CardContent></Card>
+        <TabsContent value={isLead ? "contact" : "activity"} className="mt-4 space-y-4">
+          {isLead && (
+            <HealthStrip items={[
+              {
+                label: "Sonraki aksiyon",
+                value: sc.nextAction || "Planlanmadı",
+                hint: formatDate(sc.nextActionAt, true),
+                tone: sc.qualificationReadiness?.health?.actionOverdue ? "risk" : "neutral",
+              },
+              {
+                label: "Temas denemesi",
+                value: String(sc.qualificationReadiness?.health?.contactAttemptCount ?? 0),
+                hint: "Sonuç kaydıyla güncellenir",
+              },
+              {
+                label: "İlk temas",
+                value: formatDate(sc.qualificationReadiness?.health?.firstContactAt, true),
+                hint: "Speed-to-lead",
+                tone: sc.qualificationReadiness?.health?.firstContactAt ? "good" : "neutral",
+              },
+            ]} />
+          )}
+          <div className="flex flex-wrap items-center justify-between gap-3"><div><h3 className="font-display text-lg font-semibold text-[#0b1739]">{isLead ? "Temas akışı" : "Birleşik zaman çizelgesi"}</h3><p className="text-xs text-muted-foreground">{isLead ? "Yaklaşan aksiyonlar ve tüm temas sonuçları aynı akışta." : "Aktivite, süreç, onay, teklif, ödeme ve dosyalar tek akışta."}</p></div><AddActivityDialog salesCaseId={sc.id} customerId={sc.customerId} trigger={<Button size="sm" className="gap-1.5"><ActivityIcon className="size-4" /> Aktivite ekle</Button>} /></div>
+          <Card>
+            <CardContent className={padding}>
+              {detailLoading && <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" /> Geçmiş yükleniyor…</div>}
+              {detailError && <div className="mb-4 flex items-center justify-between gap-3 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800"><span>{detailError}</span><Button variant="outline" size="sm" onClick={() => void loadDetail()}><RefreshCw className="size-4" /></Button></div>}
+              {!detailLoading && (
+                <UnifiedTimeline
+                  items={timeline.map((item) => ({ ...item, categoryLabel: categoryLabel[item.category] }))}
+                  focusedId={focusedActivityId ? `activity-${focusedActivityId}` : null}
+                  formatDate={formatDate}
+                  emptyLabel={isLead ? "Bu lead için temas kaydı yok." : "Bu fırsat için zaman çizelgesi kaydı yok."}
+                />
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="qualification" className="mt-4">
+          <LeadQualificationPanel salesCase={sc} canUpdate={canUpdate} />
         </TabsContent>
 
         <TabsContent value="commercial" className="mt-4 space-y-4">
@@ -537,24 +740,80 @@ export function OpportunityWorkspace({
         </TabsContent>
 
         <TabsContent value="operations" className="mt-4 space-y-4">
-          <div><h3 className="font-display text-lg font-semibold text-[#0b1739]">Birleşik süreç merkezi</h3><p className="text-xs text-muted-foreground">Nitelik, operasyon aşaması ve geçiş gereklilikleri aynı çalışma alanında.</p></div>
-          {processCenter}
-          {processChecklist}
+          <div><h3 className="font-display text-lg font-semibold text-[#0b1739]">Birleşik süreç merkezi</h3><p className="text-xs text-muted-foreground">Önce mevcut aşama, sıradaki aşama ve karar engelleri; ayrıntılı raylar isteğe bağlıdır.</p></div>
+          <Card className="overflow-hidden border-[#0b2453]/15">
+            <div className="h-1 bg-[linear-gradient(90deg,#0b2453_0%,#2457D6_72%,#CF060C_72%)]" />
+            <CardContent className="space-y-4 p-4 sm:p-5">
+              <div className="grid gap-3 sm:grid-cols-[1fr_auto_1fr] sm:items-center">
+                <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                  <div className="font-data text-[9px] font-semibold uppercase tracking-[0.13em] text-muted-foreground">Mevcut aşama</div>
+                  <div className="mt-1 font-display text-lg font-semibold text-[#0b1739]">
+                    {salesStageLabel((operationReadiness?.currentOperationStage ?? sc.stage) as SalesCase["stage"])}
+                  </div>
+                </div>
+                <ChevronRight className="hidden size-5 text-[#2457D6] sm:block" aria-hidden="true" />
+                <div className="rounded-lg border border-blue-200 bg-blue-50/65 p-3">
+                  <div className="font-data text-[9px] font-semibold uppercase tracking-[0.13em] text-muted-foreground">Sıradaki aşama</div>
+                  <div className="mt-1 font-display text-lg font-semibold text-[#0b1739]">
+                    {nextOperationTarget
+                      ? salesStageLabel(nextOperationTarget.code as SalesCase["stage"])
+                      : "Akış sonu"}
+                  </div>
+                </div>
+              </div>
+              <div>
+                <div className="text-xs font-semibold text-[#0b1739]">Geçiş engelleri</div>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {(nextOperationTarget?.blockers ?? []).slice(0, 6).map((blocker) => (
+                    <Badge key={blocker.key} variant="outline" className="border-amber-200 bg-amber-50 text-amber-800">
+                      {blocker.label}
+                    </Badge>
+                  ))}
+                  {!nextOperationTarget?.blockers.length && (
+                    <span className="inline-flex items-center gap-1.5 text-sm text-emerald-700"><Check className="size-4" /> Sıradaki geçiş için engel yok</span>
+                  )}
+                </div>
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                aria-expanded={operationsExpanded}
+                onClick={() => setOperationsExpanded((value) => !value)}
+              >
+                {operationsExpanded ? "Tam süreç raylarını kapat" : "Tam süreç raylarını aç"}
+              </Button>
+            </CardContent>
+          </Card>
+          {operationsExpanded && (
+            <div className="space-y-4">
+              {processCenter}
+              {processChecklist}
+            </div>
+          )}
           <div className="grid gap-4 lg:grid-cols-3">
-            <Card><CardHeader className="pb-3"><CardTitle className="inline-flex items-center gap-2 text-sm"><Truck className="size-4" /> Sevkiyat</CardTitle></CardHeader><CardContent className="space-y-2">{opportunityShipments.map((shipment) => <div key={shipment.id} className="rounded-lg border border-slate-200 p-3 text-sm"><div className="font-medium">{shipment.trackingNo || "Takip numarası yok"}</div><div className="mt-1 text-xs text-muted-foreground">{shipment.status} · ETA {formatDate(shipment.eta)}</div></div>)}{opportunityShipments.length === 0 && <EmptyState>Sevkiyat yok.</EmptyState>}</CardContent></Card>
-            <Card><CardHeader className="pb-3"><CardTitle className="inline-flex items-center gap-2 text-sm"><FileClock className="size-4" /> Teslim</CardTitle></CardHeader><CardContent className="space-y-2">{opportunityDeliveries.map((delivery) => <div key={delivery.id} className="rounded-lg border border-slate-200 p-3 text-sm"><div className="font-medium">{delivery.status}</div><div className="mt-1 text-xs text-muted-foreground">{formatDate(delivery.date)} · {delivery.signedBy || "İmza bekliyor"}</div></div>)}{opportunityDeliveries.length === 0 && <EmptyState>Teslim kaydı yok.</EmptyState>}</CardContent></Card>
-            <Card><CardHeader className="pb-3"><CardTitle className="inline-flex items-center gap-2 text-sm"><Wrench className="size-4" /> Kurulum</CardTitle></CardHeader><CardContent className="space-y-2">{opportunityInstallations.map((installation) => <div key={installation.id} className="rounded-lg border border-slate-200 p-3 text-sm"><div className="font-medium">{installation.statusName}</div><div className="mt-1 text-xs text-muted-foreground">{installation.technician || "Teknisyen atanmadı"} · {formatDate(installation.scheduledDate)}</div></div>)}{opportunityInstallations.length === 0 && <EmptyState>Kurulum kaydı yok.</EmptyState>}</CardContent></Card>
+            <Card><CardHeader className="pb-3"><CardTitle className="inline-flex items-center gap-2 text-sm"><Truck className="size-4" /> Sevkiyat</CardTitle></CardHeader><CardContent className="space-y-2">{opportunityShipments.map((shipment) => <div key={shipment.id} className="rounded-lg border border-slate-200 p-3 text-sm"><div className="font-medium">{shipment.trackingNo || "Takip numarası yok"}</div><div className="mt-1 text-xs text-muted-foreground">{shipment.status} · ETA {formatDate(shipment.eta)}</div></div>)}{opportunityShipments.length === 0 && <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-4 text-center"><div className="text-sm text-muted-foreground">Sevkiyat yok.</div><Button type="button" variant="outline" size="sm" className="mt-3 min-h-11 sm:min-h-8" onClick={revealProcessActions}>Sevkiyat oluştur</Button></div>}</CardContent></Card>
+            <Card><CardHeader className="pb-3"><CardTitle className="inline-flex items-center gap-2 text-sm"><FileClock className="size-4" /> Teslim</CardTitle></CardHeader><CardContent className="space-y-2">{opportunityDeliveries.map((delivery) => <div key={delivery.id} className="rounded-lg border border-slate-200 p-3 text-sm"><div className="font-medium">{delivery.status}</div><div className="mt-1 text-xs text-muted-foreground">{formatDate(delivery.date)} · {delivery.signedBy || "İmza bekliyor"}</div></div>)}{opportunityDeliveries.length === 0 && <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-4 text-center"><div className="text-sm text-muted-foreground">Teslim kaydı yok.</div><Button type="button" variant="outline" size="sm" className="mt-3 min-h-11 sm:min-h-8" onClick={revealProcessActions}>Teslim kaydı oluştur</Button></div>}</CardContent></Card>
+            <Card><CardHeader className="pb-3"><CardTitle className="inline-flex items-center gap-2 text-sm"><Wrench className="size-4" /> Kurulum</CardTitle></CardHeader><CardContent className="space-y-2">{opportunityInstallations.map((installation) => <div key={installation.id} className="rounded-lg border border-slate-200 p-3 text-sm"><div className="font-medium">{installation.statusName}</div><div className="mt-1 text-xs text-muted-foreground">{installation.technician || "Teknisyen atanmadı"} · {formatDate(installation.scheduledDate)}</div></div>)}{opportunityInstallations.length === 0 && <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-4 text-center"><div className="text-sm text-muted-foreground">Kurulum kaydı yok.</div><Button type="button" variant="outline" size="sm" className="mt-3 min-h-11 sm:min-h-8" onClick={revealProcessActions}>Kurulum oluştur</Button></div>}</CardContent></Card>
           </div>
         </TabsContent>
 
         <TabsContent value="files" className="mt-4 space-y-4">
           <div className="grid gap-4 lg:grid-cols-[1.05fr_.95fr]">
-            <Card><CardHeader className="flex-row items-center justify-between gap-3"><CardTitle className="inline-flex items-center gap-2 text-base"><FileText className="size-4" /> Dosyalar</CardTitle>{hasPermission("files.create") && <DocumentUploadDialog defaultSalesCaseId={sc.id} defaultCompanyId={sc.customerId} trigger={<Button size="sm">Dosya yükle</Button>} />}</CardHeader><CardContent className="space-y-2">{opportunityDocuments.map((document) => <button key={document.id} type="button" disabled={!document.fileId} onClick={() => onDownloadDocument(document)} className="flex w-full items-center justify-between gap-3 rounded-lg border border-slate-200 px-3 py-2 text-left enabled:hover:border-[#163b75]/40 enabled:hover:bg-slate-50 disabled:cursor-default"><div className="min-w-0"><div className="truncate text-sm font-medium">{document.fileName}</div><div className="mt-0.5 text-[10px] text-muted-foreground">{document.type} · {formatDate(document.uploadedAt)}</div></div><span className="text-[10px] text-muted-foreground">{document.size}</span></button>)}{opportunityDocuments.length === 0 && <EmptyState>Dosya yok.</EmptyState>}</CardContent></Card>
+            <DocumentPanel
+              documents={opportunityDocuments}
+              uploadAction={hasPermission("files.create")
+                ? <DocumentUploadDialog defaultSalesCaseId={sc.id} defaultCompanyId={sc.customerId} trigger={<Button size="sm">Dosya yükle</Button>} />
+                : undefined}
+              onDownload={onDownloadDocument}
+              onPreview={(document) => void previewDocument(document)}
+            />
             <Card><CardHeader className="pb-3"><CardTitle className="inline-flex items-center gap-2 text-base"><ShieldCheck className="size-4" /> Onay geçmişi</CardTitle></CardHeader><CardContent className="space-y-2">{(detail?.approvals ?? []).map((approval) => <div key={approval.id} className="rounded-lg border border-slate-200 p-3"><div className="flex items-center justify-between gap-3"><div className="text-sm font-medium">{APPROVAL_LABELS[approval.approvalType] ?? approval.approvalType}</div><Badge variant="outline">{approval.status}</Badge></div><div className="mt-1 text-[10px] text-muted-foreground">{approval.decidedByUser?.fullName ?? approval.decidedByUser?.email ?? "Karar bekliyor"} · {formatDate(approval.decidedAt ?? approval.updatedAt, true)}</div>{(approval.decisionNote || approval.note) && <div className="mt-2 text-xs text-muted-foreground">{approval.decisionNote || approval.note}</div>}</div>)}{!detailLoading && (detail?.approvals ?? []).length === 0 && <EmptyState>Onay kaydı yok.</EmptyState>}</CardContent></Card>
           </div>
-          <Card><CardHeader className="flex-row items-center justify-between gap-3"><div><CardTitle className="inline-flex items-center gap-2 text-base"><Clock3 className="size-4" /> Değişiklik günlüğü</CardTitle><p className="mt-1 text-xs text-muted-foreground">Bu fırsata ait son 100 denetlenebilir değişiklik.</p></div><Button variant="outline" size="sm" onClick={() => void loadDetail()} disabled={detailLoading}><RefreshCw className={`size-4 ${detailLoading ? "animate-spin" : ""}`} /></Button></CardHeader><CardContent className="space-y-3">{(detail?.auditHistory ?? []).map((audit) => <div key={audit.id} className="grid gap-1 border-l-2 border-slate-200 pl-3 sm:grid-cols-[180px_1fr]"><div className="text-[10px] text-muted-foreground">{formatDate(audit.createdAt, true)}<br />{audit.actor?.fullName ?? audit.actor?.email ?? "Sistem"}</div><div><div className="text-sm font-medium">{audit.action}</div>{auditDetail(audit.oldValues, audit.newValues) && <div className="mt-1 break-words text-xs leading-5 text-muted-foreground">{auditDetail(audit.oldValues, audit.newValues)}</div>}</div></div>)}{!detailLoading && (detail?.auditHistory ?? []).length === 0 && <EmptyState>Değişiklik günlüğü kaydı yok.</EmptyState>}</CardContent></Card>
+          <Card><CardHeader className="flex-row items-center justify-between gap-3"><div><CardTitle className="inline-flex items-center gap-2 text-base"><Clock3 className="size-4" /> Değişiklik günlüğü</CardTitle><p className="mt-1 text-xs text-muted-foreground">Bu kayda ait son 100 denetlenebilir değişiklik; hassas alanlar maskelenir.</p></div><Button variant="outline" size="sm" onClick={() => void loadDetail()} disabled={detailLoading}><RefreshCw className={`size-4 ${detailLoading ? "animate-spin" : ""}`} /></Button></CardHeader><CardContent className="space-y-3">{(detail?.auditHistory ?? []).map((audit) => <div key={audit.id} className="grid gap-1 border-l-2 border-slate-200 pl-3 sm:grid-cols-[180px_1fr]"><div className="text-[10px] text-muted-foreground">{formatDate(audit.createdAt, true)}<br />{audit.actor?.fullName ?? audit.actor?.email ?? "Sistem"}</div><div><div className="text-sm font-medium">{AUDIT_ACTION_LABELS[audit.action] ?? audit.action}</div>{auditDetail(audit.oldValues, audit.newValues, userNames) && <div className="mt-1 break-words text-xs leading-5 text-muted-foreground">{auditDetail(audit.oldValues, audit.newValues, userNames)}</div>}</div></div>)}{!detailLoading && (detail?.auditHistory ?? []).length === 0 && <EmptyState>Değişiklik günlüğü kaydı yok.</EmptyState>}</CardContent></Card>
         </TabsContent>
       </Tabs>
+      </RecordWorkspaceShell>
     </div>
   );
 }

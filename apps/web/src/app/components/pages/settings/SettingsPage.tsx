@@ -11,6 +11,7 @@ import {
   Database,
   FileCheck2,
   Globe,
+  GitBranch,
   Layers,
   Mail,
   MailCheck,
@@ -28,6 +29,7 @@ import { ProductSpecTemplatesCard } from "./ProductSpecTemplatesCard";
 import { LookupManagerTab } from "./LookupManagerTab";
 import { InfoCallout, SettingsField, SettingsSection, SettingsToggle } from "./settings-controls";
 import { MailAccountSettings } from "./MailAccountSettings";
+import { LeadAssignmentRulesCard } from "./LeadAssignmentRulesCard";
 
 type Preferences = {
   notifyNewCase: boolean;
@@ -70,6 +72,7 @@ export function SettingsPage() {
   const canReadTenant = hasPermission("tenants.read");
   const canEditTenant = hasPermission("tenants.update");
   const canManageLookups = hasRole("super_admin");
+  const canManageLeadAssignmentRules = hasPermission("lead_assignment_rules.manage");
 
   const [prefs, setPrefs] = useState<Preferences>(() => {
     try {
@@ -173,6 +176,7 @@ export function SettingsPage() {
     bildirimler: { eyebrow: "OLAY AKIŞI", title: "Bildirim merkezi", description: "Kritik operasyon olaylarının kişisel teslim tercihleri." },
     webmail: { eyebrow: "GÜVENLİ GÖNDERİCİ", title: "Webmail bağlantısı", description: "CRM e-postalarını kendi kurumsal adresinizden gönderin." },
     "crm-alan": { eyebrow: "VERİ MODELİ", title: "CRM alan yöneticisi", description: "Kayıt formlarının alan yapısı ve seçim sözlükleri." },
+    "lead-atama": { eyebrow: "SATIŞ YÖNLENDİRME", title: "Lead atama motoru", description: "Yeni leadleri bölüm ve ticari kriterlere göre sırayla yönlendirin." },
     "teknik-bilgi": { eyebrow: "ÜRÜN ŞEMASI", title: "Teknik bilgi şablonları", description: "Ürün ailelerine göre teknik bilgi kapsamı." },
   }[tab] ?? { eyebrow: "SİSTEM", title: "Ayarlar", description: "Çalışma alanı ayarlarını yönetin." };
 
@@ -220,6 +224,11 @@ export function SettingsPage() {
             {canManageLookups && (
               <TabsTrigger value="crm-alan" className={tabTriggerClass}>
                 <SlidersHorizontal className="size-4" /> CRM Alan Ayarları
+              </TabsTrigger>
+            )}
+            {canManageLeadAssignmentRules && (
+              <TabsTrigger value="lead-atama" className={tabTriggerClass}>
+                <GitBranch className="size-4" /> Lead Atama
               </TabsTrigger>
             )}
             {canManageLookups && (
@@ -351,6 +360,12 @@ export function SettingsPage() {
         {canManageLookups && (
           <TabsContent value="crm-alan" className="space-y-4">
             <LookupManagerTab />
+          </TabsContent>
+        )}
+
+        {canManageLeadAssignmentRules && (
+          <TabsContent value="lead-atama" className="space-y-4">
+            <LeadAssignmentRulesCard />
           </TabsContent>
         )}
 

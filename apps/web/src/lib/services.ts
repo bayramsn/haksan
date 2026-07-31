@@ -16,6 +16,10 @@ import type {
   CommercialInvoiceCreateInput,
   CommercialInvoiceUpdateInput,
   CompanyCreateInput,
+  CompanyContactImportCommitInput,
+  CompanyContactImportPreview,
+  CompanyContactImportPreviewInput,
+  CompanyContactImportCommitResult,
   CompanyOsmSearchResult,
   CompanyWebsiteLookupInput,
   CompanyWebsiteLookupResult,
@@ -38,6 +42,7 @@ import type {
   InventoryItemUpdateInput,
   InventoryReserveInput,
   InventorySellInput,
+  MachineTemplateCreateInput,
   NoteTemplateCreateInput,
   NoteTemplateUpdateInput,
   OpportunityCreateInput,
@@ -45,6 +50,9 @@ import type {
   OpportunityApprovalType,
   OpportunityCompanyLinkInput,
   OpportunityConvertInput,
+  LeadAssignmentRuleCreateInput,
+  LeadAssignmentRuleUpdateInput,
+  LeadContactEventInput,
   OpportunityQualificationChangeInput,
   OpportunityStageChangeInput,
   OpportunityUpdateInput,
@@ -266,6 +274,9 @@ export interface AuditUserDTO {
 
 export interface CompanyDTO {
   id: string;
+  logoFileId?: string | null;
+  logoUrl?: string | null;
+  externalCompanyNo?: string | null;
   legalTitle: string;
   shortName?: string | null;
   sector?: string | null;
@@ -287,6 +298,10 @@ export const companyService = {
   get: (id: string) => api.get<CompanyDTO & { addresses: any[]; phones: any[]; emails: any[] }>(`/companies/${id}`),
   create: (body: CompanyCreateInput) => api.post<CompanyDTO>('/companies', body),
   update: (id: string, body: CompanyUpdateInput) => api.patch<CompanyDTO>(`/companies/${id}`, body),
+  previewCompanyContactImport: (body: CompanyContactImportPreviewInput) =>
+    api.post<CompanyContactImportPreview>('/companies/imports/company-contacts/preview', body),
+  commitCompanyContactImport: (body: CompanyContactImportCommitInput) =>
+    api.post<CompanyContactImportCommitResult>('/companies/imports/company-contacts/commit', body),
   osmSearch: (params: { q: string; address?: string; city?: string; district?: string; country?: string }) =>
     api.get<CompanyOsmSearchResult[]>(`/companies/osm-search${qs(params)}`),
   websiteLookup: (body: CompanyWebsiteLookupInput) =>
@@ -441,13 +456,13 @@ export const contactService = {
   get: (id: string) => api.get<any>(`/contacts/${id}`),
   /** Kontağın bağlı olduğu firmalar (çoklu firma — aynı kişi birden çok firmada). */
   companies: (id: string) =>
-    api.get<{ id: string; legalTitle: string; shortName: string | null; isPrimary: boolean }[]>(`/contacts/${id}/companies`),
+    api.get<{ id: string; legalTitle: string; shortName: string | null; externalCompanyNo: string | null; isPrimary: boolean }[]>(`/contacts/${id}/companies`),
   /** Kontağı bir firmadan ayırır (en az bir firma kalmalı). Güncel firma listesini döner. */
   unlinkCompany: (id: string, companyId: string) =>
-    api.delete<{ id: string; legalTitle: string; shortName: string | null; isPrimary: boolean }[]>(`/contacts/${id}/companies/${companyId}`),
+    api.delete<{ id: string; legalTitle: string; shortName: string | null; externalCompanyNo: string | null; isPrimary: boolean }[]>(`/contacts/${id}/companies/${companyId}`),
   /** Bir firmayı kontağın birincil firması yapar. Güncel firma listesini döner. */
   setPrimaryCompany: (id: string, companyId: string) =>
-    api.post<{ id: string; legalTitle: string; shortName: string | null; isPrimary: boolean }[]>(`/contacts/${id}/companies/${companyId}/primary`),
+    api.post<{ id: string; legalTitle: string; shortName: string | null; externalCompanyNo: string | null; isPrimary: boolean }[]>(`/contacts/${id}/companies/${companyId}/primary`),
   create: (body: ContactCreateInput) => api.post<any>('/contacts', body),
   update: (id: string, body: ContactUpdateInput) => api.patch<any>(`/contacts/${id}`, body),
   remove: (id: string) => api.delete(`/contacts/${id}`),
@@ -467,6 +482,9 @@ export const opportunityService = {
     api.post<any>(`/opportunities/${id}/company`, body),
   convert: (id: string, body: OpportunityConvertInput = {}) =>
     api.post<any>(`/opportunities/${id}/convert`, body),
+  recordContact: (id: string, body: LeadContactEventInput) =>
+    api.post<any>(`/opportunities/${id}/contact-events`, body),
+  leadSummary: () => api.get<any>('/opportunities/lead-summary'),
   changeQualificationStage: (id: string, body: OpportunityQualificationChangeInput) =>
     api.patch<any>(`/opportunities/${id}/qualification-stage`, body),
   decideApproval: (id: string, type: OpportunityApprovalType, body: OpportunityApprovalDecisionInput) =>
@@ -477,6 +495,14 @@ export const opportunityService = {
   close: (id: string, body?: { reason?: string }) => api.post<any>(`/opportunities/${id}/close`, body ?? {}),
   // Geri Aç — kapanışı geri alır, fırsatı aktif panoya döndürür.
   reopen: (id: string) => api.post<any>(`/opportunities/${id}/reopen`, {}),
+};
+
+export const leadAssignmentRuleService = {
+  list: () => api.get<any[]>('/lead-assignment-rules'),
+  create: (body: LeadAssignmentRuleCreateInput) => api.post<any>('/lead-assignment-rules', body),
+  update: (id: string, body: LeadAssignmentRuleUpdateInput) =>
+    api.patch<any>(`/lead-assignment-rules/${id}`, body),
+  remove: (id: string) => api.delete<{ ok: true }>(`/lead-assignment-rules/${id}`),
 };
 
 // ───── Activities ─────
@@ -1044,12 +1070,12 @@ export const adminService = {
   lookups: () => api.get<{ available: string[] }>('/admin/lookups'),
   lookupRows: (name: string, params?: Record<string, string | number | undefined>) =>
     api.get<any[]>(`/admin/lookups/${name}${qs(params)}`),
-  createLookup: (name: string, body: { code?: string; name: string; description?: string; sortOrder?: number; isActive?: boolean; province?: string; divisionId?: string | null; parentId?: string | null; productTypeIds?: string[] }) =>
+  createLookup: (name: string, body: { code?: string; name: string; description?: string; sortOrder?: number; isActive?: boolean; province?: string; divisionId?: string | null; parentId?: string | null; productTypeIds?: string[]; companyId?: string | null; isOwned?: boolean; logoFileId?: string | null }) =>
     api.post<any>(`/admin/lookups/${name}`, body),
   updateLookup: (
     name: string,
     id: string,
-    body: { code?: string; name?: string; description?: string; sortOrder?: number; isActive?: boolean; province?: string; divisionId?: string | null; parentId?: string | null; productTypeIds?: string[] }
+    body: { code?: string; name?: string; description?: string; sortOrder?: number; isActive?: boolean; province?: string; divisionId?: string | null; parentId?: string | null; productTypeIds?: string[]; companyId?: string | null; isOwned?: boolean; logoFileId?: string | null }
   ) => api.patch<any>(`/admin/lookups/${name}/${id}`, body),
   reorderLookup: (name: string, items: Array<{ id: string; sortOrder: number }>) =>
     api.patch<{ ok: true; items: Array<{ id: string; sortOrder: number }> }>(`/admin/lookups/${name}/reorder`, { items }),
@@ -1061,6 +1087,8 @@ export const adminService = {
     api.post<{ ok: boolean; created: number; skipped: number; rows: any[] }>('/admin/product-spec-templates/bulk', { items }),
   batchSaveProductSpecTemplates: (items: ProductSpecTemplateBatchInput['items']) =>
     api.put<{ ok: boolean; rows: any[] }>('/admin/product-spec-templates/batch', { items }),
+  createMachineTemplate: (body: MachineTemplateCreateInput) =>
+    api.post<{ type: any; specs: any[] }>('/admin/machine-templates', body),
   updateProductSpecTemplate: (id: string, body: ProductSpecTemplateUpdateInput) =>
     api.patch<any>(`/admin/product-spec-templates/${id}`, body),
   deleteProductSpecTemplate: (id: string) => api.delete<any>(`/admin/product-spec-templates/${id}`),
@@ -1121,6 +1149,7 @@ export interface ChatMessageDTO {
   createdAt: string;
   editedAt: string | null;
   kind: 'text' | 'system' | 'voice' | string;
+  location: { latitude: number; longitude: number; label: string | null } | null;
   attachments: ChatAttachment[];
   reactions: ChatReaction[];
   replyTo: ChatReplyPreview | null;
@@ -1161,6 +1190,7 @@ export interface ChatConversationDetail {
 
 export const chatService = {
   directory: () => api.get<ChatDirectoryUser[]>('/chat/directory'),
+  webrtcConfig: () => api.get<{ iceServers: RTCIceServer[]; expiresAt: string | null }>('/chat/webrtc-config'),
   conversations: () => api.get<ChatConversationSummary[]>('/chat/conversations'),
   createDm: (userId: string) => api.post<ChatConversationDetail>('/chat/conversations/dm', { userId }),
   createGroup: (body: CreateGroupInput) => api.post<ChatConversationDetail>('/chat/conversations/group', body),
@@ -1170,7 +1200,7 @@ export const chatService = {
   removeMember: (id: string, userId: string) => api.delete(`/chat/conversations/${id}/members/${userId}`),
   setMemberRole: (id: string, userId: string, role: ChatMemberRole) =>
     api.patch(`/chat/conversations/${id}/members/${userId}/role`, { role }),
-  messages: (id: string, params?: { before?: string; limit?: number }) =>
+  messages: (id: string, params?: { before?: string; limit?: number; search?: string }) =>
     api.get<{ messages: ChatMessageDTO[]; hasMore: boolean }>(`/chat/conversations/${id}/messages${qs(params)}`),
   sendMessage: (id: string, body: SendMessageInput) => api.post<ChatMessageDTO>(`/chat/conversations/${id}/messages`, body),
   markRead: (id: string) => api.post(`/chat/conversations/${id}/read`),

@@ -1,5 +1,5 @@
 import type { Product, ProductSpec } from "../mock";
-import { BASE_CSS, esc, haksanHeader, trShortDate, type PrintDocument } from "./core";
+import { BASE_CSS, esc, haksanHeader, publicProductLabel, trShortDate, type PrintDocument } from "./core";
 
 export type ProductTechnicalPrintInput = {
   product: Product;
@@ -7,6 +7,56 @@ export type ProductTechnicalPrintInput = {
   optionalEquipment?: Array<{ title: string; description?: string | null }>;
   documents?: Array<{ title?: string | null }>;
   generatedAt?: Date;
+};
+
+const MAX_EMBEDDED_PRODUCT_IMAGE_BYTES = 10 * 1024 * 1024;
+const SAFE_IMAGE_DATA_URL = /^data:image\/(?:png|jpeg|webp|gif);base64,[a-z0-9+/=\s]+$/i;
+const SAFE_REMOTE_IMAGE_URL = /^(?:https?:\/\/|\/)/i;
+const SAFE_IMAGE_MIME_TYPES = new Set(["image/png", "image/jpeg", "image/webp", "image/gif"]);
+
+const safeProductImageUrl = (value?: string | null): string => {
+  const imageUrl = value?.trim() ?? "";
+  if (SAFE_IMAGE_DATA_URL.test(imageUrl) || SAFE_REMOTE_IMAGE_URL.test(imageUrl)) return imageUrl;
+  return "";
+};
+
+const arrayBufferToBase64 = (buffer: ArrayBuffer): string => {
+  const bytes = new Uint8Array(buffer);
+  let binary = "";
+  const chunkSize = 0x8000;
+  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + chunkSize));
+  }
+  return btoa(binary);
+};
+
+/**
+ * Blob tabanlı yazdırma pencereleri ağ görsellerini PDF'e güvenilir biçimde
+ * aktaramayabilir. Ürün görselini doğrulayıp belge HTML'ine data URL olarak
+ * gömer; böylece yazdırma anında yeni bir ağ isteğine ihtiyaç kalmaz.
+ */
+export const embedProductImageForPrint = async (
+  imageUrl: string,
+  fetcher: typeof fetch = fetch,
+): Promise<string> => {
+  const safeUrl = safeProductImageUrl(imageUrl);
+  if (!safeUrl) throw new Error("Geçersiz ürün görseli adresi");
+  if (safeUrl.startsWith("data:image/")) return safeUrl;
+
+  const response = await fetcher(safeUrl, { credentials: "include" });
+  if (!response.ok) throw new Error(`Ürün görseli alınamadı (${response.status})`);
+
+  const mimeType = (response.headers.get("content-type") ?? "").split(";", 1)[0].trim().toLowerCase();
+  if (!SAFE_IMAGE_MIME_TYPES.has(mimeType)) throw new Error("Desteklenmeyen ürün görseli türü");
+
+  const declaredSize = Number(response.headers.get("content-length") ?? 0);
+  if (declaredSize > MAX_EMBEDDED_PRODUCT_IMAGE_BYTES) throw new Error("Ürün görseli çok büyük");
+
+  const body = await response.arrayBuffer();
+  if (body.byteLength === 0 || body.byteLength > MAX_EMBEDDED_PRODUCT_IMAGE_BYTES) {
+    throw new Error("Ürün görseli boş veya çok büyük");
+  }
+  return `data:${mimeType};base64,${arrayBufferToBase64(body)}`;
 };
 
 const chunk = <T,>(items: T[], size: number): T[][] => {
@@ -65,10 +115,18 @@ export const productTechnicalDoc = (
     .filter((item) => item.title?.trim());
   const hasEquipmentPage = standardEquipment.length > 0 || optionalEquipment.length > 0;
   const totalPages = 1 + specPages.length + Number(hasEquipmentPage);
-  const productName =
-    product.shortDescription?.trim()
-    || [product.brand, product.series, product.modelName || product.model].filter(Boolean).join(" ");
-  const modelLabel = product.modelName || product.model;
+  const productName = publicProductLabel({
+    catalogName: product.shortDescription,
+    description: [product.brand, product.series, product.modelName || product.model].filter(Boolean).join(" "),
+    stockCode: product.stockCode,
+  });
+  const modelLabel = publicProductLabel({
+    catalogName: product.modelName,
+    description: product.model,
+    stockCode: product.stockCode,
+    fallback: "",
+  });
+  const productImageUrl = safeProductImageUrl(product.imageUrl);
   let page = 1;
 
   const profileRows = [
@@ -89,8 +147,8 @@ export const productTechnicalDoc = (
       <div class="product-name">${esc(productName)}</div>
       <div class="profile-grid">
         <div class="product-visual">
-          ${product.imageUrl
-            ? `<img src="${esc(product.imageUrl)}" alt="${esc(productName)}">`
+          ${productImageUrl
+            ? `<img src="${esc(productImageUrl)}" alt="${esc(productName)}">`
             : `<div class="image-empty">Ürün görseli bulunmuyor</div>`}
         </div>
         <table class="profile-table">

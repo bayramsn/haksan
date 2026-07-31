@@ -4,6 +4,7 @@ import {
 } from "../ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
 import { Input } from "../ui/input";
+import { Textarea } from "../ui/textarea";
 import { Label } from "../ui/label";
 import { Button } from "../ui/button";
 import { useStore } from "../../lib/store";
@@ -28,16 +29,19 @@ type Props = {
   onOpenChange: (open: boolean) => void;
   caseId: string | null;
   caseName?: string;
+  productName?: string;
 };
 
 /**
  * Bir satış fırsatını "Kaybedildi" (cancelled) olarak işaretler; gerçek ret
  * nedeni + (opsiyonel) tercih edilen rakip ve rakip modelini yakalar.
  */
-export function LostCaseDialog({ open, onOpenChange, caseId, caseName }: Props) {
+export function LostCaseDialog({ open, onOpenChange, caseId, caseName, productName: initialProductName }: Props) {
   const { markCaseLost } = useStore();
   const [reasonCode, setReasonCode] = useState("");
-  const [competitorId, setCompetitorId] = useState("");
+  const [productName, setProductName] = useState("");
+  const [unmetConditions, setUnmetConditions] = useState("");
+  const [competitorId, setCompetitorId] = useState("__none__");
   const [competitorModel, setCompetitorModel] = useState("");
   const [competitors, setCompetitors] = useState<{ id: string; name: string }[]>([]);
   const [saving, setSaving] = useState(false);
@@ -45,24 +49,28 @@ export function LostCaseDialog({ open, onOpenChange, caseId, caseName }: Props) 
   useEffect(() => {
     if (!open) return;
     setReasonCode("");
-    setCompetitorId("");
+    setProductName(initialProductName?.trim() ?? "");
+    setUnmetConditions("");
+    setCompetitorId("__none__");
     setCompetitorModel("");
     competitorService
       .list({ pageSize: 100 })
       .then((r) => setCompetitors((r.data ?? []).map((c: any) => ({ id: c.id, name: c.name }))))
       .catch(() => setCompetitors([]));
-  }, [open]);
+  }, [initialProductName, open]);
 
   const submit = async () => {
-    if (!caseId || !reasonCode) {
-      toast.error("Lütfen bir kaybetme nedeni seçin.");
+    if (!caseId || !reasonCode || !productName.trim() || !unmetConditions.trim()) {
+      toast.error("Firma, ürün, kayıp nedeni ve uymayan şartlar tamamlanmalıdır.");
       return;
     }
     try {
       setSaving(true);
       await markCaseLost(caseId, {
         reasonCode,
-        competitorId: competitorId || undefined,
+        productName: productName.trim(),
+        unmetConditions: unmetConditions.trim(),
+        competitorId: competitorId === "__none__" ? undefined : competitorId,
         competitorProductModel: competitorModel.trim() || undefined,
       });
       toast.success("Fırsat kaybedildi olarak işaretlendi");
@@ -76,16 +84,32 @@ export function LostCaseDialog({ open, onOpenChange, caseId, caseName }: Props) 
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+      <DialogContent className="sm:max-w-xl">
         <DialogHeader>
           <DialogTitle>Kaybedildi olarak işaretle</DialogTitle>
           <DialogDescription>
-            {caseName ? `${caseName} — ` : ""}Bu fırsatı neden kaybettiğinizi belirtin. Bu bilgi karlılık raporundaki
-            kaybetme nedenleri kırılımını besler.
+            Firma, kaybedilen ürün, rakip ve karşılanmayan şartları kaydedin. Bu bilgiler kart geçmişinde
+            değişmeden korunur ve kayıp analizini besler.
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-3">
+        <div className="max-h-[65dvh] space-y-3 overflow-y-auto pr-1">
+          <div className="rounded-lg border border-border/60 bg-muted/30 px-3 py-2.5">
+            <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Kaybedilen firma</div>
+            <div className="mt-1 text-sm font-medium">{caseName || "Firma bilgisi bekleniyor"}</div>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="lost-product-name">Kaybedilen Ürün / Makine *</Label>
+            <Input
+              id="lost-product-name"
+              value={productName}
+              onChange={(event) => setProductName(event.target.value)}
+              placeholder="Örn. HAXAN MMT-1170"
+              maxLength={512}
+            />
+          </div>
+
           <div className="space-y-1.5">
             <Label>Kaybetme Nedeni *</Label>
             <Select value={reasonCode} onValueChange={setReasonCode}>
@@ -103,12 +127,13 @@ export function LostCaseDialog({ open, onOpenChange, caseId, caseName }: Props) 
           </div>
 
           <div className="space-y-1.5">
-            <Label>Tercih Edilen Rakip (opsiyonel)</Label>
+            <Label>Rakip Kim?</Label>
             <Select value={competitorId} onValueChange={setCompetitorId}>
               <SelectTrigger>
                 <SelectValue placeholder={competitors.length ? "Rakip seçin" : "Kayıtlı rakip yok"} />
               </SelectTrigger>
               <SelectContent>
+                <SelectItem value="__none__">Rakip yok / bilinmiyor</SelectItem>
                 {competitors.map((c) => (
                   <SelectItem key={c.id} value={c.id}>
                     {c.name}
@@ -119,12 +144,26 @@ export function LostCaseDialog({ open, onOpenChange, caseId, caseName }: Props) 
           </div>
 
           <div className="space-y-1.5">
-            <Label>Rakip Ürün / Model (opsiyonel)</Label>
+            <Label>Rakip Ürün / Model</Label>
             <Input
               value={competitorModel}
               onChange={(e) => setCompetitorModel(e.target.value)}
               placeholder="Örn. DMG MORI CMX 1100 V"
+              maxLength={255}
             />
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="lost-unmet-conditions">Hangi Şartlarımız Uymadı? *</Label>
+            <Textarea
+              id="lost-unmet-conditions"
+              value={unmetConditions}
+              onChange={(event) => setUnmetConditions(event.target.value)}
+              placeholder="Fiyat, teslim süresi, ödeme şekli, teknik kapasite, garanti veya servis şartlarını açıkça yazın."
+              className="min-h-24 resize-y"
+              maxLength={2000}
+            />
+            <div className="text-right text-[10px] text-muted-foreground">{unmetConditions.length}/2000</div>
           </div>
         </div>
 
@@ -132,7 +171,11 @@ export function LostCaseDialog({ open, onOpenChange, caseId, caseName }: Props) 
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>
             Vazgeç
           </Button>
-          <Button onClick={submit} disabled={saving || !reasonCode} className="bg-red-600 hover:bg-red-700 text-white">
+          <Button
+            onClick={submit}
+            disabled={saving || !reasonCode || !productName.trim() || !unmetConditions.trim()}
+            className="bg-red-600 text-white hover:bg-red-700"
+          >
             {saving ? "Kaydediliyor…" : "Kaybedildi İşaretle"}
           </Button>
         </DialogFooter>

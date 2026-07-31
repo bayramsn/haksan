@@ -414,7 +414,13 @@ export function KanbanPage({
 
   return (
     <>
-    <LostCaseDialog open={!!lostId} onOpenChange={(o) => !o && setLostId(null)} caseId={lostId} caseName={lostCustomer} />
+    <LostCaseDialog
+      open={!!lostId}
+      onOpenChange={(o) => !o && setLostId(null)}
+      caseId={lostId}
+      caseName={lostCustomer}
+      productName={lostCase?.requestedMachine || [lostCase?.requestedProduct, lostCase?.requestedModel].filter(Boolean).join(" · ")}
+    />
     <DocumentPreviewDialog doc={previewDoc} onClose={() => setPreviewDoc(null)} />
     <AlertDialog open={Boolean(pendingCloseCase)} onOpenChange={(open) => !open && !closingCaseId && setPendingCloseCase(null)}>
       <AlertDialogContent>

@@ -80,6 +80,7 @@ const NAVS = new Set<OperationNav>([
   "call-assistant",
   "customers",
   "contacts",
+  "leads",
   "sales-cases",
   "kanban",
   "sales-map",
@@ -123,6 +124,10 @@ const FOCUSES = new Set<OperationFocus>([
   "won",
   "lost",
   "today",
+  "sla_risk",
+  "uncontacted",
+  "unassigned",
+  "no_action",
 ]);
 
 function viewportSize() {

@@ -45,6 +45,14 @@ export type SetMemberRoleInput = z.infer<typeof setMemberRoleSchema>;
 export const chatRefTypeSchema = z.enum(['quote', 'company', 'service_ticket', 'opportunity']);
 export type ChatRefType = z.infer<typeof chatRefTypeSchema>;
 
+/** Tarayıcıdan paylaşılan tek bir coğrafi konum. */
+export const chatLocationSchema = z.object({
+  latitude: z.number().finite().min(-90).max(90),
+  longitude: z.number().finite().min(-180).max(180),
+  label: z.string().trim().min(1).max(255).optional(),
+});
+export type ChatLocation = z.infer<typeof chatLocationSchema>;
+
 /** Mesaj gönder: metin, ekler, yanıt ve/veya CRM kaydı kartı. En az biri gerekli. */
 export const sendMessageSchema = z
   .object({
@@ -53,13 +61,15 @@ export const sendMessageSchema = z
     replyToId: z.string().uuid().optional(),
     refType: chatRefTypeSchema.optional(),
     refId: z.string().uuid().optional(),
+    location: chatLocationSchema.optional(),
   })
   .refine(
     (v) =>
       (v.body?.trim().length ?? 0) > 0 ||
       (v.attachmentFileIds?.length ?? 0) > 0 ||
+      !!v.location ||
       (!!v.refType && !!v.refId),
-    { message: 'Mesaj boş olamaz (metin, ek veya kayıt gerekli)', path: ['body'] }
+    { message: 'Mesaj boş olamaz (metin, ek, konum veya kayıt gerekli)', path: ['body'] }
   )
   .refine((v) => (!!v.refType) === (!!v.refId), {
     message: 'refType ve refId birlikte verilmeli',
@@ -83,5 +93,6 @@ export type ReactionInput = z.infer<typeof reactionSchema>;
 export const messagesQuerySchema = z.object({
   before: z.string().optional(),
   limit: z.coerce.number().int().min(1).max(100).default(30),
+  search: z.string().trim().min(2).max(100).optional(),
 });
 export type MessagesQuery = z.infer<typeof messagesQuerySchema>;

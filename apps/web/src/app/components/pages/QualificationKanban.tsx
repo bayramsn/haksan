@@ -12,6 +12,7 @@ import {
   MapPin,
   Phone,
   ShieldCheck,
+  Trash2,
   UserRound,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -52,7 +53,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "../ui/dropdown-menu";
-import { Input } from "../ui/input";
 import { Label } from "../ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
 import { Textarea } from "../ui/textarea";
@@ -130,9 +130,11 @@ const initials = (value: string) =>
 export function QualificationKanban({
   items,
   onSelect,
+  onRequestDelete,
 }: {
   items: SalesCase[];
   onSelect: (salesCase: SalesCase) => void;
+  onRequestDelete?: (salesCase: SalesCase) => void;
 }) {
   const {
     customers,
@@ -258,6 +260,7 @@ export function QualificationKanban({
         onOpenChange={(open) => !open && setLostId(null)}
         caseId={lostId}
         caseName={lostCompany?.name ?? lostCase?.leadCompanyTitle ?? lostCase?.leadContactName}
+        productName={lostCase?.requestedMachine || [lostCase?.requestedProduct, lostCase?.requestedModel].filter(Boolean).join(" · ")}
       />
       <Dialog open={Boolean(pendingBackMove)} onOpenChange={(open) => !open && setPendingBackMove(null)}>
         <DialogContent className="sm:max-w-md">
@@ -367,6 +370,23 @@ export function QualificationKanban({
                       })}
                     </DropdownMenuContent>
                   </DropdownMenu>}
+                  {onRequestDelete && (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="size-7 shrink-0 text-destructive opacity-100 hover:bg-destructive/10 hover:text-destructive sm:opacity-0 sm:group-hover:opacity-100"
+                      title="Fırsat kartını sil"
+                      aria-label={`${partyName} fırsat kartını sil`}
+                      disabled={busyId === salesCase.id}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        onRequestDelete(salesCase);
+                      }}
+                      onMouseDown={stopCardClick}
+                    >
+                      <Trash2 className="size-3.5" />
+                    </Button>
+                  )}
                 </div>
 
                 <div className="space-y-1.5 rounded-lg border border-border/60 bg-slate-50/75 p-2.5 text-[10px]">
@@ -394,6 +414,23 @@ export function QualificationKanban({
                     {salesCase.requestedMachine || salesCase.requestedModel || salesCase.requestedProduct}
                   </div>
                 </div>
+
+                {stage === "lost" && (
+                  <div className="space-y-1.5 rounded-lg border border-red-200 bg-red-50/70 p-2.5 text-[10px]">
+                    <div className="font-semibold text-red-800">
+                      {salesCase.lostReason || salesCase.lostReasonCode || "Kayıp nedeni belirtilmedi"}
+                    </div>
+                    <div className="text-slate-700">
+                      Ürün: {salesCase.lostProductName || salesCase.requestedMachine || salesCase.requestedModel || salesCase.requestedProduct}
+                    </div>
+                    <div className="text-slate-600">
+                      Rakip: {[salesCase.competitor, salesCase.lostCompetitorProductModel].filter(Boolean).join(" · ") || "yok / bilinmiyor"}
+                    </div>
+                    <div className="line-clamp-2 text-slate-600">
+                      Uymayan şartlar: {salesCase.lostUnmetConditions || salesCase.qualificationNote || "belirtilmedi"}
+                    </div>
+                  </div>
+                )}
 
                 <div
                   className={`rounded-r-lg border-l-[3px] px-2.5 py-2 ${actionOverdue ? "border-red-500 bg-red-50/75" : "border-primary bg-blue-50/70"}`}

@@ -666,6 +666,69 @@
       "when": 1788115200000,
       "tag": "0095_discount_approval_policy",
       "breakpoints": true
+    },
+    {
+      "idx": 96,
+      "version": "7",
+      "when": 1788201600000,
+      "tag": "0096_company_contact_excel_import",
+      "breakpoints": true
+    },
+    {
+      "idx": 97,
+      "version": "7",
+      "when": 1788288000000,
+      "tag": "0097_chat_search_location",
+      "breakpoints": true
+    },
+    {
+      "idx": 98,
+      "version": "7",
+      "when": 1788374400000,
+      "tag": "0098_company_logos",
+      "breakpoints": true
+    },
+    {
+      "idx": 99,
+      "version": "7",
+      "when": 1788460800000,
+      "tag": "0099_brand_management",
+      "breakpoints": true
+    },
+    {
+      "idx": 100,
+      "version": "7",
+      "when": 1788547200000,
+      "tag": "0100_brand_supplier_company_scope",
+      "breakpoints": true
+    },
+    {
+      "idx": 101,
+      "version": "7",
+      "when": 1788633600000,
+      "tag": "0101_external_quote_documents",
+      "breakpoints": true
+    },
+    {
+      "idx": 102,
+      "version": "7",
+      "when": 1788720000000,
+      "tag": "0102_opportunity_lost_details",
+      "breakpoints": true
+    },
+    {
+      "idx": 103,
+      "version": "7",
+      "when": 1788806400000,
+      "tag": "0103_lead_workspace_v2",
+      "breakpoints": true
+    },
+    {
+      "idx": 104,
+      "version": "7",
+      "when": 1788892800000,
+      "tag": "0104_inventory_sales_columns",
+      "breakpoints": true
     }
   ]
 }

@@ -58,6 +58,8 @@ export function ContactsPage() {
     const t = q.toLowerCase();
     return (
       k.name.toLowerCase().includes(t) ||
+      (k.contactNo ?? "").toLowerCase().includes(t) ||
+      (k.companyNo ?? k.firm?.companyNo ?? "").toLowerCase().includes(t) ||
       k.email.toLowerCase().includes(t) ||
       (k.personalEmail ?? "").toLowerCase().includes(t) ||
       (k.otherEmail ?? "").toLowerCase().includes(t) ||
@@ -239,6 +241,7 @@ export function ContactsPage() {
                         <div className="text-xs text-muted-foreground truncate mt-0.5">
                           {[k.title, k.department].filter(Boolean).join(" · ") || "—"}
                         </div>
+                        <div className="text-[11px] text-muted-foreground truncate mt-0.5">Kontak No: {k.contactNo || "—"}</div>
                         {k.isBlacklisted && <div className="mt-1">{blacklistBadge(k)}</div>}
                       </div>
                     </div>
@@ -249,6 +252,7 @@ export function ContactsPage() {
                         <span className="truncate">{k.firm?.name ?? "—"}</span>
                         {k.firm?.city && <span className="shrink-0">· {k.firm.city}</span>}
                       </div>
+                      <div className="pl-5 text-[11px]">Firma No: {k.firm?.companyNo || k.companyNo || "—"}</div>
                       <div className="flex items-center gap-1.5">
                         <Phone className="size-3.5 shrink-0" />
                         <span className="truncate">{k.mobilePhone || k.phone || "—"}</span>
@@ -312,6 +316,7 @@ export function ContactsPage() {
                           {k.isPrimary && <Star className="size-3 fill-warning text-warning" />}
                           {k.isBlacklisted && blacklistBadge(k)}
                         </div>
+                        <div className="text-[11px] text-muted-foreground truncate mt-0.5">Kontak No: {k.contactNo || "—"}</div>
                         <div className="text-[11px] text-muted-foreground truncate mt-0.5">{k.note ?? "—"}</div>
                       </div>
                     </div>
@@ -321,6 +326,7 @@ export function ContactsPage() {
                       <Building2 className="size-3.5 text-muted-foreground" />
                       {k.firm?.name ?? "—"}
                     </div>
+                    <div className="text-[11px] text-muted-foreground mt-0.5">Firma No: {k.firm?.companyNo || k.companyNo || "—"}</div>
                     <div className="text-[11px] text-muted-foreground mt-0.5">{k.firm?.city}</div>
                   </TableCell>
                   <TableCell>

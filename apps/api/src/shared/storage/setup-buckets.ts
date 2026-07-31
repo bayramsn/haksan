@@ -28,6 +28,8 @@ import { buildS3ClientConfig } from './s3-client-config';
 /** Canonical bucket set used across the app (mirrors docker-compose minio-init). */
 const BUCKETS = [
   'erp-product-images',
+  'erp-company-logos',
+  'erp-brand-logos',
   'erp-product-documents',
   'erp-quote-documents',
   'erp-proforma-documents',

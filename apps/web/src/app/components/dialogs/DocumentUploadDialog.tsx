@@ -27,12 +27,14 @@ const DOCUMENT_TYPE_OPTIONS: Array<{
     | "erp-service-documents";
   documentTypeCode:
     | "quote_pdf"
+    | "external_quote"
     | "proforma_pdf"
     | "contract_pdf"
     | "commercial_invoice_pdf"
     | "service_document"
     | "other";
 }> = [
+  { value: "ExternalQuote", label: "Dış teklif", bucket: "erp-quote-documents", documentTypeCode: "external_quote" },
   { value: "Proforma", label: "Proforma", bucket: "erp-proforma-documents", documentTypeCode: "proforma_pdf" },
   { value: "Contract", label: "Sözleşme", bucket: "erp-contract-documents", documentTypeCode: "contract_pdf" },
   { value: "CommercialInvoice", label: "Ticari fatura", bucket: "erp-invoice-documents", documentTypeCode: "commercial_invoice_pdf" },
@@ -55,6 +57,8 @@ type UploadExt = keyof typeof EXT_TO_MIME;
 
 const ALLOWED_EXTENSIONS = Object.keys(EXT_TO_MIME);
 const ACCEPT = ALLOWED_EXTENSIONS.map((ext) => `.${ext}`).join(",");
+const EXTERNAL_QUOTE_EXTENSIONS: UploadExt[] = ["pdf", "docx", "xlsx"];
+const EXTERNAL_QUOTE_ACCEPT = EXTERNAL_QUOTE_EXTENSIONS.map((ext) => `.${ext}`).join(",");
 
 const formatFileSize = (bytes: number) => {
   if (bytes < 1024) return `${bytes} B`;
@@ -119,6 +123,10 @@ export function DocumentUploadDialog({
   const selectedCompany = customers.find((c) => c.id === companyId);
   const meta = DOCUMENT_TYPE_OPTIONS.find((item) => item.value === type) ?? DOCUMENT_TYPE_OPTIONS[DOCUMENT_TYPE_OPTIONS.length - 1];
   const lockedRelation = Boolean(defaultSalesCaseId || defaultCompanyId);
+  const lockedType = defaultType === "ExternalQuote";
+  const externalQuoteMode = type === "ExternalQuote";
+  const dialogTitle = externalQuoteMode ? "Dış Teklif Yükle" : "Doküman Yükle";
+  const allowedExtensions = externalQuoteMode ? EXTERNAL_QUOTE_EXTENSIONS : ALLOWED_EXTENSIONS;
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -140,8 +148,12 @@ export function DocumentUploadDialog({
     }
     const rawExtension = extensionFromName(file.name);
     const extension = rawExtension in EXT_TO_MIME ? (rawExtension as UploadExt) : null;
-    if (!extension) {
-      toast.error("Desteklenmeyen dosya tipi", { description: "PDF, DOCX, XLSX, PNG, JPG veya WEBP yükleyebilirsiniz." });
+    if (!extension || !allowedExtensions.includes(extension)) {
+      toast.error("Desteklenmeyen dosya tipi", {
+        description: externalQuoteMode
+          ? "Dış teklif için PDF, DOCX veya XLSX yükleyebilirsiniz."
+          : "PDF, DOCX, XLSX, PNG, JPG veya WEBP yükleyebilirsiniz.",
+      });
       return;
     }
     const mimeType = EXT_TO_MIME[extension];
@@ -177,11 +189,13 @@ export function DocumentUploadDialog({
         size: formatFileSize(file.size),
         mimeType,
       });
-      toast.success("Doküman yüklendi", { description: file.name });
+      toast.success(externalQuoteMode ? "Dış teklif yüklendi" : "Doküman yüklendi", { description: file.name });
       await onUploaded?.(row);
       setOpen(false);
     } catch (err: any) {
-      toast.error("Doküman yüklenemedi", { description: err?.message ?? "İstek başarısız oldu." });
+      toast.error(externalQuoteMode ? "Dış teklif yüklenemedi" : "Doküman yüklenemedi", {
+        description: err?.message ?? "İstek başarısız oldu.",
+      });
     } finally {
       setUploading(false);
       if (inputRef.current) inputRef.current.value = "";
@@ -195,9 +209,13 @@ export function DocumentUploadDialog({
         <DialogHeader className="border-b border-border/60 px-5 pt-5 pb-4 pr-12">
           <DialogTitle className="flex items-center gap-2">
             <Upload className="size-5 text-primary" />
-            Doküman Yükle
+            {dialogTitle}
           </DialogTitle>
-          <DialogDescription>Dosyayı doğrudan firmaya ekleyin; satış kartı isteğe bağlıdır.</DialogDescription>
+          <DialogDescription>
+            {externalQuoteMode
+              ? "Teklif dosyasını firmaya veya satış kartına bağlayın; kart seçildiğinde firma otomatik eşleşir."
+              : "Dosyayı doğrudan firmaya ekleyin; satış kartı isteğe bağlıdır."}
+          </DialogDescription>
         </DialogHeader>
 
         <form onSubmit={submit} className="flex min-h-0 flex-col">
@@ -208,7 +226,7 @@ export function DocumentUploadDialog({
                   Firma
                 </Button>
                 <Button type="button" variant={scope === "case" ? "default" : "outline"} onClick={() => setScope("case")}>
-                  Satış kartı (opsiyonel)
+                  Satış kartı (firma otomatik)
                 </Button>
               </div>
             )}
@@ -216,7 +234,7 @@ export function DocumentUploadDialog({
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <Label>Doküman Tipi</Label>
-                <Select value={type} onValueChange={(value) => setType(value as DocumentTypeValue)}>
+                <Select value={type} onValueChange={(value) => setType(value as DocumentTypeValue)} disabled={lockedType}>
                   <SelectTrigger className="mt-1 bg-white">
                     <SelectValue />
                   </SelectTrigger>
@@ -269,7 +287,7 @@ export function DocumentUploadDialog({
               <input
                 ref={inputRef}
                 type="file"
-                accept={ACCEPT}
+                accept={externalQuoteMode ? EXTERNAL_QUOTE_ACCEPT : ACCEPT}
                 className="hidden"
                 onChange={(event) => setFile(event.target.files?.[0] ?? null)}
               />
@@ -280,7 +298,9 @@ export function DocumentUploadDialog({
                 <div className="min-w-0">
                   <div className="text-sm font-medium break-words">{file?.name ?? "Dosya seç"}</div>
                   <div className="text-xs text-muted-foreground mt-1">
-                    {file ? `${formatFileSize(file.size)} · ${file.type || extensionFromName(file.name).toLocaleUpperCase("tr-TR")}` : "PDF, DOCX, XLSX, PNG, JPG, WEBP · en fazla 25 MB"}
+                    {file
+                      ? `${formatFileSize(file.size)} · ${file.type || extensionFromName(file.name).toLocaleUpperCase("tr-TR")}`
+                      : `${externalQuoteMode ? "PDF, DOCX, XLSX" : "PDF, DOCX, XLSX, PNG, JPG, WEBP"} · en fazla 25 MB`}
                   </div>
                   {file && <div className="mt-1.5 inline-flex items-center gap-1 text-[11px] font-medium text-emerald-700"><FileCheck2 className="size-3.5" /> Güvenli yükleme için hazır</div>}
                 </div>
@@ -308,7 +328,11 @@ export function DocumentUploadDialog({
             <div className="rounded-lg border border-border/60 bg-muted/30 px-3 py-2 text-xs text-muted-foreground flex items-center gap-2">
               <LinkIcon className="size-4 shrink-0" />
               <span className="min-w-0 break-words">
-                {entityId ? `${scope === "case" ? "Satış kartı" : "Firma"} bağlantısı: ${selectedCompany?.name ?? entityId}` : "Henüz bağlantı seçilmedi."}
+                {entityId
+                  ? scope === "case"
+                    ? `Satış kartı bağlantısı · Firma: ${selectedCompany?.name ?? "Karttan otomatik eşleşecek"}`
+                    : `Firma bağlantısı: ${selectedCompany?.name ?? entityId}`
+                  : "Henüz bağlantı seçilmedi."}
               </span>
             </div>
             <div className="flex items-start gap-2 text-[11px] leading-relaxed text-muted-foreground">
@@ -320,7 +344,7 @@ export function DocumentUploadDialog({
             <Button type="button" variant="outline" onClick={() => setOpen(false)} disabled={uploading}>İptal</Button>
             <Button type="submit" className="gap-1" disabled={uploading}>
               <Upload className="size-4" />
-              {uploading ? "Yükleniyor..." : "Yükle"}
+              {uploading ? "Yükleniyor..." : externalQuoteMode ? "Dış Teklifi Yükle" : "Yükle"}
             </Button>
           </DialogFooter>
         </form>

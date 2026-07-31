@@ -4,7 +4,7 @@
 import type { Contact, Customer, DocumentItem, Offer, Product, SalesCase } from "../mock";
 import { quoteService } from "../../../lib/services";
 import { splitVat } from "../pageHelpers";
-import { trLongDate } from "./core";
+import { publicProductLabel, trLongDate } from "./core";
 import { matchQuoteNoteVariantKey, resolveProformaNotes, QUOTE_VARIANT_PREFIX } from "./notes";
 import type { ProformaItem, ProformaPrintData } from "./templates";
 
@@ -68,12 +68,13 @@ const proformaFromSnapshot = (
     // Eski belgelerde katalog yalnızca eksik meta alanlarını tamamlamak için kullanılır.
     const catalogProduct = products.find((product) => product.id === productModelId);
     return {
-      aciklama: String(
-        snapshotValue(item, "description") ??
-        snapshotValue(productSnapshot, "fullName", "full_name") ??
-        catalogProduct?.shortDescription ??
-        "",
-      ).trim(),
+      aciklama: publicProductLabel({
+        catalogName:
+          snapshotValue(productSnapshot, "fullName", "full_name")
+          ?? catalogProduct?.shortDescription,
+        description: snapshotValue(item, "description"),
+        stockCode: snapshotValue(item, "stockCode", "stock_code") ?? catalogProduct?.stockCode,
+      }),
       marka: snapshotValue(productSnapshot, "brandName", "brand_name", "brand") ?? catalogProduct?.brand,
       mensei: snapshotValue(productSnapshot, "originCountry", "origin_country") ?? catalogProduct?.originCountry,
       gtip: snapshotValue(productSnapshot, "hsCode", "hs_code") ?? catalogProduct?.hsCode,
@@ -202,7 +203,11 @@ const itemsFromQuote = (quote: QuoteDetail, products: Product[], sc: SalesCase |
     });
     const isLabor = product?.categoryCode === "ISCILIK";
     return {
-      aciklama: String(it.description ?? "").trim(),
+      aciklama: publicProductLabel({
+        catalogName: product?.shortDescription,
+        description: it.description,
+        stockCode: it.stockCode ?? product?.stockCode,
+      }),
       marka: isLabor ? undefined : product?.brand,
       mensei: isLabor ? undefined : product?.originCountry,
       gtip: isLabor ? undefined : product?.hsCode,

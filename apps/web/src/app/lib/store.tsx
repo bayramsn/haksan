@@ -179,6 +179,13 @@ const normalizeContact = (k: any): Contact => {
   ].filter(Boolean))) as string[];
   return {
     id: k.id,
+    contactNo: k.externalContactNo ?? '',
+    companyNo:
+      k.company?.externalCompanyNo
+      ?? (Array.isArray(k.companyLinks)
+        ? (k.companyLinks.find((company: any) => company.isPrimary) ?? k.companyLinks[0])?.externalCompanyNo
+        : '')
+      ?? '',
     customerId: k.companyId ?? companyIds[0] ?? '',
     companyIds,
     name: k.fullName ?? '',
@@ -489,6 +496,12 @@ type Store = {
       /** Lead "uygun değil" durumuna alınırken zorunlu. */
       disqualifyReasonCode?: string | null;
       qualificationNote?: string | null;
+      leadNeedSummary?: SalesCase['leadNeedSummary'] | null;
+      leadAuthorityStatus?: SalesCase['leadAuthorityStatus'];
+      leadBudgetStatus?: SalesCase['leadBudgetStatus'];
+      leadPurchaseTimeframe?: SalesCase['leadPurchaseTimeframe'];
+      leadTechnicalFit?: SalesCase['leadTechnicalFit'];
+      leadTechnicalNote?: SalesCase['leadTechnicalNote'] | null;
     }
   ) => Promise<void>;
   deleteCase: (id: string) => Promise<void>;
@@ -513,7 +526,7 @@ type Store = {
   updateDeliveryStatus: (id: string, status: Delivery['status']) => Promise<void>;
   deleteDelivery: (id: string) => Promise<void>;
   moveCase: (id: string, to: SalesStage, options?: { inventoryItemIds?: string[]; changeReason?: string }) => Promise<void>;
-  convertCase: (id: string, note?: string) => Promise<void>;
+  convertCase: (id: string, note?: string, overrideReason?: string) => Promise<void>;
   moveQualification: (
     id: string,
     to: QualificationStage,
@@ -522,6 +535,8 @@ type Store = {
       cancellationReasonCode?: string;
       lostCompetitorId?: string;
       lostCompetitorProductModel?: string;
+      lostProductName?: string;
+      lostUnmetConditions?: string;
     }
   ) => Promise<void>;
   decideCaseApproval: (
@@ -535,7 +550,13 @@ type Store = {
   reopenCase: (id: string) => Promise<void>;
   markCaseLost: (
     id: string,
-    payload: { reasonCode: string; competitorId?: string; competitorProductModel?: string }
+    payload: {
+      reasonCode: string;
+      productName: string;
+      unmetConditions: string;
+      competitorId?: string;
+      competitorProductModel?: string;
+    }
   ) => Promise<void>;
   moveService: (id: string, to: ServiceStage) => Promise<void>;
   updateService: (id: string, patch: Partial<ServiceRequest>) => Promise<void>;
@@ -687,6 +708,7 @@ function StoreInner({ children }: { children: ReactNode }) {
           role: ((u.roles?.[0]?.name ?? u.roles?.[0]?.code ?? 'Admin') as User['role']) || 'Admin',
           roleCodes: (u.roles ?? []).map((role: any) => role.code).filter(Boolean),
           roleNames: (u.roles ?? []).map((role: any) => role.name ?? role.code).filter(Boolean),
+          divisionIds: (u.divisions ?? []).map((division: any) => division.id).filter(Boolean),
           department: u.department?.name ?? '',
           active: u.status !== 'passive',
           avatarUrl: u.avatarUrl ?? u.photoUrl ?? undefined,
@@ -700,6 +722,9 @@ function StoreInner({ children }: { children: ReactNode }) {
       setCustomers(
         companies.data.map((c: any) => ({
           id: c.id,
+          logoFileId: c.logoFileId ?? null,
+          logoUrl: resolveMediaUrl(c.logoUrl) || undefined,
+          companyNo: c.externalCompanyNo ?? '',
           type: (c.companyType === 'person' ? 'person' : 'company') as 'person' | 'company',
           firmType: ((c.relationType?.code as FirmType) ?? 'customer') as FirmType,
           salesStatus: ((c.customerStatus?.code === 'active' ? 'active_customer' : 'potential') as CustomerSalesStatus),
@@ -763,6 +788,7 @@ function StoreInner({ children }: { children: ReactNode }) {
         ({
           id: o.id,
           customerId: o.companyId ?? '',
+          divisionId: o.divisionId ?? undefined,
           primaryContactId: o.primaryContactId ?? undefined,
           leadContactName: o.leadContactName ?? undefined,
           leadCompanyTitle: o.leadCompanyTitle ?? undefined,
@@ -774,6 +800,13 @@ function StoreInner({ children }: { children: ReactNode }) {
           leadEmail: o.leadEmail ?? undefined,
           leadTemperature: o.leadTemperature ?? 'unknown',
           leadFollowUpStatus: o.leadFollowUpStatus ?? 'new',
+          leadNeedSummary: o.leadNeedSummary ?? undefined,
+          leadAuthorityStatus: o.leadAuthorityStatus ?? 'unknown',
+          leadBudgetStatus: o.leadBudgetStatus ?? 'unknown',
+          leadPurchaseTimeframe: o.leadPurchaseTimeframe ?? 'unknown',
+          leadTechnicalFit: o.leadTechnicalFit ?? 'unknown',
+          leadTechnicalNote: o.leadTechnicalNote ?? undefined,
+          leadInsights: o.leadInsights ?? undefined,
           nextAction: o.nextAction ?? undefined,
           nextActionAt: o.nextActionAt ?? undefined,
           externalSource: o.externalSource ?? undefined,
@@ -801,6 +834,14 @@ function StoreInner({ children }: { children: ReactNode }) {
           paymentMethod: o.paymentMethod ?? 'undecided',
           isOfferPrepared: qts.data.some((q: any) => q.opportunityId === o.id),
           isLost: (o.qualificationStage ?? '') === 'lost' || (o.stage?.code ?? '') === 'cancelled',
+          lostReasonCode: o.lostReason?.code ?? undefined,
+          lostReason: o.lostReason?.name ?? undefined,
+          lostCompanyName: o.lostCompanyName ?? undefined,
+          lostProductName: o.lostProductName ?? undefined,
+          lostUnmetConditions: o.lostUnmetConditions ?? undefined,
+          lostCompetitorId: o.lostCompetitor?.id ?? o.lostCompetitorId ?? undefined,
+          competitor: o.lostCompetitor?.name ?? o.lostCompetitorName ?? undefined,
+          lostCompetitorProductModel: o.lostCompetitorProductModel ?? undefined,
           createdAt: (o.createdAt as string)?.slice(0, 10) ?? '',
           closedAt: o.closedAt ? (o.closedAt as string).slice(0, 10) : undefined,
         }) as SalesCase;
@@ -810,6 +851,9 @@ function StoreInner({ children }: { children: ReactNode }) {
       const apiProducts = prods.data.map((p: any) => ({
           id: p.id,
           brand: p.brand?.name ?? '',
+          brandId: p.brand?.id ?? undefined,
+          brandLogoFileId: p.brand?.logoFileId ?? null,
+          brandLogoUrl: resolveMediaUrl(p.brand?.logoUrl) || undefined,
           series: p.series ?? '',
           productGroup: p.productGroup?.name ?? '',
           productGroupCode: p.productGroup?.code ?? '',
@@ -853,6 +897,7 @@ function StoreInner({ children }: { children: ReactNode }) {
           muadilProducts: (p.muadilProducts ?? []).map((alt: any) => ({
             id: alt.id,
             brand: alt.brand?.name ?? '',
+            brandLogoUrl: resolveMediaUrl(alt.brand?.logoUrl) || undefined,
             model: alt.modelCode ?? '',
             shortDescription: alt.fullName ?? '',
             category: alt.category?.name ?? '',
@@ -874,11 +919,14 @@ function StoreInner({ children }: { children: ReactNode }) {
             id: s.id,
             brand: s.brand?.name ?? '',
             productId: s.product?.id ?? s.productModelId ?? undefined,
+            productName: s.product?.fullName ?? s.product?.modelCode ?? '',
             counterType: s.product?.fullName ?? '',
             counterModel: s.product?.modelCode ?? '',
             serialNumber: s.serialNumber ?? '',
             controlPanel: s.controlUnit ?? '',
-            stockCode: s.product?.modelCode ?? '',
+            stockCode: s.product?.stockCode ?? s.product?.modelCode ?? '',
+            itemCondition: s.itemCondition === 'used' ? 'used' : 'new',
+            warehouseId: s.warehouse?.id ?? s.warehouseId ?? undefined,
             warehouse: s.warehouse?.name ?? '',
             categoryCode,
             category: s.category?.name ?? STOCK_CATEGORY_LABELS[categoryCode],
@@ -886,6 +934,7 @@ function StoreInner({ children }: { children: ReactNode }) {
             reservedCompanyName: s.reservedCompany?.shortName ?? s.reservedCompany?.legalTitle ?? undefined,
             parentInventoryItemId: s.parentInventoryItemId ?? null,
             loadingDate: (s.loadingDate as string | undefined)?.slice(0, 10) ?? undefined,
+            receivedDate: (s.receivedDate as string | undefined)?.slice(0, 10) ?? undefined,
             arrivalDate: (s.arrivalDate as string | undefined)?.slice(0, 10) ?? undefined,
             locationStatus: s.locationStatus?.code ?? s.locationStatusCode ?? undefined,
             status:
@@ -1125,10 +1174,17 @@ function StoreInner({ children }: { children: ReactNode }) {
       const quoteCompany = new Map<string, string>(
         qts.data.map((q: any) => [q.id, q.companyId ?? ''])
       );
+      const opportunityCompany = new Map<string, string>(
+        [...opps.data, ...closedOpps.data].map((opportunity: any) => [
+          opportunity.id,
+          opportunity.companyId ?? '',
+        ])
+      );
       const docCompanyId = (d: any) =>
         d.quote?.companyId ?? d.companyId ?? quoteCompany.get(d.quoteId) ?? '';
 
       const mapLinkDocType = (code?: string): DocumentItem['type'] => {
+        if (code === 'external_quote') return 'ExternalQuote';
         if (code === 'proforma_pdf') return 'Proforma';
         if (code === 'contract_pdf') return 'Contract';
         if (code === 'commercial_invoice_pdf') return 'CommercialInvoice';
@@ -1214,7 +1270,11 @@ function StoreInner({ children }: { children: ReactNode }) {
           id: row.id ?? row.file?.id,
           salesCaseId: row.entityType === 'opportunity' ? row.entityId : '',
           source: 'uploaded_file' as const,
-          companyId: row.entityType === 'company' ? row.entityId : '',
+          companyId: row.entityType === 'company'
+            ? row.entityId
+            : row.entityType === 'opportunity'
+              ? opportunityCompany.get(row.entityId) ?? ''
+              : '',
           serviceRequestId: row.entityType === 'service_ticket' || row.entityType === 'service_request' ? row.entityId : undefined,
           type: mapLinkDocType(row.documentType?.code),
           fileName: row.file?.originalFilename ?? row.description ?? 'Dosya',
@@ -1356,6 +1416,7 @@ function StoreInner({ children }: { children: ReactNode }) {
     const website = rawWebsite ? (/^https?:\/\//i.test(rawWebsite) ? rawWebsite : `https://${rawWebsite}`) : undefined;
     const hasCoordinates = c.latitude != null && c.longitude != null;
     const created = await companyService.create({
+      externalCompanyNo: c.companyNo || undefined,
       companyType: c.type === 'person' ? 'person' : 'company',
       legalTitle: c.name,
       shortName: c.type === 'person' ? c.name : undefined,
@@ -1404,6 +1465,9 @@ function StoreInner({ children }: { children: ReactNode }) {
     await fetchAll();
     return {
       id: created.id,
+      logoFileId: created.logoFileId ?? null,
+      logoUrl: resolveMediaUrl(created.logoUrl) || undefined,
+      companyNo: created.externalCompanyNo ?? c.companyNo ?? '',
       type: c.type,
       firmType: c.firmType,
       salesStatus: c.salesStatus,
@@ -1444,6 +1508,8 @@ function StoreInner({ children }: { children: ReactNode }) {
     const rawWebsite = patch.website?.trim();
     const website = rawWebsite ? (/^https?:\/\//i.test(rawWebsite) ? rawWebsite : `https://${rawWebsite}`) : null;
     const body: Record<string, unknown> = {};
+    if (patch.companyNo !== undefined) body.externalCompanyNo = patch.companyNo || null;
+    if (patch.logoFileId !== undefined) body.logoFileId = patch.logoFileId;
     if (patch.name !== undefined) body.legalTitle = patch.name;
     if (patch.type !== undefined) body.companyType = patch.type;
     if (patch.sector !== undefined) body.sector = patch.sector || null;
@@ -1496,6 +1562,7 @@ function StoreInner({ children }: { children: ReactNode }) {
 
   const addContact: Store['addContact'] = async (k) => {
     const created = await contactService.create({
+      externalContactNo: k.contactNo || undefined,
       companyId: k.customerId,
       fullName: k.name,
       title: k.title,
@@ -1525,6 +1592,7 @@ function StoreInner({ children }: { children: ReactNode }) {
 
   const updateContact: Store['updateContact'] = async (id, patch) => {
     await contactService.update(id, {
+      externalContactNo: patch.contactNo === undefined ? undefined : patch.contactNo || null,
       companyId: patch.customerId,
       fullName: patch.name,
       title: patch.title,
@@ -1648,6 +1716,12 @@ function StoreInner({ children }: { children: ReactNode }) {
     if (patch.primaryContactId !== undefined) body.primaryContactId = patch.primaryContactId;
     if (patch.disqualifyReasonCode !== undefined) body.disqualifyReasonCode = patch.disqualifyReasonCode;
     if (patch.qualificationNote !== undefined) body.qualificationNote = patch.qualificationNote;
+    if (patch.leadNeedSummary !== undefined) body.leadNeedSummary = patch.leadNeedSummary;
+    if (patch.leadAuthorityStatus !== undefined) body.leadAuthorityStatus = patch.leadAuthorityStatus;
+    if (patch.leadBudgetStatus !== undefined) body.leadBudgetStatus = patch.leadBudgetStatus;
+    if (patch.leadPurchaseTimeframe !== undefined) body.leadPurchaseTimeframe = patch.leadPurchaseTimeframe;
+    if (patch.leadTechnicalFit !== undefined) body.leadTechnicalFit = patch.leadTechnicalFit;
+    if (patch.leadTechnicalNote !== undefined) body.leadTechnicalNote = patch.leadTechnicalNote;
     await opportunityService.update(id, body);
     await fetchAll();
   };
@@ -1674,8 +1748,11 @@ function StoreInner({ children }: { children: ReactNode }) {
     await fetchAll();
   };
 
-  const convertCase: Store['convertCase'] = async (id, note) => {
-    await opportunityService.convert(id, note?.trim() ? { note: note.trim() } : {});
+  const convertCase: Store['convertCase'] = async (id, note, overrideReason) => {
+    await opportunityService.convert(id, {
+      ...(note?.trim() ? { note: note.trim() } : {}),
+      ...(overrideReason?.trim() ? { overrideReason: overrideReason.trim() } : {}),
+    });
     await fetchAll();
   };
 
@@ -1686,6 +1763,8 @@ function StoreInner({ children }: { children: ReactNode }) {
       cancellationReasonCode: options?.cancellationReasonCode,
       lostCompetitorId: options?.lostCompetitorId,
       lostCompetitorProductModel: options?.lostCompetitorProductModel,
+      lostProductName: options?.lostProductName,
+      lostUnmetConditions: options?.lostUnmetConditions,
     });
     await fetchAll();
   };
@@ -1719,6 +1798,8 @@ function StoreInner({ children }: { children: ReactNode }) {
       cancellationReasonCode: payload.reasonCode,
       lostCompetitorId: payload.competitorId || undefined,
       lostCompetitorProductModel: payload.competitorProductModel || undefined,
+      lostProductName: payload.productName,
+      lostUnmetConditions: payload.unmetConditions,
     });
     await fetchAll();
   };
@@ -1866,8 +1947,8 @@ function StoreInner({ children }: { children: ReactNode }) {
   const addProduct: Store['addProduct'] = async (p) => {
     const divisionId = productDivisionIdForGroup(p.productGroupCode, user?.divisions);
     const brands = await productService.listBrands(divisionId);
-    let brand = brands.find((b: any) => b.name?.toLocaleLowerCase('tr-TR') === p.brand.toLocaleLowerCase('tr-TR'));
-    if (!brand) brand = await productService.createBrand({ name: p.brand || 'Generic', divisionId });
+    const brand = brands.find((b: any) => b.name?.toLocaleLowerCase('tr-TR') === p.brand.toLocaleLowerCase('tr-TR'));
+    if (!brand) throw new Error('Ürün markası kayıtlı değil. Önce Ayarlar > CRM Alan Ayarları > Ürün Markaları bölümünden markayı oluşturun.');
     const created = await productService.create(productApiPayload(p, brand.id) as ProductCreateInput);
     await productService.replaceDetails(created.id, productDetailsPayload(p));
     await fetchAll();
@@ -1880,8 +1961,8 @@ function StoreInner({ children }: { children: ReactNode }) {
     if (patch.brand) {
       const divisionId = productDivisionIdForGroup(patch.productGroupCode ?? current?.productGroupCode, user?.divisions);
       const brands = await productService.listBrands(divisionId);
-      let brand = brands.find((b: any) => b.name?.toLocaleLowerCase('tr-TR') === patch.brand?.toLocaleLowerCase('tr-TR'));
-      if (!brand) brand = await productService.createBrand({ name: patch.brand, divisionId });
+      const brand = brands.find((b: any) => b.name?.toLocaleLowerCase('tr-TR') === patch.brand?.toLocaleLowerCase('tr-TR'));
+      if (!brand) throw new Error('Ürün markası kayıtlı değil. Önce Ayarlar > CRM Alan Ayarları > Ürün Markaları bölümünden markayı oluşturun.');
       brandId = brand.id;
     }
     await productService.update(id, productApiPayload(patch, brandId));
@@ -1971,10 +2052,13 @@ function StoreInner({ children }: { children: ReactNode }) {
       productModelId: product.id,
       parentInventoryItemId: s.parentInventoryItemId ?? undefined,
       serialNumber: s.serialNumber,
+      itemCondition: s.itemCondition ?? 'new',
       controlUnit: s.controlPanel,
       loadingDate: toOptionalDate(s.loadingDate),
+      receivedDate: toOptionalDate(s.receivedDate),
       arrivalDate: toOptionalDate(s.arrivalDate),
       stockStatusCode: createStatusCodeMap[s.status] ?? 'available',
+      warehouseId: s.warehouseId || undefined,
       notes: extraNotes || undefined,
     });
     await fetchAll();

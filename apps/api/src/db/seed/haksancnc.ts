@@ -52,11 +52,11 @@ interface ManifestProduct {
   categoryCode: string;
   subcategoryCode: string;
   productTypeCode: string;
-  currency: string;
-  vatRate: number;
-  stockCode: string;
-  description: string;
-  shortDescription: string;
+  currency?: string;
+  vatRate?: number;
+  stockCode?: string;
+  description?: string;
+  shortDescription?: string;
   imageUrl?: string;
   pdfUrl?: string;
   specs: Array<{ key: string; value: string }>;
@@ -169,7 +169,7 @@ export async function importHaksanCnc(): Promise<void> {
     typeCache.set(code, row?.id ?? null);
     return row?.id ?? null;
   };
-  const resolveCurrency = async (code: string): Promise<string | null> => {
+  const resolveCurrency = async (code?: string): Promise<string | null> => {
     const c = code || 'USD';
     if (currencyCache.has(c)) return currencyCache.get(c)!;
     const row = await db.query.currencies.findFirst({ where: eq(schema.currencies.code, c) });
@@ -220,6 +220,7 @@ export async function importHaksanCnc(): Promise<void> {
         sha256: createHash('sha256').update(buf).digest('hex'),
         storageProviderId,
         visibility: 'public',
+        uploadStatus: 'linked',
         uploadedBy,
       })
       .returning();
@@ -312,6 +313,14 @@ export async function importHaksanCnc(): Promise<void> {
         where: eq(schema.productMedia.productModelId, productId),
       });
       if (existingMedia) {
+        await db
+          .update(schema.files)
+          .set({ visibility: 'public', uploadStatus: 'linked' })
+          .where(and(eq(schema.files.id, existingMedia.fileId), eq(schema.files.tenantId, tenantId)));
+        await db
+          .update(schema.productModels)
+          .set({ imageUrl: `/products/media/${existingMedia.fileId}` })
+          .where(eq(schema.productModels.id, productId));
         skippedMedia += 1;
       } else {
         try {
@@ -347,6 +356,10 @@ export async function importHaksanCnc(): Promise<void> {
         ),
       });
       if (existingDoc) {
+        await db
+          .update(schema.files)
+          .set({ visibility: 'public', uploadStatus: 'linked' })
+          .where(and(eq(schema.files.id, existingDoc.fileId), eq(schema.files.tenantId, tenantId)));
         skippedMedia += 1;
       } else {
         try {

@@ -5,8 +5,10 @@ import {
   CheckCircle2,
   ChevronDown,
   CircleAlert,
+  Copy,
   Download,
   EyeOff,
+  FilePlus2,
   GripVertical,
   Grid3X3,
   ListFilter,
@@ -42,7 +44,16 @@ import {
 } from "../../ui/alert-dialog";
 import { Badge } from "../../ui/badge";
 import { Button } from "../../ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "../../ui/dialog";
 import { Input } from "../../ui/input";
+import { Label } from "../../ui/label";
 import {
   Sheet as SideSheet,
   SheetContent as SideSheetContent,
@@ -56,6 +67,7 @@ import { cn } from "../../ui/utils";
 type FamilyCode = "CNC" | "SAC_ISLEME" | "UNIVERSAL";
 type WorkspaceView = "library" | "editor";
 type DragEdge = "before" | "after";
+type TemplateStartMode = "blank" | "copy";
 
 type MachineTypeOption = {
   code: string;
@@ -79,6 +91,31 @@ type SpecTemplateRow = {
   isActive?: boolean;
   isDeleted?: boolean;
   updatedAt?: string;
+};
+
+type TaxonomyLookupRow = {
+  id: string;
+  code: string;
+  name: string;
+  divisionId?: string | null;
+  productGroupId?: string | null;
+  categoryId?: string | null;
+  subcategoryId?: string | null;
+  isActive?: boolean;
+};
+
+type MachineSubcategoryOption = {
+  id: string;
+  code: string;
+  label: string;
+};
+
+type NewMachineTemplateDraft = {
+  name: string;
+  code: string;
+  subcategoryId: string;
+  startMode: TemplateStartMode;
+  sourceTypeCode?: string;
 };
 
 type DraftRow = {
@@ -142,6 +179,16 @@ const canonicalTypeCode = (code?: string | null) => {
 const sameType = (left?: string | null, right?: string | null) => canonicalTypeCode(left) === canonicalTypeCode(right);
 const groupLabel = (code: string) => PRODUCT_SPEC_GROUPS.find((group) => group.code === code)?.label ?? code.replaceAll("_", " ");
 const localDraftKey = (typeCode: string) => `haksan:technical-workbook:${canonicalTypeCode(typeCode)}`;
+const machineTemplateCode = (value: string) =>
+  value
+    .trim()
+    .toLocaleUpperCase("tr-TR")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/İ/g, "I")
+    .replace(/[^A-Z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .slice(0, 64);
 
 function buildDraftRows(typeCode: string, specRows: SpecTemplateRow[]): DraftRow[] {
   const dbRows = specRows.filter((row) => sameType(row.productTypeCode, typeCode));
@@ -259,7 +306,14 @@ export function ProductSpecTemplatesCard() {
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [importOpen, setImportOpen] = useState(false);
+  const [newTemplateOpen, setNewTemplateOpen] = useState(false);
+  const [creatingTemplate, setCreatingTemplate] = useState(false);
   const [lastDraftSave, setLastDraftSave] = useState<Date | null>(null);
+  const [taxonomyLoading, setTaxonomyLoading] = useState(true);
+  const [productGroupRows, setProductGroupRows] = useState<TaxonomyLookupRow[]>([]);
+  const [productCategoryRows, setProductCategoryRows] = useState<TaxonomyLookupRow[]>([]);
+  const [productSubcategoryRows, setProductSubcategoryRows] = useState<TaxonomyLookupRow[]>([]);
+  const [productTypeRows, setProductTypeRows] = useState<TaxonomyLookupRow[]>([]);
 
   const divisions = user?.divisions ?? [];
   const familyDivisionId = useMemo(() => {
@@ -267,14 +321,100 @@ export function ProductSpecTemplatesCard() {
     return divisions.find((division) => foldProductTypeCode(division.code) === wanted)?.id;
   }, [divisions, familyCode]);
 
-  const familyTypes = useMemo(() => MACHINE_TYPES.filter((type) => type.familyCode === familyCode), [familyCode]);
+  useEffect(() => {
+    let cancelled = false;
+    setTaxonomyLoading(true);
+    const params = familyDivisionId ? { divisionId: familyDivisionId } : undefined;
+    void Promise.all([
+      adminService.lookupRows("product-groups", params),
+      adminService.lookupRows("product-categories", params),
+      adminService.lookupRows("product-subcategories", params),
+      adminService.lookupRows("product-types", params),
+    ])
+      .then(([groups, categories, subcategories, types]) => {
+        if (cancelled) return;
+        setProductGroupRows(groups ?? []);
+        setProductCategoryRows(categories ?? []);
+        setProductSubcategoryRows(subcategories ?? []);
+        setProductTypeRows(types ?? []);
+      })
+      .catch((error: any) => {
+        if (cancelled) return;
+        setProductGroupRows([]);
+        setProductCategoryRows([]);
+        setProductSubcategoryRows([]);
+        setProductTypeRows([]);
+        toast.error("Makine tipleri yüklenemedi", {
+          description: error?.message ?? "Yeni şablon seçenekleri alınamadı.",
+        });
+      })
+      .finally(() => {
+        if (!cancelled) setTaxonomyLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [familyDivisionId]);
+
+  const familyTypes = useMemo(() => {
+    const merged = new Map<string, MachineTypeOption>();
+    MACHINE_TYPES
+      .filter((type) => type.familyCode === familyCode)
+      .forEach((type) => merged.set(canonicalTypeCode(type.code), type));
+
+    const groupById = new Map(productGroupRows.map((row) => [row.id, row]));
+    const categoryById = new Map(productCategoryRows.map((row) => [row.id, row]));
+    const subcategoryById = new Map(productSubcategoryRows.map((row) => [row.id, row]));
+    productTypeRows
+      .filter((row) => row.isActive !== false && row.subcategoryId)
+      .forEach((row) => {
+        const subcategory = subcategoryById.get(row.subcategoryId!);
+        const category = subcategory?.categoryId ? categoryById.get(subcategory.categoryId) : undefined;
+        const group = category?.productGroupId ? groupById.get(category.productGroupId) : undefined;
+        const rowFamily = foldProductTypeCode(group?.code);
+        if (!subcategory || foldProductTypeCode(category?.code) !== "TEZGAH" || rowFamily !== familyCode) return;
+        const option: MachineTypeOption = {
+          code: row.code,
+          label: row.name,
+          familyCode,
+          categoryCode: "TEZGAH",
+          categoryLabel: "Tezgah",
+          subcategoryCode: subcategory.code,
+          subcategoryLabel: subcategory.name,
+        };
+        merged.set(canonicalTypeCode(row.code), option);
+      });
+    return [...merged.values()];
+  }, [familyCode, productCategoryRows, productGroupRows, productSubcategoryRows, productTypeRows]);
+
+  const creatableSubcategories = useMemo(() => {
+    const groupById = new Map(productGroupRows.map((row) => [row.id, row]));
+    const categoryById = new Map(productCategoryRows.map((row) => [row.id, row]));
+    return productSubcategoryRows
+      .filter((subcategory) => {
+        if (subcategory.isActive === false || !subcategory.categoryId) return false;
+        const category = categoryById.get(subcategory.categoryId);
+        const group = category?.productGroupId ? groupById.get(category.productGroupId) : undefined;
+        return foldProductTypeCode(category?.code) === "TEZGAH"
+          && foldProductTypeCode(group?.code) === familyCode;
+      })
+      .map((subcategory) => ({
+        id: subcategory.id,
+        code: subcategory.code,
+        label: subcategory.name,
+      }));
+  }, [familyCode, productCategoryRows, productGroupRows, productSubcategoryRows]);
+
   const subcategories = useMemo(() => {
     const map = new Map<string, string>();
     familyTypes.forEach((type) => map.set(type.subcategoryCode, type.subcategoryLabel));
     return [...map.entries()].map(([code, label]) => ({ code, label }));
   }, [familyTypes]);
   const scopedTypes = useMemo(() => familyTypes.filter((type) => type.subcategoryCode === subcategoryCode), [familyTypes, subcategoryCode]);
-  const selectedType = MACHINE_TYPES.find((type) => sameType(type.code, typeCode)) ?? scopedTypes[0] ?? familyTypes[0];
+  // Seçim her zaman aktif aile/alt kategori içinde kalmalı. Aile değişimindeki
+  // bir render boyunca önceki ailenin tipi seçili kalırsa "Yeni şablon" yanlış
+  // çalışma sayfasını açıyordu.
+  const selectedType = scopedTypes.find((type) => sameType(type.code, typeCode)) ?? scopedTypes[0] ?? familyTypes[0];
 
   useEffect(() => {
     const nextSubcategory = familyTypes.find((type) => type.subcategoryCode === subcategoryCode)?.subcategoryCode ?? familyTypes[0]?.subcategoryCode ?? "";
@@ -334,7 +474,11 @@ export function ProductSpecTemplatesCard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [view, typeCode]);
 
-  const dirty = JSON.stringify(draftRows) !== baseline;
+  // Katalog alanları henüz DB kaydı değilse görsel taslak baseline ile aynı olsa
+  // bile kaydedilmesi gereken yeni bir şablondur. Aksi halde "Yeni şablon"
+  // ekranında Kaydet düğmesi değişiklik yapılana kadar yanlış biçimde pasif kalır.
+  const dirty = JSON.stringify(draftRows) !== baseline
+    || draftRows.some((row) => row.catalogOnly && !row.isDeleted);
   useEffect(() => {
     if (view !== "editor" || !selectedType) return;
     if (!dirty) {
@@ -589,6 +733,11 @@ export function ProductSpecTemplatesCard() {
   const displayDraftRows = useMemo(() => groupRows(filteredDraftRows), [filteredDraftRows]);
   const selectedDraftRow = visibleDraftRows.find((row) => row.clientId === selectedRowId) ?? null;
   const selectedCompletion = selectedType ? completionFor(selectedType.code, specRows) : { registered: 0, expected: 0, percent: 0, missing: 0 };
+  const selectedTemplateExists = Boolean(selectedType && specRows.some((row) => (
+    sameType(row.productTypeCode, selectedType.code)
+    && (row.divisionId ?? null) === (familyDivisionId ?? null)
+    && !row.isDeleted
+  )));
   const activeCount = visibleDraftRows.filter((row) => row.isActive).length;
   const uniqueGroupCount = new Set(visibleDraftRows.map((row) => row.groupCode)).size;
 
@@ -608,7 +757,8 @@ export function ProductSpecTemplatesCard() {
     })), [products, selectedType?.code]);
 
   const openWorkbook = (nextTypeCode: string) => {
-    const type = MACHINE_TYPES.find((item) => sameType(item.code, nextTypeCode));
+    const type = familyTypes.find((item) => sameType(item.code, nextTypeCode))
+      ?? MACHINE_TYPES.find((item) => sameType(item.code, nextTypeCode));
     if (type) {
       setFamilyCode(type.familyCode);
       setSubcategoryCode(type.subcategoryCode);
@@ -616,6 +766,65 @@ export function ProductSpecTemplatesCard() {
     }
     setSearch("");
     setView("editor");
+  };
+
+  const createMachineTemplate = async (draft: NewMachineTemplateDraft) => {
+    if (!familyDivisionId) {
+      toast.error("Bölüm bağlantısı bulunamadı", {
+        description: "Yeni makine şablonu açmak için seçili ürün ailesinin aktif bir bölümü olmalıdır.",
+      });
+      return;
+    }
+    const subcategory = creatableSubcategories.find((item) => item.id === draft.subcategoryId);
+    if (!subcategory) {
+      toast.error("Alt kategori seçimi geçersiz");
+      return;
+    }
+    const sourceRows = draft.startMode === "copy" && draft.sourceTypeCode
+      ? buildDraftRows(draft.sourceTypeCode, specRows).filter((row) => row.isActive && !row.isDeleted)
+      : [];
+    setCreatingTemplate(true);
+    try {
+      const result = await adminService.createMachineTemplate({
+        name: draft.name.trim(),
+        code: draft.code,
+        divisionId: familyDivisionId,
+        subcategoryId: draft.subcategoryId,
+        fields: sourceRows.map((row, index) => ({
+          specKey: row.specKey.trim(),
+          specGroupCode: row.groupCode || undefined,
+          defaultValue: row.defaultValue || undefined,
+          specUnit: row.unit || undefined,
+          sortOrder: index,
+          isActive: true,
+          isDeleted: false,
+        })),
+      });
+      setProductTypeRows((current) => [
+        ...current.filter((row) => !sameType(row.code, result.type.code)),
+        result.type,
+      ]);
+      setSpecRows((current) => [
+        ...current.filter((row) => !sameType(row.productTypeCode, result.type.code)),
+        ...(result.specs as SpecTemplateRow[]),
+      ]);
+      setSubcategoryCode(subcategory.code);
+      setTypeCode(result.type.code);
+      setSearch("");
+      setNewTemplateOpen(false);
+      setView("editor");
+      toast.success("Yeni makine şablonu açıldı", {
+        description: sourceRows.length
+          ? `${draft.name} · ${sourceRows.length} teknik alan kopyalandı.`
+          : `${draft.name} · boş çalışma sayfası hazır.`,
+      });
+    } catch (error: any) {
+      toast.error("Makine şablonu oluşturulamadı", {
+        description: error?.message ?? "API isteği başarısız oldu.",
+      });
+    } finally {
+      setCreatingTemplate(false);
+    }
   };
 
   const hierarchyLabel = selectedType ? `${selectedType.familyCode === "SAC_ISLEME" ? "Sac İşleme" : selectedType.familyCode === "UNIVERSAL" ? "Üniversal" : "CNC"} › ${selectedType.categoryLabel} › ${selectedType.subcategoryLabel} › ${selectedType.label}` : "";
@@ -637,7 +846,15 @@ export function ProductSpecTemplatesCard() {
             <Button size="sm" className="bg-blue-600 text-white hover:bg-blue-500" disabled={!dirty || busy} onClick={() => void saveWorkbook()}><Save className="mr-1.5 size-4" />{busy ? "Kaydediliyor" : "Değişiklikleri kaydet"}</Button>
           </div>
         ) : (
-          <Button size="sm" className="bg-blue-600 text-white hover:bg-blue-500" onClick={() => selectedType && openWorkbook(selectedType.code)}><Plus className="mr-1.5 size-4" />Yeni şablon</Button>
+          <Button
+            size="sm"
+            className="bg-blue-600 text-white hover:bg-blue-500"
+            disabled={!selectedType || loading}
+            onClick={() => selectedType && openWorkbook(selectedType.code)}
+          >
+            <ArrowRight className="mr-1.5 size-4" />
+            {selectedTemplateExists ? "Seçili şablonu aç" : "Seçili taslağı aç"}
+          </Button>
         )}
       </div>
 
@@ -663,10 +880,12 @@ export function ProductSpecTemplatesCard() {
           search={search}
           setSearch={setSearch}
           types={libraryTypes}
+          allTypes={familyTypes}
           specRows={specRows}
           loading={loading}
           openWorkbook={openWorkbook}
           onImport={() => setImportOpen(true)}
+          onCreateTemplate={() => setNewTemplateOpen(true)}
         />
       ) : selectedType ? (
         <EditorView
@@ -723,6 +942,21 @@ export function ProductSpecTemplatesCard() {
           }}
         />
       )}
+      <NewMachineTemplateDialog
+        open={newTemplateOpen}
+        onOpenChange={setNewTemplateOpen}
+        familyCode={familyCode}
+        familyLabel={FAMILIES.find((family) => family.code === familyCode)?.label ?? familyCode}
+        divisionReady={Boolean(familyDivisionId)}
+        subcategories={creatableSubcategories}
+        sourceTypes={familyTypes}
+        selectedTypeCode={selectedType?.code}
+        specRows={specRows}
+        existingCodes={familyTypes.map((type) => type.code)}
+        loading={taxonomyLoading}
+        busy={creatingTemplate}
+        onCreate={createMachineTemplate}
+      />
     </div>
   );
 }
@@ -738,15 +972,17 @@ type LibraryViewProps = {
   search: string;
   setSearch: (value: string) => void;
   types: MachineTypeOption[];
+  allTypes: MachineTypeOption[];
   specRows: SpecTemplateRow[];
   loading: boolean;
   openWorkbook: (typeCode: string) => void;
   onImport: () => void;
+  onCreateTemplate: () => void;
 };
 
-function LibraryView({ familyCode, subcategories, subcategoryCode, setSubcategoryCode, scopedTypes, typeCode, setTypeCode, search, setSearch, types, specRows, loading, openWorkbook, onImport }: LibraryViewProps) {
+function LibraryView({ familyCode, subcategories, subcategoryCode, setSubcategoryCode, scopedTypes, typeCode, setTypeCode, search, setSearch, types, allTypes, specRows, loading, openWorkbook, onImport, onCreateTemplate }: LibraryViewProps) {
   const familyLabel = FAMILIES.find((family) => family.code === familyCode)?.label ?? familyCode;
-  const recent = [...specRows].filter((row) => MACHINE_TYPES.some((type) => type.familyCode === familyCode && sameType(type.code, row.productTypeCode))).sort((a, b) => String(b.updatedAt ?? "").localeCompare(String(a.updatedAt ?? ""))).slice(0, 4);
+  const recent = [...specRows].filter((row) => allTypes.some((type) => sameType(type.code, row.productTypeCode))).sort((a, b) => String(b.updatedAt ?? "").localeCompare(String(a.updatedAt ?? ""))).slice(0, 4);
   return (
     <div className="bg-[#f8fafc]">
       <div className="border-b border-slate-200 bg-white p-4">
@@ -763,6 +999,40 @@ function LibraryView({ familyCode, subcategories, subcategoryCode, setSubcategor
       </div>
 
       <div className="p-4">
+        <section className="relative mb-4 overflow-hidden rounded-lg border border-[#17396f] bg-[#081f4d] text-white shadow-sm">
+          <div className="absolute inset-y-0 left-0 w-1 bg-[#cf060c]" />
+          <div className="pointer-events-none absolute inset-y-0 right-0 hidden w-48 opacity-30 sm:block">
+            <span className="absolute right-10 top-[-38px] size-40 rounded-full border border-blue-300/30" />
+            <span className="absolute right-16 top-[-14px] size-28 rounded-full border border-blue-300/20" />
+            <span className="absolute bottom-5 right-8 h-px w-36 bg-blue-300/30" />
+          </div>
+          <div className="relative grid gap-4 px-5 py-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
+            <div className="min-w-0">
+              <p className="font-mono text-[9px] font-semibold tracking-[0.22em] text-blue-200">00 / ŞABLON AÇMA İSTASYONU</p>
+              <div className="mt-2 flex flex-wrap items-end gap-x-4 gap-y-1">
+                <h3 className="font-display text-2xl font-bold uppercase leading-none tracking-tight">Yeni makine şablonu</h3>
+                <span className="font-mono text-[10px] text-white/55">{familyLabel} · TEZGAH</span>
+              </div>
+              <p className="mt-2 max-w-2xl text-xs leading-5 text-blue-100/80">
+                Makine kimliğini oluşturun; boş bir çalışma sayfasıyla başlayın veya yakın bir makinenin teknik alanlarını kopyalayın.
+              </p>
+              <div className="mt-3 flex flex-wrap gap-1.5 text-[9px] font-semibold uppercase tracking-[0.08em] text-white/70">
+                <span className="border border-white/20 bg-white/5 px-2 py-1">01 Kimlik</span>
+                <span className="border border-white/20 bg-white/5 px-2 py-1">02 Başlangıç</span>
+                <span className="border border-white/20 bg-white/5 px-2 py-1">03 Teknik alanlar</span>
+              </div>
+            </div>
+            <Button
+              type="button"
+              className="h-11 justify-center bg-[#cf060c] px-5 text-white hover:bg-[#b3050a] motion-reduce:transition-none"
+              onClick={onCreateTemplate}
+            >
+              <FilePlus2 className="mr-2 size-4" />
+              Yeni şablon aç
+            </Button>
+          </div>
+        </section>
+
         <div className="mb-3 flex items-center justify-between">
           <div><h3 className="text-sm font-semibold text-slate-900">Makine şablonları</h3><p className="mt-0.5 text-[11px] text-slate-500">Teknik alan kapsamını kontrol edin veya çalışma sayfasını açın.</p></div>
           <Button variant="outline" size="sm" onClick={onImport}><Upload className="mr-1.5 size-4" />Excel / CSV ile aktar</Button>
@@ -780,11 +1050,260 @@ function LibraryView({ familyCode, subcategories, subcategoryCode, setSubcategor
         <div className="mt-4 rounded-lg border border-slate-200 bg-white">
           <div className="flex items-center justify-between border-b border-slate-200 px-4 py-2.5"><h4 className="text-xs font-semibold text-slate-800">Son teknik hareketler</h4><span className="text-[10px] text-slate-500">{specRows.length} toplam kayıt</span></div>
           <div className="grid divide-y divide-slate-200 md:grid-cols-2 md:divide-x md:divide-y-0 xl:grid-cols-4">
-            {recent.length ? recent.map((row) => <div key={row.id} className="flex items-start gap-2 px-4 py-3"><CheckCircle2 className="mt-0.5 size-4 shrink-0 text-emerald-600" /><div className="min-w-0"><p className="truncate text-[11px] font-medium text-slate-800">{row.specKey}</p><p className="mt-0.5 truncate text-[10px] text-slate-500">{MACHINE_TYPES.find((type) => sameType(type.code, row.productTypeCode))?.label ?? row.productTypeCode}</p></div></div>) : <div className="col-span-full px-4 py-5 text-center text-xs text-slate-500">Henüz kayıtlı teknik hareket yok.</div>}
+            {recent.length ? recent.map((row) => <div key={row.id} className="flex items-start gap-2 px-4 py-3"><CheckCircle2 className="mt-0.5 size-4 shrink-0 text-emerald-600" /><div className="min-w-0"><p className="truncate text-[11px] font-medium text-slate-800">{row.specKey}</p><p className="mt-0.5 truncate text-[10px] text-slate-500">{allTypes.find((type) => sameType(type.code, row.productTypeCode))?.label ?? row.productTypeCode}</p></div></div>) : <div className="col-span-full px-4 py-5 text-center text-xs text-slate-500">Henüz kayıtlı teknik hareket yok.</div>}
           </div>
         </div>
       </div>
     </div>
+  );
+}
+
+type NewMachineTemplateDialogProps = {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  familyCode: FamilyCode;
+  familyLabel: string;
+  divisionReady: boolean;
+  subcategories: MachineSubcategoryOption[];
+  sourceTypes: MachineTypeOption[];
+  selectedTypeCode?: string;
+  specRows: SpecTemplateRow[];
+  existingCodes: string[];
+  loading: boolean;
+  busy: boolean;
+  onCreate: (draft: NewMachineTemplateDraft) => Promise<void>;
+};
+
+function NewMachineTemplateDialog({
+  open,
+  onOpenChange,
+  familyCode,
+  familyLabel,
+  divisionReady,
+  subcategories,
+  sourceTypes,
+  selectedTypeCode,
+  specRows,
+  existingCodes,
+  loading,
+  busy,
+  onCreate,
+}: NewMachineTemplateDialogProps) {
+  const [name, setName] = useState("");
+  const [code, setCode] = useState("");
+  const [codeTouched, setCodeTouched] = useState(false);
+  const [subcategoryId, setSubcategoryId] = useState("");
+  const [startMode, setStartMode] = useState<TemplateStartMode>("blank");
+  const [sourceTypeCode, setSourceTypeCode] = useState("");
+
+  useEffect(() => {
+    if (!open) return;
+    const source = sourceTypes.find((type) => sameType(type.code, selectedTypeCode)) ?? sourceTypes[0];
+    const matchingSubcategory = subcategories.find((item) => item.code === source?.subcategoryCode) ?? subcategories[0];
+    setName("");
+    setCode("");
+    setCodeTouched(false);
+    setSubcategoryId(matchingSubcategory?.id ?? "");
+    setStartMode("blank");
+    setSourceTypeCode(source?.code ?? "");
+  }, [familyCode, open]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const normalizedCode = machineTemplateCode(code);
+  const duplicateCode = Boolean(normalizedCode && existingCodes.some((item) => sameType(item, normalizedCode)));
+  const sourceRows = sourceTypeCode
+    ? buildDraftRows(sourceTypeCode, specRows).filter((row) => row.isActive && !row.isDeleted)
+    : [];
+  const previewFieldCount = startMode === "copy" ? sourceRows.length : 0;
+  const selectedSubcategory = subcategories.find((item) => item.id === subcategoryId);
+  const canCreate = !loading
+    && !busy
+    && divisionReady
+    && name.trim().length >= 2
+    && normalizedCode.length >= 2
+    && Boolean(subcategoryId)
+    && !duplicateCode
+    && (startMode === "blank" || Boolean(sourceTypeCode));
+
+  const handleNameChange = (value: string) => {
+    setName(value);
+    if (!codeTouched) setCode(machineTemplateCode(value));
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={(next) => !busy && onOpenChange(next)}>
+      <DialogContent className="max-w-3xl gap-0 overflow-hidden p-0 motion-reduce:animate-none">
+        <DialogHeader className="bg-[#081f4d] px-6 py-5 pr-12 text-white">
+          <p className="font-mono text-[9px] font-semibold tracking-[0.22em] text-blue-200">TMPL / YENİ KAYIT</p>
+          <DialogTitle className="mt-1 text-2xl uppercase text-white">Makine şablonu aç</DialogTitle>
+          <DialogDescription className="text-xs leading-5 text-blue-100/75">
+            {familyLabel} ürün ailesine yeni bir makine tipi ve ona bağlı teknik çalışma sayfası ekleyin.
+          </DialogDescription>
+        </DialogHeader>
+
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (!canCreate) return;
+            void onCreate({
+              name: name.trim(),
+              code: normalizedCode,
+              subcategoryId,
+              startMode,
+              sourceTypeCode: startMode === "copy" ? sourceTypeCode : undefined,
+            });
+          }}
+        >
+          <div className="grid lg:grid-cols-[minmax(0,1.35fr)_minmax(230px,.65fr)]">
+            <div className="space-y-5 p-5 sm:p-6">
+              <section aria-labelledby="machine-template-identity-title">
+                <div className="mb-3 flex items-center gap-2">
+                  <span className="font-mono text-[10px] font-bold text-blue-700">01</span>
+                  <h3 id="machine-template-identity-title" className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-700">Makine kimliği</h3>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="space-y-1.5 sm:col-span-2">
+                    <Label htmlFor="machine-template-name">Şablon / makine tipi adı</Label>
+                    <Input
+                      id="machine-template-name"
+                      autoFocus
+                      value={name}
+                      maxLength={255}
+                      placeholder="Örn. CNC Portal Freze"
+                      onChange={(event) => handleNameChange(event.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="machine-template-code">Makine kodu</Label>
+                    <Input
+                      id="machine-template-code"
+                      className="font-mono uppercase"
+                      value={code}
+                      maxLength={64}
+                      placeholder="CNC_PORTAL_FREZE"
+                      aria-invalid={duplicateCode}
+                      onChange={(event) => {
+                        setCodeTouched(true);
+                        setCode(machineTemplateCode(event.target.value));
+                      }}
+                    />
+                    {duplicateCode && <p className="text-[11px] text-rose-600">Bu kod mevcut bir makine şablonunda kullanılıyor.</p>}
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="machine-template-subcategory">Ürün alt kategorisi</Label>
+                    <div className="relative">
+                      <select
+                        id="machine-template-subcategory"
+                        value={subcategoryId}
+                        disabled={loading || !subcategories.length}
+                        onChange={(event) => setSubcategoryId(event.target.value)}
+                        className="h-10 w-full appearance-none rounded-md border border-slate-300 bg-white px-3 pr-9 text-xs font-medium text-slate-800 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100 disabled:opacity-60"
+                      >
+                        {!subcategories.length && <option value="">Alt kategori bulunamadı</option>}
+                        {subcategories.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
+                      </select>
+                      <ChevronDown className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-slate-500" />
+                    </div>
+                  </div>
+                </div>
+              </section>
+
+              <section aria-labelledby="machine-template-start-title">
+                <div className="mb-3 flex items-center gap-2">
+                  <span className="font-mono text-[10px] font-bold text-blue-700">02</span>
+                  <h3 id="machine-template-start-title" className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-700">Başlangıç düzeni</h3>
+                </div>
+                <div role="radiogroup" aria-label="Şablon başlangıç düzeni" className="grid gap-2 sm:grid-cols-2">
+                  <button
+                    type="button"
+                    role="radio"
+                    aria-checked={startMode === "blank"}
+                    onClick={() => setStartMode("blank")}
+                    className={cn(
+                      "flex min-h-20 items-start gap-3 rounded-md border p-3 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-blue-500 motion-reduce:transition-none",
+                      startMode === "blank" ? "border-blue-600 bg-blue-50" : "border-slate-300 hover:border-slate-400",
+                    )}
+                  >
+                    <FilePlus2 className={cn("mt-0.5 size-4 shrink-0", startMode === "blank" ? "text-blue-700" : "text-slate-500")} />
+                    <span><strong className="block text-xs text-slate-900">Boş çalışma sayfası</strong><span className="mt-1 block text-[11px] leading-4 text-slate-500">Teknik bölümleri ve alanları sıfırdan kurun.</span></span>
+                  </button>
+                  <button
+                    type="button"
+                    role="radio"
+                    aria-checked={startMode === "copy"}
+                    onClick={() => setStartMode("copy")}
+                    className={cn(
+                      "flex min-h-20 items-start gap-3 rounded-md border p-3 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-blue-500 motion-reduce:transition-none",
+                      startMode === "copy" ? "border-blue-600 bg-blue-50" : "border-slate-300 hover:border-slate-400",
+                    )}
+                  >
+                    <Copy className={cn("mt-0.5 size-4 shrink-0", startMode === "copy" ? "text-blue-700" : "text-slate-500")} />
+                    <span><strong className="block text-xs text-slate-900">Mevcut şablondan kopyala</strong><span className="mt-1 block text-[11px] leading-4 text-slate-500">Alanları ve varsayılan birimleri başlangıç olarak alın.</span></span>
+                  </button>
+                </div>
+                {startMode === "copy" && (
+                  <div className="mt-3 space-y-1.5">
+                    <Label htmlFor="machine-template-source">Kaynak makine şablonu</Label>
+                    <div className="relative">
+                      <select
+                        id="machine-template-source"
+                        value={sourceTypeCode}
+                        onChange={(event) => setSourceTypeCode(event.target.value)}
+                        className="h-10 w-full appearance-none rounded-md border border-slate-300 bg-white px-3 pr-9 text-xs font-medium text-slate-800 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100"
+                      >
+                        {sourceTypes.map((type) => <option key={type.code} value={type.code}>{type.label}</option>)}
+                      </select>
+                      <ChevronDown className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-slate-500" />
+                    </div>
+                  </div>
+                )}
+              </section>
+
+              {!loading && (!divisionReady || !subcategories.length) && (
+                <div role="alert" className="flex gap-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-[11px] leading-4 text-amber-900">
+                  <CircleAlert className="mt-0.5 size-4 shrink-0" />
+                  <span>
+                    {!divisionReady
+                      ? "Bu ürün ailesine bağlı aktif bölüm bulunamadı. Önce bölüm erişimini ve ürün kapsamını kontrol edin."
+                      : "Bu ürün ailesinde Tezgah alt kategorisi bulunamadı. Önce CRM Alan Ayarları bölümünde ürün taksonomisini kurun."}
+                  </span>
+                </div>
+              )}
+            </div>
+
+            <aside className="border-t border-slate-200 bg-slate-100 p-5 lg:border-l lg:border-t-0" aria-label="Yeni şablon önizlemesi">
+              <p className="font-mono text-[9px] font-semibold tracking-[0.18em] text-slate-500">CANLI İSİM PLAKASI</p>
+              <div className="mt-3 border border-slate-400 bg-white p-4 shadow-sm">
+                <div className="flex items-center justify-between border-b border-slate-200 pb-2">
+                  <strong className="font-display text-xl tracking-[0.08em] text-[#071c54]">HAKSAN</strong>
+                  <span className="size-2 rounded-full border border-slate-500 bg-slate-200" />
+                </div>
+                <p className="mt-4 font-mono text-[9px] tracking-[0.16em] text-slate-500">{normalizedCode || "MAKINE_KODU"}</p>
+                <p className="mt-1 min-h-14 font-display text-2xl font-bold uppercase leading-none text-[#0b1f44]">{name.trim() || "Yeni makine şablonu"}</p>
+                <dl className="mt-4 grid gap-2 border-t border-slate-200 pt-3 text-[10px]">
+                  <div className="flex justify-between gap-3"><dt className="text-slate-500">Ürün ailesi</dt><dd className="font-semibold text-slate-800">{familyLabel}</dd></div>
+                  <div className="flex justify-between gap-3"><dt className="text-slate-500">Alt kategori</dt><dd className="truncate font-semibold text-slate-800">{selectedSubcategory?.label ?? "—"}</dd></div>
+                  <div className="flex justify-between gap-3"><dt className="text-slate-500">Başlangıç alanı</dt><dd className="font-mono font-semibold text-blue-700">{previewFieldCount}</dd></div>
+                </dl>
+                <div className="mt-3 h-1 bg-slate-200">
+                  <span className={cn("block h-full", previewFieldCount ? "w-2/3 bg-blue-600" : "w-1/5 bg-[#cf060c]")} />
+                </div>
+              </div>
+              <p className="mt-3 text-[10px] leading-4 text-slate-500">
+                Kayıt tamamlandığında teknik çalışma sayfası otomatik açılır. Sonraki adımda alanları düzenleyip kaydedebilirsiniz.
+              </p>
+            </aside>
+          </div>
+
+          <DialogFooter className="mx-5 mb-5 sm:mx-6">
+            <Button type="button" variant="outline" disabled={busy} onClick={() => onOpenChange(false)}>Vazgeç</Button>
+            <Button type="submit" disabled={!canCreate} className="bg-blue-700 text-white hover:bg-blue-800">
+              {busy ? <RefreshCw className="mr-2 size-4 animate-spin motion-reduce:animate-none" /> : <FilePlus2 className="mr-2 size-4" />}
+              {busy ? "Şablon açılıyor" : "Şablonu oluştur ve aç"}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }
 

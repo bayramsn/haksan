@@ -1,8 +1,8 @@
 import type { Contact, Customer, Offer, Product, SalesCase, User, ProductSpec } from "../mock";
 import { quoteService } from "../../../lib/services";
 import { specsForProductTypeStrict } from "../productSpecTemplates";
-import { trShortDate } from "./core";
-import type { QuotePrintData } from "./templates";
+import { publicProductLabel, trShortDate } from "./core";
+import type { QuoteHeaderLogoMode, QuotePrintData } from "./templates";
 
 // Seçilen tezgahın TAM teknik özellik listesi (tip şablonu + üründe girilen
 // değerler), teklifte kalem bazında girilen (customSpecs) değerlerle üzerine
@@ -29,6 +29,7 @@ export type QuoteBuildInput = {
   users: User[];
   contacts: Contact[];
   products: Product[];
+  headerLogoMode?: QuoteHeaderLogoMode;
 };
 
 const enteredLines = (value?: string | null): string[] =>
@@ -86,8 +87,38 @@ const quoteItemLineGroupKey = (item?: { compatibility?: unknown } | null): strin
   return typeof value === "string" ? value.trim() : "";
 };
 
+const normalizedLabel = (value?: string | null): string =>
+  String(value ?? "").trim().replace(/\s+/g, " ").toLocaleUpperCase("tr-TR");
+
+const quoteMachineModel = (
+  product: Product | undefined,
+  itemStockCode?: string | null,
+): string | undefined => {
+  const model = product?.model?.trim() || "";
+  const stockCode = String(itemStockCode ?? product?.stockCode ?? "").trim();
+  if (model && (!stockCode || normalizedLabel(model) !== normalizedLabel(stockCode))) return model;
+
+  const brand = product?.brand?.trim() || "";
+  const type = product?.type?.trim() || "";
+  for (const source of [product?.modelName, product?.shortDescription]) {
+    let label = source?.trim() || "";
+    if (!label) continue;
+    if (brand && normalizedLabel(label).startsWith(`${normalizedLabel(brand)} `)) {
+      label = label.slice(brand.length).trim();
+    }
+    if (type && normalizedLabel(label).endsWith(normalizedLabel(type))) {
+      label = label.slice(0, Math.max(0, label.length - type.length)).trim();
+    }
+    if (label && normalizedLabel(label) !== normalizedLabel(stockCode)) return label;
+  }
+
+  // Model alanı stok kodu olarak kullanılmış eski ürünlerde iç kodu teklife
+  // taşımaktansa model satırını boş bırakmak daha güvenlidir.
+  return undefined;
+};
+
 export function buildQuotePrintData(input: QuoteBuildInput, quote: QuoteDetail): QuotePrintData {
-  const { offer, customer, salesCase, users, contacts, products } = input;
+  const { offer, customer, salesCase, users, contacts, products, headerLogoMode = "haksan" } = input;
   const contact = contacts.find((item) => item.id === quote.contactId);
   const owner = users.find((item) => item.id === quote.projectOwnerUserId);
   const product = findProduct(products, quote, salesCase);
@@ -131,9 +162,14 @@ export function buildQuotePrintData(input: QuoteBuildInput, quote: QuoteDetail):
       .filter(Boolean);
     return {
       lineGroupKey,
-      urun: catalogProduct?.shortDescription?.trim() || String(item.description ?? "").trim(),
+      urun: publicProductLabel({
+        catalogName: catalogProduct?.shortDescription,
+        description: item.description,
+        stockCode: item.stockCode ?? catalogProduct?.stockCode,
+      }),
       marka: catalogProduct?.brand,
-      model: catalogProduct?.model,
+      brandLogoUrl: catalogProduct?.brandLogoUrl,
+      model: quoteMachineModel(catalogProduct, item.stockCode),
       tip: catalogProduct?.type,
       imageUrl: catalogProduct?.imageUrl || undefined,
       specs: fullProductSpecs(catalogProduct, quoteItemTechnicalSpecs(item as { compatibility?: unknown })),
@@ -174,6 +210,7 @@ export function buildQuotePrintData(input: QuoteBuildInput, quote: QuoteDetail):
     projeIlgilisiTelefon: owner?.phone || undefined,
     projeIlgilisiEmail: owner?.email,
     marka: firstMachine?.marka ?? product?.brand,
+    brandLogoUrl: firstMachine?.brandLogoUrl ?? product?.brandLogoUrl,
     model: firstMachine?.model ?? product?.model ?? salesCase?.requestedModel,
     tip: firstMachine?.tip ?? product?.type ?? salesCase?.requestedProduct,
     imageUrl: firstMachine?.imageUrl ?? product?.imageUrl ?? undefined,
@@ -181,6 +218,11 @@ export function buildQuotePrintData(input: QuoteBuildInput, quote: QuoteDetail):
     standartDonanim: firstMachine?.standartDonanim ?? product?.standardEquipment ?? [],
     opsiyonelDonanim: firstMachine?.opsiyonelDonanim ?? product?.optionalEquipment ?? [],
     machines,
+    headerLogo: {
+      mode: headerLogoMode,
+      imageUrl: headerLogoMode === "company" ? customer?.logoUrl : undefined,
+      alt: headerLogoMode === "company" ? `${customer?.name ?? "Firma"} logosu` : undefined,
+    },
     items: quoteItems.map((item: {
       productModelId?: string | null;
       description?: string | null;
@@ -203,7 +245,11 @@ export function buildQuotePrintData(input: QuoteBuildInput, quote: QuoteDetail):
       return {
         urun: isOption
           ? enteredDescription
-          : catalogProduct?.shortDescription?.trim() || enteredDescription,
+          : publicProductLabel({
+              catalogName: catalogProduct?.shortDescription,
+              description: enteredDescription,
+              stockCode: (item as { stockCode?: string | null }).stockCode ?? catalogProduct?.stockCode,
+            }),
         birim: `${new Intl.NumberFormat("tr-TR", { maximumFractionDigits: 3 }).format(quantity)} ${item.unitCode || "Adet"}`,
         fiyat: unitPrice,
         indirim: numeric(item.discountAmount),
@@ -229,8 +275,11 @@ export async function loadQuotePrintData(input: QuoteBuildInput): Promise<QuoteP
   const quote = await quoteService.get(input.offer.id);
   const data = buildQuotePrintData(input, quote);
   const imageUrls = [...new Set([
+    data.headerLogo?.imageUrl,
     data.imageUrl,
+    data.brandLogoUrl,
     ...(data.machines ?? []).map((machine) => machine.imageUrl),
+    ...(data.machines ?? []).map((machine) => machine.brandLogoUrl),
   ].filter((value): value is string => Boolean(value)))];
   if (!imageUrls.length) return data;
 
@@ -260,9 +309,18 @@ export async function loadQuotePrintData(input: QuoteBuildInput): Promise<QuoteP
     }
   }));
   const imageUrl = data.imageUrl ? embeddedByUrl.get(data.imageUrl) ?? data.imageUrl : undefined;
+  const brandLogoUrl = data.brandLogoUrl
+    ? embeddedByUrl.get(data.brandLogoUrl) ?? data.brandLogoUrl
+    : undefined;
+  const headerLogo = data.headerLogo?.imageUrl
+    ? { ...data.headerLogo, imageUrl: embeddedByUrl.get(data.headerLogo.imageUrl) ?? data.headerLogo.imageUrl }
+    : data.headerLogo;
   const machines = data.machines?.map((machine) => ({
     ...machine,
     imageUrl: machine.imageUrl ? embeddedByUrl.get(machine.imageUrl) ?? machine.imageUrl : undefined,
+    brandLogoUrl: machine.brandLogoUrl
+      ? embeddedByUrl.get(machine.brandLogoUrl) ?? machine.brandLogoUrl
+      : undefined,
   }));
-  return { ...data, imageUrl, machines };
+  return { ...data, headerLogo, imageUrl, brandLogoUrl, machines };
 }

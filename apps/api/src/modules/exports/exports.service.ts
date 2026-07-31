@@ -18,7 +18,7 @@ import { files, fileLinks } from '../../db/schema/files';
 import { receivables, payments } from '../../db/schema/finance';
 import { customerDevices, inventoryItems } from '../../db/schema/inventory';
 import { purchaseOrders } from '../../db/schema/orders';
-import { productModels, brands } from '../../db/schema/products';
+import { productModels, productSpecs, brands } from '../../db/schema/products';
 import { quotes } from '../../db/schema/quotes';
 import { deliveries, serviceComplaintIntakes, serviceTickets, shipments } from '../../db/schema/service';
 import {
@@ -29,11 +29,13 @@ import {
   inventoryStatuses,
   paymentStatuses,
   pipelineStages,
+  productCategories,
   productGroups,
   purchaseOrderStatuses,
   quoteStatuses,
   serviceTicketStatuses,
   shipmentStatuses,
+  stockLocationStatuses,
 } from '../../db/schema/lookup';
 import { users } from '../../db/schema/users';
 import { warehouses } from '../../db/schema/inventory';
@@ -166,7 +168,8 @@ export class ExportsService {
         or(
           ilike(companies.legalTitle, `%${query.search}%`),
           ilike(companies.shortName, `%${query.search}%`),
-          ilike(companies.taxNumber, `%${query.search}%`)
+          ilike(companies.taxNumber, `%${query.search}%`),
+          ilike(companies.externalCompanyNo, `%${query.search}%`)
         )!
       );
     }
@@ -215,6 +218,7 @@ export class ExportsService {
         emails.find((e) => e.companyId === cid && e.isDefault)?.email ??
         '';
       return {
+        'Firma No': r.company.externalCompanyNo ?? '',
         Firma: r.company.legalTitle,
         'Kısa Ad': r.company.shortName ?? '',
         Tip: r.relationType?.name ?? '',
@@ -233,7 +237,16 @@ export class ExportsService {
   async exportContacts(actor: AuthContext, query: { search?: string; companyId?: string }): Promise<ExportRow[]> {
     const filters = [eq(contacts.tenantId, actor.tenantId), isNull(contacts.deletedAt)];
     if (query.companyId) filters.push(eq(contacts.companyId, query.companyId));
-    if (query.search) filters.push(ilike(contacts.fullName, `%${query.search}%`));
+    if (query.search) {
+      filters.push(
+        or(
+          ilike(contacts.fullName, `%${query.search}%`),
+          ilike(contacts.externalContactNo, `%${query.search}%`),
+          ilike(companies.legalTitle, `%${query.search}%`),
+          ilike(companies.externalCompanyNo, `%${query.search}%`)
+        )!
+      );
+    }
     filters.push(eq(companies.tenantId, actor.tenantId), isNull(companies.deletedAt));
     filters.push(resourceCompanyPortfolioFilter(actor, 'contacts', companies.id) ?? sql`true`);
     filters.push((await companyVisibilityFilter(this.db, actor)) ?? sql`true`);
@@ -241,7 +254,7 @@ export class ExportsService {
     const rows = await this.db
       .select({
         contact: contacts,
-        company: { legalTitle: companies.legalTitle },
+        company: { legalTitle: companies.legalTitle, externalCompanyNo: companies.externalCompanyNo },
       })
       .from(contacts)
       .leftJoin(companies, eq(contacts.companyId, companies.id))
@@ -250,10 +263,12 @@ export class ExportsService {
       .limit(EXPORT_LIMIT);
 
     return rows.map((r) => ({
+      'Kontak No': r.contact.externalContactNo ?? '',
       'Ad Soyad': r.contact.fullName,
       Ünvan: r.contact.title ?? '',
       Departman: r.contact.department ?? '',
       Firma: r.company?.legalTitle ?? '',
+      'Firma No': r.company?.externalCompanyNo ?? '',
       Telefon: r.contact.workPhone ?? '',
       Cep: r.contact.mobilePhone ?? '',
       'E-posta': r.contact.workEmail ?? r.contact.personalEmail ?? '',
@@ -582,42 +597,95 @@ export class ExportsService {
 
   async exportInventory(
     actor: AuthContext,
-    query: { search?: string; statusCode?: string }
+    query: { search?: string; statusCode?: string; categoryCode?: string }
   ): Promise<ExportRow[]> {
     const filters = [eq(inventoryItems.tenantId, actor.tenantId), isNull(inventoryItems.deletedAt)];
     if (query.search) {
-      filters.push(ilike(inventoryItems.serialNumber, `%${query.search}%`));
+      const term = `%${query.search}%`;
+      filters.push(
+        or(
+          ilike(inventoryItems.serialNumber, term),
+          ilike(inventoryItems.controlUnit, term),
+          ilike(productModels.fullName, term),
+          ilike(productModels.modelCode, term),
+          ilike(productModels.stockCode, term),
+          ilike(brands.name, term),
+        ) ?? sql`false`,
+      );
     }
     if (query.statusCode) {
       const sid = await lookupIdByCode(this.db, inventoryStatuses, query.statusCode);
       if (sid) filters.push(eq(inventoryItems.stockStatusId, sid));
+    }
+    if (query.categoryCode) {
+      const categoryId = await lookupIdByCode(this.db, productCategories, query.categoryCode);
+      filters.push(categoryId ? eq(productModels.categoryId, categoryId) : sql`false`);
     }
     filters.push(resourceDivisionFilter(actor, 'inventory', inventoryItems.divisionId) ?? sql`true`);
 
     const rows = await this.db
       .select({
         item: inventoryItems,
-        product: { fullName: productModels.fullName, modelCode: productModels.modelCode },
+        product: { id: productModels.id, fullName: productModels.fullName, modelCode: productModels.modelCode },
         brand: { name: brands.name },
         status: { name: inventoryStatuses.name },
+        locationStatus: { name: stockLocationStatuses.name },
         warehouse: { name: warehouses.name },
+        reservedCompany: { legalTitle: companies.legalTitle, shortName: companies.shortName },
       })
       .from(inventoryItems)
       .leftJoin(productModels, eq(inventoryItems.productModelId, productModels.id))
       .leftJoin(brands, eq(productModels.brandId, brands.id))
       .leftJoin(inventoryStatuses, eq(inventoryItems.stockStatusId, inventoryStatuses.id))
+      .leftJoin(stockLocationStatuses, eq(inventoryItems.locationStatusId, stockLocationStatuses.id))
       .leftJoin(warehouses, eq(inventoryItems.warehouseId, warehouses.id))
+      .leftJoin(companies, eq(inventoryItems.reservedCompanyId, companies.id))
       .where(and(...filters))
       .orderBy(desc(inventoryItems.createdAt))
       .limit(EXPORT_LIMIT);
 
+    const productIds = Array.from(new Set(rows.map((row) => row.product?.id).filter((id): id is string => Boolean(id))));
+    const specs = productIds.length
+      ? await this.db
+          .select({
+            productModelId: productSpecs.productModelId,
+            key: productSpecs.specKey,
+            value: productSpecs.specValue,
+            unit: productSpecs.specUnit,
+          })
+          .from(productSpecs)
+          .where(and(
+            eq(productSpecs.tenantId, actor.tenantId),
+            inArray(productSpecs.productModelId, productIds),
+            isNull(productSpecs.deletedAt),
+          ))
+      : [];
+    const normalizedSpecKey = (value: string) =>
+      value.toLocaleLowerCase('tr-TR').normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    const specFor = (productModelId: string | null | undefined, keywords: string[]) => {
+      if (!productModelId) return '';
+      const normalizedKeywords = keywords.map(normalizedSpecKey);
+      const spec = specs.find((item) => (
+        item.productModelId === productModelId
+        && normalizedKeywords.some((keyword) => normalizedSpecKey(item.key).includes(keyword))
+      ));
+      return spec ? `${spec.value}${spec.unit ? ` ${spec.unit}` : ''}` : '';
+    };
+
     return rows.map((r) => ({
-      'Stok Kodu': r.product?.modelCode ?? r.item.serialNumber,
       Marka: r.brand?.name ?? '',
-      Model: r.product?.fullName ?? r.product?.modelCode ?? '',
+      'Yeni / Kullanılmış': r.item.itemCondition === 'used' ? 'Kullanılmış' : 'Yeni',
+      'Ürün Adı': r.product?.fullName ?? r.product?.modelCode ?? '',
       'Seri No': r.item.serialNumber ?? '',
       'Kontrol Ünitesi': r.item.controlUnit ?? '',
-      Depo: r.warehouse?.name ?? '',
+      'Fener Mili Devri': specFor(r.product?.id, ['fener mili devri', 'spindle speed']),
+      'Takım Adeti': specFor(r.product?.id, ['takim adeti', 'takim kapasitesi', 'takim yuvasi sayisi', 'tool count', 'tool capacity']),
+      'Fener Mili Motor Gücü': specFor(r.product?.id, ['fener mili motor gucu', 'spindle motor power']),
+      'Ürünün Bulunduğu Yer': [r.warehouse?.name, r.locationStatus?.name].filter(Boolean).join(' · '),
+      'Rezerve Edilen Firma': r.reservedCompany?.shortName ?? r.reservedCompany?.legalTitle ?? '',
+      'Yüklendiği Tarih': isoDate(r.item.loadingDate),
+      'Geldiği Tarih': isoDate(r.item.receivedDate),
+      'Geleceği Tarih': isoDate(r.item.arrivalDate),
       Durum: r.status?.name ?? '',
     }));
   }

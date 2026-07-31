@@ -3,6 +3,7 @@ import { Card } from "../ui/card";
 import { Tabs, TabsList, TabsTrigger } from "../ui/tabs";
 import { Input } from "../ui/input";
 import { Button } from "../ui/button";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../ui/table";
 import {
   Search, MoreHorizontal, Eye, Pencil, Phone, Mail, MapPin, Building2, User as UserIcon, ArrowUpDown, Trash2,
@@ -27,6 +28,7 @@ import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
 } from "../ui/dropdown-menu";
 import { ComposeMailDialog, type MailRecipient } from "../mail/ComposeMailDialog";
+import { CompanyContactImportDialog } from "../dialogs/CompanyContactImportDialog";
 
 const uniqueSorted = (values: (string | undefined)[]) =>
   Array.from(new Set(values.map((v) => (v ?? "").trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b, "tr"));
@@ -59,12 +61,12 @@ const companyInitials = (name: string) => name.split(/\s+/).filter(Boolean).slic
 const supplierCategoryLabel = (code?: Customer["supplierCategoryCode"]) => code === "transportation" ? "Nakliye" : code === "logistics" ? "Lojistik" : "";
 
 export function CustomersPage(_props: { onSelect?: (c: Customer) => void } = {}) {
-  const { customers, deleteCustomer } = useStore();
+  const { customers, deleteCustomer, refresh } = useStore();
   const { openCompany, dialogs } = useDetailDialogs();
   // Rol bazlı görünürlük (backend ile aynı kural): yalnızca sales/service rolleri
   // kısıtlıdır. Kısıtlı kullanıcılar tedarikçi sekmesini hiç görmez; servis-only
   // kullanıcılar ayrıca potansiyel müşteri sekmesini görmez (sales görür).
-  const { user, activeDivision, setActiveDivision } = useAuth();
+  const { user, activeDivision, setActiveDivision, hasRole } = useAuth();
   const roles = user?.roles ?? [];
   const restricted = roles.length > 0 && roles.every((r) => r === "sales" || r === "service");
   const canSeeSuppliers = !restricted;
@@ -87,7 +89,7 @@ export function CustomersPage(_props: { onSelect?: (c: Customer) => void } = {})
   const [city, setCity] = useState("all");
   const [sector, setSector] = useState("all");
   const [supplierCategory, setSupplierCategory] = useState<"all" | "transportation" | "logistics">("all");
-  const [nameSort, setNameSort] = useState<"asc" | "desc" | null>(null);
+  const [sortMode, setSortMode] = useState<"default" | "name_asc" | "name_desc" | "created_desc" | "created_asc">("default");
   const [view, setView] = usePersistentState<ListView>("customersView", "table");
 
   const filtered = customers.filter((c) => {
@@ -101,6 +103,7 @@ export function CustomersPage(_props: { onSelect?: (c: Customer) => void } = {})
     const t = q.toLowerCase();
     return (
       c.name.toLowerCase().includes(t) ||
+      (c.companyNo ?? "").toLowerCase().includes(t) ||
       c.city.toLowerCase().includes(t) ||
       (c.district ?? "").toLowerCase().includes(t) ||
       c.email.toLowerCase().includes(t) ||
@@ -114,12 +117,16 @@ export function CustomersPage(_props: { onSelect?: (c: Customer) => void } = {})
   });
 
   const sorted = useMemo(() => {
-    if (!nameSort) return filtered;
+    if (sortMode === "default") return filtered;
     return [...filtered].sort((a, b) => {
-      const cmp = a.name.localeCompare(b.name, "tr");
-      return nameSort === "asc" ? cmp : -cmp;
+      if (sortMode === "name_asc" || sortMode === "name_desc") {
+        const cmp = a.name.localeCompare(b.name, "tr", { sensitivity: "base" });
+        return sortMode === "name_asc" ? cmp : -cmp;
+      }
+      const cmp = String(a.createdAt ?? "").localeCompare(String(b.createdAt ?? ""));
+      return sortMode === "created_asc" ? cmp : -cmp;
     });
-  }, [filtered, nameSort]);
+  }, [filtered, sortMode]);
 
   const { page, setPage, totalPages, pageItems } = usePaged(sorted, 12);
 
@@ -233,6 +240,24 @@ export function CustomersPage(_props: { onSelect?: (c: Customer) => void } = {})
               { label: "Tedarikçi Türü", value: supplierCategory, onChange: (value) => setSupplierCategory(value as typeof supplierCategory), options: [{ value: "transportation", label: "Nakliye" }, { value: "logistics", label: "Lojistik" }] },
             ]}
           />
+          <Select value={sortMode} onValueChange={(value) => setSortMode(value as typeof sortMode)}>
+            <SelectTrigger className="h-9 w-full bg-white sm:w-52" aria-label="Firmaları sırala">
+              <SelectValue placeholder="Sıralama" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="default">Varsayılan sıralama</SelectItem>
+              <SelectItem value="name_asc">Firma adı A–Z</SelectItem>
+              <SelectItem value="name_desc">Firma adı Z–A</SelectItem>
+              <SelectItem value="created_desc">Oluşturma: yeni → eski</SelectItem>
+              <SelectItem value="created_asc">Oluşturma: eski → yeni</SelectItem>
+            </SelectContent>
+          </Select>
+          {hasRole("super_admin") && (
+            <CompanyContactImportDialog
+              divisionId={divisionTab !== "all" ? divisionTab : activeDivision}
+              onImported={refresh}
+            />
+          )}
           <ExportExcelButton path="/exports/companies" filename="firmalar.xlsx" params={exportParams} className="h-9" />
           <ViewToggle view={view} onChange={setView} />
         </div>
@@ -298,7 +323,11 @@ export function CustomersPage(_props: { onSelect?: (c: Customer) => void } = {})
                   <div className="p-4 space-y-3">
                     <div className="flex items-start gap-3">
                       <div className={`grid size-11 shrink-0 place-items-center rounded-xl border font-display text-sm font-semibold shadow-xs ${c.type === "company" ? "border-primary/10 bg-brand-blue-soft text-primary" : "border-info/10 bg-info-soft text-info"}`}>
-                        {companyInitials(c.name) || (c.type === "company" ? <Building2 className="size-4.5" /> : <UserIcon className="size-4.5" />)}
+                        {c.logoUrl ? (
+                          <img src={c.logoUrl} alt={`${c.name} logosu`} className="h-full w-full rounded-xl bg-white object-contain p-1.5" />
+                        ) : (
+                          companyInitials(c.name) || (c.type === "company" ? <Building2 className="size-4.5" /> : <UserIcon className="size-4.5" />)
+                        )}
                       </div>
                       <div className="min-w-0 flex-1">
                         <div className="text-sm font-medium leading-tight truncate group-hover:text-primary transition-colors">
@@ -373,6 +402,10 @@ export function CustomersPage(_props: { onSelect?: (c: Customer) => void } = {})
                         <span className="truncate">{[c.city, c.district].filter(Boolean).join(" / ") || "Konum yok"}</span>
                       </div>
                       <div className="flex items-center gap-1.5">
+                        <Building2 className="size-3.5 shrink-0" />
+                        <span className="truncate">Firma No: {c.companyNo || "—"}</span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
                         <UserIcon className="size-3.5 shrink-0" />
                         <span className="truncate">{c.contactPerson || "—"}</span>
                         {c.phone && (
@@ -410,7 +443,7 @@ export function CustomersPage(_props: { onSelect?: (c: Customer) => void } = {})
                   <button
                     type="button"
                     className="inline-flex items-center gap-1 uppercase tracking-wider hover:text-foreground"
-                    onClick={() => setNameSort((s) => (s === "asc" ? "desc" : "asc"))}
+                    onClick={() => setSortMode((current) => current === "name_asc" ? "name_desc" : "name_asc")}
                     aria-label="Firmaya göre sırala"
                   >
                     Firma <ArrowUpDown className="size-3" />
@@ -419,7 +452,16 @@ export function CustomersPage(_props: { onSelect?: (c: Customer) => void } = {})
                 <TableHead className="text-[11px] uppercase tracking-wider text-muted-foreground">Firma Tipi</TableHead>
                 <TableHead className="text-[11px] uppercase tracking-wider text-muted-foreground">İletişim</TableHead>
                 <TableHead className="text-[11px] uppercase tracking-wider text-muted-foreground">Konum</TableHead>
-                <TableHead className="text-[11px] uppercase tracking-wider text-muted-foreground">Oluşturma</TableHead>
+                <TableHead className="text-[11px] uppercase tracking-wider text-muted-foreground">
+                  <button
+                    type="button"
+                    className="inline-flex items-center gap-1 uppercase tracking-wider hover:text-foreground"
+                    onClick={() => setSortMode((current) => current === "created_desc" ? "created_asc" : "created_desc")}
+                    aria-label="Oluşturulma tarihine göre sırala"
+                  >
+                    Oluşturma <ArrowUpDown className="size-3" />
+                  </button>
+                </TableHead>
                 <TableHead className="text-right w-12"></TableHead>
               </TableRow>
             </TableHeader>
@@ -435,7 +477,7 @@ export function CustomersPage(_props: { onSelect?: (c: Customer) => void } = {})
                           {[c.city, c.district].filter(Boolean).join(" / ") || "Konum yok"}
                         </div>
                         <div className="text-[11px] text-muted-foreground/80 mt-0.5 truncate">
-                          {c.type === "company" ? "Kurumsal" : "Bireysel"} · {c.taxNumber || "Kimlik yok"}
+                          Firma No: {c.companyNo || "—"} · {c.type === "company" ? "Kurumsal" : "Bireysel"} · {c.taxNumber || "Kimlik yok"}
                         </div>
                       </div>
                     </div>

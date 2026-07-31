@@ -5,6 +5,7 @@ import { createTestApp } from './setup';
 
 let app: NestFastifyApplication;
 let adminToken: string;
+let adminUserId: string;
 let companyId: string;
 let companyAddressId: string;
 let opportunityId: string;
@@ -22,6 +23,7 @@ beforeAll(async () => {
     .post('/api/v1/auth/login')
     .send({ email: 'admin@haksan.local', password: 'admin12345' });
   adminToken = login.body.accessToken;
+  adminUserId = login.body.user.id;
   const r = await supertest(app.getHttpServer()).get('/api/v1/companies?pageSize=100').set('Authorization', `Bearer ${adminToken}`);
   const company = r.body.data.find((item: { addresses?: unknown[] }) => (item.addresses?.length ?? 0) > 0);
   if (!company) throw new Error('PDF adresi testi için adresi olan firma bulunamadı');
@@ -52,6 +54,7 @@ describe('ERP flow', () => {
       .send({
         companyId,
         title: 'Test opp',
+        ownerUserId: adminUserId,
         estimatedValue: 100000,
         currencyCode: 'USD',
         probability: 50,

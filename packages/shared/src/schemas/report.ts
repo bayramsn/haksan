@@ -25,6 +25,7 @@ export type ExportContactQuery = z.infer<typeof exportContactQuerySchema>;
 export const exportInventoryQuerySchema = z.object({
   search: z.string().optional(),
   statusCode: z.string().optional(),
+  categoryCode: z.string().optional(),
 });
 export type ExportInventoryQuery = z.infer<typeof exportInventoryQuerySchema>;
 

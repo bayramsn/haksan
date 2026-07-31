@@ -20,15 +20,16 @@ import { cn } from "../../ui/utils";
 import {
   MessageCircle, Send, Paperclip, Search, Plus, Trash2, FileText, X, Loader2, Users,
   Smile, CornerUpLeft, Pencil, Check, CheckCheck, Mic, Square, FileText as FileIcon, Building2, Briefcase, LifeBuoy,
-  ChevronLeft, Sparkles, Phone,
+  ChevronLeft, Sparkles, Phone, Video, MapPin, Image as ImageIcon,
 } from "lucide-react";
 import { useVoiceCall } from "../../../../lib/voiceCall";
 import { NewGroupDialog, GroupSettingsDialog } from "./GroupDialogs";
 import { ShareRecordDialog } from "./ShareRecordDialog";
 
-const ALLOWED_EXT = ["pdf", "docx", "xlsx", "png", "jpg", "jpeg", "webp", "webm", "mp3", "ogg", "m4a", "wav"];
-const ACCEPT = ".pdf,.docx,.xlsx,.png,.jpg,.jpeg,.webp,image/*";
+const ALLOWED_EXT = ["pdf", "docx", "xlsx", "png", "jpg", "jpeg", "webp", "gif", "webm", "mp3", "ogg", "m4a", "wav"];
+const ACCEPT = ".pdf,.docx,.xlsx,.png,.jpg,.jpeg,.webp,.gif,.mp3,.ogg,.m4a,.wav";
 const QUICK_EMOJIS = ["👍", "❤️", "😂", "🎉", "✅", "🙏"];
+const COMPOSER_EMOJIS = ["😀", "😁", "😂", "😍", "🥳", "😎", "🤝", "👍", "👏", "🙏", "🎉", "✅", "❤️", "🔥", "💯", "📌", "🚀", "💬"];
 const REF_ICON: Record<string, any> = { company: Building2, quote: FileText, opportunity: Briefcase, service_ticket: LifeBuoy };
 
 function initials(name: string): string {
@@ -55,7 +56,7 @@ function convDisplay(c: { type: string; title: string | null; members: { userId:
   return c.members.find((m) => m.userId !== meId)?.fullName || "Sohbet";
 }
 
-type Pending = { fileId: string; filename: string; isImage: boolean; isAudio: boolean };
+type Pending = { fileId: string; filename: string; isImage: boolean; isAudio: boolean; isGif: boolean };
 
 export function ChatPage({ onOpenRecord }: { onOpenRecord?: (card: ChatRefCard) => void }) {
   const { user, hasRole } = useAuth();
@@ -72,6 +73,10 @@ export function ChatPage({ onOpenRecord }: { onOpenRecord?: (card: ChatRefCard) 
   const [pending, setPending] = useState<Pending[]>([]);
   const [sending, setSending] = useState(false);
   const [search, setSearch] = useState("");
+  const [messageSearch, setMessageSearch] = useState("");
+  const [showMessageSearch, setShowMessageSearch] = useState(false);
+  const [showComposerEmoji, setShowComposerEmoji] = useState(false);
+  const [sharingLocation, setSharingLocation] = useState(false);
   const [newOpen, setNewOpen] = useState(false);
   const [replyTo, setReplyTo] = useState<{ id: string; senderName: string; preview: string } | null>(null);
   const [editing, setEditing] = useState<{ id: string; original: string } | null>(null);
@@ -79,8 +84,11 @@ export function ChatPage({ onOpenRecord }: { onOpenRecord?: (card: ChatRefCard) 
 
   const messageScrollAreaRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const gifInputRef = useRef<HTMLInputElement>(null);
   const selectedIdRef = useRef<string | null>(null);
   selectedIdRef.current = selectedId;
+  const messageSearchRef = useRef("");
+  messageSearchRef.current = messageSearch;
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
 
@@ -99,7 +107,8 @@ export function ChatPage({ onOpenRecord }: { onOpenRecord?: (card: ChatRefCard) 
 
   const loadMessages = useCallback(async (id: string) => {
     try {
-      const res = await chatService.messages(id, { limit: 50 });
+      const query = messageSearchRef.current.trim();
+      const res = await chatService.messages(id, { limit: query.length >= 2 ? 100 : 50, search: query.length >= 2 ? query : undefined });
       if (selectedIdRef.current === id) setMessages(res.messages);
     } catch { /* polling tekrar dener */ }
   }, []);
@@ -112,7 +121,7 @@ export function ChatPage({ onOpenRecord }: { onOpenRecord?: (card: ChatRefCard) 
 
   const openConversation = useCallback(async (id: string) => {
     setSelectedId(id);
-    setMessages([]); setDetail(null); setText(""); setPending([]); setReplyTo(null); setEditing(null);
+    setMessages([]); setDetail(null); setText(""); setPending([]); setReplyTo(null); setEditing(null); setMessageSearch(""); setShowMessageSearch(false);
     try {
       const d = await chatService.conversation(id);
       if (selectedIdRef.current === id) setDetail(d);
@@ -125,7 +134,8 @@ export function ChatPage({ onOpenRecord }: { onOpenRecord?: (card: ChatRefCard) 
     if (!selectedId) return;
     const h = setInterval(() => {
       if (document.hidden) return;
-      chatService.messages(selectedId, { limit: 50 }).then((res) => {
+      const query = messageSearchRef.current.trim();
+      chatService.messages(selectedId, { limit: query.length >= 2 ? 100 : 50, search: query.length >= 2 ? query : undefined }).then((res) => {
         if (selectedIdRef.current !== selectedId) return;
         setMessages(res.messages);
         chatService.markRead(selectedId).then(loadConversations).catch(() => {});
@@ -180,7 +190,13 @@ export function ChatPage({ onOpenRecord }: { onOpenRecord?: (card: ChatRefCard) 
       sizeBytes: file.size,
     });
     await fileService.uploadBinary(up, file, file.type);
-    setPending((p) => [...p, { fileId: up.fileId, filename: file.name, isImage: file.type.startsWith("image/"), isAudio: asAudio || file.type.startsWith("audio/") }]);
+    setPending((p) => [...p, {
+      fileId: up.fileId,
+      filename: file.name,
+      isImage: file.type.startsWith("image/"),
+      isAudio: asAudio || file.type.startsWith("audio/"),
+      isGif: file.type === "image/gif" || ext === "gif",
+    }]);
   };
 
   const onFiles = async (files: FileList | null) => {
@@ -189,6 +205,13 @@ export function ChatPage({ onOpenRecord }: { onOpenRecord?: (card: ChatRefCard) 
       try { await uploadOne(file); } catch { toast.error(`Yüklenemedi: ${file.name}`); }
     }
     if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
+  const onGif = async (files: FileList | null) => {
+    const file = files?.[0];
+    if (!file) return;
+    try { await uploadOne(file); } catch { toast.error("GIF yüklenemedi"); }
+    if (gifInputRef.current) gifInputRef.current.value = "";
   };
 
   // ── Sesli mesaj kaydı ──
@@ -263,10 +286,40 @@ export function ChatPage({ onOpenRecord }: { onOpenRecord?: (card: ChatRefCard) 
   };
 
   const delMsg = async (id: string) => {
+    if (!window.confirm("Bu mesaj iki taraftan da silinecek ve geri alınamayacak. Herkesten silinsin mi?")) return;
     try {
       await chatService.deleteMessage(id);
       if (selectedIdRef.current) loadMessages(selectedIdRef.current);
     } catch (e) { toast.error(errMsg(e)); }
+  };
+
+  const shareLocation = () => {
+    const id = selectedIdRef.current;
+    if (!id || !navigator.geolocation) {
+      toast.error("Bu tarayıcı konum paylaşımını desteklemiyor.");
+      return;
+    }
+    setSharingLocation(true);
+    navigator.geolocation.getCurrentPosition(
+      async ({ coords }) => {
+        try {
+          await chatService.sendMessage(id, {
+            location: { latitude: coords.latitude, longitude: coords.longitude, label: "Paylaşılan konum" },
+          });
+          await loadMessages(id);
+          loadConversations();
+        } catch (e) {
+          toast.error(errMsg(e));
+        } finally {
+          setSharingLocation(false);
+        }
+      },
+      () => {
+        setSharingLocation(false);
+        toast.error("Konum alınamadı. Tarayıcı konum iznini kontrol edin.");
+      },
+      { enableHighAccuracy: true, timeout: 12_000, maximumAge: 60_000 },
+    );
   };
 
   const startEdit = (m: ChatMessageDTO) => {
@@ -395,22 +448,75 @@ export function ChatPage({ onOpenRecord }: { onOpenRecord?: (card: ChatRefCard) 
                     : detail.members.find((m) => m.userId !== meId)?.email}
                 </div>
               </div>
+              <Button
+                variant={showMessageSearch ? "secondary" : "ghost"}
+                size="icon"
+                title="Mesajlarda ara"
+                aria-label="Mesajlarda ara"
+                onClick={() => {
+                  const next = !showMessageSearch;
+                  setShowMessageSearch(next);
+                  if (!next) {
+                    setMessageSearch("");
+                    messageSearchRef.current = "";
+                    void loadMessages(detail.id);
+                  }
+                }}
+              >
+                <Search className="size-4" />
+              </Button>
               {detail.type === "dm" && voiceCall.supported && (
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  title="Sesli arama"
-                  aria-label="Sesli arama başlat"
-                  disabled={voiceCall.phase !== "idle"}
-                  onClick={() => void voiceCall.startCall(detail.id, convDisplay(detail, meId))}
-                >
-                  <Phone className="size-4" />
-                </Button>
+                <>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    title="Sesli arama"
+                    aria-label="Sesli arama başlat"
+                    disabled={voiceCall.phase !== "idle"}
+                    onClick={() => void voiceCall.startCall(detail.id, convDisplay(detail, meId), "audio")}
+                  >
+                    <Phone className="size-4" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    title="Görüntülü arama"
+                    aria-label="Görüntülü arama başlat"
+                    disabled={voiceCall.phase !== "idle"}
+                    onClick={() => void voiceCall.startCall(detail.id, convDisplay(detail, meId), "video")}
+                  >
+                    <Video className="size-4" />
+                  </Button>
+                </>
               )}
               {detail.type === "group" && (
                 <GroupSettingsDialog detail={detail} directory={directory} isManager={!!isManager} currentUserId={meId} onChanged={reloadDetail} />
               )}
             </div>
+
+            {showMessageSearch && (
+              <form
+                className="flex items-center gap-2 border-b border-border/60 bg-muted/20 px-4 py-2"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  messageSearchRef.current = messageSearch;
+                  void loadMessages(detail.id);
+                }}
+              >
+                <div className="relative min-w-0 flex-1">
+                  <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    autoFocus
+                    value={messageSearch}
+                    onChange={(event) => setMessageSearch(event.target.value)}
+                    placeholder="Bu sohbette en az 2 karakterle ara…"
+                    className="h-9 bg-white pl-8"
+                  />
+                </div>
+                <Button type="submit" size="sm" disabled={messageSearch.trim().length < 2}>Ara</Button>
+                {messageSearch.trim().length >= 2 && <span className="shrink-0 text-xs text-muted-foreground">{messages.length} sonuç</span>}
+              </form>
+            )}
 
             <ScrollArea ref={messageScrollAreaRef} className="min-h-0 flex-1">
               <div className="flex flex-col gap-1.5 p-4">
@@ -424,7 +530,7 @@ export function ChatPage({ onOpenRecord }: { onOpenRecord?: (card: ChatRefCard) 
                     onOpenRecord={onOpenRecord}
                   />
                 ))}
-                {messages.length === 0 && <div className="premium-blueprint mx-auto my-8 max-w-sm rounded-xl border border-dashed border-primary/15 px-6 py-8 text-center"><MessageCircle className="mx-auto size-7 text-primary" /><div className="mt-3 text-sm font-semibold">Sohbet hazır</div><p className="mt-1 text-xs text-muted-foreground">İlk mesajı gönderin veya firma, teklif ve servis kaydı paylaşın.</p></div>}
+                {messages.length === 0 && <div className="premium-blueprint mx-auto my-8 max-w-sm rounded-xl border border-dashed border-primary/15 px-6 py-8 text-center"><MessageCircle className="mx-auto size-7 text-primary" /><div className="mt-3 text-sm font-semibold">{messageSearch.trim().length >= 2 ? "Eşleşen mesaj bulunamadı" : "Sohbet hazır"}</div><p className="mt-1 text-xs text-muted-foreground">{messageSearch.trim().length >= 2 ? "Başka bir kelimeyle tekrar arayın." : "İlk mesajı gönderin veya firma, teklif ve servis kaydı paylaşın."}</p></div>}
               </div>
             </ScrollArea>
 
@@ -449,18 +555,40 @@ export function ChatPage({ onOpenRecord }: { onOpenRecord?: (card: ChatRefCard) 
                   <div className="mb-2 flex flex-wrap gap-2">
                     {pending.map((p) => (
                       <span key={p.fileId} className="flex items-center gap-1.5 rounded-md bg-muted px-2 py-1 text-xs">
-                        {p.isAudio ? <Mic className="size-3.5" /> : <FileText className="size-3.5" />}
-                        <span className="max-w-[140px] truncate">{p.isAudio ? "Sesli mesaj" : p.filename}</span>
+                        {p.isAudio ? <Mic className="size-3.5" /> : p.isGif ? <ImageIcon className="size-3.5" /> : <FileText className="size-3.5" />}
+                        <span className="max-w-[140px] truncate">{p.isAudio ? "Sesli mesaj" : p.isGif ? "GIF" : p.filename}</span>
                         <button onClick={() => setPending((arr) => arr.filter((x) => x.fileId !== p.fileId))}><X className="size-3.5" /></button>
                       </span>
                     ))}
                   </div>
                 )}
-                <div className="flex items-end gap-1.5">
+                <div className="flex flex-wrap items-end gap-1.5 sm:flex-nowrap">
                   <input ref={fileInputRef} type="file" accept={ACCEPT} multiple className="hidden" onChange={(e) => onFiles(e.target.files)} />
+                  <input ref={gifInputRef} type="file" accept="image/gif,.gif" className="hidden" onChange={(e) => onGif(e.target.files)} />
                   {!editing && (
                     <>
                       <Button variant="ghost" size="icon" title="Dosya/görsel ekle" onClick={() => fileInputRef.current?.click()}><Paperclip className="size-5" /></Button>
+                      <Button variant="ghost" size="icon" title="GIF gönder" onClick={() => gifInputRef.current?.click()}><ImageIcon className="size-5" /></Button>
+                      <div className="relative">
+                        <Button variant="ghost" size="icon" title="Emoji ekle" onClick={() => setShowComposerEmoji((value) => !value)}><Smile className="size-5" /></Button>
+                        {showComposerEmoji && (
+                          <div className="absolute bottom-12 left-0 z-20 grid w-56 grid-cols-6 gap-1 rounded-xl border border-border bg-popover p-2 shadow-xl">
+                            {COMPOSER_EMOJIS.map((emoji) => (
+                              <button
+                                key={emoji}
+                                type="button"
+                                className="grid size-8 place-items-center rounded-md text-lg hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                onClick={() => { setText((value) => `${value}${emoji}`); setShowComposerEmoji(false); }}
+                              >
+                                {emoji}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                      <Button variant="ghost" size="icon" title="Konum paylaş" disabled={sharingLocation} onClick={shareLocation}>
+                        {sharingLocation ? <Loader2 className="size-5 animate-spin" /> : <MapPin className="size-5" />}
+                      </Button>
                       <ShareRecordDialog onShare={shareRecord} />
                       {recording ? (
                         <Button variant="destructive" size="icon" title="Kaydı bitir" onClick={stopRecording}><Square className="size-5" /></Button>
@@ -472,7 +600,7 @@ export function ChatPage({ onOpenRecord }: { onOpenRecord?: (card: ChatRefCard) 
                   <Textarea
                     value={text} onChange={(e) => setText(e.target.value)} rows={1}
                     placeholder={recording ? "Kaydediliyor… bitince gönderebilirsiniz" : editing ? "Mesajı düzenleyin…" : "Mesaj yazın…"}
-                    className="max-h-32 min-h-10 flex-1 resize-none"
+                    className="order-first max-h-32 min-h-10 min-w-0 basis-full resize-none sm:order-none sm:basis-auto sm:flex-1"
                     onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
                   />
                   <Button onClick={send} disabled={sending || (!editing && !text.trim() && pending.length === 0) || (!!editing && !text.trim())} size="icon" title={editing ? "Kaydet" : "Gönder"}>
@@ -523,6 +651,21 @@ function MessageItem({
         )}
 
         {m.refCard && <RefCardView card={m.refCard} mine={mine} onOpen={onOpenRecord} />}
+
+        {m.location && (
+          <a
+            href={`https://www.openstreetmap.org/?mlat=${encodeURIComponent(m.location.latitude)}&mlon=${encodeURIComponent(m.location.longitude)}#map=16/${encodeURIComponent(m.location.latitude)}/${encodeURIComponent(m.location.longitude)}`}
+            target="_blank"
+            rel="noreferrer"
+            className={cn("mb-1 flex min-w-52 items-center gap-2 rounded-lg px-3 py-2", mine ? "bg-primary-foreground/15" : "bg-background")}
+          >
+            <span className="grid size-9 shrink-0 place-items-center rounded-full bg-success-soft text-success"><MapPin className="size-4" /></span>
+            <span className="min-w-0">
+              <span className="block text-xs font-semibold">{m.location.label || "Paylaşılan konum"}</span>
+              <span className="block text-[10px] opacity-75">Haritada aç</span>
+            </span>
+          </a>
+        )}
 
         {m.attachments.length > 0 && (
           <div className="mb-1 space-y-1.5">
@@ -578,7 +721,7 @@ function MessageItem({
           <button className="text-muted-foreground hover:text-foreground" title="Düzenle" onClick={onEdit}><Pencil className="size-3.5" /></button>
         )}
         {(mine || canModerate) && (
-          <button className="text-muted-foreground hover:text-destructive" title="Sil" onClick={onDelete}><Trash2 className="size-3.5" /></button>
+          <button className="text-muted-foreground hover:text-destructive" title="Herkesten sil" onClick={onDelete}><Trash2 className="size-3.5" /></button>
         )}
       </div>
     </div>

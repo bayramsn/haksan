@@ -80,6 +80,11 @@ const envSchema = z.object({
   // istemci polling fallback'e döner; Render ücretsiz plan gibi soket dostu
   // olmayan ortamlarda CHAT_REALTIME_ENABLED=false ile kapatılabilir.
   CHAT_REALTIME_ENABLED: envBoolean.default(true),
+  // WebRTC medyası için opsiyonel coturn REST kimlik bilgileri. Paylaşılan sır
+  // yalnız backend'de kalır; istemciye saatlik HMAC credential döndürülür.
+  WEBRTC_TURN_URLS: envOptionalText,
+  WEBRTC_TURN_SHARED_SECRET: envOptionalSecret,
+  WEBRTC_TURN_TTL_SECONDS: z.coerce.number().int().min(300).max(86_400).default(3_600),
 
   // Zamanlanmış otomasyon işleri: sabah brifingi, vadesi geçen tahsilat,
   // garanti bitişi ve cevapsız teklif hatırlatmaları. Test ortamında ve
@@ -197,6 +202,13 @@ const envSchema = z.object({
   // sağlayıcısına geçebilsin. API çağrıları yalnız backend üzerinden yapılır.
   OSM_NOMINATIM_URL: z.string().url().default('https://nominatim.openstreetmap.org/search'),
 }).superRefine((env, ctx) => {
+  if (!!env.WEBRTC_TURN_URLS !== !!env.WEBRTC_TURN_SHARED_SECRET) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['WEBRTC_TURN_URLS'],
+      message: 'WEBRTC_TURN_URLS and WEBRTC_TURN_SHARED_SECRET must be configured together',
+    });
+  }
   if (!!env.S3_ACCESS_KEY_ID !== !!env.S3_SECRET_ACCESS_KEY) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,

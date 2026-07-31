@@ -1,5 +1,7 @@
 import { test, expect } from "@playwright/test";
-import { login, navigateTo } from "./helpers";
+import { E2E_EMAIL, E2E_PASSWORD, login, navigateTo } from "./helpers";
+
+const e2eApiBase = process.env.E2E_API_URL ?? "http://localhost:3000/api/v1";
 
 test("fırsatlar listelenir ve detay açılır", async ({ page }) => {
   await login(page);
@@ -71,6 +73,34 @@ test("liste filtresi kanban görünümüne de uygulanır", async ({ page }) => {
   await expect(page.locator('[data-testid^="sales-kanban-card-"]')).toHaveCount(0);
 });
 
+test("lead kartı onay alınarak silinir", async ({ page }) => {
+  const suffix = Date.now().toString(36);
+  const contactName = `Silme Test Lead ${suffix}`;
+  const product = `Silme Test Ürünü ${suffix}`;
+
+  await login(page);
+  await navigateTo(page, "Leadler");
+  await page.getByRole("button", { name: "Hızlı Lead", exact: true }).click();
+  await page.getByLabel("Kontak ismi *").fill(contactName);
+  await page.locator("#lead-phone").fill("05325550002");
+  await page.locator("#lead-city").fill("İstanbul");
+  await page.getByLabel("İstenen ürün *").fill(product);
+  await page.getByRole("button", { name: "Lead Kartı Oluştur" }).click();
+
+  const search = page.getByPlaceholder("Firma, kontak, telefon veya ürün ara...");
+  await search.fill(contactName);
+  const deleteButton = page.getByRole("button", { name: `${contactName} lead kartını sil` });
+  await expect(deleteButton).toBeVisible();
+  await deleteButton.click();
+
+  const confirmation = page.getByRole("alertdialog");
+  await expect(confirmation.getByText("Lead kartı silinsin mi?", { exact: true })).toBeVisible();
+  await confirmation.getByRole("button", { name: "Lead Kartını Sil", exact: true }).click();
+
+  await expect(confirmation).toBeHidden();
+  await expect(deleteButton).toHaveCount(0);
+});
+
 test("lead kartından yeni firma OSM araması üst formu göndermeden açık kalır", async ({ page }) => {
   const suffix = Date.now().toString(36);
   const companyTitle = `OSM Form Regresyon ${suffix}`;
@@ -133,4 +163,144 @@ test("lead kartından yeni firma OSM araması üst formu göndermeden açık kal
   await expect(companyDialog).toBeVisible();
   await expect(companyDialog.getByText(`${companyTitle}, İstanbul, Türkiye`)).toBeVisible();
   expect(companyCreateRequests).toBe(0);
+});
+
+test("Lead Workspace V2 akışı otomatik atamadan gerekçeli fırsat dönüşümüne ilerler", async ({ page, request }) => {
+  const suffix = Date.now().toString(36);
+  const city = `V2-${suffix}`;
+  const product = `HAXAN-V2-${suffix}`;
+  const contactName = `Lead V2 ${suffix}`;
+
+  const apiLogin = await request.post(`${e2eApiBase}/auth/login`, {
+    data: { email: E2E_EMAIL, password: E2E_PASSWORD },
+  });
+  expect(apiLogin.ok()).toBeTruthy();
+  const token = (await apiLogin.json()).accessToken as string;
+  const headers = { Authorization: `Bearer ${token}` };
+  const usersResponse = await request.get(`${e2eApiBase}/users`, { headers });
+  expect(usersResponse.ok()).toBeTruthy();
+  const users = await usersResponse.json() as Array<{
+    id: string;
+    fullName: string;
+    status: string;
+    roles: Array<{ code: string }>;
+    divisions: Array<{ id: string; name: string }>;
+  }>;
+  const assignee = users.find((candidate) =>
+    candidate.status === "active" &&
+    candidate.roles.some((role) => role.code === "sales") &&
+    candidate.divisions.length > 0
+  );
+  expect(assignee, "E2E için bölüme bağlı aktif satış kullanıcısı gerekli").toBeTruthy();
+  const division = assignee!.divisions[0];
+
+  const ruleResponse = await request.post(`${e2eApiBase}/lead-assignment-rules`, {
+    headers,
+    data: {
+      name: `Playwright Lead V2 ${suffix}`,
+      priority: 0,
+      divisionId: division.id,
+      criteria: { cities: [city], productTerms: [product], sourceCodes: [] },
+      assigneeUserIds: [assignee!.id],
+    },
+  });
+  expect(ruleResponse.status()).toBe(201);
+  const ruleId = (await ruleResponse.json()).id as string;
+
+  try {
+    await page.addInitScript((divisionId) => {
+      window.localStorage.setItem("haksan_active_division", divisionId);
+    }, division.id);
+    await login(page);
+    await navigateTo(page, "Leadler");
+
+    await page.getByRole("button", { name: "Hızlı Lead", exact: true }).click();
+    await page.getByLabel("Kontak ismi *").fill(contactName);
+    await page.locator("#lead-phone").fill("05325550123");
+    await page.locator("#lead-city").fill(city);
+    await page.getByLabel("İstenen ürün *").fill(product);
+    await page.getByLabel("İlk takip aksiyonu").fill("Teknik keşif görüşmesini gerçekleştir");
+    await page.getByLabel("Takip zamanı").fill("2030-02-01T10:30");
+    await page.getByRole("button", { name: "Lead Kartı Oluştur" }).click();
+
+    const search = page.getByPlaceholder("Firma, kontak, telefon veya ürün ara...");
+    await search.fill(contactName);
+    const row = page.getByRole("row").filter({ hasText: contactName });
+    await expect(row).toBeVisible();
+    await expect(row).toContainText(assignee!.fullName);
+    await row.click();
+
+    const recordDialog = page.getByRole("dialog", { name: new RegExp(product) });
+    await expect(recordDialog).toBeVisible();
+    await recordDialog.getByRole("button", { name: "Tam çalışma alanını aç" }).click();
+    await expect(recordDialog.getByText("Lead çalışma alanı", { exact: true })).toBeVisible();
+    await expect(recordDialog.getByRole("tab", { name: "Özet", exact: true })).toHaveAttribute("data-state", "active");
+    await expect(recordDialog.getByRole("tab", { name: "Temas", exact: true })).toBeVisible();
+    await expect(recordDialog.getByRole("tab", { name: "Nitelendirme", exact: true })).toBeVisible();
+    await expect(recordDialog.getByRole("tab", { name: "Aktivite", exact: true })).toHaveCount(0);
+
+    await recordDialog.getByRole("tab", { name: "Temas", exact: true }).click();
+    await recordDialog.getByRole("button", { name: "Temas sonucunu kaydet", exact: true }).click();
+    const contactDialog = page.getByRole("dialog", { name: "Temas sonucunu kaydet" });
+    await contactDialog.getByLabel("Kısa not").fill("Karar verici teknik demo ve fiyat çalışması istedi.");
+    await contactDialog.getByLabel("Sonraki aksiyon").fill("Demo takvimini ve teknik föyü gönder");
+    await contactDialog.getByLabel("Takip zamanı").fill("2030-02-02T10:30");
+    await contactDialog.getByRole("button", { name: "Sonucu kaydet" }).click();
+    await expect(contactDialog).toBeHidden();
+
+    await recordDialog.getByRole("tab", { name: "Nitelendirme", exact: true }).click();
+    await recordDialog.getByLabel("İhtiyaç özeti").fill("Yeni kapasite yatırımı için otomasyonlu işleme merkezi gerekiyor.");
+    await recordDialog.getByRole("combobox", { name: "Karar verici" }).click();
+    await page.getByRole("option", { name: "Karar verici", exact: true }).click();
+    await recordDialog.getByRole("combobox", { name: "Bütçe" }).click();
+    await page.getByRole("option", { name: "Bütçe yok", exact: true }).click();
+    await recordDialog.getByRole("combobox", { name: "Satın alma zamanı" }).click();
+    await page.getByRole("option", { name: "0–3 ay", exact: true }).click();
+    await recordDialog.getByRole("combobox", { name: "Teknik uyum" }).click();
+    await page.getByRole("option", { name: "İnceleme gerekli", exact: true }).click();
+    await recordDialog.getByLabel("Teknik not").fill("Demo parçası ile çevrim süresi doğrulanacak.");
+    await recordDialog.getByRole("button", { name: "Nitelendirmeyi kaydet" }).click();
+
+    await recordDialog.getByRole("button", { name: "Fırsata dönüştür", exact: true }).click();
+    const overrideDialog = page.getByRole("dialog", { name: "Gerekçeli dönüşüm" });
+    await expect(overrideDialog).toBeVisible();
+    await overrideDialog.getByLabel("Dönüşüm gerekçesi").fill("Bütçe yatırım komitesinde; demo sonucu teklif sürecini başlatmak için yeterli.");
+    await overrideDialog.getByRole("button", { name: "Gerekçeyle dönüştür" }).click();
+    await expect(overrideDialog).toBeHidden();
+
+    await expect(recordDialog.getByText("Ortak fırsat görünümü", { exact: true })).toBeVisible();
+    await expect(recordDialog.getByRole("tab", { name: "Aktivite", exact: true })).toBeVisible();
+    await expect(recordDialog.getByRole("tab", { name: "Ticari", exact: true })).toBeVisible();
+    await expect(recordDialog.getByRole("tab", { name: "Operasyon", exact: true })).toBeVisible();
+    await expect(recordDialog.getByRole("tab", { name: "Temas", exact: true })).toHaveCount(0);
+
+    await page.setViewportSize({ width: 768, height: 1024 });
+    const tabletBounds = await recordDialog.boundingBox();
+    expect(tabletBounds?.x).toBeGreaterThanOrEqual(-0.5);
+    expect(tabletBounds?.width).toBeLessThanOrEqual(768.5);
+
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await page.setViewportSize({ width: 390, height: 844 });
+    const mobileBounds = await recordDialog.boundingBox();
+    expect(mobileBounds?.x).toBeGreaterThanOrEqual(-0.5);
+    expect(mobileBounds?.width).toBeLessThanOrEqual(390.5);
+    const overflow = await recordDialog.evaluate((element) => ({
+      clientWidth: element.clientWidth,
+      scrollWidth: element.scrollWidth,
+    }));
+    expect(overflow.scrollWidth).toBeLessThanOrEqual(overflow.clientWidth + 1);
+    const mobileAction = recordDialog.getByRole("button", { name: "Aksiyon planla" }).last();
+    await expect(mobileAction).toBeVisible();
+    const mobileActionBounds = await mobileAction.boundingBox();
+    expect(mobileActionBounds?.height).toBeGreaterThanOrEqual(44);
+    expect((mobileActionBounds?.y ?? 0) + (mobileActionBounds?.height ?? 0)).toBeLessThanOrEqual(844);
+    await mobileAction.focus();
+    await expect(mobileAction).toBeFocused();
+    const transitionDuration = await recordDialog
+      .getByRole("tab", { name: "Ticari", exact: true })
+      .evaluate((element) => getComputedStyle(element).transitionDuration);
+    expect(Number.parseFloat(transitionDuration)).toBeLessThanOrEqual(0.001);
+  } finally {
+    await request.delete(`${e2eApiBase}/lead-assignment-rules/${ruleId}`, { headers });
+  }
 });

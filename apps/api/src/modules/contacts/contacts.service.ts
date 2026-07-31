@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { and, desc, eq, ilike, inArray, isNull, or, sql } from 'drizzle-orm';
+import { and, desc, eq, ilike, inArray, isNull, ne, or, sql } from 'drizzle-orm';
 import type { DbClient } from '../../db/client';
 import { companyDivisions, contactCompanies, contacts, companies } from '../../db/schema/companies';
 import { decisionRoles } from '../../db/schema/lookup';
@@ -69,7 +69,17 @@ export class ContactsService {
       )`);
     }
     if (query.search) {
-      filters.push(ilike(contacts.fullName, `%${query.search}%`));
+      filters.push(or(
+        ilike(contacts.fullName, `%${query.search}%`),
+        ilike(contacts.externalContactNo, `%${query.search}%`),
+        sql`exists (
+          select 1 from companies search_company
+          where search_company.id = ${contacts.companyId}
+            and search_company.tenant_id = ${actor.tenantId}
+            and search_company.deleted_at is null
+            and search_company.external_company_no ilike ${`%${query.search}%`}
+        )`,
+      )!);
     }
     const where = and(...filters);
     const [{ count }] = await this.db
@@ -79,7 +89,7 @@ export class ContactsService {
     const rows = await this.db
       .select({
         contact: contacts,
-        company: { id: companies.id, legalTitle: companies.legalTitle, shortName: companies.shortName },
+        company: { id: companies.id, legalTitle: companies.legalTitle, shortName: companies.shortName, externalCompanyNo: companies.externalCompanyNo },
         decisionRole: { code: decisionRoles.code, name: decisionRoles.name },
         createdByUser: { id: users.id, fullName: users.fullName, email: users.email },
       })
@@ -88,7 +98,7 @@ export class ContactsService {
       .leftJoin(decisionRoles, eq(contacts.decisionRoleId, decisionRoles.id))
       .leftJoin(users, and(eq(contacts.createdBy, users.id), eq(users.tenantId, actor.tenantId)))
       .where(where)
-      .orderBy(desc(contacts.createdAt))
+      .orderBy(desc(contacts.createdAt), desc(contacts.id))
       .limit(limit)
       .offset(offset);
     if (rows.length === 0) return buildPaginated([], count, page);
@@ -99,6 +109,7 @@ export class ContactsService {
         id: companies.id,
         legalTitle: companies.legalTitle,
         shortName: companies.shortName,
+        externalCompanyNo: companies.externalCompanyNo,
         isPrimary: contactCompanies.isPrimary,
       })
       .from(contactCompanies)
@@ -114,10 +125,10 @@ export class ContactsService {
         )
       )
       .orderBy(desc(contactCompanies.isPrimary));
-    const linksByContact = new Map<string, Array<{ id: string; legalTitle: string; shortName: string | null; isPrimary: boolean }>>();
+    const linksByContact = new Map<string, Array<{ id: string; legalTitle: string; shortName: string | null; externalCompanyNo: string | null; isPrimary: boolean }>>();
     for (const link of linkRows) {
       const links = linksByContact.get(link.contactId) ?? [];
-      links.push({ id: link.id, legalTitle: link.legalTitle, shortName: link.shortName, isPrimary: link.isPrimary });
+      links.push({ id: link.id, legalTitle: link.legalTitle, shortName: link.shortName, externalCompanyNo: link.externalCompanyNo, isPrimary: link.isPrimary });
       linksByContact.set(link.contactId, links);
     }
     return buildPaginated(
@@ -130,7 +141,12 @@ export class ContactsService {
           // burada döndürülmez. Görünen bağlardan biri güvenli temsilci olur.
           companyId: primaryCompany?.id ?? null,
           company: primaryCompany
-            ? { id: primaryCompany.id, legalTitle: primaryCompany.legalTitle, shortName: primaryCompany.shortName }
+            ? {
+                id: primaryCompany.id,
+                legalTitle: primaryCompany.legalTitle,
+                shortName: primaryCompany.shortName,
+                externalCompanyNo: primaryCompany.externalCompanyNo,
+              }
             : null,
           decisionRole: r.decisionRole,
           createdByUser: r.createdByUser?.id ? r.createdByUser : null,
@@ -178,6 +194,7 @@ export class ContactsService {
         id: companies.id,
         legalTitle: companies.legalTitle,
         shortName: companies.shortName,
+        externalCompanyNo: companies.externalCompanyNo,
         isPrimary: contactCompanies.isPrimary,
       })
       .from(contactCompanies)
@@ -290,6 +307,7 @@ export class ContactsService {
       .values({
         tenantId: actor.tenantId,
         companyId: input.companyId,
+        externalContactNo: input.externalContactNo ?? null,
         fullName: normalizePersonName(input.fullName),
         title: input.title ?? null,
         department: input.department ?? null,
@@ -338,6 +356,17 @@ export class ContactsService {
   async update(id: string, input: ContactUpdateInput, actor: AuthContext) {
     const existing = await this.get(id, actor);
     await this.assertAllContactCompaniesVisible(id, actor);
+    if (input.externalContactNo && input.externalContactNo !== existing.externalContactNo) {
+      const duplicate = await this.db.query.contacts.findFirst({
+        where: and(
+          eq(contacts.tenantId, actor.tenantId),
+          eq(contacts.externalContactNo, input.externalContactNo),
+          isNull(contacts.deletedAt),
+          ne(contacts.id, id)
+        ),
+      });
+      if (duplicate) throw new ConflictError('Bu kontak numarası ile bir kontak zaten kayıtlı');
+    }
     const patch: Record<string, unknown> = { updatedBy: actor.userId };
     if (input.companyId !== undefined) await this.assertCompany(input.companyId, actor);
     if (input.decisionRoleCode !== undefined) {
@@ -345,6 +374,7 @@ export class ContactsService {
     }
     for (const k of [
       'fullName',
+      'externalContactNo',
       'title',
       'department',
       'workPhone',
@@ -457,6 +487,7 @@ export class ContactsService {
 
   private async findDuplicate(input: ContactCreateInput, actor: AuthContext) {
     const probes = [
+      input.externalContactNo ? eq(contacts.externalContactNo, input.externalContactNo) : undefined,
       input.workEmail ? eq(contacts.workEmail, input.workEmail) : undefined,
       input.personalEmail ? eq(contacts.personalEmail, input.personalEmail) : undefined,
       input.otherEmail ? eq(contacts.otherEmail, input.otherEmail) : undefined,

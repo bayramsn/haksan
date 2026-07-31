@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { and, asc, desc, eq, gt, inArray, isNull, lt, ne, or, sql, type SQL } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, ilike, inArray, isNull, lt, ne, or, sql, type SQL } from 'drizzle-orm';
 import type { DbClient } from '../../db/client';
 import { conversations, conversationMembers, chatMessages, chatMessageReactions } from '../../db/schema/chat';
 import { users } from '../../db/schema/users';
@@ -40,6 +40,9 @@ interface RawMessageRow {
   replyToId: string | null;
   refType: string | null;
   refId: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  locationLabel: string | null;
 }
 
 export interface RefCardDto {
@@ -196,6 +199,8 @@ export class ChatService {
         conversationId: chatMessages.conversationId,
         id: chatMessages.id,
         body: chatMessages.body,
+        latitude: chatMessages.latitude,
+        longitude: chatMessages.longitude,
         senderId: chatMessages.senderId,
         createdAt: chatMessages.createdAt,
         rn: sql<number>`row_number() over (partition by ${chatMessages.conversationId} order by ${chatMessages.createdAt} desc, ${chatMessages.id} desc)`.as('rn'),
@@ -204,7 +209,14 @@ export class ChatService {
       .where(and(inArray(chatMessages.conversationId, convIds), isNull(chatMessages.deletedAt)))
       .as('ranked');
     const lastRows = await this.db
-      .select({ conversationId: ranked.conversationId, body: ranked.body, senderId: ranked.senderId, createdAt: ranked.createdAt })
+      .select({
+        conversationId: ranked.conversationId,
+        body: ranked.body,
+        latitude: ranked.latitude,
+        longitude: ranked.longitude,
+        senderId: ranked.senderId,
+        createdAt: ranked.createdAt,
+      })
       .from(ranked)
       .where(eq(ranked.rn, 1));
     const lastByConv = new Map(lastRows.map((r) => [r.conversationId, r]));
@@ -221,7 +233,11 @@ export class ChatService {
         members: membersByConv.get(m.conv.id) ?? [],
         unreadCount: unreadByConv.get(m.conv.id) ?? 0,
         lastMessage: last
-          ? { preview: last.body ?? '📎 Ek dosya', senderId: last.senderId, createdAt: last.createdAt }
+          ? {
+              preview: last.body ?? (last.latitude != null && last.longitude != null ? '📍 Konum' : '📎 Ek dosya'),
+              senderId: last.senderId,
+              createdAt: last.createdAt,
+            }
           : null,
         lastActivityAt: last?.createdAt ?? m.conv.createdAt,
       };
@@ -397,6 +413,10 @@ export class ChatService {
       const beforeDate = new Date(query.before);
       if (!Number.isNaN(beforeDate.getTime())) filters.push(lt(chatMessages.createdAt, beforeDate));
     }
+    if (query.search) {
+      const literalSearch = query.search.replace(/[\\%_]/g, '\\$&');
+      filters.push(ilike(chatMessages.body, `%${literalSearch}%`));
+    }
     const rows = await this.loadRawMessages(and(...filters), query.limit);
     const hasMore = rows.length === query.limit;
     rows.reverse(); // en eski → en yeni (ekranda akış sırası)
@@ -515,6 +535,9 @@ export class ChatService {
           replyToId: input.replyToId ?? null,
           refType: input.refType ?? null,
           refId: input.refId ?? null,
+          latitude: input.location?.latitude ?? null,
+          longitude: input.location?.longitude ?? null,
+          locationLabel: input.location?.label ?? null,
       })
       .returning({ id: chatMessages.id });
       if (fileIds.length) {
@@ -632,6 +655,9 @@ export class ChatService {
         replyToId: chatMessages.replyToId,
         refType: chatMessages.refType,
         refId: chatMessages.refId,
+        latitude: chatMessages.latitude,
+        longitude: chatMessages.longitude,
+        locationLabel: chatMessages.locationLabel,
       })
       .from(chatMessages)
       .innerJoin(users, eq(chatMessages.senderId, users.id))
@@ -656,6 +682,10 @@ export class ChatService {
       createdAt: r.createdAt,
       editedAt: r.editedAt,
       kind: r.kind,
+      location:
+        r.latitude != null && r.longitude != null
+          ? { latitude: r.latitude, longitude: r.longitude, label: r.locationLabel }
+          : null,
       attachments: attachments.get(r.id) ?? [],
       reactions: reactions.get(r.id) ?? [],
       replyTo: replies.get(r.id) ?? null,

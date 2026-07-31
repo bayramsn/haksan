@@ -316,12 +316,21 @@ export interface QuoteMachinePrintData {
   lineGroupKey?: string;
   urun: string;
   marka?: string;
+  brandLogoUrl?: string;
   model?: string;
   tip?: string;
   imageUrl?: string;
   specs?: QuoteTechnicalSpec[];
   standartDonanim?: string[];
   opsiyonelDonanim?: string[];
+}
+
+export type QuoteHeaderLogoMode = "haksan" | "company" | "none";
+
+export interface QuoteHeaderLogo {
+  mode: QuoteHeaderLogoMode;
+  imageUrl?: string;
+  alt?: string;
 }
 
 export interface QuotePrintData {
@@ -340,6 +349,7 @@ export interface QuotePrintData {
   projeIlgilisiTelefon?: string;
   projeIlgilisiEmail?: string;
   marka?: string;
+  brandLogoUrl?: string;
   model?: string;
   tip?: string;
   imageUrl?: string;
@@ -347,6 +357,7 @@ export interface QuotePrintData {
   standartDonanim?: string[];
   opsiyonelDonanim?: string[];
   machines?: QuoteMachinePrintData[];
+  headerLogo?: QuoteHeaderLogo;
   items: QuoteItem[];
   iskonto?: number;
   kdvOran: number;
@@ -370,6 +381,7 @@ table.q-meta td.val { text-align: center; font-style: italic; font-weight: bold;
 .q-machine-index { margin-top: 1mm; font-size: 9pt; font-weight: bold; letter-spacing: .35px; }
 .q-machine-ref { margin: -4mm 0 4mm; text-align: center; font-size: 9pt; font-weight: bold; font-style: italic; }
 .q-brand { font-size: 30pt; font-weight: 900; letter-spacing: 1px; }
+.q-brand-logo { display: block; width: 67mm; height: auto; margin: 0 auto; object-fit: contain; }
 .q-model { font-size: 24pt; font-weight: bold; margin-top: 3mm; }
 .q-type { font-size: 16pt; margin-top: 1mm; }
 .q-photo { max-width: 150mm; max-height: 130mm; margin-top: 6mm; }
@@ -445,13 +457,25 @@ table.q-tot tr.kdv td { font-weight: normal; }
 .q-signature { display: block; height: 14mm; max-width: 35mm; object-fit: contain; object-position: left bottom; margin-bottom: -1.5mm; }
 .q-price-page .q-h1 { margin-bottom: 3mm; }
 .q-price-page .pageno { padding-top: 1.5mm; }
+.q-company-letterhead {
+  height: 31.4mm;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-bottom: .6pt solid #d7dce2;
+  padding: 2.5mm 8mm 3mm;
+}
+.q-company-letterhead img {
+  display: block;
+  max-width: 92mm;
+  max-height: 24mm;
+  object-fit: contain;
+}
+.q-empty-letterhead { height: 11mm; }
 `;
 
 export function quoteDoc(d: QuotePrintData, assetBase: string): PrintDocument {
   const pages: string[] = [];
-  // Chromium bazı sürümlerde tekrarlanan büyük PNG'yi PDF'e gömerken siyah
-  // raster üretebildiği için satış teklifinde baskıya özel JPEG antet kullanılır.
-  const quoteHeader = () => `<img class="letterhead" src="${assetBase}/haksan-letterhead.jpg" alt="HAKSAN MAKİNA">`;
   const safeImageUrl = (value?: string) => {
     const imageUrl = value?.trim();
     return imageUrl && (
@@ -460,11 +484,35 @@ export function quoteDoc(d: QuotePrintData, assetBase: string): PrintDocument {
       || /^data:image\/(?:png|jpeg|webp|gif);base64,/i.test(imageUrl)
     ) ? esc(imageUrl) : "";
   };
+  // Chromium bazı sürümlerde tekrarlanan büyük PNG'yi PDF'e gömerken siyah
+  // raster üretebildiği için satış teklifinde baskıya özel JPEG antet kullanılır.
+  const quoteHeader = () => {
+    const selection = d.headerLogo;
+    if (selection?.mode === "none") return `<div class="q-empty-letterhead" aria-hidden="true"></div>`;
+    if (selection?.mode === "company") {
+      const companyLogoUrl = safeImageUrl(selection.imageUrl);
+      if (companyLogoUrl) {
+        return `<div class="q-company-letterhead"><img src="${companyLogoUrl}" alt="${esc(selection.alt || d.firma || "Firma logosu")}"></div>`;
+      }
+    }
+    return `<img class="letterhead" src="${assetBase}/haksan-letterhead.jpg" alt="HAKSAN MAKİNA">`;
+  };
+  const machineBrand = (brand?: string, brandLogoUrl?: string) => {
+    if (!brand) return "";
+    const customLogoUrl = safeImageUrl(brandLogoUrl);
+    if (customLogoUrl) {
+      return `<img class="q-brand-logo" src="${customLogoUrl}" alt="${esc(brand)}">`;
+    }
+    return brand.trim().toLocaleUpperCase("tr-TR") === "HAXAN"
+      ? `<img class="q-brand-logo" src="${assetBase}/haxan-product-logo.webp" alt="HAXAN">`
+      : `<div class="q-brand">${esc(brand)}</div>`;
+  };
   const machines: QuoteMachinePrintData[] = d.machines?.length
     ? d.machines
     : [{
         urun: [d.marka, d.model, d.tip].filter(Boolean).join(" "),
         marka: d.marka,
+        brandLogoUrl: d.brandLogoUrl,
         model: d.model,
         tip: d.tip,
         imageUrl: d.imageUrl,
@@ -571,7 +619,7 @@ export function quoteDoc(d: QuotePrintData, assetBase: string): PrintDocument {
   <div class="q-title">FİYAT TEKLİFİ${machines.length > 1 ? `<div class="q-machine-index">MAKİNE ${machineIndex + 1} / ${machines.length}</div>` : ""}</div>
   ${machineIndex === 0 ? customerMetaBlock : ""}
   <div class="q-machine">
-    ${machine.marka ? `<div class="q-brand">${esc(machine.marka)}</div>` : ""}
+    ${machineBrand(machine.marka, machine.brandLogoUrl)}
     ${machine.model ? `<div class="q-model">${esc(machine.model)}</div>` : ""}
     ${machine.tip ? `<div class="q-type">${esc(machine.tip)}</div>` : ""}
     ${machineImageUrl ? `<img class="q-photo" src="${machineImageUrl}" alt="${esc(machineLabel)}">` : `<div class="q-photo-placeholder"></div>`}

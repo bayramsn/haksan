@@ -29,6 +29,7 @@ const PERMISSION_RESOURCE_LABELS: Record<PermissionResource, string> = {
   companies: "Firmalar / Cari Kart",
   contacts: "Kontaklar",
   leads: "Lead",
+  lead_assignment_rules: "Lead Atama Kuralları",
   opportunities: "Satış Kartları",
   activities: "Aktiviteler",
   calendar: "Takvim",

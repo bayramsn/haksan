@@ -43,6 +43,7 @@ export const companyAddressSchema = z.object({
 export type CompanyAddressInput = z.infer<typeof companyAddressSchema>;
 
 export const companyCreateSchema = z.object({
+  externalCompanyNo: optionalText(32),
   companyType: companyTypeEnum.default('company'),
   relationTypeCode: z.enum(['customer', 'supplier', 'supplier_customer', 'competitor']).default('customer'),
   customerStatusCode: z.enum(['potential', 'active', 'passive', 'blacklist']).default('potential'),
@@ -84,6 +85,8 @@ export const companyCreateSchema = z.object({
 export type CompanyCreateInput = z.infer<typeof companyCreateSchema>;
 
 export const companyUpdateSchema = companyCreateSchema.partial().extend({
+  logoFileId: z.string().uuid().nullable().optional(),
+  externalCompanyNo: z.string().trim().max(32).nullable().optional(),
   companyGroupCode: z.string().trim().max(64).nullable().optional(),
   contactSourceCode: z.string().trim().max(64).nullable().optional(),
   sector: z.string().trim().max(128).nullable().optional(),
@@ -172,6 +175,60 @@ export const companyWebsiteLookupResultSchema = z.object({
   warnings: z.array(z.string().max(500)).max(8),
 });
 export type CompanyWebsiteLookupResult = z.infer<typeof companyWebsiteLookupResultSchema>;
+
+const companyContactImportFileSchema = z.object({
+  fileName: z.string().trim().min(1).max(255).refine((value) => value.toLocaleLowerCase('tr-TR').endsWith('.xlsx'), {
+    message: 'Yalnızca XLSX dosyası yüklenebilir.',
+  }),
+  mimeType: z.string().trim().max(128).optional(),
+  fileBase64: z.string().min(4).max(15_000_000),
+});
+
+export const companyContactImportPreviewSchema = z.object({
+  companiesFile: companyContactImportFileSchema,
+  contactsFile: companyContactImportFileSchema,
+  divisionId: z.string().uuid().nullable().optional(),
+});
+export type CompanyContactImportPreviewInput = z.infer<typeof companyContactImportPreviewSchema>;
+
+export const companyContactImportCommitSchema = companyContactImportPreviewSchema.extend({
+  confirmed: z.literal(true),
+});
+export type CompanyContactImportCommitInput = z.infer<typeof companyContactImportCommitSchema>;
+
+export type CompanyContactImportIssue = {
+  kind: 'company' | 'contact';
+  rowNumber: number;
+  sourceNo?: string;
+  companyNo?: string;
+  severity: 'warning' | 'error';
+  message: string;
+};
+
+export type CompanyContactImportPreview = {
+  files: { companies: string; contacts: string };
+  summary: {
+    companyRows: number;
+    companyCreates: number;
+    companyUpdates: number;
+    companySkipped: number;
+    contactRows: number;
+    contactCreates: number;
+    contactUpdates: number;
+    contactSkipped: number;
+    warnings: number;
+    errors: number;
+  };
+  issues: CompanyContactImportIssue[];
+};
+
+export type CompanyContactImportCommitResult = {
+  ok: true;
+  companies: { created: number; updated: number; skipped: number };
+  contacts: { created: number; updated: number; skipped: number };
+  warnings: number;
+  errors: number;
+};
 
 export const companyLocationSchema = z.object({
   latitude: z.coerce.number().min(-90).max(90).nullable(),

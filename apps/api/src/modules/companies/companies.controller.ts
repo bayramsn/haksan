@@ -5,6 +5,8 @@ import {
   companyAccessRequestDecisionSchema,
   companyAccessRequestSchema,
   companyCreateSchema,
+  companyContactImportCommitSchema,
+  companyContactImportPreviewSchema,
   companyLocationSchema,
   companyOsmSearchQuerySchema,
   companyWebsiteLookupSchema,
@@ -15,6 +17,8 @@ import {
   type CompanyAccessRequestDecisionInput,
   type CompanyAccessRequestInput,
   type CompanyCreateInput,
+  type CompanyContactImportCommitInput,
+  type CompanyContactImportPreviewInput,
   type CompanyLocationInput,
   type CompanyOsmSearchQuery,
   type CompanyWebsiteLookupInput,
@@ -28,11 +32,15 @@ import { PermissionsGuard, RequirePermissions } from '../../shared/security/perm
 import { CurrentUser } from '../../shared/security/current-user.decorator';
 import type { AuthContext } from '../../shared/security/auth.types';
 import { CompaniesService } from './companies.service';
+import { CompanyContactImportService } from './company-contact-import.service';
 
 @UseGuards(AuthGuard, PermissionsGuard)
 @Controller('companies')
 export class CompaniesController {
-  constructor(private readonly svc: CompaniesService) {}
+  constructor(
+    private readonly svc: CompaniesService,
+    private readonly companyContactImport: CompanyContactImportService,
+  ) {}
 
   @RequirePermissions('companies.read')
   @Get()
@@ -63,6 +71,26 @@ export class CompaniesController {
     @CurrentUser() user: AuthContext
   ) {
     return this.svc.lookupCompanyWebsite(body, user);
+  }
+
+  @RequirePermissions('companies.create', 'companies.update', 'contacts.create', 'contacts.update')
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  @Post('imports/company-contacts/preview')
+  previewCompanyContactImport(
+    @Body(new ZodValidationPipe(companyContactImportPreviewSchema)) body: CompanyContactImportPreviewInput,
+    @CurrentUser() user: AuthContext,
+  ) {
+    return this.companyContactImport.preview(body, user);
+  }
+
+  @RequirePermissions('companies.create', 'companies.update', 'contacts.create', 'contacts.update')
+  @Throttle({ default: { limit: 2, ttl: 60_000 } })
+  @Post('imports/company-contacts/commit')
+  commitCompanyContactImport(
+    @Body(new ZodValidationPipe(companyContactImportCommitSchema)) body: CompanyContactImportCommitInput,
+    @CurrentUser() user: AuthContext,
+  ) {
+    return this.companyContactImport.commit(body, user);
   }
 
   @RequirePermissions('companies.read')

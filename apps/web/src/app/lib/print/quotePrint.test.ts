@@ -42,6 +42,32 @@ const build = (quote: Record<string, unknown>) => buildQuotePrintData({
 }, quote as never);
 
 describe("quote print address", () => {
+  it("carries the selected company logo into the PDF data", () => {
+    const result = buildQuotePrintData({
+      offer,
+      customer: {
+        ...customer,
+        logoUrl: "/api/v1/companies/media/logo-file-1",
+      },
+      salesCase: null,
+      users: [],
+      contacts: [],
+      products: [],
+      headerLogoMode: "company",
+    }, {
+      quoteDate: "2026-07-16",
+      documentNo: "CNC-2026/001",
+      items: [],
+      terms: {},
+    } as never);
+
+    expect(result.headerLogo).toEqual({
+      mode: "company",
+      imageUrl: "/api/v1/companies/media/logo-file-1",
+      alt: "Örnek Firma logosu",
+    });
+  });
+
   it("writes the address selected on the quote", () => {
     const result = build({
       companyAddressId: "selected-address",
@@ -71,12 +97,16 @@ describe("quote print address", () => {
     expect(result.adres).toBe("Belgeye Sabitlenen Adres Ankara");
   });
 
-  it("uses the catalog product name and carries its photo to the offer", () => {
+  it("uses the catalog name and removes an internal stock code from the machine heading", () => {
     const product = {
       id: "product-1",
-      brand: "HAKSAN",
-      model: "VM-2",
-      shortDescription: "HAKSAN VM-2 CNC Dik İşleme Merkezi",
+      brand: "HAXAN",
+      brandLogoUrl: "/api/v1/brands/media/brand-logo-1",
+      model: "HAXAN.MMT-1170.15K.DDS.M.30T",
+      modelName: "MMT-1170 CNC Dik İşleme Merkezi",
+      type: "CNC Dik İşleme Merkezi",
+      stockCode: "HAXAN.MMT-1170.15K.DDS.M.30T",
+      shortDescription: "HAXAN MMT-1170 CNC Dik İşleme Merkezi",
       imageUrl: "/api/v1/products/media/photo-1",
     } as Product;
     const result = buildQuotePrintData({
@@ -93,8 +123,8 @@ describe("quote print address", () => {
       validityDays: 15,
       items: [{
         productModelId: product.id,
-        stockCode: "VM2-STOK-KODU",
-        description: "VM2-STOK-KODU",
+        stockCode: "HAXAN.MMT-1170.15K.DDS.M.30T",
+        description: "HAXAN.MMT-1170.15K.DDS.M.30T",
         quantity: 1,
         unitPrice: 10_000,
         discountAmount: 0,
@@ -103,9 +133,13 @@ describe("quote print address", () => {
       terms: {},
     } as never);
 
-    expect(result.items[0].urun).toBe("HAKSAN VM-2 CNC Dik İşleme Merkezi");
-    expect(result.items[0].urun).not.toContain("STOK-KODU");
+    expect(result.items[0].urun).toBe("HAXAN MMT-1170 CNC Dik İşleme Merkezi");
+    expect(result.machines?.[0].model).toBe("MMT-1170");
+    expect(result.machines?.[0].model).not.toContain("15K.DDS.M.30T");
     expect(result.imageUrl).toBe("/api/v1/products/media/photo-1");
+    expect(result.brandLogoUrl).toBe("/api/v1/brands/media/brand-logo-1");
+    expect(result.machines?.[0].brandLogoUrl).toBe("/api/v1/brands/media/brand-logo-1");
+    expect(JSON.stringify(result)).not.toContain("HAXAN.MMT-1170.15K.DDS.M.30T");
   });
 
   it("keeps every selected machine, its own specs, options and line discount", () => {

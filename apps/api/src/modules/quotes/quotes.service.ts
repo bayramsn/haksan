@@ -105,6 +105,23 @@ const PDF_BOLD_FONT_CANDIDATES = [
 ];
 
 const firstExistingPath = (paths: string[]) => paths.find((p) => existsSync(p));
+const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const publicProductLabel = (
+  catalogName: string | null | undefined,
+  description: string | null | undefined,
+  stockCode: string | null | undefined,
+) => {
+  let label = String(catalogName ?? '').trim() || String(description ?? '').trim();
+  const code = String(stockCode ?? '').trim();
+  if (code) {
+    label = label
+      .replace(new RegExp(escapeRegExp(code), 'giu'), ' ')
+      .replace(/^[\s./|:;,_–—-]+|[\s./|:;,_–—-]+$/g, '')
+      .replace(/\s{2,}/g, ' ')
+      .trim();
+  }
+  return label || 'Ürün';
+};
 
 @Injectable()
 export class QuotesService {
@@ -1063,9 +1080,12 @@ export class QuotesService {
     const lineHeight = 10.5;
     for (let i = 0; i < items.length; i++) {
       const it = items[i];
-      const productName = (it as typeof it & { product?: { fullName?: string | null } | null }).product?.fullName
-        ?? (it.productModelId ? itemProductNames.get(it.productModelId) : undefined)
-        ?? it.description;
+      const productName = publicProductLabel(
+        (it as typeof it & { product?: { fullName?: string | null } | null }).product?.fullName
+          ?? (it.productModelId ? itemProductNames.get(it.productModelId) : undefined),
+        it.description,
+        it.stockCode,
+      );
       const description = String(it.description ?? '').trim() === String(productName ?? '').trim()
         ? ''
         : it.description;

@@ -26,6 +26,8 @@ import { up as dedupeProductGroupLookups } from './017_dedupe_product_group_look
 import { up as linkProductTaxonomy } from './018_link_product_taxonomy';
 import { up as uppercaseCompanyContactNames } from './019_uppercase_company_contact_names';
 import { up as backfillTrelloCompanyResolution } from './020_backfill_trello_company_resolution';
+import { up as createHaxanMmt1170 } from './021_create_haxan_mmt_1170';
+import { up as normalizeHaxanMmt1170 } from './022_normalize_haxan_mmt_1170';
 
 export interface DataMigration {
   id: string;
@@ -53,4 +55,6 @@ export const dataMigrations: DataMigration[] = [
   { id: '018_link_product_taxonomy', up: linkProductTaxonomy },
   { id: '019_uppercase_company_contact_names', up: uppercaseCompanyContactNames },
   { id: '020_backfill_trello_company_resolution', up: backfillTrelloCompanyResolution },
+  { id: '021_create_haxan_mmt_1170', up: createHaxanMmt1170 },
+  { id: '022_normalize_haxan_mmt_1170', up: normalizeHaxanMmt1170 },
 ];

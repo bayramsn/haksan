@@ -40,6 +40,7 @@ const DOC_ICONS: Record<string, React.ReactNode> = {
   Contract: <FileSignature className="size-4" />,
   CommercialInvoice: <Receipt className="size-4" />,
   AccountingInvoice: <Receipt className="size-4" />,
+  ExternalQuote: <FileText className="size-4" />,
   DeliveryForm: <ClipboardCheck className="size-4" />,
   InstallationForm: <Wrench className="size-4" />,
   Other: <FileText className="size-4" />,
@@ -50,13 +51,14 @@ const DOC_TYPE_LABELS: Record<DocumentItem["type"], string> = {
   Contract: "Sözleşme",
   CommercialInvoice: "Ticari fatura",
   AccountingInvoice: "Muhasebe faturası",
+  ExternalQuote: "Dış teklif",
   DeliveryForm: "Teslim formu",
   InstallationForm: "Kurulum formu",
   Other: "Diğer",
 };
 
 const DOC_GROUPS: Array<{ title: string; description: string; types: DocumentItem["type"][] }> = [
-  { title: "Ticari Belgeler", description: "Satış ve finans kayıtları", types: ["Proforma", "Contract", "CommercialInvoice", "AccountingInvoice"] },
+  { title: "Ticari Belgeler", description: "Satış ve finans kayıtları", types: ["Proforma", "Contract", "CommercialInvoice", "AccountingInvoice", "ExternalQuote"] },
   { title: "Saha Formları", description: "Teslim ve kurulum kanıtları", types: ["DeliveryForm", "InstallationForm"] },
   { title: "Diğer Dosyalar", description: "Genel ekler ve arşiv", types: ["Other"] },
 ];

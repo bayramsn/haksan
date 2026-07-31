@@ -1,4 +1,4 @@
-import { pgTable, uuid, varchar, text, boolean, timestamp, index, uniqueIndex, primaryKey, type AnyPgColumn } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, varchar, text, boolean, timestamp, index, uniqueIndex, primaryKey, doublePrecision, type AnyPgColumn } from 'drizzle-orm/pg-core';
 import { auditColumns } from './_helpers';
 import { tenants } from './tenants';
 import { users } from './users';
@@ -79,6 +79,9 @@ export const chatMessages = pgTable(
     // Mesaja iliştirilen CRM kaydı kartı (teklif/firma/servis talebi/fırsat).
     refType: varchar('ref_type', { length: 32 }),
     refId: uuid('ref_id'),
+    latitude: doublePrecision('latitude'),
+    longitude: doublePrecision('longitude'),
+    locationLabel: varchar('location_label', { length: 255 }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     editedAt: timestamp('edited_at', { withTimezone: true }),
     deletedAt: timestamp('deleted_at', { withTimezone: true }),

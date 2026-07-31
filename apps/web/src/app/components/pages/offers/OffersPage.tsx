@@ -6,6 +6,7 @@ import { Label } from "../../ui/label";
 import { Textarea } from "../../ui/textarea";
 import { Badge } from "../../ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../ui/select";
+import { RadioGroup, RadioGroupItem } from "../../ui/radio-group";
 import { Tabs, TabsList, TabsTrigger } from "../../ui/tabs";
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
@@ -20,6 +21,7 @@ import {
 } from "../../ui/dropdown-menu";
 import { StatusBadge } from "../../Layout";
 import { QuoteDialog } from "../../dialogs/QuoteDialog";
+import { DocumentUploadDialog } from "../../dialogs/DocumentUploadDialog";
 import { CreateProformaDialog } from "../../dialogs/CreateProformaDialog";
 import { CreateContractDialog } from "../../dialogs/CreateContractDialog";
 import { MiniKpi } from "../../shared/MiniKpi";
@@ -30,7 +32,7 @@ import {
 import {
   Plus, Search, CheckCircle2, TrendingUp, Mail, FileText, FileSignature, ClipboardCheck, Building2,
   Wallet, Receipt, Calendar, Printer, Download, Eye, RotateCcw, XCircle, Pencil, ChevronDown, Trash2,
-  BellRing,
+  BellRing, Image as ImageIcon, ImageOff, Upload,
 } from "lucide-react";
 import { useStore } from "../../../lib/store";
 import { useAuth } from "../../../../lib/auth";
@@ -38,13 +40,15 @@ import { buildOfferTrend } from "../../../lib/chartAggregates";
 import { useFx } from "../../../lib/fx";
 import { Customer, Offer, SalesCase, User } from "../../../lib/mock";
 import { toast } from "sonner";
-import { salesOrderService, quoteService } from "../../../../lib/services";
+import { fileService, salesOrderService, quoteService } from "../../../../lib/services";
 import { ExportExcelButton } from "../../ui/ExportExcelButton";
 import { CreateAccountingInvoiceDialog, type AccountingInvoicePrefill } from "../finance/CreateAccountingInvoiceDialog";
 import type { OperationFocus } from "../../../lib/operations";
 import { loadQuotePrintData, printAssetBase, quoteDoc } from "../../../lib/print";
+import type { QuoteHeaderLogoMode } from "../../../lib/print";
 import { downloadPrintOrWarn, previewPrintOrWarn, printOrWarn, splitVat, formatDate, formatCurrency } from "../../../lib/pageHelpers";
 import type { QuoteWorkflowStatus } from "@haksan/shared";
+import { ComposeMailDialog, type MailRecipient } from "../../mail/ComposeMailDialog";
 
 const FOLLOW_UP_OFFER_STATUSES: Offer["status"][] = ["Price Waiting", "Budget Waiting", "On Hold", "Postponed"];
 
@@ -99,8 +103,8 @@ function invoicePrefillFromOrder(order: any): AccountingInvoicePrefill {
 }
 
 export function OffersPage({ focus }: { focus?: OperationFocus }) {
-  const { offers: rawOffers, cases, customers, users, moveCase, refresh } = useStore();
-  const { hasRole, user, activeDivision, setActiveDivision } = useAuth();
+  const { offers: rawOffers, cases, customers, users, documents, moveCase, refresh } = useStore();
+  const { hasRole, hasPermission, user, activeDivision, setActiveDivision } = useAuth();
   const { convert } = useFx();
   const isSuperAdmin = hasRole("super_admin");
   const customerName = (id: string) => customers.find((c) => c.id === id)?.name ?? "—";
@@ -153,6 +157,38 @@ export function OffersPage({ focus }: { focus?: OperationFocus }) {
     return sc?.isLost ? { ...o, status: "Rejected" as const } : o;
   });
   const divisionOffers = divisionTab === "all" ? offers : offers.filter((offer) => offer.divisionId === divisionTab);
+  const externalQuotes = documents.filter((documentItem) => {
+    if (documentItem.type !== "ExternalQuote") return false;
+    const salesCase = documentItem.salesCaseId
+      ? cases.find((item) => item.id === documentItem.salesCaseId)
+      : null;
+    if (divisionTab !== "all" && salesCase && salesCase.divisionId !== divisionTab) return false;
+    if (!q) return true;
+    const company = customers.find((item) => item.id === (documentItem.companyId || salesCase?.customerId));
+    return [
+      documentItem.fileName,
+      company?.name,
+      salesCase?.requestedProduct,
+      salesCase?.requestedModel,
+    ].some((value) => (value ?? "").toLocaleLowerCase("tr-TR").includes(q.toLocaleLowerCase("tr-TR")));
+  });
+
+  const downloadExternalQuote = async (fileId: string | undefined, fileName: string) => {
+    if (!fileId) return;
+    try {
+      const signed = await fileService.signedDownload(fileId);
+      const anchor = document.createElement("a");
+      anchor.href = signed.downloadUrl;
+      anchor.download = signed.filename || fileName;
+      document.body.appendChild(anchor);
+      anchor.click();
+      document.body.removeChild(anchor);
+    } catch (error: any) {
+      toast.error("Dış teklif indirilemedi", {
+        description: error?.message ?? "Dosya bağlantısı alınamadı.",
+      });
+    }
+  };
 
   useEffect(() => {
     if (focus === "open" || focus === "pending" || focus === "expired") setTab("Sent");
@@ -381,6 +417,12 @@ export function OffersPage({ focus }: { focus?: OperationFocus }) {
               <Input placeholder="Teklif no / kaynak / ürün..." className="pl-9 h-9 bg-white" value={q} onChange={(e) => setQ(e.target.value)} />
             </div>
             <ExportExcelButton path="/exports/quotes" filename="teklifler.xlsx" params={offerExportParams} className="h-9" />
+            {hasPermission("files.create") && (
+              <DocumentUploadDialog
+                defaultType="ExternalQuote"
+                trigger={<Button size="sm" variant="outline" className="h-9 gap-1"><Upload className="size-4" /> Dış Teklif Yükle</Button>}
+              />
+            )}
             <QuoteDialog
               trigger={<Button size="sm" className="h-9 gap-1"><Plus className="size-4" /> Yeni Teklif</Button>}
             />
@@ -579,6 +621,89 @@ export function OffersPage({ focus }: { focus?: OperationFocus }) {
         </div>
       </Card>
 
+      <Card className="border-border/60 shadow-sm overflow-hidden">
+        <CardHeader className="flex flex-row items-center justify-between gap-3 pb-3">
+          <div>
+            <CardTitle className="tracking-tight">Dış Teklifler</CardTitle>
+            <p className="mt-1 text-xs text-muted-foreground">Firma veya satış kartı özelinde dışarıdan yüklenen teklif dosyaları</p>
+          </div>
+          <Badge variant="secondary" className="h-6">{externalQuotes.length} dosya</Badge>
+        </CardHeader>
+        <div className="overflow-x-auto">
+          <Table className="min-w-[760px]">
+            <TableHeader>
+              <TableRow className="bg-muted/30 hover:bg-muted/30">
+                <TableHead>Dosya</TableHead>
+                <TableHead>Firma</TableHead>
+                <TableHead>Satış Kartı</TableHead>
+                <TableHead>Bağlantı</TableHead>
+                <TableHead>Tarih</TableHead>
+                <TableHead className="w-16 text-right">İşlem</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {externalQuotes.map((documentItem) => {
+                const salesCase = documentItem.salesCaseId
+                  ? cases.find((item) => item.id === documentItem.salesCaseId)
+                  : null;
+                const company = customers.find((item) => item.id === (documentItem.companyId || salesCase?.customerId));
+                return (
+                  <TableRow key={documentItem.id}>
+                    <TableCell>
+                      <button
+                        type="button"
+                        className="flex max-w-[320px] items-center gap-2.5 text-left hover:text-primary"
+                        onClick={() => void downloadExternalQuote(documentItem.fileId, documentItem.fileName)}
+                      >
+                        <span className="grid size-8 shrink-0 place-items-center rounded-md bg-primary/10 text-primary">
+                          <FileText className="size-4" />
+                        </span>
+                        <span className="min-w-0">
+                          <span className="block truncate text-sm font-medium">{documentItem.fileName}</span>
+                          <span className="mt-0.5 block text-[11px] text-muted-foreground">{documentItem.size}</span>
+                        </span>
+                      </button>
+                    </TableCell>
+                    <TableCell className="text-sm">{company?.name ?? "Firma bağlantısı yok"}</TableCell>
+                    <TableCell className="max-w-[260px] text-sm">
+                      <div className="truncate">
+                        {salesCase
+                          ? [salesCase.requestedProduct, salesCase.requestedModel].filter(Boolean).join(" · ") || `#${salesCase.id.slice(0, 8).toUpperCase()}`
+                          : "—"}
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant="outline">{salesCase ? "Kart + firma" : "Firma"}</Badge>
+                    </TableCell>
+                    <TableCell className="text-sm tabular-nums text-muted-foreground">{documentItem.uploadedAt || "—"}</TableCell>
+                    <TableCell className="text-right">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="size-8"
+                        title="Dış teklifi indir"
+                        aria-label={`${documentItem.fileName} dosyasını indir`}
+                        onClick={() => void downloadExternalQuote(documentItem.fileId, documentItem.fileName)}
+                      >
+                        <Download className="size-4" />
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
+              {externalQuotes.length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={6} className="py-10 text-center text-sm text-muted-foreground">
+                    {q ? "Aramayla eşleşen dış teklif yok." : "Henüz dış teklif yüklenmedi."}
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </div>
+      </Card>
+
       <OfferDetailDialog
         offer={selectedOffer}
         salesCase={selectedCase}
@@ -715,6 +840,13 @@ export function OfferDetailDialog({
   const { products, users, contacts } = useStore();
   const [creatingOrder, setCreatingOrder] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
+  const [mailRecipient, setMailRecipient] = useState<MailRecipient | null>(null);
+  const [documentAction, setDocumentAction] = useState<"print" | "preview" | "download" | null>(null);
+  const [headerLogoMode, setHeaderLogoMode] = useState<QuoteHeaderLogoMode>("haksan");
+  useEffect(() => {
+    setDocumentAction(null);
+    setHeaderLogoMode("haksan");
+  }, [offer?.id]);
   if (!offer) return null;
 
   const productText = offer.productName
@@ -724,11 +856,20 @@ export function OfferDetailDialog({
   // Teklif yazdırma: ürün kataloğundan model eşleşirse teknik bilgiler ve
   // donanım sayfaları da basılır; alt notlar seçilen teslim şekline göre gelir.
   const loadQuoteDocument = async () => {
-    const data = await loadQuotePrintData({ offer, customer, salesCase, users, contacts, products });
+    const data = await loadQuotePrintData({
+      offer,
+      customer,
+      salesCase,
+      users,
+      contacts,
+      products,
+      headerLogoMode,
+    });
     return quoteDoc(data, printAssetBase());
   };
 
   const runQuoteDocument = async (mode: "print" | "preview" | "download") => {
+    setDocumentAction(null);
     const loading = toast.loading("Teklif hazırlanıyor…");
     try {
       const doc = await loadQuoteDocument();
@@ -744,11 +885,17 @@ export function OfferDetailDialog({
     }
   };
 
-  const handlePrint = () => void runQuoteDocument("print");
-  const handlePreview = () => void runQuoteDocument("preview");
-  const handleDownload = () => void runQuoteDocument("download");
+  const handlePrint = () => setDocumentAction("print");
+  const handlePreview = () => setDocumentAction("preview");
+  const handleDownload = () => setDocumentAction("download");
+  const documentActionLabel = documentAction === "preview"
+    ? "Önizlemeyi Aç"
+    : documentAction === "download"
+      ? "HTML İndir"
+      : "Yazdır / PDF Kaydet";
 
   return (
+    <>
     <Dialog open={!!offer} onOpenChange={(open) => !open && onClose()}>
       <DialogContent className="w-[min(900px,calc(100vw-2rem))] max-w-none sm:max-w-none max-h-[88dvh] grid-rows-[auto_1fr_auto] overflow-hidden p-0 gap-0">
         <DialogHeader className="px-6 pt-6 pb-4 border-b border-border/60">
@@ -907,6 +1054,22 @@ export function OfferDetailDialog({
               </Button>
             }
           />
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-9 gap-1"
+            disabled={!customer?.email}
+            title={customer?.email ? `${customer.email} adresine gönder` : "Firma kartında e-posta adresi bulunmuyor"}
+            onClick={() => customer?.email && setMailRecipient({
+              email: customer.email,
+              name: customer.contactPerson || customer.name,
+              companyId: customer.id,
+              subject: `${offer.quoteNo} Fiyat Teklifi`,
+              body: `Merhaba ${customer.contactPerson || customer.name},\n\n${offer.quoteNo} numaralı ${productText} fiyat teklifimizi bilgilerinize sunarız.\n\nSaygılarımızla,`,
+            })}
+          >
+            <Mail className="size-4" /> Firmaya E-posta Gönder
+          </Button>
           {offer.status === "Draft" && onQuoteAction && (
             <Button size="sm" className="h-9 gap-1" onClick={() => onQuoteAction(offer.id, "send")}>
               <Mail className="size-4" /> Gönderildi İşaretle
@@ -969,6 +1132,119 @@ export function OfferDetailDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+
+    <Dialog open={documentAction !== null} onOpenChange={(open) => !open && setDocumentAction(null)}>
+      <DialogContent className="w-[min(680px,calc(100vw-2rem))] max-w-none overflow-hidden p-0 sm:max-w-none">
+        <DialogHeader className="border-b border-border/60 bg-[linear-gradient(135deg,#07142b,#102652)] px-6 py-5 text-white">
+          <DialogTitle className="flex items-center gap-2 text-white">
+            <ImageIcon className="size-5 text-sky-300" /> PDF logosunu seçin
+          </DialogTitle>
+          <DialogDescription className="text-slate-300">
+            Seçtiğiniz logo teklifin her sayfasındaki üst alanda kullanılır.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-4 px-6 py-5">
+          <RadioGroup
+            value={headerLogoMode}
+            onValueChange={(value) => setHeaderLogoMode(value as QuoteHeaderLogoMode)}
+            className="grid gap-3 md:grid-cols-3"
+          >
+            <Label
+              htmlFor="quote-logo-haksan"
+              className={`group flex min-h-36 cursor-pointer flex-col rounded-xl border p-3.5 transition-colors ${
+                headerLogoMode === "haksan"
+                  ? "border-primary bg-primary/5 ring-2 ring-primary/15"
+                  : "border-border/70 bg-white hover:border-primary/35"
+              }`}
+            >
+              <span className="mb-3 flex items-center justify-between gap-2">
+                <span className="text-sm font-semibold">HAKSAN anteti</span>
+                <RadioGroupItem id="quote-logo-haksan" value="haksan" />
+              </span>
+              <span className="flex min-h-16 flex-1 items-center rounded-lg border border-border/60 bg-white p-2">
+                <img
+                  src={`${printAssetBase()}/haksan-letterhead.jpg`}
+                  alt="HAKSAN anteti"
+                  className="h-auto w-full object-contain"
+                />
+              </span>
+              <span className="mt-2 text-[11px] leading-4 text-muted-foreground">Standart kurumsal antet</span>
+            </Label>
+
+            <Label
+              htmlFor="quote-logo-company"
+              aria-disabled={!customer?.logoUrl}
+              className={`group flex min-h-36 flex-col rounded-xl border p-3.5 transition-colors ${
+                !customer?.logoUrl
+                  ? "cursor-not-allowed border-border/50 bg-muted/30 opacity-60"
+                  : headerLogoMode === "company"
+                    ? "cursor-pointer border-primary bg-primary/5 ring-2 ring-primary/15"
+                    : "cursor-pointer border-border/70 bg-white hover:border-primary/35"
+              }`}
+            >
+              <span className="mb-3 flex items-center justify-between gap-2">
+                <span className="text-sm font-semibold">Firma logosu</span>
+                <RadioGroupItem id="quote-logo-company" value="company" disabled={!customer?.logoUrl} />
+              </span>
+              <span className="flex min-h-16 flex-1 items-center justify-center rounded-lg border border-border/60 bg-white p-2">
+                {customer?.logoUrl ? (
+                  <img src={customer.logoUrl} alt={`${customer.name} logosu`} className="max-h-14 max-w-full object-contain" />
+                ) : (
+                  <ImageOff className="size-7 text-muted-foreground/55" />
+                )}
+              </span>
+              <span className="mt-2 text-[11px] leading-4 text-muted-foreground">
+                {customer?.logoUrl ? customer.name : "Firma kartına önce logo yükleyin"}
+              </span>
+            </Label>
+
+            <Label
+              htmlFor="quote-logo-none"
+              className={`group flex min-h-36 cursor-pointer flex-col rounded-xl border p-3.5 transition-colors ${
+                headerLogoMode === "none"
+                  ? "border-primary bg-primary/5 ring-2 ring-primary/15"
+                  : "border-border/70 bg-white hover:border-primary/35"
+              }`}
+            >
+              <span className="mb-3 flex items-center justify-between gap-2">
+                <span className="text-sm font-semibold">Logosuz</span>
+                <RadioGroupItem id="quote-logo-none" value="none" />
+              </span>
+              <span className="flex min-h-16 flex-1 items-center justify-center rounded-lg border border-dashed border-border bg-muted/20">
+                <ImageOff className="size-7 text-muted-foreground/55" />
+              </span>
+              <span className="mt-2 text-[11px] leading-4 text-muted-foreground">Sade üst boşluk</span>
+            </Label>
+          </RadioGroup>
+
+          <p className="text-xs leading-5 text-muted-foreground">
+            Ürün marka logosu, örneğin HAXAN, makinenin ürün sayfasında ayrıca görünmeye devam eder.
+          </p>
+        </div>
+
+        <DialogFooter className="border-t border-border/60 bg-muted/20 px-6 py-4">
+          <Button variant="outline" onClick={() => setDocumentAction(null)}>Vazgeç</Button>
+          <Button className="gap-2" onClick={() => documentAction && void runQuoteDocument(documentAction)}>
+            {documentAction === "preview"
+              ? <Eye className="size-4" />
+              : documentAction === "download"
+                ? <Download className="size-4" />
+                : <Printer className="size-4" />}
+            {documentActionLabel}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+
+    <ComposeMailDialog
+      recipient={mailRecipient}
+      onOpenChange={(open) => !open && setMailRecipient(null)}
+      onSent={async () => {
+        if (offer.status === "Draft" && onQuoteAction) await onQuoteAction(offer.id, "send");
+      }}
+    />
+    </>
   );
 }
 

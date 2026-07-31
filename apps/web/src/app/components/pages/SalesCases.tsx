@@ -4,7 +4,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from ".
 import { Button } from "../ui/button";
 import { Badge } from "../ui/badge";
 import { Input } from "../ui/input";
-import { Search, ArrowUpDown, Building2, MoreHorizontal, CheckCircle2, RotateCcw, AlertTriangle, CalendarClock, Cpu } from "lucide-react";
+import { Search, ArrowUpDown, Building2, MoreHorizontal, CheckCircle2, RotateCcw, AlertTriangle, CalendarClock, Cpu, Trash2 } from "lucide-react";
 import {
   QUALIFICATION_STAGE_LABELS,
   QUALIFICATION_STAGES,
@@ -14,7 +14,10 @@ import {
 } from "../../lib/mock";
 import { useEffect, useMemo, useState } from "react";
 import { useStore } from "../../lib/store";
+import { useAuth } from "../../../lib/auth";
+import { toast } from "sonner";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../ui/tabs";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
 import { QualificationKanban } from "./QualificationKanban";
 import { FilterPopover, usePaged, Pager } from "../ui/list-controls";
 import { ExportExcelButton } from "../ui/ExportExcelButton";
@@ -66,10 +69,16 @@ export function SalesCasesPage({
   focus?: OperationFocus;
   onAction?: (action: OperationAction) => void;
 }) {
-  const { cases: salesCases, closedCases, customers, users, activities, products, closeCase, reopenCase } = useStore();
+  const { cases: salesCases, closedCases, customers, users, activities, products, closeCase, deleteCase, reopenCase, updateCase } = useStore();
+  const { hasPermission, hasRole } = useAuth();
+  const canDelete = hasPermission("opportunities.delete");
+  const canUpdate = hasPermission("opportunities.update");
+  const canAssignOwner = hasRole("sales") || hasRole("super_admin");
+  const canReopenLost = canAssignOwner && canUpdate;
   const [view, setView] = useState<"list" | "kanban" | "archive">(initialView);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [pendingClose, setPendingClose] = useState<SalesCase | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<SalesCase | null>(null);
 
   const onClose = async (id: string) => {
     if (busyId) return;
@@ -86,6 +95,29 @@ export function SalesCasesPage({
     setBusyId(id);
     try {
       await reopenCase(id);
+      toast.success("Fırsat Lead havuzuna geri açıldı");
+    } catch (error: any) {
+      toast.error("Fırsat geri açılamadı", {
+        description: error?.message ?? "İstek başarısız oldu.",
+      });
+    } finally {
+      setBusyId(null);
+    }
+  };
+  const onDelete = async () => {
+    if (!pendingDelete || busyId) return;
+    const salesCase = pendingDelete;
+    setBusyId(salesCase.id);
+    try {
+      await deleteCase(salesCase.id);
+      setPendingDelete(null);
+      toast.success("Fırsat kartı silindi", {
+        description: salesCasePartyName(salesCase, customers.find((customer) => customer.id === salesCase.customerId)),
+      });
+    } catch (error: any) {
+      toast.error("Fırsat kartı silinemedi", {
+        description: error?.message ?? "API isteği başarısız oldu.",
+      });
     } finally {
       setBusyId(null);
     }
@@ -100,6 +132,7 @@ export function SalesCasesPage({
   const focusOpen = focus === "open" || focus === "today";
   const focusWon = focus === "won";
   const focusLost = focus === "lost";
+  const showLostDetails = focusLost || stage === "lost";
   const filtered = salesCases.filter((s) => {
     const qualification = s.qualificationStage ?? "lead";
     if (qualification === "lead") return false;
@@ -123,6 +156,11 @@ export function SalesCasesPage({
       s.leadCity,
       s.externalMetadata?.candidate?.companyTitle,
       s.requestedProduct,
+      s.lostProductName,
+      s.lostReason,
+      s.competitor,
+      s.lostCompetitorProductModel,
+      s.lostUnmetConditions,
     ].some((value) => (value ?? "").toLocaleLowerCase("tr-TR").includes(query));
   });
 
@@ -233,7 +271,11 @@ export function SalesCasesPage({
       </div>
 
       <TabsContent value="kanban" className="mt-0">
-        <QualificationKanban onSelect={onSelect} items={sorted} />
+        <QualificationKanban
+          onSelect={onSelect}
+          items={sorted}
+          onRequestDelete={canDelete ? setPendingDelete : undefined}
+        />
       </TabsContent>
       <TabsContent value="list" className="mt-0 space-y-4">
 
@@ -254,6 +296,7 @@ export function SalesCasesPage({
                 </TableHead>
                 <TableHead className="text-right">Tutar</TableHead>
                 <TableHead>Aşama</TableHead>
+                {showLostDetails && <TableHead className="min-w-[280px]">Kaybedilme Detayı</TableHead>}
                 <TableHead>Risk / Sıradaki</TableHead>
                 <TableHead className="hidden sm:table-cell">Atanan</TableHead>
                 <TableHead className="hidden md:table-cell">Açılış</TableHead>
@@ -313,20 +356,74 @@ export function SalesCasesPage({
                         <div className="text-[9px] text-muted-foreground">Operasyon: {salesStageLabel(s.stage)}</div>
                       </div>
                     </TableCell>
+                    {showLostDetails && (
+                      <TableCell>
+                        <div className="max-w-[340px] space-y-1 text-[11px]">
+                          <div className="font-medium text-foreground">
+                            {s.lostProductName || s.requestedMachine || [s.requestedProduct, s.requestedModel].filter(Boolean).join(" · ") || "Ürün belirtilmedi"}
+                          </div>
+                          <div className="text-destructive">{s.lostReason || s.lostReasonCode || "Kayıp nedeni belirtilmedi"}</div>
+                          <div className="text-muted-foreground">
+                            Rakip: {[s.competitor, s.lostCompetitorProductModel].filter(Boolean).join(" · ") || "yok / bilinmiyor"}
+                          </div>
+                          <div className="line-clamp-2 text-muted-foreground">
+                            Uymayan şartlar: {s.lostUnmetConditions || s.qualificationNote || "belirtilmedi"}
+                          </div>
+                        </div>
+                      </TableCell>
+                    )}
                     <TableCell>
                       <div className="min-w-[160px]"><span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] ${risk.className}`}><AlertTriangle className="mr-1 size-3" />{risk.label}</span><div className="mt-1.5 flex items-center gap-1 text-[10px] text-muted-foreground"><CalendarClock className="size-3.5" />{nextActivity ? `${nextActivity.title} · ${new Date(nextActivity.date).toLocaleDateString("tr-TR")}` : "Sonraki aktivite planlanmamış"}</div></div>
                     </TableCell>
-                    <TableCell className="hidden sm:table-cell">
-                      <div className="flex items-center gap-2">
-                        <Avatar className="size-6">
-                          <AvatarFallback className="bg-primary/15 text-primary text-[10px]">{initials(u?.name ?? "—")}</AvatarFallback>
-                        </Avatar>
-                        <span className="text-sm">{(u?.name ?? "Atanmadı").split(" ")[0]}</span>
-                      </div>
+                    <TableCell className="hidden sm:table-cell" onClick={(event) => event.stopPropagation()}>
+                      {canAssignOwner ? (
+                        <Select
+                          value={s.assignedUserId || "__none__"}
+                          disabled={busyId === s.id}
+                          onValueChange={async (value) => {
+                            setBusyId(s.id);
+                            try {
+                              await updateCase(s.id, { assignedUserId: value === "__none__" ? "" : value });
+                              toast.success("Fırsat sorumlusu güncellendi");
+                            } catch (error: any) {
+                              toast.error("Fırsat sorumlusu güncellenemedi", { description: error?.message });
+                            } finally {
+                              setBusyId(null);
+                            }
+                          }}
+                        >
+                          <SelectTrigger size="sm" className="h-8 w-[160px] bg-white text-xs" aria-label={`${partyName} sorumlusu`}>
+                            <SelectValue placeholder="Atanmadı" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="__none__">Atanmadı</SelectItem>
+                            {users.map((candidate) => <SelectItem key={candidate.id} value={candidate.id}>{candidate.name}</SelectItem>)}
+                          </SelectContent>
+                        </Select>
+                      ) : (
+                        <div className="flex items-center gap-2">
+                          <Avatar className="size-6">
+                            <AvatarFallback className="bg-primary/15 text-primary text-[10px]">{initials(u?.name ?? "—")}</AvatarFallback>
+                          </Avatar>
+                          <span className="text-sm">{(u?.name ?? "Atanmadı").split(" ")[0]}</span>
+                        </div>
+                      )}
                     </TableCell>
                     <TableCell className="hidden md:table-cell text-xs text-muted-foreground tabular-nums">{s.createdAt}</TableCell>
                     <TableCell onClick={(e) => e.stopPropagation()}>
                       <div className="flex items-center justify-end gap-1">
+                        {s.qualificationStage === "lost" && canReopenLost && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-8 gap-1 text-xs"
+                            disabled={busyId === s.id}
+                            title="LOST fırsatı Lead havuzuna döndür"
+                            onClick={() => void onReopen(s.id)}
+                          >
+                            <RotateCcw className="size-3.5" /> Lead'e Geri Aç
+                          </Button>
+                        )}
                         {(s.qualificationStage === "win" || s.qualificationStage === "lost") && (
                           <Button
                             variant="ghost"
@@ -342,12 +439,25 @@ export function SalesCasesPage({
                         <Button variant="ghost" size="icon" className="size-8 opacity-100 sm:opacity-0 sm:group-hover:opacity-100" title="Detay" onClick={() => onSelect(s)}>
                           <MoreHorizontal className="size-4" />
                         </Button>
+                        {canDelete && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="size-8 text-destructive opacity-100 hover:bg-destructive/10 hover:text-destructive sm:opacity-0 sm:group-hover:opacity-100"
+                            title="Fırsat kartını sil"
+                            aria-label={`${partyName} fırsat kartını sil`}
+                            disabled={busyId === s.id}
+                            onClick={() => setPendingDelete(s)}
+                          >
+                            <Trash2 className="size-4" />
+                          </Button>
+                        )}
                       </div>
                     </TableCell>
                   </TableRow>
                 );
               })}
-              {pageItems.length === 0 && <TableRow><TableCell colSpan={7} className="py-4"><EmptyState scene="search" title="Fırsat bulunamadı" description="Arama veya filtreleri değiştirerek tekrar deneyin." /></TableCell></TableRow>}
+              {pageItems.length === 0 && <TableRow><TableCell colSpan={showLostDetails ? 8 : 7} className="py-4"><EmptyState scene="search" title="Fırsat bulunamadı" description="Arama veya filtreleri değiştirerek tekrar deneyin." /></TableCell></TableRow>}
             </TableBody>
           </Table>
         </div>
@@ -371,7 +481,7 @@ export function SalesCasesPage({
                   <TableHead>Ürün / Model</TableHead>
                   <TableHead>Sonuç</TableHead>
                   <TableHead>Kapanış</TableHead>
-                  <TableHead className="w-28"></TableHead>
+                  <TableHead className="w-40"></TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -397,20 +507,47 @@ export function SalesCasesPage({
                             </div>
                           </div>
                         </TableCell>
-                        <TableCell><div className="text-sm">{s.requestedProduct}</div></TableCell>
-                        <TableCell><QualificationBadge stage={s.qualificationStage} /></TableCell>
+                        <TableCell>
+                          <div className="text-sm">{s.lostProductName || s.requestedProduct}</div>
+                          {s.requestedModel && <div className="mt-0.5 text-[11px] text-muted-foreground">{s.requestedModel}</div>}
+                        </TableCell>
+                        <TableCell>
+                          <QualificationBadge stage={s.qualificationStage} />
+                          {s.qualificationStage === "lost" && (
+                            <div className="mt-1 max-w-[280px] text-[11px] text-muted-foreground">
+                              <div className="text-destructive">{s.lostReason || s.lostReasonCode || "Neden belirtilmedi"}</div>
+                              <div>Rakip: {[s.competitor, s.lostCompetitorProductModel].filter(Boolean).join(" · ") || "yok / bilinmiyor"}</div>
+                              <div className="line-clamp-2">Uymayan şartlar: {s.lostUnmetConditions || s.qualificationNote || "belirtilmedi"}</div>
+                            </div>
+                          )}
+                        </TableCell>
                         <TableCell className="text-xs text-muted-foreground tabular-nums">{s.closedAt ?? "—"}</TableCell>
                         <TableCell onClick={(e) => e.stopPropagation()}>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-8 gap-1 text-xs"
-                            disabled={busyId === s.id}
-                            title="Geri Aç (aktif panoya döndür)"
-                            onClick={() => onReopen(s.id)}
-                          >
-                            <RotateCcw className="size-3.5" /> Geri Aç
-                          </Button>
+                          <div className="flex items-center justify-end gap-1">
+                            {(s.qualificationStage !== "lost" || canReopenLost) && <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-8 gap-1 text-xs"
+                              disabled={busyId === s.id}
+                              title={s.qualificationStage === "lost" ? "Lead havuzuna geri aç" : "Aktif panoya geri aç"}
+                              onClick={() => onReopen(s.id)}
+                            >
+                              <RotateCcw className="size-3.5" /> {s.qualificationStage === "lost" ? "Lead'e Geri Aç" : "Geri Aç"}
+                            </Button>}
+                            {canDelete && (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="size-8 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                                title="Arşivlenmiş fırsat kartını sil"
+                                aria-label={`${salesCasePartyName(s, c)} arşivlenmiş fırsat kartını sil`}
+                                disabled={busyId === s.id}
+                                onClick={() => setPendingDelete(s)}
+                              >
+                                <Trash2 className="size-4" />
+                              </Button>
+                            )}
+                          </div>
                         </TableCell>
                       </TableRow>
                     );
@@ -429,6 +566,38 @@ export function SalesCasesPage({
 
       <AlertDialog open={!!pendingClose} onOpenChange={(open) => !open && !busyId && setPendingClose(null)}>
         <AlertDialogContent className="max-w-lg"><AlertDialogHeader><AlertDialogTitle>Fırsat tamamlanıp arşivlensin mi?</AlertDialogTitle><AlertDialogDescription><span className="block font-medium text-foreground">{pendingClose ? salesCasePartyName(pendingClose, customers.find((customer) => customer.id === pendingClose.customerId)) : "Fırsat"} · {pendingClose?.requestedModel || pendingClose?.requestedProduct}</span>Kart silinmez; “Geçmiş” görünümüne taşınır. Teklif, proforma, sözleşme ve aktiviteler korunur.</AlertDialogDescription></AlertDialogHeader>{pendingClose && <div className="rounded-lg border border-primary/10 bg-brand-blue-soft/50 p-3 text-xs"><div className="font-display text-lg font-semibold text-primary">{pendingClose.estimatedAmount.toLocaleString("tr-TR")} {pendingClose.currency}</div><div className="mt-1 text-muted-foreground">Derece: {QUALIFICATION_STAGE_LABELS[pendingClose.qualificationStage]}</div></div>}<AlertDialogFooter><AlertDialogCancel>Vazgeç</AlertDialogCancel><AlertDialogAction disabled={!!busyId} onClick={(event) => { event.preventDefault(); if (pendingClose) void onClose(pendingClose.id); }}>{busyId ? "Arşivleniyor…" : "Tamamla ve Arşivle"}</AlertDialogAction></AlertDialogFooter></AlertDialogContent>
+      </AlertDialog>
+      <AlertDialog open={Boolean(pendingDelete)} onOpenChange={(open) => !open && !busyId && setPendingDelete(null)}>
+        <AlertDialogContent className="max-w-lg">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Fırsat kartı silinsin mi?</AlertDialogTitle>
+            <AlertDialogDescription>
+              <span className="block font-medium text-foreground">
+                {pendingDelete
+                  ? salesCasePartyName(
+                      pendingDelete,
+                      customers.find((customer) => customer.id === pendingDelete.customerId),
+                    )
+                  : "Fırsat"}
+                {pendingDelete ? ` · ${pendingDelete.requestedModel || pendingDelete.requestedProduct}` : ""}
+              </span>
+              Kart aktif ve geçmiş görünümlerinden kaldırılacak. Bağlı teklif, aktivite ve denetim kayıtları veri bütünlüğü için korunur.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={Boolean(busyId)}>Vazgeç</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={Boolean(busyId)}
+              onClick={(event) => {
+                event.preventDefault();
+                void onDelete();
+              }}
+            >
+              {busyId ? "Siliniyor…" : "Fırsat Kartını Sil"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
       </AlertDialog>
     </Tabs>
   );

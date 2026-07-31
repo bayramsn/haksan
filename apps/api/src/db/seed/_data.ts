@@ -61,6 +61,7 @@ export const lookupRows = {
     { code: 'call', name: 'Telefon Görüşmesi', sortOrder: 10 },
     { code: 'visit', name: 'Ziyaret', sortOrder: 20 },
     { code: 'email', name: 'E-posta', sortOrder: 30 },
+    { code: 'whatsapp', name: 'WhatsApp', sortOrder: 35 },
     { code: 'meeting', name: 'Toplantı', sortOrder: 40 },
     { code: 'demo', name: 'Demo / Sunum', sortOrder: 50 },
     { code: 'note', name: 'Not', sortOrder: 60 },
@@ -207,7 +208,9 @@ export const lookupRows = {
   ],
   file_document_types: [
     { code: 'product_image', name: 'Ürün Görseli', sortOrder: 10 },
+    { code: 'company_logo', name: 'Firma Logosu', sortOrder: 15 },
     { code: 'quote_pdf', name: 'Teklif PDF', sortOrder: 20 },
+    { code: 'external_quote', name: 'Dış Teklif', sortOrder: 25 },
     { code: 'proforma_pdf', name: 'Proforma PDF', sortOrder: 30 },
     { code: 'contract_pdf', name: 'Sözleşme PDF', sortOrder: 40 },
     { code: 'commercial_invoice_pdf', name: 'Ticari Fatura PDF', sortOrder: 50 },
@@ -312,6 +315,7 @@ export const rolePermissionMatrix: Record<string, Record<string, string[] | '*'>
     companies: '*',
     contacts: '*',
     leads: '*',
+    lead_assignment_rules: '*',
     opportunities: '*',
     activities: '*',
     calendar: '*',
@@ -344,6 +348,7 @@ export const rolePermissionMatrix: Record<string, Record<string, string[] | '*'>
     companies: '*',
     contacts: '*',
     leads: '*',
+    lead_assignment_rules: ['read'],
     // A+ onayları ayrı bir rol/yetkiyle kullanıcıya atanır; standart satış
     // rolü tüm fırsatları yönetebilir ancak onay veremez/reddedemez.
     opportunities: ['read', 'create', 'update', 'delete', 'export'],

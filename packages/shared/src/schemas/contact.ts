@@ -14,6 +14,7 @@ const clearableDate = z.preprocess(emptyToNull, z.coerce.date().nullable().optio
 
 export const contactCreateSchema = z.object({
   companyId: z.string().min(1),
+  externalContactNo: optionalText(32),
   fullName: z.string().min(1).max(255),
   title: optionalText(128),
   department: optionalText(128),
@@ -39,6 +40,7 @@ export const contactCreateSchema = z.object({
 export type ContactCreateInput = z.infer<typeof contactCreateSchema>;
 
 export const contactUpdateSchema = contactCreateSchema.partial().extend({
+  externalContactNo: clearableText(32),
   title: clearableText(128),
   department: clearableText(128),
   decisionRoleCode: clearableText(64),

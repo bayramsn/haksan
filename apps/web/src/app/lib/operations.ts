@@ -22,6 +22,7 @@ export type OperationNav =
   | "call-assistant"
   | "customers"
   | "contacts"
+  | "leads"
   | "sales-cases"
   | "kanban"
   | "sales-map"
@@ -65,7 +66,11 @@ export type OperationFocus =
   | "expired"
   | "won"
   | "lost"
-  | "today";
+  | "today"
+  | "sla_risk"
+  | "uncontacted"
+  | "unassigned"
+  | "no_action";
 
 export type OperationAction =
   | { kind: "navigate"; nav: OperationNav; focus?: OperationFocus; query?: string }
@@ -249,7 +254,9 @@ const findUser = (data: OperationStoreSnapshot, id?: string) =>
   data.users.find((u) => u.id === id)?.name ?? "Atanmadı";
 
 const isOpenSalesCase = (s: SalesCase) =>
-  !s.isLost && !["Completed", "Lost", "delivered"].includes(String(s.stage));
+  (s.qualificationStage ?? "lead") !== "lead" &&
+  !s.isLost &&
+  !["Completed", "Lost", "delivered"].includes(String(s.stage));
 
 const isWonSalesCase = (s: SalesCase) =>
   !s.isLost && ["Completed", "delivered"].includes(String(s.stage));
@@ -323,6 +330,43 @@ const documentNav = (type: DocumentItem["type"]): OperationNav =>
 
 export function buildWorkItems(data: OperationStoreSnapshot): WorkItem[] {
   const items: WorkItem[] = [];
+
+  data.cases
+    .filter((salesCase) =>
+      (salesCase.qualificationStage ?? "lead") === "lead" &&
+      salesCase.leadFollowUpStatus !== "disqualified"
+    )
+    .sort((left, right) =>
+      Number(Boolean(right.qualificationReadiness?.health?.leadSlaBreached)) -
+        Number(Boolean(left.qualificationReadiness?.health?.leadSlaBreached)) ||
+      (right.leadInsights?.priorityScore ?? 0) - (left.leadInsights?.priorityScore ?? 0)
+    )
+    .slice(0, 8)
+    .forEach((salesCase) => {
+      const health = salesCase.qualificationReadiness?.health;
+      const slaRisk = Boolean(health?.leadSlaBreached || health?.actionOverdue);
+      const needsAction = !salesCase.nextActionAt;
+      const leadTitle =
+        salesCase.leadCompanyTitle ||
+        salesCase.leadContactName ||
+        findCustomer(data, salesCase.customerId)?.name ||
+        "Yeni lead";
+      items.push({
+        id: `lead:${salesCase.id}`,
+        title: `${leadTitle} lead takibi`,
+        subtitle: salesCase.nextAction || salesCase.requestedProduct || "İlk temas aksiyonu planlanmalı",
+        meta: health?.leadSlaBreached
+          ? "SLA aşıldı"
+          : needsAction
+            ? "Aksiyon tarihi yok"
+            : `Öncelik %${salesCase.leadInsights?.priorityScore ?? 0}`,
+        owner: findUser(data, salesCase.assignedUserId),
+        severity: slaRisk ? "critical" : !salesCase.assignedUserId || needsAction ? "warning" : "info",
+        module: "leads",
+        action: { kind: "salesCase", salesCaseId: salesCase.id },
+        dueDate: salesCase.nextActionAt ?? salesCase.createdAt,
+      });
+    });
 
   data.payments
     .filter((p) => p.status === "Overdue")
@@ -434,6 +478,21 @@ export function buildWorkItems(data: OperationStoreSnapshot): WorkItem[] {
 }
 
 export function buildAlerts(data: OperationStoreSnapshot): OperationAlert[] {
+  const leads = data.cases.filter((salesCase) =>
+    (salesCase.qualificationStage ?? "lead") === "lead" &&
+    salesCase.leadFollowUpStatus !== "disqualified"
+  );
+  const leadSlaRisks = leads.filter((salesCase) => {
+    const health = salesCase.qualificationReadiness?.health;
+    const nearLimit =
+      health?.leadSlaHours != null &&
+      health.leadStatusAgeHours != null &&
+      health.leadStatusAgeHours >= health.leadSlaHours * 0.75;
+    return Boolean(health?.leadSlaBreached || health?.actionOverdue || nearLimit);
+  });
+  const uncontactedLeads = leads.filter((salesCase) => !salesCase.qualificationReadiness?.health?.firstContactAt);
+  const unassignedLeads = leads.filter((salesCase) => !salesCase.assignedUserId);
+  const leadsWithoutAction = leads.filter((salesCase) => !salesCase.nextActionAt);
   const overduePayments = data.payments.filter((p) => p.status === "Overdue");
   const expiringOffers = data.offers.filter(isExpiredOffer);
   const lateServices = data.service.filter(isLateService);
@@ -442,6 +501,46 @@ export function buildAlerts(data: OperationStoreSnapshot): OperationAlert[] {
   const reservedStock = data.stock.filter((s) => s.status === "Reserved");
 
   return [
+    leadSlaRisks.length
+      ? {
+          id: "alert:lead-sla",
+          title: `${leadSlaRisks.length} lead SLA riski`,
+          description: "İlk temas veya sonraki aksiyon süresi kritik seviyede",
+          severity: "critical" as const,
+          module: "leads" as const,
+          action: { kind: "navigate", nav: "leads", focus: "sla_risk" } as OperationAction,
+        }
+      : null,
+    unassignedLeads.length
+      ? {
+          id: "alert:lead-unassigned",
+          title: `${unassignedLeads.length} sahipsiz lead`,
+          description: "Atama kuralı eşleşmeyen kayıtlar satış yöneticisi kararı bekliyor",
+          severity: "warning" as const,
+          module: "leads" as const,
+          action: { kind: "navigate", nav: "leads", focus: "unassigned" } as OperationAction,
+        }
+      : null,
+    leadsWithoutAction.length
+      ? {
+          id: "alert:lead-no-action",
+          title: `${leadsWithoutAction.length} aksiyonsuz lead`,
+          description: "Tarihli sonraki aksiyonu olmayan kayıtlar var",
+          severity: "warning" as const,
+          module: "leads" as const,
+          action: { kind: "navigate", nav: "leads", focus: "no_action" } as OperationAction,
+        }
+      : null,
+    uncontactedLeads.length
+      ? {
+          id: "alert:lead-uncontacted",
+          title: `${uncontactedLeads.length} temas kurulmamış lead`,
+          description: "Henüz ilk temas kaydı bulunmayan leadler var",
+          severity: "info" as const,
+          module: "leads" as const,
+          action: { kind: "navigate", nav: "leads", focus: "uncontacted" } as OperationAction,
+        }
+      : null,
     overduePayments.length
       ? {
           id: "alert:overdue-payments",

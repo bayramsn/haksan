@@ -92,4 +92,38 @@ describe("contract print data", () => {
     expect(data.machines?.reduce((sum, machine) => sum + machine.fiyat, 0)).toBeCloseTo(2_600, 6);
     expect(data.fiyat).toBe(2_600);
   });
+
+  it("removes the internal stock code from machine labels", async () => {
+    const stockCode = "HAXAN.MMT-1170.15K.DDS.M.30T";
+    const data = await loadContractPrintData({
+      customer: null,
+      salesCase: {} as never,
+      products: [{
+        id: "machine-1",
+        stockCode,
+        shortDescription: "HAXAN MMT-1170 CNC Dik İşleme Merkezi",
+      }] as never,
+      payments: [],
+      contractDate: "2026-07-31",
+      contractNo: "CNC-SOZ-2026/011",
+      documentSnapshot: {
+        quote: { subtotal: "1000" },
+        company: { legalTitle: "PDF Müşterisi" },
+        currency: { code: "USD" },
+        items: [{
+          productModelId: "machine-1",
+          stockCode,
+          description: `${stockCode} - HAXAN MMT-1170 CNC Dik İşleme Merkezi`,
+          quantity: 1,
+          unitPrice: 1000,
+          lineTotal: 1000,
+        }],
+        terms: {},
+        receivables: [],
+      },
+    });
+
+    expect(data.machines?.[0].model).toBe("HAXAN MMT-1170 CNC Dik İşleme Merkezi");
+    expect(JSON.stringify(data)).not.toContain(stockCode);
+  });
 });

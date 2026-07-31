@@ -1,7 +1,7 @@
 import type { Customer, Offer, Payment, Product, SalesCase, ProductSpec } from "../mock";
 import { quoteService } from "../../../lib/services";
 import { specsForProductTypeStrict } from "../productSpecTemplates";
-import { trShortDate } from "./core";
+import { publicProductLabel, trShortDate } from "./core";
 import type { ContractMachinePrintData, ContractPrintData } from "./templates";
 
 // Tezgahın tam teknik özellik listesi (birim değere gömülür) — sözleşme eksik
@@ -171,7 +171,11 @@ const buildContractMachines = (
     const priceBeforeHeader = rowNetTotal(row.item) + options.reduce((sum, option) => sum + rowNetTotal(option.item), 0);
     const warrantyTerms = recordValue(quote, "warrantyTerms", "warranty_terms");
     return {
-      model: String(recordValue(row.item, "description") ?? product?.shortDescription ?? "").trim(),
+      model: publicProductLabel({
+        catalogName: product?.shortDescription,
+        description: recordValue(row.item, "description"),
+        stockCode: recordValue(row.item, "stockCode", "stock_code") ?? product?.stockCode,
+      }),
       adet: asNumber(recordValue(row.item, "quantity")) || 1,
       ozellikler: specs,
       aksesuarlar: accessories,

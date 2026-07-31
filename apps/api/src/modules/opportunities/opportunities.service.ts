@@ -1,14 +1,19 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { and, desc, eq, ilike, inArray, isNotNull, isNull, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, ilike, inArray, isNotNull, isNull, or, sql } from 'drizzle-orm';
 import type { DbClient } from '../../db/client';
 import {
   opportunities,
   opportunityApprovals,
   opportunityQualificationHistory,
   opportunityStageHistory,
+  leadAssignmentCursors,
+  leadAssignmentRules,
+  leadContactEvents,
   salesActivities,
   visits,
   calls,
+  cancellationReasons,
+  competitors,
 } from '../../db/schema/crm';
 import {
   companies,
@@ -18,8 +23,9 @@ import {
   companyPhones,
   contactCompanies,
   contacts,
+  notifications,
 } from '../../db/schema/companies';
-import { users } from '../../db/schema/users';
+import { roles, userDivisions, userRoles, users } from '../../db/schema/users';
 import { auditLogs } from '../../db/schema/audit';
 import { quotes, proformas } from '../../db/schema/quotes';
 import { inventoryItems, inventoryMovements, customerDevices } from '../../db/schema/inventory';
@@ -35,8 +41,8 @@ import {
   installationStatuses,
   companyRelationTypes,
   companyStatuses,
+  activityTypes,
 } from '../../db/schema/lookup';
-import { cancellationReasons } from '../../db/schema/crm';
 import { commercialInvoices, contracts } from '../../db/schema/quotes';
 import { receivables } from '../../db/schema/finance';
 import { DB } from '../../shared/database/database.module';
@@ -47,6 +53,9 @@ import type {
   OpportunityCreateInput,
   OpportunityApprovalDecisionInput,
   OpportunityConvertInput,
+  LeadAssignmentRuleCreateInput,
+  LeadAssignmentRuleUpdateInput,
+  LeadContactEventInput,
   OpportunityQualificationChangeInput,
   OpportunityUpdateInput,
   OpportunityStageChangeInput,
@@ -60,6 +69,7 @@ import {
   LEAD_DISQUALIFY_REASONS,
   LEAD_FOLLOW_UP_SLA_HOURS,
   LEAD_MAX_CONTACT_ATTEMPTS,
+  calculateLeadInsights,
   PIPELINE_STAGE_QUALIFICATION,
   PIPELINE_STAGE_FLOW,
   PIPELINE_STAGES,
@@ -70,6 +80,7 @@ import {
   trelloImportRowSchema,
   trelloResolvedImportRowSchema,
   type LeadFollowUpStatusCode,
+  type LeadContactOutcomeCode,
   type PipelineStageCode,
   type OpportunityApprovalType,
   type OpportunityProcessReadiness,
@@ -102,6 +113,15 @@ import {
 } from '../../shared/utils/trello-company-resolution';
 
 type TrelloImportStatus = 'create' | 'skip' | 'error';
+
+const LOST_REASON_NAMES: Record<string, string> = {
+  price: 'Fiyat / Bütçe Yetersiz',
+  competitor: 'Rakip Tercih Edildi',
+  timing: 'Zamanlama / Yatırım Ertelendi',
+  spec: 'Teknik Şartname Karşılanamadı',
+  no_budget: 'Bütçe Onayı Çıkmadı',
+  other: 'Diğer',
+};
 
 type TrelloImportPreviewRow = TrelloImportRowInput & {
   candidate: TrelloCompanyCandidate;
@@ -138,6 +158,11 @@ type QualificationContext = {
   hasCall: boolean;
   hasVisit: boolean;
   approvals: Partial<Record<OpportunityApprovalType, 'pending' | 'approved' | 'rejected'>>;
+};
+
+type LeadActivityContext = {
+  latestActivityAt: Date | null;
+  latestContactOutcome: LeadContactOutcomeCode | null;
 };
 
 type ProcessEvidence = {
@@ -417,6 +442,80 @@ export class OpportunitiesService {
         ] as const;
       })
     );
+  }
+
+  private async leadActivityContexts(rows: Array<typeof opportunities.$inferSelect>) {
+    const opportunityIds = rows.map((row) => row.id);
+    if (!opportunityIds.length) return new Map<string, LeadActivityContext>();
+
+    const [activityRows, contactRows] = await Promise.all([
+      this.db
+        .select({
+          opportunityId: salesActivities.opportunityId,
+          latestActivityAt: sql<Date | null>`max(${salesActivities.activityDate})`,
+        })
+        .from(salesActivities)
+        .where(
+          and(
+            eq(salesActivities.tenantId, rows[0].tenantId),
+            inArray(salesActivities.opportunityId, opportunityIds),
+            isNull(salesActivities.deletedAt)
+          )
+        )
+        .groupBy(salesActivities.opportunityId),
+      this.db
+        .select({
+          opportunityId: leadContactEvents.opportunityId,
+          outcome: leadContactEvents.outcome,
+        })
+        .from(leadContactEvents)
+        .where(
+          and(
+            eq(leadContactEvents.tenantId, rows[0].tenantId),
+            inArray(leadContactEvents.opportunityId, opportunityIds)
+          )
+        )
+        .orderBy(desc(leadContactEvents.occurredAt)),
+    ]);
+
+    const result = new Map<string, LeadActivityContext>();
+    for (const opportunityId of opportunityIds) {
+      result.set(opportunityId, { latestActivityAt: null, latestContactOutcome: null });
+    }
+    for (const row of activityRows) {
+      if (!row.opportunityId) continue;
+      const current = result.get(row.opportunityId);
+      if (current) current.latestActivityAt = row.latestActivityAt ? new Date(row.latestActivityAt) : null;
+    }
+    for (const row of contactRows) {
+      const current = result.get(row.opportunityId);
+      if (current && !current.latestContactOutcome) {
+        current.latestContactOutcome = row.outcome as LeadContactOutcomeCode;
+      }
+    }
+    return result;
+  }
+
+  private leadInsights(row: typeof opportunities.$inferSelect, activity?: LeadActivityContext) {
+    const status = (row.leadFollowUpStatus ?? 'new') as LeadFollowUpStatusCode;
+    return calculateLeadInsights({
+      requestedProduct: row.title,
+      requestedMachine: row.requestedMachine,
+      leadNeedSummary: row.leadNeedSummary,
+      leadAuthorityStatus: row.leadAuthorityStatus as Parameters<typeof calculateLeadInsights>[0]['leadAuthorityStatus'],
+      leadBudgetStatus: row.leadBudgetStatus as Parameters<typeof calculateLeadInsights>[0]['leadBudgetStatus'],
+      leadPurchaseTimeframe:
+        row.leadPurchaseTimeframe as Parameters<typeof calculateLeadInsights>[0]['leadPurchaseTimeframe'],
+      leadTechnicalFit: row.leadTechnicalFit as Parameters<typeof calculateLeadInsights>[0]['leadTechnicalFit'],
+      leadFollowUpStatus: status,
+      firstContactAt: row.firstContactAt,
+      createdAt: row.createdAt,
+      leadSlaHours: LEAD_FOLLOW_UP_SLA_HOURS[status],
+      nextAction: row.nextAction,
+      nextActionAt: row.nextActionAt,
+      latestActivityAt: activity?.latestActivityAt,
+      latestContactOutcome: activity?.latestContactOutcome,
+    });
   }
 
   private qualificationReadiness(
@@ -1151,6 +1250,279 @@ export class OpportunitiesService {
     return user;
   }
 
+  private normalizeAssignmentValue(value: string | null | undefined) {
+    return (value ?? '')
+      .trim()
+      .toLocaleLowerCase('tr-TR')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '');
+  }
+
+  private async eligibleAssignmentUsers(
+    assigneeUserIds: string[],
+    tenantId: string,
+    divisionId: string | null
+  ) {
+    if (!assigneeUserIds.length) return [];
+    const activeSalesRows = await this.db
+      .select({ id: users.id })
+      .from(users)
+      .innerJoin(userRoles, eq(userRoles.userId, users.id))
+      .innerJoin(roles, eq(roles.id, userRoles.roleId))
+      .where(
+        and(
+          eq(users.tenantId, tenantId),
+          eq(users.status, 'active'),
+          isNull(users.deletedAt),
+          eq(roles.code, 'sales'),
+          inArray(users.id, assigneeUserIds)
+        )
+      );
+    const activeIds = new Set(activeSalesRows.map((row) => row.id));
+    if (!activeIds.size) return [];
+    if (divisionId) {
+      const memberships = await this.db
+        .select({ userId: userDivisions.userId })
+        .from(userDivisions)
+        .where(
+          and(
+            eq(userDivisions.divisionId, divisionId),
+            inArray(userDivisions.userId, [...activeIds])
+          )
+        );
+      const divisionIds = new Set(memberships.map((row) => row.userId));
+      for (const userId of activeIds) {
+        if (!divisionIds.has(userId)) activeIds.delete(userId);
+      }
+    }
+    return assigneeUserIds.filter((userId) => activeIds.has(userId));
+  }
+
+  private async assertAssignmentAssignees(
+    assigneeUserIds: string[],
+    tenantId: string,
+    divisionId: string | null
+  ) {
+    const eligible = await this.eligibleAssignmentUsers(assigneeUserIds, tenantId, divisionId);
+    if (eligible.length !== assigneeUserIds.length) {
+      throw new ValidationError(
+        'Atama kuralındaki tüm kullanıcılar aktif satış kullanıcısı olmalı ve seçilen bölüme bağlı olmalıdır',
+        { field: 'assigneeUserIds' }
+      );
+    }
+  }
+
+  private async resolveLeadOwner(input: {
+    tenantId: string;
+    divisionId: string | null;
+    city?: string | null;
+    product?: string | null;
+    sourceCode?: string | null;
+  }) {
+    const rules = await this.db
+      .select()
+      .from(leadAssignmentRules)
+      .where(
+        and(
+          eq(leadAssignmentRules.tenantId, input.tenantId),
+          eq(leadAssignmentRules.active, true),
+          isNull(leadAssignmentRules.deletedAt),
+          input.divisionId
+            ? or(eq(leadAssignmentRules.divisionId, input.divisionId), isNull(leadAssignmentRules.divisionId))
+            : isNull(leadAssignmentRules.divisionId)
+        )
+      )
+      .orderBy(asc(leadAssignmentRules.priority), asc(leadAssignmentRules.createdAt));
+
+    const city = this.normalizeAssignmentValue(input.city);
+    const product = this.normalizeAssignmentValue(input.product);
+    const sourceCode = this.normalizeAssignmentValue(input.sourceCode);
+    for (const rule of rules) {
+      const criteria = rule.criteria ?? { cities: [], productTerms: [], sourceCodes: [] };
+      const cityMatches =
+        !criteria.cities.length ||
+        criteria.cities.some((value) => this.normalizeAssignmentValue(value) === city);
+      const productMatches =
+        !criteria.productTerms.length ||
+        criteria.productTerms.some((value) => product.includes(this.normalizeAssignmentValue(value)));
+      const sourceMatches =
+        !criteria.sourceCodes.length ||
+        criteria.sourceCodes.some((value) => this.normalizeAssignmentValue(value) === sourceCode);
+      if (!cityMatches || !productMatches || !sourceMatches) continue;
+
+      const eligible = await this.eligibleAssignmentUsers(
+        rule.assigneeUserIds,
+        input.tenantId,
+        input.divisionId
+      );
+      if (!eligible.length) continue;
+
+      const ownerUserId = await this.db.transaction(async (tx) => {
+        await tx
+          .insert(leadAssignmentCursors)
+          .values({ ruleId: rule.id, nextIndex: 0 })
+          .onConflictDoNothing();
+        const cursorResult = await tx.execute(
+          sql`select next_index from lead_assignment_cursors where rule_id = ${rule.id} for update`
+        );
+        const row = cursorResult.rows[0] as { next_index?: number | string } | undefined;
+        const nextIndex = Number(row?.next_index ?? 0);
+        const selected = eligible[nextIndex % eligible.length];
+        await tx
+          .update(leadAssignmentCursors)
+          .set({ nextIndex: nextIndex + 1, updatedAt: new Date() })
+          .where(eq(leadAssignmentCursors.ruleId, rule.id));
+        return selected;
+      });
+      return { ownerUserId, ruleId: rule.id };
+    }
+    return { ownerUserId: null, ruleId: null };
+  }
+
+  private async notifyUnassignedLead(
+    opportunityId: string,
+    title: string,
+    tenantId: string,
+    divisionId: string | null
+  ) {
+    await this.db.insert(notifications).values({
+      tenantId,
+      divisionId,
+      type: 'lead_unassigned',
+      title: 'Sahipsiz lead atama bekliyor',
+      body: `${title} için eşleşen aktif satış kullanıcısı bulunamadı.`,
+      entityType: 'opportunity',
+      entityId: opportunityId,
+    });
+  }
+
+  async listAssignmentRules(actor: AuthContext) {
+    const filters = [
+      eq(leadAssignmentRules.tenantId, actor.tenantId),
+      isNull(leadAssignmentRules.deletedAt),
+    ];
+    const scoped = resourceDivisionFilter(actor, 'lead_assignment_rules', leadAssignmentRules.divisionId);
+    if (scoped) filters.push(scoped);
+    return this.db
+      .select()
+      .from(leadAssignmentRules)
+      .where(and(...filters))
+      .orderBy(asc(leadAssignmentRules.priority), asc(leadAssignmentRules.createdAt));
+  }
+
+  private resolveAssignmentRuleDivision(actor: AuthContext, requested: string | null | undefined) {
+    if (requested) {
+      return resolveAssignedResourceDivision(actor, 'lead_assignment_rules', requested);
+    }
+    const resourceScopes = actor.accessScopes.filter(
+      (scope) => scope.resource === 'lead_assignment_rules'
+    );
+    const canManageAllDivisions = resourceScopes.length
+      ? resourceScopes.some((scope) => scope.divisionId === null)
+      : actor.canViewAllDivisions;
+    if (canManageAllDivisions) return null;
+    const scopedDivision = resolveAssignedResourceDivision(actor, 'lead_assignment_rules', null);
+    if (!scopedDivision) {
+      throw new ForbiddenError('Lead atama kuralı için erişilebilir bir bölüm bulunamadı');
+    }
+    return scopedDivision;
+  }
+
+  async createAssignmentRule(input: LeadAssignmentRuleCreateInput, actor: AuthContext) {
+    const divisionId = this.resolveAssignmentRuleDivision(actor, input.divisionId);
+    await this.assertAssignmentAssignees(input.assigneeUserIds, actor.tenantId, divisionId);
+    const [row] = await this.db
+      .insert(leadAssignmentRules)
+      .values({
+        tenantId: actor.tenantId,
+        divisionId,
+        name: input.name,
+        priority: input.priority,
+        active: input.active,
+        criteria: input.criteria,
+        assigneeUserIds: input.assigneeUserIds,
+        createdBy: actor.userId,
+        updatedBy: actor.userId,
+      })
+      .returning();
+    await this.audit.write({
+      tenantId: actor.tenantId,
+      actorUserId: actor.userId,
+      action: 'lead_assignment_rule.created',
+      resourceType: 'lead_assignment_rule',
+      resourceId: row.id,
+      newValues: row,
+    });
+    return row;
+  }
+
+  private async findAssignmentRule(id: string, actor: AuthContext) {
+    const row = await this.db.query.leadAssignmentRules.findFirst({
+      where: and(
+        eq(leadAssignmentRules.id, id),
+        eq(leadAssignmentRules.tenantId, actor.tenantId),
+        isNull(leadAssignmentRules.deletedAt),
+        resourceDivisionFilter(actor, 'lead_assignment_rules', leadAssignmentRules.divisionId) ?? sql`true`
+      ),
+    });
+    if (!row) throw new NotFoundError('Lead atama kuralı');
+    return row;
+  }
+
+  async updateAssignmentRule(id: string, input: LeadAssignmentRuleUpdateInput, actor: AuthContext) {
+    const existing = await this.findAssignmentRule(id, actor);
+    const divisionId =
+      input.divisionId !== undefined
+        ? this.resolveAssignmentRuleDivision(actor, input.divisionId)
+        : existing.divisionId;
+    const assigneeUserIds = input.assigneeUserIds ?? existing.assigneeUserIds;
+    await this.assertAssignmentAssignees(assigneeUserIds, actor.tenantId, divisionId);
+    const patch = {
+      ...(input.name !== undefined ? { name: input.name } : {}),
+      ...(input.priority !== undefined ? { priority: input.priority } : {}),
+      ...(input.active !== undefined ? { active: input.active } : {}),
+      ...(input.criteria !== undefined ? { criteria: input.criteria } : {}),
+      ...(input.assigneeUserIds !== undefined ? { assigneeUserIds: input.assigneeUserIds } : {}),
+      ...(input.divisionId !== undefined ? { divisionId } : {}),
+      updatedAt: new Date(),
+      updatedBy: actor.userId,
+    };
+    const [updated] = await this.db
+      .update(leadAssignmentRules)
+      .set(patch)
+      .where(eq(leadAssignmentRules.id, id))
+      .returning();
+    await this.audit.write({
+      tenantId: actor.tenantId,
+      actorUserId: actor.userId,
+      action: 'lead_assignment_rule.updated',
+      resourceType: 'lead_assignment_rule',
+      resourceId: id,
+      oldValues: existing,
+      newValues: patch,
+    });
+    return updated;
+  }
+
+  async deleteAssignmentRule(id: string, actor: AuthContext) {
+    const existing = await this.findAssignmentRule(id, actor);
+    const deletedAt = new Date();
+    await this.db
+      .update(leadAssignmentRules)
+      .set({ active: false, deletedAt, updatedAt: deletedAt, updatedBy: actor.userId })
+      .where(eq(leadAssignmentRules.id, id));
+    await this.audit.write({
+      tenantId: actor.tenantId,
+      actorUserId: actor.userId,
+      action: 'lead_assignment_rule.deleted',
+      resourceType: 'lead_assignment_rule',
+      resourceId: id,
+      oldValues: existing,
+      newValues: { deletedAt: deletedAt.toISOString() },
+    });
+    return { ok: true };
+  }
+
   private async tenantHasActiveDivisions(actor: AuthContext): Promise<boolean> {
     const [row] = await this.db
       .select({ count: sql<number>`count(*)::int` })
@@ -1163,6 +1535,114 @@ export class OpportunitiesService {
     const filters = [resourceDivisionFilter(actor, 'inventory', inventoryItems.divisionId) ?? sql`true`];
     if (divisionId) filters.push(or(eq(inventoryItems.divisionId, divisionId), isNull(inventoryItems.divisionId)) ?? sql`true`);
     return filters;
+  }
+
+  async leadSummary(actor: AuthContext) {
+    const since = new Date(Date.now() - 30 * DAY_MS);
+    const visibility = await companyVisibilityExistsFilter(this.db, actor, opportunities.companyId);
+    const filters = [
+      eq(opportunities.tenantId, actor.tenantId),
+      isNull(opportunities.deletedAt),
+      sql`${opportunities.createdAt} >= ${since}`,
+      resourceDivisionFilter(actor, 'opportunities', opportunities.divisionId) ?? sql`true`,
+      allowUnlinkedCompanyRecords(opportunities.companyId, visibility),
+    ];
+    const rows = await this.db
+      .select({
+        opp: opportunities,
+        sourceCode: contactSources.code,
+        sourceName: contactSources.name,
+        ownerId: users.id,
+        ownerName: users.fullName,
+      })
+      .from(opportunities)
+      .leftJoin(contactSources, eq(opportunities.sourceId, contactSources.id))
+      .leftJoin(users, eq(opportunities.ownerUserId, users.id))
+      .where(and(...filters));
+
+    const leadRows = rows.filter((row) => this.qualificationStage(row.opp.qualificationStage) === 'lead');
+    const firstContactHours = rows
+      .filter((row) => row.opp.firstContactAt)
+      .map((row) =>
+        Math.max(0, (new Date(row.opp.firstContactAt!).getTime() - new Date(row.opp.createdAt).getTime()) / HOUR_MS)
+      )
+      .sort((a, b) => a - b);
+    const middle = Math.floor(firstContactHours.length / 2);
+    const medianFirstContactHours = firstContactHours.length
+      ? firstContactHours.length % 2
+        ? firstContactHours[middle]
+        : (firstContactHours[middle - 1] + firstContactHours[middle]) / 2
+      : null;
+    const converted = rows.filter((row) => this.qualificationStage(row.opp.qualificationStage) !== 'lead');
+    const conversionHistory = await this.db
+      .select({
+        conversionOverride: opportunityQualificationHistory.conversionOverride,
+      })
+      .from(opportunityQualificationHistory)
+      .innerJoin(opportunities, eq(opportunityQualificationHistory.opportunityId, opportunities.id))
+      .where(
+        and(
+          eq(opportunityQualificationHistory.tenantId, actor.tenantId),
+          eq(opportunityQualificationHistory.fromStage, 'lead'),
+          eq(opportunityQualificationHistory.toStage, 'c'),
+          sql`${opportunityQualificationHistory.createdAt} >= ${since}`,
+          resourceDivisionFilter(actor, 'opportunities', opportunities.divisionId) ?? sql`true`,
+          allowUnlinkedCompanyRecords(opportunities.companyId, visibility)
+        )
+      );
+
+    const breakdown = (
+      keyFor: (row: (typeof rows)[number]) => { key: string; label: string }
+    ) => {
+      const grouped = new Map<string, { key: string; label: string; total: number; converted: number }>();
+      for (const row of rows) {
+        const item = keyFor(row);
+        const current = grouped.get(item.key) ?? { ...item, total: 0, converted: 0 };
+        current.total += 1;
+        if (this.qualificationStage(row.opp.qualificationStage) !== 'lead') current.converted += 1;
+        grouped.set(item.key, current);
+      }
+      return [...grouped.values()]
+        .map((item) => ({
+          ...item,
+          conversionRate: item.total ? Math.round((item.converted / item.total) * 1000) / 10 : 0,
+        }))
+        .sort((a, b) => b.total - a.total);
+    };
+
+    return {
+      periodDays: 30,
+      totalCreated: rows.length,
+      activeLeads: leadRows.length,
+      medianFirstContactHours:
+        medianFirstContactHours === null ? null : Math.round(medianFirstContactHours * 10) / 10,
+      contactedWithinFourHoursRate: firstContactHours.length
+        ? Math.round((firstContactHours.filter((hours) => hours <= 4).length / firstContactHours.length) * 1000) / 10
+        : null,
+      slaBreaches: leadRows.filter((row) =>
+        this.processHealth(row.opp, 'lead').leadSlaBreached
+      ).length,
+      actionlessLeads: leadRows.filter((row) => !row.opp.nextAction?.trim() || !row.opp.nextActionAt).length,
+      unassignedLeads: leadRows.filter((row) => !row.opp.ownerUserId).length,
+      conversionRate: rows.length ? Math.round((converted.length / rows.length) * 1000) / 10 : 0,
+      justifiedConversionRate: conversionHistory.length
+        ? Math.round(
+            (conversionHistory.filter((row) => row.conversionOverride).length / conversionHistory.length) * 1000
+          ) / 10
+        : 0,
+      bySource: breakdown((row) => ({
+        key: row.sourceCode ?? 'unknown',
+        label: row.sourceName ?? 'Kaynak yok',
+      })),
+      byProduct: breakdown((row) => ({
+        key: row.opp.requestedMachine?.trim() || row.opp.title,
+        label: row.opp.requestedMachine?.trim() || row.opp.title,
+      })),
+      byOwner: breakdown((row) => ({
+        key: row.ownerId ?? 'unassigned',
+        label: row.ownerName ?? 'Sahipsiz havuz',
+      })),
+    };
   }
 
   async list(
@@ -1217,17 +1697,25 @@ export class OpportunitiesService {
         stage: { id: pipelineStages.id, code: pipelineStages.code, name: pipelineStages.name },
         currency: { id: currencies.id, code: currencies.code },
         source: { id: contactSources.id, code: contactSources.code, name: contactSources.name },
+        lostReason: { id: cancellationReasons.id, code: cancellationReasons.code, name: cancellationReasons.name },
+        lostCompetitor: { id: competitors.id, name: competitors.name },
       })
       .from(opportunities)
       .leftJoin(companies, eq(opportunities.companyId, companies.id))
       .leftJoin(pipelineStages, eq(opportunities.currentStageId, pipelineStages.id))
       .leftJoin(currencies, eq(opportunities.currencyId, currencies.id))
       .leftJoin(contactSources, eq(opportunities.sourceId, contactSources.id))
+      .leftJoin(cancellationReasons, eq(opportunities.lostReasonId, cancellationReasons.id))
+      .leftJoin(competitors, eq(opportunities.lostCompetitorId, competitors.id))
       .where(where)
       .orderBy(desc(opportunities.createdAt))
       .limit(limit)
       .offset(offset);
-    const contexts = await this.qualificationContexts(rows.map((row) => row.opp));
+    const opportunityRows = rows.map((row) => row.opp);
+    const [contexts, activityContexts] = await Promise.all([
+      this.qualificationContexts(opportunityRows),
+      this.leadActivityContexts(opportunityRows),
+    ]);
     return buildPaginated(
       rows.map((r) => ({
         ...r.opp,
@@ -1235,7 +1723,10 @@ export class OpportunitiesService {
         stage: r.stage,
         currency: r.currency,
         source: r.source?.id ? r.source : null,
+        lostReason: r.lostReason?.id ? r.lostReason : null,
+        lostCompetitor: r.lostCompetitor?.id ? r.lostCompetitor : null,
         qualificationReadiness: this.qualificationReadiness(r.opp, contexts.get(r.opp.id)!),
+        leadInsights: this.leadInsights(r.opp, activityContexts.get(r.opp.id)),
       })),
       count,
       page
@@ -1251,12 +1742,16 @@ export class OpportunitiesService {
         stage: { id: pipelineStages.id, code: pipelineStages.code, name: pipelineStages.name },
         currency: { id: currencies.id, code: currencies.code },
         source: { id: contactSources.id, code: contactSources.code, name: contactSources.name },
+        lostReason: { id: cancellationReasons.id, code: cancellationReasons.code, name: cancellationReasons.name },
+        lostCompetitor: { id: competitors.id, name: competitors.name },
       })
       .from(opportunities)
       .leftJoin(companies, eq(opportunities.companyId, companies.id))
       .leftJoin(pipelineStages, eq(opportunities.currentStageId, pipelineStages.id))
       .leftJoin(currencies, eq(opportunities.currencyId, currencies.id))
       .leftJoin(contactSources, eq(opportunities.sourceId, contactSources.id))
+      .leftJoin(cancellationReasons, eq(opportunities.lostReasonId, cancellationReasons.id))
+      .leftJoin(competitors, eq(opportunities.lostCompetitorId, competitors.id))
       .where(
         and(
           eq(opportunities.id, id),
@@ -1334,7 +1829,34 @@ export class OpportunitiesService {
       )
       .orderBy(desc(auditLogs.createdAt))
       .limit(100);
-    const contexts = await this.qualificationContexts([r.opp]);
+    const [contexts, activityContexts, contactEventRows] = await Promise.all([
+      this.qualificationContexts([r.opp]),
+      this.leadActivityContexts([r.opp]),
+      this.db
+        .select({
+          id: leadContactEvents.id,
+          channel: leadContactEvents.channel,
+          outcome: leadContactEvents.outcome,
+          occurredAt: leadContactEvents.occurredAt,
+          activityId: leadContactEvents.activityId,
+          subject: salesActivities.subject,
+          note: salesActivities.description,
+          result: salesActivities.result,
+          nextFollowUpAt: salesActivities.nextFollowUpAt,
+          actor: { id: users.id, fullName: users.fullName },
+        })
+        .from(leadContactEvents)
+        .innerJoin(salesActivities, eq(leadContactEvents.activityId, salesActivities.id))
+        .leftJoin(users, eq(leadContactEvents.actorUserId, users.id))
+        .where(
+          and(
+            eq(leadContactEvents.tenantId, actor.tenantId),
+            eq(leadContactEvents.opportunityId, id)
+          )
+        )
+        .orderBy(desc(leadContactEvents.occurredAt))
+        .limit(100),
+    ]);
     const qualificationContext = contexts.get(r.opp.id)!;
     const currentOperationStage = (r.stage?.code ?? 'lead') as PipelineStageCode;
     return {
@@ -1343,6 +1865,8 @@ export class OpportunitiesService {
       stage: r.stage,
       currency: r.currency,
       source: r.source?.id ? r.source : null,
+      lostReason: r.lostReason?.id ? r.lostReason : null,
+      lostCompetitor: r.lostCompetitor?.id ? r.lostCompetitor : null,
       history: history.map((item) => ({
         ...item,
         fromStage: item.fromStageId ? historyStageMap.get(item.fromStageId) ?? null : null,
@@ -1354,6 +1878,11 @@ export class OpportunitiesService {
         decidedByUser: approval.decidedByUser?.id ? approval.decidedByUser : null,
       })),
       auditHistory,
+      contactEvents: contactEventRows.map((event) => ({
+        ...event,
+        actor: event.actor?.id ? event.actor : null,
+      })),
+      leadInsights: this.leadInsights(r.opp, activityContexts.get(r.opp.id)),
       qualificationReadiness: this.qualificationReadiness(r.opp, qualificationContext),
       processReadiness: await this.opportunityProcessReadiness(
         r.opp,
@@ -1385,6 +1914,15 @@ export class OpportunitiesService {
     if (!divisionId && (await this.tenantHasActiveDivisions(actor))) {
       throw new ValidationError('Fırsat için bölüm ataması zorunludur', { field: 'divisionId' });
     }
+    const assignment = input.ownerUserId
+      ? { ownerUserId: input.ownerUserId, ruleId: null }
+      : await this.resolveLeadOwner({
+          tenantId: actor.tenantId,
+          divisionId,
+          city: input.leadCity,
+          product: `${input.title} ${input.requestedMachine ?? ''}`,
+          sourceCode: input.sourceCode,
+        });
 
     const [row] = await this.db
       .insert(opportunities)
@@ -1393,7 +1931,7 @@ export class OpportunitiesService {
         divisionId,
         companyId: input.companyId ?? null,
         primaryContactId: input.primaryContactId ?? null,
-        ownerUserId: input.ownerUserId ?? actor.userId,
+        ownerUserId: assignment.ownerUserId,
         title: input.title,
         description: input.description ?? null,
         leadContactName: input.leadContactName?.trim() || null,
@@ -1403,6 +1941,12 @@ export class OpportunitiesService {
         leadPhone: input.leadPhone?.trim() || null,
         leadEmail: input.leadEmail?.trim() || null,
         leadTemperature: input.leadTemperature ?? 'unknown',
+        leadNeedSummary: input.leadNeedSummary?.trim() || null,
+        leadAuthorityStatus: input.leadAuthorityStatus ?? 'unknown',
+        leadBudgetStatus: input.leadBudgetStatus ?? 'unknown',
+        leadPurchaseTimeframe: input.leadPurchaseTimeframe ?? 'unknown',
+        leadTechnicalFit: input.leadTechnicalFit ?? 'unknown',
+        leadTechnicalNote: input.leadTechnicalNote?.trim() || null,
         leadFollowUpStatus: input.leadFollowUpStatus ?? 'new',
         // SLA saati kartın havuza düştüğü andan itibaren işler.
         leadStatusUpdatedAt: new Date(),
@@ -1452,8 +1996,11 @@ export class OpportunitiesService {
       action: 'opportunity.created',
       resourceType: 'opportunity',
       resourceId: row.id,
-      newValues: { title: row.title },
+      newValues: { title: row.title, ownerUserId: row.ownerUserId, assignmentRuleId: assignment.ruleId },
     });
+    if (!row.ownerUserId) {
+      await this.notifyUnassignedLead(row.id, row.title, actor.tenantId, divisionId);
+    }
     return this.get(row.id, actor);
   }
 
@@ -1733,6 +2280,16 @@ export class OpportunitiesService {
           stage = await this.stageRowByCode(row.stageCode);
           stageCache.set(row.stageCode, stage);
         }
+        const assignment =
+          stage.code === 'lead'
+            ? await this.resolveLeadOwner({
+                tenantId: actor.tenantId,
+                divisionId,
+                city: row.candidate.province,
+                product: row.title,
+                sourceCode: 'trello',
+              })
+            : { ownerUserId: actor.userId, ruleId: null };
         if (resolution.action === 'existing') {
           selectedCompany = await this.assertCompany(resolution.companyId, actor);
           if (resolution.primaryContactId) {
@@ -1919,7 +2476,7 @@ export class OpportunitiesService {
               divisionId,
               companyId,
               primaryContactId,
-              ownerUserId: actor.userId,
+              ownerUserId: assignment.ownerUserId,
               title: row.title,
               description: row.description?.trim() || null,
               leadContactName: null,
@@ -1973,6 +2530,9 @@ export class OpportunitiesService {
               source: 'trello',
             },
           });
+        }
+        if (stage.code === 'lead' && !created.ownerUserId) {
+          await this.notifyUnassignedLead(created.id, created.title, actor.tenantId, divisionId);
         }
         if (acceptedPhoneAction || acceptedEmailAction) {
           await this.audit.write({
@@ -2194,11 +2754,17 @@ export class OpportunitiesService {
     } else if (input.companyId !== undefined && existing.primaryContactId) {
       if (companyId) await this.assertContact(existing.primaryContactId, actor, companyId);
     }
-    const isSuperAdmin = actor.roles.includes('super_admin');
-    if (input.ownerUserId !== undefined && !isSuperAdmin) {
-      throw new ForbiddenError('Sorumlu kullanıcıyı yalnızca süper admin değiştirebilir');
+    const canReassignOwner = actor.roles.includes('super_admin') || actor.roles.includes('sales');
+    if (input.ownerUserId !== undefined && !canReassignOwner) {
+      throw new ForbiddenError('Sorumlu kullanıcıyı yalnızca satış veya süper admin değiştirebilir');
     }
-    if (input.ownerUserId) await this.assertUser(input.ownerUserId, actor);
+    const assignedOwner = input.ownerUserId ? await this.assertUser(input.ownerUserId, actor) : null;
+    if (assignedOwner && assignedOwner.status !== 'active') {
+      throw new ValidationError('Yalnızca aktif kullanıcılar sorumlu olarak atanabilir', { field: 'ownerUserId' });
+    }
+    const ownerChanged =
+      input.ownerUserId !== undefined
+      && (input.ownerUserId ?? null) !== (existing.ownerUserId ?? null);
     const patch: Record<string, unknown> = { updatedBy: actor.userId };
     await this.applyLeadFollowUpTransition(patch, existing, input, actor);
     if (input.currencyCode !== undefined) patch.currencyId = await lookupIdByCode(this.db, currencies, input.currencyCode);
@@ -2217,6 +2783,12 @@ export class OpportunitiesService {
       'leadPhone',
       'leadEmail',
       'leadTemperature',
+      'leadNeedSummary',
+      'leadAuthorityStatus',
+      'leadBudgetStatus',
+      'leadPurchaseTimeframe',
+      'leadTechnicalFit',
+      'leadTechnicalNote',
       'leadFollowUpStatus',
       'nextAction',
       'nextActionAt',
@@ -2268,6 +2840,19 @@ export class OpportunitiesService {
             )
           );
       }
+      if (ownerChanged && assignedOwner && assignedOwner.id !== actor.userId) {
+        const isLead = existing.qualificationStage === 'lead';
+        await tx.insert(notifications).values({
+          tenantId: actor.tenantId,
+          userId: assignedOwner.id,
+          divisionId: existing.divisionId,
+          type: isLead ? 'lead_assigned' : 'opportunity_assigned',
+          title: isLead ? 'Yeni lead size atandı' : 'Yeni fırsat size atandı',
+          body: existing.title,
+          entityType: 'opportunity',
+          entityId: id,
+        });
+      }
     });
     if (invalidatedApprovalTypes.length) {
       await this.audit.write({
@@ -2281,6 +2866,17 @@ export class OpportunitiesService {
           status: 'pending',
           reason: broadEvidenceChanged ? 'Firma veya makine bilgisi değişti' : 'Ödeme bilgisi değişti',
         },
+      });
+    }
+    if (ownerChanged) {
+      await this.audit.write({
+        tenantId: actor.tenantId,
+        actorUserId: actor.userId,
+        action: 'opportunity.owner_changed',
+        resourceType: 'opportunity',
+        resourceId: id,
+        oldValues: { ownerUserId: existing.ownerUserId ?? null },
+        newValues: { ownerUserId: input.ownerUserId ?? null },
       });
     }
     return this.get(id, actor);
@@ -2378,9 +2974,26 @@ export class OpportunitiesService {
   }
 
   async delete(id: string, actor: AuthContext) {
-    await this.get(id, actor);
-    await this.db.update(opportunities).set({ deletedAt: new Date() }).where(eq(opportunities.id, id));
-    return { ok: true };
+    const existing = await this.get(id, actor);
+    const deletedAt = new Date();
+    await this.db
+      .update(opportunities)
+      .set({ deletedAt, updatedAt: deletedAt, updatedBy: actor.userId })
+      .where(and(eq(opportunities.id, id), eq(opportunities.tenantId, actor.tenantId)));
+    await this.audit.write({
+      tenantId: actor.tenantId,
+      actorUserId: actor.userId,
+      action: 'opportunity.deleted',
+      resourceType: 'opportunity',
+      resourceId: id,
+      oldValues: {
+        title: existing.title,
+        qualificationStage: existing.qualificationStage,
+        companyId: existing.companyId,
+      },
+      newValues: { deletedAt: deletedAt.toISOString() },
+    });
+    return { ok: true, deletedAt: deletedAt.toISOString() };
   }
 
   private async findScopedOpp(id: string, actor: AuthContext) {
@@ -2404,7 +3017,13 @@ export class OpportunitiesService {
     actorUserId: string,
     fromStage: QualificationStageCode,
     toStage: QualificationStageCode,
-    note?: string
+    note?: string,
+    conversion?: {
+      override: boolean;
+      fitScore: number;
+      engagementScore: number;
+      priorityScore: number;
+    }
   ) {
     await this.db.insert(opportunityQualificationHistory).values({
       tenantId,
@@ -2413,7 +3032,139 @@ export class OpportunitiesService {
       toStage,
       changedBy: actorUserId,
       changeReason: note?.trim() || null,
+      conversionOverride: conversion?.override ?? false,
+      fitScore: conversion?.fitScore ?? null,
+      engagementScore: conversion?.engagementScore ?? null,
+      priorityScore: conversion?.priorityScore ?? null,
     });
+  }
+
+  async recordLeadContactEvent(id: string, input: LeadContactEventInput, actor: AuthContext) {
+    const opp = await this.findScopedOpp(id, actor);
+    if (this.qualificationStage(opp.qualificationStage) !== 'lead') {
+      throw new ValidationError('Temas sonucu yalnızca lead kayıtlarında kullanılabilir');
+    }
+    if (opp.closedAt) throw new ValidationError('Arşivlenmiş lead için temas sonucu kaydedilemez');
+
+    const existingEvent = await this.db.query.leadContactEvents.findFirst({
+      where: and(
+        eq(leadContactEvents.tenantId, actor.tenantId),
+        eq(leadContactEvents.opportunityId, id),
+        eq(leadContactEvents.idempotencyKey, input.idempotencyKey)
+      ),
+    });
+    if (existingEvent) return this.get(id, actor);
+
+    const channelLabels: Record<LeadContactEventInput['channel'], string> = {
+      phone: 'Telefon',
+      email: 'E-posta',
+      whatsapp: 'WhatsApp',
+    };
+    const outcomeLabels: Record<LeadContactOutcomeCode, string> = {
+      no_answer: 'Yanıt yok',
+      contacted: 'Temas kuruldu',
+      callback: 'Geri arama istendi',
+      requested_info: 'Bilgi istendi',
+      meeting_booked: 'Toplantı planlandı',
+      not_interested: 'İlgilenmiyor',
+      wrong_contact: 'Yanlış kontak',
+    };
+    const activityTypeId = await lookupIdByCode(this.db, activityTypes, input.channel === 'phone' ? 'call' : input.channel);
+    if (!activityTypeId) throw new ValidationError('Temas kanalı için aktivite tipi bulunamadı');
+    const now = new Date();
+    const nextAttemptCount = (opp.contactAttemptCount ?? 0) + 1;
+    const successfulContact = !['no_answer', 'wrong_contact'].includes(input.outcome);
+    const nextStatus: LeadFollowUpStatusCode =
+      input.outcome === 'callback' || input.outcome === 'not_interested'
+        ? 'waiting'
+        : successfulContact
+          ? 'contacted'
+          : nextAttemptCount >= LEAD_MAX_CONTACT_ATTEMPTS
+            ? 'waiting'
+            : 'attempting';
+
+    try {
+      await this.db.transaction(async (tx) => {
+        const [activity] = await tx
+          .insert(salesActivities)
+          .values({
+            tenantId: actor.tenantId,
+            divisionId: opp.divisionId,
+            opportunityId: opp.id,
+            companyId: opp.companyId,
+            contactId: opp.primaryContactId,
+            activityTypeId,
+            subject: `${channelLabels[input.channel]} · ${outcomeLabels[input.outcome]}`,
+            description: input.note?.trim() || null,
+            activityDate: now,
+            nextFollowUpAt: input.nextActionAt ?? null,
+            result: outcomeLabels[input.outcome],
+            createdBy: actor.userId,
+          })
+          .returning({ id: salesActivities.id });
+        await tx.insert(leadContactEvents).values({
+          tenantId: actor.tenantId,
+          opportunityId: opp.id,
+          activityId: activity.id,
+          idempotencyKey: input.idempotencyKey,
+          channel: input.channel,
+          outcome: input.outcome,
+          actorUserId: actor.userId,
+          occurredAt: now,
+        });
+        await tx
+          .update(opportunities)
+          .set({
+            contactAttemptCount: nextAttemptCount,
+            firstContactAt: successfulContact && !opp.firstContactAt ? now : opp.firstContactAt,
+            leadFollowUpStatus: nextStatus,
+            leadStatusUpdatedAt: now,
+            ...(input.nextAction !== undefined
+              ? {
+                  nextAction: input.nextAction?.trim() || null,
+                  nextActionAt: input.nextActionAt ?? null,
+                }
+              : {}),
+            updatedAt: now,
+            updatedBy: actor.userId,
+          })
+          .where(
+            and(
+              eq(opportunities.id, opp.id),
+              eq(opportunities.tenantId, actor.tenantId),
+              isNull(opportunities.deletedAt)
+            )
+          );
+      });
+    } catch (error) {
+      const code = (error as { code?: string; cause?: { code?: string } })?.code
+        ?? (error as { cause?: { code?: string } })?.cause?.code;
+      if (code === '23505') return this.get(id, actor);
+      throw error;
+    }
+
+    await this.audit.write({
+      tenantId: actor.tenantId,
+      actorUserId: actor.userId,
+      action: 'lead.contact_recorded',
+      resourceType: 'opportunity',
+      resourceId: id,
+      oldValues: {
+        leadFollowUpStatus: opp.leadFollowUpStatus,
+        contactAttemptCount: opp.contactAttemptCount,
+        nextAction: opp.nextAction,
+        nextActionAt: opp.nextActionAt,
+      },
+      newValues: {
+        channel: input.channel,
+        outcome: input.outcome,
+        leadFollowUpStatus: nextStatus,
+        contactAttemptCount: nextAttemptCount,
+        nextAction: input.nextAction,
+        nextActionAt: input.nextActionAt,
+      },
+    });
+    return this.get(id, actor);
   }
 
   async convertLead(id: string, input: OpportunityConvertInput, actor: AuthContext) {
@@ -2424,8 +3175,50 @@ export class OpportunitiesService {
     if (opp.leadFollowUpStatus === 'disqualified') {
       throw new ValidationError('Uygun değil durumundaki Lead fırsata çevrilemez; önce Lead durumunu değiştirin');
     }
-    if (!opp.ownerUserId) throw new ValidationError('Fırsata çevirmeden önce sorumlu kullanıcı atanmalıdır');
-    if (!opp.title?.trim()) throw new ValidationError('Fırsata çevirmeden önce konu girilmelidir');
+    const [contextMap, activityMap] = await Promise.all([
+      this.qualificationContexts([opp]),
+      this.leadActivityContexts([opp]),
+    ]);
+    const context = contextMap.get(opp.id)!;
+    const insights = this.leadInsights(opp, activityMap.get(opp.id));
+    const hardBlockers: string[] = [];
+    if (!opp.ownerUserId) hardBlockers.push('Sorumlu kullanıcı atanmalıdır');
+    if (
+      !opp.leadPhone?.trim() &&
+      !opp.leadEmail?.trim() &&
+      !opp.leadContactValue?.trim() &&
+      !context.hasPhone &&
+      !context.hasEmail
+    ) {
+      hardBlockers.push('Telefon veya e-posta bilgisi girilmelidir');
+    }
+    if (!opp.title?.trim() && !opp.requestedMachine?.trim()) {
+      hardBlockers.push('Ürün veya makine bilgisi girilmelidir');
+    }
+    if (!opp.nextAction?.trim() || !opp.nextActionAt) {
+      hardBlockers.push('Tarihli bir sonraki aksiyon planlanmalıdır');
+    }
+    if (hardBlockers.length) {
+      throw new ValidationError('Lead fırsata dönüşüm için henüz hazır değil', {
+        blockers: hardBlockers,
+        requiresOverride: false,
+        leadInsights: insights,
+      });
+    }
+    const softBlockers = [...new Set([
+      ...insights.softBlockers,
+      ...(insights.fitScore < 60 ? ['Uyum skoru 60 puanın altında'] : []),
+      ...(opp.leadBudgetStatus === 'unavailable' ? ['Bütçe uygun değil'] : []),
+      ...(opp.leadTechnicalFit === 'not_fit' ? ['Teknik uyum olumsuz'] : []),
+    ])];
+    const overrideReason = input.overrideReason?.trim();
+    if (softBlockers.length && !overrideReason) {
+      throw new ValidationError('Nitelendirme eksikleri için dönüşüm gerekçesi zorunludur', {
+        blockers: softBlockers,
+        requiresOverride: true,
+        leadInsights: insights,
+      });
+    }
     const now = new Date();
     // Fırsata çevrilen kart C alanının giriş aşamasına ("Satış") taşınır;
     // aksi hâlde derece C olurken operasyon ekseni lead'de takılı kalır.
@@ -2434,7 +3227,7 @@ export class OpportunitiesService {
       .update(opportunities)
       .set({
         qualificationStage: 'c',
-        qualificationNote: input.note?.trim() || opp.qualificationNote,
+        qualificationNote: input.note?.trim() || overrideReason || opp.qualificationNote,
         qualificationUpdatedAt: now,
         ...(entryStage ? { currentStageId: entryStage.id } : {}),
         updatedAt: now,
@@ -2451,7 +3244,24 @@ export class OpportunitiesService {
         changeReason: 'Fırsata çevrildi (C alanı)',
       });
     }
-    await this.recordQualificationChange(id, actor.tenantId, actor.userId, fromStage, 'c', input.note ?? 'Fırsata çevrildi');
+    const conversionNote = [
+      input.note?.trim(),
+      overrideReason ? `Dönüşüm gerekçesi: ${overrideReason}` : null,
+    ].filter(Boolean).join('\n') || 'Fırsata çevrildi';
+    await this.recordQualificationChange(
+      id,
+      actor.tenantId,
+      actor.userId,
+      fromStage,
+      'c',
+      conversionNote,
+      {
+        override: softBlockers.length > 0,
+        fitScore: insights.fitScore,
+        engagementScore: insights.engagementScore,
+        priorityScore: insights.priorityScore,
+      }
+    );
     await this.audit.write({
       tenantId: actor.tenantId,
       actorUserId: actor.userId,
@@ -2459,7 +3269,14 @@ export class OpportunitiesService {
       resourceType: 'opportunity',
       resourceId: id,
       oldValues: { qualificationStage: fromStage },
-      newValues: { qualificationStage: 'c' },
+      newValues: {
+        qualificationStage: 'c',
+        conversionOverride: softBlockers.length > 0,
+        overrideReason: overrideReason ?? null,
+        fitScore: insights.fitScore,
+        engagementScore: insights.engagementScore,
+        priorityScore: insights.priorityScore,
+      },
     });
     return this.get(id, actor);
   }
@@ -2479,7 +3296,10 @@ export class OpportunitiesService {
         tenantId: actor.tenantId,
         code,
         // Kod bilinen bir lead eleme nedeniyse Türkçe etiketini kullan.
-        name: LEAD_DISQUALIFY_REASONS.find((reason) => reason.code === code)?.name ?? code,
+        name:
+          LEAD_DISQUALIFY_REASONS.find((reason) => reason.code === code)?.name
+          ?? LOST_REASON_NAMES[code]
+          ?? code,
       })
       .returning();
     return created;
@@ -2496,6 +3316,27 @@ export class OpportunitiesService {
       });
     }
     const reason = await this.resolveCancellationReason(input.cancellationReasonCode, actor);
+    const companySnapshot = opp.companyId
+      ? await this.db.query.companies.findFirst({
+          where: and(
+            eq(companies.id, opp.companyId),
+            eq(companies.tenantId, actor.tenantId),
+            isNull(companies.deletedAt)
+          ),
+        })
+      : null;
+    const competitorSnapshot = input.lostCompetitorId
+      ? await this.db.query.competitors.findFirst({
+          where: and(
+            eq(competitors.id, input.lostCompetitorId),
+            eq(competitors.tenantId, actor.tenantId),
+            isNull(competitors.deletedAt)
+          ),
+        })
+      : null;
+    if (input.lostCompetitorId && !competitorSnapshot) {
+      throw new ValidationError('Seçilen rakip bulunamadı');
+    }
     const lostStatus = await this.db.query.opportunityStatuses.findFirst({
       where: eq(opportunityStatuses.code, 'lost'),
     });
@@ -2505,11 +3346,24 @@ export class OpportunitiesService {
       .set({
         qualificationStage: 'lost',
         currentStageId: cancelledStage.id,
-        qualificationNote: input.note?.trim() || null,
+        qualificationNote: input.note?.trim() || input.lostUnmetConditions?.trim() || null,
         qualificationUpdatedAt: new Date(),
         lostReasonId: reason.id,
         lostCompetitorId: input.lostCompetitorId ?? null,
         lostCompetitorProductModel: input.lostCompetitorProductModel?.trim() || null,
+        lostCompanyName:
+          companySnapshot?.shortName?.trim()
+          || companySnapshot?.legalTitle?.trim()
+          || opp.leadCompanyTitle?.trim()
+          || null,
+        lostProductName:
+          input.lostProductName?.trim()
+          || opp.requestedMachine?.trim()
+          || opp.title?.trim()
+          || opp.description?.trim()
+          || null,
+        lostCompetitorName: competitorSnapshot?.name?.trim() || null,
+        lostUnmetConditions: input.lostUnmetConditions?.trim() || input.note?.trim() || null,
         statusId: lostStatus?.id ?? opp.statusId,
         updatedAt: new Date(),
         updatedBy: actor.userId,
@@ -2614,7 +3468,8 @@ export class OpportunitiesService {
       }
     }
 
-    await this.recordQualificationChange(id, actor.tenantId, actor.userId, fromStage, toStage, input.note);
+    const qualificationChangeNote = input.note?.trim() || input.lostUnmetConditions?.trim();
+    await this.recordQualificationChange(id, actor.tenantId, actor.userId, fromStage, toStage, qualificationChangeNote);
     await this.audit.write({
       tenantId: actor.tenantId,
       actorUserId: actor.userId,
@@ -2622,7 +3477,14 @@ export class OpportunitiesService {
       resourceType: 'opportunity',
       resourceId: id,
       oldValues: { qualificationStage: fromStage },
-      newValues: { qualificationStage: toStage, note: input.note ?? null },
+      newValues: {
+        qualificationStage: toStage,
+        note: qualificationChangeNote ?? null,
+        lostProductName: input.lostProductName ?? null,
+        lostUnmetConditions: input.lostUnmetConditions ?? null,
+        lostCompetitorId: input.lostCompetitorId ?? null,
+        lostCompetitorProductModel: input.lostCompetitorProductModel ?? null,
+      },
     });
     return this.get(id, actor);
   }
@@ -2771,34 +3633,47 @@ export class OpportunitiesService {
     return this.get(id, actor);
   }
 
-  /** Geri Aç: yanlış kapatmayı geri alır ve terminal satış derecesini önceki aktif dereceye taşır. */
+  /**
+   * Geri Aç:
+   * - LOST kartını satış/süper admin için doğrudan Lead havuzuna döndürür
+   *   (kartın ayrıca arşivlenmiş olması gerekmez).
+   * - WIN arşivini önceki aktif dereceye döndüren eski davranışı korur.
+   */
   async reopen(id: string, actor: AuthContext) {
     const opp = await this.findScopedOpp(id, actor);
-    if (!opp.closedAt) throw new ValidationError('Fırsat zaten açık');
     const terminalStage = this.qualificationStage(opp.qualificationStage);
+    const reopeningLost = terminalStage === 'lost';
+    if (reopeningLost && !actor.roles.some((role) => role === 'sales' || role === 'super_admin')) {
+      throw new ForbiddenError('LOST fırsatı yalnızca satış veya süper admin Lead havuzuna döndürebilir');
+    }
+    if (!reopeningLost && !opp.closedAt) throw new ValidationError('Fırsat zaten açık');
     const isQualificationTerminal = terminalStage === 'win' || terminalStage === 'lost';
     let reopenedStage: QualificationStageCode | null = null;
     let openStatusId: string | null = null;
+    let entryStage: { id: string } | null = null;
 
     if (isQualificationTerminal) {
-      const previousChange = await this.db.query.opportunityQualificationHistory.findFirst({
-        where: and(
-          eq(opportunityQualificationHistory.tenantId, actor.tenantId),
-          eq(opportunityQualificationHistory.opportunityId, id),
-          eq(opportunityQualificationHistory.toStage, terminalStage)
-        ),
-        orderBy: desc(opportunityQualificationHistory.createdAt),
-      });
-      const previousStage = previousChange?.fromStage as QualificationStageCode | null | undefined;
-      reopenedStage =
-        previousStage &&
-        QUALIFICATION_STAGES.includes(previousStage) &&
-        previousStage !== 'win' &&
-        previousStage !== 'lost'
-          ? previousStage
-          : terminalStage === 'win'
-            ? 'a_plus'
-            : 'c';
+      if (reopeningLost) {
+        reopenedStage = 'lead';
+      } else {
+        const previousChange = await this.db.query.opportunityQualificationHistory.findFirst({
+          where: and(
+            eq(opportunityQualificationHistory.tenantId, actor.tenantId),
+            eq(opportunityQualificationHistory.opportunityId, id),
+            eq(opportunityQualificationHistory.toStage, terminalStage)
+          ),
+          orderBy: desc(opportunityQualificationHistory.createdAt),
+        });
+        const previousStage = previousChange?.fromStage as QualificationStageCode | null | undefined;
+        reopenedStage =
+          previousStage &&
+          QUALIFICATION_STAGES.includes(previousStage) &&
+          previousStage !== 'win' &&
+          previousStage !== 'lost'
+            ? previousStage
+            : 'a_plus';
+      }
+      entryStage = await this.stageRowByCode(QUALIFICATION_STAGE_ENTRY[reopenedStage].stage);
       const openStatus = await this.db.query.opportunityStatuses.findFirst({
         where: eq(opportunityStatuses.code, 'open'),
       });
@@ -2815,9 +3690,24 @@ export class OpportunitiesService {
           ...(reopenedStage
             ? {
                 qualificationStage: reopenedStage,
-                qualificationNote: 'Geçmişten geri açıldı',
+                qualificationNote: reopeningLost ? 'LOST kaydından Lead havuzuna geri açıldı' : 'Geçmişten geri açıldı',
                 qualificationUpdatedAt: now,
                 statusId: openStatusId ?? opp.statusId,
+                ...(entryStage ? { currentStageId: entryStage.id } : {}),
+                ...(reopeningLost
+                  ? {
+                      leadFollowUpStatus: 'new',
+                      leadStatusUpdatedAt: now,
+                      disqualifyReasonId: null,
+                      lostReasonId: null,
+                      lostCompetitorId: null,
+                      lostCompetitorProductModel: null,
+                      lostCompanyName: null,
+                      lostProductName: null,
+                      lostCompetitorName: null,
+                      lostUnmetConditions: null,
+                    }
+                  : {}),
               }
             : {}),
           updatedAt: now,
@@ -2838,17 +3728,27 @@ export class OpportunitiesService {
           .where(
             and(
               eq(opportunityApprovals.opportunityId, id),
-              eq(opportunityApprovals.approvalType, 'win'),
+              ...(reopeningLost ? [] : [eq(opportunityApprovals.approvalType, 'win')]),
               isNull(opportunityApprovals.deletedAt)
             )
           );
+        if (entryStage && entryStage.id !== opp.currentStageId) {
+          await tx.insert(opportunityStageHistory).values({
+            tenantId: actor.tenantId,
+            opportunityId: id,
+            fromStageId: opp.currentStageId,
+            toStageId: entryStage.id,
+            changedBy: actor.userId,
+            changeReason: reopeningLost ? 'LOST kaydından Lead havuzuna geri açıldı' : 'Geçmişten geri açıldı',
+          });
+        }
         await tx.insert(opportunityQualificationHistory).values({
           tenantId: actor.tenantId,
           opportunityId: id,
           fromStage: terminalStage,
           toStage: reopenedStage,
           changedBy: actor.userId,
-          changeReason: 'Geçmişten geri açıldı',
+          changeReason: reopeningLost ? 'LOST kaydından Lead havuzuna geri açıldı' : 'Geçmişten geri açıldı',
         });
       }
     });
@@ -2859,7 +3759,11 @@ export class OpportunitiesService {
       resourceType: 'opportunity',
       resourceId: id,
       oldValues: { qualificationStage: terminalStage, closedAt: opp.closedAt },
-      newValues: { qualificationStage: reopenedStage ?? terminalStage, closedAt: null },
+      newValues: {
+        qualificationStage: reopenedStage ?? terminalStage,
+        currentStageId: entryStage?.id ?? opp.currentStageId,
+        closedAt: null,
+      },
     });
     return this.get(id, actor);
   }

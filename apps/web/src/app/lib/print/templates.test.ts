@@ -223,6 +223,101 @@ describe("print templates", () => {
     expect(document.body).toContain("Sayfa <b>4</b> / <b>4</b>");
   });
 
+  it("renders the reference HAXAN product logo instead of a bold text brand", () => {
+    const document = quoteDoc({
+      firma: "Logo Kontrol Müşterisi",
+      tarih: "30.07.2026",
+      belgeNo: "CNC-2026/005",
+      marka: "HAXAN",
+      model: "MMT-1170",
+      tip: "CNC Dik İşleme Merkezi",
+      items: [{ urun: "HAXAN MMT-1170 CNC Dik İşleme Merkezi", birim: "1 Adet", fiyat: 100_000, tutar: 100_000 }],
+      kdvOran: 0,
+      kdvTutar: 0,
+      currency: "USD",
+      notes: { key: "entered", label: "Girilen şartlar", odeme: [], teslimat: [], garanti: [] },
+    }, assetBase);
+
+    expect(document.body).toContain('class="q-brand-logo"');
+    expect(document.body).toContain(`${assetBase}/haxan-product-logo.webp`);
+    expect(document.body).not.toContain('<div class="q-brand">HAXAN</div>');
+    expect(document.body).toContain('<div class="q-model">MMT-1170</div>');
+  });
+
+  it("uses the configured brand logo in the offer and rejects unsafe logo URLs", () => {
+    const base = {
+      firma: "Marka Logolu Müşteri",
+      tarih: "30.07.2026",
+      belgeNo: "CNC-2026/005-B",
+      marka: "ECOCA",
+      model: "MT-208",
+      items: [{ urun: "ECOCA MT-208", birim: "1 Adet", fiyat: 100_000, tutar: 100_000 }],
+      kdvOran: 0,
+      kdvTutar: 0,
+      currency: "USD" as const,
+      notes: { key: "entered" as const, label: "Girilen şartlar", odeme: [], teslimat: [], garanti: [] },
+    };
+    const configured = quoteDoc({
+      ...base,
+      brandLogoUrl: "data:image/webp;base64,YnJhbmQtbG9nbw==",
+    }, assetBase);
+    const unsafe = quoteDoc({
+      ...base,
+      brandLogoUrl: "javascript:alert(1)",
+    }, assetBase);
+
+    expect(configured.body).toContain('src="data:image/webp;base64,YnJhbmQtbG9nbw=="');
+    expect(configured.body).not.toContain('<div class="q-brand">ECOCA</div>');
+    expect(unsafe.body).not.toContain("javascript:alert(1)");
+    expect(unsafe.body).toContain('<div class="q-brand">ECOCA</div>');
+  });
+
+  it("uses the selected company logo as the offer letterhead", () => {
+    const document = quoteDoc({
+      firma: "Örnek & Firma",
+      tarih: "30.07.2026",
+      belgeNo: "CNC-2026/006",
+      headerLogo: {
+        mode: "company",
+        imageUrl: "data:image/webp;base64,Y29tcGFueS1sb2dv",
+        alt: "Örnek & Firma logosu",
+      },
+      items: [{ urun: "MMT-1170", birim: "1 Adet", fiyat: 100_000, tutar: 100_000 }],
+      kdvOran: 0,
+      kdvTutar: 0,
+      currency: "USD",
+      notes: { key: "entered", label: "Girilen şartlar", odeme: [], teslimat: [], garanti: [] },
+    }, assetBase);
+
+    expect(document.body).toContain('class="q-company-letterhead"');
+    expect(document.body).toContain('src="data:image/webp;base64,Y29tcGFueS1sb2dv"');
+    expect(document.body).toContain('alt="Örnek &amp; Firma logosu"');
+    expect(document.body).not.toContain(`${assetBase}/haksan-letterhead.jpg`);
+  });
+
+  it("supports a logo-free offer and rejects unsafe company logo URLs", () => {
+    const base = {
+      firma: "Logo Güvenlik Müşterisi",
+      tarih: "30.07.2026",
+      belgeNo: "CNC-2026/007",
+      items: [{ urun: "MMT-1170", birim: "1 Adet", fiyat: 100_000, tutar: 100_000 }],
+      kdvOran: 0,
+      kdvTutar: 0,
+      currency: "USD" as const,
+      notes: { key: "entered" as const, label: "Girilen şartlar", odeme: [], teslimat: [], garanti: [] },
+    };
+    const withoutLogo = quoteDoc({ ...base, headerLogo: { mode: "none" } }, assetBase);
+    const unsafe = quoteDoc({
+      ...base,
+      headerLogo: { mode: "company", imageUrl: "javascript:alert(1)" },
+    }, assetBase);
+
+    expect(withoutLogo.body).toContain('class="q-empty-letterhead"');
+    expect(withoutLogo.body).not.toContain(`${assetBase}/haksan-letterhead.jpg`);
+    expect(unsafe.body).not.toContain("javascript:alert(1)");
+    expect(unsafe.body).toContain(`${assetBase}/haksan-letterhead.jpg`);
+  });
+
   it("always reserves the special-discount row in the offer price box", () => {
     const document = quoteDoc({
       firma: "İskontosuz Müşteri",

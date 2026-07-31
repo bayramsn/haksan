@@ -11,6 +11,7 @@ import { Product } from "../../lib/mock";
 import { useStore } from "../../lib/store";
 import { useAuth } from "../../../lib/auth";
 import { ProductDetailDialog, ProductThumb } from "../dialogs/ProductDetailDialog";
+import { ProductDialog } from "../dialogs/CreateDialogs";
 import { productService } from "../../../lib/services";
 import { InsightStat } from "../shared/PremiumPrimitives";
 
@@ -35,6 +36,12 @@ const matches = (p: Product, q: string) => {
     (v) => (v ?? "").toLowerCase().includes(s)
   );
 };
+const productName = (product: Product) =>
+  product.shortDescription || [product.brand, product.modelName || product.model].filter(Boolean).join(" ") || product.stockCode || "";
+const sortProductsByName = (items: Product[]) =>
+  [...items].sort((a, b) => productName(a).localeCompare(productName(b), "tr", { sensitivity: "base" }));
+const sortPriceListsByName = <T extends { name: string; code: string }>(items: T[]) =>
+  [...items].sort((a, b) => (a.name || a.code).localeCompare(b.name || b.code, "tr", { sensitivity: "base" }));
 
 const SERVICE_PRICE_CATEGORIES = [
   { value: "parts", label: "Yedek Parça", code: "YEDEK_PARCA", icon: Package },
@@ -253,9 +260,11 @@ function SearchBox({ q, setQ, placeholder }: { q: string; setQ: (v: string) => v
 export function SalesPriceListPage() {
   const { products } = useStore();
   const { hasPermission, hasRole } = useAuth();
+  const canEditProduct = hasRole("super_admin") || hasRole("admin") || hasPermission("products.update");
   const canManageCampaign = hasRole("super_admin") && (hasPermission("price_lists.update") || hasPermission("price_lists.create"));
   const [q, setQ] = useState("");
   const [selected, setSelected] = useState<Product | null>(null);
+  const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [priceLists, setPriceLists] = useState<Array<{ id: string; name: string; code: string; isActive?: boolean; currency?: { code?: string } }>>([]);
   const [selectedListId, setSelectedListId] = useState("");
   const [priceOverrides, setPriceOverrides] = useState<Record<string, PriceOverride>>({});
@@ -266,7 +275,7 @@ export function SalesPriceListPage() {
       .listPriceLists({ pageSize: 50 })
       .then((res) => {
         const rows = res.data ?? [];
-        setPriceLists(rows);
+        setPriceLists(sortPriceListsByName(rows));
         const active = rows.find((p) => p.isActive) ?? rows[0];
         if (active?.id) setSelectedListId(active.id);
       })
@@ -304,7 +313,7 @@ export function SalesPriceListPage() {
   const selectedList = priceLists.find((p) => p.id === selectedListId);
   const listCurrency = selectedList?.currency?.code;
 
-  const machines = useMemo(() => products.filter((p) => p.categoryCode === "TEZGAH"), [products]);
+  const machines = useMemo(() => sortProductsByName(products.filter((p) => p.categoryCode === "TEZGAH")), [products]);
   const filtered = machines.filter((p) => matches(p, q));
   const pricedMachineCount = machines.filter((product) => (priceOverrides[product.id]?.listPrice ?? product.listPrice) > 0).length;
   const campaignMachineCount = machines.filter((product) => priceOverrides[product.id]?.campaignIsActive && priceOverrides[product.id]?.campaignPrice != null).length;
@@ -468,7 +477,29 @@ export function SalesPriceListPage() {
         </div>
       </Card>
 
-      <ProductDetailDialog product={selected} onClose={() => setSelected(null)} highlightOptional readOnly />
+      <ProductDetailDialog
+        product={selected}
+        onClose={() => setSelected(null)}
+        highlightOptional
+        onEdit={
+          canEditProduct
+            ? (product) => {
+                setSelected(null);
+                setEditingProduct(product);
+              }
+            : undefined
+        }
+      />
+      {editingProduct && (
+        <ProductDialog
+          mode="edit"
+          product={editingProduct}
+          open={!!editingProduct}
+          onOpenChange={(open) => {
+            if (!open) setEditingProduct(null);
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -478,11 +509,13 @@ export function SalesPriceListPage() {
    ========================================================================= */
 export function ServicePriceListPage() {
   const { products } = useStore();
-  const { hasPermission } = useAuth();
+  const { hasPermission, hasRole } = useAuth();
   const canEdit = hasPermission("price_lists.update") || hasPermission("price_lists.create");
+  const canEditProduct = hasRole("super_admin") || hasRole("admin") || hasPermission("products.update");
   const [tab, setTab] = useState<ServicePriceTab>("parts");
   const [q, setQ] = useState("");
   const [selected, setSelected] = useState<Product | null>(null);
+  const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [priceLists, setPriceLists] = useState<Array<{ id: string; name: string; code: string; isActive?: boolean; currency?: { code?: string } }>>([]);
   const [selectedListId, setSelectedListId] = useState("");
   const [priceOverrides, setPriceOverrides] = useState<Record<string, PriceOverride>>({});
@@ -492,7 +525,7 @@ export function ServicePriceListPage() {
       .listPriceLists({ pageSize: 50 })
       .then((res) => {
         const rows = res.data ?? [];
-        setPriceLists(rows);
+        setPriceLists(sortPriceListsByName(rows));
         const active = rows.find((p) => p.isActive) ?? rows[0];
         if (active?.id) setSelectedListId(active.id);
       })
@@ -529,7 +562,10 @@ export function ServicePriceListPage() {
     }, {} as Record<ServicePriceTab, number>),
   [products]);
   const activeCategory = SERVICE_PRICE_CATEGORIES.find((category) => category.value === tab) ?? SERVICE_PRICE_CATEGORIES[0];
-  const categoryProducts = useMemo(() => products.filter((p) => p.categoryCode === activeCategory.code), [products, activeCategory.code]);
+  const categoryProducts = useMemo(
+    () => sortProductsByName(products.filter((p) => p.categoryCode === activeCategory.code)),
+    [products, activeCategory.code],
+  );
   const list = categoryProducts.filter((p) => matches(p, q));
   const isLabor = tab === "labor";
   const selectedList = priceLists.find((p) => p.id === selectedListId);
@@ -699,7 +735,29 @@ export function ServicePriceListPage() {
         </div>
       </Card>
 
-      <ProductDetailDialog product={selected} onClose={() => setSelected(null)} hideOptionalEquipment />
+      <ProductDetailDialog
+        product={selected}
+        onClose={() => setSelected(null)}
+        hideOptionalEquipment
+        onEdit={
+          canEditProduct
+            ? (product) => {
+                setSelected(null);
+                setEditingProduct(product);
+              }
+            : undefined
+        }
+      />
+      {editingProduct && (
+        <ProductDialog
+          mode="edit"
+          product={editingProduct}
+          open={!!editingProduct}
+          onOpenChange={(open) => {
+            if (!open) setEditingProduct(null);
+          }}
+        />
+      )}
     </div>
   );
 }

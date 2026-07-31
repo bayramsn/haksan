@@ -10,6 +10,7 @@ import {
   opportunityApprovalTypeEnum,
   opportunityCloseSchema,
   opportunityConvertSchema,
+  leadContactEventSchema,
   opportunityQualificationChangeSchema,
   opportunityQualificationStageEnum,
   trelloImportCommitRequestSchema,
@@ -23,6 +24,7 @@ import {
   type OpportunityApprovalDecisionInput,
   type OpportunityCloseInput,
   type OpportunityConvertInput,
+  type LeadContactEventInput,
   type OpportunityQualificationChangeInput,
   type OpportunityApprovalType,
   type TrelloImportCommitRequest,
@@ -62,6 +64,13 @@ export class OpportunitiesController {
   ) {
     const { page, pageSize, sortBy, sortDir, ...query } = qp;
     return this.svc.list(user, query, { page, pageSize, sortBy, sortDir });
+  }
+
+  @RequirePermissions('opportunities.read')
+  @Throttle({ default: { limit: 60, ttl: 60_000 } })
+  @Get('lead-summary')
+  leadSummary(@CurrentUser() user: AuthContext) {
+    return this.svc.leadSummary(user);
   }
 
   @RequirePermissions('opportunities.read')
@@ -117,6 +126,17 @@ export class OpportunitiesController {
     @CurrentUser() user: AuthContext
   ) {
     return this.svc.linkCompany(id, body, user);
+  }
+
+  @RequirePermissions('opportunities.update')
+  @Throttle({ default: { limit: 30, ttl: 60_000 } })
+  @Post(':id/contact-events')
+  recordLeadContactEvent(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(leadContactEventSchema)) body: LeadContactEventInput,
+    @CurrentUser() user: AuthContext
+  ) {
+    return this.svc.recordLeadContactEvent(id, body, user);
   }
 
   @RequirePermissions('opportunities.update')

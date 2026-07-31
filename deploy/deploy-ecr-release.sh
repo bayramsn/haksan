@@ -215,5 +215,11 @@ for endpoint in / /health /health/live /health/ready /health/dependencies /healt
   curl -kfsS --resolve "${APP_DOMAIN}:443:127.0.0.1" "https://${APP_DOMAIN}${endpoint}" >/dev/null
 done
 
+# Etiket değişimi ve başarılı container geçişinden sonra eski release katmanları
+# dangling duruma gelir. En güncel rollback çifti etiketli olduğu için korunur;
+# yalnız dangling katmanlar ve bir haftadan eski kullanılmayan build cache silinir.
+docker image prune --force
+docker builder prune --force --filter "until=168h"
+
 trap - ERR
 echo "ECR_DEPLOY_SUCCEEDED release=$RELEASE_ID api=$API_IMAGE_URI web=$WEB_IMAGE_URI rollback_api=$API_ROLLBACK_TAG rollback_web=$NGINX_ROLLBACK_TAG"

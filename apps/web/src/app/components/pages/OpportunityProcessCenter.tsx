@@ -10,7 +10,6 @@ import {
   RotateCcw,
 } from "lucide-react";
 import {
-  PIPELINE_STAGE_FLOW,
   type OpportunityProcessActionKey,
   type OpportunityProcessReadiness,
   type ProcessTarget,

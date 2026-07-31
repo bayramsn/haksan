@@ -2,6 +2,14 @@
  * UI domain types + pipeline/shipment label constants.
  * İş verisi burada tutulmaz — tüm kayıtlar API / store üzerinden gelir.
  */
+import type {
+  LeadAuthorityStatusCode,
+  LeadBudgetStatusCode,
+  LeadInsights,
+  LeadPurchaseTimeframeCode,
+  LeadTechnicalFitCode,
+} from "@haksan/shared";
+
 export type Role = "SuperAdmin" | "Admin" | "Sales" | "Service";
 
 export type User = {
@@ -12,6 +20,7 @@ export type User = {
   role: Role;
   roleCodes?: string[];
   roleNames?: string[];
+  divisionIds?: string[];
   department: string;
   departmentId?: string | null;
   active: boolean;
@@ -41,6 +50,10 @@ export type CompanyAddress = {
 
 export type Customer = {
   id: string;
+  logoFileId?: string | null;
+  logoUrl?: string;
+  /** Kaynak CRM/Excel sistemindeki kalıcı firma numarası. */
+  companyNo?: string;
   type: "person" | "company";
   firmType: FirmType;
   salesStatus?: CustomerSalesStatus;
@@ -86,6 +99,10 @@ export type Customer = {
 
 export type Contact = {
   id: string;
+  /** Kaynak CRM/Excel sistemindeki kalıcı kontak numarası. */
+  contactNo?: string;
+  /** Kontağın birincil firmasının kaynak sistem numarası. */
+  companyNo?: string;
   customerId: string;
   companyIds?: string[];
   name: string;
@@ -295,6 +312,8 @@ export type SalesCase = {
   id: string;
   /** Firma henüz bağlanmadıysa hızlı lead kartlarında boş string olur. */
   customerId: string;
+  /** Tenant içindeki ticari bölüm kapsamı (CNC / Üniversal / Sac İşleme). */
+  divisionId?: string;
   primaryContactId?: string;
   /** Firma ana kaydı oluşmadan önce satış kartında tutulan lead bağlamı. */
   leadContactName?: string;
@@ -309,6 +328,15 @@ export type SalesCase = {
   leadTemperature?: LeadTemperature;
   /** Lead havuzundaki günlük takip durumu. */
   leadFollowUpStatus?: LeadFollowUpStatus;
+  /** Açıklanabilir beşli lead nitelendirme yüzeyi. */
+  leadNeedSummary?: string;
+  leadAuthorityStatus?: LeadAuthorityStatusCode;
+  leadBudgetStatus?: LeadBudgetStatusCode;
+  leadPurchaseTimeframe?: LeadPurchaseTimeframeCode;
+  leadTechnicalFit?: LeadTechnicalFitCode;
+  leadTechnicalNote?: string;
+  /** Sunucunun CRM alanlarından deterministik olarak türettiği skorlar. */
+  leadInsights?: LeadInsights;
   /** Satış ekibinin bir sonraki somut aksiyonu ve hedef zamanı. */
   nextAction?: string;
   nextActionAt?: string;
@@ -376,8 +404,14 @@ export type SalesCase = {
   paymentMethod?: OpportunityPaymentMethod;
   isOfferPrepared: boolean;
   isLost: boolean;
+  lostReasonCode?: string;
   lostReason?: string;
+  lostCompanyName?: string;
+  lostProductName?: string;
+  lostUnmetConditions?: string;
+  lostCompetitorId?: string;
   competitor?: string;
+  lostCompetitorProductModel?: string;
   createdAt: string;
   closedAt?: string;
 };
@@ -457,6 +491,7 @@ export type DocumentItem = {
     | "AccountingInvoice"
     | "DeliveryForm"
     | "InstallationForm"
+    | "ExternalQuote"
     | "Other";
   fileName: string;
   uploadedBy: string;
@@ -488,11 +523,14 @@ export type Payment = {
 export type StockItem = {
   id: string;
   brand: string;
+  productName?: string;
   counterType: string;
   counterModel: string;
   serialNumber: string;
   controlPanel: string;
   stockCode: string;
+  itemCondition?: "new" | "used";
+  warehouseId?: string;
   warehouse: string;
   status: "Available" | "Reserved" | "InTransit" | "Sold" | "Inactive";
   /** Seri no ile takip edilen CRM stok kategorisi. */
@@ -505,6 +543,7 @@ export type StockItem = {
   productId?: string;
   parentInventoryItemId?: string | null;
   loadingDate?: string;
+  receivedDate?: string;
   arrivalDate?: string;
   locationStatus?: string;
 };
@@ -514,6 +553,7 @@ export type ProductSpec = { key: string; value: string; unit?: string; specUnit?
 export type ProductAlternative = {
   id: string;
   brand: string;
+  brandLogoUrl?: string;
   model: string;
   shortDescription: string;
   category: string;
@@ -526,6 +566,9 @@ export type ProductAlternative = {
 export type Product = {
   id: string;
   brand: string;
+  brandId?: string;
+  brandLogoFileId?: string | null;
+  brandLogoUrl?: string;
   series?: string;
   productGroup?: string;
   productGroupCode?: string;

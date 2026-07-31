@@ -144,9 +144,10 @@ export function ProductsPage({ initialQuery }: { initialQuery?: string }) {
   const [deleting, setDeleting] = useState<Product | null>(null);
   const [deleteSaving, setDeleteSaving] = useState(false);
   const [view, setView] = usePersistentState<ListView>("products.view", "cards");
-  const canCreateProducts = hasPermission("products.create");
-  const canEditProducts = hasPermission("products.update");
-  const canDeleteProducts = hasPermission("products.delete");
+  const isProductAdmin = hasRole("super_admin") || hasRole("admin");
+  const canCreateProducts = isProductAdmin || hasPermission("products.create");
+  const canEditProducts = isProductAdmin || hasPermission("products.update");
+  const canDeleteProducts = isProductAdmin || hasPermission("products.delete");
 
   useEffect(() => {
     if (initialQuery) setQ(initialQuery);

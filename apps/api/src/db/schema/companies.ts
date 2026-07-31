@@ -1,9 +1,10 @@
 import { sql } from 'drizzle-orm';
-import { pgTable, uuid, varchar, text, boolean, timestamp, numeric, index, uniqueIndex, primaryKey } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, varchar, text, boolean, timestamp, numeric, jsonb, index, uniqueIndex, primaryKey } from 'drizzle-orm/pg-core';
 import { auditColumns, ownerColumns } from './_helpers';
 import { tenants, divisions } from './tenants';
 import { users } from './users';
 import { companyRelationTypes, companyStatuses, companyGroups, contactSources, decisionRoles } from './lookup';
+import { files } from './files';
 
 export const companies = pgTable(
   'companies',
@@ -20,12 +21,17 @@ export const companies = pgTable(
     sector: varchar('sector', { length: 128 }),
     // Tedarikçileri sevkiyat seçiminde işlevine göre ayırır; sektör bilgisinden bağımsızdır.
     supplierCategoryCode: varchar('supplier_category_code', { length: 32 }),
+    /** Eski CRM/ERP listesindeki firma NO alanı. Tenant içinde kalıcı eşleştirme anahtarıdır. */
+    externalCompanyNo: varchar('external_company_no', { length: 32 }),
     legalTitle: varchar('legal_title', { length: 255 }).notNull(),
     shortName: varchar('short_name', { length: 128 }),
     taxOffice: varchar('tax_office', { length: 128 }),
     taxNumber: varchar('tax_number', { length: 32 }),
     website: varchar('website', { length: 512 }),
+    logoFileId: uuid('logo_file_id').references(() => files.id, { onDelete: 'set null' }),
     notes: text('notes'),
+    /** Kaynak Excel'deki desteklenmeyen alanları kayıpsız saklar. */
+    sourceMetadata: jsonb('source_metadata').$type<Record<string, unknown> | null>(),
     ...ownerColumns,
     ...auditColumns,
   },
@@ -34,10 +40,14 @@ export const companies = pgTable(
     tenantTaxUnique: uniqueIndex('companies_tenant_tax_alive_unique')
       .on(t.tenantId, t.taxNumber)
       .where(sql`${t.deletedAt} is null`),
+    tenantExternalNoUnique: uniqueIndex('companies_tenant_external_no_alive_unique')
+      .on(t.tenantId, t.externalCompanyNo)
+      .where(sql`${t.deletedAt} is null and ${t.externalCompanyNo} is not null`),
     tenantIdx: index('companies_tenant_idx').on(t.tenantId),
     legalTitleIdx: index('companies_legal_title_idx').on(t.legalTitle),
     relationTypeIdx: index('companies_relation_type_idx').on(t.relationTypeId),
     supplierCategoryIdx: index('companies_supplier_category_idx').on(t.supplierCategoryCode),
+    logoFileIdx: index('companies_logo_file_idx').on(t.logoFileId),
   })
 );
 
@@ -169,6 +179,8 @@ export const contacts = pgTable(
     companyId: uuid('company_id')
       .notNull()
       .references(() => companies.id, { onDelete: 'cascade' }),
+    /** Eski CRM/ERP listesindeki kontak NO alanı. */
+    externalContactNo: varchar('external_contact_no', { length: 32 }),
     fullName: varchar('full_name', { length: 255 }).notNull(),
     title: varchar('title', { length: 128 }),
     department: varchar('department', { length: 128 }),
@@ -187,6 +199,8 @@ export const contacts = pgTable(
     favoriteColor: varchar('favorite_color', { length: 32 }),
     graduatedSchool: varchar('graduated_school', { length: 128 }),
     notes: text('notes'),
+    /** Kaynak Excel'deki desteklenmeyen alanları kayıpsız saklar. */
+    sourceMetadata: jsonb('source_metadata').$type<Record<string, unknown> | null>(),
     isBlacklisted: boolean('is_blacklisted').notNull().default(false),
     blacklistReason: text('blacklist_reason'),
     isPrimary: boolean('is_primary').notNull().default(false),
@@ -195,6 +209,9 @@ export const contacts = pgTable(
   },
   (t) => ({
     tenantIdx: index('contacts_tenant_idx').on(t.tenantId),
+    tenantExternalNoUnique: uniqueIndex('contacts_tenant_external_no_alive_unique')
+      .on(t.tenantId, t.externalContactNo)
+      .where(sql`${t.deletedAt} is null and ${t.externalContactNo} is not null`),
     companyIdx: index('contacts_company_idx').on(t.companyId),
     fullNameIdx: index('contacts_full_name_idx').on(t.fullName),
   })

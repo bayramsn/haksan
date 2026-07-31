@@ -25,10 +25,17 @@ coverage
 tmp
 output
 screenshots
+design-previews
+docs
+ops
 deploy/certbot
 deploy/keys
 apps/mobile-ios
 *.log
+/*.docx
+/*.pdf
+/*.jpeg
+/*.png
 npm-debug.log*
 package-lock 2.json
 SECURITY-AUDIT 2.md

@@ -9,14 +9,18 @@ import {
   AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "../../ui/alert-dialog";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../../ui/tooltip";
-import { Download, GripVertical, History, Info, Pencil, Plus, RotateCcw, Search, SlidersHorizontal, Sparkles, Trash2, Upload } from "lucide-react";
+import { Building2, Download, GripVertical, History, ImageIcon, Info, Pencil, Plus, RotateCcw, Search, SlidersHorizontal, Sparkles, Trash2, Upload } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "../../../../lib/auth";
-import { adminService } from "../../../../lib/services";
+import { adminService, fileService } from "../../../../lib/services";
+import { resolveMediaUrl } from "../../../../lib/apiClient";
+import { useStore } from "../../../lib/store";
 import { DIVISION_MACHINE_TYPES, MACHINE_SPEC_TEMPLATES, PRODUCT_SPEC_GROUPS } from "../../../lib/productSpecTemplates";
 import { ALL_DIVISIONS, divisionCatalogGroupCode, isCncDivision, usePersistedSettingsDivision } from "./settings-division";
 import { SettingsField, SettingsSection, SettingsSelect } from "./settings-controls";
 import { MultiSelect } from "../../ui/multi-select";
+import { Combobox, type ComboboxOption } from "../../ui/combobox";
+import { Label } from "../../ui/label";
 import {
   DIVISION_SCOPED_LOOKUPS,
   HIDDEN_LOOKUP_MENU_NAMES,
@@ -45,6 +49,12 @@ type LookupRow = {
   subcategoryId?: string | null;
   // Teknik bilgi gruplarında: atanmış ürün tipi id'leri (boş → tüm tiplerde geçerli).
   productTypeIds?: string[];
+  companyId?: string | null;
+  companyName?: string | null;
+  companyNo?: string | null;
+  isOwned?: boolean;
+  logoFileId?: string | null;
+  logoUrl?: string | null;
 };
 
 type EditForm = {
@@ -59,6 +69,32 @@ type EditForm = {
 };
 
 type LookupStatusFilter = "active" | "passive" | "all";
+
+type BrandForm = {
+  name: string;
+  description: string;
+  divisionId: string;
+  companyValue: string;
+  logoFileId: string | null;
+  logoUrl: string;
+};
+
+const OWN_COMPANY_VALUE = "__haksan_owned__";
+const emptyBrandForm: BrandForm = {
+  name: "",
+  description: "",
+  divisionId: "",
+  companyValue: OWN_COMPANY_VALUE,
+  logoFileId: null,
+  logoUrl: "",
+};
+const BRAND_LOGO_MAX_BYTES = 5 * 1024 * 1024;
+const BRAND_LOGO_MIME_BY_EXTENSION = {
+  png: "image/png",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  webp: "image/webp",
+} as const;
 
 type LookupAuditRow = {
   id: string;
@@ -136,8 +172,137 @@ const auditActionLabel = (action: string) =>
 
 const emptyEditForm: EditForm = { name: "", description: "", province: "", isActive: true, code: "", divisionId: "", parentId: "", productTypeIds: [] };
 
+const brandLogoMeta = (file: File) => {
+  const extension = (file.name.split(".").pop() ?? "").toLocaleLowerCase("en-US") as keyof typeof BRAND_LOGO_MIME_BY_EXTENSION;
+  const mimeType = BRAND_LOGO_MIME_BY_EXTENSION[extension];
+  if (!mimeType || (file.type && file.type !== mimeType)) return null;
+  return { extension, mimeType };
+};
+
+const validateBrandLogo = (file: File): string | null => {
+  if (!brandLogoMeta(file)) return "Yalnızca PNG, JPG veya WEBP logo yükleyebilirsiniz.";
+  if (file.size <= 0) return "Logo dosyası boş olamaz.";
+  if (file.size > BRAND_LOGO_MAX_BYTES) return "Logo dosyası 5 MB'ı aşamaz.";
+  return null;
+};
+
+const uploadBrandLogo = async (brandId: string, file: File): Promise<string> => {
+  const validationError = validateBrandLogo(file);
+  if (validationError) throw new Error(validationError);
+  const meta = brandLogoMeta(file)!;
+  const upload = await fileService.signedUpload({
+    bucket: "erp-brand-logos",
+    entityType: "brand",
+    entityId: brandId,
+    filename: file.name,
+    mimeType: meta.mimeType,
+    extension: meta.extension,
+    sizeBytes: file.size,
+  });
+  await fileService.uploadBinary(upload, file, meta.mimeType);
+  await fileService.link({
+    fileId: upload.fileId,
+    entityType: "brand",
+    entityId: brandId,
+    documentTypeCode: "brand_logo",
+    description: "Marka logosu",
+  });
+  return upload.fileId;
+};
+
+function BrandEditorFields({
+  form,
+  onChange,
+  companyOptions,
+  divisionOptions,
+  logoPreview,
+  onLogoChange,
+  onLogoRemove,
+}: {
+  form: BrandForm;
+  onChange: (patch: Partial<BrandForm>) => void;
+  companyOptions: ComboboxOption[];
+  divisionOptions: Array<{ value: string; label: string }>;
+  logoPreview: string;
+  onLogoChange: (file: File | null) => void;
+  onLogoRemove: () => void;
+}) {
+  return (
+    <div className="grid gap-4 sm:grid-cols-[132px_1fr]">
+      <div>
+        <Label className="text-xs text-muted-foreground">Marka Logosu</Label>
+        <div className="mt-1 flex min-h-32 items-center justify-center overflow-hidden rounded-xl border border-dashed border-border bg-muted/20 p-3">
+          {logoPreview ? (
+            <img src={logoPreview} alt={`${form.name || "Marka"} logosu`} className="max-h-24 max-w-full object-contain" />
+          ) : (
+            <div className="text-center text-muted-foreground">
+              <ImageIcon className="mx-auto size-7" />
+              <span className="mt-2 block text-[11px]">Logo seçilmedi</span>
+            </div>
+          )}
+        </div>
+        <label className="mt-2 flex h-9 cursor-pointer items-center justify-center gap-1 rounded-md border border-input bg-background px-3 text-xs font-medium hover:bg-muted">
+          <Upload className="size-3.5" />
+          Fotoğraf seç
+          <input
+            type="file"
+            accept=".png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp"
+            className="sr-only"
+            onChange={(event) => onLogoChange(event.target.files?.[0] ?? null)}
+          />
+        </label>
+        {logoPreview && (
+          <Button type="button" variant="ghost" size="sm" className="mt-1 w-full text-xs text-destructive" onClick={onLogoRemove}>
+            Logoyu kaldır
+          </Button>
+        )}
+        <p className="mt-1 text-[10px] leading-relaxed text-muted-foreground">PNG, JPG veya WEBP · en fazla 5 MB</p>
+      </div>
+
+      <div className="grid content-start gap-3 sm:grid-cols-2">
+        <SettingsField
+          label="Marka Adı"
+          value={form.name}
+          onChange={(name) => onChange({ name })}
+          placeholder="Örn. HAXAN"
+        />
+        <div>
+          <Label className="text-xs text-muted-foreground">Markanın Bağlı Olduğu Firma</Label>
+          <Combobox
+            options={companyOptions}
+            value={form.companyValue}
+            onChange={(companyValue) => onChange({ companyValue })}
+            placeholder="Firma seçin..."
+            searchPlaceholder="Firma adı veya firma no ile ara..."
+            emptyText="Uygun müşteri firması bulunamadı."
+            className="mt-1"
+          />
+          <p className="mt-1 text-[11px] text-muted-foreground">
+            Listede yalnız Müşteri ve Müşteri + Tedarikçi firmaları gösterilir.
+          </p>
+        </div>
+        <SettingsSelect
+          label="Markanın Bağlı Olduğu Bölüm"
+          value={form.divisionId}
+          onChange={(divisionId) => onChange({ divisionId })}
+          options={divisionOptions}
+        />
+        <div className="sm:col-span-2">
+          <SettingsField
+            label="Açıklama / Not"
+            value={form.description}
+            onChange={(description) => onChange({ description })}
+            placeholder="Marka hakkında kısa not (isteğe bağlı)"
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function LookupManagerTab() {
   const { user, hasRole } = useAuth();
+  const { customers } = useStore();
   const canManageLookups = hasRole("super_admin");
 
   const [lookupNames, setLookupNames] = useState<string[]>([]);
@@ -158,6 +323,11 @@ export function LookupManagerTab() {
   const [editParentRows, setEditParentRows] = useState<LookupRow[]>([]);
   const [editProductTypeRows, setEditProductTypeRows] = useState<LookupRow[]>([]);
   const [editRow, setEditRow] = useState<LookupRow | null>(null);
+  const [brandCreateOpen, setBrandCreateOpen] = useState(false);
+  const [brandForm, setBrandForm] = useState<BrandForm>(emptyBrandForm);
+  const [brandLogoFile, setBrandLogoFile] = useState<File | null>(null);
+  const [brandLogoPreview, setBrandLogoPreview] = useState("");
+  const [removeBrandLogo, setRemoveBrandLogo] = useState(false);
   const [pendingDeleteRow, setPendingDeleteRow] = useState<LookupRow | null>(null);
   const [editForm, setEditForm] = useState<EditForm>(emptyEditForm);
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -170,6 +340,7 @@ export function LookupManagerTab() {
   const [lookupDivisionId, setLookupDivisionId] = usePersistedSettingsDivision();
 
   const divisions = user?.divisions ?? [];
+  const isBrandLookup = selectedLookup === "brands";
   const isDivisionScoped = DIVISION_SCOPED_LOOKUPS.has(selectedLookup);
   const divisionLabel = (id?: string | null) => (id ? divisions.find((d) => d.id === id)?.name ?? "Bölüm" : "Tümü");
   const selectedLookupLabel = lookupLabels[selectedLookup] ?? selectedLookup;
@@ -181,6 +352,33 @@ export function LookupManagerTab() {
   const selectedDivisionCatalogCode = divisionCatalogGroupCode(divisions, lookupDivisionId);
   const canSeedDivisionSetup = lookupDivisionId !== ALL_DIVISIONS && (selectedDivisionCatalogCode === "UNIVERSAL" || selectedDivisionCatalogCode === "SAC_ISLEME");
   const selectedLookupUsage = lookupUsage[selectedLookup] ?? ["İlgili CRM formları"];
+  const brandCompanyOptions = useMemo<ComboboxOption[]>(() => {
+    const eligible = customers
+      .filter((company) => company.status === "active" && (company.firmType === "supplier" || company.firmType === "supplier_customer"))
+      .sort((a, b) => a.name.localeCompare(b.name, "tr-TR"));
+    return [
+      {
+        value: OWN_COMPANY_VALUE,
+        label: "Haksan Makina",
+        hint: "Kendi firmamız · listenin en üstünde",
+      },
+      ...eligible.map((company) => ({
+        value: company.id,
+        label: company.name,
+        hint: [
+          company.companyNo ? `Firma No: ${company.companyNo}` : "",
+          company.firmType === "supplier_customer" ? "Müşteri + Tedarikçi" : "Tedarikçi",
+        ].filter(Boolean).join(" · "),
+      })),
+    ];
+  }, [customers]);
+  const brandDivisionOptions = useMemo(
+    () => [
+      { value: "", label: "Tümü (tüm bölümlerde kullanılır)" },
+      ...divisions.map((division) => ({ value: division.id, label: division.name })),
+    ],
+    [divisions],
+  );
   // Yeni kayıtlar seçili bölüme yazılır; "Tümü" seçiliyken ortak kayıt olur.
   const newRecordDivisionId = isDivisionScoped ? (lookupDivisionId === ALL_DIVISIONS ? null : lookupDivisionId) : undefined;
   // Seçili listenin üst bağ tanımı (kategori→grup, alt kategori→kategori, tip→alt kategori).
@@ -231,7 +429,7 @@ export function LookupManagerTab() {
         if (parentId != null && parentId !== parentFilterId) return false;
       }
       if (!query) return true;
-      return [row.name, row.description ?? "", row.province ?? "", row.code]
+      return [row.name, row.description ?? "", row.province ?? "", row.code, row.companyName ?? "", row.companyNo ?? ""]
         .some((value) => String(value).toLocaleLowerCase("tr-TR").includes(query));
     });
   }, [lookupRows, lookupRowSearch, lookupStatusFilter, parentConfig, parentFilterId]);
@@ -546,6 +744,105 @@ export function LookupManagerTab() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [historyOpen, selectedLookup]);
 
+  useEffect(() => {
+    if (!brandLogoFile) {
+      setBrandLogoPreview(removeBrandLogo ? "" : resolveMediaUrl(brandForm.logoUrl));
+      return;
+    }
+    const objectUrl = URL.createObjectURL(brandLogoFile);
+    setBrandLogoPreview(objectUrl);
+    return () => URL.revokeObjectURL(objectUrl);
+  }, [brandLogoFile, brandForm.logoUrl, removeBrandLogo]);
+
+  const resetBrandEditor = () => {
+    setBrandCreateOpen(false);
+    setEditRow(null);
+    setBrandForm(emptyBrandForm);
+    setBrandLogoFile(null);
+    setBrandLogoPreview("");
+    setRemoveBrandLogo(false);
+  };
+
+  const openBrandCreate = () => {
+    setEditRow(null);
+    setBrandForm({
+      ...emptyBrandForm,
+      divisionId: newRecordDivisionId ?? "",
+      companyValue: OWN_COMPANY_VALUE,
+    });
+    setBrandLogoFile(null);
+    setRemoveBrandLogo(false);
+    setBrandCreateOpen(true);
+  };
+
+  const handleBrandLogoChange = (file: File | null) => {
+    if (!file) return;
+    const validationError = validateBrandLogo(file);
+    if (validationError) {
+      toast.error(validationError);
+      return;
+    }
+    setBrandLogoFile(file);
+    setRemoveBrandLogo(false);
+  };
+
+  const saveBrand = async () => {
+    const name = brandForm.name.trim();
+    if (!name) return toast.error("Marka adı zorunludur");
+    if (!brandForm.companyValue) return toast.error("Markanın bağlı olduğu firmayı seçin");
+    const isOwned = brandForm.companyValue === OWN_COMPANY_VALUE;
+    const companyId = isOwned ? null : brandForm.companyValue;
+    let createdBrandId: string | null = null;
+    setLookupBusy(true);
+    try {
+      if (editRow) {
+        let logoFileId: string | null | undefined;
+        if (brandLogoFile) logoFileId = await uploadBrandLogo(editRow.id, brandLogoFile);
+        else if (removeBrandLogo) logoFileId = null;
+        await adminService.updateLookup("brands", editRow.id, {
+          name,
+          description: brandForm.description.trim() || undefined,
+          divisionId: brandForm.divisionId || null,
+          companyId,
+          isOwned,
+          logoFileId,
+        });
+        toast.success("Marka güncellendi");
+      } else {
+        const created = await adminService.createLookup("brands", {
+          name,
+          description: brandForm.description.trim() || undefined,
+          divisionId: brandForm.divisionId || null,
+          companyId,
+          isOwned,
+          isActive: true,
+        });
+        createdBrandId = created?.id ? String(created.id) : null;
+        if (brandLogoFile && created?.id) {
+          const logoFileId = await uploadBrandLogo(String(created.id), brandLogoFile);
+          await adminService.updateLookup("brands", String(created.id), { logoFileId });
+        }
+        toast.success("Marka eklendi");
+      }
+      resetBrandEditor();
+      await refreshAfterMutation();
+    } catch (err: any) {
+      if (!editRow && createdBrandId) {
+        toast.warning("Marka oluşturuldu fakat logo yüklenemedi", {
+          description: "Markayı düzenleyerek logoyu yeniden yükleyebilirsiniz.",
+        });
+        resetBrandEditor();
+        await refreshAfterMutation();
+        return;
+      }
+      toast.error(editRow ? "Marka güncellenemedi" : "Marka eklenemedi", {
+        description: err?.message ?? "API isteği başarısız oldu.",
+      });
+    } finally {
+      setLookupBusy(false);
+    }
+  };
+
   const quickAddLookup = async () => {
     const name = quickName.trim();
     if (!name) return toast.error("Ad alanı zorunludur");
@@ -573,6 +870,20 @@ export function LookupManagerTab() {
 
   const openEdit = (row: LookupRow) => {
     setEditRow(row);
+    if (isBrandLookup) {
+      setBrandCreateOpen(false);
+      setBrandForm({
+        name: row.name ?? "",
+        description: row.description ?? "",
+        divisionId: row.divisionId ?? "",
+        companyValue: row.isOwned ? OWN_COMPANY_VALUE : row.companyId ?? "",
+        logoFileId: row.logoFileId ?? null,
+        logoUrl: row.logoUrl ?? "",
+      });
+      setBrandLogoFile(null);
+      setRemoveBrandLogo(false);
+      return;
+    }
     setEditForm({
       name: row.name ?? "",
       description: row.description ?? "",
@@ -648,6 +959,7 @@ export function LookupManagerTab() {
     const headers = [
       "Ad",
       "Açıklama",
+      ...(isBrandLookup ? ["Bağlı Firma", "Kendi Markamız", "Logo"] : []),
       "Durum",
       "Sıra",
       "İl",
@@ -662,6 +974,13 @@ export function LookupManagerTab() {
         [
           row.name,
           row.description ?? "",
+          ...(isBrandLookup
+            ? [
+                row.isOwned ? "Haksan Makina" : row.companyName ?? "",
+                row.isOwned ? "Evet" : "Hayır",
+                row.logoUrl ?? "",
+              ]
+            : []),
           row.isActive === false ? "Pasif" : "Aktif",
           row.sortOrder ?? 0,
           row.province ?? "",
@@ -896,41 +1215,60 @@ export function LookupManagerTab() {
               {selectedFlowStep?.helper ?? "Bu listedeki değerler ilgili CRM formlarındaki seçim alanlarında kullanılır."}
               {isDivisionScoped && lookupDivisionId !== ALL_DIVISIONS && ` Yeni kayıtlar ${selectedDivisionLabel} bölümüne eklenir.`}
             </p>
-            <div className="mt-3 flex flex-col gap-2 sm:flex-row">
-              <Input
-                value={quickName}
-                onChange={(e) => setQuickName(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") void quickAddLookup();
-                }}
-                placeholder="Yeni değer adı…"
-                className="sm:flex-1"
-              />
-              {selectedLookup === "tax-offices" && (
+            {isBrandLookup ? (
+              <div className="mt-3 flex flex-col gap-3 rounded-xl border border-primary/15 bg-primary/[0.035] p-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex items-start gap-3">
+                  <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary">
+                    <Building2 className="size-4.5" />
+                  </span>
+                  <div>
+                    <p className="text-sm font-medium">Marka kimliği oluşturun</p>
+                    <p className="mt-0.5 text-xs text-muted-foreground">
+                      Firma, bölüm ve logo bağlantısı ürünlere ve teklif PDF'lerine otomatik taşınır.
+                    </p>
+                  </div>
+                </div>
+                <Button type="button" onClick={openBrandCreate} disabled={lookupBusy} className="shrink-0 gap-1">
+                  <Plus className="size-4" /> Yeni Ürün Markası
+                </Button>
+              </div>
+            ) : (
+              <div className="mt-3 flex flex-col gap-2 sm:flex-row">
                 <Input
-                  value={quickProvince}
-                  onChange={(e) => setQuickProvince(e.target.value)}
+                  value={quickName}
+                  onChange={(e) => setQuickName(e.target.value)}
                   onKeyDown={(e) => {
                     if (e.key === "Enter") void quickAddLookup();
                   }}
-                  placeholder="İl"
-                  className="sm:max-w-[160px]"
+                  placeholder="Yeni değer adı…"
+                  className="sm:flex-1"
                 />
-              )}
-              {parentConfig && (
-                <div className="sm:w-56">
-                  <SettingsSelect
-                    label={`Bağlı olduğu ${parentConfig.label}`}
-                    value={quickParentId || (parentFilterId !== "all" ? parentFilterId : "")}
-                    onChange={setQuickParentId}
-                    options={parentOptionList(`Tümü (${parentConfig.label.toLocaleLowerCase("tr-TR")} bağımsız)`)}
+                {selectedLookup === "tax-offices" && (
+                  <Input
+                    value={quickProvince}
+                    onChange={(e) => setQuickProvince(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") void quickAddLookup();
+                    }}
+                    placeholder="İl"
+                    className="sm:max-w-[160px]"
                   />
-                </div>
-              )}
-              <Button type="button" onClick={() => void quickAddLookup()} disabled={lookupBusy} className="gap-1">
-                <Plus className="size-4" /> Ekle
-              </Button>
-            </div>
+                )}
+                {parentConfig && (
+                  <div className="sm:w-56">
+                    <SettingsSelect
+                      label={`Bağlı olduğu ${parentConfig.label}`}
+                      value={quickParentId || (parentFilterId !== "all" ? parentFilterId : "")}
+                      onChange={setQuickParentId}
+                      options={parentOptionList(`Tümü (${parentConfig.label.toLocaleLowerCase("tr-TR")} bağımsız)`)}
+                    />
+                  </div>
+                )}
+                <Button type="button" onClick={() => void quickAddLookup()} disabled={lookupBusy} className="gap-1">
+                  <Plus className="size-4" /> Ekle
+                </Button>
+              </div>
+            )}
             {isSpecGroupLookup && (
               <p className="mt-2 text-[11px] text-muted-foreground">
                 Teknik bilgi grupları ürün tiplerine atanabilir; atama yapmak için kaydı düzenleyin. Ataması olmayan grup tüm tiplerde geçerlidir.
@@ -973,16 +1311,20 @@ export function LookupManagerTab() {
                 <span className="hidden self-center text-[11px] text-muted-foreground xl:inline">
                   Sıralamak için satır tutamacını sürükleyin.
                 </span>
-                <input
-                  ref={importInputRef}
-                  type="file"
-                  accept=".csv,text/csv"
-                  className="hidden"
-                  onChange={(event) => void importLookupCsv(event.target.files?.[0])}
-                />
-                <Button type="button" variant="outline" size="sm" className="gap-1" onClick={() => importInputRef.current?.click()} disabled={lookupBusy}>
-                  <Upload className="size-4" /> İçe Aktar
-                </Button>
+                {!isBrandLookup && (
+                  <>
+                    <input
+                      ref={importInputRef}
+                      type="file"
+                      accept=".csv,text/csv"
+                      className="hidden"
+                      onChange={(event) => void importLookupCsv(event.target.files?.[0])}
+                    />
+                    <Button type="button" variant="outline" size="sm" className="gap-1" onClick={() => importInputRef.current?.click()} disabled={lookupBusy}>
+                      <Upload className="size-4" /> İçe Aktar
+                    </Button>
+                  </>
+                )}
                 <Button type="button" variant="outline" size="sm" className="gap-1" onClick={exportLookupCsv} disabled={lookupBusy || filteredLookupRows.length === 0}>
                   <Download className="size-4" /> Dışa Aktar
                 </Button>
@@ -1002,14 +1344,14 @@ export function LookupManagerTab() {
                 <thead className="bg-muted/20 text-left text-[11px] uppercase text-muted-foreground">
                   <tr>
                     <th className="w-10 px-2 py-2"><span className="sr-only">Sırala</span></th>
-                    <th className="px-3 py-2">Ad</th>
-                    <th className="px-3 py-2">Açıklama</th>
+                    <th className="px-3 py-2">{isBrandLookup ? "Marka" : "Ad"}</th>
+                    <th className="px-3 py-2">{isBrandLookup ? "Bağlı Firma" : "Açıklama"}</th>
                     {selectedLookup === "tax-offices" && <th className="px-3 py-2">İl</th>}
                     {isDivisionScoped && <th className="px-3 py-2">Bölüm</th>}
                     {parentConfig && <th className="px-3 py-2">{parentConfig.label}</th>}
                     {isSpecGroupLookup && <th className="px-3 py-2">Ürün Tipleri</th>}
                     <th className="px-3 py-2">Sıra</th>
-                    <th className="px-3 py-2">Aktif</th>
+                    {!isBrandLookup && <th className="px-3 py-2">Aktif</th>}
                     <th className="px-3 py-2 text-right">İşlem</th>
                   </tr>
                 </thead>
@@ -1065,8 +1407,35 @@ export function LookupManagerTab() {
                           <GripVertical className="size-4" />
                         </button>
                       </td>
-                      <td className="px-3 py-2 font-medium">{row.name}</td>
-                      <td className="max-w-[220px] truncate px-3 py-2 text-xs text-muted-foreground" title={row.description ?? undefined}>{row.description || "-"}</td>
+                      <td className="px-3 py-2 font-medium">
+                        {isBrandLookup ? (
+                          <div className="flex min-w-[190px] items-center gap-3">
+                            <div className="grid size-12 shrink-0 place-items-center overflow-hidden rounded-lg border border-border/60 bg-white p-1.5">
+                              {row.logoUrl ? (
+                                <img src={resolveMediaUrl(row.logoUrl)} alt={`${row.name} logosu`} className="max-h-full max-w-full object-contain" />
+                              ) : (
+                                <ImageIcon className="size-5 text-muted-foreground/50" />
+                              )}
+                            </div>
+                            <div className="min-w-0">
+                              <p className="truncate font-semibold">{row.name}</p>
+                              <p className="mt-0.5 text-[11px] font-normal text-muted-foreground">
+                                {row.logoUrl ? "Logo bağlı" : "Logo yüklenmemiş"}
+                              </p>
+                            </div>
+                          </div>
+                        ) : row.name}
+                      </td>
+                      <td className="max-w-[250px] px-3 py-2 text-xs text-muted-foreground" title={isBrandLookup ? row.companyName ?? undefined : row.description ?? undefined}>
+                        {isBrandLookup ? (
+                          <div>
+                            <p className="font-medium text-foreground">{row.companyName || "Firma belirtilmemiş"}</p>
+                            <p className="mt-0.5">
+                              {row.isOwned ? "Kendi firmamız" : row.companyNo ? `Firma No: ${row.companyNo}` : "Müşteri firma"}
+                            </p>
+                          </div>
+                        ) : row.description || "-"}
+                      </td>
                       {selectedLookup === "tax-offices" && <td className="px-3 py-2">{row.province || "-"}</td>}
                       {isDivisionScoped && (
                         <td className="px-3 py-2">
@@ -1088,14 +1457,16 @@ export function LookupManagerTab() {
                         </td>
                       )}
                       <td className="px-3 py-2 tabular-nums">{rowIndex + 1}</td>
-                      <td className="px-3 py-2">
-                        <Switch
-                          checked={row.isActive !== false}
-                          disabled={lookupBusy}
-                          onCheckedChange={(next) => void toggleActive(row, next)}
-                          aria-label={row.isActive !== false ? "Pasifleştir" : "Aktifleştir"}
-                        />
-                      </td>
+                      {!isBrandLookup && (
+                        <td className="px-3 py-2">
+                          <Switch
+                            checked={row.isActive !== false}
+                            disabled={lookupBusy}
+                            onCheckedChange={(next) => void toggleActive(row, next)}
+                            aria-label={row.isActive !== false ? "Pasifleştir" : "Aktifleştir"}
+                          />
+                        </td>
+                      )}
                       <td className="px-3 py-2">
                         <div className="flex justify-end gap-1">
                           <Button type="button" variant="ghost" size="icon" className="size-8" onClick={() => openEdit(row)}>
@@ -1110,7 +1481,7 @@ export function LookupManagerTab() {
                   ))}
                   {!filteredLookupRows.length && (
                     <tr>
-                      <td className="px-3 py-6 text-center text-muted-foreground" colSpan={6 + (selectedLookup === "tax-offices" ? 1 : 0) + (isDivisionScoped ? 1 : 0) + (parentConfig ? 1 : 0) + (isSpecGroupLookup ? 1 : 0)}>
+                      <td className="px-3 py-6 text-center text-muted-foreground" colSpan={(isBrandLookup ? 5 : 6) + (selectedLookup === "tax-offices" ? 1 : 0) + (isDivisionScoped ? 1 : 0) + (parentConfig ? 1 : 0) + (isSpecGroupLookup ? 1 : 0)}>
                         Kayıt yok.
                       </td>
                     </tr>
@@ -1166,8 +1537,45 @@ export function LookupManagerTab() {
         </div>
       </div>
 
-      <Dialog open={Boolean(editRow)} onOpenChange={(open) => !open && setEditRow(null)}>
-        <DialogContent>
+      <Dialog
+        open={Boolean(editRow) || brandCreateOpen}
+        onOpenChange={(open) => {
+          if (!open) {
+            if (isBrandLookup) resetBrandEditor();
+            else setEditRow(null);
+          }
+        }}
+      >
+        <DialogContent className={isBrandLookup ? "max-w-3xl" : undefined}>
+          {isBrandLookup ? (
+            <>
+              <DialogHeader>
+                <DialogTitle>{editRow ? "Ürün Markasını Düzenle" : "Yeni Ürün Markası"}</DialogTitle>
+                <DialogDescription>
+                  Marka adı, sahibi, kullanılacağı bölüm ve görsel kimliğini tek kayıtta yönetin.
+                </DialogDescription>
+              </DialogHeader>
+              <BrandEditorFields
+                form={brandForm}
+                onChange={(patch) => setBrandForm((current) => ({ ...current, ...patch }))}
+                companyOptions={brandCompanyOptions}
+                divisionOptions={brandDivisionOptions}
+                logoPreview={brandLogoPreview}
+                onLogoChange={handleBrandLogoChange}
+                onLogoRemove={() => {
+                  setBrandLogoFile(null);
+                  setRemoveBrandLogo(true);
+                }}
+              />
+              <DialogFooter>
+                <Button type="button" variant="outline" onClick={resetBrandEditor}>Vazgeç</Button>
+                <Button type="button" onClick={() => void saveBrand()} disabled={lookupBusy}>
+                  {lookupBusy ? "Kaydediliyor…" : editRow ? "Değişiklikleri Kaydet" : "Markayı Oluştur"}
+                </Button>
+              </DialogFooter>
+            </>
+          ) : (
+            <>
           <DialogHeader>
             <DialogTitle>{selectedLookupLabel} — Düzenle</DialogTitle>
             <DialogDescription>
@@ -1250,23 +1658,27 @@ export function LookupManagerTab() {
               Kaydet
             </Button>
           </DialogFooter>
+            </>
+          )}
         </DialogContent>
       </Dialog>
       <AlertDialog open={Boolean(pendingDeleteRow)} onOpenChange={(open) => !open && !lookupBusy && setPendingDeleteRow(null)}>
         <AlertDialogContent className="max-w-lg">
           <AlertDialogHeader>
-            <AlertDialogTitle>Alan değeri kaldırılsın mı?</AlertDialogTitle>
+            <AlertDialogTitle>{isBrandLookup ? "Ürün markası silinsin mi?" : "Alan değeri kaldırılsın mı?"}</AlertDialogTitle>
             <AlertDialogDescription>
-              <strong className="text-foreground">{pendingDeleteRow?.name}</strong> değeri {selectedLookupLabel.toLocaleLowerCase("tr-TR")} listesinden kaldırılacak.
+              <strong className="text-foreground">{pendingDeleteRow?.name}</strong> {isBrandLookup ? "markası ve logo bağlantısı marka listesinden kaldırılacak." : `değeri ${selectedLookupLabel.toLocaleLowerCase("tr-TR")} listesinden kaldırılacak.`}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <div className="rounded-lg border border-warning/20 bg-warning-soft/50 p-3 text-xs leading-relaxed text-muted-foreground">
-            Bu değer mevcut firma, ürün veya işlem kayıtlarında kullanılıyorsa veri bütünlüğünü korumak için silinmek yerine pasifleştirilir. Yeni formlarda seçilemez, geçmiş kayıtlarda görünmeye devam eder.
+            {isBrandLookup
+              ? "Mevcut ürün ve teklif geçmişi korunur; marka yeni ürünlerde seçilemez ve bağlı logo artık yayınlanmaz."
+              : "Bu değer mevcut firma, ürün veya işlem kayıtlarında kullanılıyorsa veri bütünlüğünü korumak için silinmek yerine pasifleştirilir. Yeni formlarda seçilemez, geçmiş kayıtlarda görünmeye devam eder."}
           </div>
           <AlertDialogFooter>
             <AlertDialogCancel>Vazgeç</AlertDialogCancel>
             <AlertDialogAction className="bg-destructive text-destructive-foreground hover:bg-destructive/90" disabled={lookupBusy} onClick={(event) => { event.preventDefault(); if (pendingDeleteRow) void deleteLookup(pendingDeleteRow); }}>
-              {lookupBusy ? "İşleniyor…" : "Kaldır / pasifleştir"}
+              {lookupBusy ? "İşleniyor…" : isBrandLookup ? "Markayı sil" : "Kaldır / pasifleştir"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

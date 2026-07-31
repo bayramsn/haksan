@@ -16,6 +16,34 @@ export const esc = (v: unknown): string =>
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
 
+const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/**
+ * Yazdırılan belgeler müşteriye açıktır. Katalog adını tercih eder ve eski
+ * kayıtların açıklamasına taşınmış iç stok kodunu çıktıdan temizler.
+ */
+export const publicProductLabel = (input: {
+  description?: unknown;
+  stockCode?: unknown;
+  catalogName?: unknown;
+  fallback?: string;
+}): string => {
+  const stockCode = String(input.stockCode ?? "").trim();
+  const catalogName = String(input.catalogName ?? "").trim();
+  const description = String(input.description ?? "").trim();
+  let label = catalogName || description;
+
+  if (stockCode) {
+    label = label
+      .replace(new RegExp(escapeRegExp(stockCode), "giu"), " ")
+      .replace(/^[\s./|:;,_–—-]+|[\s./|:;,_–—-]+$/g, "")
+      .replace(/\s{2,}/g, " ")
+      .trim();
+  }
+
+  return label || input.fallback || "Ürün";
+};
+
 /** Boş değerleri yazdırırken alan boş kalsın (— değil). */
 export const blank = (v: unknown): string => {
   const s = String(v ?? "").trim();

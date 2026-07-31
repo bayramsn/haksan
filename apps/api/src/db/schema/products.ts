@@ -26,6 +26,11 @@ export const brands = pgTable(
     website: varchar('website', { length: 512 }),
     notes: text('notes'),
     sortOrder: integer('sort_order').notNull().default(0),
+    // Haksan'a ait markalar firma tablosunda yapay bir müşteri kaydı
+    // oluşturmadan açıkça işaretlenir; dış markalar gerçek firmaya bağlanır.
+    isOwned: boolean('is_owned').notNull().default(false),
+    companyId: uuid('company_id').references(() => companies.id, { onDelete: 'set null' }),
+    logoFileId: uuid('logo_file_id').references(() => files.id, { onDelete: 'set null' }),
     // Bölüm (departman) bazlı marka: NULL → tüm bölümlerde ("Tümü") geçerli.
     divisionId: uuid('division_id').references(() => divisions.id, { onDelete: 'set null' }),
     ...auditColumns,
@@ -34,6 +39,8 @@ export const brands = pgTable(
     tenantNameUnique: uniqueIndex('brands_tenant_name_unique').on(t.tenantId, t.name),
     tenantIdx: index('brands_tenant_idx').on(t.tenantId),
     divisionIdx: index('brands_division_idx').on(t.divisionId),
+    companyIdx: index('brands_company_idx').on(t.companyId),
+    logoFileIdx: index('brands_logo_file_idx').on(t.logoFileId),
   })
 );
 

@@ -21,14 +21,18 @@ export type MailRecipient = {
   name?: string;
   companyId?: string;
   contactId?: string;
+  subject?: string;
+  body?: string;
 };
 
 export function ComposeMailDialog({
   recipient,
   onOpenChange,
+  onSent,
 }: {
   recipient: MailRecipient | null;
   onOpenChange: (open: boolean) => void;
+  onSent?: () => Promise<void> | void;
 }) {
   const [account, setAccount] = useState<UserMailAccountStatus | null>(null);
   const [accountLoading, setAccountLoading] = useState(false);
@@ -40,8 +44,8 @@ export function ComposeMailDialog({
   useEffect(() => {
     if (!recipient) return;
     setTo(recipient.email);
-    setSubject("");
-    setBody(recipient.name ? `Merhaba ${recipient.name},\n\n` : "Merhaba,\n\n");
+    setSubject(recipient.subject ?? "");
+    setBody(recipient.body ?? (recipient.name ? `Merhaba ${recipient.name},\n\n` : "Merhaba,\n\n"));
     setAccountLoading(true);
     mailService.account()
       .then(setAccount)
@@ -68,6 +72,7 @@ export function ComposeMailDialog({
         companyId: recipient.companyId,
         contactId: recipient.contactId,
       });
+      await onSent?.();
       toast.success("E-posta gönderildi", { description: `${account?.email ?? "Webmail hesabınız"} üzerinden teslim edildi.` });
       onOpenChange(false);
     } catch (error: any) {

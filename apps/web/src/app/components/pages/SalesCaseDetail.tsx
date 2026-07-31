@@ -1,8 +1,9 @@
 import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
 import { Button } from "../ui/button";
+import { Badge } from "../ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../ui/tabs";
-import { AlarmClock, ArrowLeft, CalendarClock, ChevronLeft, ChevronRight, Plus, Upload, X, XCircle, Eye, FileText, CreditCard, CheckCircle2, Trash2, Wrench, Pencil, Building2, UserRound } from "lucide-react";
+import { AlarmClock, ArrowLeft, CalendarClock, ChevronLeft, ChevronRight, Plus, Upload, X, XCircle, Eye, FileText, CreditCard, CheckCircle2, Trash2, Wrench, Pencil, Building2, UserRound, Download } from "lucide-react";
 import {
   SalesCase,
   LEAD_TEMPERATURE_HINTS,
@@ -143,6 +144,7 @@ export function SalesCaseDetailPage({
   const { offers, activities, customers, users, documents, payments, installations, refresh, deleteCase, updateCase, closeCase, updateActivity, deleteActivity } = useStore();
   const { hasRole, hasPermission } = useAuth();
   const isSuperAdmin = hasRole("super_admin");
+  const canAssignOwner = isSuperAdmin || hasRole("sales");
   const canUpdate = hasPermission("opportunities.update");
   const canDelete = hasPermission("opportunities.delete");
   const [lostOpen, setLostOpen] = useState(false);
@@ -160,6 +162,8 @@ export function SalesCaseDetailPage({
   const [companyLinking, setCompanyLinking] = useState(false);
   const [requestedProcessAction, setRequestedProcessAction] = useState<OpportunityProcessActionKey | null>(null);
   const canMarkLost = canUpdate && !sc.isLost && sc.stage !== "cancelled" && sc.stage !== "delivered";
+  const isLeadCard = (sc.qualificationStage ?? "lead") === "lead";
+  const cardTypeLabel = isLeadCard ? "Lead" : "Fırsat";
   const c = customers.find((x) => x.id === sc.customerId);
   const hasCompany = Boolean(sc.customerId && c);
   const trelloCandidate = sc.externalMetadata?.candidate;
@@ -179,6 +183,7 @@ export function SalesCaseDetailPage({
   const offs = offers.filter((o) => o.salesCaseId === sc.id);
   const latestOffer = offs.slice().sort((a, b) => b.revision - a.revision)[0];
   const docs = documents.filter((d) => d.salesCaseId === sc.id);
+  const externalQuotes = docs.filter((d) => d.type === "ExternalQuote");
   const pays = payments.filter((p) => p.salesCaseId === sc.id);
   const relatedInstallation = installations.find((item) => item.salesCaseId === sc.id);
   // Kart "Sözleşme" aşamasına ulaştıysa ticari fatura yükleme alanını aç.
@@ -426,11 +431,11 @@ export function SalesCaseDetailPage({
     setDeleteSaving(true);
     try {
       await deleteCase(sc.id);
-      toast.success("Satış kartı silindi", { description: partyName });
+      toast.success(`${cardTypeLabel} kartı silindi`, { description: partyName });
       setDeleteOpen(false);
       onBack();
     } catch (err: any) {
-      toast.error("Satış kartı silinemedi", { description: err?.message ?? "API isteği başarısız oldu." });
+      toast.error(`${cardTypeLabel} kartı silinemedi`, { description: err?.message ?? "API isteği başarısız oldu." });
     } finally {
       setDeleteSaving(false);
     }
@@ -572,7 +577,13 @@ export function SalesCaseDetailPage({
         </Button>
       </div>
 
-      <LostCaseDialog open={lostOpen} onOpenChange={setLostOpen} caseId={sc.id} caseName={partyName} />
+      <LostCaseDialog
+        open={lostOpen}
+        onOpenChange={setLostOpen}
+        caseId={sc.id}
+        caseName={partyName}
+        productName={sc.requestedMachine || [sc.requestedProduct, sc.requestedModel].filter(Boolean).join(" · ")}
+      />
       <QuoteDialog
         open={requestedProcessAction === "create_quote"}
         onOpenChange={(open) => !open && setRequestedProcessAction(null)}
@@ -640,10 +651,10 @@ export function SalesCaseDetailPage({
       <AlertDialog open={deleteOpen} onOpenChange={(open) => !deleteSaving && setDeleteOpen(open)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Satış kartını sil?</AlertDialogTitle>
+            <AlertDialogTitle>{cardTypeLabel} kartı silinsin mi?</AlertDialogTitle>
             <AlertDialogDescription>
-              <b>{partyName}</b> için açılan <b>{sc.requestedProduct}</b> satış kartı silinecek.
-              Bağlı teklif, doküman veya ödeme varsa backend işlemi reddedebilir.
+              <b>{partyName}</b> için açılan <b>{sc.requestedProduct}</b> {cardTypeLabel.toLocaleLowerCase("tr-TR")} kartı aktif listelerden kaldırılacak.
+              Bağlı kayıtlar ve denetim izi veri bütünlüğü için korunur.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -656,7 +667,7 @@ export function SalesCaseDetailPage({
                 void handleDeleteCase();
               }}
             >
-              {deleteSaving ? "Siliniyor..." : "Sil"}
+              {deleteSaving ? "Siliniyor..." : `${cardTypeLabel} Kartını Sil`}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -777,7 +788,7 @@ export function SalesCaseDetailPage({
                   </SelectContent>
                 </Select>
               </div>
-              {isSuperAdmin ? (
+              {canAssignOwner ? (
                 <Select
                   value={sc.assignedUserId ?? '__none__'}
                   onValueChange={async (v) => {
@@ -920,6 +931,38 @@ export function SalesCaseDetailPage({
                 </div>
               </DialogSidebarSection>
             )}
+            {sc.isLost && (
+              <DialogSidebarSection title="Kaybedilme Detayı">
+                <div className="space-y-2 rounded-lg border border-destructive/15 bg-destructive-soft/35 p-3 text-xs">
+                  <div>
+                    <div className="text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">Firma</div>
+                    <div className="mt-0.5 font-medium">{sc.lostCompanyName || partyName}</div>
+                  </div>
+                  <div>
+                    <div className="text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">Kaybedilen ürün</div>
+                    <div className="mt-0.5 font-medium">
+                      {sc.lostProductName || sc.requestedMachine || [sc.requestedProduct, sc.requestedModel].filter(Boolean).join(" · ") || "Belirtilmedi"}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">Kayıp nedeni</div>
+                    <div className="mt-0.5 font-medium">{sc.lostReason || sc.lostReasonCode || "Belirtilmedi"}</div>
+                  </div>
+                  <div>
+                    <div className="text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">Rakip</div>
+                    <div className="mt-0.5 font-medium">
+                      {[sc.competitor, sc.lostCompetitorProductModel].filter(Boolean).join(" · ") || "Rakip yok / bilinmiyor"}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">Uymayan şartlarımız</div>
+                    <div className="mt-0.5 whitespace-pre-wrap leading-5">
+                      {sc.lostUnmetConditions || sc.qualificationNote || "Belirtilmedi"}
+                    </div>
+                  </div>
+                </div>
+              </DialogSidebarSection>
+            )}
             <DialogSidebarSection title="İşlemler">
               {canUpdate && sc.stage === "delivered" && !sc.closedAt && (
                 <Button
@@ -949,7 +992,7 @@ export function SalesCaseDetailPage({
                   onClick={() => setDeleteOpen(true)}
                   className="w-full justify-start gap-2 rounded-md border-destructive/30 text-destructive hover:bg-destructive-soft hover:text-destructive"
                 >
-                  <Trash2 className="size-4" /> Satış Kartını Sil
+                  <Trash2 className="size-4" /> {cardTypeLabel} Kartını Sil
                 </Button>
               )}
             </DialogSidebarSection>
@@ -1174,17 +1217,14 @@ export function SalesCaseDetailPage({
         </Card>
       )}
 
-      <Tabs defaultValue={mode === "dialog" ? "offers" : "timeline"}>
+      <Tabs defaultValue="timeline">
         <TabsList className="h-auto w-full justify-start gap-1 overflow-x-auto rounded-none border-b border-border bg-transparent p-0">
-          {mode !== "dialog" && (
-            <TabsTrigger value="timeline" className="flex-none rounded-none border-0 border-b-2 border-transparent px-3 py-2 text-[13px] data-[state=active]:border-b-primary data-[state=active]:bg-transparent data-[state=active]:text-primary data-[state=active]:shadow-none">Zaman Çizelgesi</TabsTrigger>
-          )}
-          <TabsTrigger value="offers" className="flex-none rounded-none border-0 border-b-2 border-transparent px-3 py-2 text-[13px] data-[state=active]:border-b-primary data-[state=active]:bg-transparent data-[state=active]:text-primary data-[state=active]:shadow-none">Teklifler ({offs.length})</TabsTrigger>
+          <TabsTrigger value="timeline" className="flex-none rounded-none border-0 border-b-2 border-transparent px-3 py-2 text-[13px] data-[state=active]:border-b-primary data-[state=active]:bg-transparent data-[state=active]:text-primary data-[state=active]:shadow-none">Zaman Çizelgesi</TabsTrigger>
+          <TabsTrigger value="offers" className="flex-none rounded-none border-0 border-b-2 border-transparent px-3 py-2 text-[13px] data-[state=active]:border-b-primary data-[state=active]:bg-transparent data-[state=active]:text-primary data-[state=active]:shadow-none">Teklifler ({offs.length + externalQuotes.length})</TabsTrigger>
           <TabsTrigger value="documents" className="flex-none rounded-none border-0 border-b-2 border-transparent px-3 py-2 text-[13px] data-[state=active]:border-b-primary data-[state=active]:bg-transparent data-[state=active]:text-primary data-[state=active]:shadow-none">Dokümanlar ({docs.length})</TabsTrigger>
           <TabsTrigger value="payments" className="flex-none rounded-none border-0 border-b-2 border-transparent px-3 py-2 text-[13px] data-[state=active]:border-b-primary data-[state=active]:bg-transparent data-[state=active]:text-primary data-[state=active]:shadow-none">Ödemeler ({pays.length})</TabsTrigger>
         </TabsList>
 
-        {mode !== "dialog" && (
         <TabsContent value="timeline" className="mt-4">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between">
@@ -1262,30 +1302,39 @@ export function SalesCaseDetailPage({
             </CardContent>
           </Card>
         </TabsContent>
-        )}
 
         <TabsContent value="offers" className="mt-4">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between">
               <CardTitle>Teklifler</CardTitle>
-              {hasCompany ? (
-                <QuoteDialog
-                  defaultCaseId={sc.id}
-                  defaultCustomerId={sc.customerId}
-                  trigger={<Button size="sm" className="gap-1"><Plus className="size-4" /> Yeni Teklif</Button>}
-                />
-              ) : (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="gap-1 border-warning/30 text-warning"
-                  onClick={() => toast.error("Firma kaydı gerekli", {
-                    description: "Yeni teklif açmadan önce yukarıdaki alandan firma oluşturun veya mevcut firmayı bağlayın.",
-                  })}
-                >
-                  <Building2 className="size-4" /> Önce Firma Bağlayın
-                </Button>
-              )}
+              <div className="flex flex-wrap items-center justify-end gap-2">
+                {hasPermission("files.create") && (
+                  <DocumentUploadDialog
+                    defaultSalesCaseId={sc.id}
+                    defaultCompanyId={sc.customerId}
+                    defaultType="ExternalQuote"
+                    trigger={<Button size="sm" variant="outline" className="gap-1"><Upload className="size-4" /> Dış Teklif Yükle</Button>}
+                  />
+                )}
+                {hasCompany ? (
+                  <QuoteDialog
+                    defaultCaseId={sc.id}
+                    defaultCustomerId={sc.customerId}
+                    trigger={<Button size="sm" className="gap-1"><Plus className="size-4" /> Yeni Teklif</Button>}
+                  />
+                ) : (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="gap-1 border-warning/30 text-warning"
+                    onClick={() => toast.error("Firma kaydı gerekli", {
+                      description: "Yeni teklif açmadan önce yukarıdaki alandan firma oluşturun veya mevcut firmayı bağlayın.",
+                    })}
+                  >
+                    <Building2 className="size-4" /> Önce Firma Bağlayın
+                  </Button>
+                )}
+              </div>
             </CardHeader>
             {!hasCompany && (
               <div className="mx-5 mb-4 rounded-lg border border-warning/25 bg-warning-soft/60 px-3 py-2 text-xs text-muted-foreground">
@@ -1342,6 +1391,63 @@ export function SalesCaseDetailPage({
                   ))}
                 </TableBody>
               </Table>
+            </div>
+            <div className="border-t border-border/60 bg-muted/15 px-5 py-4">
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <div>
+                  <div className="text-sm font-semibold">Dışarıdan yüklenen teklifler</div>
+                  <div className="mt-0.5 text-xs text-muted-foreground">Bu satış kartına ve bağlı firmaya özel dosyalar</div>
+                </div>
+                <Badge variant="secondary">{externalQuotes.length}</Badge>
+              </div>
+              <div className="space-y-2">
+                {externalQuotes.map((documentItem) => (
+                  <div key={documentItem.id} className="flex items-center gap-3 rounded-lg border border-border/60 bg-white px-3 py-2.5">
+                    <div className="grid size-9 shrink-0 place-items-center rounded-md bg-primary/10 text-primary">
+                      <FileText className="size-4" />
+                    </div>
+                    <button
+                      type="button"
+                      className="min-w-0 flex-1 text-left"
+                      onClick={() => downloadDocument(documentItem.fileId, documentItem.fileName)}
+                    >
+                      <div className="truncate text-sm font-medium hover:text-primary">{documentItem.fileName}</div>
+                      <div className="mt-0.5 text-[11px] text-muted-foreground">
+                        {documentItem.size} · {documentItem.uploadedAt || "Tarih yok"}
+                      </div>
+                    </button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="size-8"
+                      title="Dış teklifi indir"
+                      aria-label={`${documentItem.fileName} dosyasını indir`}
+                      onClick={() => downloadDocument(documentItem.fileId, documentItem.fileName)}
+                    >
+                      <Download className="size-4" />
+                    </Button>
+                    {hasPermission("files.delete") && documentItem.fileId && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="size-8 text-muted-foreground hover:text-destructive"
+                        title="Dış teklifi sil"
+                        aria-label={`${documentItem.fileName} dış teklifini sil`}
+                        onClick={() => setPendingDocumentDelete(documentItem)}
+                      >
+                        <Trash2 className="size-4" />
+                      </Button>
+                    )}
+                  </div>
+                ))}
+                {externalQuotes.length === 0 && (
+                  <div className="rounded-lg border border-dashed border-border/70 px-3 py-5 text-center text-sm text-muted-foreground">
+                    Bu karta yüklenmiş dış teklif yok.
+                  </div>
+                )}
+              </div>
             </div>
           </Card>
         </TabsContent>
@@ -1530,7 +1636,24 @@ export function SalesCaseDetailPage({
         activityClassName="hidden"
         meta={
           <>
+            <Badge variant="outline" className="border-[#0b2453]/20 bg-blue-50 text-[#0b2453]">
+              {isLeadCard ? "LEAD" : "FIRSAT"} · {sc.id.slice(0, 8).toUpperCase()}
+            </Badge>
             <StatusBadge status={sc.stage} />
+            {isLeadCard && (
+              <span className="rounded-md bg-muted px-2.5 py-1 font-data text-xs tabular-nums text-muted-foreground">
+                Öncelik {sc.leadInsights?.priorityScore ?? 0} · Uyum {sc.leadInsights?.fitScore ?? 0} · Etkileşim {sc.leadInsights?.engagementScore ?? 0}
+              </span>
+            )}
+            {isLeadCard && (
+              <span className={`rounded-md px-2.5 py-1 text-xs ${
+                sc.qualificationReadiness?.health?.leadSlaBreached
+                  ? "bg-red-50 font-semibold text-red-700"
+                  : "bg-emerald-50 text-emerald-700"
+              }`}>
+                SLA {sc.qualificationReadiness?.health?.leadSlaBreached ? "aşıldı" : "içinde"}
+              </span>
+            )}
             <span className="rounded-md bg-muted px-2.5 py-1 text-xs tabular-nums text-muted-foreground">
               {sc.estimatedAmount.toLocaleString()} {sc.currency}
             </span>
@@ -1543,8 +1666,8 @@ export function SalesCaseDetailPage({
           <>
             {onNavigate && (
               <div className="flex items-center rounded-md border border-slate-200 bg-white">
-                <Button type="button" variant="ghost" size="icon" className="size-8 rounded-r-none" disabled={!previous} onClick={() => previous && onNavigate(previous.id)} aria-label="Önceki fırsat" title="Önceki fırsat"><ChevronLeft className="size-4" /></Button>
-                <Button type="button" variant="ghost" size="icon" className="size-8 rounded-l-none border-l border-slate-200" disabled={!next} onClick={() => next && onNavigate(next.id)} aria-label="Sonraki fırsat" title="Sonraki fırsat"><ChevronRight className="size-4" /></Button>
+                <Button type="button" variant="ghost" size="icon" className="size-8 rounded-r-none" disabled={!previous} onClick={() => previous && onNavigate(previous.id)} aria-label={`Önceki ${cardTypeLabel.toLocaleLowerCase("tr-TR")}`} title={`Önceki ${cardTypeLabel.toLocaleLowerCase("tr-TR")}`}><ChevronLeft className="size-4" /></Button>
+                <Button type="button" variant="ghost" size="icon" className="size-8 rounded-l-none border-l border-slate-200" disabled={!next} onClick={() => next && onNavigate(next.id)} aria-label={`Sonraki ${cardTypeLabel.toLocaleLowerCase("tr-TR")}`} title={`Sonraki ${cardTypeLabel.toLocaleLowerCase("tr-TR")}`}><ChevronRight className="size-4" /></Button>
               </div>
             )}
             <Button variant="outline" size="sm" onClick={onBack} className="gap-1 bg-white">

@@ -20,7 +20,8 @@ import { opportunities, salesActivities } from '../../db/schema/crm';
 import { deliveries, installationJobs, serviceTickets, shipments } from '../../db/schema/service';
 import { divisions } from '../../db/schema/tenants';
 import { users, userDivisions } from '../../db/schema/users';
-import { companyRelationTypes, companyStatuses, companyGroups, contactSources, paymentStatuses } from '../../db/schema/lookup';
+import { companyRelationTypes, companyStatuses, companyGroups, contactSources, fileDocumentTypes, paymentStatuses } from '../../db/schema/lookup';
+import { files, fileLinks } from '../../db/schema/files';
 import { DB } from '../../shared/database/database.module';
 import { CompanyWebsiteLookupError, ConflictError, ForbiddenError, NotFoundError, ValidationError } from '../../shared/utils/errors';
 import type { AuthContext } from '../../shared/security/auth.types';
@@ -52,6 +53,11 @@ import {
 import { companyVisibilityFilter } from '../../shared/utils/company-visibility';
 import { normalizeCompanyName } from '../../shared/utils/text-normalization';
 import { inspectOfficialCompanyWebsite } from './company-website-lookup';
+import { companyLogoPath } from './company-media.service';
+
+const COMPANY_LOGO_MIME_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp']);
+const COMPANY_LOGO_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'webp']);
+const MAX_COMPANY_LOGO_BYTES = 5 * 1024 * 1024;
 
 const TURKISH_FOLD_MAP: Record<string, string> = {
   ç: 'c',
@@ -386,6 +392,43 @@ export class CompaniesService {
     return row;
   }
 
+  private async assertCompanyLogoFile(fileId: string, companyId: string, actor: AuthContext): Promise<void> {
+    const [logo] = await this.db
+      .select({
+        mimeType: files.mimeType,
+        extension: files.extension,
+        sizeBytes: files.sizeBytes,
+      })
+      .from(files)
+      .innerJoin(fileLinks, eq(fileLinks.fileId, files.id))
+      .innerJoin(fileDocumentTypes, eq(fileLinks.documentTypeId, fileDocumentTypes.id))
+      .where(
+        and(
+          eq(files.id, fileId),
+          eq(files.tenantId, actor.tenantId),
+          eq(files.bucket, 'erp-company-logos'),
+          eq(files.visibility, 'public'),
+          eq(files.uploadStatus, 'linked'),
+          isNull(files.deletedAt),
+          eq(fileLinks.tenantId, actor.tenantId),
+          eq(fileLinks.entityType, 'company'),
+          eq(fileLinks.entityId, companyId),
+          eq(fileDocumentTypes.code, 'company_logo'),
+        ),
+      )
+      .limit(1);
+
+    if (
+      !logo
+      || !COMPANY_LOGO_MIME_TYPES.has(logo.mimeType)
+      || !COMPANY_LOGO_EXTENSIONS.has(logo.extension.toLocaleLowerCase('en-US'))
+      || logo.sizeBytes <= 0
+      || logo.sizeBytes > MAX_COMPANY_LOGO_BYTES
+    ) {
+      throw new ValidationError('Firma logosu geçersiz veya bu firmaya bağlı değil', { field: 'logoFileId' });
+    }
+  }
+
   private async companyDivisionRows(companyIds: string[]) {
     if (!companyIds.length) return [];
     return this.db
@@ -494,6 +537,7 @@ export class CompaniesService {
         or(
           ilike(companies.legalTitle, `%${query.search}%`),
           ilike(companies.shortName, `%${query.search}%`),
+          ilike(companies.externalCompanyNo, `%${query.search}%`),
           ilike(companies.taxNumber, `%${query.search}%`)
         )!
       );
@@ -540,7 +584,7 @@ export class CompaniesService {
       .leftJoin(contactSources, eq(companies.contactSourceId, contactSources.id))
       .leftJoin(users, and(eq(companies.createdBy, users.id), eq(users.tenantId, actor.tenantId)))
       .where(where)
-      .orderBy(desc(companies.createdAt))
+      .orderBy(desc(companies.createdAt), desc(companies.id))
       .limit(limit)
       .offset(offset);
 
@@ -561,6 +605,7 @@ export class CompaniesService {
         const rowEmails = emails.filter((e) => e.companyId === r.company.id);
         return {
           ...r.company,
+          logoUrl: r.company.logoFileId ? companyLogoPath(r.company.logoFileId) : null,
           relationType: r.relationType,
           customerStatus: r.customerStatus,
           companyGroup: r.companyGroup,
@@ -597,6 +642,7 @@ export class CompaniesService {
     const creator = await this.createdByUser(row.createdBy, actor.tenantId);
     return {
       ...row,
+      logoUrl: row.logoFileId ? companyLogoPath(row.logoFileId) : null,
       createdByUser: creator,
       addresses,
       phones,
@@ -754,6 +800,16 @@ export class CompaniesService {
 
   async create(input: CompanyCreateInput, actor: AuthContext) {
     const divisionId = await this.resolveCreateDivision(input, actor);
+    if (input.externalCompanyNo) {
+      const existing = await this.db.query.companies.findFirst({
+        where: and(
+          eq(companies.tenantId, actor.tenantId),
+          eq(companies.externalCompanyNo, input.externalCompanyNo),
+          isNull(companies.deletedAt)
+        ),
+      });
+      if (existing) throw new ConflictError('Bu firma numarası ile bir firma zaten kayıtlı');
+    }
     if (input.taxNumber) {
       const existing = await this.db.query.companies.findFirst({
         where: and(
@@ -792,6 +848,7 @@ export class CompaniesService {
           .insert(companies)
           .values({
             tenantId: actor.tenantId,
+            externalCompanyNo: input.externalCompanyNo ?? null,
             companyType: input.companyType,
             relationTypeId: relId,
             customerStatusId: statusId,
@@ -914,6 +971,22 @@ export class CompaniesService {
   async update(id: string, input: CompanyUpdateInput, actor: AuthContext) {
     const existing = await this.get(id, actor);
 
+    if (input.logoFileId) {
+      await this.assertCompanyLogoFile(input.logoFileId, id, actor);
+    }
+
+    if (input.externalCompanyNo && input.externalCompanyNo !== existing.externalCompanyNo) {
+      const duplicate = await this.db.query.companies.findFirst({
+        where: and(
+          eq(companies.tenantId, actor.tenantId),
+          eq(companies.externalCompanyNo, input.externalCompanyNo),
+          isNull(companies.deletedAt),
+          ne(companies.id, id)
+        ),
+      });
+      if (duplicate) throw new ConflictError('Bu firma numarası ile bir firma zaten kayıtlı');
+    }
+
     if (input.taxNumber && input.taxNumber !== existing.taxNumber) {
       const duplicate = await this.db.query.companies.findFirst({
         where: and(
@@ -939,6 +1012,8 @@ export class CompaniesService {
       updatedBy: actor.userId,
     };
     if (input.companyType !== undefined) patch.companyType = input.companyType;
+    if (input.logoFileId !== undefined) patch.logoFileId = input.logoFileId;
+    if (input.externalCompanyNo !== undefined) patch.externalCompanyNo = input.externalCompanyNo;
     if (input.relationTypeCode !== undefined) patch.relationTypeId = relId;
     if (input.customerStatusCode !== undefined) patch.customerStatusId = statusId;
     if (groupSelectionProvided) patch.companyGroupId = selectedGroups[0]?.id ?? null;
