@@ -1,10 +1,13 @@
 import { useState, type KeyboardEvent, type MouseEvent } from "react";
 import {
+  AlarmClock,
   Building2,
   Check,
+  ClipboardList,
   MoreHorizontal,
   Trash2,
   UserRound,
+  Wrench,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useStore } from "../../lib/store";
@@ -36,6 +39,7 @@ import {
 } from "../ui/dropdown-menu";
 import { Label } from "../ui/label";
 import { Textarea } from "../ui/textarea";
+import { actionDateLabel, isActionOverdue } from "../shared/NextActionDialog";
 
 type ActiveQualificationStage = Exclude<QualificationStage, "lead">;
 const ACTIVE_QUALIFICATION_STAGES = QUALIFICATION_STAGES as ActiveQualificationStage[];
@@ -248,6 +252,10 @@ export function QualificationKanban({
             company?.name ||
             salesCase.leadCompanyTitle ||
             "Firma bilgisi bekleniyor";
+          const subject = salesCase.requestedProduct?.trim() || "Belirtilmedi";
+          const machine = salesCase.requestedMachine?.trim() || salesCase.requestedModel?.trim() || "Belirtilmedi";
+          const action = salesCase.nextAction?.trim() || "Planlanmadı";
+          const actionOverdue = isActionOverdue(salesCase.nextActionAt);
           const openDetailsFromKeyboard = (event: KeyboardEvent<HTMLDivElement>) => {
             if (event.target !== event.currentTarget || (event.key !== "Enter" && event.key !== " ")) return;
             event.preventDefault();
@@ -345,6 +353,45 @@ export function QualificationKanban({
                     </DropdownMenuContent>
                   </DropdownMenu>
                 </div>
+              </div>
+              <div className="border-t border-[#0b2453]/10 bg-slate-50/75 px-3.5 pb-3.5 pt-3">
+                <div className="font-data text-[9px] font-semibold uppercase tracking-[0.14em] text-[#0b2453]/55">
+                  Kart detayları
+                </div>
+                <dl className="mt-2 divide-y divide-slate-200/80 rounded-lg border border-slate-200/90 bg-white px-3">
+                  <div className="grid grid-cols-[70px_minmax(0,1fr)] gap-2 py-2">
+                    <dt className="flex items-start gap-1.5 text-[10px] font-medium text-muted-foreground">
+                      <ClipboardList className="mt-0.5 size-3 shrink-0 text-[#2457D6]" aria-hidden="true" />
+                      Konu
+                    </dt>
+                    <dd className="min-w-0 break-words text-[11px] font-medium leading-4 text-[#0b1739]">
+                      {subject}
+                    </dd>
+                  </div>
+                  <div className="grid grid-cols-[70px_minmax(0,1fr)] gap-2 py-2">
+                    <dt className="flex items-start gap-1.5 text-[10px] font-medium text-muted-foreground">
+                      <Wrench className="mt-0.5 size-3 shrink-0 text-[#2457D6]" aria-hidden="true" />
+                      Makina
+                    </dt>
+                    <dd className="min-w-0 break-words text-[11px] font-medium leading-4 text-[#0b1739]">
+                      {machine}
+                    </dd>
+                  </div>
+                  <div className="grid grid-cols-[70px_minmax(0,1fr)] gap-2 py-2">
+                    <dt className={`flex items-start gap-1.5 text-[10px] font-medium ${actionOverdue ? "text-red-700" : "text-muted-foreground"}`}>
+                      <AlarmClock className="mt-0.5 size-3 shrink-0" aria-hidden="true" />
+                      Aksiyon
+                    </dt>
+                    <dd className="min-w-0">
+                      <div className={`break-words text-[11px] font-medium leading-4 ${salesCase.nextAction ? "text-[#0b1739]" : "text-muted-foreground"}`}>
+                        {action}
+                      </div>
+                      <div className={`mt-1 font-data text-[9px] ${actionOverdue ? "font-semibold text-red-700" : "text-muted-foreground"}`}>
+                        {actionOverdue ? "Gecikti · " : ""}{actionDateLabel(salesCase.nextActionAt)}
+                      </div>
+                    </dd>
+                  </div>
+                </dl>
               </div>
             </Card>
           );

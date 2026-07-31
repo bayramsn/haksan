@@ -18,17 +18,21 @@ describe("QualificationKanban LOST yeniden açma akışı", () => {
   });
 });
 
-describe("QualificationKanban firma odaklı kart", () => {
+describe("QualificationKanban firma ve kart detayı", () => {
   it("firma ünvanını kısaltmadan gösterir ve kartı klavyeyle açılabilir yapar", () => {
     expect(source).toContain('aria-label={`${partyName} fırsat detayını aç`}');
     expect(source).toContain("whitespace-normal break-words [overflow-wrap:anywhere]");
     expect(source).toContain('event.key !== "Enter" && event.key !== " "');
   });
 
-  it("fırsat detaylarını kart yüzeyinde göstermez", () => {
-    expect(source).not.toContain("Konu / Makine");
-    expect(source).not.toContain("Sonraki aksiyon");
-    expect(source).not.toContain("Operasyon:");
-    expect(source).not.toContain("Kontak bekleniyor");
+  it("konu, makina ve aksiyonu kart detayları bölümünde gösterir", () => {
+    expect(source).toContain("Kart detayları");
+    expect(source).toContain("Konu");
+    expect(source).toContain("Makina");
+    expect(source).toContain("Aksiyon");
+    expect(source).toContain("salesCase.requestedProduct?.trim()");
+    expect(source).toContain("salesCase.requestedMachine?.trim()");
+    expect(source).toContain("salesCase.nextAction?.trim()");
+    expect(source).toContain("actionDateLabel(salesCase.nextActionAt)");
   });
 });
