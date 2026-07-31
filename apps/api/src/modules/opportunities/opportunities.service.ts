@@ -3390,7 +3390,7 @@ export class OpportunitiesService {
     const toStage = input.toStage;
     if (fromStage === toStage) return this.get(id, actor);
     if (fromStage === 'lost') {
-      throw new ValidationError('LOST kartı taşımak için önce Geçmiş ekranından geri açın');
+      throw new ValidationError('LOST kaydı yalnız Lead havuzuna geri açılabilir; "Lead’e Geri Aç" işlemini kullanın');
     }
 
     if (toStage === 'lost') {
@@ -3842,7 +3842,7 @@ export class OpportunitiesService {
     if (!opp) throw new NotFoundError('Fırsat');
     if (opp.closedAt) throw new ValidationError('Arşivlenmiş fırsat taşınamaz; önce geri açın');
     if (this.qualificationStage(opp.qualificationStage) === 'lost') {
-      throw new ValidationError('LOST kartı taşımak için önce geri açın');
+      throw new ValidationError('LOST kaydı yalnız Lead havuzuna geri açılabilir; "Lead’e Geri Aç" işlemini kullanın');
     }
 
     const fromStage = await this.db.query.pipelineStages.findFirst({

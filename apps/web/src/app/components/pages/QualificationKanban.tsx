@@ -11,6 +11,7 @@ import {
   LockKeyhole,
   MapPin,
   Phone,
+  RotateCcw,
   ShieldCheck,
   Trash2,
   UserRound,
@@ -144,12 +145,15 @@ export function QualificationKanban({
     decideCaseApproval,
     updateCase,
     closeCase,
+    reopenCase,
   } = useStore();
-  const { hasPermission } = useAuth();
+  const { hasPermission, hasRole } = useAuth();
   const canApprove = hasPermission("opportunities.approve");
   const canUpdate = hasPermission("opportunities.update");
+  const canReopenLost = canUpdate && (hasRole("sales") || hasRole("super_admin"));
   const [lostId, setLostId] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [pendingLostReopen, setPendingLostReopen] = useState<SalesCase | null>(null);
   const [pendingBackMove, setPendingBackMove] = useState<{
     salesCase: SalesCase;
     to: QualificationStage;
@@ -181,6 +185,16 @@ export function QualificationKanban({
     if (!salesCase) return;
     const from = fromValue as QualificationStage;
     const to = toValue as QualificationStage;
+    if (from === "lost") {
+      if (!canReopenLost) {
+        toast.error("LOST kaydını geri açma yetkiniz yok", {
+          description: "Satış veya süper yönetici yetkisi gerekiyor.",
+        });
+        return;
+      }
+      setPendingLostReopen(salesCase);
+      return;
+    }
     if (to === "lost") {
       setLostId(id);
       return;
@@ -202,6 +216,25 @@ export function QualificationKanban({
         description: Array.isArray(blockers) && blockers.length
           ? blockers.join(" · ")
           : error?.message ?? "Aşama koşullarını tamamlayın.",
+      });
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const reopenLost = async () => {
+    if (!pendingLostReopen || busyId) return;
+    const salesCase = pendingLostReopen;
+    setBusyId(salesCase.id);
+    try {
+      await reopenCase(salesCase.id);
+      setPendingLostReopen(null);
+      toast.success("LOST kaydı Lead'e geri açıldı", {
+        description: "Kayıp bilgileri temizlendi; kayıt yeniden nitelendirmeye hazır.",
+      });
+    } catch (error: any) {
+      toast.error("LOST kaydı geri açılamadı", {
+        description: error?.message ?? "İşlem başarısız oldu.",
       });
     } finally {
       setBusyId(null);
@@ -262,6 +295,38 @@ export function QualificationKanban({
         caseName={lostCompany?.name ?? lostCase?.leadCompanyTitle ?? lostCase?.leadContactName}
         productName={lostCase?.requestedMachine || [lostCase?.requestedProduct, lostCase?.requestedModel].filter(Boolean).join(" · ")}
       />
+      <Dialog open={Boolean(pendingLostReopen)} onOpenChange={(open) => !open && setPendingLostReopen(null)}>
+        <DialogContent className="overflow-hidden p-0 sm:max-w-md">
+          <div className="border-l-4 border-red-600 px-6 pb-2 pt-6">
+            <DialogHeader>
+              <DialogTitle>LOST kaydını yeniden aç</DialogTitle>
+              <DialogDescription>
+                Bu kayıt başka bir fırsat derecesine doğrudan taşınmaz. Kayıp bilgileri temizlenerek Lead havuzuna alınır ve yeniden nitelendirilir.
+              </DialogDescription>
+            </DialogHeader>
+          </div>
+          {pendingLostReopen && (
+            <div className="mx-6 rounded-r-lg border-l-[3px] border-primary bg-blue-50/70 px-3 py-2.5">
+              <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">Yeniden nitelendirilecek kayıt</div>
+              <div className="mt-1 text-sm font-semibold text-foreground">
+                {customers.find((company) => company.id === pendingLostReopen.customerId)?.name
+                  || pendingLostReopen.leadCompanyTitle
+                  || pendingLostReopen.leadContactName
+                  || "Firma bilgisi bekleniyor"}
+              </div>
+              <div className="mt-0.5 text-xs text-muted-foreground">
+                {pendingLostReopen.requestedMachine || pendingLostReopen.requestedModel || pendingLostReopen.requestedProduct}
+              </div>
+            </div>
+          )}
+          <DialogFooter className="px-6 pb-6 pt-2">
+            <Button variant="outline" onClick={() => setPendingLostReopen(null)}>Vazgeç</Button>
+            <Button disabled={Boolean(busyId)} className="gap-1.5" onClick={() => void reopenLost()}>
+              <RotateCcw className="size-4" /> {busyId ? "Geri açılıyor…" : "Lead'e geri aç"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       <Dialog open={Boolean(pendingBackMove)} onOpenChange={(open) => !open && setPendingBackMove(null)}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
@@ -620,6 +685,22 @@ export function QualificationKanban({
                     </Badge>
                   </div>
                   <div className="flex items-center gap-1.5">
+                    {stage === "lost" && canReopenLost && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 gap-1 border-red-200 bg-white px-2 text-[9px] text-red-700 hover:bg-red-50 hover:text-red-800"
+                        disabled={busyId === salesCase.id}
+                        title="LOST kaydını Lead havuzuna geri aç"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          setPendingLostReopen(salesCase);
+                        }}
+                        onMouseDown={stopCardClick}
+                      >
+                        <RotateCcw className="size-3" /> Lead'e aç
+                      </Button>
+                    )}
                     {(stage === "win" || stage === "lost") && (
                       <Button
                         variant="ghost"
