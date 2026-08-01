@@ -105,6 +105,15 @@ function productSeriesCode(product: Product) {
   return model.match(SERIES_PREFIX_RE)?.[1]?.toLocaleUpperCase("tr-TR") ?? "";
 }
 
+/**
+ * Listede gösterilecek model adı. `model` alanı çoğu üründe stok kodu
+ * biçimindedir (ör. "LK.VM-2.12K.DDS.M"); okunabilir ad `modelName`dedir.
+ * Kodun geri kalanında (ProductDetailDialog, RequestedMachineCombobox)
+ * zaten bu öncelik kullanılıyor — liste de aynı kurala uyar.
+ */
+const productDisplayModel = (product: Product) =>
+  product.modelName?.trim() || product.model;
+
 function productSeriesLabel(product: Product) {
   const code = productSeriesCode(product);
   return code ? `${code} Serisi` : "Serisiz";
@@ -345,7 +354,7 @@ export function ProductsPage({ initialQuery }: { initialQuery?: string }) {
                       {p.brand || "Haksan ürün"}
                     </div>
                     <div className="mt-1 truncate font-display text-xl font-semibold leading-none tracking-tight text-foreground">
-                      {p.model}
+                      {productDisplayModel(p)}
                     </div>
                     <div className="mt-1.5 line-clamp-2 min-h-8 text-[11px] leading-4 text-muted-foreground">
                       {p.shortDescription || productSubtitle(p) || productFamilyLabel(p)}
@@ -434,7 +443,7 @@ export function ProductsPage({ initialQuery }: { initialQuery?: string }) {
                           <ProductThumb product={p} />
                           <div className="min-w-0">
                             <div className="text-sm leading-tight truncate group-hover:text-primary transition-colors">
-                              {p.brand} {p.model}
+                              {p.brand} {productDisplayModel(p)}
                             </div>
                             <div className="text-[11px] text-muted-foreground mt-0.5 truncate">
                               {p.shortDescription || productSubtitle(p) || "—"}
@@ -445,9 +454,15 @@ export function ProductsPage({ initialQuery }: { initialQuery?: string }) {
                       <TableCell>
                         <Badge variant="outline" className="h-5 text-[10px]">{productSeriesLabel(p)}</Badge>
                       </TableCell>
-                      <TableCell className="text-sm text-muted-foreground">{p.type || productFamilyLabel(p) || "—"}</TableCell>
+                      <TableCell className="text-sm text-muted-foreground">{p.type || "—"}</TableCell>
                       <TableCell>
-                        <Badge variant="secondary" className="text-[10px] h-5">{productFamilyLabel(p)}</Badge>
+                        {/* Ürünün gerçek kategorisi. productFamilyLabel tip kodundan
+                            türetildiği için burada kullanılırsa Tip kolonunu tekrarlar
+                            ("CNC Dik İşleme Merkezi" / "CNC Dik İşleme Merkezleri").
+                            Aile etiketi yalnız gruplama ve filtre için kalır. */}
+                        <Badge variant="secondary" className="text-[10px] h-5">
+                          {p.category || p.subcategory || p.productGroup || "—"}
+                        </Badge>
                       </TableCell>
                       <TableCell className="text-right tabular-nums">{fmtMoney(p.listPrice, p.currency)}</TableCell>
                       <TableCell className="text-right tabular-nums text-success">{fmtMoney(p.cashPrice, p.currency)}</TableCell>

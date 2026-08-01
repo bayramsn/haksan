@@ -2655,6 +2655,8 @@ export function QuickCreateDialog({ trigger }: { trigger: React.ReactNode }) {
 /* ---------- Product (create / edit) ---------- */
 
 type ProductOption = { code: string; label: string };
+/** Alt kategori, DB'de kendi kategorisine bağlıdır; bu bağ filtrede doğrudan kullanılır. */
+type ProductSubcategoryOption = ProductOption & { categoryCode?: string };
 type ProductTypeOption = ProductOption & { categoryCode?: string; subcategoryCode?: string; productGroupCode?: string };
 
 const PRODUCT_GROUPS: ProductOption[] = [
@@ -2840,18 +2842,39 @@ const typeMatchesGroup = (type: ProductTypeOption, groupCode?: string) =>
 const fallbackLookupRows = (options: ProductOption[]): LookupRow[] =>
   options.map((option, index) => ({ code: option.code, name: option.label, sortOrder: index }));
 
+/**
+ * Seçili kategoriye ait ürün alt kategorileri.
+ *
+ * Öncelik sırası:
+ *  1) Alt kategorinin DB'deki kendi kategori bağı (`categoryId` -> kod).
+ *  2) Bağ yoksa ürün tipleri üzerinden çıkarım (eski davranış).
+ *  3) İkisi de sonuç vermezse tüm alt kategoriler — liste asla boş kalmaz,
+ *     çünkü boş liste kullanıcıya "bu kategoride alt kategori yok" yalanını
+ *     söyler ve yeni ürün eklemeyi tıkar.
+ */
 const subcategoriesForProductCategory = (
   categoryCode: string,
   productTypeOptions: ProductTypeOption[] = PRODUCT_TYPE_OPTIONS,
-  productSubcategoryOptions: ProductOption[] = PRODUCT_SUBCATEGORIES,
-) =>
-  sameProductCode(categoryCode, "TEZGAH")
-    ? productSubcategoryOptions
-    : productSubcategoryOptions.filter((subcategory) =>
-        productTypeOptions.some(
-          (type) => (!type.categoryCode || sameProductCode(type.categoryCode, categoryCode)) && sameProductCode(type.subcategoryCode, subcategory.code),
-        ),
-      );
+  productSubcategoryOptions: ProductSubcategoryOption[] = PRODUCT_SUBCATEGORIES,
+) => {
+  if (!categoryCode) return productSubcategoryOptions;
+
+  const linked = productSubcategoryOptions.filter(
+    (subcategory) => subcategory.categoryCode && sameProductCode(subcategory.categoryCode, categoryCode),
+  );
+  if (linked.length > 0) return linked;
+
+  const inferred = productSubcategoryOptions.filter((subcategory) =>
+    productTypeOptions.some(
+      (type) =>
+        (!type.categoryCode || sameProductCode(type.categoryCode, categoryCode)) &&
+        sameProductCode(type.subcategoryCode, subcategory.code),
+    ),
+  );
+  if (inferred.length > 0) return inferred;
+
+  return productSubcategoryOptions;
+};
 
 type ProductFormState = {
   brand: string;
@@ -3081,7 +3104,18 @@ export function ProductDialog({
     return byCode.size ? Array.from(byCode.values()) : PRODUCT_GROUPS;
   }, [DIVISION_GROUP_CODES, productGroupRows]);
   const productCategoryOptions = lookupCodeOptions(productCategoryRows);
-  const productSubcategoryOptions = lookupCodeOptions(productSubcategoryRows);
+  // Alt kategori seçenekleri kendi kategori kodlarını taşır; filtre böylece
+  // ürün tipi bağına muhtaç kalmadan doğrudan çalışır.
+  const productSubcategoryOptions = useMemo<ProductSubcategoryOption[]>(() => {
+    const categoryCodeById = new Map(
+      productCategoryRows.filter((row) => row.id).map((row) => [row.id!, row.code]),
+    );
+    return productSubcategoryRows.map((row) => ({
+      code: row.code,
+      label: row.name,
+      categoryCode: row.categoryId ? categoryCodeById.get(row.categoryId) : undefined,
+    }));
+  }, [productSubcategoryRows, productCategoryRows]);
   const productTypeOptions = useMemo<ProductTypeOption[]>(() => {
     const labelByCode = new Map(productTypeRows.map((row) => [row.code, row.name]));
     // DB taksonomi bağları: tipin alt kategorisi ve alt kategorinin kategorisi.
