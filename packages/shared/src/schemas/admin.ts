@@ -14,7 +14,9 @@ export const userCreateSchema = z.object({
   email: z.string().email(),
   password: z.string().min(8).max(128),
   phone: z.string().max(32).optional(),
-  departmentId: z.string().optional(),
+  departmentId: z.string().uuid().optional(),
+  // Ünvan (user-titles lookup) — belgelerde imza satırında görünür.
+  titleId: z.string().uuid().nullable().optional(),
   roleCodes: z.array(z.string()).default([]),
   // Bölüm (CNC / Üniversal / Sac İşleme) üyelikleri — ticari veri izolasyonu ekseni.
   // İlk eleman birincil (varsayılan aktif) bölüm kabul edilir.
@@ -31,7 +33,8 @@ export const userUpdateSchema = z.object({
   email: z.string().email().max(255).optional(),
   // null gönderilirse telefon temizlenir (super_admin düzenleme dialogu için).
   phone: z.string().max(32).nullable().optional(),
-  departmentId: z.string().nullable().optional(),
+  departmentId: z.string().uuid().nullable().optional(),
+  titleId: z.string().uuid().nullable().optional(),
   status: z.enum(['active', 'passive']).optional(),
   roleCodes: z.array(z.string()).optional(),
   // Verildiğinde kullanıcının bölüm üyelikleri tümüyle bununla değiştirilir.
@@ -62,16 +65,25 @@ export const roleUpdateSchema = z.object({
 export type RoleUpdateInput = z.infer<typeof roleUpdateSchema>;
 
 export const departmentCreateSchema = z.object({
-  code: z.string().min(1).max(64),
-  name: z.string().min(1).max(255),
-  description: z.string().max(2000).optional(),
+  code: z
+    .string()
+    .trim()
+    .min(1)
+    .max(64)
+    .regex(/^[a-zA-Z0-9_-]+$/, 'Departman kodu yalnızca harf, rakam, tire ve alt çizgi içerebilir'),
+  name: z.string().trim().min(1).max(255),
+  description: z.string().trim().max(2000).optional(),
 });
 export type DepartmentCreateInput = z.infer<typeof departmentCreateSchema>;
 
-export const departmentUpdateSchema = z.object({
-  name: z.string().min(1).max(255).optional(),
-  description: z.string().max(2000).nullable().optional(),
-});
+export const departmentUpdateSchema = z
+  .object({
+    name: z.string().trim().min(1).max(255).optional(),
+    description: z.string().trim().max(2000).nullable().optional(),
+  })
+  .refine((input) => input.name !== undefined || input.description !== undefined, {
+    message: 'Güncellenecek en az bir departman alanı gönderilmelidir',
+  });
 export type DepartmentUpdateInput = z.infer<typeof departmentUpdateSchema>;
 
 export const auditLogQuerySchema = z.object({

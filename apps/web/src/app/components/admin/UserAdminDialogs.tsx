@@ -18,6 +18,9 @@ import { PERMISSION_RESOURCES, type PermissionResource } from "@haksan/shared";
 export type DeptOption = { id: string; name: string; code?: string };
 export type RoleOption = { id: string; code: string; name: string; description?: string | null; isSystemRole?: boolean };
 export type DivisionOption = { id: string; code: string; name: string };
+/** CRM Alan Ayarları > Kullanıcı Ünvanları listesinden gelen seçenek. */
+export type TitleOption = { id: string; name: string };
+
 export type UserAccessScopeRow = { resource: PermissionResource; departmentId: string | null; divisionId: string | null; isPrimary: boolean };
 
 const PERMISSION_RESOURCE_LABELS: Record<PermissionResource, string> = {
@@ -72,6 +75,7 @@ export function CreateUserDialog({
   departments,
   roles,
   divisions,
+  titles,
   onCreated,
 }: {
   open: boolean;
@@ -79,6 +83,7 @@ export function CreateUserDialog({
   departments: DeptOption[];
   roles: RoleOption[];
   divisions: DivisionOption[];
+  titles: TitleOption[];
   onCreated: () => void;
 }) {
   const [saving, setSaving] = useState(false);
@@ -88,13 +93,14 @@ export function CreateUserDialog({
     password: "",
     phone: "",
     departmentId: "",
+    titleId: "",
     roleCodes: [] as string[],
     divisionIds: [] as string[],
   });
 
   useEffect(() => {
     if (!open) {
-      setForm({ fullName: "", email: "", password: "", phone: "", departmentId: "", roleCodes: [], divisionIds: [] });
+      setForm({ fullName: "", email: "", password: "", phone: "", departmentId: "", titleId: "", roleCodes: [], divisionIds: [] });
     }
   }, [open]);
 
@@ -127,6 +133,7 @@ export function CreateUserDialog({
         password: form.password,
         phone: form.phone.trim() || undefined,
         departmentId: form.departmentId || undefined,
+        titleId: form.titleId || undefined,
         roleCodes: form.roleCodes,
         divisionIds: form.divisionIds,
       });
@@ -175,6 +182,21 @@ export function CreateUserDialog({
                 ))}
               </SelectContent>
             </Select>
+          </div>
+          <div>
+            <Label className="text-xs" htmlFor="new-user-title">Ünvan</Label>
+            <Select value={form.titleId || "__none__"} onValueChange={(v) => setForm({ ...form, titleId: v === "__none__" ? "" : v })}>
+              <SelectTrigger id="new-user-title" className="mt-1.5"><SelectValue placeholder="Seçin" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__none__">— Atanmadı —</SelectItem>
+                {titles.map((t) => (
+                  <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="mt-1 text-[11px] text-muted-foreground">
+              Teklif, proforma ve sözleşme çıktılarında isminin altında görünür.
+            </p>
           </div>
           {divisions.length > 0 && (
             <div>
@@ -355,6 +377,7 @@ export function UserDepartmentDialog({
   user,
   departments,
   divisions,
+  titles,
   saving,
   onClose,
   onSave,
@@ -364,17 +387,20 @@ export function UserDepartmentDialog({
     name: string;
     email: string;
     departmentId?: string | null;
+    titleId?: string | null;
     active: boolean;
     divisionIds?: string[];
     accessScopes?: UserAccessScopeRow[];
   } | null;
   departments: DeptOption[];
   divisions: DivisionOption[];
+  titles: TitleOption[];
   saving: boolean;
   onClose: () => void;
-  onSave: (userId: string, departmentId: string | null, active: boolean, divisionIds: string[], accessScopes: UserAccessScopeRow[]) => Promise<void>;
+  onSave: (userId: string, departmentId: string | null, active: boolean, divisionIds: string[], accessScopes: UserAccessScopeRow[], titleId: string | null) => Promise<void>;
 }) {
   const [departmentId, setDepartmentId] = useState<string>("");
+  const [titleId, setTitleId] = useState<string>("");
   const [active, setActive] = useState(true);
   const [divisionIds, setDivisionIds] = useState<string[]>([]);
   const [accessScopes, setAccessScopes] = useState<UserAccessScopeRow[]>([]);
@@ -382,6 +408,7 @@ export function UserDepartmentDialog({
   useEffect(() => {
     if (user) {
       setDepartmentId(user.departmentId ?? "");
+      setTitleId(user.titleId ?? "");
       setActive(user.active);
       setDivisionIds(user.divisionIds ?? []);
       setAccessScopes(
@@ -407,7 +434,24 @@ export function UserDepartmentDialog({
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    await onSave(user.id, departmentId || null, active, divisionIds, accessScopes);
+    await onSave(user.id, departmentId || null, active, divisionIds, accessScopes, titleId || null);
+  };
+
+  const changePrimaryDepartment = (value: string) => {
+    const nextDepartmentId = value === "__none__" ? "" : value;
+    const previousDepartmentId = departmentId || null;
+    setDepartmentId(nextDepartmentId);
+    // Birincil departmana bağlı kapsamları birlikte taşı; Tümü (null) veya başka
+    // departmanlara özel kapsamları koru.
+    if (previousDepartmentId) {
+      setAccessScopes((rows) =>
+        rows.map((scope) =>
+          scope.departmentId === previousDepartmentId
+            ? { ...scope, departmentId: nextDepartmentId || null }
+            : scope
+        )
+      );
+    }
   };
 
   const updateScope = (index: number, patch: Partial<UserAccessScopeRow>) => {
@@ -447,7 +491,7 @@ export function UserDepartmentDialog({
         <form onSubmit={submit} className="space-y-4">
           <div>
             <Label className="text-xs">Departman</Label>
-            <Select value={departmentId || "__none__"} onValueChange={(v) => setDepartmentId(v === "__none__" ? "" : v)}>
+            <Select value={departmentId || "__none__"} onValueChange={changePrimaryDepartment}>
               <SelectTrigger className="mt-1.5"><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="__none__">— Atanmadı —</SelectItem>
@@ -456,6 +500,21 @@ export function UserDepartmentDialog({
                 ))}
               </SelectContent>
             </Select>
+          </div>
+          <div>
+            <Label className="text-xs">Ünvan</Label>
+            <Select value={titleId || "__none__"} onValueChange={(v) => setTitleId(v === "__none__" ? "" : v)}>
+              <SelectTrigger className="mt-1.5"><SelectValue placeholder="Seçin" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__none__">— Atanmadı —</SelectItem>
+                {titles.map((t) => (
+                  <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="mt-1 text-[11px] text-muted-foreground">
+              Teklif, proforma ve sözleşme çıktılarında kullanıcının isminin altında yazar.
+            </p>
           </div>
           {divisions.length > 0 && (
             <div>

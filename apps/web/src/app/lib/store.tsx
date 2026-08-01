@@ -710,6 +710,8 @@ function StoreInner({ children }: { children: ReactNode }) {
           roleNames: (u.roles ?? []).map((role: any) => role.name ?? role.code).filter(Boolean),
           divisionIds: (u.divisions ?? []).map((division: any) => division.id).filter(Boolean),
           department: u.department?.name ?? '',
+          // Ünvan (user-titles) — belge çıktılarında imza satırında kullanılır.
+          title: u.title?.name ?? null,
           active: u.status !== 'passive',
           avatarUrl: u.avatarUrl ?? u.photoUrl ?? undefined,
           purchaseApprovalLimit: u.purchaseApprovalLimit ? Number(u.purchaseApprovalLimit) : undefined,
@@ -1276,6 +1278,9 @@ function StoreInner({ children }: { children: ReactNode }) {
               ? opportunityCompany.get(row.entityId) ?? ''
               : '',
           serviceRequestId: row.entityType === 'service_ticket' || row.entityType === 'service_request' ? row.entityId : undefined,
+          paymentId: typeof row.description === 'string'
+            ? row.description.match(/Kasa hareketi #([A-F0-9-]+)/i)?.[1]?.toLowerCase()
+            : undefined,
           type: mapLinkDocType(row.documentType?.code),
           fileName: row.file?.originalFilename ?? row.description ?? 'Dosya',
           uploadedBy: row.file?.uploadedBy ?? '',
@@ -2542,6 +2547,7 @@ function StoreInner({ children }: { children: ReactNode }) {
       source: d.source ?? (d.fileId ? 'uploaded_file' : undefined),
       companyId: d.companyId,
       serviceRequestId: d.serviceRequestId,
+      paymentId: d.paymentId,
       type: d.type,
       fileName: d.fileName,
       uploadedBy: d.uploadedBy ?? user?.id ?? '',

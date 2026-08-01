@@ -23,6 +23,8 @@ export type User = {
   divisionIds?: string[];
   department: string;
   departmentId?: string | null;
+  /** Ünvan (CRM Alan Ayarları > Kullanıcı Ünvanları) — belge imza satırında yazar. */
+  title?: string | null;
   active: boolean;
   avatarUrl?: string;
   purchaseApprovalLimit?: number;
@@ -478,6 +480,8 @@ export type DocumentItem = {
   companyId?: string;
   /** Servis talebine bağlı ek (service kanban kartı). */
   serviceRequestId?: string;
+  /** Kasa hareketine eklenen ödeme fişi / fatura dosyası. */
+  paymentId?: string;
   /** Canlı teslim/kurulum formu kayıtları için üretilmiş doküman referansları. */
   deliveryId?: string;
   installationId?: string;

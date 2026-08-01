@@ -1,7 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { and, between, desc, eq, gte, inArray, isNull, lte, sql } from 'drizzle-orm';
 import type { DbClient } from '../../db/client';
-import { visits as visitsTbl, calls as callsTbl, leads } from '../../db/schema/crm';
+import { visits as visitsTbl, calls as callsTbl, leads, salesActivities } from '../../db/schema/crm';
 import { opportunities, cancellationReasons, competitors } from '../../db/schema/crm';
 import { users, userDepartmentAssignments, userDivisions, userRoles, roles, userTargets, departmentTargets } from '../../db/schema/users';
 import { departments } from '../../db/schema/tenants';
@@ -19,6 +19,9 @@ import { resourceDivisionFilter, resolveResourceDivisionScope } from '../../shar
 import { amountToUsd, FxService, type FxRates, type FxSnapshot } from '../fx/fx.service';
 
 export type Granularity = 'weekly' | 'monthly' | 'yearly';
+
+/** Gösterge panelindeki ekip aktivitesi kırılımı. */
+export type TeamActivityPeriod = 'day' | 'week' | 'month' | 'year';
 
 export type TargetProgressScope = { kind: 'user' | 'department' | 'role' | 'all-users'; id?: string };
 
@@ -491,7 +494,7 @@ export class ReportsService {
     const from = new Date(Date.UTC(year, month - 1, 1, 0, 0, 0));
     const to = new Date(Date.UTC(year, month, 0, 23, 59, 59, 999));
 
-    const deptFilters = [eq(departments.tenantId, actor.tenantId)];
+    const deptFilters = [eq(departments.tenantId, actor.tenantId), isNull(departments.deletedAt)];
     if (departmentId) deptFilters.push(eq(departments.id, departmentId));
     const depts = await this.db.query.departments.findMany({ where: and(...deptFilters) });
 
@@ -642,7 +645,13 @@ export class ReportsService {
       .select({ userId: userDepartmentAssignments.userId, departmentId: userDepartmentAssignments.departmentId })
       .from(userDepartmentAssignments)
       .innerJoin(departments, eq(userDepartmentAssignments.departmentId, departments.id))
-      .where(and(eq(departments.tenantId, actor.tenantId), inArray(userDepartmentAssignments.userId, userIds)));
+      .where(
+        and(
+          eq(departments.tenantId, actor.tenantId),
+          isNull(departments.deletedAt),
+          inArray(userDepartmentAssignments.userId, userIds)
+        )
+      );
     for (const assignment of assignments) {
       const ids = map.get(assignment.userId) ?? new Set<string>();
       ids.add(assignment.departmentId);
@@ -1134,7 +1143,11 @@ export class ReportsService {
       ];
       const departmentRows = departmentIds.length
         ? await this.db.query.departments.findMany({
-            where: and(eq(departments.tenantId, actor.tenantId), inArray(departments.id, departmentIds)),
+            where: and(
+              eq(departments.tenantId, actor.tenantId),
+              isNull(departments.deletedAt),
+              inArray(departments.id, departmentIds)
+            ),
           })
         : [];
       const departmentById = new Map(departmentRows.map((department) => [department.id, department]));
@@ -1170,7 +1183,7 @@ export class ReportsService {
     }
 
     if (scope.kind === 'department') {
-      const deptFilters = [eq(departments.tenantId, actor.tenantId)];
+      const deptFilters = [eq(departments.tenantId, actor.tenantId), isNull(departments.deletedAt)];
       if (scope.id) deptFilters.push(eq(departments.id, scope.id));
       const depts = await this.db.query.departments.findMany({ where: and(...deptFilters) });
       const allMemberIds = allUsers.filter((u) => (departmentMemberships.get(u.id)?.size ?? 0) > 0).map((u) => u.id);
@@ -1271,5 +1284,292 @@ export class ReportsService {
       currencyNormalization: this.currencyNormalization(fxSnapshot, unsupportedCurrencies),
       subjects,
     };
+  }
+
+  // ---- Ekip aktivitesi ----------------------------------------------------
+
+  /**
+   * Seçilen dönemin ve bir önceki eşdeğer dönemin sınırlarını üretir.
+   * Haftalar pazartesi başlar (TR iş haftası).
+   */
+  private activityRanges(period: TeamActivityPeriod, anchor: Date) {
+    const start = new Date(anchor);
+    start.setHours(0, 0, 0, 0);
+    let from: Date;
+    let to: Date;
+    let prevFrom: Date;
+
+    if (period === 'day') {
+      from = start;
+      to = new Date(from);
+      to.setDate(to.getDate() + 1);
+      prevFrom = new Date(from);
+      prevFrom.setDate(prevFrom.getDate() - 1);
+    } else if (period === 'week') {
+      const day = (start.getDay() + 6) % 7; // pazartesi = 0
+      from = new Date(start);
+      from.setDate(from.getDate() - day);
+      to = new Date(from);
+      to.setDate(to.getDate() + 7);
+      prevFrom = new Date(from);
+      prevFrom.setDate(prevFrom.getDate() - 7);
+    } else if (period === 'month') {
+      from = new Date(start.getFullYear(), start.getMonth(), 1);
+      to = new Date(start.getFullYear(), start.getMonth() + 1, 1);
+      prevFrom = new Date(start.getFullYear(), start.getMonth() - 1, 1);
+    } else {
+      from = new Date(start.getFullYear(), 0, 1);
+      to = new Date(start.getFullYear() + 1, 0, 1);
+      prevFrom = new Date(start.getFullYear() - 1, 0, 1);
+    }
+    return { from, to, prevFrom, prevTo: from };
+  }
+
+  /** Zaman serisi kovası: gün→saat, hafta/ay→gün, yıl→ay. */
+  private activityBucket(period: TeamActivityPeriod) {
+    if (period === 'day') return 'hour';
+    if (period === 'year') return 'month';
+    return 'day';
+  }
+
+  /**
+   * Kullanıcı bazında aktivite sayıları. Her kaynak için tek sorgu çalışır ve
+   * mevcut/önceki dönem `filter` ile aynı taramadan çıkarılır.
+   */
+  private async activityCounts(
+    table: 'quotes' | 'visits' | 'calls' | 'activities',
+    tenantId: string,
+    userIds: string[],
+    range: { from: Date; to: Date; prevFrom: Date; prevTo: Date }
+  ) {
+    if (!userIds.length) return new Map<string, { current: number; previous: number }>();
+    const spec = {
+      quotes: { actor: quotes.createdBy, date: quotes.quoteDate, tenant: quotes.tenantId, deleted: quotes.deletedAt, from: quotes },
+      visits: { actor: visitsTbl.createdBy, date: visitsTbl.visitDate, tenant: visitsTbl.tenantId, deleted: visitsTbl.deletedAt, from: visitsTbl },
+      calls: { actor: callsTbl.createdBy, date: callsTbl.callDate, tenant: callsTbl.tenantId, deleted: callsTbl.deletedAt, from: callsTbl },
+      activities: { actor: salesActivities.createdBy, date: salesActivities.activityDate, tenant: salesActivities.tenantId, deleted: salesActivities.deletedAt, from: salesActivities },
+    }[table];
+
+    const rows = await this.db
+      .select({
+        userId: spec.actor,
+        current: sql<number>`count(*) filter (where ${spec.date} >= ${range.from} and ${spec.date} < ${range.to})::int`,
+        previous: sql<number>`count(*) filter (where ${spec.date} >= ${range.prevFrom} and ${spec.date} < ${range.prevTo})::int`,
+      })
+      .from(spec.from as any)
+      .where(
+        and(
+          eq(spec.tenant, tenantId),
+          isNull(spec.deleted),
+          inArray(spec.actor, userIds),
+          gte(spec.date, range.prevFrom),
+          lte(spec.date, range.to)
+        )
+      )
+      .groupBy(spec.actor);
+
+    const map = new Map<string, { current: number; previous: number }>();
+    for (const row of rows) {
+      if (row.userId) map.set(row.userId, { current: row.current ?? 0, previous: row.previous ?? 0 });
+    }
+    return map;
+  }
+
+  /**
+   * Gösterge panelinin ekip aktivitesi bölümü: kim ne yaptı, seçilen dönemde ve
+   * bir önceki eşdeğer dönemde.
+   *
+   * Görünürlük sunucuda zorlanır: süper admin dışındaki kullanıcılar `scope`
+   * ne gönderirse göndersin yalnız KENDİ verisini alır.
+   */
+  async teamActivity(
+    actor: AuthContext,
+    period: TeamActivityPeriod,
+    anchorIso?: string,
+    requestedScope: 'team' | 'self' = 'team'
+  ) {
+    const isSuperAdmin = actor.roles.includes('super_admin');
+    const scope: 'team' | 'self' = isSuperAdmin ? requestedScope : 'self';
+    const anchor = anchorIso ? new Date(anchorIso) : new Date();
+    const range = this.activityRanges(period, anchor);
+
+    const scopedUsers = await this.scopedActiveUsers(actor);
+    const people =
+      scope === 'self' ? scopedUsers.filter((user) => user.id === actor.userId) : scopedUsers;
+    const userIds = people.map((user) => user.id);
+
+    const [quoteCounts, visitCounts, callCounts, activityCounts] = await Promise.all([
+      this.activityCounts('quotes', actor.tenantId, userIds, range),
+      this.activityCounts('visits', actor.tenantId, userIds, range),
+      this.activityCounts('calls', actor.tenantId, userIds, range),
+      this.activityCounts('activities', actor.tenantId, userIds, range),
+    ]);
+
+    // Fırsat: açılan (createdBy/createdAt) ve kazanılan (ownerUserId + derece WIN).
+    const oppRows = userIds.length
+      ? await this.db
+          .select({
+            userId: opportunities.createdBy,
+            current: sql<number>`count(*) filter (where ${opportunities.createdAt} >= ${range.from} and ${opportunities.createdAt} < ${range.to})::int`,
+            previous: sql<number>`count(*) filter (where ${opportunities.createdAt} >= ${range.prevFrom} and ${opportunities.createdAt} < ${range.prevTo})::int`,
+          })
+          .from(opportunities)
+          .where(
+            and(
+              eq(opportunities.tenantId, actor.tenantId),
+              isNull(opportunities.deletedAt),
+              inArray(opportunities.createdBy, userIds),
+              gte(opportunities.createdAt, range.prevFrom),
+              lte(opportunities.createdAt, range.to)
+            )
+          )
+          .groupBy(opportunities.createdBy)
+      : [];
+
+    const wonRows = userIds.length
+      ? await this.db
+          .select({
+            userId: opportunities.ownerUserId,
+            current: sql<number>`count(*) filter (where ${opportunities.qualificationUpdatedAt} >= ${range.from} and ${opportunities.qualificationUpdatedAt} < ${range.to})::int`,
+            previous: sql<number>`count(*) filter (where ${opportunities.qualificationUpdatedAt} >= ${range.prevFrom} and ${opportunities.qualificationUpdatedAt} < ${range.prevTo})::int`,
+            currentValue: sql<string>`coalesce(sum(${opportunities.estimatedValue}) filter (where ${opportunities.qualificationUpdatedAt} >= ${range.from} and ${opportunities.qualificationUpdatedAt} < ${range.to}), 0)::text`,
+          })
+          .from(opportunities)
+          .where(
+            and(
+              eq(opportunities.tenantId, actor.tenantId),
+              isNull(opportunities.deletedAt),
+              eq(opportunities.qualificationStage, 'win'),
+              inArray(opportunities.ownerUserId, userIds),
+              gte(opportunities.qualificationUpdatedAt, range.prevFrom),
+              lte(opportunities.qualificationUpdatedAt, range.to)
+            )
+          )
+          .groupBy(opportunities.ownerUserId)
+      : [];
+
+    const oppMap = new Map(oppRows.filter((r) => r.userId).map((r) => [r.userId!, r]));
+    const wonMap = new Map(wonRows.filter((r) => r.userId).map((r) => [r.userId!, r]));
+    const pick = (map: Map<string, { current: number; previous: number }>, id: string) =>
+      map.get(id) ?? { current: 0, previous: 0 };
+
+    const rows = people
+      .map((user) => {
+        const quote = pick(quoteCounts, user.id);
+        const visit = pick(visitCounts, user.id);
+        const call = pick(callCounts, user.id);
+        const activity = pick(activityCounts, user.id);
+        const opp = oppMap.get(user.id);
+        const won = wonMap.get(user.id);
+        const current =
+          quote.current + visit.current + call.current + activity.current + (opp?.current ?? 0);
+        const previous =
+          quote.previous + visit.previous + call.previous + activity.previous + (opp?.previous ?? 0);
+        return {
+          userId: user.id,
+          name: user.fullName ?? user.email,
+          quotes: quote,
+          visits: visit,
+          calls: call,
+          activities: activity,
+          opportunitiesCreated: { current: opp?.current ?? 0, previous: opp?.previous ?? 0 },
+          won: { current: won?.current ?? 0, previous: won?.previous ?? 0 },
+          wonValue: Number(won?.currentValue ?? 0),
+          total: { current, previous },
+        };
+      })
+      // Hareketsiz kullanıcılar listeyi şişirmesin; hiç aktivitesi olmayanlar sona.
+      .sort((a, b) => b.total.current - a.total.current || a.name.localeCompare(b.name, 'tr-TR'));
+
+    const sum = (key: 'quotes' | 'visits' | 'calls' | 'activities' | 'opportunitiesCreated' | 'won', field: 'current' | 'previous') =>
+      rows.reduce((acc, row) => acc + row[key][field], 0);
+
+    const totals = {
+      quotes: sum('quotes', 'current'),
+      visits: sum('visits', 'current'),
+      calls: sum('calls', 'current'),
+      activities: sum('activities', 'current'),
+      opportunitiesCreated: sum('opportunitiesCreated', 'current'),
+      won: sum('won', 'current'),
+      wonValue: rows.reduce((acc, row) => acc + row.wonValue, 0),
+    };
+    const previousTotals = {
+      quotes: sum('quotes', 'previous'),
+      visits: sum('visits', 'previous'),
+      calls: sum('calls', 'previous'),
+      activities: sum('activities', 'previous'),
+      opportunitiesCreated: sum('opportunitiesCreated', 'previous'),
+      won: sum('won', 'previous'),
+    };
+
+    return {
+      period,
+      scope,
+      canSeeTeam: isSuperAdmin,
+      range: { from: range.from.toISOString(), to: range.to.toISOString() },
+      previousRange: { from: range.prevFrom.toISOString(), to: range.prevTo.toISOString() },
+      bucket: this.activityBucket(period),
+      totals,
+      previousTotals,
+      timeline: await this.activityTimeline(actor.tenantId, userIds, range, this.activityBucket(period)),
+      users: rows,
+    };
+  }
+
+  /** Seçilen dönemin zaman serisi — grafikler için kova bazında toplamlar. */
+  private async activityTimeline(
+    tenantId: string,
+    userIds: string[],
+    range: { from: Date; to: Date },
+    bucket: string
+  ) {
+    if (!userIds.length) return [];
+    // Kova adı SQL'e düz metin gömülür: bind parametresi kullanılırsa SELECT ve
+    // GROUP BY farklı placeholder ($1 / $4) alır, Postgres ifadeleri aynı saymaz
+    // ve "must appear in the GROUP BY clause" hatası verir. Değer kapalı bir
+    // kümeden geldiği için (activityBucket) enjeksiyon riski yok; yine de doğrulanır.
+    const unit = (['hour', 'day', 'month'] as const).includes(bucket as any) ? bucket : 'day';
+    const series = async (
+      dateCol: any,
+      tenantCol: any,
+      deletedCol: any,
+      actorCol: any,
+      table: any
+    ) => {
+      const truncated = sql`date_trunc('${sql.raw(unit)}', ${dateCol})`;
+      const rows = await this.db
+        .select({
+          bucket: sql<string>`${truncated}::text`,
+          count: sql<number>`count(*)::int`,
+        })
+        .from(table)
+        .where(
+          and(
+            eq(tenantCol, tenantId),
+            isNull(deletedCol),
+            inArray(actorCol, userIds),
+            gte(dateCol, range.from),
+            lte(dateCol, range.to)
+          )
+        )
+        .groupBy(truncated);
+      return new Map(rows.map((row) => [row.bucket, row.count]));
+    };
+
+    const [q, v, c, a] = await Promise.all([
+      series(quotes.quoteDate, quotes.tenantId, quotes.deletedAt, quotes.createdBy, quotes),
+      series(visitsTbl.visitDate, visitsTbl.tenantId, visitsTbl.deletedAt, visitsTbl.createdBy, visitsTbl),
+      series(callsTbl.callDate, callsTbl.tenantId, callsTbl.deletedAt, callsTbl.createdBy, callsTbl),
+      series(salesActivities.activityDate, salesActivities.tenantId, salesActivities.deletedAt, salesActivities.createdBy, salesActivities),
+    ]);
+
+    const keys = [...new Set([...q.keys(), ...v.keys(), ...c.keys(), ...a.keys()])].sort();
+    return keys.map((key) => ({
+      bucket: key,
+      quotes: q.get(key) ?? 0,
+      visits: v.get(key) ?? 0,
+      calls: c.get(key) ?? 0,
+      activities: a.get(key) ?? 0,
+    }));
   }
 }

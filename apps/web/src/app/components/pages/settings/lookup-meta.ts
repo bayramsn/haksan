@@ -31,6 +31,7 @@ export const lookupLabels: Record<string, string> = {
   "company-statuses": "Firma Durumları",
   "company-relation-types": "Firma İlişki Türleri",
   "decision-roles": "Karar Rolleri",
+  "user-titles": "Kullanıcı Ünvanları",
   "activity-types": "Aktivite Türleri",
   "pipeline-stages": "Satış Aşamaları",
   "opportunity-statuses": "Satış Kartı Durumları",
@@ -67,6 +68,7 @@ export const lookupUsage: Record<string, string[]> = {
   "company-statuses": ["Firma kartı", "firma filtreleri"],
   "company-relation-types": ["Firma ilişkileri", "tedarikçi/müşteri bağlantıları"],
   "decision-roles": ["Kontak formu", "karar verici analizi"],
+  "user-titles": ["Kullanıcı formu", "teklif/proforma/sözleşme imza satırı"],
   "activity-types": ["Aktivite formu", "takvim", "satış takip raporları"],
   "pipeline-stages": ["Satış kanbanı", "satış kartı", "pipeline raporu"],
   "opportunity-statuses": ["Satış kartı", "fırsat filtreleri"],
@@ -120,7 +122,7 @@ export const LOOKUP_MENU_GROUPS: Array<{ label: string; names: string[] }> = [
   },
   {
     label: "Genel",
-    names: ["file-document-types", "storage-providers"],
+    names: ["user-titles", "file-document-types", "storage-providers"],
   },
 ];
 

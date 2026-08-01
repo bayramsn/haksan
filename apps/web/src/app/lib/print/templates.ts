@@ -97,6 +97,9 @@ export interface ProformaPrintData {
   kdvTutar: number;
   currency: CurrencyCode;
   notlar: string[];
+  /** Belgeyi hazırlayan CRM kullanıcısı ve ünvanı (imza satırı). */
+  hazirlayan?: string;
+  hazirlayanUnvan?: string;
 }
 
 const PROFORMA_CSS = `
@@ -139,6 +142,9 @@ table.pf-tot tr.sp td { border: 0; height: 1.6mm; padding: 0; }
 .pf-notes { margin: 5.7mm 0 0 .25mm; font-style: italic; }
 .pf-notes .nt { font-weight: bold; text-decoration: underline; font-size: 10.5pt; margin-bottom: 1mm; }
 .pf-notes ol { margin-left: 6.55mm; font-size: 10.5pt; line-height: 1.26; letter-spacing: .45pt; }
+/* Hazırlayan imza satırı — notların altında, sağa yaslı. */
+.pf-prepared { margin-top: 6mm; text-align: right; font-size: 10.5pt; line-height: 1.3; }
+.pf-prepared .nm { font-weight: bold; }
 .pf-notes li { margin-bottom: .75mm; text-align: justify; padding-left: 1mm; font-weight: normal; }
 .pf-notes li::marker { font-weight: bold; }
 .pf-footer { margin-top: auto; padding-top: 2mm; }
@@ -288,6 +294,11 @@ export function proformaDoc(
       <div class="pf-notes">
         <div class="nt">NOTLAR:</div>
         <ol>${d.notlar.map((note) => `<li>${esc(note)}</li>`).join("")}</ol>
+      </div>` : ""}
+      ${d.hazirlayan ? `
+      <div class="pf-prepared">
+        <div class="nm">${esc(d.hazirlayan)}</div>
+        ${d.hazirlayanUnvan ? `<div>${esc(d.hazirlayanUnvan)}</div>` : ""}
       </div>` : ""}
     </div>
   </div>
@@ -1032,9 +1043,14 @@ export interface ContractPrintData {
   odemePlani: { label: string; tutar: number; senet?: boolean }[];
   kontrolUnitesiMarka?: string;
   machines?: ContractMachinePrintData[];
+  /** Sözleşmeyi hazırlayan CRM kullanıcısı ve ünvanı (TARAFLAR sayfası altı). */
+  hazirlayan?: string;
+  hazirlayanUnvan?: string;
 }
 
 const CONTRACT_CSS = `
+/* Hazırlayan bilgisi — taraf imzalarından ayrı, küçük ve gri. */
+.ct-prepared { margin-top: 8mm; font-size: 9pt; color: #444; }
 .ct.page { padding-top: 5mm; }
 .ct { font-family: Cambria, "Times New Roman", Georgia, serif; font-size: 11pt; line-height: 1.11; }
 .ct-body { padding: 0 0 0 4mm; }
@@ -1375,6 +1391,11 @@ export function contractDoc(d: ContractPrintData, assetBase: string): PrintDocum
           <td>${kv("Vergi Dairesi", d.alici.vergiDairesi)}${kv("Vergi Numarası", d.alici.vergiNo)}${kv("Tel.", d.alici.tel)}${kv("Faks", d.alici.faks)}</td>
         </tr>
       </table>
+      ${d.hazirlayan ? `
+      <div class="ct-prepared">
+        <span>Hazırlayan:</span>
+        <b>${esc(d.hazirlayan)}</b>${d.hazirlayanUnvan ? ` · ${esc(d.hazirlayanUnvan)}` : ""}
+      </div>` : ""}
     </div>
     ${pn(partiesPageNumber)}
   </div>`;

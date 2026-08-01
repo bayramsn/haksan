@@ -2,6 +2,7 @@ import { pgTable, uuid, varchar, text, boolean, timestamp, integer, jsonb, index
 import { sql } from 'drizzle-orm';
 import { auditColumns, money } from './_helpers';
 import { tenants, departments, divisions } from './tenants';
+import { userTitles } from './lookup';
 
 export const users = pgTable(
   'users',
@@ -11,6 +12,8 @@ export const users = pgTable(
       .notNull()
       .references(() => tenants.id, { onDelete: 'cascade' }),
     departmentId: uuid('department_id').references(() => departments.id, { onDelete: 'set null' }),
+    // Ünvan (Satış Müdürü, Bölge Sorumlusu…) — belge çıktılarında imza satırında yazar.
+    titleId: uuid('title_id').references(() => userTitles.id, { onDelete: 'set null' }),
     fullName: varchar('full_name', { length: 255 }).notNull(),
     email: varchar('email', { length: 255 }).notNull(),
     phone: varchar('phone', { length: 32 }),

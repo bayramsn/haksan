@@ -20,7 +20,11 @@ import {
 import { useStore } from "../../lib/store";
 import { StatusBadge } from "../Layout";
 import { CompanyFinancePanel } from "../shared/CompanyFinancePanel";
-import { CreateContactDialog, EditContactDialog } from "./CreateDialogs";
+import { CreateCaseDialog, CreateContactDialog, EditContactDialog } from "./CreateDialogs";
+import { CreateContractDialog } from "./CreateContractDialog";
+import { CreateProformaDialog } from "./CreateProformaDialog";
+import { QuoteDialog } from "./QuoteDialog";
+import { useAuth } from "../../../lib/auth";
 import { toast } from "sonner";
 
 // ───────────────────────── helpers ─────────────────────────
@@ -118,6 +122,106 @@ function EmptyRow({ cols, text }: { cols: number; text: string }) {
 
 // ───────────────────────── Company popup ─────────────────────────
 
+/**
+ * Firma pop-up'ından doğrudan aksiyon almayı sağlar. Satış kartı ve teklif
+ * firmayı ön seçili alır; proforma ve sözleşme bir TEKLİFE bağlandığı için
+ * firmanın en yeni teklifi ön seçili gelir, teklifi yoksa diyalogdaki seçici
+ * kullanılır.
+ */
+function CompanyQuickActions({
+  customer,
+  latestQuoteId,
+}: {
+  customer: Customer;
+  latestQuoteId?: string;
+}) {
+  const { hasPermission } = useAuth();
+  const [quoteOpen, setQuoteOpen] = useState(false);
+  const [proformaOpen, setProformaOpen] = useState(false);
+  const [contractOpen, setContractOpen] = useState(false);
+
+  const canOpportunity = hasPermission("opportunities.create");
+  const canQuote = hasPermission("quotes.create");
+  const canProforma = hasPermission("proformas.create");
+  const canContract = hasPermission("contracts.create");
+  if (!canOpportunity && !canQuote && !canProforma && !canContract) return null;
+
+  return (
+    <div className="mt-4 flex flex-wrap items-center gap-2 rounded-lg border border-primary/15 bg-primary/[0.03] px-3 py-2.5">
+      <span className="mr-1 font-data text-[9px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+        Hızlı aksiyon
+      </span>
+
+      {canOpportunity && (
+        <CreateCaseDialog
+          defaultCustomerId={customer.id}
+          trigger={
+            <Button size="sm" variant="outline" className="h-8 gap-1.5 bg-white text-xs">
+              <Briefcase className="size-3.5" /> Satış Kartı
+            </Button>
+          }
+        />
+      )}
+
+      {canQuote && (
+        <>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-8 gap-1.5 bg-white text-xs"
+            onClick={() => setQuoteOpen(true)}
+          >
+            <FileText className="size-3.5" /> Teklif
+          </Button>
+          <QuoteDialog defaultCustomerId={customer.id} open={quoteOpen} onOpenChange={setQuoteOpen} />
+        </>
+      )}
+
+      {canProforma && (
+        <>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-8 gap-1.5 bg-white text-xs"
+            onClick={() => setProformaOpen(true)}
+          >
+            <FileText className="size-3.5" /> Proforma
+          </Button>
+          <CreateProformaDialog
+            defaultQuoteId={latestQuoteId}
+            open={proformaOpen}
+            onOpenChange={setProformaOpen}
+          />
+        </>
+      )}
+
+      {canContract && (
+        <>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-8 gap-1.5 bg-white text-xs"
+            onClick={() => setContractOpen(true)}
+          >
+            <FileText className="size-3.5" /> Sözleşme
+          </Button>
+          <CreateContractDialog
+            defaultQuoteId={latestQuoteId}
+            open={contractOpen}
+            onOpenChange={setContractOpen}
+          />
+        </>
+      )}
+
+      {(canProforma || canContract) && !latestQuoteId && (
+        <span className="text-[10px] text-muted-foreground">
+          Proforma/sözleşme bir teklife bağlanır — bu firmanın teklifi yok, diyalogda seçmeniz gerekir.
+        </span>
+      )}
+    </div>
+  );
+}
+
 export function CompanyDetailDialog({
   customer,
   onClose,
@@ -161,6 +265,10 @@ export function CompanyDetailDialog({
 
   // Total quoted value across all offers for this firm, grouped by currency.
   const totalQuoted = sumByCurrency(firmOffers.map((o) => ({ amount: o.amount, currency: o.currency })));
+
+  // Proforma ve sözleşme bir teklife bağlanır; firmanın en yeni teklifi ön seçili gelir.
+  const latestQuoteId = [...firmOffers]
+    .sort((a, b) => (b.date ?? "").localeCompare(a.date ?? ""))[0]?.id;
 
   const DOC_LABEL: Record<string, string> = {
     Proforma: "Proforma",
@@ -218,6 +326,9 @@ export function CompanyDetailDialog({
               </DialogDescription>
             </div>
           </div>
+
+          {/* Aksiyonlar — firmadan doğrudan satış kartı / teklif / proforma / sözleşme açılır. */}
+          <CompanyQuickActions customer={customer} latestQuoteId={latestQuoteId} />
 
           {/* contact info row */}
           <div className="mt-4 grid grid-cols-2 sm:grid-cols-3 gap-3">

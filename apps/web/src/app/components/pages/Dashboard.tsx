@@ -22,6 +22,7 @@ import { useAuth } from "../../../lib/auth";
 import { useFx, type FxCurrency } from "../../lib/fx";
 import { buildSalesMonthly, buildFunnelFromCases, buildPipelineFunnel, buildPipelineStagePie } from "../../lib/chartAggregates";
 import { reportService } from "../../../lib/services";
+import { TeamActivityPanel } from "./TeamActivityPanel";
 import {
   buildManagementInsights,
   buildWorkItems,
@@ -360,6 +361,9 @@ export function DashboardPage({ onAction }: { onAction?: (action: OperationActio
             openService={openService}
             overdue={overdueCount}
           />
+
+          {/* Kim ne yaptı — süper adminde tüm ekip, diğerlerinde yalnız kendi verisi. */}
+          <TeamActivityPanel />
 
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-5">
             <Card className="border-border/60 shadow-sm lg:col-span-3">

@@ -1,4 +1,4 @@
-import type { Customer, Offer, Payment, Product, SalesCase, ProductSpec } from "../mock";
+import type { Customer, Offer, Payment, Product, SalesCase, ProductSpec, User } from "../mock";
 import { quoteService } from "../../../lib/services";
 import { specsForProductTypeStrict } from "../productSpecTemplates";
 import { publicProductLabel, trShortDate } from "./core";
@@ -26,6 +26,8 @@ export type ContractBuildInput = {
   contractDate: string;
   contractNo: string;
   documentSnapshot?: Record<string, any>;
+  /** İmza bloğu altındaki "Hazırlayan" satırı için CRM kullanıcıları. */
+  users?: User[];
 };
 
 const asNumber = (value: unknown): number => {
@@ -187,7 +189,7 @@ const buildContractMachines = (
   return reconcileMachinePrices(machines, contractNetPrice(quote));
 };
 
-export async function loadContractPrintData(input: ContractBuildInput): Promise<ContractPrintData> {
+async function buildContractPrintData(input: ContractBuildInput): Promise<ContractPrintData> {
   const { customer, salesCase, offer, products, payments, contractDate, contractNo, documentSnapshot } = input;
   if (documentSnapshot) {
     const value = recordValue;
@@ -331,5 +333,24 @@ export async function loadContractPrintData(input: ContractBuildInput): Promise<
     kontrolUnitesiMarka: [...new Set(machines.map((machine) => machine.kontrolUnitesiMarka).filter(Boolean))].join(" / ")
       || inferControlUnitBrand(specs, warrantyTerms),
     machines,
+  };
+}
+
+
+/**
+ * Sözleşme baskı verisi + "Hazırlayan" satırı.
+ *
+ * Hazırlayan, satış kartının sorumlusudur; ünvanı atanmışsa o, değilse
+ * departman adı yazılır. İki farklı üretim yolu (anlık görüntü / canlı veri)
+ * olduğu için alan burada tek noktadan eklenir.
+ */
+export async function loadContractPrintData(input: ContractBuildInput): Promise<ContractPrintData> {
+  const data = await buildContractPrintData(input);
+  const owner = (input.users ?? []).find((u) => u.id === input.salesCase?.assignedUserId);
+  if (!owner) return data;
+  return {
+    ...data,
+    hazirlayan: owner.name,
+    hazirlayanUnvan: owner.title || owner.department || undefined,
   };
 }

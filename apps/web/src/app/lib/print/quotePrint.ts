@@ -206,7 +206,8 @@ export function buildQuotePrintData(input: QuoteBuildInput, quote: QuoteDetail):
     belgeNo: quote.documentNo || offer.quoteNo,
     gecerlilik: quote.validityDays ? `${quote.validityDays} İş Günü` : "",
     projeIlgilisi: owner?.name,
-    projeIlgilisiUnvan: owner?.department,
+    // Ünvan atanmışsa o yazar; atanmamışsa eski davranışla departman adına düşer.
+    projeIlgilisiUnvan: owner?.title || owner?.department,
     projeIlgilisiTelefon: owner?.phone || undefined,
     projeIlgilisiEmail: owner?.email,
     marka: firstMachine?.marka ?? product?.brand,

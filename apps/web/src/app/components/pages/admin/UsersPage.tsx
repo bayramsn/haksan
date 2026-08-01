@@ -23,7 +23,7 @@ import {
 } from "../../admin/TargetDialog";
 import { useStore } from "../../../lib/store";
 import { useAuth } from "../../../../lib/auth";
-import { adminService } from "../../../../lib/services";
+import { adminService, lookupService } from "../../../../lib/services";
 import type { User } from "../../../lib/mock";
 import { PERMISSION_RESOURCES, type PermissionResource } from "@haksan/shared";
 import { InsightStat } from "../../shared/PremiumPrimitives";
@@ -57,6 +57,8 @@ type AdminUserRow = User & {
   roleCodes: string[];
   roleNames: string[];
   departmentId?: string | null;
+  titleId?: string | null;
+  titleName?: string | null;
   divisionIds: string[];
   divisionNames: string[];
   accessScopes: UserAccessScopeRow[];
@@ -118,6 +120,8 @@ const normalizeAdminUser = (user: any, fallback?: User): AdminUserRow => {
     role: ((roleNames[0] ?? fallbackRole) as User["role"]) || fallbackRole,
     department: user.department?.name ?? fallback?.department ?? "",
     departmentId: user.departmentId ?? user.department?.id ?? fallback?.departmentId ?? null,
+    titleId: user.titleId ?? user.title?.id ?? null,
+    titleName: user.title?.name ?? null,
     active: user.status ? user.status !== "passive" : fallback?.active ?? true,
     avatarUrl: user.avatarUrl ?? user.photoUrl ?? fallback?.avatarUrl,
     purchaseApprovalLimit: user.purchaseApprovalLimit ? Number(user.purchaseApprovalLimit) : fallback?.purchaseApprovalLimit,
@@ -152,6 +156,8 @@ export function UsersPage() {
   const [adminUsers, setAdminUsers] = useState<AdminUserRow[]>([]);
   const [departments, setDepartments] = useState<{ id: string; name: string; code?: string }[]>([]);
   const [divisions, setDivisions] = useState<{ id: string; code: string; name: string }[]>([]);
+  // CRM Alan Ayarları > Kullanıcı Ünvanları listesinden beslenir.
+  const [titles, setTitles] = useState<{ id: string; name: string }[]>([]);
   const [availableRoles, setAvailableRoles] = useState<AssignableRole[]>([]);
   const [adminLoading, setAdminLoading] = useState(true);
   const [adminError, setAdminError] = useState<string | null>(null);
@@ -178,16 +184,22 @@ export function UsersPage() {
     setAdminLoading(true);
     setAdminError(null);
     try {
-      const [userRows, roleRows, deptRows, divisionRows] = await Promise.all([
+      const [userRows, roleRows, deptRows, divisionRows, titleRows] = await Promise.all([
         adminService.users(),
         canAssignRoles || canCreateUser ? adminService.roles() : Promise.resolve([]),
         adminService.departments().catch(() => []),
         adminService.divisions().catch(() => []),
+        lookupService.byName("user-titles").catch(() => []),
       ]);
       const fallbackById = new Map(users.map((user) => [user.id, user]));
       setAdminUsers((Array.isArray(userRows) ? userRows : []).map((user) => normalizeAdminUser(user, fallbackById.get(user.id))));
       setDepartments((Array.isArray(deptRows) ? deptRows : []).map((d: any) => ({ id: d.id, name: d.name, code: d.code })));
       setDivisions((Array.isArray(divisionRows) ? divisionRows : []).map((d: any) => ({ id: d.id, code: d.code, name: d.name })));
+      setTitles(
+        (Array.isArray(titleRows) ? titleRows : [])
+          .filter((t: any) => t?.id && t?.name && t?.isActive !== false)
+          .map((t: any) => ({ id: String(t.id), name: String(t.name) }))
+      );
       setAvailableRoles(
         (Array.isArray(roleRows) ? roleRows : [])
           .map((role: any) => ({
@@ -297,12 +309,17 @@ export function UsersPage() {
     departmentId: string | null,
     active: boolean,
     divisionIds?: string[],
-    accessScopes?: UserAccessScopeRow[]
+    accessScopes?: UserAccessScopeRow[],
+    titleId?: string | null
   ) => {
     setSavingDept(true);
     try {
+      const editsDepartmentScope = divisionIds !== undefined || accessScopes !== undefined;
       await adminService.updateUser(userId, {
-        departmentId,
+        // Tablo üzerindeki durum anahtarı yalnızca status gönderir; departman
+        // ve özel erişim kapsamlarını farkında olmadan sıfırlamaz.
+        ...(editsDepartmentScope ? { departmentId } : {}),
+        ...(titleId !== undefined ? { titleId } : {}),
         status: active ? "active" : "passive",
         // Yalnızca dialogdan açıkça düzenlendiğinde gönder — durum anahtarı bölümleri silmesin.
         ...(divisionIds ? { divisionIds } : {}),
@@ -679,6 +696,7 @@ export function UsersPage() {
           user={deptUser}
           departments={departments}
           divisions={divisions}
+          titles={titles}
           saving={savingDept}
           onClose={() => setDeptUser(null)}
           onSave={handleSaveDepartment}
@@ -691,6 +709,7 @@ export function UsersPage() {
           departments={departments}
           roles={availableRoles}
           divisions={divisions}
+          titles={titles}
           onCreated={loadAdminUsers}
         />
       )}

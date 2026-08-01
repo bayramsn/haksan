@@ -5,7 +5,7 @@ import {
 import { Button } from "../ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../ui/table";
 import {
-  Building2, Download, ExternalLink, FileSignature, FileText, Loader2, Printer, Receipt,
+  Building2, BriefcaseBusiness, Download, ExternalLink, FileSignature, FileText, Link2, Loader2, Printer, Receipt,
 } from "lucide-react";
 import { useStore } from "../../lib/store";
 import type { DocumentItem } from "../../lib/mock";
@@ -32,14 +32,20 @@ export function DocumentDetailDialog({
   onPrint,
   onDownload,
   onOpenFile,
+  onOpenOpportunity,
+  onOpenOffer,
+  onOpenCustomer,
 }: {
   doc: DocumentItem | null;
   onClose: () => void;
   onPrint?: (d: DocumentItem) => void;
   onDownload?: (d: DocumentItem) => void;
   onOpenFile?: (d: DocumentItem) => void;
+  onOpenOpportunity?: (salesCaseId: string) => void;
+  onOpenOffer?: (query: string) => void;
+  onOpenCustomer?: (customerId: string) => void;
 }) {
-  const { customers, cases, offers, products, contacts, payments } = useStore();
+  const { customers, cases, offers, products, contacts, payments, users } = useStore();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [proforma, setProforma] = useState<ProformaPrintData | null>(null);
@@ -73,10 +79,11 @@ export function DocumentDetailDialog({
             contractDate: doc.uploadedAt || new Date().toISOString().slice(0, 10),
             contractNo: doc.fileName,
             documentSnapshot: doc.documentSnapshot,
+            users,
           });
           if (alive) setContract(data);
         } else {
-          const data = await loadProformaPrintData({ doc, customers, cases, offers, products, contacts, variantKey: "" });
+          const data = await loadProformaPrintData({ doc, customers, cases, offers, products, contacts, users, variantKey: "" });
           if (alive) setProforma(data);
         }
       } catch (e: any) {
@@ -93,6 +100,12 @@ export function DocumentDetailDialog({
 
   const meta = doc ? TYPE_META[doc.type] ?? { label: doc.type, icon: FileText } : null;
   const Icon = meta?.icon ?? FileText;
+  const sourceCase = doc ? cases.find((salesCase) => salesCase.id === doc.salesCaseId) ?? null : null;
+  const sourceOffer = doc?.quoteId
+    ? offers.find((offer) => offer.id === doc.quoteId) ?? null
+    : offers.filter((offer) => offer.salesCaseId === sourceCase?.id).sort((left, right) => right.revision - left.revision)[0] ?? null;
+  const sourceCompanyId = doc ? (doc.companyId || sourceOffer?.companyId || sourceCase?.customerId || "") : "";
+  const sourceCompany = customers.find((customer) => customer.id === sourceCompanyId) ?? null;
 
   return (
     <Dialog open={!!doc} onOpenChange={(o) => !o && onClose()}>
@@ -115,6 +128,21 @@ export function DocumentDetailDialog({
             </DialogHeader>
 
             <div className="min-h-0 overflow-y-auto px-6 py-5">
+              <div className="mb-4 rounded-lg border border-primary/15 bg-primary/[0.035] p-3">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-1.5 font-data text-[9px] font-semibold uppercase tracking-[0.14em] text-primary"><Link2 className="size-3" /> Kaynak kayıt</div>
+                    <div className="mt-1 truncate text-xs text-muted-foreground">
+                      {sourceOffer ? `${sourceOffer.quoteNo} · R${sourceOffer.revision}` : sourceCase ? `Fırsat #${sourceCase.id.slice(0, 8).toUpperCase()}` : sourceCompany?.name ?? "Bağlantı bulunamadı"}
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {sourceOffer && onOpenOffer && <Button variant="outline" size="sm" className="h-7 px-2 text-[10px]" onClick={() => { onClose(); onOpenOffer(sourceOffer.quoteNo); }}><FileText className="mr-1 size-3" /> Teklif</Button>}
+                    {sourceCase && onOpenOpportunity && <Button variant="outline" size="sm" className="h-7 px-2 text-[10px]" onClick={() => { onClose(); onOpenOpportunity(sourceCase.id); }}><BriefcaseBusiness className="mr-1 size-3" /> Fırsat</Button>}
+                    {sourceCompany && onOpenCustomer && <Button variant="outline" size="sm" className="h-7 px-2 text-[10px]" onClick={() => { onClose(); onOpenCustomer(sourceCompany.id); }}><Building2 className="mr-1 size-3" /> Firma</Button>}
+                  </div>
+                </div>
+              </div>
               {loading && (
                 <div className="flex items-center justify-center gap-2 py-16 text-sm text-muted-foreground">
                   <Loader2 className="size-4 animate-spin" /> İçerik yükleniyor…

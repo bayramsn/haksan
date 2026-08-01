@@ -2,7 +2,7 @@ import { Body, Controller, Delete, Get, Inject, Patch, Post, Param, Query, UseGu
 import { hashPassword } from '../../shared/security/password';
 import { and, asc, desc, eq, inArray, isNull, ne, sql } from 'drizzle-orm';
 import type { DbClient } from '../../db/client';
-import { users, roles, permissions, userRoles, rolePermissions, userTargets, departmentTargets, userAccessScopes, userDivisions, loginSessions, refreshTokens } from '../../db/schema/users';
+import { users, roles, permissions, userRoles, rolePermissions, userTargets, departmentTargets, userAccessScopes, userDepartmentAssignments, userDivisions, loginSessions, refreshTokens } from '../../db/schema/users';
 import { departments, tenants, divisions } from '../../db/schema/tenants';
 import { auditLogs } from '../../db/schema/audit';
 import { DB } from '../../shared/database/database.module';
@@ -93,6 +93,27 @@ export class AdminController {
     invalidateRbacCache(userId);
   }
 
+  private async assertActiveDepartment(departmentId: string, tenantId: string) {
+    const department = await this.db.query.departments.findFirst({
+      where: and(
+        eq(departments.id, departmentId),
+        eq(departments.tenantId, tenantId),
+        isNull(departments.deletedAt)
+      ),
+    });
+    if (!department) throw new NotFoundError('Departman');
+    return department;
+  }
+
+  /** Kullanıcı formundaki tek departman seçimini erişim bağlamındaki birincil
+   * departman atamasıyla aynı tutar. Çoklu kapsamlar user_access_scopes üzerinden yönetilir. */
+  private async setUserDepartmentAssignment(userId: string, departmentId: string | null | undefined) {
+    await this.db.delete(userDepartmentAssignments).where(eq(userDepartmentAssignments.userId, userId));
+    if (departmentId) {
+      await this.db.insert(userDepartmentAssignments).values({ userId, departmentId, isPrimary: true });
+    }
+  }
+
   /** Kullanıcının bölüm (CNC/Üniversal/Sac) üyeliklerini verilen listeyle değiştirir.
    *  Yalnızca kiracıya ait aktif bölümler kabul edilir; sıradaki ilk geçerli bölüm birincil olur. */
   private async setUserDivisions(userId: string, tenantId: string, divisionIds: string[]) {
@@ -160,7 +181,13 @@ export class AdminController {
       const rows = await this.db
         .select({ id: departments.id })
         .from(departments)
-        .where(and(eq(departments.tenantId, tenantId), inArray(departments.id, departmentIds)));
+        .where(
+          and(
+            eq(departments.tenantId, tenantId),
+            isNull(departments.deletedAt),
+            inArray(departments.id, departmentIds)
+          )
+        );
       if (rows.length !== departmentIds.length) throw new NotFoundError('Departman');
     }
     if (divisionIds.length) {
@@ -200,8 +227,15 @@ export class AdminController {
     const rows = await this.db.query.users.findMany({
       where: and(eq(users.tenantId, user.tenantId), isNull(users.deletedAt)),
     });
-    const deptRows = await this.db.query.departments.findMany({ where: eq(departments.tenantId, user.tenantId) });
+    const deptRows = await this.db.query.departments.findMany({
+      where: and(eq(departments.tenantId, user.tenantId), isNull(departments.deletedAt)),
+    });
     const deptById = new Map(deptRows.map((d) => [d.id, d]));
+    // Ünvanlar tenant'tan bağımsız ortak lookup'tır; tek seferde okunup eşlenir.
+    const titleRows = await this.db.query.userTitles.findMany();
+    const titleById = new Map(
+      titleRows.map((t) => [t.id, { id: t.id, code: t.code, name: t.name }])
+    );
     const out = [];
     for (const u of rows) {
       const userRoleRows = await this.db
@@ -234,6 +268,8 @@ export class AdminController {
         status: u.status,
         departmentId: u.departmentId,
         department: department ? { id: department.id, code: department.code, name: department.name } : null,
+        titleId: u.titleId,
+        title: u.titleId ? titleById.get(u.titleId) ?? null : null,
         purchaseApprovalLimit: u.purchaseApprovalLimit,
         assistantDailyUsdLimit:
           u.assistantDailyUsdLimitCents == null ? null : u.assistantDailyUsdLimitCents / 100,
@@ -260,6 +296,7 @@ export class AdminController {
       where: and(eq(users.tenantId, user.tenantId), eq(users.email, body.email)),
     });
     if (existing) throw new ConflictError('Bu e-posta zaten kayıtlı');
+    if (body.departmentId) await this.assertActiveDepartment(body.departmentId, user.tenantId);
     const hash = await hashPassword(body.password);
     const [created] = await this.db
       .insert(users)
@@ -270,8 +307,10 @@ export class AdminController {
         phone: body.phone ?? null,
         passwordHash: hash,
         departmentId: body.departmentId ?? null,
+        titleId: body.titleId ?? null,
       })
       .returning();
+    await this.setUserDepartmentAssignment(created.id, body.departmentId);
     for (const code of body.roleCodes) {
       const role = await this.db.query.roles.findFirst({
         where: and(eq(roles.tenantId, user.tenantId), eq(roles.code, code)),
@@ -295,6 +334,7 @@ export class AdminController {
       where: and(eq(users.id, id), eq(users.tenantId, user.tenantId), isNull(users.deletedAt)),
     });
     if (!existing) throw new NotFoundError('Kullanıcı');
+    if (body.departmentId) await this.assertActiveDepartment(body.departmentId, user.tenantId);
     const currentRoleRows = await this.db
       .select({ code: roles.code })
       .from(userRoles)
@@ -310,7 +350,7 @@ export class AdminController {
         .orderBy(desc(userDivisions.isPrimary))
     ).map((row) => row.divisionId);
     const patch: Record<string, unknown> = {};
-    for (const k of ['fullName', 'phone', 'departmentId', 'status'] as const) {
+    for (const k of ['fullName', 'phone', 'departmentId', 'titleId', 'status'] as const) {
       if ((body as any)[k] !== undefined) patch[k] = (body as any)[k];
     }
     // E-posta değişimi hassas bir işlemdir: yalnızca super_admin yapabilir ve
@@ -364,6 +404,9 @@ export class AdminController {
     // "No values to set" ile 500 atar (krş. updateRole/updateTenant deseni).
     if (Object.keys(patch).length > 0) {
       await this.db.update(users).set(patch).where(eq(users.id, id));
+    }
+    if (body.departmentId !== undefined) {
+      await this.setUserDepartmentAssignment(id, body.departmentId);
     }
     if (body.roleCodes) {
       // Yetki yükseltme/indirme koruması: super_admin rolüne dokunan (atayan VEYA
@@ -624,7 +667,7 @@ export class AdminController {
     @CurrentUser() user: AuthContext
   ) {
     const dept = await this.db.query.departments.findFirst({
-      where: and(eq(departments.id, id), eq(departments.tenantId, user.tenantId)),
+      where: and(eq(departments.id, id), eq(departments.tenantId, user.tenantId), isNull(departments.deletedAt)),
     });
     if (!dept) throw new NotFoundError('Departman');
 
@@ -746,7 +789,10 @@ export class AdminController {
   @RequirePermissions('departments.read')
   @Get('departments')
   async listDepts(@CurrentUser() user: AuthContext) {
-    return this.db.query.departments.findMany({ where: eq(departments.tenantId, user.tenantId) });
+    return this.db.query.departments.findMany({
+      where: and(eq(departments.tenantId, user.tenantId), isNull(departments.deletedAt)),
+      orderBy: [asc(departments.name)],
+    });
   }
 
   /** Kiracının aktif bölümleri (CNC / Üniversal / Sac İşleme) — kullanıcı formundaki bölüm seçimi için. */
@@ -767,11 +813,40 @@ export class AdminController {
     const existing = await this.db.query.departments.findFirst({
       where: and(eq(departments.tenantId, user.tenantId), eq(departments.code, code)),
     });
-    if (existing) throw new ConflictError('Bu departman kodu zaten kayıtlı');
+    if (existing && !existing.deletedAt) throw new ConflictError('Bu departman kodu zaten kayıtlı');
+    if (existing?.deletedAt) {
+      const [restored] = await this.db
+        .update(departments)
+        .set({
+          name: body.name.trim(),
+          description: body.description?.trim() || null,
+          deletedAt: null,
+        })
+        .where(and(eq(departments.id, existing.id), eq(departments.tenantId, user.tenantId)))
+        .returning();
+      await this.audit.write({
+        tenantId: user.tenantId,
+        actorUserId: user.userId,
+        action: 'department.restored',
+        resourceType: 'department',
+        resourceId: existing.id,
+        oldValues: existing,
+        newValues: restored,
+      });
+      return restored;
+    }
     const [row] = await this.db
       .insert(departments)
       .values({ tenantId: user.tenantId, code, name: body.name.trim(), description: body.description?.trim() || null })
       .returning();
+    await this.audit.write({
+      tenantId: user.tenantId,
+      actorUserId: user.userId,
+      action: 'department.created',
+      resourceType: 'department',
+      resourceId: row.id,
+      newValues: row,
+    });
     return row;
   }
 
@@ -783,14 +858,75 @@ export class AdminController {
     @CurrentUser() user: AuthContext
   ) {
     const existing = await this.db.query.departments.findFirst({
-      where: and(eq(departments.id, id), eq(departments.tenantId, user.tenantId)),
+      where: and(eq(departments.id, id), eq(departments.tenantId, user.tenantId), isNull(departments.deletedAt)),
     });
     if (!existing) throw new NotFoundError('Departman');
     const patch: Record<string, unknown> = {};
     if (body.name !== undefined) patch.name = body.name;
     if (body.description !== undefined) patch.description = body.description;
     const [row] = await this.db.update(departments).set(patch).where(eq(departments.id, id)).returning();
+    await this.audit.write({
+      tenantId: user.tenantId,
+      actorUserId: user.userId,
+      action: 'department.updated',
+      resourceType: 'department',
+      resourceId: id,
+      oldValues: existing,
+      newValues: row,
+    });
     return row;
+  }
+
+  @RequirePermissions('departments.delete')
+  @Delete('departments/:id')
+  async deleteDept(@Param('id') id: string, @CurrentUser() user: AuthContext) {
+    const { existing, deletedAt } = await this.db.transaction(async (tx) => {
+      // Departman satırını kilitle; eşzamanlı çıkarma/güncelleme sırasında bağlı
+      // kayıt kontrolü aynı aktif departman üzerinde tutarlı kalsın.
+      const [lockedDepartment] = await tx
+        .select()
+        .from(departments)
+        .where(and(eq(departments.id, id), eq(departments.tenantId, user.tenantId), isNull(departments.deletedAt)))
+        .limit(1)
+        .for('update');
+      if (!lockedDepartment) throw new NotFoundError('Departman');
+
+      const [{ count: primaryUserCount }] = await tx
+        .select({ count: sql<number>`count(*)::int` })
+        .from(users)
+        .where(and(eq(users.tenantId, user.tenantId), eq(users.departmentId, id), isNull(users.deletedAt)));
+      const [{ count: assignmentCount }] = await tx
+        .select({ count: sql<number>`count(*)::int` })
+        .from(userDepartmentAssignments)
+        .innerJoin(users, eq(userDepartmentAssignments.userId, users.id))
+        .where(and(eq(users.tenantId, user.tenantId), eq(userDepartmentAssignments.departmentId, id), isNull(users.deletedAt)));
+      const [{ count: accessScopeCount }] = await tx
+        .select({ count: sql<number>`count(*)::int` })
+        .from(userAccessScopes)
+        .innerJoin(users, eq(userAccessScopes.userId, users.id))
+        .where(and(eq(users.tenantId, user.tenantId), eq(userAccessScopes.departmentId, id), isNull(users.deletedAt)));
+
+      if ((primaryUserCount ?? 0) + (assignmentCount ?? 0) + (accessScopeCount ?? 0) > 0) {
+        throw new ConflictError('Bu departman kullanıcılara veya erişim alanlarına atanmış. Önce kullanıcı atamalarını değiştirin');
+      }
+
+      const deletedAt = new Date();
+      await tx
+        .update(departments)
+        .set({ deletedAt })
+        .where(and(eq(departments.id, id), eq(departments.tenantId, user.tenantId), isNull(departments.deletedAt)));
+      return { existing: lockedDepartment, deletedAt };
+    });
+    await this.audit.write({
+      tenantId: user.tenantId,
+      actorUserId: user.userId,
+      action: 'department.deleted',
+      resourceType: 'department',
+      resourceId: id,
+      oldValues: existing,
+      newValues: { deletedAt },
+    });
+    return { ok: true as const, id };
   }
 
   @RequirePermissions('audit.read')

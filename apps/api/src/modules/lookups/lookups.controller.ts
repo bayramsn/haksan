@@ -39,6 +39,7 @@ export const LOOKUP_TABLE_MAP: Record<string, keyof typeof schema> = {
   'contact-sources': 'contactSources',
   'tax-offices': 'taxOffices',
   'decision-roles': 'decisionRoles',
+  'user-titles': 'userTitles',
   'product-groups': 'productGroups',
   'product-categories': 'productCategories',
   'product-subcategories': 'productSubcategories',

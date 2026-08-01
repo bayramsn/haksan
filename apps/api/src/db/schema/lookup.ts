@@ -52,6 +52,8 @@ export const companyGroups = makeLookup('company_groups');
 export const companySectors = makeLookup('company_sectors');
 export const contactSources = makeLookup('contact_sources');
 export const decisionRoles = makeLookup('decision_roles');
+/** Kullanıcı ünvanları — belgelerde (teklif/proforma/sözleşme) imza satırında görünür. */
+export const userTitles = makeLookup('user_titles');
 export const productGroups = makeDivisionLookup('product_groups');
 
 /**

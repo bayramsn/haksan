@@ -1036,8 +1036,41 @@ export const reportService = {
   targetProgress: (params: { period: string; scope?: 'user' | 'department' | 'role' | 'all-users'; id?: string }) =>
     api.get<any>(`/reports/target-progress${qs(params)}`),
   myTargetProgress: (params: { period: string }) => api.get<any>(`/reports/my-target-progress${qs(params)}`),
+  /**
+   * Ekip aktivitesi. `scope: 'team'` yalnız süper adminde geçerlidir; diğer
+   * kullanıcılarda sunucu isteği sessizce 'self'e düşürür.
+   */
+  teamActivity: (params: { period: TeamActivityPeriod; date?: string; scope?: 'team' | 'self' }) =>
+    api.get<TeamActivityReport>(`/reports/team-activity${qs(params)}`),
   downloadYearEnd: (year: number) => exportService.yearEnd(year),
 };
+
+export type TeamActivityPeriod = 'day' | 'week' | 'month' | 'year';
+/** Mevcut dönem ve bir önceki eşdeğer dönem sayacı. */
+export type ActivityDelta = { current: number; previous: number };
+export interface TeamActivityReport {
+  period: TeamActivityPeriod;
+  scope: 'team' | 'self';
+  canSeeTeam: boolean;
+  range: { from: string; to: string };
+  previousRange: { from: string; to: string };
+  bucket: 'hour' | 'day' | 'month';
+  totals: {
+    quotes: number; visits: number; calls: number; activities: number;
+    opportunitiesCreated: number; won: number; wonValue: number;
+  };
+  previousTotals: {
+    quotes: number; visits: number; calls: number; activities: number;
+    opportunitiesCreated: number; won: number;
+  };
+  timeline: Array<{ bucket: string; quotes: number; visits: number; calls: number; activities: number }>;
+  users: Array<{
+    userId: string; name: string;
+    quotes: ActivityDelta; visits: ActivityDelta; calls: ActivityDelta; activities: ActivityDelta;
+    opportunitiesCreated: ActivityDelta; won: ActivityDelta;
+    wonValue: number; total: ActivityDelta;
+  }>;
+}
 
 // ───── Admin (users, roles, departments) ─────
 export const adminService = {
@@ -1064,6 +1097,7 @@ export const adminService = {
   departments: () => api.get<any[]>('/departments'),
   divisions: () => api.get<any[]>('/divisions'),
   createDept: (body: DepartmentCreateInput) => api.post<any>('/departments', body),
+  deleteDept: (id: string) => api.delete<{ ok: true; id: string }>(`/departments/${id}`),
   auditLogs: (params?: Record<string, string | number | undefined>) => api.get<Paginated<any>>(`/audit-logs${qs(params)}`),
   tenant: () => api.get<any>('/tenant'),
   updateTenant: (body: TenantUpdateInput) => api.patch<any>('/tenant', body),

@@ -1,7 +1,7 @@
 // Proforma yazdırma/indirme: sabit sayfa düzeni + ilişkili teklif kaydında
 // gerçekten saklanan müşteri, kalem, vergi, şart ve not alanları.
 
-import type { Contact, Customer, DocumentItem, Offer, Product, SalesCase } from "../mock";
+import type { Contact, Customer, DocumentItem, Offer, Product, SalesCase, User } from "../mock";
 import { quoteService } from "../../../lib/services";
 import { splitVat } from "../pageHelpers";
 import { publicProductLabel, trLongDate } from "./core";
@@ -15,6 +15,8 @@ export type ProformaBuildInput = {
   offers: Offer[];
   products: Product[];
   contacts?: Contact[];
+  /** İmza satırındaki hazırlayanın ünvanını çözmek için CRM kullanıcıları. */
+  users?: User[];
   /** Belgenin altına basılacak proforma not şablonu (CİF İstanbul / İşletme Teslim). */
   variantKey?: string;
 };
@@ -242,7 +244,7 @@ export function buildProformaPrintData(
   input: ProformaBuildInput,
   quoteDetail?: QuoteDetail | null,
 ): ProformaPrintData {
-  const { doc, customers, cases, offers, products, contacts = [], variantKey } = input;
+  const { doc, customers, cases, offers, products, contacts = [], users = [], variantKey } = input;
   if (doc.documentSnapshot) return proformaFromSnapshot(doc, doc.documentSnapshot, products, variantKey);
   const offer = resolveQuote(doc, offers);
   const sc = cases.find((s) => s.id === (doc.salesCaseId || offer?.salesCaseId)) ?? null;
@@ -298,6 +300,14 @@ export function buildProformaPrintData(
       vat.kdv,
     ),
     currency: (offer?.currency ?? sc?.currency ?? "USD") as ProformaPrintData["currency"],
+    // İmza satırı: belgeyi hazırlayan, bağlı teklifin proje ilgilisidir.
+    // Ünvan atanmışsa o, yoksa departman adı yazılır.
+    ...(() => {
+      const owner = users.find((u) => u.id === quoteDetail?.projectOwnerUserId);
+      return owner
+        ? { hazirlayan: owner.name, hazirlayanUnvan: owner.title || owner.department || undefined }
+        : {};
+    })(),
     // Not önceliği: (1) menüden açıkça seçilen şablon, (2) teklifte seçilen teslim
     // şeklinin otomatik tespiti, (3) bağlı teklifin ham şartları. {{ALICI}}/{{YIL}} doldurulur.
     notlar: (() => {
