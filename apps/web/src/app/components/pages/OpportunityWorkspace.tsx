@@ -6,6 +6,7 @@ import {
 } from "@haksan/shared";
 import {
   Activity as ActivityIcon,
+  AlertTriangle,
   Building2,
   Check,
   ChevronRight,
@@ -80,6 +81,7 @@ type TimelineItem = {
   id: string;
   date: string;
   category: "activity" | "process" | "commercial" | "approval" | "file";
+  categoryLabel?: string;
   title: string;
   detail?: string;
   actor?: string;
@@ -91,6 +93,19 @@ export const isManualTimelineComment = (activity: {
   typeCode?: string;
   origin?: "manual" | "system";
 }) => activity.origin === "manual" && (activity.typeCode === "note" || activity.type === "Not" || activity.type === "Yorum");
+
+export const isOpportunityTimelineActivity = (activity: {
+  type: string;
+  typeCode?: string;
+  origin?: "manual" | "system";
+  note?: string;
+  result?: string;
+}) => {
+  if (isManualTimelineComment(activity)) return true;
+  if (activity.origin !== "manual") return false;
+  const hasWrittenDetail = Boolean(activity.note?.trim() || activity.result?.trim());
+  return hasWrittenDetail && (activity.typeCode === "outgoing_call" || activity.typeCode === "customer_visit");
+};
 
 const TAB_LABELS: Record<WorkspaceTab, string> = {
   summary: "Özet",
@@ -497,16 +512,20 @@ export function OpportunityWorkspace({
     const items: TimelineItem[] = [];
     const visibleActivities = isLead
       ? opportunityActivities
-      : opportunityActivities.filter(isManualTimelineComment);
-    visibleActivities.forEach((activity) => items.push({
-      id: `activity-${activity.id}`,
-      sourceActivityId: activity.id,
-      date: activity.date,
-      category: "activity",
-      title: activity.title,
-      detail: [activity.note, activity.result].filter(Boolean).join(" · "),
-      actor: activity.createdByName || users.find((item) => item.id === activity.byUserId)?.name,
-    }));
+      : opportunityActivities.filter(isOpportunityTimelineActivity);
+    visibleActivities.forEach((activity) => {
+      const isComment = isManualTimelineComment(activity);
+      items.push({
+        id: `activity-${activity.id}`,
+        sourceActivityId: activity.id,
+        date: activity.date,
+        category: "activity",
+        categoryLabel: isLead ? undefined : isComment ? "Yorum" : activity.type || "Aktivite",
+        title: activity.title,
+        detail: [activity.note, activity.result].filter(Boolean).join(" · "),
+        actor: activity.createdByName || users.find((item) => item.id === activity.byUserId)?.name,
+      });
+    });
     if (!isLead) return items.sort((a, b) => timelineTime(b.date) - timelineTime(a.date));
     (detail?.history ?? []).forEach((history) => items.push({
       id: `stage-${history.id}`,
@@ -846,16 +865,16 @@ export function OpportunityWorkspace({
               },
             ]} />
           )}
-          <div className="flex flex-wrap items-center justify-between gap-3"><div><h3 className="font-display text-lg font-semibold text-[#0b1739]">{isLead ? "Temas akışı" : "Yorumlar"}</h3><p className="text-xs text-muted-foreground">{isLead ? "Yaklaşan aksiyonlar ve tüm temas sonuçları aynı akışta." : "Yalnızca kullanıcıların elle eklediği yorumlar gösterilir."}</p></div>{hasPermission("activities.create") && <AddActivityDialog salesCaseId={sc.id} customerId={sc.customerId} commentOnly={!isLead} trigger={<Button size="sm" className="min-h-11 gap-1.5 sm:min-h-8"><ActivityIcon className="size-4" /> {isLead ? "Aktivite ekle" : "Yorum ekle"}</Button>} />}</div>
+          <div className="flex flex-wrap items-center justify-between gap-3"><div><h3 className="font-display text-lg font-semibold text-[#0b1739]">{isLead ? "Temas akışı" : "Aktivite"}</h3><p className="text-xs text-muted-foreground">{isLead ? "Yaklaşan aksiyonlar ve tüm temas sonuçları aynı akışta." : "Elle eklenen yorumlar ile not yazılmış arama ve ziyaret kayıtları gösterilir."}</p></div>{hasPermission("activities.create") && <AddActivityDialog salesCaseId={sc.id} customerId={sc.customerId} commentOnly={!isLead} trigger={<Button size="sm" className="min-h-11 gap-1.5 sm:min-h-8"><ActivityIcon className="size-4" /> {isLead ? "Aktivite ekle" : "Yorum ekle"}</Button>} />}</div>
           <Card>
             <CardContent className={padding}>
               {detailLoading && <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" /> Geçmiş yükleniyor…</div>}
               {!detailLoading && (
                 <UnifiedTimeline
-                  items={timeline.map((item) => ({ ...item, categoryLabel: isLead ? categoryLabel[item.category] : "Yorum" }))}
+                  items={timeline.map((item) => ({ ...item, categoryLabel: item.categoryLabel ?? categoryLabel[item.category] }))}
                   focusedId={focusedActivityId ? `activity-${focusedActivityId}` : null}
                   formatDate={formatDate}
-                  emptyLabel={isLead ? "Bu lead için temas kaydı yok." : "Bu fırsat için henüz yorum yok."}
+                  emptyLabel={isLead ? "Bu lead için temas kaydı yok." : "Bu fırsat için henüz aktivite veya yorum yok."}
                   renderActions={(item) => item.sourceActivityId ? (
                     <div className="flex gap-1">
                       {hasPermission("activities.update") && onEditActivity && <Button type="button" variant="ghost" size="icon" className="size-11 sm:size-8" onClick={() => onEditActivity(item.sourceActivityId!)}><Pencil className="size-3.5" /><span className="sr-only">{item.title} aktivitesini düzenle</span></Button>}

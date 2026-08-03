@@ -11,7 +11,6 @@ import {
   XCircle,
 } from "lucide-react";
 import {
-  QUALIFICATION_STAGE_PIPELINE_STEPS,
   type OpportunityProcessActionKey,
   type OpportunityProcessReadiness,
   type QualificationStageCode,
@@ -29,6 +28,7 @@ import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Card, CardContent } from "../ui/card";
 import { Textarea } from "../ui/textarea";
+import { OPPORTUNITY_OPERATION_GROUP_STEPS } from "./opportunityProcessGroups";
 
 const APPROVAL_LABELS: Record<string, string> = {
   payment: "Ödeme",
@@ -320,7 +320,7 @@ export function OpportunityProcessCenter({
       </div>
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
         {OPERATION_GROUPS.map((qualificationCode) => {
-          const stepCodes = QUALIFICATION_STAGE_PIPELINE_STEPS[qualificationCode];
+          const stepCodes = OPPORTUNITY_OPERATION_GROUP_STEPS[qualificationCode];
           const targets = stepCodes
             .map((code) => operationTargets.find((target) => target.code === code))
             .filter((target): target is ProcessTarget => Boolean(target));

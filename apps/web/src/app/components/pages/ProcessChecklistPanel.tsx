@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { CheckCircle2, Circle, ListChecks, Loader2, Pencil } from "lucide-react";
 import { toast } from "sonner";
-import { QUALIFICATION_STAGE_PIPELINE_STEPS, type OpportunityProcessActionKey } from "@haksan/shared";
+import { type OpportunityProcessActionKey } from "@haksan/shared";
 import { activityService } from "../../../lib/services";
 import { useAuth } from "../../../lib/auth";
 import { useStore } from "../../lib/store";
@@ -17,6 +17,7 @@ import {
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Card, CardContent } from "../ui/card";
+import { Checkbox } from "../ui/checkbox";
 import { Combobox } from "../ui/combobox";
 import { Input } from "../ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
@@ -24,6 +25,7 @@ import { Textarea } from "../ui/textarea";
 import { CreateContactDialog } from "../dialogs/CreateDialogs";
 import { QuoteDialog } from "../dialogs/QuoteDialog";
 import { RequestedMachineCombobox } from "../shared/RequestedMachineCombobox";
+import { OPPORTUNITY_OPERATION_GROUP_STEPS } from "./opportunityProcessGroups";
 
 /**
  * Kartın bulunduğu satış derecesini geçmek için tamamlanması gereken alanları
@@ -46,6 +48,7 @@ export function ProcessChecklistPanel({
   const { hasRole, hasPermission } = useAuth();
   const isSuperAdmin = hasRole("super_admin");
   const canUpdate = hasPermission("opportunities.update");
+  const canCreateActivity = hasPermission("activities.create");
   const canCreateQuote = hasPermission("quotes.create");
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [advancing, setAdvancing] = useState(false);
@@ -54,7 +57,7 @@ export function ProcessChecklistPanel({
   const readiness = sc.qualificationReadiness;
   const company = customers.find((item) => item.id === sc.customerId);
   const grade = (sc.qualificationStage ?? "lead") as QualificationStage;
-  const areaSteps = QUALIFICATION_STAGE_PIPELINE_STEPS[grade] ?? [];
+  const areaSteps = OPPORTUNITY_OPERATION_GROUP_STEPS[grade] ?? [];
   const checkByAction: Partial<Record<OpportunityProcessActionKey, string>> = {
     assign_owner: "owner",
     edit_subject: "subject",
@@ -101,8 +104,13 @@ export function ProcessChecklistPanel({
   if (!readiness) return null;
 
   /** Bir düzenleyicinin kaydetme sarmalayıcısı: kilit, hata ve tazeleme tek yerde. */
-  const run = async (key: string, action: () => Promise<unknown>, successMessage: string) => {
-    if (!canUpdate || busyKey) return;
+  const run = async (
+    key: string,
+    action: () => Promise<unknown>,
+    successMessage: string,
+    authorized = canUpdate,
+  ) => {
+    if (!authorized || busyKey) return;
     setBusyKey(key);
     try {
       await action();
@@ -173,6 +181,9 @@ export function ProcessChecklistPanel({
               products={products}
               isSuperAdmin={isSuperAdmin}
               canCreateQuote={canCreateQuote}
+              canCreateActivity={canCreateActivity}
+              complete={false}
+              busy={busyKey !== null}
               disabled={!canUpdate || busyKey !== null}
               run={run}
               updateCase={updateCase}
@@ -187,58 +198,64 @@ export function ProcessChecklistPanel({
           <p className="text-xs text-muted-foreground">Bu aşamada tamamlanacak alan yok.</p>
         ) : (
           <ul className="divide-y divide-border/60 rounded-lg border border-border/60">
-            {readiness.checks.map((check) => (
-              <li key={check.key} className="flex flex-col gap-2 px-3 py-2.5">
-                <div className="flex items-center gap-2">
-                  {check.complete ? (
-                    <CheckCircle2 className="size-4 shrink-0 text-success" />
-                  ) : (
-                    <Circle className="size-4 shrink-0 text-muted-foreground" />
-                  )}
-                  <span className={`min-w-0 flex-1 text-xs ${check.complete ? "text-muted-foreground" : "font-medium"}`}>
-                    {check.label}
-                  </span>
-                  {busyKey === check.key && <Loader2 className="size-3.5 animate-spin text-muted-foreground" />}
-                  {check.complete && (
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="ghost"
-                      className="h-7 shrink-0 gap-1 px-2 text-[10px]"
-                      onClick={() =>
-                        setEditingKeys((current) => {
-                          const next = new Set(current);
-                          if (next.has(check.key)) next.delete(check.key);
-                          else next.add(check.key);
-                          return next;
-                        })
-                      }
-                    >
-                      <Pencil className="size-3" />
-                      {editingKeys.has(check.key) ? "Kapat" : "Düzenle"}
-                    </Button>
-                  )}
-                </div>
-                {(!check.complete || editingKeys.has(check.key)) && (
-                  <CheckEditor
-                    checkKey={check.key}
-                    sc={sc}
-                    company={company}
-                    companyContacts={companyContacts}
+            {readiness.checks.map((check) => {
+              const isActivityCheck = check.key === "call" || check.key === "visit";
+              return (
+                <li key={check.key} className="flex flex-col gap-2 px-3 py-2.5">
+                  <div className="flex items-center gap-2">
+                    {check.complete ? (
+                      <CheckCircle2 className="size-4 shrink-0 text-success" />
+                    ) : (
+                      <Circle className="size-4 shrink-0 text-muted-foreground" />
+                    )}
+                    <span className={`min-w-0 flex-1 text-xs ${check.complete ? "text-muted-foreground" : "font-medium"}`}>
+                      {check.label}
+                    </span>
+                    {busyKey === check.key && <Loader2 className="size-3.5 animate-spin text-muted-foreground" />}
+                    {check.complete && !isActivityCheck && (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        className="h-7 shrink-0 gap-1 px-2 text-[10px]"
+                        onClick={() =>
+                          setEditingKeys((current) => {
+                            const next = new Set(current);
+                            if (next.has(check.key)) next.delete(check.key);
+                            else next.add(check.key);
+                            return next;
+                          })
+                        }
+                      >
+                        <Pencil className="size-3" />
+                        {editingKeys.has(check.key) ? "Kapat" : "Düzenle"}
+                      </Button>
+                    )}
+                  </div>
+                  {(!check.complete || editingKeys.has(check.key) || isActivityCheck) && (
+                    <CheckEditor
+                      checkKey={check.key}
+                      sc={sc}
+                      company={company}
+                      companyContacts={companyContacts}
                       users={users}
                       products={products}
                       isSuperAdmin={isSuperAdmin}
                       canCreateQuote={canCreateQuote}
-                    disabled={!canUpdate || busyKey !== null}
-                    run={run}
-                    updateCase={updateCase}
-                    updateCustomer={updateCustomer}
-                    decideCaseApproval={decideCaseApproval}
-                    refresh={refresh}
-                  />
-                )}
-              </li>
-            ))}
+                      canCreateActivity={canCreateActivity}
+                      complete={check.complete}
+                      busy={busyKey !== null}
+                      disabled={!canUpdate || busyKey !== null}
+                      run={run}
+                      updateCase={updateCase}
+                      updateCustomer={updateCustomer}
+                      decideCaseApproval={decideCaseApproval}
+                      refresh={refresh}
+                    />
+                  )}
+                </li>
+              );
+            })}
           </ul>
         )}
 
@@ -272,8 +289,16 @@ type EditorProps = {
   products: ReturnType<typeof useStore>["products"];
   isSuperAdmin: boolean;
   canCreateQuote: boolean;
+  canCreateActivity: boolean;
+  complete: boolean;
+  busy: boolean;
   disabled: boolean;
-  run: (key: string, action: () => Promise<unknown>, successMessage: string) => Promise<void>;
+  run: (
+    key: string,
+    action: () => Promise<unknown>,
+    successMessage: string,
+    authorized?: boolean,
+  ) => Promise<void>;
   updateCase: ReturnType<typeof useStore>["updateCase"];
   updateCustomer: ReturnType<typeof useStore>["updateCustomer"];
   decideCaseApproval: ReturnType<typeof useStore>["decideCaseApproval"];
@@ -324,6 +349,78 @@ function CheckEditor(props: EditorProps) {
   );
 
   const wrap = (node: ReactNode) => <div className="pl-6">{node}</div>;
+
+  const activityCheck = ({
+    label,
+    activityTypeCode,
+    subject,
+    successMessage,
+  }: {
+    label: string;
+    activityTypeCode: "outgoing_call" | "customer_visit";
+    subject: string;
+    successMessage: string;
+  }) => {
+    const inputId = `qualification-${checkKey}-note-${sc.id}`;
+    const checkboxId = `qualification-${checkKey}-complete-${sc.id}`;
+    const unavailable = !props.canCreateActivity || !sc.customerId;
+    const activityDisabled = props.busy || props.complete || unavailable;
+
+    return wrap(
+      <div className="space-y-2 rounded-md bg-slate-50/80 p-2.5">
+        <div className="flex min-h-8 items-center gap-2">
+          <Checkbox
+            id={checkboxId}
+            checked={props.complete}
+            disabled={activityDisabled}
+            aria-describedby={`${checkboxId}-hint`}
+            onCheckedChange={(checked) => {
+              if (checked !== true || props.complete || unavailable) return;
+              void run(
+                checkKey,
+                async () => {
+                  await activityService.create({
+                    opportunityId: sc.id,
+                    companyId: sc.customerId!,
+                    activityTypeCode,
+                    subject,
+                    activityDate: new Date(),
+                    description: draft.trim() || undefined,
+                  });
+                  setDraft("");
+                  await props.refresh();
+                },
+                successMessage,
+                props.canCreateActivity,
+              );
+            }}
+          />
+          <label htmlFor={checkboxId} className="cursor-pointer text-xs font-medium">
+            {props.complete ? `${label} olarak işaretlendi` : `${label} olarak işaretle`}
+          </label>
+        </div>
+        {!props.complete && (
+          <Input
+            id={inputId}
+            className="h-8 bg-white text-xs"
+            placeholder={`${label} notu (isteğe bağlı)`}
+            value={draft}
+            disabled={activityDisabled}
+            onChange={(event) => setDraft(event.target.value)}
+          />
+        )}
+        <p id={`${checkboxId}-hint`} className="text-[10px] leading-4 text-muted-foreground">
+          {!props.canCreateActivity
+            ? "Aktivite oluşturma yetkiniz bulunmuyor."
+            : !sc.customerId
+              ? "Önce fırsata firma bağlanmalı."
+              : props.complete
+                ? "Tamamlanma bilgisi bağlı aktivite kaydından doğrulanır."
+                : "Not yazmak zorunlu değildir. Yazılan not Aktivite bölümünde görünür."}
+        </p>
+      </div>
+    );
+  };
 
   switch (checkKey) {
     case "subject":
@@ -440,78 +537,20 @@ function CheckEditor(props: EditorProps) {
       return textRow("Örn. CNC Talaşlı İmalat", (value) => void saveCompany({ sector: value }, "Sektör kaydedildi"));
 
     case "call":
-      return wrap(
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
-          <Input
-            className="h-8 bg-white text-xs"
-            placeholder="Arama sonucu / notu"
-            value={draft}
-            onChange={(event) => setDraft(event.target.value)}
-          />
-          <Button
-            size="sm"
-            variant="outline"
-            className="h-8 shrink-0"
-            disabled={disabled || !sc.customerId}
-            onClick={() =>
-              void run(
-                checkKey,
-                async () => {
-                  await activityService.create({
-                    opportunityId: sc.id,
-                    companyId: sc.customerId!,
-                    activityTypeCode: "outgoing_call",
-                    subject: "Giden Arama",
-                    activityDate: new Date(),
-                    result: draft.trim() || undefined,
-                  });
-                  await props.refresh();
-                },
-                "Arama kaydedildi"
-              )
-            }
-          >
-            Arama kaydet
-          </Button>
-        </div>
-      );
+      return activityCheck({
+        label: "Arama yapıldı",
+        activityTypeCode: "outgoing_call",
+        subject: "Giden Arama",
+        successMessage: "Arama kaydedildi",
+      });
 
     case "visit":
-      return wrap(
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
-          <Input
-            className="h-8 bg-white text-xs"
-            placeholder="Ziyaret sonucu / notu"
-            value={draft}
-            onChange={(event) => setDraft(event.target.value)}
-          />
-          <Button
-            size="sm"
-            variant="outline"
-            className="h-8 shrink-0"
-            disabled={disabled || !sc.customerId}
-            onClick={() =>
-              void run(
-                checkKey,
-                async () => {
-                  await activityService.create({
-                    opportunityId: sc.id,
-                    companyId: sc.customerId!,
-                    activityTypeCode: "customer_visit",
-                    subject: "Müşteri Ziyareti",
-                    activityDate: new Date(),
-                    result: draft.trim() || undefined,
-                  });
-                  await props.refresh();
-                },
-                "Ziyaret kaydedildi"
-              )
-            }
-          >
-            Ziyaret kaydet
-          </Button>
-        </div>
-      );
+      return activityCheck({
+        label: "Ziyaret yapıldı",
+        activityTypeCode: "customer_visit",
+        subject: "Müşteri Ziyareti",
+        successMessage: "Ziyaret kaydedildi",
+      });
 
     case "machine":
       return wrap(

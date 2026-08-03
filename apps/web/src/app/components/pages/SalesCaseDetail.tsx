@@ -420,6 +420,9 @@ export function SalesCaseDetailPage({
     if (actionKey === "open_installation" || actionKey === "complete_installation") {
       return hasPermission("installations.create") || hasPermission("installations.update");
     }
+    if (actionKey === "record_call" || actionKey === "record_visit") {
+      return hasPermission("activities.create");
+    }
     return canUpdate;
   };
 

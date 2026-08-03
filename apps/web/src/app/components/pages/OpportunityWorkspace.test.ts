@@ -30,11 +30,14 @@ describe("lead ve fırsat çalışma alanı sorumlu değişikliği", () => {
     expect(detailSource).toContain("{canCreateActivity && (");
   });
 
-  it("fırsat zaman çizelgesinde yalnızca elle eklenen yorumları gösterir", () => {
+  it("fırsat zaman çizelgesinde yorumları ve not yazılmış B aktivitelerini gösterir", () => {
     expect(workspaceSource).toContain('activity.origin === "manual"');
     expect(workspaceSource).toContain('activity.typeCode === "note"');
-    expect(workspaceSource).toContain('opportunityActivities.filter(isManualTimelineComment)');
+    expect(workspaceSource).toContain('opportunityActivities.filter(isOpportunityTimelineActivity)');
+    expect(workspaceSource).toContain('activity.typeCode === "outgoing_call"');
+    expect(workspaceSource).toContain('activity.typeCode === "customer_visit"');
+    expect(workspaceSource).toContain('activity.note?.trim() || activity.result?.trim()');
     expect(workspaceSource).toContain('if (!isLead) return items.sort');
-    expect(workspaceSource).toContain('"Yalnızca kullanıcıların elle eklediği yorumlar gösterilir."');
+    expect(workspaceSource).toContain('"Elle eklenen yorumlar ile not yazılmış arama ve ziyaret kayıtları gösterilir."');
   });
 });
