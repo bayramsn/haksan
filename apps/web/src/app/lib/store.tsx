@@ -1115,6 +1115,9 @@ function StoreInner({ children }: { children: ReactNode }) {
         if (code === 'proforma_pdf') return 'Proforma';
         if (code === 'contract_pdf') return 'Contract';
         if (code === 'commercial_invoice_pdf') return 'CommercialInvoice';
+        if (code === 'accounting_invoice_pdf') return 'AccountingInvoice';
+        if (code === 'delivery_form') return 'DeliveryForm';
+        if (code === 'installation_form') return 'InstallationForm';
         if (code === 'service_document') return 'DeliveryForm';
         return 'Other';
       };

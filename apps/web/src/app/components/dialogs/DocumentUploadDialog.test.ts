@@ -10,6 +10,32 @@ describe("firma bazlı doküman yükleme ve silme", () => {
     expect(source).toContain("satış kartı gerekmez");
   });
 
+  it("yüklenen belge türünü klasörler arasında kalıcı olarak ayırır", () => {
+    const dialogSource = readFileSync(new URL("./DocumentUploadDialog.tsx", import.meta.url), "utf8");
+    const storeSource = readFileSync(new URL("../../lib/store.tsx", import.meta.url), "utf8");
+
+    expect(dialogSource).toContain('documentTypeCode: "accounting_invoice_pdf"');
+    expect(dialogSource).toContain('documentTypeCode: "delivery_form"');
+    expect(dialogSource).toContain('documentTypeCode: "installation_form"');
+    expect(storeSource).toContain("if (code === 'accounting_invoice_pdf') return 'AccountingInvoice'");
+    expect(storeSource).toContain("if (code === 'delivery_form') return 'DeliveryForm'");
+    expect(storeSource).toContain("if (code === 'installation_form') return 'InstallationForm'");
+  });
+
+  it("ticari belge merkezini erişilebilir belge klasörlerine ayırır", () => {
+    const source = readFileSync(
+      new URL("../pages/documents/DocumentsPage.tsx", import.meta.url),
+      "utf8",
+    );
+
+    expect(source).toContain("function DocumentFolderButton");
+    expect(source).toContain("Belge klasörleri");
+    expect(source).toContain('aria-controls="document-folder-contents"');
+    expect(source).toContain('id="document-folder-contents"');
+    expect(source).toContain("defaultType={initialType ?? activeFolderType ?? undefined}");
+    expect(source).toContain("Tüm belgeler");
+  });
+
   it("yüklenen dosyayı dosya kimliğiyle siler", () => {
     const source = readFileSync(
       new URL("../pages/documents/DocumentsPage.tsx", import.meta.url),

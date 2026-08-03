@@ -40,6 +40,8 @@ export function LostCaseDialog({ open, onOpenChange, caseId, caseName }: Props) 
   const [competitorId, setCompetitorId] = useState("");
   const [competitorModel, setCompetitorModel] = useState("");
   const [competitors, setCompetitors] = useState<{ id: string; name: string }[]>([]);
+  const [competitorsLoading, setCompetitorsLoading] = useState(false);
+  const [competitorLoadError, setCompetitorLoadError] = useState(false);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -47,10 +49,16 @@ export function LostCaseDialog({ open, onOpenChange, caseId, caseName }: Props) 
     setReasonCode("");
     setCompetitorId("");
     setCompetitorModel("");
+    setCompetitorsLoading(true);
+    setCompetitorLoadError(false);
     competitorService
       .list({ pageSize: 100 })
       .then((r) => setCompetitors((r.data ?? []).map((c: any) => ({ id: c.id, name: c.name }))))
-      .catch(() => setCompetitors([]));
+      .catch(() => {
+        setCompetitors([]);
+        setCompetitorLoadError(true);
+      })
+      .finally(() => setCompetitorsLoading(false));
   }, [open]);
 
   const submit = async () => {
@@ -104,9 +112,9 @@ export function LostCaseDialog({ open, onOpenChange, caseId, caseName }: Props) 
 
           <div className="space-y-1.5">
             <Label>Tercih Edilen Rakip (opsiyonel)</Label>
-            <Select value={competitorId} onValueChange={setCompetitorId}>
+            <Select value={competitorId} onValueChange={setCompetitorId} disabled={competitorsLoading}>
               <SelectTrigger>
-                <SelectValue placeholder={competitors.length ? "Rakip seçin" : "Kayıtlı rakip yok"} />
+                <SelectValue placeholder={competitorsLoading ? "Rakipler yükleniyor…" : competitorLoadError ? "Rakip listesi yüklenemedi" : competitors.length ? "Rakip seçin" : "Kayıtlı rakip yok"} />
               </SelectTrigger>
               <SelectContent>
                 {competitors.map((c) => (
@@ -116,6 +124,11 @@ export function LostCaseDialog({ open, onOpenChange, caseId, caseName }: Props) 
                 ))}
               </SelectContent>
             </Select>
+            {competitorLoadError && (
+              <p className="text-[11px] text-destructive" role="alert">
+                Rakip kataloğu alınamadı. Pencereyi kapatıp yeniden açarak tekrar deneyin.
+              </p>
+            )}
           </div>
 
           <div className="space-y-1.5">
