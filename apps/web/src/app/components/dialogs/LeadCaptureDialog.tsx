@@ -48,6 +48,8 @@ export function LeadCaptureDialog({ trigger }: { trigger?: React.ReactNode }) {
   const [nextAction, setNextAction] = useState("");
   const [nextActionAt, setNextActionAt] = useState("");
   const [divisionId, setDivisionId] = useState(defaultDivision);
+  const [ownerUserId, setOwnerUserId] = useState("");
+  const [ownerCandidates, setOwnerCandidates] = useState<Array<{ id: string; name: string; divisionIds: string[] }>>([]);
   const [saving, setSaving] = useState(false);
   const [contactMethods, setContactMethods] = useState<Array<{ code: string; name: string }>>([
     { code: "email", name: "Mail" },
@@ -69,6 +71,21 @@ export function LeadCaptureDialog({ trigger }: { trigger?: React.ReactNode }) {
         if (normalized.length) setContactMethods(normalized);
       })
       .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    opportunityService
+      .assignees()
+      .then((rows) => {
+        if (active) setOwnerCandidates(rows);
+      })
+      .catch(() => {
+        if (active) setOwnerCandidates([]);
+      });
     return () => {
       active = false;
     };
@@ -99,6 +116,14 @@ export function LeadCaptureDialog({ trigger }: { trigger?: React.ReactNode }) {
       }))
       .sort((a, b) => a.label.localeCompare(b.label, "tr-TR"));
   }, [contacts, companyId]);
+
+  const assignableUsers = useMemo(() => {
+    const canAssignOthers = user?.roles?.some((role) => role === "super_admin" || role === "sales") ?? false;
+    return ownerCandidates
+      .filter((item) => canAssignOthers || item.id === user?.id)
+      .filter((item) => !divisionId || item.divisionIds?.length === 0 || item.divisionIds?.includes(divisionId))
+      .sort((a, b) => a.name.localeCompare(b.name, "tr-TR"));
+  }, [divisionId, ownerCandidates, user?.id, user?.roles]);
 
   /** Kayıtlı firma seçildiğinde boş alanları firma kaydından doldurur. */
   const pickCompany = (id: string) => {
@@ -138,6 +163,7 @@ export function LeadCaptureDialog({ trigger }: { trigger?: React.ReactNode }) {
     setNextAction("");
     setNextActionAt("");
     setDivisionId(defaultDivision);
+    setOwnerUserId("");
   };
 
   const qtyNum = Number(quantity) > 0 ? Math.floor(Number(quantity)) : 0;
@@ -206,6 +232,7 @@ export function LeadCaptureDialog({ trigger }: { trigger?: React.ReactNode }) {
           "Kaynak: Hızlı lead",
         ].filter(Boolean).join("\n"),
         divisionId: divisionArg,
+        ownerUserId: ownerUserId || undefined,
         currencyCode: "USD",
       } as any);
 
@@ -438,6 +465,24 @@ export function LeadCaptureDialog({ trigger }: { trigger?: React.ReactNode }) {
               </Select>
             </div>
           )}
+          <div>
+            <Label>Sorumlu <span className="font-normal text-muted-foreground">(opsiyonel)</span></Label>
+            <Select
+              value={ownerUserId || "__auto__"}
+              onValueChange={(value) => setOwnerUserId(value === "__auto__" ? "" : value)}
+            >
+              <SelectTrigger className="mt-1.5"><SelectValue placeholder="Sorumlu seçin" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__auto__">Atama kuralına bırak</SelectItem>
+                {assignableUsers.map((item) => (
+                  <SelectItem key={item.id} value={item.id}>{item.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="mt-1.5 text-[11px] text-muted-foreground">
+              Seçim yapmazsanız mevcut lead atama kuralları uygulanır; uygun kural yoksa kayıt sahipsiz açılır.
+            </p>
+          </div>
         </div>
 
         <DialogFooter>

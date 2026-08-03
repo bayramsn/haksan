@@ -65,8 +65,8 @@ export class MailerService {
       attachments: input.attachments,
     });
     logger.info(
-      { action: 'assistant_mail_sent', attachmentCount: input.attachments?.length ?? 0 },
-      '[mailer] assistant mail delivered'
+      { action: 'mail_sent', attachmentCount: input.attachments?.length ?? 0 },
+      '[mailer] mail delivered'
     );
     return true;
   }

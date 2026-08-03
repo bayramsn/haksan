@@ -7,10 +7,10 @@ import {
   LifeBuoy, BarChart3, ShieldCheck, Building2, Contact as ContactIcon, Settings as SettingsIcon,
   Search, Bell, ChevronDown, LogOut, Plus, HelpCircle, Menu, PanelLeftClose, PanelLeftOpen,
   CheckCircle2, Clock, AlertTriangle, XCircle, ChevronRight, Tag, Receipt, Map as MapIcon, Wallet, Calendar, MessageCircle, MessageSquare,
-  PhoneCall, ListChecks,
+  ListChecks,
   Star, Rows3,
 } from "lucide-react";
-import { callAssistantService, chatService, notificationService, type CallSuggestionDTO, type NotificationDTO, type NotificationTarget } from "../../lib/services";
+import { chatService, notificationService, type NotificationDTO, type NotificationTarget } from "../../lib/services";
 import { useAuth } from "../../lib/auth";
 import { toast } from "sonner";
 import { Button } from "./ui/button";
@@ -27,7 +27,6 @@ import { BrandIllustration } from "./brand";
 import { HelpCenterDialog } from "./HelpCenterDialog";
 import { ApprovalsDialog } from "./ApprovalsDialog";
 import { CommandPalette } from "./operations/CommandPalette";
-import { AssistantPanel } from "./operations/AssistantPanel";
 import { buildAlerts, type OperationAction, type OperationNav } from "../lib/operations";
 import { isNavigationAreaEnabled, NAVIGATION_GROUPS, type NavigationVisibilityKey } from "@haksan/shared";
 
@@ -45,7 +44,6 @@ export const MGMT_KEYS = new Set<NavKey>(["users", "roles", "departments", "sett
 
 export const RESOURCE_BY_NAV: Partial<Record<NavKey, string>> = {
   calendar: "calendar",
-  "call-assistant": "activities",
   customers: "companies",
   contacts: "contacts",
   leads: "opportunities",
@@ -101,7 +99,6 @@ const NAV_ICON: Record<NavigationVisibilityKey, any> = {
   dashboard: LayoutDashboard,
   chat: MessageCircle,
   calendar: Calendar,
-  "call-assistant": PhoneCall,
   customers: Building2,
   leads: Rows3,
   "sales-cases": Briefcase,
@@ -126,7 +123,6 @@ const NAV_ICON: Record<NavigationVisibilityKey, any> = {
 };
 
 const NAV_ROLES: Partial<Record<NavigationVisibilityKey, string[]>> = {
-  "call-assistant": ["sales", "service", "finance"],
   customers: ["sales", "finance"],
   leads: ["sales"],
   "sales-cases": ["sales"],
@@ -295,7 +291,6 @@ export function Layout({ current, onNavigate, onLogout, pageTitle, pageSubtitle,
   }, [density]);
   // Sohbet okunmamış rozeti — konuşmaları 15 sn'de bir özetleyip toplam okunmamışı gösterir.
   const [chatUnread, setChatUnread] = useState(0);
-  const [callSuggestions, setCallSuggestions] = useState<CallSuggestionDTO[]>([]);
   const [dbNotifications, setDbNotifications] = useState<NotificationDTO[]>([]);
   useEffect(() => {
     const tick = () => {
@@ -309,26 +304,6 @@ export function Layout({ current, onNavigate, onLogout, pageTitle, pageSubtitle,
     const h = setInterval(tick, 15000);
     return () => clearInterval(h);
   }, []);
-
-  const refreshCallSuggestions = () => {
-    if (!hasPermission("companies.read") || !isNavigationAreaEnabled("call-assistant", hiddenNavigationKeys)) {
-      setCallSuggestions([]);
-      return;
-    }
-    callAssistantService
-      .suggestions({ status: "pending" })
-      .then((res) => setCallSuggestions(res.data ?? []))
-      .catch(() => {});
-  };
-  useEffect(() => {
-    const tick = () => {
-      if (document.hidden) return;
-      refreshCallSuggestions();
-    };
-    tick();
-    const h = setInterval(tick, 15000);
-    return () => clearInterval(h);
-  }, [user?.id, activeDivision, hasPermission, hiddenNavigationKeys.join("|")]);
 
   const refreshNotifications = () => {
     notificationService
@@ -404,7 +379,6 @@ export function Layout({ current, onNavigate, onLogout, pageTitle, pageSubtitle,
     () => buildAlerts(store).filter((alert) => canUseAction(alert.action)),
     [store, user?.roles?.join("|"), hiddenNavigationKeys.join("|")]
   );
-  const visibleCallSuggestions = isNavigationAreaEnabled("call-assistant", hiddenNavigationKeys) ? callSuggestions : [];
   const notificationTarget = (notification: NotificationDTO): NotificationTarget | null =>
     notification.target ??
     (notification.entityType === "service_complaint_intake" && notification.entityId
@@ -417,7 +391,7 @@ export function Layout({ current, onNavigate, onLogout, pageTitle, pageSubtitle,
     return canSeeNav(target.nav);
   };
   const visibleDbNotifications = dbNotifications.filter((notification) => canUseNotificationTarget(notificationTarget(notification)));
-  const notificationCount = alerts.length + visibleCallSuggestions.length + visibleDbNotifications.length;
+  const notificationCount = alerts.length + visibleDbNotifications.length;
   const openDbNotification = async (notification: NotificationDTO) => {
     try {
       await notificationService.markRead(notification.id);
@@ -447,29 +421,6 @@ export function Layout({ current, onNavigate, onLogout, pageTitle, pageSubtitle,
         : { kind: "navigate", nav: target.nav as OperationNav, query: target.query };
     executeOperationAction(action);
   };
-  const runCallSuggestionAction = async (
-    suggestion: CallSuggestionDTO,
-    action: "create_quote" | "create_service_ticket" | "log_call" | "dismiss"
-  ) => {
-    try {
-      await callAssistantService.action(suggestion.id, action);
-      setCallSuggestions((rows) => rows.filter((row) => row.id !== suggestion.id));
-      if (action === "create_quote") {
-        toast.success("Teklif taslağı oluşturuldu", { description: suggestion.company.shortName || suggestion.company.legalTitle });
-        executeOperationAction({ kind: "navigate", nav: "offers" });
-      } else if (action === "create_service_ticket") {
-        toast.success("Şikayet Kutusu'na aktarıldı", { description: suggestion.company.shortName || suggestion.company.legalTitle });
-        executeOperationAction({ kind: "navigate", nav: "service-requests", query: "complaints" });
-      } else if (action === "log_call") {
-        toast.success("Arama kaydı oluşturuldu", { description: suggestion.company.shortName || suggestion.company.legalTitle });
-      } else {
-        toast.message("Arama önerisi kapatıldı");
-      }
-    } catch (err: any) {
-      toast.error("Arama önerisi işlenemedi", { description: err?.message ?? "API isteği başarısız oldu." });
-    }
-  };
-
   const renderSidebarContent = (onItemClick?: () => void, collapsed = false, onToggle?: () => void) => (
     <div className="flex h-full min-h-0 flex-col overflow-visible">
       {/* Logo */}
@@ -588,11 +539,7 @@ export function Layout({ current, onNavigate, onLogout, pageTitle, pageSubtitle,
                       )}
                       <Icon className={`size-[17px] shrink-0 ${active ? "text-primary-foreground" : "text-muted-foreground group-hover:text-foreground"}`} strokeWidth={1.8} />
                       {!collapsed && <span className="truncate flex-1 text-left">{item.label}</span>}
-                      {(item.key === "call-assistant" && callSuggestions.length > 0) ? (
-                        <Badge variant="secondary" className={`${collapsed ? "absolute -right-0.5 -top-0.5 size-4 p-0 text-[8px]" : "h-5 px-1.5 text-[10px]"} ${active ? "bg-white text-primary" : "bg-primary/10 text-primary"}`}>
-                          {callSuggestions.length}
-                        </Badge>
-                      ) : (item.key === "chat" && chatUnread > 0) ? (
+                      {item.key === "chat" && chatUnread > 0 ? (
                         <Badge variant="secondary" className={`${collapsed ? "absolute -right-0.5 -top-0.5 size-4 p-0 text-[8px]" : "h-5 px-1.5 text-[10px]"} ${active ? "bg-white text-primary" : "bg-primary/10 text-primary"}`}>
                           {chatUnread}
                         </Badge>
@@ -853,16 +800,6 @@ export function Layout({ current, onNavigate, onLogout, pageTitle, pageSubtitle,
                   </div>
                 ) : (
                   <>
-                    {visibleCallSuggestions.length > 0 && <div className="px-2.5 pb-1 pt-2 font-data text-[9px] font-semibold uppercase tracking-[0.13em] text-operation-blue">Çağrı asistanı · {visibleCallSuggestions.length}</div>}
-                    {visibleCallSuggestions.map((suggestion) => (
-                      <CallSuggestionItem
-                        key={suggestion.id}
-                        suggestion={suggestion}
-                        canCreateQuote={canSeeNav("offers")}
-                        canCreateServiceTicket={canSeeNav("service-requests")}
-                        onAction={(action) => runCallSuggestionAction(suggestion, action)}
-                      />
-                    ))}
                     {visibleDbNotifications.length > 0 && <div className="px-2.5 pb-1 pt-2 font-data text-[9px] font-semibold uppercase tracking-[0.13em] text-operation-blue">CRM bildirimleri · {visibleDbNotifications.length}</div>}
                     {visibleDbNotifications.map((notification) => (
                       <NotifItem
@@ -874,7 +811,7 @@ export function Layout({ current, onNavigate, onLogout, pageTitle, pageSubtitle,
                         onClick={() => openDbNotification(notification)}
                       />
                     ))}
-                    {(visibleCallSuggestions.length > 0 || visibleDbNotifications.length > 0) && alerts.length > 0 && <DropdownMenuSeparator />}
+                    {visibleDbNotifications.length > 0 && alerts.length > 0 && <DropdownMenuSeparator />}
                     {alerts.length > 0 && <div className="px-2.5 pb-1 pt-2 font-data text-[9px] font-semibold uppercase tracking-[0.13em] text-operation-blue">Operasyon takibi · {alerts.length}</div>}
                     {alerts.map((alert) => (
                       <NotifItem
@@ -967,62 +904,8 @@ export function Layout({ current, onNavigate, onLogout, pageTitle, pageSubtitle,
           onAction={executeOperationAction}
           canUseAction={canUseAction}
         />
-        <AssistantPanel
-          onAction={executeOperationAction}
-          canUseAction={canUseAction}
-          pageContext={current}
-          activeDivisionId={activeDivision}
-        />
       </div>
     </TooltipProvider>
-  );
-}
-
-function CallSuggestionItem({
-  suggestion,
-  canCreateQuote,
-  canCreateServiceTicket,
-  onAction,
-}: {
-  suggestion: CallSuggestionDTO;
-  canCreateQuote: boolean;
-  canCreateServiceTicket: boolean;
-  onAction: (action: "create_quote" | "create_service_ticket" | "log_call" | "dismiss") => void;
-}) {
-  const name = suggestion.company.shortName || suggestion.company.legalTitle;
-  const eventLabel = suggestion.event.eventType === "missed" ? "Kaçan arama" : "Arama bitti";
-  return (
-    <div className="px-3 py-2.5 border-b last:border-b-0">
-      <div className="flex items-start gap-2.5">
-        <PhoneCall className="mt-0.5 size-4 shrink-0 text-primary" />
-        <div className="min-w-0 flex-1">
-          <div className="text-sm leading-snug truncate">{name}</div>
-          <div className="mt-0.5 text-xs text-muted-foreground">
-            {[eventLabel, suggestion.contact?.fullName, suggestion.event.normalizedPhone].filter(Boolean).join(" · ")}
-          </div>
-          <div className="mt-2 flex flex-wrap gap-1.5">
-            {canCreateQuote && suggestion.availableActions.createQuote && (
-              <Button size="sm" variant="secondary" className="h-7 px-2 text-xs" onClick={() => onAction("create_quote")}>
-                Teklif
-              </Button>
-            )}
-            {canCreateServiceTicket && suggestion.availableActions.createServiceTicket && (
-              <Button size="sm" variant="secondary" className="h-7 px-2 text-xs" onClick={() => onAction("create_service_ticket")}>
-                Şikayet
-              </Button>
-            )}
-            {suggestion.availableActions.logCall && (
-              <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={() => onAction("log_call")}>
-                Arama kaydı
-              </Button>
-            )}
-            <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={() => onAction("dismiss")}>
-              Yoksay
-            </Button>
-          </div>
-        </div>
-      </div>
-    </div>
   );
 }
 

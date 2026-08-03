@@ -28,6 +28,23 @@ import {
 export class ActivitiesService {
   constructor(@Inject(DB) private readonly db: DbClient) {}
 
+  private async resolveActivityTypeId(code: string) {
+    const exact = await lookupIdByCode(this.db, activityTypes, code);
+    if (exact) return exact;
+
+    // Uygulama ile lookup migration'ı farklı anlarda yayınlansa bile aktivite
+    // kaydı kesilmesin. Migration tamamlanınca doğrudan yeni kodlar kullanılır.
+    const legacyCodeByType: Record<string, string> = {
+      incoming_call: 'call',
+      outgoing_call: 'call',
+      customer_visit: 'visit',
+      online_meeting: 'meeting',
+      showroom_meeting: 'meeting',
+    };
+    const legacyCode = legacyCodeByType[code];
+    return legacyCode ? lookupIdByCode(this.db, activityTypes, legacyCode) : undefined;
+  }
+
   private async assertCompany(companyId: string, actor: AuthContext) {
     const company = await this.db.query.companies.findFirst({
       where: and(
@@ -196,7 +213,7 @@ export class ActivitiesService {
 
   async createActivity(input: ActivityCreateInput, actor: AuthContext, origin: ActivityOrigin = 'system') {
     const companyId = await this.assertReferences(input, actor);
-    const typeId = await lookupIdByCode(this.db, activityTypes, input.activityTypeCode);
+    const typeId = await this.resolveActivityTypeId(input.activityTypeCode);
     if (!typeId) throw new ValidationError(`Bilinmeyen aktivite türü: ${input.activityTypeCode}`);
     const divisionId = await this.resolveActivityDivision(input, actor);
     if (!divisionId) throw new ValidationError('Aktivite için bölüm ataması zorunludur', { field: 'divisionId' });
@@ -315,7 +332,7 @@ export class ActivitiesService {
     if (input.contactId !== undefined) patch.contactId = input.contactId || null;
     if (input.opportunityId !== undefined) patch.opportunityId = input.opportunityId || null;
     if (input.activityTypeCode !== undefined) {
-      const typeId = await lookupIdByCode(this.db, activityTypes, input.activityTypeCode);
+      const typeId = await this.resolveActivityTypeId(input.activityTypeCode);
       if (!typeId) throw new ValidationError(`Bilinmeyen aktivite türü: ${input.activityTypeCode}`);
       patch.activityTypeId = typeId;
     }

@@ -792,6 +792,13 @@
       "when": 1789670400000,
       "tag": "0113_company_contact_source_text",
       "breakpoints": true
+    },
+    {
+      "idx": 114,
+      "version": "7",
+      "when": 1789756800000,
+      "tag": "0114_activity_type_split",
+      "breakpoints": true
     }
   ]
 }

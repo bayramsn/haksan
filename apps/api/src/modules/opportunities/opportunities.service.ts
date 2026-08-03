@@ -325,7 +325,7 @@ export class OpportunitiesService {
     const companyIds = [...new Set(rows.map((row) => row.companyId).filter((id): id is string => Boolean(id)))];
     if (!opportunityIds.length) return new Map<string, QualificationContext>();
 
-    const [companyRows, addressRows, phoneRows, emailRows, callRows, visitRows, approvalRows, quoteRows] = await Promise.all([
+    const [companyRows, addressRows, phoneRows, emailRows, callRows, visitRows, activityRows, approvalRows, quoteRows] = await Promise.all([
       companyIds.length
         ? this.db
             .select({ id: companies.id, sector: companies.sector })
@@ -389,6 +389,28 @@ export class OpportunitiesService {
         .where(and(eq(visits.tenantId, rows[0].tenantId), inArray(visits.opportunityId, opportunityIds), isNull(visits.deletedAt))),
       this.db
         .select({
+          opportunityId: salesActivities.opportunityId,
+          activityTypeCode: activityTypes.code,
+        })
+        .from(salesActivities)
+        .innerJoin(activityTypes, eq(salesActivities.activityTypeId, activityTypes.id))
+        .where(
+          and(
+            eq(salesActivities.tenantId, rows[0].tenantId),
+            inArray(salesActivities.opportunityId, opportunityIds),
+            isNull(salesActivities.deletedAt),
+            inArray(activityTypes.code, [
+              'incoming_call',
+              'outgoing_call',
+              'customer_visit',
+              'call',
+              'visit',
+              'demo',
+            ])
+          )
+        ),
+      this.db
+        .select({
           opportunityId: opportunityApprovals.opportunityId,
           approvalType: opportunityApprovals.approvalType,
           status: opportunityApprovals.status,
@@ -422,8 +444,20 @@ export class OpportunitiesService {
     }
     const phones = new Set(phoneRows.map((row) => row.companyId));
     const emails = new Set(emailRows.map((row) => row.companyId));
-    const callsByOpportunity = new Set(callRows.map((row) => row.opportunityId).filter(Boolean));
-    const visitsByOpportunity = new Set(visitRows.map((row) => row.opportunityId).filter(Boolean));
+    const callsByOpportunity = new Set([
+      ...callRows.map((row) => row.opportunityId).filter(Boolean),
+      ...activityRows
+        .filter((row) => ['incoming_call', 'outgoing_call', 'call'].includes(row.activityTypeCode))
+        .map((row) => row.opportunityId)
+        .filter(Boolean),
+    ]);
+    const visitsByOpportunity = new Set([
+      ...visitRows.map((row) => row.opportunityId).filter(Boolean),
+      ...activityRows
+        .filter((row) => ['customer_visit', 'visit', 'demo'].includes(row.activityTypeCode))
+        .map((row) => row.opportunityId)
+        .filter(Boolean),
+    ]);
     const quotesByOpportunity = new Set(quoteRows.map((row) => row.opportunityId).filter(Boolean));
     const approvalsByOpportunity = new Map<
       string,
@@ -1264,6 +1298,44 @@ export class OpportunitiesService {
     return user;
   }
 
+  async listAssignableOwners(actor: AuthContext) {
+    const [userRows, divisionRows] = await Promise.all([
+      this.db
+        .select({ id: users.id, fullName: users.fullName, email: users.email })
+        .from(users)
+        .where(
+          and(
+            eq(users.tenantId, actor.tenantId),
+            eq(users.status, 'active'),
+            isNull(users.deletedAt)
+          )
+        )
+        .orderBy(asc(users.fullName)),
+      this.db
+        .select({ userId: userDivisions.userId, divisionId: userDivisions.divisionId })
+        .from(userDivisions)
+        .innerJoin(users, eq(userDivisions.userId, users.id))
+        .where(
+          and(
+            eq(users.tenantId, actor.tenantId),
+            eq(users.status, 'active'),
+            isNull(users.deletedAt)
+          )
+        ),
+    ]);
+    const divisionIdsByUser = new Map<string, string[]>();
+    for (const row of divisionRows) {
+      const divisionIds = divisionIdsByUser.get(row.userId) ?? [];
+      divisionIds.push(row.divisionId);
+      divisionIdsByUser.set(row.userId, divisionIds);
+    }
+    return userRows.map((row) => ({
+      id: row.id,
+      name: row.fullName?.trim() || row.email,
+      divisionIds: divisionIdsByUser.get(row.id) ?? [],
+    }));
+  }
+
   private normalizeAssignmentValue(value: string | null | undefined) {
     return (value ?? '')
       .trim()
@@ -1913,12 +1985,14 @@ export class OpportunitiesService {
       if (!input.companyId) throw new ValidationError('Kontak bağlamak için önce firma seçilmelidir');
       await this.assertContact(input.primaryContactId, actor, input.companyId);
     }
-    // super_admin olmayan kullanıcılar sadece kendilerine lead açabilir.
-    const isSuperAdmin = actor.roles.includes('super_admin');
-    if (!isSuperAdmin && input.ownerUserId && input.ownerUserId !== actor.userId) {
-      throw new ForbiddenError('Yalnızca süper admin başka kullanıcıya lead atayabilir');
+    const canAssignOthers = actor.roles.includes('super_admin') || actor.roles.includes('sales');
+    if (!canAssignOthers && input.ownerUserId && input.ownerUserId !== actor.userId) {
+      throw new ForbiddenError('Başka bir kullanıcıya lead atamak için satış kartı güncelleme yetkisi gerekir');
     }
-    if (input.ownerUserId) await this.assertUser(input.ownerUserId, actor);
+    const requestedOwner = input.ownerUserId ? await this.assertUser(input.ownerUserId, actor) : null;
+    if (requestedOwner && requestedOwner.status !== 'active') {
+      throw new ValidationError('Yalnızca aktif kullanıcılar sorumlu olarak atanabilir', { field: 'ownerUserId' });
+    }
 
     const leadStage = await this.stageRowByCode('lead');
     const currencyId = await lookupIdByCode(this.db, currencies, input.currencyCode);
@@ -3070,7 +3144,7 @@ export class OpportunitiesService {
     if (existingEvent) return this.get(id, actor);
 
     const channelLabels: Record<LeadContactEventInput['channel'], string> = {
-      phone: 'Telefon',
+      phone: 'Giden Arama',
       email: 'E-posta',
       whatsapp: 'WhatsApp',
     };
@@ -3083,7 +3157,12 @@ export class OpportunitiesService {
       not_interested: 'İlgilenmiyor',
       wrong_contact: 'Yanlış kontak',
     };
-    const activityTypeId = await lookupIdByCode(this.db, activityTypes, input.channel === 'phone' ? 'call' : input.channel);
+    const requestedActivityType = input.channel === 'phone' ? 'outgoing_call' : input.channel;
+    const activityTypeId =
+      (await lookupIdByCode(this.db, activityTypes, requestedActivityType)) ??
+      (requestedActivityType === 'outgoing_call'
+        ? await lookupIdByCode(this.db, activityTypes, 'call')
+        : null);
     if (!activityTypeId) throw new ValidationError('Temas kanalı için aktivite tipi bulunamadı');
     const now = new Date();
     const nextAttemptCount = (opp.contactAttemptCount ?? 0) + 1;

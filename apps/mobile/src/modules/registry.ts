@@ -2,7 +2,6 @@ import type { NavKey } from '@/src/navigation/modules';
 import {
   adminService,
   calendarService,
-  callAssistantService,
   chatService,
   companyService,
   contactService,
@@ -26,7 +25,6 @@ export type ModuleKind =
   | 'calendar'
   | 'chat'
   | 'notifications'
-  | 'call-assistant'
   | 'reports'
   | 'settings'
   | 'balances'
@@ -248,12 +246,6 @@ export const MODULE_REGISTRY: Partial<Record<NavKey, ModuleConfig>> = {
   notifications: {
     kind: 'notifications',
     fetchList: () => notificationService.list({ pageSize: 50 }),
-    titleField: 'title',
-    subtitleField: 'body',
-  },
-  'call-assistant': {
-    kind: 'call-assistant',
-    fetchList: () => callAssistantService.suggestions({ status: 'pending' }),
     titleField: 'title',
     subtitleField: 'body',
   },

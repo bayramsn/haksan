@@ -128,10 +128,6 @@ const normalizeAdminUser = (user: any, fallback?: User): AdminUserRow => {
     active: user.status ? user.status !== "passive" : fallback?.active ?? true,
     avatarUrl: user.avatarUrl ?? user.photoUrl ?? fallback?.avatarUrl,
     purchaseApprovalLimit: user.purchaseApprovalLimit ? Number(user.purchaseApprovalLimit) : fallback?.purchaseApprovalLimit,
-    assistantDailyUsdLimit:
-      user.assistantDailyUsdLimit == null
-        ? fallback?.assistantDailyUsdLimit ?? null
-        : Number(user.assistantDailyUsdLimit),
     managerId: user.managerId ?? fallback?.managerId,
     roleCodes: roleCodes.length ? roleCodes : [FALLBACK_ROLE_CODES[fallbackRole] ?? fallbackRole],
     roleNames: roleNames.length ? roleNames : [fallbackRole],
@@ -273,14 +269,12 @@ export function UsersPage() {
   const handleSaveLimit = async (
     userId: string,
     purchaseLimit: number | undefined,
-    assistantDailyUsdLimit: number | null,
     managerId: string | undefined
   ) => {
     setSavingLimit(true);
     try {
       await adminService.updateUser(userId, {
         purchaseApprovalLimit: purchaseLimit ?? 0,
-        assistantDailyUsdLimit,
         managerId: managerId ?? null,
       });
       toast.success("Kullanıcı limitleri güncellendi");
@@ -586,14 +580,6 @@ export function UsersPage() {
                             ? `$${u.purchaseApprovalLimit.toLocaleString("tr-TR")}`
                             : <span className="text-muted-foreground">Limitsiz</span>}
                         </div>
-                        <div>
-                          <span className="text-muted-foreground">Asistan:</span>{" "}
-                          {u.assistantDailyUsdLimit == null
-                            ? <span className="text-muted-foreground">Varsayılan</span>
-                            : u.assistantDailyUsdLimit === 0
-                            ? <span className="text-red-600">Kapalı</span>
-                            : `$${u.assistantDailyUsdLimit.toLocaleString("tr-TR", { minimumFractionDigits: 2 })}/gün`}
-                        </div>
                       </div>
                     </TableCell>
                     <TableCell>
@@ -867,20 +853,15 @@ function UserLimitDialog({ user, users, saving, onClose, onSave }: {
   onSave: (
     userId: string,
     purchaseLimit: number | undefined,
-    assistantDailyUsdLimit: number | null,
     managerId: string | undefined
   ) => Promise<void>;
 }) {
   const [limit, setLimit] = useState<string>(user?.purchaseApprovalLimit?.toString() || "");
-  const [assistantLimit, setAssistantLimit] = useState<string>(
-    user?.assistantDailyUsdLimit == null ? "" : user.assistantDailyUsdLimit.toString()
-  );
   const [managerId, setManagerId] = useState<string>(user?.managerId || "none");
 
   useEffect(() => {
     if (user) {
       setLimit(user.purchaseApprovalLimit?.toString() || "");
-      setAssistantLimit(user.assistantDailyUsdLimit == null ? "" : user.assistantDailyUsdLimit.toString());
       setManagerId(user.managerId || "none");
     }
   }, [user]);
@@ -892,7 +873,7 @@ function UserLimitDialog({ user, users, saving, onClose, onSave }: {
       <DialogContent className="sm:max-w-[460px]">
         <DialogHeader>
           <DialogTitle>Kullanıcı Limitleri · {user.name}</DialogTitle>
-          <DialogDescription>Satınalma onay yetkisini ve günlük asistan maliyet tavanını USD olarak ayarlayın.</DialogDescription>
+          <DialogDescription>Satınalma onay yetkisini ve bağlı yöneticiyi ayarlayın.</DialogDescription>
         </DialogHeader>
         <div className="space-y-4 py-4">
           <div className="space-y-2">
@@ -906,22 +887,6 @@ function UserLimitDialog({ user, users, saving, onClose, onSave }: {
               onChange={(e) => setLimit(e.target.value)}
             />
             <p className="text-[11px] text-muted-foreground">Limit aşıldığında sipariş seçilen yöneticinin onayına düşer.</p>
-          </div>
-          <div className="space-y-2 rounded-md border border-brand-blue/15 bg-brand-blue-soft/40 p-3">
-            <Label>Günlük Asistan Bütçesi (USD)</Label>
-            <Input
-              type="number"
-              min="0"
-              max="1000"
-              step="0.01"
-              placeholder="Sistem varsayılanını kullan"
-              value={assistantLimit}
-              onChange={(e) => setAssistantLimit(e.target.value)}
-            />
-            <p className="text-[11px] leading-relaxed text-muted-foreground">
-              Boş bırakılırsa sistem varsayılanı uygulanır. <b>0</b> girilirse bu kullanıcı için ücretli LLM çağrıları kapatılır;
-              asistan güvenli yerel cevaba düşer.
-            </p>
           </div>
           <div className="space-y-2">
             <Label>Bağlı Olduğu Yönetici</Label>
@@ -946,7 +911,6 @@ function UserLimitDialog({ user, users, saving, onClose, onSave }: {
               await onSave(
                 user.id,
                 limit ? Number(limit) : undefined,
-                assistantLimit === "" ? null : Number(assistantLimit),
                 managerId === "none" ? undefined : managerId
               );
             }}

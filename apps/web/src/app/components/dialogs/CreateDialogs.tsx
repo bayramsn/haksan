@@ -6704,7 +6704,7 @@ export function LogActivityDialog({
   customerId,
   opportunityId,
   trigger,
-  defaultKind = "visit",
+  defaultKind = "customer_visit",
   onLogged,
 }: {
   customerId: string;
@@ -6745,35 +6745,20 @@ export function LogActivityDialog({
         contactId: contactId || undefined,
         opportunityId,
       };
-      if (kind === "visit") {
-        await activityService.createVisit({
-          ...base,
-          visitDate: new Date(date),
-          visitLocation: location.trim() || undefined,
-          visitPurpose: purpose.trim() || undefined,
-          visitResult: result.trim() || undefined,
-          nextAction: nextAction.trim() || undefined,
-        });
-        toast.success("Ziyaret kaydedildi");
-      } else if (kind === "call") {
-        await activityService.createCall({
-          ...base,
-          callDate: new Date(date),
-          callResult: result.trim() || undefined,
-          nextAction: nextAction.trim() || undefined,
-        });
-        toast.success("Arama kaydedildi");
-      } else {
-        const label = ACTIVITY_TYPE_OPTIONS.find((o) => o.code === kind)?.label ?? kind;
-        await activityService.create({
-          ...base,
-          activityTypeCode: kind,
-          subject: label,
-          description: [result.trim(), nextAction.trim() ? `Sonraki adım: ${nextAction.trim()}` : ""].filter(Boolean).join("\n"),
-          activityDate: new Date(date),
-        });
-        toast.success("Aktivite kaydedildi");
-      }
+      const label = ACTIVITY_TYPE_OPTIONS.find((o) => o.code === kind)?.label ?? kind;
+      await activityService.create({
+        ...base,
+        activityTypeCode: kind,
+        subject: label,
+        description: [
+          kind === "customer_visit" && location.trim() ? `Konum: ${location.trim()}` : "",
+          kind === "customer_visit" && purpose.trim() ? `Amaç: ${purpose.trim()}` : "",
+          result.trim(),
+          nextAction.trim() ? `Sonraki adım: ${nextAction.trim()}` : "",
+        ].filter(Boolean).join("\n"),
+        activityDate: new Date(date),
+      });
+      toast.success(`${label} kaydedildi`);
       await refresh();
       onLogged?.();
       setOpen(false);
@@ -6829,7 +6814,7 @@ export function LogActivityDialog({
               </Select>
             </div>
           )}
-          {kind === "visit" && (
+          {kind === "customer_visit" && (
             <>
               <Field label="Konum" value={location} onChange={setLocation} />
               <Field label="Amaç" value={purpose} onChange={setPurpose} />

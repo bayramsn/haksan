@@ -1,14 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   PIPELINE_STAGE_FLOW,
-  type AssistantOpportunitySummary,
   type OpportunityProcessActionKey,
   type OpportunityProcessReadiness,
 } from "@haksan/shared";
 import {
   Activity as ActivityIcon,
-  AlertTriangle,
-  Bot,
   Building2,
   Check,
   ChevronRight,
@@ -19,14 +16,13 @@ import {
   Save,
   Settings2,
   ShieldCheck,
-  Sparkles,
   Trash2,
   Truck,
   UserRound,
   Wrench,
   Pencil,
 } from "lucide-react";
-import { assistantService, fileService, opportunityService } from "../../../lib/services";
+import { fileService, opportunityService } from "../../../lib/services";
 import { useAuth } from "../../../lib/auth";
 import { loadPersisted, usePersistentState } from "../../lib/persist";
 import { useStore } from "../../lib/store";
@@ -68,7 +64,6 @@ type WorkspacePreferencesV2 = {
   version: 2;
   defaultTabByMode: { lead: WorkspaceTab; opportunity: WorkspaceTab };
   density: "comfortable" | "compact";
-  showAi: boolean;
   showSimilar: boolean;
   showStakeholders: boolean;
 };
@@ -129,7 +124,6 @@ const migrateWorkspacePreferences = (
       opportunity: normalizeWorkspaceTab(byMode.opportunity ?? legacyDefault ?? opportunityDefault, OPPORTUNITY_TABS),
     },
     density: source.density === "compact" ? "compact" : "comfortable",
-    showAi: Boolean(source.showAi),
     showSimilar: source.showSimilar !== false,
     showStakeholders: source.showStakeholders !== false,
   };
@@ -368,8 +362,6 @@ export function OpportunityWorkspace({
   const [probability, setProbability] = useState(String(sc.probability ?? 50));
   const [expectedCloseDate, setExpectedCloseDate] = useState(sc.expectedCloseDate ?? "");
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
-  const [aiState, setAiState] = useState<"idle" | "loading" | "error">("idle");
-  const [summary, setSummary] = useState<AssistantOpportunitySummary | null>(null);
   const [focusedActivityId, setFocusedActivityId] = useState<string | null>(null);
   const [operationsExpanded, setOperationsExpanded] = useState(false);
   const decisionSummaryRef = useRef<HTMLElement>(null);
@@ -431,11 +423,6 @@ export function OpportunityWorkspace({
     setProbability(String(sc.probability ?? 50));
     setExpectedCloseDate(sc.expectedCloseDate ?? "");
   }, [sc.currency, sc.estimatedAmount, sc.expectedCloseDate, sc.id, sc.probability]);
-
-  useEffect(() => {
-    setSummary(null);
-    setAiState("idle");
-  }, [sc.id]);
 
   const customer = customers.find((item) => item.id === sc.customerId);
   const owner = users.find((item) => item.id === sc.assignedUserId);
@@ -503,19 +490,6 @@ export function OpportunityWorkspace({
     } catch (error: any) {
       setSaveState("error");
       toast.error("Ticari özet kaydedilemedi", { description: error?.message ?? "İstek başarısız oldu." });
-    }
-  };
-
-  const generateSummary = async () => {
-    if (aiState === "loading") return;
-    setAiState("loading");
-    try {
-      const result = await assistantService.opportunitySummary(sc.id);
-      setSummary(result);
-      setAiState("idle");
-    } catch (error: any) {
-      setAiState("error");
-      toast.error("Fırsat özeti hazırlanamadı", { description: error?.message ?? "İstek başarısız oldu." });
     }
   };
 
@@ -699,7 +673,6 @@ export function OpportunityWorkspace({
               <Label className="text-xs">Özet modülleri</Label>
               <div className="mt-1.5 flex flex-wrap gap-2" role="group" aria-label="Özet modülü görünürlüğü">
                 {([
-                  ["showAi", "AI / CRM özeti"],
                   ["showSimilar", "Benzer kazanımlar"],
                   ["showStakeholders", "Paydaşlar"],
                 ] as const).map(([key, label]) => (
@@ -844,23 +817,6 @@ export function OpportunityWorkspace({
               </CardContent>
             </Card>
           </div>
-
-          {!isLead && preferences.showAi && (
-            <details className="rounded-xl border border-violet-200/80 bg-white">
-              <summary className="min-h-11 cursor-pointer px-4 py-3 text-sm font-semibold text-[#0b1739]">AI / CRM yardımcı özeti</summary>
-              <Card className="rounded-t-none border-x-0 border-b-0 border-violet-200/80 shadow-none">
-              <CardHeader className="flex-row items-start justify-between gap-3 pb-3">
-                <div><CardTitle className="inline-flex items-center gap-2 text-base"><Bot className="size-4 text-violet-700" /> Kontrollü fırsat özeti</CardTitle><p className="mt-1 text-xs text-muted-foreground">Yalnız CRM verisini kullanır; kayıt değiştirmez. Maliyetli çağrı yalnız düğmeye basıldığında yapılır.</p></div>
-                <Button type="button" variant="outline" size="sm" className="gap-1.5 bg-white" onClick={() => void generateSummary()} disabled={aiState === "loading"}>{aiState === "loading" ? <Loader2 className="size-4 animate-spin" /> : <Sparkles className="size-4" />}{summary ? "Yenile" : "Özet hazırla"}</Button>
-              </CardHeader>
-              <CardContent>
-                {!summary && aiState !== "error" && <EmptyState>Özet henüz üretilmedi. CRM verilerini değerlendirmek için “Özet hazırla”yı kullanın.</EmptyState>}
-                {aiState === "error" && <EmptyState>Özet üretilemedi. Daha sonra yeniden deneyebilirsiniz.</EmptyState>}
-                {summary && <div className="space-y-4"><div className="flex flex-wrap items-center gap-2"><Badge className={summary.mode === "ai" ? "bg-violet-700" : "bg-slate-700"}>{summary.mode === "ai" ? "AI özeti" : "CRM veri özeti"}</Badge><span className="text-[10px] text-muted-foreground">Veri kapsamı %{summary.dataCoverage} · {formatDate(summary.generatedAt, true)}</span></div><p className="text-sm leading-6">{summary.summary}</p><div className="grid gap-4 sm:grid-cols-2"><div><div className="mb-2 text-xs font-semibold text-red-800">Riskler</div><ul className="space-y-1.5 text-sm">{summary.risks.map((risk) => <li key={risk} className="flex gap-2"><AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-red-600" />{risk}</li>)}</ul></div><div><div className="mb-2 text-xs font-semibold text-emerald-800">Sonraki adımlar</div><ul className="space-y-1.5 text-sm">{summary.nextActions.map((action) => <li key={action} className="flex gap-2"><ChevronRight className="mt-0.5 size-3.5 shrink-0 text-emerald-600" />{action}</li>)}</ul></div></div></div>}
-              </CardContent>
-              </Card>
-            </details>
-          )}
 
           <div className={`${isLead ? "hidden" : "grid"} gap-4 lg:grid-cols-2`}>
             {preferences.showStakeholders && <details className="rounded-xl border border-slate-200 bg-white"><summary className="min-h-11 cursor-pointer px-4 py-3 text-sm font-semibold">Paydaşlar</summary><Card className="rounded-t-none border-x-0 border-b-0 shadow-none"><CardHeader className="sr-only"><CardTitle>Paydaşlar</CardTitle></CardHeader><CardContent className="space-y-2 pt-4">{owner && <div className="flex items-center justify-between rounded-lg border border-slate-200 px-3 py-2"><div><div className="text-sm font-medium">{owner.name}</div><div className="text-[10px] text-muted-foreground">Fırsat sahibi · {owner.department}</div></div><Badge variant="outline">İç paydaş</Badge></div>}{companyContacts.map((contact) => <div key={contact.id} className="flex items-center justify-between rounded-lg border border-slate-200 px-3 py-2"><div className="min-w-0"><div className="truncate text-sm font-medium">{contact.name}</div><div className="truncate text-[10px] text-muted-foreground">{contact.decisionRoleName || contact.title || contact.department || "Firma kontağı"}</div></div><Badge variant="outline">{contact.isPrimary ? "Ana kontak" : "Paydaş"}</Badge></div>)}{!owner && companyContacts.length === 0 && <EmptyState>Henüz paydaş tanımlanmadı.</EmptyState>}</CardContent></Card></details>}

@@ -97,13 +97,6 @@ function validComplaintLinkToken(link: ComplaintLink, token: string) {
   return actual.length === expected.length && timingSafeEqual(actual, expected);
 }
 
-function safeCallAssistantMetadata(metadata?: Record<string, unknown> | null) {
-  const callAssistantSuggestionId = typeof metadata?.callAssistantSuggestionId === 'string' ? metadata.callAssistantSuggestionId : null;
-  const callEventId = typeof metadata?.callEventId === 'string' ? metadata.callEventId : null;
-  if (!callAssistantSuggestionId && !callEventId) return null;
-  return { callAssistantSuggestionId, callEventId };
-}
-
 async function notifyComplaintCreated(
   db: DbClient,
   params: {
@@ -414,7 +407,6 @@ export class ServiceComplaintsController {
           }
         : null,
       warrantyStatusSuggestion,
-      callAssistant: safeCallAssistantMetadata(row.complaint.metadata),
       attachments: await this.complaintAttachments(row.complaint.id, row.complaint.tenantId),
       serviceTicket: row.ticket?.id ? row.ticket : null,
       link: row.link?.id ? row.link : null,

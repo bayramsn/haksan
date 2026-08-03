@@ -19,7 +19,6 @@ import {
 export type OperationNav =
   | "dashboard"
   | "calendar"
-  | "call-assistant"
   | "customers"
   | "contacts"
   | "leads"
@@ -138,7 +137,7 @@ export type TimelineItem = {
   action?: OperationAction;
 };
 
-export type AssistantReply = {
+export type OperationQueryReply = {
   text: string;
   actions: Array<{ label: string; action: OperationAction }>;
   results?: SearchResult[];
@@ -312,7 +311,7 @@ const byType = (index: SearchResult[], type: string, query: string, intentWords:
   return pool.filter((result) => result.type === type).slice(0, limit);
 };
 
-const asAssistantResults = (items: WorkItem[]): SearchResult[] =>
+const asQueryResults = (items: WorkItem[]): SearchResult[] =>
   items.map((w) => ({
     id: w.id,
     type: "İş",
@@ -1180,9 +1179,7 @@ const COMMAND_HELP_TEXT = [
   "• Raporlar, dashboard, kullanıcı/rol/ayar sayfaları",
 ].join("\n");
 
-export type AssistantExtras = { pendingCallCount?: number };
-
-export function answerAssistant(input: string, data: OperationStoreSnapshot, extras?: AssistantExtras): AssistantReply {
+export function answerOperationQuery(input: string, data: OperationStoreSnapshot): OperationQueryReply {
   const query = input.trim();
   const text = normalize(query);
   const index = buildGlobalSearchIndex(data);
@@ -1195,22 +1192,6 @@ export function answerAssistant(input: string, data: OperationStoreSnapshot, ext
         { label: "Yönetim özeti", action: { kind: "navigate", nav: "reports" } },
         { label: "Global arama", action: { kind: "navigate", nav: "dashboard", focus: "today" } },
         { label: "Harita", action: { kind: "navigate", nav: "sales-map" } },
-      ],
-    };
-  }
-
-  if (includesAny(text, ["arayan", "cagri", "çağrı", "cevapsiz", "cevapsız", "kacan arama", "kaçan arama", "santral"])) {
-    const pending = extras?.pendingCallCount;
-    return {
-      text:
-        pending === undefined
-          ? "Çağrı Asistanı gelen aramaları firma ve kontaklarla eşleştirip teklif, servis kaydı ve görüşme notu önerir."
-          : pending > 0
-            ? `${pending} bekleyen çağrı önerisi var. Çağrı Asistanı sayfasından teklif, servis kaydı veya görüşme notu oluşturabilirsiniz.`
-            : "Bekleyen çağrı önerisi yok. Manuel arama kaydıyla yeni öneri oluşturabilirsiniz.",
-      actions: [
-        { label: "Çağrı Asistanı", action: { kind: "navigate", nav: "call-assistant" } },
-        { label: "Kontaklar", action: { kind: "navigate", nav: "contacts" } },
       ],
     };
   }
@@ -1372,7 +1353,7 @@ export function answerAssistant(input: string, data: OperationStoreSnapshot, ext
         { label: "Geciken ödemeler", action: { kind: "navigate", nav: "payments", focus: "overdue" } },
         { label: "Açık servisler", action: { kind: "navigate", nav: "service-requests", focus: "open" } },
       ],
-      results: asAssistantResults(work.slice(0, 6)),
+      results: asQueryResults(work.slice(0, 6)),
     };
   }
 

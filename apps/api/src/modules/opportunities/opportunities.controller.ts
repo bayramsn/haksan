@@ -73,6 +73,12 @@ export class OpportunitiesController {
     return this.svc.leadSummary(user);
   }
 
+  @RequirePermissions('opportunities.create')
+  @Get('assignees')
+  assignees(@CurrentUser() user: AuthContext) {
+    return this.svc.listAssignableOwners(user);
+  }
+
   @RequirePermissions('opportunities.read')
   @Get(':id')
   get(@Param('id') id: string, @CurrentUser() user: AuthContext) {

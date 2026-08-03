@@ -8,7 +8,6 @@ import {
 } from '@haksan/shared';
 import { and, eq, isNull, sql } from 'drizzle-orm';
 import type { DbClient } from '../../db/client';
-import { assistantInboxItems } from '../../db/schema/assistant';
 import { companies, contacts } from '../../db/schema/companies';
 import { DB } from '../../shared/database/database.module';
 import { UserMailAccountService } from '../../shared/mailer/user-mail-account.service';
@@ -18,7 +17,6 @@ import type { AuthContext } from '../../shared/security/auth.types';
 import { companyVisibilityFilter } from '../../shared/utils/company-visibility';
 import { NotFoundError, ValidationError } from '../../shared/utils/errors';
 import { ZodValidationPipe } from '../../shared/utils/zod-pipe';
-import { logger } from '../../shared/utils/logger';
 import { ActivitiesService } from '../activities/activities.service';
 
 @UseGuards(AuthGuard)
@@ -60,39 +58,6 @@ export class MailController {
       { to: body.to, subject: body.subject, text: body.body },
       actor
     );
-    const resolvedAt = delivery.sentAt;
-    const divisionId = actor.activeDivisionId && actor.activeDivisionId !== 'all'
-      ? actor.activeDivisionId
-      : actor.primaryDivisionId;
-
-    await this.db.insert(assistantInboxItems).values({
-      tenantId: actor.tenantId,
-      divisionId,
-      channel: 'email',
-      provider: 'personal_smtp',
-      providerMessageId: delivery.messageId?.slice(0, 160) ?? null,
-      direction: 'outbound',
-      senderName: delivery.fromName,
-      senderEmail: delivery.fromEmail,
-      subject: body.subject,
-      body: body.body,
-      category: 'general',
-      priority: 'normal',
-      status: 'resolved',
-      companyId: body.companyId ?? null,
-      contactId: body.contactId ?? null,
-      assignedToUserId: actor.userId,
-      receivedAt: delivery.sentAt,
-      classificationConfidence: 100,
-      metadata: { recipientEmail: body.to.toLowerCase(), transport: 'smtp' },
-      resolvedAt,
-      createdBy: actor.userId,
-    }).catch((error) => {
-      // SMTP sunucusu mesajı kabul etti; iz kaydı başarısız diye istemciye hata
-      // döndürmek yeniden denemede çift gönderime neden olur.
-      logger.error({ error, action: 'outbound_mail_log_failed', userId: actor.userId }, '[mail] sent message could not be recorded');
-    });
-
     if (body.companyId && actor.permissions.has('activities.create')) {
       await this.activities.createActivity(
         {

@@ -7,6 +7,7 @@ let app: NestFastifyApplication;
 let token = '';
 let companyId = '';
 let opportunityId = '';
+let ownerUserId = '';
 const suffix = Date.now();
 const contactName = `Hızlı Lead Kontak ${suffix}`;
 const phoneSuffix = String(suffix).slice(-7);
@@ -23,6 +24,11 @@ beforeAll(async () => {
     .get('/api/v1/companies?pageSize=10')
     .set('Authorization', `Bearer ${token}`);
   companyId = companies.body.data[0].id;
+  const assignees = await supertest(server)
+    .get('/api/v1/opportunities/assignees')
+    .set('Authorization', `Bearer ${token}`);
+  expect(assignees.status, JSON.stringify(assignees.body)).toBe(200);
+  ownerUserId = assignees.body[0].id;
 });
 
 afterAll(async () => {
@@ -69,6 +75,21 @@ describe('Companyless quick lead flow', () => {
       .set('Authorization', `Bearer ${token}`)
       .send({ title: 'Eksik hızlı lead', currencyCode: 'USD' });
     expect([400, 422]).toContain(response.status);
+  });
+
+  it('accepts an optional responsible user while creating a lead', async () => {
+    const response = await supertest(app.getHttpServer())
+      .post('/api/v1/opportunities')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        leadContactName: `Atamalı Lead ${suffix}`,
+        leadContactValue: `0533${phoneSuffix}`,
+        title: `Atamalı ürün ${suffix}`,
+        currencyCode: 'USD',
+        ownerUserId,
+      });
+    expect(response.status, JSON.stringify(response.body)).toBe(201);
+    expect(response.body.ownerUserId).toBe(ownerUserId);
   });
 
   it('keeps the lead searchable by contact and blocks quote stage until a company is linked', async () => {

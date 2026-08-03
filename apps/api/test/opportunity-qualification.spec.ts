@@ -311,8 +311,8 @@ describe('Opportunity qualification pipeline', () => {
       idempotencyKey,
       channel: 'phone',
       outcome: 'meeting_booked',
-      note: 'Karar vericiyle demo görüşmesi planlandı',
-      nextAction: 'Demo takvimini teyit et',
+      note: 'Karar vericiyle showroom toplantısı planlandı',
+      nextAction: 'Showroom takvimini teyit et',
       nextActionAt: '2030-01-19T09:30:00.000Z',
     };
 

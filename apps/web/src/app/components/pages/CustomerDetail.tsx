@@ -248,13 +248,13 @@ export function CustomerDetailPage({ customer, onBack, onAction }: { customer: C
                   <div className="flex flex-wrap items-center gap-2">
                     <LogActivityDialog
                       customerId={customer.id}
-                      defaultKind="visit"
-                      trigger={<Button size="sm" variant="outline" className="gap-1"><Plus className="size-4" /> Ziyaret</Button>}
+                      defaultKind="customer_visit"
+                      trigger={<Button size="sm" variant="outline" className="gap-1"><Plus className="size-4" /> Müşteri Ziyareti</Button>}
                     />
                     <LogActivityDialog
                       customerId={customer.id}
-                      defaultKind="call"
-                      trigger={<Button size="sm" variant="outline" className="gap-1"><Phone className="size-4" /> Arama</Button>}
+                      defaultKind="outgoing_call"
+                      trigger={<Button size="sm" variant="outline" className="gap-1"><Phone className="size-4" /> Giden Arama</Button>}
                     />
                   </div>
                 </CardHeader>

@@ -272,8 +272,6 @@ export class AdminController {
         titleId: u.titleId,
         title: u.titleId ? titleById.get(u.titleId) ?? null : null,
         purchaseApprovalLimit: u.purchaseApprovalLimit,
-        assistantDailyUsdLimit:
-          u.assistantDailyUsdLimitCents == null ? null : u.assistantDailyUsdLimitCents / 100,
         managerId: u.managerId,
         lastLoginAt: u.lastLoginAt,
         failedLoginAttempts: u.failedLoginAttempts,
@@ -394,10 +392,6 @@ export class AdminController {
     }
     if (body.purchaseApprovalLimit !== undefined) {
       patch.purchaseApprovalLimit = body.purchaseApprovalLimit;
-    }
-    if (body.assistantDailyUsdLimit !== undefined) {
-      patch.assistantDailyUsdLimitCents =
-        body.assistantDailyUsdLimit === null ? null : Math.round(body.assistantDailyUsdLimit * 100);
     }
     if (body.status !== undefined && body.status !== existing.status && targetIsSuperAdmin) {
       this.requireSuperAdmin(user);

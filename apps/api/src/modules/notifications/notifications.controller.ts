@@ -115,10 +115,6 @@ export class NotificationsController {
         return row.entityId
           ? { kind: 'navigate', nav: 'service-requests', query: `complaint:${row.entityId}` }
           : { kind: 'navigate', nav: 'service-requests' };
-      case 'call_assistant_suggestion':
-        return { kind: 'navigate', nav: 'call-assistant' };
-      case 'assistant_inbox':
-        return { kind: 'navigate', nav: 'dashboard' };
       case 'weekly_sales_report':
         return { kind: 'navigate', nav: 'reports', query: 'weekly-sales' };
       case 'company':

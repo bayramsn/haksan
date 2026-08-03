@@ -124,11 +124,13 @@ export const TAX_OFFICE_OPTIONS = [
 ] as const;
 
 export const ACTIVITY_TYPE_OPTIONS = [
-  { code: 'call', label: 'Telefon' },
-  { code: 'visit', label: 'Ziyaret' },
+  { code: 'incoming_call', label: 'Gelen Arama' },
+  { code: 'outgoing_call', label: 'Giden Arama' },
+  { code: 'customer_visit', label: 'Müşteri Ziyareti' },
+  { code: 'online_meeting', label: 'Çevrimiçi Toplantı' },
+  { code: 'showroom_meeting', label: 'Showroom Toplantısı' },
   { code: 'email', label: 'E-posta / Mail' },
-  { code: 'meeting', label: 'Toplantı' },
-  { code: 'demo', label: 'Demo / Sunum' },
+  { code: 'whatsapp', label: 'WhatsApp' },
   { code: 'note', label: 'Yorum' },
 ] as const;
 
@@ -141,10 +143,13 @@ export const activityTypeCodeFromLabel = (label: string): ActivityTypeCode | und
   const exact = ACTIVITY_TYPE_OPTIONS.find((o) => o.label === label);
   if (exact) return exact.code;
   const legacy: Record<string, ActivityTypeCode> = {
-    Çağrı: 'call',
+    Çağrı: 'outgoing_call',
+    Telefon: 'outgoing_call',
+    'Telefon Görüşmesi': 'outgoing_call',
     'E-posta': 'email',
-    Toplantı: 'meeting',
-    Ziyaret: 'visit',
+    Toplantı: 'showroom_meeting',
+    Ziyaret: 'customer_visit',
+    'Demo / Sunum': 'customer_visit',
     Not: 'note',
   };
   return legacy[label];

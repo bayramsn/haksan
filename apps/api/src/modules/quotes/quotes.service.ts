@@ -402,7 +402,7 @@ export class QuotesService {
   }
 
   /**
-   * Asistan teklifleri fiyatı hiçbir zaman LLM'den almaz. Ürün kimliği, bölüm
+   * Teklif otomasyonu fiyatı hiçbir zaman LLM'den almaz. Ürün kimliği, bölüm
    * görünürlüğü, para birimi ve fiyat burada sunucu tarafında doğrulanır.
    */
   async previewCatalogItems(

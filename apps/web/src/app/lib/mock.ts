@@ -30,7 +30,6 @@ export type User = {
   active: boolean;
   avatarUrl?: string;
   purchaseApprovalLimit?: number;
-  assistantDailyUsdLimit?: number | null;
   managerId?: string;
 };
 
@@ -746,10 +745,6 @@ export type ServiceComplaintIntake = {
     warrantyEndDate?: string | null;
   } | null;
   warrantyStatusSuggestion?: ServiceWarrantySuggestion;
-  callAssistant?: {
-    callAssistantSuggestionId?: string | null;
-    callEventId?: string | null;
-  } | null;
   attachments?: Array<{
     id: string;
     fileId: string;

@@ -1192,15 +1192,15 @@ export async function seedDemo(): Promise<void> {
 
   // 9d. Sales activities, visits and calls (dashboard + activity reports)
   const demoActivityExists = await db.query.salesActivities.findFirst({
-    where: and(eq(schema.salesActivities.tenantId, tenantRow.id), eq(schema.salesActivities.subject, 'Demo CNC teklif takip araması')),
+    where: and(eq(schema.salesActivities.tenantId, tenantRow.id), eq(schema.salesActivities.subject, 'CNC teklif takip araması')),
   });
   if (!demoActivityExists) {
     const activityType = async (code: string) =>
       (await db.query.activityTypes.findFirst({ where: eq(schema.activityTypes.code, code) }))?.id;
-    const [callTypeId, visitTypeId, demoTypeId] = await Promise.all([
-      activityType('call'),
-      activityType('visit'),
-      activityType('demo'),
+    const [callTypeId, visitTypeId, showroomTypeId] = await Promise.all([
+      activityType('outgoing_call'),
+      activityType('customer_visit'),
+      activityType('showroom_meeting'),
     ]);
     const activityOpps = await db.query.opportunities.findMany({
       where: eq(schema.opportunities.tenantId, tenantRow.id),
@@ -1210,7 +1210,7 @@ export async function seedDemo(): Promise<void> {
     const visitRows: (typeof schema.visits.$inferInsert)[] = [];
     const callRows: (typeof schema.calls.$inferInsert)[] = [];
     for (const [index, opp] of activityOpps.entries()) {
-      const typeId = index % 3 === 0 ? demoTypeId : index % 2 === 0 ? visitTypeId : callTypeId;
+      const typeId = index % 3 === 0 ? showroomTypeId : index % 2 === 0 ? visitTypeId : callTypeId;
       if (!typeId) continue;
       activityRows.push({
         tenantId: tenantRow.id,
@@ -1220,13 +1220,13 @@ export async function seedDemo(): Promise<void> {
         activityTypeId: typeId,
         subject:
           index === 0
-            ? 'Demo CNC teklif takip araması'
+            ? 'CNC teklif takip araması'
             : index % 3 === 0
-              ? 'Demo makine sunumu'
+              ? 'Showroom makine toplantısı'
               : index % 2 === 0
-                ? 'Demo saha ziyareti'
-                : 'Demo ihtiyaç analizi görüşmesi',
-        description: 'Demo veri: satış ekibi tarafından oluşturulan takip aktivitesi.',
+                ? 'Müşteri saha ziyareti'
+                : 'İhtiyaç analizi görüşmesi',
+        description: 'Örnek veri: satış ekibi tarafından oluşturulan takip aktivitesi.',
         activityDate: new Date(Date.UTC(2026, index + 1, 10 + index)),
         nextFollowUpAt: new Date(Date.UTC(2026, index + 1, 17 + index)),
         result: 'Müşteri teknik şartname ve termin bilgisini bekliyor.',

@@ -102,44 +102,6 @@ const envSchema = z.object({
   AUTOMATION_LEAD_SLA_ENABLED: envBoolean.default(true),
   AUTOMATION_ROTTING_ENABLED: envBoolean.default(true),
 
-  // Santral/VoIP çağrı webhook doğrulaması. Production'da zorunlu; dev/test'te
-  // boşsa varsayılan test sırrı `dev-call-secret` kabul edilir.
-  CALL_WEBHOOK_SECRET: z.string().min(8).optional(),
-
-  // WhatsApp Business (Meta Cloud API). Tümü boşsa özellik KAPALI: giden mesaj
-  // gönderilmez, gelen webhook çağrıları 200 döner ama işlenmez. Anahtar
-  // sunucuda tutulur, istemciye asla dönülmez.
-  WHATSAPP_ENABLED: envBoolean.default(false),
-  WHATSAPP_PHONE_NUMBER_ID: envOptionalText,
-  WHATSAPP_ACCESS_TOKEN: envOptionalSecret,
-  WHATSAPP_API_VERSION: z.string().default('v21.0'),
-  // Meta webhook doğrulama (GET hub.verify_token) — abonelik el sıkışması için.
-  WHATSAPP_VERIFY_TOKEN: envOptionalText,
-  // Gelen mesajların hangi tenant'a düşeceği (tek tenant kurulumda zorunlu).
-  WHATSAPP_DEFAULT_TENANT_ID: z.string().uuid().optional(),
-
-  // CRM Asistanı LLM ayarları. API key sadece backend ortamında tutulur; boşsa
-  // asistan CRM verilerinden deterministik yanıt üretir. NVIDIA NIM hosted API
-  // OpenAI uyumlu chat/completions sözleşmesiyle çağrılır.
-  ASSISTANT_LLM_PROVIDER: z.enum(['none', 'openrouter', 'groq', 'anthropic', 'nvidia']).default('none'),
-  ASSISTANT_MODEL: z.string().max(128).default('openrouter/free'),
-  ASSISTANT_API_KEY: envOptionalSecret,
-  ASSISTANT_MAX_TOKENS: z.coerce.number().int().positive().max(4000).default(700),
-  // CRM özetlerinde tutarlılık için düşük yaratıcılık kullanılır. Sağlayıcının
-  // desteklemediği özel reasoning parametreleri bilinçli olarak gönderilmez.
-  ASSISTANT_TEMPERATURE: z.coerce.number().min(0).max(2).default(0.2),
-  ASSISTANT_TOP_P: z.coerce.number().gt(0).max(1).default(0.8),
-  // Kullanıcı başına GÜNLÜK kümülatif LLM token tavanı (input+output). Aşınca
-  // asistan chat LLM'i atlar, deterministik cevaba düşer. 0 = sınırsız (kapalı).
-  ASSISTANT_DAILY_TOKEN_BUDGET: z.coerce.number().int().nonnegative().default(50_000),
-  // Kullanıcıya özel bir tutar atanmadığında uygulanacak günlük USD maliyet tavanı.
-  // 0, varsayılan kullanıcılar için LLM'i kapatır; kullanıcı bazlı limit yine atanabilir.
-  ASSISTANT_DEFAULT_DAILY_USD_LIMIT: z.coerce.number().min(0).max(1000).default(1),
-  // Sağlayıcının/modelin sözleşme fiyatı değişebileceği için fiyatlar kodda sabitlenmez;
-  // buradaki USD / 1M token oranları bütçe muhasebesinde kullanılır.
-  ASSISTANT_INPUT_USD_PER_MILLION_TOKENS: z.coerce.number().positive().max(10_000).default(0.1),
-  ASSISTANT_OUTPUT_USD_PER_MILLION_TOKENS: z.coerce.number().positive().max(10_000).default(0.4),
-
   // Prometheus endpoint'i production'da bearer token ile korunur. Boş değer
   // yalnız private local/test ağlarında kabul edilir.
   METRICS_TOKEN: envOptionalSecret,
@@ -231,14 +193,6 @@ const envSchema = z.object({
     });
   }
 
-  if (env.ASSISTANT_LLM_PROVIDER !== 'none' && !env.ASSISTANT_API_KEY) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ['ASSISTANT_API_KEY'],
-      message: 'ASSISTANT_API_KEY must be set when ASSISTANT_LLM_PROVIDER is enabled',
-    });
-  }
-
   if (env.USER_MAIL_ENABLED) {
     if (!env.USER_MAIL_SMTP_HOST) {
       ctx.addIssue({
@@ -263,35 +217,6 @@ const envSchema = z.object({
       });
     }
   }
-  if (
-    env.ASSISTANT_LLM_PROVIDER === 'openrouter' &&
-    env.ASSISTANT_MODEL !== 'openrouter/free' &&
-    !env.ASSISTANT_MODEL.endsWith(':free')
-  ) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ['ASSISTANT_MODEL'],
-      message: 'OpenRouter assistant model must be openrouter/free or a :free model variant',
-    });
-  }
-  if (env.ASSISTANT_LLM_PROVIDER === 'anthropic' && !env.ASSISTANT_MODEL.startsWith('claude-')) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ['ASSISTANT_MODEL'],
-      message: 'Anthropic assistant model must be a claude-* model (e.g. claude-haiku-4-5)',
-    });
-  }
-  if (
-    env.ASSISTANT_LLM_PROVIDER === 'nvidia' &&
-    !/^[a-z0-9][a-z0-9._-]*\/[a-z0-9][a-z0-9._-]*$/i.test(env.ASSISTANT_MODEL)
-  ) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ['ASSISTANT_MODEL'],
-      message: 'NVIDIA NIM assistant model must use publisher/model format',
-    });
-  }
-
   if (env.NODE_ENV !== 'production') return;
   if (!env.COOKIE_SECURE) {
     ctx.addIssue({
@@ -312,13 +237,6 @@ const envSchema = z.object({
       code: z.ZodIssueCode.custom,
       path: ['CORS_ORIGINS'],
       message: 'Production CORS_ORIGINS must not include localhost origins',
-    });
-  }
-  if (!env.CALL_WEBHOOK_SECRET) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ['CALL_WEBHOOK_SECRET'],
-      message: 'CALL_WEBHOOK_SECRET must be set in production',
     });
   }
   if (!env.METRICS_TOKEN) {

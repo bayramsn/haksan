@@ -457,11 +457,13 @@ function CheckEditor(props: EditorProps) {
               void run(
                 checkKey,
                 async () => {
-                  await activityService.createCall({
+                  await activityService.create({
                     opportunityId: sc.id,
                     companyId: sc.customerId!,
-                    callDate: new Date(),
-                    callResult: draft.trim() || undefined,
+                    activityTypeCode: "outgoing_call",
+                    subject: "Giden Arama",
+                    activityDate: new Date(),
+                    result: draft.trim() || undefined,
                   });
                   await props.refresh();
                 },
@@ -492,11 +494,13 @@ function CheckEditor(props: EditorProps) {
               void run(
                 checkKey,
                 async () => {
-                  await activityService.createVisit({
+                  await activityService.create({
                     opportunityId: sc.id,
                     companyId: sc.customerId!,
-                    visitDate: new Date(),
-                    visitResult: draft.trim() || undefined,
+                    activityTypeCode: "customer_visit",
+                    subject: "Müşteri Ziyareti",
+                    activityDate: new Date(),
+                    result: draft.trim() || undefined,
                   });
                   await props.refresh();
                 },

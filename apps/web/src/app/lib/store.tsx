@@ -722,8 +722,6 @@ function StoreInner({ children }: { children: ReactNode }) {
           active: u.status !== 'passive',
           avatarUrl: u.avatarUrl ?? u.photoUrl ?? undefined,
           purchaseApprovalLimit: u.purchaseApprovalLimit ? Number(u.purchaseApprovalLimit) : undefined,
-          assistantDailyUsdLimit:
-            u.assistantDailyUsdLimit == null ? null : Number(u.assistantDailyUsdLimit),
           managerId: u.managerId ?? undefined,
         }))
       );

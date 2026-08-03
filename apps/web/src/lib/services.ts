@@ -113,23 +113,6 @@ import type {
   UserUpdateInput,
   VisitCreateInput,
   WarehouseCreateInput,
-  CallAssistantAction,
-  CallSuggestionActionInput,
-  ManualCallEventInput,
-  AssistantApprovalCard,
-  AssistantApprovalDecisionResponse,
-  AssistantBriefingResponse,
-  AssistantChatInput,
-  AssistantChatResponse,
-  AssistantCompanyMemory,
-  AssistantOpportunitySummary,
-  AssistantExecuteActionInput,
-  AssistantExecuteActionResponse,
-  AssistantInboxCapture,
-  AssistantInboxItem,
-  AssistantInboxListQuery,
-  AssistantInboxUpdate,
-  AssistantSuggestion,
   MailSendInput,
   MailSendResult,
   UserMailAccountStatus,
@@ -349,39 +332,6 @@ export const accessRequestService = {
   reject: (id: string, decisionNote?: string) => api.post(`/access-requests/${id}/reject`, { decisionNote }),
 };
 
-export interface CallSuggestionDTO {
-  id: string;
-  title: string;
-  body: string | null;
-  status: 'pending' | 'acted' | 'dismissed';
-  companyId: string;
-  contactId: string | null;
-  createdAt: string;
-  event: {
-    id: string;
-    eventType: 'completed' | 'missed';
-    direction: 'inbound' | 'outbound';
-    normalizedPhone: string | null;
-    endedAt: string | null;
-    startedAt: string | null;
-  };
-  company: { id: string; legalTitle: string; shortName?: string | null };
-  contact: { id: string; fullName: string } | null;
-  availableActions: { createQuote: boolean; createServiceTicket: boolean; logCall: boolean };
-}
-
-export interface CallEventIngestResponse {
-  event: {
-    id: string;
-    matchStatus: 'matched' | 'unmatched' | 'ambiguous';
-    companyId: string | null;
-    contactId: string | null;
-    normalizedPhone: string | null;
-  };
-  suggestions: CallSuggestionDTO[];
-  idempotent?: boolean;
-}
-
 export type NotificationTarget =
   | { kind: 'company'; companyId: string }
   | { kind: 'opportunity'; opportunityId: string; activityId?: string }
@@ -407,40 +357,6 @@ export const notificationService = {
       pageSize: params?.pageSize,
     })}`),
   markRead: (id: string) => api.patch<NotificationDTO>(`/notifications/${id}/read`, {}),
-};
-
-export const callAssistantService = {
-  suggestions: (params?: { status?: 'pending' | 'acted' | 'dismissed' }) =>
-    api.get<Paginated<CallSuggestionDTO>>(`/call-assistant/suggestions${qs(params)}`),
-  manualEvent: (body: ManualCallEventInput) =>
-    api.post<CallEventIngestResponse>('/call-assistant/manual-events', body),
-  action: (id: string, action: CallAssistantAction, body: Omit<CallSuggestionActionInput, 'action'> = {}) =>
-    api.post<any>(`/call-assistant/suggestions/${id}/actions`, { action, ...body }),
-};
-
-export const assistantService = {
-  suggestions: () => api.get<AssistantSuggestion[]>('/assistant/suggestions'),
-  briefing: () => api.get<AssistantBriefingResponse>('/assistant/briefing'),
-  companyMemory: (companyId: string) =>
-    api.get<AssistantCompanyMemory>(`/assistant/companies/${encodeURIComponent(companyId)}/memory`),
-  opportunitySummary: (opportunityId: string) =>
-    api.post<AssistantOpportunitySummary>(
-      `/assistant/opportunities/${encodeURIComponent(opportunityId)}/summary`,
-      {},
-    ),
-  approvals: () => api.get<AssistantApprovalCard[]>('/assistant/approvals'),
-  inbox: (params: Partial<AssistantInboxListQuery> = {}) =>
-    api.get<AssistantInboxItem[]>(`/assistant/inbox${qs(params as Record<string, string | number | undefined>)}`),
-  captureInbox: (body: AssistantInboxCapture) => api.post<AssistantInboxItem>('/assistant/inbox', body),
-  updateInbox: (id: string, body: AssistantInboxUpdate) =>
-    api.patch<AssistantInboxItem>(`/assistant/inbox/${encodeURIComponent(id)}`, body),
-  prepareInboxReply: (id: string) =>
-    api.post<AssistantApprovalCard>(`/assistant/inbox/${encodeURIComponent(id)}/reply-approval`, {}),
-  chat: (body: AssistantChatInput) => api.post<AssistantChatResponse>('/assistant/chat', body),
-  decideApproval: (id: string, confirm: boolean) =>
-    api.post<AssistantApprovalDecisionResponse>(`/assistant/approvals/${encodeURIComponent(id)}/decision`, { confirm }),
-  executeAction: (id: string, body: AssistantExecuteActionInput) =>
-    api.post<AssistantExecuteActionResponse>(`/assistant/actions/${encodeURIComponent(id)}/execute`, body),
 };
 
 export const mailService = {
@@ -472,6 +388,7 @@ export const contactService = {
 export const opportunityService = {
   list: (params?: Record<string, string | number | undefined>) => api.get<Paginated<any>>(`/opportunities${qs(params)}`),
   get: (id: string) => api.get<any>(`/opportunities/${id}`),
+  assignees: () => api.get<Array<{ id: string; name: string; divisionIds: string[] }>>('/opportunities/assignees'),
   create: (body: OpportunityCreateInput) => api.post<any>('/opportunities', body),
   previewTrelloImport: (body: TrelloImportPreviewRequest) =>
     api.post<TrelloImportPreview>('/opportunities/imports/trello/preview', body),

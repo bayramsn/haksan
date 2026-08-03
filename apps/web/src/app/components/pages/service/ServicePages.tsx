@@ -64,7 +64,7 @@ import { printOrWarn, openInMaps, warrantyInfo, type WarrantyState } from "../..
 import {
   Plus, Printer, MapPin, Wrench, Building2, Lock, Play, Pause, Square, MessageSquare,
   ShieldCheck, Send, Check, CheckCircle2, X, Package, ClipboardCheck, Inbox, Link2, Copy, ExternalLink,
-  PhoneCall, Trash2, ArrowRight, FileCheck2, History, FileText, Save, BookmarkPlus,
+  Trash2, ArrowRight, FileCheck2, History, FileText, Save, BookmarkPlus,
   AlertTriangle, Clock3, UserRoundCheck, Workflow, Share2, Download,
 } from "lucide-react";
 
@@ -1829,8 +1829,6 @@ function ComplaintDetailDialog({
   };
 
   const warrantyText = WARRANTY_SUGGESTION_LABELS[complaint.warrantyStatusSuggestion ?? "unknown"] ?? "Bilinmiyor";
-  const callAssistant = complaint.callAssistant;
-
   return (
     <Dialog open={!!complaint} onOpenChange={(open) => !open && onClose()}>
       <DialogContent className="w-[min(780px,calc(100vw-2rem))] max-w-none sm:max-w-none">
@@ -1892,30 +1890,6 @@ function ComplaintDetailDialog({
             <div><span className="text-muted-foreground">Telefon:</span> {complaint.contactPhone || "—"}</div>
             <div><span className="text-muted-foreground">E-posta:</span> {complaint.contactEmail || "—"}</div>
           </div>
-          {callAssistant && (
-            <div className="md:col-span-2 rounded-md border border-sky-200 bg-sky-50/70 p-3 text-sm">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div>
-                  <div className="flex items-center gap-2 font-medium text-sky-900">
-                    <PhoneCall className="size-4" /> Telefon / Call Assistant Kaynağı
-                  </div>
-                  <div className="mt-1 text-sky-800/80">
-                    {callAssistant.callEventId ? `Arama: ${callAssistant.callEventId}` : "Arama kaydı yok"} ·{" "}
-                    {callAssistant.callAssistantSuggestionId ? `Öneri: ${callAssistant.callAssistantSuggestionId}` : "Öneri yok"}
-                  </div>
-                </div>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="gap-1 bg-white"
-                  onClick={() => navigator.clipboard?.writeText([callAssistant.callEventId, callAssistant.callAssistantSuggestionId].filter(Boolean).join(" · "))}
-                >
-                  <Copy className="size-4" /> Kaynak ID kopyala
-                </Button>
-              </div>
-            </div>
-          )}
           <div className="md:col-span-2 rounded-md border border-border/60 bg-muted/30 p-3 text-sm">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
