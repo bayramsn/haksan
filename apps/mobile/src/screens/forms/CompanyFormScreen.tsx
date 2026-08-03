@@ -18,6 +18,9 @@ export function CompanyFormScreen() {
   const [city, setCity] = useState('');
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
+  const [contactSourceCode, setContactSourceCode] = useState('');
+  const [contactSourceText, setContactSourceText] = useState('');
+  const [contactSourceEdited, setContactSourceEdited] = useState(false);
   const [loading, setLoading] = useState(false);
   const [booting, setBooting] = useState(isEdit);
 
@@ -34,6 +37,14 @@ export function CompanyFormScreen() {
         setCity(String(addr?.province ?? ''));
         setPhone(String((c as { primaryPhone?: string }).primaryPhone ?? ''));
         setEmail(String((c as { primaryEmail?: string }).primaryEmail ?? ''));
+        const source = c as {
+          contactSourceCode?: string | null;
+          contactSourceText?: string | null;
+          contactSource?: { code?: string | null; name?: string | null } | null;
+        };
+        setContactSourceCode(String(source.contactSource?.code ?? source.contactSourceCode ?? ''));
+        setContactSourceText(String(source.contactSourceText ?? source.contactSource?.name ?? ''));
+        setContactSourceEdited(false);
       })
       .catch((e) => Alert.alert('Hata', e instanceof Error ? e.message : 'Firma yüklenemedi'))
       .finally(() => setBooting(false));
@@ -46,6 +57,7 @@ export function CompanyFormScreen() {
     }
     setLoading(true);
     try {
+      const trimmedContactSourceText = contactSourceText.trim();
       const body = {
         companyType: 'company' as const,
         relationTypeCode: 'customer' as const,
@@ -59,10 +71,21 @@ export function CompanyFormScreen() {
         address: city ? { country: 'Türkiye', province: city, fullAddress: city } : undefined,
       };
       if (isEdit && id) {
-        await companyService.update(id, body);
+        const updateBody = contactSourceEdited
+          ? {
+              ...body,
+              contactSourceCode: trimmedContactSourceText ? null : contactSourceCode || null,
+              contactSourceText: trimmedContactSourceText || null,
+            }
+          : body;
+        await companyService.update(id, updateBody);
         Alert.alert('Başarılı', 'Firma güncellendi', [{ text: 'Tamam', onPress: () => router.back() }]);
       } else {
-        const company = await companyService.create(body);
+        const createBody = {
+          ...body,
+          contactSourceText: trimmedContactSourceText || undefined,
+        };
+        const company = await companyService.create(createBody);
         Alert.alert('Başarılı', 'Firma oluşturuldu', [
           { text: 'Detay', onPress: () => router.replace(`/modules/customers/${company.id}`) },
           { text: 'Tamam', onPress: () => router.back() },
@@ -86,6 +109,16 @@ export function CompanyFormScreen() {
       <Input label="İl / Şehir" value={city} onChangeText={setCity} />
       <Input label="Telefon" value={phone} onChangeText={setPhone} keyboardType="phone-pad" />
       <Input label="E-posta" value={email} onChangeText={setEmail} autoCapitalize="none" keyboardType="email-address" />
+      <Input
+        label="İrtibat Şekli / Kaynak"
+        value={contactSourceText}
+        onChangeText={(value) => {
+          setContactSourceText(value);
+          setContactSourceCode('');
+          setContactSourceEdited(true);
+        }}
+        placeholder="Örn. Referans, fuar, telefon"
+      />
       <Button title={isEdit ? 'Güncelle' : 'Kaydet'} onPress={() => void submit()} loading={loading} />
     </FormPageLayout>
   );

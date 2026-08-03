@@ -365,10 +365,7 @@ export function LookupManagerTab() {
       ...eligible.map((company) => ({
         value: company.id,
         label: company.name,
-        hint: [
-          company.companyNo ? `Firma No: ${company.companyNo}` : "",
-          company.firmType === "supplier_customer" ? "Müşteri + Tedarikçi" : "Tedarikçi",
-        ].filter(Boolean).join(" · "),
+        hint: company.firmType === "supplier_customer" ? "Müşteri + Tedarikçi" : "Tedarikçi",
       })),
     ];
   }, [customers]);
@@ -1431,7 +1428,7 @@ export function LookupManagerTab() {
                           <div>
                             <p className="font-medium text-foreground">{row.companyName || "Firma belirtilmemiş"}</p>
                             <p className="mt-0.5">
-                              {row.isOwned ? "Kendi firmamız" : row.companyNo ? `Firma No: ${row.companyNo}` : "Müşteri firma"}
+                              {row.isOwned ? "Kendi firmamız" : "Müşteri firma"}
                             </p>
                           </div>
                         ) : row.description || "-"}

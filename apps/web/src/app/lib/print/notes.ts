@@ -44,7 +44,7 @@ export const QUOTE_NOTE_VARIANTS: QuoteNoteVariant[] = [
     label: "Tezgah Millileştirilmiş",
     odeme: [
       "Teklifimiz, tamamı nakit/leasing aracılığı ile ödemeye göre düzenlenmiştir,",
-      "Teklifimize tezgâhın cari orandaki %10 K.D.V.'si dahil edilmemiştir, Leasing aracılığı ile yapılan alımlarda K.D.V oranı %1 olarak tahakkuk ettirilir,",
+      "Teklifimize tezgâhın cari orandaki %{{KDV_ORANI}} K.D.V.'si dahil edilmemiştir, Leasing aracılığı ile yapılan alımlarda K.D.V oranı %1 olarak tahakkuk ettirilir,",
       "Teklifimiz Millileştirilmiş teslim şeklinde düzenlenmiş olup, tezgâhın ithalatı ile ilgili masraf ve vergiler (Gümrük Vergisi, Liman Masrafları, Ardiye Giderleri, Gümrükleme Ücreti, İlave Gümrük Vergisi) fiyat teklifimize dahil edilmiştir.",
     ],
     teslimat: [
@@ -66,7 +66,7 @@ export const QUOTE_NOTE_VARIANTS: QuoteNoteVariant[] = [
     label: "Tezgah CİF İstanbul",
     odeme: [
       "Teklifimiz, tamamı nakit/leasing aracılığı ile ödemeye göre düzenlenmiştir,",
-      "Teklifimize tezgâhın cari orandaki %10 K.D.V.'si dahil edilmemiştir, Leasing aracılığı ile yapılan alımlarda K.D.V oranı %1 olarak tahakkuk ettirilir,",
+      "Teklifimize tezgâhın cari orandaki %{{KDV_ORANI}} K.D.V.'si dahil edilmemiştir, Leasing aracılığı ile yapılan alımlarda K.D.V oranı %1 olarak tahakkuk ettirilir,",
       "Teklifimiz C.I.F/İstanbul teslim şeklinde düzenlenmiş olup, tezgahın ithalatı ile ilgili masraf ve vergiler (Gümrük Vergisi, Liman Masrafları, Ardiye Giderleri, Gümrükleme Ücreti, İlave Gümrük Vergisi) fiyat teklifimize dahil değildir. Tezgâh antrepo’dan devir edilecektir,",
     ],
     teslimat: [
@@ -88,7 +88,7 @@ export const QUOTE_NOTE_VARIANTS: QuoteNoteVariant[] = [
     label: "Gümrük Teklif",
     odeme: [
       "Teklifimiz, tamamı nakit/leasing aracılığı ile ödemeye göre düzenlenmiştir,",
-      "Teklifimize tezgâhın cari orandaki %10 K.D.V.'si dahil edilmemiştir, Leasing aracılığı ile yapılan alımlarda K.D.V oranı %1 olarak tahakkuk ettirilir,",
+      "Teklifimize tezgâhın cari orandaki %{{KDV_ORANI}} K.D.V.'si dahil edilmemiştir, Leasing aracılığı ile yapılan alımlarda K.D.V oranı %1 olarak tahakkuk ettirilir,",
       "Teklifimiz Gümrük teslim şeklinde düzenlenmiş olup, tezgâhın ithalatı ile ilgili masraf ve vergiler (Gümrük Vergisi, Liman Masrafları, Ardiye Giderleri, Gümrükleme Ücreti, İlave Gümrük Vergisi) fiyat teklifimize dahil değildir; gümrükleme işlemleri alıcı firma tarafından yürütülecektir.",
     ],
     teslimat: [
@@ -110,7 +110,7 @@ export const QUOTE_NOTE_VARIANTS: QuoteNoteVariant[] = [
     label: "İşletme Teslim",
     odeme: [
       "Teklifimiz, tamamı nakit/leasing aracılığı ile ödemeye göre düzenlenmiştir,",
-      "Teklifimize tezgâhın cari orandaki %10 K.D.V.'si dahil edilmemiştir, Leasing aracılığı ile yapılan alımlarda K.D.V oranı %1 olarak tahakkuk ettirilir,",
+      "Teklifimize tezgâhın cari orandaki %{{KDV_ORANI}} K.D.V.'si dahil edilmemiştir, Leasing aracılığı ile yapılan alımlarda K.D.V oranı %1 olarak tahakkuk ettirilir,",
       "Teklifimiz İşletme Teslim şeklinde düzenlenmiş olup, tezgâhın ithalatı ile ilgili masraf ve vergiler ile alıcı firma işletmesine kadar karayolu taşıma ve sigortası fiyat teklifimize dahil edilmiştir.",
     ],
     teslimat: [
@@ -204,7 +204,7 @@ export const PROFORMA_NOTE_VARIANTS: FlatNoteVariant[] = [
     notlar: [
       "Proforma toplam bedelinin tamamı devir sonrası ithalat öncesi peşin tahsil edilecektir,",
       "Proforma fatura C.I.F./İstanbul teslim şeklinde düzenlenmiş olup, fiyatımıza tezgâhın ithalatı ile ilgili masraf ve vergiler (Gümrük Vergisi, Liman Masrafları, Ardiye Giderleri, Gümrükleme Ücreti, İlave Gümrük Vergisi) dahil edilmemiştir. Tezgâh Antrepodan devredilecektir.",
-      "Proforma Fatura bedeline tezgâhın cari orandaki %20 K.D.V.'si dahil edilmemiştir.",
+      "Proforma Fatura bedeline tezgâhın cari orandaki %{{KDV_ORANI}} K.D.V.'si dahil edilmemiştir.",
       "Tezgâh antrepoda devir işlemleri için hazırdır, gümrük işlemleri sonrasında derhal teslim edilecektir,",
       "Tezgâh HAKSAN MAKİNA/Hadımköy antreposundan teslim edilecek olup, tezgâhın İstanbul içi karayolu taşıma ve sigortası alıcı firma tarafından karşılanacaktır,",
       "Tezgâh uluslararası CE standartlarına uygundur.",
@@ -219,7 +219,7 @@ export const PROFORMA_NOTE_VARIANTS: FlatNoteVariant[] = [
     label: "İşletme Teslim",
     notlar: [
       "Proforma fatura İşletme teslim şeklinde düzenlenmiş olup, fiyatımıza tezgâhın ithalatı ile ilgili masraf ve vergiler (Gümrük Vergisi, Liman Masrafları, Ardiye Giderleri, Gümrükleme Ücreti, İlave Gümrük Vergisi) dahil edilmiştir,",
-      "Proforma Fatura bedeline tezgâhın cari orandaki %20 K.D.V.'si dahil edilmemiştir. Leasing aracılığı ile yapılan işlemlerde K.D.V. %1 olarak tahakkuk edilmektedir,",
+      "Proforma Fatura bedeline tezgâhın cari orandaki %{{KDV_ORANI}} K.D.V.'si dahil edilmemiştir. Leasing aracılığı ile yapılan işlemlerde K.D.V. %1 olarak tahakkuk edilmektedir,",
       "Tezgâhın teslimi kesin siparişten sonra derhal gerçekleştirilecektir,",
       "Tezgâh ödeme işlemleri sonrasında {{ALICI}} tesislerine teslim edilecek olup, tezgâhın İstanbul içi karayolu taşıması HAKSAN MAKİNA tarafından karşılanacaktır,",
       "Tezgâh uluslararası CE standartlarına uygundur.",
@@ -235,19 +235,35 @@ export const PROFORMA_NOTE_VARIANTS: FlatNoteVariant[] = [
 /** {{ALICI}} / {{YIL}} yer tutucularını belge verisiyle doldurur. */
 export const fillNotePlaceholders = (
   notlar: string[],
-  ctx: { alici?: string; yil?: string | number }
+  ctx: { alici?: string; yil?: string | number; kdvOrani?: string | number }
 ): string[] =>
   notlar.map((n) =>
     n
       .replace(/\{\{ALICI\}\}/g, ctx.alici?.trim() || "alıcı firma")
       .replace(/\{\{YIL\}\}/g, String(ctx.yil ?? new Date().getFullYear()))
+      .replace(/\{\{KDV_ORANI\}\}/g, String(ctx.kdvOrani ?? 20))
   );
+
+/**
+ * Daha önce kaydedilmiş şart metinlerindeki sabit %10/%20 KDV ifadesini,
+ * belgedeki ana ürünün seçili KDV oranına uyarlar. Leasing için geçen %1'e ve
+ * millileştirme/gümrük hesabına dokunmaz.
+ */
+export const applyVatRateToNotes = (notlar: string[], kdvOrani?: string | number): string[] => {
+  const rate = Number(kdvOrani);
+  if (!Number.isFinite(rate) || rate <= 0) return notlar;
+  return fillNotePlaceholders(notlar, { kdvOrani: rate }).map((note) =>
+    note.replace(/%(?:10|20)(?=\s*K\.?\s*D\.?\s*V\.?)/giu, `%${rate}`)
+  );
+};
 
 /** Teklif teslim şekli şablonlarını proforma seçeneklerinde ayırt etmek için ön ek. */
 export const QUOTE_VARIANT_PREFIX = "teklif:";
 
 const normalizeBlock = (s: string): string =>
   s
+    .replace(/\{\{KDV_ORANI\}\}/g, "{{KDV_ORANI}}")
+    .replace(/%(?:10|20)(?=\s*K\.?\s*D\.?\s*V\.?)/giu, "%{{KDV_ORANI}}")
     .split(/\r?\n/)
     .map((l) => l.trim())
     .filter(Boolean)
@@ -287,7 +303,7 @@ export const PROFORMA_NOTE_OPTIONS: { key: string; label: string; group: "profor
  */
 export function resolveProformaNotes(
   variantKey: string | undefined,
-  ctx: { alici?: string; yil?: string | number }
+  ctx: { alici?: string; yil?: string | number; kdvOrani?: string | number }
 ): string[] | null {
   if (!variantKey) return null;
   if (variantKey.startsWith(QUOTE_VARIANT_PREFIX)) {

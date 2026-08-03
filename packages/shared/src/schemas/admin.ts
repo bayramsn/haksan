@@ -1,5 +1,7 @@
 import { z } from 'zod';
+import { NAVIGATION_VISIBILITY_KEYS } from '../navigation';
 import { PERMISSION_RESOURCES } from '../constants';
+import { usernameSchema } from './common';
 
 export const userAccessScopeSchema = z.object({
   resource: z.enum(PERMISSION_RESOURCES),
@@ -12,6 +14,9 @@ export type UserAccessScopeInput = z.infer<typeof userAccessScopeSchema>;
 export const userCreateSchema = z.object({
   fullName: z.string().min(1).max(255),
   email: z.string().email(),
+  // Giriş için kullanılacak kullanıcı adı. E-posta iletişim için saklanır;
+  // yeni kullanıcıların giriş tanımlayıcısı kullanıcı adıdır.
+  username: usernameSchema,
   password: z.string().min(8).max(128),
   phone: z.string().max(32).optional(),
   departmentId: z.string().uuid().optional(),
@@ -31,6 +36,10 @@ export const userUpdateSchema = z.object({
   fullName: z.string().min(1).max(255).optional(),
   // E-posta değişikliği yalnızca super_admin tarafından yapılabilir (controller'da zorlanır).
   email: z.string().email().max(255).optional(),
+  // Kullanıcı adı bir giriş tanımlayıcısıdır: yalnızca `users.update` iznine
+  // sahip yönetici değiştirebilir (bu endpoint o izinle korunur; kullanıcının
+  // kendi kullanıcı adını değiştirebileceği bir self-servis uç yoktur).
+  username: usernameSchema.optional(),
   // null gönderilirse telefon temizlenir (super_admin düzenleme dialogu için).
   phone: z.string().max(32).nullable().optional(),
   departmentId: z.string().uuid().nullable().optional(),
@@ -97,6 +106,7 @@ export const tenantUpdateSchema = z.object({
   taxNumber: z.string().max(32).nullable().optional(),
   email: z.string().email().max(255).nullable().optional(),
   phone: z.string().max(32).nullable().optional(),
+  hiddenNavigationKeys: z.array(z.enum(NAVIGATION_VISIBILITY_KEYS)).max(NAVIGATION_VISIBILITY_KEYS.length).optional(),
 });
 export type TenantUpdateInput = z.infer<typeof tenantUpdateSchema>;
 

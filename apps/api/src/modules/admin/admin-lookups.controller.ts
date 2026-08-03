@@ -2,7 +2,7 @@ import { Body, Controller, Delete, Get, Inject, Param, Patch, Post, Put, Query, 
 import { Throttle } from '@nestjs/throttler';
 import type { FastifyReply } from 'fastify';
 import { z } from 'zod';
-import { and, asc, eq, inArray, isNull, max, or } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull, max, notInArray, or } from 'drizzle-orm';
 import type { DbClient } from '../../db/client';
 import * as schema from '../../db/schema';
 import { productSpecTemplates } from '../../db/schema/products';
@@ -33,7 +33,7 @@ import {
   type TechnicalImportTemplateRequest,
 } from '@haksan/shared';
 import { rowsToCsvBuffer, rowsToXlsxBuffer, sendCsv, sendXlsx } from '../../shared/utils/excel-export';
-import { TechnicalImportService } from './technical-import.service';
+import { TechnicalImportService, productTypeCodeVariants } from './technical-import.service';
 import { brandLogoPath } from '../products/brand-media.service';
 
 const lookupCreateSchema = z.object({
@@ -817,7 +817,7 @@ export class AdminLookupsController {
   ) {
     this.requireSuperAdmin(user);
     try {
-      const rows = await this.db.transaction(async (tx) => {
+      const { rows, prunedIds } = await this.db.transaction(async (tx) => {
         const saved = [];
         for (const item of body.items) {
           const { id, ...values } = item;
@@ -830,17 +830,41 @@ export class AdminLookupsController {
             saved.push(row);
           }
         }
-        return saved;
+        // Çalışma sayfasından çıkarılan alanlar: gönderilen liste kapsamın
+        // tamamıdır, dolayısıyla aynı (ürün tipi + bölüm) kapsamında olup
+        // burada bulunmayan kayıtlar silinmiş sayılır. Katalog varsayılanları
+        // koddan yeniden üretilebildiği için fiziksel silme yerine tombstone
+        // bırakılır (bkz. deleteProductSpecTemplate). Aynı transaction içinde
+        // yapılır ki yarım kalan kayıtta şablon tutarsız kalmasın.
+        let prunedIds: string[] = [];
+        if (body.pruneMissing && body.productTypeCode) {
+          const keptIds = saved.map((row) => row.id);
+          const scope = [
+            inArray(productSpecTemplates.productTypeCode, productTypeCodeVariants(body.productTypeCode)),
+            body.divisionId
+              ? eq(productSpecTemplates.divisionId, body.divisionId)
+              : isNull(productSpecTemplates.divisionId),
+            eq(productSpecTemplates.isDeleted, false),
+          ];
+          if (keptIds.length) scope.push(notInArray(productSpecTemplates.id, keptIds));
+          const removed = await tx
+            .update(productSpecTemplates)
+            .set({ isDeleted: true, isActive: false })
+            .where(and(...scope))
+            .returning({ id: productSpecTemplates.id });
+          prunedIds = removed.map((row) => row.id);
+        }
+        return { rows: saved, prunedIds };
       });
       await this.audit.write({
         tenantId: user.tenantId,
         actorUserId: user.userId,
         action: 'product_spec_template.batch_updated',
         resourceType: 'product_spec_template',
-        resourceId: body.items[0]?.productTypeCode ?? 'batch',
-        newValues: { count: rows.length },
+        resourceId: body.productTypeCode ?? body.items[0]?.productTypeCode ?? 'batch',
+        newValues: { count: rows.length, pruned: prunedIds.length },
       });
-      return { ok: true, rows };
+      return { ok: true, rows, prunedIds };
     } catch (error: any) {
       if (databaseErrorCode(error) === '23505') throw new ConflictError('Bu ürün tipi için aynı teknik alan birden fazla kez kullanılamaz');
       throw error;

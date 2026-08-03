@@ -67,6 +67,11 @@
         "minLength": 1,
         "maxLength": 64
       },
+      "LoginIdentifier": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 254
+      },
       "Money": {
         "type": "number",
         "nullable": true,
@@ -115,6 +120,12 @@
         "type": "string",
         "maxLength": 512,
         "format": "uri"
+      },
+      "Username": {
+        "type": "string",
+        "minLength": 3,
+        "maxLength": 32,
+        "pattern": "^[a-z0-9._-]+$"
       },
       "Uuid": {
         "type": "string",
@@ -183,9 +194,15 @@
       "Login": {
         "type": "object",
         "properties": {
+          "identifier": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 254
+          },
           "email": {
             "type": "string",
-            "maxLength": 255
+            "minLength": 1,
+            "maxLength": 254
           },
           "password": {
             "type": "string",
@@ -198,7 +215,6 @@
           }
         },
         "required": [
-          "email",
           "password"
         ]
       },
@@ -350,6 +366,40 @@
               },
               "slug": {
                 "type": "string"
+              },
+              "hiddenNavigationKeys": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "dashboard",
+                    "chat",
+                    "calendar",
+                    "call-assistant",
+                    "customers",
+                    "leads",
+                    "sales-cases",
+                    "references",
+                    "contacts",
+                    "sales-map",
+                    "offers",
+                    "documents",
+                    "sales-price-list",
+                    "products",
+                    "stock",
+                    "payments",
+                    "accounting-invoices",
+                    "customer-balances",
+                    "due-dates",
+                    "shipments",
+                    "machines",
+                    "installations",
+                    "service-requests",
+                    "service-kanban",
+                    "service-price-list"
+                  ]
+                },
+                "default": []
               }
             },
             "required": [
@@ -515,9 +565,141 @@
           "other"
         ]
       },
+      "CompanyContactImportCommit": {
+        "type": "object",
+        "properties": {
+          "companiesFile": {
+            "type": "object",
+            "properties": {
+              "fileName": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 255
+              },
+              "mimeType": {
+                "type": "string",
+                "maxLength": 128
+              },
+              "fileBase64": {
+                "type": "string",
+                "minLength": 4,
+                "maxLength": 15000000
+              }
+            },
+            "required": [
+              "fileName",
+              "fileBase64"
+            ]
+          },
+          "contactsFile": {
+            "type": "object",
+            "properties": {
+              "fileName": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 255
+              },
+              "mimeType": {
+                "type": "string",
+                "maxLength": 128
+              },
+              "fileBase64": {
+                "type": "string",
+                "minLength": 4,
+                "maxLength": 15000000
+              }
+            },
+            "required": [
+              "fileName",
+              "fileBase64"
+            ]
+          },
+          "divisionId": {
+            "type": "string",
+            "nullable": true,
+            "format": "uuid"
+          },
+          "confirmed": {
+            "type": "boolean",
+            "enum": [
+              true
+            ]
+          }
+        },
+        "required": [
+          "companiesFile",
+          "contactsFile",
+          "confirmed"
+        ]
+      },
+      "CompanyContactImportPreview": {
+        "type": "object",
+        "properties": {
+          "companiesFile": {
+            "type": "object",
+            "properties": {
+              "fileName": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 255
+              },
+              "mimeType": {
+                "type": "string",
+                "maxLength": 128
+              },
+              "fileBase64": {
+                "type": "string",
+                "minLength": 4,
+                "maxLength": 15000000
+              }
+            },
+            "required": [
+              "fileName",
+              "fileBase64"
+            ]
+          },
+          "contactsFile": {
+            "type": "object",
+            "properties": {
+              "fileName": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 255
+              },
+              "mimeType": {
+                "type": "string",
+                "maxLength": 128
+              },
+              "fileBase64": {
+                "type": "string",
+                "minLength": 4,
+                "maxLength": 15000000
+              }
+            },
+            "required": [
+              "fileName",
+              "fileBase64"
+            ]
+          },
+          "divisionId": {
+            "type": "string",
+            "nullable": true,
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "companiesFile",
+          "contactsFile"
+        ]
+      },
       "CompanyCreate": {
         "type": "object",
         "properties": {
+          "externalCompanyNo": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 32
+          },
           "companyType": {
             "type": "string",
             "enum": [
@@ -564,6 +746,11 @@
             "type": "string",
             "nullable": true,
             "maxLength": 64
+          },
+          "contactSourceText": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 255
           },
           "sector": {
             "type": "string",
@@ -984,6 +1171,11 @@
       "CompanyUpdate": {
         "type": "object",
         "properties": {
+          "externalCompanyNo": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 32
+          },
           "companyType": {
             "type": "string",
             "enum": [
@@ -1030,6 +1222,11 @@
             "type": "string",
             "nullable": true,
             "maxLength": 64
+          },
+          "contactSourceText": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 255
           },
           "sector": {
             "type": "string",
@@ -1267,6 +1464,11 @@
             "type": "string",
             "nullable": true,
             "maxLength": 255
+          },
+          "logoFileId": {
+            "type": "string",
+            "nullable": true,
+            "format": "uuid"
           }
         }
       },
@@ -1426,6 +1628,10 @@
             "type": "string",
             "minLength": 1
           },
+          "externalContactNo": {
+            "type": "string",
+            "maxLength": 32
+          },
           "fullName": {
             "type": "string",
             "minLength": 1,
@@ -1529,6 +1735,11 @@
           "companyId": {
             "type": "string",
             "minLength": 1
+          },
+          "externalContactNo": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 32
           },
           "fullName": {
             "type": "string",
@@ -1818,6 +2029,275 @@
           }
         }
       },
+      "LeadAssignmentRuleCreate": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255
+          },
+          "priority": {
+            "type": "integer",
+            "nullable": true,
+            "minimum": 0,
+            "maximum": 10000,
+            "default": 100
+          },
+          "active": {
+            "type": "boolean",
+            "default": true
+          },
+          "divisionId": {
+            "type": "string",
+            "nullable": true,
+            "format": "uuid"
+          },
+          "criteria": {
+            "type": "object",
+            "properties": {
+              "cities": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 120
+                },
+                "maxItems": 100,
+                "default": []
+              },
+              "productTerms": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 120
+                },
+                "maxItems": 100,
+                "default": []
+              },
+              "sourceCodes": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 64
+                },
+                "maxItems": 100,
+                "default": []
+              }
+            },
+            "default": {
+              "cities": [],
+              "productTerms": [],
+              "sourceCodes": []
+            }
+          },
+          "assigneeUserIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "minItems": 1,
+            "maxItems": 100
+          }
+        },
+        "required": [
+          "name",
+          "assigneeUserIds"
+        ]
+      },
+      "LeadAssignmentRuleUpdate": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255
+          },
+          "priority": {
+            "type": "integer",
+            "nullable": true,
+            "minimum": 0,
+            "maximum": 10000,
+            "default": 100
+          },
+          "active": {
+            "type": "boolean",
+            "default": true
+          },
+          "divisionId": {
+            "type": "string",
+            "nullable": true,
+            "format": "uuid"
+          },
+          "criteria": {
+            "type": "object",
+            "properties": {
+              "cities": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 120
+                },
+                "maxItems": 100,
+                "default": []
+              },
+              "productTerms": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 120
+                },
+                "maxItems": 100,
+                "default": []
+              },
+              "sourceCodes": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 64
+                },
+                "maxItems": 100,
+                "default": []
+              }
+            },
+            "default": {
+              "cities": [],
+              "productTerms": [],
+              "sourceCodes": []
+            }
+          },
+          "assigneeUserIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "minItems": 1,
+            "maxItems": 100
+          }
+        }
+      },
+      "LeadAuthorityStatusEnum": {
+        "type": "string",
+        "enum": [
+          "unknown",
+          "influencer",
+          "committee",
+          "decision_maker"
+        ]
+      },
+      "LeadBudgetStatusEnum": {
+        "type": "string",
+        "enum": [
+          "unknown",
+          "unavailable",
+          "estimated",
+          "approved"
+        ]
+      },
+      "LeadContactChannelEnum": {
+        "type": "string",
+        "enum": [
+          "phone",
+          "email",
+          "whatsapp"
+        ]
+      },
+      "LeadContactEvent": {
+        "type": "object",
+        "properties": {
+          "idempotencyKey": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "channel": {
+            "type": "string",
+            "enum": [
+              "phone",
+              "email",
+              "whatsapp"
+            ]
+          },
+          "outcome": {
+            "type": "string",
+            "enum": [
+              "no_answer",
+              "contacted",
+              "callback",
+              "requested_info",
+              "meeting_booked",
+              "not_interested",
+              "wrong_contact"
+            ]
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 2000
+          },
+          "nextAction": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 1000
+          },
+          "nextActionAt": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "required": [
+          "idempotencyKey",
+          "channel",
+          "outcome"
+        ]
+      },
+      "LeadContactOutcomeEnum": {
+        "type": "string",
+        "enum": [
+          "no_answer",
+          "contacted",
+          "callback",
+          "requested_info",
+          "meeting_booked",
+          "not_interested",
+          "wrong_contact"
+        ]
+      },
+      "LeadFollowUpStatusEnum": {
+        "type": "string",
+        "enum": [
+          "new",
+          "attempting",
+          "contacted",
+          "waiting",
+          "disqualified"
+        ]
+      },
+      "LeadPurchaseTimeframeEnum": {
+        "type": "string",
+        "enum": [
+          "unknown",
+          "later",
+          "six_to_twelve_months",
+          "three_to_six_months",
+          "zero_to_three_months",
+          "immediate"
+        ]
+      },
+      "LeadTechnicalFitEnum": {
+        "type": "string",
+        "enum": [
+          "unknown",
+          "not_fit",
+          "needs_review",
+          "fit"
+        ]
+      },
       "LeadTemperatureEnum": {
         "type": "string",
         "enum": [
@@ -1895,6 +2375,10 @@
           "note": {
             "type": "string",
             "maxLength": 1000
+          },
+          "overrideReason": {
+            "type": "string",
+            "maxLength": 1000
           }
         }
       },
@@ -1917,7 +2401,8 @@
           },
           "ownerUserId": {
             "type": "string",
-            "minLength": 1
+            "nullable": true,
+            "format": "uuid"
           },
           "title": {
             "type": "string",
@@ -1968,6 +2453,88 @@
               "cold",
               "unknown"
             ]
+          },
+          "leadFollowUpStatus": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "new",
+              "attempting",
+              "contacted",
+              "waiting",
+              "disqualified"
+            ]
+          },
+          "leadNeedSummary": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 2000
+          },
+          "leadAuthorityStatus": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "unknown",
+              "influencer",
+              "committee",
+              "decision_maker"
+            ]
+          },
+          "leadBudgetStatus": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "unknown",
+              "unavailable",
+              "estimated",
+              "approved"
+            ]
+          },
+          "leadPurchaseTimeframe": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "unknown",
+              "later",
+              "six_to_twelve_months",
+              "three_to_six_months",
+              "zero_to_three_months",
+              "immediate"
+            ]
+          },
+          "leadTechnicalFit": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "unknown",
+              "not_fit",
+              "needs_review",
+              "fit"
+            ]
+          },
+          "leadTechnicalNote": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 2000
+          },
+          "disqualifyReasonCode": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 64
+          },
+          "qualificationNote": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 1000
+          },
+          "nextAction": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 1000
+          },
+          "nextActionAt": {
+            "type": "string",
+            "nullable": true
           },
           "estimatedValue": {
             "type": "number",
@@ -2084,6 +2651,14 @@
           "lostCompetitorProductModel": {
             "type": "string",
             "maxLength": 255
+          },
+          "lostProductName": {
+            "type": "string",
+            "maxLength": 512
+          },
+          "lostUnmetConditions": {
+            "type": "string",
+            "maxLength": 2000
           }
         },
         "required": [
@@ -2173,7 +2748,8 @@
           },
           "ownerUserId": {
             "type": "string",
-            "minLength": 1
+            "nullable": true,
+            "format": "uuid"
           },
           "title": {
             "type": "string",
@@ -2224,6 +2800,88 @@
               "cold",
               "unknown"
             ]
+          },
+          "leadFollowUpStatus": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "new",
+              "attempting",
+              "contacted",
+              "waiting",
+              "disqualified"
+            ]
+          },
+          "leadNeedSummary": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 2000
+          },
+          "leadAuthorityStatus": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "unknown",
+              "influencer",
+              "committee",
+              "decision_maker"
+            ]
+          },
+          "leadBudgetStatus": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "unknown",
+              "unavailable",
+              "estimated",
+              "approved"
+            ]
+          },
+          "leadPurchaseTimeframe": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "unknown",
+              "later",
+              "six_to_twelve_months",
+              "three_to_six_months",
+              "zero_to_three_months",
+              "immediate"
+            ]
+          },
+          "leadTechnicalFit": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "unknown",
+              "not_fit",
+              "needs_review",
+              "fit"
+            ]
+          },
+          "leadTechnicalNote": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 2000
+          },
+          "disqualifyReasonCode": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 64
+          },
+          "qualificationNote": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 1000
+          },
+          "nextAction": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 1000
+          },
+          "nextActionAt": {
+            "type": "string",
+            "nullable": true
           },
           "estimatedValue": {
             "type": "number",
@@ -3069,6 +3727,20 @@
             "type": "string",
             "maxLength": 4000
           },
+          "companyId": {
+            "type": "string",
+            "nullable": true,
+            "format": "uuid"
+          },
+          "isOwned": {
+            "type": "boolean",
+            "default": false
+          },
+          "logoFileId": {
+            "type": "string",
+            "nullable": true,
+            "format": "uuid"
+          },
           "divisionId": {
             "type": "string",
             "nullable": true,
@@ -3077,6 +3749,122 @@
         },
         "required": [
           "name"
+        ]
+      },
+      "MachineTemplateCreate": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 255
+          },
+          "code": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 64
+          },
+          "divisionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "subcategoryId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "fields": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "specKey": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 255
+                },
+                "specGroupCode": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 64
+                },
+                "defaultValue": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 2000
+                },
+                "specUnit": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 64
+                },
+                "sortOrder": {
+                  "type": "integer",
+                  "nullable": true,
+                  "default": 0
+                },
+                "isActive": {
+                  "type": "boolean",
+                  "default": true
+                },
+                "isDeleted": {
+                  "type": "boolean",
+                  "default": false
+                }
+              },
+              "required": [
+                "specKey"
+              ]
+            },
+            "maxItems": 1000,
+            "default": []
+          }
+        },
+        "required": [
+          "name",
+          "code",
+          "divisionId",
+          "subcategoryId"
+        ]
+      },
+      "MachineTemplateField": {
+        "type": "object",
+        "properties": {
+          "specKey": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255
+          },
+          "specGroupCode": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 64
+          },
+          "defaultValue": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 2000
+          },
+          "specUnit": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 64
+          },
+          "sortOrder": {
+            "type": "integer",
+            "nullable": true,
+            "default": 0
+          },
+          "isActive": {
+            "type": "boolean",
+            "default": true
+          },
+          "isDeleted": {
+            "type": "boolean",
+            "default": false
+          }
+        },
+        "required": [
+          "specKey"
         ]
       },
       "PriceListCreate": {
@@ -4061,14 +4849,17 @@
           },
           "specGroupCode": {
             "type": "string",
+            "nullable": true,
             "maxLength": 64
           },
           "defaultValue": {
             "type": "string",
+            "nullable": true,
             "maxLength": 2000
           },
           "specUnit": {
             "type": "string",
+            "nullable": true,
             "maxLength": 64
           },
           "divisionId": {
@@ -4085,6 +4876,10 @@
             "type": "boolean",
             "default": true
           },
+          "isDeleted": {
+            "type": "boolean",
+            "default": false
+          },
           "id": {
             "type": "string",
             "format": "uuid"
@@ -4098,6 +4893,20 @@
       "ProductSpecTemplateBatch": {
         "type": "object",
         "properties": {
+          "productTypeCode": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "divisionId": {
+            "type": "string",
+            "nullable": true,
+            "format": "uuid"
+          },
+          "pruneMissing": {
+            "type": "boolean",
+            "default": false
+          },
           "items": {
             "type": "array",
             "items": {
@@ -4115,14 +4924,17 @@
                 },
                 "specGroupCode": {
                   "type": "string",
+                  "nullable": true,
                   "maxLength": 64
                 },
                 "defaultValue": {
                   "type": "string",
+                  "nullable": true,
                   "maxLength": 2000
                 },
                 "specUnit": {
                   "type": "string",
+                  "nullable": true,
                   "maxLength": 64
                 },
                 "divisionId": {
@@ -4138,6 +4950,10 @@
                 "isActive": {
                   "type": "boolean",
                   "default": true
+                },
+                "isDeleted": {
+                  "type": "boolean",
+                  "default": false
                 },
                 "id": {
                   "type": "string",
@@ -4177,14 +4993,17 @@
                 },
                 "specGroupCode": {
                   "type": "string",
+                  "nullable": true,
                   "maxLength": 64
                 },
                 "defaultValue": {
                   "type": "string",
+                  "nullable": true,
                   "maxLength": 2000
                 },
                 "specUnit": {
                   "type": "string",
+                  "nullable": true,
                   "maxLength": 64
                 },
                 "divisionId": {
@@ -4200,6 +5019,10 @@
                 "isActive": {
                   "type": "boolean",
                   "default": true
+                },
+                "isDeleted": {
+                  "type": "boolean",
+                  "default": false
                 }
               },
               "required": [
@@ -4230,14 +5053,17 @@
           },
           "specGroupCode": {
             "type": "string",
+            "nullable": true,
             "maxLength": 64
           },
           "defaultValue": {
             "type": "string",
+            "nullable": true,
             "maxLength": 2000
           },
           "specUnit": {
             "type": "string",
+            "nullable": true,
             "maxLength": 64
           },
           "divisionId": {
@@ -4253,6 +5079,10 @@
           "isActive": {
             "type": "boolean",
             "default": true
+          },
+          "isDeleted": {
+            "type": "boolean",
+            "default": false
           }
         },
         "required": [
@@ -4275,14 +5105,17 @@
           },
           "specGroupCode": {
             "type": "string",
+            "nullable": true,
             "maxLength": 64
           },
           "defaultValue": {
             "type": "string",
+            "nullable": true,
             "maxLength": 2000
           },
           "specUnit": {
             "type": "string",
+            "nullable": true,
             "maxLength": 64
           },
           "divisionId": {
@@ -4298,6 +5131,10 @@
           "isActive": {
             "type": "boolean",
             "default": true
+          },
+          "isDeleted": {
+            "type": "boolean",
+            "default": false
           }
         }
       },
@@ -4938,6 +5775,14 @@
             "minLength": 1,
             "maxLength": 128
           },
+          "itemCondition": {
+            "type": "string",
+            "enum": [
+              "new",
+              "used"
+            ],
+            "default": "new"
+          },
           "controlUnit": {
             "type": "string",
             "maxLength": 128
@@ -4947,6 +5792,10 @@
             "maxLength": 128
           },
           "loadingDate": {
+            "type": "string",
+            "nullable": true
+          },
+          "receivedDate": {
             "type": "string",
             "nullable": true
           },
@@ -4997,6 +5846,14 @@
             "minLength": 1,
             "maxLength": 128
           },
+          "itemCondition": {
+            "type": "string",
+            "enum": [
+              "new",
+              "used"
+            ],
+            "default": "new"
+          },
           "controlUnit": {
             "type": "string",
             "maxLength": 128
@@ -5006,6 +5863,10 @@
             "maxLength": 128
           },
           "loadingDate": {
+            "type": "string",
+            "nullable": true
+          },
+          "receivedDate": {
             "type": "string",
             "nullable": true
           },
@@ -7752,6 +8613,7 @@
             "type": "string",
             "enum": [
               "company",
+              "brand",
               "opportunity",
               "sales_activity",
               "service_ticket",
@@ -7769,12 +8631,18 @@
             "type": "string",
             "enum": [
               "product_image",
+              "company_logo",
+              "brand_logo",
               "quote_pdf",
+              "external_quote",
               "proforma_pdf",
               "contract_pdf",
               "commercial_invoice_pdf",
+              "accounting_invoice_pdf",
               "stock_document",
               "service_document",
+              "delivery_form",
+              "installation_form",
               "activity_document",
               "service_complaint_evidence",
               "customs_document",
@@ -7812,6 +8680,8 @@
             "type": "string",
             "enum": [
               "erp-product-images",
+              "erp-company-logos",
+              "erp-brand-logos",
               "erp-quote-documents",
               "erp-proforma-documents",
               "erp-contract-documents",
@@ -7825,6 +8695,7 @@
             "type": "string",
             "enum": [
               "company",
+              "brand",
               "opportunity",
               "sales_activity",
               "service_ticket",
@@ -7856,6 +8727,7 @@
               "image/png",
               "image/jpeg",
               "image/webp",
+              "image/gif",
               "audio/webm",
               "audio/mpeg",
               "audio/ogg",
@@ -7873,6 +8745,7 @@
               "jpg",
               "jpeg",
               "webp",
+              "gif",
               "webm",
               "mp3",
               "ogg",
@@ -7903,6 +8776,8 @@
             "type": "string",
             "enum": [
               "erp-product-images",
+              "erp-company-logos",
+              "erp-brand-logos",
               "erp-quote-documents",
               "erp-proforma-documents",
               "erp-contract-documents",
@@ -7916,6 +8791,7 @@
             "type": "string",
             "enum": [
               "company",
+              "brand",
               "opportunity",
               "sales_activity",
               "service_ticket",
@@ -7947,6 +8823,7 @@
               "image/png",
               "image/jpeg",
               "image/webp",
+              "image/gif",
               "audio/webm",
               "audio/mpeg",
               "audio/ogg",
@@ -7964,6 +8841,7 @@
               "jpg",
               "jpeg",
               "webp",
+              "gif",
               "webm",
               "mp3",
               "ogg",
@@ -8758,7 +9636,8 @@
           "code": {
             "type": "string",
             "minLength": 1,
-            "maxLength": 64
+            "maxLength": 64,
+            "pattern": "^[a-zA-Z0-9_-]+$"
           },
           "name": {
             "type": "string",
@@ -9095,6 +9974,40 @@
             "type": "string",
             "nullable": true,
             "maxLength": 32
+          },
+          "hiddenNavigationKeys": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "dashboard",
+                "chat",
+                "calendar",
+                "call-assistant",
+                "customers",
+                "leads",
+                "sales-cases",
+                "references",
+                "contacts",
+                "sales-map",
+                "offers",
+                "documents",
+                "sales-price-list",
+                "products",
+                "stock",
+                "payments",
+                "accounting-invoices",
+                "customer-balances",
+                "due-dates",
+                "shipments",
+                "machines",
+                "installations",
+                "service-requests",
+                "service-kanban",
+                "service-price-list"
+              ]
+            },
+            "maxItems": 25
           }
         }
       },
@@ -9112,6 +10025,7 @@
               "companies",
               "contacts",
               "leads",
+              "lead_assignment_rules",
               "opportunities",
               "activities",
               "calendar",
@@ -9171,6 +10085,12 @@
             "type": "string",
             "format": "email"
           },
+          "username": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 32,
+            "pattern": "^[a-z0-9._-]+$"
+          },
           "password": {
             "type": "string",
             "minLength": 8,
@@ -9181,7 +10101,13 @@
             "maxLength": 32
           },
           "departmentId": {
-            "type": "string"
+            "type": "string",
+            "format": "uuid"
+          },
+          "titleId": {
+            "type": "string",
+            "nullable": true,
+            "format": "uuid"
           },
           "roleCodes": {
             "type": "array",
@@ -9214,6 +10140,7 @@
                     "companies",
                     "contacts",
                     "leads",
+                    "lead_assignment_rules",
                     "opportunities",
                     "activities",
                     "calendar",
@@ -9266,6 +10193,7 @@
         "required": [
           "fullName",
           "email",
+          "username",
           "password"
         ]
       },
@@ -9282,6 +10210,12 @@
             "maxLength": 255,
             "format": "email"
           },
+          "username": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 32,
+            "pattern": "^[a-z0-9._-]+$"
+          },
           "phone": {
             "type": "string",
             "nullable": true,
@@ -9289,7 +10223,13 @@
           },
           "departmentId": {
             "type": "string",
-            "nullable": true
+            "nullable": true,
+            "format": "uuid"
+          },
+          "titleId": {
+            "type": "string",
+            "nullable": true,
+            "format": "uuid"
           },
           "status": {
             "type": "string",
@@ -9327,6 +10267,7 @@
                     "companies",
                     "contacts",
                     "leads",
+                    "lead_assignment_rules",
                     "opportunities",
                     "activities",
                     "calendar",
@@ -9858,6 +10799,9 @@
           },
           "statusCode": {
             "type": "string"
+          },
+          "categoryCode": {
+            "type": "string"
           }
         }
       },
@@ -9974,6 +10918,30 @@
           "userIds"
         ]
       },
+      "ChatLocation": {
+        "type": "object",
+        "properties": {
+          "latitude": {
+            "type": "number",
+            "minimum": -90,
+            "maximum": 90
+          },
+          "longitude": {
+            "type": "number",
+            "minimum": -180,
+            "maximum": 180
+          },
+          "label": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255
+          }
+        },
+        "required": [
+          "latitude",
+          "longitude"
+        ]
+      },
       "ChatMemberRole": {
         "type": "string",
         "enum": [
@@ -10066,6 +11034,11 @@
             "minimum": 1,
             "maximum": 100,
             "default": 30
+          },
+          "search": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 100
           }
         }
       },
@@ -10113,6 +11086,30 @@
           "refId": {
             "type": "string",
             "format": "uuid"
+          },
+          "location": {
+            "type": "object",
+            "properties": {
+              "latitude": {
+                "type": "number",
+                "minimum": -90,
+                "maximum": 90
+              },
+              "longitude": {
+                "type": "number",
+                "minimum": -180,
+                "maximum": 180
+              },
+              "label": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 255
+              }
+            },
+            "required": [
+              "latitude",
+              "longitude"
+            ]
           }
         }
       },
@@ -12124,6 +13121,84 @@
           "kind"
         ]
       },
+      "AssistantOpportunitySummary": {
+        "type": "object",
+        "properties": {
+          "generatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "ai",
+              "deterministic"
+            ]
+          },
+          "summary": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000
+          },
+          "risks": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 500
+            },
+            "maxItems": 8
+          },
+          "nextActions": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 500
+            },
+            "maxItems": 8
+          },
+          "dataCoverage": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100
+          },
+          "source": {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "opportunity"
+                ]
+              },
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "label": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 255
+              }
+            },
+            "required": [
+              "type",
+              "id",
+              "label"
+            ]
+          }
+        },
+        "required": [
+          "generatedAt",
+          "mode",
+          "summary",
+          "risks",
+          "nextActions",
+          "dataCoverage",
+          "source"
+        ]
+      },
       "AssistantSecretaryActionKind": {
         "type": "string",
         "enum": [
@@ -12992,6 +14067,143 @@
           "deviceId",
           "platform"
         ]
+      },
+      "MailSendResult": {
+        "type": "object",
+        "properties": {
+          "delivered": {
+            "type": "boolean",
+            "enum": [
+              true
+            ]
+          },
+          "messageId": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 255
+          },
+          "sentAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "delivered",
+          "messageId",
+          "sentAt"
+        ]
+      },
+      "MailSend": {
+        "type": "object",
+        "properties": {
+          "to": {
+            "type": "string",
+            "maxLength": 255
+          },
+          "subject": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255
+          },
+          "body": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 10000
+          },
+          "companyId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "contactId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "to",
+          "subject",
+          "body"
+        ],
+        "additionalProperties": false
+      },
+      "UserMailAccountStatus": {
+        "type": "object",
+        "properties": {
+          "featureEnabled": {
+            "type": "boolean"
+          },
+          "configured": {
+            "type": "boolean"
+          },
+          "email": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 255
+          },
+          "displayName": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 255
+          },
+          "status": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "active",
+              "error"
+            ]
+          },
+          "serverLabel": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 255
+          },
+          "lastVerifiedAt": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time"
+          },
+          "lastUsedAt": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "featureEnabled",
+          "configured",
+          "email",
+          "displayName",
+          "status",
+          "serverLabel",
+          "lastVerifiedAt",
+          "lastUsedAt"
+        ]
+      },
+      "UserMailAccountUpsert": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string",
+            "maxLength": 255
+          },
+          "displayName": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255
+          },
+          "password": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512
+          }
+        },
+        "required": [
+          "email",
+          "displayName",
+          "password"
+        ],
+        "additionalProperties": false
       },
       "OpportunityDTO": {
         "type": "object",

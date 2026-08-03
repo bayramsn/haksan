@@ -441,7 +441,7 @@ export class CompanyContactImportService {
       }
       if (existing?.externalCompanyNo && existing.externalCompanyNo !== row.externalNo) {
         blocked = true;
-        issues.push({ kind: 'company', rowNumber: row.rowNumber, sourceNo: row.externalNo, severity: 'error', message: `Eşleşen mevcut kaydın farklı bir firma NO değeri var (${existing.externalCompanyNo})` });
+        issues.push({ kind: 'company', rowNumber: row.rowNumber, sourceNo: row.externalNo, severity: 'error', message: 'Eşleşen mevcut kaydın firma numarası dosyadaki değerle farklı' });
       }
       return {
         ...row,
@@ -492,7 +492,7 @@ export class CompanyContactImportService {
       }
       if (existing?.externalContactNo && existing.externalContactNo !== row.externalNo) {
         blocked = true;
-        issues.push({ kind: 'contact', rowNumber: row.rowNumber, sourceNo: row.externalNo, companyNo: row.companyNo, severity: 'error', message: `Eşleşen mevcut kontağın farklı bir kontak NO değeri var (${existing.externalContactNo})` });
+        issues.push({ kind: 'contact', rowNumber: row.rowNumber, sourceNo: row.externalNo, companyNo: row.companyNo, severity: 'error', message: 'Eşleşen mevcut kontağın kontak numarası dosyadaki değerle farklı' });
       }
       return { ...row, companyPlan, existingId: existing?.id ?? null, matchKind, blocked };
     });

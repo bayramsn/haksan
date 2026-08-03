@@ -159,7 +159,7 @@ function invoicePrefill(invoice: InvoiceDetail) {
   };
 }
 
-export function AccountingInvoicesPage() {
+export function AccountingInvoicesPage({ initialQuery }: { initialQuery?: string }) {
   const [rows, setRows] = useState<InvoiceRow[]>([]);
   const [q, setQ] = useState("");
   const [categoryFilter, setCategoryFilter] = useState<InvoiceCategory>("commercial");
@@ -186,6 +186,10 @@ export function AccountingInvoicesPage() {
   useEffect(() => {
     load();
   }, [categoryFilter, typeFilter]);
+
+  useEffect(() => {
+    if (initialQuery !== undefined) setQ(initialQuery);
+  }, [initialQuery]);
 
   const filtered = rows.filter((r) => {
     const name = r.company?.shortName || r.company?.legalTitle || "";

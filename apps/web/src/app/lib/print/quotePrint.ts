@@ -1,7 +1,9 @@
 import type { Contact, Customer, Offer, Product, SalesCase, User, ProductSpec } from "../mock";
+import { isMachiningCenterTypeCode } from "@haksan/shared";
 import { quoteService } from "../../../lib/services";
 import { specsForProductTypeStrict } from "../productSpecTemplates";
 import { publicProductLabel, trShortDate } from "./core";
+import { applyVatRateToNotes } from "./notes";
 import type { QuoteHeaderLogoMode, QuotePrintData } from "./templates";
 
 // Seçilen tezgahın TAM teknik özellik listesi (tip şablonu + üründe girilen
@@ -64,6 +66,44 @@ const findProduct = (
 const numeric = (value: unknown): number => {
   const result = Number(value ?? 0);
   return Number.isFinite(result) ? result : 0;
+};
+
+/**
+ * Saklanan gümrük toplamını belge satırlarına dağıtır. CRM fiyatlarını değiştirmez;
+ * yalnızca PDF için üretilen birim fiyat ve tutarlara eklenecek payları döndürür.
+ */
+export const allocateCustomsTotal = <T,>(
+  rows: T[],
+  customsTotal: number,
+  isEligible: (row: T) => boolean,
+  grossOf: (row: T) => number,
+): number[] => {
+  const allocations = rows.map(() => 0);
+  const total = Number.isFinite(customsTotal) ? Math.max(0, customsTotal) : 0;
+  if (total <= 0) return allocations;
+
+  const eligibleIndexes = rows
+    .map((row, index) => (isEligible(row) ? index : -1))
+    .filter((index) => index >= 0);
+  if (!eligibleIndexes.length) return allocations;
+
+  const grossTotal = eligibleIndexes.reduce(
+    (sum, index) => sum + Math.max(0, grossOf(rows[index])),
+    0,
+  );
+  let distributed = 0;
+  eligibleIndexes.forEach((index, eligibleIndex) => {
+    const isLast = eligibleIndex === eligibleIndexes.length - 1;
+    const weight = grossTotal > 0
+      ? Math.max(0, grossOf(rows[index])) / grossTotal
+      : 1 / eligibleIndexes.length;
+    const allocation = isLast
+      ? total - distributed
+      : Math.round(total * weight * 10_000) / 10_000;
+    allocations[index] = allocation;
+    distributed += allocation;
+  });
+  return allocations;
 };
 
 const quoteItemTechnicalSpecs = (item?: { compatibility?: unknown } | null): Array<{ key: string; value: string; unit?: string; specUnit?: string; groupCode?: string; groupName?: string; group?: string }> => {
@@ -149,6 +189,7 @@ export function buildQuotePrintData(input: QuoteBuildInput, quote: QuoteDetail):
     if (isOption || !item.productModelId) return false;
     return products.find((candidate) => candidate.id === item.productModelId)?.categoryCode !== "ISCILIK";
   });
+  const termsVatRate = numeric(primaryRows[0]?.item.vatRate) || commonVatRate;
   const machineRows = primaryRows.some(({ item }) =>
     products.find((candidate) => candidate.id === item.productModelId)?.categoryCode === "TEZGAH")
     ? primaryRows.filter(({ item }) =>
@@ -183,6 +224,18 @@ export function buildQuotePrintData(input: QuoteBuildInput, quote: QuoteDetail):
     0,
   );
   const headerDiscount = Math.max(numeric(quote.discountTotal) - lineDiscountTotal, 0);
+  const customsAllocations = allocateCustomsTotal(
+    quoteItems,
+    numeric(quote.customsTotal),
+    (item) => {
+      if (!(item as { nationalized?: boolean | null }).nationalized) return false;
+      const product = (item as { productModelId?: string | null }).productModelId
+        ? products.find((candidate) => candidate.id === (item as { productModelId?: string | null }).productModelId)
+        : undefined;
+      return !product?.productTypeCode || isMachiningCenterTypeCode(product.productTypeCode);
+    },
+    (item) => numeric((item as { quantity?: unknown }).quantity) * numeric((item as { unitPrice?: unknown }).unitPrice),
+  );
   const snapshotAddress = (quote as any).documentSnapshot?.companyAddresses?.[0];
   const pdfAddress = customer?.addresses?.find((address) => address.id === quote.companyAddressId)
     ?? customer?.addresses?.find((address) => address.isBilling)
@@ -232,9 +285,11 @@ export function buildQuotePrintData(input: QuoteBuildInput, quote: QuoteDetail):
       unitPrice?: unknown;
       lineTotal?: unknown;
       discountAmount?: unknown;
-    }) => {
+      nationalized?: boolean | null;
+    }, index: number) => {
       const quantity = numeric(item.quantity) || 1;
       const unitPrice = numeric(item.unitPrice);
+      const customsAllocation = customsAllocations[index] ?? 0;
       const catalogProduct = item.productModelId
         ? products.find((candidate) => candidate.id === item.productModelId)
         : undefined;
@@ -252,9 +307,10 @@ export function buildQuotePrintData(input: QuoteBuildInput, quote: QuoteDetail):
               stockCode: (item as { stockCode?: string | null }).stockCode ?? catalogProduct?.stockCode,
             }),
         birim: `${new Intl.NumberFormat("tr-TR", { maximumFractionDigits: 3 }).format(quantity)} ${item.unitCode || "Adet"}`,
-        fiyat: unitPrice,
+        fiyat: quantity > 0 ? unitPrice + customsAllocation / quantity : unitPrice,
         indirim: numeric(item.discountAmount),
-        tutar: lineTotal,
+        brutTutar: quantity * unitPrice + customsAllocation,
+        tutar: lineTotal + customsAllocation,
       };
     }),
     iskonto: headerDiscount,
@@ -264,9 +320,9 @@ export function buildQuotePrintData(input: QuoteBuildInput, quote: QuoteDetail):
     notes: {
       key: "entered",
       label: "Girilen şartlar",
-      odeme: enteredLines(terms.paymentTermsText ?? quote.paymentTerms),
-      teslimat: enteredLines(terms.deliveryTermsText ?? quote.deliveryTerms),
-      garanti: enteredLines(terms.warrantyTermsText ?? quote.warrantyTerms),
+      odeme: applyVatRateToNotes(enteredLines(terms.paymentTermsText ?? quote.paymentTerms), termsVatRate),
+      teslimat: applyVatRateToNotes(enteredLines(terms.deliveryTermsText ?? quote.deliveryTerms), termsVatRate),
+      garanti: applyVatRateToNotes(enteredLines(terms.warrantyTermsText ?? quote.warrantyTerms), termsVatRate),
     },
     genelNotlar: enteredLines(quote.notes ?? offer.note),
   };

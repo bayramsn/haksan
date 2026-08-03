@@ -8,6 +8,7 @@ describe('Company profile', () => {
   let token: string;
   let divisionId: string;
   let companyId: string | undefined;
+  let directCompetitorCompanyId: string | undefined;
   let contactId: string | undefined;
 
   beforeAll(async () => {
@@ -37,7 +38,33 @@ describe('Company profile', () => {
         .delete(`/api/v1/companies/${companyId}`)
         .set('Authorization', `Bearer ${token}`);
     }
+    if (directCompetitorCompanyId) {
+      await request(app.getHttpServer())
+        .delete(`/api/v1/companies/${directCompetitorCompanyId}`)
+        .set('Authorization', `Bearer ${token}`);
+    }
     await app.close();
+  });
+
+  it('persists tenant-wide hidden navigation pages and exposes them through /auth/me', async () => {
+    const updated = await request(app.getHttpServer())
+      .patch('/api/v1/tenant')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ hiddenNavigationKeys: ['calendar', 'offers'] })
+      .expect(200);
+    expect(updated.body.hiddenNavigationKeys).toEqual(['calendar', 'offers']);
+
+    const me = await request(app.getHttpServer())
+      .get('/api/v1/auth/me')
+      .set('Authorization', `Bearer ${token}`)
+      .expect(200);
+    expect(me.body.tenant.hiddenNavigationKeys).toEqual(['calendar', 'offers']);
+
+    await request(app.getHttpServer())
+      .patch('/api/v1/tenant')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ hiddenNavigationKeys: [] })
+      .expect(200);
   });
 
   it('persists company details, uppercases its name and allows the competitor type', async () => {
@@ -159,6 +186,79 @@ describe('Company profile', () => {
         (address: { latitude: number | null; longitude: number | null }) => address.latitude === null && address.longitude === null
       )
     ).toBe(true);
+
+    const competitors = await request(app.getHttpServer())
+      .get('/api/v1/competitors')
+      .query({ search: normalizedTitle, pageSize: 20 })
+      .set('Authorization', `Bearer ${token}`)
+      .expect(200);
+    expect(competitors.body.data).toContainEqual(
+      expect.objectContaining({ companyId, name: normalizedTitle }),
+    );
+  });
+
+  it('adds a newly created competitor company to the LOST competitor catalog', async () => {
+    const uniqueTitle = `doğrudan rakip test ${Date.now()}`;
+    const normalizedTitle = uniqueTitle.toLocaleUpperCase('tr-TR');
+    const created = await request(app.getHttpServer())
+      .post('/api/v1/companies')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        legalTitle: uniqueTitle,
+        relationTypeCode: 'competitor',
+        customerStatusCode: 'potential',
+        divisionId,
+        website: 'https://rakip.example',
+      })
+      .expect(201);
+    directCompetitorCompanyId = created.body.id;
+
+    const catalog = await request(app.getHttpServer())
+      .get('/api/v1/competitors')
+      .query({ search: normalizedTitle, pageSize: 20 })
+      .set('Authorization', `Bearer ${token}`)
+      .expect(200);
+
+    const syncedCompetitor = catalog.body.data.find(
+      (competitor: { companyId?: string }) => competitor.companyId === directCompetitorCompanyId,
+    );
+    expect(syncedCompetitor).toMatchObject({
+      companyId: directCompetitorCompanyId,
+      name: normalizedTitle,
+      website: 'https://rakip.example',
+    });
+
+    const opportunityCompanyList = await request(app.getHttpServer())
+      .get('/api/v1/companies')
+      .query({ relationTypeCode: 'customer', divisionId, pageSize: 1 })
+      .set('Authorization', `Bearer ${token}`)
+      .expect(200);
+    const opportunityCompanyId = opportunityCompanyList.body.data[0]?.id;
+    expect(opportunityCompanyId).toBeTruthy();
+
+    const opportunity = await request(app.getHttpServer())
+      .post('/api/v1/opportunities')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        companyId: opportunityCompanyId,
+        title: `Rakip senkron LOST testi ${Date.now()}`,
+        currencyCode: 'USD',
+      })
+      .expect(201);
+
+    const lost = await request(app.getHttpServer())
+      .patch(`/api/v1/opportunities/${opportunity.body.id}/qualification-stage`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        toStage: 'lost',
+        cancellationReasonCode: 'competitor',
+        lostCompetitorId: syncedCompetitor.id,
+        lostProductName: 'Test CNC tezgâhı',
+        lostUnmetConditions: 'Rakip teslim süresi tercih edildi',
+      })
+      .expect(200);
+    expect(lost.body.lostCompetitor).toMatchObject({ id: syncedCompetitor.id, name: normalizedTitle });
+    expect(lost.body.lostCompetitorName).toBe(normalizedTitle);
   });
 
   it('updates and clears every optional contact detail', async () => {

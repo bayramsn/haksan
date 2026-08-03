@@ -132,12 +132,19 @@ async function main(): Promise<void> {
   });
   let adminUser = existingUser;
   if (existingUser) {
+    if (!existingUser.username) {
+      const usernameBase = adminEmail.split('@')[0]?.toLowerCase().replace(/[^a-z0-9._-]+/g, '') ?? '';
+      const username = usernameBase.length >= 3 ? usernameBase.slice(0, 32) : 'admin';
+      [adminUser] = await db.update(schema.users).set({ username }).where(eq(schema.users.id, existingUser.id)).returning();
+    }
     console.log(`[bootstrap] kullanıcı zaten mevcut, atlandı: ${adminEmail}`);
   } else {
     const passwordHash = await hashPassword(adminPassword);
+    const usernameBase = adminEmail.split('@')[0]?.toLowerCase().replace(/[^a-z0-9._-]+/g, '') ?? '';
+    const username = usernameBase.length >= 3 ? usernameBase.slice(0, 32) : 'admin';
     const [user] = await db
       .insert(schema.users)
-      .values({ tenantId: tenant.id, fullName: adminName, email: adminEmail, passwordHash })
+      .values({ tenantId: tenant.id, fullName: adminName, email: adminEmail, username, passwordHash })
       .returning();
     const superRole = rolesByCode.get('super_admin');
     if (superRole) {

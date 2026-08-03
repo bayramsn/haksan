@@ -35,7 +35,7 @@ export class ExportsController {
   @RequirePermissions('reports.export', 'companies.read')
   @Get('companies')
   async companies(
-    @Query(new ZodValidationPipe(companyListQuerySchema.pick({ search: true, relationTypeCode: true, customerStatusCode: true })))
+    @Query(new ZodValidationPipe(companyListQuerySchema.pick({ search: true, relationTypeCode: true, customerStatusCode: true, divisionId: true })))
     q: CompanyListQuery,
     @CurrentUser() user: AuthContext,
     @Res({ passthrough: true }) reply: FastifyReply

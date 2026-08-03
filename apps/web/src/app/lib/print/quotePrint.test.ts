@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { Customer, Offer, Product } from "../mock";
+import { loadContractPrintData } from "./contractPrint";
+import { buildProformaPrintData } from "./proformaPrint";
 import { buildQuotePrintData } from "./quotePrint";
+import { proformaDoc, quoteDoc } from "./templates";
 
 const offer = {
   id: "quote-1",
@@ -201,7 +204,123 @@ describe("quote print address", () => {
     });
     expect(result.machines?.[1].specs).toContainEqual(expect.objectContaining({ key: "X Ekseni", value: "800" }));
     expect(result.items).toHaveLength(4);
-    expect(result.items[0]).toMatchObject({ fiyat: 10_000, indirim: 1_000, tutar: 9_000 });
-    expect(result.items[2]).toMatchObject({ fiyat: 20_000, indirim: 500, tutar: 39_500 });
+    expect(result.items[0]).toMatchObject({ fiyat: 10_000, indirim: 1_000, brutTutar: 10_000, tutar: 9_000 });
+    expect(result.items[2]).toMatchObject({ fiyat: 20_000, indirim: 500, brutTutar: 40_000, tutar: 39_500 });
+  });
+
+  it("silently includes nationalization charges in the PDF product price and total", () => {
+    const product = {
+      id: "machine-nationalized",
+      categoryCode: "TEZGAH",
+      productTypeCode: "DIK_ISLEME_MERKEZI",
+      brand: "LK",
+      model: "VM-2",
+      type: "CNC Dik İşleme Merkezi",
+      shortDescription: "LK VM-2 CNC Dik İşleme Merkezi",
+      imageUrl: "",
+    } as Product;
+    const result = buildQuotePrintData({
+      offer,
+      customer,
+      salesCase: null,
+      users: [],
+      contacts: [],
+      products: [product],
+    }, {
+      quoteDate: "2026-08-03",
+      documentNo: "CNC-2026/020",
+      customsTotal: 15_570,
+      vatAmount: 0,
+      items: [{
+        productModelId: product.id,
+        description: product.shortDescription,
+        quantity: 1,
+        unitPrice: 100_000,
+        discountAmount: 0,
+        lineTotal: 100_000,
+        nationalized: true,
+      }],
+      terms: {},
+    } as never);
+
+    expect(result.items[0]).toMatchObject({
+      fiyat: 115_570,
+      brutTutar: 115_570,
+      tutar: 115_570,
+    });
+    const document = quoteDoc(result, "/brand");
+    expect(document.body).toContain("115.570,00 USD");
+    expect(document.body).not.toContain("Millileştirme / Gümrük");
+  });
+
+  it("keeps the same silent nationalization price in proforma, invoice and contract data", async () => {
+    const product = {
+      id: "machine-nationalized",
+      categoryCode: "TEZGAH",
+      productTypeCode: "DIK_ISLEME_MERKEZI",
+      brand: "LK",
+      model: "VM-2",
+      type: "CNC Dik İşleme Merkezi",
+      shortDescription: "LK VM-2 CNC Dik İşleme Merkezi",
+      imageUrl: "",
+      standardEquipment: [],
+      specs: [],
+    } as unknown as Product;
+    const documentSnapshot = {
+      capturedAt: "2026-08-03T08:00:00.000Z",
+      quote: {
+        subtotal: 100_000,
+        customsTotal: 15_570,
+        discountTotal: 0,
+        vatAmount: 0,
+        grandTotal: 115_570,
+      },
+      company: { legalTitle: customer.name },
+      companyAddresses: [],
+      companyPhones: [],
+      contact: {},
+      currency: { code: "USD" },
+      items: [{
+        productModelId: product.id,
+        description: product.shortDescription,
+        quantity: 1,
+        unitCode: "adet",
+        unitPrice: 100_000,
+        discountAmount: 0,
+        lineTotal: 100_000,
+        vatRate: 0,
+        nationalized: true,
+      }],
+      terms: {},
+    };
+    const doc = {
+      fileName: "CNC-PRF-2026/001",
+      uploadedAt: "2026-08-03",
+      documentSnapshot,
+    } as never;
+    const proforma = buildProformaPrintData({
+      doc,
+      customers: [customer],
+      cases: [],
+      offers: [offer],
+      products: [product],
+    });
+
+    expect(proforma.items[0]).toMatchObject({ birimFiyati: 115_570, tutar: 115_570 });
+    const proformaDocument = proformaDoc(proforma, "/brand");
+    expect(proformaDocument.body).toContain("115.570,00 USD");
+    expect(proformaDocument.body).not.toContain("Millileştirme / Gümrük");
+
+    const contract = await loadContractPrintData({
+      customer,
+      salesCase: { id: "case-1", currency: "USD" },
+      products: [product],
+      payments: [],
+      contractDate: "2026-08-03",
+      contractNo: "CNC-SOZ-2026/001",
+      documentSnapshot,
+    } as never);
+    expect(contract.fiyat).toBe(115_570);
+    expect(contract.machines?.[0]?.fiyat).toBe(115_570);
   });
 });

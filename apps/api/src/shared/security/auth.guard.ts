@@ -93,15 +93,33 @@ export class AuthGuard implements CanActivate {
     let departmentRows = await this.db
       .select({ departmentId: userDepartmentAssignments.departmentId, isPrimary: userDepartmentAssignments.isPrimary })
       .from(userDepartmentAssignments)
-      .where(eq(userDepartmentAssignments.userId, user.id));
+      .innerJoin(departments, eq(userDepartmentAssignments.departmentId, departments.id))
+      .where(
+        and(
+          eq(userDepartmentAssignments.userId, user.id),
+          eq(departments.tenantId, user.tenantId),
+          isNull(departments.deletedAt)
+        )
+      );
     if (departmentRows.length === 0 && user.departmentId) {
-      departmentRows = [{ departmentId: user.departmentId, isPrimary: true }];
+      const [activeDepartment] = await this.db
+        .select({ departmentId: departments.id })
+        .from(departments)
+        .where(
+          and(
+            eq(departments.id, user.departmentId),
+            eq(departments.tenantId, user.tenantId),
+            isNull(departments.deletedAt)
+          )
+        )
+        .limit(1);
+      if (activeDepartment) departmentRows = [{ ...activeDepartment, isPrimary: true }];
     }
     if (departmentRows.length === 0 && canViewAllDivisions) {
       const tenantDepartments = await this.db
         .select({ departmentId: departments.id })
         .from(departments)
-        .where(eq(departments.tenantId, user.tenantId))
+        .where(and(eq(departments.tenantId, user.tenantId), isNull(departments.deletedAt)))
         .orderBy(asc(departments.name));
       departmentRows = tenantDepartments.map((department, index) => ({ ...department, isPrimary: index === 0 }));
     }

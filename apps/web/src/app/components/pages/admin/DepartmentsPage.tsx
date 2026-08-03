@@ -18,6 +18,17 @@ import { toast } from "sonner";
 
 type DeptItem = { id: string; code?: string; name: string; description?: string };
 
+const normalizeDepartmentCode = (value: string) =>
+  value
+    .replace(/İ/g, "I")
+    .replace(/ı/g, "i")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .slice(0, 64);
+
 export function DepartmentsPage() {
   const { hasRole, hasPermission } = useAuth();
   const canManage = hasRole("super_admin") || hasRole("admin") || hasPermission("departments.create");
@@ -72,12 +83,12 @@ export function DepartmentsPage() {
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!form.name.trim() || !form.code.trim()) return toast.error("Ad ve kod zorunlu");
+    if (!form.name.trim() || !normalizeDepartmentCode(form.code)) return toast.error("Ad ve geçerli bir kod zorunlu");
     setSaving(true);
     try {
       const created = await adminService.createDept({
         name: form.name.trim(),
-        code: form.code.trim().toLowerCase().replace(/\s+/g, "_"),
+        code: normalizeDepartmentCode(form.code),
         description: form.description.trim() || undefined,
       });
       toast.success("Departman eklendi");
@@ -172,7 +183,7 @@ export function DepartmentsPage() {
                     <span className="flex size-9 items-center justify-center rounded-lg bg-primary/10 text-primary"><Building2 className="size-4" /></span>
                     <div className="min-w-0">
                       <p className="truncate text-sm font-medium">{form.name.trim() || "Yeni departman"}</p>
-                      <p className="font-data text-[10px] text-muted-foreground">HAKSAN / {(form.code.trim() || "departman_kodu").toLowerCase().replace(/\s+/g, "_")}</p>
+                      <p className="font-data text-[10px] text-muted-foreground">HAKSAN / {normalizeDepartmentCode(form.code) || "departman_kodu"}</p>
                     </div>
                   </div>
                 </div>

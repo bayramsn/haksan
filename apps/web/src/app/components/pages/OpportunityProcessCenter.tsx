@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   ArrowRight,
   Check,
@@ -8,15 +8,19 @@ import {
   LockKeyhole,
   Pencil,
   RotateCcw,
+  XCircle,
 } from "lucide-react";
 import {
+  QUALIFICATION_STAGE_PIPELINE_STEPS,
   type OpportunityProcessActionKey,
   type OpportunityProcessReadiness,
+  type QualificationStageCode,
   type ProcessTarget,
 } from "@haksan/shared";
 import { toast } from "sonner";
 import { opportunityService } from "../../../lib/services";
 import {
+  QUALIFICATION_STAGE_DESCRIPTIONS,
   QUALIFICATION_STAGE_LABELS,
   salesStageLabel,
   type SalesCase,
@@ -34,15 +38,11 @@ const APPROVAL_LABELS: Record<string, string> = {
   win: "WIN",
 };
 
-type OpportunityDetail = {
+const OPERATION_GROUPS: QualificationStageCode[] = ["lead", "c", "b", "a", "a_plus", "win"];
+
+export type OpportunityProcessDetail = {
   processReadiness?: OpportunityProcessReadiness;
-  qualificationHistory?: Array<{
-    id: string;
-    fromStage: string | null;
-    toStage: string;
-    changeReason?: string | null;
-    createdAt: string;
-  }>;
+  qualificationHistory?: Array<Record<string, any>>;
 };
 
 export function OpportunityProcessCenter({
@@ -51,24 +51,35 @@ export function OpportunityProcessCenter({
   canPerformAction,
   onRefresh,
   onAction,
+  detail: controlledDetail,
+  loading: controlledLoading,
+  onReload,
 }: {
   salesCase: SalesCase;
   canUpdate: boolean;
   canPerformAction?: (actionKey: OpportunityProcessActionKey) => boolean;
   onRefresh: () => Promise<unknown>;
   onAction: (actionKey: OpportunityProcessActionKey) => void;
+  detail?: OpportunityProcessDetail | null;
+  loading?: boolean;
+  onReload?: () => Promise<void>;
 }) {
-  const [detail, setDetail] = useState<OpportunityDetail | null>(null);
-  const [loading, setLoading] = useState(true);
+  const controlled = controlledDetail !== undefined;
+  const [localDetail, setLocalDetail] = useState<OpportunityProcessDetail | null>(null);
+  const [localLoading, setLocalLoading] = useState(true);
   const [selected, setSelected] = useState<ProcessTarget | null>(null);
   const [reason, setReason] = useState("");
   const [moving, setMoving] = useState(false);
 
   const load = useCallback(async () => {
-    setLoading(true);
+    if (controlled) {
+      await onReload?.();
+      return;
+    }
+    setLocalLoading(true);
     try {
       const next = await opportunityService.get(salesCase.id);
-      setDetail(next);
+      setLocalDetail(next);
       setSelected((current) => {
         if (!current || !next.processReadiness) return null;
         return (
@@ -82,13 +93,26 @@ export function OpportunityProcessCenter({
         description: error?.message ?? "Fırsat detayları yüklenemedi.",
       });
     } finally {
-      setLoading(false);
+      setLocalLoading(false);
     }
-  }, [salesCase.id]);
+  }, [controlled, onReload, salesCase.id]);
 
   useEffect(() => {
-    void load();
-  }, [load, salesCase.stage, salesCase.qualificationStage]);
+    if (!controlled) void load();
+  }, [controlled, load, salesCase.stage, salesCase.qualificationStage]);
+
+  const detail = controlled ? controlledDetail : localDetail;
+  const loading = controlledLoading ?? localLoading;
+
+  useEffect(() => {
+    if (!controlled || !detail?.processReadiness) return;
+    setSelected((current) => {
+      if (!current) return null;
+      return detail.processReadiness?.targets.find(
+        (target) => target.axis === current.axis && target.code === current.code,
+      ) ?? null;
+    });
+  }, [controlled, detail]);
 
   const readiness = detail?.processReadiness;
   const qualificationTargets = useMemo(
@@ -166,10 +190,56 @@ export function OpportunityProcessCenter({
   }
   if (!readiness) return null;
 
+  // Kapanış (LOST / İptal) derecelerin doğrusal sırasında yer almaz: backend hem
+  // QUALIFICATION_SEQUENCE'i lead→…→win olarak kurar hem de PIPELINE_STAGE_FLOW'dan
+  // `cancelled`i çıkarır, dolayısıyla bu eksenlere hiç hedef üretilmez. Kapanış
+  // rayın SONUNA ayrı bir dal olarak çizilir: WIN gibi terminaldir ama akışın devamı
+  // değil, ondan ayrılan olumsuz sonuçtur. Kart kapanışa yalnız kayıp nedeni
+  // istenerek taşınabildiği için (LostCaseDialog) bu düğüm seçilebilir değildir —
+  // salt göstergedir, kartın gerçekten kapandığı durumda "buradasınız" işaretini taşır.
+  const closingBranch = (label: string, description: string, active: boolean) => (
+    <li className="flex items-start">
+      <span
+        className={`mt-[22px] w-5 shrink-0 border-t border-dashed ${
+          active ? "border-destructive/60" : "border-border"
+        }`}
+        aria-hidden
+      />
+      <div
+        className="flex w-[104px] flex-col items-center rounded-lg px-1 py-1.5 text-center"
+        aria-current={active ? "step" : undefined}
+      >
+        <span
+          className={`grid size-8 place-items-center rounded-full border transition ${
+            active
+              ? "border-destructive bg-destructive text-destructive-foreground ring-4 ring-destructive/10"
+              : "border-destructive/30 bg-destructive/5 text-destructive/60"
+          }`}
+        >
+          <XCircle className="size-4" />
+        </span>
+        <span
+          className={`mt-1.5 max-w-[100px] text-[10px] leading-tight ${
+            active ? "font-semibold text-destructive" : "text-muted-foreground"
+          }`}
+        >
+          {label}
+        </span>
+        <span className="mt-0.5 max-w-[100px] text-[9px] leading-tight text-muted-foreground">
+          {description}
+        </span>
+      </div>
+    </li>
+  );
+
+  const isLost = readiness.currentQualificationStage === "lost";
+  const isCancelled = readiness.currentOperationStage === "cancelled";
+
   const renderRail = (
     label: string,
     targets: ProcessTarget[],
-    labelFor: (target: ProcessTarget) => string
+    labelFor: (target: ProcessTarget) => string,
+    terminal?: ReactNode
   ) => (
     <div className="space-y-2">
       <div className="flex items-center justify-between gap-3 px-0.5">
@@ -190,7 +260,9 @@ export function OpportunityProcessCenter({
                   type="button"
                   aria-current={current ? "step" : undefined}
                   aria-pressed={isSelected}
-                  disabled={current}
+                  // Kapanmış kartta hiçbir hedef seçilemez; düğmeyi açık bırakmak
+                  // hiçbir şey yapmayan bir "Hedefe taşı" akışı açıyordu.
+                  disabled={current || !target.selectable}
                   onClick={() => selectTarget(target)}
                   className="group flex w-[104px] flex-col items-center rounded-lg px-1 py-1.5 text-center outline-none transition hover:bg-primary/5 focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-default disabled:hover:bg-transparent"
                 >
@@ -220,15 +292,115 @@ export function OpportunityProcessCenter({
                 </button>
                 {index < targets.length - 1 && (
                   <span
-                    className={`mt-[22px] h-px w-5 shrink-0 ${past || current ? "bg-success/60" : "bg-border"}`}
+                    className={`mt-[22px] h-px w-5 shrink-0 ${past ? "bg-success/60" : "bg-border"}`}
                     aria-hidden
                   />
                 )}
               </li>
             );
           })}
+          {terminal}
         </ol>
       </div>
+    </div>
+  );
+
+  const renderOperationGroups = () => (
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-end justify-between gap-2 px-0.5">
+        <div>
+          <div className="font-data text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+            Satış alanlarına göre operasyon
+          </div>
+          <p className="mt-0.5 text-[11px] text-muted-foreground">
+            Her operasyon adımı ait olduğu satış alanının altında gösterilir.
+          </p>
+        </div>
+        <div className="text-[10px] text-muted-foreground">Bir operasyon hedefi seçin</div>
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+        {OPERATION_GROUPS.map((qualificationCode) => {
+          const stepCodes = QUALIFICATION_STAGE_PIPELINE_STEPS[qualificationCode];
+          const targets = stepCodes
+            .map((code) => operationTargets.find((target) => target.code === code))
+            .filter((target): target is ProcessTarget => Boolean(target));
+          const activeGroup = readiness.currentQualificationStage === qualificationCode;
+          if (targets.length === 0) return null;
+
+          return (
+            <section
+              key={qualificationCode}
+              className={`overflow-hidden rounded-xl border bg-card transition-colors ${activeGroup ? "border-primary/35 ring-2 ring-primary/5" : "border-border/65"}`}
+            >
+              <div className={`flex items-center justify-between border-b px-3 py-2.5 ${activeGroup ? "border-primary/15 bg-primary/5" : "border-border/60 bg-muted/20"}`}>
+                <div>
+                  <div className="text-xs font-semibold">
+                    {QUALIFICATION_STAGE_LABELS[qualificationCode]}
+                  </div>
+                  <div className="mt-0.5 text-[10px] text-muted-foreground">
+                    {QUALIFICATION_STAGE_DESCRIPTIONS[qualificationCode]}
+                  </div>
+                </div>
+                <Badge variant={activeGroup ? "default" : "outline"} className="shrink-0 text-[9px]">
+                  {targets.length} adım
+                </Badge>
+              </div>
+              <ol className="p-2" aria-label={`${QUALIFICATION_STAGE_LABELS[qualificationCode]} operasyonları`}>
+                {targets.map((target, index) => {
+                  const current = target.direction === "current";
+                  const past = target.direction === "backward";
+                  const isSelected = selected?.axis === target.axis && selected.code === target.code;
+                  return (
+                    <li key={target.code} className="relative">
+                      {index > 0 && (
+                        <span
+                          className={`absolute -top-2 left-[17px] h-2 w-px ${past || current ? "bg-success/55" : "bg-border"}`}
+                          aria-hidden
+                        />
+                      )}
+                      <button
+                        type="button"
+                        aria-current={current ? "step" : undefined}
+                        aria-pressed={isSelected}
+                        disabled={current || !target.selectable}
+                        onClick={() => selectTarget(target)}
+                        className={`flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-left outline-none transition focus-visible:ring-2 focus-visible:ring-primary ${isSelected ? "bg-primary/8" : "hover:bg-muted/45 disabled:hover:bg-transparent"}`}
+                      >
+                        <span
+                          className={`grid size-7 shrink-0 place-items-center rounded-full border text-[9px] font-semibold ${
+                            current
+                              ? "border-primary bg-primary text-white ring-2 ring-primary/10"
+                              : past
+                                ? "border-success/45 bg-success/10 text-success"
+                                : target.canTransition
+                                  ? "border-primary/35 bg-white text-primary"
+                                  : "border-border bg-muted/45 text-muted-foreground"
+                          }`}
+                        >
+                          {current ? <CircleAlert className="size-3.5" /> : past ? <Check className="size-3.5" /> : index + 1}
+                        </span>
+                        <span className={`min-w-0 flex-1 text-[11px] leading-tight ${current || isSelected ? "font-semibold text-primary" : "font-medium text-foreground/75"}`}>
+                          {salesStageLabel(target.code as any)}
+                        </span>
+                        {!current && target.direction === "forward" && target.blockers.length > 0 && (
+                          <span className="shrink-0 rounded-full bg-amber-100 px-1.5 py-0.5 text-[9px] font-semibold text-amber-800">
+                            {target.blockers.length} eksik
+                          </span>
+                        )}
+                      </button>
+                    </li>
+                  );
+                })}
+              </ol>
+            </section>
+          );
+        })}
+      </div>
+      {isCancelled && (
+        <div className="flex items-center gap-2 rounded-lg border border-destructive/20 bg-destructive/5 px-3 py-2 text-xs text-destructive">
+          <XCircle className="size-4" /> Fırsat operasyon akışı iptal aşamasında.
+        </div>
+      )}
     </div>
   );
 
@@ -252,9 +424,10 @@ export function OpportunityProcessCenter({
         {renderRail(
           "Satış alanları",
           qualificationTargets,
-          (target) => QUALIFICATION_STAGE_LABELS[target.code as keyof typeof QUALIFICATION_STAGE_LABELS]
+          (target) => QUALIFICATION_STAGE_LABELS[target.code as keyof typeof QUALIFICATION_STAGE_LABELS],
+          closingBranch(QUALIFICATION_STAGE_LABELS.lost, QUALIFICATION_STAGE_DESCRIPTIONS.lost, isLost)
         )}
-        {renderRail("Operasyon", operationTargets, (target) => salesStageLabel(target.code as any))}
+        {renderOperationGroups()}
 
         {detail?.qualificationHistory?.length ? (
           <details className="rounded-lg border border-border/60 bg-muted/20 px-3 py-2">

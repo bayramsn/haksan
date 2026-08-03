@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm';
-import { pgTable, uuid, varchar, text, boolean, timestamp, numeric, jsonb, index, uniqueIndex, primaryKey } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, varchar, text, boolean, timestamp, numeric, jsonb, index, uniqueIndex, primaryKey, check } from 'drizzle-orm/pg-core';
 import { auditColumns, ownerColumns } from './_helpers';
 import { tenants, divisions } from './tenants';
 import { users } from './users';
@@ -18,6 +18,7 @@ export const companies = pgTable(
     customerStatusId: uuid('customer_status_id').references(() => companyStatuses.id),
     companyGroupId: uuid('company_group_id').references(() => companyGroups.id),
     contactSourceId: uuid('contact_source_id').references(() => contactSources.id),
+    contactSourceText: varchar('contact_source_text', { length: 255 }),
     sector: varchar('sector', { length: 128 }),
     // Tedarikçileri sevkiyat seçiminde işlevine göre ayırır; sektör bilgisinden bağımsızdır.
     supplierCategoryCode: varchar('supplier_category_code', { length: 32 }),
@@ -48,6 +49,10 @@ export const companies = pgTable(
     relationTypeIdx: index('companies_relation_type_idx').on(t.relationTypeId),
     supplierCategoryIdx: index('companies_supplier_category_idx').on(t.supplierCategoryCode),
     logoFileIdx: index('companies_logo_file_idx').on(t.logoFileId),
+    contactSourceChoiceCheck: check(
+      'companies_contact_source_choice_check',
+      sql`${t.contactSourceId} is null or ${t.contactSourceText} is null`,
+    ),
   })
 );
 

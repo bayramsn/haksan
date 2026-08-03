@@ -14,6 +14,7 @@ import { AuditService } from '../../shared/database/audit.service';
 import { resourceCompanyPortfolioFilter, resolveResourceDivisionScope } from '../../shared/utils/division-scope';
 import { companyVisibilityFilter } from '../../shared/utils/company-visibility';
 import { normalizePersonName } from '../../shared/utils/text-normalization';
+import { nextRecordNo } from '../../shared/utils/record-sequence';
 
 @Injectable()
 export class ContactsService {
@@ -302,12 +303,13 @@ export class ContactsService {
       return this.get(duplicate.id, actor);
     }
     const decisionId = await lookupIdByCode(this.db, decisionRoles, input.decisionRoleCode);
+    const externalContactNo = input.externalContactNo ?? await nextRecordNo(this.db, actor.tenantId, 'contact');
     const [created] = await this.db
       .insert(contacts)
       .values({
         tenantId: actor.tenantId,
         companyId: input.companyId,
-        externalContactNo: input.externalContactNo ?? null,
+        externalContactNo,
         fullName: normalizePersonName(input.fullName),
         title: input.title ?? null,
         department: input.department ?? null,

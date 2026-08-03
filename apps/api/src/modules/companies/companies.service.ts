@@ -16,7 +16,7 @@ import { accountingInvoices, payments, receivables } from '../../db/schema/finan
 import { customerDevices } from '../../db/schema/inventory';
 import { salesOrders } from '../../db/schema/orders';
 import { quotes } from '../../db/schema/quotes';
-import { opportunities, salesActivities } from '../../db/schema/crm';
+import { competitors, opportunities, salesActivities } from '../../db/schema/crm';
 import { deliveries, installationJobs, serviceTickets, shipments } from '../../db/schema/service';
 import { divisions } from '../../db/schema/tenants';
 import { users, userDivisions } from '../../db/schema/users';
@@ -54,6 +54,7 @@ import { companyVisibilityFilter } from '../../shared/utils/company-visibility';
 import { normalizeCompanyName } from '../../shared/utils/text-normalization';
 import { inspectOfficialCompanyWebsite } from './company-website-lookup';
 import { companyLogoPath } from './company-media.service';
+import { nextRecordNo } from '../../shared/utils/record-sequence';
 
 const COMPANY_LOGO_MIME_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp']);
 const COMPANY_LOGO_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'webp']);
@@ -350,17 +351,21 @@ export class CompaniesService {
     return resolveResourceDivisionScope(actor, 'companies');
   }
 
-  private async resolveCreateDivision(input: CompanyCreateInput, actor: AuthContext): Promise<string> {
-    const assigned = resolveAssignedResourceDivision(actor, 'companies', input.divisionId ?? null);
-    if (assigned) {
-      await this.assertDivision(assigned, actor);
-      return assigned;
+  private async resolveCreateDivisions(input: CompanyCreateInput, actor: AuthContext): Promise<string[]> {
+    const requested = Array.from(new Set((input.divisionIds ?? []).filter(Boolean)));
+    if (requested.length) {
+      for (const divisionId of requested) await this.assertDivision(divisionId, actor);
+      return requested;
     }
+
+    const assigned = resolveAssignedResourceDivision(actor, 'companies', input.divisionId ?? null);
+    if (assigned) return [(await this.assertDivision(assigned, actor)).id];
+
     if (input.companyGroupCode && ['cnc', 'universal', 'sac_isleme'].includes(input.companyGroupCode)) {
       const division = await this.db.query.divisions.findFirst({
         where: and(eq(divisions.tenantId, actor.tenantId), eq(divisions.code, input.companyGroupCode)),
       });
-      if (division) return division.id;
+      if (division) return [(await this.assertDivision(division.id, actor)).id];
     }
     throw new ValidationError('Firma için CNC / Üniversal / Sac İşleme bölümü seçimi zorunludur', { field: 'divisionId' });
   }
@@ -372,6 +377,18 @@ export class CompaniesService {
     if (!division) throw new NotFoundError('Bölüm');
     assertCanUseResourceDivision(actor, 'companies', divisionId);
     return division;
+  }
+
+  private async resolveContactSourceId(code: string | null | undefined): Promise<string | null> {
+    if (!code) return null;
+    const sourceId = await lookupIdByCode(this.db, contactSources, code);
+    if (!sourceId) {
+      throw new ValidationError('Geçersiz irtibat şekli / kaynak seçildi', {
+        field: 'contactSourceCode',
+        code,
+      });
+    }
+    return sourceId;
   }
 
   private async hasCompanyDivision(companyId: string, divisionId: string): Promise<boolean> {
@@ -799,7 +816,8 @@ export class CompaniesService {
   }
 
   async create(input: CompanyCreateInput, actor: AuthContext) {
-    const divisionId = await this.resolveCreateDivision(input, actor);
+    const divisionIds = await this.resolveCreateDivisions(input, actor);
+    const primaryDivisionId = divisionIds[0];
     if (input.externalCompanyNo) {
       const existing = await this.db.query.companies.findFirst({
         where: and(
@@ -819,10 +837,10 @@ export class CompaniesService {
         ),
       });
       if (existing) {
-        if (await this.hasCompanyDivision(existing.id, divisionId)) {
+        if (await this.hasCompanyDivision(existing.id, primaryDivisionId)) {
           throw new ConflictError('Bu vergi numarası ile bir firma zaten kayıtlı');
         }
-        const request = await this.createAccessRequestForDivision(existing.id, divisionId, actor, {
+        const request = await this.createAccessRequestForDivision(existing.id, primaryDivisionId, actor, {
           note: input.notes ?? null,
         });
         throw new ConflictError('Bu vergi numarası başka bir bölüm portföyünde kayıtlı; erişim talebi oluşturuldu', {
@@ -835,10 +853,11 @@ export class CompaniesService {
 
     const selectedGroupCodes = input.companyGroupCodes ?? (input.companyGroupCode ? [input.companyGroupCode] : []);
     const selectedGroups = await this.resolveCompanyGroups(selectedGroupCodes);
+    const externalCompanyNo = input.externalCompanyNo ?? await nextRecordNo(this.db, actor.tenantId, 'company');
     const [relId, statusId, sourceId] = await Promise.all([
       lookupIdByCode(this.db, companyRelationTypes, input.relationTypeCode),
       lookupIdByCode(this.db, companyStatuses, input.customerStatusCode),
-      lookupIdByCode(this.db, contactSources, input.contactSourceCode),
+      this.resolveContactSourceId(input.contactSourceCode),
     ]);
 
     let created: typeof companies.$inferSelect;
@@ -848,12 +867,13 @@ export class CompaniesService {
           .insert(companies)
           .values({
             tenantId: actor.tenantId,
-            externalCompanyNo: input.externalCompanyNo ?? null,
+            externalCompanyNo,
             companyType: input.companyType,
             relationTypeId: relId,
             customerStatusId: statusId,
             companyGroupId: selectedGroups[0]?.id ?? null,
             contactSourceId: sourceId,
+            contactSourceText: input.contactSourceText ?? null,
             sector: input.sector ?? null,
             supplierCategoryCode: input.supplierCategoryCode ?? null,
             legalTitle: normalizeCompanyName(input.legalTitle),
@@ -867,15 +887,42 @@ export class CompaniesService {
           })
           .returning();
 
-        await tx
-          .insert(companyDivisions)
-          .values({
+        // Firma kartındaki "Rakip" seçimi LOST penceresinin kullandığı rakip
+        // kataloğuna aynı transaction içinde yansır; kısmi kayıt oluşmaz.
+        if (input.relationTypeCode === 'competitor') {
+          const competitorName = company.shortName || company.legalTitle;
+          const legacyCompetitor = await tx.query.competitors.findFirst({
+            where: and(
+              eq(competitors.tenantId, actor.tenantId),
+              isNull(competitors.companyId),
+              isNull(competitors.deletedAt),
+              sql`lower(trim(${competitors.name})) = lower(trim(${competitorName}))`,
+            ),
+          });
+          if (legacyCompetitor) {
+            await tx
+              .update(competitors)
+              .set({ companyId: company.id, name: competitorName, website: company.website, notes: company.notes })
+              .where(eq(competitors.id, legacyCompetitor.id));
+          } else {
+            await tx.insert(competitors).values({
+              tenantId: actor.tenantId,
+              companyId: company.id,
+              name: competitorName,
+              website: company.website,
+              notes: company.notes,
+            });
+          }
+        }
+
+        await tx.insert(companyDivisions).values(
+          divisionIds.map((divisionId) => ({
             tenantId: actor.tenantId,
             companyId: company.id,
             divisionId,
             addedByUserId: actor.userId,
-          })
-          .onConflictDoNothing();
+          }))
+        ).onConflictDoNothing();
 
         if (selectedGroups.length) {
           await tx.insert(companyGroupAssignments).values(
@@ -1000,13 +1047,18 @@ export class CompaniesService {
     }
 
     const groupSelectionProvided = input.companyGroupCodes !== undefined || input.companyGroupCode !== undefined;
+    const contactSourceSelectionProvided = input.contactSourceCode !== undefined || input.contactSourceText !== undefined;
     const selectedGroupCodes = input.companyGroupCodes ?? (input.companyGroupCode ? [input.companyGroupCode] : []);
     const selectedGroups = groupSelectionProvided ? await this.resolveCompanyGroups(selectedGroupCodes) : [];
     const [relId, statusId, sourceId] = await Promise.all([
       lookupIdByCode(this.db, companyRelationTypes, input.relationTypeCode),
       lookupIdByCode(this.db, companyStatuses, input.customerStatusCode),
-      lookupIdByCode(this.db, contactSources, input.contactSourceCode),
+      this.resolveContactSourceId(input.contactSourceCode),
     ]);
+    const competitorRelationId = await lookupIdByCode(this.db, companyRelationTypes, 'competitor');
+    const shouldBeCompetitor = input.relationTypeCode !== undefined
+      ? input.relationTypeCode === 'competitor'
+      : existing.relationTypeId === competitorRelationId;
 
     const patch: Record<string, unknown> = {
       updatedBy: actor.userId,
@@ -1017,7 +1069,10 @@ export class CompaniesService {
     if (input.relationTypeCode !== undefined) patch.relationTypeId = relId;
     if (input.customerStatusCode !== undefined) patch.customerStatusId = statusId;
     if (groupSelectionProvided) patch.companyGroupId = selectedGroups[0]?.id ?? null;
-    if (input.contactSourceCode !== undefined) patch.contactSourceId = sourceId;
+    if (contactSourceSelectionProvided) {
+      patch.contactSourceId = sourceId;
+      patch.contactSourceText = input.contactSourceText ?? null;
+    }
     for (const k of ['sector', 'supplierCategoryCode', 'legalTitle', 'shortName', 'taxOffice', 'taxNumber', 'website', 'notes'] as const) {
       if ((input as any)[k] === undefined) continue;
       const value = (input as any)[k];
@@ -1028,6 +1083,48 @@ export class CompaniesService {
 
     await this.db.transaction(async (tx) => {
       await tx.update(companies).set(patch).where(eq(companies.id, id));
+
+      const competitorRecord = await tx.query.competitors.findFirst({
+        where: and(eq(competitors.tenantId, actor.tenantId), eq(competitors.companyId, id)),
+      });
+      if (shouldBeCompetitor) {
+        const nextLegalTitle = input.legalTitle ? normalizeCompanyName(input.legalTitle) : existing.legalTitle;
+        const nextShortName = input.shortName !== undefined
+          ? input.shortName ? normalizeCompanyName(input.shortName) : null
+          : existing.shortName;
+        const competitorPatch = {
+          name: nextShortName || nextLegalTitle,
+          website: input.website !== undefined ? input.website ?? null : existing.website,
+          notes: input.notes !== undefined ? input.notes ?? null : existing.notes,
+          deletedAt: null,
+        };
+        if (competitorRecord) {
+          await tx.update(competitors).set(competitorPatch).where(eq(competitors.id, competitorRecord.id));
+        } else {
+          const legacyCompetitor = await tx.query.competitors.findFirst({
+            where: and(
+              eq(competitors.tenantId, actor.tenantId),
+              isNull(competitors.companyId),
+              isNull(competitors.deletedAt),
+              sql`lower(trim(${competitors.name})) = lower(trim(${competitorPatch.name}))`,
+            ),
+          });
+          if (legacyCompetitor) {
+            await tx
+              .update(competitors)
+              .set({ companyId: id, ...competitorPatch })
+              .where(eq(competitors.id, legacyCompetitor.id));
+          } else {
+            await tx.insert(competitors).values({
+              tenantId: actor.tenantId,
+              companyId: id,
+              ...competitorPatch,
+            });
+          }
+        }
+      } else if (competitorRecord && !competitorRecord.deletedAt) {
+        await tx.update(competitors).set({ deletedAt: new Date() }).where(eq(competitors.id, competitorRecord.id));
+      }
 
       if (groupSelectionProvided) {
         await tx.delete(companyGroupAssignments).where(eq(companyGroupAssignments.companyId, id));
@@ -1479,7 +1576,14 @@ export class CompaniesService {
         { dependencies },
       );
     }
-    await this.db.update(companies).set({ deletedAt: new Date() }).where(eq(companies.id, id));
+    const deletedAt = new Date();
+    await this.db.transaction(async (tx) => {
+      await tx.update(companies).set({ deletedAt }).where(eq(companies.id, id));
+      await tx
+        .update(competitors)
+        .set({ deletedAt })
+        .where(and(eq(competitors.tenantId, actor.tenantId), eq(competitors.companyId, id), isNull(competitors.deletedAt)));
+    });
     await this.audit.write({
       tenantId: actor.tenantId,
       actorUserId: actor.userId,

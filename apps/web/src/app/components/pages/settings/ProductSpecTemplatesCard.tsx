@@ -696,43 +696,41 @@ export function ProductSpecTemplatesCard() {
       .map((row) => normalizeProductSpecKey(row.specKey.trim()));
     if (activeNames.some((name) => !name)) return toast.error("Teknik bilgi adı boş bırakılamaz");
     if (new Set(activeNames).size !== activeNames.length) return toast.error("Aynı teknik bilgi adı birden fazla kez kullanılamaz");
-    // Çalışma sayfasından çıkarılan sunucu kayıtları önce silinir: aynı alan adı
-    // silinen satırdan devralınıyorsa toplu kayıt teklik hatasına düşmesin.
-    const keptIds = new Set(draftRows.map((row) => row.id).filter(Boolean) as string[]);
-    const removedIds = specRows
-      .filter((row) => (
-        sameType(row.productTypeCode, selectedType.code)
-        && (row.divisionId ?? null) === (familyDivisionId ?? null)
-        && !keptIds.has(row.id)
-      ))
-      .map((row) => row.id);
     setBusy(true);
     try {
-      for (const id of removedIds) await adminService.deleteProductSpecTemplate(id);
-      const result = await adminService.batchSaveProductSpecTemplates(
-        draftRows.map((row, index) => ({
+      // Çalışma sayfasının tamamı tek istekte gider: kapsamda olup burada
+      // bulunmayan alanları sunucu aynı transaction içinde tombstone'lar.
+      // Böylece silme, tek tek DELETE isteklerine bağlı kalmadan kalıcı olur.
+      const result = await adminService.batchSaveProductSpecTemplates({
+        productTypeCode: selectedType.code,
+        divisionId: familyDivisionId ?? null,
+        pruneMissing: true,
+        items: draftRows.map((row, index) => ({
           id: row.id,
           productTypeCode: selectedType.code,
           specKey: row.specKey.trim(),
           specGroupCode: row.groupCode,
-          defaultValue: row.defaultValue || undefined,
-          specUnit: row.unit || undefined,
+          // Boşaltılan değer/birim açıkça `null` gider. `undefined` gönderilirse
+          // alan istek gövdesinden düşer, sunucu kolona dokunmaz ve kullanıcının
+          // sildiği değer bir sonraki yüklemede geri gelir.
+          defaultValue: row.defaultValue.trim() || null,
+          specUnit: row.unit.trim() || null,
           divisionId: row.divisionId ?? familyDivisionId ?? null,
           sortOrder: index,
           isActive: row.isActive,
           isDeleted: row.isDeleted,
-        }))
-      );
+        })),
+      });
       const savedRows = result.rows as SpecTemplateRow[];
       const savedIds = new Set(savedRows.map((row) => row.id));
-      const removedIdSet = new Set(removedIds);
-      const untouchedRows = specRows.filter((row) => !savedIds.has(row.id) && !removedIdSet.has(row.id));
+      const prunedIdSet = new Set(result.prunedIds ?? []);
+      const untouchedRows = specRows.filter((row) => !savedIds.has(row.id) && !prunedIdSet.has(row.id));
       const nextRows = [...untouchedRows, ...savedRows];
       setSpecRows(nextRows);
       localStorage.removeItem(localDraftKey(selectedType.code));
       prepareWorkbook(selectedType.code, nextRows, false);
       toast.success("Teknik çalışma sayfası kaydedildi", {
-        description: [`${result.rows.length} alan güncellendi.`, removedIds.length ? `${removedIds.length} alan silindi.` : null]
+        description: [`${result.rows.length} alan güncellendi.`, prunedIdSet.size ? `${prunedIdSet.size} alan silindi.` : null]
           .filter(Boolean)
           .join(" "),
       });

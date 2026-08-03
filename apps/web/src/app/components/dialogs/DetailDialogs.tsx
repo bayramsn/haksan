@@ -337,6 +337,7 @@ export function CompanyDetailDialog({
             <Field icon={<Mail className="size-4" />} label="E-posta" value={customer.email} />
             <Field icon={<MapPin className="size-4" />} label="Konum" value={[customer.city, customer.district].filter(Boolean).join(" / ")} />
             <Field icon={<Briefcase className="size-4" />} label="Sektör" value={customer.sector} />
+            <Field icon={<Building2 className="size-4" />} label="Bağlı Bulunduğu Birim" value={(customer.divisions ?? []).map((division) => division.name).join(", ")} />
             <Field icon={<Building2 className="size-4" />} label="Firma Grubu" value={customer.companyGroupNames?.join(", ") || customer.companyGroupName} />
             <Field icon={<Globe className="size-4" />} label="Web" value={customer.website} />
             <Field icon={<UserIcon className="size-4" />} label="Oluşturan" value={createdMeta(customer)} />

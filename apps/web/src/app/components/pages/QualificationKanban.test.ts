@@ -1,5 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import { PIPELINE_STAGE_FLOW } from "@haksan/shared";
+import { SALES_STAGES, opportunityTransitionErrorMessage } from "../../lib/mock";
 
 const source = readFileSync(new URL("./QualificationKanban.tsx", import.meta.url), "utf8");
 
@@ -41,5 +43,38 @@ describe("QualificationKanban firma ve kart detayı", () => {
     expect(source).toContain("salesCase.requestedMachine?.trim()");
     expect(source).toContain("salesCase.nextAction?.trim()");
     expect(source).toContain("actionDateLabel(salesCase.nextActionAt)");
+  });
+});
+
+describe("fırsat ilerletme tutarlılığı", () => {
+  it("operasyon panosunu backend ile aynı sırada tutar ve iptali terminale koyar", () => {
+    expect(SALES_STAGES.slice(0, -1)).toEqual(PIPELINE_STAGE_FLOW);
+    expect(SALES_STAGES.at(-1)).toBe("cancelled");
+    expect(SALES_STAGES.indexOf("sales")).toBeLessThan(SALES_STAGES.indexOf("call"));
+    expect(SALES_STAGES.indexOf("call")).toBeLessThan(SALES_STAGES.indexOf("quote"));
+  });
+
+  it("yapılandırılmış geçiş engellerini nesne yerine okunur etiketlerle gösterir", () => {
+    const message = opportunityTransitionErrorMessage(
+      {
+        message: "Hedef operasyon adımı için eksik gereklilikler var",
+        details: {
+          blockers: [
+            { key: "contact", label: "Kontak bağlı" },
+            { key: "location", label: "İl ve ilçe girildi" },
+          ],
+        },
+      },
+      "İşlem başarısız oldu."
+    );
+
+    expect(message).toBe("Kontak bağlı · İl ve ilçe girildi");
+    expect(message).not.toContain("[object Object]");
+  });
+
+  it("yetkisiz ve devam eden taşımaları yeniden göndermeyi engeller", () => {
+    expect(source).toContain('hasPermission("opportunities.update")');
+    expect(source).toContain("if (busyId) return");
+    expect(source).toContain("disabled={!canUpdate || Boolean(busyId)");
   });
 });

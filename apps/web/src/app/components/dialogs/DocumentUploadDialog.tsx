@@ -12,7 +12,7 @@ import {
 import { Textarea } from "../ui/textarea";
 import { useStore } from "../../lib/store";
 import type { DocumentItem } from "../../lib/mock";
-import { fileService } from "../../../lib/services";
+import { documentService, fileService } from "../../../lib/services";
 
 type DocumentTypeValue = DocumentItem["type"];
 
@@ -31,16 +31,19 @@ const DOCUMENT_TYPE_OPTIONS: Array<{
     | "proforma_pdf"
     | "contract_pdf"
     | "commercial_invoice_pdf"
+    | "accounting_invoice_pdf"
     | "service_document"
+    | "delivery_form"
+    | "installation_form"
     | "other";
 }> = [
   { value: "ExternalQuote", label: "Dış teklif", bucket: "erp-quote-documents", documentTypeCode: "external_quote" },
   { value: "Proforma", label: "Proforma", bucket: "erp-proforma-documents", documentTypeCode: "proforma_pdf" },
   { value: "Contract", label: "Sözleşme", bucket: "erp-contract-documents", documentTypeCode: "contract_pdf" },
   { value: "CommercialInvoice", label: "Ticari fatura", bucket: "erp-invoice-documents", documentTypeCode: "commercial_invoice_pdf" },
-  { value: "AccountingInvoice", label: "Muhasebe faturası", bucket: "erp-invoice-documents", documentTypeCode: "commercial_invoice_pdf" },
-  { value: "DeliveryForm", label: "Teslim formu", bucket: "erp-service-documents", documentTypeCode: "service_document" },
-  { value: "InstallationForm", label: "Kurulum formu", bucket: "erp-service-documents", documentTypeCode: "service_document" },
+  { value: "AccountingInvoice", label: "Muhasebe faturası", bucket: "erp-invoice-documents", documentTypeCode: "accounting_invoice_pdf" },
+  { value: "DeliveryForm", label: "Teslim formu", bucket: "erp-service-documents", documentTypeCode: "delivery_form" },
+  { value: "InstallationForm", label: "Kurulum formu", bucket: "erp-service-documents", documentTypeCode: "installation_form" },
   { value: "Other", label: "Diğer", bucket: "erp-quote-documents", documentTypeCode: "other" },
 ];
 
@@ -85,7 +88,7 @@ export function DocumentUploadDialog({
   onOpenChange?: (open: boolean) => void;
   onUploaded?: (document: DocumentItem) => void | Promise<void>;
 }) {
-  const { cases, customers, addDocument } = useStore();
+  const { cases, customers, offers, addDocument, refresh } = useStore();
   const inputRef = useRef<HTMLInputElement>(null);
   const initialScope = defaultSalesCaseId ? "case" : "company";
   const [internalOpen, setInternalOpen] = useState(false);
@@ -98,6 +101,7 @@ export function DocumentUploadDialog({
   const [type, setType] = useState<DocumentTypeValue>(defaultType ?? "Other");
   const [selectedCaseId, setSelectedCaseId] = useState(defaultSalesCaseId ?? "");
   const [selectedCompanyId, setSelectedCompanyId] = useState(defaultCompanyId ?? "");
+  const [quoteId, setQuoteId] = useState("");
   const [description, setDescription] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -108,6 +112,7 @@ export function DocumentUploadDialog({
     setType(defaultType ?? "Other");
     setSelectedCaseId(defaultSalesCaseId ?? "");
     setSelectedCompanyId(defaultCompanyId ?? "");
+    setQuoteId("");
     setDescription("");
     setFile(null);
     if (inputRef.current) inputRef.current.value = "";
@@ -117,9 +122,20 @@ export function DocumentUploadDialog({
     () => cases.find((item) => item.id === selectedCaseId),
     [cases, selectedCaseId]
   );
-  const entityType = scope === "case" ? "opportunity" : "company";
-  const entityId = scope === "case" ? selectedCaseId : selectedCompanyId;
-  const companyId = scope === "case" ? selectedCase?.customerId ?? defaultCompanyId : selectedCompanyId;
+  const commercialRecordMode = type === "Proforma" || type === "Contract" || type === "CommercialInvoice";
+  const eligibleOffers = useMemo(() => [...offers]
+    .filter((offer) => scope === "case"
+      ? offer.salesCaseId === selectedCaseId
+      : offer.companyId === selectedCompanyId || cases.find((item) => item.id === offer.salesCaseId)?.customerId === selectedCompanyId)
+    .sort((left, right) => right.revision - left.revision || right.date.localeCompare(left.date)), [cases, offers, scope, selectedCaseId, selectedCompanyId]);
+  const selectedOffer = offers.find((offer) => offer.id === quoteId);
+  const effectiveSalesCaseId = commercialRecordMode ? selectedOffer?.salesCaseId ?? selectedCaseId : selectedCaseId;
+  const effectiveCase = cases.find((item) => item.id === effectiveSalesCaseId) ?? selectedCase;
+  const entityType = commercialRecordMode || scope === "case" ? "opportunity" : "company";
+  const entityId = commercialRecordMode ? effectiveSalesCaseId : scope === "case" ? selectedCaseId : selectedCompanyId;
+  const companyId = commercialRecordMode
+    ? selectedOffer?.companyId || effectiveCase?.customerId || defaultCompanyId
+    : scope === "case" ? selectedCase?.customerId ?? defaultCompanyId : selectedCompanyId;
   const selectedCompany = customers.find((c) => c.id === companyId);
   const meta = DOCUMENT_TYPE_OPTIONS.find((item) => item.value === type) ?? DOCUMENT_TYPE_OPTIONS[DOCUMENT_TYPE_OPTIONS.length - 1];
   const lockedRelation = Boolean(defaultSalesCaseId || defaultCompanyId);
@@ -127,6 +143,11 @@ export function DocumentUploadDialog({
   const externalQuoteMode = type === "ExternalQuote";
   const dialogTitle = externalQuoteMode ? "Dış Teklif Yükle" : "Doküman Yükle";
   const allowedExtensions = externalQuoteMode ? EXTERNAL_QUOTE_EXTENSIONS : ALLOWED_EXTENSIONS;
+
+  useEffect(() => {
+    if (!open || !commercialRecordMode) return;
+    if (!eligibleOffers.some((offer) => offer.id === quoteId)) setQuoteId(eligibleOffers[0]?.id ?? "");
+  }, [commercialRecordMode, eligibleOffers, open, quoteId]);
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -140,6 +161,10 @@ export function DocumentUploadDialog({
           ? "Doküman eklemek için satış kartı gerekmez; yalnızca ilgili firmayı seçin."
           : "Satış kartı bağlantısı isteğe bağlıdır; dilerseniz Firma sekmesini kullanın.",
       });
+      return;
+    }
+    if (commercialRecordMode && !quoteId) {
+      toast.error("Bağlı teklif seçin", { description: "Proforma, sözleşme ve ticari fatura PDF'leri bir teklif revizyonuna bağlı olmalıdır." });
       return;
     }
     if (file.size > 25 * 1024 * 1024) {
@@ -178,17 +203,41 @@ export function DocumentUploadDialog({
         documentTypeCode: meta.documentTypeCode,
         description: description.trim() || undefined,
       });
-
-      const row = await addDocument({
-        id: upload.fileId,
-        fileId: upload.fileId,
-        salesCaseId: scope === "case" ? selectedCaseId : "",
-        companyId,
-        type,
-        fileName: file.name,
-        size: formatFileSize(file.size),
-        mimeType,
-      });
+      let row: DocumentItem;
+      if (commercialRecordMode) {
+        const today = new Date();
+        const created = type === "Proforma"
+          ? await documentService.createProforma({ quoteId, issueDate: today, statusCode: "draft", fileId: upload.fileId })
+          : type === "Contract"
+            ? await documentService.createContract({ quoteId, signedDate: today, statusCode: "draft", fileId: upload.fileId })
+            : await documentService.createCommercialInvoice({ quoteId, invoiceDate: today, statusCode: "draft", fileId: upload.fileId });
+        row = {
+          id: created.id,
+          source: "commercial_record",
+          quoteId,
+          salesCaseId: effectiveSalesCaseId,
+          companyId,
+          type,
+          fileName: created.documentNo ?? created.contractNo ?? created.invoiceNo ?? file.name,
+          uploadedBy: "",
+          uploadedAt: new Date().toISOString().slice(0, 10),
+          size: formatFileSize(file.size),
+          fileId: upload.fileId,
+          mimeType,
+        };
+        await refresh();
+      } else {
+        row = await addDocument({
+          id: upload.fileId,
+          fileId: upload.fileId,
+          salesCaseId: scope === "case" ? selectedCaseId : "",
+          companyId,
+          type,
+          fileName: file.name,
+          size: formatFileSize(file.size),
+          mimeType,
+        });
+      }
       toast.success(externalQuoteMode ? "Dış teklif yüklendi" : "Doküman yüklendi", { description: file.name });
       await onUploaded?.(row);
       setOpen(false);
@@ -214,7 +263,9 @@ export function DocumentUploadDialog({
           <DialogDescription>
             {externalQuoteMode
               ? "Teklif dosyasını firmaya veya satış kartına bağlayın; kart seçildiğinde firma otomatik eşleşir."
-              : "Dosyayı doğrudan firmaya ekleyin; satış kartı isteğe bağlıdır."}
+              : commercialRecordMode
+                ? "PDF'yi kaynak teklif revizyonuna bağlayın; belge, fırsat ve firma ilişkisi otomatik korunur."
+                : "Dosyayı doğrudan firmaya ekleyin; satış kartı isteğe bağlıdır."}
           </DialogDescription>
         </DialogHeader>
 
@@ -278,6 +329,28 @@ export function DocumentUploadDialog({
                 )}
               </div>
             </div>
+
+            {commercialRecordMode && (
+              <div className="rounded-lg border border-primary/15 bg-primary/[0.035] p-3">
+                <Label>Kaynak Teklif *</Label>
+                <Select value={quoteId || undefined} onValueChange={setQuoteId}>
+                  <SelectTrigger className="mt-1 bg-white">
+                    <SelectValue placeholder="Teklif revizyonu seçin" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {eligibleOffers.map((offer) => (
+                      <SelectItem key={offer.id} value={offer.id}>
+                        {offer.quoteNo} · R{offer.revision} · {offer.amount.toLocaleString("tr-TR")} {offer.currency}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <div className="mt-2 flex items-start gap-2 text-[11px] text-muted-foreground">
+                  <LinkIcon className="mt-0.5 size-3.5 shrink-0 text-primary" />
+                  <span>{selectedOffer ? `${selectedOffer.quoteNo} revizyonu kaynak alınacak; firma ve fırsat bu tekliften çözülecek.` : "Seçilen firma/fırsat için teklif yok. Önce Teklifler ekranından teklif oluşturun."}</span>
+                </div>
+              </div>
+            )}
 
             <button
               type="button"

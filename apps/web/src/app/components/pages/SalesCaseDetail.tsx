@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
 import { Button } from "../ui/button";
 import { Badge } from "../ui/badge";
@@ -56,10 +56,11 @@ import { STAGE_DOT } from "./Kanban";
 import { DialogSplitLayout, DialogSidebarSection } from "../shared/DialogSplitLayout";
 import { NextActionDialog, actionDateLabel, isActionOverdue } from "../shared/NextActionDialog";
 import { KanbanDetailDialogShell } from "../shared/KanbanDetailDialogShell";
-import { documentService, fileService, opportunityService, quoteService, salesOrderService, financeService } from "../../../lib/services";
+import { fileService, opportunityService, quoteService, salesOrderService, financeService } from "../../../lib/services";
 import { toast } from "sonner";
 import { OpportunityQuickPanel } from "./OpportunityQuickPanel";
 import { OpportunityWorkspace } from "./OpportunityWorkspace";
+import { focusWorkspaceTarget } from "../../lib/workspaceFocus";
 
 export function SalesCaseDetailDialog({
   sc,
@@ -72,17 +73,33 @@ export function SalesCaseDetailDialog({
 }) {
   const { cases } = useStore();
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
+  const workspaceButtonRef = useRef<HTMLButtonElement>(null);
+  const dialogOpenerRef = useRef<HTMLElement | null>(null);
   const currentIndex = sc ? cases.findIndex((item) => item.id === sc.id) : -1;
   const previous = currentIndex > 0 ? cases[currentIndex - 1] : null;
   const next = currentIndex >= 0 && currentIndex < cases.length - 1 ? cases[currentIndex + 1] : null;
 
   useEffect(() => {
-    if (!sc) setWorkspaceOpen(false);
-  }, [sc]);
+    if (!sc) {
+      setWorkspaceOpen(false);
+      return;
+    }
+    const url = new URL(window.location.href);
+    if (url.searchParams.get("opportunity") === sc.id && url.searchParams.has("activity")) {
+      setWorkspaceOpen(true);
+    }
+  }, [sc?.id]);
 
   return (
     <Dialog open={!!sc} onOpenChange={(open) => !open && onClose()}>
       <DialogContent
+        onOpenAutoFocus={() => {
+          dialogOpenerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+        }}
+        onCloseAutoFocus={(event) => {
+          event.preventDefault();
+          focusWorkspaceTarget(dialogOpenerRef.current, { scroll: false });
+        }}
         style={workspaceOpen ? undefined : {
           left: "auto",
           right: 0,
@@ -99,13 +116,17 @@ export function SalesCaseDetailDialog({
         }
       >
         <DialogHeader className="sr-only">
-          <DialogTitle>{sc?.requestedProduct ?? "Satış kartı detayı"}</DialogTitle>
-          <DialogDescription>Satış kartı, teklifler ve aktiviteler</DialogDescription>
+          <DialogTitle>{workspaceOpen ? "Tam fırsat çalışma alanı" : "Hızlı fırsat özeti"} — {sc?.requestedProduct ?? "Satış kartı"}</DialogTitle>
+          <DialogDescription>{workspaceOpen ? "Karar özeti, görev bölümleri ve kayıt işlemleri" : "Satış kartının hızlı karar özeti"}</DialogDescription>
         </DialogHeader>
         {sc && (workspaceOpen ? (
           <SalesCaseDetailPage
             sc={sc}
-            onBack={() => setWorkspaceOpen(false)}
+            onBack={() => {
+              setWorkspaceOpen(false);
+              window.setTimeout(() => focusWorkspaceTarget(workspaceButtonRef.current, { scroll: false }), 0);
+            }}
+            onClose={onClose}
             mode="dialog"
             previous={previous}
             next={next}
@@ -116,6 +137,7 @@ export function SalesCaseDetailDialog({
             salesCase={sc}
             onClose={onClose}
             onOpenWorkspace={() => setWorkspaceOpen(true)}
+            workspaceButtonRef={workspaceButtonRef}
             previous={previous}
             next={next}
             onNavigate={onNavigate}
@@ -133,6 +155,7 @@ export function SalesCaseDetailPage({
   previous = null,
   next = null,
   onNavigate,
+  onClose,
 }: {
   sc: SalesCase;
   onBack: () => void;
@@ -140,6 +163,7 @@ export function SalesCaseDetailPage({
   previous?: SalesCase | null;
   next?: SalesCase | null;
   onNavigate?: (opportunityId: string) => void;
+  onClose?: () => void;
 }) {
   const { offers, activities, customers, users, documents, payments, installations, refresh, deleteCase, updateCase, closeCase, updateActivity, deleteActivity } = useStore();
   const { hasRole, hasPermission } = useAuth();
@@ -276,21 +300,6 @@ export function SalesCaseDetailPage({
     }
   };
 
-  const registerCommercialInvoice = async (document: DocumentItem) => {
-    if (!latestOffer?.id || !document.fileId) {
-      throw new Error("Ticari fatura için önce teklif ve yüklenen dosya gereklidir.");
-    }
-    await documentService.createCommercialInvoice({
-      quoteId: latestOffer.id,
-      invoiceNo: `TF-${new Date().toISOString().replace(/\D/g, "").slice(0, 14)}`,
-      invoiceDate: new Date(),
-      statusCode: "draft",
-      fileId: document.fileId,
-    });
-    await refresh();
-    toast.success("Ticari fatura kaydı ve dosyası oluşturuldu");
-  };
-
   const deleteUploadedDocument = async (documentItem: DocumentItem) => {
     if (!documentItem.fileId || documentItem.source !== "uploaded_file" || deletingDocumentId) return;
     setDeletingDocumentId(documentItem.id);
@@ -376,7 +385,7 @@ export function SalesCaseDetailPage({
       return;
     }
     if (actionKey === "open_installation" || actionKey === "complete_installation") {
-      document.getElementById("opportunity-installation")?.scrollIntoView({ behavior: "smooth", block: "center" });
+      focusWorkspaceTarget(document.getElementById("opportunity-installation"), { focus: false });
       setRequestedProcessAction(null);
       toast.message("Kurulum kaydı servis bölümünden açılabilir", {
         description: relatedInstallation
@@ -387,7 +396,7 @@ export function SalesCaseDetailPage({
     }
     setRequestedProcessAction(actionKey);
     requestAnimationFrame(() => {
-      document.getElementById("opportunity-process-actions")?.scrollIntoView({ behavior: "smooth", block: "center" });
+      focusWorkspaceTarget(document.getElementById("opportunity-process-actions"), { focus: false });
     });
   };
 
@@ -568,6 +577,67 @@ export function SalesCaseDetailPage({
     </Card>
   ) : null;
 
+  const workspaceOtherActions = (
+    <div className="space-y-3">
+      <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Diğer işlemler</div>
+      <div>
+        <Label className="text-xs">Ödeme vadesi (gün)</Label>
+        <Input
+          type="number"
+          min={0}
+          aria-label="Ödeme vadesi gün sayısı"
+          className="mt-1.5 h-10"
+          defaultValue={sc.paymentTermDays ?? ""}
+          placeholder="Belirlenmedi"
+          disabled={!canUpdate}
+          onBlur={async (event) => {
+            const raw = event.target.value.trim();
+            const parsed = raw === "" ? null : Number(raw);
+            if (parsed !== null && (!Number.isFinite(parsed) || parsed < 0)) {
+              toast.error("Ödeme vadesi sıfır veya daha büyük olmalı");
+              event.target.value = sc.paymentTermDays == null ? "" : String(sc.paymentTermDays);
+              return;
+            }
+            const next = parsed === null ? null : Math.trunc(parsed);
+            if ((next ?? undefined) === sc.paymentTermDays) return;
+            await updateCase(sc.id, { paymentTermDays: next });
+          }}
+        />
+      </div>
+      {isLeadCard && (
+        <>
+          <div>
+            <Label className="text-xs">Alım niyeti</Label>
+            <Select value={sc.leadTemperature ?? "unknown"} disabled={!canUpdate} onValueChange={(value) => void updateCase(sc.id, { leadTemperature: value as LeadTemperature })}>
+              <SelectTrigger className="mt-1.5 h-10" aria-label="Lead alım niyeti"><SelectValue /></SelectTrigger>
+              <SelectContent>{LEAD_TEMPERATURE_ORDER.map((code) => <SelectItem key={code} value={code}>{LEAD_TEMPERATURE_LABELS[code]} · {LEAD_TEMPERATURE_HINTS[code]}</SelectItem>)}</SelectContent>
+            </Select>
+          </div>
+          <div>
+            <Label className="text-xs">Lead durumu</Label>
+            <Select value={sc.leadFollowUpStatus ?? "new"} disabled={!canUpdate} onValueChange={(value) => void updateCase(sc.id, { leadFollowUpStatus: value as LeadFollowUpStatus })}>
+              <SelectTrigger className={`mt-1.5 h-10 ${LEAD_FOLLOW_UP_STATUS_STYLES[sc.leadFollowUpStatus ?? "new"]}`} aria-label="Lead takip durumu"><SelectValue /></SelectTrigger>
+              <SelectContent>{LEAD_FOLLOW_UP_STATUS_ORDER.map((status) => <SelectItem key={status} value={status}>{LEAD_FOLLOW_UP_STATUS_LABELS[status]}</SelectItem>)}</SelectContent>
+            </Select>
+          </div>
+        </>
+      )}
+      {sc.externalSource === "trello" && (
+        <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs">
+          <div className="font-semibold">Trello kaynağı</div>
+          <div className="mt-1 text-muted-foreground">{[sc.externalMetadata?.boardName, sc.externalMetadata?.listName].filter(Boolean).join(" · ") || "Kaynak ayrıntısı yok"}</div>
+          {sc.externalUrl && <a href={sc.externalUrl} target="_blank" rel="noreferrer" className="mt-2 block break-all text-primary hover:underline">Kaynak kartı aç</a>}
+        </div>
+      )}
+      {sc.isLost && <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-xs"><div className="font-semibold text-red-900">Kaybedilme detayı</div><div className="mt-1 text-red-800">{sc.lostReason || sc.lostReasonCode || "Neden belirtilmedi"}{sc.competitor ? ` · ${sc.competitor}` : ""}</div></div>}
+      <div className="grid gap-2">
+        {canUpdate && sc.stage === "delivered" && !sc.closedAt && <Button type="button" variant="outline" className="min-h-11 justify-start gap-2 border-emerald-200 text-emerald-700" onClick={() => setCloseOpen(true)} disabled={closeSaving}><CheckCircle2 className="size-4" /> Bitir</Button>}
+        {canMarkLost && <Button type="button" variant="outline" className="min-h-11 justify-start gap-2 border-red-200 text-red-700" onClick={() => setLostOpen(true)}><XCircle className="size-4" /> Kaybedildi olarak işaretle</Button>}
+        {canDelete && <Button type="button" variant="outline" className="min-h-11 justify-start gap-2 border-red-200 text-red-700" onClick={() => setDeleteOpen(true)}><Trash2 className="size-4" /> {cardTypeLabel} kartını sil</Button>}
+      </div>
+    </div>
+  );
+
   const content = (
     <>
       <div className={toolbarClass}>
@@ -625,10 +695,7 @@ export function SalesCaseDetailPage({
         defaultSalesCaseId={sc.id}
         defaultCompanyId={sc.customerId || undefined}
         defaultType="CommercialInvoice"
-        onUploaded={async (document) => {
-          await registerCommercialInvoice(document);
-          setRequestedProcessAction(null);
-        }}
+        onUploaded={() => setRequestedProcessAction(null)}
       />
       <CreateShipmentDialog
         open={requestedProcessAction === "create_shipment"}
@@ -1006,24 +1073,42 @@ export function SalesCaseDetailPage({
       >
       {mode === "dialog" ? (
         <OpportunityWorkspace
+          key={sc.id}
           salesCase={sc}
-          processCenter={
+          focusDecisionOnMount
+          mobilePortalId={`workspace-mobile-actions-${sc.id}`}
+          onEditActivity={(activityId) => {
+            const activity = acts.find((item) => item.id === activityId);
+            if (activity) openActivityEdit(activity);
+          }}
+          onDeleteActivity={(activityId) => {
+            const activity = acts.find((item) => item.id === activityId);
+            if (activity) setPendingActivityDelete(activity);
+          }}
+          processCenter={null}
+          renderProcessCenter={({ detail, loading, reload }) => (
             <OpportunityProcessCenter
               salesCase={sc}
               canUpdate={canUpdate}
               canPerformAction={canPerformProcessAction}
               onRefresh={refresh}
               onAction={(actionKey) => void handleProcessAction(actionKey)}
+              detail={detail}
+              loading={loading}
+              onReload={reload}
             />
-          }
+          )}
           processChecklist={
             <div id="opportunity-process-actions" className="scroll-mt-24">
               <ProcessChecklistPanel sc={sc} requestedAction={requestedProcessAction} onActionHandled={() => setRequestedProcessAction(null)} />
             </div>
           }
-          companyLinkingPanel={companyLinkingPanel}
+          companyLinkingPanel={canUpdate ? companyLinkingPanel : undefined}
           onOpenOffer={setSelectedOfferId}
           onDownloadDocument={(document) => void downloadDocument(document.fileId, document.fileName)}
+          onCommercialAction={(actionKey) => void handleProcessAction(actionKey)}
+          canPerformCommercialAction={canPerformProcessAction}
+          otherActions={workspaceOtherActions}
         />
       ) : (
       <>
@@ -1165,7 +1250,7 @@ export function SalesCaseDetailPage({
                   defaultSalesCaseId={sc.id}
                   defaultCompanyId={sc.customerId}
                   defaultType="CommercialInvoice"
-                  onUploaded={registerCommercialInvoice}
+                  onUploaded={() => void refresh()}
                   trigger={
                     <Button size="sm" className="gap-1">
                       <Upload className="size-4" />
@@ -1595,25 +1680,25 @@ export function SalesCaseDetailPage({
           <div className="space-y-3">
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <Label className="text-xs">Tür</Label>
-                <Input className="mt-1.5" value={activityForm.type} onChange={(e) => setActivityForm({ ...activityForm, type: e.target.value })} />
+                <Label htmlFor="workspace-activity-type" className="text-xs">Tür</Label>
+                <Input id="workspace-activity-type" className="mt-1.5" value={activityForm.type} onChange={(e) => setActivityForm({ ...activityForm, type: e.target.value })} />
               </div>
               <div>
-                <Label className="text-xs">Tarih</Label>
-                <Input type="date" className="mt-1.5" value={activityForm.date} onChange={(e) => setActivityForm({ ...activityForm, date: e.target.value })} />
+                <Label htmlFor="workspace-activity-date" className="text-xs">Tarih</Label>
+                <Input id="workspace-activity-date" type="date" className="mt-1.5" value={activityForm.date} onChange={(e) => setActivityForm({ ...activityForm, date: e.target.value })} />
               </div>
             </div>
             <div>
-              <Label className="text-xs">Başlık *</Label>
-              <Input className="mt-1.5" value={activityForm.title} onChange={(e) => setActivityForm({ ...activityForm, title: e.target.value })} />
+              <Label htmlFor="workspace-activity-title" className="text-xs">Başlık *</Label>
+              <Input id="workspace-activity-title" required aria-required="true" className="mt-1.5" value={activityForm.title} onChange={(e) => setActivityForm({ ...activityForm, title: e.target.value })} />
             </div>
             <div>
-              <Label className="text-xs">Not</Label>
-              <Textarea className="mt-1.5 min-h-[80px]" value={activityForm.note} onChange={(e) => setActivityForm({ ...activityForm, note: e.target.value })} />
+              <Label htmlFor="workspace-activity-note" className="text-xs">Not</Label>
+              <Textarea id="workspace-activity-note" className="mt-1.5 min-h-[80px]" value={activityForm.note} onChange={(e) => setActivityForm({ ...activityForm, note: e.target.value })} />
             </div>
             <div>
-              <Label className="text-xs">Sonuç / Ne Yapıldı</Label>
-              <Textarea className="mt-1.5 min-h-[64px]" value={activityForm.result} onChange={(e) => setActivityForm({ ...activityForm, result: e.target.value })} />
+              <Label htmlFor="workspace-activity-result" className="text-xs">Sonuç / Ne Yapıldı</Label>
+              <Textarea id="workspace-activity-result" className="mt-1.5 min-h-[64px]" value={activityForm.result} onChange={(e) => setActivityForm({ ...activityForm, result: e.target.value })} />
             </div>
             <div className="flex justify-end gap-2">
               <Button type="button" variant="outline" onClick={() => setEditingActivity(null)}>Vazgeç</Button>
@@ -1640,26 +1725,6 @@ export function SalesCaseDetailPage({
               {isLeadCard ? "LEAD" : "FIRSAT"} · {sc.id.slice(0, 8).toUpperCase()}
             </Badge>
             <StatusBadge status={sc.stage} />
-            {isLeadCard && (
-              <span className="rounded-md bg-muted px-2.5 py-1 font-data text-xs tabular-nums text-muted-foreground">
-                Öncelik {sc.leadInsights?.priorityScore ?? 0} · Uyum {sc.leadInsights?.fitScore ?? 0} · Etkileşim {sc.leadInsights?.engagementScore ?? 0}
-              </span>
-            )}
-            {isLeadCard && (
-              <span className={`rounded-md px-2.5 py-1 text-xs ${
-                sc.qualificationReadiness?.health?.leadSlaBreached
-                  ? "bg-red-50 font-semibold text-red-700"
-                  : "bg-emerald-50 text-emerald-700"
-              }`}>
-                SLA {sc.qualificationReadiness?.health?.leadSlaBreached ? "aşıldı" : "içinde"}
-              </span>
-            )}
-            <span className="rounded-md bg-muted px-2.5 py-1 text-xs tabular-nums text-muted-foreground">
-              {sc.estimatedAmount.toLocaleString()} {sc.currency}
-            </span>
-            <span className="rounded-md bg-muted px-2.5 py-1 text-xs text-muted-foreground">
-              Atanan: {u?.name ?? "Atanmadı"}
-            </span>
           </>
         }
         actions={
@@ -1673,20 +1738,11 @@ export function SalesCaseDetailPage({
             <Button variant="outline" size="sm" onClick={onBack} className="gap-1 bg-white">
               <ArrowLeft className="size-4" /> Hızlı özete dön
             </Button>
+            {onClose && <Button type="button" variant="ghost" size="icon" className="size-9" onClick={onClose} aria-label="Çalışma alanını kapat"><X className="size-4" /></Button>}
           </>
         }
         right={activityPanel}
-        mobileFooter={
-          <div className="grid grid-cols-[auto_1fr] gap-2">
-            {onNavigate && (
-              <div className="flex rounded-md border border-slate-200">
-                <Button type="button" variant="ghost" size="icon" className="size-9 rounded-r-none" disabled={!previous} onClick={() => previous && onNavigate(previous.id)} aria-label="Önceki fırsat"><ChevronLeft className="size-4" /></Button>
-                <Button type="button" variant="ghost" size="icon" className="size-9 rounded-l-none border-l border-slate-200" disabled={!next} onClick={() => next && onNavigate(next.id)} aria-label="Sonraki fırsat"><ChevronRight className="size-4" /></Button>
-              </div>
-            )}
-            <Button type="button" className="h-9 gap-1.5 bg-[#0b2453]" onClick={onBack}><ArrowLeft className="size-4" /> Hızlı özete dön</Button>
-          </div>
-        }
+        mobileFooter={<div id={`workspace-mobile-actions-${sc.id}`} />}
       >
         {content}
       </KanbanDetailDialogShell>

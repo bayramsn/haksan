@@ -219,7 +219,7 @@ export function CompanyContactImportDialog({
                         <div>
                           <div className="font-medium">{issue.kind === "company" ? "Firma" : "Kontak"} · Satır {issue.rowNumber}</div>
                           <div className="text-xs text-muted-foreground">
-                            {[issue.sourceNo && `No: ${issue.sourceNo}`, issue.companyNo && `Firma No: ${issue.companyNo}`, issue.message].filter(Boolean).join(" · ")}
+                            {`Satır ${issue.rowNumber} · ${issue.message}`}
                           </div>
                         </div>
                       </div>

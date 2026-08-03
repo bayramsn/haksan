@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm';
-import { pgTable, uuid, varchar, text, integer, boolean, timestamp, jsonb, index, uniqueIndex } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, varchar, text, integer, boolean, timestamp, jsonb, index, uniqueIndex, check } from 'drizzle-orm/pg-core';
 import { auditColumns, ownerColumns, money } from './_helpers';
 import { tenants, divisions } from './tenants';
 import { users } from './users';
@@ -35,6 +35,11 @@ export const competitors = pgTable(
     tenantId: uuid('tenant_id')
       .notNull()
       .references(() => tenants.id, { onDelete: 'cascade' }),
+    /**
+     * Rakip firma kartıyla CRM kayıp analizi kataloğunu aynı kayda bağlar.
+     * Elle açılan eski katalog kayıtlarında null kalabilir.
+     */
+    companyId: uuid('company_id').references(() => companies.id, { onDelete: 'set null' }),
     name: varchar('name', { length: 255 }).notNull(),
     website: varchar('website', { length: 512 }),
     notes: text('notes'),
@@ -42,6 +47,9 @@ export const competitors = pgTable(
   },
   (t) => ({
     tenantIdx: index('competitors_tenant_idx').on(t.tenantId),
+    companyUnique: uniqueIndex('competitors_company_alive_unique')
+      .on(t.tenantId, t.companyId)
+      .where(sql`${t.deletedAt} is null and ${t.companyId} is not null`),
   })
 );
 
@@ -314,6 +322,8 @@ export const opportunityStageHistory = pgTable(
   })
 );
 
+export type ActivityOrigin = 'manual' | 'system';
+
 export const salesActivities = pgTable(
   'sales_activities',
   {
@@ -330,6 +340,7 @@ export const salesActivities = pgTable(
       .references(() => activityTypes.id),
     subject: varchar('subject', { length: 255 }).notNull(),
     description: text('description'),
+    origin: varchar('origin', { length: 16 }).$type<ActivityOrigin>().notNull().default('manual'),
     activityDate: timestamp('activity_date', { withTimezone: true }).notNull(),
     nextFollowUpAt: timestamp('next_follow_up_at', { withTimezone: true }),
     result: text('result'),
@@ -341,6 +352,7 @@ export const salesActivities = pgTable(
     tenantDivisionIdx: index('sales_activities_tenant_division_idx').on(t.tenantId, t.divisionId),
     oppIdx: index('sales_activities_opp_idx').on(t.opportunityId),
     dateIdx: index('sales_activities_date_idx').on(t.activityDate),
+    originCheck: check('sales_activities_origin_check', sql`${t.origin} in ('manual', 'system')`),
   })
 );
 

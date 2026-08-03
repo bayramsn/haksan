@@ -2,10 +2,12 @@
 // gerçekten saklanan müşteri, kalem, vergi, şart ve not alanları.
 
 import type { Contact, Customer, DocumentItem, Offer, Product, SalesCase, User } from "../mock";
+import { isMachiningCenterTypeCode } from "@haksan/shared";
 import { quoteService } from "../../../lib/services";
 import { splitVat } from "../pageHelpers";
 import { publicProductLabel, trLongDate } from "./core";
-import { matchQuoteNoteVariantKey, resolveProformaNotes, QUOTE_VARIANT_PREFIX } from "./notes";
+import { applyVatRateToNotes, matchQuoteNoteVariantKey, resolveProformaNotes, QUOTE_VARIANT_PREFIX } from "./notes";
+import { allocateCustomsTotal } from "./quotePrint";
 import type { ProformaItem, ProformaPrintData } from "./templates";
 
 export type ProformaBuildInput = {
@@ -50,20 +52,24 @@ const proformaFromSnapshot = (
     0,
   );
   const headerDiscount = Math.max(Number(snapshotValue(quote, "discountTotal", "discount_total") ?? 0) - lineDiscount, 0);
-  const taxableBeforeHeader = rows.reduce((sum: number, item: any) => {
+  const customsAllocations = allocateCustomsTotal(
+    rows,
+    Number(snapshotValue(quote, "customsTotal", "customs_total") ?? 0),
+    (item: any) => {
+      if (!Boolean(snapshotValue(item, "nationalized"))) return false;
+      const productModelId = String(snapshotValue(item, "productModelId", "product_model_id") ?? "");
+      const product = products.find((candidate) => candidate.id === productModelId);
+      return !product?.productTypeCode || isMachiningCenterTypeCode(product.productTypeCode);
+    },
+    (item: any) => Number(snapshotValue(item, "quantity") ?? 0)
+      * Number(snapshotValue(item, "unitPrice", "unit_price") ?? 0),
+  );
+  const items: ProformaItem[] = rows.map((item: any, index: number) => {
     const qty = Number(snapshotValue(item, "quantity") ?? 1);
     const unitPrice = Number(snapshotValue(item, "unitPrice", "unit_price") ?? 0);
     const discount = Number(snapshotValue(item, "discountAmount", "discount_amount") ?? 0);
-    return sum + Number(snapshotValue(item, "lineTotal", "line_total") ?? qty * unitPrice - discount);
-  }, 0);
-  const headerRatio = taxableBeforeHeader > 0
-    ? Math.max(0, taxableBeforeHeader - headerDiscount) / taxableBeforeHeader
-    : 1;
-  const items: ProformaItem[] = rows.map((item: any) => {
-    const qty = Number(snapshotValue(item, "quantity") ?? 1);
-    const unitPrice = Number(snapshotValue(item, "unitPrice", "unit_price") ?? 0);
-    const discount = Number(snapshotValue(item, "discountAmount", "discount_amount") ?? 0);
-    const lineTotal = Number(snapshotValue(item, "lineTotal", "line_total") ?? qty * unitPrice - discount) * headerRatio;
+    const grossLineTotal = qty * unitPrice;
+    const customsAllocation = customsAllocations[index] ?? 0;
     const productSnapshot = snapshotValue(item, "product") ?? {};
     const productModelId = String(snapshotValue(item, "productModelId", "product_model_id") ?? "");
     // Şema v1 anlık görüntülerinde ürün kimliği var ancak ürün bilgisi yoktu.
@@ -81,12 +87,15 @@ const proformaFromSnapshot = (
       mensei: snapshotValue(productSnapshot, "originCountry", "origin_country") ?? catalogProduct?.originCountry,
       gtip: snapshotValue(productSnapshot, "hsCode", "hs_code") ?? catalogProduct?.hsCode,
       birim: formatBirim(qty, snapshotValue(item, "unitCode", "unit_code") ?? "Adet"),
-      birimFiyati: qty > 0 ? lineTotal / qty : 0,
-      tutar: lineTotal,
+      birimFiyati: qty > 0 ? unitPrice + customsAllocation / qty : unitPrice,
+      iskonto: discount,
+      tutar: grossLineTotal + customsAllocation,
     };
   });
   const vatRates = rows.map((item: any) => Number(snapshotValue(item, "vatRate", "vat_rate") ?? 0));
   const kdvOran = vatRates.length && vatRates.every((rate: number) => rate === vatRates[0]) ? vatRates[0] : 0;
+  const primaryRow = rows.find((item: any) => !String(snapshotValue(item, "description") ?? "").trimStart().startsWith("↳ Opsiyon:"));
+  const termsVatRate = Number(snapshotValue(primaryRow, "vatRate", "vat_rate") ?? vatRates[0] ?? 0);
   const companyName = String(snapshotValue(company, "legalTitle", "legal_title", "shortName", "short_name") ?? "");
   const fullAddress = String(snapshotValue(address, "fullAddress", "full_address") ?? [
     snapshotValue(address, "street"),
@@ -102,6 +111,7 @@ const proformaFromSnapshot = (
   const variant = resolveProformaNotes(variantKey, {
     alici: companyName,
     yil: new Date(doc.uploadedAt || snapshot.capturedAt || Date.now()).getFullYear(),
+    kdvOrani: termsVatRate,
   });
   return {
     firma: companyName,
@@ -115,14 +125,17 @@ const proformaFromSnapshot = (
     tarih: trLongDate(doc.uploadedAt || snapshot.capturedAt) || trLongDate(new Date()),
     belgeNo: doc.fileName,
     items,
-    headerDiscount: 0,
+    headerDiscount,
     kdvOran,
     kdvTutar: Number(snapshotValue(quote, "vatAmount", "vat_amount") ?? 0),
     currency: String(snapshotValue(snapshot.currency, "code") ?? "USD") as ProformaPrintData["currency"],
-    notlar: variant ?? [payment, delivery, warranty, snapshotValue(quote, "notes")]
-      .flatMap((value) => String(value ?? "").split(/\r?\n/))
-      .map((value) => value.trim())
-      .filter(Boolean),
+    notlar: variant ?? applyVatRateToNotes(
+      [payment, delivery, warranty, snapshotValue(quote, "notes")]
+        .flatMap((value) => String(value ?? "").split(/\r?\n/))
+        .map((value) => value.trim())
+        .filter(Boolean),
+      termsVatRate,
+    ),
   };
 };
 
@@ -183,21 +196,26 @@ const itemsFromQuote = (quote: QuoteDetail, products: Product[], sc: SalesCase |
   const rows = (quote.items ?? []).filter((it: any) => String(it?.description ?? "").trim());
   if (!rows.length) return [];
 
-  const lineDiscount = rows.reduce((sum: number, item: any) => sum + Number(item.discountAmount ?? 0), 0);
-  const headerDiscount = Math.max(Number(quote.discountTotal ?? 0) - lineDiscount, 0);
-  const taxableBeforeHeader = rows.reduce((sum: number, item: any) => {
-    const qty = Number(item.quantity ?? 1);
-    const unitPrice = Number(item.unitPrice ?? 0);
-    return sum + Number(item.lineTotal ?? qty * unitPrice - Number(item.discountAmount ?? 0));
-  }, 0);
-  const headerRatio = taxableBeforeHeader > 0
-    ? Math.max(0, taxableBeforeHeader - headerDiscount) / taxableBeforeHeader
-    : 1;
+  const customsAllocations = allocateCustomsTotal(
+    rows,
+    Number(quote.customsTotal ?? 0),
+    (item: any) => {
+      if (!item.nationalized) return false;
+      const product = findProduct(products, {
+        productModelId: item.productModelId ?? undefined,
+        description: item.description,
+        modelHint: sc?.requestedModel,
+      });
+      return !product?.productTypeCode || isMachiningCenterTypeCode(product.productTypeCode);
+    },
+    (item: any) => Number(item.quantity ?? 0) * Number(item.unitPrice ?? 0),
+  );
 
-  return rows.map((it: any) => {
+  return rows.map((it: any, index: number) => {
     const qty = Number(it.quantity ?? 1);
     const unitPrice = Number(it.unitPrice ?? 0);
-    const lineTotal = Number(it.lineTotal ?? qty * unitPrice - Number(it.discountAmount ?? 0)) * headerRatio;
+    const discount = Number(it.discountAmount ?? 0);
+    const customsAllocation = customsAllocations[index] ?? 0;
     const product = findProduct(products, {
       productModelId: it.productModelId ?? undefined,
       description: it.description,
@@ -214,8 +232,9 @@ const itemsFromQuote = (quote: QuoteDetail, products: Product[], sc: SalesCase |
       mensei: isLabor ? undefined : product?.originCountry,
       gtip: isLabor ? undefined : product?.hsCode,
       birim: formatBirim(qty, it.unit?.code ?? it.unitCode),
-      birimFiyati: qty > 0 ? lineTotal / qty : 0,
-      tutar: lineTotal,
+      birimFiyati: qty > 0 ? unitPrice + customsAllocation / qty : unitPrice,
+      iskonto: discount,
+      tutar: qty * unitPrice + customsAllocation,
     };
   });
 };
@@ -292,7 +311,16 @@ export function buildProformaPrintData(
     tarih: trLongDate(doc.uploadedAt) || trLongDate(new Date()),
     belgeNo: doc.fileName,
     items,
-    headerDiscount: 0,
+    headerDiscount: quoteDetail
+      ? Math.max(
+          Number(quoteDetail.discountTotal ?? 0)
+            - (quoteDetail.items ?? []).reduce(
+                (sum: number, item: { discountAmount?: unknown }) => sum + Number(item.discountAmount ?? 0),
+                0,
+              ),
+          0,
+        )
+      : 0,
     kdvOran,
     kdvTutar: Number(
       quoteDetail?.vatAmount ??
@@ -314,6 +342,7 @@ export function buildProformaPrintData(
       const ctx = {
         alici: cust?.name,
         yil: new Date(doc.uploadedAt || offer?.date || Date.now()).getFullYear(),
+        kdvOrani: enteredVatRates.find((rate: number) => rate > 0) ?? kdvOran,
       };
       const payment = String(quoteDetail?.terms?.paymentTermsText ?? quoteDetail?.paymentTerms ?? "");
       const delivery = String(quoteDetail?.terms?.deliveryTermsText ?? quoteDetail?.deliveryTerms ?? "");
@@ -331,10 +360,13 @@ export function buildProformaPrintData(
       }
 
       // (3) Eşleşme yoksa teklifin ham şart metinleri + serbest not.
-      return [payment, delivery, warranty, quoteDetail?.notes ?? offer?.note]
-        .flatMap((value) => String(value ?? "").split(/\r?\n/))
-        .map((value) => value.trim())
-        .filter(Boolean);
+      return applyVatRateToNotes(
+        [payment, delivery, warranty, quoteDetail?.notes ?? offer?.note]
+          .flatMap((value) => String(value ?? "").split(/\r?\n/))
+          .map((value) => value.trim())
+          .filter(Boolean),
+        ctx.kdvOrani,
+      );
     })(),
   };
 }

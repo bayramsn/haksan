@@ -53,9 +53,12 @@ export type ProductSpecCreateInput = z.infer<typeof productSpecCreateSchema>;
 export const productSpecTemplateCreateSchema = z.object({
   productTypeCode: z.string().min(1).max(64),
   specKey: z.string().min(1).max(255),
-  specGroupCode: z.string().max(64).optional(),
-  defaultValue: z.string().max(2000).optional(),
-  specUnit: z.string().max(64).optional(),
+  // `null` = alanı temizle, `undefined` = alana hiç dokunma. Batch güncellemede
+  // `.set()` yalnız gönderilen kolonlara yazdığı için ayrım şarttır: boşaltılan
+  // değer `undefined` gider ve kolon güncellenmezse eski değer geri gelir.
+  specGroupCode: z.string().max(64).nullish(),
+  defaultValue: z.string().max(2000).nullish(),
+  specUnit: z.string().max(64).nullish(),
   // Bölüm (CNC / Üniversal / Sac İşleme). Boş/null → tüm bölümlerde ("Tümü").
   divisionId: z.string().uuid().nullish(),
   sortOrder: z.coerce.number().int().default(0),
@@ -77,6 +80,12 @@ export const productSpecTemplateBatchItemSchema = productSpecTemplateCreateSchem
 });
 
 export const productSpecTemplateBatchSchema = z.object({
+  // Kaydın kapsamı. `pruneMissing` ile birlikte gönderildiğinde bu (ürün tipi +
+  // bölüm) kapsamında olup `items` içinde bulunmayan alanlar tombstone'lanır;
+  // böylece çalışma sayfasından çıkarılan alan aynı transaction içinde silinir.
+  productTypeCode: z.string().min(1).max(64).optional(),
+  divisionId: z.string().uuid().nullish(),
+  pruneMissing: z.boolean().default(false),
   items: z.array(productSpecTemplateBatchItemSchema).min(1).max(1000),
 });
 export type ProductSpecTemplateBatchInput = z.infer<typeof productSpecTemplateBatchSchema>;

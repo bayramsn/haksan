@@ -64,7 +64,8 @@ export function PriceListPicker({ visible, onClose, onPick }: Props) {
     void productService.listPriceLists({ pageSize: 20 }).then((res) => {
       const rows = normalizeList(res);
       setLists(rows);
-      if (rows[0]?.id) setListId(String(rows[0].id));
+      const defaultList = rows.find((row) => row.isActive === true) ?? rows[0];
+      setListId(defaultList?.id ? String(defaultList.id) : null);
     });
   }, [visible]);
 

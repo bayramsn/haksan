@@ -47,9 +47,9 @@ export function KanbanDetailDialogShell({
         </div>
       </div>
       <div className={cn("grid min-h-0 min-w-0 flex-1 grid-cols-1 overflow-hidden lg:grid-cols-[minmax(0,1fr)_400px]", bodyClassName)}>
-        <main className={cn("min-h-0 min-w-0 overflow-x-hidden overflow-y-auto bg-white px-4 py-4 sm:px-6", contentClassName)}>
+        <section className={cn("min-h-0 min-w-0 overflow-x-hidden overflow-y-auto bg-white px-4 py-4 sm:px-6", contentClassName)} aria-label="Kayıt çalışma alanı içeriği">
           {children}
-        </main>
+        </section>
         <aside
           className={cn(
             "min-h-0 overflow-y-auto border-t border-border/70 bg-[#f3f4f6] px-4 py-4 lg:border-l lg:border-t-0",
@@ -64,7 +64,7 @@ export function KanbanDetailDialogShell({
         </aside>
       </div>
       {mobileFooter && (
-        <div className="shrink-0 border-t border-slate-200 bg-white px-3 py-2 sm:hidden">
+        <div className="shrink-0 border-t border-slate-200 bg-white px-3 pt-2 pb-[max(.5rem,env(safe-area-inset-bottom))] sm:hidden">
           {mobileFooter}
         </div>
       )}

@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import type {
   LeadContactChannelCode,
   LeadContactOutcomeCode,
@@ -6,15 +7,12 @@ import type {
 import {
   AlarmClock,
   ArrowRight,
-  CheckCircle2,
-  Clock3,
   Loader2,
   Mail,
   MessageCircle,
   Phone,
   Save,
-  ShieldAlert,
-  Sparkles,
+  SlidersHorizontal,
   UserRound,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -22,8 +20,7 @@ import { ApiError } from "../../../lib/apiClient";
 import { opportunityService } from "../../../lib/services";
 import { useStore } from "../../lib/store";
 import type { SalesCase, User } from "../../lib/mock";
-import { actionDateLabel, isActionOverdue, NextActionDialog } from "../shared/NextActionDialog";
-import { Badge } from "../ui/badge";
+import { NextActionDialog } from "../shared/NextActionDialog";
 import { Button } from "../ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
 import {
@@ -38,6 +35,7 @@ import { Input } from "../ui/input";
 import { Label } from "../ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
 import { Textarea } from "../ui/textarea";
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from "../ui/sheet";
 
 const CHANNEL_LABELS: Record<LeadContactChannelCode, string> = {
   phone: "Telefon",
@@ -93,6 +91,8 @@ function ContactResultDialog({
   const [nextAction, setNextAction] = useState(salesCase.nextAction ?? "");
   const [nextActionAt, setNextActionAt] = useState(localDateTime(salesCase.nextActionAt));
   const [saving, setSaving] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
+  const idempotencyKeyRef = useRef(newIdempotencyKey());
 
   useEffect(() => {
     if (!open) return;
@@ -101,18 +101,21 @@ function ContactResultDialog({
     setNote("");
     setNextAction(salesCase.nextAction ?? "");
     setNextActionAt(localDateTime(salesCase.nextActionAt));
+    setFormError(null);
+    idempotencyKeyRef.current = newIdempotencyKey();
   }, [initialChannel, open, salesCase.nextAction, salesCase.nextActionAt]);
 
   const save = async () => {
     if (saving) return;
     if (nextActionAt && !nextAction.trim()) {
-      toast.error("Takip tarihi için sonraki aksiyon zorunlu");
+      setFormError("Takip tarihi seçildiğinde sonraki aksiyon zorunludur.");
       return;
     }
+    setFormError(null);
     setSaving(true);
     try {
       await opportunityService.recordContact(salesCase.id, {
-        idempotencyKey: newIdempotencyKey(),
+        idempotencyKey: idempotencyKeyRef.current,
         channel,
         outcome,
         note: note.trim() || undefined,
@@ -120,6 +123,7 @@ function ContactResultDialog({
         nextActionAt: nextActionAt ? new Date(nextActionAt) : null,
       });
       await refresh();
+      idempotencyKeyRef.current = newIdempotencyKey();
       onOpenChange(false);
       toast.success("Temas sonucu kaydedildi", {
         description: `${CHANNEL_LABELS[channel]} · ${OUTCOME_LABELS[outcome]}`,
@@ -128,6 +132,7 @@ function ContactResultDialog({
       toast.error("Temas sonucu kaydedilemedi", {
         description: error?.message ?? "İstek başarısız oldu.",
       });
+      setFormError(error?.message ?? "Temas sonucu kaydedilemedi. Taslağınız korunuyor.");
     } finally {
       setSaving(false);
     }
@@ -186,6 +191,8 @@ function ContactResultDialog({
               onChange={(event) => setNextAction(event.target.value)}
               maxLength={1000}
               className="mt-1.5"
+              aria-invalid={Boolean(formError && nextActionAt && !nextAction.trim())}
+              aria-describedby={formError ? "lead-contact-error" : undefined}
               placeholder="Teknik föy gönder"
             />
           </div>
@@ -197,9 +204,11 @@ function ContactResultDialog({
               value={nextActionAt}
               onChange={(event) => setNextActionAt(event.target.value)}
               className="mt-1.5"
+              aria-describedby={formError ? "lead-contact-error" : undefined}
             />
           </div>
         </div>
+        {formError && <p id="lead-contact-error" role="alert" className="text-sm text-red-700">{formError}</p>}
         <DialogFooter>
           <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>Vazgeç</Button>
           <Button type="button" onClick={() => void save()} disabled={saving}>
@@ -280,6 +289,13 @@ export function DecisionRail({
   canUpdate,
   canAssignOwner,
   onOwnerChanged,
+  mobilePortalId,
+  otherActions,
+  contactPhone,
+  contactEmail,
+  whatsappNumber,
+  primaryAction,
+  useLeadConversionAsPrimary = false,
 }: {
   salesCase: SalesCase;
   ownerName?: string;
@@ -287,6 +303,13 @@ export function DecisionRail({
   canUpdate: boolean;
   canAssignOwner: boolean;
   onOwnerChanged?: () => Promise<void> | void;
+  mobilePortalId?: string;
+  otherActions?: ReactNode;
+  contactPhone?: string;
+  contactEmail?: string;
+  whatsappNumber?: string;
+  primaryAction?: ReactNode;
+  useLeadConversionAsPrimary?: boolean;
 }) {
   const { convertCase, refresh, updateCase } = useStore();
   const isLead = salesCase.qualificationStage === "lead";
@@ -296,8 +319,10 @@ export function DecisionRail({
   const [overrideBlockers, setOverrideBlockers] = useState<string[]>([]);
   const [converting, setConverting] = useState(false);
   const [assigningOwner, setAssigningOwner] = useState(false);
-  const health = salesCase.qualificationReadiness?.health;
-  const insights = salesCase.leadInsights;
+  const [mobilePortalTarget, setMobilePortalTarget] = useState<HTMLElement | null>(null);
+  useEffect(() => {
+    setMobilePortalTarget(mobilePortalId ? document.getElementById(mobilePortalId) : null);
+  }, [mobilePortalId, salesCase.id]);
   const ownerCandidates = useMemo(
     () => users.filter((candidate) => (
       (candidate.active || candidate.id === salesCase.assignedUserId)
@@ -312,15 +337,15 @@ export function DecisionRail({
   );
 
   const contactUri = (channel: LeadContactChannelCode) => {
-    if (channel === "email") return salesCase.leadEmail ? `mailto:${salesCase.leadEmail}` : null;
-    const digits = (salesCase.leadPhone || salesCase.leadContactValue || "").replace(/\D/g, "");
+    if (channel === "email") return contactEmail ? `mailto:${contactEmail}` : null;
+    const digits = (contactPhone || salesCase.leadPhone || salesCase.leadContactValue || "").replace(/\D/g, "");
     if (!digits) return null;
-    return channel === "whatsapp" ? `https://wa.me/${digits}` : `tel:${digits}`;
+    return channel === "whatsapp" ? `https://wa.me/${whatsappNumber || digits}` : `tel:${digits}`;
   };
 
   const startContact = (channel: LeadContactChannelCode) => {
     setContactChannel(channel);
-    setContactOpen(true);
+    if (isLead && canUpdate) setContactOpen(true);
     const uri = contactUri(channel);
     if (!uri) {
       toast.message(`${CHANNEL_LABELS[channel]} bilgisi eksik`);
@@ -399,13 +424,65 @@ export function DecisionRail({
     </Select>
   );
 
+  const primaryCommand = useLeadConversionAsPrimary && canUpdate ? (
+    <Button
+      type="button"
+      data-workspace-primary="convert"
+      className="h-11 w-full justify-between bg-[#CF060C] hover:bg-[#a90409]"
+      disabled={converting || salesCase.leadFollowUpStatus === "disqualified"}
+      onClick={() => void convert()}
+    >
+      {converting ? "Kontrol ediliyor…" : "Fırsata dönüştür"}
+      <ArrowRight className="size-4" />
+    </Button>
+  ) : primaryAction ?? (!isLead && canUpdate ? (
+    <NextActionDialog
+      salesCase={salesCase}
+      onSave={(patch) => updateCase(salesCase.id, patch)}
+      trigger={<Button type="button" className="h-11 w-full gap-1.5"><AlarmClock className="size-4" /> {salesCase.nextAction ? "Aksiyonu düzenle" : "Aksiyon planla"}</Button>}
+    />
+  ) : null);
+
+  const quickContactActions = (
+    <div>
+      <div className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Hızlı temas</div>
+      <div className="grid grid-cols-3 gap-2">
+        <Button type="button" variant="outline" size="sm" className="h-11 px-2" onClick={() => startContact("phone")}><Phone className="size-4" /><span className="sr-only">Ara</span></Button>
+        <Button type="button" variant="outline" size="sm" className="h-11 px-2" onClick={() => startContact("email")}><Mail className="size-4" /><span className="sr-only">E-posta</span></Button>
+        <Button type="button" variant="outline" size="sm" className="h-11 px-2" onClick={() => startContact("whatsapp")}><MessageCircle className="size-4" /><span className="sr-only">WhatsApp</span></Button>
+      </div>
+      {isLead && canUpdate && <Button type="button" variant="ghost" size="sm" className="mt-2 min-h-11 w-full text-xs sm:min-h-8" onClick={() => setContactOpen(true)}>Temas sonucunu kaydet</Button>}
+    </div>
+  );
+
+  const actionContents = (
+    <div className="space-y-4">
+      <div>
+        <div className="flex items-center justify-between gap-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+          <span>Sorumlu</span>
+          {assigningOwner && <span aria-live="polite">Devrediliyor…</span>}
+        </div>
+        {canAssignOwner ? ownerSelect() : <div className="mt-1 text-sm font-medium">{ownerName || "Sahipsiz havuz"}</div>}
+      </div>
+      {quickContactActions}
+      {canUpdate && (
+        <NextActionDialog
+          salesCase={salesCase}
+          onSave={(patch) => updateCase(salesCase.id, patch)}
+          trigger={<Button type="button" variant="outline" className="h-11 w-full gap-1.5"><AlarmClock className="size-4" /> {salesCase.nextAction ? "Aksiyonu düzenle" : "Aksiyon planla"}</Button>}
+        />
+      )}
+      {otherActions && <div className="space-y-3 border-t border-slate-200 pt-4">{otherActions}</div>}
+    </div>
+  );
+
   const rail = (
-    <aside className="space-y-3 lg:sticky lg:top-3" aria-label="Karar Rayı">
+    <aside className="space-y-3 lg:sticky lg:top-3" aria-label="Çalışma alanı komutları">
       <div className="overflow-hidden rounded-xl border border-[#0b2453]/20 bg-white shadow-sm">
         <div className="flex items-center justify-between bg-[#0b2453] px-4 py-3 text-white">
           <div>
-            <div className="font-data text-[9px] font-semibold uppercase tracking-[0.18em] text-blue-100">Karar Rayı</div>
-            <div className="mt-0.5 font-display text-lg font-semibold">Şimdi ne yapılmalı?</div>
+            <div className="font-data text-[9px] font-semibold uppercase tracking-[0.18em] text-blue-100">Komutlar</div>
+            <div className="mt-0.5 font-display text-lg font-semibold">Kaydı ilerlet</div>
           </div>
           <span className="h-8 w-px bg-red-500" aria-hidden="true" />
         </div>
@@ -428,108 +505,31 @@ export function DecisionRail({
               </div>
             </div>
           </div>
-          <div className={`rounded-r-lg border-l-[3px] px-3 py-2.5 ${
-            health?.leadSlaBreached || health?.actionOverdue
-              ? "border-red-600 bg-red-50"
-              : "border-emerald-600 bg-emerald-50"
-          }`}>
-            <div className="flex items-center justify-between gap-2">
-              <span className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide">
-                {health?.leadSlaBreached ? <ShieldAlert className="size-3.5 text-red-700" /> : <CheckCircle2 className="size-3.5 text-emerald-700" />}
-                Sağlık / SLA
-              </span>
-              {isLead && insights && <Badge variant="outline" className="bg-white font-data">%{insights.priorityScore}</Badge>}
-            </div>
-            <div className="mt-1 text-xs">
-              {health?.leadSlaBreached
-                ? `SLA aşıldı · ${health.leadStatusAgeHours ?? 0} saat`
-                : health?.actionOverdue
-                  ? "Sonraki aksiyon gecikti"
-                  : isLead
-                    ? `SLA içinde · ${health?.leadSlaHours ?? "—"} saat hedef`
-                    : "Kayıt akışı sağlıklı"}
-            </div>
-          </div>
-          <div>
-            <div className="flex items-center justify-between gap-2 text-[10px] uppercase tracking-wide text-muted-foreground">
-              <span className="inline-flex items-center gap-1"><Clock3 className="size-3.5" /> Sonraki aksiyon</span>
-              <span className={isActionOverdue(salesCase.nextActionAt) ? "font-semibold text-red-700" : ""}>
-                {actionDateLabel(salesCase.nextActionAt)}
-              </span>
-            </div>
-            <div className="mt-1.5 text-sm font-medium">{salesCase.nextAction || "Aksiyon planlanmadı"}</div>
-            {canUpdate && (
-              <NextActionDialog
-                salesCase={salesCase}
-                onSave={(patch) => updateCase(salesCase.id, patch)}
-                trigger={<Button type="button" variant="outline" size="sm" className="mt-2 w-full gap-1.5"><AlarmClock className="size-3.5" /> Aksiyon planla</Button>}
-              />
-            )}
-          </div>
-          {isLead && (
-            <div>
-              <div className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Hızlı temas</div>
-              <div className="grid grid-cols-3 gap-2">
-                <Button type="button" variant="outline" size="sm" className="h-11 px-2" onClick={() => startContact("phone")}><Phone className="size-4" /><span className="sr-only">Ara</span></Button>
-                <Button type="button" variant="outline" size="sm" className="h-11 px-2" onClick={() => startContact("email")}><Mail className="size-4" /><span className="sr-only">E-posta</span></Button>
-                <Button type="button" variant="outline" size="sm" className="h-11 px-2" onClick={() => startContact("whatsapp")}><MessageCircle className="size-4" /><span className="sr-only">WhatsApp</span></Button>
-              </div>
-              <Button type="button" variant="ghost" size="sm" className="mt-2 w-full text-xs" onClick={() => setContactOpen(true)}>
-                Temas sonucunu kaydet
-              </Button>
-            </div>
-          )}
-          <div className="border-t border-slate-200 pt-3">
-            {isLead ? (
-              <Button
-                type="button"
-                className="h-10 w-full justify-between bg-[#CF060C] hover:bg-[#a90409]"
-                disabled={!canUpdate || converting || salesCase.leadFollowUpStatus === "disqualified"}
-                onClick={() => void convert()}
-              >
-                {converting ? "Kontrol ediliyor…" : "Fırsata dönüştür"}
-                <ArrowRight className="size-4" />
-              </Button>
-            ) : (
-              <div className="rounded-lg bg-[#F4F6F8] p-3 text-xs leading-5">
-                <div className="inline-flex items-center gap-1 font-semibold text-[#0b2453]"><Sparkles className="size-3.5" /> Öncelikli işlem</div>
-                <div className="mt-1">{salesCase.nextAction || "Bir sonraki somut aksiyonu planlayın."}</div>
-              </div>
-            )}
-          </div>
+          {quickContactActions}
+          {primaryCommand && <div className="border-t border-slate-200 pt-3">{primaryCommand}</div>}
+          {otherActions && <div className="border-t border-slate-200 pt-3">{otherActions}</div>}
         </div>
       </div>
     </aside>
   );
 
+  const mobileDock = (
+    <div data-testid="workspace-mobile-dock" className={`grid gap-2 lg:hidden ${primaryCommand ? "grid-cols-[auto_minmax(0,1fr)]" : "grid-cols-1"}`}>
+      <Sheet>
+        <SheetTrigger asChild><Button type="button" variant="outline" className="h-11 gap-1.5"><SlidersHorizontal className="size-4" /> İşlemler</Button></SheetTrigger>
+        <SheetContent side="bottom" className="max-h-[85dvh] overflow-y-auto rounded-t-2xl pb-[max(1rem,env(safe-area-inset-bottom))]">
+          <SheetHeader><SheetTitle>Çalışma alanı işlemleri</SheetTitle><SheetDescription>Sorumlu, temas, takip ve diğer kayıt işlemleri.</SheetDescription></SheetHeader>
+          <div className="px-4 pb-4">{actionContents}</div>
+        </SheetContent>
+      </Sheet>
+      {primaryCommand}
+    </div>
+  );
+
   return (
     <>
       <div className="hidden lg:block">{rail}</div>
-      <div className="fixed inset-x-0 bottom-0 z-50 border-t border-slate-200 bg-white/95 px-3 pt-3 pb-[max(.75rem,env(safe-area-inset-bottom))] shadow-[0_-8px_24px_rgba(15,23,42,.08)] backdrop-blur lg:hidden">
-        {canAssignOwner && (
-          <div className="mb-2 grid grid-cols-[auto_minmax(0,1fr)] items-center gap-2">
-            <span className="inline-flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-[#0b2453]">
-              {assigningOwner ? <Loader2 className="size-3.5 animate-spin motion-reduce:animate-none" /> : <UserRound className="size-3.5 text-[#2457D6]" />}
-              Sorumlu
-            </span>
-            {ownerSelect(true)}
-          </div>
-        )}
-        <div className="grid grid-cols-[auto_1fr] gap-2">
-          {isLead && (
-            <Button type="button" variant="outline" size="icon" className="size-11" onClick={() => setContactOpen(true)}>
-              <Phone className="size-4" /><span className="sr-only">Temas sonucu kaydet</span>
-            </Button>
-          )}
-          {isLead ? (
-            <Button type="button" className="h-11 justify-between bg-[#CF060C]" disabled={!canUpdate || converting || salesCase.leadFollowUpStatus === "disqualified"} onClick={() => void convert()}>
-              Fırsata dönüştür <ArrowRight className="size-4" />
-            </Button>
-          ) : (
-            <NextActionDialog salesCase={salesCase} onSave={(patch) => updateCase(salesCase.id, patch)} trigger={<Button className="h-11 w-full"><AlarmClock className="size-4" /> Aksiyon planla</Button>} />
-          )}
-        </div>
-      </div>
+      {mobilePortalTarget ? createPortal(mobileDock, mobilePortalTarget) : null}
       {isLead && (
         <>
           <ContactResultDialog

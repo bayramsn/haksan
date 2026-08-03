@@ -44,6 +44,7 @@ describe('Lead assignment rules', () => {
         .send({
           fullName: `Lead Assignment ${label} ${suffix}`,
           email: `lead-assignment-${label}-${suffix}@haksan.local`,
+          username: `lead-${label}-${suffix}`.slice(0, 32),
           password: 'leadAssignment12345',
           departmentId: salesDepartment.id,
           roleCodes: ['sales'],

@@ -19,4 +19,12 @@ describe("lead ve fırsat çalışma alanı sorumlu değişikliği", () => {
     expect(workspaceSource).toContain('"opportunity.owner_changed": "Sorumlu değiştirildi"');
     expect(workspaceSource).toContain('hasRole("sales") || hasRole("super_admin")');
   });
+
+  it("fırsat zaman çizelgesinde yalnızca elle eklenen yorumları gösterir", () => {
+    expect(workspaceSource).toContain('activity.origin === "manual"');
+    expect(workspaceSource).toContain('activity.typeCode === "note"');
+    expect(workspaceSource).toContain('opportunityActivities.filter(isManualTimelineComment)');
+    expect(workspaceSource).toContain('if (!isLead) return items.sort');
+    expect(workspaceSource).toContain('"Yalnızca kullanıcıların elle eklediği yorumlar gösterilir."');
+  });
 });

@@ -1,5 +1,5 @@
-import { useState, type ReactNode } from "react";
-import { Download, Eye, FileText } from "lucide-react";
+import { forwardRef, useState, type ReactNode } from "react";
+import { AlertTriangle, ArrowRight, CalendarClock, Download, Eye, FileText, ShieldCheck, UserRound } from "lucide-react";
 import type { DocumentItem } from "../../lib/mock";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
@@ -25,6 +25,88 @@ export function RecordWorkspaceShell({ children, rail }: { children: ReactNode; 
     </div>
   );
 }
+
+export type WorkspaceDecisionRisk = {
+  key: string;
+  label: string;
+  detail?: string;
+  tone?: "warning" | "danger";
+};
+
+export type WorkspaceDecisionModel = {
+  nextAction: string;
+  nextActionDate: string;
+  nextActionOverdue: boolean;
+  ownerName: string;
+  currentStage: string;
+  nextStage: string;
+  blockerCount: number;
+  risks: WorkspaceDecisionRisk[];
+  terminalLabel?: string;
+};
+
+export const WorkspaceDecisionSummary = forwardRef<HTMLElement, {
+  model: WorkspaceDecisionModel;
+  primaryAction?: ReactNode;
+}>(function WorkspaceDecisionSummary({ model, primaryAction }, ref) {
+  return (
+    <section
+      ref={ref}
+      tabIndex={-1}
+      aria-labelledby="workspace-decision-title"
+      data-testid="workspace-decision-summary"
+      className="scroll-mt-4 overflow-hidden rounded-xl border border-[#0b2453]/20 bg-white shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-[#2457D6]"
+    >
+      <div className="h-1 bg-[linear-gradient(90deg,#0b2453_0%,#2457D6_70%,#CF060C_70%)]" />
+      <div className="grid gap-4 p-4 sm:p-5 lg:grid-cols-[minmax(0,1.1fr)_minmax(220px,.8fr)_auto] lg:items-start">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2 id="workspace-decision-title" className="font-display text-xl font-semibold text-[#0b1739]">Sıradaki iş ve risk</h2>
+              <p className="mt-1 text-xs text-muted-foreground">CRM verilerinden üretilen karar özeti; AI önerisi içermez.</p>
+            </div>
+            {model.terminalLabel && <Badge className="bg-slate-700">{model.terminalLabel}</Badge>}
+          </div>
+          <div className={`mt-4 rounded-r-lg border-l-[3px] px-3 py-3 ${model.nextActionOverdue ? "border-red-600 bg-red-50" : "border-[#2457D6] bg-blue-50"}`}>
+            <div className="font-data text-[9px] font-semibold uppercase tracking-[0.13em] text-muted-foreground">Sonraki aksiyon</div>
+            <div className="mt-1 break-words text-sm font-semibold text-[#0b1739]">{model.nextAction}</div>
+            <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+              <span className={`inline-flex items-center gap-1.5 ${model.nextActionOverdue ? "font-semibold text-red-700" : ""}`}><CalendarClock className="size-3.5" /> {model.nextActionDate}</span>
+              <span className="inline-flex items-center gap-1.5"><UserRound className="size-3.5" /> {model.ownerName}</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="min-w-0 space-y-3">
+          <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3">
+            <div className="min-w-0"><div className="text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">Mevcut</div><div className="mt-1 truncate text-sm font-semibold" title={model.currentStage}>{model.currentStage}</div></div>
+            <ArrowRight className="size-4 text-[#2457D6]" aria-hidden="true" />
+            <div className="min-w-0"><div className="text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">Sıradaki</div><div className="mt-1 truncate text-sm font-semibold" title={model.nextStage}>{model.nextStage}</div></div>
+          </div>
+          <div className="flex items-center justify-between gap-3 text-xs">
+            <span className="inline-flex items-center gap-1.5 font-medium text-[#0b1739]"><ShieldCheck className="size-4 text-[#2457D6]" /> Geçiş engelleri</span>
+            <Badge variant="outline" className={model.blockerCount ? "border-amber-200 bg-amber-50 text-amber-800" : "border-emerald-200 bg-emerald-50 text-emerald-800"}>{model.blockerCount}</Badge>
+          </div>
+        </div>
+
+        <div className="min-w-0 lg:w-64">
+          <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Öncelikli riskler</div>
+          {model.risks.length ? (
+            <ul className="mt-2 space-y-2">
+              {model.risks.map((risk) => (
+                <li key={risk.key} className={`flex gap-2 rounded-lg border px-2.5 py-2 text-xs ${risk.tone === "danger" ? "border-red-200 bg-red-50 text-red-900" : "border-amber-200 bg-amber-50 text-amber-900"}`}>
+                  <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
+                  <span><span className="font-semibold">{risk.label}</span>{risk.detail && <span className="block opacity-80">{risk.detail}</span>}</span>
+                </li>
+              ))}
+            </ul>
+          ) : <div className="mt-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">Kritik risk görünmüyor.</div>}
+          {primaryAction && <div className="mt-3 [&_button]:min-h-11 [&_button]:w-full">{primaryAction}</div>}
+        </div>
+      </div>
+    </section>
+  );
+});
 
 export function HealthStrip({
   items,
@@ -62,6 +144,7 @@ export type UnifiedTimelineItem = {
   title: string;
   detail?: string;
   actor?: string;
+  sourceActivityId?: string;
 };
 
 export function UnifiedTimeline({
@@ -69,11 +152,13 @@ export function UnifiedTimeline({
   focusedId,
   formatDate,
   emptyLabel = "Zaman çizelgesi kaydı yok.",
+  renderActions,
 }: {
   items: UnifiedTimelineItem[];
   focusedId?: string | null;
   formatDate: (value: string, withTime?: boolean) => string;
   emptyLabel?: string;
+  renderActions?: (item: UnifiedTimelineItem) => ReactNode;
 }) {
   if (!items.length) {
     return <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 px-4 py-8 text-center text-sm text-muted-foreground">{emptyLabel}</div>;
@@ -98,7 +183,10 @@ export function UnifiedTimeline({
               {item.actor && <span>· {item.actor}</span>}
               {focused && <Badge className="bg-amber-600 px-1.5 py-0 text-[9px]">Bahsetme</Badge>}
             </div>
-            <div className="mt-1 text-sm font-medium">{item.title}</div>
+            <div className="mt-1 flex items-start justify-between gap-3">
+              <div className="min-w-0 text-sm font-medium">{item.title}</div>
+              {renderActions && <div className="shrink-0">{renderActions(item)}</div>}
+            </div>
             {item.detail && <div className="mt-1 whitespace-pre-wrap text-xs leading-5 text-muted-foreground">{item.detail}</div>}
           </li>
         );

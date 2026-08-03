@@ -7,10 +7,13 @@ import {
   UserRound,
 } from "lucide-react";
 import { toast } from "sonner";
+import { useAuth } from "../../../lib/auth";
 import { useStore } from "../../lib/store";
 import {
+  QUALIFICATION_STAGE_DESCRIPTIONS,
   QUALIFICATION_STAGE_LABELS,
   QUALIFICATION_STAGES,
+  opportunityTransitionErrorMessage,
   type QualificationStage,
   type SalesCase,
 } from "../../lib/mock";
@@ -41,45 +44,38 @@ import { actionDateLabel, isActionOverdue } from "../shared/NextActionDialog";
 type ActiveQualificationStage = Exclude<QualificationStage, "lead">;
 const ACTIVE_QUALIFICATION_STAGES = QUALIFICATION_STAGES as ActiveQualificationStage[];
 
-const STAGE_META: Record<
-  ActiveQualificationStage,
-  { color: string; dot: string; surface: string; description: string }
-> = {
+// Kolon açıklaması burada tutulmaz; Türkçe derece metinleri tek kaynaktan
+// (mock.ts#QUALIFICATION_STAGE_DESCRIPTIONS) okunur.
+const STAGE_META: Record<ActiveQualificationStage, { color: string; dot: string; surface: string }> = {
   c: {
     color: "#64748B",
     dot: "bg-slate-500",
     surface: "bg-slate-50 text-slate-700",
-    description: "Firma verisi",
   },
   b: {
     color: "#2563EB",
     dot: "bg-blue-600",
     surface: "bg-blue-50 text-blue-700",
-    description: "Temas ve ihtiyaç",
   },
   a: {
     color: "#4F46E5",
     dot: "bg-indigo-600",
     surface: "bg-indigo-50 text-indigo-700",
-    description: "Ticari şartlar",
   },
   a_plus: {
     color: "#D97706",
     dot: "bg-amber-600",
     surface: "bg-amber-50 text-amber-700",
-    description: "Operasyon onayları",
   },
   win: {
     color: "#059669",
     dot: "bg-emerald-600",
     surface: "bg-emerald-50 text-emerald-700",
-    description: "Kazanıldı",
   },
   lost: {
     color: "#DC2626",
     dot: "bg-red-600",
     surface: "bg-red-50 text-red-700",
-    description: "Kaybedildi",
   },
 };
 
@@ -93,6 +89,8 @@ export function QualificationKanban({
   onRequestDelete?: (salesCase: SalesCase) => void;
 }) {
   const { customers, moveQualification, closeCase } = useStore();
+  const { hasPermission } = useAuth();
+  const canUpdate = hasPermission("opportunities.update");
   const [lostId, setLostId] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [pendingBackMove, setPendingBackMove] = useState<{
@@ -114,7 +112,7 @@ export function QualificationKanban({
       items: stageItems,
       footer: (
         <div className="flex items-center justify-between">
-          <span>{STAGE_META[stage].description}</span>
+          <span>{QUALIFICATION_STAGE_DESCRIPTIONS[stage]}</span>
           <span>{total.toLocaleString("tr-TR")} €</span>
         </div>
       ),
@@ -122,6 +120,11 @@ export function QualificationKanban({
   });
 
   const move = async (id: string, fromValue: string, toValue: string) => {
+    if (!canUpdate) {
+      toast.error("Bu fırsatı ilerletme yetkiniz bulunmuyor");
+      return;
+    }
+    if (busyId) return;
     const salesCase = items.find((item) => item.id === id);
     if (!salesCase) return;
     const from = fromValue as QualificationStage;
@@ -146,12 +149,9 @@ export function QualificationKanban({
     try {
       await moveQualification(id, to);
       toast.success("Fırsat taşındı", { description: `Yeni derece: ${QUALIFICATION_STAGE_LABELS[to]}` });
-    } catch (error: any) {
-      const blockers = error?.details?.blockers ?? error?.response?.data?.error?.details?.blockers;
+    } catch (error: unknown) {
       toast.error("Fırsat taşınamadı", {
-        description: Array.isArray(blockers) && blockers.length
-          ? blockers.join(" · ")
-          : error?.message ?? "Aşama koşullarını tamamlayın.",
+        description: opportunityTransitionErrorMessage(error, "Aşama koşullarını tamamlayın."),
       });
     } finally {
       setBusyId(null);
@@ -159,7 +159,7 @@ export function QualificationKanban({
   };
 
   const confirmBackMove = async () => {
-    if (!pendingBackMove || !backReason.trim()) return;
+    if (!canUpdate || busyId || !pendingBackMove || !backReason.trim()) return;
     setBusyId(pendingBackMove.salesCase.id);
     try {
       await moveQualification(pendingBackMove.salesCase.id, pendingBackMove.to, { note: backReason });
@@ -179,7 +179,7 @@ export function QualificationKanban({
   };
 
   const archive = async (salesCase: SalesCase) => {
-    if (busyId) return;
+    if (!canUpdate || busyId) return;
     setBusyId(salesCase.id);
     try {
       await closeCase(salesCase.id);
@@ -277,7 +277,6 @@ export function QualificationKanban({
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-x-1.5 font-data text-[9px] font-semibold uppercase tracking-[0.12em] text-[#0b2453]/55">
                       <span>Firma</span>
-                      {company?.companyNo && <span>· No {company.companyNo}</span>}
                     </div>
                     <div className="mt-0.5 line-clamp-2 whitespace-normal break-words [overflow-wrap:anywhere] font-display text-[15px] font-semibold leading-[1.25] text-[#0b1739]">
                       {partyName}
@@ -311,7 +310,7 @@ export function QualificationKanban({
                               return (
                                 <DropdownMenuItem
                                   key={target}
-                                  disabled={target === stage || !allowed}
+                                  disabled={!canUpdate || Boolean(busyId) || target === stage || !allowed}
                                   onSelect={() => void move(salesCase.id, stage, target)}
                                 >
                                   <span className={`size-2 rounded-full ${STAGE_META[target].dot}`} />
@@ -325,7 +324,7 @@ export function QualificationKanban({
                           <>
                             <DropdownMenuSeparator />
                             <DropdownMenuItem
-                              disabled={busyId === salesCase.id}
+                              disabled={!canUpdate || Boolean(busyId)}
                               onSelect={() => void archive(salesCase)}
                             >
                               <Check className="size-3.5" /> Tamamla ve Geçmiş'e al
@@ -337,7 +336,7 @@ export function QualificationKanban({
                             <DropdownMenuSeparator />
                             <DropdownMenuItem
                               className="text-destructive focus:bg-destructive/10 focus:text-destructive"
-                              disabled={busyId === salesCase.id}
+                              disabled={!canUpdate || Boolean(busyId)}
                               onSelect={() => onRequestDelete(salesCase)}
                             >
                               <Trash2 className="size-3.5" /> Fırsat kartını sil

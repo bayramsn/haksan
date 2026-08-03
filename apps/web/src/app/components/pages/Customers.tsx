@@ -402,10 +402,6 @@ export function CustomersPage(_props: { onSelect?: (c: Customer) => void } = {})
                         <span className="truncate">{[c.city, c.district].filter(Boolean).join(" / ") || "Konum yok"}</span>
                       </div>
                       <div className="flex items-center gap-1.5">
-                        <Building2 className="size-3.5 shrink-0" />
-                        <span className="truncate">Firma No: {c.companyNo || "—"}</span>
-                      </div>
-                      <div className="flex items-center gap-1.5">
                         <UserIcon className="size-3.5 shrink-0" />
                         <span className="truncate">{c.contactPerson || "—"}</span>
                         {c.phone && (
@@ -477,7 +473,7 @@ export function CustomersPage(_props: { onSelect?: (c: Customer) => void } = {})
                           {[c.city, c.district].filter(Boolean).join(" / ") || "Konum yok"}
                         </div>
                         <div className="text-[11px] text-muted-foreground/80 mt-0.5 truncate">
-                          Firma No: {c.companyNo || "—"} · {c.type === "company" ? "Kurumsal" : "Bireysel"} · {c.taxNumber || "Kimlik yok"}
+                          {c.type === "company" ? "Kurumsal" : "Bireysel"} · {c.taxNumber || "Kimlik yok"}
                         </div>
                       </div>
                     </div>

@@ -257,7 +257,7 @@ export function CreateProformaDialog({
             <div className="flex items-center justify-between gap-3 border-b border-border/60 bg-muted/20 px-3 py-2.5">
               <div>
                 <p className="text-xs font-semibold">Proforma Fiyatları</p>
-                <p className="mt-0.5 text-[10px] text-muted-foreground">Net birim fiyatları düzenleyebilirsiniz; değişiklik bağlı teklifi etkilemez.</p>
+                <p className="mt-0.5 text-[10px] text-muted-foreground">Brüt birim fiyatları düzenleyebilirsiniz; iskonto proformada ayrıca gösterilir ve değişiklik bağlı teklifi etkilemez.</p>
               </div>
               <span className="shrink-0 font-data text-xs font-semibold text-emerald-600">
                 {proformaSubtotal.toLocaleString("tr-TR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {selectedOffer?.currency ?? ""}
@@ -275,7 +275,7 @@ export function CreateProformaDialog({
                     </div>
                     <div className="text-xs text-muted-foreground sm:text-center">{row.quantity.toLocaleString("tr-TR")} adet</div>
                     <div>
-                      <Label className="sr-only" htmlFor={`proforma-price-${row.quoteItemId}`}>Net birim fiyat</Label>
+                      <Label className="sr-only" htmlFor={`proforma-price-${row.quoteItemId}`}>Brüt birim fiyat</Label>
                       <div className="relative">
                         <Input
                           id={`proforma-price-${row.quoteItemId}`}

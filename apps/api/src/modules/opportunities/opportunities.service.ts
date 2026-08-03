@@ -157,6 +157,7 @@ type QualificationContext = {
   hasEmail: boolean;
   hasCall: boolean;
   hasVisit: boolean;
+  hasQuote: boolean;
   approvals: Partial<Record<OpportunityApprovalType, 'pending' | 'approved' | 'rejected'>>;
 };
 
@@ -324,7 +325,7 @@ export class OpportunitiesService {
     const companyIds = [...new Set(rows.map((row) => row.companyId).filter((id): id is string => Boolean(id)))];
     if (!opportunityIds.length) return new Map<string, QualificationContext>();
 
-    const [companyRows, addressRows, phoneRows, emailRows, callRows, visitRows, approvalRows] = await Promise.all([
+    const [companyRows, addressRows, phoneRows, emailRows, callRows, visitRows, approvalRows, quoteRows] = await Promise.all([
       companyIds.length
         ? this.db
             .select({ id: companies.id, sector: companies.sector })
@@ -400,6 +401,16 @@ export class OpportunitiesService {
             isNull(opportunityApprovals.deletedAt)
           )
         ),
+      this.db
+        .select({ opportunityId: quotes.opportunityId })
+        .from(quotes)
+        .where(
+          and(
+            eq(quotes.tenantId, rows[0].tenantId),
+            inArray(quotes.opportunityId, opportunityIds),
+            isNull(quotes.deletedAt)
+          )
+        ),
     ]);
 
     const companiesById = new Map(companyRows.map((row) => [row.id, row]));
@@ -413,6 +424,7 @@ export class OpportunitiesService {
     const emails = new Set(emailRows.map((row) => row.companyId));
     const callsByOpportunity = new Set(callRows.map((row) => row.opportunityId).filter(Boolean));
     const visitsByOpportunity = new Set(visitRows.map((row) => row.opportunityId).filter(Boolean));
+    const quotesByOpportunity = new Set(quoteRows.map((row) => row.opportunityId).filter(Boolean));
     const approvalsByOpportunity = new Map<
       string,
       Partial<Record<OpportunityApprovalType, 'pending' | 'approved' | 'rejected'>>
@@ -437,6 +449,7 @@ export class OpportunitiesService {
             hasEmail: Boolean(companyId && emails.has(companyId)),
             hasCall: callsByOpportunity.has(row.id),
             hasVisit: visitsByOpportunity.has(row.id),
+            hasQuote: quotesByOpportunity.has(row.id),
             approvals: approvalsByOpportunity.get(row.id) ?? {},
           } satisfies QualificationContext,
         ] as const;
@@ -553,7 +566,8 @@ export class OpportunitiesService {
           key: 'payment_method',
           label: 'Ödeme biçimi belirlendi',
           complete: Boolean(row.paymentMethod && row.paymentMethod !== 'undecided'),
-        }
+        },
+        { key: 'quote', label: 'Teklif oluşturuldu', complete: context.hasQuote }
       );
     } else if (stage === 'a') {
       checks.push(
@@ -737,7 +751,7 @@ export class OpportunitiesService {
         'quote',
         'b'
       ),
-      check('quote', 'Teklif oluşturuldu', evidence.hasQuote, 'create_quote', 'quote', 'a'),
+      check('quote', 'Teklif oluşturuldu', evidence.hasQuote, 'create_quote', 'quote', 'b'),
       check('quote_approved', 'Teklif onaylandı', evidence.hasApprovedQuote, 'approve_quote', 'proforma', 'a'),
       check('proforma', 'Proforma oluşturuldu', evidence.hasProforma, 'create_proforma', 'proforma', 'a'),
       check('contract', 'Sözleşme oluşturuldu', evidence.hasContract, 'create_contract', 'contract', 'a'),

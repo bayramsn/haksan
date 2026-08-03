@@ -1,7 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { and, desc, eq, inArray, isNull, or, sql } from 'drizzle-orm';
 import type { DbClient } from '../../db/client';
-import { salesActivities, visits, calls, opportunities } from '../../db/schema/crm';
+import { salesActivities, visits, calls, opportunities, type ActivityOrigin } from '../../db/schema/crm';
 import { companies, contactCompanies, contacts, notifications } from '../../db/schema/companies';
 import { activityTypes, fileDocumentTypes } from '../../db/schema/lookup';
 import { fileLinks, files } from '../../db/schema/files';
@@ -194,7 +194,7 @@ export class ActivitiesService {
     );
   }
 
-  async createActivity(input: ActivityCreateInput, actor: AuthContext) {
+  async createActivity(input: ActivityCreateInput, actor: AuthContext, origin: ActivityOrigin = 'system') {
     const companyId = await this.assertReferences(input, actor);
     const typeId = await lookupIdByCode(this.db, activityTypes, input.activityTypeCode);
     if (!typeId) throw new ValidationError(`Bilinmeyen aktivite türü: ${input.activityTypeCode}`);
@@ -211,6 +211,7 @@ export class ActivitiesService {
         activityTypeId: typeId,
         subject: input.subject,
         description: input.description ?? null,
+        origin,
         activityDate: input.activityDate,
         nextFollowUpAt: input.nextFollowUpAt ?? null,
         result: input.result ?? null,

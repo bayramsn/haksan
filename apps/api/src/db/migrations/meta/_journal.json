@@ -736,6 +736,62 @@
       "when": 1788979200000,
       "tag": "0105_user_titles",
       "breakpoints": true
+    },
+    {
+      "idx": 106,
+      "version": "7",
+      "when": 1789065600000,
+      "tag": "0106_user_username",
+      "breakpoints": true
+    },
+    {
+      "idx": 107,
+      "version": "7",
+      "when": 1789152000000,
+      "tag": "0107_tenant_hidden_navigation_keys",
+      "breakpoints": true
+    },
+    {
+      "idx": 108,
+      "version": "7",
+      "when": 1789238400000,
+      "tag": "0108_record_sequences",
+      "breakpoints": true
+    },
+    {
+      "idx": 109,
+      "version": "7",
+      "when": 1789324800000,
+      "tag": "0109_company_classification_lookups",
+      "breakpoints": true
+    },
+    {
+      "idx": 110,
+      "version": "7",
+      "when": 1789411200000,
+      "tag": "0110_activity_origin",
+      "breakpoints": true
+    },
+    {
+      "idx": 111,
+      "version": "7",
+      "when": 1789497600000,
+      "tag": "0111_competitor_company_sync",
+      "breakpoints": true
+    },
+    {
+      "idx": 112,
+      "version": "7",
+      "when": 1789584000000,
+      "tag": "0112_document_folder_types",
+      "breakpoints": true
+    },
+    {
+      "idx": 113,
+      "version": "7",
+      "when": 1789670400000,
+      "tag": "0113_company_contact_source_text",
+      "breakpoints": true
     }
   ]
 }

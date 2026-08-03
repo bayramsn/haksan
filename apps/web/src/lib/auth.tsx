@@ -1,5 +1,5 @@
 import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, useState } from 'react';
-import { meResponseSchema } from '@haksan/shared';
+import { meResponseSchema, type NavigationVisibilityKey } from '@haksan/shared';
 import {
   api,
   ApiError,
@@ -73,6 +73,7 @@ export interface MeTenant {
   id: string;
   name: string;
   slug: string;
+  hiddenNavigationKeys: NavigationVisibilityKey[];
 }
 
 interface AuthState {
@@ -119,7 +120,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       const res = await api.get('/auth/me', { schema: meResponseSchema });
       setUser(res.user as MeUser);
-      setTenant(res.tenant);
+      setTenant({
+        ...res.tenant,
+        hiddenNavigationKeys: res.tenant.hiddenNavigationKeys ?? [],
+      });
       applyActiveDivision(pickActiveDivision(res.user as MeUser, getActiveDivision()));
       applyActiveDepartment(pickActiveDepartment(res.user as MeUser, getActiveDepartment()));
     } catch (err) {
@@ -147,10 +151,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [refresh]);
 
   const login = useCallback(
-    async (email: string, password: string) => {
+    // `identifier` kullanıcı adı ya da e-posta olabilir; API ikisini de kabul eder.
+    async (identifier: string, password: string) => {
       const res = await api.post<{ accessToken: string; user: { id: string; email: string; fullName: string; tenantId: string; roles: string[] } }>(
         '/auth/login',
-        { email, password }
+        { identifier, password }
       );
       setAccessToken(res.accessToken);
       await fetchMe();

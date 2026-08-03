@@ -36,7 +36,7 @@ import {
   Upload, FileText, Receipt, Eye, Save, Trash2,
 } from "lucide-react";
 
-export function PaymentsPage({ focus }: { focus?: OperationFocus }) {
+export function PaymentsPage({ focus, initialQuery }: { focus?: OperationFocus; initialQuery?: string }) {
   const { payments, customers, cases, refresh } = useStore();
   const { convert } = useFx();
   const [upcomingDues, setUpcomingDues] = useState<Array<{ id: string; companyName: string; dueDate: string; amount: number; currencyCode: string; type: string }>>([]);
@@ -79,6 +79,10 @@ export function PaymentsPage({ focus }: { focus?: OperationFocus }) {
     if (focus === "pending" || focus === "upcoming") setStatusFilter("Pending");
     if (focus === "paid") setStatusFilter("Paid");
   }, [focus]);
+
+  useEffect(() => {
+    if (initialQuery !== undefined) setQ(initialQuery);
+  }, [initialQuery]);
 
   // Tahsilat metrikleri yalnızca GİREN (alınan) hareketler üzerinden hesaplanır (USD karşılığı).
   const inflow = filteredPayments.filter((p) => p.direction === "in");
@@ -132,7 +136,8 @@ export function PaymentsPage({ focus }: { focus?: OperationFocus }) {
   const filtered = filteredPayments.filter((p) => {
     if (statusFilter !== "all" && p.status !== statusFilter) return false;
     if (dirFilter !== "all" && p.direction !== dirFilter) return false;
-    if (q && !customerName(p.customerId).toLowerCase().includes(q.toLowerCase())) return false;
+    if (q && ![customerName(p.customerId), p.id, p.invoiceNo, p.note]
+      .some((value) => (value ?? "").toLocaleLowerCase("tr-TR").includes(q.toLocaleLowerCase("tr-TR")))) return false;
     return true;
   });
   const { page, setPage, totalPages, pageItems } = usePaged(filtered, 12);
@@ -883,6 +888,7 @@ function PaymentDetailDialog({
       await addDocument({
         id: up.fileId,
         fileId: up.fileId,
+        paymentId: payment.id,
         salesCaseId: payment.salesCaseId || "",
         companyId: payment.customerId,
         type: docType,

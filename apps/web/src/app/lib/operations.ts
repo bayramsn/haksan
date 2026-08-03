@@ -31,6 +31,7 @@ export type OperationNav =
   | "contracts"
   | "documents"
   | "payments"
+  | "accounting-invoices"
   | "customer-balances"
   | "sales-price-list"
   | "products"
@@ -325,8 +326,7 @@ const asAssistantResults = (items: WorkItem[]): SearchResult[] =>
 const customerName = (data: OperationStoreSnapshot, id?: string) =>
   id ? findCustomer(data, id)?.name ?? "Firma" : "Firma";
 
-const documentNav = (type: DocumentItem["type"]): OperationNav =>
-  type === "Proforma" ? "proformas" : type === "Contract" ? "contracts" : "documents";
+const documentNav = (_type: DocumentItem["type"]): OperationNav => "documents";
 
 export function buildWorkItems(data: OperationStoreSnapshot): WorkItem[] {
   const items: WorkItem[] = [];
@@ -1603,11 +1603,9 @@ export function answerAssistant(input: string, data: OperationStoreSnapshot, ext
     const proformas = data.documents.filter((d) => d.type === "Proforma").length;
     const contracts = data.documents.filter((d) => d.type === "Contract").length;
     return {
-      text: `${data.documents.length} doküman var. ${proformas} proforma, ${contracts} sözleşme kaydı satış menüsünde ayrı takip ediliyor.`,
+      text: `${data.documents.length} doküman var. ${proformas} proforma ve ${contracts} sözleşme tek ticari belge merkezinde kaynak kayıtlarıyla izleniyor.`,
       actions: [
-        { label: "Proformalar", action: { kind: "navigate", nav: "proformas" } },
-        { label: "Sözleşmeler", action: { kind: "navigate", nav: "contracts" } },
-        { label: "Tüm dokümanlar", action: { kind: "navigate", nav: "documents" } },
+        { label: "Ticari belge merkezi", action: { kind: "navigate", nav: "documents" } },
       ],
       results,
     };

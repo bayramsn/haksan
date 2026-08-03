@@ -31,7 +31,7 @@ import {
   isProductDiscountValid,
   type ProductDiscountType,
 } from "../../lib/quoteDiscount";
-import { matchQuoteNoteVariantKey, QUOTE_NOTE_VARIANTS } from "../../lib/print";
+import { fillNotePlaceholders, matchQuoteNoteVariantKey, QUOTE_NOTE_VARIANTS } from "../../lib/print";
 import { DialogSplitLayout, DialogSidebarSection } from "../shared/DialogSplitLayout";
 import {
   DocumentTermsTemplateEditor,
@@ -541,9 +541,11 @@ export function QuoteDialog({
     setNoteVariantKey(key);
     const builtIn = QUOTE_NOTE_VARIANTS.find((variant) => variant.key === key);
     if (!builtIn) return;
-    setPaymentTerms(builtIn.odeme.join("\n"));
-    setDeliveryTerms(builtIn.teslimat.join("\n"));
-    setWarrantyTerms(builtIn.garanti.join("\n"));
+    const mainLine = lines.find((line) => !line.description.trimStart().startsWith("↳ Opsiyon:"));
+    const kdvOrani = Number(mainLine?.vatRate || 20);
+    setPaymentTerms(fillNotePlaceholders(builtIn.odeme, { kdvOrani }).join("\n"));
+    setDeliveryTerms(fillNotePlaceholders(builtIn.teslimat, { kdvOrani }).join("\n"));
+    setWarrantyTerms(fillNotePlaceholders(builtIn.garanti, { kdvOrani }).join("\n"));
   };
 
   const setLine = (i: number, patch: Partial<LineState>) =>
@@ -1302,7 +1304,7 @@ export function QuoteDialog({
                           checked={l.nationalized}
                           onChange={(e) => setLine(i, { nationalized: e.target.checked })}
                         />
-                        Millileştirilmiş (ithal) — otomatik gümrük/vergi ekle (%2,7 + %10 + adet başına $1600 TSE + $1000 gümrük)
+                        Millileştirilmiş (ithal) — otomatik gümrük/vergi ekle (%2,7, ardından büyüyen tutara %10 + adet başına $1600 TSE + $1000 gümrük)
                         {l.nationalized && num(l.quantity) > 0 && num(l.unitPrice) > 0 && (
                           <span className="ml-auto shrink-0 text-[10px] text-muted-foreground tabular-nums">
                             +{money(computeCustomsCharges({ lineTotal: num(l.quantity) * netUnitPrice(l), quantity: num(l.quantity), usdToQuoteRate: convert(1, "USD", currency) }).total, currency)}

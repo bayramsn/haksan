@@ -181,34 +181,34 @@ export function CalendarPage() {
 
   return <div className="space-y-4">
     <section className="premium-blueprint precision-corners relative overflow-hidden rounded-xl border border-primary/10 bg-white px-4 py-4 shadow-sm">
-      <div className="relative flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between"><div><div className="mb-1 font-data text-[9px] font-semibold uppercase tracking-[0.17em] text-operation-blue">Operasyon ajandası</div><h2 className="font-display text-2xl font-semibold tracking-tight">{periodLabel}</h2><p className="mt-1 text-xs text-muted-foreground">Telefon takvimleri, toplantılar ve müşteri ziyaretleri tek akışta.</p><div className="mt-3 flex flex-wrap items-center gap-2 text-[10px]"><Badge variant="outline" className="bg-white"><Clock3 className="mr-1 size-3" />Bugün {todayEventCount}</Badge><Badge variant="outline" className="bg-white">Bu görünümde {events.filter((event) => !event.deletedAt).length}</Badge><span className="text-muted-foreground">Hücreye çift tıklayarak hızlı etkinlik ekleyin</span></div></div>
-        <div className="flex flex-wrap items-center gap-2">{isSuperAdmin && <label className="flex h-9 items-center gap-2 rounded-lg border border-border bg-white px-3 text-xs"><Users className="size-4 text-primary" /><select value={ownerUserId} onChange={(event) => setOwnerUserId(event.target.value)} className="bg-transparent outline-none"><option value="all">Tüm kullanıcılar</option>{owners.map((owner) => <option key={owner.id} value={owner.id}>{owner.fullName}</option>)}</select></label>}<Button variant="outline" className="gap-2" onClick={openImport}><Upload className="size-4" /> İçe aktar</Button><Button className="gap-2" onClick={() => openCreate()}><Plus className="size-4" /> Yeni etkinlik</Button></div>
+      <div className="relative flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between"><div><div className="mb-1 font-data text-[9px] font-semibold uppercase tracking-[0.17em] text-operation-blue">Operasyon ajandası</div><h2 className="font-display text-2xl font-semibold tracking-tight">{periodLabel}</h2><p className="mt-1 text-xs text-muted-foreground">Telefon takvimleri, toplantılar ve müşteri ziyaretleri tek akışta.</p><div className="mt-3 flex flex-wrap items-center gap-2 text-[10px]"><Badge variant="outline" className="bg-white"><Clock3 className="mr-1 size-3" />Bugün {todayEventCount}</Badge><Badge variant="outline" className="bg-white">Bu görünümde {events.filter((event) => !event.deletedAt).length}</Badge><span className="text-muted-foreground">Hücreye çift tıklayarak hızlı etkinlik ekleyin</span></div></div>
+        <div className="flex w-full flex-wrap items-center gap-2 xl:w-auto xl:justify-end">{isSuperAdmin && <label className="flex h-10 max-w-full items-center gap-2 rounded-lg border border-border bg-white px-3 text-xs"><Users className="size-4 shrink-0 text-primary" /><select value={ownerUserId} onChange={(event) => setOwnerUserId(event.target.value)} className="min-w-0 bg-transparent outline-none"><option value="all">Tüm kullanıcılar</option>{owners.map((owner) => <option key={owner.id} value={owner.id}>{owner.fullName}</option>)}</select></label>}<Button variant="outline" className="min-h-10 gap-2 whitespace-nowrap" onClick={openImport}><Upload className="size-4" /> İçe aktar</Button><Button className="min-h-10 gap-2 whitespace-nowrap" onClick={() => openCreate()}><Plus className="size-4" /> Yeni etkinlik</Button></div>
       </div>
     </section>
-    <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_300px]">
+    <div className="grid gap-4 2xl:grid-cols-[minmax(0,1fr)_300px]">
     <Card className="min-w-0 overflow-hidden border-border/70 shadow-sm">
-      <div className="flex flex-col gap-3 border-b bg-muted/20 p-3 lg:flex-row lg:items-center lg:justify-between">
+      <div className="grid gap-3 border-b bg-muted/20 p-3 xl:grid-cols-[auto_minmax(0,1fr)] xl:items-center">
         <div className="flex items-center gap-1">
           <Button size="icon" variant="outline" aria-label="Önceki dönem" onClick={() => move(-1)}><ChevronLeft className="size-4" /></Button>
           <Button variant="outline" onClick={() => setCursor(new Date())}>Bugün</Button>
           <Button size="icon" variant="outline" aria-label="Sonraki dönem" onClick={() => move(1)}><ChevronRight className="size-4" /></Button>
           <Button size="icon" variant="ghost" aria-label="Takvimi yenile" onClick={load} disabled={loading}><RefreshCw className={`size-4 ${loading ? 'animate-spin' : ''}`} /></Button>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex min-w-0 flex-wrap items-center gap-2 xl:justify-end">
           <div className="hidden flex-wrap items-center gap-2 border-r border-border pr-2 2xl:flex">
             {(Object.keys(TYPE_LABELS) as CalendarEventType[]).map((type) => <span key={type} className="inline-flex items-center gap-1 text-[9px] text-muted-foreground"><span className={`size-2 rounded-full border ${TYPE_STYLES[type]}`} />{TYPE_LABELS[type]}</span>)}
           </div>
-          <label className="flex items-center gap-2 text-xs text-muted-foreground">
+          <label className="flex min-h-9 shrink-0 items-center gap-2 whitespace-nowrap text-xs text-muted-foreground">
             <Switch aria-label="Arşivlenmiş etkinlikleri göster" checked={includeArchived} onCheckedChange={setIncludeArchived} /> Arşivi göster
           </label>
-          <div className="flex rounded-lg border bg-background p-1">
+          <div className="flex max-w-full overflow-x-auto rounded-lg border bg-background p-1">
             {(Object.keys(VIEW_LABELS) as CalendarView[]).map((key) => (
               <button
                 key={key}
                 type="button"
                 aria-pressed={view === key}
                 onClick={() => setView(key)}
-                className={`rounded-md px-3 py-1.5 text-xs font-medium transition ${view === key ? 'bg-primary text-primary-foreground shadow-sm' : 'text-muted-foreground hover:bg-muted'}`}
+                className={`min-h-9 shrink-0 rounded-md px-3 py-1.5 text-xs font-medium transition ${view === key ? 'bg-primary text-primary-foreground shadow-sm' : 'text-muted-foreground hover:bg-muted'}`}
               >
                 {VIEW_LABELS[key]}
               </button>
@@ -216,7 +216,7 @@ export function CalendarPage() {
           </div>
         </div>
       </div>
-      <CardContent className="p-0">{view === 'month' ? <MonthGrid cursor={cursor} rangeStart={range.from} byDay={byDay} onCreate={openCreate} onOpen={openEdit} /> : <AgendaView view={view} events={events} range={range} onOpen={openEdit} />}</CardContent>
+      <CardContent className="p-0">{view === 'month' ? <div className="overflow-x-auto"><div className="min-w-[720px]"><MonthGrid cursor={cursor} rangeStart={range.from} byDay={byDay} onCreate={openCreate} onOpen={openEdit} /></div></div> : <AgendaView view={view} events={events} range={range} onOpen={openEdit} />}</CardContent>
     </Card>
     <aside className="self-start overflow-hidden rounded-xl border border-primary/10 bg-brand-blue-soft/25 shadow-sm xl:sticky xl:top-3">
       <div className="border-b border-primary/10 bg-white/75 p-4"><div className="font-data text-[9px] font-semibold uppercase tracking-[0.15em] text-operation-blue">Yaklaşanlar</div><div className="mt-1 font-display text-lg font-semibold">Sıradaki operasyonlar</div><p className="mt-1 text-xs text-muted-foreground">Zaman, firma ve konum bağlamıyla.</p></div>

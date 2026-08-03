@@ -2,12 +2,14 @@
  * UI domain types + pipeline/shipment label constants.
  * İş verisi burada tutulmaz — tüm kayıtlar API / store üzerinden gelir.
  */
-import type {
-  LeadAuthorityStatusCode,
-  LeadBudgetStatusCode,
-  LeadInsights,
-  LeadPurchaseTimeframeCode,
-  LeadTechnicalFitCode,
+import {
+  PIPELINE_STAGE_FLOW,
+  type PipelineStageCode,
+  type LeadAuthorityStatusCode,
+  type LeadBudgetStatusCode,
+  type LeadInsights,
+  type LeadPurchaseTimeframeCode,
+  type LeadTechnicalFitCode,
 } from "@haksan/shared";
 
 export type Role = "SuperAdmin" | "Admin" | "Sales" | "Service";
@@ -67,6 +69,7 @@ export type Customer = {
   companyGroupCodes?: string[];
   companyGroupNames?: string[];
   contactSourceCode?: string;
+  contactSourceText?: string;
   sector?: string;
   /** Tedarikçinin sevkiyat rolü; yalnızca tedarikçi ilişkili firmalarda kullanılır. */
   supplierCategoryCode?: "transportation" | "logistics";
@@ -165,23 +168,40 @@ export type SalesStage =
   | "Completed"
   | "Lost";
 
+// Operasyon panosu backend ile aynı süreç sırasını kullanır. PIPELINE_STAGES
+// bildirim sırasıdır ve `sales` kodunu tekliften sonra tuttuğu için pano akışı
+// ondan türetilmemelidir; aksi hâlde görsel ileri hareket sunucuda geri geçiş
+// sayılır. İptal/LOST doğrusal akışın dışında, terminal kolon olarak sona eklenir.
 export const SALES_STAGES: SalesStage[] = [
-  "lead",
-  "call",
-  "visit",
-  "quote",
-  "sales",
+  ...(PIPELINE_STAGE_FLOW satisfies readonly PipelineStageCode[]),
   "cancelled",
-  "proforma",
-  "contract",
-  "payment_plan",
-  "commercial_invoice",
-  "customs_approved",
-  "stock_picking",
-  "shipping",
-  "installation",
-  "delivered",
 ];
+
+/** Geçiş API'sinin yapılandırılmış engellerini kullanıcıya okunur biçimde gösterir. */
+export function opportunityTransitionErrorMessage(error: unknown, fallback: string): string {
+  const candidate = error as {
+    message?: string;
+    details?: { blockerLabels?: unknown; blockers?: unknown };
+    response?: { data?: { error?: { details?: { blockerLabels?: unknown; blockers?: unknown } } } };
+  } | null;
+  const details = candidate?.details ?? candidate?.response?.data?.error?.details;
+  const blockerLabels = Array.isArray(details?.blockerLabels)
+    ? details.blockerLabels.filter((label): label is string => typeof label === "string" && Boolean(label.trim()))
+    : [];
+  const blockerNames = Array.isArray(details?.blockers)
+    ? details.blockers
+        .map((blocker) =>
+          typeof blocker === "string"
+            ? blocker
+            : blocker && typeof blocker === "object" && "label" in blocker
+              ? String((blocker as { label?: unknown }).label ?? "")
+              : ""
+        )
+        .filter(Boolean)
+    : [];
+  const labels = blockerLabels.length ? blockerLabels : blockerNames;
+  return labels.length ? labels.join(" · ") : candidate?.message ?? fallback;
+}
 
 export const SALES_STAGE_LABELS: Record<SalesStage, string> = {
   lead: "Lead",
@@ -228,6 +248,22 @@ export const QUALIFICATION_STAGE_LABELS: Record<QualificationStage, string> = {
   a_plus: "A+",
   win: "WIN",
   lost: "LOST",
+};
+
+/**
+ * Derece kodlarının Türkçe karşılığı. QUALIFICATION_STAGE_LABELS kısa koddur
+ * (C/B/A+/WIN/LOST); kodun tek başına anlaşılmadığı yerlerde — pano kolon
+ * altlığı, süreç rayındaki kapanış dalı — bu metin gösterilir. Etiketler tek
+ * yerde dursun diye bileşenlerin içine sabit metin gömülmez.
+ */
+export const QUALIFICATION_STAGE_DESCRIPTIONS: Record<QualificationStage, string> = {
+  lead: "Aday kayıt",
+  c: "Firma verisi",
+  b: "Temas ve ihtiyaç",
+  a: "Ticari şartlar",
+  a_plus: "Operasyon onayları",
+  win: "Kazanıldı",
+  lost: "Kaybedildi",
 };
 
 export type OpportunityApprovalType = "payment" | "customs" | "invoice" | "installation" | "win";
@@ -423,6 +459,8 @@ export type Activity = {
   salesCaseId: string;
   customerId: string;
   type: string;
+  typeCode?: string;
+  origin?: "manual" | "system";
   title: string;
   note: string;
   result?: string;

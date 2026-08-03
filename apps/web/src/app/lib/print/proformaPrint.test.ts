@@ -104,7 +104,7 @@ describe("proforma print data", () => {
     expect(result.items[0]).toMatchObject({ marka: "ECOCA", mensei: "Tayvan", gtip: "8458.11" });
   });
 
-  it("bakes line and special discounts into proforma item prices without exposing discount fields", () => {
+  it("keeps gross item prices and exposes line and special discounts separately", () => {
     const result = build(baseDoc({
       schemaVersion: 2,
       company: { legalTitle: "İskontolu Müşteri" },
@@ -120,12 +120,11 @@ describe("proforma print data", () => {
       }],
     }));
 
-    expect(result.headerDiscount).toBe(0);
-    expect(result.items[0]).toMatchObject({ birimFiyati: 850, tutar: 1_700 });
-    expect(result.items[0].iskonto).toBeUndefined();
+    expect(result.headerDiscount).toBe(100);
+    expect(result.items[0]).toMatchObject({ birimFiyati: 1_000, iskonto: 200, tutar: 2_000 });
   });
 
-  it("prints every machine as a separate net-priced proforma row", () => {
+  it("prints every machine as a separate gross-priced proforma row", () => {
     const result = build(baseDoc({
       schemaVersion: 2,
       company: { legalTitle: "Çoklu Makine Müşterisi" },
@@ -138,10 +137,10 @@ describe("proforma print data", () => {
     }));
 
     expect(result.items).toHaveLength(2);
-    expect(result.items[0]).toMatchObject({ aciklama: "ECOCA MT-208 CNC Torna", birimFiyati: 850, tutar: 850 });
-    expect(result.items[1]).toMatchObject({ aciklama: "LK VM-2 CNC Dik İşleme Merkezi", birimFiyati: 425, tutar: 850 });
-    expect(result.items.reduce((sum, item) => sum + item.tutar, 0)).toBe(1_700);
-    expect(result.items.every((item) => item.iskonto === undefined)).toBe(true);
+    expect(result.headerDiscount).toBe(100);
+    expect(result.items[0]).toMatchObject({ aciklama: "ECOCA MT-208 CNC Torna", birimFiyati: 1_000, iskonto: 100, tutar: 1_000 });
+    expect(result.items[1]).toMatchObject({ aciklama: "LK VM-2 CNC Dik İşleme Merkezi", birimFiyati: 500, iskonto: 100, tutar: 1_000 });
+    expect(result.items.reduce((sum, item) => sum + item.tutar, 0)).toBe(2_000);
   });
 
   it("uses the catalog product name and removes the internal stock code", () => {

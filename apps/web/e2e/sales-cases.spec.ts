@@ -27,20 +27,29 @@ test("fırsatlar listelenir ve detay açılır", async ({ page }) => {
 
     await dialog.getByRole("button", { name: "Tam çalışma alanını aç" }).click();
     await expect(dialog.getByText("Kayıt çalışma alanı", { exact: true })).toBeVisible();
+    await expect(dialog.getByTestId("workspace-decision-summary")).toBeFocused();
+    await expect(dialog.getByText("Sıradaki iş ve risk", { exact: true })).toBeVisible();
+    await expect(dialog.getByRole("tablist", { name: "Çalışma alanı bölümleri" })).toBeVisible();
     await expect(dialog.getByRole("tab", { name: "Özet", exact: true })).toHaveAttribute("data-state", "active");
     await expect(dialog.getByText("Deterministik skor; her bileşen CRM verisinden hesaplanır.")).toBeVisible();
+    await dialog.getByRole("button", { name: "Görünümü ayarla" }).click();
+    const aiVisibility = dialog.getByRole("button", { name: "AI / CRM özeti" });
+    if ((await aiVisibility.getAttribute("aria-pressed")) !== "true") await aiVisibility.click();
+    await dialog.getByText("AI / CRM yardımcı özeti", { exact: true }).click();
     await dialog.getByRole("button", { name: "Özet hazırla", exact: true }).click();
     await expect(dialog.getByText(/^(AI özeti|CRM veri özeti)$/)).toBeVisible({ timeout: 30_000 });
     await dialog.getByRole("tab", { name: "Aktivite", exact: true }).click();
-    await expect(dialog.getByText("Birleşik zaman çizelgesi", { exact: true })).toBeVisible();
+    await expect(dialog.getByText("Yorumlar", { exact: true })).toBeVisible();
+    await expect(dialog.getByText("Yalnızca kullanıcıların elle eklediği yorumlar gösterilir.", { exact: true })).toBeVisible();
     await dialog.getByRole("tab", { name: "Ticari", exact: true }).click();
     await expect(dialog.getByText("Ödeme ve tahsilat", { exact: true })).toBeVisible();
     await dialog.getByRole("tab", { name: "Operasyon", exact: true }).click();
     await expect(dialog.getByText("Birleşik süreç merkezi", { exact: true })).toBeVisible();
-    await dialog.getByRole("tab", { name: "Dosya & Geçmiş", exact: true }).click();
+    await dialog.getByRole("tab", { name: "Kayıtlar", exact: true }).click();
     await expect(dialog.getByText("Değişiklik günlüğü", { exact: true })).toBeVisible();
     await dialog.getByRole("button", { name: "Hızlı özete dön", exact: true }).first().click();
     await expect(dialog.getByText("Fırsat nabzı", { exact: true })).toBeVisible();
+    await expect(dialog.getByRole("button", { name: "Tam çalışma alanını aç" })).toBeFocused();
 
     await page.setViewportSize({ width: 390, height: 844 });
     await expect.poll(async () => (await dialog.boundingBox())?.width).toBeLessThanOrEqual(390);
@@ -48,11 +57,14 @@ test("fırsatlar listelenir ve detay açılır", async ({ page }) => {
     expect(mobileBounds?.x).toBeGreaterThanOrEqual(0);
     await expect(dialog.getByRole("button", { name: "Tam çalışma alanını aç" })).toBeVisible();
     await dialog.getByRole("button", { name: "Tam çalışma alanını aç" }).click();
+    await expect(dialog.getByTestId("workspace-decision-summary")).toBeFocused();
     const mobileWorkspaceBounds = await dialog.boundingBox();
     expect(mobileWorkspaceBounds?.x).toBeGreaterThanOrEqual(-0.5);
     expect(mobileWorkspaceBounds?.width).toBeLessThanOrEqual(390.5);
     expect(mobileWorkspaceBounds?.height).toBeLessThanOrEqual(844);
-    await expect(dialog.getByRole("button", { name: "Hızlı özete dön", exact: true }).last()).toBeVisible();
+    await expect(dialog.getByRole("button", { name: "Hızlı özete dön", exact: true })).toBeVisible();
+    await expect(dialog.getByTestId("workspace-mobile-dock")).toHaveCount(1);
+    await expect(dialog.getByRole("combobox", { name: "Bölüm" })).toBeVisible();
 
     await page.keyboard.press("Escape");
     await expect(dialog).toBeHidden();
@@ -289,17 +301,25 @@ test("Lead Workspace V2 akışı otomatik atamadan gerekçeli fırsat dönüşü
       scrollWidth: element.scrollWidth,
     }));
     expect(overflow.scrollWidth).toBeLessThanOrEqual(overflow.clientWidth + 1);
-    const mobileAction = recordDialog.getByRole("button", { name: "Aksiyon planla" }).last();
+    await expect(recordDialog.getByTestId("workspace-mobile-dock")).toHaveCount(1);
+    const mobileAction = recordDialog.getByRole("button", { name: /Aksiyonu düzenle|Aksiyon planla/ }).last();
     await expect(mobileAction).toBeVisible();
     const mobileActionBounds = await mobileAction.boundingBox();
     expect(mobileActionBounds?.height).toBeGreaterThanOrEqual(44);
     expect((mobileActionBounds?.y ?? 0) + (mobileActionBounds?.height ?? 0)).toBeLessThanOrEqual(844);
     await mobileAction.focus();
     await expect(mobileAction).toBeFocused();
-    const transitionDuration = await recordDialog
-      .getByRole("tab", { name: "Ticari", exact: true })
-      .evaluate((element) => getComputedStyle(element).transitionDuration);
+    const mobileSection = recordDialog.getByRole("combobox", { name: "Bölüm" });
+    await expect(mobileSection).toBeVisible();
+    const transitionDuration = await mobileSection.evaluate((element) => getComputedStyle(element).transitionDuration);
     expect(Number.parseFloat(transitionDuration)).toBeLessThanOrEqual(0.001);
+
+    await page.setViewportSize({ width: 320, height: 844 });
+    const narrowOverflow = await recordDialog.locator('[aria-label="Kayıt çalışma alanı içeriği"]').evaluate((element) => ({
+      clientWidth: element.clientWidth,
+      scrollWidth: element.scrollWidth,
+    }));
+    expect(narrowOverflow.scrollWidth).toBeLessThanOrEqual(narrowOverflow.clientWidth + 1);
   } finally {
     await request.delete(`${e2eApiBase}/lead-assignment-rules/${ruleId}`, { headers });
   }

@@ -16,6 +16,7 @@ import { companies } from '../../db/schema/companies';
 import { DB } from '../../shared/database/database.module';
 import type { AuthContext } from '../../shared/security/auth.types';
 import { resourceDivisionFilter, resolveResourceDivisionScope } from '../../shared/utils/division-scope';
+import { ForbiddenError } from '../../shared/utils/errors';
 import { amountToUsd, FxService, type FxRates, type FxSnapshot } from '../fx/fx.service';
 
 export type Granularity = 'weekly' | 'monthly' | 'yearly';
@@ -490,6 +491,11 @@ export class ReportsService {
    * Kullanıcı hedefleri departman içinde toplanır; satış gerçekleşmesi fırsat/teklif verisinden gelir.
    */
   async departmentPerformance(actor: AuthContext, period: string, departmentId?: string) {
+    // Departman raporu doğası gereği başkalarının verisinin toplamıdır; kural
+    // gereği süper admin dışına kapalı. `reports.read` izni tek başına yetmez.
+    if (!this.canSeeAllUsers(actor)) {
+      throw new ForbiddenError('Bu rapor için yetkiniz yok');
+    }
     const [year, month] = period.split('-').map(Number);
     const from = new Date(Date.UTC(year, month - 1, 1, 0, 0, 0));
     const to = new Date(Date.UTC(year, month, 0, 23, 59, 59, 999));
@@ -607,11 +613,59 @@ export class ReportsService {
     return { period, departments: rows };
   }
 
+  /**
+   * Rapor görünürlük kuralı: yalnız süper admin tüm kullanıcıların verisini
+   * görür, diğer herkes yalnız kendi verisini. Kuralı genişletmek gerekirse
+   * (ör. departman yöneticileri) tek değiştirilecek yer burasıdır.
+   */
+  private canSeeAllUsers(actor: AuthContext) {
+    return actor.roles.includes('super_admin');
+  }
+
+  /**
+   * Raporun kapsayacağı kullanıcı kümesi. Rapor metotları kullanıcı listesini
+   * asla doğrudan `scopedActiveUsers`'tan almamalı — aksi halde kural yalnızca
+   * çağıran metodun hatırladığı kadar geçerli olur.
+   *
+   * Süper admin olmayan için tenant'ın tamamını çekmek yerine tek satır okunur;
+   * hem kuralın gereği hem de sıcak yolun (her kullanıcının panosu) maliyeti.
+   */
+  private async reportAudience(actor: AuthContext) {
+    if (this.canSeeAllUsers(actor)) return this.scopedActiveUsers(actor);
+    return this.db.query.users.findMany({
+      where: and(
+        eq(users.tenantId, actor.tenantId),
+        eq(users.id, actor.userId),
+        isNull(users.deletedAt),
+        eq(users.status, 'active')
+      ),
+      columns: { id: true, fullName: true, email: true, departmentId: true },
+    });
+  }
+
+  /**
+   * İstemciden gelen kapsamın aktörün yetkisi içinde olduğunu doğrular.
+   * Kullanıcının bilinçli seçtiği kapsamda (belirli kişi/departman/rol) sessizce
+   * daraltmak yetki hatasını gizler ve "başkasını seçtim, kendimi gördüm"
+   * yalanını üretir; bu yüzden 403 atılır. Varsayılan kapsam (`all-users`)
+   * bilinçli bir seçim olmadığı için sessizce aktörün kendisine daraltılır.
+   */
+  private assertScopeAllowed(actor: AuthContext, scope: TargetProgressScope) {
+    if (this.canSeeAllUsers(actor)) return;
+    if (scope.kind === 'department' || scope.kind === 'role') {
+      throw new ForbiddenError('Bu kapsam için yetkiniz yok');
+    }
+    if (scope.kind === 'user' && scope.id && scope.id !== actor.userId) {
+      throw new ForbiddenError('Bu kapsam için yetkiniz yok');
+    }
+  }
+
   /** Aktif kullanıcılar; bölüm kapsamı 'list' modundaysa yalnızca o bölümlere atanmış olanlar. */
   private async scopedActiveUsers(actor: AuthContext) {
     const scope = resolveResourceDivisionScope(actor, 'reports');
     let rows = await this.db.query.users.findMany({
       where: and(eq(users.tenantId, actor.tenantId), isNull(users.deletedAt), eq(users.status, 'active')),
+      columns: { id: true, fullName: true, email: true, departmentId: true },
     });
     if (scope.mode === 'list') {
       if (scope.divisionIds.length === 0) return [];
@@ -681,10 +735,17 @@ export class ReportsService {
       return entry;
     };
 
+    // Sorguların hiçbiri bir diğerinin sonucunu kullanmaz; tek tek await
+    // edilirse dönem raporu 12 ardışık gidiş-dönüş bekler. Hepsi birlikte
+    // başlatılır, sonuçlar aşağıda aynı sırayla işlenir — döngü gövdeleri
+    // senkron olduğu için `map` üzerinde yarış durumu oluşmaz.
+    const invoiceResponsibleUserId = sql<string | null>`coalesce(${quotes.projectOwnerUserId}, ${opportunities.ownerUserId}, ${accountingInvoices.createdBy})`;
+    const quoteResponsibleUserId = sql<string | null>`coalesce(${quotes.projectOwnerUserId}, ${opportunities.ownerUserId}, ${quotes.createdBy})`;
+    const salesOrderResponsibleUserId = sql<string | null>`coalesce(${opportunities.ownerUserId}, ${salesOrders.createdBy})`;
+
     // Ciro: kesilen satış faturaları. Proje/fırsat sorumlusu varsa ona,
     // bağlantı yoksa faturayı oluşturan kullanıcıya yazılır.
-    const invoiceResponsibleUserId = sql<string | null>`coalesce(${quotes.projectOwnerUserId}, ${opportunities.ownerUserId}, ${accountingInvoices.createdBy})`;
-    const invoiceRows = await this.db
+    const invoiceRowsQuery = this.db
       .select({
         userId: invoiceResponsibleUserId,
         currencyCode: currencies.code,
@@ -707,12 +768,9 @@ export class ReportsService {
         )
       )
       .groupBy(invoiceResponsibleUserId, currencies.code);
-    for (const r of invoiceRows) {
-      this.addUsdAmount(get(r.userId), 'salesAmount', r.total, r.currencyCode, rates, unsupportedCurrencies);
-    }
 
     // Tahsilat: müşteriden gelen ödemeler
-    const paymentRows = await this.db
+    const paymentRowsQuery = this.db
       .select({
         userId: payments.createdBy,
         currencyCode: currencies.code,
@@ -732,12 +790,9 @@ export class ReportsService {
         )
       )
       .groupBy(payments.createdBy, currencies.code);
-    for (const r of paymentRows) {
-      this.addUsdAmount(get(r.userId), 'paymentsInAmount', r.total, r.currencyCode, rates, unsupportedCurrencies);
-    }
 
     // Alış faturası tutarı: finans/satınalma hedefleri için
-    const purchaseInvoiceRows = await this.db
+    const purchaseInvoiceRowsQuery = this.db
       .select({
         userId: accountingInvoices.createdBy,
         currencyCode: currencies.code,
@@ -757,12 +812,9 @@ export class ReportsService {
         )
       )
       .groupBy(accountingInvoices.createdBy, currencies.code);
-    for (const r of purchaseInvoiceRows) {
-      this.addUsdAmount(get(r.userId), 'purchaseInvoiceAmount', r.total, r.currencyCode, rates, unsupportedCurrencies);
-    }
 
     // Yeni müşteri: kullanıcının oluşturduğu firmalar
-    const companyRows = await this.db
+    const companyRowsQuery = this.db
       .select({ userId: companies.createdBy, count: sql<number>`count(*)::int` })
       .from(companies)
       .where(
@@ -775,14 +827,9 @@ export class ReportsService {
         )
       )
       .groupBy(companies.createdBy);
-    for (const r of companyRows) {
-      const entry = get(r.userId);
-      if (entry) entry.salesNewCustomers = r.count;
-    }
 
     // Teklif sayısı (departman performans raporuyla aynı semantik)
-    const quoteResponsibleUserId = sql<string | null>`coalesce(${quotes.projectOwnerUserId}, ${opportunities.ownerUserId}, ${quotes.createdBy})`;
-    const quoteRows = await this.db
+    const quoteRowsQuery = this.db
       .select({ userId: quoteResponsibleUserId, count: sql<number>`count(*)::int` })
       .from(quotes)
       .leftJoin(opportunities, eq(quotes.opportunityId, opportunities.id))
@@ -797,14 +844,9 @@ export class ReportsService {
         )
       )
       .groupBy(quoteResponsibleUserId);
-    for (const r of quoteRows) {
-      const entry = get(r.userId);
-      if (entry) entry.quoteTarget = r.count;
-    }
 
     // Satış siparişleri: operasyon/satış siparişleşme hedefleri
-    const salesOrderResponsibleUserId = sql<string | null>`coalesce(${opportunities.ownerUserId}, ${salesOrders.createdBy})`;
-    const salesOrderRows = await this.db
+    const salesOrderRowsQuery = this.db
       .select({
         userId: salesOrderResponsibleUserId,
         currencyCode: currencies.code,
@@ -825,16 +867,9 @@ export class ReportsService {
         )
       )
       .groupBy(salesOrderResponsibleUserId, currencies.code);
-    for (const r of salesOrderRows) {
-      const entry = get(r.userId);
-      if (entry) {
-        entry.salesOrderCount += r.count;
-        this.addUsdAmount(entry, 'salesOrderAmount', r.total, r.currencyCode, rates, unsupportedCurrencies);
-      }
-    }
 
     // Satınalma siparişleri
-    const purchaseOrderRows = await this.db
+    const purchaseOrderRowsQuery = this.db
       .select({
         userId: purchaseOrders.createdBy,
         currencyCode: currencies.code,
@@ -854,16 +889,9 @@ export class ReportsService {
         )
       )
       .groupBy(purchaseOrders.createdBy, currencies.code);
-    for (const r of purchaseOrderRows) {
-      const entry = get(r.userId);
-      if (entry) {
-        entry.purchaseOrderCount += r.count;
-        this.addUsdAmount(entry, 'purchaseOrderAmount', r.total, r.currencyCode, rates, unsupportedCurrencies);
-      }
-    }
 
     // Ziyaret
-    const visitRows = await this.db
+    const visitRowsQuery = this.db
       .select({ userId: visitsTbl.createdBy, count: sql<number>`count(*)::int` })
       .from(visitsTbl)
       .where(
@@ -877,13 +905,9 @@ export class ReportsService {
         )
       )
       .groupBy(visitsTbl.createdBy);
-    for (const r of visitRows) {
-      const entry = get(r.userId);
-      if (entry) entry.visitTarget = r.count;
-    }
 
     // Arama
-    const callRows = await this.db
+    const callRowsQuery = this.db
       .select({ userId: callsTbl.createdBy, count: sql<number>`count(*)::int` })
       .from(callsTbl)
       .where(
@@ -897,13 +921,9 @@ export class ReportsService {
         )
       )
       .groupBy(callsTbl.createdBy);
-    for (const r of callRows) {
-      const entry = get(r.userId);
-      if (entry) entry.callTarget = r.count;
-    }
 
     // Tamamlanan servis: çözülen servis kayıtları (atanan teknisyene sayılır)
-    const ticketRows = await this.db
+    const ticketRowsQuery = this.db
       .select({ userId: serviceTickets.assignedToUserId, count: sql<number>`count(*)::int` })
       .from(serviceTickets)
       .where(
@@ -917,13 +937,9 @@ export class ReportsService {
         )
       )
       .groupBy(serviceTickets.assignedToUserId);
-    for (const r of ticketRows) {
-      const entry = get(r.userId);
-      if (entry) entry.serviceCompleted = r.count;
-    }
 
     // Servis cirosu ve kurulum sayısı: tamamlanan kurulum işleri
-    const installRows = await this.db
+    const installRowsQuery = this.db
       .select({
         userId: installationJobs.assignedToUserId,
         count: sql<number>`count(*)::int`,
@@ -941,16 +957,9 @@ export class ReportsService {
         )
       )
       .groupBy(installationJobs.assignedToUserId);
-    for (const r of installRows) {
-      const entry = get(r.userId);
-      if (entry) {
-        entry.serviceAmount = Number(r.total ?? 0);
-        entry.installationCompleted = r.count;
-      }
-    }
 
     // Dijital lead
-    const leadRows = await this.db
+    const leadRowsQuery = this.db
       .select({ userId: leads.ownerUserId, count: sql<number>`count(*)::int` })
       .from(leads)
       .where(
@@ -964,6 +973,85 @@ export class ReportsService {
         )
       )
       .groupBy(leads.ownerUserId);
+
+    const [
+      invoiceRows,
+      paymentRows,
+      purchaseInvoiceRows,
+      companyRows,
+      quoteRows,
+      salesOrderRows,
+      purchaseOrderRows,
+      visitRows,
+      callRows,
+      ticketRows,
+      installRows,
+      leadRows,
+    ] = await Promise.all([
+      invoiceRowsQuery,
+      paymentRowsQuery,
+      purchaseInvoiceRowsQuery,
+      companyRowsQuery,
+      quoteRowsQuery,
+      salesOrderRowsQuery,
+      purchaseOrderRowsQuery,
+      visitRowsQuery,
+      callRowsQuery,
+      ticketRowsQuery,
+      installRowsQuery,
+      leadRowsQuery,
+    ]);
+
+    for (const r of invoiceRows) {
+      this.addUsdAmount(get(r.userId), 'salesAmount', r.total, r.currencyCode, rates, unsupportedCurrencies);
+    }
+    for (const r of paymentRows) {
+      this.addUsdAmount(get(r.userId), 'paymentsInAmount', r.total, r.currencyCode, rates, unsupportedCurrencies);
+    }
+    for (const r of purchaseInvoiceRows) {
+      this.addUsdAmount(get(r.userId), 'purchaseInvoiceAmount', r.total, r.currencyCode, rates, unsupportedCurrencies);
+    }
+    for (const r of companyRows) {
+      const entry = get(r.userId);
+      if (entry) entry.salesNewCustomers = r.count;
+    }
+    for (const r of quoteRows) {
+      const entry = get(r.userId);
+      if (entry) entry.quoteTarget = r.count;
+    }
+    for (const r of salesOrderRows) {
+      const entry = get(r.userId);
+      if (entry) {
+        entry.salesOrderCount += r.count;
+        this.addUsdAmount(entry, 'salesOrderAmount', r.total, r.currencyCode, rates, unsupportedCurrencies);
+      }
+    }
+    for (const r of purchaseOrderRows) {
+      const entry = get(r.userId);
+      if (entry) {
+        entry.purchaseOrderCount += r.count;
+        this.addUsdAmount(entry, 'purchaseOrderAmount', r.total, r.currencyCode, rates, unsupportedCurrencies);
+      }
+    }
+    for (const r of visitRows) {
+      const entry = get(r.userId);
+      if (entry) entry.visitTarget = r.count;
+    }
+    for (const r of callRows) {
+      const entry = get(r.userId);
+      if (entry) entry.callTarget = r.count;
+    }
+    for (const r of ticketRows) {
+      const entry = get(r.userId);
+      if (entry) entry.serviceCompleted = r.count;
+    }
+    for (const r of installRows) {
+      const entry = get(r.userId);
+      if (entry) {
+        entry.serviceAmount = Number(r.total ?? 0);
+        entry.installationCompleted = r.count;
+      }
+    }
     for (const r of leadRows) {
       const entry = get(r.userId);
       if (entry) entry.digitalLeadTarget = r.count;
@@ -1107,14 +1195,17 @@ export class ReportsService {
    * rol kapsamı üyelerin kişisel hedef/fiilî toplamıdır.
    */
   async targetProgress(actor: AuthContext, period: string, scope: TargetProgressScope) {
+    this.assertScopeAllowed(actor, scope);
     const [year, month] = period.split('-').map(Number);
     const from = new Date(Date.UTC(year, month - 1, 1, 0, 0, 0));
     const to = new Date(Date.UTC(year, month, 0, 23, 59, 59, 999));
     const expectedProgressPct = expectedPeriodProgressPct(period);
 
     const unsupportedCurrencies = new Set<string>();
+    // Kapsam kuralı burada uygulanır: süper admin değilse `allUsers` yalnız
+    // aktörün kendisidir, dolayısıyla aşağıdaki tüm dallar tek kişiye daralır.
     const [allUsers, fxSnapshot] = await Promise.all([
-      this.scopedActiveUsers(actor),
+      this.reportAudience(actor),
       this.fx.ratesForPeriod(period),
     ]);
     const departmentMemberships = await this.departmentMembershipMap(actor, allUsers);
@@ -1388,14 +1479,16 @@ export class ReportsService {
     anchorIso?: string,
     requestedScope: 'team' | 'self' = 'team'
   ) {
-    const isSuperAdmin = actor.roles.includes('super_admin');
+    const isSuperAdmin = this.canSeeAllUsers(actor);
     const scope: 'team' | 'self' = isSuperAdmin ? requestedScope : 'self';
     const anchor = anchorIso ? new Date(anchorIso) : new Date();
     const range = this.activityRanges(period, anchor);
 
-    const scopedUsers = await this.scopedActiveUsers(actor);
+    // Süper admin değilse `reportAudience` zaten tek satır döner; 'self'
+    // filtresi süper adminin kendi verisine geçtiği durum için kalır.
+    const audience = await this.reportAudience(actor);
     const people =
-      scope === 'self' ? scopedUsers.filter((user) => user.id === actor.userId) : scopedUsers;
+      scope === 'self' ? audience.filter((user) => user.id === actor.userId) : audience;
     const userIds = people.map((user) => user.id);
 
     const [quoteCounts, visitCounts, callCounts, activityCounts] = await Promise.all([

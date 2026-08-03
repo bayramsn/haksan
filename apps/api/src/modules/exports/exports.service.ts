@@ -12,7 +12,7 @@ import {
   sql,
 } from 'drizzle-orm';
 import type { DbClient } from '../../db/client';
-import { companies, companyAddresses, companyEmails, companyPhones, contacts } from '../../db/schema/companies';
+import { companies, companyAddresses, companyDivisions, companyEmails, companyPhones, contacts } from '../../db/schema/companies';
 import { opportunities, salesActivities } from '../../db/schema/crm';
 import { files, fileLinks } from '../../db/schema/files';
 import { receivables, payments } from '../../db/schema/finance';
@@ -24,6 +24,8 @@ import { deliveries, serviceComplaintIntakes, serviceTickets, shipments } from '
 import {
   companyRelationTypes,
   companyStatuses,
+  companyGroups,
+  contactSources,
   currencies,
   fileDocumentTypes,
   inventoryStatuses,
@@ -39,6 +41,7 @@ import {
 } from '../../db/schema/lookup';
 import { users } from '../../db/schema/users';
 import { warehouses } from '../../db/schema/inventory';
+import { divisions } from '../../db/schema/tenants';
 import { DB } from '../../shared/database/database.module';
 import type { AuthContext } from '../../shared/security/auth.types';
 import { isoDate, type ExportRow } from '../../shared/utils/excel-export';
@@ -160,7 +163,7 @@ export class ExportsService {
 
   async exportCompanies(
     actor: AuthContext,
-    query: { search?: string; relationTypeCode?: string; customerStatusCode?: string }
+    query: { search?: string; relationTypeCode?: string; customerStatusCode?: string; divisionId?: string }
   ): Promise<ExportRow[]> {
     const filters = [eq(companies.tenantId, actor.tenantId), isNull(companies.deletedAt)];
     if (query.search) {
@@ -181,6 +184,13 @@ export class ExportsService {
       const sid = await lookupIdByCode(this.db, companyStatuses, query.customerStatusCode);
       if (sid) filters.push(eq(companies.customerStatusId, sid));
     }
+    if (query.divisionId) {
+      filters.push(sql`exists (
+        select 1 from ${companyDivisions}
+        where ${companyDivisions.companyId} = ${companies.id}
+          and ${companyDivisions.divisionId} = ${query.divisionId}
+      )`);
+    }
     filters.push(resourceCompanyPortfolioFilter(actor, 'companies', companies.id) ?? sql`true`);
     filters.push((await companyVisibilityFilter(this.db, actor)) ?? sql`true`);
 
@@ -189,22 +199,31 @@ export class ExportsService {
         company: companies,
         relationType: { name: companyRelationTypes.name },
         customerStatus: { name: companyStatuses.name },
+        companyGroup: { name: companyGroups.name },
+        contactSource: { name: contactSources.name },
       })
       .from(companies)
       .leftJoin(companyRelationTypes, eq(companies.relationTypeId, companyRelationTypes.id))
       .leftJoin(companyStatuses, eq(companies.customerStatusId, companyStatuses.id))
+      .leftJoin(companyGroups, eq(companies.companyGroupId, companyGroups.id))
+      .leftJoin(contactSources, eq(companies.contactSourceId, contactSources.id))
       .where(and(...filters))
       .orderBy(desc(companies.createdAt))
       .limit(EXPORT_LIMIT);
 
     const companyIds = rows.map((r) => r.company.id);
-    const [addresses, phones, emails] = companyIds.length
+    const [addresses, phones, emails, companyDivisionRows] = companyIds.length
       ? await Promise.all([
           this.db.select().from(companyAddresses).where(inArray(companyAddresses.companyId, companyIds)),
           this.db.select().from(companyPhones).where(inArray(companyPhones.companyId, companyIds)),
           this.db.select().from(companyEmails).where(inArray(companyEmails.companyId, companyIds)),
+          this.db
+            .select({ companyId: companyDivisions.companyId, name: divisions.name })
+            .from(companyDivisions)
+            .innerJoin(divisions, eq(companyDivisions.divisionId, divisions.id))
+            .where(inArray(companyDivisions.companyId, companyIds)),
         ])
-      : [[], [], []];
+      : [[], [], [], []];
 
     return rows.map((r) => {
       const cid = r.company.id;
@@ -223,6 +242,9 @@ export class ExportsService {
         'Kısa Ad': r.company.shortName ?? '',
         Tip: r.relationType?.name ?? '',
         'Müşteri Statüsü': r.customerStatus?.name ?? '',
+        'Bağlı Bulunduğu Birim': companyDivisionRows.filter((division) => division.companyId === cid).map((division) => division.name).join(', '),
+        'Firma Grubu': r.companyGroup?.name ?? '',
+        'İrtibat Şekli / Kaynak': r.company.contactSourceText ?? r.contactSource?.name ?? '',
         Telefon: phone,
         'E-posta': email,
         Şehir: addr?.province ?? '',

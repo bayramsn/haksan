@@ -24,7 +24,8 @@ type AuthState = {
   authed: boolean;
   user: MeUser | null;
   tenant: MeTenant | null;
-  login: (email: string, password: string) => Promise<void>;
+  /** `identifier`: kullanıcı adı veya e-posta. */
+  login: (identifier: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   hasRole: (code: string) => boolean;
 };
@@ -92,8 +93,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   usePushRegistration(Boolean(user));
 
   const login = useCallback(
-    async (email: string, password: string) => {
-      await authService.login(email, password);
+    // `identifier` kullanıcı adı ya da e-posta olabilir.
+    async (identifier: string, password: string) => {
+      await authService.login(identifier, password);
       await fetchMe();
       void flushOfflineQueue();
       router.replace('/(tabs)');

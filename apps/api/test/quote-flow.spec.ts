@@ -144,19 +144,19 @@ describe('ERP flow', () => {
     expect(proforma.status).toBe(201);
     proformaId = proforma.body.id;
     expect(proforma.body.documentNo).toMatch(new RegExp(`^${quoteBusinessLine}-PRF-\\d{4}/\\d{3}$`));
-    expect(proforma.body.documentSnapshot?.schemaVersion).toBe(3);
+    expect(proforma.body.documentSnapshot?.schemaVersion).toBe(4);
     expect(proforma.body.documentSnapshot?.items[0]).toMatchObject({
       id: quoteItemId,
       unitPrice: 90_000,
-      discountAmount: 0,
-      lineTotal: 90_000,
-      vatAmount: 18_000,
+      discountAmount: 5_000,
+      lineTotal: 85_000,
+      vatAmount: 17_000,
     });
     expect(proforma.body.documentSnapshot?.quote).toMatchObject({
-      discountTotal: 0,
-      subtotal: 90_000,
-      vatAmount: 18_000,
-      grandTotal: 108_000,
+      discountTotal: 5_000,
+      subtotal: 85_000,
+      vatAmount: 17_000,
+      grandTotal: 102_000,
     });
     expect(contract.status).toBe(201);
     expect(contract.body.contractNo).toMatch(new RegExp(`^${quoteBusinessLine}-SOZ-\\d{4}/\\d{3}$`));
@@ -368,6 +368,16 @@ describe('ERP flow', () => {
       .set('Authorization', `Bearer ${adminToken}`);
     const listedQuote = listed.body.data.find((quote: { id: string }) => quote.id === draft.body.id);
     expect(listedQuote?.status?.code).toBe('budget_waiting');
+
+    const activities = await supertest(app.getHttpServer())
+      .get(`/api/v1/activities?companyId=${companyId}&pageSize=100`)
+      .set('Authorization', `Bearer ${adminToken}`);
+    expect(activities.status, JSON.stringify(activities.body)).toBe(200);
+    expect(
+      activities.body.data.find((activity: { subject: string }) =>
+        activity.subject.startsWith(`${draft.body.documentNo} teklif takibi —`),
+      ),
+    ).toMatchObject({ origin: 'system' });
   });
 
   it('snapshots sent commercial documents and prevents later mutation or deletion', async () => {
@@ -378,8 +388,8 @@ describe('ERP flow', () => {
     expect(repriced.status).toBe(200);
     expect(repriced.body.documentSnapshot?.items[0]).toMatchObject({
       unitPrice: 88_000,
-      discountAmount: 0,
-      lineTotal: 88_000,
+      discountAmount: 5_000,
+      lineTotal: 83_000,
     });
 
     const finalized = await supertest(app.getHttpServer())
@@ -391,7 +401,7 @@ describe('ERP flow', () => {
     expect(finalized.body.documentSnapshot?.company).toBeTruthy();
     expect(finalized.body.documentSnapshot?.companyAddresses?.[0]?.id).toBe(companyAddressId);
     expect(finalized.body.documentSnapshot?.items).toHaveLength(1);
-    expect(finalized.body.documentSnapshot?.schemaVersion).toBe(3);
+    expect(finalized.body.documentSnapshot?.schemaVersion).toBe(4);
     expect(finalized.body.documentSnapshot?.items[0]?.unitCode).toBe('adet');
     expect(finalized.body.documentSnapshot?.items[0]?.product?.id).toBe(productModelId);
     expect(finalized.body.documentSnapshot?.items[0]?.product?.brandName).toBeTruthy();

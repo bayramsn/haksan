@@ -52,6 +52,15 @@ describe('Activity mentions', () => {
         activityDate: new Date().toISOString(),
       });
     expect(activity.status, JSON.stringify(activity.body)).toBe(201);
+    expect(activity.body.origin).toBe('manual');
+
+    const activityList = await supertest(server)
+      .get(`/api/v1/activities?opportunityId=${opportunityId}&pageSize=10`)
+      .set('Authorization', `Bearer ${adminToken}`);
+    expect(activityList.status, JSON.stringify(activityList.body)).toBe(200);
+    expect(
+      activityList.body.data.find((row: { id: string }) => row.id === activity.body.id),
+    ).toMatchObject({ origin: 'manual' });
 
     const salesNotifications = await supertest(server)
       .get('/api/v1/notifications?unread=true&pageSize=200')

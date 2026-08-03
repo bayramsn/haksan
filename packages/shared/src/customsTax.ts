@@ -4,7 +4,7 @@
  * Bir teklif/proforma satırı "işleme merkezi" ürün tipinde VE "millileştirilmiş"
  * işaretliyse şu kalemler eklenir:
  *  - %2.7 gümrük vergisi (satır net tutarı üzerinden)
- *  - %10 ilave gümrük vergisi (satır net tutarı üzerinden)
+ *  - %10 ilave gümrük vergisi (%2.7 eklenmiş büyüyen tutar üzerinden)
  *  - adet başına 1600 USD TSE vergisi
  *  - adet başına 1000 USD sabit gümrük vergisi
  *
@@ -37,7 +37,7 @@ export function isMachiningCenterTypeCode(code?: string | null): boolean {
 export type CustomsChargeBreakdown = {
   /** %2.7 gümrük vergisi. */
   customsDuty: number;
-  /** %10 ilave gümrük vergisi. */
+  /** %10 ilave gümrük vergisi (%2.7 eklenmiş tutar üzerinden). */
   additionalCustomsDuty: number;
   /** TSE vergisi (adet başına 1600 USD, teklif dövizine çevrilmiş). */
   tseFee: number;
@@ -68,7 +68,7 @@ export function computeCustomsCharges({
   const rate = Number.isFinite(usdToQuoteRate) && usdToQuoteRate > 0 ? usdToQuoteRate : 1;
 
   const customsDuty = round(base * CUSTOMS_DUTY_RATE);
-  const additionalCustomsDuty = round(base * ADDITIONAL_CUSTOMS_DUTY_RATE);
+  const additionalCustomsDuty = round((base + customsDuty) * ADDITIONAL_CUSTOMS_DUTY_RATE);
   const tseFee = round(TSE_FEE_USD_PER_UNIT * qty * rate);
   const fixedCustomsFee = round(CUSTOMS_FEE_USD_PER_UNIT * qty * rate);
   const total = round(customsDuty + additionalCustomsDuty + tseFee + fixedCustomsFee);

@@ -1,5 +1,6 @@
-import { pgTable, uuid, varchar, text, boolean, integer, timestamp, index, uniqueIndex } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, varchar, text, boolean, integer, bigint, timestamp, index, uniqueIndex, jsonb } from 'drizzle-orm/pg-core';
 import { auditColumns } from './_helpers';
+import type { NavigationVisibilityKey } from '@haksan/shared';
 
 export const tenants = pgTable(
   'tenants',
@@ -10,6 +11,7 @@ export const tenants = pgTable(
     taxNumber: varchar('tax_number', { length: 32 }),
     email: varchar('email', { length: 255 }),
     phone: varchar('phone', { length: 32 }),
+    hiddenNavigationKeys: jsonb('hidden_navigation_keys').$type<NavigationVisibilityKey[]>().notNull().default([]),
     isActive: boolean('is_active').notNull().default(true),
     ...auditColumns,
   },
@@ -80,5 +82,26 @@ export const documentSequences = pgTable(
       t.year
     ),
     tenantYearIdx: index('document_sequences_tenant_year_idx').on(t.tenantId, t.year),
+  })
+);
+
+/** Firma ve kontak kayıtları için tenant bazında atomik sıra numarası. */
+export const recordSequences = pgTable(
+  'record_sequences',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id')
+      .notNull()
+      .references(() => tenants.id, { onDelete: 'cascade' }),
+    recordType: varchar('record_type', { length: 32 }).notNull(),
+    lastNumber: bigint('last_number', { mode: 'number' }).notNull().default(0),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    tenantRecordTypeUnique: uniqueIndex('record_sequences_tenant_record_type_unique').on(
+      t.tenantId,
+      t.recordType
+    ),
   })
 );

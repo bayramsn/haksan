@@ -16,4 +16,10 @@ describe("kaybedilen fırsat ayrıntıları", () => {
     expect(source).toContain("Hangi Şartlarımız Uymadı? *");
     expect(source).toContain("unmetConditions: unmetConditions.trim()");
   });
+
+  it("rakip kataloğu yüklenemezse hatayı sessizce gizlemez", () => {
+    expect(source).toContain("competitorLoadError");
+    expect(source).toContain("Rakip kataloğu alınamadı");
+    expect(source).toContain('role="alert"');
+  });
 });

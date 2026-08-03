@@ -11,6 +11,13 @@ const emptyToUndefined = (value: unknown) => {
   return typeof value === 'string' && value.trim() === '' ? undefined : value;
 };
 const optionalText = (max: number) => z.preprocess(emptyToUndefined, z.string().max(max).optional());
+const optionalTrimmedText = (max: number) =>
+  z.preprocess(emptyToUndefined, z.string().trim().max(max).optional());
+const nullableOptionalTrimmedText = (max: number) =>
+  z.preprocess(
+    (value) => (typeof value === 'string' ? value.trim() || null : value),
+    z.string().max(max).nullable().optional(),
+  );
 const optionalPhone = z.preprocess(emptyToUndefined, phoneSchema.optional());
 const optionalEmail = z.preprocess(emptyToUndefined, emailSchema.optional());
 const optionalCoordinate = (min: number, max: number) =>
@@ -42,14 +49,15 @@ export const companyAddressSchema = z.object({
 });
 export type CompanyAddressInput = z.infer<typeof companyAddressSchema>;
 
-export const companyCreateSchema = z.object({
+const companyCreateBaseSchema = z.object({
   externalCompanyNo: optionalText(32),
   companyType: companyTypeEnum.default('company'),
   relationTypeCode: z.enum(['customer', 'supplier', 'supplier_customer', 'competitor']).default('customer'),
   customerStatusCode: z.enum(['potential', 'active', 'passive', 'blacklist']).default('potential'),
   companyGroupCode: optionalText(64),
   companyGroupCodes: z.array(z.string().trim().min(1).max(64)).max(32).optional(),
-  contactSourceCode: optionalText(64),
+  contactSourceCode: optionalTrimmedText(64),
+  contactSourceText: optionalTrimmedText(255),
   sector: optionalText(128),
   supplierCategoryCode: supplierCategoryCodeSchema.optional(),
   legalTitle: z.string().min(1).max(255),
@@ -82,13 +90,28 @@ export const companyCreateSchema = z.object({
   primaryEmail: optionalEmail,
   secondaryEmail: optionalEmail,
 });
+
+const validateContactSourceChoice = (
+  value: { contactSourceCode?: string | null; contactSourceText?: string | null },
+  ctx: z.RefinementCtx,
+) => {
+  if (!value.contactSourceCode || !value.contactSourceText) return;
+  ctx.addIssue({
+    code: z.ZodIssueCode.custom,
+    path: ['contactSourceText'],
+    message: 'İrtibat şekli kodu ve elle yazılan irtibat şekli aynı anda kullanılamaz.',
+  });
+};
+
+export const companyCreateSchema = companyCreateBaseSchema.superRefine(validateContactSourceChoice);
 export type CompanyCreateInput = z.infer<typeof companyCreateSchema>;
 
-export const companyUpdateSchema = companyCreateSchema.partial().extend({
+export const companyUpdateSchema = companyCreateBaseSchema.partial().extend({
   logoFileId: z.string().uuid().nullable().optional(),
   externalCompanyNo: z.string().trim().max(32).nullable().optional(),
   companyGroupCode: z.string().trim().max(64).nullable().optional(),
-  contactSourceCode: z.string().trim().max(64).nullable().optional(),
+  contactSourceCode: nullableOptionalTrimmedText(64),
+  contactSourceText: nullableOptionalTrimmedText(255),
   sector: z.string().trim().max(128).nullable().optional(),
   supplierCategoryCode: supplierCategoryCodeSchema.nullable().optional(),
   shortName: z.string().trim().max(128).nullable().optional(),
@@ -106,7 +129,7 @@ export const companyUpdateSchema = companyCreateSchema.partial().extend({
   fax: phoneSchema.nullable().optional(),
   primaryEmail: emailSchema.nullable().optional(),
   secondaryEmail: emailSchema.nullable().optional(),
-});
+}).superRefine(validateContactSourceChoice);
 export type CompanyUpdateInput = z.infer<typeof companyUpdateSchema>;
 
 export const companyListQuerySchema = z.object({

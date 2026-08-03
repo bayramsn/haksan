@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type Ref } from "react";
 import {
   AlarmClock,
   ArrowUpRight,
@@ -26,6 +26,8 @@ import { ComposeMailDialog, type MailRecipient } from "../mail/ComposeMailDialog
 import { Button } from "../ui/button";
 import { StatusBadge } from "../Layout";
 import { NextActionDialog, actionDateLabel, isActionOverdue } from "../shared/NextActionDialog";
+import { CommercialDocumentRail } from "../shared/CommercialDocumentRail";
+import { normalizeWhatsAppNumber, resolveSalesContact } from "../../lib/salesContact";
 
 type OpportunityQuickPanelProps = {
   salesCase: SalesCase;
@@ -34,6 +36,7 @@ type OpportunityQuickPanelProps = {
   previous?: SalesCase | null;
   next?: SalesCase | null;
   onNavigate?: (opportunityId: string) => void;
+  workspaceButtonRef?: Ref<HTMLButtonElement>;
 };
 
 const money = (value: number, currency: SalesCase["currency"]) =>
@@ -54,14 +57,7 @@ const dateLabel = (value?: string) => {
   }).format(date);
 };
 
-export const normalizeWhatsAppNumber = (value: string) => {
-  const digits = value.replace(/\D/g, "");
-  if (!digits) return "";
-  if (digits.startsWith("00")) return digits.slice(2);
-  if (digits.startsWith("0") && digits.length === 11) return `90${digits.slice(1)}`;
-  if (digits.length === 10) return `90${digits}`;
-  return digits;
-};
+export { normalizeWhatsAppNumber };
 
 function PulseCell({
   label,
@@ -91,39 +87,20 @@ function PulseCell({
   );
 }
 
-export function OpportunityQuickPanel({ salesCase: sc, onClose, onOpenWorkspace, previous, next, onNavigate }: OpportunityQuickPanelProps) {
+export function OpportunityQuickPanel({ salesCase: sc, onClose, onOpenWorkspace, previous, next, onNavigate, workspaceButtonRef }: OpportunityQuickPanelProps) {
   const { customers, contacts, users, activities, offers, documents, updateCase } = useStore();
   const { hasPermission } = useAuth();
   const canUpdate = hasPermission("opportunities.update");
   const [mailRecipient, setMailRecipient] = useState<MailRecipient | null>(null);
 
   const customer = customers.find((item) => item.id === sc.customerId);
-  const companyContacts = contacts.filter(
-    (contact) => contact.customerId === sc.customerId || contact.companyIds?.includes(sc.customerId),
-  );
-  const primaryContact =
-    companyContacts.find((contact) => contact.id === sc.primaryContactId) ??
-    companyContacts.find((contact) => contact.isPrimary) ??
-    companyContacts[0];
+  const resolvedContact = resolveSalesContact({ salesCase: sc, customer, contacts });
+  const { primaryContact } = resolvedContact;
   const owner = users.find((user) => user.id === sc.assignedUserId);
-  const contactName = primaryContact?.name || sc.leadContactName || customer?.contactPerson || "İlgili kişi belirlenmedi";
-  const contactPhone =
-    primaryContact?.mobilePhone ||
-    primaryContact?.phone ||
-    primaryContact?.otherPhone ||
-    sc.leadPhone ||
-    customer?.phone ||
-    customer?.phone2 ||
-    "";
-  const contactEmail =
-    primaryContact?.email ||
-    primaryContact?.personalEmail ||
-    primaryContact?.otherEmail ||
-    sc.leadEmail ||
-    customer?.email ||
-    customer?.email2 ||
-    "";
-  const whatsappNumber = normalizeWhatsAppNumber(contactPhone);
+  const contactName = resolvedContact.name;
+  const contactPhone = resolvedContact.phone;
+  const contactEmail = resolvedContact.email;
+  const whatsappNumber = resolvedContact.whatsappNumber;
   const partyName = customer?.name || sc.leadCompanyTitle || sc.leadContactName || "Firma kaydı bekliyor";
   const probability = Math.min(100, Math.max(0, sc.probability ?? 50));
   const weightedValue = sc.estimatedAmount * (probability / 100);
@@ -150,8 +127,10 @@ export function OpportunityQuickPanel({ salesCase: sc, onClose, onOpenWorkspace,
         .slice(0, 3),
     [activities, sc.id],
   );
-  const offerCount = offers.filter((offer) => offer.salesCaseId === sc.id).length;
-  const documentCount = documents.filter((document) => document.salesCaseId === sc.id).length;
+  const opportunityOffers = offers.filter((offer) => offer.salesCaseId === sc.id);
+  const opportunityDocuments = documents.filter((document) => document.salesCaseId === sc.id);
+  const offerCount = opportunityOffers.length;
+  const documentCount = opportunityDocuments.length;
   const shortId = sc.externalKey || sc.id.slice(0, 8).toUpperCase();
 
   return (
@@ -224,6 +203,16 @@ export function OpportunityQuickPanel({ salesCase: sc, onClose, onOpenWorkspace,
               </div>
             </div>
           </section>
+
+          {sc.qualificationStage !== "lead" && (
+            <CommercialDocumentRail
+              variant="compact"
+              offers={opportunityOffers}
+              documents={opportunityDocuments}
+              onOpenOffer={onOpenWorkspace}
+              onOpenDocument={onOpenWorkspace}
+            />
+          )}
 
           <section className={`overflow-hidden rounded-xl border bg-white shadow-[0_1px_2px_rgba(15,23,42,0.03)] ${overdue ? "border-red-200" : actionMissing ? "border-amber-200" : "border-slate-200"}`} aria-labelledby="next-action-title">
             <div className={`h-1 ${overdue ? "bg-red-500" : actionMissing ? "bg-amber-500" : "bg-[#163b75]"}`} />
@@ -345,7 +334,7 @@ export function OpportunityQuickPanel({ salesCase: sc, onClose, onOpenWorkspace,
       </div>
 
       <footer className="shrink-0 border-t border-slate-200 bg-white px-4 py-3 sm:px-6">
-        <Button type="button" className="h-10 w-full justify-between bg-[#0b2453] px-4 hover:bg-[#102f68]" onClick={onOpenWorkspace}>
+        <Button ref={workspaceButtonRef} type="button" className="h-11 w-full justify-between bg-[#0b2453] px-4 hover:bg-[#102f68]" onClick={onOpenWorkspace}>
           <span>Tam çalışma alanını aç</span>
           <ArrowUpRight className="size-4" />
         </Button>

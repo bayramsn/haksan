@@ -1,0 +1,3 @@
+# Üretilen istemci kodu build artifact'tır — codegen ile yeniden üretilir, commit edilmez.
+# Sözleşme (openapi.json) commit EDİLİR; PR'larda gözden geçirilebilsin diye.
+generated/

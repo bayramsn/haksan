@@ -43,9 +43,14 @@ beforeAll(async () => {
     .send({ email: 'readonly@haksan.local', password: 'readonly12345' });
   readonlyToken = readonlyLogin.body.accessToken;
 
+  // Satış rolünün görebildiği ve adresi özellikle eksik olan sabit demo
+  // firmasını seç. Sırasız data[0] saf tedarikçi olabildiği için test aksi
+  // halde owner yetkisine ulaşmadan görünürlük filtresinde 404 alıyordu.
   const companies = await supertest(server)
-    .get('/api/v1/companies?pageSize=10')
-    .set('Authorization', `Bearer ${token}`);
+    .get('/api/v1/companies?search=5550001111&pageSize=1')
+    .set('Authorization', `Bearer ${salesToken}`);
+  expect(companies.status, JSON.stringify(companies.body)).toBe(200);
+  expect(companies.body.data.length).toBeGreaterThan(0);
   companyId = companies.body.data[0].id;
 });
 
@@ -440,6 +445,11 @@ describe('Opportunity qualification pipeline', () => {
         'Teklif oluşturuldu',
       ])
     );
+    expect(skipped.body.error?.details?.blockers).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ key: 'quote', actionKey: 'create_quote', qualificationStage: 'b' }),
+      ])
+    );
 
     const blocked = await supertest(server)
       .patch(`/api/v1/opportunities/${opportunityId}/qualification-stage`)
@@ -448,6 +458,33 @@ describe('Opportunity qualification pipeline', () => {
     expect(blocked.status).toBe(422);
     expect(blocked.body.error?.message).toContain('eksik');
     expect(blocked.body.error?.details?.blockerLabels).toEqual(expect.arrayContaining(['Kontak bağlı']));
+  });
+
+  it('shows quote creation as a B-process requirement', async () => {
+    const server = app.getHttpServer();
+    const callStage = await db.query.pipelineStages.findFirst({ where: eq(pipelineStages.code, 'call') });
+    expect(callStage).toBeTruthy();
+    await db
+      .update(opportunities)
+      .set({ qualificationStage: 'b', currentStageId: callStage!.id })
+      .where(eq(opportunities.id, opportunityId));
+
+    const detail = await supertest(server)
+      .get(`/api/v1/opportunities/${opportunityId}`)
+      .set('Authorization', `Bearer ${token}`);
+
+    expect(detail.status, JSON.stringify(detail.body)).toBe(200);
+    expect(detail.body.qualificationReadiness).toMatchObject({ stage: 'b', ready: false });
+    expect(detail.body.qualificationReadiness.checks).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ key: 'quote', label: 'Teklif oluşturuldu', complete: false }),
+      ])
+    );
+    expect(detail.body.processReadiness.checks).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ key: 'quote', actionKey: 'create_quote', qualificationStage: 'b' }),
+      ])
+    );
   });
 
   it('protects operational approvals with opportunities.approve', async () => {
@@ -579,7 +616,7 @@ describe('Opportunity qualification pipeline', () => {
       .send({ toStage: 'quote', changeReason: 'Teklif kapsamı yeniden değerlendirilecek' });
     expect(moved.status, JSON.stringify(moved.body)).toBe(200);
     expect(moved.body.stage.code).toBe('quote');
-    expect(moved.body.qualificationStage).toBe('a');
+    expect(moved.body.qualificationStage).toBe('b');
     expect(moved.body.closedAt).toBeNull();
     expect(moved.body.processReadiness.currentOperationStage).toBe('quote');
     expect(moved.body.qualificationReadiness.approvals).toMatchObject({

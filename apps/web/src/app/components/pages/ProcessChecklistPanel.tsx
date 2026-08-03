@@ -8,6 +8,7 @@ import { useStore } from "../../lib/store";
 import {
   OPPORTUNITY_PAYMENT_METHOD_LABELS,
   QUALIFICATION_STAGE_LABELS,
+  opportunityTransitionErrorMessage,
   salesStageLabel,
   type OpportunityPaymentMethod,
   type QualificationStage,
@@ -21,6 +22,7 @@ import { Input } from "../ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
 import { Textarea } from "../ui/textarea";
 import { CreateContactDialog } from "../dialogs/CreateDialogs";
+import { QuoteDialog } from "../dialogs/QuoteDialog";
 import { RequestedMachineCombobox } from "../shared/RequestedMachineCombobox";
 
 /**
@@ -41,8 +43,10 @@ export function ProcessChecklistPanel({
 }) {
   const { customers, contacts, users, products, updateCase, updateCustomer, moveQualification, decideCaseApproval, refresh } =
     useStore();
-  const { hasRole } = useAuth();
+  const { hasRole, hasPermission } = useAuth();
   const isSuperAdmin = hasRole("super_admin");
+  const canUpdate = hasPermission("opportunities.update");
+  const canCreateQuote = hasPermission("quotes.create");
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [advancing, setAdvancing] = useState(false);
   const [editingKeys, setEditingKeys] = useState<Set<string>>(new Set());
@@ -98,7 +102,7 @@ export function ProcessChecklistPanel({
 
   /** Bir düzenleyicinin kaydetme sarmalayıcısı: kilit, hata ve tazeleme tek yerde. */
   const run = async (key: string, action: () => Promise<unknown>, successMessage: string) => {
-    if (busyKey) return;
+    if (!canUpdate || busyKey) return;
     setBusyKey(key);
     try {
       await action();
@@ -112,15 +116,21 @@ export function ProcessChecklistPanel({
   };
 
   const advance = async () => {
-    if (!readiness.nextStage) return;
+    if (!canUpdate || advancing || !readiness.nextStage) return;
+    if (grade === "lead") {
+      document.querySelector<HTMLButtonElement>('[data-workspace-primary="convert"]')?.click();
+      return;
+    }
     setAdvancing(true);
     try {
       await moveQualification(sc.id, readiness.nextStage);
       toast.success("Satış derecesi ilerletildi", {
         description: `${QUALIFICATION_STAGE_LABELS[readiness.nextStage as QualificationStage]} alanına geçildi`,
       });
-    } catch (error: any) {
-      toast.error("İlerletilemedi", { description: error?.message ?? "Eksik bilgi olabilir." });
+    } catch (error: unknown) {
+      toast.error("İlerletilemedi", {
+        description: opportunityTransitionErrorMessage(error, "Eksik bilgi olabilir."),
+      });
     } finally {
       setAdvancing(false);
     }
@@ -162,7 +172,8 @@ export function ProcessChecklistPanel({
               users={users}
               products={products}
               isSuperAdmin={isSuperAdmin}
-              disabled={busyKey !== null}
+              canCreateQuote={canCreateQuote}
+              disabled={!canUpdate || busyKey !== null}
               run={run}
               updateCase={updateCase}
               updateCustomer={updateCustomer}
@@ -217,7 +228,8 @@ export function ProcessChecklistPanel({
                       users={users}
                       products={products}
                       isSuperAdmin={isSuperAdmin}
-                    disabled={busyKey !== null}
+                      canCreateQuote={canCreateQuote}
+                    disabled={!canUpdate || busyKey !== null}
                     run={run}
                     updateCase={updateCase}
                     updateCustomer={updateCustomer}
@@ -237,10 +249,12 @@ export function ProcessChecklistPanel({
               : `Eksik: ${readiness.blockers.join(", ")}`}
           </span>
           {readiness.nextStage && (
-            <Button size="sm" className="h-8" disabled={!readiness.ready || advancing} onClick={() => void advance()}>
+            <Button size="sm" className="h-8" disabled={!canUpdate || !readiness.ready || advancing} onClick={() => void advance()}>
               {advancing
                 ? "İlerletiliyor…"
-                : `${QUALIFICATION_STAGE_LABELS[readiness.nextStage as QualificationStage]} alanına geç`}
+                : grade === "lead"
+                  ? "Fırsata dönüştür"
+                  : `${QUALIFICATION_STAGE_LABELS[readiness.nextStage as QualificationStage]} alanına geç`}
             </Button>
           )}
         </div>
@@ -257,6 +271,7 @@ type EditorProps = {
   users: ReturnType<typeof useStore>["users"];
   products: ReturnType<typeof useStore>["products"];
   isSuperAdmin: boolean;
+  canCreateQuote: boolean;
   disabled: boolean;
   run: (key: string, action: () => Promise<unknown>, successMessage: string) => Promise<void>;
   updateCase: ReturnType<typeof useStore>["updateCase"];
@@ -503,6 +518,25 @@ function CheckEditor(props: EditorProps) {
           disabled={disabled}
           onValueChange={(value) =>
             saveCase({ requestedMachine: value }, "İstenen makine kaydedildi")
+          }
+        />
+      );
+
+    case "quote":
+      if (!sc.customerId) {
+        return wrap(<p className="text-[10px] text-muted-foreground">Tekliften önce firma bağlanmalı.</p>);
+      }
+      if (!props.canCreateQuote) {
+        return wrap(<p className="text-[10px] text-muted-foreground">Teklif oluşturma yetkiniz bulunmuyor.</p>);
+      }
+      return wrap(
+        <QuoteDialog
+          defaultCaseId={sc.id}
+          defaultCustomerId={sc.customerId}
+          trigger={
+            <Button type="button" size="sm" className="h-8" disabled={disabled}>
+              Teklif oluştur
+            </Button>
           }
         />
       );

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "../../ui/card";
+import { Card, CardHeader, CardTitle } from "../../ui/card";
 import { Button } from "../../ui/button";
 import { Input } from "../../ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../../ui/table";
@@ -10,6 +10,7 @@ import { DocumentDetailDialog } from "../../dialogs/DocumentDetailDialog";
 import { CreateProformaDialog } from "../../dialogs/CreateProformaDialog";
 import { EditProformaPricesDialog } from "../../dialogs/EditProformaPricesDialog";
 import { CreateContractDialog } from "../../dialogs/CreateContractDialog";
+import { LinkCommercialDocumentDialog } from "../../dialogs/LinkCommercialDocumentDialog";
 import { useStore } from "../../../lib/store";
 import { DocumentItem } from "../../../lib/mock";
 import { toast } from "sonner";
@@ -27,24 +28,14 @@ import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger,
 } from "../../ui/dropdown-menu";
 import {
-  Search, Upload, Download, Printer, Eye, FileText, FileSignature, Receipt, Wrench, ClipboardCheck, Plus, Trash2,
-  Files, Layers3, Clock3, FileCheck2, BadgeDollarSign,
+  Search, Upload, Download, Printer, Eye, Plus, Trash2,
+  Files, Layers3, FileCheck2, BadgeDollarSign, Link2, Route, Unlink, ArrowRight,
+  Folder, FolderOpen,
 } from "lucide-react";
 import {
   printAssetBase, proformaDoc, commercialInvoiceDoc, contractDoc, installationFormDoc, loadContractPrintData, loadProformaPrintData, PROFORMA_NOTE_OPTIONS, trShortDate,
 } from "../../../lib/print";
 import { printOrWarn, downloadPrintOrWarn } from "../../../lib/pageHelpers";
-
-const DOC_ICONS: Record<string, React.ReactNode> = {
-  Proforma: <FileText className="size-4" />,
-  Contract: <FileSignature className="size-4" />,
-  CommercialInvoice: <Receipt className="size-4" />,
-  AccountingInvoice: <Receipt className="size-4" />,
-  ExternalQuote: <FileText className="size-4" />,
-  DeliveryForm: <ClipboardCheck className="size-4" />,
-  InstallationForm: <Wrench className="size-4" />,
-  Other: <FileText className="size-4" />,
-};
 
 const DOC_TYPE_LABELS: Record<DocumentItem["type"], string> = {
   Proforma: "Proforma",
@@ -62,6 +53,45 @@ const DOC_GROUPS: Array<{ title: string; description: string; types: DocumentIte
   { title: "Saha Formları", description: "Teslim ve kurulum kanıtları", types: ["DeliveryForm", "InstallationForm"] },
   { title: "Diğer Dosyalar", description: "Genel ekler ve arşiv", types: ["Other"] },
 ];
+
+function DocumentFolderButton({
+  type,
+  count,
+  active,
+  onClick,
+}: {
+  type: DocumentItem["type"];
+  count: number;
+  active: boolean;
+  onClick: () => void;
+}) {
+  const Icon = active ? FolderOpen : Folder;
+  return (
+    <button
+      type="button"
+      aria-pressed={active}
+      aria-controls="document-folder-contents"
+      onClick={onClick}
+      className="group relative min-w-0 pt-3 text-left outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2"
+    >
+      <span
+        aria-hidden="true"
+        className={`absolute left-px top-0 h-4 w-[42%] rounded-t-[7px] border border-b-0 transition-colors ${active ? "border-primary/35 bg-primary/15" : "border-border/70 bg-slate-100 group-hover:border-primary/25 group-hover:bg-primary/10"}`}
+      />
+      <span
+        className={`relative flex min-h-[102px] flex-col justify-between rounded-b-xl rounded-tr-xl border px-3 py-3 transition duration-200 group-active:translate-y-px ${active ? "border-primary/35 bg-primary/[0.07] shadow-[0_10px_24px_-18px_rgba(11,36,83,.8)]" : "border-border/70 bg-white group-hover:-translate-y-0.5 group-hover:border-primary/25 group-hover:shadow-[0_10px_24px_-20px_rgba(11,36,83,.7)]"}`}
+      >
+        <span className="flex items-start justify-between gap-2">
+          <span className={`grid size-8 place-items-center rounded-lg ${active ? "bg-primary text-white" : "bg-primary/8 text-primary"}`}>
+            <Icon className="size-4" />
+          </span>
+          <span className="font-data text-[10px] tabular-nums text-muted-foreground">{count} kayıt</span>
+        </span>
+        <span className="mt-3 block truncate text-xs font-semibold tracking-tight">{DOC_TYPE_LABELS[type]}</span>
+      </span>
+    </button>
+  );
+}
 
 function DocumentSheetPreview({ document }: { document: DocumentItem }) {
   const label = DOC_TYPE_LABELS[document.type];
@@ -83,13 +113,25 @@ function DocumentSheetPreview({ document }: { document: DocumentItem }) {
 export function DocumentsPage({
   initialType,
   initialQuery,
-  title = "Dokümanlar",
-  description = "Proforma, sözleşme, fatura ve servis/teslim formları",
+  title = "Bağlı belge envanteri",
+  description = "Her belgeyi kaynak teklif, fırsat, firma veya saha kaydıyla birlikte yönetin",
+  onOpenOpportunity,
+  onOpenOffer,
+  onOpenCustomer,
+  onOpenPayment,
+  onOpenServiceRequest,
+  onOpenAccountingInvoices,
 }: {
   initialType?: DocumentItem["type"];
   initialQuery?: string;
   title?: string;
   description?: string;
+  onOpenOpportunity?: (salesCaseId: string) => void;
+  onOpenOffer?: (query: string) => void;
+  onOpenCustomer?: (customerId: string) => void;
+  onOpenPayment?: (query: string) => void;
+  onOpenServiceRequest?: (query: string) => void;
+  onOpenAccountingInvoices?: (query?: string) => void;
 }) {
   const { documents, cases, customers, contacts, users, offers, payments, products, deliveries, machines, refresh } = useStore();
   const customerName = (id: string) => customers.find((c) => c.id === id)?.name ?? "—";
@@ -128,6 +170,7 @@ export function DocumentsPage({
     offers,
     products,
     contacts,
+    users,
     variantKey,
   });
 
@@ -174,6 +217,7 @@ export function DocumentsPage({
         contractDate: d.uploadedAt || new Date().toISOString().slice(0, 10),
         contractNo: d.fileName,
         documentSnapshot: d.documentSnapshot,
+        users,
       });
       const rendered = contractDoc(data, printAssetBase());
       if (mode === "print") printOrWarn(rendered);
@@ -361,7 +405,7 @@ export function DocumentsPage({
     else if (d.type === "Contract") downloadContract(d);
     else if (d.type === "CommercialInvoice") downloadCommercialInvoice(d);
   };
-  const types = ["Proforma", "Contract", "CommercialInvoice", "AccountingInvoice", "DeliveryForm", "InstallationForm", "Other"];
+  const types: DocumentItem["type"][] = ["Proforma", "Contract", "CommercialInvoice", "AccountingInvoice", "ExternalQuote", "DeliveryForm", "InstallationForm", "Other"];
   const visibleTypes = initialType ? [initialType] : types;
   const counts = visibleTypes.map((t) => ({ type: t, count: documents.filter((d) => d.type === t).length }));
   const scopeDocuments = initialType ? documents.filter((document) => document.type === initialType) : documents;
@@ -375,12 +419,40 @@ export function DocumentsPage({
     const salesCase = cases.find((item) => item.id === document.salesCaseId);
     return document.companyId || salesCase?.customerId || "";
   }).filter(Boolean)).size;
-  const heroTitle = initialType === "Proforma" ? "Proforma kontrol merkezi" : initialType === "Contract" ? "Sözleşme kontrol merkezi" : "Doküman envanteri";
+  const linkedDocumentCount = scopeDocuments.filter((document) =>
+    Boolean(document.quoteId || document.salesCaseId || document.companyId || document.deliveryId || document.installationId || document.serviceRequestId || document.paymentId)
+  ).length;
+  const directQuoteLinkCount = scopeDocuments.filter((document) => Boolean(document.quoteId)).length;
+  const commercialTypes = new Set<DocumentItem["type"]>(["Proforma", "Contract", "CommercialInvoice"]);
+  const reviewNeededCount = scopeDocuments.filter((document) =>
+    commercialTypes.has(document.type) && !document.quoteId && !document.paymentId
+  ).length;
+  const routeSteps: Array<{ label: string; count: number; type?: DocumentItem["type"] }> = [
+    { label: "Teklif", count: offers.length },
+    { label: "Proforma", count: documents.filter((document) => document.type === "Proforma").length, type: "Proforma" },
+    { label: "Sözleşme", count: documents.filter((document) => document.type === "Contract").length, type: "Contract" },
+    { label: "Ticari fatura", count: documents.filter((document) => document.type === "CommercialInvoice").length, type: "CommercialInvoice" },
+  ];
+  const heroTitle = initialType === "Proforma" ? "Proforma kontrol merkezi" : initialType === "Contract" ? "Sözleşme kontrol merkezi" : "Ticari belge merkezi";
   const heroDescription = initialType === "Proforma"
     ? "Revizyon, teklif durumu ve geçerlilik bağlamını ilk sayfa önizlemesiyle birlikte izleyin."
     : initialType === "Contract"
       ? "İmza, revizyon ve bağlı satış kaydını tek belge akışında takip edin."
-      : "Ticari belgeleri, saha formlarını ve yüklenen dosyaları önizleme bağlamıyla birlikte yönetin.";
+      : "Tekliften faturaya uzanan belge rotasını; satış kartı, firma ve saha kayıtlarından koparmadan yönetin.";
+  const activeFolderType = docType === "all" ? null : docType as DocumentItem["type"];
+  const activeFolderCount = activeFolderType
+    ? counts.find((item) => item.type === activeFolderType)?.count ?? 0
+    : scopeDocuments.length;
+  const inventoryTitle = initialType
+    ? title
+    : activeFolderType
+      ? `${DOC_TYPE_LABELS[activeFolderType]} klasörü`
+      : title;
+  const inventoryDescription = initialType
+    ? description
+    : activeFolderType
+      ? `${DOC_TYPE_LABELS[activeFolderType]} türündeki ${activeFolderCount} kayıt gösteriliyor. Tüm belgelere dönmek için klasör seçimini temizleyin.`
+      : description;
 
   useEffect(() => {
     setDocType(initialType ?? "all");
@@ -394,11 +466,26 @@ export function DocumentsPage({
     .filter((d) => {
       const sc = cases.find((s) => s.id === d.salesCaseId);
       const companyId = d.companyId || sc?.customerId || "";
+      const exactOffer = d.quoteId ? offers.find((offer) => offer.id === d.quoteId) : undefined;
+      const inferredOffer = exactOffer ?? offers
+        .filter((offer) => offer.salesCaseId === d.salesCaseId || (companyId && offer.companyId === companyId))
+        .sort((a, b) => b.revision - a.revision)[0];
       if (docType !== "all" && d.type !== docType) return false;
-      return (
-        d.fileName.toLowerCase().includes(q.toLowerCase()) ||
-        customerName(companyId).toLowerCase().includes(q.toLowerCase())
-      );
+      const needle = q.toLocaleLowerCase("tr-TR").trim();
+      if (!needle) return true;
+      return [
+        d.fileName,
+        DOC_TYPE_LABELS[d.type],
+        customerName(companyId),
+        inferredOffer?.quoteNo,
+        inferredOffer ? `R${inferredOffer.revision}` : "",
+        sc?.requestedProduct,
+        sc?.requestedModel,
+        sc?.id,
+        userName(d.uploadedBy),
+        d.paymentId,
+        d.serviceRequestId,
+      ].some((value) => (value ?? "").toLocaleLowerCase("tr-TR").includes(needle));
     })
     // Proforma / Sözleşme no'larına (fileName olarak tutulan documentNo / contractNo) göre azalan sırala.
     .sort((a, b) => b.fileName.localeCompare(a.fileName, "tr", { numeric: true, sensitivity: "base" }));
@@ -486,46 +573,117 @@ export function DocumentsPage({
           </div>
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 xl:min-w-[610px]">
             <InsightStat label={initialType ? DOC_TYPE_LABELS[initialType] : "Toplam"} value={scopeDocuments.length} icon={<Files />} />
-            <InsightStat label="Son 30 Gün" value={recentDocumentCount} icon={<Clock3 />} tone="success" />
-            <InsightStat label="Müşteri" value={documentCustomerCount} icon={<FileCheck2 />} />
-            <InsightStat label={initialType ? "Canlı Kayıt" : "Canlı Belge"} value={liveDocumentCount || documentsWithFiles} icon={<Layers3 />} tone="success" />
+            <InsightStat label="Kaynağa Bağlı" value={linkedDocumentCount} icon={<Link2 />} tone="success" />
+            <InsightStat label="Teklife Bağlı" value={directQuoteLinkCount} icon={<FileCheck2 />} />
+            <InsightStat label="Bağlantı İncele" value={reviewNeededCount} icon={reviewNeededCount ? <Unlink /> : <Layers3 />} tone={reviewNeededCount ? undefined : "success"} />
           </div>
         </div>
       </section>
 
       {!initialType && (
-        <div className="grid gap-3 lg:grid-cols-[1.65fr_1fr_.75fr]">
-          {DOC_GROUPS.map((group) => (
-            <Card key={group.title} className="overflow-hidden border-border/60 shadow-sm">
-              <div className="border-b border-border/50 bg-muted/15 px-3 py-2.5"><p className="text-xs font-semibold">{group.title}</p><p className="mt-0.5 text-[10px] text-muted-foreground">{group.description}</p></div>
-              <CardContent className="flex flex-wrap gap-2 p-3">
-                {group.types.map((type) => {
-                  const count = counts.find((item) => item.type === type)?.count ?? 0;
-                  return <button key={type} type="button" onClick={() => setDocType(type)} className={`flex min-w-[120px] flex-1 items-center gap-2 rounded-lg border px-2.5 py-2 text-left transition-colors ${docType === type ? "border-primary/30 bg-primary/5 text-primary" : "border-border/60 bg-card hover:bg-muted/40"}`}><span className="grid size-7 shrink-0 place-items-center rounded-md bg-primary/10 text-primary">{DOC_ICONS[type]}</span><span className="min-w-0"><span className="block truncate text-[11px] font-medium">{DOC_TYPE_LABELS[type]}</span><span className="font-data text-[10px] text-muted-foreground">{count} kayıt</span></span></button>;
-                })}
-              </CardContent>
-            </Card>
-          ))}
-        </div>
+        <section className="overflow-hidden rounded-xl border border-[#0b2453]/15 bg-white shadow-sm" aria-label="Ticari belge rotası">
+          <div className="flex flex-col gap-2 border-b border-border/60 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <div className="flex items-center gap-2 font-data text-[10px] font-semibold uppercase tracking-[0.16em] text-primary"><Route className="size-3.5" /> Ticari belge rotası</div>
+              <p className="mt-1 text-xs text-muted-foreground">Aynı fırsata bağlı çıktılar soldan sağa ilerler; satırdaki kaynak düğmeleri gerçek kaydı açar.</p>
+            </div>
+            <div className="text-[11px] text-muted-foreground">Son 30 gün <b className="text-foreground">{recentDocumentCount}</b> · {documentCustomerCount} firma · {liveDocumentCount || documentsWithFiles} canlı/dosyalı kayıt</div>
+          </div>
+          <div className="relative grid grid-cols-2 gap-2 p-3 sm:grid-cols-4 sm:gap-3 sm:p-4">
+            <span className="pointer-events-none absolute left-[12%] right-[12%] top-[38px] hidden h-px bg-slate-200 sm:block" aria-hidden="true" />
+            {routeSteps.map((step, index) => (
+              <button
+                key={step.label}
+                type="button"
+                onClick={() => step.type ? setDocType(step.type) : onOpenOffer?.("")}
+                className={`relative z-10 rounded-lg border px-3 py-3 text-left transition hover:-translate-y-px hover:border-primary/35 hover:shadow-sm ${step.type && docType === step.type ? "border-primary/35 bg-primary/5" : "border-border/70 bg-white"}`}
+              >
+                <span className="flex items-center justify-between gap-2">
+                  <span className="grid size-8 place-items-center rounded-full border-2 border-primary/20 bg-white text-primary">{index + 1}</span>
+                  {index < routeSteps.length - 1 && <ArrowRight className="size-4 text-slate-300 sm:hidden" />}
+                </span>
+                <span className="mt-2 block text-xs font-semibold">{step.label}</span>
+                <span className="mt-0.5 block font-data text-[10px] text-muted-foreground">{step.count} kayıt</span>
+              </button>
+            ))}
+          </div>
+        </section>
       )}
 
-      <Card className="border-border/60 shadow-sm overflow-hidden">
+      {!initialType && (
+        <section className="overflow-hidden rounded-xl border border-[#0b2453]/15 bg-slate-50/65 shadow-sm" aria-labelledby="document-folders-title">
+          <div className="flex flex-col gap-3 border-b border-border/60 bg-white px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h3 id="document-folders-title" className="text-sm font-semibold tracking-tight">Belge klasörleri</h3>
+              <p className="mt-0.5 text-[11px] text-muted-foreground">Bir klasör seçin; içindeki belgeler aşağıdaki envanterde açılsın.</p>
+            </div>
+            <Button
+              type="button"
+              size="sm"
+              variant={docType === "all" ? "default" : "outline"}
+              className="h-8 justify-center gap-1.5"
+              aria-pressed={docType === "all"}
+              aria-controls="document-folder-contents"
+              onClick={() => setDocType("all")}
+            >
+              {docType === "all" ? <FolderOpen className="size-3.5" /> : <Folder className="size-3.5" />}
+              Tüm belgeler
+              <span className="font-data text-[10px] opacity-75">{documents.length}</span>
+            </Button>
+          </div>
+          <div className="grid gap-3 p-3 sm:p-4 lg:grid-cols-[1.65fr_1fr_.75fr]">
+            {DOC_GROUPS.map((group) => (
+              <section key={group.title} className="min-w-0 rounded-xl border border-border/60 bg-white/90 p-3" aria-label={group.title}>
+                <div className="mb-2.5">
+                  <p className="text-xs font-semibold">{group.title}</p>
+                  <p className="mt-0.5 text-[10px] text-muted-foreground">{group.description}</p>
+                </div>
+                <div className={`grid gap-2 ${group.types.length >= 4 ? "grid-cols-2 xl:grid-cols-3" : "grid-cols-2 lg:grid-cols-1 xl:grid-cols-2"}`}>
+                  {group.types.map((type) => (
+                    <DocumentFolderButton
+                      key={type}
+                      type={type}
+                      count={counts.find((item) => item.type === type)?.count ?? 0}
+                      active={docType === type}
+                      onClick={() => type === "AccountingInvoice" && onOpenAccountingInvoices
+                        ? onOpenAccountingInvoices()
+                        : setDocType(type)}
+                    />
+                  ))}
+                </div>
+              </section>
+            ))}
+          </div>
+        </section>
+      )}
+
+      <Card id="document-folder-contents" className="border-border/60 shadow-sm overflow-hidden" tabIndex={-1}>
         <CardHeader className="flex flex-col gap-3 pb-3 lg:flex-row lg:items-center lg:justify-between">
           <div className="min-w-0">
-            <CardTitle className="tracking-tight">{title}</CardTitle>
-            <p className="mt-1 text-xs text-muted-foreground">{description}</p>
+            <CardTitle className="tracking-tight">{inventoryTitle}</CardTitle>
+            <p className="mt-1 text-xs text-muted-foreground">{inventoryDescription}</p>
           </div>
           <div className="flex w-full flex-col gap-2 sm:flex-row sm:flex-wrap lg:w-auto lg:justify-end">
             <div className="relative w-full sm:w-64">
               <Search className="size-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-              <Input placeholder="Dosya / müşteri ara..." className="pl-9 h-9 bg-white" value={q} onChange={(e) => setQ(e.target.value)} />
+              <Input placeholder="Belge, teklif, firma, ürün..." className="pl-9 h-9 bg-white" value={q} onChange={(e) => setQ(e.target.value)} />
             </div>
             {!initialType && (
               <FilterPopover
-                filters={[{ label: "Tip", value: docType, onChange: setDocType, options: types.map((t) => ({ value: t, label: DOC_TYPE_LABELS[t as DocumentItem["type"]] ?? t })) }]}
+                filters={[{ label: "Tip", value: docType, onChange: setDocType, options: [{ value: "all", label: "Tüm belgeler" }, ...types.map((t) => ({ value: t, label: DOC_TYPE_LABELS[t] }))] }]}
               />
             )}
             <ExportExcelButton path="/exports/documents" filename="dokumanlar.xlsx" className="h-9 justify-center" />
+            {!initialType && (
+              <CreateProformaDialog
+                trigger={<Button size="sm" variant="outline" className="h-9 justify-center gap-1"><Plus className="size-4" /> Proforma</Button>}
+              />
+            )}
+            {!initialType && (
+              <CreateContractDialog
+                trigger={<Button size="sm" variant="outline" className="h-9 justify-center gap-1"><Plus className="size-4" /> Sözleşme</Button>}
+              />
+            )}
             {initialType === "Proforma" && (
               <CreateProformaDialog
                 trigger={<Button size="sm" className="h-9 justify-center gap-1"><Plus className="size-4" /> Proforma Oluştur</Button>}
@@ -538,7 +696,7 @@ export function DocumentsPage({
             )}
             {initialType !== "Proforma" && initialType !== "Contract" && (
               <DocumentUploadDialog
-                defaultType={initialType}
+                defaultType={initialType ?? activeFolderType ?? undefined}
                 trigger={<Button size="sm" className="h-9 justify-center gap-1"><Upload className="size-4" /> {initialType ? `${DOC_TYPE_LABELS[initialType]} Yükle` : "Yükle"}</Button>}
               />
             )}
@@ -550,7 +708,7 @@ export function DocumentsPage({
               <TableRow className="bg-muted/30 hover:bg-muted/30">
                 <TableHead className="w-[34%]">Dosya ve müşteri</TableHead>
                 <TableHead className="w-[10%]">Tip</TableHead>
-                <TableHead className="w-[19%]">Belge Akışı</TableHead>
+                <TableHead className="w-[19%]">Kaynak ve akış</TableHead>
                 <TableHead className="w-[8%]">Boyut</TableHead>
                 <TableHead className="w-[11%]">Yükleyen</TableHead>
                 <TableHead className="w-[10%]">Tarih</TableHead>
@@ -561,9 +719,25 @@ export function DocumentsPage({
               {filtered.map((d) => {
                 const sc = cases.find((s) => s.id === d.salesCaseId);
                 const companyId = sc?.customerId || d.companyId || "";
-                const openable = CONTENT_TYPES.includes(d.type);
-                const flowOffer = d.quoteId ? offers.find((offer) => offer.id === d.quoteId) : offers.filter((offer) => offer.salesCaseId === d.salesCaseId).sort((a, b) => b.revision - a.revision)[0];
+                const openable = CONTENT_TYPES.includes(d.type) && !d.paymentId;
+                const exactOffer = d.quoteId ? offers.find((offer) => offer.id === d.quoteId) : undefined;
+                const flowOffer = exactOffer ?? (d.paymentId || d.serviceRequestId || d.type === "AccountingInvoice" ? undefined : offers.filter((offer) => offer.salesCaseId === d.salesCaseId).sort((a, b) => b.revision - a.revision)[0]);
                 const signedAt = String(d.documentSnapshot?.signedAt ?? d.documentSnapshot?.signatureDate ?? "");
+                const relationLabel = exactOffer
+                  ? "Teklife doğrudan bağlı"
+                  : d.paymentId
+                    ? "Kasa hareketine bağlı"
+                    : d.serviceRequestId
+                      ? "Servis talebine bağlı"
+                      : d.type === "AccountingInvoice"
+                        ? "Muhasebe kaydına bağlı"
+                        : flowOffer
+                          ? "Fırsattan eşleştirildi"
+                          : d.deliveryId || d.installationId
+                            ? "Canlı saha kaydı"
+                            : companyId
+                              ? "Firma kaydına bağlı"
+                              : "Bağlantı gerekli";
                 return (
                   <TableRow
                     key={d.id}
@@ -580,9 +754,15 @@ export function DocumentsPage({
                         <div className="min-w-0">
                           <div className="font-data text-[9px] font-semibold uppercase tracking-[0.12em] text-operation-blue">{DOC_TYPE_LABELS[d.type]}</div>
                           <div className="mt-1 truncate text-sm font-medium leading-tight">{d.fileName}</div>
-                          <div className="text-[11px] text-muted-foreground mt-0.5 truncate">
-                            {customerName(companyId) !== "—" ? customerName(companyId) : sc ? `#${sc.id.toUpperCase()}` : d.companyId ? "Firma dokümanı" : "—"}
-                          </div>
+                          {companyId && customerName(companyId) !== "—" && onOpenCustomer ? (
+                            <button type="button" className="mt-0.5 block max-w-full truncate text-left text-[11px] text-primary hover:underline" onClick={(event) => { event.stopPropagation(); onOpenCustomer(companyId); }}>
+                              {customerName(companyId)}
+                            </button>
+                          ) : (
+                            <div className="text-[11px] text-muted-foreground mt-0.5 truncate">
+                              {customerName(companyId) !== "—" ? customerName(companyId) : sc ? `#${sc.id.toUpperCase()}` : d.companyId ? "Firma dokümanı" : "—"}
+                            </div>
+                          )}
                           <div className="mt-1.5 flex flex-wrap gap-1.5"><span className="chip chip-neutral">{d.fileId ? "Dosya mevcut" : d.deliveryId || d.installationId ? "Canlı saha formu" : "Canlı kayıt"}</span>{d.documentSnapshot && <span className="chip chip-info">Snapshot korumalı</span>}</div>
                         </div>
                       </div>
@@ -591,10 +771,35 @@ export function DocumentsPage({
                     <TableCell>
                       {flowOffer ? (
                         <div className="min-w-[145px] space-y-1">
-                          <div className="flex flex-wrap items-center gap-1.5"><span className="chip chip-neutral">R{flowOffer.revision}</span><StatusBadge status={flowOffer.status} /></div>
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            {onOpenOffer ? (
+                              <button type="button" className="chip chip-info hover:underline" onClick={(event) => { event.stopPropagation(); onOpenOffer(flowOffer.quoteNo); }}>{flowOffer.quoteNo} · R{flowOffer.revision}</button>
+                            ) : <span className="chip chip-neutral">R{flowOffer.revision}</span>}
+                            <StatusBadge status={flowOffer.status} />
+                          </div>
                           <div className="text-[10px] text-muted-foreground">{d.type === "Contract" ? signedAt ? `İmzalandı · ${signedAt.slice(0, 10)}` : "İmza durumu bekleniyor" : `${flowOffer.validityDays ?? 30} gün geçerli`}</div>
+                          <div className="flex flex-wrap items-center gap-1">
+                            <span className={`chip ${exactOffer ? "chip-success" : "chip-neutral"}`}>{relationLabel}</span>
+                            {sc && onOpenOpportunity && <button type="button" className="chip chip-neutral hover:underline" onClick={(event) => { event.stopPropagation(); onOpenOpportunity(sc.id); }}>Fırsatı aç</button>}
+                          </div>
                         </div>
-                      ) : <span className="text-xs text-muted-foreground">{d.fileId ? "Yüklenmiş belge" : "Canlı kayıt"}</span>}
+                      ) : (
+                        <div className="space-y-1.5">
+                          <span className={`chip ${relationLabel === "Bağlantı gerekli" ? "chip-destructive" : "chip-neutral"}`}>{relationLabel}</span>
+                          {sc && onOpenOpportunity && <button type="button" className="block text-[10px] text-primary hover:underline" onClick={(event) => { event.stopPropagation(); onOpenOpportunity(sc.id); }}>Fırsatı aç</button>}
+                          {d.paymentId && onOpenPayment && <button type="button" className="block text-[10px] text-primary hover:underline" onClick={(event) => { event.stopPropagation(); onOpenPayment(d.paymentId!); }}>Kasa kaydını aç</button>}
+                          {d.serviceRequestId && onOpenServiceRequest && <button type="button" className="block text-[10px] text-primary hover:underline" onClick={(event) => { event.stopPropagation(); onOpenServiceRequest(d.serviceRequestId!); }}>Servis talebini aç</button>}
+                          {d.type === "AccountingInvoice" && onOpenAccountingInvoices && <button type="button" className="block text-[10px] text-primary hover:underline" onClick={(event) => { event.stopPropagation(); onOpenAccountingInvoices(d.fileName); }}>Muhasebe kaydını aç</button>}
+                          {commercialTypes.has(d.type) && !d.quoteId && !d.paymentId && d.fileId && (
+                            <div onClick={(event) => event.stopPropagation()}>
+                              <LinkCommercialDocumentDialog
+                                document={d}
+                                trigger={<Button variant="link" size="sm" className="h-auto p-0 text-[10px]">Bağlantıyı tamamla</Button>}
+                              />
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </TableCell>
                     <TableCell className="text-sm tabular-nums text-muted-foreground">{d.size}</TableCell>
                     <TableCell className="text-sm">{userName(d.uploadedBy)}</TableCell>
@@ -683,7 +888,7 @@ export function DocumentsPage({
                             </Button>
                           </>
                         )}
-                        {d.type === "CommercialInvoice" && (
+                        {d.type === "CommercialInvoice" && !d.paymentId && (
                           <>
                             <Button variant="ghost" size="icon" className="size-7" title="Ticari fatura yazdır / PDF"
                               onClick={() => printCommercialInvoice(d)}>
@@ -695,7 +900,7 @@ export function DocumentsPage({
                             </Button>
                           </>
                         )}
-                        {d.type !== "Proforma" && d.type !== "Contract" && d.type !== "CommercialInvoice" && (
+                        {(d.type !== "Proforma" && d.type !== "Contract" && d.type !== "CommercialInvoice" || Boolean(d.paymentId)) && (
                           <Button variant="ghost" size="icon" className="size-7" title="Yazdır / PDF"
                             onClick={() => void printDocument(d)}>
                             <Printer className="size-4 text-muted-foreground hover:text-primary" />
@@ -707,7 +912,7 @@ export function DocumentsPage({
                             <Eye className="size-4 text-muted-foreground hover:text-primary" />
                           </Button>
                         )}
-                        {d.type !== "Proforma" && d.type !== "Contract" && d.type !== "CommercialInvoice" && !(d.deliveryId || d.installationId) && (
+                        {(d.type !== "Proforma" && d.type !== "Contract" && d.type !== "CommercialInvoice" || Boolean(d.paymentId)) && !(d.deliveryId || d.installationId) && (
                           <Button variant="ghost" size="icon" className="size-7" title="İndir"
                             onClick={() => downloadDocument(d)}>
                             <Download className="size-4 text-muted-foreground hover:text-primary" />
@@ -731,8 +936,23 @@ export function DocumentsPage({
               })}
               {filtered.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={7} className="text-center py-10 text-sm text-muted-foreground">
-                    Doküman bulunamadı.
+                  <TableCell colSpan={7} className="py-10 text-center">
+                    <div className="mx-auto flex max-w-lg flex-col items-center gap-3">
+                      <div className="grid size-11 place-items-center rounded-full bg-muted text-muted-foreground"><Files className="size-5" /></div>
+                      <div>
+                        <p className="text-sm font-medium text-foreground">Bu görünümde belge bulunamadı</p>
+                        <p className="mt-1 text-xs text-muted-foreground">Filtreyi temizleyin veya belgeyi doğrudan kaynak teklif/fırsata bağlı oluşturarak akışı başlatın.</p>
+                      </div>
+                      <div className="flex flex-wrap justify-center gap-2">
+                        {(q || docType !== "all") && <Button variant="outline" size="sm" onClick={() => { setQ(""); setDocType(initialType ?? "all"); }}>Filtreyi temizle</Button>}
+                        {docType === "AccountingInvoice" && onOpenAccountingInvoices && <Button size="sm" onClick={() => onOpenAccountingInvoices()}>Muhasebe faturalarına git</Button>}
+                        {(docType === "Proforma" || initialType === "Proforma") && <CreateProformaDialog trigger={<Button size="sm"><Plus className="mr-1 size-4" /> Proforma oluştur</Button>} />}
+                        {(docType === "Contract" || initialType === "Contract") && <CreateContractDialog trigger={<Button size="sm"><Plus className="mr-1 size-4" /> Sözleşme oluştur</Button>} />}
+                        {docType !== "Proforma" && docType !== "Contract" && initialType !== "Proforma" && initialType !== "Contract" && (
+                          <DocumentUploadDialog defaultType={docType === "all" ? undefined : docType as DocumentItem["type"]} trigger={<Button size="sm"><Upload className="mr-1 size-4" /> Kaynağa bağlı dosya yükle</Button>} />
+                        )}
+                      </div>
+                    </div>
                   </TableCell>
                 </TableRow>
               )}
@@ -748,6 +968,9 @@ export function DocumentsPage({
         onPrint={detailPrint}
         onDownload={detailDownload}
         onOpenFile={(d) => { setDetailDoc(null); setPreviewDoc(d); }}
+        onOpenOpportunity={onOpenOpportunity}
+        onOpenOffer={onOpenOffer}
+        onOpenCustomer={onOpenCustomer}
       />
       <AlertDialog open={!!pendingDeleteDoc} onOpenChange={(open) => !open && !deletingDocumentId && setPendingDeleteDoc(null)}>
         <AlertDialogContent>

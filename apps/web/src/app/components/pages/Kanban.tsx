@@ -16,7 +16,7 @@ import {
   type Machine,
   type OpportunityPaymentMethod,
 } from "../../lib/mock";
-import { ArrowRight, Building2, Calendar, CheckCircle2, FileSignature, FileText, MapPin, Printer, UserRound, Wrench } from "lucide-react";
+import { ArrowRight, Building2, Calendar, CheckCircle2, MapPin, Printer, UserRound, Wrench } from "lucide-react";
 import type { OperationAction } from "../../lib/operations";
 import { KanbanBoard, KanbanColumn } from "../KanbanBoard";
 import { KanbanCardAttachments } from "../KanbanCardAttachments";
@@ -48,6 +48,9 @@ import {
 import { inventoryService } from "../../../lib/services";
 import { CreateProformaDialog } from "../dialogs/CreateProformaDialog";
 import { CreateContractDialog } from "../dialogs/CreateContractDialog";
+import { QuoteDialog } from "../dialogs/QuoteDialog";
+import { CommercialDocumentRail } from "../shared/CommercialDocumentRail";
+import { useAuth } from "../../../lib/auth";
 
 export const STAGE_DOT: Record<string, string> = {
   lead: "bg-zinc-400",
@@ -85,6 +88,7 @@ const initials = (n: string) => (n || "—").split(" ").slice(0, 2).map((p) => p
 // Alım niyeti satışın erken adımlarında takip edilir; teklif sonrası kartın
 // durumu zaten aşamadan okunur.
 const TEMPERATURE_STAGES: SalesStage[] = ["lead", "call", "visit"];
+const COMMERCIAL_DOCUMENT_TYPES = new Set<DocumentItem["type"]>(["Proforma", "Contract", "CommercialInvoice"]);
 
 export function KanbanPage({
   onSelect,
@@ -96,6 +100,7 @@ export function KanbanPage({
   onAction?: (action: OperationAction) => void;
 }) {
   const { cases: storeCases, moveCase, updateCase, closeCase, customers, users, documents, offers, machines, stock, deliveries, addService } = useStore();
+  const { hasPermission } = useAuth();
   const cases = items ?? storeCases;
   const [lostId, setLostId] = useState<string | null>(null);
   const [previewDoc, setPreviewDoc] = useState<DocumentItem | null>(null);
@@ -555,9 +560,8 @@ export function KanbanPage({
         const partyName = c?.name || s.leadCompanyTitle || s.leadContactName || "Firma kaydı bekliyor";
         const u = users.find((x) => x.id === s.assignedUserId);
         const caseDocs = documents.filter((d) => d.salesCaseId === s.id);
+        const supportingDocs = caseDocs.filter((document) => !COMMERCIAL_DOCUMENT_TYPES.has(document.type));
         const latestOffer = latestOfferForCase(s);
-        const hasProforma = caseDocs.some((d) => d.type === "Proforma");
-        const hasContract = caseDocs.some((d) => d.type === "Contract");
         const stopCardClick = (event: MouseEvent) => event.stopPropagation();
         const temperature: LeadTemperature = s.leadTemperature ?? "unknown";
         const temperatureStyle = LEAD_TEMPERATURE_STYLES[temperature];
@@ -702,101 +706,111 @@ export function KanbanPage({
               </div>
             )}
 
+            {(s.qualificationStage !== "lead" || latestOffer || caseDocs.some((document) => COMMERCIAL_DOCUMENT_TYPES.has(document.type))) && (
+              <div onClick={stopCardClick} onMouseDown={stopCardClick}>
+                <CommercialDocumentRail
+                  variant="compact"
+                  className="mt-2.5 bg-slate-50/60"
+                  offers={offers.filter((offer) => offer.salesCaseId === s.id)}
+                  documents={caseDocs}
+                  onOpenOffer={() => onSelect(s)}
+                  onOpenDocument={setPreviewDoc}
+                  actions={{
+                    quote: hasPermission("quotes.create") && c ? (
+                      <QuoteDialog
+                        defaultCaseId={s.id}
+                        defaultCustomerId={s.customerId}
+                        trigger={
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="h-6 px-1.5 text-[8px] text-[#163b75]"
+                            onClick={stopCardClick}
+                            onMouseDown={stopCardClick}
+                          >
+                            Oluştur
+                          </Button>
+                        }
+                      />
+                    ) : hasPermission("quotes.create") ? (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 px-1.5 text-[8px] text-[#163b75]"
+                        onClick={(event) => { event.stopPropagation(); onSelect(s); }}
+                        onMouseDown={stopCardClick}
+                      >
+                        Firma bağla
+                      </Button>
+                    ) : undefined,
+                    proforma: latestOffer && hasPermission("proformas.create") ? (
+                      <CreateProformaDialog
+                        defaultQuoteId={latestOffer.id}
+                        trigger={
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="h-6 px-1.5 text-[8px] text-[#163b75]"
+                            title="Proforma oluştur"
+                            onClick={stopCardClick}
+                            onMouseDown={stopCardClick}
+                          >
+                            Oluştur
+                          </Button>
+                        }
+                      />
+                    ) : undefined,
+                    contract: latestOffer && hasPermission("contracts.create") ? (
+                      <CreateContractDialog
+                        defaultQuoteId={latestOffer.id}
+                        trigger={
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="h-6 px-1.5 text-[8px] text-[#163b75]"
+                            title="Sözleşme oluştur"
+                            onClick={stopCardClick}
+                            onMouseDown={stopCardClick}
+                          >
+                            Oluştur
+                          </Button>
+                        }
+                      />
+                    ) : undefined,
+                    invoice: latestOffer && s.stage === "payment_plan" && hasPermission("commercial_invoices.create") ? (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 px-1.5 text-[8px] text-[#163b75]"
+                        title="Ticari fatura yükle"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          setInvoiceUploadCase(s);
+                        }}
+                        onMouseDown={stopCardClick}
+                      >
+                        Yükle
+                      </Button>
+                    ) : undefined,
+                  }}
+                />
+              </div>
+            )}
+
             <KanbanCardAttachments
               caseId={s.id}
               companyId={s.customerId}
-              docs={caseDocs}
+              docs={supportingDocs}
               onPreview={setPreviewDoc}
               onOpenCase={() => onSelect(s)}
             />
 
             <div className="mt-2.5 flex flex-wrap items-center gap-1.5 border-t border-border/40 pt-2">
-              {latestOffer ? (
-                <CreateProformaDialog
-                  defaultQuoteId={latestOffer.id}
-                  trigger={
-                    <Button
-                      type="button"
-                      variant={hasProforma ? "secondary" : "outline"}
-                      size="sm"
-                      className="h-7 gap-1 rounded-md px-2 text-[10px] font-medium"
-                      title="Proforma oluştur"
-                      onClick={stopCardClick}
-                      onMouseDown={stopCardClick}
-                    >
-                      <FileText className="size-3" /> Proforma
-                    </Button>
-                  }
-                />
-              ) : (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="h-7 gap-1 rounded-md px-2 text-[10px] font-medium"
-                  title="Önce teklif oluşturulmalı"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    toast.error("Teklif gerekli", { description: "Proforma için önce bu karta bağlı teklif oluşturun." });
-                  }}
-                  onMouseDown={stopCardClick}
-                >
-                  <FileText className="size-3" /> Proforma
-                </Button>
-              )}
-              {latestOffer ? (
-                <CreateContractDialog
-                  defaultQuoteId={latestOffer.id}
-                  trigger={
-                    <Button
-                      type="button"
-                      variant={hasContract ? "secondary" : "outline"}
-                      size="sm"
-                      className="h-7 gap-1 rounded-md px-2 text-[10px] font-medium"
-                      title="Sözleşme oluştur"
-                      onClick={stopCardClick}
-                      onMouseDown={stopCardClick}
-                    >
-                      <FileSignature className="size-3" /> Sözleşme
-                    </Button>
-                  }
-                />
-              ) : (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="h-7 gap-1 rounded-md px-2 text-[10px] font-medium"
-                  title="Önce teklif oluşturulmalı"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    toast.error("Teklif gerekli", { description: "Sözleşme için önce bu karta bağlı teklif oluşturun." });
-                  }}
-                  onMouseDown={stopCardClick}
-                >
-                  <FileSignature className="size-3" /> Sözleşme
-                </Button>
-              )}
-              {s.stage === "payment_plan" && !hasCommercialInvoice(s.id) && (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="h-7 gap-1 rounded-md px-2 text-[10px] font-medium"
-                  title="Ticari fatura yükle"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    if (!offers.some((offer) => offer.salesCaseId === s.id)) {
-                      toast.error("Teklif gerekli", { description: "Ticari fatura kaydı teklif üzerinden oluşturulur." });
-                      return;
-                    }
-                    setInvoiceUploadCase(s);
-                  }}
-                  onMouseDown={stopCardClick}
-                >
-                  <FileText className="size-3" /> Fatura
-                </Button>
-              )}
               <Button
                 type="button"
                 variant="outline"

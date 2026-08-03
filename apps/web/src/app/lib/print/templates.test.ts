@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   cargoLabelDoc,
+  commercialInvoiceDoc,
   contractDoc,
   deliveryReceiptDoc,
   dispatchNoteDoc,
@@ -58,6 +59,7 @@ describe("print templates", () => {
     expect(document.body).toContain("L.K. MACHINERY VM-2");
     expect(document.body).toContain("8457.1090.0011");
     expect(document.body).toContain("66.825,00 USD");
+    expect(document.body).toContain("K.D.V. (%20)");
     expect(document.body).toContain("Yalnız #Altmışaltıbinsekizyüzyirmibeş# Amerikan doları");
     expect(document.body).toContain("transform:scale(1.0000)");
     expect(document.body).not.toContain("DEVAM");
@@ -125,8 +127,8 @@ describe("print templates", () => {
     expect(pages(document.body)).toBe(1);
     expect(document.body).toContain("PROFORMA-KALEM-9");
     expect(document.body).toContain("PROFORMA-NOT-9");
-    expect(document.body).not.toContain("ÖZEL İSKONTO");
-    expect(document.body).not.toContain(">İskonto<");
+    expect(document.body).toContain("ÖZEL İSKONTO");
+    expect(document.body).toContain("-50,00 TRY");
     expect(document.body).toContain("1.020,00");
     expect(document.body).not.toContain("<script>");
     expect(document.body).toContain("&lt;script&gt;");
@@ -134,6 +136,36 @@ describe("print templates", () => {
     expect(document.body).not.toContain("class=\"pageno\"");
     const scale = Number(document.body.match(/transform:scale\(([\d.]+)\)/)?.[1]);
     expect(scale).toBeLessThan(1);
+  });
+
+  it.each([
+    ["proforma", proformaDoc],
+    ["commercial invoice", commercialInvoiceDoc],
+  ])("shows gross row amount and applies each discount once in %s totals", (_label, render) => {
+    const document = render({
+      firma: "İskontolu Belge Müşterisi",
+      tarih: "31 Temmuz 2026",
+      belgeNo: "CNC-PRF-2026/013",
+      items: [{
+        aciklama: "ECOCA SL-8 CNC Torna Tezgahı",
+        birim: "1 Adet",
+        birimFiyati: 59_400,
+        iskonto: 30_000,
+        tutar: 59_400,
+      }],
+      headerDiscount: 0,
+      kdvOran: 0,
+      kdvTutar: 0,
+      currency: "USD",
+      notlar: [],
+    }, assetBase);
+
+    expect(document.body).not.toContain("Ürüne özel iskonto");
+    expect(document.body).toContain("59.400,00 USD");
+    expect(document.body).toMatch(/<td class="r">59\.400,00 USD<\/td>/);
+    expect(document.body).toContain("-30.000,00 USD");
+    expect(document.body).toContain("29.400,00 USD");
+    expect(document.body.match(/30\.000,00 USD/g) ?? []).toHaveLength(1);
   });
 
   it("paginates offer specifications, equipment, items and conditions", () => {
@@ -336,6 +368,35 @@ describe("print templates", () => {
     expect(document.body.indexOf("ÖZEL İSKONTO")).toBeLessThan(document.body.indexOf("GENEL TOPLAM"));
   });
 
+  it("shows quantity times unit price in the offer row while keeping totals discounted", () => {
+    const document = quoteDoc({
+      firma: "İskontolu Teklif Müşterisi",
+      tarih: "31.07.2026",
+      belgeNo: "CNC-2026/013",
+      items: [{
+        urun: "ECOCA SL-8 CNC Torna Tezgahı",
+        birim: "1 Adet",
+        fiyat: 59_400,
+        indirim: 30_000,
+        brutTutar: 59_400,
+        tutar: 29_400,
+      }],
+      iskonto: 0,
+      kdvOran: 0,
+      kdvTutar: 0,
+      currency: "USD",
+      notes: { key: "entered", label: "Girilen şartlar", odeme: [], teslimat: [], garanti: [] },
+    }, assetBase);
+
+    expect(document.body).not.toContain("Ürüne özel iskonto");
+    expect(document.body).toContain("-30.000,00 USD");
+    expect(document.body).toContain("59.400,00 USD");
+    expect(document.body).toMatch(/<td class="r" style="width:33mm">59\.400,00 USD<\/td>/);
+    expect(document.body).toContain("29.400,00 USD");
+    expect(document.body.match(/30\.000,00 USD/g) ?? []).toHaveLength(1);
+    expect(document.body.indexOf("59.400,00 USD")).toBeLessThan(document.body.indexOf("GENEL TOPLAM"));
+  });
+
   it("embeds a raster product photo and rejects executable image URLs", () => {
     const base = {
       firma: "Görselli Teklif",
@@ -404,7 +465,7 @@ describe("print templates", () => {
     expect(document.body).toContain("X Ekseni");
     expect(document.body).toContain("Talaş konveyörü");
     expect(document.body).toContain("Takım ölçme");
-    expect(document.body).toContain("Ürüne özel iskonto: 10.000,00 USD");
+    expect(document.body).not.toContain("Ürüne özel iskonto");
     const firstPageStart = document.body.indexOf('<div class="page">');
     const secondPageStart = document.body.indexOf('<div class="page">', firstPageStart + 1);
     const customerMetaBlock = document.body.indexOf('class="q-top"');

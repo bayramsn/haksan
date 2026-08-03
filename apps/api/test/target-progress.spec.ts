@@ -46,9 +46,11 @@ describe('automatic target progress', () => {
     }), { status: 200, headers: { 'content-type': 'application/json' } })));
 
     app = await createTestApp();
+    // Toplama semantiğini ölçmek için tüm kullanıcıları gören bir aktör gerekir;
+    // 'admin' rolü artık yalnız kendi verisini görüyor (bkz. reports-scope-authorization).
     const login = await request(app.getHttpServer())
       .post('/api/v1/auth/login')
-      .send({ email: 'admin@haksan.local', password: 'admin12345' })
+      .send({ email: 'superadmin@haksan.local', password: 'superadmin12345' })
       .expect(201);
     token = login.body.accessToken;
 

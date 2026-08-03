@@ -64,6 +64,13 @@ import {
 import { productSpecGroupForTypeKey, specsForProductTypeStrict } from './productSpecTemplates';
 import { isServiceQuoteComplete, serviceQuoteMissingFields } from './serviceQuote';
 
+const VISIBLE_COMPANY_GROUP_CODES = new Set([
+  'a_group',
+  'b_group',
+  'dealer_second_hand',
+  'potential_cnc_customer',
+]);
+
 const SERVICE_STAGES: ServiceStage[] = [
   'Request Opened',
   'Diagnosis',
@@ -722,7 +729,10 @@ function StoreInner({ children }: { children: ReactNode }) {
       );
 
       setCustomers(
-        companies.data.map((c: any) => ({
+        companies.data.map((c: any) => {
+          const companyGroups = (c.companyGroups ?? (c.companyGroup ? [c.companyGroup] : []))
+            .filter((group: any) => VISIBLE_COMPANY_GROUP_CODES.has(group.code));
+          return {
           id: c.id,
           logoFileId: c.logoFileId ?? null,
           logoUrl: resolveMediaUrl(c.logoUrl) || undefined,
@@ -733,11 +743,12 @@ function StoreInner({ children }: { children: ReactNode }) {
           divisions: Array.isArray(c.divisions)
             ? c.divisions.map((d: any) => ({ id: d.id, code: d.code ?? null, name: d.name ?? '' }))
             : [],
-          companyGroupCode: c.companyGroups?.[0]?.code ?? c.companyGroup?.code ?? '',
-          companyGroupName: c.companyGroups?.[0]?.name ?? c.companyGroup?.name ?? '',
-          companyGroupCodes: (c.companyGroups ?? (c.companyGroup ? [c.companyGroup] : [])).map((g: any) => g.code).filter(Boolean),
-          companyGroupNames: (c.companyGroups ?? (c.companyGroup ? [c.companyGroup] : [])).map((g: any) => g.name).filter(Boolean),
+          companyGroupCode: companyGroups[0]?.code ?? '',
+          companyGroupName: companyGroups[0]?.name ?? '',
+          companyGroupCodes: companyGroups.map((group: any) => group.code).filter(Boolean),
+          companyGroupNames: companyGroups.map((group: any) => group.name).filter(Boolean),
           contactSourceCode: c.contactSource?.code ?? '',
+          contactSourceText: c.contactSourceText ?? '',
           sector: c.sector ?? '',
           supplierCategoryCode: c.supplierCategoryCode ?? undefined,
           name: c.legalTitle ?? c.shortName ?? '—',
@@ -773,13 +784,14 @@ function StoreInner({ children }: { children: ReactNode }) {
           website: c.website ?? '',
           wantedProduct: '',
           initialNote: c.notes ?? '',
-          source: c.contactSource?.name ?? '',
+          source: c.contactSource?.name ?? c.contactSourceText ?? '',
           status: 'active',
           createdAt: (c.createdAt as string)?.slice(0, 10) ?? '',
           createdByUserId: c.createdByUser?.id ?? c.createdBy ?? null,
           createdByName: c.createdByUser?.fullName ?? c.createdByUser?.name ?? null,
           createdByEmail: c.createdByUser?.email ?? null,
-        }))
+          };
+        })
       );
 
       setContacts(
@@ -1079,6 +1091,8 @@ function StoreInner({ children }: { children: ReactNode }) {
           salesCaseId: a.opportunityId ?? '',
           customerId: a.companyId ?? '',
           type: a.type?.name ?? '',
+          typeCode: a.type?.code ?? '',
+          origin: a.origin === 'system' ? 'system' : 'manual',
           title: a.subject ?? '',
           note: a.description ?? '',
           result: a.result ?? '',
@@ -1190,6 +1204,9 @@ function StoreInner({ children }: { children: ReactNode }) {
         if (code === 'proforma_pdf') return 'Proforma';
         if (code === 'contract_pdf') return 'Contract';
         if (code === 'commercial_invoice_pdf') return 'CommercialInvoice';
+        if (code === 'accounting_invoice_pdf') return 'AccountingInvoice';
+        if (code === 'delivery_form') return 'DeliveryForm';
+        if (code === 'installation_form') return 'InstallationForm';
         if (code === 'service_document') return 'DeliveryForm';
         return 'Other';
       };
@@ -1420,8 +1437,9 @@ function StoreInner({ children }: { children: ReactNode }) {
     const rawWebsite = c.website?.trim();
     const website = rawWebsite ? (/^https?:\/\//i.test(rawWebsite) ? rawWebsite : `https://${rawWebsite}`) : undefined;
     const hasCoordinates = c.latitude != null && c.longitude != null;
+    const contactSourceText = c.contactSourceText?.trim() || undefined;
+    const contactSourceCode = contactSourceText ? undefined : c.contactSourceCode?.trim() || undefined;
     const created = await companyService.create({
-      externalCompanyNo: c.companyNo || undefined,
       companyType: c.type === 'person' ? 'person' : 'company',
       legalTitle: c.name,
       shortName: c.type === 'person' ? c.name : undefined,
@@ -1464,8 +1482,13 @@ function StoreInner({ children }: { children: ReactNode }) {
       companyGroupCode: c.companyGroupCode || undefined,
       companyGroupCodes: c.companyGroupCodes?.length ? c.companyGroupCodes : undefined,
       divisionId: c.divisionId || undefined,
-      divisionIds: c.divisionId ? [c.divisionId] : c.divisions?.map((division) => division.id),
-      contactSourceCode: c.contactSourceCode || undefined,
+      divisionIds: c.divisions?.length
+        ? c.divisions.map((division) => division.id)
+        : c.divisionId
+          ? [c.divisionId]
+          : undefined,
+      contactSourceCode,
+      contactSourceText,
     });
     await fetchAll();
     return {
@@ -1480,7 +1503,8 @@ function StoreInner({ children }: { children: ReactNode }) {
       companyGroupName: c.companyGroupName,
       companyGroupCodes: c.companyGroupCodes,
       companyGroupNames: c.companyGroupNames,
-      contactSourceCode: c.contactSourceCode,
+      contactSourceCode,
+      contactSourceText,
       sector: c.sector,
       supplierCategoryCode: c.supplierCategoryCode,
       name: created.legalTitle ?? c.name,
@@ -1503,7 +1527,7 @@ function StoreInner({ children }: { children: ReactNode }) {
       website: c.website ?? '',
       wantedProduct: c.wantedProduct,
       initialNote: c.initialNote,
-      source: c.source,
+      source: contactSourceText || c.source,
       status: 'active',
       createdAt: new Date().toISOString().slice(0, 10),
     };
@@ -1513,7 +1537,6 @@ function StoreInner({ children }: { children: ReactNode }) {
     const rawWebsite = patch.website?.trim();
     const website = rawWebsite ? (/^https?:\/\//i.test(rawWebsite) ? rawWebsite : `https://${rawWebsite}`) : null;
     const body: Record<string, unknown> = {};
-    if (patch.companyNo !== undefined) body.externalCompanyNo = patch.companyNo || null;
     if (patch.logoFileId !== undefined) body.logoFileId = patch.logoFileId;
     if (patch.name !== undefined) body.legalTitle = patch.name;
     if (patch.type !== undefined) body.companyType = patch.type;
@@ -1528,7 +1551,12 @@ function StoreInner({ children }: { children: ReactNode }) {
     if (patch.email !== undefined) body.primaryEmail = patch.email || null;
     if (patch.email2 !== undefined) body.secondaryEmail = patch.email2 || null;
     if (patch.initialNote !== undefined) body.notes = patch.initialNote || null;
-    if (patch.contactSourceCode !== undefined) body.contactSourceCode = patch.contactSourceCode || null;
+    if (patch.contactSourceCode !== undefined || patch.contactSourceText !== undefined) {
+      const contactSourceText = patch.contactSourceText?.trim() || '';
+      const contactSourceCode = contactSourceText ? '' : patch.contactSourceCode?.trim() || '';
+      body.contactSourceCode = contactSourceCode || null;
+      body.contactSourceText = contactSourceText || null;
+    }
     if (patch.companyGroupCodes !== undefined) body.companyGroupCodes = patch.companyGroupCodes;
     if (patch.divisions !== undefined) body.divisionIds = patch.divisions.map((division) => division.id);
     if (patch.firmType !== undefined) body.relationTypeCode = patch.firmType;
@@ -1567,7 +1595,6 @@ function StoreInner({ children }: { children: ReactNode }) {
 
   const addContact: Store['addContact'] = async (k) => {
     const created = await contactService.create({
-      externalContactNo: k.contactNo || undefined,
       companyId: k.customerId,
       fullName: k.name,
       title: k.title,
@@ -1597,7 +1624,6 @@ function StoreInner({ children }: { children: ReactNode }) {
 
   const updateContact: Store['updateContact'] = async (id, patch) => {
     await contactService.update(id, {
-      externalContactNo: patch.contactNo === undefined ? undefined : patch.contactNo || null,
       companyId: patch.customerId,
       fullName: patch.name,
       title: patch.title,
@@ -1912,17 +1938,6 @@ function StoreInner({ children }: { children: ReactNode }) {
           importCostsExcluded: p.importCostsExcluded ?? true,
         });
     }
-
-    await activityService
-      .create({
-        opportunityId,
-        companyId: p.companyId,
-        activityTypeCode: 'note',
-        subject: 'Teklif oluşturuldu',
-        description: quote.documentNo,
-        activityDate: new Date(),
-      })
-      .catch(() => undefined);
 
     if (createdNewCase) {
       await opportunityService.changeStage(opportunityId, { toStage: 'quote' }).catch(() => undefined);

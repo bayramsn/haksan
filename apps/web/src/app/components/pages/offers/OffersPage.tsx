@@ -25,12 +25,13 @@ import { DocumentUploadDialog } from "../../dialogs/DocumentUploadDialog";
 import { CreateProformaDialog } from "../../dialogs/CreateProformaDialog";
 import { CreateContractDialog } from "../../dialogs/CreateContractDialog";
 import { MiniKpi } from "../../shared/MiniKpi";
+import { CommercialDocumentRail } from "../../shared/CommercialDocumentRail";
 import { salesStageLabel } from "../../../lib/mock";
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, Legend,
 } from "recharts";
 import {
-  Plus, Search, CheckCircle2, TrendingUp, Mail, FileText, FileSignature, ClipboardCheck, Building2,
+  Plus, Search, CheckCircle2, TrendingUp, Mail, FileText, ClipboardCheck, Building2,
   Wallet, Receipt, Calendar, Printer, Download, Eye, RotateCcw, XCircle, Pencil, ChevronDown, Trash2,
   BellRing, Image as ImageIcon, ImageOff, Upload,
 } from "lucide-react";
@@ -102,7 +103,17 @@ function invoicePrefillFromOrder(order: any): AccountingInvoicePrefill {
   };
 }
 
-export function OffersPage({ focus }: { focus?: OperationFocus }) {
+export function OffersPage({
+  focus,
+  initialQuery,
+  onOpenOpportunity,
+  onOpenDocuments,
+}: {
+  focus?: OperationFocus;
+  initialQuery?: string;
+  onOpenOpportunity?: (salesCaseId: string) => void;
+  onOpenDocuments?: (query?: string) => void;
+}) {
   const { offers: rawOffers, cases, customers, users, documents, moveCase, refresh } = useStore();
   const { hasRole, hasPermission, user, activeDivision, setActiveDivision } = useAuth();
   const { convert } = useFx();
@@ -195,6 +206,10 @@ export function OffersPage({ focus }: { focus?: OperationFocus }) {
     if (focus === "won") setTab("Approved");
     if (focus === "lost") setTab("closed");
   }, [focus]);
+
+  useEffect(() => {
+    if (initialQuery !== undefined) setQ(initialQuery);
+  }, [initialQuery]);
 
   const total = divisionOffers.length;
   const approved = divisionOffers.filter((o) => o.status === "Approved").length;
@@ -717,6 +732,9 @@ export function OffersPage({ focus }: { focus?: OperationFocus }) {
         canApprovePrice={isSuperAdmin}
         onDeleteOffer={async (offer) => setPendingDeleteOffer(offer)}
         onOrderCreated={refresh}
+        onOpenOffer={(nextOffer) => setSelectedOfferId(nextOffer.id)}
+        onOpenOpportunity={onOpenOpportunity}
+        onOpenDocuments={onOpenDocuments}
       />
 
       <QuoteStatusDialog
@@ -822,6 +840,9 @@ export function OfferDetailDialog({
   onManageStatus,
   onDeleteOffer,
   onOrderCreated,
+  onOpenOffer,
+  onOpenOpportunity,
+  onOpenDocuments,
   canApprovePrice = false,
 }: {
   offer: Offer | null;
@@ -835,9 +856,12 @@ export function OfferDetailDialog({
   onManageStatus?: () => void;
   onDeleteOffer?: (offer: Offer) => Promise<void>;
   onOrderCreated?: () => void;
+  onOpenOffer?: (offer: Offer) => void;
+  onOpenOpportunity?: (salesCaseId: string) => void;
+  onOpenDocuments?: (query?: string) => void;
   canApprovePrice?: boolean;
 }) {
-  const { products, users, contacts } = useStore();
+  const { products, users, contacts, documents } = useStore();
   const [creatingOrder, setCreatingOrder] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [mailRecipient, setMailRecipient] = useState<MailRecipient | null>(null);
@@ -852,6 +876,13 @@ export function OfferDetailDialog({
   const productText = offer.productName
     || (salesCase ? [salesCase.requestedProduct, salesCase.requestedModel].filter(Boolean).join(" · ") : "")
     || "Ürün bilgisi yok";
+  const relatedDocuments = documents.filter((document) =>
+    document.salesCaseId === salesCase?.id || document.quoteId === offer.id
+  );
+  const openDocumentCenter = (query?: string) => {
+    onClose();
+    onOpenDocuments?.(query);
+  };
 
   // Teklif yazdırma: ürün kataloğundan model eşleşirse teknik bilgiler ve
   // donanım sayfaları da basılır; alt notlar seçilen teslim şekline göre gelir.
@@ -937,7 +968,14 @@ export function OfferDetailDialog({
           </div>
 
           <div className="rounded-lg border border-border/60 bg-white p-4">
-            <div className="text-[11px] uppercase tracking-wider text-muted-foreground mb-3">Satış kartı</div>
+            <div className="mb-3 flex items-center justify-between gap-2">
+              <div className="text-[11px] uppercase tracking-wider text-muted-foreground">Satış kartı</div>
+              {salesCase && onOpenOpportunity && (
+                <Button variant="ghost" size="sm" className="h-7 px-2 text-[11px]" onClick={() => { onClose(); onOpenOpportunity(salesCase.id); }}>
+                  Kartı aç
+                </Button>
+              )}
+            </div>
             <div className="space-y-2.5">
               <OfferInfo label="Kart No" value={salesCase ? `#${salesCase.id.slice(0, 8).toUpperCase()}` : "—"} />
               <OfferInfo label="Ürün / Model" value={productText} />
@@ -946,6 +984,36 @@ export function OfferDetailDialog({
               <OfferInfo label="Adet" value={salesCase ? `${salesCase.quantity}` : "—"} />
             </div>
           </div>
+        </div>
+
+        <div className="px-6 pb-5">
+          <CommercialDocumentRail
+            offers={revisions}
+            documents={relatedDocuments}
+            onOpenOffer={onOpenOffer}
+            onOpenDocument={(document) => openDocumentCenter(document.fileName)}
+            actions={{
+              proforma: (
+                <CreateProformaDialog
+                  defaultQuoteId={offer.id}
+                  onCreated={() => onOrderCreated?.()}
+                  trigger={<Button variant="outline" size="sm" className="h-7 px-2 text-[10px]"><Plus className="mr-1 size-3" /> Oluştur</Button>}
+                />
+              ),
+              contract: (
+                <CreateContractDialog
+                  defaultQuoteId={offer.id}
+                  onCreated={() => onOrderCreated?.()}
+                  trigger={<Button variant="outline" size="sm" className="h-7 px-2 text-[10px]"><Plus className="mr-1 size-3" /> Oluştur</Button>}
+                />
+              ),
+              invoice: salesCase && onOpenOpportunity ? (
+                <Button variant="outline" size="sm" className="h-7 px-2 text-[10px]" onClick={() => { onClose(); onOpenOpportunity(salesCase.id); }}>
+                  Kartta tamamla
+                </Button>
+              ) : undefined,
+            }}
+          />
         </div>
 
         <div className="px-6 pb-5">
@@ -1036,24 +1104,6 @@ export function OfferDetailDialog({
               {onDeleteOffer && <><DropdownMenuSeparator /><DropdownMenuItem className="text-destructive focus:text-destructive" onClick={() => void onDeleteOffer(offer)}><Trash2 className="size-4" /> Teklifi Sil</DropdownMenuItem></>}
             </DropdownMenuContent>
           </DropdownMenu>
-          <CreateProformaDialog
-            defaultQuoteId={offer.id}
-            onCreated={() => onOrderCreated?.()}
-            trigger={
-              <Button variant="outline" size="sm" className="h-9 gap-1">
-                <FileText className="size-4" /> Proforma
-              </Button>
-            }
-          />
-          <CreateContractDialog
-            defaultQuoteId={offer.id}
-            onCreated={() => onOrderCreated?.()}
-            trigger={
-              <Button variant="outline" size="sm" className="h-9 gap-1">
-                <FileSignature className="size-4" /> Sözleşme
-              </Button>
-            }
-          />
           <Button
             variant="outline"
             size="sm"

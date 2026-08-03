@@ -161,24 +161,17 @@ export function proformaDoc(
   assetBase: string,
   opts?: { title?: string; headingHtml?: string },
 ): PrintDocument {
-  const kalemlerToplami = d.items.reduce((a, i) => a + i.tutar, 0);
-  const silentDiscount = Math.min(Math.max(d.headerDiscount ?? 0, 0), kalemlerToplami);
-  const netRatio = kalemlerToplami > 0 ? (kalemlerToplami - silentDiscount) / kalemlerToplami : 1;
-  const printableItems = d.items.map((item) => {
-    const quantityText = item.birim.match(/[\d.,]+/)?.[0] ?? "";
-    const quantity = Number(quantityText.replace(/\./g, "").replace(",", "."));
-    const tutar = item.tutar * netRatio;
-    return {
-      ...item,
-      birimFiyati: Number.isFinite(quantity) && quantity > 0
-        ? tutar / quantity
-        : item.birimFiyati != null ? item.birimFiyati * netRatio : item.birimFiyati,
-      tutar,
-    };
-  });
-  const netKalemlerToplami = printableItems.reduce((a, i) => a + i.tutar, 0);
-  // Proforma satırları iskonto uygulanmış net fiyatlarla gelir. İskonto ayrıca
-  // adlandırılmaz; belge yalnızca net genel toplamı gösterir.
+  const printableItems = d.items;
+  const brutKalemlerToplami = printableItems.reduce((a, i) => a + i.tutar, 0);
+  const satirIskontoToplami = printableItems.reduce((sum, item) => {
+    const iskonto = Number(item.iskonto ?? 0);
+    return sum + (Number.isFinite(iskonto) ? Math.max(0, iskonto) : 0);
+  }, 0);
+  const teklifGeneliIskonto = Number.isFinite(d.headerDiscount)
+    ? Math.max(0, d.headerDiscount ?? 0)
+    : 0;
+  const toplamIskonto = Math.min(brutKalemlerToplami, satirIskontoToplami + teklifGeneliIskonto);
+  const netKalemlerToplami = Math.max(0, brutKalemlerToplami - toplamIskonto);
   const kdvTutar = d.kdvTutar != null ? d.kdvTutar : netKalemlerToplami * (d.kdvOran / 100);
   const genelToplam = netKalemlerToplami + kdvTutar;
   const meta = (i: ProformaItem) => {
@@ -205,7 +198,7 @@ export function proformaDoc(
   const estimatedInfoOverflowMm =
     Math.max(0, Math.ceil(d.firma.length / 70) - 1) * 4.3 +
     Math.max(0, Math.ceil((d.adres?.length ?? 0) / 72) - 1) * 4.3;
-  const estimatedTotalsHeightMm = 10;
+  const estimatedTotalsHeightMm = (toplamIskonto > 0 ? 16 : 10) + (d.kdvOran > 0 ? 5.5 : 0);
   const estimatedNotesBlockHeightMm = d.notlar.length > 0 ? 10.5 + estimatedNoteHeightMm : 0;
   const estimatedMainHeightMm = 12.5 + estimatedItemHeightMm + estimatedTotalsHeightMm + estimatedNotesBlockHeightMm;
   const availableMainHeightMm = Math.max(42, 155 - estimatedInfoOverflowMm);
@@ -260,6 +253,10 @@ export function proformaDoc(
   <div class="pf-sum">
     <div class="pf-yalniz">${esc(yalniz)}</div>
     <table class="pf-tot">
+      ${toplamIskonto > 0 ? `
+      <tr><td class="tl">ARA TOPLAM</td><td class="tv">${fmtMoney(brutKalemlerToplami, d.currency)}</td></tr>
+      <tr><td class="tl">ÖZEL İSKONTO</td><td class="tv">-${fmtMoney(toplamIskonto, d.currency)}</td></tr>` : ""}
+      ${d.kdvOran > 0 ? `<tr><td class="tl">K.D.V. (%${esc(d.kdvOran)})</td><td class="tv">${fmtMoney(kdvTutar, d.currency)}</td></tr>` : ""}
       <tr><td class="tl">GENEL TOPLAM</td><td class="tv">${fmtMoney(genelToplam, d.currency)}</td></tr>
     </table>
   </div>`;
@@ -318,6 +315,7 @@ export interface QuoteItem {
   birim?: string;
   fiyat?: number | null;
   indirim?: number | null;
+  brutTutar?: number | null;
   tutar?: number | null;
 }
 
@@ -712,10 +710,10 @@ export function quoteDoc(d: QuotePrintData, assetBase: string): PrintDocument {
   if (referencePricePage) {
     const rows = itemChunks[0].map((item) => `<tr>
       <td class="no">${d.items.indexOf(item) + 1}</td>
-      <td class="urun">${esc(item.urun)}${item.indirim != null && item.indirim > 0 ? `<div class="disc" style="margin-top:.8mm">Ürüne özel iskonto: ${fmtMoney(item.indirim, d.currency)}</div>` : ""}</td>
+      <td class="urun">${esc(item.urun)}</td>
       <td class="c" style="width:20mm">${item.birim ? esc(item.birim) : ""}</td>
       <td class="c" style="width:31mm">${item.fiyat != null ? fmtMoney(item.fiyat, d.currency) : ""}</td>
-      <td class="r" style="width:33mm">${item.tutar != null ? fmtMoney(item.tutar, d.currency) : ""}</td>
+      <td class="r" style="width:33mm">${item.brutTutar != null ? fmtMoney(item.brutTutar, d.currency) : item.tutar != null ? fmtMoney(item.tutar, d.currency) : ""}</td>
     </tr>`);
     while (rows.length < 3) rows.push(`<tr><td class="no"></td><td></td><td></td><td></td><td></td></tr>`);
     rows.push(`<tr><td class="no"></td><td></td><td></td><td class="r disc">ÖZEL İSKONTO</td><td class="r disc">${iskontoTutar}</td></tr>`);
@@ -741,10 +739,10 @@ export function quoteDoc(d: QuotePrintData, assetBase: string): PrintDocument {
   itemChunks.forEach((itemChunk, chunkIndex) => {
     const rows = itemChunk.map((it) => `<tr>
       <td class="no">${d.items.indexOf(it) + 1}</td>
-      <td class="urun">${esc(it.urun)}${it.indirim != null && it.indirim > 0 ? `<div class="disc" style="margin-top:.8mm">Ürüne özel iskonto: ${fmtMoney(it.indirim, d.currency)}</div>` : ""}</td>
+      <td class="urun">${esc(it.urun)}</td>
       <td class="c" style="width:18mm">${it.birim ? esc(it.birim) : ""}</td>
       <td class="c" style="width:32mm">${it.fiyat != null ? fmtMoney(it.fiyat, d.currency) : ""}</td>
-      <td class="r" style="width:36mm">${it.tutar != null ? fmtMoney(it.tutar, d.currency) : ""}</td>
+      <td class="r" style="width:36mm">${it.brutTutar != null ? fmtMoney(it.brutTutar, d.currency) : it.tutar != null ? fmtMoney(it.tutar, d.currency) : ""}</td>
     </tr>`);
     if (chunkIndex === itemChunks.length - 1) {
       while (rows.length < 3) rows.push(`<tr><td class="no"></td><td></td><td></td><td></td><td></td></tr>`);

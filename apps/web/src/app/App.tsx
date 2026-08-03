@@ -37,6 +37,7 @@ import { Customer, SalesCase } from "./lib/mock";
 import { StoreProvider, useStore } from "./lib/store";
 import { clearDrafts, usePersistentState } from "./lib/persist";
 import { Toaster } from "./components/ui/sonner";
+import { toast } from "sonner";
 import { VoiceCallProvider } from "../lib/voiceCall";
 import { CreateCustomerDialog, CreateCaseDialog, CreateContactDialog, CreateServiceRequestDialog } from "./components/dialogs/CreateDialogs";
 import { ProductsPage } from "./components/pages/Operations";
@@ -50,6 +51,7 @@ import { ReadinessBanner } from "./components/ReadinessBanner";
 import { PageShell } from "./components/shared/PageShell";
 import { PageLoadingSkeleton } from "./components/shared/PageLoadingSkeleton";
 import type { OperationAction, OperationFocus } from "./lib/operations";
+import { isNavigationAreaEnabled, NAVIGATION_VISIBILITY_KEYS } from "@haksan/shared";
 
 const TITLES: Partial<Record<NavKey, { title: string; subtitle?: string }>> = {
   dashboard: { title: "Gösterge Paneli", subtitle: "Genel performans ve KPI özeti" },
@@ -65,7 +67,7 @@ const TITLES: Partial<Record<NavKey, { title: string; subtitle?: string }>> = {
   offers: { title: "Teklifler", subtitle: "Hazırlanmış ve gönderilmiş teklifler" },
   proformas: { title: "Proformalar", subtitle: "Satış proforma dokümanları ve PDF çıktıları" },
   contracts: { title: "Sözleşmeler", subtitle: "Satış sözleşmeleri ve PDF çıktıları" },
-  documents: { title: "Dokümanlar", subtitle: "Proforma, sözleşme, fatura ve kurulum belgeleri" },
+  documents: { title: "Ticari Belge Merkezi", subtitle: "Tekliften faturaya bağlı belgeler ve saha kanıtları" },
   payments: { title: "Ödemeler & Kasa", subtitle: "Kasa giriş/çıkış takibi · alınan ve ödenen" },
   "accounting-invoices": { title: "Muhasebe Faturaları", subtitle: "Satış/alış fatura ve vade planı" },
   "customer-balances": { title: "Cari Rapor", subtitle: "Firma borç/alacak özeti ve ekstre" },
@@ -95,7 +97,7 @@ function isNavKey(value: unknown): value is NavKey {
 }
 
 function AppShell() {
-  const { authed, loading, login, logout, hasPermission, hasRole } = useAuth();
+  const { authed, loading, login, logout, hasPermission, hasRole, tenant } = useAuth();
   const { customers, cases, loading: storeLoading } = useStore();
   const [showOnboarding, setShowOnboarding] = useState(shouldShowOnboarding);
   // Yenilemede kullanıcının kaldığı yer korunur (sayfa + seçili firma/satış kartı).
@@ -104,10 +106,22 @@ function AppShell() {
   const [selectedCaseId, setSelectedCaseId] = usePersistentState<string | null>("selectedCaseId", null);
   const [deepLinkReady, setDeepLinkReady] = useState(false);
   const [focus, setFocus] = useState<{ nav: NavKey; focus?: OperationFocus; query?: string } | null>(null);
-  const requestedNav = isNavKey(nav) ? nav : DEFAULT_NAV;
-  const currentNav = !authed || canAccessNavKey(requestedNav, hasPermission, hasRole) ? requestedNav : DEFAULT_NAV;
+  const requestedNavValue = isNavKey(nav) ? nav : DEFAULT_NAV;
+  const requestedNav = requestedNavValue === "proformas" || requestedNavValue === "contracts" ? "documents" : requestedNavValue;
+  const hiddenNavigationKeys = tenant?.hiddenNavigationKeys ?? [];
+  const canOpenNav = (key: NavKey) =>
+    canAccessNavKey(key, hasPermission, hasRole) && isNavigationAreaEnabled(key, hiddenNavigationKeys);
+  const firstEnabledNav = NAVIGATION_VISIBILITY_KEYS.find((key) => canOpenNav(key));
+  const reportsEnabled = canOpenNav("reports");
+  const workspaceHasEnabledPage = Boolean(firstEnabledNav || reportsEnabled);
+  const fallbackNav: NavKey = firstEnabledNav ?? (reportsEnabled ? "reports" : canAccessNavKey("settings", hasPermission, hasRole) ? "settings" : DEFAULT_NAV);
+  const currentNav = !authed || canOpenNav(requestedNav) ? requestedNav : fallbackNav;
   const previousNavRef = useRef<NavKey | null>(null);
   const previousAuthedRef = useRef<boolean | null>(null);
+
+  useEffect(() => {
+    if (nav === "proformas" || nav === "contracts") setNav("documents");
+  }, [nav, setNav]);
 
   useEffect(() => {
     const applyLocation = () => {
@@ -140,6 +154,15 @@ function AppShell() {
   }, [currentNav, nav, setNav]);
 
   useEffect(() => {
+    if (selectedCustomerId && !isNavigationAreaEnabled("customers", hiddenNavigationKeys)) {
+      setSelectedCustomerId(null);
+    }
+    if (selectedCaseId && !isNavigationAreaEnabled("sales-cases", hiddenNavigationKeys)) {
+      setSelectedCaseId(null);
+    }
+  }, [hiddenNavigationKeys, selectedCaseId, selectedCustomerId, setSelectedCaseId, setSelectedCustomerId]);
+
+  useEffect(() => {
     if (previousNavRef.current && previousNavRef.current !== currentNav) clearDrafts();
     previousNavRef.current = currentNav;
   }, [currentNav]);
@@ -170,7 +193,7 @@ function AppShell() {
     }
     return (
       <LoginPage
-        onLogin={async (email, password) => { await login(email, password); }}
+        onLogin={async (identifier, password) => { await login(identifier, password); }}
         onReplayIntro={() => setShowOnboarding(true)}
       />
     );
@@ -181,6 +204,10 @@ function AppShell() {
   const selectedCase: SalesCase | null = selectedCaseId ? cases.find((s) => s.id === selectedCaseId) ?? null : null;
 
   const selectOpportunity = (opportunityId: string, activityId?: string) => {
+    if (!canOpenNav("sales-cases")) {
+      toast.error("Fırsatlar alanı şirket ayarlarında kapalı.");
+      return;
+    }
     const url = new URL(window.location.href);
     url.searchParams.set("opportunity", opportunityId);
     if (activityId) url.searchParams.set("activity", activityId);
@@ -193,6 +220,10 @@ function AppShell() {
   };
 
   const goto = (k: NavKey) => {
+    if (!canOpenNav(k)) {
+      toast.error("Bu alan şirket ayarlarında kapalı veya erişim yetkiniz yok.");
+      return;
+    }
     setSelectedCustomerId(null);
     setSelectedCaseId(null);
     setFocus(null);
@@ -202,7 +233,10 @@ function AppShell() {
   const runOperationAction = (action: OperationAction) => {
     if (action.kind === "navigate") {
       const targetNav = action.nav === "deliveries" ? "installations" : action.nav as NavKey;
-      if (!canAccessNavKey(targetNav, hasPermission, hasRole)) return;
+      if (!canOpenNav(targetNav)) {
+        toast.error("Bu alan şirket ayarlarında kapalı veya erişim yetkiniz yok.");
+        return;
+      }
       setSelectedCustomerId(null);
       setSelectedCaseId(null);
       setNav(targetNav);
@@ -210,12 +244,20 @@ function AppShell() {
       return;
     }
     if (action.kind === "customer") {
+      if (!canOpenNav("customers")) {
+        toast.error("Firmalar alanı şirket ayarlarında kapalı.");
+        return;
+      }
       setSelectedCaseId(null);
       setFocus(null);
       setSelectedCustomerId(action.customerId);
       return;
     }
     if (action.kind === "salesCase") {
+      if (!canOpenNav("sales-cases")) {
+        toast.error("Fırsatlar alanı şirket ayarlarında kapalı.");
+        return;
+      }
       setFocus(null);
       selectOpportunity(action.salesCaseId);
     }
@@ -226,7 +268,15 @@ function AppShell() {
   let titleOverride: { title: string; subtitle?: string } | null = null;
   const canCreate = (permission: string) => hasPermission(permission);
 
-  if (selectedCustomer) {
+  if (!workspaceHasEnabledPage && !canAccessNavKey("settings", hasPermission, hasRole)) {
+    titleOverride = { title: "Aktif çalışma alanı yok", subtitle: "Şirket yöneticiniz bu kullanıcı için kullanılabilir sayfa bırakmadı" };
+    content = (
+      <div className="rounded-xl border border-dashed bg-card px-6 py-12 text-center">
+        <h2 className="font-display text-xl font-semibold">Tüm çalışma alanları kapalı</h2>
+        <p className="mt-2 text-sm text-muted-foreground">Bir sayfanın yeniden açılması için şirket yöneticinizle iletişime geçin.</p>
+      </div>
+    );
+  } else if (selectedCustomer) {
     titleOverride = { title: selectedCustomer.name, subtitle: "Müşteri detayı" };
     content = <CustomerDetailPage customer={selectedCustomer} onBack={() => setSelectedCustomerId(null)} onAction={runOperationAction} />;
   } else {
@@ -282,12 +332,17 @@ function AppShell() {
         content = <SalesCasesPage onSelect={(s) => selectOpportunity(s.id)} initialView="kanban" focus={focus?.nav === "kanban" ? focus.focus : undefined} onAction={runOperationAction} />;
         break;
       case "sales-map": content = <SalesMapPage initialQuery={focus?.nav === "sales-map" ? focus.query : undefined} />; break;
-      case "offers": content = <OffersPage focus={focus?.nav === "offers" ? focus.focus : undefined} />; break;
-      case "proformas": content = <DocumentsPage initialType="Proforma" initialQuery={focus?.nav === "proformas" ? focus.query : undefined} title="Proformalar" description="Satış proformaları, yüklenen PDF'ler ve proforma çıktıları" />; break;
-      case "contracts": content = <DocumentsPage initialType="Contract" initialQuery={focus?.nav === "contracts" ? focus.query : undefined} title="Sözleşmeler" description="Satış sözleşmeleri, yüklenen PDF'ler ve sözleşme çıktıları" />; break;
-      case "documents": content = <DocumentsPage initialQuery={focus?.nav === "documents" ? focus.query : undefined} />; break;
-      case "payments": content = <PaymentsPage focus={focus?.nav === "payments" ? focus.focus : undefined} />; break;
-      case "accounting-invoices": content = <AccountingInvoicesPage />; break;
+      case "offers": content = (
+        <OffersPage
+          focus={focus?.nav === "offers" ? focus.focus : undefined}
+          initialQuery={focus?.nav === "offers" ? focus.query : undefined}
+          onOpenOpportunity={selectOpportunity}
+          onOpenDocuments={(query) => runOperationAction({ kind: "navigate", nav: "documents", query })}
+        />
+      ); break;
+      case "documents": content = <DocumentsPage initialQuery={focus?.nav === "documents" ? focus.query : undefined} onOpenOpportunity={selectOpportunity} onOpenOffer={(query) => runOperationAction({ kind: "navigate", nav: "offers", query })} onOpenCustomer={(customerId) => runOperationAction({ kind: "customer", customerId })} onOpenPayment={(query) => runOperationAction({ kind: "navigate", nav: "payments", query })} onOpenServiceRequest={(query) => runOperationAction({ kind: "navigate", nav: "service-requests", query: `ticket:${query}` })} onOpenAccountingInvoices={(query) => runOperationAction({ kind: "navigate", nav: "accounting-invoices", query })} />; break;
+      case "payments": content = <PaymentsPage focus={focus?.nav === "payments" ? focus.focus : undefined} initialQuery={focus?.nav === "payments" ? focus.query : undefined} />; break;
+      case "accounting-invoices": content = <AccountingInvoicesPage initialQuery={focus?.nav === "accounting-invoices" ? focus.query : undefined} />; break;
       case "customer-balances": content = <CustomerBalancesPage />; break;
       case "due-dates": content = <DueDatesCalendarPage />; break;
       case "sales-price-list": content = <SalesPriceListPage />; break;

@@ -6,7 +6,7 @@ import {
   CreditCard, Boxes, Truck, Wrench, Cpu,
   LifeBuoy, BarChart3, ShieldCheck, Building2, Contact as ContactIcon, Settings as SettingsIcon,
   Search, Bell, ChevronDown, LogOut, Plus, HelpCircle, Menu, PanelLeftClose, PanelLeftOpen,
-  CheckCircle2, Clock, AlertTriangle, XCircle, ChevronRight, Tag, Receipt, Map as MapIcon, FileSignature, Wallet, Calendar, MessageCircle, MessageSquare,
+  CheckCircle2, Clock, AlertTriangle, XCircle, ChevronRight, Tag, Receipt, Map as MapIcon, Wallet, Calendar, MessageCircle, MessageSquare,
   PhoneCall, ListChecks,
   Star, Rows3,
 } from "lucide-react";
@@ -14,10 +14,6 @@ import { callAssistantService, chatService, notificationService, type CallSugges
 import { useAuth } from "../../lib/auth";
 import { toast } from "sonner";
 import { Button } from "./ui/button";
-import {
-  Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger,
-} from "./ui/dialog";
-import { Input } from "./ui/input";
 import { Avatar, AvatarFallback } from "./ui/avatar";
 import { Badge } from "./ui/badge";
 import {
@@ -33,9 +29,10 @@ import { ApprovalsDialog } from "./ApprovalsDialog";
 import { CommandPalette } from "./operations/CommandPalette";
 import { AssistantPanel } from "./operations/AssistantPanel";
 import { buildAlerts, type OperationAction, type OperationNav } from "../lib/operations";
+import { isNavigationAreaEnabled, NAVIGATION_GROUPS, type NavigationVisibilityKey } from "@haksan/shared";
 
 export type NavKey =
-  | "dashboard" | "chat" | "calendar" | "call-assistant" | "customers" | "contacts" | "leads" | "sales-cases" | "kanban" | "sales-map" | "offers"
+  | NavigationVisibilityKey | "kanban"
   | "proformas" | "contracts" | "documents" | "payments" | "accounting-invoices" | "customer-balances" | "due-dates" | "sales-price-list" | "references" | "products"
   | "stock" | "purchase-orders" | "shipments"
   | "installations" | "deliveries" | "machines" | "service-requests" | "service-kanban" | "service-price-list"
@@ -88,6 +85,11 @@ export function canAccessNavKey(
 ) {
   if (hasRole("admin") || hasRole("super_admin")) return true;
   if (MGMT_KEYS.has(key)) return false;
+  if (key === "documents") {
+    return ["files", "proformas", "contracts", "commercial_invoices"].some((resource) =>
+      hasPermission(`${resource}.read`)
+    );
+  }
   const resource = RESOURCE_BY_NAV[key];
   if (!resource) return true;
   return hasPermission(`${resource}.read`);
@@ -95,60 +97,68 @@ export function canAccessNavKey(
 
 // Her nav öğesinin `roles` listesi, backend izin matrisini (rolePermissionMatrix)
 // yansıtır. admin/super_admin her şeyi görür; readonly yönetim hariç her şeyi.
-const NAV: { group: string; items: NavItem[] }[] = [
-  {
-    group: "Genel",
-    items: [
-      { key: "dashboard", label: "Gösterge Paneli", icon: LayoutDashboard },
-      { key: "chat", label: "Sohbet", icon: MessageCircle },
-      { key: "calendar", label: "Takvim", icon: Calendar },
-      { key: "call-assistant", label: "Çağrı Asistanı", icon: PhoneCall, roles: ["sales", "service", "finance"] },
-    ],
-  },
-  {
-    group: "Satış",
-    items: [
-      { key: "customers", label: "Firmalar", icon: Building2, roles: ["sales", "finance"] },
-      { key: "leads", label: "Leadler", icon: Rows3, roles: ["sales"] },
-      { key: "sales-cases", label: "Fırsatlar", icon: Briefcase, roles: ["sales"] },
-      { key: "references", label: "Referanslar", icon: ListChecks, roles: ["sales"] },
-    ],
-  },
-  {
-    group: "Satış Operasyonu",
-    items: [
-      { key: "contacts", label: "Kontaklar", icon: ContactIcon, roles: ["sales"] },
-      { key: "sales-map", label: "Firma Haritası", icon: MapIcon, roles: ["sales", "service"] },
-      { key: "offers", label: "Teklifler", icon: FileText, roles: ["sales", "finance"] },
-      { key: "proformas", label: "Proformalar", icon: FileText, roles: ["sales", "finance"] },
-      { key: "contracts", label: "Sözleşmeler", icon: FileSignature, roles: ["sales", "finance"] },
-      { key: "documents", label: "Dokümanlar", icon: FolderOpen, roles: ["sales", "finance"] },
-      { key: "sales-price-list", label: "Satış Fiyat Listesi", icon: Tag, roles: ["sales"] },
-    ],
-  },
-  {
-    group: "Operasyon",
-    items: [
-      { key: "products", label: "Ürünler", icon: Cpu, roles: ["sales", "service", "stock"] },
-      { key: "stock", label: "Stok", icon: Boxes, roles: ["stock"] },
-      { key: "payments", label: "Ödemeler & Kasa", icon: CreditCard, roles: ["finance"] },
-      { key: "accounting-invoices", label: "Muhasebe Faturaları", icon: Receipt, roles: ["finance", "sales"] },
-      { key: "customer-balances", label: "Cari Rapor", icon: Wallet, roles: ["finance"] },
-      { key: "due-dates", label: "Vade Takvimi", icon: Calendar, roles: ["finance"] },
-      { key: "shipments", label: "Sevkiyat", icon: Truck, roles: ["stock"] },
-    ],
-  },
-  {
-    group: "Servis",
-    items: [
-      { key: "machines", label: "Makineler", icon: Cpu, roles: ["service", "stock"] },
-      { key: "installations", label: "Kurulum", icon: Wrench, roles: ["service"] },
-      { key: "service-requests", label: "Servis Talepleri", icon: LifeBuoy, roles: ["service"] },
-      { key: "service-kanban", label: "Servis Kanban", icon: KanbanSquare, roles: ["service"] },
-      { key: "service-price-list", label: "Servis Fiyat Listesi", icon: Receipt, roles: ["service"] },
-    ],
-  },
-];
+const NAV_ICON: Record<NavigationVisibilityKey, any> = {
+  dashboard: LayoutDashboard,
+  chat: MessageCircle,
+  calendar: Calendar,
+  "call-assistant": PhoneCall,
+  customers: Building2,
+  leads: Rows3,
+  "sales-cases": Briefcase,
+  references: ListChecks,
+  contacts: ContactIcon,
+  "sales-map": MapIcon,
+  offers: FileText,
+  documents: FolderOpen,
+  "sales-price-list": Tag,
+  products: Cpu,
+  stock: Boxes,
+  payments: CreditCard,
+  "accounting-invoices": Receipt,
+  "customer-balances": Wallet,
+  "due-dates": Calendar,
+  shipments: Truck,
+  machines: Cpu,
+  installations: Wrench,
+  "service-requests": LifeBuoy,
+  "service-kanban": KanbanSquare,
+  "service-price-list": Receipt,
+};
+
+const NAV_ROLES: Partial<Record<NavigationVisibilityKey, string[]>> = {
+  "call-assistant": ["sales", "service", "finance"],
+  customers: ["sales", "finance"],
+  leads: ["sales"],
+  "sales-cases": ["sales"],
+  references: ["sales"],
+  contacts: ["sales"],
+  "sales-map": ["sales", "service"],
+  offers: ["sales", "finance"],
+  documents: ["sales", "finance"],
+  "sales-price-list": ["sales"],
+  products: ["sales", "service", "stock"],
+  stock: ["stock"],
+  payments: ["finance"],
+  "accounting-invoices": ["finance", "sales"],
+  "customer-balances": ["finance"],
+  "due-dates": ["finance"],
+  shipments: ["stock"],
+  machines: ["service", "stock"],
+  installations: ["service"],
+  "service-requests": ["service"],
+  "service-kanban": ["service"],
+  "service-price-list": ["service"],
+};
+
+const NAV: { group: string; items: NavItem[] }[] = NAVIGATION_GROUPS.map((group) => ({
+  group: group.group,
+  items: group.items.map((item) => ({
+    key: item.key,
+    label: item.label,
+    icon: NAV_ICON[item.key],
+    roles: NAV_ROLES[item.key],
+  })),
+}));
 
 type Props = {
   current: NavKey;
@@ -176,6 +186,7 @@ export function Layout({ current, onNavigate, onLogout, pageTitle, pageSubtitle,
     scopesForResource,
     setActiveDepartment,
     setActiveDivision,
+    tenant,
     user,
   } = useAuth();
   const canApprove = hasPermission("companies.update") || hasRole("super_admin");
@@ -224,6 +235,8 @@ export function Layout({ current, onNavigate, onLogout, pageTitle, pageSubtitle,
   const canSee = (item: NavItem) => {
     return canAccessNavKey(item.key, hasPermission, hasRole);
   };
+  const hiddenNavigationKeys = tenant?.hiddenNavigationKeys ?? [];
+  const canDisplay = (item: NavItem) => canSee(item) && isNavigationAreaEnabled(item.key, hiddenNavigationKeys);
   const canSeeReports = hasRole("admin") || hasRole("super_admin") || hasPermission("reports.read");
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
@@ -298,7 +311,10 @@ export function Layout({ current, onNavigate, onLogout, pageTitle, pageSubtitle,
   }, []);
 
   const refreshCallSuggestions = () => {
-    if (!hasPermission("companies.read")) return;
+    if (!hasPermission("companies.read") || !isNavigationAreaEnabled("call-assistant", hiddenNavigationKeys)) {
+      setCallSuggestions([]);
+      return;
+    }
     callAssistantService
       .suggestions({ status: "pending" })
       .then((res) => setCallSuggestions(res.data ?? []))
@@ -312,7 +328,7 @@ export function Layout({ current, onNavigate, onLogout, pageTitle, pageSubtitle,
     tick();
     const h = setInterval(tick, 15000);
     return () => clearInterval(h);
-  }, [user?.id, activeDivision, hasPermission]);
+  }, [user?.id, activeDivision, hasPermission, hiddenNavigationKeys.join("|")]);
 
   const refreshNotifications = () => {
     notificationService
@@ -346,23 +362,27 @@ export function Layout({ current, onNavigate, onLogout, pageTitle, pageSubtitle,
   }, []);
 
   const navItems = useMemo(() => NAV.flatMap((group) => group.items), []);
-  const pinnedItems = navItems.filter((item) => pinnedNav.includes(item.key) && canSee(item));
+  const pinnedItems = navItems.filter((item) => pinnedNav.includes(item.key) && canDisplay(item));
   const recentItems = recentNav
     .filter((key) => key !== current && !pinnedNav.includes(key))
     .map((key) => navItems.find((item) => item.key === key))
-    .filter((item): item is NavItem => !!item && canSee(item))
+    .filter((item): item is NavItem => !!item && canDisplay(item))
     .slice(0, 3);
   const toggleCurrentPin = () => {
     setPinnedNav((items) => items.includes(current) ? items.filter((key) => key !== current) : [...items, current]);
   };
   const canSeeNav = (key: string) => {
-    const item = navItems.find((x) => x.key === key);
-    return item ? canSee(item) : true;
+    return canAccessNavKey(key as NavKey, hasPermission, hasRole) && isNavigationAreaEnabled(key, hiddenNavigationKeys);
   };
-  const canUseAction = (action: OperationAction) => action.kind !== "navigate" || canSeeNav(action.nav);
+  const canUseAction = (action: OperationAction) => {
+    if (action.kind === "navigate") return canSeeNav(action.nav);
+    if (action.kind === "customer") return canSeeNav("customers");
+    if (action.kind === "salesCase") return canSeeNav("sales-cases");
+    return true;
+  };
   const executeOperationAction = (action: OperationAction) => {
     if (!canUseAction(action)) {
-      toast.error("Bu alan için yetkiniz yok.");
+      toast.error("Bu alan şirket ayarlarında kapalı veya erişim yetkiniz yok.");
       return;
     }
     if (onOperationAction) {
@@ -382,9 +402,22 @@ export function Layout({ current, onNavigate, onLogout, pageTitle, pageSubtitle,
   const openServiceCount = service.filter((s) => s.stage !== "Closed").length;
   const alerts = useMemo(
     () => buildAlerts(store).filter((alert) => canUseAction(alert.action)),
-    [store, user?.roles?.join("|")]
+    [store, user?.roles?.join("|"), hiddenNavigationKeys.join("|")]
   );
-  const notificationCount = alerts.length + callSuggestions.length + dbNotifications.length;
+  const visibleCallSuggestions = isNavigationAreaEnabled("call-assistant", hiddenNavigationKeys) ? callSuggestions : [];
+  const notificationTarget = (notification: NotificationDTO): NotificationTarget | null =>
+    notification.target ??
+    (notification.entityType === "service_complaint_intake" && notification.entityId
+      ? { kind: "navigate", nav: "service-requests", query: `complaint:${notification.entityId}` }
+      : null);
+  const canUseNotificationTarget = (target: NotificationTarget | null) => {
+    if (!target) return true;
+    if (target.kind === "opportunity") return canSeeNav("sales-cases");
+    if (target.kind === "company") return canSeeNav("customers");
+    return canSeeNav(target.nav);
+  };
+  const visibleDbNotifications = dbNotifications.filter((notification) => canUseNotificationTarget(notificationTarget(notification)));
+  const notificationCount = alerts.length + visibleCallSuggestions.length + visibleDbNotifications.length;
   const openDbNotification = async (notification: NotificationDTO) => {
     try {
       await notificationService.markRead(notification.id);
@@ -394,16 +427,16 @@ export function Layout({ current, onNavigate, onLogout, pageTitle, pageSubtitle,
     }
     // Hedef API'de çözülür (ör. bahsedilen aktivite → bağlı satış kartı/firma).
     // Eski sürüm yanıtları için şikayet bildirimi yerel olarak da ele alınır.
-    const target: NotificationTarget | null =
-      notification.target ??
-      (notification.entityType === "service_complaint_intake" && notification.entityId
-        ? { kind: "navigate", nav: "service-requests", query: `complaint:${notification.entityId}` }
-        : null);
+    const target = notificationTarget(notification);
     if (!target) {
       toast.message(notification.title, { description: notification.body ?? "Bu bildirim için açılacak kayıt yok." });
       return;
     }
     if (target.kind === "opportunity") {
+      if (!canSeeNav("sales-cases")) {
+        toast.error("Fırsatlar alanı şirket ayarlarında kapalı.");
+        return;
+      }
       onNavigate("sales-cases");
       onSelectCase?.(target.opportunityId, { activityId: target.activityId });
       return;
@@ -423,11 +456,10 @@ export function Layout({ current, onNavigate, onLogout, pageTitle, pageSubtitle,
       setCallSuggestions((rows) => rows.filter((row) => row.id !== suggestion.id));
       if (action === "create_quote") {
         toast.success("Teklif taslağı oluşturuldu", { description: suggestion.company.shortName || suggestion.company.legalTitle });
-        onNavigate("offers");
+        executeOperationAction({ kind: "navigate", nav: "offers" });
       } else if (action === "create_service_ticket") {
         toast.success("Şikayet Kutusu'na aktarıldı", { description: suggestion.company.shortName || suggestion.company.legalTitle });
-        if (onOperationAction) onOperationAction({ kind: "navigate", nav: "service-requests", query: "complaints" });
-        else onNavigate("service-requests");
+        executeOperationAction({ kind: "navigate", nav: "service-requests", query: "complaints" });
       } else if (action === "log_call") {
         toast.success("Arama kaydı oluşturuldu", { description: suggestion.company.shortName || suggestion.company.legalTitle });
       } else {
@@ -515,7 +547,7 @@ export function Layout({ current, onNavigate, onLogout, pageTitle, pageSubtitle,
             </div>
           )}
           {NAV.map((group) => {
-            const items = group.items.filter(canSee);
+            const items = group.items.filter(canDisplay);
             if (!items.length) return null;
             const expanded = expandedGroups[group.group] !== false;
             return (
@@ -766,19 +798,22 @@ export function Layout({ current, onNavigate, onLogout, pageTitle, pageSubtitle,
               </div>
             )}
 
-            <QuickCreateDialog
-              trigger={
-                <Button variant="outline" size="sm" className="gap-1.5 h-9 px-2 sm:px-3" aria-label="Hızlı Oluştur">
-                  <Plus className="size-4" />
-                  <span className="hidden xl:inline">Hızlı Oluştur</span>
-                </Button>
-              }
-            />
-
-            {hasPermission("companies.read") && (
-              <div className="hidden 2xl:block">
-                <ManualSantralDialog onCreated={refreshCallSuggestions} />
-              </div>
+            {((canSeeNav("customers") && hasPermission("companies.create")) ||
+              (canSeeNav("contacts") && hasPermission("contacts.create")) ||
+              (canSeeNav("sales-cases") && hasPermission("opportunities.create"))) && (
+              <QuickCreateDialog
+                enabledAreas={{
+                  customers: canSeeNav("customers") && hasPermission("companies.create"),
+                  contacts: canSeeNav("contacts") && hasPermission("contacts.create"),
+                  salesCases: canSeeNav("sales-cases") && hasPermission("opportunities.create"),
+                }}
+                trigger={
+                  <Button variant="outline" size="sm" className="gap-1.5 h-9 px-2 sm:px-3" aria-label="Hızlı Oluştur">
+                    <Plus className="size-4" />
+                    <span className="hidden xl:inline">Hızlı Oluştur</span>
+                  </Button>
+                }
+              />
             )}
 
             <div className="hidden xl:block">
@@ -818,16 +853,18 @@ export function Layout({ current, onNavigate, onLogout, pageTitle, pageSubtitle,
                   </div>
                 ) : (
                   <>
-                    {callSuggestions.length > 0 && <div className="px-2.5 pb-1 pt-2 font-data text-[9px] font-semibold uppercase tracking-[0.13em] text-operation-blue">Çağrı asistanı · {callSuggestions.length}</div>}
-                    {callSuggestions.map((suggestion) => (
+                    {visibleCallSuggestions.length > 0 && <div className="px-2.5 pb-1 pt-2 font-data text-[9px] font-semibold uppercase tracking-[0.13em] text-operation-blue">Çağrı asistanı · {visibleCallSuggestions.length}</div>}
+                    {visibleCallSuggestions.map((suggestion) => (
                       <CallSuggestionItem
                         key={suggestion.id}
                         suggestion={suggestion}
+                        canCreateQuote={canSeeNav("offers")}
+                        canCreateServiceTicket={canSeeNav("service-requests")}
                         onAction={(action) => runCallSuggestionAction(suggestion, action)}
                       />
                     ))}
-                    {dbNotifications.length > 0 && <div className="px-2.5 pb-1 pt-2 font-data text-[9px] font-semibold uppercase tracking-[0.13em] text-operation-blue">CRM bildirimleri · {dbNotifications.length}</div>}
-                    {dbNotifications.map((notification) => (
+                    {visibleDbNotifications.length > 0 && <div className="px-2.5 pb-1 pt-2 font-data text-[9px] font-semibold uppercase tracking-[0.13em] text-operation-blue">CRM bildirimleri · {visibleDbNotifications.length}</div>}
+                    {visibleDbNotifications.map((notification) => (
                       <NotifItem
                         key={notification.id}
                         icon={<MessageSquare className="size-4 text-emerald-600" />}
@@ -837,7 +874,7 @@ export function Layout({ current, onNavigate, onLogout, pageTitle, pageSubtitle,
                         onClick={() => openDbNotification(notification)}
                       />
                     ))}
-                    {(callSuggestions.length > 0 || dbNotifications.length > 0) && alerts.length > 0 && <DropdownMenuSeparator />}
+                    {(visibleCallSuggestions.length > 0 || visibleDbNotifications.length > 0) && alerts.length > 0 && <DropdownMenuSeparator />}
                     {alerts.length > 0 && <div className="px-2.5 pb-1 pt-2 font-data text-[9px] font-semibold uppercase tracking-[0.13em] text-operation-blue">Operasyon takibi · {alerts.length}</div>}
                     {alerts.map((alert) => (
                       <NotifItem
@@ -941,98 +978,15 @@ export function Layout({ current, onNavigate, onLogout, pageTitle, pageSubtitle,
   );
 }
 
-function ManualSantralDialog({ onCreated }: { onCreated: () => void }) {
-  const [open, setOpen] = useState(false);
-  const [phoneNumber, setPhoneNumber] = useState("");
-  const [eventType, setEventType] = useState<"completed" | "missed">("completed");
-  const [submitting, setSubmitting] = useState(false);
-
-  const submit = async (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    const phone = phoneNumber.trim();
-    if (!phone) {
-      toast.error("Telefon numarası gerekli.");
-      return;
-    }
-    setSubmitting(true);
-    try {
-      const res = await callAssistantService.manualEvent({
-        phoneNumber: phone,
-        direction: "inbound",
-        eventType,
-      });
-      if (res.suggestions.length > 0) {
-        toast.success("Arama önerisi oluşturuldu");
-        setPhoneNumber("");
-        setOpen(false);
-        onCreated();
-      } else if (res.event.matchStatus === "ambiguous") {
-        toast.warning("Numara birden fazla firmayla eşleşti.");
-      } else {
-        toast.warning("Numara kayıtlı firmayla eşleşmedi.");
-      }
-    } catch (err: any) {
-      toast.error("Manuel arama kaydedilemedi", { description: err?.message ?? "API isteği başarısız oldu." });
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        <Button variant="outline" size="sm" className="gap-1.5 h-9 px-2 sm:px-3">
-          <PhoneCall className="size-4" />
-          <span className="hidden xl:inline">Manuel santral</span>
-        </Button>
-      </DialogTrigger>
-      <DialogContent className="w-[min(420px,calc(100vw-2rem))]">
-        <form onSubmit={submit} className="space-y-4">
-          <DialogHeader>
-            <DialogTitle>Manuel santral</DialogTitle>
-          </DialogHeader>
-          <Input
-            autoFocus
-            inputMode="tel"
-            value={phoneNumber}
-            onChange={(e) => setPhoneNumber(e.target.value)}
-            placeholder="0532 111 22 33"
-          />
-          <div className="grid grid-cols-2 gap-2">
-            <Button
-              type="button"
-              variant={eventType === "completed" ? "default" : "outline"}
-              onClick={() => setEventType("completed")}
-            >
-              Arama bitti
-            </Button>
-            <Button
-              type="button"
-              variant={eventType === "missed" ? "default" : "outline"}
-              onClick={() => setEventType("missed")}
-            >
-              Kaçan arama
-            </Button>
-          </div>
-          <DialogFooter>
-            <Button type="button" variant="ghost" onClick={() => setOpen(false)} disabled={submitting}>
-              Vazgeç
-            </Button>
-            <Button type="submit" disabled={submitting}>
-              Kaydet
-            </Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
 function CallSuggestionItem({
   suggestion,
+  canCreateQuote,
+  canCreateServiceTicket,
   onAction,
 }: {
   suggestion: CallSuggestionDTO;
+  canCreateQuote: boolean;
+  canCreateServiceTicket: boolean;
   onAction: (action: "create_quote" | "create_service_ticket" | "log_call" | "dismiss") => void;
 }) {
   const name = suggestion.company.shortName || suggestion.company.legalTitle;
@@ -1047,12 +1001,12 @@ function CallSuggestionItem({
             {[eventLabel, suggestion.contact?.fullName, suggestion.event.normalizedPhone].filter(Boolean).join(" · ")}
           </div>
           <div className="mt-2 flex flex-wrap gap-1.5">
-            {suggestion.availableActions.createQuote && (
+            {canCreateQuote && suggestion.availableActions.createQuote && (
               <Button size="sm" variant="secondary" className="h-7 px-2 text-xs" onClick={() => onAction("create_quote")}>
                 Teklif
               </Button>
             )}
-            {suggestion.availableActions.createServiceTicket && (
+            {canCreateServiceTicket && suggestion.availableActions.createServiceTicket && (
               <Button size="sm" variant="secondary" className="h-7 px-2 text-xs" onClick={() => onAction("create_service_ticket")}>
                 Şikayet
               </Button>

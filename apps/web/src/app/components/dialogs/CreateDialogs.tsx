@@ -93,6 +93,7 @@ import { districtsForCountry, provincesForCountry } from "../../lib/geoByCountry
 import {
   DIVISION_MACHINE_TYPES,
   allCatalogProductSpecs,
+  dropForeignMachineSpecs,
   foldProductTypeCode,
   groupProductSpecsForType,
   normalizeProductSpecKey,
@@ -108,10 +109,13 @@ import { relatedDeliveryFormNo, resolveServiceFormNo } from "../../lib/serviceFo
 
 /* ---------- Customer ---------- */
 const COMPANY_GROUP_OPTIONS = [
-  { code: "cnc", label: "CNC" },
-  { code: "universal", label: "Üniversal" },
-  { code: "sac_isleme", label: "Sac İşleme" },
+  { code: "a_group", label: "A Grubu (Sıcak/Büyük)" },
+  { code: "b_group", label: "B Grubu (Orta)" },
+  { code: "dealer_second_hand", label: "Bayi / 2. Elci" },
+  { code: "potential_cnc_customer", label: "Potansiyel CNC Müşterisi" },
 ];
+const COMPANY_GROUP_CODES = new Set(COMPANY_GROUP_OPTIONS.map((option) => option.code));
+const BUSINESS_UNIT_CODES = new Set(["cnc", "universal", "sac_isleme"]);
 
 const COMPANY_LOGO_MAX_BYTES = 5 * 1024 * 1024;
 const COMPANY_LOGO_EXT_TO_MIME = {
@@ -251,12 +255,11 @@ function FreeTextCombobox({
 }
 
 const CONTACT_SOURCE_OPTIONS = [
-  { code: "email", label: "Mail" },
-  { code: "phone", label: "Telefon" },
-  { code: "dealer", label: "Bayi" },
-  { code: "digital_market", label: "Dijital Pazar" },
-  { code: "fair", label: "Fuar" },
-  { code: "musiad", label: "MÜSİAD" },
+  { code: "maktek_2024_fair", label: "MAKTEK 2024 / Fuar" },
+  { code: "musiad_expo", label: "MÜSİAD Expo" },
+  { code: "harun_aslanbay_reference", label: "Harun Aslanbay (Referans)" },
+  { code: "website_inbound_call", label: "Web Sitesi / Gelen Çağrı" },
+  { code: "cold_call_field", label: "Soğuk Arama / Saha" },
 ];
 
 type LookupRow = {
@@ -410,7 +413,6 @@ const emptyAdditionalAddress = () => ({
 });
 
 const emptyCompanyForm = () => ({
-  companyNo: "",
   name: "",
   sector: "",
   supplierCategoryCode: "" as "" | "transportation" | "logistics",
@@ -430,14 +432,15 @@ const emptyCompanyForm = () => ({
   taxNumber: "",
   website: "",
   initialNote: "",
-  companyGroupCodes: ["cnc"],
-  divisionId: "",
+  companyGroupCode: "",
+  divisionIds: [] as string[],
   addressType: "office" as const,
   isDefault: true,
   isShipping: true,
   isBilling: true,
   additionalAddresses: [] as ReturnType<typeof emptyAdditionalAddress>[],
-  contactSourceCode: "email",
+  contactSourceCode: "",
+  contactSourceText: "",
 });
 
 type CompanyFormDraft = ReturnType<typeof emptyCompanyForm>;
@@ -472,12 +475,22 @@ export function CreateCustomerDialog({
     () => toComboboxOptions(districtsForCountry(selectedCountry, form.city)),
     [selectedCountry, form.city],
   );
-  const companyGroupRows = useLookupRows("company-groups", COMPANY_GROUP_OPTIONS.map((g) => ({ code: g.code, name: g.label })));
-  const contactSourceRows = useLookupRows("contact-sources", CONTACT_SOURCE_OPTIONS.map((s) => ({ code: s.code, name: s.label })));
+  const companyGroupRows = useLookupRows("company-groups", COMPANY_GROUP_OPTIONS.map((g) => ({ code: g.code, name: g.label })))
+    .filter((row) => COMPANY_GROUP_CODES.has(row.code));
+  const contactSourceRows = useLookupRows("contact-sources", CONTACT_SOURCE_OPTIONS.map((s) => ({ code: s.code, name: s.label })))
+    .filter((row) => row.isActive !== false);
   const sectorRows = useLookupRows("company-sectors", COMPANY_SECTOR_OPTIONS.map((name, index) => ({ code: name, name, sortOrder: index })));
   const taxOfficeRows = useTaxOfficeRows();
-  const divisionOptions = user?.divisions ?? [];
-  const selectedDivisionId = form.divisionId || (activeDivision !== "all" ? activeDivision : divisionOptions.find((d) => d.isPrimary)?.id ?? divisionOptions[0]?.id ?? "");
+  const divisionOptions = (user?.divisions ?? []).filter((division) => BUSINESS_UNIT_CODES.has(division.code ?? ""));
+  const selectedDivisionIds = form.divisionIds ?? [];
+  const fallbackDivisionId = activeDivision !== "all" && divisionOptions.some((division) => division.id === activeDivision)
+    ? activeDivision
+    : divisionOptions.find((division) => division.isPrimary)?.id ?? divisionOptions[0]?.id ?? "";
+
+  useEffect(() => {
+    if (!open || selectedDivisionIds.length > 0 || !fallbackDivisionId) return;
+    setForm((current) => ({ ...current, divisionIds: [fallbackDivisionId] }));
+  }, [fallbackDivisionId, open, selectedDivisionIds.length, setForm]);
 
   useEffect(() => {
     if (!logoFile) {
@@ -533,6 +546,10 @@ export function CreateCustomerDialog({
       toast.error("Tedarikçi türü seçiniz", { description: "Nakliye veya Lojistik seçimi zorunludur." });
       return;
     }
+    if (!selectedDivisionIds.length) {
+      toast.error("Bağlı bulunduğu birimi seçiniz");
+      return;
+    }
     if (logoFile) {
       const logoError = validateCompanyLogo(logoFile);
       if (logoError) {
@@ -550,10 +567,14 @@ export function CreateCustomerDialog({
         isDefault,
         isShipping,
         isBilling,
+        divisionIds,
+        companyGroupCode,
+        companyNo: _legacyCompanyNo,
         ...companyForm
-      } = form;
+      } = form as typeof form & { companyNo?: string };
       const latitude = latitudeRaw ? Number(latitudeRaw) : undefined;
       const longitude = longitudeRaw ? Number(longitudeRaw) : undefined;
+      const normalizedDivisionIds = divisionIds ?? [];
       const addresses = normalizeAddressRoles([
         {
           addressType,
@@ -575,17 +596,18 @@ export function CreateCustomerDialog({
         type,
         firmType,
         salesStatus,
-        divisionId: selectedDivisionId,
-        companyGroupCodes: form.companyGroupCodes ?? [],
-        companyGroupNames: companyGroupRows.filter((g) => (form.companyGroupCodes ?? []).includes(g.code)).map((g) => g.name),
+        divisionId: normalizedDivisionIds[0],
+        divisions: divisionOptions.filter((division) => normalizedDivisionIds.includes(division.id)),
+        companyGroupCodes: companyGroupCode ? [companyGroupCode] : [],
+        companyGroupNames: companyGroupRows.filter((group) => group.code === companyGroupCode).map((group) => group.name),
         addresses,
         latitude: Number.isFinite(latitude) ? latitude : undefined,
         longitude: Number.isFinite(longitude) ? longitude : undefined,
         contactPerson: "",
         wantedProduct: "",
-        source: contactSourceRows.find((s) => s.code === form.contactSourceCode)?.name ?? "",
-        companyGroupCode: form.companyGroupCodes?.[0] ?? "",
-        companyGroupName: companyGroupRows.find((g) => g.code === form.companyGroupCodes?.[0])?.name ?? "",
+        source: contactSourceRows.find((s) => s.code === form.contactSourceCode)?.name ?? form.contactSourceText?.trim() ?? "",
+        companyGroupCode,
+        companyGroupName: companyGroupRows.find((group) => group.code === companyGroupCode)?.name ?? "",
       });
       if (logoFile) {
         try {
@@ -767,26 +789,39 @@ export function CreateCustomerDialog({
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <Label className="text-xs">Firma Grubu</Label>
+              <Label className="text-xs">Bağlı Bulunduğu Birim *</Label>
               <div className="mt-1.5">
                 <MultiSelect
-                  options={lookupCodeOptions(companyGroupRows).map((g) => ({ value: g.code, label: g.label }))}
-                  selected={form.companyGroupCodes ?? []}
-                  onChange={(companyGroupCodes) => setForm({ ...form, companyGroupCodes })}
-                  placeholder="Firma gruplarını seçin"
+                  options={divisionOptions.map((division) => ({ value: division.id, label: division.name }))}
+                  selected={selectedDivisionIds}
+                  onChange={(divisionIds) => setForm({ ...form, divisionIds })}
+                  placeholder="CNC, Üniversal veya Sac İşleme seçin"
                 />
               </div>
             </div>
             <div>
-              <Label className="text-xs">Firma İrtibat Şekli</Label>
-              <Select value={form.contactSourceCode} onValueChange={(v) => setForm({ ...form, contactSourceCode: v })}>
-                <SelectTrigger className="mt-1.5"><SelectValue /></SelectTrigger>
+              <Label className="text-xs">Firma Grubu</Label>
+              <Select value={form.companyGroupCode || undefined} onValueChange={(companyGroupCode) => setForm({ ...form, companyGroupCode })}>
+                <SelectTrigger className="mt-1.5"><SelectValue placeholder="Firma grubunu seçin" /></SelectTrigger>
                 <SelectContent>
-                  {lookupCodeOptions(contactSourceRows).map((s) => (
-                    <SelectItem key={s.code} value={s.code}>{s.label}</SelectItem>
+                  {lookupCodeOptions(companyGroupRows).map((group) => (
+                    <SelectItem key={group.code} value={group.code}>{group.label}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
+            </div>
+            <div>
+              <Label className="text-xs">İrtibat Şekli / Kaynak</Label>
+              <div className="mt-1.5">
+                <FreeTextCombobox
+                  idValue={form.contactSourceCode}
+                  textValue={form.contactSourceText ?? ""}
+                  options={contactSourceRows.map((source) => ({ value: source.code, label: source.name }))}
+                  onPick={(contactSourceCode) => setForm({ ...form, contactSourceCode, contactSourceText: "" })}
+                  onFreeText={(value) => setForm({ ...form, contactSourceCode: "", contactSourceText: value.trim() })}
+                  placeholder="Seçin veya yazın..."
+                />
+              </div>
             </div>
             <LookupCombobox
               label="Firma Sektörü"
@@ -796,7 +831,6 @@ export function CreateCustomerDialog({
               placeholder="Sektör seçin..."
             />
             <Field label={type === "company" ? "Firma Ünvanı *" : "Ad Soyad *"} value={form.name} onChange={(v) => setForm({ ...form, name: v })} />
-            <Field label="Firma No" value={form.companyNo} onChange={(v) => setForm({ ...form, companyNo: v })} placeholder="Kaynak sistem firma numarası" />
             <Field label="Telefon-1" value={form.phone} onChange={(v) => setForm({ ...form, phone: v })} placeholder="+90 ..." />
             <Field label="Telefon-2" value={form.phone2} onChange={(v) => setForm({ ...form, phone2: v })} placeholder="+90 ..." />
             <Field label="Faks" value={form.fax} onChange={(v) => setForm({ ...form, fax: v })} placeholder="+90 ..." />
@@ -972,7 +1006,6 @@ export function CreateCustomerDialog({
 /* ---------- Contact ---------- */
 const emptyContactForm = (defaultCustomerId?: string) => ({
   customerId: defaultCustomerId ?? "",
-  contactNo: "",
   name: "",
   title: "",
   department: "",
@@ -1027,7 +1060,6 @@ export function CreateContactDialog({
     try {
       const contact = await addContact({
         customerId: form.customerId,
-        contactNo: form.contactNo.trim(),
         name: form.name.trim(),
         title: form.title.trim(),
         department: form.department.trim(),
@@ -1105,7 +1137,6 @@ export function CreateContactDialog({
             </div>
 
             <Field label="Adı Soyadı *" value={form.name} onChange={(v) => setForm({ ...form, name: v })} />
-            <Field label="Kontak No" value={form.contactNo} onChange={(v) => setForm({ ...form, contactNo: v })} placeholder="Kaynak sistem kontak numarası" />
             <Field label="Ünvan" value={form.title} onChange={(v) => setForm({ ...form, title: v })} />
             <Field label="Departman" value={form.department} onChange={(v) => setForm({ ...form, department: v })} />
             <div>
@@ -1206,14 +1237,18 @@ export function CreateContactDialog({
 /* ---------- Firma düzenleme (controlled) ---------- */
 export function EditCustomerDialog({ customer, onClose }: { customer: Customer | null; onClose: () => void }) {
   const { updateCustomer } = useStore();
+  const { user } = useAuth();
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState<any>({});
   const editLogoInputRef = useRef<HTMLInputElement>(null);
   const [editLogoFile, setEditLogoFile] = useState<File | null>(null);
   const [editLogoPreview, setEditLogoPreview] = useState("");
   const sectorRows = useLookupRows("company-sectors", COMPANY_SECTOR_OPTIONS.map((name, index) => ({ code: name, name, sortOrder: index })));
-  const companyGroupRows = useLookupRows("company-groups", COMPANY_GROUP_OPTIONS.map((g) => ({ code: g.code, name: g.label })));
-  const contactSourceRows = useLookupRows("contact-sources", CONTACT_SOURCE_OPTIONS.map((s) => ({ code: s.code, name: s.label })));
+  const companyGroupRows = useLookupRows("company-groups", COMPANY_GROUP_OPTIONS.map((g) => ({ code: g.code, name: g.label })))
+    .filter((row) => COMPANY_GROUP_CODES.has(row.code));
+  const contactSourceRows = useLookupRows("contact-sources", CONTACT_SOURCE_OPTIONS.map((s) => ({ code: s.code, name: s.label })))
+    .filter((row) => row.isActive !== false);
+  const divisionOptions = (user?.divisions ?? []).filter((division) => BUSINESS_UNIT_CODES.has(division.code ?? ""));
   const taxOfficeRows = useTaxOfficeRows();
 
   useEffect(() => {
@@ -1236,13 +1271,13 @@ export function EditCustomerDialog({ customer, onClose }: { customer: Customer |
           isBilling: true,
         }];
     setForm({
-      companyNo: customer.companyNo ?? "",
       type: customer.type ?? "company",
       firmType: customer.firmType ?? "customer",
       salesStatus: customer.salesStatus ?? "potential",
       divisionIds: customer.divisions?.map((division) => division.id) ?? [],
-      companyGroupCodes: customer.companyGroupCodes ?? (customer.companyGroupCode ? [customer.companyGroupCode] : []),
+      companyGroupCode: customer.companyGroupCodes?.[0] ?? customer.companyGroupCode ?? "",
       contactSourceCode: customer.contactSourceCode ?? "",
+      contactSourceText: customer.contactSourceText ?? (!customer.contactSourceCode ? customer.source : ""),
       name: customer.name ?? "",
       sector: customer.sector ?? "",
       supplierCategoryCode: customer.supplierCategoryCode ?? "",
@@ -1292,15 +1327,19 @@ export function EditCustomerDialog({ customer, onClose }: { customer: Customer |
     if ((form.firmType === "supplier" || form.firmType === "supplier_customer") && !form.supplierCategoryCode) {
       return toast.error("Tedarikçi türü seçiniz", { description: "Nakliye veya Lojistik seçimi zorunludur." });
     }
+    if (!form.divisionIds?.length) return toast.error("Bağlı bulunduğu birimi seçiniz");
     if (editLogoFile) {
       const logoError = validateCompanyLogo(editLogoFile);
       if (logoError) return toast.error("Firma logosu yüklenemiyor", { description: logoError });
     }
     setSaving(true);
     try {
+      const { companyNo: _companyNo, divisionIds, companyGroupCode, ...editableForm } = form;
       await updateCustomer(customer.id, {
-        ...form,
-        companyGroupCodes: form.companyGroupCodes ?? [],
+        ...editableForm,
+        divisions: divisionOptions.filter((division) => divisionIds.includes(division.id)),
+        companyGroupCode,
+        companyGroupCodes: companyGroupCode ? [companyGroupCode] : [],
         addresses: normalizeAddressRoles(form.addresses ?? []),
       });
       if (editLogoFile) {
@@ -1414,15 +1453,28 @@ export function EditCustomerDialog({ customer, onClose }: { customer: Customer |
               </div>
             </div>
           )}
-          <div>
+          <div className="grid grid-cols-2 gap-3">
             <div>
-              <Label className="text-xs">Firma Grupları</Label>
-              <div className="mt-1.5"><MultiSelect options={lookupCodeOptions(companyGroupRows).map((group) => ({ value: group.code, label: group.label }))} selected={form.companyGroupCodes ?? []} onChange={(companyGroupCodes) => setForm({ ...form, companyGroupCodes })} /></div>
+              <Label className="text-xs">Bağlı Bulunduğu Birim *</Label>
+              <div className="mt-1.5">
+                <MultiSelect
+                  options={divisionOptions.map((division) => ({ value: division.id, label: division.name }))}
+                  selected={form.divisionIds ?? []}
+                  onChange={(divisionIds) => setForm({ ...form, divisionIds })}
+                  placeholder="CNC, Üniversal veya Sac İşleme seçin"
+                />
+              </div>
+            </div>
+            <div>
+              <Label className="text-xs">Firma Grubu</Label>
+              <Select value={form.companyGroupCode || undefined} onValueChange={(companyGroupCode) => setForm({ ...form, companyGroupCode })}>
+                <SelectTrigger className="mt-1.5"><SelectValue placeholder="Firma grubunu seçin" /></SelectTrigger>
+                <SelectContent>{lookupCodeOptions(companyGroupRows).map((group) => <SelectItem key={group.code} value={group.code}>{group.label}</SelectItem>)}</SelectContent>
+              </Select>
             </div>
           </div>
           <div className="grid grid-cols-2 gap-3">
             <Field label="Ünvan *" value={form.name ?? ""} onChange={(v) => setForm({ ...form, name: v })} />
-            <Field label="Firma No" value={form.companyNo ?? ""} onChange={(v) => setForm({ ...form, companyNo: v })} />
             <LookupCombobox
               label="Sektör"
               options={lookupNameOptions(sectorRows)}
@@ -1436,11 +1488,17 @@ export function EditCustomerDialog({ customer, onClose }: { customer: Customer |
             <Field label="E-posta-1" value={form.email ?? ""} onChange={(v) => setForm({ ...form, email: v })} />
             <Field label="E-posta-2" value={form.email2 ?? ""} onChange={(v) => setForm({ ...form, email2: v })} />
             <div>
-              <Label className="text-xs">Firma İrtibat Şekli</Label>
-              <Select value={form.contactSourceCode || undefined} onValueChange={(value) => setForm({ ...form, contactSourceCode: value })}>
-                <SelectTrigger className="mt-1.5"><SelectValue placeholder="Seçin" /></SelectTrigger>
-                <SelectContent>{lookupCodeOptions(contactSourceRows).map((source) => <SelectItem key={source.code} value={source.code}>{source.label}</SelectItem>)}</SelectContent>
-              </Select>
+              <Label className="text-xs">İrtibat Şekli / Kaynak</Label>
+              <div className="mt-1.5">
+                <FreeTextCombobox
+                  idValue={form.contactSourceCode ?? ""}
+                  textValue={form.contactSourceText ?? ""}
+                  options={contactSourceRows.map((source) => ({ value: source.code, label: source.name }))}
+                  onPick={(contactSourceCode) => setForm({ ...form, contactSourceCode, contactSourceText: "" })}
+                  onFreeText={(value) => setForm({ ...form, contactSourceCode: "", contactSourceText: value.trim() })}
+                  placeholder="Seçin veya yazın..."
+                />
+              </div>
             </div>
             <Field label="T.C. / Vergi Kimlik Numarası" value={form.taxNumber ?? ""} onChange={(v) => setForm({ ...form, taxNumber: v })} />
             <LookupCombobox
@@ -1549,7 +1607,6 @@ export function EditContactDialog({ contact, onClose }: { contact: Contact | nul
     if (contact)
       setForm({
         customerId: contact.customerId ?? "",
-        contactNo: contact.contactNo ?? "",
         name: contact.name ?? "",
         title: contact.title ?? "",
         department: contact.department ?? "",
@@ -1583,7 +1640,6 @@ export function EditContactDialog({ contact, onClose }: { contact: Contact | nul
     try {
       await updateContact(contact.id, {
         customerId: form.customerId,
-        contactNo: form.contactNo.trim(),
         name: form.name.trim(),
         title: form.title.trim(),
         department: form.department.trim(),
@@ -1654,7 +1710,6 @@ export function EditContactDialog({ contact, onClose }: { contact: Contact | nul
             </div>
 
             <Field label="Adı Soyadı *" value={form.name} onChange={(value) => setForm({ ...form, name: value })} />
-            <Field label="Kontak No" value={form.contactNo} onChange={(value) => setForm({ ...form, contactNo: value })} />
             <Field label="Ünvan" value={form.title} onChange={(v) => setForm({ ...form, title: v })} />
             <Field label="Departman" value={form.department} onChange={(v) => setForm({ ...form, department: v })} />
             <div>
@@ -2416,13 +2471,14 @@ export function CreateStockDialog({ trigger }: { trigger: React.ReactNode }) {
 /* ---------- Activity ---------- */
 
 export function AddActivityDialog({
-  trigger, salesCaseId, customerId, open: controlledOpen, onOpenChange,
+  trigger, salesCaseId, customerId, open: controlledOpen, onOpenChange, commentOnly = false,
 }: {
   trigger?: React.ReactNode;
   salesCaseId: string;
   customerId: string;
   open?: boolean;
   onOpenChange?: (o: boolean) => void;
+  commentOnly?: boolean;
 }) {
   const { addActivity, users } = useStore();
   const { user } = useAuth();
@@ -2431,6 +2487,9 @@ export function AddActivityDialog({
   const open = controlledOpen ?? internalOpen;
   const setOpen = (o: boolean) => { onOpenChange ? onOpenChange(o) : setInternalOpen(o); };
 
+  const defaultType = commentOnly
+    ? ACTIVITY_TYPE_OPTIONS.find((option) => option.code === "note")?.label ?? "Yorum"
+    : ACTIVITY_TYPE_OPTIONS[0].label;
   const [form, setForm] = usePersistentState<{
     type: string;
     title: string;
@@ -2438,8 +2497,8 @@ export function AddActivityDialog({
     result: string;
     date: string;
     byUserId: string;
-  }>(`draft.activity.${salesCaseId || customerId}`, {
-    type: ACTIVITY_TYPE_OPTIONS[0].label,
+  }>(`draft.activity.${salesCaseId || customerId}${commentOnly ? ".comment" : ""}`, {
+    type: defaultType,
     title: "",
     note: "",
     result: "",
@@ -2452,7 +2511,7 @@ export function AddActivityDialog({
 
   const reset = () => {
     setForm({
-      type: ACTIVITY_TYPE_OPTIONS[0].label,
+      type: defaultType,
       title: "",
       note: "",
       result: "",
@@ -2510,7 +2569,7 @@ export function AddActivityDialog({
       const created = await addActivity({
         salesCaseId,
         customerId,
-        type: form.type,
+        type: commentOnly ? defaultType : form.type,
         title: form.title.trim(),
         note: form.note.trim(),
         result: form.result.trim(),
@@ -2533,12 +2592,12 @@ export function AddActivityDialog({
       {trigger && <DialogTrigger asChild>{trigger}</DialogTrigger>}
       <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle>Yeni Aktivite</DialogTitle>
-          <DialogDescription>Bu satış kartına aktivite ekleyin.</DialogDescription>
+          <DialogTitle>{commentOnly ? "Yeni Yorum" : "Yeni Aktivite"}</DialogTitle>
+          <DialogDescription>{commentOnly ? "Bu fırsata kullanıcı yorumu ekleyin." : "Bu satış kartına aktivite ekleyin."}</DialogDescription>
         </DialogHeader>
         <form onSubmit={submit} className="space-y-3">
-          <div className="grid grid-cols-2 gap-3">
-            <div>
+          <div className={`grid gap-3 ${commentOnly ? "grid-cols-1" : "grid-cols-2"}`}>
+            {!commentOnly && <div>
               <Label className="text-xs">Aktivite Türü</Label>
               <Select value={form.type} onValueChange={(v) => setForm({ ...form, type: v })}>
                 <SelectTrigger className="mt-1.5"><SelectValue /></SelectTrigger>
@@ -2546,7 +2605,7 @@ export function AddActivityDialog({
                   {ACTIVITY_TYPE_OPTIONS.map((t) => <SelectItem key={t.code} value={t.label}>{t.label}</SelectItem>)}
                 </SelectContent>
               </Select>
-            </div>
+            </div>}
             <div>
               <Label className="text-xs">Tarih</Label>
               <Input type="date" className="mt-1.5" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} />
@@ -2554,16 +2613,16 @@ export function AddActivityDialog({
           </div>
           <div>
             <Label className="text-xs">Başlık *</Label>
-            <Input className="mt-1.5" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="Müşteri ile görüşme" />
+            <Input className="mt-1.5" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder={commentOnly ? "Yorum başlığı" : "Müşteri ile görüşme"} />
           </div>
           <div>
-            <Label className="text-xs">Not</Label>
-            <Textarea className="mt-1.5 min-h-[80px]" value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} placeholder="Detaylar..." />
+            <Label className="text-xs">{commentOnly ? "Yorum" : "Not"}</Label>
+            <Textarea className="mt-1.5 min-h-[80px]" value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} placeholder={commentOnly ? "Yorumunuzu yazın..." : "Detaylar..."} />
           </div>
-          <div>
+          {!commentOnly && <div>
             <Label className="text-xs">Sonuç / Ne Yapıldı</Label>
             <Textarea className="mt-1.5 min-h-[64px]" value={form.result} onChange={(e) => setForm({ ...form, result: e.target.value })} placeholder="Yapılan işlem ve sonuç..." />
-          </div>
+          </div>}
           <div>
             <Label className="text-xs">Dosyalar</Label>
             <Input
@@ -2608,8 +2667,15 @@ export function AddActivityDialog({
 }
 
 /* ---------- Quick Create ---------- */
-export function QuickCreateDialog({ trigger }: { trigger: React.ReactNode }) {
+export function QuickCreateDialog({
+  trigger,
+  enabledAreas,
+}: {
+  trigger: React.ReactNode;
+  enabledAreas?: { customers: boolean; contacts: boolean; salesCases: boolean };
+}) {
   const [open, setOpen] = useState(false);
+  const areas = enabledAreas ?? { customers: true, contacts: true, salesCases: true };
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>{trigger}</DialogTrigger>
@@ -2619,7 +2685,7 @@ export function QuickCreateDialog({ trigger }: { trigger: React.ReactNode }) {
           <DialogDescription>Hangi kaydı oluşturmak istersiniz?</DialogDescription>
         </DialogHeader>
         <div className="grid grid-cols-2 gap-2">
-          <CreateCustomerDialog
+          {areas.customers && <CreateCustomerDialog
             trigger={
               <button className="flex flex-col items-start gap-1 p-4 rounded-lg border hover:border-primary hover:bg-primary/5 transition-colors text-left">
                 <Building2 className="size-5 text-primary" />
@@ -2627,8 +2693,8 @@ export function QuickCreateDialog({ trigger }: { trigger: React.ReactNode }) {
                 <div className="text-xs text-muted-foreground">Kurumsal / Bireysel</div>
               </button>
             }
-          />
-          <CreateContactDialog
+          />}
+          {areas.contacts && <CreateContactDialog
             trigger={
               <button className="flex flex-col items-start gap-1 p-4 rounded-lg border hover:border-primary hover:bg-primary/5 transition-colors text-left">
                 <UserIcon className="size-5 text-primary" />
@@ -2636,8 +2702,8 @@ export function QuickCreateDialog({ trigger }: { trigger: React.ReactNode }) {
                 <div className="text-xs text-muted-foreground">Firma kişisi</div>
               </button>
             }
-          />
-          <CreateCaseDialog
+          />}
+          {areas.salesCases && <CreateCaseDialog
             trigger={
               <button className="flex flex-col items-start gap-1 p-4 rounded-lg border hover:border-primary hover:bg-primary/5 transition-colors text-left">
                 <UserIcon className="size-5 text-primary" />
@@ -2645,7 +2711,7 @@ export function QuickCreateDialog({ trigger }: { trigger: React.ReactNode }) {
                 <div className="text-xs text-muted-foreground">Yeni fırsat</div>
               </button>
             }
-          />
+          />}
         </div>
       </DialogContent>
     </Dialog>
@@ -2767,6 +2833,12 @@ const PRODUCT_CURRENCIES: Array<{ code: "USD" | "TRY" | "EUR"; label: string }> 
 ];
 const PRODUCT_VAT_RATES = ["10", "20"];
 const DEFAULT_PRODUCT_VAT_RATE = "20";
+const defaultVatRateForProductType = (productTypeCode: string): string | null => {
+  const code = productTypeCode.toLocaleUpperCase("tr-TR");
+  if (code.includes("TORNA")) return "10";
+  if (code.includes("ISLEME_MERKEZ")) return "20";
+  return null;
+};
 
 const normalizeProductVatRate = (value: string | number | null | undefined) => {
   const rate = String(value ?? DEFAULT_PRODUCT_VAT_RATE);
@@ -3038,7 +3110,11 @@ const fromProduct = (p: Product): ProductFormState => ({
   originCountry: p.originCountry ?? "",
   hsCode: p.hsCode ?? "",
   stockCode: p.stockCode || p.model,
-  specs: catalogSpecs(p.specs, "", p.productTypeCode),
+  // Kayıtlı ürün kendi teknik alanlarıyla açılır; katalog şablonu burada
+  // yeniden uygulanmaz. Uygulanırsa kullanıcının sildiği alan formda geri
+  // gelir ve ilk kayıtta tekrar yazılır. Şablonun tamamı istendiğinde
+  // "Sabit listeyi tamamla" düğmesiyle bilinçli olarak eklenir.
+  specs: catalogSpecs(dropForeignMachineSpecs(p.productTypeCode, p.specs ?? []), ""),
   standardEquipment: [...p.standardEquipment], optionalEquipment: [...p.optionalEquipment],
   muadilProductIds: p.muadilProductIds?.length ? p.muadilProductIds : (p.muadilProductId ? [p.muadilProductId] : []),
   status: p.status,
@@ -3441,6 +3517,7 @@ export function ProductDialog({
       category: findLabel(productCategoryOptions, categoryCode, form.category),
       subcategoryCode,
       subcategory: findLabel(productSubcategoryOptions, subcategoryCode, form.subcategory),
+      vatRate: defaultVatRateForProductType(opt.code) ?? form.vatRate,
       brand: opt.code === form.productTypeCode ? form.brand : "",
       specs: specsForSelectedProductType(form.specs, opt.code),
     });
@@ -3480,7 +3557,12 @@ export function ProductDialog({
       toast.error(isLaborProduct ? "Ürün adı zorunludur" : "Marka ve ürün adı zorunludur");
       return;
     }
-    const cleanSpecs = catalogSpecs(form.specs, "-", form.productTypeCode).filter((s) => s.key.trim());
+    // Katalog şablonu kaydederken YENİDEN uygulanmaz: uygulanırsa
+    // `mergeSpecsWithDefaults` şablondaki her alanı geri ekler ve kullanıcının
+    // sildiği teknik bilgi satırı hiçbir zaman silinmiş olmaz. Burada yalnızca
+    // başka tezgah tipine ait alanlar elenir; ekrandaki liste olduğu gibi gider.
+    const cleanSpecs = catalogSpecs(dropForeignMachineSpecs(form.productTypeCode, form.specs), "-")
+      .filter((s) => s.key.trim());
     const modelCode = form.stockCode.trim() || form.model.trim() || compactProductCode(form.shortDescription) || "URUN";
     const payload = {
       brand: isLaborProduct ? (form.brand.trim() || "Haksan") : form.brand.trim(),

@@ -252,7 +252,12 @@ export class QuotesService {
    */
   private async calcCustomsTotal(
     currencyId: string | null,
-    items: Array<typeof quoteItems.$inferSelect>
+    items: Array<{
+      nationalized: boolean;
+      productModelId: string | null;
+      quantity: string | number;
+      unitPrice: string | number;
+    }>
   ): Promise<number> {
     const nationalized = items.filter((it) => it.nationalized);
     if (!nationalized.length) return 0;
@@ -788,52 +793,65 @@ export class QuotesService {
       });
     }
 
-    const lineDiscount = snapshot.items.reduce(
+    const originalLineDiscount = snapshot.items.reduce(
       (sum, item) => sum + Number(item.discountAmount ?? 0),
       0
     );
-    const headerDiscount = Math.max(Number(snapshot.quote.discountTotal ?? 0) - lineDiscount, 0);
-    const taxableBeforeHeader = snapshot.items.reduce((sum, item) => {
-      const quantity = Number(item.quantity ?? 0);
-      const unitPrice = Number(item.unitPrice ?? 0);
-      return sum + Number(item.lineTotal ?? quantity * unitPrice - Number(item.discountAmount ?? 0));
-    }, 0);
-    const headerRatio = taxableBeforeHeader > 0
-      ? Math.max(0, taxableBeforeHeader - headerDiscount) / taxableBeforeHeader
-      : 1;
+    const requestedHeaderDiscount = Math.max(
+      Number(snapshot.quote.discountTotal ?? 0) - originalLineDiscount,
+      0
+    );
     const roundMoney = (value: number) => Number(value.toFixed(4));
 
-    const items = snapshot.items.map((item) => {
+    const pricedItems = snapshot.items.map((item) => {
       const quantity = Number(item.quantity ?? 0);
-      const originalLineTotal = Number(
-        item.lineTotal ?? quantity * Number(item.unitPrice ?? 0) - Number(item.discountAmount ?? 0)
-      );
-      const defaultNetUnitPrice = quantity > 0 ? (originalLineTotal * headerRatio) / quantity : 0;
-      const unitPrice = overrides.get(item.id) ?? defaultNetUnitPrice;
-      const lineTotal = roundMoney(quantity * unitPrice);
-      const vatAmount = roundMoney(lineTotal * (Number(item.vatRate ?? 0) / 100));
+      const unitPrice = overrides.get(item.id) ?? Number(item.unitPrice ?? 0);
+      const discountAmount = Number(item.discountAmount ?? 0);
+      this.assertItemDiscount(quantity, unitPrice, discountAmount);
+      const lineTotal = roundMoney(quantity * unitPrice - discountAmount);
       return {
         ...item,
         unitPrice: roundMoney(unitPrice),
-        discountAmount: 0,
+        discountAmount: roundMoney(discountAmount),
         lineTotal,
-        vatAmount,
       };
     });
-    const subtotal = roundMoney(items.reduce((sum, item) => sum + Number(item.lineTotal), 0));
+    const lineDiscount = roundMoney(
+      pricedItems.reduce((sum, item) => sum + Number(item.discountAmount), 0)
+    );
+    const taxableBeforeHeader = roundMoney(
+      pricedItems.reduce((sum, item) => sum + Number(item.lineTotal), 0)
+    );
+    const headerDiscount = roundMoney(
+      Math.min(requestedHeaderDiscount, taxableBeforeHeader)
+    );
+    const headerRatio = taxableBeforeHeader > 0
+      ? (taxableBeforeHeader - headerDiscount) / taxableBeforeHeader
+      : 1;
+    const items = pricedItems.map((item) => ({
+      ...item,
+      vatAmount: roundMoney(
+        Number(item.lineTotal) * headerRatio * (Number(item.vatRate ?? 0) / 100)
+      ),
+    }));
+    const subtotal = roundMoney(taxableBeforeHeader - headerDiscount);
     const vatAmount = roundMoney(items.reduce((sum, item) => sum + Number(item.vatAmount), 0));
+    const customsTotal = roundMoney(
+      await this.calcCustomsTotal(snapshot.quote.currencyId ?? null, pricedItems)
+    );
 
     return {
       ...snapshot,
-      schemaVersion: 3,
+      schemaVersion: 4,
       quote: {
         ...snapshot.quote,
         subtotal,
-        discountTotal: 0,
-        headerDiscountAmount: 0,
+        discountTotal: roundMoney(lineDiscount + headerDiscount),
+        headerDiscountAmount: headerDiscount,
         headerDiscountPercent: 0,
         vatAmount,
-        grandTotal: roundMoney(subtotal + vatAmount),
+        customsTotal,
+        grandTotal: roundMoney(subtotal + vatAmount + customsTotal),
       },
       items,
       document,
@@ -882,11 +900,46 @@ export class QuotesService {
     const itemProductIds = [...new Set(items.map((item) => item.productModelId).filter((value): value is string => Boolean(value)))];
     const itemProducts = itemProductIds.length
       ? await this.db
-          .select({ id: productModels.id, fullName: productModels.fullName })
+          .select({ id: productModels.id, fullName: productModels.fullName, typeCode: productTypes.code })
           .from(productModels)
+          .leftJoin(productTypes, eq(productModels.productTypeId, productTypes.id))
           .where(and(eq(productModels.tenantId, actor.tenantId), inArray(productModels.id, itemProductIds), isNull(productModels.deletedAt)))
       : [];
     const itemProductNames = new Map(itemProducts.map((product) => [product.id, product.fullName]));
+    const itemProductTypes = new Map(itemProducts.map((product) => [product.id, product.typeCode]));
+    const customsTotal = Math.max(0, Number(quote.customsTotal ?? 0));
+    const nationalizedIndexes = items
+      .map((item, index) => item.nationalized ? index : -1)
+      .filter((index) => index >= 0);
+    const machiningIndexes = items
+      .map((item, index) => item.productModelId && isMachiningCenterTypeCode(itemProductTypes.get(item.productModelId)) ? index : -1)
+      .filter((index) => index >= 0);
+    const eligibleIndexes = nationalizedIndexes.filter((index) => {
+      const productModelId = items[index].productModelId;
+      const typeCode = productModelId ? itemProductTypes.get(productModelId) : null;
+      return !typeCode || isMachiningCenterTypeCode(typeCode);
+    });
+    const allocationIndexes = eligibleIndexes.length
+      ? eligibleIndexes
+      : nationalizedIndexes.length
+        ? nationalizedIndexes
+        : machiningIndexes;
+    const customsAllocations = items.map(() => 0);
+    const allocationGross = allocationIndexes.reduce(
+      (sum, index) => sum + Math.max(0, Number(items[index].quantity) * Number(items[index].unitPrice)),
+      0,
+    );
+    let allocatedCustoms = 0;
+    allocationIndexes.forEach((index, allocationIndex) => {
+      const weight = allocationGross > 0
+        ? Math.max(0, Number(items[index].quantity) * Number(items[index].unitPrice)) / allocationGross
+        : 1 / allocationIndexes.length;
+      const allocation = allocationIndex === allocationIndexes.length - 1
+        ? customsTotal - allocatedCustoms
+        : Number((customsTotal * weight).toFixed(4));
+      customsAllocations[index] = allocation;
+      allocatedCustoms += allocation;
+    });
     const terms = snapshot ? (snapshot.terms ?? null) : await this.db.query.quoteTerms.findFirst({ where: eq(quoteTerms.quoteId, id) });
     const company = snapshot ? (snapshot.company ?? null) : await this.db.query.companies.findFirst({ where: eq(companies.id, quote.companyId) });
     const liveCompanyAddresses = snapshot
@@ -1108,9 +1161,12 @@ export class QuotesService {
         doc.text(stockFragment, x.stock, y + 2, { width: colW.stock, lineGap: 0 });
         doc.text(descriptionFragment, x.desc, y + 2, { width: colW.desc, lineGap: 0 });
         if (lineOffset === 0) {
+          const quantity = Number(it.quantity);
+          const displayGross = quantity * Number(it.unitPrice) + (customsAllocations[i] ?? 0);
+          const displayUnitPrice = quantity > 0 ? displayGross / quantity : Number(it.unitPrice);
           fitCell(Number(it.quantity).toLocaleString('tr-TR'), x.qty, y + 2, colW.qty, { align: 'right' });
-          fitCell(money(it.unitPrice), x.price, y + 2, colW.price, { align: 'right' });
-          fitCell(money(it.lineTotal), x.total, y + 2, colW.total, { align: 'right' });
+          fitCell(money(displayUnitPrice), x.price, y + 2, colW.price, { align: 'right' });
+          fitCell(money(displayGross), x.total, y + 2, colW.total, { align: 'right' });
         }
         y += rowHeight;
         doc.moveTo(50, y).lineTo(545, y).lineWidth(0.35).strokeColor('#d1d5db').stroke();
@@ -1131,23 +1187,31 @@ export class QuotesService {
       fitCell(val, 455, y, 90, { align: 'right', bold, size: bold ? 11 : 9, minSize: 7.5 });
       y += bold ? 20 : 15;
     };
-    const grossTotal = items.reduce((sum, item) => sum + Number(item.quantity) * Number(item.unitPrice), 0);
+    const grossTotal = items.reduce((sum, item) => sum + Number(item.quantity) * Number(item.unitPrice), customsTotal);
     const lineDiscountTotal = items.reduce((sum, item) => sum + Number(item.discountAmount ?? 0), 0);
     const headerDiscountTotal = Math.max(Number(quote.discountTotal ?? 0) - lineDiscountTotal, 0);
+    const primaryItem = items.find((item) => !String(item.description ?? '').trimStart().startsWith('↳ Opsiyon:'));
+    const documentVatRate = Number(primaryItem?.vatRate ?? 0);
+    const applyDocumentVatRate = (value: unknown) => {
+      const text = String(value ?? '');
+      if (!Number.isFinite(documentVatRate) || documentVatRate <= 0) return text;
+      return text
+        .replace(/\{\{KDV_ORANI\}\}/g, String(documentVatRate))
+        .replace(/%(?:10|20)(?=\s*K\.?\s*D\.?\s*V\.?)/giu, `%${documentVatRate}`);
+    };
     totalLine('Brüt Toplam', money(grossTotal));
     if (lineDiscountTotal > 0) totalLine('Kalem İndirimi', `-${money(lineDiscountTotal)}`);
     totalLine('Özel İskonto', headerDiscountTotal > 0 ? `-${money(headerDiscountTotal)}` : money(0));
-    totalLine('Net Ara Toplam', money(quote.subtotal));
-    totalLine('KDV', money(quote.vatAmount));
-    if (Number(quote.customsTotal ?? 0) > 0) totalLine('Millileştirme / Gümrük', money(quote.customsTotal));
+    totalLine('Net Ara Toplam', money(Number(quote.subtotal ?? 0) + customsTotal));
+    totalLine(documentVatRate > 0 ? `KDV (%${documentVatRate})` : 'KDV', money(quote.vatAmount));
     totalLine('GENEL TOPLAM', money(quote.grandTotal), true);
     doc.y = y;
 
     // Şartlar — örnek formdaki gibi 1/2/3 ve a/b/c maddeleri.
     const termSections = ([
-      ['ÖDEME ŞARTLARI', splitTermLines(terms?.paymentTermsText ?? quote.paymentTerms)],
-      ['TESLİMAT ŞARTLARI', splitTermLines(terms?.deliveryTermsText ?? quote.deliveryTerms)],
-      ['GARANTİ ŞARTLARI', splitTermLines(terms?.warrantyTermsText ?? quote.warrantyTerms)],
+      ['ÖDEME ŞARTLARI', splitTermLines(applyDocumentVatRate(terms?.paymentTermsText ?? quote.paymentTerms))],
+      ['TESLİMAT ŞARTLARI', splitTermLines(applyDocumentVatRate(terms?.deliveryTermsText ?? quote.deliveryTerms))],
+      ['GARANTİ ŞARTLARI', splitTermLines(applyDocumentVatRate(terms?.warrantyTermsText ?? quote.warrantyTerms))],
       ['NOTLAR', splitTermLines(quote.notes)],
     ] as Array<[string, string[]]>).filter(([, lines]) => lines.length > 0);
 
@@ -1641,6 +1705,7 @@ export class QuotesService {
           activityTypeId,
           subject: `${quote.documentNo} teklif takibi — ${statusLabels[input.statusCode as keyof typeof statusLabels]}`,
           description: input.note ?? null,
+          origin: 'system',
           activityDate: changedAt,
           nextFollowUpAt: input.followUpAt,
           createdBy: actor.userId,

@@ -1,7 +1,9 @@
 import type { Customer, Offer, Payment, Product, SalesCase, ProductSpec, User } from "../mock";
+import { isMachiningCenterTypeCode } from "@haksan/shared";
 import { quoteService } from "../../../lib/services";
 import { specsForProductTypeStrict } from "../productSpecTemplates";
 import { publicProductLabel, trShortDate } from "./core";
+import { allocateCustomsTotal } from "./quotePrint";
 import type { ContractMachinePrintData, ContractPrintData } from "./templates";
 
 // Tezgahın tam teknik özellik listesi (birim değere gömülür) — sözleşme eksik
@@ -43,8 +45,9 @@ const asOptionalNumber = (value: unknown): number | undefined => {
 
 const contractNetPrice = (quote: any, fallback = 0): number => {
   // API `subtotal` alanını satır ve başlık iskontoları düşülmüş, KDV hariç net
-  // bedel olarak hesaplar; burada yeniden iskonto uygulamak tutarı iki kez azaltır.
-  return Math.max(0, asNumber(quote?.subtotal ?? fallback));
+  // bedel olarak hesaplar. Millileştirme bedeli ayrıca saklandığı için sözleşme
+  // fiyatına sessizce eklenir; burada yeniden iskonto uygulanmaz.
+  return Math.max(0, asNumber(quote?.subtotal ?? fallback) + asNumber(quote?.customsTotal ?? quote?.customs_total));
 };
 
 const inferDeliveryBasis = (deliveryTerms: unknown): string | undefined => {
@@ -150,6 +153,18 @@ const buildContractMachines = (
 ): ContractMachinePrintData[] => {
   const grouped = groupContractItems(items);
   const headerRatio = quoteHeaderRatio(quote, items);
+  const customsAllocations = allocateCustomsTotal(
+    items,
+    asNumber(recordValue(quote, "customsTotal", "customs_total")),
+    (item) => {
+      if (!Boolean(recordValue(item, "nationalized"))) return false;
+      const productModelId = String(recordValue(item, "productModelId", "product_model_id") ?? "");
+      const product = products.find((candidate) => candidate.id === productModelId);
+      return !product?.productTypeCode || isMachiningCenterTypeCode(product.productTypeCode);
+    },
+    (item) => asNumber(recordValue(item, "quantity")) * asNumber(recordValue(item, "unitPrice", "unit_price")),
+  );
+  const customsByItem = new Map(items.map((item, index) => [item, customsAllocations[index] ?? 0]));
   const primaryRows = grouped.filter((row) => !row.isOption);
   const machines = primaryRows.map((row) => {
     const productModelId = String(recordValue(row.item, "productModelId", "product_model_id") ?? "");
@@ -171,6 +186,8 @@ const buildContractMachines = (
         .map((description) => description.replace(/^↳\s*Opsiyon:\s*/, "")),
     ];
     const priceBeforeHeader = rowNetTotal(row.item) + options.reduce((sum, option) => sum + rowNetTotal(option.item), 0);
+    const customsForMachine = (customsByItem.get(row.item) ?? 0)
+      + options.reduce((sum, option) => sum + (customsByItem.get(option.item) ?? 0), 0);
     const warrantyTerms = recordValue(quote, "warrantyTerms", "warranty_terms");
     return {
       model: publicProductLabel({
@@ -182,7 +199,7 @@ const buildContractMachines = (
       ozellikler: specs,
       aksesuarlar: accessories,
       muadiller: productEquivalents(product, products),
-      fiyat: priceBeforeHeader * headerRatio,
+      fiyat: priceBeforeHeader * headerRatio + customsForMachine,
       kontrolUnitesiMarka: inferControlUnitBrand(specs, warrantyTerms),
     };
   });
@@ -246,8 +263,8 @@ async function buildContractPrintData(input: ContractBuildInput): Promise<Contra
         : !Boolean(value(terms, "importCostsExcluded", "import_costs_excluded")),
       notlar: value(quote, "notes"),
       kdvOran: (() => {
-        const rates = items.map((item: any) => asNumber(value(item, "vatRate", "vat_rate")));
-        return rates.length && rates.every((rate: number) => rate === rates[0]) ? rates[0] : 0;
+        const mainItem = items.find((item: any) => !String(value(item, "description") ?? "").trimStart().startsWith("↳ Opsiyon:"));
+        return asNumber(value(mainItem, "vatRate", "vat_rate"));
       })(),
       odemePlani: receivables.map((receivable: any) => ({
         label: String(value(receivable, "notes") ?? `Vade ${trShortDate(value(receivable, "dueDate", "due_date"))}`),
@@ -281,8 +298,7 @@ async function buildContractPrintData(input: ContractBuildInput): Promise<Contra
     ? machines.reduce((sum, machine) => sum + machine.adet, 0)
     : salesCase.quantity || 1;
   const subtotal = asNumber(quote?.subtotal ?? offer?.subtotal ?? salesCase.estimatedAmount);
-  const vatRates = quoteItems.map((item: { vatRate?: unknown }) => asNumber(item.vatRate));
-  const vatRate = vatRates.length && vatRates.every((rate: number) => rate === vatRates[0]) ? vatRates[0] : 0;
+  const vatRate = asNumber(mainItem?.vatRate);
   const expectedPayments = payments
     .filter((payment) => payment.paymentType === "expected" && payment.salesCaseId === salesCase.id)
     .sort((left, right) => left.dueDate.localeCompare(right.dueDate));

@@ -44,6 +44,8 @@ export function LostCaseDialog({ open, onOpenChange, caseId, caseName, productNa
   const [competitorId, setCompetitorId] = useState("__none__");
   const [competitorModel, setCompetitorModel] = useState("");
   const [competitors, setCompetitors] = useState<{ id: string; name: string }[]>([]);
+  const [competitorsLoading, setCompetitorsLoading] = useState(false);
+  const [competitorLoadError, setCompetitorLoadError] = useState(false);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -53,10 +55,16 @@ export function LostCaseDialog({ open, onOpenChange, caseId, caseName, productNa
     setUnmetConditions("");
     setCompetitorId("__none__");
     setCompetitorModel("");
+    setCompetitorsLoading(true);
+    setCompetitorLoadError(false);
     competitorService
       .list({ pageSize: 100 })
       .then((r) => setCompetitors((r.data ?? []).map((c: any) => ({ id: c.id, name: c.name }))))
-      .catch(() => setCompetitors([]));
+      .catch(() => {
+        setCompetitors([]);
+        setCompetitorLoadError(true);
+      })
+      .finally(() => setCompetitorsLoading(false));
   }, [initialProductName, open]);
 
   const submit = async () => {
@@ -130,7 +138,7 @@ export function LostCaseDialog({ open, onOpenChange, caseId, caseName, productNa
             <Label>Rakip Kim?</Label>
             <Select value={competitorId} onValueChange={setCompetitorId}>
               <SelectTrigger>
-                <SelectValue placeholder={competitors.length ? "Rakip seçin" : "Kayıtlı rakip yok"} />
+                <SelectValue placeholder={competitorsLoading ? "Rakipler yükleniyor…" : competitorLoadError ? "Rakip listesi yüklenemedi" : competitors.length ? "Rakip seçin" : "Kayıtlı rakip yok"} />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="__none__">Rakip yok / bilinmiyor</SelectItem>
@@ -141,6 +149,11 @@ export function LostCaseDialog({ open, onOpenChange, caseId, caseName, productNa
                 ))}
               </SelectContent>
             </Select>
+            {competitorLoadError && (
+              <p className="text-[11px] text-destructive" role="alert">
+                Rakip kataloğu alınamadı. Pencereyi kapatıp yeniden açarak tekrar deneyin.
+              </p>
+            )}
           </div>
 
           <div className="space-y-1.5">

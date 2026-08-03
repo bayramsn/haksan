@@ -75,24 +75,6 @@ const TARGET_TYPE_LABEL: Record<AssignedTargetItem["targetType"], string> = {
   logistics: "Lojistik",
   other: "Diğer",
 };
-const METRIC_LABEL: Record<string, string> = {
-  salesAmount: "Satış Cirosu",
-  salesNewCustomers: "Yeni Müşteri",
-  quoteTarget: "Teklif",
-  visitTarget: "Ziyaret",
-  callTarget: "Arama",
-  serviceCompleted: "Tamamlanan Servis",
-  serviceAmount: "Servis Cirosu",
-  digitalLeadTarget: "Dijital Lead",
-  paymentsInAmount: "Tahsilat",
-  purchaseInvoiceAmount: "Alış Faturası",
-  purchaseOrderAmount: "Satınalma Tutarı",
-  purchaseOrderCount: "Satınalma Siparişi",
-  salesOrderAmount: "Satış Sipariş Tutarı",
-  salesOrderCount: "Satış Siparişi",
-  installationCompleted: "Kurulum",
-};
-
 /** Özet alanlardan hedef kalemleri türetir (targetItems boşken görünürlük için). */
 const synthesizeTargetItems = (t: AssignedTarget | null): AssignedTargetItem[] => {
   if (!t) return [];
@@ -214,25 +196,6 @@ export function DashboardPage({ onAction }: { onAction?: (action: OperationActio
   const myTargetItems = useMemo(() => {
     const items = Array.isArray(myTarget?.targetItems) ? myTarget!.targetItems! : [];
     return items.length > 0 ? items : synthesizeTargetItems(myTarget);
-  }, [myTarget]);
-
-  const targetAchievements = useMemo(() => {
-    const metrics = myTarget?.metrics ?? {};
-    return Object.entries(metrics)
-      .filter(([, metric]) => metric.target != null && metric.target > 0)
-      .map(([key, metric]) => {
-        const pct = metric.pct ?? 0;
-        const target = metric.target ?? 0;
-        const actual = metric.actual ?? 0;
-        return {
-          label: METRIC_LABEL[key] ?? key,
-          pct,
-          hint: `${actual.toLocaleString("tr-TR")} / ${target.toLocaleString("tr-TR")}`,
-          tone: pct >= 100 ? ("ok" as const) : pct < 60 ? ("warn" as const) : undefined,
-        };
-      })
-      .sort((a, b) => b.pct - a.pct)
-      .slice(0, 8);
   }, [myTarget]);
 
   useEffect(() => {
@@ -656,23 +619,6 @@ export function DashboardPage({ onAction }: { onAction?: (action: OperationActio
             error={targetError}
             note={myTarget?.note ?? ""}
           />
-          <Card className="border-border/60 shadow-sm">
-            <CardHeader className="pb-2">
-              <CardTitle className="tracking-tight">Hedef Gerçekleşme</CardTitle>
-              <p className="text-xs text-muted-foreground">Dönem özeti</p>
-            </CardHeader>
-            <CardContent className="grid gap-4 pt-2 sm:grid-cols-2">
-              {targetAchievements.length === 0 ? (
-                <div className="sm:col-span-2 rounded-lg border border-dashed border-border/70 bg-muted/20 px-4 py-8 text-center text-sm text-muted-foreground">
-                  Bu dönem için ölçülebilir hedef kalemi yok.
-                </div>
-              ) : (
-                targetAchievements.map((g) => (
-                  <Goal key={g.label} label={g.label} value={g.pct} hint={g.hint} tone={g.tone} />
-                ))
-              )}
-            </CardContent>
-          </Card>
         </TabsContent>
       </Tabs>
     </div>
@@ -1180,6 +1126,7 @@ function MyTargetsPanel({
   error: string;
   note?: string | null;
 }) {
+  const [activeTargetType, setActiveTargetType] = useState<AssignedTargetItem["targetType"] | "all">("all");
   const groups = TARGET_TYPE_ORDER
     .map((targetType) => ({
       targetType,
@@ -1187,6 +1134,14 @@ function MyTargetsPanel({
     }))
     .filter((group) => group.items.length > 0);
   const hasItems = items.length > 0;
+  const measuredItems = items.filter((item) => item.pct != null);
+  const averageProgress = measuredItems.length > 0
+    ? Math.round(measuredItems.reduce((sum, item) => sum + (item.pct ?? 0), 0) / measuredItems.length)
+    : null;
+  const attentionCount = measuredItems.filter((item) => (item.pct ?? 0) < 70).length;
+  const visibleGroups = activeTargetType === "all"
+    ? groups
+    : groups.filter((group) => group.targetType === activeTargetType);
 
   return (
     <Card className="border-border/60 shadow-sm overflow-hidden">
@@ -1228,11 +1183,32 @@ function MyTargetsPanel({
           <>
             <div className="grid gap-2 sm:grid-cols-3">
               <TargetSummary label="Aktif Hedef" value={`${items.filter((item) => item.target?.trim()).length}/${items.length}`} />
-              <TargetSummary label="Otomatik Takip" value={`${items.filter((item) => item.trackingMode !== "manual" && item.metricKey).length}`} />
-              <TargetSummary label="Para Birimi" value="USD" />
+              <TargetSummary label="Ortalama Gerçekleşme" value={averageProgress == null ? "—" : `%${averageProgress}`} />
+              <TargetSummary label="Yakın Takip" value={`${attentionCount}`} tone={attentionCount > 0 ? "warning" : "success"} />
             </div>
-            <div className="grid gap-3 lg:grid-cols-2">
+            <div className="flex max-w-full items-center gap-1 overflow-x-auto rounded-lg border border-border/60 bg-muted/25 p-1" aria-label="Hedef grupları">
+              <button
+                type="button"
+                aria-pressed={activeTargetType === "all"}
+                onClick={() => setActiveTargetType("all")}
+                className={`min-h-8 shrink-0 rounded-md px-3 text-xs font-medium transition ${activeTargetType === "all" ? "bg-card text-primary shadow-sm" : "text-muted-foreground hover:bg-card/60"}`}
+              >
+                Tümü · {items.length}
+              </button>
               {groups.map((group) => (
+                <button
+                  key={group.targetType}
+                  type="button"
+                  aria-pressed={activeTargetType === group.targetType}
+                  onClick={() => setActiveTargetType(group.targetType)}
+                  className={`min-h-8 shrink-0 rounded-md px-3 text-xs font-medium transition ${activeTargetType === group.targetType ? "bg-card text-primary shadow-sm" : "text-muted-foreground hover:bg-card/60"}`}
+                >
+                  {targetTypeLabel(group.targetType)} · {group.items.length}
+                </button>
+              ))}
+            </div>
+            <div className="grid gap-3 xl:grid-cols-2">
+              {visibleGroups.map((group) => (
                 <TargetList key={group.targetType} title={`${targetTypeLabel(group.targetType)} Hedefleri`} items={group.items} />
               ))}
             </div>
@@ -1244,11 +1220,11 @@ function MyTargetsPanel({
   );
 }
 
-function TargetSummary({ label, value }: { label: string; value: string }) {
+function TargetSummary({ label, value, tone = "default" }: { label: string; value: string; tone?: "default" | "warning" | "success" }) {
   return (
     <div className="flex items-center justify-between rounded-md border border-border/60 bg-muted/20 px-3 py-2">
       <span className="text-xs text-muted-foreground">{label}</span>
-      <span className="text-sm font-medium tabular-nums">{value}</span>
+      <span className={`text-sm font-medium tabular-nums ${tone === "warning" ? "text-warning" : tone === "success" ? "text-success" : ""}`}>{value}</span>
     </div>
   );
 }
@@ -1260,7 +1236,7 @@ function TargetList({ title, items }: { title: string; items: AssignedTargetItem
         <div className="text-sm font-medium">{title}</div>
         <div className="text-[11px] text-muted-foreground">{items.filter((item) => item.target?.trim()).length} aktif</div>
       </div>
-      <div className="max-h-[340px] divide-y divide-border/60 overflow-y-auto">
+      <div className="divide-y divide-border/60">
         {items.length === 0 ? (
           <div className="px-3 py-6 text-center text-sm text-muted-foreground">Hedef yok.</div>
         ) : (
@@ -1268,7 +1244,7 @@ function TargetList({ title, items }: { title: string; items: AssignedTargetItem
             <div key={`${item.targetType}:${item.category}:${item.activity}`} className="px-3 py-2.5">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
-                  <div className="text-[11px] font-semibold tracking-wide text-muted-foreground">{item.category} · {targetTypeLabel(item.targetType)}</div>
+                  <div className="text-[11px] font-semibold tracking-wide text-muted-foreground">{item.category}</div>
                   <div className="mt-0.5 text-sm font-medium leading-snug">{item.activity}</div>
                   {item.description && <div className="mt-1 text-xs leading-relaxed text-muted-foreground">{item.description}</div>}
                   {item.actual != null && item.pct != null && (
@@ -1349,23 +1325,5 @@ function Kpi({
         </div>
       </CardContent>
     </Card>
-  );
-}
-
-function Goal({ label, value, hint, tone }: { label: string; value: number; hint: string; tone?: "warn" | "ok" }) {
-  const color = tone === "warn" ? "text-destructive" : tone === "ok" ? "text-success" : "text-foreground";
-  const Icon = tone === "warn" ? AlertTriangle : tone === "ok" ? CheckCircle2 : Clock;
-  return (
-    <div>
-      <div className="flex items-center justify-between text-sm">
-        <div className="flex items-center gap-1.5">
-          <Icon className={`size-3.5 ${color}`} />
-          <span>{label}</span>
-        </div>
-        <span className={`tabular-nums text-[13px] ${color}`}>{value}%</span>
-      </div>
-      <Progress value={value} className="h-1.5 mt-1.5" />
-      <div className="text-xs text-muted-foreground mt-1">{hint}</div>
-    </div>
   );
 }

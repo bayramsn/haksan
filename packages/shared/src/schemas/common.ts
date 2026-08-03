@@ -38,3 +38,36 @@ export const emailSchema = z
   .max(255)
   .refine((v) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/u.test(v), 'Geçersiz e-posta');
 export const urlSchema = z.string().url('Geçersiz web adresi (örn. https://site.com)').max(512);
+
+/**
+ * Giriş için kullanılan kullanıcı adı (örn. `Raifsenturk`).
+ *
+ * Saklanan biçim her zaman küçük harftir; `Raifsenturk` ile `raifsenturk` aynı
+ * hesaptır. Yalnızca ASCII harf/rakam ve `. _ -` kabul edilir: Türkçe/Kiril
+ * harfler benzer görünen (confusable) karakterlerle taklit hesabı açmayı
+ * mümkün kıldığı için bilinçli olarak dışarıda bırakılmıştır.
+ *
+ * Not: `.toLowerCase()` regex'ten ÖNCE gelmelidir, aksi halde büyük harfli
+ * girdiler regex'e takılır.
+ */
+export const usernameSchema = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .min(3, 'Kullanıcı adı en az 3 karakter olmalı')
+  .max(32, 'Kullanıcı adı en fazla 32 karakter olabilir')
+  .regex(
+    /^[a-z0-9._-]+$/,
+    'Kullanıcı adı yalnızca harf, rakam, nokta, alt çizgi ve tire içerebilir (boşluk kullanılamaz)'
+  );
+
+/**
+ * Giriş ekranından gelen tanımlayıcı: kullanıcı adı VEYA e-posta.
+ *
+ * Bilinçli olarak gevşek doğrulanır — burada amaç biçim dayatmak değil, aşırı
+ * uzun girdiyi kesmektir. Hesap araması her zaman parametreli ve tam eşleşmeli
+ * bir sorgu ile yapılır, bu yüzden serbest metin güvenlik riski yaratmaz.
+ * Sıkı doğrulama yapmak, "bu biçim geçersiz" ile "böyle kullanıcı yok"
+ * arasında ayrım yaratıp kullanıcı numaralandırmasına kapı açardı.
+ */
+export const loginIdentifierSchema = z.string().trim().min(1).max(254);

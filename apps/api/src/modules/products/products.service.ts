@@ -1448,7 +1448,7 @@ export class ProductsService {
       .from(priceLists)
       .leftJoin(currencies, eq(priceLists.currencyId, currencies.id))
       .where(where)
-      .orderBy(desc(priceLists.createdAt))
+      .orderBy(asc(priceLists.name), asc(priceLists.code), asc(priceLists.id))
       .limit(limit)
       .offset(offset);
     return buildPaginated(rows.map((r) => ({ ...r.priceList, currency: r.currency })), count, page);

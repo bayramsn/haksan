@@ -121,7 +121,8 @@ export const proformaCreateSchema = z.object({
   statusCode: z.string().max(64).default('draft'),
   fileId: z.string().optional(),
   // Proforma teklifi değiştirmeden kendi net fiyatlarını saklar. Bilerek
-  // iskonto alanı kabul edilmez; proforma satırları her zaman iskontosuzdur.
+  // İskonto bu payload ile değiştirilemez; bağlı teklif satırından korunur.
+  // `unitPrice` brüt birim fiyatıdır, net toplam mevcut iskonto düşülerek hesaplanır.
   items: z
     .array(proformaPriceItemSchema)
     .max(200)

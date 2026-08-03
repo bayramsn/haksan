@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { quoteToProformaPriceRows } from "./proformaPricing";
 
 describe("proforma pricing", () => {
-  it("bakes item and header discounts into editable net unit prices", () => {
+  it("keeps editable proforma unit prices gross instead of hiding discounts in them", () => {
     const rows = quoteToProformaPriceRows({
       discountTotal: 300,
       items: [
@@ -12,8 +12,8 @@ describe("proforma pricing", () => {
     });
 
     expect(rows).toEqual([
-      { quoteItemId: "1", description: "Makine A", quantity: 1, unitPrice: 850, vatRate: 20 },
-      { quoteItemId: "2", description: "Makine B", quantity: 2, unitPrice: 425, vatRate: 20 },
+      { quoteItemId: "1", description: "Makine A", quantity: 1, unitPrice: 1_000, vatRate: 20 },
+      { quoteItemId: "2", description: "Makine B", quantity: 2, unitPrice: 500, vatRate: 20 },
     ]);
   });
 });

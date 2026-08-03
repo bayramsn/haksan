@@ -1119,8 +1119,8 @@ export const adminService = {
   createProductSpecTemplate: (body: ProductSpecTemplateCreateInput) => api.post<any>('/admin/product-spec-templates', body),
   bulkCreateProductSpecTemplates: (items: ProductSpecTemplateBulkCreateInput['items']) =>
     api.post<{ ok: boolean; created: number; skipped: number; rows: any[] }>('/admin/product-spec-templates/bulk', { items }),
-  batchSaveProductSpecTemplates: (items: ProductSpecTemplateBatchInput['items']) =>
-    api.put<{ ok: boolean; rows: any[] }>('/admin/product-spec-templates/batch', { items }),
+  batchSaveProductSpecTemplates: (body: ProductSpecTemplateBatchInput) =>
+    api.put<{ ok: boolean; rows: any[]; prunedIds: string[] }>('/admin/product-spec-templates/batch', body),
   createMachineTemplate: (body: MachineTemplateCreateInput) =>
     api.post<{ type: any; specs: any[] }>('/admin/machine-templates', body),
   updateProductSpecTemplate: (id: string, body: ProductSpecTemplateUpdateInput) =>

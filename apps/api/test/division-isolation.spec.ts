@@ -85,6 +85,7 @@ beforeAll(async () => {
       .send({
         fullName: `Scoped ${def.division}`,
         email: def.email,
+        username: `scoped-${def.division}-${Date.now().toString(36)}`.slice(0, 32),
         password: SCOPED_PWD,
         roleCodes: ['sales'],
         departmentId: departmentIdByCode.sales,

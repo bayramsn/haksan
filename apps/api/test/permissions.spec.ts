@@ -162,7 +162,14 @@ describe('RBAC permissions', () => {
     const created = await supertest(server)
       .post('/api/v1/users')
       .set('Authorization', `Bearer ${tokens.admin}`)
-      .send({ fullName: 'Locked User Test', email, password, roleCodes: ['readonly'], divisionIds: [] });
+      .send({
+        fullName: 'Locked User Test',
+        email,
+        username: `locked-${Date.now().toString(36)}`,
+        password,
+        roleCodes: ['readonly'],
+        divisionIds: [],
+      });
     expect(created.status).toBe(201);
     const userId = created.body.id;
 
@@ -209,7 +216,14 @@ describe('RBAC permissions', () => {
     const created = await supertest(server)
       .post('/api/v1/users')
       .set('Authorization', `Bearer ${tokens.admin}`)
-      .send({ fullName: 'Delete User Test', email, password, roleCodes: ['readonly'], divisionIds: [] });
+      .send({
+        fullName: 'Delete User Test',
+        email,
+        username: `delete-${Date.now().toString(36)}`,
+        password,
+        roleCodes: ['readonly'],
+        divisionIds: [],
+      });
     expect(created.status).toBe(201);
     const userId = created.body.id;
     expect(userId).toBeTruthy();
@@ -246,6 +260,7 @@ describe('RBAC permissions', () => {
       .send({
         fullName: 'Escalation Attempt',
         email: `escalate-${Date.now()}@haksan.local`,
+        username: `escalate-${Date.now().toString(36)}`,
         password: 'escalate12345',
         roleCodes: ['super_admin'],
         divisionIds: [],
@@ -269,6 +284,7 @@ describe('RBAC permissions', () => {
       .send({
         fullName: 'Legit Super Admin',
         email: `legit-sa-${Date.now()}@haksan.local`,
+        username: `legit-sa-${Date.now().toString(36)}`,
         password: 'legitsa12345',
         roleCodes: ['super_admin'],
         divisionIds: [],
@@ -294,7 +310,14 @@ describe('RBAC permissions', () => {
     const created = await supertest(server)
       .post('/api/v1/users')
       .set('Authorization', `Bearer ${tokens.admin}`)
-      .send({ fullName: 'PwEmail Target', email, password: 'initialPwd12345', roleCodes: ['readonly'], divisionIds: [] });
+      .send({
+        fullName: 'PwEmail Target',
+        email,
+        username: `pw-target-${Date.now().toString(36)}`,
+        password: 'initialPwd12345',
+        roleCodes: ['readonly'],
+        divisionIds: [],
+      });
     expect(created.status).toBe(201);
     const targetId = created.body.id;
 

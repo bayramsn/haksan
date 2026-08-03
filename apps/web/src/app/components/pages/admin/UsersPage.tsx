@@ -54,6 +54,8 @@ type AssignableRole = {
 };
 
 type AdminUserRow = User & {
+  /** Girişte e-posta yerine kullanılabilen kullanıcı adı; atanmamışsa null. */
+  username?: string | null;
   roleCodes: string[];
   roleNames: string[];
   departmentId?: string | null;
@@ -116,6 +118,7 @@ const normalizeAdminUser = (user: any, fallback?: User): AdminUserRow => {
     id: user.id,
     name: user.fullName ?? user.name ?? fallback?.name ?? user.email ?? "—",
     email: user.email ?? fallback?.email ?? "",
+    username: user.username ?? null,
     phone: user.phone ?? fallback?.phone ?? null,
     role: ((roleNames[0] ?? fallbackRole) as User["role"]) || fallbackRole,
     department: user.department?.name ?? fallback?.department ?? "",
@@ -233,7 +236,7 @@ export function UsersPage() {
   const filteredUsers = useMemo(() => {
     const term = query.trim().toLocaleLowerCase("tr-TR");
     return displayUsers.filter((user) => {
-      const matchesTerm = !term || [user.name, user.email, user.department, ...user.roleNames, ...user.divisionNames]
+      const matchesTerm = !term || [user.name, user.email, user.username, user.department, ...user.roleNames, ...user.divisionNames]
         .filter(Boolean)
         .some((value) => String(value).toLocaleLowerCase("tr-TR").includes(term));
       const matchesStatus = statusFilter === "all"
@@ -337,7 +340,7 @@ export function UsersPage() {
 
   const handleSaveEdit = async (
     userId: string,
-    patch: { fullName: string; email: string; phone: string | null; password?: string }
+    patch: { fullName: string; email: string; username: string; phone: string | null; password?: string }
   ) => {
     setSavingEdit(true);
     try {
@@ -525,7 +528,10 @@ export function UsersPage() {
                             <span className="truncate text-sm font-medium">{u.name}</span>
                             {isUserLocked(u) && <LockKeyhole className="size-3.5 shrink-0 text-warning" aria-label="Hesap kilitli" />}
                           </div>
-                          <p className="mt-0.5 truncate text-xs text-muted-foreground">{u.email}</p>
+                          <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                            {u.email}
+                            {u.username ? <span className="text-muted-foreground/70"> · @{u.username}</span> : null}
+                          </p>
                         </div>
                       </div>
                     </TableCell>

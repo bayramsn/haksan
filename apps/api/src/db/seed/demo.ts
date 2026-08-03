@@ -143,13 +143,13 @@ export async function seedDemo(): Promise<void> {
 
   // 4. Users
   const userDefs = [
-    { email: 'superadmin@haksan.local', fullName: 'Süper Yönetici', password: 'superadmin12345', roles: ['super_admin'], departmentCode: 'sales', divisionCodes: allDivisionCodes },
-    { email: 'admin@haksan.local', fullName: 'Sistem Yöneticisi', password: 'admin12345', roles: ['admin'], departmentCode: 'sales', divisionCodes: allDivisionCodes },
-    { email: 'sales@haksan.local', fullName: 'Ersin Çetinbilek', password: 'sales12345', roles: ['sales'], departmentCode: 'sales', divisionCodes: allDivisionCodes },
-    { email: 'service@haksan.local', fullName: 'Servis Sorumlusu', password: 'service12345', roles: ['service'], departmentCode: 'service', divisionCodes: allDivisionCodes },
-    { email: 'finance@haksan.local', fullName: 'Finans Sorumlusu', password: 'finance12345', roles: ['finance'], departmentCode: 'finance', divisionCodes: allDivisionCodes },
-    { email: 'stock@haksan.local', fullName: 'Stok Sorumlusu', password: 'stock12345', roles: ['stock'], departmentCode: 'stock', divisionCodes: allDivisionCodes },
-    { email: 'readonly@haksan.local', fullName: 'Salt Okunur Kullanıcı', password: 'readonly12345', roles: ['readonly'], departmentCode: 'sales', divisionCodes: allDivisionCodes },
+    { username: 'superadmin', email: 'superadmin@haksan.local', fullName: 'Süper Yönetici', password: 'superadmin12345', roles: ['super_admin'], departmentCode: 'sales', divisionCodes: allDivisionCodes },
+    { username: 'admin', email: 'admin@haksan.local', fullName: 'Sistem Yöneticisi', password: 'admin12345', roles: ['admin'], departmentCode: 'sales', divisionCodes: allDivisionCodes },
+    { username: 'sales', email: 'sales@haksan.local', fullName: 'Ersin Çetinbilek', password: 'sales12345', roles: ['sales'], departmentCode: 'sales', divisionCodes: allDivisionCodes },
+    { username: 'service', email: 'service@haksan.local', fullName: 'Servis Sorumlusu', password: 'service12345', roles: ['service'], departmentCode: 'service', divisionCodes: allDivisionCodes },
+    { username: 'finance', email: 'finance@haksan.local', fullName: 'Finans Sorumlusu', password: 'finance12345', roles: ['finance'], departmentCode: 'finance', divisionCodes: allDivisionCodes },
+    { username: 'stock', email: 'stock@haksan.local', fullName: 'Stok Sorumlusu', password: 'stock12345', roles: ['stock'], departmentCode: 'stock', divisionCodes: allDivisionCodes },
+    { username: 'readonly', email: 'readonly@haksan.local', fullName: 'Salt Okunur Kullanıcı', password: 'readonly12345', roles: ['readonly'], departmentCode: 'sales', divisionCodes: allDivisionCodes },
   ];
   for (const u of userDefs) {
     const existing = await db.query.users.findFirst({
@@ -166,12 +166,16 @@ export async function seedDemo(): Promise<void> {
             departmentId: dept?.id ?? null,
             fullName: u.fullName,
             email: u.email,
+            username: u.username,
             passwordHash: await hashPassword(u.password),
           })
           .returning()
       )[0];
-    if (existing && dept && existing.departmentId !== dept.id) {
-      await db.update(schema.users).set({ departmentId: dept.id }).where(eq(schema.users.id, existing.id));
+    if (existing && ((dept && existing.departmentId !== dept.id) || !existing.username)) {
+      await db.update(schema.users).set({
+        ...(dept && existing.departmentId !== dept.id ? { departmentId: dept.id } : {}),
+        ...(!existing.username ? { username: u.username } : {}),
+      }).where(eq(schema.users.id, existing.id));
     }
     for (const roleCode of u.roles) {
       const role = rolesByCode.get(roleCode);

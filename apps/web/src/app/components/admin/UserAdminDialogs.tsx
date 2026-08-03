@@ -13,7 +13,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "../ui/select";
 import { adminService } from "../../../lib/services";
-import { PERMISSION_RESOURCES, type PermissionResource } from "@haksan/shared";
+import { PERMISSION_RESOURCES, usernameSchema, type PermissionResource } from "@haksan/shared";
 
 export type DeptOption = { id: string; name: string; code?: string };
 export type RoleOption = { id: string; code: string; name: string; description?: string | null; isSystemRole?: boolean };
@@ -90,6 +90,7 @@ export function CreateUserDialog({
   const [form, setForm] = useState({
     fullName: "",
     email: "",
+    username: "",
     password: "",
     phone: "",
     departmentId: "",
@@ -100,7 +101,7 @@ export function CreateUserDialog({
 
   useEffect(() => {
     if (!open) {
-      setForm({ fullName: "", email: "", password: "", phone: "", departmentId: "", titleId: "", roleCodes: [], divisionIds: [] });
+      setForm({ fullName: "", email: "", username: "", password: "", phone: "", departmentId: "", titleId: "", roleCodes: [], divisionIds: [] });
     }
   }, [open]);
 
@@ -121,15 +122,24 @@ export function CreateUserDialog({
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!form.fullName.trim() || !form.email.trim() || form.password.length < 8) {
-      toast.error("Ad, e-posta ve en az 8 karakterli şifre zorunlu");
+    if (!form.fullName.trim() || !form.email.trim() || !form.username.trim() || form.password.length < 8) {
+      toast.error("Ad, e-posta, kullanıcı adı ve en az 8 karakterli şifre zorunlu");
       return;
+    }
+    const username = form.username.trim().toLowerCase();
+    if (username) {
+      const parsed = usernameSchema.safeParse(username);
+      if (!parsed.success) {
+        toast.error("Kullanıcı adı geçersiz", { description: parsed.error.issues[0]?.message });
+        return;
+      }
     }
     setSaving(true);
     try {
       await adminService.createUser({
         fullName: form.fullName.trim(),
         email: form.email.trim(),
+        username,
         password: form.password,
         phone: form.phone.trim() || undefined,
         departmentId: form.departmentId || undefined,
@@ -162,6 +172,26 @@ export function CreateUserDialog({
           <div>
             <Label className="text-xs" htmlFor="new-user-email">E-posta *</Label>
             <Input id="new-user-email" type="email" autoComplete="email" className="mt-1.5" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
+          </div>
+          <div>
+            <Label className="text-xs" htmlFor="new-user-username">Kullanıcı Adı *</Label>
+            <Input
+              id="new-user-username"
+              // type="email" değil: kullanıcı adı e-posta biçiminde değildir.
+              type="text"
+              autoComplete="username"
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck={false}
+              placeholder="örn. raifsenturk"
+              className="mt-1.5"
+              value={form.username}
+              onChange={(e) => setForm({ ...form, username: e.target.value })}
+            />
+            <p className="mt-1 text-[11px] text-muted-foreground">
+              Girişte kullanılır. 3–32 karakter; harf, rakam, nokta, alt çizgi ve tire.
+              E-posta alanı bildirim ve şifre sıfırlama için ayrıca korunur.
+            </p>
           </div>
           <div>
             <Label className="text-xs" htmlFor="new-user-password">Şifre *</Label>
@@ -259,16 +289,17 @@ export function UserEditDialog({
   onClose,
   onSave,
 }: {
-  user: { id: string; name: string; email: string; phone?: string | null } | null;
+  user: { id: string; name: string; email: string; username?: string | null; phone?: string | null } | null;
   saving: boolean;
   onClose: () => void;
   onSave: (
     userId: string,
-    patch: { fullName: string; email: string; phone: string | null; password?: string }
+    patch: { fullName: string; email: string; username: string; phone: string | null; password?: string }
   ) => Promise<void>;
 }) {
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
+  const [username, setUsername] = useState("");
   const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
   const [passwordConfirm, setPasswordConfirm] = useState("");
@@ -277,6 +308,7 @@ export function UserEditDialog({
     if (user) {
       setFullName(user.name ?? "");
       setEmail(user.email ?? "");
+      setUsername(user.username ?? "");
       setPhone(user.phone ?? "");
       setPassword("");
       setPasswordConfirm("");
@@ -295,6 +327,12 @@ export function UserEditDialog({
       toast.error("E-posta zorunlu");
       return;
     }
+    const nextUsername = username.trim().toLowerCase();
+    const parsedUsername = usernameSchema.safeParse(nextUsername);
+    if (!parsedUsername.success) {
+      toast.error("Kullanıcı adı geçersiz", { description: parsedUsername.error.issues[0]?.message });
+      return;
+    }
     if (password) {
       if (password.length < 8) {
         toast.error("Şifre en az 8 karakter olmalı");
@@ -308,6 +346,7 @@ export function UserEditDialog({
     await onSave(user.id, {
       fullName: fullName.trim(),
       email: email.trim(),
+      username: nextUsername,
       phone: phone.trim() || null,
       // Boş bırakılırsa mevcut şifre korunur.
       ...(password ? { password } : {}),
@@ -329,6 +368,24 @@ export function UserEditDialog({
           <div>
             <Label className="text-xs">E-posta *</Label>
             <Input type="email" className="mt-1.5" value={email} onChange={(e) => setEmail(e.target.value)} disabled={saving} />
+          </div>
+          <div>
+            <Label className="text-xs">Kullanıcı Adı</Label>
+            <Input
+              type="text"
+              autoComplete="username"
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck={false}
+              placeholder="örn. raifsenturk"
+              className="mt-1.5"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              disabled={saving}
+            />
+            <p className="mt-1 text-[11px] text-muted-foreground">
+              Girişte kullanılır; e-posta iletişim için korunur. Değiştirmek kullanıcının açık oturumlarını sonlandırır.
+            </p>
           </div>
           <div>
             <Label className="text-xs">Telefon</Label>

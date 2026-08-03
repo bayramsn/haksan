@@ -263,6 +263,7 @@ export class AdminController {
       out.push({
         id: u.id,
         email: u.email,
+        username: u.username,
         fullName: u.fullName,
         phone: u.phone,
         status: u.status,
@@ -296,6 +297,15 @@ export class AdminController {
       where: and(eq(users.tenantId, user.tenantId), eq(users.email, body.email)),
     });
     if (existing) throw new ConflictError('Bu e-posta zaten kayıtlı');
+    // Kullanıcı adı şemada zaten küçük harfe çevrilip kırpılıyor; burada tekrar
+    // normalize etmek şema atlanırsa da saklanan biçimin bozulmamasını sağlar.
+    const username = body.username?.trim().toLowerCase() || null;
+    if (username) {
+      const usernameOwner = await this.db.query.users.findFirst({
+        where: and(eq(users.tenantId, user.tenantId), eq(users.username, username)),
+      });
+      if (usernameOwner) throw new ConflictError('Bu kullanıcı adı zaten kullanılıyor');
+    }
     if (body.departmentId) await this.assertActiveDepartment(body.departmentId, user.tenantId);
     const hash = await hashPassword(body.password);
     const [created] = await this.db
@@ -304,6 +314,7 @@ export class AdminController {
         tenantId: user.tenantId,
         fullName: body.fullName,
         email: body.email,
+        username,
         phone: body.phone ?? null,
         passwordHash: hash,
         departmentId: body.departmentId ?? null,
@@ -324,7 +335,7 @@ export class AdminController {
       user.tenantId,
       body.accessScopes ?? this.defaultAccessScopes(body.departmentId ?? null, validDivisionIds, canViewAll)
     );
-    return { id: created.id, email: created.email, fullName: created.fullName };
+    return { id: created.id, email: created.email, username: created.username, fullName: created.fullName };
   }
 
   @RequirePermissions('users.update')
@@ -363,6 +374,24 @@ export class AdminController {
       if (emailOwner && emailOwner.id !== id) throw new ConflictError('Bu e-posta zaten kayıtlı');
       patch.email = body.email;
     }
+    // Kullanıcı adı da bir giriş tanımlayıcısıdır. Bu endpoint `users.update`
+    // izniyle korunuyor ve kullanıcının kendi kullanıcı adını değiştirebileceği
+    // bir self-servis uç yok; yani değişiklik yalnızca yönetici eliyle yapılır.
+    // Benzersizlik tenant içinde ve büyük/küçük harf duyarsızdır (0106 migration).
+    let usernameChanged = false;
+    if (body.username !== undefined) {
+      const nextUsername = body.username === null ? null : body.username.trim().toLowerCase() || null;
+      if (nextUsername !== existing.username) {
+        if (nextUsername) {
+          const usernameOwner = await this.db.query.users.findFirst({
+            where: and(eq(users.tenantId, user.tenantId), eq(users.username, nextUsername)),
+          });
+          if (usernameOwner && usernameOwner.id !== id) throw new ConflictError('Bu kullanıcı adı zaten kullanılıyor');
+        }
+        patch.username = nextUsername;
+        usernameChanged = true;
+      }
+    }
     if (body.purchaseApprovalLimit !== undefined) {
       patch.purchaseApprovalLimit = body.purchaseApprovalLimit;
     }
@@ -396,7 +425,10 @@ export class AdminController {
       Boolean(body.password) ||
       body.roleCodes !== undefined ||
       (body.status !== undefined && body.status !== existing.status) ||
-      (body.email !== undefined && body.email !== existing.email);
+      (body.email !== undefined && body.email !== existing.email) ||
+      // Giriş tanımlayıcısının değişmesi e-postada olduğu gibi açık oturumları
+      // düşürür: kullanıcı yeni kimliğiyle yeniden giriş yapmalıdır.
+      usernameChanged;
     if (invalidatesSessions) {
       patch.authVersion = sql`${users.authVersion} + 1`;
     }
@@ -968,6 +1000,7 @@ export class AdminController {
       taxNumber: tenant.taxNumber,
       email: tenant.email,
       phone: tenant.phone,
+      hiddenNavigationKeys: tenant.hiddenNavigationKeys,
     };
   }
 
@@ -980,7 +1013,7 @@ export class AdminController {
     const tenant = await this.db.query.tenants.findFirst({ where: eq(tenants.id, user.tenantId) });
     if (!tenant) throw new NotFoundError('Tenant');
     const patch: Record<string, unknown> = {};
-    for (const k of ['name', 'taxNumber', 'email', 'phone'] as const) {
+    for (const k of ['name', 'taxNumber', 'email', 'phone', 'hiddenNavigationKeys'] as const) {
       if (body[k] !== undefined) patch[k] = body[k];
     }
     if (Object.keys(patch).length > 0) {
@@ -991,7 +1024,13 @@ export class AdminController {
         action: 'tenant.updated',
         resourceType: 'tenant',
         resourceId: user.tenantId,
-        oldValues: { name: tenant.name, taxNumber: tenant.taxNumber, email: tenant.email, phone: tenant.phone },
+        oldValues: {
+          name: tenant.name,
+          taxNumber: tenant.taxNumber,
+          email: tenant.email,
+          phone: tenant.phone,
+          hiddenNavigationKeys: tenant.hiddenNavigationKeys,
+        },
         newValues: patch,
       });
     }
@@ -1003,6 +1042,7 @@ export class AdminController {
       taxNumber: updated!.taxNumber,
       email: updated!.email,
       phone: updated!.phone,
+      hiddenNavigationKeys: updated!.hiddenNavigationKeys,
     };
   }
 }

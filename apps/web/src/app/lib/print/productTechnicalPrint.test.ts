@@ -11,7 +11,7 @@ const product = {
   specs: [],
   standardEquipment: [],
   optionalEquipment: [],
-} as Product;
+} as unknown as Product;
 
 describe("product technical print image", () => {
   it("embeds a validated product image as a data URL", async () => {
