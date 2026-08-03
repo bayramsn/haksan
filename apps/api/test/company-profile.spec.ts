@@ -8,6 +8,7 @@ describe('Company profile', () => {
   let token: string;
   let divisionId: string;
   let companyId: string | undefined;
+  let directCompetitorCompanyId: string | undefined;
   let contactId: string | undefined;
 
   beforeAll(async () => {
@@ -35,6 +36,11 @@ describe('Company profile', () => {
     if (companyId) {
       await request(app.getHttpServer())
         .delete(`/api/v1/companies/${companyId}`)
+        .set('Authorization', `Bearer ${token}`);
+    }
+    if (directCompetitorCompanyId) {
+      await request(app.getHttpServer())
+        .delete(`/api/v1/companies/${directCompetitorCompanyId}`)
         .set('Authorization', `Bearer ${token}`);
     }
     await app.close();
@@ -159,6 +165,44 @@ describe('Company profile', () => {
         (address: { latitude: number | null; longitude: number | null }) => address.latitude === null && address.longitude === null
       )
     ).toBe(true);
+
+    const competitors = await request(app.getHttpServer())
+      .get('/api/v1/competitors')
+      .query({ search: normalizedTitle, pageSize: 20 })
+      .set('Authorization', `Bearer ${token}`)
+      .expect(200);
+    expect(competitors.body.data).toContainEqual(
+      expect.objectContaining({ companyId, name: normalizedTitle }),
+    );
+  });
+
+  it('adds a newly created competitor company to the LOST competitor catalog', async () => {
+    const uniqueTitle = `doğrudan rakip test ${Date.now()}`;
+    const normalizedTitle = uniqueTitle.toLocaleUpperCase('tr-TR');
+    const created = await request(app.getHttpServer())
+      .post('/api/v1/companies')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        legalTitle: uniqueTitle,
+        relationTypeCode: 'competitor',
+        customerStatusCode: 'potential',
+        divisionId,
+        website: 'https://rakip.example',
+      })
+      .expect(201);
+    directCompetitorCompanyId = created.body.id;
+
+    const catalog = await request(app.getHttpServer())
+      .get('/api/v1/competitors')
+      .query({ search: normalizedTitle, pageSize: 20 })
+      .set('Authorization', `Bearer ${token}`)
+      .expect(200);
+
+    expect(catalog.body.data).toContainEqual(expect.objectContaining({
+      companyId: directCompetitorCompanyId,
+      name: normalizedTitle,
+      website: 'https://rakip.example',
+    }));
   });
 
   it('updates and clears every optional contact detail', async () => {

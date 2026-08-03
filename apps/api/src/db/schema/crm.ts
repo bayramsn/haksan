@@ -35,6 +35,7 @@ export const competitors = pgTable(
     tenantId: uuid('tenant_id')
       .notNull()
       .references(() => tenants.id, { onDelete: 'cascade' }),
+    companyId: uuid('company_id').references(() => companies.id, { onDelete: 'set null' }),
     name: varchar('name', { length: 255 }).notNull(),
     website: varchar('website', { length: 512 }),
     notes: text('notes'),
@@ -42,6 +43,9 @@ export const competitors = pgTable(
   },
   (t) => ({
     tenantIdx: index('competitors_tenant_idx').on(t.tenantId),
+    companyUnique: uniqueIndex('competitors_company_alive_unique')
+      .on(t.tenantId, t.companyId)
+      .where(sql`${t.deletedAt} is null and ${t.companyId} is not null`),
   })
 );
 

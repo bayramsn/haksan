@@ -16,7 +16,7 @@ import { accountingInvoices, payments, receivables } from '../../db/schema/finan
 import { customerDevices } from '../../db/schema/inventory';
 import { salesOrders } from '../../db/schema/orders';
 import { quotes } from '../../db/schema/quotes';
-import { opportunities, salesActivities } from '../../db/schema/crm';
+import { competitors, opportunities, salesActivities } from '../../db/schema/crm';
 import { deliveries, installationJobs, serviceTickets, shipments } from '../../db/schema/service';
 import { divisions } from '../../db/schema/tenants';
 import { users, userDivisions } from '../../db/schema/users';
@@ -810,6 +810,32 @@ export class CompaniesService {
           })
           .returning();
 
+        if (input.relationTypeCode === 'competitor') {
+          const competitorName = company.shortName || company.legalTitle;
+          const legacyCompetitor = await tx.query.competitors.findFirst({
+            where: and(
+              eq(competitors.tenantId, actor.tenantId),
+              isNull(competitors.companyId),
+              isNull(competitors.deletedAt),
+              sql`lower(trim(${competitors.name})) = lower(trim(${competitorName}))`,
+            ),
+          });
+          if (legacyCompetitor) {
+            await tx
+              .update(competitors)
+              .set({ companyId: company.id, name: competitorName, website: company.website, notes: company.notes })
+              .where(eq(competitors.id, legacyCompetitor.id));
+          } else {
+            await tx.insert(competitors).values({
+              tenantId: actor.tenantId,
+              companyId: company.id,
+              name: competitorName,
+              website: company.website,
+              notes: company.notes,
+            });
+          }
+        }
+
         await tx
           .insert(companyDivisions)
           .values({
@@ -934,6 +960,10 @@ export class CompaniesService {
       lookupIdByCode(this.db, companyStatuses, input.customerStatusCode),
       lookupIdByCode(this.db, contactSources, input.contactSourceCode),
     ]);
+    const competitorRelationId = await lookupIdByCode(this.db, companyRelationTypes, 'competitor');
+    const shouldBeCompetitor = input.relationTypeCode !== undefined
+      ? input.relationTypeCode === 'competitor'
+      : existing.relationTypeId === competitorRelationId;
 
     const patch: Record<string, unknown> = {
       updatedBy: actor.userId,
@@ -953,6 +983,48 @@ export class CompaniesService {
 
     await this.db.transaction(async (tx) => {
       await tx.update(companies).set(patch).where(eq(companies.id, id));
+
+      const competitorRecord = await tx.query.competitors.findFirst({
+        where: and(eq(competitors.tenantId, actor.tenantId), eq(competitors.companyId, id)),
+      });
+      if (shouldBeCompetitor) {
+        const nextLegalTitle = input.legalTitle ? normalizeCompanyName(input.legalTitle) : existing.legalTitle;
+        const nextShortName = input.shortName !== undefined
+          ? input.shortName ? normalizeCompanyName(input.shortName) : null
+          : existing.shortName;
+        const competitorPatch = {
+          name: nextShortName || nextLegalTitle,
+          website: input.website !== undefined ? input.website ?? null : existing.website,
+          notes: input.notes !== undefined ? input.notes ?? null : existing.notes,
+          deletedAt: null,
+        };
+        if (competitorRecord) {
+          await tx.update(competitors).set(competitorPatch).where(eq(competitors.id, competitorRecord.id));
+        } else {
+          const legacyCompetitor = await tx.query.competitors.findFirst({
+            where: and(
+              eq(competitors.tenantId, actor.tenantId),
+              isNull(competitors.companyId),
+              isNull(competitors.deletedAt),
+              sql`lower(trim(${competitors.name})) = lower(trim(${competitorPatch.name}))`,
+            ),
+          });
+          if (legacyCompetitor) {
+            await tx
+              .update(competitors)
+              .set({ companyId: id, ...competitorPatch })
+              .where(eq(competitors.id, legacyCompetitor.id));
+          } else {
+            await tx.insert(competitors).values({
+              tenantId: actor.tenantId,
+              companyId: id,
+              ...competitorPatch,
+            });
+          }
+        }
+      } else if (competitorRecord && !competitorRecord.deletedAt) {
+        await tx.update(competitors).set({ deletedAt: new Date() }).where(eq(competitors.id, competitorRecord.id));
+      }
 
       if (groupSelectionProvided) {
         await tx.delete(companyGroupAssignments).where(eq(companyGroupAssignments.companyId, id));
@@ -1404,7 +1476,14 @@ export class CompaniesService {
         { dependencies },
       );
     }
-    await this.db.update(companies).set({ deletedAt: new Date() }).where(eq(companies.id, id));
+    const deletedAt = new Date();
+    await this.db.transaction(async (tx) => {
+      await tx.update(companies).set({ deletedAt }).where(eq(companies.id, id));
+      await tx
+        .update(competitors)
+        .set({ deletedAt })
+        .where(and(eq(competitors.tenantId, actor.tenantId), eq(competitors.companyId, id), isNull(competitors.deletedAt)));
+    });
     await this.audit.write({
       tenantId: actor.tenantId,
       actorUserId: actor.userId,

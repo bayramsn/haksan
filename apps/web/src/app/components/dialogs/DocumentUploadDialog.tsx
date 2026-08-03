@@ -30,15 +30,18 @@ const DOCUMENT_TYPE_OPTIONS: Array<{
     | "proforma_pdf"
     | "contract_pdf"
     | "commercial_invoice_pdf"
+    | "accounting_invoice_pdf"
     | "service_document"
+    | "delivery_form"
+    | "installation_form"
     | "other";
 }> = [
   { value: "Proforma", label: "Proforma", bucket: "erp-proforma-documents", documentTypeCode: "proforma_pdf" },
   { value: "Contract", label: "Sözleşme", bucket: "erp-contract-documents", documentTypeCode: "contract_pdf" },
   { value: "CommercialInvoice", label: "Ticari fatura", bucket: "erp-invoice-documents", documentTypeCode: "commercial_invoice_pdf" },
-  { value: "AccountingInvoice", label: "Muhasebe faturası", bucket: "erp-invoice-documents", documentTypeCode: "commercial_invoice_pdf" },
-  { value: "DeliveryForm", label: "Teslim formu", bucket: "erp-service-documents", documentTypeCode: "service_document" },
-  { value: "InstallationForm", label: "Kurulum formu", bucket: "erp-service-documents", documentTypeCode: "service_document" },
+  { value: "AccountingInvoice", label: "Muhasebe faturası", bucket: "erp-invoice-documents", documentTypeCode: "accounting_invoice_pdf" },
+  { value: "DeliveryForm", label: "Teslim formu", bucket: "erp-service-documents", documentTypeCode: "delivery_form" },
+  { value: "InstallationForm", label: "Kurulum formu", bucket: "erp-service-documents", documentTypeCode: "installation_form" },
   { value: "Other", label: "Diğer", bucket: "erp-quote-documents", documentTypeCode: "other" },
 ];
 
