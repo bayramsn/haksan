@@ -30,6 +30,12 @@ describe("lead ve fırsat çalışma alanı sorumlu değişikliği", () => {
     expect(detailSource).toContain("{canCreateActivity && (");
   });
 
+  it("C/B/A/A+/WIN hızlı süreç raylarını fırsat açıldığında görünür tutar", () => {
+    expect(workspaceSource).toContain("useState(true)");
+    expect(workspaceSource).toContain("setOperationsExpanded(true)");
+    expect(workspaceSource).toContain("Tam süreç raylarını kapat");
+  });
+
   it("fırsat zaman çizelgesinde yalnızca elle eklenen yorumları gösterir", () => {
     expect(workspaceSource).toContain('activity.origin === "manual"');
     expect(workspaceSource).toContain('activity.typeCode === "note"');

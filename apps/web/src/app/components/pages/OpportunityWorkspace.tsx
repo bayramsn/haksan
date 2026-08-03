@@ -363,7 +363,7 @@ export function OpportunityWorkspace({
   const [expectedCloseDate, setExpectedCloseDate] = useState(sc.expectedCloseDate ?? "");
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [focusedActivityId, setFocusedActivityId] = useState<string | null>(null);
-  const [operationsExpanded, setOperationsExpanded] = useState(false);
+  const [operationsExpanded, setOperationsExpanded] = useState(true);
   const decisionSummaryRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
@@ -377,7 +377,7 @@ export function OpportunityWorkspace({
   }, [focusDecisionOnMount, sc.id]);
 
   useEffect(() => {
-    setOperationsExpanded(false);
+    setOperationsExpanded(true);
   }, [sc.id]);
 
   useEffect(() => {
