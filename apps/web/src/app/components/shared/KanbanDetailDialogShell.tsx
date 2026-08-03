@@ -64,7 +64,7 @@ export function KanbanDetailDialogShell({
         </aside>
       </div>
       {mobileFooter && (
-        <div className="shrink-0 border-t border-slate-200 bg-white px-3 pt-2 pb-[max(.5rem,env(safe-area-inset-bottom))] sm:hidden">
+        <div className="shrink-0 border-t border-slate-200 bg-white px-3 pt-2 pb-[max(.5rem,env(safe-area-inset-bottom))] lg:hidden">
           {mobileFooter}
         </div>
       )}

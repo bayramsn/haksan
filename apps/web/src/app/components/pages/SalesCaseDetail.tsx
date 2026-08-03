@@ -171,6 +171,9 @@ export function SalesCaseDetailPage({
   const canAssignOwner = isSuperAdmin || hasRole("sales");
   const canUpdate = hasPermission("opportunities.update");
   const canDelete = hasPermission("opportunities.delete");
+  const canCreateActivity = hasPermission("activities.create");
+  const canUpdateActivity = hasPermission("activities.update");
+  const canDeleteActivity = hasPermission("activities.delete");
   const [lostOpen, setLostOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [closeOpen, setCloseOpen] = useState(false);
@@ -458,15 +461,17 @@ export function SalesCaseDetailPage({
   const bodyClass = "space-y-4";
   const activityPanel = (
     <div className="space-y-3">
-      <AddActivityDialog
-        salesCaseId={sc.id}
-        customerId={sc.customerId}
-        trigger={
-          <Button variant="outline" className="h-10 w-full justify-start rounded-lg bg-white text-left text-sm text-muted-foreground">
-            <Plus className="size-4" /> Yorum / aktivite ekle...
-          </Button>
-        }
-      />
+      {canCreateActivity && (
+        <AddActivityDialog
+          salesCaseId={sc.id}
+          customerId={sc.customerId}
+          trigger={
+            <Button variant="outline" className="h-10 w-full justify-start rounded-lg bg-white text-left text-sm text-muted-foreground">
+              <Plus className="size-4" /> Yorum / aktivite ekle...
+            </Button>
+          }
+        />
+      )}
       <div className="space-y-3">
         {acts.map((a) => (
           <div key={a.id} className="flex items-start gap-3">
@@ -504,11 +509,13 @@ export function SalesCaseDetailPage({
                   </div>
                 )}
               </div>
-              <div className="mt-1 flex items-center gap-2 px-1 text-[11px] text-muted-foreground">
-                <button type="button" className="underline-offset-2 hover:underline" onClick={() => openActivityEdit(a)}>Düzenle</button>
-                <span>·</span>
-                <button type="button" className="text-destructive underline-offset-2 hover:underline" onClick={() => setPendingActivityDelete(a)}>Sil</button>
-              </div>
+              {(canUpdateActivity || canDeleteActivity) && (
+                <div className="mt-1 flex items-center gap-2 px-1 text-[11px] text-muted-foreground">
+                  {canUpdateActivity && <button type="button" className="underline-offset-2 hover:underline" onClick={() => openActivityEdit(a)}>Düzenle</button>}
+                  {canUpdateActivity && canDeleteActivity && <span>·</span>}
+                  {canDeleteActivity && <button type="button" className="text-destructive underline-offset-2 hover:underline" onClick={() => setPendingActivityDelete(a)}>Sil</button>}
+                </div>
+              )}
             </div>
           </div>
         ))}

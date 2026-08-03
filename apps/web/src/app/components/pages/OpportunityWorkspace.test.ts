@@ -4,6 +4,8 @@ import { describe, expect, it } from "vitest";
 describe("lead ve fırsat çalışma alanı sorumlu değişikliği", () => {
   const railSource = readFileSync(new URL("./LeadWorkspaceControls.tsx", import.meta.url), "utf8");
   const workspaceSource = readFileSync(new URL("./OpportunityWorkspace.tsx", import.meta.url), "utf8");
+  const detailSource = readFileSync(new URL("./SalesCaseDetail.tsx", import.meta.url), "utf8");
+  const shellSource = readFileSync(new URL("../shared/KanbanDetailDialogShell.tsx", import.meta.url), "utf8");
 
   it("Karar Rayı içinde izin kontrollü sorumlu seçimi sunar", () => {
     expect(railSource).toContain("canAssignOwner");
@@ -18,6 +20,14 @@ describe("lead ve fırsat çalışma alanı sorumlu değişikliği", () => {
     expect(railSource).toContain("onOwnerChanged");
     expect(workspaceSource).toContain('"opportunity.owner_changed": "Sorumlu değiştirildi"');
     expect(workspaceSource).toContain('hasRole("sales") || hasRole("super_admin")');
+  });
+
+  it("tablet genişliğinde tek işlem dock'unu ve aktivite yetkilerini korur", () => {
+    expect(shellSource).toContain("lg:hidden");
+    expect(detailSource).toContain('hasPermission("activities.create")');
+    expect(detailSource).toContain('hasPermission("activities.update")');
+    expect(detailSource).toContain('hasPermission("activities.delete")');
+    expect(detailSource).toContain("{canCreateActivity && (");
   });
 
   it("fırsat zaman çizelgesinde yalnızca elle eklenen yorumları gösterir", () => {
