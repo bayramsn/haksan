@@ -61,9 +61,21 @@ import {
 import { CommercialDocumentRail } from "../shared/CommercialDocumentRail";
 
 type WorkspaceTab = "summary" | "contact" | "qualification" | "activity" | "commercial" | "operations" | "files";
+export type OpportunitySection = "overview" | "commercial" | "process" | "records";
+export type OpportunityRecordView = "activities" | "files" | "approvals" | "audit";
+
 type WorkspacePreferencesV2 = {
   version: 2;
   defaultTabByMode: { lead: WorkspaceTab; opportunity: WorkspaceTab };
+  density: "comfortable" | "compact";
+  showSimilar: boolean;
+  showStakeholders: boolean;
+};
+
+type WorkspacePreferencesV3 = {
+  version: 3;
+  defaultSection: OpportunitySection;
+  defaultRecordView: OpportunityRecordView;
   density: "comfortable" | "compact";
   showSimilar: boolean;
   showStakeholders: boolean;
@@ -75,6 +87,13 @@ type OpportunityDetail = {
   approvals?: Array<Record<string, any>>;
   auditHistory?: Array<Record<string, any>>;
   processReadiness?: OpportunityProcessReadiness;
+};
+
+type OpportunityDetailResource = {
+  caseId: string;
+  status: "idle" | "loading" | "ready" | "error";
+  data: OpportunityDetail | null;
+  error: string | null;
 };
 
 type TimelineItem = {
@@ -119,6 +138,28 @@ const TAB_LABELS: Record<WorkspaceTab, string> = {
 
 const LEAD_TABS: WorkspaceTab[] = ["summary", "contact", "qualification", "files"];
 const OPPORTUNITY_TABS: WorkspaceTab[] = ["summary", "activity", "commercial", "operations", "files"];
+const SIMPLE_OPPORTUNITY_TABS: WorkspaceTab[] = ["summary", "commercial", "operations", "files"];
+
+const SIMPLE_TAB_LABELS: Partial<Record<WorkspaceTab, string>> = {
+  summary: "Genel Bakış",
+  commercial: "Ticari",
+  operations: "Süreç",
+  files: "Kayıtlar",
+};
+
+const SECTION_TO_TAB: Record<OpportunitySection, WorkspaceTab> = {
+  overview: "summary",
+  commercial: "commercial",
+  process: "operations",
+  records: "files",
+};
+
+const TAB_TO_SECTION: Partial<Record<WorkspaceTab, OpportunitySection>> = {
+  summary: "overview",
+  commercial: "commercial",
+  operations: "process",
+  files: "records",
+};
 
 const normalizeWorkspaceTab = (value: unknown, tabs: WorkspaceTab[]) =>
   typeof value === "string" && tabs.includes(value as WorkspaceTab) ? value as WorkspaceTab : "summary";
@@ -141,6 +182,37 @@ const migrateWorkspacePreferences = (
     density: source.density === "compact" ? "compact" : "comfortable",
     showSimilar: source.showSimilar !== false,
     showStakeholders: source.showStakeholders !== false,
+  };
+};
+
+export const migrateSimpleWorkspacePreferences = (
+  raw: unknown,
+  legacy: WorkspacePreferencesV2,
+): WorkspacePreferencesV3 => {
+  const source = raw && typeof raw === "object" ? raw as Record<string, unknown> : {};
+  const section = source.defaultSection;
+  const recordView = source.defaultRecordView;
+  const legacyOpportunityTab = legacy.defaultTabByMode.opportunity;
+  const legacySection: OpportunitySection = legacyOpportunityTab === "commercial"
+    ? "commercial"
+    : legacyOpportunityTab === "operations"
+      ? "process"
+      : legacyOpportunityTab === "activity" || legacyOpportunityTab === "files"
+        ? "records"
+        : "overview";
+  const legacyRecordView: OpportunityRecordView = legacyOpportunityTab === "files" ? "files" : "activities";
+
+  return {
+    version: 3,
+    defaultSection: section === "commercial" || section === "process" || section === "records" || section === "overview"
+      ? section
+      : legacySection,
+    defaultRecordView: recordView === "files" || recordView === "approvals" || recordView === "audit" || recordView === "activities"
+      ? recordView
+      : legacyRecordView,
+    density: source.density === "compact" ? "compact" : legacy.density,
+    showSimilar: source.showSimilar === undefined ? legacy.showSimilar : source.showSimilar !== false,
+    showStakeholders: source.showStakeholders === undefined ? legacy.showStakeholders : source.showStakeholders !== false,
   };
 };
 
@@ -241,12 +313,14 @@ export function buildWorkspaceDecisionModel({
   customerMissing,
   overduePaymentCount,
   nextOperationTarget,
+  processReadinessKnown = true,
 }: {
   salesCase: SalesCase;
   ownerName?: string;
   customerMissing: boolean;
   overduePaymentCount: number;
   nextOperationTarget?: OpportunityProcessReadiness["targets"][number];
+  processReadinessKnown?: boolean;
 }): WorkspaceDecisionModel {
   const health = salesCase.qualificationReadiness?.health;
   const isLead = salesCase.qualificationStage === "lead";
@@ -285,10 +359,13 @@ export function buildWorkspaceDecisionModel({
       : salesStageLabel(salesCase.stage),
     nextStage: isLead
       ? qualificationNext ? QUALIFICATION_STAGE_LABELS[qualificationNext] : "Dönüşüm kararı"
-      : nextOperationTarget ? salesStageLabel(nextOperationTarget.code as SalesCase["stage"]) : "Akış sonu",
+      : !processReadinessKnown
+        ? "Doğrulama bekliyor"
+        : nextOperationTarget ? salesStageLabel(nextOperationTarget.code as SalesCase["stage"]) : "Akış sonu",
     blockerCount: isLead
       ? salesCase.qualificationReadiness?.blockers.length ?? 0
       : nextOperationTarget?.blockers.length ?? 0,
+    readinessUnknown: !isLead && !processReadinessKnown,
     risks,
     terminalLabel,
   };
@@ -308,11 +385,53 @@ function EmptyState({ children }: { children: ReactNode }) {
   return <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 px-4 py-8 text-center text-sm text-muted-foreground">{children}</div>;
 }
 
+const SIMPLE_QUALIFICATION_STEPS = ["c", "b", "a", "a_plus", "win"] as const;
+
+function CompactQualificationRail({ current }: { current: SalesCase["qualificationStage"] }) {
+  const currentIndex = SIMPLE_QUALIFICATION_STEPS.indexOf(current as (typeof SIMPLE_QUALIFICATION_STEPS)[number]);
+  const terminalLost = current === "lost";
+
+  return (
+    <section
+      className="rounded-xl border border-slate-200 bg-white px-3 py-3 sm:px-4"
+      aria-label="Fırsat nitelik süreci"
+    >
+      <div className="flex items-center gap-1" role="list">
+        {SIMPLE_QUALIFICATION_STEPS.map((stage, index) => {
+          const complete = !terminalLost && currentIndex > index;
+          const active = !terminalLost && currentIndex === index;
+          return (
+            <div key={stage} className="flex min-w-0 flex-1 items-center gap-1" role="listitem">
+              <div
+                className={[
+                  "flex min-h-9 min-w-9 flex-1 items-center justify-center rounded-lg border px-2 text-xs font-semibold transition-colors",
+                  active ? "border-[#163b75] bg-[#163b75] text-white" : "",
+                  complete ? "border-blue-200 bg-blue-50 text-[#163b75]" : "",
+                  !active && !complete ? "border-slate-200 bg-slate-50 text-slate-500" : "",
+                ].join(" ")}
+                aria-current={active ? "step" : undefined}
+              >
+                {complete && <Check className="mr-1 size-3.5" aria-hidden="true" />}
+                {QUALIFICATION_STAGE_LABELS[stage]}
+              </div>
+              {index < SIMPLE_QUALIFICATION_STEPS.length - 1 && (
+                <ChevronRight className="size-3.5 shrink-0 text-slate-300" aria-hidden="true" />
+              )}
+            </div>
+          );
+        })}
+      </div>
+      {terminalLost && (
+        <div className="mt-2 text-xs font-medium text-red-700">Bu fırsat LOST durumunda.</div>
+      )}
+    </section>
+  );
+}
+
 export function OpportunityWorkspace({
   salesCase: sc,
   processCenter,
   renderProcessCenter,
-  processChecklist,
   companyLinkingPanel,
   onOpenOffer,
   onDownloadDocument,
@@ -323,11 +442,11 @@ export function OpportunityWorkspace({
   onEditActivity,
   onDeleteActivity,
   otherActions,
+  simpleMode = false,
 }: {
   salesCase: SalesCase;
   processCenter: ReactNode;
   renderProcessCenter?: (context: { detail: OpportunityDetail | null; loading: boolean; reload: () => Promise<void> }) => ReactNode;
-  processChecklist: ReactNode;
   companyLinkingPanel?: ReactNode;
   onOpenOffer: (offerId: string) => void;
   onDownloadDocument: (document: DocumentItem) => void;
@@ -338,6 +457,7 @@ export function OpportunityWorkspace({
   onEditActivity?: (activityId: string) => void;
   onDeleteActivity?: (activityId: string) => void;
   otherActions?: ReactNode;
+  simpleMode?: boolean;
 }) {
   const {
     cases,
@@ -358,7 +478,8 @@ export function OpportunityWorkspace({
   const canUpdate = hasPermission("opportunities.update");
   const canAssignOwner = canUpdate && (hasRole("sales") || hasRole("super_admin"));
   const isLead = sc.qualificationStage === "lead";
-  const activeTabs = isLead ? LEAD_TABS : OPPORTUNITY_TABS;
+  const simpleOpportunity = simpleMode && !isLead;
+  const activeTabs = isLead ? LEAD_TABS : simpleOpportunity ? SIMPLE_OPPORTUNITY_TABS : OPPORTUNITY_TABS;
   const legacyPreferenceKey = `opportunity.workspace.${user?.id ?? "anonymous"}`;
   const preferenceKey = `${legacyPreferenceKey}.v2`;
   const initialPreferences = migrateWorkspacePreferences(
@@ -366,20 +487,58 @@ export function OpportunityWorkspace({
     roleDefaultTab(user?.roles),
   );
   const [preferences, setPreferences] = usePersistentState<WorkspacePreferencesV2>(preferenceKey, initialPreferences);
-  const preferredTab = isLead ? preferences.defaultTabByMode.lead : preferences.defaultTabByMode.opportunity;
-  const [tab, setTab] = useState<WorkspaceTab>(() => normalizeWorkspaceTab(preferredTab, activeTabs));
+  const simplePreferenceKey = `${legacyPreferenceKey}.v3`;
+  const [simplePreferences, setSimplePreferences] = usePersistentState<WorkspacePreferencesV3>(
+    simplePreferenceKey,
+    migrateSimpleWorkspacePreferences(loadPersisted<unknown>(simplePreferenceKey, null), initialPreferences),
+  );
+  const preferredTab = isLead
+    ? preferences.defaultTabByMode.lead
+    : simpleOpportunity
+      ? SECTION_TO_TAB[simplePreferences.defaultSection]
+      : preferences.defaultTabByMode.opportunity;
+  const initialUrlState = (() => {
+    if (!simpleOpportunity || typeof window === "undefined") return null;
+    const url = new URL(window.location.href);
+    if (url.searchParams.get("opportunity") !== sc.id) return null;
+    const section = url.searchParams.get("section");
+    const record = url.searchParams.get("record");
+    const activity = url.searchParams.get("activity");
+    const validSection = section === "overview" || section === "commercial" || section === "process" || section === "records"
+      ? section as OpportunitySection
+      : null;
+    const validRecord = record === "activities" || record === "files" || record === "approvals" || record === "audit"
+      ? record as OpportunityRecordView
+      : null;
+    return {
+      tab: activity ? "files" as WorkspaceTab : validSection ? SECTION_TO_TAB[validSection] : null,
+      recordView: activity ? "activities" as OpportunityRecordView : validRecord,
+    };
+  })();
+  const [tab, setTab] = useState<WorkspaceTab>(() => normalizeWorkspaceTab(initialUrlState?.tab ?? preferredTab, activeTabs));
+  const [recordView, setRecordView] = useState<OpportunityRecordView>(() => initialUrlState?.recordView ?? simplePreferences.defaultRecordView);
+  const [auditVisibleCount, setAuditVisibleCount] = useState(20);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [detail, setDetail] = useState<OpportunityDetail | null>(null);
-  const [detailLoading, setDetailLoading] = useState(true);
-  const [detailError, setDetailError] = useState<string | null>(null);
+  const [detailResource, setDetailResource] = useState<OpportunityDetailResource>(() => ({
+    caseId: sc.id,
+    status: "idle",
+    data: null,
+    error: null,
+  }));
   const [amount, setAmount] = useState(String(sc.estimatedAmount));
   const [currency, setCurrency] = useState<SalesCase["currency"]>(sc.currency);
   const [probability, setProbability] = useState(String(sc.probability ?? 50));
   const [expectedCloseDate, setExpectedCloseDate] = useState(sc.expectedCloseDate ?? "");
+  const [paymentTermDays, setPaymentTermDays] = useState(sc.paymentTermDays == null ? "" : String(sc.paymentTermDays));
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [commercialEditing, setCommercialEditing] = useState(false);
   const [focusedActivityId, setFocusedActivityId] = useState<string | null>(null);
-  const [operationsExpanded, setOperationsExpanded] = useState(false);
+  const [operationsExpanded, setOperationsExpanded] = useState(() => !simpleOpportunity);
   const decisionSummaryRef = useRef<HTMLElement>(null);
+  const detailRequestRef = useRef(0);
+  const detail = detailResource.caseId === sc.id ? detailResource.data : null;
+  const detailLoading = detailResource.caseId !== sc.id || detailResource.status === "idle" || detailResource.status === "loading";
+  const detailError = detailResource.caseId === sc.id ? detailResource.error : null;
 
   useEffect(() => {
     if (!activeTabs.includes(tab)) setTab("summary");
@@ -392,15 +551,33 @@ export function OpportunityWorkspace({
   }, [focusDecisionOnMount, sc.id]);
 
   useEffect(() => {
-    setOperationsExpanded(false);
-  }, [sc.id]);
+    setOperationsExpanded(!simpleOpportunity);
+    setCommercialEditing(false);
+    setAuditVisibleCount(20);
+  }, [sc.id, simpleOpportunity]);
 
   useEffect(() => {
     const syncFocusFromLocation = () => {
       const url = new URL(window.location.href);
       const opportunityId = url.searchParams.get("opportunity");
       const activityId = url.searchParams.get("activity");
-      if (opportunityId === sc.id && activityId) {
+      if (opportunityId === sc.id && simpleOpportunity) {
+        const section = url.searchParams.get("section");
+        const record = url.searchParams.get("record");
+        if (activityId) {
+          setFocusedActivityId(activityId);
+          setTab("files");
+          setRecordView("activities");
+          return;
+        }
+        setFocusedActivityId(null);
+        if (section === "overview" || section === "commercial" || section === "process" || section === "records") {
+          setTab(SECTION_TO_TAB[section]);
+        }
+        if (record === "activities" || record === "files" || record === "approvals" || record === "audit") {
+          setRecordView(record);
+        }
+      } else if (opportunityId === sc.id && activityId) {
         setFocusedActivityId(activityId);
         setTab(isLead ? "contact" : "activity");
       } else {
@@ -414,17 +591,51 @@ export function OpportunityWorkspace({
       window.removeEventListener("popstate", syncFocusFromLocation);
       window.removeEventListener("haksan:opportunity-focus", syncFocusFromLocation);
     };
-  }, [isLead, sc.id]);
+  }, [isLead, sc.id, simpleOpportunity]);
+
+  useEffect(() => {
+    if (!simpleOpportunity) return;
+    const url = new URL(window.location.href);
+    if (url.searchParams.get("opportunity") !== sc.id || url.searchParams.get("surface") === "quick") return;
+    const activityId = url.searchParams.get("activity");
+    if (activityId && tab === "files" && recordView === "activities") {
+      url.searchParams.set("section", "records");
+      url.searchParams.set("record", "activities");
+    } else {
+      if (activityId) {
+        url.searchParams.delete("activity");
+        setFocusedActivityId(null);
+      }
+      url.searchParams.set("section", TAB_TO_SECTION[tab] ?? "overview");
+      if (tab === "files") url.searchParams.set("record", recordView);
+      else url.searchParams.delete("record");
+    }
+    window.history.replaceState(window.history.state, "", url);
+  }, [recordView, sc.id, simpleOpportunity, tab]);
 
   const loadDetail = useCallback(async () => {
-    setDetailLoading(true);
-    setDetailError(null);
+    const requestId = detailRequestRef.current + 1;
+    detailRequestRef.current = requestId;
+    setDetailResource((current) => ({
+      caseId: sc.id,
+      status: "loading",
+      data: current.caseId === sc.id ? current.data : null,
+      error: null,
+    }));
     try {
-      setDetail(await opportunityService.get(sc.id));
+      const nextDetail = await opportunityService.get(sc.id);
+      if (detailRequestRef.current === requestId) {
+        setDetailResource({ caseId: sc.id, status: "ready", data: nextDetail, error: null });
+      }
     } catch (error: any) {
-      setDetailError(error?.message ?? "Fırsat geçmişi alınamadı.");
-    } finally {
-      setDetailLoading(false);
+      if (detailRequestRef.current === requestId) {
+        setDetailResource({
+          caseId: sc.id,
+          status: "error",
+          data: null,
+          error: error?.message ?? "Fırsat geçmişi alınamadı.",
+        });
+      }
     }
   }, [sc.id]);
 
@@ -437,13 +648,21 @@ export function OpportunityWorkspace({
     setCurrency(sc.currency);
     setProbability(String(sc.probability ?? 50));
     setExpectedCloseDate(sc.expectedCloseDate ?? "");
-  }, [sc.currency, sc.estimatedAmount, sc.expectedCloseDate, sc.id, sc.probability]);
+    setPaymentTermDays(sc.paymentTermDays == null ? "" : String(sc.paymentTermDays));
+    setCommercialEditing(false);
+  }, [sc.currency, sc.estimatedAmount, sc.expectedCloseDate, sc.id, sc.paymentTermDays, sc.probability]);
 
   const customer = customers.find((item) => item.id === sc.customerId);
   const owner = users.find((item) => item.id === sc.assignedUserId);
   const userNames = useMemo(() => new Map(users.map((item) => [item.id, item.name])), [users]);
   const opportunityActivities = activities.filter((item) => item.salesCaseId === sc.id);
   const opportunityOffers = offers.filter((item) => item.salesCaseId === sc.id);
+  const displayedOpportunityOffers = simpleOpportunity
+    ? [...opportunityOffers].sort((left, right) => {
+        const dateDelta = timelineTime(right.date) - timelineTime(left.date);
+        return dateDelta || right.revision - left.revision;
+      })
+    : opportunityOffers;
   const opportunityPayments = payments.filter((item) => item.salesCaseId === sc.id);
   const opportunityDocuments = documents.filter((item) => item.salesCaseId === sc.id);
   const opportunityShipments = shipments.filter((item) => item.salesCaseId === sc.id);
@@ -470,6 +689,10 @@ export function OpportunityWorkspace({
   const probabilityError = probability.trim() === "" || !Number.isFinite(rawProbabilityNumber) || rawProbabilityNumber < 0 || rawProbabilityNumber > 100
     ? "Olasılık 0 ile 100 arasında olmalı."
     : null;
+  const rawPaymentTermDays = paymentTermDays.trim() === "" ? null : Number(paymentTermDays);
+  const paymentTermError = rawPaymentTermDays !== null && (!Number.isFinite(rawPaymentTermDays) || rawPaymentTermDays < 0)
+    ? "Ödeme vadesi sıfır veya daha büyük bir sayı olmalı."
+    : null;
 
   const previewDocument = async (document: DocumentItem) => {
     if (!document.fileId) return;
@@ -487,7 +710,7 @@ export function OpportunityWorkspace({
 
   const saveCommercial = async () => {
     if (!canUpdate || saveState === "saving") return;
-    if (amountError || probabilityError) {
+    if (amountError || probabilityError || paymentTermError) {
       setSaveState("error");
       toast.error("Ticari alanları kontrol edin");
       return;
@@ -499,13 +722,25 @@ export function OpportunityWorkspace({
         currency,
         probability: probabilityNumber,
         expectedCloseDate: expectedCloseDate || null,
+        paymentTermDays: rawPaymentTermDays === null ? null : Math.trunc(rawPaymentTermDays),
       });
       setSaveState("saved");
+      setCommercialEditing(false);
       window.setTimeout(() => setSaveState("idle"), 2400);
     } catch (error: any) {
       setSaveState("error");
       toast.error("Ticari özet kaydedilemedi", { description: error?.message ?? "İstek başarısız oldu." });
     }
+  };
+
+  const cancelCommercialEdit = () => {
+    setAmount(String(sc.estimatedAmount));
+    setCurrency(sc.currency);
+    setProbability(String(sc.probability ?? 50));
+    setExpectedCloseDate(sc.expectedCloseDate ?? "");
+    setPaymentTermDays(sc.paymentTermDays == null ? "" : String(sc.paymentTermDays));
+    setSaveState("idle");
+    setCommercialEditing(false);
   };
 
   const timeline = useMemo<TimelineItem[]>(() => {
@@ -526,7 +761,7 @@ export function OpportunityWorkspace({
         actor: activity.createdByName || users.find((item) => item.id === activity.byUserId)?.name,
       });
     });
-    if (!isLead) return items.sort((a, b) => timelineTime(b.date) - timelineTime(a.date));
+    if (!isLead && !simpleOpportunity) return items.sort((a, b) => timelineTime(b.date) - timelineTime(a.date));
     (detail?.history ?? []).forEach((history) => items.push({
       id: `stage-${history.id}`,
       date: history.createdAt,
@@ -570,28 +805,31 @@ export function OpportunityWorkspace({
       title: document.fileName,
       detail: document.type,
     }));
-    (detail?.auditHistory ?? []).forEach((audit) => items.push({
-      id: `audit-${audit.id}`,
-      date: audit.createdAt,
-      category: "process",
-      title: AUDIT_ACTION_LABELS[audit.action] ?? audit.action,
-      detail: auditDetail(audit.oldValues, audit.newValues, userNames),
-      actor: audit.actor?.fullName ?? audit.actor?.email,
-    }));
+    if (isLead) {
+      (detail?.auditHistory ?? []).forEach((audit) => items.push({
+        id: `audit-${audit.id}`,
+        date: audit.createdAt,
+        category: "process",
+        title: AUDIT_ACTION_LABELS[audit.action] ?? audit.action,
+        detail: auditDetail(audit.oldValues, audit.newValues, userNames),
+        actor: audit.actor?.fullName ?? audit.actor?.email,
+      }));
+    }
     return items.sort((a, b) => timelineTime(b.date) - timelineTime(a.date));
-  }, [detail, isLead, opportunityActivities, opportunityDocuments, opportunityOffers, opportunityPayments, userNames, users]);
+  }, [detail, isLead, opportunityActivities, opportunityDocuments, opportunityOffers, opportunityPayments, simpleOpportunity, userNames, users]);
 
   useEffect(() => {
-    if (!focusedActivityId || (tab !== "activity" && tab !== "contact")) return;
+    if (!focusedActivityId || (tab !== "activity" && tab !== "contact" && !(simpleOpportunity && tab === "files" && recordView === "activities"))) return;
     const timer = window.setTimeout(() => {
       const target = document.getElementById(`activity-${focusedActivityId}`);
       if (!target) return;
       focusWorkspaceTarget(target);
     }, 120);
     return () => window.clearTimeout(timer);
-  }, [focusedActivityId, tab, timeline.length]);
+  }, [focusedActivityId, recordView, simpleOpportunity, tab, timeline.length]);
 
-  const padding = preferences.density === "compact" ? "p-3 sm:p-4" : "p-4 sm:p-5";
+  const activeDensity = simpleOpportunity ? simplePreferences.density : preferences.density;
+  const padding = activeDensity === "compact" ? "p-3 sm:p-4" : "p-4 sm:p-5";
   const operationReadiness = detail?.processReadiness;
   const nextOperationTarget = operationReadiness?.targets
     .filter((target) => target.axis === "operation" && target.direction === "forward")
@@ -606,7 +844,13 @@ export function OpportunityWorkspace({
     customerMissing: !customer,
     overduePaymentCount: opportunityPayments.filter((payment) => payment.status === "Overdue").length,
     nextOperationTarget,
+    processReadinessKnown: !simpleOpportunity || Boolean(operationReadiness),
   });
+  const workspaceTabLabel = (key: WorkspaceTab) => simpleOpportunity
+    ? SIMPLE_TAB_LABELS[key] ?? TAB_LABELS[key]
+    : TAB_LABELS[key];
+  const currentSimpleSection = TAB_TO_SECTION[tab] ?? "overview";
+  const currentSimpleSectionLabel = SIMPLE_TAB_LABELS[SECTION_TO_TAB[currentSimpleSection]] ?? "Genel Bakış";
   const terminal = Boolean(decisionModel.terminalLabel);
   const leadBlockers = sc.qualificationReadiness?.blockers ?? [];
   const processBlocked = Boolean(nextOperationTarget?.blockers.length);
@@ -616,7 +860,11 @@ export function OpportunityWorkspace({
     && !sc.qualificationReadiness?.health?.actionMissing
     && !decisionModel.nextActionOverdue
     && leadBlockers.length === 0;
-  const decisionPrimaryAction = terminal ? (
+  const decisionPrimaryAction = simpleOpportunity && tab === "commercial" && commercialEditing ? (
+    <Button type="button" onClick={() => void saveCommercial()} disabled={saveState === "saving" || Boolean(amountError || probabilityError || paymentTermError)}>
+      <Save className="size-4" /> Ticari alanları kaydet
+    </Button>
+  ) : terminal ? (
     <Button type="button" variant="outline" onClick={() => setTab("files")}>Kapanış kayıtlarını gör</Button>
   ) : !canUpdate ? undefined : sc.qualificationReadiness?.health?.actionMissing || decisionModel.nextActionOverdue ? (
     <NextActionDialog
@@ -654,10 +902,14 @@ export function OpportunityWorkspace({
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 pb-3">
         <div>
           <div className="font-data text-[10px] font-semibold uppercase tracking-[0.15em] text-[#536178]">
-            {isLead ? "Lead çalışma alanı" : "Ortak fırsat görünümü"}
+            {isLead ? "Lead çalışma alanı" : simpleOpportunity ? "Fırsat çalışma alanı" : "Ortak fırsat görünümü"}
           </div>
           <div className="mt-1 text-sm text-muted-foreground">
-            {isLead ? "Temas, nitelendirme ve dönüşüm kararı için tek yüzey" : "Satış, ticari ve operasyon ekipleri için tek görünüm"}
+            {isLead
+              ? "Temas, nitelendirme ve dönüşüm kararı için tek yüzey"
+              : simpleOpportunity
+                ? "Karar, ticari durum, süreç ve kayıtlar tek görünümde"
+                : "Satış, ticari ve operasyon ekipleri için tek görünüm"}
           </div>
         </div>
         <Button type="button" variant="outline" size="sm" className="min-h-11 gap-1.5 bg-white sm:min-h-8" onClick={() => setSettingsOpen((value) => !value)} aria-expanded={settingsOpen}>
@@ -670,20 +922,34 @@ export function OpportunityWorkspace({
           <CardContent className="grid gap-4 p-4 sm:grid-cols-2 lg:grid-cols-[1fr_1fr_1.4fr]">
             <div>
               <Label htmlFor="workspace-default-section" className="text-xs">Varsayılan bölüm</Label>
-              <Select value={preferredTab} onValueChange={(value) => setPreferences((current) => ({
-                ...current,
-                defaultTabByMode: {
-                  ...current.defaultTabByMode,
-                  [isLead ? "lead" : "opportunity"]: value as WorkspaceTab,
-                },
-              }))}>
+              <Select value={preferredTab} onValueChange={(value) => {
+                const nextTab = value as WorkspaceTab;
+                if (simpleOpportunity) {
+                  setSimplePreferences((current) => ({
+                    ...current,
+                    defaultSection: TAB_TO_SECTION[nextTab] ?? "overview",
+                  }));
+                  return;
+                }
+                setPreferences((current) => ({
+                  ...current,
+                  defaultTabByMode: {
+                    ...current.defaultTabByMode,
+                    [isLead ? "lead" : "opportunity"]: nextTab,
+                  },
+                }));
+              }}>
                 <SelectTrigger id="workspace-default-section" className="mt-1.5 bg-white"><SelectValue /></SelectTrigger>
-                <SelectContent>{activeTabs.map((key) => <SelectItem key={key} value={key}>{TAB_LABELS[key]}</SelectItem>)}</SelectContent>
+                <SelectContent>{activeTabs.map((key) => <SelectItem key={key} value={key}>{workspaceTabLabel(key)}</SelectItem>)}</SelectContent>
               </Select>
             </div>
             {!isLead && <div>
               <Label htmlFor="workspace-density" className="text-xs">Bilgi yoğunluğu</Label>
-              <Select value={preferences.density} onValueChange={(value) => setPreferences((current) => ({ ...current, density: value as WorkspacePreferencesV2["density"] }))}>
+              <Select value={activeDensity} onValueChange={(value) => {
+                const density = value as WorkspacePreferencesV2["density"];
+                if (simpleOpportunity) setSimplePreferences((current) => ({ ...current, density }));
+                else setPreferences((current) => ({ ...current, density }));
+              }}>
                 <SelectTrigger id="workspace-density" className="mt-1.5 bg-white"><SelectValue /></SelectTrigger>
                 <SelectContent><SelectItem value="comfortable">Rahat</SelectItem><SelectItem value="compact">Kompakt</SelectItem></SelectContent>
               </Select>
@@ -695,8 +961,19 @@ export function OpportunityWorkspace({
                   ["showSimilar", "Benzer kazanımlar"],
                   ["showStakeholders", "Paydaşlar"],
                 ] as const).map(([key, label]) => (
-                  <Button key={key} type="button" size="sm" variant={preferences[key] ? "default" : "outline"} className="h-11 text-xs sm:h-8" onClick={() => setPreferences((current) => ({ ...current, [key]: !current[key] }))} aria-pressed={preferences[key]}>
-                    {preferences[key] && <Check className="size-3.5" />} {label}
+                  <Button
+                    key={key}
+                    type="button"
+                    size="sm"
+                    variant={(simpleOpportunity ? simplePreferences[key] : preferences[key]) ? "default" : "outline"}
+                    className="h-11 text-xs sm:h-8"
+                    onClick={() => {
+                      if (simpleOpportunity) setSimplePreferences((current) => ({ ...current, [key]: !current[key] }));
+                      else setPreferences((current) => ({ ...current, [key]: !current[key] }));
+                    }}
+                    aria-pressed={simpleOpportunity ? simplePreferences[key] : preferences[key]}
+                  >
+                    {(simpleOpportunity ? simplePreferences[key] : preferences[key]) && <Check className="size-3.5" />} {label}
                   </Button>
                 ))}
               </div>
@@ -705,23 +982,47 @@ export function OpportunityWorkspace({
         </Card>
       )}
 
-      <WorkspaceDecisionSummary ref={decisionSummaryRef} model={decisionModel} primaryAction={decisionPrimaryAction} />
+      {simpleOpportunity && <CompactQualificationRail current={sc.qualificationStage} />}
+      <WorkspaceDecisionSummary
+        ref={decisionSummaryRef}
+        model={decisionModel}
+        primaryAction={decisionPrimaryAction}
+        variant={simpleOpportunity ? "compact" : "default"}
+        sectionLabel={simpleOpportunity ? currentSimpleSectionLabel : undefined}
+      />
       {detailLoading && <div className="flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-900" role="status" aria-live="polite"><Loader2 className="size-4 animate-spin motion-reduce:animate-none" /> Kayıt kontrolleri güncelleniyor…</div>}
       {detailError && <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-900" role="alert"><span>{detailError}</span><Button type="button" variant="outline" size="sm" className="min-h-11 bg-white sm:min-h-8" onClick={() => void loadDetail()}><RefreshCw className="size-4" /> Tekrar dene</Button></div>}
 
-      <RecordWorkspaceShell rail={<DecisionRail salesCase={sc} ownerName={owner?.name} users={users} canUpdate={canUpdate} canAssignOwner={canAssignOwner} onOwnerChanged={loadDetail} mobilePortalId={mobilePortalId} contactPhone={resolvedContact.phone} contactEmail={resolvedContact.email} whatsappNumber={resolvedContact.whatsappNumber} otherActions={otherActions} primaryAction={useLeadConversionAsPrimary ? undefined : decisionPrimaryAction} useLeadConversionAsPrimary={useLeadConversionAsPrimary} />}>
+      <RecordWorkspaceShell rail={<DecisionRail
+        salesCase={sc}
+        ownerName={owner?.name}
+        users={users}
+        canUpdate={canUpdate}
+        canAssignOwner={canAssignOwner}
+        onOwnerChanged={loadDetail}
+        mobilePortalId={mobilePortalId}
+        contactPhone={resolvedContact.phone}
+        contactEmail={resolvedContact.email}
+        whatsappNumber={resolvedContact.whatsappNumber}
+        contactName={resolvedContact.name}
+        contactTitle={resolvedContact.primaryContact?.title || resolvedContact.primaryContact?.department}
+        otherActions={otherActions}
+        primaryAction={useLeadConversionAsPrimary ? undefined : decisionPrimaryAction}
+        useLeadConversionAsPrimary={useLeadConversionAsPrimary}
+        simpleMode={simpleOpportunity}
+      />}>
       <Tabs value={tab} onValueChange={(value) => setTab(value as WorkspaceTab)}>
         <div className="sm:hidden">
           <Label htmlFor="workspace-section" className="text-xs font-semibold">Bölüm</Label>
           <Select value={tab} onValueChange={(value) => setTab(value as WorkspaceTab)}>
             <SelectTrigger id="workspace-section" className="mt-1.5 h-11 w-full bg-white"><SelectValue /></SelectTrigger>
-            <SelectContent>{activeTabs.map((key) => <SelectItem key={key} value={key}>{TAB_LABELS[key]}</SelectItem>)}</SelectContent>
+            <SelectContent>{activeTabs.map((key) => <SelectItem key={key} value={key}>{workspaceTabLabel(key)}</SelectItem>)}</SelectContent>
           </Select>
         </div>
         <TabsList aria-label="Çalışma alanı bölümleri" className="hidden h-auto w-full justify-start gap-0 overflow-x-auto rounded-none border-b border-slate-200 bg-transparent p-0 sm:flex">
           {activeTabs.map((key) => (
             <TabsTrigger key={key} value={key} className="min-h-11 flex-none rounded-none border-0 border-b-2 border-transparent px-3 py-2.5 text-[12px] data-[state=active]:border-b-[#163b75] data-[state=active]:bg-transparent data-[state=active]:text-[#163b75] data-[state=active]:shadow-none sm:min-h-0 sm:text-[13px]">
-              {TAB_LABELS[key]}
+              {workspaceTabLabel(key)}
             </TabsTrigger>
           ))}
         </TabsList>
@@ -788,7 +1089,7 @@ export function OpportunityWorkspace({
               </div>
             </>
           )}
-          <section className={`${isLead ? "hidden" : ""} overflow-hidden rounded-xl border border-slate-200 bg-white`} aria-labelledby="workspace-pulse-title">
+          <section className={`${isLead || simpleOpportunity ? "hidden" : ""} overflow-hidden rounded-xl border border-slate-200 bg-white`} aria-labelledby="workspace-pulse-title">
             <div className="h-1 bg-[#163b75]" />
             <div className={padding}>
               <div className="flex flex-wrap items-start justify-between gap-3">
@@ -837,7 +1138,89 @@ export function OpportunityWorkspace({
             </Card>
           </div>
 
-          <div className={`${isLead ? "hidden" : "grid"} gap-4 lg:grid-cols-2`}>
+          {simpleOpportunity && (
+            <>
+              <CommercialDocumentRail
+                offers={opportunityOffers}
+                documents={opportunityDocuments}
+                onOpenOffer={(offer) => onOpenOffer(offer.id)}
+                onOpenDocument={(document) => void previewDocument(document)}
+                showStepActions={false}
+              />
+              <Card>
+                <CardHeader className="flex-row items-center justify-between gap-3 pb-3">
+                  <div>
+                    <CardTitle className="text-base">Son hareketler</CardTitle>
+                    <p className="mt-1 text-xs text-muted-foreground">Müşteri teması, süreç, ticari belge ve onaylardan son üç kayıt.</p>
+                  </div>
+                  <Button type="button" variant="ghost" size="sm" onClick={() => { setTab("files"); setRecordView("activities"); }}>
+                    Tümünü gör
+                  </Button>
+                </CardHeader>
+                <CardContent>
+                  <UnifiedTimeline
+                    items={timeline.slice(0, 3).map((item) => ({ ...item, categoryLabel: item.categoryLabel ?? categoryLabel[item.category] }))}
+                    formatDate={formatDate}
+                    emptyLabel="Bu fırsat için henüz hareket yok."
+                  />
+                </CardContent>
+              </Card>
+              <details className="rounded-xl border border-slate-200 bg-white">
+                <summary className="min-h-11 cursor-pointer px-4 py-3 text-sm font-semibold text-[#0b1739]">İçgörüler</summary>
+                <div className="space-y-4 border-t border-slate-200 p-4">
+                  <div className="grid gap-4 sm:grid-cols-[160px_1fr] sm:items-start">
+                    <div>
+                      <div className="text-xs text-muted-foreground">Fırsat nabzı</div>
+                      <div className="mt-1 font-data text-3xl font-semibold tabular-nums text-[#0b1739]">{score.score}<span className="text-sm font-normal text-muted-foreground"> / 100</span></div>
+                      <div className="mt-1 text-xs font-medium text-muted-foreground">{score.label}</div>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {score.gaps.slice(0, 4).map((gap) => <Badge key={gap} variant="outline" className="border-amber-200 bg-amber-50 text-amber-800">{gap}</Badge>)}
+                      {score.gaps.length === 0 && <span className="inline-flex items-center gap-1.5 text-sm text-emerald-700"><Check className="size-4" /> Belirgin veri açığı yok</span>}
+                    </div>
+                  </div>
+                  {simplePreferences.showStakeholders && (
+                    <div>
+                      <h4 className="text-sm font-semibold">Paydaşlar</h4>
+                      <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                        {owner && <div className="rounded-lg border border-slate-200 px-3 py-2 text-sm"><div className="font-medium">{owner.name}</div><div className="text-xs text-muted-foreground">Fırsat sahibi</div></div>}
+                        {companyContacts.slice(0, 3).map((contact) => <div key={contact.id} className="rounded-lg border border-slate-200 px-3 py-2 text-sm"><div className="truncate font-medium">{contact.name}</div><div className="truncate text-xs text-muted-foreground">{contact.decisionRoleName || contact.title || "Firma kontağı"}</div></div>)}
+                        {!owner && companyContacts.length === 0 && <EmptyState>Henüz paydaş tanımlanmadı.</EmptyState>}
+                      </div>
+                    </div>
+                  )}
+                  {simplePreferences.showSimilar && (
+                    <div>
+                      <h4 className="text-sm font-semibold">Benzer kazanılan fırsatlar</h4>
+                      <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                        {similarWins.slice(0, 4).map((item) => <div key={item.opportunity.id} className="rounded-lg border border-slate-200 px-3 py-2"><div className="flex items-start justify-between gap-3"><div className="truncate text-sm font-medium">{item.opportunity.requestedMachine || item.opportunity.requestedProduct}</div><span className="font-data text-xs font-semibold text-[#163b75]">%{item.similarity}</span></div><div className="mt-1 text-xs text-muted-foreground">{formatMoney(item.opportunity.estimatedAmount, item.opportunity.currency)}</div></div>)}
+                        {similarWins.length === 0 && <EmptyState>Karşılaştırma için yeterli veri yok.</EmptyState>}
+                      </div>
+                    </div>
+                  )}
+                  <details className="rounded-lg border border-slate-200 bg-slate-50/70">
+                    <summary className="min-h-11 cursor-pointer px-3 py-3 text-sm font-semibold text-[#0b1739]">AI / CRM yardımcı özeti</summary>
+                    <div className="space-y-3 border-t border-slate-200 px-3 py-3 text-sm">
+                      <Badge variant="outline" className="border-blue-200 bg-blue-50 text-[#163b75]">CRM veri özeti</Badge>
+                      <p className="leading-6 text-muted-foreground">
+                        {terminal
+                          ? `Fırsat ${decisionModel.terminalLabel?.toLocaleLowerCase("tr-TR") ?? "tamamlandı"}; kapanış kayıtları ve ticari belgeler gözden geçirilmeli.`
+                          : `${score.label} nabız seviyesinde. Sıradaki iş: ${decisionModel.nextAction}.`}
+                      </p>
+                      <dl className="grid gap-2 sm:grid-cols-3">
+                        <div><dt className="text-[10px] uppercase tracking-wide text-muted-foreground">Nabız</dt><dd className="mt-0.5 font-semibold">{score.score} / 100</dd></div>
+                        <div><dt className="text-[10px] uppercase tracking-wide text-muted-foreground">Süreç</dt><dd className="mt-0.5 font-semibold">{decisionModel.currentStage} → {decisionModel.nextStage}</dd></div>
+                        <div><dt className="text-[10px] uppercase tracking-wide text-muted-foreground">Risk</dt><dd className="mt-0.5 font-semibold">{decisionModel.risks.length ? `${decisionModel.risks.length} açık risk` : "Belirgin risk yok"}</dd></div>
+                      </dl>
+                      <p className="text-[10px] text-muted-foreground">Bu özet yalnız mevcut CRM alanlarından deterministik olarak üretilir; harici modele veri göndermez.</p>
+                    </div>
+                  </details>
+                </div>
+              </details>
+            </>
+          )}
+
+          <div className={`${isLead || simpleOpportunity ? "hidden" : "grid"} gap-4 lg:grid-cols-2`}>
             {preferences.showStakeholders && <details className="rounded-xl border border-slate-200 bg-white"><summary className="min-h-11 cursor-pointer px-4 py-3 text-sm font-semibold">Paydaşlar</summary><Card className="rounded-t-none border-x-0 border-b-0 shadow-none"><CardHeader className="sr-only"><CardTitle>Paydaşlar</CardTitle></CardHeader><CardContent className="space-y-2 pt-4">{owner && <div className="flex items-center justify-between rounded-lg border border-slate-200 px-3 py-2"><div><div className="text-sm font-medium">{owner.name}</div><div className="text-[10px] text-muted-foreground">Fırsat sahibi · {owner.department}</div></div><Badge variant="outline">İç paydaş</Badge></div>}{companyContacts.map((contact) => <div key={contact.id} className="flex items-center justify-between rounded-lg border border-slate-200 px-3 py-2"><div className="min-w-0"><div className="truncate text-sm font-medium">{contact.name}</div><div className="truncate text-[10px] text-muted-foreground">{contact.decisionRoleName || contact.title || contact.department || "Firma kontağı"}</div></div><Badge variant="outline">{contact.isPrimary ? "Ana kontak" : "Paydaş"}</Badge></div>)}{!owner && companyContacts.length === 0 && <EmptyState>Henüz paydaş tanımlanmadı.</EmptyState>}</CardContent></Card></details>}
             {preferences.showSimilar && <details className="rounded-xl border border-slate-200 bg-white"><summary className="min-h-11 cursor-pointer px-4 py-3 text-sm font-semibold">Benzer kazanılan fırsatlar</summary><Card className="rounded-t-none border-x-0 border-b-0 shadow-none"><CardHeader className="sr-only"><CardTitle>Benzer kazanılan fırsatlar</CardTitle></CardHeader><CardContent className="space-y-2 pt-4">{similarWins.map((item) => <div key={item.opportunity.id} className="rounded-lg border border-slate-200 px-3 py-2"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><div className="truncate text-sm font-medium">{item.opportunity.requestedMachine || item.opportunity.requestedProduct}</div><div className="mt-0.5 truncate text-[10px] text-muted-foreground">{item.reasons.join(" · ") || "Kazanılmış fırsat"}</div></div><span className="font-data text-xs font-semibold text-[#163b75]">%{item.similarity}</span></div><div className="mt-2 text-xs tabular-nums text-muted-foreground">{formatMoney(item.opportunity.estimatedAmount, item.opportunity.currency)} · {formatDate(item.opportunity.closedAt)}</div></div>)}{similarWins.length === 0 && <EmptyState>Karşılaştırma için yeterli benzer kazanılmış fırsat yok.</EmptyState>}</CardContent></Card></details>}
           </div>
@@ -894,11 +1277,21 @@ export function OpportunityWorkspace({
         <TabsContent value="commercial" className="mt-4 space-y-4">
           <Card>
             <CardHeader className="flex-row items-start justify-between gap-3 pb-3">
-              <div><CardTitle className="text-base">Ticari alanlar</CardTitle><p className="mt-1 text-xs text-muted-foreground">Tutar, olasılık ve hedef kapanışı belge zinciriyle aynı yerde yönetin.</p></div>
-              <div className="text-right text-xs" aria-live="polite" role="status">
-                {saveState === "saving" && <span className="inline-flex items-center gap-1 text-muted-foreground"><Loader2 className="size-3.5 animate-spin motion-reduce:animate-none" /> Kaydediliyor</span>}
-                {saveState === "saved" && <span className="inline-flex items-center gap-1 font-medium text-emerald-700"><Check className="size-3.5" /> Kaydedildi</span>}
-                {saveState === "error" && <span className="inline-flex items-center gap-1 font-medium text-red-700"><AlertTriangle className="size-3.5" /> Alanları kontrol edin</span>}
+              <div><CardTitle className="text-base">Ticari alanlar</CardTitle><p className="mt-1 text-xs text-muted-foreground">Tutar, olasılık, hedef kapanış ve ödeme vadesini tek işlemde yönetin.</p></div>
+              <div className="flex flex-wrap items-center justify-end gap-2 text-right text-xs">
+                <div aria-live="polite" role="status">
+                  {saveState === "saving" && <span className="inline-flex items-center gap-1 text-muted-foreground"><Loader2 className="size-3.5 animate-spin motion-reduce:animate-none" /> Kaydediliyor</span>}
+                  {saveState === "saved" && <span className="inline-flex items-center gap-1 font-medium text-emerald-700"><Check className="size-3.5" /> Kaydedildi</span>}
+                  {saveState === "error" && <span className="inline-flex items-center gap-1 font-medium text-red-700"><AlertTriangle className="size-3.5" /> Alanları kontrol edin</span>}
+                </div>
+                {simpleOpportunity && canUpdate && !commercialEditing && (
+                  <Button type="button" variant="outline" size="sm" onClick={() => setCommercialEditing(true)}>
+                    <Pencil className="size-3.5" /> Düzenle
+                  </Button>
+                )}
+                {simpleOpportunity && commercialEditing && (
+                  <Button type="button" variant="ghost" size="sm" onClick={cancelCommercialEdit} disabled={saveState === "saving"}>İptal</Button>
+                )}
               </div>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -908,23 +1301,28 @@ export function OpportunityWorkspace({
                 <Metric label="Ağırlıklı" value={amountError || probabilityError ? "—" : formatMoney(weightedValue, currency)} />
                 <Metric label="Kapanış" value={formatDate(expectedCloseDate)} />
               </div>
-              <div className="grid gap-3 border-t border-slate-200 pt-4 sm:grid-cols-[1fr_110px_120px_150px_auto] sm:items-start">
+              <div className="grid gap-3 border-t border-slate-200 pt-4 sm:grid-cols-2 lg:grid-cols-[minmax(160px,1fr)_100px_110px_145px_120px_auto] lg:items-start">
                 <div>
                   <Label htmlFor="opportunity-amount" className="text-xs">Tahmini tutar</Label>
-                  <Input id="opportunity-amount" type="number" min={0} value={amount} disabled={!canUpdate} aria-invalid={Boolean(amountError)} aria-describedby={amountError ? "opportunity-amount-error" : undefined} onChange={(event) => { setAmount(event.target.value); setSaveState("idle"); }} className="mt-1.5" />
+                  <Input id="opportunity-amount" type="number" min={0} value={amount} disabled={!canUpdate || (simpleOpportunity && !commercialEditing)} aria-invalid={Boolean(amountError)} aria-describedby={amountError ? "opportunity-amount-error" : undefined} onChange={(event) => { setAmount(event.target.value); setSaveState("idle"); }} className="mt-1.5" />
                   {amountError && <p id="opportunity-amount-error" className="mt-1 text-xs text-red-700">{amountError}</p>}
                 </div>
                 <div>
                   <Label htmlFor="opportunity-currency" className="text-xs">Para birimi</Label>
-                  <Select value={currency} disabled={!canUpdate} onValueChange={(value) => { setCurrency(value as SalesCase["currency"]); setSaveState("idle"); }}><SelectTrigger id="opportunity-currency" className="mt-1.5"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="USD">USD</SelectItem><SelectItem value="EUR">EUR</SelectItem><SelectItem value="TRY">TRY</SelectItem></SelectContent></Select>
+                  <Select value={currency} disabled={!canUpdate || (simpleOpportunity && !commercialEditing)} onValueChange={(value) => { setCurrency(value as SalesCase["currency"]); setSaveState("idle"); }}><SelectTrigger id="opportunity-currency" className="mt-1.5"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="USD">USD</SelectItem><SelectItem value="EUR">EUR</SelectItem><SelectItem value="TRY">TRY</SelectItem></SelectContent></Select>
                 </div>
                 <div>
                   <Label htmlFor="opportunity-probability" className="text-xs">Olasılık %</Label>
-                  <Input id="opportunity-probability" type="number" min={0} max={100} value={probability} disabled={!canUpdate} aria-invalid={Boolean(probabilityError)} aria-describedby={probabilityError ? "opportunity-probability-error" : undefined} onChange={(event) => { setProbability(event.target.value); setSaveState("idle"); }} className="mt-1.5" />
+                  <Input id="opportunity-probability" type="number" min={0} max={100} value={probability} disabled={!canUpdate || (simpleOpportunity && !commercialEditing)} aria-invalid={Boolean(probabilityError)} aria-describedby={probabilityError ? "opportunity-probability-error" : undefined} onChange={(event) => { setProbability(event.target.value); setSaveState("idle"); }} className="mt-1.5" />
                   {probabilityError && <p id="opportunity-probability-error" className="mt-1 text-xs text-red-700">{probabilityError}</p>}
                 </div>
-                <div><Label htmlFor="opportunity-close" className="text-xs">Beklenen kapanış</Label><Input id="opportunity-close" type="date" value={expectedCloseDate} disabled={!canUpdate} onChange={(event) => { setExpectedCloseDate(event.target.value); setSaveState("idle"); }} className="mt-1.5" /></div>
-                {canUpdate && <Button type="button" onClick={() => void saveCommercial()} disabled={saveState === "saving" || Boolean(amountError || probabilityError)} className="mt-[1.375rem] gap-1.5"><Save className="size-4" /> Kaydet</Button>}
+                <div><Label htmlFor="opportunity-close" className="text-xs">Beklenen kapanış</Label><Input id="opportunity-close" type="date" value={expectedCloseDate} disabled={!canUpdate || (simpleOpportunity && !commercialEditing)} onChange={(event) => { setExpectedCloseDate(event.target.value); setSaveState("idle"); }} className="mt-1.5" /></div>
+                <div>
+                  <Label htmlFor="opportunity-payment-term" className="text-xs">Ödeme vadesi (gün)</Label>
+                  <Input id="opportunity-payment-term" type="number" min={0} step={1} value={paymentTermDays} disabled={!canUpdate || (simpleOpportunity && !commercialEditing)} aria-invalid={Boolean(paymentTermError)} aria-describedby={paymentTermError ? "opportunity-payment-term-error" : undefined} onChange={(event) => { setPaymentTermDays(event.target.value); setSaveState("idle"); }} className="mt-1.5" />
+                  {paymentTermError && <p id="opportunity-payment-term-error" className="mt-1 text-xs text-red-700">{paymentTermError}</p>}
+                </div>
+                {canUpdate && !simpleOpportunity && <Button type="button" onClick={() => void saveCommercial()} disabled={saveState === "saving" || Boolean(amountError || probabilityError || paymentTermError)} className="mt-[1.375rem] gap-1.5"><Save className="size-4" /> Kaydet</Button>}
               </div>
             </CardContent>
           </Card>
@@ -948,8 +1346,8 @@ export function OpportunityWorkspace({
                 : undefined,
             } : undefined}
           />
-          <div className="grid gap-3 sm:grid-cols-4"><Metric label="Fırsat değeri" value={formatMoney(sc.estimatedAmount, sc.currency)} /><Metric label="Ağırlıklı değer" value={formatMoney(sc.estimatedAmount * ((sc.probability ?? 50) / 100), sc.currency)} /><Metric label="Teklif" value={String(opportunityOffers.length)} hint={opportunityOffers[0]?.status} /><Metric label="Ödeme kaydı" value={String(opportunityPayments.length)} hint={`${opportunityPayments.filter((item) => item.status === "Overdue").length} gecikmiş`} /></div>
-          <Card><CardHeader className="flex-row items-center justify-between gap-3"><CardTitle className="text-base">Teklifler</CardTitle>{hasPermission("quotes.create") && <QuoteDialog defaultCaseId={sc.id} defaultCustomerId={sc.customerId} trigger={<Button size="sm">Yeni teklif</Button>} />}</CardHeader><CardContent className="space-y-2">{opportunityOffers.map((offer) => <button key={offer.id} type="button" className="grid w-full grid-cols-[1fr_auto] gap-3 rounded-lg border border-slate-200 px-3 py-2 text-left hover:border-[#163b75]/40 hover:bg-slate-50" onClick={() => onOpenOffer(offer.id)}><div><div className="text-sm font-medium">{offer.quoteNo} · R{offer.revision}</div><div className="mt-0.5 text-[10px] text-muted-foreground">{formatDate(offer.date)} · {offer.status}</div></div><div className="font-data text-sm font-semibold tabular-nums">{formatMoney(offer.amount, offer.currency)}</div></button>)}{opportunityOffers.length === 0 && <EmptyState>Teklif kaydı yok.</EmptyState>}</CardContent></Card>
+          {!simpleOpportunity && <div className="grid gap-3 sm:grid-cols-4"><Metric label="Fırsat değeri" value={formatMoney(sc.estimatedAmount, sc.currency)} /><Metric label="Ağırlıklı değer" value={formatMoney(sc.estimatedAmount * ((sc.probability ?? 50) / 100), sc.currency)} /><Metric label="Teklif" value={String(opportunityOffers.length)} hint={opportunityOffers[0]?.status} /><Metric label="Ödeme kaydı" value={String(opportunityPayments.length)} hint={`${opportunityPayments.filter((item) => item.status === "Overdue").length} gecikmiş`} /></div>}
+          <Card><CardHeader className="flex-row items-center justify-between gap-3"><CardTitle className="text-base">Teklifler</CardTitle>{hasPermission("quotes.create") && <QuoteDialog defaultCaseId={sc.id} defaultCustomerId={sc.customerId} trigger={<Button size="sm">Yeni teklif</Button>} />}</CardHeader><CardContent className="space-y-2">{displayedOpportunityOffers.map((offer) => <button key={offer.id} type="button" className="grid w-full grid-cols-[1fr_auto] gap-3 rounded-lg border border-slate-200 px-3 py-2 text-left hover:border-[#163b75]/40 hover:bg-slate-50" onClick={() => onOpenOffer(offer.id)}><div><div className="text-sm font-medium">{offer.quoteNo} · R{offer.revision}</div><div className="mt-0.5 text-[10px] text-muted-foreground">{formatDate(offer.date)} · {offer.status}</div></div><div className="font-data text-sm font-semibold tabular-nums">{formatMoney(offer.amount, offer.currency)}</div></button>)}{opportunityOffers.length === 0 && <EmptyState>Teklif kaydı yok.</EmptyState>}</CardContent></Card>
           <Card><CardHeader><CardTitle className="text-base">Ödeme ve tahsilat</CardTitle></CardHeader><CardContent className="space-y-2">{opportunityPayments.map((payment) => <div key={payment.id} className="grid grid-cols-[1fr_auto] gap-3 rounded-lg border border-slate-200 px-3 py-2"><div><div className="text-sm font-medium">{payment.paymentType === "received" ? "Tahsilat" : "Beklenen ödeme"}</div><div className="mt-0.5 text-[10px] text-muted-foreground">Vade {formatDate(payment.dueDate)} · {payment.status}</div></div><div className="font-data text-sm font-semibold tabular-nums">{formatMoney(payment.amount, payment.currency)}</div></div>)}{opportunityPayments.length === 0 && <EmptyState>Ödeme planı veya tahsilat kaydı yok.</EmptyState>}</CardContent></Card>
         </TabsContent>
 
@@ -978,12 +1376,24 @@ export function OpportunityWorkspace({
               <div>
                 <div className="text-xs font-semibold text-[#0b1739]">Geçiş engelleri</div>
                 <div className="mt-2 flex flex-wrap gap-2">
-                  {(nextOperationTarget?.blockers ?? []).slice(0, 6).map((blocker) => (
-                    <Badge key={blocker.key} variant="outline" className="border-amber-200 bg-amber-50 text-amber-800">
-                      {blocker.label}
-                    </Badge>
-                  ))}
-                  {!nextOperationTarget?.blockers.length && (
+                  {(nextOperationTarget?.blockers ?? []).slice(0, 6).map((blocker) => {
+                    const canOpenBlocker = Boolean(onCommercialAction) && canPerformCommercialAction?.(blocker.actionKey) !== false;
+                    return canOpenBlocker ? (
+                      // Engel eylemini tüketen görev listesi süreç haritasının içinde; harita
+                      // kapalıyken tıklama sessizce kaybolduğu için önce haritayı açıyoruz.
+                      <Button key={blocker.key} type="button" variant="outline" size="sm" className="min-h-9 border-amber-200 bg-amber-50 text-amber-900 hover:bg-amber-100" onClick={() => { revealProcessActions(); onCommercialAction?.(blocker.actionKey); }}>
+                        {blocker.label}
+                      </Button>
+                    ) : (
+                      <Badge key={blocker.key} variant="outline" className="border-amber-200 bg-amber-50 text-amber-800">
+                        {blocker.label}
+                      </Badge>
+                    );
+                  })}
+                  {!operationReadiness && (
+                    <span className="inline-flex items-center gap-1.5 text-sm text-amber-800"><AlertTriangle className="size-4" /> Hazırlık bilgisi alınamadı; geçiş hazır varsayılmıyor.</span>
+                  )}
+                  {operationReadiness && !nextOperationTarget?.blockers.length && (
                     <span className="inline-flex items-center gap-1.5 text-sm text-emerald-700"><Check className="size-4" /> Sıradaki geçiş için engel yok</span>
                   )}
                 </div>
@@ -995,36 +1405,125 @@ export function OpportunityWorkspace({
                 aria-expanded={operationsExpanded}
                 onClick={() => setOperationsExpanded((value) => !value)}
               >
-                {operationsExpanded ? "Tam süreç raylarını kapat" : "Tam süreç raylarını aç"}
+                {simpleOpportunity
+                  ? operationsExpanded ? "Tam süreç haritasını kapat" : "Tam süreç haritasını aç"
+                  : operationsExpanded ? "Tam süreç raylarını kapat" : "Tam süreç raylarını aç"}
               </Button>
             </CardContent>
           </Card>
+          {simpleOpportunity && (
+            <div className="grid gap-3 sm:grid-cols-3" aria-label="Saha operasyonu özeti">
+              <button type="button" className="min-h-20 rounded-xl border border-slate-200 bg-white p-3 text-left transition hover:border-[#163b75]/40 hover:bg-slate-50" onClick={revealProcessActions}>
+                <span className="inline-flex items-center gap-2 text-sm font-semibold text-[#0b1739]"><Truck className="size-4" /> Sevkiyat</span>
+                <span className="mt-1 block text-xs text-muted-foreground">{opportunityShipments[0]?.status ?? "Henüz başlamadı"}</span>
+              </button>
+              <button type="button" className="min-h-20 rounded-xl border border-slate-200 bg-white p-3 text-left transition hover:border-[#163b75]/40 hover:bg-slate-50" onClick={revealProcessActions}>
+                <span className="inline-flex items-center gap-2 text-sm font-semibold text-[#0b1739]"><FileClock className="size-4" /> Teslim</span>
+                <span className="mt-1 block text-xs text-muted-foreground">{opportunityDeliveries[0]?.status ?? "Henüz başlamadı"}</span>
+              </button>
+              <button type="button" className="min-h-20 rounded-xl border border-slate-200 bg-white p-3 text-left transition hover:border-[#163b75]/40 hover:bg-slate-50" onClick={revealProcessActions}>
+                <span className="inline-flex items-center gap-2 text-sm font-semibold text-[#0b1739]"><Wrench className="size-4" /> Kurulum</span>
+                <span className="mt-1 block text-xs text-muted-foreground">{opportunityInstallations[0]?.statusName ?? "Henüz başlamadı"}</span>
+              </button>
+            </div>
+          )}
           {operationsExpanded && (
             <div className="space-y-4">
               {renderProcessCenter ? renderProcessCenter({ detail, loading: detailLoading, reload: loadDetail }) : processCenter}
-              {processChecklist}
-              <div className="grid gap-4 lg:grid-cols-3">
+              {!simpleOpportunity && <div className="grid gap-4 lg:grid-cols-3">
                 <Card><CardHeader className="pb-3"><CardTitle className="inline-flex items-center gap-2 text-sm"><Truck className="size-4" /> Sevkiyat</CardTitle></CardHeader><CardContent className="space-y-2">{opportunityShipments.map((shipment) => <div key={shipment.id} className="rounded-lg border border-slate-200 p-3 text-sm"><div className="font-medium">{shipment.trackingNo || "Takip numarası yok"}</div><div className="mt-1 text-xs text-muted-foreground">{shipment.status} · ETA {formatDate(shipment.eta)}</div></div>)}{opportunityShipments.length === 0 && <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-4 text-center"><div className="text-sm text-muted-foreground">Sevkiyat yok.</div><Button type="button" variant="outline" size="sm" className="mt-3 min-h-11 sm:min-h-8" onClick={revealProcessActions}>Sevkiyat oluştur</Button></div>}</CardContent></Card>
                 <Card><CardHeader className="pb-3"><CardTitle className="inline-flex items-center gap-2 text-sm"><FileClock className="size-4" /> Teslim</CardTitle></CardHeader><CardContent className="space-y-2">{opportunityDeliveries.map((delivery) => <div key={delivery.id} className="rounded-lg border border-slate-200 p-3 text-sm"><div className="font-medium">{delivery.status}</div><div className="mt-1 text-xs text-muted-foreground">{formatDate(delivery.date)} · {delivery.signedBy || "İmza bekliyor"}</div></div>)}{opportunityDeliveries.length === 0 && <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-4 text-center"><div className="text-sm text-muted-foreground">Teslim kaydı yok.</div><Button type="button" variant="outline" size="sm" className="mt-3 min-h-11 sm:min-h-8" onClick={revealProcessActions}>Teslim kaydı oluştur</Button></div>}</CardContent></Card>
                 <Card><CardHeader className="pb-3"><CardTitle className="inline-flex items-center gap-2 text-sm"><Wrench className="size-4" /> Kurulum</CardTitle></CardHeader><CardContent className="space-y-2">{opportunityInstallations.map((installation) => <div key={installation.id} className="rounded-lg border border-slate-200 p-3 text-sm"><div className="font-medium">{installation.statusName}</div><div className="mt-1 text-xs text-muted-foreground">{installation.technician || "Teknisyen atanmadı"} · {formatDate(installation.scheduledDate)}</div></div>)}{opportunityInstallations.length === 0 && <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-4 text-center"><div className="text-sm text-muted-foreground">Kurulum kaydı yok.</div><Button type="button" variant="outline" size="sm" className="mt-3 min-h-11 sm:min-h-8" onClick={revealProcessActions}>Kurulum oluştur</Button></div>}</CardContent></Card>
-              </div>
+              </div>}
             </div>
           )}
         </TabsContent>
 
         <TabsContent value="files" className="mt-4 space-y-4">
-          <div className="grid gap-4 lg:grid-cols-[1.05fr_.95fr]">
-            <DocumentPanel
-              documents={opportunityDocuments}
-              uploadAction={hasPermission("files.create")
-                ? <DocumentUploadDialog defaultSalesCaseId={sc.id} defaultCompanyId={sc.customerId} trigger={<Button size="sm">Dosya yükle</Button>} />
-                : undefined}
-              onDownload={onDownloadDocument}
-              onPreview={(document) => void previewDocument(document)}
-            />
-            <Card><CardHeader className="pb-3"><CardTitle className="inline-flex items-center gap-2 text-base"><ShieldCheck className="size-4" /> Onay geçmişi</CardTitle></CardHeader><CardContent className="space-y-2">{(detail?.approvals ?? []).map((approval) => <div key={approval.id} className="rounded-lg border border-slate-200 p-3"><div className="flex items-center justify-between gap-3"><div className="text-sm font-medium">{APPROVAL_LABELS[approval.approvalType] ?? approval.approvalType}</div><Badge variant="outline">{approval.status}</Badge></div><div className="mt-1 text-[10px] text-muted-foreground">{approval.decidedByUser?.fullName ?? approval.decidedByUser?.email ?? "Karar bekliyor"} · {formatDate(approval.decidedAt ?? approval.updatedAt, true)}</div>{(approval.decisionNote || approval.note) && <div className="mt-2 text-xs text-muted-foreground">{approval.decisionNote || approval.note}</div>}</div>)}{!detailLoading && (detail?.approvals ?? []).length === 0 && <EmptyState>Onay kaydı yok.</EmptyState>}</CardContent></Card>
-          </div>
-          <Card><CardHeader className="flex-row items-center justify-between gap-3"><div><CardTitle className="inline-flex items-center gap-2 text-base"><Clock3 className="size-4" /> Değişiklik günlüğü</CardTitle><p className="mt-1 text-xs text-muted-foreground">Bu kayda ait son 100 denetlenebilir değişiklik; hassas alanlar maskelenir.</p></div><Button variant="outline" size="sm" onClick={() => void loadDetail()} disabled={detailLoading}><RefreshCw className={`size-4 ${detailLoading ? "animate-spin" : ""}`} /></Button></CardHeader><CardContent className="space-y-3">{(detail?.auditHistory ?? []).map((audit) => <div key={audit.id} className="grid gap-1 border-l-2 border-slate-200 pl-3 sm:grid-cols-[180px_1fr]"><div className="text-[10px] text-muted-foreground">{formatDate(audit.createdAt, true)}<br />{audit.actor?.fullName ?? audit.actor?.email ?? "Sistem"}</div><div><div className="text-sm font-medium">{AUDIT_ACTION_LABELS[audit.action] ?? audit.action}</div>{auditDetail(audit.oldValues, audit.newValues, userNames) && <div className="mt-1 break-words text-xs leading-5 text-muted-foreground">{auditDetail(audit.oldValues, audit.newValues, userNames)}</div>}</div></div>)}{!detailLoading && (detail?.auditHistory ?? []).length === 0 && <EmptyState>Değişiklik günlüğü kaydı yok.</EmptyState>}</CardContent></Card>
+          {simpleOpportunity ? (
+            <Tabs value={recordView} onValueChange={(value) => {
+              const nextView = value as OpportunityRecordView;
+              setRecordView(nextView);
+              setSimplePreferences((current) => ({ ...current, defaultRecordView: nextView }));
+            }}>
+              <div className="sm:hidden">
+                <Label htmlFor="workspace-record-view" className="text-xs font-semibold">Kayıt türü</Label>
+                <Select value={recordView} onValueChange={(value) => {
+                  const nextView = value as OpportunityRecordView;
+                  setRecordView(nextView);
+                  setSimplePreferences((current) => ({ ...current, defaultRecordView: nextView }));
+                }}>
+                  <SelectTrigger id="workspace-record-view" className="mt-1.5 h-11 w-full bg-white"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="activities">Aktiviteler</SelectItem>
+                    <SelectItem value="files">Dosyalar</SelectItem>
+                    <SelectItem value="approvals">Onaylar</SelectItem>
+                    <SelectItem value="audit">Değişiklik günlüğü</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <TabsList aria-label="Kayıt görünümleri" className="hidden h-auto w-full justify-start rounded-none border-b border-slate-200 bg-transparent p-0 sm:flex">
+                <TabsTrigger value="activities" className="min-h-10 rounded-none border-b-2 border-transparent data-[state=active]:border-[#163b75] data-[state=active]:bg-transparent data-[state=active]:shadow-none">Aktiviteler</TabsTrigger>
+                <TabsTrigger value="files" className="min-h-10 rounded-none border-b-2 border-transparent data-[state=active]:border-[#163b75] data-[state=active]:bg-transparent data-[state=active]:shadow-none">Dosyalar</TabsTrigger>
+                <TabsTrigger value="approvals" className="min-h-10 rounded-none border-b-2 border-transparent data-[state=active]:border-[#163b75] data-[state=active]:bg-transparent data-[state=active]:shadow-none">Onaylar</TabsTrigger>
+                <TabsTrigger value="audit" className="min-h-10 rounded-none border-b-2 border-transparent data-[state=active]:border-[#163b75] data-[state=active]:bg-transparent data-[state=active]:shadow-none">Değişiklik günlüğü</TabsTrigger>
+              </TabsList>
+
+              <TabsContent value="activities" className="mt-4 space-y-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div><h3 className="font-display text-lg font-semibold text-[#0b1739]">Aktiviteler</h3><p className="text-xs text-muted-foreground">Müşteri temasları ile salt okunur süreç, ticari belge ve onay olayları.</p></div>
+                  {hasPermission("activities.create") && <AddActivityDialog salesCaseId={sc.id} customerId={sc.customerId} commentOnly trigger={<Button size="sm" className="min-h-11 gap-1.5 sm:min-h-8"><ActivityIcon className="size-4" /> Yorum ekle</Button>} />}
+                </div>
+                <Card><CardContent className={padding}>
+                  {detailLoading && <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin motion-reduce:animate-none" /> Geçmiş yükleniyor…</div>}
+                  {!detailLoading && <UnifiedTimeline
+                    items={timeline.map((item) => ({ ...item, categoryLabel: item.categoryLabel ?? categoryLabel[item.category] }))}
+                    focusedId={focusedActivityId ? `activity-${focusedActivityId}` : null}
+                    formatDate={formatDate}
+                    emptyLabel="Bu fırsat için henüz aktivite veya sistem hareketi yok."
+                    renderActions={(item) => item.sourceActivityId ? <div className="flex gap-1">
+                      {hasPermission("activities.update") && onEditActivity && <Button type="button" variant="ghost" size="icon" className="size-11 sm:size-8" onClick={() => onEditActivity(item.sourceActivityId!)}><Pencil className="size-3.5" /><span className="sr-only">{item.title} aktivitesini düzenle</span></Button>}
+                      {hasPermission("activities.delete") && onDeleteActivity && <Button type="button" variant="ghost" size="icon" className="size-11 text-red-700 sm:size-8" onClick={() => onDeleteActivity(item.sourceActivityId!)}><Trash2 className="size-3.5" /><span className="sr-only">{item.title} aktivitesini sil</span></Button>}
+                    </div> : null}
+                  />}
+                </CardContent></Card>
+              </TabsContent>
+
+              <TabsContent value="files" className="mt-4">
+                <DocumentPanel
+                  documents={opportunityDocuments}
+                  uploadAction={hasPermission("files.create")
+                    ? <DocumentUploadDialog defaultSalesCaseId={sc.id} defaultCompanyId={sc.customerId} trigger={<Button size="sm">Dosya yükle</Button>} />
+                    : undefined}
+                  onDownload={onDownloadDocument}
+                  onPreview={(document) => void previewDocument(document)}
+                />
+              </TabsContent>
+
+              <TabsContent value="approvals" className="mt-4">
+                <Card><CardHeader className="pb-3"><CardTitle className="inline-flex items-center gap-2 text-base"><ShieldCheck className="size-4" /> Onay geçmişi</CardTitle></CardHeader><CardContent className="space-y-2">{[...(detail?.approvals ?? [])].sort((left, right) => (left.status === "pending" || left.status === "Pending" ? -1 : 0) - (right.status === "pending" || right.status === "Pending" ? -1 : 0)).map((approval) => <div key={approval.id} className="rounded-lg border border-slate-200 p-3"><div className="flex items-center justify-between gap-3"><div className="text-sm font-medium">{APPROVAL_LABELS[approval.approvalType] ?? approval.approvalType}</div><Badge variant="outline">{approval.status}</Badge></div><div className="mt-1 text-[10px] text-muted-foreground">{approval.decidedByUser?.fullName ?? approval.decidedByUser?.email ?? "Karar bekliyor"} · {formatDate(approval.decidedAt ?? approval.updatedAt, true)}</div>{(approval.decisionNote || approval.note) && <div className="mt-2 text-xs text-muted-foreground">{approval.decisionNote || approval.note}</div>}</div>)}{!detailLoading && (detail?.approvals ?? []).length === 0 && <EmptyState>Onay kaydı yok.</EmptyState>}</CardContent></Card>
+              </TabsContent>
+
+              <TabsContent value="audit" className="mt-4">
+                <Card><CardHeader className="flex-row items-center justify-between gap-3"><div><CardTitle className="inline-flex items-center gap-2 text-base"><Clock3 className="size-4" /> Değişiklik günlüğü</CardTitle><p className="mt-1 text-xs text-muted-foreground">Son denetlenebilir değişiklikler. Hassas alanlar maskelenir.</p></div><Button variant="outline" size="sm" onClick={() => void loadDetail()} disabled={detailLoading}><RefreshCw className={`size-4 ${detailLoading ? "animate-spin motion-reduce:animate-none" : ""}`} /><span className="sr-only">Günlüğü yenile</span></Button></CardHeader><CardContent className="space-y-3">{(detail?.auditHistory ?? []).slice(0, auditVisibleCount).map((audit) => <div key={audit.id} className="grid gap-1 border-l-2 border-slate-200 pl-3 sm:grid-cols-[180px_1fr]"><div className="text-[10px] text-muted-foreground">{formatDate(audit.createdAt, true)}<br />{audit.actor?.fullName ?? audit.actor?.email ?? "Sistem"}</div><div><div className="text-sm font-medium">{AUDIT_ACTION_LABELS[audit.action] ?? audit.action}</div>{auditDetail(audit.oldValues, audit.newValues, userNames) && <div className="mt-1 break-words text-xs leading-5 text-muted-foreground">{auditDetail(audit.oldValues, audit.newValues, userNames)}</div>}</div></div>)}{!detailLoading && (detail?.auditHistory ?? []).length === 0 && <EmptyState>Değişiklik günlüğü kaydı yok.</EmptyState>}{(detail?.auditHistory ?? []).length > auditVisibleCount && <Button type="button" variant="outline" className="w-full" onClick={() => setAuditVisibleCount((count) => count + 20)}>Daha fazla göster</Button>}</CardContent></Card>
+              </TabsContent>
+            </Tabs>
+          ) : (
+            <>
+              <div className="grid gap-4 lg:grid-cols-[1.05fr_.95fr]">
+                <DocumentPanel
+                  documents={opportunityDocuments}
+                  uploadAction={hasPermission("files.create")
+                    ? <DocumentUploadDialog defaultSalesCaseId={sc.id} defaultCompanyId={sc.customerId} trigger={<Button size="sm">Dosya yükle</Button>} />
+                    : undefined}
+                  onDownload={onDownloadDocument}
+                  onPreview={(document) => void previewDocument(document)}
+                />
+                <Card><CardHeader className="pb-3"><CardTitle className="inline-flex items-center gap-2 text-base"><ShieldCheck className="size-4" /> Onay geçmişi</CardTitle></CardHeader><CardContent className="space-y-2">{(detail?.approvals ?? []).map((approval) => <div key={approval.id} className="rounded-lg border border-slate-200 p-3"><div className="flex items-center justify-between gap-3"><div className="text-sm font-medium">{APPROVAL_LABELS[approval.approvalType] ?? approval.approvalType}</div><Badge variant="outline">{approval.status}</Badge></div><div className="mt-1 text-[10px] text-muted-foreground">{approval.decidedByUser?.fullName ?? approval.decidedByUser?.email ?? "Karar bekliyor"} · {formatDate(approval.decidedAt ?? approval.updatedAt, true)}</div>{(approval.decisionNote || approval.note) && <div className="mt-2 text-xs text-muted-foreground">{approval.decisionNote || approval.note}</div>}</div>)}{!detailLoading && (detail?.approvals ?? []).length === 0 && <EmptyState>Onay kaydı yok.</EmptyState>}</CardContent></Card>
+              </div>
+              <Card><CardHeader className="flex-row items-center justify-between gap-3"><div><CardTitle className="inline-flex items-center gap-2 text-base"><Clock3 className="size-4" /> Değişiklik günlüğü</CardTitle><p className="mt-1 text-xs text-muted-foreground">Bu kayda ait son 100 denetlenebilir değişiklik; hassas alanlar maskelenir.</p></div><Button variant="outline" size="sm" onClick={() => void loadDetail()} disabled={detailLoading}><RefreshCw className={`size-4 ${detailLoading ? "animate-spin" : ""}`} /></Button></CardHeader><CardContent className="space-y-3">{(detail?.auditHistory ?? []).map((audit) => <div key={audit.id} className="grid gap-1 border-l-2 border-slate-200 pl-3 sm:grid-cols-[180px_1fr]"><div className="text-[10px] text-muted-foreground">{formatDate(audit.createdAt, true)}<br />{audit.actor?.fullName ?? audit.actor?.email ?? "Sistem"}</div><div><div className="text-sm font-medium">{AUDIT_ACTION_LABELS[audit.action] ?? audit.action}</div>{auditDetail(audit.oldValues, audit.newValues, userNames) && <div className="mt-1 break-words text-xs leading-5 text-muted-foreground">{auditDetail(audit.oldValues, audit.newValues, userNames)}</div>}</div></div>)}{!detailLoading && (detail?.auditHistory ?? []).length === 0 && <EmptyState>Değişiklik günlüğü kaydı yok.</EmptyState>}</CardContent></Card>
+            </>
+          )}
         </TabsContent>
       </Tabs>
       </RecordWorkspaceShell>

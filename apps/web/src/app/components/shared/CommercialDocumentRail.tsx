@@ -48,6 +48,7 @@ export function CommercialDocumentRail({
   onOpenOffer,
   onOpenDocument,
   className,
+  showStepActions = true,
 }: {
   offers: Offer[];
   documents: DocumentItem[];
@@ -56,6 +57,7 @@ export function CommercialDocumentRail({
   onOpenOffer?: (offer: Offer) => void;
   onOpenDocument?: (document: DocumentItem) => void;
   className?: string;
+  showStepActions?: boolean;
 }) {
   const chain = buildCommercialDocumentChain(offers, documents);
   const isCompact = variant === "compact";
@@ -109,7 +111,7 @@ export function CommercialDocumentRail({
           const canOpen = step.state === "ready" && Boolean(step.itemId) && (
             step.key === "quote" ? Boolean(onOpenOffer) : Boolean(onOpenDocument)
           );
-          const action = step.state === "ready" ? null : actions?.[step.key];
+          const action = showStepActions && step.state !== "ready" ? actions?.[step.key] : null;
           return (
             <div key={step.key} className="relative z-10 min-w-0 text-center">
               <button

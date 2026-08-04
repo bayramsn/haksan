@@ -14,15 +14,17 @@ const baseURL = process.env.E2E_BASE_URL ?? "http://localhost:5173";
 
 export default defineConfig({
   testDir: "./e2e",
+  outputDir: "../../output/playwright/test-results",
   timeout: 30_000,
   expect: { timeout: 10_000 },
   fullyParallel: true,
-  retries: process.env.CI ? 1 : 0,
+  retries: 0,
   reporter: process.env.CI ? "github" : "list",
   use: {
     baseURL,
-    trace: "on-first-retry",
+    trace: "retain-on-failure",
     screenshot: "only-on-failure",
+    video: "retain-on-failure",
   },
   projects: [
     { name: "chromium", use: { ...devices["Desktop Chrome"] } },
@@ -30,7 +32,7 @@ export default defineConfig({
   webServer: {
     command: "npm run dev",
     url: baseURL,
-    reuseExistingServer: true,
+    reuseExistingServer: !process.env.CI,
     timeout: 60_000,
   },
 });

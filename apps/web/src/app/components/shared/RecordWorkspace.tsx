@@ -41,6 +41,7 @@ export type WorkspaceDecisionModel = {
   currentStage: string;
   nextStage: string;
   blockerCount: number;
+  readinessUnknown?: boolean;
   risks: WorkspaceDecisionRisk[];
   terminalLabel?: string;
 };
@@ -48,7 +49,76 @@ export type WorkspaceDecisionModel = {
 export const WorkspaceDecisionSummary = forwardRef<HTMLElement, {
   model: WorkspaceDecisionModel;
   primaryAction?: ReactNode;
-}>(function WorkspaceDecisionSummary({ model, primaryAction }, ref) {
+  variant?: "default" | "compact";
+  sectionLabel?: string;
+}>(function WorkspaceDecisionSummary({ model, primaryAction, variant = "default", sectionLabel }, ref) {
+  if (variant === "compact") {
+    return (
+      <section
+        ref={ref}
+        tabIndex={-1}
+        aria-labelledby="workspace-decision-title"
+        data-testid="workspace-decision-summary"
+        className="scroll-mt-4 rounded-xl border border-primary/20 bg-white p-4 outline-none focus-visible:ring-2 focus-visible:ring-ring sm:p-5"
+      >
+        <div className="grid gap-4 lg:grid-cols-[minmax(0,1.2fr)_minmax(220px,.9fr)_auto] lg:items-center">
+          <div className="min-w-0">
+            <div className="font-data text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+              {sectionLabel ?? "Sonraki iş"}
+            </div>
+            <h2 id="workspace-decision-title" className="mt-1 truncate font-display text-lg font-semibold text-foreground" title={model.nextAction}>
+              {model.nextAction}
+            </h2>
+            <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+              <span className={model.nextActionOverdue ? "inline-flex items-center gap-1.5 font-semibold text-destructive" : "inline-flex items-center gap-1.5"}>
+                <CalendarClock className="size-3.5" aria-hidden="true" /> {model.nextActionDate}
+              </span>
+              <span className="inline-flex items-center gap-1.5"><UserRound className="size-3.5" aria-hidden="true" /> {model.ownerName}</span>
+            </div>
+          </div>
+
+          <div className="min-w-0 border-y border-border py-3 lg:border-x lg:border-y-0 lg:px-5 lg:py-1">
+            <div className="font-data text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Süreç</div>
+            <div className="mt-1.5 grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 text-sm">
+              <span className="truncate font-medium" title={model.currentStage}>{model.currentStage}</span>
+              <ArrowRight className="size-4 text-primary" aria-hidden="true" />
+              <span className="truncate font-semibold text-primary" title={model.nextStage}>{model.nextStage}</span>
+            </div>
+            <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
+              <ShieldCheck className="size-4 text-primary" aria-hidden="true" />
+              {model.readinessUnknown
+                ? "Uygunluk doğrulanamadı"
+                : model.blockerCount
+                  ? `${model.blockerCount} geçiş engeli`
+                  : "Geçiş engeli yok"}
+              {model.terminalLabel && <Badge className="ml-auto bg-slate-700">{model.terminalLabel}</Badge>}
+            </div>
+          </div>
+
+          {primaryAction && (
+            <div data-opportunity-primary="true" className="hidden min-w-0 lg:block lg:min-w-56 [&_button]:min-h-11 [&_button]:w-full">
+              {primaryAction}
+            </div>
+          )}
+        </div>
+        {model.risks.length > 0 && (
+          <details className="mt-3 border-t border-border pt-3 text-xs">
+            <summary className="min-h-11 cursor-pointer select-none py-3 font-medium text-amber-800">
+              {model.risks.length} risk ayrıntısını göster
+            </summary>
+            <ul className="grid gap-2 sm:grid-cols-2">
+              {model.risks.map((risk) => (
+                <li key={risk.key} className={risk.tone === "danger" ? "rounded-lg border border-destructive/20 bg-destructive/5 px-3 py-2 text-destructive" : "rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-amber-900"}>
+                  <span className="font-semibold">{risk.label}</span>{risk.detail && <span className="block opacity-80">{risk.detail}</span>}
+                </li>
+              ))}
+            </ul>
+          </details>
+        )}
+      </section>
+    );
+  }
+
   return (
     <section
       ref={ref}

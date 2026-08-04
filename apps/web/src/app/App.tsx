@@ -96,7 +96,7 @@ function isNavKey(value: unknown): value is NavKey {
 
 function AppShell() {
   const { authed, loading, login, logout, hasPermission, hasRole, tenant } = useAuth();
-  const { customers, cases, loading: storeLoading } = useStore();
+  const { customers, cases, closedCases, loading: storeLoading } = useStore();
   const [showOnboarding, setShowOnboarding] = useState(shouldShowOnboarding);
   // Yenilemede kullanıcının kaldığı yer korunur (sayfa + seçili firma/satış kartı).
   const [nav, setNav] = usePersistentState<NavKey>("nav", "dashboard");
@@ -122,18 +122,21 @@ function AppShell() {
   }, [nav, setNav]);
 
   useEffect(() => {
-    const applyLocation = () => {
+    const applyLocation = (fromHistory = false) => {
       const opportunityId = new URL(window.location.href).searchParams.get("opportunity");
       if (opportunityId) {
         setSelectedCustomerId(null);
         setSelectedCaseId(opportunityId);
         setNav("sales-cases");
+      } else if (fromHistory) {
+        setSelectedCaseId(null);
       }
       setDeepLinkReady(true);
     };
     applyLocation();
-    window.addEventListener("popstate", applyLocation);
-    return () => window.removeEventListener("popstate", applyLocation);
+    const handlePopState = () => applyLocation(true);
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
   }, [setNav, setSelectedCaseId, setSelectedCustomerId]);
 
   useEffect(() => {
@@ -143,6 +146,9 @@ function AppShell() {
     else {
       url.searchParams.delete("opportunity");
       url.searchParams.delete("activity");
+      url.searchParams.delete("surface");
+      url.searchParams.delete("section");
+      url.searchParams.delete("record");
     }
     window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
   }, [deepLinkReady, selectedCaseId]);
@@ -199,9 +205,11 @@ function AppShell() {
 
   // Seçili kayıtlar id ile saklanıp store yüklendiğinde yeniden çözülür.
   const selectedCustomer: Customer | null = selectedCustomerId ? customers.find((c) => c.id === selectedCustomerId) ?? null : null;
-  const selectedCase: SalesCase | null = selectedCaseId ? cases.find((s) => s.id === selectedCaseId) ?? null : null;
+  const selectedCase: SalesCase | null = selectedCaseId
+    ? cases.find((s) => s.id === selectedCaseId) ?? closedCases.find((s) => s.id === selectedCaseId) ?? null
+    : null;
 
-  const selectOpportunity = (opportunityId: string, activityId?: string) => {
+  const selectOpportunity = (opportunityId: string, activityId?: string, historyMode: "push" | "replace" = "push") => {
     if (!canOpenNav("sales-cases")) {
       toast.error("Fırsatlar alanı şirket ayarlarında kapalı.");
       return;
@@ -210,7 +218,10 @@ function AppShell() {
     url.searchParams.set("opportunity", opportunityId);
     if (activityId) url.searchParams.set("activity", activityId);
     else url.searchParams.delete("activity");
-    window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
+    url.searchParams.set("surface", activityId ? "workspace" : "quick");
+    const nextState = { ...window.history.state, haksanOpportunity: true };
+    if (historyMode === "push") window.history.pushState(nextState, "", `${url.pathname}${url.search}${url.hash}`);
+    else window.history.replaceState(nextState, "", `${url.pathname}${url.search}${url.hash}`);
     setSelectedCustomerId(null);
     setNav("sales-cases");
     setSelectedCaseId(opportunityId);
@@ -406,7 +417,7 @@ function AppShell() {
       <SalesCaseDetailDialog
         sc={selectedCase}
         onClose={() => setSelectedCaseId(null)}
-        onNavigate={(opportunityId) => selectOpportunity(opportunityId)}
+        onNavigate={(opportunityId) => selectOpportunity(opportunityId, undefined, "replace")}
       />
     </Layout>
     </VoiceCallProvider>

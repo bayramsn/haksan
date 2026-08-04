@@ -5,21 +5,22 @@ import {
 } from "@haksan/shared";
 
 /**
- * Fırsat içindeki operasyon kartlarının sunum grupları.
+ * Fırsat içindeki operasyon kartlarının satış alanı grupları.
  *
- * `sales`, backend akışında lead dönüşümünden sonra kullanılan eski giriş
- * aşamasıdır ve teknik olarak C ile bağlı kalmalıdır. Kullanıcı açısından ise
- * "Satış" kapanış sonucudur; bu nedenle yalnız arayüzde C'den çıkarılıp WIN
- * grubunda gösterilir. Böylece görünüm düzelirken geçiş kuralları ve geçmiş
- * kayıtlar değişmez.
+ * Bu eşleme ortak süreç kaynağını doğrudan kullanır. Böylece C alanının giriş
+ * operasyonu olan `sales` C'de, kapanış operasyonu olan `delivered` WIN'de
+ * kalır ve arayüz backend geçiş kurallarıyla aynı alan sahipliğini gösterir.
  */
 export const OPPORTUNITY_OPERATION_GROUP_STEPS: Readonly<
   Record<QualificationStageCode, readonly PipelineStageCode[]>
-> = {
-  ...QUALIFICATION_STAGE_PIPELINE_STEPS,
-  c: QUALIFICATION_STAGE_PIPELINE_STEPS.c.filter((step) => step !== "sales"),
-  win: [
-    "sales",
-    ...QUALIFICATION_STAGE_PIPELINE_STEPS.win.filter((step) => step !== "sales"),
-  ],
-};
+> = QUALIFICATION_STAGE_PIPELINE_STEPS;
+
+export function operationGroupForStage(
+  operationStage: PipelineStageCode,
+): QualificationStageCode | null {
+  return (
+    (Object.keys(OPPORTUNITY_OPERATION_GROUP_STEPS) as QualificationStageCode[]).find((group) =>
+      OPPORTUNITY_OPERATION_GROUP_STEPS[group].includes(operationStage),
+    ) ?? null
+  );
+}

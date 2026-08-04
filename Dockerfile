@@ -25,6 +25,13 @@ COPY . .
 ARG VITE_API_BASE_URL=/api/v1
 ENV VITE_API_BASE_URL=${VITE_API_BASE_URL}
 
+# Fırsat çalışma alanı arayüz seçici; yetki sınırı değil, yalnız hangi
+# bileşenin render edileceğini belirler. Vite build anında gömülür.
+ARG VITE_OPPORTUNITY_WORKSPACE_SIMPLE=legacy
+ENV VITE_OPPORTUNITY_WORKSPACE_SIMPLE=${VITE_OPPORTUNITY_WORKSPACE_SIMPLE}
+ARG VITE_OPPORTUNITY_WORKSPACE_PILOT_USERS=
+ENV VITE_OPPORTUNITY_WORKSPACE_PILOT_USERS=${VITE_OPPORTUNITY_WORKSPACE_PILOT_USERS}
+
 RUN npm run build:shared \
   && npm run build:api \
   && npm run build:web \

@@ -296,6 +296,10 @@ export function DecisionRail({
   whatsappNumber,
   primaryAction,
   useLeadConversionAsPrimary = false,
+  simpleMode = false,
+  contactName,
+  contactTitle,
+  onAddActivity,
 }: {
   salesCase: SalesCase;
   ownerName?: string;
@@ -310,6 +314,10 @@ export function DecisionRail({
   whatsappNumber?: string;
   primaryAction?: ReactNode;
   useLeadConversionAsPrimary?: boolean;
+  simpleMode?: boolean;
+  contactName?: string;
+  contactTitle?: string;
+  onAddActivity?: () => void;
 }) {
   const { convertCase, refresh, updateCase } = useStore();
   const isLead = salesCase.qualificationStage === "lead";
@@ -445,11 +453,11 @@ export function DecisionRail({
 
   const quickContactActions = (
     <div>
-      <div className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Hızlı temas</div>
+      <div className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{simpleMode ? "İletişim" : "Hızlı temas"}</div>
       <div className="grid grid-cols-3 gap-2">
-        <Button type="button" variant="outline" size="sm" className="h-11 px-2" onClick={() => startContact("phone")}><Phone className="size-4" /><span className="sr-only">Ara</span></Button>
-        <Button type="button" variant="outline" size="sm" className="h-11 px-2" onClick={() => startContact("email")}><Mail className="size-4" /><span className="sr-only">E-posta</span></Button>
-        <Button type="button" variant="outline" size="sm" className="h-11 px-2" onClick={() => startContact("whatsapp")}><MessageCircle className="size-4" /><span className="sr-only">WhatsApp</span></Button>
+        <Button type="button" variant="outline" size="sm" className="h-11 gap-1 px-2 text-[11px]" onClick={() => startContact("phone")}><Phone className="size-4" /><span className={simpleMode ? "" : "sr-only"}>Ara</span></Button>
+        <Button type="button" variant="outline" size="sm" className="h-11 gap-1 px-2 text-[11px]" onClick={() => startContact("email")}><Mail className="size-4" /><span className={simpleMode ? "" : "sr-only"}>E-posta</span></Button>
+        <Button type="button" variant="outline" size="sm" className="h-11 gap-1 px-2 text-[11px]" onClick={() => startContact("whatsapp")}><MessageCircle className="size-4" /><span className={simpleMode ? "" : "sr-only"}>WhatsApp</span></Button>
       </div>
       {isLead && canUpdate && <Button type="button" variant="ghost" size="sm" className="mt-2 min-h-11 w-full text-xs sm:min-h-8" onClick={() => setContactOpen(true)}>Temas sonucunu kaydet</Button>}
     </div>
@@ -465,26 +473,31 @@ export function DecisionRail({
         {canAssignOwner ? ownerSelect() : <div className="mt-1 text-sm font-medium">{ownerName || "Sahipsiz havuz"}</div>}
       </div>
       {quickContactActions}
-      {canUpdate && (
+      {canUpdate && !simpleMode && (
         <NextActionDialog
           salesCase={salesCase}
           onSave={(patch) => updateCase(salesCase.id, patch)}
           trigger={<Button type="button" variant="outline" className="h-11 w-full gap-1.5"><AlarmClock className="size-4" /> {salesCase.nextAction ? "Aksiyonu düzenle" : "Aksiyon planla"}</Button>}
         />
       )}
+      {simpleMode && canUpdate && onAddActivity && (
+        <Button type="button" variant="outline" className="h-11 w-full gap-1.5" onClick={onAddActivity}>
+          <AlarmClock className="size-4" /> Aktivite ekle
+        </Button>
+      )}
       {otherActions && <div className="space-y-3 border-t border-slate-200 pt-4">{otherActions}</div>}
     </div>
   );
 
   const rail = (
-    <aside className="space-y-3 lg:sticky lg:top-3" aria-label="Çalışma alanı komutları">
-      <div className="overflow-hidden rounded-xl border border-[#0b2453]/20 bg-white shadow-sm">
-        <div className="flex items-center justify-between bg-[#0b2453] px-4 py-3 text-white">
+    <aside className="space-y-3 lg:sticky lg:top-3" aria-label={simpleMode ? "Sorumlu ve iletişim" : "Çalışma alanı komutları"}>
+      <div className={simpleMode ? "overflow-hidden rounded-xl border border-border bg-white" : "overflow-hidden rounded-xl border border-[#0b2453]/20 bg-white shadow-sm"}>
+        <div className={simpleMode ? "flex items-center justify-between border-b border-border px-4 py-3" : "flex items-center justify-between bg-[#0b2453] px-4 py-3 text-white"}>
           <div>
-            <div className="font-data text-[9px] font-semibold uppercase tracking-[0.18em] text-blue-100">Komutlar</div>
-            <div className="mt-0.5 font-display text-lg font-semibold">Kaydı ilerlet</div>
+            {!simpleMode && <div className="font-data text-[9px] font-semibold uppercase tracking-[0.18em] text-blue-100">Komutlar</div>}
+            <div className="mt-0.5 font-display text-lg font-semibold">{simpleMode ? "Sorumlu ve iletişim" : "Kaydı ilerlet"}</div>
           </div>
-          <span className="h-8 w-px bg-red-500" aria-hidden="true" />
+          {!simpleMode && <span className="h-8 w-px bg-red-500" aria-hidden="true" />}
         </div>
         <div className="space-y-4 p-4">
           <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm">
@@ -505,8 +518,20 @@ export function DecisionRail({
               </div>
             </div>
           </div>
+          {simpleMode && contactName && (
+            <div className="border-t border-border pt-3">
+              <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Ana kontak</div>
+              <div className="mt-1 truncate text-sm font-semibold" title={contactName}>{contactName}</div>
+              {contactTitle && <div className="mt-0.5 truncate text-xs text-muted-foreground" title={contactTitle}>{contactTitle}</div>}
+            </div>
+          )}
           {quickContactActions}
-          {primaryCommand && <div className="border-t border-slate-200 pt-3">{primaryCommand}</div>}
+          {!simpleMode && primaryCommand && <div className="border-t border-slate-200 pt-3">{primaryCommand}</div>}
+          {simpleMode && canUpdate && onAddActivity && (
+            <Button type="button" variant="outline" className="h-11 w-full gap-1.5" onClick={onAddActivity}>
+              <AlarmClock className="size-4" /> Aktivite ekle
+            </Button>
+          )}
           {otherActions && <div className="border-t border-slate-200 pt-3">{otherActions}</div>}
         </div>
       </div>
@@ -522,7 +547,7 @@ export function DecisionRail({
           <div className="px-4 pb-4">{actionContents}</div>
         </SheetContent>
       </Sheet>
-      {primaryCommand}
+      {primaryCommand && <div data-opportunity-primary={simpleMode ? "true" : undefined}>{primaryCommand}</div>}
     </div>
   );
 

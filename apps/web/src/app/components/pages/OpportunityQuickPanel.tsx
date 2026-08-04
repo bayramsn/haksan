@@ -3,6 +3,7 @@ import {
   AlarmClock,
   ArrowUpRight,
   BriefcaseBusiness,
+  Building2,
   CalendarDays,
   CalendarPlus,
   Clock3,
@@ -32,11 +33,12 @@ import { normalizeWhatsAppNumber, resolveSalesContact } from "../../lib/salesCon
 type OpportunityQuickPanelProps = {
   salesCase: SalesCase;
   onClose: () => void;
-  onOpenWorkspace: () => void;
+  onOpenWorkspace: (target?: "overview" | "commercial" | "process" | "records") => void;
   previous?: SalesCase | null;
   next?: SalesCase | null;
   onNavigate?: (opportunityId: string) => void;
   workspaceButtonRef?: Ref<HTMLButtonElement>;
+  simpleMode?: boolean;
 };
 
 const money = (value: number, currency: SalesCase["currency"]) =>
@@ -87,7 +89,7 @@ function PulseCell({
   );
 }
 
-export function OpportunityQuickPanel({ salesCase: sc, onClose, onOpenWorkspace, previous, next, onNavigate, workspaceButtonRef }: OpportunityQuickPanelProps) {
+function OpportunityQuickPanelLegacy({ salesCase: sc, onClose, onOpenWorkspace, previous, next, onNavigate, workspaceButtonRef }: OpportunityQuickPanelProps) {
   const { customers, contacts, users, activities, offers, documents, updateCase } = useStore();
   const { hasPermission } = useAuth();
   const canUpdate = hasPermission("opportunities.update");
@@ -131,7 +133,7 @@ export function OpportunityQuickPanel({ salesCase: sc, onClose, onOpenWorkspace,
   const opportunityDocuments = documents.filter((document) => document.salesCaseId === sc.id);
   const offerCount = opportunityOffers.length;
   const documentCount = opportunityDocuments.length;
-  const shortId = sc.externalKey || sc.id.slice(0, 8).toUpperCase();
+  const shortId = sc.id.slice(0, 8).toUpperCase();
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-[#f7f8fa]">
@@ -209,8 +211,8 @@ export function OpportunityQuickPanel({ salesCase: sc, onClose, onOpenWorkspace,
               variant="compact"
               offers={opportunityOffers}
               documents={opportunityDocuments}
-              onOpenOffer={onOpenWorkspace}
-              onOpenDocument={onOpenWorkspace}
+              onOpenOffer={() => onOpenWorkspace("commercial")}
+              onOpenDocument={() => onOpenWorkspace("commercial")}
             />
           )}
 
@@ -334,7 +336,7 @@ export function OpportunityQuickPanel({ salesCase: sc, onClose, onOpenWorkspace,
       </div>
 
       <footer className="shrink-0 border-t border-slate-200 bg-white px-4 py-3 sm:px-6">
-        <Button ref={workspaceButtonRef} type="button" className="h-11 w-full justify-between bg-[#0b2453] px-4 hover:bg-[#102f68]" onClick={onOpenWorkspace}>
+        <Button ref={workspaceButtonRef} type="button" className="h-11 w-full justify-between bg-[#0b2453] px-4 hover:bg-[#102f68]" onClick={() => onOpenWorkspace("overview")}>
           <span>Tam çalışma alanını aç</span>
           <ArrowUpRight className="size-4" />
         </Button>
@@ -343,4 +345,257 @@ export function OpportunityQuickPanel({ salesCase: sc, onClose, onOpenWorkspace,
       <ComposeMailDialog recipient={mailRecipient} onOpenChange={(open) => !open && setMailRecipient(null)} />
     </div>
   );
+}
+
+const qualificationSteps = [
+  { key: "c", label: "C" },
+  { key: "b", label: "B" },
+  { key: "a", label: "A" },
+  { key: "a_plus", label: "A+" },
+  { key: "win", label: "WIN" },
+] as const;
+
+function CompactQualificationRail({ salesCase: sc }: { salesCase: SalesCase }) {
+  const activeIndex = qualificationSteps.findIndex((step) => step.key === sc.qualificationStage);
+  const safeActiveIndex = activeIndex < 0 ? 0 : activeIndex;
+  const missingConditions = sc.qualificationReadiness?.checks?.filter((check) => !check.complete).length ?? 0;
+
+  return (
+    <section className="rounded-xl border border-slate-200 bg-white px-4 py-4 shadow-[0_1px_2px_rgba(15,23,42,0.03)]" aria-label="Nitelik süreci">
+      <div className="relative grid grid-cols-5">
+        <div aria-hidden className="absolute left-[10%] right-[10%] top-4 h-px bg-slate-200" />
+        <div
+          aria-hidden
+          className="absolute left-[10%] top-4 h-px bg-[#174ea6] transition-[width] duration-300 motion-reduce:transition-none"
+          style={{ width: `${(safeActiveIndex / (qualificationSteps.length - 1)) * 80}%` }}
+        />
+        {qualificationSteps.map((step, index) => {
+          const current = index === safeActiveIndex;
+          const complete = index < safeActiveIndex;
+          return (
+            <div key={step.key} className="relative z-10 flex flex-col items-center gap-1.5">
+              <span
+                className={`grid size-8 place-items-center rounded-full border text-[10px] font-bold transition-colors motion-reduce:transition-none ${
+                  current
+                    ? "border-[#174ea6] bg-[#174ea6] text-white shadow-[0_4px_12px_rgba(23,78,166,0.25)]"
+                    : complete
+                      ? "border-[#0b2453] bg-[#0b2453] text-white"
+                      : "border-slate-200 bg-white text-slate-600"
+                }`}
+                aria-current={current ? "step" : undefined}
+              >
+                {step.label}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-3 text-[11px]">
+        <span className="font-semibold text-[#174ea6]">
+          {QUALIFICATION_STAGE_LABELS[sc.qualificationStage] ?? sc.qualificationStage}
+          {sc.qualificationReadiness?.health?.stageAgeDays != null && (
+            <span className="font-normal text-muted-foreground"> · {sc.qualificationReadiness.health.stageAgeDays} gündür</span>
+          )}
+        </span>
+        {missingConditions > 0 ? (
+          <span className="rounded-full bg-red-50 px-2.5 py-1 font-semibold text-red-700">{missingConditions} koşul eksik</span>
+        ) : (
+          <span className="rounded-full bg-emerald-50 px-2.5 py-1 font-semibold text-emerald-700">Koşullar tamam</span>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function SimpleOpportunityQuickPanel({ salesCase: sc, onClose, onOpenWorkspace, previous, next, onNavigate, workspaceButtonRef }: OpportunityQuickPanelProps) {
+  const { customers, contacts, users, activities, offers, documents, updateCase } = useStore();
+  const { hasPermission } = useAuth();
+  const canUpdate = hasPermission("opportunities.update");
+  const [mailRecipient, setMailRecipient] = useState<MailRecipient | null>(null);
+
+  const customer = customers.find((item) => item.id === sc.customerId);
+  const resolvedContact = resolveSalesContact({ salesCase: sc, customer, contacts });
+  const { primaryContact } = resolvedContact;
+  const owner = users.find((user) => user.id === sc.assignedUserId);
+  const contactName = resolvedContact.name;
+  const contactPhone = resolvedContact.phone;
+  const contactEmail = resolvedContact.email;
+  const whatsappNumber = resolvedContact.whatsappNumber;
+  const partyName = customer?.name || sc.leadCompanyTitle || sc.leadContactName || "Firma kaydı bekliyor";
+  const probability = Math.min(100, Math.max(0, sc.probability ?? 50));
+  const weightedValue = sc.estimatedAmount * (probability / 100);
+  const health = sc.qualificationReadiness?.health;
+  const overdue = isActionOverdue(sc.nextActionAt) || Boolean(health?.actionOverdue);
+  const actionMissing = !sc.nextAction || Boolean(health?.actionMissing);
+  const opportunityActivities = useMemo(
+    () =>
+      activities
+        .filter((activity) => activity.salesCaseId === sc.id)
+        .slice()
+        .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+        .slice(0, 3),
+    [activities, sc.id],
+  );
+  const opportunityOffers = offers.filter((offer) => offer.salesCaseId === sc.id);
+  const opportunityDocuments = documents.filter((document) => document.salesCaseId === sc.id);
+  const shortId = sc.externalKey || sc.id.slice(0, 8).toUpperCase();
+
+  return (
+    <div className="flex h-full min-h-0 flex-col bg-[#f5f7fa]">
+      <header className="shrink-0 border-b border-slate-200 bg-white px-5 pb-4 pt-5 sm:px-6">
+        <div className="flex items-start justify-between gap-4">
+          <div className="min-w-0 flex-1">
+            <div className="font-data text-[10px] font-semibold uppercase tracking-[0.18em] text-[#536178]">
+              Fırsat · {shortId}
+            </div>
+            <div className="mt-3 flex min-w-0 items-start gap-3">
+              <div className="grid size-10 shrink-0 place-items-center rounded-xl border border-blue-100 bg-blue-50 text-[#174ea6]">
+                <Building2 className="size-5" />
+              </div>
+              <div className="min-w-0">
+                <h2 className="break-words font-display text-[22px] font-semibold leading-tight tracking-[-0.02em] text-[#0b1739]">{partyName}</h2>
+                <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">
+                  {[sc.requestedProduct, sc.requestedModel, sc.quantity ? `${sc.quantity} adet` : null].filter(Boolean).join(" · ") || "Satış konusu henüz belirtilmedi"}
+                </p>
+                <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-600">
+                  <span className="inline-flex items-center gap-1.5"><UserRound className="size-3.5" />{owner?.name || "Sorumlu atanmadı"}</span>
+                  <span className="font-data font-semibold tabular-nums text-[#0b1739]">{money(sc.estimatedAmount, sc.currency)}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div className="-mr-2 -mt-2 flex shrink-0 items-center gap-0.5">
+            {onNavigate && (
+              <>
+                <Button type="button" variant="ghost" size="icon" disabled={!previous} onClick={() => previous && onNavigate(previous.id)} aria-label="Önceki fırsat" title="Önceki fırsat"><ChevronLeft className="size-4" /></Button>
+                <Button type="button" variant="ghost" size="icon" disabled={!next} onClick={() => next && onNavigate(next.id)} aria-label="Sonraki fırsat" title="Sonraki fırsat"><ChevronRight className="size-4" /></Button>
+              </>
+            )}
+            <Button type="button" variant="ghost" size="icon" onClick={onClose} aria-label="Fırsat panelini kapat"><X className="size-4" /></Button>
+          </div>
+        </div>
+      </header>
+
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        <div className="space-y-3 px-4 py-4 sm:px-6">
+          <CompactQualificationRail salesCase={sc} />
+
+          <section className={`overflow-hidden rounded-xl border bg-white shadow-[0_1px_2px_rgba(15,23,42,0.03)] ${overdue ? "border-red-200" : actionMissing ? "border-amber-200" : "border-slate-200"}`} aria-labelledby="simple-next-action-title">
+            <div className="p-4">
+              <div className="flex items-center justify-between gap-3">
+                <h3 id="simple-next-action-title" className="inline-flex items-center gap-2 text-xs font-semibold text-[#0b1739]">
+                  <span className={`grid size-8 place-items-center rounded-lg ${overdue ? "bg-red-50 text-red-700" : "bg-blue-50 text-[#174ea6]"}`}><CalendarDays className="size-4" /></span>
+                  Bugün ne yapılmalı?
+                </h3>
+                <span className={`inline-flex items-center gap-1 text-[10px] ${overdue ? "font-semibold text-red-700" : "text-muted-foreground"}`}>
+                  <Clock3 className="size-3" /> {overdue ? "Gecikti · " : ""}{actionDateLabel(sc.nextActionAt)}
+                </span>
+              </div>
+              <p className={`mt-3 text-base leading-6 ${sc.nextAction ? "font-semibold text-[#0b1739]" : "text-sm text-muted-foreground"}`}>
+                {sc.nextAction || "Bu fırsat için henüz somut bir sonraki adım planlanmadı."}
+              </p>
+              {canUpdate && (
+                <NextActionDialog
+                  salesCase={sc}
+                  onSave={(patch) => updateCase(sc.id, patch)}
+                  trigger={
+                    <Button type="button" className="mt-4 h-11 w-full bg-[#0b2453] text-xs hover:bg-[#102f68]" data-opportunity-primary="true">
+                      <CalendarDays className="mr-2 size-4" />
+                      {sc.nextAction ? "Aksiyonu yeniden planla" : "Aksiyon planla"}
+                    </Button>
+                  }
+                />
+              )}
+            </div>
+          </section>
+
+          <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.03)]" aria-labelledby="simple-commercial-summary-title">
+            <h3 id="simple-commercial-summary-title" className="mb-3 font-data text-[10px] font-semibold uppercase tracking-[0.15em] text-[#536178]">Kısa özet</h3>
+            <div className="grid grid-cols-2 gap-y-4 sm:grid-cols-4 sm:divide-x sm:divide-slate-100">
+              {[
+                ["Değer", money(sc.estimatedAmount, sc.currency)],
+                ["Olasılık", `%${probability}`],
+                ["Ağırlıklı", money(weightedValue, sc.currency)],
+                ["Kapanış", dateLabel(sc.expectedCloseDate)],
+              ].map(([label, value]) => (
+                <div key={label} className="min-w-0 px-2 first:pl-0 last:pr-0">
+                  <div className="truncate font-data text-sm font-semibold tabular-nums text-[#0b1739]" title={value}>{value}</div>
+                  <div className="mt-1 text-[10px] text-muted-foreground">{label}</div>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          <CommercialDocumentRail
+            variant="compact"
+            offers={opportunityOffers}
+            documents={opportunityDocuments}
+            onOpenOffer={() => onOpenWorkspace("commercial")}
+            onOpenDocument={() => onOpenWorkspace("commercial")}
+          />
+
+          <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.03)]" aria-labelledby="simple-recent-activity-title">
+            <div className="flex items-center justify-between gap-3">
+              <h3 id="simple-recent-activity-title" className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#0b1739]"><BriefcaseBusiness className="size-4" /> Son hareketler</h3>
+              <span className="text-[10px] font-semibold text-[#174ea6]">{opportunityActivities.length} kayıt</span>
+            </div>
+            {opportunityActivities.length ? (
+              <div className="mt-3 divide-y divide-slate-100">
+                {opportunityActivities.map((activity) => (
+                  <div key={activity.id} className="flex items-start gap-3 py-2.5 first:pt-0 last:pb-0">
+                    <span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-[#174ea6]" />
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-xs font-medium text-foreground">{activity.title}</div>
+                      <div className="mt-0.5 line-clamp-1 text-[10px] text-muted-foreground">{activity.result || activity.note || activity.type}</div>
+                    </div>
+                    <span className="shrink-0 font-data text-[9px] text-muted-foreground">{dateLabel(activity.date)}</span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="mt-3 text-xs text-muted-foreground">Henüz aktivite kaydı yok.</p>
+            )}
+          </section>
+
+          <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.03)]" aria-labelledby="simple-contact-title">
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <h3 id="simple-contact-title" className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#0b1739]"><UserRound className="size-4" /> İletişim</h3>
+                <p className="mt-1 truncate text-[10px] text-muted-foreground">{contactName}</p>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+              {contactPhone ? (
+                <Button asChild variant="outline" className="h-11 gap-2 bg-white text-xs"><a href={`tel:${contactPhone.replace(/[^\d+]/g, "")}`}><Phone className="size-4 text-[#174ea6]" /> Ara</a></Button>
+              ) : (
+                <Button variant="outline" className="h-11 gap-2 bg-white text-xs" disabled><Phone className="size-4" /> Ara</Button>
+              )}
+              <Button type="button" variant="outline" className="h-11 gap-2 bg-white text-xs" disabled={!contactEmail} onClick={() => contactEmail && setMailRecipient({ email: contactEmail, name: contactName, companyId: sc.customerId || undefined, contactId: primaryContact?.id })}>
+                <Mail className="size-4 text-[#174ea6]" /> E-posta
+              </Button>
+              {whatsappNumber ? (
+                <Button asChild variant="outline" className="h-11 gap-2 bg-white text-xs"><a href={`https://wa.me/${whatsappNumber}`} target="_blank" rel="noreferrer"><MessageCircle className="size-4 text-emerald-600" /> WhatsApp</a></Button>
+              ) : (
+                <Button variant="outline" className="h-11 gap-2 bg-white text-xs" disabled><MessageCircle className="size-4" /> WhatsApp</Button>
+              )}
+              <AddActivityDialog salesCaseId={sc.id} customerId={sc.customerId} trigger={<Button variant="outline" className="h-11 gap-2 bg-white text-xs"><CalendarPlus className="size-4 text-[#174ea6]" /> Toplantı</Button>} />
+            </div>
+          </section>
+        </div>
+      </div>
+
+      <footer className="shrink-0 border-t border-slate-200 bg-white px-4 py-3 sm:px-6">
+        <Button ref={workspaceButtonRef} type="button" variant="outline" className="h-11 w-full justify-between border-[#9aa9bd] bg-white px-4 text-[#0b2453] hover:bg-slate-50" onClick={() => onOpenWorkspace("overview")}>
+          <span>Tüm detayları aç</span>
+          <ArrowUpRight className="size-4" />
+        </Button>
+      </footer>
+
+      <ComposeMailDialog recipient={mailRecipient} onOpenChange={(open) => !open && setMailRecipient(null)} />
+    </div>
+  );
+}
+
+export function OpportunityQuickPanel(props: OpportunityQuickPanelProps) {
+  return props.simpleMode ? <SimpleOpportunityQuickPanel {...props} /> : <OpportunityQuickPanelLegacy {...props} />;
 }

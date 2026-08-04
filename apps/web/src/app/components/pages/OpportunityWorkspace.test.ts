@@ -30,6 +30,13 @@ describe("lead ve fırsat çalışma alanı sorumlu değişikliği", () => {
     expect(detailSource).toContain("{canCreateActivity && (");
   });
 
+  it("legacy süreç merkezini korur, sade görünümde tam haritayı kapalı başlatır", () => {
+    expect(workspaceSource).toContain("useState(() => !simpleOpportunity)");
+    expect(workspaceSource).toContain("setOperationsExpanded(!simpleOpportunity)");
+    expect(workspaceSource).toContain("Tam süreç haritasını aç");
+    expect(workspaceSource).toContain("Tam süreç raylarını kapat");
+  });
+
   it("fırsat zaman çizelgesinde yorumları ve not yazılmış B aktivitelerini gösterir", () => {
     expect(workspaceSource).toContain('activity.origin === "manual"');
     expect(workspaceSource).toContain('activity.typeCode === "note"');
@@ -37,7 +44,8 @@ describe("lead ve fırsat çalışma alanı sorumlu değişikliği", () => {
     expect(workspaceSource).toContain('activity.typeCode === "outgoing_call"');
     expect(workspaceSource).toContain('activity.typeCode === "customer_visit"');
     expect(workspaceSource).toContain('activity.note?.trim() || activity.result?.trim()');
-    expect(workspaceSource).toContain('if (!isLead) return items.sort');
+    expect(workspaceSource).toContain('if (!isLead && !simpleOpportunity) return items.sort');
+    expect(workspaceSource).toContain('Müşteri temasları ile salt okunur süreç, ticari belge ve onay olayları.');
     expect(workspaceSource).toContain('"Elle eklenen yorumlar ile not yazılmış arama ve ziyaret kayıtları gösterilir."');
   });
 });

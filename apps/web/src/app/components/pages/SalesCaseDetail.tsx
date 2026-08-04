@@ -61,6 +61,7 @@ import { toast } from "sonner";
 import { OpportunityQuickPanel } from "./OpportunityQuickPanel";
 import { OpportunityWorkspace } from "./OpportunityWorkspace";
 import { focusWorkspaceTarget } from "../../lib/workspaceFocus";
+import { shouldUseSimpleOpportunityExperience } from "../../lib/opportunityExperience";
 
 export function SalesCaseDetailDialog({
   sc,
@@ -72,27 +73,86 @@ export function SalesCaseDetailDialog({
   onNavigate: (opportunityId: string) => void;
 }) {
   const { cases } = useStore();
+  const { user } = useAuth();
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
   const workspaceButtonRef = useRef<HTMLButtonElement>(null);
   const dialogOpenerRef = useRef<HTMLElement | null>(null);
   const currentIndex = sc ? cases.findIndex((item) => item.id === sc.id) : -1;
   const previous = currentIndex > 0 ? cases[currentIndex - 1] : null;
   const next = currentIndex >= 0 && currentIndex < cases.length - 1 ? cases[currentIndex + 1] : null;
+  const simpleMode = sc?.qualificationStage !== "lead" && shouldUseSimpleOpportunityExperience({
+    mode: import.meta.env.VITE_OPPORTUNITY_WORKSPACE_SIMPLE,
+    pilotUserIds: import.meta.env.VITE_OPPORTUNITY_WORKSPACE_PILOT_USERS,
+    userId: user?.id,
+  });
 
   useEffect(() => {
     if (!sc) {
       setWorkspaceOpen(false);
       return;
     }
-    const url = new URL(window.location.href);
-    if (url.searchParams.get("opportunity") === sc.id && url.searchParams.has("activity")) {
-      setWorkspaceOpen(true);
-    }
+    const syncSurfaceFromLocation = () => {
+      const url = new URL(window.location.href);
+      if (url.searchParams.get("opportunity") !== sc.id) return;
+      const requestedWorkspace = url.searchParams.get("surface") === "workspace" || url.searchParams.has("activity");
+      if (!url.searchParams.has("surface")) {
+        url.searchParams.set("surface", requestedWorkspace ? "workspace" : "quick");
+        window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
+      }
+      setWorkspaceOpen((current) => {
+        if (current && !requestedWorkspace) {
+          window.setTimeout(() => focusWorkspaceTarget(workspaceButtonRef.current, { scroll: false }), 0);
+        }
+        return requestedWorkspace;
+      });
+    };
+    syncSurfaceFromLocation();
+    window.addEventListener("popstate", syncSurfaceFromLocation);
+    return () => window.removeEventListener("popstate", syncSurfaceFromLocation);
   }, [sc?.id]);
+
+  const openWorkspace = (target: "overview" | "commercial" | "process" | "records" = "overview") => {
+    if (!sc) return;
+    const url = new URL(window.location.href);
+    url.searchParams.set("opportunity", sc.id);
+    url.searchParams.set("surface", "workspace");
+    url.searchParams.set("section", target);
+    if (target !== "records") url.searchParams.delete("record");
+    const nextState = {
+      ...window.history.state,
+      haksanOpportunitySurface: "workspace",
+      haksanOpportunityId: sc.id,
+    };
+    window.history.pushState(nextState, "", `${url.pathname}${url.search}${url.hash}`);
+    setWorkspaceOpen(true);
+  };
+
+  const returnToQuickPanel = () => {
+    if (!sc) return;
+    const url = new URL(window.location.href);
+    const state = window.history.state as { haksanOpportunitySurface?: string; haksanOpportunityId?: string } | null;
+    const canRestoreQuickEntry = url.searchParams.get("surface") === "workspace"
+      && state?.haksanOpportunitySurface === "workspace"
+      && state.haksanOpportunityId === sc.id;
+
+    setWorkspaceOpen(false);
+    window.setTimeout(() => focusWorkspaceTarget(workspaceButtonRef.current, { scroll: false }), 0);
+    if (canRestoreQuickEntry) {
+      window.history.back();
+      return;
+    }
+
+    url.searchParams.set("surface", "quick");
+    url.searchParams.delete("section");
+    url.searchParams.delete("record");
+    url.searchParams.delete("activity");
+    window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
+  };
 
   return (
     <Dialog open={!!sc} onOpenChange={(open) => !open && onClose()}>
       <DialogContent
+        showCloseButton={false}
         onOpenAutoFocus={() => {
           dialogOpenerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
         }}
@@ -122,25 +182,24 @@ export function SalesCaseDetailDialog({
         {sc && (workspaceOpen ? (
           <SalesCaseDetailPage
             sc={sc}
-            onBack={() => {
-              setWorkspaceOpen(false);
-              window.setTimeout(() => focusWorkspaceTarget(workspaceButtonRef.current, { scroll: false }), 0);
-            }}
+            onBack={returnToQuickPanel}
             onClose={onClose}
             mode="dialog"
             previous={previous}
             next={next}
             onNavigate={onNavigate}
+            simpleMode={simpleMode}
           />
         ) : (
           <OpportunityQuickPanel
             salesCase={sc}
             onClose={onClose}
-            onOpenWorkspace={() => setWorkspaceOpen(true)}
+            onOpenWorkspace={openWorkspace}
             workspaceButtonRef={workspaceButtonRef}
             previous={previous}
             next={next}
             onNavigate={onNavigate}
+            simpleMode={simpleMode}
           />
         ))}
       </DialogContent>
@@ -156,6 +215,7 @@ export function SalesCaseDetailPage({
   next = null,
   onNavigate,
   onClose,
+  simpleMode = false,
 }: {
   sc: SalesCase;
   onBack: () => void;
@@ -164,6 +224,7 @@ export function SalesCaseDetailPage({
   next?: SalesCase | null;
   onNavigate?: (opportunityId: string) => void;
   onClose?: () => void;
+  simpleMode?: boolean;
 }) {
   const { offers, activities, customers, users, documents, payments, installations, refresh, deleteCase, updateCase, closeCase, updateActivity, deleteActivity } = useStore();
   const { hasRole, hasPermission } = useAuth();
@@ -590,7 +651,7 @@ export function SalesCaseDetailPage({
   const workspaceOtherActions = (
     <div className="space-y-3">
       <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Diğer işlemler</div>
-      <div>
+      {!simpleMode && <div>
         <Label className="text-xs">Ödeme vadesi (gün)</Label>
         <Input
           type="number"
@@ -613,7 +674,7 @@ export function SalesCaseDetailPage({
             await updateCase(sc.id, { paymentTermDays: next });
           }}
         />
-      </div>
+      </div>}
       {isLeadCard && (
         <>
           <div>
@@ -1103,22 +1164,25 @@ export function SalesCaseDetailPage({
               canPerformAction={canPerformProcessAction}
               onRefresh={refresh}
               onAction={(actionKey) => void handleProcessAction(actionKey)}
+              processChecklist={
+                <ProcessChecklistPanel
+                  sc={sc}
+                  requestedAction={requestedProcessAction}
+                  onActionHandled={() => setRequestedProcessAction(null)}
+                />
+              }
               detail={detail}
               loading={loading}
               onReload={reload}
             />
           )}
-          processChecklist={
-            <div id="opportunity-process-actions" className="scroll-mt-24">
-              <ProcessChecklistPanel sc={sc} requestedAction={requestedProcessAction} onActionHandled={() => setRequestedProcessAction(null)} />
-            </div>
-          }
           companyLinkingPanel={canUpdate ? companyLinkingPanel : undefined}
           onOpenOffer={setSelectedOfferId}
           onDownloadDocument={(document) => void downloadDocument(document.fileId, document.fileName)}
           onCommercialAction={(actionKey) => void handleProcessAction(actionKey)}
           canPerformCommercialAction={canPerformProcessAction}
           otherActions={workspaceOtherActions}
+          simpleMode={simpleMode}
         />
       ) : (
       <>
@@ -1128,11 +1192,14 @@ export function SalesCaseDetailPage({
         canPerformAction={canPerformProcessAction}
         onRefresh={refresh}
         onAction={(actionKey) => void handleProcessAction(actionKey)}
+        processChecklist={
+          <ProcessChecklistPanel
+            sc={sc}
+            requestedAction={requestedProcessAction}
+            onActionHandled={() => setRequestedProcessAction(null)}
+          />
+        }
       />
-
-      <div id="opportunity-process-actions" className="scroll-mt-24">
-        <ProcessChecklistPanel sc={sc} requestedAction={requestedProcessAction} onActionHandled={() => setRequestedProcessAction(null)} />
-      </div>
 
       {!hasCompany && (
         <Card className="border-warning/30 bg-warning-soft/55">

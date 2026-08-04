@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react
 import {
   ArrowRight,
   Check,
+  ChevronDown,
   CircleAlert,
   History,
   Loader2,
@@ -13,6 +14,7 @@ import {
 import {
   type OpportunityProcessActionKey,
   type OpportunityProcessReadiness,
+  type PipelineStageCode,
   type QualificationStageCode,
   type ProcessTarget,
 } from "@haksan/shared";
@@ -28,7 +30,10 @@ import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Card, CardContent } from "../ui/card";
 import { Textarea } from "../ui/textarea";
-import { OPPORTUNITY_OPERATION_GROUP_STEPS } from "./opportunityProcessGroups";
+import {
+  OPPORTUNITY_OPERATION_GROUP_STEPS,
+  operationGroupForStage,
+} from "./opportunityProcessGroups";
 
 const APPROVAL_LABELS: Record<string, string> = {
   payment: "Ödeme",
@@ -40,8 +45,20 @@ const APPROVAL_LABELS: Record<string, string> = {
 
 const OPERATION_GROUPS: QualificationStageCode[] = ["lead", "c", "b", "a", "a_plus", "win"];
 
+type SelectedPanelTab = "requirements" | "detail" | "history";
+
+function operationGroupForTarget(target: ProcessTarget): QualificationStageCode | null {
+  if (target.axis === "qualification") {
+    const qualificationCode = target.code as QualificationStageCode;
+    return OPERATION_GROUPS.includes(qualificationCode) ? qualificationCode : null;
+  }
+
+  return operationGroupForStage(target.code as PipelineStageCode);
+}
+
 export type OpportunityProcessDetail = {
   processReadiness?: OpportunityProcessReadiness;
+  history?: Array<Record<string, any>>;
   qualificationHistory?: Array<Record<string, any>>;
 };
 
@@ -51,6 +68,7 @@ export function OpportunityProcessCenter({
   canPerformAction,
   onRefresh,
   onAction,
+  processChecklist,
   detail: controlledDetail,
   loading: controlledLoading,
   onReload,
@@ -60,6 +78,7 @@ export function OpportunityProcessCenter({
   canPerformAction?: (actionKey: OpportunityProcessActionKey) => boolean;
   onRefresh: () => Promise<unknown>;
   onAction: (actionKey: OpportunityProcessActionKey) => void;
+  processChecklist?: ReactNode;
   detail?: OpportunityProcessDetail | null;
   loading?: boolean;
   onReload?: () => Promise<void>;
@@ -68,6 +87,8 @@ export function OpportunityProcessCenter({
   const [localDetail, setLocalDetail] = useState<OpportunityProcessDetail | null>(null);
   const [localLoading, setLocalLoading] = useState(true);
   const [selected, setSelected] = useState<ProcessTarget | null>(null);
+  const [expandedGroup, setExpandedGroup] = useState<QualificationStageCode | null>(null);
+  const [selectedPanelTab, setSelectedPanelTab] = useState<SelectedPanelTab>("requirements");
   const [reason, setReason] = useState("");
   const [moving, setMoving] = useState(false);
 
@@ -124,9 +145,32 @@ export function OpportunityProcessCenter({
     [readiness]
   );
 
+  useEffect(() => {
+    if (!readiness) return;
+    const qualificationCode = readiness.currentQualificationStage as QualificationStageCode;
+    const currentGroup =
+      (OPERATION_GROUPS.includes(qualificationCode) ? qualificationCode : null) ??
+      operationGroupForStage(readiness.currentOperationStage);
+    setExpandedGroup(currentGroup);
+  }, [readiness?.currentOperationStage, readiness?.currentQualificationStage]);
+
   const selectTarget = (target: ProcessTarget) => {
     setSelected(target);
+    setSelectedPanelTab("requirements");
+    setExpandedGroup(operationGroupForTarget(target));
     setReason("");
+  };
+
+  const openProcessAction = (actionKey: OpportunityProcessActionKey) => {
+    const qualificationCode = readiness?.currentQualificationStage as
+      | QualificationStageCode
+      | undefined;
+    if (qualificationCode && OPERATION_GROUPS.includes(qualificationCode)) {
+      setExpandedGroup(qualificationCode);
+    }
+    setSelected(null);
+    setReason("");
+    onAction(actionKey);
   };
 
   const move = async () => {
@@ -183,7 +227,7 @@ export function OpportunityProcessCenter({
     return (
       <Card className="border-primary/20">
         <CardContent className="flex items-center gap-2 p-5 text-sm text-muted-foreground">
-          <Loader2 className="size-4 animate-spin" /> Süreç merkezi yükleniyor…
+          <Loader2 className="size-4 animate-spin motion-reduce:animate-none" /> Süreç merkezi yükleniyor…
         </CardContent>
       </Card>
     );
@@ -257,9 +301,12 @@ export function OpportunityProcessCenter({
             return (
               <li key={`${target.axis}-${target.code}`} className="flex items-start">
                 <button
+                  id={`process-target-${target.axis}-${target.code}`}
                   type="button"
                   aria-current={current ? "step" : undefined}
                   aria-pressed={isSelected}
+                  aria-expanded={isSelected && target.direction !== "current" ? true : undefined}
+                  aria-controls={isSelected && target.direction !== "current" ? `selected-target-${target.axis}-${target.code}` : undefined}
                   // Kapanmış kartta hiçbir hedef seçilemez; düğmeyi açık bırakmak
                   // hiçbir şey yapmayan bir "Hedefe taşı" akışı açıyordu.
                   disabled={current || !target.selectable}
@@ -305,6 +352,267 @@ export function OpportunityProcessCenter({
     </div>
   );
 
+  const renderSelectedTargetPanel = (target: ProcessTarget) => {
+    if (target.direction === "current") return null;
+
+    const targetLabel =
+      target.axis === "qualification"
+        ? QUALIFICATION_STAGE_LABELS[target.code as keyof typeof QUALIFICATION_STAGE_LABELS]
+        : salesStageLabel(target.code as any);
+    const panelId = `selected-target-${target.axis}-${target.code}`;
+    const tabOrder: SelectedPanelTab[] = ["requirements", "detail", "history"];
+    const tabLabels: Record<SelectedPanelTab, string> = {
+      requirements: "Gereklilikler",
+      detail: "Detay",
+      history: "Geçmiş",
+    };
+    const focusTargetButton = () => {
+      setSelected(null);
+      window.requestAnimationFrame(() => {
+        document.getElementById(`process-target-${target.axis}-${target.code}`)?.focus();
+      });
+    };
+    const selectPanelTab = (tab: SelectedPanelTab, focus = false) => {
+      setSelectedPanelTab(tab);
+      if (focus) {
+        window.requestAnimationFrame(() => {
+          document.getElementById(`${panelId}-tab-${tab}`)?.focus();
+        });
+      }
+    };
+
+    return (
+      <section
+        id={panelId}
+        role="region"
+        aria-label={`Seçili hedef: ${targetLabel}`}
+        data-selected-target-panel
+        className="mx-2 mb-2 mt-1 overflow-hidden rounded-lg border border-primary/20 bg-slate-50/80"
+      >
+        <div className="flex flex-wrap items-start justify-between gap-2 border-b border-border/60 px-3 py-3 sm:px-4">
+          <div>
+            <div className="text-xs font-semibold">Seçili hedef · {targetLabel}</div>
+            <div className="mt-0.5 text-[11px] text-muted-foreground">
+              {target.direction === "backward"
+                ? "Kayıtlar korunur; etkilenen onaylar yeniden değerlendirmeye alınır."
+                : "Hedefe kadar olan bütün gereklilikler tek seferde kontrol edilir."}
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center justify-end gap-1.5">
+            <Badge variant="outline">
+              {target.direction === "backward" ? "Geri dönüş" : "İleri hedef"}
+            </Badge>
+            <Badge variant={target.blockers.length ? "secondary" : "outline"}>
+              {target.blockers.length ? `${target.blockers.length} eksik` : "Geçiş hazır"}
+            </Badge>
+          </div>
+        </div>
+
+        <div
+          role="tablist"
+          aria-label={`${targetLabel} hedef ayrıntıları`}
+          className="flex min-h-11 items-end gap-1 border-b border-border/60 px-3 sm:px-4"
+        >
+          {tabOrder.map((tab) => (
+            <button
+              key={tab}
+              id={`${panelId}-tab-${tab}`}
+              type="button"
+              role="tab"
+              aria-selected={selectedPanelTab === tab}
+              aria-controls={`${panelId}-tabpanel`}
+              tabIndex={selectedPanelTab === tab ? 0 : -1}
+              onClick={() => selectPanelTab(tab)}
+              onKeyDown={(event) => {
+                const currentIndex = tabOrder.indexOf(tab);
+                if (event.key === "ArrowRight") {
+                  event.preventDefault();
+                  selectPanelTab(tabOrder[(currentIndex + 1) % tabOrder.length], true);
+                } else if (event.key === "ArrowLeft") {
+                  event.preventDefault();
+                  selectPanelTab(tabOrder[(currentIndex - 1 + tabOrder.length) % tabOrder.length], true);
+                } else if (event.key === "Home") {
+                  event.preventDefault();
+                  selectPanelTab(tabOrder[0], true);
+                } else if (event.key === "End") {
+                  event.preventDefault();
+                  selectPanelTab(tabOrder[tabOrder.length - 1], true);
+                }
+              }}
+              className={`min-h-11 border-b-2 px-3 text-xs font-medium outline-none transition focus-visible:ring-2 focus-visible:ring-primary ${
+                selectedPanelTab === tab
+                  ? "border-primary text-primary"
+                  : "border-transparent text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              {tabLabels[tab]}
+            </button>
+          ))}
+        </div>
+
+        <div
+          id={`${panelId}-tabpanel`}
+          role="tabpanel"
+          aria-labelledby={`${panelId}-tab-${selectedPanelTab}`}
+          className="p-3 sm:p-4"
+        >
+          {selectedPanelTab === "requirements" && (
+            target.blockers.length > 0 ? (
+              <ul className="grid gap-2 lg:grid-cols-2">
+                {target.blockers.map((blocker) => {
+                  const actionDisabled = !canUpdate || canPerformAction?.(blocker.actionKey) === false;
+                  return (
+                    <li
+                      key={blocker.key}
+                      className="flex min-w-0 flex-col gap-2 rounded-lg border border-amber-200 bg-white px-3 py-2.5 sm:flex-row sm:items-center"
+                    >
+                      <span className="flex min-w-0 flex-1 items-center gap-2">
+                        <CircleAlert className="size-4 shrink-0 text-amber-600" />
+                        <span className="min-w-0 text-xs font-medium">{blocker.label}</span>
+                      </span>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="min-h-11 shrink-0 gap-1 px-3 text-xs sm:min-h-8"
+                        disabled={actionDisabled}
+                        aria-describedby={actionDisabled ? `${panelId}-${blocker.key}-disabled` : undefined}
+                        onClick={() => openProcessAction(blocker.actionKey)}
+                      >
+                        <Pencil className="size-3" /> {blocker.actionKey === "create_quote" ? "Teklif oluştur" : "Yap"}
+                      </Button>
+                      {actionDisabled && (
+                        <span id={`${panelId}-${blocker.key}-disabled`} className="sr-only">
+                          Bu işlem için gerekli yetkiniz bulunmuyor.
+                        </span>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+            ) : (
+              <div className="flex items-center gap-2 rounded-lg border border-success/25 bg-success/5 px-3 py-3 text-xs font-medium text-success">
+                <Check className="size-4" /> Bu hedefin bütün gereklilikleri tamamlandı.
+              </div>
+            )
+          )}
+
+          {selectedPanelTab === "detail" && (
+            <dl className="grid gap-3 rounded-lg border border-border/60 bg-white p-3 text-xs sm:grid-cols-3">
+              <div>
+                <dt className="text-muted-foreground">Hedef türü</dt>
+                <dd className="mt-1 font-semibold">{target.axis === "qualification" ? "Satış alanı" : "Operasyon"}</dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground">Yön</dt>
+                <dd className="mt-1 font-semibold">{target.direction === "backward" ? "Geri dönüş" : "İleri geçiş"}</dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground">Durum</dt>
+                <dd className="mt-1 font-semibold">{target.blockers.length ? `${target.blockers.length} eksik` : "Hazır"}</dd>
+              </div>
+            </dl>
+          )}
+
+          {selectedPanelTab === "history" && (
+            <div className="space-y-2 rounded-lg border border-border/60 bg-white p-3">
+              {target.axis === "qualification" ? (
+                <>
+                  {(detail?.qualificationHistory ?? []).slice(0, 4).map((item) => (
+                    <div key={item.id} className="flex flex-wrap items-start gap-x-2 text-[11px]">
+                      <span className="font-semibold">
+                        {item.fromStage
+                          ? QUALIFICATION_STAGE_LABELS[item.fromStage as keyof typeof QUALIFICATION_STAGE_LABELS]
+                          : "Başlangıç"}{" "}
+                        → {QUALIFICATION_STAGE_LABELS[item.toStage as keyof typeof QUALIFICATION_STAGE_LABELS]}
+                      </span>
+                      <span className="text-muted-foreground">
+                        {new Date(item.createdAt).toLocaleString("tr-TR")}
+                      </span>
+                      {item.changeReason && <span className="w-full text-muted-foreground">{item.changeReason}</span>}
+                    </div>
+                  ))}
+                  {(detail?.qualificationHistory ?? []).length === 0 && (
+                    <div className="text-xs text-muted-foreground">Henüz satış alanı geçişi kaydı yok.</div>
+                  )}
+                </>
+              ) : (
+                <>
+                  {(detail?.history ?? []).slice(0, 4).map((item) => (
+                    <div key={item.id} className="flex flex-wrap items-start gap-x-2 text-[11px]">
+                      <span className="font-semibold">
+                        {item.fromStage?.name ?? (item.fromStage?.code ? salesStageLabel(item.fromStage.code) : "Başlangıç")}{" "}
+                        → {item.toStage?.name ?? salesStageLabel(item.toStage?.code ?? item.toStageCode)}
+                      </span>
+                      <span className="text-muted-foreground">
+                        {new Date(item.createdAt).toLocaleString("tr-TR")}
+                      </span>
+                      {(item.changeReason || item.notes) && (
+                        <span className="w-full text-muted-foreground">{item.changeReason || item.notes}</span>
+                      )}
+                    </div>
+                  ))}
+                  {(detail?.history ?? []).length === 0 && (
+                    <div className="text-xs text-muted-foreground">Henüz operasyon geçişi kaydı yok.</div>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+
+          {target.requiresReason && (
+            <div className="mt-3 space-y-2">
+              <Textarea
+                value={reason}
+                onChange={(event) => setReason(event.target.value)}
+                maxLength={1000}
+                placeholder="Geri dönüş gerekçesini yazın…"
+                aria-label="Geri dönüş gerekçesi"
+                className="min-h-20 bg-white text-xs"
+              />
+              {target.invalidatedApprovals.length > 0 && (
+                <div className="text-[11px] text-amber-800">
+                  Yeniden onaya alınacak:{" "}
+                  <b>{target.invalidatedApprovals.map((type) => APPROVAL_LABELS[type] ?? type).join(", ")}</b>
+                </div>
+              )}
+            </div>
+          )}
+
+          <div aria-live="polite" className="sr-only">
+            {moving ? "Hedefe taşınıyor" : target.blockers.length ? `${target.blockers.length} gereklilik eksik` : "Hedefe geçiş hazır"}
+          </div>
+          <div className="mt-3 flex flex-col-reverse gap-2 border-t border-border/60 pt-3 sm:flex-row sm:items-center sm:justify-end">
+            <Button type="button" size="sm" variant="ghost" className="min-h-11 sm:min-h-8" onClick={focusTargetButton}>
+              Vazgeç
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              className="min-h-11 gap-1.5 sm:min-h-8"
+              disabled={
+                !canUpdate ||
+                moving ||
+                target.blockers.length > 0 ||
+                (target.requiresReason && !reason.trim())
+              }
+              onClick={() => void move()}
+            >
+              {moving ? (
+                <Loader2 className="size-3.5 animate-spin motion-reduce:animate-none" />
+              ) : target.direction === "backward" ? (
+                <RotateCcw className="size-3.5" />
+              ) : (
+                <ArrowRight className="size-3.5" />
+              )}
+              {moving ? "Taşınıyor…" : "Hedefe taşı"}
+            </Button>
+          </div>
+        </div>
+      </section>
+    );
+  };
+
   const renderOperationGroups = () => (
     <div className="space-y-3">
       <div className="flex flex-wrap items-end justify-between gap-2 px-0.5">
@@ -318,80 +626,128 @@ export function OpportunityProcessCenter({
         </div>
         <div className="text-[10px] text-muted-foreground">Bir operasyon hedefi seçin</div>
       </div>
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+      <div className="space-y-2">
         {OPERATION_GROUPS.map((qualificationCode) => {
           const stepCodes = OPPORTUNITY_OPERATION_GROUP_STEPS[qualificationCode];
           const targets = stepCodes
             .map((code) => operationTargets.find((target) => target.code === code))
             .filter((target): target is ProcessTarget => Boolean(target));
           const activeGroup = readiness.currentQualificationStage === qualificationCode;
-          if (targets.length === 0) return null;
+          const isExpanded = expandedGroup === qualificationCode;
+          const selectedGroup = selected ? operationGroupForTarget(selected) : null;
+          const containsSelectedTarget = selectedGroup === qualificationCode && selected?.direction !== "current";
+          const groupPanelId = `operation-group-${qualificationCode}`;
+          const toggleGroup = () => {
+            const nextGroup = expandedGroup === qualificationCode ? null : qualificationCode;
+            if (selected && operationGroupForTarget(selected) !== nextGroup) {
+              setSelected(null);
+              setReason("");
+            }
+            setExpandedGroup(nextGroup);
+          };
 
           return (
             <section
               key={qualificationCode}
-              className={`overflow-hidden rounded-xl border bg-card transition-colors ${activeGroup ? "border-primary/35 ring-2 ring-primary/5" : "border-border/65"}`}
+              id={activeGroup && processChecklist ? "opportunity-process-actions" : undefined}
+              data-operation-group-tasks={activeGroup && processChecklist ? true : undefined}
+              className={`scroll-mt-24 overflow-hidden rounded-xl border bg-card transition-colors ${
+                activeGroup || containsSelectedTarget
+                  ? "border-primary/45 ring-2 ring-primary/5"
+                  : "border-border/65"
+              }`}
             >
-              <div className={`flex items-center justify-between border-b px-3 py-2.5 ${activeGroup ? "border-primary/15 bg-primary/5" : "border-border/60 bg-muted/20"}`}>
-                <div>
-                  <div className="text-xs font-semibold">
+              <button
+                type="button"
+                aria-expanded={isExpanded}
+                aria-controls={groupPanelId}
+                onClick={toggleGroup}
+                className={`flex min-h-11 w-full items-center justify-between gap-3 px-3 py-2.5 text-left outline-none transition focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary ${
+                  activeGroup ? "bg-primary/5" : "bg-muted/20 hover:bg-muted/40"
+                }`}
+              >
+                <span className="min-w-0">
+                  <span className="block text-xs font-semibold">
                     {QUALIFICATION_STAGE_LABELS[qualificationCode]}
-                  </div>
-                  <div className="mt-0.5 text-[10px] text-muted-foreground">
+                  </span>
+                  <span className="mt-0.5 block text-[10px] text-muted-foreground">
                     {QUALIFICATION_STAGE_DESCRIPTIONS[qualificationCode]}
-                  </div>
+                  </span>
+                </span>
+                <span className="flex shrink-0 items-center gap-2">
+                  <Badge variant={activeGroup ? "default" : "outline"} className="text-[9px]">
+                    {targets.length > 0 ? `${targets.length} adım` : "Operasyon yok"}
+                  </Badge>
+                  <ChevronDown className={`size-4 text-muted-foreground transition-transform ${isExpanded ? "rotate-180" : ""}`} aria-hidden />
+                </span>
+              </button>
+              {isExpanded && (
+                <div id={groupPanelId}>
+                  {targets.length > 0 ? (
+                    <ol className="p-2" aria-label={`${QUALIFICATION_STAGE_LABELS[qualificationCode]} operasyonları`}>
+                      {targets.map((target, index) => {
+                        const current = target.direction === "current";
+                        const past = target.direction === "backward";
+                        const isSelected = selected?.axis === target.axis && selected.code === target.code;
+                        return (
+                          <li key={target.code} className="relative">
+                            {index > 0 && (
+                              <span
+                                className={`absolute -top-2 left-[17px] h-2 w-px ${past || current ? "bg-success/55" : "bg-border"}`}
+                                aria-hidden
+                              />
+                            )}
+                            <button
+                              id={`process-target-${target.axis}-${target.code}`}
+                              type="button"
+                              aria-current={current ? "step" : undefined}
+                              aria-pressed={isSelected}
+                              aria-expanded={isSelected && target.direction !== "current" ? true : undefined}
+                              aria-controls={isSelected && target.direction !== "current" ? `selected-target-${target.axis}-${target.code}` : undefined}
+                              disabled={current || !target.selectable}
+                              onClick={() => selectTarget(target)}
+                              className={`flex min-h-11 w-full items-center gap-2.5 rounded-lg px-2 py-2 text-left outline-none transition focus-visible:ring-2 focus-visible:ring-primary ${isSelected ? "bg-primary/8" : "hover:bg-muted/45 disabled:hover:bg-transparent"}`}
+                            >
+                              <span
+                                className={`grid size-7 shrink-0 place-items-center rounded-full border text-[9px] font-semibold ${
+                                  current
+                                    ? "border-primary bg-primary text-white ring-2 ring-primary/10"
+                                    : past
+                                      ? "border-success/45 bg-success/10 text-success"
+                                      : target.canTransition
+                                        ? "border-primary/35 bg-white text-primary"
+                                        : "border-border bg-muted/45 text-muted-foreground"
+                                }`}
+                              >
+                                {current ? <CircleAlert className="size-3.5" /> : past ? <Check className="size-3.5" /> : index + 1}
+                              </span>
+                              <span className={`min-w-0 flex-1 text-xs leading-tight ${current || isSelected ? "font-semibold text-primary" : "font-medium text-foreground/75"}`}>
+                                {salesStageLabel(target.code as any)}
+                              </span>
+                              {!current && target.direction === "forward" && target.blockers.length > 0 && (
+                                <span className="shrink-0 rounded-full bg-amber-100 px-2 py-1 text-[10px] font-semibold text-amber-800">
+                                  {target.blockers.length} eksik
+                                </span>
+                              )}
+                            </button>
+                            {isSelected && renderSelectedTargetPanel(target)}
+                          </li>
+                        );
+                      })}
+                    </ol>
+                  ) : (
+                    <div className="border-t border-border/60 px-4 py-3 text-xs text-muted-foreground">
+                      Bu alanda operasyon adımı yok.
+                    </div>
+                  )}
+                  {containsSelectedTarget && selected?.axis === "qualification" && renderSelectedTargetPanel(selected)}
+                  {activeGroup && processChecklist && (
+                    <div className="border-t border-border/60 bg-muted/10 p-2 sm:p-3">
+                      {processChecklist}
+                    </div>
+                  )}
                 </div>
-                <Badge variant={activeGroup ? "default" : "outline"} className="shrink-0 text-[9px]">
-                  {targets.length} adım
-                </Badge>
-              </div>
-              <ol className="p-2" aria-label={`${QUALIFICATION_STAGE_LABELS[qualificationCode]} operasyonları`}>
-                {targets.map((target, index) => {
-                  const current = target.direction === "current";
-                  const past = target.direction === "backward";
-                  const isSelected = selected?.axis === target.axis && selected.code === target.code;
-                  return (
-                    <li key={target.code} className="relative">
-                      {index > 0 && (
-                        <span
-                          className={`absolute -top-2 left-[17px] h-2 w-px ${past || current ? "bg-success/55" : "bg-border"}`}
-                          aria-hidden
-                        />
-                      )}
-                      <button
-                        type="button"
-                        aria-current={current ? "step" : undefined}
-                        aria-pressed={isSelected}
-                        disabled={current || !target.selectable}
-                        onClick={() => selectTarget(target)}
-                        className={`flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-left outline-none transition focus-visible:ring-2 focus-visible:ring-primary ${isSelected ? "bg-primary/8" : "hover:bg-muted/45 disabled:hover:bg-transparent"}`}
-                      >
-                        <span
-                          className={`grid size-7 shrink-0 place-items-center rounded-full border text-[9px] font-semibold ${
-                            current
-                              ? "border-primary bg-primary text-white ring-2 ring-primary/10"
-                              : past
-                                ? "border-success/45 bg-success/10 text-success"
-                                : target.canTransition
-                                  ? "border-primary/35 bg-white text-primary"
-                                  : "border-border bg-muted/45 text-muted-foreground"
-                          }`}
-                        >
-                          {current ? <CircleAlert className="size-3.5" /> : past ? <Check className="size-3.5" /> : index + 1}
-                        </span>
-                        <span className={`min-w-0 flex-1 text-[11px] leading-tight ${current || isSelected ? "font-semibold text-primary" : "font-medium text-foreground/75"}`}>
-                          {salesStageLabel(target.code as any)}
-                        </span>
-                        {!current && target.direction === "forward" && target.blockers.length > 0 && (
-                          <span className="shrink-0 rounded-full bg-amber-100 px-1.5 py-0.5 text-[9px] font-semibold text-amber-800">
-                            {target.blockers.length} eksik
-                          </span>
-                        )}
-                      </button>
-                    </li>
-                  );
-                })}
-              </ol>
+              )}
             </section>
           );
         })}
@@ -459,102 +815,6 @@ export function OpportunityProcessCenter({
           </details>
         ) : null}
 
-        {selected && selected.direction !== "current" && (
-          <div className="rounded-xl border border-primary/15 bg-slate-50/80 p-3 sm:p-4">
-            <div className="flex flex-wrap items-start justify-between gap-2">
-              <div>
-                <div className="text-xs font-semibold">
-                  {selected.direction === "backward" ? "Geri dönüş" : "İleri hedef"} ·{" "}
-                  {selected.axis === "qualification"
-                    ? QUALIFICATION_STAGE_LABELS[selected.code as keyof typeof QUALIFICATION_STAGE_LABELS]
-                    : salesStageLabel(selected.code as any)}
-                </div>
-                <div className="mt-0.5 text-[11px] text-muted-foreground">
-                  {selected.direction === "backward"
-                    ? "Kayıtlar korunur; etkilenen onaylar yeniden değerlendirmeye alınır."
-                    : "Hedefe kadar olan bütün gereklilikler tek seferde kontrol edilir."}
-                </div>
-              </div>
-              <Badge variant={selected.blockers.length ? "secondary" : "outline"}>
-                {selected.blockers.length ? `${selected.blockers.length} eksik` : "Geçiş hazır"}
-              </Badge>
-            </div>
-
-            {selected.blockers.length > 0 && (
-              <ul className="mt-3 grid gap-2 sm:grid-cols-2">
-                {selected.blockers.map((blocker) => (
-                  <li
-                    key={blocker.key}
-                    className="flex min-w-0 items-center gap-2 rounded-lg border border-amber-200 bg-white px-3 py-2"
-                  >
-                    <CircleAlert className="size-4 shrink-0 text-amber-600" />
-                    <span className="min-w-0 flex-1 text-xs font-medium">{blocker.label}</span>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      className="h-7 shrink-0 gap-1 px-2 text-[10px]"
-                      disabled={!canUpdate || canPerformAction?.(blocker.actionKey) === false}
-                      title={
-                        !canUpdate || canPerformAction?.(blocker.actionKey) === false
-                          ? "Bu işlem için gerekli yetkiniz bulunmuyor."
-                          : undefined
-                      }
-                      onClick={() => onAction(blocker.actionKey)}
-                    >
-                      <Pencil className="size-3" /> Yap
-                    </Button>
-                  </li>
-                ))}
-              </ul>
-            )}
-
-            {selected.requiresReason && (
-              <div className="mt-3 space-y-2">
-                <Textarea
-                  value={reason}
-                  onChange={(event) => setReason(event.target.value)}
-                  maxLength={1000}
-                  placeholder="Geri dönüş gerekçesini yazın…"
-                  className="min-h-20 bg-white text-xs"
-                />
-                {selected.invalidatedApprovals.length > 0 && (
-                  <div className="text-[11px] text-amber-800">
-                    Yeniden onaya alınacak:{" "}
-                    <b>{selected.invalidatedApprovals.map((type) => APPROVAL_LABELS[type] ?? type).join(", ")}</b>
-                  </div>
-                )}
-              </div>
-            )}
-
-            <div className="sticky bottom-0 mt-3 flex items-center justify-end gap-2 border-t border-border/60 bg-slate-50/95 pt-3 backdrop-blur">
-              <Button type="button" size="sm" variant="ghost" onClick={() => setSelected(null)}>
-                Vazgeç
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                className="gap-1.5"
-                disabled={
-                  !canUpdate ||
-                  moving ||
-                  selected.blockers.length > 0 ||
-                  (selected.requiresReason && !reason.trim())
-                }
-                onClick={() => void move()}
-              >
-                {moving ? (
-                  <Loader2 className="size-3.5 animate-spin" />
-                ) : selected.direction === "backward" ? (
-                  <RotateCcw className="size-3.5" />
-                ) : (
-                  <ArrowRight className="size-3.5" />
-                )}
-                {moving ? "Taşınıyor…" : "Hedefe taşı"}
-              </Button>
-            </div>
-          </div>
-        )}
       </CardContent>
     </Card>
   );

@@ -16,7 +16,6 @@ import {
 } from "../../lib/mock";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
-import { Card, CardContent } from "../ui/card";
 import { Checkbox } from "../ui/checkbox";
 import { Combobox } from "../ui/combobox";
 import { Input } from "../ui/input";
@@ -145,12 +144,11 @@ export function ProcessChecklistPanel({
   };
 
   return (
-    <Card className="border-primary/20">
-      <CardContent className="space-y-4 p-4 sm:p-5">
+    <section aria-label="Mevcut satış alanının görevleri" className="space-y-4 p-2 sm:p-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2">
             <ListChecks className="size-4 text-primary" />
-            <span className="text-sm font-semibold">Süreç merkezi</span>
+            <span className="text-sm font-semibold">Alan görevleri</span>
             <Badge variant="outline" className="font-data text-[10px]">
               {QUALIFICATION_STAGE_LABELS[grade]} alanı
             </Badge>
@@ -262,7 +260,7 @@ export function ProcessChecklistPanel({
         <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border/60 pt-3">
           <span className="text-[11px] text-muted-foreground">
             {readiness.ready
-              ? "Tüm alanlar tamam — sonraki dereceye geçebilirsiniz."
+              ? "Tüm alanlar tamam. Sonraki dereceye geçebilirsiniz."
               : `Eksik: ${readiness.blockers.join(", ")}`}
           </span>
           {readiness.nextStage && (
@@ -275,8 +273,7 @@ export function ProcessChecklistPanel({
             </Button>
           )}
         </div>
-      </CardContent>
-    </Card>
+    </section>
   );
 }
 

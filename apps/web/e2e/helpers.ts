@@ -13,7 +13,7 @@ export async function login(page: Page): Promise<void> {
     window.localStorage.setItem("haksan:onboarding:v1", "seen");
   });
   await page.goto("/");
-  await page.locator("#login-email").fill(E2E_EMAIL);
+  await page.getByTestId("login-identifier").fill(E2E_EMAIL);
   await page.locator("#login-password").fill(E2E_PASSWORD);
   await page.getByRole("button", { name: "Giriş Yap" }).click();
   // Giriş sonrası ana uygulama kabuğu (sol menü) görünür olmalı.

@@ -51,8 +51,8 @@ const dialogSurfaceSizeClassName =
 
 const DialogContent = React.forwardRef<
   React.ElementRef<typeof DialogPrimitive.Content>,
-  React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content>
->(({ className, children, ...props }, ref) => (
+  React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content> & { showCloseButton?: boolean }
+>(({ className, children, showCloseButton = true, ...props }, ref) => (
   <DialogPortal data-slot="dialog-portal">
     <DialogOverlay />
     <DialogPrimitive.Content
@@ -66,13 +66,13 @@ const DialogContent = React.forwardRef<
       {...props}
     >
       {children}
-      <DialogPrimitive.Close
+      {showCloseButton && <DialogPrimitive.Close
         aria-label="Pencereyi kapat"
         className="ring-offset-background focus:ring-ring data-[state=open]:bg-accent data-[state=open]:text-muted-foreground absolute top-2 right-2 inline-flex size-11 items-center justify-center rounded-md text-muted-foreground opacity-70 transition-[opacity,background-color] hover:bg-accent hover:opacity-100 focus:ring-2 focus:ring-offset-2 focus:outline-hidden disabled:pointer-events-none sm:top-3.5 sm:right-3.5 sm:size-8 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4"
       >
         <XIcon />
         <span className="sr-only">Kapat</span>
-      </DialogPrimitive.Close>
+      </DialogPrimitive.Close>}
     </DialogPrimitive.Content>
   </DialogPortal>
 ));
