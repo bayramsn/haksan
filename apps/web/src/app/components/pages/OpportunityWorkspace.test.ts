@@ -43,7 +43,11 @@ describe("lead ve fırsat çalışma alanı sorumlu değişikliği", () => {
 
   it("fırsat zaman çizelgesini doğru kaynaktan besler", () => {
     expect(workspaceSource).toContain('opportunityActivities.filter(isOpportunityTimelineActivity)');
-    expect(workspaceSource).toContain('if (!isLead && !simpleOpportunity) return items.sort');
+    // Sistem olaylarını (aşama geçişi, onay, teklif, dosya) yalnız sade fırsat
+    // görünümü topluyor. Lead akışı Trello kart yorumları gibi yalnız
+    // kullanıcının girdiği kayıtları gösterir.
+    expect(workspaceSource).toContain('if (!simpleOpportunity) return items.sort');
+    expect(workspaceSource).not.toContain('if (!isLead && !simpleOpportunity) return items.sort');
     expect(workspaceSource).toContain('Müşteri temasları ile salt okunur süreç, ticari belge ve onay olayları.');
     expect(workspaceSource).toContain('"Elle eklenen yorumlar ile detay yazılmış müşteri temasları gösterilir."');
   });

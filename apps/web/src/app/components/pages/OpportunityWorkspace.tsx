@@ -606,9 +606,6 @@ export function OpportunityWorkspace({
     }
   }, [sc.id]);
 
-  useEffect(() => {
-    void loadDetail();
-  }, [loadDetail, sc.stage, sc.qualificationStage]);
 
   useEffect(() => {
     setAmount(String(sc.estimatedAmount));
@@ -640,6 +637,16 @@ export function OpportunityWorkspace({
   );
   const opportunityPayments = useMemo(() => payments.filter((item) => item.salesCaseId === sc.id), [payments, sc.id]);
   const opportunityDocuments = useMemo(() => documents.filter((item) => item.salesCaseId === sc.id), [documents, sc.id]);
+
+  useEffect(() => {
+    void loadDetail();
+    // Ticari belge sayıları da bağımlılık: `processReadiness` yalnız bu detay
+    // çağrısından geliyor, `QuoteDialog`/`DocumentUploadDialog` ise store'u
+    // tazeleyip detaya dokunmuyordu. Teklif oluşturulduğunda süreç bölümü
+    // aşama değişmediği sürece eski hazırlık verisini gösteriyordu — kullanıcı
+    // açısından teklif "bazen" görünmüyordu (aşamayı da değiştiren akışlarda
+    // tesadüfen tazeleniyordu).
+  }, [loadDetail, sc.stage, sc.qualificationStage, opportunityOffers.length, opportunityDocuments.length]);
   const opportunityShipments = useMemo(() => shipments.filter((item) => item.salesCaseId === sc.id), [shipments, sc.id]);
   const opportunityDeliveries = useMemo(() => deliveries.filter((item) => item.salesCaseId === sc.id), [deliveries, sc.id]);
   const opportunityInstallations = useMemo(() => installations.filter((item) => item.salesCaseId === sc.id), [installations, sc.id]);
@@ -739,7 +746,13 @@ export function OpportunityWorkspace({
         actor: activity.createdByName || users.find((item) => item.id === activity.byUserId)?.name,
       });
     });
-    if (!isLead && !simpleOpportunity) return items.sort((a, b) => timelineTime(b.date) - timelineTime(a.date));
+    // Lead akışı Trello kart yorumları gibi çalışmalı: yalnız kullanıcının
+    // girdiği kayıtlar. Aşama geçişi, nitelik değişimi, onay, teklif, ödeme ve
+    // dosya olayları ("Süreç · Operasyon aşaması: …") buraya karışmamalı —
+    // bunlar sistem olayları ve akışı okunmaz hale getiriyordu.
+    // Sistem olaylarını yalnız sade fırsat görünümü topluyor; orada bu kasıtlı
+    // ("Müşteri temasları ile salt okunur süreç, ticari belge ve onay olayları").
+    if (!simpleOpportunity) return items.sort((a, b) => timelineTime(b.date) - timelineTime(a.date));
     (detail?.history ?? []).forEach((history) => items.push({
       id: `stage-${history.id}`,
       date: history.createdAt,
@@ -783,18 +796,8 @@ export function OpportunityWorkspace({
       title: document.fileName,
       detail: document.type,
     }));
-    if (isLead) {
-      (detail?.auditHistory ?? []).forEach((audit) => items.push({
-        id: `audit-${audit.id}`,
-        date: audit.createdAt,
-        category: "process",
-        title: AUDIT_ACTION_LABELS[audit.action] ?? audit.action,
-        detail: auditDetail(audit.oldValues, audit.newValues, userNames),
-        actor: audit.actor?.fullName ?? audit.actor?.email,
-      }));
-    }
     return items.sort((a, b) => timelineTime(b.date) - timelineTime(a.date));
-  }, [detail, isLead, opportunityActivities, opportunityDocuments, opportunityOffers, opportunityPayments, simpleOpportunity, userNames, users]);
+  }, [detail, isLead, opportunityActivities, opportunityDocuments, opportunityOffers, opportunityPayments, simpleOpportunity, users]);
 
   useEffect(() => {
     if (!focusedActivityId || (tab !== "activity" && tab !== "contact" && !(simpleOpportunity && tab === "files" && recordView === "activities"))) return;

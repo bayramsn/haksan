@@ -25,6 +25,7 @@ import { CreateContactDialog } from "../dialogs/CreateDialogs";
 import { QuoteDialog } from "../dialogs/QuoteDialog";
 import { RequestedMachineCombobox } from "../shared/RequestedMachineCombobox";
 import { OPPORTUNITY_OPERATION_GROUP_STEPS } from "./opportunityProcessGroups";
+import { focusWorkspaceTarget } from "../../lib/workspaceFocus";
 
 /**
  * Kartın bulunduğu satış derecesini geçmek için tamamlanması gereken alanları
@@ -84,6 +85,15 @@ export function ProcessChecklistPanel({
     if (!key || !readiness?.checks.some((item) => item.key === key)) return;
     setEditingKeys((current) => new Set(current).add(key));
     onActionHandled?.();
+    // Görev listesi süreç haritasının dışında; engel düğmesine basan kullanıcı
+    // düzenleyicinin sayfanın başka yerinde açıldığını göremiyordu. Satırı
+    // görünüre getirip ilk alanına odaklan.
+    window.setTimeout(() => {
+      const row = document.getElementById(`process-check-${key}`);
+      if (!row) return;
+      focusWorkspaceTarget(row, { focus: false, block: "center" });
+      row.querySelector<HTMLElement>("input, textarea, select, [role='combobox'], button")?.focus({ preventScroll: true });
+    }, 60);
   }, [requestedAction, readiness?.checks, onActionHandled]);
 
   const companyContacts = useMemo(
@@ -199,7 +209,7 @@ export function ProcessChecklistPanel({
             {readiness.checks.map((check) => {
               const isActivityCheck = check.key === "call" || check.key === "visit";
               return (
-                <li key={check.key} className="flex flex-col gap-2 px-3 py-2.5">
+                <li key={check.key} id={`process-check-${check.key}`} className="flex flex-col gap-2 scroll-mt-24 px-3 py-2.5">
                   <div className="flex items-center gap-2">
                     {check.complete ? (
                       <CheckCircle2 className="size-4 shrink-0 text-success" />

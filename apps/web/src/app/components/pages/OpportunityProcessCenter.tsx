@@ -167,12 +167,9 @@ export function OpportunityProcessCenter({
   };
 
   const openProcessAction = (actionKey: OpportunityProcessActionKey) => {
-    const qualificationCode = readiness?.currentQualificationStage as
-      | QualificationStageCode
-      | undefined;
-    if (qualificationCode && OPERATION_GROUPS.includes(qualificationCode)) {
-      setExpandedGroup(qualificationCode);
-    }
+    // Grup açma mantığı, görev listesi akordeonun içindeyken gerekiyordu;
+    // liste artık haritanın dışında ve kendi satırına kendisi kaydırıyor.
+    // Seçili hedef paneli kapatılır çünkü kullanıcı görev listesine gidiyor.
     setSelected(null);
     setReason("");
     onAction(actionKey);
