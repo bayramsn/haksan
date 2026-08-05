@@ -62,6 +62,11 @@ jobs:
       - name: Typecheck (web)
         run: npm run typecheck:web
 
+      # Web birim testleri Postgres'e ihtiyaç duymaz; DB/migration zincirinden
+      # önce koşsun ki mantık hatası 3 dakika beklemeden düşsün.
+      - name: Test (web unit)
+        run: npm run test:web
+
       - name: Contract audit (@Body/@Query must use ZodValidationPipe)
         run: npm run audit:contracts
 

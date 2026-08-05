@@ -31,6 +31,7 @@
     "db:seed:demo": "npm --workspace @haksan/api run db:seed:demo",
     "db:bootstrap": "npm --workspace @haksan/api run db:bootstrap",
     "test": "npm --workspace @haksan/api run test",
+    "test:web": "npm --workspace @haksan/web run test",
     "test:e2e": "npm --workspace @haksan/web run test:e2e",
     "test:e2e:install": "npm --workspace @haksan/web run test:e2e:install",
     "docker:up": "docker compose up -d",
