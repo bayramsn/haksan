@@ -118,10 +118,13 @@ export function SalesCaseDetailDialog({
     url.searchParams.set("surface", "workspace");
     url.searchParams.set("section", target);
     if (target !== "records") url.searchParams.delete("record");
+    // Bu da kayıt itiyor; kapatmanın tek adımda geri sarabilmesi için derinlik burada da artırılır.
+    const state = window.history.state as { haksanOpportunityDepth?: number } | null;
     const nextState = {
-      ...window.history.state,
+      ...state,
       haksanOpportunitySurface: "workspace",
       haksanOpportunityId: sc.id,
+      haksanOpportunityDepth: (state?.haksanOpportunityDepth ?? 0) + 1,
     };
     window.history.pushState(nextState, "", `${url.pathname}${url.search}${url.hash}`);
     setWorkspaceOpen(true);

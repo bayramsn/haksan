@@ -59,6 +59,9 @@ jobs:
       - name: Typecheck (api)
         run: npm run typecheck
 
+      - name: Typecheck (web)
+        run: npm run typecheck:web
+
       - name: Contract audit (@Body/@Query must use ZodValidationPipe)
         run: npm run audit:contracts
 

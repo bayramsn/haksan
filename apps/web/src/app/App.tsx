@@ -116,6 +116,9 @@ function AppShell() {
   const currentNav = !authed || canOpenNav(requestedNav) ? requestedNav : fallbackNav;
   const previousNavRef = useRef<NavKey | null>(null);
   const previousAuthedRef = useRef<boolean | null>(null);
+  // Fırsat paneli kapatılırken açılışta itilen history kayıtlarını simetrik biçimde geri sarmak için.
+  const closingOpportunityRef = useRef(false);
+  const closeFallbackTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (nav === "proformas" || nav === "contracts") setNav("documents");
@@ -124,10 +127,22 @@ function AppShell() {
   useEffect(() => {
     const applyLocation = (fromHistory = false) => {
       const opportunityId = new URL(window.location.href).searchParams.get("opportunity");
+      // Kapatmanın tek adımlık go(-depth) sıçraması buraya döner: panel kapanır, ek geri adım atılmaz.
+      if (fromHistory && closingOpportunityRef.current) {
+        closingOpportunityRef.current = false;
+        if (closeFallbackTimerRef.current !== null) {
+          window.clearTimeout(closeFallbackTimerRef.current);
+          closeFallbackTimerRef.current = null;
+        }
+        setSelectedCaseId(null);
+        setDeepLinkReady(true);
+        return;
+      }
       if (opportunityId) {
         setSelectedCustomerId(null);
         setSelectedCaseId(opportunityId);
-        setNav("sales-cases");
+        // Yalnız derin bağlantıyla ilk açılışta fırsatlar sayfasına geç; tarayıcı geçmişinde nav zorlanmaz.
+        if (!fromHistory) setNav("sales-cases");
       } else if (fromHistory) {
         setSelectedCaseId(null);
       }
@@ -136,7 +151,13 @@ function AppShell() {
     applyLocation();
     const handlePopState = () => applyLocation(true);
     window.addEventListener("popstate", handlePopState);
-    return () => window.removeEventListener("popstate", handlePopState);
+    return () => {
+      window.removeEventListener("popstate", handlePopState);
+      if (closeFallbackTimerRef.current !== null) {
+        window.clearTimeout(closeFallbackTimerRef.current);
+        closeFallbackTimerRef.current = null;
+      }
+    };
   }, [setNav, setSelectedCaseId, setSelectedCustomerId]);
 
   useEffect(() => {
@@ -215,17 +236,56 @@ function AppShell() {
       return;
     }
     const url = new URL(window.location.href);
+    const currentSurface = url.searchParams.get("surface");
     url.searchParams.set("opportunity", opportunityId);
     if (activityId) url.searchParams.set("activity", activityId);
     else url.searchParams.delete("activity");
-    url.searchParams.set("surface", activityId ? "workspace" : "quick");
-    const nextState = { ...window.history.state, haksanOpportunity: true };
-    if (historyMode === "push") window.history.pushState(nextState, "", `${url.pathname}${url.search}${url.hash}`);
-    else window.history.replaceState(nextState, "", `${url.pathname}${url.search}${url.hash}`);
+    // Fırsatlar arası gezinirken (replace) mevcut yüzey korunur; yeni açılışta aktivite varsa çalışma alanı, yoksa hızlı panel.
+    const nextSurface = activityId
+      ? "workspace"
+      : historyMode === "replace" && currentSurface
+        ? currentSurface
+        : "quick";
+    url.searchParams.set("surface", nextSurface);
+    // Önceki fırsatın bölüm/kayıt çapası yeni fırsatın URL'ine sızmasın.
+    url.searchParams.delete("section");
+    url.searchParams.delete("record");
+    const target = `${url.pathname}${url.search}${url.hash}`;
+    if (historyMode === "push") {
+      // Yalnız gerçekten kayıt iten kol damgalanır; derinlik kapatmada kaç adım geri gidileceğini söyler.
+      const state = window.history.state as { haksanOpportunityDepth?: number } | null;
+      window.history.pushState(
+        { ...state, haksanOpportunity: true, haksanOpportunityDepth: (state?.haksanOpportunityDepth ?? 0) + 1 },
+        "",
+        target,
+      );
+    } else {
+      // Replace hiçbir kayıt itmez; mevcut state (ve derinliği) olduğu gibi korunur.
+      window.history.replaceState(window.history.state, "", target);
+    }
     setSelectedCustomerId(null);
-    setNav("sales-cases");
     setSelectedCaseId(opportunityId);
     requestAnimationFrame(() => window.dispatchEvent(new Event("haksan:opportunity-focus")));
+  };
+
+  const closeOpportunity = () => {
+    const depth = (window.history.state as { haksanOpportunityDepth?: number } | null)?.haksanOpportunityDepth ?? 0;
+    if (depth <= 0) {
+      // Uygulama hiç kayıt itmedi (derin bağlantı, yeni sekme): geri gitmek siteden çıkarırdı, sadece seçimi temizle.
+      setSelectedCaseId(null);
+      return;
+    }
+    // Açılışta itilen kayıtlar tek adımda geri sarılır; ara "quick" kaydından geçilmediği için titreme de olmaz.
+    closingOpportunityRef.current = true;
+    if (closeFallbackTimerRef.current !== null) window.clearTimeout(closeFallbackTimerRef.current);
+    closeFallbackTimerRef.current = window.setTimeout(() => {
+      closeFallbackTimerRef.current = null;
+      if (!closingOpportunityRef.current) return;
+      // Savunmacı: beklenen popstate gelmediyse panel asla kilitlenmesin.
+      closingOpportunityRef.current = false;
+      setSelectedCaseId(null);
+    }, 150);
+    window.history.go(-depth);
   };
 
   const goto = (k: NavKey) => {
@@ -416,7 +476,7 @@ function AppShell() {
       </PageShell>
       <SalesCaseDetailDialog
         sc={selectedCase}
-        onClose={() => setSelectedCaseId(null)}
+        onClose={closeOpportunity}
         onNavigate={(opportunityId) => selectOpportunity(opportunityId, undefined, "replace")}
       />
     </Layout>
