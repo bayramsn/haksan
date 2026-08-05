@@ -2471,7 +2471,7 @@ export function CreateStockDialog({ trigger }: { trigger: React.ReactNode }) {
 /* ---------- Activity ---------- */
 
 export function AddActivityDialog({
-  trigger, salesCaseId, customerId, open: controlledOpen, onOpenChange, commentOnly = false,
+  trigger, salesCaseId, customerId, open: controlledOpen, onOpenChange, commentOnly = false, defaultTypeCode,
 }: {
   trigger?: React.ReactNode;
   salesCaseId: string;
@@ -2479,6 +2479,12 @@ export function AddActivityDialog({
   open?: boolean;
   onOpenChange?: (o: boolean) => void;
   commentOnly?: boolean;
+  /**
+   * Tetikleyici belirli bir temas türünü vaat ediyorsa (örn. "Toplantı")
+   * dialog o türle açılmalı; aksi halde listenin ilk maddesi ("Gelen Arama")
+   * seçili gelir ve düğme yalan söyler.
+   */
+  defaultTypeCode?: (typeof ACTIVITY_TYPE_OPTIONS)[number]["code"];
 }) {
   const { addActivity, users } = useStore();
   const { user } = useAuth();
@@ -2489,7 +2495,8 @@ export function AddActivityDialog({
 
   const defaultType = commentOnly
     ? ACTIVITY_TYPE_OPTIONS.find((option) => option.code === "note")?.label ?? "Yorum"
-    : ACTIVITY_TYPE_OPTIONS[0].label;
+    : (defaultTypeCode && ACTIVITY_TYPE_OPTIONS.find((option) => option.code === defaultTypeCode)?.label)
+      || ACTIVITY_TYPE_OPTIONS[0].label;
   const [form, setForm] = usePersistentState<{
     type: string;
     title: string;

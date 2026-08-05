@@ -88,7 +88,7 @@ test("fırsatlar listelenir ve detay açılır", async ({ page }) => {
     await expect(dialog.getByText("Deterministik skor; her bileşen CRM verisinden hesaplanır.")).toBeVisible();
     await dialog.getByRole("tab", { name: "Aktivite", exact: true }).click();
     await expect(dialog.getByRole("heading", { name: "Aktivite", exact: true })).toBeVisible();
-    await expect(dialog.getByText("Elle eklenen yorumlar ile not yazılmış arama ve ziyaret kayıtları gösterilir.", { exact: true })).toBeVisible();
+    await expect(dialog.getByText("Elle eklenen yorumlar ile detay yazılmış müşteri temasları gösterilir.", { exact: true })).toBeVisible();
     await dialog.getByRole("tab", { name: "Ticari", exact: true }).click();
     await expect(dialog.getByText("Ödeme ve tahsilat", { exact: true })).toBeVisible();
     await dialog.getByRole("tab", { name: "Operasyon", exact: true }).click();

@@ -1,5 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+// Saf modülden import: bileşenin .tsx grafiğini (Radix, lucide, sonner) çekmez.
+import { isOpportunityTimelineActivity } from "../../lib/opportunityTimeline";
 
 describe("lead ve fırsat çalışma alanı sorumlu değişikliği", () => {
   const railSource = readFileSync(new URL("./LeadWorkspaceControls.tsx", import.meta.url), "utf8");
@@ -37,15 +39,43 @@ describe("lead ve fırsat çalışma alanı sorumlu değişikliği", () => {
     expect(workspaceSource).toContain("Tam süreç raylarını kapat");
   });
 
-  it("fırsat zaman çizelgesinde yorumları ve not yazılmış B aktivitelerini gösterir", () => {
-    expect(workspaceSource).toContain('activity.origin === "manual"');
-    expect(workspaceSource).toContain('activity.typeCode === "note"');
+  it("fırsat zaman çizelgesini doğru kaynaktan besler", () => {
     expect(workspaceSource).toContain('opportunityActivities.filter(isOpportunityTimelineActivity)');
-    expect(workspaceSource).toContain('activity.typeCode === "outgoing_call"');
-    expect(workspaceSource).toContain('activity.typeCode === "customer_visit"');
-    expect(workspaceSource).toContain('activity.note?.trim() || activity.result?.trim()');
     expect(workspaceSource).toContain('if (!isLead && !simpleOpportunity) return items.sort');
     expect(workspaceSource).toContain('Müşteri temasları ile salt okunur süreç, ticari belge ve onay olayları.');
-    expect(workspaceSource).toContain('"Elle eklenen yorumlar ile not yazılmış arama ve ziyaret kayıtları gösterilir."');
+    expect(workspaceSource).toContain('"Elle eklenen yorumlar ile detay yazılmış müşteri temasları gösterilir."');
+  });
+});
+
+// Predicate'in kendisi saf ve export edilmiş; davranışını kaynak metni yerine
+// doğrudan test ediyoruz. Önceki sürüm yalnız çağrı yerinde adının geçtiğini
+// doğruluyordu, kuralın kendisi tamamen korumasızdı.
+describe("isOpportunityTimelineActivity", () => {
+  const manual = (extra: Record<string, unknown>) =>
+    ({ type: "", origin: "manual" as const, ...extra });
+
+  it("elle eklenen yorumu detay olmasa da gösterir", () => {
+    expect(isOpportunityTimelineActivity(manual({ typeCode: "note" }))).toBe(true);
+    expect(isOpportunityTimelineActivity({ type: "Yorum", origin: "manual" })).toBe(true);
+    expect(isOpportunityTimelineActivity({ type: "Not", origin: "manual" })).toBe(true);
+  });
+
+  it("sistem kaynaklı kayıtları detay yazılmış olsa da gizler", () => {
+    expect(isOpportunityTimelineActivity({ type: "", typeCode: "outgoing_call", origin: "system", note: "otomatik" })).toBe(false);
+  });
+
+  it("detay yazılmış her müşteri temasını gösterir", () => {
+    for (const typeCode of ["outgoing_call", "customer_visit", "incoming_call", "online_meeting", "showroom_meeting", "email"]) {
+      expect(isOpportunityTimelineActivity(manual({ typeCode, note: "görüşüldü" })), typeCode).toBe(true);
+    }
+  });
+
+  it("detayı olmayan temas kaydını gizler", () => {
+    expect(isOpportunityTimelineActivity(manual({ typeCode: "outgoing_call" }))).toBe(false);
+    expect(isOpportunityTimelineActivity(manual({ typeCode: "online_meeting", note: "   ", result: "  " }))).toBe(false);
+  });
+
+  it("detay yalnız sonuç alanında yazılmışsa da gösterir", () => {
+    expect(isOpportunityTimelineActivity(manual({ typeCode: "customer_visit", result: "teklif istendi" }))).toBe(true);
   });
 });

@@ -6,6 +6,7 @@ import {
   Building2,
   CalendarDays,
   CalendarPlus,
+  Check,
   Clock3,
   ChevronLeft,
   ChevronRight,
@@ -281,6 +282,7 @@ function OpportunityQuickPanelLegacy({ salesCase: sc, onClose, onOpenWorkspace, 
               <AddActivityDialog
                 salesCaseId={sc.id}
                 customerId={sc.customerId}
+                defaultTypeCode="online_meeting"
                 trigger={
                   <Button variant="outline" className="h-10 justify-start gap-2 bg-white text-xs">
                     <CalendarPlus className="size-4 text-[#163b75]" /> Toplantı
@@ -358,10 +360,17 @@ const qualificationSteps = [
 function CompactQualificationRail({ salesCase: sc }: { salesCase: SalesCase }) {
   const activeIndex = qualificationSteps.findIndex((step) => step.key === sc.qualificationStage);
   const safeActiveIndex = activeIndex < 0 ? 0 : activeIndex;
-  const missingConditions = sc.qualificationReadiness?.checks?.filter((check) => !check.complete).length ?? 0;
+  // Kontroller hiç gelmediyse `null`: "veri yok" ile "hepsi tamam" ekranda aynı
+  // görünmemeli. Aksi halde okunamayan bir readiness yeşil rozet olarak çıkıyor.
+  const checks = sc.qualificationReadiness?.checks;
+  const missingConditions = checks ? checks.filter((check) => !check.complete).length : null;
+  const completedCount = safeActiveIndex;
 
   return (
-    <section className="rounded-xl border border-slate-200 bg-white px-4 py-4 shadow-[0_1px_2px_rgba(15,23,42,0.03)]" aria-label="Nitelik süreci">
+    <section
+      className="rounded-xl border border-slate-200 bg-white px-4 py-4 shadow-[0_1px_2px_rgba(15,23,42,0.03)]"
+      aria-label={`Nitelik süreci: ${qualificationSteps.length} aşamadan ${completedCount} tanesi tamamlandı, şu an ${qualificationSteps[safeActiveIndex]?.label ?? ""}`}
+    >
       <div className="relative grid grid-cols-5">
         <div aria-hidden className="absolute left-[10%] right-[10%] top-4 h-px bg-slate-200" />
         <div
@@ -385,7 +394,18 @@ function CompactQualificationRail({ salesCase: sc }: { salesCase: SalesCase }) {
                 aria-current={current ? "step" : undefined}
               >
                 {step.label}
+                {/* Durum yalnız renkle aktarılmamalı: ekran okuyucu "C B A A+ WIN"
+                    düz dizisi yerine aşama durumunu da duymalı (WCAG 1.4.1). */}
+                <span className="sr-only">
+                  {current ? " — mevcut aşama" : complete ? " — tamamlandı" : " — bekliyor"}
+                </span>
               </span>
+              {/* Renk körü kullanıcı için ikinci sinyal: iki koyu lacivert tonu
+                  (tamamlanmış vs mevcut) tek başına ayırt edilemiyor. */}
+              <Check
+                aria-hidden="true"
+                className={`size-3 ${complete ? "text-[#0b2453]" : "invisible"}`}
+              />
             </div>
           );
         })}
@@ -397,7 +417,9 @@ function CompactQualificationRail({ salesCase: sc }: { salesCase: SalesCase }) {
             <span className="font-normal text-muted-foreground"> · {sc.qualificationReadiness.health.stageAgeDays} gündür</span>
           )}
         </span>
-        {missingConditions > 0 ? (
+        {missingConditions === null ? (
+          <span className="rounded-full bg-slate-100 px-2.5 py-1 font-semibold text-slate-600">Kontroller doğrulanmadı</span>
+        ) : missingConditions > 0 ? (
           <span className="rounded-full bg-red-50 px-2.5 py-1 font-semibold text-red-700">{missingConditions} koşul eksik</span>
         ) : (
           <span className="rounded-full bg-emerald-50 px-2.5 py-1 font-semibold text-emerald-700">Koşullar tamam</span>
@@ -578,7 +600,7 @@ function SimpleOpportunityQuickPanel({ salesCase: sc, onClose, onOpenWorkspace, 
               ) : (
                 <Button variant="outline" className="h-11 gap-2 bg-white text-xs" disabled><MessageCircle className="size-4" /> WhatsApp</Button>
               )}
-              <AddActivityDialog salesCaseId={sc.id} customerId={sc.customerId} trigger={<Button variant="outline" className="h-11 gap-2 bg-white text-xs"><CalendarPlus className="size-4 text-[#174ea6]" /> Toplantı</Button>} />
+              <AddActivityDialog salesCaseId={sc.id} customerId={sc.customerId} defaultTypeCode="online_meeting" trigger={<Button className="h-11 gap-2 bg-white text-xs" variant="outline"><CalendarPlus className="size-4 text-[#174ea6]" /> Toplantı</Button>} />
             </div>
           </section>
         </div>

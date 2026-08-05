@@ -59,6 +59,7 @@ import {
   type WorkspaceDecisionModel,
 } from "../shared/RecordWorkspace";
 import { CommercialDocumentRail } from "../shared/CommercialDocumentRail";
+import { isManualTimelineComment, isOpportunityTimelineActivity } from "../../lib/opportunityTimeline";
 
 type WorkspaceTab = "summary" | "contact" | "qualification" | "activity" | "commercial" | "operations" | "files";
 export type OpportunitySection = "overview" | "commercial" | "process" | "records";
@@ -107,24 +108,9 @@ type TimelineItem = {
   sourceActivityId?: string;
 };
 
-export const isManualTimelineComment = (activity: {
-  type: string;
-  typeCode?: string;
-  origin?: "manual" | "system";
-}) => activity.origin === "manual" && (activity.typeCode === "note" || activity.type === "Not" || activity.type === "Yorum");
-
-export const isOpportunityTimelineActivity = (activity: {
-  type: string;
-  typeCode?: string;
-  origin?: "manual" | "system";
-  note?: string;
-  result?: string;
-}) => {
-  if (isManualTimelineComment(activity)) return true;
-  if (activity.origin !== "manual") return false;
-  const hasWrittenDetail = Boolean(activity.note?.trim() || activity.result?.trim());
-  return hasWrittenDetail && (activity.typeCode === "outgoing_call" || activity.typeCode === "customer_visit");
-};
+// Kurallar saf modüle taşındı; buradan yeniden export edilerek mevcut
+// tüketiciler için geriye dönük uyum korunuyor.
+export { isManualTimelineComment, isOpportunityTimelineActivity };
 
 const TAB_LABELS: Record<WorkspaceTab, string> = {
   summary: "Özet",
@@ -390,11 +376,14 @@ const SIMPLE_QUALIFICATION_STEPS = ["c", "b", "a", "a_plus", "win"] as const;
 function CompactQualificationRail({ current }: { current: SalesCase["qualificationStage"] }) {
   const currentIndex = SIMPLE_QUALIFICATION_STEPS.indexOf(current as (typeof SIMPLE_QUALIFICATION_STEPS)[number]);
   const terminalLost = current === "lost";
+  const completedCount = terminalLost || currentIndex < 0 ? 0 : currentIndex;
 
   return (
     <section
       className="rounded-xl border border-slate-200 bg-white px-3 py-3 sm:px-4"
-      aria-label="Fırsat nitelik süreci"
+      aria-label={terminalLost
+        ? "Fırsat nitelik süreci: fırsat kaybedildi"
+        : `Fırsat nitelik süreci: ${SIMPLE_QUALIFICATION_STEPS.length} aşamadan ${completedCount} tanesi tamamlandı`}
     >
       <div className="flex items-center gap-1" role="list">
         {SIMPLE_QUALIFICATION_STEPS.map((stage, index) => {
@@ -413,6 +402,11 @@ function CompactQualificationRail({ current }: { current: SalesCase["qualificati
               >
                 {complete && <Check className="mr-1 size-3.5" aria-hidden="true" />}
                 {QUALIFICATION_STAGE_LABELS[stage]}
+                {/* İkon aria-hidden olduğu için durum ekran okuyucuya ayrıca
+                    yazılmalı; aksi halde yalnız düz aşama dizisi duyuluyor. */}
+                <span className="sr-only">
+                  {active ? " — mevcut aşama" : complete ? " — tamamlandı" : " — bekliyor"}
+                </span>
               </div>
               {index < SIMPLE_QUALIFICATION_STEPS.length - 1 && (
                 <ChevronRight className="size-3.5 shrink-0 text-slate-300" aria-hidden="true" />
@@ -1248,7 +1242,7 @@ export function OpportunityWorkspace({
               },
             ]} />
           )}
-          <div className="flex flex-wrap items-center justify-between gap-3"><div><h3 className="font-display text-lg font-semibold text-[#0b1739]">{isLead ? "Temas akışı" : "Aktivite"}</h3><p className="text-xs text-muted-foreground">{isLead ? "Yaklaşan aksiyonlar ve tüm temas sonuçları aynı akışta." : "Elle eklenen yorumlar ile not yazılmış arama ve ziyaret kayıtları gösterilir."}</p></div>{hasPermission("activities.create") && <AddActivityDialog salesCaseId={sc.id} customerId={sc.customerId} commentOnly={!isLead} trigger={<Button size="sm" className="min-h-11 gap-1.5 sm:min-h-8"><ActivityIcon className="size-4" /> {isLead ? "Aktivite ekle" : "Yorum ekle"}</Button>} />}</div>
+          <div className="flex flex-wrap items-center justify-between gap-3"><div><h3 className="font-display text-lg font-semibold text-[#0b1739]">{isLead ? "Temas akışı" : "Aktivite"}</h3><p className="text-xs text-muted-foreground">{isLead ? "Yaklaşan aksiyonlar ve tüm temas sonuçları aynı akışta." : "Elle eklenen yorumlar ile detay yazılmış müşteri temasları gösterilir."}</p></div>{hasPermission("activities.create") && <AddActivityDialog salesCaseId={sc.id} customerId={sc.customerId} commentOnly={!isLead} trigger={<Button size="sm" className="min-h-11 gap-1.5 sm:min-h-8"><ActivityIcon className="size-4" /> {isLead ? "Aktivite ekle" : "Yorum ekle"}</Button>} />}</div>
           <Card>
             <CardContent className={padding}>
               {detailLoading && <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" /> Geçmiş yükleniyor…</div>}
