@@ -61,27 +61,22 @@ import {
 import { CommercialDocumentRail } from "../shared/CommercialDocumentRail";
 import { isManualTimelineComment, isOpportunityTimelineActivity } from "../../lib/opportunityTimeline";
 import { AUDIT_ACTION_LABELS, auditDetail } from "../../lib/opportunityAudit";
+import {
+  LEAD_TABS,
+  OPPORTUNITY_TABS,
+  SECTION_TO_TAB,
+  SIMPLE_OPPORTUNITY_TABS,
+  TAB_TO_SECTION,
+  migrateWorkspacePreferences,
+  normalizeWorkspaceTab,
+  roleDefaultTab,
+  type OpportunityRecordView,
+  type OpportunitySection,
+  type WorkspacePreferences,
+  type WorkspaceTab,
+} from "../../lib/opportunityWorkspacePreferences";
 
-type WorkspaceTab = "summary" | "contact" | "qualification" | "activity" | "commercial" | "operations" | "files";
-export type OpportunitySection = "overview" | "commercial" | "process" | "records";
-export type OpportunityRecordView = "activities" | "files" | "approvals" | "audit";
-
-type WorkspacePreferencesV2 = {
-  version: 2;
-  defaultTabByMode: { lead: WorkspaceTab; opportunity: WorkspaceTab };
-  density: "comfortable" | "compact";
-  showSimilar: boolean;
-  showStakeholders: boolean;
-};
-
-type WorkspacePreferencesV3 = {
-  version: 3;
-  defaultSection: OpportunitySection;
-  defaultRecordView: OpportunityRecordView;
-  density: "comfortable" | "compact";
-  showSimilar: boolean;
-  showStakeholders: boolean;
-};
+export type { OpportunitySection, OpportunityRecordView };
 
 type OpportunityDetail = {
   history?: Array<Record<string, any>>;
@@ -90,14 +85,12 @@ type OpportunityDetail = {
   auditHistory?: Array<Record<string, any>>;
   processReadiness?: OpportunityProcessReadiness;
 };
-
 type OpportunityDetailResource = {
   caseId: string;
   status: "idle" | "loading" | "ready" | "error";
   data: OpportunityDetail | null;
   error: string | null;
 };
-
 type TimelineItem = {
   id: string;
   date: string;
@@ -109,10 +102,6 @@ type TimelineItem = {
   sourceActivityId?: string;
 };
 
-// Kurallar saf modüle taşındı; buradan yeniden export edilerek mevcut
-// tüketiciler için geriye dönük uyum korunuyor.
-export { isManualTimelineComment, isOpportunityTimelineActivity };
-
 const TAB_LABELS: Record<WorkspaceTab, string> = {
   summary: "Özet",
   contact: "Temas",
@@ -123,84 +112,11 @@ const TAB_LABELS: Record<WorkspaceTab, string> = {
   files: "Kayıtlar",
 };
 
-const LEAD_TABS: WorkspaceTab[] = ["summary", "contact", "qualification", "files"];
-const OPPORTUNITY_TABS: WorkspaceTab[] = ["summary", "activity", "commercial", "operations", "files"];
-const SIMPLE_OPPORTUNITY_TABS: WorkspaceTab[] = ["summary", "commercial", "operations", "files"];
-
 const SIMPLE_TAB_LABELS: Partial<Record<WorkspaceTab, string>> = {
   summary: "Genel Bakış",
   commercial: "Ticari",
   operations: "Süreç",
   files: "Kayıtlar",
-};
-
-const SECTION_TO_TAB: Record<OpportunitySection, WorkspaceTab> = {
-  overview: "summary",
-  commercial: "commercial",
-  process: "operations",
-  records: "files",
-};
-
-const TAB_TO_SECTION: Partial<Record<WorkspaceTab, OpportunitySection>> = {
-  summary: "overview",
-  commercial: "commercial",
-  operations: "process",
-  files: "records",
-};
-
-const normalizeWorkspaceTab = (value: unknown, tabs: WorkspaceTab[]) =>
-  typeof value === "string" && tabs.includes(value as WorkspaceTab) ? value as WorkspaceTab : "summary";
-
-const migrateWorkspacePreferences = (
-  raw: unknown,
-  opportunityDefault: WorkspaceTab,
-): WorkspacePreferencesV2 => {
-  const source = raw && typeof raw === "object" ? raw as Record<string, any> : {};
-  const legacyDefault = source.defaultTab;
-  const byMode = source.defaultTabByMode && typeof source.defaultTabByMode === "object"
-    ? source.defaultTabByMode as Record<string, unknown>
-    : {};
-  return {
-    version: 2,
-    defaultTabByMode: {
-      lead: normalizeWorkspaceTab(byMode.lead ?? legacyDefault, LEAD_TABS),
-      opportunity: normalizeWorkspaceTab(byMode.opportunity ?? legacyDefault ?? opportunityDefault, OPPORTUNITY_TABS),
-    },
-    density: source.density === "compact" ? "compact" : "comfortable",
-    showSimilar: source.showSimilar !== false,
-    showStakeholders: source.showStakeholders !== false,
-  };
-};
-
-export const migrateSimpleWorkspacePreferences = (
-  raw: unknown,
-  legacy: WorkspacePreferencesV2,
-): WorkspacePreferencesV3 => {
-  const source = raw && typeof raw === "object" ? raw as Record<string, unknown> : {};
-  const section = source.defaultSection;
-  const recordView = source.defaultRecordView;
-  const legacyOpportunityTab = legacy.defaultTabByMode.opportunity;
-  const legacySection: OpportunitySection = legacyOpportunityTab === "commercial"
-    ? "commercial"
-    : legacyOpportunityTab === "operations"
-      ? "process"
-      : legacyOpportunityTab === "activity" || legacyOpportunityTab === "files"
-        ? "records"
-        : "overview";
-  const legacyRecordView: OpportunityRecordView = legacyOpportunityTab === "files" ? "files" : "activities";
-
-  return {
-    version: 3,
-    defaultSection: section === "commercial" || section === "process" || section === "records" || section === "overview"
-      ? section
-      : legacySection,
-    defaultRecordView: recordView === "files" || recordView === "approvals" || recordView === "audit" || recordView === "activities"
-      ? recordView
-      : legacyRecordView,
-    density: source.density === "compact" ? "compact" : legacy.density,
-    showSimilar: source.showSimilar === undefined ? legacy.showSimilar : source.showSimilar !== false,
-    showStakeholders: source.showStakeholders === undefined ? legacy.showStakeholders : source.showStakeholders !== false,
-  };
 };
 
 const APPROVAL_LABELS: Record<string, string> = {
@@ -237,13 +153,6 @@ const formatDate = (value?: string | Date | null, withTime = false) => {
 const timelineTime = (value: string) => {
   const time = new Date(value).getTime();
   return Number.isFinite(time) ? time : 0;
-};
-
-const roleDefaultTab = (roles: string[] | undefined): WorkspaceTab => {
-  const normalized = (roles ?? []).map((role) => role.toLocaleLowerCase("tr-TR"));
-  if (normalized.some((role) => role.includes("finance") || role.includes("finans"))) return "commercial";
-  if (normalized.some((role) => role.includes("service") || role.includes("servis") || role.includes("logistics"))) return "operations";
-  return "summary";
 };
 
 export function buildWorkspaceDecisionModel({
@@ -431,32 +340,25 @@ export function OpportunityWorkspace({
   const simpleOpportunity = simpleMode && !isLead;
   const activeTabs = isLead ? LEAD_TABS : simpleOpportunity ? SIMPLE_OPPORTUNITY_TABS : OPPORTUNITY_TABS;
   const legacyPreferenceKey = `opportunity.workspace.${user?.id ?? "anonymous"}`;
-  const preferenceKey = `${legacyPreferenceKey}.v2`;
-  const simplePreferenceKey = `${legacyPreferenceKey}.v3`;
-  // Bu blok düz ifadeydi: her render'da 3 senkron `localStorage.getItem`,
-  // 2 `JSON.parse` ve iki migration çağrısı çalışıyordu; sonuç yalnız ilk
-  // render'daki başlangıç değerleri için kullanılıyor. `localStorage` senkron
-  // ve ana thread'i blokluyor, store her güncellendiğinde de burası koşuyordu.
-  const { initialPreferences, initialSimplePreferences } = useMemo(() => {
-    const legacy = migrateWorkspacePreferences(
-      loadPersisted<unknown>(preferenceKey, loadPersisted<unknown>(legacyPreferenceKey, null)),
-      roleDefaultTab(user?.roles),
-    );
-    return {
-      initialPreferences: legacy,
-      initialSimplePreferences: migrateSimpleWorkspacePreferences(loadPersisted<unknown>(simplePreferenceKey, null), legacy),
-    };
-  }, [legacyPreferenceKey, preferenceKey, simplePreferenceKey, user?.roles]);
-  const [preferences, setPreferences] = usePersistentState<WorkspacePreferencesV2>(preferenceKey, initialPreferences);
-  const [simplePreferences, setSimplePreferences] = usePersistentState<WorkspacePreferencesV3>(
-    simplePreferenceKey,
-    initialSimplePreferences,
+  const preferenceKey = `${legacyPreferenceKey}.v3`;
+  // Tek anahtar, tek şema. Eski `.v2` ve anahtarsız blob'lar yalnız migration
+  // girdisi. Bu blok düz ifadeydi: her render'da senkron `localStorage.getItem`
+  // + `JSON.parse` + migration çalışıyordu; sonuç yalnız ilk render'da gerekli.
+  const initialPreferences = useMemo(
+    () => migrateWorkspacePreferences({
+      current: loadPersisted<unknown>(preferenceKey, null),
+      legacyV2: loadPersisted<unknown>(`${legacyPreferenceKey}.v2`, null),
+      legacyV1: loadPersisted<unknown>(legacyPreferenceKey, null),
+      roleDefault: roleDefaultTab(user?.roles),
+    }),
+    [legacyPreferenceKey, preferenceKey, user?.roles],
   );
+  const [preferences, setPreferences] = usePersistentState<WorkspacePreferences>(preferenceKey, initialPreferences);
   const preferredTab = isLead
-    ? preferences.defaultTabByMode.lead
+    ? preferences.lead.defaultTab
     : simpleOpportunity
-      ? SECTION_TO_TAB[simplePreferences.defaultSection]
-      : preferences.defaultTabByMode.opportunity;
+      ? SECTION_TO_TAB[preferences.opportunity.defaultSection]
+      : preferences.opportunity.defaultTab;
   // IIFE her render'da `new URL(window.location.href)` + 4 `searchParams.get`
   // çalıştırıyordu; sonucu yalnız aşağıdaki iki `useState` başlangıç değeri
   // için gerekli. Her render'da `window.location` okumak concurrent render
@@ -480,7 +382,7 @@ export function OpportunityWorkspace({
     };
   };
   const [tab, setTab] = useState<WorkspaceTab>(() => normalizeWorkspaceTab(readInitialUrlState()?.tab ?? preferredTab, activeTabs));
-  const [recordView, setRecordView] = useState<OpportunityRecordView>(() => readInitialUrlState()?.recordView ?? simplePreferences.defaultRecordView);
+  const [recordView, setRecordView] = useState<OpportunityRecordView>(() => readInitialUrlState()?.recordView ?? preferences.opportunity.defaultRecordView);
   const [auditVisibleCount, setAuditVisibleCount] = useState(20);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [detailResource, setDetailResource] = useState<OpportunityDetailResource>(() => ({
@@ -819,7 +721,7 @@ export function OpportunityWorkspace({
     return () => window.clearTimeout(timer);
   }, [focusedActivityId, recordView, simpleOpportunity, tab, timeline.length]);
 
-  const activeDensity = simpleOpportunity ? simplePreferences.density : preferences.density;
+  const activeDensity = preferences.density;
   const padding = activeDensity === "compact" ? "p-3 sm:p-4" : "p-4 sm:p-5";
   const operationReadiness = detail?.processReadiness;
   const nextOperationTarget = useMemo(
@@ -931,20 +833,15 @@ export function OpportunityWorkspace({
               <Label htmlFor="workspace-default-section" className="text-xs">Varsayılan bölüm</Label>
               <Select value={preferredTab} onValueChange={(value) => {
                 const nextTab = value as WorkspaceTab;
-                if (simpleOpportunity) {
-                  setSimplePreferences((current) => ({
-                    ...current,
-                    defaultSection: TAB_TO_SECTION[nextTab] ?? "overview",
-                  }));
-                  return;
-                }
-                setPreferences((current) => ({
-                  ...current,
-                  defaultTabByMode: {
-                    ...current.defaultTabByMode,
-                    [isLead ? "lead" : "opportunity"]: nextTab,
-                  },
-                }));
+                setPreferences((current) => {
+                  if (isLead) return { ...current, lead: { defaultTab: nextTab } };
+                  // Sade görünüm bölüm, legacy görünüm sekme saklar; ikisi
+                  // birebir eşlenmiyor ("activity" bölüm karşılığına indirgenirse
+                  // kaybolur), o yüzden ilgili alan güncellenir.
+                  return simpleOpportunity
+                    ? { ...current, opportunity: { ...current.opportunity, defaultSection: TAB_TO_SECTION[nextTab] ?? "overview" } }
+                    : { ...current, opportunity: { ...current.opportunity, defaultTab: nextTab } };
+                });
               }}>
                 <SelectTrigger id="workspace-default-section" className="mt-1.5 bg-white"><SelectValue /></SelectTrigger>
                 <SelectContent>{activeTabs.map((key) => <SelectItem key={key} value={key}>{workspaceTabLabel(key)}</SelectItem>)}</SelectContent>
@@ -953,9 +850,9 @@ export function OpportunityWorkspace({
             {!isLead && <div>
               <Label htmlFor="workspace-density" className="text-xs">Bilgi yoğunluğu</Label>
               <Select value={activeDensity} onValueChange={(value) => {
-                const density = value as WorkspacePreferencesV2["density"];
-                if (simpleOpportunity) setSimplePreferences((current) => ({ ...current, density }));
-                else setPreferences((current) => ({ ...current, density }));
+                // Tek şema: yoğunluk artık lead ile fırsat arasında ayrışmıyor.
+                const density = value as WorkspacePreferences["density"];
+                setPreferences((current) => ({ ...current, density }));
               }}>
                 <SelectTrigger id="workspace-density" className="mt-1.5 bg-white"><SelectValue /></SelectTrigger>
                 <SelectContent><SelectItem value="comfortable">Rahat</SelectItem><SelectItem value="compact">Kompakt</SelectItem></SelectContent>
@@ -972,15 +869,14 @@ export function OpportunityWorkspace({
                     key={key}
                     type="button"
                     size="sm"
-                    variant={(simpleOpportunity ? simplePreferences[key] : preferences[key]) ? "default" : "outline"}
+                    variant={preferences[key] ? "default" : "outline"}
                     className="h-11 text-xs sm:h-8"
                     onClick={() => {
-                      if (simpleOpportunity) setSimplePreferences((current) => ({ ...current, [key]: !current[key] }));
-                      else setPreferences((current) => ({ ...current, [key]: !current[key] }));
+                      setPreferences((current) => ({ ...current, [key]: !current[key] }));
                     }}
-                    aria-pressed={simpleOpportunity ? simplePreferences[key] : preferences[key]}
+                    aria-pressed={preferences[key]}
                   >
-                    {(simpleOpportunity ? simplePreferences[key] : preferences[key]) && <Check className="size-3.5" />} {label}
+                    {preferences[key] && <Check className="size-3.5" />} {label}
                   </Button>
                 ))}
               </div>
@@ -1187,7 +1083,7 @@ export function OpportunityWorkspace({
                       {score.gaps.length === 0 && <span className="inline-flex items-center gap-1.5 text-sm text-emerald-700"><Check className="size-4" /> Belirgin veri açığı yok</span>}
                     </div>
                   </div>
-                  {simplePreferences.showStakeholders && (
+                  {preferences.showStakeholders && (
                     <div>
                       <h4 className="text-sm font-semibold">Paydaşlar</h4>
                       <div className="mt-2 grid gap-2 sm:grid-cols-2">
@@ -1197,7 +1093,7 @@ export function OpportunityWorkspace({
                       </div>
                     </div>
                   )}
-                  {simplePreferences.showSimilar && (
+                  {preferences.showSimilar && (
                     <div>
                       <h4 className="text-sm font-semibold">Benzer kazanılan fırsatlar</h4>
                       <div className="mt-2 grid gap-2 sm:grid-cols-2">
@@ -1474,14 +1370,14 @@ export function OpportunityWorkspace({
             <Tabs value={recordView} onValueChange={(value) => {
               const nextView = value as OpportunityRecordView;
               setRecordView(nextView);
-              setSimplePreferences((current) => ({ ...current, defaultRecordView: nextView }));
+              setPreferences((current) => ({ ...current, opportunity: { ...current.opportunity, defaultRecordView: nextView } }));
             }}>
               <div className="sm:hidden">
                 <Label htmlFor="workspace-record-view" className="text-xs font-semibold">Kayıt türü</Label>
                 <Select value={recordView} onValueChange={(value) => {
                   const nextView = value as OpportunityRecordView;
                   setRecordView(nextView);
-                  setSimplePreferences((current) => ({ ...current, defaultRecordView: nextView }));
+                  setPreferences((current) => ({ ...current, opportunity: { ...current.opportunity, defaultRecordView: nextView } }));
                 }}>
                   <SelectTrigger id="workspace-record-view" className="mt-1.5 h-11 w-full bg-white"><SelectValue /></SelectTrigger>
                   <SelectContent>
