@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { migrateWorkspacePreferences, normalizeWorkspaceTab, roleDefaultTab } from "./opportunityWorkspacePreferences";
 
-const migrate = (input: Parameters<typeof migrateWorkspacePreferences>[0]) =>
-  migrateWorkspacePreferences({ roleDefault: "summary", ...input });
+type MigrateInput = Parameters<typeof migrateWorkspacePreferences>[0];
+
+const migrate = (input: Partial<MigrateInput>) =>
+  migrateWorkspacePreferences({ ...input, roleDefault: input.roleDefault ?? "summary" });
 
 describe("migrateWorkspacePreferences", () => {
   it("hiç kayıt yokken güvenli varsayılan üretir", () => {

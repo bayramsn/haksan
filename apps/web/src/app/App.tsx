@@ -42,6 +42,7 @@ import { StoreProvider, useStore } from "./lib/store";
 import { clearDrafts, usePersistentState } from "./lib/persist";
 import { Toaster } from "./components/ui/sonner";
 import { toast } from "sonner";
+import { applyOpportunityUrlState } from "./lib/opportunityUrlState";
 import { VoiceCallProvider } from "../lib/voiceCall";
 import { CreateCustomerDialog, CreateCaseDialog, CreateContactDialog, CreateServiceRequestDialog } from "./components/dialogs/CreateDialogs";
 import { ProductsPage } from "./components/pages/Operations";
@@ -192,16 +193,12 @@ function AppShell() {
 
   useEffect(() => {
     if (!deepLinkReady) return;
+    // Parametre silme listesi elle tutuluyordu; değişmezler artık saf modülde
+    // ve testli (fırsat yoksa hiçbiri anlamlı değil, record yalnız
+    // section=records iken korunur, aktivite yüzeyi çalışma alanına zorlar).
     const url = new URL(window.location.href);
-    if (selectedCaseId) url.searchParams.set("opportunity", selectedCaseId);
-    else {
-      url.searchParams.delete("opportunity");
-      url.searchParams.delete("activity");
-      url.searchParams.delete("surface");
-      url.searchParams.delete("section");
-      url.searchParams.delete("record");
-    }
-    window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
+    const search = applyOpportunityUrlState(url.search, { opportunity: selectedCaseId ?? null });
+    window.history.replaceState(window.history.state, "", `${url.pathname}${search}${url.hash}`);
   }, [deepLinkReady, selectedCaseId]);
 
   useEffect(() => {
