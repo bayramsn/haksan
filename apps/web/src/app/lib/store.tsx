@@ -1222,6 +1222,8 @@ function StoreInner({ children }: { children: ReactNode }) {
           source: 'commercial_record' as const,
           quoteId: d.quoteId ?? d.quote?.id ?? undefined,
           companyId: docCompanyId(d),
+          // Teklifi ve firma kaydı olmayan hızlı proformada unvan yalnızca burada.
+          companyNameText: d.companyNameText ?? undefined,
           type: 'Proforma' as const,
           fileName: d.documentNo ?? 'Proforma',
           uploadedBy: d.createdBy ?? '',

@@ -157,9 +157,14 @@ export const proformas = pgTable(
       .references(() => tenants.id, { onDelete: 'cascade' }),
     divisionId: uuid('division_id').references(() => divisions.id, { onDelete: 'set null' }),
     businessLine: varchar('business_line', { length: 16 }),
-    quoteId: uuid('quote_id')
-      .notNull()
-      .references(() => quotes.id, { onDelete: 'restrict' }),
+    // Tekliften bağımsız ("hızlı") proformalarda boştur; kalemler ve firma
+    // bilgisi doğrudan documentSnapshot içinde tutulur.
+    quoteId: uuid('quote_id').references(() => quotes.id, { onDelete: 'restrict' }),
+    // Teklif yokken firma/para birimi buradan çözülür (liste sorgusu teklife join atamaz).
+    companyId: uuid('company_id').references(() => companies.id),
+    currencyId: uuid('currency_id').references(() => currencies.id),
+    /** Kayıtlı firması olmayan proformada elle girilen unvan. */
+    companyNameText: varchar('company_name_text', { length: 255 }),
     documentNo: varchar('document_no', { length: 64 }).notNull(),
     issueDate: timestamp('issue_date', { withTimezone: true }).notNull(),
     statusId: uuid('status_id').references(() => proformaStatuses.id),
@@ -174,6 +179,7 @@ export const proformas = pgTable(
     tenantDivisionIdx: index('proformas_tenant_division_idx').on(t.tenantId, t.divisionId),
     tenantBusinessLineIdx: index('proformas_tenant_business_line_idx').on(t.tenantId, t.businessLine),
     quoteIdx: index('proformas_quote_idx').on(t.quoteId),
+    companyIdx: index('proformas_company_idx').on(t.companyId),
   })
 );
 

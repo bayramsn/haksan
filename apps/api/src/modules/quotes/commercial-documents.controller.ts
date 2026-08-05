@@ -7,6 +7,8 @@ import {
   paginationSchema,
   proformaCreateSchema,
   proformaUpdateSchema,
+  standaloneProformaCreateSchema,
+  standaloneProformaUpdateSchema,
   type CommercialInvoiceCreateInput,
   type CommercialInvoiceUpdateInput,
   type ContractCreateInput,
@@ -14,6 +16,8 @@ import {
   type Pagination,
   type ProformaCreateInput,
   type ProformaUpdateInput,
+  type StandaloneProformaCreateInput,
+  type StandaloneProformaUpdateInput,
 } from '@haksan/shared';
 import { ZodValidationPipe } from '../../shared/utils/zod-pipe';
 import { AuthGuard } from '../../shared/security/auth.guard';
@@ -37,6 +41,26 @@ export class CommercialDocumentsController {
   @Post('proformas')
   createProforma(@Body(new ZodValidationPipe(proformaCreateSchema)) body: ProformaCreateInput, @CurrentUser() user: AuthContext) {
     return this.svc.createProforma(body, user);
+  }
+
+  /** Tekliften bağımsız ("hızlı") proforma — kalemler doğrudan belgeye yazılır. */
+  @RequirePermissions('proformas.create')
+  @Post('proformas/standalone')
+  createStandaloneProforma(
+    @Body(new ZodValidationPipe(standaloneProformaCreateSchema)) body: StandaloneProformaCreateInput,
+    @CurrentUser() user: AuthContext
+  ) {
+    return this.svc.createStandaloneProforma(body, user);
+  }
+
+  @RequirePermissions('proformas.update')
+  @Patch('proformas/standalone/:id')
+  updateStandaloneProforma(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(standaloneProformaUpdateSchema)) body: StandaloneProformaUpdateInput,
+    @CurrentUser() user: AuthContext
+  ) {
+    return this.svc.updateStandaloneProforma(id, body, user);
   }
 
   @RequirePermissions('proformas.update')

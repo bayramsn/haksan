@@ -8,6 +8,7 @@ import { DocumentUploadDialog } from "../../dialogs/DocumentUploadDialog";
 import { DocumentPreviewDialog } from "../../dialogs/DocumentPreviewDialog";
 import { DocumentDetailDialog } from "../../dialogs/DocumentDetailDialog";
 import { CreateProformaDialog } from "../../dialogs/CreateProformaDialog";
+import { QuickProformaDialog } from "../../dialogs/QuickProformaDialog";
 import { EditProformaPricesDialog } from "../../dialogs/EditProformaPricesDialog";
 import { CreateContractDialog } from "../../dialogs/CreateContractDialog";
 import { LinkCommercialDocumentDialog } from "../../dialogs/LinkCommercialDocumentDialog";
@@ -30,7 +31,7 @@ import {
 import {
   Search, Upload, Download, Printer, Eye, Plus, Trash2,
   Files, Layers3, FileCheck2, BadgeDollarSign, Link2, Route, Unlink, ArrowRight,
-  Folder, FolderOpen,
+  Folder, FolderOpen, Zap,
 } from "lucide-react";
 import {
   printAssetBase, proformaDoc, commercialInvoiceDoc, contractDoc, installationFormDoc, loadContractPrintData, loadProformaPrintData, PROFORMA_NOTE_OPTIONS, trShortDate,
@@ -425,7 +426,11 @@ export function DocumentsPage({
   const directQuoteLinkCount = scopeDocuments.filter((document) => Boolean(document.quoteId)).length;
   const commercialTypes = new Set<DocumentItem["type"]>(["Proforma", "Contract", "CommercialInvoice"]);
   const reviewNeededCount = scopeDocuments.filter((document) =>
-    commercialTypes.has(document.type) && !document.quoteId && !document.paymentId
+    commercialTypes.has(document.type)
+    && !document.quoteId
+    && !document.paymentId
+    // Hızlı proforma bilerek teklifsizdir; eksik bağlantı olarak sayılmaz.
+    && !document.documentSnapshot?.standalone
   ).length;
   const routeSteps: Array<{ label: string; count: number; type?: DocumentItem["type"] }> = [
     { label: "Teklif", count: offers.length },
@@ -468,7 +473,7 @@ export function DocumentsPage({
       const companyId = d.companyId || sc?.customerId || "";
       const exactOffer = d.quoteId ? offers.find((offer) => offer.id === d.quoteId) : undefined;
       const inferredOffer = exactOffer ?? offers
-        .filter((offer) => offer.salesCaseId === d.salesCaseId || (companyId && offer.companyId === companyId))
+        .filter((offer) => (d.salesCaseId && offer.salesCaseId === d.salesCaseId) || (companyId && offer.companyId === companyId))
         .sort((a, b) => b.revision - a.revision)[0];
       if (docType !== "all" && d.type !== docType) return false;
       const needle = q.toLocaleLowerCase("tr-TR").trim();
@@ -477,6 +482,7 @@ export function DocumentsPage({
         d.fileName,
         DOC_TYPE_LABELS[d.type],
         customerName(companyId),
+        d.companyNameText,
         inferredOffer?.quoteNo,
         inferredOffer ? `R${inferredOffer.revision}` : "",
         sc?.requestedProduct,
@@ -679,6 +685,14 @@ export function DocumentsPage({
                 trigger={<Button size="sm" variant="outline" className="h-9 justify-center gap-1"><Plus className="size-4" /> Proforma</Button>}
               />
             )}
+            <QuickProformaDialog
+              trigger={
+                <Button size="sm" variant="outline" className="h-9 justify-center gap-1" title="Teklif açmadan proforma kes">
+                  <Zap className="size-4" /> Hızlı Proforma
+                </Button>
+              }
+            />
+
             {!initialType && (
               <CreateContractDialog
                 trigger={<Button size="sm" variant="outline" className="h-9 justify-center gap-1"><Plus className="size-4" /> Sözleşme</Button>}
@@ -721,7 +735,9 @@ export function DocumentsPage({
                 const companyId = sc?.customerId || d.companyId || "";
                 const openable = CONTENT_TYPES.includes(d.type) && !d.paymentId;
                 const exactOffer = d.quoteId ? offers.find((offer) => offer.id === d.quoteId) : undefined;
-                const flowOffer = exactOffer ?? (d.paymentId || d.serviceRequestId || d.type === "AccountingInvoice" ? undefined : offers.filter((offer) => offer.salesCaseId === d.salesCaseId).sort((a, b) => b.revision - a.revision)[0]);
+                // salesCaseId boşken eşleştirme yapılmamalı: aksi halde satış kartı olmayan
+                // belgeler (ör. hızlı proforma) yine satış kartsız rastgele bir teklife bağlıymış gibi görünür.
+                const flowOffer = exactOffer ?? (!d.salesCaseId || d.paymentId || d.serviceRequestId || d.type === "AccountingInvoice" ? undefined : offers.filter((offer) => offer.salesCaseId === d.salesCaseId).sort((a, b) => b.revision - a.revision)[0]);
                 const signedAt = String(d.documentSnapshot?.signedAt ?? d.documentSnapshot?.signatureDate ?? "");
                 const relationLabel = exactOffer
                   ? "Teklife doğrudan bağlı"
@@ -737,7 +753,10 @@ export function DocumentsPage({
                             ? "Canlı saha kaydı"
                             : companyId
                               ? "Firma kaydına bağlı"
-                              : "Bağlantı gerekli";
+                              // Hızlı proforma bilerek teklifsizdir; eksik bağlantı gibi gösterilmemeli.
+                              : d.documentSnapshot?.standalone
+                                ? "Teklifsiz hızlı proforma"
+                                : "Bağlantı gerekli";
                 return (
                   <TableRow
                     key={d.id}
@@ -760,7 +779,7 @@ export function DocumentsPage({
                             </button>
                           ) : (
                             <div className="text-[11px] text-muted-foreground mt-0.5 truncate">
-                              {customerName(companyId) !== "—" ? customerName(companyId) : sc ? `#${sc.id.toUpperCase()}` : d.companyId ? "Firma dokümanı" : "—"}
+                              {customerName(companyId) !== "—" ? customerName(companyId) : d.companyNameText ? d.companyNameText : sc ? `#${sc.id.toUpperCase()}` : d.companyId ? "Firma dokümanı" : "—"}
                             </div>
                           )}
                           <div className="mt-1.5 flex flex-wrap gap-1.5"><span className="chip chip-neutral">{d.fileId ? "Dosya mevcut" : d.deliveryId || d.installationId ? "Canlı saha formu" : "Canlı kayıt"}</span>{d.documentSnapshot && <span className="chip chip-info">Snapshot korumalı</span>}</div>
@@ -808,14 +827,27 @@ export function DocumentsPage({
                       <div className="flex items-center gap-1 justify-end">
                         {d.type === "Proforma" && (
                           <>
-                            <EditProformaPricesDialog
-                              document={d}
-                              trigger={
-                                <Button variant="ghost" size="icon" className="size-7" title="Proforma fiyatlarını düzenle">
-                                  <BadgeDollarSign className="size-4 text-muted-foreground hover:text-primary" />
-                                </Button>
-                              }
-                            />
+                            {/* Teklife bağlı proformada yalnızca fiyat düzenlenir; hızlı
+                                proformanın kalemleri belgeye ait olduğu için tam düzenleyici açılır. */}
+                            {d.quoteId ? (
+                              <EditProformaPricesDialog
+                                document={d}
+                                trigger={
+                                  <Button variant="ghost" size="icon" className="size-7" title="Proforma fiyatlarını düzenle">
+                                    <BadgeDollarSign className="size-4 text-muted-foreground hover:text-primary" />
+                                  </Button>
+                                }
+                              />
+                            ) : (
+                              <QuickProformaDialog
+                                document={d}
+                                trigger={
+                                  <Button variant="ghost" size="icon" className="size-7" title="Hızlı proformayı düzenle">
+                                    <Zap className="size-4 text-muted-foreground hover:text-primary" />
+                                  </Button>
+                                }
+                              />
+                            )}
                             <DropdownMenu>
                               <DropdownMenuTrigger asChild>
                                 <Button variant="ghost" size="icon" className="size-7" title="Proforma yazdır">

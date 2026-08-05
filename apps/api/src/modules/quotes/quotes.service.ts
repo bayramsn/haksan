@@ -1,5 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { existsSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
 import { and, desc, eq, ilike, inArray, isNull, sql } from 'drizzle-orm';
 import type { DbClient } from '../../db/client';
 import { quotes, quoteItems, quoteTerms, proformas, contracts, commercialInvoices } from '../../db/schema/quotes';
@@ -39,6 +40,8 @@ import type {
   QuoteStatusChangeInput,
   QuoteTermsUpsertInput,
   QuoteUpdateInput,
+  StandaloneProformaCreateInput,
+  StandaloneProformaUpdateInput,
 } from '@haksan/shared';
 import {
   DISCOUNT_APPROVAL_THRESHOLD_PERCENT,
@@ -1756,8 +1759,10 @@ export class QuotesService {
       })
       .from(proformas)
       .leftJoin(quotes, eq(proformas.quoteId, quotes.id))
-      .leftJoin(companies, eq(quotes.companyId, companies.id))
-      .leftJoin(currencies, eq(quotes.currencyId, currencies.id))
+      // Teklifsiz ("hızlı") proformada firma ve para birimi teklif üzerinden
+      // okunamaz; coalesce ile belgenin kendi sütunlarına düşülür.
+      .leftJoin(companies, eq(companies.id, sql`coalesce(${quotes.companyId}, ${proformas.companyId})`))
+      .leftJoin(currencies, eq(currencies.id, sql`coalesce(${quotes.currencyId}, ${proformas.currencyId})`))
       .leftJoin(proformaStatuses, eq(proformas.statusId, proformaStatuses.id))
       .where(where)
       .orderBy(desc(proformas.issueDate))
@@ -1824,8 +1829,11 @@ export class QuotesService {
   async updateProforma(id: string, input: ProformaUpdateInput, actor: AuthContext) {
     const existing = await this.getProforma(id, actor);
     this.assertCommercialDocumentMutable(existing, 'Proforma');
+    if (!existing.quoteId && !input.quoteId) {
+      throw new ValidationError('Bu proforma bir teklife bağlı değil; hızlı proforma olarak güncelleyin');
+    }
     const patch: Record<string, unknown> = {};
-    let quote = await this.get(existing.quoteId, actor);
+    let quote = await this.get(String(input.quoteId ?? existing.quoteId), actor);
     if (input.quoteId !== undefined) {
       quote = await this.get(input.quoteId, actor);
       patch.quoteId = input.quoteId;
@@ -1896,6 +1904,266 @@ export class QuotesService {
       newValues: { deletedAt: now },
     });
     return { ok: true };
+  }
+
+  // ────────── TEKLİFTEN BAĞIMSIZ ("HIZLI") PROFORMA ──────────
+  //
+  // Küçük/ad-hoc işlerde teklif açmadan proforma kesilebilmesi gerekir. Kalemler bir
+  // teklif satırına değil doğrudan belgeye aittir; bu yüzden tutarlar ve firma bilgisi
+  // burada üretilip `documentSnapshot` içine yazılır. Yazdırma katmanı zaten yalnızca
+  // snapshot okuduğu için PDF tarafında değişiklik gerekmez.
+
+  /** Firma, adres, telefon ve para birimi bağlamını (kayıtlı firma varsa DB'den) çözer. */
+  private async resolveStandaloneProformaContext(
+    input: Partial<StandaloneProformaCreateInput>,
+    actor: AuthContext
+  ) {
+    const company = input.companyId ? await this.assertCompany(input.companyId, actor) : null;
+    const [addresses, phones] = company
+      ? await Promise.all([
+          this.db
+            .select()
+            .from(companyAddresses)
+            .where(and(eq(companyAddresses.companyId, company.id), isNull(companyAddresses.deletedAt)))
+            .orderBy(desc(companyAddresses.isBilling), desc(companyAddresses.isDefault), companyAddresses.createdAt),
+          this.db
+            .select()
+            .from(companyPhones)
+            .where(and(eq(companyPhones.companyId, company.id), isNull(companyPhones.deletedAt)))
+            .orderBy(desc(companyPhones.isDefault), companyPhones.createdAt),
+        ])
+      : [[], []];
+    const currency = input.currencyCode
+      ? await this.db.query.currencies.findFirst({ where: eq(currencies.code, input.currencyCode) })
+      : null;
+    if (input.currencyCode && !currency) {
+      throw new ValidationError('Geçersiz para birimi', { field: 'currencyCode' });
+    }
+    return { company, addresses, phones, currency };
+  }
+
+  /**
+   * Yazdırma katmanının (`proformaFromSnapshot`) beklediği şekilde bir belge anlık
+   * görüntüsü üretir. Toplam mantığı teklife bağlı proformayla aynıdır; tek fark
+   * teklif geneli iskonto ve gümrüğün burada bulunmamasıdır.
+   */
+  private buildStandaloneProformaSnapshot(
+    document: Record<string, unknown>,
+    input: StandaloneProformaCreateInput,
+    context: Awaited<ReturnType<QuotesService['resolveStandaloneProformaContext']>>
+  ) {
+    const roundMoney = (value: number) => Number(value.toFixed(4));
+    const items = input.items.map((item) => {
+      const quantity = Number(item.quantity);
+      const unitPrice = Number(item.unitPrice);
+      const discountAmount = Number(item.discountAmount ?? 0);
+      this.assertItemDiscount(quantity, unitPrice, discountAmount);
+      const lineTotal = roundMoney(quantity * unitPrice - discountAmount);
+      return {
+        id: randomUUID(),
+        description: item.description,
+        quantity,
+        unitCode: item.unitCode ?? 'adet',
+        unitPrice: roundMoney(unitPrice),
+        discountAmount: roundMoney(discountAmount),
+        vatRate: Number(item.vatRate ?? 0),
+        lineTotal,
+        vatAmount: roundMoney(lineTotal * (Number(item.vatRate ?? 0) / 100)),
+        // Katalog bağı yok; PDF'deki Markası/Menşei/G.T.İ.P. satırları elle girilir
+        // ve boş bırakılırsa basılmaz.
+        product:
+          item.brand || item.originCountry || item.hsCode
+            ? {
+                brandName: item.brand ?? null,
+                originCountry: item.originCountry ?? null,
+                hsCode: item.hsCode ?? null,
+              }
+            : null,
+        productModelId: null,
+        nationalized: false,
+      };
+    });
+    const discountTotal = roundMoney(items.reduce((sum, item) => sum + item.discountAmount, 0));
+    const subtotal = roundMoney(items.reduce((sum, item) => sum + item.lineTotal, 0));
+    const vatAmount = roundMoney(items.reduce((sum, item) => sum + item.vatAmount, 0));
+
+    const address = context.company
+      ? context.addresses[0] ?? null
+      : input.companyAddress
+        ? { fullAddress: input.companyAddress }
+        : null;
+
+    return {
+      schemaVersion: 4,
+      capturedAt: new Date().toISOString(),
+      /** Teklife bağlı snapshot'lardan ayırmak için işaret. */
+      standalone: true,
+      document,
+      quote: {
+        documentNo: document.documentNo ?? null,
+        subtotal,
+        discountTotal,
+        vatAmount,
+        customsTotal: 0,
+        grandTotal: roundMoney(subtotal + vatAmount),
+        paymentTerms: input.paymentTerms ?? null,
+        deliveryTerms: input.deliveryTerms ?? null,
+        warrantyTerms: input.warrantyTerms ?? null,
+        notes: input.notes ?? null,
+      },
+      company: context.company
+        ? {
+            id: context.company.id,
+            legalTitle: context.company.legalTitle,
+            shortName: context.company.shortName,
+            taxOffice: context.company.taxOffice,
+            taxNumber: context.company.taxNumber,
+          }
+        : {
+            id: null,
+            legalTitle: input.companyName ?? null,
+            shortName: null,
+            taxOffice: input.companyTaxOffice ?? null,
+            taxNumber: input.companyTaxNumber ?? null,
+          },
+      companyAddresses: address ? [address] : [],
+      companyPhones: context.phones,
+      companyEmails: [],
+      receivables: [],
+      contact:
+        input.contactName || input.contactPhone
+          ? { fullName: input.contactName ?? null, mobilePhone: input.contactPhone ?? null, workPhone: null }
+          : null,
+      currency: context.currency ?? { code: input.currencyCode ?? 'USD' },
+      items,
+      terms: {
+        paymentTermsText: input.paymentTerms ?? null,
+        deliveryTermsText: input.deliveryTerms ?? null,
+        warrantyTermsText: input.warrantyTerms ?? null,
+      },
+    };
+  }
+
+  async createStandaloneProforma(input: StandaloneProformaCreateInput, actor: AuthContext) {
+    const context = await this.resolveStandaloneProformaContext(input, actor);
+    const divisionId = resolveAssignedResourceDivision(actor, 'proformas', input.divisionId ?? null);
+    if (!divisionId && (await this.tenantHasActiveDivisions(actor))) {
+      throw new ValidationError('Proforma için bölüm ataması zorunludur', { field: 'divisionId' });
+    }
+    const businessLine = divisionId ? await resolveBusinessLine(this.db, actor.tenantId, divisionId) : 'CNC';
+    const documentNo =
+      normalizeSeriesDocumentNo(input.documentNo, businessLine) ??
+      (await nextSeriesDocumentNo(this.db, actor.tenantId, businessLine, 'proforma', input.issueDate));
+    const statusId = await lookupIdByCode(this.db, proformaStatuses, input.statusCode);
+    if (!statusId) throw new ValidationError('Geçersiz proforma durumu', { field: 'statusCode' });
+    const finalizedAt = input.statusCode !== 'draft' ? new Date() : null;
+    const documentSnapshot = this.buildStandaloneProformaSnapshot(
+      {
+        businessLine,
+        quoteId: null,
+        documentNo,
+        issueDate: input.issueDate,
+        statusId,
+        finalizedAt,
+        createdBy: actor.userId,
+      },
+      input,
+      context
+    );
+    const [row] = await this.db
+      .insert(proformas)
+      .values({
+        tenantId: actor.tenantId,
+        divisionId,
+        businessLine,
+        quoteId: null,
+        companyId: context.company?.id ?? null,
+        currencyId: context.currency?.id ?? null,
+        companyNameText: context.company ? null : (input.companyName ?? null),
+        documentNo,
+        issueDate: input.issueDate,
+        statusId,
+        documentSnapshot,
+        finalizedAt,
+        createdBy: actor.userId,
+      })
+      .returning();
+    await this.audit.write({
+      tenantId: actor.tenantId,
+      actorUserId: actor.userId,
+      action: 'proforma.created',
+      resourceType: 'proforma',
+      resourceId: row.id,
+      newValues: { documentNo: row.documentNo, standalone: true, itemCount: input.items.length },
+    });
+    return this.getProforma(row.id, actor);
+  }
+
+  async updateStandaloneProforma(id: string, input: StandaloneProformaUpdateInput, actor: AuthContext) {
+    const existing = await this.getProforma(id, actor);
+    if (existing.quoteId) {
+      throw new ValidationError('Bu proforma bir teklife bağlı; teklif proforması olarak güncelleyin');
+    }
+    this.assertCommercialDocumentMutable(existing, 'Proforma');
+    const previous = (existing.documentSnapshot ?? {}) as Record<string, any>;
+    // Gönderilmeyen alanlar mevcut belgeden korunur: kısmi güncelleme snapshot'ı sıfırlamamalı.
+    const merged: StandaloneProformaCreateInput = {
+      companyId: input.companyId ?? existing.companyId ?? undefined,
+      companyName: input.companyName ?? previous.company?.legalTitle ?? undefined,
+      companyAddress: input.companyAddress ?? previous.companyAddresses?.[0]?.fullAddress ?? undefined,
+      companyTaxOffice: input.companyTaxOffice ?? previous.company?.taxOffice ?? undefined,
+      companyTaxNumber: input.companyTaxNumber ?? previous.company?.taxNumber ?? undefined,
+      contactName: input.contactName ?? previous.contact?.fullName ?? undefined,
+      contactPhone: input.contactPhone ?? previous.contact?.mobilePhone ?? undefined,
+      divisionId: input.divisionId ?? existing.divisionId ?? undefined,
+      documentNo: input.documentNo ?? existing.documentNo,
+      issueDate: input.issueDate ?? existing.issueDate,
+      statusCode: input.statusCode ?? 'draft',
+      currencyCode: input.currencyCode ?? previous.currency?.code ?? 'USD',
+      items: input.items ?? previous.items ?? [],
+      paymentTerms: input.paymentTerms ?? previous.terms?.paymentTermsText ?? undefined,
+      deliveryTerms: input.deliveryTerms ?? previous.terms?.deliveryTermsText ?? undefined,
+      warrantyTerms: input.warrantyTerms ?? previous.terms?.warrantyTermsText ?? undefined,
+      notes: input.notes ?? previous.quote?.notes ?? undefined,
+    };
+    if (!merged.items.length) throw new ValidationError('Proforma en az bir kalem içermeli', { field: 'items' });
+    const context = await this.resolveStandaloneProformaContext(merged, actor);
+    const businessLine = (existing.businessLine ?? 'CNC') as BusinessLine;
+    const documentNo =
+      input.documentNo !== undefined
+        ? normalizeSeriesDocumentNo(input.documentNo, businessLine) ?? existing.documentNo
+        : existing.documentNo;
+    const statusId =
+      input.statusCode !== undefined
+        ? await lookupIdByCode(this.db, proformaStatuses, input.statusCode)
+        : existing.statusId;
+    if (!statusId) throw new ValidationError('Geçersiz proforma durumu', { field: 'statusCode' });
+    const finalizedAt = input.statusCode !== undefined && input.statusCode !== 'draft' ? new Date() : existing.finalizedAt;
+    const patch = {
+      companyId: context.company?.id ?? null,
+      currencyId: context.currency?.id ?? null,
+      companyNameText: context.company ? null : (merged.companyName ?? null),
+      documentNo,
+      issueDate: merged.issueDate,
+      statusId,
+      finalizedAt,
+      documentSnapshot: this.buildStandaloneProformaSnapshot(
+        { businessLine, quoteId: null, documentNo, issueDate: merged.issueDate, statusId, finalizedAt, createdBy: existing.createdBy },
+        merged,
+        context
+      ),
+    };
+    await this.db.update(proformas).set(patch).where(eq(proformas.id, id));
+    await this.audit.write({
+      tenantId: actor.tenantId,
+      actorUserId: actor.userId,
+      action: 'proforma.updated',
+      resourceType: 'proforma',
+      resourceId: id,
+      oldValues: existing,
+      newValues: { ...patch, standalone: true },
+    });
+    return this.getProforma(id, actor);
   }
 
   async listContracts(actor: AuthContext, page: Pagination) {

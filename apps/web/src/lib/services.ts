@@ -81,6 +81,8 @@ import type {
   ProductUpdateInput,
   ProformaCreateInput,
   ProformaUpdateInput,
+  StandaloneProformaCreateInput,
+  StandaloneProformaUpdateInput,
   PublicServiceComplaintInput,
   PurchaseOrderCreateInput,
   PurchaseOrderItemCreateInput,
@@ -685,6 +687,10 @@ export const documentService = {
   proformas: (params?: Record<string, string | number | undefined>) => api.get<Paginated<any>>(`/proformas${qs(params)}`),
   createProforma: (body: ProformaCreateInput) => api.post<any>('/proformas', body),
   updateProforma: (id: string, body: ProformaUpdateInput) => api.patch<any>(`/proformas/${id}`, body),
+  /** Tekliften bağımsız ("hızlı") proforma — kalemler doğrudan belgeye yazılır. */
+  createStandaloneProforma: (body: StandaloneProformaCreateInput) => api.post<any>('/proformas/standalone', body),
+  updateStandaloneProforma: (id: string, body: StandaloneProformaUpdateInput) =>
+    api.patch<any>(`/proformas/standalone/${id}`, body),
   deleteProforma: (id: string) => api.delete<any>(`/proformas/${id}`),
   contracts: (params?: Record<string, string | number | undefined>) => api.get<Paginated<any>>(`/contracts${qs(params)}`),
   createContract: (body: ContractCreateInput) => api.post<any>('/contracts', body),

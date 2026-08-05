@@ -515,6 +515,8 @@ export type DocumentItem = {
   /** Proforma / sözleşme / fatura kaydının bağlı olduğu teklif. */
   quoteId?: string;
   companyId?: string;
+  /** Kayıtlı firması olmayan hızlı proformada elle girilen unvan. */
+  companyNameText?: string;
   /** Servis talebine bağlı ek (service kanban kartı). */
   serviceRequestId?: string;
   /** Kasa hareketine eklenen ödeme fişi / fatura dosyası. */

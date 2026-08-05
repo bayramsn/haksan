@@ -146,6 +146,82 @@ export type ProformaCreateInput = z.infer<typeof proformaCreateSchema>;
 export const proformaUpdateSchema = proformaCreateSchema.partial();
 export type ProformaUpdateInput = z.infer<typeof proformaUpdateSchema>;
 
+/**
+ * Tekliften bağımsız ("hızlı") proforma kalemi. Teklife bağlı proformadan farkı,
+ * satırın kendi açıklaması/adedi/iskontosu olması — bir teklif kalemine değil,
+ * doğrudan belgeye aittir.
+ */
+export const proformaFreeItemSchema = z
+  .object({
+    description: z.string().trim().min(1).max(2000),
+    quantity: z.coerce.number().positive().multipleOf(0.001),
+    unitCode: z.string().trim().max(16).default('adet'),
+    unitPrice: moneySchema,
+    discountAmount: moneySchema.default(0),
+    vatRate: percentSchema.default(20),
+    /** PDF'deki Markası / Menşei / G.T.İ.P. satırları — boş bırakılırsa basılmaz. */
+    brand: z.string().trim().max(255).optional(),
+    originCountry: z.string().trim().max(255).optional(),
+    hsCode: z.string().trim().max(64).optional(),
+  })
+  .superRefine((item, context) => {
+    if (item.discountAmount > item.quantity * item.unitPrice + 0.0001) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Satır iskontosu brüt tutarını aşamaz',
+        path: ['discountAmount'],
+      });
+    }
+  });
+export type ProformaFreeItemInput = z.infer<typeof proformaFreeItemSchema>;
+
+const standaloneProformaFields = z.object({
+  /** Kayıtlı firma; verilmezse serbest metin alanları kullanılır. */
+  companyId: z.string().uuid().optional(),
+  companyName: z.string().trim().max(255).optional(),
+  companyAddress: z.string().trim().max(1000).optional(),
+  companyTaxOffice: z.string().trim().max(255).optional(),
+  companyTaxNumber: z.string().trim().max(64).optional(),
+  contactName: z.string().trim().max(255).optional(),
+  contactPhone: z.string().trim().max(64).optional(),
+  divisionId: z.string().uuid().optional(),
+  documentNo: z.string().trim().min(1).max(64).optional(),
+  issueDate: z.coerce.date(),
+  statusCode: z.string().max(64).default('draft'),
+  currencyCode: z.string().trim().max(8).default('USD'),
+  items: z.array(proformaFreeItemSchema).min(1).max(200),
+  paymentTerms: z.string().max(4000).optional(),
+  deliveryTerms: z.string().max(4000).optional(),
+  warrantyTerms: z.string().max(4000).optional(),
+  notes: z.string().max(4000).optional(),
+});
+
+/** Kime kesildiği belirsiz bir proforma oluşmasın: firma kaydı ya da unvan şart. */
+const requireProformaOwner = (
+  value: { companyId?: string; companyName?: string },
+  context: z.RefinementCtx,
+) => {
+  if (!value.companyId && !value.companyName?.trim()) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'Firma seçin veya firma unvanını yazın',
+      path: ['companyName'],
+    });
+  }
+};
+
+export const standaloneProformaCreateSchema = standaloneProformaFields.superRefine(requireProformaOwner);
+export type StandaloneProformaCreateInput = z.infer<typeof standaloneProformaCreateSchema>;
+
+export const standaloneProformaUpdateSchema = standaloneProformaFields
+  .partial()
+  .superRefine((value, context) => {
+    // Firma alanlarına hiç dokunulmayan güncellemede mevcut kayıt geçerliliğini korur.
+    if (value.companyId === undefined && value.companyName === undefined) return;
+    requireProformaOwner(value, context);
+  });
+export type StandaloneProformaUpdateInput = z.infer<typeof standaloneProformaUpdateSchema>;
+
 export const contractCreateSchema = z.object({
   quoteId: z.string().min(1),
   contractNo: z.string().trim().min(1).max(64).optional(),
