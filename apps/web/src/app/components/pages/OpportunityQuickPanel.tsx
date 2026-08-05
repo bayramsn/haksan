@@ -158,7 +158,7 @@ function OpportunityQuickPanelLegacy({ salesCase: sc, onClose, onOpenWorkspace, 
           </div>
           <div className="-mr-2 -mt-2 flex shrink-0 items-center gap-0.5">
             {onNavigate && <><Button type="button" variant="ghost" size="icon" disabled={!previous} onClick={() => previous && onNavigate(previous.id)} aria-label="Önceki fırsat" title="Önceki fırsat"><ChevronLeft className="size-4" /></Button><Button type="button" variant="ghost" size="icon" disabled={!next} onClick={() => next && onNavigate(next.id)} aria-label="Sonraki fırsat" title="Sonraki fırsat"><ChevronRight className="size-4" /></Button></>}
-            <Button type="button" variant="ghost" size="icon" onClick={onClose} aria-label="Fırsat panelini kapat"><X className="size-4" /></Button>
+            <Button type="button" variant="ghost" size="icon" className="size-11 sm:size-9" onClick={onClose} aria-label="Fırsat panelini kapat"><X className="size-4" /></Button>
           </div>
         </div>
       </header>
@@ -493,7 +493,7 @@ function SimpleOpportunityQuickPanel({ salesCase: sc, onClose, onOpenWorkspace, 
                 <Button type="button" variant="ghost" size="icon" disabled={!next} onClick={() => next && onNavigate(next.id)} aria-label="Sonraki fırsat" title="Sonraki fırsat"><ChevronRight className="size-4" /></Button>
               </>
             )}
-            <Button type="button" variant="ghost" size="icon" onClick={onClose} aria-label="Fırsat panelini kapat"><X className="size-4" /></Button>
+            <Button type="button" variant="ghost" size="icon" className="size-11 sm:size-9" onClick={onClose} aria-label="Fırsat panelini kapat"><X className="size-4" /></Button>
           </div>
         </div>
       </header>

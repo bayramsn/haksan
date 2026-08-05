@@ -17,7 +17,13 @@ describe("OpportunityProcessCenter inline hedef paneli", () => {
     expect(source).toContain('selected?.axis === "qualification" && renderSelectedTargetPanel(selected)');
     expect(source).toContain("operationGroupForTarget(target)");
     expect(source).toContain("aria-expanded={isExpanded}");
-    expect(source).toContain("aria-controls={groupPanelId}");
+    // `aria-controls` yalnız panel gerçekten render edilirken verilmeli;
+    // koşulsuz hâli kapalı grupta var olmayan bir id'yi işaret ediyordu.
+    expect(source).toContain("aria-controls={isExpanded ? groupPanelId : undefined}");
+    // Canlı bölge panelle birlikte mount olursa ilk içerik hiç duyurulmaz.
+    expect(source).toContain('<div aria-live="polite" className="sr-only">{liveAnnouncement}</div>');
+    // `aria-pressed` + `aria-expanded` aynı düğmede çelişiyordu.
+    expect(source).not.toContain("aria-pressed={");
   });
 
   it("operasyonsuz satış alanlarını boş durum mesajıyla korur", () => {

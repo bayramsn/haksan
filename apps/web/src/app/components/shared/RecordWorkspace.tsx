@@ -109,7 +109,7 @@ export const WorkspaceDecisionSummary = forwardRef<HTMLElement, {
             <ul className="grid gap-2 sm:grid-cols-2">
               {model.risks.map((risk) => (
                 <li key={risk.key} className={risk.tone === "danger" ? "rounded-lg border border-destructive/20 bg-destructive/5 px-3 py-2 text-destructive" : "rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-amber-900"}>
-                  <span className="font-semibold">{risk.label}</span>{risk.detail && <span className="block opacity-80">{risk.detail}</span>}
+                  <span className="font-semibold">{risk.label}</span>{risk.detail && <span className="block">{risk.detail}</span>}
                 </li>
               ))}
             </ul>
@@ -166,7 +166,7 @@ export const WorkspaceDecisionSummary = forwardRef<HTMLElement, {
               {model.risks.map((risk) => (
                 <li key={risk.key} className={`flex gap-2 rounded-lg border px-2.5 py-2 text-xs ${risk.tone === "danger" ? "border-red-200 bg-red-50 text-red-900" : "border-amber-200 bg-amber-50 text-amber-900"}`}>
                   <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
-                  <span><span className="font-semibold">{risk.label}</span>{risk.detail && <span className="block opacity-80">{risk.detail}</span>}</span>
+                  <span><span className="font-semibold">{risk.label}</span>{risk.detail && <span className="block">{risk.detail}</span>}</span>
                 </li>
               ))}
             </ul>

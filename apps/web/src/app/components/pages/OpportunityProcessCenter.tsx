@@ -157,6 +157,13 @@ export function OpportunityProcessCenter({
     setSelectedPanelTab("requirements");
     setExpandedGroup(operationGroupForTarget(target));
     setReason("");
+    // Panel, tetikleyen düğmeden onlarca öğe sonra render ediliyor (nitelik
+    // hedeflerinde operasyon akordeonunun içinde). `aria-controls` desteği
+    // AT'lerde isteğe bağlı olduğu için odağı elle taşımazsak ekran okuyucu
+    // ve büyüteç kullanıcısı panelin açıldığını hiç fark etmiyor.
+    window.requestAnimationFrame(() => {
+      document.getElementById(`selected-target-${target.axis}-${target.code}`)?.focus({ preventScroll: false });
+    });
   };
 
   const openProcessAction = (actionKey: OpportunityProcessActionKey) => {
@@ -302,7 +309,8 @@ export function OpportunityProcessCenter({
                   id={`process-target-${target.axis}-${target.code}`}
                   type="button"
                   aria-current={current ? "step" : undefined}
-                  aria-pressed={isSelected}
+                  // `aria-pressed` düğmeyi aç/kapa düğmesi olarak duyuruyordu; gerçek davranış
+                  // disclosure, o yüzden yalnız aria-expanded bırakıldı.
                   aria-expanded={isSelected && target.direction !== "current" ? true : undefined}
                   aria-controls={isSelected && target.direction !== "current" ? `selected-target-${target.axis}-${target.code}` : undefined}
                   // Kapanmış kartta hiçbir hedef seçilemez; düğmeyi açık bırakmak
@@ -383,6 +391,7 @@ export function OpportunityProcessCenter({
       <section
         id={panelId}
         role="region"
+        tabIndex={-1}
         aria-label={`Seçili hedef: ${targetLabel}`}
         data-selected-target-panel
         className="mx-2 mb-2 mt-1 overflow-hidden rounded-lg border border-primary/20 bg-slate-50/80"
@@ -577,9 +586,6 @@ export function OpportunityProcessCenter({
             </div>
           )}
 
-          <div aria-live="polite" className="sr-only">
-            {moving ? "Hedefe taşınıyor" : target.blockers.length ? `${target.blockers.length} gereklilik eksik` : "Hedefe geçiş hazır"}
-          </div>
           <div className="mt-3 flex flex-col-reverse gap-2 border-t border-border/60 pt-3 sm:flex-row sm:items-center sm:justify-end">
             <Button type="button" size="sm" variant="ghost" className="min-h-11 sm:min-h-8" onClick={focusTargetButton}>
               Vazgeç
@@ -656,7 +662,9 @@ export function OpportunityProcessCenter({
               <button
                 type="button"
                 aria-expanded={isExpanded}
-                aria-controls={groupPanelId}
+                // Panel koşullu render ediliyor; kapalıyken bu id DOM'da yok
+                // ve JAWS bunu hata olarak raporluyor.
+                aria-controls={isExpanded ? groupPanelId : undefined}
                 onClick={toggleGroup}
                 className={`flex min-h-11 w-full items-center justify-between gap-3 px-3 py-2.5 text-left outline-none transition focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary ${
                   activeGroup ? "bg-primary/5" : "bg-muted/20 hover:bg-muted/40"
@@ -697,7 +705,8 @@ export function OpportunityProcessCenter({
                               id={`process-target-${target.axis}-${target.code}`}
                               type="button"
                               aria-current={current ? "step" : undefined}
-                              aria-pressed={isSelected}
+                              // `aria-pressed` düğmeyi aç/kapa düğmesi olarak duyuruyordu; gerçek davranış
+                              // disclosure, o yüzden yalnız aria-expanded bırakıldı.
                               aria-expanded={isSelected && target.direction !== "current" ? true : undefined}
                               aria-controls={isSelected && target.direction !== "current" ? `selected-target-${target.axis}-${target.code}` : undefined}
                               disabled={current || !target.selectable}
@@ -751,8 +760,23 @@ export function OpportunityProcessCenter({
     </div>
   );
 
+  const liveAnnouncement = (() => {
+    if (moving) return "Hedefe taşınıyor";
+    if (!selected || selected.direction === "current") return "";
+    const label = selected.axis === "qualification"
+      ? QUALIFICATION_STAGE_LABELS[selected.code as keyof typeof QUALIFICATION_STAGE_LABELS]
+      : salesStageLabel(selected.code as any);
+    const state = selected.blockers.length ? `${selected.blockers.length} gereklilik eksik` : "geçiş hazır";
+    return `Seçili hedef: ${label}, ${state}`;
+  })();
+
   return (
     <Card className="overflow-hidden border-primary/20 shadow-sm">
+      {/* Canlı bölge bileşen kökünde ve KALICI. Daha önce seçili hedef
+          panelinin içindeydi; AT'ler yalnız var olan bir canlı bölgenin
+          sonraki değişimlerini duyurduğu için panelle birlikte mount olan
+          bölgenin ilk içeriği ("3 gereklilik eksik") hiç okunmuyordu. */}
+      <div aria-live="polite" className="sr-only">{liveAnnouncement}</div>
       <CardContent className="space-y-5 p-4 sm:p-5">
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div>

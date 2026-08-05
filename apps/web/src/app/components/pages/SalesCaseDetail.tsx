@@ -1836,14 +1836,14 @@ export function SalesCaseDetailPage({
           <>
             {onNavigate && (
               <div className="flex items-center rounded-md border border-slate-200 bg-white">
-                <Button type="button" variant="ghost" size="icon" className="size-8 rounded-r-none" disabled={!previous} onClick={() => previous && onNavigate(previous.id)} aria-label={`Önceki ${cardTypeLabel.toLocaleLowerCase("tr-TR")}`} title={`Önceki ${cardTypeLabel.toLocaleLowerCase("tr-TR")}`}><ChevronLeft className="size-4" /></Button>
-                <Button type="button" variant="ghost" size="icon" className="size-8 rounded-l-none border-l border-slate-200" disabled={!next} onClick={() => next && onNavigate(next.id)} aria-label={`Sonraki ${cardTypeLabel.toLocaleLowerCase("tr-TR")}`} title={`Sonraki ${cardTypeLabel.toLocaleLowerCase("tr-TR")}`}><ChevronRight className="size-4" /></Button>
+                <Button type="button" variant="ghost" size="icon" className="size-11 rounded-r-none sm:size-9" disabled={!previous} onClick={() => previous && onNavigate(previous.id)} aria-label={`Önceki ${cardTypeLabel.toLocaleLowerCase("tr-TR")}`} title={`Önceki ${cardTypeLabel.toLocaleLowerCase("tr-TR")}`}><ChevronLeft className="size-4" /></Button>
+                <Button type="button" variant="ghost" size="icon" className="size-11 rounded-l-none border-l border-slate-200 sm:size-9" disabled={!next} onClick={() => next && onNavigate(next.id)} aria-label={`Sonraki ${cardTypeLabel.toLocaleLowerCase("tr-TR")}`} title={`Sonraki ${cardTypeLabel.toLocaleLowerCase("tr-TR")}`}><ChevronRight className="size-4" /></Button>
               </div>
             )}
             <Button variant="outline" size="sm" onClick={onBack} className="gap-1 bg-white">
               <ArrowLeft className="size-4" /> Hızlı özete dön
             </Button>
-            {onClose && <Button type="button" variant="ghost" size="icon" className="size-9" onClick={onClose} aria-label="Çalışma alanını kapat"><X className="size-4" /></Button>}
+            {onClose && <Button type="button" variant="ghost" size="icon" className="size-11 sm:size-9" onClick={onClose} aria-label="Çalışma alanını kapat"><X className="size-4" /></Button>}
           </>
         }
         right={activityPanel}
