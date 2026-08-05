@@ -68,7 +68,6 @@ export function OpportunityProcessCenter({
   canPerformAction,
   onRefresh,
   onAction,
-  processChecklist,
   detail: controlledDetail,
   loading: controlledLoading,
   onReload,
@@ -78,7 +77,6 @@ export function OpportunityProcessCenter({
   canPerformAction?: (actionKey: OpportunityProcessActionKey) => boolean;
   onRefresh: () => Promise<unknown>;
   onAction: (actionKey: OpportunityProcessActionKey) => void;
-  processChecklist?: ReactNode;
   detail?: OpportunityProcessDetail | null;
   loading?: boolean;
   onReload?: () => Promise<void>;
@@ -649,8 +647,6 @@ export function OpportunityProcessCenter({
           return (
             <section
               key={qualificationCode}
-              id={activeGroup && processChecklist ? "opportunity-process-actions" : undefined}
-              data-operation-group-tasks={activeGroup && processChecklist ? true : undefined}
               className={`scroll-mt-24 overflow-hidden rounded-xl border bg-card transition-colors ${
                 activeGroup || containsSelectedTarget
                   ? "border-primary/45 ring-2 ring-primary/5"
@@ -741,11 +737,6 @@ export function OpportunityProcessCenter({
                     </div>
                   )}
                   {containsSelectedTarget && selected?.axis === "qualification" && renderSelectedTargetPanel(selected)}
-                  {activeGroup && processChecklist && (
-                    <div className="border-t border-border/60 bg-muted/10 p-2 sm:p-3">
-                      {processChecklist}
-                    </div>
-                  )}
                 </div>
               )}
             </section>

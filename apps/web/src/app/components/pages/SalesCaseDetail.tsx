@@ -1175,18 +1175,20 @@ export function SalesCaseDetailPage({
               canPerformAction={canPerformProcessAction}
               onRefresh={refresh}
               onAction={(actionKey) => void handleProcessAction(actionKey)}
-              processChecklist={
-                <ProcessChecklistPanel
-                  sc={sc}
-                  requestedAction={requestedProcessAction}
-                  onActionHandled={() => setRequestedProcessAction(null)}
-                />
-              }
               detail={detail}
               loading={loading}
               onReload={reload}
             />
           )}
+          // Görev listesi haritanın içinde değil, Süreç sekmesinin üstünde:
+          // haritanın kapalı olması aksiyonları yutmamalı.
+          processChecklist={
+            <ProcessChecklistPanel
+              sc={sc}
+              requestedAction={requestedProcessAction}
+              onActionHandled={() => setRequestedProcessAction(null)}
+            />
+          }
           companyLinkingPanel={canUpdate ? companyLinkingPanel : undefined}
           onOpenOffer={setSelectedOfferId}
           onDownloadDocument={(document) => void downloadDocument(document.fileId, document.fileName)}
@@ -1203,14 +1205,17 @@ export function SalesCaseDetailPage({
         canPerformAction={canPerformProcessAction}
         onRefresh={refresh}
         onAction={(actionKey) => void handleProcessAction(actionKey)}
-        processChecklist={
-          <ProcessChecklistPanel
-            sc={sc}
-            requestedAction={requestedProcessAction}
-            onActionHandled={() => setRequestedProcessAction(null)}
-          />
-        }
       />
+
+      {/* Süreç merkezinin dışında ve akordeon durumundan bağımsız: aksiyon
+          istekleri panel mount değilken sessizce kayboluyordu. */}
+      <div id="opportunity-process-actions" className="scroll-mt-24 overflow-hidden rounded-xl border border-slate-200 bg-white">
+        <ProcessChecklistPanel
+          sc={sc}
+          requestedAction={requestedProcessAction}
+          onActionHandled={() => setRequestedProcessAction(null)}
+        />
+      </div>
 
       {!hasCompany && (
         <Card className="border-warning/30 bg-warning-soft/55">

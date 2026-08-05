@@ -426,6 +426,7 @@ export function OpportunityWorkspace({
   salesCase: sc,
   processCenter,
   renderProcessCenter,
+  processChecklist,
   companyLinkingPanel,
   onOpenOffer,
   onDownloadDocument,
@@ -441,6 +442,8 @@ export function OpportunityWorkspace({
   salesCase: SalesCase;
   processCenter: ReactNode;
   renderProcessCenter?: (context: { detail: OpportunityDetail | null; loading: boolean; reload: () => Promise<void> }) => ReactNode;
+  /** Aktif satış alanının görev listesi; süreç haritasından bağımsız gösterilir. */
+  processChecklist?: ReactNode;
   companyLinkingPanel?: ReactNode;
   onOpenOffer: (offerId: string) => void;
   onDownloadDocument: (document: DocumentItem) => void;
@@ -857,7 +860,10 @@ export function OpportunityWorkspace({
     && !sc.qualificationReadiness?.health?.actionMissing
     && !decisionModel.nextActionOverdue
     && leadBlockers.length === 0;
-  const decisionPrimaryAction = simpleOpportunity && tab === "commercial" && commercialEditing ? (
+  // `tab === "commercial"` koşulu kaldırıldı: başka sekmeye geçince kaydetme
+  // kontrolü kayboluyor ama `commercialEditing` true kalıyordu; kaydedilmemiş
+  // değişiklikler sessizce asılı kalıp kullanıcıya kaydedilmiş gibi görünüyordu.
+  const decisionPrimaryAction = simpleOpportunity && commercialEditing ? (
     <Button type="button" onClick={() => void saveCommercial()} disabled={saveState === "saving" || Boolean(amountError || probabilityError || paymentTermError)}>
       <Save className="size-4" /> Ticari alanları kaydet
     </Button>
@@ -888,7 +894,9 @@ export function OpportunityWorkspace({
     />
   );
   const revealProcessActions = () => {
-    setOperationsExpanded(true);
+    // Görev listesi artık her zaman mount; haritayı açmaya gerek yok, yalnız
+    // kullanıcıyı listeye götürmek yeterli.
+    setTab("operations");
     window.setTimeout(() => {
       focusWorkspaceTarget(document.getElementById("opportunity-process-actions"), { focus: false, block: "start" });
     }, 80);
@@ -1322,6 +1330,17 @@ export function OpportunityWorkspace({
                 </div>
                 {canUpdate && !simpleOpportunity && <Button type="button" onClick={() => void saveCommercial()} disabled={saveState === "saving" || Boolean(amountError || probabilityError || paymentTermError)} className="mt-[1.375rem] gap-1.5"><Save className="size-4" /> Kaydet</Button>}
               </div>
+              {/* Sade modda kaydetme yalnız karar özetinde duruyordu; o kart
+                  sayfanın tepesinde ve masaüstünde `hidden lg:block`, yani
+                  formun altındaki kullanıcı hiçbir kaydetme yolu görmüyordu. */}
+              {simpleOpportunity && canUpdate && commercialEditing && (
+                <div className="flex flex-wrap items-center justify-end gap-2 border-t border-slate-200 pt-4">
+                  <Button type="button" variant="ghost" className="min-h-11 sm:min-h-9" onClick={cancelCommercialEdit} disabled={saveState === "saving"}>İptal</Button>
+                  <Button type="button" className="min-h-11 gap-1.5 sm:min-h-9" onClick={() => void saveCommercial()} disabled={saveState === "saving" || Boolean(amountError || probabilityError || paymentTermError)}>
+                    <Save className="size-4" /> Kaydet
+                  </Button>
+                </div>
+              )}
             </CardContent>
           </Card>
           <CommercialDocumentRail
@@ -1351,6 +1370,17 @@ export function OpportunityWorkspace({
 
         <TabsContent value="operations" className="mt-4 space-y-4">
           <div><h3 className="font-display text-lg font-semibold text-[#0b1739]">Birleşik süreç merkezi</h3><p className="text-xs text-muted-foreground">Önce mevcut aşama, sıradaki aşama ve karar engelleri; ayrıntılı raylar isteğe bağlıdır.</p></div>
+          {/* Alan görevleri süreç haritasının içindeydi: hem `operationsExpanded`
+              hem de doğru akordeon grubunun açık olmasına bağlıydı. Bu yüzden
+              engel düğmelerine basmak çoğu durumda sessizce hiçbir şey
+              yapmıyordu — istek `requestedProcessAction`'a yazılıyor ama onu
+              tüketen panel mount olmadığı için kayboluyordu. İsteğe bağlı olması
+              gereken harita; görevler değil. */}
+          {processChecklist && (
+            <div id="opportunity-process-actions" className="scroll-mt-24 overflow-hidden rounded-xl border border-slate-200 bg-white">
+              {processChecklist}
+            </div>
+          )}
           <Card className="overflow-hidden border-[#0b2453]/15">
             <div className="h-1 bg-[linear-gradient(90deg,#0b2453_0%,#2457D6_72%,#CF060C_72%)]" />
             <CardContent className="space-y-4 p-4 sm:p-5">

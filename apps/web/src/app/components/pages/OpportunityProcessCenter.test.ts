@@ -25,14 +25,20 @@ describe("OpportunityProcessCenter inline hedef paneli", () => {
     expect(source).not.toContain("if (targets.length === 0) return null");
   });
 
-  it("alan görevlerini ayrı merkez yerine etkin operasyon grubunun içinde gösterir", () => {
-    expect(source).toContain("processChecklist?: ReactNode");
-    expect(source).toContain("activeGroup && processChecklist");
-    expect(source).toContain("data-operation-group-tasks");
-    expect(source).toContain('id={activeGroup && processChecklist ? "opportunity-process-actions" : undefined}');
-    expect(detailSource.match(/processChecklist=\{/g)).toHaveLength(2);
-    expect(workspaceSource).not.toContain("{processChecklist}");
-    expect(workspaceSource).not.toContain("processChecklist: ReactNode");
+  it("alan görevlerini katlanabilir süreç haritasının dışında tutar", () => {
+    // Görevler haritanın içindeyken hem `operationsExpanded` hem de doğru
+    // akordeon grubunun açık olmasına bağlıydı; engel düğmeleri çoğu durumda
+    // sessizce hiçbir şey yapmıyordu. Kancanın geri gelmemesi için hem
+    // konumu hem de her iki render yolunun bağlantısı doğrulanıyor.
+    expect(workspaceSource).toContain("processChecklist?: ReactNode");
+    expect(workspaceSource).toContain('<div id="opportunity-process-actions"');
+    // Süreç merkezi listeyi artık hiç sahiplenmiyor.
+    expect(source).not.toContain("processChecklist");
+    // Her iki render yolu da listeyi mount etmeli: çalışma alanı prop ile,
+    // legacy yol doğrudan. Aksi halde aksiyon istekleri yine yutulur.
+    expect(detailSource).toContain("processChecklist={");
+    expect(detailSource).toContain('<div id="opportunity-process-actions"');
+    expect(detailSource.match(/<ProcessChecklistPanel/g)).toHaveLength(2);
   });
 
   it("gereklilik, detay ve geçmiş sekmelerini klavye desteğiyle sunar", () => {
