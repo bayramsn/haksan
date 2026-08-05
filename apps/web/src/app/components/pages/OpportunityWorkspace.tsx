@@ -479,22 +479,36 @@ export function OpportunityWorkspace({
   const activeTabs = isLead ? LEAD_TABS : simpleOpportunity ? SIMPLE_OPPORTUNITY_TABS : OPPORTUNITY_TABS;
   const legacyPreferenceKey = `opportunity.workspace.${user?.id ?? "anonymous"}`;
   const preferenceKey = `${legacyPreferenceKey}.v2`;
-  const initialPreferences = migrateWorkspacePreferences(
-    loadPersisted<unknown>(preferenceKey, loadPersisted<unknown>(legacyPreferenceKey, null)),
-    roleDefaultTab(user?.roles),
-  );
-  const [preferences, setPreferences] = usePersistentState<WorkspacePreferencesV2>(preferenceKey, initialPreferences);
   const simplePreferenceKey = `${legacyPreferenceKey}.v3`;
+  // Bu blok düz ifadeydi: her render'da 3 senkron `localStorage.getItem`,
+  // 2 `JSON.parse` ve iki migration çağrısı çalışıyordu; sonuç yalnız ilk
+  // render'daki başlangıç değerleri için kullanılıyor. `localStorage` senkron
+  // ve ana thread'i blokluyor, store her güncellendiğinde de burası koşuyordu.
+  const { initialPreferences, initialSimplePreferences } = useMemo(() => {
+    const legacy = migrateWorkspacePreferences(
+      loadPersisted<unknown>(preferenceKey, loadPersisted<unknown>(legacyPreferenceKey, null)),
+      roleDefaultTab(user?.roles),
+    );
+    return {
+      initialPreferences: legacy,
+      initialSimplePreferences: migrateSimpleWorkspacePreferences(loadPersisted<unknown>(simplePreferenceKey, null), legacy),
+    };
+  }, [legacyPreferenceKey, preferenceKey, simplePreferenceKey, user?.roles]);
+  const [preferences, setPreferences] = usePersistentState<WorkspacePreferencesV2>(preferenceKey, initialPreferences);
   const [simplePreferences, setSimplePreferences] = usePersistentState<WorkspacePreferencesV3>(
     simplePreferenceKey,
-    migrateSimpleWorkspacePreferences(loadPersisted<unknown>(simplePreferenceKey, null), initialPreferences),
+    initialSimplePreferences,
   );
   const preferredTab = isLead
     ? preferences.defaultTabByMode.lead
     : simpleOpportunity
       ? SECTION_TO_TAB[simplePreferences.defaultSection]
       : preferences.defaultTabByMode.opportunity;
-  const initialUrlState = (() => {
+  // IIFE her render'da `new URL(window.location.href)` + 4 `searchParams.get`
+  // çalıştırıyordu; sonucu yalnız aşağıdaki iki `useState` başlangıç değeri
+  // için gerekli. Her render'da `window.location` okumak concurrent render
+  // altında da beklenmedik davranış kaynağı.
+  const readInitialUrlState = () => {
     if (!simpleOpportunity || typeof window === "undefined") return null;
     const url = new URL(window.location.href);
     if (url.searchParams.get("opportunity") !== sc.id) return null;
@@ -511,9 +525,9 @@ export function OpportunityWorkspace({
       tab: activity ? "files" as WorkspaceTab : validSection ? SECTION_TO_TAB[validSection] : null,
       recordView: activity ? "activities" as OpportunityRecordView : validRecord,
     };
-  })();
-  const [tab, setTab] = useState<WorkspaceTab>(() => normalizeWorkspaceTab(initialUrlState?.tab ?? preferredTab, activeTabs));
-  const [recordView, setRecordView] = useState<OpportunityRecordView>(() => initialUrlState?.recordView ?? simplePreferences.defaultRecordView);
+  };
+  const [tab, setTab] = useState<WorkspaceTab>(() => normalizeWorkspaceTab(readInitialUrlState()?.tab ?? preferredTab, activeTabs));
+  const [recordView, setRecordView] = useState<OpportunityRecordView>(() => readInitialUrlState()?.recordView ?? simplePreferences.defaultRecordView);
   const [auditVisibleCount, setAuditVisibleCount] = useState(20);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [detailResource, setDetailResource] = useState<OpportunityDetailResource>(() => ({
@@ -655,20 +669,28 @@ export function OpportunityWorkspace({
   const customer = customers.find((item) => item.id === sc.customerId);
   const owner = users.find((item) => item.id === sc.assignedUserId);
   const userNames = useMemo(() => new Map(users.map((item) => [item.id, item.name])), [users]);
-  const opportunityActivities = activities.filter((item) => item.salesCaseId === sc.id);
-  const opportunityOffers = offers.filter((item) => item.salesCaseId === sc.id);
-  const displayedOpportunityOffers = simpleOpportunity
-    ? [...opportunityOffers].sort((left, right) => {
-        const dateDelta = timelineTime(right.date) - timelineTime(left.date);
-        return dateDelta || right.revision - left.revision;
-      })
-    : opportunityOffers;
-  const opportunityPayments = payments.filter((item) => item.salesCaseId === sc.id);
-  const opportunityDocuments = documents.filter((item) => item.salesCaseId === sc.id);
-  const opportunityShipments = shipments.filter((item) => item.salesCaseId === sc.id);
-  const opportunityDeliveries = deliveries.filter((item) => item.salesCaseId === sc.id);
-  const opportunityInstallations = installations.filter((item) => item.salesCaseId === sc.id);
-  const resolvedContact = resolveSalesContact({ salesCase: sc, customer, contacts });
+  // Bu türetmeler her render'da yeni dizi referansı üretiyordu ve doğrudan
+  // `timeline` memo'sunun bağımlılık listesinde oldukları için o memo da hiç
+  // tutmuyordu: ticari forma her tuş vuruşunda tüm kayıtlar yeniden
+  // birleştirilip sıralanıyordu. Store tek büyük context olduğu için herhangi
+  // bir mutasyon da aynı zinciri tetikliyordu.
+  const opportunityActivities = useMemo(() => activities.filter((item) => item.salesCaseId === sc.id), [activities, sc.id]);
+  const opportunityOffers = useMemo(() => offers.filter((item) => item.salesCaseId === sc.id), [offers, sc.id]);
+  const displayedOpportunityOffers = useMemo(
+    () => (simpleOpportunity
+      ? [...opportunityOffers].sort((left, right) => {
+          const dateDelta = timelineTime(right.date) - timelineTime(left.date);
+          return dateDelta || right.revision - left.revision;
+        })
+      : opportunityOffers),
+    [opportunityOffers, simpleOpportunity],
+  );
+  const opportunityPayments = useMemo(() => payments.filter((item) => item.salesCaseId === sc.id), [payments, sc.id]);
+  const opportunityDocuments = useMemo(() => documents.filter((item) => item.salesCaseId === sc.id), [documents, sc.id]);
+  const opportunityShipments = useMemo(() => shipments.filter((item) => item.salesCaseId === sc.id), [shipments, sc.id]);
+  const opportunityDeliveries = useMemo(() => deliveries.filter((item) => item.salesCaseId === sc.id), [deliveries, sc.id]);
+  const opportunityInstallations = useMemo(() => installations.filter((item) => item.salesCaseId === sc.id), [installations, sc.id]);
+  const resolvedContact = useMemo(() => resolveSalesContact({ salesCase: sc, customer, contacts }), [sc, customer, contacts]);
   const companyContacts = resolvedContact.companyContacts;
   // `calculateOpportunityScore` girdiyi zaten `salesCaseId`'ye göre kendisi
   // filtreliyor. Ön-filtrelenmiş dizi geçmek hem çift iş, hem de her render'da
@@ -834,21 +856,32 @@ export function OpportunityWorkspace({
   const activeDensity = simpleOpportunity ? simplePreferences.density : preferences.density;
   const padding = activeDensity === "compact" ? "p-3 sm:p-4" : "p-4 sm:p-5";
   const operationReadiness = detail?.processReadiness;
-  const nextOperationTarget = operationReadiness?.targets
-    .filter((target) => target.axis === "operation" && target.direction === "forward")
-    .sort(
-      (left, right) =>
-        PIPELINE_STAGE_FLOW.indexOf(left.code as (typeof PIPELINE_STAGE_FLOW)[number]) -
-        PIPELINE_STAGE_FLOW.indexOf(right.code as (typeof PIPELINE_STAGE_FLOW)[number]),
-    )[0];
-  const decisionModel = buildWorkspaceDecisionModel({
-    salesCase: sc,
-    ownerName: owner?.name,
-    customerMissing: !customer,
-    overduePaymentCount: opportunityPayments.filter((payment) => payment.status === "Overdue").length,
-    nextOperationTarget,
-    processReadinessKnown: !simpleOpportunity || Boolean(operationReadiness),
-  });
+  const nextOperationTarget = useMemo(
+    () => operationReadiness?.targets
+      .filter((target) => target.axis === "operation" && target.direction === "forward")
+      .sort(
+        (left, right) =>
+          PIPELINE_STAGE_FLOW.indexOf(left.code as (typeof PIPELINE_STAGE_FLOW)[number]) -
+          PIPELINE_STAGE_FLOW.indexOf(right.code as (typeof PIPELINE_STAGE_FLOW)[number]),
+      )[0],
+    [operationReadiness],
+  );
+  const overduePaymentCount = useMemo(
+    () => opportunityPayments.filter((payment) => payment.status === "Overdue").length,
+    [opportunityPayments],
+  );
+  // Her render'da yeni nesne üretip `WorkspaceDecisionSummary`'ye geçiyordu.
+  const decisionModel = useMemo(
+    () => buildWorkspaceDecisionModel({
+      salesCase: sc,
+      ownerName: owner?.name,
+      customerMissing: !customer,
+      overduePaymentCount,
+      nextOperationTarget,
+      processReadinessKnown: !simpleOpportunity || Boolean(operationReadiness),
+    }),
+    [sc, owner?.name, customer, overduePaymentCount, nextOperationTarget, simpleOpportunity, operationReadiness],
+  );
   const workspaceTabLabel = (key: WorkspaceTab) => simpleOpportunity
     ? SIMPLE_TAB_LABELS[key] ?? TAB_LABELS[key]
     : TAB_LABELS[key];
