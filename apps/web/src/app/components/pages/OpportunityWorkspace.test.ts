@@ -20,7 +20,9 @@ describe("lead ve fırsat çalışma alanı sorumlu değişikliği", () => {
   it("mobil Karar Rayı ve Türkçe geçmiş görünümünü günceller", () => {
     expect(railSource).toContain("lg:hidden");
     expect(railSource).toContain("onOwnerChanged");
-    expect(workspaceSource).toContain('"opportunity.owner_changed": "Sorumlu değiştirildi"');
+    // Denetim etiketleri saf `lib/opportunityAudit.ts` modülüne taşındı.
+    expect(readFileSync(new URL("../../lib/opportunityAudit.ts", import.meta.url), "utf8"))
+      .toContain('"opportunity.owner_changed": "Sorumlu değiştirildi"');
     expect(workspaceSource).toContain('hasRole("sales") || hasRole("super_admin")');
   });
 
