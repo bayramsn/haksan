@@ -670,9 +670,12 @@ export function OpportunityWorkspace({
   const opportunityInstallations = installations.filter((item) => item.salesCaseId === sc.id);
   const resolvedContact = resolveSalesContact({ salesCase: sc, customer, contacts });
   const companyContacts = resolvedContact.companyContacts;
+  // `calculateOpportunityScore` girdiyi zaten `salesCaseId`'ye göre kendisi
+  // filtreliyor. Ön-filtrelenmiş dizi geçmek hem çift iş, hem de her render'da
+  // yeni referans ürettiği için memo'yu tamamen etkisiz kılıyordu.
   const score = useMemo(
-    () => calculateOpportunityScore(sc, { activities: opportunityActivities, offers: opportunityOffers }),
-    [opportunityActivities, opportunityOffers, sc],
+    () => calculateOpportunityScore(sc, { activities, offers }),
+    [activities, offers, sc],
   );
   const similarWins = useMemo(
     () => findSimilarWonOpportunities(sc, [...cases, ...closedCases]),

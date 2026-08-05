@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, lazy, Suspense } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
 import { Button } from "../ui/button";
 import { Badge } from "../ui/badge";
@@ -51,7 +51,12 @@ import { DocumentUploadDialog } from "../dialogs/DocumentUploadDialog";
 import { CreateProformaDialog } from "../dialogs/CreateProformaDialog";
 import { CreateContractDialog } from "../dialogs/CreateContractDialog";
 import { OpportunityStockPickerDialog } from "../dialogs/OpportunityStockPickerDialog";
-import { OfferDetailDialog } from "./offers/OffersPage";
+// Statik import, App.tsx'teki `lazy(() => import(".../OffersPage"))` çağrısını
+// tamamen etkisiz kılıyordu: OffersPage kendi chunk'ını alamayıp (~41 kB) ana
+// pakete giriyordu. Dialog yalnız bir teklif seçilince gerekli.
+const OfferDetailDialog = lazy(() =>
+  import("./offers/OffersPage").then((module) => ({ default: module.OfferDetailDialog })),
+);
 import { STAGE_DOT } from "./Kanban";
 import { DialogSplitLayout, DialogSidebarSection } from "../shared/DialogSplitLayout";
 import { NextActionDialog, actionDateLabel, isActionOverdue } from "../shared/NextActionDialog";
@@ -1752,6 +1757,11 @@ export function SalesCaseDetailPage({
       </DialogSplitLayout>
       </div>
 
+      {/* Dialog kendi içinde `if (!offer) return null` yapıyor; dışarıdan
+          kapılamak davranışı değiştirmez ama chunk'ın indirilmesini teklif
+          gerçekten açılana kadar erteler. */}
+      {selectedOffer && (
+      <Suspense fallback={null}>
       <OfferDetailDialog
         offer={selectedOffer}
         salesCase={sc}
@@ -1764,6 +1774,8 @@ export function SalesCaseDetailPage({
         canApprovePrice={isSuperAdmin}
         onOrderCreated={refresh}
       />
+      </Suspense>
+      )}
       <Dialog open={!!editingActivity} onOpenChange={(open) => !open && setEditingActivity(null)}>
         <DialogContent className="max-w-lg">
           <DialogHeader>

@@ -10,7 +10,12 @@ import { ContactsPage } from "./components/pages/Contacts";
 import { CustomerDetailPage } from "./components/pages/CustomerDetail";
 import { SalesCasesPage } from "./components/pages/SalesCases";
 import { LeadsPage } from "./components/pages/LeadsPage";
-import { SalesCaseDetailDialog } from "./components/pages/SalesCaseDetail";
+// Fırsat kartı yalnız kullanıcı bir kayıt açtığında render ediliyor; eager
+// import edildiğinde alt ağacı (teklif/proforma/sözleşme dialogları dahil)
+// ana pakete giriyordu.
+const SalesCaseDetailDialog = lazy(() =>
+  import("./components/pages/SalesCaseDetail").then((module) => ({ default: module.SalesCaseDetailDialog })),
+);
 // Harita (leaflet) ve büyük modüller ilk yükte gerekmediklerinden route bazlı lazy sınıra taşınır.
 const SalesMapPage = lazy(() => import("./components/pages/SalesMap").then((m) => ({ default: m.SalesMapPage })));
 const OffersPage = lazy(() => import("./components/pages/offers/OffersPage").then((m) => ({ default: m.OffersPage })));
@@ -284,7 +289,12 @@ function AppShell() {
       // Savunmacı: beklenen popstate gelmediyse panel asla kilitlenmesin.
       closingOpportunityRef.current = false;
       setSelectedCaseId(null);
-    }, 150);
+      // `depth > 0` iken geri gidilecek kayıt garanti var, yani popstate kesin
+      // gelir; kilitlenme hali zaten yukarıdaki `depth <= 0` dalıyla çözülüyor.
+      // Süre kısa tutulursa ana iş parçacığı tıkalıyken zamanlayıcı erken
+      // ateşleniyor, gecikmiş popstate normal yola girip derin bağlantı
+      // kaydındaki `?opportunity=` yüzünden paneli yeniden açıyordu.
+    }, 800);
     window.history.go(-depth);
   };
 
@@ -474,11 +484,15 @@ function AppShell() {
         </ErrorBoundary>
       )}
       </PageShell>
-      <SalesCaseDetailDialog
-        sc={selectedCase}
-        onClose={closeOpportunity}
-        onNavigate={(opportunityId) => selectOpportunity(opportunityId, undefined, "replace")}
-      />
+      {selectedCase && (
+        <Suspense fallback={null}>
+          <SalesCaseDetailDialog
+            sc={selectedCase}
+            onClose={closeOpportunity}
+            onNavigate={(opportunityId) => selectOpportunity(opportunityId, undefined, "replace")}
+          />
+        </Suspense>
+      )}
     </Layout>
     </VoiceCallProvider>
   );
