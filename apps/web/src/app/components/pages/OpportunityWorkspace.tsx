@@ -637,6 +637,11 @@ export function OpportunityWorkspace({
   );
   const opportunityPayments = useMemo(() => payments.filter((item) => item.salesCaseId === sc.id), [payments, sc.id]);
   const opportunityDocuments = useMemo(() => documents.filter((item) => item.salesCaseId === sc.id), [documents, sc.id]);
+  // Koşulların tamamlanma durumunun içerik imzası. Nesne referansı store'un
+  // her tazelemesinde değişiyor; imza yalnız gerçek bir değişimde değişir.
+  const readinessSignature = (sc.qualificationReadiness?.checks ?? [])
+    .map((check) => `${check.key}:${check.complete ? 1 : 0}`)
+    .join(",");
 
   useEffect(() => {
     void loadDetail();
@@ -646,7 +651,12 @@ export function OpportunityWorkspace({
     // aşama değişmediği sürece eski hazırlık verisini gösteriyordu — kullanıcı
     // açısından teklif "bazen" görünmüyordu (aşamayı da değiştiren akışlarda
     // tesadüfen tazeleniyordu).
-  }, [loadDetail, sc.stage, sc.qualificationStage, opportunityOffers.length, opportunityDocuments.length]);
+    // Görev listesindeki bir koşul tamamlandığında da tazelenmeli: checklist
+    // store'u güncelliyor (kartın `qualificationReadiness`'i anında değişiyor)
+    // ama süreç merkezinin engelleri `processReadiness`'ten geliyordu ve eski
+    // kalıyordu. İçerik imzası kullanılıyor: store her tazelendiğinde değil,
+    // yalnız bir koşulun durumu gerçekten değiştiğinde istek atılır.
+  }, [loadDetail, sc.stage, sc.qualificationStage, opportunityOffers.length, opportunityDocuments.length, readinessSignature]);
   const opportunityShipments = useMemo(() => shipments.filter((item) => item.salesCaseId === sc.id), [shipments, sc.id]);
   const opportunityDeliveries = useMemo(() => deliveries.filter((item) => item.salesCaseId === sc.id), [deliveries, sc.id]);
   const opportunityInstallations = useMemo(() => installations.filter((item) => item.salesCaseId === sc.id), [installations, sc.id]);

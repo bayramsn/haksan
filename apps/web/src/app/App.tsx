@@ -129,6 +129,31 @@ function AppShell() {
     if (nav === "proformas" || nav === "contracts") setNav("documents");
   }, [nav, setNav]);
 
+  // Fırsat kartı lazy chunk'ta: ana paketi 305 kB küçültüyor ama kartı ilk
+  // açışta bir ağ turu ekliyordu ve bu kullanıcıya "uygulama yavaşladı" diye
+  // hissediliyor. Boşta kalınca önden indirip iki faydayı da alıyoruz:
+  // ilk boyama hafif kalır, kart açılışı anlık olur.
+  useEffect(() => {
+    if (!authed) return;
+    let cancelled = false;
+    const prefetch = () => {
+      if (cancelled) return;
+      void import("./components/pages/SalesCaseDetail");
+    };
+    const idle = (window as typeof window & {
+      requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number;
+      cancelIdleCallback?: (handle: number) => void;
+    });
+    const handle = idle.requestIdleCallback
+      ? idle.requestIdleCallback(prefetch, { timeout: 3000 })
+      : window.setTimeout(prefetch, 1500);
+    return () => {
+      cancelled = true;
+      if (idle.cancelIdleCallback) idle.cancelIdleCallback(handle);
+      else window.clearTimeout(handle);
+    };
+  }, [authed]);
+
   useEffect(() => {
     const applyLocation = (fromHistory = false) => {
       const opportunityId = new URL(window.location.href).searchParams.get("opportunity");
