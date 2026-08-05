@@ -338,7 +338,7 @@ function OpportunityQuickPanelLegacy({ salesCase: sc, onClose, onOpenWorkspace, 
       </div>
 
       <footer className="shrink-0 border-t border-slate-200 bg-white px-4 py-3 sm:px-6">
-        <Button ref={workspaceButtonRef} type="button" className="h-11 w-full justify-between bg-[#0b2453] px-4 hover:bg-[#102f68]" onClick={() => onOpenWorkspace("overview")}>
+        <Button ref={workspaceButtonRef} type="button" className="h-11 w-full justify-between bg-[#0b2453] px-4 hover:bg-[#102f68]" onClick={() => onOpenWorkspace()}>
           <span>Tam çalışma alanını aç</span>
           <ArrowUpRight className="size-4" />
         </Button>
@@ -607,7 +607,7 @@ function SimpleOpportunityQuickPanel({ salesCase: sc, onClose, onOpenWorkspace, 
       </div>
 
       <footer className="shrink-0 border-t border-slate-200 bg-white px-4 py-3 sm:px-6">
-        <Button ref={workspaceButtonRef} type="button" variant="outline" className="h-11 w-full justify-between border-[#9aa9bd] bg-white px-4 text-[#0b2453] hover:bg-slate-50" onClick={() => onOpenWorkspace("overview")}>
+        <Button ref={workspaceButtonRef} type="button" variant="outline" className="h-11 w-full justify-between border-[#9aa9bd] bg-white px-4 text-[#0b2453] hover:bg-slate-50" onClick={() => onOpenWorkspace()}>
           <span>Tüm detayları aç</span>
           <ArrowUpRight className="size-4" />
         </Button>

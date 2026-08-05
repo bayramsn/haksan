@@ -528,6 +528,9 @@ export function OpportunityWorkspace({
   const [commercialEditing, setCommercialEditing] = useState(false);
   const [focusedActivityId, setFocusedActivityId] = useState<string | null>(null);
   const [operationsExpanded, setOperationsExpanded] = useState(() => !simpleOpportunity);
+  // Sade modda birincil aksiyon karar özetinde durur; sağ ray komut olarak
+  // "Aktivite ekle" gösterir. Dialog kontrollü açıldığı için durum burada.
+  const [addActivityOpen, setAddActivityOpen] = useState(false);
   const decisionSummaryRef = useRef<HTMLElement>(null);
   const detailRequestRef = useRef(0);
   const detail = detailResource.caseId === sc.id ? detailResource.data : null;
@@ -1004,6 +1007,7 @@ export function OpportunityWorkspace({
         primaryAction={useLeadConversionAsPrimary ? undefined : decisionPrimaryAction}
         useLeadConversionAsPrimary={useLeadConversionAsPrimary}
         simpleMode={simpleOpportunity}
+        onAddActivity={hasPermission("activities.create") ? () => setAddActivityOpen(true) : undefined}
       />}>
       <Tabs value={tab} onValueChange={(value) => setTab(value as WorkspaceTab)}>
         <div className="sm:hidden">
@@ -1521,6 +1525,16 @@ export function OpportunityWorkspace({
         </TabsContent>
       </Tabs>
       </RecordWorkspaceShell>
+      {/* Sağ raydaki "Aktivite ekle" komutunun kontrollü dialogu; tetikleyicisi
+          rayın içinde olduğu için dialog burada, kabuğun dışında render edilir. */}
+      {hasPermission("activities.create") && (
+        <AddActivityDialog
+          salesCaseId={sc.id}
+          customerId={sc.customerId}
+          open={addActivityOpen}
+          onOpenChange={setAddActivityOpen}
+        />
+      )}
     </div>
   );
 }

@@ -111,13 +111,21 @@ export function SalesCaseDetailDialog({
     return () => window.removeEventListener("popstate", syncSurfaceFromLocation);
   }, [sc?.id]);
 
-  const openWorkspace = (target: "overview" | "commercial" | "process" | "records" = "overview") => {
+  const openWorkspace = (target?: "overview" | "commercial" | "process" | "records") => {
     if (!sc) return;
     const url = new URL(window.location.href);
     url.searchParams.set("opportunity", sc.id);
     url.searchParams.set("surface", "workspace");
-    url.searchParams.set("section", target);
-    if (target !== "records") url.searchParams.delete("record");
+    // Hedef verilmediyse `section` yazılmaz: çalışma alanı kullanıcının
+    // "Varsayılan bölüm" tercihine düşer. Koşulsuz "overview" yazmak, ayarı
+    // kaydedilmesine rağmen hiç uygulanmayan bir kontrole çeviriyordu.
+    if (target) {
+      url.searchParams.set("section", target);
+      if (target !== "records") url.searchParams.delete("record");
+    } else {
+      url.searchParams.delete("section");
+      url.searchParams.delete("record");
+    }
     // Bu da kayıt itiyor; kapatmanın tek adımda geri sarabilmesi için derinlik burada da artırılır.
     const state = window.history.state as { haksanOpportunityDepth?: number } | null;
     const nextState = {
