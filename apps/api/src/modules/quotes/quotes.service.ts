@@ -1972,9 +1972,10 @@ export class QuotesService {
         // Katalog bağı yok; PDF'deki Markası/Menşei/G.T.İ.P. satırları elle girilir
         // ve boş bırakılırsa basılmaz.
         product:
-          item.brand || item.originCountry || item.hsCode
+          item.brand || item.model || item.originCountry || item.hsCode
             ? {
                 brandName: item.brand ?? null,
+                modelName: item.model ?? null,
                 originCountry: item.originCountry ?? null,
                 hsCode: item.hsCode ?? null,
               }

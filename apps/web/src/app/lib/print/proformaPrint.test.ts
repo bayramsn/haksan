@@ -104,6 +104,42 @@ describe("proforma print data", () => {
     expect(result.items[0]).toMatchObject({ marka: "ECOCA", mensei: "Tayvan", gtip: "8458.11" });
   });
 
+  it("hızlı proformada elle girilen modeli PDF satırına taşır", () => {
+    // Katalog bağı olmayan kalemlerde model yalnız snapshot'tan gelebilir;
+    // açıklamaya gömülmesi `publicProductLabel` onu ezdiği için doğru değil.
+    const result = build(baseDoc({
+      items: [{
+        description: "Cnc Dik İşleme Merkezi",
+        product: { brandName: "ECOCA", modelName: "MT-210/1000", originCountry: "Tayvan" },
+        quantity: 1,
+        unitCode: "adet",
+        unitPrice: 1_000,
+        discountAmount: 0,
+        vatRate: 20,
+        lineTotal: 1_000,
+      }],
+    }));
+
+    expect(result.items[0]).toMatchObject({ marka: "ECOCA", model: "MT-210/1000", mensei: "Tayvan" });
+  });
+
+  it("model girilmediğinde satırı hiç üretmez", () => {
+    const result = build(baseDoc({
+      items: [{
+        description: "Danışmanlık",
+        product: { brandName: "ECOCA" },
+        quantity: 1,
+        unitCode: "adet",
+        unitPrice: 500,
+        discountAmount: 0,
+        vatRate: 20,
+        lineTotal: 500,
+      }],
+    }));
+
+    expect(result.items[0].model).toBeUndefined();
+  });
+
   it("keeps gross item prices and exposes line and special discounts separately", () => {
     const result = build(baseDoc({
       schemaVersion: 2,

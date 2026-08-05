@@ -35,6 +35,7 @@ type QuickItem = {
   discountAmount: string;
   vatRate: string;
   brand: string;
+  model: string;
   originCountry: string;
   hsCode: string;
   detailOpen: boolean;
@@ -50,6 +51,7 @@ const emptyItem = (): QuickItem => ({
   discountAmount: "",
   vatRate: "20",
   brand: "",
+  model: "",
   originCountry: "",
   hsCode: "",
   detailOpen: false,
@@ -164,6 +166,7 @@ export function QuickProformaDialog({
           discountAmount: Number(item.discountAmount ?? 0) > 0 ? formatMoneyInput(Number(item.discountAmount)) : "",
           vatRate: String(item.vatRate ?? 20),
           brand: String(item.product?.brandName ?? ""),
+          model: String(item.product?.modelName ?? ""),
           originCountry: String(item.product?.originCountry ?? ""),
           hsCode: String(item.product?.hsCode ?? ""),
         })),
@@ -292,6 +295,7 @@ export function QuickProformaDialog({
               discountAmount: row.discountAmount,
               vatRate: row.vatRate,
               brand: source?.brand.trim() || undefined,
+              model: source?.model.trim() || undefined,
               originCountry: source?.originCountry.trim() || undefined,
               hsCode: source?.hsCode.trim() || undefined,
             };
@@ -532,7 +536,7 @@ export function QuickProformaDialog({
                             onClick={() => patchItem(item.key, { detailOpen: !item.detailOpen })}
                           >
                             <ChevronDown className={`size-3 transition-transform ${item.detailOpen ? "rotate-180" : ""}`} />
-                            Marka / Menşei / G.T.İ.P.
+                            Marka / Model / Menşei / G.T.İ.P.
                           </button>
                           <span className="font-data text-xs tabular-nums">
                             {overDiscount ? (
@@ -544,8 +548,9 @@ export function QuickProformaDialog({
                         </div>
 
                         {item.detailOpen && (
-                          <div className="mt-2 grid gap-2 sm:grid-cols-3">
+                          <div className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
                             <Input className="h-8 text-xs" value={item.brand} onChange={(e) => patchItem(item.key, { brand: e.target.value })} placeholder="Markası" aria-label="Markası" />
+                            <Input className="h-8 text-xs" value={item.model} onChange={(e) => patchItem(item.key, { model: e.target.value })} placeholder="Modeli" aria-label="Modeli" />
                             <Input className="h-8 text-xs" value={item.originCountry} onChange={(e) => patchItem(item.key, { originCountry: e.target.value })} placeholder="Menşei" aria-label="Menşei" />
                             <Input className="h-8 text-xs font-data" value={item.hsCode} onChange={(e) => patchItem(item.key, { hsCode: e.target.value })} placeholder="G.T.İ.P." aria-label="G.T.İ.P." />
                           </div>

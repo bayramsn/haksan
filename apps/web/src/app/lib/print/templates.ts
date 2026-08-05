@@ -72,6 +72,8 @@ export const HAKSAN = {
 export interface ProformaItem {
   aciklama: string;
   marka?: string;
+  /** Tezgah modeli; katalog bağı olmayan hızlı proformalarda elle girilir. */
+  model?: string;
   mensei?: string;
   gtip?: string;
   birim: string;
@@ -177,13 +179,14 @@ export function proformaDoc(
   const meta = (i: ProformaItem) => {
     const rows: string[] = [];
     if (i.marka) rows.push(`<tr><td>Markası</td><td>${esc(i.marka)}</td></tr>`);
+    if (i.model) rows.push(`<tr><td>Modeli</td><td>${esc(i.model)}</td></tr>`);
     if (i.mensei) rows.push(`<tr><td>Menşei</td><td>${esc(i.mensei)}</td></tr>`);
     if (i.gtip) rows.push(`<tr><td>G.T.İ.P.</td><td>${esc(i.gtip)}</td></tr>`);
     return rows.length ? `<table class="meta">${rows.join("")}</table>` : "";
   };
   const yalniz = tutarYaziylaProforma(genelToplam, d.currency);
   const metaRowCount = (item: ProformaItem) =>
-    [item.marka, item.mensei, item.gtip]
+    [item.marka, item.model, item.mensei, item.gtip]
       .filter((value) => value !== undefined && value !== null && value !== "").length;
   const itemMinHeightMm = Math.max(7, 34.4 / Math.max(1, printableItems.length));
   const estimatedItemHeightMm = printableItems.reduce((total, item) => {

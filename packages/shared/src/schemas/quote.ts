@@ -159,8 +159,9 @@ export const proformaFreeItemSchema = z
     unitPrice: moneySchema,
     discountAmount: moneySchema.default(0),
     vatRate: percentSchema.default(20),
-    /** PDF'deki Markası / Menşei / G.T.İ.P. satırları — boş bırakılırsa basılmaz. */
+    /** PDF'deki Markası / Modeli / Menşei / G.T.İ.P. satırları — boş bırakılırsa basılmaz. */
     brand: z.string().trim().max(255).optional(),
+    model: z.string().trim().max(255).optional(),
     originCountry: z.string().trim().max(255).optional(),
     hsCode: z.string().trim().max(64).optional(),
   })

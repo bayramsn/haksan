@@ -84,6 +84,7 @@ const proformaFromSnapshot = (
         stockCode: snapshotValue(item, "stockCode", "stock_code") ?? catalogProduct?.stockCode,
       }),
       marka: snapshotValue(productSnapshot, "brandName", "brand_name", "brand") ?? catalogProduct?.brand,
+      model: snapshotValue(productSnapshot, "modelName", "model_name", "model") ?? catalogProduct?.model,
       mensei: snapshotValue(productSnapshot, "originCountry", "origin_country") ?? catalogProduct?.originCountry,
       gtip: snapshotValue(productSnapshot, "hsCode", "hs_code") ?? catalogProduct?.hsCode,
       birim: formatBirim(qty, snapshotValue(item, "unitCode", "unit_code") ?? "Adet"),
