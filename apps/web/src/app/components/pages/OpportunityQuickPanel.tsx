@@ -12,6 +12,7 @@ import {
   ChevronRight,
   Mail,
   MessageCircle,
+  MessageSquarePlus,
   Phone,
   UserRound,
   X,
@@ -433,6 +434,7 @@ function SimpleOpportunityQuickPanel({ salesCase: sc, onClose, onOpenWorkspace, 
   const { customers, contacts, users, activities, offers, documents, updateCase } = useStore();
   const { hasPermission } = useAuth();
   const canUpdate = hasPermission("opportunities.update");
+  const canCreateActivity = hasPermission("activities.create");
   const [mailRecipient, setMailRecipient] = useState<MailRecipient | null>(null);
 
   const customer = customers.find((item) => item.id === sc.customerId);
@@ -516,18 +518,35 @@ function SimpleOpportunityQuickPanel({ salesCase: sc, onClose, onOpenWorkspace, 
               <p className={`mt-3 text-base leading-6 ${sc.nextAction ? "font-semibold text-[#0b1739]" : "text-sm text-muted-foreground"}`}>
                 {sc.nextAction || "Bu fırsat için henüz somut bir sonraki adım planlanmadı."}
               </p>
-              {canUpdate && (
-                <NextActionDialog
-                  salesCase={sc}
-                  onSave={(patch) => updateCase(sc.id, patch)}
-                  trigger={
-                    <Button type="button" className="mt-4 h-11 w-full bg-[#0b2453] text-xs hover:bg-[#102f68]" data-opportunity-primary="true">
-                      <CalendarDays className="mr-2 size-4" />
-                      {sc.nextAction ? "Aksiyonu yeniden planla" : "Aksiyon planla"}
-                    </Button>
-                  }
-                />
-              )}
+              {/* Birincil eylem Trello kartı gibi yorum yazmak; aksiyon planlama
+                  ikincil kaldı. Sonraki adım metni bilgi olarak duruyor. */}
+              <div className="mt-4 flex flex-wrap gap-2">
+                {canCreateActivity && (
+                  <AddActivityDialog
+                    salesCaseId={sc.id}
+                    customerId={sc.customerId}
+                    commentOnly
+                    trigger={
+                      <Button type="button" className="h-11 flex-1 bg-[#0b2453] text-xs hover:bg-[#102f68]" data-opportunity-primary="true">
+                        <MessageSquarePlus className="mr-2 size-4" />
+                        Yorum ekle
+                      </Button>
+                    }
+                  />
+                )}
+                {canUpdate && (
+                  <NextActionDialog
+                    salesCase={sc}
+                    onSave={(patch) => updateCase(sc.id, patch)}
+                    trigger={
+                      <Button type="button" variant="outline" className="h-11 flex-1 bg-white text-xs">
+                        <CalendarDays className="mr-2 size-4" />
+                        {sc.nextAction ? "Aksiyonu düzenle" : "Aksiyon planla"}
+                      </Button>
+                    }
+                  />
+                )}
+              </div>
             </div>
           </section>
 
