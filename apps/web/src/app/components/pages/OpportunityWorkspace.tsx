@@ -67,6 +67,7 @@ import {
   SECTION_TO_TAB,
   SIMPLE_OPPORTUNITY_TABS,
   TAB_TO_SECTION,
+  isWorkspacePreferences,
   migrateWorkspacePreferences,
   normalizeWorkspaceTab,
   roleDefaultTab,
@@ -353,7 +354,23 @@ export function OpportunityWorkspace({
     }),
     [legacyPreferenceKey, preferenceKey, user?.roles],
   );
-  const [preferences, setPreferences] = usePersistentState<WorkspacePreferences>(preferenceKey, initialPreferences);
+  const [storedPreferences, setStoredPreferences] = usePersistentState<WorkspacePreferences>(preferenceKey, initialPreferences);
+  // `usePersistentState` başlangıç değerini yalnız anahtar hiç yokken kullanır;
+  // varsa depodaki ham blob'u doğrulamadan döndürür. Şema değiştiğinde eski
+  // biçim olduğu gibi geri geliyor ve okuyan kod `preferences.lead.defaultTab`
+  // dediğinde çöküyordu. Render'a her zaman doğrulanmış nesne gider.
+  const preferences = isWorkspacePreferences(storedPreferences) ? storedPreferences : initialPreferences;
+  // Yazma tarafı da korunmalı: fonksiyon biçimli güncellemeye ham blob geçerse
+  // yayılan nesne yine bozuk şemada kalırdı.
+  const setPreferences: typeof setStoredPreferences = useCallback(
+    (update) => setStoredPreferences((current) => {
+      const safe = isWorkspacePreferences(current) ? current : initialPreferences;
+      return typeof update === "function"
+        ? (update as (value: WorkspacePreferences) => WorkspacePreferences)(safe)
+        : update;
+    }),
+    [initialPreferences, setStoredPreferences],
+  );
   const preferredTab = isLead
     ? preferences.lead.defaultTab
     : simpleOpportunity

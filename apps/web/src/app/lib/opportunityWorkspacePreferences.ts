@@ -55,6 +55,30 @@ export type WorkspacePreferences = {
   showStakeholders: boolean;
 };
 
+/**
+ * Depodan gelen değerin yeni şemaya uyup uymadığını doğrular.
+ *
+ * `usePersistentState` saklanan ham değeri doğrulamadan döndürüyor ve başlangıç
+ * değerini yalnız anahtar hiç yokken kullanıyor. Şema değiştiğinde eski blob
+ * olduğu gibi geri geliyor; okuyan kod `preferences.lead.defaultTab` derse
+ * `undefined.defaultTab` ile çöküyor. Bu yüzden okuma tarafında da doğrulama
+ * şart — anahtar adını değiştirmek tek başına yetmez, aynı tuzak bir sonraki
+ * şema değişiminde tekrarlar.
+ */
+export function isWorkspacePreferences(value: unknown): value is WorkspacePreferences {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as Partial<WorkspacePreferences>;
+  return (
+    typeof candidate.lead?.defaultTab === "string"
+    && typeof candidate.opportunity?.defaultTab === "string"
+    && typeof candidate.opportunity?.defaultSection === "string"
+    && typeof candidate.opportunity?.defaultRecordView === "string"
+    && (candidate.density === "comfortable" || candidate.density === "compact")
+    && typeof candidate.showSimilar === "boolean"
+    && typeof candidate.showStakeholders === "boolean"
+  );
+}
+
 export const normalizeWorkspaceTab = (value: unknown, tabs: WorkspaceTab[]): WorkspaceTab =>
   typeof value === "string" && tabs.includes(value as WorkspaceTab) ? (value as WorkspaceTab) : "summary";
 

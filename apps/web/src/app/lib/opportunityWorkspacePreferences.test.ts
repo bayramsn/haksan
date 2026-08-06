@@ -1,5 +1,51 @@
 import { describe, expect, it } from "vitest";
-import { migrateWorkspacePreferences, normalizeWorkspaceTab, roleDefaultTab } from "./opportunityWorkspacePreferences";
+import {
+  isWorkspacePreferences,
+  migrateWorkspacePreferences,
+  normalizeWorkspaceTab,
+  roleDefaultTab,
+} from "./opportunityWorkspacePreferences";
+
+/**
+ * Depoda duran ve şema değişiminden önce yazılmış düz v3 blob'u. `loadPersisted`
+ * ham değeri doğrulamadan döndürdüğü için bu nesne doğrudan render'a ulaşıyor
+ * ve `preferences.lead.defaultTab` çağrısı TypeError atıyordu.
+ */
+const STALE_FLAT_V3 = {
+  version: 3,
+  defaultSection: "commercial",
+  defaultRecordView: "files",
+  density: "compact",
+  showSimilar: false,
+  showStakeholders: true,
+};
+
+describe("isWorkspacePreferences", () => {
+  it("eski düz v3 blob'unu reddeder", () => {
+    expect(isWorkspacePreferences(STALE_FLAT_V3)).toBe(false);
+  });
+
+  it("nesne olmayan ve eksik alanlı değerleri reddeder", () => {
+    for (const value of [null, undefined, "x", 42, [], {}, { lead: {}, opportunity: {} }]) {
+      expect(isWorkspacePreferences(value), JSON.stringify(value)).toBe(false);
+    }
+  });
+
+  it("tam şemayı kabul eder", () => {
+    expect(isWorkspacePreferences(migrateWorkspacePreferences({ roleDefault: "summary" }))).toBe(true);
+  });
+});
+
+describe("eski düz v3 blob'undan geçiş", () => {
+  it("tercihleri kaybetmeden yeni şemaya taşır", () => {
+    const result = migrateWorkspacePreferences({ current: STALE_FLAT_V3, roleDefault: "summary" });
+    expect(isWorkspacePreferences(result)).toBe(true);
+    expect(result.opportunity.defaultSection).toBe("commercial");
+    expect(result.opportunity.defaultRecordView).toBe("files");
+    expect(result.density).toBe("compact");
+    expect(result.showSimilar).toBe(false);
+  });
+});
 
 type MigrateInput = Parameters<typeof migrateWorkspacePreferences>[0];
 
