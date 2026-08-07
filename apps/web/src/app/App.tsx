@@ -195,7 +195,9 @@ function AppShell() {
     if (!deepLinkReady) return;
     // Parametre silme listesi elle tutuluyordu; değişmezler artık saf modülde
     // ve testli (fırsat yoksa hiçbiri anlamlı değil, record yalnız
-    // section=records iken korunur, aktivite yüzeyi çalışma alanına zorlar).
+    // section=records iken korunur, aktivite kayıt bölümünü zorlar). Kaldırılan
+    // hızlı özet katmanının `surface` parametresi de burada temizleniyor:
+    // eski bir bağlantıyla gelen kullanıcı hata görmez, URL sadeleşir.
     const url = new URL(window.location.href);
     const search = applyOpportunityUrlState(url.search, { opportunity: selectedCaseId ?? null });
     window.history.replaceState(window.history.state, "", `${url.pathname}${search}${url.hash}`);
@@ -263,21 +265,16 @@ function AppShell() {
       return;
     }
     const url = new URL(window.location.href);
-    const currentSurface = url.searchParams.get("surface");
-    url.searchParams.set("opportunity", opportunityId);
-    if (activityId) url.searchParams.set("activity", activityId);
-    else url.searchParams.delete("activity");
-    // Fırsatlar arası gezinirken (replace) mevcut yüzey korunur; yeni açılışta aktivite varsa çalışma alanı, yoksa hızlı panel.
-    const nextSurface = activityId
-      ? "workspace"
-      : historyMode === "replace" && currentSurface
-        ? currentSurface
-        : "quick";
-    url.searchParams.set("surface", nextSurface);
-    // Önceki fırsatın bölüm/kayıt çapası yeni fırsatın URL'ine sızmasın.
-    url.searchParams.delete("section");
-    url.searchParams.delete("record");
-    const target = `${url.pathname}${url.search}${url.hash}`;
+    // Tek yüzey var: fırsat her zaman doğrudan tam sayfa açılır. Önceki
+    // fırsatın bölüm/kayıt çapası yeni fırsatın URL'ine sızmasın diye açıkça
+    // sıfırlanır; çalışma alanı kendi bölümünü mount olurken yazar.
+    const search = applyOpportunityUrlState(url.search, {
+      opportunity: opportunityId,
+      activity: activityId ?? null,
+      section: null,
+      record: null,
+    });
+    const target = `${url.pathname}${search}${url.hash}`;
     if (historyMode === "push") {
       // Yalnız gerçekten kayıt iten kol damgalanır; derinlik kapatmada kaç adım geri gidileceğini söyler.
       const state = window.history.state as { haksanOpportunityDepth?: number } | null;
@@ -302,7 +299,8 @@ function AppShell() {
       setSelectedCaseId(null);
       return;
     }
-    // Açılışta itilen kayıtlar tek adımda geri sarılır; ara "quick" kaydından geçilmediği için titreme de olmaz.
+    // Açılışta itilen kayıtlar tek adımda geri sarılır (bugün tek kayıt, ama
+    // derinlik yine de durumdan okunur: aradaki bir gezinme kaydı atlanmalı).
     closingOpportunityRef.current = true;
     if (closeFallbackTimerRef.current !== null) window.clearTimeout(closeFallbackTimerRef.current);
     closeFallbackTimerRef.current = window.setTimeout(() => {

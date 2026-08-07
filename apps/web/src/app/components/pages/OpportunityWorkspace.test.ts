@@ -34,11 +34,18 @@ describe("lead ve fırsat çalışma alanı sorumlu değişikliği", () => {
     expect(detailSource).toContain("{canCreateActivity && (");
   });
 
-  it("legacy süreç merkezini korur, sade görünümde tam haritayı kapalı başlatır", () => {
+  it("satış alanı kutusunu kapının dışında tutar, yalnız operasyon kartlarını kapatır", () => {
+    // Kutu alan görevlerini ve TEK ilerletme düğmesini taşıyor. İsteğe bağlı
+    // olursa sade modda hiç mount olmaz (kapı `!simpleOpportunity` ile kapalı
+    // başlıyor) ve kullanıcı ilerletme düğmesini hiçbir yerde göremez.
+    // İsteğe bağlı olan operasyon kartları; kutu değil.
     expect(workspaceSource).toContain("useState(() => !simpleOpportunity)");
     expect(workspaceSource).toContain("setOperationsExpanded(!simpleOpportunity)");
-    expect(workspaceSource).toContain("Tam süreç haritasını aç");
-    expect(workspaceSource).toContain("Tam süreç raylarını kapat");
+    expect(workspaceSource).toContain("{operationsExpanded && !simpleOpportunity && <div");
+    // Sade modda düğmenin açacağı bir şey kalmadığı için gizlendi; eski
+    // etiketler geri gelirse ölü düğme de geri gelmiş demektir.
+    expect(workspaceSource).not.toContain("Tam süreç haritasını aç");
+    expect(workspaceSource).toContain("Operasyon kartlarını kapat");
   });
 
   it("fırsat zaman çizelgesini doğru kaynaktan besler", () => {
@@ -48,8 +55,16 @@ describe("lead ve fırsat çalışma alanı sorumlu değişikliği", () => {
     // kullanıcının girdiği kayıtları gösterir.
     expect(workspaceSource).toContain('if (!simpleOpportunity) return items.sort');
     expect(workspaceSource).not.toContain('if (!isLead && !simpleOpportunity) return items.sort');
-    expect(workspaceSource).toContain('Müşteri temasları ile salt okunur süreç, ticari belge ve onay olayları.');
-    expect(workspaceSource).toContain('"Elle eklenen yorumlar ile detay yazılmış müşteri temasları gösterilir."');
+  });
+
+  it("aktivite akışını Trello benzeri hızlı girişle yan panele verir", () => {
+    // Sekmeler kaldırıldıktan sonra akışın tek yeri kalıcı yan panel; buraya
+    // geçirilmezse aktivite arayüzden tamamen kaybolur.
+    expect(workspaceSource).toContain("activityFeed={activityFeed}");
+    // Fırsatta giriş yorum kutusu (Trello kart yorumu), lead'de tam aktivite
+    // kaydı. Bu ayrım kalkarsa fırsatta gereksiz tip/tarih alanları geri gelir.
+    expect(workspaceSource).toContain("commentOnly={!isLead}");
+    expect(workspaceSource).toContain("Bu fırsat için henüz aktivite veya yorum yok.");
   });
 });
 

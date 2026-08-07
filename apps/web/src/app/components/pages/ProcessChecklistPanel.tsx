@@ -1,4 +1,12 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useState,
+  useSyncExternalStore,
+  type ReactNode,
+} from "react";
+import { createPortal } from "react-dom";
 import { CheckCircle2, Circle, ListChecks, Loader2, Pencil } from "lucide-react";
 import { toast } from "sonner";
 import { type OpportunityProcessActionKey } from "@haksan/shared";
@@ -7,13 +15,14 @@ import { useAuth } from "../../../lib/auth";
 import { useStore } from "../../lib/store";
 import {
   OPPORTUNITY_PAYMENT_METHOD_LABELS,
+  QUALIFICATION_STAGE_DESCRIPTIONS,
   QUALIFICATION_STAGE_LABELS,
-  opportunityTransitionErrorMessage,
   salesStageLabel,
   type OpportunityPaymentMethod,
   type QualificationStage,
   type SalesCase,
 } from "../../lib/mock";
+import { getChecklistSlot, subscribeChecklistSlot } from "./OpportunityProcessCenter";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Checkbox } from "../ui/checkbox";
@@ -28,11 +37,24 @@ import { OPPORTUNITY_OPERATION_GROUP_STEPS } from "./opportunityProcessGroups";
 import { focusWorkspaceTarget } from "../../lib/workspaceFocus";
 
 /**
+ * Üst bileşenlerin "görevlere git" kaydırmasında aradığı çapa
+ * (`OpportunityWorkspace` ve `SalesCaseDetail` bu id'yi getElementById ile arar).
+ */
+const PROCESS_ACTIONS_ANCHOR_ID = "opportunity-process-actions";
+
+/**
  * Kartın bulunduğu satış derecesini geçmek için tamamlanması gereken alanları
  * satır satır listeler ve her birini kartın içinden doldurulabilir hâle getirir.
  * Kontrol listesi backend'in `qualificationReadiness.checks` çıktısıdır; burada
  * yalnız her `key` için doğru düzenleyici eşlenir. Böylece UI, backend'in
  * gerçekten aradığı koşulun dışına çıkıp olmayan bir kural vaat etmez.
+ *
+ * Panel'i üst bileşen mount eder (aksiyon isteği ve dialog'lar oranın state'ine
+ * bağlı) ama görüntülendiği yer satış alanı kutusudur: kutu bir yuva yayımlar,
+ * panel de içeriğini oraya portal'lar. Kutu yoksa panel eski yerinde kalır.
+ * İlerletme düğmesi burada YOK — tek düğme kutunun altındadır; burada ikinci bir
+ * ilerletme yolu olması hem kapalı kart hem sunucu engelleri kontrolünü atlayan
+ * ikinci bir kapı açardı.
  */
 export function ProcessChecklistPanel({
   sc,
@@ -43,7 +65,7 @@ export function ProcessChecklistPanel({
   requestedAction?: OpportunityProcessActionKey | null;
   onActionHandled?: () => void;
 }) {
-  const { customers, contacts, users, products, updateCase, updateCustomer, moveQualification, decideCaseApproval, refresh } =
+  const { customers, contacts, users, products, updateCase, updateCustomer, decideCaseApproval, refresh } =
     useStore();
   const { hasRole, hasPermission } = useAuth();
   const isSuperAdmin = hasRole("super_admin");
@@ -51,8 +73,34 @@ export function ProcessChecklistPanel({
   const canCreateActivity = hasPermission("activities.create");
   const canCreateQuote = hasPermission("quotes.create");
   const [busyKey, setBusyKey] = useState<string | null>(null);
-  const [advancing, setAdvancing] = useState(false);
   const [editingKeys, setEditingKeys] = useState<Set<string>>(new Set());
+  // Satış alanı kutusunun yuvası. Kutu mount değilse (yükleniyor, hazırlık verisi
+  // yok ya da harita kapalı) null döner; panel o zaman bulunduğu yerde kalır.
+  const slot = useSyncExternalStore(
+    subscribeChecklistSlot,
+    () => getChecklistSlot(sc.id),
+    () => null,
+  );
+  const [hostAnchor, setHostAnchor] = useState<HTMLElement | null>(null);
+
+  useLayoutEffect(() => {
+    if (!slot || !hostAnchor) return;
+    // Görevler kutuya taşındığında panelin eski sarmalayıcısı boş bir çerçeve
+    // olarak kalırdı. Sarmalayıcı bu görevde dokunulmayan dosyalarda olduğu için
+    // burada gizliyoruz — ve "görevlere git" çapasını da birlikte taşıyoruz,
+    // yoksa kaydırma gizli bir kutuya gidip sessizce hiçbir şey yapmazdı.
+    const host = hostAnchor.closest<HTMLElement>(`#${PROCESS_ACTIONS_ANCHOR_ID}`);
+    if (!host) return;
+    const previousDisplay = host.style.display;
+    host.style.display = "none";
+    host.removeAttribute("id");
+    slot.id = PROCESS_ACTIONS_ANCHOR_ID;
+    return () => {
+      if (slot.id === PROCESS_ACTIONS_ANCHOR_ID) slot.removeAttribute("id");
+      host.id = PROCESS_ACTIONS_ANCHOR_ID;
+      host.style.display = previousDisplay;
+    };
+  }, [hostAnchor, slot]);
 
   const readiness = sc.qualificationReadiness;
   const company = customers.find((item) => item.id === sc.customerId);
@@ -85,9 +133,9 @@ export function ProcessChecklistPanel({
     if (!key || !readiness?.checks.some((item) => item.key === key)) return;
     setEditingKeys((current) => new Set(current).add(key));
     onActionHandled?.();
-    // Görev listesi süreç haritasının dışında; engel düğmesine basan kullanıcı
-    // düzenleyicinin sayfanın başka yerinde açıldığını göremiyordu. Satırı
-    // görünüre getirip ilk alanına odaklan.
+    // Engel düğmesi kutunun üst yarısında, açılan düzenleyici görev listesinde:
+    // uzun listede satır ekranın dışında kalabiliyor. Satırı görünüre getirip
+    // ilk alanına odaklan.
     window.setTimeout(() => {
       const row = document.getElementById(`process-check-${key}`);
       if (!row) return;
@@ -132,36 +180,25 @@ export function ProcessChecklistPanel({
     }
   };
 
-  const advance = async () => {
-    if (!canUpdate || advancing || !readiness.nextStage) return;
-    if (grade === "lead") {
-      document.querySelector<HTMLButtonElement>('[data-workspace-primary="convert"]')?.click();
-      return;
-    }
-    setAdvancing(true);
-    try {
-      await moveQualification(sc.id, readiness.nextStage);
-      toast.success("Satış derecesi ilerletildi", {
-        description: `${QUALIFICATION_STAGE_LABELS[readiness.nextStage as QualificationStage]} alanına geçildi`,
-      });
-    } catch (error: unknown) {
-      toast.error("İlerletilemedi", {
-        description: opportunityTransitionErrorMessage(error, "Eksik bilgi olabilir."),
-      });
-    } finally {
-      setAdvancing(false);
-    }
-  };
-
-  return (
-    <section aria-label="Mevcut satış alanının görevleri" className="space-y-4 p-2 sm:p-3">
+  const body = (
+    <section aria-label="Mevcut satış alanının görevleri" className="space-y-4 p-4 sm:p-5">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2">
             <ListChecks className="size-4 text-primary" />
             <span className="text-sm font-semibold">Alan görevleri</span>
-            <Badge variant="outline" className="font-data text-[10px]">
-              {QUALIFICATION_STAGE_LABELS[grade]} alanı
-            </Badge>
+            {/* Kutunun içindeyken alan kimliğini kutunun başlığı söylüyor; aynı
+                rozeti burada tekrarlamak tek kutuyu iki kez etiketlerdi. Kutu
+                yoksa panel yalnız kaldığı için kimliği kendisi göstermeli. */}
+            {!slot && (
+              <>
+                <Badge variant="outline" className="font-data text-[10px]">
+                  {QUALIFICATION_STAGE_LABELS[grade]} alanı
+                </Badge>
+                <span className="text-[11px] text-muted-foreground">
+                  {QUALIFICATION_STAGE_DESCRIPTIONS[grade]}
+                </span>
+              </>
+            )}
           </div>
           <span className="text-[11px] text-muted-foreground">
             {readiness.checks.filter((c) => c.complete).length}/{readiness.checks.length} tamamlandı
@@ -267,23 +304,29 @@ export function ProcessChecklistPanel({
           </ul>
         )}
 
-        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border/60 pt-3">
-          <span className="text-[11px] text-muted-foreground">
+        {/* Kutunun içindeyken eksik özeti + ilerletme kutunun altındadır; burada
+            tekrar etmek aynı bilgiyi iki kez, ilerletmeyi iki düğmede gösterirdi.
+            Kutu görünmüyorsa (sade modda süreç haritası kapalı başlar) tek
+            ilerletme düğmesinin nerede olduğunu söylemek zorundayız. */}
+        {!slot && (
+          <div className="border-t border-border/60 pt-3 text-[11px] text-muted-foreground">
             {readiness.ready
-              ? "Tüm alanlar tamam. Sonraki dereceye geçebilirsiniz."
+              ? "Tüm alanlar tamam. İlerletme satış alanı kutusundaki düğmeden yapılır."
               : `Eksik: ${readiness.blockers.join(", ")}`}
-          </span>
-          {readiness.nextStage && (
-            <Button size="sm" className="h-8" disabled={!canUpdate || !readiness.ready || advancing} onClick={() => void advance()}>
-              {advancing
-                ? "İlerletiliyor…"
-                : grade === "lead"
-                  ? "Fırsata dönüştür"
-                  : `${QUALIFICATION_STAGE_LABELS[readiness.nextStage as QualificationStage]} alanına geç`}
-            </Button>
-          )}
-        </div>
+          </div>
+        )}
     </section>
+  );
+
+  // Kutu mount değilse panel bulunduğu yerde kalır: görevlerin hiç görünmemesi,
+  // yanlış yerde görünmesinden kötüdür.
+  if (!slot) return body;
+  return (
+    <>
+      {/* Eski konumdaki sarmalayıcıyı bulup gizleyebilmek için bırakılan çapa. */}
+      <span ref={setHostAnchor} className="hidden" aria-hidden="true" />
+      {createPortal(body, slot)}
+    </>
   );
 }
 

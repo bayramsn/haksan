@@ -3,15 +3,18 @@ import type { OpportunityRecordView, OpportunitySection } from "./opportunityWor
 /**
  * Fırsat yüzeyinin URL durumu.
  *
- * Aynı querystring'i beş ayrı effect yazıyor (App.tsx'te iki, SalesCaseDetail'de
- * iki, OpportunityWorkspace'te bir). Değişmezler buraya toplandı ki sıraya bağlı
+ * Aynı querystring'i birkaç ayrı effect yazıyor (App.tsx'te iki,
+ * OpportunityWorkspace'te bir). Değişmezler buraya toplandı ki sıraya bağlı
  * bir durum makinesi olmaktan çıkıp test edilebilir hale gelsin.
+ *
+ * Eskiden bir de `surface=quick|workspace` vardı: fırsat önce hızlı özet
+ * panelinde açılıyor, kullanıcı oradan tam çalışma alanına geçiyordu. Ara
+ * katman kaldırıldı; fırsat artık her zaman doğrudan tam sayfa açılır. Eski
+ * bağlantılardaki parametre bir hataya yol açmasın diye sessizce silinir
+ * (bkz. LEGACY_PARAM_KEYS).
  */
-export type OpportunitySurface = "quick" | "workspace";
-
 export type OpportunityUrlState = {
   opportunity: string | null;
-  surface: OpportunitySurface | null;
   section: OpportunitySection | null;
   record: OpportunityRecordView | null;
   activity: string | null;
@@ -19,11 +22,13 @@ export type OpportunityUrlState = {
 
 export const EMPTY_OPPORTUNITY_URL_STATE: OpportunityUrlState = {
   opportunity: null,
-  surface: null,
   section: null,
   record: null,
   activity: null,
 };
+
+/** Artık okunmayan, yalnız eski bağlantılarda karşılaşılan parametreler. */
+const LEGACY_PARAM_KEYS = ["surface"];
 
 const asSection = (value: string | null): OpportunitySection | null =>
   value === "overview" || value === "commercial" || value === "process" || value === "records" ? value : null;
@@ -31,35 +36,28 @@ const asSection = (value: string | null): OpportunitySection | null =>
 const asRecord = (value: string | null): OpportunityRecordView | null =>
   value === "activities" || value === "files" || value === "approvals" || value === "audit" ? value : null;
 
-const asSurface = (value: string | null): OpportunitySurface | null =>
-  value === "quick" || value === "workspace" ? value : null;
-
 /**
  * Değişmezleri tek yerde uygular:
  * - `opportunity` yoksa diğer alanların hiçbiri anlamlı değil.
- * - `activity` varsa yüzey zorunlu olarak çalışma alanıdır (aktivite hızlı
- *   panelde gösterilemiyor).
+ * - `activity` varsa kayıt bölümü zorunludur (aktivite yalnız orada gösterilir).
  * - `record` yalnız `section === "records"` iken anlamlı.
  */
 export function normalizeOpportunityUrlState(state: OpportunityUrlState): OpportunityUrlState {
   if (!state.opportunity) return EMPTY_OPPORTUNITY_URL_STATE;
-  const surface = state.activity ? "workspace" : state.surface;
   const section = state.activity ? (state.section ?? "records") : state.section;
   return {
     opportunity: state.opportunity,
-    surface,
     section,
     record: section === "records" ? state.record : null,
     activity: state.activity,
   };
 }
 
-/** Querystring'i okur; geçersiz değerler sessizce düşer. */
+/** Querystring'i okur; geçersiz ve artık kullanılmayan değerler sessizce düşer. */
 export function parseOpportunityUrlState(search: string): OpportunityUrlState {
   const params = new URLSearchParams(search);
   return normalizeOpportunityUrlState({
     opportunity: params.get("opportunity") || null,
-    surface: asSurface(params.get("surface")),
     section: asSection(params.get("section")),
     record: asRecord(params.get("record")),
     activity: params.get("activity") || null,
@@ -78,10 +76,12 @@ export function applyOpportunityUrlState(search: string, patch: Partial<Opportun
     else params.delete(key);
   };
   write("opportunity", next.opportunity);
-  write("surface", next.surface);
   write("section", next.section);
   write("record", next.record);
   write("activity", next.activity);
+  // Eski `?surface=quick` bağlantıları hata vermemeli; tek etkisi URL'in bir
+  // kereye mahsus temizlenmesi olsun.
+  for (const key of LEGACY_PARAM_KEYS) params.delete(key);
   const result = params.toString();
   return result ? `?${result}` : "";
 }

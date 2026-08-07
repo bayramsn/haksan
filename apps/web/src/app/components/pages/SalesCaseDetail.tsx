@@ -63,7 +63,6 @@ import { NextActionDialog, actionDateLabel, isActionOverdue } from "../shared/Ne
 import { KanbanDetailDialogShell } from "../shared/KanbanDetailDialogShell";
 import { fileService, opportunityService, quoteService, salesOrderService, financeService } from "../../../lib/services";
 import { toast } from "sonner";
-import { OpportunityQuickPanel } from "./OpportunityQuickPanel";
 import { OpportunityWorkspace } from "./OpportunityWorkspace";
 import { focusWorkspaceTarget } from "../../lib/workspaceFocus";
 import { shouldUseSimpleOpportunityExperience } from "../../lib/opportunityExperience";
@@ -79,8 +78,6 @@ export function SalesCaseDetailDialog({
 }) {
   const { cases } = useStore();
   const { user } = useAuth();
-  const [workspaceOpen, setWorkspaceOpen] = useState(false);
-  const workspaceButtonRef = useRef<HTMLButtonElement>(null);
   const dialogOpenerRef = useRef<HTMLElement | null>(null);
   const currentIndex = sc ? cases.findIndex((item) => item.id === sc.id) : -1;
   const previous = currentIndex > 0 ? cases[currentIndex - 1] : null;
@@ -91,80 +88,9 @@ export function SalesCaseDetailDialog({
     userId: user?.id,
   });
 
-  useEffect(() => {
-    if (!sc) {
-      setWorkspaceOpen(false);
-      return;
-    }
-    const syncSurfaceFromLocation = () => {
-      const url = new URL(window.location.href);
-      if (url.searchParams.get("opportunity") !== sc.id) return;
-      const requestedWorkspace = url.searchParams.get("surface") === "workspace" || url.searchParams.has("activity");
-      if (!url.searchParams.has("surface")) {
-        url.searchParams.set("surface", requestedWorkspace ? "workspace" : "quick");
-        window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
-      }
-      setWorkspaceOpen((current) => {
-        if (current && !requestedWorkspace) {
-          window.setTimeout(() => focusWorkspaceTarget(workspaceButtonRef.current, { scroll: false }), 0);
-        }
-        return requestedWorkspace;
-      });
-    };
-    syncSurfaceFromLocation();
-    window.addEventListener("popstate", syncSurfaceFromLocation);
-    return () => window.removeEventListener("popstate", syncSurfaceFromLocation);
-  }, [sc?.id]);
-
-  const openWorkspace = (target?: "overview" | "commercial" | "process" | "records") => {
-    if (!sc) return;
-    const url = new URL(window.location.href);
-    url.searchParams.set("opportunity", sc.id);
-    url.searchParams.set("surface", "workspace");
-    // Hedef verilmediyse `section` yazılmaz: çalışma alanı kullanıcının
-    // "Varsayılan bölüm" tercihine düşer. Koşulsuz "overview" yazmak, ayarı
-    // kaydedilmesine rağmen hiç uygulanmayan bir kontrole çeviriyordu.
-    if (target) {
-      url.searchParams.set("section", target);
-      if (target !== "records") url.searchParams.delete("record");
-    } else {
-      url.searchParams.delete("section");
-      url.searchParams.delete("record");
-    }
-    // Bu da kayıt itiyor; kapatmanın tek adımda geri sarabilmesi için derinlik burada da artırılır.
-    const state = window.history.state as { haksanOpportunityDepth?: number } | null;
-    const nextState = {
-      ...state,
-      haksanOpportunitySurface: "workspace",
-      haksanOpportunityId: sc.id,
-      haksanOpportunityDepth: (state?.haksanOpportunityDepth ?? 0) + 1,
-    };
-    window.history.pushState(nextState, "", `${url.pathname}${url.search}${url.hash}`);
-    setWorkspaceOpen(true);
-  };
-
-  const returnToQuickPanel = () => {
-    if (!sc) return;
-    const url = new URL(window.location.href);
-    const state = window.history.state as { haksanOpportunitySurface?: string; haksanOpportunityId?: string } | null;
-    const canRestoreQuickEntry = url.searchParams.get("surface") === "workspace"
-      && state?.haksanOpportunitySurface === "workspace"
-      && state.haksanOpportunityId === sc.id;
-
-    setWorkspaceOpen(false);
-    window.setTimeout(() => focusWorkspaceTarget(workspaceButtonRef.current, { scroll: false }), 0);
-    if (canRestoreQuickEntry) {
-      window.history.back();
-      return;
-    }
-
-    url.searchParams.set("surface", "quick");
-    url.searchParams.delete("section");
-    url.searchParams.delete("record");
-    url.searchParams.delete("activity");
-    window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
-  };
-
+  // Tek yüzey: fırsat açıldığı anda tam çalışma alanı gelir. Önceden araya
+  // "hızlı özet" paneli giriyordu; `surface` parametresi, ek history kaydı ve
+  // gidiş-dönüş odak yönetimi hep o katman içindi ve hepsi kaldırıldı.
   return (
     <Dialog open={!!sc} onOpenChange={(open) => !open && onClose()}>
       <DialogContent
@@ -176,29 +102,20 @@ export function SalesCaseDetailDialog({
           event.preventDefault();
           focusWorkspaceTarget(dialogOpenerRef.current, { scroll: false });
         }}
-        style={workspaceOpen ? undefined : {
-          left: "auto",
-          right: 0,
-          top: 0,
-          width: "min(620px, 100vw)",
-          minWidth: 0,
-          maxWidth: "100vw",
-          transform: "none",
-        }}
-        className={
-          workspaceOpen
-            ? "left-0 top-0 h-dvh max-h-dvh w-screen max-w-none translate-x-0 translate-y-0 overflow-x-hidden overflow-y-hidden rounded-none p-0 gap-0 sm:left-1/2 sm:top-1/2 sm:h-auto sm:max-h-[90dvh] sm:w-[min(1240px,calc(100vw-2rem))] sm:max-w-none sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-lg [&>[data-slot=dialog-close]]:hidden"
-            : "inset-y-0 left-auto right-0 top-0 h-dvh max-h-dvh w-[min(620px,100vw)] max-w-none translate-x-0 translate-y-0 overflow-hidden rounded-none border-y-0 border-r-0 p-0 gap-0 sm:max-w-none data-[state=open]:slide-in-from-right-full data-[state=closed]:slide-out-to-right-full data-[state=open]:zoom-in-100 data-[state=closed]:zoom-out-100 [&>[data-slot=dialog-close]]:hidden"
-        }
+        className="left-0 top-0 h-dvh max-h-dvh w-screen max-w-none translate-x-0 translate-y-0 overflow-x-hidden overflow-y-hidden rounded-none p-0 gap-0 sm:left-1/2 sm:top-1/2 sm:h-auto sm:max-h-[90dvh] sm:w-[min(1240px,calc(100vw-2rem))] sm:max-w-none sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-lg [&>[data-slot=dialog-close]]:hidden"
       >
         <DialogHeader className="sr-only">
-          <DialogTitle>{workspaceOpen ? "Tam fırsat çalışma alanı" : "Hızlı fırsat özeti"} — {sc?.requestedProduct ?? "Satış kartı"}</DialogTitle>
-          <DialogDescription>{workspaceOpen ? "Karar özeti, görev bölümleri ve kayıt işlemleri" : "Satış kartının hızlı karar özeti"}</DialogDescription>
+          {/* Tek dize: ekran okuyucu kart türünü ve konusunu tek seferde duysun. */}
+          <DialogTitle>
+            {`${sc?.qualificationStage === "lead" ? "Lead" : "Fırsat"} çalışma alanı — ${sc?.requestedProduct ?? "Satış kartı"}`}
+          </DialogTitle>
+          <DialogDescription>Karar özeti, görev bölümleri ve kayıt işlemleri</DialogDescription>
         </DialogHeader>
-        {sc && (workspaceOpen ? (
+        {sc && (
           <SalesCaseDetailPage
             sc={sc}
-            onBack={returnToQuickPanel}
+            // Kartın "geri" hedefi artık listenin kendisi: ara panel yok.
+            onBack={onClose}
             onClose={onClose}
             mode="dialog"
             previous={previous}
@@ -206,18 +123,7 @@ export function SalesCaseDetailDialog({
             onNavigate={onNavigate}
             simpleMode={simpleMode}
           />
-        ) : (
-          <OpportunityQuickPanel
-            salesCase={sc}
-            onClose={onClose}
-            onOpenWorkspace={openWorkspace}
-            workspaceButtonRef={workspaceButtonRef}
-            previous={previous}
-            next={next}
-            onNavigate={onNavigate}
-            simpleMode={simpleMode}
-          />
-        ))}
+        )}
       </DialogContent>
     </Dialog>
   );
@@ -1195,8 +1101,6 @@ export function SalesCaseDetailPage({
             />
           }
           companyLinkingPanel={canUpdate ? companyLinkingPanel : undefined}
-          onOpenOffer={setSelectedOfferId}
-          onDownloadDocument={(document) => void downloadDocument(document.fileId, document.fileName)}
           onCommercialAction={(actionKey) => void handleProcessAction(actionKey)}
           canPerformCommercialAction={canPerformProcessAction}
           otherActions={workspaceOtherActions}
@@ -1840,9 +1744,6 @@ export function SalesCaseDetailPage({
                 <Button type="button" variant="ghost" size="icon" className="size-11 rounded-l-none border-l border-slate-200 sm:size-9" disabled={!next} onClick={() => next && onNavigate(next.id)} aria-label={`Sonraki ${cardTypeLabel.toLocaleLowerCase("tr-TR")}`} title={`Sonraki ${cardTypeLabel.toLocaleLowerCase("tr-TR")}`}><ChevronRight className="size-4" /></Button>
               </div>
             )}
-            <Button variant="outline" size="sm" onClick={onBack} className="gap-1 bg-white">
-              <ArrowLeft className="size-4" /> Hızlı özete dön
-            </Button>
             {onClose && <Button type="button" variant="ghost" size="icon" className="size-11 sm:size-9" onClick={onClose} aria-label="Çalışma alanını kapat"><X className="size-4" /></Button>}
           </>
         }

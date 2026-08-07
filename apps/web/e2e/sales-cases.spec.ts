@@ -19,106 +19,68 @@ test("fırsatlar listelenir ve detay açılır", async ({ page }) => {
   await firstRow.click();
   const dialog = page.getByRole("dialog");
   await expect(dialog).toBeVisible();
-  const workspaceButtonName = simpleWorkspace ? "Tüm detayları aç" : "Tam çalışma alanını aç";
 
-  if (simpleWorkspace) {
-    await expect(dialog.getByText(/^Fırsat · [A-F0-9]{8}$/)).toBeVisible();
-    await expect(dialog.getByText("Kısa özet", { exact: true })).toBeVisible();
-    await expect(dialog.getByRole("region", { name: "Ticari belge zinciri" })).toBeVisible();
-    await expect(dialog.locator('[data-opportunity-primary="true"]:visible')).toHaveCount(1);
-  } else {
-    await expect(dialog.getByText("Fırsat nabzı", { exact: true })).toBeVisible();
-  }
-  await expect(dialog.getByRole("button", { name: workspaceButtonName })).toBeVisible();
-  await expect(page).toHaveURL(/[?&]opportunity=[^&]+/);
-
-  await page.reload();
-  if (simpleWorkspace) {
-    await expect(dialog.getByText("Kısa özet", { exact: true })).toBeVisible();
-  } else {
-    await expect(dialog.getByText("Fırsat nabzı", { exact: true })).toBeVisible();
-  }
-
-  await dialog.getByRole("button", { name: workspaceButtonName }).click();
+  // Tek yüzey: karta tıklamak doğrudan tam çalışma alanını açar. Araya giren
+  // "hızlı özet" paneli ve "Tüm detayları aç" adımı kaldırıldı.
   await expect(dialog.getByText("Kayıt çalışma alanı", { exact: true })).toBeVisible();
   await expect(dialog.getByTestId("workspace-decision-summary")).toBeFocused();
-  await expect(dialog.getByRole("tablist", { name: "Çalışma alanı bölümleri" })).toBeVisible();
+  await expect(dialog.getByRole("region", { name: "Kayıt çalışma alanı içeriği" })).toBeVisible();
+  await expect(dialog.getByRole("button", { name: /Tüm detayları aç|Tam çalışma alanını aç/ })).toHaveCount(0);
+  await expect(page).toHaveURL(/[?&]opportunity=[^&]+/);
+  // Kaldırılan katmanın parametresi URL'de kalmamalı.
+  await expect(page).not.toHaveURL(/[?&]surface=/);
 
+  // Derin bağlantı (yenileme) de aynı yüzeye açılmalı.
+  await page.reload();
+  await expect(dialog.getByText("Kayıt çalışma alanı", { exact: true })).toBeVisible();
+  await expect(dialog.getByRole("region", { name: "Kayıt çalışma alanı içeriği" })).toBeVisible();
+
+  // Kart tek history kaydı itiyor: geri tuşu kartı kapatır, ileri tuşu geri getirir.
   await page.goBack();
-  await expect(dialog.getByRole("button", { name: workspaceButtonName })).toBeVisible();
-  await expect(dialog.getByRole("button", { name: workspaceButtonName })).toBeFocused();
+  await expect(dialog).toBeHidden();
+  await expect(page).not.toHaveURL(/[?&]opportunity=/);
   await page.goForward();
+  await expect(dialog).toBeVisible();
   await expect(dialog.getByTestId("workspace-decision-summary")).toBeFocused();
+
+  // Özet, Ticari ve Kayıtlar bölümleri (ve Kayıtlar'ın dört alt sekmesi)
+  // tamamen kaldırıldı. Geriye tek gövde kaldığı için sekme çubuğunun kendisi
+  // de kalktı — tek maddeli bir sekme çubuğu ölü kontroldür.
+  for (const goneTab of ["Genel Bakış", "Özet", "Ticari", "Kayıtlar", "Aktivite", "Operasyon", "Dosyalar", "Onaylar", "Değişiklik günlüğü"]) {
+    await expect(dialog.getByRole("tab", { name: goneTab, exact: true })).toHaveCount(0);
+  }
+  await expect(dialog.getByRole("button", { name: "Ticari alanları kaydet", exact: true })).toHaveCount(0);
 
   if (simpleWorkspace) {
     await expect(dialog.getByText("Fırsat çalışma alanı", { exact: true })).toBeVisible();
-    await expect(dialog.getByRole("tab", { name: "Genel Bakış", exact: true })).toHaveAttribute("data-state", "active");
-    await expect(dialog.getByRole("tab", { name: "Ticari", exact: true })).toBeVisible();
-    await expect(dialog.getByRole("tab", { name: "Süreç", exact: true })).toBeVisible();
-    await expect(dialog.getByRole("tab", { name: "Kayıtlar", exact: true })).toBeVisible();
     await expect(dialog.locator('[data-opportunity-primary="true"]:visible')).toHaveCount(1);
-    await dialog.getByText("İçgörüler", { exact: true }).click();
-    await dialog.getByText("AI / CRM yardımcı özeti", { exact: true }).click();
-    await expect(dialog.getByText("CRM veri özeti", { exact: true })).toBeVisible();
-
-    await dialog.getByRole("tab", { name: "Ticari", exact: true }).click();
-    const paymentTerm = dialog.getByLabel("Ödeme vadesi (gün)");
-    await expect(paymentTerm).toBeDisabled();
-    await expect(dialog.getByText("Ağırlıklı", { exact: true })).toHaveCount(1);
-    await expect(dialog.getByText("Ödeme planını düzenle", { exact: true })).toHaveCount(0);
-    await dialog.getByRole("button", { name: "Düzenle", exact: true }).click();
-    await expect(paymentTerm).toBeEnabled();
-    await expect(dialog.getByRole("button", { name: "Ticari alanları kaydet", exact: true })).toHaveCount(1);
-    await dialog.getByRole("button", { name: "İptal", exact: true }).click();
-    await expect(paymentTerm).toBeDisabled();
-
-    await dialog.getByRole("tab", { name: "Süreç", exact: true }).click();
-    await expect(dialog.getByRole("button", { name: "Tam süreç haritasını aç", exact: true })).toBeVisible();
+    // Süreç gövdesi her zaman görünür; satış alanı kutusu artık bir açma
+    // düğmesinin arkasında değil, yoksa tek ilerletme düğmesi kaybolurdu.
+    await expect(dialog.getByText("Birleşik süreç merkezi", { exact: true })).toBeVisible();
     await expect(dialog.getByLabel("Saha operasyonu özeti")).toBeVisible();
-
-    await dialog.getByRole("tab", { name: "Kayıtlar", exact: true }).click();
-    await expect(dialog.getByRole("tab", { name: "Aktiviteler", exact: true })).toHaveAttribute("data-state", "active");
-    await expect(dialog.getByRole("tab", { name: "Dosyalar", exact: true })).toBeVisible();
-    await expect(dialog.getByRole("tab", { name: "Onaylar", exact: true })).toBeVisible();
-    await expect(dialog.getByRole("tab", { name: "Değişiklik günlüğü", exact: true })).toBeVisible();
+    await expect(dialog.getByRole("button", { name: "Tam süreç haritasını aç", exact: true })).toHaveCount(0);
   } else {
     await expect(dialog.getByText("Kayıt çalışma alanı", { exact: true })).toBeVisible();
     await expect(dialog.getByText("Sıradaki iş ve risk", { exact: true })).toBeVisible();
-    await expect(dialog.getByRole("tab", { name: "Özet", exact: true })).toHaveAttribute("data-state", "active");
-    await expect(dialog.getByText("Deterministik skor; her bileşen CRM verisinden hesaplanır.")).toBeVisible();
-    await dialog.getByRole("tab", { name: "Aktivite", exact: true }).click();
-    await expect(dialog.getByRole("heading", { name: "Aktivite", exact: true })).toBeVisible();
-    await expect(dialog.getByText("Elle eklenen yorumlar ile detay yazılmış müşteri temasları gösterilir.", { exact: true })).toBeVisible();
-    await dialog.getByRole("tab", { name: "Ticari", exact: true }).click();
-    await expect(dialog.getByText("Ödeme ve tahsilat", { exact: true })).toBeVisible();
-    await dialog.getByRole("tab", { name: "Operasyon", exact: true }).click();
     await expect(dialog.getByText("Birleşik süreç merkezi", { exact: true })).toBeVisible();
-    await dialog.getByRole("tab", { name: "Kayıtlar", exact: true }).click();
-    await expect(dialog.getByText("Değişiklik günlüğü", { exact: true })).toBeVisible();
   }
 
-  await dialog.getByRole("button", { name: "Hızlı özete dön", exact: true }).first().click();
-  if (simpleWorkspace) {
-    await expect(dialog.getByText("Kısa özet", { exact: true })).toBeVisible();
-  } else {
-    await expect(dialog.getByText("Fırsat nabzı", { exact: true })).toBeVisible();
-  }
-  await expect(dialog.getByRole("button", { name: workspaceButtonName })).toBeFocused();
+  // Aktivite akışı kalıcı yan panele taşındı: sekme yok, her modda görünür.
+  await expect(dialog.getByRole("heading", { name: /Aktivite akışı|Temas akışı/ })).toBeVisible();
 
   await page.setViewportSize({ width: 390, height: 844 });
-  await expect.poll(async () => (await dialog.boundingBox())?.width).toBeLessThanOrEqual(390);
-  const mobileBounds = await dialog.boundingBox();
-  expect(mobileBounds?.x).toBeGreaterThanOrEqual(0);
-  await expect(dialog.getByRole("button", { name: workspaceButtonName })).toBeVisible();
-  await dialog.getByRole("button", { name: workspaceButtonName }).click();
-  await expect(dialog.getByTestId("workspace-decision-summary")).toBeFocused();
+  await expect.poll(async () => (await dialog.boundingBox())?.width).toBeLessThanOrEqual(390.5);
   const mobileWorkspaceBounds = await dialog.boundingBox();
   expect(mobileWorkspaceBounds?.x).toBeGreaterThanOrEqual(-0.5);
   expect(mobileWorkspaceBounds?.width).toBeLessThanOrEqual(390.5);
   expect(mobileWorkspaceBounds?.height).toBeLessThanOrEqual(844);
-  await expect(dialog.getByRole("button", { name: "Hızlı özete dön", exact: true })).toBeVisible();
+  // Ara katman kaldırıldı: dar ekranda da geri dönülecek bir hızlı özet yok.
+  await expect(dialog.getByRole("button", { name: "Hızlı özete dön", exact: true })).toHaveCount(0);
+  await expect(dialog.getByRole("button", { name: "Çalışma alanını kapat" })).toBeVisible();
   await expect(dialog.getByTestId("workspace-mobile-dock")).toHaveCount(1);
-  await expect(dialog.getByRole("combobox", { name: "Bölüm" })).toBeVisible();
+  // Tek gövde kaldığı için mobil "Bölüm" listesi de kalktı: tek seçenekli bir
+  // seçim kutusu kullanıcıyı hiçbir yere götürmez.
+  await expect(dialog.getByRole("combobox", { name: "Bölüm" })).toHaveCount(0);
 
   const mobileOverflow = await dialog.getByRole("region", { name: "Kayıt çalışma alanı içeriği" }).evaluate((element) => ({
     clientWidth: element.clientWidth,
@@ -219,13 +181,14 @@ test("lead kartından yeni firma OSM araması üst formu göndermeden açık kal
 
   const search = page.getByPlaceholder("Firma, kontak, telefon veya ürün ara...");
   await search.fill(companyTitle);
-  const card = page.locator("button.w-full.text-left").filter({ hasText: companyTitle }).first();
+  // Lead kart ızgarası `lg:hidden`; masaüstü genişliğinde yalnız tablo görünür.
+  const card = page.getByRole("row").filter({ hasText: companyTitle }).first();
   await expect(card).toBeVisible();
   await card.click();
 
   const opportunityDialog = page.getByRole("dialog");
-  await expect(opportunityDialog.getByText("Fırsat nabzı", { exact: true })).toBeVisible();
-  await opportunityDialog.getByRole("button", { name: "Tam çalışma alanını aç" }).click();
+  // Kart doğrudan çalışma alanına açılır; araya hızlı özet paneli girmez.
+  await expect(opportunityDialog.getByText("Lead çalışma alanı", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Yeni Firma Oluştur" }).click();
   const companyDialog = page.getByRole("dialog", { name: "Yeni Firma" });
   await expect(companyDialog).toBeVisible();
@@ -303,14 +266,15 @@ test("Lead Workspace V2 akışı otomatik atamadan gerekçeli fırsat dönüşü
 
     const recordDialog = page.getByRole("dialog", { name: new RegExp(product) });
     await expect(recordDialog).toBeVisible();
-    await recordDialog.getByRole("button", { name: "Tam çalışma alanını aç" }).click();
+    // Lead kartı da tek adımda çalışma alanına açılır.
     await expect(recordDialog.getByText("Lead çalışma alanı", { exact: true })).toBeVisible();
-    await expect(recordDialog.getByRole("tab", { name: "Özet", exact: true })).toHaveAttribute("data-state", "active");
-    await expect(recordDialog.getByRole("tab", { name: "Temas", exact: true })).toBeVisible();
-    await expect(recordDialog.getByRole("tab", { name: "Nitelendirme", exact: true })).toBeVisible();
-    await expect(recordDialog.getByRole("tab", { name: "Aktivite", exact: true })).toHaveCount(0);
+    // Sekme çubuğu her iki modda da kalktı. Lead gövdesi doğrudan
+    // nitelendirme; temas ve dönüşüm komutları kalıcı yan panelde durduğu için
+    // hiçbirine ulaşmak için önce sekme tıklamak gerekmiyor.
+    for (const goneTab of ["Özet", "Temas", "Nitelendirme", "Aktivite"]) {
+      await expect(recordDialog.getByRole("tab", { name: goneTab, exact: true })).toHaveCount(0);
+    }
 
-    await recordDialog.getByRole("tab", { name: "Temas", exact: true }).click();
     await recordDialog.getByRole("button", { name: "Temas sonucunu kaydet", exact: true }).click();
     const contactDialog = page.getByRole("dialog", { name: "Temas sonucunu kaydet" });
     await contactDialog.getByLabel("Kısa not").fill("Karar verici teknik demo ve fiyat çalışması istedi.");
@@ -319,7 +283,6 @@ test("Lead Workspace V2 akışı otomatik atamadan gerekçeli fırsat dönüşü
     await contactDialog.getByRole("button", { name: "Sonucu kaydet" }).click();
     await expect(contactDialog).toBeHidden();
 
-    await recordDialog.getByRole("tab", { name: "Nitelendirme", exact: true }).click();
     await recordDialog.getByLabel("İhtiyaç özeti").fill("Yeni kapasite yatırımı için otomasyonlu işleme merkezi gerekiyor.");
     await recordDialog.getByRole("combobox", { name: "Karar verici" }).click();
     await page.getByRole("option", { name: "Karar verici", exact: true }).click();
@@ -332,7 +295,12 @@ test("Lead Workspace V2 akışı otomatik atamadan gerekçeli fırsat dönüşü
     await recordDialog.getByLabel("Teknik not").fill("Demo parçası ile çevrim süresi doğrulanacak.");
     await recordDialog.getByRole("button", { name: "Nitelendirmeyi kaydet" }).click();
 
-    await recordDialog.getByRole("button", { name: "Fırsata dönüştür", exact: true }).click();
+    // "Fırsata dönüştür" iki yerde görünür: karar özetindeki vekil düğme ve
+    // komut rayındaki gerçek komut (vekil zaten onu tıklıyor). Test gerçek
+    // komuta bağlanır, yoksa locator çift eşleşir.
+    await recordDialog.getByLabel("Çalışma alanı komutları")
+      .getByRole("button", { name: "Fırsata dönüştür" })
+      .click();
     const overrideDialog = page.getByRole("dialog", { name: "Gerekçeli dönüşüm" });
     await expect(overrideDialog).toBeVisible();
     await overrideDialog.getByLabel("Dönüşüm gerekçesi").fill("Bütçe yatırım komitesinde; demo sonucu teklif sürecini başlatmak için yeterli.");
@@ -340,18 +308,21 @@ test("Lead Workspace V2 akışı otomatik atamadan gerekçeli fırsat dönüşü
     await expect(overrideDialog).toBeHidden();
 
     await expect(recordDialog.getByText("Ortak fırsat görünümü", { exact: true })).toBeVisible();
-    await expect(recordDialog.getByRole("tab", { name: "Aktivite", exact: true })).toBeVisible();
-    await expect(recordDialog.getByRole("tab", { name: "Ticari", exact: true })).toBeVisible();
-    await expect(recordDialog.getByRole("tab", { name: "Operasyon", exact: true })).toBeVisible();
-    await expect(recordDialog.getByRole("tab", { name: "Temas", exact: true })).toHaveCount(0);
+    // Dönüşümden sonra da sekme yok: süreç gövdesi ve aktivite akışı doğrudan görünür.
+    await expect(recordDialog.getByText("Birleşik süreç merkezi", { exact: true })).toBeVisible();
+    await expect(recordDialog.getByRole("heading", { name: /Aktivite akışı|Temas akışı/ })).toBeVisible();
 
+    // Ölçmeden önce yeniden akış beklenmeli; `boundingBox` hemen okunursa
+    // eski genişlik yakalanıyor.
     await page.setViewportSize({ width: 768, height: 1024 });
+    await expect.poll(async () => (await recordDialog.boundingBox())?.width).toBeLessThanOrEqual(768.5);
     const tabletBounds = await recordDialog.boundingBox();
     expect(tabletBounds?.x).toBeGreaterThanOrEqual(-0.5);
     expect(tabletBounds?.width).toBeLessThanOrEqual(768.5);
 
     await page.emulateMedia({ reducedMotion: "reduce" });
     await page.setViewportSize({ width: 390, height: 844 });
+    await expect.poll(async () => (await recordDialog.boundingBox())?.width).toBeLessThanOrEqual(390.5);
     const mobileBounds = await recordDialog.boundingBox();
     expect(mobileBounds?.x).toBeGreaterThanOrEqual(-0.5);
     expect(mobileBounds?.width).toBeLessThanOrEqual(390.5);
