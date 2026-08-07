@@ -21,7 +21,12 @@ const contractSpecs = (product?: Product): { key: string; value: string }[] => {
 
 export type ContractBuildInput = {
   customer: Customer | null;
-  salesCase: SalesCase;
+  /**
+   * Teklifsiz ("hızlı") sözleşmede satış kartı yoktur. Belge anlık görüntüsü
+   * verildiğinde çıktı zaten yalnızca ondan üretilir; kart sadece canlı veriden
+   * basılan eski yolda ve "Hazırlayan" satırında kullanılır.
+   */
+  salesCase: SalesCase | null;
   offer?: Offer | null;
   products: Product[];
   payments: Payment[];
@@ -288,19 +293,19 @@ async function buildContractPrintData(input: ContractBuildInput): Promise<Contra
   );
   const mainItem = primaryItems[0];
   const product = products.find((item) => item.id === mainItem?.productModelId) ?? products.find(
-    (item) => item.model && salesCase.requestedModel &&
+    (item) => item.model && salesCase?.requestedModel &&
       (salesCase.requestedModel.includes(item.model) || item.model.includes(salesCase.requestedModel)),
   );
   const model = machines.length
     ? machines.map((machine) => machine.model).join(" / ")
-    : product?.shortDescription || [salesCase.requestedProduct, salesCase.requestedModel].filter(Boolean).join(" ");
+    : product?.shortDescription || [salesCase?.requestedProduct, salesCase?.requestedModel].filter(Boolean).join(" ");
   const quantity = machines.length
     ? machines.reduce((sum, machine) => sum + machine.adet, 0)
-    : salesCase.quantity || 1;
-  const subtotal = asNumber(quote?.subtotal ?? offer?.subtotal ?? salesCase.estimatedAmount);
+    : salesCase?.quantity || 1;
+  const subtotal = asNumber(quote?.subtotal ?? offer?.subtotal ?? salesCase?.estimatedAmount);
   const vatRate = asNumber(mainItem?.vatRate);
   const expectedPayments = payments
-    .filter((payment) => payment.paymentType === "expected" && payment.salesCaseId === salesCase.id)
+    .filter((payment) => payment.paymentType === "expected" && salesCase && payment.salesCaseId === salesCase.id)
     .sort((left, right) => left.dueDate.localeCompare(right.dueDate));
   const terms = quote?.terms ?? {};
   const deliveryTerms = terms.deliveryTermsText ?? quote?.deliveryTerms ?? undefined;
@@ -331,7 +336,7 @@ async function buildContractPrintData(input: ContractBuildInput): Promise<Contra
     aksesuarlar: mainMachine?.aksesuarlar ?? product?.standardEquipment ?? [],
     muadiller: mainMachine?.muadiller ?? productEquivalents(product, products),
     fiyat: contractNetPrice(quote, subtotal),
-    currency: offer?.currency ?? salesCase.currency,
+    currency: offer?.currency ?? salesCase?.currency ?? "USD",
     teslimAyi: inferredDeliveryMonth(contractDate, terms.estimatedDeliveryDaysMin, terms.estimatedDeliveryDaysMax),
     teslimSekli: inferDeliveryBasis(deliveryTerms),
     teslimYeri: terms.deliveryLocation ?? undefined,

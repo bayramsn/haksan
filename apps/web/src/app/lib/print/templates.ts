@@ -1076,7 +1076,19 @@ table.ct-kv td:first-child { width: 65mm; padding-right: 2mm; }
 .ct-body > .ct-h2:first-child { margin-top: 0; }
 .ct-clause { display: grid; grid-template-columns: 8mm minmax(0, 1fr); margin: 0 0 .45mm 5mm; text-align: justify; }
 .ct-clause .no { font-weight: bold; }
-.ct-clause .text { overflow-wrap: anywhere; }
+/* Sayfa bölünmesi.
+   - Madde bloklarına .avoid-break (BASE_CSS) yalnızca
+     CLAUSE_KEEP_TOGETHER_MAX_LINES sınırının altındaki maddelerde eklenir; bir
+     sayfaya sığmayan bir maddeyi bölünmez ilan etmek onu taşırıp kırpar,
+     kırpmaktansa bölmek yeğdir.
+   - Sınırın üstündeki uzun maddeler bölünebilir kalır; orphans/widows tek
+     satırlık sarkmayı engeller.
+   - Başlıklar sayfanın en altında tek başına kalmasın diye break-after: avoid. */
+.ct-clause .text { overflow-wrap: anywhere; orphans: 2; widows: 2; }
+.ct-h2, .ct-section-title, .ct-tech-heading, .ct-machine, .ct-continuation-title {
+  break-inside: avoid; page-break-inside: avoid;
+  break-after: avoid; page-break-after: avoid;
+}
 .ct-price { margin: .7mm 0 3.8mm 25mm; }
 table.ct-price-table { width: calc(100% - 4mm); font-weight: bold; }
 table.ct-price-table td { padding: .15mm 0; vertical-align: top; text-align: left; }
@@ -1103,7 +1115,7 @@ type ContractTechnicalEntry = {
   weight: number;
 };
 
-type ContractLegalEntry = { html: string; weight: number };
+type ContractLegalEntry = { html: string; weight: number; isHeading?: boolean };
 
 const contractLineCount = (value: string, charsPerLine = 96): number => {
   const lines = value.replace(/\r/g, "").split("\n");
@@ -1162,15 +1174,34 @@ const contractTechnicalChunks = (machine: ContractMachinePrintData): ContractTec
   return chunks;
 };
 
+/**
+ * Bir maddenin bütün kalabilmesi için üst sınır (tahmini satır sayısı).
+ *
+ * `chunkContractLegalEntries` bir sayfaya 53 satır yerleştirir. Bunun büyük bir
+ * bölümünü kaplayan bir maddeyi `break-inside: avoid` ile korumak, madde sayfaya
+ * sığmadığında metnin taşmasına/kırpılmasına yol açar — böyle bir maddeyi
+ * kırpmaktansa bölmek yeğdir. Bu yüzden koruma yalnızca sayfanın ~%40'ından
+ * kısa maddelere uygulanır; daha uzunları CSS'teki orphans/widows ile yumuşar.
+ */
+const CLAUSE_KEEP_TOGETHER_MAX_LINES = 20;
+
+/** Madde bloğunun sayfa ortasından bölünmesini engelleyen sınıf (yalnız kısa maddelerde). */
+const keepTogetherClass = (weight: number): string =>
+  weight <= CLAUSE_KEEP_TOGETHER_MAX_LINES ? " avoid-break" : "";
+
 const chunkContractLegalEntries = (entries: ContractLegalEntry[]): ContractLegalEntry[][] => {
   const pages: ContractLegalEntry[][] = [];
   let page: ContractLegalEntry[] = [];
   let used = 0;
   for (const entry of entries) {
     if (page.length && used + entry.weight > 53) {
+      // Sayfa sonunda tek başına kalan başlığı bir sonraki sayfaya taşır.
+      // Sayfalar ayrı `.page` blokları olduğu için CSS'teki `break-after: avoid`
+      // bu sınırı geçemez; taşımanın burada yapılması gerekir.
+      const trailingHeading = page.length > 1 && page[page.length - 1].isHeading ? page.pop() : undefined;
       pages.push(page);
-      page = [];
-      used = 0;
+      page = trailingHeading ? [trailingHeading] : [];
+      used = trailingHeading?.weight ?? 0;
     }
     page.push(entry);
     used += entry.weight;
@@ -1223,13 +1254,17 @@ export function contractDoc(d: ContractPrintData, assetBase: string): PrintDocum
     }).join("");
   };
 
-  const clause = (number: string, plainText: string, html = contractText(plainText)): ContractLegalEntry => ({
-    html: `<div class="ct-clause"><span class="no">${esc(number)}</span><span class="text">${html}</span></div>`,
-    weight: contractLineCount(plainText),
-  });
+  const clause = (number: string, plainText: string, html = contractText(plainText)): ContractLegalEntry => {
+    const weight = contractLineCount(plainText);
+    return {
+      html: `<div class="ct-clause${keepTogetherClass(weight)}"><span class="no">${esc(number)}</span><span class="text">${html}</span></div>`,
+      weight,
+    };
+  };
   const heading = (number: string, title: string): ContractLegalEntry => ({
     html: `<div class="ct-h2"><span>${esc(number)}</span><span>${esc(title)}</span></div>`,
     weight: 1,
+    isHeading: true,
   });
 
   const deliveryDefault = d.teslimAyi
@@ -1275,8 +1310,9 @@ export function contractDoc(d: ContractPrintData, assetBase: string): PrintDocum
   const priceIntro = machines.length > 1
     ? "1. bölümde belirtilen tezgahların ilgili maddelerde belirtilmiş olan karakteristik özellikleri ve donanımları ile birlikte fiyatları aşağıdaki gibidir,"
     : "1.1. no'lu maddede belirtilen tezgahın karakteristik özellikleri ve donanımları ile birlikte fiyatı aşağıdaki gibidir,";
+  const priceWeight = 4 + machines.length;
   const priceBlock: ContractLegalEntry = {
-    html: `<div class="ct-clause"><span class="no">3.1.</span><span class="text">${esc(priceIntro)}
+    html: `<div class="ct-clause${keepTogetherClass(priceWeight)}"><span class="no">3.1.</span><span class="text">${esc(priceIntro)}
       <div class="ct-price">
         <table class="ct-price-table">
           ${machinePriceRows}
@@ -1285,17 +1321,18 @@ export function contractDoc(d: ContractPrintData, assetBase: string): PrintDocum
         <div class="ct-price-words">${esc(tutarYaziyla(d.fiyat, d.currency))}</div>
       </div>
     </span></div>`,
-    weight: 4 + machines.length,
+    weight: priceWeight,
   };
   const paymentPlanHtml = d.odemePlani.length ? `<table class="ct-pay">${d.odemePlani.map((payment) =>
     `<tr><td>${esc(payment.label)}</td><td class="amt">${esc(fmtMoney(payment.tutar, d.currency))}${payment.senet ? " (Senet)" : ""}</td></tr>`
   ).join("")}</table>` : "";
+  const paymentWeight = 2 + (d.odemeKosullari ? contractLineCount(d.odemeKosullari) : 0) + d.odemePlani.length;
   const paymentBlock: ContractLegalEntry = {
-    html: `<div class="ct-clause"><span class="no">3.4.</span><span class="text">Sözleşmeye konu tezgahın bedelinin tamamı ${A} firmasından aşağıdaki şekilde tahsil edilecektir;
+    html: `<div class="ct-clause${keepTogetherClass(paymentWeight)}"><span class="no">3.4.</span><span class="text">Sözleşmeye konu tezgahın bedelinin tamamı ${A} firmasından aşağıdaki şekilde tahsil edilecektir;
       ${d.odemeKosullari ? `<div style="margin-top:.7mm">${contractText(d.odemeKosullari)}</div>` : ""}
       ${paymentPlanHtml}
     </span></div>`,
-    weight: 2 + (d.odemeKosullari ? contractLineCount(d.odemeKosullari) : 0) + d.odemePlani.length,
+    weight: paymentWeight,
   };
   const sectionThree = [
     heading("3.", "Fiyat ve Ödeme Şartları;"),

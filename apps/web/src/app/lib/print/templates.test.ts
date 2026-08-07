@@ -759,4 +759,74 @@ describe("print templates", () => {
     expect(dispatch.body).toContain(`Sayfa <b>${pages(dispatch.body)}</b> / <b>${pages(dispatch.body)}</b>`);
     expect(delivery.body).toContain(`Sayfa <b>${pages(delivery.body)}</b> / <b>${pages(delivery.body)}</b>`);
   });
+
+  // ── Sözleşme sayfa bölünmesi ──────────────────────────────────────────────
+
+  const contractBreakBase = {
+    alici: { unvan: "Bölünme Müşterisi" },
+    sozlesmeNo: "CNC-SOZ-2026/020",
+    sozlesmeTarihi: "2026-07-14",
+    model: "MODEL-X",
+    adet: 1,
+    ozellikler: [],
+    aksesuarlar: [],
+    fiyat: 100_000,
+    currency: "USD" as const,
+    kdvOran: 20,
+    odemePlani: [],
+  };
+
+  it("keeps normal-length contract clauses from splitting across a page break", () => {
+    const document = contractDoc(contractBreakBase, assetBase);
+
+    // Şablonun sabit maddeleri (2.2., 2.3., 3.6. …) kısa; hepsi bütün kalmalı.
+    const clauses = document.body.match(/<div class="ct-clause[^"]*"/g) ?? [];
+    expect(clauses.length).toBeGreaterThan(5);
+    expect(clauses.every((clause) => clause.includes("avoid-break"))).toBe(true);
+    expect(document.css).toContain("orphans: 2; widows: 2");
+  });
+
+  it("lets a clause longer than a page split instead of clipping it", () => {
+    const tail = "COK-UZUN-MADDE-SON";
+    const document = contractDoc({
+      ...contractBreakBase,
+      // ~48 satırlık tek madde: bir sayfaya sığmaz. Bölünmez ilan edilirse
+      // taşar/kırpılır; bu yüzden koruma sınıfı almamalı.
+      teslimKosullari: `${"Teslimat koşulu ayrıntısı ".repeat(180)}${tail}`,
+    }, assetBase);
+
+    const longClause = (document.body.match(/<div class="ct-clause[^"]*"><span class="no">2\.1\.<\/span>/) ?? [])[0];
+    expect(longClause).toBeDefined();
+    expect(longClause).not.toContain("avoid-break");
+    expect(document.body).toContain(tail);
+  });
+
+  it("does not strand a section heading at the bottom of a legal page", () => {
+    const document = contractDoc({
+      ...contractBreakBase,
+      // "3. Fiyat ve Ödeme Şartları" başlığını sayfa sınırına itecek uzunluk.
+      teslimKosullari: `${"Teslimat koşulu ".repeat(120)}TESLIMAT-SON`,
+      garantiKosullari: `${"Garanti koşulu ".repeat(60)}GARANTI-SON`,
+    }, assetBase);
+
+    const legalPages = document.body.split('<div class="page ct">').slice(1);
+    for (const page of legalPages) {
+      const blocks = page.match(/<div class="ct-(?:h2|clause)[^"]*"/g) ?? [];
+      if (blocks.length === 0) continue;
+      // Bir sayfanın son bloğu başlık olmamalı: metni bir sonraki sayfada kalır.
+      expect(blocks[blocks.length - 1]).not.toContain("ct-h2");
+    }
+  });
+
+  it("keeps headings and machine lines with the content that follows them", () => {
+    const document = contractDoc(contractBreakBase, assetBase);
+    const headingRule = (document.css.match(/\.ct-h2[^{]*\{[^}]*\}/g) ?? [])
+      .find((rule) => rule.includes("break-after")) ?? "";
+
+    expect(headingRule).toContain(".ct-section-title");
+    expect(headingRule).toContain(".ct-tech-heading");
+    expect(headingRule).toContain(".ct-machine");
+    expect(headingRule).toContain("break-after: avoid");
+    expect(headingRule).toContain("page-break-after: avoid");
+  });
 });

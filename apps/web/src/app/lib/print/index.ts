@@ -1,4 +1,5 @@
 export * from "./core";
+export * from "./filename";
 export * from "./notes";
 export * from "./templates";
 export * from "./proformaPrint";

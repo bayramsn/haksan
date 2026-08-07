@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { ChevronDown, Plus, Printer, Save, Trash2, Zap } from "lucide-react";
+import { Printer, Save, Zap } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "../ui/button";
 import {
@@ -7,61 +7,37 @@ import {
 } from "../ui/dialog";
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
-import { Combobox } from "../ui/combobox";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "../ui/select";
-import { Switch } from "../ui/switch";
 import { DialogSplitLayout, DialogSidebarSection } from "../shared/DialogSplitLayout";
 import { ProformaTotalsPanel } from "../shared/ProformaItemsEditor";
+import {
+  emptyQuickFreeItem,
+  emptyQuickParty,
+  QuickFreeItemsEditor,
+  QuickPartySection,
+  QuickSummaryRow,
+  QUICK_CURRENCIES,
+  quickFreeItemsFromSnapshot,
+  quickFreeItemsPayload,
+  quickFreeItemsToRows,
+  quickItemsValidationError,
+  quickPartyFromSnapshot,
+  quickPartyPayload,
+  quickPartyValidationError,
+  type QuickFreeItem,
+  type QuickPartyState,
+} from "../shared/QuickDocumentEditor";
 import { useStore } from "../../lib/store";
 import { useAuth } from "../../../lib/auth";
 import { documentService } from "../../../lib/services";
 import { DocumentTermsTemplateEditor, useTermsTemplates } from "./DocumentTermsTemplateEditor";
-import { computeProformaTotals, formatMoneyInput, parseMoneyInput, type ProformaPriceRow } from "../../lib/proformaPricing";
+import { computeProformaTotals } from "../../lib/proformaPricing";
 import { loadProformaPrintData, printAssetBase, proformaDoc, PROFORMA_NOTE_OPTIONS } from "../../lib/print";
 import { printOrWarn } from "../../lib/pageHelpers";
 import type { DocumentItem } from "../../lib/mock";
 
 const PROFORMA_TERMS_TEMPLATE_SCOPE = "proforma_terms";
 const AUTO_VARIANT_KEY = "auto";
-const CURRENCIES = ["USD", "EUR", "TRY"];
-const UNIT_CODES = ["adet", "takım", "set", "metre", "kg", "saat"];
-
-type QuickItem = {
-  key: string;
-  description: string;
-  quantity: string;
-  unitCode: string;
-  unitPrice: string;
-  discountAmount: string;
-  vatRate: string;
-  brand: string;
-  model: string;
-  originCountry: string;
-  hsCode: string;
-  detailOpen: boolean;
-};
-
-let itemCounter = 0;
-const emptyItem = (): QuickItem => ({
-  key: `quick-item-${++itemCounter}`,
-  description: "",
-  quantity: "1",
-  unitCode: "adet",
-  unitPrice: "",
-  discountAmount: "",
-  vatRate: "20",
-  brand: "",
-  model: "",
-  originCountry: "",
-  hsCode: "",
-  detailOpen: false,
-});
-
-/** Serbest sayı girdisi (adet / KDV) — tr-TR virgülünü de kabul eder. */
-const parseNumber = (raw: string) => {
-  const parsed = Number(raw.replace(",", "."));
-  return Number.isFinite(parsed) ? Math.max(0, parsed) : 0;
-};
 
 const createdProformaToDocument = (created: any): DocumentItem => ({
   id: String(created?.id ?? ""),
@@ -115,20 +91,13 @@ export function QuickProformaDialog({
     ?? divisions[0]?.id
     ?? "";
 
-  const [manualCompany, setManualCompany] = useState(false);
-  const [companyId, setCompanyId] = useState("");
-  const [companyName, setCompanyName] = useState("");
-  const [companyAddress, setCompanyAddress] = useState("");
-  const [companyTaxOffice, setCompanyTaxOffice] = useState("");
-  const [companyTaxNumber, setCompanyTaxNumber] = useState("");
-  const [contactName, setContactName] = useState("");
-  const [contactPhone, setContactPhone] = useState("");
+  const [party, setParty] = useState<QuickPartyState>(emptyQuickParty);
   const [divisionId, setDivisionId] = useState(defaultDivisionId);
   const [documentNo, setDocumentNo] = useState("");
   const [issueDate, setIssueDate] = useState(today);
   const [currencyCode, setCurrencyCode] = useState("USD");
   const [printVariantKey, setPrintVariantKey] = useState(AUTO_VARIANT_KEY);
-  const [items, setItems] = useState<QuickItem[]>([emptyItem()]);
+  const [items, setItems] = useState<QuickFreeItem[]>([emptyQuickFreeItem()]);
   const [termsTemplateKey, setTermsTemplateKey] = useState("");
   const [paymentTerms, setPaymentTerms] = useState("");
   const [deliveryTerms, setDeliveryTerms] = useState("");
@@ -142,51 +111,21 @@ export function QuickProformaDialog({
     if (!open) return;
     const snapshot = editDocument?.documentSnapshot;
     if (snapshot) {
-      // Düzenleme: belge anlık görüntüsü tek gerçek kaynaktır — kayıtlı firma varsa
-      // id'si taşınır, yoksa elle girilen alanlar geri yüklenir.
-      const hasCompanyRecord = Boolean(snapshot.company?.id);
-      setManualCompany(!hasCompanyRecord);
-      setCompanyId(snapshot.company?.id ?? "");
-      setCompanyName(snapshot.company?.legalTitle ?? "");
-      setCompanyAddress(snapshot.companyAddresses?.[0]?.fullAddress ?? "");
-      setCompanyTaxOffice(snapshot.company?.taxOffice ?? "");
-      setCompanyTaxNumber(snapshot.company?.taxNumber ?? "");
-      setContactName(snapshot.contact?.fullName ?? "");
-      setContactPhone(snapshot.contact?.mobilePhone ?? "");
+      // Düzenleme: belge anlık görüntüsü tek gerçek kaynaktır.
+      setParty(quickPartyFromSnapshot(snapshot));
       setDocumentNo(editDocument?.fileName ?? "");
       setIssueDate(editDocument?.uploadedAt || today);
       setCurrencyCode(snapshot.currency?.code ?? "USD");
-      setItems(
-        (Array.isArray(snapshot.items) ? snapshot.items : []).map((item: any) => ({
-          ...emptyItem(),
-          description: String(item.description ?? ""),
-          quantity: String(item.quantity ?? 1),
-          unitCode: String(item.unitCode ?? "adet"),
-          unitPrice: formatMoneyInput(Number(item.unitPrice ?? 0)),
-          discountAmount: Number(item.discountAmount ?? 0) > 0 ? formatMoneyInput(Number(item.discountAmount)) : "",
-          vatRate: String(item.vatRate ?? 20),
-          brand: String(item.product?.brandName ?? ""),
-          model: String(item.product?.modelName ?? ""),
-          originCountry: String(item.product?.originCountry ?? ""),
-          hsCode: String(item.product?.hsCode ?? ""),
-        })),
-      );
+      setItems(quickFreeItemsFromSnapshot(snapshot.items));
       setPaymentTerms(snapshot.terms?.paymentTermsText ?? "");
       setDeliveryTerms(snapshot.terms?.deliveryTermsText ?? "");
       setWarrantyTerms(snapshot.terms?.warrantyTermsText ?? "");
     } else {
-      setManualCompany(false);
-      setCompanyId("");
-      setCompanyName("");
-      setCompanyAddress("");
-      setCompanyTaxOffice("");
-      setCompanyTaxNumber("");
-      setContactName("");
-      setContactPhone("");
+      setParty(emptyQuickParty());
       setDocumentNo("");
       setIssueDate(today);
       setCurrencyCode("USD");
-      setItems([emptyItem()]);
+      setItems([emptyQuickFreeItem()]);
       setPaymentTerms("");
       setDeliveryTerms("");
       setWarrantyTerms("");
@@ -210,39 +149,15 @@ export function QuickProformaDialog({
     [customers]
   );
 
-  const selectedCompany = customers.find((c) => c.id === companyId) ?? null;
-
-  const patchItem = (key: string, patch: Partial<QuickItem>) =>
-    setItems((current) => current.map((item) => (item.key === key ? { ...item, ...patch } : item)));
-
-  const priceRows: ProformaPriceRow[] = useMemo(
-    () =>
-      items.map((item) => ({
-        quoteItemId: item.key,
-        description: item.description,
-        quantity: parseNumber(item.quantity),
-        unitCode: item.unitCode,
-        unitPrice: parseMoneyInput(item.unitPrice),
-        discountAmount: parseMoneyInput(item.discountAmount),
-        vatRate: parseNumber(item.vatRate),
-      })),
-    [items]
-  );
+  const selectedCompany = customers.find((c) => c.id === party.companyId) ?? null;
+  const priceRows = useMemo(() => quickFreeItemsToRows(items), [items]);
   const totals = useMemo(() => computeProformaTotals(priceRows), [priceRows]);
 
   const validationError = (): string | null => {
-    if (!manualCompany && !companyId) return "Firma seçin veya elle girişe geçin";
-    if (manualCompany && !companyName.trim()) return "Firma unvanını yazın";
+    const partyError = quickPartyValidationError(party);
+    if (partyError) return partyError;
     if (divisions.length > 0 && !divisionId) return "İş alanı seçin";
-    const filled = priceRows.filter((row) => row.description.trim() || row.unitPrice > 0);
-    if (!filled.length) return "En az bir kalem girin";
-    const missingDescription = filled.find((row) => !row.description.trim());
-    if (missingDescription) return "Her kalemin açıklaması olmalı";
-    const zeroQuantity = filled.find((row) => row.quantity <= 0);
-    if (zeroQuantity) return "Kalem adedi sıfırdan büyük olmalı";
-    const overDiscount = filled.find((row) => row.discountAmount > row.quantity * row.unitPrice + 0.0001);
-    if (overDiscount) return "Satır iskontosu brüt tutarını aşamaz";
-    return null;
+    return quickItemsValidationError(priceRows);
   };
 
   const printCreated = async (created: any) => {
@@ -271,35 +186,13 @@ export function QuickProformaDialog({
     setSaving(true);
     try {
       const payload = {
-        companyId: manualCompany ? undefined : companyId,
-        companyName: manualCompany ? companyName.trim() : undefined,
-        companyAddress: manualCompany ? companyAddress.trim() || undefined : undefined,
-        companyTaxOffice: manualCompany ? companyTaxOffice.trim() || undefined : undefined,
-        companyTaxNumber: manualCompany ? companyTaxNumber.trim() || undefined : undefined,
-        contactName: contactName.trim() || undefined,
-        contactPhone: contactPhone.trim() || undefined,
+        ...quickPartyPayload(party),
         divisionId: divisionId || undefined,
         documentNo: documentNo.trim() || undefined,
         issueDate: new Date(issueDate),
         statusCode: "draft",
         currencyCode,
-        items: priceRows
-          .filter((row) => row.description.trim())
-          .map((row) => {
-            const source = items.find((item) => item.key === row.quoteItemId);
-            return {
-              description: row.description.trim(),
-              quantity: row.quantity,
-              unitCode: row.unitCode,
-              unitPrice: row.unitPrice,
-              discountAmount: row.discountAmount,
-              vatRate: row.vatRate,
-              brand: source?.brand.trim() || undefined,
-              model: source?.model.trim() || undefined,
-              originCountry: source?.originCountry.trim() || undefined,
-              hsCode: source?.hsCode.trim() || undefined,
-            };
-          }),
+        items: quickFreeItemsPayload(items, { productDetails: true }),
         paymentTerms: paymentTerms || undefined,
         deliveryTerms: deliveryTerms || undefined,
         warrantyTerms: warrantyTerms || undefined,
@@ -349,9 +242,9 @@ export function QuickProformaDialog({
               <>
                 <DialogSidebarSection title="Belge">
                   <dl className="space-y-1.5">
-                    <SummaryRow label="Firma" value={manualCompany ? companyName || "—" : selectedCompany?.name ?? "—"} />
-                    <SummaryRow label="Kaynak" value={manualCompany ? "Elle girilen firma" : "Kayıtlı firma"} />
-                    <SummaryRow label="Kalem" value={`${priceRows.filter((r) => r.description.trim()).length} satır`} />
+                    <QuickSummaryRow label="Firma" value={party.manualCompany ? party.companyName || "—" : selectedCompany?.name ?? "—"} />
+                    <QuickSummaryRow label="Kaynak" value={party.manualCompany ? "Elle girilen firma" : "Kayıtlı firma"} />
+                    <QuickSummaryRow label="Kalem" value={`${priceRows.filter((r) => r.description.trim()).length} satır`} />
                   </dl>
                 </DialogSidebarSection>
 
@@ -373,66 +266,13 @@ export function QuickProformaDialog({
             }
           >
             <div className="space-y-4">
-              <section className="rounded-xl border border-border/70 bg-card p-3">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <p className="text-xs font-semibold">Firma</p>
-                  <label className="flex items-center gap-2 text-[11px] text-muted-foreground">
-                    <Switch checked={manualCompany} onCheckedChange={(next) => setManualCompany(next)} />
-                    Kayıtlı değil, elle gireceğim
-                  </label>
-                </div>
-
-                {manualCompany ? (
-                  <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                    <div className="sm:col-span-2">
-                      <Label className="text-xs" htmlFor="quick-proforma-company">Firma Unvanı *</Label>
-                      <Input id="quick-proforma-company" className="mt-1.5" value={companyName} onChange={(e) => setCompanyName(e.target.value)} placeholder="ÖRNEK MAKİNA SAN. TİC. LTD. ŞTİ." />
-                    </div>
-                    <div className="sm:col-span-2">
-                      <Label className="text-xs" htmlFor="quick-proforma-address">Adres</Label>
-                      <Input id="quick-proforma-address" className="mt-1.5" value={companyAddress} onChange={(e) => setCompanyAddress(e.target.value)} placeholder="Organize Sanayi Bölgesi, Bursa" />
-                    </div>
-                    <div>
-                      <Label className="text-xs" htmlFor="quick-proforma-tax-office">Vergi Dairesi</Label>
-                      <Input id="quick-proforma-tax-office" className="mt-1.5" value={companyTaxOffice} onChange={(e) => setCompanyTaxOffice(e.target.value)} />
-                    </div>
-                    <div>
-                      <Label className="text-xs" htmlFor="quick-proforma-tax-number">Vergi No</Label>
-                      <Input id="quick-proforma-tax-number" className="mt-1.5 font-data" value={companyTaxNumber} onChange={(e) => setCompanyTaxNumber(e.target.value)} />
-                    </div>
-                    <p className="sm:col-span-2 text-[10px] leading-relaxed text-muted-foreground">
-                      Elle girilen firma hiçbir cariye bağlanmaz; bu proforma raporlarda firmasız görünür.
-                    </p>
-                  </div>
-                ) : (
-                  <div className="mt-3">
-                    <Combobox
-                      options={companyOptions}
-                      value={companyId}
-                      onChange={setCompanyId}
-                      placeholder="Firma arayın..."
-                      searchPlaceholder="Firma adı ara..."
-                      emptyText="Eşleşen firma yok."
-                    />
-                    {selectedCompany && (
-                      <p className="mt-1.5 text-[10px] text-muted-foreground">
-                        Adres, telefon ve vergi bilgileri firma kaydından belgeye yazılır.
-                      </p>
-                    )}
-                  </div>
-                )}
-
-                <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                  <div>
-                    <Label className="text-xs" htmlFor="quick-proforma-contact">İlgili Kişi</Label>
-                    <Input id="quick-proforma-contact" className="mt-1.5" value={contactName} onChange={(e) => setContactName(e.target.value)} />
-                  </div>
-                  <div>
-                    <Label className="text-xs" htmlFor="quick-proforma-phone">İlgili Telefon</Label>
-                    <Input id="quick-proforma-phone" className="mt-1.5 font-data" value={contactPhone} onChange={(e) => setContactPhone(e.target.value)} />
-                  </div>
-                </div>
-              </section>
+              <QuickPartySection
+                idPrefix="quick-proforma"
+                value={party}
+                onChange={setParty}
+                companyOptions={companyOptions}
+                manualNote="Elle girilen firma hiçbir cariye bağlanmaz; bu proforma raporlarda firmasız görünür."
+              />
 
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                 {divisions.length > 0 && (
@@ -462,104 +302,13 @@ export function QuickProformaDialog({
                   <Select value={currencyCode} onValueChange={setCurrencyCode}>
                     <SelectTrigger className="mt-1.5"><SelectValue /></SelectTrigger>
                     <SelectContent>
-                      {CURRENCIES.map((code) => <SelectItem key={code} value={code}>{code}</SelectItem>)}
+                      {QUICK_CURRENCIES.map((code) => <SelectItem key={code} value={code}>{code}</SelectItem>)}
                     </SelectContent>
                   </Select>
                 </div>
               </div>
 
-              <section className="overflow-hidden rounded-xl border border-border/70 bg-card">
-                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/60 bg-muted/20 px-3 py-2.5">
-                  <div>
-                    <p className="text-xs font-semibold">Kalemler</p>
-                    <p className="mt-0.5 text-[10px] text-muted-foreground">Açıklama, adet ve fiyatı doğrudan yazın. Katalog bağı yoktur.</p>
-                  </div>
-                  <Button type="button" size="sm" variant="outline" className="h-8 gap-1" onClick={() => setItems((current) => [...current, emptyItem()])}>
-                    <Plus className="size-3.5" /> Satır Ekle
-                  </Button>
-                </div>
-
-                <div className="divide-y divide-border/60">
-                  {items.map((item, index) => {
-                    const row = priceRows[index];
-                    const lineTotal = Math.max(0, row.quantity * row.unitPrice - row.discountAmount);
-                    const overDiscount = row.discountAmount > row.quantity * row.unitPrice + 0.0001;
-                    return (
-                      <div key={item.key} className="px-3 py-3">
-                        <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_72px_92px_128px_104px_58px_32px] sm:items-end">
-                          <div className="min-w-0">
-                            <Label className="text-[10px] text-muted-foreground" htmlFor={`${item.key}-description`}>Açıklama *</Label>
-                            <Input id={`${item.key}-description`} className="mt-1 h-9" value={item.description} onChange={(e) => patchItem(item.key, { description: e.target.value })} placeholder={`Ürün / hizmet ${index + 1}`} />
-                          </div>
-                          <div>
-                            <Label className="text-[10px] text-muted-foreground" htmlFor={`${item.key}-quantity`}>Adet</Label>
-                            <Input id={`${item.key}-quantity`} inputMode="decimal" className="mt-1 h-9 text-right font-data" value={item.quantity} onChange={(e) => patchItem(item.key, { quantity: e.target.value })} />
-                          </div>
-                          <div>
-                            <Label className="text-[10px] text-muted-foreground">Birim</Label>
-                            <Select value={item.unitCode} onValueChange={(value) => patchItem(item.key, { unitCode: value })}>
-                              <SelectTrigger className="mt-1 h-9"><SelectValue /></SelectTrigger>
-                              <SelectContent>
-                                {UNIT_CODES.map((code) => <SelectItem key={code} value={code}>{code}</SelectItem>)}
-                              </SelectContent>
-                            </Select>
-                          </div>
-                          <div>
-                            <Label className="text-[10px] text-muted-foreground" htmlFor={`${item.key}-price`}>Birim Fiyat</Label>
-                            <Input id={`${item.key}-price`} inputMode="decimal" className="mt-1 h-9 text-right font-data" value={item.unitPrice} onChange={(e) => patchItem(item.key, { unitPrice: e.target.value })} placeholder="0,00" />
-                          </div>
-                          <div>
-                            <Label className="text-[10px] text-muted-foreground" htmlFor={`${item.key}-discount`}>İskonto</Label>
-                            <Input id={`${item.key}-discount`} inputMode="decimal" aria-invalid={overDiscount || undefined} className="mt-1 h-9 text-right font-data" value={item.discountAmount} onChange={(e) => patchItem(item.key, { discountAmount: e.target.value })} placeholder="0,00" />
-                          </div>
-                          <div>
-                            <Label className="text-[10px] text-muted-foreground" htmlFor={`${item.key}-vat`}>KDV %</Label>
-                            <Input id={`${item.key}-vat`} inputMode="decimal" className="mt-1 h-9 text-right font-data" value={item.vatRate} onChange={(e) => patchItem(item.key, { vatRate: e.target.value })} />
-                          </div>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon"
-                            className="mb-0.5 size-9 text-muted-foreground hover:text-destructive"
-                            title="Satırı sil"
-                            disabled={items.length === 1}
-                            onClick={() => setItems((current) => current.filter((entry) => entry.key !== item.key))}
-                          >
-                            <Trash2 className="size-4" />
-                          </Button>
-                        </div>
-
-                        <div className="mt-1.5 flex flex-wrap items-center justify-between gap-2">
-                          <button
-                            type="button"
-                            className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground"
-                            onClick={() => patchItem(item.key, { detailOpen: !item.detailOpen })}
-                          >
-                            <ChevronDown className={`size-3 transition-transform ${item.detailOpen ? "rotate-180" : ""}`} />
-                            Marka / Model / Menşei / G.T.İ.P.
-                          </button>
-                          <span className="font-data text-xs tabular-nums">
-                            {overDiscount ? (
-                              <span className="text-warning">İskonto brüt tutarı aşıyor</span>
-                            ) : (
-                              <>Satır toplamı: <strong>{formatMoneyInput(lineTotal)} {currencyCode}</strong></>
-                            )}
-                          </span>
-                        </div>
-
-                        {item.detailOpen && (
-                          <div className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-                            <Input className="h-8 text-xs" value={item.brand} onChange={(e) => patchItem(item.key, { brand: e.target.value })} placeholder="Markası" aria-label="Markası" />
-                            <Input className="h-8 text-xs" value={item.model} onChange={(e) => patchItem(item.key, { model: e.target.value })} placeholder="Modeli" aria-label="Modeli" />
-                            <Input className="h-8 text-xs" value={item.originCountry} onChange={(e) => patchItem(item.key, { originCountry: e.target.value })} placeholder="Menşei" aria-label="Menşei" />
-                            <Input className="h-8 text-xs font-data" value={item.hsCode} onChange={(e) => patchItem(item.key, { hsCode: e.target.value })} placeholder="G.T.İ.P." aria-label="G.T.İ.P." />
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              </section>
+              <QuickFreeItemsEditor items={items} onChange={setItems} currencyCode={currencyCode} />
 
               <div>
                 <Label className="text-xs">Çıktı Şablonu</Label>
@@ -606,14 +355,5 @@ export function QuickProformaDialog({
         </form>
       </DialogContent>
     </Dialog>
-  );
-}
-
-function SummaryRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="grid grid-cols-[84px_1fr] gap-2 text-sm">
-      <dt className="text-xs text-muted-foreground">{label}</dt>
-      <dd className="min-w-0 break-words text-foreground/90">{value}</dd>
-    </div>
   );
 }

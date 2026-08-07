@@ -108,6 +108,29 @@ export const quoteTermsUpsertSchema = z.object({
 });
 export type QuoteTermsUpsertInput = z.infer<typeof quoteTermsUpsertSchema>;
 
+/**
+ * Fırsat açmadan ("hızlı") kesilen teklif.
+ *
+ * Normal akışta teklif her zaman bir satış kartına bağlanır; kart yoksa istemci
+ * önce fırsat açar. Küçük/ad-hoc işlerde bu zorunluluk gereksiz kayıt üretiyor,
+ * bu yüzden başlık + kalemler + şartlar tek istekte gelir ve `opportunityId`
+ * hiç gönderilemez. Firma bilgisi bilinçli olarak zorunludur: teklif; cari,
+ * alacak ve sipariş akışlarını besleyen bir CRM kaydıdır, proformadan farklı
+ * olarak firmasız var olamaz.
+ */
+export const standaloneQuoteCreateSchema = quoteCreateSchema.omit({ opportunityId: true }).extend({
+  items: z.array(quoteItemCreateSchema).min(1).max(200),
+  terms: quoteTermsUpsertSchema.partial().optional(),
+});
+type StandaloneQuoteCreateParsed = z.infer<typeof standaloneQuoteCreateSchema>;
+export type StandaloneQuoteCreateInput = Omit<
+  StandaloneQuoteCreateParsed,
+  'headerDiscountAmount' | 'headerDiscountPercent'
+> & {
+  headerDiscountAmount?: number;
+  headerDiscountPercent?: number;
+};
+
 export const proformaPriceItemSchema = z.object({
   quoteItemId: z.string().uuid(),
   unitPrice: moneySchema,
@@ -147,9 +170,9 @@ export const proformaUpdateSchema = proformaCreateSchema.partial();
 export type ProformaUpdateInput = z.infer<typeof proformaUpdateSchema>;
 
 /**
- * Tekliften bağımsız ("hızlı") proforma kalemi. Teklife bağlı proformadan farkı,
+ * Tekliften bağımsız ("hızlı") belge kalemi. Teklife bağlı belgeden farkı,
  * satırın kendi açıklaması/adedi/iskontosu olması — bir teklif kalemine değil,
- * doğrudan belgeye aittir.
+ * doğrudan belgeye aittir. Proforma ve sözleşme aynı kalem şeklini paylaşır.
  */
 export const proformaFreeItemSchema = z
   .object({
@@ -176,7 +199,11 @@ export const proformaFreeItemSchema = z
   });
 export type ProformaFreeItemInput = z.infer<typeof proformaFreeItemSchema>;
 
-const standaloneProformaFields = z.object({
+/**
+ * Bağımsız belgelerin ortak alıcı alanları: kayıtlı firma seçilmezse aynı
+ * bilgiler serbest metin olarak girilir ve yalnızca belgeye yazılır.
+ */
+const standaloneOwnerFields = {
   /** Kayıtlı firma; verilmezse serbest metin alanları kullanılır. */
   companyId: z.string().uuid().optional(),
   companyName: z.string().trim().max(255).optional(),
@@ -186,19 +213,23 @@ const standaloneProformaFields = z.object({
   contactName: z.string().trim().max(255).optional(),
   contactPhone: z.string().trim().max(64).optional(),
   divisionId: z.string().uuid().optional(),
-  documentNo: z.string().trim().min(1).max(64).optional(),
-  issueDate: z.coerce.date(),
   statusCode: z.string().max(64).default('draft'),
   currencyCode: z.string().trim().max(8).default('USD'),
-  items: z.array(proformaFreeItemSchema).min(1).max(200),
   paymentTerms: z.string().max(4000).optional(),
   deliveryTerms: z.string().max(4000).optional(),
   warrantyTerms: z.string().max(4000).optional(),
   notes: z.string().max(4000).optional(),
+} as const;
+
+const standaloneProformaFields = z.object({
+  ...standaloneOwnerFields,
+  documentNo: z.string().trim().min(1).max(64).optional(),
+  issueDate: z.coerce.date(),
+  items: z.array(proformaFreeItemSchema).min(1).max(200),
 });
 
-/** Kime kesildiği belirsiz bir proforma oluşmasın: firma kaydı ya da unvan şart. */
-const requireProformaOwner = (
+/** Kime kesildiği belirsiz bir belge oluşmasın: firma kaydı ya da unvan şart. */
+const requireStandaloneOwner = (
   value: { companyId?: string; companyName?: string },
   context: z.RefinementCtx,
 ) => {
@@ -211,17 +242,70 @@ const requireProformaOwner = (
   }
 };
 
-export const standaloneProformaCreateSchema = standaloneProformaFields.superRefine(requireProformaOwner);
+/** Firma alanlarına hiç dokunulmayan güncellemede mevcut kayıt geçerliliğini korur. */
+const requireStandaloneOwnerOnPatch = (
+  value: { companyId?: string; companyName?: string },
+  context: z.RefinementCtx,
+) => {
+  if (value.companyId === undefined && value.companyName === undefined) return;
+  requireStandaloneOwner(value, context);
+};
+
+export const standaloneProformaCreateSchema = standaloneProformaFields.superRefine(requireStandaloneOwner);
 export type StandaloneProformaCreateInput = z.infer<typeof standaloneProformaCreateSchema>;
 
 export const standaloneProformaUpdateSchema = standaloneProformaFields
   .partial()
-  .superRefine((value, context) => {
-    // Firma alanlarına hiç dokunulmayan güncellemede mevcut kayıt geçerliliğini korur.
-    if (value.companyId === undefined && value.companyName === undefined) return;
-    requireProformaOwner(value, context);
-  });
+  .superRefine(requireStandaloneOwnerOnPatch);
 export type StandaloneProformaUpdateInput = z.infer<typeof standaloneProformaUpdateSchema>;
+
+/**
+ * Sözleşme çıktısındaki ödeme planı satırı. Teklife bağlı sözleşmede plan
+ * cari alacaklardan gelir; teklifsiz sözleşmede elle girilir.
+ */
+export const standaloneContractInstallmentSchema = z.object({
+  label: z.string().trim().max(255).optional(),
+  amount: moneySchema,
+  dueDate: z.coerce.date().optional(),
+  /** Senetli vade — çıktıda ayrı işaretlenir. */
+  promissoryNote: z.boolean().optional(),
+});
+export type StandaloneContractInstallmentInput = z.infer<typeof standaloneContractInstallmentSchema>;
+
+const standaloneContractFields = z.object({
+  ...standaloneOwnerFields,
+  contractNo: z.string().trim().min(1).max(64).optional(),
+  signedDate: z.coerce.date(),
+  paymentTermDays: z.coerce.number().int().min(0).max(3650).optional(),
+  items: z.array(proformaFreeItemSchema).min(1).max(200),
+  /** Sözleşme çıktısındaki teslim bilgileri (teklif şartları tablosunun karşılığı). */
+  deliveryLocation: z.string().trim().max(255).optional(),
+  estimatedDeliveryDaysMin: z.coerce.number().int().nonnegative().max(3650).optional(),
+  estimatedDeliveryDaysMax: z.coerce.number().int().nonnegative().max(3650).optional(),
+  importCostsExcluded: z.boolean().default(true),
+  installments: z.array(standaloneContractInstallmentSchema).max(60).optional(),
+});
+
+export const standaloneContractCreateSchema = standaloneContractFields.superRefine((value, context) => {
+  requireStandaloneOwner(value, context);
+  if (
+    value.estimatedDeliveryDaysMin !== undefined
+    && value.estimatedDeliveryDaysMax !== undefined
+    && value.estimatedDeliveryDaysMin > value.estimatedDeliveryDaysMax
+  ) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'En erken teslim günü en geçten büyük olamaz',
+      path: ['estimatedDeliveryDaysMin'],
+    });
+  }
+});
+export type StandaloneContractCreateInput = z.infer<typeof standaloneContractCreateSchema>;
+
+export const standaloneContractUpdateSchema = standaloneContractFields
+  .partial()
+  .superRefine(requireStandaloneOwnerOnPatch);
+export type StandaloneContractUpdateInput = z.infer<typeof standaloneContractUpdateSchema>;
 
 export const contractCreateSchema = z.object({
   quoteId: z.string().min(1),

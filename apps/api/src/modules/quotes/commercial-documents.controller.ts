@@ -7,6 +7,8 @@ import {
   paginationSchema,
   proformaCreateSchema,
   proformaUpdateSchema,
+  standaloneContractCreateSchema,
+  standaloneContractUpdateSchema,
   standaloneProformaCreateSchema,
   standaloneProformaUpdateSchema,
   type CommercialInvoiceCreateInput,
@@ -16,6 +18,8 @@ import {
   type Pagination,
   type ProformaCreateInput,
   type ProformaUpdateInput,
+  type StandaloneContractCreateInput,
+  type StandaloneContractUpdateInput,
   type StandaloneProformaCreateInput,
   type StandaloneProformaUpdateInput,
 } from '@haksan/shared';
@@ -89,6 +93,27 @@ export class CommercialDocumentsController {
   @Post('contracts')
   createContract(@Body(new ZodValidationPipe(contractCreateSchema)) body: ContractCreateInput, @CurrentUser() user: AuthContext) {
     return this.svc.createContract(body, user);
+  }
+
+  /** Tekliften bağımsız ("hızlı") sözleşme — kalemler ve şartlar doğrudan belgeye yazılır. */
+  @RequirePermissions('contracts.create')
+  @Post('contracts/standalone')
+  createStandaloneContract(
+    @Body(new ZodValidationPipe(standaloneContractCreateSchema)) body: StandaloneContractCreateInput,
+    @CurrentUser() user: AuthContext
+  ) {
+    return this.svc.createStandaloneContract(body, user);
+  }
+
+  // `contracts/:id` deseninden ÖNCE tanımlı olmalı, aksi halde "standalone" id sanılır.
+  @RequirePermissions('contracts.update')
+  @Patch('contracts/standalone/:id')
+  updateStandaloneContract(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(standaloneContractUpdateSchema)) body: StandaloneContractUpdateInput,
+    @CurrentUser() user: AuthContext
+  ) {
+    return this.svc.updateStandaloneContract(id, body, user);
   }
 
   @RequirePermissions('contracts.update')

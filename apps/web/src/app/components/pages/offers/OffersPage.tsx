@@ -45,7 +45,7 @@ import { fileService, salesOrderService, quoteService } from "../../../../lib/se
 import { ExportExcelButton } from "../../ui/ExportExcelButton";
 import { CreateAccountingInvoiceDialog, type AccountingInvoicePrefill } from "../finance/CreateAccountingInvoiceDialog";
 import type { OperationFocus } from "../../../lib/operations";
-import { loadQuotePrintData, printAssetBase, quoteDoc } from "../../../lib/print";
+import { loadQuotePrintData, printAssetBase, quoteDoc, quoteFilename } from "../../../lib/print";
 import type { QuoteHeaderLogoMode } from "../../../lib/print";
 import { downloadPrintOrWarn, previewPrintOrWarn, printOrWarn, splitVat, formatDate, formatCurrency } from "../../../lib/pageHelpers";
 import type { QuoteWorkflowStatus } from "@haksan/shared";
@@ -896,17 +896,21 @@ export function OfferDetailDialog({
       products,
       headerLogoMode,
     });
-    return quoteDoc(data, printAssetBase());
+    return { data, doc: quoteDoc(data, printAssetBase()) };
   };
 
   const runQuoteDocument = async (mode: "print" | "preview" | "download") => {
     setDocumentAction(null);
     const loading = toast.loading("Teklif hazırlanıyor…");
     try {
-      const doc = await loadQuoteDocument();
+      const { data, doc } = await loadQuoteDocument();
       if (mode === "print") printOrWarn(doc);
       else if (mode === "preview") previewPrintOrWarn(doc);
-      else downloadPrintOrWarn(doc, `Teklif-${offer.quoteNo}`, "Teklif");
+      // Dosya adı: Teklif_<bölüm-belge no>_<firma>_<makine>
+      else downloadPrintOrWarn(doc, quoteFilename(data, {
+        division: offer.businessLine ?? offer.divisionCode ?? offer.divisionName,
+        company: customer?.name,
+      }), "Teklif");
     } catch (error: unknown) {
       toast.error("Teklif dosyası hazırlanamadı", {
         description: error instanceof Error ? error.message : "Teklif ayrıntıları alınamadı.",

@@ -9,6 +9,7 @@ import { DocumentPreviewDialog } from "../../dialogs/DocumentPreviewDialog";
 import { DocumentDetailDialog } from "../../dialogs/DocumentDetailDialog";
 import { CreateProformaDialog } from "../../dialogs/CreateProformaDialog";
 import { QuickProformaDialog } from "../../dialogs/QuickProformaDialog";
+import { QuickContractDialog } from "../../dialogs/QuickContractDialog";
 import { EditProformaPricesDialog } from "../../dialogs/EditProformaPricesDialog";
 import { CreateContractDialog } from "../../dialogs/CreateContractDialog";
 import { LinkCommercialDocumentDialog } from "../../dialogs/LinkCommercialDocumentDialog";
@@ -35,6 +36,7 @@ import {
 } from "lucide-react";
 import {
   printAssetBase, proformaDoc, commercialInvoiceDoc, contractDoc, installationFormDoc, loadContractPrintData, loadProformaPrintData, PROFORMA_NOTE_OPTIONS, trShortDate,
+  contractFilename, proformaFilename,
 } from "../../../lib/print";
 import { printOrWarn, downloadPrintOrWarn } from "../../../lib/pageHelpers";
 
@@ -185,7 +187,12 @@ export function DocumentsPage({
       const data = await loadProformaPrintData(proformaInput(d, variantKey));
       const rendered = proformaDoc(data, printAssetBase());
       if (mode === "print") printOrWarn(rendered);
-      else downloadPrintOrWarn(rendered, `Proforma-${d.fileName}`, "Proforma");
+      // Dosya adı: Proforma_<bölüm-belge no>_<firma>_<makine>. Kayıtlı firması
+      // olmayan hızlı proformada unvan serbest metinden (companyNameText) gelir.
+      else downloadPrintOrWarn(rendered, proformaFilename(data, {
+        division: resolveDocContext(d).offer?.businessLine,
+        company: d.companyNameText,
+      }), "Proforma");
     } catch (err: any) {
       toast.error("Proforma oluşturulamadı", { description: err?.message ?? "Teklif verisi okunamadı." });
     } finally {
@@ -222,7 +229,11 @@ export function DocumentsPage({
       });
       const rendered = contractDoc(data, printAssetBase());
       if (mode === "print") printOrWarn(rendered);
-      else downloadPrintOrWarn(rendered, `Sozlesme-${d.fileName}`, "Sözleşme");
+      // Dosya adı: Sozlesme_<bölüm-belge no>_<firma>_<makine>
+      else downloadPrintOrWarn(rendered, contractFilename(data, {
+        division: ctx.offer?.businessLine,
+        company: d.companyNameText,
+      }), "Sözleşme");
     } catch (error: unknown) {
       toast.error("Sözleşme oluşturulamadı", {
         description: error instanceof Error ? error.message : "Teklif ayrıntıları alınamadı.",
@@ -698,6 +709,13 @@ export function DocumentsPage({
                 trigger={<Button size="sm" variant="outline" className="h-9 justify-center gap-1"><Plus className="size-4" /> Sözleşme</Button>}
               />
             )}
+            <QuickContractDialog
+              trigger={
+                <Button size="sm" variant="outline" className="h-9 justify-center gap-1" title="Teklif açmadan sözleşme kes">
+                  <Zap className="size-4" /> Hızlı Sözleşme
+                </Button>
+              }
+            />
             {initialType === "Proforma" && (
               <CreateProformaDialog
                 trigger={<Button size="sm" className="h-9 justify-center gap-1"><Plus className="size-4" /> Proforma Oluştur</Button>}
@@ -910,6 +928,19 @@ export function DocumentsPage({
                         )}
                         {d.type === "Contract" && (
                           <>
+                            {/* Teklife bağlı sözleşme teklif üzerinden düzenlenir; hızlı
+                                sözleşmenin kalemleri ve şartları belgeye ait olduğu için
+                                tam düzenleyici açılır. */}
+                            {!d.quoteId && (
+                              <QuickContractDialog
+                                document={d}
+                                trigger={
+                                  <Button variant="ghost" size="icon" className="size-7" title="Hızlı sözleşmeyi düzenle">
+                                    <Zap className="size-4 text-muted-foreground hover:text-primary" />
+                                  </Button>
+                                }
+                              />
+                            )}
                             <Button variant="ghost" size="icon" className="size-7" title="Satış sözleşmesi yazdır / PDF"
                               onClick={() => printContract(d)}>
                               <Printer className="size-4 text-muted-foreground hover:text-primary" />

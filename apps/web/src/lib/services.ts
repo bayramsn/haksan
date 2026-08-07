@@ -81,8 +81,11 @@ import type {
   ProductUpdateInput,
   ProformaCreateInput,
   ProformaUpdateInput,
+  StandaloneContractCreateInput,
+  StandaloneContractUpdateInput,
   StandaloneProformaCreateInput,
   StandaloneProformaUpdateInput,
+  StandaloneQuoteCreateInput,
   PublicServiceComplaintInput,
   PurchaseOrderCreateInput,
   PurchaseOrderItemCreateInput,
@@ -576,6 +579,8 @@ export const quoteService = {
   list: (params?: Record<string, string | number | undefined>) => api.get<Paginated<any>>(`/quotes${qs(params)}`),
   get: (id: string) => api.get<any>(`/quotes/${id}`),
   create: (body: QuoteCreateInput) => api.post<any>('/quotes', body),
+  /** Fırsat açmadan ("hızlı") teklif — başlık, kalemler ve şartlar tek istekte gider. */
+  createStandalone: (body: StandaloneQuoteCreateInput) => api.post<any>('/quotes/standalone', body),
   update: (id: string, body: QuoteUpdateInput) => api.patch<any>(`/quotes/${id}`, body),
   remove: (id: string) => api.delete(`/quotes/${id}`),
   addItem: (id: string, body: QuoteItemCreateInput) => api.post<any>(`/quotes/${id}/items`, body),
@@ -695,6 +700,10 @@ export const documentService = {
   contracts: (params?: Record<string, string | number | undefined>) => api.get<Paginated<any>>(`/contracts${qs(params)}`),
   createContract: (body: ContractCreateInput) => api.post<any>('/contracts', body),
   updateContract: (id: string, body: ContractUpdateInput) => api.patch<any>(`/contracts/${id}`, body),
+  /** Tekliften bağımsız ("hızlı") sözleşme — kalemler ve şartlar doğrudan belgeye yazılır. */
+  createStandaloneContract: (body: StandaloneContractCreateInput) => api.post<any>('/contracts/standalone', body),
+  updateStandaloneContract: (id: string, body: StandaloneContractUpdateInput) =>
+    api.patch<any>(`/contracts/standalone/${id}`, body),
   deleteContract: (id: string) => api.delete<any>(`/contracts/${id}`),
   commercialInvoices: (params?: Record<string, string | number | undefined>) =>
     api.get<Paginated<any>>(`/commercial-invoices${qs(params)}`),

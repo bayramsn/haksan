@@ -192,9 +192,14 @@ export const contracts = pgTable(
       .references(() => tenants.id, { onDelete: 'cascade' }),
     divisionId: uuid('division_id').references(() => divisions.id, { onDelete: 'set null' }),
     businessLine: varchar('business_line', { length: 16 }),
-    quoteId: uuid('quote_id')
-      .notNull()
-      .references(() => quotes.id, { onDelete: 'restrict' }),
+    // Tekliften bağımsız ("hızlı") sözleşmelerde boştur; kalemler, şartlar ve
+    // firma bilgisi doğrudan documentSnapshot içinde tutulur.
+    quoteId: uuid('quote_id').references(() => quotes.id, { onDelete: 'restrict' }),
+    // Teklif yokken firma/para birimi buradan çözülür (liste sorgusu teklife join atamaz).
+    companyId: uuid('company_id').references(() => companies.id),
+    currencyId: uuid('currency_id').references(() => currencies.id),
+    /** Kayıtlı firması olmayan sözleşmede elle girilen unvan. */
+    companyNameText: varchar('company_name_text', { length: 255 }),
     contractNo: varchar('contract_no', { length: 64 }).notNull(),
     signedDate: timestamp('signed_date', { withTimezone: true }),
     paymentTermDays: integer('payment_term_days'),
@@ -210,6 +215,7 @@ export const contracts = pgTable(
     tenantDivisionIdx: index('contracts_tenant_division_idx').on(t.tenantId, t.divisionId),
     tenantBusinessLineIdx: index('contracts_tenant_business_line_idx').on(t.tenantId, t.businessLine),
     quoteIdx: index('contracts_quote_idx').on(t.quoteId),
+    companyIdx: index('contracts_company_idx').on(t.companyId),
   })
 );
 
