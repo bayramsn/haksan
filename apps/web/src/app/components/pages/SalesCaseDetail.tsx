@@ -183,11 +183,10 @@ export function SalesCaseDetailPage({
     sc.leadCompanyTitle ??
     sc.leadContactName ??
     "Firma kaydı bekliyor";
-  const compactSubtitle = [
-    sc.requestedProduct,
-    sc.externalSource === "trello" ? null : sc.requestedModel,
-    `${sc.quantity} adet`,
-  ].filter(Boolean).join(" · ");
+  // Başlıkta yalnız fırsat adı durur. `requestedProduct` aslında kaydın
+  // `title` kolonudur (API onu bu adla gönderiyor); yanına model ve adet
+  // eklenince fırsat adı makine koduna dönüşüp okunmaz oluyordu.
+  const compactSubtitle = sc.requestedProduct ?? "";
   const u = users.find((x) => x.id === sc.assignedUserId);
   const acts = activities.filter((a) => a.salesCaseId === sc.id);
   const offs = offers.filter((o) => o.salesCaseId === sc.id);
@@ -1092,12 +1091,14 @@ export function SalesCaseDetailPage({
               // Görevler kutunun içinde. Element burada yaratıldığı için engel
               // düğmelerinin `requestedAction` bağı korunuyor; render kutuda
               // olduğu için portal/yuva mekanizmasına gerek kalmıyor.
-              checklist={({ reload: reloadReadiness }) => (
+              checklist={({ reload: reloadReadiness, checks: stageChecks, readOnly: stageReadOnly }) => (
                 <ProcessChecklistPanel
                   sc={sc}
                   requestedAction={requestedProcessAction}
                   onActionHandled={() => setRequestedProcessAction(null)}
                   onSaved={reloadReadiness}
+                  checks={stageChecks}
+                  readOnly={stageReadOnly}
                 />
               )}
             />
@@ -1116,12 +1117,14 @@ export function SalesCaseDetailPage({
         canPerformAction={canPerformProcessAction}
         onRefresh={refresh}
         onAction={(actionKey) => void handleProcessAction(actionKey)}
-        checklist={({ reload: reloadReadiness }) => (
+        checklist={({ reload: reloadReadiness, checks: stageChecks, readOnly: stageReadOnly }) => (
           <ProcessChecklistPanel
             sc={sc}
             requestedAction={requestedProcessAction}
             onActionHandled={() => setRequestedProcessAction(null)}
             onSaved={reloadReadiness}
+            checks={stageChecks}
+            readOnly={stageReadOnly}
           />
         )}
       />

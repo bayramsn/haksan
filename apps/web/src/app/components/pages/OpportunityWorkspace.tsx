@@ -7,8 +7,6 @@ import {
 import {
   Activity as ActivityIcon,
   AlertTriangle,
-  Check,
-  ChevronRight,
   FileClock,
   Loader2,
   RefreshCw,
@@ -173,57 +171,6 @@ export function buildWorkspaceDecisionModel({
     risks,
     terminalLabel,
   };
-}
-
-const SIMPLE_QUALIFICATION_STEPS = ["c", "b", "a", "a_plus", "win"] as const;
-
-function CompactQualificationRail({ current }: { current: SalesCase["qualificationStage"] }) {
-  const currentIndex = SIMPLE_QUALIFICATION_STEPS.indexOf(current as (typeof SIMPLE_QUALIFICATION_STEPS)[number]);
-  const terminalLost = current === "lost";
-  const completedCount = terminalLost || currentIndex < 0 ? 0 : currentIndex;
-
-  return (
-    <section
-      className="rounded-xl border border-slate-200 bg-white px-3 py-3 sm:px-4"
-      aria-label={terminalLost
-        ? "Fırsat nitelik süreci: fırsat kaybedildi"
-        : `Fırsat nitelik süreci: ${SIMPLE_QUALIFICATION_STEPS.length} aşamadan ${completedCount} tanesi tamamlandı`}
-    >
-      <div className="flex items-center gap-1" role="list">
-        {SIMPLE_QUALIFICATION_STEPS.map((stage, index) => {
-          const complete = !terminalLost && currentIndex > index;
-          const active = !terminalLost && currentIndex === index;
-          return (
-            <div key={stage} className="flex min-w-0 flex-1 items-center gap-1" role="listitem">
-              <div
-                className={[
-                  "flex min-h-9 min-w-9 flex-1 items-center justify-center rounded-lg border px-2 text-xs font-semibold transition-colors",
-                  active ? "border-[#163b75] bg-[#163b75] text-white" : "",
-                  complete ? "border-blue-200 bg-blue-50 text-[#163b75]" : "",
-                  !active && !complete ? "border-slate-200 bg-slate-50 text-slate-500" : "",
-                ].join(" ")}
-                aria-current={active ? "step" : undefined}
-              >
-                {complete && <Check className="mr-1 size-3.5" aria-hidden="true" />}
-                {QUALIFICATION_STAGE_LABELS[stage]}
-                {/* İkon aria-hidden olduğu için durum ekran okuyucuya ayrıca
-                    yazılmalı; aksi halde yalnız düz aşama dizisi duyuluyor. */}
-                <span className="sr-only">
-                  {active ? " — mevcut aşama" : complete ? " — tamamlandı" : " — bekliyor"}
-                </span>
-              </div>
-              {index < SIMPLE_QUALIFICATION_STEPS.length - 1 && (
-                <ChevronRight className="size-3.5 shrink-0 text-slate-300" aria-hidden="true" />
-              )}
-            </div>
-          );
-        })}
-      </div>
-      {terminalLost && (
-        <div className="mt-2 text-xs font-medium text-red-700">Bu fırsat LOST durumunda.</div>
-      )}
-    </section>
-  );
 }
 
 export function OpportunityWorkspace({
@@ -608,18 +555,26 @@ export function OpportunityWorkspace({
 
   return (
     <div className="min-w-0 space-y-4">
-      <div className="border-b border-slate-200 pb-3">
-        <div className="font-data text-[10px] font-semibold uppercase tracking-[0.15em] text-[#536178]">
-          {isLead ? "Lead çalışma alanı" : simpleOpportunity ? "Fırsat çalışma alanı" : "Ortak fırsat görünümü"}
+      {/* Bu blok dialog başlığının hemen altındaydı ve hiçbir yeni bilgi
+          taşımıyordu: kaydın ne olduğunu üstteki başlık zaten söylüyor.
+          Sade görünümde kaldırıldı; tam/legacy görünümde iki farklı ekibin
+          aynı yüzeyi paylaştığını belirttiği için duruyor. */}
+      {!simpleOpportunity && (
+        <div className="border-b border-slate-200 pb-3">
+          <div className="font-data text-[10px] font-semibold uppercase tracking-[0.15em] text-[#536178]">
+            {isLead ? "Lead çalışma alanı" : "Ortak fırsat görünümü"}
+          </div>
+          <div className="mt-1 text-sm text-muted-foreground">
+            {isLead
+              ? "Nitelendirme kararı ve temas akışı tek yüzeyde"
+              : "Satış, ticari ve operasyon ekipleri için tek görünüm"}
+          </div>
         </div>
-        <div className="mt-1 text-sm text-muted-foreground">
-          {isLead
-            ? "Nitelendirme kararı ve temas akışı tek yüzeyde"
-            : "Süreç ve aktivite akışı tek yüzeyde"}
-        </div>
-      </div>
+      )}
 
-      {simpleOpportunity && <CompactQualificationRail current={sc.qualificationStage} />}
+      {/* Alan rayı satış alanı kutusunun içine taşındı ve orada tıklanabilir
+          (alanlar arası gezinme). Buradaki dekoratif kopyası aynı bilgiyi
+          ikinci kez, üstelik tıklanamaz hâlde gösteriyordu. */}
       <WorkspaceDecisionSummary
         ref={decisionSummaryRef}
         model={decisionModel}
@@ -679,7 +634,17 @@ export function OpportunityWorkspace({
             </>
           ) : (
             <div className="space-y-4">
-              <div><h3 className="font-display text-lg font-semibold text-[#0b1739]">Birleşik süreç merkezi</h3><p className="text-xs text-muted-foreground">Önce mevcut aşama, sıradaki aşama ve karar engelleri; ayrıntılı raylar isteğe bağlıdır.</p></div>
+              {/* İki ayrı eksen var ve karışıyorlardı: satış alanı (C/B/A/A+,
+                  yukarıdaki kutu) ve operasyon aşaması (sevkiyat → teslim →
+                  kurulum, bu blok). İkisi de "mevcut → sıradaki" gösterdiği ve
+                  biri "alan" diğeri "aşama" dediği için aynı şey sanılıyordu.
+                  Başlık artık hangi eksende olduğunu açıkça söylüyor. */}
+              <div>
+                <h3 className="font-display text-lg font-semibold text-[#0b1739]">Operasyon aşaması</h3>
+                <p className="text-xs text-muted-foreground">
+                  Sevkiyat, teslim ve kurulum akışı. Satış alanı (C/B/A/A+) yukarıdaki kutuda ayrıca izlenir.
+                </p>
+              </div>
               {/* Alan görevleri artık satış alanı kutusunun kendi içeriği
                   (`OpportunityProcessCenter`'ın `checklist` prop'u). Burada ayrı
                   bir sarmalayıcı tutmak görevleri kutunun dışında, ikinci bir
@@ -687,23 +652,13 @@ export function OpportunityWorkspace({
               <Card className="overflow-hidden border-[#0b2453]/15">
                 <div className="h-1 bg-[linear-gradient(90deg,#0b2453_0%,#2457D6_72%,#CF060C_72%)]" />
                 <CardContent className="space-y-4 p-4 sm:p-5">
-                  <div className="grid gap-3 sm:grid-cols-[1fr_auto_1fr] sm:items-center">
-                    <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
-                      <div className="font-data text-[9px] font-semibold uppercase tracking-[0.13em] text-muted-foreground">Mevcut aşama</div>
-                      <div className="mt-1 font-display text-lg font-semibold text-[#0b1739]">
-                        {salesStageLabel((operationReadiness?.currentOperationStage ?? sc.stage) as SalesCase["stage"])}
-                      </div>
-                    </div>
-                    <ChevronRight className="hidden size-5 text-[#2457D6] sm:block" aria-hidden="true" />
-                    <div className="rounded-lg border border-blue-200 bg-blue-50/65 p-3">
-                      <div className="font-data text-[9px] font-semibold uppercase tracking-[0.13em] text-muted-foreground">Sıradaki aşama</div>
-                      <div className="mt-1 font-display text-lg font-semibold text-[#0b1739]">
-                        {nextOperationTarget
-                          ? salesStageLabel(nextOperationTarget.code as SalesCase["stage"])
-                          : "Akış sonu"}
-                      </div>
-                    </div>
-                  </div>
+                  {/* "Mevcut aşama → Sıradaki aşama" çifti buradan kaldırıldı:
+                      karar özeti aynı ikiliyi (`decisionModel.currentStage` /
+                      `nextStage`) zaten aynı ekranda gösteriyordu. Engel listesi
+                      kaldı çünkü özette olmayan bir şey sunuyor: engellere
+                      tıklayıp görev listesine gitmek. Engel yokken blok hiç
+                      basılmaz — "engel yok" bilgisi de özette duruyor. */}
+                  {(nextOperationTarget?.blockers.length || !operationReadiness) ? (
                   <div>
                     <div className="text-xs font-semibold text-[#0b1739]">Geçiş engelleri</div>
                     <div className="mt-2 flex flex-wrap gap-2">
@@ -724,11 +679,9 @@ export function OpportunityWorkspace({
                       {!operationReadiness && (
                         <span className="inline-flex items-center gap-1.5 text-sm text-amber-800"><AlertTriangle className="size-4" /> Hazırlık bilgisi alınamadı; geçiş hazır varsayılmıyor.</span>
                       )}
-                      {operationReadiness && !nextOperationTarget?.blockers.length && (
-                        <span className="inline-flex items-center gap-1.5 text-sm text-emerald-700"><Check className="size-4" /> Sıradaki geçiş için engel yok</span>
-                      )}
                     </div>
                   </div>
+                  ) : null}
                   {/* Sade modda bu düğmenin açacağı bir şey kalmadı: kutu artık
                       her zaman görünür, operasyon kartları ise yalnız tam modda
                       render ediliyor. Ölü düğme bırakmamak için gizlendi. */}
@@ -745,22 +698,42 @@ export function OpportunityWorkspace({
                   )}
                 </CardContent>
               </Card>
-              {simpleOpportunity && (
-                <div className="grid gap-3 sm:grid-cols-3" aria-label="Saha operasyonu özeti">
-                  <button type="button" className="min-h-20 rounded-xl border border-slate-200 bg-white p-3 text-left transition hover:border-[#163b75]/40 hover:bg-slate-50" onClick={revealProcessActions}>
-                    <span className="inline-flex items-center gap-2 text-sm font-semibold text-[#0b1739]"><Truck className="size-4" /> Sevkiyat</span>
-                    <span className="mt-1 block text-xs text-muted-foreground">{opportunityShipments[0]?.status ?? "Henüz başlamadı"}</span>
-                  </button>
-                  <button type="button" className="min-h-20 rounded-xl border border-slate-200 bg-white p-3 text-left transition hover:border-[#163b75]/40 hover:bg-slate-50" onClick={revealProcessActions}>
-                    <span className="inline-flex items-center gap-2 text-sm font-semibold text-[#0b1739]"><FileClock className="size-4" /> Teslim</span>
-                    <span className="mt-1 block text-xs text-muted-foreground">{opportunityDeliveries[0]?.status ?? "Henüz başlamadı"}</span>
-                  </button>
-                  <button type="button" className="min-h-20 rounded-xl border border-slate-200 bg-white p-3 text-left transition hover:border-[#163b75]/40 hover:bg-slate-50" onClick={revealProcessActions}>
-                    <span className="inline-flex items-center gap-2 text-sm font-semibold text-[#0b1739]"><Wrench className="size-4" /> Kurulum</span>
-                    <span className="mt-1 block text-xs text-muted-foreground">{opportunityInstallations[0]?.statusName ?? "Henüz başlamadı"}</span>
-                  </button>
-                </div>
-              )}
+              {/* Saha operasyonu özeti. Üçü de başlamamışken üç ayrı kart
+                  ekranın üçte birini kaplayıp hiçbir şey söylemiyordu; o hâlde
+                  tek satıra iner. Bir tanesi bile başladıysa kartlara döner,
+                  çünkü artık gösterecek gerçek durum var. */}
+              {simpleOpportunity && (() => {
+                const fieldStages = [
+                  { key: "shipment", label: "Sevkiyat", icon: Truck, status: opportunityShipments[0]?.status },
+                  { key: "delivery", label: "Teslim", icon: FileClock, status: opportunityDeliveries[0]?.status },
+                  { key: "installation", label: "Kurulum", icon: Wrench, status: opportunityInstallations[0]?.statusName },
+                ];
+                const anyStarted = fieldStages.some((stage) => stage.status);
+                if (!anyStarted) {
+                  return (
+                    <button
+                      type="button"
+                      className="flex min-h-11 w-full items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-left transition hover:border-[#163b75]/40 hover:bg-slate-50"
+                      onClick={revealProcessActions}
+                    >
+                      <span className="inline-flex items-center gap-2 text-sm text-muted-foreground">
+                        <Truck className="size-4" /> Sevkiyat, teslim ve kurulum henüz başlamadı
+                      </span>
+                      <span className="shrink-0 text-xs font-semibold text-[#163b75]">Görevlere git</span>
+                    </button>
+                  );
+                }
+                return (
+                  <div className="grid gap-3 sm:grid-cols-3" aria-label="Saha operasyonu özeti">
+                    {fieldStages.map(({ key, label, icon: Icon, status }) => (
+                      <button key={key} type="button" className="min-h-20 rounded-xl border border-slate-200 bg-white p-3 text-left transition hover:border-[#163b75]/40 hover:bg-slate-50" onClick={revealProcessActions}>
+                        <span className="inline-flex items-center gap-2 text-sm font-semibold text-[#0b1739]"><Icon className="size-4" /> {label}</span>
+                        <span className="mt-1 block text-xs text-muted-foreground">{status ?? "Henüz başlamadı"}</span>
+                      </button>
+                    ))}
+                  </div>
+                );
+              })()}
               {/* Satış alanı kutusu isteğe bağlı OLAMAZ: alan görevleri ve tek
                   ilerletme düğmesi onun içinde. Sade modda `operationsExpanded`
                   false başladığı için kutu kapının arkasında kalıyordu, yani

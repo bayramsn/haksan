@@ -101,19 +101,17 @@ export const WorkspaceDecisionSummary = forwardRef<HTMLElement, {
             </div>
           )}
         </div>
+        {/* Riskler doğrudan gösterilir. Tek bir riski açılır kapağın arkasına
+            koymak, kullanıcıya okumadan önce bir tıklama maliyeti çıkarıyordu;
+            zaten en fazla üç risk üretiliyor (buildWorkspaceDecisionModel). */}
         {model.risks.length > 0 && (
-          <details className="mt-3 border-t border-border pt-3 text-xs">
-            <summary className="min-h-11 cursor-pointer select-none py-3 font-medium text-amber-800">
-              {model.risks.length} risk ayrıntısını göster
-            </summary>
-            <ul className="grid gap-2 sm:grid-cols-2">
-              {model.risks.map((risk) => (
-                <li key={risk.key} className={risk.tone === "danger" ? "rounded-lg border border-destructive/20 bg-destructive/5 px-3 py-2 text-destructive" : "rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-amber-900"}>
-                  <span className="font-semibold">{risk.label}</span>{risk.detail && <span className="block">{risk.detail}</span>}
-                </li>
-              ))}
-            </ul>
-          </details>
+          <ul className="mt-3 grid gap-2 border-t border-border pt-3 text-xs sm:grid-cols-2">
+            {model.risks.map((risk) => (
+              <li key={risk.key} className={risk.tone === "danger" ? "rounded-lg border border-destructive/20 bg-destructive/5 px-3 py-2 text-destructive" : "rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-amber-900"}>
+                <span className="font-semibold">{risk.label}</span>{risk.detail && <span className="block opacity-90">{risk.detail}</span>}
+              </li>
+            ))}
+          </ul>
         )}
       </section>
     );
