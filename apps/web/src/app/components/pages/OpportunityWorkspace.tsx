@@ -555,19 +555,18 @@ export function OpportunityWorkspace({
 
   return (
     <div className="min-w-0 space-y-4">
-      {/* Bu blok dialog başlığının hemen altındaydı ve hiçbir yeni bilgi
-          taşımıyordu: kaydın ne olduğunu üstteki başlık zaten söylüyor.
-          Sade görünümde kaldırıldı; tam/legacy görünümde iki farklı ekibin
-          aynı yüzeyi paylaştığını belirttiği için duruyor. */}
-      {!simpleOpportunity && (
+      {/* Dialog başlığının hemen altında duran ikinci başlık kaldırıldı: kaydın
+          ne olduğunu ("LEAD · 8C34E28F" / firma adı) üstteki başlık zaten
+          söylüyor, bu blok yalnız yer kaplıyordu. Yalnız legacy (ortak) görünüm
+          korunuyor — orada iki farklı ekibin aynı yüzeyi paylaştığı bilgisi
+          gerçekten yeni. */}
+      {!simpleOpportunity && !isLead && (
         <div className="border-b border-slate-200 pb-3">
           <div className="font-data text-[10px] font-semibold uppercase tracking-[0.15em] text-[#536178]">
-            {isLead ? "Lead çalışma alanı" : "Ortak fırsat görünümü"}
+            Ortak fırsat görünümü
           </div>
           <div className="mt-1 text-sm text-muted-foreground">
-            {isLead
-              ? "Nitelendirme kararı ve temas akışı tek yüzeyde"
-              : "Satış, ticari ve operasyon ekipleri için tek görünüm"}
+            Satış, ticari ve operasyon ekipleri için tek görünüm
           </div>
         </div>
       )}
@@ -609,13 +608,11 @@ export function OpportunityWorkspace({
           {companyLinkingPanel}
           {isLead ? (
             <>
+              {/* "Sonraki aksiyon" sütunu kaldırıldı: hemen üstteki karar kartı
+                  aynı metni, aynı tarihi ve sorumluyu zaten gösteriyor; gecikme
+                  ise ayrıca risk rozetinde yazıyordu. Aynı cümle ekranda üç
+                  kez görünüyordu. Kalan iki ölçü lead'e özgü ve başka yerde yok. */}
               <HealthStrip items={[
-                {
-                  label: "Sonraki aksiyon",
-                  value: sc.nextAction || "Planlanmadı",
-                  hint: formatDate(sc.nextActionAt, true),
-                  tone: sc.qualificationReadiness?.health?.actionOverdue ? "risk" : "neutral",
-                },
                 {
                   label: "Temas denemesi",
                   value: String(sc.qualificationReadiness?.health?.contactAttemptCount ?? 0),

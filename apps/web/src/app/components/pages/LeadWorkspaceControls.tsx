@@ -451,12 +451,16 @@ export function DecisionRail({
       <ArrowRight className="size-4" />
     </Button>
   ) : primaryAction ?? (!isLead && canUpdate ? (
+    // NOT: aşağıdaki `primaryCommandIsSummaryCopy` bu ifadeye dayanıyor —
+    // `primaryAction` verilmişse komut karar özetinin kopyasıdır.
     <NextActionDialog
       salesCase={salesCase}
       onSave={(patch) => updateCase(salesCase.id, patch)}
       trigger={<Button type="button" className="h-11 w-full gap-1.5"><AlarmClock className="size-4" /> {salesCase.nextAction ? "Aksiyonu düzenle" : "Aksiyon planla"}</Button>}
     />
   ) : null);
+
+  const primaryCommandIsSummaryCopy = !useLeadConversionAsPrimary && Boolean(primaryAction);
 
   // Hiçbir iletişim bilgisi yoksa üç düğme de tıklanıp "bilgi eksik" toast'ı
   // atıyordu: üç ölü düğme. O hâlde kullanıcının gerçekten yapabileceği tek iş
@@ -550,7 +554,11 @@ export function DecisionRail({
             </div>
           )}
           {quickContactActions}
-          {!simpleMode && primaryCommand && <div className="border-t border-slate-200 pt-3">{primaryCommand}</div>}
+          {/* Karar özeti bu düğmeyi masaüstünde zaten gösteriyor (`hidden lg:block`),
+              mobilde ise gizleyip aşağıdaki dock'a bırakıyor. Ray da basınca
+              masaüstünde aynı düğme ekranda iki kez çıkıyordu. Yalnız rayın
+              KENDİ ürettiği komut (lead dönüştürme) burada kalır. */}
+          {!simpleMode && primaryCommand && !primaryCommandIsSummaryCopy && <div className="border-t border-slate-200 pt-3">{primaryCommand}</div>}
           {otherActions && <div className="border-t border-slate-200 pt-3">{otherActions}</div>}
           {/* Aktivite akışı: sekmeler kaldırıldıktan sonra ayakta kalan tek
               kalıcı yüzey burası. "Sorumlu" ve iletişim bloklarının altında
