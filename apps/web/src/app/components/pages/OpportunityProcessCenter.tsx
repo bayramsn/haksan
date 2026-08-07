@@ -3,6 +3,7 @@ import { ArrowRight, Check, CircleAlert, Loader2, LockKeyhole, Pencil, XCircle }
 import {
   type OpportunityProcessActionKey,
   type OpportunityProcessReadiness,
+  type ProcessCheck,
   type ProcessTarget,
 } from "@haksan/shared";
 import { toast } from "sonner";
@@ -63,6 +64,7 @@ export function OpportunityProcessCenter({
   detail: controlledDetail,
   loading: controlledLoading,
   onReload,
+  onMarkLost,
   checklist,
 }: {
   salesCase: SalesCase;
@@ -73,6 +75,8 @@ export function OpportunityProcessCenter({
   detail?: OpportunityProcessDetail | null;
   loading?: boolean;
   onReload?: () => Promise<void>;
+  /** Kartı kaybedildi olarak işaretleme akışını açar; yetki üst bileşende kontrol edilir. */
+  onMarkLost?: () => void;
   /**
    * Mevcut alanın görev listesi (`ProcessChecklistPanel`). Üst bileşende
    * yaratılır ki engel düğmelerinin `requestedAction` bağı korunsun, ama
@@ -82,7 +86,13 @@ export function OpportunityProcessCenter({
    * `processReadiness` verisi de tazelenmeli, yoksa görev tikli görünürken kutu
    * eski engeli göstermeye devam eder.
    */
-  checklist?: (context: { reload: () => Promise<void> }) => ReactNode;
+  checklist?: (context: {
+    reload: () => Promise<void>;
+    /** Ray'dan başka bir alan seçiliyse o alanın görevleri; mevcut alanda undefined. */
+    checks?: ProcessCheck[];
+    /** İleri alanlar yalnız önizleme. */
+    readOnly: boolean;
+  }) => ReactNode;
 }) {
   const controlled = controlledDetail !== undefined;
   const [localDetail, setLocalDetail] = useState<OpportunityProcessDetail | null>(null);
@@ -129,6 +139,42 @@ export function OpportunityProcessCenter({
   const currentStage = readiness?.currentQualificationStage;
   const closed = Boolean(readiness?.closed);
   const isLost = currentStage === "lost";
+
+  /**
+   * Ray'dan görüntülenmek üzere seçilen alan; null ise mevcut alan.
+   * Seçim yalnız GÖRÜNTÜLEMEYİ değiştirir — ilerletme hâlâ tek adım ileri ve
+   * yalnız engeller temizken. Kart değişince seçim mevcut alana döner.
+   */
+  const [selectedStage, setSelectedStage] = useState<string | null>(null);
+  useEffect(() => setSelectedStage(null), [salesCase.id]);
+
+  /** Nitelik ekseninin alanları, backend sırasıyla (lead → … → win). */
+  const qualificationTargets = useMemo(
+    () => (readiness?.targets ?? []).filter((target) => target.axis === "qualification" && target.code !== "lost"),
+    [readiness],
+  );
+
+  /**
+   * Görevler alan başına. Backend düz listede her kontrolü `qualificationStage`
+   * ile etiketliyor, bu yüzden gruplama istemcide yapılabiliyor — geçmiş bir
+   * alanın görevlerini göstermek için ek istek gerekmiyor.
+   */
+  const checksByStage = useMemo(() => {
+    const map = new Map<string, ProcessCheck[]>();
+    (readiness?.checks ?? []).forEach((check) => {
+      if (!check.qualificationStage) return;
+      const list = map.get(check.qualificationStage) ?? [];
+      list.push(check);
+      map.set(check.qualificationStage, list);
+    });
+    return map;
+  }, [readiness]);
+
+  const viewedStage = selectedStage ?? currentStage;
+  const viewedIsCurrent = viewedStage === currentStage;
+  const viewedDirection = qualificationTargets.find((target) => target.code === viewedStage)?.direction;
+  // İleri alanlar yalnız önizleme: sırası gelmemiş görevi doldurmak atlamak olur.
+  const viewedIsFuture = viewedDirection === "forward";
 
   const advance = async () => {
     if (!canUpdate || advancing || !nextTarget || closed || blockers.length > 0) return;
@@ -230,6 +276,57 @@ export function OpportunityProcessCenter({
           </div>
         </div>
 
+        {/* Alan rayı. Her alana tıklayıp görevlerini görebilirsin; tamamlanmış
+            alanlarda düzeltme de yapılır. Seçim yalnız GÖRÜNTÜLEMEYİ değiştirir
+            — ilerletme aşağıdaki tek düğmededir ve hâlâ tek adım ileri, engeller
+            temizken. Durum yalnız renkle değil metinle de veriliyor: ekran
+            okuyucu "C B A A+ WIN" düz dizisi almasın. */}
+        {!isLost && qualificationTargets.length > 0 && (
+          <div className="flex flex-wrap items-center gap-1" role="group" aria-label="Satış alanları">
+            {qualificationTargets.map((target) => {
+              const isCurrent = target.code === currentStage;
+              const isViewed = target.code === viewedStage;
+              const done = target.direction === "backward";
+              return (
+                <button
+                  key={target.code}
+                  type="button"
+                  onClick={() => setSelectedStage(isCurrent ? null : target.code)}
+                  aria-current={isCurrent ? "step" : undefined}
+                  aria-pressed={isViewed}
+                  className={[
+                    "inline-flex min-h-9 flex-1 items-center justify-center gap-1 rounded-lg border px-2 text-xs font-semibold transition-colors",
+                    isViewed ? "ring-2 ring-primary/40" : "",
+                    isCurrent
+                      ? "border-primary bg-primary text-primary-foreground"
+                      : done
+                        ? "border-primary/25 bg-primary/5 text-primary hover:bg-primary/10"
+                        : "border-border bg-muted/40 text-muted-foreground hover:bg-muted",
+                  ].join(" ")}
+                >
+                  {done && <Check className="size-3" aria-hidden="true" />}
+                  {stageLabel(target.code)}
+                  <span className="sr-only">
+                    {isCurrent ? " — şu anki alan" : done ? " — tamamlandı" : " — sırası gelmedi"}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+
+        {!viewedIsCurrent && (
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-primary/25 bg-primary/5 px-3 py-2 text-xs">
+            <span className="text-primary">
+              <b className="font-semibold">{stageLabel(viewedStage)}</b> alanına bakıyorsun
+              {viewedIsFuture ? " — sırası gelmedi, yalnız önizleme." : " — tamamlanmış alan, düzeltme yapabilirsin."}
+            </span>
+            <Button type="button" size="sm" variant="ghost" className="h-7 px-2 text-[11px]" onClick={() => setSelectedStage(null)}>
+              Şu anki alana dön
+            </Button>
+          </div>
+        )}
+
         {isLost ? (
           <div className="flex items-center gap-2 rounded-lg border border-destructive/25 bg-destructive/5 px-3 py-3 text-xs font-medium text-destructive">
             <XCircle className="size-4" /> Kart kaybedildi olarak kapatıldı; alan ilerletilemez.
@@ -295,7 +392,13 @@ export function OpportunityProcessCenter({
           id="opportunity-process-actions"
           className="-mx-4 scroll-mt-24 border-t border-border/60 bg-muted/20 empty:hidden sm:-mx-5"
         >
-          {checklist?.({ reload: load })}
+          {checklist?.({
+            reload: load,
+            // Mevcut alanda panel kendi kaynağını kullanır; başka bir alan
+            // seçiliyse o alanın görevleri geçilir.
+            checks: viewedIsCurrent ? undefined : checksByStage.get(viewedStage ?? "") ?? [],
+            readOnly: viewedIsFuture,
+          })}
         </div>
 
         {nextTarget && !isLost && (
@@ -307,20 +410,36 @@ export function OpportunityProcessCenter({
                   ? "Eksikleri yukarıdaki alan görevlerinden tamamlayın; ardından ilerletme açılır."
                   : "Bu alanın gereklilikleri tamam; ilerletebilirsiniz."}
             </span>
-            <Button
-              type="button"
-              size="sm"
-              className="min-h-11 gap-1.5 sm:min-h-8"
-              disabled={advanceDisabled}
-              onClick={() => void advance()}
-            >
-              {advancing ? (
-                <Loader2 className="size-3.5 animate-spin motion-reduce:animate-none" />
-              ) : (
-                <ArrowRight className="size-3.5" />
+            <div className="flex flex-wrap items-center gap-2">
+              {/* Kaybedildi, ilerletmenin karşıtı: aynı kararın iki sonucu.
+                  Sağ rayın en altındaki "Diğer işlemler" başlığı altındayken
+                  katlamanın altında kalıyor ve kullanıcı bulamıyordu. */}
+              {onMarkLost && !closed && (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="min-h-11 gap-1.5 border-destructive/30 text-destructive hover:bg-destructive/5 sm:min-h-8"
+                  onClick={onMarkLost}
+                >
+                  <XCircle className="size-3.5" /> Kaybedildi
+                </Button>
               )}
-              {advancing ? "İlerletiliyor…" : advanceLabel}
-            </Button>
+              <Button
+                type="button"
+                size="sm"
+                className="min-h-11 gap-1.5 sm:min-h-8"
+                disabled={advanceDisabled}
+                onClick={() => void advance()}
+              >
+                {advancing ? (
+                  <Loader2 className="size-3.5 animate-spin motion-reduce:animate-none" />
+                ) : (
+                  <ArrowRight className="size-3.5" />
+                )}
+                {advancing ? "İlerletiliyor…" : advanceLabel}
+              </Button>
+            </div>
           </div>
         )}
       </CardContent>

@@ -1088,6 +1088,7 @@ export function SalesCaseDetailPage({
               detail={detail}
               loading={loading}
               onReload={reload}
+              onMarkLost={canMarkLost ? () => setLostOpen(true) : undefined}
               // Görevler kutunun içinde. Element burada yaratıldığı için engel
               // düğmelerinin `requestedAction` bağı korunuyor; render kutuda
               // olduğu için portal/yuva mekanizmasına gerek kalmıyor.
