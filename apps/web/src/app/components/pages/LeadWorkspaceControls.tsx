@@ -13,9 +13,11 @@ import {
   Phone,
   Save,
   SlidersHorizontal,
+  UserPlus,
   UserRound,
 } from "lucide-react";
 import { toast } from "sonner";
+import { CreateContactDialog } from "../dialogs/CreateDialogs";
 import { ApiError } from "../../../lib/apiClient";
 import { opportunityService } from "../../../lib/services";
 import { useStore } from "../../lib/store";
@@ -456,15 +458,37 @@ export function DecisionRail({
     />
   ) : null);
 
+  // Hiçbir iletişim bilgisi yoksa üç düğme de tıklanıp "bilgi eksik" toast'ı
+  // atıyordu: üç ölü düğme. O hâlde kullanıcının gerçekten yapabileceği tek iş
+  // kalır — kişiyi eklemek.
+  const hasAnyContactChannel = Boolean(contactPhone || contactEmail || whatsappNumber
+    || salesCase.leadPhone || salesCase.leadEmail || salesCase.leadContactValue);
+
   const quickContactActions = (
     <div>
       <div className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{simpleMode ? "İletişim" : "Hızlı temas"}</div>
-      <div className="grid grid-cols-3 gap-2">
-        <Button type="button" variant="outline" size="sm" className="h-11 gap-1 px-2 text-[11px]" onClick={() => startContact("phone")}><Phone className="size-4" /><span className={simpleMode ? "" : "sr-only"}>Ara</span></Button>
-        <Button type="button" variant="outline" size="sm" className="h-11 gap-1 px-2 text-[11px]" onClick={() => startContact("email")}><Mail className="size-4" /><span className={simpleMode ? "" : "sr-only"}>E-posta</span></Button>
-        <Button type="button" variant="outline" size="sm" className="h-11 gap-1 px-2 text-[11px]" onClick={() => startContact("whatsapp")}><MessageCircle className="size-4" /><span className={simpleMode ? "" : "sr-only"}>WhatsApp</span></Button>
-      </div>
-      {isLead && canUpdate && <Button type="button" variant="ghost" size="sm" className="mt-2 min-h-11 w-full text-xs sm:min-h-8" onClick={() => setContactOpen(true)}>Temas sonucunu kaydet</Button>}
+      {hasAnyContactChannel ? (
+        <div className="grid grid-cols-3 gap-2">
+          <Button type="button" variant="outline" size="sm" className="h-11 gap-1 px-2 text-[11px]" onClick={() => startContact("phone")}><Phone className="size-4" /><span className={simpleMode ? "" : "sr-only"}>Ara</span></Button>
+          <Button type="button" variant="outline" size="sm" className="h-11 gap-1 px-2 text-[11px]" onClick={() => startContact("email")}><Mail className="size-4" /><span className={simpleMode ? "" : "sr-only"}>E-posta</span></Button>
+          <Button type="button" variant="outline" size="sm" className="h-11 gap-1 px-2 text-[11px]" onClick={() => startContact("whatsapp")}><MessageCircle className="size-4" /><span className={simpleMode ? "" : "sr-only"}>WhatsApp</span></Button>
+        </div>
+      ) : canUpdate && salesCase.customerId ? (
+        <CreateContactDialog
+          defaultCustomerId={salesCase.customerId}
+          onCreated={() => void refresh()}
+          trigger={
+            <Button type="button" variant="outline" size="sm" className="h-11 w-full gap-1.5 text-xs">
+              <UserPlus className="size-4" /> İlgili kişi ekle
+            </Button>
+          }
+        />
+      ) : (
+        <p className="text-[11px] text-muted-foreground">
+          İletişim için önce {salesCase.customerId ? "ilgili kişi" : "firma"} bağlanmalı.
+        </p>
+      )}
+      {isLead && canUpdate && hasAnyContactChannel && <Button type="button" variant="ghost" size="sm" className="mt-2 min-h-11 w-full text-xs sm:min-h-8" onClick={() => setContactOpen(true)}>Temas sonucunu kaydet</Button>}
     </div>
   );
 

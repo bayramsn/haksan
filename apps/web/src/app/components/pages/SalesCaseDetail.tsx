@@ -571,7 +571,9 @@ export function SalesCaseDetailPage({
 
   const workspaceOtherActions = (
     <div className="space-y-3">
-      <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Diğer işlemler</div>
+      {/* "Diğer işlemler" başlığı kaldırıldı: altında iki üç düğme varken
+          başlığın kapladığı yer ve okuma maliyeti içerikten büyüktü, üstelik
+          "kaybedildi" gibi gerçek eylemleri jenerik bir kovaya gömüyordu. */}
       {!simpleMode && <div>
         <Label className="text-xs">Ödeme vadesi (gün)</Label>
         <Input
